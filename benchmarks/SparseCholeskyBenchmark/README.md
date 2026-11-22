@@ -226,3 +226,33 @@ measurement (21 ms frames, 28 ms bowtie in the first call) suggested: on repeate
 together, and the rest of the constructor is serial. `CrossFieldBenchmark only=^sphere$ h=0.017 reps=5` (best of 5, s; the bounds of the
 noise are larger than the gain) at 1, 2 and 4 cores, before / after: smoothest 1.22 / 1.24, 0.89 / 0.94, 0.75 / 0.78; aligned s=1
 1.29 / 1.43, 1.05 / 1.01, 0.86 / 0.86. The whole-run difference is not measurable; at 1 core the parallel loops cost about 3 ms.
+
+## Opt-in patch-guided nested dissection (`CholeskyOrdering.NestedDissection`, 2026-11-21)
+
+`SparseCholesky.Ordering` and `SparseHermitianCholesky.Ordering` add an opt-in `CholeskyOrdering.NestedDissection` mode
+(`CholeskyNestedDissection`), keeping `CholeskyOrdering.MinimumDegree` as the default (all golden hashes in `CholeskyAnalysisTests`
+and this benchmark are bit-identical). It builds a deterministic greedy patch quotient graph once, runs multilevel HEM coarsening
+with orthogonal Fiedler + GGG initial splits and FM refinement, extracts minimum vertex separators via Hopcroft–Karp / König's
+theorem, refines separators on the fine graph via two-sided FM, and orders independent leaves in parallel with halo-aware local AMD.
+
+Command (2-core Xeon Platinum 8481C, `net10.0` Release, AVX2 `Vector256`, best of 3):
+
+```
+dotnet run -c Release --project benchmarks/SparseCholeskyBenchmark -- compare=nd reps=3
+```
+
+| matrix | nnz(L) AMD / ND | flops AMD / ND | maxSnW AMD / ND | Factorize AMD / ND (s) | Solve AMD / ND (ms) | relRes ND |
+|---|---|---|---|---|---|---|
+| grid2d bs=1 n=40000 | 1.58M / 1.50M (-5.5%) | 220M / 167M (-24.2%) | 438 / 338 | 0.502 / 0.206 (-59.0%) | 8.0 / 5.1 | 6.58e-16 |
+| grid2d bs=2 n=80000 | 6.29M / 5.94M (-5.5%) | 1755M / 1328M (-24.3%) | 876 / 676 | 0.547 / 0.285 (-47.9%) | 14.6 / 12.5 | 9.59e-16 |
+| grid2d bs=2 n=120000 | 9.92M / 9.61M (-3.0%) | 2879M / 2571M (-10.7%) | 910 / 836 | 0.483 / 0.394 (-18.4%) | 26.4 / 23.0 | 9.63e-16 |
+| grid3d n=27000 | 6.06M / 4.99M (-17.7%) | 5969M / 3199M (-46.4%) | 1921 / 1302 | 0.616 / 0.298 (-51.7%) | 13.0 / 13.3 | 1.13e-15 |
+| sphere V=54152 | 2.94M / 2.65M (-9.8%) | 838M / 539M (-35.6%) | 882 / 653 | 0.233 / 0.151 (-35.3%) | 7.1 / 5.9 | 1.78e-15 |
+| biharmonic2d n=40000 | 5.81M / 5.08M (-12.6%) | 2047M / 1350M (-34.0%) | 987 / 625 | 0.463 / 0.263 (-43.2%) | 12.4 / 10.8 | 5.90e-16 |
+| hermitian grid2d n=40000 | 1.58M / 1.50M (-5.5%) | 220M / 167M (-24.2%) | 438 / 338 | 0.175 / 0.145 (-17.3%) | 6.2 / 5.8 | 6.64e-16 |
+| hermitian grid2d n=60000 | 2.49M / 2.42M (-3.0%) | 361M / 323M (-10.7%) | 455 / 418 | 0.261 / 0.204 (-21.9%) | 9.8 / 10.1 | 6.68e-16 |
+
+The largest gains are on 3D volumes (`grid3d`: -46.4% flops, -51.7% Factorize), closed surface meshes (`sphere V=54k`: -35.6% flops,
+-35.3% Factorize), and denser 2-ring stencils (`biharmonic2d`: -34.0% flops, -43.2% Factorize). Changing the default of downstream
+callers (`CrossField`, `BiharmonicMeshDeformer`, `HeatMethod`) changes factor/solution rounding bits and remains a separate owner decision.
+

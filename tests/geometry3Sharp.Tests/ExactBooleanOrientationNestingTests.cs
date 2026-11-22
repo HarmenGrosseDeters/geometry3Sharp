@@ -599,5 +599,204 @@ namespace geometry3Sharp.Tests
             Assert.Equal(27, Invariance.Volume(allowed.Result), 9);
         }
 
+        // ---------------------------------------------------------------------------------------------- review follow-ups
+
+        [Fact]
+        public void NotEmbedded_AConsistentlyInvertedCubeBesideCrossingCubes_IsRefused_NotTakenAsEmpty()
+        {
+            // one pair of crossing cubes makes the whole mesh "not embedded": the inverted cube far away cannot be decided by the
+            // parity of crossings, and used as given it would be an empty tool, silently
+            DMesh3 mesh = Together(Inverted(Box(10, 10, 10, 11, 11, 11)), Box(0, 0, 0, 2, 2, 2), Box(1, 1, 1, 3, 3, 3));
+            var b = Solid(mesh, Nesting);
+            Assert.False(b.Compute());
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.InconsistentOrientation, b.Status);
+            Assert.Null(b.Result);
+            Assert.Contains("input mesh 0", b.Error);
+            Assert.Contains("not embedded", b.Error);
+            Assert.Contains("1 of its components enclose a negative volume", b.Error);
+            // the same mesh with that cube outward: used as given (the crossing cubes read by the winding number: 15, and 1)
+            var fine = Solid(Together(Box(10, 10, 10, 11, 11, 11), Box(0, 0, 0, 2, 2, 2), Box(1, 1, 1, 3, 3, 3)), Nesting);
+            Assert.True(fine.Compute(), fine.Error);
+            AssertGoodResult(fine.Result, 16);
+            // the inverted cube alone (an embedded mesh) is still derived: nesting makes it a cube
+            var alone = Solid(Inverted(Box(10, 10, 10, 11, 11, 11)), Nesting);
+            Assert.True(alone.Compute(), alone.Error);
+            AssertGoodResult(alone.Result, 1);
+            // the second input is named as well
+            var second = new ExactMeshBoolean(Box(5, 5, 5, 6, 6, 6), mesh, U) { Orientation = Nesting };
+            Assert.False(second.Compute());
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.InconsistentOrientation, second.Status);
+            Assert.Contains("input mesh 1", second.Error);
+        }
+
+        // the six-vertex projective plane: closed (every edge has two triangles) and not orientable
+        static DMesh3 ProjectivePlane()
+        {
+            var m = new DMesh3();
+            foreach (var v in new[] { new Vector3d(0, 0, 0), new Vector3d(1, 0.1, 0.2), new Vector3d(0.3, 1, 0.1), new Vector3d(-0.8, 0.4, 0.9), new Vector3d(-0.5, -0.9, 0.3), new Vector3d(0.6, -0.7, -0.5) })
+                m.AppendVertex(v);
+            int[][] faces = { new[] { 1, 2, 3 }, new[] { 1, 3, 4 }, new[] { 1, 4, 5 }, new[] { 1, 5, 6 }, new[] { 1, 6, 2 },
+                              new[] { 2, 3, 5 }, new[] { 2, 5, 4 }, new[] { 3, 4, 6 }, new[] { 3, 6, 5 }, new[] { 4, 2, 6 } };
+            foreach (var f in faces)
+                m.AppendTriangle(f[0] - 1, f[1] - 1, f[2] - 1);
+            return m;
+        }
+
+        [Fact]
+        public void AnUnorientableComponentOfAnEmbeddedMesh_IsCounted_AndOnlyThere()
+        {
+            // an embedded, closed modulo 2 mesh with a component that cannot be oriented cannot be built from a real mesh in 3D that is
+            // also embedded (a Moebius strip's rim would need edges with four triangles); the projective plane is closed modulo 2 and
+            // not orientable, and "embedded" is set by hand after the arrangement (Begin does nothing a second time)
+            DMesh3 mesh = ProjectivePlane();
+            var op = new ExactMeshBoolean(mesh, new DMesh3(), U);
+            var nest = new ExactMeshBoolean.NestingContext(op, mesh);
+            nest.Begin();
+            nest.Begin();
+            Assert.False(nest.Embedded);
+            Assert.True(nest.SelfIntersectingPairs > 0);
+            nest.Embedded = true;
+            ExactMeshBoolean.prepare_input(mesh, nest);
+            Assert.Equal(1, nest.Unorientable);
+            Assert.Equal(0, nest.Inconsistent);
+            // not embedded: no count (the winding rule keeps it as it is)
+            var other = new ExactMeshBoolean.NestingContext(op, mesh);
+            other.Begin();
+            ExactMeshBoolean.prepare_input(mesh, other);
+            Assert.Equal(0, other.Unorientable);
+        }
+
+        [Fact]
+        public void CancellingWhileTheInputsAreNested_StopsWithoutResult()
+        {
+            var cts = new System.Threading.CancellationTokenSource();
+            // (the first input has flipped faces: nesting it without the arrangement would refuse it, not stop)
+            var op = new ExactMeshBoolean(FlipFaces(Box(0, 0, 0, 2, 2, 2), 2), Box(1, 1, 1, 3, 3, 3), U) { Orientation = Nesting, Cancellation = cts.Token };
+            // (cancelled as the inputs' preparation starts: the arrangement of the first input's nesting finds it)
+            op.PrepareObserverForTests = m => cts.Cancel();
+            Assert.False(op.Compute());
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.Cancelled, op.Status);
+            Assert.Null(op.Result);
+            Assert.Equal(0, op.ReorientedTriangles);
+        }
+
+        [Fact]
+        public void ATriangleWithAZeroLengthEdge_IsItsOwnComponent_AndTheCubeIsStillCounted()
+        {
+            // the triangle (b, a, b') with b' at b: its edges b-a run both ways (closed by itself), the zero-length one is no edge
+            DMesh3 mesh = Box(0, 0, 0, 1, 1, 1);
+            int a = mesh.AppendVertex(new Vector3d(5, 5, 5)), b = mesh.AppendVertex(new Vector3d(6, 5, 5)), b2 = mesh.AppendVertex(new Vector3d(6, 5, 5));
+            int sliver = mesh.AppendTriangle(b, a, b2);
+            var p = ExactMeshBoolean.prepare_input(mesh, null, true);
+            Assert.True(p.Closed);
+            Assert.Equal(3, p.ComponentStart.Length);
+            Assert.Equal(12, p.ComponentStart[1] - p.ComponentStart[0]);
+            Assert.Equal(1, p.ComponentStart[2] - p.ComponentStart[1]);
+            Assert.Equal(sliver, p.ComponentTriangles[p.ComponentStart[1]]);
+            Assert.Equal(13, p.ComponentTriangles.Length);
+            Assert.Equal(13, new HashSet<int>(p.ComponentTriangles).Count);
+            // an inverted cube beside it is still found, the sliver has no side
+            DMesh3 inverted = Inverted(Box(0, 0, 0, 1, 1, 1));
+            int a2 = inverted.AppendVertex(new Vector3d(5, 5, 5)), b3 = inverted.AppendVertex(new Vector3d(6, 5, 5)), b4 = inverted.AppendVertex(new Vector3d(6, 5, 5));
+            inverted.AppendTriangle(b3, a2, b4);
+            var op = new ExactMeshBoolean(inverted, new DMesh3(), U) { CountInsideOutCells = true };
+            Assert.True(op.Compute(), op.Error);
+            Assert.Equal(1, op.InsideOutCells);
+        }
+
+        // the crossing cubes (a mesh that is not embedded) with one more component, which is the thing under test
+        static DMesh3 CrossingCubesAnd(DMesh3 part) { return Together(part, Box(0, 0, 0, 2, 2, 2), Box(1, 1, 1, 3, 3, 3)); }
+
+        static ExactMeshBoolean.BooleanStatus NestStatus(DMesh3 mesh)
+        {
+            var b = Solid(mesh, Nesting);
+            b.Compute();
+            return b.Status;
+        }
+
+        [Fact]
+        public void NotEmbedded_TheNegativeVolumeDecision_IsMadeOnlyAboveTheRoundingOfTheSum()
+        {
+            // the refusal needs v6 < -(32 + n) u S (S the sum of the norm products of the triples, see negative_volume): a slab
+            // far above that is refused, one far below it (its volume is zero within the rounding of its extent) is used as given
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.InconsistentOrientation, NestStatus(CrossingCubesAnd(Inverted(Box(10, 10, 0, 20, 20, 1e-9)))));
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.InconsistentOrientation, NestStatus(CrossingCubesAnd(Inverted(Box(10, 10, 0, 20, 20, 1e-3)))));
+            Assert.NotEqual(ExactMeshBoolean.BooleanStatus.InconsistentOrientation, NestStatus(CrossingCubesAnd(Inverted(Box(10, 10, 0, 20, 20, 1e-17)))));
+            // the same slabs outward are never refused
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, NestStatus(CrossingCubesAnd(Box(10, 10, 0, 20, 20, 1e-9))));
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, NestStatus(CrossingCubesAnd(Box(10, 10, 0, 20, 20, 1e-3))));
+        }
+
+        // v6 (the sum of the triple products relative to the first vertex) and the bound (32 + n) u S of one component, as negative_volume's comment states
+        static void Measure(DMesh3 m, out double v6, out double bound)
+        {
+            Vector3d o = m.GetVertex(m.GetTriangle(m.TriangleIndices().First()).a);
+            v6 = 0;
+            double s = 0;
+            foreach (int t in m.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                m.GetTriVertices(t, ref a, ref b, ref c);
+                Vector3d x = a - o, y = b - o, z = c - o;
+                v6 += x.Dot(y.Cross(z));
+                s += x.Length * y.Length * z.Length;
+            }
+            bound = (32.0 + m.TriangleCount) * Math.Pow(2, -53) * s;
+        }
+
+        [Fact]
+        public void NotEmbedded_TheNegativeVolumeBound_IsTheStatedOne()
+        {
+            // an inverted slab whose |v6| is twice the bound is refused, at half the bound it is not (a mutant of the factor
+            // (32 + n), of u or of S moves the bound by more than that)
+            double v6, bound;
+            Measure(Inverted(Box(10, 10, 0, 20, 20, 1e-6)), out v6, out bound);
+            Assert.True(v6 < 0);
+            double k = -v6 / 1e-6;
+            double hRefused = 2 * bound / k, hKept = 0.5 * bound / k;
+            Measure(Inverted(Box(10, 10, 0, 20, 20, hRefused)), out v6, out bound);
+            Assert.True(-v6 > 1.5 * bound && -v6 < 2.5 * bound);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.InconsistentOrientation, NestStatus(CrossingCubesAnd(Inverted(Box(10, 10, 0, 20, 20, hRefused)))));
+            Measure(Inverted(Box(10, 10, 0, 20, 20, hKept)), out v6, out bound);
+            Assert.True(-v6 > 0.3 * bound && -v6 < 0.7 * bound);
+            Assert.NotEqual(ExactMeshBoolean.BooleanStatus.InconsistentOrientation, NestStatus(CrossingCubesAnd(Inverted(Box(10, 10, 0, 20, 20, hKept)))));
+        }
+
+        [Fact]
+        public void NotEmbedded_AFlatComponent_IsNotRefused()
+        {
+            // a flat closed component (a square with two triangles on each side, the diagonals crossed): its volume is zero, whatever
+            // the rounding of the sum says; the plane z = x + 2y is exact in doubles
+            var flat = new DMesh3();
+            int a = flat.AppendVertex(new Vector3d(10, 10, 30)), b = flat.AppendVertex(new Vector3d(12.5, 10, 32.5)),
+                c = flat.AppendVertex(new Vector3d(12.5, 13.25, 39)), d = flat.AppendVertex(new Vector3d(10, 13.25, 36.5));
+            flat.AppendTriangle(a, b, c); flat.AppendTriangle(a, c, d);
+            flat.AppendTriangle(b, a, d); flat.AppendTriangle(b, d, c);
+            var op = Solid(CrossingCubesAnd(flat), Nesting);
+            op.Compute();
+            Assert.NotEqual(ExactMeshBoolean.BooleanStatus.InconsistentOrientation, op.Status);
+            Assert.NotEqual(ExactMeshBoolean.BooleanStatus.SelfIntersectingInconsistent, op.Status);
+        }
+
+        [Theory]
+        [MemberData(nameof(FrameNames))]
+        public void NotEmbedded_TheNegativeVolumeRefusal_IsInvariantUnderSimilarities(string frame)
+        {
+            Similarity s = Similarity.ByName(frame);
+            DMesh3 refused = CrossingCubesAnd(Inverted(Box(10, 10, 0, 20, 20, 1e-3)));
+            var reference = Solid(refused, Nesting);
+            Assert.False(reference.Compute());
+            var moved = Solid(Invariance.Transformed(refused, s), Nesting);
+            Assert.False(moved.Compute());
+            Assert.Equal(reference.Status, moved.Status);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.InconsistentOrientation, moved.Status);
+            if (s.IsExact)
+                Assert.Equal(reference.Error, moved.Error);
+            // outward: used as given in every frame
+            DMesh3 fine = CrossingCubesAnd(Box(10, 10, 0, 20, 20, 1e-3));
+            var ok = Solid(Invariance.Transformed(fine, s), Nesting);
+            Assert.True(ok.Compute(), ok.Error);
+            Assert.Equal(0, ok.ReorientedTriangles);
+        }
+
         public static IEnumerable<object[]> FrameNames() { return Similarity.Names(); }
     }}

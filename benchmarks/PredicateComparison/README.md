@@ -2,7 +2,7 @@
 
 Compares implementations of orient2d, incircle and orient3d with an exact reference: the doubles of a case
 are written as integers `m * 2^e` on a common exponent and the determinant is evaluated in `BigInteger`.
-Exceptions and NaN results count as wrong signs. Results and discussion: `docs/PREDICATES.md`.
+Exceptions and NaN results count as wrong signs. Results and discussion: [EXACT_PREDICATES_INVENTORY_2026_10.md](../../docs/archive/audits/EXACT_PREDICATES_INVENTORY_2026_10.md).
 
 Scenarios (20 000 cases each, fixed seeds):
 - nearly degenerate: c = a + t (b - a) / four points on a circle / d = a + u (b - a) + v (c - a), every

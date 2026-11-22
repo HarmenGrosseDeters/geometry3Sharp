@@ -76,7 +76,8 @@ the future" list, ordered by priority; this section names only what is in flight
   for "exact boolean on triangle soups -> clean closed low-poly solid" is `SolidBooleanPipeline` (#1112, below).
 - **Boolean robustness round** (owner 2026-11-16/17): RC1 #1027, RC2 #1021 / #1063, RC3 #1031 and RC4a #1040 are merged;
   the pass-through of RC4a's budget (#1068) is merged; RC4b is a documented limit; no budget raise below D = 50000;
->>>>>>> origin/master
+  #1067 (p0008: an untouched zero-volume sheet survived the component removal; #1152, #1170, owner decision 2026-11-19) is fixed in the removal (merged #1178, #1067 closed 2026-11-19); sheets whose floating-point margin cannot decide (iud p0029, dui p0019/21/22) are decided exactly for the computed area (#1191, [EXACT_VOLUME_SIGN.md](design/EXACT_VOLUME_SIGN.md)); open: the owner's local campaigns (#1038). The certifying checker is merged (#1061).
+  [BOOLEAN_TRIAGE_2026-11.md](research/BOOLEAN_TRIAGE_2026-11.md)
 - **Solid boolean pipeline** (owner 2026-11-17): the opt-in `SolidBooleanPipeline` (exact boolean of soups with `AllowOpenMeshes = false`
   and `StrictRounding = true`, then a guarded reduction, a final `NotCleanReason` and a report) is merged (#1112); 26 of 26 reduced
   results without contacts are clean, contacts limit how far a reduction goes (a contact line of m vertices holds about 12 m
@@ -118,15 +119,15 @@ the future" list, ordered by priority; this section names only what is in flight
   [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
 - **Clipper2:** done (#1059 merged: the input-boundary allowance only for empty outputs, #955 closed).
 - **Parameterization:** spectral conformal parameterization opt-in (#1057); RDR stage 1b not now (owner 2026-11-17).
-- **Not now (owner 2026-11-17):** a native (NativeAOT) package (spike #1052); terrain work (the plan: slope envelope, 3D blocks, berms, GeoTIFF,
-  showcase) "later"; internal quadtree uses (`TerrainSafety`, `TerrainVolumeDifference`) wait for terrain.
+- **Not now (owner 2026-11-17):** a native (NativeAOT) package (spike #1052, plan #1270); terrain work (the plan: slope envelope, 3D blocks, berms, GeoTIFF,
+  showcase; plan #1267) "later"; internal quadtree uses (`TerrainSafety`, `TerrainVolumeDifference`; plan #1269) wait for terrain.
 - **Owner's local runs:** #929 (net48 vs net10), #1038 open.
 
 ## Open decisions (owner)
 
 Checked on 2026-11-17 (night).
 
-- **Branch deletion (decided, owner action pending):** the coordinator lists the candidates (branches whose PRs are merged
+- **Branch deletion (decided, owner action pending; plan #1252):** the coordinator lists the candidates (branches whose PRs are merged
   or closed, plus `claude/int256-spike`, `claude/collinear-shortcut` and `claude/geogram-boolean-comparison-wip`), and the
   owner deletes them (owner 2026-11-17); sessions cannot delete branches; `runs/*` branches hold run data and stay.
   [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)

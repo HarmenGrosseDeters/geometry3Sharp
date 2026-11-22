@@ -224,8 +224,15 @@ namespace g3
             /// inside the cavity is solid again) and a consistently inside-out closed input becomes the solid it encloses.
             /// ReorientedTriangles counts the flips. Overlapping shells of one mesh are read even-odd (a doubly covered region is
             /// empty); such a mesh self-intersects, so it keeps its own orientation if it is oriented consistently (the winding
-            /// number decides, as with Refuse) and is refused with SelfIntersectingInconsistent otherwise. An input that is not
-            /// closed modulo 2 is oriented as with AreaMajority (and refused as open unless AllowOpenMeshes)
+            /// number decides, as with Refuse) and is refused with SelfIntersectingInconsistent otherwise. The decision is made per
+            /// input mesh, not per component: one pair of triangles that meet beyond a common edge or vertex anywhere in a mesh
+            /// makes the whole mesh "not embedded". A component of such a mesh that is oriented consistently but encloses a negative
+            /// volume (an inside-out solid, or the wall of a cavity: nesting cannot tell them apart there) is refused with
+            /// InconsistentOrientation; one that encloses a positive volume keeps its orientation, so an outward-given cavity wall
+            /// in a mesh that is not embedded is not flipped (nesting per component is not implemented). A component whose
+            /// triangles all have no area has no side and is left as given. An input that is not closed modulo 2 is oriented as with
+            /// AreaMajority (and refused as open unless AllowOpenMeshes). The extra arrangement of each input makes ByNesting cost
+            /// more than the other modes (not benchmarked); DifferenceEach / IntersectEach prepare the shared first mesh again for every body
             /// </summary>
             ByNesting = 2
         }
@@ -367,7 +374,7 @@ namespace g3
         /// compute InsideOutCells (default false: it stays 0). It costs a welding of the closed inputs' vertices, an edge table and
         /// a component traversal at their preparation, and one exact ray per component: measured up to about 10 percent of a
         /// boolean on the largest inputs tried (800k triangles), within noise below 200k; off, there is no cost. SolidBooleanPipeline
-        /// turns it on for its InsideOutInput refusal
+        /// turns it on for its InsideOutInput refusal (a ConfigureBoolean callback that sets it to false again turns that refusal off)
         /// </summary>
         public bool CountInsideOutCells;
         /// <summary>
@@ -1017,17 +1024,17 @@ namespace g3
             return true;
         }
 
-        /// <summary>
-        /// The mesh with each component (triangles connected across edges with exactly two triangles, by vertex
-        /// position, so unwelded copies of a vertex count as the same) oriented consistently, keeping the
-        /// orientation of the larger part by area (ties within a relative 1e-9: of its first triangle); mesh itself if
-        /// nothing changes.
-        /// Components that cannot be oriented (Moebius strips) are left as they are.
-        /// </summary>
-        /// <param name="mesh">the mesh</param>
-        /// <param name="flipped">the number of triangles flipped (0 when the mesh itself is returned)</param>
-        /// <param name="flippedInClosed">of those, the triangles of components that are closed by themselves once oriented
-        /// (winding-closed as a mesh of their own): there the flip decided which side is inside</param>
+        //  <summary>
+        //  The mesh with each component (triangles connected across edges with exactly two triangles, by vertex
+        //  position, so unwelded copies of a vertex count as the same) oriented consistently, keeping the
+        //  orientation of the larger part by area (ties within a relative 1e-9: of its first triangle); mesh itself if
+        //  nothing changes.
+        //  Components that cannot be oriented (Moebius strips) are left as they are.
+        //  </summary>
+        //  <param name="mesh">the mesh</param>
+        //  <param name="flipped">the number of triangles flipped (0 when the mesh itself is returned)</param>
+        //  <param name="flippedInClosed">of those, the triangles of components that are closed by themselves once oriented
+        //  (winding-closed as a mesh of their own): there the flip decided which side is inside</param>
         [MethodImpl(JitHints.Optimize)]
         static DMesh3 oriented(DMesh3 mesh, int[] pos, out int flipped, out int flippedInClosed, NestingContext nest = null)
         {
@@ -1108,6 +1115,10 @@ namespace g3
                     }
                 if (nest != null && nest.Embedded == false && flips > 0)
                     nest.Inconsistent += flips;
+                // (not embedded, oriented consistently as given, and enclosing a negative volume: an inside-out solid, or the wall of a
+                // cavity; which, is a question of nesting, which the parity of crossings cannot answer in a mesh that is not embedded)
+                if (nest != null && nest.Embedded == false && flips == 0 && negative_volume(mesh, component))
+                    nest.NegativeVolume++;
                 if (flips > 0)
                     (changed ?? (changed = new List<(List<int>, int)>())).Add((new List<int>(component), flips));
             }
@@ -1230,6 +1241,39 @@ namespace g3
             return p;
         }
 
+        // The signed volume of the triangles of one component is certainly negative (as oriented).
+        //
+        // The volume is v6 / 6 with v6 = sum over the n triangles of the triple product (a - o) . ((b - o) x (c - o)), o a vertex of
+        // the component (so that the terms are small far from the origin). It is computed in doubles; the sign is only used if
+        // it is certain, by this bound on the rounding. u = 2^-53. Write x = a - o, y = b - o, z = c - o, and T = |x| |y| |z|
+        // (Euclidean norms). Each coordinate of a difference has a relative error of at most u. A component of the cross
+        // product y x z is a difference of two products, with a relative error of at most 3u on each (the two input
+        // errors and the rounding of the product) and u for the subtraction, so its error is at most about 5u (|y_i z_j| + |y_j z_i|)
+        // <= 5u |y| |z| (Cauchy-Schwarz), and the error of the vector at most 5 sqrt(3) u |y| |z| < 9u |y| |z|. The dot product with x
+        // adds this error times |x| (<= 9u T), the rounding of x's own components (<= u T) and of three products and two
+        // sums (<= 5u |x| |w| <= 5u T, with |w| <= |y| |z| up to the same error): at most 15u T for one term, so |term error| <= 32u T
+        // holds with a margin of 2 (second-order terms included). The sum of n terms adds at most (n - 1) u times the sum of
+        // the absolute terms, which is at most the sum of the T (Hadamard: |term| <= T). So |v6 computed - v6 true| <= (32 + n) u S,
+        // S = the sum of the T. The sign is certain, and negative, if v6 < -(32 + n) u S. Below that the component is not refused:
+        // its volume is zero within the rounding of its own size (a flat component, or a solid thinner than about (32 + n) u of
+        // its extent), so it is used as given, by the winding rule, exactly as a mesh that is not embedded is used otherwise.
+        // That is safe: such a solid has no volume to speak of in the result, and a flat one has none at all. S is computed in
+        // doubles too; its relative error (a few u) is far inside the margin of 2. The count n and S are for the component,
+        // not for the mesh.
+        static bool negative_volume(DMesh3 mesh, List<int> component)
+        {
+            Vector3d o = mesh.GetVertex(mesh.GetTriangle(component[0]).a);
+            double v6 = 0, norms = 0;
+            foreach (int t in component) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                mesh.GetTriVertices(t, ref a, ref b, ref c);
+                Vector3d x = a - o, y = b - o, z = c - o;
+                v6 += x.Dot(y.Cross(z));
+                norms += x.Length * y.Length * z.Length;
+            }
+            return v6 < -(32.0 + component.Count) * 1.1102230246251565e-16 * norms;
+        }
+
         // every coordinate of the mesh is finite (per coordinate: the sum of finite coordinates can overflow)
         static bool all_finite(DMesh3 mesh)
         {
@@ -1296,6 +1340,12 @@ namespace g3
                     "the orientation cannot be derived by nesting there (fix the intersections or the orientation)";
                 return BooleanStatus.SelfIntersectingInconsistent;
             }
+            if (nest.NegativeVolume > 0) {
+                error = "input mesh " + m + " is closed modulo 2 but not embedded (" + nest.SelfIntersectingPairs + " pairs of its triangles meet beyond a common edge or vertex), and " +
+                    nest.NegativeVolume + " of its components enclose a negative volume as given: inside-out solids, or the walls of cavities; which of the two is not decided " +
+                    "by nesting in a mesh that is not embedded (fix the intersections, or orient the components)";
+                return BooleanStatus.InconsistentOrientation;
+            }
             if (nest.Unorientable > 0) {
                 error = "input mesh " + m + " is closed modulo 2 and embedded, but " + nest.Unorientable + " of its components cannot be oriented consistently";
                 return BooleanStatus.InconsistentOrientation;
@@ -1339,6 +1389,8 @@ namespace g3
             public int Inconsistent;
             /// <summary> components of an embedded mesh that cannot be oriented consistently (a Moebius-like strip whose rim lies on edges with four triangles; not constructed in a test) </summary>
             public int Unorientable;
+            /// <summary> components of a mesh that is not embedded, oriented consistently as given, that enclose a negative volume (an inside-out solid or the wall of a cavity: not decided there) </summary>
+            public int NegativeVolume;
 
             public NestingContext(ExactMeshBoolean owner, DMesh3 mesh)
             {
@@ -3382,7 +3434,7 @@ namespace g3
         /// coordinate of the exact one (R's too); a quotient n / d with n, d computed within dn = e_x + e_R + u |n|,
         /// dd = e_x + e_R + u |d| is within (dn + |n / d| dd) / (|d| - dd) + u |n / d| of the exact one, and the projected
         /// boxes are widened by 1.01 times that. A segment's box and the query's box then contain the exact projections,
-        /// so a segment whose box misses the query's cannot meet the hull. A point with |d| <= 2 dd invalidates the
+        /// so a segment whose box misses the query's cannot meet the hull. Where |d| &lt;= 2 dd, it invalidates the
         /// projection (never in practice: R is 4000 extents away), and then every segment is a candidate
         /// </summary>
         internal sealed class SegmentProjection
@@ -3553,7 +3605,7 @@ namespace g3
         /// - a component of n = d1 x d2 is within dn = 2 (ε1 M2 + M1 ε2) + 7 u m1 m2 of the exact normal's: two products,
         ///   each within ε1 M2 + M1 ε2 of the exact one, and the roundings of the two products and the subtraction;
         /// - so for a point x, n . x - n . a is within err(x) = (|x|_1 + |a|_1) (dn + 7e-16 |n|_1) of N . (X - A): the
-        ///   normal's error against |x - a|_1, the points' errors against |N|_1 <= |n|_1 + 3 dn (e_x + e_a <=
+        ///   normal's error against |x - a|_1, the points' error on |N|_1 &lt;= |n|_1 + 3 dn (e_x + e_a &lt;=
         ///   2.3e-16 (|x|_1 + |a|_1)), and the roundings of the two dot products and their difference (at most 4.5e-16
         ///   |n|_1 (|x|_1 + |a|_1)); dn's own share of the points' term is in the factor 1.01.
         /// A point is outside a face if n . x - n . a exceeds 1.01 err(x) plus the margin 1e-9 S |n|_1 kept from before (S
@@ -4482,7 +4534,7 @@ namespace g3
             /// L2: the centroid in the frame of its input triangle, from its corners there (each the exact difference to the
             /// frame's origin, rounded once: error at most LocalFrame.PointError per coordinate), and a bound of its absolute
             /// error per coordinate: the exact centroid is (A + B + C) / 3 (centroid_point), so a third of the corners'
-            /// bounds, plus the rounding of the two sums and the division, at most 2 u m (1 + u) / 3 + u m (1 + 2u) / 3 <=
+            /// bounds, plus the rounding of both sums and the division, at most 2 u m (1 + u) / 3 + u m (1 + 2u) / 3 &lt;=
             /// u m (1 + 3u) for m the sum of the corners' magnitudes (u = 2^-53), taken as 1.2e-16 m. NaN where a corner is
             /// (tiny coordinates)
             /// </summary>

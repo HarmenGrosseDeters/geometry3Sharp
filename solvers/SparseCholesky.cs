@@ -14,10 +14,11 @@ namespace g3
     /// with new values, Clear() and Add() again; if the nonzero pattern is the same, the ordering and the
     /// structure of L are reused and only the numeric factorization runs.
     ///
-    /// The unknowns are ordered by approximate minimum degree (on the graph of blocks of BlockSize unknowns,
-    /// eg 2 for interleaved u,v coordinates) to limit fill. The structure of L comes from the postordered
-    /// elimination tree, the values from a left-looking supernodal Cholesky with dense blocks. Written from the
-    /// papers and textbooks named in the code and in docs/SOURCES.md, no code taken over.
+    /// The unknowns are ordered by approximate minimum degree by default (on the graph of blocks of BlockSize unknowns,
+    /// eg 2 for interleaved u,v coordinates) to limit fill; set <see cref="Ordering"/> to
+    /// <see cref="CholeskyOrdering.NestedDissection"/> for opt-in patch-guided nested dissection. The structure of L
+    /// comes from the postordered elimination tree, the values from a left-looking supernodal Cholesky with dense blocks.
+    /// Written from the papers and textbooks named in the code and in docs/SOURCES.md, no code taken over.
     /// </summary>
     public class SparseCholesky
     {
@@ -29,6 +30,8 @@ namespace g3
         public string Error;
         /// <summary> nonzeros of L (after Factorize) </summary>
         public int FactorNonZeros { get { return Lp == null ? 0 : Lp[N]; } }
+        /// <summary> fill-reducing ordering strategy applied on the next symbolic analysis in Factorize() (default: MinimumDegree) </summary>
+        public CholeskyOrdering Ordering { get; set; } = CholeskyOrdering.MinimumDegree;
 
         // accumulated entries, lower triangle (r >= c)
         List<int> tRow = new List<int>(), tCol = new List<int>();
@@ -37,6 +40,7 @@ namespace g3
         // pattern of A (lower triangle, original indices, compressed by column) from the last analysis
         int[] aColPtr, aRow;
         double[] aVal;
+        CholeskyOrdering analyzedOrdering;
 
         // ordering: perm[k] = original index of the k-th unknown, iperm = inverse
         int[] perm, iperm;
@@ -132,7 +136,7 @@ namespace g3
             compress(out colPtr, out row, out val);
             if (Error != null)
                 return false;
-            if (aColPtr == null || !samePattern(colPtr, row)) {
+            if (aColPtr == null || analyzedOrdering != Ordering || !samePattern(colPtr, row)) {
                 aColPtr = colPtr; aRow = row;
                 analyze();
             }
@@ -454,7 +458,8 @@ namespace g3
         // ordering, structure of L, supernodes and permuted pattern of A: the shared analysis (CholeskyAnalysis)
         void analyze()
         {
-            var an = new CholeskyAnalysis(N, BlockSize, aColPtr, aRow, false);
+            analyzedOrdering = Ordering;
+            var an = new CholeskyAnalysis(N, BlockSize, aColPtr, aRow, false, analyzedOrdering);
             perm = an.Perm; iperm = an.IPerm; Lp = an.Lp; Li = an.Li;
             snCount = an.SnCount; snFirst = an.SnFirst; snVal = an.SnVal; colSnode = an.ColSnode; snRowPtr = an.SnRowPtr; snRows = an.SnRows;
             apColPtr = an.ApColPtr; apRow = an.ApRow; apSrc = an.ApSrc;

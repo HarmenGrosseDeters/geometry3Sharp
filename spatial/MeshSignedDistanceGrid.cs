@@ -248,6 +248,7 @@ namespace g3
             get { return grid[idx.x, idx.y, idx.z]; }
         }
 
+        /// <summary>
         /// Position of sample (i,j,k), ie GridOriginD + CellSize*(i,j,k), rounded to float. Note that despite the name,
         /// Position of sample (i,j,k), ie GridOriginD + CellSize (rounded to float)*(i,j,k). Note that despite the name,
         /// samples are at the grid points, not at the centers of the cells between them.

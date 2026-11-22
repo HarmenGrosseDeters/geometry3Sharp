@@ -21,7 +21,7 @@ namespace g3
     /// the terrain, saddle and plane families, so the agreement claimed there is that of the enclosure; the largest deviation from a
     /// closed form or from the straight line was 2.4e-15 relative. The sliver test (a height of 1e-7 to 1e-12 against a length of 1) enforces 1e-8 against the
     /// straight distance. For a certified enclosure use the oracle (up to about 10^4 vertices, serial), for a smooth
-    /// approximation on any mesh <see cref="MeshGeodesicDistance"/> (the heat method).</para>
+    /// approximation on any mesh <see cref="gs.MeshGeodesicDistance"/> (the heat method).</para>
     /// <para><b>Limits.</b> (1) Windows per vertex grow with the grid width on meshes with many saddle vertices: on the saddle 0.3 (x^2 - y^2) the final windows are
         /// essentially all needed (each is the minimum of its edge somewhere; GEODESICS.md A.7 note 11), about 0.8 to 0.9 per vertex and grid width (64 at about 78 x 78 vertices, about 120 at 141 x 141,
         /// about 270 at 317 x 317). Such a mesh needs an explicit <see cref="MaxWindows"/> beyond about 78 x 78 vertices; at the default budget of 64 per vertex the run ends with

@@ -362,7 +362,7 @@ namespace gs
         /// answer is the same as without this test (Alpha Wrap 3.0 lever 1). The tetrahedron's projections tmin, tmax and
         /// margin^2 |N|^2 are the values separated() computes. For a primitive vertex p in the node box, the computed box
         /// projection bmin = sum_k min(N_k mn_k, N_k mx_k) is at most the computed fl(N . p), without a rounding margin:
-        /// mn_k <= p_k <= mx_k, rounding is monotone, so fl(N_k p_k) lies between fl(N_k mn_k) and fl(N_k mx_k), and
+        /// mn_k &lt;= p_k &lt;= mx_k, rounding is monotone, so fl(N_k p_k) lies between fl(N_k mn_k) and fl(N_k mx_k), and
         /// both sums add the three terms in the same order (Vector3d.Dot: (x + y) + z; .NET does not contract them into
         /// fused multiply-adds). Likewise bmax >= fl(N . p), so each primitive's computed gap is at least the node's, and
         /// separated() finds a gap above margin |N| for it. NaN gives no separation.

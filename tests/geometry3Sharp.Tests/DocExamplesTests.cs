@@ -577,5 +577,277 @@ namespace geometry3Sharp.Tests
             var line = new Segment3d(pa, pb);
             foreach (Vector3d p in path) Assert.True(line.DistanceSquared(p) < 1e-18);
         }
+
+        [Fact]
+        public void AlphaWrapExample_WrapsOpenSoupAndKeepsPassageOpen()
+        {
+            MeshAlphaWrap.WrapStatus status;
+            DMesh3 wrapped = AlphaWrapExample.WrapOpenSoup(out status);
+            Assert.Equal(MeshAlphaWrap.WrapStatus.Success, status);
+            Assert.NotNull(wrapped);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(wrapped));
+            Assert.True(Volume(wrapped) > 0);
+
+            PassageWrap pw = AlphaWrapExample.WrapWithOpenPassage();
+            Assert.Equal(PassageWrap.PassageStatus.Success, pw.Status);
+            Assert.True(pw.AllPassed);
+            Assert.NotNull(pw.Result);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(pw.Result));
+            Assert.Single(pw.PinResults);
+            Assert.True(pw.PinResults[0].ClearanceLow >= 0.35);
+        }
+
+        [Fact]
+        public void SolidBooleanPipelineExample_UnionsAndImprintsCleanly()
+        {
+            SolidBooleanPipeline pipeline = SolidBooleanPipelineExample.UnionAndReduce();
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.Success, pipeline.Status);
+            Assert.NotNull(pipeline.Result);
+            Assert.Equal("", pipeline.Report.NotCleanReason);
+            Assert.True(pipeline.Result.TriangleCount < pipeline.Report.BooleanTriangles);
+            // two 2x2x2 cubes (volume 8 each) shifted by 0.8 along X -> overlap 1.2x2x2 = 4.8 -> union 11.2
+            Assert.Equal(11.2, Volume(pipeline.Result), 3);
+
+            ExactMeshImprint imprint = SolidBooleanPipelineExample.ImprintBox();
+            Assert.Equal(ExactMeshImprint.ImprintStatus.Success, imprint.Status);
+            Assert.True(imprint.RoundingClean);
+            Assert.NotNull(imprint.Result);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(imprint.Result));
+            Assert.NotEmpty(imprint.CurveEdges);
+            Assert.Equal(8.0, Volume(imprint.Result), 9);
+        }
+
+        [Fact]
+        public void TetMeshExample_BuildsValidTetMeshWithMarkersAndGmshExport()
+        {
+            TetMeshMarkers markers;
+            string mshText;
+            MeshTetrahedralization tet = TetMeshExample.Run(out markers, out mshText);
+            Assert.Equal(MeshTetrahedralization.TetStatus.Success, tet.Status);
+            Assert.NotNull(tet.Result);
+            Assert.True(tet.Result.Tets.Count > 0);
+            Assert.Null(TetMeshQuality.NotValidReason(tet.Result));
+            Assert.NotNull(markers);
+            Assert.Equal(1, markers.RegionCount);
+            Assert.Contains("$MeshFormat", mshText);
+            Assert.Contains("$Elements", mshText);
+        }
+
+        [Fact]
+        public void QuadRemeshExample_ProducesClosedQuadDominantPolyMeshAndRoundTripsObj()
+        {
+            DPolyMesh roundTripped;
+            QuadRemesher qr = QuadRemeshExample.Run(out roundTripped);
+            Assert.Equal(QuadRemeshStatus.Success, qr.Status);
+            Assert.NotNull(qr.Result);
+            Assert.True(qr.Result.FaceCount > 0);
+            Assert.NotNull(roundTripped);
+            Assert.Equal(qr.Result.FaceCount, roundTripped.FaceCount);
+            Assert.Equal(qr.Result.VertexCount, roundTripped.VertexCount);
+            PolyMeshMetrics metrics = PolyMeshMetrics.Compute(roundTripped);
+            Assert.True(metrics.IsManifold);
+            Assert.Equal(0, metrics.BoundaryVertices);
+            for (int v = 0; v < roundTripped.VertexCount; ++v) {
+                Vector3d p = roundTripped.GetVertex(v);
+                Assert.True(MathUtil.IsFinite(p.x) && MathUtil.IsFinite(p.y) && MathUtil.IsFinite(p.z));
+            }
+            int quadCount = 0;
+            for (int f = 0; f < roundTripped.FaceCount; ++f)
+                if (roundTripped.FaceVertexCount(f) == 4) ++quadCount;
+            Assert.True(quadCount > roundTripped.FaceCount / 2);
+        }
+
+        [Fact]
+        public void Meshing2DExample_TriangulatesAndRefinesDomainWithHoleAndRegions()
+        {
+            Triangulation2Result plain = Meshing2DExample.DelaunayPoints();
+            Assert.Equal(Triangulation2Status.Success, plain.Status);
+            Assert.Equal(4, plain.Mesh.TriangleCount);
+
+            DMesh3 mesh3d;
+            ConstrainedTriangulation2Result refined = Meshing2DExample.QualityDomainWithHole(out mesh3d);
+            Assert.Equal(Triangulation2Status.Success, refined.Status);
+            Assert.NotNull(mesh3d);
+            Assert.True(mesh3d.CheckValidity(false, FailMode.ReturnOnly));
+            Assert.True(mesh3d.HasTriangleGroups);
+            var groups = new HashSet<int>();
+            // 10x6 rectangle (60) minus 2x2 square hole (4) = 56 in XY projection
+            double xyArea = 0;
+            foreach (int tid in mesh3d.TriangleIndices()) {
+                groups.Add(mesh3d.GetTriangleGroup(tid));
+                Index3i t = mesh3d.GetTriangle(tid);
+                Vector3d a = mesh3d.GetVertex(t.a), b = mesh3d.GetVertex(t.b), c = mesh3d.GetVertex(t.c);
+                xyArea += 0.5 * Math.Abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
+            }
+            Assert.Contains(1, groups);
+            Assert.Contains(2, groups);
+            Assert.Equal(56.0, xyArea, 6);
+            foreach (int vid in mesh3d.VertexIndices()) {
+                Vector3d p = mesh3d.GetVertex(vid);
+                Assert.True(MathUtil.IsFinite(p.x) && MathUtil.IsFinite(p.y) && MathUtil.IsFinite(p.z));
+                Assert.Equal(p.x + p.y, p.z, 9);
+            }
+        }
+
+        [Fact]
+        public void DualContouringAndOffsetExample_ContoursSharpBoxAndCertifiesOffset()
+        {
+            DualContouring dc = DualContouringAndOffsetExample.ContourSharpBox();
+            Assert.NotNull(dc.Mesh);
+            Assert.True(dc.Mesh.IsClosed());
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(dc.Mesh));
+            Assert.InRange(Volume(dc.Mesh), 7.5, 8.5);
+
+            MeshOffset offset = DualContouringAndOffsetExample.CertifiedOffset(0.25);
+            Assert.Equal(MeshOffset.Status.Success, offset.ResultStatus);
+            Assert.True(offset.BandCertified);
+            Assert.True(offset.SelfIntersectionFree);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(offset.Result));
+            Assert.True(Volume(offset.Result) > 8.0);
+        }
+
+        [Fact]
+        public void ContourLoftExample_LoftsCappedFrustumAndBranchingStack()
+        {
+            ContourLoftResult frustum = ContourLoftExample.LoftFrustum();
+            Assert.Equal(ContourLoftStatus.Success, frustum.Status);
+            Assert.NotNull(frustum.Mesh);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(frustum.Mesh));
+            // frustum of radii 2 and 1, height 2 -> volume = pi*h/3*(R^2 + R*r + r^2) = 14*pi/3 ~ 14.66
+            Assert.InRange(Volume(frustum.Mesh), 13.5, 15.0);
+
+            ContourLoftStackResult stack = ContourLoftExample.LoftBranchingStack();
+            Assert.Equal(ContourLoftStackStatus.Success, stack.Status);
+            Assert.NotNull(stack.Mesh);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(stack.Mesh));
+            Assert.True(Volume(stack.Mesh) > 0);
+        }
+
+        [Fact]
+        public void PointCloudExample_EstimatesOutwardNormalsAndReconstructsClosedSphere()
+        {
+            var points = PointCloudExample.SampleUnitSphere(400);
+            PointCloudNormals normals = PointCloudExample.EstimateNormals(points);
+            Assert.Equal(PointCloudNormals.NormalsStatus.Success, normals.Status);
+            Assert.True(normals.ConfidentFraction > 0.95);
+            int outward = 0;
+            for (int i = 0; i < points.Count; ++i)
+                if (normals.Normals[i].Dot(points[i]) > 0.8) ++outward;
+            Assert.True(outward > (int)(0.95 * points.Count));
+
+            PointCloudSurface surf = PointCloudExample.ReconstructSurface(points);
+            Assert.Equal(PointCloudSurface.SurfaceStatus.Success, surf.Status);
+            Assert.NotNull(surf.Result);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(surf.Result));
+            Assert.InRange(Volume(surf.Result), 3.0, 5.0);
+        }
+
+        [Fact]
+        public void DeformationExample_MeetsHandlesWithArapAndBiharmonic()
+        {
+            ArapMeshDeformer.ResultInfo arap;
+            BiharmonicMeshDeformer.ResultInfo biharmonic;
+            DeformationExample.DeformStrip(out arap, out biharmonic);
+
+            Assert.Equal(ArapMeshDeformer.Status.Success, arap.Status);
+            Assert.Equal(BiharmonicMeshDeformer.Status.Success, biharmonic.Status);
+            Assert.NotNull(arap.Mesh);
+            Assert.NotNull(biharmonic.Mesh);
+            Assert.True(arap.Mesh.CheckValidity(false, FailMode.ReturnOnly));
+            Assert.True(biharmonic.Mesh.CheckValidity(false, FailMode.ReturnOnly));
+            foreach (int vid in arap.Mesh.VertexIndices()) {
+                Vector3d pa = arap.Mesh.GetVertex(vid);
+                Vector3d pb = biharmonic.Mesh.GetVertex(vid);
+                Assert.True(MathUtil.IsFinite(pa.x) && MathUtil.IsFinite(pa.y) && MathUtil.IsFinite(pa.z));
+                Assert.True(MathUtil.IsFinite(pb.x) && MathUtil.IsFinite(pb.y) && MathUtil.IsFinite(pb.z));
+            }
+            // verify all pinned handles at x = 0 stay at z = 0 and all lifted handles at x = 6 reach z = 1
+            foreach (int pinned in new[] { 0, 7, 14 }) {
+                Assert.InRange(arap.Mesh.GetVertex(pinned).z, -1e-6, 1e-6);
+                Assert.InRange(biharmonic.Mesh.GetVertex(pinned).z, -1e-6, 1e-6);
+            }
+            foreach (int lifted in new[] { 6, 13, 20 }) {
+                Assert.InRange(arap.Mesh.GetVertex(lifted).z, 0.999999, 1.000001);
+                Assert.InRange(biharmonic.Mesh.GetVertex(lifted).z, 0.999999, 1.000001);
+            }
+        }
+
+        [Fact]
+        public void AnalysisBuildingBlocksExample_ComputesThicknessDeviationAndSphereFit()
+        {
+            MeshWallThickness wt = AnalysisBuildingBlocksExample.MeasureSlabThickness();
+            Assert.NotNull(wt.Statistics);
+            Assert.InRange(wt.Statistics.Median, 0.39, 0.41);
+
+            MeshDeviation dev = AnalysisBuildingBlocksExample.MeasureSphereDeviation();
+            Assert.NotNull(dev.VertexStatistics);
+            Assert.InRange(dev.VertexStatistics.Mean, 0.09, 0.11);
+            Assert.True(dev.HausdorffLowerBound <= dev.HausdorffUpperBound);
+            Assert.InRange(dev.HausdorffUpperBound, 0.09, 0.12);
+
+            PrimitiveFit3 fit = AnalysisBuildingBlocksExample.FitSphere();
+            Assert.Equal(PrimitiveFit3.Results.Success, fit.Result);
+            Assert.True(fit.SphereCenter.Distance(new Vector3d(1, 2, 3)) < 1e-4);
+            Assert.InRange(fit.SphereRadius, 1.999, 2.001);
+        }
+
+        [Fact]
+        public void BatchQueriesAndCcdExample_AnswersBatchQueriesAndExactToi()
+        {
+            RayHit[] hits;
+            InsideStatus[] inside;
+            BatchStatus bs = BatchQueriesAndCcdExample.RunBatchQueries(out hits, out inside);
+            Assert.Equal(BatchStatus.Ok, bs);
+            Assert.NotEqual(DMesh3.InvalidID, hits[0].Triangle);
+            Assert.Equal(4.0, hits[0].T, 9);
+            Assert.Equal(DMesh3.InvalidID, hits[1].Triangle);
+            Assert.Equal(InsideStatus.Inside, inside[0]);
+            Assert.Equal(InsideStatus.Outside, inside[1]);
+
+            CcdResult ccd = BatchQueriesAndCcdExample.VertexCrossingTriangle();
+            Assert.Equal(CcdStatus.Collision, ccd.Status);
+            Assert.InRange(ccd.TimeOfImpact, 0.5 - 1e-5, 0.5 + 1e-5);
+        }
+
+        [Fact]
+        public void TpmsLatticeExample_BuildsCertifiedCleanGyroidSheet()
+        {
+            TpmsLattice tpms = TpmsLatticeExample.GyroidSheet();
+            Assert.Equal(TpmsStatus.Ok, tpms.Status);
+            Assert.NotNull(tpms.Mesh);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(tpms.Mesh));
+            Assert.InRange(tpms.RealizedVolumeFraction, 0.25, 0.35);
+        }
+
+        [Fact]
+        public void TerrainToolsExample_CertifiesTinComputesCellVolumesAndFiltersGround()
+        {
+            TerrainGridTin tin = TerrainToolsExample.GridToCertifiedTin(0.05);
+            Assert.Equal(TerrainGridTinStatus.Ok, tin.Status);
+            Assert.NotNull(tin.Result);
+            Assert.True(tin.Result.CheckValidity(false, FailMode.ReturnOnly));
+            foreach (int vid in tin.Result.VertexIndices()) {
+                Vector3d p = tin.Result.GetVertex(vid);
+                Assert.True(MathUtil.IsFinite(p.x) && MathUtil.IsFinite(p.y) && MathUtil.IsFinite(p.z));
+            }
+            Assert.True(tin.SurfaceError <= 0.05 + 1e-12);
+            Assert.True(tin.Result.TriangleCount < 16 * 16 * 2);
+
+            TerrainCellVolumes cv = TerrainToolsExample.CellCutFillVolumes();
+            Assert.Equal(50.0, cv.TotalCutVolume, 9);
+            Assert.Equal(50.0, cv.TotalFillVolume, 9);
+            Assert.NotNull(cv.CutVolume);
+            Assert.NotNull(cv.FillVolume);
+            Assert.Equal(0.0, cv.OutsideCutVolume, 9);
+            Assert.Equal(0.0, cv.OutsideFillVolume, 9);
+
+            int groundCount;
+            ClothSimulationFilter csf = TerrainToolsExample.ClassifyGround(out groundCount);
+            Assert.NotNull(csf.IsGround);
+            for (int i = 0; i < groundCount; ++i)
+                Assert.True(csf.IsGround[i]);
+            for (int i = groundCount; i < csf.IsGround.Length; ++i)
+                Assert.False(csf.IsGround[i]);
+        }
     }
 }
