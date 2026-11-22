@@ -159,11 +159,17 @@ Survivors, argued:
 
 ### Stryker run (22 November 2026, `tests/mutation/stryker-config.json`, the spans of the exact route and `ExactDoubleWord.cs`, 224 mutants)
 
-Score 94.2 %. The survivors (13), none of them in a bound by margin alone except where stated:
-- `round_ratio`: `num.Sign <= 0` (zero returns before), `shift >= 0` against `> 0` (a shift by 0 is the identity), `unit <= -1074` (adds 0), `q >>> extra` (the quotient is positive),
-  `den.Sign <= 0` (a zero denominator does not occur). The `Conditional (true)` mutant at the choice of the shift direction (the numerator more than 2^55 times the denominator) also survived the run, although `RoundRatio_...` has a case for it (`one << 200` over 3): open, to be looked at with the first CI mutation run.
-- `Checked`: `err <= inf`: `IsValid` reads `Err`, so a value with an infinite `Err` is invalid either way. `Div`: `||` to `&&` of the validity test (an invalid operand makes `r` or `res` invalid by propagation: the same result), `den <= 0` to `den < 0` (`den == 0` gives an infinite or NaN `Err`, rejected by `Checked`).
-- By the margin `ErrUp` (32 u against at most 12 u of rounding) only, so no test separates them: `Mag` with `-` (relative `2^-52`), `t -= xl yl` (`2^-106` of the product), `|yh| + |yl|` in the denominator and `|res.Lo|` with `-` in the quotient bound (relative `2^-52`). A mutant of this size needs the bound to be tight to `u`, which the derivation does not claim; each is covered 15 times over by the margin.
+Score 94.2 % at the first run; the survivors that a test can tell are killed by direct tests of the computed values (`Mag_...`, `Product_KeepsTheProductOfTheLowWords`,
+`Invalid_OperandError_...`, `Div_ErrIsTheResidualBoundOverTheLeastDenominator`, `RoundRatio_...`), each checked by hand against its mutant: `Mag` with `-`,
+`t -= xl yl` (the cross terms cancel, only `xl yl` is left), `|yl|` with `+` in the denominator (a power of two with the largest `Lo`), `err <= inf` in `Checked`
+(an infinite `Err` must give the `Invalid` value itself), the shift direction of `round_ratio` (a numerator just above a tie loses its low bit in a right shift).
+The residual's `|res.Lo|` is read through `res.Mag` (one place, tested). The remaining survivors cannot change any value the code computes:
+- `round_ratio`: `num.Sign <= 0` (zero returns on the line before); `shift > 0` for `>= 0` (a shift by 0 is the identity on both branches); `unit <= -1074` (the branch adds 0);
+  `q >>> extra` (`q` is positive, where `>>>` and `>>` of a `BigInteger` agree); `den.Sign <= 0` (`den` is the difference of two non-zero values of opposite signs, never 0).
+- `Div`: `||` to `&&` of the validity test (an invalid `x` or `y` has an infinite `Err`, which `r` or `res` carry, so `Div` returns `Invalid` anyway); `den <= 0` to `den < 0`
+  (`den == 0` gives an infinite or NaN `Err`, which `Checked` rejects).
+- Routing guards outside the spans (`find_transversal`, `odd_vertex`): a mutant there changes only which route computes the pair; the pair then goes to `find_exact`, whose output is bit-for-bit the
+  same (section 5a, `FindTransversal_...` and the route-equality tests compare the two routes on all families).
 
 ## 7. Cost (22 November 2026, Release, 4 cores, `Find()` on 20000 hit pairs, `Stopwatch` per call)
 

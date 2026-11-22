@@ -145,7 +145,7 @@ namespace g3
             if (den <= 0)
                 return Invalid;
             // (res.Err already carries the errors of x and of y q, so x.Err and |q| y.Err are not added again)
-            double err = (Math.Abs(res.Hi) + Math.Abs(res.Lo) + res.Err) / den * ErrUp;
+            double err = (res.Mag + res.Err) / den * ErrUp;
             return Checked(qh, ql, err);
         }
 

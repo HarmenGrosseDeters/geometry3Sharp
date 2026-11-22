@@ -201,6 +201,72 @@ namespace geometry3Sharp.Tests
             Assert.True(q.IsValid && Within(q, Q.From(1) / (Q.From(1) - Q.From(DoubleWord.U))));
         }
 
+        // ---- direct tests of the values the operations compute (not through the bound) ----
+
+        [Fact]
+        public void Mag_IsTheSumOfTheMagnitudesOfTheWords()
+        {
+            // Hi a power of two with the largest Lo: Hi + |Lo| rounds back to Hi (a tie to even) but Hi - |Lo| is a double, so a difference would show
+            double h = Math.Pow(2, 60), l = Math.Pow(2, 7);
+            Assert.Equal(h, new DoubleWord(h, l, 0).Mag);
+            Assert.Equal(h, new DoubleWord(h, -l, 0).Mag);
+            Assert.Equal(h, new DoubleWord(-h, l, 0).Mag);
+            Assert.Equal(1.5, new DoubleWord(1, 0.5, 0).Mag);        // (outside the invariant on Lo: the definition itself)
+            Assert.Equal(1.5, new DoubleWord(-1, -0.5, 0).Mag);
+        }
+
+        [Fact]
+        public void Product_KeepsTheProductOfTheLowWords()
+        {
+            // (1 + 2^-53)(1 - 2^-53) = 1 - 2^-106: the cross terms cancel and only xl yl is left, with its sign
+            double e = Math.Pow(2, -53);
+            var z = new DoubleWord(1, e, 0) * new DoubleWord(1, -e, 0);
+            Assert.Equal(1.0, z.Hi);
+            Assert.Equal(-Math.Pow(2, -106), z.Lo);
+        }
+
+        [Fact]
+        public void Invalid_OperandError_GivesTheInvalidValue()
+        {
+            // an infinite Err is Invalid itself (Hi = Lo = 0), not a value in range with an infinite bound
+            var a = new DoubleWord(1, 0, double.PositiveInfinity) + DoubleWord.Of(1);
+            Assert.Equal(0.0, a.Hi); Assert.Equal(0.0, a.Lo); Assert.False(a.IsValid);
+            var m = DoubleWord.Of(2) * new DoubleWord(1, 0, double.PositiveInfinity);
+            Assert.Equal(0.0, m.Hi); Assert.False(m.IsValid);
+        }
+
+        [Fact]
+        public void Div_ErrIsTheResidualBoundOverTheLeastDenominator()
+        {
+            // the value of Err itself: (|res| + res.Err) / (|yh| - |yl| - err(y)) (1 + 2^-48), with res = x - y q, for operands whose low words and residuals are not zero
+            var r = new Random(404);
+            int checkedCount = 0;
+            for (int i = 0; i < 3000; i++) {
+                var x = WithError(r); var y = WithError(r);
+                var z = DoubleWord.Div(x, y);
+                if (z.IsValid == false) continue;
+                var q = new DoubleWord(z.Hi, z.Lo, 0);
+                var res = x - y * q;
+                double den = Math.Abs(y.Hi) - Math.Abs(y.Lo) - y.Err;
+                double expected = (Math.Abs(res.Hi) + Math.Abs(res.Lo) + res.Err) / den * (1 + Math.Pow(2, -48));
+                Assert.Equal(expected, z.Err);
+                if (y.Lo != 0) checkedCount++;
+            }
+            Assert.True(checkedCount > 500, "cases with a low word of y " + checkedCount);
+            // a power of two with the largest low word: |yh| - |yl| is a double below it (1 - 2^-53) but |yh| + |yl| rounds back to |yh|
+            foreach (double sgn in new[] { 1.0, -1.0 }) {
+                var x = new DoubleWord(3, Math.Pow(2, -52), Math.Pow(2, -40));
+                var y = new DoubleWord(sgn * 2, sgn * Math.Pow(2, -52), Math.Pow(2, -45));
+                var z = DoubleWord.Div(x, y);
+                Assert.True(z.IsValid);
+                var q = new DoubleWord(z.Hi, z.Lo, 0);
+                var res = x - y * q;
+                double den = Math.Abs(y.Hi) - Math.Abs(y.Lo) - y.Err;
+                Assert.Equal((Math.Abs(res.Hi) + Math.Abs(res.Lo) + res.Err) / den * (1 + Math.Pow(2, -48)), z.Err);
+                Assert.True(den < 2 - Math.Pow(2, -45));
+            }
+        }
+
         [Fact]
         public void Add_ErrBoundsTheError()
         {
@@ -526,6 +592,11 @@ namespace geometry3Sharp.Tests
             // a numerator much larger than the denominator (a negative shift of the denominator) and the exact and the odd tie
             Assert.Equal(Math.Pow(2, 200) / 3 * 3 / 3, IntrTriangle3Triangle3.round_ratio(one << 200, 3, 0) * 3 / 3, 0);
             Assert.Equal((double)(one << 100) / 3, IntrTriangle3Triangle3.round_ratio(one << 100, 3, 0));
+            // the numerator far above the denominator (the shift of the numerator is negative): a value just above a tie is rounded up,
+            // exactly on the tie to even; a numerator that lost its low bit to a right shift would see the tie in both
+            BigInteger tieNum = (BigInteger.Pow(2, 53) + 1) << 150;
+            Assert.Equal(9007199254740994.0 * Math.Pow(2, 150), IntrTriangle3Triangle3.round_ratio(tieNum + 1, 1, 0));
+            Assert.Equal(9007199254740992.0 * Math.Pow(2, 150), IntrTriangle3Triangle3.round_ratio(tieNum, 1, 0));
             // a normal result is unchanged: 1/3 and its scalings
             Assert.Equal(1.0 / 3, IntrTriangle3Triangle3.round_ratio(1, 3, 0));
             Assert.Equal(Math.Pow(2, -900) / 3, IntrTriangle3Triangle3.round_ratio(1, 3, -900));
