@@ -22,15 +22,18 @@ using gs;
 //                                                                                    with a box far away; Status and NotCleanReason)
 //   dotnet run --project benchmarks/SelfIntersectionUntangle -c Release -- solidify (thin inputs solidified coarsely: can a
 //                                                                                    self-intersecting contour be untangled?)
+//   ... -- contour <mesh file> [rows.tsv]   (Contours.cs: the solidify contour that sends MeshRobustRepair to the wrap, for one
+//                                             mesh file fetched at run time; .github/workflows/untangle-contours.yml)
+//   ... -- contour-probe                    (the same measurement on procedural inputs, the exact resolve switched off)
 //   ... -- only <substring>                                                         (cases whose name contains it)
 static class Program
 {
-    static string F(double v, string fmt = "0.####") { return double.IsNaN(v) ? "-" : v.ToString(fmt, CultureInfo.InvariantCulture); }
+    internal static string F(double v, string fmt = "0.####") { return double.IsNaN(v) ? "-" : v.ToString(fmt, CultureInfo.InvariantCulture); }
 
     static double Volume(DMesh3 m) { return MeshMeasurements.VolumeArea(m, m.TriangleIndices(), m.GetVertex).x; }
 
     // the upper bound of the distance from a to b (one-sided) or between them, to 1e-4 of the diagonal
-    static double Hausdorff(DMesh3 a, DMesh3 b, bool symmetric, double diag)
+    internal static double Hausdorff(DMesh3 a, DMesh3 b, bool symmetric, double diag)
     {
         if (a == null || b == null || a.TriangleCount == 0 || b.TriangleCount == 0) return double.NaN;
         var h = new MeshHausdorffDistance(a, b) { Symmetric = symmetric, Tolerance = 1e-4 * diag, MaxSubdivisions = 1000000 };
@@ -48,6 +51,7 @@ static class Program
     }
 
     static int notConverged;
+    internal static int NotConverged { get { return notConverged; } }
 
     sealed class Row
     {
@@ -77,6 +81,11 @@ static class Program
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
         string only = null; bool checkOnly = args.Contains("check"), openMode = args.Contains("open");
         for (int i = 0; i + 1 < args.Length; ++i) if (args[i] == "only") only = args[i + 1];
+
+        // (before the corpus self-check: one mesh per process, in a job)
+        int ci = Array.IndexOf(args, "contour");
+        if (ci >= 0) return Contours.File(args[ci + 1], args.Length > ci + 2 ? args[ci + 2] : null);
+        if (args.Contains("contour-probe")) return Contours.Probe();
 
         var frames = new (string name, Func<Vector3d, Vector3d> map)[] { ("id", p => p), ("rot", Corpus.Rotate) };
         var variants = new[] {
@@ -223,10 +232,8 @@ static class Program
         return 0;
     }
 
-    // The wrap of MeshRobustRepair is reached where the solidify's contour intersects itself. Thin procedural inputs (walls and
-    // sheets below a cell) solidified at coarse resolutions: where the solidify result is closed and its only defect is
-    // self-intersections, can the prototype untangle it, and how far does it move it (in cells and in diagonals)?
-    static int Solidify()
+    // thin procedural inputs: walls, fins and sheets below a cell of a coarse solidify
+    internal static List<(string name, Func<DMesh3> make)> ThinInputs()
     {
         Func<double, DMesh3> plate = t => Corpus.FineBox(Vector3d.Zero, new Vector3d(1, 1, 0.5 * t), 9);
         Func<DMesh3, DMesh3> turned = m => Map(m, p => new Vector3d(p.z + 0.13, p.y * 0.9 + 0.05, p.x * 0.8));
@@ -243,6 +250,15 @@ static class Program
             ("fin 0.02 on a box", () => Corpus.Combine(Corpus.Cube(-1, 0), Corpus.Box(-0.6, -0.51, -0.2, -0.4, -0.49, 1))),
             ("comb: 5 fins 0.02, gap 0.04", () => Corpus.Combine(Enumerable.Range(0, 5).Select(i => Corpus.Box(0, 0.06 * i, 0, 1, 0.06 * i + 0.02, 1)).ToArray())),
         };
+        return inputs;
+    }
+
+    // The wrap of MeshRobustRepair is reached where the solidify's contour intersects itself. Thin procedural inputs (walls and
+    // sheets below a cell) solidified at coarse resolutions: where the solidify result is closed and its only defect is
+    // self-intersections, can the prototype untangle it, and how far does it move it (in cells and in diagonals)?
+    static int Solidify()
+    {
+        var inputs = ThinInputs();
         Console.WriteLine("input | frame | resolution | solidify result | triangles | pairs | untangled | rounds | max move / cell | max move / diagonal");
         int si = 0, un = 0, runs = 0;
         foreach (var inp in inputs)
@@ -269,7 +285,7 @@ static class Program
         return 0;
     }
 
-    static DMesh3 Map(DMesh3 m, Func<Vector3d, Vector3d> f)
+    internal static DMesh3 Map(DMesh3 m, Func<Vector3d, Vector3d> f)
     {
         var c = new DMesh3(m, false, MeshComponents.None);
         foreach (int v in c.VertexIndices()) c.SetVertex(v, f(c.GetVertex(v)));
