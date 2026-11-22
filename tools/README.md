@@ -17,6 +17,7 @@ This directory contains the user-facing CLI/MCP server, build-time Roslyn analyz
 | [ReaderFuzzPilot/](ReaderFuzzPilot/README.md) | Coverage-guided fuzzing harness for all mesh and geometry file readers | [ReaderFuzzPilot/README.md](ReaderFuzzPilot/README.md) |
 | [Z3Pilot/](Z3Pilot/README.md) | SMT verification pilot scripts using Z3 for predicate, rounding-drift, and separating-axis proofs | [Z3Pilot/README.md](Z3Pilot/README.md) |
 | [FPTaylorPilot/](FPTaylorPilot/README.md) | Floating-point error-bound verification pilot using FPTaylor | [FPTaylorPilot/README.md](FPTaylorPilot/README.md) |
+| [ErrorBoundAudit/](ErrorBoundAudit/README.md) | Checker of the hand-written error bounds of the exact code: forward error analysis in exact rationals, one model per bound with source anchors, and an adversarial run of the library's filters against `ExactDyadic` | [ErrorBoundAudit/README.md](ErrorBoundAudit/README.md) |
 | [coverage/](coverage/README.md) | Changed-line coverage gate configuration, validation data, and unmeasurable-line allowlist | [coverage/README.md](coverage/README.md) |
 | `NativeAotSpike/` | NativeAOT C-ABI interop feasibility prototype (`G3Native`, C driver, `run_spike.sh`) | [NATIVE_AOT_FEASIBILITY.md](../docs/design/NATIVE_AOT_FEASIBILITY.md) |
 | `runtime-watch/` | Input case definitions (`cases.json`) for the nightly extreme-runtime watch job | [QA.md](../docs/QA.md#33-runtime-watch-extreme-cases-nightly) |

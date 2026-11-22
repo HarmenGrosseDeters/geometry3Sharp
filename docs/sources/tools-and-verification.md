@@ -119,6 +119,18 @@ ported or distributed with geometry3Sharp. Background: Solovyev et al., [*Rigoro
 Floating-Point Round-off Errors with Symbolic Taylor Expansions*](https://soarlab.org/2015/04/fm2015-sjrg/),
 FM 2015. The smoke example does not certify any geometry predicate.
 
+## Error bound audit (`tools/ErrorBoundAudit`, test/tool only)
+
+Implemented from the papers and the book, no code taken over; Python standard library only. The audit:
+[docs/research/ERROR_BOUND_AUDIT_2026-11.md](../research/ERROR_BOUND_AUDIT_2026-11.md).
+
+| Part | Source |
+|---|---|
+| The standard model of rounding, gamma_n, recursive summation, the underflow term (`fpbound.py`) | N. J. Higham, *Accuracy and Stability of Numerical Algorithms*, 2nd ed., SIAM 2002, sections 2.2, 2.8, 3.1, 4.2 |
+| The sharp relative error u / (1 + u) of one rounding | C.-P. Jeannerod, S. M. Rump, *On relative errors of floating-point operations: optimal bounds and applications*, Mathematics of Computation 87, 2018 |
+| The error stated in the computed permanent, the last rounding of a sign filter, the constants of stages A to C | J. R. Shewchuk, *Adaptive Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates*, Discrete & Computational Geometry 18, 1997 |
+| Rewriting an error into terms that a rule bounds (the approach only; no code of Gappa read or run) | F. de Dinechin, C. Lauter, G. Melquiond, *Certifying the floating-point implementation of an elementary function using Gappa*, IEEE Transactions on Computers 60(2), 2011; M. Daumas, G. Melquiond, *Certification of bounds on expressions involving rounded operators*, ACM TOMS 37(1), 2010 |
+
 ## Coverage-guided fuzzing of the readers and the mesh operations (test/tool only)
 
 [ReaderFuzzPilot](../../tools/ReaderFuzzPilot/README.md) and [MeshFuzzPilot](../../tools/MeshFuzzPilot/README.md) (the
