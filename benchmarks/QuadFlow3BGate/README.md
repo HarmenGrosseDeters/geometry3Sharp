@@ -89,6 +89,34 @@ dotnet run -c Release --project benchmarks/QuadFlow3BGate -- adapt=2
 | ratio pure / stage 2 (median / max) | 2.6 / 8.9 | 2.5 / 5.3 | 1.6 / 3.0 | **1.4 / 2.0** |
 | SAT time sum over clean rows (s) | 0.65 | **0.04** | **0.05** | **0.08** |
 
+## Results (2026-11-22: the second attempt with the fixed variables of the flow freed)
+
+`retry=0` switches the second pure-quad attempt off (`QuadRemesher.PureQuadRetry`, internal): the numbers before it. A row whose second
+attempt ran shows the first status in the status column, and a summary line gives the times of those rows. `results_gate_retry.txt` is
+the full output of `retry=1 repeat=3 profile=1`.
+
+```
+dotnet run -c Release --project benchmarks/QuadFlow3BGate -- retry=0 repeat=3
+dotnet run -c Release --project benchmarks/QuadFlow3BGate -- retry=1 repeat=3 profile=1
+dotnet run -c Release --project benchmarks/QuadFlow3BGate -- retry=0 adapt=2
+dotnet run -c Release --project benchmarks/QuadFlow3BGate -- retry=1 adapt=2
+```
+
+| metric (54 runs) | `adapt=0`, `retry=0` | `adapt=0`, `retry=1` | `adapt=2`, `retry=0` | `adapt=2`, `retry=1` |
+|---|---|---|---|---|
+| clean / fallback / undetected bad | 43 / 11 / 0 | **53 / 1 / 0** | 48 / 6 / 0 | **53 / 1 / 0** |
+| `capsule` / `capped-cylinder` clean (of 6 each) | 1 / 0 | 5 / 6 | 1 / 5 | 5 / 6 |
+| rows clean with `retry=0`: quality columns identical | - | 43 / 43 | - | 48 / 48 |
+| second attempt run on / `Success` on | - | 11 / 10 | - | 6 / 5 |
+| pure time, rows that fall back with `retry=0`, sum (s) | 2.62 | 5.62 | 3.62 | 6.33 |
+| pure time, rows clean on the first attempt, sum (s) | 10.50 | 10.59 | 28.94 | 28.48 |
+| time gate `max(3 x stage 2, 1 s)` (clean rows) | 41 / 43 | 49 / 53 | 48 / 48 | 51 / 53 |
+| irregular gate (clean rows) | 43 / 43 | 53 / 53 | 48 / 48 | 53 / 53 |
+| Hausdorff <= 0.5 s (clean rows) | 41 / 43 | 51 / 53 | 42 / 48 | 47 / 53 |
+| corner p95 <= 15 deg (clean / stage 2 same rows) | 20 / 43 (31 / 43) | 21 / 53 (34 / 53) | 29 / 48 (44 / 48) | 30 / 53 (46 / 53) |
+
+The reading is in [QUAD_REMESHING.md 4.4d](../../docs/design/QUAD_REMESHING.md).
+
 ## Open and creased shapes (`open=1`, Phase 4c measurement, 2026-11-22)
 
 `dotnet run -c Release --project benchmarks/QuadFlow3BGate -- open=1 [only=<regex>] [adapt=0|1|2]` runs 10 procedural shapes (closed sphere as the reference, open patch, sphere cap, open strip, open tube, sharp box, open box, sharp cylinder, L profile, gear) at the scales 1, 0.8 and 1.25 (input edge 0.5 s) and prints per run: the stage 2 mesh (`PreserveCreases` on the creased shapes) with its feature metrics (feature = boundary edge or crease edge above 30 degrees: coverage within 0.1 s and 10 degrees, angle p95, feature Hausdorff), what `PureQuads` does today, and the raw integer map of the position field (triangles, boundary slots, triangles whose offsets do not sum to 0, inverted triangles, largest |d|; through reflection, no library change). If `QuadFlowRepair` has the static field `FixFeatureEdges` (the prototype of the branch `runs/quad-4c-prototype`, never merged) the attempt is repeated with the feature edges fixed and a summary per group is printed. The numbers and the decision (stop rule) are in [QUAD_REMESHING.md 4.7](../../docs/design/QUAD_REMESHING.md).

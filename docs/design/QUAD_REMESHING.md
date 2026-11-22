@@ -495,6 +495,51 @@ On the torus `CurvatureAlignment` 10 fixes the folds (6 of 6 clean, `torus-align
 
 `QuadRemesher.PureQuadAreaRatio` (and `PureQuadAreaRatioAfterFlow`, from `QuadFlowRepair.AreaRatio` / `AreaRatioAfterFlow`) reports the invariant of [QUAD_SHEAF_OBSTRUCTION_2026-11.md](../research/QUAD_SHEAF_OBSTRUCTION_2026-11.md) statement 2: `A = (1/2) sum det(D0, D1) (s * spacing)^2` over the triangles of the integer map, divided by the area of the input triangles (1 for a map that covers the surface once; folds enter with their negative determinants; with `SizeAdaptation` / `SizeFunction` the cell size is the local one). One pass over the triangles after the flow and after the repair. **Diagnostic only (owner decision for later): it is not a fallback reason, it does not change `PureQuadStatus`, `Result` or what counts as `Success`.** NaN when `PureQuads` is false or the attempt ended before or in the flow (invalid input, open mesh, failed setup, `FlowInfeasible`); the runs that fail after the flow (`OrientationFolds`, `BudgetExceeded`, a map that does not close) report it. On the sphere of the tests it is 0.89 after a clean run. Deterministic (serial, fixed order) and bit-identical under power-of-two scalings; tests: `PureQuadTests` (`LatticeAreaRatio_OfKnownMaps`: a flat grid gives 1, doubled cells 2, a folded quarter 1/2, a local spacing weights the cells; the run, the reuse and the similarity tests).
 
+#### 4.4d The second attempt: the fixed variables of the flow freed (2026-11-22, owner go)
+
+The measurement behind it is the research note `docs/research/QUAD_INTEGER_JUMPS_2026-11.md` (PR #1389, option C of the sheaf note); the owner
+decided for the small step: an internal second attempt, no option, no new API.
+
+**What it does.** If the pure-quad attempt is not `Success` and its flow has fixed variables (the edges whose cycle has a holonomy: 25 to 1010
+per run of the gate, 0 on the aligned torus), `QuadRemesher` runs `QuadFlowRepair` once more with `FreeFrozenEdges` set. In that run
+`SolveFlow` first solves the problem with every variable free. With the rows of the rotated equations as nodes, a fixed variable is a
+column with two entries of the same sign, so that problem is a min-cost flow in a bi-directed graph; its linear relaxation is an ordinary
+min-cost flow on the doubled network (a mirror node per node with the negated excess, an arc and its mirror per step), solved with
+`MinCostFlow` and the step costs of the flow. The capacity is the start range -2..2 and never grows: all variables at 0 close every
+equation, so the relaxation always has a full flow. Each fixed variable takes its relaxed value (a multiple of 1/2; a half goes to the
+neighbour nearer to the real offset), and the greedy balancing, the flow, the subdivision, the greedy moves, the SAT and the extraction
+run as before. The result of the second attempt is used only if it passes every check.
+
+**What stays.** A result that is `Success` on the first attempt is unchanged bit for bit (the second attempt does not run). If both
+attempts fail, `PureQuadStatus`, `InvertedTriangles`, `FlippedQuads`, the area ratios and `Result` (the stage 2 mesh) are those of the
+first attempt, as before. `FlowSeconds` and `RepairSeconds` are the sums of both attempts. Serial and integer, like the flow.
+
+**Measured** (`dotnet run -c Release --project benchmarks/QuadFlow3BGate -- retry=0|1 [adapt=2]`, 54 runs, net10.0 Release, 4-core cloud
+container; `retry=0` is the internal hook `PureQuadRetry = false`, the behaviour before; times with `repeat=3` for Off, single runs for
+`ScaleAndRotation`):
+
+| | Off, before | Off, with the second attempt | `ScaleAndRotation`, before | `ScaleAndRotation`, with it |
+|---|---|---|---|---|
+| clean / fallback / undetected bad | 43 / 11 / 0 | **53 / 1 / 0** | 48 / 6 / 0 | **53 / 1 / 0** |
+| capsule / capped cylinder clean (of 6) | 1 / 0 | 5 / 6 | 1 / 5 | 5 / 6 |
+| rows clean before: quality columns identical | - | 43 / 43 | - | 48 / 48 |
+| second attempt run on / `Success` on | - | 11 / 10 | - | 6 / 5 |
+| pure time of the rows that fell back before, sum | 2.62 s | 5.62 s | 3.62 s | 6.33 s |
+| pure time of the rows clean on the first attempt, sum | 10.50 s | 10.59 s | 28.94 s | 28.48 s |
+| time gate max(3 x stage 2, 1 s) on clean rows | 41 / 43 | 49 / 53 | 48 / 48 | 51 / 53 |
+| irregular gate; Hausdorff <= 0.5 s; corner p95 <= 15 (clean rows) | 43; 41; 20 of 43 | 53; 51; 21 of 53 | 48; 42; 29 of 48 | 53; 47; 30 of 53 |
+
+- The one fallback left is the capsule at scale 1.5 (`FlippedFaces` on both attempts).
+- **Cost.** A run that is clean on the first attempt costs what it cost. A run that falls back costs about 2.1 times its former time
+  (the relaxation is a flow on a network of twice the size, then the repair runs again); 2 of the 10 gained rows are above the time gate
+  (capsule and capped cylinder at input edge 0.35 s: 1.25 s and 1.06 s).
+- **Quality of the gained rows.** Capped cylinder: 8 irregular vertices, corner p95 14.9 to 26.4 degrees (stage 2: 12.7 to 17.5), Hausdorff
+  0.20 to 0.29 s (stage 2: 0.27 to 0.44 s). Capsule: 8 to 10 irregular vertices, corner p95 27.2 to 35.1 (stage 2: 12.4 to 19.4), a
+  coarse map (`PureQuadAreaRatio` 0.39 to 0.77): valid, and the area ratio of 4.4c is the number that shows it.
+- Not built: the second attempt as the first one (it gives better meshes on most rows that are clean today but changes their output
+  and loses one clean row), and an exact solver for the integer bi-directed flow (no clean row depends on it). Both are in the research
+  note.
+
 ### 4.5 The irregular-vertex gate restated, and the size field (owner 2026-11-19)
 
 **Owner 2026-11-19:** the gate "irregular <= 2 x singularities + 4" of stage 2 is restated relative to the defects that a lattice of uniform spacing forces, the size field below is an
