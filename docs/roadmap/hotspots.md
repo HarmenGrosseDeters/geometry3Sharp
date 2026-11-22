@@ -68,6 +68,6 @@ Written 2026-11-15; statuses re-checked 2026-11-17 (the heading keeps its date b
 3. ~~CCD `MeshSweepCollision` on the 1M ToI frame (#866 / #940)~~: closed 2026-11-16 as a documented limit (owner) after #945 and #977 (serial 23.5-24.9 s, parallel 8.8-10.4 s).
 4. Dynamic PGO slowdown as a measurement hazard (#825, closed 2026-11-15 as an environment effect, owner).
 5. Thread scaling beyond 4 cores: measured by the owner, #858 closed 2026-11-17.
-6. Open inputs, inside / outside across patches: measured 2026-11-19, leaning no-go (the signed heat method fixes large holes and flipped normals, loses on overlaps and thin solids; [design note](../design/INSIDE_OUTSIDE_OPEN_INPUTS.md) section 7, data branch `runs/open-inside-outside`); an opt-in large-hole label source only if the owner names it a use case (plan #1247).
+6. Open inputs, inside / outside across patches: measured 2026-11-19, leaning no-go (the signed heat method fixes large holes and flipped normals, loses on overlaps and thin solids; [design note](../design/INSIDE_OUTSIDE_OPEN_INPUTS.md) section 7, data branch `runs/open-inside-outside`); an opt-in large-hole label source only if the owner names it a use case; closed 2026-11-22, no use case (plan #1247).
 7. Remeshers near the input: the envelope lead, stopped (owner 2026-11-01); Phase 5 #2 open (plan #1288).
 8. Golden masters across runtimes vs bit-for-bit determinism: lead untried (plan #1287).
