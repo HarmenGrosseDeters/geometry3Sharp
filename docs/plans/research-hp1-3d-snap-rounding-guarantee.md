@@ -3,7 +3,7 @@
 - **Board row:** OPEN_TOPICS.md §5 "Research / hard open problems (no known solution; a study first)", row "Rounding/repair: practical 3D snap rounding with a guarantee (HP 1)"
 - **Kind:** research study (no known solution; trigger: a genuinely new mathematical / algorithmic lead beyond closed studies)
 - **Tier:** L (exact 3D geometry proof, Z3 lemma checking, rounding semantics; study note first — no production code)
-- **Plan status:** draft, 2026-11-20 (Berlin). Plan only.
+- **Plan status:** draft, 2026-11-20 (Berlin); updated 2026-11-22 (Berlin): the phase 1 study is done ([SNAP_ROUNDING_3D_GUARANTEE_2026-11.md](../research/SNAP_ROUNDING_3D_GUARANTEE_2026-11.md), measurement in `benchmarks/SnapRoundingExperiment`): the only known guarantee (Devillers, Lazard and Lenhart) does not give clean results or keep more solids; leaning no build. Only the owner decision remains; a new study only on a new lead.
 
 ## Current state
 
@@ -22,6 +22,8 @@
     and guaranteed freedom from self-intersections remains an open problem in computational geometry.
 
 ## Trigger / decision needed
+
+Update 2026-11-22: the study is done; what remains is the owner decision on the [research note](../research/SNAP_ROUNDING_3D_GUARANTEE_2026-11.md). The trigger for a further study:
 
 A genuinely new published paper or theoretical lead (not repeating #313, #721, or Devillers 2020), plus owner approval
 for a time-boxed study on a strong reasoning model.
