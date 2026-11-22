@@ -35,7 +35,8 @@ formulas, (c) a checked range with a refusal, or (d) documentation only?
    geometry; below 2.2e-16 the Hermite normal is set to zero. A power-of-two scaling of the stored values repairs the relation
    "c f has the level set of f" over the whole range and changes no bit on five ordinary fields, but it does **not** repair a
    field whose values are small only near the surface (exp(-40 r^2) at the level 1e-20): that needs a relative normalization,
-   option (b). Section 6.
+   option (b). A prototype of (b) changes no existing test and none of 21 ordinary cases, and gives the level 1e-20 as
+   540 triangles with a volume 0.06 % below the analytic one (section 6.4). Section 6.
 7. **`DualContouring` at 2^300 and 2^400** (not diagnosed in #1377): the simplification's turned-over test
    `n0.Dot(n1) > 0` (`AdaptiveDualContouring.cs` 428) multiplies two cross products, a fourth power again; from 2^262 it is
    `inf - inf = NaN` for some triangles, and 7 of 57 valid clusters are rejected. The result is a closed contour of the same
@@ -253,6 +254,64 @@ the contour is valid and less simplified. This is not a false success in the sen
 but it is another result, and one line removes it: compare the signs of the dot product of the two normals scaled by a
 power of two each, or test `n0.Dot(n1 / |n1|)` after a scale-free normalization.
 
+### 6.4 Option (b) prototyped (follow-up, 2026-11-22)
+
+After the owner's "measure first" for decision 2. The prototype is `experiments/dual_contouring_relative.patch` (33 lines in
+`DualContouring.cs`, one in `AdaptiveDualContouring.cs`), applied in a scratch worktree only:
+
+- **The normal** (lines 326 and 328; the `HermiteF` normal at 316 is left alone): `Vector3d.Normalized` as today where the
+  length is above 2.2e-16 and finite, so the bits stay; otherwise the gradient times the power of two that brings its largest
+  component into [1, 2), then normalized.
+- **The crossing tests** (311, 2413): `fb != fa` in place of `Math.Abs(fb - fa) > MathUtil.Epsilon`.
+- **The turned-over test** (`AdaptiveDualContouring.cs` 428): the dot product of the two normals, each scaled by its power of
+  two.
+- Not in the prototype: the `float` grid (values below 1.4e-45 or above 2^127 stay a limit).
+
+**Existing tests: none changes.** `tests/geometry3Sharp.Tests` (net10.0, `Category!=Nightly`): 17588 passed, 0 failed, 2
+skipped, on master and with the patch; the 17547 distinct test names have the same outcome one by one. Of these, 777 tests
+in 37 classes are the contouring, offset, solidify, terrain-contouring and lattice classes, among them the pinned hashes of
+`ContouringQualityLongHashTests` (5), `DualContouringSimplifyDefaultTests` (22), `DualContouringExactHermiteTests` (16),
+`AdaptiveDualContouringTests` (42), `MeshOffsetTests` (21) and `TpmsLatticeTests` (120). `tests/g3cli.Tests`: 674 passed
+with the patch. Not run: the Nightly tier, the Clipper2 tests, the benchmark goldens (`Meshing2Benchmark`, no contouring).
+
+**The probe's cases** (stage `dchash`, 99 cases as "counts, volume, hash", run on both builds;
+`results/dchash_master_e875d747.txt` against `results/dchash_dcbig_experiment_dual_contouring_relative_e875d747.txt`):
+64 are identical, 35 change, and every one of the 35 is a case that is wrong or degraded today.
+
+| Group | Cases | Result with the patch |
+|---|---|---|
+| ordinary scale: 7 fields x 3 option sets | 21 | identical, bit for bit |
+| the other cases that are right today (value, geometry and uniform scales inside today's range, the levels 1e-5 to 1e-16) | 43 | identical, bit for bit |
+| values x 2^-52 .. 2^-100, default | 3 | empty today; now the unit mesh, bit for bit (504 triangles, volume 4.186889) |
+| values x 2^-140, default | 1 | empty today; now 504 triangles, volume 4.187110 (the float grid is subnormal there: not the unit bits) |
+| geometry x 2^60 .. 2^200 with values of order 1, default | 3 | empty today; now the unit mesh |
+| field and geometry x 2^262, 2^300, 2^400, default | 3 | 542 triangles today; now the unit mesh (the cluster counters are those of the unit run: 57 clusters, 0 rejected) |
+| the same value and geometry scales with `Simplify` off | 7 | the vertices move back: volume about 4.2036 (the unit run's) in place of about 4.1262 |
+| `ExactHermite` off, values x 2^-48 .. 2^-140 and field and geometry x 2^-48 .. 2^-100 | 8 | volume 4.1957 (the unit run's) in place of 4.12 to 4.14 |
+| exp(-40 r^2), levels 1e-20, 1e-30, 1e-40 | 6 | next table |
+| exp(-40 r^2), `ExactHermite` off, levels 1e-16 to 1e-40 | 4 | next table: **worse** |
+
+exp(-40 r^2) (cell 0.125):
+
+| Level | Analytic volume | Default today | Default with the patch | `Simplify` off today / patch | `ExactHermite` off today / patch |
+|---|---|---|---|---|---|
+| 1e-16 | 3.7026 | 3.7064 | the same | the same | 3.8918 / 4.1146 |
+| 1e-20 | 5.1745 | **0 triangles** | 540 triangles, **5.1714** | 5.1056 / 5.1902 | 5.0102 / 5.6477 |
+| 1e-30 | 9.5061 | 0 triangles | 540 triangles, 9.4534 | 9.4244 / 9.5251 | 9.5768 / 10.3674 |
+| 1e-40 | 14.6357 | 0 triangles | 888 triangles, 14.6084 | 14.5408 / 14.6581 | 14.5456 / 15.7067 |
+
+So the level 1e-20 comes out as a closed mesh of 540 triangles whose volume is 0.06 % below the analytic one, where today
+the mesh is empty. The one regression is `ExactHermite = false` on this field: there the crossing is the linear
+interpolation of two grid values of an exponential, which is far off (the values differ by orders of magnitude along one
+edge); today's `|fb - fa| > 2.2e-16` test puts those crossings at the middle of the edge, which happens to be nearer
+(3 % against 9 % at 1e-20). `fb != fa` is what the class comment describes; if this case matters, the crossing test can stay
+absolute for `ExactHermite = false` and the patch then changes only the normal there. The default (`ExactHermite = true`,
+bisection) does not use that crossing.
+
+**Reading.** On the evidence here the change is output-neutral for ordinary fields (no test, no pinned hash, none of 21
+ordinary cases changes) and repairs #1376 except for the float grid. It is a sample: a field with a gradient between 0 and
+2.2e-16 on some edges of an otherwise ordinary contour would change there, from a zero normal to the true one.
+
 ## 7. Prior art
 
 How others handle the magnitude range (papers and documentation only; no code was read; details and what could not be
@@ -339,8 +398,8 @@ A helper would keep it uniform: one internal function that returns the exponent 
    measured, that is `MeshGeodesicDistance.TracePath` outside 2^-31 .. 2^50 (another number of path points). Go or not, and
    whether `IntrinsicTriangulation` may store scaled lengths behind accessors in caller units.
 2. **`DualContouring`, relative normal and crossing tests (b).** It changes output where the gradient or a node difference
-   is below 2.2e-16 today: fields that give an empty or a moved mesh now. Before it is built, the change should be counted on
-   the contouring tests and the benchmark fields; a value prescaling alone changed nothing on five fields.
+   is below 2.2e-16 today: fields that give an empty or a moved mesh now. Measured since (section 6.4): no existing test changes, 21 ordinary cases are bit
+   identical, and the only regression is `ExactHermite = false` on exp(-40 r^2).
 3. **A refusal for what scaling cannot represent** (disparity above about 2^200 inside one mesh; classes without a status):
    which status or exception, or documented as a limit.
 4. **`TracePath` inside the range**: a new issue of its own, or part of #1377 (it is repaired by (a) either way).
@@ -360,4 +419,5 @@ prescaling: BLAS, LAPACK, Kahan; relative parameters: Crane et al.).
 - Other classes that use `Cross(...).Length` or a squared area were not swept (the remeshers, the hole fillers, the UV
   atlas, the deformers): the 2.5a table gives 2^-200 .. 2^200 for those that have a row, which is inside the fourth-power
   limit.
-- The relative-normal change of `DualContouring` was not prototyped (it needs a library edit beyond one formula).
+- The relative-normal change of `DualContouring` is prototyped as a patch file (section 6.4), without the float grid and
+  without tests of its own.

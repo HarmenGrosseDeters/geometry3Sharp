@@ -18,6 +18,7 @@ dotnet run --project benchmarks/MagnitudeRobustness -c Release -- [stage ...]
 | `dcbig` | `DualContouring` above 2^100, split into field and geometry, geometry only, values only, per option; the counters of the simplification around 2^262 | 6 s |
 | `cost` | plain against prescaled, median of 5, on spheres of 3176, 13256 and 54152 vertices | 215 s |
 | `formula` | the area formula with a power-of-two normalization on a rare path: bits against today's formula, ns per call | 9 s |
+| `dchash` | `DualContouring` on 99 fixed cases as "counts, volume, hash", to compare two builds of the library | 10 s |
 
 Inputs are procedural: the sphere of 152 vertices at (0.1, 0.2, 0.3) of the second metamorphic hunt, a sphere of 728 vertices
 for the quad remesher, the sheared 3 x 3 grid of the comment on #1352, and the distance field of a sphere.
@@ -28,3 +29,7 @@ power-of-two normalization outside 2^-250 .. 2^250; `results/experiment_area_fro
 with it applied (section 5 of the note).
 `experiments/common_subdivision_nan_safe.patch`, also **not applied**: the two area checks of `IntrinsicCommonSubdivision` made
 NaN-safe; with it `ExtractCommonSubdivision` answers `Inconsistent` from 2^256 up and is unchanged below.
+`experiments/dual_contouring_relative.patch`, **not applied**: the relative normal and crossing tests of `DualContouring` and the
+scaled turned-over test of the simplification (section 6.4 of the note). `results/dchash_master_e875d747.txt` is the stage
+`dchash` on master, `results/dchash_dcbig_experiment_dual_contouring_relative_e875d747.txt` the stages `dchash` and `dcbig` with
+the patch applied.
