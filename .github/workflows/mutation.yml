@@ -110,6 +110,13 @@ on:
       - 'tests/geometry3Sharp.Tests/Hausdorff*Tests.cs'
       - 'tests/geometry3Sharp.Tests/MeshDeviationTests.cs'
       - 'tests/geometry3Sharp.Tests/ReducerParallelDeviationCheckTests.cs'
+      # exact winding number (tests/mutation/stryker-mesh-exact-winding.json)
+      - 'spatial/ExactWindingCache.cs'
+      - 'tests/geometry3Sharp.Tests/ExactWindingNumberTests.cs'
+      - 'tests/geometry3Sharp.Tests/ExactWindingCacheInternalTests.cs'
+      - 'tests/geometry3Sharp.Tests/FastWindingExpansionUsedTests.cs'
+      - 'tests/geometry3Sharp.Tests/WindingNumberTests.cs'
+      - 'tests/geometry3Sharp.Tests/WindingEdgeCaseTests.cs'
       # SolidBooleanPipeline (tests/mutation/stryker-mesh-solid-pipeline.json)
       - 'mesh_ops/SolidBooleanPipeline.cs'
       - 'tests/geometry3Sharp.Tests/SolidBooleanPipelineTests.cs'

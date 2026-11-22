@@ -1,0 +1,29 @@
+{
+  "stryker-config": {
+    "project": "geometry3Sharp_netstandard.csproj",
+    "test-projects": [
+      "../geometry3Sharp.Tests/geometry3Sharp.Tests.csproj"
+    ],
+    "target-framework": "net10.0",
+    "mutate": [
+      "**/spatial/ExactWindingCache.cs"
+    ],
+    "test-case-filter": "FullyQualifiedName~ExactWindingNumberTests|FullyQualifiedName~ExactWindingCacheInternalTests|FullyQualifiedName~FastWindingExpansionUsedTests|FullyQualifiedName~WindingNumberTests|FullyQualifiedName~WindingEdgeCaseTests&FullyQualifiedName!~Boolean_IdenticalInputs",
+    "ignore-methods": [],
+    "coverage-analysis": "perTest",
+    "configuration": "Release",
+    "additional-timeout": 30000,
+    "reporters": [
+      "progress",
+      "html",
+      "json",
+      "markdown"
+    ],
+    "thresholds": {
+      "high": 90,
+      "low": 62,
+      "break": 60
+    },
+    "concurrency": 2
+  }
+}
