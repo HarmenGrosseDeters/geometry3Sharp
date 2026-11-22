@@ -494,8 +494,8 @@ Ordered by expected value for the library.
      edit anywhere (2976 of 2976 such components on 3 529 procedural cases, 0 of 732 without an edit); the issue's
      sheet goes for two contractions of 7.6e-11, and the thinnest sheet kept moves by seven orders of magnitude with
      the frame. 463 of 1106 thin solids of the inputs are lost. Candidate "below 4 ulps, or still defective, or
-     changed in volume by more than a factor 2" returns 324 of them, keeps today's verdicts and has one threshold in
-     every frame; the other 139 are mangled by the degenerate-area test (a separate question). #1259: no-go (a grid
+     changed in volume by more than a factor 2" returns 324 of them, leaves no new result not clean on the measured
+     sets and has one threshold in every frame; the other 139 are mangled by the degenerate-area test (a separate question). #1259: no-go (a grid
      rounding would lose 439 of the 463 again). Rule, K and factor: owner decisions, open.
    - Status (2026-11-12, owner; ended 2026-11-15, #721 closed, see the plateau variant below): taken up together with item 3 by a Fable research session
      (session_01AaGT59a53nRKYCZvxKB6Vt): falsification run on real rounding traces first, candidate rules as lemmas

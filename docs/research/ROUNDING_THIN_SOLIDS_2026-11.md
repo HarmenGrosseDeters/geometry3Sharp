@@ -4,8 +4,10 @@ Status: **research note, no library code.** A design study of two linked items: 
 thin solids and returns `Success`) and plan #1259 (a guaranteed 3D rounding after Devillers et al.). The removal
 threshold, any output change and any new option are owner decisions; section 8 lists the options with a leaning.
 The owner's decision of 2026-11-22 on the pipeline audit ([ROADMAP.md](../ROADMAP.md), "Decided on 2026-11-22": the
-removal gets an opt-out and a threshold, a criterion that does not change with rotation, removed parts listed) sets the
-direction; this note supplies the criterion and its numbers.
+removal "gets an opt-out and a threshold, plus a criterion that does not change with rotation; removed parts are listed
+and the result is not clean") sets the direction; this note supplies the criterion and its numbers. It does not treat
+the opt-out, and where it says "today's verdicts" it means the verdicts before that decision is built: "not clean
+whenever a part is removed" comes on top of any rule here (section 8).
 
 The measurement is `benchmarks/SnapRoundingExperiment` (`thin`, `ThinSolids.cs`, `thin.py`); raw output in
 `benchmarks/SnapRoundingExperiment/trace/results/thin_2026-11-22/` (one compressed file per set, `tables.txt`,
@@ -26,8 +28,8 @@ rounding (the rounding cost study, PR #1390, `ROUNDING_COST_2026-11.md` on its b
   2976 thin components with an edit are removed, 0 of 732 without one (section 4.1).
 - **The edit that condemns the sheet of #1216 is 7.6e-11 long.** The issue's 1e-4 degree tilt makes B's bottom
   diagonal miss A's corner edge by 7.6e-11 (on a 100 m model); the exact result holds two sliver triangles there, the
-  repair contracts them (two contractions, drift 7.6e-11), and the sheet, 1e-5 to 1e-3 thick and 3e5 to 8e10 ulps,
-  is "edited". Far from the origin the coordinate spacing (9.3e-10) is above that gap: the inputs no longer hold the
+  repair contracts them (two contractions, drift 7.6e-11), and the sheet, 1e-5 to 1e-3 thick and 1.7e9 to 3.5e10
+  ulps, is "edited". Far from the origin the coordinate spacing (9.3e-10) is above that gap: the inputs no longer hold the
   near-coincidence, nothing is edited, the same sheet stays (4.2).
 - **So the threshold of one solid moves by seven orders of magnitude with the frame.** At the origin the thinnest
   sheet kept is 1.2e-4 of the model size in two frames and 7e-12 in the axis-aligned one (table of 4.3). 463 of the
@@ -35,7 +37,7 @@ rounding (the rounding cost study, PR #1390, `ROUNDING_COST_2026-11.md` on its b
   sets come back empty with `Success` and `RoundingClean` true.
 - **A second, separate mechanism sits below about 1e-11 of the size:** the sheet's own side triangles fall below the
   degenerate area (1e-12 of the squared diagonal), the repair contracts them as decision D′ says, and the solid is
-  mangled (volume changed by 3 to 19 000 times) whether or not it is then removed. No removal rule repairs that; it
+  mangled (volume changed by 2.8 to 12 851 times) whether or not it is then removed. No removal rule repairs that; it
   is the degenerate-area question of the audit's cube (4.4).
 - **Candidates.** An ulp threshold alone, (a), keeps the sheets and leaves 16 more results not clean (defective
   slivers stay). "Only where defective", (b), alone keeps 1097 of 1432 slivers below 4 ulps and leaves 132 results
@@ -45,8 +47,9 @@ rounding (the rounding cost study, PR #1390, `ROUNDING_COST_2026-11.md` on its b
   changed its volume by more than a factor 2", removes those too:** 324 of the 463 lost solids come back (287 with
   the exact result's volume to 1 %), the 139 mangled ones still go, nothing kept is deformed or defective, and the thinnest sheet kept is the
   same in every frame (sections 5 and 6).
-- **All candidates keep what SafeRounding guarantees:** closed (whole closed components go), `RoundingClean` exactly
-  as today under (c) and (d1), and the drift bound, which the removal was never inside (5.4). Cost: one pass over the
+- **All candidates keep what SafeRounding guarantees:** closed (whole closed components go), `RoundingClean` as
+  today under (c) and (d1) on every measured result (with two cases the sets do not hold, 5.4), and the drift bound,
+  which the removal was never inside. Cost: one pass over the
   triangles, 2 to 5 % of the rounding as measured standalone (5.5).
 - **#1259 does not remove the need for the rule.** A grid rounding merges sheets closer than a cell: of the 463 lost
   solids 439 are thinner than one cell, of the 324 that (d1) returns 300. Its output is at least 16 to 258 times the
@@ -133,7 +136,8 @@ edit at any of its vertices.
 
 ### 4.2 The issue's case: near the origin and not far from it
 
-The six rows reproduce exactly (exact volumes 10, 1 and 0.271; `maxLength` 1.93e-3; removed near, kept far).
+The six rows reproduce exactly (exact volumes 10, 1 and 0.271; `maxLength` 1.93e-3, and 1.51e-3 for the 1e-5 sheet,
+which is a wedge over part of A; removed near, kept far).
 
 - Near the origin the exact result of the 1e-3 sheet has 16 triangles, four of them degenerate: two slivers at each
   of two corners, where B's bottom diagonal crosses A's wall 7.6e-11 beside A's vertical edge. The tilt causes the
@@ -159,9 +163,10 @@ The thinnest sheet kept today, as k (t = L 2^-k), at the origin, the same for al
 | rule | axis | rz | rza | issue | gen | gena |
 |---|---:|---:|---:|---:|---:|---:|
 | today | 37 | 34 | 34 | 13 | 13 | 19 |
-| (c) or (d1), at 4 or 256 ulps | 37 | 37 | 37 | 52 | 37 | 37 |
+| (d1), at 4 or 256 ulps | 37 | 37 | 37 | 52 | 37 | 37 |
 
-(k = 13 is 1.2e-4 L, 19 is 1.9e-6 L, 34 is 5.8e-11 L, 37 is 7.3e-12 L. In the `issue` frame a sheet thinner than
+((c) keeps the same sheets with the volume within a factor 2 and, below them, the mangled ones of 4.4: down to
+k = 49 at 4 ulps and 43 at 256. k = 13 is 1.2e-4 L, 19 is 1.9e-6 L, 34 is 5.8e-11 L, 37 is 7.3e-12 L. In the `issue` frame a sheet thinner than
 the tilt's rise is a wedge of the same shape at every k, so it is kept throughout.)
 
 - **Any thin result component with one near-degeneracy.** With a coincidence between the operands (`issue`, `gen`)
@@ -214,7 +219,8 @@ The fuzz harness of PR #1382 reported two differences of a box and a thin slab a
 | `fuzz:0` (slab 2^-30, sheared) | 4 triangles, area 7.6e-9, volume 1.2e-18 | 3.1e-10, 6.9e5 ulps | tiny, and one of its own triangles is degenerate; no edit | removed (still defective) | "degenerate triangles" |
 | `fuzz:1` (slab 2^-43, turned by 3.8e-6 rad) | 12 triangles, area 1, volume 4.6e-7 | 9.2e-7, 2.1e9 ulps | thin, and two contractions with a drift of 2.2e-12 | kept, volume unchanged to 1e-10 | clean |
 
-The first is the mechanism of 4.4, the second that of 4.1. Both components are removed on net10.0 on Linux as
+The first is a component whose own triangle is degenerate and that no edit repairs (it goes as "still defective",
+the neighbour of 4.4); the second is the mechanism of 4.1. Both components are removed on net10.0 on Linux as
 well: the rule's outcome is the same on both runtimes on these inputs, so the net48-only failure of that test is not
 a difference of the rule (net48 itself was not run here).
 
@@ -232,10 +238,11 @@ rounded (before the edits); ulp is that of the component's largest coordinate.
 | (a) at K | tiny, or thinner than K ulps |
 | (b) | (tiny or thin as today) and a defect is left in it after the repair |
 | (c) at K | thinner than K ulps, or (b) |
-| (d1) at K | (c), or (tiny or thin as today) and the repair changed its volume by more than a factor 2 |
+| (d1) at K | (c), or (tiny or thin as today) and the repair changed its volume (absolute value) by more than a factor 2 |
 | (d2) at K | (c), or (tiny or thin as today) and thinner than twice the repair's largest drift |
 
-(d1) and (d2) are what the data suggested: (d1) from 4.4, (d2) from 4.2 ("compare the edit with the thickness").
+In the tool every rule also removes an edited component whose volume after the edits is numerically zero (as today's
+does); it decides nothing here. (d1) and (d2) are what the data suggested: (d1) from 4.4, (d2) from 4.2 ("compare the edit with the thickness").
 Also run: (a) on the thickness after the edits, and (a) without the tiny rule.
 
 ### 5.2 Scores
@@ -305,23 +312,23 @@ gives the tool's own rule on 3474 of 3474 results):
 
 | factor | solids lost (of 1106) | between: removed (of 1338) | between: kept |
 |---:|---:|---:|---:|
-| 1.001 | 253 | 1085 | 253 |
-| 1.01 | 177 | 940 | 398 |
-| 1.1 | 155 | 795 | 543 |
+| 1.001 | 252 | 1085 | 253 |
+| 1.01 | 176 | 940 | 398 |
+| 1.1 | 154 | 795 | 543 |
 | 2 | 139 | 524 | 814 |
-| 10 | 96 | 487 | 851 |
-| 1000 | 27 | 341 | 997 |
+| 10 | 95 | 487 | 851 |
+| 1000 | 26 | 341 | 997 |
 
-The solids are nearly bimodal (155 lost at 1.1, 139 at 2): a solid is either left alone or mangled. The "between"
-components are not; for them the factor is a second threshold. The factor 2 is the smallest that loses no solid the
-repair leaves recognisable; it is the owner's knob like K.
+The solids are nearly bimodal (154 lost at 1.1, 139 at 2, and the same 139 for every factor from 1.85 to 2.8): a
+solid is either left alone or mangled. The "between" components are not; for them the factor is a second threshold.
+It is the owner's knob like K.
 
 ### 5.4 The guarantees
 
 | guarantee of SafeRounding today | (a) | (b) | (c) | (d1) |
 |---|---|---|---|---|
 | Closed, manifold | kept: whole closed components go, as today | kept | kept | kept |
-| `RoundingClean` true means no intersection, no degenerate triangle, no contact made by the rounding | kept as a verdict; true on fewer results (16 fewer at K = 4) | kept | **the same verdict as today on every result**: a defective component that is thin or tiny goes under both, any other stays under both | as (c) |
+| `RoundingClean` true means no intersection, no degenerate triangle, no contact made by the rounding | kept as a verdict; true on fewer results (16 fewer at K = 4) | kept | **the same verdict as today on every measured result**: a defective component that is thin or tiny goes under both, any other stays under both; two cases outside the sets below | as (c) |
 | `NotCleanReasons` empty | 16 more results not clean | 103 more (inside-out slivers) | the same 29 | the same 29 |
 | Drift: the kept surface within `maxLength` of the rounded exact result | kept; fewer components are exempt from it | kept | kept | kept |
 | Volume: removed components add theirs | below K ulps x area / 2 per removed component | no bound | below K ulps x area / 2, or of a defective component | as (c), or of a component whose volume the repair had changed by more than the factor |
@@ -329,10 +336,23 @@ repair leaves recognisable; it is the owner's knob like K.
 
 The removal was never inside the drift bound: the bound is a distance between the kept surfaces, and a removed
 component is exempt from it (the class comment says so; the certified-mode spike showed that a checker without that
-exemption rejects both audit drops, [BOOLEAN_CERTIFIED_MODE_2026-11.md](BOOLEAN_CERTIFIED_MODE_2026-11.md) 4.4). Every
-candidate removes a subset of what today's rule removes among the edited components, so every candidate has fewer
-exemptions. Under (c) and (d1) the largest removed component of the whole run falls from 9.6e-6 of the size in
-thickness (5.7e-6 of size^3 in volume) to 9.3e-9 (5.6e-9).
+exemption rejects both audit drops, [BOOLEAN_CERTIFIED_MODE_2026-11.md](BOOLEAN_CERTIFIED_MODE_2026-11.md) 4.4). On
+every measured result the candidates with K up to 256 remove a subset of what today's rule removes, so they have
+fewer exemptions. The thickest removed component of the whole run falls from 9.6e-6 of the size to 1.7e-8 under (c)
+and 9.2e-8 under (d1) (the audit's cube of 2^-11), the largest removed volume from 5.7e-6 of size^3 to 5.6e-9.
+
+Two cases the sets do not hold, where a candidate as the tool writes it would differ from today's verdict; a built
+rule has to settle both:
+- *`ScaleDisparity`.* Today an edited thin component with real volume for its area is kept and counted, and the
+  result is not clean. The tool applies that guard after the candidate's predicate, so such a component of 4 ulps or
+  more without a defect would stay uncounted, and the result would be clean. No result here has a disparity under any
+  rule. To keep today's verdict the guard must be evaluated on today's test (thin by the bound), not on the candidate's.
+- *`KeepWhenEmptied`.* Today nothing goes if everything would. A candidate that removes less no longer empties the
+  result, so it removes its (smaller) set where today keeps all and reports `ScaleDisparity`. The flag is set only
+  in `plate` here, and no result of it is emptied.
+
+Also: a candidate measures the thickness before the edits and today's rule after them, so "a subset of today's" is a
+measured statement, not one by construction.
 
 Not checked here: the cohort and hash gates of the library (263 hashes, the ABC and Thingi10K cohorts). None of the
 earlier notes' real results removed a component of one cell or more, so the expected change on them is small; that is
@@ -386,8 +406,8 @@ a statement to measure when a rule is built, not a result.
   have intersections in components that are neither thin nor tiny, under every rule.)
 - **"Kept" is not "unchanged" for these shells.** They taper to nothing at their rim, and the repair contracts the
   rim, within its bound. Of the 814 "between" components that (c) and (d1) keep, 146 have the volume of the exact
-  result to 1e-6, 399 to 1 %, 543 to 10 %, and 271 differ by 10 to 98 % (most of them the crescents of a turned
-  sphere: median 35 %). Of the 967 solids kept, 829 are unchanged to 1e-6 and 930 to 1 %.
+  result to 1e-6, 399 to 1 %, 543 to 10 %, and 271 differ by 10 to 98 % (median 32 %; most of them the crescents
+  of a turned sphere). Of the 967 solids kept, 829 are unchanged to 1e-6 and 930 to 1 %.
 
 ### 6.2 The sets the rule was built for
 
@@ -417,7 +437,7 @@ written). This section adds what #1216 asks of it.
    |---|---:|---:|---:|---:|
    | thin, tiny or of zero volume by today's tests | 1106 | 108 | 6 | 992 |
    | removed today | 463 | 23 | 1 | 439 |
-   | removed today, kept by (c) or (d1) at 4 ulps | 324 | 23 | 1 | 300 |
+   | removed today, kept by (d1) at 4 ulps (by (c): with the volume within a factor 2) | 324 | 23 | 1 | 300 |
 
    Of the issue's three sheets (cell 4.9e-4) only the 1e-3 one is two cells thick. A grid as fine as the coordinates
    would keep more, and then every distinct coordinate is its own slab (its 4.3: 0.5 to 0.9 sqrt(n) times the
@@ -436,7 +456,7 @@ written). This section adds what #1216 asks of it.
   ordinary result of 300 to 420 000 triangles on the grid above, 16 to 370 times on a grid as fine as the
   coordinates; every vertex moves, by up to 2.6 cells.
 - In time, an estimate only: at scale:161 union the lower bound is 63.7 million triangles for a result of 424 000
-  that today takes 1.5 s, 0.4 s of it rounding. At the throughput of today's whole boolean (0.29 million result
+  that took 1.5 s, 0.4 s of it rounding, in the guarantee note's run (1.7 and 0.55 s in the run of 5.5). At the throughput of today's whole boolean (0.29 million result
   triangles per second there) writing that output alone is about 220 s, 600 times the rounding it replaces; the
   exact 2D arrangements of all faces in two projections come on top. The verifying search, which is what the
   rounding costs today, would run on 150 times the triangles if the certificate per result is kept.
@@ -473,8 +493,8 @@ rounds of growth. #1216 is not a trigger: it is solved, or not, by the rule.
 
 | # | Option | What it does on the measured sets | Effort | Risk |
 |---|---|---|---|---|
-| 0 | Keep the rule; report what it removed (count, volume, thickness per component) and count the result as not clean, as decided on 2026-11-22 | no solid comes back; 1772 of 3474 results here would report a removal, 975 of them one of 4 ulps and more | S (report fields) | none to outputs; "not clean" on results that are clean today is a visible change |
-| 1 | **(d1) at 4 ulps**: an edited closed component goes if it is thinner than 4 ulps, or thin or tiny by today's bound and either still defective or changed in volume by more than a factor 2 | 324 of 463 lost solids back, 139 still lost (4.4); no kept component defective or deformed; the same results not clean as today; one threshold in every frame (4.3); 633 results differ from today, 355 still remove a component of 4 ulps and more (all mangled or defective) | S-M in `MeshRoundingRepair` (the sums before the edits, the exact comparison as #1191); tier L process, because outputs change: the 263 hashes, the cohorts, the rounding shards | **an output change (owner).** It narrows the decision of 2026-11-16 to copies a few ulps apart (6.3); thin shells of copies farther apart come back |
+| 0 | Keep the rule; report what it removed (count, volume, thickness per component) and count the result as not clean, as decided on 2026-11-22 (the opt-out of that decision is not treated here) | no solid comes back; 1772 of 3474 results here would report a removal, 975 of them one of 4 ulps and more | S (report fields) | none to outputs; "not clean" on results that are clean today is a visible change |
+| 1 | **(d1) at 4 ulps**: an edited closed component goes if it is thinner than 4 ulps, or thin or tiny by today's bound and either still defective or changed in volume by more than a factor 2 | 324 of 463 lost solids back, 139 still lost (4.4); no kept component defective or deformed; the same results not clean as before the decision of 2026-11-22 (with it, every result with a removal is not clean: 1171 here); one threshold in every frame (4.3); 633 results differ from today, 355 still remove a component of 4 ulps and more (all mangled or defective) | S-M in `MeshRoundingRepair` (the sums before the edits, the exact comparison as #1191); tier L process, because outputs change: the 263 hashes, the cohorts, the rounding shards | **an output change (owner).** It narrows the decision of 2026-11-16 to copies a few ulps apart (6.3); thin shells of copies farther apart come back |
 | 2 | (c) at 4 ulps: as 1 without the volume part | as 1, and the 139 solids and 508 "between" components the repair mangled stay, clean and within the bound; 963 results differ | S | returns solids that are not the exact result's (a sheet of 175 times its volume); simpler to state |
 | 3 | K = 256 instead of 4 in 1 or 2 (the bound's own ulp multiple) | 49 more solids lost under (d1), 256 fewer "between" components kept | as 1 or 2 | a sheet of 5 to 256 ulps is lost when edited and kept when not, as today |
 | 4 | (a): an ulp threshold alone | 16 more results not clean at K = 4, 2 more at 256 | S | trades lost solids for results that are not clean |
@@ -500,8 +520,9 @@ How others solve it:
 
 **Leaning: option 1, with the report of option 0 for what still goes; K = 4 and the factor 2 as the starting values,
 both the owner's.** It is the only measured rule with no false removal that a removal rule can avoid, no kept
-component that is defective or mangled, today's verdicts, and one threshold in every frame, which is what the
-decision of 2026-11-22 asks for. Option 2 is the fallback if the volume test is unwanted; option 6 is the follow-up
+component that is defective or mangled, no new result that is not clean, and one threshold in every frame, which
+is what the decision of 2026-11-22 asks for. That decision's "the result is not clean" is not part of the rule: it
+applies to whatever the rule still removes. Option 2 is the fallback if the volume test is unwanted; option 6 is the follow-up
 for what both leave. Open for the owner in either: whether a result that removed only components below K ulps is
 "not clean" (under option 1, 816 of the 1171 results with a removal removed nothing else).
 
@@ -533,6 +554,9 @@ and add to it far from it. If the owner wants thin shells of nearly coincident c
 - The rules are replayed outside the library on the repair without the removal; in the library the removal runs once
   at the end, so the replay is the same computation (checked for today's rule on every result), but a built rule may
   differ at exact thresholds (the tool compares in doubles where the library would compare exactly).
+- No measured result has a `ScaleDisparity` component, and none is emptied with `KeepWhenEmptied` set: the two
+  cases of 5.4 are argued from the code, not measured. A compact thin part with real volume and a thin input are the
+  families to add when a rule is built.
 - "Edited" in (d2) used the repair's largest drift over the whole mesh, an upper bound for the component.
 - The classes are by construction and by scale; whether a "between" component is wanted is the decision, not a
   measurement.

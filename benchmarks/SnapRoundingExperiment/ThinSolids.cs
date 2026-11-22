@@ -529,7 +529,7 @@ static class ThinSolids
             BigInteger[] p = Rel(tv.a), q = Rel(tv.b), s = Rel(tv.c);
             sum += p[0] * (q[1] * s[2] - q[2] * s[1]) - p[1] * (q[0] * s[2] - q[2] * s[0]) + p[2] * (q[0] * s[1] - q[1] * s[0]);
         }
-        // (double)sum rounds once; the scaling by a power of two is exact unless it leaves the double range
+        // (double)sum and the division by 6 round once each; the scaling by a power of two is exact unless it leaves the double range
         return (double)sum / 6 * Math.Pow(2, minExp) * Math.Pow(2, minExp) * Math.Pow(2, minExp);
     }
 
