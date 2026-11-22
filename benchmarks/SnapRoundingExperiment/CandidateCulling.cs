@@ -3,7 +3,7 @@
 // Not library code: it measures what a separating-axis certificate would save, and checks that the set of
 // intersecting pairs stays the same.
 //
-//   cull <case dir with A.off, B.off> <union|intersection|difference> [--serial]
+//   cull <case dir with A.off, B.off> <union|intersection|difference> [--serial] [--variants a,b,...] [--parts k] [--visits]
 //
 // Variants (all search from the triangles with a vertex that is not an input position, as the library's search skips the
 // pairs of two exact triangles, docs/design/ROUNDING_EXACT_PAIRS.md; here "exact" is taken from the positions, an
@@ -19,6 +19,17 @@
 //             lemma checked in tools/Z3Pilot/separating_axis.py)
 //   axes      this file's box tree, a node (and a leaf's box) also culled if it is apart from the query triangle along
 //             one of the query's 4 axes; then box+axes' test of the pair
+// Variants of docs/research/ROUNDING_COST_2026-11.md (2026-11-22; --variants, not in the default list):
+//   enum, own-enum   the hits only, no pair test (what the enumeration alone costs): the library tree, this file's tree
+//   box+dop     the library's hits; before the pair test, the pair is dropped if the two triangles' intervals along
+//               x+y, x-y, x+z, x-z, y+z, y-z (an 18-DOP with the box; each sum rounded outwards by one ulp) are apart
+//   box+axesf   box+axes with the axes and intervals of all triangles in flat arrays (no object per triangle)
+//   split       a library tree over the split-clipped sub-boxes of the triangles (SplitBoxes.cs, at most --parts per
+//               triangle, default 8); a query asks with each sub-box of the query triangle, and a pair is tested once
+//   split+axes, split+axesf   split, then box+axes' (box+axesf's) test of the pair
+//   split+dop   split, then box+dop's test
+//   split-enum  split's hits only (distinct triangles), no pair test
+// The time of a split variant includes nothing of its build: build_ms_split (the sub-boxes and their tree) is reported.
 // Output: one JSON line.
 using System;
 using System.Collections.Generic;
@@ -36,6 +47,12 @@ static class CandidateCulling
         string dir = args[0];
         var op = (ExactMeshBoolean.Operations)Enum.Parse(typeof(ExactMeshBoolean.Operations), args[1], true);
         bool serial = args.Contains("--serial");
+        string[] variants = { "box", "box+side", "box+axes", "own-box", "axes" };
+        int parts = 8;
+        for (int i = 2; i + 1 < args.Length; ++i) {
+            if (args[i] == "--variants") variants = args[i + 1].Split(',');
+            if (args[i] == "--parts") parts = int.Parse(args[i + 1]);
+        }
         DMesh3 a = StandardMeshReader.ReadMesh(Path.Combine(dir, "A.off")), b = StandardMeshReader.ReadMesh(Path.Combine(dir, "B.off"));
         var boolean = new ExactMeshBoolean(a, b, op) { SafeRounding = false };
         boolean.Compute();
@@ -92,32 +109,121 @@ static class CandidateCulling
         var qs = new Query[n];
         Parallel.For(0, n, (i) => { qs[i] = new Query(ref tri[i]); });
         double axesBuild = sw.Elapsed.TotalMilliseconds;
+        // (the same axes and intervals, flat: 12 + 8 doubles per triangle)
+        sw.Restart();
+        var flatAxis = new double[12 * n];
+        var flatRange = new double[8 * n];
+        Parallel.For(0, n, (i) => { SplitBoxes.AxesOf(ref tri[i], flatAxis, 12 * i, flatRange, 8 * i); });
+        double flatBuild = sw.Elapsed.TotalMilliseconds;
+
+        // the 18-DOP's six extra intervals per triangle, rounded outwards (a sum of two doubles is within one ulp)
+        sw.Restart();
+        var dop = new double[12 * n];
+        Parallel.For(0, n, (i) => {
+            for (int d = 0; d < 6; ++d) {
+                double lo = double.PositiveInfinity, hi = double.NegativeInfinity;
+                for (int k = 0; k < 3; ++k) {
+                    Vector3d v = tri[i][k];
+                    double p = d == 0 ? v.x + v.y : d == 1 ? v.x - v.y : d == 2 ? v.x + v.z : d == 3 ? v.x - v.z : d == 4 ? v.y + v.z : v.y - v.z;
+                    lo = Math.Min(lo, p); hi = Math.Max(hi, p);
+                }
+                dop[12 * i + 2 * d] = Math.BitDecrement(lo); dop[12 * i + 2 * d + 1] = Math.BitIncrement(hi);
+            }
+        });
+        double dopBuild = sw.Elapsed.TotalMilliseconds;
+
+        // the split-clipped sub-boxes and their tree
+        sw.Restart();
+        var sub = new double[n][];
+        Parallel.For(0, n, () => new double[6 * Math.Max(parts, 1)], (i, state, buffer) => {
+            int c = SplitBoxes.Of(tri[i].V0, tri[i].V1, tri[i].V2, parts, buffer);
+            sub[i] = new double[6 * c];
+            Array.Copy(buffer, sub[i], 6 * c);
+            return buffer;
+        }, (buffer) => { });
+        var subBoxes = new List<AxisAlignedBox3d>();
+        var owner = new List<int>();
+        int splitTriangles = 0;
+        for (int i = 0; i < n; ++i) {
+            if (sub[i].Length > 6) splitTriangles++;
+            for (int j = 0; j < sub[i].Length; j += 6) {
+                owner.Add(i);
+                subBoxes.Add(new AxisAlignedBox3d(sub[i][j], sub[i][j + 1], sub[i][j + 2], sub[i][j + 3], sub[i][j + 4], sub[i][j + 5]));
+            }
+        }
+        int[] own1 = owner.ToArray();
+        int subCount = subBoxes.Count;
+        var splitTree = new TriangleBoxTree(subBoxes);
+        double splitBuild = sw.Elapsed.TotalMilliseconds;
 
         var o = new Dictionary<string, object> {
             ["case"] = Path.GetFileName(dir.TrimEnd('/')), ["op"] = args[1].ToLowerInvariant(), ["serial"] = serial,
-            ["triangles"] = n, ["queries"] = queries, ["build_ms_lib"] = Math.Round(libBuild, 1), ["build_ms_own"] = Math.Round(ownBuild, 1), ["build_ms_axes"] = Math.Round(axesBuild, 1) };
+            ["triangles"] = n, ["queries"] = queries, ["build_ms_lib"] = Math.Round(libBuild, 1), ["build_ms_own"] = Math.Round(ownBuild, 1), ["build_ms_axes"] = Math.Round(axesBuild, 1), ["build_ms_axesf"] = Math.Round(flatBuild, 1),
+            ["build_ms_dop"] = Math.Round(dopBuild, 1), ["build_ms_split"] = Math.Round(splitBuild, 1), ["parts"] = parts,
+            ["sub_boxes"] = subCount, ["split_triangles"] = splitTriangles };
+        // tree quality: the nodes a query visits, in the library's tree (Morton order above 4096 boxes) and in this
+        // file's (median split of the centroids), and the library tree's depth
+        if (args.Contains("--visits")) {
+            long libVisits = 0, ownVisits = 0;
+            for (int i = 0; i < n; ++i)
+                if (ex[i] == false) {
+                    libVisits += libTree.VisitedNodes(boxes[i]);
+                    ownVisits += own.Visited(boxes[i]);
+                }
+            o["visits_per_query_lib"] = Math.Round(libVisits / (double)Math.Max(queries, 1), 1);
+            o["visits_per_query_own"] = Math.Round(ownVisits / (double)Math.Max(queries, 1), 1);
+            o["depth_lib"] = libTree.Depth();
+            o["nodes_lib"] = libTree.NodeCount;
+            // the boxes much larger than the typical one: they sit in a leaf of the Morton order by their centre
+            double[] diag = boxes.Select(bx => bx.Diagonal.Length).OrderBy(x => x).ToArray();
+            o["box_diagonal_median"] = diag[n / 2]; o["box_diagonal_p99"] = diag[(int)(0.99 * (n - 1))]; o["box_diagonal_max"] = diag[n - 1];
+            AxisAlignedBox3d all = AxisAlignedBox3d.Empty;
+            foreach (AxisAlignedBox3d bx in boxes) all.Contain(bx);
+            o["mesh_diagonal"] = all.Diagonal.Length;
+        }
         long[] reference = null;
-        foreach (string variant in new[] { "box", "box+side", "box+axes", "own-box", "axes", "box", "box+side", "box+axes", "own-box", "axes" }) {
+        foreach (string variant in variants.Concat(variants)) {
+            bool split = variant.StartsWith("split"), enumerate = variant.EndsWith("enum");
+            bool useAxes = variant.EndsWith("axes"), useDop = variant.EndsWith("+dop"), useFlat = variant.EndsWith("axesf");
             var hits = new long[n]; var tested = new long[n];
             var found = new List<long>[n];
             sw.Restart();
-            Action<int> body = (ta) => {
+            Action<int, int[]> body = (ta, stamp) => {
                 if (ex[ta])
                     return;
                 var list = new List<int>();
                 Query q = qs[ta];
-                if (variant == "box" || variant == "box+side" || variant == "box+axes")
-                    libTree.Query(boxes[ta], list);
-                else
+                if (split) {
+                    // (each triangle once: the first sub-box pair that reports it)
+                    var raw = new List<int>();
+                    double[] mine = sub[ta];
+                    for (int j = 0; j < mine.Length; j += 6) {
+                        raw.Clear();
+                        splitTree.Query(new AxisAlignedBox3d(mine[j], mine[j + 1], mine[j + 2], mine[j + 3], mine[j + 4], mine[j + 5]), raw);
+                        foreach (int h in raw) {
+                            int tb = own1[h];
+                            if (stamp[tb] != ta + 1) { stamp[tb] = ta + 1; list.Add(tb); }
+                        }
+                    }
+                }
+                else if (variant == "own-box" || variant == "own-enum" || variant == "axes")
                     own.Collect(boxes[ta], variant == "axes" ? q : null, list);
+                else
+                    libTree.Query(boxes[ta], list);
                 hits[ta] = list.Count;
+                if (enumerate)
+                    return;
                 foreach (int tb in list) {
                     // (a pair of two queried triangles once, from the smaller index; one with an exact triangle from the other)
                     if (tb == ta || (tb < ta && ex[tb] == false))
                         continue;
                     if (variant == "box+side" && q.ExactlyApart(ref tri[tb]))
                         continue;
-                    if ((variant == "axes" || variant == "box+axes") && (q.ApartFromCorners(ref tri[tb]) || qs[tb].ApartFromCorners(ref tri[ta])))
+                    if (useDop && dop_apart(dop, ta, tb))
+                        continue;
+                    if (useFlat && (SplitBoxes.AxesApart(flatAxis, flatRange, ta, ref tri[tb]) || SplitBoxes.AxesApart(flatAxis, flatRange, tb, ref tri[ta])))
+                        continue;
+                    if (useAxes && (q.ApartFromCorners(ref tri[tb]) || qs[tb].ApartFromCorners(ref tri[ta])))
                         continue;
                     tested[ta]++;
                     bool hit = ta < tb ? TriangleTriangleFilter.IntersectsBeyondShared(id[ta], ref tri[ta], id[tb], ref tri[tb])
@@ -126,13 +232,17 @@ static class CandidateCulling
                         (found[ta] ?? (found[ta] = new List<long>())).Add(((long)Math.Min(ta, tb) << 32) | (uint)Math.Max(ta, tb));
                 }
             };
-            if (serial)
-                for (int i = 0; i < n; ++i) body(i);
-            else
-                Parallel.For(0, n, body);
+            if (serial) {
+                var stamp = new int[n];
+                for (int i = 0; i < n; ++i) body(i, stamp);
+            } else
+                Parallel.For(0, n, () => new int[split ? n : 0], (i, state, stamp) => { body(i, stamp); return stamp; }, (stamp) => { });
             double ms = sw.Elapsed.TotalMilliseconds;
             long[] pairs = found.Where(l => l != null).SelectMany(l => l).OrderBy(x => x).ToArray();
-            if (reference == null)
+            // (a variant that only enumerates tests no pair)
+            if (enumerate)
+                pairs = reference ?? pairs;
+            else if (reference == null)
                 reference = pairs;
             // (the second round of each variant is reported: the first warms up)
             o[variant] = new Dictionary<string, object> {
@@ -141,6 +251,14 @@ static class CandidateCulling
         }
         Console.WriteLine(JsonSerializer.Serialize(o));
         return 0;
+    }
+
+    static bool dop_apart(double[] dop, int a, int b)
+    {
+        for (int d = 0; d < 12; d += 2)
+            if (dop[12 * a + d] > dop[12 * b + d + 1] || dop[12 * b + d] > dop[12 * a + d + 1])
+                return true;
+        return false;
     }
 
     // a query triangle with its 4 axes and its interval on each (doubles; see the file comment)
@@ -280,6 +398,24 @@ static class CandidateCulling
                 stack[sp++] = left[node];
                 stack[sp++] = right[node];
             }
+        }
+
+        // the nodes Collect visits for the query box
+        public long Visited(AxisAlignedBox3d qb)
+        {
+            var stack = new int[128];
+            int sp = 0;
+            long visited = 0;
+            stack[sp++] = 0;
+            while (sp > 0) {
+                int node = stack[--sp];
+                visited++;
+                if (apart(nodeBox, 6 * node, qb, null) || left[node] < 0)
+                    continue;
+                stack[sp++] = left[node];
+                stack[sp++] = right[node];
+            }
+            return visited;
         }
 
         static bool apart(double[] bx, int o, AxisAlignedBox3d qb, Query q)

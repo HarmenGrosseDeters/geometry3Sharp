@@ -1,0 +1,142 @@
+name: Untangle solidify contours (Thingi10K wrap cases)
+
+# Option D of docs/research/SELF_INTERSECTION_UNTANGLING_2026-11.md, a measurement: MeshRobustRepair takes the alpha wrap where
+# its solidify's contour intersects itself. For the Thingi10K meshes that reached the wrap in earlier runs
+# (benchmarks/SelfIntersectionUntangle/thingi_wrap_ids.txt), take that contour and count how many end clean (exact check) after
+# the existing contact separation and after the untangling prototype of the benchmark, how far the prototype moves vertices,
+# and whether the finished solidify would then be clean without the wrap (benchmarks/SelfIntersectionUntangle/Contours.cs).
+# No library code is changed or configured: benchmark only.
+# Manual only (workflow_dispatch, no other trigger). The meshes are fetched from huggingface at run time (a PR-tier test never
+# does); no mesh and no fetched byte is committed or uploaded: the artifacts hold the result rows only. GitHub-hosted runners
+# only. One process per mesh with a timeout; about 1 runner hour expected for the 36 meshes of the list (their repairs took 844 s
+# in the recorded run; the prototype is capped at 150 s of rounds per contour), at most 6 with every mesh at the default timeout.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Ref of the library and the benchmark (must contain benchmarks/SelfIntersectionUntangle/Contours.cs)'
+        default: 'master'
+      ids:
+        description: 'Space-separated Thingi10K ids (empty: the list thingi_wrap_ids.txt)'
+        default: ''
+      timeout_s:
+        description: 'Timeout per mesh in seconds (60 to 3600); the bound of a run is 36 meshes times this'
+        default: '600'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: untangle-contours
+  cancel-in-progress: false
+
+jobs:
+  measure:
+    if: github.repository == 'harmengrossedeters/geometry3Sharp'
+    runs-on: ubuntu-latest   # GitHub-hosted only, never self-hosted
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - name: Check the inputs
+        env:
+          IDS: ${{ inputs.ids }}
+          TIMEOUT_S: ${{ inputs.timeout_s }}
+        run: |
+          python3 - <<'PY'
+          import os, re, sys
+          e = os.environ
+          if not re.fullmatch(r"[0-9 ]*", e["IDS"]):
+              sys.exit("ids must be numbers separated by spaces")
+          if not re.fullmatch(r"[0-9]{2,4}", e["TIMEOUT_S"]) or not 60 <= int(e["TIMEOUT_S"]) <= 3600:
+              sys.exit("timeout_s must be 60 to 3600 seconds")
+          PY
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build the benchmark
+        run: |
+          test -f benchmarks/SelfIntersectionUntangle/Contours.cs || { echo "::error::ref lacks the contour mode"; exit 1; }
+          dotnet build benchmarks/SelfIntersectionUntangle/SelfIntersectionUntangle.csproj -c Release
+          { git rev-parse HEAD; nproc; dotnet --version; } > lib_sha.txt
+      - name: Select and fetch the shard's meshes
+        env:
+          SHARD: ${{ matrix.shard }}
+          IDS: ${{ inputs.ids }}
+        run: |
+          LIST=benchmarks/SelfIntersectionUntangle/thingi_wrap_ids.txt
+          if [ -n "${IDS// /}" ]; then printf '%s\n' $IDS > "$RUNNER_TEMP/list.txt"; LIST="$RUNNER_TEMP/list.txt"; fi
+          awk -v s="$SHARD" 'NF && (n++ % 4) == s' "$LIST" > "$RUNNER_TEMP/ids.txt"
+          wc -l < "$RUNNER_TEMP/ids.txt"
+          [ -s "$RUNNER_TEMP/ids.txt" ] || exit 0
+          cd benchmarks/MeshRepairBenchmark && python3 fetch_data.py --ids "$RUNNER_TEMP/ids.txt"
+      - name: Measure (one process per mesh)
+        env:
+          TIMEOUT_S: ${{ inputs.timeout_s }}
+        run: |
+          mkdir -p out
+          BIN=benchmarks/SelfIntersectionUntangle/bin/Release/net10.0/SelfIntersectionUntangle.dll
+          while read -r id; do
+            f=$(ls benchmarks/MeshRepairBenchmark/data/ids/meshes/"$id".* 2>/dev/null | head -1)
+            [ -n "$f" ] || { echo "$id: no file"; printf '%s\n' "$id" >> out/failed.txt; continue; }
+            start=$(date +%s)
+            rc=0; timeout -k 30 "$TIMEOUT_S" dotnet "$BIN" contour "$f" out/rows.tsv > "out/$id.log" 2>&1 < /dev/null || rc=$?
+            echo "$id: exit $rc, $(( $(date +%s) - start )) s"
+            # (a mesh without a row: timeout 124 or a crash; the summary job lists the ids of the list without a row)
+            [ "$rc" = 0 ] || { printf '%s\t%s\n' "$id" "$rc" >> out/failed.txt; tail -5 "out/$id.log"; }
+          done < "$RUNNER_TEMP/ids.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shard-${{ matrix.shard }}
+          path: |
+            out/rows.tsv
+            out/failed.txt
+            out/*.log
+            lib_sha.txt
+          if-no-files-found: ignore
+
+  summary:
+    needs: measure
+    if: ${{ !cancelled() && github.repository == 'harmengrossedeters/geometry3Sharp' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+          pattern: shard-*
+      - name: Merge and summarize
+        env:
+          IDS: ${{ inputs.ids }}
+        run: |
+          mkdir -p merged
+          LIST=benchmarks/SelfIntersectionUntangle/thingi_wrap_ids.txt
+          if [ -n "${IDS// /}" ]; then printf '%s\n' $IDS > "$RUNNER_TEMP/list.txt"; LIST="$RUNNER_TEMP/list.txt"; fi
+          cat art/shard-*/out/failed.txt > merged/failed.txt 2>/dev/null || true
+          echo "meshes that ended without exit 0 (id, exit code; 124 = timeout): $(tr '\n' ' ' < merged/failed.txt)" | tee -a "$GITHUB_STEP_SUMMARY"
+          ls art/shard-*/out/rows.tsv > /dev/null   # no rows at all: fail
+          awk 'FNR == 1 && NR != 1 { next } { print }' art/shard-*/out/rows.tsv > merged/rows.tsv
+          cp "$(ls art/shard-*/lib_sha.txt | head -1)" merged/lib_sha.txt
+          {
+            echo "### Untangle solidify contours"
+            echo "library $(head -1 merged/lib_sha.txt)"
+            echo
+            python3 -I benchmarks/SelfIntersectionUntangle/contour_summary.py --ids "$LIST" merged/rows.tsv
+          } | tee merged/summary.md >> "$GITHUB_STEP_SUMMARY"
+          cat merged/summary.md
+          echo "---- rows.tsv ----"; cat merged/rows.tsv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: merged
+          path: merged/

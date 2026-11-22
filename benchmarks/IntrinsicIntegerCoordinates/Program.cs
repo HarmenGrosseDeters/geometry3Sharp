@@ -1,11 +1,12 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 // Study: integer (normal) coordinates for intrinsic triangulations (docs/research/INTRINSIC_INTEGER_COORDINATES_2026-11.md).
 //
-//   dotnet run -c Release --project benchmarks/IntrinsicIntegerCoordinates [-- signpost | integer | cost] [--verbose]
+//   dotnet run -c Release --project benchmarks/IntrinsicIntegerCoordinates [-- signpost | integer | cost | library] [--verbose]
 //
 // signpost: how often the library's traced common subdivision fails on adversarial procedural meshes (stage 1,
 // the upper bound of what integers can gain). integer: the prototype layer (NormalCoordinates.cs) on the same
-// triangulations, checked by its own invariants and against the traced result. cost: times.
+// triangulations, checked by its own invariants and against the traced result. cost: times. library: the
+// layer of the library (IntrinsicTriangulation.EnableIntegerCoordinates), validity and times against tracing.
 // The exit code is 1 if a check of the prototype fails.
 using System;
 using System.Collections.Generic;
@@ -22,6 +23,7 @@ static class Program
         if (mode == "signpost" || mode == "all") Signpost(args.Contains("--verbose"));
         if (mode == "integer" || mode == "all") Integer(args.Contains("--verbose"));
         if (mode == "cost" || mode == "all") Cost();
+        if (mode == "library" || mode == "all") { Library(args.Contains("--verbose")); LibraryCost(); }
         return failures == 0 ? 0 : 1;
     }
 
@@ -342,4 +344,102 @@ static class Program
     }
 
     static void Count(SortedDictionary<string, int> d, string k) { int v; d.TryGetValue(k, out v); d[k] = v + 1; }
+
+    static readonly string[] LibraryStepNames = { "flips", "flips + boundary splits (DelaunayRefine(0))" };
+
+    static IntrinsicTriangulation LibraryBuild(DMesh3 m, int step, bool integers, out int flips, out int splits)
+    {
+        var T = new IntrinsicTriangulation(m);
+        if (integers && T.EnableIntegerCoordinates() == false) throw new InvalidOperationException("EnableIntegerCoordinates");
+        flips = 0; splits = 0;
+        if (step == 0) flips = T.FlipToDelaunay();
+        else { var r = T.DelaunayRefine(0); flips = r.Flips; splits = r.BoundarySplits; }
+        if (T.HasIntegerCoordinates != integers) throw new InvalidOperationException("HasIntegerCoordinates");
+        return T;
+    }
+
+    // Stage 4: the layer of the library on the steps it covers: is its subdivision valid (the checks of stage 2),
+    // and does it agree with the traced one where that succeeds?
+    static void Library(bool verbose)
+    {
+        Console.WriteLine();
+        for (int step = 0; step < 2; ++step) {
+            Console.WriteLine($"library layer, {LibraryStepNames[step]}:");
+            Console.WriteLine("| mesh | flips | boundary splits | crossings | faces | integers valid | traced Success | same as traced | largest intrinsic area error (integers) |");
+            Console.WriteLine("|---|---|---|---|---|---|---|---|---|");
+            int runs = 0, valid = 0, tracedOk = 0, compared = 0, same = 0;
+            double maxDist = 0;
+            foreach (var c in Meshes.All()) {
+                DMesh3 m0 = c.Make();
+                int v = 0, t = 0, cmp = 0, sm = 0, flips = 0, splits = 0, crossings = 0, faces = 0;
+                double worst = 0;
+                for (int k = 0; k < Meshes.TransformNames.Length; ++k) {
+                    DMesh3 m = Meshes.Transformed(m0, k);
+                    int f, sp;
+                    var T = LibraryBuild(m, step, true, out f, out sp);
+                    var cs = T.ExtractCommonSubdivision();
+                    int inputBoundary;
+                    int chi = Euler(m, out inputBoundary);
+                    string err = cs.Error;
+                    if (err == null) {
+                        int oneSided;
+                        var polys = cs.Faces.Select(x => x.Corners).ToList();
+                        if (Euler(polys, out oneSided) != chi) err = "Euler characteristic";
+                        else if (oneSided != inputBoundary + sp) err = "boundary edges " + oneSided;
+                        else if (OddCrossings(polys, T.VertexCount) > 0) err = "crossing without four edges";
+                        else if (AreaError(m, cs.Points, polys) > 1e-6) err = "area";
+                    }
+                    if (err == null) v++; else { failures++; Console.Error.WriteLine($"FAILED {c.Name} [{Meshes.TransformNames[k]}] {LibraryStepNames[step]}: {err}"); }
+                    worst = Math.Max(worst, cs.MaxIntrinsicAreaError);
+                    if (k == 0) { flips = f; splits = sp; crossings = cs.Points.Count - T.VertexCount; faces = cs.Faces.Count; }
+                    int f2, sp2;
+                    var S = LibraryBuild(m, step, false, out f2, out sp2);
+                    var tr = S.ExtractCommonSubdivision();
+                    if (tr.Status == CommonSubdivisionStatus.Success) {
+                        t++;
+                        if (err == null) {
+                            cmp++;
+                            double diag = m.CachedBounds.DiagonalLength;
+                            double d = (tr.Points.Count == cs.Points.Count && tr.Faces.Count == cs.Faces.Count)
+                                ? Math.Max(PointSetDistance(cs.Points, tr.Points, T.VertexCount, diag), PointSetDistance(tr.Points, cs.Points, T.VertexCount, diag)) : double.MaxValue;
+                            if (d < 1e-7) { sm++; maxDist = Math.Max(maxDist, d); }
+                            else { failures++; Console.Error.WriteLine($"DIFFERENT {c.Name} [{Meshes.TransformNames[k]}] {LibraryStepNames[step]}: {cs.Points.Count} / {tr.Points.Count} points, {cs.Faces.Count} / {tr.Faces.Count} faces, distance {d:E1}"); }
+                        }
+                    } else if (verbose) Console.Error.WriteLine($"{c.Name} [{Meshes.TransformNames[k]}] {LibraryStepNames[step]}: traced {tr.Error}");
+                    runs++;
+                }
+                valid += v; tracedOk += t; compared += cmp; same += sm;
+                Console.WriteLine($"| {c.Name} | {flips} | {splits} | {crossings} | {faces} | {v} / 4 | {t} / 4 | {sm} / {cmp} | {worst:E1} |");
+            }
+            Console.WriteLine();
+            Console.WriteLine($"{LibraryStepNames[step]}: integers valid in {valid} of {runs} runs, traced Success in {tracedOk} of {runs}; the same subdivision in {same} of {compared} runs where both succeed (largest distance of a crossing {maxDist:E1} of the bounding box diagonal)");
+            Console.WriteLine();
+        }
+    }
+
+    // times of the library with and without its layer (identity transform)
+    static void LibraryCost()
+    {
+        Console.WriteLine("| mesh | V | step | flips | boundary splits | build: without layer | build: with layer | subdivision: traced | subdivision: integers | crossings |");
+        Console.WriteLine("|---|---|---|---|---|---|---|---|---|---|");
+        var big = new List<Meshes.Case>(Meshes.All().Where(c => c.Name.StartsWith("sheared torus") || c.Name == "ring sphere 160x24" || c.Name == "obtuse plane dy=0.05" || c.Name == "sheared cylinder s=9"));
+        big.Add(new Meshes.Case() { Name = "sheared torus s=9, 200 x 160", Make = () => Meshes.Sheared(200, 160, 45, true) });
+        big.Add(new Meshes.Case() { Name = "obtuse plane 40 x 800", Make = () => Meshes.ObtusePlane(40, 800, 1.0, 0.05) });
+        foreach (var c in big) {
+            DMesh3 m = c.Make();
+            for (int step = 0; step < 2; ++step) {
+                int flips = 0, splits = 0, f, sp;
+                if (step == 1 && Euler(m, out f) == 0 && f == 0) continue;      // (closed: no boundary to split)
+                double lib = Median(() => Ms(() => LibraryBuild(m, step, false, out flips, out splits)));
+                double lay = Median(() => Ms(() => LibraryBuild(m, step, true, out f, out sp)));
+                var S = LibraryBuild(m, step, false, out f, out sp);
+                var T = LibraryBuild(m, step, true, out f, out sp);
+                string status = "";
+                double traced = Median(() => Ms(() => { var cs = S.ExtractCommonSubdivision(); status = cs.Status == CommonSubdivisionStatus.Success ? "" : " (Inconsistent)"; }), 3);
+                IntrinsicCommonSubdivision ci = null;
+                double ints = Median(() => Ms(() => ci = T.ExtractCommonSubdivision()), 3);
+                Console.WriteLine($"| {c.Name} | {m.VertexCount} | {(step == 0 ? "flips" : "flips + boundary splits")} | {flips} | {splits} | {lib:F1} ms | {lay:F1} ms ({100 * (lay / lib - 1):+0;-0} %) | {traced:F1} ms{status} | {ints:F1} ms ({traced / ints:F0}x) | {ci.Points.Count - T.VertexCount} |");
+            }
+        }
+    }
 }

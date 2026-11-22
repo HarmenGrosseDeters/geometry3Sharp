@@ -274,7 +274,12 @@ change in the last bits and what the size limit of a refined subdivision is.
    `IntrinsicCommonSubdivisionConsistencyTests`) is reported as `Inconsistent` since #1326; the counts of this
    benchmark are the same before and after.
 2. **Option 2 when the owner wants a robust common subdivision**, as an opt-in layer first (no cost for the
-   geodesic default). It is the cheap part of the paper, the measured cost is small, and it removes the
+   geodesic default). **Built (owner 2026-11-22, #1311):** `IntrinsicTriangulation.EnableIntegerCoordinates`
+   (`mesh_ops/IntrinsicIntegerCoordinates.cs`), kept through flips and splits of boundary edges (paper eq. 6,
+   derived and tested), switched off by any other insertion. On this benchmark (stage `library`): valid in 108 of
+   108 runs after flips and after `DelaunayRefine(0)`, the same subdivision as tracing in the 101 runs where
+   tracing succeeds, extraction 6 to 28 times faster, flips 5 to 30 % slower with the layer on
+   ([benchmark README](../../benchmarks/IntrinsicIntegerCoordinates/README.md)). The tables above are the prototype's. It is the cheap part of the paper, the measured cost is small, and it removes the
    extraction failures after flips in every run measured (the flips themselves still differ at ties).
 3. **Option 3 only with a consumer** (texture or attribute transfer after refinement, geodesic cutting, intrinsic
    simplification). Most of today's failures are there, but so are the effort, the slowdown of insertions and the
