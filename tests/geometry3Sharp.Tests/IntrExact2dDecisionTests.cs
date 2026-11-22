@@ -668,6 +668,49 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void LineLine_TinyOriginsWithASubnormalDenominator_GiveTheFiniteParameter()
+        {
+            // line 2 almost parallel to line 1: den is subnormal, the origins are tiny (the scale is large), the parameter is about 1e109
+            var l1 = new Line2d(new Vector2d(0, 0), new Vector2d(1, 0));
+            var l2 = new Line2d(new Vector2d(0, 1e-200), new Vector2d(1, 1e-309));
+            l2.Direction.Normalize();
+            var f = new IntrLine2Line2(l1, new Line2d(l2.Origin, new Vector2d(1, 1e-309)));
+            Assert.True(f.Find());
+            Assert.Equal(IntersectionType.Point, f.Type);
+            // x = -1e-200 / 1e-309 along line 1: -1e109 (to the rounding of the inputs)
+            double expected = -1e-200 / 1e-309;
+            Assert.True(Math.Abs(f.Segment1Parameter - expected) <= 1e-14 * Math.Abs(expected), "s " + f.Segment1Parameter);
+            // the same at scales 2^600 and 2^-300
+            foreach (int k in new[] { 600, -300 }) {
+                double sc = Math.Pow(2, k);
+                var g = new IntrLine2Line2(new Line2d(new Vector2d(0, 0), new Vector2d(1, 0)), new Line2d(new Vector2d(0, 1e-200 * sc), new Vector2d(1, 1e-309)));
+                if (g.Find()) Assert.True(Math.Abs(g.Segment1Parameter / sc - expected) <= 1e-14 * Math.Abs(expected));
+            }
+        }
+
+        [Fact]
+        public void Lerp_IsInvariantUnder2kAtTheTopOfTheRange_AndEndToEnd()
+        {
+            double M = double.MaxValue;
+            var r = new Random(95);
+            for (int i = 0; i < 400; i++) {
+                Vector2d p = new Vector2d((r.NextDouble() * 2 - 1) * M, (r.NextDouble() * 2 - 1) * M), q = new Vector2d((r.NextDouble() * 2 - 1) * M, (r.NextDouble() * 2 - 1) * M);
+                double w = r.NextDouble();
+                Vector2d a = IntrExact2d.Lerp(p, q, w), b = IntrExact2d.Lerp(p * 0.5, q * 0.5, w);
+                Assert.Equal(a.x * 0.5, b.x); Assert.Equal(a.y * 0.5, b.y);
+            }
+            // end to end: the line x = -4.776701581924738e307 through the triangle (-0.8M, -1), (0.8M, 1), (0, 0.9M) at the scales 1 and 1/2
+            Vector2d t0 = new Vector2d(-0.8 * M, -1), t1 = new Vector2d(0.8 * M, 1), t2 = new Vector2d(0, 0.9 * M);
+            var tri = new Triangle2d(t0, t1, t2); var tri2 = new Triangle2d(t0 * 0.5, t1 * 0.5, t2 * 0.5);
+            var f = new IntrLine2Triangle2(new Line2d(new Vector2d(-4.776701581924738e307, 0), Vector2d.AxisY), tri);
+            var g = new IntrLine2Triangle2(new Line2d(new Vector2d(-4.776701581924738e307 * 0.5, 0), Vector2d.AxisY), tri2);
+            Assert.True(f.Find()); Assert.True(g.Find());
+            Assert.Equal(f.Quantity, g.Quantity);
+            Assert.Equal(f.Point0.y * 0.5, g.Point0.y);
+            if (f.Quantity == 2) Assert.Equal(f.Point1.y * 0.5, g.Point1.y);
+        }
+
+        [Fact]
         public void SegmentCrossing_OnAnAxisAlignedEdge_StaysOnTheEdge()
         {
             // a crossing of an axis-aligned segment has the exact coordinate of the edge (p + w (q - p) gives p.x back for q.x = p.x)
@@ -683,6 +726,7 @@ namespace geometry3Sharp.Tests
                 var ls = new IntrLine2Segment2(new Line2d(other.P0, (other.P1 - other.P0).Normalized), vert);
                 if (ls.Find() && ls.Type == IntersectionType.Point)
                     Assert.Equal(x, ls.Point.x);
+                Assert.Equal(x, ss.Point0.x);
             }
         }
 
@@ -705,6 +749,16 @@ namespace geometry3Sharp.Tests
             Assert.True(st.Find());
             Assert.Equal(IntersectionType.Point, st.Type);
             Assert.True(Math.Abs(st.Point0.x) <= sc * 1e-3 && Math.Abs(st.Point0.y) <= sc * 1e-3, "point " + st.Point0);
+            // a crossing away from the origin, 2^-1060 wide: the same relative position as at scale 1 (the products would underflow without the scale)
+            var u1 = new Segment2d(new Vector2d(0, 0.25 * sc), new Vector2d(h, h), sc);
+            var u2 = new Segment2d(new Vector2d(0, 0.25 * sc), new Vector2d(h, -h), sc);
+            var su = new IntrSegment2Segment2(u1, u2);
+            Assert.True(su.Find());
+            var v1 = new Segment2d(new Vector2d(0, 0.25), new Vector2d(h, h), 1);
+            var v2 = new Segment2d(new Vector2d(0, 0.25), new Vector2d(h, -h), 1);
+            var sv = new IntrSegment2Segment2(v1, v2);
+            Assert.True(sv.Find());
+            Assert.True(Math.Abs(su.Point0.y / sc - sv.Point0.y) <= 1e-3, "y " + su.Point0.y / sc + " against " + sv.Point0.y);
         }
 
         [Fact]

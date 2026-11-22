@@ -128,17 +128,42 @@ namespace g3
             return (h1 - h2) + (l1 - l2);
         }
 
-        /// <summary> p + w (q - p) without the difference (which may overflow): (1 - w) p + w q, p and q themselves for w = 0 and 1 </summary>
+        /// <summary>
+        /// p + w (q - p), p and q themselves for w = 0 and 1: computed on p and q scaled by a power of two (ScaleFor), so that the difference cannot
+        /// overflow and the result does not depend on the scale (2^k invariant), then scaled back; the crossing of an axis-aligned edge stays on it
+        /// (equal coordinates give the coordinate back)
+        /// </summary>
         internal static Vector2d Lerp(Vector2d p, Vector2d q, double w)
         {
             if (w <= 0) return p;
             if (w >= 1) return q;
-            // p + w (q - p) where the difference is finite (it gives p back for equal coordinates: a crossing of an axis-aligned
-            // edge stays on it), else the form without the difference
-            double dx = q.x - p.x, dy = q.y - p.y;
-            if (dx - dx == 0 && dy - dy == 0)
-                return new Vector2d(p.x + w * dx, p.y + w * dy);
-            return new Vector2d((1 - w) * p.x + w * q.x, (1 - w) * p.y + w * q.y);
+            double sc = ScaleFor(p, q, Vector2d.Zero);
+            Vector2d ps = p * sc, qs = q * sc;
+            return new Vector2d((ps.x + w * (qs.x - ps.x)) / sc, (ps.y + w * (qs.y - ps.y)) / sc);
+        }
+
+        /// <summary>
+        /// num / (den sc), rounded once where the result is representable, for the scale sc of ScaleFor (a power of two): the power of two is applied
+        /// where it is exact (scaling up is exact, a quotient that underflows or overflows is not rescued), the order chosen by sc
+        /// </summary>
+        internal static double QuotientScaled(double num, double den, double sc)
+        {
+            double r;
+            if (sc <= 1) {
+                double x = num / sc;                 // (exact unless it overflows)
+                r = x / den;
+                if (r - r == 0) return r;
+                return num / den / sc;
+            }
+            double d2 = den * sc;                    // (exact unless it overflows)
+            if (d2 - d2 == 0) {
+                r = num / d2;
+                if (r - r == 0) return r;
+            }
+            double y = num / sc;
+            r = y / den;
+            if (r - r == 0) return r;
+            return num / den / sc;
         }
 
         // ------------------------------------------------------------------------------------------------------------
