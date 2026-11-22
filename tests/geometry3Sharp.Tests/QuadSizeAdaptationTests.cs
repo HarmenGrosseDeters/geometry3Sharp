@@ -637,12 +637,18 @@ namespace geometry3Sharp.Tests
             // Force repeated factorizations in IntegrableFrames and few position sweeps so SizeSeconds dominates;
             // PositionSeconds must measure only the position field, not include SizeSeconds.
             var fr = new IntegrableFrames(null, null) { Iterations = 20, RefactorEvery = 1, StopTolerance = 0 };
-            QuadRemesher qr = Run("sphere", SizeAdaptationMode.ScaleAndRotation, q => { q.Frames = fr; q.Sweeps = 5; });
+            var qr = new QuadRemesher(Shape("sphere")) { Field = FieldOf("sphere"), TargetEdgeLength = SizeOf("sphere"), SizeAdaptation = SizeAdaptationMode.ScaleAndRotation, Frames = fr, Sweeps = 5 };
+            var wall = System.Diagnostics.Stopwatch.StartNew();
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            wall.Stop();
             CheckResult(qr.Result, "position-seconds");
             Assert.True(qr.SizeAdaptationApplied);
             Assert.True(qr.SizeSeconds > 0, "SizeSeconds " + qr.SizeSeconds);
-            Assert.True(qr.PositionSeconds >= 0 && qr.PositionSeconds < qr.SizeSeconds,
-                "PositionSeconds " + qr.PositionSeconds + " should exclude SizeSeconds " + qr.SizeSeconds);
+            // Structural, not a comparison of two timings: the disjoint phases cannot sum to more than the wall time
+            // of the whole run (a PositionSeconds that included SizeSeconds would exceed it by about SizeSeconds).
+            Assert.True(qr.PositionSeconds >= 0);
+            Assert.True(qr.SizeSeconds + qr.PositionSeconds + qr.ExtractSeconds <= wall.Elapsed.TotalSeconds + 1e-3,
+                "phases " + qr.SizeSeconds + " + " + qr.PositionSeconds + " + " + qr.ExtractSeconds + " exceed wall " + wall.Elapsed.TotalSeconds);
         }
     }
 }
