@@ -3,7 +3,7 @@
 - **Board row:** OPEN_TOPICS.md §5 "Research / hard open problems (no known solution; a study first)", row "2D meshing: small-angle cascade without a weaker guarantee (HP 6)"
 - **Kind:** research study (current answer: exemption up to 60°, #496; trigger: a real input or spec need for a tighter proven bound near small input angles)
 - **Tier:** L (clean-room mathematical proof + spec + independent oracle update; study first)
-- **Plan status:** draft, 2026-11-20 (Berlin). Plan only. **STRICT CLEAN-ROOM RULE APPLIES.**
+- **Plan status:** draft, 2026-11-20 (Berlin). **STRICT CLEAN-ROOM RULE APPLIES.** Updated 2026-11-22 (Berlin): the phase 1 study is done ([MESHING2D_HP6_HP7_SPIKE_2026-11.md](../research/MESHING2D_HP6_HP7_SPIKE_2026-11.md), prototypes in `benchmarks/Meshing2HardProblems`): the proof of Miller, Pav and Walkington (2005) does not carry over to the library's refiner; leaning no change of the mesher. Its option 1 (the oracle reports the excused triangles below the paper's floor) is merged (PR `#1358`). The proven rule as a mode (option 2) waits on the owner decision on the note's options and a use case.
 
 ## Current state
 
@@ -21,6 +21,8 @@
        outside the minimal unavoidable cluster neighbourhood.
 
 ## Trigger / decision needed
+
+Update 2026-11-22: the study is done; what remains is the owner decision on the options of the [research note](../research/MESHING2D_HP6_HP7_SPIKE_2026-11.md). The original trigger:
 
 A real 2D meshing use case where the current 60° exemption hides unacceptable skinny triangles far from acute corners,
 or an owner decision to fund a clean-room proof study (option B reopenable per owner 2026-11-06).
