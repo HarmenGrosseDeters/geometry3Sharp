@@ -18,8 +18,9 @@ namespace gs
     public partial class IntrinsicTriangulation
     {
         int[] hN, hR;           // null: the layer is off
+        bool changed;           // a flip or an insertion has been made (also one that was undone later)
         int[] inFanStart;       // per input vertex: its range in inFan
-        int[] inFan;            // the input halfedges leaving the vertex, counter-clockwise from inVHe (the last
+        int[] inFan;            // the input halfedges leaving the vertex, counter-clockwise from vHe (the last
                                 // boundary edge of a boundary vertex has none: no intrinsic halfedge leaves along it)
 
         /// <summary> are the integer coordinates on (EnableIntegerCoordinates) and still kept? </summary>
@@ -29,17 +30,15 @@ namespace gs
         /// Switches on the integer (normal) coordinates (Gillespie, Sharp and Crane 2021): two integers per
         /// halfedge, updated by FlipEdge and by splits of boundary edges, from which ExtractCommonSubdivision gets
         /// the connectivity of the common subdivision without tracing (exact for the triangulation at hand, and
-        /// faster). Call it before the first flip or insertion: returns false, and changes nothing, if the
-        /// triangulation is no longer the input mesh. InsertVertex, a split of an interior edge and the
-        /// circumcenter insertions of DelaunayRefine are not covered: they switch the coordinates off for good
-        /// (HasIntegerCoordinates), and the extraction traces again.
+        /// faster). Call it before the first flip or insertion: returns false, and changes nothing, after one.
+        /// InsertVertex, a split of an interior edge and the circumcenter insertions of DelaunayRefine are not
+        /// covered: they switch the coordinates off for good (HasIntegerCoordinates), and the extraction traces
+        /// again. So does a flip whose new edge would be crossed more than int.MaxValue times.
         /// </summary>
         public bool EnableIntegerCoordinates()
         {
             if (hN != null) return true;
-            if (F != F0 || N != N0) return false;
-            for (int h = 0; h < 3 * F; ++h)
-                if (hTwin[h] != inTwin[h] || hV[h] != input_tail(h)) return false;
+            if (changed) return false;
             hN = new int[hV.Length];
             hR = new int[hV.Length];
             inFanStart = new int[N0 + 1];
@@ -460,6 +459,8 @@ namespace gs
                 if (!(err <= R.MaxIntrinsicAreaError)) R.MaxIntrinsicAreaError = err;
             }
             if (!(R.MaxInputAreaError <= 1e-6)) return fail("faces do not sum to the input triangle areas (relative error " + R.MaxInputAreaError + ")");
+            // (lengths whose squares or areas leave the double range: the positions are not reliable)
+            if (!(R.MaxIntrinsicAreaError < double.PositiveInfinity)) return fail("the intrinsic triangle areas are not finite");
             return R;
         }
     }

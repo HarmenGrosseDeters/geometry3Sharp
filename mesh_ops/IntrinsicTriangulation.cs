@@ -407,6 +407,7 @@ namespace gs
             double phiL = add_angle(vl, hAngle[tc], vScale[vl] * angL);
 
             long crossedTwice = hN != null ? flipped_coordinate_twice(ha, ta) : 0;
+            changed = true;
 
             // new triangles: slot (ha, hb, hc) = (k->l, l->j, j->k), slot (ta, tb, tc) = (l->k, k->i, i->l)
             relocate(new[] { hb, tc, hc, tb }, new[] { hc, hb, tb, tc });

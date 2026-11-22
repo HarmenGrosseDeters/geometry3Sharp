@@ -542,6 +542,63 @@ namespace geometry3Sharp.Tests
             Assert.Empty(cs.Faces);
         }
 
+        [Theory]
+        [InlineData(200)]
+        [InlineData(-200)]
+        [InlineData(300)]
+        [InlineData(480)]
+        public void ExtremeScales_GiveTheSubdivisionOrAreReported(int exponent)
+        {
+            // squares of the lengths overflow from 2^512 on and the product of four lengths in the area from 2^256
+            // on: up to there the result is the scaled one of the unit mesh, beyond it is that or it is reported,
+            // never a Success with other content. (Small scales only down to 2^-200: below about 2^-256 the areas
+            // underflow in the triangulation itself, whose flips then differ; #1352.)
+            var sim = new Similarity("scale 2^" + exponent, Math.Pow(2, exponent), Matrix3d.Identity, Vector3d.Zero);
+            DMesh3 unit = ShearedGrid(3, 1, 0.375, Similarity.Identity), mesh = ShearedGrid(3, 1, 0.375, sim);
+            var cs0 = Build(unit, 0, true).ExtractCommonSubdivision();
+            var cs = Build(mesh, 0, true).ExtractCommonSubdivision();
+            Assert.Equal(CommonSubdivisionStatus.Success, cs0.Status);
+            if (cs.Status != CommonSubdivisionStatus.Success) { Assert.Empty(cs.Faces); return; }
+            Assert.Equal(cs0.Points.Count, cs.Points.Count);
+            for (int i = 0; i < cs.Points.Count; ++i) Assert.Equal(sim.Apply(cs0.Points[i]), cs.Points[i]);
+            Assert.Equal(cs0.Faces.Count, cs.Faces.Count);
+            for (int f = 0; f < cs.Faces.Count; ++f) {
+                Assert.Equal(cs0.Faces[f].Corners, cs.Faces[f].Corners);
+                Assert.Equal(cs0.Faces[f].Barycentric, cs.Faces[f].Barycentric);
+                Assert.Equal(cs0.Faces[f].InputTriangle, cs.Faces[f].InputTriangle);
+            }
+            Assert.Equal(cs0.MaxIntrinsicAreaError, cs.MaxIntrinsicAreaError);
+        }
+
+        [Fact]
+        public void SelfGluedTriangles_AtANeedleApex()
+        {
+            // a needle: the apex of degree 3 has an angle sum of 17 degrees. Its edges are flipped away one after
+            // the other, as far as FlipEdge allows: the apex gets the degree 2, then 1 (a triangle glued to itself
+            // along the last apex edge). The same subdivision as tracing after every flip.
+            var mesh = new DMesh3();
+            int a = mesh.AppendVertex(new Vector3d(0, 0, 0)), b = mesh.AppendVertex(new Vector3d(1, 0, 0)), c = mesh.AppendVertex(new Vector3d(0.5, 0.875, 0));
+            int apex = mesh.AppendVertex(new Vector3d(0.5, 0.3125, 6));
+            mesh.AppendTriangle(a, c, b); mesh.AppendTriangle(a, b, apex); mesh.AppendTriangle(b, c, apex); mesh.AppendTriangle(c, a, apex);
+            var T = new IntrinsicTriangulation(mesh);
+            var S = new IntrinsicTriangulation(mesh);
+            Assert.True(T.EnableIntegerCoordinates());
+            int top = T.VertexIndex(apex), flips = 0;
+            for (int round = 0; round < 2; ++round) {
+                int h = Enumerable.Range(0, T.HalfedgeCount).FirstOrDefault(x => T.Tail(x) == top && T.Head(x) != top && T.FlipEdge(x), -1);
+                if (h < 0) break;
+                Assert.True(S.FlipEdge(h));
+                flips++;
+                var cs = T.ExtractCommonSubdivision();
+                string defect = Defect(mesh, T, cs);
+                Assert.True(defect == null, $"after {flips} flips: {defect}");
+                var traced = S.ExtractCommonSubdivision();
+                if (traced.Status == CommonSubdivisionStatus.Success) Assert.Null(Difference(cs, traced, 4, 6));
+            }
+            Assert.Equal(2, flips);
+            Assert.Equal(1, Enumerable.Range(0, T.HalfedgeCount).Count(x => T.Tail(x) == top));
+        }
+
         [Fact]
         public void Roundabouts_CountTheInputEdgesAroundEveryVertex()
         {
@@ -652,6 +709,9 @@ namespace geometry3Sharp.Tests
 
             var flipped = new IntrinsicTriangulation(mesh);
             int interior = Enumerable.Range(0, flipped.HalfedgeCount).First(h => flipped.Twin(h) >= 0 && flipped.FlipEdge(h));
+            Assert.False(flipped.EnableIntegerCoordinates());
+            // also when the flip is undone (the slots are then those of the input again, the history is not)
+            Assert.True(flipped.FlipEdge(interior));
             Assert.False(flipped.EnableIntegerCoordinates());
             Assert.False(flipped.HasIntegerCoordinates);
             Assert.Equal(CommonSubdivisionStatus.Success, flipped.ExtractCommonSubdivision().Status);

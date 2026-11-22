@@ -428,6 +428,7 @@ namespace gs
                     corner == 0 ? lap : corner == 1 ? lbp : lcp, out lt, out lp, out ld) == false)
                 return -1;
             drop_integer_coordinates();         // (not covered: the extraction traces from here on)
+            changed = true;
             int f1 = add_face(), f2 = add_face();
             int p = add_vertex(false);
             relocate(new[] { h1, h2 }, new[] { 3 * f1, 3 * f2 });
@@ -475,6 +476,7 @@ namespace gs
                 return -1;
             // (integer coordinates: only the split of a boundary edge is covered)
             if (boundary == false) drop_integer_coordinates();
+            changed = true;
             long crossed = hN != null ? Math.Max(pos(hN[hb]), pos(hN[hc])) : 0;
             int m = add_vertex(boundary);
             int f2 = add_face();

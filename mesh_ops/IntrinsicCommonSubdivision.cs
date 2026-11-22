@@ -50,7 +50,7 @@ namespace gs
         public string Error;
         /// <summary> the faces; empty unless Status is Success </summary>
         public List<Face> Faces = new List<Face>();
-        /// <summary> positions of the subdivision vertices: the triangulation vertices first (by vertex index), then the edge crossings </summary>
+        /// <summary> positions of the subdivision vertices: the triangulation vertices first (by vertex index), then the edge crossings; complete only if Status is Success </summary>
         public List<Vector3d> Points = new List<Vector3d>();
         /// <summary> largest relative difference between an input triangle area and the sum of its faces </summary>
         public double MaxInputAreaError;
