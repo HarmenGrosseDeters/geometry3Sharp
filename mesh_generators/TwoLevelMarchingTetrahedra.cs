@@ -116,6 +116,8 @@ namespace g3
             public int NonManifoldTriangles;
             /// <summary> the half width was a function of the position (HalfWidthF): the levels are then not g - w and -g - w with one w </summary>
             public bool VariableHalfWidth;
+            /// <summary> the half width w of the run (the generator's HalfWidth at that time); NaN if it was a function </summary>
+            public double HalfWidth;
         }
 
         /// <summary> while true, every Generate without a Domain keeps its CertificateRecord </summary>
@@ -173,7 +175,8 @@ namespace g3
             if (nc == 3) SeparateRim();
             if (nodeValuesForTest != null) nodeValuesForTest(f);
             if (RecordCertificateData && nc == 2) {
-                record = new CertificateRecord { Nodes = new Vector3i(n1x, n1y, n1z), Origin = origin, CellSize = h, NodeFlags = new byte[f[0].Length], VariableHalfWidth = HalfWidthF != null };
+                record = new CertificateRecord { Nodes = new Vector3i(n1x, n1y, n1z), Origin = origin, CellSize = h, NodeFlags = new byte[f[0].Length], VariableHalfWidth = HalfWidthF != null,
+                    HalfWidth = HalfWidthF != null ? double.NaN : HalfWidth };
                 for (int id = 0; id < record.NodeFlags.Length; ++id)
                     record.NodeFlags[id] = (byte)((f[0][id] < 0 ? 1 : 0) | (f[1][id] < 0 ? 2 : 0) | (f[0][id] == 0 ? 16 : 0) | (f[1][id] == 0 ? 32 : 0));
             }
