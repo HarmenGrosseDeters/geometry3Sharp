@@ -48,19 +48,20 @@ static class Program
         var y = new double[N];
         Console.WriteLine($"N={N} cores={Environment.ProcessorCount}");
 
-        SymmetricSparseMatrix r = null;
-        double t = Best(reps, () => r = m.Square(true));
-        ulong h = 0; var hs = new System.Collections.Generic.HashSet<ulong>();
+        double t = Best(reps, () => m.Square(true));
+        var hs = new System.Collections.Generic.HashSet<ulong>();
+        int bad = 0;
         for (int k = 0; k < 8; ++k) { m.Square(true).Multiply(x, y); hs.Add(Hash(y)); }
         Console.WriteLine($"SymmetricSparseMatrix.Square(parallel)  {t,8:F1} ms   distinct product hashes in 8 runs: {hs.Count}");
+        if (hs.Count != 1) bad = 1;
         hs.Clear();
-        t = Best(reps, () => { SymmetricSparseMatrix q = null; m.Multiply(m, ref q, true); r = q; });
+        t = Best(reps, () => { SymmetricSparseMatrix q = null; m.Multiply(m, ref q, true); });
         for (int k = 0; k < 8; ++k) { SymmetricSparseMatrix q = null; m.Multiply(m, ref q, true); q.Multiply(x, y); hs.Add(Hash(y)); }
         Console.WriteLine($"SymmetricSparseMatrix.Multiply(parallel){t,8:F1} ms   distinct product hashes in 8 runs: {hs.Count}");
         t = Best(reps, () => m.Square(false));
         Console.WriteLine($"SymmetricSparseMatrix.Square(serial)    {t,8:F1} ms");
         t = Best(reps, () => m.SquarePackedParallel());
         Console.WriteLine($"SquarePackedParallel                    {t,8:F1} ms");
-        return hs.Count == 1 ? 0 : 1;
+        return (hs.Count == 1 ? 0 : 1) | bad;
     }
 }

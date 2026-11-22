@@ -114,6 +114,23 @@ namespace geometry3Sharp.Tests
             for (int k = 0; k < 5; ++k)
                 AssertSameBits(reference, Apply(run(), n), "parallel run " + k);
             Assert.True(reference.Any(v => v != 0));
+            // the serial variant is the reference too
+            var serial = new SymmetricSparseMatrix();
+            m.Multiply(m, ref serial, false);
+            AssertSameBits(reference, Apply(serial, n), "serial");
+        }
+
+        [Fact]
+        public void Multiply_NonCommutingMatrices_Throw()
+        {
+            var a = new SymmetricSparseMatrix(); var b = new SymmetricSparseMatrix();
+            for (int i = 0; i < 6; ++i) { a.Set(i, i, 1 + i); b.Set(i, i, 2); }
+            a.Set(0, 1, 1); a.Set(1, 2, 1); b.Set(0, 2, 1); b.Set(2, 3, 1);
+            foreach (bool parallel in new[] { true, false }) {
+                var r = new SymmetricSparseMatrix();
+                Exception e = Record.Exception(() => a.Multiply(b, ref r, parallel));
+                Assert.NotNull(e);
+            }
         }
 
         // a non-symmetric matrix, as the packed Square takes it
