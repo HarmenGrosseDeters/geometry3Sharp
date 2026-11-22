@@ -48,7 +48,7 @@ IntrinsicCommonSubdivision overlay = T.ExtractCommonSubdivision();
   - `InsertionLimitReached` — valid and Delaunay, though some triangles remain below `minAngle`.
   - `Incomplete` — a circumcenter landed on an existing vertex.
   - `NonManifoldInput` — bowtie vertices prevented refinement (flips only).
-- **Common subdivision (`ExtractCommonSubdivision`):** Traces every intrinsic edge across input triangles and validates that output polygons tile both meshes (area checked to `1e-6`). Reports `Status = Inconsistent` with `Error` rather than emitting corrupt faces if floating-point tracing disagrees.
+- **Common subdivision (`ExtractCommonSubdivision`):** Traces every intrinsic edge across input triangles and validates that output polygons tile both meshes (area checked to `1e-6`). Reports `Status = Inconsistent` with `Error` rather than emitting corrupt faces if floating-point tracing disagrees. That includes a false crossing, which the areas do not show: a trace that crosses an input edge of its own tail or head vertex just outside the snap tolerance (it would add a subdivision vertex with three edges; #1313), and faces lost where crossings coincide up to rounding (edges of the result with a face on one side only; #1326: the boundary of every input triangle must be a cycle of the arrangement of the traces on its own). A `Success` is checked by the areas and by these rules, not proven: the connectivity comes from floating-point traces (see the [integer coordinates study](../research/INTRINSIC_INTEGER_COORDINATES_2026-11.md)).
 
 ---
 

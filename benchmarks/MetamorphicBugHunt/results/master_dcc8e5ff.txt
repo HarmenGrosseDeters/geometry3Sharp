@@ -1,0 +1,290 @@
+INFO boolean | sphere-sphere (AuB)-B solid | not clean, and reported: self-intersections; RoundingClean True, contacts 2, remaining intersections 0
+INFO boolean | torus-cylinder (AuB)-B solid | not clean, and reported: self-intersections; RoundingClean True, contacts 2, remaining intersections 0
+INFO boolean | star-sphere (AuB)-B solid | not clean, and reported: self-intersections; RoundingClean True, contacts 3, remaining intersections 0
+INFO boolean | boxes-shared-face Union rotated solid | not clean, and reported: self-intersections; RoundingClean True, contacts 4, remaining intersections 0
+INFO boolean | gridboxes-overlap-coplanar Difference rotated solid | not clean, and reported: self-intersections; RoundingClean True, contacts 2, remaining intersections 0
+INFO boolean | box-edge-touch Union solid | not clean, and reported: self-intersections; RoundingClean True, contacts 2, remaining intersections 0
+INFO boolean | box-edge-touch Union permuted solid | not clean, and reported: self-intersections; RoundingClean True, contacts 2, remaining intersections 0
+INFO boolean | box-edge-touch Union rotated solid | not clean, and reported: self-intersections; RoundingClean True, contacts 2, remaining intersections 0
+INFO boolean | box-edge-touch Union utm solid | not clean, and reported: self-intersections; RoundingClean True, contacts 2, remaining intersections 0
+INFO boolean | box-edge-touch Union scale 1e-3 solid | not clean, and reported: self-intersections; RoundingClean True, contacts 2, remaining intersections 0
+INFO boolean | box-edge-touch Union scale 1e3 solid | not clean, and reported: self-intersections; RoundingClean True, contacts 2, remaining intersections 0
+INFO boolean | box-edge-touch Union far 2^20 solid | not clean, and reported: self-intersections; RoundingClean True, contacts 2, remaining intersections 0
+INFO boolean | box-edge-touch Union scale 3 solid | not clean, and reported: self-intersections; RoundingClean True, contacts 2, remaining intersections 0
+INFO boolean | box-vertex-touch Union solid | not clean, and reported: self-intersections; RoundingClean True, contacts 1, remaining intersections 0
+INFO boolean | box-vertex-touch Union permuted solid | not clean, and reported: self-intersections; RoundingClean True, contacts 1, remaining intersections 0
+INFO boolean | box-vertex-touch Union rotated solid | not clean, and reported: self-intersections; RoundingClean True, contacts 1, remaining intersections 0
+INFO boolean | box-vertex-touch Union utm solid | not clean, and reported: self-intersections; RoundingClean True, contacts 1, remaining intersections 0
+INFO boolean | box-vertex-touch Union scale 1e-3 solid | not clean, and reported: self-intersections; RoundingClean True, contacts 1, remaining intersections 0
+INFO boolean | box-vertex-touch Union scale 1e3 solid | not clean, and reported: self-intersections; RoundingClean True, contacts 1, remaining intersections 0
+INFO boolean | box-vertex-touch Union far 2^20 solid | not clean, and reported: self-intersections; RoundingClean True, contacts 1, remaining intersections 0
+INFO boolean | box-vertex-touch Union scale 3 solid | not clean, and reported: self-intersections; RoundingClean True, contacts 1, remaining intersections 0
+STAGE boolean | pass 1349, fail 0, slow 0 | 7740 ms
+FAIL chain | sphere-box Union repair of a clean mesh is the identity | path Repair, 303/602 -> 301/598 vertices/triangles, volume 5.314162010255864 -> 5.314160459939806, moved 7.376908820777533E-05
+FAIL chain | sphere-box Union repair of a clean mesh: alone as next to a far part | alone: path Repair, 303/602 -> 301/598 vertices/triangles, volume 5.314162010255864 -> 5.314160459939806, moved 7.376908820777533E-05; next to a far box: path PassThrough, unchanged True
+INFO chain | sphere-box Union remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | sphere-box Union quad | result is not closed (closed input)
+INFO chain | sphere-box Union tet | 1074 ms
+INFO chain | sphere-box Intersection remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | sphere-box Intersection quad | status NoFaces Success no face was extracted
+INFO chain | sphere-box Intersection tet | 512 ms
+INFO chain | sphere-box Difference remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | sphere-box Difference quad | result is not closed (closed input)
+INFO chain | sphere-box Difference tet | 513 ms
+INFO chain | sphere-sphere Union remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | sphere-sphere Union quad | result is not closed (closed input)
+INFO chain | sphere-sphere Union tet | 302 ms
+INFO chain | sphere-sphere Intersection quad | result is not closed (closed input)
+INFO chain | sphere-sphere Intersection tet | 281 ms
+INFO chain | sphere-sphere Difference quad | result is not closed (closed input)
+INFO chain | sphere-sphere Difference tet | 227 ms
+INFO chain | torus-cylinder Union remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | torus-cylinder Union quad | result is not closed (closed input)
+INFO chain | torus-cylinder Union tet | 314 ms
+INFO chain | torus-cylinder Intersection remesh | volume changed by more than 5%: volume: 0.3171512777428819 vs 0.3395151126222386 (relative 6.59E-002, tolerance 5.0E-002)
+INFO chain | torus-cylinder Intersection remesh(prevent) | volume changed by more than 5%: volume: 0.3157961467345217 vs 0.3395151126222386 (relative 6.99E-002, tolerance 5.0E-002)
+INFO chain | torus-cylinder Intersection quad | result is not closed (closed input)
+INFO chain | torus-cylinder Intersection tet | 111 ms
+INFO chain | torus-cylinder Difference remesh | volume changed by more than 5%: volume: 1.8241113211389122 vs 1.9432688651819925 (relative 6.13E-002, tolerance 5.0E-002)
+INFO chain | torus-cylinder Difference remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | torus-cylinder Difference remesh(prevent) | volume changed by more than 5%: volume: 1.832960162598975 vs 1.9432688651819925 (relative 5.68E-002, tolerance 5.0E-002)
+INFO chain | torus-cylinder Difference quad | result is not closed (closed input)
+INFO chain | torus-cylinder Difference tet | 289 ms
+FAIL chain | star-sphere Union repair of a clean mesh is the identity | path Repair, 383/762 -> 380/756 vertices/triangles, volume 2.1868611887343765 -> 2.1868610892067957, moved 3.721150350743633E-05
+FAIL chain | star-sphere Union repair of a clean mesh: alone as next to a far part | alone: path Repair, 383/762 -> 380/756 vertices/triangles, volume 2.1868611887343765 -> 2.1868610892067957, moved 3.721150350743633E-05; next to a far box: path PassThrough, unchanged True
+INFO chain | star-sphere Union remesh | volume changed by more than 5%: volume: 2.069342091349341 vs 2.1868610892067957 (relative 5.37E-002, tolerance 5.0E-002)
+INFO chain | star-sphere Union remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | star-sphere Union remesh(prevent) | volume changed by more than 5%: volume: 2.0529320563410924 vs 2.1868610892067957 (relative 6.12E-002, tolerance 5.0E-002)
+INFO chain | star-sphere Union quad | result is not closed (closed input)
+INFO chain | star-sphere Union tet | 380 ms
+FAIL chain | star-sphere Intersection repair of a clean mesh is the identity | path Repair, 239/474 -> 238/472 vertices/triangles, volume 0.6764238414733671 -> 0.6764238414684312, moved 4.193783495590727E-06
+FAIL chain | star-sphere Intersection repair of a clean mesh: alone as next to a far part | alone: path Repair, 239/474 -> 238/472 vertices/triangles, volume 0.6764238414733671 -> 0.6764238414684312, moved 4.193783495590727E-06; next to a far box: path PassThrough, unchanged True
+INFO chain | star-sphere Intersection remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | star-sphere Intersection quad | result is not closed (closed input)
+INFO chain | star-sphere Intersection tet | 276 ms
+FAIL chain | star-sphere Difference repair of a clean mesh is the identity | path Repair, 255/502 -> 252/496 vertices/triangles, volume 0.7814255219616273 -> 0.781425851208852, moved 3.7211503519090815E-05
+INFO chain | star-sphere Difference remesh | volume changed by more than 5%: volume: 0.6555120001307565 vs 0.781425851208852 (relative 1.61E-001, tolerance 5.0E-002)
+INFO chain | star-sphere Difference remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | star-sphere Difference remesh(prevent) | volume changed by more than 5%: volume: 0.6536137999555051 vs 0.781425851208852 (relative 1.64E-001, tolerance 5.0E-002)
+INFO chain | star-sphere Difference quad | result is not closed (closed input)
+INFO chain | star-sphere Difference tet | 284 ms
+INFO chain | rotated-boxes Union remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | rotated-boxes Union quad | status NoFaces Success no face was extracted
+INFO chain | rotated-boxes Union tet | 154 ms
+INFO chain | rotated-boxes Intersection remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | rotated-boxes Intersection quad | status NoFaces Success no face was extracted
+INFO chain | rotated-boxes Intersection tet | 144 ms
+INFO chain | rotated-boxes Difference remesh | volume changed by more than 5%: volume: 0.836554905457287 vs 0.9889867292178044 (relative 1.54E-001, tolerance 5.0E-002)
+INFO chain | rotated-boxes Difference remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | rotated-boxes Difference remesh(prevent) | volume changed by more than 5%: volume: 0.8709957709293757 vs 0.9889867292178044 (relative 1.19E-001, tolerance 5.0E-002)
+INFO chain | rotated-boxes Difference quad | status NoFaces Success no face was extracted
+INFO chain | rotated-boxes Difference tet | 173 ms
+INFO chain | rotated-boxes Difference tet | boundary Euler 0 vs input 2
+INFO chain | nested Union remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | nested Union quad | result is not closed (closed input)
+INFO chain | nested Union tet | 327 ms
+INFO chain | nested Intersection remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | nested Intersection quad | status NoFaces Success no face was extracted
+INFO chain | nested Intersection tet | 320 ms
+INFO chain | nested Difference quad | result is not closed (closed input)
+INFO chain | nested Difference tet | 335 ms
+INFO chain | nested Difference tet | boundary Euler 2 vs input 4
+INFO chain | disjoint Union remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | disjoint Union quad | result is not closed (closed input)
+INFO chain | disjoint Union tet | 196 ms
+INFO chain | disjoint Difference remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | disjoint Difference quad | status NoFaces Success no face was extracted
+INFO chain | disjoint Difference tet | 267 ms
+INFO chain | torus-torus Union remesh | volume changed by more than 5%: volume: 3.084106953333386 vs 3.269441376024133 (relative 5.67E-002, tolerance 5.0E-002)
+INFO chain | torus-torus Union remesh(prevent) | volume changed by more than 5%: volume: 3.0825948200052053 vs 3.269441376024133 (relative 5.71E-002, tolerance 5.0E-002)
+INFO chain | torus-torus Union quad | result is not closed (closed input)
+INFO chain | torus-torus Union tet | 187 ms
+INFO chain | torus-torus Difference quad | status NoFaces Success no face was extracted
+INFO chain | torus-torus Difference tet | 248 ms
+INFO chain | tet-tet Union remesh | volume changed by more than 5%: volume: 1.57430767554204 vs 1.799610175812994 (relative 1.25E-001, tolerance 5.0E-002)
+INFO chain | tet-tet Union remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | tet-tet Union remesh(prevent) | volume changed by more than 5%: volume: 1.5576041637628748 vs 1.799610175812994 (relative 1.34E-001, tolerance 5.0E-002)
+INFO chain | tet-tet Union quad | status NoFaces Success no face was extracted
+INFO chain | tet-tet Union tet | 69 ms
+INFO chain | tet-tet Intersection remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | tet-tet Intersection quad | status NoFaces Success no face was extracted
+INFO chain | tet-tet Intersection tet | 185 ms
+INFO chain | tet-tet Difference remesh | volume changed by more than 5%: volume: 0.8976377707326587 vs 1.0259435091463278 (relative 1.25E-001, tolerance 5.0E-002)
+INFO chain | tet-tet Difference remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | tet-tet Difference remesh(prevent) | volume changed by more than 5%: volume: 0.8465107838694443 vs 1.0259435091463278 (relative 1.75E-001, tolerance 5.0E-002)
+INFO chain | tet-tet Difference quad | status NoFaces Success no face was extracted
+INFO chain | tet-tet Difference tet | 104 ms
+INFO chain | boxes-coplanar-face Union remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | boxes-coplanar-face Union quad | status NoFaces Success no face was extracted
+INFO chain | boxes-coplanar-face Union tet | 231 ms
+INFO chain | boxes-coplanar-face Difference remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | boxes-coplanar-face Difference quad | status NoFaces Success no face was extracted
+INFO chain | boxes-coplanar-face Difference tet | 324 ms
+INFO chain | boxes-shared-face Union remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | boxes-shared-face Union remesh(prevent) | volume changed by more than 5%: volume: 15.109964649752023 vs 16 (relative 5.56E-002, tolerance 5.0E-002)
+INFO chain | boxes-shared-face Union quad | status NoFaces Success no face was extracted
+INFO chain | boxes-shared-face Union tet | 286 ms
+INFO chain | boxes-shared-face Difference remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | boxes-shared-face Difference quad | status NoFaces Success no face was extracted
+INFO chain | boxes-shared-face Difference tet | 338 ms
+INFO chain | gridboxes-overlap-coplanar Union remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | gridboxes-overlap-coplanar Union quad | status NoFaces Success no face was extracted
+INFO chain | gridboxes-overlap-coplanar Union tet | 277 ms
+INFO chain | gridboxes-overlap-coplanar Intersection remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | gridboxes-overlap-coplanar Intersection quad | status NoFaces Success no face was extracted
+INFO chain | gridboxes-overlap-coplanar Intersection tet | 276 ms
+INFO chain | gridboxes-overlap-coplanar Difference remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | gridboxes-overlap-coplanar Difference quad | status NoFaces Success no face was extracted
+INFO chain | gridboxes-overlap-coplanar Difference tet | 299 ms
+INFO chain | cylinder-on-box Union remesh | volume changed by more than 5%: volume: 3.687124126254108 vs 4.749999999999999 (relative 2.24E-001, tolerance 5.0E-002)
+INFO chain | cylinder-on-box Union remesh | not clean (no guarantee without PreventSelfIntersections): degenerate triangles
+INFO chain | cylinder-on-box Union quad | status NoFaces Success no face was extracted
+INFO chain | cylinder-on-box Union tet | 304 ms
+INFO chain | cylinder-on-box Difference remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | cylinder-on-box Difference remesh(prevent) | volume changed by more than 5%: volume: 3.5959006381807903 vs 3.9999999999999996 (relative 1.01E-001, tolerance 5.0E-002)
+INFO chain | cylinder-on-box Difference quad | status NoFaces Success no face was extracted
+INFO chain | cylinder-on-box Difference tet | 274 ms
+INFO chain | prism-in-prism-coaxial Union remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | prism-in-prism-coaxial Union quad | status NoFaces Success no face was extracted
+INFO chain | prism-in-prism-coaxial Union tet | 324 ms
+INFO chain | prism-in-prism-coaxial Intersection remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | prism-in-prism-coaxial Intersection quad | status NoFaces Success no face was extracted
+INFO chain | prism-in-prism-coaxial Intersection tet | 221 ms
+INFO chain | prism-in-prism-coaxial Difference remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | prism-in-prism-coaxial Difference quad | status NoFaces Success no face was extracted
+INFO chain | prism-in-prism-coaxial Difference tet | 290 ms
+INFO chain | box-edge-touch Union remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | box-edge-touch Union remesh(prevent) | volume changed by more than 5%: volume: 14.669354981725933 vs 15.999013354666667 (relative 8.31E-002, tolerance 5.0E-002)
+INFO chain | box-edge-touch Union quad | status NoFaces Success no face was extracted
+INFO chain | box-edge-touch Union tet | 219 ms
+INFO chain | box-edge-touch Union tet | boundary Euler 2 vs input 4
+INFO chain | box-edge-touch Union pipeline(0) | reported not clean: self-intersections, only contacts True
+INFO chain | box-edge-touch Union pipeline(0.3) | reported not clean: self-intersections, only contacts True
+INFO chain | box-edge-touch Difference remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | box-edge-touch Difference quad | status NoFaces Success no face was extracted
+INFO chain | box-edge-touch Difference tet | 336 ms
+INFO chain | box-vertex-touch Union remesh | volume changed by more than 5%: volume: 15.125917911813788 vs 15.999506666666667 (relative 5.46E-002, tolerance 5.0E-002)
+INFO chain | box-vertex-touch Union remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | box-vertex-touch Union remesh(prevent) | volume changed by more than 5%: volume: 14.843343551090001 vs 15.999506666666667 (relative 7.23E-002, tolerance 5.0E-002)
+INFO chain | box-vertex-touch Union quad | status NoFaces Success no face was extracted
+INFO chain | box-vertex-touch Union tet | 130 ms
+INFO chain | box-vertex-touch Union tet | boundary Euler 2 vs input 4
+INFO chain | box-vertex-touch Union pipeline(0) | reported not clean: self-intersections, only contacts True
+INFO chain | box-vertex-touch Union pipeline(0.3) | reported not clean: self-intersections, only contacts True
+INFO chain | box-vertex-touch Difference remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | box-vertex-touch Difference quad | status NoFaces Success no face was extracted
+INFO chain | box-vertex-touch Difference tet | 362 ms
+INFO chain | rotated-coplanar Union remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | rotated-coplanar Union quad | status NoFaces Success no face was extracted
+INFO chain | rotated-coplanar Union tet | 117 ms
+INFO chain | rotated-coplanar Difference remesh | not clean (no guarantee without PreventSelfIntersections): self-intersections
+INFO chain | rotated-coplanar Difference remesh(prevent) | volume changed by more than 5%: volume: 7.343876838490612 vs 8 (relative 8.20E-002, tolerance 5.0E-002)
+INFO chain | rotated-coplanar Difference quad | status NoFaces Success no face was extracted
+INFO chain | rotated-coplanar Difference tet | 125 ms
+STAGE chain | pass 1567, fail 7, slow 0 | 40688 ms
+INFO deep | seed 2 step 4 Intersection | empty result, chain ends
+INFO deep | seed 3 step 3 Intersection | empty result, chain ends
+INFO deep | seed 4 step 1 Intersection | empty result, chain ends
+INFO deep | seed 6 step 4 Intersection | empty result, chain ends
+INFO deep | seed 10 step 4 Difference | empty result, chain ends
+INFO deep | seed 13 step 1 Intersection | empty result, chain ends
+INFO deep | seed 21 step 4 Intersection | empty result, chain ends
+INFO deep | pipeline one triangle missing Union box Refuse | status OpenInput: an input is not closed (InputRepair is Refuse): input meshes must be closed (every edge used equally often in both directions)
+INFO deep | pipeline one triangle missing Union torus Refuse | status OpenInput: an input is not closed (InputRepair is Refuse): input meshes must be closed (every edge used equally often in both directions)
+INFO deep | pipeline one triangle missing Intersection box Refuse | status OpenInput: an input is not closed (InputRepair is Refuse): input meshes must be closed (every edge used equally often in both directions)
+INFO deep | pipeline one triangle missing Intersection torus Refuse | status OpenInput: an input is not closed (InputRepair is Refuse): input meshes must be closed (every edge used equally often in both directions)
+INFO deep | pipeline one triangle missing Difference box Refuse | status OpenInput: an input is not closed (InputRepair is Refuse): input meshes must be closed (every edge used equally often in both directions)
+INFO deep | pipeline one triangle missing Difference torus Refuse | status OpenInput: an input is not closed (InputRepair is Refuse): input meshes must be closed (every edge used equally often in both directions)
+INFO deep | pipeline all flipped Union box Refuse | status InsideOutInput: 1 component(s) of the closed inputs are inside-out (the winding number in front of them is negative: an empty or reversed solid, not what the surface encloses); orient them (Orientation = ByNesting derives the enclosed solid) or set AllowInsideOutInputs
+INFO deep | pipeline all flipped Union box AutoRepair | status InsideOutInput: 1 component(s) of the closed inputs are inside-out (the winding number in front of them is negative: an empty or reversed solid, not what the surface encloses); orient them (Orientation = ByNesting derives the enclosed solid) or set AllowInsideOutInputs
+INFO deep | pipeline all flipped Union box AutoRepairThenRobust | status InsideOutInput: 1 component(s) of the closed inputs are inside-out (the winding number in front of them is negative: an empty or reversed solid, not what the surface encloses); orient them (Orientation = ByNesting derives the enclosed solid) or set AllowInsideOutInputs
+INFO deep | pipeline all flipped Union torus Refuse | status InsideOutInput: 1 component(s) of the closed inputs are inside-out (the winding number in front of them is negative: an empty or reversed solid, not what the surface encloses); orient them (Orientation = ByNesting derives the enclosed solid) or set AllowInsideOutInputs
+INFO deep | pipeline all flipped Union torus AutoRepair | status InsideOutInput: 1 component(s) of the closed inputs are inside-out (the winding number in front of them is negative: an empty or reversed solid, not what the surface encloses); orient them (Orientation = ByNesting derives the enclosed solid) or set AllowInsideOutInputs
+INFO deep | pipeline all flipped Union torus AutoRepairThenRobust | status InsideOutInput: 1 component(s) of the closed inputs are inside-out (the winding number in front of them is negative: an empty or reversed solid, not what the surface encloses); orient them (Orientation = ByNesting derives the enclosed solid) or set AllowInsideOutInputs
+INFO deep | pipeline all flipped Intersection box Refuse | status InsideOutInput: 1 component(s) of the closed inputs are inside-out (the winding number in front of them is negative: an empty or reversed solid, not what the surface encloses); orient them (Orientation = ByNesting derives the enclosed solid) or set AllowInsideOutInputs
+INFO deep | pipeline all flipped Intersection box AutoRepair | status InsideOutInput: 1 component(s) of the closed inputs are inside-out (the winding number in front of them is negative: an empty or reversed solid, not what the surface encloses); orient them (Orientation = ByNesting derives the enclosed solid) or set AllowInsideOutInputs
+INFO deep | pipeline all flipped Intersection box AutoRepairThenRobust | status InsideOutInput: 1 component(s) of the closed inputs are inside-out (the winding number in front of them is negative: an empty or reversed solid, not what the surface encloses); orient them (Orientation = ByNesting derives the enclosed solid) or set AllowInsideOutInputs
+INFO deep | pipeline all flipped Intersection torus Refuse | status InsideOutInput: 1 component(s) of the closed inputs are inside-out (the winding number in front of them is negative: an empty or reversed solid, not what the surface encloses); orient them (Orientation = ByNesting derives the enclosed solid) or set AllowInsideOutInputs
+INFO deep | pipeline all flipped Intersection torus AutoRepair | status InsideOutInput: 1 component(s) of the closed inputs are inside-out (the winding number in front of them is negative: an empty or reversed solid, not what the surface encloses); orient them (Orientation = ByNesting derives the enclosed solid) or set AllowInsideOutInputs
+INFO deep | pipeline all flipped Intersection torus AutoRepairThenRobust | status InsideOutInput: 1 component(s) of the closed inputs are inside-out (the winding number in front of them is negative: an empty or reversed solid, not what the surface encloses); orient them (Orientation = ByNesting derives the enclosed solid) or set AllowInsideOutInputs
+INFO deep | pipeline all flipped Difference box Refuse | status InsideOutInput: 1 component(s) of the closed inputs are inside-out (the winding number in front of them is negative: an empty or reversed solid, not what the surface encloses); orient them (Orientation = ByNesting derives the enclosed solid) or set AllowInsideOutInputs
+INFO deep | pipeline all flipped Difference box AutoRepair | status InsideOutInput: 1 component(s) of the closed inputs are inside-out (the winding number in front of them is negative: an empty or reversed solid, not what the surface encloses); orient them (Orientation = ByNesting derives the enclosed solid) or set AllowInsideOutInputs
+INFO deep | pipeline all flipped Difference box AutoRepairThenRobust | status InsideOutInput: 1 component(s) of the closed inputs are inside-out (the winding number in front of them is negative: an empty or reversed solid, not what the surface encloses); orient them (Orientation = ByNesting derives the enclosed solid) or set AllowInsideOutInputs
+INFO deep | pipeline all flipped Difference torus Refuse | status InsideOutInput: 1 component(s) of the closed inputs are inside-out (the winding number in front of them is negative: an empty or reversed solid, not what the surface encloses); orient them (Orientation = ByNesting derives the enclosed solid) or set AllowInsideOutInputs
+INFO deep | pipeline all flipped Difference torus AutoRepair | status InsideOutInput: 1 component(s) of the closed inputs are inside-out (the winding number in front of them is negative: an empty or reversed solid, not what the surface encloses); orient them (Orientation = ByNesting derives the enclosed solid) or set AllowInsideOutInputs
+INFO deep | pipeline all flipped Difference torus AutoRepairThenRobust | status InsideOutInput: 1 component(s) of the closed inputs are inside-out (the winding number in front of them is negative: an empty or reversed solid, not what the surface encloses); orient them (Orientation = ByNesting derives the enclosed solid) or set AllowInsideOutInputs
+STAGE deep | pass 684, fail 0, slow 0 | 7443 ms
+INFO repair | overlap sphere+box | path ExactResolve (self-intersections), 1000 triangles, volume 5.029092175322314 (expected 5.029092175322314)
+INFO repair | overlap torus+star | path ExactResolve (self-intersections), 972 triangles, volume 3.576014234633986 (expected 3.576014234633986)
+INFO repair | overlap three spheres | path ExactResolve (self-intersections), 1730 triangles, volume 6.176564188058123 (expected 6.176564188058123)
+FAIL repair | overlap three spheres idempotent | path ExactResolve (self-intersections) then Repair: 1730 -> 1726 triangles, volume 6.176564188058123 -> 6.176564160986389
+INFO repair | sphere one triangle missing | path Repair, 972 triangles, volume 4.13327199970031 (expected 4.13327199970031)
+INFO repair | sphere 5% missing | path Repair, 972 triangles, volume 4.133271999700307 (expected 4.13327199970031)
+INFO repair | sphere 10% flipped | path AlphaWrap (self-intersections), 26676 triangles, volume 4.147328962063939 (expected 4.13327199970031)
+INFO repair | sphere all flipped | path Repair, 972 triangles, volume 4.13327199970031 (expected 4.13327199970031)
+INFO repair | sphere unwelded | path Repair, 972 triangles, volume 4.13327199970031 (expected 4.13327199970031)
+INFO repair | sphere duplicated triangles | path ExactResolve (self-intersections), 972 triangles, volume 4.13327199970031 (expected 4.13327199970031)
+INFO repair | torus one triangle missing | path Repair, 576 triangles, volume 2.2827839778042334 (expected 2.282783977804234)
+INFO repair | torus 5% missing | path Repair, 576 triangles, volume 2.282783977804233 (expected 2.282783977804234)
+INFO repair | torus 10% flipped | path AlphaWrap (self-intersections), 20362 triangles, volume 2.300265460946026 (expected 2.282783977804234)
+INFO repair | torus all flipped | path Repair, 576 triangles, volume 2.282783977804234 (expected 2.282783977804234)
+INFO repair | torus unwelded | path Repair, 576 triangles, volume 2.2827839778042343 (expected 2.282783977804234)
+INFO repair | torus duplicated triangles | path ExactResolve (self-intersections), 576 triangles, volume 2.282783977804234 (expected 2.282783977804234)
+INFO repair | star one triangle missing | path Repair, 48 triangles, volume 1.728 (expected 1.7279999999999998)
+INFO repair | star 5% missing | path Repair, 48 triangles, volume 1.7280000000000004 (expected 1.7279999999999998)
+INFO repair | star 10% flipped | path Solidify (volume differs from the input), 9710 triangles, volume 1.720072338770085 (expected 1.7279999999999998)
+INFO repair | star all flipped | path Repair, 48 triangles, volume 1.7279999999999998 (expected 1.7279999999999998)
+INFO repair | star unwelded | path Repair, 48 triangles, volume 1.7279999999999998 (expected 1.7279999999999998)
+INFO repair | star duplicated triangles | path ExactResolve (self-intersections), 48 triangles, volume 1.7280000000000006 (expected 1.7279999999999998)
+INFO repair | gridbox one triangle missing | path Repair, 300 triangles, volume 2.8000000000000007 (expected 2.8000000000000003)
+INFO repair | gridbox 5% missing | path Repair, 300 triangles, volume 2.8000000000000007 (expected 2.8000000000000003)
+INFO repair | gridbox 10% flipped | path Solidify (self-intersections), 21852 triangles, volume 2.751839360339781 (expected 2.8000000000000003)
+INFO repair | gridbox 10% flipped rotated | path AlphaWrap (degenerate triangles) instead of Solidify (self-intersections)
+INFO repair | gridbox all flipped | path Repair, 300 triangles, volume 2.8000000000000003 (expected 2.8000000000000003)
+INFO repair | gridbox unwelded | path Repair, 300 triangles, volume 2.7999999999999967 (expected 2.8000000000000003)
+INFO repair | gridbox duplicated triangles | path ExactResolve (self-intersections), 300 triangles, volume 2.8000000000000003 (expected 2.8000000000000003)
+INFO repair | hollow sphere (clean) | path Repair, 1272 triangles, volume 3.6317740890210715 (expected 3.6317740890210746)
+INFO repair | hollow sphere, outer shell one triangle missing | path Repair, 1272 triangles, volume 3.6317740890210715 (expected 3.6317740890210746)
+INFO repair | hollow sphere, cavity facing outward | path Repair, 1272 triangles, volume 3.6317740890210715 (expected 3.6317740890210746)
+INFO repair | sphere with hole + small clean sphere | path Repair, 1080 triangles, volume 4.133736764970184 (expected 4.133736764970184)
+INFO repair | overlap + small clean sphere | path ExactResolve (self-intersections), 1108 triangles, volume 5.0295569405921885 (expected 5.0295569405921885)
+INFO repair | sphere + thin plate through it | path ExactResolve (self-intersections), 1092 triangles, volume 4.150947269250875 (expected 4.150947269250875)
+FAIL repair | sphere + thin plate through it idempotent | path ExactResolve (self-intersections) then Repair: 1092 -> 1084 triangles, volume 4.150947269250875 -> 4.150946411297404
+STAGE repair | pass 493, fail 2, slow 0 | 73924 ms
+INFO wrap | sphere tet | targets not met: min dihedral 10.03 (0 below), radius-edge 2.60 (4 above), 7042 tets
+INFO wrap | box tet | targets not met: min dihedral 10.04 (0 below), radius-edge 5.56 (168 above), 10080 tets
+INFO wrap | torus tet | targets not met: min dihedral 10.01 (0 below), radius-edge 4.77 (36 above), 8246 tets
+INFO wrap | star tet | targets not met: min dihedral 10.00 (0 below), radius-edge 10.01 (184 above), 6832 tets
+INFO wrap | sphere with holes tet | targets not met: min dihedral 10.04 (0 below), radius-edge 13.50 (220 above), 8338 tets
+INFO wrap | overlap soup tet | targets not met: min dihedral 10.05 (0 below), radius-edge 3.54 (41 above), 7106 tets
+INFO wrap | thin plate tet | targets not met: min dihedral 10.00 (0 below), radius-edge 12.78 (3122 above), 9580 tets
+INFO wrap | needle tet | targets not met: min dihedral 10.28 (0 below), radius-edge 4.24 (92 above), 877 tets
+INFO wrap | tilted plate tet | targets not met: min dihedral 10.08 (0 below), radius-edge 7.02 (198 above), 3211 tets
+INFO wrap | single triangle tet | targets not met: min dihedral 10.01 (0 below), radius-edge 9.68 (3253 above), 6575 tets
+INFO wrap | tet tet | targets not met: min dihedral 10.04 (0 below), radius-edge 4.30 (184 above), 5530 tets
+STAGE wrap | pass 451, fail 0, slow 0 | 19734 ms
+INFO contour | kissing spheres dc shifted | vertices differ by up to 2.06E-002 (0.165 cells)
+STAGE contour | pass 228, fail 0, slow 0 | 156429 ms
+INFO mesh2d | star 30 | 7 bad triangles reported of 357
+INFO mesh2d | sharp star 20 | 27 bad triangles reported of 293
+INFO mesh2d | sharp star 30 | 54 bad triangles reported of 350
+INFO mesh2d | star with two holes 30 | 2 bad triangles reported of 326
+STAGE mesh2d | pass 368, fail 0, slow 0 | 1292 ms
+INFO findings | F1 box, edge split at 0.01 | input clean '', volume 8; alone: True, path Repair, reason '', 9/14 vertices/triangles, volume 8, input up to 2.1073424255447017E-08 from the result; with a far box: True, path PassThrough, volume 8
+INFO findings | F1 box, edge split at 0.001 | input clean '', volume 8; alone: True, path Repair, reason '', 8/12 vertices/triangles, volume 7.998666666666668, input up to 0.0009999998750000244 from the result; with a far box: True, path PassThrough, volume 8
+FAIL findings | F1 box, edge split at 0.001: the repair of a clean mesh keeps its solid | volume: 7.998666666666668 vs 8 (relative 1.67E-004, tolerance 1.0E-012)
+FAIL findings | F1 box, edge split at 0.001: alone as next to a far part | volume: 7.998666666666668 vs 8 (relative 1.67E-004, tolerance 1.0E-012)
+INFO findings | F1 box, edge split at 0.0001 | input clean '', volume 8; alone: True, path Repair, reason '', 8/12 vertices/triangles, volume 7.999866666666667, input up to 9.999999969612645E-05 from the result; with a far box: True, path PassThrough, volume 8
+FAIL findings | F1 box, edge split at 0.0001: the repair of a clean mesh keeps its solid | volume: 7.999866666666667 vs 8 (relative 1.67E-005, tolerance 1.0E-012)
+FAIL findings | F1 box, edge split at 0.0001: alone as next to a far part | volume: 7.999866666666667 vs 8 (relative 1.67E-005, tolerance 1.0E-012)
+INFO findings | F1 box, edge split at 1E-06 | input clean '', volume 8; alone: True, path Repair, reason '', 8/12 vertices/triangles, volume 7.9999986666666665, input up to 1.0000000000286305E-06 from the result; with a far box: True, path PassThrough, volume 8
+FAIL findings | F1 box, edge split at 1E-06: the repair of a clean mesh keeps its solid | volume: 7.9999986666666665 vs 8 (relative 1.67E-007, tolerance 1.0E-012)
+FAIL findings | F1 box, edge split at 1E-06: alone as next to a far part | volume: 7.9999986666666665 vs 8 (relative 1.67E-007, tolerance 1.0E-012)
+INFO findings | O1 dual contouring, touching spheres, Simplify True, shift 0.12500000 0.00000000 0.00000000 | volume 1.0459906585243106 vs 1.0459906585243104, largest vertex difference 2.51E-015 (0.000 cells)
+INFO findings | O1 dual contouring, touching spheres, Simplify True, shift 8.00000000 0.00000000 0.00000000 | volume 1.0459906585243106 vs 1.0471409289756979, largest vertex difference 1.88E-002 (0.150 cells)
+INFO findings | O1 dual contouring, touching spheres, Simplify True, shift 40.00000000 -80.00000000 120.00000000 | volume 1.0459906585243106 vs 1.048290886703151, largest vertex difference 2.06E-002 (0.165 cells)
+INFO findings | O1 dual contouring, touching spheres, Simplify False, shift 0.12500000 0.00000000 0.00000000 | volume 1.0618108178847703 vs 1.0618108178847705, largest vertex difference 9.62E-016 (0.000 cells)
+INFO findings | O1 dual contouring, touching spheres, Simplify False, shift 8.00000000 0.00000000 0.00000000 | volume 1.0618108178847703 vs 1.0618108178847698, largest vertex difference 2.37E-015 (0.000 cells)
+INFO findings | O1 dual contouring, touching spheres, Simplify False, shift 40.00000000 -80.00000000 120.00000000 | volume 1.0618108178847703 vs 1.0618101101184585, largest vertex difference 1.36E-004 (0.001 cells)
+STAGE findings | pass 2, fail 6, slow 0 | 69 ms
+TOTAL pass 5142, fail 15, slow 0

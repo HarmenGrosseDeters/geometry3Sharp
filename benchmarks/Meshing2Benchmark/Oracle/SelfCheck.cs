@@ -302,6 +302,22 @@ namespace Meshing2Acceptance
                 Must("reject: a hole left out of the mesh, on the grid, as BoundaryOutsideTube", noHole.Has(Violation.BoundaryOutsideTube), "report: " + noHole);
             }
 
+            // ---- rule O-G, the other direction: a border that two outer rings share is no boundary of the domain, so no output boundary
+            // has to lie near it (#1318); the same two squares with the right one left out of the mesh are still rejected
+            {
+                var twoIn = new Mesh2Input { X = new double[] { 0, 16, 16, 0, 32, 32 }, Y = new double[] { 0, 0, 16, 16, 0, 16 }, SnapTolerance = 1 };
+                twoIn.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false)); twoIn.Rings.Add(new RingInput(new[] { 1, 4, 5, 2 }, false));
+                var both = new[] { new[] { 0, 1, 2 }, new[] { 0, 2, 3 }, new[] { 1, 4, 5 }, new[] { 1, 5, 2 } };
+                var borders = new List<SubsegmentOutput> { new SubsegmentOutput(0, 1), new SubsegmentOutput(1, 2), new SubsegmentOutput(2, 3), new SubsegmentOutput(3, 0), new SubsegmentOutput(1, 4), new SubsegmentOutput(4, 5), new SubsegmentOutput(5, 2) };
+                var shared = Oracle.Check(twoIn, new Mesh2Output { Status = Mesh2Status.Success, VX = twoIn.X, VY = twoIn.Y, InputToVertex = Enumerable.Range(0, 6).ToArray(),
+                    Triangles = both, Neighbours = NeighboursOf(both), TriangleLabels = new[] { 0, 0, 0, 0 }, Subsegments = borders, BadTriangles = new int[0] }, new OracleExpect { Milestone = Milestone.M2 });
+                Must("accept: two squares that share a border, on the grid", shared.Ok, "report: " + shared);
+                var left = new[] { new[] { 0, 1, 2 }, new[] { 0, 2, 3 } };
+                var half = Oracle.Check(twoIn, new Mesh2Output { Status = Mesh2Status.Success, VX = twoIn.X, VY = twoIn.Y, InputToVertex = Enumerable.Range(0, 6).ToArray(),
+                    Triangles = left, Neighbours = NeighboursOf(left), TriangleLabels = new[] { 0, 0 }, Subsegments = borders.Take(4).ToList(), BadTriangles = new int[0] }, new OracleExpect { Milestone = Milestone.M2 });
+                Must("reject: the right one of the two squares left out of the mesh, as BoundaryOutsideTube among others", half.Has(Violation.BoundaryOutsideTube), "report: " + half);
+            }
+
             // ---- the shortest edge of a triangle spans an input angle below 60 degrees (owner decision 2026-11-09, Shewchuk 2002 section
             // 6.2: refinement towards the apex of such an angle may not terminate). A hull domain of A = (0, 0), E1 = (30, 0) and E2, a bound
             // of 20 degrees, and the triangle p E1 q with p = (1, 0) and q on A-E2 at a distance within 1.5 of p's: its shortest edge p-q

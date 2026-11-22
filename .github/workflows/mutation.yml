@@ -110,6 +110,13 @@ on:
       - 'tests/geometry3Sharp.Tests/Hausdorff*Tests.cs'
       - 'tests/geometry3Sharp.Tests/MeshDeviationTests.cs'
       - 'tests/geometry3Sharp.Tests/ReducerParallelDeviationCheckTests.cs'
+      # exact winding number (tests/mutation/stryker-mesh-exact-winding.json)
+      - 'spatial/ExactWindingCache.cs'
+      - 'tests/geometry3Sharp.Tests/ExactWindingNumberTests.cs'
+      - 'tests/geometry3Sharp.Tests/ExactWindingCacheInternalTests.cs'
+      - 'tests/geometry3Sharp.Tests/FastWindingExpansionUsedTests.cs'
+      - 'tests/geometry3Sharp.Tests/WindingNumberTests.cs'
+      - 'tests/geometry3Sharp.Tests/WindingEdgeCaseTests.cs'
       # SolidBooleanPipeline (tests/mutation/stryker-mesh-solid-pipeline.json)
       - 'mesh_ops/SolidBooleanPipeline.cs'
       - 'tests/geometry3Sharp.Tests/SolidBooleanPipelineTests.cs'
@@ -119,6 +126,7 @@ on:
       - 'tests/geometry3Sharp.Tests/SolidBooleanPipelineThinSolidTests.cs'
       - 'tests/geometry3Sharp.Tests/SolidBooleanPipelineCavityOwnerTests.cs'
       - 'tests/geometry3Sharp.Tests/SolidBooleanPipelineThinInputTests.cs'
+      - 'tests/geometry3Sharp.Tests/SolidBooleanPipelineFinalCheckTests.cs'
       # UV parameterization (tests/mutation/stryker-mesh-uv-*.json: seven shards of parameterization/*.cs, README "UV parameterization")
       - 'parameterization/UVAtlasGenerator.cs'
       - 'parameterization/MeshChartSegmentation.cs'
@@ -146,8 +154,8 @@ on:
       - '.github/workflows/mutation.yml'
   schedule:
     # master, in the evening (UTC; Exact Boolean 3.0, tests/mutation/README.md "3.0 process"): the big shards of the exact boolean
-    # pipeline (boolean-*, arrangement-*, rounding-*: 24 of the 47 configs) Monday to Saturday, everything else (envelope, imprint,
-    # geodesic, hausdorff, terrain, planar, fixed, generated, solid-pipeline, arithmetic) on Sunday (select_shards.py --only nightly / weekly).
+    # pipeline (boolean-*, arrangement-*, rounding-*: 24 of the 48 configs) Monday to Saturday, everything else (envelope, imprint,
+    # geodesic, hausdorff, terrain, planar, fixed, generated, solid-pipeline, exact-winding, arithmetic) on Sunday (select_shards.py --only nightly / weekly).
     # Estimate, not measured: a shard takes 1 to 6 hours (README) and 6 run at a time (max-parallel), so the 24 nightly shards need
     # about 12 to 16 hours, ending between 07:00 and 11:00 UTC. The baselines of the incremental PR runs come from these runs.
     # These cron lines are the fallback of the daily dispatch (docs/QA.md 2.12): the schedule guard skips them on a day that a

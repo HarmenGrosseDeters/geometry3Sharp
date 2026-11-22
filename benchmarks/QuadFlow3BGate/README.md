@@ -19,11 +19,12 @@ times are the wall time of `Compute()` with the cross field given (`repeat=3`: t
 pure-quad time includes the stage 2 extraction that the fallback needs.
 
 ```
-dotnet run -c Release --project benchmarks/QuadFlow3BGate -- [only=<regex>] [profile=1] [repeat=<n>]
+dotnet run -c Release --project benchmarks/QuadFlow3BGate -- [only=<regex>] [profile=1] [repeat=<n>] [adapt=0|1|2] [mingain=<x>]
 ```
 
 `profile=1` adds a `PROF` line per run with the stages of the attempt (`QuadFlowRepair` profile: setup, flow preparation, flow network and
-min-cost flow, subdivision, greedy moves, SAT, position solve, extraction) and the solver counters. `results_gate.txt` is the full output of
+min-cost flow, subdivision, greedy moves, SAT, position solve, extraction) and the solver counters. `adapt=0|1|2` selects
+`SizeAdaptationMode.Off`, `Scale`, or `ScaleAndRotation` (with `mingain`, default `0.2`). `results_gate.txt` is the full output of
 `profile=1 repeat=3` (net10.0 Release, 4-core cloud container, 2026-11-19).
 
 ## Results (2026-11-19)
@@ -66,3 +67,32 @@ The min-cost flow is the largest stage on both. On a fallback it is followed by 
 (0.13-0.37 s per fallback; the spike without the total budget spent up to 29 s there). On clean rows the SAT is next, then the extraction and the
 setup. A clean row spends 0.01 s to 0.33 s in the flow (3k to 27k input vertices). The large flow times are on fallback rows that need a capacity
 above 2 (the flow is solved again for every capacity step: up to 1.8 s on the noisy sphere at input edge 0.35 s, 1.4 s on the capped cylinder at scale 0.8, which reaches capacity 10).
+
+## Results (2026-11-21: geometric sign reference, cost-guided fixed-edge balancing, and `SizeAdaptation`)
+
+Command (`net10.0`, Release, single-run `repeat=1` vs `repeat=3` in the 2026-11-19 table above):
+```
+dotnet run -c Release --project benchmarks/QuadFlow3BGate -- adapt=0
+dotnet run -c Release --project benchmarks/QuadFlow3BGate -- adapt=1
+dotnet run -c Release --project benchmarks/QuadFlow3BGate -- adapt=2
+```
+
+| metric (54 runs) | baseline (`adapt=0`) | updated (`adapt=0`) | updated (`adapt=1`, `Scale`) | updated (`adapt=2`, `ScaleAndRotation`) |
+|---|---|---|---|---|
+| clean / fallback / undetected bad | 25 / 29 / 0 | **43 / 11 / 0** | **43 / 11 / 0** | **48 / 6 / 0** |
+| clean on 7 non-cylindrical shapes (of 42) | 25 / 42 | **42 / 42** | **42 / 42** | **42 / 42** |
+| `capsule` / `capped-cylinder` clean (of 6 each) | 0 / 0 | 1 / 0 | 1 / 0 | 1 / **5** |
+| time gate `max(3 x stage 2, 1 s)` (clean rows) | 25 / 25 | 41 / 43 | **43 / 43** | **48 / 48** |
+| irregular gate (clean rows) | 25 / 25 | **43 / 43** | **43 / 43** | **48 / 48** |
+| Hausdorff <= 0.5 s (clean rows) | 24 / 25 | 41 / 43 | 42 / 43 | 42 / 48 |
+| corner p95 <= 15 deg (clean / stage 2 same rows) | 17 / 25 (18 / 25) | 20 / 43 (31 / 43) | 26 / 43 (42 / 43) | **29 / 48** (44 / 48) |
+| ratio pure / stage 2 (median / max) | 2.6 / 8.9 | 2.5 / 5.3 | 1.6 / 3.0 | **1.4 / 2.0** |
+| SAT time sum over clean rows (s) | 0.65 | **0.04** | **0.05** | **0.08** |
+
+## Open and creased shapes (`open=1`, Phase 4c measurement, 2026-11-22)
+
+`dotnet run -c Release --project benchmarks/QuadFlow3BGate -- open=1 [only=<regex>] [adapt=0|1|2]` runs 10 procedural shapes (closed sphere as the reference, open patch, sphere cap, open strip, open tube, sharp box, open box, sharp cylinder, L profile, gear) at the scales 1, 0.8 and 1.25 (input edge 0.5 s) and prints per run: the stage 2 mesh (`PreserveCreases` on the creased shapes) with its feature metrics (feature = boundary edge or crease edge above 30 degrees: coverage within 0.1 s and 10 degrees, angle p95, feature Hausdorff), what `PureQuads` does today, and the raw integer map of the position field (triangles, boundary slots, triangles whose offsets do not sum to 0, inverted triangles, largest |d|; through reflection, no library change). If `QuadFlowRepair` has the static field `FixFeatureEdges` (the prototype of the branch `runs/quad-4c-prototype`, never merged) the attempt is repeated with the feature edges fixed and a summary per group is printed. The numbers and the decision (stop rule) are in [QUAD_REMESHING.md 4.7](../../docs/design/QUAD_REMESHING.md).
+
+## `align=<x>`: `CurvatureAlignment` on the capsule and the capped cylinder (2026-11-22)
+
+`align=<x>` overrides `CrossField.CurvatureAlignment` of every selected shape (default: the per-shape value, 0 except `torus-align10`). `only='capsule|capped-cylinder' align=0|1|3|10|30|100` gives capsule 1, 1, 1, 3, 1, 5 clean runs of 6 and capped cylinder 0 of 6 at every weight, 0 undetected bad; the table and the reading are in [QUAD_REMESHING.md 4.4b](../../docs/design/QUAD_REMESHING.md).

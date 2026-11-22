@@ -63,6 +63,12 @@ namespace DeterminismHarness
         // The environment adversary for the schedule (docs/design/DETERMINISM_PROOF.md, option B): a result that depends on the
         // order in which a parallel loop runs its items (shared appends, ids from a counter, a reduction) changes when the
         // loop runs them backwards or permuted. Compared in this process with the serial run in the given order
+        // Cases whose result is known to follow the loop order, each with the finding that explains it. The adversary lists
+        // them as KNOWN and does not fail on them; it fails when one of them stops differing (the entry is then removed), so
+        // the list can only shrink. A new case that differs fails the command as before.
+        static readonly Dictionary<string, string> KnownOrderDependent = new Dictionary<string, string>(StringComparer.Ordinal) {
+        };
+
         static int Adversary(string[] args)
         {
             string filter = Arg(args, "--filter");
@@ -70,18 +76,18 @@ namespace DeterminismHarness
             if (OrderField == null || SerialField == null) { Console.Error.WriteLine("gParallel.SerialOnThisThread / SerialOrderOnThisThread not found"); return 2; }
             var orders = new List<int>() { -1 };
             for (int s = 1; s <= seeds; ++s) orders.Add(s);
-            int differ = 0, same = 0, failed = 0;
+            int differ = 0, same = 0, failed = 0, known = 0;
             foreach (Case c in Cases.All()) {
                 if (filter != null && c.Name.IndexOf(filter, StringComparison.Ordinal) < 0) continue;
                 // (the per-class parallel flags stay on, so that those classes go through gParallel's loops, which the switch
                 // runs serially in the order under test)
                 Trace reference = RunCase(c, true, 0, out Exception error, false);
                 if (error != null) { Console.WriteLine(c.Name + "\tERROR\t" + error.GetType().Name + ": " + error.Message.Replace('\n', ' ')); failed++; continue; }
-                string verdict = null;
+                string verdict = null; bool threw = false;
                 foreach (int order in orders) {
                     Trace t = RunCase(c, true, order, out error, false);
                     string name = (order == -1) ? "backwards" : "seed " + order;
-                    if (error != null) { verdict = name + ": " + error.GetType().Name + ": " + error.Message.Replace('\n', ' '); break; }
+                    if (error != null) { verdict = name + ": " + error.GetType().Name + ": " + error.Message.Replace('\n', ' '); threw = true; break; }
                     int k = 0, m = Math.Min(t.Values.Count, reference.Values.Count);
                     while (k < m && t.Values[k] == reference.Values[k]) ++k;
                     if (k == m && t.Values.Count == reference.Values.Count) continue;
@@ -91,10 +97,14 @@ namespace DeterminismHarness
                     verdict = $"{name}: first at value {k} ({label}); {diffCount} of {m} values differ; lengths {reference.Values.Count}/{t.Values.Count}";
                     break;
                 }
-                if (verdict == null) { same++; Console.WriteLine(c.Name + "\tsame\t" + reference.Values.Count); }
+                bool isKnown = KnownOrderDependent.TryGetValue(c.Name, out string finding);
+                if (verdict == null && isKnown) { differ++; Console.WriteLine(c.Name + "\tNO LONGER DIFFERS\tremove it from KnownOrderDependent (" + finding + ")"); }
+                else if (verdict == null) { same++; Console.WriteLine(c.Name + "\tsame\t" + reference.Values.Count); }
+                else if (threw) { failed++; Console.WriteLine(c.Name + "\tERROR\t" + verdict); }
+                else if (isKnown) { known++; Console.WriteLine(c.Name + "\tKNOWN\t" + verdict + "; " + finding); }
                 else { differ++; Console.WriteLine(c.Name + "\tDIFFERS\t" + verdict); }
             }
-            Console.WriteLine($"# orders: backwards and {seeds} seeded permutations; {same} same, {differ} different, {failed} failed");
+            Console.WriteLine($"# orders: backwards and {seeds} seeded permutations; {same} same, {differ} different, {known} known to differ, {failed} failed");
             return (differ == 0 && failed == 0) ? 0 : 1;
         }
 
@@ -111,6 +121,7 @@ namespace DeterminismHarness
             summary.Append("# runtime\t" + runtime + "\n# serial\t" + serial + "\n# order\t" + order + "\n# processors\t" + Environment.ProcessorCount + "\n");
             summary.Append("# os\t" + System.Runtime.InteropServices.RuntimeInformation.OSDescription + "\n");
             summary.Append("# arch\t" + System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture + "\n");
+            summary.Append("# machine\t" + CrossRuntime.Machine() + "\n");
             Console.Write(summary.ToString());
             foreach (Case c in Cases.All()) {
                 if (filter != null && c.Name.IndexOf(filter, StringComparison.Ordinal) < 0) continue;

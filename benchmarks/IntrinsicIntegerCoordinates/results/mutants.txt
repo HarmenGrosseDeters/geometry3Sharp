@@ -1,0 +1,9 @@
+mutant 1 (flip count: one emanating term dropped): exit code 134; invalid runs reported: 0; first message: Unhandled exception. System.InvalidOperationException: normal coordinates: odd flip count or overflow
+mutant 2 (flip roundabout: shared edge not counted): exit code 1; invalid runs reported: 249; first message: obtuse plane dy=0.05 [identity] integer: input edge from vertex 1 ends at the wrong vertex 2
+mutant 3 (insertion count off by one): exit code 134; invalid runs reported: 0; first message: Unhandled exception. System.InvalidOperationException: normal coordinates: odd flip count or overflow
+mutant 4 (trace rule: corner test off by one): exit code 134; invalid runs reported: 24; first message: obtuse plane dy=0.05 [identity] integer: input edge from vertex 4 ends at the wrong vertex 2
+mutant 5 (insertion region test inverted): exit code 1; invalid runs reported: 188; first message: obtuse plane dy=0.05 [identity] integer: polygon areas differ from the mesh area by 0.0014086829804338915
+mutant 6 (unfolding to the wrong side): exit code 1; invalid runs reported: 216; first message: obtuse plane dy=0.05 [identity]: crossing positions differ by 1.3399213507456116E+307 of the diagonal
+mutant 7 (positions given to the wrong crossings): exit code 1; invalid runs reported: 252; first message: obtuse plane dy=0.05 [identity] integer: polygon areas differ from the mesh area by 1.0981274914722652
+mutant 8 (band quads wound the other way): exit code 1; invalid runs reported: 244; first message: obtuse plane dy=0.05 [identity] integer: polygons are not a conforming complex
+mutant 9 (fan crossings in reverse order): exit code 1; invalid runs reported: 257; first message: obtuse plane dy=0.05 [identity] integer: polygons are not a conforming complex

@@ -104,7 +104,8 @@ operations), isosurface stuffing (lattice), Stellar (topological and smoothing i
 - **Isosurface stuffing** (Labelle and Shewchuk, SIGGRAPH 2007): a body-centred-cubic lattice cut by the surface, vertices warped
   to the surface, guaranteed dihedral angles in about [10.7, 164.8] degrees (value from the paper's abstract; conditions on the
   surface and lattice resolution to be read), fast, simple, no Delaunay; the boundary only approximates the surface and the
-  size is uniform (graded versions use octrees).
+  size is uniform (graded versions use octrees). Read in full 2026-11-22: 10.78 degrees holds per tet but tets may overlap on an unresolved surface;
+  9.31 degrees with the parameters that are safe on every input ([research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md](../research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md)).
 
 ## 4. Options for "any input -> valid tet mesh"
 
@@ -961,6 +962,11 @@ angle below about 60 degrees"), and real wrap surfaces have acute angles (10.1).
 practical form is (a): measure and report per run, and keep the corpus evidence (P1) as the claim; the proof route is (b) and
 gives up the conforming wrap boundary.
 
+Spike 2026-11-22 on P5(b) ([research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md](../research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md)): the paper's 10.7 degrees holds per tet
+but only with parameters under which tets may overlap on an unresolved surface; the parameters that are safe on every input prove 9.31 degrees.
+Measured with a benchmark prototype (uniform lattice): the bound holds everywhere; at 10 / 69 times the default's tets the boundary is still 6.5 / 1.8 times farther from
+the input. Effort with the proof we would have to own: 4 to 5.5 weeks, not the 1-2 weeks of this table. Leaning: not built.
+
 ### 17.4 Recommended order
 
 1. **P1** first: one default and one runner run close the floor part of gap 3 on the subset (40 of 40 at either candidate) and
@@ -1135,6 +1141,10 @@ the bound, the parameter, the size bound, reuse and `MaxThreads`, `Similarity.Al
 all 8 runs here (4 inputs x alpha 12 and 40), 1.3 on 6 of 8, 1.2 on 4 of 8, 1.1 on 2 of 8, 1.0 on none; the g3cli `tetmesh` already refuses below 1.5. With (a) in place a library
 limit is no longer needed for the hang, only for the quality of the answer (a run cut at the bound has many bad tets); the owner can choose 1.5 (all
 measured runs end), 1.3 or none.
+
+**Owner 2026-11-22: no limit (option A of plan #1249; option (b) above is not built).** No library lower limit: the termination threshold depends on the shape and alpha
+(the sphere ends at 1.1, box / 12 fails at 1.3), so a fixed number has no theorem behind it. The work bound (a) stops a runaway cleanly with
+`PointLimitReached` and `Targets.RadiusEdgeMet == false`; the g3cli `tetmesh` keeps its range [1.5, 1000].
 ### 17.11 The rescue lever for the meshes left at alpha / 40 (#1072, 2026-11-18)
 
 The 6 meshes of 17.8 below 10 degrees at the new default go to the parked lever of the backup branch `claude/tet-floor-last4`: a **rescue
@@ -1170,8 +1180,9 @@ reached the target skip the phase (the check of the bad tets costs one scan), so
 **Owner decision (2026-11-18): the rescue phase is on by default, `RescuePasses` = 150.** It changes the output of
 `MeshTetrahedralization` only for meshes that still have a tet below 10 degrees after the main passes. At the old alpha / 20 it gave 36 -> 38
 of 40 on the subset for +2 % time (rows `results/thingi10k-subset-stage2-ab-*-2026-11-17.csv`; at / 40 every subset mesh reaches the target
-in the main passes, so nothing changes there). 839690 at alpha / 20 would still need a boundary change beyond the slide cap, which stays an
-owner decision.
+in the main passes, so nothing changes there). 839690 at alpha / 20 would still need a boundary change beyond the slide cap. **Owner 2026-11-22: no boundary
+change (option A of plan #1251).** The 0.5-offset slide cap stays; alpha / 40 already solves 839690 (10 degrees, 0.68 s), and coarse alpha / 20
+runs on thin parts like it stay at about 6 degrees, a documented limit. An opt-in larger slide cap would only follow a caller that needs it.
 
 ### 17.12 Stage P3: interior size control (2026-11-19)
 

@@ -20,7 +20,7 @@ static class FeatureProbe
         new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, Vector3d.AxisX, Vector3d.AxisY, Vector3d.AxisZ, new Vector3d(sx / 2, sy / 2, sz / 2)) }.Generate().MakeDMesh();
 
     // a triangular prism (wedge): apex angle degrees at the x axis edge
-    static DMesh3 Wedge(double apexDegrees)
+    internal static DMesh3 Wedge(double apexDegrees)
     {
         double h = 1, w = h * Math.Tan(apexDegrees * Math.PI / 360) * 2;
         var m = new DMesh3();

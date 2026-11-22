@@ -201,6 +201,12 @@ maximum per mesh. *Constraints:* effort in visits, never in time; no change of t
 to 10 degrees, stop: no order is much faster (eight samples cannot settle the shape of a tail, only this practical question) and the cap of #1154 is the answer. If one is, the
 next step is an opt-in Luby schedule over the rescue, with the result to the owner before a PR, as #1154 requires.
 
+**Result (2026-11-22, [TET_TIE_ORDER_2026-11.md](TET_TIE_ORDER_2026-11.md)).** Effort: the stop rule holds, the fastest of 8 orders needs 0.64 to 0.90 of the
+median's visits on the four slow meshes at the floor 20 and none reaches that floor; the cap of #1154 is the answer. Outcome: the stop rule does not hold, 38781
+reaches 10 degrees under 64 of 64 relabelings and 282598 under 38 of 64 (tet order or corner order alone is enough), and a relabeling breaks a passing mesh in 6 of
+236 runs on 44 other meshes. A try at the default floor costs at most 0.43 visits per vertex, so the fitting transfer is a sequence of orders with a fixed budget,
+stopped at the first success, not a Luby schedule; the proposal (opt-in, only for a mesh that misses the floor) is with the owner.
+
 ### 5.3 Interval branch-and-bound proofs for quality floors
 
 **Problem and structure.** HP 6 asks for a region-based oracle excuse that is provably tight, with the floor arcsin(sin(phi/2)/sqrt 2) near clusters. HP 5 has a floor that holds on 498 of 500 meshes and no bound. Both

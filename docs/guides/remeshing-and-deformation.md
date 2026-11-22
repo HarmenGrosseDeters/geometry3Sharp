@@ -92,15 +92,19 @@ bool inside = envelope.Status == MeshEnvelope.EnvelopeStatus.Ready
 
 ## Quad Remeshing (`QuadRemesher`, `DPolyMesh`)
 
-- **Namespace & classes:** `gs.QuadRemesher`, `gs.CrossField`, `gs.PositionField`, `g3.DPolyMesh`, `g3.PolyMeshIO`, `gs.PolyMeshMetrics`
+- **Namespace & classes:** `gs.QuadRemesher`, `gs.CrossField`, `gs.PositionField`, `gs.IntegrableFrames`, `g3.DPolyMesh`, `g3.PolyMeshIO`, `gs.PolyMeshMetrics`
 - **Input / mutability:** Read-only manifold triangle mesh (`DMesh3`); outputs a new `DPolyMesh` (with whole quad/polygon faces).
-- **Guarantees & limits:** Computes a principal-curvature-aligned cross field, integrates an integer-lattice position field, and extracts a quad-dominant polygon mesh (mostly quads with a few triangles/pentagons/hexagons near singularities). Requires an explicit target `EdgeLength`.
+- **Guarantees & limits:** Computes a smooth cross field (or principal-curvature-aligned / crease-aligned via `CurvatureAlignment`, `AlignCreases`, `CreaseAngleDegrees` when `Field == null`), integrates an integer-lattice position field (boundary corners pinned above `CornerAngleDegrees`), and extracts a quad-dominant polygon mesh (mostly quads with a few triangles/pentagons/hexagons near singularities). Requires an explicit `TargetEdgeLength`.
+- **Opt-in size adaptation (`SizeAdaptation`):** `Off` (default, uniform spacing), `Scale`, or `ScaleAndRotation` runs `IntegrableFrames` to reduce lattice curl on closed smooth shapes (applied only if curl drops by at least `SizeAdaptationMinGain`, default 20 %; can be combined with `PureQuads`).
 - **Example:** [QuadRemeshExample.cs](../examples/QuadRemeshExample.cs)
 - **Further reading:** [QUAD_REMESHING.md](../design/QUAD_REMESHING.md)
 
-### Pure-Quad Mode & I/O
+### Size Adaptation, User Sizing, Sharp Features & Pure-Quad Mode
 
-- **`PureQuads` (opt-in, closed meshes only):** Runs the pure-quad topology repair stage after extraction. Inspect `PureQuadStatus` (`Success` means quads only; otherwise names the first failed check and falls back to the quad-dominant mesh rather than failing; open meshes report `FlowInfeasible`).
+- **`SizeAdaptation` (opt-in: `Off`, `Scale`, `ScaleAndRotation`):** Solves `IntegrableFrames` for a smooth spacing field (and optional small cross-field rotation) that lowers lattice curl and cuts irregular vertices on curved surfaces. On open meshes, boundary rotations are eliminated from the normal equations and `IntegrableFrames.BoundarySpacingWeight` (default `0.05`) keeps boundary spacing bounded without changing closed meshes.
+- **`SizeFunction` (opt-in, default `null`):** Supplies a desired local edge length in mesh units (`Func<Vector3d, double>`, compatible with `RemeshSizing.FromWallThickness`). Solved through `IntegrableFrames` with weight `SizeWeight` (default `1.0`); when active, omits the mean-log-spacing = 0 gauge so absolute sizes are preserved and skips the `SizeAdaptationMinGain` curl gate. Invalid samples (`NaN`, `<= 0`, infinity) are ignored and counted in `IntegrableFrames.InvalidSizeSamples`. Targets more than `MaxSpacingRatio` (default 2.5) times larger or smaller than `TargetEdgeLength` are clamped, so the requested size is not reached there; `IntegrableFrames.ClampedSizeSamples` counts them (a subset of `ValidSizeSamples`). Can be combined with `PureQuads` (local spacing in the repair).
+- **`PreserveCreases` (opt-in, default `false`):** Treats interior sharp creases (dihedral angle above `CreaseAngleDegrees`, default `30°`) as lattice lines and crease corners/junctions as fixed lattice points in `PositionField` (and enables `CrossField.AlignCreases` automatically when `Field` is `null`), preserving sharp CAD edges and corners. Not combined with `PureQuads` (`InvalidInput`: the pure-quad repair does not keep feature curves).
+- **`PureQuads` (opt-in, closed meshes only):** Runs the pure-quad topology repair stage after extraction (can be combined with `SizeAdaptation` for local spacing and frame rotation). Inspect `PureQuadStatus` (`Success` means quads only; otherwise names the first failed check and falls back to the quad-dominant mesh rather than failing; open meshes report `FlowInfeasible`).
 - **Saving quad meshes:** Use `PolyMeshIO` to write `.obj` (4-vertex `f` lines) or `.ply` (ASCII/binary). Triangle-only formats (STL, OFF, 3MF, glTF) cannot store quads.
 
 ---

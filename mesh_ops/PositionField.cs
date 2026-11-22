@@ -27,10 +27,11 @@ namespace gs
     /// the lattice of the other, and o_i moves by the mean misfit of its neighbours and back to the lattice point nearest to
     /// the vertex.
     ///
-    /// Boundaries are lattice constraints: a boundary vertex keeps a lattice line (along the cross direction nearest to the
-    /// boundary) through the vertex, so that the lattice points along it lie on the boundary, and a boundary corner (the
-    /// boundary turns by more than CornerAngleDegrees) is a lattice point itself. Boundary vertices are only merged with their
-    /// boundary neighbours in the hierarchy, corners are never merged.
+    /// Boundaries (and, when PreserveCreases is true, sharp interior crease edges above CreaseAngleDegrees) are lattice
+    /// constraints: a smooth boundary or crease vertex keeps a lattice line (along the cross direction nearest to the feature
+    /// tangent) through the vertex, so that the lattice points along it lie on the feature curve, and a corner (where the
+    /// feature turns by more than CornerAngleDegrees, a junction of degree != 2, or a crease meeting a boundary) is a lattice
+    /// point itself. Boundary and crease vertices are only merged along feature edges in the hierarchy; corners are never merged.
     ///
     /// Parallel and deterministic: the vertices of every level get a fixed greedy colouring (in vertex order, so no two
     /// neighbours share a colour); a sweep runs the colours one after the other, and the vertices of one colour only read
@@ -50,8 +51,17 @@ namespace gs
         public int Sweeps = 20;
         /// <summary> run the vertices of one colour in parallel (the result does not depend on it) </summary>
         public bool Parallel = true;
-        /// <summary> a boundary vertex where the boundary turns by more than this angle is a corner (a lattice point) </summary>
+        /// <summary> a boundary or crease vertex where the feature curve turns by more than this angle is a corner (a lattice point) </summary>
         public double CornerAngleDegrees = 30;
+        /// <summary>
+        /// optional (default false: bit-identical to without this option): treat interior sharp crease edges (dihedral angle above
+        /// CreaseAngleDegrees, from MeshTopology) as lattice constraints like open boundaries — smooth crease vertices keep a lattice
+        /// line along the crease, and crease corners (turn above CornerAngleDegrees, junctions of degree != 2, or crease-boundary
+        /// junctions) become fixed lattice points.
+        /// </summary>
+        public bool PreserveCreases = false;
+        /// <summary> dihedral angle threshold in degrees for detecting sharp creases when PreserveCreases is true (must be in [0, 180]) </summary>
+        public double CreaseAngleDegrees = 30;
         /// <summary>
         /// the regularization of the point closest to the edge midpoint on both tangent planes (dimensionless; own choice, see
         /// QUAD_REMESHING.md 3.1: 0.01 to 0.2 give the same results)
@@ -94,7 +104,7 @@ namespace gs
         public bool HasPosition(int vid) { return ToCompact != null && vid >= 0 && vid < ToCompact.Length && ToCompact[vid] >= 0; }
         /// <summary> the lattice point o of vertex vid (in its tangent plane, within s / sqrt 2 of the vertex); only for vertices with HasPosition </summary>
         public Vector3d Origin(int vid) { return Origins[ToCompact[vid]]; }
-        /// <summary> (only for vertices with HasPosition) the unit orientation q of the lattice at vid (cross direction 0 of the field; at a boundary vertex the boundary direction is exact) </summary>
+        /// <summary> (only for vertices with HasPosition) the unit orientation q of the lattice at vid (cross direction 0 of the field; at a boundary or crease vertex the feature direction is exact) </summary>
         public Vector3d Orientation(int vid) { return L0.Q[ToCompact[vid]]; }
 
         internal sealed class Level
@@ -102,9 +112,9 @@ namespace gs
             public int N;
             public Vector3d[] V, Nrm, Q, T, D, Cb;
             public double[] Area;
-            public byte[] Kind;                  // 0 interior, 1 boundary (lattice line), 2 corner (lattice point)
+            public byte[] Kind;                  // 0 interior, 1 boundary or crease (lattice line), 2 corner (lattice point)
             public int[] AS, AJ;                 // adjacency (CSR)
-            public bool[] AB;                    // slot is a boundary edge
+            public bool[] AB;                    // slot is a feature edge (boundary, or crease when PreserveCreases is true)
             public Vector3d[] X, Bq;             // per slot: the middle point and the representative of the neighbour's orientation
             public int[] ColorStart, ColorOrder;
             public int[] ToCoarse;
@@ -118,7 +128,8 @@ namespace gs
             if (Mesh == null || Field == null || !Field.Success) return Fail("a successful cross field is required");
             double s = TargetEdgeLength;
             if (!(s > 0) || double.IsInfinity(s)) return Fail("TargetEdgeLength must be positive and finite");
-            if (!(MiddleRegularization >= 1e-6) || !(CornerAngleDegrees >= 0)) return Fail("invalid settings (MiddleRegularization must be at least 1e-6)");
+            if (!(MiddleRegularization >= 1e-6) || !(CornerAngleDegrees >= 0) || !(CreaseAngleDegrees >= 0 && CreaseAngleDegrees <= 180))
+                return Fail("invalid settings (MiddleRegularization must be at least 1e-6, CornerAngleDegrees >= 0, CreaseAngleDegrees in [0, 180])");
 
             int maxId = Mesh.MaxVertexID;
             ToCompact = new int[maxId];
@@ -160,6 +171,9 @@ namespace gs
                 for (int i = 0; i < Of.Length; ++i) {
                     Vector3d o = O[L.ToCoarse[i]];
                     o -= L.Nrm[i].Dot(o - L.V[i]) * L.Nrm[i];
+                    // with PreserveCreases the prolongated point is also put on the lattice line of a Kind 1 vertex (a crease and, in the same run, a boundary vertex alike; Update()
+                    // does the same for every Kind 1 vertex); without the option the projection is left out, so the output stays bit for bit the one of the earlier code
+                    if (PreserveCreases && L.Kind[i] == 1) o -= L.Cb[i].Dot(o - L.V[i]) * L.Cb[i];
                     Of[i] = Round(o, L, i, s);
                 }
                 O = Of;
@@ -196,10 +210,17 @@ namespace gs
                 double area = (L.V[b] - L.V[a]).Cross(L.V[c] - L.V[a]).Length / 6;
                 L.Area[a] += area; L.Area[b] += area; L.Area[c] += area;
             }
-            // adjacency and boundary
+            // adjacency, boundary, and (when PreserveCreases) sharp crease constraints
+            HashSet<int> creaseEdges = null;
+            if (PreserveCreases) {
+                var topo = new MeshTopology(Mesh) { CreaseAngle = CreaseAngleDegrees };
+                topo.Compute();
+                creaseEdges = topo.CreaseEdges;
+            }
             var start = new int[n + 1];
             var nbs = new List<int>(); var bnd = new List<bool>();
             var bnbs = new List<int>[n];
+            var cnbs = PreserveCreases ? new List<int>[n] : null;
             for (int i = 0; i < n; ++i) {
                 int v = ToVertex[i];
                 start[i] = nbs.Count;
@@ -209,17 +230,27 @@ namespace gs
                     int j = ToCompact[u];
                     if (j < 0) continue;
                     bool isB = Mesh.IsBoundaryEdge(e);
-                    nbs.Add(j); bnd.Add(isB);
+                    bool isC = creaseEdges != null && creaseEdges.Contains(e);
+                    nbs.Add(j); bnd.Add(isB || isC);
                     if (isB) { if (bnbs[i] == null) bnbs[i] = new List<int>(); bnbs[i].Add(j); }
+                    else if (isC) { if (cnbs[i] == null) cnbs[i] = new List<int>(); cnbs[i].Add(j); }
                 }
             }
             start[n] = nbs.Count;
             L.AS = start; L.AJ = nbs.ToArray(); L.AB = bnd.ToArray();
             double cosCorner = Math.Cos(CornerAngleDegrees * Math.PI / 180);
             for (int i = 0; i < n; ++i) {
-                if (bnbs[i] == null) continue;
-                if (bnbs[i].Count != 2) { L.Kind[i] = 2; continue; }     // not a simple boundary vertex: a lattice point
-                Vector3d pu = L.V[bnbs[i][0]], pw = L.V[bnbs[i][1]], p = L.V[i];
+                List<int> fnbs = bnbs[i];
+                if (fnbs != null) {
+                    // a boundary vertex that also meets a crease, or a non-simple boundary vertex, is a fixed lattice point
+                    if ((cnbs != null && cnbs[i] != null) || fnbs.Count != 2) { L.Kind[i] = 2; continue; }
+                } else if (cnbs != null && cnbs[i] != null) {
+                    fnbs = cnbs[i];
+                    if (fnbs.Count != 2) { L.Kind[i] = 2; continue; }     // crease junction (degree >= 3) or crease endpoint (degree 1): lattice point
+                } else {
+                    continue;
+                }
+                Vector3d pu = L.V[fnbs[0]], pw = L.V[fnbs[1]], p = L.V[i];
                 Vector3d d = pw - pu; d -= L.Nrm[i].Dot(d) * L.Nrm[i];
                 double dl = d.Length;
                 Vector3d e0 = p - pu, e1 = pw - p;
