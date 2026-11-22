@@ -216,6 +216,20 @@ namespace g3cli.Tests
             Assert.True(B(off["mesh"]["clean"]));
         }
 
+        // a clean single part is returned as it is (#1337); a set 'tolerance' asks for a change of a clean mesh, the repair runs
+        [Fact]
+        public void Repair_CleanSinglePart_PassesThrough_UnlessToleranceIsSet()
+        {
+            var (e0, r0) = Run("repair", m.Cube, m.Path_("clean_single.obj"), "--compact");
+            Assert.Equal(0, e0);
+            Assert.Equal("PassThrough", S(r0["result_path"]));
+            Assert.Equal(12, I(r0["passed_through_triangles"]));
+            var (e1, r1) = Run("repair", m.Cube, m.Path_("clean_single_tol.obj"), "--compact", "--tolerance", "1e-6");
+            Assert.Equal(0, e1);
+            Assert.Equal("Repair", S(r1["result_path"]));
+            Assert.Equal(0, I(r1["passed_through_triangles"]));
+        }
+
         [Fact]
         public void Repair_NewOptions_AreValidated()
         {

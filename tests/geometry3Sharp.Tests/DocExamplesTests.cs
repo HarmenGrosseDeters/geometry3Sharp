@@ -810,6 +810,18 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void TwoLevelMarchingTetrahedraExample_BuildsACleanThinBowl()
+        {
+            DMesh3 bowl = TwoLevelMarchingTetrahedraExample.ThinBowl();
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(bowl));
+            // one piece (inner and outer side joined by the rim), up to the cut plane, the volume of the wall
+            Assert.Equal(1, MeshTopologySummary.Compute(bowl).Components);
+            Assert.InRange(bowl.CachedBounds.Max.z, 0.49, 0.51);
+            double exact = 2 * Math.PI * 1.5 * 0.025;      // area of the unit sphere below z = 0.5 (2 pi r h, h = 1.5) times the wall
+            Assert.InRange(Invariance.Volume(bowl) / exact, 0.95, 1.05);
+        }
+
+        [Fact]
         public void TpmsLatticeExample_BuildsCertifiedCleanGyroidSheet()
         {
             TpmsLattice tpms = TpmsLatticeExample.GyroidSheet();

@@ -17,6 +17,16 @@ namespace Meshing2Acceptance
         {
             if (denominator.IsZero) throw new DivideByZeroException();
             if (denominator.Sign < 0) { numerator = -numerator; denominator = -denominator; }
+            if (denominator.IsOne) { n = numerator; d = denominator; return; }
+            if (denominator.IsPowerOfTwo) {
+                // (every value built from doubles by + - * has a power of two as its denominator: the common factor is a power of two too,
+                // 2^min(trailing zeros of the numerator, the exponent of the denominator), taken by shifts instead of a gcd; exact, so the
+                // reduced form is the same)
+                if (numerator.IsZero) { n = BigInteger.Zero; d = BigInteger.One; return; }
+                int shift = Math.Min(TrailingZeros(numerator), BitLength(denominator) - 1);
+                n = numerator >> shift; d = denominator >> shift;
+                return;
+            }
             var g = BigInteger.GreatestCommonDivisor(numerator, denominator);
             if (!g.IsOne && !g.IsZero) { numerator /= g; denominator /= g; }
             n = numerator; d = denominator;
@@ -53,6 +63,17 @@ namespace Meshing2Acceptance
             while (k > 0 && !double.IsInfinity(r) && r != 0) { int step = Math.Min(k, 1000); r *= Math.Pow(2, step); k -= step; }
             while (k < 0 && r != 0) { int step = Math.Min(-k, 1000); r *= Math.Pow(2, -step); k += step; }
             return r;
+        }
+
+        /// <summary> the number of trailing zero bits of a nonzero x (of |x|: the bytes of the two's complement hold the same count) </summary>
+        static int TrailingZeros(BigInteger x)
+        {
+            byte[] bytes = x.ToByteArray();
+            int i = 0;
+            while (bytes[i] == 0) ++i;
+            int b = bytes[i], z = 0;
+            while ((b & 1) == 0) { ++z; b >>= 1; }
+            return i * 8 + z;
         }
 
         /// <summary> the number of bits of |x| </summary>
@@ -202,6 +223,34 @@ namespace Meshing2Acceptance
         /// <summary>The open segments a-b and c-d cross at one point interior to both.</summary>
         public static bool ProperCross(Pt a, Pt b, Pt c, Pt d) =>
             Orient(a, b, c) * Orient(a, b, d) < 0 && Orient(c, d, a) * Orient(c, d, b) < 0;
+
+        /// <summary>
+        /// The sign of Dist2ToSegment(a, b, p) - limit (limit of either sign), without the rationals: with D = a.W * b.W * p.W every
+        /// coordinate of the vectors u = b - a and v = p - a is an integer over D, and each case of Dist2ToSegment is a quotient of
+        /// integers with a positive denominator (v.v over D^2 beyond a, w.w over D^2 beyond b, cross^2 over u.u * D^2 between), compared
+        /// with the limit by cross-multiplication. No gcd; the same sign as the rational computation, exactly (the equivalence is argued in
+        /// docs/design/MESHING2D_FAST_ORACLE.md, section 7).
+        /// </summary>
+        public static int Dist2ToSegmentCompare(Pt a, Pt b, Pt p, Q limit)
+        {
+            BigInteger d = a.W * b.W * p.W;
+            BigInteger ux = (b.X * a.W - a.X * b.W) * p.W, uy = (b.Y * a.W - a.Y * b.W) * p.W;
+            BigInteger vx = (p.X * a.W - a.X * p.W) * b.W, vy = (p.Y * a.W - a.Y * p.W) * b.W;
+            BigInteger uu = ux * ux + uy * uy, dd = d * d, ln = limit.N, ld = limit.D;
+            BigInteger num, den;
+            if (uu.IsZero) { num = vx * vx + vy * vy; den = dd; }
+            else {
+                BigInteger uv = ux * vx + uy * vy;
+                if (uv.Sign <= 0) { num = vx * vx + vy * vy; den = dd; }
+                else if (uv >= uu) { BigInteger wx = vx - ux, wy = vy - uy; num = wx * wx + wy * wy; den = dd; }
+                else { BigInteger cross = ux * vy - uy * vx; num = cross * cross; den = uu * dd; }
+            }
+            return (num * ld).CompareTo(ln * den);
+        }
+
+        /// <summary> Dist2ToSegment(a, b, p) &lt;= limit </summary>
+        public static bool Dist2ToSegmentAtMost(Pt a, Pt b, Pt p, Q limit) => Dist2ToSegmentCompare(a, b, p, limit) <= 0;
+
 
         /// <summary>Squared distance from p to the closed segment a-b.</summary>
         public static Q Dist2ToSegment(Pt a, Pt b, Pt p)

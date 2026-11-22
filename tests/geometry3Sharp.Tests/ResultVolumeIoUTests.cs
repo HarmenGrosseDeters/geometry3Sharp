@@ -108,7 +108,7 @@ namespace geometry3Sharp.Tests
         public static IEnumerable<object[]> PathCases()
         {
             yield return new object[] { "pass-through", 0, null, MeshRobustRepair.ResultPaths.PassThrough, 0.9999, 1.0001 };
-            yield return new object[] { "repair", 1, null, MeshRobustRepair.ResultPaths.Repair, 0.9999, 1.0001 };
+            yield return new object[] { "repair", 1, (Action<MeshRobustRepair>)(r => r.PassThroughCleanParts = false), MeshRobustRepair.ResultPaths.Repair, 0.9999, 1.0001 };
             yield return new object[] { "exact resolve", 2, null, MeshRobustRepair.ResultPaths.ExactResolve, 0.99, 1.0001 };
             yield return new object[] { "solidify", 2, SolidifyOnly, MeshRobustRepair.ResultPaths.Solidify, 0.99, 1.0001 };
             yield return new object[] { "alpha wrap", 3, CoarseWrap, MeshRobustRepair.ResultPaths.AlphaWrap, 0.3, 0.8 };
@@ -157,7 +157,7 @@ namespace geometry3Sharp.Tests
         {
             // the repair result is the final one: the diagnostic is the volume check's own value (same reference, sampling and estimate)
             foreach (Similarity s in Similarity.All()) {
-                var r = Run(Invariance.Transformed(Sphere(1, Vector3d.Zero), s), true);
+                var r = Run(Invariance.Transformed(Sphere(1, Vector3d.Zero), s), true, c => c.PassThroughCleanParts = false);
                 Assert.Equal(MeshRobustRepair.ResultPaths.Repair, r.ResultPath);
                 Assert.Equal(r.RepairVolumeIoU, r.ResultVolumeIoU);
             }
@@ -242,6 +242,7 @@ namespace geometry3Sharp.Tests
             Assert.True(double.IsNaN(r.ResultVolumeIoU));
             Assert.Equal(MeshRobustRepair.ResultPaths.None, r.ResultPath);
             // stopped before the stages (a coordinate that is not finite): the values of the run before are gone as well
+            r.PassThroughCleanParts = false;        // (a clean sphere is passed through otherwise: #1337)
             r.Mesh = Sphere(1, Vector3d.Zero);
             Assert.True(r.Apply());
             Assert.Equal(MeshRobustRepair.ResultPaths.Repair, r.ResultPath);

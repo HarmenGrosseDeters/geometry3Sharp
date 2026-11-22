@@ -352,5 +352,158 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(a.Faces[f].InputTriangle, b.Faces[f].InputTriangle);
             }
         }
+
+        // #1335. One vertex inserted into triangle t of the unflipped grid at the barycentric distance d from its
+        // edge from corner e to corner e + 1 (parameter s along it); not flipped yet
+        static IntrinsicTriangulation BuildNearEdgeOf(double a, double shear, int t, int e, double d, double s, Similarity sim,
+            out DMesh3 mesh)
+        {
+            mesh = ShearedGrid(a, shear, sim);
+            var T = new IntrinsicTriangulation(mesh);
+            var q = new Vector2d[3];
+            T.GetTriangleLayout(t, out q[0], out q[1], out q[2]);
+            Assert.True(T.InsertVertex(t, (1 - d) * ((1 - s) * q[e] + s * q[(e + 1) % 3]) + d * q[(e + 2) % 3]) >= 0);
+            return T;
+        }
+
+        // #1335, item 1: the vertex lies 5e-10 beside the input boundary edge of triangle 0 and counts as on it
+        // (snap 1e-9). The intrinsic triangle between it and that edge has the area 0 from its lengths (it passes
+        // the area check with no face) and its three sides run along the input edge: Success without a face of
+        // that triangle before the fix. (CheckConsistency names the triangle as degenerate; the extraction has to
+        // report it on its own.)
+        static IntrinsicTriangulation BuildBoundarySliver(Similarity sim, out DMesh3 mesh)
+        {
+            var T = BuildNearEdgeOf(1.0, -1.0, 0, 0, 5e-10, 0.4, sim, out mesh);
+            Assert.True(T.FlipToDelaunay() > 0);
+            return T;
+        }
+
+        static int TrianglesWithoutFace(IntrinsicTriangulation T, IntrinsicCommonSubdivision cs)
+        {
+            var has = new bool[T.TriangleCount];
+            foreach (var f in cs.Faces) has[f.IntrinsicTriangle] = true;
+            return has.Count(x => x == false);
+        }
+
+        [Fact]
+        public void SliverAtInputBoundary_WithoutFace_IsReportedAsInconsistent()
+        {
+            var T = BuildBoundarySliver(Similarity.Identity, out DMesh3 mesh);
+            Assert.Equal(1, Enumerable.Range(0, T.TriangleCount).Count(t => T.TriangleArea(t) == 0));
+            var cs = T.ExtractCommonSubdivision();
+            Assert.Equal(CommonSubdivisionStatus.Inconsistent, cs.Status);
+            Assert.Contains("has no face", cs.Error);
+            Assert.Empty(cs.Faces);
+        }
+
+        [Fact]
+        public void SliverAtInputBoundary_Invariance_OverSimilarities()
+        {
+            var cs0 = BuildBoundarySliver(Similarity.Identity, out DMesh3 mesh0).ExtractCommonSubdivision();
+            foreach (Similarity sim in Similarity.All()) {
+                var T = BuildBoundarySliver(sim, out DMesh3 mesh);
+                var cs = T.ExtractCommonSubdivision();
+                // reported without faces, or every intrinsic triangle has a face (rotations and translations change
+                // the rounding: the vertex may then lie outside the snap, and the sliver have an area)
+                if (cs.Status == CommonSubdivisionStatus.Success) {
+                    Assert.True(TrianglesWithoutFace(T, cs) == 0, $"{sim}: Success, but an intrinsic triangle has no face");
+                    string defect = ComplexDefect(mesh, T, cs);
+                    Assert.True(defect == null, $"{sim}: Success, but {defect}");
+                } else {
+                    Assert.False(string.IsNullOrEmpty(cs.Error), sim.Name);
+                    Assert.Empty(cs.Faces);
+                }
+                if (sim.IsExact == false) continue;
+                Assert.Equal(cs0.Status, cs.Status);
+                Assert.Equal(cs0.Error, cs.Error);
+                Assert.Equal(cs0.Points.Count, cs.Points.Count);
+                for (int i = 0; i < cs.Points.Count; ++i)
+                    Assert.Equal(sim.Apply(cs0.Points[i]), cs.Points[i]);
+            }
+        }
+
+        [Fact]
+        public void NearBoundaryInsertions_SuccessHasAFaceInEveryIntrinsicTriangle()
+        {
+            // vertices inserted 1e-12 to 6e-9 beside an input boundary edge of the grid (the bottom row, the edge
+            // from corner 0 to corner 1 of its even triangles): every result is reported as Inconsistent without
+            // faces, or every intrinsic triangle has a face; both occur (14 and 286 of the 300, 151 of them for a
+            // triangle without a face: those were Success without the face of the sliver before the fix).
+            ulong x = 1335UL;
+            Func<double> rnd = () => {
+                x = unchecked(x * 6364136223846793005UL + 1442695040888963407UL);
+                return (x >> 11) * (1.0 / 9007199254740992.0);
+            };
+            double[] deltas = { 1e-12, 1e-11, 1e-10, 3e-10, 9e-10, 1.5e-9, 3e-9 };
+            double[] stretches = { 0.0625, 0.125, 0.25, 0.5, 1, 2, 4, 8, 16 };
+            int success = 0, noFace = 0;
+            for (int trial = 0; trial < 300; ++trial) {
+                double a = stretches[(int)(rnd() * stretches.Length)];
+                double shear = ((int)(rnd() * 33) - 16) / 8.0;
+                double d = deltas[(int)(rnd() * deltas.Length)] * (1 + rnd());
+                double s = 0.0625 + 0.875 * rnd();
+                int t = 2 * (int)(rnd() * GridCells);
+                var T = BuildNearEdgeOf(a, shear, t, 0, d, s, Similarity.Identity, out DMesh3 mesh);
+                T.FlipToDelaunay();
+                var cs = T.ExtractCommonSubdivision();
+                if (cs.Status == CommonSubdivisionStatus.Success) {
+                    success++;
+                    Assert.True(TrianglesWithoutFace(T, cs) == 0, $"trial {trial} (a {a}, shear {shear}, d {d:R}, s {s:R}, t {t}): Success, but an intrinsic triangle has no face");
+                    // (a Success has the vertex off the boundary edge, so the boundary count of ComplexDefect holds)
+                    string defect = ComplexDefect(mesh, T, cs);
+                    Assert.True(defect == null, $"trial {trial}: Success, but {defect}");
+                } else {
+                    Assert.Empty(cs.Faces);
+                    if (cs.Error.Contains("has no face")) noFace++;
+                }
+            }
+            Assert.True(success >= 8, $"only {success} of 300 inputs succeed");
+            Assert.True(noFace >= 100, $"only {noFace} of 300 inputs have a triangle without a face");
+        }
+
+        // #1335, item 2: (a, shear, triangle, corner e, d, s) on which the last check, the intrinsic areas, fails:
+        // Inconsistent with all the faces in Faces before the fix
+        public static IEnumerable<object[]> IntrinsicAreaCases() => new[] {
+            new object[] { 0.0625, -0.75, 4, 0, 5.914687293044002E-09, 0.8195240137495864 },
+            new object[] { 2.0, -1.5, 0, 0, 1.4082562921870012E-07, 0.7015703587535858 },
+            new object[] { 1024.0, -0.5, 3, 1, 1.1559745329350519E-09, 0.6787513866511119 } };
+
+        [Theory]
+        [MemberData(nameof(IntrinsicAreaCases))]
+        public void Inconsistent_AtTheLastCheck_HasNoFaces(double a, double shear, int t, int e, double d, double s)
+        {
+            var T = BuildNearEdgeOf(a, shear, t, e, d, s, Similarity.Identity, out DMesh3 mesh);
+            T.FlipToDelaunay();
+            var cs = T.ExtractCommonSubdivision();
+            Assert.Equal(CommonSubdivisionStatus.Inconsistent, cs.Status);
+            Assert.Contains("do not sum to the intrinsic triangle areas", cs.Error);
+            Assert.Empty(cs.Faces);
+            Assert.True(cs.MaxIntrinsicAreaError > 1e-6);
+        }
+
+        [Theory]
+        [MemberData(nameof(IntrinsicAreaCases))]
+        public void Reuse_FailingExtractionAfterASuccessfulOne_HasNoFaces(double a, double shear, int t, int e, double d, double s)
+        {
+            // one instance: Success before the insertion, Inconsistent (at the last check) after it, twice the same
+            DMesh3 mesh = ShearedGrid(a, shear, Similarity.Identity);
+            var T = new IntrinsicTriangulation(mesh);
+            var first = T.ExtractCommonSubdivision();
+            Assert.Equal(CommonSubdivisionStatus.Success, first.Status);
+            Assert.Null(ComplexDefect(mesh, T, first));
+            Assert.Equal(T.TriangleCount, first.Faces.Count);
+            var q = new Vector2d[3];
+            T.GetTriangleLayout(t, out q[0], out q[1], out q[2]);
+            Assert.True(T.InsertVertex(t, (1 - d) * ((1 - s) * q[e] + s * q[(e + 1) % 3]) + d * q[(e + 2) % 3]) >= 0);
+            T.FlipToDelaunay();
+            var second = T.ExtractCommonSubdivision();
+            var third = T.ExtractCommonSubdivision();
+            Assert.Equal(CommonSubdivisionStatus.Inconsistent, second.Status);
+            Assert.Empty(second.Faces);
+            Assert.Equal(second.Status, third.Status);
+            Assert.Equal(second.Error, third.Error);
+            Assert.Equal(second.Points, third.Points);
+            Assert.Empty(third.Faces);
+        }
     }
 }
