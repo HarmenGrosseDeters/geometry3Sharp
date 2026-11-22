@@ -1,6 +1,6 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 // Issue 1317: Reducer.MaxDeviation on flat inputs. The check with the patch bound (Reducer.DeviationPatchBound, the default)
-// against the check as before (false), alternating rounds, medians; the reduced meshes must be the same, bit for bit (SHA-256).
+// against the check as before (false), alternating rounds (and their order), medians; the reduced meshes must be the same, bit for bit (SHA-256).
 // Flat cases (a welded cube, a tilted plate with a boundary) and the curved cases of the other modes.
 //
 //   dotnet run -c Release --project benchmarks/ReducerBenchmark -- flat [rounds] [case filter]
@@ -58,8 +58,10 @@ static class FlatInputs
                 var t = new[] { new List<double>(), new List<double>() };
                 var res = new DMesh3[2];
                 for (int k = 0; k < rounds; ++k)
-                    for (int v = 0; v < 2; ++v) {
+                    for (int o = 0; o < 2; ++o) {
+                        int v = (k % 2 == 0) ? o : 1 - o;       // the order alternates between the rounds
                         if (v == 0 && once && k > 0) continue;
+                        GC.Collect();
                         var m = new DMesh3(input);
                         var sw = Stopwatch.StartNew();
                         new Reducer(m) { MaxDeviation = eps, DeviationPatchBound = v == 1 }.ReduceToTriangleCount(4);
