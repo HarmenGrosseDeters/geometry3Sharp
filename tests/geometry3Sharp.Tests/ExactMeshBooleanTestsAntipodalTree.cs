@@ -17,7 +17,7 @@ namespace geometry3Sharp.Tests
     public class ExactMeshBooleanTestsAntipodalTree
     {
         // a wavy closed loop (n segments) and an open chain, as segment pairs
-        static Vector3d[] Chains(int n, Random rand, bool open)
+        internal static Vector3d[] Chains(int n, Random rand, bool open)
         {
             var pts = new List<Vector3d>();
             double a1 = rand.NextDouble() * 0.3, a2 = rand.NextDouble() * 0.3;
@@ -36,7 +36,7 @@ namespace geometry3Sharp.Tests
             return segs;
         }
 
-        static Vector3d RandomUnit(Random rand)
+        internal static Vector3d RandomUnit(Random rand)
         {
             while (true) {
                 var v = new Vector3d(rand.NextDouble() * 2 - 1, rand.NextDouble() * 2 - 1, rand.NextDouble() * 2 - 1);
@@ -279,7 +279,7 @@ namespace geometry3Sharp.Tests
 
         // a sphere with many small holes (every seventh triangle removed): an open mesh with more than 1000 boundary
         // segments, and a smaller closed sphere through its surface
-        static (DMesh3, DMesh3) HoleySphere()
+        internal static (DMesh3, DMesh3) HoleySphere()
         {
             DMesh3 a = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 24 }.Generate().MakeDMesh();
             int n = 0;
@@ -291,7 +291,7 @@ namespace geometry3Sharp.Tests
             return (a, b);
         }
 
-        static ExactMeshBoolean Run(DMesh3 a, DMesh3 b, Ops op, bool tree)
+        internal static ExactMeshBoolean Run(DMesh3 a, DMesh3 b, Ops op, bool tree)
         {
             var r = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AntipodalHierarchical = tree, RecordOpenWinding = true };
             Assert.True(r.Compute(), r.Error);
