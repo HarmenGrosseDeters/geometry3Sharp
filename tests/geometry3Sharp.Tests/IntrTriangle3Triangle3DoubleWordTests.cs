@@ -253,6 +253,24 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ExactZero_TimesOrDividedByExactValues_StaysACertifiedExactZero()
+        {
+            // no operand error: no floor, the zero is exact (the floor is for operand errors that vanished, not for exact operands)
+            double r;
+            var p = DoubleWord.Of(0) * DoubleWord.Of(5);
+            Assert.Equal(0.0, p.Err); Assert.True(p.RoundsTo(out r)); Assert.Equal(0.0, r);
+            var q = DoubleWord.Div(DoubleWord.Of(0), DoubleWord.Of(3));
+            Assert.True(q.IsValid); Assert.Equal(0.0, q.Err); Assert.True(q.RoundsTo(out r));
+            var p2 = DoubleWord.Of(5) * DoubleWord.Of(0);
+            Assert.Equal(0.0, p2.Err);
+            // and an operand error that is not 0 keeps the quotient and the product uncertified at zero
+            var u = DoubleWord.Div(new DoubleWord(0, 0, 1e-300), DoubleWord.Of(3));
+            Assert.True(u.Err >= Math.Pow(2, -1000) && u.RoundsTo(out r) == false);
+            var v = new DoubleWord(0, 0, 1e-300) * DoubleWord.Of(0);
+            Assert.True(v.Err >= Math.Pow(2, -1000));
+        }
+
+        [Fact]
         public void Mag_IsTheSumOfTheMagnitudesOfTheWords()
         {
             // Hi a power of two with the largest Lo: Hi + |Lo| rounds back to Hi (a tie to even) but Hi - |Lo| is a double, so a difference would show

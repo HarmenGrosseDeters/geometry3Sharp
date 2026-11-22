@@ -172,6 +172,12 @@ The residual's `|res.Lo|` is read through `res.Mag` (one place, tested). The rem
 - Routing guards outside the spans (`find_transversal`, `odd_vertex`): a mutant there changes only which route computes the pair; the pair then goes to `find_exact`, whose output is bit-for-bit the
   same (section 5a, `FindTransversal_...` and the route-equality tests compare the two routes on all families).
 
+Second local run (head fa7c9da7, same spans, 248 mutants): score 92.3 %, 19 survivors, classified:
+- Killed by a new test (`ExactZero_TimesOrDividedByExactValues_...`, hand-checked against each mutant): the error floor applied to exact operands (`x.Err >= 0`, `y.Err >= 0`, `res.Err >= 0` in `*` and `Div`; the floor must not touch an exact zero), and the three-term condition of the `Div` floor, which is replaced by `res.Err > 0` (`res.Err` is not 0 exactly when an operand error is not 0).
+- `err <= ErrFloor` instead of `err < ErrFloor` (two sites): at equality the assignment gives the same value.
+- `Div`: `||` to `&&` of the validity test (an invalid operand makes `r` or `res` invalid by propagation); `den <= 0` to `den < 0` (`den == 0` gives an infinite or NaN `Err`, rejected by `Checked`).
+- `round_ratio` (five): `num.Sign <= 0` (zero returns before), `shift > 0` (a shift by 0 is the identity on both branches), `unit <= -1074` (adds 0), `q >>> extra` (`q` is positive), `den.Sign <= 0` (`den` is a difference of two non-zero values of opposite signs).
+
 ## 7. Cost (22 November 2026, Release, 4 cores, `Find()` on 20000 hit pairs, `Stopwatch` per call)
 
 | `Find()` on hits | master | double-word |

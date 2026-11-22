@@ -164,7 +164,8 @@ namespace g3
             // (res.Err already carries the errors of x and of y q, so x.Err and |q| y.Err are not added again)
             double err = (res.Mag + res.Err) / den * ErrUp;
             // (the quotient of a tiny error by a large denominator can underflow too: the same floor)
-            if (err < ErrFloor && (x.Err > 0 || y.Err > 0 || res.Err > 0))
+            // (res.Err is not 0 exactly when an operand error is not 0: x.Err is part of it, and a y.Err that underflowed in the product is floored there)
+            if (err < ErrFloor && res.Err > 0)
                 err = ErrFloor;
             return Checked(qh, ql, err);
         }
