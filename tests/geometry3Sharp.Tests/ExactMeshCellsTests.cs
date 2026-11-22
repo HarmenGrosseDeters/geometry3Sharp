@@ -255,5 +255,167 @@ namespace geometry3Sharp.Tests
             var two = new ExactMeshCells { Cell = w.Cell, CellCount = w.CellCount, Shell = new[] { 0, 1 }, ShellCount = 2, Boundary = All(2, true), Transparent = All(2, false) };
             Assert.Equal(Refusal.UncutComponents, ExactMeshCells.Label(two, interior, m0, m1, Uncut.Outside).Reason);
         }
+
+        // ---- Label and MayNest on hand-built cells: the marks of node 0 and the witnesses ----------------------------------------------
+
+        // cells from the cell of every node; shell[i] is the shell of piece i (-1: no wall), boundary[i] = shell[i] >= 0 unless given
+        static ExactMeshCells Hand(int[] cell, int[] shell, bool[] boundary = null)
+        {
+            int k = cell.Length / 2;
+            return new ExactMeshCells {
+                Cell = cell, CellCount = cell.Max() + 1, Shell = shell, ShellCount = shell.Length == 0 ? 0 : Math.Max(0, shell.Max() + 1),
+                Boundary = boundary ?? shell.Select(x => x >= 0).ToArray(), Transparent = All(k, false)
+            };
+        }
+
+        static int[] Marks(int n, params (int node, int value)[] set)
+        {
+            int[] m = Enumerable.Repeat(-1, n).ToArray();
+            foreach (var (node, value) in set) m[node] = value;
+            return m;
+        }
+
+        [Fact]
+        public void Label_TwoNestedShells_BothLabels_NamesTheFirstCellOfEachLabel_AlsoWhenItIsTheCellOfNodeZero()
+        {
+            // four pieces, each node its own cell; pieces 0 and 1 are shell 0, pieces 2 and 3 are shell 1 (no boxes: the shells may nest)
+            ExactMeshCells c = Hand(Enumerable.Range(0, 8).ToArray(), new[] { 0, 0, 1, 1 });
+            Assert.True(c.MayNest(0, 1));
+            // label 0 on shell 0 in the cells of the nodes 0 and 2 (the first one is node 0), label 1 on shell 1 in the cells of the nodes 4 and 6
+            ExactMeshCells.Labelling r = ExactMeshCells.Label(c, All(8, true), Marks(8, (0, 5), (2, 7)), Marks(8, (4, 6), (6, 8)), Uncut.Refuse);
+            Assert.Equal(Refusal.SidesInconsistent, r.Reason);
+            Assert.Equal(1, r.ConflictingCells);
+            Assert.Equal(0, r.Piece); Assert.Equal(5, r.MarkTriangle0);       // (the first cell with label 0, not the last)
+            Assert.Equal(2, r.Piece2); Assert.Equal(6, r.MarkTriangle1);
+            // the other way: label 1 on shell 0 (first in node 0), label 0 on shell 1: the first cell of each label again
+            ExactMeshCells.Labelling q = ExactMeshCells.Label(c, All(8, true), Marks(8, (4, 6), (6, 8)), Marks(8, (0, 5), (2, 7)), Uncut.Refuse);
+            Assert.Equal(Refusal.SidesInconsistent, q.Reason);
+            Assert.Equal(2, q.Piece); Assert.Equal(6, q.MarkTriangle0);
+            Assert.Equal(0, q.Piece2); Assert.Equal(5, q.MarkTriangle1);
+            // label 1 on shell 1 alone (shell 0 unmarked 0 as well): one label on the two shells: no nesting conflict (the cells of shell 0 are uncut)
+            ExactMeshCells.Labelling one = ExactMeshCells.Label(c, All(8, true), Marks(8), Marks(8, (0, 5), (4, 6)), Uncut.Inside);
+            Assert.NotEqual(Refusal.SidesInconsistent, one.Reason);
+        }
+
+        [Fact]
+        public void Label_ACellWithTwoMarkedNodes_NamesItsFirstNodes_AlsoWhenTheMarkIsTriangleZero()
+        {
+            // one cell of all four nodes (two pieces): marks 0 on the nodes 0 and 2 (triangle 0 on node 0), mark 1 on node 1
+            ExactMeshCells c = Hand(new[] { 0, 0, 0, 0 }, new[] { -1, -1 });
+            ExactMeshCells.Labelling a = ExactMeshCells.Label(c, All(4, true), Marks(4, (0, 0), (2, 7)), Marks(4, (1, 8)), Uncut.Refuse);
+            Assert.Equal(Refusal.SidesInconsistent, a.Reason);
+            Assert.Equal(0, a.Piece); Assert.Equal(0, a.MarkTriangle0);
+            Assert.Equal(0, a.Piece2); Assert.Equal(8, a.MarkTriangle1);
+            // mark 1 on the nodes 0 (triangle 0) and 2, mark 0 on node 1: node 0 is the first of the back marks, and it is recognized as a mark
+            ExactMeshCells.Labelling b = ExactMeshCells.Label(c, All(4, true), Marks(4, (1, 5)), Marks(4, (0, 0), (2, 9)), Uncut.Refuse);
+            Assert.Equal(Refusal.SidesInconsistent, b.Reason);
+            Assert.Equal(0, b.Piece); Assert.Equal(5, b.MarkTriangle0);
+            Assert.Equal(0, b.Piece2); Assert.Equal(0, b.MarkTriangle1);
+            // the same with the later mark first in the node order: the first node of the cell by node order is kept
+            ExactMeshCells.Labelling d = ExactMeshCells.Label(c, All(4, true), Marks(4, (3, 5), (1, 6)), Marks(4, (2, 9)), Uncut.Refuse);
+            Assert.Equal(0, d.Piece); Assert.Equal(6, d.MarkTriangle0);
+            Assert.Equal(1, d.Piece2); Assert.Equal(9, d.MarkTriangle1);
+        }
+
+        [Fact]
+        public void Label_TheFirstUncutCell_IsNamedByItsFirstInteriorNode()
+        {
+            // three pieces: the cell 1 holds the nodes 2 and 4, the cell 2 the nodes 3 and 5, the cell 0 (marked) the nodes 0 and 1
+            ExactMeshCells c = Hand(new[] { 0, 0, 1, 2, 1, 2 }, new[] { -1, -1, -1 }, All(3, true));
+            ExactMeshCells.Labelling r = ExactMeshCells.Label(c, All(6, true), Marks(6, (0, 3)), Marks(6), Uncut.Refuse);
+            Assert.Equal(Refusal.UncutComponents, r.Reason);
+            Assert.Equal(2, r.UncutCells);
+            Assert.Equal(1, r.Piece);           // (node 2 of the cell 1, not node 4 and not "no node")
+            // the first cell is the cell of node 0, which has a later node: the first one is kept
+            ExactMeshCells d = Hand(new[] { 0, 1, 0, 1 }, new[] { -1, -1 }, All(2, true));
+            ExactMeshCells.Labelling q = ExactMeshCells.Label(d, All(4, true), Marks(4), Marks(4), Uncut.Refuse);
+            Assert.Equal(Refusal.UncutComponents, q.Reason);
+            Assert.Equal(2, q.UncutCells);
+            Assert.Equal(0, q.Piece);
+        }
+
+        [Fact]
+        public void Label_AWalledCellMarkedFromBehindAtNodeZero_IsLabelled1_WithNoWitnessSet()
+        {
+            // the cell 0 (nodes 0 and 3) is marked from behind at node 0, the cell 1 (nodes 1 and 2) from the front: both are walls
+            ExactMeshCells c = Hand(new[] { 0, 1, 1, 0 }, new[] { 0, 0 });
+            ExactMeshCells.Labelling r = ExactMeshCells.Label(c, All(4, true), Marks(4, (1, 2)), Marks(4, (0, 4)), Uncut.Refuse);
+            Assert.Equal(Refusal.None, r.Reason);
+            Assert.Equal(new sbyte[] { 1, 0, 0, 1 }, r.Label);
+            // a result that refuses nothing carries no witness: every witness field is -1 and nothing is counted
+            Assert.Equal(-1, r.Piece); Assert.Equal(-1, r.Piece2); Assert.Equal(-1, r.Corner);
+            Assert.Equal(-1, r.MarkTriangle0); Assert.Equal(-1, r.MarkTriangle1);
+            Assert.Equal(0, r.ConflictingCells); Assert.Equal(0, r.UncutCells); Assert.Equal(0, r.FloatingCells);
+        }
+
+        [Fact]
+        public void Label_AFloatingMarkedCell_NamesItsFirstNodeAndTheMarkOfTheLabelItHas()
+        {
+            // no wall at all (the pieces are not the workpiece's boundary): a marked cell floats
+            ExactMeshCells c = Hand(new[] { 0, 0, 0, 0 }, new[] { -1, -1 });
+            // mark 1 only, on node 0 (triangle 6)
+            ExactMeshCells.Labelling a = ExactMeshCells.Label(c, All(4, true), Marks(4), Marks(4, (0, 6)), Uncut.Outside);
+            Assert.Equal(Refusal.FloatingComponent, a.Reason);
+            Assert.Equal(1, a.FloatingCells);
+            Assert.Equal(0, a.Piece); Assert.Equal(-1, a.MarkTriangle0); Assert.Equal(6, a.MarkTriangle1);
+            // mark 1 only, on node 3 (triangle 9): the piece of that node, no mark 0
+            ExactMeshCells.Labelling b = ExactMeshCells.Label(c, All(4, true), Marks(4), Marks(4, (3, 9)), Uncut.Outside);
+            Assert.Equal(Refusal.FloatingComponent, b.Reason);
+            Assert.Equal(1, b.Piece); Assert.Equal(-1, b.MarkTriangle0); Assert.Equal(9, b.MarkTriangle1);
+            // mark 0 only, on node 2 (triangle 7): the piece of that node, no mark 1
+            ExactMeshCells.Labelling d = ExactMeshCells.Label(c, All(4, true), Marks(4, (2, 7)), Marks(4), Uncut.Outside);
+            Assert.Equal(Refusal.FloatingComponent, d.Reason);
+            Assert.Equal(1, d.Piece); Assert.Equal(7, d.MarkTriangle0); Assert.Equal(-1, d.MarkTriangle1);
+        }
+
+        [Fact]
+        public void Label_AnUncutWalledCell_WithAStatedSide_IsNotRefusedBecauseOfACellWithNoInteriorNode()
+        {
+            // piece 0 is a wall (cell 0, unmarked, interior), piece 1 is no wall and has no interior node (cell 1): the stated side labels the wall cell
+            ExactMeshCells c = Hand(new[] { 0, 0, 1, 1 }, new[] { 0, -1 });
+            ExactMeshCells.Labelling r = ExactMeshCells.Label(c, new[] { true, true, false, false }, Marks(4), Marks(4), Uncut.Inside);
+            Assert.Equal(Refusal.None, r.Reason);
+            Assert.Equal(new sbyte[] { 1, 1, 0, 0 }, r.Label);
+            Assert.Equal(1, r.UncutCells);
+        }
+
+        [Fact]
+        public void MayNest_ABoxThatIsNotANumber_OrNoBoxes_MayNest_EvenWhenTheBoxesAreApart()
+        {
+            var a = new AxisAlignedBox3d(0, 0, 0, 1, 1, 1);
+            var b = new AxisAlignedBox3d(10, 10, 10, 11, 11, 11);
+            var apart = new ExactMeshCells { ShellBox = new[] { a, b } };
+            Assert.False(apart.MayNest(0, 1));
+            Assert.False(apart.MayNest(1, 0));
+            Assert.True(new ExactMeshCells { ShellBox = new[] { a, a } }.MayNest(0, 1));       // (equal boxes nest)
+            Assert.True(new ExactMeshCells().MayNest(0, 1));                                      // (no boxes known)
+            for (int comp = 0; comp < 6; ++comp) {
+                AxisAlignedBox3d nan = a;
+                switch (comp) {
+                    case 0: nan.Min.x = double.NaN; break;
+                    case 1: nan.Min.y = double.NaN; break;
+                    case 2: nan.Min.z = double.NaN; break;
+                    case 3: nan.Max.x = double.NaN; break;
+                    case 4: nan.Max.y = double.NaN; break;
+                    default: nan.Max.z = double.NaN; break;
+                }
+                Assert.True(new ExactMeshCells { ShellBox = new[] { nan, b } }.MayNest(0, 1));
+                Assert.True(new ExactMeshCells { ShellBox = new[] { b, nan } }.MayNest(0, 1));
+            }
+        }
+
+        [Fact]
+        public void ADegenerateProvidedPiece_FirstInTheList_AndAPageThatRunsTheOtherWay_AreJoinedByTheirDirections()
+        {
+            // the degenerate piece (a, b, a) runs the edge both ways; the page runs b -> a: the wedges follow from the page's direction
+            Fan f = MakeFan(new[] { 0.0 }, new[] { false });
+            Index3i page = f.Tris[0];                                       // (b, a, c)
+            var list = new List<Index3i> { new Index3i(page.b, page.a, page.b), page };
+            ExactMeshCells c = ExactMeshCells.Build(f.Arr, list, All(2, false), All(2, false));
+            // (u -> v is the degenerate piece's first edge, a -> b: it runs forward, the page runs backward)
+            Assert.Equal(c.Cell[0], c.Cell[2]);
+            Assert.Equal(c.Cell[1], c.Cell[3]);
+            Assert.NotEqual(c.Cell[0], c.Cell[1]);
+        }
     }
 }
