@@ -57,6 +57,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [QuadRemeshBenchmark](QuadRemeshBenchmark/README.md) | `CrossField`, `PositionField`, and `QuadRemesher` stage 2 quality and timing |
 | [QuadFlow3BGate](QuadFlow3BGate/README.md) | Stage 3B acceptance gate measurements for `QuadRemesher.PureQuads` |
 | [QuadRemeshSpike](QuadRemeshSpike/README.md) | Early feasibility prototype for quad remeshing |
+| [QuadSeamlessSeedSpike](QuadSeamlessSeedSpike/README.md) | Upper bound of a seamless-parametrization seed (cone metric, two scales) for `PositionField` and `QuadRemesher` |
 
 ## Contouring, Offsets, Lofting & Lattices
 

@@ -158,6 +158,19 @@ code of QuadriFlow, Instant Meshes, QuadWild, LEMON, MiniSat or MapleSAT, and no
 | `GroupSatSolver`: unit propagation over watched literals and chronological backtracking with "exactly one" variable groups, a decision count as the budget (never a clock) | M. Davis, H. Putnam, *A computing procedure for quantification theory*, JACM 7(3), 1960; M. Davis, G. Logemann, D. Loveland, *A machine program for theorem-proving*, CACM 5(7), 1962; M. Moskewicz, C. Madigan, Y. Zhao, L. Zhang, S. Malik, *Chaff: Engineering an Efficient SAT Solver*, DAC 2001 (the two watched literals; from the description) |
 | The implication encoding of the triangle constraints (the last mutable offset of a triangle is determined by the others), the total decision budget of 300k, the priority-queue subdivision with the order (largest offset, triangle, slot), the exact integer fold count (det < 0), the contracted position solve, the fallback to the stage 2 mesh | own choices (benchmarks/QuadFlow3BGate/README.md, QUAD_REMESHING.md 4.4) |
 
+## Seamless-parametrization seed for quad remeshing (research spike, `benchmarks/QuadSeamlessSeedSpike`; not library code)
+
+Research note [research/QUAD_SEAMLESS_SEED_2026-11.md](../research/QUAD_SEAMLESS_SEED_2026-11.md). Papers only: the code released with the two
+2025 papers is AGPL-3.0-or-later (Corman, Crane) and GPL-3.0 / MPL-2.0 (Capouellez et al.); only the README and the licence file names were read,
+no source file. No code of QuadriFlow, Instant Meshes, QuadWild, CoMISo, libigl, geometry-central or any other implementation was read.
+
+| Part | Source |
+|---|---|
+| The rectangular model studied (two axis scales and a frame rotation; the conformal case as its `v = 0` member); the benchmark's two-scale least squares is our own formulation of that freedom, not the paper's constrained solve | E. Corman, K. Crane, *Rectangular Surface Parameterization*, ACM TOG 44(4), SIGGRAPH 2025, DOI 10.1145/3731176 (paper and supplement) |
+| Penner coordinates, cone and holonomy constraints, feature alignment (studied, not implemented) | R. Capouellez, R. Singh, M. Heistermann, D. Bommes, D. Zorin, *Feature-Aligned Parametrization in Penner Coordinates*, ACM TOG 44(4), SIGGRAPH 2025, DOI 10.1145/3731216; R. Capouellez, D. Zorin, *Seamless Parametrization in Penner Coordinates*, ACM TOG 43(4), 2024, DOI 10.1145/3658202; *Metric Optimization in Penner Coordinates*, ACM TOG 42(6), 2023, DOI 10.1145/3618394 |
+| The benchmark's oracle: a discrete conformal metric with prescribed cone angles by Newton's method on the convex energy (gradient: target angle minus angle sum; Hessian: the cotangent Laplacian of the scaled metric; a broken triangle counts with the angles pi, 0, 0), fixed connectivity | B. Springborn, P. Schröder, U. Pinkall, *Conformal Equivalence of Triangle Meshes*, ACM TOG 27(3), SIGGRAPH 2008 (from the paper, cited from memory) |
+| The cones from the field's singular faces, the parallel cross field of the flat metric by a breadth-first walk, the transfer to a spacing and a rotation per vertex, the spacing clamp | own choices (the benchmark README) |
+
 ## Polygon mesh (`DPolyMesh`, `PolyMeshIO`; quad remeshing stage 5, [design/QUAD_REMESHING.md](../design/QUAD_REMESHING.md))
 
 Written from the format descriptions and the textbook method; no code from any other library was read or taken.
