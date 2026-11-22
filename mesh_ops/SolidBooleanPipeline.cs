@@ -580,7 +580,7 @@ namespace gs
                     if (r == null)
                         return fail(PipelineStatus.OpenInput, "input " + i + " is not closed and no allowed repair closed it", total);
                     Report.RepairedInputs.Add(r);
-                    // (a MeshAutoRepair copy that self-intersects where the input did not: the fill crosses the input, eg the fill of the
+                    // (a MeshAutoRepair copy that self-intersects where the input did not: the repair crosses the input, eg the fill of the
                     // boundary of an open sheet; such a copy is not the solid the input was meant to bound, see InputRepairModes.AutoRepair)
                     if (r.Method == "MeshAutoRepair") {
                         int added = repairSelfIntersections(given[i], repaired);
@@ -589,7 +589,7 @@ namespace gs
                             return fail(PipelineStatus.Cancelled, "cancelled", total);
                         if (added > 0)
                             return fail(PipelineStatus.OpenInput, "input " + i + " is not closed, and MeshAutoRepair closed it into a self-intersecting mesh (" + added +
-                                " pairs of its triangles meet beyond a common edge or vertex; the input as given has none): the fill crosses the input. An open " +
+                                " pairs of its triangles meet beyond a common edge or vertex; the input as given has none): the repair (eg its fill of a hole) crosses the input. An open " +
                                 "cutting surface is not a solid; close the input before the boolean so that it bounds the intended solid", total);
                     }
                     used[k] = repaired;

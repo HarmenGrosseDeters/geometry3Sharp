@@ -118,6 +118,7 @@ namespace geometry3Sharp.Tests
                     Assert.Contains("input 1 is not closed, and " + Refusal, p.Error);
                     Assert.Contains("the input as given has none", p.Error);
                     Assert.Contains("An open cutting surface is not a solid", p.Error);
+                    Assert.Contains("the repair (eg its fill of a hole) crosses the input", p.Error);
                     Assert.Equal("MeshAutoRepair", Assert.Single(p.Report.RepairedInputs).Method);
                 }
         }
@@ -187,6 +188,20 @@ namespace geometry3Sharp.Tests
                 double v = Invariance.Volume(reference.Result);
                 Assert.InRange(Invariance.Volume(q.Result) / (s.Scale * s.Scale * s.Scale), v - 1e-6 * v, v + 1e-6 * v);
             }
+        }
+
+        // the stage time on the refusal: the repair and its check (RepairMilliseconds was set only after the repair loop, so a
+        // refusal inside it left 0); a 64 x 64 sheet, so that the repair takes measurable milliseconds
+        [Fact]
+        public void TheRefusal_ReportsTheRepairTime()
+        {
+            SolidBooleanPipeline p = Run(Parts(InsideOutAdviceTests.WavySheet(64)), SolidBooleanPipeline.InputRepairModes.AutoRepair);
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
+            Assert.Contains(Refusal, p.Error);
+            SolidBooleanInputRepair r = Assert.Single(p.Report.RepairedInputs);
+            Assert.True(p.Report.RepairMilliseconds > 0);
+            Assert.True(p.Report.RepairMilliseconds >= r.Milliseconds);
+            Assert.True(p.Report.TotalMilliseconds >= p.Report.RepairMilliseconds);
         }
 
         [Fact]

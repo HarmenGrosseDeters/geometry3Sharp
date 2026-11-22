@@ -61,6 +61,7 @@ on:
       - 'tests/geometry3Sharp.Tests/ExactMeshBoolean*Tests.cs'
       - 'tests/geometry3Sharp.Tests/ExactBoolean*Tests.cs'
       - 'tests/geometry3Sharp.Tests/BooleanCertificateTests.cs'
+      - 'tests/geometry3Sharp.Tests/InsideOutAdvice*Tests.cs'
       - 'tests/geometry3Sharp.Tests/Harness/BooleanCertificate.cs'
       # (the classes of the boolean parts' coverage-based sets, coverage_select.py: also names with a suffix after Tests)
       - 'tests/geometry3Sharp.Tests/ExactMeshBooleanTests*.cs'
