@@ -88,3 +88,7 @@ dotnet run -c Release --project benchmarks/QuadFlow3BGate -- adapt=2
 | corner p95 <= 15 deg (clean / stage 2 same rows) | 17 / 25 (18 / 25) | 20 / 43 (31 / 43) | 26 / 43 (42 / 43) | **29 / 48** (44 / 48) |
 | ratio pure / stage 2 (median / max) | 2.6 / 8.9 | 2.5 / 5.3 | 1.6 / 3.0 | **1.4 / 2.0** |
 | SAT time sum over clean rows (s) | 0.65 | **0.04** | **0.05** | **0.08** |
+
+## `align=<x>`: `CurvatureAlignment` on the capsule and the capped cylinder (2026-11-22)
+
+`align=<x>` overrides `CrossField.CurvatureAlignment` of every selected shape (default: the per-shape value, 0 except `torus-align10`). `only='capsule|capped-cylinder' align=0|1|3|10|30|100` gives capsule 1, 1, 1, 3, 1, 5 clean runs of 6 and capped cylinder 0 of 6 at every weight, 0 undetected bad; the table and the reading are in [QUAD_REMESHING.md 4.4b](../../docs/design/QUAD_REMESHING.md).
