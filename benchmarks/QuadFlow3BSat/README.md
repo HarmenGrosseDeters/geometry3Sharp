@@ -35,7 +35,7 @@ Per fallback run:
 `dump=<dir>` writes DIMACS files, one directory per run: `budget_a<attempt>_seed<t>_r<ring>_<verdict>.cnf` for the instances of step 3
 and `obstruction_seed<t>_r<ring>_UNSAT.cnf` for every ring of an obstructed seed. The header comments give the seed, the ring, the master
 triangle and slot of every edge and its preference order; variable `9 e + k + 1` says that edge `e` has the offset
-`(k % 3 - 1, k / 3 - 1)`. The files are not committed (38 MB for master). The run is deterministic (nothing is timed, no result depends on a hash order); DETERMINISM. A full run takes about an hour on a 4-core cloud container, most of it in the proof checks and the cross-checks.
+`(k % 3 - 1, k / 3 - 1)`. The files are not committed (38 MB for master). The run is deterministic (nothing is timed, no result depends on a hash order); two runs on each baseline wrote identical files. A full run takes about an hour on a 4-core cloud container, most of it in the proof checks and the cross-checks.
 
 **The solver** (`CdclSolver.cs`, about 250 lines, throwaway): conflict analysis at the first unique implication point, learned clauses,
 backjumping, two watched literals, an activity per variable with ties broken by index, Luby restarts counted in conflicts, no clause
@@ -69,5 +69,7 @@ Effort is counted in conflicts and decisions; nothing is timed.
 | unsatisfiable answers with a valid RUP proof / invalid | 5082 / 0 | 189 / 0 |
 | against the DPLL: agree / disagree / DPLL undecided | 4315 / 0 / 1279 | 135 / 0 / 60 |
 | obstructed seeds whose largest region has a negative / zero / positive sum of det | 1057 / 58 / 75 | 29 / 3 / 5 |
+| obstructed seeds refuted by the area alone / unsatisfiable budget instances refuted by it | 983 / 45 of 66 | 24 / 5 of 8 |
+| DIMACS files with `dump=` | 3538 | 173 |
 
 (The unsatisfiable instances include those refuted while they were built: a triangle with one mutable edge and no value for it.)

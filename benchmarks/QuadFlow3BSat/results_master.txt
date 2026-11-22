@@ -66,3 +66,7 @@ best case: 3 of 29 fallbacks become fold-free; 3 of them complete to Success wit
 effort of the clause-learning solver (both trajectories): conflicts 3109599, decisions 3995389, most conflicts on one instance 93002
 checks: unsatisfiable answers with a valid RUP proof 5082, invalid 0; models or repaired regions that fail 0; against the library's DPLL within 20000 decisions: agree 4315, disagree 0, DPLL undecided 1279
 obstructed seeds: 1190; with a singular vertex in the region of the largest ring 87, at a singular vertex 12; folds in that region: 1 (the seed alone) 36, 2 to 5 477, 6 or more 677; sum of det over that region: negative 1057, zero 58, positive 75
+refuted by the area alone (the region of the largest ring is a disk with no singular vertex, every triangle closes, the sum of det is negative): 983 of 1190 obstructed seeds (3 regions are not a disk); of the unsatisfiable instances the library's DPLL left at its budget: 45 of 66
+instances the library's DPLL left at its budget, by ring: 5: 27, 6: 52
+DIMACS files written: 3538
+obstructed seeds with a negative sum: the first larger ring (the search stops at ring 20) whose region has a sum of det >= 0 is 1 or 2 rings larger 222, 3 to 6 rings larger 308, larger up to ring 20 338, none up to ring 20 189

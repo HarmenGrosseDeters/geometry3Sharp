@@ -66,7 +66,7 @@ dotnet run -c Release --project benchmarks/QuadFlow3BSat -- selftest=1
   mesh, so no solver can change them. Of the 3 `BudgetExceeded` runs, the capsule at ratio 0.35 becomes fold-free (4 folds, one seed solved) and then ends as `FlippedFaces` like the others; the capsule at scale 1 and the capped cylinder at ratio
   0.35 keep 19 and 16 folds, every one an obstructed seed.
 - **Where the DPLL's budget went.** On master 66 of the 79 instances that ended at a budget are unsatisfiable (with PR #1293 8 of 8): the
-  budget is spent on proving that nothing can be done, one to three instances per run, BUDGET_RINGS. This agrees with the data branch
+  budget is spent on proving that nothing can be done, one to three instances per run, 27 at ring 5 and 52 at ring 6 (4 and 4 with PR #1293). This agrees with the data branch
   `runs/quad-folds` (10 and 100 times the budget: 0 of 26).
 - **Learning does what the literature says.** No instance is left undecided; the hardest takes 93002 conflicts, the sum over the 5594 instances of master that reach
   the solver is 3.1M conflicts (another 3889 are refuted while they are built: a triangle with one mutable edge has no value for it), where the DPLL exhausts 300k decisions on three instances. The search is not the limit; a better search reaches the
@@ -81,10 +81,10 @@ Classification of the obstructed seeds by the region of their largest ring (ring
 | a singular vertex in the region / the seed at a singular vertex | 87 / 12 | 11 / 0 |
 | folds in the region: only the seed / 2 to 5 / 6 or more | 36 / 477 / 677 | 2 / 29 / 6 |
 | sum of det over the region: negative / zero / positive | 1057 / 58 / 75 | 29 / 3 / 5 |
-| **refuted by the area alone** (the region is a disk without a singular vertex, every triangle closes, the sum is negative) | **REFUTED_M** | **REFUTED_P** |
-| regions that are not a disk | NODISK_M | NODISK_P |
-| the unsatisfiable instances the DPLL left at its budget (library trajectory) that the area refutes | BUDGETREF_M of 66 | BUDGETREF_P of 8 |
-| negative sum: the first larger ring with a sum >= 0 is 1-2 rings larger / 3-6 larger / up to ring 20 / none up to ring 20 (a distance, not a bound: see below) | AREA_M | 7 / 10 / 12 / 0 |
+| **refuted by the area alone** (the region is a disk without a singular vertex, every triangle closes, the sum is negative) | **983** | **24** |
+| regions that are not a disk | 3 | 0 |
+| the unsatisfiable instances the DPLL left at its budget (library trajectory) that the area refutes | 45 of 66 | 5 of 8 |
+| negative sum: the first larger ring with a sum >= 0 is 1-2 rings larger / 3-6 larger / up to ring 20 / none up to ring 20 (a distance, not a bound: see below) | 222 / 308 / 338 / 189 | 7 / 10 / 12 / 0 |
 
 **The area explains most of them.** The sum of the integer determinants of the triangles of a region is twice its lattice area. Take a
 region that is a disk (connected, Euler characteristic 1), holds no singular vertex, and whose triangles close (the three offsets sum to
@@ -92,8 +92,8 @@ zero, which holds after the flow and is checked). The frame rotations are quarte
 they can be removed by one choice of frame over the disk; the map is then a piecewise linear map of a disk into the plane, and its signed
 area is the area enclosed by the image of the boundary. It depends on the offsets of the boundary edges only, which the local instance
 keeps fixed. So no choice of the interior offsets changes the sum, and a region with a negative sum has a triangle with det < 0 under
-every assignment. The benchmark tests exactly these premises per region (`AreaRefuted`): REFUTED_M of the 1190 obstructed seeds of master
-(REFUTED_PCT %) and REFUTED_P of the 37 with PR #1293 are refuted by this one-line invariant at ring 6, and BUDGETREF_M of the 66 (BUDGETREF_P of the 8)
+every assignment. The benchmark tests exactly these premises per region (`AreaRefuted`): 983 of the 1190 obstructed seeds of master
+(83 %) and 24 of the 37 with PR #1293 are refuted by this one-line invariant at ring 6, and 45 of the 66 (5 of the 8)
 unsatisfiable instances on which the library's DPLL spent its budget. The solver's proofs say the same without knowing it. The invariant
 does not hold for a region that wraps a handle or encloses several singular vertices, which is why those are not counted. This is the
 local form of what [QUAD_SHEAF_OBSTRUCTION_2026-11.md](QUAD_SHEAF_OBSTRUCTION_2026-11.md) 3.3 measured for whole maps (fallback rows
@@ -111,7 +111,7 @@ far the region must grow before its sum of det is no longer negative. It is a di
 vertices and can wrap the shape, where a negative sum refutes nothing and a sum >= 0 promises nothing.
 
 **The test set for the sheaf H1 question.** `dump=<dir>` writes every ring of every obstructed seed
-(`obstruction_seed<t>_r<ring>_UNSAT.cnf`; with the budget instances FILES_M files for master and FILES_P with PR #1293, the count is in the
+(`obstruction_seed<t>_r<ring>_UNSAT.cnf`; with the budget instances 3538 files for master and 173 with PR #1293, the count is in the
 results files) and the budget instances, with the
 seed, the ring and the master triangle and slot of every variable in the header; `list=1` prints one row per seed with the numbers of the
 table above. The files are regenerated by the command and are not committed. Every `UNSAT` file has a checked refutation. What the H1
@@ -124,7 +124,7 @@ predicts it must, for regions without cones), and what it says about the seeds t
 |---|---|---|---|---|
 | 1 | **Do not build a clause-learning solver into the library for stage 3B** (the stop rule) | master: 3 runs (all torus, which PR #1293 already makes clean another way); PR #1293: 0 | none | stop |
 | 2 | Hand the instances to the sheaf H1 spike as its test set, with the area invariant as the hypothesis to confirm or refute (section 3) | a statement, no clean row | none here | do, if that spike is started |
-| 3 | The region's sum of det as an exact pre-check in `TrySat`: skip the instance when the premises of section 3 hold (a disk, no singular vertex, a negative sum) | no clean row; it removes BUDGETREF_M of the 66 budget-bound proofs of master (BUDGETREF_P of 8 with PR #1293) and with them part of the SAT time of a fallback (0.13 to 0.37 s per fallback on master, gate README; nothing is timed here), on 3 rows with PR #1293. It also turns `BudgetExceeded` into a reason that says what is wrong | S: an integer sum per region, a test on the capsule; bit-identical on clean rows only if the skipped instances are exactly unsatisfiable ones, which the invariant guarantees | only together with option A of the sheaf note (the area ratio as a reported number); not worth a PR of its own |
+| 3 | The region's sum of det as an exact pre-check in `TrySat`: skip the instance when the premises of section 3 hold (a disk, no singular vertex, a negative sum) | no clean row; it removes 45 of the 66 budget-bound proofs of master (5 of 8 with PR #1293) and with them part of the SAT time of a fallback (0.13 to 0.37 s per fallback on master, gate README; nothing is timed here), on 3 rows with PR #1293. It also turns `BudgetExceeded` into a reason that says what is wrong | S: an integer sum per region, a test on the capsule; bit-identical on clean rows only if the skipped instances are exactly unsatisfiable ones, which the invariant guarantees | only together with option A of the sheaf note (the area ratio as a reported number); not worth a PR of its own |
 | 4 | Raise the per-attempt budget or order the rings differently, so that the two `OrientationFolds` torus rows of master are solved by the DPLL | master 2 rows; PR #1293 0 | S | no: PR #1293 covers them |
 | 5 | Give the map its area back before the repair: the integer jumps up front (option C of the sheaf note; Heistermann, Warnett and Bommes 2023, from the paper) | the only lever with an upper bound on what is left with PR #1293: 8 `FlippedFaces` and 3 area-obstructed rows, all capsule and capped cylinder | L, a solver project | unchanged from the sheaf note: a hooked prototype on the two shapes first, on the owner's go |
 
