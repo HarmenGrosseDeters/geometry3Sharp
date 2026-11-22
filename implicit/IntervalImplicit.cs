@@ -76,6 +76,17 @@ namespace g3
         }
 
         /// <summary>
+        /// Upper bounds of a^15 / 15! (sin) and a^14 / 14! (cos) for a >= 0: the Lagrange remainders of the two
+        /// polynomials for |r| <= a. Every step is an interval operation, and the result is the upper end.
+        /// </summary>
+        internal static void RemainderBounds(double a, out double sinBound, out double cosBound)
+        {
+            ExactInterval a1 = ExactInterval.Of(a);
+            ExactInterval a2 = a1 * a1, a4 = a2 * a2, a8 = a4 * a4, a14 = a8 * a4 * a2;
+            cosBound = (a14 / ExactInterval.Of(Factorial14)).Hi; sinBound = (a14 * a1 / ExactInterval.Of(Factorial15)).Hi;
+        }
+
+        /// <summary>
         /// sin x and cos x from the reduction x = k pi / 2 + r with the given integer k (a double with an integer value).
         /// [-1, 1] if |r| may exceed MaxReduced: the remainder bounds hold for any k that passes this check.
         /// </summary>
@@ -86,10 +97,8 @@ namespace g3
             if (!(Math.Max(Math.Abs(r.Lo), Math.Abs(r.Hi)) <= MaxReduced))
                 return;
             ExactInterval r2 = ExactInterval.Square(r);
-            // upper bounds of |r|^14 / 14! and |r|^15 / 15!, from an upper bound a1 of |r|
-            ExactInterval a1 = ExactInterval.Of(Math.Max(Math.Abs(r.Lo), Math.Abs(r.Hi)));
-            ExactInterval a2 = a1 * a1, a4 = a2 * a2, a8 = a4 * a4, a14 = a8 * a4 * a2;
-            double cosBound = (a14 / ExactInterval.Of(Factorial14)).Hi, sinBound = (a14 * a1 / ExactInterval.Of(Factorial15)).Hi;
+            double sinBound, cosBound;
+            RemainderBounds(Math.Max(Math.Abs(r.Lo), Math.Abs(r.Hi)), out sinBound, out cosBound);
             // sin r = r (1 - r^2/6 (1 - r^2/20 (... (1 - r^2/156)))) + R
             ExactInterval p = One;
             for (int i = 0; i < SinDivisors.Length; ++i)

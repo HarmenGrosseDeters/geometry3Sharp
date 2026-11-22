@@ -276,9 +276,43 @@ namespace geometry3Sharp.Tests
             Assert.Equal(-1, s.Lo); Assert.Equal(1, c.Hi);
             IntervalMath.SinCosReduced(0.79, 0, out s, out c);
             Assert.True(s.Hi - s.Lo < 1e-12);
+            // the limit itself: an upper bound of |r| equal to MaxReduced is evaluated, one unit in the last place more is not
+            IntervalMath.SinCosReduced(ExactInterval.Down(IntervalMath.MaxReduced), 0, out s, out c);
+            Assert.True(s.Hi - s.Lo < 1e-12 && c.Hi - c.Lo < 1e-11);
+            IntervalMath.SinCosReduced(IntervalMath.MaxReduced, 0, out s, out c);
+            Assert.Equal(-1, s.Lo); Assert.Equal(1, s.Hi); Assert.Equal(-1, c.Lo); Assert.Equal(1, c.Hi);
             // the bound follows |r|: tiny near a multiple of pi / 2
             IntervalMath.SinCos(1.5707963267948966 + 1e-3, out s, out c);
             Assert.True(s.Hi - s.Lo < 1e-15 && c.Hi - c.Lo < 1e-15);
+        }
+
+        // The remainder bounds against exact rational arithmetic: never below a^15 / 15! and a^14 / 14!, and at most
+        // a few units in the last place above. A bound taken from the lower end of its interval fails the first.
+        [Fact]
+        public void RemainderBounds_AreUpperBounds_OfTheExactRemainders()
+        {
+            BigInteger f14 = 87178291200, f15 = f14 * 15;
+            var rng = new Random(5);
+            var values = new List<double> { 0.8, 0.7853981633974483, 0.5, 0.1, 1e-3, 1.0 / 3, 0.79 };
+            for (int i = 0; i < 200; ++i) values.Add(0.8 * rng.NextDouble());
+            foreach (double a in values) {
+                double sb, cb; IntervalMath.RemainderBounds(a, out sb, out cb);
+                ExactDyadic A = ExactDyadic.Of(a), Sb = ExactDyadic.Of(sb), Cb = ExactDyadic.Of(cb);
+                // bound * n! >= a^n, as integers over a common power of two
+                Assert.True(AtLeast(Cb.M * f14, Cb.E, BigInteger.Pow(A.M, 14), 14 * A.E), "cos bound at " + a.ToString("R"));
+                Assert.True(AtLeast(Sb.M * f15, Sb.E, BigInteger.Pow(A.M, 15), 15 * A.E), "sin bound at " + a.ToString("R"));
+                // and tight: bound * n! <= a^n (1 + 2^-45)
+                BigInteger p14 = BigInteger.Pow(A.M, 14), p15 = BigInteger.Pow(A.M, 15);
+                Assert.True(AtLeast(p14 * ((BigInteger.One << 45) + 1), 14 * A.E - 45, Cb.M * f14, Cb.E), "cos bound is tight at " + a.ToString("R"));
+                Assert.True(AtLeast(p15 * ((BigInteger.One << 45) + 1), 15 * A.E - 45, Sb.M * f15, Sb.E), "sin bound is tight at " + a.ToString("R"));
+            }
+        }
+
+        // m1 2^e1 >= m2 2^e2
+        static bool AtLeast(BigInteger m1, int e1, BigInteger m2, int e2)
+        {
+            int e = Math.Min(e1, e2);
+            return (m1 << (e1 - e)) >= (m2 << (e2 - e));
         }
 
         [Fact]
@@ -864,6 +898,15 @@ namespace geometry3Sharp.Tests
             Assert.True(d.CertificateRun.HasValue && !d.CertificateRun.Value.Dense && d.CertificateRun.Value.Corners == Vector3i.Zero);
             Assert.True(Contour(f, Shift, 2.2, 16).CertificateRun.Value.Dense);
             refused(d, "sparse run on a reused instance");
+            // a sparse run on a new instance: no corner dimensions on either side, so only the dimensions' size refuses it
+            var sparse = new DualContouring { Implicit = f, InsideIsLess = true, CellSize = h, Simplify = false,
+                Bounds = new AxisAlignedBox3d(Shift, Shift + 2.2 * Vector3d.One), RecordCertificateData = true,
+                CandidateCells = cells, NodeValueF = d.NodeValueF };
+            sparse.FindCrossings();
+            sparse.Generate();
+            Assert.True(sparse.Mesh.TriangleCount > 0 && sparse.CertificateRun.HasValue);
+            Assert.Equal(sparse.CornerDimensions, sparse.CertificateRun.Value.Corners);
+            refused(sparse, "sparse run on a new instance");
             // a cancelled run
             var cancelled = new DualContouring { Implicit = f, InsideIsLess = true, CellSize = 2.2 / 16, Simplify = false, Bounds = new AxisAlignedBox3d(Shift, Shift + 2.2 * Vector3d.One), RecordCertificateData = true, CancelF = () => true };
             cancelled.Generate();
