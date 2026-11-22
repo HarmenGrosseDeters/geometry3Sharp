@@ -18,9 +18,10 @@ algebraic law, an invariance or its documented result contract on small solids b
    every family, including the rotated near-degenerate ones.
 2. **One defect of the test harness, fixed here:** the certifying checker (`BooleanCertificate.Cover`) ran out of memory after
    100 s on a result of 4 triangles (section 4). The library computed that Boolean in 1 ms.
-3. **Three documented behaviours fired first and are not defects** (section 5): a thin closed component that the rounding
+3. **Four documented behaviours fired first and are not defects** (section 5): a thin closed component that the rounding
    turned inside out while `RoundingClean` is true; `SolidBooleanPipeline` refusing with `RoundingNotClean` where the default
-   mode reports a clean result; triangles the certificate cannot cover within its Delta.
+   mode reports a clean result; triangles the certificate cannot cover within its Delta; the certificate's report of parts the
+   rounding removed.
 4. The exact comparison is new and reusable: a **surface fingerprint** (per exact plane, signed area and first moment, in
    `BigInteger` rationals) turns the set identities into equalities without a tolerance, for any input coordinates (section 2).
 5. Yield: everything that fired did so in the first 3200 cases (400 seeds per family); 10 100 more gave nothing. Section 6
@@ -178,11 +179,16 @@ Each first firing was read against the class comments before it counted, as in t
 3. **Triangles the certificate cannot cover within Delta** (1871 in the Nightly seeds, all in `ulp`, `slab` and
    `rotated`). The certificate's class comment says so: "a triangle not covered after the splits is only counted". Slivers
    thinner than Delta are the cause. The checker counts them and fails only on a violation (C0 to C5).
-4. **Two mistakes of the generator**, found by the relations and fixed: a zero moved by one of its own units in the last place
+4. **The certificate's "removed parts" verdict** (`not clean: the rounding removed N part(s) of the exact result (all else
+   holds)`; REMOVEDPARTS in the Nightly seeds, all in `ulp`, `slab` and `rotated`). Stage 3 of the certificate (#1359) reports
+   the documented removal of tiny and thin components this way; it reached master while this spike ran, and the PR's CI, which
+   tests the merge, showed it on `slab` seeds 0 and 1. Counted in the three sliver families, a failure in the others
+   (`RemovedPartsVerdict_IsTheCertificatesText`).
+5. **Two mistakes of the generator**, found by the relations and fixed: a zero moved by one of its own units in the last place
    (2^-1074) is outside the supported range of the rounding (2^-200 to 2^200); the Boolean said so (`OutsideRange`), and the
    2^-10 copy underflowed to another input. A cavity with a face in the outer wall is the boundary of its solid only while
    the two faces coincide exactly; rotated, they cross and `∂(A ∪ A) = A` does not hold, correctly.
-5. **Found by the review of the harness, fixed**: the checker threw on a non-finite result of the open case instead of
+6. **Found by the review of the harness, fixed**: the checker threw on a non-finite result of the open case instead of
    reporting it, printed repro code that did not compile for negative coordinates, and skipped a certificate that answered
    "not applicable" without a trace (now a failure: closed inputs always have one).
 

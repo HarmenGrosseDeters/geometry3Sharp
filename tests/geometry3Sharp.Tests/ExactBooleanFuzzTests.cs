@@ -31,14 +31,14 @@ namespace geometry3Sharp.Tests
         {
             Assert.True(count > 0, "no seeds to run");
             var report = new StringBuilder();
-            int failed = 0, booleans = 0, relations = 0, notClean = 0, inexact = 0, uncovered = 0, refused = 0, thinInsideOut = 0, samples = 0;
+            int failed = 0, booleans = 0, relations = 0, notClean = 0, inexact = 0, uncovered = 0, removedParts = 0, refused = 0, thinInsideOut = 0, samples = 0;
             int ncIntersections = 0, ncDegenerate = 0, ncContacts = 0, ncDisparity = 0;
             for (int seed = from; seed < from + count; ++seed) {
                 FuzzCase c = BooleanFuzzCases.Make(family, seed);
                 var check = new BooleanFuzzCheck(c);
                 List<string> failures = check.Check();
                 booleans += check.Booleans; relations += check.Relations; notClean += check.ReportedNotClean; inexact += check.ComplementInexact;
-                uncovered += check.CertificateUncovered; refused += check.PipelineRefused; thinInsideOut += check.ThinInsideOut; samples += check.SamplesUsed;
+                uncovered += check.CertificateUncovered; removedParts += check.CertificateRemovedParts; refused += check.PipelineRefused; thinInsideOut += check.ThinInsideOut; samples += check.SamplesUsed;
                 ncIntersections += check.NotCleanIntersections; ncDegenerate += check.NotCleanDegenerate; ncContacts += check.NotCleanFalseContacts; ncDisparity += check.NotCleanScaleDisparity;
                 if (failures.Count == 0) continue;
                 if (++failed > 3) continue;
@@ -48,7 +48,7 @@ namespace geometry3Sharp.Tests
             }
             output.WriteLine($"{family}: seeds {from}..{from + count - 1}, {failed} failed; {booleans} Booleans, {relations} relations; documented exceptions: " +
                 $"{notClean} results reported not clean (intersections {ncIntersections}, degenerate {ncDegenerate}, false contacts {ncContacts}, scale disparity {ncDisparity}), {thinInsideOut} thin inside-out components, {inexact} complement steps not representable, " +
-                $"{uncovered} triangles the certificate could not cover, {refused} pipeline refusals; {samples} winding samples");
+                $"{uncovered} triangles the certificate could not cover, {removedParts} certificates with parts the rounding removed, {refused} pipeline refusals; {samples} winding samples");
             return failed == 0 ? "" : $"{failed} of {count} cases of '{family}' fail:\n" + report;
         }
 
@@ -479,6 +479,24 @@ namespace geometry3Sharp.Tests
             DMesh3 needle = BooleanFuzzShapes.Tet(new Vector3d(6, 0, 0), new Vector3d(8, 0, 0), new Vector3d(7, 1e-12, 0), new Vector3d(7, 0, 1e-12));
             Assert.Contains("degenerate", BooleanFuzzCheck.CleanExceptThinInsideOut(BooleanFuzzShapes.Join(box, needle), 1e-5, 256, false, out thin));
             Assert.Equal("", BooleanFuzzCheck.CleanExceptThinInsideOut(BooleanFuzzShapes.Join(box, needle), 1e-5, 256, true, out thin));
+        }
+
+        /// <summary>
+        /// The certificate's "removed parts" verdict (counted in the sliver families) is the text the checker looks for. The
+        /// case is slab seed 0: a box minus a sheared slab of thickness 2^-30 through its top face, where the rounding
+        /// removes a sliver of the exact result. Counted for the slab family, a failure under any other family name.
+        /// </summary>
+        [Fact]
+        public void RemovedPartsVerdict_IsTheCertificatesText()
+        {
+            FuzzCase c = BooleanFuzzCases.Make("slab", 0);
+            BooleanCertificate certificate = BooleanCertificate.Run(new DMesh3(c.A), new DMesh3(c.B), Ops.Difference, out _);
+            Assert.StartsWith(BooleanFuzzCheck.RemovedPartsVerdict, certificate.Check());
+            var slab = new BooleanFuzzCheck(c) { Run = Groups.Differential };
+            Assert.Empty(slab.Check());
+            Assert.True(slab.CertificateRemovedParts >= 1);
+            var other = new BooleanFuzzCheck(new FuzzCase { Family = "coplanar", A = c.A, B = c.B }) { Run = Groups.Differential };
+            Assert.Contains(other.Check(), f => f.Contains("has a valid certificate") && f.Contains("rounding removed"));
         }
 
         [Fact]

@@ -34,13 +34,16 @@ namespace geometry3Sharp.Tests
         public readonly List<string> Failures = new List<string>();
         public Groups Run = Groups.All;
         /// <summary> Boolean runs and relations checked, and how often a documented exception applied </summary>
-        public int Booleans, Relations, ReportedNotClean, ComplementInexact, CertificateUncovered, PipelineRefused, SamplesUsed, ThinInsideOut;
+        public int Booleans, Relations, ReportedNotClean, ComplementInexact, CertificateUncovered, CertificateRemovedParts, PipelineRefused, SamplesUsed, ThinInsideOut;
         /// <summary> of ReportedNotClean, by what MeshRoundingRepair reports (a result can count in several) </summary>
         public int NotCleanIntersections, NotCleanDegenerate, NotCleanFalseContacts, NotCleanScaleDisparity;
         /// <summary> for the tests of the checker: replaces the result of a run (name of the run, the Boolean) before it is checked </summary>
         public Action<string, ExactMeshBoolean> Tamper;
         /// <summary> the same for the pipeline's result ("pipeline Union", ...) </summary>
         public Action<string, SolidBooleanPipeline> TamperPipeline;
+
+        /// <summary> how BooleanCertificate.Check() starts when all its checks hold but the rounding removed components </summary>
+        public const string RemovedPartsVerdict = "not clean: the rounding removed ";
 
         readonly Random rand;
 
@@ -357,7 +360,10 @@ namespace geometry3Sharp.Tests
                         CertificateUncovered += uncovered = c.Uncovered;
                     } catch (Exception e) { cert = "the certificate threw " + e.GetType().Name + ": " + e.Message; }
                     // (closed inputs, Intersection without the early-out: the certificate always applies; "n/a" would hide the check)
-                    Expect(n + " has a valid certificate", cert);
+                    // "not clean: the rounding removed N part(s) ... (all else holds)" is the certificate's report of the documented
+                    // removal of tiny and thin components: counted in the families built to give them, a failure elsewhere
+                    if (DegenerateAllowed && cert.StartsWith(BooleanFuzzCheck.RemovedPartsVerdict, StringComparison.Ordinal)) { ++CertificateRemovedParts; ++Relations; }
+                    else Expect(n + " has a valid certificate", cert);
                     // outside the families built to give slivers, every triangle must be covered, as in BooleanCertificate.CheckBoolean
                     if (!DegenerateAllowed) Expect(n + " is covered by its certificate", uncovered == 0 ? "" : uncovered + " triangles not covered within Delta");
                     var pipeline = new SolidBooleanPipeline(new DMesh3(a), new DMesh3(b), op);
