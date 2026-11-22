@@ -481,9 +481,9 @@ Ordered by expected value for the library.
      Devillers et al. 2018 read in full and its upper bounds measured on generated inputs, nothing built. The scheme
      proves an intersection-free complex, not a clean closed surface (sheets closer than a cell are merged), keeps no
      solid that SafeRounding removes on the generated sets, and its global form needs at least 16 to 258 times the
-     triangles on ordinary results (0.5 to 0.9 √n on a fine grid). The valid solids SafeRounding drops (pipeline audit
-     2026-11-22: a small cube, a rotated thin slab) stay clean when its removal rule is switched off: a rule decision,
-     not a rounding one. Leaning: no build; the owner's decisions on the options are open.
+     triangles on ordinary results (0.5 to 0.9 √n on a fine grid). The valid thin slabs SafeRounding drops when rotated (pipeline audit,
+     #1304) stay clean and unchanged when its removal rule is switched off: a rule decision, not a rounding one (the
+     small cube of that audit is lost to the degenerate-area test instead). Leaning: no build; the owner's decisions on the options are open.
    - Status (2026-11-12, owner; ended 2026-11-15, #721 closed, see the plateau variant below): taken up together with item 3 by a Fable research session
      (session_01AaGT59a53nRKYCZvxKB6Vt): falsification run on real rounding traces first, candidate rules as lemmas
      checked with Z3, ends with docs/design/SNAP_ROUNDING_3D.md and a recommendation; no library code.

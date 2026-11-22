@@ -51,7 +51,8 @@ resumable; `bound.py tables <out.jsonl>...` prints the tables. `bound selfcheck`
 hand-counted case. The sets `scale` (two rotated cube-spheres at six
 resolutions) and `drop` (valid small and thin solids that SafeRounding removes: a cube beside a large box, a slab
 axis-aligned and rotated) are for this measurement; where a component was removed, the line also says whether the
-same repair without the removal ends clean (`no_removal_clean`, a probe outside the boolean). Raw output:
+same repair without the removal ends clean (`no_removal_clean`, a probe outside the boolean) and what became of
+each removed component (`no_removal_volume_ratio`: its volume after over before, 1 = kept as it was). Raw output:
 `trace/results/bound_2026-11-22.jsonl`, `bound_scale_2026-11-22.jsonl`, `bound_drop_2026-11-22.jsonl`.
 
 ## Sets

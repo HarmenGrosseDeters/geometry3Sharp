@@ -33,10 +33,11 @@ empty ball, clearance skins and the separating-axis prefilter, the position sear
   SafeRounding removed on the 534 generated results are below 0.001 cell thick (median 1e-11): slivers that the grid
   scheme collapses too. The valid solids of the pipeline audit (2026-11-22) do get dropped: a cube of half a cell
   beside a large box, and a rotated slab at 4 cells and thinner (axis-aligned it survives at any thickness tried). A
-  grid scheme would keep the slab only at about 2 cells and more and the cube not at all, at the cost below. The same
-  repair with the removal switched off ends clean on all 8 dropped cases, down to a slab of 4e-6 cell: these solids
-  are representable and clean in doubles, and what loses them is the rule "thin or tiny and edited" (section 4.2,
-  option 2 of section 6).
+  grid scheme would keep the slab only at about 2 cells and more, and the half-cell cube may end as a point, at the
+  cost below. With the removal switched off the same repair keeps all six dropped slabs clean and unchanged, down to
+  4e-6 cell: they are representable in doubles, and what loses them is the rule "thin and edited". The cubes are lost
+  to the degenerate-area test relative to the whole result; without the removal they end as inflated tetrahedra
+  (section 4.2, option 2 of section 6).
 - **Its cost in the global form rules it out.** A lower bound of its output, counted without building it: 16 to 258
   times the triangles of an ordinary result of 300 to 420 000 triangles on the grid that fits our bounds, and 16 to
   370 times (0.5 to 0.9 √n; the paper expects O(n √n)) on a grid as fine as the coordinates; and every vertex moves
@@ -45,7 +46,7 @@ empty ball, clearance skins and the separating-axis prefilter, the position sear
   of about 5; but the seam to the untouched result must be verified and the patch grown on failure, which is the
   round-verify-repeat structure that was closed as option B, and the merged sheets remain (section 4.4).
 - **Leaning: no build of a guaranteed rounding (option 1 of section 6); for the dropped solids, a decision on the
-  removal rule (option 2).** Both are the owner's.
+  removal rule (option 2), without a leaning.** Both are the owner's.
 
 ## 2. The paper, read in full
 
@@ -170,9 +171,10 @@ that are rounding clean and not clean, two clusters and two `utm` cases, report 
 
 **What the rule is.** After the edits, SafeRounding removes a closed component that is *tiny* (area below 1e4 times
 the degenerate area) or *thin* (2 volume / area below `maxLength`) if the repair edited it or it still holds a
-defect, unless it holds real volume for its area (then it stays and counts as `ScaleDisparity`); and a closed
-component of numerically zero volume, or a tiny inside-out one that nothing encloses, also when untouched
-(`remove_tiny_components`). `maxLength` is the larger of 1e-5 of the diagonal of the largest component and 256 ulps:
+defect; a thin one that is not tiny and holds real volume for its area stays and counts as `ScaleDisparity`, a tiny
+one goes whatever its volume. A closed component of numerically zero volume, or a tiny inside-out one that nothing
+encloses, goes also when untouched. Nothing is removed if that would empty a result whose input was itself thin or
+tiny (`KeepWhenEmptied`; `remove_tiny_components`). `maxLength` is the larger of 1e-5 of the diagonal of the largest component and 256 ulps:
 3.6 to 7 cells of g on results around the origin, 32 cells on the `utm` set. The count is reported
 (`Rounding.RemovedComponents`); the result is still rounding clean.
 
@@ -194,58 +196,71 @@ the box [0,1024]^3 and a cube of edge 2^-e one unit beside it. `drop:slab:<k>:<f
 [2−h,4]×[0,2]^2, h = 2^-k, a slab of thickness h, axis-aligned or with both operands under one generic rotation.
 `python3 bound.py tables trace/results/bound_drop_2026-11-22.jsonl`:
 
-| case | cells per `maxLength` | result triangles | removed components | thickness of the removed, cells | without the removal: clean |
-|---|---:|---:|---:|---|---|
-| drop:cube:3 | 4.5 | 24 | 0 | - | - |
-| drop:cube:5 | 4.5 | 24 | 0 | - | - |
-| drop:cube:7 | 4.5 | 24 | 0 | - | - |
-| drop:cube:9 | 4.5 | 12 | 1 | 0.167 | yes |
-| drop:cube:11 | 4.5 | 12 | 1 | 0.0417 | yes |
-| drop:slab:11:axis | 3.7 | 12 | 0 | - | - |
-| drop:slab:13:axis | 3.7 | 12 | 0 | - | - |
-| drop:slab:14:axis | 3.7 | 12 | 0 | - | - |
-| drop:slab:15:axis | 3.7 | 12 | 0 | - | - |
-| drop:slab:16:axis | 3.7 | 12 | 0 | - | - |
-| drop:slab:17:axis | 3.7 | 12 | 0 | - | - |
-| drop:slab:19:axis | 3.7 | 12 | 0 | - | - |
-| drop:slab:25:axis | 3.7 | 12 | 0 | - | - |
-| drop:slab:35:axis | 3.7 | 12 | 0 | - | - |
-| drop:slab:11:rot | 4.2 | 18 | 0 | - | - |
-| drop:slab:13:rot | 4.2 | 22 | 0 | - | - |
-| drop:slab:14:rot | 4.2 | 18 | 0 | - | - |
-| drop:slab:15:rot | 4.2 | 0 | 1 | 4 | yes |
-| drop:slab:16:rot | 4.2 | 0 | 1 | 2 | yes |
-| drop:slab:17:rot | 4.2 | 0 | 1 | 1 | yes |
-| drop:slab:19:rot | 4.2 | 0 | 1 | 0.25 | yes |
-| drop:slab:25:rot | 4.2 | 0 | 1 | 0.00391 | yes |
-| drop:slab:35:rot | 4.2 | 0 | 1 | 3.81e-06 | yes |
-| case | result triangles n | boolean | of it rounding | thin slabs | output triangles, at least | factor | on a grid as fine as the coordinates | factor | n sqrt(n) |
+| case | cells per `maxLength` | result triangles | removed components | thickness of the removed, cells | without the removal: clean | volume after / before |
+|---|---:|---:|---:|---|---|---|
+| drop:cube:3 | 4.5 | 24 | 0 | - | - | - |
+| drop:cube:5 | 4.5 | 24 | 0 | - | - | - |
+| drop:cube:7 | 4.5 | 24 | 0 | - | - | - |
+| drop:cube:9 | 4.5 | 12 | 1 | 0.167 | yes | 1.85252 |
+| drop:cube:11 | 4.5 | 12 | 1 | 0.0417 | yes | 245.031 |
+| drop:slab:11:axis | 3.7 | 12 | 0 | - | - | - |
+| drop:slab:13:axis | 3.7 | 12 | 0 | - | - | - |
+| drop:slab:14:axis | 3.7 | 12 | 0 | - | - | - |
+| drop:slab:15:axis | 3.7 | 12 | 0 | - | - | - |
+| drop:slab:16:axis | 3.7 | 12 | 0 | - | - | - |
+| drop:slab:17:axis | 3.7 | 12 | 0 | - | - | - |
+| drop:slab:19:axis | 3.7 | 12 | 0 | - | - | - |
+| drop:slab:25:axis | 3.7 | 12 | 0 | - | - | - |
+| drop:slab:35:axis | 3.7 | 12 | 0 | - | - | - |
+| drop:slab:11:rot | 4.2 | 18 | 0 | - | - | - |
+| drop:slab:13:rot | 4.2 | 22 | 0 | - | - | - |
+| drop:slab:14:rot | 4.2 | 18 | 0 | - | - | - |
+| drop:slab:15:rot | 4.2 | 0 | 1 | 4 | yes | 1 |
+| drop:slab:16:rot | 4.2 | 0 | 1 | 2 | yes | 1 |
+| drop:slab:17:rot | 4.2 | 0 | 1 | 1 | yes | 1 |
+| drop:slab:19:rot | 4.2 | 0 | 1 | 0.25 | yes | 1 |
+| drop:slab:25:rot | 4.2 | 0 | 1 | 0.00391 | yes | 1 |
+| drop:slab:35:rot | 4.2 | 0 | 1 | 3.81e-06 | yes | 1 |
 
 ("Without the removal": the same repair run on the plainly rounded result with `RemoveTinyComponents = false`, outside
 the boolean and so without its fixed input vertices: a probe. "Clean": the repair's verdict and `NotCleanReasons`
-empty, with the component still there.)
+empty. "Volume after / before": the volume of the probe's component nearest to the removed one over the removed one's:
+1 means it was kept as it was.)
 
 - **Both findings of the audit reproduce.** The cube is dropped at an edge of half a cell (2^-9) and below and kept at
   2 cells (2^-7): it is tiny by the area rule, and its triangles are below the degenerate area of the whole result, so
   the repair edits it. The rotated slab is dropped at 4 cells (2^-15) and below, that is below `maxLength` (4.2 cells
   here), and kept at 8; axis-aligned it is kept at every thickness tried, down to 2^-35, because nothing in it needs
-  an edit. The threshold of one and the same solid moves by six orders of magnitude with the frame.
-- **Would a guaranteed rounding keep them?** Partly, and only in a narrow band. In the paper's scheme two sheets that
-  are more than a cell apart along y are not merged in step 1, and step 4 moves each by at most half a cell: a slab of
-  4 cells stays a solid of more than 2, one of 2 cells stays a solid, one of 1 cell and below may end as a single
-  sheet.
-  So of the six dropped slabs it keeps two for certain (4 and 2 cells) and loses the three below a cell; the cube of
-  half a cell may end as one grid point. The band it wins is from about 2 cells to `maxLength`, one octave of
-  thickness here, at the price of 4.3 (the whole result on the grid, many times the triangles).
-- **None of them needs to be lost.** With the removal switched off the repair ends clean on all 8, down to the slab of
-  4e-6 cell (2^-35, rotated): each is a closed solid with positive volume that doubles represent without a defect.
-  What loses them is the rule, which removes an edited thin or tiny component whatever state the edits left it in.
+  an edit. The threshold of one and the same solid moves by six orders of magnitude with the frame. (The audit has the
+  same thresholds on its own harness: PR #1304, `benchmarks/SolidBooleanAudit`, finding F1 of its note.)
+- **Would a guaranteed rounding keep them?** Partly, and only in a narrow band (our inference from the steps; the
+  paper says nothing about solids). Two sheets a perpendicular distance t apart are at least t apart along y, so step 1
+  does not merge the faces of a slab of 2 cells or more (it still merges its faces with its rim locally), and step 4
+  moves every point by at most half a cell in the maximum norm, so sheets more than √3 ≈ 1.7 cells apart cannot meet.
+  A slab of 4 cells stays a solid of more than 2 (Euclidean), one of 2 cells stays a solid, one of 1 cell may end as a
+  single sheet, and below a cell a rotated slab is merged in step 1. So of the six dropped slabs it keeps two for
+  certain (4 and 2 cells) and loses the three below a cell; a cube of half a cell may end as one grid point (a cube of
+  2 cells stays, as the slab does). The band it wins is from about 2 cells to `maxLength`, one octave of thickness
+  here, at the price of 4.3 (the whole result on the grid, many times the triangles).
+- **The six slabs need not be lost.** With the removal switched off the repair ends clean on all six with the volume
+  unchanged, down to the slab of 4e-6 cell (2^-35, rotated): each is a closed solid that doubles represent without a
+  defect once the slivers at its corners are repaired. What loses them is the rule, which removes an edited thin
+  component whatever state the edits left it in.
+- **The two cubes are a different case: the degenerate-area test decides, not the removal.** The cube is exact in
+  doubles, but its triangles are below the degenerate area of the *whole result* (1e-12 of the squared diagonal of
+  box and cube together). Without the removal the repair "cleans" it by collapsing it to a tetrahedron of 1.9 times
+  (2^-9) and 245 times (2^-11) its volume, within the drift bound. That is not the cube. Keeping such a solid needs a
+  degenerate test relative to the component's own size, not a changed removal rule; that is a change of what
+  "degenerate" means in the result and was not studied here.
 - **The rule is there for the slivers, and a state-based rule would have to tell them apart.** On the 74 generated
   results with a removed component the same probe ends clean on 12 and not clean on 62: most slivers still hold a
-  defect when they are kept, which is why they go. On the 12 a sliver of about 1e-11 cell would stay as a clean
-  component. Whether such a residue is a solid to keep or noise to drop is the decision D′ took (SAFE_ROUNDING.md
-  section 1) and the owner confirmed for the slivers of A − A′ (2026-11-16); thickness alone cannot separate it
-  from the slab of 4e-6 cell, which is a valid input-defined solid.
+  defect when they are kept, which is why they go. Of the 12, seven are `utm` results that keep slivers of 1e-4 to
+  6e-4 cell with the volume unchanged, and five are cluster results whose slivers of about 1e-11 cell end clean only
+  by being inflated to 4 to 2 400 000 times their volume. Whether a residue of 1e-4 cell is a solid to keep or noise
+  to drop is the decision D′ took (SAFE_ROUNDING.md section 1) and the owner confirmed for the slivers of A − A′
+  (2026-11-16). Thickness alone cannot separate it from the slab of 4e-6 cell, which is a valid solid defined by the
+  inputs; "the volume is unchanged by the edits" separates the slabs and the `utm` slivers from the inflated ones,
+  not the slabs from the `utm` slivers.
 
 ### 4.3 The cost of the global scheme: a lower bound of its output
 
@@ -338,7 +353,7 @@ rounding clean and the 4 of 4.1. The patch factor is an estimate, see 4.3.)
 | No new self-intersection | per result: verified exactly, reported (`RoundingClean`); not promised in advance | proven for the complex | proven inside the patch; the seam verified, not proven |
 | Displacement | proven ≤ `maxLength` (the larger of 1e-5 of the diagonal and 256 ulps); 0 where no repair is needed; input vertices are moved last | proven ≤ 3/2 cells (max norm), about 2.6 g; every vertex moves | as global inside the patch, 0 outside |
 | Ends clean (`NotCleanReason`) | 515 of 534 generated results rounding clean; all but 3 of 16 239 real pairs (earlier note; one with a defect left); reported when not | not implied: merged sheets, a non-manifold complex | not implied |
-| Lost solids | whole closed components that are tiny or thinner than `maxLength` and were edited or keep a defect; those of numerically zero volume also untouched. A valid slab goes at 4 cells and below when rotated and stays at any thickness when axis-aligned (4.2) | sheets less than a cell apart are merged in every frame; a slab of 2 cells and more stays | as global inside the patch |
+| Lost solids | whole closed components that are tiny or thinner than `maxLength` and were edited or keep a defect; those of numerically zero volume also untouched. A valid slab goes at 4 cells and below when rotated and stays at any thickness when axis-aligned (4.2) | sheets less than a cell apart along y are merged; a slab of 2 cells and more stays (our inference) | as global inside the patch |
 | Output size | the exact result's, minus collapsed slivers | at least 16 to 258 times on ordinary results of 300 to 420 000 triangles (0.5 to 0.9 √n until the grid columns saturate) | the patch grows by a small factor; the rest unchanged |
 | Cost | 27 to 60 % of the boolean in the median of the sets here (single runs, four cases at a time; `scale` alone: 28 %, 2.0 of 7.4 s) | exact 2D arrangements of all faces in two projections; not measured, the output alone rules it out | per defect cluster, plus the search around the seam, repeated when the patch grows |
 | Code | built | none anywhere; steps 1 and 2 and the perturbation are new exact code | the same code, plus the patch logic |
@@ -348,7 +363,7 @@ rounding clean and the 4 of 4.1. The patch factor is an estimate, see 4.3.)
 | # | Option | Gain | Effort | Risk |
 |---|---|---|---|---|
 | 1 | **Keep SafeRounding; state its guarantee as what it is** (a certificate per result: `RoundingClean` true means verified free of intersections and degenerate triangles within the proven bound; false is reported). No build | none needed on what is measured: the certificate already covers every result that a guarantee in advance would cover, at no extra cost | none (this note; a sentence in the SafeRounding guide if the owner wants it) | none |
-| 2 | **Change the removal rule** so that an edited thin or tiny component stays when the edits left it a valid solid (closed, positive volume, no defect left), and is reported; the slivers that still hold a defect go as today | on the audit's cases all 8 dropped solids stay (probe of 4.2), and the threshold no longer depends on the frame; on the generated sets 12 of 74 results would keep a sliver residue of about 1e-11 cell as a clean component | S-M in `MeshRoundingRepair` (tier L process: it changes outputs; the 263-hash gate, the cohort run, the rounding shards); the rule for the residues is the design question | **an output and default change: the owner's decision.** It reopens D′'s "tiny components go" and the decision of 2026-11-16 on the slivers of A − A′; `NotCleanReason` semantics stay |
+| 2 | Change the removal rule so that an edited thin or tiny component stays when the edits left it a valid solid (closed, positive volume, no defect left), and is reported; the slivers that still hold a defect go as today | on the audit's cases the six dropped slabs stay as they are (probe of 4.2), so the slab's threshold no longer depends on the frame; the two cubes are not helped (they would stay as inflated tetrahedra: their case is the degenerate-area test); on the generated sets 12 of 74 results would keep residues, 7 of them slivers of 1e-4 to 6e-4 cell unchanged and 5 of them inflated ones | S-M in `MeshRoundingRepair` (tier L process: it changes outputs; the 263-hash gate, the cohort run, the rounding shards); the rule for the residues is the design question | **an output and default change: the owner's decision.** It reopens D′'s "tiny components go" and the decision of 2026-11-16 on the slivers of A − A′; `NotCleanReason` semantics stay |
 | 3 | Local Devillers-type fallback for the defect clusters, with a verified seam and a rule for merged sheets (the experiment of #1259) | at most the results SafeRounding leaves: 5 RC4b differences and 1 of 16 239 pairs on real data, 19 of 534 generated; and only if the merged sheets can be removed cleanly, which 4.4 puts in doubt on exactly these cases | L: steps 1-4 in exact arithmetic with the symbolic perturbation, the patch and seam logic, the sheet removal; weeks, tier L; a prototype of 2-3 days could not include step 1, which is the part in question | high: no proof for the seam or the sheets, so the result is still "verified, not guaranteed"; a new exact module for a handful of cases |
 | 4 | The global scheme as an option | a proven intersection-free complex on a coarse grid for every result | L, more than option 3 | not practical: 16 to 258 times the triangles and every vertex moved; not clean by our test |
 | 5 | Avoid the rounding where the guarantee matters: chains of booleans stay exact and round once at the end (`ExactMeshBoolean` on exact vertices, the 4.0 design) | fewer roundings, so fewer chances for a leftover; no guarantee for the last one | exists as a design with its own decisions (EXACT_BOOLEAN_40_DESIGN.md) | its own |
@@ -361,7 +376,8 @@ Devillers et al. or reports a measurement of it; Diazzi and Attene 2021 name it 
 on 2026-11-22 without a newer result: "3D snap rounding 2025 2026 guarantee", "Rounding meshes in 3D lower bound
 output", "snap rounding polyhedral subdivision output complexity".
 
-**Leaning: option 1 for the guarantee, and option 2 put to the owner for the dropped solids.**
+**Leaning: option 1 for the guarantee. For the dropped solids no leaning: option 2 is listed for the owner with its
+measured gain and its cost in residues.**
 - The upper bounds close both plans for now: the gain of a guarantee in advance is bounded by a handful of results,
   the paper's scheme does not make those clean, and its global form costs 16 to 258 times the triangles. Plan #1259's
   trigger ("a corpus where SafeRounding fails on significantly more than the RC4b cases") stays the right trigger; if
@@ -369,9 +385,10 @@ output", "snap rounding polyhedral subdivision output complexity".
   where two sheets are closer than the bound. Option 6 is the only path to a real guarantee and is research, not
   engineering.
 - The dropped valid solids are not a case for a guaranteed rounding: it would keep only those of about 2 cells and
-  more, at a cost that rules it out, while the repair we have keeps all of them once the rule lets it. That is a
-  change of rule and of outputs, so it is not proposed as a fix here; the note gives the measurement, the pipeline
-  audit owns the finding.
+  more, at a cost that rules it out, while the repair we have keeps the slabs once the rule lets it (and not the
+  cubes). That is a change of rule and of outputs, so it is not proposed as a fix here; the note gives the
+  measurement, and the pipeline audit (PR #1304, `docs/research/SOLID_BOOLEAN_PIPELINE_AUDIT_2026-11.md` on its
+  branch, finding F1 and section 4.5) owns the finding and its options.
 
 For the speed spike that runs in parallel: nothing here lowers the cost of the rounding. The certificate that makes a
 clean result trustworthy is the verifying search, which is the cost that spike studies; a scheme with a guarantee in

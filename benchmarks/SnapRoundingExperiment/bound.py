@@ -79,15 +79,20 @@ def tables(args):
     rr = [r for r in ok if r["removed_components"] > 0]
     print("\nThe same repair without the removal of tiny and thin components, on the %d results with a removed component: clean on %d." % (
         len(rr), sum(r.get("no_removal_clean", False) for r in rr)))
+    kept = [(r["case"], c["thickness_cells"], v) for r in rr if r.get("no_removal_clean") and family(r["case"]) != "drop"
+            for c, v in zip(r.get("removed", []), r.get("no_removal_volume_ratio", []))]
+    for case, th, v in kept:
+        print("- clean without the removal: %s, removed component %.3g cells thick, volume after / before %s" % (case, th, "%.4g" % v if v is not None else "-"))
     drop = [r for r in ok if family(r["case"]) == "drop"]
     if drop:
         print("\n## Valid small and thin solids (the set drop)\n")
-        print("| case | cells per `maxLength` | result triangles | removed components | thickness of the removed, cells | without the removal: clean |")
-        print("|---|---:|---:|---:|---|---|")
+        print("| case | cells per `maxLength` | result triangles | removed components | thickness of the removed, cells | without the removal: clean | volume after / before |")
+        print("|---|---:|---:|---:|---|---|---|")
         for r in drop:
-            print("| %s | %.1f | %d | %d | %s | %s |" % (r["case"], r["max_length"] / r["grid"], r["tris"], r["removed_components"],
+            print("| %s | %.1f | %d | %d | %s | %s | %s |" % (r["case"], r["max_length"] / r["grid"], r["tris"], r["removed_components"],
                   ", ".join("%.3g" % c["thickness_cells"] for c in r.get("removed", [])) or "-",
-                  ("yes" if r["no_removal_clean"] else "no") if "no_removal_clean" in r else "-"))
+                  ("yes" if r["no_removal_clean"] else "no") if "no_removal_clean" in r else "-",
+                  ", ".join("%.6g" % v for v in r.get("no_removal_volume_ratio", []) if v is not None) or "-"))
     grid = [r for r in ok if "grid" in r]
     print("\nGrid of the area lemma: fits the drift bound on %d of %d results, representable on %d." % (
         sum(r["grid_fits_drift"] for r in grid), len(grid), sum(r["grid_representable"] for r in grid)))

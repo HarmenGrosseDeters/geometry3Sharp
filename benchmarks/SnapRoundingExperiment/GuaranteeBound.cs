@@ -117,6 +117,7 @@ static class GuaranteeBound
         var comps = new MeshConnectedComponents(raw);
         comps.FindConnectedT();
         var removed = new List<string>();
+        var removedAt = new List<(Vector3d centre, double volume)>();
         int thinnerThanCell = 0, components = comps.Count;
         foreach (var comp in comps) {
             bool gone = true;
@@ -138,6 +139,7 @@ static class GuaranteeBound
             // the thickness of a plate (2 volume / area) or the width of a needle (area / twice its length), the smaller
             double thickness = area > 0 ? Math.Min(2 * Math.Abs(volume) / area, area / (2 * cb.MaxDim)) : 0;
             if (thickness < g) thinnerThanCell++;
+            if (gone) removedAt.Add((cb.Center, Math.Abs(volume)));
             if (gone)
                 removed.Add("{\"tris\":" + comp.Indices.Length + ",\"thickness_cells\":" + (thickness / g).ToString("G4", ci)
                     + ",\"box_max_cells\":" + (cb.MaxDim / g).ToString("G4", ci) + "}");
@@ -156,6 +158,27 @@ static class GuaranteeBound
             kc.FindConnectedT();
             sb.Append(",\"no_removal_clean\":").Append(keep.IsClean && gs.MeshRobustRepair.NotCleanReasons(keepMesh) == "" ? "true" : "false");
             sb.Append(",\"no_removal_components\":").Append(kc.Count);
+            // what became of each removed component: the volume of the probe's component nearest to it, over its own
+            // (1: kept as it was; another value: the edits changed the solid, eg a cube inflated to a tetrahedron)
+            var ratios = new List<string>();
+            foreach (var (centre, volume) in removedAt) {
+                double best = double.MaxValue, bestVolume = 0;
+                foreach (var comp in kc) {
+                    var cb = AxisAlignedBox3d.Empty;
+                    Vector3d o = keepMesh.GetVertex(keepMesh.GetTriangle(comp.Indices[0]).a);
+                    double v = 0;
+                    foreach (int t in comp.Indices) {
+                        Index3i tv = keepMesh.GetTriangle(t);
+                        Vector3d pa = keepMesh.GetVertex(tv.a), pb = keepMesh.GetVertex(tv.b), pc = keepMesh.GetVertex(tv.c);
+                        cb.Contain(pa); cb.Contain(pb); cb.Contain(pc);
+                        v += (pa - o).Dot((pb - o).Cross(pc - o)) / 6;
+                    }
+                    double d = (cb.Center - centre).Length;
+                    if (d < best) { best = d; bestVolume = Math.Abs(v); }
+                }
+                ratios.Add(volume > 0 ? (bestVolume / volume).ToString("G6", ci) : "null");
+            }
+            sb.Append(",\"no_removal_volume_ratio\":[").Append(string.Join(",", ratios)).Append(']');
         }
         if (result.TriangleCount == 0)
             return sb.Append('}').ToString();
