@@ -600,6 +600,24 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void IntrinsicAreasThatAreNotFinite_AreReportedAsInconsistent()
+        {
+            // The intrinsic area error is reported and not checked against a tolerance, but it must be a number.
+            // Coordinates of 2^300: the lengths, their squares and the areas of the input triangles are finite,
+            // the product of four lengths in the area of an intrinsic triangle is not.
+            var big = new Similarity("scale 2^300", Math.Pow(2, 300), Matrix3d.Identity, Vector3d.Zero);
+            DMesh3 mesh = ShearedGrid(3, 1, 0.375, big);
+            var T = new IntrinsicTriangulation(mesh);
+            Assert.True(T.EnableIntegerCoordinates());
+            Assert.True(double.IsInfinity(T.TriangleArea(0)));
+            var cs = T.ExtractCommonSubdivision();
+            Assert.Equal(CommonSubdivisionStatus.Inconsistent, cs.Status);
+            Assert.Contains("intrinsic triangle areas are not finite", cs.Error);
+            Assert.Empty(cs.Faces);
+            Assert.True(cs.MaxInputAreaError <= 1e-6);
+        }
+
+        [Fact]
         public void Roundabouts_CountTheInputEdgesAroundEveryVertex()
         {
             // after flips and boundary splits: every roundabout is an index into the fan of its vertex, and the

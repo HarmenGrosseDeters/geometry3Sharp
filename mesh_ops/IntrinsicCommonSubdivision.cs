@@ -12,7 +12,8 @@ namespace gs
         /// <summary>
         /// the faces tile every input triangle and every intrinsic triangle (areas checked). From integer
         /// coordinates (IntrinsicTriangulation.EnableIntegerCoordinates): the coordinates are consistent and the
-        /// faces tile every input triangle; MaxIntrinsicAreaError is reported and not checked.
+        /// faces tile every input triangle; MaxIntrinsicAreaError is reported and not checked against a tolerance
+        /// (it only fails the result if it is not finite).
         /// </summary>
         Success,
         /// <summary>
@@ -54,7 +55,7 @@ namespace gs
         public List<Vector3d> Points = new List<Vector3d>();
         /// <summary> largest relative difference between an input triangle area and the sum of its faces </summary>
         public double MaxInputAreaError;
-        /// <summary> largest relative difference between an intrinsic triangle area and the sum of its faces </summary>
+        /// <summary> largest relative difference between an intrinsic triangle area and the sum of its faces (at most 1e-6 on Success, except from integer coordinates: reported only, see ExtractCommonSubdivision) </summary>
         public double MaxIntrinsicAreaError;
 
         /// <summary>
@@ -107,7 +108,9 @@ namespace gs
         /// combinatorics come from the integers, exact for this triangulation, the crossings lie on their input
         /// edges in the order the integers give (a face can have the area 0 where two coincide up to rounding),
         /// the faces must tile every input triangle (to a relative 1e-6), and MaxIntrinsicAreaError is reported
-        /// but not checked.
+        /// but not checked against a tolerance: relative to the area of a needle triangle the rounding of the
+        /// lengths shows (measured up to 1.1e-5 and 6.1e-5 on meshes where tracing fails). Only an error that is
+        /// not finite makes the result Inconsistent.
         /// </summary>
         public IntrinsicCommonSubdivision ExtractCommonSubdivision()
         {
