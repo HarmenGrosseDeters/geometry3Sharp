@@ -1808,9 +1808,9 @@ namespace g3
                 int id = k == 0 ? a : k == 1 ? b : c;
                 Vector3d v = arr.Approx(id);
                 double e = arr.ApproxError(id), lo, hi;
-                widened(v.x, e, out lo, out hi); x0 = Math.Min(x0, lo); x1 = Math.Max(x1, hi);
-                widened(v.y, e, out lo, out hi); y0 = Math.Min(y0, lo); y1 = Math.Max(y1, hi);
-                widened(v.z, e, out lo, out hi); z0 = Math.Min(z0, lo); z1 = Math.Max(z1, hi);
+                widened(v.x, e, out lo, out hi); x0 = MathUtil.MinExact(x0, lo); x1 = MathUtil.MaxExact(x1, hi);
+                widened(v.y, e, out lo, out hi); y0 = MathUtil.MinExact(y0, lo); y1 = MathUtil.MaxExact(y1, hi);
+                widened(v.z, e, out lo, out hi); z0 = MathUtil.MinExact(z0, lo); z1 = MathUtil.MaxExact(z1, hi);
             }
         }
 
@@ -2065,13 +2065,13 @@ namespace g3
             Vector3d pa = arr.Approx(ot.A), pb = arr.Approx(ot.B), pc = arr.Approx(ot.C);
             double err = arr.ApproxError(ot.A) + arr.ApproxError(ot.B) + arr.ApproxError(ot.C);
             for (int q = 0; q < 3; ++q) {
-                box[q] = Math.Min(pa[q], Math.Min(pb[q], pc[q])) - err;
-                box[q + 3] = Math.Max(pa[q], Math.Max(pb[q], pc[q])) + err;
+                box[q] = MathUtil.MinExact(pa[q], MathUtil.MinExact(pb[q], pc[q])) - err;
+                box[q + 3] = MathUtil.MaxExact(pa[q], MathUtil.MaxExact(pb[q], pc[q])) + err;
             }
-            diam = (Math.Max(pa.Distance(pb), Math.Max(pb.Distance(pc), pc.Distance(pa))) + 2 * err) * (1 + 1e-12);
+            diam = (MathUtil.MaxExact(pa.Distance(pb), MathUtil.MaxExact(pb.Distance(pc), pc.Distance(pa))) + 2 * err) * (1 + 1e-12);
             double s = b.Size;
             for (int q = 0; q < 6; ++q)
-                s = Math.Max(s, 3 * Math.Abs(box[q]));
+                s = MathUtil.MaxExact(s, 3 * Math.Abs(box[q]));
             double near = 1e-3 * s, slack = 1e-12 * s;
             double d = box_distance(box, 0, b.All, 0) - slack;
             double g;
@@ -2098,14 +2098,14 @@ namespace g3
             for (int t = 0; t < ns; ++t) {
                 Vector3d x = g[2 * t], y = g[2 * t + 1];
                 for (int q = 0; q < 3; ++q) {
-                    b.Boxes[6 * t + q] = Math.Min(x[q], y[q]);
-                    b.Boxes[6 * t + q + 3] = Math.Max(x[q], y[q]);
-                    b.All[q] = Math.Min(b.All[q], b.Boxes[6 * t + q]);
-                    b.All[q + 3] = Math.Max(b.All[q + 3], b.Boxes[6 * t + q + 3]);
+                    b.Boxes[6 * t + q] = MathUtil.MinExact(x[q], y[q]);
+                    b.Boxes[6 * t + q + 3] = MathUtil.MaxExact(x[q], y[q]);
+                    b.All[q] = MathUtil.MinExact(b.All[q], b.Boxes[6 * t + q]);
+                    b.All[q + 3] = MathUtil.MaxExact(b.All[q + 3], b.Boxes[6 * t + q + 3]);
                 }
                 b.Lengths[t] = x.Distance(y) * (1 + 1e-15);
                 b.Total += b.Lengths[t];
-                b.Size = Math.Max(b.Size, Math.Max(Math.Abs(x.x) + Math.Abs(x.y) + Math.Abs(x.z), Math.Abs(y.x) + Math.Abs(y.y) + Math.Abs(y.z)));
+                b.Size = MathUtil.MaxExact(b.Size, MathUtil.MaxExact(Math.Abs(x.x) + Math.Abs(x.y) + Math.Abs(x.z), Math.Abs(y.x) + Math.Abs(y.y) + Math.Abs(y.z)));
             }
             return b;
         }
@@ -2158,7 +2158,7 @@ namespace g3
         {
             double sum = 0;
             for (int q = 0; q < 3; ++q) {
-                double gap = Math.Max(0, Math.Max(x[a + q] - y[b + q + 3], y[b + q] - x[a + q + 3]));
+                double gap = MathUtil.MaxExact(0, MathUtil.MaxExact(x[a + q] - y[b + q + 3], y[b + q] - x[a + q + 3]));
                 sum += gap * gap;
             }
             // (#719: an overflowed sum of squares would give an infinite distance and far_term a zero bound: then the norm
@@ -2169,9 +2169,9 @@ namespace g3
         [MethodImpl(MethodImplOptions.NoInlining)]
         static double box_distance_scaled(double[] x, int a, double[] y, int b)
         {
-            double g0 = Math.Max(0, Math.Max(x[a] - y[b + 3], y[b] - x[a + 3]));
-            double g1 = Math.Max(0, Math.Max(x[a + 1] - y[b + 4], y[b + 1] - x[a + 4]));
-            double g2 = Math.Max(0, Math.Max(x[a + 2] - y[b + 5], y[b + 2] - x[a + 5]));
+            double g0 = MathUtil.MaxExact(0, MathUtil.MaxExact(x[a] - y[b + 3], y[b] - x[a + 3]));
+            double g1 = MathUtil.MaxExact(0, MathUtil.MaxExact(x[a + 1] - y[b + 4], y[b + 1] - x[a + 4]));
+            double g2 = MathUtil.MaxExact(0, MathUtil.MaxExact(x[a + 2] - y[b + 5], y[b + 2] - x[a + 5]));
             return scaled_norm(g0, g1, g2);
         }
 
@@ -2184,7 +2184,7 @@ namespace g3
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static double scaled_norm(double x, double y, double z)
         {
-            double m = Math.Max(Math.Abs(x), Math.Max(Math.Abs(y), Math.Abs(z)));
+            double m = MathUtil.MaxExact(Math.Abs(x), MathUtil.MaxExact(Math.Abs(y), Math.Abs(z)));
             if (m == 0 || double.IsNaN(m) || double.IsInfinity(m))
                 return m;           // (Math.Max propagates NaN on every target)
             int e = (int)((BitConverter.DoubleToInt64Bits(m) >> 52) & 0x7FF) - 1023;
@@ -2205,14 +2205,14 @@ namespace g3
         {
             double q = 4 * Math.PI * d * d;
             if (q <= double.MaxValue)
-                return Math.Min(length / q, count / (2 * Math.PI * d));
+                return MathUtil.MinExact(length / q, count / (2 * Math.PI * d));
             return far_term_overflow(length, count, d);
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         static double far_term_overflow(double length, double count, double d)
         {
-            double r = Math.Min(length / d / d / (4 * Math.PI), count / d / (2 * Math.PI));
+            double r = MathUtil.MinExact(length / d / d / (4 * Math.PI), count / d / (2 * Math.PI));
             if (double.IsNaN(r))
                 return double.PositiveInfinity;
             // (rounded up, so that it bounds the true term: the three roundings of each quotient, relative 2^-53 each in the
@@ -2427,8 +2427,8 @@ namespace g3
                     double diam = 0, dist = 0;
                     for (int k = 0; k < 3; ++k) {
                         Vector3d a = corner_double(tq.Corners[k]), c = corner_double(tq.Corners[(k + 1) % 3]);
-                        diam = Math.Max(diam, max_abs(a - c));
-                        dist = Math.Max(dist, max_abs(a - fp.Origin));
+                        diam = MathUtil.MaxExact(diam, max_abs(a - c));
+                        dist = MathUtil.MaxExact(dist, max_abs(a - fp.Origin));
                     }
                     if (dist <= 16 * diam)
                         frames[sq] = fp;
@@ -2496,8 +2496,8 @@ namespace g3
                             foreach (int i in pcs) {
                                 piece_box(i, boxes, hasBox, loc);
                                 for (int k = 0; k < 3; ++k) {
-                                    cbox[k] = Math.Min(cbox[k], boxes[6 * loc[i] + k]);
-                                    cbox[k + 3] = Math.Max(cbox[k + 3], boxes[6 * loc[i] + k + 3]);
+                                    cbox[k] = MathUtil.MinExact(cbox[k], boxes[6 * loc[i] + k]);
+                                    cbox[k + 3] = MathUtil.MaxExact(cbox[k + 3], boxes[6 * loc[i] + k + 3]);
                                 }
                             }
                             cbj = cluster_bound(cbox, bb[j]);
@@ -2724,8 +2724,8 @@ namespace g3
             piece_box(p, boxes, hasBox, loc);
             piece_box(q, boxes, hasBox, loc);
             for (int k = 0; k < 3; ++k) {
-                box[k] = Math.Min(boxes[6 * loc[p] + k], boxes[6 * loc[q] + k]);
-                box[k + 3] = Math.Max(boxes[6 * loc[p] + k + 3], boxes[6 * loc[q] + k + 3]);
+                box[k] = MathUtil.MinExact(boxes[6 * loc[p] + k], boxes[6 * loc[q] + k]);
+                box[k + 3] = MathUtil.MaxExact(boxes[6 * loc[p] + k + 3], boxes[6 * loc[q] + k + 3]);
             }
             // (the distance in the local frame: its errors are relative to the input triangle, not to the model)
             double ep, eq;
@@ -2748,8 +2748,8 @@ namespace g3
             Vector3d pa = arr.Approx(ot.A), pb = arr.Approx(ot.B), pc = arr.Approx(ot.C);
             double err = arr.ApproxError(ot.A) + arr.ApproxError(ot.B) + arr.ApproxError(ot.C);
             for (int k = 0; k < 3; ++k) {
-                boxes[6 * loc[i] + k] = Math.Min(pa[k], Math.Min(pb[k], pc[k])) - err;
-                boxes[6 * loc[i] + k + 3] = Math.Max(pa[k], Math.Max(pb[k], pc[k])) + err;
+                boxes[6 * loc[i] + k] = MathUtil.MinExact(pa[k], MathUtil.MinExact(pb[k], pc[k])) - err;
+                boxes[6 * loc[i] + k + 3] = MathUtil.MaxExact(pa[k], MathUtil.MaxExact(pb[k], pc[k])) + err;
             }
             hasBox[loc[i]] = true;
         }
@@ -2761,7 +2761,7 @@ namespace g3
         {
             double s = b.Size;
             for (int q = 0; q < 6; ++q)
-                s = Math.Max(s, 3 * Math.Abs(box[q]));
+                s = MathUtil.MaxExact(s, 3 * Math.Abs(box[q]));
             double near = 1e-3 * s, slack = 1e-12 * s;
             double d = box_distance(box, 0, b.All, 0) - slack;
             double g;
@@ -2804,7 +2804,7 @@ namespace g3
         {
             double s = b.Size;
             for (int q = 0; q < 6; ++q)
-                s = Math.Max(s, 3 * Math.Abs(cbox[q]));
+                s = MathUtil.MaxExact(s, 3 * Math.Abs(cbox[q]));
             double near = 1e-3 * s, slack = 1e-12 * s;
             var c = new ClusterBound();
             var list = new List<int>();
@@ -2926,7 +2926,7 @@ namespace g3
                 double c = (double)arr.Center[k];
                 ip[k] = ExactPoint3.ScaleB(gp[k] + c, arr.ScaleExp);
                 iq[k] = ExactPoint3.ScaleB(gq[k] + c, arr.ScaleExp);
-                e = Math.Max(e, Math.Max(ep + 3.4e-16 * (Math.Abs(gp[k]) + Math.Abs(c)), eq + 3.4e-16 * (Math.Abs(gq[k]) + Math.Abs(c))));
+                e = MathUtil.MaxExact(e, MathUtil.MaxExact(ep + 3.4e-16 * (Math.Abs(gp[k]) + Math.Abs(c)), eq + 3.4e-16 * (Math.Abs(gq[k]) + Math.Abs(c))));
             }
             pad = 1.01 * ExactPoint3.ScaleB(e, arr.ScaleExp) + 1e-300;
             double all = ip.x + ip.y + ip.z + iq.x + iq.y + iq.z + pad;
@@ -3040,7 +3040,7 @@ namespace g3
                 var gl = new double[g.Length + 1];
                 for (int q = 0; q < g.Length; ++q) {
                     gl[q] = l1(g[q]);
-                    gl[g.Length] = Math.Max(gl[g.Length], gl[q]);
+                    gl[g.Length] = MathUtil.MaxExact(gl[g.Length], gl[q]);
                 }
                 return gl;
             }
@@ -3061,12 +3061,12 @@ namespace g3
                     double ax, ay, ae, bxx, byy, be;
                     bool va = Project(g[2 * s], out ax, out ay, out ae), vb = Project(g[2 * s + 1], out bxx, out byy, out be);
                     Valid = va && vb;
-                    box[4 * s] = Math.Min(ax - ae, bxx - be);
-                    box[4 * s + 1] = Math.Min(ay - ae, byy - be);
-                    box[4 * s + 2] = Math.Max(ax + ae, bxx + be);
-                    box[4 * s + 3] = Math.Max(ay + ae, byy + be);
-                    bx0 = Math.Min(bx0, box[4 * s]); by0 = Math.Min(by0, box[4 * s + 1]);
-                    bx1 = Math.Max(bx1, box[4 * s + 2]); by1 = Math.Max(by1, box[4 * s + 3]);
+                    box[4 * s] = MathUtil.MinExact(ax - ae, bxx - be);
+                    box[4 * s + 1] = MathUtil.MinExact(ay - ae, byy - be);
+                    box[4 * s + 2] = MathUtil.MaxExact(ax + ae, bxx + be);
+                    box[4 * s + 3] = MathUtil.MaxExact(ay + ae, byy + be);
+                    bx0 = MathUtil.MinExact(bx0, box[4 * s]); by0 = MathUtil.MinExact(by0, box[4 * s + 1]);
+                    bx1 = MathUtil.MaxExact(bx1, box[4 * s + 2]); by1 = MathUtil.MaxExact(by1, box[4 * s + 3]);
                 }
                 if (Valid == false || Count == 0) {
                     Valid = false;
@@ -3075,8 +3075,8 @@ namespace g3
                 int side = Math.Max(1, (int)Math.Sqrt(Count / 2.0));
                 nx = ny = side;
                 x0 = bx0; y0 = by0;
-                cw = Math.Max((bx1 - bx0) / nx, 1e-300);
-                ch = Math.Max((by1 - by0) / ny, 1e-300);
+                cw = MathUtil.MaxExact((bx1 - bx0) / nx, 1e-300);
+                ch = MathUtil.MaxExact((by1 - by0) / ny, 1e-300);
                 var counts = new int[nx * ny + 1];
                 for (int pass = 0; pass < 2; ++pass) {
                     if (pass == 1) {
@@ -3129,7 +3129,7 @@ namespace g3
                     pe = double.NaN;
                     return false;
                 }
-                pe = 1.01 * Math.Max((di + Math.Abs(px) * dd) / ad + u * Math.Abs(px), (dj + Math.Abs(py) * dd) / ad + u * Math.Abs(py)) + 1e-300;
+                pe = 1.01 * MathUtil.MaxExact((di + Math.Abs(px) * dd) / ad + u * Math.Abs(px), (dj + Math.Abs(py) * dd) / ad + u * Math.Abs(py)) + 1e-300;
                 return Math.Abs(d) > 2 * dd && double.IsNaN(pe + px + py) == false && double.IsInfinity(pe + px + py) == false;
             }
 
@@ -3145,8 +3145,8 @@ namespace g3
                     double px, py, pe;
                     if (Project(v[k], out px, out py, out pe) == false)
                         return null;
-                    ax = Math.Min(ax, px - pe); ay = Math.Min(ay, py - pe);
-                    bx = Math.Max(bx, px + pe); by = Math.Max(by, py + pe);
+                    ax = MathUtil.MinExact(ax, px - pe); ay = MathUtil.MinExact(ay, py - pe);
+                    bx = MathUtil.MaxExact(bx, px + pe); by = MathUtil.MaxExact(by, py + pe);
                 }
                 int cx0, cy0, cx1, cy1;
                 Cells(ax, ay, bx, by, out cx0, out cy0, out cx1, out cy1);
@@ -3208,7 +3208,7 @@ namespace g3
                 return subset;
             double size = gl[gl.Length - 1];
             foreach (Vector3d x in v)
-                size = Math.Max(size, l1(x));
+                size = MathUtil.MaxExact(size, l1(x));
             // (the tetrahedron's faces in their former order, so that n = 4 gives the same planes bit for bit; else every
             // triple, each a supporting plane where all other points are certified on one side of it)
             var faces = new List<int[]>();
@@ -3271,8 +3271,8 @@ namespace g3
         }
 
         static double l1(Vector3d x) { return Math.Abs(x.x) + Math.Abs(x.y) + Math.Abs(x.z); }
-        static double max_abs(Vector3d x) { return Math.Max(Math.Abs(x.x), Math.Max(Math.Abs(x.y), Math.Abs(x.z))); }
-        static double max_sum(Vector3d x, Vector3d y) { return Math.Max(Math.Abs(x.x) + Math.Abs(y.x), Math.Max(Math.Abs(x.y) + Math.Abs(y.y), Math.Abs(x.z) + Math.Abs(y.z))); }
+        static double max_abs(Vector3d x) { return MathUtil.MaxExact(Math.Abs(x.x), MathUtil.MaxExact(Math.Abs(x.y), Math.Abs(x.z))); }
+        static double max_sum(Vector3d x, Vector3d y) { return MathUtil.MaxExact(Math.Abs(x.x) + Math.Abs(y.x), MathUtil.MaxExact(Math.Abs(x.y) + Math.Abs(y.y), Math.Abs(x.z) + Math.Abs(y.z))); }
 
         /// <summary>
         /// L2: coordinates relative to an origin (an input triangle's first corner, an integer grid point), as doubles: each
@@ -3309,7 +3309,7 @@ namespace g3
                 odIsExact = FixedPoint3.DoubleOf(o, out oe) && oe.x == od.x && oe.y == od.y && oe.z == od.z;
                 odError = 0;
                 for (int k = 0; k < 3; ++k)
-                    odError = Math.Max(odError, 2.3e-16 * Math.Abs(od[k]));
+                    odError = MathUtil.MaxExact(odError, 2.3e-16 * Math.Abs(od[k]));
             }
 
             /// <summary>
@@ -3323,7 +3323,7 @@ namespace g3
                 Vector3d g = l + od;
                 double m = 0;
                 for (int k = 0; k < 3; ++k)
-                    m = Math.Max(m, Math.Abs(l[k]) + Math.Abs(od[k]));
+                    m = MathUtil.MaxExact(m, Math.Abs(l[k]) + Math.Abs(od[k]));
                 gridError = (error + odError) * (1 + 1e-15) + 1.2e-16 * m;
                 return g;
             }
@@ -3331,7 +3331,7 @@ namespace g3
             /// <summary> the error bound per coordinate of a point given by Point (each the exact value rounded once) </summary>
             public static double PointError(Vector3d l)
             {
-                return 2.3e-16 * Math.Max(Math.Abs(l.x), Math.Max(Math.Abs(l.y), Math.Abs(l.z)));
+                return 2.3e-16 * MathUtil.MaxExact(Math.Abs(l.x), MathUtil.MaxExact(Math.Abs(l.y), Math.Abs(l.z)));
             }
 
             public Vector3d Point(ExactPoint3 p)
@@ -3470,8 +3470,8 @@ namespace g3
                         continue;
                     double[] ub = corner_box(arr, U);
                     ids.Add(u);
-                    boxes.Add(Math.Max(ub[i], tb[i])); boxes.Add(Math.Max(ub[j], tb[j]));
-                    boxes.Add(Math.Min(ub[i + 3], tb[i + 3])); boxes.Add(Math.Min(ub[j + 3], tb[j + 3]));
+                    boxes.Add(MathUtil.MaxExact(ub[i], tb[i])); boxes.Add(MathUtil.MaxExact(ub[j], tb[j]));
+                    boxes.Add(MathUtil.MinExact(ub[i + 3], tb[i + 3])); boxes.Add(MathUtil.MinExact(ub[j + 3], tb[j + 3]));
                 }
                 tri = ids.ToArray();
                 box = boxes.ToArray();
@@ -3500,8 +3500,8 @@ namespace g3
                     Vector3d a = arr.Approx(t.Corners[k]);
                     double e = arr.ApproxError(t.Corners[k]) * (1 + 1e-15);
                     for (int q = 0; q < 3; ++q) {
-                        r[q] = Math.Min(r[q], a[q] - e);
-                        r[q + 3] = Math.Max(r[q + 3], a[q] + e);
+                        r[q] = MathUtil.MinExact(r[q], a[q] - e);
+                        r[q + 3] = MathUtil.MaxExact(r[q + 3], a[q] + e);
                     }
                 }
                 return r;
@@ -3521,7 +3521,7 @@ namespace g3
                 if (tri.Length == 0)
                     return;
                 double pad = error * (1 + 1e-12) + 1e-15 * (Math.Abs(p[i]) + Math.Abs(p[j]) + Math.Abs(q[i]) + Math.Abs(q[j])) + 1e-300;
-                double ax = Math.Min(p[i], q[i]) - pad, ay = Math.Min(p[j], q[j]) - pad, bx = Math.Max(p[i], q[i]) + pad, by = Math.Max(p[j], q[j]) + pad;
+                double ax = MathUtil.MinExact(p[i], q[i]) - pad, ay = MathUtil.MinExact(p[j], q[j]) - pad, bx = MathUtil.MaxExact(p[i], q[i]) + pad, by = MathUtil.MaxExact(p[j], q[j]) + pad;
                 ++query;
                 for (int cx = cell(ax, x0, cw, nx); cx <= cell(bx, x0, cw, nx); ++cx)
                     for (int cy = cell(ay, y0, ch, ny); cy <= cell(by, y0, ch, ny); ++cy) {
@@ -3672,7 +3672,7 @@ namespace g3
                 P = p, Q = q, Sides = sides
             };
             if (grid != null)
-                grid.Query(xp, xq, Math.Max(ap, aq), ref v);
+                grid.Query(xp, xq, MathUtil.MaxExact(ap, aq), ref v);
             else {
                 // (T5, a step between two input triangles: every triangle of M that meets the segment, from M's box tree in
                 // input coordinates; design note 4.1)
@@ -4124,7 +4124,7 @@ namespace g3
                     local = (a + b + c) / 3;
                     double m = 0;
                     for (int k = 0; k < 3; ++k)
-                        m = Math.Max(m, Math.Abs(a[k]) + Math.Abs(b[k]) + Math.Abs(c[k]));
+                        m = MathUtil.MaxExact(m, Math.Abs(a[k]) + Math.Abs(b[k]) + Math.Abs(c[k]));
                     localError = (LocalFrame.PointError(a) + LocalFrame.PointError(b) + LocalFrame.PointError(c)) / 3 * (1 + 1e-15) + 1.2e-16 * m;
                     hasLocal = true;
                 }
@@ -4728,8 +4728,8 @@ namespace g3
                 Vector3d va = Vector3d.Zero;
                 for (int q = a; q <= b; ++q) {
                     Vector3d v = q < b ? g[Seg[q]] : last, w = q + 1 < b ? g[Seg[q + 1]] : (q + 1 == b ? last : g[Seg[a]]);
-                    r = Math.Max(r, (v - c).Length);
-                    l1 = Math.Max(l1, Math.Abs(v.x) + Math.Abs(v.y) + Math.Abs(v.z));
+                    r = MathUtil.MaxExact(r, (v - c).Length);
+                    l1 = MathUtil.MaxExact(l1, Math.Abs(v.x) + Math.Abs(v.y) + Math.Abs(v.z));
                     length += (w - v).Length;
                     Vector3d cr = (v - c).Cross(w - c);
                     va += cr;
@@ -4837,7 +4837,7 @@ namespace g3
                             // (the full sum's terms of the node's segments: beta, the smallest angle between -x1 and a point
                             // of the cap, with the margin; hypot from below; |theta| of a term at most pi times its side's
                             // angle, at most its length over d - r)
-                            double gamma = Math.Acos(Math.Min(1, minusX1U)), alpha = Math.Asin(Math.Min(1, rd));
+                            double gamma = Math.Acos(MathUtil.MinExact(1, minusX1U)), alpha = Math.Asin(MathUtil.MinExact(1, rd));
                             double beta = gamma - alpha - 1e-9 - eps;
                             int nk = t.Hi[k] - t.Lo[k];
                             if (beta > 0) {
