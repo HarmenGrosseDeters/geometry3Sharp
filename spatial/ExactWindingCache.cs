@@ -353,14 +353,38 @@ namespace g3
             int chi = signed_crossings_x(rootIndex, p.x, p.y, p.z, ref surfaceCorrection);
             if (surfaceCorrection == 0.0 && try_tree_boundary_sum_x(tree, p, out double bSum, out double bErr)) {
                 double wH = (double)chi + bSum;
-                double margin = 1.01 * (bErr + 1e-9 + 4e-15 * (Math.Abs((double)chi) + Math.Abs(bSum)));
-                if (wH > iso && (wH - iso) > margin)
-                    return true;
-                if (wH < iso && (iso - wH) > margin)
-                    return false;
+                int decided = decide_above(wH, iso, tree_margin(bErr, chi, bSum));
+                if (decided != 0)
+                    return decided > 0;
             }
             double w = (double)chi + boundary_sum_x(p) - surfaceCorrection;
             return w > iso;
+        }
+
+        /// <summary>
+        /// The decision margin of a threshold query from the tree: the tree value wH = chi + bSum decides only when it is
+        /// farther from iso than this. It adds to the certified bound bErr (all in winding units, i.e. divided by 2 pi):
+        /// 4e-15 (|chi| + |bSum|), the rounding of wH = chi + bSum and of the margin's own sums (each at most 1.1e-16 relative,
+        /// so about 36 times too large); and 1e-9, an absolute slack. A winding number is dimensionless (a solid angle over
+        /// 4 pi) and every term of the bound is an angle, so nothing in it scales with the mesh and an absolute term is the
+        /// right kind: it stands for the evaluation errors that the bound does not charge one by one (the final division
+        /// by 2 pi, the order of the additions between the full sum of Evaluate and the tree, and any term of the bound
+        /// that is smaller than its own rounding). The factor 1.01 covers the rounding of the margin. A decision that the
+        /// margin does not allow falls back on the full sum, so a larger margin costs speed and never correctness.
+        /// </summary>
+        internal static double tree_margin(double bErr, int chi, double bSum)
+        {
+            return 1.01 * (bErr + 1e-9 + 4e-15 * (Math.Abs((double)chi) + Math.Abs(bSum)));
+        }
+
+        /// <summary> +1: w &gt; iso and farther than the margin; -1: w &lt; iso and farther than the margin; 0: not decided by the tree </summary>
+        internal static int decide_above(double w, double iso, double margin)
+        {
+            if (w > iso && (w - iso) > margin)
+                return 1;
+            if (w < iso && (iso - w) > margin)
+                return -1;
+            return 0;
         }
 
         /// <summary>
@@ -384,12 +408,9 @@ namespace g3
             int chi = signed_crossings_x(rootIndex, p.x, p.y, p.z, ref surfaceCorrection);
             if (surfaceCorrection == 0.0 && try_tree_boundary_sum_x(tree, p, out double bSum, out double bErr)) {
                 double wH = (double)chi + bSum;
-                double aw = Math.Abs(wH);
-                double margin = 1.01 * (bErr + 1e-9 + 4e-15 * (Math.Abs((double)chi) + Math.Abs(bSum)));
-                if (aw > iso && (aw - iso) > margin)
-                    return true;
-                if (aw < iso && (iso - aw) > margin)
-                    return false;
+                int decided = decide_above(Math.Abs(wH), iso, tree_margin(bErr, chi, bSum));
+                if (decided != 0)
+                    return decided > 0;
             }
             double w = (double)chi + boundary_sum_x(p) - surfaceCorrection;
             return Math.Abs(w) > iso;
@@ -504,27 +525,26 @@ namespace g3
             double dy = tree.Cy[k] - p.y;
             double dz = tree.Cz[k] - p.z;
             double dd = dx * dx + dy * dy + dz * dz;
-            if (dd > 1e140)
-                return -1;
-            if (dd < 1e-140)
-                return 0;
+            int range = squared_distance_range(dd);
+            if (range != 0)
+                return range < 0 ? -1 : 0;
             double dn = Math.Sqrt(dd);
             double d = dn * (1.0 - 1e-15);
             double r = tree.R[k];
             if (dbg != null) dbg.D = d;
-            if (!(r < 0.25 * d))
+            if (!ball_is_small(r, d))
                 return 0;
             double dr = d - r;
             double coordEps = 2.3e-16 * (pm + tree.M1[k]) / dr;
             if (dbg != null) { dbg.Dr = dr; dbg.CoordEps = coordEps; }
-            if (!(coordEps < 1e-6))
+            if (!coord_eps_small(coordEps))
                 return 0;
             double rd = r / d;
             double cosA = Math.Sqrt(1.0 - rd * rd);
             double minusX1U = dx / dn;
             double eps = 1e-9 + 16.0 * coordEps;
             if (dbg != null) { dbg.CosA = cosA; dbg.MinusX1U = minusX1U; dbg.Eps = eps; }
-            if (!(minusX1U < cosA - eps))
+            if (!ray_outside_cap(minusX1U, cosA, eps))
                 return 0;
             Vector3d a0 = tree.Verts[tree.Lo[k]];
             Vector3d ak = tree.Verts[tree.Hi[k]];
@@ -555,16 +575,46 @@ namespace g3
             return 1;
         }
 
+        // The guards of node_query, each a function of its own so that its boundary is tested from both sides.
+
+        /// <summary> the squared distance of p to the node centre: 0 = in range, -1 = too far for the certified range (the query falls back), +1 = too near (descend) </summary>
+        internal static int squared_distance_range(double dd)
+        {
+            if (dd > 1e140)
+                return -1;
+            if (dd < 1e-140)
+                return 1;
+            return 0;
+        }
+
+        /// <summary> a node is used only where its ball is small against its distance: r &lt; d / 4 </summary>
+        internal static bool ball_is_small(double r, double d) { return r < 0.25 * d; }
+
+        /// <summary> and where the rounding of the coordinates stays small against the distance </summary>
+        internal static bool coord_eps_small(double coordEps) { return coordEps < 1e-6; }
+
+        /// <summary> the +x ray from p misses the cap of the node's ball by the margin eps (the remainder bound needs the ray outside it) </summary>
+        internal static bool ray_outside_cap(double minusX1U, double cosA, double eps) { return minusX1U < cosA - eps; }
+
         /// <summary> Test hook: the node k (0 = the root of the first chain) seen from p, with its stored data. Null without a tree. </summary>
         internal sealed class NodeInfo
         {
             public NodeQuery Query;
             public int Status;
             public Vector3d Center;
-            public double R, VaErr, AAbs;
+            public double R, VaErr, AAbs, M1;
+            public int Left, Right, Lo, Hi;             // child nodes (-1 at a leaf) and the vertex range of the chain
             public Vector3d HalfVa;                     // the stored 0.5 * va
             public Vector3d[] Vertices;                 // the node's chain points, lo .. hi
         }
+
+        /// <summary> Test hooks: the roots of the chains, the weighted (non-unit) edges and the total weight of the tree (null / 0 without a tree) </summary>
+        internal int[] BoundaryTreeRoots { get { BoundaryTree t = get_or_build_boundary_tree(); return t == null ? null : (int[])t.Roots.Clone(); } }
+        internal BoundaryEdge[] BoundaryTreeHeavy { get { BoundaryTree t = get_or_build_boundary_tree(); return t == null ? null : (BoundaryEdge[])t.Heavy.Clone(); } }
+        internal double BoundaryTreeTotalWeight { get { BoundaryTree t = get_or_build_boundary_tree(); return t == null ? 0.0 : t.TotalWeight; } }
+
+        /// <summary> Test hook: the number of tree nodes (0 without a tree) </summary>
+        internal int BoundaryNodeCount { get { BoundaryTree t = get_or_build_boundary_tree(); return t == null ? 0 : t.Lo.Length; } }
 
         internal NodeInfo DescribeBoundaryNode(int k, Vector3d p)
         {
@@ -576,7 +626,8 @@ namespace g3
             info.Query = new NodeQuery();
             info.Status = node_query(tree, k, p, pm, info.Query, out _, out _, out _);
             info.Center = new Vector3d(tree.Cx[k], tree.Cy[k], tree.Cz[k]);
-            info.R = tree.R[k]; info.VaErr = tree.VaErr[k]; info.AAbs = tree.AAbs[k];
+            info.R = tree.R[k]; info.VaErr = tree.VaErr[k]; info.AAbs = tree.AAbs[k]; info.M1 = tree.M1[k];
+            info.Left = tree.Left[k]; info.Right = tree.Right[k]; info.Lo = tree.Lo[k]; info.Hi = tree.Hi[k];
             info.HalfVa = new Vector3d(tree.Vx[k], tree.Vy[k], tree.Vz[k]);
             int lo = tree.Lo[k], hi = tree.Hi[k];
             info.Vertices = new Vector3d[hi - lo + 1];
