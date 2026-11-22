@@ -13,7 +13,7 @@ namespace geometry3Sharp.Tests
         static readonly AxisAlignedBox3d Unit = new AxisAlignedBox3d(new Vector3d(0, 0, 0), new Vector3d(1, 1, 1));
 
         [Fact]
-        public void Line_1e9OutsideAFace_IsAMiss()
+        public void Regression_Line_1e9OutsideAFace_IsAMiss()
         {
             var line = new Line3d(new Vector3d(0, 0, 1 + 1e-9), new Vector3d(1, 0, 0));
             Assert.False(new IntrLine3AxisAlignedBox3(line, Unit).Find());
@@ -24,7 +24,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void Ray_1e9OutsideAFace_IsAMiss_AtSmallScale()
+        public void Regression_Ray_1e9OutsideAFace_IsAMiss_AtSmallScale()
         {
             // the slack of 1e-8 is larger than a box of size 1e-6
             double s = 1e-6;
@@ -37,7 +37,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void Line_ThroughACorner_IsAPoint()
+        public void Regression_Line_ThroughACorner_IsAPoint()
         {
             var line = new Line3d(new Vector3d(2, 0, 1), new Vector3d(-1, 1, 0).Normalized);
             var f = new IntrLine3AxisAlignedBox3(line, Unit);
@@ -48,7 +48,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void Segment_1e9ShortOfTheBox_IsAMiss()
+        public void Regression_Segment_1e9ShortOfTheBox_IsAMiss()
         {
             var box = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1));
             var seg = new Segment3d(new Vector3d(-3, 0, 0), new Vector3d(-1 - 1e-9, 0, 0));
@@ -59,7 +59,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void Line_ParallelToAFaceAtADistance_GivesNoPointFarAway()
+        public void Regression_Line_ParallelToAFaceAtADistance_GivesNoPointFarAway()
         {
             // a line almost parallel to the z faces of a unit box: the contact points stay on the box
             var line = new Line3d(new Vector3d(-1, 0.5, 0.5), new Vector3d(1, 0, 1e-9).Normalized);
