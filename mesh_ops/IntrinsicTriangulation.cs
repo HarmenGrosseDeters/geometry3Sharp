@@ -745,7 +745,7 @@ namespace gs
             if (!(lu > 0 && lw > 0)) return AcosDeterministic(0);
             // the angle between the edges, with a portable acos: the dot product of the unit vectors. (Before, the dot of the
             // unnormalized edge vectors, clamped to [-1, 1]: the angle only for edges of length 1, so the tangent normal, which weights
-            // the corners by these angles, and with it GetTangentBasis, ToWorld, FromWorld and VectorHeatMethod.ComputeLogMap depended on
+            // the corners by these angles, and with it GetTangentBasis, ToWorld, FromWorld and the callers of ToWorld depended on
             // the scale of the mesh.)
             return AcosDeterministic((u.x * w.x + u.y * w.y) / (lu * lw));
         }
