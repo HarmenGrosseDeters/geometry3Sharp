@@ -187,20 +187,81 @@ namespace gs
         public DPolyMesh Result;
         /// <summary> seconds of the last Compute(): the cross field (0 if given), the position field, the extraction with its cleanup </summary>
         public double FieldSeconds, PositionSeconds, ExtractSeconds;
-        /// <summary> the position field of the last run (for inspection) </summary>
+        /// <summary>
+        /// the position field of the last Compute(). For a mesh whose longest edge is outside [1, 2) the remesher runs on a copy scaled by a
+        /// power of two (see Compute()): then this field refers to that copy and is in its unit scale, not in the units of Mesh
+        /// (Result is in the units of Mesh)
+        /// </summary>
         public PositionField Positions;
 
         public QuadRemesher(DMesh3 mesh) { Mesh = mesh; }
 
         public bool Success { get { return Status == QuadRemeshStatus.Success; } }
 
+        /// <summary>
+        /// Runs the remesher. The mesh is processed in a unit scale (#1377): a copy with the coordinates times 2^-k, k the binary
+        /// exponent of the longest edge, so that a mesh scaled by 2^j gives the same quads bit for bit at every scale and the fourth
+        /// powers of the parameterization stay in the double range; Result, SizeFunction and TargetEdgeLength are in the units of the mesh.
+        /// Not for a mesh with edge lengths more than 2^200 apart (InvalidInput), nor with a given Field or Frames (they belong to Mesh):
+        /// those run in the units of the mesh as before. Positions and the pure-quad repair refer to the scaled copy.
+        /// </summary>
         public QuadRemeshStatus Compute()
+        {
+            if (Mesh != null && Mesh.TriangleCount > 0 && Field == null && Frames == null && TargetEdgeLength > 0 && !double.IsInfinity(TargetEdgeLength)) {
+                if (IntrinsicTriangulation.HasEdgeDisparity(Mesh)) {
+                    ResetResults();
+                    return Fail(QuadRemeshStatus.InvalidInput, "edge lengths more than 2^200 apart");
+                }
+                int k = IntrinsicTriangulation.EdgeExponent(Mesh);
+                if (k != 0) return ComputeScaled(k);
+            }
+            return ComputeCore();
+        }
+
+        QuadRemeshStatus ComputeScaled(int k)
+        {
+            DMesh3 caller = Mesh;
+            double target = TargetEdgeLength;
+            Func<Vector3d, double> size = SizeFunction;
+            var scaled = new DMesh3(caller);
+            foreach (int vid in caller.VertexIndices()) {
+                Vector3d p = caller.GetVertex(vid);
+                scaled.SetVertex(vid, new Vector3d(ExactPoint3.ScaleB(p.x, -k), ExactPoint3.ScaleB(p.y, -k), ExactPoint3.ScaleB(p.z, -k)));
+            }
+            double targetU = ExactPoint3.ScaleB(target, -k);
+            if (!(targetU > 0)) {
+                ResetResults();
+                return Fail(QuadRemeshStatus.InvalidInput, "TargetEdgeLength is below the range of the mesh");
+            }
+            Mesh = scaled; TargetEdgeLength = targetU;
+            if (size != null)
+                SizeFunction = p => ExactPoint3.ScaleB(size(new Vector3d(ExactPoint3.ScaleB(p.x, k), ExactPoint3.ScaleB(p.y, k), ExactPoint3.ScaleB(p.z, k))), -k);
+            try {
+                ComputeCore();
+            } finally {
+                Mesh = caller; TargetEdgeLength = target; SizeFunction = size;
+            }
+            if (Result != null)
+                for (int v = 0; v < Result.VertexCount; ++v) {
+                    Vector3d p = Result.GetVertex(v);
+                    Result.SetVertex(v, new Vector3d(ExactPoint3.ScaleB(p.x, k), ExactPoint3.ScaleB(p.y, k), ExactPoint3.ScaleB(p.z, k)));
+                }
+            return Status;
+        }
+
+        // the state of a run that has not started (every result field of the last Compute)
+        void ResetResults()
         {
             Status = QuadRemeshStatus.Success; Error = null; FieldStatus = CrossFieldStatus.Success; Result = null; Positions = null;
             FieldSeconds = PositionSeconds = ExtractSeconds = 0;
             CollapsedEdges = RemovedValence2 = DroppedFaces = 0;
             SizeAdaptationApplied = false; CurlBefore = CurlAfter = SizeSeconds = 0; MinSpacing = MaxSpacing = 1;
             PureQuadStatus = PureQuadFirstStatus = PureQuadStatus.NotRequested; PureQuadRetried = false; PureQuadAreaRatio = PureQuadAreaRatioAfterFlow = double.NaN; InvertedTriangles = FlippedQuads = 0; FlowSeconds = RepairSeconds = 0; PureQuadRepair = null;
+        }
+
+        QuadRemeshStatus ComputeCore()
+        {
+            ResetResults();
             if (Mesh == null || Mesh.TriangleCount == 0) return Fail(QuadRemeshStatus.InvalidInput, "no triangles");
             if (!(TargetEdgeLength > 0) || double.IsInfinity(TargetEdgeLength)) return Fail(QuadRemeshStatus.InvalidInput, "TargetEdgeLength must be positive and finite");
             if (!(CornerAngleDegrees >= 0 && CornerAngleDegrees <= 180)) return Fail(QuadRemeshStatus.InvalidInput, "CornerAngleDegrees must be in [0, 180]");

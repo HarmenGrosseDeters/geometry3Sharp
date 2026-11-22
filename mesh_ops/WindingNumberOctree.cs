@@ -53,6 +53,13 @@ namespace gs
         /// <summary> empty leaf cells kept around the mesh bounds </summary>
         public int PaddingCells = 2;
 
+        /// <summary>
+        /// If true, evaluate the exact ray-plus-boundary winding number (DMeshAABBTree3.WindingNumber) instead of
+        /// FastWindingNumber. Faster and exact (zero dipole error) on closed meshes (including unwelded closed soups)
+        /// and open meshes with small boundaries; FastWindingNumber remains faster on disconnected triangle soups.
+        /// </summary>
+        public bool UseExactWinding = false;
+
         /// <summary> for closed, consistently oriented meshes, copy neighbour values instead of evaluating (see class comment) </summary>
         public bool PropagateValues = true;
         /// <summary>
@@ -172,16 +179,25 @@ namespace gs
 
         bool keepCache = false;
         double cacheIso, cacheMargin;
+        bool cacheExact;
 
         void build()
         {
             bool prop = PropagateValues;
             for (int i = 0; i < Meshes.Length; ++i) {
-                Spatials[i].FastWindingNumber(Vector3d.Zero);    // build the winding cache before parallel use
-                prop = prop && is_closed_and_oriented(Meshes[i]);
+                if (UseExactWinding) {
+                    Spatials[i].WindingNumber(Vector3d.Zero);    // build the exact winding cache before parallel use
+                    bool closed = is_closed_and_oriented(Meshes[i]) ||
+                        (Spatials[i].GetType() == typeof(DMeshAABBTree3) && !Spatials[i].ForceLegacyWindingCache &&
+                         Spatials[i].GetExactWindingCache().BoundaryCount == 0);
+                    prop = prop && closed;
+                } else {
+                    Spatials[i].FastWindingNumber(Vector3d.Zero);    // build the winding cache before parallel use
+                    prop = prop && is_closed_and_oriented(Meshes[i]);
+                }
             }
-            // the cached values were computed with the same rules (rounded or not, see evaluate_rounded)
-            keepCache = keepCache && prop == propagate && WindingIso == cacheIso && PropagateMargin == cacheMargin;
+            // the cached values were computed with the same rules (rounded or not, exact or fast)
+            keepCache = keepCache && prop == propagate && WindingIso == cacheIso && PropagateMargin == cacheMargin && UseExactWinding == cacheExact;
             if (keepCache == false) {
                 cache = new ConcurrentDictionary<long, float>();
                 notCopyable = new ConcurrentDictionary<long, byte>();
@@ -192,6 +208,7 @@ namespace gs
             propagate = prop;
             cacheIso = WindingIso;
             cacheMargin = PropagateMargin;
+            cacheExact = UseExactWinding;
 
             ConcurrentBag<Vector3i> cells = new ConcurrentBag<Vector3i>();
             refine(Vector3i.Zero, LeafCount, cells, 0, null);
@@ -234,7 +251,7 @@ namespace gs
             Interlocked.Increment(ref evaluations);
             double value, rounded;
             if (Meshes.Length == 1) {
-                value = Spatial.FastWindingNumber(pos);
+                value = UseExactWinding ? Spatial.WindingNumber(pos) : Spatial.FastWindingNumber(pos);
                 rounded = Math.Round(value);
             } else {
                 double[] w = winding_numbers(pos);
@@ -283,15 +300,20 @@ namespace gs
         public double Evaluate(Vector3d pos)
         {
             if (Meshes.Length == 1)
-                return Spatial.FastWindingNumber(pos);
+                return UseExactWinding ? Spatial.WindingNumber(pos) : Spatial.FastWindingNumber(pos);
             return CombineF(winding_numbers(pos));
         }
 
         double[] winding_numbers(Vector3d pos)
         {
             double[] w = new double[Meshes.Length];
-            for (int i = 0; i < Meshes.Length; ++i)
-                w[i] = Spatials[i].FastWindingNumber(pos);
+            if (UseExactWinding) {
+                for (int i = 0; i < Meshes.Length; ++i)
+                    w[i] = Spatials[i].WindingNumber(pos);
+            } else {
+                for (int i = 0; i < Meshes.Length; ++i)
+                    w[i] = Spatials[i].FastWindingNumber(pos);
+            }
             return w;
         }
 

@@ -197,7 +197,7 @@ namespace geometry3Sharp.Tests
 
         static string List(ContouringSmoothCertificate c)
         {
-            return c.Certified + "|" + c.RunFailure + "|" + c.SurfaceCells + "|" + string.Join(",", c.PassedAtTightening) + "|"
+            return c.Certified + "|" + c.RunFailure + "|" + c.SpacingRatioSquared.ToString("R") + "|" + c.SurfaceCells + "|" + string.Join(",", c.PassedAtTightening) + "|"
                 + string.Join(";", c.UncertifiedCells.Select(u => u.Cell.x + "," + u.Cell.y + "," + u.Cell.z + ":" + u.Reason));
         }
 
@@ -405,20 +405,20 @@ namespace geometry3Sharp.Tests
         public void GradientTest_IsTheIntervalProductOfTwoCopies()
         {
             Func<double, double, ExactInterval> I = (a, b) => new ExactInterval(a, b);
-            Assert.True(ContouringSmoothCertificate.GradientTest(I(1, 2), I(-0.1, 0.1), I(0, 0)));          // 1 - 0.01 > 0
-            Assert.True(ContouringSmoothCertificate.GradientTest(I(-0.5, 1), I(2, 3), I(-1, 1)));           // -0.5 + 4 - 1 > 0
-            Assert.False(ContouringSmoothCertificate.GradientTest(I(-1, 1), I(0.5, 0.6), I(0, 0)));         // -1 + 0.25: a square would pass
-            Assert.False(ContouringSmoothCertificate.GradientTest(I(-1, 1), I(-1, 1), I(-1, 1)));
-            Assert.False(ContouringSmoothCertificate.GradientTest(I(0, 0), I(0, 0), I(0, 0)));              // not > 0
-            Assert.False(ContouringSmoothCertificate.GradientTest(I(1, 2), I(double.NegativeInfinity, double.PositiveInfinity), I(0, 0)));
-            Assert.False(ContouringSmoothCertificate.GradientTest(I(double.NaN, double.NaN), I(1, 2), I(1, 2)));
-            Assert.True(ContouringSmoothCertificate.GradientTest(I(-3, -2), I(0, 0), I(0, 0)));
+            Assert.True(ContouringSmoothCertificate.GradientTest(I(1, 2), I(-0.1, 0.1), I(0, 0), 1));          // 1 - 0.01 > 0
+            Assert.True(ContouringSmoothCertificate.GradientTest(I(-0.5, 1), I(2, 3), I(-1, 1), 1));           // -0.5 + 4 - 1 > 0
+            Assert.False(ContouringSmoothCertificate.GradientTest(I(-1, 1), I(0.5, 0.6), I(0, 0), 1));         // -1 + 0.25: a square would pass
+            Assert.False(ContouringSmoothCertificate.GradientTest(I(-1, 1), I(-1, 1), I(-1, 1), 1));
+            Assert.False(ContouringSmoothCertificate.GradientTest(I(0, 0), I(0, 0), I(0, 0), 1));              // not > 0
+            Assert.False(ContouringSmoothCertificate.GradientTest(I(1, 2), I(double.NegativeInfinity, double.PositiveInfinity), I(0, 0), 1));
+            Assert.False(ContouringSmoothCertificate.GradientTest(I(double.NaN, double.NaN), I(1, 2), I(1, 2), 1));
+            Assert.True(ContouringSmoothCertificate.GradientTest(I(-3, -2), I(0, 0), I(0, 0), 1));
             // a lower bound of exactly 0 does not pass: subnormal products whose widened sum is [0, ...]
             double e = double.Epsilon, a = Math.Pow(2, -537), b = Math.Sqrt(2) * a;
             Assert.Equal(e, a * a); Assert.Equal(2 * e, b * b);
             ExactInterval sum = I(b, b) * I(b, b) + I(b, b) * I(b, b) + I(a, a) * I(a, a);
             Assert.Equal(0, sum.Lo);
-            Assert.False(ContouringSmoothCertificate.GradientTest(I(b, b), I(b, b), I(a, a)));
+            Assert.False(ContouringSmoothCertificate.GradientTest(I(b, b), I(b, b), I(a, a), 1));
         }
 
         [Fact]
@@ -433,22 +433,212 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, ContouringSmoothCertificate.CertifiedSign(new ExactInterval(double.NaN, double.NaN)));
         }
 
+        // exact (M / m)^2 of a grid, as a fraction of integers over a common power of two
+        static void ExactRatioSquared(double[][] axes, out BigInteger num, out BigInteger den)
+        {
+            int e = int.MaxValue;
+            foreach (double[] a in axes) foreach (double v in a) if (v != 0) e = Math.Min(e, ExactDyadic.Of(v).E);
+            Func<double, BigInteger> scaled = v => { ExactDyadic d = ExactDyadic.Of(v); return v == 0 ? BigInteger.Zero : d.M << (d.E - e); };
+            BigInteger min = -1, max = -1;
+            foreach (double[] a in axes)
+                for (int i = 0; i + 1 < a.Length; ++i) {
+                    BigInteger d = scaled(a[i + 1]) - scaled(a[i]);
+                    if (min < 0 || d < min) min = d;
+                    if (d > max) max = d;
+                }
+            num = max * max; den = min * min;
+        }
+
+        // is b the smallest double with b >= num / den?
+        static bool IsRoundedUp(double b, BigInteger num, BigInteger den)
+        {
+            ExactDyadic B = ExactDyadic.Of(b), below = ExactDyadic.Of(ExactInterval.Down(b));
+            return AtLeast(B.M * den, B.E, num, 0) && !AtLeast(below.M * den, below.E, num, 0);
+        }
+
         [Fact]
-        public void EqualSpacing_AcceptsCubes_RefusesOtherCells()
+        public void SpacingRatioSquaredBound_IsTheExactRatioSquared_RoundedUp()
         {
             double[] even = { 0, 0.25, 0.5, 0.75 }, twice = { 0, 0.25, 0.75 }, coarse = { 0, 0.5, 1 }, flat = { 0, 0, 0.25 }, back = { 0, 0.25, 0.125 };
-            Assert.True(ContouringSmoothCertificate.EqualSpacing(even, even, even, 1e-6));
-            Assert.False(ContouringSmoothCertificate.EqualSpacing(even, twice, even, 1e-6));
-            Assert.False(ContouringSmoothCertificate.EqualSpacing(even, even, coarse, 1e-6));       // equal along each axis, not between the axes
-            Assert.False(ContouringSmoothCertificate.EqualSpacing(flat, even, even, 1e-6));
-            Assert.False(ContouringSmoothCertificate.EqualSpacing(even, back, even, 1e-6));
-            double[] off = { 0, 0.25, 0.5 + 1e-9 };
-            Assert.True(ContouringSmoothCertificate.EqualSpacing(even, off, even, 1e-6));
-            Assert.False(ContouringSmoothCertificate.EqualSpacing(even, off, even, 1e-9));
-            // rounding of origin + h * i: accepted for an ordinary grid, refused where the cell size nears the rounding unit
+            Assert.Equal(1.0, ContouringSmoothCertificate.SpacingRatioSquaredBound(even, even, even));          // exact cubes: exactly 1
+            Assert.Equal(4.0, ContouringSmoothCertificate.SpacingRatioSquaredBound(even, twice, even));
+            Assert.Equal(4.0, ContouringSmoothCertificate.SpacingRatioSquaredBound(even, even, coarse));        // equal along each axis, not between the axes
+            Assert.Equal(4.0, ContouringSmoothCertificate.SpacingRatioSquaredBound(coarse, even, even));        // the first axis counts
+            Assert.Equal(2.25, ContouringSmoothCertificate.SpacingRatioSquaredBound(new[] { -1.0, 2.0 }, new[] { 5.0, 7.0 }, new[] { 0.0, 2.5 }));
+            Assert.True(double.IsNaN(ContouringSmoothCertificate.SpacingRatioSquaredBound(flat, even, even)));
+            Assert.True(double.IsNaN(ContouringSmoothCertificate.SpacingRatioSquaredBound(even, back, even)));
+            Assert.True(double.IsNaN(ContouringSmoothCertificate.SpacingRatioSquaredBound(even, even, new[] { 0.0, 0.25, 0.25 })));
+            Assert.True(double.IsNaN(ContouringSmoothCertificate.SpacingRatioSquaredBound(even, even, new[] { 0, double.PositiveInfinity })));
+            Assert.True(double.IsNaN(ContouringSmoothCertificate.SpacingRatioSquaredBound(new[] { double.NegativeInfinity, 0 }, even, even)));
+            Assert.True(double.IsNaN(ContouringSmoothCertificate.SpacingRatioSquaredBound(even, new[] { 0, double.NaN }, even)));
+            Assert.True(double.IsNaN(ContouringSmoothCertificate.SpacingRatioSquaredBound(new[] { 0.0 }, new[] { 0.0 }, new[] { 0.0 })));
+            // a coordinate that is not a number or not finite, beside spacings so large that reading its bits as a number
+            // would give a finite ratio
+            double[] huge = { 0, 1e300 };
+            Assert.True(double.IsNaN(ContouringSmoothCertificate.SpacingRatioSquaredBound(huge, new[] { 0, double.PositiveInfinity }, huge)));
+            Assert.True(double.IsNaN(ContouringSmoothCertificate.SpacingRatioSquaredBound(huge, huge, new[] { 0, BitConverter.Int64BitsToDouble(0x7FF8000000000000) })));
+            Assert.True(double.IsNaN(ContouringSmoothCertificate.SpacingRatioSquaredBound(new[] { BitConverter.Int64BitsToDouble(0x7FF8000000000000), 1e300 }, huge, huge)));
+            Assert.False(double.IsNaN(ContouringSmoothCertificate.SpacingRatioSquaredBound(huge, new[] { 0, 3e300 }, huge)));
+            // a ratio whose square is above the largest factor: no bound; just below it, a bound
+            Assert.InRange(ContouringSmoothCertificate.SpacingRatioSquaredBound(new[] { 0.0, 1 }, new[] { 0, 0.99e150 }, even.Take(2).Select(v => 4 * v).ToArray()), 0.9e300, 1e300);
+            Assert.True(double.IsNaN(ContouringSmoothCertificate.SpacingRatioSquaredBound(new[] { 0.0, 1 }, new[] { 0, 1.01e150 }, new[] { 0.0, 1 })));
+            // the square of the ratio overflows: no bound
+            Assert.True(double.IsNaN(ContouringSmoothCertificate.SpacingRatioSquaredBound(new[] { 0, 1e-160 }, new[] { 0, 1e160 }, even)));
+            // a spacing that no double holds (1 + 1e-320) still counts exactly: the ratio is above 1, so the bound is the next double
+            Assert.Equal(ExactInterval.Up(1.0), ContouringSmoothCertificate.SpacingRatioSquaredBound(new[] { -1e-320, 1.0 }, new[] { 0.0, 1.0 }, new[] { 0.0, 1.0 }));
+
+            // rounded grids of doubles: the result is the exact ratio squared, rounded up to the next double, never anything else
             Func<double, double, int, double[]> grid = (o, h, n) => Enumerable.Range(0, n + 1).Select(i => o + h * i).ToArray();
-            Assert.True(ContouringSmoothCertificate.EqualSpacing(grid(-1.113, 2.2 / 32, 32), grid(632117.25, 2.2 / 32, 32), grid(-1.103, 2.2 / 32, 32), 1.0 / 1048576));
-            Assert.False(ContouringSmoothCertificate.EqualSpacing(grid(1e9, 3e-7, 32), grid(1e9, 3e-7, 32), grid(1e9, 3e-7, 32), 1.0 / 1048576));
+            var grids = new List<double[][]> {
+                new[] { grid(-1.113, 2.2 / 32, 32), grid(632117.25, 2.2 / 32, 32), grid(-1.103, 2.2 / 32, 32) },
+                new[] { grid(1e9, 3e-7, 32), grid(1e9, 3e-7, 32), grid(1e9, 3e-7, 32) },
+                new[] { grid(5.7e6, 1.1e-4, 40), grid(4.1e5, 1.1e-4, 40), grid(-0.3, 1.1e-4, 40) },
+                new[] { even, new[] { 0, 0.25, 0.5 + 1e-9 }, even },
+            };
+            var rng = new Random(11);
+            for (int t = 0; t < 60; ++t)
+                grids.Add(new[] { grid(rng.NextDouble() * 1e4 - 5e3, 0.01 + rng.NextDouble(), 9), grid(rng.NextDouble() * 10, 0.01 + rng.NextDouble(), 5), grid(-rng.NextDouble(), 0.01 + rng.NextDouble(), 7) });
+            int nearest = 0, movedUp = 0;
+            foreach (double[][] g in grids) {
+                double b = ContouringSmoothCertificate.SpacingRatioSquaredBound(g[0], g[1], g[2]);
+                BigInteger num, den; ExactRatioSquared(g, out num, out den);
+                Assert.True(IsRoundedUp(b, num, den), "grid " + grids.IndexOf(g) + ": " + b.ToString("R"));
+                // which way the nearest double lay: both must occur, or the step that moves it up is not tested
+                if (ExactDyadic.Quotient(new ExactDyadic(num, 0), new ExactDyadic(den, 0)) < b) ++movedUp; else ++nearest;
+            }
+            Assert.True(movedUp > 5 && nearest > 5, "moved up: " + movedUp + ", nearest: " + nearest);
+            Assert.InRange(ContouringSmoothCertificate.SpacingRatioSquaredBound(grids[0][0], grids[0][1], grids[0][2]), 1 + 1e-12, 1 + 1e-8);
+            Assert.InRange(ContouringSmoothCertificate.SpacingRatioSquaredBound(grids[2][0], grids[2][1], grids[2][2]), 1 + 1e-6, 1 + 1e-4);
+        }
+
+        /// <summary> (x - cx) + q (y - cy)^2 / 2: gradient (1, q (y - cy), 0), so the gradient test of a cell is 1 + q^2 * (y0 - cy)(y1 - cy) * factor </summary>
+        sealed class Parabola : TestField
+        {
+            readonly double cx, cy, q;
+            public Parabola(double cx, double cy, double q) { this.cx = cx; this.cy = cy; this.q = q; }
+            public override IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z)
+            {
+                ExactInterval dy = y - C(cy);
+                return new IntervalEnclosure { F = x - C(cx) + C(q) * ExactInterval.Square(dy) / C(2), Gx = C(1), Gy = C(q) * dy, Gz = C(0), Smooth = true };
+            }
+            public override double Value(ref Vector3d p) { return p.x - cx + q * (p.y - cy) * (p.y - cy) / 2; }
+        }
+
+        // The factor reaches the gradient test of a run. A grid at 1e9 with cells of 2 and 3 rounding units (factor 2.25)
+        // and a field whose gradient test in the cells across y = cy is 1 - 0.7 = 0.3 unweighted and 1 - 1.575 weighted:
+        // the surface cells of that row are refused, and no other cell is for that reason. On a grid of exact cubes with the
+        // same numbers the same cells pass the gradient test.
+        [Fact]
+        public void TheSpacingFactorOfTheGrid_EntersTheGradientTestOfARun()
+        {
+            foreach (bool parallel in new[] { true, false })
+            foreach (bool rounded in new[] { true, false }) {
+                double o = rounded ? 1e9 : 0, h = rounded ? 3e-7 : Math.Pow(2, -22);
+                const int n = 12;
+                var dc0 = new DualContouring { Implicit = new Parabola(0, 0, 0), CellSize = h, Simplify = false, Bounds = new AxisAlignedBox3d(o * Vector3d.One, (o + h * n) * Vector3d.One) };
+                CertificateGridProbe(dc0, n, out double[] xs, out double[] ys);
+                // the centres strictly inside cell 5 of x and cell 6 of y (on the rounded grid a cell is 2 or 3 doubles wide:
+                // one double above its lower node)
+                double cx = ExactInterval.Up(xs[5]), cy = rounded ? ExactInterval.Up(ys[6]) : ys[6] + (ys[7] - ys[6]) / 2;
+                Assert.True(cx > xs[5] && cx < xs[6] && cy > ys[6] && cy < ys[7]);
+                double below = cy - ys[6], above = ys[7] - cy;
+                double q = Math.Sqrt(0.7 / (below * above));
+                var f = new Parabola(cx, cy, q);
+                var dc = new DualContouring { Implicit = f, InsideIsLess = true, CellSize = h, Simplify = false,
+                    Bounds = new AxisAlignedBox3d(o * Vector3d.One, (o + h * n) * Vector3d.One), RecordCertificateData = true };
+                dc.Generate();
+                ContouringSmoothCertificate c = Certify(f, dc, parallel);
+                var byGradient = c.UncertifiedCells.Where(u => u.Reason == SmoothCertificateReason.GradientTest).ToList();
+                // the cells (5, 6, k) hold the point (cx, cy) of the level set; k runs over the inner layers
+                var row = Enumerable.Range(1, n - 2).Select(k => new Vector3i(5, 6, k)).ToList();
+                if (rounded) {
+                    Assert.InRange(c.SpacingRatioSquared, 2.25, 2.2500001);
+                    Assert.All(byGradient, u => Assert.Equal(6, u.Cell.y));
+                    Assert.All(row, cell => Assert.Contains(byGradient, u => u.Cell == cell));
+                } else {
+                    Assert.Equal(1.0, c.SpacingRatioSquared);
+                    Assert.Empty(byGradient);
+                    Assert.All(row, cell => Assert.DoesNotContain(c.UncertifiedCells, u => u.Cell == cell));
+                    Assert.True(c.PassedAtTightening.Sum() >= row.Count);
+                }
+                Assert.True((c.RunFailure & SmoothCertificateRunFailure.CellShape) == 0);
+            }
+        }
+
+        // the node coordinates of a dense run of this contour's grid, as the contouring computes them
+        static void CertificateGridProbe(DualContouring dc, int n, out double[] xs, out double[] ys)
+        {
+            dc.RecordCertificateData = true;
+            dc.Implicit = new Sphere(dc.Bounds.Center, dc.Bounds.Width / 4);
+            dc.Generate();
+            CertificateGrid g = dc.ContourGrid();
+            xs = Enumerable.Range(0, n + 1).Select(i => g.Coord(0, i)).ToArray();
+            ys = Enumerable.Range(0, n + 1).Select(i => g.Coord(1, i)).ToArray();
+        }
+
+        // A grid whose coordinates no longer separate the nodes (cells below the rounding unit of the origin, so some
+        // spacings are 0): no factor, refused as a run, and no cell is judged.
+        [Fact]
+        public void AGridWithAZeroSpacing_IsRefusedForItsCellShape()
+        {
+            var f = new Sphere(new Vector3d(1e17, 1e17, 1e17), 8);
+            var dc = new DualContouring { Implicit = f, InsideIsLess = true, CellSize = 3, Simplify = false,
+                Bounds = new AxisAlignedBox3d(new Vector3d(1e17 - 30, 1e17 - 30, 1e17 - 30), new Vector3d(1e17 + 30, 1e17 + 30, 1e17 + 30)), RecordCertificateData = true };
+            dc.Generate();
+            ContouringSmoothCertificate c = Certify(f, dc);
+            Assert.False(c.Certified);
+            Assert.True((c.RunFailure & SmoothCertificateRunFailure.CellShape) != 0, c.RunFailure.ToString());
+            Assert.True(double.IsNaN(c.SpacingRatioSquared));
+            Assert.Empty(c.UncertifiedCells);
+            Assert.Equal(0, c.SurfaceCells);
+            // the same instance on a contour that has no record, after a run with a factor: the factor is not left over
+            var good = new Sphere(Vector3d.Zero, 0.7);
+            c.Field = good; c.Contour = Contour(good, Shift, 2.2, 16);
+            c.Compute();
+            Assert.True(c.Certified && c.SpacingRatioSquared >= 1);
+            c.Contour = new DualContouring { Implicit = good, CellSize = 2.2 / 16, Bounds = new AxisAlignedBox3d(Shift, Shift + 2.2 * Vector3d.One) };
+            c.Compute();
+            Assert.Equal(SmoothCertificateRunFailure.NoRecord, c.RunFailure);
+            Assert.True(double.IsNaN(c.SpacingRatioSquared));
+        }
+
+        [Fact]
+        public void GradientTest_WeightsTheNegativeProducts_ByTheSpacingFactor()
+        {
+            Func<double, double, ExactInterval> I = (lo, hi) => new ExactInterval(lo, hi);
+            // 1 - 0.25 rho2: passes below rho2 = 4, fails from 4 on (at 4 the sum is exactly 0, which is not > 0)
+            Assert.True(ContouringSmoothCertificate.GradientTest(I(1, 2), I(-0.5, 0.5), I(0, 0), 1));
+            Assert.True(ContouringSmoothCertificate.GradientTest(I(1, 2), I(-0.5, 0.5), I(0, 0), 3.5));
+            Assert.True(ContouringSmoothCertificate.GradientTest(I(1, 2), I(-0.5, 0.5), I(0, 0), 4 - 1e-9));
+            Assert.False(ContouringSmoothCertificate.GradientTest(I(1, 2), I(-0.5, 0.5), I(0, 0), 4));
+            Assert.False(ContouringSmoothCertificate.GradientTest(I(1, 2), I(-0.5, 0.5), I(0, 0), 4 + 1e-9));
+            Assert.False(ContouringSmoothCertificate.GradientTest(I(1, 2), I(-0.5, 0.5), I(0, 0), 5));
+            // the outward rounding of the sums: with (1 + 2^-52)^2 = 1 + 2^-51 + ... against 4 * 0.25 the true sum is
+            // positive by 2^-51, less than the rounding of the products, and the test refuses (the safe side)
+            Assert.False(ContouringSmoothCertificate.GradientTest(I(1 + Math.Pow(2, -52), 1 + Math.Pow(2, -52)), I(-0.5, 0.5), I(0, 0), 4));
+            Assert.True(ContouringSmoothCertificate.GradientTest(I(1 + Math.Pow(2, -50), 1 + Math.Pow(2, -50)), I(-0.5, 0.5), I(0, 0), 4));
+            // the weighted product itself is rounded down: with the factor 9 the lower bounds are 2.2500000000000009 and
+            // -2.2500000000000009, sum 0, refused; the product 9 * lo rounded to nearest is one double nearer to 0 and
+            // would give a positive sum
+            double c9 = 1.5 + 2 * Math.Pow(2, -52);
+            Assert.False(ContouringSmoothCertificate.GradientTest(I(c9, c9), I(-0.5, 0.5), I(0, 0), 9));
+            Assert.True(ContouringSmoothCertificate.GradientTest(I(ExactInterval.Up(c9), ExactInterval.Up(c9)), I(-0.5, 0.5), I(0, 0), 9));
+            // every component is weighted, and the negative ones only: 4 - rho2 (0.25 + 0.5)
+            Assert.True(ContouringSmoothCertificate.GradientTest(I(-0.5, 0.5), I(-3, -2), I(-1, 0.5), 5));
+            Assert.False(ContouringSmoothCertificate.GradientTest(I(-0.5, 0.5), I(-3, -2), I(-1, 0.5), 5.5));
+            Assert.False(ContouringSmoothCertificate.GradientTest(I(-1, 0.5), I(-0.5, 0.5), I(2, 3), 5.5));
+            Assert.False(ContouringSmoothCertificate.GradientTest(I(2, 3), I(-1, 0.5), I(-0.5, 0.5), 5.5));
+            Assert.True(ContouringSmoothCertificate.GradientTest(I(2, 3), I(-1, 0.5), I(-0.5, 0.5), 5));
+            // the positive products are not weighted: 1 + 1 - 0.5 rho2 fails from 4 on, and would pass at 5 if they were
+            Assert.False(ContouringSmoothCertificate.GradientTest(I(1, 2), I(-2, -1), I(-1, 0.5), 5));
+            // without a negative product the factor does not matter
+            Assert.True(ContouringSmoothCertificate.GradientTest(I(1, 2), I(0.5, 1), I(-3, -2), 1e300));
+            // the factor must be a number of at least 1
+            Assert.False(ContouringSmoothCertificate.GradientTest(I(1, 2), I(1, 2), I(1, 2), double.NaN));
+            Assert.False(ContouringSmoothCertificate.GradientTest(I(1, 2), I(1, 2), I(1, 2), 0.999));
+            Assert.False(ContouringSmoothCertificate.GradientTest(I(1, 2), I(1, 2), I(1, 2), 0));
+            Assert.False(ContouringSmoothCertificate.GradientTest(I(1, 2), I(-0.5, 0.5), I(0, 0), double.PositiveInfinity));
+            Assert.True(ContouringSmoothCertificate.GradientTest(I(1, 2), I(1, 2), I(1, 2), double.PositiveInfinity));
         }
 
         // the 48 symmetries of the cube as permutations of the corners c = x + 2 y + 4 z
@@ -840,8 +1030,6 @@ namespace geometry3Sharp.Tests
             Assert.Throws<ArgumentOutOfRangeException>(() => new ContouringSmoothCertificate { Field = f, Contour = dc, MaxTightening = 5 }.Compute());
             Assert.Throws<ArgumentOutOfRangeException>(() => new ContouringSmoothCertificate { Field = f, Contour = dc, MaxTightening = int.MaxValue }.Compute());
             Assert.Throws<ArgumentOutOfRangeException>(() => new ContouringSmoothCertificate { Field = f, Contour = dc, MaxTightening = -1 }.Compute());
-            Assert.Throws<ArgumentOutOfRangeException>(() => new ContouringSmoothCertificate { Field = f, Contour = dc, CellShapeTolerance = 0.5 }.Compute());
-            Assert.Throws<ArgumentOutOfRangeException>(() => new ContouringSmoothCertificate { Field = f, Contour = dc, CellShapeTolerance = double.NaN }.Compute());
             Assert.Throws<ArgumentNullException>(() => new ContouringSmoothCertificate { Field = f }.Compute());
             // an exception of the field is the same in both paths
             var throwing = new Throwing();
@@ -954,11 +1142,10 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(List(c0), List(c));
             } else if (sim == Similarity.RotatedUtmMillimetre) {
                 // a cell of 1.1e-4 at coordinates of 5.7e6: the node spacings differ by up to one rounding unit of the
-                // coordinate, 8e-6 of the cell, so the cells are not cubes within the tolerance and the run is refused for
-                // that reason alone (every cell passes)
-                Assert.False(c.Certified);
-                Assert.Equal(SmoothCertificateRunFailure.CellShape, c.RunFailure);
-                Assert.Empty(c.UncertifiedCells);
+                // coordinate, 8e-6 of the cell. The cells are not cubes, and the gradient test carries that as its factor
+                // (Lemma 7.1): certified, with a factor well above 1
+                Assert.True(c.Certified, name + ": " + List(c));
+                Assert.InRange(c.SpacingRatioSquared, 1 + 1e-6, 1 + 1e-4);
             } else {
                 // another frame: other cells, the same verdict for this well resolved shape
                 Assert.True(c.Certified, name + ": " + List(c));

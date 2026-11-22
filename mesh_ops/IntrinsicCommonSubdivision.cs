@@ -42,7 +42,7 @@ namespace gs
             public int[] Corners;
             /// <summary> corners as barycentric coordinates in the input triangle </summary>
             public Vector3d[] Barycentric;
-            /// <summary> area (in the input triangle; with mollification in its mollified geometry) </summary>
+            /// <summary> area (in the input triangle; with mollification in its mollified geometry), in the units of the mesh (squared); a face area beyond the double range makes the extraction Inconsistent (coordinates beyond about 2^500) </summary>
             public double Area;
         }
 
@@ -386,7 +386,7 @@ namespace gs
                         outer++;
                         continue;
                     }
-                    if (area <= 0) return fail("input triangle " + inTid[t] + " has a face without area (crossing traces)");
+                    if (!(area > 0)) return fail("input triangle " + inTid[t] + " has a face without area (crossing traces)");
                     int fid = faceTri.Count;
                     int ft = -1;
                     foreach (int x in cyc) {
@@ -421,7 +421,7 @@ namespace gs
                 if (outer != 1) return fail("input triangle " + inTid[t] + " is cut into " + outer + " outer cycles (crossing traces)");
                 double err = Math.Abs(sumArea - triArea) / Math.Max(triArea, 1e-300);
                 R.MaxInputAreaError = Math.Max(R.MaxInputAreaError, err);
-                if (err > 1e-6) return fail("faces of input triangle " + inTid[t] + " do not sum to its area (crossing traces)");
+                if (!(err <= 1e-6)) return fail("faces of input triangle " + inTid[t] + " do not sum to its area (crossing traces)");
             }
             // faces without an intrinsic edge on their border: across unlabelled input edge pieces the
             // intrinsic triangle does not change
@@ -441,21 +441,22 @@ namespace gs
             bool[] itHasFace = new bool[F];
             for (int f = 0; f < faceTri.Count; ++f) {
                 if (faceTri[f] < 0) return fail("face in input triangle " + inTid[faceInput[f]] + " without intrinsic triangle");
+                if (!(UpArea(faceArea[f]) < double.PositiveInfinity)) return fail("a face area is outside the double range in the units of the mesh (coordinates beyond about 2^500)");
                 itArea[faceTri[f]] += faceArea[f];
                 itHasFace[faceTri[f]] = true;
                 var face = new IntrinsicCommonSubdivision.Face() {
-                    InputTriangle = inTid[faceInput[f]], IntrinsicTriangle = faceTri[f], Corners = faceCorners[f], Area = faceArea[f],
+                    InputTriangle = inTid[faceInput[f]], IntrinsicTriangle = faceTri[f], Corners = faceCorners[f], Area = UpArea(faceArea[f]),
                     Barycentric = new Vector3d[faceCorners[f].Length]
                 };
                 for (int m = 0; m < face.Barycentric.Length; ++m) face.Barycentric[m] = barycentric(faceInput[f], facePos[f][m]);
                 R.Faces.Add(face);
             }
             for (int it = 0; it < F; ++it) {
-                double a = TriangleArea(it);
+                double a = TriangleAreaU(it);
                 double err = Math.Abs(itArea[it] - a) / Math.Max(a, 1e-300);
                 R.MaxIntrinsicAreaError = Math.Max(R.MaxIntrinsicAreaError, err);
             }
-            if (R.MaxIntrinsicAreaError > 1e-6) return fail("faces do not sum to the intrinsic triangle areas (relative error " + R.MaxIntrinsicAreaError + ")");
+            if (!(R.MaxIntrinsicAreaError <= 1e-6)) return fail("faces do not sum to the intrinsic triangle areas (relative error " + R.MaxIntrinsicAreaError + ")");
             // An intrinsic triangle whose lengths give the area 0 passes the area check without any face: eg the
             // sliver between a vertex that counts as on an input boundary edge (inserted within the snap of it) and
             // that edge, whose three sides all run along the edge (#1335).

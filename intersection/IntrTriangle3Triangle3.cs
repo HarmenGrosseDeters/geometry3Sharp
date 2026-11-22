@@ -856,7 +856,10 @@ namespace g3
             }
 
             Segment2d projSeg = new Segment2d(projEnd0, projEnd1);
-            IntrSegment2Triangle2 calc = new IntrSegment2Triangle2(projSeg, projTri);
+            // (the tolerance route of IntrSegment2Triangle2: this floating-point branch relies on the 1e-8 plane thickness it
+            // shares with TrianglePlaneRelations; the exact decision of the 2D class would change its results. Removed together
+            // with this branch when IntrTriangle3Triangle3 decides exactly.)
+            IntrSegment2Triangle2 calc = new IntrSegment2Triangle2(projSeg, projTri) { UseToleranceRoute = true };
             if ( ! calc.Find() ) {
                 return false;
             }

@@ -224,13 +224,13 @@ rep("""            if (check)
 # --- the first search from split-clipped sub-boxes (the A/B of the note, section 5)
 rep("""            int[] tris = treeTids.ToArray();
             bool skip = skipExact && exactAtStart != null;
-            long skipped = 0;""", """            if (RoundingPhases.SplitSearch && skipExact)
+""", """            if (RoundingPhases.SplitSearch && skipExact)
                 return intersecting_pairs_all_split();
             if (RoundingPhases.AxesSearch && skipExact)
                 return intersecting_pairs_all_axes();
             int[] tris = treeTids.ToArray();
             bool skip = skipExact && exactAtStart != null;
-            long skipped = 0;""")
+""")
 rep("""        [MethodImpl(JitHints.Optimize)]
         List<Index2i> intersecting_pairs_of_changed()
         {""", """        // intersecting_pairs_all with the cached separating axes in front of the pair test

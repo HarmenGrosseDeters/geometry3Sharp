@@ -87,6 +87,14 @@ namespace gs
         }
 
 
+        int scaleExp;               // the unit scale of the computation: lengths times 2^-scaleExp (see precompute)
+        bool lengthDisparity;       // the input has edges more than 2^200 apart in length (see IntrinsicTriangulation.HasLengthDisparity)
+        double Down(double x) { return scaleExp == 0 ? x : ExactPoint3.ScaleB(x, -scaleExp); }
+        Vector3d Down(Vector3d v) { return scaleExp == 0 ? v : new Vector3d(Down(v.x), Down(v.y), Down(v.z)); }
+        double Up(double x) { return scaleExp == 0 ? x : ExactPoint3.ScaleB(x, scaleExp); }
+        Vector3d Up(Vector3d v) { return scaleExp == 0 ? v : new Vector3d(Up(v.x), Up(v.y), Up(v.z)); }
+        double[] distanceUnit;      // Distance in unit scale (TracePath)
+
         int N;                      // indices: mesh vertices, then vertices inserted by the refinement
         int[] toIndex, toVertex;
         PackedSparseMatrix L;      // cotan Laplacian, positive semidefinite
@@ -148,17 +156,6 @@ namespace gs
             cot = new List<Vector3d>();
             layout = new List<Vector3d>();
             var area = new List<double>();
-            double edgeSum = 0; int edgeCount = 0;
-            foreach (int tid in Mesh.TriangleIndices()) {
-                Index3i t = Mesh.GetTriangle(tid);
-                Vector3d p0 = Mesh.GetVertex(t.a), p1 = Mesh.GetVertex(t.b), p2 = Mesh.GetVertex(t.c);
-                if (0.5 * (p1 - p0).Cross(p2 - p0).Length < 1e-14 * ((p1 - p0).LengthSquared + (p2 - p0).LengthSquared))
-                    continue;
-                edgeSum += (p1 - p0).Length + (p2 - p1).Length + (p0 - p2).Length;
-                edgeCount += 3;
-            }
-            meanEdge = (edgeCount > 0) ? edgeSum / edgeCount : 1;
-
             // the intrinsic Delaunay triangulation (flipped, or refined); non-manifold meshes and
             // IntrinsicDelaunay = false use the mesh triangles
             IntrinsicTriangulation T = null;
@@ -178,6 +175,22 @@ namespace gs
                 } else if (T != null)
                     IntrinsicFlips = T.FlipToDelaunay();
             }
+            // Unit scale (#1377, MAGNITUDE_ROBUSTNESS_2026-11.md option (a)): everything below is computed with the lengths times
+            // 2^-scaleExp, the exponent of the longest edge, so that a mesh scaled by 2^j gives the same bits at every scale and the
+            // absolute thresholds of the heat method act on lengths of unit size; Distance is scaled back at the end of Compute.
+            scaleExp = T != null ? T.ScaleExponent : IntrinsicTriangulation.EdgeExponent(Mesh);
+            lengthDisparity = T != null ? T.HasLengthDisparity : IntrinsicTriangulation.HasEdgeDisparity(Mesh);
+            double edgeSum = 0; int edgeCount = 0;
+            foreach (int tid in Mesh.TriangleIndices()) {
+                Index3i t = Mesh.GetTriangle(tid);
+                Vector3d p0 = Mesh.GetVertex(t.a), p1 = Mesh.GetVertex(t.b), p2 = Mesh.GetVertex(t.c);
+                Vector3d e01 = Down(p1 - p0), e02 = Down(p2 - p0), e12 = Down(p2 - p1);
+                if (0.5 * e01.Cross(e02).Length < 1e-14 * (e01.LengthSquared + e02.LengthSquared))
+                    continue;
+                edgeSum += e01.Length + e12.Length + (Down(p0 - p2)).Length;
+                edgeCount += 3;
+            }
+            meanEdge = (edgeCount > 0) ? edgeSum / edgeCount : 1;
             if (T != null) {
                 N = n0 + (T.VertexCount - T.InputVertexCount);
                 Array.Resize(ref toVertex, N);
@@ -192,11 +205,11 @@ namespace gs
                 for (int t = 0; t < T.TriangleCount; ++t) {
                     Index3i ti = T.GetTriangleIndices(t);
                     Vector2d q0, q1, q2;
-                    T.GetTriangleLayout(t, out q0, out q1, out q2);
+                    T.GetTriangleLayoutU(t, out q0, out q1, out q2);
                     // cotangent at corner k: opposite halfedge k+1
                     add_triangle(new Index3i(index(ti.a), index(ti.b), index(ti.c)),
                         new Vector3d(T.OppositeCotan(3 * t + 1), T.OppositeCotan(3 * t + 2), T.OppositeCotan(3 * t)),
-                        new Vector3d(q1.x, q2.x, q2.y), T.TriangleArea(t), area);
+                        new Vector3d(q1.x, q2.x, q2.y), T.TriangleAreaU(t), area);
                 }
             } else {
                 boundaryIndex = new bool[N];
@@ -206,7 +219,7 @@ namespace gs
                 foreach (int tid in Mesh.TriangleIndices()) {
                     Index3i t = Mesh.GetTriangle(tid);
                     Vector3d p0 = Mesh.GetVertex(t.a) - center, p1 = Mesh.GetVertex(t.b) - center, p2 = Mesh.GetVertex(t.c) - center;
-                    double l0 = (p1 - p0).Length, l1 = (p2 - p1).Length, l2 = (p0 - p2).Length;
+                    double l0 = Down(p1 - p0).Length, l1 = Down(p2 - p1).Length, l2 = Down(p0 - p2).Length;
                     double A = IntrinsicTriangulation.area_from_lengths(l0, l1, l2);
                     if (!(A > 1e-14 * (l0 * l0 + l2 * l2)))
                         continue;
@@ -407,7 +420,9 @@ namespace gs
         {
             if (L == null || timestamp != Mesh.ShapeTimestamp || built_settings() != builtSettings)
                 precompute();
-            Distance = null; sourceVertices = null;
+            Distance = null; sourceVertices = null; distanceUnit = null;
+            if (lengthDisparity)
+                return false;           // edge lengths more than 2^200 apart: the squares and fourth powers of the lengths leave the double range
             double t = TimeFactor * meanEdge * meanEdge;
             if (!(t > 0) || double.IsInfinity(t))
                 return false;           // TimeFactor not positive and finite (or a mesh without extent)
@@ -548,13 +563,19 @@ namespace gs
             double[] minSrc = new double[componentCount];
             for (int c = 0; c < componentCount; ++c) minSrc[c] = double.MaxValue;
             foreach (int s in src) minSrc[component[s]] = Math.Min(minSrc[component[s]], phi[s]);
-            Distance = new double[Mesh.MaxVertexID];
-            for (int k = 0; k < Distance.Length; ++k)
-                Distance[k] = double.NaN;
+            double[] dist = new double[Mesh.MaxVertexID];
+            for (int k = 0; k < dist.Length; ++k)
+                dist[k] = double.NaN;
             for (int i = 0; i < N; ++i)
-                if (component[i] >= 0 && hasSource[component[i]] && toVertex[i] >= 0)      // (not inserted vertices)
-                    Distance[toVertex[i]] = Math.Max(0, phi[i] - minSrc[component[i]]);
-            foreach (int s in srcVertices) Distance[s] = 0;
+                if (component[i] >= 0 && hasSource[component[i]] && toVertex[i] >= 0) {     // (not inserted vertices)
+                    double d = Math.Max(0, phi[i] - minSrc[component[i]]);
+                    if (double.IsNaN(d)) return false;      // the solve broke down: no wrong success with NaN distances
+                    dist[toVertex[i]] = d;
+                }
+            foreach (int s in srcVertices) dist[s] = 0;
+            distanceUnit = dist;
+            Distance = new double[dist.Length];
+            for (int k = 0; k < dist.Length; ++k) Distance[k] = Up(dist[k]);
             return true;
         }
 
@@ -571,14 +592,15 @@ namespace gs
         {
             check_computed();
             if (spatial == null)
-                spatial = new DMeshAABBTree3(Mesh, true);
+                spatial = new DMeshAABBTree3(MU, true);
+            point = Down(point);
             int tid = spatial.FindNearestTriangle(point);
             if (tid < 0)
                 return new List<Vector3d>();
-            Vector3d p = MeshQueries.TriangleDistance(Mesh, tid, point).TriangleClosest;
+            Vector3d p = MeshQueries.TriangleDistance(MU, tid, point).TriangleClosest;
             List<Vector3d> path = new List<Vector3d>() { p };
             trace(path, tid, p, -1);
-            return path;
+            return up_path(path);
         }
 
         /// <summary> shortest path from a vertex to the nearest source (see TracePath(Vector3d)) </summary>
@@ -587,8 +609,33 @@ namespace gs
             check_computed();
             if (vertex < 0 || vertex >= Mesh.MaxVertexID || Mesh.IsVertex(vertex) == false)
                 throw new ArgumentException("TracePath: not a vertex of the mesh");
-            List<Vector3d> path = new List<Vector3d>() { Mesh.GetVertex(vertex) };
+            List<Vector3d> path = new List<Vector3d>() { MU.GetVertex(vertex) };
             trace(path, -1, Vector3d.Zero, vertex);
+            return up_path(path);
+        }
+
+        // The path is traced on the mesh in unit scale (positions times 2^-scaleExp, the distances in unit scale), where its
+        // absolute thresholds (1e-24, 1e-15, 1e-300) act on lengths of unit size; the points go back to the units of the mesh.
+        // (Without a scale, the mesh itself.)
+        DMesh3 meshUnit;
+        int meshUnitStamp = -1, meshUnitExp;
+        DMesh3 MU {
+            get {
+                if (scaleExp == 0) return Mesh;
+                if (meshUnit == null || meshUnitStamp != Mesh.ShapeTimestamp || meshUnitExp != scaleExp) {
+                    meshUnit = new DMesh3(Mesh);
+                    foreach (int vid in Mesh.VertexIndices()) meshUnit.SetVertex(vid, Down(Mesh.GetVertex(vid)));
+                    meshUnitStamp = Mesh.ShapeTimestamp; meshUnitExp = scaleExp;
+                    spatial = null;
+                }
+                return meshUnit;
+            }
+        }
+
+        List<Vector3d> up_path(List<Vector3d> path)
+        {
+            if (scaleExp != 0)
+                for (int i = 0; i < path.Count; ++i) path[i] = Up(path[i]);
             return path;
         }
 
@@ -598,13 +645,13 @@ namespace gs
                 throw new InvalidOperationException("TracePath: no distances computed for the current mesh");
         }
 
-        double phi(int vid) { return Distance[vid]; }
+        double phi(int vid) { return distanceUnit[vid]; }
 
         // gradient of the linear distance over the triangle, and the gradients of its barycentric coordinates
         bool gradients(int tid, out Vector3d g, Vector3d[] grads)
         {
             Index3i t = Mesh.GetTriangle(tid);
-            Vector3d p0 = Mesh.GetVertex(t.a), p1 = Mesh.GetVertex(t.b), p2 = Mesh.GetVertex(t.c);
+            Vector3d p0 = MU.GetVertex(t.a), p1 = MU.GetVertex(t.b), p2 = MU.GetVertex(t.c);
             Vector3d n = (p1 - p0).Cross(p2 - p0);
             double area2 = n.Length;
             g = Vector3d.Zero;
@@ -625,7 +672,7 @@ namespace gs
             int maxSteps = 4 * Mesh.TriangleCount + 2 * Mesh.VertexCount + 10;
             for (int step = 0; step < maxSteps; ++step) {
                 if (v >= 0) {
-                    add(path, Mesh.GetVertex(v));
+                    add(path, MU.GetVertex(v));
                     if (sourceVertices.Contains(v) || double.IsNaN(phi(v)))
                         return;
                     // a triangle around v into which the steepest descent points (inside the corner at v)
@@ -640,13 +687,13 @@ namespace gs
                         if (inside && g.Length > bestSlope) { bestSlope = g.Length; bestT = t; }
                     }
                     if (bestT >= 0) {
-                        tid = bestT; p = Mesh.GetVertex(v); v = -1;
+                        tid = bestT; p = MU.GetVertex(v); v = -1;
                         continue;
                     }
                     // otherwise down the steepest edge; at a local minimum next to a source, to the source
                     int nextV = -1; double bestDrop = 0;
                     foreach (int nb in Mesh.VtxVerticesItr(v)) {
-                        double drop = (phi(v) - phi(nb)) / Mesh.GetVertex(v).Distance(Mesh.GetVertex(nb));
+                        double drop = (phi(v) - phi(nb)) / MU.GetVertex(v).Distance(MU.GetVertex(nb));
                         if (drop > bestDrop) { bestDrop = drop; nextV = nb; }
                     }
                     if (nextV < 0)
@@ -660,7 +707,7 @@ namespace gs
 
                 Index3i tri = Mesh.GetTriangle(tid);
                 for (int k = 0; k < 3; ++k)
-                    if (sourceVertices.Contains(tri[k])) { add(path, Mesh.GetVertex(tri[k])); return; }
+                    if (sourceVertices.Contains(tri[k])) { add(path, MU.GetVertex(tri[k])); return; }
                 Vector3d grad;
                 if (gradients(tid, out grad, grads) == false || grad.Length < 1e-12) {
                     if (double.IsNaN(phi(tri.a) + phi(tri.b) + phi(tri.c))) return;
@@ -668,7 +715,7 @@ namespace gs
                 }
                 Vector3d d = -grad.Normalized;
                 // barycentric coordinates of p and their rates along d; leave through the first one to reach 0
-                Vector3d bary = MathUtil.BarycentricCoords(p, Mesh.GetVertex(tri.a), Mesh.GetVertex(tri.b), Mesh.GetVertex(tri.c));
+                Vector3d bary = MathUtil.BarycentricCoords(p, MU.GetVertex(tri.a), MU.GetVertex(tri.b), MU.GetVertex(tri.c));
                 double best = double.MaxValue; int exit = -1;
                 for (int k = 0; k < 3; ++k) {
                     double rate = grads[k].Dot(d);
@@ -682,7 +729,7 @@ namespace gs
                 add(path, q);
                 // edge opposite corner 'exit'
                 int va = tri[(exit + 1) % 3], vb = tri[(exit + 2) % 3];
-                Vector3d qb = MathUtil.BarycentricCoords(q, Mesh.GetVertex(tri.a), Mesh.GetVertex(tri.b), Mesh.GetVertex(tri.c));
+                Vector3d qb = MathUtil.BarycentricCoords(q, MU.GetVertex(tri.a), MU.GetVertex(tri.b), MU.GetVertex(tri.c));
                 // at (or extremely close to) a corner: continue from the vertex
                 int corner = -1;
                 for (int k = 0; k < 3; ++k)

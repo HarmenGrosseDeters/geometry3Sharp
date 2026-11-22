@@ -48,6 +48,23 @@ are in `results/all.csv`, the tables of the note come from `analyze.py`. `run <c
 gradient enclosures as one box, `results/hull.csv`: 26 runs certified against 28 in the pairwise form of `all.csv`; the published form is the one the
 paper's proof covers, note section 4.3); `debug <case[:k]> <N> <seed>` prints sampled values and gradients of cells that fail the PV test.
 
+## Block coverage (Theorem 8)
+
+`dotnet run -c Release --project benchmarks/ContouringIsotopySubdivision -- blocks [maxSide] [name:level:seed:N ...] > results/blocks.csv`
+
+`Blocks.cs`: after the cell test (S0) to (S3), every refused surface cell is the seed of a box that grows by one layer on
+the sides that carry a failing node, edge or face, until the box passes (B0) to (B3) of Theorem 8
+([CONTOURING_BLOCK_CERTIFICATE.md](../../docs/design/CONTOURING_BLOCK_CERTIFICATE.md)) or exceeds `maxSide` cells (6)
+or reaches the outer layer; a box that overlaps an accepted block takes the bounding box of both. Level-set side only:
+the contour is not looked at. `results/blocks.csv` is the default set (three TPMS with a smooth cap and clipped by a
+ball, at 32 and 64 cells across (16 and 32 per period), axis-aligned and rotated) plus controls; the table and the
+reading are in section 3a of the design note. In short: 96.5 % of the refused cells covered for smooth TPMS at 32 cells
+per period (5 of 6 runs complete), about a third overall for clipped ones (9 to 56 % per run, none complete).
+
+Columns: `refused` surface cells the cell test does not certify; `covered` those in a passing block; `left_*` the seeds
+left, by the condition that failed last (node, edge, face, no direction, several circles, outer layer); `side1` to
+`side7` the blocks by their longest side in cells; `zero_free_blocks` the final blocks with no circle on their boundary.
+
 ## Columns of `all.csv`
 
 - `truth`, `dc_sig`, `dc_right`, `dc_clean`: components and genus (`c=1;g=1`) by construction (for the capped TPMS: the

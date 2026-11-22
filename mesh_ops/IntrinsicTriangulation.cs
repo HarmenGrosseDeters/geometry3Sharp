@@ -41,11 +41,49 @@ namespace gs
     {
         public DMesh3 Mesh { get; private set; }
 
-        /// <summary> amount added to every input edge length by the mollification (0 for good meshes) </summary>
-        public double MollificationDelta { get; private set; }
+        /// <summary> amount added to every input edge length by the mollification (0 for good meshes), in the units of the mesh </summary>
+        public double MollificationDelta { get { return Up(mollificationDeltaU); } }
 
-        /// <summary> mean input edge length (before mollification) </summary>
-        public double MeanEdgeLength { get; private set; }
+        /// <summary> mean input edge length (before mollification), in the units of the mesh </summary>
+        public double MeanEdgeLength { get { return Up(meanEdgeLengthU); } }
+
+        // Unit scale (docs/research/MAGNITUDE_ROBUSTNESS_2026-11.md, option (a)): the lengths are stored times 2^-ScaleExponent,
+        // with ScaleExponent the binary exponent of the largest coordinate difference along an input edge, so that the longest
+        // edge is in [1, 2 sqrt 3). A mesh scaled by 2^j has the same scaled lengths bit for bit, at every scale: the squares
+        // and fourth powers of the geometry (areas, cotangents) neither overflow nor underflow, and the absolute thresholds of the
+        // walks and of the classes built on this one act on lengths of unit size. The public accessors give caller units.
+        double mollificationDeltaU, meanEdgeLengthU;
+        bool lengthUnderflow;
+        int scaleExp;
+
+        /// <summary> the exponent k of the unit scale: lengths of the triangulation are stored times 2^-k (0 for an empty or non-finite mesh) </summary>
+        internal int ScaleExponent { get { return scaleExp; } }
+
+        /// <summary>
+        /// the input has edges whose lengths differ by more than 2^200 (the shortest non-zero one is below 2^-200 of the
+        /// longest): the squares and fourth powers of the lengths no longer stay clear of the underflow. The classes with a
+        /// failure status refuse such an input; this class, FlipToDelaunay and VectorHeatMethod have none, they run and the
+        /// result is not reliable: check this flag. Never true for an ordinary mesh
+        /// </summary>
+        public bool HasLengthDisparity { get; private set; }
+
+        /// <summary> x times 2^k, exact except for a result that is subnormal or overflows </summary>
+        internal double Up(double x) { return scaleExp == 0 ? x : ExactPoint3.ScaleB(x, scaleExp); }
+        /// <summary> an area of unit scale in the units of the mesh (times 2^2k) </summary>
+        internal double UpArea(double a) { return scaleExp == 0 ? a : ExactPoint3.ScaleB(a, 2 * scaleExp); }
+        internal Vector2d Up(Vector2d v) { return scaleExp == 0 ? v : new Vector2d(Up(v.x), Up(v.y)); }
+        /// <summary> mean input edge length in unit scale </summary>
+        internal double MeanEdgeLengthU { get { return meanEdgeLengthU; } }
+        /// <summary> the distance of two positions of the mesh, with the square of the difference taken in unit scale (no overflow beyond about 2^511) </summary>
+        internal double DistanceBetween(Vector3d a, Vector3d b) { return scaleExp == 0 ? a.Distance(b) : Up(Down(b - a).Length); }
+        /// <summary> x times 2^-k </summary>
+        internal double Down(double x) { return scaleExp == 0 ? x : ExactPoint3.ScaleB(x, -scaleExp); }
+        internal Vector3d Down(Vector3d v) { return scaleExp == 0 ? v : new Vector3d(ExactPoint3.ScaleB(v.x, -scaleExp), ExactPoint3.ScaleB(v.y, -scaleExp), ExactPoint3.ScaleB(v.z, -scaleExp)); }
+        /// <summary> the difference b - a of two mesh positions in unit scale (the difference is taken first, in the units of the mesh) </summary>
+        internal Vector3d DownDiff(Vector3d a, Vector3d b) { return Down(b - a); }
+
+        /// <summary> edge length of halfedge h in unit scale (see ScaleExponent) </summary>
+        internal double LengthU(int h) { return hLen[h]; }
 
         int N, F;               // current vertex and triangle counts (arrays may be larger)
         int N0, F0;             // input vertex and triangle counts
@@ -108,7 +146,7 @@ namespace gs
         /// <summary> head vertex index of halfedge h </summary>
         public int Head(int h) { return hV[Next(h)]; }
         public int Twin(int h) { return hTwin[h]; }
-        public double Length(int h) { return hLen[h]; }
+        public double Length(int h) { return Up(hLen[h]); }
         /// <summary> signpost: direction of halfedge h in the tangent space of its tail (see class comment) </summary>
         public double Signpost(int h) { return hAngle[h]; }
         /// <summary> direction of the edge of h at its head vertex, pointing back to the tail </summary>
@@ -162,7 +200,14 @@ namespace gs
             return w;
         }
 
+        /// <summary> area of triangle t, in the units of the mesh (squared): +infinity (or 0) where the square of the units leaves the double range, beyond about 2^+-510 </summary>
         public double TriangleArea(int t)
+        {
+            return scaleExp == 0 ? TriangleAreaU(t) : ExactPoint3.ScaleB(TriangleAreaU(t), 2 * scaleExp);
+        }
+
+        /// <summary> area of triangle t in unit scale </summary>
+        internal double TriangleAreaU(int t)
         {
             return area_from_lengths(hLen[3 * t], hLen[3 * t + 1], hLen[3 * t + 2]);
         }
@@ -172,6 +217,15 @@ namespace gs
         /// on the positive x axis
         /// </summary>
         public void GetTriangleLayout(int t, out Vector2d q0, out Vector2d q1, out Vector2d q2)
+        {
+            GetTriangleLayoutU(t, out q0, out q1, out q2);
+            if (scaleExp == 0) return;
+            q1 = new Vector2d(Up(q1.x), Up(q1.y));
+            q2 = new Vector2d(Up(q2.x), Up(q2.y));
+        }
+
+        /// <summary> the layout of GetTriangleLayout in unit scale </summary>
+        internal void GetTriangleLayoutU(int t, out Vector2d q0, out Vector2d q1, out Vector2d q2)
         {
             int h = 3 * t;
             double a0 = CornerAngle(h);
@@ -198,6 +252,64 @@ namespace gs
         }
 
 
+        /// <summary> the shortest non-zero edge of the input in unit scale below which the input counts as disparate (2^-200) </summary>
+        const double DisparityLimit = 6.223015277861142e-61;
+
+        // the binary exponent of the largest coordinate difference along an input edge (0 if none is finite and non-zero)
+        int largest_edge_exponent() { return EdgeExponent(Mesh); }
+
+        /// <summary> the unit scale exponent of the mesh: the binary exponent of its largest coordinate difference along a triangle edge (0 if there is none) </summary>
+        internal static int EdgeExponent(DMesh3 mesh)
+        {
+            double m = 0;
+            foreach (int tid in mesh.TriangleIndices()) {
+                Index3i tri = mesh.GetTriangle(tid);
+                for (int k = 0; k < 3; ++k) {
+                    Vector3d d = mesh.GetVertex(tri[(k + 1) % 3]) - mesh.GetVertex(tri[k]);
+                    m = Math.Max(m, Math.Max(Math.Abs(d.x), Math.Max(Math.Abs(d.y), Math.Abs(d.z))));
+                }
+            }
+            return (m > 0 && !double.IsInfinity(m)) ? binary_exponent(m) : 0;
+        }
+
+        // the binary exponent of a finite x > 0: x = m 2^e with m in [1, 2)
+        internal static int binary_exponent(double x)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int e = (int)((bits >> 52) & 0x7FF);
+            if (e != 0) return e - 1023;
+            // subnormal: normalize (exact)
+            bits = BitConverter.DoubleToInt64Bits(x * 18446744073709551616.0);
+            return (int)((bits >> 52) & 0x7FF) - 1023 - 64;
+        }
+
+        /// <summary> do the edge lengths of the mesh differ by more than 2^200 (the shortest non-zero one is below 2^-200 of the longest)? </summary>
+        internal static bool HasEdgeDisparity(DMesh3 mesh)
+        {
+            int k = EdgeExponent(mesh);
+            double shortest = double.MaxValue;
+            foreach (int tid in mesh.TriangleIndices()) {
+                Index3i tri = mesh.GetTriangle(tid);
+                for (int c = 0; c < 3; ++c) {
+                    Vector3d d = mesh.GetVertex(tri[(c + 1) % 3]) - mesh.GetVertex(tri[c]);
+                    double x = ExactPoint3.ScaleB(d.x, -k), y = ExactPoint3.ScaleB(d.y, -k), z = ExactPoint3.ScaleB(d.z, -k);
+                    double l = Math.Sqrt(x * x + y * y + z * z);
+                    if (l == 0 && (x != 0 || y != 0 || z != 0)) return true;      // the squares vanish: below about 2^-511 of the longest edge
+                    if (l > 0 && l < shortest) shortest = l;
+                }
+            }
+            return shortest < DisparityLimit;
+        }
+
+        // the length of the input edge a-b in unit scale: the same bits at every 2^j scale of the mesh
+        double edge_length_unit(int a, int b)
+        {
+            Vector3d d = Down(Mesh.GetVertex(b) - Mesh.GetVertex(a));
+            double l = Math.Sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+            if (l == 0 && (d.x != 0 || d.y != 0 || d.z != 0)) lengthUnderflow = true;       // below about 2^-511 of the longest edge: the squares vanish
+            return l;
+        }
+
         void build(double mollifyFactor)
         {
             toIndex = new int[Mesh.MaxVertexID];
@@ -219,6 +331,7 @@ namespace gs
             hTwin = new int[3 * F];
             hLen = new double[3 * F];
             hAngle = new double[3 * F];
+            scaleExp = largest_edge_exponent();
             var edgeHalf = new Dictionary<int, int>();      // mesh eid -> first halfedge seen
             double sum = 0;
             for (int t = 0; t < F; ++t) {
@@ -228,7 +341,7 @@ namespace gs
                     int a = tri[k], b = tri[(k + 1) % 3];
                     hV[h] = toIndex[a];
                     hTwin[h] = -1;
-                    hLen[h] = Mesh.GetVertex(a).Distance(Mesh.GetVertex(b));
+                    hLen[h] = edge_length_unit(a, b);
                     sum += hLen[h];
                     int eid = Mesh.FindEdge(a, b);
                     int other;
@@ -239,17 +352,21 @@ namespace gs
                         edgeHalf[eid] = h;
                 }
             }
-            MeanEdgeLength = (F > 0) ? sum / (3 * F) : 0;
+            meanEdgeLengthU = (F > 0) ? sum / (3 * F) : 0;
+
+            double shortest = double.MaxValue;
+            for (int h = 0; h < 3 * F; ++h) if (hLen[h] > 0 && hLen[h] < shortest) shortest = hLen[h];
+            HasLengthDisparity = shortest < DisparityLimit || lengthUnderflow;       // (before the mollification, which lengthens the short edges)
 
             // mollification
-            double eps = mollifyFactor * MeanEdgeLength;
+            double eps = mollifyFactor * meanEdgeLengthU;
             double delta = 0;
             for (int t = 0; t < F; ++t)
                 for (int k = 0; k < 3; ++k) {
                     double a = hLen[3 * t + k], b = hLen[3 * t + (k + 1) % 3], c = hLen[3 * t + (k + 2) % 3];
                     delta = Math.Max(delta, eps - (b + c - a));
                 }
-            MollificationDelta = delta;
+            mollificationDeltaU = delta;
             if (delta > 0)
                 for (int h = 0; h < 3 * F; ++h) hLen[h] += delta;
 
@@ -302,7 +419,7 @@ namespace gs
             inLayout = new Vector2d[3 * F];
             for (int t = 0; t < F; ++t) {
                 Vector2d q0, q1, q2;
-                GetTriangleLayout(t, out q0, out q1, out q2);
+                GetTriangleLayoutU(t, out q0, out q1, out q2);
                 inLayout[3 * t] = q0; inLayout[3 * t + 1] = q1; inLayout[3 * t + 2] = q2;
             }
             N0 = N; F0 = F;
@@ -330,7 +447,8 @@ namespace gs
 
         /// <summary>
         /// Flips edges until every edge is intrinsic Delaunay (Lawson's algorithm, which terminates for
-        /// intrinsic triangulations, Indermitte et al. 2001). Returns the number of flips.
+        /// intrinsic triangulations, Indermitte et al. 2001). Returns the number of flips. For edge lengths more than 2^200 apart
+        /// (HasLengthDisparity) the lengths of the triangulation leave the range of the geometry and the flips are not reliable.
         /// </summary>
         public int FlipToDelaunay(double tolerance = 1e-10)
         {
@@ -454,12 +572,20 @@ namespace gs
             return L;
         }
 
-        /// <summary> lumped (barycentric) vertex areas, in vertex indices </summary>
+        /// <summary> lumped (barycentric) vertex areas, in vertex indices and the units of the mesh (squared; +infinity beyond about 2^512, see TriangleArea) </summary>
         public double[] VertexAreas()
+        {
+            double[] a = VertexAreasU();
+            if (scaleExp != 0) for (int i = 0; i < a.Length; ++i) a[i] = ExactPoint3.ScaleB(a[i], 2 * scaleExp);
+            return a;
+        }
+
+        /// <summary> VertexAreas in unit scale </summary>
+        internal double[] VertexAreasU()
         {
             double[] a = new double[N];
             for (int t = 0; t < F; ++t) {
-                double A = TriangleArea(t) / 3;
+                double A = TriangleAreaU(t) / 3;
                 for (int k = 0; k < 3; ++k) a[hV[3 * t + k]] += A;
             }
             return a;
@@ -683,7 +809,7 @@ namespace gs
             do {
                 Index3i tri = Mesh.GetTriangle(inTid[hh / 3]);
                 Vector3d a = Mesh.GetVertex(tri.a), b = Mesh.GetVertex(tri.b), c = Mesh.GetVertex(tri.c);
-                Vector3d fn = (b - a).Cross(c - a);
+                Vector3d fn = DownDiff(a, b).Cross(DownDiff(a, c));
                 double l = fn.Length;
                 if (l > 0) n += CornerAngle_input(hh) * (fn / l);
                 hh = inTwin[Prev(hh)];
@@ -692,7 +818,8 @@ namespace gs
             n /= n.Length;
             sign = world = null;
             Vector3d q = Mesh.GetVertex(toVertex[hV_input_head(h0)]);
-            e1 = (q - p) - (q - p).Dot(n) * n;
+            Vector3d qp = DownDiff(p, q);
+            e1 = qp - qp.Dot(n) * n;
             if (!(e1.Length < 1e-300)) {
                 e1 /= e1.Length;
                 e2 = n.Cross(e1);
@@ -736,11 +863,18 @@ namespace gs
             return CoreMath.Atan2(Math.Sqrt((1.0 - c) * (1.0 + c)), c);
         }
 
-        double CornerAngle_input(int h)
+        internal double CornerAngle_input(int h)
         {
             int t = h / 3, c = h % 3;
             Vector2d a = inLayout[h], b = inLayout[3 * t + (c + 1) % 3], d = inLayout[3 * t + (c + 2) % 3];
-            return AcosDeterministic((b - a).Dot(d - a));       // (as Vector2d.AngleR, with a portable acos; the dot of the unnormalized edge vectors is clamped to [-1, 1] as before)
+            Vector2d u = b - a, w = d - a;
+            double lu = Math.Sqrt(u.x * u.x + u.y * u.y), lw = Math.Sqrt(w.x * w.x + w.y * w.y);
+            if (!(lu > 0 && lw > 0)) return AcosDeterministic(0);
+            // the angle between the edges, with a portable acos: the dot product of the unit vectors. (Before, the dot of the
+            // unnormalized edge vectors, clamped to [-1, 1]: the angle only for edges of length 1, so the tangent normal, which weights
+            // the corners by these angles, and with it GetTangentBasis, ToWorld, FromWorld and the callers of ToWorld depended on
+            // the scale of the mesh.)
+            return AcosDeterministic((u.x * w.x + u.y * w.y) / (lu * lw));
         }
 
         int hV_input_head(int h)
@@ -758,12 +892,12 @@ namespace gs
             int h0 = inVHe[i], hh = h0, guard = 0;
             while (true) {
                 sign.Add(inAngle[hh]);
-                dirs.Add(Mesh.GetVertex(toVertex[hV_input_head(hh)]) - p);
+                dirs.Add(DownDiff(p, Mesh.GetVertex(toVertex[hV_input_head(hh)])));
                 // the head of the last input corner, at a boundary vertex
                 int nh = inTwin[Prev(hh)];
                 if (nh < 0) {
                     sign.Add(LastSignpost(i));
-                    dirs.Add(Mesh.GetVertex(toVertex[hV_input_head(Next(hh))]) - p);
+                    dirs.Add(DownDiff(p, Mesh.GetVertex(toVertex[hV_input_head(Next(hh))])));
                     break;
                 }
                 if (nh == h0 || ++guard > 3 * F0) break;
