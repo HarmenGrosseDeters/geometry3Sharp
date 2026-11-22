@@ -507,7 +507,8 @@ Ordered by expected value for the library.
      sets and has one threshold in every frame; the other 139 are mangled by the degenerate-area test (a separate question). #1259: no-go (a grid
      rounding would lose 439 of the 463 again). Decided 2026-11-22 (owner): that rule with K = 4 ulps and the
      factor 2; a removal of only components below K ulps stays clean and is reported, any other removal makes the
-     result not clean; build as a separate tier-L PR after #1382.
+     result not clean (amended in the build: not clean only from 256 ulps and 1e-3 of the bound, the removal stays at 4). Built in the PR of #1216 (`MeshRoundingRepair`, the exact comparisons of #1191 with two
+     integer helpers; every removed component listed); the opt-out follows as a separate PR.
    - Status (2026-11-12, owner; ended 2026-11-15, #721 closed, see the plateau variant below): taken up together with item 3 by a Fable research session
      (session_01AaGT59a53nRKYCZvxKB6Vt): falsification run on real rounding traces first, candidate rules as lemmas
      checked with Z3, ends with docs/design/SNAP_ROUNDING_3D.md and a recommendation; no library code.
