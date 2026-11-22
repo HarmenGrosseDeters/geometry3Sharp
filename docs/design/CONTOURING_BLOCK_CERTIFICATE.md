@@ -30,7 +30,8 @@ Short answer:
   of the largest spacing ratio. That is a small code change with a new bound; today's code is short of the lemma by a
   margin of about twice its `CellShapeTolerance` on that test (2^-19 at the default, 2^-9 at the largest setting).
 - **Measured** (section 3a): box blocks cover 96.5 % of the refused cells of smooth TPMS at 32 cells per period (five
-  of six runs complete) and a third at best for a TPMS clipped by a ball, where the refusals follow the rim.
+  of six runs complete) and about a third overall (9 to 56 % per run) for a TPMS clipped by a ball; box blocks grown
+  this way do not close a clipped lattice.
 - **Open** (sections 3 and 4): the mesh side for marching cubes and for marching tetrahedra on cubes (lemmas of their
   own; a finite check for the tetrahedra is done here), the two levels of a wall together, and the rim of a clipped
   lattice.
@@ -180,7 +181,9 @@ Remarks.
    That is all Theorem 8 uses: in (a), Theorem 4 needs the compact 2-manifold and the injective projection (L in R is
    then locally, not globally, a Lipschitz graph); in (b), the local flatness inside D_1 is local, and the two
    pieces of the boundary of R carry the two signs of f because each piece of R minus D_1 is connected and without a
-   zero, and the signs differ across D_1 by Lemma 8.1 (i). With this form, remark 2 reads: one partial derivative
+   zero, and the signs differ across D_1 by Lemma 8.1 (i). With this form an axis is no longer the only candidate
+   for d (enclosures [2, 3] x [-1, 1] and [-1, 1] x [2, 3] admit d = (1, 1) and no axis); a sufficient test, for
+   instance: one partial derivative
    keeps its sign on every listed sub-box, the same one with the same sign.
 
 ## 2. Lemma 7.1: the cell shape in Theorem 7
@@ -257,7 +260,8 @@ of a box that grows by one layer on the sides that carry a failing node, edge or
 box exceeds 6 cells per side or reaches the outer layer; overlapping boxes are merged into their bounding box. (B3) in
 the form of remark 9. Only the level-set side: the contour's count in a block (Lemma 6.4) is not measured, so
 "complete" below means that every surface cell is certified or lies in a passing block, not that the contour is
-certified. 42 runs, axis-aligned and rotated, one machine.
+certified. 42 runs, axis-aligned and rotated, one machine (40 in the table; the two runs of two spheres half a cell
+apart are in no row: nothing refused in one, 157 of 178 covered in the other).
 
 | Set | Runs | Refused by the cell test (of the surface cells) | Covered by blocks | Left (of the surface cells) | Runs complete: cell test -> with blocks |
 |---|---|---|---|---|---|
@@ -270,16 +274,20 @@ certified. 42 runs, axis-aligned and rotated, one machine.
 | thin controls (torus and shell of half a cell) | 4 | 69.0 % | 0.1 % | 69.0 % | 0 -> 0 |
 
 - **Smooth lattices: the blocks work.** At 32 cells per period five of six runs are complete, the sixth (Schwarz D,
-  rotated) leaves 220 of 19 876 surface cells, all for a missing direction. The blocks are small: of 7 696 blocks in
-  all runs, 2 985 are one cell (a cell that passes when each edge and face may use its own tightening), 3 928 are two
-  cells wide, 783 wider. The block step costs 10 to 26 % of the cell test.
-- **Clipped lattices: the blocks do not work.** A third of the refused cells at best. What is left is the rim: of the
-  seeds left at 32 cells per period, 13 442 fail by an edge, 1 999 by a face, 1 904 by the direction. At the cut the
-  field is a `max` of two pieces, an edge near the rim is refused whenever the two pieces' derivatives along it differ
-  in sign (it may enter the solid through one piece and leave through the other), and that holds along the whole rim
-  for a fixed share of the edges. The refusals are a band along a curve, as the silhouette bands of meshes
-  (section 7.10's estimate), and a box that takes in a stretch of the band meets it again on its own boundary. A larger
-  size limit does not help (limit 10 against 6 against 3: 46, 39 and 36 % on one clipped gyroid).
+  rotated) leaves 220 of 19 876 surface cells, all for a missing direction. The blocks are small: of the 2 169 blocks
+  of the twelve smooth TPMS runs, 1 854 are two cells wide, 302 wider and 13 one cell. The block step costs 7 to 27 %
+  of the cell test there.
+- **Clipped lattices: box blocks grown this way do not close them.** About a third of the refused cells overall
+  (32.6 % at 32 cells per period, 22.4 % at 16), between 9 and 56 % per run, and no run complete. Of the seeds left at
+  32 cells per period, 13 442 fail by an edge, 1 999 by a face, 1 904 by the direction. Of the 5 196 blocks, 2 956
+  are one cell (a cell that passes when each edge and face may use its own tightening). The coverage rises slowly
+  with the size limit (limit 3, 6, 10: 36, 39 and 46 % on one clipped gyroid). Only this one greedy growth rule was
+  measured.
+- *An explanation, not a measurement* (the results do not record where the refused cells lie): at the cut the field
+  is a `max` of two pieces, and an edge near the rim is refused whenever the two pieces' derivatives along it differ
+  in sign (it may enter the solid through one piece and leave through the other). That would hold along the whole rim
+  for a fixed share of the edges, so the refusals would be a band along a curve, as the silhouette bands of meshes
+  (section 7.10's estimate), and a box that takes in a stretch of the band meets it again on its own boundary.
 - The thin controls stay refused, as they must.
 - Not measured: wrong contours (the contour's side is not in the prototype), and the cost against a contouring.
 
@@ -289,9 +297,10 @@ to a domain is not built; it stays an open limit of the contouring certificates 
 
 **What follows.** For a level of a smooth field (a lattice with a smooth cap, a level g = +-w of
 `TwoLevelMarchingTetrahedra` without a domain) Theorem 8 is worth building: it turns "2 to 15 % of the cells refused
-at every resolution" into complete runs at 32 cells per period. For a lattice clipped to a domain it is not the route:
-the rim needs blocks that follow a curve (general balls of cells, for which the convexity arguments of remark 1 do not
-hold) or a statement for two surfaces that cross (the wall and the cut, each smooth), and neither exists here.
+at every resolution" into complete runs at 32 cells per period. For a lattice clipped to a domain, box blocks grown
+this way do not close the gap. If the explanation above is right, the rim needs blocks that follow a curve (general
+balls of cells, for which the convexity arguments of remark 1 do not hold) or a statement for two surfaces that cross
+(the wall and the cut, each smooth); neither exists here, and another growth rule for boxes was not tried.
 
 ## 4. The per-level certificate of `TwoLevelMarchingTetrahedra` (the queued brief): covered and open
 

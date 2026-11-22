@@ -59,11 +59,11 @@ or reaches the outer layer; a box that overlaps an accepted block takes the boun
 the contour is not looked at. `results/blocks.csv` is the default set (three TPMS with a smooth cap and clipped by a
 ball, at 32 and 64 cells across (16 and 32 per period), axis-aligned and rotated) plus controls; the table and the
 reading are in section 3a of the design note. In short: 96.5 % of the refused cells covered for smooth TPMS at 32 cells
-per period (5 of 6 runs complete), 33 % for clipped ones (none complete).
+per period (5 of 6 runs complete), about a third overall for clipped ones (9 to 56 % per run, none complete).
 
 Columns: `refused` surface cells the cell test does not certify; `covered` those in a passing block; `left_*` the seeds
 left, by the condition that failed last (node, edge, face, no direction, several circles, outer layer); `side1` to
-`side7` the blocks by their longest side in cells; `zero_free_blocks` blocks with no circle on their boundary.
+`side7` the blocks by their longest side in cells; `zero_free_blocks` the final blocks with no circle on their boundary.
 
 ## Columns of `all.csv`
 
