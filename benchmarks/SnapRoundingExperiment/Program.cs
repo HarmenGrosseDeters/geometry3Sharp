@@ -56,6 +56,8 @@ static class Program
             Console.WriteLine(GuaranteeBound.Run(args[1], ba, bb, bop));
             return 0;
         }
+        if (args.Length == 3 && args[0] == "gen")
+            return ProceduralThin.Gen(args[1], args[2]);
         if (args.Length >= 3 && args[0] == "cull")
             return CandidateCulling.Run(args.Skip(1).ToArray());
         Console.Error.WriteLine("usage: list <set> | run <case> <method>... | cull <case dir> <union|intersection|difference> [--serial] | lattice <case> [seconds] [seed] | bound <case> | bound selfcheck");

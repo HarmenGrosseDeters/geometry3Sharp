@@ -55,6 +55,42 @@ same repair without the removal ends clean (`no_removal_clean`, a probe outside 
 each removed component (`no_removal_volume_ratio`: its volume after over before, 1 = kept as it was). Raw output:
 `trace/results/bound_2026-11-22.jsonl`, `bound_scale_2026-11-22.jsonl`, `bound_drop_2026-11-22.jsonl`.
 
+## The cost of the rounding: box neighbours, `near`, tree and setup (2026-11-22)
+
+The measurement of [docs/research/ROUNDING_COST_2026-11.md](../../docs/research/ROUNDING_COST_2026-11.md) (hard problem
+3, parts b to d; the tables and their reading are there). Nothing here is library code.
+
+- `gen <shape> <dir>` (`ProceduralThin.cs`) writes a procedural case with long thin triangles on tilted flat faces:
+  `cyl:<n>`, `gear:<n>`, `fins:<n>`, `plate:<n>` and the control `sphere:<n>`, each with the rotated, shifted copy of
+  `BooleanComparison export` as B. The set of the note: `gear:500 cyl:8000 fins:400 plate:24 sphere:60`.
+- `cull <dir> <op> --variants <list> [--parts k] [--visits] [--serial]` (`CandidateCulling.cs`) repeats the first full
+  search outside the library with other candidate sets; every variant must report the same intersecting pairs
+  (`same_pairs`). New variants: `enum`, `own-enum` (the enumeration alone), `box+axesf` (the separating axes of section
+  5.3 of SNAP_ROUNDING_3D.md, cached flat), `box+dop` (an 18-DOP per triangle), `split`, `split+axes`, `split+axesf`,
+  `split+dop`, `split-enum` (a tree over split-clipped sub-boxes, `SplitBoxes.cs`). `--visits` adds the nodes a query
+  visits in the library's tree and in a median-split tree.
+- `trace/instrument_phases.py` patches `MeshRoundingRepair.cs` (and, with a second argument, `ExactMeshArrangement.cs`)
+  in a throw-away worktree of master `57623890`: `G3_ROUNDING_PHASES=1` prints the phases of every `Apply`, the parts
+  of `near` and the tree builds; `G3_FIRST_SEARCH=axes|split|split+axes` and `G3_TREE_MEDIAN=1` switch the candidates
+  on inside the rounding. `trace/run_ab_phases.sh` runs the A/B, `trace/summarize_phases.py` prints the tables
+  (`phases`, `bound`, `near`, `ab`, `cull`).
+- Raw output: `trace/results/cost_*_2026-11-22.jsonl` (and `.err` for the phase lines).
+
+```sh
+dotnet build benchmarks/SnapRoundingExperiment -c Release
+SR="dotnet benchmarks/SnapRoundingExperiment/bin/Release/net10.0/SnapRoundingExperiment.dll"
+for s in gear:500 cyl:8000 fins:400 plate:24 sphere:60; do $SR gen $s cases/proc/$(echo $s | tr : _); done
+$SR cull cases/proc/gear_500 union --variants box,enum,box+axesf,box+dop,split,split-enum,split+axesf --visits
+
+git worktree add --detach /tmp/wt 57623890
+python3 benchmarks/SnapRoundingExperiment/trace/instrument_phases.py /tmp/wt/mesh_ops/MeshRoundingRepair.cs /tmp/wt/mesh_ops/ExactMeshArrangement.cs
+dotnet build /tmp/wt/benchmarks/BooleanComparison -c Release -o /tmp/tool
+G3_ROUNDING_PHASES=1 dotnet /tmp/tool/BooleanComparison.dll profile --repeat 1 --safe-rounding cases/proc/gear_500 > p.jsonl 2> p.err
+python3 benchmarks/SnapRoundingExperiment/trace/summarize_phases.py phases p.jsonl p.err
+DOTNET_TieredPGO=0 benchmarks/SnapRoundingExperiment/trace/run_ab_phases.sh /tmp/tool ab 2 cases/proc/* cases/rot/*
+python3 benchmarks/SnapRoundingExperiment/trace/summarize_phases.py ab ab/base ab/axes 2
+```
+
 ## Sets
 
 All generated in code (`tests/geometry3Sharp.Tests/Harness/DegenerateFamilies.cs`), no mesh files:
