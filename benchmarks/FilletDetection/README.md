@@ -118,7 +118,11 @@ change, the medians over 62 are 3 / 6 / 9 %). 24 of the 36 models without a fill
 recall reaches the bar with all three diagonal bounds, the mean only at 0.2 of the diagonal (0.901; 0.898 at 0.1);
 precision is about half of the bar. Only the ABC part of the planned set was run; the procedural variable-radius and
 curved-support solids were not, since a failure on the ABC part already decides the rule.
-The rule and the heuristic were fixed before the run and are not changed after it. The heuristic counts every curved
+The rule, the heuristic and the detector's thresholds were fixed before the run and are not changed after it; a change
+made after seeing these numbers would be a new round on a fresh sample. Three limits of the reading, all from the
+section above: the answer is the project's heuristic on the B-rep patches, not a CAD label (full rounds and blend patches
+that are neither cylinders nor tori are left out of the score); one detector run at the largest bound serves all six
+bounds, so the recall of the smaller bounds may read low; the scored models are a prefix of the fixed sample order. The heuristic counts every curved
 patch that is not a fillet by its rule (bores, bosses, blends of other types) as a non-fillet, so part of the false marks
 may be fillet-like geometry the heuristic does not call a fillet. The procedural solids (where the detector left the
 rod and the bore unmarked) do not show which share that is. Telling the two apart would need a label source this project
