@@ -569,8 +569,10 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(e.Kind != 0, hit);
                 if (hit && f.Type == IntersectionType.Point) {
                     Assert.True(IsFiniteV(f.Point) && IsFin(f.Segment1Parameter) && IsFin(f.Segment2Parameter), "finite point");
-                    double size = 1 + Math.Abs(f.Point.x) + Math.Abs(f.Point.y);
-                    Assert.True(Near(e.P0, f.Point, 1e-9) || size > 1e6, "point " + f.Point + " against the oracle");
+                    // (relative to the larger of the point and the input, 1; the angle limits the accuracy of the crossing)
+                    currentSize = 1;
+                    double sin = Math.Abs(d1.x * d2.y - d1.y * d2.x);
+                    Assert.True(Near(e.P0, f.Point, Tol(null, sin)), "point " + f.Point + " against the oracle, sin " + sin);
                     points++;
                 }
             }
@@ -646,6 +648,94 @@ namespace geometry3Sharp.Tests
             Assert.False(lt.Find());
             lt.IntervalThreshold = 1e-8;
             Assert.True(lt.Find());
+        }
+
+        [Fact]
+        public void LineLine_NearParallelAtTheTopOfTheRange_RoundsOnce()
+        {
+            // s = (o2 - o1) x d2 / (d1 x d2) with the origins near 1e308: the denominator must not be scaled into the subnormals before the division
+            Vector2d o1 = new Vector2d(1e308, 0), o2 = new Vector2d(1e308, 1e292), d1 = new Vector2d(1, 0), d2 = new Vector2d(1, 1e-10);
+            d2.Normalize();
+            var f = new IntrLine2Line2(new Line2d(o1, d1), new Line2d(o2, d2));
+            Assert.True(f.Find());
+            Assert.Equal(IntersectionType.Point, f.Type);
+            // the exact crossing: o2 + t d2 on y = 0: t = -1e292 / d2.y, x = o2.x + t d2.x
+            Q t = Q.From(-1e292) / Q.From(d2.y);
+            Q x = Q.From(o2.x) + t * Q.From(d2.x);
+            Q s = x - Q.From(o1.x);
+            double expected = s.Approx();
+            Assert.True(Math.Abs(f.Segment1Parameter - expected) <= Math.Abs(expected) * 1e-14, $"s {f.Segment1Parameter} against {expected}");
+        }
+
+        [Fact]
+        public void SegmentCrossing_OnAnAxisAlignedEdge_StaysOnTheEdge()
+        {
+            // a crossing of an axis-aligned segment has the exact coordinate of the edge (p + w (q - p) gives p.x back for q.x = p.x)
+            var r = new Random(91);
+            for (int i = 0; i < 2000; i++) {
+                double x = r.NextDouble() * 4 - 2;
+                var vert = new Segment2d(new Vector2d(x, -1 - r.NextDouble()), new Vector2d(x, 1 + r.NextDouble()));
+                double a = r.NextDouble() * 2 - 1, b = r.NextDouble() * 2 - 1;
+                var other = new Segment2d(new Vector2d(x - 1 - r.NextDouble(), a), new Vector2d(x + 1 + r.NextDouble(), b));
+                var ss = new IntrSegment2Segment2(vert, other);
+                if (ss.Find() == false || ss.Type != IntersectionType.Point) continue;
+                // the point lies on the other segment's line to within rounding, and the vertical one exactly in x on segment 1's side
+                var ls = new IntrLine2Segment2(new Line2d(other.P0, (other.P1 - other.P0).Normalized), vert);
+                if (ls.Find() && ls.Type == IntersectionType.Point)
+                    Assert.Equal(x, ls.Point.x);
+            }
+        }
+
+        [Fact]
+        public void ParameterAlong_OverflowingDifference_AndSubnormalInput()
+        {
+            // two segments 1.7e308 apart along x, whose parameter along segment 1 needs p - o beyond the range: finite, scaled
+            var s1 = new Segment2d(Vector2d.Zero, Vector2d.AxisX, 1.6e308);
+            var s2 = new Segment2d(new Vector2d(1.5e308, 0), Vector2d.AxisY, 1);
+            var ss = new IntrSegment2Segment2(s1, s2);
+            Assert.True(ss.Find());
+            Assert.True(IsFin(ss.Parameter0) && IsFin(ss.Point0.x));
+            Assert.True(Math.Abs(ss.Point0.x - 1.5e308) <= 1e-12 * 1.5e308, "point " + ss.Point0);
+            // subnormal coordinates: the same result at the scaled problem (2^k invariance for k up to the subnormals)
+            double sc = Math.Pow(2, -1060);
+            double h = Math.Sqrt(0.5);
+            var t1 = new Segment2d(Vector2d.Zero, new Vector2d(h, h), sc);
+            var t2 = new Segment2d(Vector2d.Zero, new Vector2d(-h, h), sc);
+            var st = new IntrSegment2Segment2(t1, t2);
+            Assert.True(st.Find());
+            Assert.Equal(IntersectionType.Point, st.Type);
+            Assert.True(Math.Abs(st.Point0.x) <= sc * 1e-3 && Math.Abs(st.Point0.y) <= sc * 1e-3, "point " + st.Point0);
+        }
+
+        [Fact]
+        public void ScaleFor_IsAPowerOfTwo_ThatBringsTheLargestCoordinateToAboutOne()
+        {
+            Func<double, double> scale = m => IntrExact2d.ScaleFor(new Vector2d(m, -m / 2), Vector2d.Zero, Vector2d.Zero);
+            Assert.Equal(1.0, scale(0));
+            Assert.Equal(1.0, scale(1.0));
+            Assert.Equal(0.5, scale(2.0));
+            Assert.Equal(1.0 / 1024, scale(1500.0));
+            Assert.Equal(Math.Pow(2, 1023), scale(Math.Pow(2, -1070)));       // subnormal: scaled up (exact)
+            Assert.Equal(Math.Pow(2, 1023), scale(double.Epsilon));
+            Assert.Equal(Math.Pow(2, 1022) * 2, scale(Math.Pow(2, -1023) * 1.5));
+            Assert.Equal(Math.Pow(2, -1023), scale(1.7e308));
+            Assert.Equal(Math.Pow(2, -1023), scale(Math.Pow(2, 1023)));
+            Assert.Equal(Math.Pow(2, -1022), scale(Math.Pow(2, 1022) * 1.9));
+            foreach (double m in new[] { 1e-300, 1e-3, 0.7, 5.0, 1e100, 1e307, 1.7e308 }) {
+                double sc = scale(m), scaled = m * sc;
+                Assert.True(scaled >= 0.5 && scaled < 2, "m " + m + " scaled " + scaled);
+            }
+        }
+
+        [Fact]
+        public void ParameterAlong_KeepsTheProductOfSmallDirectionComponents_WhereTheDifferenceIsFinite()
+        {
+            // o and p a few ulps apart at 1e300 with a direction of (1e-300, 1): the scaled product would be subnormal and lose bits
+            Vector2d o = new Vector2d(1e300, 0);
+            Vector2d p = new Vector2d(BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(1e300) + 1), 0), dir = new Vector2d(1e-300, 1);
+            double expected = (p - o).Dot(dir);
+            Assert.True(expected > 0);
+            Assert.Equal(expected, IntrExact2d.ParameterAlong(o, dir, p));
         }
 
         [Fact]

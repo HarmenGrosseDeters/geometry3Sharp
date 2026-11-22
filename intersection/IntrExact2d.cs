@@ -79,7 +79,7 @@ namespace g3
 
         /// <summary>
         /// 2^-e for the largest coordinate magnitude of the points (a power of two, so that the scaling is exact), 1 for all zeros:
-        /// the points scaled by it have a largest coordinate in [1, 2), so differences and products of scaled values cannot overflow
+        /// the points scaled by it have a largest coordinate in [1, 2) (in [0.5, 1) for the top binade, 2^-1023 itself; subnormal coordinates are scaled up by 2^1023), so differences and products of scaled values cannot overflow
         /// </summary>
         internal static double ScaleFor(Vector2d a, Vector2d b, Vector2d c)
         {
@@ -89,6 +89,8 @@ namespace g3
             int e = (int)((BitConverter.DoubleToInt64Bits(m) >> 52) & 0x7FF);
             if (e == 2046)
                 return BitConverter.Int64BitsToDouble(1L << 51);          // 2^-1023 (the largest coordinates, in [2^1023, 2^1024): scaled into [0.5, 1))
+            if (e == 0)
+                return BitConverter.Int64BitsToDouble(0x7FE0000000000000L);   // 2^1023 (subnormal coordinates: scaling up is exact, the products do not underflow)
             return (e > 0 && e < 2046) ? BitConverter.Int64BitsToDouble((long)(2046 - e) << 52) : 1;
         }
 
@@ -110,6 +112,9 @@ namespace g3
         /// <summary> (p - o) . dir, with the points scaled by a power of two first (the difference cannot overflow), for the parameter of a point along a line </summary>
         internal static double ParameterAlong(Vector2d o, Vector2d dir, Vector2d p)
         {
+            Vector2d diff = p - o;
+            if (diff.x - diff.x == 0 && diff.y - diff.y == 0)
+                return diff.Dot(dir);       // (no scaling where the difference is finite: the scaled products could underflow)
             double sc = ScaleFor(o, p, Vector2d.Zero);
             return (p * sc - o * sc).Dot(dir) / sc;
         }
@@ -128,6 +133,11 @@ namespace g3
         {
             if (w <= 0) return p;
             if (w >= 1) return q;
+            // p + w (q - p) where the difference is finite (it gives p back for equal coordinates: a crossing of an axis-aligned
+            // edge stays on it), else the form without the difference
+            double dx = q.x - p.x, dy = q.y - p.y;
+            if (dx - dx == 0 && dy - dy == 0)
+                return new Vector2d(p.x + w * dx, p.y + w * dy);
             return new Vector2d((1 - w) * p.x + w * q.x, (1 - w) * p.y + w * q.y);
         }
 

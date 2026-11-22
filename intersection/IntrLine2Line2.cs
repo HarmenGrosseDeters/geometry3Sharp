@@ -88,9 +88,10 @@ namespace g3
 				// two first, so that their difference cannot overflow). A crossing that is not representable is an invalid query.
 				double sc = IntrExact2d.ScaleFor(o1, o2, Vector2d.Zero);
 				Vector2d diff = o2 * sc - o1 * sc;
-				double den = IntrExact2d.AccurateCross(d1, d2) * sc;
-				s.x = IntrExact2d.AccurateCross(diff, d2) / den;
-				s.y = IntrExact2d.AccurateCross(diff, d1) / den;
+				// (the quotient first, then the scale: the product den * sc could underflow into the subnormals and round twice)
+				double den = IntrExact2d.AccurateCross(d1, d2);
+				s.x = IntrExact2d.AccurateCross(diff, d2) / den / sc;
+				s.y = IntrExact2d.AccurateCross(diff, d1) / den / sc;
 				Vector2d x = o1 + s.x * d1;
 				if (IntrExact2d.IsFinite(s) == false || IntrExact2d.IsFinite(x) == false) {
 					Type = IntersectionType.Empty;

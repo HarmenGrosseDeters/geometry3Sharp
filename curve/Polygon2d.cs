@@ -401,6 +401,7 @@ namespace g3
                     // create any new objects so it should be much faster for majority of segments (should profile!)
                     if (seg.Intersects(oseg)) {
                         // (the tolerance route, like the prefilter Segment2d.Intersects above, which Find() must agree with)
+                        // (IntervalThreshold = double.Epsilon selects the tolerance route, here only as the selector: upstream used 0, which now means the exact route)
                         IntrSegment2Segment2 intr = new IntrSegment2Segment2(seg, oseg) { IntervalThreshold = double.Epsilon };
                         if (intr.Find()) {
                             v.Add(intr.Point0);

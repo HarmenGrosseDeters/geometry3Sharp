@@ -17,5 +17,20 @@ namespace geometry3Sharp.Tests
             Assert.False(new IntrSegment2Triangle2(seg, tri).Find());
             Assert.True(new IntrSegment2Triangle2(seg, tri) { UseToleranceRoute = true }.Find());
         }
+
+        [Fact]
+        public void UseToleranceRoute_SetAfterFind_ResetsTheResult()
+        {
+            // a segment 5e-9 beside the triangle: a miss in the exact route, a hit in the tolerance route
+            var tri = new Triangle2d(new Vector2d(0, 0), new Vector2d(1, 0), new Vector2d(0, 1));
+            var seg = new Segment2d(new Vector2d(-1, -5e-9), new Vector2d(2, -5e-9));
+            var f = new IntrSegment2Triangle2(seg, tri);
+            Assert.False(f.Find());
+            f.UseToleranceRoute = true;
+            Assert.Equal(IntersectionResult.NotComputed, f.Result);
+            Assert.True(f.Find());
+            f.UseToleranceRoute = false;
+            Assert.False(f.Find());
+        }
     }
 }
