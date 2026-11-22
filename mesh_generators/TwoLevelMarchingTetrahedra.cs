@@ -106,7 +106,11 @@ namespace g3
             public List<byte> VertexLevel = new List<byte>();
             /// <summary> per triangle id: its level </summary>
             public List<byte> TriangleLevel = new List<byte>();
-            /// <summary> polygon vertices that were found outside the other level: the level's polygon was cut there. Must be 0 for Lemma 9. </summary>
+            /// <summary>
+            /// How often a polygon vertex was found outside the other level, so that the level's polygon was cut there: a
+            /// count of occurrences (once per tetrahedron and polygon at the vertex), not of distinct vertices. Must be 0 for
+            /// Lemma 9.
+            /// </summary>
             public int ClippedPolygonVertices;
             /// <summary> the generator's NonManifoldTriangles of this run: triangles the mesh refused. Must be 0 for Lemma 9. </summary>
             public int NonManifoldTriangles;
