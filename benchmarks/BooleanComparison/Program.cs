@@ -31,6 +31,8 @@
 //   array <mesh> <dir> <n>               n rotated, shifted copies of the mesh that overlap their neighbours (N000.off, ...)
 //   profile [options] <case>...          phase times, allocations, GC, predicate filter failures and result hashes
 //                                        of ExactMeshBoolean (Profile.cs)
+//   seam-levers [options]                upper-bound probes on procedural operands with a small intersection seam
+//                                        (SeamLevers.cs; docs/research/EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md)
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -92,6 +94,7 @@ static class Program
             case "eval": return Eval(args[1]);
             case "nary": return Nary.Run(args.Skip(1).ToArray());
             case "profile": return Profile.Run(args.Skip(1).ToArray());
+            case "seam-levers": return SeamLevers.Run(args.Skip(1).ToArray());
             case "indirect": return IndirectBench.Run(args.Skip(1).ToArray());
             case "envelope": return EnvelopeBench.Run(args.Skip(1).ToArray());
             case "prestudy-fwn": return PrestudyFwn.Run(args.Skip(1).ToArray());
