@@ -203,6 +203,34 @@ namespace Meshing2Acceptance
         public static bool ProperCross(Pt a, Pt b, Pt c, Pt d) =>
             Orient(a, b, c) * Orient(a, b, d) < 0 && Orient(c, d, a) * Orient(c, d, b) < 0;
 
+        /// <summary>
+        /// The sign of Dist2ToSegment(a, b, p) - limit (limit of either sign), without the rationals: with D = a.W * b.W * p.W every
+        /// coordinate of the vectors u = b - a and v = p - a is an integer over D, and each case of Dist2ToSegment is a quotient of
+        /// integers with a positive denominator (v.v over D^2 beyond a, w.w over D^2 beyond b, cross^2 over u.u * D^2 between), compared
+        /// with the limit by cross-multiplication. No gcd; the same sign as the rational computation, exactly (the equivalence is argued in
+        /// docs/design/MESHING2D_FAST_ORACLE.md, section 8).
+        /// </summary>
+        public static int Dist2ToSegmentCompare(Pt a, Pt b, Pt p, Q limit)
+        {
+            BigInteger d = a.W * b.W * p.W;
+            BigInteger ux = (b.X * a.W - a.X * b.W) * p.W, uy = (b.Y * a.W - a.Y * b.W) * p.W;
+            BigInteger vx = (p.X * a.W - a.X * p.W) * b.W, vy = (p.Y * a.W - a.Y * p.W) * b.W;
+            BigInteger uu = ux * ux + uy * uy, dd = d * d, ln = limit.N, ld = limit.D;
+            BigInteger num, den;
+            if (uu.IsZero) { num = vx * vx + vy * vy; den = dd; }
+            else {
+                BigInteger uv = ux * vx + uy * vy;
+                if (uv.Sign <= 0) { num = vx * vx + vy * vy; den = dd; }
+                else if (uv >= uu) { BigInteger wx = vx - ux, wy = vy - uy; num = wx * wx + wy * wy; den = dd; }
+                else { BigInteger cross = ux * vy - uy * vx; num = cross * cross; den = uu * dd; }
+            }
+            return (num * ld).CompareTo(ln * den);
+        }
+
+        /// <summary> Dist2ToSegment(a, b, p) &lt;= limit </summary>
+        public static bool Dist2ToSegmentAtMost(Pt a, Pt b, Pt p, Q limit) => Dist2ToSegmentCompare(a, b, p, limit) <= 0;
+
+
         /// <summary>Squared distance from p to the closed segment a-b.</summary>
         public static Q Dist2ToSegment(Pt a, Pt b, Pt p)
         {
