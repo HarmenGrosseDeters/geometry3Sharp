@@ -136,6 +136,8 @@ namespace g3
             else if (eStrategy == BuildStrategy.Default)
                 build_top_down(false);
             mesh_timestamp = mesh.ShapeTimestamp;
+            exact_winding_cache_timestamp = -1;
+            exact_winding_cache = null;
             box_eps = ComputeBoxPadding(mesh.TriangleCount == 0 ? Vector3d.Zero : box_centers[root_index],
                                         mesh.TriangleCount == 0 ? Vector3d.Zero : box_extents[root_index]);
         }
@@ -1255,17 +1257,46 @@ namespace g3
          */
 
 
+        // test / benchmark hook: run the legacy Jacobson hierarchical WindingCache instead of ExactWindingCache
+        internal bool ForceLegacyWindingCache;
+
+        volatile ExactWindingCache exact_winding_cache;
+        volatile int exact_winding_cache_timestamp = -1;
+
+        /// <summary>
+        /// Thread-safe lazy access to the exact ray-plus-boundary generalized winding cache (Antipodal / FEWN).
+        /// </summary>
+        internal ExactWindingCache GetExactWindingCache()
+        {
+            int stamp = mesh.ShapeTimestamp;
+            if (mesh_timestamp != stamp)
+                throw new Exception("DMeshAABBTree3.WindingNumber: mesh has been modified since tree construction");
+            if (exact_winding_cache_timestamp == stamp) {
+                ExactWindingCache cached = exact_winding_cache;
+                if (cached != null)
+                    return cached;
+            }
+            lock (winding_cache_lock) {
+                if (exact_winding_cache_timestamp != stamp || exact_winding_cache == null) {
+                    ExactWindingCache built = ExactWindingCache.Build(mesh, box_to_index, index_list, triangles_end, root_index, box_centers.size);
+                    exact_winding_cache = built;
+                    exact_winding_cache_timestamp = stamp;
+                    return built;
+                }
+                return exact_winding_cache;
+            }
+        }
+
         /// <summary>
         /// Evaluate the generalized winding number of the mesh at point p (exact sum of triangle solid angles / 4pi).
         /// For a closed mesh with outward-facing normals this is 1 inside, 0 outside (-1 inside for an
         /// inside-out mesh, and n inside n nested shells). For open meshes it varies smoothly, and
-        /// WindingNumber &gt; 0.5 is a robust inside test. To do this, we must construct additional
-        /// information to short-circuit tree branches. This happens on the first evaluation.
-        /// This does consume some additional memory, mainly temporary memory during construction.
-        /// (eg on a 500k sphere, about 30mb to construct, but then only 2-5mb is stored at the end)
-        /// If you don't want this, just use Mesh.WindingNumber() directly. Also note that if you
-        /// are only evaluating a few times, it is not sensible - assume you need at least 
-        /// hundreds of evaluations to see speed improvements.
+        /// WindingNumber &gt; 0.5 is a robust inside test.
+        ///
+        /// Uses an exact +x ray-crossing count (symbolically perturbed via ExactPredicates) plus the coupled
+        /// Antipodal / FEWN exterior-edge boundary sum (Martens, Trettner, Bessmeltsev 2026; Xie, Hafner, Wojtan
+        /// 2026), falling back to the direct solid-angle sum on disconnected triangle soups (|∂M| &gt;= F).
+        /// On closed meshes (|∂M| = 0) this returns the exact integer winding number from a single O(log F) ray.
         /// The cache is built on first use (under a lock), so this can be called from multiple threads.
         /// </summary>
         public virtual double WindingNumber(Vector3d p)
@@ -1273,8 +1304,10 @@ namespace g3
             if (mesh_timestamp != mesh.ShapeTimestamp)
                 throw new Exception("DMeshAABBTree3.WindingNumber: mesh has been modified since tree construction");
 
-            // built on first use, possibly by several threads at once: build it under a lock and set the
-            // (volatile) timestamp only once the cache is complete, as for FastWindingNumber
+            if (ForceLegacyWindingCache == false)
+                return GetExactWindingCache().Evaluate(p);
+
+            // legacy hierarchical WindingCache (retained for protected API compatibility and A/B benchmarks)
             if (WindingCache == null || winding_cache_timestamp != mesh.ShapeTimestamp) {
                 lock (winding_cache_lock) {
                     if (WindingCache == null || winding_cache_timestamp != mesh.ShapeTimestamp) {
