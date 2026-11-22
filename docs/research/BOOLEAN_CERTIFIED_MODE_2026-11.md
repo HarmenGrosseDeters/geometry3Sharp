@@ -20,7 +20,7 @@ of a certificate) and on the stages 1-2 checker (#1061, [QA 2.4a](../qa/testing-
 | The whole checker (C0-C5) as built | 16-570 times the boolean on these inputs (from 84 pieces on). It has one quadratic part (the coplanar stacks of C3) and one undiagnosed outlier (C5 on the linked tori: 19 s); fine at test sizes, not at these. |
 | A certified user mode | Possible, not cheap: the checker moves into the library as exact code with filters (review, mutation shard, at least one new error bound), the coplanar stacks get an index and the C5 outlier a diagnosis, and the price per run is a rough estimate of 3-16 times the boolean. The class is narrow: closed inputs, and a result with contacts is certified as embedded "up to its documented contacts", not as clean. |
 | What users can have today | `MeshRobustRepair.NotCleanReason(result)`: closed, manifold, no self-intersection, by an exact search on the result's doubles, for 0.1-0.6 times the boolean. It says nothing about the point set. |
-| Exact coplanar clip coordinates | Already there where it matters. The boolean computes coplanar crossings as exact implicit points and gives them out (`ComputeExactVertices` / `ResultExactVertices`, public). `IntrTriangle3Triangle3.Find` returns the exact polygon rounded: 0 deviations in 120 000 coplanar pairs (93 344 intersecting, all in the plane z = 0). Open is only the legacy 2D class `IntrTriangle2Triangle2` (floating-point clip: wrong corner counts, corners off by up to 4e9 ulps on nearly parallel edges, contacts without area not reported), and its only caller in the library is dead code. |
+| Exact coplanar clip coordinates | Already there where it matters. The boolean computes coplanar crossings as exact implicit points and gives them out (`ComputeExactVertices` / `ResultExactVertices`, public). `IntrTriangle3Triangle3.Find` returns the exact polygon rounded: 0 deviations in 120 000 coplanar pairs (93 344 intersecting, all in the plane z = 0). Open is only the legacy 2D class `IntrTriangle2Triangle2` (floating-point clip: wrong corner counts, corners off by up to 4e9 ulps on nearly parallel edges, contacts without area not reported), and its only caller in the library was dead code (removed 2026-11-22, option D1). |
 
 Leaning (details in "Options"): build stage 3 as a test-only extension of the checker (option B); keep the certified user
 mode parked until a caller needs it (option C), with these numbers as its budget; close the coplanar item for the boolean
@@ -295,7 +295,7 @@ at one by one:
 |---|---|---|
 | `ExactMeshBoolean` / `ExactMeshArrangement` | A crossing of two coplanar edges is an implicit point of its own kind (`PointKind.Segments`), exact like every other point. `ComputeExactVertices` returns the result's vertices as rationals (`ResultExactVertices`, public); C1 and C5 check them. | **Nothing.** The plan's PR B has no work in the arrangement. |
 | `IntrTriangle3Triangle3.Find` with `ReportCoplanarIntersection` | Exact decisions, and every corner is an input corner or a crossing computed from exact determinants and rounded once (#253). Measured: 0 wrong decisions in 120 000 pairs, and on the 93 344 that intersect 0 wrong corner counts and **0 corners different from the rounded exact polygon**. All pairs lie in the plane z = 0; tilted planes were not measured. | Only if someone needs the rationals themselves: an additive output next to `PolygonPoints`. No caller known. |
-| `IntrTriangle2Triangle2` (public, from WildMagic5) | Floating-point separating axes and clip. Its only caller in the library, `IntrTriangle3Triangle3.GetCoplanarIntersection`, is private and no longer called. | See below. |
+| `IntrTriangle2Triangle2` (public, from WildMagic5) | Floating-point separating axes and clip. Its only caller in the library, `IntrTriangle3Triangle3.GetCoplanarIntersection`, was private and no longer called (removed 2026-11-22, option D1). | See below. |
 
 Measurement (`coplanar-clip`, `perf/coplanar_clip.txt`; 20 000 pairs per family; reference: an exact rational clip,
 Sutherland-Hodgman with exact signs and crossings, a prototype in the benchmark):
@@ -322,7 +322,7 @@ nearly parallel family. Time per pair: the 2D class about 0.25 µs, `IntrTriangl
 What "exact coplanar clip coordinates" would mean for the 2D class, as options:
 - **D1, leave it:** say in its documentation that it is the unchanged floating-point clip and name
   `IntrTriangle3Triangle3` (with `ReportCoplanarIntersection`) as the exact route; remove the dead
-  `GetCoplanarIntersection`. A small library PR later (not in this spike).
+  `GetCoplanarIntersection`. Done 2026-11-22 (owner: option D1).
 - **D2, make its `Find` exact:** the decisions and corners of #253 in 2D. It changes the results of a public class
   (contacts without area are reported, corner counts change) and costs 13-64 times per pair in the measurement unless filtered. An output
   change: the owner's decision.

@@ -1,0 +1,72 @@
+| shape | scale / ratio | library status | ended by | folds after greedy | library: attempts / sat / unsat / budget (decisions) | replay = library | budget instances: sat / unsat / undecided | learning: instances sat / unsat / undecided | seeds solved / obstructed | folds left | conflicts sum / max | completed status | class |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| sphere | 1 / 0.5 | Success | - | | | | | | | | | | clean |
+| sphere | 0.8 / 0.5 | BudgetExceeded | SAT decisions | 25 | 22 / 3 / 16 / 3 (300001) | yes | 1 / 2 / 0 | 11 / 100 / 0 | 11 / 10 | 9 | 11458 / 2770 | - | problem (obstructed seeds) |
+| sphere | 1.25 / 0.5 | BudgetExceeded | SAT decisions | 17 | 17 / 2 / 13 / 2 (300001) | yes | 1 / 1 / 0 | 6 / 55 / 0 | 6 / 6 | 6 | 8030 / 3267 | - | problem (obstructed seeds) |
+| sphere | 1.5 / 0.5 | Success | - | | | | | | | | | | clean |
+| sphere | 1 / 0.35 | BudgetExceeded | SAT decisions | 22 | 34 / 5 / 26 / 3 (300001) | yes | 1 / 2 / 0 | 12 / 78 / 0 | 12 / 6 | 3 | 45548 / 25856 | - | problem (obstructed seeds) |
+| sphere | 1 / 0.7 | Success | - | | | | | | | | | | clean |
+| torus | 1 / 0.5 | Success | - | | | | | | | | | | clean |
+| torus | 0.8 / 0.5 | OrientationFolds | none (every seed failed) | 2 | 10 / 1 / 7 / 2 (200182) | yes | 2 / 0 / 0 | 2 / 7 / 0 | 2 / 0 | 0 | 146 / 72 | Success | search (fold-free with learning) |
+| torus | 1.25 / 0.5 | BudgetExceeded | SAT decisions | 11 | 13 / 1 / 9 / 3 (300001) | yes | 0 / 3 / 0 | 6 / 32 / 0 | 6 / 1 | 0 | 6746 / 1287 | Success | search (fold-free with learning) |
+| torus | 1.5 / 0.5 | OrientationFolds | none (every seed failed) | 6 | 22 / 4 / 17 / 1 (180216) | yes | 1 / 0 / 0 | 5 / 18 / 0 | 5 / 0 | 0 | 2192 / 1599 | Success | search (fold-free with learning) |
+| torus | 1 / 0.35 | Success | - | | | | | | | | | | clean |
+| torus | 1 / 0.7 | Success | - | | | | | | | | | | clean |
+| torus-align10 | 1 / 0.5 | Success | - | | | | | | | | | | clean |
+| torus-align10 | 0.8 / 0.5 | Success | - | | | | | | | | | | clean |
+| torus-align10 | 1.25 / 0.5 | Success | - | | | | | | | | | | clean |
+| torus-align10 | 1.5 / 0.5 | Success | - | | | | | | | | | | clean |
+| torus-align10 | 1 / 0.35 | Success | - | | | | | | | | | | clean |
+| torus-align10 | 1 / 0.7 | Success | - | | | | | | | | | | clean |
+| bumpy | 1 / 0.5 | BudgetExceeded | SAT decisions | 27 | 36 / 6 / 27 / 3 (300001) | yes | 1 / 2 / 0 | 17 / 90 / 0 | 17 / 6 | 6 | 5861 / 1476 | - | problem (obstructed seeds) |
+| bumpy | 0.8 / 0.5 | BudgetExceeded | SAT decisions | 50 | 13 / 1 / 9 / 3 (300001) | yes | 0 / 3 / 0 | 26 / 195 / 0 | 26 / 18 | 17 | 96163 / 17281 | - | problem (obstructed seeds) |
+| bumpy | 1.25 / 0.5 | BudgetExceeded | SAT decisions | 22 | 46 / 8 / 35 / 3 (300001) | yes | 0 / 3 / 0 | 9 / 106 / 0 | 9 / 13 | 13 | 21511 / 11104 | - | problem (obstructed seeds) |
+| bumpy | 1.5 / 0.5 | Success | - | | | | | | | | | | clean |
+| bumpy | 1 / 0.35 | BudgetExceeded | SAT decisions | 202 | 44 / 7 / 35 / 2 (300001) | yes | 1 / 1 / 0 | 88 / 826 / 0 | 88 / 85 | 78 | 480548 / 36905 | - | problem (obstructed seeds) |
+| bumpy | 1 / 0.7 | BudgetExceeded | SAT decisions | 14 | 37 / 6 / 28 / 3 (300001) | yes | 0 / 3 / 0 | 7 / 54 / 0 | 7 / 5 | 4 | 13994 / 4287 | - | problem (obstructed seeds) |
+| filleted-box | 1 / 0.5 | Success | - | | | | | | | | | | clean |
+| filleted-box | 0.8 / 0.5 | BudgetExceeded | SAT decisions | 8 | 6 / 0 / 3 / 3 (300001) | yes | 0 / 3 / 0 | 0 / 48 / 0 | 0 / 8 | 8 | 186426 / 93002 | - | problem (obstructed seeds) |
+| filleted-box | 1.25 / 0.5 | Success | - | | | | | | | | | | clean |
+| filleted-box | 1.5 / 0.5 | Success | - | | | | | | | | | | clean |
+| filleted-box | 1 / 0.35 | Success | - | | | | | | | | | | clean |
+| filleted-box | 1 / 0.7 | Success | - | | | | | | | | | | clean |
+| noisy-sphere | 1 / 0.5 | BudgetExceeded | SAT decisions | 23 | 22 / 4 / 16 / 2 (300001) | yes | 0 / 2 / 0 | 12 / 91 / 0 | 12 / 8 | 8 | 110295 / 21628 | - | problem (obstructed seeds) |
+| noisy-sphere | 0.8 / 0.5 | BudgetExceeded | SAT decisions | 60 | 43 / 7 / 33 / 3 (300001) | yes | 0 / 3 / 0 | 14 / 258 / 0 | 14 / 36 | 33 | 15239 / 5183 | - | problem (obstructed seeds) |
+| noisy-sphere | 1.25 / 0.5 | Success | - | | | | | | | | | | clean |
+| noisy-sphere | 1.5 / 0.5 | BudgetExceeded | SAT decisions | 35 | 48 / 5 / 40 / 3 (300001) | yes | 0 / 3 / 0 | 12 / 159 / 0 | 12 / 20 | 20 | 17397 / 3973 | - | problem (obstructed seeds) |
+| noisy-sphere | 1 / 0.35 | BudgetExceeded | SAT decisions | 276 | 16 / 2 / 11 / 3 (300001) | yes | 0 / 3 / 0 | 41 / 1319 / 0 | 41 / 196 | 192 | 65583 / 6767 | - | problem (obstructed seeds) |
+| noisy-sphere | 1 / 0.7 | BudgetExceeded | SAT decisions | 154 | 13 / 0 / 10 / 3 (300001) | yes | 0 / 3 / 0 | 18 / 793 / 0 | 18 / 122 | 122 | 51214 / 4981 | - | problem (obstructed seeds) |
+| capsule | 1 / 0.5 | BudgetExceeded | SAT decisions | 132 | 17 / 2 / 12 / 3 (300001) | yes | 0 / 3 / 0 | 30 / 638 / 0 | 30 / 88 | 83 | 240331 / 25494 | - | problem (obstructed seeds) |
+| capsule | 0.8 / 0.5 | BudgetExceeded | SAT decisions | 124 | 11 / 0 / 8 / 3 (300001) | yes | 0 / 3 / 0 | 27 / 656 / 0 | 27 / 92 | 87 | 277290 / 28983 | - | problem (obstructed seeds) |
+| capsule | 1.25 / 0.5 | BudgetExceeded | SAT decisions | 67 | 15 / 1 / 11 / 3 (300001) | yes | 0 / 3 / 0 | 26 / 319 / 0 | 26 / 37 | 32 | 190080 / 19068 | - | problem (obstructed seeds) |
+| capsule | 1.5 / 0.5 | BudgetExceeded | SAT decisions | 27 | 21 / 3 / 15 / 3 (300001) | yes | 0 / 3 / 0 | 9 / 111 / 0 | 9 / 13 | 12 | 232692 / 76427 | - | problem (obstructed seeds) |
+| capsule | 1 / 0.35 | BudgetExceeded | SAT decisions | 80 | 25 / 4 / 18 / 3 (300001) | yes | 1 / 2 / 0 | 23 / 341 / 0 | 23 / 43 | 43 | 195569 / 30460 | - | problem (obstructed seeds) |
+| capsule | 1 / 0.7 | BudgetExceeded | SAT decisions | 54 | 24 / 3 / 18 / 3 (300001) | yes | 1 / 2 / 0 | 13 / 231 / 0 | 13 / 30 | 30 | 42725 / 9469 | - | problem (obstructed seeds) |
+| genus2 | 1 / 0.5 | Success | - | | | | | | | | | | clean |
+| genus2 | 0.8 / 0.5 | Success | - | | | | | | | | | | clean |
+| genus2 | 1.25 / 0.5 | Success | - | | | | | | | | | | clean |
+| genus2 | 1.5 / 0.5 | Success | - | | | | | | | | | | clean |
+| genus2 | 1 / 0.35 | Success | - | | | | | | | | | | clean |
+| genus2 | 1 / 0.7 | Success | - | | | | | | | | | | clean |
+| capped-cylinder | 1 / 0.5 | BudgetExceeded | SAT decisions | 189 | 19 / 1 / 15 / 3 (300001) | yes | 0 / 3 / 0 | 34 / 985 / 0 | 34 / 144 | 140 | 178666 / 20100 | - | problem (obstructed seeds) |
+| capped-cylinder | 0.8 / 0.5 | BudgetExceeded | SAT decisions | 170 | 16 / 1 / 12 / 3 (300001) | yes | 0 / 3 / 0 | 18 / 928 / 0 | 18 / 145 | 143 | 70649 / 11306 | - | problem (obstructed seeds) |
+| capped-cylinder | 1.25 / 0.5 | BudgetExceeded | SAT decisions | 17 | 29 / 5 / 21 / 3 (300001) | yes | 1 / 2 / 0 | 6 / 70 / 0 | 6 / 8 | 7 | 14298 / 4632 | - | problem (obstructed seeds) |
+| capped-cylinder | 1.5 / 0.5 | BudgetExceeded | SAT decisions | 27 | 10 / 0 / 7 / 3 (300001) | yes | 2 / 1 / 0 | 13 / 86 / 0 | 13 / 6 | 4 | 64637 / 26300 | - | problem (obstructed seeds) |
+| capped-cylinder | 1 / 0.35 | BudgetExceeded | SAT decisions | 53 | 12 / 1 / 8 / 3 (300001) | yes | 0 / 3 / 0 | 9 / 283 / 0 | 9 / 42 | 41 | 298751 / 62644 | - | problem (obstructed seeds) |
+| capped-cylinder | 1 / 0.7 | OrientationFolds | none (every seed failed) | 8 | 31 / 5 / 25 / 1 (161930) | yes | 0 / 1 / 0 | 5 / 28 / 0 | 5 / 2 | 2 | 3885 / 1859 | - | problem (obstructed seeds) |
+
+runs 54: library clean 25, fallback 29; library status: BudgetExceeded 26, OrientationFolds 3, Success 25
+fallbacks ended by: none (every seed failed) 3, SAT decisions 26
+library trajectory replayed with the library's counters: 29 runs, mismatches 0
+instances the library's DPLL left at its budget: satisfiable 13, unsatisfiable 66, undecided 0
+learning trajectory: instances satisfiable 499, unsatisfiable 5016 (+ 3889 refuted while built), undecided 0; seeds solved 499, obstructed 1190
+seeds solved at ring: 3: 51, 4: 213, 5: 151, 6: 84
+fallback classes: problem (obstructed seeds) 26, search (fold-free with learning) 3
+best case: 3 of 29 fallbacks become fold-free; 3 of them complete to Success with the independent checks (clean would be 28 of 54)
+effort of the clause-learning solver (both trajectories): conflicts 3109599, decisions 3995389, most conflicts on one instance 93002
+checks: unsatisfiable answers with a valid RUP proof 5082, invalid 0; models or repaired regions that fail 0; against the library's DPLL within 20000 decisions: agree 4315, disagree 0, DPLL undecided 1279
+obstructed seeds: 1190; with a singular vertex in the region of the largest ring 87, at a singular vertex 12; folds in that region: 1 (the seed alone) 36, 2 to 5 477, 6 or more 677; sum of det over that region: negative 1057, zero 58, positive 75
+refuted by the area alone (the region of the largest ring is a disk with no singular vertex, every triangle closes, the sum of det is negative): 983 of 1190 obstructed seeds (3 regions are not a disk); of the unsatisfiable instances the library's DPLL left at its budget: 45 of 66
+instances the library's DPLL left at its budget, by ring: 5: 27, 6: 52
+DIMACS files written: 3538
+obstructed seeds with a negative sum: the first larger ring (the search stops at ring 20) whose region has a sum of det >= 0 is 1 or 2 rings larger 222, 3 to 6 rings larger 308, larger up to ring 20 338, none up to ring 20 189

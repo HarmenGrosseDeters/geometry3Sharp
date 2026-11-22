@@ -2,6 +2,17 @@
 
 namespace g3 
 {
+	/// <summary>
+	/// Legacy floating-point 2D triangle-triangle intersection, ported from WildMagic5; its floating-point clipping is
+	/// unchanged. Both the decision and the clipped polygon are computed in floating point: on nearly parallel edges the
+	/// corner count can be wrong and the corners off by many ulps, and a contact without area (two triangles that only touch
+	/// in a point or along a segment) is not reported by <see cref="Find"/>. It is no exact predicate and gives no exact
+	/// coordinates.
+	/// For the exact route use <see cref="IntrTriangle3Triangle3"/> with <see cref="IntrTriangle3Triangle3.ReportCoplanarIntersection"/>
+	/// for coplanar triangles (3D, exact decisions, the polygon's crossing points computed from exact determinants and
+	/// rounded once), <see cref="ExactTriangleIntersection"/> for the decision alone, and the implicit points of
+	/// <see cref="ExactMeshBoolean.ComputeExactVertices"/> for exact coordinates of a boolean's result.
+	/// </summary>
 	// ported from WildMagic5 
     // [TODO] Vector2d 6-tuple, to avoid internal arrays
 	public class IntrTriangle2Triangle2
