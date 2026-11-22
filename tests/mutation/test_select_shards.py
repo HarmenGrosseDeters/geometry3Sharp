@@ -9,7 +9,7 @@ import subprocess
 import sys
 import unittest
 
-from select_shards import ALWAYS, expand_only, gate_shard, shard_name, TESTS, config_edit_moves_only_spans, load_configs, mode_of, select, test_class, workflow_edit_forces_full
+from select_shards import ALWAYS, skip_on_pr, expand_only, gate_shard, shard_name, TESTS, config_edit_moves_only_spans, load_configs, mode_of, select, test_class, workflow_edit_forces_full
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -710,6 +710,102 @@ class SelectShards(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertIn("arithmetic=full", out)
         self.assertNotEqual(0, cli("--all", "--only", "nonsense")[0])
+
+
+class SkippedOnPr(unittest.TestCase):
+    """A shard that would run in full on a PR and is not gated is not started and shows as skipped (NO_FULL, run_stryker.sh).
+    Which shards run Stryker is unchanged: what the job skipped before is what is skipped here, nothing else."""
+
+    def pr(self, *changed):
+        arithmetic, mesh = select(changed, CONFIGS)
+        a2, mesh2, skipped = skip_on_pr(arithmetic, mesh, CONFIGS, changed)
+        return (arithmetic, mesh), (a2, mesh2, skipped)
+
+    def exact_source(self, name):
+        from select_shards import exact_gated
+        return sorted(p for p in CONFIGS[name][1] if exact_gated(p))[0]
+
+    def assert_partition(self, before, after):
+        # the shards that run Stryker on the PR are exactly the selected ones minus the skipped ones
+        (arithmetic, mesh), (a2, mesh2, skipped) = before, after
+        selected = ({"arithmetic": arithmetic} if arithmetic != "none" else {}) | {m["shard"]: m["mode"] for m in mesh}
+        left = ({"arithmetic": a2} if a2 != "none" else {}) | {m["shard"]: m["mode"] for m in mesh2}
+        self.assertEqual(selected, left | {sh: selected[sh] for sh in skipped})
+        self.assertTrue(all(selected[sh] == "full" for sh in skipped))
+        self.assertTrue(all(left[sh] != "full" or sh not in skipped for sh in left))
+
+    def test_config_change_on_a_pr_skips_the_shard(self):
+        before, after = self.pr(CONFIGS["mesh-planar"][0])
+        self.assertEqual(["planar"], after[2])
+        self.assertEqual("none", after[0])
+        self.assertEqual([], after[1])
+        self.assert_partition(before, after)
+
+    def test_arithmetic_config_change_on_a_pr_skips_it(self):
+        before, after = self.pr(CONFIGS["config"][0])
+        self.assertEqual("full", before[0])
+        self.assertEqual(("none", [], ["arithmetic"]), after)
+
+    def test_tools_change_on_a_pr_keeps_only_the_representative_shard(self):
+        # (a change of a script of the runs: every config runs in full by ALWAYS or the script shard; only the script shard is gated)
+        before, after = self.pr("tests/mutation/run_stryker.sh")
+        self.assertEqual({"fixed"}, {m["shard"] for m in after[1] if m["mode"] == "full"})
+        self.assertNotIn("fixed", after[2])
+        self.assert_partition(before, after)
+
+    def test_a_config_change_with_changed_exact_lines_keeps_its_full_run(self):
+        # the gate of CLAUDE.md: the PR changes an exact-code file that this shard mutates, so its full run stays
+        exact = self.exact_source("mesh-boolean-1")
+        before, after = self.pr(CONFIGS["mesh-boolean-1"][0], exact)
+        self.assertNotIn("boolean-1", after[2])
+        self.assertIn({"shard": "boolean-1", "mode": "full"}, after[1])
+        self.assert_partition(before, after)
+        # the same config change without the exact file is skipped
+        self.assertIn("boolean-1", self.pr(CONFIGS["mesh-boolean-1"][0])[1][2])
+
+    def test_source_and_tests_runs_are_not_skipped(self):
+        src = sorted(CONFIGS["mesh-planar"][1])[0]
+        before, after = self.pr(src)
+        self.assertEqual(([], before[1]), (after[2], after[1]))
+        self.assertEqual(before[0], after[0])
+
+    def run_cli(self, *args, stdin="", env=None):
+        e = dict(os.environ)
+        e.pop("BASE", None); e.pop("HEAD", None)
+        return subprocess.run([sys.executable, os.path.join(HERE, "select_shards.py")] + list(args), input=stdin, capture_output=True,
+                              text=True, check=True, env=e).stdout.splitlines()
+
+    def test_cli_on_a_pr_prints_the_skipped_shards(self):
+        lines = self.run_cli("--pr", stdin=CONFIGS["mesh-planar"][0] + "\n")
+        self.assertIn("arithmetic=none", lines)
+        self.assertIn("mesh=[]", lines)
+        self.assertIn('skipped=["planar"]', lines)
+
+    def test_cli_on_master_selects_as_before(self):
+        # (push and the like: no --pr) the shard runs in full, and no skipped line
+        lines = self.run_cli(stdin=CONFIGS["mesh-planar"][0] + "\n")
+        self.assertIn('mesh=[{"shard": "planar", "mode": "full"}]', lines)
+        self.assertFalse([l for l in lines if l.startswith("skipped=")])
+
+    def test_cli_manual_dispatch_runs_everything_in_full(self):
+        # workflow_dispatch / schedule: --all, never skipped
+        lines = self.run_cli("--all", "--only", "planar")
+        self.assertIn('mesh=[{"shard": "planar", "mode": "full"}]', lines)
+        self.assertFalse([l for l in lines if l.startswith("skipped=")])
+        # (the workflow passes --pr only for a pull_request event; with --all it would not skip either)
+        self.assertIn('mesh=[{"shard": "planar", "mode": "full"}]', self.run_cli("--all", "--only", "planar", "--pr"))
+
+    def test_report_names_the_shard_and_the_full_run_on_master(self):
+        notices = self.run_cli("report", '["planar", "arithmetic"]')
+        self.assertEqual(2, len(notices))
+        for sh, n in zip(("planar", "arithmetic"), notices):
+            self.assertTrue(n.startswith("::notice::" + sh + ":"))
+            self.assertIn("NOT RUN", n)
+            self.assertIn("full run on master", n)
+        summary = "\n".join(self.run_cli("report", '["planar"]', "--summary"))
+        self.assertIn("`planar`", summary)
+        self.assertIn("full run on master", summary)
+        self.assertEqual([], self.run_cli("report", "[]", "--summary"))
 
 
 if __name__ == "__main__":
