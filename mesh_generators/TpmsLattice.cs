@@ -71,7 +71,7 @@ namespace g3
     /// (closed, manifold, finite, oriented, no degenerate triangles) and, with VerifySelfIntersections, the exact
     /// self-intersection check of the returned coordinates. With Enclosure the solid contains the exact lattice
     /// (never a wall thinner than designed), at the price of a larger volume. No topology guarantee for walls thinner than
-    /// about two cubes (CellSize / Divisions).
+    /// about two cubes (CellSize / Divisions) with marching cubes; for thinner sheet walls see TwoLevelSheet.
     ///
     /// The lattice lives in a local frame (Origin, Rotation): phase zero at the origin, the Box in local coordinates,
     /// the grid anchored at multiples of the cube size. The result is mapped to world coordinates at the end, so the

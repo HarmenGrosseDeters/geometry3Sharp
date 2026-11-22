@@ -25,7 +25,7 @@ namespace g3
     ///
     /// From Baktash, Gillespie, Crane, "Subgrid Marching Tetrahedra" (2026): several crossings per grid edge; here
     /// restricted to the crossings of linear interpolants, which need no case analysis beyond clipping convex polygons.
-    /// See docs/guides/two-level-marching-tetrahedra.md. Reusable: Generate recomputes everything.
+    /// See docs/guides/contouring-and-offsets.md and docs/design/TPMS_LATTICE.md section 10. Reusable: Generate recomputes everything.
     /// </summary>
     public class TwoLevelMarchingTetrahedra
     {
