@@ -215,6 +215,12 @@ namespace DeterminismHarness
         /// examples (and tuples) by their public fields and properties in the order of their names, to MaxDepth. A BCL object it
         /// does not know and a value below MaxDepth go to the section "not-traced" and a note.
         /// </summary>
+        /// <summary> the result object of an operation (status, numbers, meshes, lists), traced field by field </summary>
+        internal static void AddResult(Trace t, string label, object v)
+        {
+            Add(t, label, v, 0, new HashSet<object>(ReferenceComparer.Instance));
+        }
+
         static void Add(Trace t, string label, object v, int depth, HashSet<object> visited)
         {
             t.Section(label);

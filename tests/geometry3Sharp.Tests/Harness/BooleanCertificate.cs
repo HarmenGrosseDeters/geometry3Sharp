@@ -104,6 +104,12 @@ namespace geometry3Sharp.Tests
         public int Anchors, CoverageTests, Uncovered, CulledSets;
         /// <summary> components of the result before rounding exempt from its coverage by the result (thin or tiny, removed by the rounding) </summary>
         public int ExemptComponents;
+        /// <summary>
+        /// the components of the exact result left out of the coverage because the rounding removed tiny or thin ones (one
+        /// line each: triangles, area, box); not empty: Check() does not report the result as clean (owner decision
+        /// 2026-11-22: removed parts are listed, never silently exempt)
+        /// </summary>
+        public List<string> RemovedParts = new List<string>();
         /// <summary> the rounding's relative bound (for the thin and tiny components it may remove) </summary>
         public double MaxDisplacement = 1e-5;
 
@@ -212,8 +218,8 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        /// <summary> all checks: "" if the certificate holds, "n/a: ..." if it does not apply, else the first failure </summary>
-        public string Check()
+        /// <summary> all checks (the embedding C2 unless embedding is false): "" if the certificate holds, "n/a: ..." if it does not apply, else the first failure </summary>
+        public string Check(bool embedding = true)
         {
             if (NotApplicableReason != null)
                 return "n/a: " + NotApplicableReason;
@@ -221,10 +227,17 @@ namespace geometry3Sharp.Tests
             if (r != "") return "C0: " + r;
             r = CheckPieces();
             if (r != "") return "C1: " + r;
+            // (embedding: false only for the tests that mutate the witness, which C2 does not read, many times over one set of pieces)
+            r = embedding ? CheckEmbedding() : "";
+            if (r != "") return "C2: " + r;
             r = CheckClassification();
             if (r != "") return "C3/C4: " + r;
             r = CheckResult();
             if (r != "") return "C5: " + r;
+            // (the rounding's removal of tiny and thin components is a documented decision, but not the point set within
+            // the bound: the removed parts are listed, and the result is not reported as clean)
+            if (RemovedParts.Count > 0)
+                return $"not clean: the rounding removed {RemovedParts.Count} part(s) of the exact result (all else holds): " + string.Join("; ", RemovedParts);
             return "";
         }
 
@@ -542,6 +555,7 @@ namespace geometry3Sharp.Tests
         {
             PrepareInputs();
             pieceV = null;
+            stacks = null;
             PreparePieces();
             int n = PieceCorners.Length;
             var bySource = new Dictionary<int, List<int>>();
@@ -625,6 +639,319 @@ namespace geometry3Sharp.Tests
             return "";
         }
 
+        // ------------------------------------------------------------------ C2: the pieces are embedded (stage 3)
+
+        /// <summary>
+        /// results of the last CheckEmbedding: the pieces that took part (the classified ones), the coplanar copies left out,
+        /// the pairs of pieces of different sources whose boxes meet, and the coplanar ones among those
+        /// </summary>
+        public int EmbeddingPieces, EmbeddingCopies, EmbeddingPairs, EmbeddingCoplanarPairs;
+
+        /// <summary>
+        /// C2, the embedding of the arrangement: no two pieces meet except in a corner or along an edge they share (by
+        /// exact point), so that nothing passes through a piece and every piece that touches an edge has it as an edge.
+        /// C3 assumes this (the winding number is constant on one side of a piece, the radial order around an edge is
+        /// complete). A box tree of its own over the pieces, then a pair test by orientation signs of exact points only
+        /// (BigInteger, no filter and no floating-point decision; see EmbeddingPairTest). Pieces of one source are not
+        /// paired: C1 certifies that they tile it. Needs C1 to hold. "" or the first violating pair.
+        /// Which pieces: the classified ones, as C3 reads them (the pieces of the first source of each coplanar stack). The
+        /// other pieces of a stack are copies, which the arrangement does not make identical to the classified ones: where
+        /// the faces of two meshes touch (the bottom face of A on the top face of B), their triangulations differ and the
+        /// pieces overlap in the plane by design. They are not kept and take no part in C3's winding numbers, which
+        /// the stacks (from the input triangles) account for; so they are left out here and counted (EmbeddingCopies).
+        /// </summary>
+        /// <summary> the corners of an input triangle (arrangement order) on the grid, for the tests that inject faults </summary>
+        public ExactPoint3[] SourceCornersOnGrid(int source) { PrepareInputs(); return triCorners[source]; }
+        /// <summary> the input triangles in the plane of the given one, itself included (arrangement order) </summary>
+        public int[] CoplanarSources(int source) { PrepareInputs(); return planeGroups[triPlane[source]].ToArray(); }
+
+        public string CheckEmbedding()
+        {
+            // (uses the pieces and stacks that CheckPieces prepared: call CheckPieces again after changing the pieces)
+            try { return check_embedding(); }
+            catch (DivideByZeroException e) { return "a degenerate configuration: " + e.Message; }
+            catch (CertificateException e) { return e.Message; }
+        }
+
+        string check_embedding()
+        {
+            if (stacks == null) PrepareStacks();
+            EmbeddingPieces = EmbeddingCopies = EmbeddingPairs = EmbeddingCoplanarPairs = 0;
+            int[] part = Enumerable.Range(0, PieceCorners.Length).Where(i => classified[i]).ToArray();
+            EmbeddingPieces = part.Length;
+            EmbeddingCopies = PieceCorners.Length - part.Length;
+            int n = part.Length;
+            ExactPoint3[] x = new ExactPoint3[pointIds.Count];
+            foreach (var kv in pointIds) x[kv.Value] = kv.Key;
+            var approx = new Vector3d[x.Length];
+            for (int i = 0; i < x.Length; ++i) approx[i] = x[i].ApproxVector3d();
+            // the boxes of the pieces from the approximations, widened beyond their error (relative 2^-50) with room to spare
+            double[] lo = new double[3 * n], hi = new double[3 * n];
+            for (int i = 0; i < n; ++i)
+                for (int k = 0; k < 3; ++k) {
+                    int[] v = pieceV[part[i]];
+                    double a = approx[v[0]][k], b = approx[v[1]][k], c = approx[v[2]][k];
+                    double l = Math.Min(a, Math.Min(b, c)), h = Math.Max(a, Math.Max(b, c));
+                    lo[3 * i + k] = l - Math.Abs(l) * (1.0 / (1L << 49)) - double.Epsilon;
+                    hi[3 * i + k] = h + Math.Abs(h) * (1.0 / (1L << 49)) + double.Epsilon;
+                }
+            var pairs = new List<(int, int)>();
+            new EmbeddingBoxTree(lo, hi, n).SelfJoin(part.Select(i => PieceSource[i]).ToArray(), pairs);
+            pairs.Sort();
+            var test = new EmbeddingPairTest(x);
+            EmbeddingPairs = pairs.Count;
+            foreach ((int k, int l) in pairs) {
+                int i = part[k], j = part[l];
+                if (test.MeetBeyondShared(pieceV[i], pieceV[j])) {
+                    EmbeddingCoplanarPairs = (int)test.Coplanar;
+                    return $"pieces {i} (source {PieceSource[i]}) and {j} (source {PieceSource[j]}) meet beyond the corners and edges they share";
+                }
+            }
+            EmbeddingCoplanarPairs = (int)test.Coplanar;
+            // the stacks of C3 take a coplanar input triangle u for a piece by the piece's centroid, which assumes that no
+            // classified piece straddles u's boundary: it lies in u, or its interior is disjoint from u's
+            foreach (int i in part) {
+                int src = PieceSource[i];
+                foreach (int u in planeGroups[triPlane[src]])
+                    if (u != src && TriCulled[u] == false && IsZero(triNormal[u]) == false && StraddlesInPlane(PieceCorners[i], triCorners[u]))
+                        return $"piece {i} (source {src}) straddles the boundary of the coplanar input triangle {u}";
+            }
+            return "";
+        }
+
+        /// <summary>
+        /// Coplanar triangles p and u (both non-degenerate): p is neither inside the closed u nor has an interior disjoint from
+        /// u's. Exact: p inside u iff its corners are on the inner side of u's edge lines; the interiors are disjoint iff a
+        /// line of an edge of either triangle has the other on its closed outer side (the separating axis test).
+        /// </summary>
+        public static bool StraddlesInPlane(ExactPoint3[] p, ExactPoint3[] u)
+        {
+            BigInteger[] n = Normal(p[0], p[1], p[2]);
+            int O2(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c) => Dot(Cross(Sub(b, a), Sub(c, a)), n).Sign;
+            if (O2(u[0], u[1], u[2]) < 0) u = new[] { u[0], u[2], u[1] };
+            bool inside = true;
+            for (int e = 0; e < 3 && inside; ++e)
+                for (int k = 0; k < 3; ++k)
+                    if (O2(u[e], u[(e + 1) % 3], p[k]) < 0) { inside = false; break; }
+            if (inside) return false;
+            for (int e = 0; e < 3; ++e) {
+                bool pOut = true, uOut = true;
+                for (int k = 0; k < 3; ++k) {
+                    if (O2(u[e], u[(e + 1) % 3], p[k]) > 0) pOut = false;
+                    if (O2(p[e], p[(e + 1) % 3], u[k]) > 0) uOut = false;
+                }
+                if (pOut || uOut) return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Do the triangles p and q (point ids into X) meet anywhere beyond the corners they share by id: not in a shared
+        /// corner, not along a shared edge? (The same triangle twice meets beyond: the fold, below.) By the segments: two triangles in different planes meet in
+        /// a segment whose ends lie on an edge of one inside the other, so they meet only where they share iff every edge
+        /// of each that is not shared meets the other at most in an end that is a shared corner; an edge against a triangle
+        /// is decided by orientation signs (the ends against the plane, then the line against the three edges; an edge in
+        /// the plane is decided through the other edges, see EdgesMeet). Coplanar
+        /// pairs use the same rule in the plane, plus the fold (two triangles on one side of a shared edge). The only
+        /// predicate is the sign of det[b - a, c - a, d - a] on exact points, by BigInteger (the principle of Devillers and
+        /// Guigue 2002: orientation signs only, no constructed point). Shares no code with the arrangement.
+        /// </summary>
+        internal sealed class EmbeddingPairTest
+        {
+            readonly ExactPoint3[] X;
+            // integer points with coordinates below 2^19 in absolute value (W = 1): the determinant of four of them is exact in
+            // long (each difference below 2^20, each of the six terms of the determinant below 2^60)
+            readonly bool[] small;
+            readonly long[] sx, sy, sz;
+            public long Coplanar, EarlyOut;
+
+            public EmbeddingPairTest(ExactPoint3[] x)
+            {
+                X = x;
+                small = new bool[x.Length]; sx = new long[x.Length]; sy = new long[x.Length]; sz = new long[x.Length];
+                BigInteger limit = BigInteger.One << 19;
+                for (int i = 0; i < x.Length; ++i) {
+                    ExactPoint3 p = x[i];
+                    if (p.W.IsOne && BigInteger.Abs(p.X) < limit && BigInteger.Abs(p.Y) < limit && BigInteger.Abs(p.Z) < limit) {
+                        small[i] = true; sx[i] = (long)p.X; sy[i] = (long)p.Y; sz[i] = (long)p.Z;
+                    }
+                }
+            }
+
+            BigInteger[] Diff(int a, int b)
+            {
+                ExactPoint3 p = X[a], q = X[b];
+                if (p.W.IsOne && q.W.IsOne) return new[] { p.X - q.X, p.Y - q.Y, p.Z - q.Z };
+                return Sub(p, q);
+            }
+
+            /// <summary> the sign of det[b - a, c - a, d - a]; equal ids give 0 without arithmetic </summary>
+            public int O3(int a, int b, int c, int d)
+            {
+                if (a == b || a == c || a == d || b == c || b == d || c == d) return 0;
+                if (small[a] && small[b] && small[c] && small[d]) {
+                    long bx = sx[b] - sx[a], by = sy[b] - sy[a], bz = sz[b] - sz[a];
+                    long cx = sx[c] - sx[a], cy = sy[c] - sy[a], cz = sz[c] - sz[a];
+                    long dx = sx[d] - sx[a], dy = sy[d] - sy[a], dz = sz[d] - sz[a];
+                    return Math.Sign(bx * (cy * dz - cz * dy) - by * (cx * dz - cz * dx) + bz * (cx * dy - cy * dx));
+                }
+                return Dot(Diff(b, a), Cross(Diff(c, a), Diff(d, a))).Sign;
+            }
+
+            public bool MeetBeyondShared(int[] p, int[] q)
+            {
+                int[] sp = new int[3], sq = new int[3];     // the sides of p's corners against q's plane, of q's against p's
+                int pos = 0, neg = 0;
+                for (int i = 0; i < 3; ++i) { sp[i] = O3(q[0], q[1], q[2], p[i]); if (sp[i] > 0) pos++; else if (sp[i] < 0) neg++; }
+                if (pos == 3 || neg == 3) { EarlyOut++; return false; }
+                if (pos == 0 && neg == 0) { Coplanar++; return CoplanarMeet(p, q); }
+                pos = neg = 0;
+                for (int i = 0; i < 3; ++i) { sq[i] = O3(p[0], p[1], p[2], q[i]); if (sq[i] > 0) pos++; else if (sq[i] < 0) neg++; }
+                if (pos == 3 || neg == 3) { EarlyOut++; return false; }
+                return EdgesMeet(p, sp, q) || EdgesMeet(q, sq, p);
+            }
+
+            static bool Has(int[] t, int v) => t[0] == v || t[1] == v || t[2] == v;
+            static bool Mixed(int a, int b, int c) => (a > 0 || b > 0 || c > 0) && (a < 0 || b < 0 || c < 0);
+
+            // the edges of p against q (not coplanar; s: the sides of p's corners against q's plane). An edge of p that lies in
+            // q's plane (both ends on it) needs no test of its own: if it meets q beyond a shared corner, then an end of it
+            // lies in q (found by the end's other edge, which leaves the plane: the case below), or it passes through q and
+            // an edge of q crosses p's plane at a point of it (found by the same test with p and q swapped, or through a
+            // corner of q on it). The lattice test of the tests checks this against the library's exact test.
+            bool EdgesMeet(int[] p, int[] s, int[] q)
+            {
+                for (int i = 0; i < 3; ++i) {
+                    int j = (i + 1) % 3, a = p[i], b = p[j];
+                    if (s[i] * s[j] > 0) continue;
+                    if (s[i] * s[j] < 0) {
+                        // crosses q's plane between its ends: in the closed triangle q iff the three edges of q are not on
+                        // both sides of the line a b
+                        if (Mixed(O3(a, b, q[0], q[1]), O3(a, b, q[1], q[2]), O3(a, b, q[2], q[0])) == false) return true;
+                    } else if (s[i] == 0 && s[j] != 0) {
+                        if (Has(q, a) == false && InTriangle(a, q, b)) return true;
+                    } else if (s[j] == 0 && s[i] != 0) {
+                        if (Has(q, b) == false && InTriangle(b, q, a)) return true;
+                    }
+                }
+                return false;
+            }
+
+            // x (in q's plane) in the closed triangle q, seen from the apex (off the plane)
+            bool InTriangle(int x, int[] q, int apex) =>
+                Mixed(O3(q[0], q[1], x, apex), O3(q[1], q[2], x, apex), O3(q[2], q[0], x, apex)) == false;
+
+            // coplanar triangles: orientations in the plane by p's normal
+            bool CoplanarMeet(int[] p, int[] q)
+            {
+                BigInteger[] n = Cross(Diff(p[1], p[0]), Diff(p[2], p[0]));
+                int O2(int x, int y, int z) => (x == y || x == z || y == z) ? 0 : Dot(Cross(Diff(y, x), Diff(z, x)), n).Sign;
+                for (int i = 0; i < 3; ++i) {
+                    int a = p[i], b = p[(i + 1) % 3];
+                    if (Has(q, a) && Has(q, b)) {
+                        // a shared edge: the third corners on the same side fold onto each other
+                        int qc = q[0] != a && q[0] != b ? q[0] : q[1] != a && q[1] != b ? q[1] : q[2];
+                        if (O2(a, b, p[(i + 2) % 3]) * O2(a, b, qc) > 0) return true;
+                    }
+                }
+                return EdgesMeetInPlane(p, q, O2) || EdgesMeetInPlane(q, p, O2);
+            }
+
+            // coplanar: a corner of p that is not a corner of q lies in the closed triangle q (each corner is the end of the
+            // edge before it), or an edge of p crosses an edge of q properly. Both directions are run by the caller, so a
+            // corner of q on an edge of p, or collinear overlaps, are found as a corner of q in the closed triangle p.
+            static bool EdgesMeetInPlane(int[] p, int[] q, Func<int, int, int, int> o2)
+            {
+                bool InQ(int x) => Mixed(o2(q[0], q[1], x), o2(q[1], q[2], x), o2(q[2], q[0], x)) == false;
+                for (int i = 0; i < 3; ++i) {
+                    int a = p[i], b = p[(i + 1) % 3];
+                    if (Has(q, b) == false && InQ(b)) return true;
+                    int[] o = { o2(a, b, q[0]), o2(a, b, q[1]), o2(a, b, q[2]) };
+                    for (int j = 0; j < 3; ++j) {
+                        int c = q[j], d = q[(j + 1) % 3];
+                        if (o[j] * o[(j + 1) % 3] < 0 && o2(c, d, a) * o2(c, d, b) < 0) return true;
+                    }
+                }
+                return false;
+            }
+        }
+
+        /// <summary> the broad phase of C2: a median-split tree over boxes of its own (no code of the arrangement's TriangleBoxTree) </summary>
+        sealed class EmbeddingBoxTree
+        {
+            readonly double[] lo, hi;       // per item: 3 + 3
+            readonly int[] items;
+            readonly int[] nodeStart, nodeEnd, nodeLeft, nodeRight;
+            readonly double[] nodeBox;
+            int nodes;
+            const int Leaf = 4;
+
+            public EmbeddingBoxTree(double[] lo, double[] hi, int n)
+            {
+                this.lo = lo; this.hi = hi;
+                items = Enumerable.Range(0, n).ToArray();
+                int cap = Math.Max(1, 2 * n);
+                nodeStart = new int[cap]; nodeEnd = new int[cap]; nodeLeft = new int[cap]; nodeRight = new int[cap]; nodeBox = new double[6 * cap];
+                if (n > 0) Build(0, n);
+            }
+
+            int Build(int s, int e)
+            {
+                int node = nodes++;
+                nodeStart[node] = s; nodeEnd[node] = e; nodeLeft[node] = -1; nodeRight[node] = -1;
+                int o = 6 * node;
+                for (int k = 0; k < 3; ++k) { nodeBox[o + k] = double.MaxValue; nodeBox[o + 3 + k] = double.MinValue; }
+                for (int i = s; i < e; ++i)
+                    for (int k = 0; k < 3; ++k) { nodeBox[o + k] = Math.Min(nodeBox[o + k], lo[3 * items[i] + k]); nodeBox[o + 3 + k] = Math.Max(nodeBox[o + 3 + k], hi[3 * items[i] + k]); }
+                if (e - s > Leaf) {
+                    double ex = nodeBox[o + 3] - nodeBox[o], ey = nodeBox[o + 4] - nodeBox[o + 1], ez = nodeBox[o + 5] - nodeBox[o + 2];
+                    int axis = (ex >= ey && ex >= ez) ? 0 : (ey >= ez ? 1 : 2);
+                    // (any split is a valid tree: the pairs are sorted afterwards)
+                    var keys = new double[e - s]; var part = new int[e - s];
+                    for (int i = s; i < e; ++i) { part[i - s] = items[i]; keys[i - s] = lo[3 * items[i] + axis] + hi[3 * items[i] + axis]; }
+                    Array.Sort(keys, part);
+                    Array.Copy(part, 0, items, s, e - s);
+                    int mid = (s + e) / 2;
+                    int l = Build(s, mid), r = Build(mid, e);
+                    nodeLeft[node] = l; nodeRight[node] = r;
+                }
+                return node;
+            }
+
+            bool NodesMeet(int a, int b)
+            {
+                int x = 6 * a, y = 6 * b;
+                return nodeBox[x] <= nodeBox[y + 3] && nodeBox[y] <= nodeBox[x + 3] && nodeBox[x + 1] <= nodeBox[y + 4] && nodeBox[y + 1] <= nodeBox[x + 4]
+                    && nodeBox[x + 2] <= nodeBox[y + 5] && nodeBox[y + 2] <= nodeBox[x + 5];
+            }
+
+            bool ItemsMeet(int x, int y)
+            {
+                x *= 3; y *= 3;
+                return lo[x] <= hi[y] && lo[y] <= hi[x] && lo[x + 1] <= hi[y + 1] && lo[y + 1] <= hi[x + 1] && lo[x + 2] <= hi[y + 2] && lo[y + 2] <= hi[x + 2];
+            }
+
+            /// <summary> every unordered pair of items of different groups whose boxes meet, once (smaller item first) </summary>
+            public void SelfJoin(int[] group, List<(int, int)> pairs) { if (items.Length > 0) Join(0, 0, group, pairs); }
+
+            void Join(int a, int b, int[] group, List<(int, int)> pairs)
+            {
+                if (a != b && NodesMeet(a, b) == false) return;
+                bool la = nodeLeft[a] < 0, lb = nodeLeft[b] < 0;
+                if (la && lb) {
+                    for (int i = nodeStart[a]; i < nodeEnd[a]; ++i)
+                        for (int j = (a == b ? i + 1 : nodeStart[b]); j < nodeEnd[b]; ++j) {
+                            int x = items[i], y = items[j];
+                            if (group[x] != group[y] && ItemsMeet(x, y)) pairs.Add(x < y ? (x, y) : (y, x));
+                        }
+                    return;
+                }
+                if (a == b) { Join(nodeLeft[a], nodeLeft[a], group, pairs); Join(nodeRight[a], nodeRight[a], group, pairs); Join(nodeLeft[a], nodeRight[a], group, pairs); return; }
+                if (lb || (la == false && nodeEnd[a] - nodeStart[a] >= nodeEnd[b] - nodeStart[b])) { Join(nodeLeft[a], b, group, pairs); Join(nodeRight[a], b, group, pairs); }
+                else { Join(a, nodeLeft[b], group, pairs); Join(a, nodeRight[b], group, pairs); }
+            }
+        }
+
         // ------------------------------------------------------------------ C3 + C4: classification and selection
 
         List<int>[] stacks;
@@ -676,7 +1003,7 @@ namespace geometry3Sharp.Tests
 
         string check_classification()
         {
-            PrepareStacks();
+            if (stacks == null) PrepareStacks();      // (CheckPieces invalidates them; C2 prepares them first)
             int n = PieceCorners.Length, nm = Meshes.Count;
             if (Front == null || Keep == null || Flip == null || Front.Length != n || Keep.Length != n || Flip.Length != n)
                 return "no witness of the right size";
@@ -1105,8 +1432,9 @@ namespace geometry3Sharp.Tests
             // docs/design/SAFE_ROUNDING.md section 1): where it removed some, the components of the result before rounding
             // that are tiny or thin by that rule are left out of its coverage by the result, the others are covered)
             ExemptComponents = 0;
+            RemovedParts = new List<string>();
             if (RemovedComponents > 0) {
-                bool[] exempt = ThinOrTinyTriangles(out int comps);
+                bool[] exempt = ThinOrTinyTriangles(out int comps, RemovedParts);
                 ExemptComponents = comps;
                 var keep = Enumerable.Range(0, eTris.Count).Where(i => exempt[i] == false).ToList();
                 eTris = keep.Select(i => eTris[i]).ToList();
@@ -1118,7 +1446,7 @@ namespace geometry3Sharp.Tests
         // per triangle of Assembled (in TriangleIndices order): whether its component (triangles joined by vertices) is tiny
         // (area below 1e-8 times the square of the largest component's diagonal) or thin (closed, and 2 |V| below
         // MaxDisplacement times that diagonal times its area, and |V| below 1e-3 area^1.5): the rule of the removal
-        bool[] ThinOrTinyTriangles(out int count)
+        bool[] ThinOrTinyTriangles(out int count, List<string> listed)
         {
             List<int> tids = Assembled.TriangleIndices().ToList();
             var parent = Enumerable.Range(0, tids.Count).ToArray();
@@ -1136,6 +1464,7 @@ namespace geometry3Sharp.Tests
             var area = new double[groups.Count];
             var volume = new double[groups.Count];
             var closed = new bool[groups.Count];
+            var boxes = new AxisAlignedBox3d[groups.Count];
             for (int g = 0; g < groups.Count; ++g) {
                 var box = AxisAlignedBox3d.Empty;
                 var edges = new HashSet<(int, int)>();
@@ -1149,6 +1478,7 @@ namespace geometry3Sharp.Tests
                     edges.Add((t.a, t.b)); edges.Add((t.b, t.c)); edges.Add((t.c, t.a));
                 }
                 diag[g] = box.DiagonalLength;
+                boxes[g] = box;
                 closed[g] = edges.All(e => edges.Contains((e.Item2, e.Item1)));
             }
             double d = diag.Length > 0 ? diag.Max() : 0;
@@ -1159,6 +1489,8 @@ namespace geometry3Sharp.Tests
                     && Math.Abs(volume[g]) < 1e-3 * area[g] * Math.Sqrt(area[g]));
                 if (ex == false) continue;
                 count++;
+                listed.Add(string.Format(CultureInfo.InvariantCulture, "{0} triangles, area {1:G4}, box [{2:G6}, {3:G6}, {4:G6}] to [{5:G6}, {6:G6}, {7:G6}]",
+                    groups[g].Count, area[g], boxes[g].Min.x, boxes[g].Min.y, boxes[g].Min.z, boxes[g].Max.x, boxes[g].Max.y, boxes[g].Max.z));
                 foreach (int i in groups[g]) result[i] = true;
             }
             return result;

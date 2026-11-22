@@ -145,12 +145,26 @@ determinants on the exact points, no floating-point predicate decides anything) 
   plus a few ulps) of each other, by exact squared distances of the corners (a triangle is within delta of a triangle
   iff its corners are; a degenerate one by its edges), with four-way splits where one triangle does not cover. Where
   the rounding removed components (a documented decision), the components of the exact result that are tiny or thin by
-  the removal's rule are left out of its coverage by the result; every other one is covered.
+  the removal's rule are left out of its coverage by the result; every other one is covered. Those parts are **listed**
+  (`RemovedParts`: triangles, area, box) and `Check()` does not report the result as clean ("not clean: the rounding
+  removed n part(s) ..."; owner 2026-11-22): the exemption is never silent.
+- **C2 embedding** (stage 3, test-only): no two classified pieces of different sources meet except in a corner or along
+  an edge they share by exact point, so that nothing passes through a piece (C3 assumes it: the winding number is
+  constant on one side of a piece, the radial order around an edge is complete). A box tree of its own over the pieces
+  (not the arrangement's `TriangleBoxTree`) and a pair test by the signs of orientation determinants of exact points
+  only (BigInteger; a `long` path for integer points below 2^19, also exact): no floating-point filter, so there is no
+  error bound to review, and no code of the arrangement or of the library's triangle tests (the test is checked against
+  `ExactTriangleIntersection.IntersectsBeyondShared` on lattices). Only the classified pieces take part: the other
+  pieces of a coplanar stack are copies, which the arrangement does not triangulate like the classified ones (the bottom
+  face of A on the top face of B), so they overlap them in the plane by design; they are not kept, and the stacks
+  account for them in C3. That accounting takes a coplanar input triangle for a piece by the piece's centroid, so C2 also
+  checks that no classified piece straddles the boundary of a coplanar input triangle (it lies inside it, or the interiors
+  are disjoint; exact separating-axis test). Pieces of one source are not paired (C1 certifies their tiling).
 
 Class: closed inputs. Open inputs and an Intersection whose early-out culled triangles against several meshes are
 `n/a` (the oracle runs Intersection with `CullOutsideA = false`); a Difference's early-out is checked (the other meshes'
 winding numbers count only where the first mesh's is positive, with an anchor per connected set under that rule). The
-embedding (no two pieces cross, C2) is not checked: stage 3.
+embedding (C2) is checked since stage 3; the point set is not exact where the rounding removed parts: they are listed.
 
 Where it runs: `BooleanCertificateTests` (the box and tetrahedron families of the metamorphic corpus with their
 representation changes, spheres, nested, hollow, self-intersecting and duplicated solids, a winding predicate, the
@@ -162,10 +176,14 @@ made to agree, so that only C3 can see them; 6 equivalent ones under the early-o
 outside (caught only by its anchor ray), 114 mutations of the selection (keep, flip, a coplanar copy kept, A and B
 swapped in a difference), a wrongly culled component and a culled triangle that meets the culling mesh, mutations of
 the inputs, the bound, the pieces (each C1 condition on its own) and the result (a triangle removed or reversed, a
-vertex moved, a two-sided sheet, a moved exact vertex): all caught. The checker itself is a test file, so Stryker does
-not mutate it; `tools/certificate_hand_mutants.py` switches off or reverses each condition and sign of the checker (36
-mutants, about 25 minutes), and `BooleanCertificateTests` kills every one. Cost (warm, two spheres, 696 pieces): the boolean 4 ms, C1 19 ms, C3 + C4 10 ms,
-C5 65 ms: several times the boolean, as BigInteger decides every sign (an oracle for tests, not a mode for users).
+vertex moved, a two-sided sheet, a moved exact vertex): all caught. C2 has its own: every split source triangle of four
+cases put back unsplit (the arrangement's classic fault, a missed intersection: C1 still holds, only C2 sees it), a sheet
+through the middle of a result, and a folded coplanar piece. No false alarm: every case above, the campaigns and the
+Nightly corpus certify. The checker itself is a test file, so Stryker does
+not mutate it; `tools/certificate_hand_mutants.py` switches off or reverses each condition and sign of the checker (50
+mutants, about 45 minutes), and `BooleanCertificateTests` kills every one. Cost (warm, two spheres, 696 pieces): the boolean 4 ms, C1 19 ms, C3 + C4 10 ms,
+C5 65 ms, C2 about 40 ms (the prototype of the research note measured 9 us per pair with BigInteger): several times the
+boolean, as BigInteger decides every sign (an oracle for tests, not a mode for users).
 
 ## 2.5a Supported input range: correct inside, fail gracefully outside (owner 2026-11-09)
 

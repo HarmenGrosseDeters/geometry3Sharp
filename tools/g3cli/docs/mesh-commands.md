@@ -25,6 +25,8 @@ g3cli repair scan.obj scan_fixed.stl --rounding-max-displacement 1e-6
 - **Exact-stage SafeRounding options:** Same 7 options as `boolean` (`--rounding-max-displacement`, `--rounding-ulp-factor`, `--rounding-absolute-tolerance`, `--rounding-max-pair-tests`, `--rounding-defect-scale`, `--rounding-max-growth`, `--strict-rounding`). A failing `--strict-rounding` rejects the exact stage (`exact_resolve_reason`) and continues to fallback stages; post-separation rounding uses the relative bound only.
 - **Scale disparity:** If far-apart parts make the clean-check degenerate threshold engulf real triangles, `repair` fails with `operation_failed` (`result_code: "scale_disparity"`) and writes nothing.
 
+- **Clean single part:** a `robust` input that is one clean component is returned as it is (`result_path: PassThrough`; `volume_iou` and `phase_milliseconds` are empty) unless `--tolerance` is set.
+
 ### Additive Result Fields (`repair`)
 
 - `result_path`: winning stage (`PassThrough`, `Repair`, `ExactResolve`, `Solidify`, `AlphaWrap`).

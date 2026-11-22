@@ -164,6 +164,10 @@ namespace geometry3Sharp.Tests
                     Assert.Equal(c0.PieceCorners.Length, c.PieceCorners.Length);
                     Assert.Equal(c0.Anchors, c.Anchors);
                     Assert.Equal(c0.CoverageTests, c.CoverageTests);
+                    Assert.Equal(c0.EmbeddingPairs, c.EmbeddingPairs);
+                    Assert.Equal(c0.EmbeddingCoplanarPairs, c.EmbeddingCoplanarPairs);
+                    Assert.Equal(c0.EmbeddingCopies, c.EmbeddingCopies);
+                    Assert.Equal(c0.EmbeddingPieces, c.EmbeddingPieces);
                     Assert.Equal(c0.Keep, c.Keep);
                     Assert.Equal(c0.Flip, c.Flip);
                 }
@@ -195,10 +199,13 @@ namespace geometry3Sharp.Tests
             var (a, b) = Solids["hollow box"]();
             BooleanCertificate c = Certify(a, b, Ops.Difference, out _);
             Assert.Equal("", c.Check());
-            int anchors = c.Anchors, tests = c.CoverageTests;
+            int anchors = c.Anchors, tests = c.CoverageTests, pairs = c.EmbeddingPairs, coplanar = c.EmbeddingCoplanarPairs;
+            Assert.True(pairs > 0);
             Assert.Equal("", c.Check());
             Assert.Equal(anchors, c.Anchors);
             Assert.Equal(tests, c.CoverageTests);
+            Assert.Equal(pairs, c.EmbeddingPairs);
+            Assert.Equal(coplanar, c.EmbeddingCoplanarPairs);
         }
 
         /// <summary>
@@ -276,7 +283,8 @@ namespace geometry3Sharp.Tests
         {
             BooleanCertificate c = BooleanCertificate.From(eb);
             mutate(c);
-            string r = c.Check();
+            // (the mutations of the witness leave the pieces as they are: C2 is skipped, it has its own tests)
+            string r = c.Check(embedding: false);
             log.WriteLine($"{what}: {r}");
             Assert.True(kind(r), $"{what}: not caught as expected: '{r}'");
         }
@@ -503,11 +511,17 @@ namespace geometry3Sharp.Tests
                 if (c.Result.GetTriCentroid(t).x > 1.5) c.Result.RemoveTriangle(t, true, false);
             Assert.Contains("farther than", c.Check());
             c.RemovedComponents = 1;
-            Assert.Equal("", c.Check());
+            // (the removal is a documented decision, but not "within the bound": the part is listed, the result is not clean)
+            string notClean = c.Check();
+            Assert.StartsWith("not clean: the rounding removed 1 part(s) of the exact result", notClean);
+            Assert.Contains("triangles, area", notClean);
             Assert.Equal(1, c.ExemptComponents);
+            Assert.Single(c.RemovedParts);
+            Assert.Equal(0, c.Uncovered);
             // two spheres apart: one of them dropped from the result, with a removed component reported: still caught
             c = Certify(Sphere(1, Vector3d.Zero), Sphere(1, new Vector3d(3, 0, 0)), Ops.Union, out eb);
             Assert.Equal("", c.Check());
+            Assert.Empty(c.RemovedParts);
             c = BooleanCertificate.From(eb);
             c.Result = new DMesh3(c.Result, false, MeshComponents.None);
             foreach (int t in c.Result.TriangleIndices().ToList())
@@ -515,6 +529,32 @@ namespace geometry3Sharp.Tests
             c.RemovedComponents = 1;
             string r = c.Check();
             Assert.True(r.StartsWith("C5: ") && r.Contains("farther than"), r);
+        }
+
+        /// <summary>
+        /// A real removal (case F1 of the pipeline audit: the rounding drops a cube of edge 2^-9 beside a large box while the
+        /// boolean succeeds): the checker lists the part and does not report the result as clean; the cube of edge 2^-8,
+        /// which stays, is clean with nothing listed.
+        /// </summary>
+        [Fact]
+        public void RemovedComponent_OfARealBoolean_IsListed_AndTheResultIsNotClean()
+        {
+            DMesh3 Cube(double edge) => new TrivialBox3Generator() { Box = new Box3d(new Vector3d(1100, 0, 0) + 0.5 * edge * Vector3d.One, new Vector3d(0.5 * edge, 0.5 * edge, 0.5 * edge)) }.Generate().MakeDMesh();
+            DMesh3 big = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(512, 512, 512), new Vector3d(512, 512, 512)) }.Generate().MakeDMesh();
+            BooleanCertificate kept = Certify(big, Cube(Math.Pow(2, -8)), Ops.Union, out ExactMeshBoolean ek);
+            Assert.Equal(0, ek.Rounding.RemovedComponents);
+            Assert.Equal("", kept.Check());
+            Assert.Empty(kept.RemovedParts);
+            BooleanCertificate dropped = Certify(big, Cube(Math.Pow(2, -9)), Ops.Union, out ExactMeshBoolean ed);
+            Assert.Equal(1, ed.Rounding.RemovedComponents);
+            string r = dropped.Check();
+            Assert.StartsWith("not clean: the rounding removed 1 part(s)", r);
+            Assert.Single(dropped.RemovedParts);
+            Assert.Equal(1, dropped.ExemptComponents);
+            Assert.Equal(12, ed.CertificateAssembled.TriangleCount - ed.Result.TriangleCount);
+            Assert.Contains("12 triangles", dropped.RemovedParts[0]);
+            // the oracle of the campaigns reports it too
+            Assert.StartsWith("certificate Union: not clean", BooleanCertificate.CheckBoolean(big, Cube(Math.Pow(2, -9)), Ops.Union));
         }
 
         [Fact]
@@ -627,6 +667,274 @@ namespace geometry3Sharp.Tests
             BooleanCertificate d = BooleanCertificate.From(eb);
             d.Keep[Array.IndexOf(d.Keep, true)] = false;
             Assert.Contains("differs from the kept pieces", d.CheckResult());
+        }
+
+        // ---------------------------------------------------------------- C2: the embedding (stage 3)
+
+        /// <summary>
+        /// The pair test against the library's exact ExactTriangleIntersection.IntersectsBeyondShared on random triangles of
+        /// small integer lattices (shared corners, coplanar and touching pairs are frequent there), both orders.
+        /// </summary>
+        [Fact]
+        public void EmbeddingPairTest_AgreesWithTheLibrarysExactTriangleTest()
+        {
+            var rng = new Random(20261122);
+            int tested = 0, meeting = 0, coplanar = 0;
+            foreach (int range in new[] { 3, 5, 9 })
+                for (int it = 0; it < 15000; ++it) {
+                    bool flat = rng.Next(4) == 0;
+                    var pts = new Vector3d[6];
+                    for (int i = 0; i < 6; ++i) pts[i] = new Vector3d(rng.Next(range), rng.Next(range), flat ? 0 : rng.Next(range));
+                    int share = rng.Next(3);
+                    int[] p = { 0, 1, 2 }, q = { 3, 4, 5 };
+                    for (int s = 0; s < share; ++s) q[s] = p[(s + rng.Next(3)) % 3];
+                    if (q[0] == q[1]) continue;
+                    // equal positions are equal points (the arrangement merges them): one id per position
+                    var idOf = new Dictionary<Vector3d, int>();
+                    int[] canon = new int[6];
+                    for (int i = 0; i < 6; ++i) { if (idOf.TryGetValue(pts[i], out int id) == false) idOf[pts[i]] = id = i; canon[i] = id; }
+                    p = p.Select(v => canon[v]).ToArray(); q = q.Select(v => canon[v]).ToArray();
+                    var A = new Triangle3d(pts[p[0]], pts[p[1]], pts[p[2]]); var B = new Triangle3d(pts[q[0]], pts[q[1]], pts[q[2]]);
+                    if (ExactTriangleIntersection.IsDegenerate(ref A) || ExactTriangleIntersection.IsDegenerate(ref B)) continue;
+                    if (p.Count(v => q.Contains(v)) == 3) continue;
+                    bool expected = ExactTriangleIntersection.IntersectsBeyondShared(new Index3i(p[0], p[1], p[2]), ref A, new Index3i(q[0], q[1], q[2]), ref B);
+                    // the same points three ways: small integers (the long path), scaled by 2^20 and shifted by 2^30, and as thirds
+                    // with W = 3 (the BigInteger path, rational points): the signs, so the answers, must agree
+                    System.Numerics.BigInteger Big(double d) => (System.Numerics.BigInteger)d;
+                    for (int variant = 0; variant < 3; ++variant) {
+                        int vr = variant;
+                        var x = pts.Select(v => vr == 0 ? ExactPoint3.FromInteger(Big(v.x), Big(v.y), Big(v.z))
+                            : vr == 1 ? ExactPoint3.FromInteger((Big(v.x) << 20) + (Big(1) << 30), (Big(v.y) << 20) + (Big(1) << 30), (Big(v.z) << 20) - (Big(1) << 30))
+                            : ExactPoint3.CreateUnreduced(3 * Big(v.x), 3 * Big(v.y), 3 * Big(v.z), 3)).ToArray();
+                        var test = new BooleanCertificate.EmbeddingPairTest(x);
+                        Assert.True(test.MeetBeyondShared(p, q) == expected && test.MeetBeyondShared(q, p) == expected, $"variant {variant}: {string.Join(",", pts)} p {string.Join(",", p)} q {string.Join(",", q)}: expected {expected}");
+                        if (variant == 0) coplanar += (int)test.Coplanar;
+                    }
+                    tested++; if (expected) meeting++;
+                }
+            log.WriteLine($"{tested} pairs, {meeting} meeting beyond what they share, {coplanar} coplanar");
+            Assert.True(tested > 10000 && meeting > 2000 && coplanar > 1000);
+        }
+
+        [Fact]
+        public void EmbeddingPairTest_SharedCornersAndEdges_AreNotViolations_ButFoldsAndCrossingsAre()
+        {
+            var x = new[] { Pt(0, 0, 0), Pt(4, 0, 0), Pt(0, 4, 0), Pt(0, 0, 4), Pt(4, 4, 0), Pt(1, 1, 1), Pt(1, 1, -1) };
+            var t = new BooleanCertificate.EmbeddingPairTest(x);
+            Assert.False(t.MeetBeyondShared(new[] { 0, 1, 2 }, new[] { 0, 1, 3 }));          // a shared edge, two planes
+            Assert.False(t.MeetBeyondShared(new[] { 0, 1, 2 }, new[] { 1, 4, 2 }));          // a shared edge, coplanar, unfolded
+            Assert.True(t.MeetBeyondShared(new[] { 0, 1, 2 }, new[] { 0, 1, 2 }));           // the same triangle twice: folded onto itself
+            Assert.True(t.MeetBeyondShared(new[] { 0, 1, 2 }, new[] { 5, 6, 1 }));           // a triangle through the other, no shared edge
+            Assert.True(t.MeetBeyondShared(new[] { 0, 1, 2 }, new[] { 0, 1, 4 }));           // coplanar, folded onto the other at a shared edge
+        }
+
+        [Fact]
+        public void StraddlesInPlane_InsideDisjointAndCutting()
+        {
+            ExactPoint3[] T(params long[] c) => new[] { Pt(c[0], c[1], 0), Pt(c[2], c[3], 0), Pt(c[4], c[5], 0) };
+            ExactPoint3[] p = T(0, 0, 4, 0, 0, 4);
+            Assert.False(BooleanCertificate.StraddlesInPlane(p, T(-1, -1, 9, -1, -1, 9)), "p inside u");
+            Assert.False(BooleanCertificate.StraddlesInPlane(p, T(-1, -1, -1, 9, 9, -1)), "p inside u, other orientation");
+            Assert.False(BooleanCertificate.StraddlesInPlane(p, T(5, 5, 6, 5, 5, 6)), "disjoint");
+            Assert.False(BooleanCertificate.StraddlesInPlane(p, T(4, 0, 4, 4, 0, 4)), "u on the other side of the hypotenuse, sharing it");
+            Assert.False(BooleanCertificate.StraddlesInPlane(p, p), "the same triangle");
+            Assert.True(BooleanCertificate.StraddlesInPlane(p, T(1, 1, 2, 1, 1, 2)), "u inside p: p is not split along u");
+            Assert.True(BooleanCertificate.StraddlesInPlane(p, T(0, 0, 2, 2, -1, 3)), "u cuts p from a corner to a point of the opposite edge");
+            Assert.True(BooleanCertificate.StraddlesInPlane(p, T(2, -1, 2, 5, 9, 2)), "u crosses two edges");
+        }
+
+        /// <summary> the cases that the random lattice rarely makes, each on its own: a pair meeting at one point, along a segment, or inside </summary>
+        [Fact]
+        public void EmbeddingPairTest_SingleCases()
+        {
+            // q = (0,0,0) (4,0,0) (0,4,0) in the plane z = 0
+            var x = new[] { Pt(0, 0, 0), Pt(4, 0, 0), Pt(0, 4, 0),
+                Pt(1, 1, 0), Pt(2, 1, 0), Pt(1, 2, 0),            // 3-5: inside q, in its plane
+                Pt(-1, 1, 0), Pt(1, -1, 0), Pt(-3, -3, 0),        // 6-8: an edge through the corner 0 of q, no area in common
+                Pt(2, 1, 2), Pt(1, 2, 2),                         // 9-10: above q
+                Pt(5, 1, 0), Pt(2, 1, 3),                         // 11-12: for an edge through q in its plane
+                Pt(-1, 0, 1), Pt(0, -1, 1) };                     // 13-14: below-left, touching the corner 0 only
+            var t = new BooleanCertificate.EmbeddingPairTest(x);
+            int[] q = { 0, 1, 2 };
+            Assert.True(t.MeetBeyondShared(new[] { 3, 4, 5 }, q), "coplanar, inside");
+            Assert.True(t.MeetBeyondShared(q, new[] { 3, 4, 5 }), "coplanar, containing");
+            Assert.True(t.MeetBeyondShared(new[] { 6, 7, 8 }, q), "coplanar, a corner of q inside an edge");
+            Assert.True(t.MeetBeyondShared(new[] { 3, 9, 10 }, q), "a corner in q's face, the rest above");
+            Assert.True(t.MeetBeyondShared(new[] { 6, 11, 12 }, q), "an edge in q's plane through q");
+            Assert.False(t.MeetBeyondShared(new[] { 0, 13, 14 }, q), "a shared corner only");
+        }
+
+        static ExactPoint3 Pt(long x, long y, long z) => ExactPoint3.FromInteger(x, y, z);
+
+        // the arrangement's fault "missed intersection": the pieces of a split source triangle replaced by the source, unsplit
+        // (C1 still holds: one piece tiles its source)
+        static BooleanCertificate Unsplit(ExactMeshBoolean eb, int source)
+        {
+            BooleanCertificate c = BooleanCertificate.From(eb);
+            int[] keep = Enumerable.Range(0, c.PieceSource.Length).Where(i => c.PieceSource[i] != source).ToArray();
+            int mesh = c.PieceMesh[Array.IndexOf(c.PieceSource, source)];
+            c.PieceMesh = keep.Select(i => c.PieceMesh[i]).Append(mesh).ToArray();
+            c.PieceCorners = keep.Select(i => c.PieceCorners[i]).Append(c.SourceCornersOnGrid(source)).ToArray();
+            c.PieceSource = keep.Select(i => c.PieceSource[i]).Append(source).ToArray();
+            return c;
+        }
+
+        /// <summary>
+        /// The classic failure, a missed intersection: a source triangle that the arrangement split (because something
+        /// crosses it) is left unsplit, so that its pieces still tile it (C1 holds) while the triangle passes through the
+        /// pieces of the other source. C2 must name a pair, for a spread of the split sources in each of the cases (a curved
+        /// one, a hollow one, a self-intersecting one, and one with coplanar copies); the unmutated pieces are embedded.
+        /// </summary>
+        [Fact]
+        public void InjectedMissedIntersection_IsCaught_ByC2Only()
+        {
+            int mutants = 0;
+            foreach (var (name, op) in new[] { ("spheres overlapping", Ops.Union), ("hollow box", Ops.Difference), ("self-intersecting", Ops.Union), ("duplicate shell", Ops.Union), ("face contact", Ops.Union) }) {
+                var (a, b) = name == "face contact" ? (Box(Bx(0, 0, 0, 2, 2, 2)), Box(Bx(1, 1, 2, 3, 3, 4))) : Solids[name]();
+                Certify(a, b, op, out ExactMeshBoolean eb);
+                BooleanCertificate probe = BooleanCertificate.From(eb);
+                Assert.Equal("", probe.CheckPieces());
+                Assert.Equal("", probe.CheckEmbedding());
+                Assert.True(probe.EmbeddingPairs > 0, name);
+                var count = new Dictionary<int, int>();
+                foreach (int s in probe.PieceSource) count[s] = count.TryGetValue(s, out int k) ? k + 1 : 1;
+                var split = count.Where(kv => kv.Value > 1).Select(kv => kv.Key).OrderBy(s => s).ToList();
+                Assert.NotEmpty(split);
+                int take = Math.Min(24, split.Count);
+                string endToEnd = null;
+                for (int k = 0; k < take; ++k) {
+                    int source = split[k * split.Count / take];
+                    BooleanCertificate c = Unsplit(eb, source);
+                    Assert.Equal("", c.CheckPieces());          // not C1's: the pieces still tile their sources
+                    // (an unsplit piece under an earlier coplanar source is a copy: not claimed to be embedded)
+                    if (c.IsClassified(c.PieceSource.Length - 1) == false) continue;
+                    string r = c.CheckEmbedding();
+                    Assert.True(r.StartsWith("pieces "), $"{name} {op} source {source}: '{r}'");
+                    mutants++;
+                    // end to end: Check() reports it as C2's
+                    if (endToEnd == null) { endToEnd = c.Check(); Assert.StartsWith("C2: pieces ", endToEnd); }
+                }
+                Assert.NotNull(endToEnd);
+            }
+            Assert.True(mutants >= 40, mutants.ToString());
+        }
+
+        /// <summary>
+        /// Two more faults: a sheet through the middle of the result (a triangle of a source of its own, corners outside the
+        /// solid on both sides), and a piece of another source lying inside a piece of the surface and sharing one edge
+        /// with it (coplanar, both on one side of the edge: the fold).
+        /// </summary>
+        [Fact]
+        public void InjectedCrossingSheet_AndFoldedCopies_AreCaught()
+        {
+            var (a, b) = Solids["spheres overlapping"]();
+            Certify(a, b, Ops.Union, out ExactMeshBoolean eb);
+            BooleanCertificate probe = BooleanCertificate.From(eb);
+            Assert.Equal("", probe.CheckEmbedding());
+            int n = probe.PieceCorners.Length;
+            // the extent of the grid points of the pieces, as integers
+            long lo = long.MaxValue, hi = long.MinValue;
+            foreach (ExactPoint3[] t in probe.PieceCorners)
+                foreach (ExactPoint3 p in t) {
+                    Vector3d v = p.ApproxVector3d();
+                    for (int k = 0; k < 3; ++k) { lo = Math.Min(lo, (long)Math.Floor(v[k])); hi = Math.Max(hi, (long)Math.Ceiling(v[k])); }
+                }
+            long mid = (lo + hi) / 2, big = 2 * (hi - lo) + 4;
+            // (a source of its own: every triangle of the spheres is alone in its plane, so the sheet is classified)
+            int[] sources = probe.PieceSource.Distinct().OrderBy(s => s).ToArray();
+            int other = sources[sources.Length / 2];
+            BooleanCertificate m = BooleanCertificate.From(eb);
+            m.PieceMesh = m.PieceMesh.Append(0).ToArray();
+            m.PieceSource = m.PieceSource.Append(other).ToArray();
+            m.PieceCorners = m.PieceCorners.Append(new[] { Pt(mid - big, mid - big, mid), Pt(mid + big, mid, mid), Pt(mid, mid + big, mid) }).ToArray();
+            string r = m.CheckEmbedding();
+            Assert.StartsWith("pieces ", r);
+            log.WriteLine(r);
+            // the same sheet far away from the solid: nothing meets it
+            m = BooleanCertificate.From(eb);
+            m.PieceMesh = m.PieceMesh.Append(0).ToArray();
+            m.PieceSource = m.PieceSource.Append(other).ToArray();
+            m.PieceCorners = m.PieceCorners.Append(new[] { Pt(hi + big, hi + big, hi + big), Pt(hi + 2 * big, hi + big, hi + big), Pt(hi + big, hi + 2 * big, hi + big) }).ToArray();
+            Assert.Equal("", m.CheckEmbedding());
+            // a corner moved onto the middle of an edge: the piece (m, b, c) of another source inside the piece (a, b, c)
+            int caught = 0;
+            for (int i = 0; i < n; i += Math.Max(1, n / 30)) {
+                BooleanCertificate c = BooleanCertificate.From(eb);
+                ExactPoint3[] t = c.PieceCorners[i];
+                ExactPoint3 mp = ExactPoint3.Create(t[0].X * t[1].W + t[1].X * t[0].W, t[0].Y * t[1].W + t[1].Y * t[0].W, t[0].Z * t[1].W + t[1].Z * t[0].W, 2 * t[0].W * t[1].W);
+                c.PieceMesh = c.PieceMesh.Append(c.PieceMesh[i]).ToArray();
+                int fresh = sources.First(s => s != c.PieceSource[i]);
+                c.PieceSource = c.PieceSource.Append(fresh).ToArray();
+                c.PieceCorners = c.PieceCorners.Append(new[] { mp, t[1], t[2] }).ToArray();
+                Assert.StartsWith("pieces ", c.CheckEmbedding());
+                caught++;
+            }
+            Assert.True(caught >= 25, caught.ToString());
+        }
+
+        /// <summary>
+        /// No false alarms on procedural booleans: touching, coplanar, nested and duplicated solids, in exact frames; the
+        /// embedding holds and the test really ran (pairs found; coplanar pairs where faces share planes; coplanar copies counted as left out).
+        /// </summary>
+        [Fact]
+        public void Embedding_Holds_OnProceduralBooleans_AndTheTestRuns()
+        {
+            long pairs = 0, coplanar = 0, copies = 0;
+            foreach (string family in ExactBooleanMetamorphicTests.Families.Keys) {
+                var (fa, fb) = ExactBooleanMetamorphicTests.Families[family];
+                var box = new BoxCase(fa, fb);
+                foreach (Ops op in BooleanOracle.AllOps) {
+                    BooleanCertificate c = Certify(box.MeshA(), box.MeshB(), op, out _);
+                    Assert.Equal("", c.CheckPieces());
+                    string r = c.CheckEmbedding();
+                    Assert.True(r == "", $"{family} {op}: {r}");
+                    pairs += c.EmbeddingPairs; coplanar += c.EmbeddingCoplanarPairs; copies += c.EmbeddingCopies;
+                }
+            }
+            foreach (string name in new[] { "spheres overlapping", "sphere nested", "hollow box", "self-intersecting", "two components", "duplicate shell" })
+                foreach (Ops op in BooleanOracle.AllOps) {
+                    var (a, b) = Solids[name]();
+                    BooleanCertificate c = Certify(a, b, op, out _, x => x.Orientation = ExactMeshBoolean.OrientationModes.AreaMajority);
+                    Assert.Equal("", c.CheckPieces());
+                    string r = c.CheckEmbedding();
+                    Assert.True(r == "", $"{name} {op}: {r}");
+                    pairs += c.EmbeddingPairs; coplanar += c.EmbeddingCoplanarPairs; copies += c.EmbeddingCopies;
+                }
+            log.WriteLine($"{pairs} pairs, {coplanar} coplanar, {copies} copies");
+            Assert.True(pairs > 1000 && coplanar > 100 && copies > 10, $"{pairs} {coplanar} {copies}");
+        }
+
+        /// <summary>
+        /// A fault that only the boundary check of C2 sees: a source triangle in a plane shared with other input triangles is
+        /// left unsplit (its piece straddles their boundaries) and is the only piece left, so that the pair test has nothing to
+        /// find. The boundary check names the piece (it compares with the coplanar input triangles, not with pieces).
+        /// </summary>
+        [Fact]
+        public void InjectedMissedSplit_OfACoplanarFace_IsCaughtByTheBoundaryCheck()
+        {
+            DMesh3 a = Box(Bx(0, 0, 0, 2, 2, 2)), b = Box(Bx(1, 1, 2, 3, 3, 4));       // B's bottom on A's top, partly
+            Certify(a, b, Ops.Union, out ExactMeshBoolean eb);
+            BooleanCertificate probe = BooleanCertificate.From(eb);
+            Assert.Equal("", probe.CheckPieces());
+            Assert.Equal("", probe.CheckEmbedding());
+            var count = new Dictionary<int, int>();
+            foreach (int s in probe.PieceSource) count[s] = count.TryGetValue(s, out int k) ? k + 1 : 1;
+            int caught = 0, tried = 0;
+            foreach (int source in count.Where(kv => kv.Value > 1).Select(kv => kv.Key).OrderBy(s => s)) {
+                BooleanCertificate c = Unsplit(eb, source);
+                int[] plane = c.CoplanarSources(source);
+                if (plane.Length < 2 || c.IsClassified(c.PieceSource.Length - 1) == false) continue;
+                int[] keep = { c.PieceSource.Length - 1 };       // the unsplit piece alone: the boundaries it straddles are those of the input triangles
+                c.PieceMesh = keep.Select(i => c.PieceMesh[i]).ToArray();
+                c.PieceCorners = keep.Select(i => c.PieceCorners[i]).ToArray();
+                c.PieceSource = keep.Select(i => c.PieceSource[i]).ToArray();
+                c.CheckPieces();        // (prepares the pieces and stacks; C1 itself fails for the sources whose pieces were left out)
+                string r = c.CheckEmbedding();
+                tried++;
+                if (r.Contains("straddles the boundary of the coplanar input triangle")) caught++;
+                else log.WriteLine($"source {source}: '{r}'");
+            }
+            Assert.True(tried >= 4 && caught >= 4, $"{caught} of {tried}");
         }
 
         static readonly System.Numerics.BigInteger BigIntegerOne = System.Numerics.BigInteger.One;
