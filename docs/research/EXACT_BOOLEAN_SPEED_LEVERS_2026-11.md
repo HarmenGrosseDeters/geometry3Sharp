@@ -470,6 +470,38 @@ The step times of section 4.2 and the counter switch of section 6.1 came from sc
 into a tool directory of their own and not committed, as EXACT_BOOLEAN_PERFORMANCE.md prescribes for probes. Their
 output is in the raw folder.
 
+## 9a. Measured: lever 3x and the lazy first search (2026-11-22, not merged)
+
+Both were built (branch `perf/rounding-lazy-pair-search`, commit e28849b, PR #1322 closed): the per-block count in `intersecting_pairs_all`,
+and a first pair search with a tree of the new triangles only (new against new from that tree, new against exact from each exact
+triangle's box), the tree of all triangles built at the first `near` query. Results were bit-identical (hash, `SkippedExactQueries`,
+counts) on tube unions, differences, intersections and the exact-pairs cases; the pair sets equal by construction and by check mode. Rows:
+[perf/lazy_first_search_2026-11-22/](../../benchmarks/BooleanComparison/perf/lazy_first_search_2026-11-22/README.md).
+
+Seam union, tubes half 48, best of 3, noise about 5 %:
+
+| | 1 thread total | 4 threads total | 4 threads rounding |
+|---|---:|---:|---:|
+| base | 2443 ms | 1168 ms | 483 ms |
+| both levers | 2396 ms (-2 %) | 1194 ms (+2 %) | 516 ms |
+| 3x only | 2460 ms | 1053 ms (vs 1078 in its own rounds, -2 %) | 413 ms (vs 472, -12 %) |
+
+**Why the lazy search gives 0 on seam unions.** The first search itself falls from about 470 to about 103 ms at 1 thread, as the
+prototype of section 4.2 said. But the first proposed edit (`improves` calls `near`, even when the edit is rejected) builds the full tree at
+once, before any edit is committed: the seam union has 3 edits and about 30 `near` queries. The 375 ms moves from the search to the
+first edit. This is the "gains nothing on a boolean with an edit" of section 4.2, now measured: the PR is only a gain for results without
+edits, which seam unions are not.
+
+**Estimate for the edit-query design (not built).** Serving the edits' `near` queries without the full tree needs a linear pass over the
+unchanged boxes per query: about 14 ms at 1 thread (section 4.2's probe), so about 30 queries cost 420 ms, as much as the tree build (375 ms),
+and about 120 ms against 156-205 at 4 threads. A cache of the boxes (30 MB for 626k triangles) brings a query to maybe 5 ms, so about 150 ms
+against 375 ms at 1 thread (-9 % of the union, before the cost of the new-triangle tree and a fallback to the full tree after N queries),
+and it grows with the number of queries: the T6 booleans with edits hold more. That is below the owner's 10 % bar for a speed PR and
+adds a second query path to `near`. Not pursued: ranks 1 and 2 of section 10 are not worth a PR on their own; rank 3 (setup scans) remains the way to the
+rounding's far work.
+
+**3x alone** gives -12 % of the rounding at 4 threads (413 against 472 ms, one input, six rounds) and -2 % of the total, below the bar too.
+
 ## 10. Ranked implementation PRs (each needs the owner's go)
 
 | rank | PR | gain (bound → expected) | guarantee argument | effort | risk |
