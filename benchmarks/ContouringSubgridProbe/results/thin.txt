@@ -1,0 +1,464 @@
+# thin: walls of k cells; coverage = share of the true surface with a result triangle within 0.25 cells and a normal within 60 degrees
+shape, k, seed, variant, triangles, clean, topology, truth, coverage, maxErr, evals, bandEvals, ms, notes
+plate, 0.25, 0, mc, 616, yes, c=52;genus sum 0, c=1;g=0, 0.211, 0.015, 233504, 54872, 66, 
+plate, 0.25, 0, dc, 0, empty, c=0, c=1;g=0, 0.000, 0.000, 82888, 54872, 119, 
+plate, 0.25, 0, mc/2, 4496, yes, c=16;genus sum 0, c=1;g=0, 0.517, 0.007, 1755600, 60536, 128, 
+plate, 0.25, 0, mc/4, 28048, yes, c=6;genus sum 187, c=1;g=0, 0.921, 0.004, 13593840, 100184, 938, 
+plate, 0.25, 0, sub8, 5172, yes, c=1;g=0, c=1;g=0, 0.912, 0.303, 2357962, 2357962, 593, multi-crossing edges 691/1525; scoops 358; loops 3/4/longer/with scoop/tips 2612/771/0/193/87; failed triangles 0
+plate, 0.25, 0, subtrace, 5210, yes, c=1;g=0, c=1;g=0, 0.918, 0.391, 180965, 180965, 155, multi-crossing edges 699/1533; scoops 362; loops 3/4/longer/with scoop/tips 2635/775/0/194/89; failed triangles 0
+plate, 0.25, 0, subtrace-n, 5210, yes, c=1;g=0, c=1;g=0, 0.918, 0.391, 180965, 180965, 118, multi-crossing edges 699/1533; scoops 362; loops 3/4/longer/with scoop/tips 2635/775/0/194/89; failed triangles 0
+plate, 0.25, 1, mc, 624, yes, c=38;genus sum 0, c=1;g=0, 0.131, 0.014, 233024, 54872, 15, 
+plate, 0.25, 1, dc, 0, empty, c=0, c=1;g=0, 0.000, 0.000, 81256, 54872, 43, 
+plate, 0.25, 1, mc/2, 4920, yes, c=137;genus sum 0, c=1;g=0, 0.537, 0.007, 1764680, 60584, 117, 
+plate, 0.25, 1, mc/4, 31328, yes, c=1;g=523, c=1;g=0, 0.854, 0.004, 13613000, 100568, 866, 
+plate, 0.25, 1, sub8, 5296, yes, c=1;g=0, c=1;g=0, 0.914, 0.331, 2361322, 2361322, 129, multi-crossing edges 722/1578; scoops 336; loops 3/4/longer/with scoop/tips 2672/832/0/182/78; failed triangles 0
+plate, 0.25, 1, subtrace, 5354, yes, c=1;g=0, c=1;g=0, 0.918, 0.365, 184296, 184296, 119, multi-crossing edges 732/1588; scoops 344; loops 3/4/longer/with scoop/tips 2692/839/0/187/82; failed triangles 0
+plate, 0.25, 1, subtrace-n, 5354, yes, c=1;g=0, c=1;g=0, 0.918, 0.365, 184296, 184296, 104, multi-crossing edges 732/1588; scoops 344; loops 3/4/longer/with scoop/tips 2692/839/0/187/82; failed triangles 0
+plate, 0.25, 2, mc, 608, yes, c=76;genus sum 0, c=1;g=0, 0.081, 0.014, 234384, 54872, 16, 
+plate, 0.25, 2, dc, 0, empty, c=0, c=1;g=0, 0.000, 0.000, 85880, 54872, 19, 
+plate, 0.25, 2, mc/2, 4888, yes, c=313;genus sum 0, c=1;g=0, 0.509, 0.007, 1771400, 60552, 122, 
+plate, 0.25, 2, mc/4, 34288, yes, c=4;g=0,0,0,668, c=1;g=0, 0.879, 0.003, 13636920, 100312, 848, 
+plate, 0.25, 2, sub8, 5454, yes, c=1;g=0, c=1;g=0, 0.923, 0.274, 2363162, 2363162, 114, multi-crossing edges 741/1605; scoops 372; loops 3/4/longer/with scoop/tips 2598/901/0/197/80; failed triangles 0
+plate, 0.25, 2, subtrace, 5478, yes, c=1;g=0, c=1;g=0, 0.928, 0.360, 185607, 185607, 99, multi-crossing edges 745/1609; scoops 376; loops 3/4/longer/with scoop/tips 2608/905/0/199/82; failed triangles 0
+plate, 0.25, 2, subtrace-n, 5478, yes, c=1;g=0, c=1;g=0, 0.928, 0.360, 185607, 185607, 104, multi-crossing edges 745/1609; scoops 376; loops 3/4/longer/with scoop/tips 2608/905/0/199/82; failed triangles 0
+plate, 0.5, 0, mc, 1152, yes, c=9;genus sum 0, c=1;g=0, 0.439, 0.015, 237144, 54872, 15, 
+plate, 0.5, 0, dc, 1066, yes, c=9;genus sum 0, c=1;g=0, 0.368, 0.239, 95264, 54872, 23, 
+plate, 0.5, 0, mc/2, 7128, yes, c=3;g=0,0,41, c=1;g=0, 0.891, 0.007, 1779760, 61304, 125, 
+plate, 0.5, 0, mc/4, 28084, yes, c=1;g=0, c=1;g=0, 0.994, 0.004, 13601480, 106328, 864, 
+plate, 0.5, 0, sub8, 5082, yes, c=1;g=0, c=1;g=0, 0.943, 0.402, 2360522, 2360522, 123, multi-crossing edges 436/1844; scoops 246; loops 3/4/longer/with scoop/tips 2734/806/0/140/63; failed triangles 0
+plate, 0.5, 0, subtrace, 5148, yes, c=1;g=0, c=1;g=0, 0.943, 0.402, 186931, 186931, 102, multi-crossing edges 442/1850; scoops 264; loops 3/4/longer/with scoop/tips 2742/804/0/152/70; failed triangles 0
+plate, 0.5, 0, subtrace-n, 5148, yes, c=1;g=0, c=1;g=0, 0.943, 0.402, 186931, 186931, 95, multi-crossing edges 442/1850; scoops 264; loops 3/4/longer/with scoop/tips 2742/804/0/152/70; failed triangles 0
+plate, 0.5, 1, mc, 1208, yes, c=38;genus sum 0, c=1;g=0, 0.361, 0.014, 238864, 54872, 17, 
+plate, 0.5, 1, dc, 1278, yes, c=38;genus sum 0, c=1;g=0, 0.222, 0.442, 101112, 54872, 59, 
+plate, 0.5, 1, mc/2, 7916, yes, c=1;g=119, c=1;g=0, 0.846, 0.008, 1784440, 61304, 119, 
+plate, 0.5, 1, mc/4, 29996, yes, c=1;g=0, c=1;g=0, 0.994, 0.004, 13620600, 106328, 770, 
+plate, 0.5, 1, sub8, 5392, yes, c=1;g=0, c=1;g=0, 0.932, 0.346, 2364122, 2364122, 120, multi-crossing edges 422/1948; scoops 306; loops 3/4/longer/with scoop/tips 2764/857/0/175/73; failed triangles 0
+plate, 0.5, 1, subtrace, 5466, yes, c=1;g=0, c=1;g=0, 0.936, 0.335, 190833, 190833, 113, multi-crossing edges 431/1957; scoops 324; loops 3/4/longer/with scoop/tips 2787/858/0/185/79; failed triangles 0
+plate, 0.5, 1, subtrace-n, 5466, yes, c=1;g=0, c=1;g=0, 0.936, 0.335, 190833, 190833, 104, multi-crossing edges 431/1957; scoops 324; loops 3/4/longer/with scoop/tips 2787/858/0/185/79; failed triangles 0
+plate, 0.5, 2, mc, 1224, yes, c=83;genus sum 0, c=1;g=0, 0.331, 0.013, 240824, 54872, 15, 
+plate, 0.5, 2, dc, 1494, yes, c=83;genus sum 0, c=1;g=0, 0.208, 0.200, 107776, 54872, 48, 
+plate, 0.5, 2, mc/2, 8612, yes, c=4;g=0,0,0,150, c=1;g=0, 0.841, 0.007, 1790280, 61320, 126, 
+plate, 0.5, 2, mc/4, 32592, yes, c=1;g=0, c=1;g=0, 0.993, 0.003, 13646560, 106456, 786, 
+plate, 0.5, 2, sub8, 5424, yes, c=1;g=0, c=1;g=0, 0.948, 0.495, 2365562, 2365562, 136, multi-crossing edges 414/1992; scoops 284; loops 3/4/longer/with scoop/tips 2703/921/0/166/67; failed triangles 0
+plate, 0.5, 2, subtrace, 5466, yes, c=1;g=0, c=1;g=0, 0.951, 0.495, 191846, 191846, 89, multi-crossing edges 420/1998; scoops 292; loops 3/4/longer/with scoop/tips 2716/925/0/171/70; failed triangles 0
+plate, 0.5, 2, subtrace-n, 5466, yes, c=1;g=0, c=1;g=0, 0.951, 0.495, 191846, 191846, 90, multi-crossing edges 420/1998; scoops 292; loops 3/4/longer/with scoop/tips 2716/925/0/171/70; failed triangles 0
+plate, 0.75, 0, mc, 1492, yes, c=8;genus sum 0, c=1;g=0, 0.638, 0.015, 240504, 54872, 11, 
+plate, 0.75, 0, dc, 1264, yes, c=8;genus sum 0, c=1;g=0, 0.547, 0.300, 106688, 54872, 14, 
+plate, 0.75, 0, mc/2, 7156, yes, c=1;g=0, c=1;g=0, 0.972, 0.008, 1781600, 62024, 118, 
+plate, 0.75, 0, mc/4, 28864, yes, c=1;g=0, c=1;g=0, 0.992, 0.004, 13609240, 112088, 790, 
+plate, 0.75, 0, sub8, 5152, yes, c=1;g=0, c=1;g=0, 0.948, 0.366, 2363082, 2363082, 114, multi-crossing edges 232/2112; scoops 208; loops 3/4/longer/with scoop/tips 2822/830/0/130/59; failed triangles 0
+plate, 0.75, 0, subtrace, 5198, yes, c=1;g=0, c=1;g=0, 0.947, 0.339, 191932, 191932, 101, multi-crossing edges 236/2116; scoops 222; loops 3/4/longer/with scoop/tips 2826/832/0/138/64; failed triangles 0
+plate, 0.75, 0, subtrace-n, 5198, yes, c=1;g=0, c=1;g=0, 0.947, 0.339, 191932, 191932, 91, multi-crossing edges 236/2116; scoops 222; loops 3/4/longer/with scoop/tips 2826/832/0/138/64; failed triangles 0
+plate, 0.75, 1, mc, 1684, yes, c=12;genus sum 0, c=1;g=0, 0.565, 0.014, 242584, 54872, 14, 
+plate, 0.75, 1, dc, 1524, yes, c=12;genus sum 0, c=1;g=0, 0.400, 0.356, 227520, 54872, 33, 
+plate, 0.75, 1, mc/2, 7624, yes, c=1;g=0, c=1;g=0, 0.981, 0.008, 1786280, 62056, 112, 
+plate, 0.75, 1, mc/4, 30728, yes, c=1;g=0, c=1;g=0, 0.995, 0.004, 13627900, 112344, 988, 
+plate, 0.75, 1, sub8, 5434, yes, c=1;g=0, c=1;g=0, 0.944, 0.336, 2366682, 2366682, 129, multi-crossing edges 215/2219; scoops 260; loops 3/4/longer/with scoop/tips 2858/889/0/155/69; failed triangles 0
+plate, 0.75, 1, subtrace, 5496, yes, c=1;g=0, c=1;g=0, 0.944, 0.336, 195812, 195812, 100, multi-crossing edges 222/2226; scoops 278; loops 3/4/longer/with scoop/tips 2872/891/0/163/71; failed triangles 0
+plate, 0.75, 1, subtrace-n, 5496, yes, c=1;g=0, c=1;g=0, 0.944, 0.336, 195812, 195812, 111, multi-crossing edges 222/2226; scoops 278; loops 3/4/longer/with scoop/tips 2872/891/0/163/71; failed triangles 0
+plate, 0.75, 2, mc, 1836, yes, c=16;genus sum 0, c=1;g=0, 0.600, 0.013, 244264, 54872, 14, 
+plate, 0.75, 2, dc, 1766, yes, c=16;genus sum 0, c=1;g=0, 0.437, 0.354, 238944, 54872, 91, 
+plate, 0.75, 2, mc/2, 8260, yes, c=1;g=0, c=1;g=0, 0.972, 0.007, 1792640, 62016, 112, 
+plate, 0.75, 2, mc/4, 33468, yes, c=1;g=0, c=1;g=0, 0.993, 0.003, 13655320, 112024, 1002, 
+plate, 0.75, 2, sub8, 5472, yes, c=1;g=0, c=1;g=0, 0.959, 0.329, 2368362, 2368362, 134, multi-crossing edges 222/2254; scoops 236; loops 3/4/longer/with scoop/tips 2800/956/0/144/58; failed triangles 0
+plate, 0.75, 2, subtrace, 5524, yes, c=1;g=0, c=1;g=0, 0.960, 0.329, 197156, 197156, 139, multi-crossing edges 227/2259; scoops 248; loops 3/4/longer/with scoop/tips 2807/957/0/154/63; failed triangles 0
+plate, 0.75, 2, subtrace-n, 5524, yes, c=1;g=0, c=1;g=0, 0.960, 0.329, 197156, 197156, 109, multi-crossing edges 227/2259; scoops 248; loops 3/4/longer/with scoop/tips 2807/957/0/154/63; failed triangles 0
+plate, 1, 0, mc, 1852, yes, c=1;g=9, c=1;g=0, 0.821, 0.015, 243464, 54872, 11, 
+plate, 1, 0, dc, 1382, yes, c=1;g=9, c=1;g=0, 0.774, 0.458, 233504, 54872, 36, 
+plate, 1, 0, mc/2, 7344, yes, c=1;g=0, c=1;g=0, 0.977, 0.008, 1783480, 62744, 122, 
+plate, 1, 0, mc/4, 29616, yes, c=1;g=0, c=1;g=0, 0.994, 0.004, 13616800, 117848, 832, 
+plate, 1, 0, sub8, 5212, yes, c=1;g=0, c=1;g=0, 0.953, 0.310, 2365402, 2365402, 126, multi-crossing edges 79/2323; scoops 180; loops 3/4/longer/with scoop/tips 2897/861/0/116/53; failed triangles 0
+plate, 1, 0, subtrace, 5284, yes, c=1;g=0, c=1;g=0, 0.956, 0.310, 196551, 196551, 105, multi-crossing edges 86/2330; scoops 202; loops 3/4/longer/with scoop/tips 2908/865/0/127/58; failed triangles 0
+plate, 1, 0, subtrace-n, 5284, yes, c=1;g=0, c=1;g=0, 0.956, 0.310, 196551, 196551, 92, multi-crossing edges 86/2330; scoops 202; loops 3/4/longer/with scoop/tips 2908/865/0/127/58; failed triangles 0
+plate, 1, 1, mc, 2000, yes, c=1;g=24, c=1;g=0, 0.753, 0.014, 244344, 54872, 15, 
+plate, 1, 1, dc, 1566, yes, c=1;g=24, c=1;g=0, 0.678, 0.484, 119744, 54872, 15, 
+plate, 1, 1, mc/2, 7788, yes, c=1;g=0, c=1;g=0, 0.982, 0.008, 1787920, 62752, 101, 
+plate, 1, 1, mc/4, 31516, yes, c=1;g=0, c=1;g=0, 0.995, 0.004, 13635800, 117912, 812, 
+plate, 1, 1, sub8, 5550, yes, c=1;g=0, c=1;g=0, 0.942, 0.453, 2369322, 2369322, 134, multi-crossing edges 119/2381; scoops 254; loops 3/4/longer/with scoop/tips 2944/918/0/150/66; failed triangles 0
+plate, 1, 1, subtrace, 5628, yes, c=1;g=0, c=1;g=0, 0.944, 0.453, 200759, 200759, 109, multi-crossing edges 127/2389; scoops 276; loops 3/4/longer/with scoop/tips 2956/920/0/162/71; failed triangles 0
+plate, 1, 1, subtrace-n, 5628, yes, c=1;g=0, c=1;g=0, 0.944, 0.453, 200759, 200759, 97, multi-crossing edges 127/2389; scoops 276; loops 3/4/longer/with scoop/tips 2956/920/0/162/71; failed triangles 0
+plate, 1, 2, mc, 2156, yes, c=3;g=0,0,30, c=1;g=0, 0.769, 0.013, 245744, 54872, 18, 
+plate, 1, 2, dc, 1810, yes, c=3;g=0,0,30, c=1;g=0, 0.687, 0.429, 249008, 54872, 54, 
+plate, 1, 2, mc/2, 8456, yes, c=1;g=0, c=1;g=0, 0.977, 0.007, 1794600, 62832, 133, 
+plate, 1, 2, mc/4, 34316, yes, c=1;g=0, c=1;g=0, 0.991, 0.003, 13663800, 118552, 770, 
+plate, 1, 2, sub8, 5640, yes, c=1;g=0, c=1;g=0, 0.952, 0.394, 2370762, 2370762, 131, multi-crossing edges 134/2402; scoops 256; loops 3/4/longer/with scoop/tips 2863/979/0/158/66; failed triangles 0
+plate, 1, 2, subtrace, 5770, yes, c=1;g=0, c=1;g=0, 0.956, 0.394, 201999, 201999, 114, multi-crossing edges 144/2412; scoops 296; loops 3/4/longer/with scoop/tips 2877/972/0/183/76; failed triangles 0
+plate, 1, 2, subtrace-n, 5770, yes, c=1;g=0, c=1;g=0, 0.956, 0.394, 201999, 201999, 109, multi-crossing edges 144/2412; scoops 296; loops 3/4/longer/with scoop/tips 2877/972/0/183/76; failed triangles 0
+plate, 1.5, 0, mc, 1896, yes, c=1;g=0, c=1;g=0, 0.896, 0.015, 244264, 54872, 19, 
+plate, 1.5, 0, dc, 552, yes, c=1;g=0, c=1;g=0, 0.997, 0.076, 119472, 54872, 16, 
+plate, 1.5, 0, mc/2, 7708, yes, c=1;g=0, c=1;g=0, 0.979, 0.008, 1787120, 64248, 133, 
+plate, 1.5, 0, mc/4, 31136, yes, c=1;g=0, c=1;g=0, 0.994, 0.004, 13631980, 129880, 819, 
+plate, 1.5, 0, sub8, 5484, yes, c=1;g=0, c=1;g=0, 0.957, 0.308, 2369882, 2369882, 118, multi-crossing edges 42/2472; scoops 200; loops 3/4/longer/with scoop/tips 3028/896/0/130/58; failed triangles 0
+plate, 1.5, 0, subtrace, 5548, yes, c=1;g=0, c=1;g=0, 0.957, 0.308, 204289, 204289, 101, multi-crossing edges 48/2478; scoops 220; loops 3/4/longer/with scoop/tips 3036/898/0/140/62; failed triangles 0
+plate, 1.5, 0, subtrace-n, 5548, yes, c=1;g=0, c=1;g=0, 0.957, 0.308, 204289, 204289, 101, multi-crossing edges 48/2478; scoops 220; loops 3/4/longer/with scoop/tips 3036/898/0/140/62; failed triangles 0
+plate, 1.5, 1, mc, 1996, yes, c=1;g=0, c=1;g=0, 0.905, 0.015, 245264, 54872, 13, 
+plate, 1.5, 1, dc, 670, yes, c=1;g=0, c=1;g=0, 0.996, 0.188, 122872, 54872, 19, 
+plate, 1.5, 1, mc/2, 8152, yes, c=1;g=0, c=1;g=0, 0.982, 0.008, 1791560, 64272, 104, 
+plate, 1.5, 1, mc/4, 33000, yes, c=1;g=0, c=1;g=0, 0.995, 0.004, 13650640, 130072, 823, 
+plate, 1.5, 1, sub8, 5808, yes, c=1;g=0, c=1;g=0, 0.950, 0.328, 2374122, 2374122, 104, multi-crossing edges 64/2556; scoops 260; loops 3/4/longer/with scoop/tips 3086/960/0/156/67; failed triangles 0
+plate, 1.5, 1, subtrace, 5906, yes, c=1;g=0, c=1;g=0, 0.953, 0.328, 208682, 208682, 80, multi-crossing edges 70/2562; scoops 292; loops 3/4/longer/with scoop/tips 3096/951/0/177/77; failed triangles 0
+plate, 1.5, 1, subtrace-n, 5906, yes, c=1;g=0, c=1;g=0, 0.953, 0.328, 208682, 208682, 95, multi-crossing edges 70/2562; scoops 292; loops 3/4/longer/with scoop/tips 3096/951/0/177/77; failed triangles 0
+plate, 1.5, 2, mc, 2180, yes, c=1;g=0, c=1;g=0, 0.886, 0.013, 247104, 54872, 16, 
+plate, 1.5, 2, dc, 956, yes, c=1;g=0, c=1;g=0, 0.994, 0.205, 129128, 54872, 30, 
+plate, 1.5, 2, mc/2, 8924, yes, c=1;g=0, c=1;g=0, 0.981, 0.007, 1799280, 64272, 86, 
+plate, 1.5, 2, mc/4, 36128, yes, c=1;g=0, c=1;g=0, 0.994, 0.003, 13681920, 130072, 704, 
+plate, 1.5, 2, sub8, 5790, yes, c=1;g=0, c=1;g=0, 0.963, 0.523, 2375882, 2375882, 128, multi-crossing edges 53/2611; scoops 204; loops 3/4/longer/with scoop/tips 3002/1051/0/131/50; failed triangles 0
+plate, 1.5, 2, subtrace, 5864, yes, c=1;g=0, c=1;g=0, 0.964, 0.523, 209949, 209949, 90, multi-crossing edges 58/2616; scoops 228; loops 3/4/longer/with scoop/tips 3006/1048/0/146/57; failed triangles 0
+plate, 1.5, 2, subtrace-n, 5864, yes, c=1;g=0, c=1;g=0, 0.964, 0.523, 209949, 209949, 83, multi-crossing edges 58/2616; scoops 228; loops 3/4/longer/with scoop/tips 3006/1048/0/146/57; failed triangles 0
+shell, 0.25, 0, mc, 2980, yes, c=257;genus sum 0, c=2;g=0,0, 0.116, 0.015, 265344, 54872, 10, 
+shell, 0.25, 0, dc, 110, yes, c=7;genus sum 0, c=2;g=0,0, 0.020, 0.155, 191144, 54872, 37, 
+shell, 0.25, 0, mc/2, 24552, degenerate triangles, c=1045;genus sum 8, c=2;g=0,0, 0.512, 0.008, 1996900, 79856, 78, 
+shell, 0.25, 0, mc/4, 161200, degenerate triangles, c=24;genus sum 2504, c=2;g=0,0, 0.862, 0.004, 14833360, 254744, 630, 
+shell, 0.25, 0, sub8, 22848, yes, c=1;g=2, c=2;g=0,0, 1.000, 0.270, 2725322, 2725322, 119, multi-crossing edges 3673/7727; scoops 14; loops 3/4/longer/with scoop/tips 13362/4697/4/11/3; failed triangles 0
+shell, 0.25, 0, subtrace, 22852, yes, c=1;g=2, c=2;g=0,0, 1.000, 0.270, 685627, 685627, 109, multi-crossing edges 3674/7728; scoops 14; loops 3/4/longer/with scoop/tips 13366/4697/4/11/3; failed triangles 0
+shell, 0.25, 0, subtrace-n, 22852, yes, c=1;g=2, c=2;g=0,0, 1.000, 0.270, 685627, 685627, 146, multi-crossing edges 3674/7728; scoops 14; loops 3/4/longer/with scoop/tips 13366/4697/4/11/3; failed triangles 0
+shell, 0.25, 0, sub2level, 22768, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.022, 54872, 54872, 147, multi-crossing edges 3667/7721; scoops 0; loops 3/4/longer/with scoop/tips 13356/4706/0/0/0; failed triangles 0
+shell, 0.25, 1, mc, 3188, yes, c=243;genus sum 2, c=2;g=0,0, 0.149, 0.015, 266784, 54872, 14, 
+shell, 0.25, 1, dc, 442, inside-out components, c=13;genus sum 2, c=2;g=0,0, 0.067, 8.293, 196040, 54872, 45, 
+shell, 0.25, 1, mc/2, 24216, yes, c=1054;genus sum 11, c=2;g=0,0, 0.528, 0.008, 1993880, 79920, 79, 
+shell, 0.25, 1, mc/4, 161208, yes, c=39;genus sum 2497, c=2;g=0,0, 0.854, 0.004, 14834360, 255256, 605, 
+shell, 0.25, 1, sub8, 22932, yes, c=1;g=4, c=2;g=0,0, 1.000, 0.473, 2726522, 2726522, 120, multi-crossing edges 3544/7886; scoops 18; loops 3/4/longer/with scoop/tips 13386/4707/7/14/4; failed triangles 0
+shell, 0.25, 1, subtrace, 22946, yes, c=1;g=4, c=2;g=0,0, 0.999, 0.473, 690329, 690329, 104, multi-crossing edges 3545/7887; scoops 22; loops 3/4/longer/with scoop/tips 13386/4706/7/17/5; failed triangles 0
+shell, 0.25, 1, subtrace-n, 22946, yes, c=1;g=4, c=2;g=0,0, 0.999, 0.473, 690329, 690329, 105, multi-crossing edges 3545/7887; scoops 22; loops 3/4/longer/with scoop/tips 13386/4706/7/17/5; failed triangles 0
+shell, 0.25, 1, sub2level, 22824, degenerate triangles, c=2;g=0,0, c=2;g=0,0, 1.000, 0.023, 54872, 54872, 111, multi-crossing edges 3537/7879; scoops 0; loops 3/4/longer/with scoop/tips 13380/4722/0/0/0; failed triangles 0
+shell, 0.25, 2, mc, 3216, yes, c=264;genus sum 0, c=2;g=0,0, 0.144, 0.015, 267984, 54872, 10, 
+shell, 0.25, 2, dc, 356, yes, c=15;genus sum 0, c=2;g=0,0, 0.036, 0.192, 200120, 54872, 68, 
+shell, 0.25, 2, mc/2, 24144, yes, c=1063;genus sum 6, c=2;g=0,0, 0.508, 0.008, 1993720, 79960, 81, 
+shell, 0.25, 2, mc/4, 161228, yes, c=12;genus sum 2490, c=2;g=0,0, 0.851, 0.004, 14833760, 255576, 541, 
+shell, 0.25, 2, sub8, 22888, yes, c=1;g=2, c=2;g=0,0, 1.000, 0.118, 2726682, 2726682, 112, multi-crossing edges 3540/7894; scoops 2; loops 3/4/longer/with scoop/tips 13418/4709/5/2/0; failed triangles 0
+shell, 0.25, 2, subtrace, 22888, yes, c=1;g=2, c=2;g=0,0, 1.000, 0.118, 688920, 688920, 101, multi-crossing edges 3540/7894; scoops 2; loops 3/4/longer/with scoop/tips 13418/4709/5/2/0; failed triangles 0
+shell, 0.25, 2, subtrace-n, 22888, yes, c=1;g=2, c=2;g=0,0, 1.000, 0.118, 688920, 688920, 105, multi-crossing edges 3540/7894; scoops 2; loops 3/4/longer/with scoop/tips 13418/4709/5/2/0; failed triangles 0
+shell, 0.25, 2, sub2level, 22848, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.022, 54872, 54872, 118, multi-crossing edges 3537/7891; scoops 0; loops 3/4/longer/with scoop/tips 13412/4718/0/0/0; failed triangles 0
+shell, 0.5, 0, mc, 5980, yes, c=269;genus sum 5, c=2;g=0,0, 0.366, 0.015, 295624, 54872, 11, 
+shell, 0.5, 0, dc, 6594, yes, c=267;genus sum 5, c=2;g=0,0, 0.284, 0.245, 588192, 54872, 153, 
+shell, 0.5, 0, mc/2, 40352, yes, c=13;genus sum 622, c=2;g=0,0, 0.852, 0.008, 2089160, 83296, 63, 
+shell, 0.5, 0, mc/4, 151472, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.004, 14835400, 282264, 601, 
+shell, 0.5, 0, sub8, 22934, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.500, 2727402, 2727402, 139, multi-crossing edges 2072/9380; scoops 16; loops 3/4/longer/with scoop/tips 13424/4727/0/11/5; failed triangles 0
+shell, 0.5, 0, subtrace, 22934, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.500, 704062, 704062, 118, multi-crossing edges 2072/9380; scoops 16; loops 3/4/longer/with scoop/tips 13424/4727/0/11/5; failed triangles 0
+shell, 0.5, 0, subtrace-n, 22934, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.500, 704062, 704062, 145, multi-crossing edges 2072/9380; scoops 16; loops 3/4/longer/with scoop/tips 13424/4727/0/11/5; failed triangles 0
+shell, 0.5, 0, sub2level, 22884, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.023, 54872, 54872, 114, multi-crossing edges 2069/9377; scoops 0; loops 3/4/longer/with scoop/tips 13420/4732/0/0/0; failed triangles 0
+shell, 0.5, 1, mc, 6180, degenerate triangles, c=256;genus sum 3, c=2;g=0,0, 0.383, 0.015, 297104, 54872, 11, 
+shell, 0.5, 1, dc, 6582, yes, c=251;genus sum 3, c=2;g=0,0, 0.302, 0.245, 598800, 54872, 101, 
+shell, 0.5, 1, mc/2, 40228, yes, c=7;genus sum 623, c=2;g=0,0, 0.876, 0.008, 2087600, 83064, 81, 
+shell, 0.5, 1, mc/4, 151416, degenerate triangles, c=2;g=0,0, c=2;g=0,0, 1.000, 0.004, 14834780, 280408, 641, 
+shell, 0.5, 1, sub8, 22892, degenerate triangles, c=1;g=3, c=2;g=0,0, 1.000, 0.258, 2725802, 2725802, 117, multi-crossing edges 1857/9555; scoops 20; loops 3/4/longer/with scoop/tips 13388/4692/3/17/3; failed triangles 0
+shell, 0.5, 1, subtrace, 22892, degenerate triangles, c=1;g=3, c=2;g=0,0, 1.000, 0.258, 701171, 701171, 122, multi-crossing edges 1857/9555; scoops 20; loops 3/4/longer/with scoop/tips 13388/4692/3/17/3; failed triangles 0
+shell, 0.5, 1, subtrace-n, 22892, degenerate triangles, c=1;g=3, c=2;g=0,0, 1.000, 0.258, 701171, 701171, 107, multi-crossing edges 1857/9555; scoops 20; loops 3/4/longer/with scoop/tips 13388/4692/3/17/3; failed triangles 0
+shell, 0.5, 1, sub2level, 22792, degenerate triangles, c=2;g=0,0, c=2;g=0,0, 1.000, 0.023, 54872, 54872, 116, multi-crossing edges 1851/9549; scoops 0; loops 3/4/longer/with scoop/tips 13388/4702/0/0/0; failed triangles 0
+shell, 0.5, 2, mc, 6080, yes, c=266;genus sum 4, c=2;g=0,0, 0.388, 0.015, 296544, 54872, 12, 
+shell, 0.5, 2, dc, 6708, yes, c=265;genus sum 4, c=2;g=0,0, 0.297, 0.246, 594448, 54872, 107, 
+shell, 0.5, 2, mc/2, 40248, yes, c=7;genus sum 595, c=2;g=0,0, 0.862, 0.008, 2088960, 82992, 97, 
+shell, 0.5, 2, mc/4, 151484, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.004, 14835460, 279832, 608, 
+shell, 0.5, 2, sub8, 22942, yes, c=1;g=3, c=2;g=0,0, 1.000, 0.374, 2726522, 2726522, 130, multi-crossing edges 1953/9477; scoops 26; loops 3/4/longer/with scoop/tips 13374/4714/4/20/6; failed triangles 0
+shell, 0.5, 2, subtrace, 22942, yes, c=1;g=3, c=2;g=0,0, 1.000, 0.374, 703329, 703329, 107, multi-crossing edges 1953/9477; scoops 26; loops 3/4/longer/with scoop/tips 13374/4714/4/20/6; failed triangles 0
+shell, 0.5, 2, subtrace-n, 22942, yes, c=1;g=3, c=2;g=0,0, 1.000, 0.374, 703329, 703329, 130, multi-crossing edges 1953/9477; scoops 26; loops 3/4/longer/with scoop/tips 13374/4714/4/20/6; failed triangles 0
+shell, 0.5, 2, sub2level, 22824, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.023, 54872, 54872, 102, multi-crossing edges 1946/9470; scoops 0; loops 3/4/longer/with scoop/tips 13368/4728/0/0/0; failed triangles 0
+shell, 0.75, 0, mc, 8504, yes, c=92;genus sum 12, c=2;g=0,0, 0.681, 0.015, 313504, 54872, 16, 
+shell, 0.75, 0, dc, 7890, yes, c=92;genus sum 12, c=2;g=0,0, 0.481, 0.366, 709776, 54872, 186, 
+shell, 0.75, 0, mc/2, 37868, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.008, 2088760, 86528, 98, 
+shell, 0.75, 0, mc/4, 151424, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.004, 14834920, 308120, 576, 
+shell, 0.75, 0, sub8, 22972, yes, c=1;g=1, c=2;g=0,0, 1.000, 0.433, 2726842, 2726842, 115, multi-crossing edges 935/10503; scoops 40; loops 3/4/longer/with scoop/tips 13391/4715/0/28/10; failed triangles 0
+shell, 0.75, 0, subtrace, 22972, yes, c=1;g=1, c=2;g=0,0, 1.000, 0.433, 713171, 713171, 103, multi-crossing edges 935/10503; scoops 40; loops 3/4/longer/with scoop/tips 13391/4715/0/28/10; failed triangles 0
+shell, 0.75, 0, subtrace-n, 22972, yes, c=1;g=1, c=2;g=0,0, 1.000, 0.433, 713171, 713171, 122, multi-crossing edges 935/10503; scoops 40; loops 3/4/longer/with scoop/tips 13391/4715/0/28/10; failed triangles 0
+shell, 0.75, 0, sub2level, 22836, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.023, 54872, 54872, 108, multi-crossing edges 927/10495; scoops 0; loops 3/4/longer/with scoop/tips 13384/4726/0/0/0; failed triangles 0
+shell, 0.75, 1, mc, 8560, yes, c=81;genus sum 11, c=2;g=0,0, 0.678, 0.015, 313664, 54872, 16, 
+shell, 0.75, 1, dc, 7854, yes, c=81;genus sum 11, c=2;g=0,0, 0.491, 0.365, 710864, 54872, 173, 
+shell, 0.75, 1, mc/2, 37836, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.008, 2088440, 86184, 103, 
+shell, 0.75, 1, mc/4, 151456, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.004, 14835240, 305368, 605, 
+shell, 0.75, 1, sub8, 22880, yes, c=1;g=2, c=2;g=0,0, 1.000, 0.375, 2725562, 2725562, 122, multi-crossing edges 861/10545; scoops 24; loops 3/4/longer/with scoop/tips 13392/4688/0/20/4; failed triangles 0
+shell, 0.75, 1, subtrace, 22898, yes, c=1;g=2, c=2;g=0,0, 1.000, 0.375, 707396, 707396, 108, multi-crossing edges 862/10546; scoops 30; loops 3/4/longer/with scoop/tips 13394/4686/0/24/6; failed triangles 0
+shell, 0.75, 1, subtrace-n, 22898, yes, c=1;g=2, c=2;g=0,0, 1.000, 0.375, 707396, 707396, 121, multi-crossing edges 862/10546; scoops 30; loops 3/4/longer/with scoop/tips 13394/4686/0/24/6; failed triangles 0
+shell, 0.75, 1, sub2level, 22784, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.023, 54872, 54872, 119, multi-crossing edges 856/10540; scoops 0; loops 3/4/longer/with scoop/tips 13388/4698/0/0/0; failed triangles 0
+shell, 0.75, 2, mc, 8512, yes, c=98;genus sum 9, c=2;g=0,0, 0.688, 0.015, 313944, 54872, 11, 
+shell, 0.75, 2, dc, 7968, yes, c=98;genus sum 9, c=2;g=0,0, 0.485, 0.365, 712768, 54872, 148, 
+shell, 0.75, 2, mc/2, 37836, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.008, 2088440, 86256, 87, 
+shell, 0.75, 2, mc/4, 151436, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.004, 14835040, 305944, 449, 
+shell, 0.75, 2, sub8, 22842, yes, c=1;g=0, c=2;g=0,0, 1.000, 0.409, 2725802, 2725802, 122, multi-crossing edges 856/10556; scoops 8; loops 3/4/longer/with scoop/tips 13388/4707/1/6/2; failed triangles 0
+shell, 0.75, 2, subtrace, 22860, yes, c=1;g=0, c=2;g=0,0, 1.000, 0.409, 708576, 708576, 109, multi-crossing edges 857/10557; scoops 14; loops 3/4/longer/with scoop/tips 13390/4705/1/10/4; failed triangles 0
+shell, 0.75, 2, subtrace-n, 22860, yes, c=1;g=0, c=2;g=0,0, 1.000, 0.409, 708576, 708576, 108, multi-crossing edges 857/10557; scoops 14; loops 3/4/longer/with scoop/tips 13390/4705/1/10/4; failed triangles 0
+shell, 0.75, 2, sub2level, 22808, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.023, 54872, 54872, 98, multi-crossing edges 854/10554; scoops 0; loops 3/4/longer/with scoop/tips 13388/4710/0/0/0; failed triangles 0
+shell, 1, 0, mc, 10116, yes, c=3;g=0,0,158, c=2;g=0,0, 0.866, 0.015, 320224, 54872, 17, 
+shell, 1, 0, dc, 8094, yes, c=3;g=0,0,158, c=2;g=0,0, 0.755, 0.500, 377736, 54872, 70, 
+shell, 1, 0, mc/2, 37864, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.008, 2088720, 89672, 99, 
+shell, 1, 0, mc/4, 151640, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.004, 14837080, 333272, 634, 
+shell, 1, 0, sub8, 22996, yes, c=1;g=3, c=2;g=0,0, 1.000, 0.492, 2727562, 2727562, 131, multi-crossing edges 281/11175; scoops 28; loops 3/4/longer/with scoop/tips 13412/4724/1/23/5; failed triangles 0
+shell, 1, 0, subtrace, 22996, yes, c=1;g=3, c=2;g=0,0, 1.000, 0.492, 718560, 718560, 134, multi-crossing edges 281/11175; scoops 28; loops 3/4/longer/with scoop/tips 13412/4724/1/23/5; failed triangles 0
+shell, 1, 0, subtrace-n, 22996, yes, c=1;g=3, c=2;g=0,0, 1.000, 0.492, 718560, 718560, 170, multi-crossing edges 281/11175; scoops 28; loops 3/4/longer/with scoop/tips 13412/4724/1/23/5; failed triangles 0
+shell, 1, 0, sub2level, 22880, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.023, 54872, 54872, 129, multi-crossing edges 275/11169; scoops 0; loops 3/4/longer/with scoop/tips 13408/4736/0/0/0; failed triangles 0
+shell, 1, 1, mc, 10044, yes, c=4;g=0,0,0,147, c=2;g=0,0, 0.861, 0.015, 319984, 54872, 20, 
+shell, 1, 1, dc, 7954, yes, c=4;g=0,0,0,147, c=2;g=0,0, 0.747, 1.470, 376920, 54872, 115, 
+shell, 1, 1, mc/2, 37984, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.008, 2089900, 89360, 69, 
+shell, 1, 1, mc/4, 151608, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.004, 14836760, 330776, 605, 
+shell, 1, 1, sub8, 22952, yes, c=1;g=1, c=2;g=0,0, 1.000, 0.500, 2726282, 2726282, 119, multi-crossing edges 295/11129; scoops 42; loops 3/4/longer/with scoop/tips 13370/4709/0/31/11; failed triangles 0
+shell, 1, 1, subtrace, 22952, yes, c=1;g=1, c=2;g=0,0, 1.000, 0.500, 713321, 713321, 149, multi-crossing edges 295/11129; scoops 42; loops 3/4/longer/with scoop/tips 13370/4709/0/31/11; failed triangles 0
+shell, 1, 1, subtrace-n, 22952, yes, c=1;g=1, c=2;g=0,0, 1.000, 0.500, 713321, 713321, 116, multi-crossing edges 295/11129; scoops 42; loops 3/4/longer/with scoop/tips 13370/4709/0/31/11; failed triangles 0
+shell, 1, 1, sub2level, 22808, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.023, 54872, 54872, 114, multi-crossing edges 287/11121; scoops 0; loops 3/4/longer/with scoop/tips 13360/4724/0/0/0; failed triangles 0
+shell, 1, 2, mc, 10056, yes, c=6;genus sum 153, c=2;g=0,0, 0.861, 0.015, 319944, 54872, 14, 
+shell, 1, 2, dc, 8040, yes, c=6;genus sum 153, c=2;g=0,0, 0.757, 0.500, 376784, 54872, 115, 
+shell, 1, 2, mc/2, 37884, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.008, 2088920, 89536, 87, 
+shell, 1, 2, mc/4, 151676, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.004, 14837440, 332184, 561, 
+shell, 1, 2, sub8, 22948, degenerate triangles, c=1;g=3, c=2;g=0,0, 1.000, 0.524, 2726042, 2726042, 160, multi-crossing edges 267/11151; scoops 40; loops 3/4/longer/with scoop/tips 13356/4708/0/32/8; failed triangles 0
+shell, 1, 2, subtrace, 22948, degenerate triangles, c=1;g=3, c=2;g=0,0, 1.000, 0.524, 713644, 713644, 138, multi-crossing edges 267/11151; scoops 40; loops 3/4/longer/with scoop/tips 13356/4708/0/32/8; failed triangles 0
+shell, 1, 2, subtrace-n, 22948, degenerate triangles, c=1;g=3, c=2;g=0,0, 1.000, 0.524, 713644, 713644, 123, multi-crossing edges 267/11151; scoops 40; loops 3/4/longer/with scoop/tips 13356/4708/0/32/8; failed triangles 0
+shell, 1, 2, sub2level, 22796, degenerate triangles, c=2;g=0,0, c=2;g=0,0, 1.000, 0.023, 54872, 54872, 150, multi-crossing edges 259/11143; scoops 0; loops 3/4/longer/with scoop/tips 13352/4722/0/0/0; failed triangles 0
+shell, 1.5, 0, mc, 9492, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.015, 320264, 54872, 17, 
+shell, 1.5, 0, dc, 1284, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.208, 377872, 54872, 36, 
+shell, 1.5, 0, mc/2, 38028, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.008, 2090360, 95696, 92, 
+shell, 1.5, 0, mc/4, 152016, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.004, 14840840, 381464, 498, 
+shell, 1.5, 0, sub8, 23048, yes, c=2;g=0,0, c=2;g=0,0, 0.999, 0.571, 2728442, 2728442, 130, multi-crossing edges 8/11470; scoops 42; loops 3/4/longer/with scoop/tips 13450/4725/0/29/13; failed triangles 0
+shell, 1.5, 0, subtrace, 23048, yes, c=2;g=0,0, c=2;g=0,0, 0.999, 0.571, 724646, 724646, 138, multi-crossing edges 8/11470; scoops 42; loops 3/4/longer/with scoop/tips 13450/4725/0/29/13; failed triangles 0
+shell, 1.5, 0, subtrace-n, 23048, yes, c=2;g=0,0, c=2;g=0,0, 0.999, 0.571, 724646, 724646, 127, multi-crossing edges 8/11470; scoops 42; loops 3/4/longer/with scoop/tips 13450/4725/0/29/13; failed triangles 0
+shell, 1.5, 0, sub2level, 22916, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.024, 54872, 54872, 112, multi-crossing edges 0/11462; scoops 0; loops 3/4/longer/with scoop/tips 13440/4738/0/0/0; failed triangles 0
+shell, 1.5, 1, mc, 9484, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.015, 320184, 54872, 15, 
+shell, 1.5, 1, dc, 1282, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.213, 377600, 54872, 56, 
+shell, 1.5, 1, mc/2, 37904, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.008, 2089120, 96032, 88, 
+shell, 1.5, 1, mc/4, 151968, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.004, 14840360, 384152, 633, 
+shell, 1.5, 1, sub8, 23018, degenerate triangles, c=2;g=0,0, c=2;g=0,0, 1.000, 0.316, 2727962, 2727962, 135, multi-crossing edges 7/11459; scoops 40; loops 3/4/longer/with scoop/tips 13436/4723/0/27/13; failed triangles 0
+shell, 1.5, 1, subtrace, 23018, degenerate triangles, c=2;g=0,0, c=2;g=0,0, 1.000, 0.316, 723908, 723908, 118, multi-crossing edges 7/11459; scoops 40; loops 3/4/longer/with scoop/tips 13436/4723/0/27/13; failed triangles 0
+shell, 1.5, 1, subtrace-n, 23018, degenerate triangles, c=2;g=0,0, c=2;g=0,0, 1.000, 0.316, 723908, 723908, 134, multi-crossing edges 7/11459; scoops 40; loops 3/4/longer/with scoop/tips 13436/4723/0/27/13; failed triangles 0
+shell, 1.5, 1, sub2level, 22896, degenerate triangles, c=2;g=0,0, c=2;g=0,0, 1.000, 0.024, 54872, 54872, 102, multi-crossing edges 0/11452; scoops 0; loops 3/4/longer/with scoop/tips 13428/4734/0/0/0; failed triangles 0
+shell, 1.5, 2, mc, 9516, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.015, 320504, 54872, 15, 
+shell, 1.5, 2, dc, 1234, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.230, 378688, 54872, 33, 
+shell, 1.5, 2, mc/2, 38076, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.008, 2090800, 96016, 64, 
+shell, 1.5, 2, mc/4, 152056, degenerate triangles, c=2;g=0,0, c=2;g=0,0, 1.000, 0.004, 14841180, 384024, 573, 
+shell, 1.5, 2, sub8, 22970, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.369, 2728602, 2728602, 127, multi-crossing edges 1/11481; scoops 6; loops 3/4/longer/with scoop/tips 13454/4748/0/4/2; failed triangles 0
+shell, 1.5, 2, subtrace, 22970, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.369, 724833, 724833, 114, multi-crossing edges 1/11481; scoops 6; loops 3/4/longer/with scoop/tips 13454/4748/0/4/2; failed triangles 0
+shell, 1.5, 2, subtrace-n, 22970, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.369, 724833, 724833, 126, multi-crossing edges 1/11481; scoops 6; loops 3/4/longer/with scoop/tips 13454/4748/0/4/2; failed triangles 0
+shell, 1.5, 2, sub2level, 22952, yes, c=2;g=0,0, c=2;g=0,0, 1.000, 0.024, 54872, 54872, 133, multi-crossing edges 0/11480; scoops 0; loops 3/4/longer/with scoop/tips 13452/4750/0/0/0; failed triangles 0
+gyroid, 0.25, 0, mc, 2392, yes, c=247;genus sum 0, c=60;genus sum 3012 (x8), 0.054, 0.015, 259064, 54872, 22, 
+gyroid, 0.25, 0, dc, 84, yes, c=8;genus sum 0, c=60;genus sum 3012 (x8), 0.005, 0.725, 169792, 54872, 24, 
+gyroid, 0.25, 0, mc/2, 17544, yes, c=1399;genus sum 0, c=60;genus sum 3012 (x8), 0.288, 0.008, 1941400, 119728, 151, 
+gyroid, 0.25, 0, mc/4, 134536, degenerate triangles, c=4477;genus sum 0, c=60;genus sum 3012 (x8), 0.645, 0.004, 14844960, 573720, 1073, 
+gyroid, 0.25, 0, sub8, 29904, yes, c=1;g=52, c=60;genus sum 3012 (x8), 0.894, 0.636, 2769722, 2769722, 400, multi-crossing edges 4616/7894; scoops 2254; loops 3/4/longer/with scoop/tips 13561/4834/18/1195/431; failed triangles 0
+gyroid, 0.25, 0, subtrace, 29480, yes, c=1;g=26, c=60;genus sum 3012 (x8), 0.911, 0.636, 910671, 910671, 202, multi-crossing edges 4709/7987; scoops 1922; loops 3/4/longer/with scoop/tips 14007/4948/19/1014/425; failed triangles 0
+gyroid, 0.25, 0, subtrace-n, 29480, yes, c=1;g=26, c=60;genus sum 3012 (x8), 0.911, 0.636, 910671, 910671, 212, multi-crossing edges 4709/7987; scoops 1922; loops 3/4/longer/with scoop/tips 14007/4948/19/1014/425; failed triangles 0
+gyroid, 0.25, 0, sub2level, 29128, yes, c=1;g=16, c=60;genus sum 3012 (x8), 0.903, 0.377, 54872, 54872, 137, multi-crossing edges 4675/7953; scoops 1864; loops 3/4/longer/with scoop/tips 13928/4994/0/974/408; failed triangles 0
+gyroid, 0.25, 1, mc, 2360, yes, c=229;genus sum 0, c=138;genus sum 3995 (x8, not clean), 0.059, 0.015, 258024, 54872, 19, 
+gyroid, 0.25, 1, dc, 112, yes, c=4;g=0,0,0,0, c=138;genus sum 3995 (x8, not clean), 0.009, 1.852, 166256, 54872, 23, 
+gyroid, 0.25, 1, mc/2, 17668, yes, c=1285;genus sum 0, c=138;genus sum 3995 (x8, not clean), 0.296, 0.008, 1938080, 119624, 142, 
+gyroid, 0.25, 1, mc/4, 134564, yes, c=3377;genus sum 0, c=138;genus sum 3995 (x8, not clean), 0.661, 0.004, 14801320, 572888, 1091, 
+gyroid, 0.25, 1, sub8, 29570, yes, c=2;g=0,55, c=138;genus sum 3995 (x8, not clean), 0.901, 0.485, 2766682, 2766682, 428, multi-crossing edges 4577/7856; scoops 2148; loops 3/4/longer/with scoop/tips 13636/4731/24/1147/394; failed triangles 0
+gyroid, 0.25, 1, subtrace, 29240, yes, c=1;g=29, c=138;genus sum 3995 (x8, not clean), 0.917, 0.485, 902513, 902513, 203, multi-crossing edges 4670/7949; scoops 1856; loops 3/4/longer/with scoop/tips 14081/4817/26/990/402; failed triangles 0
+gyroid, 0.25, 1, subtrace-n, 29240, yes, c=1;g=29, c=138;genus sum 3995 (x8, not clean), 0.917, 0.485, 902513, 902513, 219, multi-crossing edges 4670/7949; scoops 1856; loops 3/4/longer/with scoop/tips 14081/4817/26/990/402; failed triangles 0
+gyroid, 0.25, 1, sub2level, 28990, yes, c=1;g=16, c=138;genus sum 3995 (x8, not clean), 0.914, 0.382, 54872, 54872, 144, multi-crossing edges 4647/7927; scoops 1840; loops 3/4/longer/with scoop/tips 14004/4891/0/971/398; failed triangles 0
+gyroid, 0.25, 2, mc, 2180, yes, c=206;genus sum 0, c=76;genus sum 1910 (x8, not clean), 0.065, 0.015, 255304, 54872, 21, 
+gyroid, 0.25, 2, dc, 62, yes, c=4;g=0,0,0,0, c=76;genus sum 1910 (x8, not clean), 0.006, 0.192, 157008, 54872, 20, 
+gyroid, 0.25, 2, mc/2, 17552, yes, c=1141;genus sum 0, c=76;genus sum 1910 (x8, not clean), 0.310, 0.008, 1931160, 119496, 139, 
+gyroid, 0.25, 2, mc/4, 131128, yes, c=2970;genus sum 0, c=76;genus sum 1910 (x8, not clean), 0.665, 0.004, 14750680, 571864, 1065, 
+gyroid, 0.25, 2, sub8, 29206, yes, c=1;g=48, c=76;genus sum 1910 (x8, not clean), 0.890, 0.374, 2762042, 2762042, 422, multi-crossing edges 4627/7690; scoops 2090; loops 3/4/longer/with scoop/tips 13644/4640/23/1123/406; failed triangles 0
+gyroid, 0.25, 2, subtrace, 29130, yes, c=1;g=31, c=76;genus sum 1910 (x8, not clean), 0.909, 0.374, 898966, 898966, 214, multi-crossing edges 4718/7780; scoops 1914; loops 3/4/longer/with scoop/tips 14013/4715/24/1024/407; failed triangles 0
+gyroid, 0.25, 2, subtrace-n, 29130, yes, c=1;g=31, c=76;genus sum 1910 (x8, not clean), 0.909, 0.374, 898966, 898966, 215, multi-crossing edges 4718/7780; scoops 1914; loops 3/4/longer/with scoop/tips 14013/4715/24/1024/407; failed triangles 0
+gyroid, 0.25, 2, sub2level, 28730, yes, c=1;g=16, c=76;genus sum 1910 (x8, not clean), 0.906, 0.372, 54872, 54872, 136, multi-crossing edges 4687/7751; scoops 1844; loops 3/4/longer/with scoop/tips 13956/4773/0/975/386; failed triangles 0
+gyroid, 0.5, 0, mc, 4756, yes, c=391;genus sum 0, c=38;genus sum 30 (x8, not clean), 0.172, 0.015, 288464, 54872, 22, 
+gyroid, 0.5, 0, dc, 1742, yes, c=110;genus sum 0, c=38;genus sum 30 (x8, not clean), 0.084, 0.707, 539504, 54872, 101, 
+gyroid, 0.5, 0, mc/2, 33980, yes, c=1128;genus sum 0, c=38;genus sum 30 (x8, not clean), 0.623, 0.008, 2094920, 123488, 156, 
+gyroid, 0.5, 0, mc/4, 174852, yes, c=32;genus sum 711, c=38;genus sum 30 (x8, not clean), 0.954, 0.004, 15041860, 603800, 1090, 
+gyroid, 0.5, 0, sub8, 29210, yes, c=1;g=32, c=38;genus sum 30 (x8, not clean), 0.923, 0.629, 2782202, 2782202, 419, multi-crossing edges 3234/9588; scoops 1602; loops 3/4/longer/with scoop/tips 14217/5009/24/896/357; failed triangles 0
+gyroid, 0.5, 0, subtrace, 29508, yes, c=1;g=32, c=38;genus sum 30 (x8, not clean), 0.933, 0.629, 952340, 952340, 249, multi-crossing edges 3284/9638; scoops 1652; loops 3/4/longer/with scoop/tips 14320/5050/24/920/370; failed triangles 0
+gyroid, 0.5, 0, subtrace-n, 29508, yes, c=1;g=32, c=38;genus sum 30 (x8, not clean), 0.933, 0.629, 952340, 952340, 269, multi-crossing edges 3284/9638; scoops 1652; loops 3/4/longer/with scoop/tips 14320/5050/24/920/370; failed triangles 0
+gyroid, 0.5, 0, sub2level, 29096, yes, c=1;g=16, c=38;genus sum 30 (x8, not clean), 0.935, 0.531, 54872, 54872, 134, multi-crossing edges 3253/9607; scoops 1578; loops 3/4/longer/with scoop/tips 14245/5112/0/869/350; failed triangles 0
+gyroid, 0.5, 1, mc, 4520, yes, c=331;genus sum 0, c=89;genus sum 33 (x8), 0.171, 0.015, 283704, 54872, 22, 
+gyroid, 0.5, 1, dc, 2108, inside-out components, c=141;genus sum 0, c=89;genus sum 33 (x8), 0.105, 2.946, 507136, 54872, 113, 
+gyroid, 0.5, 1, mc/2, 33572, yes, c=886;genus sum 1, c=89;genus sum 33 (x8), 0.617, 0.008, 2081120, 123312, 144, 
+gyroid, 0.5, 1, mc/4, 173032, yes, c=61;genus sum 948, c=89;genus sum 33 (x8), 0.953, 0.004, 15015440, 602392, 1057, 
+gyroid, 0.5, 1, sub8, 29368, yes, c=1;g=29, c=89;genus sum 33 (x8), 0.925, 0.560, 2779882, 2779882, 473, multi-crossing edges 3428/9336; scoops 1736; loops 3/4/longer/with scoop/tips 14236/4894/18/978/398; failed triangles 0
+gyroid, 0.5, 1, subtrace, 29698, yes, c=1;g=29, c=89;genus sum 33 (x8), 0.934, 0.560, 949903, 949903, 221, multi-crossing edges 3503/9411; scoops 1756; loops 3/4/longer/with scoop/tips 14421/4958/18/983/402; failed triangles 0
+gyroid, 0.5, 1, subtrace-n, 29698, yes, c=1;g=29, c=89;genus sum 33 (x8), 0.934, 0.560, 949903, 949903, 285, multi-crossing edges 3503/9411; scoops 1756; loops 3/4/longer/with scoop/tips 14421/4958/18/983/402; failed triangles 0
+gyroid, 0.5, 1, sub2level, 29362, yes, c=1;g=16, c=89;genus sum 33 (x8), 0.930, 0.431, 54872, 54872, 130, multi-crossing edges 3483/9391; scoops 1694; loops 3/4/longer/with scoop/tips 14391/5019/0/930/384; failed triangles 0
+gyroid, 0.5, 2, mc, 4240, yes, c=323;genus sum 0, c=64;genus sum 30 (x8, not clean), 0.175, 0.015, 280584, 54872, 23, 
+gyroid, 0.5, 2, dc, 1894, yes, c=127;genus sum 0, c=64;genus sum 30 (x8, not clean), 0.101, 0.693, 485920, 54872, 102, 
+gyroid, 0.5, 2, mc/2, 32932, yes, c=762;genus sum 0, c=64;genus sum 30 (x8, not clean), 0.630, 0.010, 2069760, 123400, 162, 
+gyroid, 0.5, 2, mc/4, 167752, degenerate triangles, c=40;genus sum 446, c=64;genus sum 30 (x8, not clean), 0.962, 0.004, 14981840, 603096, 1072, 
+gyroid, 0.5, 2, sub8, 29108, yes, c=1;g=27, c=64;genus sum 30 (x8, not clean), 0.929, 0.575, 2775082, 2775082, 395, multi-crossing edges 3522/9120; scoops 1730; loops 3/4/longer/with scoop/tips 14223/4780/19/974/396; failed triangles 0
+gyroid, 0.5, 2, subtrace, 29414, yes, c=1;g=28, c=64;genus sum 30 (x8, not clean), 0.937, 0.575, 943433, 943433, 222, multi-crossing edges 3575/9173; scoops 1774; loops 3/4/longer/with scoop/tips 14350/4812/20/996/417; failed triangles 0
+gyroid, 0.5, 2, subtrace-n, 29414, yes, c=1;g=28, c=64;genus sum 30 (x8, not clean), 0.937, 0.575, 943433, 943433, 195, multi-crossing edges 3575/9173; scoops 1774; loops 3/4/longer/with scoop/tips 14350/4812/20/996/417; failed triangles 0
+gyroid, 0.5, 2, sub2level, 29002, yes, c=1;g=16, c=64;genus sum 30 (x8, not clean), 0.940, 0.573, 54872, 54872, 155, multi-crossing edges 3547/9147; scoops 1686; loops 3/4/longer/with scoop/tips 14283/4879/0/934/390; failed triangles 0
+gyroid, 0.75, 0, mc, 6748, yes, c=398;genus sum 0, c=33;genus sum 26 (x8, not clean), 0.327, 0.015, 308664, 54872, 21, 
+gyroid, 0.75, 0, dc, 7494, yes, c=385;genus sum 0, c=33;genus sum 26 (x8, not clean), 0.282, 4.065, 676864, 54872, 149, 
+gyroid, 0.75, 0, mc/2, 44936, degenerate triangles, c=98;genus sum 554, c=33;genus sum 26 (x8, not clean), 0.819, 0.008, 2141040, 126896, 158, 
+gyroid, 0.75, 0, mc/4, 175364, degenerate triangles, c=21;genus sum 33, c=33;genus sum 26 (x8, not clean), 0.969, 0.004, 15073640, 631064, 965, 
+gyroid, 0.75, 0, sub8, 29210, yes, c=1;g=33, c=33;genus sum 26 (x8, not clean), 0.937, 0.472, 2788522, 2788522, 402, multi-crossing edges 2260/10720; scoops 1422; loops 3/4/longer/with scoop/tips 14438/5112/12/838/322; failed triangles 0
+gyroid, 0.75, 0, subtrace, 29620, yes, c=1;g=33, c=33;genus sum 26 (x8, not clean), 0.942, 0.472, 979533, 979533, 242, multi-crossing edges 2324/10784; scoops 1504; loops 3/4/longer/with scoop/tips 14575/5157/12/874/340; failed triangles 0
+gyroid, 0.75, 0, subtrace-n, 29620, yes, c=1;g=33, c=33;genus sum 26 (x8, not clean), 0.942, 0.472, 979533, 979533, 204, multi-crossing edges 2324/10784; scoops 1504; loops 3/4/longer/with scoop/tips 14575/5157/12/874/340; failed triangles 0
+gyroid, 0.75, 0, sub2level, 29344, yes, c=1;g=16, c=33;genus sum 26 (x8, not clean), 0.941, 0.413, 54872, 54872, 148, multi-crossing edges 2310/10770; scoops 1464; loops 3/4/longer/with scoop/tips 14557/5205/0/830/339; failed triangles 0
+gyroid, 0.75, 1, mc, 6540, yes, c=321;genus sum 0, c=90;genus sum 25 (x8, not clean), 0.318, 0.015, 303504, 54872, 30, 
+gyroid, 0.75, 1, dc, 7164, yes, c=312;genus sum 0, c=90;genus sum 25 (x8, not clean), 0.286, 0.861, 641776, 54872, 174, 
+gyroid, 0.75, 1, mc/2, 44468, yes, c=50;genus sum 578, c=90;genus sum 25 (x8, not clean), 0.805, 0.008, 2133540, 126840, 171, 
+gyroid, 0.75, 1, mc/4, 172452, yes, c=43;genus sum 34, c=90;genus sum 25 (x8, not clean), 0.968, 0.004, 15045460, 630616, 1079, 
+gyroid, 0.75, 1, sub8, 29544, degenerate triangles, c=1;g=31, c=90;genus sum 25 (x8, not clean), 0.940, 0.520, 2790042, 2790042, 437, multi-crossing edges 2474/10541; scoops 1546; loops 3/4/longer/with scoop/tips 14592/5021/17/904/362; failed triangles 0
+gyroid, 0.75, 1, subtrace, 29882, degenerate triangles, c=1;g=31, c=90;genus sum 25 (x8, not clean), 0.952, 0.520, 982207, 982207, 226, multi-crossing edges 2537/10604; scoops 1588; loops 3/4/longer/with scoop/tips 14736/5059/18/925/362; failed triangles 0
+gyroid, 0.75, 1, subtrace-n, 29882, degenerate triangles, c=1;g=31, c=90;genus sum 25 (x8, not clean), 0.952, 0.520, 982207, 982207, 296, multi-crossing edges 2537/10604; scoops 1588; loops 3/4/longer/with scoop/tips 14736/5059/18/925/362; failed triangles 0
+gyroid, 0.75, 1, sub2level, 29492, degenerate triangles, c=1;g=16, c=90;genus sum 25 (x8, not clean), 0.952, 0.528, 54872, 54872, 146, multi-crossing edges 2512/10582; scoops 1512; loops 3/4/longer/with scoop/tips 14674/5134/0/866/346; failed triangles 0
+gyroid, 0.75, 2, mc, 6312, yes, c=312;genus sum 0, c=49;genus sum 24 (x8, not clean), 0.337, 0.015, 300864, 54872, 34, 
+gyroid, 0.75, 2, dc, 6816, yes, c=295;genus sum 0, c=49;genus sum 24 (x8, not clean), 0.295, 2.535, 623824, 54872, 141, 
+gyroid, 0.75, 2, mc/2, 43004, yes, c=77;genus sum 459, c=49;genus sum 24 (x8, not clean), 0.827, 0.008, 2124760, 127288, 165, 
+gyroid, 0.75, 2, mc/4, 169188, degenerate triangles, c=33;genus sum 33, c=49;genus sum 24 (x8, not clean), 0.975, 0.005, 15012440, 634200, 1093, 
+gyroid, 0.75, 2, sub8, 29308, yes, c=1;g=27, c=49;genus sum 24 (x8, not clean), 0.940, 0.465, 2785322, 2785322, 520, multi-crossing edges 2543/10357; scoops 1558; loops 3/4/longer/with scoop/tips 14524/4939/12/911/370; failed triangles 0
+gyroid, 0.75, 2, subtrace, 29726, yes, c=1;g=27, c=49;genus sum 24 (x8, not clean), 0.950, 0.465, 977267, 977267, 250, multi-crossing edges 2604/10418; scoops 1650; loops 3/4/longer/with scoop/tips 14654/4988/12/952/394; failed triangles 0
+gyroid, 0.75, 2, subtrace-n, 29726, yes, c=1;g=27, c=49;genus sum 24 (x8, not clean), 0.950, 0.465, 977267, 977267, 228, multi-crossing edges 2604/10418; scoops 1650; loops 3/4/longer/with scoop/tips 14654/4988/12/952/394; failed triangles 0
+gyroid, 0.75, 2, sub2level, 29260, yes, c=1;g=16, c=49;genus sum 24 (x8, not clean), 0.950, 0.459, 54872, 54872, 148, multi-crossing edges 2572/10386; scoops 1538; loops 3/4/longer/with scoop/tips 14605/5036/0/873/363; failed triangles 0
+gyroid, 1, 0, mc, 8404, yes, c=297;genus sum 0, c=42;genus sum 21 (x8, not clean), 0.478, 0.016, 321184, 54872, 26, 
+gyroid, 1, 0, dc, 8916, yes, c=292;genus sum 0, c=42;genus sum 21 (x8, not clean), 0.391, 1.831, 762000, 54872, 182, 
+gyroid, 1, 0, mc/2, 44420, yes, c=14;genus sum 170, c=42;genus sum 21 (x8, not clean), 0.940, 0.008, 2147960, 130608, 177, 
+gyroid, 1, 0, mc/4, 177980, yes, c=24;genus sum 21, c=42;genus sum 21 (x8, not clean), 0.976, 0.004, 15100520, 660760, 1141, 
+gyroid, 1, 0, sub8, 29546, yes, c=2;g=0,27, c=42;genus sum 21 (x8, not clean), 0.948, 0.656, 2797082, 2797082, 442, multi-crossing edges 1635/11558; scoops 1392; loops 3/4/longer/with scoop/tips 14728/5207/7/826/329; failed triangles 0
+gyroid, 1, 0, subtrace, 29874, yes, c=1;g=28, c=42;genus sum 21 (x8, not clean), 0.954, 0.656, 1005081, 1005081, 242, multi-crossing edges 1689/11612; scoops 1440; loops 3/4/longer/with scoop/tips 14831/5234/9/852/327; failed triangles 0
+gyroid, 1, 0, subtrace-n, 29874, yes, c=1;g=28, c=42;genus sum 21 (x8, not clean), 0.954, 0.656, 1005081, 1005081, 246, multi-crossing edges 1689/11612; scoops 1440; loops 3/4/longer/with scoop/tips 14831/5234/9/852/327; failed triangles 0
+gyroid, 1, 0, sub2level, 29484, yes, c=1;g=16, c=42;genus sum 21 (x8, not clean), 0.955, 0.432, 54872, 54872, 151, multi-crossing edges 1666/11590; scoops 1352; loops 3/4/longer/with scoop/tips 14797/5289/0/780/306; failed triangles 0
+gyroid, 1, 1, mc, 8360, yes, c=247;genus sum 0, c=60;genus sum 22 (x8, not clean), 0.486, 0.015, 318744, 54872, 29, 
+gyroid, 1, 1, dc, 8578, yes, c=236;genus sum 0, c=60;genus sum 22 (x8, not clean), 0.403, 0.902, 745408, 54872, 180, 
+gyroid, 1, 1, mc/2, 44000, yes, c=32;genus sum 234, c=60;genus sum 22 (x8, not clean), 0.929, 0.009, 2141920, 130672, 174, 
+gyroid, 1, 1, mc/4, 175200, yes, c=40;genus sum 23, c=60;genus sum 22 (x8, not clean), 0.975, 0.004, 15073260, 661272, 1072, 
+gyroid, 1, 1, sub8, 29800, yes, c=1;g=27, c=60;genus sum 22 (x8, not clean), 0.948, 0.594, 2800762, 2800762, 448, multi-crossing edges 1745/11541; scoops 1410; loops 3/4/longer/with scoop/tips 14936/5155/10/847/329; failed triangles 0
+gyroid, 1, 1, subtrace, 30118, yes, c=1;g=27, c=60;genus sum 22 (x8, not clean), 0.953, 0.594, 1012024, 1012024, 274, multi-crossing edges 1796/11592; scoops 1472; loops 3/4/longer/with scoop/tips 15053/5186/10/873/342; failed triangles 0
+gyroid, 1, 1, subtrace-n, 30118, yes, c=1;g=27, c=60;genus sum 22 (x8, not clean), 0.953, 0.594, 1012024, 1012024, 233, multi-crossing edges 1796/11592; scoops 1472; loops 3/4/longer/with scoop/tips 15053/5186/10/873/342; failed triangles 0
+gyroid, 1, 1, sub2level, 29742, yes, c=1;g=16, c=60;genus sum 22 (x8, not clean), 0.956, 0.384, 54872, 54872, 140, multi-crossing edges 1770/11566; scoops 1392; loops 3/4/longer/with scoop/tips 15015/5232/0/809/323; failed triangles 0
+gyroid, 1, 2, mc, 8200, yes, c=216;genus sum 0, c=47;genus sum 22 (x8, not clean), 0.495, 0.015, 315904, 54872, 30, 
+gyroid, 1, 2, dc, 8282, yes, c=209;genus sum 0, c=47;genus sum 22 (x8, not clean), 0.415, 0.544, 726096, 54872, 170, 
+gyroid, 1, 2, mc/2, 42712, yes, c=18;genus sum 105, c=47;genus sum 22 (x8, not clean), 0.943, 0.008, 2133640, 130976, 161, 
+gyroid, 1, 2, mc/4, 172144, yes, c=25;genus sum 21, c=47;genus sum 22 (x8, not clean), 0.977, 0.004, 15042200, 663704, 1014, 
+gyroid, 1, 2, sub8, 29718, yes, c=1;g=27, c=47;genus sum 22 (x8, not clean), 0.949, 0.613, 2795082, 2795082, 437, multi-crossing edges 1756/11388; scoops 1506; loops 3/4/longer/with scoop/tips 14822/5060/8/902/365; failed triangles 0
+gyroid, 1, 2, subtrace, 30058, yes, c=1;g=27, c=47;genus sum 22 (x8, not clean), 0.954, 0.613, 1006560, 1006560, 321, multi-crossing edges 1809/11441; scoops 1582; loops 3/4/longer/with scoop/tips 14925/5107/8/928/373; failed triangles 0
+gyroid, 1, 2, subtrace-n, 30058, yes, c=1;g=27, c=47;genus sum 22 (x8, not clean), 0.954, 0.613, 1006560, 1006560, 249, multi-crossing edges 1809/11441; scoops 1582; loops 3/4/longer/with scoop/tips 14925/5107/8/928/373; failed triangles 0
+gyroid, 1, 2, sub2level, 29730, yes, c=1;g=16, c=47;genus sum 22 (x8, not clean), 0.955, 0.447, 54872, 54872, 199, multi-crossing edges 1792/11424; scoops 1504; loops 3/4/longer/with scoop/tips 14913/5156/0/867/358; failed triangles 0
+gyroid, 1.5, 0, mc, 11264, yes, c=30;genus sum 117, c=24;genus sum 19 (x8, not clean), 0.755, 0.016, 334424, 54872, 32, 
+gyroid, 1.5, 0, dc, 10126, yes, c=28;genus sum 117, c=24;genus sum 19 (x8, not clean), 0.698, 0.712, 852032, 54872, 288, 
+gyroid, 1.5, 0, mc/2, 45104, yes, c=9;genus sum 24, c=24;genus sum 19 (x8, not clean), 0.955, 0.008, 2160380, 138616, 196, 
+gyroid, 1.5, 0, mc/4, 182752, yes, c=19;genus sum 20, c=24;genus sum 19 (x8, not clean), 0.980, 0.004, 15148060, 724824, 1146, 
+gyroid, 1.5, 0, sub8, 30116, yes, c=1;g=25, c=24;genus sum 19 (x8, not clean), 0.959, 0.626, 2814282, 2814282, 506, multi-crossing edges 767/12857; scoops 1238; loops 3/4/longer/with scoop/tips 15288/5391/6/761/296; failed triangles 0
+gyroid, 1.5, 0, subtrace, 30416, yes, c=1;g=25, c=24;genus sum 19 (x8, not clean), 0.963, 0.626, 1058541, 1058541, 228, multi-crossing edges 808/12898; scoops 1310; loops 3/4/longer/with scoop/tips 15364/5419/6/793/305; failed triangles 0
+gyroid, 1.5, 0, subtrace-n, 30416, yes, c=1;g=25, c=24;genus sum 19 (x8, not clean), 0.963, 0.626, 1058541, 1058541, 228, multi-crossing edges 808/12898; scoops 1310; loops 3/4/longer/with scoop/tips 15364/5419/6/793/305; failed triangles 0
+gyroid, 1.5, 0, sub2level, 30228, yes, c=1;g=16, c=24;genus sum 19 (x8, not clean), 0.961, 0.558, 54872, 54872, 241, multi-crossing edges 805/12895; scoops 1268; loops 3/4/longer/with scoop/tips 15352/5472/0/750/291; failed triangles 0
+gyroid, 1.5, 1, mc, 11264, yes, c=18;genus sum 126, c=45;genus sum 18 (x8, not clean), 0.757, 0.015, 333584, 54872, 28, 
+gyroid, 1.5, 1, dc, 9762, yes, c=12;genus sum 126, c=45;genus sum 18 (x8, not clean), 0.725, 0.700, 846320, 54872, 250, 
+gyroid, 1.5, 1, mc/2, 44404, yes, c=17;genus sum 23, c=45;genus sum 18 (x8, not clean), 0.955, 0.008, 2153800, 138696, 169, 
+gyroid, 1.5, 1, mc/4, 180296, yes, c=27;genus sum 20, c=45;genus sum 18 (x8, not clean), 0.978, 0.004, 15123840, 725464, 1102, 
+gyroid, 1.5, 1, sub8, 30318, yes, c=1;g=27, c=45;genus sum 18 (x8, not clean), 0.959, 0.669, 2814682, 2814682, 596, multi-crossing edges 736/12898; scoops 1312; loops 3/4/longer/with scoop/tips 15382/5317/2/815/313; failed triangles 0
+gyroid, 1.5, 1, subtrace, 30650, yes, c=1;g=27, c=45;genus sum 18 (x8, not clean), 0.961, 0.669, 1058049, 1058049, 268, multi-crossing edges 772/12934; scoops 1404; loops 3/4/longer/with scoop/tips 15454/5325/2/863/336; failed triangles 0
+gyroid, 1.5, 1, subtrace-n, 30650, yes, c=1;g=27, c=45;genus sum 18 (x8, not clean), 0.961, 0.669, 1058049, 1058049, 247, multi-crossing edges 772/12934; scoops 1404; loops 3/4/longer/with scoop/tips 15454/5325/2/863/336; failed triangles 0
+gyroid, 1.5, 1, sub2level, 30158, yes, c=1;g=16, c=45;genus sum 18 (x8, not clean), 0.964, 0.611, 54872, 54872, 184, multi-crossing edges 745/12907; scoops 1280; loops 3/4/longer/with scoop/tips 15406/5403/0/757/308; failed triangles 0
+gyroid, 1.5, 2, mc, 10740, yes, c=36;genus sum 99, c=35;genus sum 20 (x8, not clean), 0.750, 0.018, 330144, 54872, 32, 
+gyroid, 1.5, 2, dc, 9320, yes, c=32;genus sum 99, c=35;genus sum 20 (x8, not clean), 0.708, 0.739, 822928, 54872, 260, 
+gyroid, 1.5, 2, mc/2, 43572, yes, c=13;genus sum 20, c=35;genus sum 20 (x8, not clean), 0.961, 0.008, 2145440, 138400, 169, 
+gyroid, 1.5, 2, mc/4, 176624, yes, c=20;genus sum 20, c=35;genus sum 20 (x8, not clean), 0.985, 0.004, 15086840, 723096, 1162, 
+gyroid, 1.5, 2, sub8, 30076, yes, c=2;g=0,23, c=35;genus sum 20 (x8, not clean), 0.960, 0.559, 2807482, 2807482, 509, multi-crossing edges 822/12631; scoops 1406; loops 3/4/longer/with scoop/tips 15264/5217/1/838/338; failed triangles 0
+gyroid, 1.5, 2, subtrace, 30506, yes, c=1;g=23, c=35;genus sum 20 (x8, not clean), 0.964, 0.516, 1050884, 1050884, 259, multi-crossing edges 872/12681; scoops 1514; loops 3/4/longer/with scoop/tips 15357/5231/1/897/360; failed triangles 0
+gyroid, 1.5, 2, subtrace-n, 30506, yes, c=1;g=23, c=35;genus sum 20 (x8, not clean), 0.964, 0.516, 1050884, 1050884, 261, multi-crossing edges 872/12681; scoops 1514; loops 3/4/longer/with scoop/tips 15357/5231/1/897/360; failed triangles 0
+gyroid, 1.5, 2, sub2level, 30158, yes, c=1;g=16, c=35;genus sum 20 (x8, not clean), 0.960, 0.441, 54872, 54872, 143, multi-crossing edges 853/12663; scoops 1418; loops 3/4/longer/with scoop/tips 15332/5270/0/824/335; failed triangles 0
+# thin, per shape, k and variant: sums of runs, means of the rest
+shape, k, variant, runs, clean, topology right, coverage, triangles, evals, bandEvals, ms
+plate, 0.25, mc, 3, 3, 0, 0.141, 616, 233637, 54872, 32
+plate, 0.25, dc, 3, 0, 0, 0.000, 0, 83341, 54872, 60
+plate, 0.25, mc/2, 3, 3, 0, 0.521, 4768, 1763893, 60557, 122
+plate, 0.25, mc/4, 3, 3, 0, 0.885, 31221, 13614587, 100355, 884
+plate, 0.25, sub8, 3, 3, 3, 0.916, 5307, 2360815, 2360815, 278
+plate, 0.25, subtrace, 3, 3, 3, 0.921, 5347, 183623, 183623, 124
+plate, 0.25, subtrace-n, 3, 3, 3, 0.921, 5347, 183623, 183623, 108
+plate, 0.5, mc, 3, 3, 0, 0.377, 1195, 238944, 54872, 16
+plate, 0.5, dc, 3, 3, 0, 0.266, 1279, 101384, 54872, 44
+plate, 0.5, mc/2, 3, 3, 0, 0.860, 7885, 1784827, 61309, 123
+plate, 0.5, mc/4, 3, 3, 3, 0.993, 30224, 13622880, 106371, 807
+plate, 0.5, sub8, 3, 3, 3, 0.941, 5299, 2363402, 2363402, 126
+plate, 0.5, subtrace, 3, 3, 3, 0.943, 5360, 189870, 189870, 101
+plate, 0.5, subtrace-n, 3, 3, 3, 0.943, 5360, 189870, 189870, 96
+plate, 0.75, mc, 3, 3, 0, 0.601, 1671, 242451, 54872, 13
+plate, 0.75, dc, 3, 3, 0, 0.462, 1518, 191051, 54872, 46
+plate, 0.75, mc/2, 3, 3, 3, 0.975, 7680, 1786840, 62032, 114
+plate, 0.75, mc/4, 3, 3, 3, 0.993, 31020, 13630820, 112152, 927
+plate, 0.75, sub8, 3, 3, 3, 0.950, 5353, 2366042, 2366042, 126
+plate, 0.75, subtrace, 3, 3, 3, 0.950, 5406, 194967, 194967, 113
+plate, 0.75, subtrace-n, 3, 3, 3, 0.950, 5406, 194967, 194967, 104
+plate, 1, mc, 3, 3, 0, 0.781, 2003, 244517, 54872, 15
+plate, 1, dc, 3, 3, 0, 0.713, 1586, 200752, 54872, 35
+plate, 1, mc/2, 3, 3, 3, 0.978, 7863, 1788667, 62776, 119
+plate, 1, mc/4, 3, 3, 3, 0.993, 31816, 13638800, 118104, 805
+plate, 1, sub8, 3, 3, 3, 0.949, 5467, 2368495, 2368495, 131
+plate, 1, subtrace, 3, 3, 3, 0.952, 5561, 199770, 199770, 110
+plate, 1, subtrace-n, 3, 3, 3, 0.952, 5561, 199770, 199770, 99
+plate, 1.5, mc, 3, 3, 3, 0.896, 2024, 245544, 54872, 16
+plate, 1.5, dc, 3, 3, 3, 0.996, 726, 123824, 54872, 22
+plate, 1.5, mc/2, 3, 3, 3, 0.980, 8261, 1792653, 64264, 108
+plate, 1.5, mc/4, 3, 3, 3, 0.994, 33421, 13654847, 130008, 782
+plate, 1.5, sub8, 3, 3, 3, 0.957, 5694, 2373295, 2373295, 117
+plate, 1.5, subtrace, 3, 3, 3, 0.958, 5773, 207640, 207640, 91
+plate, 1.5, subtrace-n, 3, 3, 3, 0.958, 5773, 207640, 207640, 93
+shell, 0.25, mc, 3, 3, 0, 0.136, 3128, 266704, 54872, 11
+shell, 0.25, dc, 3, 2, 0, 0.041, 303, 195768, 54872, 50
+shell, 0.25, mc/2, 3, 2, 0, 0.516, 24304, 1994833, 79912, 79
+shell, 0.25, mc/4, 3, 2, 0, 0.856, 161212, 14833827, 255192, 592
+shell, 0.25, sub8, 3, 3, 0, 1.000, 22889, 2726175, 2726175, 117
+shell, 0.25, subtrace, 3, 3, 0, 1.000, 22895, 688292, 688292, 105
+shell, 0.25, subtrace-n, 3, 3, 0, 1.000, 22895, 688292, 688292, 119
+shell, 0.25, sub2level, 3, 2, 2, 1.000, 22813, 54872, 54872, 125
+shell, 0.5, mc, 3, 2, 0, 0.379, 6080, 296424, 54872, 12
+shell, 0.5, dc, 3, 3, 0, 0.295, 6628, 593813, 54872, 120
+shell, 0.5, mc/2, 3, 3, 0, 0.864, 40276, 2088573, 83117, 80
+shell, 0.5, mc/4, 3, 2, 2, 1.000, 151457, 14835213, 280835, 617
+shell, 0.5, sub8, 3, 2, 1, 1.000, 22923, 2726575, 2726575, 128
+shell, 0.5, subtrace, 3, 2, 1, 1.000, 22923, 702854, 702854, 115
+shell, 0.5, subtrace-n, 3, 2, 1, 1.000, 22923, 702854, 702854, 128
+shell, 0.5, sub2level, 3, 2, 2, 1.000, 22833, 54872, 54872, 110
+shell, 0.75, mc, 3, 3, 0, 0.682, 8525, 313704, 54872, 14
+shell, 0.75, dc, 3, 3, 0, 0.486, 7904, 711136, 54872, 169
+shell, 0.75, mc/2, 3, 3, 3, 1.000, 37847, 2088547, 86323, 96
+shell, 0.75, mc/4, 3, 3, 3, 1.000, 151439, 14835067, 306477, 543
+shell, 0.75, sub8, 3, 3, 0, 1.000, 22898, 2726069, 2726069, 120
+shell, 0.75, subtrace, 3, 3, 0, 1.000, 22910, 709714, 709714, 107
+shell, 0.75, subtrace-n, 3, 3, 0, 1.000, 22910, 709714, 709714, 117
+shell, 0.75, sub2level, 3, 3, 3, 1.000, 22809, 54872, 54872, 108
+shell, 1, mc, 3, 3, 0, 0.863, 10072, 320051, 54872, 17
+shell, 1, dc, 3, 3, 0, 0.753, 8029, 377147, 54872, 100
+shell, 1, mc/2, 3, 3, 3, 1.000, 37911, 2089180, 89523, 85
+shell, 1, mc/4, 3, 3, 3, 1.000, 151641, 14837093, 332077, 600
+shell, 1, sub8, 3, 2, 0, 1.000, 22965, 2726629, 2726629, 137
+shell, 1, subtrace, 3, 2, 0, 1.000, 22965, 715175, 715175, 140
+shell, 1, subtrace-n, 3, 2, 0, 1.000, 22965, 715175, 715175, 136
+shell, 1, sub2level, 3, 2, 2, 1.000, 22828, 54872, 54872, 131
+shell, 1.5, mc, 3, 3, 3, 1.000, 9497, 320317, 54872, 16
+shell, 1.5, dc, 3, 3, 3, 1.000, 1267, 378053, 54872, 42
+shell, 1.5, mc/2, 3, 3, 3, 1.000, 38003, 2090093, 95915, 81
+shell, 1.5, mc/4, 3, 2, 2, 1.000, 152013, 14840793, 383213, 568
+shell, 1.5, sub8, 3, 2, 2, 1.000, 23012, 2728335, 2728335, 131
+shell, 1.5, subtrace, 3, 2, 2, 1.000, 23012, 724462, 724462, 123
+shell, 1.5, subtrace-n, 3, 2, 2, 1.000, 23012, 724462, 724462, 129
+shell, 1.5, sub2level, 3, 2, 2, 1.000, 22921, 54872, 54872, 116
+gyroid, 0.25, mc, 3, 3, 0, 0.059, 2311, 257464, 54872, 21
+gyroid, 0.25, dc, 3, 3, 0, 0.007, 86, 164352, 54872, 22
+gyroid, 0.25, mc/2, 3, 3, 0, 0.298, 17588, 1936880, 119616, 144
+gyroid, 0.25, mc/4, 3, 2, 0, 0.657, 133409, 14798987, 572824, 1076
+gyroid, 0.25, sub8, 3, 3, 0, 0.895, 29560, 2766149, 2766149, 416
+gyroid, 0.25, subtrace, 3, 3, 0, 0.912, 29283, 904050, 904050, 206
+gyroid, 0.25, subtrace-n, 3, 3, 0, 0.912, 29283, 904050, 904050, 215
+gyroid, 0.25, sub2level, 3, 3, 0, 0.908, 28949, 54872, 54872, 139
+gyroid, 0.5, mc, 3, 3, 0, 0.172, 4505, 284251, 54872, 23
+gyroid, 0.5, dc, 3, 2, 0, 0.097, 1915, 510853, 54872, 106
+gyroid, 0.5, mc/2, 3, 3, 0, 0.623, 33495, 2081933, 123400, 154
+gyroid, 0.5, mc/4, 3, 2, 0, 0.956, 171879, 15013047, 603096, 1073
+gyroid, 0.5, sub8, 3, 3, 0, 0.926, 29229, 2779055, 2779055, 429
+gyroid, 0.5, subtrace, 3, 3, 0, 0.935, 29540, 948559, 948559, 230
+gyroid, 0.5, subtrace-n, 3, 3, 0, 0.935, 29540, 948559, 948559, 250
+gyroid, 0.5, sub2level, 3, 3, 0, 0.935, 29153, 54872, 54872, 140
+gyroid, 0.75, mc, 3, 3, 0, 0.327, 6533, 304344, 54872, 28
+gyroid, 0.75, dc, 3, 3, 0, 0.288, 7158, 647488, 54872, 155
+gyroid, 0.75, mc/2, 3, 2, 0, 0.817, 44136, 2133113, 127008, 165
+gyroid, 0.75, mc/4, 3, 1, 0, 0.970, 172335, 15043847, 631960, 1046
+gyroid, 0.75, sub8, 3, 2, 0, 0.939, 29354, 2787962, 2787962, 453
+gyroid, 0.75, subtrace, 3, 2, 0, 0.948, 29743, 979669, 979669, 239
+gyroid, 0.75, subtrace-n, 3, 2, 0, 0.948, 29743, 979669, 979669, 242
+gyroid, 0.75, sub2level, 3, 2, 0, 0.948, 29365, 54872, 54872, 147
+gyroid, 1, mc, 3, 3, 0, 0.486, 8321, 318611, 54872, 29
+gyroid, 1, dc, 3, 3, 0, 0.403, 8592, 744501, 54872, 177
+gyroid, 1, mc/2, 3, 3, 0, 0.937, 43711, 2141173, 130752, 171
+gyroid, 1, mc/4, 3, 3, 0, 0.976, 175108, 15071993, 661912, 1076
+gyroid, 1, sub8, 3, 3, 0, 0.948, 29688, 2797642, 2797642, 442
+gyroid, 1, subtrace, 3, 3, 0, 0.954, 30017, 1007888, 1007888, 279
+gyroid, 1, subtrace-n, 3, 3, 0, 0.954, 30017, 1007888, 1007888, 243
+gyroid, 1, sub2level, 3, 3, 0, 0.955, 29652, 54872, 54872, 163
+gyroid, 1.5, mc, 3, 3, 0, 0.754, 11089, 332717, 54872, 31
+gyroid, 1.5, dc, 3, 3, 0, 0.710, 9736, 840427, 54872, 266
+gyroid, 1.5, mc/2, 3, 3, 0, 0.957, 44360, 2153207, 138571, 178
+gyroid, 1.5, mc/4, 3, 3, 0, 0.981, 179891, 15119580, 724461, 1137
+gyroid, 1.5, sub8, 3, 3, 0, 0.959, 30170, 2812149, 2812149, 537
+gyroid, 1.5, subtrace, 3, 3, 0, 0.962, 30524, 1055825, 1055825, 252
+gyroid, 1.5, subtrace-n, 3, 3, 0, 0.962, 30524, 1055825, 1055825, 245
+gyroid, 1.5, sub2level, 3, 3, 0, 0.962, 30181, 54872, 54872, 190

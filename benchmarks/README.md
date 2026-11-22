@@ -25,6 +25,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [PredicateComparison](PredicateComparison/README.md) | Accuracy and speed of `orient2d`, `incircle`, and `orient3d` implementations vs. exact reference |
 | [SelfIntersectionBenchmark](SelfIntersectionBenchmark/README.md) | Cost of exact self-intersection checks and `Reducer.PreventSelfIntersections` |
 | [SnapRoundingExperiment](SnapRoundingExperiment/README.md) | Snap-rounding prototypes and quality measurements for `SAFE_ROUNDING.md` |
+| [SolidBooleanAudit](SolidBooleanAudit/README.md) | Adversarial procedural corpus and an independent oracle (ray crossings, volumes) for an end-to-end audit of `SolidBooleanPipeline` |
 | [SolidBooleanBenchmark](SolidBooleanBenchmark/README.md) | `SolidBooleanPipeline` (exact boolean + guarded reduction + contact pairing) on procedural soups |
 
 ## Repair, Alpha Wrap, Remeshing & Simplification
@@ -57,6 +58,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [QuadRemeshBenchmark](QuadRemeshBenchmark/README.md) | `CrossField`, `PositionField`, and `QuadRemesher` stage 2 quality and timing |
 | [QuadFlow3BGate](QuadFlow3BGate/README.md) | Stage 3B acceptance gate measurements for `QuadRemesher.PureQuads` |
 | [QuadRemeshSpike](QuadRemeshSpike/README.md) | Early feasibility prototype for quad remeshing |
+| [QuadSeamlessSeedSpike](QuadSeamlessSeedSpike/README.md) | Upper bound of a seamless-parametrization seed (cone metric, two scales) for `PositionField` and `QuadRemesher` |
 | [QuadSheafObstruction](QuadSheafObstruction/README.md) | Research spike: sheaf-Laplacian and area-invariant diagnostics of the stage 3B fallbacks of `QuadRemesher.PureQuads` |
 
 ## Contouring, Offsets, Lofting & Lattices
@@ -68,6 +70,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [DualContouringIntersections](DualContouringIntersections/README.md) | Intersection-free dual contouring evaluation and upper-bound checks |
 | [DualContouringSimplification](DualContouringSimplification/README.md) | Adaptive octree simplification triangle count vs. error for `DualContouring` |
 | [ContouringCertificate](ContouringCertificate/README.md) | Stage 1–3 topology certification evaluation for contouring |
+| [ContouringSubgridProbe](ContouringSubgridProbe/README.md) | Upper bounds for sharp features from distance grids, walls thinner than a cell (subgrid marching tetrahedra) and a subdivision certificate |
 | [ContouringTopology](ContouringTopology/README.md) | Upper-bound study for contouring topology guarantees |
 | [MeshOffsetBenchmark](MeshOffsetBenchmark/README.md) | `MeshOffset` certified band accuracy and timing vs. SDF Marching Cubes |
 | [ContourLoftBenchmark](ContourLoftBenchmark/README.md) | Scaling and quality of `ContourLoft` and `ContourLoftStack` |
@@ -78,6 +81,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | Benchmark | Focus |
 |---|---|
 | [IntrinsicBenchmark](IntrinsicBenchmark/README.md) | `IntrinsicTriangulation`, `MeshGeodesicDistance`, and `VectorHeatMethod` timings and accuracy |
+| [IntrinsicIntegerCoordinates](IntrinsicIntegerCoordinates/README.md) | Research spike: integer (normal) coordinates against the traced common subdivision of `IntrinsicTriangulation` |
 | [GeodesicOracleBenchmark](GeodesicOracleBenchmark/README.md) | Window counts, interval width, and timing of `ExactMeshGeodesicDistance` and `PolyhedralGeodesicDistance` |
 | [ParameterizationBenchmark](ParameterizationBenchmark/README.md) | Timings and distortion metrics for LSCM, BFF, ARAP, SLIM, and Tutte parameterizations |
 | [UVAtlasBenchmark](UVAtlasBenchmark/README.md) | `UVAtlasGenerator` quality, packing efficiency, and comparison with `xatlas` |
