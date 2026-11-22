@@ -61,10 +61,11 @@ namespace gs
 
         /// <summary>
         /// the input has edges whose lengths differ by more than 2^200 (the shortest non-zero one is below 2^-200 of the
-        /// longest): the squares and fourth powers of the lengths no longer stay clear of the underflow, so the
-        /// classes with a failure status refuse the input
+        /// longest): the squares and fourth powers of the lengths no longer stay clear of the underflow. The classes with a
+        /// failure status refuse such an input; this class, FlipToDelaunay and VectorHeatMethod have none, they run and the
+        /// result is not reliable: check this flag. Never true for an ordinary mesh
         /// </summary>
-        internal bool HasLengthDisparity { get; private set; }
+        public bool HasLengthDisparity { get; private set; }
 
         /// <summary> x times 2^k, exact except for a result that is subnormal or overflows </summary>
         internal double Up(double x) { return scaleExp == 0 ? x : ExactPoint3.ScaleB(x, scaleExp); }
@@ -446,7 +447,8 @@ namespace gs
 
         /// <summary>
         /// Flips edges until every edge is intrinsic Delaunay (Lawson's algorithm, which terminates for
-        /// intrinsic triangulations, Indermitte et al. 2001). Returns the number of flips.
+        /// intrinsic triangulations, Indermitte et al. 2001). Returns the number of flips. For edge lengths more than 2^200 apart
+        /// (HasLengthDisparity) the lengths of the triangulation leave the range of the geometry and the flips are not reliable.
         /// </summary>
         public int FlipToDelaunay(double tolerance = 1e-10)
         {

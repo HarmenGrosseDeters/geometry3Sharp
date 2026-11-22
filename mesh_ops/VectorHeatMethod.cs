@@ -42,7 +42,7 @@ namespace gs
     // Range (#1377): the lengths are processed in a unit scale (times 2^-k, k from the longest edge), so a mesh scaled by any power of two
     // gives the same result bit for bit. This class has no failure status: for edge lengths more than 2^200 apart (the shortest non-zero
     // edge below 2^-200 of the longest, IntrinsicTriangulation.HasLengthDisparity) the fourth powers of the lengths underflow and the
-    // result is not reliable; it is not refused (documented limit).
+    // result is not reliable; it is not refused (documented limit): check Triangulation.HasLengthDisparity.
     public class VectorHeatMethod
     {
         public DMesh3 Mesh { get; private set; }
