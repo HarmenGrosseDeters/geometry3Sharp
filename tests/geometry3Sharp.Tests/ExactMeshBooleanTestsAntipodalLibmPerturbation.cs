@@ -17,9 +17,14 @@ namespace geometry3Sharp.Tests
     /// eighth digit) move it by a factor of about 1 and flip a few decisions of about 1900, which stay safe: whichever way
     /// tree_decides goes, the full sum gives a value at the ray, below 1e-6, with the same threshold.
     /// (The class name keeps the mutation shards' test filter.)
-    /// (The collection: the hook is a static. A perturbation does not change a result, but it can change the counters of
-    /// antipodal_hierarchical, which ExactMeshBooleanTestsAntipodalTree compares between runs: both classes are in it.)
+    /// (The collection runs alone, with the parallelization of xunit off: the hook is a process-wide static, and a perturbation,
+    /// which does not change a result, changes the counters and the tree decisions of every other test that reaches
+    /// antipodal_tree_value (about 18 files: the Boolean tests with open inputs, the metamorphic and invariance tests, the
+    /// coverage rounds). ExactMeshBooleanTestsAntipodalTree is in it as well, as the one that compares those counters between runs.)
     /// </summary>
+    [CollectionDefinition("AntipodalLibmPerturbation", DisableParallelization = true)]
+    public class AntipodalLibmPerturbationCollection { }
+
     [Collection("AntipodalLibmPerturbation")]
     public class ExactMeshBooleanTestsAntipodalLibmPerturbation
     {
