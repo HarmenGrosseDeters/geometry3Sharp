@@ -3,7 +3,7 @@
 - **Board row:** OPEN_TOPICS.md §4 "Parked or on hold by owner decision", row "Other: dual contouring coarse-first construction"
 - **Kind:** parked (idea, opt-in, not scheduled; trigger: callers needing very fine DC grids N >= 512 where dense uniform sampling becomes the memory/time bottleneck)
 - **Tier:** M/L (interval/Lipschitz culling of octree cells + topological/self-intersection check preserved)
-- **Plan status:** draft, 2026-11-20 (Berlin). Plan only.
+- **Plan status:** draft, 2026-11-20 (Berlin); updated 2026-11-22 (Berlin): step 1 (measure first) is done in section 7b of [CONTOURING_SDF_SUBGRID_2026-11.md](../research/CONTOURING_SDF_SUBGRID_2026-11.md#7b-plan-1276-coarse-first-construction-of-the-grid): at N = 512 sampling and crossings are 40-45 % of the dense run on a sphere and a thin plate (time bound about 1.7x to 1.8x), but 3-6 % on the gyroid at every N; the dense node arrays are at most 36 % of the peak memory, so the plan's "peak memory >= 50 %" cannot come from the grid alone. Still parked on its trigger (no workload at N >= 512 is known; lattices do not gain).
 
 ## Current state
 
@@ -68,6 +68,8 @@ Proposed additive opt-in on `DualContouring`:
 
 1. Measure the dense-sampling share and peak memory at `N = 512` on sphere, box, and gyroid (`TpmsLattice`) to confirm
    the upper bound exceeds 30 % of wall time or > 50 % of peak memory before coding.
+   Done 2026-11-22 (see the plan status; a thin plate instead of a box): the time threshold is met for simple distance
+   fields at N = 512, not for the gyroid; the memory threshold is not met.
 2. Implement top-down octree subdivision skipping provably sign-constant subtrees (`|f(c)| > L * r` or `0 ∉ F(box)`),
    feeding active leaf cells into the existing QEF + clustering + exact self-intersection check.
 3. Verify bit-identical (or zero-missed-component, same topology, closed/manifold/finite) output vs dense path on
