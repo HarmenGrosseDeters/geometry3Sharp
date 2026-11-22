@@ -1,0 +1,122 @@
+# Second measurement of the fillet detector (docs/research/DEFILLET_SPIKE_2026-11.md): the medial-ball detector of
+# benchmarks/FilletDetection against a frozen heuristic on the B-rep patches of ABC models (Koch et al., CVPR 2019).
+# Manual only. The data is downloaded to the runner's temp disk, used and deleted: no cache, nothing committed, and the
+# artifact holds scores per model id, no geometry. One chunk is downloaded and only the sampled files are extracted.
+name: Fillet detection on ABC (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "probe: download the feature chunk, print the structure of 3 files, stop. run: the measurement"
+        type: choice
+        options: [probe, run]
+        default: probe
+      chunk:
+        description: "ABC chunk (4 digits)"
+        default: "0050"
+      candidates:
+        description: "models extracted (in the order of the sample rule); the first 200 with and 50 without fillets are scored"
+        default: "600"
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    permissions:
+      contents: read
+    env:
+      CHUNK: ${{ inputs.chunk }}
+      CANDIDATES: ${{ inputs.candidates }}
+      MODE: ${{ inputs.mode }}
+      ABC: benchmarks/FilletDetection/abc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Check the inputs
+        run: |
+          [[ "$CHUNK" =~ ^[0-9]{4}$ ]] || { echo "chunk must be 4 digits"; exit 1; }
+          [[ "$CANDIDATES" =~ ^[0-9]{1,4}$ ]] || { echo "candidates must be a number below 10000"; exit 1; }
+          echo "commit $GITHUB_SHA, chunk $CHUNK, candidates $CANDIDATES, mode $MODE"
+          df -h "$RUNNER_TEMP" | tail -n 1
+      - name: Terms of the data (for the record; the job does not depend on it)
+        continue-on-error: true
+        run: |
+          for url in https://www.onshape.com/en/legal/terms-of-use https://deep-geometry.github.io/abc-dataset/; do
+            code=$(curl -sL -o "$RUNNER_TEMP/terms.html" -w '%{http_code} %{url_effective}' "$url" || true)
+            echo "$code: $(grep -o -i -m 1 '<title>[^<]*</title>' "$RUNNER_TEMP/terms.html" || echo 'no title')"
+          done
+          rm -f "$RUNNER_TEMP/terms.html"
+      - name: Tools
+        run: |
+          command -v 7z || { sudo apt-get update -qq && sudo apt-get install -y -qq p7zip-full; }
+          python3 -c "import yaml; print('yaml', yaml.__version__, hasattr(yaml, 'CSafeLoader'))" || pip install pyyaml
+          python3 -m unittest discover -s "$ABC" -p 'test_*.py'
+      - name: Build
+        run: dotnet build benchmarks/FilletDetection -c Release -f net10.0
+      - name: Feature files of the sample
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/abc"; mkdir -p "$work/feat" "$work/obj"
+          curl -sSfL -o "$work/feat_list.txt" https://deep-geometry.github.io/abc-dataset/data/feat_v00.txt
+          curl -sSfL -o "$work/obj_list.txt" https://deep-geometry.github.io/abc-dataset/data/obj_v00.txt
+          url=$(grep "abc_${CHUNK}_feat_v00.7z" "$work/feat_list.txt" | awk '{print $1}')
+          [ -n "$url" ] || { echo "chunk not in the list"; exit 1; }
+          curl -sSfL --retry 3 -o "$work/feat.7z" "$url"
+          ls -l "$work/feat.7z" | awk '{print "feature archive bytes:", $5}'
+          7z l -ba -slt "$work/feat.7z" | sed -n 's/^Path = //p' > "$work/feat_names.txt"
+          echo "files in the archive: $(wc -l < "$work/feat_names.txt")"
+          count=$CANDIDATES; [ "$MODE" = probe ] && count=3
+          python3 "$ABC/sample.py" order "$count" < "$work/feat_names.txt" > "$work/feat_sample.txt"
+          7z x -y -bso0 -bsp0 -o"$work/feat" "$work/feat.7z" @"$work/feat_sample.txt"
+          rm -f "$work/feat.7z"
+          echo "extracted: $(find "$work/feat" -name '*.yml' | wc -l) feature files, $(du -sh "$work/feat" | cut -f1)"
+      - name: Probe (structure of the feature files, no coordinates)
+        if: inputs.mode == 'probe'
+        run: |
+          find "$RUNNER_TEMP/abc/feat" -name '*.yml' | sort | while read -r f; do
+            echo "== $(basename "$f") ($(stat -c %s "$f") bytes)"
+            python3 "$ABC/feat_to_json.py" --probe "$f"
+          done
+      - name: Meshes of the sample
+        if: inputs.mode == 'run'
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/abc"
+          find "$work/feat" -name '*.yml' | while read -r f; do python3 "$ABC/sample.py" id "$f"; done > "$work/ids.txt"
+          url=$(grep "abc_${CHUNK}_obj_v00.7z" "$work/obj_list.txt" | awk '{print $1}')
+          [ -n "$url" ] || { echo "chunk not in the list"; exit 1; }
+          curl -sSfL --retry 3 -o "$work/obj.7z" "$url"
+          ls -l "$work/obj.7z" | awk '{print "mesh archive bytes:", $5}'
+          7z l -ba -slt "$work/obj.7z" | sed -n 's/^Path = //p' > "$work/obj_names.txt"
+          python3 "$ABC/sample.py" match "$work/ids.txt" < "$work/obj_names.txt" > "$work/obj_sample.txt"
+          7z x -y -bso0 -bsp0 -o"$work/obj" "$work/obj.7z" @"$work/obj_sample.txt"
+          rm -f "$work/obj.7z"
+          echo "extracted: $(find "$work/obj" -name '*.obj' | wc -l) meshes, $(du -sh "$work/obj" | cut -f1)"
+          bash "$ABC/prepare.sh" "$work/feat" "$work/obj" "$work/data"
+          rm -rf "$work/feat" "$work/obj"
+      - name: Measure
+        if: inputs.mode == 'run'
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/abc"
+          {
+            echo "### Fillet detection on ABC chunk $CHUNK (commit $GITHUB_SHA)"
+            echo "Scored against the frozen heuristic of AbcHeuristic (benchmarks/FilletDetection/Corpus.cs), not against CAD labels."
+            echo
+            dotnet run --project benchmarks/FilletDetection -c Release -f net10.0 --no-build -- corpus "$work/data" "$work/data/ids.txt" "$RUNNER_TEMP/fillet_abc_scores.csv" 3000 200 50
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: inputs.mode == 'run'
+        with:
+          name: fillet-abc-scores
+          path: ${{ runner.temp }}/fillet_abc_scores.csv
+          if-no-files-found: error
+      - name: Delete the data
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/abc"

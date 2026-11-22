@@ -12,6 +12,7 @@ namespace FilletDetection
     ///   crease                  what the dihedral crease test of the quad and tet code sees on the filleted solids
     ///   detect [filters...]     precision / recall / radius error of the detectors (filters: solid names, cad, fine, n=8, fast = without the Voronoi detector)
     ///   defillet [filters...]   sharp-edge reconstruction on the detected fillets against the solid before filleting
+    ///   spotcheck | boundcheck | export-abc dir | corpus dir list csv seconds nFillet nPlain   the measurement on CAD meshes (Corpus.cs)
     /// </summary>
     public static class Program
     {
@@ -27,6 +28,10 @@ namespace FilletDetection
             if (cmd == "crease") return Crease();
             if (cmd == "detect") return Detect(filters);
             if (cmd == "defillet") return Defillet.Run(filters);
+            if (cmd == "spotcheck") return Corpus.SpotCheck(filters);
+            if (cmd == "boundcheck") return Corpus.BoundCheck(filters);
+            if (cmd == "export-abc") return Corpus.Export(args[1], args.Skip(2).ToArray());
+            if (cmd == "corpus") return Corpus.Run(args[1], args[2], args[3], double.Parse(args[4], Inv), int.Parse(args[5], Inv), int.Parse(args[6], Inv));
             Console.Error.WriteLine("usage: FilletDetection crease | detect [filters] | defillet [filters]");
             return 2;
         }
