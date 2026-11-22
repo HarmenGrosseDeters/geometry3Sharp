@@ -287,10 +287,18 @@ and the yz part of c - p exceeds r by at least 1e-9 d (`fast_path_certificate`).
    relative. dotYZ has |Δ| ≤ 2u (|u_y v_y| + |u_z v_z|), the product da db ≤ 15u, den = fl(da db + dotYZ): |Δden| ≤ 16u da db + 3u (|u_y v_y| + |u_z v_z|) ≤ 22u S2.
    With 2 and the bounds on S1, S2: |Δnum|/hypot ≤ 2u · 2 / 1.93 = 2.1u and |Δden|/hypot ≤ 22u · 4 / 1.93 = 45.6u.
 5. *atan2.* |atan2(num + Δn, den + Δd) - atan2(num, den)| ≤ asin(|Δ|/hypot) ≤ (π/2) |Δ|/hypot ≤ (π/2) 47.7u = 8.3e-15, and
-   the library's atan2 adds at most 2 ulp (7e-16, an assumption on `Math.Atan2`). Underflow: the products can be subnormal
+   the library's atan2 adds at most 2 ulp of its result, at most 8.9e-16 (the assumption on `Math.Atan2` below). Underflow: the products can be subnormal
    when a component is small, with an absolute error of at most 2.5e-324, against hypot ≥ 1.9 la lb sqrt(x_u x_v) ≥ 1e-60 · 1e-9
    (x_u ≥ 1 - cos(1e-9) = 5e-19): no effect.
-Total: 8.3e-15 + 0.7e-15 + 0.7e-15 = 9.7e-15 ≤ 1e-14. ∎
+Total: 8.3e-15 + 0.7e-15 + 0.9e-15 = 9.9e-15 ≤ 1e-14. ∎
+
+*Assumptions of the proof.* (i) Every `+ - * /` and `sqrt` of the fast path is IEEE binary64 round-to-nearest (a fused
+multiply-add contraction only removes a rounding, so the bounds hold). (ii) `Math.Atan2` returns a result within 2 ulp of the exact
+value. It calls the platform's C runtime (glibc's libm documents at most 1 ulp for atan2 on x86-64; the .NET documentation
+states no bound), so it is a measured assumption: `MathAtan2_IsWithinTwoUlpOfTheExactValue_OnTheArgumentsOfTheFastPath` compares
+6000 argument pairs (exponents 2^-200 .. 2^200, ratios 1e-15 .. 1e15, near ±π) with an exact arctangent (a fixed-point
+Taylor series over 2^-220) and asserts ≤ 2 ulp; the largest seen on the CI-type Linux x64 runner is 1.0 ulp. A platform whose
+atan2 is worse fails that test and the 1e-14 test (then the 1e-12 charged per edge still holds up to 1e3 ulp).
 
 `ExactWindingCacheInternalTestsEdgeAngleOracle` checks the claim: `EdgesOfAcceptedNodes_HaveAnErrorBelowTheProvedBound` compares the angle of every
 sampled edge of accepted nodes (and the chord) with the exact one (integers over the grid 2^-1074, exact square roots, the

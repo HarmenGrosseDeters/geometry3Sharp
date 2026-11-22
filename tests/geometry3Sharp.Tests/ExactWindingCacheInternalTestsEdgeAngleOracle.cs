@@ -196,5 +196,68 @@ namespace geometry3Sharp.Tests
             Assert.True(edges > 300 && nodes > 100, $"{edges} edges of {nodes} nodes");
             Assert.True(max <= 1e-14, $"the largest error {max:E3} of an accepted node's edge exceeds the proved 1e-14");
         }
+
+        // ---- Math.Atan2 against an exact arctangent (the proof of A1 assumes at most 2 ulp of the result) ----
+
+        const int F = 220;
+
+        static BigInteger AtanFixed(BigInteger r)           // r over 2^F, |r| <= 1; atan(r) over 2^F
+        {
+            BigInteger one = BigInteger.One << F;
+            for (int i = 0; i < 3; ++i)                      // atan(r) = 2 atan(r / (1 + sqrt(1 + r^2)))
+                r = (r << F) / (one + ISqrt((one << F) + r * r));
+            BigInteger sum = r, term = r, r2 = (r * r) >> F;
+            for (int k = 1; k < 80; ++k) {
+                term = -((term * r2) >> F);
+                sum += term / (2 * k + 1);
+            }
+            return sum << 3;
+        }
+
+        internal static double ExactAtan2(double y, double x, out double ulp)
+        {
+            BigInteger Y = Grid(y), X = Grid(x);
+            if (BitConverter.DoubleToInt64Bits(y) < 0) Y = -Grid(-y);
+            BigInteger ay = BigInteger.Abs(Y), ax = BigInteger.Abs(X);
+            BigInteger pi = AtanFixed(BigInteger.One << F) << 2;
+            BigInteger a;
+            if (ax.IsZero && ay.IsZero) { ulp = 0; return 0.0; }
+            a = ax >= ay ? AtanFixed((ay << F) / ax) : (pi >> 1) - AtanFixed((ax << F) / ay);
+            if (x < 0) a = pi - a;
+            if (y < 0) a = -a;
+            // (the integer a over 2^F to a double: 56 to 64 leading bits, rounded to nearest by the conversion of an ulong)
+            BigInteger magnitude = BigInteger.Abs(a);
+            int sh = Math.Max(0, Bits(magnitude) - 64);
+            double result = (double)(ulong)(magnitude >> sh) * Math.Pow(2, sh - F);
+            if (a.Sign < 0) result = -result;
+            double next = BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(Math.Abs(result)) + 1);
+            ulp = next - Math.Abs(result);
+            return result;
+        }
+
+        [Fact]
+        public void MathAtan2_IsWithinTwoUlpOfTheExactValue_OnTheArgumentsOfTheFastPath()
+        {
+            // num and den of the fast path are products and sums of doubles of any exponent between 2^-200 and 2^200, of either
+            // sign, with ratios from 1e-15 to 1e15 and near +-pi (den < 0, num tiny)
+            var rnd = new Random(31);
+            double worst = 0.0;
+            int n = 0;
+            for (int i = 0; i < 6000; ++i) {
+                double e1 = Math.Pow(2, rnd.Next(-200, 200));
+                double ratio = Math.Pow(10, rnd.Next(-15, 16));
+                double y = (rnd.NextDouble() * 2 - 1) * e1;
+                double x = (rnd.NextDouble() * 2 - 1) * e1 * (i % 3 == 0 ? 1.0 : ratio);
+                if (i % 7 == 0) { x = -Math.Abs(x); y = y * 1e-14; }          // near the branch cut
+                if (x == 0.0 && y == 0.0) continue;
+                double got = Math.Atan2(y, x);
+                double exact = ExactAtan2(y, x, out double ulp);
+                double ulps = Math.Abs(got - exact) / ulp;
+                ++n;
+                if (ulps > worst) worst = ulps;
+                Assert.True(ulps <= 2.0, $"Math.Atan2({y:R}, {x:R}) = {got:R} is {ulps:F2} ulp from {exact:R}");
+            }
+            Assert.True(n > 5000);
+        }
     }
 }
