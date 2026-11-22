@@ -2614,6 +2614,10 @@ namespace g3
         void prepare_triangle(int ti)
         {
             InputTriangle t = Triangles[ti];
+            // (the coplanar triangles that it meets only at shared vertices or edges are added by the pair loop, in the order the
+            // loop ran, without a point or a segment: ascending before the early return, as prepare_touched makes it for the others;
+            // the list of an untouched triangle is the shared empty one: only a list of two or more is sorted)
+            if (t.Coplanar.Count > 1) t.Coplanar.Sort();
             if (t.Degenerate || (t.Segments.Count == 0 && t.Points.Count == 0))
                 return;
             prepare_touched(ti, t);
