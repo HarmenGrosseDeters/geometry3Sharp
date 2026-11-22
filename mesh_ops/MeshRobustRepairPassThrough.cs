@@ -8,17 +8,17 @@ namespace gs
     /// Stage 0 of the part handling of <see cref="MeshRobustRepair"/> (design note docs/design/ROBUST_REPAIR_SCALE_FREE.md, option B): a closed
     /// connected component that is clean on its own (<see cref="MeshRobustRepair.NotCleanReason"/> of the component alone: closed, manifold,
     /// consistently oriented, outside facing, no self-intersections, no degenerate triangle) and whose bounding box meets the box of no other
-    /// component is passed through untouched (a clean input of one component too: it is returned as it is, #1337). Only the other components go through the repair stages, so the thresholds of those stages
+    /// component is passed through untouched. Only the other components go through the repair stages, so the thresholds of those stages
     /// (relative to the diagonal of what they get) no longer see a clean part far away, and the defects of one part cannot touch another.
     /// </summary>
     internal static class MeshRobustRepairPassThrough
     {
         /// <summary>
-        /// Splits the input. Returns false (nothing to do) if it has no or more than maxParts components, or one component and passSingleComponent is false or no component that
+        /// Splits the input. Returns false (nothing to do) if it has fewer than two or more than maxParts components or no component that
         /// passes through. passed: the pass through parts, appended in the order of their first triangle (a new mesh); rest: the other
         /// components (a new mesh, empty if all pass through); passedBoxes: the box of each passed part.
         /// </summary>
-        public static bool Split(DMesh3 input, int maxParts, bool checkSelfIntersections, bool passSingleComponent, out DMesh3 passed, out DMesh3 rest, out List<AxisAlignedBox3d> passedBoxes)
+        public static bool Split(DMesh3 input, int maxParts, bool checkSelfIntersections, out DMesh3 passed, out DMesh3 rest, out List<AxisAlignedBox3d> passedBoxes)
         {
             passed = rest = null;
             passedBoxes = null;
@@ -26,7 +26,7 @@ namespace gs
                 return false;
             int[] componentOf;
             List<AxisAlignedBox3d> boxes = MeshRepairMetrics.ComponentBoxes(input, out componentOf);
-            if (boxes.Count > maxParts || (boxes.Count < 2 && (passSingleComponent == false || boxes.Count < 1)))
+            if (boxes.Count < 2 || boxes.Count > maxParts)
                 return false;
             var tris = new List<int>[boxes.Count];
             for (int i = 0; i < tris.Length; ++i)
@@ -55,13 +55,6 @@ namespace gs
             }
             if (boxesOut.Count == 0)
                 return false;
-            if (boxes.Count == 1) {
-                // one clean component: the input as it is (groups, ids and attributes kept), not the appended copy
-                passed = new DMesh3(input);
-                rest = new DMesh3();
-                passedBoxes = boxesOut;
-                return true;
-            }
             passed = passedMesh;
             rest = restMesh;
             passedBoxes = boxesOut;

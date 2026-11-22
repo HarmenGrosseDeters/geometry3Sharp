@@ -22,8 +22,10 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [ExtremeBooleans](ExtremeBooleans/README.md) | Reproduction scripts and profiling for extreme-runtime boolean pairs |
 | [LevyClassification](LevyClassification/README.md) | Phase-1 propagation classification probe for `ExactMeshBoolean` |
 | [MeshMeshCutContactBenchmark](MeshMeshCutContactBenchmark/README.md) | Cost of exact contact detection in `MeshMeshCut.RefuseContact` |
+| [OpenCuttingSurface](OpenCuttingSurface/README.md) | Prototype of the candidate semantics for a Difference with an open cutting surface (#1211): existing parts, sheet role, winding rules, swept tool |
 | [PredicateComparison](PredicateComparison/README.md) | Accuracy and speed of `orient2d`, `incircle`, and `orient3d` implementations vs. exact reference |
 | [SelfIntersectionBenchmark](SelfIntersectionBenchmark/README.md) | Cost of exact self-intersection checks and `Reducer.PreventSelfIntersections` |
+| [SelfIntersectionUntangle](SelfIntersectionUntangle/README.md) | Spike: a connectivity-preserving untangling prototype against `MeshRobustRepair`, the exact resolve, the solidify and the alpha wrap on procedural self-intersecting solids |
 | [SnapRoundingExperiment](SnapRoundingExperiment/README.md) | Snap-rounding prototypes and quality measurements for `SAFE_ROUNDING.md` |
 | [SolidBooleanAudit](SolidBooleanAudit/README.md) | Adversarial procedural corpus and an independent oracle (ray crossings, volumes) for an end-to-end audit of `SolidBooleanPipeline` |
 | [SolidBooleanBenchmark](SolidBooleanBenchmark/README.md) | `SolidBooleanPipeline` (exact boolean + guarded reduction + contact pairing) on procedural soups |
@@ -58,9 +60,12 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [CrossFieldBenchmark](CrossFieldBenchmark/README.md) | `CrossField` solve times and smoothness on procedural closed shapes |
 | [QuadRemeshBenchmark](QuadRemeshBenchmark/README.md) | `CrossField`, `PositionField`, and `QuadRemesher` stage 2 quality and timing |
 | [QuadFlow3BGate](QuadFlow3BGate/README.md) | Stage 3B acceptance gate measurements for `QuadRemesher.PureQuads` |
+| [QuadIntegerJumps](QuadIntegerJumps/README.md) | Research spike: integer jumps on the frozen edges of the stage 3B flow of `QuadRemesher.PureQuads` (relaxed bi-directed flow), against the gate runs |
 | [QuadRemeshSpike](QuadRemeshSpike/README.md) | Early feasibility prototype for quad remeshing |
 | [QuadSeamlessSeedSpike](QuadSeamlessSeedSpike/README.md) | Upper bound of a seamless-parametrization seed (cone metric, two scales) for `PositionField` and `QuadRemesher` |
+| [FilletDetection](FilletDetection/README.md) | Research spike: fillet detectors (curvature, DeFillet's Voronoi rolling balls, medial balls) and sharp-edge reconstruction on procedural filleted CAD solids with a known answer |
 | [QuadSheafObstruction](QuadSheafObstruction/README.md) | Research spike: sheaf-Laplacian and area-invariant diagnostics of the stage 3B fallbacks of `QuadRemesher.PureQuads` |
+| [QuadFlow3BSat](QuadFlow3BSat/README.md) | Research spike: the local SAT instances of the stage 3B repair decided by a clause-learning solver (search or problem), DIMACS dump of the obstructions |
 
 ## Contouring, Offsets, Lofting & Lattices
 
@@ -72,6 +77,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [DualContouringSimplification](DualContouringSimplification/README.md) | Adaptive octree simplification triangle count vs. error for `DualContouring` |
 | [ContouringCertificate](ContouringCertificate/README.md) | Stage 1–3 topology certification evaluation for contouring |
 | [ContouringSubgridProbe](ContouringSubgridProbe/README.md) | Upper bounds for sharp features from distance grids, walls thinner than a cell (subgrid marching tetrahedra) and a subdivision certificate |
+| [ContouringIsotopySubdivision](ContouringIsotopySubdivision/README.md) | A subdivision isotopy certificate (C0 / C1 cells, outward-rounded intervals) for `DualContouring` of implicit fields, against Theorem 5's cell test and the class P certificate |
 | [ContouringTopology](ContouringTopology/README.md) | Upper-bound study for contouring topology guarantees |
 | [MeshOffsetBenchmark](MeshOffsetBenchmark/README.md) | `MeshOffset` certified band accuracy and timing vs. SDF Marching Cubes |
 | [ContourLoftBenchmark](ContourLoftBenchmark/README.md) | Scaling and quality of `ContourLoft` and `ContourLoftStack` |
@@ -106,6 +112,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [Clipper2Benchmark](Clipper2Benchmark/README.md) | 2D polygon offsets and booleans via `addons/geometry3Sharp.Clipper2` |
 | [SparseCholeskyBenchmark](SparseCholeskyBenchmark/README.md) | `SparseCholesky` AMD ordering, symbolic/numeric factorization, and solve timings |
 | [SparseSquareBenchmark](SparseSquareBenchmark/README.md) | `SymmetricSparseMatrix.Square` / `Multiply` timings and the product bits of repeated runs |
+| [MultiscaleCholeskyProbe](MultiscaleCholeskyProbe/README.md) | Research spike: multiscale incomplete Cholesky, FSAI and approximate elimination as PCG preconditioners against the direct `SparseCholesky` |
 | [CoreMathBenchmark](CoreMathBenchmark/README.md) | Cost of correctly rounded `g3.CoreMathPort.CoreMath` elementary functions |
 | [BoxContainBenchmark](BoxContainBenchmark/README.md) | Throughput micro-benchmark for `AxisAlignedBox3d.Contain` |
 | [GridIndexerBenchmark](GridIndexerBenchmark/README.md) | Throughput probe for `ShiftGridIndexer3.ToGrid` |
@@ -119,4 +126,5 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [net48-compare](net48-compare/README.md) | Side-by-side runtime comparison of `.NET Framework 4.8` vs. `.NET 10.0` |
 | [MetamorphicFalsification](MetamorphicFalsification/README.md) | Metamorphic relation falsification runs over core geometry operations |
 | [MetamorphicBugHunt](MetamorphicBugHunt/README.md) | Metamorphic relations and operation chains (Boolean, repair, remesh, tet, wrap, contouring, 2D mesher) on procedural inputs with independent checks of every Success |
+| [MagnitudeRobustness](MagnitudeRobustness/README.md) | Probes of the magnitude study: geodesic and intrinsic classes and `DualContouring` at 2^e, root-cause expressions, an exact prescaling wrapper and its cost |
 | `Shared` | Shared evaluation helpers (`FidelityFields.cs`, `UvEvaluation.cs`) reused by benchmarks and tests |
