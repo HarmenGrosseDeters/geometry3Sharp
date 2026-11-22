@@ -3,7 +3,7 @@
 - **Board row:** OPEN_TOPICS.md §5 "Research / hard open problems (no known solution; a study first)", row "Other: envelope-guaranteed simplification, the paper's algorithm (HP 10)"
 - **Kind:** research study (envelope stopped 2026-11-01; Phase 5 #2 open; trigger: need for fast certified ε-envelope simplification in `Reducer` / `Remesher`)
 - **Tier:** L (certified per-collapse ε-envelope bound, exact/interval triangle-prism tests, speed vs `MaxDeviation`; study first)
-- **Plan status:** draft, 2026-11-20 (Berlin); updated 2026-11-22 (Berlin): the phase 1 study is done ([ENVELOPE_GUARANTEED_SIMPLIFICATION_2026-11.md](../research/ENVELOPE_GUARANTEED_SIMPLIFICATION_2026-11.md), prototype in `benchmarks/ReducerBenchmark`): guaranteed, but 1.1-1.9x the triangles and mostly 5-98x the time of `MaxDeviation`; leaning no-go. Only the owner decision on the note's options (and phase 2, if the owner says go) remains.
+- **Plan status:** draft, 2026-11-20 (Berlin); updated 2026-11-22 (Berlin): the phase 1 study is done ([ENVELOPE_GUARANTEED_SIMPLIFICATION_2026-11.md](../research/ENVELOPE_GUARANTEED_SIMPLIFICATION_2026-11.md), prototype in `benchmarks/ReducerBenchmark`): guaranteed, but 1.1-1.9x the triangles and mostly 5-98x the time of `MaxDeviation`; leaning no-go. Owner decision 2026-11-22 ([ROADMAP.md](../ROADMAP.md), "Decided on 2026-11-22", "Stops"): envelope simplification stops; phase 2 is not built.
 
 ## Current state
 
@@ -24,7 +24,7 @@
 
 ## Trigger / decision needed
 
-Update 2026-11-22: phase 1 is done; what is needed now is the owner decision on the options of the [research note](../research/ENVELOPE_GUARANTEED_SIMPLIFICATION_2026-11.md). The original trigger:
+Update 2026-11-22: phase 1 is done ([research note](../research/ENVELOPE_GUARANTEED_SIMPLIFICATION_2026-11.md)) and the owner stopped the topic (see the plan status). The original trigger:
 
 A caller or pipeline goal requiring fast, **guaranteed two-sided ε-envelope** mesh simplification / remeshing (where
 post-hoc `SimplifyWithin` retry is too coarse or too slow, e.g. CAD LOD / FEM simplification with strict tolerance).
