@@ -191,7 +191,7 @@ of a Delaunay triangulation with c on the side of a-b away from x. Then the angl
 arctan(sin φ / (2 − cos φ)).
 
 **Proof.** The points a⁺ and c are on the same side of a-b. The triangle is Delaunay, so a⁺ is not strictly inside its
-circumcircle. By the inscribed angle theorem the angle at c over the chord a-b is then at least the angle at a⁺ over it. The
+circumcircle (in a constrained Delaunay triangulation this needs a⁺ to be visible from the triangle). By the inscribed angle theorem the angle at c over the chord a-b is then at least the angle at a⁺ over it. The
 angle at a⁺ falls as a⁺ moves away from a, and at the distance 2r it is arctan(sin φ / (2 − cos φ)): with x at the origin,
 a = (1, 0), b = (cos φ, sin φ) and a⁺ = (2, 0), its tangent is sin φ / (2 − cos φ). On the side of x the same argument with
 x in place of a⁺ gives at least φ.
@@ -201,8 +201,9 @@ Box: φ, and c in [−4, 6] x [−5, 5] without discs of 0.01 around a and b; a�
 of x, when a⁺ is strictly inside the circumcircle, or when the cotangent of the angle at c is at most 1.05 times the floor's.
 - One angle (φ = 20 degrees): proved with about 50 000 boxes.
 - φ in [20, 21] and in [40, 60] degrees: proved, with 52 and 145 million boxes.
-- φ in [0.5, 60] degrees: not finished within the limit of 200 million boxes. The count grows about a thousandfold per
-  degree of φ, so plain bisection is the wrong tool for the whole range; the proof above does not need it.
+- φ in [0.5, 60] degrees: not finished within the limit of 200 million boxes (the boxes left at the limit are reported as
+  undecided). A range of φ costs a thousand times the boxes of one angle and more, so plain bisection is a poor tool for
+  the whole range; the proof above does not need it.
 
 Raw output: `perf/floor-net10.txt`.
 
@@ -210,8 +211,8 @@ Raw output: `perf/floor-net10.txt`.
 next vertex within twice that distance on the same source, and a Delaunay triangle. The oracle's excuse asks for none of
 the three: the ends may differ by a factor 1.5, they may be input points with no vertex beyond them, and in the constrained
 mode the triangle need not be Delaunay. Without the second hypothesis there is no floor at all: c can lie as far away as
-the mesh allows, and the angle goes to zero. The 85 and 107 triangles below the floor in section 1.4 are that case, and
-each is a test input (the smallest: `crossing`, φ = 20 degrees, bound 20, constrained mode, 5.47 degrees). So the answer to
+the mesh allows, and the angle goes to zero. The 85 and 107 triangles below the floor in section 1.4 are counterexamples
+to a floor for today's excuse; which of the three hypotheses each one breaks was not recorded. Each is a test input (the smallest: `crossing`, φ = 20 degrees, bound 20, constrained mode, 5.47 degrees). So the answer to
 the item is: the floor is a lemma for the paper's rule, with a three-parameter box; for today's excuse region the search
 ends in a counterexample, not in a proof.
 
@@ -303,6 +304,9 @@ section 6.2, and of the checkers above).
 **Hypotheses the argument uses and the prototype does not check.**
 - The rings are simple and properly nested or side by side (a precondition on the input, which the oracle checks today).
 - The sign of a ring's area is taken in doubles.
+- No two input points have the same coordinates. The classes are keyed by input points, so a border between duplicated
+  points is not recognised as shared (the review's second pass built such a mesh, and the prototype accepts it).
+- Every input point lies in the domain. An input point in a hole or outside the rings would make pass 2 reject a valid mesh.
 - Sources that overlap only in part are not recognised as one class. Then two chains can run beside each other in the
   tube, and the mesh need not be edge to edge there. The real checker needs the noding of the input for this, which is
   an input-only computation.
@@ -384,8 +388,9 @@ garbage collection the functions cause. Raw output: `perf/profile-split.txt`.
 | parcels30 q20 snap 1/64 | 71 % | 29 % | segments 79 % (17 %), coverage 12 % (96 %) |
 | wide exponents q20 default | 69 % | 31 % | quality 41 % (4 %), segments 20 % (13 %) |
 
-- On the parcels without a grid, the time is mostly locating: `Segments` copies and scans lists of ring edges per source
-  (`RetainedPieces`), and the rest of it and of `Domain` is the greatest common divisor of exact rationals.
+- On the parcels without a grid, the time is mostly locating. In the profile of `parcels30 q20 default` (inclusive times),
+  49 % of `Segments` is in copying lists of ring edges per source (`ToList` under `RetainedPieces`) and 11 % in the greatest
+  common divisor of the exact rationals; 90 % of `Domain` is the exact area (`ComputeArea`), 38 % of it the same divisor.
 - On the other inputs most of the time is deciding: exact rational arithmetic, without a filter in doubles in front of it.
 - The deciding share is an upper estimate of what must stay: a predicate evaluated on a candidate that a search produced
   disappears with the search. So "locating" is a lower bound of what hints remove.
@@ -394,7 +399,7 @@ garbage collection the functions cause. Raw output: `perf/profile-split.txt`.
   Herne and the corpus were not measured (no tiles and no corpus files in this session); `profile_split.py` runs on any
   trace of the oracle.
 - What makes the prototype checker fast is therefore not the hints alone. It is three things together: the certificate
-  (no search), predicates behind filters in doubles (on these outputs 0 orientation tests and at most a few hundred
+  (no search), predicates behind filters in doubles (on these outputs no orientation test and at most 519
   in-circle tests fell back to exact arithmetic), and the degree argument, which replaces checks instead of speeding them up.
 
 **What the numbers say.**
@@ -407,7 +412,8 @@ garbage collection the functions cause. Raw output: `perf/profile-split.txt`.
    per source and the exact area. The first needs an index (the oracle has `BoxGrid`), the second a filter or the degree
    argument. Both stay inside the oracle and keep it independent.
 4. **Hints are the smaller part** (the split above): locating is 29 to 67 % of the oracle's time; the rest is exact
-   arithmetic that a filter in doubles would decide in most cases.
+   arithmetic. How much of it a filter in doubles would decide was not measured on the oracle; the only evidence is the
+   checker's own two predicates, which fell back to exact arithmetic at most 519 times on 401 151 triangles.
 5. **The oracle's time per source is high.** The ratio to the mesher is worst where an input has many sources and few triangles
    per source (parcels: 2 triangles per ring at 20 degrees). Herne has the opposite shape, which is why its ratio is 3.6.
 6. **The strata differ.** With many small input angles (`fan`, `comb`, wide exponents) the time is in `quality`, in the
