@@ -3,7 +3,7 @@
 - **Board row:** OPEN_TOPICS.md §5 "Research / hard open problems (no known solution; a study first)", row "2D meshing: oracle speed, certifying design (HP 7)"
 - **Kind:** research study (fast oracle stopped at its stop rule: Herne 3.6x mesher vs <= 2x target; trigger: oracle speed becomes a bottleneck for CI / fuzzing / Nightly)
 - **Tier:** L (clean-room certifying-algorithm proof + equivalence argument per replacement; study first)
-- **Plan status:** draft, 2026-11-20 (Berlin). Plan only. **STRICT CLEAN-ROOM RULE APPLIES.**
+- **Plan status:** draft, 2026-11-20 (Berlin). **STRICT CLEAN-ROOM RULE APPLIES.** Updated 2026-11-22 (Berlin): the phase 1 study is done ([MESHING2D_HP6_HP7_SPIKE_2026-11.md](../research/MESHING2D_HP6_HP7_SPIKE_2026-11.md), prototypes in `benchmarks/Meshing2HardProblems`): a certifying checker is feasible for the core of the specification (prototype 1 to 13 % of the mesher time); its option 1 (speed up the two scans inside today's oracle) is merged (PR `#1353`, refs issue `#1319`, which is still open). The certifying core (option 2) waits on the owner decision on the note's options.
 
 ## Current state
 
@@ -19,6 +19,8 @@
        without running exact `BigInteger` checks on every edge/triangle).
 
 ## Trigger / decision needed
+
+Update 2026-11-22: the study is done; what remains is the owner decision on the options of the [research note](../research/MESHING2D_HP6_HP7_SPIKE_2026-11.md). The original trigger:
 
 Oracle runtime in Nightly, fuzzing campaigns (`MeshFuzzPilot`), or PR CI becomes a binding bottleneck and warrants
 designing a true certifying-algorithm witness protocol (McConnell et al. 2011) between `QualityMesh2` and the oracle
