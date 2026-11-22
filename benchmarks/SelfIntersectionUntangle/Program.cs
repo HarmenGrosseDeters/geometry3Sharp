@@ -20,6 +20,8 @@ using gs;
 //                                                                                    repair takes, with and without untangling first)
 //   dotnet run --project benchmarks/SelfIntersectionUntangle -c Release -- pipeline (SolidBooleanPipeline, defaults: the solid united
 //                                                                                    with a box far away; Status and NotCleanReason)
+//   dotnet run --project benchmarks/SelfIntersectionUntangle -c Release -- solidify (thin inputs solidified coarsely: can a
+//                                                                                    self-intersecting contour be untangled?)
 //   ... -- only <substring>                                                         (cases whose name contains it)
 static class Program
 {
@@ -32,7 +34,9 @@ static class Program
     {
         if (a == null || b == null || a.TriangleCount == 0 || b.TriangleCount == 0) return double.NaN;
         var h = new MeshHausdorffDistance(a, b) { Symmetric = symmetric, Tolerance = 1e-4 * diag, MaxSubdivisions = 1000000 };
-        return h.Compute() ? h.UpperBound : double.NaN;
+        if (!h.Compute()) return double.NaN;
+        if (!h.Converged) notConverged++;
+        return h.UpperBound;
     }
 
     // components and Euler characteristic V - E + F (2 per sphere-like component, 0 per torus-like one)
@@ -42,6 +46,8 @@ static class Program
         var c = new MeshConnectedComponents(m); c.FindConnectedT();
         return c.Count + "c/" + (m.VertexCount - m.EdgeCount + m.TriangleCount);
     }
+
+    static int notConverged;
 
     sealed class Row
     {
@@ -80,30 +86,37 @@ static class Program
         // corpus self-check: every given mesh is closed, consistently oriented and exactly self-intersecting; every intent is clean
         int bad = 0;
         var cases = UCases.Cases().Where(c => only == null || c.Name.Contains(only)).ToList();
-        foreach (UCase c in cases) {
-            DMesh3 g = c.Given();
+        if (cases.Count == 0) { Console.WriteLine("no case matches"); return 2; }
+        foreach (UCase c in cases)
+            foreach (var fr in frames) {
+            DMesh3 g = Map(c.Given(), fr.map);
             var d = MeshRobustRepair.FindDefects(g);
             bool givenOk = (d & ~(MeshRobustRepair.Defects.SelfIntersections | MeshRobustRepair.Defects.InsideOutComponents)) == 0
                 && (d & MeshRobustRepair.Defects.SelfIntersections) != 0;
-            string intent = c.Intent == null ? "" : MeshRobustRepair.NotCleanReason(c.Intent());
+            DMesh3 im = c.Intent == null ? null : Map(c.Intent(), fr.map);
+            string intent = im == null ? "" : MeshRobustRepair.NotCleanReason(im);
+            // (an intent has the given mesh's vertex and triangle counts: the same mesh before the vertices were moved)
+            if (im != null && (im.TriangleCount != g.TriangleCount || im.VertexCount != g.VertexCount)) intent = "another connectivity";
             if (!givenOk || intent != "") {
                 bad++;
-                Console.WriteLine("CORPUS DEFECT: " + c.Name + ": given = " + MeshRobustRepair.DescribeDefects(d) + "; intent = '" + intent + "'");
+                Console.WriteLine("CORPUS DEFECT: " + c.Name + " (" + fr.name + "): given = " + MeshRobustRepair.DescribeDefects(d) + "; intent = '" + intent + "'");
             }
         }
-        Console.WriteLine("corpus: " + cases.Count + " cases, " + bad + " defects");
+        Console.WriteLine("corpus: " + cases.Count + " cases x " + frames.Length + " frames, " + bad + " defects");
         if (bad > 0) return 2;
         if (checkOnly) return 0;
         if (openMode) return Open(cases, frames[1].map);
+        if (args.Contains("solidify")) return Solidify();
         if (args.Contains("pipeline")) {
-            Console.WriteLine("class | case | Status | BooleanStatus | NotCleanReason | inside-out cells");
+            Console.WriteLine("class | case | Status | BooleanStatus | NotCleanReason | inside-out cells | crossing triangles | only contacts");
             var count = new Dictionary<string, int>();
             foreach (UCase c in cases) {
                 DMesh3 g = c.Given();
                 AxisAlignedBox3d b = g.CachedBounds;
                 var pipe = new SolidBooleanPipeline(g, Corpus.Box(b.Max.x + 5, 0, 0, b.Max.x + 6, 1, 1), ExactMeshBoolean.Operations.Union);
                 pipe.Compute();
-                Console.WriteLine(string.Join(" | ", c.Class, c.Name, pipe.Status, pipe.BooleanStatus, pipe.Result == null ? "-" : "'" + pipe.Report.NotCleanReason + "'", pipe.Report.InsideOutCells));
+                Console.WriteLine(string.Join(" | ", c.Class, c.Name, pipe.Status, pipe.BooleanStatus, pipe.Result == null ? "-" : "'" + pipe.Report.NotCleanReason + "'", pipe.Report.InsideOutCells,
+                    pipe.Report.SelfIntersectingTriangles, pipe.Report.OnlyContacts));
                 string k = pipe.Status.ToString(); count[k] = count.TryGetValue(k, out int v) ? v + 1 : 1;
             }
             foreach (var kv in count) Console.WriteLine(kv.Key + " | " + kv.Value);
@@ -121,7 +134,8 @@ static class Program
                 foreach (UntangleOptions o in variants)
                     rows.Add(Timed("untangle " + o.Name, () => {
                         UntangleResult u = Untangler.Run(given, o);
-                        return new Row { Mesh = u.Mesh, Detail = "rounds " + u.Rounds + ", pairs left " + u.PairsEnd + " (best " + u.PairsBest + "), pull-back t " + F(u.PullBackT) };
+                        return new Row { Mesh = u.Mesh, Detail = "rounds " + u.Rounds + ", pairs left " + u.PairsEnd + " (best " + u.PairsBest + "), pull-back t " + F(u.PullBackT, "0.#######")
+                            + ", max move " + F(u.MaxMove / diag, "0.#####") };
                     }));
                 rows.Add(Timed("robust repair", () => {
                     var rr = new MeshRobustRepair(new DMesh3(given, false, MeshComponents.None));
@@ -157,6 +171,7 @@ static class Program
                 Console.Out.Flush();
             }
         Console.WriteLine();
+        Console.WriteLine("distances not converged to the tolerance: " + notConverged);
         Console.WriteLine("class | method | clean / runs");
         foreach (var kv in tally.OrderBy(k => k.Key, StringComparer.Ordinal))
             Console.WriteLine(kv.Key + " | " + kv.Value[1] + " / " + kv.Value[0]);
@@ -205,6 +220,52 @@ static class Program
             }
         Console.WriteLine();
         foreach (var kv in paths.OrderBy(x => x.Key, StringComparer.Ordinal)) Console.WriteLine(kv.Key + " | " + kv.Value);
+        return 0;
+    }
+
+    // The wrap of MeshRobustRepair is reached where the solidify's contour intersects itself. Thin procedural inputs (walls and
+    // sheets below a cell) solidified at coarse resolutions: where the solidify result is closed and its only defect is
+    // self-intersections, can the prototype untangle it, and how far does it move it (in cells and in diagonals)?
+    static int Solidify()
+    {
+        Func<double, DMesh3> plate = t => Corpus.FineBox(Vector3d.Zero, new Vector3d(1, 1, 0.5 * t), 9);
+        Func<DMesh3, DMesh3> turned = m => Map(m, p => new Vector3d(p.z + 0.13, p.y * 0.9 + 0.05, p.x * 0.8));
+        var inputs = new List<(string name, Func<DMesh3> make)> {
+            ("plate, thickness 0.02", () => plate(0.02)), ("plate, thickness 0.05", () => plate(0.05)),
+            ("two crossing plates, thickness 0.02", () => Corpus.Combine(plate(0.02), turned(plate(0.02)))),
+            ("two crossing plates, thickness 0.05", () => Corpus.Combine(plate(0.05), turned(plate(0.05)))),
+            ("three plates through each other, thickness 0.03", () => Corpus.Combine(plate(0.03), turned(plate(0.03)), Map(plate(0.03), p => new Vector3d(p.x * 0.7, p.z - 0.21, p.y * 0.85)))),
+            ("hollow box, wall 0.03", () => Corpus.Combine(Corpus.Cube(0, 1), Corpus.Invert(Corpus.Cube(0.03, 0.97)))),
+            ("thin helix tube, r 0.03, pitch 0.1", () => UCases.HelixTube(1, 0.03, 0.1, 2.5, 160, 8)),
+            ("helix tube, turns overlap by 0.1 r", () => UCases.HelixTube(1, 0.2, 0.38, 1.5, 96, 16)),
+            ("open sheet (one face of a box)", () => Corpus.Without(Corpus.FineBox(Vector3d.Zero, Vector3d.One, 9), (t, c) => c.z < 0.999)),
+            ("box without its top", () => Corpus.Without(Corpus.FineBox(Vector3d.Zero, Vector3d.One, 9), (t, c) => c.z > 0.999)),
+            ("fin 0.02 on a box", () => Corpus.Combine(Corpus.Cube(-1, 0), Corpus.Box(-0.6, -0.51, -0.2, -0.4, -0.49, 1))),
+            ("comb: 5 fins 0.02, gap 0.04", () => Corpus.Combine(Enumerable.Range(0, 5).Select(i => Corpus.Box(0, 0.06 * i, 0, 1, 0.06 * i + 0.02, 1)).ToArray())),
+        };
+        Console.WriteLine("input | frame | resolution | solidify result | triangles | pairs | untangled | rounds | max move / cell | max move / diagonal");
+        int si = 0, un = 0, runs = 0;
+        foreach (var inp in inputs)
+            foreach (bool rot in new[] { false, true })
+                foreach (int res in new[] { 24, 48, 96 }) {
+                    DMesh3 g = rot ? Map(inp.make(), Corpus.Rotate) : inp.make();
+                    var s = new MeshWindingNumberSolidify(new DMesh3(g, false, MeshComponents.None)) { GridResolution = res };
+                    runs++;
+                    if (!s.Compute() || s.Result == null || s.Result.TriangleCount == 0) { Console.WriteLine(inp.name + " | " + (rot ? "rot" : "id") + " | " + res + " | failed"); continue; }
+                    var d = MeshRobustRepair.FindDefects(s.Result);
+                    string line = inp.name + " | " + (rot ? "rot" : "id") + " | " + res + " | " + (d == MeshRobustRepair.Defects.None ? "clean" : MeshRobustRepair.DescribeDefects(d)) + " | " + s.Result.TriangleCount;
+                    if (d == MeshRobustRepair.Defects.SelfIntersections) {
+                        si++;
+                        UntangleResult u = Untangler.Run(s.Result, new UntangleOptions { Signed = true });
+                        if (u.Clean) un++;
+                        line += " | " + u.PairsStart + " | " + (u.Clean ? "yes" : "no: " + u.Reason + ", " + u.PairsEnd + " pairs left") + " | " + u.Rounds + " | "
+                            + (u.Clean ? F(u.MaxMove / s.UsedCellSize, "0.00e+0") : "-") + " | " + (u.Clean ? F(u.MaxMove / g.CachedBounds.DiagonalLength, "0.00e+0") : "-");
+                    }
+                    Console.WriteLine(line);
+                    Console.Out.Flush();
+                }
+        Console.WriteLine();
+        Console.WriteLine("solidify runs: " + runs + "; closed with self-intersections as the only defect: " + si + "; of those untangled clean: " + un);
         return 0;
     }
 

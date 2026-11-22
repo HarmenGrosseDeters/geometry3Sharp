@@ -1,4 +1,4 @@
-corpus: 21 cases, 0 defects
+corpus: 21 cases x 2 frames, 0 defects
 class | case | hole | tris | pairs | untangled | repair path | repair clean | h(result->input) | repair path after untangling | clean | h(result->input)
 parts | two boxes overlapping by half (components) | at the intersection | 23 | 10 | no | ExactResolve | True | 0.07158 | - | False | -
 parts | two boxes overlapping by half (components) | far from it | 23 | 12 | no | ExactResolve | True | 0.08388 | - | False | -

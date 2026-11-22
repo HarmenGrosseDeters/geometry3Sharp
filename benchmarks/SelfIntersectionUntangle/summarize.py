@@ -34,7 +34,7 @@ def main(path):
             cells.append("%d / %d" % (sum(r["clean"] for r in sel), len(sel)))
         print("| " + m + " | " + " | ".join(cells) + " |")
     print()
-    print("| method | clean | median h(result->input) | median h(input->result) | max h(result->input) | median H(intent) | topology of the intent kept | median ms |")
+    print("| method | clean | median h(result->input) | median h(input->result) | max h(result->input) | median H(intent) | topology of the intent kept | median ms (all runs) |")
     print("|---|---|---|---|---|---|---|---|")
     for m in methods:
         sel = [r for r in rows if r["method"] == m and r["clean"]]

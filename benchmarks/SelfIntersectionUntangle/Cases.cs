@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using g3;
 
 // The procedural self-intersecting solids of the untangling spike. Every case is one closed, consistently oriented mesh whose
-// only defect is that it intersects itself. Intent, where it is not null, is the clean mesh with the same connectivity
+// only defect is that it intersects itself (a whole inverted cell also counts as an inside-out component). Intent, where it is not null, is the clean mesh with the same connectivity
 // that the defect was injected into (vertices displaced), so "distance to the intent" is defined for every method.
 sealed class UCase
 {
