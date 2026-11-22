@@ -465,7 +465,7 @@ The scope section of `.editorconfig` now names `mesh_ops/ExactMeshArrangement.cs
 its tests), 72 registered delegate calls and 57 string concatenations (ledger line in 5.4, generated). Plan #1241, owner decisions of
 2026-11-22: the rounding stage is a named assumption (decision 1a); `Math.Min / Max` of doubles are replaced, not argued.
 
-**What changed in the code** (each output-identical: the harness cases `boolean.*`, `stage1.*`, `kernel.*`, `repair`, `alphawrap`, `solidify` and the
+**What changed in the code** (each output-identical except the one that fixes a schedule dependence, the `Coplanar` sort: the harness cases `boolean.*`, `stage1.*`, `kernel.*`, `repair`, `alphawrap`, `solidify` and the
 new `stage2.*` have the same traces as master, and the suites of the exact classes pass):
 
 | change | why |
@@ -473,7 +473,7 @@ new `stage2.*` have the same traces as master, and the suites of the exact class
 | 128 `Math.Min / Max` of doubles in 61 members became `MathUtil.MinExact / MaxExact` | R4: the result for `(+0, -0)` differs between .NET Framework and .NET Core; the two agree bit for bit on .NET Core (`MathUtilMinMaxExactTests`), so no result changes there |
 | the three `GetHashCode` calls outside a hash implementation: `PointKey.Mixed()`, the hash of `ExactIdComparer.GetHashCode`, `ExactPoint3.ShardBits()` for the shard of `AddPoint` | R7: a hash value may only reach a hash container. The shard of a rational point now comes from the low bits of its canonical components (unseeded) instead of the seeded hash; `PointHashes_DoNotAffectTheResult` varies the shard choice, `ExactPoint3ShardBitsTests` pin the bits |
 | `delegate == null` became `is null` (4 places), one interpolated string and one `string.Format` with a `params` array became explicit | the analyzer counts and cannot register `delegate-combination` and `interpolated-string`; `string.Format` binds one overload on every target |
-| **defect found by the site review:** the `Coplanar` list of a triangle without points and segments is sorted before the early return of `prepare_triangle` | the pair loop filled it in schedule order, and `coplanar_stack` turns it into the order of the solid-angle sum of `front_generalized_winding`; `ExactArrangementCoplanarOrderTests` fails on the old code (reversed loop order gives 6,5,4,3,2,1) |
+| **defect found by the site review:** the `Coplanar` list of a triangle without points and segments is sorted before the early return of `prepare_triangle` | the pair loop filled it in schedule order, and `coplanar_stack` turns it into the order of the solid-angle sum of `front_generalized_winding`; `ExactArrangementCoplanarOrderTests` fails on the old code (reversed loop order gives 6,5,4,3,2,1). Identical on the harness cases, and deterministic where master followed the schedule |
 
 **Assumed members** (82; the signature is listed, the body is neither pinned nor analyzed): `MeshRoundingRepair` (36: the rounding stage of the
 Boolean with `SafeRounding`, floating-point code with its own sorts and containers; a stage of its own), `ExactMeshEdgeGroups` (10) and
@@ -488,7 +488,8 @@ only the phase dictionaries; reviewed, no flow rule), `DMeshAABBTree3.FastWindin
   meshes the winding number is the same for every non-degenerate ray (P4, tests vary `Seed`); for open meshes the Antipodal value near a
   half-integer can snap with one ray and not with another ("one Seed gives one result"), so the result is a function of the sequence of the BCL
   `Random`, which R10 does not allow. No test covers a near tie. Registered as an open obligation in three site lines; the fix (an own
-  generator, `mix(ulong)` exists) changes the rays and so the output for open inputs once: an owner decision.
+  generator, `mix(ulong)` exists) changes the rays and so the output for open inputs once. Owner decision 2026-11-22: a follow-up PR switches open
+  meshes to an own SplitMix64 generator, after measuring the golden-master and pinned-counter impact; this PR only registers the obligation.
 - **O-ATAN2, the floating-point winding number reaches the exact result of open meshes**: `FastWindingNumber` and `TriSolidAngle` end in
   `Math.Atan2`; `front_generalized_winding` sums them and thresholds `ceil(w - 0.5)`. Tier 2 behaviour (F4 of the research note); only the
   Antipodal path avoids it.
@@ -510,7 +511,7 @@ only the phase dictionaries; reviewed, no flow rule), `DMeshAABBTree3.FastWindin
 **Claim.** On every runtime that satisfies T1 to T5, `ExactMeshArrangement` and `ExactMeshBoolean` compute, for the exact result (and not for the
 assumed members above), functions of their arguments, up to the open obligations: no result depends on the schedule, the process, a hash
 seed, the order of a hash container, the order of equal keys in a sort, the sign of a zero in a minimum or maximum, the clock or the BCL
-version, except through O-RANDOM (open inputs), O-ATAN2 (the floating-point winding of open meshes), and the assumed members.
+version, except through the open obligations above (O-RANDOM, O-ATAN2, O-IDS, O-SORTS, O-PERPATCH, O-DIAG, O-EXC) and the assumed members.
 Checked: the allow list, the registered sites, constructs, casts and `#if` blocks, and that the named tests exist. Attacked by test: P1 to P5 per
 site by the tests named in the site lines, the harness cases and the loop-order adversary.
 
