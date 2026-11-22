@@ -167,14 +167,21 @@ Remarks.
    diagonal of the face in the simplest case), and its test is an enclosure of f over boxes that cover the segment.
 8. **Sources.** Nothing new: Theorems 1, 2, 4, 5 and Lemmas 5.1, 5.2, 6.1, 6.2, 6.4 of this note with their sources
    (Brown 1960 and 1962, Clarke 1983).
-9. **(B3) on the sub-boxes that can hold a zero** (used by the measurement of section 3a; written after the two
-   reviews). It is enough that d . g > 0 on a set of sub-boxes of R that covers every zero of f in R, each of them a
-   box. Along a line parallel to d, f increases strictly inside each of these sub-boxes. If the line met L in R
-   twice, take the first zero after the first one: just after the first zero f > 0 (the point lies in a listed
-   sub-box, and if it is on its far side, also in the next one, which then holds a zero and is listed), and just
-   before the second f < 0 by the same argument, with no zero in between: a contradiction. So the projection along d
-   is injective on L in R, which is what Theorem 4 uses; the local statements of Lemma 5.1 hold in a neighbourhood of
-   every point of L, which the listed sub-boxes around it cover.
+9. **(B3) on the sub-boxes that can hold a zero** (used by the measurement of section 3a; checked independently on
+   2026-11-22 with Lemma 9, and rewritten after that check). It is enough that d . g > 0 for all g in G(S) for every
+   box S of a finite set of closed boxes in R that covers every zero of f in R. *Proof.* Let p be a zero in R, in the
+   listed box S. G(S) contains the generalized gradients at p, so by upper semicontinuity, as in Lemma 5.2, there is a
+   ball B around p with d . g >= delta > 0 at all its points; by Lemma 5.1 on the convex set B, f increases strictly
+   along d through p, and L is in B a Lipschitz graph along d. So on a line parallel to d, which meets the convex R
+   in a segment, every zero has a neighbourhood without another zero: the zeros on the segment are finitely many.
+   Were there two, take two consecutive ones: just after the first f > 0, just before the second f < 0, so there is a
+   zero between them, a contradiction. Hence the projection along d is injective on L in R, and L is near each of its
+   points in the interior of R a Lipschitz graph; at its points on the boundary of R Lemma 8.1 needs nothing of (B3).
+   That is all Theorem 8 uses: in (a), Theorem 4 needs the compact 2-manifold and the injective projection (L in R is
+   then locally, not globally, a Lipschitz graph); in (b), the local flatness inside D_1 is local, and the two
+   pieces of the boundary of R carry the two signs of f because each piece of R minus D_1 is connected and without a
+   zero, and the signs differ across D_1 by Lemma 8.1 (i). With this form, remark 2 reads: one partial derivative
+   keeps its sign on every listed sub-box, the same one with the same sign.
 
 ## 2. Lemma 7.1: the cell shape in Theorem 7
 
@@ -353,17 +360,21 @@ the tetrahedron.
 
 Hypotheses:
 
+- (T0) no tetrahedron edge on the boundary of the grid is crossed (read from the signs; M then stays off the grid's
+  boundary);
 - (T1) no a_n is 0 (so "inside" is the sign of a_n);
 - (T2) every vertex on a cube edge lies strictly between the two nodes of the edge and has their other two
   coordinates; every vertex on a face diagonal has the face's constant coordinate and lies strictly inside the face's
   rectangle (exact comparisons of doubles; the vertex need not be exactly on the diagonal);
-- (T3) M is exactly the triangles described above: no polygon is clipped, dropped or reduced (an implementation fact
-  of the mesher without a domain, to be recorded by it and asserted in tests: the other level never cuts a polygon, no
-  triangle is left out as non-manifold, none has two equal vertices);
-- (T4) two triangles of M meet only in a common vertex or a common edge (the exact self-intersection test).
+- (T3) M is exactly the triangles described above: no polygon is clipped, dropped or reduced. This is recorded by
+  the mesher, not argued (remark 6): no polygon vertex was found outside the other level, and no triangle was left
+  out;
+- (T4) two different triangles of M meet exactly in the hull of the mesh vertices they share: nothing, a vertex or a
+  side (the exact self-intersection test, which must report a pair that shares a side and overlaps or folds onto
+  itself, and a pair that shares a vertex and meets elsewhere).
 
-**Lemma 9.** Under (T1) to (T4), M is a closed surface compatible with K wherever it does not reach the boundary of
-the grid. Its pattern is: the crossed cube edges; and on a face with four crossed edges, the pairing that joins the two
+**Lemma 9.** Under (T0) to (T4), M is a closed surface in the interior of the grid, compatible with K. Its pattern
+is: the crossed cube edges; and on a face with four crossed edges, the pairing that joins the two
 edges at each corner that is not on the face's diagonal.
 
 *Proof.* A cube is convex, and so are its faces and edges, which are faces of it as a convex set: a convex
@@ -376,14 +387,20 @@ diagonal), and on a cube edge exactly if e is that edge. A tetrahedron of the sp
 cube in one of its own faces, edges or nodes. The crossed edges of a tetrahedron are never all in one of its faces
 (three edges at one node are not in a face; the four edges between two pairs of nodes are not), and no three vertices
 of a quadrilateral's triangle are (a face of the tetrahedron holds two of the four crossed edges at most). So no
-triangle of M has its three vertices in one face of c.
+triangle of M has its three vertices in one face of c. Consequently no triangle is degenerate: different vertices
+are different points (they lie in the relative interiors of different edges and faces of cubes, by (T2)), and if
+three were on a line, the middle one would be a proper convex combination of the other two and lie in a face of c, so
+by (X) all three would lie in that face. A triangle of another cube c' lies in c' and meets c only in the common
+face, edge or node of the two cubes, where by (X) it has the hull of its vertices there: a vertex v_e of a crossed
+edge of c, or a side in a common half face. So below it adds nothing to what the triangles of c give.
 
 *(E).* By (X), a triangle meets a cube edge e' in the hull of its vertices on e', and the only vertex on e' is
 v_(e'), for a crossed e'. So M meets e' in v_(e'), an interior point by (T2), or not at all; no node is on M.
 
 *(F).* By (X), a triangle of c meets a face f of c in the hull of its vertices in f: nothing, a vertex, or one of
 its sides (not the triangle, by the above). A side of a triangle with both ends in f joins the vertices of two
-crossed edges of one face of a tetrahedron, and that face lies in f: it is one of the two triangles the diagonal
+crossed edges of one face of a tetrahedron (it is not the cut of a quadrilateral, whose ends are on opposite edges
+of the tetrahedron, which no face plane holds both), and that face lies in f: it is one of the two triangles the diagonal
 cuts f into. In such a half face with inside and outside corners exactly two of its three sides are crossed, and
 the polygon of the tetrahedron behind it has those two vertices as neighbours, so M has the segment between them
 (the same segment for the tetrahedron of the cube on the other side of f, which has the same half face). So M meets
@@ -393,16 +410,22 @@ not, its ends have one sign, and each half has a segment or none: none, one arc,
 the two corners off the diagonal have the other sign, which is the face with four crossed edges; each of the two
 arcs then joins the two edges at one of these corners, and the two arcs are disjoint (each lies in its closed half
 with its ends inside cube edges, so off the diagonal). The arcs end in the interiors of cube edges, and their other
-points are in the interior of f by (X) for the rectangle. Two segments of one arc meet only in the diagonal's vertex
-by (T4). No closed curve, no isolated point.
+points are in the interior of f by (X) for the rectangle. The two segments of an arc through the diagonal's vertex
+meet only there: they run from a point inside the rectangle to two different points of its boundary. No closed
+curve, no isolated point.
 
 *(C).* M meets c in the triangles of the tetrahedra of c (a triangle of another cube lies in that cube and meets c
 in a common face only, in sides that are sides of triangles of c as well). As a cell complex (vertices; one segment
 per tetrahedron face with inside and outside nodes; one polygon per such tetrahedron) this depends on the signs at
 the eight corners only, and for each of the 256 sign patterns every component of it has Euler characteristic 1 and
 there are as many components as closed curves of segments on the faces of c (the enumeration of section 4, for one
-parity; the other is its mirror image): each component is a disk with one boundary circle. By (T4) the triangles
-realize this complex without further contacts, so M meets c in disjoint disks. Their boundaries are the arcs on the
+parity; the other is its mirror image). The complex is a surface with boundary: a segment on a tetrahedron face
+inside c lies in two polygons, one on a face of c in one, and the polygons around a vertex form a fan (it is the
+complex of the zero set of the piecewise linear interpolant of any values with those signs; also checked in the
+enumeration). A compact connected surface with Euler characteristic 1 is a disk or a projective plane, and as many
+components as circles leaves the disk: each component is a disk with one boundary circle. The triangles are not
+degenerate and their vertices are different points (above), and by (T4) they meet only as the complex says, so the
+linear map of the triangulated complex is injective: M meets c in disjoint embedded disks. Their boundaries are the arcs on the
 faces of c; an open triangle and an open side that is not in a face lie in the interior of c by (X); the vertices
 all lie on the arcs. So the interior of each disk is in the interior of c.
 
@@ -416,8 +439,10 @@ Remarks.
    coordinates are exact (the mesher computes a + t (b - a) with b - a = 0 there), on a diagonal only the face's
    coordinate is. The proof therefore uses only (T2) and never that a vertex is on its diagonal or that a polygon is
    planar, and it takes (T4) from the exact test instead of the construction.
-2. **A value of exactly 0** counts as outside for the mesher and puts a vertex on a node: (T1) and (T2) refuse it.
-   With `SliverGuard` on, no value is 0. A crossing parameter that rounds to 0 or 1 is refused by (T2) as well.
+2. **Zeros and the guard.** A value of exactly 0 counts as outside for the mesher; (T1) refuses it. `SliverGuard`
+   removes zeros (a value below its threshold becomes negative) except when the level changes sign on no grid edge
+   or the threshold underflows to 0. The position a + t (b - a) can round onto a node, or one unit past it, also for
+   a t inside (0, 1): (T2) tests the position, not t.
 3. **In a block** (Theorem 8 (c) for this mesher). The count P - A + Z of Lemma 6.4 becomes: the cell complex above
    over the cubes of the block (polygons, minus the segments on tetrahedron faces inside the block, plus the vertices
    on tetrahedron edges inside the block), its components, and whether each has a segment on the block's boundary;
@@ -427,6 +452,16 @@ Remarks.
    (remark 7 of section 1), or the face inside a block.
 5. **Scope.** One level, no `Domain`. With a constant `HalfWidth` the level's field is g - w; a `HalfWidthF` needs an
    interval form of its own. The two levels together stay per level (point 3 below).
+6. **What the mesher has to record** (it keeps none of this today): the node values it used, per level, for (T1) and
+   for the comparison with the certified signs of the field (for the level -g - w the certified sign of g + w,
+   negated); for every vertex its tetrahedron edge, for (T2); the level of every triangle; and for (T3) two counters
+   that must be 0, the polygon vertices found outside the other level and the triangles left out. The first counter
+   is needed: on an edge that both levels cross, the mesher orders the two crossings by two separately rounded
+   quotients, and although the other level is inside at the crossing in exact arithmetic, a reversal by rounding is
+   not excluded by proof (none was found in 6e6 random trials of values as the mesher computes them; for values a few
+   units apart a reversal exists). A reversal clips a polygon.
+7. **Theorem 8 (c) for this mesher**: with Lemma 9 in the place of Theorem 2 and remark 3 in the place of Lemma 6.4;
+   (T0) in the place of what (H1) gives for the boundary of the grid.
 
 ## 5. Review
 
@@ -449,8 +484,13 @@ Independent review on 2026-11-22 (an agent with the design note only, asked to f
 - The outer layer inside a block, the true sign at nodes of zero-free cells, and the count in zero-free blocks are
   now said in Theorem 8 and its proof.
 
-Not reviewed by a second reader: section 4 (written after the review; its finite check is a script result, to become
-a test).
+Section 4 was written after the first review and read by the second. Remark 9 and Lemma 9 (section 4a) were checked
+by a third independent reader on 2026-11-22 (the note, the design note and the mesher's code; the enumeration and the
+combinatorial claims about the two splits reproduced by script): Lemma 9 holds, no error; remark 9's statement holds,
+but its first argument used more than it stated and is replaced by the one above (upper semicontinuity at each zero).
+Worked in: the manifold step before "Euler characteristic 1 means disk", non-degenerate triangles and the exact
+reading of (T4), triangles of neighbouring cubes, (T0), the wording on zeros and rounding, and remark 6: one code
+path (two crossings on one edge ordered by rounded quotients) can make (T3) false and is to be counted, not argued.
 
 ## 6. Next steps (for the coordinator and the owner)
 
