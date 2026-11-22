@@ -8,7 +8,7 @@
     "mutate": [
       "**/mesh_ops/SolidBooleanPipeline.cs"
     ],
-    "test-case-filter": "FullyQualifiedName~SolidBooleanPipelineTests.|FullyQualifiedName~SolidBooleanPairContactsTests|FullyQualifiedName~SolidBooleanPipelinePropertyTests|FullyQualifiedName~SolidBooleanPipelineInputGridTests|FullyQualifiedName~SolidBooleanPipelineThinSolidTests|FullyQualifiedName~SolidBooleanPipelineThinInputTests|FullyQualifiedName~SolidBooleanPipelineFinalCheckTests",
+    "test-case-filter": "FullyQualifiedName~SolidBooleanPipelineTests.|FullyQualifiedName~SolidBooleanPairContactsTests|FullyQualifiedName~SolidBooleanPipelinePropertyTests|FullyQualifiedName~SolidBooleanPipelineInputGridTests|FullyQualifiedName~SolidBooleanPipelineThinSolidTests|FullyQualifiedName~SolidBooleanPipelineThinInputTests|FullyQualifiedName~ExactBooleanOrientationNestingTests.Pipeline_|FullyQualifiedName~SolidBooleanPipelineFinalCheckTests",
     "coverage-analysis": "perTest",
     "configuration": "Release",
     "additional-timeout": 10000,

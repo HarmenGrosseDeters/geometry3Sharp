@@ -5,6 +5,11 @@ using System.Text;
 
 namespace g3
 {
+    /// <summary>
+    /// Double-precision 3D triangle with vertices <c>(V0, V1, V2)</c>.
+    /// <see cref="Normal"/> follows counter-clockwise (right-hand) winding along <c>(V1 - V0) x (V2 - V0)</c>
+    /// and returns <see cref="Vector3d.Zero"/> for degenerate triangles.
+    /// </summary>
     public struct Triangle3d
     {
         public Vector3d V0, V1, V2;
@@ -57,6 +62,11 @@ namespace g3
 
 
 
+    /// <summary>
+    /// Single-precision 3D triangle with vertices <c>(V0, V1, V2)</c> in counter-clockwise (right-hand) winding.
+    /// Unlike <see cref="Triangle3d"/>, this struct has no <c>Normal</c> property; cast implicitly to
+    /// <see cref="Triangle3d"/> or call <see cref="MathUtil.Normal(Vector3d, Vector3d, Vector3d)"/> to compute the unit normal.
+    /// </summary>
     public struct Triangle3f
     {
         public Vector3f V0, V1, V2;

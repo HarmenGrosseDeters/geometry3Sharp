@@ -17,9 +17,10 @@
     <PackageTags>geometry3;graphics;math;approximation;solvers;color;convexhull;meshes;spatial;curves;solids;3d;unity;ply;3mf;gltf</PackageTags>
     <RepositoryUrl>https://github.com/HarmenGrosseDeters/geometry3Sharp</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <!-- XML docs ship with the package so that IDEs (and coding agents) see the API comments -->
+    <!-- XML docs ship with the package so that IDEs (and coding agents) see the API comments.
+         XML correctness warnings (CS1570/CS1572/CS1573/CS1574/CS1584/CS1587/CS1658/CS1734/CS0419/CS1711) stay enabled
+         globally; CS1591 (missing XML comments) is scoped per module in .editorconfig. -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);CS1591;CS1572;CS1573;CS1574;CS1584;CS1570;CS1587;CS1658;CS1734;CS0419;CS1711</NoWarn>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <Deterministic>true</Deterministic>

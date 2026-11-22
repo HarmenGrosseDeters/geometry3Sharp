@@ -394,7 +394,7 @@ namespace g3
 
 		/// <summary>
 		/// Compute triangle normal, area, and centroid all at once. Re-uses vertex
-		/// lookups and computes normal & area simultaneously. *However* does not produce
+		/// lookups and computes normal &amp; area simultaneously. *However* does not produce
 		/// the same normal/area as separate calls, because of this.
 		/// </summary>
 		public void GetTriInfo(int tID, out Vector3d normal, out double fArea, out Vector3d vCentroid)
@@ -1528,8 +1528,8 @@ namespace g3
 
 
         /// <summary>
-        // This function checks that the mesh is well-formed, ie all internal data
-        // structures are consistent
+        /// This function checks that the mesh is well-formed, ie all internal data
+        /// structures are consistent
         /// </summary>
         public bool CheckValidity(FailMode eFailMode = FailMode.Throw)
         {

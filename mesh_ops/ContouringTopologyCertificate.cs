@@ -143,6 +143,7 @@ namespace g3
 
         /// <param name="mesh"> closed, manifold, no self-intersections, no triangle of zero area (CleanLevelSetMesh) </param>
         /// <param name="levelSet"> per triangle id: part of L (a component of the level set); null: all triangles </param>
+        /// <param name="grid"> integer certificate grid on which cells are evaluated </param>
         public ContouringTopologyCertificate(DMesh3 mesh, bool[] levelSet, CertificateGrid grid)
         {
             this.grid = grid;
@@ -263,6 +264,9 @@ namespace g3
         /// field evaluator that is itself thread-safe, as DualContouring with ParallelCompute already requires of
         /// NodeValueF (WindingContouring's winding-number trees are read only after their construction).
         /// </summary>
+        /// <param name="cells"> list of (cell minimum corner, cell side length in grid units) pairs to certify </param>
+        /// <param name="contourCell"> per-cell flag indicating whether the contour meets the cell </param>
+        /// <param name="parallel"> if true, evaluate chunks in parallel </param>
         /// <param name="minChunk"> the fewest cells per chunk (tests: small, to get many chunks from a small input) </param>
         public ContouringCertificateReason[] Cells(IList<KeyValuePair<Vector3i, int>> cells, IList<bool> contourCell, bool parallel, int minChunk = 2048)
         {
@@ -633,7 +637,10 @@ namespace g3
         /// The test of one cell (min node, size) with its faces and their edges: None if L meets it compatibly and with
         /// the contour's pattern, else the first reason found. meets: L meets the closed cell.
         /// </summary>
+        /// <param name="min"> minimum corner of the cell in integer grid coordinates </param>
+        /// <param name="size"> cell side length in integer grid units </param>
         /// <param name="contourCell"> the contour meets the cell (it has a crossed edge, or it may have: false only if none of its edges is crossed) </param>
+        /// <param name="meets"> set to true if the level set L meets the closed cell </param>
         public ContouringCertificateReason Cell(Vector3i min, int size, bool contourCell, out bool meets)
         {
             meets = false;

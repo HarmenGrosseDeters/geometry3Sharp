@@ -451,12 +451,14 @@ namespace g3cli.Tests
             }
         }
 
-        // the example of the README parses (two toes, the crs kept)
+        // the toe GeoJSON example of the g3cli docs parses (two toes, the crs kept)
         [Fact]
         public void ReadmeExample_Parses()
         {
-            string readme = File.ReadAllText(Path.Combine(RepoRoot(), "tools", "g3cli", "README.md"));
-            int i = readme.IndexOf("## Slope design input"), j = readme.IndexOf("```json", i) + 7, k = readme.IndexOf("```", j);
+            string readme = File.ReadAllText(Path.Combine(RepoRoot(), "tools", "g3cli", "docs", "2d-and-terrain.md"));
+            int i = readme.IndexOf("## Slope Design Input", StringComparison.OrdinalIgnoreCase);
+            Assert.True(i >= 0, "the slope design input section of tools/g3cli/docs/2d-and-terrain.md was not found");
+            int j = readme.IndexOf("```json", i) + 7, k = readme.IndexOf("```", j);
             var r = SlopeToesGeoJson.Parse(readme.Substring(j, k - j), ResultCodes.ReadError, "the README");
             Assert.Equal(2, r.Toes.Count);
             Assert.True(r.Toes[0].Closed);
