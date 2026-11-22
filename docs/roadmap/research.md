@@ -423,6 +423,10 @@ Problems where the library already has a head start and that could be researched
   `benchmarks/MetamorphicBugHunt`): relations and chains Boolean → repair → remesh / reduce / quad / tet, the wrap, contouring,
   the offset and the 2D mesher on procedural inputs, every Success checked independently. One defect (#1337: `MeshRobustRepair`
   changes the solid of a clean one-part mesh); the other stages hold. Totals and what is left in the note.
+  **Exact Boolean fuzz 2026-11-22** ([research/EXACT_BOOLEAN_FUZZ_2026-11.md](../research/EXACT_BOOLEAN_FUZZ_2026-11.md), `ExactBooleanFuzzTests`,
+  harness `tests/geometry3Sharp.Tests/Harness/BooleanFuzz*.cs`): generated near-degenerate solids (coplanar, shared, offsets of a unit in the
+  last place, thin slabs, nested shells, rotated, open) and the set identities as exact equalities of a surface fingerprint. No defect of
+  `ExactMeshBoolean`; one of the test certificate (out of memory on a sliver result, fixed); a smoke per family in the PR tier, the campaign Nightly.
   **Bug hunt 2, 2026-11-22** ([research/METAMORPHIC_BUG_HUNT_2_2026-11.md](../research/METAMORPHIC_BUG_HUNT_2_2026-11.md), the stages
   `io` to `findings2` of the same harness, `tests/geometry3Sharp.Tests/MetamorphicBugHunt2Tests.cs`): the wrap and `PassageWrap`, the
   feature pass, the tet, quad and 2D meshers, contouring and `TpmsLattice`, `ContourLoft`, readers and writers, the geodesic family and the
