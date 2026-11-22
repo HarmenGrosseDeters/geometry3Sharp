@@ -3,7 +3,7 @@
 - **Board row:** OPEN_TOPICS.md §3 "Ready to start", row "Platform/QA/CI: tests above 20 s in some full runs"
 - **Kind:** ready to start (remaining part needs one owner decision)
 - **Tier:** M (tests); the Reducer loop option is M library code, default output bit for bit
-- **Plan status:** draft, 2026-11-20 (Berlin). Plan only.
+- **Plan status:** draft, 2026-11-20 (Berlin); updated 2026-11-22 (Berlin): one cause is fixed (PR `#1341`): `ExactWindingNumberTests.ConcurrentFirstCallInitialization_ClosedAndOpen_MatchesSerial` took 412 s and 544 s in two full CI runs (0.01 s alone) because its `await` resumed on xUnit's busy synchronization context; it now blocks on the pool tasks. Issue #698 stays open; the Reducer loop decision below is still open.
 
 ## Current state
 
@@ -18,6 +18,10 @@ Issue #698 (open). Last analysis (issue comment with #1145): 12 CI full runs, 20
   42.8 / 2.2-4.6 s (Reducer loop starvation); `MeshRobustRepairTests.SolidifyNotClean_AlphaWrapped` 30.8 / 3.4-5.4;
   `RemeshReduceCampaignTests.Reducer` 30.0; Meshing2 oracle rows F-5 (22.2 / 4.6-8.4) and F-38/d, F-41/a;
   `SafeRoundingDegenerateInputTests.DegenerateInput_InBooleans_CleanWithinTheBound` 22.1; `ExactBooleanPropertyTests.Boxes` 21.9.
+- Fixed 2026-11-22 (PR #1341): the only `async` test of the suite (`ConcurrentFirstCallInitialization_ClosedAndOpen_MatchesSerial`,
+  412 / 544 s in full runs, 0.01 s alone; a continuation on `MaxConcurrencySyncContext`, not pool starvation). In the
+  three full runs read for #1341 it was the only test above 20 s (next 19.9 s); after the fix, in one local full run,
+  `TerrainSafetyTests.SafetyLine_Guaranteed_GapNotCertified` was the slowest (32.6 s full, 6.3 s alone; #680).
 - Measured and dropped before: `SetMinThreads`, one collection for heavy classes, `maxParallelThreads=2` (+30 % wall),
   limited-concurrency scheduler (+7 %), a pool cap (starved `Timed`), server GC; for the Reducer loop
   (`Reducer.collapse_within_deviation`, `gParallel.ForRange` over ~10 triangles): serial is 1.4-1.7x slower alone but
