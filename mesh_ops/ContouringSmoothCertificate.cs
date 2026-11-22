@@ -231,12 +231,13 @@ namespace g3
         static readonly int[,] faceCorners = { { 0, 2, 6, 4 }, { 1, 3, 7, 5 }, { 0, 1, 5, 4 }, { 2, 3, 7, 6 }, { 0, 1, 3, 2 }, { 4, 5, 7, 6 } };
 
         /// <summary>
-        /// A dense run on one cell size whose grid and inside rule are still what the contour's fields say. Anything else
-        /// (no record, a sparse or refined run, a field changed after the run) is refused.
+        /// A dense run whose grid and inside rule are still what the contour's fields say. Anything else (no record, a
+        /// field changed after the run, a sparse run) is refused. A sparse run records no corner dimensions, and refinement
+        /// exists in sparse mode only, so a run with at least two nodes per axis is dense and of one cell size.
         /// </summary>
         internal static bool RecordedRunIsCurrent(DualContouring dc, DualContouring.CertificateRunInfo run)
         {
-            return dc.RecordCertificateData && dc.Mesh != null && run.Dense && run.Factor == 1
+            return dc.RecordCertificateData && dc.Mesh != null
                 && run.Corners.x >= 2 && run.Corners.y >= 2 && run.Corners.z >= 2 && dc.CornerDimensions == run.Corners
                 && dc.IsoValue == run.IsoValue && dc.InsideIsLess == run.InsideIsLess
                 && dc.Bounds.Min == run.Origin && dc.CellSize == run.CellSize;

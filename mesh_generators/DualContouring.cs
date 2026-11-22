@@ -260,7 +260,6 @@ namespace g3
 
         void generate_simplified()
         {
-            CertificateRun = null;
             var ad = new AdaptiveDualContouring() {
                 Implicit = Implicit, IsoValue = IsoValue, InsideIsLess = InsideIsLess, Bounds = Bounds, CellSize = CellSize,
                 Tolerance = SimplifyTolerance, MaxLevel = SimplifyMaxLevel, QEFEigenTolerance = QEFEigenTolerance, QEFCellMargin = QEFCellMargin,
@@ -640,7 +639,7 @@ namespace g3
             phase("intersections");
             if (certificate != null) {
                 certificate.Finish(this);
-                CertificateRun = new CertificateRunInfo { Dense = !sparse, Factor = F, IsoValue = IsoValue, InsideIsLess = InsideIsLess,
+                CertificateRun = new CertificateRunInfo { Dense = !sparse, IsoValue = IsoValue, InsideIsLess = InsideIsLess,
                     Origin = origin, CellSize = h, Corners = sparse ? Vector3i.Zero : new Vector3i(NI, NJ, NK) };
             }
             if (qefPositions != null) {
@@ -1902,22 +1901,21 @@ namespace g3
         /// <summary> what a recorded run was: its grid and its inside rule, as they were when the mesh was made </summary>
         internal struct CertificateRunInfo
         {
-            /// <summary> a dense grid (no CandidateCells) </summary>
+            /// <summary> a dense grid (no CandidateCells, hence no refinement: one cell size) </summary>
             public bool Dense;
-            /// <summary> the refinement factor (1: one cell size) </summary>
-            public int Factor;
             public double IsoValue;
             public bool InsideIsLess;
             /// <summary> node n is at Origin + CellSize * n (CellSize is the fine cell size) </summary>
             public Vector3d Origin;
             public double CellSize;
-            /// <summary> nodes per axis of a dense grid </summary>
+            /// <summary> nodes per axis of a dense grid; zero for a sparse run </summary>
             public Vector3i Corners;
         }
         /// <summary>
         /// Set when a Generate with RecordCertificateData has run through the mesh side of the certificate, null
-        /// otherwise (no run yet, a run without the record, a cancelled run, a simplified run, or FindCrossings called
-        /// again since): a certificate that reads this contour later checks it, and that the public fields still say
+        /// otherwise (no run yet, a run without the record, a cancelled run, or FindCrossings called again since; a
+        /// simplified run happens only on an instance without the record and without samples, where this is null
+        /// already): a certificate that reads this contour later checks it, and that the public fields still say
         /// what they said then.
         /// </summary>
         internal CertificateRunInfo? CertificateRun;

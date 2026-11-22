@@ -845,13 +845,13 @@ namespace geometry3Sharp.Tests
             d = fresh(); d.Mesh = null; refused(d, "no mesh");
             // the samples taken again without a new mesh
             d = fresh(); d.FindCrossings(); refused(d, "FindCrossings after the run");
-            // a simplified run (it only happens without the record) after a recorded one on the same instance
+            // a second run without the record after a recorded one on the same instance
             d = fresh();
-            d.RecordCertificateData = false; d.Simplify = true;
+            d.RecordCertificateData = false;
             d.Generate();
             Assert.False(d.CertificateRun.HasValue);
             d.RecordCertificateData = true;
-            refused(d, "simplified run after a recorded one");
+            refused(d, "a run without the record after a recorded one");
             // the same instance used again in sparse mode: the dense grid's dimensions are stale, the run is not dense
             d = fresh();
             var cells = new List<Vector3i>();
@@ -862,7 +862,8 @@ namespace geometry3Sharp.Tests
             d.FindCrossings();
             d.Generate();
             Assert.True(d.Mesh.TriangleCount > 0);
-            Assert.True(d.CertificateRun.HasValue && !d.CertificateRun.Value.Dense);
+            Assert.True(d.CertificateRun.HasValue && !d.CertificateRun.Value.Dense && d.CertificateRun.Value.Corners == Vector3i.Zero);
+            Assert.True(Contour(f, Shift, 2.2, 16).CertificateRun.Value.Dense);
             refused(d, "sparse run on a reused instance");
             // a cancelled run
             var cancelled = new DualContouring { Implicit = f, InsideIsLess = true, CellSize = 2.2 / 16, Simplify = false, Bounds = new AxisAlignedBox3d(Shift, Shift + 2.2 * Vector3d.One), RecordCertificateData = true, CancelF = () => true };
