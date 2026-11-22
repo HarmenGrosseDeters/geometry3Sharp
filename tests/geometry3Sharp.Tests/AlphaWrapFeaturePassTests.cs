@@ -495,8 +495,8 @@ namespace geometry3Sharp.Tests
             var collinear = new Triangle3d(far, far + 3 * d, far + 7 * d);
             Assert.True(ExactTriangleIntersection.IsDegenerate(ref collinear));
             Assert.False(AlphaWrapFeaturePass.NotDegenerate(collinear, out n));
-            // off the line by one unit in the last place: exactly a triangle, too thin for a normal
-            var thin = new Triangle3d(Vector3d.Zero, 3 * d, new Vector3d(7 * d.x, 7 * d.y, Math.BitIncrement(7 * d.z)));
+            // off the line by one unit in the last place (no Math.BitIncrement on net48): exactly a triangle, too thin for a normal
+            var thin = new Triangle3d(Vector3d.Zero, 3 * d, new Vector3d(7 * d.x, 7 * d.y, BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(7 * d.z) - 1)));
             Assert.False(ExactTriangleIntersection.IsDegenerate(ref thin));
             Assert.False(AlphaWrapFeaturePass.NotDegenerate(thin, out n));
             Assert.True(AlphaWrapFeaturePass.NotDegenerate(new Triangle3d(far, far + new Vector3d(1, 0, 0), far + new Vector3d(0, 1, 0)), out n));
