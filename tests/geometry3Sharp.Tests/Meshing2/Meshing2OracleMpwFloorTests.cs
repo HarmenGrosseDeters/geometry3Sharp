@@ -91,6 +91,30 @@ namespace geometry3Sharp.Tests
             Assert.False(Exact.BelowMpwFloor(new Q(16, 65) + new Q(1, 1000000), new Q(16, 25)));
         }
 
+        /// <summary> the hand-built case of the oracle's self-check for #664: a hull domain with a segment S that ends d off the bottom edge
+        /// (52.1 degrees to it), the triangle p E1 q with an angle of about 3 degrees at E1, far below the floor of the pair (29.6 degrees).
+        /// d = 0: the constraints meet exactly; d = 1e-13: S's end is in the tube of the bottom edge, so the excuse is the near-meet one
+        /// (NearMeetAngleExcused). The counter counts through both </summary>
+        [Theory]
+        [InlineData(0.0, false)]
+        [InlineData(1e-13, true)]
+        public void NearMeetAndExactExcuses_CountBelowTheFloor(double d, bool nearMeet)
+        {
+            var input = new Mesh2Input { X = new[] { 0.0, 30, 24, 10 }, Y = new[] { 0.0, 0, 18, d }, MinAngleDeg = 20 };
+            input.Segments.Add(new SegmentInput(3, 2));
+            double len = Math.Sqrt(14 * 14 + (18 - d) * (18 - d)), ux = 14 / len, uy = (18 - d) / len;
+            var tris = new[] { new[] { 0, 3, 5 }, new[] { 0, 5, 2 }, new[] { 3, 4, 5 }, new[] { 4, 1, 5 }, new[] { 5, 1, 2 } };
+            var output = new Mesh2Output { Status = Mesh2Status.Success, VX = new[] { 0.0, 30, 24, 10, 11, 10 + 1.2 * ux }, VY = new[] { 0.0, 0, 18, d, 0, d + 1.2 * uy },
+                InputToVertex = new[] { 0, 1, 2, 3 }, Triangles = tris, Neighbours = SelfCheck.NeighboursOf(tris), TriangleLabels = new[] { 0, 0, 0, 0, 0 },
+                Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(3, 5), new SubsegmentOutput(5, 2) }, BadTriangles = new[] { 0, 3 } };
+            var report = Oracle.Check(input, output, new OracleExpect { Milestone = Milestone.M3 });
+            Assert.DoesNotContain(report.Violations, x => x.Kind == Violation.AngleBelowBound && x.Detail.StartsWith("triangle 4 1 5 "));
+            if (nearMeet) Assert.True(report.NearMeetAngleExcused > 0, report.ExcusedSummary());
+            Assert.True(report.BelowMpwFloorExcused >= 1, report.ExcusedSummary());
+            // every near-meet excuse of this mesh is below the floor: the triangles it excuses have angles of a few degrees
+            Assert.True(report.NearMeetAngleExcused <= report.BelowMpwFloorExcused, report.ExcusedSummary());
+        }
+
         /// <summary> a mesh without small input angles excuses nothing by them: the counter stays 0 </summary>
         [Fact]
         public void NoSmallAngle_NoCount()
