@@ -624,11 +624,9 @@ namespace g3
             return exactPoints[a].P.Equals(exactPoints[b].P);
         }
 
-        // the hash of the exact point of an id (for tests: the comparer's)
-        internal int ExactHash(int id) { return new ExactIdComparer(this).GetHashCode(id); }
 
         // point ids compared by their exact points
-        sealed class ExactIdComparer : IEqualityComparer<int>
+        internal sealed class ExactIdComparer : IEqualityComparer<int>
         {
             readonly ExactMeshArrangement arr;
             public ExactIdComparer(ExactMeshArrangement arr) { this.arr = arr; }
@@ -2428,8 +2426,8 @@ namespace g3
             if (checkPrefilter && proper)
                 System.Threading.Interlocked.Increment(ref PrefilterChecked);
             if (checkPrefilter && proper && apart != (c > 0))
-                throw new InvalidOperationException("ExactMeshArrangement: the prefilter says " + (apart ? "apart" : "meeting") + ", the construction " + (c > 0 ? "apart" : "meeting")
-                    + " (triangles " + ti.ToString(System.Globalization.CultureInfo.InvariantCulture) + ", " + ui.ToString(System.Globalization.CultureInfo.InvariantCulture) + ")");
+                throw new InvalidOperationException(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "ExactMeshArrangement: the prefilter says {0}, the construction {1} (triangles {2}, {3})", new object[] { apart ? "apart" : "meeting", c > 0 ? "apart" : "meeting", ti, ui }));
             if (c > 0)
                 return;
             System.Threading.Interlocked.Increment(ref IntersectingPairs);
