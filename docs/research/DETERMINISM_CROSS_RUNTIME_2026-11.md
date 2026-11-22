@@ -22,12 +22,13 @@ The tools are in the PR: new cases of `tools/DeterminismHarness` (`Examples.cs`,
    hardware FMA of `CoreMath` off), without AVX2, without tiered compilation and unoptimized (`JITMinOpts`), every case has
    the bits of the plain run. The JIT does not contract `a * b + c`, vector width does not reach a result, and the
    optimization level does not either (section 3.2).
-3. **Linux x64 and linux arm64 agree on every case** except the bits of NaN results. **Across C libraries, 17 to 42 of the
+3. **Linux x64 and linux arm64 agree on every case** except the bits of NaN results. **Across C libraries, 17 to 41 of the
    183 cases differ per pair, and every one of them is on the list of cases that reach a platform libm function** or is a
    known runtime fact (`Math.Min / Max` of zeros, casts, text formatting, `#if NET` branch flags). The differing documented
-   operations are the same nine or ten on every pair: `ContourLoft` (2 examples), `QuadRemesher`, `TpmsLattice`,
-   `UVAtlasGenerator` / `ConeFlattening` (3), ARAP and Tutte parameterization, the example's own point sampler, and against
-   .NET Framework also `QualityMesh2` (finding F5); plus 7 of the 12 mesh generators that run with defaults (F4).
+   operations are the same eight or fewer on every pair: `ContourLoft` (2 examples), `QuadRemesher`, `TpmsLattice`,
+   `UVAtlasGenerator` / `ConeFlattening` (3), ARAP and Tutte parameterization and the example's own point sampler; plus 7 of
+   the 12 mesh generators that run with defaults (F4). For `ContourLoftStack` the difference reaches the status, not only
+   coordinates (F5).
    The exact Boolean (15 cases, with the new open-input case), the exact building blocks, repair, alpha wrap, solidify,
    `Remesher`, `Reducer`, both contouring operations, the geodesic family (`CoreMath`) and the terrain slope design agree on
    **all** pairs: linux, Windows, macOS; x64 and arm64; .NET 10 and .NET Framework 4.8 (64-bit and 32-bit).
@@ -104,8 +105,8 @@ repeats the serial, parallel, processor-count and switch comparisons with the fi
   at the first call, `JITMinOpts=1` nothing). `probe.libm-constfold` compares a transcendental function of a literal with
   the same call on a value the JIT cannot see, in a method compiled with full optimization and in one compiled without:
   on linux x64 all 30 pairs are equal and the two methods agree. Its values differ between platforms as the `libm.*`
-  cases do; whether its equality flags hold on Windows and macOS is printed by the workflow step "Differing parts of the
-  documented operations" (section 3.4).
+  cases do, and only its values: the equality flags are the same on linux, Windows x64 and arm64 (.NET 10) and .NET
+  Framework (the step "Differing parts of the documented operations" of the workflow; macOS not read).
 - **The BCL's own vectorization**: `probe.linq-sum`: `Enumerable.Sum / Average` of doubles equal the plain loop.
 - **Parallel reductions and thread count**: no effect except F1.
 - **Hash ordering**: no effect on any case between two processes (the hashes of `BigInteger`, tuples and strings are
@@ -152,13 +153,14 @@ from them differs in the last bit of some vertices, and every operation passes t
 for the Boolean, the remesher and dual contouring). This is the most likely way a user sees "the Boolean is not
 deterministic".
 
-**F5. `QualityMesh2` differs between .NET and .NET Framework** (`examples.Meshing2D.QualityDomainWithHole`: the same on
-linux and Windows .NET 10, different on .NET Framework 4.8). The refiner takes its angle bound from
-`Math.Sin(MinAngle * Math.PI / 180)` (`comp_geom/QualityMesh2.cs`), the one platform libm call on its path; the two C
-runtimes differ in `sin`. Which part of the result differs (the mesh or a reported value) is printed by the workflow step
-"Differing parts of the documented operations"; the 2D mesher's golden rows are checked by the benchmark in the linux job
-of `ci.yml` (.NET 10), so they do not see it. A candidate for the libm rule (one `CoreMath.Sin` call per `Compute`), or for a table of exact
-bounds.
+**F5. Across C libraries a status can differ, not only the last bits.** `examples.ContourLoft.LoftBranchingStack`
+(`ContourLoftStack`) differs between Windows .NET 10 and .NET Framework, and between Windows x64 and arm64, in about 880
+of its 1 293 traced values **and in `Status`**; `LoftFrustum` (`ContourLoft`) differs in the mesh and in `TotalCost`.
+Their static path to the libm goes through the cap meshing (`QualityMesh2`), and they have angle computations of their
+own (`--why ContourLoft libm` prints the shortest path). An operation whose status depends on the platform is a
+behaviour difference, not a rounding difference, so this is the first candidate for the libm rule among the measured
+ones. `QualityMesh2` itself, which reaches `Math.Sin` for its angle bound (one call per `Compute`), is bit-identical on
+every pair measured.
 
 **F6. The C library's results depend on the CPU.** On the Windows arm64 runner the .NET Framework harness runs as an
 emulated x64 process (the header of the run says `X64`; there is no native arm64 .NET Framework leg), with the same C
@@ -185,7 +187,7 @@ x64, linux arm64), no AVX2, no tiering, unoptimized (linux x64): 183 / 183 each.
 |---|---|---|---|---|---|---|---|---|---|
 | `boolean` (15), `stage1` (12), `coremath` (2), `geodesic` (7), `terrain` (2), `alphawrap`, `repair`, `solidify`, `remesher`, `reducer`, `dualcontouring`, `marchingcubes` (1 each) | all | all | all | all | all | all | all | all | all |
 | `kernel` (10) | 10 | 9 | 9 | 8 | 10 | 10 | 10 | 10 | 10 |
-| `examples` (63) | 55 | 55 | 55 | 56 | 63 | 57 | 56 | 55 | 55 |
+| `examples` (63) | 55 | 56 | 56 | 56 | 63 | 57 | 56 | 55 | 55 |
 | `generators` (18) | 11 | 11 | 12 | 12 | 18 | 18 | 11 | 11 | 11 |
 | `param` (5) | 3 | 3 | 4 | 4 | 5 | 3 | 3 | 2 | 2 |
 | `winding` (1) | 1 | 1 | 1 | 1 | 1 | 1 | 0 | 0 | 1 |
@@ -199,9 +201,9 @@ The cases behind the cells that are not full:
 
 - **`examples`**, linux against Windows .NET 10 (8): `ContourLoft.LoftBranchingStack`, `ContourLoft.LoftFrustum`,
   `PointCloud.SampleUnitSphere` (the example's own sampler), `QuadRemesh.Run`, `TpmsLattice.GyroidSheet`, `UVAtlas.Cones`,
-  `UVAtlas.CutAndFlatten`, `UVAtlas.Run`. Against .NET Framework also `Meshing2D.QualityDomainWithHole` (F5). The other
-  pairs differ in subsets of these nine. All nine are in the list of documented types that reach the platform libm
-  (section 4); the other 54 example cases agree on every pair, among them every exact Boolean, imprint and pipeline
+  `UVAtlas.CutAndFlatten`, `UVAtlas.Run`. The other pairs differ in subsets of these eight. All of them belong to
+  documented types that reach the platform libm (section 4), the sampler aside, which calls it itself; the other 55
+  example cases agree on every pair, among them the 2D mesher, among them every exact Boolean, imprint and pipeline
   example, repair, alpha wrap, the remesher and reducer, smoothing and deformation, offset, plane cut, hole filling, the
   tet mesher, the terrain tools, point cloud normals and surface, I/O, and the intrinsic and geodesic examples.
 - **`generators`** (7, F4). Windows x64 and arm64 .NET 10 agree on them, linux x64 and arm64 too.
@@ -213,9 +215,9 @@ The cases behind the cells that are not full:
 - **`kernel`, `ledger`, `io`, `probe`**: the known runtime facts of DETERMINISM_PROOF.md 5.3: the `#if NET` branch flag
   (`kernel.limbsigns.path`), `Math.Min / Max` of zeros and NaN bits (`ledger.math`; the only case that differs between
   linux x64 and arm64), casts, text formatting and parsing on .NET Framework, the x87 cases of the 32-bit process, and new:
-  `probe.round-remainder` differs between .NET 10 and .NET Framework (which part, `Math.Round` with digits or the midpoint
-  modes, is printed by the detail step; the library has 33 calls of `Math.Round` with a digits argument outside tools and
-  tests), and `probe.libm-constfold` differs wherever the libm does (its values are libm values).
+  `probe.round-remainder` differs between .NET 10 and .NET Framework in 6 of its 26 635 values, all in the section of
+  `Math.Floor / Ceiling / Truncate` (not `Math.Round` with digits, not the remainders; not diagnosed further, the sign of a
+  zero result is the likely part), and `probe.libm-constfold` differs wherever the libm does (its values are libm values).
 - **Windows arm64, .NET Framework** (not in the table): an emulated x64 process, 34 cases different from the x64 runner (F6).
 
 The same run's opt-in job on the previous head (run 44986300782, job `suite-arm64`) ran the PR-tier test suite
@@ -353,7 +355,7 @@ hashes across platforms. On the harness inputs they mostly do not: `Remesher`, `
 `MarchingCubes`, the repair chain, alpha wrap, solidify, smoothing, deformation, offset, the tet mesher and the terrain
 tools are bit-identical on every pair measured (six operating system and architecture combinations, two runtimes)
 although they are floating-point code, because their paths use only `+ - * /` and `sqrt` on those inputs. What differs
-is confined to transcendental functions whose value reaches a coordinate (nine example cases, section 3.4). So the boundary is not "exact against floating point" but
+is confined to transcendental functions whose value reaches a coordinate (eight example cases, section 3.4). So the boundary is not "exact against floating point" but
 "reaches a platform libm value or not", and that is checkable by a tool (section 4) instead of by judgement.
 
 **Recommended policy** (for `ACCEPTANCE_STRATEGY.md` section 4 and `docs/QA.md`, after the owner's decision):
@@ -385,14 +387,14 @@ clause 11 defines the reproducible subset this library's tier 1 already is.
 | 3 | **Stage 2 with decisions 1a and 2** (section 5) | the generated claim for the exact Boolean without rounding, with the rounding as a named assumption | L, one PR, about the size of stage 1 | file churn from Boolean PRs (plan #1241); F2's `CoreMath` variant needs an `Asin` port and a benchmark |
 | 4 | **Golden-master policy of section 6** with the reachability check as a CI step (a list of tier 1 types that may not gain a libm edge) | the tier is decided by a tool; a new `Math.Sin` on a tier 1 path fails CI instead of a hash on another platform months later | M: docs, one CI step, a baseline file | the `cha` bound puts operations with callbacks in tier 2; a baseline file is one more gate file |
 | 5 | **A libm adversary** (DETERMINISM_PROOF.md 6.2: every `Math.Sin` & co. behind a wrapper that moves the result by an ulp in tests) | on one machine, for every case: does a libm ulp reach the result (what F2's experiment did by hand for four sites) | M / L: 165 methods call libm directly; a wrapper in each, behind a test hook | touches many files once; no behaviour change |
-| 6 | **`CoreMath` in the generators, the `QualityMesh2` angle bound and the winding number** (F3, F4, F5) | cylinders, cones, discs, the 2D mesher and the raw winding numbers identical everywhere; fewer tier 2 operations | M per group, with benchmark numbers (the libm rule asks for a measured difference: section 3.4 has it for the generators) | generator output changes in the last bit once; `Atan2` per triangle in the winding number is hot (1.5 to 4 times per call) |
+| 6 | **`CoreMath` in the generators, the contour loft and the winding number** (F3, F4, F5) | cylinders, cones, discs, lofts and the raw winding numbers identical everywhere; fewer tier 2 operations | M per group, with benchmark numbers (the libm rule asks for a measured difference: section 3.4 has it for the generators) | generator output changes in the last bit once; `Atan2` per triangle in the winding number is hot (1.5 to 4 times per call) |
 | 7 | **Stage 2b (`MeshRoundingRepair` in scope) or stage 3** | a claim for floating-point code | L each, larger than stage 2 | no unique-answer argument; likely needs code changes |
 
 **Leaning.** 1 now (it is a defect, small, and the test exists; issue #1314). 2 is in this PR. Then 3 as planned, with
 decision 1a, and for F2 the `site` line with the perturbation test first and `CoreMath` only if the benchmark allows it.
-4 with or right after stage 2, because the same tool then guards both. Of 6, the `QualityMesh2` bound first (one call per
-`Compute`, a measured difference, and the 2D mesher is the operation with golden rows), then the generators when a caller
-asks for identical inputs across platforms; not the winding number. 5 only if 4 leaves too many operations in tier 2
+4 with or right after stage 2, because the same tool then guards both. Of 6, the contour loft first (a status that
+differs is a behaviour difference, F5), then the generators when a caller asks for identical inputs across platforms; not
+the winding number. 5 only if 4 leaves too many operations in tier 2
 without knowing whether they really differ. 7 not now.
 
 **Decisions asked of the owner**
@@ -400,7 +402,7 @@ without knowing whether they really differ. 7 not now.
 2. Stage 2 scope: the exact result only, with `MeshRoundingRepair` assumed (1a), or the rounded result too (1c, a second stage)?
 3. F2: an argued `site` with a perturbation test, or `CoreMath` in `antipodal_tree_value` (needs `Asin`, a benchmark)?
 4. The two-tier golden-master policy of section 6, with the tier decided by `DeterminismReach`?
-5. F5: `CoreMath.Sin` for the angle bound of `QualityMesh2` under the libm rule (the result on .NET Framework changes where the bound decides)?
+5. F5: the libm rule for `ContourLoft` / `ContourLoftStack` (their status differs between platforms on one input)?
 6. Windows arm64 as a standing leg of `determinism.yml` (it is a measurement leg in this PR: its failure does not fail the run)?
 
 ## 8. Limits
@@ -415,6 +417,10 @@ without knowing whether they really differ. 7 not now.
   implementations an operation is never given; `hash-enum`, `text`, `float` and `parallel` see the direct forms only (the
   tool's README, "Limits"). Six generator cases record only an exception. No native arm64 .NET Framework process was
   measured (F6), and no .NET version other than 10.0.15.
+- The reflection trace had one artefact of its own, found in the first cross-platform run: it marked an object seen twice
+  by its identity, and .NET returns one shared empty array where .NET Framework allocates, so a result with empty `int[]`
+  members (`QualityMesh2`, subsegment markers) looked different between the two. Sequences are no longer identified;
+  other artefacts of this kind are possible wherever a case differs only in a count of values.
 - The scratch experiments (the one-ulp perturbation of F2, the sort of F1, the stage 2 build) changed library code in a
   scratch copy only; nothing of them is in the PR. Their commands are in the PR description.
 - `DOTNET_EnableAVX512F` and `DOTNET_EnableFMA` had no effect on the reported instruction sets in .NET 10.0.15 and prove

@@ -232,7 +232,10 @@ namespace DeterminismHarness
             if (v is Delegate || v is Type || v is MemberInfo || v is System.Threading.CancellationToken) return;
             // (what the trace does not follow is counted in the trace and named in a note, so that it is not skipped silently)
             if (depth > MaxDepth) { Skipped(t, label, "deeper than " + MaxDepth + " levels"); return; }
-            if (!type.IsValueType && !visited.Add(v)) { t.Add(-2); return; }
+            // (an object seen before is traced once, which also ends cycles. Not for sequences: a runtime may hand out one
+            // shared empty array where another allocates, eg SortedSet.ToArray() of an empty set on .NET and on .NET
+            // Framework, and the trace would then differ by the object identity, not by a value)
+            if (!type.IsValueType && !(v is IEnumerable) && !visited.Add(v)) { t.Add(-2); return; }
             if (v is IDictionary dict) {
                 var keys = dict.Keys.Cast<object>().ToList();
                 if (keys.All(k => k is string)) keys = keys.OrderBy(k => (string)k, StringComparer.Ordinal).ToList();
