@@ -9,7 +9,7 @@ proof step with its own review before any code. This note is that step. It is th
 there the level set is a mesh and a block is any ball of cells, tested by counting; here the level set is that of a
 function and a block is a box, tested by one direction. It also settles the cell shape (hypothesis (P3) of Theorem 7),
 which the review of #1392 left as "a reading of the premise, not a proved margin". Status: **written and independently
-reviewed on 2026-11-22 (section 5); nothing is built.**
+reviewed on 2026-11-22 (section 5); Lemma 7.1 is built, Theorem 8 is not.**
 
 Why blocks for class S: Theorem 5 refuses a cell whose edge may be crossed twice or whose face may carry a closed curve
 of L, that is every tangency of L with the grid, at every resolution ((S1), (S2)). On the capped TPMS of the spike these
@@ -24,11 +24,11 @@ Short answer:
   grid cells. A block is certified by (B0) to (B2) on its boundary (Theorem 5's node, edge and face tests), one partial
   derivative of constant sign on the block and at most one circle of L on its boundary. The proof adds no error bound.
 - **Theorems 1, 2, 4, 5, 6 and 8 need boxes, not cubes** (remark 5); a certificate by Theorem 5 or 8 has no cell-shape
-  condition. Theorem 7 still needs cubes, through its premise, until Lemma 7.1 is adopted.
+  condition. Theorem 7 needs cubes through its premise; Lemma 7.1 removes that.
 - **Lemma 7.1** (section 2): the smooth certificate of #1392 (Theorem 7) keeps its premise for exact cubes and gets a
   proved margin instead of the tolerance (P3): the negative products of the gradient test are multiplied by the square
-  of the largest spacing ratio. That is a small code change with a new bound; today's code is short of the lemma by a
-  margin of about twice its `CellShapeTolerance` on that test (2^-19 at the default, 2^-9 at the largest setting).
+  of the largest spacing ratio. Built on 2026-11-22 (`ContouringSmoothCertificate.SpacingRatioSquared`); the code of
+  #1392 was short of the lemma by a margin of about twice its tolerance on that test.
 - **Measured** (section 3a): box blocks cover 96.5 % of the refused cells of smooth TPMS at 32 cells per period (five
   of six runs complete) and about a third overall (9 to 56 % per run) for a TPMS clipped by a ball; box blocks grown
   this way do not close a clipped lattice.
@@ -224,17 +224,16 @@ interpolates the node coordinates on each axis; it is isotopic to the identity i
 PL surface compatible with K with the pattern of the node signs and the chosen pairing. Steps (4) to (6) of Theorem 7
 with Psi(M~) in the place of M: D ~ Psi(M~) ~ M~ ~ zero set of f~ ~ L. ∎
 
-What this changes. The premise PV is now used for exact cubes only, so the second of the three "read, not quoted"
-points of section 7.13 goes away. The code of #1392 tests A+(1) and accepts spacings within 2^-20: between that and the
-lemma lie the cells with 0 < (sum) <= (rho^2 - 1) |second sum|, a margin of about twice the tolerance relative to the second
-sum: 2^-19 at the default `CellShapeTolerance` of 2^-20, about 2^-9 at `MaxCellShapeTolerance` = 2^-10
-(only cells with a gradient component through 0 are affected). Closing
-it is a small change with a new bound, so it needs the exact review: compute an upper bound rho^2 of (M / m)^2 from the
-node coordinates (outward rounded), multiply the negative products of the gradient test by it, rounded down. Then the
-tolerance is no longer a refusal: the millimetre grid at UTM coordinates (M / m about 1 + 2e-6) is tested with
-rho^2 about 1 + 4e-6 and certified unless a cell passes the gradient test by less than that. The alternative, exact
-cubes only, would refuse every grid on which `origin + h * i` is rounded (h not a power of two, or an origin far
-from 0 against h), UTM coordinates among them; it is not needed.
+What this changed (built 2026-11-22). The premise PV is used for exact cubes only, so the second of the three "read,
+not quoted" points of section 7.13 went away. The code of #1392 tested A+(1) and accepted spacings within a tolerance
+(2^-20 by default, 2^-10 at most): between that and the lemma lay the cells with
+0 < (sum) <= (rho^2 - 1) |second sum|, a margin of about twice the tolerance relative to the second sum (only cells
+with a gradient component through 0 were affected). Now the factor rho^2 is the smallest double that is at least
+(M / m)^2, from exact differences of the node coordinates (exactly 1 for exact cubes), the negative products of the
+gradient test are multiplied by it and rounded down, and the tolerance and its option are gone. The millimetre grid at
+UTM coordinates (M / m about 1 + 2e-6) is tested with rho^2 about 1 + 4e-6 and certified unless a cell passes the
+gradient test by less than that. The alternative, exact cubes only, would refuse every grid on which `origin + h * i`
+is rounded (h not a power of two, or an origin far from 0 against h), UTM coordinates among them; it is not needed.
 
 ## 3. What is missing for a certificate of `TpmsLattice`
 
@@ -504,8 +503,8 @@ path (two crossings on one edge ordered by rounded quotients) can make (T3) fals
 ## 6. Next steps (for the coordinator and the owner)
 
 1. Coordinator's review of this proof.
-2. Lemma 7.1 in the code of #1392: the weighted gradient test and the spacing ratio as a bound (small, exact review).
-3. The measurement before any build of blocks: done, section 3a. Blocks close the gap for smooth levels and not for
-   a lattice clipped to a domain.
+2. Lemma 7.1 in the code of #1392: the weighted gradient test and the spacing ratio as a bound (done 2026-11-22).
+3. The measurement before any build of blocks: done, section 3a. Blocks close the gap for smooth levels; box blocks
+   grown this way do not close a lattice clipped to a domain.
 4. The mesh-side lemma for the mesher that is to be certified (marching tetrahedra: point 1 of section 4; marching
    cubes: section 3), then the build. A public option of `TpmsLattice` is the owner's decision, on an API sketch.

@@ -32,7 +32,10 @@ namespace g3
         /// (IsoValue, InsideIsLess, Bounds, CellSize, CornerDimensions) were changed since that run
         /// </summary>
         NoRecord = 1,
-        /// <summary> the node spacings are not equal within the tolerance: the cells are not cubes </summary>
+        /// <summary>
+        /// a node coordinate is not finite, a node spacing is not positive, or the square of the largest spacing over the
+        /// smallest is above 1e300: the gradient test has no factor, and no cell is judged
+        /// </summary>
         CellShape = 4,
         /// <summary> the contour fails the mesh side as a whole (a vertex outside its cell, no area, left out, self-intersections) </summary>
         MeshSide = 8,
@@ -62,16 +65,18 @@ namespace g3
     ///   (X) zero-free: the enclosure of f - iso over the cell, or over each of its 2^t sub-boxes per axis, excludes 0;
     ///       else the gradient test in its published form: f smooth on the cell, and the hull G of the gradient enclosures
     ///       of the sub-boxes (an enclosure of the gradient over the cell) has lower bound of Gx*Gx + Gy*Gy + Gz*Gz above 0,
-    ///       where each product is of two independent copies (an interval through 0 contributes lo * hi, not 0);
+    ///       where each product is of two independent copies (an interval through 0 contributes lo * hi, not 0) and a
+    ///       negative product is multiplied by rho^2, an upper bound of (largest node spacing / smallest)^2;
     ///   (X) the eight corner signs form one of the nine admitted configurations (a guard: the published argument excludes
     ///       the other five under the gradient test, by an argument this code does not rely on);
     ///   (N) the sign of f - iso at every node of a cell that is not zero-free is certified by a point enclosure, and at
     ///       every node of a zero-free box it is the box's sign; both must equal the inside flag the contouring used;
-    ///   (R) a finished, recorded run on a dense grid of one cell size whose fields are unchanged since; node spacings equal
-    ///       within CellShapeTolerance (cubes); no possible zero in the outermost layer; the mesh side of Theorem 2 as
-    ///       recorded by DualContouring.
-    /// The published argument is for cubes. Cells whose spacings differ within CellShapeTolerance are taken to be covered:
-    /// that is a reading of the premise, not a proved margin (section 7.13).
+    ///   (R) a finished, recorded run on a dense grid of one cell size whose fields are unchanged since; node spacings
+    ///       positive and finite; no possible zero in the outermost layer; the mesh side of Theorem 2 as recorded by
+    ///       DualContouring.
+    /// The published argument is for cubes. The cells of a grid of doubles are cubes only up to rounding; the factor rho^2
+    /// in the gradient test is the proved margin for that (Lemma 7.1, docs/design/CONTOURING_BLOCK_CERTIFICATE.md): with
+    /// it the published statement is applied to exact cubes, after a change of coordinates. There is no tolerance.
     /// Never certified: a cell on a crease of a min / max, a cell with two sheets, a node on the level set, a singular
     /// point of f, a surface that leaves the grid.
     ///
@@ -86,10 +91,8 @@ namespace g3
         public DualContouring Contour;
         /// <summary> a cell that fails as one box is cut into 2^t sub-boxes per axis, t up to this, to tighten the enclosures </summary>
         public int MaxTightening = 2;
-        /// <summary> the largest node spacing may exceed the smallest by this factor minus one (cubes up to rounding) </summary>
-        public double CellShapeTolerance = 1.0 / 1048576;
-        /// <summary> the largest tolerance Compute accepts (2^-10) </summary>
-        internal const double MaxCellShapeTolerance = 1.0 / 1024;
+        /// <summary> the factor of the last Compute: an upper bound of (largest node spacing / smallest)^2 over the three axes; NaN if there is none </summary>
+        public double SpacingRatioSquared = double.NaN;
         public bool ParallelCompute = true;
 
         public bool Certified;
@@ -106,6 +109,7 @@ namespace g3
         bool[] inside;                  // the contouring's flag per node
         sbyte[] nodeSign;               // the certified sign of f - iso per node: 0 not computed, +1, -1, 2 not decided
         double iso; bool insideIsLess;
+        double rho2;            // the factor of this Compute, read by the cells (SpacingRatioSquared is the output only)
 
         sealed class BlockResult
         {
@@ -117,13 +121,12 @@ namespace g3
 
         public void Compute()
         {
-            Certified = false; RunFailure = SmoothCertificateRunFailure.None;
+            Certified = false; RunFailure = SmoothCertificateRunFailure.None; SpacingRatioSquared = double.NaN;
             UncertifiedCells = new List<SmoothUncertifiedCell>(); SurfaceCells = 0;
             PassedAtTightening = new int[0];
             if (Field == null) throw new ArgumentNullException(nameof(Field));
             if (Contour == null) throw new ArgumentNullException(nameof(Contour));
             if (MaxTightening < 0 || MaxTightening > 4) throw new ArgumentOutOfRangeException(nameof(MaxTightening));
-            if (!(CellShapeTolerance >= 0 && CellShapeTolerance <= MaxCellShapeTolerance)) throw new ArgumentOutOfRangeException(nameof(CellShapeTolerance));
             PassedAtTightening = new int[MaxTightening + 1];
 
             // the run the mesh was made by, and nothing changed since: the node flags below are read through the contour's
@@ -141,7 +144,9 @@ namespace g3
             for (int i = 0; i <= nx; ++i) X[i] = grid.Coord(0, i);
             for (int i = 0; i <= ny; ++i) Y[i] = grid.Coord(1, i);
             for (int i = 0; i <= nz; ++i) Z[i] = grid.Coord(2, i);
-            if (!EqualSpacing(X, Y, Z, CellShapeTolerance)) RunFailure |= SmoothCertificateRunFailure.CellShape;
+            // the factor of the gradient test; without one nothing can be certified and no cell is judged
+            rho2 = SpacingRatioSquared = SpacingRatioSquaredBound(X, Y, Z);
+            if (double.IsNaN(rho2)) { RunFailure |= SmoothCertificateRunFailure.CellShape; return; }
             if (Contour.CertificateMeshFails) RunFailure |= SmoothCertificateRunFailure.MeshSide;
 
             inside = new bool[(nx + 1) * (ny + 1) * (nz + 1)];
@@ -186,23 +191,35 @@ namespace g3
             Certified = RunFailure == SmoothCertificateRunFailure.None && UncertifiedCells.Count == 0;
         }
 
+        /// <summary> the largest factor SpacingRatioSquaredBound returns; it keeps the result finite, and no grid of a contouring comes near it </summary>
+        internal const double MaxSpacingRatioSquared = 1e300;
+
         /// <summary>
-        /// Are all node spacings of the three axes equal within the factor 1 + tolerance (max at most min (1 + tolerance), min positive)?
-        /// The spacings are differences of neighbouring doubles, each rounded once (a relative error of 2^-53, exact where
-        /// the two coordinates are within a factor of two), and the product is rounded down by one unit: against a
-        /// tolerance of 2^-20 the test is the stated one up to 2^-52.
+        /// The smallest double that is at least (M / m)^2, M and m the largest and the smallest node spacing over the
+        /// three axes: exactly 1 for exact cubes. NaN if a coordinate is not finite, a spacing is not positive, or the
+        /// quotient is above MaxSpacingRatioSquared. The spacings are exact differences of the doubles (ExactDyadic), M and
+        /// m are found by exact comparison, and the quotient is rounded to nearest and moved up one double if that fell
+        /// below it.
         /// </summary>
-        internal static bool EqualSpacing(double[] x, double[] y, double[] z, double tolerance)
+        internal static double SpacingRatioSquaredBound(double[] x, double[] y, double[] z)
         {
-            double min = double.MaxValue, max = 0;
+            bool any = false;
+            ExactDyadic min = ExactDyadic.Zero, max = ExactDyadic.Zero;
             foreach (double[] a in new[] { x, y, z })
                 for (int i = 0; i + 1 < a.Length; ++i) {
-                    double d = a[i + 1] - a[i];
-                    if (!(d > 0) || double.IsInfinity(d)) return false;
-                    min = Math.Min(min, d); max = Math.Max(max, d);
+                    if (double.IsNaN(a[i]) || double.IsInfinity(a[i]) || double.IsNaN(a[i + 1]) || double.IsInfinity(a[i + 1])) return double.NaN;
+                    ExactDyadic d = ExactDyadic.Of(a[i + 1]) - ExactDyadic.Of(a[i]);
+                    if (d.Sign <= 0) return double.NaN;
+                    if (!any || ExactDyadic.Compare(d, min) < 0) min = d;
+                    if (!any || ExactDyadic.Compare(d, max) > 0) max = d;
+                    any = true;
                 }
-            if (!(max > 0)) return false;
-            return max <= ExactInterval.Down(min * (1 + tolerance));
+            if (!any) return double.NaN;
+            ExactDyadic num = max * max, den = min * min;
+            double q = ExactDyadic.Quotient(num, den);
+            if (!(q <= MaxSpacingRatioSquared)) return double.NaN;
+            if (ExactDyadic.Compare(ExactDyadic.Of(q) * den, num) < 0) q = ExactInterval.Up(q);
+            return q;
         }
 
         /// <summary>
@@ -361,7 +378,7 @@ namespace g3
                             else { gx = IntervalMath.Hull(gx, e.Gx); gy = IntervalMath.Hull(gy, e.Gy); gz = IntervalMath.Hull(gz, e.Gz); }
                         }
                 if (allFree) { zeroFree = true; break; }
-                if (smooth && GradientTest(gx, gy, gz)) passed = t;
+                if (smooth && GradientTest(gx, gy, gz, rho2)) passed = t;
             }
 
             // the corner signs: certified by point enclosures and equal to the contouring's flags
@@ -389,15 +406,26 @@ namespace g3
         }
 
         /// <summary>
-        /// The published gradient test on one box of gradient enclosures: the lower bound of the interval inner product of
-        /// the box with itself is positive. Each product is of two independent copies of the interval (ExactInterval's
-        /// product, not its square), so a component through 0 contributes lo * hi &lt; 0. A pass proves that any two
-        /// gradients in the box have a positive inner product and that one component keeps its sign.
+        /// The gradient test on one box of gradient enclosures, with the margin for cells that are not exact cubes
+        /// (Lemma 7.1): the sum of the lower bounds of gx*gx, gy*gy, gz*gz is positive, where a negative lower bound is
+        /// multiplied by rho2 >= 1 first. Each product is of two independent copies of the interval (ExactInterval's
+        /// product, not its square), so a component through 0 contributes lo * hi &lt; 0. With rho2 = 1 it is the published
+        /// test. A pass proves, for every grid whose squared spacing ratio is at most rho2, that after the change of
+        /// coordinates that makes its cells cubes any two gradients in the box have a positive inner product and one
+        /// component keeps its sign. False if rho2 is not a number of at least 1.
         /// </summary>
-        internal static bool GradientTest(ExactInterval gx, ExactInterval gy, ExactInterval gz)
+        internal static bool GradientTest(ExactInterval gx, ExactInterval gy, ExactInterval gz, double rho2)
         {
-            ExactInterval p = gx * gx + gy * gy + gz * gz;
+            if (!(rho2 >= 1)) return false;
+            ExactInterval p = weighted(gx * gx, rho2) + weighted(gy * gy, rho2) + weighted(gz * gz, rho2);
             return p.Lo > 0;
+        }
+
+        // a product whose lower bound is negative, with that bound multiplied by rho2 (rounded down)
+        static ExactInterval weighted(ExactInterval product, double rho2)
+        {
+            if (!(product.Lo < 0)) return product;
+            return new ExactInterval((ExactInterval.Of(product.Lo) * ExactInterval.Of(rho2)).Lo, product.Hi);
         }
     }
 }

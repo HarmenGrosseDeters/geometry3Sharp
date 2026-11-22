@@ -51,3 +51,43 @@ See the study for the tables and their reading. In short (`results/summary.md`):
 of the box and the L profile), the medial ball 1.00 (worst 0.99); on the subdivided meshes 0.45 (0.55), 0.48 and 1.00. The reconstruction is exact on the box, the plate and the gear when the
 labels are right and breaks where a support face shares vertices with a fillet (the caps of the L profile) or a few fillet
 triangles were missed (the coarse sphere octants).
+
+## Second measurement: ABC models (manual workflow)
+
+Owner decision 2026-11-22: measure the medial-ball detector on real CAD meshes before anything is built. The ABC dataset
+(Koch et al., CVPR 2019) has no fillet label, so the answer is a **heuristic of this project** on the B-rep patches
+(`AbcHeuristic` in `Corpus.cs`: Cylinder or Torus patches with smooth borders to two other patches and a sectional angle of
+at most 150 degrees are fillets; other curved patches with two smooth neighbours are left out of the score). The detector's
+thresholds (as merged in #1386), the heuristic, the sample rule (`abc/sample.py`: SHA-256 order of the model ids; the first
+200 models with and 50 without a fillet, at most 100k triangles) and the six radius-bound candidates (0.05 / 0.1 / 0.2 of
+the bounding box diagonal, 0.5 / 1 / 2 times the median wall thickness) were fixed before the first run on the data.
+
+`.github/workflows/fillet-abc.yml` (workflow_dispatch only) downloads one chunk to the runner's temp disk, extracts only the
+sampled files, runs `corpus` and deletes the data. Nothing is cached or committed; the artifact is a CSV of scores per
+model id. `mode: probe` prints the structure of three feature files and stops (the file format is known here only from the
+paper's supplement).
+
+```
+dotnet run -c Release --project benchmarks/FilletDetection -- spotcheck            # the heuristic against the known answer
+dotnet run -c Release --project benchmarks/FilletDetection -- boundcheck n=8       # one shared run against a run per bound
+dotnet run -c Release --project benchmarks/FilletDetection -- export-abc <dir> n=8 # procedural solids in the ABC layout
+bash benchmarks/FilletDetection/abc/prepare.sh <dir> <dir> <data> && dotnet run ... -- corpus <data> <data>/ids.txt scores.csv 600 8 2
+python3 -m unittest discover -s benchmarks/FilletDetection/abc -p 'test_*.py'
+```
+
+Checks on the procedural solids (`results/spotcheck.md`, `results/boundcheck.md`):
+
+- The heuristic on the solids written as patches (the 30 strip cases, 24 with fillets): precision 1.00 wherever it marks anything; recall 1.00 from
+  4 chords up. With 2 chords the patches made for this check are wrong (a fillet's two facets fold by 45 degrees and become
+  two patches with a "sharp" curve between them), so recall is 0 on the L profile and 0.51 on the gear there: a limit of the
+  check, not of the ABC files, where patches come from the B-rep. The vertex fillets (sphere octants: 7 to 8 % of the box's
+  fillet area) are left out of the score by design.
+- One detector run with the largest bound stands for all six bounds (a run per bound would cost six times the runner time).
+  That is not exact: the ball search depends on its start radius. On the plate, where the largest bound is 2.4 to 3.3 times
+  the wall thickness, the shared run marks 940 (rotated: 936) triangles where a run per bound marks 960; the other solids
+  agree triangle for triangle (220 differing verdicts of 46176 over five bounds). Every difference seen here is a lost mark,
+  which lowers recall; that it can never add one is not shown. The recall the workflow reports for a bound well below the
+  largest one may therefore be somewhat too low.
+- The sectional angle of the heuristic is measured on triangle normals and is short by one facet step, and the workflow's
+  time budget (default 2400 s of detection) can end the run before 250 models are scored; the sample order is fixed, so the
+  scored models are a prefix of it, and the summary says how many.
