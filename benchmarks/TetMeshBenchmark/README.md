@@ -338,5 +338,5 @@ alpha_long,alpha_short,seeds,tets,min_dihedral,max_dihedral,degenerate_tets,inve
 ```
 
 `inverted_background` counts the warped lattice tets whose exact orientation changed (the discarded ones included; with the 10.78 degree parameters
-they occur on planar faces, with the safe ones never), `inverted_background_with_output` those that produce output tets. `wrap 40 600 hard` prints the
+they occur mostly on planar faces, with the safe ones never), `inverted_background_with_output` those that produce output tets. `wrap 40 600 hard` prints the
 wrap's own surface angles on the 13 hard inputs (smallest interior dihedral at a surface edge 29.5 to 90 degrees).

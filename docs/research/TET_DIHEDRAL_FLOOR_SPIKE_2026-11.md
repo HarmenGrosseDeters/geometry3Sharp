@@ -112,7 +112,7 @@ libigl or Triangle code was read.
   against its curvature and thickness (theorem 3). Sharp creases and corners are rounded off; the paper names this as a
   drawback of the method.
 - **Grading.** With an octree, the interior may be coarser while the boundary layer stays uniform, and the dihedral
-  bounds of the table above still hold (the 10.78 row needs a few extra octants; the two bounds the paper marks as weakened
+  bounds of the table above still hold (the bounds 10.78 and 158.75 need a few extra octants; the two bounds the paper marks as weakened
   are plane-angle bounds of other rows). Grading the boundary too leaves only 1.66 to 174.72 degrees.
 
 ### 2.3 Prior art checked (about 15 minutes; search terms: guaranteed dihedral angle tetrahedral mesh sharp features, lattice, octree)
@@ -154,7 +154,7 @@ libigl or Triangle code was read.
   with edges of about alpha, 15 times the offset at the default, so its own edge angles are sharper than the surface's.
   Measured on the raw wrap at the default (`wrap 40 600 hard`, the 13 hard inputs): smallest interior dihedral angle at a
   surface edge 29.5 to 90 degrees, with 0 to 68 edges below 90 and at most 6 below 45 per input; on the wedges of 60, 30, 20,
-  12 and 5 degrees it is 63, 31, 81, 34 and 63 degrees. On the 8 smooth inputs at alpha / 20: 86 to 171 degrees
+  12 and 5 degrees it is 63, 31, 81, 34 and 63 degrees. On the benchmark's 8 own inputs (spheres, tori, box, cylinder) at alpha / 20: 86 to 171 degrees
   ([benchmarks/TetMeshBenchmark/README.md](../../benchmarks/TetMeshBenchmark/README.md), "Inside cells of the wrap").
 - So the boundary the tets must fit has angles well above the 10 degree floor and they do not follow the input's creases:
   this is what a chamfering step would establish, and here it is an observation on these inputs with a geometric reason
@@ -172,12 +172,13 @@ libigl or Triangle code was read.
 - Proven for every continuous inside / outside function: 9.31 degrees with the safe parameters; 10.78 degrees per tet with
   the first row, where validity (no overlap) needs either a smooth, resolved surface or a check per run.
 - The cheap check does not work: "no warped lattice tet changed its orientation" (`Orient3d`, column `inverted_background`)
-  fails with the 10.78 parameters on 18 of the 61 procedural runs (up to 3012 lattice tets, most of them flat, on planar
-  faces as the paper says) and never with the safe parameters. All of those tets have four warped vertices and are
+  fails with the 10.78 parameters on 18 of the 61 procedural runs (up to 3012 lattice tets, flat or inverted, mostly on
+  planar faces) and never with the safe parameters. All of those tets have no positive vertex, produce no output and are
   discarded; no lattice tet that produces output changed orientation in any run (`inverted_background_with_output` 0).
 - The check that works is the library's exact validity test on the output (`TetMeshQuality.NotValidReason` plus the exact
   self-intersection test of the boundary, as in `TetFiles.Evaluate`): positively oriented tets whose facets match and whose
-  boundary is a closed manifold without self-intersection cover the enclosed region exactly once. All 18 runs pass it. So
+  boundary is a closed manifold without self-intersection cover the enclosed region exactly once (per boundary component; with several components also none inside another, which a
+  local fold of the lattice cannot produce). All 18 runs pass it. So
   "the 10.78 parameters, the output validated per run, the safe parameters as the fallback" is a sound scheme; its proven
   statement for 100 % of inputs is "9.31, and 10.78 whenever the validation passes". On these inputs the validation failed
   only through a non-manifold boundary (next item), which the safe parameters do not cure.
@@ -223,8 +224,8 @@ dotnet run -c Release --project benchmarks/TetMeshBenchmark -- floornoise 20
 | largest dihedral, worst | 168.4 | 169.0 | 152.5 | 157.2 | 156.8 |
 | tets, median | 6.0k | 6.0k | 9.8k | 75k | 563k |
 | input to boundary, max: median / worst (diagonal) | 0.0017 / 0.185 | 0.0017 / 0.185 | 0.024 / 0.375 | 0.014 / 0.200 | 0.0050 / 0.183 |
-| per input against the default, median of ratios: tets / input-to-boundary max / time | 1 | | 1.23 / 10.7 / 0.75 | 9.5 / 6.5 / 3.1 | 69 / 1.8 / 15 |
-| time, median (s) | 0.22 | 0.28 | 0.19 | 0.81 | 3.3 |
+| per input against the default, median of ratios: tets / input-to-boundary max / time | 1 | | 1.23 / 10.7 / 0.72 | 9.5 / 6.5 / 3.5 | 69 / 1.8 / 14 |
+| time, median (s) | 0.22 | 0.25 | 0.19 | 0.88 | 3.4 |
 
 - Not meshed or not valid, lattice: the plate at / 20 and / 40 (thinner than a cell: no positive lattice point, empty
   mesh); the thin torus at / 20 (a boundary edge used twice). With the safe parameters also wedge 5 at / 40 (a non-manifold
@@ -248,8 +249,8 @@ dotnet run -c Release --project benchmarks/TetMeshBenchmark -- floornoise 20
   torus at / 20, whose lattice mesh is not valid (0.15 times the tets): both favour the lattice.
 - Times of the prototype are not a design value: the field is evaluated at every lattice point of the box (on all cores,
   the rest is one thread, so the time ratios mix both), the cut points use 40 evaluations each, and the stencil code
-  allocates. All procedural rows together: 30, 15 and 8 us per tet at cell / 20, / 40, / 80; on the two sample meshes of
-  4.3, where a field evaluation is expensive, 270 to 5700 us per tet. The paper's point that the method itself is fast is
+  allocates. All procedural rows together: 29, 16 and 8 us per tet at cell / 20, / 40, / 80; on the two sample meshes of
+  4.3, where a field evaluation is expensive, 340 to 6100 us per tet. The paper's point that the method itself is fast is
   not contested.
 
 ### 4.2 Random labels (the bound without a surface)
