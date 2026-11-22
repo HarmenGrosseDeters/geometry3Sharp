@@ -55,6 +55,22 @@ the subsequent batch of random queries in `[-1.5, 1.5]^3`. Grid times include ca
 | open cup rim 2k | 22000 | 2000 | 2000 | 55.7 | 12.1 | 24.9 | 4.6x | 2000/2000 |
 | open cup rim 4k | 28000 | 4000 | 2000 | 109.3 | 13.8 | 67.6 | 7.9x | 2000/2000 |
 
+### BoundaryTree node query, before and after the per-edge error term (2026-11-22)
+
+Query-only time of `MeshBatchQueries.IsInsideBatch(..., ExactWindingNumber)` for 20 batches of 2000 points after the caches are
+built (build outside the timer), medians of 4 alternating runs (old / new / new / old ...) on the same 4-core container with
+nothing else running; `f3b0fa5e` is the commit before the node bound got the term `1e-12 * (hi - lo)` and the shared
+`node_query`. Queries that fall back on the full boundary sum: 4 per batch of 2000, both before and after (the term
+changes no decision here), so its cost is below the noise.
+
+| case | f3b0fa5e runs (ms) | now runs (ms) | medians |
+|---|---|---|---|
+| open cup rim 2k | 47.7 58.7 47.6 50.8 | 45.9 46.3 46.3 48.4 | 49.3 -> 46.3 ms (-6 %) |
+| open cup rim 4k | 96.3 97.4 107.5 120.9 | 86.0 88.6 89.5 87.5 | 102.5 -> 88.1 ms (-14 %) |
+
+A first version of `node_query` that returned a struct of all clause terms from the hot path cost +7 % to +37 % in the
+rim-and-build timing of the table above; the clause terms are now written only for the test hook (`DescribeBoundaryNode`).
+
 ## Notes
 
 - **Unwelded closed STL soups** (`unwelded closed 20k`): exterior edges are cancelled by canonicalized exact 3D vertex
