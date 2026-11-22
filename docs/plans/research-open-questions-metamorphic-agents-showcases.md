@@ -3,7 +3,7 @@
 - **Board row:** OPEN_TOPICS.md §5 "Research / hard open problems (no known solution; a study first)", row "Other: open research questions (metamorphic testing, agent APIs, showcases)"
 - **Kind:** research study (listed, not started as a single program; trigger: pick ONE sub-topic with a strong synergy with an existing feature per "depth over breadth", owner 2026-11-10)
 - **Tier:** S/M for agent-API benchmark & showcases; M/L for sparse SDFs / Monte Carlo PDEs / expanded metamorphic suite
-- **Plan status:** draft, 2026-11-20 (Berlin). Plan only.
+- **Plan status:** draft, 2026-11-20 (Berlin); updated 2026-11-22 (Berlin): sub-topic 1 gained two metamorphic bug hunts over chains of operations ([hunt 1](../research/METAMORPHIC_BUG_HUNT_2026-11.md), [hunt 2](../research/METAMORPHIC_BUG_HUNT_2_2026-11.md), harness `benchmarks/MetamorphicBugHunt`); sub-topics 2-4 are not started.
 
 ## Current state
 
@@ -15,6 +15,12 @@ unstarted research leads):
    (tiny perturbation) are **built** (#988, `MetamorphicRelationTests.cs`) and already caught real bugs (#985, #986).
    Remaining open: other parked relations from the catalogue (only if a new bug class justifies them) and optional
    black-box comparison across external kernels.
+   **Bug hunts 2026-11-22** (research spikes, no library change in the notes): [hunt 1](../research/METAMORPHIC_BUG_HUNT_2026-11.md)
+   (chains of Boolean, repair, remesh, tet, wrap, contouring, 2D mesher; 5157 checks) found one defect, #1337
+   (`MeshRobustRepair` changed a clean solid; closed); [hunt 2](../research/METAMORPHIC_BUG_HUNT_2_2026-11.md) (wrap,
+   meshers, contouring, loft, I/O, geodesics, intrinsic; `MetamorphicBugHunt2Tests.cs`) found three: #1375 (`TpmsLattice`
+   with a non-dense `DomainMesh`; closed), #1376 (`DualContouring` on a field scaled by a small constant; open) and #1377
+   (false success outside an undocumented magnitude range; closed).
 2. **Geometry APIs for coding agents (unstarted):** a benchmark of real mesh/CAD tasks solved by coding agents through
    `g3cli` / MCP (`g3cli mcp`), measuring which API patterns (clear status enums, `NotCleanReason`, options objects,
    JSON diagnostics, self-describing MCP schemas) actually reduce agent error rate and retries.
