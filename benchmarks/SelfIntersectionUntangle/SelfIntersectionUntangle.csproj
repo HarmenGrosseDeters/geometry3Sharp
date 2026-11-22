@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\geometry3Sharp_netstandard.csproj" />
+    <!-- the procedural builders of the pipeline audit (boxes, spheres, Combine, the fixed rotation) -->
+    <Compile Include="..\SolidBooleanAudit\Corpus.cs" Link="Corpus.cs" />
+  </ItemGroup>
+
+</Project>
