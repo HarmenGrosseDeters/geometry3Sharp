@@ -238,10 +238,89 @@ namespace geometry3Sharp.Tests
             Assert.True(r.SelfIntersectingTriangles > 0);      // (the conservative case: the face contact counts as crossing)
         }
 
+        // the set of crossing triangles by brute force: every pair of triangles, positions as one vertex, the exact test of the pair
+        static HashSet<int> BruteForce(DMesh3 m)
+        {
+            var canon = new Dictionary<Vector3d, int>();
+            Func<int, int> id = v => {
+                Vector3d p = m.GetVertex(v);
+                var key = new Vector3d(p.x + 0.0, p.y + 0.0, p.z + 0.0);
+                int c;
+                if (!canon.TryGetValue(key, out c)) canon[key] = c = v;
+                return c;
+            };
+            int[] tris = m.TriangleIndices().ToArray();
+            var crossing = new HashSet<int>();
+            for (int i = 0; i < tris.Length; ++i)
+                for (int j = i + 1; j < tris.Length; ++j) {
+                    var A = new Triangle3d(); var B = new Triangle3d();
+                    m.GetTriVertices(tris[i], ref A.V0, ref A.V1, ref A.V2);
+                    m.GetTriVertices(tris[j], ref B.V0, ref B.V1, ref B.V2);
+                    Index3i ta = m.GetTriangle(tris[i]), tb = m.GetTriangle(tris[j]);
+                    if (ExactTriangleIntersection.IntersectsBeyondShared(new Index3i(id(ta.a), id(ta.b), id(ta.c)), ref A, new Index3i(id(tb.a), id(tb.b), id(tb.c)), ref B)) {
+                        crossing.Add(tris[i]); crossing.Add(tris[j]);
+                    }
+                }
+            return crossing;
+        }
+
+        [Fact]
+        public void ACrossingNextToADuplicatedContactVertex_IsNotOnlyContacts_AndTheSetIsTheBruteForceOne()
+        {
+            // the boxes touch along the edge x = y = 1 (duplicated vertices there); a third box passes through both top faces and the
+            // walls around that edge, so triangles at the duplicated contact vertices cross: not "only contacts"
+            DMesh3[] meshes = {
+                Together(Box(0, 0, 0, 1, 1, 1), Box(1, 1, 0, 2, 2, 1), Box(0.8, 0.8, 0.5, 1.2, 1.2, 1.5)),
+                Together(Box(0, 0, 0, 1, 1, 1), Box(1, 1, 0, 2, 2, 1), Box(0.9, 0.6, 0.5, 1.1, 1.4, 1.5)),
+                EdgeTouching(), EdgeTouchingAndCrossing(),
+                Together(Box(0, 0, 0, 1, 1, 1), Box(1, 0, 0, 2, 1, 1)),
+                Together(Sphere(10, Vector3d.Zero), Sphere(10, new Vector3d(1.2, 0.1, 0.2))) };
+            for (int i = 0; i < meshes.Length; ++i) {
+                HashSet<int> expected = BruteForce(meshes[i]);
+                Assert.True(expected.SetEquals(SolidBooleanPipeline.CrossingTrianglesOfAll(meshes[i])), "mesh " + i);
+                SolidBooleanReport r = Check(meshes[i]);
+                Assert.Equal(expected.Count, r.SelfIntersectingTriangles);
+            }
+            SolidBooleanReport first = Check(meshes[0]);
+            Assert.True(first.ContactsResult > 0);
+            Assert.True(first.SelfIntersectingTriangles > 0);
+            Assert.False(first.OnlyContacts);
+            Assert.True(BruteForce(meshes[0]).Count > BruteForce(EdgeTouching()).Count);
+            // the crossing is also found with the box standing across the contact edge itself
+            Assert.False(Check(meshes[1]).OnlyContacts);
+        }
+
+        [Fact]
+        public void CrossingTrianglesOfAll_IsTheSameSetOnEveryRun()
+        {
+            // the intersecting pairs are found in parallel: the set does not depend on the schedule
+            DMesh3 m = Together(Sphere(30, Vector3d.Zero), Sphere(30, new Vector3d(1.2, 0.1, 0.2)), Sphere(30, new Vector3d(0.3, 1.1, -0.2)));
+            HashSet<int> first = SolidBooleanPipeline.CrossingTrianglesOfAll(m);
+            Assert.True(first.Count > 100);
+            for (int i = 0; i < 4; ++i)
+                Assert.True(first.SetEquals(SolidBooleanPipeline.CrossingTrianglesOfAll(m)));
+        }
+
+        [Fact]
+        public void FinalCheck_WithoutTheCrossingCount_ReportsContactsAndReasonOnly()
+        {
+            DMesh3 m = EdgeTouchingAndCrossing();
+            var light = new SolidBooleanReport() { SelfIntersectingTriangles = 5, OnlyContacts = true };
+            SolidBooleanPipeline.FinalCheck(m, light, false);
+            SolidBooleanReport full = Check(m);
+            Assert.Equal(full.NotCleanReason, light.NotCleanReason);
+            Assert.Equal(full.ContactsResult, light.ContactsResult);
+            Assert.Equal(0, light.SelfIntersectingTriangles);
+            Assert.False(light.OnlyContacts);
+            Assert.True(full.SelfIntersectingTriangles > 0);
+        }
+
         [Fact]
         public void ANegativeZeroAndAPositiveZero_AreOnePosition()
         {
-            // two boxes touching along an edge at x = 0, one with the contact vertices at -0.0, the other at +0.0
+            // two boxes touching along an edge at x = 0, one with the contact vertices at -0.0, the other at +0.0 (on .NET Core
+            // -0.0 and +0.0 hash alike, so removing the "+ 0.0" of the canonical key is not seen here; it matters on net48 and
+            // netstandard2.0, where the hash differs: the test documents the case, CI builds those targets but does not run them)
             DMesh3 a = Box(-1, 0, 0, 0, 1, 1), b = Box(0, 1, 0, 1, 2, 1);
             foreach (int v in a.VertexIndices()) {
                 Vector3d p = a.GetVertex(v);
