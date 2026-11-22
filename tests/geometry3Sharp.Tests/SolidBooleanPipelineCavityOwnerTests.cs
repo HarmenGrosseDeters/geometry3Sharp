@@ -311,6 +311,72 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // one triangle (corners in the given order) in the plane z = 0 as a mesh, and the crossings of the segment from (x, y, -1) to (x, y, 1)
+        static int Along(Vector3d[] corners, double x, double y, out bool degenerate)
+        {
+            var m = new DMesh3();
+            int a = m.AppendVertex(corners[0]), b = m.AppendVertex(corners[1]), c = m.AppendVertex(corners[2]);
+            m.AppendTriangle(a, b, c);
+            return SolidBooleanPipeline.ShellIndex.CrossingsAlong(m, new[] { 0 }, new Vector3d(x, y, -1), new Vector3d(x, y, 1), out degenerate);
+        }
+
+        [Fact]
+        public void CrossingsAlong_ThroughAnEdgeOrAVertex_IsDegenerate_BesideIsNot_InsideCountsOnce()
+        {
+            // the triangle (0,0), (4,0), (0,4), each cyclic order of its corners and both orientations, so that every edge is the
+            // first, the second and the third of the three orientation tests, and the line passes on both sides of each of them
+            var tri = new[] { new Vector3d(0, 0, 0), new Vector3d(4, 0, 0), new Vector3d(0, 4, 0) };
+            for (int flip = 0; flip < 2; ++flip)
+                for (int rot = 0; rot < 3; ++rot) {
+                    var c = new Vector3d[3];
+                    for (int k = 0; k < 3; ++k)
+                        c[k] = tri[(rot + (flip == 0 ? k : 2 - k)) % 3];
+                    string at = "flip " + flip + " rot " + rot;
+                    bool degenerate;
+                    foreach (var xy in new[] { (2.0, 0.0), (2.0, 2.0), (0.0, 2.0), (0.0, 0.0), (4.0, 0.0), (0.0, 4.0) }) {
+                        Along(c, xy.Item1, xy.Item2, out degenerate);
+                        Assert.True(degenerate, at + " through " + xy);
+                    }
+                    foreach (var xy in new[] { (2.0, -1.0), (3.0, 3.0), (-1.0, 2.0), (-1.0, -1.0), (5.0, -1.0), (-1.0, 5.0), (1.0, 5.0), (5.0, 1.0) }) {
+                        Assert.Equal(0, Along(c, xy.Item1, xy.Item2, out degenerate));
+                        Assert.False(degenerate, at + " beside " + xy);
+                    }
+                    // inside: one crossing, from behind it (the side opposite its normal) it leaves: +1 for the normal +z, -1 for -z
+                    int w = Along(c, 1, 1, out degenerate);
+                    Assert.False(degenerate);
+                    Assert.Equal(flip == 0 ? 1 : -1, w);
+                }
+        }
+
+        [Fact]
+        public void ExactWinding_AProbeInThePlaneOfATriangleButOutsideIt_IsDecided()
+        {
+            // the tetrahedron (0,0,0), (4,0,0), (0,4,0), (0,0,4); the probe (3.5, 3.5, 0) lies in the plane z = 0 of its floor and in the
+            // floor's box, but outside the floor and outside the solid: not on the shell, winding 0
+            var t = new DMesh3();
+            int a = t.AppendVertex(new Vector3d(0, 0, 0)), b = t.AppendVertex(new Vector3d(4, 0, 0)), c = t.AppendVertex(new Vector3d(0, 4, 0)), d = t.AppendVertex(new Vector3d(0, 0, 4));
+            t.AppendTriangle(a, c, b); t.AppendTriangle(a, b, d); t.AppendTriangle(a, d, c); t.AppendTriangle(b, c, d);
+            bool decided;
+            Assert.Equal(0, Winding(t, new Vector3d(3.5, 3.5, 0), out decided));
+            Assert.True(decided);
+            Assert.Equal(1, Winding(t, new Vector3d(0.5, 0.5, 0.5), out decided));
+            Assert.True(decided);
+            // on the floor itself: not decided
+            Winding(t, new Vector3d(1, 1, 0), out decided);
+            Assert.False(decided);
+        }
+
+        [Fact]
+        public void ExactWinding_ARayStraightAlongTheAxis_LeavesTheBox()
+        {
+            // no jitter at all: the segment runs along the nearest face's axis and must end beyond the box (the margin), not on its face
+            DMesh3 cube = Box(0, 0, 0, 4, 4, 4);
+            int w;
+            bool decided = SolidBooleanPipeline.ShellIndex.ExactWinding(cube, cube.TriangleIndices().ToArray(), cube.GetBounds(), new Vector3d(1.3, 1.7, 2.1), out w, i => Vector3d.Zero);
+            Assert.True(decided);
+            Assert.Equal(1, w);
+        }
+
         [Fact]
         public void Contains_AnInvertedShellAroundAPoint_DoesNotContain()
         {
