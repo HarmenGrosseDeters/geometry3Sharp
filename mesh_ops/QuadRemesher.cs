@@ -98,7 +98,7 @@ namespace gs
         /// features (a filleted box) and with boundaries it may not help or may worsen the counts. Default Off: the output is then bit for bit the
         /// one without the option.
         /// </summary>
-        public SizeAdaptationMode SizeAdaptation = SizeAdaptationMode.Off;       // not together with PureQuads (InvalidInput)
+        public SizeAdaptationMode SizeAdaptation = SizeAdaptationMode.Off;
         /// <summary>
         /// optional: an IntegrableFrames for its solver settings (Iterations, Damping, ...); the remesher sets its Mesh, Field, TargetEdgeLength and
         /// UseRotation (from SizeAdaptation) and computes it, so after Compute() it holds the spacing, the rotation and the curl
@@ -161,7 +161,6 @@ namespace gs
             if (!cf.Success) { FieldStatus = cf.Status; return Fail(QuadRemeshStatus.FieldFailed, cf.Error); }
             var pf = new PositionField(Mesh, cf) { TargetEdgeLength = TargetEdgeLength, Sweeps = Sweeps, Parallel = Parallel, MiddleRegularization = MiddleRegularization, ChunkSize = ChunkSize };
             if (SizeAdaptation != SizeAdaptationMode.Off) {
-                if (PureQuads) return Fail(QuadRemeshStatus.InvalidInput, "SizeAdaptation and PureQuads cannot be combined (the pure-quad flow assumes a uniform spacing)");
                 if (SizeAdaptation != SizeAdaptationMode.Scale && SizeAdaptation != SizeAdaptationMode.ScaleAndRotation) return Fail(QuadRemeshStatus.InvalidInput, "unknown SizeAdaptation");
                 IntegrableFrames fr = Frames ?? new IntegrableFrames(Mesh, cf);
                 fr.Mesh = Mesh; fr.Field = cf; fr.TargetEdgeLength = TargetEdgeLength; fr.UseRotation = SizeAdaptation == SizeAdaptationMode.ScaleAndRotation;

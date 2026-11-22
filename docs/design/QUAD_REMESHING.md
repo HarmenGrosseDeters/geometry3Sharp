@@ -453,6 +453,29 @@ SAT (20 % / 40 %); the numbers are in the benchmark README.
 
 **Fold diagnosis (`runs/quad-folds`, `benchmarks/QuadFoldDiagnosis`, 2026-11-19, measurement only):** on the 54 gate runs, raising the SAT budget 10x or 100x saves **0 / 26** `BudgetExceeded` rows (only 2 / 3 `OrientationFolds`), confirming the fallbacks are structural rather than budget-limited. Nearly 100 % of persistent folds are locally un-inverted by taking back one flow correction, and folds are distributed across the surface rather than concentrated at seams; however, two penalized flow re-solves on persistent folds only lift clean runs from **25 / 54 to 28 / 54** while more than doubling total time (21.9 s -> 46.6 s). Owner plan (2026-11-20): build stage 4 sharp features next, then run an upper-bound spike of the 3B flow on the size-adapted position field (`IntegrableFrames`).
 
+### 4.4a Stage 3B flow and sizing update (2026-11-21)
+
+Three targeted improvements in `QuadFlowRepair` and `QuadRemesher` cut the stage 3B fallback rate on the 54-run `QuadFlow3BGate` suite from **54 % to 20 %** (uniform spacing) and **11 %** (with `SizeAdaptation = ScaleAndRotation`), with **0 undetected bad** and default (`PureQuads = false`) output unchanged bit for bit:
+
+1. **Geometric sign reference (`rGeoA`) for `SignPenalty`:** previously `StepCost` checked `b * rA < 0`, where `rA ≈ (o_v - o_u) / s` collapses to `±0.01` smoothing noise on every converged `d = (0, 0)` edge, randomly blocking valid flow steps and inducing 100–500 inverted triangles right out of `SolveFlow`. Using the geometric edge projection `rGeoA[e] = 0.5 * ((P[v] - P[u]) · q_u / s_u + (P[v] - P[u]) · b / s_v)` for `SignPenalty` (while keeping `rA` for `MarginalCost`) drops flow-induced folds near zero and reduces total SAT time across clean rows from `0.65 s` to `0.04–0.08 s`.
+2. **Cost-guided fixed-edge balancing:** in `SolveFlow()`, each balancing round now picks the lowest-cost unbalanced edge (preferring `|d| <= 1`) instead of repeatedly adjusting the first unbalanced edge up to `|d| = 8..9`, preventing artificial capacity blowups (`H = 10`) and extra supply.
+3. **Local spacing (`SizeAdaptation` + `PureQuads`) and nearest-triangle flip check:** `BuildOffsets()` and `SolvePositions()` now scale by `PositionField.SpacingFactors` (`s * spc[v]`), lifting the `InvalidInput` block between `SizeAdaptation` and `PureQuads`. `Extract()` checks unprojected quad normals, projected quad normals against cluster normals, and projected quad normals against the nearest input triangle at the quad center (`0` undetected bad).
+
+Measured (`dotnet run -c Release --project benchmarks/QuadFlow3BGate -- adapt=0`, `adapt=1`, `adapt=2`, 54 runs, net10.0 Release, single-run `repeat=1`):
+
+| configuration | clean / fallback / bad | per-shape clean (of 6): sph / tor / tor10 / bmp / box / nsp / cap / g2 / cyl | time gate (clean) | irregular gate | Hausdorff <= 0.5 s | corner p95 <= 15 deg | ratio med / max | SAT sum clean (s) |
+|---|---|---|---|---|---|---|---|---|
+| baseline (`adapt=0`, 2026-11-19) | 25 / 29 / 0 | 3 / 3 / 6 / 1 / 5 / 1 / 0 / 6 / 0 | 25 / 25 | 25 / 25 | 24 / 25 | 17 / 25 | 2.6 / 8.9 | 0.65 |
+| updated (`adapt=0`, uniform) | **43 / 11 / 0** | **6 / 6 / 6 / 6 / 6 / 6** / 1 / **6** / 0 | 41 / 43 | **43 / 43** | 41 / 43 | 20 / 43 | 2.5 / 5.3 | **0.04** |
+| updated (`adapt=1`, `Scale`) | **43 / 11 / 0** | **6 / 6 / 6 / 6 / 6 / 6** / 1 / **6** / 0 | **43 / 43** | **43 / 43** | **42 / 43** | 26 / 43 | 1.6 / 3.0 | **0.05** |
+| updated (`adapt=2`, `ScaleAndRotation`) | **48 / 6 / 0** | **6 / 6 / 6 / 6 / 6 / 6** / 1 / **6** / **5** | **48 / 48** | **48 / 48** | 42 / 48 | **29 / 48** | **1.4 / 2.0** | **0.08** |
+
+Notes on the balancing and the flip check: `GreedyWorkLimit` counts heap operations (initial pushes, pops and re-pushes after a move; before the heap it counted edge visits), and the selection is the lowest-cost improving move, not the first one in edge order. The nearest-triangle flip check in `Extract()` is conservative on walls thinner than the edge length (the nearest input triangle to a quad midpoint can lie on the far side of the wall): such a quad counts as flipped and the result falls back to stage 2, never a wrong success.
+
+Approximation with `SizeAdaptation`: the integer offsets are counts in the local lattice units, and `SolvePositions` turns the three offsets of a triangle into 3D with one spacing per triangle (the one at its frame vertex), so the target vectors are only approximately right where the spacing gradient is large; this is why the Hausdorff and corner gates pass on fewer rows with `ScaleAndRotation` (42 / 48 and 29 / 48) than the fallback rate suggests. The "54 % to 11 %" headline counts only the fallbacks, not the quality gates of the accepted rows (table above). A zero-area nearest input triangle skips only the surface-orientation part of the flip check (the cluster-normal checks stay).
+
+Remaining limit (`capsule`, 1/6): with `CurvatureAlignment = 0`, all four `+1/4` singularities sit tightly clustered at each hemispherical cap (`unbal = 25..107`) with no cut edges crossing the barrel; by Stokes' theorem the barrel circumference integral is locked to the small sum of fixed cap edges, causing the flow to collapse the barrel regardless of flow costs. On `capped-cylinder`, `ScaleAndRotation` resolves the cap/barrel spacing mismatch (`0.45..1.58 s`) and raises clean runs from `0/6` to `5/6`.
+
 ### 4.5 The irregular-vertex gate restated, and the size field (owner 2026-11-19)
 
 **Owner 2026-11-19:** the gate "irregular <= 2 x singularities + 4" of stage 2 is restated relative to the defects that a lattice of uniform spacing forces, the size field below is an
@@ -517,7 +540,7 @@ choice. None of the closed shapes reaches the old gate (sphere 34 against 20), a
 220k unknowns, refactorized every 8 steps), against 2 s for the position field of the same input: a heavy option, and the 110k run is the one input of the study above 10 s. Scale alone solves for the log spacing only (one unknown per vertex since 2026-11-19: the rotation unknown was decoupled and only held by the damping): the 110k sphere takes 5.2 s for the solver instead of 14.8 s, the quality numbers are the same, the output differs from the two-unknown layout at rounding level (owner 2026-11-19; the other shapes 0.05-0.26 s instead of 0.14-0.42 s). A solve on a coarse level of the position field's hierarchy (smoothed prolongation, then fine Gauss-Seidel sweeps) was measured the same day (`benchmarks/QuadCoarseScale` on branch `runs/quad-coarse-scale`) and keeps about half of the 110k sphere's reduction (378 -> 324 irregular vertices at 2.2 s, against 283 at 5.2 s; with the 20 % gate off, as no coarse variant passes it there), so it was not built. (A review found that the first version of the solver turned the lattice by the opposite angle of the one the position
 field applies, which the curl numbers cannot show; `Frames_CurlAfter_IsTheCurlOfTheLatticeThatPositionFieldBuilds` checks it against an independent evaluation, and the table is from the corrected code.)
 
-Not combined with `PureQuads` (InvalidInput: the flow of 3B assumes a uniform spacing; whether the flow could run on the size field is open). Not done, so open: the dislocations that remain (about half), a spacing that follows a user size field, features and boundaries in the solver.
+Since 2026-11-21 (§4.4a), `SizeAdaptation` combines with `PureQuads` (`QuadFlowRepair` uses the per-vertex spacing in both `BuildOffsets` and `SolvePositions`). Not done, so open: the dislocations that remain (about half) in stage 2, a spacing that follows a user size field, features and boundaries in the solver.
 
 ## 5. Limits and recommendation
 

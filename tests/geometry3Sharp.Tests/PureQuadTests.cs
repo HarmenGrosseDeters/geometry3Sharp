@@ -169,12 +169,11 @@ namespace geometry3Sharp.Tests
             Assert.Equal(stage2.DroppedFaces, qr.DroppedFaces);
         }
 
-        [Theory]
-        [InlineData("sphere")]
-        [InlineData("torus")]
-        public void ForcedFold_WithoutTheSignPenalty_FallsBackToStage2(string name)
+        [Fact]
+        public void ForcedFold_WithoutTheSignPenalty_FallsBackToStage2()
         {
-            // the sign-aware flow cost is what keeps these lengths fold free: the plain marginal cost folds
+            // the sign-aware flow cost is what keeps the sphere fold free: the plain marginal cost folds
+            string name = "sphere";
             QuadRemesher good = RunCase(name);
             QuadRemesher bad = RunCase(name, true, q => q.SignPenalty = false);
             QuadRemesher stage2 = RunCase(name, false);
@@ -187,37 +186,73 @@ namespace geometry3Sharp.Tests
             Assert.True(bad.PureQuadRepair.SatDecisions > 0);
         }
 
+        [Fact]
+        public void ForcedFold_OnTheTorus_WithoutTheSignPenalty_FallsBackToStage2()
+        {
+            // the torus at 0.3 folds with the plain marginal cost (2 inverted triangles) and is fold free with the sign penalty
+            QuadRemesher good = Run("torus", 0.3);
+            QuadRemesher bad = Run("torus", 0.3, 0, true, q => q.SignPenalty = false);
+            QuadRemesher stage2 = Run("torus", 0.3, 0, false);
+            Assert.Equal(PureQuadStatus.Success, good.PureQuadStatus);
+            AssertFallback(bad, stage2, "torus");
+            Assert.True(bad.InvertedTriangles > 0);
+            Assert.Equal(bad.InvertedTriangles, CheckMap(bad, true));
+            Assert.Equal(bad.PureQuadRepair.SatBudgetExhausted ? PureQuadStatus.BudgetExceeded : PureQuadStatus.OrientationFolds, bad.PureQuadStatus);
+        }
+
+        [Theory]
+        [InlineData(0.2)]
+        [InlineData(0.29)]
+        public void CappedCylinder_FallsBackNaturally_WithoutAnyHook(double s)
+        {
+            // a closed mesh with the default options (no test hook) whose pure-quad attempt ends in the geometric gate: the stage 2 mesh comes back
+            QuadRemesher qr = Run("cylinder", s);
+            QuadRemesher stage2 = Run("cylinder", s, 0, false);
+            AssertFallback(qr, stage2, "cylinder " + s);
+            Assert.Equal(PureQuadStatus.FlippedFaces, qr.PureQuadStatus);
+            Assert.Equal(0, qr.InvertedTriangles);
+            Assert.True(qr.FlippedQuads > 0);
+            Assert.True(qr.Result.Validate().IsValid);
+        }
+
         [Theory]
         [InlineData(0.18)]
         [InlineData(0.22)]
         [InlineData(0.26)]
-        public void CappedCylinder_FoldsNaturallyAndFallsBack(double s)
+        public void CappedCylinder_WithImprovedFlow_SucceedsAsPureQuads(double s)
         {
             QuadRemesher qr = Run("cylinder", s);
-            QuadRemesher stage2 = Run("cylinder", s, 0, false);
-            AssertFallback(qr, stage2, "cylinder");
-            Assert.True(qr.InvertedTriangles > 0);
-            Assert.Equal(qr.InvertedTriangles, CheckMap(qr, true));
-            Assert.True(qr.PureQuadStatus == PureQuadStatus.OrientationFolds || qr.PureQuadStatus == PureQuadStatus.BudgetExceeded);
+            Assert.Equal(PureQuadStatus.Success, qr.PureQuadStatus);
+            Assert.Equal(0, qr.InvertedTriangles);
+            Assert.Equal(0, qr.FlippedQuads);
+            Assert.Equal(0, CheckMap(qr, true));
+            PolyMeshMetrics m = PolyMeshMetrics.Compute(qr.Result);
+            Assert.True(qr.Result.Validate().IsValid);
+            Assert.Equal(1.0, m.QuadFraction);
+            Assert.True(m.IsManifold);
+            Assert.Equal(0, m.BoundaryVertices);
+            Assert.Equal(2, m.EulerCharacteristic);
+            Assert.True(Invariance.Volume(qr.Result.ToDMesh3(out _)) > 0);
         }
 
         [Fact]
         public void OneFoldLeft_IsOrientationFolds_WhenTheBudgetIsNotExhausted()
         {
-            // the sphere at 0.3 ends with one inverted triangle that the local repair cannot remove (no budget problem)
-            QuadRemesher qr = Run("sphere", 0.30);
-            QuadRemesher stage2 = Run("sphere", 0.30, 0, false);
-            AssertFallback(qr, stage2, "sphere 0.3");
-            Assert.Equal(PureQuadStatus.OrientationFolds, qr.PureQuadStatus);
-            Assert.Equal(1, qr.InvertedTriangles);
-            Assert.False(qr.PureQuadRepair.SatBudgetExhausted);
-            Assert.True(qr.PureQuadRepair.SatDecisions < 300000);
+            // with SignPenalty disabled and SatMaxRing = 1, folds remain without exhausting SatTotalBudget
+            QuadFlowRepair rep = Repair("sphere", 0.29, 0, r => { r.SignPenalty = false; r.SatMaxRing = 1; });
+            Assert.Equal(PureQuadStatus.OrientationFolds, rep.Status);
+            Assert.Null(rep.Result);
+            Assert.True(rep.InvertedTriangles > 0);
+            Assert.False(rep.SatBudgetExhausted);
+            Assert.True(rep.SatDecisions < rep.SatTotalBudget);
         }
 
         [Fact]
         public void Fallback_CountersAndStatus_AreRepeatable()
         {
-            QuadRemesher a = Run("cylinder", 0.22), b = Run("cylinder", 0.22, 0, true, q => { q.Parallel = false; q.ChunkSize = 8; });
+            QuadRemesher a = Run("sphere", 0.29, 0, true, q => q.SignPenalty = false);
+            QuadRemesher b = Run("sphere", 0.29, 0, true, q => { q.SignPenalty = false; q.Parallel = false; q.ChunkSize = 8; });
+            Assert.NotEqual(PureQuadStatus.Success, a.PureQuadStatus);
             Assert.Equal(a.PureQuadStatus, b.PureQuadStatus);
             Assert.Equal(a.InvertedTriangles, b.InvertedTriangles);
             Assert.Equal(a.PureQuadRepair.Offsets(), b.PureQuadRepair.Offsets());
@@ -257,14 +292,22 @@ namespace geometry3Sharp.Tests
         public void PureQuads_TheStage2MeshIsTheSameWithAndWithoutTheOption()
         {
             // a fallback result is the default result: the option does not touch the stage 2 pipeline
-            foreach (var s in new[] { 0.2, 0.22, 0.3 }) {
-                QuadRemesher stage2 = Run("sphere", s, 0, false);
-                QuadRemesher pure = Run("sphere", s, 0, true);
+            int fallbacks = 0;
+            var cases = new (string name, double s, bool signPenalty)[] {
+                ("sphere", 0.2, true),
+                ("sphere", 0.29, false),     // SignPenalty=false forces an orientation fold fallback on a closed mesh
+                ("cap", 0.2, true),          // open mesh falls back with FlowInfeasible
+            };
+            foreach (var c in cases) {
+                QuadRemesher stage2 = Run(c.name, c.s, 0, false, q => q.SignPenalty = c.signPenalty);
+                QuadRemesher pure = Run(c.name, c.s, 0, true, q => q.SignPenalty = c.signPenalty);
                 if (pure.PureQuadStatus == PureQuadStatus.Success) { Assert.NotEqual(stage2.Result.FaceCount, 0); continue; }
+                fallbacks++;
                 AssertSame(stage2.Result, pure.Result);
                 Assert.Equal(stage2.CollapsedEdges, pure.CollapsedEdges);
                 Assert.Equal(stage2.RemovedValence2, pure.RemovedValence2);
             }
+            Assert.True(fallbacks >= 2, "expected both closed-mesh and open-mesh fallback cases to exercise Stage 2 identity");
         }
 
         [Fact]
@@ -338,12 +381,14 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Repair_FlowThatDoesNotFitTheCapacity_IsInfeasible()
         {
-            QuadFlowRepair ok = Repair("sphere", 0.22);
-            Assert.True(ok.FlowCapacity > 2, "the case needs a capacity above 2: " + ok.FlowCapacity);   // 0.22 needs H = 4
-            QuadFlowRepair rep = Repair("sphere", 0.22, 0, r => r.MaxFlowCapacity = 2);
+            // small TargetEdgeLength relative to input edge length requires flow capacity H >= 4,
+            // so capping MaxFlowCapacity = ok.FlowCapacity - 2 runs MinCostFlow at H >= 2 and fails with flow < supply
+            QuadFlowRepair ok = Repair("sphere", 0.05);
+            Assert.True(ok.FlowCapacity >= 4, "expected H >= 4 so capacity-capped run executes MinCostFlow, got H=" + ok.FlowCapacity);
+            QuadFlowRepair rep = Repair("sphere", 0.05, 0, r => r.MaxFlowCapacity = ok.FlowCapacity - 2);
             Assert.Equal(PureQuadStatus.FlowInfeasible, rep.Status);
             Assert.Null(rep.Result);
-            Assert.True(rep.FlowSeconds > 0);
+            Assert.True(rep.FlowArcs > 0 && rep.FlowSearches > 0 && rep.FlowSeconds > 0);
             Assert.Equal(0.0, rep.RepairSeconds);                                 // nothing after the flow ran
             // and through the remesher: the infeasible status with the stage 2 result is covered by AssertFallback of the other cases
         }
@@ -374,18 +419,19 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Repair_SatBudget_IsCountedInDecisionsAndExhaustedIsBudgetExceeded()
         {
-            QuadFlowRepair full = Repair("sphere", 0.29);
+            // torus without SignPenalty introduces folds that SAT cleanly resolves, exercising the decision-budget contract
+            QuadFlowRepair full = Repair("torus", 0.18, 0, r => r.SignPenalty = false);
             Assert.Equal(PureQuadStatus.Success, full.Status);
             Assert.True(full.SatDecisions > 5 && full.SatAttempts > 0, "the case needs the SAT: " + full.SatDecisions);
             Assert.False(full.SatBudgetExhausted);
             // the same repair with a budget below its effort gives up, after the attempt that crossed the budget
-            QuadFlowRepair small = Repair("sphere", 0.29, 0, r => r.SatTotalBudget = full.SatDecisions / 2);
+            QuadFlowRepair small = Repair("torus", 0.18, 0, r => { r.SignPenalty = false; r.SatTotalBudget = full.SatDecisions / 2; });
             Assert.True(small.SatBudgetExhausted);
             Assert.Equal(PureQuadStatus.BudgetExceeded, small.Status);
             Assert.True(small.SatDecisions >= full.SatDecisions / 2);
             Assert.True(small.InvertedTriangles > 0);
             // a budget of the effort is enough, and the decisions are the same (a counter, not a clock)
-            QuadFlowRepair same = Repair("sphere", 0.29, 0, r => r.SatTotalBudget = full.SatDecisions + 1);
+            QuadFlowRepair same = Repair("torus", 0.18, 0, r => { r.SignPenalty = false; r.SatTotalBudget = full.SatDecisions + 1; });
             Assert.Equal(PureQuadStatus.Success, same.Status);
             Assert.Equal(full.SatDecisions, same.SatDecisions);
             // the owner's budget
@@ -427,6 +473,12 @@ namespace geometry3Sharp.Tests
             withTriangle.AppendVertex(5, 5, 0);
             withTriangle.AppendFace(new List<int> { 1, 2, withTriangle.VertexCount - 1 }, 0);
             Assert.Equal(PureQuadStatus.NotManifold, QuadFlowRepair.CheckExtracted(withTriangle, 0, 0, 0));
+            // non-finite vertex
+            DPolyMesh nanCube = new DPolyMesh();
+            for (int k = 0; k < 8; ++k) nanCube.AppendVertex(k == 0 ? double.NaN : (k & 1), (k >> 1) & 1, (k >> 2) & 1);
+            foreach (var q in new[] { new[] { 0, 2, 3, 1 }, new[] { 4, 5, 7, 6 }, new[] { 0, 1, 5, 4 }, new[] { 2, 6, 7, 3 }, new[] { 0, 4, 6, 2 }, new[] { 1, 3, 7, 5 } })
+                nanCube.AppendFace(new List<int>(q), 0);
+            Assert.Equal(PureQuadStatus.NotManifold, QuadFlowRepair.CheckExtracted(nanCube, 0, 0, 0));
             // three faces at one edge
             DPolyMesh fin = QuadGrid(1);
             int a = fin.AppendVertex(0, 0.5, 1), b = fin.AppendVertex(1, 0.5, 1);
@@ -505,7 +557,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Compute_CanBeCalledAgain_WithPureQuads()
         {
-            foreach (string name in new[] { "sphere", "box" }) {
+            foreach (string name in new[] { "sphere" }) {   // one shape: the shared fields and a second shape cost about 1.5 s of the 5 s budget
                 var c = Cases[name];
                 var qr = new QuadRemesher(Shape(name)) { Field = FieldOf(name), TargetEdgeLength = c.s, PureQuads = true };
                 qr.Compute();
@@ -518,10 +570,11 @@ namespace geometry3Sharp.Tests
                 AssertSame(first, qr.Result);
             }
             // a failing repair on the same instance, then a good one: no state is kept
-            var q = new QuadRemesher(Shape("sphere")) { Field = FieldOf("sphere"), TargetEdgeLength = 0.3, PureQuads = true };
+            var q = new QuadRemesher(Shape("sphere")) { Field = FieldOf("sphere"), TargetEdgeLength = 0.29, PureQuads = true, SignPenalty = false };
             q.Compute();
-            Assert.Equal(PureQuadStatus.OrientationFolds, q.PureQuadStatus);
-            q.TargetEdgeLength = 0.29;
+            Assert.NotEqual(PureQuadStatus.Success, q.PureQuadStatus);
+            Assert.True(q.InvertedTriangles > 0);
+            q.SignPenalty = true;
             q.Compute();
             Assert.Equal(PureQuadStatus.Success, q.PureQuadStatus);
             Assert.Equal(0, q.InvertedTriangles);
@@ -530,8 +583,8 @@ namespace geometry3Sharp.Tests
 
         [Theory]
         [InlineData("sphere", 0.29)]        // success
-        [InlineData("sphere", 0.20)]        // fallback with an exhausted budget
-        [InlineData("cylinder", 0.22)]      // fallback
+        [InlineData("sphere", 0.20)]        // success
+        [InlineData("cylinder", 0.22)]      // success
         [InlineData("box", 0.25)]
         public void PureQuads_AreTheSameSerialAndParallelAndRepeated(string name, double s)
         {
@@ -555,6 +608,204 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void NoisySphere_SucceedsWithImprovedFlow()
+        {
+            // radial vertex noise on a sphere (previously fell back on 5/6 benchmark variations) now succeeds cleanly
+            DMesh3 noisy = new DMesh3(Shape("sphere"));
+            MeshNormals.QuickCompute(noisy);
+            var rnd = new Random(1);
+            double h = 0.14;
+            foreach (int v in noisy.VertexIndices()) {
+                Vector3d n = (Vector3d)noisy.GetVertexNormal(v);
+                noisy.SetVertex(v, noisy.GetVertex(v) + n * ((rnd.NextDouble() * 2 - 1) * 0.15 * h));
+            }
+            var cf = new CrossField(noisy);
+            Assert.Equal(CrossFieldStatus.Success, cf.Compute());
+            var qr = new QuadRemesher(noisy) { Field = cf, TargetEdgeLength = 0.29, PureQuads = true };
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.Equal(PureQuadStatus.Success, qr.PureQuadStatus);
+            Assert.Equal(0, qr.InvertedTriangles);
+            Assert.Equal(0, qr.FlippedQuads);
+            Assert.True(qr.Result.Validate().IsValid);
+            for (int v = 0; v < qr.Result.VertexCount; ++v) Assert.True(qr.Result.GetVertex(v).IsFinite);
+            PolyMeshMetrics m = PolyMeshMetrics.Compute(qr.Result);
+            Assert.Equal(1.0, m.QuadFraction);
+            Assert.True(m.IsManifold);
+            Assert.Equal(0, m.BoundaryVertices);
+            Assert.Equal(2, m.EulerCharacteristic);
+            Assert.True(Invariance.Volume(qr.Result.ToDMesh3(out _)) > 0);
+            Assert.True(OneSidedHausdorff(qr.Result, noisy) <= 0.5 * 0.29);
+        }
+
+        static QuadFlowRepair RunSyntheticExtract(DMesh3 input, Vector3d[] vp, Vector3d[] vn, (int a, int c2, int b, int c1)[] quads)
+        {
+            var repairType = typeof(QuadFlowRepair);
+            var any = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+            var offType = repairType.GetNestedType("Off", any);
+            var triType = repairType.GetNestedType("Tri", any);
+            object NewOff(int x, int y) => Activator.CreateInstance(offType, x, y);
+            object NewTri(int[] v, (int x, int y)[] d)
+            {
+                object t = Activator.CreateInstance(triType);
+                triType.GetField("V").SetValue(t, v);
+                Array offs = Array.CreateInstance(offType, 3);
+                for (int i = 0; i < 3; ++i) offs.SetValue(NewOff(d[i].x, d[i].y), i);
+                triType.GetField("D").SetValue(t, offs);
+                return t;
+            }
+            var r = new QuadFlowRepair(input, null, null, 1);
+            var tris = (System.Collections.IList)repairType.GetField("tris", any).GetValue(r);
+            foreach (var q in quads) {
+                // PairQuad pairs (A, B, C1) and (B, A, C2) into quad (A, C2, B, C1)
+                tris.Add(NewTri(new[] { q.a, q.b, q.c1 }, new[] { (1, 1), (-1, 0), (0, -1) }));
+                tris.Add(NewTri(new[] { q.b, q.a, q.c2 }, new[] { (-1, -1), (1, 0), (0, 1) }));
+            }
+            var vpList = (List<Vector3d>)repairType.GetField("VP", any).GetValue(r);
+            var vnList = (List<Vector3d>)repairType.GetField("VN", any).GetValue(r);
+            vpList.AddRange(vp);
+            vnList.AddRange(vn);
+            repairType.GetMethod("Extract", any).Invoke(r, new object[] { vp });
+            return r;
+        }
+
+        [Fact]
+        public void Extract_ProjectedQuadFacingAwayFromNearestInputTriangle_IsFlippedFaces()
+        {
+            // closed 6-quad manifold cube [-1, 1]^3 with outward orientation and outward VN:
+            // unprojected and projected normals both agree with VN on every face.
+            var vp = new Vector3d[8];
+            var vn = new Vector3d[8];
+            for (int k = 0; k < 8; ++k) {
+                vp[k] = new Vector3d((k & 1) == 0 ? -1 : 1, ((k >> 1) & 1) == 0 ? -1 : 1, ((k >> 2) & 1) == 0 ? -1 : 1);
+                vn[k] = vp[k].Normalized;
+            }
+            var quads = new[] {
+                (0, 2, 3, 1), (4, 5, 7, 6), (0, 1, 5, 4), (2, 6, 7, 3), (0, 4, 6, 2), (1, 3, 7, 5)
+            };
+            DMesh3 outwardBox = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, Vector3d.One) }.Generate().MakeDMesh();
+            QuadFlowRepair ok = RunSyntheticExtract(outwardBox, vp, vn, quads);
+            Assert.Equal(PureQuadStatus.Success, ok.Status);
+            Assert.Equal(6, ok.Quads);
+            Assert.Equal(0, ok.FlippedQuads);
+            Assert.NotNull(ok.Result);
+
+            // reversing the input box flips all nearest input triangle normals while fn.Dot(sn) > 0 and pfn.Dot(sn) > 0 remain true:
+            // ONLY the nearest-input-triangle check detects the flip, and CheckExtracted returns FlippedFaces (closed manifold)
+            DMesh3 inwardBox = new DMesh3(outwardBox);
+            inwardBox.ReverseOrientation();
+            QuadFlowRepair flipped = RunSyntheticExtract(inwardBox, vp, vn, quads);
+            Assert.Equal(PureQuadStatus.FlippedFaces, flipped.Status);
+            Assert.Equal(6, flipped.Quads);
+            Assert.Equal(6, flipped.FlippedQuads);
+            Assert.Null(flipped.Result);
+        }
+
+        [Fact]
+        public void Extract_ProjectionInvertingQuadAgainstClusterNormal_CountsAsFlippedQuad()
+        {
+            // quad whose unprojected normal fn = (+0.8, 0, -0.16) agrees with sn = (+1, 0, +1) (fn.Dot(sn) = +0.64 > 0),
+            // and whose projected normal pfn = (0, 0, -0.16) agrees with the bottom face's input normal tn = (0, 0, -1),
+            // so ONLY the projected-against-cluster check !(pfn.Dot(sn) > 0) detects the flip
+            DMesh3 box = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, Vector3d.One) }.Generate().MakeDMesh();
+            var vp = new[] {
+                new Vector3d(0, -0.4, -1.5),   // A  -> projects to (0, -0.4, -1)
+                new Vector3d(-0.1, 0, -2.0),   // C2 -> projects to (-0.1, 0, -1)
+                new Vector3d(0, 0.4, -1.5),    // B  -> projects to (0, 0.4, -1)
+                new Vector3d(0.1, 0, -1.0),    // C1 -> projects to (0.1, 0, -1)
+            };
+            var vn = new[] {
+                new Vector3d(1, 0, 1), new Vector3d(1, 0, 1), new Vector3d(1, 0, 1), new Vector3d(1, 0, 1)
+            };
+            QuadFlowRepair r = RunSyntheticExtract(box, vp, vn, new[] { (0, 1, 2, 3) });
+            Assert.Equal(1, r.Quads);
+            Assert.Equal(1, r.FlippedQuads);
+            Assert.Null(r.Result);
+        }
+
+        [Fact]
+        public void StepCost_PenalizesWrongGeometricSign_EvenWhenPositionFieldDisagrees_AndIsConvex()
+        {
+            var r = new QuadFlowRepair(Shape("sphere"), null, null, 0.2) { SignPenalty = true };
+            // when r and rGeo disagree with |r| >= 1, MarginalCost(0, -1, -1.2) == 0,
+            // yet the geometrically inverted step 0 -> -1 must still carry the full non-vanishing sign penalty
+            int wrongStep = r.StepCost(0, -1, -1.2, +0.8);
+            int rightStep = r.StepCost(0, +1, -1.2, +0.8);
+            Assert.True(wrongStep >= 500 && wrongStep > rightStep, $"wrong-sign step cost {wrongStep} must exceed right-sign cost {rightStep}");
+            Assert.True(rightStep <= 200, "right-sign step cost too high: " + rightStep);
+
+            // convexity / monotonicity along both directions (required for MinCostFlow parallel arcs)
+            int prevDec = int.MinValue;
+            for (int a = 2; a >= -3; --a) {
+                int c = r.StepCost(a, a - 1, -1.2, +0.8);
+                Assert.True(c >= prevDec, $"decreasing step {a}->{a - 1} not non-decreasing: {c} < {prevDec}");
+                prevDec = c;
+            }
+            int prevInc = int.MinValue;
+            for (int a = -2; a <= 3; ++a) {
+                int c = r.StepCost(a, a + 1, +1.2, -0.8);
+                Assert.True(c >= prevInc, $"increasing step {a}->{a + 1} not non-decreasing: {c} < {prevInc}");
+                prevInc = c;
+            }
+        }
+
+        [Fact]
+        public void Extract_TinyInvertedInputTriangle_IsDetected_AndZeroAreaTriangle_IsIgnored()
+        {
+            DMesh3 MakeCornerSupport()
+            {
+                DMesh3 m = new DMesh3();
+                // 4 outward (+Z) corner support triangles at (±0.5, ±0.5, 1.0), leaving the center (0, 0, 1.0) open
+                foreach (var c in new[] { (-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5) }) {
+                    int a = m.AppendVertex(new Vector3d(c.Item1, c.Item2, 1.0));
+                    int b = m.AppendVertex(new Vector3d(c.Item1 + 0.05, c.Item2, 1.0));
+                    int d = m.AppendVertex(new Vector3d(c.Item1, c.Item2 + 0.05, 1.0));
+                    m.AppendTriangle(a, b, d);
+                }
+                return m;
+            }
+            var vp = new[] {
+                new Vector3d(-0.5, -0.5, 1.0),
+                new Vector3d( 0.5, -0.5, 1.0),
+                new Vector3d( 0.5,  0.5, 1.0),
+                new Vector3d(-0.5,  0.5, 1.0),
+            };
+            var vn = new[] { Vector3d.AxisZ, Vector3d.AxisZ, Vector3d.AxisZ, Vector3d.AxisZ };
+
+            // (1) valid non-degenerate inverted triangle with tiny edge length (1e-170) at the quad midpoint (0, 0, 1.0):
+            // power-of-two self-scaling prevents Cross underflow to zero, so the flip is detected
+            DMesh3 withTiny = MakeCornerSupport();
+            double eps = 1e-170;
+            int t0 = withTiny.AppendVertex(new Vector3d(0, 0, 1.0));
+            int t1 = withTiny.AppendVertex(new Vector3d(0, eps, 1.0));
+            int t2 = withTiny.AppendVertex(new Vector3d(eps, 0, 1.0));
+            withTiny.AppendTriangle(t0, t1, t2); // normal -Z
+            QuadFlowRepair rTiny = RunSyntheticExtract(withTiny, vp, vn, new[] { (0, 1, 2, 3) });
+            Assert.Equal(1, rTiny.Quads);
+            Assert.Equal(1, rTiny.FlippedQuads);
+
+            // (2) genuinely zero-area collinear triangle at the quad midpoint (0, 0, 1.0): its normal is undefined,
+            // so Extract must not falsely mark the valid outward-facing quad as flipped
+            DMesh3 withDegen = MakeCornerSupport();
+            int d0 = withDegen.AppendVertex(new Vector3d(-0.1, 0, 1.0));
+            int d1 = withDegen.AppendVertex(new Vector3d( 0.0, 0, 1.0));
+            int d2 = withDegen.AppendVertex(new Vector3d( 0.1, 0, 1.0));
+            withDegen.AppendTriangle(d0, d1, d2);
+            QuadFlowRepair rDegen = RunSyntheticExtract(withDegen, vp, vn, new[] { (0, 1, 2, 3) });
+            Assert.Equal(1, rDegen.Quads);
+            Assert.Equal(0, rDegen.FlippedQuads);
+        }
+
+        [Fact]
+        public void SolveFlow_BalancingWork_StaysNearLinear()
+        {
+            // heap-based balancing must stay far below O(E * tot) even on a fine mesh with many unbalanced edges
+            QuadFlowRepair fine = Repair("sphere", 0.08);
+            Assert.Equal(PureQuadStatus.Success, fine.Status);
+            Assert.True(fine.BalancingWork > 0 && fine.BalancingWork < fine.Triangles * 20L,
+                $"expected near-linear balancing work, got {fine.BalancingWork} for {fine.Triangles} triangles");
+        }
+
+        [Fact]
         public void QuadFlowRepair_IsQuadFlipped_DetectsFlipBeforeAndAfterProjection()
         {
             // Quad (a, c2, b, c1) in the xy plane: (b - a) x (c1 - c2) points along +z when oriented counter-clockwise.
@@ -566,6 +817,11 @@ namespace geometry3Sharp.Tests
             Assert.True(QuadFlowRepair.IsQuadFlipped(a, c2, b, c1, a, a, b, b, sn));
             Assert.True(QuadFlowRepair.IsQuadFlipped(a, c2, b, c1, new Vector3d(double.NaN, 0, 0), c2, b, c1, sn));
             Assert.True(QuadFlowRepair.IsQuadFlipped(a, c2, b, c1, a, c2, b, c1, new Vector3d(0, 0, double.PositiveInfinity)));
+            // scale robustness (also near the underflow and overflow range)
+            foreach (double k in new[] { 1e-150, 1.0, 1e150 }) {
+                Assert.False(QuadFlowRepair.IsQuadFlipped(k * a, k * c2, k * b, k * c1, k * a, k * c2, k * b, k * c1, sn));
+                Assert.True(QuadFlowRepair.IsQuadFlipped(k * a, k * c2, k * b, k * c1, k * a, k * c1, k * b, k * c2, sn));
+            }
         }
     }
 }
