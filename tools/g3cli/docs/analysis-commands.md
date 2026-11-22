@@ -56,7 +56,7 @@ g3cli curvature part.stl --output curvature.csv
 
 ### `deviation` (`MeshDeviation`, `DeviationStatistics`)
 
-Computes signed (`--sign pseudo_normal` / `winding_number`, positive outside reference) or unsigned vertex distance statistics (`mean`, `rms`, `max_absolute`, percentiles). `--certified` adds certified one-sided Hausdorff bounds (`hausdorff_lower_bound`, `hausdorff_upper_bound`).
+Computes signed (`--sign pseudo_normal` / `winding_number` / `exact_winding_number`, positive outside reference) or unsigned vertex distance statistics (`mean`, `rms`, `max_absolute`, percentiles). `--certified` adds certified one-sided Hausdorff bounds (`hausdorff_lower_bound`, `hausdorff_upper_bound`).
 
 ```bash
 g3cli deviation simplified.stl original.stl --certified
