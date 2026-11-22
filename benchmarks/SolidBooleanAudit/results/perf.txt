@@ -1,0 +1,10 @@
+| case | input triangles | plain ExactMeshBoolean ms | pipeline total ms | input check | boolean | final check | checks / total | pipeline with Orientation = ByNesting ms |
+|---|---|---|---|---|---|---|---|---|
+| sphere U sphere | 5400 | 42 | 75 | 5 | 45 | 24 | 0.39 | 97 |
+| sphere D sphere | 5400 | 27 | 45 | 0 | 36 | 8 | 0.18 | 57 |
+| sphere U sphere | 53016 | 163 | 178 | 13 | 125 | 38 | 0.29 | 287 |
+| sphere D sphere | 53016 | 120 | 187 | 14 | 139 | 32 | 0.25 | 229 |
+| sphere U sphere | 387096 | 941 | 1528 | 153 | 1025 | 259 | 0.27 | 2166 |
+| sphere D sphere | 387096 | 805 | 1237 | 135 | 841 | 206 | 0.28 | 2001 |
+| sphere U sphere | 1560600 | 3948 | 6226 | 773 | 4461 | 962 | 0.28 | 8376 |
+| sphere D sphere | 1560600 | 3271 | 5129 | 602 | 3509 | 709 | 0.26 | 8159 |

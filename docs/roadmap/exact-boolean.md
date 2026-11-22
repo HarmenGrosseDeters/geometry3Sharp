@@ -470,6 +470,11 @@ Open:
   triangles (or as many and fewer contacts); every clean result is bit for bit the one of Off, the second pass costs 26-49 % of the pipeline
   time on the contact cases (above the 25 % bound for a default), so Off stays the default; not built:
   opening the touching sheets by a gap (changes the exact result's semantics). Not in scope: g3cli, the alpha wrap.
+  **Audit (owner request 2026-11-22, research spike, no library change):** 600 runs of a procedural adversarial corpus against an
+  independent oracle: 418 right, 154 refused (140 with a setting that gives the right result), 28 wrong with `Success`; findings,
+  the measured options for the open owner items and the ranked improvement PRs are in
+  [SOLID_BOOLEAN_PIPELINE_AUDIT_2026-11.md](../research/SOLID_BOOLEAN_PIPELINE_AUDIT_2026-11.md), the harness in
+  [benchmarks/SolidBooleanAudit](../../benchmarks/SolidBooleanAudit/README.md). The implementation waits for the owner's go.
 - **Exact Boolean 2.0 leftovers: closed (owner 2026-11-12).** The speed exceptions over 5 s (519511, 1517923, 519507)
   and manifold M2 (`Generic_Twin_7081` union 20 s, self-intersecting inputs, outside the 2.0 target set) stay documented
   exceptions of 2.0 and are not re-measured separately; the thingi-pairs runs after Exact Boolean 3.0 measure them on the
