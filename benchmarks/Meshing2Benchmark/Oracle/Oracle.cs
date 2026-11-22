@@ -3836,10 +3836,14 @@ namespace Meshing2Acceptance
                     long key = Key(t[(k + 1) % 3], t[(k + 2) % 3]);
                     if (!constraintEdges.Contains(key)) continue;
                     Pt a = v[KeyA(key)], b = v[KeyB(key)];
-                    if (sources.Any(s => s.locked && WithinTube(s, a) && WithinTube(s, b))) return true;
+                    // (the locked sources only, listed once: a scan of all sources per constrained edge of every triangle below the bound
+                    // copied a struct of two points per source, 2 s of coast8000; the answer is the same: only a locked source can satisfy it)
+                    lockedSources ??= sources.Where(s => s.locked).ToList();
+                    foreach (var s in lockedSources) if (WithinTube(s, a) && WithinTube(s, b)) return true;
                 }
                 return false;
             }
+            List<(Pt a, Pt b, int marker, int sourceId, bool locked)> lockedSources;
 
             void AngleBound(double degrees)
             {
