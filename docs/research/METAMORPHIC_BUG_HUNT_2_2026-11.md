@@ -247,9 +247,10 @@ public void DualContouring_FieldTimesAConstant_SameLevelSet(int exponent, bool s
    `RealizedVolumeFraction` reports it. Below about 0.1 at 8 divisions: `ContouringFailed`, "the lattice is empty".
 4. **STL and glTF are not idempotent in their bytes**: STL writes the facet normal of the positions it is given (the first read
    rounded them); glTF stores float positions about the bounding box centre, which is another double for the read mesh. Both
-   stay within the format's precision (documented for glTF); the exact formats write the same bytes again. Except 3MF: a zip
-   archive whose entries carry the time of the write (2 s resolution), so two writes of one mesh can differ; the byte comparison
-   passed locally and failed once in CI on net48, and is not made for 3MF any more (the second file is read back instead).
+   stay within the format's precision (documented for glTF); the exact formats write the same bytes again. 3MF did not at first: a zip
+   archive whose entries carried the time of the write (2 s resolution), so two writes of one mesh could differ (the byte
+   comparison failed once in CI on net48). The writer now gives every entry a fixed time (#1395), and the byte comparison is
+   made for 3MF again.
 5. **ascii STL and OFF are not 2^k exact**: a fixed number of digits after the point (documented on `RealPrecisionDigits`).
 6. **`g3mesh` keeps the id gaps of a mesh**, every other format writes compact lists. Both read back as the same solid.
 7. **The wrap, the tet mesher, the quad remesher and the feature pass are not the same mesh for a permuted or flipped input**

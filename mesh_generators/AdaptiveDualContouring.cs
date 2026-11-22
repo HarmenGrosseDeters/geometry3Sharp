@@ -425,7 +425,8 @@ namespace g3
                     if (anyCluster) {
                         Vector3d n0 = (P0[it.b] - P0[it.a]).Cross(P0[it.c] - P0[it.a]);
                         Vector3d n1 = (outMesh.GetVertex(b) - outMesh.GetVertex(a)).Cross(outMesh.GetVertex(c) - outMesh.GetVertex(a));
-                        if (!(n0.Dot(n1) > 0)) {
+                        // (each normal is a squared length: scaled by a power of two each, their product cannot overflow to inf - inf)
+                        if (!(DualContouring.pow2_scaled(n0).Dot(DualContouring.pow2_scaled(n1)) > 0)) {
                             foreach (int v in new[] { it.a, it.b, it.c }) if (isCluster[v]) bad.Add(keyOfVertex[v]);
                             continue;
                         }
