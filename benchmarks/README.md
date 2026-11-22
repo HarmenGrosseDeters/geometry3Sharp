@@ -60,6 +60,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [QuadFlow3BGate](QuadFlow3BGate/README.md) | Stage 3B acceptance gate measurements for `QuadRemesher.PureQuads` |
 | [QuadRemeshSpike](QuadRemeshSpike/README.md) | Early feasibility prototype for quad remeshing |
 | [QuadSeamlessSeedSpike](QuadSeamlessSeedSpike/README.md) | Upper bound of a seamless-parametrization seed (cone metric, two scales) for `PositionField` and `QuadRemesher` |
+| [QuadIntegerJumps](QuadIntegerJumps/README.md) | Research spike: integer jumps on the frozen edges of the stage 3B flow of `QuadRemesher.PureQuads` (relaxed bi-directed flow), against the gate runs |
 | [QuadSheafObstruction](QuadSheafObstruction/README.md) | Research spike: sheaf-Laplacian and area-invariant diagnostics of the stage 3B fallbacks of `QuadRemesher.PureQuads` |
 
 ## Contouring, Offsets, Lofting & Lattices
