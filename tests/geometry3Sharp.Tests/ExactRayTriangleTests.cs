@@ -259,6 +259,16 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void SecondPoint_DirectionOfDoubleMaxValue_IsAFiniteDirection()
+        {
+            // the largest finite direction is still a direction (shift -1022 for a unit origin)
+            var o = new Vector3d(1, 0, 0);
+            var p = ExactRayTriangle.SecondPoint(o, new Vector3d(double.MaxValue, 0, 0));
+            Assert.Equal(1 + ExactPoint3.ScaleB(double.MaxValue, -1022), p.x);
+            Assert.Equal(0, p.y);
+        }
+
+        [Fact]
         public void SecondPoint_ReturnsTheOriginOnlyForAZeroOrNonFiniteDirection()
         {
             var o = new Vector3d(Math.Pow(2, 1000), 0, 0);
