@@ -19,10 +19,11 @@
 //   K    AlphaWrapFeaturePass on the raw wrap, then the simplification (variant KR of the probe)
 //   KC   K, then a corner step: for every corner of the network the nearest wrap vertices are offered the corner position with
 //        the pass's own TryMove (every exact check of the pass applies), then the simplification
-//   KCK  KC, then the pass a second time before the simplification (a bound for retries: the second round starts from the
-//        creases and corners of the first)
+//   KCK  KC, then the unmodified pass a second time before the simplification (it rebuilds its vertex labels, so this is a
+//        second round of the same pass, not a retry that knows the first round's crease vertices)
 //   KO   as K, with the reference instead of the dirty input as the pass's input (features and clearance from the reference: the
-//        bound for "the features of a dirty input are known"); the simplification keeps clear of the real input
+//        bound for "the features of a dirty input are known"); the simplification keeps clear of the real input. Sound here
+//        only because the dirty input lies in the reference's closed solid (the result is measured against the real input)
 //   KOC  KO with the corner step
 //   O    the oracle itself
 using System;
@@ -46,17 +47,22 @@ static class Bound
         var cases = new List<string>();
         string[] variants = { "A", "K", "KC", "KCK", "KO", "KOC", "O" };
         for (int i = 2; i < args.Length; ++i) {
-            if (args[i] == "--") { variants = args[i + 1].Split(','); break; }
+            if (args[i] == "--") { if (i + 1 < args.Length) variants = args[i + 1].Split(','); break; }
             cases.Add(args[i]);
         }
         var done = new HashSet<string>();
         if (File.Exists(outFile))
-            foreach (string line in File.ReadLines(outFile))
+            foreach (string line in File.ReadLines(outFile)) {
+                if (!line.EndsWith("}")) continue;      // (a row cut off by an interrupted run)
                 using (var doc = JsonDocument.Parse(line)) done.Add(doc.RootElement.GetProperty("file").GetString() + "|" + doc.RootElement.GetProperty("variant").GetString());
+            }
+        int failed = 0;
         foreach (string name in cases) {
-            if (variants.All(v => done.Contains(name + "|" + v))) continue;
+            // (KO and KOC exist for dirty cases only)
+            bool dirtyName = name.StartsWith("soup:") || name.StartsWith("twobox");
+            if (variants.All(v => done.Contains(name + "|" + v) || (!dirtyName && v.StartsWith("KO")))) continue;
             DMesh3 input, reference; bool dirty;
-            try { Make(name, out input, out reference, out dirty); } catch (Exception e) { Console.Error.WriteLine(name + ": " + e.Message); continue; }
+            try { Make(name, out input, out reference, out dirty); } catch (Exception e) { Console.Error.WriteLine(name + ": " + e.Message); failed++; continue; }
             double diag = input.CachedBounds.DiagonalLength, alpha = diag / RelAlpha, delta = diag / RelOffset;
             DMesh3 oracle = MiteredOffset(reference, delta, out double residual);
             Network net = new Network(oracle, alpha);
@@ -95,7 +101,7 @@ static class Bound
                 Console.WriteLine(name + " " + v + " " + r["status"] + (r.ContainsKey("cov025") ? $" tris={r["tris"]} cov025={r["cov025"]:F3} fh_max={r["fh_max"]:F2} corner025={r["corner025"]:F2} clean={r["clean"]} cross={r["cross_input"]}" : ""));
             }
         }
-        return 0;
+        return failed == 0 ? 0 : 1;
     }
 
     // ---- cases ----

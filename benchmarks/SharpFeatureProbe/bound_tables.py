@@ -59,7 +59,7 @@ def per_case(rows, title, files, variants):
     if not files:
         return
     print(f"\n### {title}\n")
-    print("| case | " + " | ".join(f"{v} cov 0.25 / fh max / corner" for v in variants) + " | O valid |")
+    print("| case | " + " | ".join(f"{v} cov 0.25 / fh max / corner" for v in variants) + " | O valid; its band |")
     print("|---|" + "---|" * (len(variants) + 1))
     for n in files:
         cells = []
@@ -68,11 +68,35 @@ def per_case(rows, title, files, variants):
             if r is None or r.get("status") != "ok":
                 cells.append("n/a" if r is None else r.get("status", "?"))
                 continue
-            bad = "" if (r["clean"] and r["cross_input"] == 0) else " (INVALID)"
+            bad = "" if (r["clean"] and r["cross_input"] == 0 and r["verts_inside"] == 0) else " (INVALID)"
             cells.append(f"{f(r.get('cov025'))} / {f(r.get('fh_max'), 2)} / {f(r.get('corner025'), 2)}{bad}")
         o = rows.get((n, "O"))
-        ov = "n/a" if o is None or o.get("status") != "ok" else ("yes" if o["clean"] and o["cross_input"] == 0 and o["verts_inside"] == 0 else "no: " + (o["not_clean"] or "crosses the input"))
+        if o is None or o.get("status") != "ok":
+            ov = "n/a"
+        else:
+            ov = "yes" if o["clean"] and o["cross_input"] == 0 and o["verts_inside"] == 0 else f"no: {o['not_clean'] or '-'}, {o['cross_input']} triangles cross the input"
+            ov += f"; band {f(o['band_min'], 2)} - {f(o['band_max'], 2)}"
         print(f"| {n} | " + " | ".join(cells) + f" | {ov} |")
+
+
+def totals(rows, clean):
+    ok = [r for r in rows.values() if r.get("status") == "ok"]
+    wrap = [r for r in ok if r["variant"] != "O"]
+    valid = sum(1 for r in wrap if r["clean"] and r["cross_input"] == 0 and r["verts_inside"] == 0)
+    print("\n### Totals\n")
+    print(f"- rows: {len(rows)} ({len(rows) - len(ok)} without a result); wrap-based results (every variant but O): {len(wrap)}, of them closed, manifold, "
+          f"free of self-intersections, 0 triangles crossing the input and 0 vertices inside it: {valid}")
+    o = [r for r in ok if r["variant"] == "O"]
+    print(f"- oracle O valid on {sum(1 for r in o if r['clean'] and r['cross_input'] == 0 and r['verts_inside'] == 0)} of {len(o)} cases")
+    print(f"- smallest / largest distance of a wrap-based result's sample point to the input, in offsets: {min(r['band_min'] for r in wrap):.4f} / {max(r['band_max'] for r in wrap):.2f}")
+    kc = [r for r in ok if r["variant"] == "KC"]
+    print(f"- corner step (KC, raw wrap, before the simplification): {sum(r['corner_moved'] for r in kc)} of {sum(r['net_corners'] for r in kc)} corners moved, {sum(r['corner_tries'] for r in kc)} moves tried")
+    k = [r for r in ok if r["variant"] == "K" and r["file"] in clean]
+    rej = [r["k_rejected"] / max(1, r["k_rejected"] + r["k_crease_snaps"] + r["k_splits"] + r["k_flips"]) for r in k]
+    print(f"- pass K on the {len(k)} clean cases: rejected / (rejected + crease snaps + splits + flips), median {st.median(rej):.2f}")
+    for v in ("K", "KC"):
+        xs = [rows[(n, v)]["cov025"] for n in clean if (n, v) in rows]
+        print(f"- {v}, cov 0.25 over all {len(xs)} clean cases: median {st.median(xs):.4f}, min {min(xs):.3f}")
 
 
 def main():
@@ -85,6 +109,7 @@ def main():
     dirty = [n for n in names if rows[(n, next(v for v in ORDER if (n, v) in rows))].get("dirty")]
     clean = [n for n in names if n not in sweep and n not in dirty]
     variants = [v for v in ORDER if any((n, v) in rows for n in names)]
+    totals(rows, clean)
     group(rows, "Clean CAD-like solids, at the origin and axis-aligned", [n for n in clean if "@" not in n], variants)
     group(rows, "Clean CAD-like solids, rotated", [n for n in clean if n.endswith("@rot")], variants)
     group(rows, "Clean CAD-like solids, far from the origin", [n for n in clean if n.endswith("@far")], variants)

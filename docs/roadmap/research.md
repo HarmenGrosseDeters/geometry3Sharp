@@ -548,10 +548,11 @@ Ordered by expected value for the library.
    - Open, if lever 6 does not reach it: a provably valid feature recovery (manifold, no self-intersection, angle
      bounds) on top of the wrap.
    - Study 2026-11-22 ([PROVABLE_SHARP_WRAP_STUDY.md](../research/PROVABLE_SHARP_WRAP_STUDY.md), plan #1280; options with the
-     owner): validity is an invariant of exactly checked moves, splits and flips (pass K has it up to three small gaps);
+     owner): validity is an invariant of exactly checked moves, splits and flips (pass K has it up to four small gaps, without the band);
      recovery has no a-priori proof on a wrap. Upper bound on 65 procedural CAD-like cases: K covers 0.945 of the
-     mitered-offset creases within 0.25 offsets (oracle 1.0), corners 0 -> 0.81-0.86 with one checked move, dirty inputs
-     0.006 -> 0.944 once the features are known; the direct mitered offset is valid on 64 / 65. Leaning: write the
+     mitered-offset creases within 0.25 offsets (oracle 1.0), corners 0 -> 0.81-0.86 with one checked move; soups get no
+     features (0.00, welding restores the clean result), overlapping boxes 0.80-0.82 against 0.94-0.96 with the union's
+     creases given; the direct mitered offset is valid on 64 / 65. Leaning: write the
      validity theorem, cheap levers into #1237, no weighted-Delaunay wrap.
    - Tet meshing stage 1 waits for it ([alpha-wrap-and-repair.md](alpha-wrap-and-repair.md), Alpha Wrap 3.0 lever 6).
    - Lever 6 result (2026-11-09, #498, 20 T1 + 6 procedural CAD solids, medians against today's pipeline A): only

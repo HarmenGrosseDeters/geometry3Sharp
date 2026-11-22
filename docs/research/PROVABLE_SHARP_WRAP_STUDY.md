@@ -9,21 +9,25 @@ only; no CGAL, Triangle, TetGen or geodesic-library code was read, and no extern
 Can creases and corners be recovered on the output of `MeshAlphaWrap` with a proof that the result stays valid (closed,
 2-manifold, free of self-intersections, the input inside, within an offset band), and what is the gain?
 
-- **Validity is provable today, and cheaply**: it is an invariant of exactly checked local operations (section 4). The
-  opt-in pass K (`AlphaWrapFeaturePass`, #736) already has this structure; three gaps separate it from a written theorem,
-  all small (4.3). All 270 wrap-based results of this study are closed, manifold, free of self-intersections and cross
-  the input nowhere (exact tests).
+- **Validity without the band is provable, and cheaply**: closed, manifold, free of self-intersections and the input
+  inside are an invariant of exactly checked local operations (section 4). The opt-in pass K (`AlphaWrapFeaturePass`,
+  #736) has this structure; four small gaps separate today's code from a written theorem (4.3), and the offset band is
+  a fifth, separate item (K checks it at vertices only). Measured on the whole pipeline (K, then the simplification
+  with its own exact tests): all 270 wrap-based results of this study are closed, manifold, free of self-intersections
+  and cross the input nowhere.
 - **Recovery is not provable for a hill-climbing pass**, and the measured room above K is small on clean inputs: K
-  recovers 94.5 % of the crease length within 0.25 offsets (median over 40 clean CAD-like cases), against 100 % for the
-  oracle; a single checked corner move adds the corners (0 -> 0.81-0.86). What K does not reach has three causes, and
-  none of them is cured by a proof technique: features smaller than about 4 alpha (the wrap never enters them), the
-  input's features being unknown on dirty inputs (K 0.6 % against 94.4 % when the features are given), and corners.
+  recovers 94.7 % of the crease length within 0.25 offsets (median over the 40 clean CAD-like cases; 94.5 % over the 10
+  at the origin), against 100 % for the oracle; a single checked corner move adds the corners (0 -> 0.81-0.86). What K
+  does not reach has three causes, and none of them is cured by a proof technique: features smaller than about 4 alpha
+  (the wrap never enters them), the input's features being unknown on dirty inputs (a soup: K 0.000-0.006, because it
+  reads creases from shared edges; overlapping boxes: 0.80-0.82 against 0.94-0.96 with the union's creases given), and
+  corners.
 - **Where a recovery proof is available, the wrap is not needed**: the provable constructions (protecting balls in a
   weighted Delaunay triangulation, or the direct mitered offset) need a clean piecewise-linear complex with known feature
   curves. On exactly those inputs the direct mitered offset is exact and passes the exact validity check on 64 of 65
   cases here, with 4-8 times fewer triangles and a true band [1, 1.73] offsets.
 - **Leaning** (section 8): no weighted-Delaunay wrap and no dual-contouring hybrid. Write the validity theorem for K and
-  close its three gaps (option 1); take the measured cheap levers into the K follow-ups #1237 (option 2: corners, a
+  close its gaps (option 1); take the measured cheap levers into the K follow-ups #1237 (option 2: corners, a
   feature source for dirty inputs, a recovery report); the certified direct mitered offset for clean inputs is a
   separate owner decision (option 3, a new operation).
 
@@ -78,6 +82,8 @@ Let R be a closed 2-manifold triangle mesh without self-intersections and withou
 bounded component of its complement (the raw wrap). Apply a sequence of operations, each a vertex move, an edge split
 (a new vertex on the edge, then a move) or an edge flip, and keep an operation only if
 
+0. (collapses are not covered here: the simplification after K has its own tests, `Reducer.KeepClearOf` with the swept
+   tetrahedra of #760; a pipeline theorem cites both)
 1. (combinatorics) a flip does not create an edge that exists;
 2. (embedding) the new triangles are not degenerate, intersect each other only in shared vertices and edges, and
    intersect the unchanged triangles only in shared vertices and edges;
@@ -99,7 +105,7 @@ point of I is outside S (I is closed and no input triangle meets S), so I stays 
 the two triangle pairs bound the tetrahedron of the four vertices, and the same argument applies. Induction over the
 sequence. (The intermediate surfaces need not be embedded: only the winding number of points outside S is used.)
 
-### 4.3 What pass K has, and the three gaps to a written theorem
+### 4.3 What pass K has, and the gaps to a written theorem
 
 K's `try_move`, its split and its flip check (2) and (3) with `TriangleTriangleFilter.IntersectsBeyondShared`,
 `Reducer.TrianglesTouch` and `Reducer.TetrahedraMeet` (exact predicates), plus angle floors and a normal-turn limit that
@@ -113,14 +119,21 @@ the proof does not need. The gaps:
    An input triangle that meets a tetrahedron either crosses a face or lies inside with all its corners, so the test
    is complete if every input triangle's corners are tested; this needs one sentence of proof and a test, not new code,
    unless the corner test is sampled.
-3. **The band.** (V) asks b_lo d <= dist <= b_hi d on all of R. K checks only vertices, in floating point
+3. **Non-degeneracy of the new triangles is decided in floating point** (`unit_normal`: a normal length threshold),
+   while 4.1 asks for an exact decision. An exactly degenerate new triangle that passes the threshold would enter the
+   mesh and then be skipped as a rest triangle (gap 1). An exact collinearity test (`ExactTriangleIntersection.IsDegenerate`)
+   on the new triangles closes it.
+4. **The pipeline.** K's results are simplified afterwards (edge collapses). The statement a user sees is about the
+   pipeline, so the written theorem has to include the Reducer's checked collapse (same pattern, already built).
+5. **The band.** (V) asks b_lo d <= dist <= b_hi d on all of R. K checks only vertices, in floating point
    (`far_enough`, 0.9 d). Measured on the triangles' sample points (corners, edge midpoints, centroids), the wrap-based
    results come as close as 0.003 d to the input (the chord over a convex crease, known since the contact audit of
-   #498) and reach 10.7 d = a + d away (an unresolved concave crease). A certified band needs (a) a point-triangle
+   #498) and reach 10.75 d, just under a + d = 11 d (an unresolved concave crease). A certified band needs (a) a point-triangle
    distance with a rounding bound and (b) a subdivision argument (dist is 1-Lipschitz: a triangle within r of a point at
    distance D is at least D - r away). Lower band only where the caller needs it; it costs triangles on convex creases.
 
-So "provably valid" (V without the band) is a documentation and test task on K, about days. The band is a small new
+So "provably valid" in the sense of (V) without the band is small code (gaps 1 and 3), a proof text and tests on K,
+about days; it is not what today's code has to the letter. The band is a small new
 check with an error bound (a tier-L review for the bound, small in code).
 
 ## 5. Recovery: where a proof can come from
@@ -131,7 +144,8 @@ K accepts or rejects each operation on the wrap's given triangulation. Whether t
 crease passes the angle floors and the exact tests depends on the positions of the wrap's Steiner points, for which the
 wrap gives only "on the offset surface, facets with an empty ball of radius <= a". No precondition on the *input* alone
 implies acceptance. Measured: 39 % of K's attempted operations are rejected (median, clean cases), and a second round
-of the whole pass after the corners gains nothing (variant KCK, section 6). A recovery statement for K can only be
+of the unmodified pass after the corners gains nothing (variant KCK, section 6; the pass rebuilds its labels, so this
+is not a retry that knows the first round's crease vertices). A recovery statement for K can only be
 **a posteriori**: report, per crease of N, the covered length. That is cheap, exact enough, and honest.
 
 ### 5.2 Constructive routes with a proof (prior art in section 7)
@@ -177,7 +191,9 @@ slot's width in alphas.
 - **A** the pipeline (wrap, simplification). **K** pass K, then the simplification. **KC** K plus a corner step: each
   corner of N is offered to the nearest wrap vertices through the pass's own `TryMove` (all exact checks apply).
   **KCK** KC plus a second round of K. **KO / KOC** (dirty inputs) K with the clean reference as the pass's input: the
-  bound for "the features of a dirty input are known".
+  bound for "the features of a dirty input are known". (K's checks then run against the reference; that is sound here
+  only because the dirty input lies in the reference's closed solid, and every result is measured against the real
+  input. A real feature source must keep the clearance against the real input.)
 - Metrics, in offsets: **cov t** = share of N's length within t offsets of a sharp edge (> 30 degrees) of the result;
   **fh** = that distance (the directed feature Hausdorff distance, max and p95, clamped at 2 a = 20); **corner** = share
   of N's corners with a result vertex within 0.25; **prec** = share of the result's sharp edges within 0.25 of N; **band**
@@ -185,7 +201,8 @@ slot's width in alphas.
   vertices inside the input.
 
 Clean solids at the origin (10 cases; medians, worst case in brackets; the three other poses are in
-[bound_tables.md](../../benchmarks/SharpFeatureProbe/results/bound_tables.md) and agree within 0.01 on every median):
+[bound_tables.md](../../benchmarks/SharpFeatureProbe/results/bound_tables.md); their coverage and precision medians
+agree within 0.02, the triangle counts and times do not: the rotated inputs give about half the triangles):
 
 | variant | valid | triangles | cov 0.1 | cov 0.25 | cov 1 | fh p95 | fh max | corner | prec | band min / max | time s |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|
@@ -195,7 +212,10 @@ Clean solids at the origin (10 cases; medians, worst case in brackets; the three
 | KCK | 10/10 | 4175 | 0.941 | 0.953 [0.511] | 0.991 | 0.21 | 7.31 [20] | 0.86 [0.47] | 0.92 | 0.04 / 10.75 | 6.7 |
 | O | 10/10 | 558 | 1 | 1 | 1 | 0 | 0 | 1 | 1 | 1.00 / 1.73 | 0.0 |
 
-Dirty inputs (5 cases):
+Dirty inputs (5 cases: 3 soups, 2 poses of the two overlapping boxes). The soups have exactly coincident vertices, so
+their KO rows equal the clean K rows by construction: they show that welding is all a soup needs, nothing more. Only
+the two-box rows are an independent measurement, and there the "known features" are the union's boundary, ie the
+result of a boolean:
 
 | variant | valid | cov 0.25 | corner | fh max |
 |---|---|---:|---:|---:|
@@ -206,29 +226,35 @@ Dirty inputs (5 cases):
 
 Sweeps (K, cov 0.25): concave crease opening 20 / 30 / 45 / 60 / 90 / 120 degrees: 0.88 / 0.92 / 0.94 / 0.95 / 0.95 /
 0.92; convex crease 20 / 30-120 / 150 degrees: 0.60 / 0.89-0.91 / 0.17 (150: at the 30 degree sharpness threshold, and
-capped miters at its 15 degree base edges); slot width 0.1 / 0.25-1 / 2 / 4 / 8 alphas: 0.60 / 0.76-0.77 / 0.89 / 0.95 /
+capped miters at its 15 degree base edges; 20: the oracle's crease is capped at 4 offsets while the planes meet 5.76
+offsets out, farther apart than K's 1-offset gate, so that crease cannot score and the 0.60 is the other creases: the
+two ends of the angle sweep measure the cap, not K); slot width 0.1 / 0.25-1 / 2 / 4 / 8 alphas: 0.60 / 0.76-0.77 / 0.89 / 0.95 /
 0.95 (below 2 alphas the wrap does not enter the slot: fh 20); gear teeth 20 / 4 / 1.6 alphas: 0.92 / 0.91 / 0.45-0.49.
 
 Findings:
 
 1. **Validity holds everywhere it is checked**: 270 of 270 wrap-based results (A, K, KC, KCK, KO, KOC) are closed,
-   manifold, free of self-intersections, cross the input in 0 triangles and have no vertex inside it. The invariant of
-   section 4 is what one sees.
-2. **The room above K on clean inputs is 5.5 % of the crease length at 0.25 offsets (0.9 % at 1 offset), the corners,
+   manifold, free of self-intersections, cross the input in 0 triangles and have no vertex inside it. These are
+   pipeline results (after the simplification), consistent with the invariant of section 4 and the Reducer's tests;
+   they do not prove it.
+2. **The room above K on clean inputs is about 5 % of the crease length at 0.25 offsets (0.9 % at 1 offset), the corners,
    and the tail of fh** (median max 7.75 offsets: crease ends at concave corners and unresolved small features).
 3. **Corners are cheap**: one checked move per corner is accepted for 7932 of 8226 corners (96 %) in the raw wrap; 0.81-
    0.86 survive the simplification (it does not know them: a pinned-vertex list would keep the rest). The move does not
-   pull the crease ends in (cov +0.01), and a second round of K does nothing: the remaining 4-5 % need an operation K
+   pull the crease ends in (cov +0.01), and a second round of the unmodified K does nothing: the remaining 4-5 % need an operation K
    does not have (5.2 c) or are below the wrap's resolution.
 4. **Feature size, not proof technique, limits the wrap**: below about 4 alphas of feature size K degrades (0.89 at 2,
    0.77 at 1, 0.45-0.49 on 1.6-alpha gear teeth). Only a smaller (local) alpha changes that; it is the D1 lever of the
    2026-11-09 probe.
 5. **On dirty inputs the missing piece is the feature network, not the recovery**: a soup has no edge with two
-   triangles, so K finds no crease and does nothing (0.000-0.006); with overlapping components it misses the
-   intersection creases (0.80-0.82). Given the network (KO), K is as good as on clean inputs (0.944). K's gate "near the
+   triangles, so K finds no crease and does nothing (0.000-0.006; welding coincident vertices first would restore the
+   clean result); with overlapping components it misses the intersection creases (0.80-0.82 against 0.94-0.96 with the
+   union's creases given: + 0.14, two rows of one shape). The sample is small and its second half presupposes a
+   boolean; it shows the direction, not a size. K's gate "near the
    miter line of an input sharp edge" could not be switched off for a measurement without a library change (its
    segment grid is not built for a large radius), so "creases from plane pairs alone" stays unmeasured.
-6. **Rotation and distance from the origin do not matter** (medians within 0.01; all valid). K's thresholds are
+6. **Rotation and distance from the origin do not change the recovery** (coverage and precision medians within 0.02;
+   all valid; the rotated inputs wrap to about half the triangles, the wrap's matter, not K's). K's thresholds are
    relative, and 1e5 sizes from the origin leaves 11 digits.
 7. **The oracle is valid on 64 of 65 cases** (exactly checked; the one failure is the slot 0.1 alpha = 1 offset wide,
    where the offset walls cross: self-intersections, 6 triangles cross the input), with 4-8 times fewer triangles than K
@@ -268,8 +294,8 @@ protection on clean complexes; its answer to dirty inputs is heuristic.
 
 | # | option | measured bound | effort | risk | constraints |
 |---|---|---|---|---|---|
-| 1 | **Write theorem (V) for pass K and close its gaps** (4.3: degenerate rest triangles, the containment sentence with a test, optionally a certified lower band) | the guarantee itself; results unchanged (the band check costs triangles at convex creases only if switched on) | 2-4 days without the band; + about 1 week for the band (a new error bound: tier L review) | low | exact predicates only, serial: deterministic and 2^k-invariant as K is |
-| 2 | **K follow-ups from this bound** (extends #1237): corner step with the checked move and the corners pinned in the simplification (corner 0 -> 0.81-0.96); a feature source that does not need the input's connectivity (weld, then creases of plane pairs: dirty inputs 0.006 -> up to 0.944); a recovery report per crease (the a-posteriori form of (R)) | clean: cov 0.945 -> 0.954, corners; dirty: up to + 0.94 | 1-2 weeks, tier M, one PR | medium-low (spurious creases on noisy soups: the gate needs a replacement; measure precision on T1) | opt-in stays; no default change |
+| 1 | **Write theorem (V) for pass K and close its gaps** (4.3: degenerate rest triangles, exact non-degeneracy of new triangles, the containment sentence with a test, the pipeline statement with the Reducer; optionally a certified lower band) | the guarantee itself; results unchanged (the band check costs triangles at convex creases only if switched on) | 2-4 days without the band; + about 1 week for the band (a new error bound: tier L review) | low | exact predicates only, serial: deterministic and 2^k-invariant as K is |
+| 2 | **K follow-ups from this bound** (extends #1237): corner step with the checked move and the corners pinned in the simplification (corner 0 -> 0.81-0.96); a feature source that does not need the input's connectivity (weld: soups 0.00 -> the clean 0.92-0.96; creases of plane pairs for overlapping parts: 0.80-0.82 -> at most 0.94-0.96, unmeasured without the union); a recovery report per crease (the a-posteriori form of (R)) | clean: cov 0.945 -> 0.954, corners; soups: from nothing to the clean result; overlapping parts: at most + 0.14 | 1-2 weeks, tier M, one PR | medium-low (spurious creases on noisy soups: the gate needs a replacement; measure precision on T1) | opt-in stays; no default change |
 | 3 | **Direct mitered offset with an exact certificate for clean closed inputs**, the wrap with K as the fallback (5.2 b) | cov 1, corners 1, band [1, 1.73], 4-8x fewer triangles; valid on 64 / 65 here | 1-2 weeks, tier M-L (new public operation or an option of `MeshOffset`: owner decision; vertices with more than three planes and capped miters need a rule) | medium (only clean inputs; the trigger "CAD wrapping" may already be served by using the input itself) | exact check a posteriori; deterministic; plane-intersection points in double need the rounding argument of the check, not of the construction |
 | 4 | Planar-strip crease operation on the wrap (5.2 c) | at most cov 0.954 -> 1.0 and the fh tail, on features above 4 alphas | 2-3 weeks, tier L | medium-high (the precondition may fail where it matters, near corners) | as K |
 | 5 | Local alpha at creases (the wrap's `AlphaField`) | the feature-size limit (finding 4); D1 of the first probe: Chamfer 0.75x at 1.7x triangles, 2.5x time | 2-3 weeks (TET_MESHING P4(a)) | medium-high (separation and angle bounds with a variable alpha are open) | - |
@@ -277,8 +303,9 @@ protection on clean complexes; its answer to dirty inputs is heuristic.
 | 7 | Dual contouring in crease bands, stitched (5.2 d) | below option 3 | 1-2 months | high (DC topology not certified) | - |
 
 **Leaning.** Option 1 now (it turns "works empirically" into a stated guarantee at almost no cost and answers the
-"provably valid" half of HP 4). Option 2 when #1237 is scheduled, with the dirty-input feature source as its main item
-(the largest measured gain: + 0.94 on soups and overlapping parts, which are the inputs a wrap is for). Option 3 is the
+"provably valid" half of HP 4). Option 2 when #1237 is scheduled: the corner step, welding before the feature search
+(a soup gets no features at all today), and the report; the feature source for overlapping parts needs its own
+measurement on more shapes first (two rows here). Option 3 is the
 only route to *guaranteed recovery*, and it does not involve the wrap: decide it as a mitered-offset item (MESH_OFFSET
 9.4), if a consumer needs exact creases on clean CAD. Options 4-7: not now; the plan's stop rule applies to 6 (months of
 weighted-Delaunay infrastructure for a gain that option 3 gives directly on the same inputs).

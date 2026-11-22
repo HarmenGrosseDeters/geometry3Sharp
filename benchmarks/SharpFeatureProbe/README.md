@@ -109,4 +109,4 @@ pass's own checked move, `KO` gives the pass the clean reference of a dirty inpu
 
 Result (65 cases, master ed93ef26, tables in [results/bound_tables.md](results/bound_tables.md)): all 270 wrap-based results valid;
 clean solids, crease length within 0.25 offsets of a sharp result edge: A 0.001, K 0.945, KC 0.954, O 1; corners A / K 0, KC 0.86;
-dirty inputs K 0.006, KO 0.944; O valid on 64 / 65 (not on a slot one offset wide) with 4-8 times fewer triangles than K.
+soups K 0.00 (no shared edges; KO equals the clean K), two overlapping boxes K 0.80-0.82, KO 0.94-0.96; O valid on 64 / 65 (not on a slot one offset wide) with 4-8 times fewer triangles than K.
