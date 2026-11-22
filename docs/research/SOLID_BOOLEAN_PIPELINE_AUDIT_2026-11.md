@@ -60,7 +60,7 @@ reaches valid solids, and the pipeline returns `Status Success` with nothing in 
   is in the result for a >= 2^-8 and gone for a <= 2^-9, in the identity, rotated and rotated + UTM frames alike: an edge
   below 1.1e-6 of the large solid's diagonal (2 mm beside a 1 km solid, 2 um beside a 1.8 m part). 12 triangles come back,
   `Report.Clean` true, `RoundingClean` true. The cube is untouched input; it goes because its triangles are below the
-  degenerate area (1e-12 x diagonal^2 of the largest component), which marks it as defective.
+  degenerate area (1e-12 x diagonal^2 of the whole result), which marks it as defective.
 - **A thin solid made by the boolean** (`small`): [0,2]^3 intersected with [2-h,4] x [0,2]^2 is a 2 x 2 x h slab. Axis
   aligned it is returned down to h = 2^-35 and dropped from 2^-40; after one generic rotation it is dropped from
   h = 2^-15 (1.1e-5 of the diagonal; 2^-14 stays), at the origin and at UTM. The wall a Difference leaves goes from
@@ -250,8 +250,9 @@ Thingi10K meshes at run time).
 
 Measured: F1 (`tiny`, `small`). The mechanism, confirmed independently by the Boolean speed spike
 (`research/exact-boolean-speed-levers`, its note section 8b; same threshold 2^-8 / 2^-9 on its own probe): the degenerate
-scan of the component removal runs over all result triangles with one threshold, 1e-12 x (diagonal of the largest
-component)^2. Unchanged input triangles of a small solid fall below it, the component counts as defective and tiny, and it
+scan of the component removal runs over all result triangles with one threshold, 1e-12 x (diagonal of the box of all
+result triangles)^2 (the input plate of `small` is the same path: the union spans [0,5] x [0,2]^2, the threshold is
+3.3e-11, and a side triangle of area h = 2^-35 is below it). Unchanged input triangles of a small solid fall below it, the component counts as defective and tiny, and it
 is removed; no edit and no new vertex is involved. The removal and the clean verdict are therefore one criterion: with
 the cube kept, `NotCleanReason` says "degenerate triangles" (12 of them; `report` shows the same for the rotated slab with
 `SafeRounding` off). That spike also reports that none of its speed levers widens the drop (bit identical, including
@@ -283,7 +284,19 @@ output may self-intersect); Manifold merges features below its tolerance without
 components thinner than their bound, as here. No library found that reports the removed volume. Whether a rounding can
 keep such solids with a guarantee, and at what cost, is the subject of the 3D snap rounding spike (#1278 / #1259), and a
 checker of "the right point set up to the rounding bound" (the certifying checker spike) would flag exactly this drop;
-both have the two reproducers. Their results are not in yet and are not anticipated here.
+both have the two reproducers.
+
+What the snap rounding spike found so far (its message of 2026-11-22; branch `research/snap-rounding-3d-guarantee`, tool
+`benchmarks/SnapRoundingExperiment`, its own numbers, not re-run here): both cases reproduce at `ExactMeshBoolean` level
+with the same thresholds. The cause is the removal rule, not the rounding: the same repair with `RemoveTinyComponents`
+off ends clean (`IsClean`, the component still there) on all 8 removed cases it ran, down to the rotated slab of 2^-35,
+so these solids are representable and clean in doubles. The rule is needed elsewhere: on 74 generated results with
+removed slivers the same probe is clean on 12 and not clean on 62. A guaranteed grid rounding (Devillers et al.) would
+not fix it: on the grid that fits the present bounds (about 2^-19 of the diagonal) it keeps the slab only from about two
+cells of thickness (2^-16 here) and not the cube, at 16 to 258 times the triangles. (The two spikes differ on whether a
+kept solid reads as clean: the repair's own `IsClean` says yes, `NotCleanReason` on the plainly rounded result says
+"degenerate triangles"; the degenerate criterion relative to the whole result is the difference.) The certifying
+checker spike has not reported yet.
 
 **Leaning: (a) at once.** For (b) and (c) the owner decides; the leaning is the opt-in refusal of (b) now and, for (c),
 the speed spike's rule for untouched input components (it removes the case nobody intended, a valid input solid deleted
