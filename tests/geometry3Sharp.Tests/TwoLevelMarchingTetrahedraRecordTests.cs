@@ -322,12 +322,14 @@ namespace geometry3Sharp.Tests
             // a grid of 2 x 2 x 2 cubes; the middle node has the values a, all others the values b
             var gen = new TwoLevelMarchingTetrahedra { Field = new Fn(p => 1), HalfWidth = 0.5, Bounds = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(2, 2, 2)), CellSize = 1,
                 SliverGuard = 0, RecordCertificateData = true };
-            gen.NodeValuesForTest = f => {
+            Action<double[][]> values = f => {
                 Assert.Equal(2, f.Length);
                 Assert.Equal(27, f[0].Length);
                 for (int id = 0; id < 27; ++id) { f[0][id] = id == 13 ? a0 : b0; f[1][id] = id == 13 ? a1 : b1; }
             };
+            gen.NodeValuesForTest = values;
             gen.Generate();
+            Assert.Null(gen.NodeValuesForTest);         // the seam is for one run
             TwoLevelMarchingTetrahedra.CertificateRecord r = gen.Certificate;
             Assert.NotNull(r);
             Assert.Equal(1, r.NodeFlags[13] & 3);
@@ -335,8 +337,12 @@ namespace geometry3Sharp.Tests
             // the record does not change the mesh, in this case either
             gen.RecordCertificateData = false;
             DMesh3 recorded = gen.Mesh;
+            gen.NodeValuesForTest = values;
             gen.Generate();
             Assert.True(SameMesh(recorded, gen.Mesh));
+            // and without the seam the next run is the sampled field again: no crossing at all here
+            gen.Generate();
+            Assert.Equal(0, gen.Mesh.TriangleCount);
             Assert.Equal(recorded.MaxVertexID, r.VertexA.Count);
             Assert.Equal(recorded.MaxVertexID, r.VertexLevel.Count);
             // the triangle list stays aligned when polygons are cut, and no triangle was refused in these cases
@@ -357,6 +363,7 @@ namespace geometry3Sharp.Tests
             else {
                 Assert.Equal(0, r.ClippedPolygonVertices);
                 gen.RecordCertificateData = true;
+                gen.NodeValuesForTest = values;
                 gen.Generate();
                 CheckRecord(gen);
             }
@@ -418,6 +425,16 @@ namespace geometry3Sharp.Tests
             gen.Domain = new Fn(p => p.z - 0.2);
             int functions = 0;
             gen.NodeValuesForTest = f => functions = f.Length;
+            gen.Generate();
+            Assert.Equal(3, functions);
+            Assert.Null(gen.NodeValuesForTest);
+            // taken also by a run that ends before the values exist
+            gen.NodeValuesForTest = f => functions = -1;
+            double cell = gen.CellSize;
+            gen.CellSize = -1;
+            Assert.Throws<ArgumentException>(() => gen.Generate());
+            Assert.Null(gen.NodeValuesForTest);
+            gen.CellSize = cell;
             gen.Generate();
             Assert.Equal(3, functions);
             Assert.NotNull(gen.Mesh);

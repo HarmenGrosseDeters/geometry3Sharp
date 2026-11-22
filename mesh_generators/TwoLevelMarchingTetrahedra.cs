@@ -121,7 +121,8 @@ namespace g3
         /// <summary>
         /// Test seam: called with the node values of the functions (two levels, and the domain if there is one) after
         /// sampling and the guards, before the mesh is made, so that a test can set values the sampling cannot produce (the
-        /// counter of the record). Values set here are not guarded. Null in every use but those tests.
+        /// counter of the record). Values set here are not guarded. Null in every use but those tests, and for one run
+        /// only: Generate takes it and sets it back to null at once.
         /// </summary>
         internal Action<double[][]> NodeValuesForTest;
         CertificateRecord record;
@@ -144,6 +145,8 @@ namespace g3
         {
             Mesh = null; NonManifoldTriangles = 0; RimNodesMoved = 0; CellDimensions = Vector3i.Zero;
             Certificate = null; record = null;
+            Action<double[][]> nodeValuesForTest = NodeValuesForTest;
+            NodeValuesForTest = null;
             if (Field == null) throw new ArgumentException("TwoLevelMarchingTetrahedra: Field is null");
             if (!(CellSize > 0) || double.IsInfinity(CellSize)) throw new ArgumentException("TwoLevelMarchingTetrahedra: CellSize must be finite and positive");
             if (HalfWidthF == null && (!(HalfWidth > 0) || double.IsInfinity(HalfWidth))) throw new ArgumentException("TwoLevelMarchingTetrahedra: HalfWidth must be finite and positive");
@@ -164,7 +167,7 @@ namespace g3
             floor = new double[nc];
             for (int c = 0; c < nc; ++c) floor[c] = Guard(f[c]);
             if (nc == 3) SeparateRim();
-            if (NodeValuesForTest != null) NodeValuesForTest(f);
+            if (nodeValuesForTest != null) nodeValuesForTest(f);
             if (RecordCertificateData && nc == 2) {
                 record = new CertificateRecord { Nodes = new Vector3i(n1x, n1y, n1z), Origin = origin, CellSize = h, NodeFlags = new byte[f[0].Length], VariableHalfWidth = HalfWidthF != null };
                 for (int id = 0; id < record.NodeFlags.Length; ++id)
