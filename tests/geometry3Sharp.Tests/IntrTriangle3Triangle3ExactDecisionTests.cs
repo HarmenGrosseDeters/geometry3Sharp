@@ -431,8 +431,8 @@ namespace geometry3Sharp.Tests
             Assert.True(f.Find());
             Assert.Equal(IntersectionType.Segment, f.Type);
             double y0 = Math.Min(f.Points[0].y, f.Points[1].y), y1 = Math.Max(f.Points[0].y, f.Points[1].y);
-            Assert.Equal(0.0, y0, 17);
-            Assert.Equal(1e-15 * 1.0 / 1.1, y1, 17);       // the edge (-1, 0)-(0.1, 1e-15) at x = 0
+            Assert.InRange(y0, -1e-17, 1e-17);
+            Assert.InRange(y1, 1e-15 / 1.1 - 1e-17, 1e-15 / 1.1 + 1e-17);       // the edge (-1, 0)-(0.1, 1e-15) at x = 0
             Assert.All(new[] { f.Points[0], f.Points[1] }, p => Assert.True(p.x == 0 && p.z == 0));
         }
 

@@ -318,7 +318,10 @@ namespace g3
             double best = -1;
             for (int i = 0; i < pts.Count; ++i)
                 for (int j = i + 1; j < pts.Count; ++j) {
-                    double d = pts[i].DistanceSquared(pts[j]);
+                    // (the largest coordinate difference, not the squared distance: that underflows below 2^-512 and
+                    // would make every pair equal; the candidates are collinear, so the order is the same)
+                    Vector3d diff = pts[i] - pts[j];
+                    double d = Math.Max(Math.Abs(diff.x), Math.Max(Math.Abs(diff.y), Math.Abs(diff.z)));
                     if (d > best) { best = d; a = i; b = j; }
                 }
             Points[0] = pts[a];

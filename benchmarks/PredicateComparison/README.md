@@ -63,8 +63,9 @@ computes its two end points from the crossing edges in floating point after exac
 | tilted within 1e-8 | 432 / 358 / 4375, 438 / 360 / 4425 | 374 / 321 / 4466, 390 / 337 / 4644 |
 | general position | 321 / 249 / 499, 328 / 246 / 499 | 186 / 133 / 280, 231 / 167 / 298 |
 
-The general-position row is the common case of the AABB tree queries: 30-45 % faster (the exact test is cheaper than the
-floating-point separating axes plus the route test they needed); the other families are within the noise (about 5 %).
+The general-position row is the common case of the AABB tree queries: `Test()` 35-45 % and `Intersects()` 32-47 % faster
+(the exact test is cheaper than the floating-point separating axes plus the route test they needed), `Find()` about 40 %.
+The oblique-planes `Test()` is 5-30 % faster; the other special families are within the noise (about 5 %).
 
 ### With `TriangleTriangleFilter` in the exact route
 
