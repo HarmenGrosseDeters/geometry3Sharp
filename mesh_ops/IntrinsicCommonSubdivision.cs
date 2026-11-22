@@ -441,17 +441,18 @@ namespace gs
             bool[] itHasFace = new bool[F];
             for (int f = 0; f < faceTri.Count; ++f) {
                 if (faceTri[f] < 0) return fail("face in input triangle " + inTid[faceInput[f]] + " without intrinsic triangle");
+                if (!(UpArea(faceArea[f]) < double.PositiveInfinity)) return fail("a face area is outside the double range in the units of the mesh (coordinates beyond about 2^500)");
                 itArea[faceTri[f]] += faceArea[f];
                 itHasFace[faceTri[f]] = true;
                 var face = new IntrinsicCommonSubdivision.Face() {
-                    InputTriangle = inTid[faceInput[f]], IntrinsicTriangle = faceTri[f], Corners = faceCorners[f], Area = faceArea[f],
+                    InputTriangle = inTid[faceInput[f]], IntrinsicTriangle = faceTri[f], Corners = faceCorners[f], Area = UpArea(faceArea[f]),
                     Barycentric = new Vector3d[faceCorners[f].Length]
                 };
                 for (int m = 0; m < face.Barycentric.Length; ++m) face.Barycentric[m] = barycentric(faceInput[f], facePos[f][m]);
                 R.Faces.Add(face);
             }
             for (int it = 0; it < F; ++it) {
-                double a = TriangleArea(it);
+                double a = TriangleAreaU(it);
                 double err = Math.Abs(itArea[it] - a) / Math.Max(a, 1e-300);
                 R.MaxIntrinsicAreaError = Math.Max(R.MaxIntrinsicAreaError, err);
             }

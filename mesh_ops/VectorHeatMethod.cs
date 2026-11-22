@@ -70,6 +70,7 @@ namespace gs
 
         /// <summary> diffusion time of the last computation </summary>
         public double DiffusionTime { get; private set; }
+        double diffusionTimeU;              // DiffusionTime in the unit scale of the triangulation (the squared edge length unit)
 
 
         public VectorHeatMethod(DMesh3 mesh)
@@ -127,7 +128,7 @@ namespace gs
                 : new IntrinsicTriangulation(Mesh);
             IntrinsicTriangulation T = triangulation;
             N = T.VertexCount;
-            mass = T.VertexAreas();
+            mass = T.VertexAreasU();            // unit scale: the lengths of the triangulation are stored times 2^-k (#1377)
 
             // connected components
             int[] parent = new int[N];
@@ -194,7 +195,7 @@ namespace gs
 
         double diffusion_time(double scale)
         {
-            double h0 = triangulation.MeanEdgeLength;
+            double h0 = triangulation.MeanEdgeLengthU;
             return TimeFactor * scale * h0 * h0;
         }
 
@@ -203,10 +204,11 @@ namespace gs
         {
             ops = null;
             timeScale = scale;
-            DiffusionTime = diffusion_time(scale);
+            diffusionTimeU = diffusion_time(scale);
+            DiffusionTime = triangulation.UpArea(diffusionTimeU);
             HeatOperators o;
             if (heatCache.TryGetValue(scale, out o) == false) {
-                o = factor_heat(DiffusionTime);
+                o = factor_heat(diffusionTimeU);
                 heatCache[scale] = o;
             }
             ops = o;
@@ -424,7 +426,7 @@ namespace gs
             double[] gx = new double[N], gy = new double[N], gw = new double[N];
             Vector2d[] q = new Vector2d[3];
             for (int t = 0; t < T.TriangleCount; ++t) {
-                T.GetTriangleLayout(t, out q[0], out q[1], out q[2]);
+                T.GetTriangleLayoutU(t, out q[0], out q[1], out q[2]);
                 Index3i tv = T.GetTriangleIndices(t);
                 double area2 = (q[1].x - q[0].x) * (q[2].y - q[0].y) - (q[2].x - q[0].x) * (q[1].y - q[0].y);
                 if (!(area2 > 0)) continue;
@@ -465,7 +467,7 @@ namespace gs
             int h0 = T.VertexHalfedge(x), hh = h0, guard = 0;
             do {
                 int j = T.Head(hh);
-                double l = T.Length(hh), cur;
+                double l = T.LengthU(hh), cur;
                 if (j != x && (shortest.TryGetValue(j, out cur) == false || l < cur)) {
                     shortest[j] = l;
                     double a = T.Signpost(hh);
@@ -476,7 +478,7 @@ namespace gs
                     // boundary source: the last neighbour is reached by the incoming boundary edge
                     int hin = IntrinsicTriangulation.Prev(hh);
                     int k = T.Tail(hin);
-                    double lk = T.Length(hin);
+                    double lk = T.LengthU(hin);
                     if (k != x && (shortest.TryGetValue(k, out cur) == false || lk < cur)) {
                         shortest[k] = lk;
                         double a = T.ReverseSignpost(hin);
@@ -485,7 +487,7 @@ namespace gs
                 }
                 hh = next;
             } while (hh >= 0 && hh != h0 && ++guard < T.HalfedgeCount);
-            return per_vertex(i => log[i], nan, has);
+            return per_vertex(i => T.Up(log[i]), nan, has);
         }
 
 
@@ -506,7 +508,7 @@ namespace gs
             double[] rhs = new double[N];
             Vector2d[] q = new Vector2d[3];
             for (int t = 0; t < T.TriangleCount; ++t) {
-                T.GetTriangleLayout(t, out q[0], out q[1], out q[2]);
+                T.GetTriangleLayoutU(t, out q[0], out q[1], out q[2]);
                 Index3i tv = T.GetTriangleIndices(t);
                 double um = Math.Max(u[tv.a], Math.Max(u[tv.b], u[tv.c]));
                 if (!(um > 0)) continue;
@@ -540,7 +542,7 @@ namespace gs
         {
             if (ops.Dirichlet != null)
                 return ops.Dirichlet;
-            double t = DiffusionTime;
+            double t = diffusionTimeU;
             var s = new List<KeyValuePair<Index2i, double>>();
             for (int i = 0; i < N; ++i)
                 s.Add(entry(i, i, isBoundary[i] ? 1 : mass[i]));

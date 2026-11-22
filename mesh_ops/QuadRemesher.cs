@@ -194,7 +194,63 @@ namespace gs
 
         public bool Success { get { return Status == QuadRemeshStatus.Success; } }
 
+        /// <summary>
+        /// Runs the remesher. The mesh is processed in a unit scale (#1377): a copy with the coordinates times 2^-k, k the binary
+        /// exponent of the longest edge, so that a mesh scaled by 2^j gives the same quads bit for bit at every scale and the fourth
+        /// powers of the parameterization stay in the double range; Result, SizeFunction and TargetEdgeLength are in the units of the mesh.
+        /// Not for a mesh with edge lengths more than 2^200 apart (InvalidInput), nor with a given Field or Frames (they belong to Mesh):
+        /// those run in the units of the mesh as before. Positions and the pure-quad repair refer to the scaled copy.
+        /// </summary>
         public QuadRemeshStatus Compute()
+        {
+            if (Mesh != null && Mesh.TriangleCount > 0 && Field == null && Frames == null && TargetEdgeLength > 0 && !double.IsInfinity(TargetEdgeLength)) {
+                if (IntrinsicTriangulation.HasEdgeDisparity(Mesh)) {
+                    ResetResults();
+                    return Fail(QuadRemeshStatus.InvalidInput, "edge lengths more than 2^200 apart");
+                }
+                int k = IntrinsicTriangulation.EdgeExponent(Mesh);
+                if (k != 0) return ComputeScaled(k);
+            }
+            return ComputeCore();
+        }
+
+        QuadRemeshStatus ComputeScaled(int k)
+        {
+            DMesh3 caller = Mesh;
+            double target = TargetEdgeLength;
+            Func<Vector3d, double> size = SizeFunction;
+            var scaled = new DMesh3(caller);
+            foreach (int vid in caller.VertexIndices()) {
+                Vector3d p = caller.GetVertex(vid);
+                scaled.SetVertex(vid, new Vector3d(ExactPoint3.ScaleB(p.x, -k), ExactPoint3.ScaleB(p.y, -k), ExactPoint3.ScaleB(p.z, -k)));
+            }
+            double targetU = ExactPoint3.ScaleB(target, -k);
+            if (!(targetU > 0)) {
+                ResetResults();
+                return Fail(QuadRemeshStatus.InvalidInput, "TargetEdgeLength is below the range of the mesh");
+            }
+            Mesh = scaled; TargetEdgeLength = targetU;
+            if (size != null)
+                SizeFunction = p => ExactPoint3.ScaleB(size(new Vector3d(ExactPoint3.ScaleB(p.x, k), ExactPoint3.ScaleB(p.y, k), ExactPoint3.ScaleB(p.z, k))), -k);
+            try {
+                ComputeCore();
+            } finally {
+                Mesh = caller; TargetEdgeLength = target; SizeFunction = size;
+            }
+            if (Result != null)
+                for (int v = 0; v < Result.VertexCount; ++v) {
+                    Vector3d p = Result.GetVertex(v);
+                    Result.SetVertex(v, new Vector3d(ExactPoint3.ScaleB(p.x, k), ExactPoint3.ScaleB(p.y, k), ExactPoint3.ScaleB(p.z, k)));
+                }
+            return Status;
+        }
+
+        void ResetResults()
+        {
+            Status = QuadRemeshStatus.Success; Error = null; FieldStatus = CrossFieldStatus.Success; Result = null; Positions = null;
+        }
+
+        QuadRemeshStatus ComputeCore()
         {
             Status = QuadRemeshStatus.Success; Error = null; FieldStatus = CrossFieldStatus.Success; Result = null; Positions = null;
             FieldSeconds = PositionSeconds = ExtractSeconds = 0;

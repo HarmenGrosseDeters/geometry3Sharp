@@ -108,7 +108,7 @@ namespace gs
             int limit = maxInsertions > 0 ? maxInsertions : 10 * N0 + 1000;
             int n0 = N;
             // unit of the concentric shells: the mean input edge length, so that the shells scale with the mesh
-            shellUnit = (MeanEdgeLength > 0 && double.IsInfinity(MeanEdgeLength) == false) ? MeanEdgeLength : 1;
+            shellUnit = (meanEdgeLengthU > 0 && double.IsInfinity(meanEdgeLengthU) == false) ? meanEdgeLengthU : 1;
             r.Flips += FlipToDelaunay();
 
             var faceQ = new Queue<int>();
@@ -377,7 +377,7 @@ namespace gs
         // isometric layout of triangle t (corners of halfedges 3t, 3t+1, 3t+2)
         void layout(int t, Vector2d[] q)
         {
-            GetTriangleLayout(t, out q[0], out q[1], out q[2]);
+            GetTriangleLayoutU(t, out q[0], out q[1], out q[2]);
         }
 
         /// <summary>
@@ -387,6 +387,7 @@ namespace gs
         /// </summary>
         public int InsertVertex(int t, Vector2d p)
         {
+            p = new Vector2d(Down(p.x), Down(p.y));         // to unit scale
             Vector2d[] q = new Vector2d[3];
             layout(t, q);
             for (int k = 0; k < 3; ++k) {
@@ -642,7 +643,7 @@ namespace gs
                 }
             }
             for (int t = 0; t < F; ++t)
-                if (!(TriangleArea(t) > 0)) { error = "degenerate triangle " + t; return false; }
+                if (!(TriangleAreaU(t) > 0)) { error = "degenerate triangle " + t; return false; }
             for (int v = 0; v < N; ++v) {
                 int h0 = vHe[v];
                 if (hV[h0] != v) { error = "vertex halfedge of " + v; return false; }
