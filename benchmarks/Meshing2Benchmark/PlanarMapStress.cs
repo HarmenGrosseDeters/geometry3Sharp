@@ -17,7 +17,8 @@ namespace Meshing2Acceptance
     /// Orient2d), which every arrangement method has to do at least; `delaunay` triangulates the output's vertices without constraints,
     /// the part of our time that buys the triangulated output.
     /// With a snap tolerance, `snap_ms` is the snap rounding alone (one run), with its rounds and the points of the snapped input.
-    /// A measurement, not a gate: `--judge` runs the oracle on the cases up to `--judge-limit` output vertices.
+    /// A measurement, not a gate: `--judge` runs the oracle on the cases up to `--judge-limit` used output vertices.
+    /// The exit code is 1 if a result is Failed or judged invalid.
     /// </summary>
     static class PlanarMapStress
     {
@@ -38,7 +39,7 @@ namespace Meshing2Acceptance
         }
 
         const double Tiny = 1.0 / (1L << 30);      // 2^-30: far above the automatic tolerance (2^-41), far below the snap pixel (2^-20)
-        const double Ulps = 1.0 / (1L << 48);      // 2^-48: a few ulps at 0.5, below the automatic tolerance
+        const double Ulps = 1.0 / (1L << 48);      // 2^-48: 32 ulps at 0.5, below the automatic tolerance
 
         /// <summary> the families; n is the number of segments asked for (some families round it) </summary>
         static ConstrainedMesh2Input Family(string kind, int n)
@@ -50,14 +51,14 @@ namespace Meshing2Acceptance
                     for (int i = 0; i < n; ++i) Add(input, rng.Next(), rng.Next(), rng.Next(), rng.Next());
                     break;
                 case "bundle": {        // n segments across the square in a band of height n 2^-30, the right ends a random permutation of
-                                        // the left ones: about n^2 / 4 crossings at angles of 2^-30 to n 2^-30
+                                        // the left ones: about n^2 / 4 crossings at angles of 2^-30 to 2 n 2^-30
                     var perm = Enumerable.Range(0, n).ToArray();
                     for (int i = n - 1; i > 0; --i) { int j = rng.Next(i + 1); (perm[i], perm[j]) = (perm[j], perm[i]); }
                     for (int i = 0; i < n; ++i) Add(input, 0, 0.5 + i * Tiny, 1, 0.5 + perm[i] * Tiny);
                     break;
                 }
                 case "pencil-exact":    // n segments exactly through (1/2, 1/2): symmetric dyadic ends
-                case "pencil-near":     // the same with every end moved by up to 2^-48: n^2 / 2 crossings within a few ulps
+                case "pencil-near":     // the same with every end moved by up to 2^-48: n^2 / 2 crossings near the centre (within about n 2^-48)
                     for (int i = 0; i < n; ++i) {
                         double a = Math.PI * (i + 0.5) / n;
                         double dx = Math.Round(Math.Cos(a) * (1 << 20)) / (1 << 21), dy = Math.Round(Math.Sin(a) * (1 << 20)) / (1 << 21);
@@ -104,10 +105,12 @@ namespace Meshing2Acceptance
         }
 
         /// <summary> the yardstick `detect`: the pairs of segments that meet (proper crossings, and contacts with a zero orientation),
-        /// from a uniform grid over the boxes and the filtered exact Orient2d; no map is built </summary>
+        /// from a uniform grid over the boxes (cell: the mean box extent, so for long segments
+        /// all pairs are tested) and the filtered exact Orient2d; no map is built </summary>
         static (long crossings, long contacts) Detect(ConstrainedMesh2Input input)
         {
             int n = input.Segments.Count;
+            if (n == 0) return (0, 0);
             var lo = new Vector2d[n]; var hi = new Vector2d[n];
             double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue, extent = 0;
             for (int i = 0; i < n; ++i) {
@@ -176,6 +179,17 @@ namespace Meshing2Acceptance
             return (times[times.Count / 2], times[0], allocated / 1048576.0, result);
         }
 
+        /// <summary> the vertices a triangle or a subsegment uses: the mesh keeps every input point as a vertex, also the merged ones </summary>
+        static Vector2d[] Used(ConstrainedMesh2 mesh)
+        {
+            var used = new bool[mesh.Vertices.Count];
+            foreach (var t in mesh.Triangles) { used[t.a] = true; used[t.b] = true; used[t.c] = true; }
+            foreach (var e in mesh.Subsegments) { used[e.A] = true; used[e.B] = true; }
+            var list = new List<Vector2d>();
+            for (int i = 0; i < used.Length; ++i) if (used[i]) list.Add(mesh.Vertices[i]);
+            return list.ToArray();
+        }
+
         static string F(double v, string format = "F1") => v.ToString(format, CultureInfo.InvariantCulture);
         static string I(long v) => v.ToString(CultureInfo.InvariantCulture);
 
@@ -187,17 +201,27 @@ namespace Meshing2Acceptance
             int repeats = int.Parse(arg(args, "--repeats") ?? "3", CultureInfo.InvariantCulture);
             bool judge = args.Contains("--judge");
             int judgeLimit = int.Parse(arg(args, "--judge-limit") ?? "40000", CultureInfo.InvariantCulture);
-            // segments per family and size: chosen so that the output at the automatic tolerance has some 10^4 (small) and 10^5 (large) vertices
+            // segments per family and size: for the soup, the bundle, the junctions and the chain some 10^4 (small) and 10^5 (large) output
+            // vertices at the automatic tolerance; the pencils and the overlaps have few vertices and many meeting pairs instead
             var counts = new Dictionary<string, int[]> {
                 { "soup", new[] { 500, 2000 } }, { "bundle", new[] { 250, 1000 } }, { "pencil-exact", new[] { 1000, 16000 } }, { "pencil-near", new[] { 1000, 16000 } },
                 { "junction-ulp", new[] { 10000, 100000 } }, { "junction-tiny", new[] { 10000, 100000 } },
                 { "overlap-exact", new[] { 2000, 16000 } }, { "overlap-near", new[] { 2000, 16000 } }, { "tchain", new[] { 10000, 100000 } },
             };
             Console.WriteLine("runtime " + System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription + ", " + Environment.ProcessorCount + " cores");
-            Console.WriteLine("family,segments,crossing_pairs,contact_pairs,detect_ms,tolerance,status,vertices,triangles,subsegments,median_ms,min_ms,allocated_mb,us_per_vertex,delaunay_ms,snap_ms,snap_rounds,hot_pixels,verdict");
-            // warm-up: the first run of each path pays the JIT
-            var warm = Family("soup", 100);
-            new ConstrainedDelaunayMesh2().Compute(warm); new ConstrainedDelaunayMesh2 { SnapTolerance = tolerances.Max() > 0 ? tolerances.Max() : 1e-6 }.Compute(warm); Detect(warm);
+            Console.WriteLine("family,segments,crossing_pairs,contact_pairs,detect_ms,tolerance,status,vertices,used_vertices,triangles,subsegments,median_ms,min_ms,allocated_mb,us_per_used_vertex,delaunay_ms,snap_ms,snap_rounds,snapped_points,verdict");
+            foreach (var kind in kinds) if (!counts.ContainsKey(kind)) { Console.Error.WriteLine("unknown family " + kind); return 2; }
+            // warm-up: every family of the run three times at a small size on every path (tiered compilation needs more than one call)
+            foreach (var kind in kinds) {
+                var warm = Family(kind, 96);
+                for (int r = 0; r < 3; ++r) {
+                    Detect(warm);
+                    foreach (double tol in tolerances) {
+                        var result = new ConstrainedDelaunayMesh2 { SnapTolerance = tol }.Compute(warm);
+                        if (result.Mesh != null && result.Mesh.Vertices.Count >= 3) new DelaunayMesh2().Compute(Used(result.Mesh));
+                    }
+                }
+            }
             int failures = 0;
             foreach (var kind in kinds)
                 foreach (var size in sizes) {
@@ -211,15 +235,20 @@ namespace Meshing2Acceptance
                         catch (InvalidOperationException e) { Console.WriteLine(head + ",THREW " + e.Message.Replace(',', ';')); ++failures; continue; }
                         var mesh = run.result.Mesh;
                         int vertices = mesh?.Vertices.Count ?? 0;
-                        double delaunay = vertices < 3 ? 0 : Time(repeats, () => new DelaunayMesh2().Compute(mesh.Vertices.ToArray())).median;
+                        var usedPoints = mesh == null ? new Vector2d[0] : Used(mesh);
+                        int used = usedPoints.Length;
+                        double delaunay = used < 3 ? 0 : Time(repeats, () => new DelaunayMesh2().Compute(usedPoints)).median;
+                        if (run.result.Status == Triangulation2Status.Failed) ++failures;
                         // the snap rounding alone (internal to the library): its share of the time, its rounds and the hot pixels it ends with
                         string snap = ",,";
                         if (tol > 0) {
                             var alone = Time(1, () => SnapRounding2.Apply(input, tol));
-                            snap = F(alone.median) + "," + I(alone.result.Rounds) + "," + I(alone.result.Result.Points.Count);
+                            snap = F(alone.median) + "," + I(alone.result.Rounds) + "," + I(alone.result.Result.Points.Count);   // (points of the snapped input: the input's and the hot pixel centres made)
                         }
                         string verdict = "not judged";
-                        if (judge && vertices <= judgeLimit) {
+                        if (run.result.Status == Triangulation2Status.Failed)
+                            verdict = "Failed: " + run.result.FailureKind + ": " + (run.result.FailureDetail ?? "").Replace(',', ';');
+                        else if (judge && used <= judgeLimit) {
                             var m2 = MeshCommand.FromTriangle(input); m2.SnapTolerance = tol;
                             var sw = Stopwatch.StartNew();
                             var judged = MeshCommand.Run(MeshCommand.FromInput(m2, kind + "-" + I(n), Milestone.M2));
@@ -228,8 +257,8 @@ namespace Meshing2Acceptance
                                 + "; first: " + judged.Report.Violations[0].ToString().Replace(',', ';')) + " (" + F(sw.Elapsed.TotalSeconds) + " s)";
                             if (!judged.Report.Ok) ++failures;
                         }
-                        Console.WriteLine(string.Join(",", head, run.result.Status.ToString(), I(vertices), I(mesh?.TriangleCount ?? 0), I(mesh?.Subsegments.Count ?? 0),
-                            F(run.median), F(run.min), F(run.mb), vertices == 0 ? "" : F(1000 * run.median / vertices, "F2"), F(delaunay), snap, verdict));
+                        Console.WriteLine(string.Join(",", head, run.result.Status.ToString(), I(vertices), I(used), I(mesh?.TriangleCount ?? 0), I(mesh?.Subsegments.Count ?? 0),
+                            F(run.median), F(run.min), F(run.mb), used == 0 ? "" : F(1000 * run.median / used, "F2"), F(delaunay), snap, verdict));
                     }
                 }
             return failures == 0 ? 0 : 1;
