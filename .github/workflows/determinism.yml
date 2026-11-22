@@ -72,6 +72,9 @@ jobs:
           $R self-test
           $R report tools/DeterminismHarness/bin/Release/net10.0/geometry3Sharp.dll --docs docs/OPERATIONS.md --docs docs/guides \
             --harness tools/DeterminismHarness/bin/Release/net10.0/DeterminismHarness.dll
+          # the tier rule of the golden-master policy (docs/design/DETERMINISM.md 6b): a tier 1 type may not gain a libm edge
+          $R tier tools/DeterminismHarness/bin/Release/net10.0/geometry3Sharp.dll --docs docs/OPERATIONS.md --docs docs/guides \
+            --baseline tools/DeterminismReach/tier1.txt
           python3 -m unittest discover -s tools/DeterminismHarness -p 'test_scope_report.py'
 
   # arm64: the same harness on a GitHub-hosted Linux arm64 runner, compared with the x64 traces in `compare`. macOS arm64 is

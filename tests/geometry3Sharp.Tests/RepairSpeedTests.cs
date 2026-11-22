@@ -485,7 +485,7 @@ namespace geometry3Sharp.Tests
         public void MeshRobustRepair_ReportsPhaseTimes()
         {
             // clean input: repair, check and volume; two overlapping boxes as one mesh: also the exact resolve
-            var robust = new MeshRobustRepair(Box(Vector3d.Zero, Vector3d.One));
+            var robust = new MeshRobustRepair(Box(Vector3d.Zero, Vector3d.One)) { PassThroughCleanParts = false };       // (a clean input is passed through otherwise: no stage runs, #1337)
             Assert.True(robust.Apply());
             Assert.Contains("repair", robust.PhaseMilliseconds.Keys);
             Assert.Contains("check", robust.PhaseMilliseconds.Keys);

@@ -184,6 +184,15 @@ Above the 20 s line of CLAUDE.md, so it gets an issue. Diagnosis so far:
   tighter bound for pieces whose nearest triangles are coplanar with them (#873 fixed the same kind of stall in
   `MeshHausdorffDistance`).
 
+**Fixed (issue 1317).** The cause was confirmed by counting: all the time is in accepted collapses, and without the
+patch bound every piece is split down to the size of the reference triangles (the bound of an in-plane piece is 0 only
+once its corners share nearest triangles). The `Reducer`'s check now uses the patch bound, with a new rule for pieces that
+touch a boundary or a crease: the cube of 4332 triangles takes 5.8 s instead of 80 s, a flat plate of 2048 triangles
+1.8 s instead of 82 s, with the same meshes
+([ReducerBenchmark README](../../benchmarks/ReducerBenchmark/README.md#flat-inputs-flat-issue-1317-november-2026)). The
+times of A in sections 3 and 4 are from before the fix; the envelope's factor against A on curved inputs at tight
+tolerances is larger now.
+
 ## 6. How others solve it (prior-art check)
 
 Limits of this check: the session's network policy blocked the paper hosts (arxiv.org, the authors' pages, doc.cgal.org,

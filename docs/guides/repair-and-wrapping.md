@@ -67,7 +67,7 @@ if (robust.Apply()) {
 
 ### Progressive Fallback Ladder
 
-1. **Clean pass-through (`PassThroughCleanParts`, default `true`):** Closed components that are clean on their own and whose bounding boxes do not touch other components are passed through untouched (`PassedThroughTriangles`, up to 64 components).
+1. **Clean pass-through (`PassThroughCleanParts`, default `true`):** Closed components that are clean on their own and whose bounding boxes do not touch other components are passed through untouched (`PassedThroughTriangles`, up to 64 components). An input that is clean as a whole (any number of parts, their bounding boxes may meet, eg a cavity) is returned as it is too (`ResultPath` `PassThrough`, no stage runs, so `RepairVolumeIoU` and `PhaseMilliseconds` stay empty; before, the needle cleanup of the repair could move its corners, #1337), unless `ConfigureRepair` is set: a configured tolerance (eg `MinEdgeLengthTol`) asks for a change of a clean mesh, and the repair runs.
 2. **Topology-preserving repair:** Runs `MeshAutoRepair` + `MeshPostRepairCleanup`. Accepted if clean and within `MinVolumeIoU`.
 3. **Exact self-intersection resolve (`UsedExactResolve`):** Runs `ExactMeshBoolean.Resolve` with `SafeRounding` (configurable via `RoundingMaxDisplacement`, `RoundingUlpFactor`, `RoundingAbsoluteTolerance`, `RoundingMaxPairTests`, `StrictRounding`). Separates touching vertices if needed (`SeparateFraction`).
 4. **Winding-number solidification (`UsedSolidify`):** Rebuilds the solid via `MeshWindingNumberSolidify` when exact resolve cannot produce a clean result or loses volume (`UsedInput` when reverting to original input).
@@ -152,4 +152,4 @@ If verification fails, `PassageWrap` tightens `Alpha` (`×0.8`, up to 3 retries)
 - **Namespace & classes:** `gs.MeshRepairMetrics`, `gs.MeshRobustRepair.NotCleanReason` / `NotCleanReasons` / `FindDefects`, `DMesh3.CheckValidity`, `g3.MeshValidation`
 - **Example:** [RepairMetricsExample.cs](../examples/RepairMetricsExample.cs)
 
-`MeshRobustRepair.NotCleanReason(mesh)` returns `""` when the mesh is closed, manifold (no bowties), has no degenerate triangles, is consistently oriented with no inside-out components, and passes the exact self-intersection check. Call `NotCleanReasons(mesh)` or `FindDefects(mesh)` to inspect all failed checks at once.
+`MeshRobustRepair.NotCleanReason(mesh)` returns `""` when the mesh is closed, manifold (no bowties), has no degenerate triangles, is consistently oriented with no inside-out components, and passes the exact self-intersection check. Call `NotCleanReasons(mesh)` or `FindDefects(mesh)` to inspect all failed checks at once. For a boolean result, what the check says and does not say (the point set, removed components, contacts) is in [Booleans & Imprint](booleans-and-imprint.md#what-notcleanreasonresult-covers).
