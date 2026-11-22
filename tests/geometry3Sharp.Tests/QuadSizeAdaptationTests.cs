@@ -584,12 +584,182 @@ namespace geometry3Sharp.Tests
             Assert.Null(qr.Result);
         }
 
-        [Fact]
-        public void SizeAdaptation_CannotBeCombinedWithPureQuads()
+        [Theory]
+        [InlineData("sphere", SizeAdaptationMode.Scale)]
+        [InlineData("sphere", SizeAdaptationMode.ScaleAndRotation)]
+        [InlineData("torus", SizeAdaptationMode.Scale)]
+        [InlineData("torus", SizeAdaptationMode.ScaleAndRotation)]
+        public void SizeAdaptation_CombinesWithPureQuads(string name, SizeAdaptationMode mode)
         {
-            var qr = new QuadRemesher(Shape("sphere")) { Field = FieldOf("sphere"), TargetEdgeLength = S, SizeAdaptation = SizeAdaptationMode.Scale, PureQuads = true };
+            QuadRemesher uniform = Run(name, SizeAdaptationMode.Off, q => q.PureQuads = true);
+            QuadRemesher qr = Run(name, mode, q => q.PureQuads = true);
+            Assert.True(qr.SizeAdaptationApplied);
+            Assert.Equal(PureQuadStatus.Success, qr.PureQuadStatus);
+            Assert.Equal(0, qr.InvertedTriangles);
+            Assert.Equal(0, qr.FlippedQuads);
+            Assert.True(qr.MinSpacing < 1 && qr.MaxSpacing > 1);
+            PolyMeshMetrics m = CheckResult(qr.Result, name + " " + mode);
+            Assert.Equal(1.0, m.QuadFraction);
+            Assert.Equal(0, m.BoundaryVertices);
+            Assert.Equal(name == "torus" ? 0 : 2, m.EulerCharacteristic);
+            Assert.True(Invariance.Volume(qr.Result.ToDMesh3(out _)) > 0);
+            Assert.True(OneSidedHausdorff(qr.Result, Shape(name)) <= 0.5 * SizeOf(name));
+            // the size-adapted pure-quad mesh differs from the uniform pure-quad mesh
+            Assert.NotEqual(uniform.Result.FaceCount, qr.Result.FaceCount);
+        }
+
+        [Fact]
+        public void SizeAdaptation_WithPureQuads_OpenMeshFallsBackToSizeAdaptedStage2()
+        {
+            QuadRemesher stage2 = Run("cap", SizeAdaptationMode.ScaleAndRotation, q => q.PureQuads = false);
+            QuadRemesher pure = Run("cap", SizeAdaptationMode.ScaleAndRotation, q => q.PureQuads = true);
+            Assert.Equal(stage2.SizeAdaptationApplied, pure.SizeAdaptationApplied);
+            Assert.Equal(PureQuadStatus.FlowInfeasible, pure.PureQuadStatus);
+            AssertSame(stage2.Result, pure.Result);
+        }
+
+        [Fact]
+        public void SizeAdaptation_WithPureQuads_SolvePositionsRespectsLocalSpacing()
+        {
+            // single unit triangle with SpacingFactors = 3 at the frame vertex: SolvePositions must target sf = s * spc = 3,
+            // pulling the cluster separation well above 2 (whereas ignoring SpacingFactors leaves it at 1)
+            DMesh3 tri = new DMesh3();
+            tri.AppendVertex(new Vector3d(0, 0, 0));
+            tri.AppendVertex(new Vector3d(1, 0, 0));
+            tri.AppendVertex(new Vector3d(1, 0.5, 0));
+            tri.AppendTriangle(0, 1, 2);
+            var cf = new CrossField(tri);
+            var pf = new PositionField(tri, cf) { TargetEdgeLength = 1.0, SpacingFactors = new[] { 3.0, 3.0, 3.0 } };
+
+            var repairType = typeof(QuadFlowRepair);
+            var any = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+            var offType = repairType.GetNestedType("Off", any);
+            var triType = repairType.GetNestedType("Tri", any);
+            object t = Activator.CreateInstance(triType);
+            triType.GetField("V").SetValue(t, new[] { 0, 1, 2 });
+            triType.GetField("Fa").SetValue(t, 0);
+            Array offs = Array.CreateInstance(offType, 3);
+            offs.SetValue(Activator.CreateInstance(offType, 1, 0), 0);
+            offs.SetValue(Activator.CreateInstance(offType, 0, 0), 1);
+            offs.SetValue(Activator.CreateInstance(offType, -1, 0), 2);
+            triType.GetField("D").SetValue(t, offs);
+
+            var r = new QuadFlowRepair(tri, cf, pf, 1.0);
+            repairType.GetField("maxV", any).SetValue(r, 3);
+            repairType.GetField("Q", any).SetValue(r, new[] { Vector3d.AxisX, Vector3d.AxisX, Vector3d.AxisX });
+            repairType.GetField("T", any).SetValue(r, new[] { Vector3d.AxisY, Vector3d.AxisY, Vector3d.AxisY });
+            ((System.Collections.IList)repairType.GetField("tris", any).GetValue(r)).Add(t);
+            var vp = (List<Vector3d>)repairType.GetField("VP", any).GetValue(r);
+            vp.Add(new Vector3d(0, 0, 0));
+            vp.Add(new Vector3d(1, 0, 0));
+            vp.Add(new Vector3d(1, 0.5, 0));
+
+            Vector3d[] pos = (Vector3d[])repairType.GetMethod("SolvePositions", any).Invoke(r, null);
+            Assert.NotNull(pos);
+            // analytic solution for anchor = 0.5, 2 edges between clusters, m1 - m0 = 1, sf = 3 is (1 + 8*3)/9 = 2.778 (vs 1.0 if sf = 1)
+            Assert.True(pos[1].x - pos[0].x > 2.5, "expected SolvePositions to scale target offset by SpacingFactors, got dx=" + (pos[1].x - pos[0].x));
+        }
+
+        [Theory]
+        [MemberData(nameof(Names))]
+        public void SizeAdaptation_WithPureQuads_IsInvariantUnderSimilarities(string name)
+        {
+            Similarity sim = Similarity.ByName(name);
+            foreach (SizeAdaptationMode mode in new[] { SizeAdaptationMode.Scale, SizeAdaptationMode.ScaleAndRotation }) {
+                QuadRemesher baseRun = Run("sphere", mode, q => q.PureQuads = true);
+                Assert.True(baseRun.SizeAdaptationApplied);
+                Assert.Equal(PureQuadStatus.Success, baseRun.PureQuadStatus);
+
+                DMesh3 t = Invariance.Transformed(Shape("sphere"), sim);
+                var cf = new CrossField(t);
+                Assert.Equal(CrossFieldStatus.Success, cf.Compute());
+                var qr = new QuadRemesher(t) { Field = cf, TargetEdgeLength = sim.Scale * S, SizeAdaptation = mode, PureQuads = true };
+                Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+                Assert.True(qr.SizeAdaptationApplied);
+                Assert.Equal(PureQuadStatus.Success, qr.PureQuadStatus);
+                PolyMeshMetrics m = CheckResult(qr.Result, name + " " + mode);
+                Assert.Equal(1.0, m.QuadFraction);
+                Assert.Equal(0, m.BoundaryVertices);
+                Assert.Equal(2, m.EulerCharacteristic);
+                Assert.Equal(0, qr.InvertedTriangles);
+                Assert.Equal(0, qr.FlippedQuads);
+                Assert.True(Invariance.Volume(qr.Result.ToDMesh3(out _)) > 0);
+                if (sim.IsExact) {
+                    AssertSame(baseRun.Result, qr.Result, sim.Scale);
+                } else {
+                    Assert.InRange(m.Faces, 0.85 * baseRun.Result.FaceCount, 1.15 * baseRun.Result.FaceCount);
+                    Assert.True(OneSidedHausdorff(qr.Result, t) <= 0.5 * sim.Scale * S, name + " " + mode + ": Hausdorff");
+                }
+            }
+        }
+
+        [Fact]
+        public void SizeAdaptation_WithPureQuads_IsDeterministicAndReusable()
+        {
+            QuadRemesher serial = Run("sphere", SizeAdaptationMode.ScaleAndRotation, q => { q.PureQuads = true; q.Parallel = false; q.ChunkSize = 4; });
+            QuadRemesher parallel = Run("sphere", SizeAdaptationMode.ScaleAndRotation, q => { q.PureQuads = true; q.Parallel = true; q.ChunkSize = 3; });
+            Assert.Equal(PureQuadStatus.Success, serial.PureQuadStatus);
+            Assert.Equal(PureQuadStatus.Success, parallel.PureQuadStatus);
+            AssertSame(serial.Result, parallel.Result);
+
+            // reuse one instance across Off -> Scale -> failed ScaleAndRotation -> ScaleAndRotation -> Off
+            var qr = new QuadRemesher(Shape("sphere")) { Field = FieldOf("sphere"), TargetEdgeLength = S, PureQuads = true };
+            qr.SizeAdaptation = SizeAdaptationMode.Off;
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.False(qr.SizeAdaptationApplied);
+            Assert.Equal(1.0, qr.MinSpacing);
+            Assert.Equal(1.0, qr.MaxSpacing);
+            DPolyMesh off1 = qr.Result;
+
+            qr.SizeAdaptation = SizeAdaptationMode.Scale;
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.True(qr.SizeAdaptationApplied);
+            Assert.Equal(PureQuadStatus.Success, qr.PureQuadStatus);
+            Assert.True(qr.MinSpacing < 1 && qr.MaxSpacing > 1);
+
+            // a failed Compute() with SizeAdaptation enabled leaves no stale state for the next call
+            qr.SizeAdaptation = SizeAdaptationMode.ScaleAndRotation;
+            qr.TargetEdgeLength = -1;
             Assert.Equal(QuadRemeshStatus.InvalidInput, qr.Compute());
             Assert.Null(qr.Result);
+            Assert.False(qr.SizeAdaptationApplied);
+            Assert.Equal(PureQuadStatus.NotRequested, qr.PureQuadStatus);
+
+            // a failing pure-quad fallback with SizeAdaptation active also leaves no stale state for the next call
+            var qrFail = new QuadRemesher(Shape("sphere")) { Field = FieldOf("sphere"), TargetEdgeLength = 0.25, PureQuads = true, SizeAdaptation = SizeAdaptationMode.ScaleAndRotation, SignPenalty = false };
+            Assert.Equal(QuadRemeshStatus.Success, qrFail.Compute());
+            Assert.True(qrFail.SizeAdaptationApplied);
+            Assert.NotEqual(PureQuadStatus.Success, qrFail.PureQuadStatus);
+            qrFail.SignPenalty = true;
+            Assert.Equal(QuadRemeshStatus.Success, qrFail.Compute());
+            Assert.True(qrFail.SizeAdaptationApplied);
+            // the second Compute() is the same as a fresh instance with the same options, whatever its status (success or the stage 2 fallback)
+            QuadRemesher fresh = Run("sphere", SizeAdaptationMode.ScaleAndRotation, q => { q.PureQuads = true; q.TargetEdgeLength = 0.25; });
+            Assert.Equal(fresh.PureQuadStatus, qrFail.PureQuadStatus);
+            Assert.Equal(fresh.InvertedTriangles, qrFail.InvertedTriangles);
+            Assert.Equal(fresh.FlippedQuads, qrFail.FlippedQuads);
+            AssertSame(fresh.Result, qrFail.Result);
+
+            qr.TargetEdgeLength = S;
+            qr.SizeAdaptation = SizeAdaptationMode.ScaleAndRotation;
+            qr.SignPenalty = true;
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.True(qr.SizeAdaptationApplied);
+            Assert.Equal(PureQuadStatus.Success, qr.PureQuadStatus);
+            Assert.Equal(0, qr.InvertedTriangles);
+            Assert.Equal(0, qr.FlippedQuads);
+            Assert.Equal(serial.MinSpacing, qr.MinSpacing);
+            Assert.Equal(serial.MaxSpacing, qr.MaxSpacing);
+            AssertSame(serial.Result, qr.Result);
+
+            qr.SizeAdaptation = SizeAdaptationMode.Off;
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.False(qr.SizeAdaptationApplied);
+            Assert.Equal(1.0, qr.MinSpacing);
+            Assert.Equal(1.0, qr.MaxSpacing);
+            Assert.Equal(0, qr.InvertedTriangles);
+            Assert.Equal(0, qr.FlippedQuads);
+            AssertSame(off1, qr.Result);
         }
 
         [Fact]
@@ -606,6 +776,49 @@ namespace geometry3Sharp.Tests
             Assert.Equal(fr.MaxSpacing, qr.MaxSpacing);
             // fewer steps lower the curl less than the default
             Assert.True(fr.CurlAfter > Run("sphere", SizeAdaptationMode.Scale).CurlAfter);
+        }
+
+        [Fact]
+        public void Frames_FactorizationFailure_ReturnsNoSolution()
+        {
+            // A strictly flat square has zero curl, so J*1 = 0 and J^T J is singular; a damping below Cholesky's pivot
+            // threshold (1e-14 * diag) makes the initial factorization fail, which must report NoSolution rather than Success.
+            var m = new DMesh3();
+            m.AppendVertex(new Vector3d(0, 0, 0));
+            m.AppendVertex(new Vector3d(1, 0, 0));
+            m.AppendVertex(new Vector3d(1, 1, 0));
+            m.AppendVertex(new Vector3d(0, 1, 0));
+            m.AppendTriangle(0, 1, 2);
+            m.AppendTriangle(0, 2, 3);
+            var cf = new CrossField(m);
+            Assert.Equal(CrossFieldStatus.Success, cf.Compute());
+            var fr = new IntegrableFrames(m, cf) { TargetEdgeLength = 1, UseRotation = false, Damping = 1e-20 };
+            Assert.Equal(IntegrableFramesStatus.NoSolution, fr.Compute());
+            Assert.False(fr.Success);
+            Assert.NotNull(fr.Error);
+            Assert.Equal(0, fr.StepsTaken);
+            Assert.True(fr.Seconds >= 0);
+            foreach (int v in m.VertexIndices()) Assert.Equal(1.0, fr.Spacing[v]);
+        }
+
+        [Fact]
+        public void SizeAdaptation_PositionSeconds_ExcludesSizeAdaptationTime()
+        {
+            // Force repeated factorizations in IntegrableFrames and few position sweeps so SizeSeconds dominates;
+            // PositionSeconds must measure only the position field, not include SizeSeconds.
+            var fr = new IntegrableFrames(null, null) { Iterations = 20, RefactorEvery = 1, StopTolerance = 0 };
+            var qr = new QuadRemesher(Shape("sphere")) { Field = FieldOf("sphere"), TargetEdgeLength = SizeOf("sphere"), SizeAdaptation = SizeAdaptationMode.ScaleAndRotation, Frames = fr, Sweeps = 5 };
+            var wall = System.Diagnostics.Stopwatch.StartNew();
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            wall.Stop();
+            CheckResult(qr.Result, "position-seconds");
+            Assert.True(qr.SizeAdaptationApplied);
+            Assert.True(qr.SizeSeconds > 0, "SizeSeconds " + qr.SizeSeconds);
+            // Structural, not a comparison of two timings: the disjoint phases cannot sum to more than the wall time
+            // of the whole run (a PositionSeconds that included SizeSeconds would exceed it by about SizeSeconds).
+            Assert.True(qr.PositionSeconds >= 0);
+            Assert.True(qr.SizeSeconds + qr.PositionSeconds + qr.ExtractSeconds <= wall.Elapsed.TotalSeconds + 1e-3,
+                "phases " + qr.SizeSeconds + " + " + qr.PositionSeconds + " + " + qr.ExtractSeconds + " exceed wall " + wall.Elapsed.TotalSeconds);
         }
     }
 }
