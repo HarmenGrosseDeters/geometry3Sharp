@@ -288,7 +288,9 @@ not depend on the implementer's own tests. Order of priority:
     commutativity; subdividing input triangles or permuting triangle / vertex order leaves the result geometry
     unchanged. The [Boolean plan](../design/BOOLEAN_PROPERTY_TESTS.md) includes independent analytic box oracles,
     triangulation-independent comparisons and orientation-preserving transformations, without changes to
-    `ExactMesh*`. Other modules: terrain: never steeper, cut + fill consistent; 2D meshing: input segments are
+    `ExactMesh*`. `ExactBooleanFuzzTests` (2026-11-22, [research note](../research/EXACT_BOOLEAN_FUZZ_2026-11.md)) checks the
+    set identities exactly on near-degenerate generated solids (an exact surface fingerprint, no tolerance): a seeded smoke
+    per family in the PR tier, the campaign in the Nightly tier. Other modules: terrain: never steeper, cut + fill consistent; 2D meshing: input segments are
     unions of output edges.
     Symmetry and cost relations (S1, C1, C2 of [METAMORPHIC_RELATIONS.md](../design/METAMORPHIC_RELATIONS.md)):
     `SymmetryInvarianceTests` maps the input by one of the 48 symmetries of the cube (`Harness/Symmetry.cs`; exact, 24 are

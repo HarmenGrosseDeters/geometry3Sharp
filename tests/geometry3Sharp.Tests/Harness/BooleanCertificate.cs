@@ -1174,6 +1174,10 @@ namespace geometry3Sharp.Tests
             // (the boxes of the exact triangles from rounded corners: a pad of Delta plus a relative 1e-12 of the extent and
             // the coordinates is far above the rounding of the box corners)
             double pad = Delta * 1.001 + 1e-12 * (all.MaxDim + Math.Abs(all.Min.x) + Math.Abs(all.Min.y) + Math.Abs(all.Min.z) + Math.Abs(all.Max.x) + Math.Abs(all.Max.y) + Math.Abs(all.Max.z)) + 1e-300;
+            // (the grid over the padded extent: with the unpadded one, a result thinner than Delta in all directions, eg a sliver
+            // of a few units in the last place, gave cells far smaller than the pad, and one padded box filled (pad / cell)^3 of
+            // them: out of memory after 100 s on a result of 4 triangles, found by ExactBooleanFuzzTests)
+            all.Expand(pad);
             var grid = new BoxGrid(all, to.Count);
             for (int j = 0; j < to.Count; ++j) {
                 var b = toBoxes[j]; b.Expand(pad); grid.Add(j, b);
