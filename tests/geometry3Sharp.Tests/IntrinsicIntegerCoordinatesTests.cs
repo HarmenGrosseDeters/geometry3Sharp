@@ -737,6 +737,88 @@ namespace geometry3Sharp.Tests
             var split = new IntrinsicTriangulation(mesh);
             Assert.True(split.SplitEdge(Enumerable.Range(0, split.HalfedgeCount).First(h => split.Twin(h) < 0), 0.5) >= 0);
             Assert.False(split.EnableIntegerCoordinates());
+
+            var interiorSplit = new IntrinsicTriangulation(mesh);
+            Assert.True(interiorSplit.SplitEdge(Enumerable.Range(0, interiorSplit.HalfedgeCount).First(h => interiorSplit.Twin(h) >= 0), 0.5) >= 0);
+            Assert.False(interiorSplit.EnableIntegerCoordinates());
+            Assert.False(interiorSplit.HasIntegerCoordinates);
+
+            var inserted = new IntrinsicTriangulation(mesh);
+            inserted.GetTriangleLayout(0, out Vector2d q0, out Vector2d q1, out Vector2d q2);
+            Assert.True(inserted.InsertVertex(0, (q0 + q1 + q2) / 3) >= 0);
+            Assert.False(inserted.EnableIntegerCoordinates());
+            Assert.False(inserted.HasIntegerCoordinates);
+            Assert.Equal(CommonSubdivisionStatus.Success, inserted.ExtractCommonSubdivision().Status);
+        }
+
+        // the square of two triangles; diag: the halfedge of its diagonal
+        static IntrinsicTriangulation Square(out DMesh3 mesh, out int diag)
+        {
+            mesh = ShearedGrid(1, 1, 0, Similarity.Identity);
+            var T = new IntrinsicTriangulation(mesh);
+            Assert.True(T.EnableIntegerCoordinates());
+            diag = Enumerable.Range(0, T.HalfedgeCount).First(h => T.Twin(h) >= 0);
+            return T;
+        }
+
+        [Fact]
+        public void InputEdgeThatIsMissing_IsReportedAsInconsistent()
+        {
+            // the diagonal marked as an edge that no input edge crosses or lies on. Both its end vertices have no
+            // next halfedge around them, so the roundabouts do not show it: only the count of the input edges does
+            var T = Square(out DMesh3 mesh, out int diag);
+            T.set_integer_coordinates(diag, 0, T.roundabout(diag));
+            var cs = T.ExtractCommonSubdivision();
+            Assert.Equal(CommonSubdivisionStatus.Inconsistent, cs.Status);
+            Assert.Contains("0 of 1 interior input edges found", cs.Error);
+            Assert.Empty(cs.Faces);
+        }
+
+        [Fact]
+        public void FlipBeyondTheIntRange_SwitchesTheLayerOff_AndTheExtractionTraces()
+        {
+            // 2^30 arcs around each of the two far corners of the diagonal: the flipped diagonal would be crossed
+            // 2^31 times. The flip is made, the integers are dropped, and the extraction traces
+            var T = Square(out DMesh3 mesh, out int diag);
+            foreach (int h in new[] { IntrinsicTriangulation.Next(diag), IntrinsicTriangulation.Prev(diag),
+                    IntrinsicTriangulation.Next(T.Twin(diag)), IntrinsicTriangulation.Prev(T.Twin(diag)) })
+                T.set_integer_coordinates(h, 1 << 30, T.roundabout(h));
+            T.set_integer_coordinates(diag, 0, T.roundabout(diag));
+            Assert.True(T.FlipEdge(diag));
+            Assert.False(T.HasIntegerCoordinates);
+            Assert.False(T.EnableIntegerCoordinates());
+            var cs = T.ExtractCommonSubdivision();
+            Assert.Equal(CommonSubdivisionStatus.Success, cs.Status);
+            Assert.Equal(5, cs.Points.Count);
+            Assert.Equal(4, cs.Faces.Count);
+            // one step below the limit the layer stays
+            var U = Square(out mesh, out diag);
+            foreach (int h in new[] { IntrinsicTriangulation.Next(diag), IntrinsicTriangulation.Prev(diag) })
+                U.set_integer_coordinates(h, 1 << 30, U.roundabout(h));
+            foreach (int h in new[] { IntrinsicTriangulation.Next(U.Twin(diag)), IntrinsicTriangulation.Prev(U.Twin(diag)) })
+                U.set_integer_coordinates(h, (1 << 30) - 1, U.roundabout(h));
+            U.set_integer_coordinates(diag, 0, U.roundabout(diag));
+            Assert.True(U.FlipEdge(diag));
+            Assert.True(U.HasIntegerCoordinates);
+            Assert.Equal(int.MaxValue, U.normal_coordinate(diag));
+        }
+
+        [Fact]
+        public void TooManyCrossings_AreReported_NotAllocated()
+        {
+            // counts that are consistent in themselves (arcs around the two far corners), above the limit of
+            // crossings: a status, before anything of that size is allocated
+            var T = Square(out DMesh3 mesh, out int diag);
+            int big = IntrinsicTriangulation.MaxCrossings;
+            foreach (int h in new[] { IntrinsicTriangulation.Next(diag), IntrinsicTriangulation.Prev(diag),
+                    IntrinsicTriangulation.Next(T.Twin(diag)), IntrinsicTriangulation.Prev(T.Twin(diag)) })
+                T.set_integer_coordinates(h, big, T.roundabout(h));
+            T.set_integer_coordinates(diag, 0, T.roundabout(diag));
+            var cs = T.ExtractCommonSubdivision();
+            Assert.Equal(CommonSubdivisionStatus.Inconsistent, cs.Status);
+            Assert.Contains("too many crossings", cs.Error);
+            Assert.Empty(cs.Faces);
+            Assert.Empty(cs.Points);
         }
 
         [Theory]

@@ -56,6 +56,13 @@ namespace gs
         /// <summary> largest relative difference between an input triangle area and the sum of its faces </summary>
         public double MaxInputAreaError;
         /// <summary> largest relative difference between an intrinsic triangle area and the sum of its faces (at most 1e-6 on Success, except from integer coordinates: reported only, see ExtractCommonSubdivision) </summary>
+        /// <remarks>
+        /// From integer coordinates (IntrinsicTriangulation.EnableIntegerCoordinates) this value is not checked
+        /// against a tolerance, and it is the only sign of bad positions: the faces tile the input triangles by
+        /// construction, and a crossing whose unfolded position is wrong is clamped to the order along its input
+        /// edge (faces of area 0). A caller that needs the positions, not only the connectivity, should require
+        /// MaxIntrinsicAreaError of at most 1e-6 (the tolerance of the traced extraction) itself.
+        /// </remarks>
         public double MaxIntrinsicAreaError;
 
         /// <summary>

@@ -62,6 +62,9 @@ namespace gs
 
         void drop_integer_coordinates() { hN = null; hR = null; }
 
+        // largest number of crossings the extraction from the integers accepts (2^27; Inconsistent above)
+        internal const int MaxCrossings = 1 << 27;
+
         // (for tests of the consistency checks only) overwrites the integers of halfedge h and, for n, of its twin
         internal void set_integer_coordinates(int h, int n, int r)
         {
@@ -114,7 +117,9 @@ namespace gs
         // k -> l in ha, l -> k in ta
         void set_flipped_coordinates(int ha, int ta, long twice)
         {
-            // (an odd count cannot happen; a count beyond int would be a subdivision too large to index)
+            // an odd count is an internal error (the terms of eq. 3 always sum to a whole number); a count beyond
+            // int would be a subdivision too large to index. Both switch the layer off: the extraction traces.
+            System.Diagnostics.Debug.Assert((twice & 1) == 0, "integer coordinates: odd flip count");
             if ((twice & 1) != 0 || twice / 2 > int.MaxValue) { drop_integer_coordinates(); return; }
             hN[ha] = hN[ta] = (int)(twice / 2);
             // k -> l follows k -> i (now Next(ta)) counter-clockwise around k, l -> k follows l -> j (Next(ha))
@@ -255,7 +260,8 @@ namespace gs
                 if (hN[h] == -1 && tw >= 0) interiorShared++;
                 baseId[h] = (int)(N + total);
                 total += pos(hN[h]);
-                if (N + total > int.MaxValue) return fail("too many crossings");
+                // (about 50 bytes per crossing are allocated below: a status, not an out-of-memory error)
+                if (total > MaxCrossings) return fail("too many crossings (more than " + MaxCrossings + ")");
             }
             int X = (int)total;
             Func<int, int, int> idOf = (h, p) => {
@@ -271,8 +277,13 @@ namespace gs
             double[] xS = new double[X];
             for (int k = 0; k < X; ++k) xCurve[k] = -1;
             var cV = new List<int>(); var cW = new List<int>(); var cLeft = new List<int>(); var cRight = new List<int>();
+            // every traced input edge starts at two corners and has a crossing: at most 2 X starts
             int[] fanBase = new int[H + 1];
-            for (int h = 0; h < H; ++h) fanBase[h + 1] = fanBase[h] + (int)emanating(h);
+            for (int h = 0; h < H; ++h) {
+                long starts = fanBase[h] + emanating(h);
+                if (starts > 2L * X) return fail("more input edges start at corners than the crossings allow");
+                fanBase[h + 1] = (int)starts;
+            }
             bool[] done = new bool[fanBase[H]];
             var listH = new List<int>(); var listP = new List<int>();
             double[] sC = new double[16];
@@ -329,6 +340,8 @@ namespace gs
             for (int k = 0; k < X; ++k) if (xCurve[k] < 0) return fail("crossing on no input edge");
             int inputInterior = 0;
             for (int ih = 0; ih < 3 * F0; ++ih) if (inTwin[ih] > ih) inputInterior++;
+            // (an input edge that is neither traced nor an intrinsic edge: the roundabouts around its end vertices
+            // show it, except where both ends have no next halfedge around them)
             if (cV.Count + interiorShared != inputInterior)
                 return fail((cV.Count + interiorShared) + " of " + inputInterior + " interior input edges found");
 
