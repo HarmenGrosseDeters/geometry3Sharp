@@ -228,11 +228,52 @@ namespace geometry3Sharp.Tests
             Assert.True(zeros > 1000, $"only {zeros} of {n} cases with an exact zero");
         }
 
+        // #1348: the shift 2^m reaches +-2098 over the whole double range; a clamp at 2000 made the scaled direction too
+        // small (or zero) and returned the origin for a finite nonzero direction
+        [Theory]
+        [InlineData(1000, -1074)]
+        [InlineData(1000, -1070)]
+        [InlineData(1022, -1074)]
+        [InlineData(-1074, 1000)]
+        [InlineData(-1074, 1023)]
+        [InlineData(-1070, 1000)]
+        [InlineData(0, -1074)]
+        [InlineData(-1074, 0)]
+        public void SecondPoint_ExtremeExponentGaps_NeverReturnTheOrigin(int ko, int kd)
+        {
+            // origin and direction along the same axis: p must differ from the origin and lie ahead of it, at every
+            // power of two (also the subnormal ones), with the scaled twin p(2^k o, 2^k d) = 2^k p(o, d)
+            Func<int, double> pow2 = (k) => ExactPoint3.ScaleB(1.0, k);
+            for (int axis = 0; axis < 3; ++axis) {
+                var o = new Vector3d(); var d = new Vector3d();
+                o[axis] = pow2(ko); d[axis] = pow2(kd);
+                var p = ExactRayTriangle.SecondPoint(o, d);
+                Assert.True(p[axis] > o[axis], $"axis {axis}: {p}");
+                Assert.Equal(o[(axis + 1) % 3], p[(axis + 1) % 3]);
+                int k = (ko > 0 && kd > 0) ? -10 : (ko < -1000 || kd < -1000) ? 0 : 10;
+                if (ko + k > 1023 || kd + k > 1023 || ko + k < -1022 || kd + k < -1022 || Math.Abs(p[axis]) < 1e-300) continue;
+                var o2 = new Vector3d(); var d2 = new Vector3d();
+                o2[axis] = pow2(ko + k); d2[axis] = pow2(kd + k);
+                Assert.Equal(ExactPoint3.ScaleB(p[axis], k), ExactRayTriangle.SecondPoint(o2, d2)[axis]);
+            }
+        }
+
+        [Fact]
+        public void SecondPoint_ReturnsTheOriginOnlyForAZeroOrNonFiniteDirection()
+        {
+            var o = new Vector3d(Math.Pow(2, 1000), 0, 0);
+            Assert.Equal(o, ExactRayTriangle.SecondPoint(o, Vector3d.Zero));
+            Assert.Equal(o, ExactRayTriangle.SecondPoint(o, new Vector3d(double.NaN, 0, 0)));
+            Assert.Equal(o, ExactRayTriangle.SecondPoint(o, new Vector3d(0, double.PositiveInfinity, 0)));
+            Assert.NotEqual(o, ExactRayTriangle.SecondPoint(o, new Vector3d(Math.Pow(2, -1074), 0, 0)));
+            Assert.NotEqual(o, ExactRayTriangle.SecondPoint(o, new Vector3d(0, -Math.Pow(2, -1074), 0)));
+        }
+
         [Fact]
         public void SecondPoint_IsOriginPlusDirectionScaledByTheDocumentedPowerOfTwo()
         {
-            // p = origin + ScaleB(direction, m), m = e(max |origin|) - e(max |direction|) + 1 clamped to +-2000 (0 for
-            // a zero origin), bit for bit: the one-multiplication path for a normal 2^m and the ScaleB path beyond,
+            // p = origin + ScaleB(direction, m), m = e(max |origin|) - e(max |direction|) + 1 (0 for
+            // a zero origin; no clamp: |m| reaches 2098), bit for bit: the one-multiplication path for a normal 2^m and the ScaleB path beyond,
             // with subnormal and overflowing products
             Func<double, int> e = (x) => {
                 long bits = BitConverter.DoubleToInt64Bits(Math.Abs(x));
@@ -249,7 +290,7 @@ namespace geometry3Sharp.Tests
                 var o = (i % 50 == 0) ? Vector3d.Zero : new Vector3d(val(ko), val(ko - rnd.Next(60)), val(ko - rnd.Next(1100)));
                 var d = new Vector3d(val(kd), val(kd - rnd.Next(60)), val(kd - rnd.Next(1100)));
                 if (maxAbs(d) == 0) continue;
-                int m = maxAbs(o) > 0 ? Math.Max(-2000, Math.Min(2000, e(maxAbs(o)) - e(maxAbs(d)) + 1)) : 0;
+                int m = maxAbs(o) > 0 ? e(maxAbs(o)) - e(maxAbs(d)) + 1 : 0;
                 var expected = o + new Vector3d(ExactPoint3.ScaleB(d.x, m), ExactPoint3.ScaleB(d.y, m), ExactPoint3.ScaleB(d.z, m));
                 bool finite = !double.IsNaN(expected.x + expected.y + expected.z) && !double.IsInfinity(expected.x + expected.y + expected.z);
                 var p = ExactRayTriangle.SecondPoint(o, d);
