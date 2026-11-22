@@ -14,8 +14,8 @@ namespace geometry3Sharp.Tests
     ///
     /// Mutants of the shard (spatial/ExactWindingCache.cs, the BoundaryTree) that are argued equivalent, by group (a mutant of a
     /// bound is never "equivalent by margin": each reason below is about the values the code computes, not about a slack):
-    ///  - EvaluateAbove / EvaluateAbsAbove / TryEvaluate guards `triCount == 0 || !is_finite(p)` (`&amp;&amp;`): the early return is
-    ///    the same 0.0 that Evaluate returns for an empty tree or a point that is not finite, so the value does not change.
+    ///  - (the early return `triCount == 0 || !is_finite(p)` of the two threshold queries is NOT equivalent under `&amp;&amp;`: a non-finite point
+    ///    of a mesh with triangles would take the direct sum, which is NaN; killed by `ThresholdQueries_EmptyNonFiniteAndSoup`.)
     ///  - `Evaluate(p) &gt;= iso` / `Math.Abs(Evaluate(p)) &gt;= iso` in the non-finite-iso branch: for iso = +-infinity or NaN and a finite
     ///    Evaluate(p), `&gt;` and `&gt;=` agree. (The un-negated `!is_finite(iso)` is killed: the tree is built for a finite iso only.)
     ///  - `decided &gt;= 0` for `decided &gt; 0`: inside `if (decided != 0)`, decided is never 0.
@@ -24,10 +24,13 @@ namespace geometry3Sharp.Tests
     ///  - (the `?? new int[..]` and `sp + 2 &gt;= stack.Length` mutants are killed by `TreeTraversal_StackGrowsExactlyWhenItIsFull_...`: the
     ///    stack is reused, and it grows only when full.)
     ///  - `left &gt; 0` for `left &gt;= 0`: a child node is never node 0 (node 0 is the first root).
-    ///  - `is_finite(bSum) || is_finite(bErr)` and the `!is_finite(chord / halfOmega / nodeErr)` guards and their -1 results,
-    ///    and the `!is_finite(c, rUp, va, vaError, aAbsVal, l1)` guard of the build: unreachable, because the build rejects a mesh
-    ///    with a coordinate above 1e65, the query rejects distances outside 1e-70 .. 1e70, and then every product, sum and
-    ///    square root in between is finite (the largest, a cross product of two vectors of 2e65, is 1e131); they are defensive.
+    ///  - `is_finite(bSum) || is_finite(bErr)` and the `!is_finite(chord / halfOmega / nodeErr)` guards and their -1 results, and the
+    ///    `!is_finite(c, rUp, va, vaError, aAbsVal, l1)` guard of the build: unreachable. What bounds the values: the build drops
+    ///    non-finite triangles and returns null for a coordinate above 1e65; the query refuses pm above 1e70 and keeps the squared
+    ///    distance in [1e-140, 1e140]; the range alone does not bound halfOmega (1/d^3 reaches 1e210), but a node is used only
+    ///    after `r &lt; d / 4`, and |va| is at most count r^2 (a sum of cross products of vectors within r of the centre), so
+    ///    |halfOmega| = 0.5 |halfVa . dx| / d^3 is at most 0.25 count (r/d)^2, below count / 64; `coord_eps_small` bounds coordEps; chord
+    ///    is an angle (at most pi); so every term is finite.
     ///  - `range &lt;= 0` for `range &lt; 0` in node_query: range is not 0 there.
     ///  - chord `a0.x != ak.x` (and the conditional that never takes the shortcut): for a node whose end points agree in y and z
     ///    the edge runs along x, and the angle of an edge along x is exactly 0 (num = a.z b.y - a.y b.z = 0, den &gt; 0), the value
@@ -37,8 +40,8 @@ namespace geometry3Sharp.Tests
     ///    has no end points), so every vertex is the start of one edge and the end of another; the line of `ma` and the line of
     ///    `mb` see the same vertices and each alone gives the same mMax. NOT equivalent, and killed by `TreeBuild_MMaxKeepsTheLargest`:
     ///    `ma &lt; mMax` and `!(ma &gt; mMax)` (and the same for mb), which LOWER mMax when a later edge is smaller than an earlier huge
-    ///    one, so that the tree is built past the 1e65 gate (a grid plus a triangle with a point at -1e66). `mMax &gt;= 0.0`: mMax is
-    ///    0 only without a boundary edge of length greater than 0.
+    ///    one, so that the tree is built past the 1e65 gate (a grid plus a triangle with a point at -1e66). `mMax &gt;= 0.0`: add_edge skips degenerate edges, so
+    ///    mMax == 0 means no edge, and the build has already returned at n &lt; 16.
     ///  - `indegree[kb] = deg - 1`: only ContainsKey of the dictionary is read. `pass &lt;= 2`: a third pass finds no unused edge.
     ///    List capacities (`nu + 32`, `estNodes`): a hint. `lv &gt;= r`, `vm1 &gt;= l1`: the same maximum. `(b - a) &gt;&gt;&gt; 1`: b - a is
     ///    positive there.
@@ -422,6 +425,17 @@ namespace geometry3Sharp.Tests
             ExactWindingCache sc = Cache(soup);
             Assert.True(sc.UseDirectSum);
             Assert.False(sc.HasBoundaryTree);
+            // a point that is not finite, with a negative iso too: both the direct sum (a soup) and the tree (the grid) answer 0 > iso,
+            // as Evaluate does; the direct sum of a NaN point would be NaN and answer false
+            foreach (Vector3d bad in new[] { new Vector3d(double.NaN, 0, 0), new Vector3d(0, double.PositiveInfinity, 0), new Vector3d(0, 0, double.NegativeInfinity) }) {
+                foreach (double iso in new[] { -1.0, -0.5, 0.0, 0.5, 1.0 }) {
+                    foreach (ExactWindingCache c in new[] { sc, grid }) {
+                        Assert.Equal(0.0 > iso, c.EvaluateAbove(bad, iso));
+                        Assert.Equal(0.0 > iso, c.EvaluateAbsAbove(bad, iso));
+                        Assert.Equal(0.0, c.Evaluate(bad));
+                    }
+                }
+            }
             var rnd = new Random(6);
             for (int i = 0; i < 40; ++i) {
                 var p = new Vector3d(rnd.NextDouble() * 30, rnd.NextDouble() * 21, rnd.NextDouble() * 7);
