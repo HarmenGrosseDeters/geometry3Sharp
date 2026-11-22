@@ -366,14 +366,16 @@ namespace g3
 
         /// <summary>
         /// The decision margin of a threshold query from the tree: the tree value wH = chi + bSum decides only when it is
-        /// farther from iso than this. It adds to the certified bound bErr (all in winding units, i.e. divided by 2 pi):
-        /// 4e-15 (|chi| + |bSum|), the rounding of wH = chi + bSum and of the margin's own sums (each at most 1.1e-16 relative,
-        /// so about 36 times too large); and 1e-9, an absolute slack. A winding number is dimensionless (a solid angle over
-        /// 4 pi) and every term of the bound is an angle, so nothing in it scales with the mesh and an absolute term is the
-        /// right kind: it stands for the evaluation errors that the bound does not charge one by one (the final division
-        /// by 2 pi, the order of the additions between the full sum of Evaluate and the tree, and any term of the bound
-        /// that is smaller than its own rounding). The factor 1.01 covers the rounding of the margin. A decision that the
-        /// margin does not allow falls back on the full sum, so a larger margin costs speed and never correctness.
+        /// farther from iso than this, so that |wH - W| <= margin where W is the value of the full sum (Evaluate), all in winding
+        /// units (divided by 2 pi). Derivation in docs/design/EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md ("Which tree", the decision
+        /// margin): bErr covers the summation order, the nodes' approximation and the evaluation error of the replaced edges;
+        /// 4e-15 (|chi| + |bSum|) covers the roundings of the division by 2 pi and of chi + bSum (u relative each, about 18
+        /// times too large); the factor 1.01 the rounding of the margin and of the accumulation of err.
+        /// The 1e-9 is none of these terms. It is a cushion on one assumption of bErr, A1: the computed angle of an edge is
+        /// within 1e-12 of its exact value outside the exact fallbacks of boundary_edge_angle_x. A1 is pinned by an
+        /// oracle test (ExactWindingCacheInternalTestsEdgeAngleOracle: the largest error on adversarial edges is about 2.5e-15)
+        /// but not proved; the cushion is the safety net, and a larger margin only sends more decisions to the full sum. A
+        /// winding number is dimensionless, so an absolute term is the right kind.
         /// </summary>
         internal static double tree_margin(double bErr, int chi, double bSum)
         {

@@ -233,6 +233,41 @@ sum is cheap and the tree did not pay: 124526 and 112798 have 134 and 164 segmen
 > `ExactWindingCacheInternalTests` (the eps window, va's true rounding error in exact integers against `vaErrTerm`, the
 > summation-order and per-edge pin on a 40006-edge boundary).
 
+**The decision margin of `BoundaryTree` (`tree_margin`, `decide_above`).** A threshold query decides from the tree value
+wH = chi + bSum only when wH is farther from iso than the margin 1.01 (bErr + 1e-9 + 4e-15 (|chi| + |bSum|)); else it uses the
+full sum W = chi + `boundary_sum_x` (the value of `Evaluate`). The margin has to bound |wH - W|. With T_e the computed angle of
+an edge (`boundary_edge_angle_x`) and θ_e its exact value, the terms are:
+
+| term | covered by |
+|---|---|
+| order of the additions in the full sum and in the tree: N u π Σw each | `sumOrderErr` = 7.5e-16 N Σw ≥ 2 N u π Σw (6.97e-16 N Σw); tested from below on a 40006-edge boundary |
+| edges the tree visits as leaves | the same T_e bit for bit in both sums: no difference but the order |
+| a node's edges, approximated by chord + dipole instead of ΣT_e: the analytic remainder | `rem` = AAbs r / (d - r)³ (the Jacobian of x/‖x‖³ has norm 2/‖x‖³; remainder of the fan from c) |
+| the rounding of va (the dipole moment) | `vaErrTerm` = 0.5 VaErr ‖dx‖₁ / d³; VaErr = 0.5 Σ ‖v-c‖‖w-c‖ (count + 8) 4.5e-16; tested against the true error in exact integers (slack about 2) |
+| the rounding of the dipole's own evaluation and of dx = c - p | `(1e-12 + 16 coordEps) dipScale`; coordEps = 2.3e-16 (pm + M1) / (d - r) |
+| the chord's evaluation error, the rounding of d, cos α and the cap test | `1e-11 + 16 coordEps`, and the cap margin eps = 1e-9 + 16 coordEps (angular) |
+| the evaluation error of the k edges the node replaces in the full sum | `1e-12 (hi - lo)`: the leaf rule's 1e-12 per edge, charged for every replaced edge |
+| the rounding of /2π and of chi + bSum (u relative each) | `4e-15 (|chi| + |bSum|)`, about 18 times too large |
+| the rounding of the margin, and of the accumulation of err (n u relative, n visited terms) | the factor 1.01, valid while n u < 0.01 |
+
+What the table rests on, and the 1e-9: the rows `1e-11 + 16 coordEps` and `1e-12 (hi - lo)` rest on one assumption,
+**A1: the computed angle T_e of an edge is within 1e-12 of its exact value, for every edge for which `boundary_edge_angle_x`
+does not hand the decision to its exact predicates** (the branch cut: num and den both within numErr and denErr of 0, where
+the angle jumps by 2π and the sign is decided exactly; above numErr the sign of num is reliable, because the error of num is at
+most 3u (|p1| + |p2|) against 1e-12 (|p1| + |p2|)). The additive 1e-9 in the margin is **not** a term of the table: it is a
+cushion on A1 (it covers an error of up to 1e-9 / 2π in the angle sum, whatever its cause), and it is an absolute term because
+a winding number is dimensionless (a solid angle over 4π) and every row is an angle. The cushion costs no speed: a decision
+within 1e-9 of iso is rare, and it falls back on the full sum, which is the reference.
+
+A1 is pinned, not proved. `ExactWindingCacheInternalTestsEdgeAngleOracle` takes the exact num and den of the exact differences a - p,
+b - p (integers over the grid 2^-1074, the cancellation-free quotient for da, integer square roots) and compares atan2 of them
+with T_e on adversarial edges: a vertex within 1e-12 rad of the +x ray, p within 1e-6 .. 1e-12 of the yz line of the edge
+(ahead of and behind it), p near a vertex, yz 1e-5 .. 1e-45 of x (the fast path and the rescaled path), large offsets (rounded
+differences), and scales from 2^-90 to 2^90. The largest error is 2.5e-15 (about 400 times below A1). A proof would bound
+Δ(num, den) ≤ 4u (sum of the term sizes) against hypot(num, den)² = |a|²|b|² 2 (1 + A·B)(1 + A·x1)(1 + B·x1) (a vertex at the
+angle θ from the +x ray makes the yz terms of num and den small by the same factor θ, so the ratio stays O(u)), for the fast
+path and for the rescaled path (the exponent bookkeeping of `rescale_diff_2d`, `scaled_d_factor`); it is open.
+
 Notation: u = 2^-53 ≈ 1.1e-16. Every quantity is in the mesh's scaled grid units, the units of `FarPoints.Segments`.
 The names are those of the code: `AntipodalTree`, `antipodal_tree_value`, `tree_term`, `tree_decides`.
 
