@@ -3,7 +3,7 @@
 - **Board row:** OPEN_TOPICS.md §4 "Parked or on hold by owner decision", row "Rounding/repair: guaranteed rounding experiment (Devillers et al. 2020)"
 - **Kind:** parked (not now, owner 2026-11-17; trigger: need for guaranteed rounding on real inputs beyond the five RC4b cases)
 - **Tier:** L (exact 3D rounding theory, grid arithmetic, bounds review; phase 1 is a 2-3 day falsification spike only)
-- **Plan status:** draft, 2026-11-20 (Berlin). Plan only.
+- **Plan status:** draft, 2026-11-20 (Berlin); updated 2026-11-22 (Berlin): the phase 1 spike is done as a note, not as `DEVILLERS_ROUNDING_EXPERIMENT.md`: [SNAP_ROUNDING_3D_GUARANTEE_2026-11.md](../research/SNAP_ROUNDING_3D_GUARANTEE_2026-11.md) (upper bounds measured in `benchmarks/SnapRoundingExperiment`; the known guarantee proves no new self-intersection and a bounded displacement, but not a closed manifold surface or that no solid is lost; leaning no build). The [#1216 study](../research/ROUNDING_THIN_SOLIDS_2026-11.md) adds that it would not keep the thin solids either (no-go). Only the owner decision (phase 2 or stop) remains.
 
 ## Current state
 
@@ -19,6 +19,8 @@
     limit, drift bound `MaxLength`), so the practical upside is tiny unless a new corpus hits rounding failures broadly.
 
 ## Trigger / decision needed
+
+Update 2026-11-22: phase 1 is done; what remains is the owner decision on the [spike note](../research/SNAP_ROUNDING_3D_GUARANTEE_2026-11.md). The original trigger:
 
 A corpus or caller where `SafeRounding` fails on significantly more than the 5 RC4b cases, or a certification
 requirement demanding a proven intersection-free double-output guarantee rather than best-effort `SafeRounding` +
