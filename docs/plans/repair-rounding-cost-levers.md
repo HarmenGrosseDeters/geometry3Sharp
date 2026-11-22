@@ -3,7 +3,7 @@
 - **Board row:** OPEN_TOPICS.md §4 "Parked or on hold by owner decision", row "Rounding/repair: rounding cost levers (hard problem 3 b-d, #837 lever 2)"
 - **Kind:** parked (not scheduled under the 2026-11-16 boolean speed stop; trigger: speed go from the owner)
 - **Tier:** L (`mesh_ops/MeshRoundingRepair.cs` / `TriangleBoxTree`: exact-code review + incremental mutation gate on `rounding-1..13`)
-- **Plan status:** draft, 2026-11-20 (Berlin). Plan only.
+- **Plan status:** draft, 2026-11-20 (Berlin); updated 2026-11-22 (Berlin): levers (b) to (d) are measured (owner go for a study, no library code): [ROUNDING_COST_2026-11.md](../research/ROUNDING_COST_2026-11.md) and, for lever (d) (= lever 1a), [EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md](../research/EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md) section 8a. #837 lever 2 is not measured. Still parked under the speed stop; the options of the rounding cost note are with the owner.
 
 ## Current state
 
@@ -21,6 +21,16 @@
     - **(c)** Cost of `near` inside edit evaluations (14-56 % of rounding where edits are evaluated — undiagnosed).
     - **(d)** Tree build and setup over *all* triangles even when only a small fraction of vertices were rounded.
     - **#837 lever 2:** parked specifically for the rotated-CAD class.
+  - **Measured 2026-11-22** ([ROUNDING_COST_2026-11.md](../research/ROUNDING_COST_2026-11.md), 33 rotated Thingi10K
+    operations plus 15 procedural ones, 4 cores): (b) to (d) together are bounded by 16 % of the summed booleans on the 33
+    operations (23 % on all 48). (b): the one candidate that pays is cached separating axes in the first search (−3.5 %
+    of the 48 operations, 48 of 48 hashes the same); tighter volumes do not pay. (c): keeping the boxes of the linear
+    list in `near` takes 17.7 % off the rounding of the 24 operations with many evaluations (about −3.3 % of the 48).
+    (d): no lever beyond lever 1a (tree and setup 1.5-2.0 % of the sets). A slow box tree on model 102375 is a new
+    finding (option 3 of the note, diagnosis first).
+  - Tier correction from the speed levers study (section 8a): `MeshRoundingRepair.cs` is not in the exact-file list of
+    `.editorconfig`, so a lever there alone is tier M with the rounding mutation shards; `TriangleBoxTree` (in
+    `ExactMeshArrangement.cs`) stays exact code.
 
 ## Trigger / decision needed
 
