@@ -18,26 +18,36 @@ static class Oracle
         public double[] P;      // 9 doubles per triangle, relative to Origin
         public int Count;
         public double Ox, Oy, Oz;
+        public double S = 1;    // a power of two: the coordinates are (v - origin) * S, so that the model has a size of about 1
     }
 
-    public static Tris Of(DMesh3 m, Vector3d origin)
+    // the power of two that brings a length to [1, 2) (exact to multiply with; 1 for 0 or a non-finite length)
+    public static double Normalizer(double length)
     {
-        var t = new Tris { P = new double[9 * m.TriangleCount], Ox = origin.x, Oy = origin.y, Oz = origin.z };
+        if (!(length > 0) || double.IsInfinity(length))
+            return 1;
+        return Math.ScaleB(1, -Math.ILogB(length));
+    }
+
+    public static Tris Of(DMesh3 m, Vector3d origin, double scale = 1)
+    {
+        var t = new Tris { P = new double[9 * m.TriangleCount], Ox = origin.x, Oy = origin.y, Oz = origin.z, S = scale };
         foreach (int tid in m.TriangleIndices()) {
             Index3i tv = m.GetTriangle(tid);
             for (int j = 0; j < 3; ++j) {
                 Vector3d v = m.GetVertex(tv[j]);
-                t.P[9 * t.Count + 3 * j] = v.x - origin.x;
-                t.P[9 * t.Count + 3 * j + 1] = v.y - origin.y;
-                t.P[9 * t.Count + 3 * j + 2] = v.z - origin.z;
+                t.P[9 * t.Count + 3 * j] = (v.x - origin.x) * scale;
+                t.P[9 * t.Count + 3 * j + 1] = (v.y - origin.y) * scale;
+                t.P[9 * t.Count + 3 * j + 2] = (v.z - origin.z) * scale;
             }
             t.Count++;
         }
         return t;
     }
 
-    // One ray from p (already relative to the origin) in direction d: the signed crossings (exits minus entries) and their
-    // number. False if a crossing is too close to an edge, a vertex or the start to be trusted (the caller takes another ray).
+    // One ray from p (already in the normalised local frame of T, where the model has a size of about 1) in direction d: the
+    // signed crossings (exits minus entries) and their number. False if a crossing is too close to an edge or a vertex (1e-9,
+    // barycentric) or to the start (1e-9 of the model's size) to be trusted (the caller takes another ray).
     static bool cast(Tris T, double px, double py, double pz, double dx, double dy, double dz, out int signed, out int count)
     {
         signed = 0; count = 0;
@@ -97,7 +107,7 @@ static class Oracle
         parity = 0;
         if (T.Count == 0)
             return 0;
-        double px = p.x - T.Ox, py = p.y - T.Oy, pz = p.z - T.Oz;
+        double px = (p.x - T.Ox) * T.S, py = (p.y - T.Oy) * T.S, pz = (p.z - T.Oz) * T.S;
         for (int attempt = 0; attempt < 24; ++attempt) {
             double dx, dy, dz, n;
             do {
@@ -114,7 +124,7 @@ static class Oracle
         return int.MinValue;
     }
 
-    // the volume by the divergence theorem, relative to the origin of the Tris (a local one)
+    // the volume by the divergence theorem, relative to the origin of the Tris (a local one), in the units of the mesh
     public static double Volume(Tris T)
     {
         double v6 = 0;
@@ -125,7 +135,7 @@ static class Oracle
                 - P[o + 1] * (P[o + 3] * P[o + 8] - P[o + 5] * P[o + 6])
                 + P[o + 2] * (P[o + 3] * P[o + 7] - P[o + 4] * P[o + 6]);
         }
-        return v6 / 6;
+        return v6 / 6 / (T.S * T.S * T.S);
     }
 
     // closed as a set of oriented triangles: every directed edge, by vertex position, is used as often as its reverse
@@ -200,6 +210,8 @@ static class Oracle
     {
         public int Samples, Ambiguous, Mismatch;
         public int FalseSolid, FalseEmpty;      // the result is solid where the truth is empty, and the reverse
+        public int Overlap;                     // points where the result covers itself (crossing number 2 or more)
+        public int Points;
         public double Fraction { get { return Samples > 0 ? (double)Mismatch / Samples : 0; } }
     }
 
@@ -237,11 +249,11 @@ static class Oracle
     }
 
     // truth[i] at the points: 1 solid, 0 empty, -1 not decided (a point on a surface)
-    public static sbyte[] Truth(IList<DMesh3> intent, Func<bool[], bool> op, Vector3d[] pts, Vector3d origin, int seed)
+    public static sbyte[] Truth(IList<DMesh3> intent, Func<bool[], bool> op, Vector3d[] pts, Vector3d origin, double scale, int seed)
     {
         var T = new Tris[intent.Count];
         for (int k = 0; k < T.Length; ++k)
-            T[k] = Of(intent[k], origin);
+            T[k] = Of(intent[k], origin, scale);
         var truth = new sbyte[pts.Length];
         Parallel.For(0, pts.Length, i => {
             var rng = new Random(seed * 7919 + i);
@@ -256,21 +268,24 @@ static class Oracle
         return truth;
     }
 
-    public static Judgement Judge(DMesh3 result, sbyte[] truth, Vector3d[] pts, Vector3d origin, int seed)
+    public static Judgement Judge(DMesh3 result, sbyte[] truth, Vector3d[] pts, Vector3d origin, double scale, int seed)
     {
-        Tris R = Of(result, origin);
+        Tris R = Of(result, origin, scale);
         var verdict = new sbyte[pts.Length];
+        var twice = new bool[pts.Length];
         Parallel.For(0, pts.Length, i => {
             if (truth[i] < 0) { verdict[i] = -1; return; }
             var rng = new Random(seed * 104729 + i);
             int w = Winding(R, pts[i], rng);
             if (w == int.MinValue) { verdict[i] = -1; return; }
             verdict[i] = (sbyte)(w > 0 ? 1 : 0);
+            twice[i] = w > 1;
         });
-        var j = new Judgement();
+        var j = new Judgement { Points = pts.Length };
         for (int i = 0; i < pts.Length; ++i) {
             if (verdict[i] < 0) { j.Ambiguous++; continue; }
             j.Samples++;
+            if (twice[i]) j.Overlap++;
             if (verdict[i] != truth[i]) {
                 j.Mismatch++;
                 if (verdict[i] == 1) j.FalseSolid++; else j.FalseEmpty++;
@@ -314,7 +329,7 @@ readonly struct Dyadic
     {
         if (M.IsZero)
             return 0;
-        // keep 64 significant bits, then scale
+        // keep 64 significant bits (truncated), then round to double: a relative error below 2^-52, not a correct rounding
         BigInteger m = BigInteger.Abs(M);
         int e = E;
         int extra = (int)m.GetBitLength() - 64;

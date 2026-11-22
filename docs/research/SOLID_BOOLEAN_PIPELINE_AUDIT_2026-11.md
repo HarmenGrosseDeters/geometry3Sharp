@@ -36,11 +36,13 @@ of the inputs first) and with the plain `ExactMeshBoolean`. Details and limits o
 | orientation (7) | 0 | 60 | 0 | 10 |
 | all (60) | 418 | 140 | 14 | 28 |
 
-What holds: every clean closed input gave the right solid in every frame, including UTM and 1e12 offsets, 2^40 and 2^-40,
-exact and rotated contacts (face, partial face, edge, vertex, identical operands, flush cuts, one ulp apart), hollow solids
-with islands, pockets, and operands that are non-manifold or self-overlapping by themselves. No exception, no result that
-is not closed, no run above 20 s (the whole corpus takes 100 s). The float32 frames behave like the double ones: the
-pipeline is right about the solid it is given.
+What holds: outside the thin class (finding 1) and one subnormal coordinate (F7), every clean closed input gave the
+right solid in every frame, including UTM and 1e12 offsets, 2^40 and 2^-40, exact and rotated contacts (face, partial
+face, edge, vertex, identical operands, flush cuts, one ulp apart), hollow solids with islands, pockets, and operands that
+are non-manifold or self-overlapping by themselves: 346 of 346 runs of the base, nested (without the outward cavity wall),
+touch (without the subnormal case) and nonmanifold classes. No exception, no result that is not closed or that covers
+itself, no run above 20 s (the whole corpus takes 100 s). The float32 frames behave like the double ones: the pipeline is
+right about the solid it is given.
 
 The 28 wrong and 154 refused runs are four things: thin solids removed by the rounding (finding 1), a cavity wall given
 outward (finding 2), open inputs (finding 5) and orientation (finding 4). The sampling does not see solids thinner than
@@ -61,7 +63,9 @@ reaches valid solids, and the pipeline returns `Status Success` with nothing in 
   degenerate area (1e-12 x diagonal^2 of the largest component), which marks it as defective.
 - **A thin solid made by the boolean** (`small`): [0,2]^3 intersected with [2-h,4] x [0,2]^2 is a 2 x 2 x h slab. Axis
   aligned it is returned down to h = 2^-35 and dropped from 2^-40; after one generic rotation it is dropped from
-  h = 2^-15 (1.1e-5 of the diagonal; 2^-14 stays), at the origin and at UTM. The wall a Difference leaves behaves the same.
+  h = 2^-15 (1.1e-5 of the diagonal; 2^-14 stays), at the origin and at UTM. The wall a Difference leaves goes from
+  2^-15 when rotated at the origin and from 2^-16 when rotated at UTM. (With the UTM offset alone the slab is kept to
+  2^-30; below that the coordinates there no longer hold it, which is the input's limit, not the rounding's.)
   The result is empty, `NotCleanReason` "empty". The threshold moves by six orders of magnitude with a rotation, because
   the removal applies only to components in which the rounding left something to repair.
 - **A thin input plate in a union**: 2 x 2 x h beside a cube is kept down to 2^-30 and dropped from 2^-35 in every frame.
@@ -109,10 +113,10 @@ they are sufficient to act on. `ByNesting` on clean inputs adds 22-62 % to the p
 All 90 runs are refused with `OpenInput`. In 80 `AutoRepair` gives the right solid, so a right answer exists; in the 10 of
 the cutting sheet every repair returns a confident wrong one (the cube uncut, volume 64 instead of 32, `Success`, `Clean`
 true, `RepairedInputs` 1), and no setting on master gives the half cube (#1211, the sheet role of #1223). A repair cannot
-know which of the two an input is, which is the case for `Refuse`. Four of the nine cases are open only formally, and the
-plain `ExactMeshBoolean` (winding number above 1/2) gives the right closed solid without a repair: a duplicated face and a
-debris triangle in 10 of 10 frames, a zero-area triangle in 7, an exact T-junction in the 6 frames where it stays exact
-(after a rotation it is a real crack). `Error` does not name the open input (it is in `Report.InputClosed`), nor how open
+know which of the two an input is, which is the case for `Refuse`. For five of the nine cases the plain `ExactMeshBoolean`
+(winding number above 1/2) gives the right closed solid without a repair: a face missing wholly inside the other operand
+of a union, a duplicated face and a debris triangle in 10 of 10 frames, a zero-area triangle in 7, an exact T-junction in
+the 6 frames where it stays exact (after a rotation it is a real crack). `Error` does not name the open input (it is in `Report.InputClosed`), nor how open
 it is.
 
 ### F6. `ConfigureBoolean` can switch the guarantees off (low, small fix)
@@ -158,16 +162,23 @@ at M = 1, 1e3, 5.5e6, 1e9.
 | 8 rigid steps | 16 | 0 | 0 |
 | 64 rigid steps | 30 | 0 | 0 |
 | away by 1e8 M and back | 3.9e8 | 99-100 % (M <= 5.5e6) | 99-100 % |
+| away by 1e12 M and back | 5.5e12 | 99-100 % (M <= 1e3) | 99-100 % |
 | float32 | 4.6e8 | 97-100 % (M <= 5.5e6) | 97-100 % |
-| text, 6 decimals | 1.7e9 at M = 1; 6.8e3 at M = 5.5e6 | 100 %; 54 % | 100 %; 0.08 % |
-| text, 3 decimals | 1.6e12 at M = 1; 5e6 at M = 5.5e6 | 100 % | 99-100 % |
+| text, 6 decimals | 1.7e9 at M = 1; 6.8e3 at M = 5.5e6; 20 at M = 1e9 | 100 %; 54 %; 0 | 100 %; 0.08 %; 0 |
+| text, 3 decimals | 1.6e12 at M = 1; 5e6 at M = 5.5e6; 4.8e4 at M = 1e9 | 100 %; 100 %; 92 % | 100 %; 99 %; 9 % |
+
+(Trials in which the history collapses the wall triangle itself are not counted and are listed in the raw table: all
+4000 for the 1e12 excursion at M >= 5.5e6, about 3700 of 4000 for the 1e8 excursion and float32 at M = 1e9; of the few
+left there, 1-3 % are above every factor.)
 
 - **A** covers every rigid history measured with a factor of 8 to spare at 64 chained steps.
-- **C** gains exactly one row: text with 6 decimals at UTM magnitudes (46 % -> 99.9 % covered). It costs a cavity left
-  unowned behind a wall thinner than 5e-6 m at UTM instead of 3e-7 m.
-- **B** gains on no measured history: an excursion (away and back) leaves no trace in the magnitudes of the inputs, and
-  float32 or text noise is not relative to the double magnitude at all. It costs margin for small shells near the origin
-  whenever another input is far away.
+- **C** gains in two cells, both text coordinates whose quantum happens to lie between the two factors: 6 decimals at UTM
+  magnitudes (46 % -> 99.9 % covered) and 3 decimals at 1e9 (8 % -> 91 %). It costs a cavity left unowned behind a wall
+  thinner than 5e-6 m at UTM instead of 3e-7 m.
+- **B** was not measured directly (no history here has a second, far input). By argument it gains on none of the
+  measured ones: an excursion (away and back) leaves no trace in the magnitudes of the inputs, and float32 or text noise
+  is not relative to the double magnitude at all. It costs margin for small shells near the origin whenever another input
+  is far away.
 - The histories no factor covers are quantised inputs. Their error is the quantum, which the caller knows: `InputGrid`.
 
 How others solve it: Manifold keeps a tolerance per mesh, proportional to its bounding box and carried through its
@@ -222,11 +233,11 @@ against the intent.
   and faster in 13 (0-95 ms against 5-2900 ms).
 - What is missing is acceptance. Both return a closed mesh for inputs whose intent a repair cannot know, and the pipeline
   then reports `Success`: two adjacent faces missing (10 % of the points wrong), half a sphere (15-17 %), the sheet (55 %).
-- A cheap signal separates them among the inputs with missing surface (8 cases and the sheet): the area after the repair
+- A cheap signal separates them among the inputs with missing surface (7 cases and the sheet): the area after the repair
   over the area given is at most 1.20 for the repairs that match the intent (largest: a whole cube face; at most 1.2 % of
   the points differ) and at least 1.44 for those that do not (two faces 1.59 / 1.44, half sphere 1.56 / 1.53, sheet 2.0 /
   2.24). It says nothing about flipped triangles (ratio 0.94 with 58 % of the points wrong), which the pipeline does not
-  send to a repair. Nine cases are a small sample.
+  send to a repair. Eight cases are a small sample.
 
 How others solve it: Manifold and CGAL's volume operations do not repair, they reject (`NotManifold`; the "bounds a
 volume" precondition); hole-filling tools (MeshFix, Attene 2010; CGAL hole filling) leave the acceptance to the caller.
@@ -237,21 +248,46 @@ Thingi10K meshes at run time).
 
 ### 4.5 The small solids `SafeRounding` drops
 
-Measured: F1. Options: (a) report: `Report.RoundingRemovedComponents`, their triangles and volume, taken from the
-boolean (no behaviour change), and correct the two doc statements; (b) an opt-in refusal: the run fails
-(`BooleanFailed` / `RoundingNotClean`) if the rounding removed a component whose thickness its coordinates resolve (a few
-ulps), which separates the solids of F1 from the zero-thickness residue of #1067; (c) change the removal itself so that
-an untouched, well-shaped input component is never "tiny" by another component's diagonal. (c) reverses part of an owner
-decision and touches `MeshRoundingRepair`; its upper bound is every row of `tiny` and the `U plate` rows of `small`. The
-slivers of A - A' (rows `I slab`, `D wall` after a rotation) are what the removal was decided for; (c) would not bring
-them back.
+Measured: F1 (`tiny`, `small`). The mechanism, confirmed independently by the Boolean speed spike
+(`research/exact-boolean-speed-levers`, its note section 8b; same threshold 2^-8 / 2^-9 on its own probe): the degenerate
+scan of the component removal runs over all result triangles with one threshold, 1e-12 x (diagonal of the largest
+component)^2. Unchanged input triangles of a small solid fall below it, the component counts as defective and tiny, and it
+is removed; no edit and no new vertex is involved. The removal and the clean verdict are therefore one criterion: with
+the cube kept, `NotCleanReason` says "degenerate triangles" (12 of them; `report` shows the same for the rotated slab with
+`SafeRounding` off). That spike also reports that none of its speed levers widens the drop (bit identical, including
+`RemovedComponents`) and that its 294 T6 booleans removed no component.
+
+Three options, as the coordinator asked to separate them:
+
+- **(a) Reporting only** (no output change): `SolidBooleanReport` gets the components, triangles and volume the rounding
+  removed, taken from the boolean; the two doc statements are corrected. A stricter variant, `Clean` / `RoundingClean`
+  false whenever input or result volume was dropped, changes what a caller's check returns for results that are otherwise
+  the same: with `StrictRounding` it turns today's `Success` into a refusal, so that part is (b).
+- **(b) An opt-out or a threshold** (**output / default change, owner**): an option that refuses the run
+  (`BooleanFailed` / `RoundingNotClean`) or keeps the component when the rounding would remove one whose thickness its
+  coordinates resolve (a few ulps: that separates the solids of F1 from the zero-thickness residue of #1067). Opt-in it
+  changes nothing by default; as a default it changes the results of F1 (every `tiny` row from 2^-9 and the `small`
+  rows with ratio 0 above the coordinate resolution). A kept component is "not clean" by the public
+  check unless the degenerate criterion is also made relative to the component.
+- **(c) A rotation-stable criterion** (**output / default change, owner**): today the threshold for a thin solid is 1e-5
+  of the diagonal where the rounding had something to repair and about 1e-11 where it had not, so one rotation moves it
+  by six orders of magnitude. Two stable rules bracket the choice: remove by size alone (everything thinner than 1e-5 of
+  the diagonal goes, also axis aligned: the `small` rows between 2^-15 and 2^-35 that are kept today would go), or never
+  remove what the coordinates resolve (every `tiny` row and every `small` row above the resolution stays; the slivers of
+  A - A', which the removal was decided for on 2026-11-16, come back as thin solids for `MinThickness` to filter). The
+  speed spike's variant, "only components with a new triangle or an edited vertex are candidates", keeps untouched input
+  solids (`tiny`, `U plate`) and still removes the rotated slab; it is stable for inputs, not for results.
 
 How others solve it: CGAL and libigl (Zhou et al. 2016) keep the exact result and do no rounding repair (the rounded
 output may self-intersect); Manifold merges features below its tolerance without a report; Milenkovic and Sacks remove
-components thinner than their bound, as here. No library found that reports the removed volume.
+components thinner than their bound, as here. No library found that reports the removed volume. Whether a rounding can
+keep such solids with a guarantee, and at what cost, is the subject of the 3D snap rounding spike (#1278 / #1259), and a
+checker of "the right point set up to the rounding bound" (the certifying checker spike) would flag exactly this drop;
+both have the two reproducers. Their results are not in yet and are not anticipated here.
 
-**Leaning: (a) at once**, (b) as the opt-in for callers who must not lose solids, and (c) to the owner as a question
-about the tiny rule for untouched input components only.
+**Leaning: (a) at once.** For (b) and (c) the owner decides; the leaning is the opt-in refusal of (b) now and, for (c),
+the speed spike's rule for untouched input components (it removes the case nobody intended, a valid input solid deleted
+from a union) once the degenerate criterion that goes with it is settled.
 
 ### 4.6 float32 STL at UTM coordinates
 
@@ -260,8 +296,9 @@ x and 0.5 m in y. The pipeline is right about what it is given in all 18 runs (m
 triangles in the inputs) and in every corpus case that is right in doubles. The damage is in the file: the float32 solid
 differs from the double model at 11-22 % of the sample points for a 1 m model, 4-9 % at 16 m, 0.8-2.4 % at 256 m and
 0.3-0.6 % at 1 km.
-`InputGrid` cannot restore it (the information is gone), and no repair setting changes the outcome. Recentring before the
-conversion to float32 leaves no damage (0 points differ) in all 18.
+No orientation or repair setting changes the outcome, and `InputGrid` cannot restore what the file no longer holds (not
+measured against the double model: its column is judged against the float32 solid, which a grid of 0.5 m moves further).
+Recentring before the conversion to float32 leaves no damage (0 points differ) in all 18.
 
 How others solve it: a local origin with a stored offset (IFC map conversion and local placement; the `RTC_CENTER` of 3D
 Tiles); STL has no place for it, so the exporter has to subtract it.
@@ -301,7 +338,7 @@ final check is needed. Boolean speed work is stopped; this is a bound, not a pro
 |---|---|---|---|---|
 | 1 | Report what the rounding removed (components, triangles, volume) and the volume before / after the reduction; `Clean` false on a failed run; name the open input; correct the class comment and `MinThickness` doc; the float32 note in the guide | F1 (visibility), F3 (visibility), F5, F7, 4.5 (a), 4.6 | S-M, pipeline file and docs, new report fields only | low (API additions; pack validates) |
 | 2 | Force `SafeRounding = true` and `CountInsideOutCells = true` after `ConfigureBoolean` | F6 | S | low; a caller who switched them off on purpose gets the documented behaviour back |
-| 3 | Opt-in refusal when the rounding removed a resolvable solid | F1, 4.5 (b) | M | low (opt-in) |
+| 3 | Opt-in refusal (or keep) when the rounding would remove a resolvable solid | F1, 4.5 (b) | M | low while opt-in; an output change as a default (owner) |
 | 4 | `ByNesting`: refuse a mesh that is not embedded and has nested components | F2 (second half), 4.2 (b) | M, exact file: exact review, mutation run | medium (a refusal where a result came back before) |
 | 5 | Repair acceptance signal in `SolidBooleanInputRepair` (areas, boundary edges) | F5, 4.4 | S | low |
 | 6 | Coordinate range and subnormal inputs as `InvalidInput` with the range first | F7 | S | low for the pipeline; in `ExactMeshBoolean` it changes a status |
@@ -309,8 +346,9 @@ final check is needed. Boolean speed work is stopped; this is a bound, not a pro
 
 Owner decisions these raise (none taken here):
 
-1. F1 / 4.5 (c): should an untouched, well-shaped input component be removable as "tiny" by the diagonal of another
-   component? Today a 2 mm cube beside a 1 km solid is.
+1. F1 / 4.5 (b) and (c): should the rounding's removal be refusable or switched off, and should its criterion be the
+   same in every frame? In particular: should an untouched, well-shaped input component be removable as "tiny" by the
+   diagonal of another component? Today a 2 mm cube beside a 1 km solid is.
 2. F3: a default `MaxDeviation` relative to the diagonal whenever a triangle target is set, or stay with reporting the
    change (PR 1). A default changes results.
 3. F4: an orientation fallback (run `ByNesting` only after an `InsideOutInput` / `InconsistentOrientation` refusal: free on

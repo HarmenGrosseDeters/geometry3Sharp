@@ -224,9 +224,10 @@ static class Corpus
 
         // ---- open inputs ----
         Func<DMesh3[]> boxPair = () => new[] { A(), Cube(1, 3) };
-        add("open", "one triangle missing, U", U, () => new[] { Without(A(), (t, c) => t == 2), Cube(1, 3) }, boxPair, 15, "the hole is outside the other operand");
+        add("open", "one triangle missing, U", U, () => new[] { Without(A(), (t, c) => t == 0), Cube(1, 3) }, boxPair, 15, "the hole (in the face z = 0) is outside the other operand");
         add("open", "one face missing, U", U, () => new[] { Without(A(), (t, c) => c.z > 1.99), Cube(1, 3) }, boxPair, 15, null);
-        add("open", "face missing inside the other operand, U", U, () => new[] { A(), Without(Cube(1, 3), (t, c) => c.z < 1.01) }, boxPair, 15, "the hole lies inside the first operand: the union does not depend on it");
+        add("open", "face missing inside the other operand, U", U, () => new[] { Cube(0, 4), Without(Box(1, 1, 1, 3, 3, 6), (t, c) => c.z < 1.01) },
+            () => new[] { Cube(0, 4), Box(1, 1, 1, 3, 3, 6) }, 72, "the missing face (z = 1) lies wholly inside the first operand: the union does not depend on it");
         add("open", "sphere with a one-triangle hole, D", D, () => new[] { Without(Sphere(Vector3d.Zero, 1, 12), (t, c) => t == 5), Cylinder(new Vector3d(0.2, -1.5, 0.1), 0.4, 3, 24) },
             () => new[] { Sphere(Vector3d.Zero, 1, 12), Cylinder(new Vector3d(0.2, -1.5, 0.1), 0.4, 3, 24) }, nan, null);
         add("open", "cutting sheet as D tool", D, () => new[] { Cube(0, 4), Without(Box(-1, -1, 2, 5, 5, 9), (t, c) => c.z > 2.01) },

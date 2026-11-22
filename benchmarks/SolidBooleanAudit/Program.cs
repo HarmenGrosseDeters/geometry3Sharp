@@ -37,6 +37,7 @@ static class Program
         public sbyte[] Truth;
         public Vector3d Origin;
         public double Diagonal;
+        public double Scale = 1;    // the oracle's normaliser (a power of two)
     }
 
     sealed class Outcome
@@ -75,8 +76,9 @@ static class Program
             box.Contain(m.GetBounds());
         p.Origin = box.Center;
         p.Diagonal = box.DiagonalLength;
+        p.Scale = Oracle.Normalizer(p.Diagonal);
         p.Points = Oracle.SamplePoints(p.Intent.Concat(p.Given).ToList(), samples, 12345);
-        p.Truth = Oracle.Truth(p.Intent, truthOf(c.Op), p.Points, p.Origin, 1);
+        p.Truth = Oracle.Truth(p.Intent, truthOf(c.Op), p.Points, p.Origin, p.Scale, 1);
         return p;
     }
 
@@ -124,9 +126,15 @@ static class Program
         }
         o.ResultTriangles = pipe.Result.TriangleCount;
         prepResult = pipe.Result;
-        o.Judgement = Oracle.Judge(pipe.Result, prep.Truth, prep.Points, prep.Origin, 2);
-        o.Volume = Oracle.Volume(Oracle.Of(pipe.Result, prep.Origin));
-        bool wrong = o.Judgement.Fraction > 0.002;
+        o.Judgement = Oracle.Judge(pipe.Result, prep.Truth, prep.Points, prep.Origin, prep.Scale, 2);
+        o.Volume = Oracle.Volume(Oracle.Of(pipe.Result, prep.Origin, prep.Scale));
+        // (a result that covers itself is wrong too: a solid has crossing number 0 or 1)
+        bool wrong = o.Judgement.Fraction > 0.002 || o.Judgement.Overlap > 0.002 * o.Judgement.Samples;
+        if (2 * o.Judgement.Samples < o.Judgement.Points) {
+            // (the sampling could not judge: never "ok" by default)
+            o.Verdict = "UNJUDGED";
+            return o;
+        }
         if (f.Exact && !double.IsNaN(c.ExpectVolume)) {
             double expect = c.ExpectVolume * f.VolumeScale;
             o.VolumeError = expect != 0 ? Math.Abs(o.Volume - expect) / expect : Math.Abs(o.Volume) / (prep.Diagonal * prep.Diagonal * prep.Diagonal);
@@ -222,10 +230,12 @@ static class Program
                 return "EXCEPTION " + e.GetType().Name;
             }
         }
-        Oracle.Judgement j = Oracle.Judge(op.Result, prep.Truth, prep.Points, prep.Origin, 3);
-        bool wrong = j.Fraction > 0.002;
+        Oracle.Judgement j = Oracle.Judge(op.Result, prep.Truth, prep.Points, prep.Origin, prep.Scale, 3);
+        if (2 * j.Samples < j.Points)
+            return "UNJUDGED";
+        bool wrong = j.Fraction > 0.002 || j.Overlap > 0.002 * j.Samples;
         if (f.Exact && !double.IsNaN(c.ExpectVolume)) {
-            double expect = c.ExpectVolume * f.VolumeScale, v = Oracle.Volume(Oracle.Of(op.Result, prep.Origin));
+            double expect = c.ExpectVolume * f.VolumeScale, v = Oracle.Volume(Oracle.Of(op.Result, prep.Origin, prep.Scale));
             wrong |= (expect != 0 ? Math.Abs(v - expect) / expect : Math.Abs(v) / Math.Pow(prep.Diagonal, 3)) > 1e-9;
         }
         return wrong ? "WRONG" : (Oracle.Closed(op.Result) ? "ok" : "OPEN") + (op.RoundingClean ? "" : " (rounding not clean)");
@@ -237,13 +247,13 @@ static class Program
     {
         const double eps = 2.220446049250313e-16;
         var rng = new Random(7);
-        Console.WriteLine("| history | magnitude M | trials | max distance / (eps M) | share above 16 | share above 256 | share above 4096 |");
-        Console.WriteLine("|---|---|---|---|---|---|---|");
+        Console.WriteLine("| history | magnitude M | trials | wall triangle collapsed (not counted) | max distance / (eps M) | share above 16 | share above 256 | share above 4096 |");
+        Console.WriteLine("|---|---|---|---|---|---|---|---|");
         double[] magnitudes = { 1, 1e3, 5.5e6, 1e9 };
         string[] histories = { "1 rigid step", "8 rigid steps", "64 rigid steps", "away by 1e8 and back", "away by 1e12 and back", "float32", "text, 6 decimals", "text, 3 decimals" };
         foreach (string hist in histories)
             foreach (double M in magnitudes) {
-                int trials = 4000, a16 = 0, a256 = 0, a4096 = 0;
+                int trials = 4000, a16 = 0, a256 = 0, a4096 = 0, collapsed = 0;
                 double worst = 0;
                 for (int k = 0; k < trials; ++k) {
                     // a wall triangle and a point in it, exact (dyadic coordinates in the plane z = 1), in a model of size 4
@@ -251,6 +261,8 @@ static class Program
                     Vector3d q = new Vector3d(rng.Next(1, 1024) / 1024.0, rng.Next(1, 1024) / 1024.0, 1);
                     Func<Vector3d, Vector3d> map = history(hist, M, rng);
                     Vector3d A = map(a), B = map(b), C = map(c), Q = map(q);
+                    // (a history that leaves the wall triangle without area, eg all corners rounded to one point, has no plane)
+                    if ((B - A).Cross(C - A).Length == 0) { collapsed++; continue; }
                     double d = distance(A, B, C, Q);
                     double m = Math.Max(Math.Max(maxAbs(A), maxAbs(B)), Math.Max(maxAbs(C), maxAbs(Q)));
                     double r = d / (eps * m);
@@ -259,13 +271,14 @@ static class Program
                     if (r > 256) a256++;
                     if (r > 4096) a4096++;
                 }
-                Console.WriteLine("| " + hist + " | " + F(M, "0.#e+0") + " | " + trials + " | " + F(worst, "0.##e+0") + " | " + F((double)a16 / trials, "0.####") + " | " + F((double)a256 / trials, "0.####") + " | " + F((double)a4096 / trials, "0.####") + " |");
+                int counted = Math.Max(1, trials - collapsed);
+                Console.WriteLine("| " + hist + " | " + F(M, "0.#e+0") + " | " + trials + " | " + collapsed + " | " + F(worst, "0.##e+0") + " | " + F((double)a16 / counted, "0.####") + " | " + F((double)a256 / counted, "0.####") + " | " + F((double)a4096 / counted, "0.####") + " |");
             }
     }
 
     static double maxAbs(Vector3d p) { return Math.Max(Math.Abs(p.x), Math.Max(Math.Abs(p.y), Math.Abs(p.z))); }
 
-    // the exact distance of q from the plane of (a, b, c), rounded once
+    // the distance of q from the plane of (a, b, c): the determinant is exact, its conversion and the area are in doubles
     static double distance(Vector3d a, Vector3d b, Vector3d c, Vector3d q)
     {
         double det = Math.Abs(Dyadic.Orient(a, b, c, q).ToDouble());
@@ -354,7 +367,7 @@ static class Program
                     var back = new DMesh3(pipe2.Result);
                     foreach (int v in back.VertexIndices())
                         back.SetVertex(v, back.GetVertex(v) / s);
-                    c2 = "Success, " + F(Oracle.Volume(Oracle.Of(back, Vector3d.Zero)) / 24, "0.####");
+                    c2 = "Success, volume " + F(Oracle.Volume(Oracle.Of(back, Vector3d.Zero)), "0.####");
                 } else
                     c2 = pipe2.Status.ToString() + (pipe2.Status == SolidBooleanPipeline.PipelineStatus.BooleanFailed ? " / " + pipe2.BooleanStatus : "");
             } catch (Exception e) { c2 = "EXCEPTION " + e.GetType().Name; }
@@ -440,7 +453,7 @@ static class Program
                     foreach (DMesh3 m in prep.Given)
                         foreach (int t in m.TriangleIndices())
                             if (m.GetTriArea(t) == 0) zero++;
-                    sbyte[] rounded = Oracle.Truth(prep.Intent, truthOf(op), model.Points, model.Origin, 1);
+                    sbyte[] rounded = Oracle.Truth(prep.Intent, truthOf(op), model.Points, model.Origin, model.Scale, 1);
                     int n = 0, diff = 0;
                     for (int i = 0; i < rounded.Length; ++i)
                         if (rounded[i] >= 0 && model.Truth[i] >= 0) { n++; if (rounded[i] != model.Truth[i]) diff++; }
@@ -480,7 +493,8 @@ static class Program
             Vector3d origin = want.GetBounds().Center;
             double wantVolume = Oracle.Volume(Oracle.Of(want, origin));
             Vector3d[] pts = Oracle.SamplePoints(new[] { want, g }, 6000, 99);
-            sbyte[] truth = Oracle.Truth(new[] { want }, w => w[0], pts, origin, 5);
+            double scale = Oracle.Normalizer(want.GetBounds().DiagonalLength);
+            sbyte[] truth = Oracle.Truth(new[] { want }, w => w[0], pts, origin, scale, 5);
             foreach (string method in new[] { "MeshAutoRepair", "MeshRobustRepair", "weld only (MergeCoincidentEdges)" }) {
                 var clock = Stopwatch.StartNew();
                 DMesh3 r;
@@ -494,7 +508,7 @@ static class Program
                 }
                 long ms = clock.ElapsedMilliseconds;
                 bool closed = r.TriangleCount > 0 && Oracle.Closed(r);
-                Oracle.Judgement j = Oracle.Judge(r, truth, pts, origin, 6);
+                Oracle.Judgement j = Oracle.Judge(r, truth, pts, origin, scale, 6);
                 Console.WriteLine("| " + name + " | " + method + " | " + (closed ? "yes" : "no") + " | " + F(area(r) / area(g), "0.###") + " | " + F(Oracle.Volume(Oracle.Of(r, origin)) / wantVolume, "0.####") + " | " + F(j.Fraction, "0.####") + " | " + ms + " |");
             }
         }
@@ -603,6 +617,21 @@ static class Program
             || Oracle.Closed(Corpus.TJunctionCube()) || Dyadic.Orient(Vector3d.Zero, Vector3d.AxisX, Vector3d.AxisY, new Vector3d(0, 0, 0.5)).ToDouble() != 0.5) {
             Console.WriteLine("oracle self-check failed");
             return 2;
+        }
+        // and it must tell a known-wrong result from the right one, at the three scales of the corpus: the hollow cube
+        // against itself (no point differs) and against the filled cube (the cavity is falsely solid)
+        foreach (double k in new[] { 1.0, Math.ScaleB(1, 40), Math.ScaleB(1, -40) }) {
+            var fr = new Frame { Name = "self", Map = p => k * p };
+            DMesh3 right = fr.Apply(Corpus.Combine(Corpus.Cube(0, 4), Corpus.Invert(Corpus.Cube(1, 3))), false), filled = fr.Apply(Corpus.Cube(0, 4), false);
+            Vector3d o = right.GetBounds().Center;
+            double sc = Oracle.Normalizer(right.GetBounds().DiagonalLength);
+            Vector3d[] pts = Oracle.SamplePoints(new[] { right }, 2000, 3);
+            sbyte[] truth = Oracle.Truth(new[] { right }, w => w[0], pts, o, sc, 1);
+            Oracle.Judgement good = Oracle.Judge(right, truth, pts, o, sc, 2), bad = Oracle.Judge(filled, truth, pts, o, sc, 2);
+            if (good.Mismatch != 0 || good.Samples < 1900 || bad.Fraction < 0.02 || bad.FalseEmpty != 0 || bad.Samples < 1900) {
+                Console.WriteLine("oracle self-check failed (known-wrong result at scale " + k + ")");
+                return 2;
+            }
         }
         string mode = args.Length > 0 ? args[0] : "corpus";
         switch (mode) {

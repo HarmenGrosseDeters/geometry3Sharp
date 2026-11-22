@@ -30,19 +30,23 @@ by 10-20 % between runs; every other number is deterministic (fixed seeds).
 - **Truth at a point** p: `op(inside_1(p), ..., inside_n(p))`, where `inside_i(p)` is "the signed crossing number of a ray
   from p with intent mesh i is positive". **The result** is judged at the same points by its own signed crossing number.
 - **Own arithmetic only.** The oracle reads triangles out of a `DMesh3` and does the rest on raw doubles in a local frame
-  (the centre of the model, so that UTM and 1e12 offsets cost no digits): Möller-Trumbore crossings in a random direction; a
-  ray that passes within 1e-9 (barycentric) of an edge, a vertex or its own start is thrown away and another direction is
-  taken (24 tries, then the point is not counted). Volume by the divergence theorem, closedness by balanced directed edges
+  (the centre of the model, so that UTM and 1e12 offsets cost no digits), scaled by a power of two to a size of about 1 (so
+  that 2^40 and 2^-40 are judged like the unit frame): Möller-Trumbore crossings in a random direction; a ray that passes
+  within 1e-9 (barycentric) of an edge or a vertex, or starts within 1e-9 of the model's size of a triangle, is thrown away
+  and another direction is taken (24 tries, then the point is not counted). A run in which fewer than half of the points
+  could be judged is `UNJUDGED`, never `ok` (none in the corpus). Volume by the divergence theorem, closedness by balanced directed edges
   on vertex positions, components by a union-find on positions. For distances of a few ulps (`touch`) it has its own exact
   dyadic numbers (`Dyadic`: `BigInteger` mantissa and a binary exponent). None of it calls a predicate, a tree, a winding
   number or a repair of the library.
 - **Sample points**: 6000 per run, half uniform in the box of all meshes (inflated by 5 %), half within 1e-1 to 1e-4 of the
   diagonal of a random point of a surface.
-- **Verdict**: `ok` (Status Success, at most 0.2 % of the points differ, the result is closed, and, where the case has a
+- **Verdict**: `ok` (Status Success, at most 0.2 % of the points differ, at most 0.2 % lie where the result covers itself,
+  the result is closed, and, where the case has a
   volume in closed form and the frame is exact, the volume agrees to 1e-9), `WRONG` (Success, but more points differ or
   the volume is off), `OPEN` (Success, result not closed), `R:<reason>` (refused).
-- The oracle checks itself at every start (volume and winding of a cube and a hollow cube, closedness, the dyadic
-  determinant) and exits with 2 if that fails.
+- The oracle checks itself at every start and exits with 2 if that fails: volume and winding of a cube and a hollow cube,
+  closedness, the dyadic determinant, and a known-wrong result (the hollow cube against itself: no point differs; against
+  the filled cube: the cavity is falsely solid) at the scales 1, 2^40 and 2^-40.
 
 Limits: sampling does not see a solid thinner than about 1e-4 of the diagonal; the thin cases are judged by their volume in
 the exact frames (identity, soup, 2^40, 2^-40) and by `small` and `tiny`, which measure each small solid by its own
