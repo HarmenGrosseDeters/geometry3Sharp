@@ -1,0 +1,2 @@
+pair test against ExactTriangleIntersection.IntersectsBeyondShared: 445876 pairs (134215 meeting beyond shared), 0 mismatches
+missed intersections (a split source triangle put back unsplit): 378 of 378 caught; violations without the mutation: 0

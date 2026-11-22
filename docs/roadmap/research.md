@@ -332,6 +332,7 @@ in the tool project.
   paper only (the Instant Meshes Enhancements clause is not accepted); stage 5 is an additive polygon mesh type with
   OBJ / PLY writers and conversion to and from DMesh3. Stage 5 (#1097), stage 1 (#1098; Hermitian form #1099, vector kernels of `SparseCholesky` #1103) and stage 2 (#1100) are merged. Stage 2 (`PositionField`, `QuadRemesher`): manifold, quad share
   93-99 %, but irregular vertices 6 to 12 x the field singularities (the stated no-go; QUAD_REMESHING.md 4.2): owner 2026-11-17: merged with the gates open, next stage 3B (flow from the paper, measurement first)
+  Research spike 2026-11-22 (seamless parametrization as a seed or replacement for the position field, SIGGRAPH 2025 papers): [QUAD_SEAMLESS_SEED_2026-11.md](../research/QUAD_SEAMLESS_SEED_2026-11.md); upper bound measured (irregular vertices of 9 closed shapes 863 uniform / 493 size field / 407 with a clamped cone-metric seed / 88 cones; no gain in pure-quad success shown), options with the owner, nothing built.
 - Deformation: ARAP and biharmonic are built (item 7, #896 / #897, 2026-11-16); cage coordinates not scheduled
 - Tetrahedral meshing: see Phase 5 (constrained Delaunay tetrahedrization). fTetWild is MPL-2.0 (file-level
   copyleft), not MIT: implement from the paper (Hu et al. 2020) rather than port
@@ -595,6 +596,11 @@ Ordered by expected value for the library.
    - 2026-11-17 (TET_MESHING.md section 17.2): the floor is a resolution effect; at alpha = diagonal / 40 all 40 reach 10°
      (839690 included); a finer default alpha is stage P1 of the production plan (owner decision).
      At the new default (/ 40, section 17.8) 494 of 500 sample meshes have every tet >= 10° (worst 7.12°, 138102).
+   - 2026-11-22, spike on the proven floor (plan #1281, [research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md](../research/TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md)):
+     the 21 procedural inputs all reach 10° (the wrap's boundary angles do not follow the input's creases); a lattice mesher
+     (isosurface stuffing) proves 9.31° on every input (10.78° per tet, validity then checked per run) but rounds features and,
+     uniform, is at 10 / 69 times the tets still 6.5 / 1.8 times farther from the input; surface chamfering (SIGGRAPH 2026)
+     bounds face angles only. Leaning: stop, keep P5(a); owner decision open.
 6. **Meshing2D: the small-angle cascade without a weaker guarantee.**
    - Shewchuk's Terminator breaks the circumcentre link but leaves skinny triangles outside the oracle's excuse
      region.

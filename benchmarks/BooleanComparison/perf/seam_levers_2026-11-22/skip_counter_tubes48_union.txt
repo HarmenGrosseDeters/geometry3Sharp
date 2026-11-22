@@ -1,0 +1,9 @@
+# MeshRoundingRepair.intersecting_pairs_all on the result of tubes:96:48 union (628 084 triangles, 2015 of them new), ms per run.
+# Scratch probe, not committed: a Stopwatch around the method and a switch that leaves out the Interlocked.Increment of
+# `skipped` (one per skipped exact triangle, from every thread). DOTNET_TieredPGO=0, the two variants in turn, two rounds.
+threads=4 counter=shared  113.8 95.8 85.1 113.0 79.0
+threads=4 counter=none    44.8 39.0 10.6 47.1 46.6
+threads=4 counter=shared  104.0 84.0 71.9 72.0 91.7
+threads=4 counter=none    42.7 29.7 11.0 13.2 16.0
+threads=1 counter=shared  75.8 51.7 27.1
+threads=1 counter=none    85.2 49.9 33.6

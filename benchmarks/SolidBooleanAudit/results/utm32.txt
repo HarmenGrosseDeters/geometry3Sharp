@@ -1,0 +1,22 @@
+float32 grid at the UTM point (500000, 5500000, 100): x 3.125e-2, y 5e-1, z 7.629e-6
+
+| model size (m) | case | zero-area triangles in the float32 inputs | damage of the float32 rounding (share of points that changed side) | default | ByNesting | AutoRepairThenRobust | InputGrid 2^-1 | recentred before float32 (the caller's fix): damage, default |
+|---|---|---|---|---|---|---|---|---|
+| 1 | sphere U sphere | 97 | 0.2192 | ok | ok | ok | WRONG (0.2238) | 0, ok |
+| 1 | box D cylinder | 0 | 0.1092 | ok | ok | ok | WRONG (0.0913) | 0, ok |
+| 1 | box U box | 0 | 0.1992 | ok | ok | ok | WRONG (0.2023) | 0, ok |
+| 4 | sphere U sphere | 3 | 0.1327 | ok | ok | ok | WRONG (0.121) | 0, ok |
+| 4 | box D cylinder | 0 | 0.0612 | ok | ok | ok | WRONG (0.0845) | 0, ok |
+| 4 | box U box | 0 | 0.1187 | ok | ok | ok | WRONG (0.1525) | 0, ok |
+| 16 | sphere U sphere | 0 | 0.091 | ok | ok | ok | WRONG (0.1065) | 0, ok |
+| 16 | box D cylinder | 0 | 0.0393 | ok | ok | ok | WRONG (0.0468) | 0, ok |
+| 16 | box U box | 0 | 0.0675 | ok | ok | ok | WRONG (0.0943) | 0, ok |
+| 64 | sphere U sphere | 0 | 0.0462 | ok | ok | ok | WRONG (0.0667) | 0, ok |
+| 64 | box D cylinder | 0 | 0.0217 | ok | ok | ok | WRONG (0.029) | 0, ok |
+| 64 | box U box | 0 | 0.0412 | ok | ok | ok | WRONG (0.0533) | 0, ok |
+| 256 | sphere U sphere | 0 | 0.024 | ok | ok | ok | WRONG (0.0285) | 0, ok |
+| 256 | box D cylinder | 0 | 0.0083 | ok | ok | ok | WRONG (0.0178) | 0, ok |
+| 256 | box U box | 0 | 0.0162 | ok | ok | ok | WRONG (0.0225) | 0, ok |
+| 1024 | sphere U sphere | 0 | 0.0058 | ok | ok | ok | WRONG (0.0123) | 0, ok |
+| 1024 | box D cylinder | 0 | 0.0025 | ok | ok | ok | WRONG (0.0053) | 0, ok |
+| 1024 | box U box | 0 | 0.0053 | ok | ok | ok | WRONG (0.0047) | 0, ok |

@@ -1,0 +1,13 @@
+# 4 logical cores, .NET 10.0.15; times in ms, medians of 5 warm runs (the BigInteger columns: one run)
+case | in tris | pieces | boolean | boolean serial | recording | points | approx | broad | pairs | coplanar (BigInteger) | dup | C2a BigInteger | C2a filtered | BigInteger / adaptive / filter calls, known zeros | C2a float floor | NotClean(R) | verdict
+sphere+sphere U n=16 | 5400 | 6380 | 43.6 | 55.1 | 24.6 | 1.35 | 2.43 | 31.0 | 45414 | 433 (0) | 0 | 711 | 30.4 | 5825 / 160738 / 116217, 108094 | 18.1 | 14.3 | embedded
+sphere+sphere U n=32 | 23064 | 25108 | 54.5 | 79.9 | 10.8 | 3.44 | 5.91 | 54.5 | 167427 | 819 (0) | 0 | 1425 | 103 | 10862 / 655167 / 235191, 402463 | 40.1 | 29.6 | embedded
+sphere+sphere U n=64 | 95256 | 99428 | 190 | 283 | 103 | 11.2 | 16.5 | 223 | 638704 | 1518 (0) | 0 | 3763 | 203 | 21167 / 2629478 / 475457, 1544619 | 192 | 74.5 | embedded
+sphere+sphere U n=128 | 387096 | 395508 | 718 | 1194 | 550 | 110 | 101 | 937 | 2489606 | 3119 (0) | 0 | 11924 | 656 | 41209 / 10565610 / 950995, 6039698 | 478 | 220 | embedded
+torus-torus D nu=32 | 2048 | 2471 | 24.0 | 30.5 | -1.85 | 0.27 | 0.52 | 6.25 | 25410 | 0 (0) | 0 | 618 | 173 | 44271 / 34612 / 156577, 53812 | 11.3 | 2.06 | embedded, result not clean: self-intersections (Contacts 4)
+torus-torus D nu=64 | 8192 | 7354 | 41.0 | 67.6 | 6.60 | 0.76 | 1.22 | 13.3 | 65135 | 0 (0) | 0 | 1297 | 320 | 88532 / 141420 / 311878, 143249 | 23.9 | 6.14 | embedded, result not clean: self-intersections (Contacts 4)
+torus-torus D nu=128 | 32768 | 24079 | 113 | 189 | 18.6 | 2.70 | 4.52 | 44.0 | 189397 | 0 (0) | 0 | 2511 | 654 | 176296 / 573643 / 616063, 425898 | 60.9 | 11.6 | embedded, result not clean: self-intersections (Contacts 4)
+torus-torus D nu=256 | 131072 | 85915 | 298 | 490 | 100 | 9.11 | 15.9 | 170 | 620046 | 0 (0) | 0 | 5928 | 1377 | 351275 / 2322548 / 1234920, 1418061 | 175 | 39.0 | embedded, result not clean: self-intersections (Contacts 4)
+fine box face-on-face U n=8 | 1356 | 1696 | 6.63 | 10.3 | 1.08 | 0.15 | 0.33 | 3.04 | 17517 | 11980 (0) | 0 | 375 | 52.9 | 16431 / 592016 / 76596, 21668 | 38.8 | 2.64 | embedded
+fine box face-on-face U n=16 | 5772 | 6368 | 24.9 | 35.3 | 3.76 | 0.79 | 1.47 | 15.1 | 60582 | 49868 (0) | 0 | 1850 | 165 | 38735 / 2361937 / 184882, 64659 | 125 | 5.76 | embedded
+fine box face-on-face U n=32 | 23820 | 25076 | 72.5 | 137 | 27.9 | 2.25 | 3.99 | 50.2 | 226759 | 205063 (0) | 0 | 6108 | 554 | 56089 / 9768643 / 258126, 222881 | 553 | 17.7 | embedded
