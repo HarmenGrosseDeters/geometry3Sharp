@@ -610,7 +610,7 @@ Ordered by expected value for the library.
    - Open: a certifying-algorithm design (McConnell et al. 2011) for the remaining parts, coverage under the Q17
      chain rules and the conforming-mode completion witness, with an equivalence argument per replacement.
    - 2026-11-22, spike done ([note](../research/MESHING2D_HP6_HP7_SPIKE_2026-11.md), section 2): a prototype checker of the core
-     (coverage, chains, constrained Delaunay) takes 1 to 8 % of the mesher's time where the oracle takes 11 to 590 times on procedural
+     (coverage, chains, constrained Delaunay) takes 1 to 13 % of the mesher's time where the oracle takes 15 to 477 times on procedural
      inputs; most of the oracle's time there is per-source scans and the exact area, fixable without a certificate. Options with
      the owner; nothing is built.
 8. **Open-operand classification in the exact booleans.**

@@ -12,7 +12,7 @@ dotnet benchmarks/Meshing2HardProblems/bin/Release/net10.0/Meshing2HardProblems.
 dotnet benchmarks/Meshing2HardProblems/bin/Release/net10.0/Meshing2HardProblems.dll selfcheck > perf/selfcheck-net10.txt
 ```
 
-Measured 2026-11-22 in a Linux container, 4 cores, .NET 10.0.15: `hp6` 4.5 minutes, `hp7 --size large` 12.6 minutes
+Measured 2026-11-22 in a Linux container, 4 cores, .NET 10.0.15: `hp6` 4.5 minutes, `hp7 --size large` 13 minutes
 (`--size small` 1.3 minutes), `selfcheck` a few seconds. The timings of `hp7` are from one machine, with nothing else running.
 
 ## Layout

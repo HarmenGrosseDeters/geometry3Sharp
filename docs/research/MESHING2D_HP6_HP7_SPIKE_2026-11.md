@@ -25,16 +25,16 @@ Every number below names its command there. The implementation of any option nee
 - A checker of a certifying design is feasible for the core of the specification: a planar triangulation that covers the
   domain and is constrained Delaunay. The certificate is what the mesher already holds: the input constraints of every
   subsegment. The checker is linear, and the argument is short (section 2.3).
-- Measured on procedural inputs: the oracle takes 11 to 590 times the mesher, the prototype checker 1 to 8 % of the mesher.
+- Measured on procedural inputs: the oracle takes 15 to 477 times the mesher, the prototype checker 1 to 13 % of the mesher.
   The prototype models no excuse and no snap grid, so this is an upper bound, not a replacement.
 - The profile shows where the oracle's time is on these inputs: scans of all ring edges per source in `Segments` and the exact
   area of the domain. Both can be fixed inside today's oracle without a certificate.
-- **Leaning:** option 1 first (index the two scans in the oracle, measured share 85 to 95 % on the parcels inputs). The
+- **Leaning:** option 1 first (index the two scans in the oracle, measured share 89 to 94 % on the parcels inputs). The
   certifying core (option 2) only if the oracle is still above its target afterwards. The full certifying oracle with the
   grid and all excuses (option 3): no.
 
 **Side findings** (section 3): the oracle judges the snapped jittered parcels of `perf --quality` INVALID from 2 x 2 rings on,
-and takes 202 s on one coastline output.
+and takes 195 s on one coastline output.
 
 ## 1. HP 6: small input angles
 
@@ -333,9 +333,11 @@ corrupted ones are rejected; the mesher's four results and the single cover of t
 
 ### 2.4 Measurement
 
-`Meshing2HardProblems hp7 --size large` (12.6 minutes; raw output in `perf/hp7-net10.txt`). Linux container, 4 cores, net10.0.
-Mesher: the median of three runs. Oracle: the fast path, the second of two runs. Checker: the best of five; its certificate is
-derived from the geometry outside the timing. All verdicts: oracle ok, checker accepted.
+`Meshing2HardProblems hp7 --size large` (13 minutes; raw output in `perf/hp7-net10.txt`). Linux container, 4 cores, net10.0.
+Mesher: the median of three runs after one untimed run. Oracle: the fast path, the second of two runs, with its laps on.
+Checker: the best of five; its certificate is derived from the geometry outside the timing. Verdicts: oracle ok and checker
+accepted on the 17 rows without a snap grid; on the 3 rows with one the oracle says INVALID (section 3) and the checker,
+which does not model the grid, accepts.
 
 - **Inputs:** `parcels`: side x side jittered square rings that share their borders (the generator of `perf --quality`);
   `coast`: one ring of n points with a random radius; a comb of 40 teeth of 1 degree and a fan of 12 segments 2 degrees apart;
@@ -343,29 +345,30 @@ derived from the geometry outside the timing. All verdicts: oracle ok, checker a
 
 | case | triangles | mesher ms | oracle ms | oracle / mesher | checker ms | checker / mesher |
 |---|---|---|---|---|---|---|
-| parcels30 q20 default | 1 802 | 68 | 3 191 | 47 | 1.64 | 0.024 |
-| parcels60 q20 default | 7 224 | 45 | 18 777 | 416 | 2.31 | 0.051 |
-| parcels60 q30 default | 13 760 | 120 | 20 711 | 172 | 4.06 | 0.034 |
-| coast2000 q20 default | 26 144 | 260 | 6 186 | 24 | 7.52 | 0.029 |
-| coast8000 q20 default | 401 151 | 6 983 | 201 824 | 29 | 178 | 0.026 |
-| parcels60 q20 cq | 7 202 | 32 | 18 751 | 586 | 2.61 | 0.081 |
-| coast2000 q20 cq | 7 600 | 200 | 2 268 | 11 | 1.93 | 0.010 |
-| coast8000 q20 cq | 87 879 | 2 476 | 46 721 | 19 | 25 | 0.010 |
-| comb40 φ = 1° q20 default | 81 | 0.57 | 29 | 51 | 0.02 | 0.043 |
-| wide exponents q20 default | 66 | 0.60 | 141 | 234 | 0.01 | 0.023 |
+| parcels30 q20 default | 1 802 | 27 | 3 375 | 124 | 1.59 | 0.058 |
+| parcels60 q20 default | 7 224 | 48 | 18 451 | 382 | 2.83 | 0.059 |
+| parcels60 q30 default | 13 760 | 125 | 20 682 | 165 | 5.29 | 0.042 |
+| coast2000 q20 default | 26 144 | 403 | 6 084 | 15 | 9.00 | 0.022 |
+| coast8000 q20 default | 401 151 | 6 648 | 195 355 | 29 | 160 | 0.024 |
+| parcels60 q20 cq | 7 202 | 37 | 17 616 | 477 | 3.24 | 0.088 |
+| coast2000 q20 cq | 7 600 | 153 | 2 376 | 16 | 1.65 | 0.011 |
+| coast8000 q20 cq | 87 879 | 2 506 | 47 247 | 19 | 34 | 0.014 |
+| fan12 φ = 2° q20 default | 31 | 0.13 | 14 | 110 | 0.02 | 0.131 |
+| wide exponents q20 default | 66 | 0.26 | 103 | 392 | 0.01 | 0.034 |
 
-(10 of 20 rows; all are in the raw output. Mesher times of a few milliseconds vary by a factor of two between runs.)
+(10 of 20 rows; all are in the raw output. Mesher times of a few milliseconds vary by a factor of two between runs, and
+so do the ratios of those rows.)
 
 **The oracle's time by check** (its own laps, `G3_ORACLE_TIMING`; the largest per case).
 
 | case | largest checks |
 |---|---|
-| parcels60 q20 default | segments 50 %, domain 39 %, delaunay 5 % |
-| parcels30 q20 default | segments 62 %, domain 29 %, marks 7 % |
-| coast8000 q20 default | conformity 33 %, coverage 24 %, quality 21 %, segments 17 % |
-| coast8000 q20 cq | conformity 31 %, coverage 27 %, segments 26 %, quality 10 % |
+| parcels60 q20 default | segments 51 %, domain 41 %, marks 2 % |
+| parcels30 q20 default | segments 62 %, domain 28 %, marks 4 % |
+| coast8000 q20 default | conformity 31 %, coverage 23 %, quality 22 %, segments 17 % |
+| coast8000 q20 cq | coverage 30 %, conformity 28 %, segments 25 %, quality 11 % |
 | fan12 φ = 2° q20 default | quality 88 % |
-| wide exponents q20 default | quality 61 %, segments 26 % |
+| wide exponents q20 default | quality 61 %, segments 24 % |
 
 **Locating against deciding** (item 5.5 of the cross-field note: how much of the oracle's time is search). Sampling
 profiles (dotnet-trace), split by `profile_split.py`: a sample counts as *deciding* when its stack is inside the oracle's
@@ -387,7 +390,7 @@ garbage collection the functions cause. Raw output: `perf/profile-split.txt`.
 - The deciding share is an upper estimate of what must stay: a predicate evaluated on a candidate that a search produced
   disappears with the search. So "locating" is a lower bound of what hints remove.
 - **The stop rule of item 5.5** asks whether the oracle stays above 2.5 times the mesher with all search removed. On these
-  inputs it does: with locating at 29 to 67 %, a ratio of 11 to 590 stays far above 2.5. Hints alone do not reach the target.
+  inputs it does: with locating at 29 to 67 %, a ratio of 15 to 477 stays far above 2.5. Hints alone do not reach the target.
   Herne and the corpus were not measured (no tiles and no corpus files in this session); `profile_split.py` runs on any
   trace of the oracle.
 - What makes the prototype checker fast is therefore not the hints alone. It is three things together: the certificate
@@ -395,11 +398,11 @@ garbage collection the functions cause. Raw output: `perf/profile-split.txt`.
   in-circle tests fell back to exact arithmetic), and the degree argument, which replaces checks instead of speeding them up.
 
 **What the numbers say.**
-1. **The upper bound is large.** The checker of the core takes 1 to 8 % of the mesher's time; the oracle 11 to 590 times.
+1. **The upper bound is large.** The checker of the core takes 1 to 13 % of the mesher's time; the oracle 15 to 477 times.
    If the core were all, a certifying design would end the speed item.
 2. **The plan's stop rule does not apply.** It asked to stop if exact arithmetic on single predicates were above 80 % of the
    time left. On these inputs it is not: `Segments` is mostly scans, and the checks the degree argument replaces (conformity,
-   coverage) are 34 to 58 % of the oracle on the coast inputs.
+   coverage) are 31 to 58 % of the oracle on the coast inputs.
 3. **Much of the gain does not need a certificate.** The two largest items on ring-heavy inputs are a scan of all ring edges
    per source and the exact area. The first needs an index (the oracle has `BoxGrid`), the second a filter or the degree
    argument. Both stay inside the oracle and keep it independent.
@@ -426,8 +429,8 @@ garbage collection the functions cause. Raw output: `perf/profile-split.txt`.
 
 | # | option | gain | effort | risk |
 |---|---|---|---|---|
-| 1 | Inside the oracle: index the per-source scans of `Segments` (pieces by source, the existing grid), filter or drop the exact area, and put filters in doubles in front of the exact tests of `Segments`, `Coverage`, `Conformity` and `Quality` | 85 to 95 % of the oracle's time on the parcels inputs is in these two checks (17 to 47 % on the coast inputs); needs no certificate | M (an equivalence argument per replacement, as in #376; check mode; mutants) | low to medium: the examples an INVALID report names may change order |
-| 2 | A certifying core on the fast path: `SubsegmentSources` as the certificate and the checker of section 2.3 for coverage, conformity and the chains, where no excuse and no grid rule is involved | the core's upper bound (conformity and coverage: 34 to 58 % of the oracle on the coast inputs, 1 to 7 % on the parcels) | L (tier L: the argument against the specification's own wording of coverage, the tubes, the reference comparison) | medium: two ways to the same verdict must agree on every input, including inside the tubes |
+| 1 | Inside the oracle: index the per-source scans of `Segments` (pieces by source, the existing grid), filter or drop the exact area, and put filters in doubles in front of the exact tests of `Segments`, `Coverage`, `Conformity` and `Quality` | `Segments` and `Domain` are 89 to 94 % of the oracle on the parcels inputs (17 to 49 % on the coast inputs); needs no certificate | M (an equivalence argument per replacement, as in #376; check mode; mutants) | low to medium: the examples an INVALID report names may change order |
+| 2 | A certifying core on the fast path: `SubsegmentSources` as the certificate and the checker of section 2.3 for coverage, conformity and the chains, where no excuse and no grid rule is involved | the core's upper bound (conformity and coverage: 31 to 58 % of the oracle on the coast inputs, 1 to 7 % on the parcels) | L (tier L: the argument against the specification's own wording of coverage, the tubes, the reference comparison) | medium: two ways to the same verdict must agree on every input, including inside the tubes |
 | 3 | A full certifying oracle: also the grid rules, Q17 and every excuse named in the certificate | the rest | XL | high: the certificate grows with the specification, and the mesher becomes responsible for explaining each excuse |
 
 **How others solve it.** Checkers of triangulations in the literature (Devillers et al. 1998; the LEDA checkers of Mehlhorn et
@@ -446,8 +449,8 @@ is still above its target after that; its argument is written down here and its 
    `Meshing2HardProblems dump --case "parcels2 q20 snap 1/64" --output in.txt`, then
    `Meshing2Benchmark mesh --input in.txt --output out.txt --milestone M3`. The named points lie on borders that two rings
    share. Not diagnosed: it may be the oracle's rule for shared borders of outer rings on the grid, or the mesher.
-2. **The oracle takes 202 s on one output** (`coast8000 q20 default`, 401 151 triangles, mesher 7.0 s): conformity 65 s,
-   coverage 48 s, quality 43 s, segments 35 s.
+2. **The oracle takes 195 s on one output** (`coast8000 q20 default`, 401 151 triangles, mesher 6.6 s): conformity 62 s,
+   coverage 44 s, quality 44 s, segments 34 s.
 3. **Angles between the bound and 60 degrees** lose the bound today although plain Ruppert keeps it on these inputs
    (section 1.4, item 3). This is the known trade of #496, now with numbers.
 
