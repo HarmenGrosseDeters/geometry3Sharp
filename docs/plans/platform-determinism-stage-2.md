@@ -3,7 +3,7 @@
 - **Board row:** OPEN_TOPICS.md §3 "Ready to start", row "Platform/QA/CI: determinism proof stage 2"
 - **Kind:** ready to start
 - **Tier:** L (scope is `mesh_ops/ExactMesh*`: bounds / exact-code review, incremental mutation gate)
-- **Plan status:** draft, 2026-11-20 (Berlin). Plan only.
+- **Plan status:** draft, 2026-11-20 (Berlin); updated 2026-11-22 (Berlin): the implementation is open PR `#1370` (owner decisions of 2026-11-22: stage 2 for the exact result only, with `MeshRoundingRepair` as a named assumption; [ROADMAP.md](../ROADMAP.md), "Decided on 2026-11-22"). Of the two blockers named below, #1220 is merged (2026-11-22) and #1223 is still an open PR. The plan closes when #1370 merges.
 
 ## Current state
 
@@ -21,10 +21,12 @@
   (grown since).
 - Unblocked: Exact Boolean 3.0 complete 2026-11-18, maintenance mode. **But** open PRs touch the same file:
   #1220 (Orientation = ByNesting), #1223 (sheet role, draft). Stage 2 must start after they merge or close.
+  Update 2026-11-22: #1220 is merged; #1223 is still open (no longer a draft); stage 2 started anyway as PR #1370.
 
 ## Trigger / decision needed
 
-None for the method (decided). Scheduling: start when #1220 / #1223 are settled. Within the PR, the P5 obligations
+None for the method (decided). Scheduling: started (PR #1370, 2026-11-22); what remains is its CI, the exact-code
+review and the incremental mutation run, then the merge. Within the PR, the P5 obligations
 (renaming invariance of ids handed out in schedule order) decide whether option G (canonical result order) or C
 (deterministic ids by construction) is needed (§7); that choice goes to the owner with numbers.
 
