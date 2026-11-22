@@ -174,26 +174,25 @@ namespace g3
             return true;
         }
 
-        // Find() for the generic crossing of two triangles, decided exactly by signs: no corner of one lies in the
-        // plane of the other, and no crossing edge of one is coplanar with a crossing edge of the other (the exact
-        // Orient3d). Then the contact is a segment of positive length (a zero length overlap needs the end of an edge of
-        // one to meet an edge of the other, on the line of the two planes, hence a coplanar pair). Its two ends are the
-        // crossing points of the two crossing edges of each triangle with the plane of the other that lie in the other
-        // triangle (exact: three Orient3d per edge, as ExactTriangleIntersection.SegmentIntersectsTriangle), exactly two
-        // of them. Their coordinates are the correctly rounded exact values, as find_exact computes them: first with
-        // certified double-word arithmetic (DoubleWord, docs/design/TRI3TRI3_DOUBLE_WORD.md), exactly (BigInteger) where
-        // the certificate does not decide. Returns false, leaving the exact route (find_exact) to decide, for anything
-        // else.
-        bool find_transversal()
+        // Find() for the generic crossing of two triangles: no corner of one lies in the plane of the other (exact Orient3d,
+        // odd_vertex). Then the contact is the overlap of the two segments in which the triangles cut the line of the two
+        // planes; its two end points are crossing points of the two crossing edges of each triangle with the plane of the
+        // other that lie in the other triangle (exact: three Orient3d per edge, as ExactTriangleIntersection.
+        // SegmentIntersectsTriangle), and in a positive-length overlap exactly two of the four qualify. A touching contact
+        // is not of positive length: if a crossing edge of one triangle is coplanar with a crossing edge of the other, the
+        // crossing point of each with the plane of the other triangle is the intersection of the two edge lines (it lies in
+        // the plane of the other triangle and on the line of the other edge, the common plane meeting the plane of the other
+        // triangle in the line of that edge), the same point for both; the two end points then are equal as rational
+        // points, so equal after the correct rounding, and the pair goes to find_exact (p0 == p1). The coordinates of the
+        // end points are the correctly rounded exact values, as find_exact computes them: first with certified double-word
+        // arithmetic (DoubleWord, docs/design/TRI3TRI3_DOUBLE_WORD.md), exactly (BigInteger) where the certificate does not
+        // decide. Returns false, leaving the exact route (find_exact) to decide, for anything else.
+        internal bool find_transversal()
         {
             Triangle3d A = triangle0, B = triangle1;
             int oa = odd_vertex(ref A, ref B), ob = odd_vertex(ref B, ref A);
             if (oa < 0 || ob < 0)
                 return false;
-            for (int i = 1; i <= 2; ++i)
-                for (int j = 1; j <= 2; ++j)
-                    if (ExactPredicates.Orient3d(A[oa], A[(oa + i) % 3], B[ob], B[(ob + j) % 3]) == 0)
-                        return false;
             // the crossing edges that end in the other triangle
             Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero;
             int n = 0;

@@ -395,6 +395,34 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Fact]
+        public void FindTransversal_IsTakenForGenericCrossings_AndLeavesTouchingContactsToTheExactRoute()
+        {
+            int generic = 0;
+            foreach (var (a, b) in HitPairs(300, 41, false)) {
+                var f = new IntrTriangle3Triangle3(a, b);
+                Assert.True(f.find_transversal(), "a generic crossing takes the fast route");
+                Assert.Equal(IntersectionType.Segment, f.Type);
+                generic++;
+            }
+            Assert.Equal(300, generic);
+            // an edge of A crossing an edge of B in a point, the other ends of the contact on opposite sides of it: a point contact
+            var r = new Random(5);
+            int touching = 0;
+            for (int it = 0; it < 400 && touching < 30; it++) {
+                Vector3d V() => new Vector3d(r.NextDouble() * 2 - 1, r.NextDouble() * 2 - 1, r.NextDouble() * 2 - 1);
+                Vector3d u = V(), w = V(), a3 = V(), b3 = V();
+                var A = new Triangle3d(-u, u, a3); var B = new Triangle3d(-w, w, b3);
+                if (ExactTriangleIntersection.IsDegenerate(ref A) || ExactTriangleIntersection.IsDegenerate(ref B)) continue;
+                var f = new IntrTriangle3Triangle3(A, B);
+                if (f.Find() == false || f.Type != IntersectionType.Point) continue;
+                touching++;
+                Assert.False(new IntrTriangle3Triangle3(A, B).find_transversal(), "a touching contact is left to the exact route");
+                Assert.Equal(Vector3d.Zero, f.Points[0]);
+            }
+            Assert.True(touching >= 10, "touching " + touching);
+        }
+
         [Theory]
         [InlineData(false)]
         [InlineData(true)]

@@ -110,14 +110,26 @@ round-to-even neighbour, correct, but this is not relied on).
 
 ## 5. Selection of the end points (exact)
 
-In the generic crossing (no corner of one triangle in the plane of the other, found with `Orient3d`; no crossing edge of one triangle coplanar
-with a crossing edge of the other, four more `Orient3d`), the contact is a segment of positive length: zero length would need an end of an
-edge of one triangle to meet an edge of the other on the line of the planes, so the two edges would be coplanar. Its end points are the crossing
-points of the two crossing edges of each triangle (`odd_vertex`) that lie in the other triangle. A crossing point `X` of the edge `s`-`t`
-(strictly across the plane) lies in the closed triangle iff the three `Orient3d(s, t, a, b)` for the edges `a`-`b` do not have both signs
-(the tail of `ExactTriangleIntersection.SegmentIntersectsTriangle`). Exactly two of the four points qualify; any other count
-(`n != 2`) leaves the pair to the exact route `find_exact`. No floating-point comparison orders the points, so there is no margin
-or conditioning gate: an ill-conditioned point simply fails the certificate and takes `crossing_exact`.
+`odd_vertex`: no corner of either triangle lies in the plane of the other (`Orient3d`), and the corners of each triangle are split 1 against 2 by the plane of
+the other, so each triangle has two crossing edges, those at the odd corner. The overlap of the segments in which the triangles cut the line `L` of the two planes
+is the contact. Its end points are crossing points of those four edges with the plane of the other triangle, and a crossing point `X` of the edge `s`-`t` (strictly
+across the plane) lies in the closed other triangle iff the three `Orient3d(s, t, a, b)` for its edges `a`-`b` do not have both signs (the tail of
+`ExactTriangleIntersection.SegmentIntersectsTriangle`). For a contact of positive length exactly two of the four points qualify (an end of the overlap of two
+intervals on `L` is an end of one of them lying inside the other, and the other two points lie outside), so `n == 2`; any other count leaves the pair to the exact route.
+No floating-point comparison orders the points, so there is no margin or conditioning gate: an ill-conditioned point simply fails the certificate and takes `crossing_exact`.
+
+A contact that is a single point has `n == 2` with both qualifying points equal: if a crossing edge of A is coplanar with a crossing edge of B, the crossing point of each
+with the plane of the other triangle is the intersection of the lines of the two edges (the common plane of the two edges meets the plane of B in the line of B's edge,
+which contains A's crossing point, and likewise for B's crossing point), the same rational point; both lie in the other triangle (each is on an edge of its own triangle, the
+intersection of the two edge lines being on both edges), and both are rounded correctly, so `p0 == p1` and the pair goes to `find_exact`, which reports the Point. (A check
+that rejected a coplanar pair of edges with four `Orient3d` was redundant with this and is removed.)
+
+## 5a. The two routes return the same doubles
+
+`crossing_dd` returns a point only when every coordinate is certified (section 4): the exact coordinate `V'` rounds to `Hi` under every value within `Err` of `Hi + Lo`, so
+`Hi` is the correctly rounded `V'` (nearest, and not a tie); `crossing_exact` returns the correctly rounded `V'` (`round_ratio`: truncated quotient with a sticky remainder, ties to even).
+A rounding to nearest is unique except at a tie, which `RoundsTo` never certifies, so the two routes return the same double for every input, not only for the tested ones; the tests check this on
+random, axis-aligned, scaled and tie inputs. Consequently skipping the double-word route (or any guard that only hands the pair to `find_exact`) cannot change a result.
 
 ## 6. Tests and mutation checks
 
@@ -133,11 +145,12 @@ Killed (10): `Eps2` to `2^-106`; `<` to `<=` in `RoundsTo`; dropping `Err` from 
 the residual error of the quotient; the exact-zero certificate; the range rule; and the two `round_ratio` variants (no sticky remainder; always round up at the midpoint).
 Survivors, argued:
 
-- Disabling the double-word route (`crossing_dd` never used), `passes_through` always true (four candidates: `n > 2` returns false), the coplanar-edge check removed, `n != 2` weakened:
-  every one of these sends a pair to the exact route `find_exact`, which returns the same result, so the output cannot differ; only the route taken does (a performance
-  difference, measured in section 7, not a correctness one). The coplanar-edge check and `p0 == p1` are redundant guards for an exactly touching pair (its two crossing points
-  coincide as rational points, hence round to equal doubles, hence `p0 == p1`); the check `p0 == p1` additionally covers a rounding collapse of a positive-length segment,
-  for which no input was found (400000 one-ulp nudged edge pairs, 300000 hits, none equal): the check is kept as a guard, not covered by a test.
+- Disabling the double-word route (`crossing_dd` never used): section 5a, the output is the same by construction, only the route differs (section 7 measures the difference).
+- `passes_through` always true: four candidates, `n > 2` returns false, the pair takes the exact route with the same result; it is killed instead by
+  `FindTransversal_IsTakenForGenericCrossings_...`, which asserts that the fast route is taken for generic crossings.
+- The coplanar-edge check (four `Orient3d` per hit) is removed: section 5 shows `p0 == p1` for a touching contact, which `FindTransversal_...` and `EdgeCrossingEdge_...` pin (a mutant that drops
+  `p0 == p1` fails them). `p0 == p1` also covers a rounding collapse of a positive-length segment, for which no input was found (400000 one-ulp nudged edge pairs, 300000 hits, none equal): kept as a guard.
+- `n != 2` weakened to `n == 0`: the case `n == 1` does not occur (section 5: a contact has two qualifying points or none), so the check is a guard against a violated assumption, not covered by a test.
 - The `Div` guard `err(y) <= |yh| / 4` was redundant with the `den > 0` test (the residual bound is valid for any positive denominator) and is removed.
 - The factor `1 + 2^-48` on the bounds could not be told from 1 by any test and was removed; the explicit slack of `Eps2` over the derived bounds covers the rounding of the bounds (section 3).
 
