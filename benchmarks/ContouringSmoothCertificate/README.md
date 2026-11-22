@@ -102,7 +102,7 @@ The yield and the cost of `TwoLevelSheetCertificate` (internal;
 [CONTOURING_BLOCK_CERTIFICATE.md](../../docs/design/CONTOURING_BLOCK_CERTIFICATE.md), section 4b) on walls around six
 capped TPMS (a smooth field, no domain cut): 32 and 64 cells across, one and two periods, half a cell and two cells
 thick (two cells only at one period). `results/sheet.csv`, 2026-11-22, one machine, serial, medians of 3 runs. 36
-runs; in 8 (Schwarz P and Neovius at one period) the wall is empty and the run is certified in 6 to 33 ms; the other 28:
+runs; in 8 (Schwarz P and Neovius at one period) the wall is empty and the run is certified in 6 to 35 ms; the other 28:
 
 | | |
 |---|---|
@@ -113,14 +113,15 @@ runs; in 8 (Schwarz P and Neovius at one period) the wall is empty and the run i
 | cubes that may hold a zero, both levels, all 28 runs | 278187: 86.6 % certified alone, 10.6 % in blocks, 2.8 % left (the blocks hold 30461 cubes, those without a zero included) |
 | cubes that may hold a zero and are not certified alone: in a block | 78.9 % (29365 of 37219) |
 | cubes left, by the condition that failed last | 3549 direction (B3), 4305 block limit; none by node, edge, face, circle count or mesh |
-| time of the certificate against the mesher with its record | 29 to 306 times, median 158 times |
-| time per cube that may hold a zero | 0.44 to 1.28 ms, median 0.53 ms |
-| time with blocks against without (`MaxBlockSide = 1`) | 0.98 to 1.26 times, median 1.10 |
+| time of the certificate against the mesher with its record | 55 to 298 times, median 153 times |
+| time per cube that may hold a zero | 0.44 to 1.18 ms, median 0.52 ms |
+| time with blocks against without (`MaxBlockSide = 1`) | 0.99 to 1.28 times, median 1.09 |
 
 - No run is certified wrong by the benchmark's own view: the certified runs have two components (one per level); it
   does not check more than that. The tests have a sampling oracle.
-- The cost is far above the 10 % bar: the certificate takes about 160 times as long as the mesh (1.3 s to 25 s here
-  against 7 to 114 ms). It is a check to run on demand, not a part of meshing. Nothing was done for speed: every cube
+- The cost is far above the 10 % bar: the certificate takes about 150 times as long as the mesh (1.3 s to 25 s here
+  against 7 to 121 ms). It is a check to run on demand, not a part of meshing. One `Compute` above 20 s (IWP at 64 cells, 25 s; Neovius 21 s; Lidinoid
+  19.5 s) is tracked in [#1436](https://github.com/HarmenGrosseDeters/geometry3Sharp/issues/1436). Nothing was done for speed: every cube
   that may hold a zero asks for interval enclosures on its nodes, 12 edges, 6 faces and its inside, each up to twice
   halved per axis, and nothing but the edge and face results is shared between cubes.
 - Why IWP and Lidinoid fail at one period was not diagnosed. Their walls have 12 components (IWP) and thin parts at

@@ -183,6 +183,9 @@ namespace geometry3Sharp.Tests
             Assert.True(c.Blocks[0] > 3 && c.Blocks[1] > 3, Summary(c));
             Assert.True(c.CellsInBlocks[0] > 0 && c.CellsCertifiedAlone[0] > 1000);
             Assert.Equal(0, OracleViolations(f, gen, c));
+            // the result: two closed manifold surfaces of genus 0 (one period of the capped gyroid), without self-intersections
+            Assert.Equal("c=2;g=0+0", Signature(gen.Mesh));
+            Assert.Equal("", gs.MeshRobustRepair.NotCleanReason(gen.Mesh));
             CheckBlocks(c, 32, 32, 32);
             // blocks that met were merged: some block is wider than the two cubes a single seed needs
             Assert.Contains(c.BlockBoxes[0].Concat(c.BlockBoxes[1]), b => (b[3] - b[0]) * (b[4] - b[1]) * (b[5] - b[2]) > 8);
@@ -195,8 +198,10 @@ namespace geometry3Sharp.Tests
         {
             var f = new CappedTpms(TpmsType.Gyroid, 2 * Math.PI / 2.2, 0.9, 4);
             TwoLevelMarchingTetrahedra gen = Mesh(f, 0.5 * 2.2 / 32 / 2, Shift, 2.2, 32);
-            var alone = new TwoLevelSheetCertificate { Field = f, Mesher = gen, MaxBlockSide = 1 };
+            var alone = new TwoLevelSheetCertificate { Field = f, Mesher = gen, MaxBlockSide = 1, MaxCachedEnclosures = 64 * 300 };
             alone.Compute();
+            // the budget of kept enclosures, in cubes: 64 sub-boxes per cube
+            Assert.Equal(300, alone.PeakCachedCubes);
             Assert.False(alone.Certified);
             Assert.Equal(SheetCertificateRunFailure.None, alone.RunFailure);
             Assert.NotEmpty(alone.UncertifiedCells);
@@ -291,6 +296,28 @@ namespace geometry3Sharp.Tests
             gen = fresh();
             gen.Mesh.RemoveTriangle(0, false, false);
             Assert.Equal(SheetCertificateRunFailure.NoRecord, Certify(f, gen).RunFailure);
+            // the node flags against the grid: missing, of another length; a grid without a cube along an axis (on an empty wall)
+            gen = fresh(); gen.Certificate.NodeFlags = null;
+            Assert.Equal(SheetCertificateRunFailure.NoRecord, Certify(f, gen).RunFailure);
+            gen = fresh(); gen.Certificate.NodeFlags = gen.Certificate.NodeFlags.Concat(new byte[] { 2 }).ToArray();
+            Assert.Equal(SheetCertificateRunFailure.NoRecord, Certify(f, gen).RunFailure);
+            gen = fresh(); gen.Certificate.NodeFlags = gen.Certificate.NodeFlags.Take(gen.Certificate.NodeFlags.Length - 1).ToArray();
+            Assert.Equal(SheetCertificateRunFailure.NoRecord, Certify(f, gen).RunFailure);
+            for (int axis = 0; axis < 3; ++axis) {
+                var far = new Sphere(new Vector3d(50, 0, 0), 0.7);
+                TwoLevelMarchingTetrahedra empty = Mesh(far, w, Shift, 2.2, 4);
+                Assert.Equal(0, empty.Mesh.TriangleCount);
+                Assert.True(Certify(far, empty).Certified);
+                Vector3i nodes = empty.Certificate.Nodes;
+                nodes[axis] = 1;
+                empty.Certificate.Nodes = nodes;
+                empty.Certificate.NodeFlags = Enumerable.Repeat((byte)2, nodes.x * nodes.y * nodes.z).ToArray();
+                Assert.Equal(SheetCertificateRunFailure.NoRecord, Certify(far, empty).RunFailure);
+            }
+            // a grid whose last node is at infinity
+            gen = fresh(); gen.Certificate.CellSize = double.MaxValue / 15.5;
+            Assert.True(double.IsInfinity(gen.Certificate.Origin.x + gen.Certificate.CellSize * 16) && !double.IsInfinity(gen.Certificate.Origin.x + gen.Certificate.CellSize * 15));
+            Assert.Equal(SheetCertificateRunFailure.NoRecord, Certify(f, gen).RunFailure);
             // the record's lists against the mesh, one by one
             gen = fresh(); gen.Certificate.TriangleLevel.Add(0);
             Assert.Equal(SheetCertificateRunFailure.NoRecord, Certify(f, gen).RunFailure);
@@ -346,6 +373,48 @@ namespace geometry3Sharp.Tests
             Assert.Equal(SheetCertificateRunFailure.MeshSide, Certify(f, gen).RunFailure);
             r.VertexLevel[5] = 0;
             Assert.True(Certify(f, gen).Certified);
+            // a vertex on an edge that its level does not cross by the mesher's signs: the outside node of the edge made inside
+            int outside = (r.NodeFlags[a5] >> r.VertexLevel[5] & 1) == 0 ? a5 : b5;
+            byte keptFlags = r.NodeFlags[outside];
+            r.NodeFlags[outside] |= (byte)(1 << r.VertexLevel[5]);
+            Assert.True((Certify(f, gen).RunFailure & SheetCertificateRunFailure.MeshSide) != 0);
+            r.NodeFlags[outside] = keptFlags;
+            Assert.True(Certify(f, gen).Certified);
+            // a triangle of the other level than its vertices; a vertex of the other level than its triangles
+            r.TriangleLevel[7] ^= 1;
+            Assert.Equal(SheetCertificateRunFailure.MeshSide, Certify(f, gen).RunFailure);
+            r.TriangleLevel[7] ^= 1;
+            for (int corner = 0; corner < 3; ++corner) {
+                int vid = gen.Mesh.GetTriangle(7)[corner];
+                // (the vertex test is passed: the nodes of its edge are made to differ for the other level too)
+                byte fa = r.NodeFlags[r.VertexA[vid]], fb = r.NodeFlags[r.VertexB[vid]];
+                r.VertexLevel[vid] ^= 1;
+                if (((fa ^ fb) >> r.VertexLevel[vid] & 1) == 0) r.NodeFlags[r.VertexA[vid]] ^= (byte)(1 << r.VertexLevel[vid]);
+                if ((r.NodeFlags[r.VertexA[vid]] & 3) == 0) { r.NodeFlags[r.VertexA[vid]] = fa; r.NodeFlags[r.VertexB[vid]] ^= (byte)(1 << r.VertexLevel[vid]); }
+                Assert.True((r.NodeFlags[r.VertexA[vid]] & 3) != 0 && (r.NodeFlags[r.VertexB[vid]] & 3) != 0);
+                Assert.Equal(SheetCertificateRunFailure.MeshSide, Certify(f, gen).RunFailure);
+                r.VertexLevel[vid] ^= 1; r.NodeFlags[r.VertexA[vid]] = fa; r.NodeFlags[r.VertexB[vid]] = fb;
+            }
+            Assert.True(Certify(f, gen).Certified);
+            // one more triangle on copies of the vertices of triangle 7: it meets the mesh, which is not the mesh side's matter;
+            // with the copy of a vertex of the other level at one corner it is
+            for (int corner = -1; corner < 3; ++corner) {
+                TwoLevelMarchingTetrahedra g2 = fresh();
+                var r2 = g2.Certificate;
+                Index3i t7 = g2.Mesh.GetTriangle(7);
+                int other = Enumerable.Range(0, g2.Mesh.MaxVertexID).First(v => r2.VertexLevel[v] != r2.TriangleLevel[7]);
+                var copy = new int[3];
+                for (int q = 0; q < 3; ++q) {
+                    int from = q == corner ? other : t7[q];
+                    copy[q] = g2.Mesh.AppendVertex(g2.Mesh.GetVertex(from));
+                    r2.VertexA.Add(r2.VertexA[from]); r2.VertexB.Add(r2.VertexB[from]); r2.VertexLevel.Add(r2.VertexLevel[from]);
+                }
+                Assert.True(g2.Mesh.AppendTriangle(copy[0], copy[1], copy[2]) >= 0);
+                r2.TriangleLevel.Add(r2.TriangleLevel[7]);
+                SheetCertificateRunFailure failure = Certify(f, g2).RunFailure;
+                Assert.Equal(corner >= 0, (failure & SheetCertificateRunFailure.MeshSide) != 0);
+                Assert.True((failure & SheetCertificateRunFailure.NoRecord) == 0);
+            }
             r.NodeFlags[0] |= 16;
             Assert.True((Certify(f, gen).RunFailure & SheetCertificateRunFailure.MeshSide) != 0);
             r.NodeFlags[0] &= 0xEF;
@@ -673,6 +742,74 @@ namespace geometry3Sharp.Tests
             CheckBlocks(cert, 16, 16, 16);
         }
 
+        /// <summary> a field that reports the boxes that meet a ball as not smooth (a valid, weaker enclosure) </summary>
+        sealed class NotSmoothNear : TestField
+        {
+            readonly TestField inner; readonly Vector3d c; readonly double r;
+            public NotSmoothNear(TestField inner, Vector3d centre, double radius) { this.inner = inner; c = centre; r = radius; }
+            public override IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z)
+            {
+                IntervalEnclosure e = inner.Enclose(x, y, z);
+                double dx = Math.Max(0, Math.Max(x.Lo - c.x, c.x - x.Hi)), dy = Math.Max(0, Math.Max(y.Lo - c.y, c.y - y.Hi)), dz = Math.Max(0, Math.Max(z.Lo - c.z, c.z - z.Hi));
+                if (dx * dx + dy * dy + dz * dz <= r * r) e.Smooth = false;
+                return e;
+            }
+            public override double Value(ref Vector3d q) { return inner.Value(ref q); }
+        }
+
+        // A box that the field does not report as smooth has no gradient to test: it passes only without a zero of the level.
+        [Fact]
+        public void WhereTheFieldIsNotSmooth_OnlyCubesWithoutAZeroAreCertified()
+        {
+            var centre = new Vector3d(0.03, -0.02, 0.01);
+            var sphere = new Sphere(centre, 0.6);
+            // not smooth far from the wall (the gradient enclosures there are still finite): certified as before
+            var away = new NotSmoothNear(sphere, centre + new Vector3d(0.2, 0.1, 0), 0.15);
+            TwoLevelMarchingTetrahedra gen = Mesh(away, 0.5 * H / 2, Shift, 2.2, 16);
+            TwoLevelSheetCertificate cert = Certify(away, gen);
+            Assert.True(cert.Certified, Summary(cert));
+            Assert.Equal(List(Certify(sphere, gen)), List(cert));
+            // not smooth in a ball at the wall: the cubes with a zero that meet the ball are left, for a test of a derivative
+            Vector3d onWall = centre + new Vector3d(0.6, 0, 0);
+            var at = new NotSmoothNear(sphere, onWall, 0.05);
+            gen = Mesh(at, 0.5 * H / 2, Shift, 2.2, 16);
+            cert = Certify(at, gen);
+            Assert.False(cert.Certified);
+            Assert.Equal(SheetCertificateRunFailure.None, cert.RunFailure);
+            Assert.NotEmpty(cert.UncertifiedCells);
+            Assert.All(cert.UncertifiedCells, u => {
+                Assert.True(u.Reason == SheetCertificateReason.Edge || u.Reason == SheetCertificateReason.Face || u.Reason == SheetCertificateReason.Direction || u.Reason == SheetCertificateReason.BlockLimit, u.Reason.ToString());
+                Vector3d lo = NodePoint(u.Cell.x, u.Cell.y, u.Cell.z), hi = NodePoint(u.Cell.x + 1, u.Cell.y + 1, u.Cell.z + 1);
+                Assert.True((new Vector3d(Math.Max(lo.x, Math.Min(onWall.x, hi.x)), Math.Max(lo.y, Math.Min(onWall.y, hi.y)), Math.Max(lo.z, Math.Min(onWall.z, hi.z))) - onWall).Length <= 0.05 + 6 * H);
+            });
+            for (int level = 0; level < 2; ++level) Assert.Contains(cert.UncertifiedCells, u => u.Level == level);
+        }
+
+        // A cube that the tests did not reach is not certified (none is left by Compute; here by the seam for this test).
+        [Fact]
+        public void ACubeThatWasNotReached_IsNotCertified()
+        {
+            var f = new Sphere(new Vector3d(0.03, -0.02, 0.01), 0.7);
+            TwoLevelMarchingTetrahedra gen = Mesh(f, 0.5 * H / 2, Shift, 2.2, 16);
+            TwoLevelSheetCertificate whole = Certify(f, gen);
+            Assert.True(whole.Certified);
+            int nx = 16;
+            int index = Array.IndexOf(whole.CellStates[0], (byte)1);
+            var cube = new Vector3i(index % nx, index / nx % nx, index / (nx * nx));
+            var cert = new TwoLevelSheetCertificate { Field = f, Mesher = gen, SkipCubeForTest = c => c == cube };
+            cert.Compute();
+            Assert.False(cert.Certified);
+            Assert.Equal(SheetCertificateRunFailure.None, cert.RunFailure);
+            Assert.Equal(TwoLevelSheetCertificate.UnvisitedState, cert.CellStates[0][index]);
+            Assert.Contains(cert.UncertifiedCells, u => u.Level == 0 && u.Cell == cube && u.Reason == SheetCertificateReason.Unvisited);
+            Assert.All(cert.UncertifiedCells, u => Assert.True(u.Cell == cube && u.Reason == SheetCertificateReason.Unvisited));
+            // the seam is for one run
+            Assert.Null(cert.SkipCubeForTest);
+            cert.Compute();
+            Assert.True(cert.Certified);
+            Assert.Equal(List(whole), List(cert));
+        }
+
         static Vector3d NodePoint(int i, int j, int k) { return new Vector3d(Node(0, i), Node(1, j), Node(2, k)); }
 
         // Two blocks that come to overlap are one block: the block around the nodes (3,3,3) and (4,4,3) grows into the
@@ -690,12 +827,19 @@ namespace geometry3Sharp.Tests
             for (int level = 0; level < 2; ++level)
                 Assert.Contains(cert.BlockBoxes[level], b => string.Join(",", b) == "2,1,1,6,5,4");
             // the same again on the instance, and nothing of it after a refused run
+            // the kept enclosures have a budget: with a small one never more cubes than a block may have, and the same result
+            Assert.True(cert.PeakCachedCubes > 216, cert.PeakCachedCubes.ToString());
+            var small = new TwoLevelSheetCertificate { Field = f, Mesher = gen, MaxCachedEnclosures = 1000 };
+            small.Compute();
+            Assert.Equal(216, small.PeakCachedCubes);
+            Assert.Equal(List(cert), List(small));
             string first = List(cert);
             cert.Compute();
             Assert.Equal(first, List(cert));
             cert.Mesher = new TwoLevelMarchingTetrahedra();
             cert.Compute();
             Assert.Equal(SheetCertificateRunFailure.NoRecord, cert.RunFailure);
+            Assert.Equal(0, cert.PeakCachedCubes);
             Assert.Empty(cert.BlockBoxes[0]);
             Assert.Empty(cert.BlockBoxes[1]);
         }

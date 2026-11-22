@@ -23,7 +23,9 @@ namespace g3
         /// <summary> the block that would hold the cube exceeds MaxBlockSide or reaches the outermost layer </summary>
         BlockLimit = 7,
         /// <summary> a cube of the outermost layer that the level set may meet </summary>
-        OuterLayer = 8
+        OuterLayer = 8,
+        /// <summary> the cube was not reached by the tests (no run of Compute leaves one; a cube is not zero-free by default) </summary>
+        Unvisited = 9
     }
 
     /// <summary> why the whole run is not certified </summary>
@@ -73,7 +75,8 @@ namespace g3
     /// Never certified: a wall cut by a domain, a half width that varies, a level set through a node, a tangency or a second
     /// sheet that no block of the allowed size absorbs, a level set that leaves the grid.
     /// Serial but for the exact self-intersection test of the mesh (MeshRepairMetrics, whose answer does not depend on the
-    /// threads). Not thread-safe. Field.Enclose's Smooth flag is not read: the conditions are on the enclosures of the gradient.
+    /// threads). Not thread-safe. A box that Field.Enclose does not report as Smooth has no usable gradient here: it passes
+    /// only if the level has no zero in it.
     /// </summary>
     internal sealed class TwoLevelSheetCertificate
     {
@@ -83,7 +86,8 @@ namespace g3
         public TwoLevelMarchingTetrahedra Mesher;
         /// <summary>
         /// a cube, edge or face that fails as one box is cut into 2^t pieces per axis, t up to this. Memory: up to 8^t enclosures
-        /// are kept per cube that may hold a zero while its level is tested (4.6 KB at 2, 300 KB at 4).
+        /// of 72 bytes per cube are kept, for at most max(MaxBlockSide^3, MaxCachedEnclosures / 8^t) cubes: 76 MB with the
+        /// defaults and at t = 4; 1.2 GB at a block side of 64 with t = 2.
         /// </summary>
         public int MaxTightening = 2;
         /// <summary> the largest side of a block, in cubes </summary>
@@ -97,7 +101,7 @@ namespace g3
         public int[] SurfaceCells = new int[2], CellsCertifiedAlone = new int[2], CellsInBlocks = new int[2], Blocks = new int[2];
         /// <summary> per level: the certified blocks as ranges of cubes (lo x, y, z, hi x, y, z; hi exclusive), with disjoint interiors, in the order they were made </summary>
         public List<int[]>[] BlockBoxes = { new List<int[]>(), new List<int[]>() };
-        /// <summary> per level and cube (x + nx (y + ny z)): 0 zero-free, 1 certified on its own, 2 not certified, 3 in a certified block; null before Compute </summary>
+        /// <summary> per level and cube (x + nx (y + ny z)): 0 zero-free, 1 certified on its own, 2 not certified, 3 in a certified block, 255 not reached (not certified); null before Compute </summary>
         public byte[][] CellStates = new byte[2][];
 
         TwoLevelMarchingTetrahedra.CertificateRecord rec;
@@ -109,7 +113,15 @@ namespace g3
         sbyte[] nodeSign;               // per node: 0 not known, 1 / -1 certified, 2 not certifiable
         Dictionary<long, bool> edgeOk, faceOk;
         Dictionary<int, List<IntervalEnclosure>> cellPieces;
-        byte[] cellState;               // 0 zero-free, 1 certified alone, 2 refused (a seed), 3 in a block
+        byte[] cellState;               // 0 zero-free, 1 certified alone, 2 refused (a seed), 3 in a block, 255 not reached
+        internal const byte UnvisitedState = 255;
+        /// <summary> for a test of the unvisited state: cubes that the next Compute leaves out; null in every other use, reset by Compute </summary>
+        internal Predicate<Vector3i> SkipCubeForTest;
+        Predicate<Vector3i> skipCube;
+        /// <summary> the budget of kept enclosures (the kept cubes are emptied when it is reached; one block's cubes are always kept) </summary>
+        internal int MaxCachedEnclosures = 1 << 20;
+        /// <summary> the largest number of cubes whose enclosures were kept at one time in the last Compute </summary>
+        internal int PeakCachedCubes;
         SheetCertificateReason[] cellReason;
         int[] owner;
         List<int[]> boxes;
@@ -121,6 +133,8 @@ namespace g3
             SurfaceCells = new int[2]; CellsCertifiedAlone = new int[2]; CellsInBlocks = new int[2]; Blocks = new int[2];
             CellStates = new byte[2][];
             BlockBoxes = new[] { new List<int[]>(), new List<int[]>() };
+            PeakCachedCubes = 0;
+            skipCube = SkipCubeForTest; SkipCubeForTest = null;
             if (Field == null) throw new ArgumentNullException(nameof(Field));
             if (Mesher == null) throw new ArgumentNullException(nameof(Mesher));
             if (MaxTightening < 0 || MaxTightening > 4) throw new ArgumentOutOfRangeException(nameof(MaxTightening));
@@ -130,7 +144,9 @@ namespace g3
             DMesh3 mesh = Mesher.Mesh;
             if (rec == null || mesh == null || rec.VertexA.Count != mesh.MaxVertexID || rec.VertexB.Count != mesh.MaxVertexID
                 || rec.VertexLevel.Count != mesh.MaxVertexID || rec.TriangleLevel.Count != mesh.MaxTriangleID
-                || mesh.VertexCount != mesh.MaxVertexID || mesh.TriangleCount != mesh.MaxTriangleID) {
+                || mesh.VertexCount != mesh.MaxVertexID || mesh.TriangleCount != mesh.MaxTriangleID
+                || rec.NodeFlags == null || rec.Nodes.x < 2 || rec.Nodes.y < 2 || rec.Nodes.z < 2
+                || rec.NodeFlags.Length != (long)rec.Nodes.x * rec.Nodes.y * rec.Nodes.z) {
                 RunFailure = SheetCertificateRunFailure.NoRecord; return;
             }
             // a half width that was a function is recorded as NaN
@@ -142,6 +158,8 @@ namespace g3
                 X[a] = new double[rec.Nodes[a]];
                 for (int i = 0; i < X[a].Length; ++i) X[a][i] = rec.Origin[a] + rec.CellSize * i;
                 for (int i = 0; i + 1 < X[a].Length; ++i) if (!(X[a][i + 1] > X[a][i])) { RunFailure = SheetCertificateRunFailure.NoRecord; return; }
+                // finite: the first is below the second, so only the last can be infinite
+                if (double.IsInfinity(X[a][X[a].Length - 1])) { RunFailure = SheetCertificateRunFailure.NoRecord; return; }
             }
             W = ExactInterval.Of(rec.HalfWidth);
 
@@ -152,7 +170,12 @@ namespace g3
             foreach (byte flags in rec.NodeFlags) if ((flags & 48) != 0 || (flags & 3) == 0) { RunFailure |= SheetCertificateRunFailure.MeshSide; break; }
             for (int vid = 0; vid < mesh.MaxVertexID; ++vid)
                 if (!VertexStrictlyInsideItsEdge(mesh.GetVertex(vid), rec.VertexA[vid], rec.VertexB[vid], rec.VertexLevel[vid])) { RunFailure |= SheetCertificateRunFailure.MeshSide; break; }
-            foreach (byte l in rec.TriangleLevel) if (l > 1) { RunFailure |= SheetCertificateRunFailure.MeshSide; break; }
+            // every triangle has the level of its three vertices (which is 0 or 1 by the vertex test)
+            for (int tid = 0; tid < mesh.MaxTriangleID; ++tid) {
+                byte l = rec.TriangleLevel[tid];
+                Index3i t = mesh.GetTriangle(tid);
+                if (rec.VertexLevel[t.a] != l || rec.VertexLevel[t.b] != l || rec.VertexLevel[t.c] != l) { RunFailure |= SheetCertificateRunFailure.MeshSide; break; }
+            }
             if (gs.MeshRepairMetrics.HasSelfIntersections(mesh)) RunFailure |= SheetCertificateRunFailure.SelfIntersections;
 
             for (level = 0; level < 2; ++level) {
@@ -160,6 +183,7 @@ namespace g3
                 edgeOk = new Dictionary<long, bool>(); faceOk = new Dictionary<long, bool>();
                 cellPieces = new Dictionary<int, List<IntervalEnclosure>>();
                 cellState = new byte[nx * ny * nz];
+                for (int c = 0; c < cellState.Length; ++c) cellState[c] = UnvisitedState;
                 cellReason = new SheetCertificateReason[cellState.Length];
                 owner = new int[cellState.Length];
                 for (int c = 0; c < owner.Length; ++c) owner[c] = -1;
@@ -171,6 +195,7 @@ namespace g3
                     if (cellState[c] == 1) ++CellsCertifiedAlone[level];
                     else if (cellState[c] == 3) ++CellsInBlocks[level];
                     else if (cellState[c] == 2) UncertifiedCells.Add(new SheetUncertifiedCell { Level = level, Cell = new Vector3i(i, j, k), Reason = cellReason[c] });
+                    else if (cellState[c] != 0) UncertifiedCells.Add(new SheetUncertifiedCell { Level = level, Cell = new Vector3i(i, j, k), Reason = SheetCertificateReason.Unvisited });
                 }
                 foreach (int[] b in boxes) if (b != null) BlockBoxes[level].Add(b);
                 Blocks[level] = BlockBoxes[level].Count;
@@ -182,11 +207,13 @@ namespace g3
 
         /// <summary>
         /// (T2) of Lemma 9 for one vertex: on a tetrahedron edge between the nodes a and b of the grid, with the coordinates the
-        /// two nodes share exactly and the others strictly between. False for a vertex without an edge or a level.
+        /// two nodes share exactly and the others strictly between, and the vertex's level has one node of the edge inside
+        /// and one outside (the mesher's signs). False for a vertex without an edge or a level.
         /// </summary>
         internal bool VertexStrictlyInsideItsEdge(Vector3d v, int a, int b, int vertexLevel)
         {
             if (a < 0 || b <= a || b >= rec.NodeFlags.Length || vertexLevel > 1) return false;
+            if (((rec.NodeFlags[a] ^ rec.NodeFlags[b]) >> vertexLevel & 1) == 0) return false;
             int moving = 0;
             for (int ax = 0; ax < 3; ++ax) {
                 int ia = ax == 0 ? a % n1x : ax == 1 ? a / n1x % n1y : a / (n1x * n1y), ib = ax == 0 ? b % n1x : ax == 1 ? b / n1x % n1y : b / (n1x * n1y);
@@ -207,6 +234,8 @@ namespace g3
         {
             IntervalEnclosure e = Field.Enclose(x, y, z);
             e.F = level == 0 ? e.F - W : -e.F - W;
+            // a box that may hold a point where g is not smooth has no gradient to test: every test of a derivative fails on it
+            if (!e.Smooth) e.Gx = e.Gy = e.Gz = new ExactInterval(double.NegativeInfinity, double.PositiveInfinity);
             return e;
         }
 
@@ -260,7 +289,7 @@ namespace g3
             IntervalEnclosure e = enclose(new ExactInterval(X[0][i], X[0][i + si]), new ExactInterval(X[1][j], X[1][j + sj]), new ExactInterval(X[2][k], X[2][k + sk]));
             int s = CertifiedSign(e.F);
             if (s != 0) { zeroFree(i, j, k, si, sj, sk, s); return; }
-            if (si == 1 && sj == 1 && sk == 1) { testCube(i, j, k); return; }
+            if (si == 1 && sj == 1 && sk == 1) { if (skipCube == null || !skipCube(new Vector3i(i, j, k))) testCube(i, j, k); return; }
             int hi = (si + 1) / 2, hj = (sj + 1) / 2, hk = (sk + 1) / 2;
             for (int c = 0; c < 8; ++c)
                 descend((c & 1) == 0 ? i : i + hi, (c & 2) == 0 ? j : j + hj, (c & 4) == 0 ? k : k + hk,
@@ -275,6 +304,7 @@ namespace g3
                 bool same = true;
                 for (int q = 0; q < 8; ++q) if (flagSign(a + (q & 1), b + (q >> 1 & 1), c + (q >> 2 & 1)) != s) same = false;
                 if (!same) refuse(a, b, c, SheetCertificateReason.NodeSign);
+                else cellState[a + nx * (b + ny * c)] = 0;
             }
         }
 
@@ -420,7 +450,10 @@ namespace g3
 
         // (S2) for the grid face with normal axis and lowest node (i, j, k): a direction of strict growth in its plane on the
         // pieces that may hold a zero, and, if the mesher's signs alternate around it, no zero on the diagonal that the
-        // mesher's split gives the face (the one between its two nodes of even index sum)
+        // mesher's split gives the face (the one between its two nodes of even index sum). The diagonal's chain of boxes
+        // separates the two other corners; that this gives the pairing of (S2) also needs the certified signs at the face's
+        // corners (B0) and one zero at most on each of its edges (S1). testBox has both before it comes here: it tests the
+        // nodes, then the edges, then the faces, and returns at the first failure. Not to be called before them.
         bool face(int axis, int i, int j, int k)
         {
             bool r;
@@ -459,12 +492,16 @@ namespace g3
             return r;
         }
 
-        // the enclosures over the 2^MaxTightening sub-boxes per axis of a cube that may hold a zero
+        // the enclosures over the 2^MaxTightening sub-boxes per axis of a cube that may hold a zero; kept for the boxes that take
+        // the cube in later, within a budget
         List<IntervalEnclosure> pieces(int i, int j, int k)
         {
             List<IntervalEnclosure> list;
             int c = i + nx * (j + ny * k);
             if (cellPieces.TryGetValue(c, out list)) return list;
+            // the budget: all kept cubes go when it is reached (a box in test has its enclosures in its own list already)
+            long cap = Math.Max((long)MaxBlockSide * MaxBlockSide * MaxBlockSide, (long)MaxCachedEnclosures >> (3 * MaxTightening));
+            if (cellPieces.Count >= cap) cellPieces.Clear();
             list = new List<IntervalEnclosure>();
             int m = 1 << MaxTightening;
             for (int a = 0; a < m; ++a) for (int b = 0; b < m; ++b) for (int d = 0; d < m; ++d) {
@@ -472,6 +509,7 @@ namespace g3
                 if (MayBeZero(e.F)) list.Add(e);
             }
             cellPieces[c] = list;
+            if (cellPieces.Count > PeakCachedCubes) PeakCachedCubes = cellPieces.Count;
             return list;
         }
 
