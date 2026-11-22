@@ -6,7 +6,7 @@
     ],
     "target-framework": "net10.0",
     "mutate": [
-      "**/mesh_ops/ExactMeshBoolean.cs{135495..167591}"
+      "**/mesh_ops/ExactMeshBoolean.cs{135781..167931}"
     ],
     "test-case-filter": "FullyQualifiedName=geometry3Sharp.Tests.ExactBooleanOpenInputTestsAntipodal.ByDefault_OpenMeshesBelowTheCapGoToAntipodal_SoupsToo|FullyQualifiedName=geometry3Sharp.Tests.ExactBooleanOpenInputTestsAntipodal.PlateStandingOnABox_BoundaryInTheBoxFace_BothPathsAgree|FullyQualifiedName=geometry3Sharp.Tests.ExactBooleanOrientationTests.Resolve_FlippedTriangleNextToFin_IsOrientedBox|FullyQualifiedName=geometry3Sharp.Tests.ExactBooleanOrientationTests.Resolve_SoupWithNegativeZeroAndDegenerateTriangle_IsOrientedBox|(FullyQualifiedName=geometry3Sharp.Tests.ExactMeshBooleanTestsAntipodalTree.Classification_SameWithAndWithoutTheTree&DisplayName~Intersection)|(FullyQualifiedName=geometry3Sharp.Tests.ExactMeshBooleanTestsIssue719.WideGrid_UnderSimilarity&DisplayName~scale 2^10)|FullyQualifiedName=geometry3Sharp.Tests.ExactMeshBooleanTestsIssue719Norms.FarTerm_ScalesAsTheBiotSavartBound|FullyQualifiedName=geometry3Sharp.Tests.ExactMeshBooleanTestsLocalFilter.LocalPoints_WithinTheirBound_OfTheExactDifferences|FullyQualifiedName=geometry3Sharp.Tests.ExactMeshBooleanTestsPerPatch.PerPatch_NearTheBoundary_LeftPerPiece|(FullyQualifiedName=geometry3Sharp.Tests.ExactMeshBooleanTestsTraced.Traced_SameAsOwnRays_UnderSimilarity&DisplayName~scale 1e3)|FullyQualifiedName~ExactMeshBooleanTestsTraced.Traced_SameThresholdsAsOwnRays|(FullyQualifiedName=geometry3Sharp.Tests.ExactMeshBooleanTestsStackFilter.StackFilterAndSideMemo_SameResult_LessWork&DisplayName~Union)",
     "ignore-methods": [
