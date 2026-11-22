@@ -173,9 +173,6 @@ namespace geometry3Sharp.Tests
             CheckBlocks(c, 24, 24, 24);
         }
 
-        // cubes in blocks that were zero-free or certified before the block took them in are counted as in the block: the
-        // count of surface cubes is those certified alone plus the surface cubes in blocks (here: at least the alone ones)
-
         [Fact]
         public void AGyroidWall_IsCertified_AndNeedsBlocks()
         {
@@ -189,7 +186,15 @@ namespace geometry3Sharp.Tests
             CheckBlocks(c, 32, 32, 32);
             // blocks that met were merged: some block is wider than the two cubes a single seed needs
             Assert.Contains(c.BlockBoxes[0].Concat(c.BlockBoxes[1]), b => (b[3] - b[0]) * (b[4] - b[1]) * (b[5] - b[2]) > 8);
-            // without blocks the same run is not certified: the cubes of the blocks are left, for an edge or a face
+        }
+
+        // Without blocks the same run is not certified: the cubes of the blocks are left. (Its own test for the time: each
+        // of the two runs of the certificate takes about 2 s.)
+        [Fact]
+        public void AGyroidWall_IsNotCertified_WithoutBlocks()
+        {
+            var f = new CappedTpms(TpmsType.Gyroid, 2 * Math.PI / 2.2, 0.9, 4);
+            TwoLevelMarchingTetrahedra gen = Mesh(f, 0.5 * 2.2 / 32 / 2, Shift, 2.2, 32);
             var alone = new TwoLevelSheetCertificate { Field = f, Mesher = gen, MaxBlockSide = 1 };
             alone.Compute();
             Assert.False(alone.Certified);
