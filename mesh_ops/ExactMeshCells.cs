@@ -35,15 +35,15 @@ namespace g3
         public int[] Shell;
         public int ShellCount;
         /// <summary>
-        /// the box of each shell (the input doubles of its corners, rounded outwards by <see cref="NestingPad"/>: a cavity must lie inside the box of
+        /// the box of each shell (the input doubles of its corners, as they are; <see cref="MayNest"/> pads the box that has to contain the other: a cavity must lie inside the box of
         /// its outer shell, so a box that does not hold another shell's box is no outer shell of it)
         /// </summary>
         public AxisAlignedBox3d[] ShellBox;
         /// <summary> the flags that Build was given (per piece): no wall, and a piece of the workpiece's boundary </summary>
         internal bool[] Transparent, Boundary;
 
-        /// <summary> the relative padding of the shell boxes (the input doubles of the corners are the arrangement's points rounded: the true box lies within a few ulps of it); the test errs towards "may nest" </summary>
-        internal const double NestingPad = 1e-9;
+        /// <summary> the relative padding of the container's box in <see cref="MayNest"/> (the input doubles of the corners are the arrangement's points rounded: the true box lies within a few ulps of it); the test errs towards "may nest" </summary>
+        internal const double NestingPad = 1e-12;
 
         static bool NotNumber(AxisAlignedBox3d box)
         {
@@ -55,7 +55,9 @@ namespace g3
         {
             if (ShellBox == null || NotNumber(ShellBox[a]) || NotNumber(ShellBox[b]))
                 return true;        // (no geometry known, or a corner that is not a number: err towards "may nest")
-            return ShellBox[a].Contains(ShellBox[b]) || ShellBox[b].Contains(ShellBox[a]);
+            // (only the container is padded: the contained box is the rounded corners as they are, and a padded contained box would reach out as far as
+            // the container's pad, so a cavity that touches the outer box in its longest direction could still stick out by one rounding)
+            return PadBox(ShellBox[a]).Contains(ShellBox[b]) || PadBox(ShellBox[b]).Contains(ShellBox[a]);
         }
 
         static int corner(Index3i t, int e)
@@ -219,21 +221,25 @@ namespace g3
                 if (cells.Shell[i] >= 0)
                     for (int e = 0; e < 3; ++e)
                         cells.ShellBox[cells.Shell[i]].Contain(arr.ToInputVector(arr.Exact(corner(tris[i], e))));
-            for (int sh = 0; sh < cells.ShellCount; ++sh) {
-                AxisAlignedBox3d box = cells.ShellBox[sh];
-                // Stated limit of the pad. The corners are the arrangement's exact points rounded to doubles once, so a corner is off by at most one
-                // rounding (about 1.1e-16 relative to its coordinate, in the worst case a few ulps for an implicit point). A truly nested inner shell
-                // can leave the outer shell's box only when an inner corner lies on or within that rounding of the outer shell's bounding plane
-                // (an implicit corner on the plane); the pad of 1e-9 * (size + largest coordinate) is about seven orders above that rounding, so
-                // such a nesting is missed only if a corner is off by more than the pad: not by rounding. The direction of a miss is the unsafe one
-                // (a missed nesting gives no refusal, so the one-label-per-nested-shell check does not run); the margin above is the argument
-                // that it cannot happen, and the padding mutants (see the PR) are not killed because exact doubles never exercise the margin.
-                double size = Math.Max(box.Extents.x, Math.Max(box.Extents.y, box.Extents.z));
-                double big = Math.Max(Math.Max(Math.Abs(box.Min.x), Math.Abs(box.Max.x)), Math.Max(Math.Max(Math.Abs(box.Min.y), Math.Abs(box.Max.y)), Math.Max(Math.Abs(box.Min.z), Math.Abs(box.Max.z))));
-                box.Expand(NestingPad * (size + big));
-                cells.ShellBox[sh] = box;
-            }
             return cells;
+        }
+
+        /// <summary>
+        /// The box of a shell, widened on every side by <see cref="NestingPad"/> * (its largest half-extent + its largest absolute coordinate).
+        /// The pad covers the rounding of a corner: a corner is the arrangement's exact point (an exact rational, in input coordinates) rounded to a
+        /// double by <see cref="ExactPoint3.ToDouble"/>, a quotient cut to 64 significant bits and then rounded to 53, so its error is below 1.2e-16
+        /// times its absolute value, so below 1.2e-16 times the largest absolute coordinate of the box. The pad is at least 1e-12 times that
+        /// coordinate, more than 8000 times the rounding of a corner, so a truly nested shell whose corner is moved by one rounding past the container's
+        /// plane still lies inside the padded container (only the container is padded, see <see cref="MayNest"/>). A miss, the unsafe direction (no
+        /// refusal, so the one-label-per-nested-shell check does not run), would need a corner off by more than the pad: it cannot happen by
+        /// rounding. The tests pin the width of the pad, for every term of it.
+        /// </summary>
+        internal static AxisAlignedBox3d PadBox(AxisAlignedBox3d box)
+        {
+            double size = Math.Max(box.Extents.x, Math.Max(box.Extents.y, box.Extents.z));
+            double big = Math.Max(Math.Max(Math.Abs(box.Min.x), Math.Abs(box.Max.x)), Math.Max(Math.Max(Math.Abs(box.Min.y), Math.Abs(box.Max.y)), Math.Max(Math.Abs(box.Min.z), Math.Abs(box.Max.z))));
+            box.Expand(NestingPad * (size + big));
+            return box;
         }
 
         // the node of piece p that looks to increasing angles (d = +1: p runs Low to High, its normal points to increasing angles), and the one that looks to decreasing angles

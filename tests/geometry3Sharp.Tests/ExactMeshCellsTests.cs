@@ -417,5 +417,59 @@ namespace geometry3Sharp.Tests
             Assert.Equal(c.Cell[1], c.Cell[3]);
             Assert.NotEqual(c.Cell[0], c.Cell[1]);
         }
+
+        // ---- the pad of the shell boxes: its width is pinned (a corner that one rounding moves must not leave the container) ------------
+
+        [Fact]
+        public void PadBox_WidensEverySideBy1eMinus12TimesTheLargestHalfExtentPlusTheLargestCoordinate_ForEveryComponentThatDominates()
+        {
+            // six boxes: in each, a different coordinate is the largest in absolute value and a different axis has the largest half-extent
+            Assert.Equal(1e-12, ExactMeshCells.NestingPad);
+            var boxes = new[] {
+                new AxisAlignedBox3d(-5000, 1, 2, -4990, 3, 6),         // |Min.x| largest, half-extent z (2)... below
+                new AxisAlignedBox3d(1, 2, 3, 6000, 4, 5),              // Max.x largest, half-extent x
+                new AxisAlignedBox3d(2, -7000, 1, 3, -6990, 9),         // Min.y
+                new AxisAlignedBox3d(1, 2, 3, 100, 8000, 4),            // Max.y
+                new AxisAlignedBox3d(1, 2, -9000, 3, 4, -8960),         // Min.z
+                new AxisAlignedBox3d(1, 2, 3, 4, 5, 10000),             // Max.z
+                new AxisAlignedBox3d(1e6, 1e6, 1e6, 1e6 + 1, 1e6 + 2, 1e6 + 4),   // far from the origin: the coordinate term dominates
+                new AxisAlignedBox3d(0, 0, 0, 2, 4, 8),                 // at the origin: the extent term
+            };
+            foreach (AxisAlignedBox3d b in boxes) {
+                double half = Math.Max((b.Max.x - b.Min.x) * 0.5, Math.Max((b.Max.y - b.Min.y) * 0.5, (b.Max.z - b.Min.z) * 0.5));
+                double big = new[] { b.Min.x, b.Max.x, b.Min.y, b.Max.y, b.Min.z, b.Max.z }.Max(Math.Abs);
+                double pad = 1e-12 * (half + big);
+                AxisAlignedBox3d p = ExactMeshCells.PadBox(b);
+                Assert.Equal(b.Min.x - pad, p.Min.x); Assert.Equal(b.Min.y - pad, p.Min.y); Assert.Equal(b.Min.z - pad, p.Min.z);
+                Assert.Equal(b.Max.x + pad, p.Max.x); Assert.Equal(b.Max.y + pad, p.Max.y); Assert.Equal(b.Max.z + pad, p.Max.z);
+                // and the pad is more than 8000 times the rounding error of a corner (below 1.2e-16 of the coordinate, see ExactPoint3.ToDouble)
+                Assert.True(pad >= 8000 * (big * 1.2e-16));
+            }
+        }
+
+        [Fact]
+        public void MayNest_ACavityCornerThatOneRoundingMovesOutOfTheOuterBox_StillNests_ButNotBeyondThePad()
+        {
+            var outer = new AxisAlignedBox3d(0, 0, 0, 10, 10, 10);          // half-extent 5, largest coordinate 10: the pad is 1.5e-11
+            double nextUp = BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(10.0) + 1);
+            // the cavity reaches the outer box's plane x = 10 in the outer box's longest direction, rounded one ulp outwards: nested (the outer box is the one that is padded)
+            var touching = new AxisAlignedBox3d(0, 2, 2, nextUp, 8, 8);
+            Assert.True(new ExactMeshCells { ShellBox = new[] { outer, touching } }.MayNest(0, 1));
+            Assert.True(new ExactMeshCells { ShellBox = new[] { touching, outer } }.MayNest(0, 1));
+            // within the pad (1.4e-11 of 1.5e-11) and beyond it (1.6e-11): the pad is neither missing nor too wide
+            Assert.True(new ExactMeshCells { ShellBox = new[] { outer, new AxisAlignedBox3d(0, 2, 2, 10 + 1.4e-11, 8, 8) } }.MayNest(0, 1));
+            Assert.False(new ExactMeshCells { ShellBox = new[] { outer, new AxisAlignedBox3d(0, 2, 2, 10 + 1.6e-11, 8, 8) } }.MayNest(0, 1));
+            Assert.False(new ExactMeshCells { ShellBox = new[] { new AxisAlignedBox3d(0, 2, 2, 10 + 1.6e-11, 8, 8), outer } }.MayNest(0, 1));
+        }
+
+        [Fact]
+        public void Build_TheShellBoxIsTheBoxOfTheCornersAsTheyAre()
+        {
+            Fan f = MakeFan(new[] { 0.0 }, new[] { true });       // the page (0,0,0), (1,0,0), (0.5,1,0)
+            ExactMeshCells c = ExactMeshCells.Build(f.Arr, f.Tris, All(1, true), All(1, false));
+            Assert.Equal(1, c.ShellCount);
+            Assert.Equal(0.0, c.ShellBox[0].Min.x); Assert.Equal(0.0, c.ShellBox[0].Min.y); Assert.Equal(0.0, c.ShellBox[0].Min.z);
+            Assert.Equal(1.0, c.ShellBox[0].Max.x); Assert.Equal(1.0, c.ShellBox[0].Max.y); Assert.Equal(0.0, c.ShellBox[0].Max.z);
+        }
     }
 }
