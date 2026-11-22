@@ -24,7 +24,8 @@ independent checks of the gate. A seed triangle whose instances of all six rings
 The solver is a throwaway, written from the papers (conflict analysis at the first unique implication point and learned clauses:
 Marques-Silva and Sakallah 1999; the architecture with a trail, reasons, watched literals and variable activities: Eén and Sörensson 2003;
 restarts: Luby, Sinclair and Zuckerman 1993). No solver code was read or run. Effort is counted in conflicts and decisions, never in time.
-Every answer is checked: a model against the clauses and on the map; an unsatisfiable answer by reverse unit propagation of the learned
+Every answer of the solver is checked (the instances refuted while they are built have an empty clause and need none): a model against
+the clauses and on the map; an unsatisfiable answer by reverse unit propagation of the learned
 clauses (Goldberg and Novikov 2003) in a checker that shares no code with the solver; both against the library's DPLL where that decides
 within 20000 decisions.
 
@@ -53,21 +54,22 @@ dotnet run -c Release --project benchmarks/QuadFlow3BSat -- selftest=1
 | conflicts over all instances / most on one instance | 3.11M / 93002 | 0.29M / 52174 |
 | checks: valid RUP proofs / invalid; agree with the DPLL / disagree | 5082 / 0; 4315 / 0 | 189 / 0; 135 / 0 |
 
-- **No split budget.** No fallback on either baseline is ended by the split budget; the label `BudgetExceeded` is the SAT decision budget
-  in all 29 cases (the third doubt of the brief).
+- **No split budget.** No fallback on either baseline is ended by the split budget; `BudgetExceeded` is the SAT decision budget in all
+  of its 26 + 3 cases (the third doubt of the brief).
 - **Master, per run.** The three runs that become fold-free are the torus at scale 0.8, 1.25 and 1.5, and all three complete to `Success`
   with the independent checks. Two of them are `OrientationFolds` rows, not `BudgetExceeded`: there the per-attempt budget of 100k decisions
   ended instances that are satisfiable, the seed was marked failed, and the total budget was never reached. So of the 26 `BudgetExceeded`
-  runs exactly one (torus at scale 1.25) is caused by the search; in the other 25, and in the capped cylinder at ratio 0.7, obstructed seeds
+  runs exactly one (torus at scale 1.25) is caused by the search, and not because the DPLL misses a model: its three budget instances
+  are unsatisfiable, the total budget is spent on them, and the later seeds, which are solvable, are never tried. In the other 25, and in the capped cylinder at ratio 0.7, obstructed seeds
   remain (2 to 192 folds left per run). The plain torus is clean in all six variations with PR #1293, by its other changes.
 - **PR #1293, per run.** 8 of the 11 fallbacks are `FlippedFaces`: the repair ends with no fold and the extraction check rejects the
   mesh, so no solver can change them. Of the 3 `BudgetExceeded` runs, the capsule at ratio 0.35 becomes fold-free (4 folds, one seed solved) and then ends as `FlippedFaces` like the others; the capsule at scale 1 and the capped cylinder at ratio
   0.35 keep 19 and 16 folds, every one an obstructed seed.
 - **Where the DPLL's budget went.** On master 66 of the 79 instances that ended at a budget are unsatisfiable (with PR #1293 8 of 8): the
-  budget is spent on proving that nothing can be done, two or three instances per run, all at rings 5 and 6. This agrees with the data branch
+  budget is spent on proving that nothing can be done, one to three instances per run, BUDGET_RINGS. This agrees with the data branch
   `runs/quad-folds` (10 and 100 times the budget: 0 of 26).
-- **Learning does what the literature says.** No instance is left undecided; the hardest takes 93002 conflicts, the sum over about 9500 instances
-  is 3.1M conflicts, where the DPLL exhausts 300k decisions on three instances. The search is not the limit; a better search reaches the
+- **Learning does what the literature says.** No instance is left undecided; the hardest takes 93002 conflicts, the sum over the 5594 instances of master that reach
+  the solver is 3.1M conflicts (another 3889 are refuted while they are built: a triangle with one mutable edge has no value for it), where the DPLL exhausts 300k decisions on three instances. The search is not the limit; a better search reaches the
   same fallback with a proof.
 
 ## 3. The obstructed seeds
@@ -79,34 +81,42 @@ Classification of the obstructed seeds by the region of their largest ring (ring
 | a singular vertex in the region / the seed at a singular vertex | 87 / 12 | 11 / 0 |
 | folds in the region: only the seed / 2 to 5 / 6 or more | 36 / 477 / 677 | 2 / 29 / 6 |
 | sum of det over the region: negative / zero / positive | 1057 / 58 / 75 | 29 / 3 / 5 |
-| negative sum: first larger ring with a sum >= 0 is 1-2 rings larger / 3-6 larger / up to ring 20 / none up to ring 20 | AREA_M | 7 / 10 / 12 / 0 |
+| **refuted by the area alone** (the region is a disk without a singular vertex, every triangle closes, the sum is negative) | **REFUTED_M** | **REFUTED_P** |
+| regions that are not a disk | NODISK_M | NODISK_P |
+| the unsatisfiable instances the DPLL left at its budget (library trajectory) that the area refutes | BUDGETREF_M of 66 | BUDGETREF_P of 8 |
+| negative sum: the first larger ring with a sum >= 0 is 1-2 rings larger / 3-6 larger / up to ring 20 / none up to ring 20 (a distance, not a bound: see below) | AREA_M | 7 / 10 / 12 / 0 |
 
-**The area explains most of them.** The sum of the integer determinants of the triangles of a region is twice its lattice area. In a
-region without a singular vertex whose triangles close, the map is a piecewise linear map of a disk into the plane, and its signed area is
-the area enclosed by the image of the boundary: it depends on the offsets of the boundary edges only, which the local instance keeps
-fixed. So no choice of the interior offsets changes the sum, and a region with a negative sum has a triangle with det < 0 under every
-assignment. 1057 of the 1190 obstructed seeds of master (89 %) and 29 of 37 with PR #1293 have a negative sum at ring 6, and at most 87
-(11) of those regions hold a singular vertex: for at least 970 seeds of master and 24 with PR #1293 the unsatisfiability is this one-line
-invariant (the 24 are counted from the per-seed rows; the 970 is 1057 minus all 87 regions with a singular vertex). The solver's proofs say
-the same without knowing it. This is the local form of what [QUAD_SHEAF_OBSTRUCTION_2026-11.md](QUAD_SHEAF_OBSTRUCTION_2026-11.md) 3.3
-measured for whole maps (fallback rows with a quarter or more of their cells missing), and it is why a larger budget, a better solver
-and the 3B repair as designed cannot remove these folds: the area the fold needs is not inside the region.
+**The area explains most of them.** The sum of the integer determinants of the triangles of a region is twice its lattice area. Take a
+region that is a disk (connected, Euler characteristic 1), holds no singular vertex, and whose triangles close (the three offsets sum to
+zero, which holds after the flow and is checked). The frame rotations are quarter turns, which keep det, and without a singular vertex
+they can be removed by one choice of frame over the disk; the map is then a piecewise linear map of a disk into the plane, and its signed
+area is the area enclosed by the image of the boundary. It depends on the offsets of the boundary edges only, which the local instance
+keeps fixed. So no choice of the interior offsets changes the sum, and a region with a negative sum has a triangle with det < 0 under
+every assignment. The benchmark tests exactly these premises per region (`AreaRefuted`): REFUTED_M of the 1190 obstructed seeds of master
+(REFUTED_PCT %) and REFUTED_P of the 37 with PR #1293 are refuted by this one-line invariant at ring 6, and BUDGETREF_M of the 66 (BUDGETREF_P of the 8)
+unsatisfiable instances on which the library's DPLL spent its budget. The solver's proofs say the same without knowing it. The invariant
+does not hold for a region that wraps a handle or encloses several singular vertices, which is why those are not counted. This is the
+local form of what [QUAD_SHEAF_OBSTRUCTION_2026-11.md](QUAD_SHEAF_OBSTRUCTION_2026-11.md) 3.3 measured for whole maps (fallback rows
+with a quarter or more of their cells missing), and it is why a larger budget, a better solver and the 3B repair as designed cannot remove
+these folds: the area the fold needs is not inside the region.
 
-The remaining seeds (zero or positive sum: 133 on master, 8 with PR #1293) are not explained by the sum alone; they are the interesting
+The remaining seeds (a zero or positive sum, a singular vertex in the region, or a region that is not a disk) are not explained by the sum alone; they are the interesting
 part of the test set (a zero sum forces every triangle of the region to be degenerate; a positive sum can still be unsatisfiable through
 the range of the offsets, -1 to 1 per coordinate, or through folds that sit outside the area the region can move).
 
 **A larger ring.** The clause-learning trajectory was not completed for rings above 6: a run to ring 9 and one to ring 8 with a limit of
 300k conflicts per instance did not finish the first run within the time limit of the session's background job (the solver has no clause
-deletion, and unsatisfiable instances of that size are far harder than those of ring 6). The last row of the table is the substitute: how
-far a region must grow before the necessary condition (a sum >= 0) holds at all.
+deletion, and unsatisfiable instances of that size are far harder than those of ring 6). The last row of the table is a weak substitute: how
+far the region must grow before its sum of det is no longer negative. It is a distance, not a bound: the larger regions hold singular
+vertices and can wrap the shape, where a negative sum refutes nothing and a sum >= 0 promises nothing.
 
 **The test set for the sheaf H1 question.** `dump=<dir>` writes every ring of every obstructed seed
-(`obstruction_seed<t>_r<ring>_UNSAT.cnf`: 3459 files for master, with the 79 budget instances 38 MB) and the budget instances, with the
+(`obstruction_seed<t>_r<ring>_UNSAT.cnf`; with the budget instances FILES_M files for master and FILES_P with PR #1293, the count is in the
+results files) and the budget instances, with the
 seed, the ring and the master triangle and slot of every variable in the header; `list=1` prints one row per seed with the numbers of the
 table above. The files are regenerated by the command and are not committed. Every `UNSAT` file has a checked refutation. What the H1
 spike can now test directly: whether the support of its obstruction class marks the regions with a negative sum (the invariant above
-predicts it must, for regions without cones), and what it says about the 133 + 8 seeds the sum does not explain.
+predicts it must, for regions without cones), and what it says about the seeds the sum does not explain.
 
 ## 4. Recommendation, ranked
 
@@ -114,7 +124,7 @@ predicts it must, for regions without cones), and what it says about the 133 + 8
 |---|---|---|---|---|
 | 1 | **Do not build a clause-learning solver into the library for stage 3B** (the stop rule) | master: 3 runs (all torus, which PR #1293 already makes clean another way); PR #1293: 0 | none | stop |
 | 2 | Hand the instances to the sheaf H1 spike as its test set, with the area invariant as the hypothesis to confirm or refute (section 3) | a statement, no clean row | none here | do, if that spike is started |
-| 3 | The region's sum of det as an exact pre-check in `TrySat`: skip the instance when the sum is negative and the region has no singular vertex | no clean row; it removes the budget-bound proofs (66 of the 79 budget instances of master are unsatisfiable; the share that has a negative sum was not counted per instance) and so most of the SAT time of a fallback, about 0.1 to 0.4 s per fallback on master, on 3 rows with PR #1293. It also turns `BudgetExceeded` into a reason that says what is wrong | S: an integer sum per region, a test on the capsule; bit-identical on clean rows only if the skipped instances are exactly unsatisfiable ones, which the invariant guarantees | only together with option A of the sheaf note (the area ratio as a reported number); not worth a PR of its own |
+| 3 | The region's sum of det as an exact pre-check in `TrySat`: skip the instance when the premises of section 3 hold (a disk, no singular vertex, a negative sum) | no clean row; it removes BUDGETREF_M of the 66 budget-bound proofs of master (BUDGETREF_P of 8 with PR #1293) and with them part of the SAT time of a fallback (0.13 to 0.37 s per fallback on master, gate README; nothing is timed here), on 3 rows with PR #1293. It also turns `BudgetExceeded` into a reason that says what is wrong | S: an integer sum per region, a test on the capsule; bit-identical on clean rows only if the skipped instances are exactly unsatisfiable ones, which the invariant guarantees | only together with option A of the sheaf note (the area ratio as a reported number); not worth a PR of its own |
 | 4 | Raise the per-attempt budget or order the rings differently, so that the two `OrientationFolds` torus rows of master are solved by the DPLL | master 2 rows; PR #1293 0 | S | no: PR #1293 covers them |
 | 5 | Give the map its area back before the repair: the integer jumps up front (option C of the sheaf note; Heistermann, Warnett and Bommes 2023, from the paper) | the only lever with an upper bound on what is left with PR #1293: 8 `FlippedFaces` and 3 area-obstructed rows, all capsule and capped cylinder | L, a solver project | unchanged from the sheaf note: a hooked prototype on the two shapes first, on the owner's go |
 

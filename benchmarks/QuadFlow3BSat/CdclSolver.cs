@@ -180,6 +180,7 @@ sealed class CdclSolver
     /// <summary>
     /// groups: the "exactly one" groups (DIMACS literals, all positive, in the order of the values to try); every variable must be in one
     /// group and the clauses must hold the exactly-one constraints. Returns Satisfiable (model per variable), Unsatisfiable or Undecided.
+    /// A solver instance is used once (the trail and the learned clauses of a call stay).
     /// </summary>
     public int Solve(int[][] groupLits, out bool[] model)
     {

@@ -26,15 +26,16 @@ Per fallback run:
    is decided by the clause-learning solver.
 4. **Learning trajectory**: the same loop with the clause-learning solver and no budget (no decision, attempt or round limit; `conflicts=`
    sets one, default none). A seed whose instances of all rings (1 to `SatMaxRing` = 6, or `maxring=`) are unsatisfiable is an
-   **obstructed seed**. The summary counts, for the region of the largest ring: singular vertices, folds, and the sum of the integer
-   determinants (twice the lattice area of the region). `list=1` (default) prints one row per obstructed seed.
+   **obstructed seed**. The summary counts, for the region of the largest ring: singular vertices, folds, the sum of the integer
+   determinants (twice the lattice area of the region), and how many regions the area alone refutes (`AreaRefuted`: a disk by its Euler
+   characteristic, no singular vertex, every triangle closed, a negative sum; the note, section 3). `list=1` (default) prints one row per obstructed seed.
 5. **Completion**: where no fold is left, the library's own remaining steps (`MapCloses`, `SolvePositions`, `Extract`) run on the repaired
    map and a `Success` gets the independent checks of the gate (manifold, quads only, finite, valid, no quad facing away from the input).
 
 `dump=<dir>` writes DIMACS files, one directory per run: `budget_a<attempt>_seed<t>_r<ring>_<verdict>.cnf` for the instances of step 3
 and `obstruction_seed<t>_r<ring>_UNSAT.cnf` for every ring of an obstructed seed. The header comments give the seed, the ring, the master
 triangle and slot of every edge and its preference order; variable `9 e + k + 1` says that edge `e` has the offset
-`(k % 3 - 1, k / 3 - 1)`. The files are not committed (38 MB for master); the command regenerates them bit for bit.
+`(k % 3 - 1, k / 3 - 1)`. The files are not committed (38 MB for master). The run is deterministic (nothing is timed, no result depends on a hash order); DETERMINISM. A full run takes about an hour on a 4-core cloud container, most of it in the proof checks and the cross-checks.
 
 **The solver** (`CdclSolver.cs`, about 250 lines, throwaway): conflict analysis at the first unique implication point, learned clauses,
 backjumping, two watched literals, an activity per variable with ties broken by index, Luby restarts counted in conflicts, no clause

@@ -255,6 +255,23 @@ static class Program
         return to + 1;
     }
 
+    /// <summary>
+    /// true if the invariant of the note (section 3) refutes the instance: the region is a disk (connected by construction, Euler
+    /// characteristic V - E + F = 1, which also excludes a pinch at a vertex), holds no singular vertex, every triangle closes, and the
+    /// sum of det is negative. Then the sum is fixed by the offsets of the boundary edges and some triangle has det &lt; 0 under every assignment.
+    /// </summary>
+    static bool AreaRefuted(Map m, Instance inst, bool[] singular, out int area, out bool disk)
+    {
+        var verts = new HashSet<int>(); area = 0; bool closed = true, cone = false;
+        foreach (int f in inst.Region) {
+            area += m.Det(f);
+            if (m.X[3 * f] + m.X[3 * f + 1] + m.X[3 * f + 2] != 0 || m.Y[3 * f] + m.Y[3 * f + 1] + m.Y[3 * f + 2] != 0) closed = false;
+            for (int c = 0; c < 3; ++c) { int v = m.V[3 * f + c]; verts.Add(v); if (singular[v]) cone = true; }
+        }
+        disk = verts.Count - (3 * inst.Region.Count - inst.M) + inst.Region.Count == 1;      // M counts the edges with both triangles in the region
+        return disk && !cone && closed && area < 0;
+    }
+
     static void Apply(Map m, Instance inst, bool[] model)
     {
         for (int e = 0; e < inst.M; ++e) {
@@ -448,8 +465,9 @@ static class Program
         int total = 0, clean = 0, fallbacks = 0, foldFree = 0, completedClean = 0, replayMismatch = 0, checkFailures = 0;
         var endedBy = new SortedDictionary<string, int>(); var libStatus = new SortedDictionary<string, int>(); var classes = new SortedDictionary<string, int>();
         var all = new Tally(); var budgetAll = new Tally();
-        long obstructedSeeds = 0, solvedSeeds = 0, obsSingular = 0, obsSeedSingular = 0, obsAlone = 0, obsFew = 0, obsMany = 0, obsAreaNeg = 0, obsAreaZero = 0, obsAreaPos = 0;
-        var ringHist = new long[64]; var areaRing = new long[5]; var obstructionLines = new List<string>();
+        long obstructedSeeds = 0, solvedSeeds = 0, obsSingular = 0, obsSeedSingular = 0, obsAlone = 0, obsFew = 0, obsMany = 0, obsAreaNeg = 0, obsAreaZero = 0, obsAreaPos = 0, obsRefuted = 0, obsNoDisk = 0, budgetUnsatRefuted = 0, dimacsFiles = 0;
+        var budgetRing = new SortedDictionary<int, int>();
+        var ringHist = new long[256]; var areaRing = new long[5]; var obstructionLines = new List<string>();
         foreach (var (name, fn, s0, align, noise) in shapes) {
             if (only != null && !only.IsMatch(name)) continue;
             foreach (var (scale, ratio) in variations) {
@@ -485,6 +503,7 @@ static class Program
                 string dir = null;
                 if (dump != null) { dir = Path.Combine(dump, runId); Directory.CreateDirectory(dir); }
 
+                bool[] singular = SingularVertices(start);       // the frame rotations only: the same for every state of the map
                 // ---- the library trajectory (the library's DPLL and budgets)
                 var mL = start.Clone();
                 int attempts = 0, solved = 0, failedN = 0, nSat = 0, nUnsat = 0, nBudget = 0; long decisions = 0;
@@ -508,8 +527,10 @@ static class Program
                             else {
                                 nBudget++;
                                 int rc = Cdcl(inst, bt, out _);
+                                budgetRing.TryGetValue(ring, out int br); budgetRing[ring] = br + 1;
+                                if (rc == 0 && AreaRefuted(mL, inst, singular, out _, out _)) budgetUnsatRefuted++;
                                 string verdict = rc == 1 ? "SAT" : rc == 0 ? "UNSAT" : "UNDECIDED";
-                                if (dir != null) WriteDimacs(Path.Combine(dir, $"budget_a{attempts}_seed{seed}_r{ring}_{verdict}.cnf"), inst, verdict, $"{runId}: the library's DPLL ended at its budget on this instance (library trajectory, attempt {attempts})");
+                                if (dir != null) { dimacsFiles++; WriteDimacs(Path.Combine(dir, $"budget_a{attempts}_seed{seed}_r{ring}_{verdict}.cnf"), inst, verdict, $"{runId}: the library's DPLL ended at its budget on this instance (library trajectory, attempt {attempts})"); }
                             }
                         }
                         if (ok) solved++; else { failedN++; failed[seed] = true; }
@@ -524,7 +545,6 @@ static class Program
                 var mC = start.Clone();
                 var t = new Tally(); int cSolved = 0, cObstructed = 0;
                 int ringCap = maxRingArg > 0 ? maxRingArg : maxRing;
-                bool[] singular = SingularVertices(mC);
                 {
                     var failed = new bool[mC.N]; int scan = 0;
                     while (true) {
@@ -538,7 +558,7 @@ static class Program
                             int r = Cdcl(inst, t, out bool[] model);
                             tried.Add((inst, r));
                             if (r == 1) {
-                                Apply(mC, inst, model); ok = true; ringHist[ring]++;
+                                Apply(mC, inst, model); ok = true; ringHist[Math.Min(ring, 255)]++;
                                 if (!RegionValid(mC, inst) || mC.Det(seed) < 0) t.ModelFail++;
                             }
                         }
@@ -549,17 +569,19 @@ static class Program
                         var verts = new HashSet<int>(); foreach (int f in big.Region) for (int c = 0; c < 3; ++c) verts.Add(mC.V[3 * f + c]);
                         int sing = verts.Count(v => singular[v]);
                         bool seedSing = Enumerable.Range(0, 3).Any(c => singular[mC.V[3 * seed + c]]);
-                        int area = big.Region.Sum(f => mC.Det(f));      // twice the lattice area of the region
+                        bool refuted = AreaRefuted(mC, big, singular, out int area, out bool disk);      // area: twice the lattice area of the region
+                        if (refuted) obsRefuted++; if (!disk) obsNoDisk++;
                         if (area < 0) obsAreaNeg++; else if (area == 0) obsAreaZero++; else obsAreaPos++;
-                        if (area < 0) { int first = FirstRingWithArea(mC, seed, big.Ring + 1, 20); areaRing[first <= big.Ring + 2 ? 0 : first <= big.Ring + 6 ? 1 : first <= 20 ? 2 : 3]++; }
+                        if (area < 0) { int first = FirstRingWithArea(mC, seed, big.Ring + 1, 20); areaRing[first > 20 ? 3 : first <= big.Ring + 2 ? 0 : first <= big.Ring + 6 ? 1 : 2]++; }
                         if (sing > 0) obsSingular++; if (seedSing) obsSeedSingular++;
                         if (inv == 1) obsAlone++; else if (inv <= 5) obsFew++; else obsMany++;
                         string verdicts = string.Join(" ", tried.Select(x => x.inst.Trivial ? "T" : x.r == 0 ? "U" : "?"));
-                        obstructionLines.Add($"| {name} | {F(scale, "G3")} / {F(ratio, "G3")} | {seed} | {mC.Det(seed)} | {verdicts} | {big.Region.Count} | {big.M} | {inv} | {area} | {sing} | {(seedSing ? "yes" : "no")} |");
+                        obstructionLines.Add($"| {name} | {F(scale, "G3")} / {F(ratio, "G3")} | {seed} | {mC.Det(seed)} | {verdicts} | {big.Region.Count} | {big.M} | {inv} | {area} | {(disk ? "yes" : "no")} | {(refuted ? "yes" : "no")} | {sing} | {(seedSing ? "yes" : "no")} |");
                         if (dir != null)
                             foreach (var (inst, r) in tried) {
                                 if (inst.Trivial) continue;
                                 string verdict = r == 0 ? "UNSAT" : "UNDECIDED";
+                                dimacsFiles++;
                                 WriteDimacs(Path.Combine(dir, $"obstruction_seed{seed}_r{inst.Ring}_{verdict}.cnf"), inst, verdict, $"{runId}: learning trajectory, a seed with no satisfiable instance up to ring {ringCap}");
                             }
                     }
@@ -581,7 +603,7 @@ static class Program
                                 PolyMeshMetrics pm = PolyMeshMetrics.Compute(res);
                                 bool finite = Enumerable.Range(0, res.VertexCount).All(v => res.GetVertex(v).IsFinite);
                                 bool bad = !pm.IsManifold || pm.QuadFraction < 1 || !finite || !res.Validate().IsValid || FacingAway(res, input, new DMeshAABBTree3(input, true)) > 0;
-                                if (bad) completed = "Success, independent check FAILED"; else completedClean++;
+                                if (bad) { completed = "Success, independent check FAILED"; checkFailures++; } else completedClean++;
                             }
                         }
                     }
@@ -603,18 +625,21 @@ static class Program
         Console.WriteLine($"library trajectory replayed with the library's counters: {fallbacks - replayMismatch - classes.Where(kv => kv.Key == "splits" || kv.Key == "not the repair").Sum(kv => kv.Value)} runs, mismatches {replayMismatch}");
         Console.WriteLine($"instances the library's DPLL left at its budget: satisfiable {budgetAll.Sat}, unsatisfiable {budgetAll.Unsat}, undecided {budgetAll.Undecided}");
         Console.WriteLine($"learning trajectory: instances satisfiable {all.Sat}, unsatisfiable {all.Unsat} (+ {all.Trivial} refuted while built), undecided {all.Undecided}; seeds solved {solvedSeeds}, obstructed {obstructedSeeds}");
-        Console.WriteLine($"seeds solved at ring: {string.Join(", ", Enumerable.Range(1, 63).Where(r => ringHist[r] > 0).Select(r => r + ": " + ringHist[r]))}");
+        Console.WriteLine($"seeds solved at ring: {string.Join(", ", Enumerable.Range(1, 255).Where(r => ringHist[r] > 0).Select(r => r + ": " + ringHist[r]))}");
         Console.WriteLine($"fallback classes: {string.Join(", ", classes.Select(kv => kv.Key + " " + kv.Value))}");
         Console.WriteLine($"best case: {foldFree} of {fallbacks} fallbacks become fold-free; {completedClean} of them complete to Success with the independent checks (clean would be {clean + completedClean} of {total})");
         Console.WriteLine($"effort of the clause-learning solver (both trajectories): conflicts {all.Conflicts}, decisions {all.Decisions}, most conflicts on one instance {all.MaxConflicts}");
         Console.WriteLine($"checks: unsatisfiable answers with a valid RUP proof {all.RupOk}, invalid {all.RupFail}; models or repaired regions that fail {all.ModelFail}; against the library's DPLL within {crossBudget} decisions: agree {all.CrossAgree}, disagree {all.CrossDisagree}, DPLL undecided {all.CrossOpen}");
         Console.WriteLine($"obstructed seeds: {obstructedSeeds}; with a singular vertex in the region of the largest ring {obsSingular}, at a singular vertex {obsSeedSingular}; folds in that region: 1 (the seed alone) {obsAlone}, 2 to 5 {obsFew}, 6 or more {obsMany}; sum of det over that region: negative {obsAreaNeg}, zero {obsAreaZero}, positive {obsAreaPos}");
-        Console.WriteLine($"obstructed seeds with a negative sum: the first larger ring whose region has a sum of det >= 0 is 1 or 2 rings larger {areaRing[0]}, 3 to 6 rings larger {areaRing[1]}, larger up to ring 20 {areaRing[2]}, none up to ring 20 {areaRing[3]}");
+        Console.WriteLine($"refuted by the area alone (the region of the largest ring is a disk with no singular vertex, every triangle closes, the sum of det is negative): {obsRefuted} of {obstructedSeeds} obstructed seeds ({obsNoDisk} regions are not a disk); of the unsatisfiable instances the library's DPLL left at its budget: {budgetUnsatRefuted} of {budgetAll.Unsat}");
+        Console.WriteLine($"instances the library's DPLL left at its budget, by ring: {string.Join(", ", budgetRing.Select(kv => kv.Key + ": " + kv.Value))}");
+        if (dump != null) Console.WriteLine($"DIMACS files written: {dimacsFiles}");
+        Console.WriteLine($"obstructed seeds with a negative sum: the first larger ring (the search stops at ring 20) whose region has a sum of det >= 0 is 1 or 2 rings larger {areaRing[0]}, 3 to 6 rings larger {areaRing[1]}, larger up to ring 20 {areaRing[2]}, none up to ring 20 {areaRing[3]}");
         if (list && obstructionLines.Count > 0) {
             Console.WriteLine();
             Console.WriteLine("obstructed seeds (learning trajectory): verdict per ring from 1 (U unsatisfiable, T refuted while built, ? undecided); the region is that of the largest ring");
-            Console.WriteLine("| shape | scale / ratio | seed triangle | det | rings | region triangles | mutable edges | folds in region | sum of det | singular vertices in region | seed at a singular vertex |");
-            Console.WriteLine("|---|---|---|---|---|---|---|---|---|---|---|");
+            Console.WriteLine("| shape | scale / ratio | seed triangle | det | rings | region triangles | mutable edges | folds in region | sum of det | disk | refuted by the area | singular vertices in region | seed at a singular vertex |");
+            Console.WriteLine("|---|---|---|---|---|---|---|---|---|---|---|---|---|");
             foreach (string l in obstructionLines) Console.WriteLine(l);
         }
         return replayMismatch == 0 && checkFailures == 0 ? 0 : 1;
