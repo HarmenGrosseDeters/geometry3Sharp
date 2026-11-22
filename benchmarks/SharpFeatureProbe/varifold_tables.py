@@ -49,28 +49,6 @@ def median(xs):
     return float("nan") if n == 0 else (xs[n // 2] if n % 2 else 0.5 * (xs[n // 2 - 1] + xs[n // 2]))
 
 
-def spearman(xs, ys):
-    def rank(v):
-        order = sorted(range(len(v)), key=lambda i: v[i])
-        r = [0.0] * len(v)
-        i = 0
-        while i < len(order):
-            j = i
-            while j + 1 < len(order) and v[order[j + 1]] == v[order[i]]:
-                j += 1
-            for k in range(i, j + 1):
-                r[order[k]] = 0.5 * (i + j)
-            i = j + 1
-        return r
-    if len(xs) < 3:
-        return float("nan")
-    rx, ry = rank(xs), rank(ys)
-    mx, my = sum(rx) / len(rx), sum(ry) / len(ry)
-    num = sum((a - mx) * (b - my) for a, b in zip(rx, ry))
-    den = math.sqrt(sum((a - mx) ** 2 for a in rx) * sum((b - my) ** 2 for b in ry))
-    return num / den if den > 0 else float("nan")
-
-
 def damage(rows):
     items = sorted({r["file"] for r in rows if r["ref"] == "P"})
     for item in items:
@@ -96,7 +74,8 @@ def damage(rows):
 
 
 def cases(rows):
-    sel = [r for r in rows if r["ref"] in ("O", "I") and not r["file"].startswith("pose:")]
+    floors = {(r["file"][6:], r["sigma"]): r for r in rows if r["file"].startswith("floor:")}
+    sel = [r for r in rows if r["ref"] in ("O", "I") and not r["file"].startswith("pose:") and not r["file"].startswith("floor:") and r["variant"] != "F"]
     if not sel:
         return
     files = []
@@ -111,31 +90,38 @@ def cases(rows):
     for ref in ("O", "I"):
         for s in sigmas:
             print("### reference %s, sigma = %g offsets: per case (F = quadrature floor, A = plain, K = feature pass)\n" % (ref, s))
-            header = ["case", "cov 0.25 A", "cov 0.25 K", "o8 F", "o8 A", "o8 K", "A/K", "varifold A/K", "mass A/K", "current A/K",
-                      "Hausdorff A", "K", "Chamfer A/K", "normal deg A", "K", "area ratio A", "K"]
+            header = ["case", "cov 0.25 A", "cov 0.25 K", "o8 F", "o8 A", "o8 K", "w_eq A", "w_eq K", "A/K", "varifold A/K", "mass A/K", "current A/K",
+                      "Hausdorff A", "K", "Chamfer A/K", "normal deg A/K", "area defect A/K"]
             lines = []
             for f in files:
-                a, k, fl = get(f, "A", ref, s), get(f, "K", ref, s), get(f, "F", ref, s)
+                a, k, fl = get(f, "A", ref, s), get(f, "K", ref, s), floors.get((f, s))
                 if not a or not k:
                     continue
 
+                def weq(r):
+                    # the width (in offsets) of a chamfer of all 90 degree creases with the same distance: line = 2.411 w^2 L
+                    if not fl or ref != "O" or fl["net_len"] <= 0:
+                        return "-"
+                    return fmt(math.sqrt(max(r["line_oriented8"], 0) / (2.411 * fl["net_len"])))
+
                 def ratio(key):
                     return fmt(a[key] / k[key]) if k[key] > 0 else "-"
-                lines.append([f, fmt(a.get("cov025")), fmt(k.get("cov025")), fmt(fl["rel_oriented8"]) if fl else "-",
-                              fmt(a["rel_oriented8"]), fmt(k["rel_oriented8"]), ratio("rel_oriented8"), ratio("rel_varifold"), ratio("rel_mass"),
-                              ratio("rel_current"), fmt(a["haus"]), fmt(k["haus"]), ratio("chamfer"), fmt(a["normal_deg"]), fmt(k["normal_deg"]),
-                              fmt(a["area_ratio"], 5), fmt(k["area_ratio"], 5)])
+                lines.append([f, fmt(a.get("cov025")), fmt(k.get("cov025")), fmt(fl["rel_oriented8"]) if fl and ref == "O" else "-",
+                              fmt(a["rel_oriented8"]), fmt(k["rel_oriented8"]), weq(a), weq(k), ratio("rel_oriented8"), ratio("rel_varifold"), ratio("rel_mass"),
+                              ratio("rel_current"), fmt(a["haus"]), fmt(k["haus"]), ratio("chamfer"), ratio("normal_deg"),
+                              fmt(abs(a["area_ratio"] - 1) / abs(k["area_ratio"] - 1)) if k["area_ratio"] != 1 else "-"])
             table(header, lines)
 
-    # summary: separation of A from K (paired ratio), and rank correlation with the crease coverage over all results
-    print("### summary: the plain wrap against the feature pass (paired, clean cases at the origin and posed)\n")
-    header = ["measure", "reference", "sigma", "median A/K", "min A/K", "cases with A > K", "Spearman with 1 - cov 0.25 (R, A, K)"]
+    # summary: separation of A from K (paired ratio) on the clean cases (the pass does nothing on a soup)
+    files = [f for f in files if not f.startswith("soup:")]
+    print("### summary: the plain wrap against the feature pass (paired ratio A / K over the clean cases)\n")
+    header = ["measure", "reference", "sigma", "median A/K", "min A/K", "max A/K", "cases with A > 2 K"]
     lines = []
     for ref in ("O", "I"):
         keys = [("rel_" + k, s) for s in sigmas for k in KERNELS] + [(c, None) for c in CLASSIC]
         for key, s in keys:
             s0 = s if s is not None else sigmas[0]
-            ratios, xs, ys = [], [], []
+            ratios = []
             for f in files:
                 a, k = get(f, "A", ref, s0), get(f, "K", ref, s0)
                 if not a or not k:
@@ -145,16 +131,11 @@ def cases(rows):
                     return abs(r[key] - 1) if key == "area_ratio" else r[key]
                 if val(k) > 0:
                     ratios.append(val(a) / val(k))
-                for v in ("R", "A", "K"):
-                    r = get(f, v, ref, s0)
-                    if r and "cov025" in r:
-                        xs.append(1 - r["cov025"])
-                        ys.append(val(r))
             if not ratios:
                 continue
             name = key[4:] if key.startswith("rel_") else ("|area ratio - 1|" if key == "area_ratio" else key)
-            lines.append([name, ref, fmt(s) if s is not None else "-", fmt(median(ratios)), fmt(min(ratios)),
-                          "%d / %d" % (sum(1 for x in ratios if x > 1), len(ratios)), fmt(spearman(xs, ys))])
+            lines.append([name, ref, fmt(s) if s is not None else "-", fmt(median(ratios)), fmt(min(ratios)), fmt(max(ratios)),
+                          "%d / %d" % (sum(1 for x in ratios if x > 2), len(ratios))])
     table(header, lines)
 
     print("### cost (ms, one process, 4 cores): the three inner products of one pair, with the quadrature\n")

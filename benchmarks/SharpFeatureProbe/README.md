@@ -110,3 +110,37 @@ pass's own checked move, `KO` gives the pass the clean reference of a dirty inpu
 Result (65 cases, master ed93ef26, tables in [results/bound_tables.md](results/bound_tables.md)): all 270 wrap-based results valid;
 clean solids, crease length within 0.25 offsets of a sharp result edge: A 0.001, K 0.945, KC 0.954, O 1; corners A / K 0, KC 0.86;
 soups K 0.00 (no shared edges; KO equals the clean K), two overlapping boxes K 0.80-0.82, KO 0.94-0.96; O valid on 64 / 65 (not on a slot one offset wide) with 4-8 times fewer triangles than K.
+
+## Mode `varifold`: a kernel varifold distance as a quality measure (2026-11-22)
+
+`Varifold.cs`, `VarifoldMeasure.cs`, for [VARIFOLD_WRAP_QUALITY_2026-11.md](../../docs/research/VARIFOLD_WRAP_QUALITY_2026-11.md).
+No library change.
+
+```
+dotnet run -c Release --project benchmarks/SharpFeatureProbe -- varifold out.jsonl <item>... [-- sigmas=5,10,20,40 q=1]
+python3 benchmarks/SharpFeatureProbe/varifold_tables.py out.jsonl [more.jsonl]
+```
+
+Items: a case of `bound` (plus `fin:<alphas>`, a thin wall, and `fslot`, a slot with filleted bottom edges): variants R (raw
+wrap), A (pipeline), K (feature pass, then the simplification) against the oracle O and the input I; `floor:<case>` (O against
+itself with another triangulation); `bevel:<w,...>`, `count:<w>`, `shift:<x,...>` (controlled damage of a prism, no wrap);
+`pose:<case>` (similarities of both meshes); `selftest` (closed form: two parallel squares; exit code 1 above 1e-4). sigma in
+offsets. The distance is `|S - T|^2 / (|S|^2 + |T|^2)` for the normal kernels mass (1), current (u), varifold (u^2), oriented2 and
+oriented8 (((1 + u) / 2)^m), Gaussian in space; beside it the sampled Hausdorff distance, the mean distance, the mean normal
+angle and the area ratio.
+
+Before and after (16 clean cases, master 57623890, 4-core container; oriented8, sigma = 10 offsets, reference O; tables in
+[results/varifold_tables.md](results/varifold_tables.md)):
+
+| | plain wrap (A) | feature pass (K) | A / K median (min - max) |
+|---|---:|---:|---:|
+| varifold distance, median | 4.5e-4 | 9.8e-6 | 37.5 (3.2 - 81) |
+| equivalent chamfer width, offsets | 0.8 - 3.4 | 0.16 - 0.5 (V-notches 0.8, 1.9) | |
+| Hausdorff, offsets | 0.8 - 15 | 0.5 - 7 | 1.35 (1.0 - 2.2) |
+| mean distance (Chamfer) | | | 32.5 (1.4 - 74) |
+| mean normal angle | | | 23.1 (1.6 - 42) |
+| area defect | | | 34.8 (9.6 - 390), reads 1.00000 on results with 4 - 8 % of the creases missing |
+| every varifold kernel against the input I | | | 1.00 - 1.10 (the offset dominates) |
+
+Time per pair: 2.7 s at sigma = 10 offsets, 0.9 s at 20, 0.4 s at 40 (the pipeline: 4.9 s). The quadrature floor is 1e-6
+(0.1 offsets of chamfer width); 2^k scales give the same value bit for bit, rotations and translations to 1e-8.
