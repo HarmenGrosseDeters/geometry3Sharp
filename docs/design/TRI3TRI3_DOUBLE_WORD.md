@@ -1,0 +1,138 @@
+# Certified double-word arithmetic for the end points of a triangle crossing
+
+Status: implemented in `math/ExactDoubleWord.cs` and `IntrTriangle3Triangle3.find_transversal`. Back to the [design index](README.md).
+
+`IntrTriangle3Triangle3.Find` of two triangles that cross in general position returns a segment whose two end points are the
+crossing of an edge of one triangle with the plane of the other. This note derives the error bounds of the arithmetic that
+computes those points as the **correctly rounded exact values**, without BigInteger in the common case, and states what makes the
+result independent of whether the certificate decided: where it cannot decide, the exact route (`crossing_exact`) rounds the same
+way.
+
+## 1. What is computed
+
+For an edge `s`-`t` whose ends lie strictly on both sides of the plane through `V0`, `V1`, `V2` (exact `Orient3d`), with
+`n = (V1 - V0) x (V2 - V0)` and `d(p) = n . (p - V0)` (the orientation determinant up to the common factor 1):
+
+    X = s + w (t - s),   w = d(s) / (d(s) - d(t)),   d(s) and d(t) of opposite signs.
+
+`X` is a vector of rationals of the doubles; each coordinate is rounded to the nearest double, ties to even. The exact route computes
+the same `X` with BigInteger determinants (`grid`, `det`, `lerp`) and rounds with `round_ratio` (quotient with a sticky bit, then
+round to nearest even). The double-word route computes each coordinate as a `DoubleWord` `Hi + Lo` with a bound `Err` such
+that the exact coordinate lies in `[Hi + Lo - Err, Hi + Lo + Err]`, and accepts `Hi` only if the rounding is certain (section 4).
+
+Note on `ExactPoint3.ToDouble`: it truncates its 64-bit quotient and converts with `(double)BigInteger`, which rounds toward zero, so
+it can be one ulp off (example in the PR). `round_ratio` is used instead in this class; `ExactPoint3` is unchanged.
+
+## 2. Primitives and conditions
+
+`u = 2^-53`. A `DoubleWord` is *normalized* if `|Lo| <= u |Hi|`.
+
+- **TwoSum(a, b)**: `s = fl(a + b)`, `bb = s - a`, `e = (a - (s - bb)) + (b - bb)`; `s + e = a + b` exactly for every pair of doubles
+  without overflow (Knuth/Moller; no ordering condition, which is why FastTwoSum is not used). `|e| <= u |s|`, so the output is normalized.
+- **TwoProduct(a, b)** (`Expansion.TwoProduct`, Dekker/Veltkamp split with the constant 2^27 + 1, no FMA): `x + y = a b` exactly if no
+  overflow occurs in the split (`|a|, |b| < 2^996`) and the error terms are representable: every double of the input is a multiple of
+  its `ulp`, so with `|a|, |b| >= 2^-480` the lowest bit of every partial product is `>= 2^-1064` (normal inputs have their lowest
+  bit at `>= 2^-532`), a multiple of the smallest subnormal `2^-1074`, so every partial product and the error term are exact.
+- **Range rule** (`Checked`): `Hi` is `0` or in `[2^-480, 2^480]`, else the value is `Invalid` (`Err = +inf`), which propagates. Sums and products
+  of two values in range stay below `2^960` (no overflow); a product `xh yh` that is not `0` is `>= 2^-960` before the result is
+  checked, and a result with `|Hi| < 2^-480` is rejected. Lower-order terms (`xl yh`, `xl yl`) can underflow by at most
+  `2^-1075` each (absolute); a result in range has `|xh yh| >= 2^-480`, so `2^-100 |xh yh| >= 2^-580`, which absorbs those terms
+  with a factor of `2^495` to spare. The same holds for the sum (`S >= 2^-480` for a non-zero result of a sum whose terms are
+  normal, and the underflow terms are `<= 2^-1074`).
+
+## 3. Operations and their bounds
+
+Each bound is stated for normalized operands with errors `ex`, `ey` (`|X' - X| <= ex` for the exact values `X'` the operands stand
+for) and is derived below with `gamma` terms: a computed `fl(a op b)` has `|fl - exact| <= u |fl|` (no underflow, section 2).
+`Err` is then computed in floating point from non-negative terms (at most 12 operations, each with relative error `<= u`), so the
+computed value is at least `(1 - 12 u)` times the real value of the formula. The constant `Eps2 = 2^-100 = 64 u^2` exceeds each derived
+error bound below by a factor of at least 6.4, and `6.4 (1 - 12 u) > 1`: the rounding of the arithmetic on the bounds is absorbed by
+that explicit factor, and no further constant is needed (an earlier version multiplied by `1 + 2^-48`; no test can tell the difference,
+so it was dropped rather than argued as a margin). In the formulas the propagation terms are `ex + ey + Eps2 (|xh| + |yh|)` for a sum
+(relative to the operands' magnitudes, not to the result, which may cancel), `|X| ey + |Y| ex + ex ey + Eps2 |xh yh|` for a product,
+and the residual formula of section 3.3 for a quotient.
+
+### 3.1 Sum (`operator +`)
+
+`sh + sl = xh + yh` (TwoSum), `th + tl = xl + yl` (TwoSum), `c = fl(sl + th)`, `vh + vl = sh + c` (TwoSum), `w = fl(tl + vl)`,
+`zh + zl = vh + w` (TwoSum). With `S = |xh| + |yh|`:
+
+- `|sh| <= (1 + u) S`, `|sl| <= u |sh|`, `|th| <= (1 + u)(|xl| + |yl|) <= u (1 + u) S`.
+- `|sl + th| <= 2.1 u S`, so `e_c = |c - (sl + th)| <= u |c| <= 2.1 u^2 S`.
+- `|vl| <= u |vh| <= u (|sh| + |c|) <= 1.1 u S`, `|tl| <= u |th| <= 1.1 u^2 S`, so `|tl + vl| <= 1.2 u S` and
+  `e_w = |w - (tl + vl)| <= 1.2 u^2 S`.
+- `x + y = sh + sl + th + tl = (vh + vl - c) + sl + th + tl`, and the computed `z = vh + w`, so
+  `z - (x + y) = (w - vl - tl) - (sl + th - c)`, and `|z - (x + y)| <= e_w + e_c <= 3.4 u^2 S`.
+
+So `Err = ex + ey + 2^-100 S` bounds the error: `2^-100 = 64 u^2` is 18 times the derived `3.4 u^2` (the `u^3` terms are
+`< 10^-15` of that).
+
+### 3.2 Product (`operator *`)
+
+`ch + cl1 = xh yh` (TwoProduct), `a1 = fl(xh yl)`, `a2 = fl(xl yh)`, `a3 = fl(xl yl)`, `t1 = fl(a1 + a2)`, `t2 = fl(t1 + a3)`, `cl3 = fl(cl1 + t2)`,
+`zh + zl = ch + cl3` (TwoSum). The cross terms are rounded separately, as FMA is not used. With `P = |xh yh|`: `|xh yl|, |xl yh| <= uP`,
+`|xl yl| <= u^2 P`, `|cl1| <= u |ch| <= uP`. The roundings are
+
+- `a1`, `a2`: each `<= u (uP) = u^2 P`; `a3`: `<= u^3 P`;
+- `t1`: `|a1 + a2| <= 2.1 uP`, error `<= 2.1 u^2 P`; `t2`: `|t1 + a3| <= 2.2 uP`, error `<= 2.2 u^2 P`;
+- `cl3`: `|cl1 + t2| <= 3.3 uP`, error `<= 3.3 u^2 P`.
+
+Their sum is `<= 9.7 u^2 P + O(u^3 P)`: the computed `z` differs from `x y` by at most `10 u^2 P` (and the TwoSum is exact). With operand
+errors, `|X' Y' - X Y| <= |X| ey + |Y| ex + ex ey` (`|X| <= |xh| + |xl|`, `Mag`). So `Err = |X| ey + |Y| ex + ex ey + 2^-100 P`;
+`2^-100 = 64 u^2` is 6.4 times `10 u^2`.
+
+### 3.3 Quotient (`Div`)
+
+`q1 = fl(xh / yh)`, `r = x - y q1` (with `*` and `-` above), `q2 = fl(rh / yh)`, `q = q1 + q2` (TwoSum, exact), `res = x - y q` (certified).
+The bound does not depend on how good `q` is: the exact values `x'`, `y'` satisfy `x' / y' - q = (x' - q y') / y'`, and
+
+    |x' - q y'| <= |x - q y| + ex + |q| ey   (|x - q y| the exact residual of the computed values)
+                 <= |res.Hi + res.Lo| + res.Err + ex + |q| ey
+
+(the exact residual `x - q y` differs from the computed `res` by at most `res.Err`, as `res` is a certified sum and product of
+the exact operands `x`, `y`, `q`), and `|y'| >= |yh| - |yl| - ey`. So
+
+    Err(q) = (|res.Hi + res.Lo| + res.Err + ex + |q| ey) / (|yh| - |yl| - ey),
+
+requiring `ey <= |yh| / 4` (else `Invalid`) so the denominator is at least `0.7 |yh|`. Since `q` agrees with `x / y` to about `2^-104`
+relative (two correction steps), `Err` is about `2^-100` relative; the bound itself is valid for any `q`.
+
+## 4. Certification of the rounding (`RoundsTo`)
+
+A result `(Hi, Lo, Err)` with the exact value `V'` in `[Hi + Lo - Err, Hi + Lo + Err]`: `|V' - Hi| <= |Lo| + Err`. The nearest double to `V'`
+is `Hi` if `|V' - Hi|` is smaller than half the gap to each neighbour of `Hi`. The gap above `|Hi|` is `ulp`; the gap below is `ulp`
+too, except when `|Hi|` is a power of two, where it is `ulp / 2`. `RoundsTo` uses the smaller gap `g` on both sides and requires
+`|Lo| + Err < g / 2`, strictly: at equality `V'` can be the midpoint (a tie, which rounds to even and may not be `Hi`). The conversion is mirrored
+for negative values (magnitudes). An exact zero (`Hi = Lo = 0`, `Err = 0`, as the product of an exact zero, e.g. the difference of equal
+coordinates) is certified; any other value with `Hi = 0` is not (the value may be any tiny number). A tie never certifies: `|Lo| + Err >= g/2`
+since `Err > 0` whenever a rounding happened and a tie of exact operands has `|Lo| = g / 2` (a `TwoSum` result: `Hi` is then the
+round-to-even neighbour, correct, but this is not relied on).
+
+## 5. Selection of the end points (exact)
+
+In the generic crossing (no corner of one triangle in the plane of the other, found with `Orient3d`; no crossing edge of one triangle coplanar
+with a crossing edge of the other, four more `Orient3d`), the contact is a segment of positive length: zero length would need an end of an
+edge of one triangle to meet an edge of the other on the line of the planes, so the two edges would be coplanar. Its end points are the crossing
+points of the two crossing edges of each triangle (`odd_vertex`) that lie in the other triangle. A crossing point `X` of the edge `s`-`t`
+(strictly across the plane) lies in the closed triangle iff the three `Orient3d(s, t, a, b)` for the edges `a`-`b` do not have both signs
+(the tail of `ExactTriangleIntersection.SegmentIntersectsTriangle`). Exactly two of the four points qualify; any other count
+(`n != 2`) leaves the pair to the exact route `find_exact`. No floating-point comparison orders the points, so there is no margin
+or conditioning gate: an ill-conditioned point simply fails the certificate and takes `crossing_exact`.
+
+## 6. Tests and mutation checks
+
+`IntrTriangle3Triangle3DoubleWordTests`: the error bound of each operation against BigInteger fractions on random and cancelling
+operands (including operands that carry an error), `RoundsTo` at the tie and power-of-two boundaries, ties constructed with `w = 1/6`
+(`t.x - s.x = 3 k 2^-52`, `k` odd: `x` is exactly a midpoint) that must round half to even through the exact route and must not be
+certified, near ties, the crossing point of random, axis-aligned and scaled edges against an independent oracle (nearest double of the exact
+rational), and `Find` end points against the rounded crossings of the edges. Mutation results: see the PR.
+
+## 7. Cost (22 November 2026, Release, 4 cores, `Find()` on 20000 hit pairs, `Stopwatch` per call)
+
+| `Find()` on hits | master | double-word |
+|---|---|---|
+| random mesh-like, median / p90 | 759 / 923 ns | 952 / 1632 ns |
+| axis-aligned lattice, median / p90 | 894 / 1098 ns | 1034 / 11088 ns |
+
+Fallback to the exact route: 0 of 40000 points (random), 4.8 % (axis-aligned: exact-zero coordinates cannot be certified). The exact route
+costs 3.2 to 7.7 us per point, so an approach without a certificate (plain double with a bound that falls back more often) cannot be cheaper.

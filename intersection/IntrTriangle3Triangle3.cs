@@ -176,25 +176,17 @@ namespace g3
 
         // Find() for the generic crossing of two triangles, decided exactly by signs: no corner of one lies in the
         // plane of the other, and no crossing edge of one is coplanar with a crossing edge of the other (the exact
-        // Orient3d). Then the contact is a segment of positive length (a zero length overlap needs the end of an
-        // edge of one to meet an edge of the other, on the line of the two planes, hence a coplanar pair), its ends
-        // are crossing points of those edges, and the points are computed in floating point from them (a few ulp for
-        // well conditioned input; Quantity, Type and the pair of edges per end are exact). Returns false, leaving the
-        // exact route (find_exact) to decide, for anything else, also where the rounded values disagree with the
-        // exact signs or the segment degenerates in floating point.
+        // Orient3d). Then the contact is a segment of positive length (a zero length overlap needs the end of an edge of
+        // one to meet an edge of the other, on the line of the two planes, hence a coplanar pair). Its two ends are the
+        // crossing points of the two crossing edges of each triangle with the plane of the other that lie in the other
+        // triangle (exact: three Orient3d per edge, as ExactTriangleIntersection.SegmentIntersectsTriangle), exactly two
+        // of them. Their coordinates are the correctly rounded exact values, as find_exact computes them: first with
+        // certified double-word arithmetic (DoubleWord, docs/design/TRI3TRI3_DOUBLE_WORD.md), exactly (BigInteger) where
+        // the certificate does not decide. Returns false, leaving the exact route (find_exact) to decide, for anything
+        // else.
         bool find_transversal()
         {
             Triangle3d A = triangle0, B = triangle1;
-            // the crossing points are computed from the floating-point normals and distances: only for well
-            // conditioned triangles (no sliver: |n|^2 above 1e-12 of the squared edge lengths) whose planes are not nearly
-            // parallel (sin^2 of the angle above 1e-8: an error of 1e-16 in a distance is then 1e-12 of the edge). A
-            // heuristic choice of the route; the exact one decides anything it does not take.
-            Vector3d nA = (A.V1 - A.V0).Cross(A.V2 - A.V0), nB = (B.V1 - B.V0).Cross(B.V2 - B.V0);
-            double lA = nA.LengthSquared, lB = nB.LengthSquared;
-            if ((lA > 1e-12 * (A.V1 - A.V0).LengthSquared * (A.V2 - A.V0).LengthSquared
-                && lB > 1e-12 * (B.V1 - B.V0).LengthSquared * (B.V2 - B.V0).LengthSquared
-                && nA.Cross(nB).LengthSquared >= 1e-8 * lA * lB) == false)
-                return false;       // (also for overflow or NaN: the comparisons are false)
             int oa = odd_vertex(ref A, ref B), ob = odd_vertex(ref B, ref A);
             if (oa < 0 || ob < 0)
                 return false;
@@ -202,27 +194,97 @@ namespace g3
                 for (int j = 1; j <= 2; ++j)
                     if (ExactPredicates.Orient3d(A[oa], A[(oa + i) % 3], B[ob], B[(ob + j) % 3]) == 0)
                         return false;
-            Vector3d a1, a2, b1, b2;
-            if (crossing(ref A, oa, ref B, out a1, out a2) == false || crossing(ref B, ob, ref A, out b1, out b2) == false)
-                return false;
-            Vector3d D = a2 - a1;
-            double dd = D.Dot(D);
-            double u1 = D.Dot(b1 - a1), u2 = D.Dot(b2 - a1);
-            Vector3d bLo = b1, bHi = b2;
-            double uLo = u1, uHi = u2;
-            if (u1 > u2) { bLo = b2; bHi = b1; uLo = u2; uHi = u1; }
-            Vector3d lo = uLo > 0 ? bLo : a1, hi = uHi < dd ? bHi : a2;
-            double ulo = Math.Max(0, uLo), uhi = Math.Min(dd, uHi);
-            // (ulo < uhi also excludes equal points: the parameter of a point is computed from its coordinates alone, so equal
-            // points have equal parameters; a1 and a2 have 0 and dd exactly)
-            if ((ulo < uhi) == false || lo.IsFinite == false || hi.IsFinite == false)
-                return false;
-            Points[0] = lo;
-            Points[1] = hi;
+            // the crossing edges that end in the other triangle
+            Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero;
+            int n = 0;
+            DoubleWord[] nA = null, nB = null;
+            for (int side = 0; side < 2; ++side) {
+                bool first = side == 0;
+                int o = first ? oa : ob;
+                for (int i = 1; i <= 2; ++i) {
+                    Vector3d s = first ? A[o] : B[o], t = first ? A[(o + i) % 3] : B[(o + i) % 3];
+                    if ((first ? passes_through(s, t, ref B) : passes_through(s, t, ref A)) == false)
+                        continue;
+                    if (n == 2)
+                        return false;
+                    Vector3d x;
+                    if (first) {
+                        if (nB == null) nB = plane_normal(ref B);
+                        x = crossing_point(s, t, ref B, nB);
+                    } else {
+                        if (nA == null) nA = plane_normal(ref A);
+                        x = crossing_point(s, t, ref A, nA);
+                    }
+                    if (n == 0) p0 = x; else p1 = x;
+                    ++n;
+                }
+            }
+            if (n != 2 || p0 == p1)
+                return false;       // (equal after rounding: find_exact decides Point or Segment)
+            Points[0] = p0;
+            Points[1] = p1;
             Quantity = 2;
             Type = IntersectionType.Segment;
             Result = IntersectionResult.Intersects;
             return true;
+        }
+
+        // the segment s-t crosses the plane of tri strictly between its ends: does it cross inside the closed triangle?
+        // (the same exact test as the end of ExactTriangleIntersection.SegmentIntersectsTriangle)
+        static bool passes_through(Vector3d s, Vector3d t, ref Triangle3d tri)
+        {
+            int o1 = ExactPredicates.Orient3d(s, t, tri.V0, tri.V1), o2 = ExactPredicates.Orient3d(s, t, tri.V1, tri.V2), o3 = ExactPredicates.Orient3d(s, t, tri.V2, tri.V0);
+            bool pos = o1 > 0 || o2 > 0 || o3 > 0, neg = o1 < 0 || o2 < 0 || o3 < 0;
+            return !(pos && neg);
+        }
+
+        // the normal (V1 - V0) x (V2 - V0) of the plane of tri in double-words, without rounding the differences
+        internal static DoubleWord[] plane_normal(ref Triangle3d tri)
+        {
+            DoubleWord e1x = DoubleWord.Diff(tri.V1.x, tri.V0.x), e1y = DoubleWord.Diff(tri.V1.y, tri.V0.y), e1z = DoubleWord.Diff(tri.V1.z, tri.V0.z);
+            DoubleWord e2x = DoubleWord.Diff(tri.V2.x, tri.V0.x), e2y = DoubleWord.Diff(tri.V2.y, tri.V0.y), e2z = DoubleWord.Diff(tri.V2.z, tri.V0.z);
+            return new[] { e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x };
+        }
+
+        /// <summary>
+        /// The point where the segment s-t (its ends strictly on both sides of the plane of other) meets the plane, each
+        /// coordinate correctly rounded: certified double-word arithmetic where it decides, else exact. n is
+        /// plane_normal(other).
+        /// </summary>
+        internal static Vector3d crossing_point(Vector3d s, Vector3d t, ref Triangle3d other, DoubleWord[] n)
+        {
+            Vector3d x;
+            if (crossing_dd(s, t, other.V0, n, out x))
+                return x;
+            return crossing_exact(s, t, ref other);
+        }
+
+        // the double-word route: s + d(s) / (d(s) - d(t)) (t - s) with d = n . (. - V0) (the determinants, up to a common
+        // factor), certified per coordinate
+        internal static bool crossing_dd(Vector3d s, Vector3d t, Vector3d v0, DoubleWord[] n, out Vector3d x)
+        {
+            x = Vector3d.Zero;
+            DoubleWord ds = n[0] * DoubleWord.Diff(s.x, v0.x) + n[1] * DoubleWord.Diff(s.y, v0.y) + n[2] * DoubleWord.Diff(s.z, v0.z);
+            DoubleWord dt = n[0] * DoubleWord.Diff(t.x, v0.x) + n[1] * DoubleWord.Diff(t.y, v0.y) + n[2] * DoubleWord.Diff(t.z, v0.z);
+            DoubleWord w = DoubleWord.Div(ds, ds - dt);
+            if (w.IsValid == false)
+                return false;
+            DoubleWord px = DoubleWord.Of(s.x) + w * DoubleWord.Diff(t.x, s.x);
+            DoubleWord py = DoubleWord.Of(s.y) + w * DoubleWord.Diff(t.y, s.y);
+            DoubleWord pz = DoubleWord.Of(s.z) + w * DoubleWord.Diff(t.z, s.z);
+            double rx, ry, rz;
+            if (px.RoundsTo(out rx) == false || py.RoundsTo(out ry) == false || pz.RoundsTo(out rz) == false)
+                return false;
+            x = new Vector3d(rx, ry, rz);
+            return true;
+        }
+
+        // the exact route (BigInteger determinants), as in contact_candidates
+        internal static Vector3d crossing_exact(Vector3d s, Vector3d t, ref Triangle3d other)
+        {
+            BigInteger[] g = grid(out int e0, other.V0, other.V1, other.V2, s, t);
+            BigInteger dS = det(g, 0, 3, 6, 9), dT = det(g, 0, 3, 6, 12);
+            return lerp(g, 9, 12, dS, dT, e0);
         }
 
         // the corner of t that lies on one side of the plane of other alone (the other two on the other side), -1 if a
@@ -238,20 +300,6 @@ namespace g3
             if (s0 == s2 && s1 != s0) return 1;
             if (s0 == s1 && s2 != s0) return 2;
             return -1;
-        }
-
-        // where the two edges of t at its corner o cross the plane of other, in floating point (false if the rounded
-        // distances do not have the exact signs: o on one side, the others on the other)
-        static bool crossing(ref Triangle3d t, int o, ref Triangle3d other, out Vector3d p1, out Vector3d p2)
-        {
-            Vector3d n = (other.V1 - other.V0).Cross(other.V2 - other.V0);
-            double d0 = n.Dot(t[o] - other.V0), d1 = n.Dot(t[(o + 1) % 3] - other.V0), d2 = n.Dot(t[(o + 2) % 3] - other.V0);
-            p1 = p2 = Vector3d.Zero;
-            if ((d0 > 0 && d1 < 0 && d2 < 0 || d0 < 0 && d1 > 0 && d2 > 0) == false)
-                return false;
-            p1 = t[o] + (d0 / (d0 - d1)) * (t[(o + 1) % 3] - t[o]);
-            p2 = t[o] + (d0 / (d0 - d2)) * (t[(o + 2) % 3] - t[o]);
-            return true;
         }
 
         static bool exactly_coplanar(ref Triangle3d a, ref Triangle3d b)
@@ -359,9 +407,7 @@ namespace g3
                     continue;
                 // the point s + Ds / (Ds - Dt) (t - s) where the line meets the plane, with the exact determinants
                 // Ds, Dt (nearly parallel edges make a rounded parameter useless), rounded at the end
-                BigInteger[] g = grid(out int e0, o0, o1, o2, s, t);
-                BigInteger dS = det(g, 0, 3, 6, 9), dT = det(g, 0, 3, 6, 12);
-                add_unique(lerp(g, 9, 12, dS, dT, e0), pts);
+                add_unique(crossing_exact(s, t, ref other), pts);
             }
         }
 
@@ -399,6 +445,27 @@ namespace g3
             return (g[s + a0] - g[r + a0]) * (g[x + a1] - g[r + a1]) - (g[s + a1] - g[r + a1]) * (g[x + a0] - g[r + a0]);
         }
 
+        // num / den * 2^scaleExp (den > 0) correctly rounded to nearest, ties to even. ExactPoint3.ToDouble truncates its
+        // 64-bit quotient and converts it with BigInteger's explicit conversion, which rounds toward zero: up to one ulp off,
+        // which would make the result depend on whether the double-word certificate decided (DoubleWord).
+        internal static double round_ratio(BigInteger num, BigInteger den, int scaleExp)
+        {
+            if (num.IsZero)
+                return 0;
+            bool negative = num.Sign < 0;
+            BigInteger a = BigInteger.Abs(num), rem;
+            long nb = ExactPoint3.BitLength(a), db = ExactPoint3.BitLength(den);
+            int shift = (int)(55 - (nb - db));      // the quotient has 55 or 56 bits
+            BigInteger q = shift >= 0 ? BigInteger.DivRem(a << shift, den, out rem) : BigInteger.DivRem(a, den << -shift, out rem);
+            int extra = (int)(ExactPoint3.BitLength(q) - 53);
+            BigInteger low = q & ((BigInteger.One << extra) - 1), half = BigInteger.One << (extra - 1), mant = q >> extra;
+            // above the midpoint, or on it with a nonzero remainder (the quotient was truncated), or a tie with an odd mantissa
+            if (low > half || (low == half && (rem.IsZero == false || mant.IsEven == false)))
+                mant += 1;
+            double r = ExactPoint3.ScaleB((double)mant, scaleExp - shift + extra);     // (mant <= 2^53: exact)
+            return negative ? -r : r;
+        }
+
         // (dp Q - dq P) / (dp - dq) for the points P, Q at offsets p, q of g (the point where a quantity linear along
         // P-Q with values dp, dq of opposite signs is 0), rounded
         static Vector3d lerp(BigInteger[] g, int p, int q, BigInteger dp, BigInteger dq, int e0)
@@ -407,7 +474,7 @@ namespace g3
             if (den.Sign < 0) { dp = -dp; dq = -dq; den = -den; }
             var r = new Vector3d();
             for (int k = 0; k < 3; ++k)
-                r[k] = ExactPoint3.ToDouble(dp * g[q + k] - dq * g[p + k], den, e0);
+                r[k] = round_ratio(dp * g[q + k] - dq * g[p + k], den, e0);
             return r;
         }
 

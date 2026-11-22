@@ -23,6 +23,7 @@ Architecture specifications, algorithm design notes, error-bound derivations, an
 | [EXACT_VOLUME_SIGN.md](EXACT_VOLUME_SIGN.md) | Exact sign of signed mesh volume for zero-volume sheet removal |
 | [CHEAPER_CONSTRUCTIONS.md](CHEAPER_CONSTRUCTIONS.md) / [`cheaper_constructions.spec`](cheaper_constructions.spec) | Cheaper exact constructions, pair tests, and predicate spec in the arrangement |
 | [PAIR_SEARCH.md](PAIR_SEARCH.md) | Candidate triangle pair search in the exact arrangement |
+| [TRI3TRI3_DOUBLE_WORD.md](TRI3TRI3_DOUBLE_WORD.md) | Certified double-word arithmetic: correctly rounded end points of a triangle crossing (derived error bounds, certificate, fallback) |
 | [TRITRI_PREFILTER.md](TRITRI_PREFILTER.md) | Devillers-Guigue sign-based triangle-triangle prefilter |
 | [EXACT_BOOLEAN_30_PRESTUDY.md](EXACT_BOOLEAN_30_PRESTUDY.md) | Exact Boolean 3.0 pre-study (measurements, upper bounds, targets) |
 | [EXACT_BOOLEAN_40_DESIGN.md](EXACT_BOOLEAN_40_DESIGN.md) | Exact Boolean 4.0 design analysis (lazy `ExactMesh` chains) |
