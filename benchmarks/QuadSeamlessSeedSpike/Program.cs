@@ -92,7 +92,7 @@ static class Program
 
     /// <summary>
     /// The sum over the triangles (not skipped) of |w|, w the sum of the three edge vectors in the averaged, aligned frame of the edge, in
-    /// lattice units: the formula of IntegrableFrames (CurlBefore / CurlAfter), with a spacing factor along the first axis (sa) and along
+    /// lattice units: the formula of IntegrableFrames (CurlBefore; with a rotation the frames are turned first, which equals CurlAfter to first order only), with a spacing factor along the first axis (sa) and along
     /// the second axis (sb) of every vertex and a rotation of the frame (rot); sa = sb is the isotropic model of the library.
     /// </summary>
     static double Curl(DMesh3 m, CrossField cf, double s, double[] sa, double[] sb, double[] rot, bool[] skip)
@@ -131,7 +131,7 @@ static class Program
     /// freedom of a rectangular parametrization (axis scales exp(u + v), exp(u - v), a frame rotation), solved as a least squares
     /// problem and not as the paper's constrained optimization: a capacity measurement.
     /// </summary>
-    static void TwoScales(DMesh3 m, CrossField cf, double s, bool useRot, bool[] skip, out double[] sa, out double[] sb, out double[] rot)
+    static int TwoScales(DMesh3 m, CrossField cf, double s, bool useRot, bool tied, bool[] skip, out double[] sa, out double[] sb, out double[] rot)
     {
         int n = m.MaxVertexID;
         var tri = new List<int[]>(); var av = new List<Vector2d[]>(); var sw = new List<bool[]>();
@@ -141,6 +141,7 @@ static class Program
             Vector3d qa = cf.VertexDirection(tv.a, 0), na = cf.VertexNormal(tv.a);
             var a = new Vector2d[3]; var f = new bool[3];
             for (int k = 0; k < 3; ++k) Rep(qa, cf.VertexDirection(tv[k], 0), cf.VertexNormal(tv[k]), out f[k]);
+            if (tied) f = null;        // the control: one spacing per vertex (slot 0 for both axes), the same solver, clamp and triangles
             for (int e = 0; e < 3; ++e) {
                 int i = tv[e], j = tv[(e + 1) % 3];
                 Vector3d qe = Rep(qa, cf.VertexDirection(i, 0), cf.VertexNormal(i), out bool d0) + Rep(qa, cf.VertexDirection(j, 0), cf.VertexNormal(j), out bool d1);
@@ -165,6 +166,7 @@ static class Program
         double cur = cost(x);
         var used = new bool[n]; int nUsed = 0;
         foreach (int[] c in tri) foreach (int i in c) if (!used[i]) { used[i] = true; nUsed++; }
+        int steps = 0;
         for (int step = 0; step < 40; ++step) {
             var chol = new SparseCholesky(3 * n, 3);
             var rhs = new double[3 * n];
@@ -173,7 +175,7 @@ static class Program
                 int[] c = tri[t]; var term = new Vector2d[3]; var dphi = new Vector2d[3]; Vector2d w = Vector2d.Zero;
                 for (int e = 0; e < 3; ++e) { Term(c, av[t], sw[t], x, e, out term[e], out dphi[e]); w += term[e]; }
                 for (int k = 0; k < 3; ++k) {
-                    int e1 = k, e2 = (k + 2) % 3; int px = sw[t][k] ? 1 : 0, py = 1 - px;
+                    int e1 = k, e2 = (k + 2) % 3; int px = sw[t] == null ? 0 : (sw[t][k] ? 1 : 0), py = sw[t] == null ? 0 : 1 - px;
                     var j = new double[6];
                     j[px] = -0.5 * (term[e1].x + term[e2].x);
                     j[3 + py] = -0.5 * (term[e1].y + term[e2].y);
@@ -208,11 +210,12 @@ static class Program
             }
             if (!ok) break;
             double gain = (cur - nc) / cur;
-            x = x2; cur = nc;
+            x = x2; cur = nc; steps++;
             if (gain < 1e-3) break;
         }
         sa = new double[n]; sb = new double[n]; rot = new double[n];
-        for (int i = 0; i < n; ++i) { sa[i] = Math.Exp(x[3 * i]); sb[i] = Math.Exp(x[3 * i + 1]); rot[i] = x[3 * i + 2]; }
+        for (int i = 0; i < n; ++i) { sa[i] = Math.Exp(x[3 * i]); sb[i] = Math.Exp(x[3 * i + (tied ? 0 : 1)]); rot[i] = x[3 * i + 2]; }
+        return steps;
     }
 
     // edge e of a triangle: the edge vector turned by -phi_e, then scaled per axis; d = its derivative by phi_e
@@ -221,8 +224,9 @@ static class Program
         int k0 = e, k1 = (e + 1) % 3, i = c[k0], j = c[k1];
         double pe = 0.5 * (x[3 * i + 2] + x[3 * j + 2]), cs = Math.Cos(pe), sn = Math.Sin(pe);
         double xr = cs * a[e].x + sn * a[e].y, yr = -sn * a[e].x + cs * a[e].y;
-        double gx = Math.Exp(-0.5 * (x[3 * i + (sw[k0] ? 1 : 0)] + x[3 * j + (sw[k1] ? 1 : 0)]));
-        double gy = Math.Exp(-0.5 * (x[3 * i + (sw[k0] ? 0 : 1)] + x[3 * j + (sw[k1] ? 0 : 1)]));
+        int xi = sw == null ? 0 : (sw[k0] ? 1 : 0), xj = sw == null ? 0 : (sw[k1] ? 1 : 0), yi = sw == null ? 0 : 1 - xi, yj = sw == null ? 0 : 1 - xj;
+        double gx = Math.Exp(-0.5 * (x[3 * i + xi] + x[3 * j + xj]));
+        double gy = Math.Exp(-0.5 * (x[3 * i + yi] + x[3 * j + yj]));
         term = new Vector2d(gx * xr, gy * yr);
         dphi = new Vector2d(gx * yr, -gy * xr);
     }
@@ -434,7 +438,8 @@ static class Program
                 bool finite = Enumerable.Range(0, res.VertexCount).All(v => res.GetVertex(v).IsFinite);
                 double hd = Haus(res, m, s);
                 bool clean = mm.IsManifold && mm.QuadFraction == 1 && away == 0 && finite && res.Validate().IsValid && mm.BoundaryVertices == 0;
-                pureStatus = (clean ? (hd <= 0.5 ? "clean" : "clean but Hausdorff " + F(hd, "F2") + " s") : "Success, checks FAIL") + $": {mm.IrregularVertices} irregular, {mm.Faces} quads, corner p95 {F(PolyMeshMetrics.Percentile(mm.CornerDeviations, 0.95), "F1")}";
+                double p95 = PolyMeshMetrics.Percentile(mm.CornerDeviations, 0.95);
+                pureStatus = (clean ? (hd <= 0.5 ? (p95 <= 15 ? "clean" : "clean, corner p95 above 15") : "clean but Hausdorff " + F(hd, "F2") + " s") : "Success, checks FAIL") + $": {mm.IrregularVertices} irregular, {mm.Faces} quads, corner p95 {F(PolyMeshMetrics.Percentile(mm.CornerDeviations, 0.95), "F1")}";
             }
         }
         return stage2;
@@ -499,7 +504,7 @@ static class Program
             var f2 = new IntegrableFrames(null, null); var q2 = new QuadRemesher(input) { Field = cf, TargetEdgeLength = s, SizeAdaptation = SizeAdaptationMode.ScaleAndRotation, Frames = f2 }; q2.Compute();
             var qp = new QuadRemesher(input) { Field = cf, TargetEdgeLength = s, PureQuads = true }; qp.Compute();
             // the reflection path against the library: the same frames must give the same mesh
-            string pureUniform, pureSR = "-", pureOracle;
+            string pureUniform, pureSR = "not applied (= uniform)", pureOracle;
             bool pathOk = SameMesh(Seeded(input, cf, s, null, null, true, out pureUniform), q0.Result);
             if (q2.SizeAdaptationApplied) pathOk &= SameMesh(Seeded(input, cf, s, f2.Spacing, f2.Rotation, true, out pureSR), q2.Result);
             pathOk &= pureUniform.StartsWith("clean") == (qp.PureQuadStatus == PureQuadStatus.Success);
@@ -507,36 +512,51 @@ static class Program
             Oracle o = Conformal(input, cf);
             // the same oracle with the spacing clamped from below: a lattice finer than the input triangles cannot be represented by the position field
             var clamped = (double[])o.Spacing.Clone();
-            foreach (int v in input.VertexIndices()) clamped[v] = Math.Max(clamped[v], minSpacing);
+            {
+                // the clamp removes cells, so the scale is found again: the same expected number of cells as the uniform spacing
+                var va = new double[input.MaxVertexID]; double total = 0;
+                foreach (int t in input.TriangleIndices()) { Index3i tv = input.GetTriangle(t); double a3 = input.GetTriArea(t) / 3; va[tv.a] += a3; va[tv.b] += a3; va[tv.c] += a3; total += 3 * a3; }
+                double c = 1;
+                for (int it = 0; it < 50; ++it) {
+                    double cells = 0;
+                    foreach (int v in input.VertexIndices()) { double sp = Math.Max(c * o.Spacing[v], minSpacing); cells += va[v] / (sp * sp); }
+                    c *= Math.Sqrt(cells / total);
+                }
+                foreach (int v in input.VertexIndices()) clamped[v] = Math.Max(c * o.Spacing[v], minSpacing);
+            }
             var skip = new bool[input.MaxTriangleID];
             foreach (int f in cf.SingularFaces) skip[f] = true;
             foreach (int v in o.ConeVertices) foreach (int t in input.VtxTrianglesItr(v)) skip[t] = true;
             double cU = Curl(input, cf, s, null, null, null, skip);
             double cS = Curl(input, cf, s, f1.Spacing, f1.Spacing, null, skip), cSR = Curl(input, cf, s, f2.Spacing, f2.Spacing, f2.Rotation, skip);
             double cO = Curl(input, cf, s, o.Spacing, o.Spacing, o.Rot, skip);
-            string cA = "-", cAR = "-", anis = "-", anisR = "-";
+            string c1 = "-", c1R = "-", cA = "-", cAR = "-", anis = "-", anisR = "-", gnSteps = "-";
             if (aniso) {
-                TwoScales(input, cf, s, false, skip, out double[] sa, out double[] sb, out double[] rr);
-                cA = F(Curl(input, cf, s, sa, sb, null, skip), "F1");
-                anis = F(Pct(input.VertexIndices().Select(v => Math.Max(sa[v] / sb[v], sb[v] / sa[v])), 0.95), "F2") + " / " + F(input.VertexIndices().Max(v => Math.Max(sa[v] / sb[v], sb[v] / sa[v])), "F2");
-                TwoScales(input, cf, s, true, skip, out sa, out sb, out rr);
-                cAR = F(Curl(input, cf, s, sa, sb, rr, skip), "F1");
-                anisR = F(Pct(input.VertexIndices().Select(v => Math.Max(sa[v] / sb[v], sb[v] / sa[v])), 0.95), "F2") + " / " + F(input.VertexIndices().Max(v => Math.Max(sa[v] / sb[v], sb[v] / sa[v])), "F2");
+                Func<double[], double[], string> ratioOf = (pa, pb) => F(Pct(input.VertexIndices().Select(v => Math.Max(pa[v] / pb[v], pb[v] / pa[v])), 0.95), "F2") + " / " + F(input.VertexIndices().Max(v => Math.Max(pa[v] / pb[v], pb[v] / pa[v])), "F2");
+                int n1 = TwoScales(input, cf, s, false, true, skip, out double[] sa, out double[] sb, out double[] rr);
+                c1 = F(Curl(input, cf, s, sa, sb, null, skip), "F1");
+                int n2 = TwoScales(input, cf, s, true, true, skip, out sa, out sb, out rr);
+                c1R = F(Curl(input, cf, s, sa, sb, rr, skip), "F1");
+                int n3 = TwoScales(input, cf, s, false, false, skip, out sa, out sb, out rr);
+                cA = F(Curl(input, cf, s, sa, sb, null, skip), "F1"); anis = ratioOf(sa, sb);
+                int n4 = TwoScales(input, cf, s, true, false, skip, out sa, out sb, out rr);
+                cAR = F(Curl(input, cf, s, sa, sb, rr, skip), "F1"); anisR = ratioOf(sa, sb);
+                gnSteps = $"{n1} / {n2} / {n3} / {n4}";
             }
             DPolyMesh ro = Seeded(input, cf, s, o.Spacing, o.Rot, true, out pureOracle);
             DPolyMesh rc = Seeded(input, cf, s, clamped, o.Rot, true, out string pureClamped);
             var rotDeg = input.VertexIndices().Select(v => Math.Abs(o.Rot[v]) * 180 / Math.PI).ToArray();
 
-            t1.Add($"| {name} | {input.VertexCount} | {S} | {F(f1.CurlBefore, "F1")} | {F(cU, "F1")} | {F(cS, "F1")} | {F(cSR, "F1")} | {cA} | {cAR} | {F(cO, "F1")} | {anis} | {anisR} |");
+            t1.Add($"| {name} | {input.VertexCount} | {S} | {F(f1.CurlBefore, "F1")} | {F(cU, "F1")} | {F(cS, "F1")} | {F(cSR, "F1")} ({F(f2.CurlAfter, "F1")}) | {c1} | {c1R} | {cA} | {cAR} | {F(cO, "F1")} | {anis} | {anisR} | {gnSteps} |");
             t2.Add($"| {name} | {S} | {Row(q0.Result, input, s)} | {Row(q1.Result, input, s)}{(q1.SizeAdaptationApplied ? "" : " (not applied)")} | {Row(q2.Result, input, s)}{(q2.SizeAdaptationApplied ? "" : " (not applied)")} | {Row(ro, input, s)} | {Row(rc, input, s)} | {(pathOk ? "yes" : "NO")} |");
             t4.Add($"| {name} | {S} | {qp.PureQuadStatus} | {pureUniform} | {pureSR} | {pureOracle} | {pureClamped} |");
-            t3.Add($"| {name} | {o.ConeVertices.Count} | {o.Iterations} | {o.Residual:E1} | {o.BrokenTriangles} | {F(o.SeamDefectDeg, "F2")} | {Range(input.VertexIndices().Select(v => o.Spacing[v]).ToArray())} | {F(Pct(input.VertexIndices().Select(v => o.Spacing[v]), 0.05), "F2")}-{F(Pct(input.VertexIndices().Select(v => o.Spacing[v]), 0.95), "F2")} | {F(Pct(rotDeg, 0.5), "F1")} / {F(Pct(rotDeg, 0.95), "F1")} / {F(rotDeg.Max(), "F1")} | {F(o.Seconds, "F2")} |");
+            t3.Add($"| {name} | {o.ConeVertices.Count} | {o.Iterations} | {o.Residual:E1} | {o.BrokenTriangles} | {F(o.SeamDefectDeg, "F2")} | {Range(input.VertexIndices().Select(v => o.Spacing[v]).ToArray())} | {F(Pct(input.VertexIndices().Select(v => o.Spacing[v]), 0.05), "F2")}-{F(Pct(input.VertexIndices().Select(v => o.Spacing[v]), 0.95), "F2")} | {F(Pct(rotDeg, 0.5), "F1")} / {F(Pct(rotDeg, 0.95), "F1")} / {F(rotDeg.Max(), "F1")} | {F(o.Seconds, "F2")} | {F(f1.Seconds, "F2")} / {F(f2.Seconds, "F2")} | {o.GaussBonnetError:E1} |");
             Console.Error.WriteLine($"  done {name}");
         }
         Console.WriteLine("Table 1: curl mass (lattice units) left by each frame model");
         Console.WriteLine();
-        Console.WriteLine("| shape | input V | S | library CurlBefore | uniform | Scale | ScaleAndRotation | two scales | two scales + rotation | conformal oracle | axis ratio p95 / max (two scales) | (with rotation) |");
-        Console.WriteLine("|---|---|---|---|---|---|---|---|---|---|---|---|");
+        Console.WriteLine("| shape | input V | S | library CurlBefore | uniform | Scale | ScaleAndRotation (library CurlAfter, all non-singular triangles) | control: one scale | control: one scale + rotation | two scales | two scales + rotation | conformal oracle | axis ratio p95 / max (two scales) | (with rotation) | Gauss-Newton steps (the four solves) |");
+        Console.WriteLine("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
         foreach (string r in t1) Console.WriteLine(r);
         Console.WriteLine();
         Console.WriteLine("Table 2: stage 2 mesh, irregular V / quads % / corner p95 (deg) / faces / Hausdorff out->in (s)");
@@ -547,8 +567,8 @@ static class Program
         Console.WriteLine();
         Console.WriteLine("Table 3: the conformal oracle");
         Console.WriteLine();
-        Console.WriteLine("| shape | cone vertices | Newton steps | residual (rad) | broken triangles | seam defect (deg) | spacing min-max | spacing p5-p95 | rotation p50 / p95 / max (deg) | seconds |");
-        Console.WriteLine("|---|---|---|---|---|---|---|---|---|---|");
+        Console.WriteLine("| shape | cone vertices | Newton steps | residual (rad) | broken triangles | seam defect (deg) | spacing min-max | spacing p5-p95 | rotation p50 / p95 / max (deg) | oracle seconds | IntegrableFrames seconds, Scale / ScaleAndRotation | Gauss-Bonnet error of the cone angles (rad) |");
+        Console.WriteLine("|---|---|---|---|---|---|---|---|---|---|---|---|");
         foreach (string r in t3) Console.WriteLine(r);
         Console.WriteLine();
         Console.WriteLine("Table 4: the pure-quad repair (stage 3B) on each lattice, exploratory for the two size fields");

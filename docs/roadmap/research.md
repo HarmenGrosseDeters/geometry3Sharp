@@ -332,7 +332,7 @@ in the tool project.
   paper only (the Instant Meshes Enhancements clause is not accepted); stage 5 is an additive polygon mesh type with
   OBJ / PLY writers and conversion to and from DMesh3. Stage 5 (#1097), stage 1 (#1098; Hermitian form #1099, vector kernels of `SparseCholesky` #1103) and stage 2 (#1100) are merged. Stage 2 (`PositionField`, `QuadRemesher`): manifold, quad share
   93-99 %, but irregular vertices 6 to 12 x the field singularities (the stated no-go; QUAD_REMESHING.md 4.2): owner 2026-11-17: merged with the gates open, next stage 3B (flow from the paper, measurement first)
-  Research spike 2026-11-22 (seamless parametrization as a seed or replacement for the position field, SIGGRAPH 2025 papers): [QUAD_SEAMLESS_SEED_2026-11.md](../research/QUAD_SEAMLESS_SEED_2026-11.md); upper bound measured (irregular vertices of 9 closed shapes 863 uniform / 493 size field / 329-354 with a cone-metric seed / 88 cones), options with the owner, nothing built.
+  Research spike 2026-11-22 (seamless parametrization as a seed or replacement for the position field, SIGGRAPH 2025 papers): [QUAD_SEAMLESS_SEED_2026-11.md](../research/QUAD_SEAMLESS_SEED_2026-11.md); upper bound measured (irregular vertices of 9 closed shapes 863 uniform / 493 size field / 407 with a clamped cone-metric seed / 88 cones; no gain in pure-quad success shown), options with the owner, nothing built.
 - Deformation: ARAP and biharmonic are built (item 7, #896 / #897, 2026-11-16); cage coordinates not scheduled
 - Tetrahedral meshing: see Phase 5 (constrained Delaunay tetrahedrization). fTetWild is MPL-2.0 (file-level
   copyleft), not MIT: implement from the paper (Hu et al. 2020) rather than port

@@ -534,7 +534,7 @@ field applies, which the curl numbers cannot show; `Frames_CurlAfter_IsTheCurlOf
 
 Not combined with `PureQuads` (InvalidInput: the flow of 3B assumes a uniform spacing; whether the flow could run on the size field is open). Not done, so open: the dislocations that remain (about half), the collapse length 0.4 -> 0.6 (owner 2026-11-19: a separate PR after the pure-quad PR), a spacing that follows a user size field, features and boundaries in the solver.
 
-Research spike 2026-11-22 ([QUAD_SEAMLESS_SEED_2026-11.md](../research/QUAD_SEAMLESS_SEED_2026-11.md), `benchmarks/QuadSeamlessSeedSpike`): a spacing and rotation from a conformal cone metric with the field's cones (an oracle for a seamless-parametrization seed) cuts the irregular vertices of 9 closed shapes from 863 (uniform) and 493 (the best of Scale and ScaleAndRotation) to 329-354, against 88 singular faces; options and leaning are in the note, nothing is built.
+Research spike 2026-11-22 ([QUAD_SEAMLESS_SEED_2026-11.md](../research/QUAD_SEAMLESS_SEED_2026-11.md), `benchmarks/QuadSeamlessSeedSpike`): a spacing and rotation from a conformal cone metric with the field's cones (an oracle for a seamless-parametrization seed, spacing clamped at 0.7, same cell count) cuts the irregular vertices of 9 closed shapes from 863 (uniform) and 493 (the best of Scale and ScaleAndRotation) to 407, against 88 singular faces; the pure-quad success rate did not move in an exploratory run; options and leaning are in the note, nothing is built.
 
 ## 5. Limits and recommendation
 
