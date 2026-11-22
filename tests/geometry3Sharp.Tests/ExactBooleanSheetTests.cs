@@ -336,15 +336,36 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void SheetInThePlaneOfAFace_LabelsByContact()
+        public void SheetInThePlaneOfAFace_OnlyTouches_IsRefusedAsUncut_WhateverTheSideAndTheStatedUncutSide()
         {
-            // the sheet lies on the top face of the cube with its normals up: the cube is behind it, so it is inside the tool (nothing is left);
-            // with normals down the cube is in front of it (outside the tool): the cube stays
+            // the sheet lies on the top face of the cube: no piece of it is inside, so it separates nothing. Its contact would mark the whole cube: with the
+            // normals up the cube would be behind it (removed, Success), with the normals down in front of it (kept, Success, as if no cut was asked): both
+            // are refused (owner decision on #1211, 2026-11-22), whatever UncutSide says
             DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
-            ExactMeshBoolean up = Run(cube, Plate(1, -1, 2, -1, 2, true));
-            Assert.True(up.Status == Status.Success, up.Error);
-            Assert.Equal(0.0, Volume(up.Result), 12);
-            Cut(cube, Plate(1, -1, 2, -1, 2, false), 1, "contact, outside the tool");
+            foreach (bool up in new[] { true, false })
+                foreach (var side in new[] { ExactMeshBoolean.SheetUncutSides.Refuse, ExactMeshBoolean.SheetUncutSides.Outside, ExactMeshBoolean.SheetUncutSides.Inside }) {
+                    ExactMeshBoolean op = Run(cube, Plate(1, -1, 2, -1, 2, up), side);
+                    AssertRefused(op, Refusal.UncutComponents, "full coplanar sheet, up " + up + ", UncutSide " + side);
+                    Assert.Equal(1, op.SheetWitnessMesh);
+                    Assert.True(op.SheetWitnessTriangle >= 0 && op.SheetWitnessTriangle < 2);       // (a triangle of the plate, which has two)
+                    Assert.Equal(1, op.SheetUncutCells);
+                    Assert.Contains("only touches", op.Error);
+                    Assert.Null(op.Result);
+                }
+            // a full coplanar sheet on each of the six faces, both ways: whichever piece of the workpiece comes first, the sheet only touches
+            foreach (int axis in new[] { 0, 1, 2 })
+                foreach (double at in new[] { 0.0, 1.0 })
+                    foreach (bool plus in new[] { true, false }) {
+                        Func<double, double, Vector3d> at2 = (u, v) => axis == 0 ? new Vector3d(at, u, v) : axis == 1 ? new Vector3d(u, at, v) : new Vector3d(u, v, at);
+                        var normal = new Vector3d(axis == 0 ? (plus ? 1 : -1) : 0, axis == 1 ? (plus ? 1 : -1) : 0, axis == 2 ? (plus ? 1 : -1) : 0);
+                        DMesh3 face = Page(at2(-1, -1), at2(2, -1), at2(2, 2), at2(-1, 2), normal);
+                        AssertRefused(Run(cube, face), Refusal.UncutComponents, "full sheet on face " + axis + "/" + at + ", normal plus " + plus);
+                    }
+            // a patch inside the face (the rim on the face), both ways, and a plate that covers a part of the face and goes on outside the cube
+            AssertRefused(Run(cube, Plate(1, 0.25, 0.75, 0.25, 0.75, true)), Refusal.UncutComponents, "patch on the face, up");
+            AssertRefused(Run(cube, Plate(1, 0.25, 0.75, 0.25, 0.75, false)), Refusal.UncutComponents, "patch on the face, down");
+            // a sheet that separates (a piece inside) is still a cut, with the plate's part on the face as well
+            Cut(cube, Plate(0.5, -1, 2, -1, 2), 0.5, "plate through the cube");
         }
 
         // ---- refusals --------------------------------------------------------------------------------------------------------------
@@ -508,11 +529,11 @@ namespace geometry3Sharp.Tests
             ExactMeshBoolean op = Run(block, sheet);
             AssertRefused(op, Refusal.SidesInconsistent, "label 0 on the cavity, 1 on the block, cavity first " + cavityFirst);
             Assert.True(op.SheetWitnessTriangle >= 0 && op.SheetWitnessTriangle2 >= 0 && op.SheetWitnessTriangle != op.SheetWitnessTriangle2);
-            // the same label on both (the block's top face patched the other way: the material below the patch is in front): no contradiction, so the
-            // cut is decided; the uncut parts of the block would be refused otherwise: here every cell of both shells is marked
+            // the same label on both (the block's top face patched the other way) is no contradiction, but patches on the faces only touch the block: refused as
+            // an uncut sheet (they separate nothing), not as a cut that keeps the whole hollow block
             ExactMeshBoolean same = Run(block, Joined(Patch(6, 4, 6, true), Patch(10, 0, 10, false)));
-            Assert.True(same.Status == Status.Success, same.Status + " " + same.SheetReason + " " + same.Error);
-            Assert.Equal(1000.0 - 8.0, Volume(same.Result), 9);        // (both labels 0: all of the hollow block stays)
+            AssertRefused(same, Refusal.UncutComponents, "patches on the faces of both shells, one label");
+            Assert.Equal(2, same.SheetUncutCells);       // (the material of the block and of its cavity: two cells)
         }
 
         [Fact]
@@ -968,14 +989,26 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void SheetPartlyInThePlaneOfAFace_TheRimOnTheSurface_LabelsTheCellByContact()
+        public void SheetFoldedOntoAFace_WithAPieceInside_IsStillACut()
+        {
+            // a patch on the top face of the cube (x in [0, 0.5], normals up) folded down into a wall at x = 0.5 (normals +x): the patch only touches the
+            // surface, the wall is inside; the whole sheet separates the left half (behind the wall, under the patch: inside the tool) from the right half
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
+            DMesh3 patch = Page(new Vector3d(0, -1, 1), new Vector3d(0.5, -1, 1), new Vector3d(0.5, 2, 1), new Vector3d(0, 2, 1), new Vector3d(0, 0, 1));
+            DMesh3 wall = Page(new Vector3d(0.5, -1, 1), new Vector3d(0.5, 2, 1), new Vector3d(0.5, 2, -1), new Vector3d(0.5, -1, -1), new Vector3d(1, 0, 0));
+            ExactMeshBoolean op = Run(cube, Joined(patch, wall));
+            Assert.True(op.Status == Status.Success, op.Status + " " + op.SheetReason + " " + op.Error);
+            Assert.Equal(0.5, Volume(op.Result), 12);
+            ResultChecks.AssertClosed(op.Result);
+        }
+
+        [Fact]
+        public void SheetPartlyInThePlaneOfAFace_TheRimOnTheSurface_OnlyTouches_IsRefused()
         {
             // the plate z = 1 over x in [0.5, 2] touches the top face of the cube on a part of it, its rim (x = 0.5) runs on the face: a contact only
             DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
-            ExactMeshBoolean up = Run(cube, Plate(1, 0.5, 2, -1, 2, true));
-            Assert.True(up.Status == Status.Success, up.SheetReason + " " + up.Error);
-            Assert.Equal(0.0, Volume(up.Result), 12);
-            Cut(cube, Plate(1, 0.5, 2, -1, 2, false), 1, "partial contact, outside the tool");
+            AssertRefused(Run(cube, Plate(1, 0.5, 2, -1, 2, true)), Refusal.UncutComponents, "partial contact, up");
+            AssertRefused(Run(cube, Plate(1, 0.5, 2, -1, 2, false)), Refusal.UncutComponents, "partial contact, down");
         }
 
         [Fact]

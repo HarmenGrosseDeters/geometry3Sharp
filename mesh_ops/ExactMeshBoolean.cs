@@ -73,7 +73,9 @@ namespace g3
     /// from the sheet pieces around them, front 0 (kept) and back 1 (inside the tool), exactly; where that is not possible (a free
     /// edge of the sheet inside the first mesh, a cell on both sides of the sheet, a part of the first mesh that the sheet does not
     /// touch, a sheet that is not an oriented manifold surface, a Union or Intersection) Compute() fails with Status SheetRefused and
-    /// SheetReason, and nothing is guessed or repaired. The part of the first mesh that the sheet does not touch is handled by
+    /// SheetReason, and nothing is guessed or repaired. The side convention is fixed: the front side of the sheet (where its normals point) is kept, the tool
+    /// is behind it; a sheet that only touches the first mesh's surface, with no piece inside, separates nothing and is refused as UncutComponents.
+    /// The part of the first mesh that the sheet does not touch is handled by
     /// SheetUncutSide where the first mesh has one shell and every part of the sheet (and of any other tool inside it) shares an edge with its surface or with a part that does; with several shells, or a part that floats, the nesting of the shells would be needed and the sheet is refused (SheetRefusal.UncutComponents, FloatingComponent).
     /// Prefer this class over <see cref="MeshBoolean"/> (floating-point, not robust, union of closed meshes
     /// only). Use <see cref="gs.MeshWindingNumberBoolean"/> instead when a remeshed, volumetric result is
@@ -178,7 +180,7 @@ namespace g3
             /// is refused, also where it is consistent (a legitimate cut through a hollow body); shells with disjoint boxes are independent
             /// </summary>
             SidesInconsistent = 9,
-            /// <summary> a part of the first mesh that no piece of the sheet touches, and UncutSide does not say where it is (or the first mesh has more than one shell, where this version cannot tell a separate part from a cavity) </summary>
+            /// <summary> a part of the first mesh that no piece of the sheet touches, and UncutSide does not say where it is (or the first mesh has more than one shell, where this version cannot tell a separate part from a cavity); also a sheet that only touches the first mesh's surface (every piece of it that meets the first mesh lies on its surface, as a patch or a full sheet on a face: no piece inside, so it separates nothing), whatever UncutSide says </summary>
             UncutComponents = 10,
             /// <summary>
             /// a component of the sheet (a closed part, or any part with no edge in common with the first mesh's surface or with a part that has)
@@ -2077,6 +2079,31 @@ namespace g3
                 ExactMeshCells.Labelling lab = ExactMeshCells.Label(cells, interior, mark0, mark1, SheetUncutSide);
                 Counts["sheet_pieces"] = count;
                 Counts["sheet_cells"] = cells.CellCount;
+                if (lab.Reason == SheetRefusal.None) {
+                    // (a sheet that only touches the workpiece, every piece of it on the workpiece's surface (a patch on a face, a full coplanar sheet), has no
+                    // piece inside: it separates nothing, its contact marks the whole cell it lies on, and the result would be the workpiece removed or untouched
+                    // whatever the cut: refused as an uncut sheet, whatever UncutSide says (decision on #1211, 2026-11-22))
+                    int touching = -1;
+                    bool separates = false;
+                    for (int k = 0; k < count; ++k) {
+                        if (onSheet[k] == null)
+                            continue;
+                        if (boundary[k] == false)
+                            separates = true;
+                        else if (touching < 0)
+                            touching = k;
+                    }
+                    if (separates == false && touching >= 0) {
+                        var touch = new ExactMeshCells.Labelling { Reason = SheetRefusal.UncutComponents, Label = lab.Label, Piece = touching, MarkTriangle0 = onSheet[touching][0] };
+                        for (int c = 0; c < cells.CellCount; ++c)
+                            for (int node = 0; node < 2 * count; ++node)
+                                if (cells.Cell[node] == c && interior[node]) {
+                                    ++touch.UncutCells;
+                                    break;
+                                }
+                        lab = touch;
+                    }
+                }
                 if (lab.Reason != SheetRefusal.None) {
                     // (the refusal that names the sheet's own fault first: a free edge, then the two marks, then an unmarked part; a part that is
                     // unmarked in one sheet's pass may be another sheet's patch with a free edge, which its own pass names)
@@ -2128,6 +2155,11 @@ namespace g3
                         SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
                             "{0} part(s) of sheet {1} float inside the workpiece with no edge in common with its surface or with a part that has one, eg at triangle {2}: their side cannot be decided without the nesting of the shells",
                             lab.FloatingCells, s, SheetWitnessTriangle);
+                        break;
+                    case SheetRefusal.UncutComponents when lab.MarkTriangle0 >= 0:
+                        SheetWitnessTriangle = arr.Triangles[lab.MarkTriangle0].Tid;
+                        SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "sheet {0} only touches the surface of the workpiece (no piece of it lies inside, eg triangle {1} on a face): it separates nothing, whatever UncutSide says", s, SheetWitnessTriangle);
                         break;
                     default:
                         SheetWitnessTriangle = (w.Mesh == 0) ? arr.Triangles[w.Source].Tid : -1;
