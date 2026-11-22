@@ -15,7 +15,7 @@ against the analytic surface; and can a subdivision isotopy certificate cover th
 |---|---|---|
 | A. Sharp features from a grid of distances (Carrera et al. 2026) | exact Hermite data on the same sign grid, 48 cells: mean feature distance 0.204 → 0.016 cells (13x), edge Chamfer 0.257 → 0.037 (7x), feature maximum 0.63 → 0.39 (1.6x); all runs clean | a large bound, but only for inputs that are a grid and nothing else: the library's own pipelines already have the oracle. A local grid-only estimator reaches about 30 % of it. Not now |
 | B. Walls thinner than a cell (Baktash et al. 2026) | restricted prototype, 32 cells: a rotated plate 0.25 cells thick comes out closed, manifold, with the right topology in 3 of 3 runs (marching cubes: fragments; coverage 0.14 → 0.92). For sheet fields the two-level form needs no evaluation beyond the grid nodes and gave the same topology in all 30 shell and gyroid runs | the strongest lever. Build as an opt-in generator, two-level form first |
-| C. Subdivision certificate for thin walls (Plantinga and Vegter; Burr and Byrd) | gyroid wall of 0.25 cells: as one function 16.2 million cells, 4x per halving of the thickness; as two levels of one function 19 440 cells at any thickness (mid-surface alone: 18 208) | yes for sheet and shell fields, as the class S certificate (stage 3) applied per level; no for one non-smooth field (a box plate) |
+| C. Subdivision certificate for thin walls (Plantinga and Vegter; Burr and Byrd) | gyroid wall of nominally 0.25 cells: as one function 16.2 million cells, 4x per halving of the thickness; as two levels of one function 19 440 cells at any thickness (mid-surface alone: 18 208) | yes for sheet and shell fields, as the class S certificate (option B) applied per level, away from a domain clip; no for one non-smooth field (a box plate) |
 | D. Coarse-first sparse grid from a Lipschitz bound (plan #1276) | N = 512: 1 to 2.4 % of the dense evaluations for distance fields, 16 % for a gyroid with a loose bound; sampling and crossings are 40 to 45 % of the dense run on a sphere and a plate, 6 % on the gyroid | the plan's time threshold (30 %) is met for simple distance fields at N = 512, not for lattices and not at N = 256 for the gyroid; its memory target is not reachable by the grid alone. Worth it only with a workload at N >= 512 |
 
 Sections 5 to 7b hold the numbers, section 8 the options with effort and risk, section 9 the leaning.
@@ -80,7 +80,7 @@ Building blocks found (searched before the prototype):
 | Contouring a sampled grid | `DenseGridTrilinearImplicit` / `CachingMeshSDFImplicit` wrap a grid as an `ImplicitFunction3d`; there is no mode for a grid without a function behind it |
 | Marching tetrahedra, several crossings per edge | none (`MarchingCubes`, `MarchingCubesPro` only). `DualContouring.HiddenGapF` / `HiddenWallF` only *count* edges with two crossings in the sparse mode |
 | Sheet fields | `TpmsLattice`: `F = max((|g| - c) / L, d)` with a proven gradient bound L (so F is 1-Lipschitz), marching cubes on it, and the documented limit "no topology guarantee for walls thinner than about two cubes" |
-| Certificates | `ContouringTopologyCertificate` (exact, class P, clean meshes; stages 1 to 3 built); Theorem 5 of [CONTOURING_TOPOLOGY.md](../design/CONTOURING_TOPOLOGY.md) 7.8 for functions with gradient enclosures (class S) is proven and not built; `MeshOffset.CertifyBand` (a 1-Lipschitz interval bound) |
+| Certificates | `ContouringTopologyCertificate` (exact, class P, clean meshes; built); Theorem 5 of [CONTOURING_TOPOLOGY.md](../design/CONTOURING_TOPOLOGY.md) 7.8 for functions with gradient enclosures (class S) is proven and not built; `MeshOffset.CertifyBand` (a 1-Lipschitz interval bound) |
 | Intervals of implicits | `Interval1d` only; no interval evaluation of an `ImplicitFunction3d` |
 | Metrics | `MeshFidelityMetrics` (edge Chamfer), `MeshTopologySummary`, `MeshRobustRepair.NotCleanReason`, the six CAD solids of `benchmarks/SharpFeatureProbe` |
 
@@ -97,11 +97,11 @@ procedural and rotated per seed, with a random grid shift (nothing is axis-align
 `results/` folder; every number below is from there.
 
 - **sharp**: the six CAD solids as exact distance grids (24 and 48 cells, 3 seeds). All variants contour the same
-  sign grid and differ only in the Hermite data: the grid-only state (`interp`, `trilin`), a local grid-only
+  sign grid and differ in the Hermite data (and `interp` in the eigenvalue tolerance, 0.1 instead of 0.02): the grid-only state (`interp`, `trilin`), a local grid-only
   estimator (`plane`), and the oracle (exact crossing and exact normal; `oracle-x` / `oracle-n` with only one of
   them exact).
 - **thin**: a rotated plate, a spherical shell and a gyroid sheet clipped to a ball (16 cells per period, as
-  `TpmsLattice`), wall 0.25 to 1.5 cells, 32 cells, 3 seeds. `MarchingCubes` and `DualContouring` at the grid, marching
+  `TpmsLattice`), wall 0.25 to 1.5 cells (nominal for the gyroid, section 6), 32 cells, 3 seeds. `MarchingCubes` and `DualContouring` at the grid, marching
   cubes at half and a quarter of the cell, and a restricted Subgrid Marching Tetrahedra with three sources of
   crossings: 8 samples per edge, sphere tracing with the Lipschitz bound, and the two-level form (below).
 - **cert**: the number of cells of a Plantinga and Vegter subdivision for the gyroid sheet and the shell.
@@ -139,9 +139,10 @@ Reading:
 
 - The bound is large in the mean and small in the maximum. With perfect Hermite data the mean distance of the
   result to the sharp edges falls 12x to 13x and the edge Chamfer 7x; the maximum (at corners and where a crease
-  leaves a cell) falls only 1.6x, to 0.37-0.39 cells. That floor is `DualContouring` itself (one vertex per patch
-  and cell, the eigenvalue cut-off, the cell margin), not the Hermite data. So the acceptance of plan #1297
-  ("Hausdorff along creases and corners >= 3x") cannot be met by any Hermite estimator; a mean or Chamfer gate can.
+  leaves a cell) falls only 1.6x, to 0.37-0.39 cells. With exact data at the default settings that floor is not the Hermite data; we attribute it to `DualContouring`
+  itself (one vertex per patch and cell, the eigenvalue cut-off, the cell margin), without an ablation. So the
+  acceptance of plan #1297 ("Hausdorff along creases and corners >= 3x") is out of reach of a Hermite estimator
+  alone at these settings; a mean or Chamfer gate is not.
 - Crossing and normal both matter: either alone gives 1.4x to 2x, together 13x.
 - Errors in cells do not shrink with the resolution in the grid-only rows (0.20 at 24 and at 48 cells): the blur
   of a trilinear gradient at a crease is a fixed fraction of a cell.
@@ -157,7 +158,7 @@ Reading:
 
 ## 6. Track B: walls thinner than a cell
 
-`... -- thin 3` (raw: `results/thin.txt`). 32 cells across [-1, 1], 3 seeds; k = wall thickness in cells.
+`... -- thin 3` (raw: `results/thin.txt`). 32 cells across [-1, 1], 3 seeds; k = wall thickness in cells (nominal for the gyroid, see the last bullet).
 Coverage: share of 4000 points on the true surface that have a result triangle within 0.25 cells whose normal is
 within 60 degrees of the true one. "right": clean and the truth's components and genera (plate: one sphere;
 shell: two spheres). Evaluations of the field include root finding.
@@ -199,38 +200,51 @@ Reading:
 
 - **Thin walls are recovered.** At a quarter of a cell the subgrid result covers 0.90 to 1.00 of the surface where
   `MarchingCubes` covers 0.06 to 0.14 and `DualContouring` 0 to 0.04; a quarter of the cell size with marching cubes
-  reaches 0.66 to 0.89 with 6x the triangles and still the wrong topology. The coverage below 1 is the rim of the plate and of the clipped gyroid (the fans of this prototype: vertices up
-  to 0.5 cells off at the plate's rim and up to 1 cell at the gyroid's; 0.02 cells for the shell in the two-level
-  form).
-- **Closed and manifold in all 165 subgrid runs, no self-intersection found.** 148 are clean; the other 17 stop
-  at "degenerate triangles" (a crossing next to a grid node makes a sliver, the case `TpmsLattice` handles with its
-  sliver guard and grid shifts), which also hides the self-intersection check of `NotCleanReason` in those runs.
-- **Topology is not guaranteed with sampled crossings, as the authors say.** The plate is right in 45 of 45 runs.
-  In 11 of 15 sphere-tracing runs the two spheres of the shell are joined into one component (genus 0 to 4): where the surface dips
-  through an edge and back (an excursion), a face sees 3 or more crossings on one edge, and the counts do not say
-  which two of them belong together. Pairing neighbours or nesting gave identical results (`subtrace-n`).
-- **The two-level form removes that ambiguity for sheet fields.** If the wall is `|g| <= w` and g is interpolated
-  linearly on each edge, each of the two levels crosses an edge at most once, so no face has a scoop from the wall
-  and the two sides are parallel planes in every tetrahedron: they cannot meet, at any thickness above zero. It
-  uses the node values only (54 872 evaluations, a quarter to a sixth of what `MarchingCubes` with bisection spends), gave two
-  spheres in 15 of 15 shell runs and the same topology (one component, genus 16) in all 15 gyroid runs across five
-  thicknesses and three rotations. There is no certified reference for the gyroid: the marching-cubes runs at a
-  quarter and an eighth of the cell do not agree with each other. What it cannot see is what the grid does not
-  resolve of g itself (the period, not the wall).
-- **Cost.** Sampling every edge 8 times costs 43x the node count; sphere tracing with the Lipschitz bound 3.3x
-  (plate), 13x (shell) and 16x to 19x (gyroid, loose bound sqrt 6), unoptimised (40 bisection steps per crossing, a smallest step of 1 / 64
-  cell). A refinement of the band of cells near the surface to a quarter of the cell would cost about 100 000 to
-  725 000 evaluations by the same Lipschitz bound (column `bandEvals` of the raw output), so sphere tracing is not
-  cheaper in evaluations than a band refinement; it saves triangles (5 300 against 31 000 for the plate) and has no
-  lower limit of the thickness. Times of this serial dictionary-based prototype (0.1 to 0.5 s at 37^3 cells) say
-  nothing about a build.
+  reaches 0.66 to 0.89 with 4.6x to 7x the triangles and still the wrong topology. The coverage below 1 is the rim
+  of the plate and of the clipped gyroid. Vertices are off by up to 0.5 cells for the plate, 0.7 for the gyroid and
+  0.6 for the shell with sphere tracing (the fans of this prototype at scoops), and by 0.02 cells for the shell in
+  the two-level form.
+- **Closed and manifold in all 120 distinct subgrid runs, no self-intersection found.** (165 rows; the 45 of
+  `subtrace-n` are identical to `subtrace`, see below.) 107 are clean; 13 stop at "degenerate triangles" (a crossing
+  next to a grid node makes a sliver, the case `TpmsLattice` handles with its sliver guard and grid shifts).
+  `NotCleanReason` stops at the first problem, so in those 13 the later checks (orientation, self-intersections) are
+  not in the raw output; the review of this PR reran them with `NotCleanReasons` and found degenerate triangles
+  only.
+- **Topology is not guaranteed with sampled crossings, as the authors say.** The plate is right in 30 of 30 runs.
+  In 11 of 15 sphere-tracing runs the two spheres of the shell are joined into one component (genus 0 to 4). The
+  likely cause, not isolated here: where the surface dips through an edge and back (an excursion), a face sees a
+  surplus of crossings on one edge, and the counts do not say which of them the scoop joins and which go to the
+  corners. The nested pairing of several scoops (`subtrace-n`) is not the cause: no face had two scoops on one edge
+  in any run, so that variant never differed.
+- **The two-level form removes that ambiguity for sheet fields, away from the clip.** If the wall is `|g| <= w` and
+  g is interpolated linearly on each edge, each of the two levels crosses an edge at most once, so no face has a
+  scoop from the wall, and the two sides are parallel planes in every tetrahedron: they cannot meet, at any thickness
+  above zero. This holds where the domain clip d is inactive; at the rim of a clipped lattice the faces do get scoops
+  (1 864 in the first gyroid run, none in any shell run) and are filled by this prototype's unproven fans. The form
+  uses the node values only (54 872 evaluations, a quarter to a sixth of what `MarchingCubes` with bisection spends),
+  gave two spheres in 15 of 15 shell runs and the same topology (one component, genus 16) in all 15 gyroid runs
+  across five thicknesses and three rotations. For the gyroid that is consistency, not correctness: there is no
+  certified reference (the marching-cubes runs at a quarter and an eighth of the cell agree neither with each other
+  nor with it, and sphere tracing gives genus 23 to 33). What it cannot see is what the grid does not resolve of g
+  itself (the period, not the wall).
+- **Cost.** Sampling every edge 8 times costs 43x to 51x the node count; sphere tracing with the Lipschitz bound
+  3.3x to 3.8x (plate), 13x (shell) and 16x to 19x (gyroid, with the loose bound sqrt 6; sqrt 3 seems to hold, see
+  the note on k below), unoptimised (40 bisection steps per crossing). A refinement of the band of cells near the
+  surface to a quarter of the cell would cost about 100 000 to 725 000 evaluations by the same Lipschitz bound
+  (column `bandEvals` of the raw output), so sphere tracing is not cheaper in evaluations than a band refinement; it
+  saves triangles (5 300 against 31 000 for the plate) and its lower limit of the thickness is the smallest step of
+  the tracing (1 / 64 cell here), not the cell. Times of this serial dictionary-based prototype (0.08 to 0.6 s at
+  37^3 cells) say nothing about a build.
+- **k for the gyroid is nominal.** The wall is `|g| / kappa <= k h / 2`, and `|grad g| / kappa` is 1.41 to 1.73 on
+  the surface (sampled by the reviewer, not proven), so the real wall is 0.58 to 0.71 of k: the "0.25 cell" gyroid
+  wall is 0.14 to 0.18 cells thick. Plate and shell have exactly k.
 
 ## 7. Track C: a subdivision certificate for thin walls
 
 `... -- cert` (raw: `results/cert.txt`). Octree over [-1, 1]^3, split until C0 or C1 holds; depth 5 is the 32^3
 grid of section 6. Counts only, no balancing (it adds a constant factor), no outward rounding.
 
-| shape | wall k (cells) | as one function g^2 - w^2: cells / finest cell | as two levels g = +w, g = -w: cells / finest cell |
+| shape | wall k (cells; gyroid nominal) | as one function g^2 - w^2: cells / finest cell | as two levels g = +w, g = -w: cells / finest cell |
 |---|---|---|---|
 | gyroid | mid-surface only | 18 208 / 1 | |
 | gyroid | 2 | 289 808 / 1/4 | 21 344 / 1 |
@@ -248,11 +262,14 @@ Reading:
   go below the wall thickness (cells of about an eighth of the thickness here). The count grows 4x per halving of
   the thickness: 16 million cells for a quarter-cell gyroid wall on a 32^3 grid.
 - Given as **two levels of one smooth function**, each level passes C1 wherever the mid-surface would, and the two
-  levels cannot meet because they are levels of one function, so the pairwise test of Burr and Byrd is not needed.
-  The count is that of the mid-surface (19 440 to 21 344 against 18 208) and does not depend on the thickness. The
-  certified cells are the cells of the contouring grid itself (finest cell 1).
-- This is the class S certificate of [CONTOURING_TOPOLOGY.md](../design/CONTOURING_TOPOLOGY.md) (Theorem 5, option B,
-  stage 3: proven, not built), applied once per level instead of once to `|g| - w`. Applied to `|g| - w` as one
+  levels cannot meet because they are levels of one function, so the pairwise test of Burr and Byrd is not needed
+  for disjointness (that each level's mesh is then isotopic to its level *simultaneously* is argued from that, not
+  shown). The count is that of the mid-surface (19 440 to 21 344 against 18 208) and does not depend on the
+  thickness; the deepest cell is a cell of the contouring grid (size 1). The count is for the unclipped field: where
+  a domain clip cuts the wall, the rim is a crease and fails C1 like the plate below, so "yes" means away from the
+  clip.
+- This is the class S certificate of [CONTOURING_TOPOLOGY.md](../design/CONTOURING_TOPOLOGY.md) (Theorem 5, option B:
+  proven, reviewed per its section 7.8, not built), applied once per level instead of once to `|g| - w`. Applied to `|g| - w` as one
   locally Lipschitz function, its gradient enclosure holds both `grad g` and `-grad g` in a thin-wall cell and no
   direction passes, the same failure as above.
 - Excursions (item 5a): Burr and Byrd do not refine an excursion away; under C1 it stays in a half disk over its edge
@@ -326,9 +343,9 @@ citations before Burr and Byrd are from memory, not re-read for this note.
 
 | # | Option | Gain (measured here) | Effort | Risk |
 |---|---|---|---|---|
-| 1 | **Two-level marching tetrahedra for sheet fields**: an opt-in generator for `|g| <= w` clipped by a domain, on the node values of g; `TpmsLattice` Sheet style as the first user (opt-in, default output unchanged) | walls of any thickness closed and manifold, the two sides disjoint by construction; coverage 0.91 to 1.00 at a quarter cell (shell, gyroid) against 0.06 to 0.14; same topology in 30 of 30 runs; no evaluation beyond the nodes | M: a new file in `mesh_generators/`, tests (invariance, reuse, determinism, thin walls), a sliver guard as in `TpmsLattice` | low to medium: slivers at nodes (5 of 30 runs here); the rim at the domain needs the general scoop case or a grid-aligned clip; five tetrahedra per cube give 2.4x to 2.9x the triangles of marching cubes |
-| 2 | **Certificate per level for sheet fields** (class S, stage 3 of the contouring certificate, with interval enclosures of g and its gradient) | the cells of the mid-surface, independent of the thickness (19 440 against 16.2 million) | M to L: the interval interface for implicits (new, opt-in), the cell test of Theorem 5; touches no exact file if built beside `ContouringTopologyCertificate`, otherwise the exact review and a mutation run | medium: Theorem 5 is reviewed but unbuilt; outward rounding; it certifies the level sets on the grid cells, and tying it to the marching-tetrahedra mesh needs the compatibility argument of Theorem 2 for that mesh |
-| 3 | **General subgrid marching tetrahedra** with sphere tracing for 1-Lipschitz fields (plates, `MeshOffset` thin parts, any distance field) | the plate right in 45 of 45 runs; but handles in 11 of 15 shell runs (excursions), no topology guarantee | L: the paper's full case analysis (scoops, loops along an edge, octagons) and its embedding argument for freedom from intersections | medium to high: wrong topology without a signal unless the scoop count is reported; evaluations of the order of a band refinement |
+| 1 | **Two-level marching tetrahedra for sheet fields**: an opt-in generator for `|g| <= w` clipped by a domain, on the node values of g; `TpmsLattice` Sheet style as the first user (opt-in, default output unchanged) | walls of any thickness closed and manifold, the two sides disjoint by construction away from the domain clip; coverage 0.91 to 1.00 at a quarter cell (shell, gyroid) against 0.06 to 0.14; the expected or a constant topology in 30 of 30 runs; no evaluation beyond the nodes | M: a new file in `mesh_generators/`, tests (invariance, reuse, determinism, thin walls), a sliver guard as in `TpmsLattice` | low to medium: slivers at nodes (5 of 30 runs here); the rim at the domain is outside the guarantee and needs the paper's scoop cases or a grid-aligned clip; five tetrahedra per cube give 2.3x to 2.7x the triangles of marching cubes where both resolve the wall (k = 1.5) |
+| 2 | **Certificate per level for sheet fields** (class S, option B of the contouring certificate, with interval enclosures of g and its gradient) | the cells of the mid-surface, independent of the thickness (19 440 against 16.2 million) | M to L: the interval interface for implicits (new, opt-in), the cell test of Theorem 5; touches no exact file if built beside `ContouringTopologyCertificate`, otherwise the exact review and a mutation run | medium: Theorem 5 is unbuilt (7.8 records a review, two other places of the design note still say "not reviewed yet"); outward rounding; it certifies the level sets on the grid cells, and tying it to the marching-tetrahedra mesh needs the compatibility argument of Theorem 2 for that mesh |
+| 3 | **General subgrid marching tetrahedra** with sphere tracing for 1-Lipschitz fields (plates, `MeshOffset` thin parts, any distance field) | the plate right in 30 of 30 runs; but handles in 11 of 15 shell runs (excursions), no topology guarantee | L: the paper's full case analysis (scoops, loops along an edge, octagons) and its embedding argument for freedom from intersections | medium to high: wrong topology without a signal unless the scoop count is reported; evaluations of the order of a band refinement |
 | 4 | **Grid-only sharp features in `DualContouring`** (the paper's iterative fit, or a better local estimator) | bound 13x in the mean and 7x in edge Chamfer, 1.6x in the maximum; the local prototype reaches 30 % of the mean gap | L for the paper's method (closest-point queries on a changing mesh, up to 10^4 sweeps, a fixed sample order for determinism); M for more work on a local estimator with an unknown ceiling | high: no consumer in the library today, noise sensitivity stated by the authors, vertices leaving their cells against our intersection-free guarantee |
 | 5 | **Relax the edge condition of the class P certificate to subgrid crossings** (excursions, plan #1289) | not measured; would address the silhouette double crossings that stopped stage 2 | L, proof first (exact code, exact review, mutation run) | high: no three-dimensional statement in the literature we read |
 | 6 | **Coarse-first sparse grid** in `DualContouring` from a Lipschitz bound or interval evaluator (plan #1276) | evaluations to 1 to 16 % of the dense grid at N = 512; time bound 1.7x to 1.8x on simple distance fields at N = 512, under 1.07x on the gyroid; memory at most 36 % | M, as the plan says; the bound interface is shared with options 2 and 3 | low for soundness (opt-in, the caller's bound), but no workload at N >= 512 is known and lattices do not gain |
@@ -339,7 +356,7 @@ citations before Burr and Byrd are from memory, not re-read for this note.
 Option 1, then option 2 as its certificate, as two PRs; options 3 to 6 not now.
 
 - Option 1 is the only lever here that is cheap, has a user in the library (`TpmsLattice` documents walls below two
-  cubes as its limit) and comes with a structural guarantee instead of a measured one. The paper's general method
+  cubes as its limit) and comes with a structural guarantee instead of a measured one (for the wall away from the domain clip; the rim needs its own argument). The paper's general method
   is the route to it, but the measured topology errors of the general form (shell) argue for starting with the
   form that cannot have them.
 - Option 2 answers plan #1289 for the class it can be answered for: a subdivision or per-cell certificate covers

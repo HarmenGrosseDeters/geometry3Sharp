@@ -1,11 +1,11 @@
 // Part "sharp": what can DualContouring recover from a discrete grid of exact signed distances?
 // All variants contour the same sign grid (the trilinear interpolant of the samples decides the crossing edges), so they
-// have the same connectivity; only the Hermite data differs:
+// have the same connectivity; the Hermite data differs (and, for interp, the eigenvalue tolerance):
 //   interp : interpolated crossing, gradient of the trilinear interpolant, eigen tolerance 0.1 (the grid-only state before 2026-11)
 //   trilin : the defaults (ExactHermite, tolerance 0.02) on the trilinear interpolant (the grid-only state today)
 //   plane  : grid-only prototype, one-sided plane fits chosen by the empty-sphere rule (see PlaneHermite)
 //   oracle : exact crossing (bisection on the true distance) and the normal of the nearest input triangle: the upper bound
-//   oracle-x / oracle-n : only the crossing / only the normal exact, the other one as in interp (which half carries the gain)
+//   oracle-x / oracle-n : only the crossing / only the normal exact, the other one from the grid: the interpolated crossing, or the trilinear gradient at the exact crossing
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;

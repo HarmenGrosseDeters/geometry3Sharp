@@ -301,8 +301,8 @@ static class ThinProbe
         switch (shape) {
             case "plate": truth = "c=1;g=0"; return p => Box(R * p, new Vector3d(0.6, 0.5, t / 2));
             case "shell": truth = "c=2;g=0,0"; g = p => p.Length - 0.7; d = p => -1; return p => Math.Abs(p.Length - 0.7) - t / 2;
-            // gyroid sheet, 16 cells per period (the default of TpmsLattice), clipped to a ball; |grad g| / k is between 1 and sqrt 3
-            // on the surface, so the wall is between t / sqrt 3 and t thick
+            // gyroid sheet, 16 cells per period (the default of TpmsLattice), clipped to a ball; |grad g| / k is about 1.41 to 1.73
+            // on the surface, so the wall is 0.58 t to 0.71 t thick (t is nominal)
             case "gyroid": truth = null; lip = Math.Sqrt(6); {
                 double k = 2 * Math.PI / (16 * h);
                 g = p => { Vector3d q = R * p; return (Math.Sin(k * q.x) * Math.Cos(k * q.y) + Math.Sin(k * q.y) * Math.Cos(k * q.z) + Math.Sin(k * q.z) * Math.Cos(k * q.x)) / k; };

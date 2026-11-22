@@ -105,7 +105,7 @@ static class CertProbe
         const int res = 32, maxDepth = 10;
         double h = 2.0 / res;
         Console.WriteLine("# cert: octree over [-1, 1]^3 (depth 5 = the 32^3 grid of part thin, cell 1 at depth 5), split until C0 or C1 holds, depth cap " + maxDepth);
-        Console.WriteLine("shape, k, mode, leaves, by C0, by C1, unresolved at cap, deepest, finest C1 cell (in grid cells), modal C1 depth");
+        Console.WriteLine("shape, k, mode, leaves, by C0, by C1, unresolved at cap, deepest, deepest leaf (in grid cells), modal C1 depth");
         foreach (string shape in new[] { "gyroid", "shell" })
             foreach (double k in new[] { 0.25, 0.5, 1.0, 2.0 })
                 foreach (string mode in new[] { "mid", "single", "pair" }) {

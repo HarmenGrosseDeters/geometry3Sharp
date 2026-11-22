@@ -1,5 +1,5 @@
 # cert: octree over [-1, 1]^3 (depth 5 = the 32^3 grid of part thin, cell 1 at depth 5), split until C0 or C1 holds, depth cap 10
-shape, k, mode, leaves, by C0, by C1, unresolved at cap, deepest, finest C1 cell (in grid cells), modal C1 depth
+shape, k, mode, leaves, by C0, by C1, unresolved at cap, deepest, deepest leaf (in grid cells), modal C1 depth
 gyroid, 0.25, mid, 18208, 10896, 7312, 0, 5, 1, 5
 gyroid, 0.25, single, 16181936, 10185184, 5996752, 0, 10, 0.03125, 10
 gyroid, 0.25, pair, 19440, 11488, 7952, 0, 5, 1, 5
