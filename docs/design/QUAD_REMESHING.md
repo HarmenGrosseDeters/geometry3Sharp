@@ -476,6 +476,10 @@ Approximation with `SizeAdaptation`: the integer offsets are counts in the local
 
 Remaining limit (`capsule`, 1/6): with `CurvatureAlignment = 0`, all four `+1/4` singularities sit tightly clustered at each hemispherical cap (`unbal = 25..107`) with no cut edges crossing the barrel; by Stokes' theorem the barrel circumference integral is locked to the small sum of fixed cap edges, causing the flow to collapse the barrel regardless of flow costs. On `capped-cylinder`, `ScaleAndRotation` resolves the cap/barrel spacing mismatch (`0.45..1.58 s`) and raises clean runs from `0/6` to `5/6`.
 
+#### 4.4c The area ratio of the map as a diagnostic (2026-11-22, #1301 option A)
+
+`QuadRemesher.PureQuadAreaRatio` (and `PureQuadAreaRatioAfterFlow`, from `QuadFlowRepair.AreaRatio` / `AreaRatioAfterFlow`) reports the invariant of [QUAD_SHEAF_OBSTRUCTION_2026-11.md](../research/QUAD_SHEAF_OBSTRUCTION_2026-11.md) statement 2: `A = (1/2) sum det(D0, D1) (s * spacing)^2` over the triangles of the integer map, divided by the area of the input triangles (1 for a map that covers the surface once; folds enter with their negative determinants; with `SizeAdaptation` / `SizeFunction` the cell size is the local one). One pass over the triangles after the flow and after the repair. **Diagnostic only (owner decision for later): it is not a fallback reason, it does not change `PureQuadStatus`, `Result` or what counts as `Success`.** NaN when `PureQuads` is false or the attempt ended before the flow (open mesh, invalid input). On the sphere of the tests it is 0.89 after a clean run. Deterministic (serial, fixed order) and bit-identical under power-of-two scalings; tests: `PureQuadTests` (`LatticeAreaRatio_OfKnownMaps`: a flat grid gives 1, doubled cells 2, a folded quarter 1/2, a local spacing weights the cells; the run, the reuse and the similarity tests).
+
 ### 4.5 The irregular-vertex gate restated, and the size field (owner 2026-11-19)
 
 **Owner 2026-11-19:** the gate "irregular <= 2 x singularities + 4" of stage 2 is restated relative to the defects that a lattice of uniform spacing forces, the size field below is an
