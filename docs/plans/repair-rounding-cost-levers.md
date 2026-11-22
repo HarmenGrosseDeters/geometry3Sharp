@@ -3,7 +3,7 @@
 - **Board row:** OPEN_TOPICS.md §4 "Parked or on hold by owner decision", row "Rounding/repair: rounding cost levers (hard problem 3 b-d, #837 lever 2)"
 - **Kind:** parked (not scheduled under the 2026-11-16 boolean speed stop; trigger: speed go from the owner)
 - **Tier:** L (`mesh_ops/MeshRoundingRepair.cs` / `TriangleBoxTree`: exact-code review + incremental mutation gate on `rounding-1..13`)
-- **Plan status:** draft, 2026-11-20 (Berlin); updated 2026-11-22 (Berlin): levers (b) to (d) are measured (owner go for a study, no library code): [ROUNDING_COST_2026-11.md](../research/ROUNDING_COST_2026-11.md) and, for lever (d) (= lever 1a), [EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md](../research/EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md) section 8a. #837 lever 2 is not measured. Still parked under the speed stop; the options of the rounding cost note are with the owner.
+- **Plan status:** draft, 2026-11-20 (Berlin); updated 2026-11-22 (Berlin): levers (b) to (d) are measured (owner go for a study, no library code): [ROUNDING_COST_2026-11.md](../research/ROUNDING_COST_2026-11.md) and, for lever (d) (= lever 1a), [EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md](../research/EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md) section 8a. Lever 1a was then built as a prototype and measured at 0 % on the seam union (PR `#1323`, section 9a of the speed levers note; prototype PR `#1322` closed); the owner stopped it on 2026-11-22 ([ROADMAP.md](../ROADMAP.md), "Decided on 2026-11-22", "Stops"). #837 lever 2 is not measured. Still parked under the speed stop; the options of the rounding cost note are with the owner.
 
 ## Current state
 
