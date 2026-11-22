@@ -175,10 +175,11 @@ Part of the [roadmap](../ROADMAP.md).
      Class S (option B), 2026-11-22: an internal certificate for contours of smooth fields
      (`ContouringSmoothCertificate`, #1392, with a proved margin for the cell shape) and the proof for box-shaped
      blocks (Theorem 8, [CONTOURING_BLOCK_CERTIFICATE.md](../design/CONTOURING_BLOCK_CERTIFICATE.md)). Measured
-     (its section 3a): blocks cover 96.5 % of the refused cells of smooth TPMS at 32 cells per period, a third at best
-     for a TPMS clipped by a ball. Decision (owner 2026-11-22): build Theorem 8 for levels of a smooth field only,
-     with the per-level certificate of `TwoLevelMarchingTetrahedra` without a domain. **Open limit, not built:** a
-     lattice clipped to a domain; the refusals follow the rim of the cut, and it would need blocks that follow a
+     (its section 3a): blocks cover 96.5 % of the refused cells of smooth TPMS at 32 cells per period, about a third
+     overall (9 to 56 % per run) for a TPMS clipped by a ball. Decision (owner 2026-11-22): build Theorem 8 for levels
+     of a smooth field only, with the per-level certificate of `TwoLevelMarchingTetrahedra` without a domain. **Open
+     limit, not built:** a lattice clipped to a domain. Box blocks grown by the one rule that was measured do not
+     close it; the likely reason is that the refusals follow the rim of the cut, which would need blocks that follow a
      curve or a statement for two crossing surfaces.
   5. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
