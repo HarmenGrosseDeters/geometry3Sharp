@@ -29,7 +29,9 @@ the clauses and on the map; an unsatisfiable answer by reverse unit propagation 
 clauses (Goldberg and Novikov 2003) in a checker that shares no code with the solver; both against the library's DPLL where that decides
 within 20000 decisions.
 
-Baselines: master e09cf478 and the head of PR #1293 (637990d1; `TrySat` and `RepairSat` are the same text on both). Commands:
+Baselines: master e09cf478 and the head of PR #1293 (637990d1; `TrySat` and `RepairSat` are the same text on both). PR #1293 was merged
+while the spike ran, so "master" in this note is the tree before it and the PR #1293 column is today's master for the repair (a smoke run of the
+capsule rows on the merged tree gives the same statuses and the same replay check). Commands:
 
 ```
 dotnet run -c Release --project benchmarks/QuadFlow3BSat -- list=0 dump=<dir>      # master, results_master.txt
