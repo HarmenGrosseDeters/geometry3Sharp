@@ -2,7 +2,15 @@
 
 namespace g3
 {
-	// ported from WildMagic5 
+	/// <summary>
+	/// Intersection of two lines (originally ported from WildMagic5). The decision is exact: Point (the lines cross),
+	/// Line (the same line) or Empty (parallel, apart), with no tolerance, the same at every 2^k scale. A line is the
+	/// line through <see cref="Line2d.Origin"/> and its second point (<see cref="Line2d.Origin"/> + 2^m
+	/// <see cref="Line2d.Direction"/>, rounded: the 2D counterpart of IntrRay3Triangle3's ray). <see cref="DotThreshold"/>
+	/// is only used by the static <see cref="Classify"/>. Non-finite input is an InvalidQuery. The crossing point and
+	/// parameters are computed in floating point from the exactly decided crossing (infinite for lines that are
+	/// parallel to within rounding).
+	/// </summary>
 	public class IntrLine2Line2
     {
         Line2d line1;
@@ -66,9 +74,29 @@ namespace g3
 				return false;
 			}
 
+			Vector2d o1 = line1.Origin, o2 = line2.Origin;
+			if (IntrExact2d.IsFinite(o1) == false || IntrExact2d.IsFinite(o2) == false) {
+				Type = IntersectionType.Empty;
+				Result = IntersectionResult.InvalidQuery;
+				return false;
+			}
+			Type = IntrExact2d.LineLine(o1, IntrExact2d.SecondPoint(o1, line1.Direction), o2, IntrExact2d.SecondPoint(o2, line2.Direction));
 			Vector2d s = Vector2d.Zero;
-			Type = Classify(line1.Origin, line1.Direction,
-			                line2.Origin, line2.Direction, dotThresh, ref s);
+			if (Type == IntersectionType.Point) {
+				double den = line1.Direction.DotPerp(line2.Direction);
+				Vector2d diff = o2 - o1;
+				double n1 = diff.DotPerp(line2.Direction), n2 = diff.DotPerp(line1.Direction);
+				if (den != 0) {
+					s.x = n1 / den;
+					s.y = n2 / den;
+				} else {
+					// the rounded cross product of the directions is 0, the exact one is not (the lines cross very far away):
+					// infinite parameters, with the sign of the exact one
+					int e = IntrExact2d.CrossSign(o1, IntrExact2d.SecondPoint(o1, line1.Direction), o2, IntrExact2d.SecondPoint(o2, line2.Direction));
+					s.x = n1 == 0 ? 0 : (n1 * e > 0 ? double.PositiveInfinity : double.NegativeInfinity);
+					s.y = n2 == 0 ? 0 : (n2 * e > 0 ? double.PositiveInfinity : double.NegativeInfinity);
+				}
+			}
 
 			if (Type == IntersectionType.Point) {
 				Quantity = 1;

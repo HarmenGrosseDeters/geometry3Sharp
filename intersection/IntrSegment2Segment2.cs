@@ -34,6 +34,17 @@ namespace g3
 	//			Type is Segment. Points are Point0 and Point1
 
 
+	/// <summary>
+	/// Intersection of two segments (originally ported from WildMagic5). With the default
+	/// <see cref="IntervalThreshold"/> of 0 the decision is exact: the closed segments between Segment2d.P0 and P1 (the
+	/// rounded Center -/+ Extent Direction) are decided with exact orientation tests, with no tolerance and the same at
+	/// every 2^k scale. Type Point is a single common point (a crossing, a touching end, or collinear segments that
+	/// share only an end), Segment a collinear overlap of positive length, Empty none. Points that are ends of a segment
+	/// are returned exactly, a proper crossing in floating point. Two segments that share an end given as input can still
+	/// miss each other when the rounding of P0/P1 separates them: use an IntervalThreshold above 0 for that, which
+	/// selects the old tolerance route (the segments are enlarged by the threshold; DotThreshold is used there only).
+	/// Non-finite input is an InvalidQuery.
+	/// </summary>
 	public class IntrSegment2Segment2
     {
         Segment2d segment1;
@@ -106,6 +117,28 @@ namespace g3
 			}
 
 
+			if (intervalThresh > 0) {
+				// with an IntervalThreshold the segments are enlarged: the tolerance route (DotThreshold and IntervalThreshold)
+				find_tolerant();
+			} else if (find_exact() == false) {
+				Type = IntersectionType.Empty;
+				Result = IntersectionResult.InvalidQuery;
+				return false;
+			}
+
+			Result = (Type != IntersectionType.Empty) ?
+				IntersectionResult.Intersects : IntersectionResult.NoIntersection;
+
+			// [RMS] for debugging...
+			//sanity_check();
+
+			return (Result == IntersectionResult.Intersects);
+        }
+
+
+
+		void find_tolerant()
+		{
 			Vector2d s = Vector2d.Zero;
 			Type = IntrLine2Line2.Classify(segment1.Center, segment1.Direction, 
 			                               segment2.Center, segment2.Direction,
@@ -158,15 +191,67 @@ namespace g3
 				Quantity = 0;
 			}
 
-			Result = (Type != IntersectionType.Empty) ?
-				IntersectionResult.Intersects : IntersectionResult.NoIntersection;
+		}
 
-			// [RMS] for debugging...
-			//sanity_check();
 
-			return (Result == IntersectionResult.Intersects);
-        }
+		// the exact decision (IntervalThreshold 0): the closed segments P0-P1 of both. false for non-finite input.
+		bool find_exact()
+		{
+			Vector2d a = segment1.P0, b = segment1.P1, c = segment2.P0, d = segment2.P1;
+			if (IntrExact2d.IsFinite(a) == false || IntrExact2d.IsFinite(b) == false || IntrExact2d.IsFinite(c) == false || IntrExact2d.IsFinite(d) == false)
+				return false;
+			if (a == b || c == d) {
+				// a segment that collapsed to a point in the rounding of its ends: the tolerance route
+				find_tolerant();
+				return true;
+			}
+			int o1 = ExactPredicates.Orient2d(a, b, c), o2 = ExactPredicates.Orient2d(a, b, d);
+			int o3 = ExactPredicates.Orient2d(c, d, a), o4 = ExactPredicates.Orient2d(c, d, b);
+			Quantity = 0;
+			if (o1 == 0 && o2 == 0) {
+				// collinear: the overlap of [a, b] and [c, d] along the line (comparisons of coordinates)
+				Vector2d cLo = IntrExact2d.Before(a, b, c, d) ? c : d, cHi = IntrExact2d.Before(a, b, c, d) ? d : c;
+				Vector2d lo = IntrExact2d.Before(a, b, a, cLo) ? cLo : a;
+				Vector2d hi = IntrExact2d.Before(a, b, cHi, b) ? cHi : b;
+				if (IntrExact2d.Before(a, b, hi, lo)) {
+					Type = IntersectionType.Empty;
+				} else if (lo == hi) {
+					set_point(lo, ref Point0, ref Parameter0);
+					Type = IntersectionType.Point;
+					Quantity = 1;
+				} else {
+					set_point(lo, ref Point0, ref Parameter0);
+					set_point(hi, ref Point1, ref Parameter1);
+					Type = IntersectionType.Segment;
+					Quantity = 2;
+				}
+			} else if (o1 * o2 <= 0 && o3 * o4 <= 0) {
+				Type = IntersectionType.Point;
+				Quantity = 1;
+				if (o1 == 0) set_point(c, ref Point0, ref Parameter0);
+				else if (o2 == 0) set_point(d, ref Point0, ref Parameter0);
+				else if (o3 == 0) set_point(a, ref Point0, ref Parameter0);
+				else if (o4 == 0) set_point(b, ref Point0, ref Parameter0);
+				else {
+					// a proper crossing: its parameter on segment 1, in floating point (inside the segment)
+					Vector2d diff = segment2.Center - segment1.Center;
+					double s = diff.DotPerp(segment2.Direction) / segment1.Direction.DotPerp(segment2.Direction);
+					s = (s - s == 0) ? Math.Max(-segment1.Extent, Math.Min(segment1.Extent, s)) : 0;
+					Point0 = segment1.Center + s * segment1.Direction;
+					Parameter0 = s;
+				}
+			} else {
+				Type = IntersectionType.Empty;
+			}
+			return true;
+		}
 
+		// an exact point of segment 1 (an end of either segment) with its parameter
+		void set_point(Vector2d p, ref Vector2d point, ref double parameter)
+		{
+			point = p;
+			parameter = (p - segment1.Center).Dot(segment1.Direction);
+		}
 
 
 		void sanity_check() {

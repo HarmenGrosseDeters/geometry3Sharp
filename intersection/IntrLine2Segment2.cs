@@ -33,6 +33,16 @@ namespace g3
     //   q = int.MaxValue:  The line/segment are collinear.  Type is Segment.
 
 
+    /// <summary>
+    /// Intersection of a line and a segment (originally ported from WildMagic5). With the default
+    /// <see cref="IntervalThreshold"/> of 0 the decision is exact: Point (the closed segment P0-P1 meets the line, exactly
+    /// at a segment end if that end is on the line), Segment (the segment lies on the line, Quantity int.MaxValue) or
+    /// Empty, with no tolerance, the same at every 2^k scale; the line is the line through Origin and its second point
+    /// (Origin + 2^m Direction, rounded) and the segment ends are Segment2d.P0 and P1 (rounded from Center and Extent).
+    /// <see cref="DotThreshold"/> is not used then. With an IntervalThreshold above 0 the old tolerance route runs
+    /// (the segment is enlarged by the threshold, lines within DotThreshold of parallel count as parallel). Non-finite
+    /// input is an InvalidQuery.
+    /// </summary>
     public class IntrLine2Segment2
     {
         Line2d line;
@@ -98,34 +108,70 @@ namespace g3
                 return false;
             }
 
-            Vector2d s = Vector2d.Zero;
-            Type = IntrLine2Line2.Classify(line.Origin, line.Direction,
-                                           segment.Center, segment.Direction,
-                                           dotThresh, ref s);
+            if (intervalThresh > 0) {
+                // with an IntervalThreshold the segment is enlarged: the tolerance route (DotThreshold and IntervalThreshold)
+                Vector2d s = Vector2d.Zero;
+                Type = IntrLine2Line2.Classify(line.Origin, line.Direction,
+                                               segment.Center, segment.Direction,
+                                               dotThresh, ref s);
 
-            if (Type == IntersectionType.Point) {
+                if (Type == IntersectionType.Point) {
 
-                // Test whether the line-line intersection is on the segment.
-                if (Math.Abs(s[1]) <= segment.Extent + intervalThresh) {
-                    Quantity = 1;
-                    Point = line.Origin + s[0] * line.Direction;
-                    Parameter = s[0];
+                    // Test whether the line-line intersection is on the segment.
+                    if (Math.Abs(s[1]) <= segment.Extent + intervalThresh) {
+                        Quantity = 1;
+                        Point = line.Origin + s[0] * line.Direction;
+                        Parameter = s[0];
+                    } else {
+                        Quantity = 0;
+                        Type = IntersectionType.Empty;
+                    }
+
+                } else if (Type == IntersectionType.Line) {
+                    Type = IntersectionType.Segment;
+                    Quantity = int.MaxValue;
                 } else {
                     Quantity = 0;
-                    Type = IntersectionType.Empty;
                 }
-
-            } else if (Type == IntersectionType.Line) {
-                Type = IntersectionType.Segment;
-                Quantity = int.MaxValue;
-            } else {
-                Quantity = 0;
+            } else if (find_exact() == false) {
+                Type = IntersectionType.Empty;
+                Result = IntersectionResult.InvalidQuery;
+                return false;
             }
 
             Result = (Type != IntersectionType.Empty) ?
                 IntersectionResult.Intersects : IntersectionResult.NoIntersection;
 
             return (Result == IntersectionResult.Intersects);
+        }
+        // the exact decision (IntervalThreshold 0): the line through Origin and its second point against the closed segment
+        // P0-P1. false for non-finite input or a segment that collapsed to a point.
+        bool find_exact()
+        {
+            Vector2d o = line.Origin, a = segment.P0, b = segment.P1;
+            if (IntrExact2d.IsFinite(o) == false || IntrExact2d.IsFinite(a) == false || IntrExact2d.IsFinite(b) == false || a == b)
+                return false;
+            Vector2d p = IntrExact2d.SecondPoint(o, line.Direction);
+            int sa = ExactPredicates.Orient2d(o, p, a), sb = ExactPredicates.Orient2d(o, p, b);
+            if (sa == 0 && sb == 0) {
+                Type = IntersectionType.Segment;        // (the segment lies on the line)
+                Quantity = int.MaxValue;
+            } else if (sa * sb > 0) {
+                Type = IntersectionType.Empty;
+                Quantity = 0;
+            } else {
+                Type = IntersectionType.Point;
+                Quantity = 1;
+                if (sa == 0) Point = a;
+                else if (sb == 0) Point = b;
+                else {
+                    double da = line.Direction.DotPerp(a - o), db = line.Direction.DotPerp(b - o);
+                    double w = (da * db < 0) ? da / (da - db) : (Math.Abs(da) <= Math.Abs(db) ? 0 : 1);     // (the exact signs are opposite: with rounded distances that disagree, the end nearer the line)
+                    Point = a + w * (b - a);
+                }
+                Parameter = (Point - o).Dot(line.Direction);
+            }
+            return true;
         }
     }
 }
