@@ -32,6 +32,12 @@ Part of the [roadmap](../ROADMAP.md).
   docs host is blocked here). The "Feature-preserving Shrink Wrapping with Adaptive Alpha" code builds on CGAL.
 - **PaMO (survey 2026-11-08):** paper only; a patent check comes before adopting any idea. Probe candidates are listed
   at the end of [its section](#pamo-parallel-mesh-optimization-survey-2026-11-08); none is planned.
+- **SIGGRAPH 2025 & 2026 survey (2026-11-21):** documented in
+  [SIGGRAPH_2025_2026_SURVEY_2026-11.md](../research/SIGGRAPH_2025_2026_SURVEY_2026-11.md), including a deep dive on
+  *Fast Sparse Matrix Permutation for Mesh-Based Direct Solvers* (Zarebavani et al., SIGGRAPH 2026, arXiv:2602.00898v2;
+  paper only, conditional pure-C# single-quotient-graph ND lead for 100K+ systems) and a codebase-wide audit of further
+  uses for FEWN / Antipodal ray-plus-boundary winding numbers (`DMeshAABBTree3.WindingNumber`, `MeshWindingNumberGrid`,
+  `WindingContouring`, `MeshFidelityMetrics.OuterFaces`). Nothing scheduled yet.
 
 ### Done / history
 
