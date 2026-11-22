@@ -77,6 +77,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | Benchmark | Focus |
 |---|---|
 | [IntrinsicBenchmark](IntrinsicBenchmark/README.md) | `IntrinsicTriangulation`, `MeshGeodesicDistance`, and `VectorHeatMethod` timings and accuracy |
+| [IntrinsicIntegerCoordinates](IntrinsicIntegerCoordinates/README.md) | Research spike: integer (normal) coordinates against the traced common subdivision of `IntrinsicTriangulation` |
 | [GeodesicOracleBenchmark](GeodesicOracleBenchmark/README.md) | Window counts, interval width, and timing of `ExactMeshGeodesicDistance` and `PolyhedralGeodesicDistance` |
 | [ParameterizationBenchmark](ParameterizationBenchmark/README.md) | Timings and distortion metrics for LSCM, BFF, ARAP, SLIM, and Tutte parameterizations |
 | [UVAtlasBenchmark](UVAtlasBenchmark/README.md) | `UVAtlasGenerator` quality, packing efficiency, and comparison with `xatlas` |
