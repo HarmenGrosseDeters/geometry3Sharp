@@ -331,6 +331,28 @@ systems get their locality by requiring clean inputs (Cherchi, Manifold) or by n
 Terms searched: "output-sensitive / localized mesh boolean exact", "wide BVH dual traversal self-collision",
 the three paper titles above.
 
+## 8a. The related plans (#1253, #1255, #1258, #1279): what this study answers
+
+Coordinator, 2026-11-22: the open plan PRs on boolean and rounding speed are covered here on the cost side. The guarantee
+theory of 3D snap rounding (#1259, #1278) and the certifying checker (#1256) are other sessions' topics and are not
+touched.
+
+| plan | its question | answered here? | what this study adds |
+|---|---|---|---|
+| **#1253**, lead 1: the two unbuilt #1064 levers (centroid without `AddPoint`, exact `PlaneSide` kernel) on the tail case 42327 | their share on the normal stratum | **no** | not measured: both are classification work on one tail case; on T6 the whole classification is 4.5 % at 1 thread and 5.3 % at 4 (section 3.1), which caps anything inside it on the normal stratum |
+| **#1253**, lead 2: normal-cone certificate for the operand self-join | an upper bound of the skippable pairs | **in part** (a bound, not the probe of the plan) | a certificate replaces the triangle tests of the self-join, not its traversal. On T6 the self-join is 5665 ms per pass over the 98 pairs, of which 1399 ms are traversal (section 7): at most 75 % of it, so **at most −18 % at 1 thread and −11 % at 4** over the 294 booleans if the certificate itself were free; on the seam union at most −11 % at 1 thread. It stays the only exact lever for the self-join of a *raw* operand (lever 2 needs a certificate of cleanness). Its cost side (the certificate was slower than the tests in the Reducer, new error bounds in exact code) is unchanged, so the verdict "parked" stands |
+| **#1253**, lead 3: ABC chain step 3, where ours is 1.1-2.2x slower than Geogram and CGAL | a diagnosis | **no** (not measured; the ABC data was not fetched) | a hypothesis to test first: a step-3 operand is the result of step 2, so it is large, clean by our own check, and pays the full self-join, the trees and the rounding over all its triangles again; that is the profile of the seam stratum, where levers 2 and 1a remove 20 % and up to 32 % at 1 thread. `seam-levers --cases` runs every part of this study on the inputs that `chain-step` keeps: the first probe if the lead is reopened |
+| **#1255**: EMBER lever 2, skip self-pairs of certified operands | step 1 of the plan: the upper bound before any API code | **yes for T6-like steps and seam inputs**, not on ABC chains at 12 threads | section 5: at most −24 % at 1 thread and −15 % at 4 for a step with two certified operands, −20 % / −9 % on the seam union, 0 on raw single booleans; the pieces are the same with and without the self-join on all 101 clean pairs; a content stamp costs 0.8 % (64-bit mix) to 2.0 % (SHA-256) of the self-join, so the plan's "content hash" variant is affordable and no defensive copy of the mesh is needed |
+| **#1258**, lever (b): box-neighbour enumeration of long thin tilted triangles in the first search | pairs a tighter bound would remove | **no** | not measured: neither stratum has such triangles (the tubes are well shaped). Lever 1a does not change the number of box neighbours per query; it removes the tree those queries run in for the unchanged triangles, so (b) stays a separate question for 519511, 1517923 and 668056 |
+| **#1258**, lever (c): the cost of `near` inside edit evaluations | a profile | **no** | not measured: T6 has 215 edits in 294 booleans and the tubes none; this is the rotated, dirty stratum |
+| **#1258**, lever (d): tree build and setup over all triangles when few vertices were rounded | the share of the full-mesh tree build | **yes**: this is lever 1a | sections 4.2 and 10: the tree alone is 15 % of the rounding on T6 (−3.9 % of the booleans at 1 thread) and 30 % on the seam union (−11 %), by a prototype that lists the same candidate pairs; the setup around it is the larger part on large results (table of steps). One correction to the plan: `MeshRoundingRepair.cs` is not in the exact-file list of `.editorconfig`, so the tier is M with the rounding mutation shards, not an exact-code review; `TriangleBoxTree` is not changed by 1a |
+| **#1258**, #837 lever 2 (rotated CAD class) | – | **no** | not measured |
+| **#1279**: open-operand speed, label propagation (HP 8) | a refreshed profile of the open cohort and a soundness argument | **no** | both strata here are closed operands; nothing in this study measures the generalized winding number path. Levers 1a and 3x act after the classification and apply to open results unchanged; lever 1b (pass-through of untouched regions) is the closed-input relative of the propagation asked for and gives no argument for open ones |
+
+So of the four plans, this study settles the first step of #1255 and lever (d) of #1258, tightens the bound of the
+normal-cone lead of #1253, and leaves the tail and open-operand questions (#1253 leads 1 and 3, #1258 (b), (c) and
+#837 lever 2, #1279) to measurements on their own strata.
+
 ## 9. Reproduce
 
 ```sh
