@@ -308,7 +308,7 @@ union is verified exactly.
   remains, with its 64-component rule. D3.
 - **Behaviour.** Results of multi-part inputs change: each part gets its own resolution in the solidify and the wrap (more triangles
   for small parts, more time: one fallback per part instead of one per scene), its own dust thresholds and its own volume check
-  (a part can no longer hide below 1 % of the scene's volume). Single-part inputs are untouched.
+  (a part can no longer hide below 1 % of the scene's volume). A clean single-part input is returned as it is (#1337); an unclean one is repaired as before.
 - **API.** Additive: an opt-in switch first (default off until the A/B), per-part reports. `MeshRepairMetrics` and `NotCleanReason`
   unchanged. The far-part mode (`ScaleRetry`, the 64-component rule) becomes the fallback inside a part and can shrink later.
 - **Stage 0 (B-lite), S.** A closed component that is clean on its own (closed, manifold, no self-intersections, no exactly
