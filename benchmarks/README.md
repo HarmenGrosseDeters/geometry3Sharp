@@ -58,6 +58,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [QuadRemeshBenchmark](QuadRemeshBenchmark/README.md) | `CrossField`, `PositionField`, and `QuadRemesher` stage 2 quality and timing |
 | [QuadFlow3BGate](QuadFlow3BGate/README.md) | Stage 3B acceptance gate measurements for `QuadRemesher.PureQuads` |
 | [QuadRemeshSpike](QuadRemeshSpike/README.md) | Early feasibility prototype for quad remeshing |
+| [QuadSheafObstruction](QuadSheafObstruction/README.md) | Research spike: sheaf-Laplacian and area-invariant diagnostics of the stage 3B fallbacks of `QuadRemesher.PureQuads` |
 
 ## Contouring, Offsets, Lofting & Lattices
 
