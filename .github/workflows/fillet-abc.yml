@@ -18,6 +18,9 @@ on:
       candidates:
         description: "models extracted (in the order of the sample rule); the first 200 with and 50 without fillets are scored"
         default: "600"
+      budget_seconds:
+        description: "wall time for the detection; models not reached are reported, the order is fixed"
+        default: "2400"
 
 permissions:
   contents: read
@@ -32,6 +35,7 @@ jobs:
       CHUNK: ${{ inputs.chunk }}
       CANDIDATES: ${{ inputs.candidates }}
       MODE: ${{ inputs.mode }}
+      BUDGET: ${{ inputs.budget_seconds }}
       ABC: benchmarks/FilletDetection/abc
     steps:
       - uses: actions/checkout@v4
@@ -41,7 +45,8 @@ jobs:
       - name: Check the inputs
         run: |
           [[ "$CHUNK" =~ ^[0-9]{4}$ ]] || { echo "chunk must be 4 digits"; exit 1; }
-          [[ "$CANDIDATES" =~ ^[0-9]{1,4}$ ]] || { echo "candidates must be a number below 10000"; exit 1; }
+          [[ "$CANDIDATES" =~ ^[1-9][0-9]{0,3}$ ]] || { echo "candidates must be a number from 1 to 9999"; exit 1; }
+          [[ "$BUDGET" =~ ^[1-9][0-9]{1,3}$ ]] && [ "$BUDGET" -le 3600 ] || { echo "budget_seconds must be 10 to 3600"; exit 1; }
           echo "commit $GITHUB_SHA, chunk $CHUNK, candidates $CANDIDATES, mode $MODE"
           df -h "$RUNNER_TEMP" | tail -n 1
       - name: Terms of the data (for the record; the job does not depend on it)
@@ -55,7 +60,8 @@ jobs:
       - name: Tools
         run: |
           command -v 7z || { sudo apt-get update -qq && sudo apt-get install -y -qq p7zip-full; }
-          python3 -c "import yaml; print('yaml', yaml.__version__, hasattr(yaml, 'CSafeLoader'))" || pip install pyyaml
+          python3 -c "import yaml" || python3 -m pip install --user pyyaml || python3 -m pip install --user --break-system-packages pyyaml
+          python3 -c "import yaml; print('yaml', yaml.__version__, 'C loader:', hasattr(yaml, 'CSafeLoader'))"
           python3 -m unittest discover -s "$ABC" -p 'test_*.py'
       - name: Build
         run: dotnet build benchmarks/FilletDetection -c Release -f net10.0
@@ -65,17 +71,20 @@ jobs:
           work="$RUNNER_TEMP/abc"; mkdir -p "$work/feat" "$work/obj"
           curl -sSfL -o "$work/feat_list.txt" https://deep-geometry.github.io/abc-dataset/data/feat_v00.txt
           curl -sSfL -o "$work/obj_list.txt" https://deep-geometry.github.io/abc-dataset/data/obj_v00.txt
-          url=$(grep "abc_${CHUNK}_feat_v00.7z" "$work/feat_list.txt" | awk '{print $1}')
+          url=$({ grep "abc_${CHUNK}_feat_v00.7z" "$work/feat_list.txt" || true; } | awk '{print $1}')
           [ -n "$url" ] || { echo "chunk not in the list"; exit 1; }
           curl -sSfL --retry 3 -o "$work/feat.7z" "$url"
           ls -l "$work/feat.7z" | awk '{print "feature archive bytes:", $5}'
           7z l -ba -slt "$work/feat.7z" | sed -n 's/^Path = //p' > "$work/feat_names.txt"
-          echo "files in the archive: $(wc -l < "$work/feat_names.txt")"
+          echo "entries in the archive: $(wc -l < "$work/feat_names.txt"); the first three:"; head -n 3 "$work/feat_names.txt"
           count=$CANDIDATES; [ "$MODE" = probe ] && count=3
           python3 "$ABC/sample.py" order "$count" < "$work/feat_names.txt" > "$work/feat_sample.txt"
+          [ -s "$work/feat_sample.txt" ] || { echo "no archive entry matches the name pattern of sample.py"; exit 1; }
           7z x -y -bso0 -bsp0 -o"$work/feat" "$work/feat.7z" @"$work/feat_sample.txt"
           rm -f "$work/feat.7z"
-          echo "extracted: $(find "$work/feat" -name '*.yml' | wc -l) feature files, $(du -sh "$work/feat" | cut -f1)"
+          n=$(find "$work/feat" -name '*.yml' | wc -l)
+          echo "extracted: $n feature files, $(du -sh "$work/feat" | cut -f1)"
+          [ "$n" -ge 1 ] && [ "$n" -le "$count" ] || { echo "expected 1 to $count files"; exit 1; }
       - name: Probe (structure of the feature files, no coordinates)
         if: inputs.mode == 'probe'
         run: |
@@ -88,18 +97,26 @@ jobs:
         run: |
           set -euo pipefail
           work="$RUNNER_TEMP/abc"
-          find "$work/feat" -name '*.yml' | while read -r f; do python3 "$ABC/sample.py" id "$f"; done > "$work/ids.txt"
-          url=$(grep "abc_${CHUNK}_obj_v00.7z" "$work/obj_list.txt" | awk '{print $1}')
+          # the features become small JSON files first, so that the large YAML is gone before the mesh archive arrives
+          mkdir -p "$work/none"
+          bash "$ABC/prepare.sh" "$work/feat" "$work/none" "$work/data"
+          rm -rf "$work/feat"
+          cp "$work/data/ids.txt" "$work/ids.txt"
+          url=$({ grep "abc_${CHUNK}_obj_v00.7z" "$work/obj_list.txt" || true; } | awk '{print $1}')
           [ -n "$url" ] || { echo "chunk not in the list"; exit 1; }
           curl -sSfL --retry 3 -o "$work/obj.7z" "$url"
           ls -l "$work/obj.7z" | awk '{print "mesh archive bytes:", $5}'
           7z l -ba -slt "$work/obj.7z" | sed -n 's/^Path = //p' > "$work/obj_names.txt"
           python3 "$ABC/sample.py" match "$work/ids.txt" < "$work/obj_names.txt" > "$work/obj_sample.txt"
+          [ -s "$work/obj_sample.txt" ] || { echo "no mesh in the archive matches the ids of the feature files"; head -n 3 "$work/obj_names.txt"; exit 1; }
           7z x -y -bso0 -bsp0 -o"$work/obj" "$work/obj.7z" @"$work/obj_sample.txt"
           rm -f "$work/obj.7z"
-          echo "extracted: $(find "$work/obj" -name '*.obj' | wc -l) meshes, $(du -sh "$work/obj" | cut -f1)"
-          bash "$ABC/prepare.sh" "$work/feat" "$work/obj" "$work/data"
-          rm -rf "$work/feat" "$work/obj"
+          n=$(find "$work/obj" -name '*.obj' | wc -l)
+          echo "extracted: $n meshes, $(du -sh "$work/obj" | cut -f1)"
+          [ "$n" -ge 1 ] && [ "$n" -le "$CANDIDATES" ] || { echo "expected 1 to $CANDIDATES meshes"; exit 1; }
+          bash "$ABC/prepare.sh" "$work/none" "$work/obj" "$work/data"
+          rm -rf "$work/obj"
+          df -h "$RUNNER_TEMP" | tail -n 1
       - name: Measure
         if: inputs.mode == 'run'
         run: |
@@ -109,14 +126,14 @@ jobs:
             echo "### Fillet detection on ABC chunk $CHUNK (commit $GITHUB_SHA)"
             echo "Scored against the frozen heuristic of AbcHeuristic (benchmarks/FilletDetection/Corpus.cs), not against CAD labels."
             echo
-            dotnet run --project benchmarks/FilletDetection -c Release -f net10.0 --no-build -- corpus "$work/data" "$work/data/ids.txt" "$RUNNER_TEMP/fillet_abc_scores.csv" 3000 200 50
+            dotnet run --project benchmarks/FilletDetection -c Release -f net10.0 --no-build -- corpus "$work/data" "$work/data/ids.txt" "$RUNNER_TEMP/fillet_abc_scores.csv" "$BUDGET" 200 50
           } | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
-        if: inputs.mode == 'run'
+        if: always() && inputs.mode == 'run'
         with:
           name: fillet-abc-scores
           path: ${{ runner.temp }}/fillet_abc_scores.csv
-          if-no-files-found: error
+          if-no-files-found: warn
       - name: Delete the data
         if: always()
         run: rm -rf "$RUNNER_TEMP/abc"

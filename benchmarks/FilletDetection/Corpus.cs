@@ -14,7 +14,7 @@ namespace FilletDetection
     /// <summary>
     /// A CAD mesh with the patch structure of its B-rep, as the ABC dataset gives it (Koch et al., CVPR 2019, supplement
     /// section 2.3: per patch a surface type and its triangles, per curve a sharp flag and its mesh vertices), read from the
-    /// small JSON that abc_feat_to_json.py writes, or made from a procedural solid.
+    /// small JSON that abc/feat_to_json.py writes, or made from a procedural solid.
     /// </summary>
     public class PatchModel
     {
@@ -156,6 +156,9 @@ namespace FilletDetection
     ///     smooth neighbours and a sectional angle above 150 and up to 200 degrees (a full round), a torus without axis, and
     ///     every patch of another curved type (Sphere, Cone, BSpline, Revolution, Extrusion, Other) with smooth border edges to
     ///     at least two other patches (vertex fillets, variable-radius fillets, blends).
+    ///   - The sectional angle is measured on the triangle normals, so it is short by one facet step (an arc of 180 degrees
+    ///     with 6 facets reads 150). A smooth one-edge border between the two ends of one sharp curve reads as sharp. Both are
+    ///     part of the frozen rule.
     ///   - Everything else is NO FILLET: planes, holes and shafts (sharp rims, or more than 200 degrees), triangles in no patch.
     /// </summary>
     public static class AbcHeuristic
@@ -219,7 +222,7 @@ namespace FilletDetection
             return label;
         }
 
-        // unit direction along which the vectors vary least (smallest eigenvector of their covariance, by power iteration on the complement)
+        // unit direction along which the vectors vary least (smallest eigenvector of their second moment, by power iteration on the complement)
         static Vector3d LeastVariation(List<Vector3d> v)
         {
             double xx = 0, yy = 0, zz = 0, xy = 0, xz = 0, yz = 0;
@@ -366,14 +369,16 @@ namespace FilletDetection
         }
 
         /// <summary>
-        /// Labels of every model in dir (id.json from the conversion): prints "id fillet|plain triangles" in the order given,
-        /// for the sample rule (the first 200 with a fillet triangle and the first 50 without, at most MaxTriangles).
-        /// Needs the meshes for the labels, so it reads id.obj too.
+        /// The measurement: the models of dir (id.obj, id.json) in the order of the list, the first wantFillet with a fillet
+        /// triangle (by the heuristic) and the first wantPlain without, at most MaxTriangles each, until the time budget is
+        /// used. A row per model and bound goes to the CSV as soon as the model is done; a model that fails is counted and
+        /// left out. Prints the summary table.
         /// </summary>
         public static int Run(string dir, string listPath, string csvPath, double budgetSeconds, int wantFillet, int wantPlain)
         {
             var ids = File.ReadAllLines(listPath).Where(l => l.Trim().Length > 0).Select(l => l.Trim()).ToList();
-            var rows = new List<string> { "id,triangles,total_area,fillet_area,ignored_area,bound,bound_value,tp,fp,fn,seconds" };
+            File.WriteAllText(csvPath, "id,triangles,total_area,fillet_area,ignored_area,bound,bound_value,tp,fp,fn,seconds\n");
+            int failedModels = 0, noThickness = 0;
             var perBound = Bounds.Select(_ => new List<(double, double, double, bool)>()).ToArray();
             int doneFillet = 0, donePlain = 0, skipped = 0, tooLarge = 0, missing = 0;
             var skipReasons = new Dictionary<string, int>();
@@ -388,9 +393,11 @@ namespace FilletDetection
                 string reason;
                 try { m = PatchModel.Read(obj, json, out reason); }
                 catch (Exception e) { m = null; reason = e.GetType().Name; }
-                if (m == null) { ++skipped; skipReasons[reason.Split(' ')[0]] = skipReasons.GetValueOrDefault(reason.Split(' ')[0]) + 1; continue; }
+                if (m == null) { string why = new string(reason.Where(ch => !char.IsDigit(ch)).ToArray()).Trim(); ++skipped; skipReasons[why] = skipReasons.GetValueOrDefault(why) + 1; continue; }
                 if (m.Mesh.TriangleCount > MaxTriangles || m.Mesh.TriangleCount == 0) { ++tooLarge; continue; }
-                int[] label = AbcHeuristic.Label(m);
+                int[] label;
+                try { label = AbcHeuristic.Label(m); }
+                catch (Exception e) { ++failedModels; Console.WriteLine($"labels failed on {id}: {e.GetType().Name}"); continue; }
                 double total = 0, filletArea = 0, ignoredArea = 0;
                 foreach (int tid in m.Mesh.TriangleIndices()) {
                     double a = m.Mesh.GetTriArea(tid); total += a;
@@ -398,18 +405,23 @@ namespace FilletDetection
                 }
                 bool hasFillet = filletArea > 0;
                 if (hasFillet ? doneFillet >= wantFillet : donePlain >= wantPlain) continue;
-                bool[][] hits = DetectAll(m.Mesh, out double[] values, out double seconds);
+                bool[][] hits; double[] values; double seconds;
+                try { hits = DetectAll(m.Mesh, out values, out seconds); }
+                catch (Exception e) { ++failedModels; Console.WriteLine($"detection failed on {id}: {e.GetType().Name}"); continue; }
                 detectSeconds += seconds; detectTriangles += m.Mesh.TriangleCount;
+                if (values.Any(double.IsNaN)) ++noThickness;
+                var rows = new List<string>();
                 for (int k = 0; k < Bounds.Length; ++k) {
                     Areas(m.Mesh, label, hits[k], out double tp, out double fp, out double fn);
-                    perBound[k].Add((tp, fp, fn, hasFillet));
+                    // a bound that could not be computed (no wall thickness) is no verdict of the detector
+                    if (!double.IsNaN(values[k])) perBound[k].Add((tp, fp, fn, hasFillet));
                     rows.Add(string.Join(",", id, m.Mesh.TriangleCount, total.ToString("R", Inv), filletArea.ToString("R", Inv), ignoredArea.ToString("R", Inv),
                         Bounds[k].Item1, values[k].ToString("R", Inv), tp.ToString("R", Inv), fp.ToString("R", Inv), fn.ToString("R", Inv), seconds.ToString("0.0", Inv)));
                 }
+                File.AppendAllLines(csvPath, rows);
                 if (hasFillet) ++doneFillet; else ++donePlain;
             }
-            File.WriteAllLines(csvPath, rows);
-            Console.WriteLine($"\nmodels scored: {doneFillet} with fillets (heuristic), {donePlain} without; not scored: {missing} files missing, {skipped} unreadable ({string.Join(", ", skipReasons.Select(kv => kv.Key + " " + kv.Value))}), {tooLarge} above {MaxTriangles} triangles or empty");
+            Console.WriteLine($"\nmodels scored: {doneFillet} with fillets (heuristic), {donePlain} without; not scored: {missing} files missing, {skipped} unreadable ({string.Join(", ", skipReasons.Select(kv => kv.Key + " " + kv.Value))}), {tooLarge} above {MaxTriangles} triangles or empty, {failedModels} failed; {noThickness} scored models without a wall thickness (left out of the thickness bounds)");
             Console.WriteLine($"detection: {detectSeconds.ToString("0", Inv)} s for {detectTriangles} triangles\n");
             Console.WriteLine("| radius bound | precision mean | median | worst decile | recall mean | median | worst decile | models with recall < 0.9 | F1 worst decile | models without fillets that got marks |");
             Console.WriteLine("|---|---|---|---|---|---|---|---|---|---|");

@@ -14,13 +14,17 @@ while read -r f; do
   [ -n "$id" ] || continue
   if ! python3 "$here/feat_to_json.py" "$f" "$out/$id.json" 2> "$out/convert_error.txt"; then
     failed=$((failed + 1)); rm -f "$out/$id.json"
-    [ "$failed" -le 3 ] && { echo "conversion failed: $(basename "$f"): $(tail -n 1 "$out/convert_error.txt")"; }
+    if [ "$failed" -le 3 ]; then echo "conversion failed: $(basename "$f"): $(tail -n 1 "$out/convert_error.txt")"; fi
   fi
 done < "$out/feat_files.txt"
 find "$obj" -type f -name '*.obj' | sort | while read -r f; do
   id="$(python3 "$here/sample.py" id "$f")"
-  [ -n "$id" ] && mv "$f" "$out/$id.obj"
+  if [ -n "$id" ]; then mv "$f" "$out/$id.obj"; fi
 done
-python3 "$here/sample.py" order < "$out/feat_files.txt" | while read -r f; do python3 "$here/sample.py" id "$f"; done > "$out/ids.txt"
+# (a call without feature files, eg to add the meshes later, keeps the ids of the earlier call)
+if [ -s "$out/feat_files.txt" ]; then
+  python3 "$here/sample.py" order < "$out/feat_files.txt" | while read -r f; do python3 "$here/sample.py" id "$f"; done > "$out/ids.txt"
+fi
+touch "$out/ids.txt"
 rm -f "$out/feat_files.txt" "$out/convert_error.txt"
 echo "prepared: $(ls "$out" | grep -c '\.json$') feature files converted ($failed failed), $(ls "$out" | grep -c '\.obj$') meshes, $(wc -l < "$out/ids.txt") ids"

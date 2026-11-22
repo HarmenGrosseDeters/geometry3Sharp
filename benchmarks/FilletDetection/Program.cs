@@ -30,9 +30,9 @@ namespace FilletDetection
             if (cmd == "defillet") return Defillet.Run(filters);
             if (cmd == "spotcheck") return Corpus.SpotCheck(filters);
             if (cmd == "boundcheck") return Corpus.BoundCheck(filters);
-            if (cmd == "export-abc") return Corpus.Export(args[1], args.Skip(2).ToArray());
-            if (cmd == "corpus") return Corpus.Run(args[1], args[2], args[3], double.Parse(args[4], Inv), int.Parse(args[5], Inv), int.Parse(args[6], Inv));
-            Console.Error.WriteLine("usage: FilletDetection crease | detect [filters] | defillet [filters]");
+            if (cmd == "export-abc" && args.Length >= 2) return Corpus.Export(args[1], args.Skip(2).ToArray());
+            if (cmd == "corpus" && args.Length == 7) return Corpus.Run(args[1], args[2], args[3], double.Parse(args[4], Inv), int.Parse(args[5], Inv), int.Parse(args[6], Inv));
+            Console.Error.WriteLine("usage: FilletDetection crease | detect [filters] | defillet [filters] | spotcheck | boundcheck [filters] | export-abc dir [filters] | corpus dir list csv seconds nFillet nPlain");
             return 2;
         }
 

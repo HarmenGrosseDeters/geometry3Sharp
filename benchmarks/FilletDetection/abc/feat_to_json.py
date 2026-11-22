@@ -38,15 +38,18 @@ def convert(path):
     _, patches, curves = load(path)
     out = {'patches': [], 'sharp_curves': []}
     for p in patches:
-        item = {'type': str(p['type']), 'faces': [int(i) for i in p['face_indices']]}
+        item = {'type': str(p['type']), 'faces': [int(i) for i in (p.get('face_indices') or [])]}
         for key in ('z_axis', 'location'):
             v = vec(p, key)
             if v is not None:
                 item[key] = v
         out['patches'].append(item)
     for c in curves:
-        if c.get('sharp') is True:
-            out['sharp_curves'].append([int(i) for i in c['vert_indices']])
+        # anything but a boolean would silently make every curve smooth
+        if not isinstance(c.get('sharp'), bool):
+            raise ValueError('curve without a boolean sharp flag: %r' % (c.get('sharp'),))
+        if c['sharp']:
+            out['sharp_curves'].append([int(i) for i in (c.get('vert_indices') or [])])
     return out
 
 
@@ -65,7 +68,9 @@ def probe(path):
             print('  patch %s keys: %s' % (t, sorted(p.keys())))
     if curves:
         print('  curve keys:', sorted(curves[0].keys()))
-    faces = [i for p in patches for i in p.get('face_indices', [])]
+    faces = [i for p in patches for i in (p.get('face_indices') or [])]
+    verts = [i for c in curves for i in (c.get('vert_indices') or [])]
+    print('curve vertex indices: %d, min %s, max %s' % (len(verts), min(verts, default=None), max(verts, default=None)))
     print('face indices: %d, distinct %d, min %s, max %s' % (len(faces), len(set(faces)), min(faces, default=None), max(faces, default=None)))
 
 

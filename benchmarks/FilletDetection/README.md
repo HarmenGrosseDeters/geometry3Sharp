@@ -83,7 +83,11 @@ Checks on the procedural solids (`results/spotcheck.md`, `results/boundcheck.md`
   check, not of the ABC files, where patches come from the B-rep. The vertex fillets (sphere octants: 7 to 8 % of the box's
   fillet area) are left out of the score by design.
 - One detector run with the largest bound stands for all six bounds (a run per bound would cost six times the runner time).
-  That is not exact: on the plate, where the largest bound is 2.4 times the wall thickness, the ball search from the larger
-  start radius ends on another ball for 20 to 24 of 972 triangles (recall 0.88 instead of 1.00); the other solids agree
-  triangle for triangle (220 differing verdicts of 46176 in all). The shared run can only lose marks, so the scores from the
-  workflow are a lower bound for the small bounds.
+  That is not exact: the ball search depends on its start radius. On the plate, where the largest bound is 2.4 to 3.3 times
+  the wall thickness, the shared run marks 940 (rotated: 936) triangles where a run per bound marks 960; the other solids
+  agree triangle for triangle (220 differing verdicts of 46176 over five bounds). Every difference seen here is a lost mark,
+  which lowers recall; that it can never add one is not shown. The recall the workflow reports for a bound well below the
+  largest one may therefore be somewhat too low.
+- The sectional angle of the heuristic is measured on triangle normals and is short by one facet step, and the workflow's
+  time budget (default 2400 s of detection) can end the run before 250 models are scored; the sample order is fixed, so the
+  scored models are a prefix of it, and the summary says how many.

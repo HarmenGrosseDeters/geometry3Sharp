@@ -81,6 +81,16 @@ surfaces:
         with self.assertRaises(ValueError):
             feat_to_json.convert(self.write('faces: []\n'))
 
+    def test_empty_index_lists_are_kept_and_a_sharp_flag_that_is_no_boolean_fails(self):
+        out = feat_to_json.convert(self.write('curves:\n- sharp: true\n  vert_indices:\nsurfaces:\n- type: Plane\n  face_indices:\n'))
+        self.assertEqual(out['patches'][0]['faces'], [])
+        self.assertEqual(out['sharp_curves'], [[]])
+        for bad in ('1', '"true"'):
+            with self.assertRaises(ValueError):
+                feat_to_json.convert(self.write('curves:\n- sharp: %s\n  vert_indices: [0]\nsurfaces:\n' % bad))
+        with self.assertRaises(ValueError):
+            feat_to_json.convert(self.write('curves:\n- type: Line\n  vert_indices: [0]\nsurfaces:\n'))
+
 
 if __name__ == '__main__':
     unittest.main()
