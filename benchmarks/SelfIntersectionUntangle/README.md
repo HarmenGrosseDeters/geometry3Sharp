@@ -94,4 +94,42 @@ bounds to 1e-4 of the diagonal; with clean parts passed through, the diagonal is
   `../MeshRepairBenchmark/cases/robust_stages_2026-10-25.csv` and in the later runs of its README; no mesh is
   committed or uploaded), runs `contour` with one process per mesh and a timeout (600 s by default: about 1 runner hour
   expected, at most 6), and writes the table of `contour_summary.py`, with the ids that got no row, to the step summary.
-  Results: pending the first run.
+
+### Thingi10K run (2026-11-22, run 45021072749)
+
+Rows: [results/thingi_contours_run-45021072749.tsv](results/thingi_contours_run-45021072749.tsv) (copied from the summary
+job's log; result rows only). Master of 2026-11-22: the four shards started over 46 minutes as runners became free and
+each checked out the master of its start, between `a1f3372b` and `b7a851a8` (`MeshPostRepairCleanup` changed in that
+range, so the shards may not have run the same repair; the rows do not record their commit). All 36 meshes gave a row, none timed out; the 36
+repairs took 298 s in total.
+
+| | meshes |
+|---|---|
+| repair path today: exact resolve / solidify / alpha wrap | 18 / 11 / 7 |
+| of the 7 wraps: solidify stopped on a self-intersecting raw contour | 5 |
+| of the 7 wraps: other (47878: the solidify was not stopped, its finished result self-intersects; 45561: the solidify failed) | 2 |
+
+Of the 5 raw contours (60k to 152k triangles, 47 to 1571 intersecting pairs):
+
+| | contours |
+|---|---|
+| self-intersections are the only defect (the other 4 also have degenerate triangles) | 1 |
+| clean after `SeparateTouchingVertices` (it moves no vertex on any of them) | 0 |
+| no self-intersection left after the prototype (1 to 3 rounds, 0.6 to 8 s) | 5 |
+| clean by `NotCleanReason` after the prototype (the other 2 keep degenerate triangles) | 3 |
+| finished solidify clean without any change | 0 |
+| finished solidify clean after the prototype (of the 3 that were clean; the other 2 were not finished) | 3 |
+
+The moves are not contacts: the largest vertex move is 6.2e-4 to 2.2e-3 of the diagonal, 0.08 to 0.52 of a cell.
+
+Distance of the result to the input, in diagonals, for the 3 contours that finish clean:
+
+| mesh | alpha wrap (today's result) | finished solidify after untangling |
+|---|---|---|
+| 37010 | 0.0027 | 0.105 |
+| 46244 | 0.0027 | 0.158 |
+| 96373 | 0.0025 | 0.015 |
+
+So on real meshes the step can avoid the wrap (3 of 7 wraps for certain, at most 5), but what it returns instead lies
+6 to 59 times farther from the input than the wrap does. Not measured: the finish of the 2 untangled contours that
+keep degenerate triangles (the cleanup may remove them), and the already finished contour of 47878.

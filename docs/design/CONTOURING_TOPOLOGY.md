@@ -1,6 +1,6 @@
 # A topology certificate for the contouring (study, Phase 5 item 4 follow-up)
 
-Status: **study and proofs; stage 1 built (#779), stage 2 stopped after its spike (section 4.8, 2026-11-15); stage 2a, the proof of blocks of cells (Theorem 6, section 7.10), written and reviewed 2026-11-15 (#925); stage 2 built as the block test (#935, section 7.11).** Owner decision 2026-11-13 ([roadmap/research.md](../roadmap/research.md)
+Status: **class S for smooth fields built as an internal certificate (section 7.13, Theorem 7, 2026-11-22);** **study and proofs; stage 1 built (#779), stage 2 stopped after its spike (section 4.8, 2026-11-15); stage 2a, the proof of blocks of cells (Theorem 6, section 7.10), written and reviewed 2026-11-15 (#925); stage 2 built as the block test (#935, section 7.11).** Owner decision 2026-11-13 ([roadmap/research.md](../roadmap/research.md)
 item 4): option A (stages 1-2) is built in its own PR; for B and C the proof first. The proofs (section 7: Theorems
 1-5, 1b, and what holds for broken inputs) were written and independently reviewed on 2026-11-13. Approved as a study by the owner on
 2026-11-12. The study changed no library code (stage 1 did, #779); the study's measurement is
@@ -1208,3 +1208,100 @@ the three runs):
   did not see (every cell with a sign change is a contour cell, so it never fires; `check_blocks` asserts it), and two
   shortcuts that only save work (stop growing at a transition or a mesh-side refusal; skip a cluster another grown block
   took in).
+
+### 7.13 Class S for smooth fields: Theorem 7 and the internal certificate (2026-11-22)
+
+Owner decision 2026-11-22 (after the research spike of PR #1356, note `docs/research/CONTOURING_ISOTOPY_SUBDIVISION_2026-11.md`
+there): build on the published statement of Plantinga and Vegter, after an independent review of the composition; the
+interval interface stays internal. This section is the statement the code implements; the spike's note has the
+measurements, the review and the reading of the two papers.
+
+**Setting.** K is the uniform grid of a dense `DualContouring` run (node coordinates the doubles `origin + h * i`, cells
+the closed boxes between them), f a field that is smooth on a neighbourhood of every cell named A+ below (a smooth
+function, or a `min` / `max` of smooth functions away from the piece boundaries), L its level set at the iso value, D the
+raw contour. For a cell c:
+
+- **Z(c)**: f - iso has no zero in c.
+- **A+(c)**: f is smooth on a neighbourhood of c, and an axis-aligned box G that contains every gradient of f on c has
+  a positive interval inner product with itself (each product of two independent copies of the interval, so a component
+  through 0 contributes its negative product). This is the published test with G as the value of an inclusion function;
+  it says that any two gradients on c have a positive inner product **and** that one partial derivative keeps its sign.
+
+**Theorem 7** (on the premise PV below). Assume: (P0) f - iso is not 0 at any node, and the contour's inside flag of
+every node is the true sign; (P1) every cell satisfies Z or A+; (P2) every cell of the outermost layer satisfies Z;
+(P3) the node spacings of the three axes are equal within a stated tolerance (the cells are cubes up to rounding);
+(M) D satisfies (H1) to (H4) of Theorem 2 (section 7.3). Then L is a closed smooth surface in the interior of the grid,
+and D is isotopic to L.
+
+*Proof sketch.* (1) By (P1) L lies in the A+ cells, where the gradient does not vanish (take both points equal): L is a
+surface; by (P2) it is closed and inside. (2) The set where f is not smooth meets no A+ cell, so it has a positive
+distance from them and a neighbourhood of it lies in Z cells, where |f - iso| is bounded below; a mollification there,
+blended with a smooth cutoff, gives a smooth function with the same zero set, the same sign at every point and the same
+values near the A+ cells, which extends beyond the grid without zeros. (3) **Premise PV**: for a smooth function with a
+bounded regular zero set and a regular grid of cubes in which every cell satisfies Z or A+, the marching-cubes-type
+mesh M (one vertex on every edge whose ends differ in sign, either pairing on a face with alternating corner signs as
+long as both cells use the same, one disk per loop) is isotopic to the zero set (S. Plantinga, G. Vegter, SGP 2004 and
+The Visual Computer 23(1), 2007, section 5 of both). (4) By Theorem 2 with (M) and (P0), D is compatible with K, with the
+sign-changing edges and its face rule as pattern. (5) With D's pairing (it depends on the signs of the face only), and
+its disks pushed slightly into their cells, M is a closed PL surface compatible with K with D's pattern; Theorem 1 gives
+D ~ M. (6) D ~ M ~ L. ∎
+
+What is a premise and what is not. The composition (steps 1, 2, 4, 5, 6) was reviewed independently on 2026-11-22 and
+holds. The premise PV is a published, peer-reviewed argument of about two pages at the level of a geometric sketch; it
+is not re-proved here. Three points of it are read, not quoted: that its deformations extend to an isotopy of space
+(the claim above is therefore "isotopic", and "ambient" only with that reading); that cells which are cubes up to the
+tolerance of (P3) are covered; and that the five corner-sign configurations it excludes are excluded under A+ (for one
+of them its argument uses only the pairwise fact). The code therefore checks the configuration of every cell itself
+and refuses the five. The weaker pairwise fact alone (gradients pairwise less than 90 degrees apart, proved by testing
+pairs of sub-boxes) is **not** covered by the published proof, which uses the constant sign of a partial derivative,
+and is not used.
+
+**Never certified, by this theorem:** a cell on a crease of the level set (two pieces of a `min` / `max` meeting on
+L), whatever the angle; a cell that holds two sheets (a wall, gap or tube below about two cells); a singular point of
+f; a node on the level set; a surface that leaves the grid. There is no partial statement: one refused cell voids the
+claim for the whole contour, because the isotopy of the premise is not cell by cell. A lattice clipped to a domain
+(`TpmsLattice`) has a crease at the cut and is therefore outside this theorem; the route to it is Theorem 5 on
+box-shaped blocks (owner decision 2026-11-22, a proof step of its own).
+
+**The implementation** (internal, report only, no public API): `ContouringSmoothCertificate` (`mesh_ops/`), on the
+interface `IntervalImplicit3d` with `IntervalMath` and `IntervalTpms` (`implicit/IntervalImplicit.cs`). Non-exact files;
+every decision is the sign of a bound of an `ExactInterval` (round to nearest, widened by one unit in the last place per
+operation) or an exact comparison of doubles.
+
+| Hypothesis | Test | Refusal |
+|---|---|---|
+| (P1) Z | the enclosure of f - iso over the cell, or over each of its 2^t sub-boxes per axis (t up to 2), excludes 0; boxes of up to 8^3 cells are tried first | - |
+| (P1) A+ | every sub-box smooth, and the hull of the sub-boxes' gradient enclosures (an enclosure of the gradient over the cell) passes the interval product test | `GradientTest`, or `NotSmooth` if a sub-box may hold a non-smooth point |
+| configuration guard | at most one face with alternating corner signs, and the minority sign is not a body diagonal: the nine admitted of the 14 configurations | `Configuration` |
+| (P0) | at the nodes of a cell that is not zero-free: a point enclosure with a certified sign; at every node of a zero-free box: the box's sign; both compared with the contour's inside flag | `NodeSign` |
+| (P2) | no cell of the outermost layer may fail Z | `OuterLayer` (cell and run) |
+| (P3) | largest spacing at most the smallest times 1 + 2^-20, over the three axes (differences of neighbouring doubles, the comparison rounded to the safe side) | `CellShape` (run) |
+| (M) | `DualContouring`'s record: `CertificateMeshFailures` (run), `CertificateMeshCells` (cells) | `MeshSide` |
+| the contour is the run that made the mesh | `DualContouring.CertificateRun`: set by a finished `Generate` with `RecordCertificateData`, with the grid and inside rule of that run; refused unless it is dense, of one cell size, and `IsoValue`, `InsideIsLess`, `Bounds.Min`, `CellSize` and `CornerDimensions` are unchanged since | `NoRecord` (run) |
+
+- **sin and cos** are not taken from the runtime (its error is unspecified): the argument is reduced by an integer
+  multiple of an interval that contains pi / 2 (a double and its successor), and sin r = r - r^3/3! + ... + r^13/13!,
+  cos r = 1 - r^2/2! + ... + r^12/12! are evaluated in `ExactInterval` arithmetic with the Lagrange remainders
+  |r|^15 / 15! and |r|^14 / 14! added (at most 2.7e-14 and 5.1e-13 for |r| <= 0.8; beyond 0.8 the result is [-1, 1]).
+  The degrees are chosen so that every term and both remainders are visible to the exact tests. Over an interval: the
+  hull of the two ends, widened to +-1 wherever a multiple test cannot exclude an extremum.
+- **Rounding range.** Sound over the whole double range: a subnormal result is widened by one spacing, an overflow
+  gives a true (infinite or largest) bound, a NaN the whole line, which fails every test. No dependency on FMA (every
+  operation is rounded and widened on its own) or on a rounding mode; flush-to-zero must be off (the .NET default).
+- **Deterministic.** The parallel path works on blocks of 8^3 cells and merges their results in block order; it equals
+  the serial path. Under a scaling of the whole problem by a power of two the result is the same bit for bit. Sub-boxes
+  are cut between the grid's own node coordinates (non-decreasing breakpoints), so they cover a cell exactly whatever
+  the rounding.
+- **Tests** (`ContouringSmoothCertificateTests`): the sin / cos enclosures against an exact integer Taylor reference;
+  the six `IntervalTpms` functions against `TpmsLattice.Evaluate` and difference quotients; the gradient test, the
+  spacing test and the configuration guard on their own (the guard is 9 of 14 by enumeration); a cell-level oracle (in
+  every cell that is not listed, sampled values keep their sign, or sampled gradients are pairwise acute with one
+  component of constant sign); wrong contours and every refusal reason; invariance over `Similarity.All()`, reuse,
+  parallel equals serial.
+
+Measured ([benchmarks/ContouringSmoothCertificate](../../benchmarks/ContouringSmoothCertificate/README.md), the six
+nodal functions of `TpmsLattice` at level 0 with a smooth cap, 24 runs): certified in full are the gyroid and Schwarz P
+at 32 cells per period, I-WP at 16 and 32, Schwarz D at 64; not the gyroid and Schwarz P at 16 (2.7 and 5.8 % of the
+cells fail), and not Neovius and the Lidinoid at 16 or 32 (loose gradient enclosures). The serial certificate takes 1.1
+to 11 times a contouring that evaluates the field in plain doubles on the certified runs, the parallel one 0.4 to 2.9
+times.

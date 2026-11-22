@@ -1,0 +1,181 @@
+## Today, per set
+
+| set | cases | exact result not empty | results with a removed component | emptied (Success, no triangles) | removed components | thickest removed, of the largest diagonal | thickest removed, ulps | replay equals the boolean |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| issue | 6 | 6 | 3 | 3 | 3 | 5.2e-06 | 3.5e+10 | 6 of 6 |
+| sheet | 1920 | 1865 | 828 | 828 | 829 | 8.5e-06 | 1.1e+11 | 1865 of 1865 |
+| plate | 128 | 128 | 45 | 0 | 46 | 4.2e-12 | 2e+04 | 128 of 128 |
+| drop | 23 | 23 | 8 | 6 | 8 | 9.5e-06 | 6.9e+10 | 23 of 23 |
+| copies | 936 | 936 | 814 | 779 | 2539 | 9.6e-06 | 3.7e+10 | 936 of 936 |
+| clusters | 198 | 198 | 62 | 0 | 134 | 4.1e-18 | 0.13 | 198 of 198 |
+| utm | 114 | 114 | 10 | 0 | 20 | 1.3e-09 | 0.0047 | 114 of 114 |
+| booleans | 198 | 198 | 2 | 0 | 2 | 2.7e-18 | 0.067 | 198 of 198 |
+| cylinder | 6 | 6 | 0 | 0 | 0 | 0 | 0 | 6 of 6 |
+
+## The sheet of #1216, scaled: the thinnest sheet kept today
+
+Thickness t = L 2^-k, k = 7, 10, ... 52; per frame and offset the largest k (the thinnest sheet) that is kept over the four sizes L (smallest and largest of the four), and why the next one goes.
+
+| frame | offset / L | thinnest kept, k | t / diagonal there | sheets removed | of them: by an edit elsewhere in the sheet | by their own side triangles (degenerate area) | untouched, zero volume | exact result empty |
+|---|---:|---|---:|---:|---:|---:|---:|---:|
+| axis | 0 | 37 | 5.1e-12 | 20 | 0 | 20 | 0 | 0 |
+| axis | 10 | 37 | 5.1e-12 | 20 | 0 | 20 | 0 | 0 |
+| axis | 1000 | 37 | 5.1e-12 | 20 | 0 | 20 | 0 | 0 |
+| axis | 100000 | 37 | 5.1e-12 | 16 | 0 | 16 | 0 | 4 |
+| axis | 1e+07 | 37 | 5.1e-12 | 8 | 0 | 8 | 0 | 12 |
+| rz | 0 | 34 | 4.1e-11 | 24 | 0 | 24 | 0 | 0 |
+| rz | 10 | 34 | 4.1e-11 | 24 | 0 | 24 | 0 | 0 |
+| rz | 1000 | 34 | 4.1e-11 | 24 | 0 | 24 | 0 | 0 |
+| rz | 100000 | 34 | 4.1e-11 | 20 | 0 | 20 | 0 | 4 |
+| rz | 1e+07 | 34 | 4.1e-11 | 12 | 0 | 12 | 0 | 12 |
+| rza | 0 | 34 | 4.1e-11 | 24 | 0 | 24 | 0 | 0 |
+| rza | 10 | 34 | 4.1e-11 | 24 | 0 | 24 | 0 | 0 |
+| rza | 1000 | 34 | 4.1e-11 | 24 | 0 | 24 | 0 | 0 |
+| rza | 100000 | 34 | 4.1e-11 | 20 | 0 | 20 | 0 | 4 |
+| rza | 1e+07 | 34 | 4.1e-11 | 12 | 0 | 12 | 0 | 12 |
+| issue | 0 | 13 | 8.6e-05 | 52 | 52 | 0 | 0 | 0 |
+| issue | 10 | 13 to 52 | 8.6e-05 | 13 | 13 | 0 | 0 | 0 |
+| issue | 1000 | 13 to 52 | 8.6e-05 | 13 | 13 | 0 | 0 | 0 |
+| issue | 100000 | 52 | 1.6e-16 | 0 | 0 | 0 | 0 | 0 |
+| issue | 1e+07 | 52 | 1.6e-16 | 0 | 0 | 0 | 0 | 0 |
+| gen | 0 | 13 | 8.6e-05 | 52 | 32 | 20 | 0 | 0 |
+| gen | 10 | 13 | 8.6e-05 | 52 | 32 | 20 | 0 | 0 |
+| gen | 1000 | 13 to 19 | 8.6e-05 | 50 | 30 | 20 | 0 | 0 |
+| gen | 100000 | 13 to 46 | 8.6e-05 | 46 | 30 | 16 | 0 | 0 |
+| gen | 1e+07 | 13 to 19 | 8.6e-05 | 47 | 47 | 0 | 0 | 0 |
+| gena | 0 | 19 | 1.3e-06 | 44 | 24 | 20 | 0 | 0 |
+| gena | 10 | 19 | 1.3e-06 | 44 | 24 | 20 | 0 | 0 |
+| gena | 1000 | 19 | 1.3e-06 | 44 | 24 | 20 | 0 | 0 |
+| gena | 100000 | 19 | 1.3e-06 | 44 | 24 | 20 | 0 | 0 |
+| gena | 1e+07 | 19 to 40 | 1.3e-06 | 35 | 35 | 0 | 0 | 7 |
+
+### The size of the edit that condemns a sheet
+
+Sheets removed today whose own triangles are not degenerate (the column "by an edit elsewhere"): the largest drift of the repair's edits against the thickness of the sheet.
+
+| frame | sheets | drift / thickness: smallest | median | largest | thickness / ulp: smallest | largest |
+|---|---:|---:|---:|---:|---:|---:|
+| issue | 78 | 5.0e-08 | 1.7e-06 | 2.8e-06 | 3.7e+05 | 8.4e+10 |
+| gen | 171 | 2.3e-13 | 1.0e+00 | 1.2e+03 | 8.5e-03 | 1.1e+11 |
+| gena | 131 | 1.0e+00 | 1.0e+01 | 2.2e+03 | 1.6e-02 | 1.7e+09 |
+
+## The cause: thin by the bound, and edited anywhere
+
+Closed components thinner than the bound (1e-5 of the largest component's diagonal, or 256 ulps) that are not tiny and not of numerically zero volume, all sets: removed today, by whether the repair edited a vertex of the component or left a degenerate triangle in it.
+
+| sets | edited: components | of them removed | not edited: components | of them removed |
+|---|---:|---:|---:|---:|
+| issue, sheet, plate, drop | 692 | 692 | 657 | 0 |
+| copies, clusters, utm, booleans, cylinder | 2284 | 2284 | 75 | 0 |
+
+## Solids the inputs define (sets issue, sheet, plate, drop): 1609 components that are thin, tiny or of zero volume by today's tests
+
+Per band of thickness (2 volume / area of the exact result, rounded, in units in the last place of the component's largest coordinate): removed / kept defective / kept deformed / kept.
+
+| rule | below 1 | 1 to 4 | 4 to 256 | 256 to 2^16 | 2^16 to 2^32 | 2^32 and more |
+|---|---|---|---|---|---|---|
+| components | 436 | 67 | 261 | 330 | 457 | 58 |
+| today | 372 / 0 / 0 / 64 | 51 / 0 / 0 / 16 | 136 / 0 / 0 / 125 | 142 / 0 / 0 / 188 | 165 / 0 / 0 / 292 | 20 / 0 / 0 / 38 |
+| no removal | 0 / 0 / 282 / 154 | 0 / 0 / 42 / 25 | 0 / 0 / 87 / 174 | 0 / 0 / 51 / 279 | 0 / 0 / 1 / 456 | 0 / 0 / 0 / 58 |
+| (a) below 4 ulps, after the edits | 268 / 0 / 104 / 64 | 10 / 0 / 41 / 16 | 0 / 0 / 87 / 174 | 0 / 0 / 51 / 279 | 2 / 0 / 0 / 455 | 0 / 0 / 0 / 58 |
+| (a) below 4 ulps | 372 / 0 / 0 / 64 | 51 / 0 / 0 / 16 | 0 / 0 / 87 / 174 | 0 / 0 / 51 / 279 | 2 / 0 / 0 / 455 | 0 / 0 / 0 / 58 |
+| (a) below 256 ulps | 372 / 0 / 0 / 64 | 51 / 0 / 0 / 16 | 136 / 0 / 0 / 125 | 0 / 0 / 51 / 279 | 2 / 0 / 0 / 455 | 0 / 0 / 0 / 58 |
+| (a) below 2^16 ulps | 372 / 0 / 0 / 64 | 51 / 0 / 0 / 16 | 136 / 0 / 0 / 125 | 142 / 0 / 0 / 188 | 2 / 0 / 0 / 455 | 0 / 0 / 0 / 58 |
+| (a) below 256 ulps, no tiny rule | 372 / 0 / 0 / 64 | 51 / 0 / 0 / 16 | 136 / 0 / 0 / 125 | 0 / 0 / 51 / 279 | 0 / 0 / 1 / 456 | 0 / 0 / 0 / 58 |
+| (b) still defective | 192 / 0 / 180 / 64 | 0 / 0 / 42 / 25 | 0 / 0 / 87 / 174 | 0 / 0 / 51 / 279 | 0 / 0 / 1 / 456 | 0 / 0 / 0 / 58 |
+| (c) below 4 ulps, or (b) | 372 / 0 / 0 / 64 | 51 / 0 / 0 / 16 | 0 / 0 / 87 / 174 | 0 / 0 / 51 / 279 | 0 / 0 / 1 / 456 | 0 / 0 / 0 / 58 |
+| (c) below 256 ulps, or (b) | 372 / 0 / 0 / 64 | 51 / 0 / 0 / 16 | 136 / 0 / 0 / 125 | 0 / 0 / 51 / 279 | 0 / 0 / 1 / 456 | 0 / 0 / 0 / 58 |
+| (d1) (c) at 4, or volume changed 2x | 372 / 0 / 0 / 64 | 51 / 0 / 0 / 16 | 87 / 0 / 0 / 174 | 51 / 0 / 0 / 279 | 1 / 0 / 0 / 456 | 0 / 0 / 0 / 58 |
+| (d1) (c) at 256, or volume changed 2x | 372 / 0 / 0 / 64 | 51 / 0 / 0 / 16 | 136 / 0 / 0 / 125 | 51 / 0 / 0 / 279 | 1 / 0 / 0 / 456 | 0 / 0 / 0 / 58 |
+| (d2) (c) at 4, or thinner than twice the drift | 372 / 0 / 0 / 64 | 51 / 0 / 0 / 16 | 135 / 0 / 0 / 126 | 138 / 0 / 0 / 192 | 77 / 0 / 0 / 380 | 0 / 0 / 0 / 58 |
+| (d2) (c) at 256, or thinner than twice the drift | 372 / 0 / 0 / 64 | 51 / 0 / 0 / 16 | 136 / 0 / 0 / 125 | 138 / 0 / 0 / 192 | 77 / 0 / 0 / 380 | 0 / 0 / 0 / 58 |
+
+## What is left between nearly coincident surfaces (sets copies, clusters, utm, booleans, cylinder): 2770 components that are thin, tiny or of zero volume by today's tests
+
+Per band of thickness (2 volume / area of the exact result, rounded, in units in the last place of the component's largest coordinate): removed / kept defective / kept deformed / kept.
+
+| rule | below 1 | 1 to 4 | 4 to 256 | 256 to 2^16 | 2^16 to 2^32 | 2^32 and more |
+|---|---|---|---|---|---|---|
+| components | 1103 | 329 | 567 | 391 | 326 | 54 |
+| today | 1103 / 0 / 0 / 0 | 328 / 0 / 0 / 1 | 557 / 0 / 0 / 10 | 364 / 0 / 0 / 27 | 295 / 0 / 0 / 31 | 48 / 0 / 0 / 6 |
+| no removal | 0 / 58 / 889 / 156 | 0 / 12 / 186 / 131 | 0 / 14 / 287 / 266 | 0 / 0 / 195 / 196 | 0 / 2 / 26 / 298 | 0 / 0 / 0 / 54 |
+| (a) below 4 ulps, after the edits | 578 / 18 / 507 / 0 | 137 / 2 / 183 / 7 | 2 / 14 / 287 / 264 | 0 / 0 / 195 / 196 | 0 / 2 / 26 / 298 | 0 / 0 / 0 / 54 |
+| (a) below 4 ulps | 1103 / 0 / 0 / 0 | 328 / 0 / 0 / 1 | 0 / 14 / 287 / 266 | 0 / 0 / 195 / 196 | 0 / 2 / 26 / 298 | 0 / 0 / 0 / 54 |
+| (a) below 256 ulps | 1103 / 0 / 0 / 0 | 328 / 0 / 0 / 1 | 557 / 0 / 0 / 10 | 0 / 0 / 195 / 196 | 0 / 2 / 26 / 298 | 0 / 0 / 0 / 54 |
+| (a) below 2^16 ulps | 1103 / 0 / 0 / 0 | 328 / 0 / 0 / 1 | 557 / 0 / 0 / 10 | 364 / 0 / 0 / 27 | 0 / 2 / 26 / 298 | 0 / 0 / 0 / 54 |
+| (a) below 256 ulps, no tiny rule | 1103 / 0 / 0 / 0 | 328 / 0 / 0 / 1 | 557 / 0 / 0 / 10 | 0 / 0 / 195 / 196 | 0 / 2 / 26 / 298 | 0 / 0 / 0 / 54 |
+| (b) still defective | 323 / 0 / 761 / 19 | 12 / 0 / 186 / 131 | 14 / 0 / 287 / 266 | 0 / 0 / 195 / 196 | 2 / 0 / 26 / 298 | 0 / 0 / 0 / 54 |
+| (c) below 4 ulps, or (b) | 1103 / 0 / 0 / 0 | 328 / 0 / 0 / 1 | 14 / 0 / 287 / 266 | 0 / 0 / 195 / 196 | 2 / 0 / 26 / 298 | 0 / 0 / 0 / 54 |
+| (c) below 256 ulps, or (b) | 1103 / 0 / 0 / 0 | 328 / 0 / 0 / 1 | 557 / 0 / 0 / 10 | 0 / 0 / 195 / 196 | 2 / 0 / 26 / 298 | 0 / 0 / 0 / 54 |
+| (d1) (c) at 4, or volume changed 2x | 1103 / 0 / 0 / 0 | 328 / 0 / 0 / 1 | 301 / 0 / 0 / 266 | 195 / 0 / 0 / 196 | 28 / 0 / 0 / 298 | 0 / 0 / 0 / 54 |
+| (d1) (c) at 256, or volume changed 2x | 1103 / 0 / 0 / 0 | 328 / 0 / 0 / 1 | 557 / 0 / 0 / 10 | 195 / 0 / 0 / 196 | 28 / 0 / 0 / 298 | 0 / 0 / 0 / 54 |
+| (d2) (c) at 4, or thinner than twice the drift | 1103 / 0 / 0 / 0 | 328 / 0 / 0 / 1 | 557 / 0 / 0 / 10 | 358 / 0 / 0 / 33 | 282 / 0 / 0 / 44 | 48 / 0 / 0 / 6 |
+| (d2) (c) at 256, or thinner than twice the drift | 1103 / 0 / 0 / 0 | 328 / 0 / 0 / 1 | 557 / 0 / 0 / 10 | 358 / 0 / 0 / 33 | 282 / 0 / 0 / 44 | 48 / 0 / 0 / 6 |
+
+## The rules, scored
+
+A *solid lost*: a component of the sets issue, sheet, plate or drop of 4 ulps or more that is removed. A *solid deformed*: one kept with its volume changed by more than a factor 2 (*kept* without more: within a factor 2 of the exact result's, no defect left). A *sliver kept*: a component of the other sets below 4 ulps that stays. *Between* (4 ulps and more in those sets): the decision. A result is *not clean* if `NotCleanReasons` is not empty (an empty result counts as clean, as today).
+
+| rule | solids lost (of 1106) | solids deformed | solids kept defective | slivers kept (of 1432) | between: removed (of 1338) | between: kept defective | between: kept deformed | between: kept | results not clean, solids' sets (of 2022) | results not clean, other sets (of 1452) | results emptied | results that differ from today |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| today | 463 | 0 | 0 | 1 | 1264 | 0 | 0 | 74 | 0 | 29 | 1616 | 0 |
+| no removal | 0 | 139 | 0 | 1432 | 0 | 16 | 508 | 814 | 30 | 182 | 0 | 1772 |
+| (a) below 4 ulps, after the edits | 2 | 138 | 0 | 717 | 2 | 16 | 508 | 812 | 8 | 97 | 374 | 1302 |
+| (a) below 4 ulps | 2 | 138 | 0 | 1 | 0 | 16 | 508 | 814 | 0 | 45 | 695 | 973 |
+| (a) below 256 ulps | 138 | 51 | 0 | 1 | 557 | 2 | 221 | 558 | 0 | 31 | 1048 | 607 |
+| (a) below 2^16 ulps | 280 | 0 | 0 | 1 | 921 | 2 | 26 | 389 | 0 | 31 | 1307 | 329 |
+| (a) below 256 ulps, no tiny rule | 136 | 52 | 0 | 1 | 557 | 2 | 221 | 558 | 0 | 31 | 1048 | 609 |
+| (b) still defective | 0 | 139 | 0 | 1097 | 16 | 0 | 508 | 814 | 20 | 112 | 222 | 1517 |
+| (c) below 4 ulps, or (b) | 0 | 139 | 0 | 1 | 16 | 0 | 508 | 814 | 0 | 29 | 707 | 963 |
+| (c) below 256 ulps, or (b) | 136 | 52 | 0 | 1 | 559 | 0 | 221 | 558 | 0 | 29 | 1048 | 609 |
+| (d1) (c) at 4, or volume changed 2x | 139 | 0 | 0 | 1 | 524 | 0 | 0 | 814 | 0 | 29 | 1018 | 633 |
+| (d1) (c) at 256, or volume changed 2x | 188 | 0 | 0 | 1 | 780 | 0 | 0 | 558 | 0 | 29 | 1163 | 482 |
+| (d2) (c) at 4, or thinner than twice the drift | 350 | 0 | 0 | 1 | 1245 | 0 | 0 | 93 | 0 | 29 | 1494 | 126 |
+| (d2) (c) at 256, or thinner than twice the drift | 351 | 0 | 0 | 1 | 1245 | 0 | 0 | 93 | 0 | 29 | 1495 | 125 |
+
+## Rule (d1): the factor of the volume change
+
+Rule (c) at 4 ulps, plus: an edited component that is thin or tiny by today's tests goes if the repair changed its volume by more than the factor (computed here from the components; at the factor 2 it must give the tool's own rule).
+
+Check at the factor 2: the same removed components as the tool's rule on 3474 of 3474 results.
+
+| factor | solids lost (of 1106) | solids kept | between: removed (of 1338) | between: kept |
+|---:|---:|---:|---:|---:|
+| 1 | 277 | 829 | 1192 | 146 |
+| 1.001 | 252 | 854 | 1085 | 253 |
+| 1.01 | 176 | 930 | 940 | 398 |
+| 1.1 | 154 | 952 | 795 | 543 |
+| 2 | 139 | 967 | 524 | 814 |
+| 10 | 95 | 1011 | 487 | 851 |
+| 1000 | 26 | 1080 | 341 | 997 |
+
+## Nearly coincident copies: A minus A', by the distance of the copy
+
+Per distance d = 2^e ulps of the largest coordinate (all shapes, modes, sizes and places): the thin components of the exact result, and what today's rule and three candidates do with them (removed / kept defective / kept deformed / kept).
+
+| e | cases | exact result empty | thin components | thickness, ulps: median | largest | today | (b) | (c) at 4 ulps | (d1) at 4 ulps | results not clean: today | (b) | (c) at 4 | (d1) at 4 |
+|---:|---:|---:|---:|---:|---:|---|---|---|---|---:|---:|---:|---:|
+| 0 | 72 | 0 | 204 | 0.28 | 1.1 | 204 / 0 / 0 / 0 | 62 / 0 / 142 / 0 | 204 / 0 / 0 / 0 | 204 / 0 / 0 / 0 | 0 | 15 | 0 | 0 |
+| 1 | 72 | 0 | 305 | 0.35 | 1.3 | 305 / 0 / 0 / 0 | 95 / 0 / 199 / 11 | 305 / 0 / 0 / 0 | 305 / 0 / 0 / 0 | 0 | 15 | 0 | 0 |
+| 2 | 72 | 0 | 239 | 0.4 | 2.3 | 239 / 0 / 0 / 0 | 66 / 0 / 139 / 34 | 239 / 0 / 0 / 0 | 239 / 0 / 0 / 0 | 0 | 6 | 0 | 0 |
+| 3 | 72 | 0 | 262 | 0.57 | 4.7 | 261 / 0 / 0 / 1 | 67 / 0 / 151 / 44 | 243 / 0 / 12 / 7 | 255 / 0 / 0 / 7 | 0 | 4 | 0 | 0 |
+| 4 | 72 | 0 | 269 | 1.3 | 9.1 | 268 / 0 / 0 / 1 | 19 / 0 / 180 / 70 | 197 / 0 / 38 / 34 | 235 / 0 / 0 / 34 | 0 | 2 | 0 | 0 |
+| 6 | 72 | 0 | 207 | 9.5 | 34 | 201 / 0 / 0 / 6 | 5 / 0 / 119 / 83 | 86 / 0 / 63 / 58 | 149 / 0 / 0 / 58 | 0 | 0 | 0 | 0 |
+| 8 | 72 | 0 | 174 | 42 | 1.4e+02 | 173 / 0 / 0 / 1 | 2 / 0 / 86 / 86 | 13 / 0 / 81 / 80 | 94 / 0 / 0 / 80 | 0 | 0 | 0 | 0 |
+| 10 | 72 | 0 | 220 | 34 | 5.4e+02 | 216 / 0 / 0 / 4 | 0 / 0 / 112 / 108 | 0 / 0 / 112 / 108 | 112 / 0 / 0 / 108 | 0 | 0 | 0 | 0 |
+| 14 | 72 | 0 | 228 | 1.5e+03 | 8.7e+03 | 218 / 0 / 0 / 10 | 2 / 0 / 114 / 112 | 2 / 0 / 114 / 112 | 116 / 0 / 0 / 112 | 0 | 0 | 0 | 0 |
+| 18 | 72 | 0 | 192 | 4.5e+04 | 1.4e+05 | 162 / 0 / 0 / 30 | 0 / 0 / 76 / 116 | 0 / 0 / 76 / 116 | 76 / 0 / 0 / 116 | 0 | 0 | 0 | 0 |
+| 24 | 72 | 0 | 110 | 1.2e+06 | 8.9e+06 | 100 / 0 / 0 / 10 | 2 / 0 / 12 / 96 | 2 / 0 / 12 / 96 | 14 / 0 / 0 / 96 | 0 | 0 | 0 | 0 |
+| 30 | 72 | 0 | 96 | 2e+08 | 5.7e+08 | 92 / 0 / 0 / 4 | 0 / 0 / 0 / 96 | 0 / 0 / 0 / 96 | 0 / 0 / 0 / 96 | 6 | 6 | 6 | 6 |
+| 36 | 72 | 0 | 108 | 5.5e+09 | 3.7e+10 | 100 / 0 / 0 / 8 | 0 / 0 / 0 / 108 | 0 / 0 / 0 / 108 | 0 / 0 / 0 / 108 | 0 | 0 | 0 | 0 |
+
+## Against a grid rounding: the thickness of the lost solids in cells
+
+The grid a guaranteed scheme would use (SNAP_ROUNDING_3D_GUARANTEE_2026-11.md section 3): the smallest power of two g with g^2 / 2 >= 1e-12 times the squared diagonal of the result's box. Such a scheme merges sheets closer than a cell and keeps a slab of about two cells or more (that note, section 4.2).
+
+| solids of 4 ulps and more | all | 2 cells and thicker | 1 to 2 cells | below 1 cell |
+|---|---:|---:|---:|---:|
+| thin, tiny or of zero volume by today's tests | 1106 | 108 | 6 | 992 |
+| removed today | 463 | 23 | 1 | 439 |
+| removed today, kept by rule (c) at 4 ulps (volume within a factor 2) | 324 | 23 | 1 | 300 |
+
