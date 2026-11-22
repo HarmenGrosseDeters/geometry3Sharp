@@ -537,18 +537,21 @@ namespace geometry3Sharp.Tests
                 pts.Add(new Vector3d(rnd.NextDouble() * 2.2 - 1.1, (i % 2 == 0 ? -1 : 1) * (1.0 + 0.01 * rnd.NextDouble()), 0.2 * rnd.NextDouble()));
             var reference = new List<double>();
             ExactWindingCache.ResetBoundaryTreeStack();
+            Assert.Equal(0, ExactWindingCache.BoundaryTreeStackLength);           // (the reset really drops the thread's stack)
             foreach (Vector3d p in pts) { Assert.True(cache.TryEvaluateTreeBoundarySumX(p, out double s, out double e)); reference.Add(s); reference.Add(e); }
             int saved = ExactWindingCache.BoundaryTreeStackStart;
             try {
                 foreach (int start in new[] { 1, 2, 3, 4 }) {
                     ExactWindingCache.BoundaryTreeStackStart = start;
                     ExactWindingCache.ResetBoundaryTreeStack();
+                    Assert.Equal(0, ExactWindingCache.BoundaryTreeStackLength);
                     int i = 0;
                     foreach (Vector3d p in pts) {
                         Assert.True(cache.TryEvaluateTreeBoundarySumX(p, out double s, out double e));
                         Assert.Equal(reference[i++], s);
                         Assert.Equal(reference[i++], e);
                     }
+                    Assert.True(ExactWindingCache.BoundaryTreeStackLength >= start);     // started at `start`, grown as needed
                 }
             } finally {
                 ExactWindingCache.BoundaryTreeStackStart = saved;

@@ -76,6 +76,7 @@ namespace g3
         // the start size of the traversal stack of a thread (the tree is balanced: depth <= 31, so 128 never grows); tests make it small
         internal static int BoundaryTreeStackStart = 128;
         internal static void ResetBoundaryTreeStack() { boundaryTreeStack = null; }
+        internal static int BoundaryTreeStackLength { get { return boundaryTreeStack == null ? 0 : boundaryTreeStack.Length; } }
 
         internal int BoundaryCount { get { return boundary.Length; } }
         internal int TriangleCount { get { return triCount; } }
