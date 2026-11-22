@@ -25,7 +25,7 @@ For a stronger paired fixture, keep the first three points fixed and project the
 
 ## Integration decision and cost
 
-Use the four-site pair for a local edge-choice check and the 256-site disc for a full DelaunayMesh2 run. Check point retention, orientation, Euler's triangle count 2N−2−h (h hull vertices) and local empty-circle signs. Use Similarity.All2D() for planar triangulations. The study used an independent triangulation to select candidate quadruples and measured input geometry only. The production check below evaluates the proposed cases. Generation takes O(N) time and storage. Estimated integration effort is half a day for the two fixtures, exact sign checks and timing against an ordinary-case baseline.
+The proposed A/B used the four-site pair for a local edge-choice check and the 256-site disc for a full DelaunayMesh2 run. Check point retention, orientation, Euler's triangle count 2N−2−h (h hull vertices) and local empty-circle signs. Use Similarity.All2D() for planar triangulations. The study used an independent triangulation to select candidate quadruples and measured input geometry only. The production check below evaluates the proposed cases. Generation takes O(N) time and storage. Estimated integration effort is half a day for the two fixtures, exact sign checks and timing against an ordinary-case baseline.
 
 For Remesher, the disc gives an open triangulated patch with a separately identifiable boundary. For CVT, the same points provide a starting configuration whose clipped-cell energy can be measured before and after relaxation. Park both integrations until an experiment controls the boundary and measures the relevant output. Equal-area annuli alone cannot certify remeshing quality or CVT convergence.
 
@@ -106,5 +106,38 @@ direction = (q-center) / np.linalg.norm(q-center)
 for offset in [-1e-12, 1e-12]:
     candidate = center + radius*(1+offset)*direction
     print("relative radius offset", offset, "exact determinant sign", exact_sign(a,b,c,candidate))
+
+```
+
+## Ridley (1982): how much does rounding the angle matter?
+
+Ridley's published abstract identifies the Fibonacci divergence angle as optimal under his seed-packing model. We used the abstract for the research question. The following finite-sample nearest-neighbour experiment is an independent engineering metric and does not reproduce the paper's proof. [Primary source](https://doi.org/10.1016/0025-5564(82)90056-6)
+
+Holding radii and index order fixed, change only the angular increment. The fifth percentile of normalized nearest-neighbour distances measures crowding in the lower tail while reducing the influence of the central site. All six production triangulations returned Success, passed IsValid and used all input sites.
+
+| Sites | Angle | Minimum | Fifth percentile | Median | Production triangles |
+|---:|---|---:|---:|---:|---:|
+| 256 | golden | 1.000 | 1.670 | 1.678 | 489 |
+| 256 | 137.5° | 1.000 | 1.656 | 1.714 | 489 |
+| 256 | 137.6° | 1.000 | 1.193 | 1.442 | 489 |
+| 4096 | golden | 1.000 | 1.676 | 1.688 | 8135 |
+| 4096 | 137.5° | 1.000 | 1.150 | 1.549 | 8135 |
+| 4096 | 137.6° | 0.974 | 0.979 | 1.354 | 8156 |
+
+At 4096 sites the rounded angle reduced the fifth percentile by 31.4% while preserving the global minimum and triangle count. There is a geometric explanation: 137.5° is exactly 55/144 turns. In real arithmetic every 144th site returns to the same ray. The radial gap along that ray, multiplied by √N, is 144/(√(i+144)+√i), which decreases towards the rim. Computing the trigonometric functions in binary64 approximates these alignments. Their strength depends on the disc size.
+
+**Decision:** use the exact and rounded angle as a controlled pair in sampling-quality experiments. Report the lower-tail spacing and the sample count alongside the median. Generating either input costs O(N) and needs no stored data. Existing Delaunay checks succeeded on both. Park a new mesher CI case. Any claim about remeshing or relaxation needs a measurement of that operator's output.
+
+Reproduce the coordinates and statistics with the following Python listing. The production check consumes the resulting coordinates using the same driver procedure as the Vogel study.
+
+```python
+import numpy as np
+from scipy.spatial import cKDTree
+for n in [256, 4096]:
+    i = np.arange(n)
+    for label, angle in [('gold', np.pi*(3-np.sqrt(5))), ('rounded', np.deg2rad(137.5)), ('offset', np.deg2rad(137.6))]:
+        p = np.sqrt(i/n)[:,None]*np.column_stack((np.cos(i*angle), np.sin(i*angle)))
+        d = cKDTree(p).query(p, k=2)[0][:,1]*np.sqrt(n)
+        print(n, label, *np.quantile(d,[0,.05,.5]))
 
 ```
