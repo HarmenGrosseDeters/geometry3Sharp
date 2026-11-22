@@ -29,7 +29,7 @@ if (mesh != null) {
 | `.obj` | yes | yes | Materials (`.mtl`), face groups, UVs, vertex colors extension |
 | `.stl` | yes | yes | ASCII and binary (`WriteOptions.bWriteBinary`) |
 | `.off` | yes | yes | Fan-triangulates polygons; skips polygons with out-of-range indices with a warning |
-| `.g3mesh` | yes | yes | Packed binary `DMesh3` (`gSerialization`); validates counts and topology on restore |
+| `.g3mesh` | yes | yes | Packed binary `DMesh3` (`gSerialization`); validates counts and topology on restore, rejects non-finite coordinates (unless `AllowNonFiniteCoordinates`) |
 | `.xyz` | yes | yes | ASCII point cloud (`x y z` or `x y z nx ny nz`), vertex-only `DMesh3` |
 | `.ply` | yes | yes | ASCII & binary (LE/BE read, LE write); normals, colors, UVs, point sets |
 | `.3mf` | yes | yes | Core spec; build items, components, transforms; converts to mm by default |
@@ -37,9 +37,10 @@ if (mesh != null) {
 
 ### Precision, Units & Large Coordinates (UTM)
 
+- **float32 output at UTM-sized coordinates:** binary STL (`WriteOptions.bWriteBinary`) casts every vertex to `float32`, and many glTF/GLB and 3MF consumers read positions as `float32`. A `float32` has 24 mantissa bits, so at 5,000,000 m the spacing is 0.5 m and a vertex moves by up to 0.25 m. Recentre before writing (translate by the bounding-box center), keep the offset, and add it back after reading; `MeshIOExample.Float32RoundTrip` ([source](../examples/MeshIOExample.cs)) shows the error with and without. `GLTFWriter` and PLY need no manual step (see below); ASCII STL writes `RealPrecisionDigits` decimals and keeps the precision.
 - **PLY (`PLYReader` / `PLYWriter`):** positions are written as `double` unless `WriteOptions.RealPrecisionDigits <= 7`. Face-less `.ply` files load as vertex-only `DMesh3` point sets, which `MeshAlphaWrap(mesh)` accepts directly.
 - **glTF / GLB (`GLTFReader` / `GLTFWriter`):** glTF stores `float32` vertex positions. To preserve precision at large coordinates (such as UTM), `GLTFWriter` writes vertices relative to each mesh's bounding-box center and stores the center in the node translation. `GLTFReader` applies the node transform in `double`. Coordinates are not axis-converted (glTF is Y-up in meters). Materials, Draco, and meshopt are not supported.
-- **3MF (`ThreeMFReader` / `ThreeMFWriter`):** `ThreeMFReader.ConvertToMillimeters` is `true` by default. `ThreeMFWriter` writes coordinates unscaled in its configured `Unit` (millimeter by default).
+- **3MF (`ThreeMFReader` / `ThreeMFWriter`):** `ThreeMFReader.ConvertToMillimeters` is `true` by default. `ThreeMFWriter` writes coordinates unscaled in its configured `Unit` (millimeter by default). The package is byte-reproducible (output change, owner 2026-11-22): every zip entry carries the fixed time 1980-01-01 00:00:00 instead of the time of the write, so two writes of the same meshes with the same options give the same bytes on one runtime and operating system.
 - **XYZ (`XYZReader` / `XYZWriter`):** reads `x y z` or `x y z nx ny nz` per line into a vertex-only `DMesh3`; `XYZWriter` writes round-trip exact decimal values.
 
 ---

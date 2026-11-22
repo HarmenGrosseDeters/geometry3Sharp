@@ -145,6 +145,21 @@ namespace Meshing2Acceptance
         /// <summary>Even-odd position against one ring, by exact crossing counts.</summary>
         /// <summary> per ring: each vertex as an interval of doubles around its exact coordinates (x lo, x hi, y lo, y hi; NaN: unknown) </summary>
         static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Pt[], double[]> vertexBounds = new System.Runtime.CompilerServices.ConditionalWeakTable<Pt[], double[]>();
+        static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Pt[], double[]> edgeBoxes = new System.Runtime.CompilerServices.ConditionalWeakTable<Pt[], double[]>();
+
+        /// <summary> per edge i (from vertex i to the next): its box in doubles, the union of its two ends' boxes, as four values
+        /// (x low, x high, y low, y high); NaN where an end has no bounds </summary>
+        static double[] EdgeBoxes(Pt[] ring) => edgeBoxes.GetValue(ring, r => {
+            var vb = VertexBounds(r);
+            var b = new double[4 * r.Length];
+            for (int i = 0; i < r.Length; ++i) {
+                int j = (i + 1) % r.Length;
+                if (double.IsNaN(vb[4 * i]) || double.IsNaN(vb[4 * j])) { for (int k = 0; k < 4; ++k) b[4 * i + k] = double.NaN; continue; }
+                b[4 * i] = Math.Min(vb[4 * i], vb[4 * j]); b[4 * i + 1] = Math.Max(vb[4 * i + 1], vb[4 * j + 1]);
+                b[4 * i + 2] = Math.Min(vb[4 * i + 2], vb[4 * j + 2]); b[4 * i + 3] = Math.Max(vb[4 * i + 3], vb[4 * j + 3]);
+            }
+            return b;
+        });
 
         static double[] VertexBounds(Pt[] ring) => vertexBounds.GetValue(ring, r => {
             var b = new double[4 * r.Length];
@@ -209,8 +224,9 @@ namespace Meshing2Acceptance
         {
             if (ring.Length == 0) return Where.Outside;
             bool inside = false;
-            Q py = p.Qy;
+            Q py = default; bool pyKnown = false;   // (p.Qy, on first use: a gcd)
             var vb = VertexBounds(ring);
+            var eb = EdgeBoxes(ring);
             // the edges to look at: one bucket if p's y interval lies inside it (with a bucket of margin on each side of every edge,
             // so that rounding in the bucket index cannot drop an edge), else all
             int[] only = null;
@@ -231,28 +247,56 @@ namespace Meshing2Acceptance
             for (int q = 0; q < count; ++q) {
                 int i = only != null ? only[q] : q;
                 int j = (i + 1) % ring.Length;
-                if (filter && !double.IsNaN(vb[4 * i]) && !double.IsNaN(vb[4 * j])) {
-                    double eyl = Math.Min(vb[4 * i + 2], vb[4 * j + 2]), eyh = Math.Max(vb[4 * i + 3], vb[4 * j + 3]);
+                if (filter && !double.IsNaN(eb[4 * i])) {
+                    double eyl = eb[4 * i + 2], eyh = eb[4 * i + 3];
                     if (pyHi < eyl || pyLo > eyh) continue;
-                    double exl = Math.Min(vb[4 * i], vb[4 * j]), exh = Math.Max(vb[4 * i + 1], vb[4 * j + 1]);
+                    double exl = eb[4 * i], exh = eb[4 * i + 1];
                     if (exh < pxLo) continue;
                     if (exl > pxHi) {
                         // entirely right of p: a crossing if the ends lie on both sides of p's y (decided in doubles where possible)
                         int sa = vb[4 * i + 2] > pyHi ? 1 : vb[4 * i + 3] < pyLo ? -1 : 0, sb = vb[4 * j + 2] > pyHi ? 1 : vb[4 * j + 3] < pyLo ? -1 : 0;
+                        if (!pyKnown && (sa == 0 || sb == 0)) { py = p.Qy; pyKnown = true; }
                         bool aUp = sa != 0 ? sa > 0 : ring[i].Qy > py, bUp = sb != 0 ? sb > 0 : ring[j].Qy > py;
                         if (aUp != bUp) inside = !inside;
                         continue;
                     }
                 }
                 Pt a = ring[i], b = ring[j];
-                if (Exact.OnClosedSegment(a, b, p)) return Where.Boundary;
-                bool aAbove = a.Qy > py, bAbove = b.Qy > py;
+                // (filter: p surely off the edge's line, in doubles, decides "not on the edge" and the side without the exact tests; the
+                // side below is that of Exact.Orient(a, b, p) whenever the filter decides)
+                int sure = filter && !double.IsNaN(vb[4 * i]) && !double.IsNaN(vb[4 * j]) ? SureOrient(vb, i, j, pxLo, pxHi, pyLo, pyHi) : 0;
+                if (sure == 0 && Exact.OnClosedSegment(a, b, p)) return Where.Boundary;
+                bool aAbove, bAbove;
+                {
+                    int sa = filter && vb[4 * i + 2] > pyHi ? 1 : filter && vb[4 * i + 3] < pyLo ? -1 : 0, sb = filter && vb[4 * j + 2] > pyHi ? 1 : filter && vb[4 * j + 3] < pyLo ? -1 : 0;
+                    if (sa != 0) aAbove = sa > 0; else { if (!pyKnown) { py = p.Qy; pyKnown = true; } aAbove = a.Qy > py; }
+                    if (sb != 0) bAbove = sb > 0; else { if (!pyKnown) { py = p.Qy; pyKnown = true; } bAbove = b.Qy > py; }
+                }
                 if (aAbove == bAbove) continue;
                 // half-open rule on y: the edge counts if it crosses the ray to the right of p
-                int side = Exact.Orient(a, b, p);
+                int side = sure != 0 ? sure : Exact.Orient(a, b, p);
                 if (bAbove ? side > 0 : side < 0) inside = !inside;
             }
             return inside ? Where.Inside : Where.Outside;
+        }
+
+        /// <summary>
+        /// The sign of Orient(a, b, p) for the ring's vertices i and j and the point whose box is given, when doubles decide it (0: unsure).
+        /// The boxes are the exact coordinates rounded to within 1e-13 of themselves, so the middles are off by at most that; the bound is
+        /// the one of the oracle's SurelyOneSide: delta = 1e-12 of the largest coordinate times the factors of both products, plus 1e-12
+        /// of the products' sizes.
+        /// </summary>
+        static int SureOrient(double[] vb, int i, int j, double pxl, double pxh, double pyl, double pyh)
+        {
+            double ax = (vb[4 * i] + vb[4 * i + 1]) / 2, ay = (vb[4 * i + 2] + vb[4 * i + 3]) / 2, bx = (vb[4 * j] + vb[4 * j + 1]) / 2, by = (vb[4 * j + 2] + vb[4 * j + 3]) / 2;
+            double px = (pxl + pxh) / 2, py = (pyl + pyh) / 2;
+            double ux = bx - ax, uy = by - ay, vx = px - ax, vy = py - ay;
+            double l = ux * vy, r = uy * vx, det = l - r;
+            double big = Math.Max(Math.Max(Math.Max(Math.Abs(ax), Math.Abs(ay)), Math.Max(Math.Abs(bx), Math.Abs(by))), Math.Max(Math.Abs(px), Math.Abs(py)));
+            double delta = big * 1e-12;
+            double err = delta * (Math.Abs(ux) + Math.Abs(uy) + Math.Abs(vx) + Math.Abs(vy) + delta) + (Math.Abs(l) + Math.Abs(r)) * 1e-12 + double.Epsilon;
+            if (double.IsNaN(det) || double.IsInfinity(err) || big > 1e140 || (big < 1e-140 && big != 0)) return 0;
+            return det > err ? 1 : det < -err ? -1 : 0;
         }
 
         /// <summary> per ring: its box in doubles around the exact one (NaN: unknown) </summary>
@@ -434,6 +478,7 @@ namespace Meshing2Acceptance
             int next = 0;
             Q area = Q.Zero;
             var parity = new bool[rings.Count];
+            var containing = new List<int>();
             for (int s = 0; s + 1 < xs.Count; ++s) {
                 Q x0 = xs[s], x1 = xs[s + 1];
                 if (x0 == x1) continue;
@@ -447,10 +492,14 @@ namespace Meshing2Acceptance
                 }
                 spanning.Sort((p, q) => p.y.CompareTo(q.y));
                 Array.Clear(parity, 0, parity.Length);
+                // (the rings of odd parity, as their ids in ascending order, kept by insertion and removal: the same list as the scan of
+                // all rings gave for every gap, at the cost of the toggled ring only)
+                containing.Clear();
                 for (int i = 0; i + 1 < spanning.Count; ++i) {
-                    parity[spanning[i].ring] = !parity[spanning[i].ring];
-                    var containing = new List<int>();
-                    for (int k = 0; k < rings.Count; ++k) if (parity[k]) containing.Add(rings[k].k);
+                    int ring = spanning[i].ring;
+                    parity[ring] = !parity[ring];
+                    int at = containing.BinarySearch(rings[ring].k);
+                    if (parity[ring]) containing.Insert(~at, rings[ring].k); else containing.RemoveAt(at);
                     if (Decide(containing)) area += (spanning[i + 1].y - spanning[i].y) * (x1 - x0);
                 }
             }

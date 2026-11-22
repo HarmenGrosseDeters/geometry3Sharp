@@ -419,6 +419,10 @@ Problems where the library already has a head start and that could be researched
   mechanism for about 15 of 51 defects (scale and the similarities 8); symmetry and permutation caught no bug that the fixed code
   does not also show. Recommendation: build two relations (anisotropic cost, tiny perturbation), park the rest, drop the
   black-box part (needs a reference); stop rules in the note. Recommendation built as A1 and P1:
+  **Bug hunt over chains 2026-11-22** ([research/METAMORPHIC_BUG_HUNT_2026-11.md](../research/METAMORPHIC_BUG_HUNT_2026-11.md), harness
+  `benchmarks/MetamorphicBugHunt`): relations and chains Boolean → repair → remesh / reduce / quad / tet, the wrap, contouring,
+  the offset and the 2D mesher on procedural inputs, every Success checked independently. One defect (#1337: `MeshRobustRepair`
+  changes the solid of a clean one-part mesh); the other stages hold. Totals and what is left in the note.
   **A1 and P1 built 2026-11-16** (#988, merged 2026-11-16, `tests/geometry3Sharp.Tests/MetamorphicRelationTests.cs`, helpers in `Harness/MetamorphicRelations.cs`): fire on the fix parents (A1 on cbf8b78 with 136 018 wrap triangles, P1 on c677da7 with 402 vs 408 triangles, the open-mesh union only), quiet on master; the winding and `IsInside` checks are a regression net, not validated. The sweeps found two defects on master, pinned with their issues: **#985** (SafeRounding turns a union of flattened inputs into an empty open result, 689 of 1656 rows; fixed in #1027, closed 2026-11-17) and **#986** (QualityMesh2 returns Empty at aspect 2^41 and above; closed 2026-11-17 by #1028 as a documented tolerance limit, not a fix). Stop rule 1 of the note is not met (the relations did find defects).
 - **Bit-for-bit determinism across platforms.** net48 / net10, x64 / ARM, FMA, parallel paths: reproducible geometry
   for CAD and certification (eg medical devices).
@@ -547,6 +551,15 @@ Ordered by expected value for the library.
      variant was measured and dropped, the note, section 5.5); (b) the box-neighbour enumeration of the first search on results with long thin
      triangles (a join of the rounded triangles against all, tree quality); (c) the cost of `near` in the evaluations;
      (d) the tree and the setup over all triangles where few are rounded.
+   - Study 2026-11-22 (owner go; [ROUNDING_COST_2026-11.md](../research/ROUNDING_COST_2026-11.md); options with the
+     owner, nothing built): re-measured on `57623890`, the rounding is 3-77 % of a boolean on the 33 operations (median
+     22 %, 26 % of the sum). Upper bounds end to end: first search −5.5 % (−31 % on a procedural thin-triangle set),
+     `near` −8.9 %, tree and setup −1.5 %. (b) is two thirds to four fifths pair tests on box hits, not their
+     enumeration; the separating axes of section 5.3 computed once per triangle give −3.5 % of 48 operations (−8.9 % on
+     the thin set), hashes the same; split-clipped sub-boxes lose (+3.5 %), k-DOPs are weaker. On 102375 the Morton
+     tree visits five times the nodes of a median split (probe: −5 to −26 % on its booleans; not diagnosed). (c) the
+     linear list of `near` is its largest part; keeping its boxes gives −17.7 % of the rounding on the 24 operations
+     with many evaluations, hashes the same. (d) is lever 1a, below 2 %.
 4. **Sharp features (concave creases) in the alpha wrap, for tet meshing on CAD parts.**
    - The concave crease error is set by the empty α-ball: 4.7δ against the α limit (α+δ)/sin(θ/2) − α.
    - Closed without gain:
@@ -562,6 +575,9 @@ Ordered by expected value for the library.
      features (0.00, welding restores the clean result), overlapping boxes 0.80-0.82 against 0.94-0.96 with the union's
      creases given; the direct mitered offset is valid on 64 / 65. Leaning: write the
      validity theorem, cheap levers into #1237, no weighted-Delaunay wrap.
+     Option 1 built 2026-11-22 (owner go): [ALPHA_WRAP_FEATURE_VALIDITY.md](../design/ALPHA_WRAP_FEATURE_VALIDITY.md), the theorem
+     with its proof and one test per premise; the pass now refuses an operation next to a degenerate triangle and decides
+     the non-degeneracy of new triangles exactly. The band stays open; option 2 comes with #1237, option 3 is not decided.
    - Tet meshing stage 1 waits for it ([alpha-wrap-and-repair.md](alpha-wrap-and-repair.md), Alpha Wrap 3.0 lever 6).
    - Lever 6 result (2026-11-09, #498, 20 T1 + 6 procedural CAD solids, medians against today's pipeline A): only
      B (dual contouring on the winding number) is really sharp (edge Chamfer 0.22, edge F 0.98 against 1 / 0.61),
@@ -666,7 +682,8 @@ Ordered by expected value for the library.
       `ReducerBenchmark envelope`): a reduction driven by `PolyhedralEnvelope` is guaranteed inside the envelope, but ends at
       1.13-1.93x the triangles of `MaxDeviation` on curved inputs (the ε/√3 shape) and takes 5-98x the time in 5 of 6 runs (1.4x in one). Leaning: no-go
       for the paper's algorithm as the `Reducer`'s check; the owner's decision on the note's options is open. Side finding:
-      `MaxDeviation` takes 76 s on a flat-faced cube of 4332 triangles.
+      `MaxDeviation` took 76 s on a flat-faced cube of 4332 triangles; fixed in #1317 (patch bound in the check, also along
+      boundaries and creases: 5.8 s, the same meshes at the benchmark tolerances; 0.9-4.3x on the curved benchmark cases).
     - Question: a conservative bound that is cheap enough per collapse and still certifies the ε-envelope; the base for
       the envelope-guaranteed pipeline above ([hotspots.md](hotspots.md)).
     - Related issues: #848 (certify the patch bound of `TriangleDeviationBounds`, for `MeshHausdorffDistance.CertifiedUpper`; owner

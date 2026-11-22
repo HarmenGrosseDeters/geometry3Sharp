@@ -203,6 +203,7 @@ jobs:
     outputs:
       arithmetic: ${{ steps.select.outputs.arithmetic }}
       mesh: ${{ steps.select.outputs.mesh }}
+      skipped: ${{ steps.select.outputs.skipped }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -270,8 +271,17 @@ jobs:
             fi
             python3 tests/mutation/select_shards.py --all --only "${SHARDS:-all}" | tee -a "$GITHUB_OUTPUT"
           else
-            git diff --name-only "$BASE...$HEAD" | python3 tests/mutation/select_shards.py | tee -a "$GITHUB_OUTPUT"
+            git diff --name-only "$BASE...$HEAD" | python3 tests/mutation/select_shards.py --pr | tee -a "$GITHUB_OUTPUT"
           fi
+      - name: Shards with no full run on this PR
+        # (a shard that would run in full and is not gated makes no full run on a PR, run_stryker.sh NO_FULL: it is not
+        # started, so it shows as skipped, with the notice and the summary here; the scheduled run on master measures it)
+        if: github.event_name == 'pull_request' && steps.select.outputs.skipped != '' && steps.select.outputs.skipped != '[]'
+        env:
+          SKIPPED: ${{ steps.select.outputs.skipped }}
+        run: |
+          python3 tests/mutation/select_shards.py report "$SKIPPED"
+          python3 tests/mutation/select_shards.py report "$SKIPPED" --summary >> "$GITHUB_STEP_SUMMARY"
 
   exact-arithmetic:
     needs: changes

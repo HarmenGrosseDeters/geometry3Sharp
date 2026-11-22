@@ -313,19 +313,14 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void HousingRib_Thin_PinnedFailure_TheRepairThinsTheRib()
+        public void HousingRib_Thin_CleanInput_TheRepairPassesItThrough()
         {
-            // Today's result: a rib of 0.1 (1e-3 of the housing, a clean welded soup) is thinned to about 0.025 by MeshRobustRepair's Repair path (it
-            // moves the rib's faces together); it stays connected and the volume passes. The pipeline (no repair of a closed input) keeps 0.1.
-            // The first failing step of the library chain is the repair; the later steps carry it on.
+            // A rib of 0.1 (1e-3 of the housing, a clean welded soup) was thinned to about 0.025 by MeshRobustRepair's Repair path (it moved the rib's
+            // faces together). A clean input of one component is now returned as it is (#1337), so the library chain keeps the rib as the pipeline does.
             ReferencePart part = Parts.HousingRib(DefectSet.None(), PartFrame.Identity, 0.1);
             ChainResult lib = Chains.RunLibraryChain(part);
-            Assert.Equal("repair", lib.FirstFailingName());
-            Assert.Equal("repair", lib.FirstFailingName("ribThickness"));
-            Assert.Equal("-", lib.FirstFailingName("ribConnected"));
-            Assert.Equal("-", lib.FirstFailingName("volume"));
-            Assert.InRange(lib.FirstFailingStep("ribThickness").Check("ribThickness").Value, 0.02, 0.03);
-            Assert.False(Last(lib, "ribThickness").Pass);
+            Assert.Null(lib.FirstFailingStep());
+            Assert.True(Last(lib, "ribThickness").Pass);
             Assert.Null(Chains.RunPipelineChain(part).FirstFailingStep());
         }
 
@@ -366,7 +361,7 @@ namespace geometry3Sharp.Tests
             // Today's result (not a wanted one): a screw of 1e-3 (1e-5 of the housing) is a closed, welded body 1e-4 above the housing. The
             // exact boolean itself removes it: SafeRounding's component removal (Rounding.RemovedComponents) takes closed components thinner
             // than its threshold, which RoundingMaxDisplacement does not change here; with SafeRounding off the screw stays. MeshRobustRepair
-            // loses it before (ExactResolve, degenerate triangles), the pipeline at its boolean. First failing step: repair (library), pipeline.
+            // used to lose it too (ExactResolve, degenerate triangles; fixed by #1363, see below), the pipeline loses it at its boolean (first failing step: pipeline).
             ReferencePart part = Parts.ScrewAssembly(1e-5, DefectSet.None(), PartFrame.Identity);
             var kept = new ExactMeshBoolean(part.Input, part.Cutter, ExactMeshBoolean.Operations.Difference) { SafeRounding = false };
             Assert.True(kept.Compute());
@@ -386,13 +381,15 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(pair.Item2, Checks.Components(b.Result, 1e-5).Count);
             }
 
+            // The library chain no longer loses it (#1363): the needle cleanup of the repair collapsed the screw's degenerate triangles to their midpoint and
+            // moved it; it now collapses onto the corner or the end that keeps the volume, bounded, so the screw stays a separate part of its size.
             ChainResult lib = Chains.RunLibraryChain(part);
-            Assert.Equal("repair", lib.FirstFailingName());
-            Assert.Equal("repair", lib.FirstFailingName("screwSeparate"));
-            Assert.Equal("repair", lib.FirstFailingName("screwBox"));
-            Assert.Equal("-", lib.FirstFailingName("volume"));        // the screw is about 1e-15 of the volume: the volume check cannot see it
-            Assert.Equal(1, lib.FirstFailingStep("screwSeparate").Check("screwSeparate").Value);
-            Assert.True(double.IsNaN(lib.FirstFailingStep("screwBox").Check("screwBox").Value));
+            Assert.Null(lib.FirstFailingStep());
+            Assert.Equal("-", lib.FirstFailingName("screwSeparate"));
+            Assert.Equal("-", lib.FirstFailingName("screwBox"));
+            Assert.Equal("-", lib.FirstFailingName("volume"));
+            foreach (StepResult st in lib.Steps.Skip(1))
+                Assert.Equal(2, st.Check("screwSeparate").Value);
             ChainResult pipe = Chains.RunPipelineChain(part);
             Assert.Equal("pipeline", pipe.FirstFailingName());
             Assert.Equal("pipeline", pipe.FirstFailingName("screwSeparate"));

@@ -127,7 +127,8 @@ namespace geometry3Sharp.Tests
         static DMesh3 Reduce(DMesh3 input, double tol, bool parallel, out Reducer reducer)
         {
             var m = new DMesh3(input);
-            reducer = new Reducer(m) { MaxDeviation = tol, ParallelDeviationCheck = parallel };
+            // (without the patch bound, which certifies these triangles within the warm-up: the walk under test would not start)
+            reducer = new Reducer(m) { MaxDeviation = tol, ParallelDeviationCheck = parallel, DeviationPatchBound = false };
             reducer.ReduceToTriangleCount(4);
             return m;
         }
@@ -157,6 +158,44 @@ namespace geometry3Sharp.Tests
                     Assert.Equal(baseline.TriangleCount, parallel.TriangleCount);
                 }
             }
+        }
+
+        /// <summary>
+        /// The patch bound in the check (Reducer.DeviationPatchBound, issue 1317) certifies pieces earlier: where the old check did
+        /// not give up at its depth limit (tolerances of 1e-3 of the size and above here), the reductions are the same meshes,
+        /// bit for bit, as without it, on curved inputs and on flat ones with boundaries and creases. (Below that the old check
+        /// refused collapses that are within the tolerance: ReducerFlatInputTests.TightTolerance_FlatFacesStillReduce.)
+        /// </summary>
+        [Fact]
+        public void PatchBound_SameReductionAsWithout_WithFewerQueries()
+        {
+            DMesh3 cube = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 4 }.Generate().MakeDMesh();
+            foreach (int v in cube.VertexIndices()) {
+                Vector3d p = cube.GetVertex(v);
+                cube.SetVertex(v, p / Math.Max(Math.Abs(p.x), Math.Max(Math.Abs(p.y), Math.Abs(p.z))));
+            }
+            var plate = new DMesh3();
+            for (int j = 0; j <= 6; ++j)
+                for (int i = 0; i <= 6; ++i) plate.AppendVertex(new Vector3d(0.125 * i, 0.125 * j, 0.03125 * i));
+            for (int j = 0; j < 6; ++j)
+                for (int i = 0; i < 6; ++i) {
+                    plate.AppendTriangle(7 * j + i, 7 * j + i + 1, 7 * (j + 1) + i + 1);
+                    plate.AppendTriangle(7 * j + i, 7 * (j + 1) + i + 1, 7 * (j + 1) + i);
+                }
+            foreach (DMesh3 input in new[] { Bumpy(8), cube, plate })
+                foreach (double rel in new[] { 1e-3, 1e-2 }) {
+                    double eps = rel * input.CachedBounds.DiagonalLength;
+                    var with = new DMesh3(input); var without = new DMesh3(input);
+                    var rw = new Reducer(with) { MaxDeviation = eps };
+                    rw.ReduceToTriangleCount(4);
+                    var ro = new Reducer(without) { MaxDeviation = eps, DeviationPatchBound = false };
+                    ro.ReduceToTriangleCount(4);
+                    AssertSame(without, with);
+                    // (the flat inputs: far fewer tree queries; the count varies a little between runs, the parallel loop over a
+                    // collapse's triangles stops early)
+                    if (input != cube && input != plate) continue;
+                    Assert.True(2 * rw.DeviationCacheLookups < ro.DeviationCacheLookups, $"{input.TriangleCount} {rel}: {rw.DeviationCacheLookups} vs {ro.DeviationCacheLookups}");
+                }
         }
     }
 }

@@ -106,7 +106,7 @@ static class Bound
 
     // ---- cases ----
 
-    static void Make(string name, out DMesh3 input, out DMesh3 reference, out bool dirty)
+    internal static void Make(string name, out DMesh3 input, out DMesh3 reference, out bool dirty)
     {
         string xf = "";
         int at = name.IndexOf('@');
@@ -168,6 +168,19 @@ static class Bound
             double w = 0.5 * double.Parse(name.Substring(6), inv) * alpha0;
             return Procedural.Prism(new List<Vector2d> { new Vector2d(0, 0), new Vector2d(10, 0), new Vector2d(10, 6), new Vector2d(5 + w, 6), new Vector2d(5 + w, 5), new Vector2d(5 - w, 5), new Vector2d(5 - w, 6), new Vector2d(0, 6) }, 4);
         }
+        if (name.StartsWith("fin:")) {
+            // a thin wall k alphas thick and 3 high on a 10 x 3 base
+            double w = 0.5 * double.Parse(name.Substring(4), inv) * alpha0;
+            return Procedural.Prism(new List<Vector2d> { new Vector2d(0, 0), new Vector2d(10, 0), new Vector2d(10, 3), new Vector2d(5 + w, 3), new Vector2d(5 + w, 6), new Vector2d(5 - w, 6), new Vector2d(5 - w, 3), new Vector2d(0, 3) }, 4);
+        }
+        if (name == "fslot") {
+            // a slot 2 wide and 2 deep whose two bottom edges are filleted at radius 0.5, 8 segments each (11.25 degrees: not sharp)
+            var p = new List<Vector2d> { new Vector2d(0, 0), new Vector2d(10, 0), new Vector2d(10, 6), new Vector2d(6, 6) };
+            for (int k = 0; k <= 8; ++k) { double t = -k * Math.PI / 16; p.Add(new Vector2d(5.5 + 0.5 * Math.Cos(t), 4.5 + 0.5 * Math.Sin(t))); }
+            for (int k = 0; k <= 8; ++k) { double t = -Math.PI / 2 - k * Math.PI / 16; p.Add(new Vector2d(4.5 + 0.5 * Math.Cos(t), 4.5 + 0.5 * Math.Sin(t))); }
+            p.Add(new Vector2d(4, 6)); p.Add(new Vector2d(0, 6));
+            return Procedural.Prism(p, 4);
+        }
         return Procedural.Make(name);
     }
 
@@ -186,7 +199,7 @@ static class Bound
 
     // ---- the oracle: the mitered offset of a clean polyhedron, by moving its vertices ----
 
-    static DMesh3 MiteredOffset(DMesh3 reference, double delta, out double maxResidual)
+    internal static DMesh3 MiteredOffset(DMesh3 reference, double delta, out double maxResidual)
     {
         var o = new DMesh3(reference, true);
         maxResidual = 0;
@@ -231,7 +244,7 @@ static class Bound
 
     // ---- the feature network of the oracle: sharp edges (by class) and corners ----
 
-    class Network
+    internal class Network
     {
         public List<EdgeClass.Seg> Convex = new List<EdgeClass.Seg>(), Concave = new List<EdgeClass.Seg>();
         public List<Vector3d> Corners = new List<Vector3d>();
@@ -335,7 +348,7 @@ static class Bound
         if (surface != null) { r["surf_max" + suffix] = dsurf.Max(); r["surf_mean" + suffix] = dsurf.Average(); }
     }
 
-    static void Measure(DMesh3 input, DMesh3 oracle, Network net, DMesh3 result, double alpha, double delta, Dictionary<string, object> r)
+    internal static void Measure(DMesh3 input, DMesh3 oracle, Network net, DMesh3 result, double alpha, double delta, Dictionary<string, object> r)
     {
         r["tris"] = result.TriangleCount;
         r["not_clean"] = MeshRobustRepair.NotCleanReasons(result, true);

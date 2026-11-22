@@ -27,8 +27,8 @@ The tools are in the PR: new cases of `tools/DeterminismHarness` (`Examples.cs`,
    known runtime fact (`Math.Min / Max` of zeros, casts, text formatting, `#if NET` branch flags). The differing documented
    operations are the same eight or fewer on every pair: `ContourLoft` (2 examples), `QuadRemesher`, `TpmsLattice`,
    `UVAtlasGenerator` / `ConeFlattening` (3), ARAP and Tutte parameterization and the example's own point sampler; plus 7 of
-   the 12 mesh generators that run with defaults (F4). For `ContourLoftStack` the difference reaches the status, not only
-   coordinates (F5).
+   the 12 mesh generators that run with defaults (F4). For `ContourLoftStack` the example's difference reaches the status, not only
+   coordinates; it comes from the example's own `Math.Cos / Sin` input (F5, corrected).
    The exact Boolean (15 cases, with the new open-input case), the exact building blocks, repair, alpha wrap, solidify,
    `Remesher`, `Reducer`, both contouring operations, the geodesic family (`CoreMath`) and the terrain slope design agree on
    **all** pairs: linux, Windows, macOS; x64 and arm64; .NET 10 and .NET Framework 4.8 (64-bit and 32-bit).
@@ -116,7 +116,7 @@ repeats the serial, parallel, processor-count and switch comparisons with the fi
 
 ### 3.3 Findings
 
-**F1. `LaplacianMeshSmoother` depends on the schedule (level L0, a defect).** `PackedSparseMatrix.Square`
+**F1. `LaplacianMeshSmoother` depends on the schedule (level L0, a defect; fixed after this study, issue #1314: the entries are now computed per row in column order, and the case is off the adversary's list).** `PackedSparseMatrix.Square`
 (`solvers/PackedSparseMatrix.cs`) computes the entries of the squared matrix in a `gParallel.BlockStartEnd` loop and
 appends them to one list under a spin lock, in the order the blocks happen to finish. The rows of the result keep that
 order, and `Multiply_Parallel` adds `row[k].d * X[row[k].j]` in row order, so the summation order of every product in the
@@ -127,6 +127,16 @@ counts in one local series). Sorting the entries by (row, column) before the mat
 scratch copy: the adversary then reports no difference). The callers of `SymmetricSparseMatrix.SquarePackedParallel` are
 `LaplacianMeshSmoother`, `LaplacianMeshDeformer` and `LaplacianCurveDeformer`. Inherited from upstream; not covered by the
 harness before because no case used these classes. The adversary lists the case as `KNOWN` until it is fixed.
+
+**F1b. Siblings of F1 (checked 2026-11-22).** `SymmetricSparseMatrix.Square` and `Multiply` (`solvers/SparseMatrix.cs`) had the
+same defect (level L0): the parallel loop inserted into the dictionary `R` under `lock(R)` in the order the loop ran its rows;
+the values are order independent, but the dictionary enumerates in insertion order and `Multiply(double[], double[])` adds the
+terms of each row in that order (`SymmetricSparseSquareDeterminismTests`: the product vector differs in the last bits under loop
+order -1; `SparseSquareBenchmark`: 8 distinct hashes in 8 runs). Fixed: rows are computed into their own slots and inserted in order,
+which is the order of the serial variant. `PackedSparseMatrix.square_nonsymmetric` is not a defect: it is serial, and the order of
+its columns is the enumeration order of a `HashSet<int>` (insertion order in practice, after `Clear` too), a function of the input
+only; the test pins that it is repeatable and equals the product. It relies on unspecified BCL behaviour, so it stays on the list
+of fragile spots (sorting the columns would change the summation order of its users once).
 
 **F2. The exact Boolean calls the platform libm.** `ExactMeshBoolean.antipodal_tree_value` (the hierarchical evaluation
 of the winding number of open inputs, since Exact Boolean 3.0) computes `gamma = Math.Acos(...)`, `alpha = Math.Asin(...)`
@@ -153,14 +163,22 @@ from them differs in the last bit of some vertices, and every operation passes t
 for the Boolean, the remesher and dual contouring). This is the most likely way a user sees "the Boolean is not
 deterministic".
 
-**F5. Across C libraries a status can differ, not only the last bits.** `examples.ContourLoft.LoftBranchingStack`
+**F5. A status followed the C library through the example's input, not through the operation (corrected 2026-11-22).** `examples.ContourLoft.LoftBranchingStack`
 (`ContourLoftStack`) differs between Windows .NET 10 and .NET Framework, and between Windows x64 and arm64, in about 880
-of its 1 293 traced values **and in `Status`**; `LoftFrustum` (`ContourLoft`) differs in the mesh and in `TotalCost`.
-Their static path to the libm goes through the cap meshing (`QualityMesh2`), and they have angle computations of their
-own (`--why ContourLoft libm` prints the shortest path). An operation whose status depends on the platform is a
-behaviour difference, not a rounding difference, so this is the first candidate for the libm rule among the measured
-ones. `QualityMesh2` itself, which reaches `Math.Sin` for its angle bound (one call per `Compute`), is bit-identical on
-every pair measured.
+of its 1 293 traced values **and in `Status`**; `LoftFrustum` (`ContourLoft`) differs in the mesh and in `TotalCost`. The study read this
+as a libm difference of the operations ("on one input"). It is not: the example builds its circles with `Math.Cos` and `Math.Sin`
+(`docs/examples/ContourLoftExample.cs`), so the two platforms ran **different inputs** (the `*.libm-input` situation of the harness).
+The static reading agrees: neither `ContourLoft.cs` nor `ContourLoftStackRun.cs` calls a transcendental function (only
+`Math.Abs / Min / Max / Sqrt`); the one path to the libm (`--why ContourLoft libm`) is `QualityMesh2.Refiner..ctor`, `Math.Sin(MinAngle * pi / 180)`,
+and the lofts mesh their caps with `MinAngle = 0`, so it is `Math.Sin(0) = 0` everywhere. The harness cases `contourloft.frustum` and
+`contourloft.stack` (this change) run the same two shapes with the circle points from `CoreMath.Cos / Sin` and trace the input, `Status`,
+`Reason`, `TotalCost`, the groups and the mesh: in the `determinism` run on the pull request (run 45002068880) both are **identical in all 17
+comparisons** (Linux and Windows x64, Linux and Windows arm64, net10.0 and net48, net48 x64 and x86, serial and parallel, 1, 3 and 8 processors,
+no SIMD / no AVX2 / no tiering / minopts). So `ContourLoft` and `ContourLoftStack` need no `CoreMath`; what differs between platforms is
+an input that the caller builds with the platform libm. (200 random one-ulp perturbations of every coordinate of both example inputs on linux
+never changed the status; the example's status flip on Windows is therefore not explained by one-ulp noise alone and was not reproduced
+locally, but the operation is identical for identical inputs on every leg.) The libm rule of DETERMINISM.md 6a stays as it is: `CoreMath`
+where a measured difference of an operation reaches a result, and here none does.
 
 **F6. The C library's results depend on the CPU.** On the Windows arm64 runner the .NET Framework harness runs as an
 emulated x64 process (the header of the run says `X64`; there is no native arm64 .NET Framework leg), with the same C
@@ -212,12 +230,16 @@ The cases behind the cells that are not full:
   earlier measurement).
 - **`winding`**: `winding.values` differs between linux and macOS only (F3; the differing part is printed by the detail
   step); it agrees between linux, Windows .NET 10 and .NET Framework.
+  **Open (2026-11-22, not diagnosed):** which part of `winding.values` differs on macOS (the raw `FastWindingNumber` / `WindingNumber` values end in
+  `Math.Atan2` per triangle, F3/F4, so the likely part is the raw values, not the inside decisions) needs the macOS traces (the opt-in `macos`
+  input of `determinism.yml`; no run since the last harness change) and was not looked at again.
 - **`kernel`, `ledger`, `io`, `probe`**: the known runtime facts of DETERMINISM_PROOF.md 5.3: the `#if NET` branch flag
   (`kernel.limbsigns.path`), `Math.Min / Max` of zeros and NaN bits (`ledger.math`; the only case that differs between
   linux x64 and arm64), casts, text formatting and parsing on .NET Framework, the x87 cases of the 32-bit process, and new:
   `probe.round-remainder` differs between .NET 10 and .NET Framework in 6 of its 26 635 values, all in the section of
   `Math.Floor / Ceiling / Truncate` (not `Math.Round` with digits, not the remainders; not diagnosed further, the sign of a
-  zero result is the likely part), and `probe.libm-constfold` differs wherever the libm does (its values are libm values).
+  zero result is the likely part; **open**: the 6 values are in the traces of the Windows legs of the `determinism` workflow, which were not
+  downloaded here: `--detail` of `DeterminismHarness compare` on `windows-net10-serial` / `windows-net48-serial` names them), and `probe.libm-constfold` differs wherever the libm does (its values are libm values).
 - **Windows arm64, .NET Framework** (not in the table): an emulated x64 process, 34 cases different from the x64 runner (F6).
 
 The same run's opt-in job on the previous head (run 44986300782, job `suite-arm64`) ran the PR-tier test suite
@@ -358,7 +380,7 @@ although they are floating-point code, because their paths use only `+ - * /` an
 is confined to transcendental functions whose value reaches a coordinate (eight example cases, section 3.4). So the boundary is not "exact against floating point" but
 "reaches a platform libm value or not", and that is checkable by a tool (section 4) instead of by judgement.
 
-**Recommended policy** (for `ACCEPTANCE_STRATEGY.md` section 4 and `docs/QA.md`, after the owner's decision):
+**Recommended policy** (adopted by the owner on 2026-11-22: [DETERMINISM.md](../design/DETERMINISM.md) section 6b, the check `DeterminismReach tier` with `tools/DeterminismReach/tier1.txt`, a step of the `linux` job of `determinism.yml`):
 
 | tier | which operation | what the golden master pins | who decides the tier |
 |---|---|---|---|
@@ -382,18 +404,18 @@ clause 11 defines the reproducible subset this library's tier 1 already is.
 
 | rank | option | what the owner gets | effort | risk |
 |---|---|---|---|---|
-| 1 | **Fix F1** (sort the entries in `PackedSparseMatrix.Square`; test: the adversary case, serial equals parallel, processor counts) | the last known L0 defect of a documented operation gone | S / M, one small PR, label `bugfix` | results of `LaplacianMeshSmoother / Deformer` change in the last bits once, to the value of the serial run |
+| 1 | **Fix F1** (done, issue #1314; sort the entries in `PackedSparseMatrix.Square`; test: the adversary case, serial equals parallel, processor counts) | the last known L0 defect of a documented operation gone | S / M, one small PR, label `bugfix` | results of `LaplacianMeshSmoother / Deformer` change in the last bits once, to the value of the serial run |
 | 2 | **Keep the wide harness as the standing measurement** (this PR: examples and generators as cases, JIT switches, Windows arm64; then the 18 uncovered libm types as examples or cases) | every documented operation measured on every push that touches the harness, new examples covered automatically | done here; follow-up S | none; the workflow grows by one runner and four short runs |
 | 3 | **Stage 2 with decisions 1a and 2** (section 5) | the generated claim for the exact Boolean without rounding, with the rounding as a named assumption | L, one PR, about the size of stage 1 | file churn from Boolean PRs (plan #1241); F2's `CoreMath` variant needs an `Asin` port and a benchmark |
 | 4 | **Golden-master policy of section 6** with the reachability check as a CI step (a list of tier 1 types that may not gain a libm edge) | the tier is decided by a tool; a new `Math.Sin` on a tier 1 path fails CI instead of a hash on another platform months later | M: docs, one CI step, a baseline file | the `cha` bound puts operations with callbacks in tier 2; a baseline file is one more gate file |
 | 5 | **A libm adversary** (DETERMINISM_PROOF.md 6.2: every `Math.Sin` & co. behind a wrapper that moves the result by an ulp in tests) | on one machine, for every case: does a libm ulp reach the result (what F2's experiment did by hand for four sites) | M / L: 165 methods call libm directly; a wrapper in each, behind a test hook | touches many files once; no behaviour change |
-| 6 | **`CoreMath` in the generators, the contour loft and the winding number** (F3, F4, F5) | cylinders, cones, discs, lofts and the raw winding numbers identical everywhere; fewer tier 2 operations | M per group, with benchmark numbers (the libm rule asks for a measured difference: section 3.4 has it for the generators) | generator output changes in the last bit once; `Atan2` per triangle in the winding number is hot (1.5 to 4 times per call) |
+| 6 | **`CoreMath` in the generators and the winding number** (F3, F4; the contour loft needs none: F5 was its example's input, measured 2026-11-22) | cylinders, cones, discs and the raw winding numbers identical everywhere; fewer tier 2 operations | M per group, with benchmark numbers (the libm rule asks for a measured difference: section 3.4 has it for the generators) | generator output changes in the last bit once; `Atan2` per triangle in the winding number is hot (1.5 to 4 times per call) |
 | 7 | **Stage 2b (`MeshRoundingRepair` in scope) or stage 3** | a claim for floating-point code | L each, larger than stage 2 | no unique-answer argument; likely needs code changes |
 
 **Leaning.** 1 now (it is a defect, small, and the test exists; issue #1314). 2 is in this PR. Then 3 as planned, with
 decision 1a, and for F2 the `site` line with the perturbation test first and `CoreMath` only if the benchmark allows it.
-4 with or right after stage 2, because the same tool then guards both. Of 6, the contour loft first (a status that
-differs is a behaviour difference, F5), then the generators when a caller asks for identical inputs across platforms; not
+4 with or right after stage 2, because the same tool then guards both. Of 6, the contour loft is settled (F5: the operation is identical, the example's input differed),
+the generators when a caller asks for identical inputs across platforms; not
 the winding number. 5 only if 4 leaves too many operations in tier 2
 without knowing whether they really differ. 7 not now.
 
@@ -402,7 +424,7 @@ without knowing whether they really differ. 7 not now.
 2. Stage 2 scope: the exact result only, with `MeshRoundingRepair` assumed (1a), or the rounded result too (1c, a second stage)?
 3. F2: an argued `site` with a perturbation test, or `CoreMath` in `antipodal_tree_value` (needs `Asin`, a benchmark)?
 4. The two-tier golden-master policy of section 6, with the tier decided by `DeterminismReach`?
-5. F5: the libm rule for `ContourLoft` / `ContourLoftStack` (their status differs between platforms on one input)?
+5. F5: answered by measurement (2026-11-22): the lofts are identical on every leg for identical inputs; nothing to port.
 6. Windows arm64 as a standing leg of `determinism.yml` (it is a measurement leg in this PR: its failure does not fail the run)?
 
 ## 8. Limits

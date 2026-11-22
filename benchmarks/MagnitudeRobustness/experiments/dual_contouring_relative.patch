@@ -1,0 +1,79 @@
+diff --git a/mesh_generators/AdaptiveDualContouring.cs b/mesh_generators/AdaptiveDualContouring.cs
+index d2f5243d..830499ea 100644
+--- a/mesh_generators/AdaptiveDualContouring.cs
++++ b/mesh_generators/AdaptiveDualContouring.cs
+@@ -425,7 +425,7 @@ namespace g3
+                     if (anyCluster) {
+                         Vector3d n0 = (P0[it.b] - P0[it.a]).Cross(P0[it.c] - P0[it.a]);
+                         Vector3d n1 = (outMesh.GetVertex(b) - outMesh.GetVertex(a)).Cross(outMesh.GetVertex(c) - outMesh.GetVertex(a));
+-                        if (!(n0.Dot(n1) > 0)) {
++                        if (!(DualContouring.pow2_scaled(n0).Dot(DualContouring.pow2_scaled(n1)) > 0)) {
+                             foreach (int v in new[] { it.a, it.b, it.c }) if (isCluster[v]) bad.Add(keyOfVertex[v]);
+                             continue;
+                         }
+diff --git a/mesh_generators/DualContouring.cs b/mesh_generators/DualContouring.cs
+index e84d9522..b3b8381b 100644
+--- a/mesh_generators/DualContouring.cs
++++ b/mesh_generators/DualContouring.cs
+@@ -308,7 +308,7 @@ namespace g3
+                 Vector3i nb = e.End(F);
+                 Vector3d pa = node_pos(e.Start), pb = node_pos(nb);
+                 double fa = node_value(e.Start), fb = node_value(nb);
+-                double t = (Math.Abs(fb - fa) > MathUtil.Epsilon) ? MathUtil.Clamp((IsoValue - fa) / (fb - fa), 0, 1) : 0.5;
++                double t = (fb != fa) ? MathUtil.Clamp((IsoValue - fa) / (fb - fa), 0, 1) : 0.5;
+                 Vector3d p = Vector3d.Lerp(pa, pb, t);
+                 Vector3d hp, hn;
+                 bool aInside = is_inside(fa);
+@@ -323,9 +323,9 @@ namespace g3
+                         if (is_inside(Implicit.Value(ref pm)) == aInside) lo = mid; else hi = mid;
+                     }
+                     Vector3d pe = Vector3d.Lerp(pa, pb, 0.5 * (lo + hi));
+-                    hpoints[ci] = pe; hnormals[ci] = exact_gradient(pe).Normalized;
++                    hpoints[ci] = pe; hnormals[ci] = unit_normal(exact_gradient(pe));
+                 } else {
+-                    hpoints[ci] = p; hnormals[ci] = gradient(p).Normalized;
++                    hpoints[ci] = p; hnormals[ci] = unit_normal(gradient(p));
+                 }
+             };
+             if (ParallelCompute)
+@@ -802,6 +802,31 @@ namespace g3
+         }
+ 
+         Vector3d node_pos(Vector3i n) { return origin + h * new Vector3d(n.x, n.y, n.z); }
++        // v times the power of two that brings its largest component into [1, 2) (exact): a vector of any magnitude can then be
++        // normalized or compared by sign without underflow or overflow of the squares
++        internal static Vector3d pow2_scaled(Vector3d v)
++        {
++            double m = Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
++            if (!(m > 0) || double.IsInfinity(m)) return v;
++            long bits = BitConverter.DoubleToInt64Bits(m);
++            int k = (int)((bits >> 52) & 0x7FF) - 1023;
++            if (k == -1023) { bits = BitConverter.DoubleToInt64Bits(m * 18446744073709551616.0); k = (int)((bits >> 52) & 0x7FF) - 1023 - 64; }
++            return new Vector3d(ExactPoint3.ScaleB(v.x, -k), ExactPoint3.ScaleB(v.y, -k), ExactPoint3.ScaleB(v.z, -k));
++        }
++
++        // the unit vector of a gradient of any magnitude: Vector3d.Normalized where its absolute threshold and the squares allow
++        // (the same bits as before), otherwise the gradient scaled by a power of two first
++        static Vector3d unit_normal(Vector3d g)
++        {
++            double len = g.Length;
++            if (len > MathUtil.Epsilon && !double.IsInfinity(len)) return g.Normalized;
++            Vector3d w = pow2_scaled(g);
++            double wl = w.Length;
++            if (!(wl > 0) || double.IsNaN(wl) || double.IsInfinity(wl)) return Vector3d.Zero;
++            double inv = 1.0 / wl;
++            return new Vector3d(w.x * inv, w.y * inv, w.z * inv);
++        }
++
+         bool is_inside(double f) { return InsideIsLess ? f < IsoValue : f > IsoValue; }
+ 
+         static int fdiv(int a, int b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
+@@ -2410,7 +2435,7 @@ namespace g3
+             foreach (int i in segEdges) {
+                 int j = (i + 1) % 4;
+                 double fi = node_value(corner[i]), fj = node_value(corner[j]);
+-                double t = (Math.Abs(fj - fi) > MathUtil.Epsilon) ? MathUtil.Clamp((IsoValue - fi) / (fj - fi), 0.25, 0.75) : 0.5;
++                double t = (fj != fi) ? MathUtil.Clamp((IsoValue - fi) / (fj - fi), 0.25, 0.75) : 0.5;
+                 pts.Add(Vector3d.Lerp(c[i], c[j], t));
+             }
+             if (pts.Count == 2) {
