@@ -16,7 +16,7 @@
 //      reflection) and the result gets the independent checks of the gate.
 // Effort is counted in conflicts and decisions, never in time.
 //
-//   dotnet run -c Release --project benchmarks/QuadFlow3BSat -- [only=<regex>] [dump=<dir>] [maxring=<n>] [conflicts=<limit>] [crosscheck=<decisions>] [rup=0|1] [selftest=1]
+//   dotnet run -c Release --project benchmarks/QuadFlow3BSat -- [only=<regex>] [dump=<dir>] [maxring=<n>] [conflicts=<limit>] [crosscheck=<decisions>] [rup=0|1] [list=0|1] [selftest=1]
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -399,6 +399,7 @@ static class Program
         conflictLimit = A.ContainsKey("conflicts") ? long.Parse(A["conflicts"], CultureInfo.InvariantCulture) : 0;
         crossBudget = A.ContainsKey("crosscheck") ? long.Parse(A["crosscheck"], CultureInfo.InvariantCulture) : 20000;
         rup = !A.ContainsKey("rup") || A["rup"] != "0";
+        bool list = !A.ContainsKey("list") || A["list"] != "0";
         Func<Vector3d, double> sphere = p => p.Length - 1;
         Func<Vector3d, double> torus = p => { double q = Math.Sqrt(p.x * p.x + p.y * p.y) - 1; return Math.Sqrt(q * q + p.z * p.z) - 0.35; };
         Func<Vector3d, double> bumpy = p => p.Length - 1 - 0.08 * Math.Sin(4 * p.x) * Math.Sin(4 * p.y) * Math.Sin(4 * p.z);
@@ -428,7 +429,7 @@ static class Program
         int total = 0, clean = 0, fallbacks = 0, foldFree = 0, completedClean = 0, replayMismatch = 0, checkFailures = 0;
         var endedBy = new SortedDictionary<string, int>(); var libStatus = new SortedDictionary<string, int>(); var classes = new SortedDictionary<string, int>();
         var all = new Tally(); var budgetAll = new Tally();
-        long obstructedSeeds = 0, solvedSeeds = 0;
+        long obstructedSeeds = 0, solvedSeeds = 0, obsSingular = 0, obsSeedSingular = 0, obsAlone = 0, obsFew = 0, obsMany = 0, obsAreaNeg = 0, obsAreaZero = 0, obsAreaPos = 0;
         var ringHist = new long[64]; var obstructionLines = new List<string>();
         foreach (var (name, fn, s0, align, noise) in shapes) {
             if (only != null && !only.IsMatch(name)) continue;
@@ -529,8 +530,12 @@ static class Program
                         var verts = new HashSet<int>(); foreach (int f in big.Region) for (int c = 0; c < 3; ++c) verts.Add(mC.V[3 * f + c]);
                         int sing = verts.Count(v => singular[v]);
                         bool seedSing = Enumerable.Range(0, 3).Any(c => singular[mC.V[3 * seed + c]]);
+                        int area = big.Region.Sum(f => mC.Det(f));      // twice the lattice area of the region
+                        if (area < 0) obsAreaNeg++; else if (area == 0) obsAreaZero++; else obsAreaPos++;
+                        if (sing > 0) obsSingular++; if (seedSing) obsSeedSingular++;
+                        if (inv == 1) obsAlone++; else if (inv <= 5) obsFew++; else obsMany++;
                         string verdicts = string.Join(" ", tried.Select(x => x.inst.Trivial ? "T" : x.r == 0 ? "U" : "?"));
-                        obstructionLines.Add($"| {name} | {F(scale, "G3")} / {F(ratio, "G3")} | {seed} | {mC.Det(seed)} | {verdicts} | {big.Region.Count} | {big.M} | {inv} | {sing} | {(seedSing ? "yes" : "no")} |");
+                        obstructionLines.Add($"| {name} | {F(scale, "G3")} / {F(ratio, "G3")} | {seed} | {mC.Det(seed)} | {verdicts} | {big.Region.Count} | {big.M} | {inv} | {area} | {sing} | {(seedSing ? "yes" : "no")} |");
                         if (dir != null)
                             foreach (var (inst, r) in tried) {
                                 if (inst.Trivial) continue;
@@ -583,11 +588,12 @@ static class Program
         Console.WriteLine($"best case: {foldFree} of {fallbacks} fallbacks become fold-free; {completedClean} of them complete to Success with the independent checks (clean would be {clean + completedClean} of {total})");
         Console.WriteLine($"effort of the clause-learning solver (both trajectories): conflicts {all.Conflicts}, decisions {all.Decisions}, most conflicts on one instance {all.MaxConflicts}");
         Console.WriteLine($"checks: unsatisfiable answers with a valid RUP proof {all.RupOk}, invalid {all.RupFail}; models or repaired regions that fail {all.ModelFail}; against the library's DPLL within {crossBudget} decisions: agree {all.CrossAgree}, disagree {all.CrossDisagree}, DPLL undecided {all.CrossOpen}");
-        if (obstructionLines.Count > 0) {
+        Console.WriteLine($"obstructed seeds: {obstructedSeeds}; with a singular vertex in the region of the largest ring {obsSingular}, at a singular vertex {obsSeedSingular}; folds in that region: 1 (the seed alone) {obsAlone}, 2 to 5 {obsFew}, 6 or more {obsMany}; sum of det over that region: negative {obsAreaNeg}, zero {obsAreaZero}, positive {obsAreaPos}");
+        if (list && obstructionLines.Count > 0) {
             Console.WriteLine();
             Console.WriteLine("obstructed seeds (learning trajectory): verdict per ring from 1 (U unsatisfiable, T refuted while built, ? undecided); the region is that of the largest ring");
-            Console.WriteLine("| shape | scale / ratio | seed triangle | det | rings | region triangles | mutable edges | folds in region | singular vertices in region | seed at a singular vertex |");
-            Console.WriteLine("|---|---|---|---|---|---|---|---|---|---|");
+            Console.WriteLine("| shape | scale / ratio | seed triangle | det | rings | region triangles | mutable edges | folds in region | sum of det | singular vertices in region | seed at a singular vertex |");
+            Console.WriteLine("|---|---|---|---|---|---|---|---|---|---|---|");
             foreach (string l in obstructionLines) Console.WriteLine(l);
         }
         return replayMismatch == 0 && checkFailures == 0 ? 0 : 1;
