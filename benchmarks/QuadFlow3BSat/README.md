@@ -64,9 +64,9 @@ Effort is counted in conflicts and decisions; nothing is timed.
 | seeds solved / obstructed | 499 / 1190 | 6 / 37 |
 | **fallbacks fold-free in the best case** | **3 / 29** (torus at scale 0.8, 1.25, 1.5) | **1 / 11** (capsule at ratio 0.35) |
 | of those, `Success` with the independent checks | 3 | 0 (`FlippedFaces`) |
-| conflicts, all instances / most on one | 3.11M / 93002 | PR_CONFLICTS |
-| unsatisfiable answers with a valid RUP proof / invalid | 5082 / 0 | PR_RUP |
-| against the DPLL: agree / disagree / DPLL undecided | 4315 / 0 / 1279 | PR_CROSS |
-| obstructed seeds whose largest region has a negative / zero / positive sum of det | 1057 / 58 / 75 | PR_AREA |
+| conflicts, all instances / most on one | 3.11M / 93002 | 0.29M / 52174 |
+| unsatisfiable answers with a valid RUP proof / invalid | 5082 / 0 | 189 / 0 |
+| against the DPLL: agree / disagree / DPLL undecided | 4315 / 0 / 1279 | 135 / 0 / 60 |
+| obstructed seeds whose largest region has a negative / zero / positive sum of det | 1057 / 58 / 75 | 29 / 3 / 5 |
 
 (The unsatisfiable instances include those refuted while they were built: a triangle with one mutable edge and no value for it.)

@@ -79,7 +79,7 @@ Classification of the obstructed seeds by the region of their largest ring (ring
 | a singular vertex in the region / the seed at a singular vertex | 87 / 12 | 11 / 0 |
 | folds in the region: only the seed / 2 to 5 / 6 or more | 36 / 477 / 677 | 2 / 29 / 6 |
 | sum of det over the region: negative / zero / positive | 1057 / 58 / 75 | 29 / 3 / 5 |
-| negative sum: first larger ring with a sum >= 0 is 1-2 rings larger / 3-6 larger / up to ring 20 / none up to ring 20 | AREA_M | AREA_P |
+| negative sum: first larger ring with a sum >= 0 is 1-2 rings larger / 3-6 larger / up to ring 20 / none up to ring 20 | AREA_M | 7 / 10 / 12 / 0 |
 
 **The area explains most of them.** The sum of the integer determinants of the triangles of a region is twice its lattice area. In a
 region without a singular vertex whose triangles close, the map is a piecewise linear map of a disk into the plane, and its signed area is
