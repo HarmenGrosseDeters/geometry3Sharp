@@ -259,7 +259,7 @@ output. Sketch (names and defaults are proposals):
 public class MeshFilletDetection
 {
     public MeshFilletDetection(DMesh3 mesh);
-    public double MaxRadius;                 // required: the largest fillet radius to look for
+    public double MaxRadius = 0;             // the largest fillet radius to look for; 0: derived from the input's scale
     public double MinRadius = 0;
     public Func<bool> CancelF;
     public bool Compute();                   // false: empty mesh or cancelled
@@ -306,6 +306,9 @@ the benchmark stay as the record.
 Open questions for the owner:
 
 1. A or D (the second measurement costs one session and needs a source of real filleted meshes outside the repository)?
-2. If A: is a required `MaxRadius` acceptable, or should the class offer a default from the bounding box (the paper uses
-   0.06 of the bounding sphere radius)?
+2. If A: the radius bound is derived from the input's scale by default (coordinator, 2026-11-22: no model-specific
+   parameter in the API). Which scale is part of the second measurement: a share of the bounding box diagonal (the paper
+   uses 0.06 of the bounding sphere radius; the box here needs 0.11), or a multiple of the median wall thickness, which the same
+   ball queries give. Not measured yet; the bound only has to clear the
+   radius (1.1 to 10 times gave the same precision), so a generous default costs time, not correctness, on these solids.
 3. Is reconstruction (C) wanted at all, given that it changes the geometry the user gave?
