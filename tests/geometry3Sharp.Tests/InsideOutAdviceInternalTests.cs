@@ -71,5 +71,22 @@ namespace geometry3Sharp.Tests
             Assert.True(clean.Compute(), clean.Error);
             Assert.Equal(new[] { clean.Report.RepairedInputs[0].TrianglesAfter }, seen);
         }
+
+        // cancelled while the copy or the input is checked: Status Cancelled, not a refusal or a boolean of an unchecked copy
+        [Theory]
+        [InlineData(1)]
+        [InlineData(2)]
+        public void CancellingDuringTheRepairCheck_StopsWithCancelled(int atCall)
+        {
+            var cts = new System.Threading.CancellationTokenSource();
+            int calls = 0;
+            var p = new SolidBooleanPipeline(Parts(InsideOutAdviceTests.WavySheet()), D) {
+                InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair, Cancellation = cts.Token,
+                RepairCheckObserverForTests = n => { if (++calls == atCall) cts.Cancel(); } };
+            Assert.False(p.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.Cancelled, p.Status);
+            Assert.Equal(atCall, calls);
+            Assert.Null(p.Result);
+        }
     }
 }

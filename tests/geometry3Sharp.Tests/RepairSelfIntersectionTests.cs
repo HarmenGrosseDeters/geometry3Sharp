@@ -142,8 +142,8 @@ namespace geometry3Sharp.Tests
         }
 
         // an open input that self-intersects already (the dented box of InsideOutAdviceTests without its inner bottom square):
-        // its repaired copy self-intersects too, and the input is used as before (here: inside-out in part, so InsideOutInput, the
-        // message naming the repaired copy)
+        // its repaired copy self-intersects too, and the input is used as before: the boolean of the copy runs (here Success: the
+        // removed square held the triangle that read the copy as inside-out)
         [Fact]
         public void AnInputThatSelfIntersectsAsGiven_IsUsedAsBefore()
         {
@@ -157,8 +157,15 @@ namespace geometry3Sharp.Tests
             Assert.True(own.SelfIntersectingPairs > 0);
             SolidBooleanPipeline p = Run(Parts(open));
             Assert.Equal("MeshAutoRepair", Assert.Single(p.Report.RepairedInputs).Method);
-            Assert.NotEqual(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
-            Assert.DoesNotContain(Refusal, p.Error ?? "");
+            Assert.True(p.Status == SolidBooleanPipeline.PipelineStatus.Success, p.Error);
+            Assert.NotNull(p.Result);
+            Assert.True(ExactMeshBoolean.IsWindingClosed(p.Result));
+            // (the copy self-intersects as well: the input's own self-intersections are what keeps it)
+            var repair = new MeshAutoRepair(new DMesh3(open));
+            repair.Apply();
+            var copy = new ExactMeshArrangement(new List<DMesh3> { repair.Mesh }) { SelfIntersections = true };
+            copy.Compute();
+            Assert.True(copy.SelfIntersectingPairs > 0);
         }
 
         [Theory]

@@ -46,7 +46,7 @@ namespace gs
         public string Method;
         /// <summary> triangles of the input and of its repaired copy </summary>
         public int TrianglesBefore, TrianglesAfter;
-        /// <summary> time of the repair or repairs of this input, in milliseconds </summary>
+        /// <summary> time of the repair or repairs of this input, in milliseconds (without the self-intersection check of a MeshAutoRepair copy, which Report.RepairMilliseconds includes) </summary>
         public long Milliseconds;
     }
 
@@ -241,12 +241,13 @@ namespace gs
             /// MeshAutoRepair on a copy of the input. It fills holes by its own rules, without knowing the other inputs or what
             /// the open input means. For a solid with a small hole that is usually right; for an open cutting surface (a sheet
             /// used as the tool of a Difference) it is about never where the missing face was: the closed copy can enclose
-            /// almost nothing, and the cut then removes almost nothing (#1211). Where that fill crosses the input (an open sheet whose
+            /// almost nothing, and the cut would remove almost nothing (#1211). Where that fill crosses the input (an open sheet whose
             /// surface crosses the fill of its boundary loop, eg a non-planar or wavy sheet), the closed copy self-intersects: the
             /// pipeline checks every MeshAutoRepair copy exactly for self-intersections (its own ExactMeshArrangement) and fails
             /// with Status OpenInput if the copy has some and the input as given has none (an input that self-intersects already
-            /// is used as before; the check runs only for repaired inputs). A sheet whose fill does not cross it (eg a flat cap
-            /// over a planar rim) still gives a closed copy that encloses the wrong solid, with Status Success. Use it only for
+            /// is used as before; the check runs only for repaired inputs). That also refuses a flat sheet, whose fill lies on it
+            /// (coincident faces count). A sheet whose fill neither crosses nor touches it (eg a U-shaped sheet, whose fill closes
+            /// its opening) still gives a closed copy that encloses the wrong solid, with Status Success. Use it only for
             /// inputs known to be solids with small holes
             /// </summary>
             AutoRepair = 1,
@@ -583,6 +584,7 @@ namespace gs
                     // boundary of an open sheet; such a copy is not the solid the input was meant to bound, see InputRepairModes.AutoRepair)
                     if (r.Method == "MeshAutoRepair") {
                         int added = repairSelfIntersections(given[i], repaired);
+                        Report.RepairMilliseconds = clock.ElapsedMilliseconds;
                         if (added < 0)
                             return fail(PipelineStatus.Cancelled, "cancelled", total);
                         if (added > 0)
@@ -1190,7 +1192,6 @@ namespace gs
             return op;
         }
 
-        // the cheapest allowed repair that makes input i closed (on a copy), or null
         // tests: called with the triangle count of each mesh whose self-intersections the repair check computes (the copy, then the input)
         internal Action<int> RepairCheckObserverForTests;
 
@@ -1215,6 +1216,7 @@ namespace gs
             return a.Stopped == ExactMeshArrangement.StopReason.Cancelled ? -1 : a.SelfIntersectingPairs;
         }
 
+        // the cheapest allowed repair that makes input i closed (on a copy), or null
         SolidBooleanInputRepair repair(int i, DMesh3 input, out DMesh3 repaired)
         {
             repaired = null;
