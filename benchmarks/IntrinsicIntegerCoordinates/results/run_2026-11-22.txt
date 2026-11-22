@@ -1,0 +1,132 @@
+| mesh | V | flips | inserted | flips only: failed transforms | refined 25°: failed transforms | reasons |
+|---|---|---|---|---|---|---|
+| obtuse plane dy=0.05 | 1513 | 1368 | 1884 | 0 / 4 | 2 / 4 | refined: trace off triangle x2 |
+| obtuse plane dy=0.005 | 1513 | 1368 | 4104 | 0 / 4 | 2 / 4 | refined: trace lost x2 |
+| obtuse plane dy=0.0005 | 1513 | 1368 | 4822 | 0 / 4 | 1 / 4 | refined: trace lost x1 |
+| ring sphere 80x16 | 1266 | 1104 | 42 | 0 / 4 | 0 / 4 |  |
+| ring sphere 160x24 | 3818 | 3480 | 1269 | 0 / 4 | 1 / 4 | refined: crossing traces x1 |
+| spiky ring sphere | 946 | 800 | 272 | 0 / 4 | 1 / 4 | refined: crossing traces x1 |
+| clustered ring sphere j=0.3 | 938 | 348 | 590 | 0 / 4 | 0 / 4 |  |
+| clustered ring sphere j=0.49 | 938 | 1056 | 10380 | 0 / 4 | 1 / 4 | refined: crossing traces x1 |
+| clustered ring sphere j=0.499999 | 938 | 840 | 10380 | 4 / 4 | 4 / 4 | flips: crossing traces x4, refined: crossing traces x4 |
+| sheared cylinder s=3 | 1280 | 2496 | 0 | 0 / 4 | 0 / 4 |  |
+| sheared cylinder s=9 | 1280 | 6240 | 1833 | 0 / 4 | 0 / 4 |  |
+| sheared cylinder s=15 | 1280 | 1248 | 2847 | 0 / 4 | 0 / 4 |  |
+| sheared torus s=3 | 1280 | 2560 | 480 | 0 / 4 | 0 / 4 |  |
+| sheared torus s=9 | 1280 | 6400 | 1880 | 0 / 4 | 0 / 4 |  |
+| sheared torus s=15 | 1280 | 1800 | 2880 | 0 / 4 | 0 / 4 |  |
+| stretched grid a=100 | 961 | 0 | 3330 | 0 / 4 | 0 / 4 |  |
+| stretched grid a=10000 | 961 | 0 | 10610 | 1 / 4 | 0 / 4 | flips: crossing traces x1 |
+| stretched grid a=1000000 | 961 | 0 | 10610 | 2 / 4 | 4 / 4 | flips: trace lost x2, refined: trace lost x4 |
+| sheared stretched grid a=100 | 961 | 4548 | 2385 | 0 / 4 | 0 / 4 |  |
+| sheared stretched grid a=10000 | 961 | 4920 | 10610 | 0 / 4 | 0 / 4 |  |
+| sheared stretched grid a=1000000 | 961 | 4920 | 10610 | 0 / 4 | 0 / 4 |  |
+| grid with ties (1e-13 noise) | 1681 | 0 | 0 | 0 / 4 | 0 / 4 |  |
+| cap grid eps=0.001 | 1201 | 576 | 48 | 0 / 4 | 0 / 4 |  |
+| cap grid eps=1E-06 | 1201 | 576 | 48 | 0 / 4 | 0 / 4 |  |
+| cap grid eps=1E-09 | 1201 | 576 | 0 | 0 / 4 | 0 / 4 |  |
+| cap grid eps=1E-12 | 1201 | 576 | 0 | 0 / 4 | 0 / 4 |  |
+| accordion | 1281 | 0 | 0 | 0 / 4 | 0 / 4 |  |
+
+flips only: 7 of 108 runs failed (3 of 27 meshes); refined 25°: 16 of 108 runs failed (8 of 27 meshes)
+Success results with crossing vertices that do not have four edges: flips only 0 of 101; refined 25° 0 of 92
+
+| mesh | step | flips | crossings | faces | max n | longest curve | integer valid | traced ok | agree (where traced ok) | out of order | same over transforms |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| obtuse plane dy=0.05 | flips | 1368 | 1368 | 5496 | 1 | 1 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| obtuse plane dy=0.05 | flips + insertions | 4631 | 16080 | 23831 | 20 | 17 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| obtuse plane dy=0.05 | flips + insertions near edges | 4678 | 15952 | 23655 | 20 | 16 | 4 / 4 | 0 / 4 | 0 / 0 | 32 | yes |
+| obtuse plane dy=0.005 | flips | 1368 | 1368 | 5496 | 1 | 1 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| obtuse plane dy=0.005 | flips + insertions | 9581 | 80233 | 88475 | 101 | 51 | 4 / 4 | 0 / 4 | 0 / 0 | 0 | yes |
+| obtuse plane dy=0.005 | flips + insertions near edges | 9500 | 80696 | 88921 | 109 | 57 | 4 / 4 | 0 / 4 | 0 / 0 | 636 | scale only |
+| obtuse plane dy=0.0005 | flips | 1368 | 1368 | 5496 | 1 | 1 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| obtuse plane dy=0.0005 | flips + insertions | 13534 | 212429 | 220671 | 224 | 146 | 4 / 4 | 0 / 4 | 0 / 0 | 0 | yes |
+| obtuse plane dy=0.0005 | flips + insertions near edges | 13816 | 224174 | 232402 | 236 | 166 | 4 / 4 | 0 / 4 | 0 / 0 | 570 | scale only |
+| ring sphere 80x16 | flips | 1104 | 1104 | 4736 | 1 | 1 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| ring sphere 80x16 | flips + insertions | 2495 | 4674 | 10541 | 9 | 11 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| ring sphere 80x16 | flips + insertions near edges | 2500 | 4577 | 10432 | 9 | 10 | 4 / 4 | 0 / 4 | 0 / 0 | 7 | yes |
+| ring sphere 160x24 | flips | 3480 | 3480 | 14592 | 1 | 1 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| ring sphere 160x24 | flips + insertions | 8442 | 18455 | 36811 | 12 | 12 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| ring sphere 160x24 | flips + insertions near edges | 8440 | 18167 | 36474 | 11 | 14 | 4 / 4 | 0 / 4 | 0 / 0 | 53 | yes |
+| spiky ring sphere | flips | 800 | 800 | 3488 | 1 | 1 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| spiky ring sphere | flips + insertions | 1864 | 2711 | 6927 | 9 | 7 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| spiky ring sphere | flips + insertions near edges | 1890 | 2736 | 6950 | 9 | 6 | 4 / 4 | 0 / 4 | 0 / 0 | 17 | yes |
+| clustered ring sphere j=0.3 | flips | 348 | 348 | 2568 | 1 | 1 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| clustered ring sphere j=0.3 | flips + insertions | 1334 | 1903 | 5760 | 6 | 8 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| clustered ring sphere j=0.3 | flips + insertions near edges | 1379 | 2018 | 5894 | 8 | 8 | 4 / 4 | 0 / 4 | 0 / 0 | 34 | yes |
+| clustered ring sphere j=0.49 | flips | 1056 | 1752 | 4548 | 3 | 3 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| clustered ring sphere j=0.49 | flips + insertions | 2561 | 3556 | 7901 | 9 | 10 | 4 / 4 | 4 / 4 | 0 / 4 | 0 | scale only |
+| clustered ring sphere j=0.49 | flips + insertions near edges | 2609 | 3752 | 8121 | 10 | 10 | 4 / 4 | 0 / 4 | 0 / 0 | 54 | scale only |
+| clustered ring sphere j=0.499999 | flips | 840 | 1320 | 3948 | 3 | 3 | 4 / 4 | 0 / 4 | 0 / 0 | 0 | yes |
+| clustered ring sphere j=0.499999 | flips + insertions | 2421 | 3764 | 8103 | 9 | 10 | 4 / 4 | 0 / 4 | 0 / 0 | 0 | scale only |
+| clustered ring sphere j=0.499999 | flips + insertions near edges | 2469 | 3827 | 8164 | 9 | 10 | 4 / 4 | 0 / 4 | 0 / 0 | 113 | scale only |
+| sheared cylinder s=3 | flips | 2496 | 4992 | 9984 | 3 | 3 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| sheared cylinder s=3 | flips + insertions | 3709 | 9829 | 16388 | 9 | 11 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| sheared cylinder s=3 | flips + insertions near edges | 3798 | 9635 | 16158 | 10 | 12 | 4 / 4 | 0 / 4 | 0 / 0 | 2 | yes |
+| sheared cylinder s=9 | flips | 6240 | 19968 | 24960 | 9 | 9 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| sheared cylinder s=9 | flips + insertions | 9514 | 17587 | 23876 | 15 | 13 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| sheared cylinder s=9 | flips + insertions near edges | 9546 | 18112 | 24437 | 14 | 15 | 4 / 4 | 0 / 4 | 0 / 0 | 0 | yes |
+| sheared cylinder s=15 | flips | 1248 | 1248 | 4992 | 1 | 1 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| sheared cylinder s=15 | flips + insertions | 5868 | 13747 | 19996 | 20 | 15 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| sheared cylinder s=15 | flips + insertions near edges | 5867 | 13775 | 20025 | 17 | 14 | 4 / 4 | 0 / 4 | 0 / 0 | 117 | scale only |
+| sheared torus s=3 | flips | 2560 | 5120 | 10240 | 3 | 3 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| sheared torus s=3 | flips + insertions | 4440 | 8230 | 14690 | 8 | 9 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| sheared torus s=3 | flips + insertions near edges | 4496 | 8531 | 15025 | 9 | 10 | 4 / 4 | 0 / 4 | 0 / 0 | 1 | yes |
+| sheared torus s=9 | flips | 6400 | 20480 | 25600 | 9 | 9 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| sheared torus s=9 | flips + insertions | 9859 | 17767 | 24183 | 15 | 12 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| sheared torus s=9 | flips + insertions near edges | 9909 | 18182 | 24639 | 15 | 15 | 4 / 4 | 0 / 4 | 0 / 0 | 3 | yes |
+| sheared torus s=15 | flips | 1800 | 2840 | 7200 | 3 | 3 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| sheared torus s=15 | flips + insertions | 6405 | 14229 | 20622 | 20 | 13 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| sheared torus s=15 | flips + insertions near edges | 6416 | 14204 | 20646 | 20 | 14 | 4 / 4 | 0 / 4 | 0 / 0 | 14 | yes |
+| stretched grid a=100 | flips | 0 | 0 | 1800 | 1 | 1 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | scale only |
+| stretched grid a=100 | flips + insertions | 6208 | 34588 | 39118 | 58 | 42 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | scale only |
+| stretched grid a=100 | flips + insertions near edges | 6009 | 32695 | 37213 | 58 | 41 | 4 / 4 | 0 / 4 | 0 / 0 | 533 | scale only |
+| stretched grid a=10000 | flips | 0 | 0 | 1800 | 1 | 1 | 4 / 4 | 3 / 4 | 3 / 3 | 0 | scale only |
+| stretched grid a=10000 | flips + insertions | 7656 | 56699 | 61229 | 59 | 67 | 4 / 4 | 0 / 4 | 0 / 0 | 0 | scale only |
+| stretched grid a=10000 | flips + insertions near edges | 7464 | 57372 | 61886 | 59 | 73 | 4 / 4 | 0 / 4 | 0 / 0 | 630 | scale only |
+| stretched grid a=1000000 | flips | 0 | 0 | 1800 | 1 | 1 | 4 / 4 | 2 / 4 | 2 / 2 | 0 | scale only |
+| stretched grid a=1000000 | flips + insertions | 7656 | 56699 | 61229 | 59 | 67 | 4 / 4 | 0 / 4 | 0 / 0 | 45 | scale only |
+| stretched grid a=1000000 | flips + insertions near edges | 7519 | 57324 | 61840 | 59 | 73 | 4 / 4 | 0 / 4 | 0 / 0 | 358 | scale only |
+| sheared stretched grid a=100 | flips | 4548 | 34108 | 38432 | 27 | 27 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| sheared stretched grid a=100 | flips + insertions | 5369 | 44339 | 49639 | 33 | 44 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| sheared stretched grid a=100 | flips + insertions near edges | 5409 | 44219 | 49528 | 33 | 42 | 4 / 4 | 0 / 4 | 0 / 0 | 6 | yes |
+| sheared stretched grid a=10000 | flips | 4920 | 50476 | 54800 | 71 | 41 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| sheared stretched grid a=10000 | flips + insertions | 5799 | 74744 | 80044 | 76 | 74 | 4 / 4 | 3 / 4 | 0 / 3 | 0 | yes |
+| sheared stretched grid a=10000 | flips + insertions near edges | 5829 | 74178 | 79480 | 80 | 75 | 4 / 4 | 0 / 4 | 0 / 0 | 40 | scale only |
+| sheared stretched grid a=1000000 | flips | 4920 | 50476 | 54800 | 71 | 41 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| sheared stretched grid a=1000000 | flips + insertions | 5799 | 74744 | 80044 | 76 | 74 | 4 / 4 | 4 / 4 | 0 / 4 | 0 | yes |
+| sheared stretched grid a=1000000 | flips + insertions near edges | 5829 | 74178 | 79480 | 80 | 73 | 4 / 4 | 0 / 4 | 0 / 0 | 25 | scale only |
+| grid with ties (1e-13 noise) | flips | 0 | 0 | 3200 | 1 | 1 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | scale only |
+| grid with ties (1e-13 noise) | flips + insertions | 1637 | 1948 | 8100 | 4 | 7 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | scale only |
+| grid with ties (1e-13 noise) | flips + insertions near edges | 1712 | 2018 | 8211 | 4 | 6 | 4 / 4 | 0 / 4 | 0 / 0 | 23 | scale only |
+| cap grid eps=0.001 | flips | 576 | 576 | 3456 | 2 | 3 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | scale only |
+| cap grid eps=0.001 | flips + insertions | 1705 | 2482 | 7364 | 5 | 9 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | scale only |
+| cap grid eps=0.001 | flips + insertions near edges | 1668 | 2418 | 7262 | 5 | 8 | 4 / 4 | 0 / 4 | 0 / 0 | 6 | scale only |
+| cap grid eps=1E-06 | flips | 576 | 576 | 3456 | 1 | 1 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| cap grid eps=1E-06 | flips + insertions | 1703 | 2482 | 7363 | 5 | 9 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| cap grid eps=1E-06 | flips + insertions near edges | 1668 | 2422 | 7266 | 5 | 7 | 4 / 4 | 0 / 4 | 0 / 0 | 14 | yes |
+| cap grid eps=1E-09 | flips | 576 | 576 | 3456 | 1 | 1 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| cap grid eps=1E-09 | flips + insertions | 1703 | 2482 | 7363 | 5 | 9 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| cap grid eps=1E-09 | flips + insertions near edges | 1668 | 2422 | 7266 | 5 | 7 | 4 / 4 | 0 / 4 | 0 / 0 | 3 | yes |
+| cap grid eps=1E-12 | flips | 576 | 576 | 3456 | 1 | 1 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| cap grid eps=1E-12 | flips + insertions | 1703 | 2482 | 7363 | 5 | 9 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | yes |
+| cap grid eps=1E-12 | flips + insertions near edges | 1668 | 2422 | 7266 | 5 | 7 | 4 / 4 | 0 / 4 | 0 / 0 | 11 | yes |
+| accordion | flips | 0 | 0 | 2400 | 1 | 1 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | scale only |
+| accordion | flips + insertions | 1279 | 1490 | 6135 | 4 | 6 | 4 / 4 | 4 / 4 | 4 / 4 | 0 | scale only |
+| accordion | flips + insertions near edges | 1326 | 1566 | 6227 | 3 | 7 | 4 / 4 | 0 / 4 | 0 / 0 | 7 | scale only |
+
+integer layer valid: 324 of 324 runs; same counts over all transforms: 54 of 81 (scaled 2^-30 same as identity: 81 of 81); insertions refused by the library: 231
+flips: traced Success in 101 of 108 runs, of these 0 with false crossings; integer polygons: largest relative area error 8.2E-011
+flips + insertions: traced Success in 87 of 108 runs, of these 11 with false crossings; integer polygons: largest relative area error 6.7E-011
+flips + insertions near edges: traced Success in 0 of 108 runs, of these 0 with false crossings; integer polygons: largest relative area error 2.9E-009
+false crossings of the traced Success results: 16 x valence 3; largest distance between traced and integer crossing positions where the counts agree: 3.1E-010 of the bounding box diagonal
+
+| mesh | V | flips | flips: library | flips: + integers | V/2 insertions: library | V/2 insertions: + integers | subdivision: traced (library) | subdivision: integers, connectivity | subdivision: integers, positions and polygons | crossings | max n |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| obtuse plane dy=0.05 | 1513 | 1368 | 0.7 ms | 0.7 ms | 1.7 ms | 1.9 ms (666 curves traced) | 14.1 ms | 0.6 ms | 1.3 ms | 1368 | 1 |
+| ring sphere 160x24 | 3818 | 3480 | 2.0 ms | 2.6 ms | 3.5 ms | 3.7 ms (1558 curves traced) | 54.0 ms | 0.8 ms | 5.0 ms | 3480 | 1 |
+| sheared torus s=3 | 1280 | 2560 | 1.1 ms | 1.1 ms | 0.7 ms | 1.2 ms (1392 curves traced) | 29.6 ms | 0.3 ms | 1.1 ms | 5120 | 3 |
+| sheared torus s=9 | 1280 | 6400 | 2.6 ms | 3.0 ms | 0.8 ms | 2.2 ms (2266 curves traced) | 73.5 ms | 0.6 ms | 3.2 ms | 20480 | 9 |
+| sheared torus s=15 | 1280 | 1800 | 0.8 ms | 1.0 ms | 0.8 ms | 1.0 ms (916 curves traced) | 18.3 ms | 0.3 ms | 0.9 ms | 2840 | 3 |
+| sheared torus s=9, 200 x 160 | 32000 | 800000 | 321.1 ms | 371.1 ms | 31.7 ms | 306.1 ms (91650 curves traced) | 15571.3 ms | 44.8 ms | 632.6 ms | 3072000 | 49 |
+| obtuse plane 40 x 800 | 32441 | 31560 | 18.3 ms | 17.2 ms | 27.3 ms | 39.8 ms (14606 curves traced) | 784.4 ms | 8.6 ms | 17.0 ms | 31560 | 1 |

@@ -1,0 +1,57 @@
+| case | frame | boolean triangles | result triangles | stop | no MaxDeviation: verdict, mismatch, volume / unreduced | MaxDeviation 1e-3 diagonal: triangles, verdict, mismatch, volume / unreduced |
+|---|---|---|---|---|---|---|
+| box U box | soup | 36 | 8 | TargetReached | WRONG, 0.3682, 0.24803 | 36, ok, 0, 1 |
+| box U box | rot+utm | 40 | 10 | TargetReached | WRONG, 0.2562, 0.38609 | 36, ok, 0, 1 |
+| box I box | rot+utm | 16 | 4 | TargetReached | WRONG, 0.0312, 0.125 | 12, ok, 0, 1 |
+| box D box | soup | 24 | 6 | TargetReached | WRONG, 0.1742, 0.31637 | 24, ok, 0, 1 |
+| box D box | rot+utm | 28 | 6 | TargetReached | WRONG, 0.1405, 0.32322 | 24, ok, 0, 1 |
+| sphere U sphere | soup | 2682 | 670 | TargetReached | WRONG, 0.093, 0.99281 | 1436, WRONG, 0.0568, 0.99806 |
+| sphere U sphere | rot+utm | 2694 | 674 | TargetReached | WRONG, 0.0862, 0.99296 | 1292, WRONG, 0.0595, 0.99743 |
+| sphere D cylinder | soup | 1590 | 398 | TargetReached | WRONG, 0.1167, 0.97581 | 1148, WRONG, 0.0522, 0.99811 |
+| sphere D cylinder | rot+utm | 1668 | 416 | TargetReached | WRONG, 0.1363, 0.9593 | 1148, WRONG, 0.0632, 0.99773 |
+| torus U cylinder | soup | 1020 | 254 | TargetReached | WRONG, 0.13, 0.98071 | 832, WRONG, 0.0213, 0.99963 |
+| torus U cylinder | rot+utm | 1108 | 276 | TargetReached | WRONG, 0.1192, 0.98852 | 848, WRONG, 0.015, 0.99977 |
+| box U sphere U cylinder | soup | 1472 | 368 | TargetReached | WRONG, 0.0822, 0.99747 | 818, WRONG, 0.0538, 0.9992 |
+| box U sphere U cylinder | rot+utm | 1548 | 386 | TargetReached | WRONG, 0.0785, 0.99805 | 812, WRONG, 0.0513, 0.9992 |
+| hollow U box through the wall | soup | 56 | 14 | TargetReached | WRONG, 0.2777, 0.84208 | 56, ok, 0, 1 |
+| hollow U box through the wall | rot+utm | 66 | 16 | TargetReached | WRONG, 0.1815, 1.01869 | 56, ok, 0, 1 |
+| hollow D box through the wall | soup | 44 | 10 | TargetReached | WRONG, 0.3735, 0.48438 | 44, ok, 0, 1 |
+| hollow D box through the wall | rot+utm | 54 | 14 | TargetReached | WRONG, 0.253, 0.82902 | 44, ok, 0, 1 |
+| hollow I box through the wall | rot+utm | 28 | 6 | TargetReached | WRONG, 0.0182, 0.34048 | 14, ok, 0, 1 |
+| hollow with an island D box | soup | 96 | 40 | SelfIntersectionGuard | WRONG, 0.2803, 0.7757 | 96, ok, 0, 1 |
+| hollow with an island D box | rot+utm | 146 | 48 | TriangleQuality | WRONG, 0.1983, 0.46894 | 96, ok, 0, 1 |
+| box inside the cavity of a hollow, U | soup | 36 | 16 | SelfIntersectionGuard | WRONG, 0.4683, 0.33856 | 36, ok, 0, 1 |
+| box inside the cavity of a hollow, U | rot+utm | 36 | 18 | SelfIntersectionGuard | WRONG, 0.245, 0.70347 | 36, ok, 0, 1 |
+| box D box inside it (makes a cavity) | soup | 24 | 10 | SelfIntersectionGuard | WRONG, 0.4625, 0.39077 | 24, ok, 0, 1 |
+| box D box inside it (makes a cavity) | rot+utm | 24 | 10 | SelfIntersectionGuard | WRONG, 0.2983, 0.39077 | 24, ok, 0, 1 |
+| box D box inside, flush with a face (pocket) | soup | 28 | 6 | TargetReached | WRONG, 0.4795, 0.22424 | 28, ok, 0, 1 |
+| box D box inside, flush with a face (pocket) | rot+utm | 28 | 6 | TargetReached | WRONG, 0.304, 0.28787 | 28, ok, 0, 1 |
+| hollow whose cavity touches the outer wall, D box | soup | 28 | 6 | TargetReached | WRONG, 0.225, 0.22432 | 28, ok, 0, 1 |
+| hollow whose cavity touches the outer wall, D box | rot+utm | 42 | 10 | TargetReached | WRONG, 0.1585, 0.40519 | 28, ok, 0, 1 |
+| face touch U | soup | 20 | 4 | TargetReached | WRONG, 0.5215, 0.14286 | 12, ok, 0, 1 |
+| face touch U | rot+utm | 20 | 4 | TargetReached | WRONG, 0.3202, 0.16667 | 12, ok, 0, 1 |
+| partial face overlap U | soup | 32 | 8 | TargetReached | WRONG, 0.341, 0.28036 | 32, ok, 0, 1 |
+| partial face overlap U | rot+utm | 30 | 26 | SelfIntersectionGuard | WRONG, 0.104, 0.72917 | 30, ok, 0, 1 |
+| edge touch U | soup | 24 | 24 | Contacts | ok, 0, 1 | 24, ok, 0, 1 |
+| edge touch U | rot+utm | 24 | 8 | Exhausted | WRONG, 0.3152, 0.03375 | 24, ok, 0, 1 |
+| vertex touch U | soup | 24 | 8 | Exhausted | WRONG, 0.31, 0.03375 | 24, ok, 0, 1 |
+| vertex touch U | rot+utm | 24 | 8 | Exhausted | WRONG, 0.2777, 0.03375 | 24, ok, 0, 1 |
+| flush cut D (coplanar faces) | rot+utm | 20 | 4 | TargetReached | WRONG, 0.1265, 0.14286 | 12, ok, 0, 1 |
+| three stacked U | soup | 28 | 6 | TargetReached | WRONG, 0.4313, 0.33333 | 12, ok, 0, 1 |
+| three stacked U | rot+utm | 28 | 6 | TargetReached | WRONG, 0.2885, 0.34167 | 12, ok, 0, 1 |
+| fine boxes, partial coplanar overlap U | soup | 1368 | 342 | TargetReached | ok, 0, 1 | 342, ok, 0, 1 |
+| fine boxes, partial coplanar overlap U | rot+utm | 1416 | 354 | TargetReached | ok, 0, 1 | 354, ok, 0, 1 |
+| U: needle 2^-20 through a box | soup | 36 | 8 | TargetReached | WRONG, 0.2832, 0.36667 | 32, ok, 0, 1 |
+| U: needle 2^-20 through a box | rot+utm | 44 | 10 | TargetReached | WRONG, 0.2313, 0.30556 | 34, ok, 0, 1 |
+| operand = two boxes sharing an edge, U box | soup | 56 | 14 | TargetReached | WRONG, 0.2943, 0.48069 | 56, ok, 0, 1 |
+| operand = two boxes sharing an edge, U box | rot+utm | 72 | 18 | TargetReached | WRONG, 0.2108, 0.83808 | 70, ok, 0, 1 |
+| operand = two boxes sharing a vertex, D box | soup | 48 | 12 | TargetReached | WRONG, 0.201, 0.31637 | 48, ok, 0, 1 |
+| operand = two boxes sharing a vertex, D box | rot+utm | 54 | 14 | TargetReached | WRONG, 0.1737, 0.38157 | 48, ok, 0, 1 |
+| operand = two overlapping boxes (self-intersecting), U | soup | 48 | 12 | TargetReached | WRONG, 0.2972, 0.2547 | 48, ok, 0, 1 |
+| operand = two overlapping boxes (self-intersecting), U | rot+utm | 52 | 12 | TargetReached | WRONG, 0.2585, 0.23204 | 48, ok, 0, 1 |
+| operand = two overlapping boxes (self-intersecting), D | soup | 48 | 12 | TargetReached | WRONG, 0.3492, 0.6621 | 48, ok, 0, 1 |
+| operand = two overlapping boxes (self-intersecting), D | rot+utm | 50 | 12 | TargetReached | WRONG, 0.244, 0.707 | 48, ok, 0, 1 |
+| operand = the same box twice (winding 2), D | soup | 24 | 10 | SelfIntersectionGuard | WRONG, 0.4587, 0.39077 | 24, ok, 0, 1 |
+| operand = the same box twice (winding 2), D | rot+utm | 24 | 10 | SelfIntersectionGuard | WRONG, 0.2908, 0.39077 | 24, ok, 0, 1 |
+| operand = two boxes sharing a face (inner wall), U | soup | 42 | 10 | TargetReached | WRONG, 0.2845, 0.5889 | 36, ok, 0, 1 |
+| operand = two boxes sharing a face (inner wall), U | rot+utm | 50 | 12 | TargetReached | WRONG, 0.2313, 0.6534 | 36, ok, 0, 1 |

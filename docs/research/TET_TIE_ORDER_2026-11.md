@@ -128,7 +128,9 @@ different policy. On 38781 it is the only miss among 65 orders, and 75915 passes
 policy is better across meshes on this evidence. Two consequences beyond this spike: the two open meshes of HP 5 are not geometric
 obstructions of the method (a different order of the same operations lifts them), and a change of the improver that moves an order can
 change which meshes miss, so a count such as 498 of 500 should not be read to the last mesh between versions (as TET_MESHING 16.3 saw
-at alpha / 20: 36, 37 and 38 of 40).
+at alpha / 20: 36, 37 and 38 of 40). The lattice spike for the same two meshes
+([TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md](TET_DIHEDRAL_FLOOR_SPIKE_2026-11.md)) calls them local optima of the improver; the orders here
+are the measurement of that: other orders of the same operations do not end in them.
 
 ## 4. What the theory says here
 
