@@ -175,7 +175,7 @@ tolerances. Bit-identical under 2^k scales and the existing invariance tests app
 
 ## 6. Spike result (2026-11-02, scratch, not merged)
 
-**What was tried.** `ExactMeshBoolean` already labels open meshes by the GWN per patch (`AllowOpenMeshes`, true by
+**What was tried.** `ExactMeshBoolean` already labels open meshes by the GWN per patch (`AllowOpenMeshes`, at the time true by
 default). Open inputs were refused before it: `MeshRobustRepair.resolve_exactly` returns "not closed (winding
 number)" when `IsWindingClosed` fails. The spike skipped that gate with a switch, so that open inputs are resolved
 with GWN labels (step 2 of the sketch). For the input route that also covers step 1, since the volume check then

@@ -77,7 +77,7 @@ Every invocation writes exactly one JSON object to `stdout` (any diagnostic logg
 | `code` | Exit code | Meaning |
 |---|---|---|
 | `ok` | `0` | Success |
-| `operation_failed` | `1` | Operation ran but produced no valid result (e.g., open mesh with `--allow-open=false`) |
+| `operation_failed` | `1` | Operation ran but produced no valid result (e.g., an open mesh without `--allow-open`) |
 | `empty_mesh` | `1` | Input contains no triangles (or no valid grid cells) |
 | `invalid_arguments` | `2` | Missing, unknown, malformed, or out-of-range argument |
 | `unknown_command` | `2` | Unrecognized subcommand |

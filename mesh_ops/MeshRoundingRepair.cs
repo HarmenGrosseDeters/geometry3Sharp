@@ -404,6 +404,16 @@ namespace g3
         /// </summary>
         public double MaxDrift;
         /// <summary>
+        /// the signed volume of the mesh when Apply() started (the rounded mesh, before any edit) and when it returned (after the edits and
+        /// without the components removed as tiny or thin, whose volumes are in RemovedComponentInfos). For a closed, outward oriented mesh
+        /// the volume it encloses; for an open mesh the same sum over its triangles, which is not a volume. Both are computed in doubles
+        /// about the centre of the box of the mesh's triangles at the start, so the difference is not lost far from the origin. Equal, bit
+        /// for bit, when the repair changed nothing (not a number, both, where a coordinate of a triangle is not finite). The repair bounds the distance the surface moves (MaxDrift), not the volume: on a thin solid a
+        /// small move of a vertex whose triangles cover a large face can change the volume by a share that matters
+        /// (docs/research/ROUNDING_THIN_VOLUME_2026-11.md)
+        /// </summary>
+        public double VolumeBefore, VolumeAfter;
+        /// <summary>
         /// with SharedPositionsTouch and the exact points of the vertices known (ExactMeshBoolean): positions where the
         /// rounding put vertices of different exact points, before and after the repair. Unlike vertices of one exact
         /// point (where solids touch), these are contacts the exact solid does not have; the repair separates them by
@@ -720,8 +730,28 @@ namespace g3
         }
 
         /// <summary> repair (see class comment); returns IsClean </summary>
-        [MethodImpl(JitHints.Optimize)]
         public bool Apply()
+        {
+            // (about the centre of the box of the triangles at the start: the sum over the triangles cancels far from the origin
+            // otherwise, and the difference of the two volumes is what the caller reads; with coordinates that are not finite the
+            // volumes are not either. The volume after is that of the mesh as Apply leaves it, also where a check throws)
+            Vector3d centre = gs.MeshRepairMetrics.TriangleBounds(Mesh).Center;
+            VolumeBefore = signed_volume(centre);
+            try {
+                return apply();
+            } finally {
+                VolumeAfter = signed_volume(centre);
+            }
+        }
+
+        // the signed volume of the mesh about c (the volume enclosed, for a closed, outward oriented mesh), in the order of the triangle ids
+        double signed_volume(Vector3d c)
+        {
+            return MeshMeasurements.VolumeArea(Mesh, Mesh.TriangleIndices(), (v) => Mesh.GetVertex(v) - c).x;
+        }
+
+        [MethodImpl(JitHints.Optimize)]
+        bool apply()
         {
             Collapses = Flips = Moves = Zips = StripZips = VertexRemovals = RemovedComponents = RemovedTriangles = KeptWhenEmptied = 0;
             RemovedComponentInfos = new List<RemovedComponentInfo>();

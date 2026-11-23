@@ -76,7 +76,7 @@ map, so a float32 frame is judged against the solid of the float32 meshes.
 
 Escalations tried on every run that is not `ok`: `Orientation = ByNesting`, `AreaMajority`, `AllowInsideOutInputs`,
 `InputRepair = AutoRepair`, `AutoRepairThenRobust`, `ByNesting + AutoRepairThenRobust`, `MeshRobustRepair` of every input
-before the pipeline, and the plain `ExactMeshBoolean` with its defaults.
+before the pipeline, and the plain `ExactMeshBoolean` with `AllowOpenMeshes = true` (its default until 2026-11-23) and otherwise its defaults.
 
 ## Result (2026-11-22, `results/corpus.txt`)
 

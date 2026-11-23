@@ -52,7 +52,7 @@ static class ProceduralThin
             double pitch = 2.0 / n;
             for (int i = 0; i < n; ++i)
                 parts.Add(Box(i * pitch + 0.25 * pitch, 0.1, 0.1, i * pitch + 0.75 * pitch, 1.9, 1.0));
-            return Run(new ExactMeshBoolean(parts, ExactMeshBoolean.Operations.Union));
+            return Run(new ExactMeshBoolean(parts, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true });
         }
         if (kind == "plate") {
             var parts = new List<DMesh3> { Box(0, 0, 0, 2, 2, 0.2) };
@@ -65,7 +65,7 @@ static class ProceduralThin
                     MeshTransforms.Translate(hole, new Vector3d((i + 0.5) * pitch, (j + 0.5) * pitch, -0.4));
                     parts.Add(hole);
                 }
-            return Run(new ExactMeshBoolean(parts, ExactMeshBoolean.Operations.Difference));
+            return Run(new ExactMeshBoolean(parts, ExactMeshBoolean.Operations.Difference) { AllowOpenMeshes = true });
         }
         if (kind == "sphere")
             return new Sphere3Generator_NormalizedCube() { EdgeVertices = n }.Generate().MakeDMesh();
