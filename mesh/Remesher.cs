@@ -44,7 +44,11 @@ namespace g3 {
 		/// <summary> run a smoothing pass after the edge operations of each pass </summary>
 		public bool EnableSmoothing = true;
 
-        /// <summary> reject collapses and flips that would flip a triangle normal (see EdgeFlipTolerance). Default false </summary>
+        /// <summary>
+        /// Reject collapses and flips that would flip a triangle normal (see EdgeFlipTolerance), or turn a triangle more
+        /// than 70 degrees away from the triangles around the edge (see MinTriangleQuality, which includes both). The
+        /// smoothing and projection moves are not checked by this option. Default false
+        /// </summary>
         public bool PreventNormalFlips = false;
 
 		/// <summary> edges shorter than this are collapsed. Usually set with SetTargetEdgeLength() </summary>
@@ -71,15 +75,25 @@ namespace g3 {
         ///  - an edge with a flat neighbouring triangle (its opposite vertex on the edge) is not split, which would
         ///    put the new vertex onto that vertex;
         ///  - collapses and flips that would flip a triangle normal are rejected (as with PreventNormalFlips);
+        ///  - and those that turn a triangle away from the surface around the edge (as with PreventNormalFlips): a new
+        ///    triangle more than 70 degrees from the summed normals of the triangles around the edge's two vertices
+        ///    (each weighted with the cosine to its old normal, 0 if it faces against it), and farther from them than
+        ///    before. The flip test compares a triangle with
+        ///    its own old normal only, and thin triangles stand tilted to a curved surface, so their turns added up
+        ///    until triangles faced into a smooth sphere (issue #1441). A triangle that does not turn (a collapse
+        ///    along a crease) is not rejected;
         ///  - a collapse that would create a flat triangle (eg two vertices of a straight feature curve joined over
         ///    a third one on it) is rejected. Other collapses are not restricted: blocking poor but not flat results
         ///    (eg with MinCollapseTriangleQuality) keeps short edges that the splits around them multiply.
-        /// Not guarded: the projection of a new vertex after a split; and folds between neighbours. The flip tests compare
-        /// each changed triangle only with its own old normal (a turn of up to 90 degrees passes), not with its unchanged
-        /// neighbours, so a collapse can fold two adjacent triangles (normals more than 90 degrees apart) without
-        /// flipping either, and a later projection can push the fold through: self-intersections can occur even on
-        /// smooth, well-resolved inputs (a clean torus, issue #790). This option makes no promise of an
-        /// intersection-free result; PreventSelfIntersections does. Together, on 20 Thingi10K meshes remeshed with
+        /// Not guarded: the projection of a new vertex after a split; and folds between neighbours. The checks of a
+        /// collapse or flip bound the turn of each changed triangle against the triangles around the edge (70 degrees
+        /// from their summed normals, 90 from its own old normal), not the angle between two neighbours, so a collapse
+        /// can still fold two adjacent triangles (normals more than 90 degrees apart), and a later projection can push
+        /// the fold through: self-intersections can occur even on smooth, well-resolved inputs (a clean torus,
+        /// issue #790). The smoothing and projection moves compare a triangle with its own normal before the move
+        /// (a turn of up to 90 degrees passes). On jittered spheres no triangle was left facing inward after a pass in
+        /// 501 of 503 inputs (issue #1441; before: 51), which is a measurement, not a guarantee. This option makes no
+        /// promise of an intersection-free result; PreventSelfIntersections does. Together, on 20 Thingi10K meshes remeshed with
         /// creases kept, 28% of the poor (q &lt; 0.1) and 13% of the flat (q &lt; 1e-3) triangles and 16% of the
         /// self-intersecting pairs remain (benchmarks/RemeshQualityBenchmark). RemesherPro queues the edges of a
         /// vertex whose move was rejected. With a target edge length far above the wall thickness the result is
@@ -725,6 +739,11 @@ namespace g3 {
                     }
                 }
 
+                // ... or would turn one away from the surface around the edge (the test above compares a triangle
+                // only with itself, so turns add up over operations, issue #1441)
+                if ((PreventNormalFlips || MinTriangleQuality > 0) && collapse_turns_from_ring(a, b, ref vNewPos, t0, t1))
+                    goto abort_collapse;
+
                 if (MinTriangleQuality > 0 && collapse_creates_feature_fold(a, b, iKeep, vNewPos, t0, t1))
                     goto abort_collapse;
 
@@ -788,6 +807,12 @@ namespace g3 {
 
                 bool bTryFlip = flip_err < curr_err;
                 if (bTryFlip && (PreventNormalFlips || MinTriangleQuality > 0) && flip_inverts_normals(a, b, c, d, t0))
+                    bTryFlip = false;
+                // ... or if a new triangle turns away from the surface around the edge (issue #1441). The flips below, for a
+                // degenerate or poor triangle, keep their own tests against the better old triangle: with the ring check
+                // on them too the spheres of the issue gave the same counts and 20 Thingi10K meshes 2272 instead of 1962
+                // self-intersecting pairs (benchmarks/RemeshQualityBenchmark)
+                if (bTryFlip && (PreventNormalFlips || MinTriangleQuality > 0) && flip_turns_from_ring(a, b, c, d, t0))
                     bTryFlip = false;
                 // not for the valence if it creates a degenerate triangle (it would undo the flip below)
                 if (bTryFlip && flip_creates_degenerate(ref vA, ref vB, c, d))
@@ -922,6 +947,132 @@ namespace g3 {
             Vector3d curpos = mesh.GetVertex(vID);
             Vector3d projected = targetIn.Project(curpos, vID);
             mesh.SetVertex(vID, projected);
+        }
+
+        // PreventNormalFlips / MinTriangleQuality, issue #1441. flip_inverts_normals and collapse_creates_flip_or_invalid
+        // compare a changed triangle with its own normal before the operation and pass a turn of up to 90 degrees. The
+        // normal of a thin triangle is not a reference for the surface: on a curved surface it stands tilted (on a unit
+        // sphere at an edge length of 0.23, triangles of quality 0.17 at 40 degrees, by the sagitta of their long edge
+        // and by edge midpoints not yet projected), and one collapse turns it by another 55 degrees, to face into the
+        // surface, without the test seeing more than those 55. So a collapse or valence flip is also rejected if a new triangle
+        //  - ends more than 70 degrees from the ring normal: the sum of the normals (cross products, so area weighted:
+        //    thin triangles count little) before the operation of the triangles around the edge's two vertices, each
+        //    weighted with the cosine of its angle to the triangle's old normal, 0 if it faces against it (for a flip:
+        //    to the sum of the two old normals), and
+        //  - is farther from it than the old triangle was (for a flip: than that sum).
+        // The ring normal is taken from the mesh as it is, so the check has no state and holds in every pass of every
+        // subclass; the weight leaves out the triangles that face against the old normal, so across a sharp crease or
+        // the rim of a thin plate the reference is the triangle's own side, and it is continuous: a face at right
+        // angles (the cap at the rim of a cylinder) has the weight 0, not a share that depends on the rounding of a dot
+        // product near 0 (with a 0 / 1 weight the result changed with a rotation of the input). A triangle that does not
+        // turn (a collapse along a crease, in a plane) is never rejected, however far its side is from the ring normal. (Reducer.PreventFoldOver
+        // is the same idea with the input normals each vertex has absorbed, which a remesher's moving vertices do not
+        // have.) Measured on the jittered spheres of the issue (503 inputs, 6 passes): inputs with an inward facing
+        // triangle after some pass 452 -> 2, after the last 105 -> 0; a bound of 90 degrees leaves 152 and 15, of 80
+        // degrees 27 and 1, of 60 degrees 1 and 0 (benchmarks/RemeshQualityBenchmark/README.md).
+        const double RingTurnCos = 0.3420201433256687;      // cos 70 degrees
+        // (cosines equal up to rounding are not a turn)
+        const double RingTurnSlack = 1e-9;
+
+        // (scratch of the ring checks, which run in ProcessEdge, serially: the triangles around the edge's two vertices
+        // with their corners and normals before the operation)
+        struct RingTriangle { public int tid; public Index3i t; public Vector3d a, b, c, n; public double invLength; }
+        RingTriangle[] ringTriangles = new RingTriangle[32];
+        int ringCount = 0;
+
+        // the triangles around a and b (each once), their normals from edges scaled by f
+        void collect_ring(int a, int b, double f)
+        {
+            ringCount = 0;
+            for (int k = 0; k < 2; ++k)
+                foreach (int tid in mesh.VtxTrianglesItr(k == 0 ? a : b)) {
+                    Index3i t = mesh.GetTriangle(tid);
+                    if (k == 1 && (t.a == a || t.b == a || t.c == a))
+                        continue;
+                    if (ringCount == ringTriangles.Length)
+                        Array.Resize(ref ringTriangles, 2 * ringCount);
+                    ref RingTriangle r = ref ringTriangles[ringCount++];
+                    r.tid = tid; r.t = t;
+                    mesh.GetTriVertices(tid, ref r.a, ref r.b, ref r.c);
+                    r.n = ((r.b - r.a) * f).Cross((r.c - r.a) * f);
+                    r.invLength = 1.0 / r.n.Length;
+                }
+        }
+
+        // the sum of the collected normals, each weighted with the cosine of its angle to o (0 if it faces against o;
+        // a flat triangle, whose invLength is infinite, has a dot of 0 and is left out)
+        Vector3d facing_ring_normal(ref Vector3d o)
+        {
+            Vector3d sum = Vector3d.Zero;
+            for (int i = 0; i < ringCount; ++i) {
+                double w = ringTriangles[i].n.Dot(o);
+                if (w > 0)
+                    sum += (w * ringTriangles[i].invLength) * ringTriangles[i].n;
+            }
+            return sum;
+        }
+
+        // the cosine between n and ring; false if one of them has no length
+        static bool ring_cos(ref Vector3d n, ref Vector3d ring, out double cos)
+        {
+            double l = n.Length * ring.Length;
+            cos = n.Dot(ring) / l;
+            return l > 0 && !double.IsNaN(cos) && !double.IsInfinity(cos);
+        }
+
+        // a new triangle (normal nNew) is beyond the bound from the ring normal and farther than cosOld
+        static bool turns_from_ring(ref Vector3d nNew, ref Vector3d ring, double cosOld)
+        {
+            double cosNew;
+            if (ring_cos(ref nNew, ref ring, out cosNew) == false)
+                return false;       // (a flat new triangle: collapse_creates_flat, flip_creates_degenerate)
+            return cosNew <= RingTurnCos && cosNew < cosOld - RingTurnSlack;
+        }
+
+        // collapsing edge [a,b] (triangles t0, t1) to newPos turns a triangle of either one-ring away from its ring normal
+        internal bool collapse_turns_from_ring(int a, int b, ref Vector3d newPos, int t0, int t1)
+        {
+            Vector3d pa = mesh.GetVertex(a), pb = mesh.GetVertex(b);
+            Vector3d pc = mesh.GetVertex(IndexUtil.find_tri_other_vtx(a, b, mesh.GetTriangle(t0)));
+            // (one factor for all normals, 1 for ordinary sizes: see collapse_creates_flip_or_invalid)
+            double f = flip_edge_scale(ref pa, ref pb, ref pc);
+            collect_ring(a, b, f);
+            for (int i = 0; i < ringCount; ++i) {
+                if (ringTriangles[i].tid == t0 || ringTriangles[i].tid == t1)
+                    continue;
+                Vector3d nOld = ringTriangles[i].n;
+                Vector3d ring = facing_ring_normal(ref nOld);
+                double cosOld;
+                if (ring_cos(ref nOld, ref ring, out cosOld) == false)
+                    continue;       // a flat triangle has no side
+                Index3i t = ringTriangles[i].t;
+                pa = (t.a == a || t.a == b) ? newPos : ringTriangles[i].a;
+                pb = (t.b == a || t.b == b) ? newPos : ringTriangles[i].b;
+                pc = (t.c == a || t.c == b) ? newPos : ringTriangles[i].c;
+                Vector3d nNew = ((pb - pa) * f).Cross((pc - pa) * f);
+                if (turns_from_ring(ref nNew, ref ring, cosOld))
+                    return true;
+            }
+            return false;
+        }
+
+        // the flip of edge [a,b] (opposite vertices c, d; t0 the triangle with c) turns a new triangle away from the ring
+        // normal of the old pair (the sum of its two normals takes the place of the old normal)
+        internal bool flip_turns_from_ring(int a, int b, int c, int d, int t0)
+        {
+            Index3i tri = mesh.GetTriangle(t0);
+            int oa = a, ob = b;
+            IndexUtil.orient_tri_edge(ref oa, ref ob, ref tri);
+            Vector3d vA = mesh.GetVertex(oa), vB = mesh.GetVertex(ob), vC = mesh.GetVertex(c), vD = mesh.GetVertex(d);
+            double f = flip_edge_scale(ref vA, ref vB, ref vC);
+            Vector3d nOld = ((vB - vA) * f).Cross((vC - vA) * f) + ((vA - vB) * f).Cross((vD - vB) * f);
+            collect_ring(a, b, f);
+            Vector3d ring = facing_ring_normal(ref nOld);
+            double cosOld;
+            if (ring_cos(ref nOld, ref ring, out cosOld) == false)
+                return false;       // a flat pair has no side
+            Vector3d f0 = ((vD - vC) * f).Cross((vB - vC) * f), f1 = ((vC - vD) * f).Cross((vA - vD) * f);
+            return turns_from_ring(ref f0, ref ring, cosOld) || turns_from_ring(ref f1, ref ring, cosOld);
         }
 
         // quality (MeshRefinerBase.TriangleQuality) below which a triangle counts as degenerate for flips
