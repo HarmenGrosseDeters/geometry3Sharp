@@ -177,7 +177,8 @@ Part of the [roadmap](../ROADMAP.md).
      blocks (Theorem 8, [CONTOURING_BLOCK_CERTIFICATE.md](../design/CONTOURING_BLOCK_CERTIFICATE.md)). Measured
      (its section 3a): blocks cover 96.5 % of the refused cells of smooth TPMS at 32 cells per period, about a third
      overall (9 to 56 % per run) for a TPMS clipped by a ball. Decision (owner 2026-11-22): build Theorem 8 for levels
-     of a smooth field only, with the per-level certificate of `TwoLevelMarchingTetrahedra` without a domain. **Open
+     of a smooth field only, with the per-level certificate of `TwoLevelMarchingTetrahedra` without a domain: built,
+     internal (`TwoLevelSheetCertificate`, section 4b of that note). **Open
      limit, not built:** a lattice clipped to a domain. Box blocks grown by the one rule that was measured do not
      close it; the likely reason is that the refusals follow the rim of the cut, which would need blocks that follow a
      curve or a statement for two crossing surfaces.

@@ -81,9 +81,63 @@ static class Program
         return 0;
     }
 
+    // (g(K x) + cap (|x|^2 / R^2)^3) / K: the capped field scaled to a slope of about 1, so that a half width is a length
+    sealed class ScaledCappedTpms : IntervalImplicit3d, ImplicitFunction3d
+    {
+        readonly CappedTpms inner; readonly double k;
+        public ScaledCappedTpms(TpmsType type, double k, double radius, double cap) { inner = new CappedTpms(type, k, radius, cap); this.k = k; }
+        public IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z)
+        {
+            IntervalEnclosure e = inner.Enclose(x, y, z);
+            ExactInterval K = ExactInterval.Of(k);
+            e.F = e.F / K; e.Gx = e.Gx / K; e.Gy = e.Gy / K; e.Gz = e.Gz / K;
+            return e;
+        }
+        public double Value(ref Vector3d p) { return inner.Value(ref p) / k; }
+    }
+
+    // The yield and the cost of TwoLevelSheetCertificate (internal; docs/design/CONTOURING_BLOCK_CERTIFICATE.md, Theorem 8
+    // and Lemma 9) on walls around capped TPMS made by TwoLevelMarchingTetrahedra.
+    //   dotnet run -c Release --project benchmarks/ContouringSmoothCertificate -- sheet > benchmarks/ContouringSmoothCertificate/results/sheet.csv
+    static int Sheet()
+    {
+        var inv = CultureInfo.InvariantCulture;
+        Console.WriteLine("type,n,cells_per_period,thickness_cells,certified,run_failure,surface_cells_0,surface_cells_1,alone_0,alone_1,in_blocks_0,in_blocks_1,blocks_0,blocks_1,uncertified,"
+            + "by_node,by_edge,by_face,by_direction,by_circles,by_mesh,by_limit,by_outer,topology,mesh_ms,mesh_with_record_ms,certificate_ms,certificate_without_blocks_ms");
+        var origin = new Vector3d(-1.113, -1.107, -1.103); const double size = 2.2;
+        foreach (TpmsType type in new[] { TpmsType.Gyroid, TpmsType.SchwarzP, TpmsType.SchwarzD, TpmsType.Neovius, TpmsType.IWP, TpmsType.Lidinoid })
+            foreach (int periods in new[] { 1, 2 })
+                foreach (int n in new[] { 32, 64 })
+                    foreach (double cells in new[] { 0.5, 2.0 }) {
+                        if (periods == 2 && cells == 2.0) continue;
+                        double h = size / n;
+                        var field = new ScaledCappedTpms(type, 2 * Math.PI * periods / size, 0.9, 4);
+                        Func<bool, TwoLevelMarchingTetrahedra> make = rec => new TwoLevelMarchingTetrahedra { Field = field, HalfWidth = cells * h / 2, CellSize = h, ParallelCompute = false,
+                            RecordCertificateData = rec, Bounds = new AxisAlignedBox3d(origin, origin + size * Vector3d.One) };
+                        TwoLevelMarchingTetrahedra plain = make(false), gen = make(true);
+                        double meshMs = Median(() => { var sw = Stopwatch.StartNew(); plain.Generate(); return sw.Elapsed.TotalMilliseconds; }, 3);
+                        double recMs = Median(() => { var sw = Stopwatch.StartNew(); gen.Generate(); return sw.Elapsed.TotalMilliseconds; }, 3);
+                        var cert = new TwoLevelSheetCertificate { Field = field, Mesher = gen };
+                        double certMs = Median(() => { var sw = Stopwatch.StartNew(); cert.Compute(); return sw.Elapsed.TotalMilliseconds; }, 3);
+                        var alone = new TwoLevelSheetCertificate { Field = field, Mesher = gen, MaxBlockSide = 1 };
+                        double aloneMs = Median(() => { var sw = Stopwatch.StartNew(); alone.Compute(); return sw.Elapsed.TotalMilliseconds; }, 1);
+                        Func<SheetCertificateReason, int> by = r => cert.UncertifiedCells.Count(u => u.Reason == r);
+                        var t = MeshTopologySummary.Compute(gen.Mesh);
+                        string topology = "c=" + t.Components + ";gsum=" + t.ComponentList.Sum(x => x.Genus).ToString(inv);
+                        Console.WriteLine(string.Join(",", type, n, n / periods, cells.ToString(inv), cert.Certified ? "yes" : "no", cert.RunFailure.ToString().Replace(", ", "+"),
+                            cert.SurfaceCells[0], cert.SurfaceCells[1], cert.CellsCertifiedAlone[0], cert.CellsCertifiedAlone[1], cert.CellsInBlocks[0], cert.CellsInBlocks[1], cert.Blocks[0], cert.Blocks[1],
+                            cert.UncertifiedCells.Count, by(SheetCertificateReason.NodeSign), by(SheetCertificateReason.Edge), by(SheetCertificateReason.Face), by(SheetCertificateReason.Direction),
+                            by(SheetCertificateReason.Circles), by(SheetCertificateReason.MeshInBlock), by(SheetCertificateReason.BlockLimit), by(SheetCertificateReason.OuterLayer), topology,
+                            meshMs.ToString("0", inv), recMs.ToString("0", inv), certMs.ToString("0", inv), aloneMs.ToString("0", inv)));
+                        Console.Out.Flush();
+                    }
+        return 0;
+    }
+
     static int Main(string[] args)
     {
         if (args.Length > 0 && args[0] == "record") return RecordCost();
+        if (args.Length > 0 && args[0] == "sheet") return Sheet();
         var inv = CultureInfo.InvariantCulture;
         Console.WriteLine("type,periods,n,cells_per_period,surface_cells,uncertified_cells,certified,passed_t0,passed_t1,passed_t2,topology,contour_ms,certificate_serial_ms,certificate_parallel_ms");
         var origin = new Vector3d(-1.113, -1.107, -1.103); const double size = 2.2;
