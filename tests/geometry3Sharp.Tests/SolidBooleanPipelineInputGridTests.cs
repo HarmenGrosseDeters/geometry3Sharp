@@ -114,7 +114,7 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
-        static List<DMesh3> Fragment()
+        internal static List<DMesh3> Fragment()
         {
             return new List<DMesh3> { FromArrays(Fragment0Vertices, Fragment0Triangles), FromArrays(Fragment1Vertices, Fragment1Triangles) };
         }

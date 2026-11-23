@@ -629,6 +629,18 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void SolidBooleanPipelineExample_CutsWithAFlushSheetOnTheGrid()
+        {
+            SolidBooleanPipeline pipeline = SolidBooleanPipelineExample.CutWithAFlushSheetOnTheGrid();
+            Assert.True(pipeline.Status == SolidBooleanPipeline.PipelineStatus.Success, pipeline.Status + " " + pipeline.Error);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(pipeline.Result));
+            Assert.True(pipeline.Result.IsClosed());
+            Assert.Equal(0.5, MeshMeasurements.VolumeArea(pipeline.Result, pipeline.Result.TriangleIndices(), pipeline.Result.GetVertex).x, 12);
+            Assert.Equal(new[] { "SheetRole", "Grid", "SheetRole" }, pipeline.Report.Route.Select(s => s.Name).ToArray());
+            Assert.Equal(1.0 / (1L << 40), pipeline.Report.Route[1].Grid);
+        }
+
+        [Fact]
         public void SolidBooleanPipelineExample_UnionsAndImprintsCleanly()
         {
             SolidBooleanPipeline pipeline = SolidBooleanPipelineExample.UnionAndReduce();
