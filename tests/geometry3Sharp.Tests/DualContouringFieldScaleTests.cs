@@ -250,6 +250,138 @@ namespace geometry3Sharp.Tests
             for (int i = 0; i < 3; ++i) Assert.Equal("", Invariance.Difference(serial, Run(true)));
         }
 
+
+        // ---------------------------------------------------------------- the float grid (#1376)
+
+        // c f for c far below the float range of the node values: fails before the fix (2^-150 and below: empty; 2^-140: moved vertices)
+        public static IEnumerable<object[]> FloatRangeScales() =>
+            from e in new[] { -200, -150, -140 } from c in new[] { "default", "Simplify off" } select new object[] { e, c };
+
+        [Theory]
+        [MemberData(nameof(FloatRangeScales))]
+        public void ValuesBeyondTheFloatRange_SameMeshBitForBit(int e, string config)
+        {
+            double c = Pow2(e);
+            DMesh3 unit = Contour(Sdf, UnitBox, 0.125, config);
+            DMesh3 scaled = Contour(p => c * Sdf(p), UnitBox, 0.125, config);
+            AssertSolid(scaled, "scaled");
+            Assert.Equal("", Invariance.Difference(unit, scaled));
+        }
+
+        // above the float range the bisected crossings do not read the grid values, so the default is the same on master (these pass
+        // there; they pin that the rescaling does not break it); the interpolated fallback (a HermiteF that declines every edge) does
+        // read them: on master the values are clamped at 2^127 and the crossings are at the middle of the edges. Fails before the fix.
+        [Theory]
+        [InlineData(300)]
+        [InlineData(200)]
+        public void ValuesAboveTheFloatRange_SameMeshBitForBit(int e)
+        {
+            double c = Pow2(e);
+            DMesh3 unit = Contour(Sdf, UnitBox, 0.125);
+            AssertSolid(Contour(p => c * Sdf(p), UnitBox, 0.125), "scaled");
+            Assert.Equal("", Invariance.Difference(unit, Contour(p => c * Sdf(p), UnitBox, 0.125)));
+            DMesh3 Run(double k)
+            {
+                DualContouring dc = Make(p => k * Sdf(p), UnitBox, 0.125);
+                dc.HermiteF = (Vector3d a, Vector3d b, Vector3d crossing, out Vector3d point, out Vector3d normal) => { point = normal = Vector3d.Zero; return false; };
+                dc.Generate();
+                return dc.Mesh;
+            }
+            Assert.Equal("", Invariance.Difference(Run(1), Run(c)));
+        }
+
+        // a field with a Gaussian tail (nonzero values below the smallest normal float far from the surface, +inf outside the domain)
+        // takes the rescaling path: its output is pinned (the surface values are normal floats, so it is the output of master too)
+        [Fact]
+        public void FieldWithATailBelowTheNormalFloats_KeepsItsOutput()
+        {
+            double Tail(Vector3d p) => p.x > 2.4 ? double.PositiveInfinity : Gauss(p);
+            DMesh3 m = Contour(Tail, BigBox, 0.125, "default", -1e-10);
+            AssertSolid(m, "tail");
+            Assert.Equal("276 3E363445554399FC", Digest(m));
+        }
+
+        // not a power of two: the same contour up to rounding
+        [Theory]
+        [InlineData(1e-3)]
+        [InlineData(1e-200)]
+        [InlineData(1e200)]
+        public void ValuesTimesANonPowerOfTwo_SameContour(double c)
+        {
+            DMesh3 unit = Contour(Sdf, UnitBox, 0.125);
+            DMesh3 scaled = Contour(p => c * Sdf(p), UnitBox, 0.125);
+            AssertSolid(scaled, "scaled");
+            Assert.Equal(unit.TriangleCount, scaled.TriangleCount);
+            Assert.InRange(Invariance.Volume(scaled), Invariance.Volume(unit) * 0.999, Invariance.Volume(unit) * 1.001);
+        }
+
+        // an iso value below the float range: exp(-40 r^2) at 1e-60 (the level set is the sphere of radius 1.85)
+        [Theory]
+        [InlineData(1e-50)]
+        [InlineData(1e-60)]
+        [InlineData(1e-100)]
+        public void LevelSetOfAGaussian_BelowTheFloatRange_IsTheSphere(double level)
+        {
+            DMesh3 m = Contour(Gauss, new AxisAlignedBox3d(new Vector3d(-3.5, -3.5, -3.5), new Vector3d(3.5, 3.5, 3.5)), 0.125, "default", -level);
+            AssertSolid(m, "gaussian");
+            double r = Math.Sqrt(-Math.Log(level) / 40), analytic = GaussVolume(level), volume = Invariance.Volume(m);
+            Assert.InRange(volume, analytic * 0.99, analytic * 1.01);
+            foreach (Vector3d v in m.Vertices()) Assert.InRange(v.Length, r - 0.0625, r + 0.0625);
+        }
+
+        [Fact]
+        public void FloatRange_Generate_Twice_SameMesh_ParallelEqualsSerial()
+        {
+            double c = Pow2(-200);
+            DMesh3 Run(bool parallel, DualContouring dc = null)
+            {
+                dc = dc ?? Make(p => c * Sdf(p), UnitBox, 0.125);
+                dc.ParallelCompute = parallel;
+                dc.Generate();
+                return dc.Mesh;
+            }
+            DMesh3 serial = Run(false);
+            AssertSolid(serial, "serial");
+            Assert.Equal("", Invariance.Difference(serial, Run(true)));
+            DualContouring same = Make(p => c * Sdf(p), UnitBox, 0.125);
+            DMesh3 first = new DMesh3(Run(true, same));
+            Assert.Equal("", Invariance.Difference(first, Run(true, same)));
+            Assert.Equal("", Invariance.Difference(first, serial));
+        }
+
+        // the field under every similarity, values times 2^-200: the 2^k scales bit for bit
+        [Fact]
+        public void Similarities_OfAFieldBeyondTheFloatRange_Pow2BitIdentical_AllClean()
+        {
+            double c = Pow2(-200);
+            DMesh3 Run(Similarity sim)
+            {
+                var grid = AxisAlignedBox3d.Empty;
+                for (int q = 0; q < 8; ++q) grid.Contain(sim.Apply(UnitBox.Corner(q)));
+                return Contour(p => c * sim.Scale * Sdf(sim.Inverse(p)), grid, sim.ApplyLength(0.125));
+            }
+            DMesh3 r0 = Run(Similarity.Identity);
+            AssertSolid(r0, "identity");
+            double volume = Invariance.Volume(r0);
+            foreach (Similarity sim in Similarity.All()) {
+                DMesh3 back = Invariance.MappedBack(Run(sim), sim);
+                if (sim.IsExact) Assert.Equal("", Invariance.Difference(r0, back));
+                else {
+                    AssertSolid(back, sim.Name);
+                    Assert.InRange(Invariance.Volume(back), volume * 0.98, volume * 1.02);
+                }
+            }
+        }
+
+        // ExactHermite = false keeps the clamped float grid (its output as before 2026-11): the values times 2^-200 are 0 there
+        [Fact]
+        public void ExactHermiteOff_ValuesBeyondTheFloatRange_KeepsItsOutput()
+        {
+            double c = Pow2(-200);
+            DMesh3 m = Contour(p => c * Sdf(p), UnitBox, 0.125, "ExactHermite off");
+            Assert.Equal(0, m.TriangleCount);
+        }
+
         // ---------------------------------------------------------------- what must not change
 
         static readonly (string name, Func<Vector3d, double> f, double cell)[] Ordinary = {
