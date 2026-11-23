@@ -128,4 +128,5 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [MetamorphicFalsification](MetamorphicFalsification/README.md) | Metamorphic relation falsification runs over core geometry operations |
 | [MetamorphicBugHunt](MetamorphicBugHunt/README.md) | Metamorphic relations and operation chains (Boolean, repair, remesh, tet, wrap, contouring, 2D mesher; second hunt: `PassageWrap`, feature pass, quad, `TpmsLattice`, `ContourLoft`, readers and writers, geodesics, intrinsic triangulation) on procedural inputs with independent checks of every Success |
 | [MagnitudeRobustness](MagnitudeRobustness/README.md) | Probes of the magnitude study: geodesic and intrinsic classes and `DualContouring` at 2^e, root-cause expressions, an exact prescaling wrapper and its cost |
+| [TopologyOwnershipProbe](TopologyOwnershipProbe/README.md) | Ordered winding landmarks vs. Betti numbers and shell volumes as a check of where a cavity ends up after a Boolean or forced repair |
 | `Shared` | Shared evaluation helpers (`FidelityFields.cs`, `UvEvaluation.cs`) reused by benchmarks and tests |
