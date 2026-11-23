@@ -32,7 +32,7 @@ class CiWorkflow(unittest.TestCase):
 
     def test_draft_gate_is_on_scope_and_everything_needs_it(self):
         header = self.job("scope").split("steps:")[0]
-        self.assertRegex(header, r"(^|\n)    if: github.event_name != 'pull_request' \|\| github.event.pull_request.draft == false\n")
+        self.assertRegex(header, r"(^|\n)    if: \(github.event_name != 'pull_request' \|\| github.event.pull_request.draft == false\) && ")
         # labeled starts the full stage (label full-ci, owner 2026-11-23); a labeled run of a ready PR is a complete run (scope runs,
         # so no job is skipped that ran before on the same head, except quick, which the full stage covers). No unlabeled: a run
         # without the label on a head that had a full run would replace its real checks by skipped ones
@@ -43,7 +43,7 @@ class CiWorkflow(unittest.TestCase):
         for name in set(names) - {"scope"}:
             self.assertRegex(self.job(name).split("steps:")[0], r"needs: (scope|\[scope)", name)
 
-    def gate(self, event_name, draft=False):
+    def gate(self, event_name, draft=False, action="synchronize", label=None):
         header = self.job("scope").split("steps:")[0]
         expr = re.search(r"^    if: (.*)$", header, re.M).group(1)
 
@@ -55,6 +55,9 @@ class CiWorkflow(unittest.TestCase):
         g.event = Ns()
         g.event.pull_request = Ns()
         g.event.pull_request.draft = draft
+        g.event.action = action
+        g.event.label = Ns()
+        g.event.label.name = label
         py = expr.replace("&&", " and ").replace("||", " or ").replace("false", "False")
         return bool(eval(py, {"github": g}))
 
@@ -63,6 +66,17 @@ class CiWorkflow(unittest.TestCase):
             self.assertTrue(self.gate(ev, draft=False))
         self.assertTrue(self.gate("pull_request", draft=False))
         self.assertFalse(self.gate("pull_request", draft=True))
+        # (review of #1469) label events: full-ci starts the full stage, bugfix re-runs it; any other label runs nothing
+        self.assertTrue(self.gate("pull_request", action="labeled", label="full-ci"))
+        self.assertTrue(self.gate("pull_request", action="labeled", label="bugfix"))
+        for other in ("mutation", "gate-change", "documentation"):
+            self.assertFalse(self.gate("pull_request", action="labeled", label=other), other)
+
+    def test_other_label_runs_do_not_cancel(self):
+        # their run gets a group of its own (with its run id), so it cannot cancel the full matrix under way
+        group = re.search(r"\n  group: (.*)\n", self.text).group(1)
+        self.assertIn("github.event.action == 'labeled' && github.event.label.name != 'full-ci' && github.event.label.name != 'bugfix' "
+                      "&& format('-label-{0}', github.run_id)", group)
 
     def test_skipped_runs_have_their_own_group(self):
         # the only skipped run is one of a draft; it must not cancel a real run of the PR (a ready PR run under way, then a draft push)
@@ -98,7 +112,8 @@ class TwoStageWorkflow(unittest.TestCase):
     def test_full_stage_jobs_need_the_full_output(self):
         for name in ("linux", "isolated", "time-rule", "netstandard", "tier-rule"):
             self.assertIn("needs.scope.outputs.full == 'true'", self.header(name), name)
-        # (the tier rule is a merge-gate check: in ci.yml, so the status covers it; tier-rule.yml has no pull_request trigger)
+        # (the tier rule is a merge-gate check: in ci.yml, so the status covers it; tier-rule.yml has no pull_request trigger; the
+        # Markdown it reads, docs/OPERATIONS.md and docs/guides, is in the paths of ci.yml: DocsOnly)
         with open(os.path.join(ROOT, ".github", "workflows", "tier-rule.yml"), encoding="utf-8") as f:
             self.assertNotIn("pull_request", f.read().split("\njobs:")[0].replace("# (pull requests", ""))
 
@@ -130,22 +145,35 @@ class TwoStageWorkflow(unittest.TestCase):
 
     def test_the_status_is_the_merge_gate(self):
         h = self.header("full-ci-status")
-        self.assertIn("needs: [scope, linux, isolated, time-rule, netstandard, tier-rule]", h)
-        self.assertIn("always()", h)
+        self.assertIn("needs: [scope, linux, isolated, time-rule, netstandard, tier-rule, new-tests-on-base, determinism]", h)
+        # (review: a cancelled run posts nothing, so it cannot race the newer run's status)
+        self.assertIn("if: ${{ !cancelled() && ", h)
+        self.assertNotIn("always()", h)
         self.assertIn("statuses: write", h)
         body = self.job("full-ci-status")
         self.assertIn("context=full-ci", body)
         self.assertIn('SHA: ${{ github.event.pull_request.head.sha }}', body)
         # pending without the label; success only from linux and netstandard passed
         self.assertIn('if [ "$FULL" != true ]; then\n            state=pending', body)
-        self.assertIn('[ "$LINUX" = success ] && [ "$NETSTANDARD" = success ] && [ "$TIER_RULE" = success ]', body)
+        self.assertIn('[ "$LINUX" = success ] && [ "$NETSTANDARD" = success ] && [ "$TIER_RULE" = success ] && [ "$NEW_TESTS" = success ]', body)
+        self.assertIn('ok "$DETERMINISM"', body)
 
-    def test_the_other_full_stage_workflows_need_the_label(self):
-        for name in ("new-tests-on-base.yml", "determinism.yml"):
-            with open(os.path.join(ROOT, ".github", "workflows", name), encoding="utf-8") as f:
-                text = f.read()
-            self.assertIn("contains(github.event.pull_request.labels.*.name, 'full-ci')", text, name)
-            self.assertRegex(text, r"types: \[[^\]]*\blabeled\b", name)
+    def test_new_tests_on_base_and_determinism_are_jobs_of_the_full_stage(self):
+        # (review of #1469: they were in the merge rule but not in the status; reusable workflows in the PR's context now)
+        for name, extra in (("new-tests-on-base", ""), ("determinism", " && needs.scope.outputs.determinism == 'true'")):
+            h = self.job(name)
+            self.assertIn("uses: ./.github/workflows/%s.yml" % name, h)
+            self.assertIn("if: github.event_name == 'pull_request' && needs.scope.outputs.full == 'true'" + extra + "\n", h)
+            with open(os.path.join(ROOT, ".github", "workflows", name + ".yml"), encoding="utf-8") as f:
+                on = f.read().split("\njobs:")[0]
+            self.assertIn("workflow_call:", on, name)
+            self.assertNotIn("pull_request:", on, name)        # no run of its own on a PR (it would not be in the gate)
+        self.assertIn("determinism: ${{ steps.scope.outputs.determinism }}", self.header("scope"))
+
+    def test_the_suites_of_a_batch_come_from_master_batch(self):
+        h = self.header("scope")
+        for k in ("library", "g3cli", "ps1"):
+            self.assertIn("%s: ${{ steps.full.outputs.%s || steps.scope.outputs.%s }}" % (k, k, k), h)
 
 
 class DocsOnly(unittest.TestCase):
@@ -166,6 +194,23 @@ class DocsOnly(unittest.TestCase):
         self.assertEqual(["**", "!**/*.md"], items[:2])
         self.assertEqual(sorted(c.CI_MARKDOWN), sorted(items[2:]))
 
+    def test_markdown_that_tests_or_the_tier_rule_read_is_not_docs_only(self):
+        # (review of #1469: these got a docs-only green full-ci although a test or the tier rule reads them)
+        for p in ("docs/OPERATIONS.md", "docs/ROBUSTNESS_SWEEP.md", "docs/design/EXACT_FALLBACK_MONOMIALS.md",
+                  "docs/design/INDIRECT_PREDICATES.md", "docs/design/MESHING2D_GOLDEN_FORMAT.md", "docs/design/MESHING2D_CATALOGUE.md",
+                  "docs/guides/boolean.md", "docs/guides/sub/x.md"):
+            self.assertFalse(c.docs_only([p]), p)
+            self.assertFalse(c.docs_only(["docs/x.md", p]), p)
+        # every Markdown file of SHARED is CI Markdown (the list is derived from it)
+        for s_ in c.SHARED:
+            if s_.endswith(".md"):
+                self.assertTrue(c.is_ci_markdown(s_), s_)
+
+    def test_determinism_scope(self):
+        self.assertTrue(c.scope(["tools/DeterminismHarness/Program.cs"])["determinism"])
+        self.assertTrue(c.scope(["docs/examples/Ex.cs"])["determinism"])
+        self.assertFalse(c.scope(["math/Vector3d.cs"])["determinism"])
+
     def test_docs_yml_posts_the_gate_only_for_docs_only_prs(self):
         with open(os.path.join(ROOT, ".github", "workflows", "docs.yml"), encoding="utf-8") as f:
             text = f.read()
@@ -173,6 +218,9 @@ class DocsOnly(unittest.TestCase):
         self.assertIn("tools/ci_scope.py --docs-only", text)
         self.assertIn("context=full-ci", text)
         self.assertIn("steps.docs_only.outputs.docs_only == 'true'", text)
+        # (review nit: a failed docs check posts failure, not a pending status)
+        self.assertIn("OUTCOME: ${{ steps.check.outcome }}", text)
+        self.assertIn('else state=failure', text)
 
 
 class Quick(unittest.TestCase):

@@ -11,6 +11,7 @@ there is listed; a test that opens a file there by path needs a hand-made entry)
 Prints key=value lines for $GITHUB_OUTPUT:
     library=true|false    the library test suites run (net10.0, net48, Clipper2)
     g3cli=true|false      the g3cli tests run (the library changed, or tools/g3cli did)
+    determinism=true|false  the PR part of determinism.yml runs (the harness, the reach tool, the doc examples, the core math benchmark)
     ps1=true|false        the benchmark checks of the net48 job run: the reporting regression (benchmarks/MeshRepairBenchmark changed) and
                           the net48 / net10.0 smoke run of benchmarks/net48-compare (that directory or one of its three benchmarks changed)
 
@@ -85,6 +86,8 @@ def scope(paths):
         "library": library,
         "g3cli": library or any(p.startswith("tools/g3cli/") for p in paths),
         "ps1": library or any(p.startswith(PS1_DIRS) for p in paths),
+        # (the cross-runtime comparison, determinism.yml: only for a PR that changes what it runs)
+        "determinism": any(p.startswith(DETERMINISM_PATHS) for p in paths),
     }
 
 
@@ -252,15 +255,26 @@ def quick_summary(result):
     return "\n".join(lines) + "\n"
 
 
-# Markdown files that ci.yml does run for (its pull_request paths): design docs that a test checks against a generator
-CI_MARKDOWN = ("docs/design/FIXED_WIDTH_EXACT_POINTS.md", "docs/design/DETERMINISM_PROOF.md")
+# Markdown that ci.yml does run for (its pull_request paths, kept equal by test_ci_scope.py): the Markdown files of SHARED (the
+# tests read them: DocExamplesTests, RobustnessSweepTests, the generator and golden-format tests, the determinism ledger) and the
+# operation guides (the tier rule reads docs/OPERATIONS.md and docs/guides). (Matched case-sensitively, like GitHub's filter.)
+CI_MARKDOWN = tuple(s for s in SHARED if s.endswith(".md")) + ("docs/guides/**",)
+
+
+def is_ci_markdown(path):
+    return any(path == m or (m.endswith("/**") and path.startswith(m[:-2])) for m in CI_MARKDOWN)
 
 
 def docs_only(paths):
     """True if ci.yml does not run for these changes at all (only Markdown outside CI_MARKDOWN): docs.yml then posts the
     merge gate `full-ci` itself (owner 2026-11-23), as no full matrix will ever run on such a PR"""
     paths = [p.strip() for p in paths if p.strip()]
-    return bool(paths) and all(p.endswith(".md") and p not in CI_MARKDOWN for p in paths)
+    return bool(paths) and all(p.endswith(".md") and not is_ci_markdown(p) for p in paths)
+
+
+# The PR part of determinism.yml (a job of ci.yml's full stage): its former trigger paths
+DETERMINISM_PATHS = ("tools/DeterminismHarness/", "tools/DeterminismReach/", "docs/examples/", "benchmarks/CoreMathBenchmark/",
+                     ".github/workflows/determinism.yml")
 
 
 def main(argv):
@@ -276,7 +290,8 @@ def main(argv):
                 f.write(quick_summary(result))
         return 0
     if "--all" in argv or not paths_available():
-        result = {"library": True, "g3cli": True, "ps1": True}
+        # (determinism.yml is not part of master CI: it has its own dispatch)
+        result = {"library": True, "g3cli": True, "ps1": True, "determinism": False}
     else:
         result = scope(sys.stdin.read().split("\n"))
     for k, v in result.items():

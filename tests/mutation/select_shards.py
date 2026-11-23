@@ -377,6 +377,34 @@ def exact_gated(path):
     return any(fnmatch.fnmatchcase(path, g) for g in exact_globs())
 
 
+# Exact-code files that no shard mutates yet (review 2026-11-23 of #1469): a PR that changes one gets no mutation run, only the
+# notice of `select_shards.py hint` ("no mutation shard": the review of CLAUDE.md is its only check). A new exact file goes into a
+# shard's config or onto this list (test_select_shards.py: every existing exact file is in exactly one of the two).
+NO_SHARD = {
+    "comp_geom/SnapRounding2.cs": "the snap rounding grid (its exact tests and double filters)",
+    "intersection/ContinuousCollision.cs": "continuous collision (exact root isolation)",
+    "intersection/ExactTriangleIntersection.cs": "exact triangle intersection (called by the boolean shards' code, not mutated by them)",
+    "intersection/TriangleTriangleFilter.cs": "the triangle pair filter",
+    "math/ExactRayTriangle.cs": "the exact ray-triangle test",
+    "mesh_ops/ContouringTopologyCertificate.cs": "the contouring's topology certificate",
+    "mesh_ops/ExactMeshEdgeGroups.cs": "edge groups of the exact boolean result",
+    "mesh_ops/ExactMeshResultBuilder.cs": "the result builder of the exact boolean",
+    "mesh_ops/TerrainSlopeCatchLineBound.cs": "terrain slopes (the terrain shards mutate the kernel and the overlay)",
+    "mesh_ops/TerrainSlopeComposite.cs": "terrain slopes",
+    "mesh_ops/TerrainSlopeDesign.cs": "terrain slopes",
+    "mesh_ops/TerrainSlopeLocalFrame.cs": "terrain slopes",
+    "mesh_ops/TerrainSlopeMap.cs": "terrain slopes",
+    "mesh_ops/TerrainSlopeRamps.cs": "terrain slopes",
+}
+
+
+def unsharded(changed):
+    """the changed exact-code files that no shard mutates (NO_SHARD, or an exact file missing from both lists)"""
+    configs = load_configs()
+    mutated = set().union(*(c[1] for c in configs.values()))
+    return sorted(p for p in set(changed) if exact_gated(p) and p not in mutated)
+
+
 SCRIPTS = {"tests/mutation/run_stryker.sh", "tests/mutation/incremental.py", "tests/mutation/baseline.py", "tests/mutation/exclude_other_sources.py"}
 SCRIPT_SHARD = "mesh-fixed"
 
@@ -491,8 +519,19 @@ if __name__ == "__main__":
                 print(skip_notice(e))
         sys.exit(0)
     if args[:1] == ["hint"]:
-        # hint [--summary]: changed paths on stdin; the paths that may change an error bound (the audit or a file it anchors)
-        paths = error_bound_hint([l.strip() for l in sys.stdin if l.strip()])
+        # hint [--summary]: changed paths on stdin; the paths that may change an error bound (the audit or a file it anchors), and
+        # the changed exact-code files that no shard mutates
+        changed = [l.strip() for l in sys.stdin if l.strip()]
+        lonely = unsharded(changed)
+        if lonely:
+            if "--summary" in args:
+                print("### Exact code without a mutation shard\n")
+                print("No mutation run gates these changed exact-code files (select_shards.py NO_SHARD); the review is their check: "
+                      + ", ".join(f"`{p}`" for p in lonely) + ".\n")
+            else:
+                for p in lonely:
+                    print(f"::notice::{p}: exact code without a mutation shard: NOT RUN (the review is its check)")
+        paths = error_bound_hint(changed)
         if paths:
             if "--summary" in args:
                 print("### Error bound touched?\n")

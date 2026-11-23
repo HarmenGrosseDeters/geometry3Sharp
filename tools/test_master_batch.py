@@ -19,13 +19,17 @@ def run(i, sha, branch="master"):
     return {"id": i, "head_sha": sha, "head_branch": branch}
 
 
-def jobs(linux):
-    return [{"name": "scope", "conclusion": "success"}, {"name": "linux", "conclusion": linux}]
+def jobs(linux, **others):
+    """the jobs of a run: the full stage with the given conclusion of linux (and of the netstandard shards), others as given"""
+    out = {"scope": "success", "linux": linux, "netstandard": linux, "netstandard-b": linux, "isolated": linux,
+           "time-rule": linux, "tier-rule": linux}
+    out.update({k.replace("_", "-"): v for k, v in others.items()})
+    return [{"name": k, "conclusion": v} for k, v in out.items() if v != "absent"]
 
 
 class Decide(unittest.TestCase):
     def decide(self, runs, linux_of, diff=lambda a, b: ["math/Vector3d.cs"], run_id=None):
-        return mb.decide(HEAD, runs, lambda r: jobs(linux_of[r["id"]]), diff, run_id)
+        return mb.decide(HEAD, runs, lambda r: jobs(linux_of[r["id"]]), diff, run_id)[:2]
 
     def test_head_already_tested_skips(self):
         full, reason = self.decide([run(2, HEAD)], {2: "success"})
@@ -45,12 +49,52 @@ class Decide(unittest.TestCase):
             full, reason = self.decide([run(3, HEAD), run(2, OLD)], {3: linux, 2: "success"})
             self.assertTrue(full, linux)
 
-    def test_only_docs_tools_benchmarks_since_skips(self):
-        full, reason = self.decide([run(2, OLD)], {2: "success"}, diff=lambda a, b: ["docs/x.md", "tools/a.py", "benchmarks/B/P.cs"])
+    def test_only_markdown_since_skips(self):
+        full, reason = self.decide([run(2, OLD)], {2: "success"}, diff=lambda a, b: ["docs/x.md", "README.md"])
         self.assertFalse(full)
-        self.assertIn("only docs", reason)
-        # one file the tests read: full
+        self.assertIn("only Markdown", reason)
+        # Markdown that a test reads: full
         self.assertTrue(self.decide([run(2, OLD)], {2: "success"}, diff=lambda a, b: ["docs/x.md", "docs/OPERATIONS.md"])[0])
+
+    def test_tools_and_benchmarks_run_without_the_library_suites(self):
+        # (review: the tool tests, benchmark builds and the error bound audit of linux must run on master for tools-only merges)
+        full, reason, suites = mb.decide(HEAD, [run(2, OLD)], lambda r: jobs("success"),
+                                         lambda a, b: ["docs/x.md", "tools/a.py", "benchmarks/B/P.cs"])
+        self.assertTrue(full)
+        self.assertEqual((False, False, False), (suites["library"], suites["g3cli"], suites["ps1"]))
+        self.assertIn("library suites skipped", reason)
+        full, _, suites = mb.decide(HEAD, [run(2, OLD)], lambda r: jobs("success"), lambda a, b: ["math/Vector3d.cs"])
+        self.assertTrue(suites["library"])
+        # (a run without a diff behind it tests everything)
+        self.assertIsNone(mb.decide(HEAD, [], lambda r: [], lambda a, b: [])[2])
+
+    def test_a_run_counts_as_tested_only_with_every_full_stage_job(self):
+        # (review: linux green and a netstandard shard cancelled or timed out is not a tested head)
+        self.assertTrue(mb.tested(jobs("success")))
+        self.assertFalse(mb.tested(jobs("success", netstandard="cancelled")))
+        self.assertFalse(mb.tested(jobs("success", netstandard_b="cancelled")))
+        self.assertFalse(mb.tested(jobs("success", netstandard="absent")))
+        self.assertFalse(mb.tested(jobs("success", tier_rule="cancelled")))
+        self.assertFalse(mb.tested(jobs("success", tier_rule="skipped")))
+        self.assertFalse(mb.tested(jobs("success", isolated="cancelled")))
+        # a tools-only batch skips isolated and time-rule; a run from before tier-rule existed has none
+        self.assertTrue(mb.tested(jobs("success", isolated="skipped", time_rule="skipped")))
+        self.assertTrue(mb.tested(jobs("success", tier_rule="absent")))
+        self.assertTrue(mb.tested(jobs("failure", netstandard="success")))
+        full, _ = Decide.decide(self, [run(3, HEAD), run(2, OLD)], {3: "success", 2: "success"}, run_id=None)
+        self.assertFalse(full)
+
+    def test_main_prints_the_suites(self):
+        import io, contextlib, unittest.mock as um
+        with um.patch.object(mb, "gh_json", side_effect=[{"workflow_runs": [dict(run(2, OLD), event="schedule")]}, {"jobs": jobs("success")}]), \
+                um.patch.object(mb, "git_diff", return_value=["tools/a.py"]):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                mb.main(["--repo", "o/r", "--head", HEAD, "--run-id", "9"])
+        lines = out.getvalue().splitlines()
+        self.assertIn("full=true", lines)
+        self.assertIn("library=false", lines)
+        self.assertIn("g3cli=false", lines)
 
     def test_tools_that_a_suite_reads_run(self):
         # (review: the CLI suite and the Windows benchmark checks are part of the full matrix)
@@ -81,7 +125,7 @@ class Decide(unittest.TestCase):
             if r["id"] == 3:
                 raise RuntimeError("HTTP 502")
             return jobs("success")
-        full, reason = mb.decide(HEAD, [run(3, HEAD), run(2, HEAD)], jobs_of, lambda a, b: [])
+        full, reason, _ = mb.decide(HEAD, [run(3, HEAD), run(2, HEAD)], jobs_of, lambda a, b: [])
         self.assertFalse(full)
         self.assertIn("run 2", reason)
 

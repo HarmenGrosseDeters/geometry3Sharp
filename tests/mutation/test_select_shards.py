@@ -926,6 +926,37 @@ class PullRequestSelection(unittest.TestCase):
         self.assertIn("full run on master", summary)
         self.assertEqual([], self.run_cli("report", "[]", "--summary"))
 
+    def test_every_exact_file_has_a_shard_or_is_listed(self):
+        # (review of #1469: a changed exact file is the only PR trigger, so one without a shard must not go unnoticed)
+        import glob
+        from select_shards import NO_SHARD, exact_globs, exact_gated
+        files = {os.path.relpath(f, ROOT).replace(os.sep, "/") for g in exact_globs() for f in glob.glob(os.path.join(ROOT, g))}
+        mutated = set().union(*(c[1] for c in CONFIGS.values()))
+        for f in sorted(files):
+            self.assertTrue((f in mutated) != (f in NO_SHARD), f"{f}: in a shard and on NO_SHARD, or in neither")
+        for f, why in NO_SHARD.items():
+            self.assertTrue(exact_gated(f), f)
+            self.assertTrue(os.path.isfile(os.path.join(ROOT, f)), f)
+            self.assertTrue(why)
+
+    def test_workflow_paths_cover_the_exact_code(self):
+        # (so a PR that changes an exact file without a shard still starts the `changes` job and gets the notice)
+        with open(os.path.join(ROOT, ".github/workflows/mutation.yml"), encoding="utf-8") as f:
+            workflow = f.read()
+        block = workflow[workflow.index("paths:"):workflow.index("schedule:")]
+        patterns = re.findall(r"- '([^']+)'", block)
+        from select_shards import exact_globs
+        for g in exact_globs():
+            self.assertIn(g, patterns, g)
+
+    def test_unsharded_exact_files_get_a_notice(self):
+        from select_shards import unsharded
+        self.assertEqual(["comp_geom/SnapRounding2.cs"], unsharded(["comp_geom/SnapRounding2.cs", "math/ExactPoint3.cs", "docs/x.md"]))
+        notice = self.run_cli("hint", stdin="comp_geom/SnapRounding2.cs\n")
+        self.assertTrue(notice and notice[0].startswith("::notice::comp_geom/SnapRounding2.cs"))
+        self.assertIn("without a mutation shard", "\n".join(self.run_cli("hint", "--summary", stdin="comp_geom/SnapRounding2.cs\n")))
+        self.assertEqual([], self.run_cli("hint", stdin="math/FixedPoint3.cs\n"))
+
     def test_error_bound_hint(self):
         from select_shards import audit_files, error_bound_hint
         files = audit_files()

@@ -43,10 +43,11 @@ done since and what is open.
   `quick`: the library builds for net10.0 and netstandard2.0, the net10.0 test build and the net10.0 tests of the changed areas
   without `Slow` and `Nightly` (`tools/ci_scope.py --quick`; a broad change runs a smoke set and says so), about 5 minutes, a
   signal. The **full stage** (`linux` with every net10.0 test, `netstandard` / `netstandard-b` with net48, `isolated`, `time-rule`,
-  `tier-rule`, and the workflows `new-tests-on-base`, `determinism`) runs only while the PR has the label **`full-ci`**, which the
+  `tier-rule`, and the reusable workflows `new-tests-on-base`, `determinism`) runs only while the PR has the label **`full-ci`**, which the
   coordinator sets (like `bugfix`): setting it starts the full stage on the current head, every later push runs it again on the new
-  head. The merge gate is the commit status `full-ci` (green only from a full run on the PR's final head). Master: no run per
-  merge; a scheduled run every 2 hours tests master's head when anything the tests read changed since the last tested head
+  head. The merge gate is the commit status `full-ci` (green only from a full run on the PR's final head; `docs.yml` posts it
+  for a PR of Markdown that no test reads). Master: no run per merge; a scheduled run every 2 hours tests master's head when
+  anything but such Markdown changed since the last tested head
   (`tools/master_batch.py`), `workflow_dispatch` and tags run everything. `FULL_TIER` in `ci.yml` is the switch for the Slow tier:
   true for every run of the full stage (the draft conditions of `isolated`, `time-rule` and the Windows jobs stay as a second
   guard). PR runs cancel on a new push. Master and manual runs: one concurrency group per ref without cancel-in-progress (they queue).

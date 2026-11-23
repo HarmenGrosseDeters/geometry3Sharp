@@ -122,7 +122,13 @@ shards cost a 6 hour runner slot each and were cancelled at the limit (#539) wit
   the label. A shard of a changed exact-code file that is `full` only because the workflow, the tools or a script changed (not
   its own config) runs incrementally instead (its baseline still fits its config), so the PR stays gated. A gate that moves to
   master (its own config changed, or no baseline fits) is a `::warning::` with "GATE ON MASTER", in the `changes` job or in the
-  shard's job: the coordinator dispatches that shard's full run on master after the merge. A shard that finds out in its job that it needs a full run (no baseline in the cache fits) writes "full run on
+  shard's job: the coordinator dispatches that shard's full run on master after the merge. Such a job is green, but its
+  threshold was not checked: read the warning, not the colour.
+- **Exact code without a shard** (`NO_SHARD` in `select_shards.py`: the snap rounding grid, the continuous collision, the exact
+  triangle intersection and its filter, the exact ray test, the contouring certificate, two helpers of the exact boolean, the
+  terrain slope files outside the terrain shards): a PR that changes one gets no mutation run, only the notice "exact code without
+  a mutation shard" in the `changes` job (`select_shards.py hint`); the review is its check. The workflow's trigger paths hold
+  every glob of the exact section, and `test_select_shards.py` checks that every exact file is in a shard or on that list. A shard that finds out in its job that it needs a full run (no baseline in the cache fits) writes "full run on
   master" to its summary and succeeds (`run_stryker.sh` with `NO_FULL=1`; `test_run_stryker.py`). There is no exception any
   more: before 2026-11-23 a shard of a changed exact-code file kept its full run on the PR. Such a PR (an exact change that needs
   a full shard run: no baseline, a changed config) merges on green CI and review, and the full run of its shards that the

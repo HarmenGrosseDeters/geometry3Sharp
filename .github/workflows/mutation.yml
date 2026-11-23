@@ -71,6 +71,13 @@ on:
       - 'parameterization/LSCMParameterization.cs'
       - 'parameterization/SpectralConformalParameterization.cs'
       - 'parameterization/MeshParameterization.cs'
+      # the exact code of .editorconfig (select_shards.exact_globs; the files without a shard get the notice of `hint`)
+      - 'comp_geom/SnapRounding2.cs'
+      - 'math/Exact*.cs'
+      - 'intersection/ExactTriangleIntersection.cs'
+      - 'intersection/TriangleTriangleFilter.cs'
+      - 'intersection/ContinuousCollision.cs'
+      - 'mesh_ops/ContouringTopologyCertificate.cs'
       - 'tests/mutation/*'
       - 'tests/mutation/local-results/**'
       - '.config/dotnet-tools.json'

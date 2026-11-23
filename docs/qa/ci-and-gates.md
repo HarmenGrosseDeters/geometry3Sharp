@@ -185,43 +185,56 @@ Tools, benchmarks and docs the tests do not read build only; the add-on and the 
 The quick stage is a signal; it can miss a test, the full stage cannot.
 
 **Full stage**: `linux` (all net10.0 tests, the CLI and Clipper2 suites, pack, smoke tests, the benchmark and tool steps),
-`netstandard` / `netstandard-b` (net48 against netstandard2.0), `isolated`, `time-rule`, `tier-rule` (now a job of `ci.yml` on
-every full run; `tier-rule.yml` stays for a manual run), plus the PR jobs of `new-tests-on-base.yml` and `determinism.yml`. On a
-PR it runs only while the PR has the label `full-ci`:
+`netstandard` / `netstandard-b` (net48 against netstandard2.0), `isolated`, `time-rule`, `tier-rule` (a job of `ci.yml` on every
+full run; `tier-rule.yml` stays for a manual run), `new-tests-on-base` and `determinism` (reusable workflows that `ci.yml` calls
+in the PR's context: `new-tests-on-base.yml` always, `determinism.yml` when the PR changes what it runs, `tools/ci_scope.py`
+`DETERMINISM_PATHS`; neither has a `pull_request` trigger of its own any more). On a PR it runs only while the PR has the label
+`full-ci`:
 
 - The coordinator sets `full-ci` (like `bugfix`) when the PR is ready to merge. The `labeled` event starts the full stage on the
   current head; every later push while the label is on runs it again on the new head, so no removing and re-adding is needed.
-- Any other label set while `full-ci` is on re-runs the full stage (a `labeled` event cannot be told apart cheaply without a
-  skipped run that would hide a real check on the same head). So **set `bugfix`, `mutation` and the like before `full-ci`**, and
-  the owner sets `gate-change` best before it too. Removing a label starts nothing in `ci.yml`; do not remove `full-ci` from a
-  PR that is to be merged (`new-tests-on-base` re-runs on `unlabeled` and would skip on the same head).
+- Setting `bugfix` re-runs it (so `new-tests-on-base` then requires a failing test). Any other label (`mutation`,
+  `gate-change`, ...) starts a run in a concurrency group of its own whose jobs are all skipped: it cancels nothing and posts no
+  status (the gate is the status, not the job checks; its skipped job checks stand next to the real ones of the same head).
+  Still, set `bugfix` before `full-ci` when it is known, to save a full run. Removing a label starts nothing.
 - When the full stage runs, `quick` is skipped (the full stage covers it).
 
-**Merge gate**: the commit status `full-ci` on the PR's head, posted by the job `full-ci-status` (`statuses: write`): pending
-("label full-ci not set") without the label, success only if `linux`, `netstandard` and `tier-rule` passed and `isolated` /
-`time-rule` passed or were skipped (a PR that does not change the library), failure otherwise. A new push has no status until
-its own run ends, so an old green never stands for a new head. A PR of Markdown only never runs `ci.yml` (its `paths`), so
-`docs.yml` posts `full-ci` success for it after the docs check passed (`tools/ci_scope.py --docs-only`). The merge rule:
-`full-ci` green on the final head, plus `new-tests-on-base` (with `bugfix`: at least one new test fails on the base) and, where
-it ran, `determinism` green (the cross-runtime comparison keeps its `paths` filter, so it is not a required check). A fork PR's
-token cannot write statuses: the job warns, and such a PR needs the owner's check of the jobs and an admin merge (bypass).
+**Merge gate**: the commit status `full-ci` on the PR's head, posted by the job `full-ci-status` (`statuses: write`, `if:
+!cancelled()`: a run that a newer one cancelled posts nothing): pending ("label full-ci not set") without the label; success only
+if `linux`, `netstandard`, `tier-rule` and `new-tests-on-base` passed and `isolated`, `time-rule` and `determinism` passed or were
+skipped (a PR that does not change the library, or not what determinism runs); failure otherwise. A new push has no status until
+its own run ends, so an old green never stands for a new head. A PR of Markdown only that no test reads never runs `ci.yml`
+(its `paths`; the Markdown that the tests or the tier rule read, `tools/ci_scope.py` `CI_MARKDOWN`, is in them: the Markdown files
+of `SHARED` and `docs/guides/**`, kept equal by `test_ci_scope.py`), so `docs.yml` posts `full-ci` for it: success when the docs
+check passed, failure when it failed (`tools/ci_scope.py --docs-only`). The merge rule: `full-ci` green on the final head. A fork
+PR's token cannot write statuses: the job warns, and such a PR needs the owner's check of the jobs and an admin merge (bypass).
+
+Limits of the gate (review of #1469):
+- The status is posted for the head, but the tests ran on the merge commit with the base of that time. A merge to master after
+  that is not re-tested on the PR ("require branches to be up to date" would close this at the cost of a full run per merge);
+  the batched master run catches the combination.
+- A same-repository PR could post `full-ci` itself from a changed workflow or `tools/ci_scope.py`: such a PR changes gate files,
+  so it needs the label `gate-change` and the owner's review of exactly that.
+- `.md` is matched case-sensitively, like GitHub's path filter: a `README.MD` is not Markdown for either, so it runs CI.
+- GitHub disables scheduled workflows of a repository after 60 days without activity; then the batched master run stops until
+  it is re-enabled (Actions tab).
 
 **Branch protection (the owner's setting; this PR changes no repository setting).** Settings > Branches > rule for `master` (or a
-ruleset): "Require status checks to pass before merging" with the required check `full-ci` (a commit status, source: any), and
-optionally `new-tests-on-base` (source: GitHub Actions; it runs on every ready PR event and reports skipped without `full-ci`,
-which a pending `full-ci` then blocks anyway). Not `quick` (a docs-only PR has none, and the full stage covers it), and not
-the job names `linux`, `netstandard`, `netstandard-b`, `isolated`, `time-rule`, `tier-rule`: a skipped job counts as passed
-there, and they are skipped on every push without the label. Not `determinism` (a `paths` filter: a PR outside it would wait
-forever for the check). "Require branches to be
-up to date" stays off (it would re-run the full stage after every merge to master). `gate-change` stays as it is.
+ruleset): "Require status checks to pass before merging" with the single required check `full-ci` (a commit status, source:
+any). Remove the old job names (`linux`, `netstandard`, `netstandard-b`, `isolated`, `time-rule`) if they are required now: they
+are skipped on every push without the label, and a skipped check counts as passed. Not `quick` (a docs-only PR has none, and the
+full stage covers it), not `tier-rule`, `new-tests-on-base`, `determinism` (all in `full-ci` now). "Require branches to be up to
+date" stays off (it would re-run the full stage after every merge to master). `gate-change` stays as it is.
 
 **Batched master CI**: no run per merge. `ci.yml` runs on master every 2 hours (`schedule`, `41 */2 * * *` UTC) and on
-`workflow_dispatch`; tags run as before. The scheduled run asks `tools/master_batch.py` first: it finds the last master run whose
-job `linux` ran to a result (success or failure; cancelled and skipped runs do not count) among the last 30 completed master
-runs (events schedule, workflow_dispatch, push: a fork PR from a branch named master does not count), skips when that run's head
-is master's head or when no suite reads anything changed since then (`tools/ci_scope.py`: library, g3cli and ps1 all false;
-a tool or benchmark build broken by a conflict shows in the next library batch, which builds them all), and runs the full
-matrix otherwise, and also when no such run is found or the diff fails. A red run on an unchanged head is not repeated: a flake
+`workflow_dispatch`; tags run as before. The scheduled run asks `tools/master_batch.py` first. It finds the last master run that
+tested its head among the last 30 completed master runs (events schedule, workflow_dispatch, push: a fork PR from a branch named
+master does not count): every full-stage job ran to a result, success or failure (`linux`, `netstandard`, `netstandard-b`, and
+`tier-rule` where the run has it; `isolated` and `time-rule` may also be skipped; none cancelled or timed out). It skips when
+that run's head is master's head, or when only Markdown that no test reads changed since then (`docs_only`). A batch of tool or
+benchmark changes only runs the full stage with the library suites skipped (the suites from `tools/ci_scope.py` on the diff), so
+the tool tests, the benchmark builds and the error bound audit of `linux` run on master's head. Everything else runs the full
+matrix, and so does a run that finds no tested run or whose diff fails. A red run on an unchanged head is not repeated: a flake
 needs "Re-run failed jobs" or a dispatch. The nightly, coverage and runtime-watch workflows are unchanged.
 
 **A red batch** (several merges in one run): `tools/master_bisect.py --good <last green head> --bad <red head> --list` lists the

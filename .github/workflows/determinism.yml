@@ -1,19 +1,20 @@
 # Bit-for-bit determinism across runtimes (docs/design/DETERMINISM.md): the harness in tools/DeterminismHarness runs fixed
 # procedural inputs through the main operations on net10.0 (Linux and Windows) and net48 (Windows, the netstandard2.0
 # build of the library), serial and parallel, and the compare job lists every case whose values differ with the first
-# diverging value. Not part of the PR gate: it runs when the harness changes, and on demand.
+# diverging value. On a pull request it is a job of ci.yml (workflow_call, owner 2026-11-23): in the full stage (label
+# `full-ci`), when the PR changes the harness, the reach tool, the doc examples, the core math benchmark or this workflow
+# (tools/ci_scope.py DETERMINISM_PATHS), so the merge gate `full-ci` covers it. On demand: workflow_dispatch.
 name: determinism
 
 on:
-  pull_request:
-    # (labeled: setting `full-ci` starts the run; owner 2026-11-23, the PR part runs in the full stage of PR CI only)
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
-    paths:
-      - 'tools/DeterminismHarness/**'
-      - 'tools/DeterminismReach/**'
-      - 'docs/examples/**'
-      - 'benchmarks/CoreMathBenchmark/**'
-      - '.github/workflows/determinism.yml'
+  workflow_call:
+    inputs:
+      macos:
+        type: boolean
+        default: false
+      suite:
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       macos:

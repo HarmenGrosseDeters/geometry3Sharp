@@ -171,12 +171,12 @@ from secret tests, which a public repository cannot keep.
 - Two-stage PR CI (owner 2026-11-23, [docs/qa/ci-and-gates.md](qa/ci-and-gates.md) 2.14): a push to a ready PR runs the quick
   stage (builds, net10.0 tests of the changed areas, about 5 min); the full matrix runs only while the PR has the label
   `full-ci`, which the coordinator sets when the PR is otherwise ready to merge (like `bugfix`). The merge rule: the status
-  `full-ci` green on the final head (plus `new-tests-on-base`, and `determinism` where it ran). A "GATE ON MASTER" warning of the
-  mutation workflow means: dispatch that shard's full run on master after the merge. After setting `mutation`, re-run the PR's
-  latest mutation run. Set `bugfix`,
-  `mutation` and the like **before** `full-ci` (any label set while `full-ci` is on re-runs the full matrix), push fixes in one
-  push (each push of a `full-ci` PR is a full run), and do not remove `full-ci` from a PR that is to be merged. Master CI runs
-  batched every 2 hours (skipped when nothing the tests read changed); a red batch is narrowed down to one merge with
+  `full-ci` green on the final head (it covers `tier-rule`, `new-tests-on-base` and `determinism`). A "GATE ON MASTER" warning
+  of the mutation workflow means: dispatch that shard's full run on master after the merge (the job is green, the threshold
+  unchecked). After setting `mutation`, re-run the PR's latest mutation run. Set `bugfix` before `full-ci` when known (setting
+  it later re-runs the full matrix; other labels start nothing), push fixes in one
+  push (each push of a `full-ci` PR is a full run). Master CI runs batched every 2 hours (skipped when only Markdown that no
+  test reads changed; tools-only batches skip the library suites); a red batch is narrowed down to one merge with
   `tools/master_bisect.py` (locally, no runner minutes) before anything is reverted.
 - Stryker runs locally once per shard, to set its threshold; after that the CI mutation run is the gate (on the PR for exact
   code, on master otherwise). Since #230 a PR's run is incremental (only the mutants of the changed lines, the rest from the
