@@ -23,7 +23,7 @@ namespace geometry3Sharp.Tests
 
         static void AssertSameAsNew(ExactMeshBoolean reused)
         {
-            var fresh = new ExactMeshBoolean(reused.MeshA, reused.MeshB, reused.Operation);
+            var fresh = new ExactMeshBoolean(reused.MeshA, reused.MeshB, reused.Operation) { AllowOpenMeshes = reused.AllowOpenMeshes };
             Assert.True(fresh.Compute());
             Assert.Equal(Volume(fresh.Result), Volume(reused.Result), 12);
             Assert.Equal(fresh.Result.TriangleCount, reused.Result.TriangleCount);

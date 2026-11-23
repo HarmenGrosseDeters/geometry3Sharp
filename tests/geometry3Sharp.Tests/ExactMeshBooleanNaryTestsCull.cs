@@ -58,7 +58,7 @@ namespace geometry3Sharp.Tests
 
         static ExactMeshBoolean Run(IList<DMesh3> meshes, Ops op, bool cull, int seed = 31337)
         {
-            var b = new ExactMeshBoolean(meshes.Select(m => new DMesh3(m)), op) { CullOutsideA = cull, Seed = seed };
+            var b = new ExactMeshBoolean(meshes.Select(m => new DMesh3(m)), op) { AllowOpenMeshes = true, CullOutsideA = cull, Seed = seed };
             Assert.True(b.Compute(), b.Error);
             Assert.Equal(Status.Success, b.Status);
             return b;
@@ -306,7 +306,7 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(serial.Counts["t3a_culled"], p.Counts["t3a_culled"]);
                 Assert.Equal("", Invariance.Difference(serial.Result, p.Result));
             }
-            var op = new ExactMeshBoolean(meshes.Select(m => new DMesh3(m)), Ops.Difference);
+            var op = new ExactMeshBoolean(meshes.Select(m => new DMesh3(m)), Ops.Difference) { AllowOpenMeshes = true };
             Assert.True(op.Compute());
             long first = op.Counts["t3a_culled"];
             Assert.True(op.Compute());

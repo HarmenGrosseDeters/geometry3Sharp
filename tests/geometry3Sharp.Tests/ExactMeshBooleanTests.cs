@@ -691,8 +691,63 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Volume(inner), Volume(boolean.Result), 12);
             // a box crossing the open box's bottom: the part above the bottom is inside
             DMesh3 crossing = Box(0.5, 0.5, -0.5, 1.5, 1.5, 0.5);
-            DMesh3 inter = Run(crossing, open, Ops.Intersection);
-            Assert.Equal(0.5, Volume(inter), 12);
+            var cross = new ExactMeshBoolean(crossing, open, Ops.Intersection) { AllowOpenMeshes = true };
+            Assert.True(cross.Compute(), cross.Error);
+            Assert.Equal(0.5, Volume(cross.Result), 12);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(cross.Result));
+            // the default: an open input without a role is refused, and the error names it (#1211 S3; before 2026-11-23 the
+            // default was true and this ran with the generalized winding number)
+            var refused = new ExactMeshBoolean(inner, open, Ops.Intersection);
+            Assert.False(refused.AllowOpenMeshes);
+            Assert.False(refused.Compute());
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.OpenInput, refused.Status);
+            Assert.Null(refused.Result);
+            Assert.StartsWith("input mesh 1 is not closed", refused.Error);
+        }
+
+        [Theory]
+        [InlineData(Ops.Union)]
+        [InlineData(Ops.Intersection)]
+        [InlineData(Ops.Difference)]
+        public void OpenInput_WithoutARoleOrAllowOpenMeshes_IsRefusedByDefault(Ops op)
+        {
+            // an open cutting surface as the second operand, and an open box as the first: OpenInput with the defaults, for the
+            // two-mesh and the n-ary constructor and the static helpers; with AllowOpenMeshes = true the same inputs run
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
+            var sheet = new DMesh3();
+            int a = sheet.AppendVertex(new Vector3d(-1, -1, 0.5)), b = sheet.AppendVertex(new Vector3d(2, -1, 0.5)), c = sheet.AppendVertex(new Vector3d(2, 2, 0.5)), d = sheet.AppendVertex(new Vector3d(-1, 2, 0.5));
+            sheet.AppendTriangle(a, b, c);
+            sheet.AppendTriangle(a, c, d);
+            foreach (var pair in new[] { new[] { cube, sheet }, new[] { sheet, cube } }) {
+                var two = new ExactMeshBoolean(pair[0], pair[1], op);
+                Assert.False(two.Compute());
+                Assert.Equal(ExactMeshBoolean.BooleanStatus.OpenInput, two.Status);
+                Assert.Null(two.Result);
+                Assert.StartsWith("input mesh " + (pair[0] == sheet ? 0 : 1) + " is not closed", two.Error);
+                Assert.Empty(two.OpenInputsWithoutEffect);
+                var many = new ExactMeshBoolean(new[] { pair[0], pair[1], Box(3, 3, 3, 4, 4, 4) }, op);
+                Assert.False(many.Compute());
+                Assert.Equal(ExactMeshBoolean.BooleanStatus.OpenInput, many.Status);
+                var allowed = new ExactMeshBoolean(pair[0], pair[1], op) { AllowOpenMeshes = true };
+                Assert.True(allowed.Compute(), allowed.Error);
+                Assert.NotNull(allowed.Result);
+            }
+            // closed inputs are not affected
+            var closed = new ExactMeshBoolean(cube, Box(0.5, 0.5, 0.5, 2, 2, 2), op);
+            Assert.True(closed.Compute(), closed.Error);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(closed.Result));
+        }
+
+        [Fact]
+        public void Resolve_StillTakesAnOpenMesh()
+        {
+            // a repair of one mesh: Resolve states AllowOpenMeshes itself, so the changed default does not refuse an open input
+            DMesh3 open = Box(0, 0, 0, 2, 2, 2);
+            foreach (int tid in open.TriangleIndices().Where(t => open.GetTriCentroid(t).z == 2).ToArray())
+                open.RemoveTriangle(tid, true, false);
+            DMesh3 r = ExactMeshBoolean.Resolve(open);
+            Assert.NotNull(r);
+            Assert.Equal(open.TriangleCount, r.TriangleCount);
         }
     }
 }

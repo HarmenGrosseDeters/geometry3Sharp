@@ -103,10 +103,10 @@ namespace geometry3Sharp.Tests
         {
             Similarity s = Similarity.ByName(name);
             DMesh3[] ins = inputs();
-            var reference = new ExactMeshBoolean(ins, op);
+            var reference = new ExactMeshBoolean(ins, op) { AllowOpenMeshes = true };
             Assert.True(reference.Compute(), reference.Error);
             DMesh3[] moved = ins.Select(m => Invariance.Transformed(m, s)).ToArray();
-            var boolean = new ExactMeshBoolean(moved, op);
+            var boolean = new ExactMeshBoolean(moved, op) { AllowOpenMeshes = true };
             Assert.True(boolean.Compute(), boolean.Error);
             check(boolean);
             if (s.IsExact)
@@ -256,7 +256,7 @@ namespace geometry3Sharp.Tests
 
         static DMesh3 OpenResult(DMesh3 a, DMesh3 b)
         {
-            var boolean = new ExactMeshBoolean(a, b, Ops.Difference);
+            var boolean = new ExactMeshBoolean(a, b, Ops.Difference) { AllowOpenMeshes = true };
             Assert.True(boolean.Compute(), boolean.Error);
             Assert.False(boolean.Result.IsClosed());
             return boolean.Result;
@@ -356,7 +356,7 @@ namespace geometry3Sharp.Tests
                 DMesh3[] ins = inputs(kv.Item1, kv.Item2).Select(m => Invariance.Transformed(m, s)).ToArray();
                 Assert.Equal(kv.Item1 ? 12 : kv.Item2 ? 24 : 6, ins[0].VertexCount);
                 Assert.Equal(8, ins[0].TriangleCount);
-                var boolean = new ExactMeshBoolean(ins, Ops.Difference);
+                var boolean = new ExactMeshBoolean(ins, Ops.Difference) { AllowOpenMeshes = true };
                 Assert.True(boolean.Compute(), boolean.Error);
                 Assert.True(boolean.ExactWindingA);             // closed in the winding number sense, also unwelded
                 ResultChecks.AssertClosed(boolean.Result);

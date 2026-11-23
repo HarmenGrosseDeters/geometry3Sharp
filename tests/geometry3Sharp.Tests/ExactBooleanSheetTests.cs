@@ -1158,6 +1158,14 @@ namespace geometry3Sharp.Tests
             return op;
         }
 
+        // as RunAll, with the open inputs that have the role Solid classified by the generalized winding number
+        static ExactMeshBoolean RunAllOpen(DMesh3[] meshes, params ExactMeshBoolean.InputRole[] roles)
+        {
+            var op = new ExactMeshBoolean(meshes, Ops.Difference) { Roles = roles.ToList(), AllowOpenMeshes = true };
+            op.Compute();
+            return op;
+        }
+
         const ExactMeshBoolean.InputRole SolidRole = ExactMeshBoolean.InputRole.Solid, SheetRole = ExactMeshBoolean.InputRole.Sheet;
 
         [Fact]
@@ -1533,7 +1541,7 @@ namespace geometry3Sharp.Tests
             // a free edge of the sheet on a piece that is the triangle of an open solid under it (the same patch as mesh 1, a solid, and as mesh 2, the sheet):
             // the sheet is named, a triangle is not (the piece's triangle is not the sheet's)
             DMesh3 patch = Plate(0.5, 0.25, 0.75, 0.25, 0.75);
-            ExactMeshBoolean rim = RunAll(new[] { cube, patch, new DMesh3(patch) }, SolidRole, SolidRole, SheetRole);
+            ExactMeshBoolean rim = RunAllOpen(new[] { cube, patch, new DMesh3(patch) }, SolidRole, SolidRole, SheetRole);
             AssertRefused(rim, Refusal.RimInsideWorkpiece, "the sheet over an open solid");
             Assert.Equal(2, rim.SheetWitnessMesh);
             Assert.Equal(-1, rim.SheetWitnessTriangle);
@@ -1778,11 +1786,11 @@ namespace geometry3Sharp.Tests
             Assert.Empty(cup.OpenInputsWithoutEffect);
             // a sheet with its role (it removes z < 0.5) and a plate without one: listed in the part that stays, not in the removed part
             var solid = ExactMeshBoolean.InputRole.Solid;
-            ExactMeshBoolean kept = RunAll(new[] { cube, Plate(0.5, -1, 2, -1, 2), Plate(0.75, -1, 2, -1, 2) }, solid, ExactMeshBoolean.InputRole.Sheet, solid);
+            ExactMeshBoolean kept = RunAllOpen(new[] { cube, Plate(0.5, -1, 2, -1, 2), Plate(0.75, -1, 2, -1, 2) }, solid, ExactMeshBoolean.InputRole.Sheet, solid);
             Assert.True(kept.Status == Status.Success, kept.Error);
             Assert.Equal(0.5, Volume(kept.Result), 12);
             Assert.Equal(new[] { 2 }, kept.OpenInputsWithoutEffect);
-            ExactMeshBoolean removed = RunAll(new[] { cube, Plate(0.5, -1, 2, -1, 2), Plate(0.25, -1, 2, -1, 2) }, solid, ExactMeshBoolean.InputRole.Sheet, solid);
+            ExactMeshBoolean removed = RunAllOpen(new[] { cube, Plate(0.5, -1, 2, -1, 2), Plate(0.25, -1, 2, -1, 2) }, solid, ExactMeshBoolean.InputRole.Sheet, solid);
             Assert.True(removed.Status == Status.Success, removed.Error);
             Assert.Equal(0.5, Volume(removed.Result), 12);
             Assert.Empty(removed.OpenInputsWithoutEffect);
