@@ -202,9 +202,11 @@ short edge.
   volume changed by w H W / 2: 2.5e-7, 6.25e-7 and 1.0e-6 of 3.0e-4 for w = 2e-6, 5e-6 and 8e-6 (0.08 %, 0.21 %,
   0.33 %), with `MaxDrift` = w.
 - **Now:** a cap is flipped first. A cap is a degenerate triangle whose shortest and longest edge would span 32 times
-  the degenerate area at a right angle, so the angle between them is below 1 / 32 (`CapRatio` in `fix_degenerate`: half the
-  product of the shortest and the longest edge, over the degenerate area of the component, at least 32): it is degenerate
-  by its angle, not by its short edge. The flip of its longest edge removes it and moves no vertex. On the shape: 2 flips,
+  the degenerate area at a right angle, so the sine of the angle between them is below 1 / 32 (`CapRatio` in `fix_degenerate`:
+  half the product of the shortest and the longest edge, over the degenerate area of the component, at least 32; for a
+  degenerate triangle that ratio is at most 1 / sin of the angle, so the sine is below 1 / 32): it is degenerate by its angle,
+  not by its short edge. A cap also needs a nonzero shortest edge and a positive area threshold (with a threshold of 0, eg
+  `DegenerateArea = 0`, every bad triangle would test as a cap, also one with a zero-length edge, which a contraction removes). The flip of its longest edge removes it and moves no vertex. On the shape: 2 flips,
   no contraction, the volume unchanged, `MaxDrift` at most e. Where the flip is not accepted the order is the old one.
   The decision is made on lengths and on an area that scale by 2^k and 4^k, so it is the same at every power-of-two scale
   (`RoundingCapFirstTests.Step_AtTheLimitOfACap`, 0.9 and 1.1 times the limit at the scales 1, 2^-10, 2^10).
@@ -254,7 +256,7 @@ short edge.
     after): edits +1 in four of them, +2 in `FoldedCluster:36:8:0`, -2 in `FoldedCluster:44:8:3` (triangles 484 to 488), -1 in
     `FoldedCluster:52:8:3` (drift 2.7e-5 to 3.0e-6); the same edits with another drift in `FoldedCluster:36:8:3` (3.2e-5 to
     2.8e-5) and `scale:81:Intersection` (triangles 51 688 to 51 690, drift 1.2e-5 to
-    8.4e-6). The driver script is not in the repository; the numbers of the next three bullets are of the first version (1024).
+    8.4e-6). The driver is `benchmarks/SnapRoundingExperiment/compare_builds.py` (README, "Comparing two builds"); the numbers of the next three bullets are of the first version (1024).
   - `benchmarks/SnapRoundingExperiment`, `run <case> safe` on 214 cases (every third case of the sets booleans, utm
     and clusters, all of cylinder, drop and scale up to resolution 81), two alternating passes each, the faster of the
     two per case: 89.7 s before, 88.8 s after (ratio 0.99; no set above 1.00). 202 cases clean before and after; two
