@@ -253,6 +253,66 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ARetryThatFailsWithAnotherStatus_LeavesTheFirstStatus()
+        {
+            // the tool of the fragment with one triangle flipped, as a solid: the first boolean reorients it (set in ConfigureBoolean) and the
+            // rounding is refused; the boolean of the retry keeps the pipeline's Orientation (Refuse) and refuses the orientation
+            List<DMesh3> inputs = SolidBooleanPipelineInputGridTests.Fragment();
+            inputs[1].ReverseTriOrientation(0);
+            int booleans = 0;
+            var p = new SolidBooleanPipeline(inputs, D) {
+                InputRoles = new Roles { ExactMeshBoolean.InputRole.Solid, ExactMeshBoolean.InputRole.Solid }, AutomaticSteps = Auto.Grid
+            };
+            p.ConfigureBoolean = op => { if (++booleans == 1) op.Orientation = ExactMeshBoolean.OrientationModes.AreaMajority; };
+            Assert.False(p.Compute());
+            Assert.Equal(2, booleans);
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.BooleanFailed, p.Status);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, p.BooleanStatus);
+            Assert.StartsWith("RoundingNotClean: ", p.Error);
+            Assert.Equal("Grid:-1", Names(p));
+            Assert.Contains("it failed too (InconsistentOrientation: ", p.Report.Route[0].Change);
+        }
+
+        [Fact]
+        public void TheTimeOfBothRuns_IsBooleanTimeOfTheResult()
+        {
+            // (ConfigureBoolean runs inside the boolean's time: the wait in one run has to show in the report of the other)
+            // a retry that succeeds: the first run waits
+            int booleans = 0;
+            var p = new SolidBooleanPipeline(FlushRim(), D) { InputRoles = SheetSecond(), AutomaticSteps = Auto.Grid };
+            p.ConfigureBoolean = op => { if (++booleans == 1) Thread.Sleep(400); };
+            Assert.True(p.Compute(), p.Error);
+            Assert.Equal(2, booleans);
+            Assert.True(p.Report.BooleanMilliseconds >= 390, "boolean " + p.Report.BooleanMilliseconds);
+            Assert.True(p.Report.TotalMilliseconds >= p.Report.BooleanMilliseconds);
+            // a retry that fails: the retry waits, and the report of the first run has its time
+            booleans = 0;
+            var q = new SolidBooleanPipeline(PatchInside(), D) { InputRoles = SheetSecond(), AutomaticSteps = Auto.Grid };
+            q.ConfigureBoolean = op => { if (++booleans == 2) Thread.Sleep(400); };
+            Assert.False(q.Compute());
+            Assert.Equal(2, booleans);
+            Assert.True(q.Report.BooleanMilliseconds >= 390, "boolean " + q.Report.BooleanMilliseconds);
+            Assert.True(q.Report.TotalMilliseconds >= 390, "total " + q.Report.TotalMilliseconds);
+        }
+
+        [Fact]
+        public void ACancelledRetryOfTheRunAfterARefusedSheet_IsCancelled()
+        {
+            // the booleans: the sheet (refused for its orientation), the inputs as solids (the rounding is refused), the retry
+            List<DMesh3> inputs = SolidBooleanPipelineInputGridTests.Fragment();
+            inputs[1].ReverseTriOrientation(0);
+            var cts = new CancellationTokenSource();
+            int booleans = 0;
+            var p = new SolidBooleanPipeline(inputs, D) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority, AutomaticSteps = Auto.Grid, Cancellation = cts.Token };
+            p.ConfigureBoolean = op => { if (++booleans == 3) cts.Cancel(); };
+            Assert.False(p.Compute());
+            Assert.Equal(3, booleans);
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.Cancelled, p.Status);
+            Assert.Null(p.Result);
+            Assert.Equal("SheetRole:1,Fallback:-1,Grid:-1", Names(p));
+        }
+
+        [Fact]
         public void InputsWithoutACell_KeepTheirFailure_WithoutAStep()
         {
             // the flush rim at coordinates of 2^-990: the cell would not be a normal number

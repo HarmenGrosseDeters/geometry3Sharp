@@ -71,6 +71,11 @@ At 5 of these 24 cells, `2^12` among them, the snapped solids touch along one co
 it does for any run (`NotCleanReason`, `OnlyContacts`); the result is closed and manifold. That is a property of that
 input at that cell, not a reason to move the constant: one sample does not rank neighbouring cells.
 
+**Known item (owner 2026-11-23: the cell stays `2^12`).** With the Grid step the fragment's result keeps one contact, so
+`Report.Clean` is false for it; at `2^13` and `2^14` ulp the same input is clean without a contact
+(`SolidBooleanPipelineGridStepTests.ARoundingRefusal_IsAnsweredOnTheGrid_WithTheResultOfInputGridAtThatCell` pins the
+behaviour at `2^12`).
+
 ## What the step does not cure
 
 A snap makes coordinates equal. It puts a rim onto a face that is parallel to a coordinate plane, and it merges
