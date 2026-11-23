@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../geometry3Sharp_netstandard.csproj" />
+    <Compile Include="../../tests/geometry3Sharp.Tests/Harness/SolidBetti.cs" Link="SolidBetti.cs" />
+    <PackageReference Include="xunit.assert" Version="2.6.2" />
+  </ItemGroup>
+</Project>
