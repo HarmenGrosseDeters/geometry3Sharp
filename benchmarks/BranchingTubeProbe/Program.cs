@@ -3,7 +3,7 @@ using System.Diagnostics;
 using g3;
 using gs;
 
-Console.WriteLine("gap route setting status components boundary bowties euler genus ms");
+Console.WriteLine("gap route setting status components boundary bowties euler genus ms clean");
 foreach (double gap in new[] { 1.0 / 8, 1.0 / 128 }) {
     double armX = 0.25 + gap / 2;
     var tubes = new[] {
@@ -61,8 +61,11 @@ static void Report(double gap, string route, string setting, string status, DMes
         return;
     }
     MeshTopologySummary t = MeshTopologySummary.Compute(mesh);
+    // A genus oracle must also require a clean result: NotCleanReason == "" (with the self-intersection check).
+    string notClean = MeshRobustRepair.NotCleanReason(mesh, checkSelfIntersections: true);
+    string clean = notClean.Length == 0 ? "clean" : $"\"{notClean}\"";
     Console.WriteLine($"{gap:G} {route} {setting} {status} {t.Components} {t.BoundaryEdges} {t.BowtieVertices} " +
-        $"{t.EulerCharacteristic} {t.Genus} {milliseconds}");
+        $"{t.EulerCharacteristic} {t.Genus} {milliseconds} {clean}");
 }
 
 internal sealed class Tube(bool alongX, double lateral, double start, double height, double baseRadius, double tipRadius)

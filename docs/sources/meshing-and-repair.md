@@ -26,7 +26,7 @@ Implemented from the papers; no libigl source (MPL) or other solver code was rea
 
 The parked certified-accuracy mode (not in this tree, branch `claude/biharmonic-certificate-parked`) also cited S. M. Rump, *Verification of Positive Definiteness*, BIT 46 (2006), and Diaconis / Stroock and Sinclair for path-congestion eigenvalue bounds; none of that is in the library.
 
-The [branching-tube study](../research/NEURON_SKELETON_MESHES.md) takes the skeleton-to-surface question from J. Bloomenthal and K. Shoemake, [Convolution Surfaces](https://www.bloomenthal.com/JBloom/pdf/CSurfFinal.pdf), SIGGRAPH 1991. It uses explicit tapered cylinders and a hard union to keep the geometric topology reference independent of blending. Paper text only.
+The [branching-tube study](../research/BRANCHING_TUBE_GENUS_STUDY.md) takes the skeleton-to-surface question from J. Bloomenthal and K. Shoemake, [Convolution Surfaces](https://www.bloomenthal.com/JBloom/pdf/CSurfFinal.pdf), SIGGRAPH 1991. It uses explicit tapered cylinders and a hard union to keep the geometric topology reference independent of blending. Paper text only.
 
 ## Alpha wrapping (`MeshAlphaWrap`, `Delaunay3`, `ExactPredicates.InSphere`)
 

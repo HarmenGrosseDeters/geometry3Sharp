@@ -4,7 +4,7 @@ Prior-art checks, literature surveys, external library comparisons, and explorat
 
 | Study | Topic & Summary |
 |---|---|
-| [Procedural branching tubes](NEURON_SKELETON_MESHES.md) | Genus controls for strict Boolean union, implicit contouring and wrapping near a tapered tip gap |
+| [Procedural branching tubes](BRANCHING_TUBE_GENUS_STUDY.md) | Genus controls for strict Boolean union, implicit contouring and wrapping near a tapered tip gap; a genus oracle must require `NotCleanReason == ""` |
 | [Certified medial-axis feature size](CERTIFIED_MEDIAL_AXIS_STUDY.md) | Exact crease obstruction and thin-box controls for SafeRounding and wrap offsets |
 | [EXACT_TOPOLOGY_CERTIFICATES.md](EXACT_TOPOLOGY_CERTIFICATES.md) | Solid Betti numbers and fixed winding queries for cavity ownership in Boolean and repair tests |
 | [BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md](BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md) | Prior-art check for post-3.0 exact boolean research directions |

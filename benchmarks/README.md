@@ -81,6 +81,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [ContouringSubgridProbe](ContouringSubgridProbe/README.md) | Upper bounds for sharp features from distance grids, walls thinner than a cell (subgrid marching tetrahedra) and a subdivision certificate |
 | [ContouringIsotopySubdivision](ContouringIsotopySubdivision/README.md) | A subdivision isotopy certificate (C0 / C1 cells, outward-rounded intervals) for `DualContouring` of implicit fields, against Theorem 5's cell test and the class P certificate |
 | [ContouringTopology](ContouringTopology/README.md) | Upper-bound study for contouring topology guarantees |
+| [BranchingTubeProbe](BranchingTubeProbe/README.md) | Research probe: genus of a tapered branching-tube fixture with a `1/8` or `1/128` tip gap under aligned and shifted `MarchingCubes`, strict `ExactMeshBoolean` and `MeshAlphaWrap`, with `NotCleanReason` per result |
 | [MeshOffsetBenchmark](MeshOffsetBenchmark/README.md) | `MeshOffset` certified band accuracy and timing vs. SDF Marching Cubes |
 | [ContourLoftBenchmark](ContourLoftBenchmark/README.md) | Scaling and quality of `ContourLoft` and `ContourLoftStack` |
 | [TpmsLattice](TpmsLattice/README.md) | Stage timings for `TpmsLattice` (gyroid, Schwarz P/D, Neovius, I-WP, Lidinoid) |
