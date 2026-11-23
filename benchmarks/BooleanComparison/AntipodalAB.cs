@@ -19,7 +19,7 @@ using g3;
 static class AntipodalAB
 {
     // the triangle cap of the Antipodal arms: the library default (ExactMeshBoolean.AntipodalMaxTriangles), or none
-    static int AntCap = new ExactMeshBoolean(new DMesh3(), new DMesh3(), ExactMeshBoolean.Operations.Union).AntipodalMaxTriangles;
+    static int AntCap = new ExactMeshBoolean(new DMesh3(), new DMesh3(), ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true }.AntipodalMaxTriangles;
     // the boundary-segment switch of the Antipodal arms (--segments n; the library default 1000)
     static int AntSegments = 1000;
     static bool NoRays = false;
@@ -53,12 +53,12 @@ static class AntipodalAB
         DMesh3 w2 = new DMesh3(w1); MeshTransforms.Translate(w2, new Vector3d(0.3, 0.2, 0.1));
         for (int k = 0; k < 2; ++k)
             foreach (int m in new[] { 0, 1000 })
-                new ExactMeshBoolean(w1, w2, ExactMeshBoolean.Operations.Union) { AntipodalMaxBoundarySegments = m }.Compute();
+                new ExactMeshBoolean(w1, w2, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true, AntipodalMaxBoundarySegments = m }.Compute();
         var ta = new DMeshAABBTree3(a, true);
         var tb = new DMeshAABBTree3(b, true);
         if (sampleAll > 0) {
-            var fr = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Intersection) { AntipodalMaxBoundarySegments = 0, RecordOpenWinding = true };
-            var ar = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Intersection) { AntipodalMaxBoundarySegments = AntSegments, AntipodalMaxTriangles = AntCap, RecordOpenWinding = true,
+            var fr = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Intersection) { AllowOpenMeshes = true, AntipodalMaxBoundarySegments = 0, RecordOpenWinding = true };
+            var ar = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Intersection) { AllowOpenMeshes = true, AntipodalMaxBoundarySegments = AntSegments, AntipodalMaxTriangles = AntCap, RecordOpenWinding = true,
                 DisableFilters = args.Contains("--nofilter") };
             fr.Compute(); ar.Compute();
             var arr = ar.Arrangement;
@@ -134,7 +134,7 @@ static class AntipodalAB
                 if (only != null && only != name)
                     continue;
                 GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
-                var r = new ExactMeshBoolean(a, b, opOf[op]) { AntipodalMaxBoundarySegments = max, AntipodalMaxTriangles = max == 0 ? 0 : AntCap };
+                var r = new ExactMeshBoolean(a, b, opOf[op]) { AllowOpenMeshes = true, AntipodalMaxBoundarySegments = max, AntipodalMaxTriangles = max == 0 ? 0 : AntCap };
                 var sw = Stopwatch.StartNew();
                 bool ok = r.Compute();
                 row[name + "_ms"] = sw.ElapsedMilliseconds;
@@ -158,19 +158,19 @@ static class AntipodalAB
                     // (per piece: both again with the open winding numbers recorded; the arrangement is the same)
                     // (one instance at a time: of the FWN run only its recorded values are kept)
                     GC.Collect();
-                    var fr = new ExactMeshBoolean(a, b, opOf[op]) { AntipodalMaxBoundarySegments = 0, RecordOpenWinding = true };
+                    var fr = new ExactMeshBoolean(a, b, opOf[op]) { AllowOpenMeshes = true, AntipodalMaxBoundarySegments = 0, RecordOpenWinding = true };
                     fr.Compute();
                     int[][] fwnWinding = fr.OpenWindingPerPiece;
                     int fwnPieces = fr.Arrangement.Output.Count;
                     fr = null;
                     GC.Collect();
-                    var ar = new ExactMeshBoolean(a, b, opOf[op]) { AntipodalMaxBoundarySegments = AntSegments, AntipodalMaxTriangles = AntCap, RecordOpenWinding = true };
+                    var ar = new ExactMeshBoolean(a, b, opOf[op]) { AllowOpenMeshes = true, AntipodalMaxBoundarySegments = AntSegments, AntipodalMaxTriangles = AntCap, RecordOpenWinding = true };
                     ar.Compute();
                     int[] cmp = ComparePieces(ar, fwnWinding, fwnPieces);
                     fwnWinding = null;
                     // ray independence: the Antipodal values with other rays (another seed: other far points and choices) must
                     // be the same at every piece (exact crossing counts; the boundary sum differs only by rounding)
-                    var ar2 = NoRays ? null : new ExactMeshBoolean(a, b, opOf[op]) { AntipodalMaxBoundarySegments = AntSegments, AntipodalMaxTriangles = AntCap, RecordOpenWinding = true, Seed = 12345 };
+                    var ar2 = NoRays ? null : new ExactMeshBoolean(a, b, opOf[op]) { AllowOpenMeshes = true, AntipodalMaxBoundarySegments = AntSegments, AntipodalMaxTriangles = AntCap, RecordOpenWinding = true, Seed = 12345 };
                     ar2?.Compute();
                     int rayDiff = 0;
                     var rayDiffSamples = new List<string>();
