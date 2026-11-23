@@ -50,6 +50,26 @@ namespace gs
         public long Milliseconds;
     }
 
+    /// <summary>
+    /// One step of the route a SolidBooleanPipeline run took for its inputs (Report.Route), in the order taken: what was done, why, and what it changed.
+    /// The names so far: "SheetRole" (an open tool of a Difference is used as a sheet; after a cut, Change ends with the share of the first
+    /// input's volume that the Difference removed), "Fallback" (the sheet role refused: the inputs are used as
+    /// solids), "InputRepair" (an open input was closed on a copy) and "Refused" (an open input is left and the run fails with OpenInput).
+    /// </summary>
+    public sealed class SolidBooleanRouteStep
+    {
+        /// <summary> the name of the step, see the class </summary>
+        public string Name;
+        /// <summary> the input the step is about (index of Inputs), or -1 for a step about the run </summary>
+        public int Input = -1;
+        /// <summary> why the step was taken </summary>
+        public string Reason;
+        /// <summary> what the step changed </summary>
+        public string Change;
+        /// <summary> Fallback: the reason the sheet role refused (the witness is in Reason), else None </summary>
+        public ExactMeshBoolean.SheetRefusal SheetReason = ExactMeshBoolean.SheetRefusal.None;
+    }
+
     /// <summary> one solid of the boolean result that MinThickness removed (an outer shell with the cavities inside it) </summary>
     public sealed class SolidBooleanThinSolid
     {
@@ -89,6 +109,11 @@ namespace gs
         public int InputSnappedVertices;
         /// <summary> the inputs that were repaired, with the method (empty if none) </summary>
         public List<SolidBooleanInputRepair> RepairedInputs = new List<SolidBooleanInputRepair>();
+        /// <summary>
+        /// the route of the inputs that are not closed, as the steps taken in their order, each with its reason and what it changed (see
+        /// SolidBooleanRouteStep); empty when no input was tried as a sheet, repaired or refused as open
+        /// </summary>
+        public List<SolidBooleanRouteStep> Route = new List<SolidBooleanRouteStep>();
         /// <summary> triangles of the exact boolean result (before the reduction) </summary>
         public int BooleanTriangles;
         /// <summary> the boolean's InsideOutCells: the components of the closed inputs that are inside-out (see ExactMeshBoolean.InsideOutCells) </summary>
@@ -203,7 +228,10 @@ namespace gs
     /// them:
     /// <list type="number">
     /// <item><description>Every input is checked with ExactMeshBoolean.IsWindingClosed (cheap; unwelded copies of a vertex count as one,
-    /// so an STL-like soup of a closed solid is closed). An input that fails and that the boolean refuses as open fails the
+    /// so an STL-like soup of a closed solid is closed). An open input of a Difference that is not the first and has no entry in
+    /// InputRoles is tried as a sheet first (ExactMeshBoolean.InputRole.Sheet: the first input is cut along it exactly, nothing is
+    /// repaired); if the sheet role refuses, the run is done again with the inputs as solids, as described next, and Report.Route
+    /// lists the steps and their reasons. An input that fails and that the boolean refuses as open fails the
     /// run with Status OpenInput by default (InputRepair = Refuse): a missing face is missing information, and no repair
     /// knows what the input means (a solid with a hole, or an open cutting surface). An input that is closed once its
     /// flipped triangles agree is not open: the boolean refuses it with InconsistentOrientation by default (see
@@ -334,11 +362,16 @@ namespace gs
         /// as given (never repaired, reoriented, or counted as an open input), the boolean cuts the first input along it exactly, and refuses
         /// (BooleanStatus SheetRefused, SheetReason) where the sheet does not define the sides; see <see cref="ExactMeshBoolean.SheetRefusal"/>.
         /// A sheet in a Union or Intersection, or as the first input, is refused. InputGrid still snaps its coordinates.
+        /// An entry here is a statement and is used as it is. An open input of a Difference without an entry (not the first) is tried as a sheet
+        /// and, if the sheet role refuses, used as a solid (see Compute and Report.Route); the entry Solid switches that off for an input.
         /// </summary>
         public List<ExactMeshBoolean.InputRole> InputRoles;
         /// <summary> the side of the sheets that a part of the first input is on that no sheet touches (see <see cref="ExactMeshBoolean.SheetUncutSide"/>; default Refuse) </summary>
         public ExactMeshBoolean.SheetUncutSides UncutSide = ExactMeshBoolean.SheetUncutSides.Refuse;
-        /// <summary> the reason of a refused sheet (BooleanStatus SheetRefused), else None; the witness is in Error </summary>
+        /// <summary>
+        /// the reason of a refused sheet (BooleanStatus SheetRefused), else None; the witness is in Error. A sheet that the route tried and that
+        /// refused is not the run's result: its reason is in the Fallback step of Report.Route
+        /// </summary>
         public ExactMeshBoolean.SheetRefusal SheetReason = ExactMeshBoolean.SheetRefusal.None;
         /// <summary>
         /// Default 0 (off: the inputs are used as given, and the result is the one without this option, bit for bit). Otherwise a
@@ -378,7 +411,10 @@ namespace gs
         /// practice a surface. Invalid values: InvalidInput
         /// </summary>
         public ThinInputModes ThinInputs = ThinInputModes.Keep;
-        /// <summary> configures the boolean (eg MaxPieces); runs before AllowOpenMeshes = false and StrictRounding = true are set, which stay </summary>
+        /// <summary>
+        /// configures the boolean (eg MaxPieces); runs before AllowOpenMeshes = false and StrictRounding = true are set, which stay. It runs once for
+        /// every boolean of a run: again after an input repair, and again for the run without the route after a refused sheet (Report.Route)
+        /// </summary>
         public Action<ExactMeshBoolean> ConfigureBoolean;
         // (tests) runs before the reduction
         internal Action BeforeReduction;
@@ -465,16 +501,62 @@ namespace gs
             return false;
         }
 
-        /// <summary> runs the pipeline; true if Result is set (Status Success) </summary>
+        // the open tools of a Difference without a stated role that this run hands to the boolean as sheets (null: none)
+        bool[] autoSheet;
+        // the sheet role refused such a tool: the reason and the boolean's text (None: it did not, and the text is not read)
+        ExactMeshBoolean.SheetRefusal autoRefusal;
+        string autoRefusalText;
+        // the steps of the run so far (they outlive the report of a refused sheet route)
+        List<SolidBooleanRouteStep> route;
+
+        void step(string name, int input, string reason, string change, ExactMeshBoolean.SheetRefusal sheetReason = ExactMeshBoolean.SheetRefusal.None)
+        {
+            route.Add(new SolidBooleanRouteStep { Name = name, Input = input, Reason = reason, Change = change, SheetReason = sheetReason });
+        }
+
+        /// <summary>
+        /// runs the pipeline; true if Result is set (Status Success). An open input of a Difference that is not the first and has no entry in InputRoles
+        /// goes to the sheet role first (the first input is cut along it exactly, nothing is repaired). If the sheet role refuses, the run is done again
+        /// with the inputs as solids, as without this route: InputRepair decides (Refuse: Status OpenInput, with the sheet's refusal in Error).
+        /// Report.Route lists the steps taken and why. A stated role (an entry in InputRoles, Solid or Sheet) is used as stated.
+        /// The sheet's orientation is taken as given: the part of the first input behind it is removed, so an open tool whose normals point
+        /// inward removes the other part than its repaired, reoriented copy would; state the role Solid for a tool that is a solid with a hole
+        /// and may be oriented either way. Only a refusal of the sheet falls back: any other failure of the boolean with the sheet (a budget,
+        /// a strict rounding refusal) is the result. With MinThickness a tool without a stated role is measured as before, and one that is
+        /// left out as thin is not routed. ConfigureBoolean runs once more for the run after a refused sheet.
+        /// </summary>
         public bool Compute()
         {
             var total = Stopwatch.StartNew();
+            route = new List<SolidBooleanRouteStep>();
+            bool done = compute(total, true);
+            if (autoRefusal != ExactMeshBoolean.SheetRefusal.None) {
+                ExactMeshBoolean.SheetRefusal refusal = autoRefusal;
+                string text = autoRefusalText;
+                long attempt = Report.BooleanMilliseconds;
+                step("Fallback", -1, "the sheet role refused: " + refusal + ": " + text,
+                    "the inputs are used as solids, an open one goes to InputRepair (" + InputRepair + ")", refusal);
+                done = compute(total, false);
+                // (the time of the refused sheet attempt is boolean time of this run)
+                Report.BooleanMilliseconds += attempt;
+                if (Status == PipelineStatus.OpenInput)
+                    Error += " (the open tool was tried as a sheet first, which refused: " + refusal + ": " + text + ")";
+            }
+            return done;
+        }
+
+        // one run; sheetRoute: open tools of a Difference without a stated role are sheets (autoSheet)
+        bool compute(Stopwatch total, bool sheetRoute)
+        {
             Result = null;
             Error = null;
             Status = PipelineStatus.NotComputed;
             BooleanStatus = ExactMeshBoolean.BooleanStatus.NotComputed;
             SheetReason = ExactMeshBoolean.SheetRefusal.None;
             Report = new SolidBooleanReport();
+            Report.Route = route;
+            autoSheet = null;
+            autoRefusal = ExactMeshBoolean.SheetRefusal.None;
 
             int criteria = (TargetTriangleCount > 0 ? 1 : 0) + (TargetFraction > 0 ? 1 : 0) + (MinEdgeLength > 0 ? 1 : 0) + (MaxQuadricError > 0 ? 1 : 0);
             if (criteria > 1)
@@ -521,6 +603,12 @@ namespace gs
             for (int i = 0; i < n; ++i) {
                 Report.InputTriangles[i] = Inputs[i].TriangleCount;
                 Report.InputClosed[i] = ExactMeshBoolean.IsWindingClosed(given[i]);
+                // the sheet route: an open tool of a Difference whose role is not stated
+                if (sheetRoute && Operation == ExactMeshBoolean.Operations.Difference && i > 0 && !Report.InputClosed[i] && (InputRoles == null || i >= InputRoles.Count)) {
+                    if (autoSheet == null)
+                        autoSheet = new bool[n];
+                    autoSheet[i] = true;
+                }
                 // (a sheet is open by role: not an open input to refuse or repair)
                 anyOpen |= !Report.InputClosed[i] && !isSheet(i);
             }
@@ -531,8 +619,10 @@ namespace gs
             if (MinThickness > 0) {
                 var thin = new bool[n];
                 for (int i = 0; i < n; ++i) {
-                    if (isSheet(i))
-                        continue;       // (a surface has no volume: it is not thin)
+                    // (a surface has no volume: it is not thin. Only by a stated role: an open tool that the route would try as a sheet is
+                    // measured as before the route, so MinThickness and ThinInputs keep their meaning for it)
+                    if (statedSheet(i))
+                        continue;
                     double v, a;
                     MeasureInput(given[i], out v, out a);
                     double t = a > 0 ? 2 * Math.Abs(v) / a : 0;
@@ -566,12 +656,32 @@ namespace gs
                 foreach (int i in active)
                     anyOpen |= !Report.InputClosed[i] && !isSheet(i);
             }
+            // the sheet route of this run: the routed tools that the boolean gets (one left out as thin is not routed)
+            if (autoSheet != null) {
+                bool any = false;
+                foreach (int i in active) {
+                    if (autoSheet[i] == false)
+                        continue;
+                    any = true;
+                    step("SheetRole", i, "input " + i + " is not closed and a tool of the Difference, and InputRoles states no role for it",
+                        "input " + i + " is handed to the boolean as a sheet (an oriented cutting surface): not repaired, the first input is cut along it");
+                }
+                if (any == false)
+                    autoSheet = null;
+            }
             clock.Restart();
             ExactMeshBoolean op = runBoolean(used, active);
             Report.BooleanMilliseconds = clock.ElapsedMilliseconds;
             BooleanStatus = op.Status;
+            // (the sheet role refused with an open tool that was made a sheet here: Compute runs again without the route)
+            if (autoSheet != null && op.Status == ExactMeshBoolean.BooleanStatus.SheetRefused) {
+                autoRefusal = op.SheetReason;
+                autoRefusalText = op.Error;
+                return fail(PipelineStatus.BooleanFailed, op.Status + ": " + op.Error, total);
+            }
             if (anyOpen && op.Status == ExactMeshBoolean.BooleanStatus.OpenInput) {
                 if (InputRepair == InputRepairModes.Refuse) {
+                    step("Refused", -1, "an input is not closed and InputRepair is Refuse", "no result (Status OpenInput)");
                     var open = new List<string>();
                     // (the boolean's own verdict, by this pipeline's indices: InputClosed also counts an input with flipped
                     // triangles as open, which the boolean accepts with Orientation = AreaMajority)
@@ -595,9 +705,13 @@ namespace gs
                         continue;
                     DMesh3 repaired;
                     SolidBooleanInputRepair r = repair(i, given[i], out repaired);
-                    if (r == null)
+                    if (r == null) {
+                        step("Refused", i, "input " + i + " is not closed and no allowed repair closed it (InputRepair = " + InputRepair + ")", "no result (Status OpenInput)");
                         return fail(PipelineStatus.OpenInput, "input " + i + " is not closed and no allowed repair closed it", total);
+                    }
                     Report.RepairedInputs.Add(r);
+                    step("InputRepair", i, "input " + i + " is not closed and the boolean refuses it as open (InputRepair = " + InputRepair + ")",
+                        "closed by " + r.Method + " on a copy, " + r.TrianglesBefore + " -> " + r.TrianglesAfter + " triangles");
                     used[k] = repaired;
                     if (Cancellation.IsCancellationRequested)
                         return fail(PipelineStatus.Cancelled, "cancelled", total);
@@ -633,6 +747,20 @@ namespace gs
             DMesh3 mesh = thinOnly ? op.Rounding.Mesh : op.Result;
             BooleanStatus = op.Status;
             Report.BooleanTriangles = mesh.TriangleCount;
+            // the sheet route followed the orientation of the sheets as given: the share of the first input that the Difference removed goes
+            // into the steps, so that a sheet oriented the other way than meant shows (the volumes in doubles: a number for the reader)
+            if (autoSheet != null) {
+                double before, after, area;
+                MeasureInput(used[0], out before, out area);
+                MeasureInput(mesh, out after, out area);
+                if (Math.Abs(before) > 0) {
+                    double share = Math.Max(0, Math.Min(1, 1 - Math.Abs(after) / Math.Abs(before)));
+                    string text = "; the Difference removed " + (100 * share).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + " % of the first input's volume (the part behind the sheet)";
+                    foreach (SolidBooleanRouteStep s in route)
+                        if (s.Name == "SheetRole")
+                            s.Change += text;
+                }
+            }
             Report.ContactsBoolean = thinOnly ? countContacts(mesh, null) : op.Contacts;
             Report.NonManifoldEdgesBoolean = op.NonManifoldEdges;
             Report.ThinComponentsKept = thinOnly ? op.Rounding.ScaleDisparity : 0;
@@ -935,6 +1063,11 @@ namespace gs
 
         bool isSheet(int i)
         {
+            return (autoSheet != null && autoSheet[i]) || statedSheet(i);
+        }
+
+        bool statedSheet(int i)
+        {
             return InputRoles != null && i < InputRoles.Count && InputRoles[i] == ExactMeshBoolean.InputRole.Sheet;
         }
 
@@ -1163,10 +1296,10 @@ namespace gs
             if (ConfigureBoolean != null)
                 ConfigureBoolean(op);
             // (the roles of the inputs the boolean gets, in its order)
-            if (InputRoles != null) {
+            if (InputRoles != null || autoSheet != null) {
                 var roles = new List<ExactMeshBoolean.InputRole>(active.Count);
                 foreach (int i in active)
-                    roles.Add(i < InputRoles.Count ? InputRoles[i] : ExactMeshBoolean.InputRole.Solid);
+                    roles.Add(isSheet(i) ? ExactMeshBoolean.InputRole.Sheet : InputRoles != null && i < InputRoles.Count ? InputRoles[i] : ExactMeshBoolean.InputRole.Solid);
                 op.Roles = roles;
                 op.SheetUncutSide = UncutSide;
             }

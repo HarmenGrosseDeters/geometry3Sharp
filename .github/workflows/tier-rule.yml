@@ -6,6 +6,7 @@ name: tier-rule
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - '**.cs'
       - '!tests/**'
@@ -21,6 +22,8 @@ on:
 
 jobs:
   tier-rule:
+    # a draft PR runs nothing here (owner 2026-11-23, runner load); marking it ready starts the run
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

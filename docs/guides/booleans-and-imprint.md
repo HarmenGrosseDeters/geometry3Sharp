@@ -76,7 +76,7 @@ An open input without a role is classified by the generalized winding number abo
 - **Not listed:** closed inputs; a sheet with the role `Sheet`; an open tool that does cut (a deep cup); in a Difference, a sheet that does not reach the first mesh or a tool hidden inside another tool (a closed one would vanish there too).
 - **Each by itself:** every listed input could be taken as empty alone. Two listed inputs can still have an effect together (the same open tool given twice: either could be left out, not both).
 - **Limit:** the list says that the result is the one of an input that encloses nothing, not that the result is right. An open input that changes the result is not listed, also where the change is wrong (pieces kept where its winding number crosses 1/2, eg a flat sheet that is not planar in doubles after a rotation far from the origin). The result is then usually not closed: check it (`MeshRobustRepair.NotCleanReason`). Not evaluated with a `WindingPredicate`.
-- **What to do:** give a cutting surface the role `Sheet` (next section), or use the swept tool (the recipe below) for a sheet that ends inside. With `AllowOpenMeshes = false` (as `SolidBooleanPipeline` sets it) an open input without a role is refused instead; the `OpenInput` error names the inputs by index and these ways out.
+- **What to do:** give a cutting surface the role `Sheet` (next section), or use the swept tool (the recipe below) for a sheet that ends inside. With `AllowOpenMeshes = false` an open input without a role is refused instead; the `OpenInput` error names the inputs by index and these ways out. `SolidBooleanPipeline` sets it, and tries an open Difference tool without a stated role as a sheet first (its sheet route).
 
 ### Open Cutting Surface (Sheet Role)
 
@@ -208,9 +208,32 @@ if (pipeline.Compute()) {
 
 ### Key Options
 
-- **`InputRepair`:** Default `Refuse` fails with `OpenInput` if any input fails `ExactMeshBoolean.IsWindingClosed`. Opt-in `AutoRepair` repairs small holes on a copy (use only for solids, not open cutting sheets); `AutoRepairThenRobust` adds `MeshRobustRepair` as fallback (`Report.RepairedInputs`).
+- **Open tool of a Difference (sheet route, the default):** an open input of a Difference that is not the first and has no entry in `InputRoles` is tried as a sheet first (the [sheet role](#open-cutting-surface-sheet-role)): the first input is cut along it exactly and nothing is repaired. If the sheet role refuses, the run is done again with the inputs as solids, so `InputRepair` decides as before; with `Refuse` the status is `OpenInput` and `Error` ends with the sheet's refusal. Details: [the route and its report](#the-route-of-an-open-input-reportroute).
+- **`InputRepair`:** Default `Refuse` fails with `OpenInput` if an input fails `ExactMeshBoolean.IsWindingClosed` and is not used as a sheet. Opt-in `AutoRepair` repairs small holes on a copy (use only for solids, not open cutting sheets); `AutoRepairThenRobust` adds `MeshRobustRepair` as fallback (`Report.RepairedInputs`).
 - **Reduction targets:** Set one of `TargetTriangleCount`, `TargetFraction`, `MinEdgeLength`, or `MaxQuadricError`. `Report.StopReason` and `StopDetail` explain why reduction stopped if the target was not reached.
 - **Contact-line pairing (`PairContacts` / `PairContactsMode`):** Touching solids limit reduction along contact lines. Opt-in `PairContacts = true` (`PairContactsMode.On`) collapses twin edges along contact lines together (`Reducer.PairCoincidentVertices`) while preserving all guards (`Report.PairedCollapses`; cannot combine with `MaxDeviationTwoSided`). `PairContactsMode.Auto` retries with pairing only when the first pass leaves contacts and is not clean (`Report.PairPassRan`, `PairPassKept`).
+
+
+### The Route of an Open Input (`Report.Route`)
+
+`Report.Route` lists what the pipeline did with open inputs, as steps in the order taken. Each `SolidBooleanRouteStep` has a `Name`, the `Input` it is about (or `-1`), a `Reason` and a `Change` (what the step changed), and for a fallback the sheet's `SheetReason`. The list is empty when no input was tried as a sheet, repaired or refused as open.
+
+| Step | Taken when | What it changes |
+|---|---|---|
+| `SheetRole` | An input of a Difference is not closed (`IsWindingClosed`; this includes a closed surface with flipped triangles, which the sheet role then refuses), is not the first, and `InputRoles` has no entry for it. | The input is handed to the boolean with the role `Sheet`: not repaired, the first input is cut along it. |
+| `Fallback` | The sheet role refused (`SheetReason`, the boolean's text in `Reason`), eg `RimInsideWorkpiece`, `NotSurface`, `OrientationInconsistent`, `SidesInconsistent`, `UncutComponents`, `FloatingComponent`, or `WorkpieceNotClosed` for an open first input. | The run is done again with the inputs as solids, as without the route. |
+| `InputRepair` | An open input was closed on a copy (`InputRepair` is `AutoRepair` or `AutoRepairThenRobust`). | The repair method and the triangle counts, as in `Report.RepairedInputs`. |
+| `Refused` | An open input is left: `InputRepair` is `Refuse`, or no allowed repair closed it. | No result, status `OpenInput`. |
+
+- **Stated roles are used as stated.** An entry in `InputRoles` (`Solid` or `Sheet`) switches the route off for that input: `Solid` gives the behaviour without the route (refused or repaired as an open input), `Sheet` gives the sheet role with its own refusal (`BooleanFailed`, `SheetReason`) and no fallback.
+- **Several open tools** are all tried as sheets; one refusal sends the run to the fallback for all of them.
+- **The orientation of the sheet is taken as given.** The part of the first input behind the sheet is removed. An open tool whose normals point inward (a bucket turned inside out) therefore removes the other part than its repaired, reoriented copy would, with `Success`. The `SheetRole` step shows it: after a cut its `Change` ends with the share of the first input's volume that the Difference removed ("removed 81.25 %" where 18.75 % was meant). State the role `Solid` for a tool that is a solid with a hole and may be oriented either way.
+- **Why the orientation is followed (owner decision 2026-11-23, prior-art check):** every system found that gives "solid minus open surface" a side takes it from the surface's orientation or from an explicit side switch, and none reorients the cutter by a rule: SolidWorks Cut With Surface (a flip flag), Onshape Split (keep one side, an opposite-direction arrow), NX Trim Body (reverse the trim direction), MCUT (fragments above or below by the cut mesh's winding order), and the plane trims of CGAL (`clip` keeps the negative side) and Manifold (`TrimByPlane` keeps the side the normal points to). The others refuse an open tool or split without a side (CGAL `split`, OpenCASCADE Splitter); see [the study](../research/OPEN_CUTTING_SURFACE_2026-11.md), section 3.
+- **Only a refusal of the sheet falls back.** Any other failure of the boolean with the sheet (`BudgetExceeded`, a strict rounding refusal) is the result of the run.
+- **`MinThickness`:** an open tool without a stated role is measured as before (a flat sheet has no volume, so it is thin), and `ThinInputs` decides as before; a tool left out as thin is not routed. Only a stated sheet is not measured.
+- **`ConfigureBoolean`** runs once more for the run after a refused sheet.
+- **Unchanged:** inputs that pass `IsWindingClosed`, Union and Intersection, and an open first input with closed tools.
+- **Cost of a refusal:** the sheet attempt is one more arrangement of the inputs before the run without the route; its time is part of `Report.BooleanMilliseconds`.
 
 ---
 

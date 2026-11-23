@@ -8,6 +8,7 @@ name: Coverage
 on:
   # a change of this workflow (or of the gate) runs it once on its PR, so the workflow is tested before it reaches master
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - '.github/workflows/coverage.yml'
       - 'tools/changed_line_coverage.py'
@@ -42,6 +43,8 @@ jobs:
   # Runs once a day although two things start it (docs/QA.md, "Scheduled runs"): the external dispatcher at a fixed time and the
   # cron line as the fallback. Skips when an earlier plain daily run of today is under way or green (tools/schedule_guard.py).
   guard:
+    # a draft PR runs nothing here (owner 2026-11-23, runner load); marking it ready starts the run
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
