@@ -454,6 +454,41 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void AxisParallelSegments_AxisAlignedAndOrientedBoxAgree()
+        {
+            // a segment parallel to an axis has d1[i] == d0[i] in two slabs: exact zero, no error bound, decided by comparisons; the answer is
+            // the one of the same box as an oriented one (exact dot products)
+            int hits = 0, n = 0;
+            foreach (var (o, d, lo, hi) in Cases(800, 41)) {
+                for (int ax = 0; ax < 3; ax++) {
+                    Vector3d p0 = o, p1 = o; p1[ax] = o[ax] + 3.5 * (ax == 1 ? -1 : 1);
+                    var aab = new AxisAlignedBox3d(lo, hi);
+                    var ob = new Box3d(0.5 * (lo + hi), 0.5 * (hi - lo));
+                    var sa = IntrExactBox3.BoxSpec.Of(ref aab, 0); var so = IntrExactBox3.BoxSpec.Of(ref ob, 0);
+                    IntrExactBox3.Hit ha, ho;
+                    Assert.True(IntrExactBox3.Find(ref sa, ref p0, ref p0, ref p1, true, 0, true, 1, true, out ha));
+                    Assert.True(IntrExactBox3.Find(ref so, ref p0, ref p0, ref p1, true, 0, true, 1, true, out ho));
+                    Assert.Equal(ho.Kind, ha.Kind);
+                    if (ha.Kind != 0) { hits++; Assert.Equal(ho.T0, ha.T0); Assert.Equal(ho.T1, ha.T1); }
+                    n++;
+                }
+            }
+            Assert.True(hits > 100 && n > 1000);
+        }
+
+        [Fact]
+        public void DoClipping_OnAMiss_LeavesTheParametersAsGiven()
+        {
+            var box = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1));
+            double t0 = -5, t1 = 7; int quantity = 9; Vector3d p0 = new Vector3d(4, 5, 6), p1 = p0; var type = IntersectionType.Segment;
+            Assert.False(IntrLine3Box3.DoClipping(ref t0, ref t1, new Vector3d(0, 3, 0), Vector3d.AxisX, box, true, ref quantity, ref p0, ref p1, ref type));
+            Assert.Equal(-5.0, t0); Assert.Equal(7.0, t1); Assert.Equal(0, quantity); Assert.Equal(IntersectionType.Empty, type);
+            var seg = new IntrSegment3Box3(new Segment3d(new Vector3d(-3, 3, 0), new Vector3d(3, 3, 0)), box, true);
+            Assert.False(seg.Find());
+            Assert.Equal(-seg.Segment.Extent, seg.SegmentParam0); Assert.Equal(seg.Segment.Extent, seg.SegmentParam1);
+        }
+
+        [Fact]
         public void ZeroDirection_IsNotARay_TestAndFindAgree()
         {
             var aab = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1, 1, 1));
@@ -614,6 +649,92 @@ namespace geometry3Sharp.Tests
         }
 
         // ---- invariance: scaling by a power of two gives the same result bit for bit ----
+        // ---- invariance over Similarity.All(): the decisions of every entry point map through the similarity ----
+        public static IEnumerable<object[]> SimilarityNames() { return Similarity.Names(); }
+
+        /// <summary> the decisions of the ray, the line and the segment do not change when the extents of the box move by +-eps (no touching case) </summary>
+        static bool HasMargin(Vector3d o, Vector3d d, Box3d ob, double eps)
+        {
+            Vector3d far = o + d * 6.5;
+            bool r0 = false, l0 = false, s0 = false;
+            for (int k = 0; k < 3; k++) {
+                double e = k == 0 ? 0 : (k == 1 ? eps : -eps);
+                Box3d b = new Box3d(ob.Center, ob.AxisX, ob.AxisY, ob.AxisZ, ob.Extent + new Vector3d(e, e, e));
+                bool r = new IntrRay3Box3(new Ray3d(o, d), b).Find(), l = new IntrLine3Box3(new Line3d(o, d), b).Find(), sg = new IntrSegment3Box3(new Segment3d(o, far), b, true).Find();
+                if (k == 0) { r0 = r; l0 = l; s0 = sg; }
+                else if (r != r0 || l != l0 || sg != s0) return false;
+            }
+            return true;
+        }
+
+        [Theory]
+        [MemberData(nameof(SimilarityNames))]
+        public void Similarities_EveryEntryPointGivesTheMappedResult(string name)
+        {
+            Similarity sim = Similarity.ByName(name);
+            bool exact = sim.IsExact;
+            int compared = 0, n = 0;
+            // (a similarity with a rotation or a translation rounds the input, so only the cases with a margin keep their decision, see HasMargin;
+            // the scales by 2^k change nothing in the rounding: every case, the touching ones too, and the results bit for bit)
+            foreach (var (o, d, lo, hi) in Cases(exact ? 600 : 1200, 31)) {
+                if (Normalized(d) == false) continue;
+                // (a coordinate in the subnormal range, from Up(0): the rounded ends of a Segment3d, center -+ extent * direction, lose their
+                // scale invariance there; not a property of the box decision)
+                if (new[] { o.x, o.y, o.z, lo.x, lo.y, lo.z, hi.x, hi.y, hi.z, o.x + d.x * 6.5, o.y + d.y * 6.5, o.z + d.z * 6.5 }.Any(v => v != 0 && Math.Abs(v) < 1e-200)) continue;
+                n++;
+                Box3d ob = Oriented(lo, hi, n);
+                if (exact == false && (HasMargin(o, d, ob, 1e-5) == false || HasMargin(o, d, Oriented(lo, hi, 0), 1e-5) == false)) continue;
+                Vector3d ax = sim.ApplyDirection(ob.AxisX), ay = sim.ApplyDirection(ob.AxisY), az = sim.ApplyDirection(ob.AxisZ);
+                Box3d ob2 = new Box3d(sim.Apply(ob.Center), ax, ay, az, ob.Extent * sim.Scale);
+                Vector3d o2 = sim.Apply(o), d2 = exact ? d : sim.ApplyDirection(d).Normalized;       // (the same bits of the direction for the scales)
+                Vector3d far = o + d * 6.5, far2 = sim.Apply(far);
+                // oriented box, all of the components
+                Ray3d ray = new Ray3d(o, d), ray2 = new Ray3d(o2, d2);
+                bool rf = new IntrRay3Box3(ray, ob).Find(), rf2 = new IntrRay3Box3(ray2, ob2).Find();
+                bool rt = new IntrRay3Box3(ray, ob).Test(), ri = IntrRay3Box3.Intersects(ref ray, ref ob);
+                bool rt2 = new IntrRay3Box3(ray2, ob2).Test(), ri2 = IntrRay3Box3.Intersects(ref ray2, ref ob2);
+                bool lf = new IntrLine3Box3(new Line3d(o, d), ob).Find(), lf2 = new IntrLine3Box3(new Line3d(o2, d2), ob2).Find();
+                bool lt = new IntrLine3Box3(new Line3d(o, d), ob).Test(), lt2 = new IntrLine3Box3(new Line3d(o2, d2), ob2).Test();
+                Assert.Equal(rf, rf2); Assert.Equal(rt, rt2); Assert.Equal(ri, ri2); Assert.Equal(lf, lf2); Assert.Equal(lt, lt2);
+                Assert.Equal(rf, rt); Assert.Equal(rf, ri); Assert.Equal(lf, lt);
+                foreach (bool solid in new[] { true, false }) {
+                    var sg = new IntrSegment3Box3(new Segment3d(o, far), ob, solid); var sg2 = new IntrSegment3Box3(new Segment3d(o2, far2), ob2, solid);
+                    bool sf = sg.Find(), sf2 = sg2.Find();
+                    Assert.Equal(sf, sf2); Assert.Equal(sg.Type, sg2.Type); Assert.Equal(sg.Quantity, sg2.Quantity);
+                    Assert.Equal(sf, new IntrSegment3Box3(new Segment3d(o, far), ob, solid).Test());
+                    Assert.Equal(sf2, new IntrSegment3Box3(new Segment3d(o2, far2), ob2, solid).Test());
+                    if (exact && sf) { Assert.Equal(sg.Point0 * sim.Scale, sg2.Point0); if (sg.Quantity == 2) Assert.Equal(sg.Point1 * sim.Scale, sg2.Point1); }
+                }
+                if (exact && rf) {
+                    var a = new IntrRay3Box3(ray, ob); a.Find(); var b = new IntrRay3Box3(ray2, ob2); b.Find();
+                    Assert.Equal(a.RayParam0 * sim.Scale, b.RayParam0); Assert.Equal(a.Point0 * sim.Scale, b.Point0);
+                }
+                // axis-aligned box (a rotation turns it into an oriented one: the scales and translations only)
+                if (sim.IsRotated == false) {
+                    var aab = new AxisAlignedBox3d(lo, hi); var aab2 = new AxisAlignedBox3d(sim.Apply(lo), sim.Apply(hi));
+                    var ra = new IntrRay3AxisAlignedBox3(ray, aab); var ra2 = new IntrRay3AxisAlignedBox3(ray2, aab2);
+                    bool raf = ra.Find(), raf2 = ra2.Find();
+                    Assert.Equal(raf, raf2); Assert.Equal(raf, ra.Test()); Assert.Equal(raf2, ra2.Test());
+                    Assert.Equal(raf, IntrRay3AxisAlignedBox3.Intersects(ref ray, ref aab)); Assert.Equal(raf2, IntrRay3AxisAlignedBox3.Intersects(ref ray2, ref aab2));
+                    double t, t2;
+                    bool ft = IntrRay3AxisAlignedBox3.FindRayIntersectT(ref ray, ref aab, out t), ft2 = IntrRay3AxisAlignedBox3.FindRayIntersectT(ref ray2, ref aab2, out t2);
+                    Assert.Equal(ft, ft2); Assert.Equal(raf, ft);
+                    if (exact && ft) Assert.Equal(t * sim.Scale, t2);
+                    var la = new IntrLine3AxisAlignedBox3(new Line3d(o, d), aab); var la2 = new IntrLine3AxisAlignedBox3(new Line3d(o2, d2), aab2);
+                    Assert.Equal(la.Find(), la2.Find()); Assert.Equal(la.Test(), la2.Test());
+                    // the culling form: never a miss where the box is hit; the same decision and the entry bound scaled bit for bit
+                    double m1, m2;
+                    bool may = IntrExactBox3.RayAabbMay(ref ray.Origin, ref ray.Direction, ref aab, 0, out m1);
+                    bool may2 = IntrExactBox3.RayAabbMay(ref ray2.Origin, ref ray2.Direction, ref aab2, 0, out m2);
+                    if (raf) { Assert.True(may); Assert.True(may2); }
+                    if (exact) { Assert.Equal(may, may2); if (may) Assert.Equal(m1 * sim.Scale, m2); }
+                    if (may && ft) Assert.True(m1 <= t);
+                }
+                compared++;
+            }
+            Assert.True(compared > 100);
+        }
+
         [Theory]
         [InlineData(-20)]
         [InlineData(-3)]

@@ -464,7 +464,9 @@ namespace g3
                     double lo = box.A.Min[i], hi = box.A.Max[i];
                     if (ex != 0) { lo -= ex; hi += ex; }
                     double q = dd[i];
-                    int v = Step(i, o[i], 0, q, d0Zero ? 0 : U * Math.Abs(q) + AbsErr, lo, hi, ray, ref c);
+                    // (q = d1 - d0 is exactly 0 only for d1 == d0 (the subtraction is exact where it gives zero or a subnormal): then no error, and an axis-parallel
+                    // segment is decided in the slab by comparisons, not by the exact route)
+                    int v = Step(i, o[i], 0, q, (d0Zero || q == 0) ? 0 : U * Math.Abs(q) + AbsErr, lo, hi, ray, ref c);
                     if (v != 0) return v;
                     if (c.LoMinus > c.UpPlus) return 1;
                 }

@@ -2,8 +2,9 @@ using System;
 using System.Diagnostics;
 using g3;
 
-// The ray, line and segment against box classes (IntrExactBox3) and their callers: DMeshAABBTree3 ray queries (box_ray_intersect_t ->
-// IntrRay3AxisAlignedBox3.FindRayIntersectT) and DCurve3BoxTree ray queries (IntrRay3Box3.Intersects).
+// The ray, line and segment against box classes (IntrExactBox3) and their callers: DMeshAABBTree3 ray queries (the tree culls with
+// the conservative form IntrExactBox3.RayAabbMay; FindRayIntersectT is the exact form of the public class) and DCurve3BoxTree ray
+// queries (IntrRay3Box3.Intersects).
 // Run: dotnet run -c Release (best with DOTNET_TieredCompilation=0 DOTNET_TieredPGO=0 for a stable number); the numbers are ns per call, the minimum of 9 repetitions.
 class Program
 {
