@@ -22,9 +22,9 @@ namespace g3
     /// </summary>
     internal static class IntrExactBox3
     {
-        const double U = 1.1102230246251565e-16;        // 2^-53
-        const double Tiny = 1e-290, Huge = 1e290;        // below / above: the relative bounds do not hold (underflow, overflow), the exact route decides
-        const double AbsErr = 1e-320;                    // absolute error of the underflow of one operation
+        internal const double U = 1.1102230246251565e-16;        // 2^-53
+        internal const double Tiny = 1e-290, Huge = 1e290;        // below / above: the relative bounds do not hold (underflow, overflow), the exact route decides
+        internal const double AbsErr = 1e-320;                    // absolute error of the underflow of one operation
 
         // ------------------------------------------------------------------------------------------------------------
         // the exact numbers: a BigInteger mantissa and a power of two
@@ -231,6 +231,8 @@ namespace g3
         /// The ray against an axis-aligned box, certified in a few operations: 1 a contact with a positive length, t the entry (0 for an
         /// origin inside), 0 a miss, -1 undecided (a touching contact, a value near the range limits). The origin and the faces are exact, so each
         /// t = (face - origin) / direction is within 2.5 u of its exact value (one rounding for the difference, one for the quotient).
+        /// No losing-bound check of the entry t is needed (unlike <c>Acc.Verdict</c>): every candidate for the entry has a relative error of at most 2.5 u, so the true
+        /// maximum of the candidates is within 2.5 u |tn| of the computed maximum whichever candidate wins; the candidate 0 (origin inside the slab) is exact.
         /// </summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         internal static int RayAabb(ref Vector3d o, ref Vector3d d, ref AxisAlignedBox3d b, double ex, out double t)
@@ -356,7 +358,7 @@ namespace g3
 
         /// <summary> the error bound of t = num / q, num with its own error </summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        static double TErr(double errNum, double errQ, double ri, double t)
+        internal static double TErr(double errNum, double errQ, double ri, double t)
         {
             // ri = 1.0000001 / (|q| - errQ)
             return (errNum + Math.Abs(t) * errQ) * ri + U * Math.Abs(t) * 2 + AbsErr;
@@ -380,7 +382,8 @@ namespace g3
                 if (LoMinus > UpPlus) return 0;
                 if (LoPlus < UpMinus) {
                     if (accurateEnds && (LoBest == double.NegativeInfinity || UpBest == double.PositiveInfinity)) return 3;
-                    // the ends are returned from this route only when they are accurate to a few ulp (a slab with a cancelling P is not)
+                    // the ends are returned from this route only when they are accurate to a few ulp (a slab with a cancelling P is not). The two checks of the winner's own
+                    // error are covered by the checks of the intervals below (up to rounding) (LoPlus >= LoBest + LoBestErr, UpMinus <= UpBest - UpBestErr): kept as the cheap first test
                     if (accurateEnds && (LoBestErr > 6 * U * Math.Abs(LoBest) + 1e-300 || UpBestErr > 6 * U * Math.Abs(UpBest) + 1e-300)) return 3;
                     // (and the losing bounds: the exact end is the largest lower bound, in [LoMinus, LoPlus], and the smallest upper bound, in [UpMinus, UpPlus];
                     // a losing bound whose interval reaches past the winner can be the true end, eg a slab whose P cancels)
@@ -398,7 +401,7 @@ namespace g3
         /// the exact |Q| at most aq + eQ, so |exact v| &gt; 2 Huge whenever that quotient is. NaN or an infinite error give 2.
         /// </summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        static int Kind(double v, double ev, double n, double eP, double aq, double eQ)
+        internal static int Kind(double v, double ev, double n, double eP, double aq, double eQ)
         {
             if (Math.Abs(v) + ev <= Huge)
                 return 0;
@@ -408,7 +411,7 @@ namespace g3
 
         /// <summary> one slab: 0 continue, 1 certified miss, 3 undecided (P, eP, Q and eQ finite: FilterOriented checks them, the axis-aligned box has finite inputs) </summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        static int Step(int i, double P, double eP, double Q, double eQ, double L, double H, bool ray, ref Acc c)
+        internal static int Step(int i, double P, double eP, double Q, double eQ, double L, double H, bool ray, ref Acc c)
         {
             if (Q == 0 && eQ == 0) {
                 // parallel to the slab, exactly: P itself against L and H
@@ -492,7 +495,7 @@ namespace g3
 
         /// <summary> P, Q of a slab of an oriented box (o - Center and the direction on the axis u) with the bounds of their error </summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        static void Prep(double ux, double uy, double uz, double cx, double cy, double cz, ref Vector3d o, ref Vector3d dd, out double P, out double eP, out double Q, out double eQ)
+        internal static void Prep(double ux, double uy, double uz, double cx, double cy, double cz, ref Vector3d o, ref Vector3d dd, out double P, out double eP, out double Q, out double eQ)
         {
             double x = (o.x - cx) * ux, y = (o.y - cy) * uy, z = (o.z - cz) * uz;
             double a = dd.x * ux, b = dd.y * uy, w = dd.z * uz;
@@ -503,7 +506,7 @@ namespace g3
         }
 
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        static bool Away(double P, double eP, double Q, double eQ, double e)
+        internal static bool Away(double P, double eP, double Q, double eQ, double e)
         {
             // a ray that starts beyond a face of the slab and does not move toward it (the sign of Q certified) misses
             return (P - eP > e && Q >= eQ && Q >= 0) || (P + eP < -e && -Q >= eQ && Q <= 0);

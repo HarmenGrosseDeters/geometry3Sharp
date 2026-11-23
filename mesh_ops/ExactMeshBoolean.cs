@@ -2503,12 +2503,67 @@ namespace g3
 
         const int NotEvaluated = int.MinValue;
 
+        // ---- the rounding of the Biot-Savart bounds (#1350) ----
+        // Every bound below is a computed upper bound of a real number: each sum and product is followed by a factor
+        // 1 + (n + c) u, with n the roundings of the chain that can make the computed value too small and c the roundings
+        // of the factor itself (the product with it, 1 + k u): the derivations are at the factors. u = 2^-53, the unit
+        // roundoff; E = 2^-52 bounds the relative error of (double)BigInteger (a truncation or a rounding: below 2^-52).
+        const double U = 1.0 / 9007199254740992.0;
+        const double E = 2 * U;
+
+        /// <summary>
+        /// 1 + k u as a double for an even k below 2^52 (exact: k u = (k / 2) 2^-52 is a multiple of the ulp of 1; an odd k
+        /// would round, possibly down). A factor f multiplies a computed value x: fl(x f) &gt;= x f (1 - u), so a factor that
+        /// is to bound a chain of n roundings (1 - u)^-n &lt;= 1 + (n + 1) u (+ O(u^2), below the unit of the last place of
+        /// k) carries the extra u of its own product: k = n + 1 rounded up to even
+        /// </summary>
+        internal static double Factor(int k)
+        {
+            return 1 + k * U;
+        }
+
+        /// <summary> the most terms the sum lemma of SumTermsFactor covers </summary>
+        internal const int MaxSumTerms = 1 << 26;
+
+        /// <summary>
+        /// The factor of a Biot-Savart sum of at most m terms (#1350). Each term is far_term(l, c, d) = min(l / (4 pi d^2),
+        /// c / (2 pi d)) for a distance d that is at most the true one (the slack, below) and a length that is at least the
+        /// true one (Lengths), so the true term is at most the computed one times 1 / (1 - u)^3 (the first quotient: q =
+        /// ((4 pi) d) d rounds twice, fl(pi) &lt; pi only helps, l / q once; the second: (2 pi) d once, the quotient
+        /// once; the minimum of the two is below both) =: 1 + 3u + O(u^2). A left-to-right sum of m non-negative computed
+        /// values has at most m - 1 roundings, so S &lt;= S_c / (1 - u)^(m-1); for x = (m - 1) u / (1 - u) &lt;= 1 this is
+        /// at most exp(x) &lt;= 1 + x + x^2, with x &lt;= (m - 1) u (1 + 2u) and x^2 &lt;= 2^-27 (m - 1) u (x &lt;= 2^-27, so first order in u), so &lt;= 1 + (m - 1) u (1 + 2u + 2^-27) &lt;= 1 + (m - 0.5) u for
+        /// m &lt;= 2^26 (the lemma needs it: (m - 1) u / (1 - u) stays below 2^-27). With the terms: S_true &lt;= S_c (1 +
+        /// (m + 2.5001) u); the product S_c f rounds down by at most u more: f = 1 + (m + 3.5002) u, rounded up to the even
+        /// k = m + 4 + (m mod 2) (n = m + 3 roundings of the chain, c = 1 + 1 for the product and the odd-k case; the
+        /// 0.0002 u stands for the second-order terms, at most 3 m u^2 = 2^-27 u). The sums over the segments of one
+        /// boundary (the far part of a cluster and the near terms, or all terms, or the single Total term whose sum of
+        /// lengths has m - 1 roundings) have at most m = the segment count terms, so one factor covers all of them. For
+        /// m &gt; 2^26 the lemma does not hold: +infinity (every bound that uses it is then +infinity, the existing "not
+        /// crossed" value: the patch is evaluated piece by piece)
+        /// </summary>
+        internal static double SumTermsFactor(long m)
+        {
+            if (m > MaxSumTerms)
+                return double.PositiveInfinity;
+            long k = m + 4 + (m & 1);
+            return Factor((int)k);
+        }
+
+        // the sum bound g (raw: a sum of far terms) times the boundary's factor; +infinity (also for g = 0, where infinity * 0
+        // would be NaN) where the factor is
+        internal static double sum_bound(double g, BoundaryBound b)
+        {
+            // (a factor below 1, or NaN: not set by boundary_bound, never a bound; above double.MaxValue: infinite)
+            return b.SumFactor >= 1 && b.SumFactor <= double.MaxValue ? g * b.SumFactor : double.PositiveInfinity;
+        }
+
         // L1: the boundary of an Antipodal mesh for the bound (grid coordinates): segment boxes and lengths, their box,
-        // the total length and the coordinates' size
+        // the total length and the coordinates' size; SumFactor: the factor of the sums over its segments (SumTermsFactor)
         internal sealed class BoundaryBound
         {
             public double[] Boxes, Lengths, All;
-            public double Total, Size;
+            public double Total, Size, SumFactor;
         }
 
         /// <summary>
@@ -2639,6 +2694,9 @@ namespace g3
                     if (patch[q] != k)
                         continue;
                     double cq = piece_cost(q, b, ws.Cost);
+                    // (the sum of three non-negative values rounds twice, so the true sum is at most the computed one times
+                    // (1 + 2.0001u) = 1 + 2.2e-16; the factor 1 + 1e-12 is 4500 times that and is kept, not derived: it also
+                    // keeps the decisions as they were, #1350)
                     double aq = (a + cp + cq) * (1 + 1e-12);
                     if (!(aq < margin))
                         continue;
@@ -2669,7 +2727,7 @@ namespace g3
                 box[q] = MathUtil.MinExact(pa[q], MathUtil.MinExact(pb[q], pc[q])) - err;
                 box[q + 3] = MathUtil.MaxExact(pa[q], MathUtil.MaxExact(pb[q], pc[q])) + err;
             }
-            diam = (MathUtil.MaxExact(pa.Distance(pb), MathUtil.MaxExact(pb.Distance(pc), pc.Distance(pa))) + 2 * err) * (1 + 1e-12);
+            diam = piece_diameter(pa, pb, pc, err);
             double s = b.Size;
             for (int q = 0; q < 6; ++q)
                 s = MathUtil.MaxExact(s, 3 * Math.Abs(box[q]));
@@ -2686,9 +2744,26 @@ namespace g3
                     g = dt >= near ? g + far_term(b.Lengths[t], 1, dt) : double.PositiveInfinity;
                 }
             }
-            cost = g * (1 + 1e-12) * diam;
+            cost = sum_bound(g, b) * diam;
             cache[p] = cost;
             return cost;
+        }
+
+        /// <summary>
+        /// An upper bound of the diameter of a piece (piece_cost): its corners lie within e_i per coordinate of the
+        /// approximations pa, pb, pc (ApproxError), err = e_A + e_B + e_C. An edge of the true piece is at most its computed
+        /// length (1 + 4u) (Distance, as boundary_bound: n = 4) plus sqrt(3) (e_i + e_j) (the Euclidean norm of two
+        /// per-coordinate errors) &lt;= sqrt(3) err, since err &gt;= e_i + e_j (the two roundings of the sum leave err_c &gt;= (1 -
+        /// u)^2 err). So 2 err_c &gt;= sqrt(3) (e_i + e_j) 2 / sqrt(3) (1 - u)^2: the margin 2 / sqrt(3) = 1.1547 absorbs the
+        /// roundings of err and of the sum below. fl(M + 2 err_c) &gt;= (M + 2 err_c) (1 - u); the cost then takes a product
+        /// with G and one more rounding: (1 - u)^3 f &gt;= 1 + 4u needs f &gt;= 1 + 7.0001u, so k = 8 (n = 4, c = 4). The corners
+        /// of arr.Approx are not integers, and a subnormal product or difference is rounded by an absolute 0.5 eps: both are
+        /// absorbed by the 2e-6 of the margin (a piece is decided only more than 2e-6 from every half-integer). Before: (1 +
+        /// 1e-12)
+        /// </summary>
+        internal static double piece_diameter(Vector3d pa, Vector3d pb, Vector3d pc, double err)
+        {
+            return (MathUtil.MaxExact(pa.Distance(pb), MathUtil.MaxExact(pb.Distance(pc), pc.Distance(pa))) + 2 * err) * Factor(8);
         }
 
         internal static BoundaryBound boundary_bound(Vector3d[] g)
@@ -2704,10 +2779,25 @@ namespace g3
                     b.All[q] = MathUtil.MinExact(b.All[q], b.Boxes[6 * t + q]);
                     b.All[q + 3] = MathUtil.MaxExact(b.All[q + 3], b.Boxes[6 * t + q + 3]);
                 }
-                b.Lengths[t] = x.Distance(y) * (1 + 1e-15);
+                // The length of the true segment, between the exact grid points X, Y of which x, y are the doubles
+                // (antipodal_grid: (double)BigInteger, each coordinate off by less than 2^-52 relative, #1350):
+                //   |X - Y| <= |x - y| + |X - x| + |Y - y|,  |X - x| <= E (1 + 3u) |x|_1  (|X_i| <= |x_i| / (1 - E)).
+                // |x - y| from Distance: the grid values are integers, so a difference is 0 or at least 1 and its square does
+                // not underflow; an overflow gives +infinity (a bound of any length, the term is then limited by the count).
+                // The three differences, their squares and the two additions leave the computed square sum at least
+                // (1 - u)^5 of the true one, so |x - y| <= D (1 - u)^-3.5 <= D (1 + 4u) (n = 4: the square root halves
+                // the 5). R = |x|_1 + |y|_1 rounds 5 times (the deepest term 3): R_true <= R_c (1 + 4u); E R_c is exact
+                // (a power of two). The endpoint term E (1 + 3u) R_true <= E R_c (1 + 7.0001u) and D (1 + 4u) are both at most
+                // (D + E R_c) (1 + 7.0001u); the sum T = fl(D + E R_c) is at least (D + E R_c) (1 - u), so
+                // |X - Y| <= T (1 + 8.0002u), and the product T f rounds down by at most u more: f >= 1 + 9.0003u, the
+                // even k = 10 (n = 8, c = 2). Before: D (1 + 1e-15), without the endpoint term
+                double dist = x.Distance(y);
+                double r = (Math.Abs(x.x) + Math.Abs(x.y) + Math.Abs(x.z)) + (Math.Abs(y.x) + Math.Abs(y.y) + Math.Abs(y.z));
+                b.Lengths[t] = (dist + E * r) * Factor(10);
                 b.Total += b.Lengths[t];
                 b.Size = MathUtil.MaxExact(b.Size, MathUtil.MaxExact(Math.Abs(x.x) + Math.Abs(x.y) + Math.Abs(x.z), Math.Abs(y.x) + Math.Abs(y.y) + Math.Abs(y.z)));
             }
+            b.SumFactor = SumTermsFactor(ns);
             return b;
         }
 
@@ -2798,15 +2888,23 @@ namespace g3
         /// <summary>
         /// the Biot-Savart terms of L1 and L2's gradient bounds: min(length / (4 pi d^2), count / (2 pi d)) for a set of
         /// segments of that total length and count at distance at least d. Where 4 pi d^2 is a finite double the old
-        /// expression (bit-identical); where it overflowed (#719: the term became 0, an unsound bound of a gradient that is
+        /// expression (bit-identical, except a subnormal result, which gets 2 eps added, #1350); where it overflowed (#719: the term became 0, an unsound bound of a gradient that is
         /// not zero) the quotients one at a time, at least the smallest positive double where that underflows (the true
         /// term is below it but not 0), and +infinity where it is not a number (an infinite length or a NaN distance)
         /// </summary>
         internal static double far_term(double length, double count, double d)
         {
             double q = 4 * Math.PI * d * d;
-            if (q <= double.MaxValue)
-                return MathUtil.MinExact(length / q, count / (2 * Math.PI * d));
+            if (q <= double.MaxValue) {
+                double r = MathUtil.MinExact(length / q, count / (2 * Math.PI * d));
+                // (#1350: a subnormal quotient is rounded to a multiple of 2^-1074, an absolute error of half of it per
+                // division, not the relative u of the SumTermsFactor: the division leaves at most 0.5 eps, the two roundings
+                // of q (relative u each, below 2^-1022: 2u 2^-1022 = 1 eps) at most 1 eps, and fl(pi) < pi takes back
+                // 0.35u 2^-1022 = 0.18 eps: at most 0.5 + 1 - 0.18 = about 1.33 eps below 2^-1022 (a result of 1.026 eps above the
+                // plain quotient is reached, so 1 eps would not do); 2 eps covers it, where the true term is positive, which
+                // a quotient that underflowed to 0 would lose: length > 0 and count > 0)
+                return r < 2.2250738585072014E-308 && length > 0 && count > 0 ? r + 2 * double.Epsilon : r;
+            }
             return far_term_overflow(length, count, d);
         }
 
@@ -2819,7 +2917,10 @@ namespace g3
             // (rounded up, so that it bounds the true term: the three roundings of each quotient, relative 2^-53 each in the
             // normal range, absolute half a subnormal ulp each below it; and positive where the true term is, which an
             // underflow to 0 would lose; review of #759)
-            return length > 0 || count > 0 ? r * (1 + 1e-15) + 4 * double.Epsilon : r;
+            // (the factor: the first quotient is three divisions, the second two, the minimum is below both, so the true term
+            // is at most r (1 - u)^-3 <= r (1 + 3.0001u); fl(r f) >= r f (1 - u) needs f >= 1 + 4.0002u: k = 6 (n = 3, c = 3;
+            // and 4 eps for the subnormal part, as above). Before: (1 + 1e-15))
+            return length > 0 || count > 0 ? r * Factor(6) + 4 * double.Epsilon : r;
         }
 
         // open_winding with L1: the open meshes decided for piece i's patch take the patch's value, the first piece of a
@@ -3331,11 +3432,28 @@ namespace g3
             // (the distance in the local frame: its errors are relative to the input triangle, not to the model)
             double ep, eq;
             Vector3d gp = cp.Local(out ep), gq = cq.Local(out eq);
-            double length = (gp.Distance(gq) + 1.7320508075688774 * (ep + eq)
-                + 1e-15 * (Math.Abs(gp.x) + Math.Abs(gp.y) + Math.Abs(gp.z) + Math.Abs(gq.x) + Math.Abs(gq.y) + Math.Abs(gq.z))) * (1 + 1e-12);
+            double length = carry_length(gp, gq, ep, eq);
             if (double.IsNaN(length))
                 return double.PositiveInfinity;
             return gradient_bound(box, b, cb) * length;
+        }
+
+        /// <summary>
+        /// An upper bound of the distance of the exact points whose approximations are gp and gq, off by at most ep and eq per
+        /// coordinate (carry_bound, #1350), times the product with G that the caller takes. Derivation: |c_p - c_q| <= |gp -
+        /// gq| + sqrt(3) (ep + eq), and the computed distance D_c has |gp - gq| <= D_c (1 + 4u) (n = 4, as in boundary_bound),
+        /// with D_c <= K (1 + 4u), K = |gp|_1 + |gq|_1, so D_c (1 + 4u) <= D_c + 4u K (1 + 4u); K_true <= K_c (1 + 4u) (5
+        /// roundings, the deepest term 3) and W = K_c 2^-51 is exact: 4u K (1 + 4u) <= W (1 + 8u). Q = fl(sqrt3_c fl(ep + eq))
+        /// with sqrt3_c = 1.7320508075688774 > sqrt(3): sqrt(3) (ep + eq) <= Q (1 + 3u). Together |c_p - c_q| <= (D_c + Q + W) (1
+        /// + 8u), the sum S = fl(fl(D_c + Q) + W) >= (D_c + Q + W) (1 - u)^2, so |c_p - c_q| <= S (1 + 10.0001u). The result
+        /// fl(S f) and then the caller's fl(G * result) round down by u each: f (1 - u)^2 >= 1 + 10.0001u needs f >= 1 +
+        /// 12.0002u, so k = 14 (n = 10, c = 4). Before: (D_c + sqrt3_c (ep + eq) + 1e-15 K_c) (1 + 1e-12). No underflow
+        /// is assumed (the centroids of pieces of input triangles are far from 2^-1000 of the model)
+        /// </summary>
+        internal static double carry_length(Vector3d gp, Vector3d gq, double ep, double eq)
+        {
+            double k = (Math.Abs(gp.x) + Math.Abs(gp.y) + Math.Abs(gp.z)) + (Math.Abs(gq.x) + Math.Abs(gq.y) + Math.Abs(gq.z));
+            return ((gp.Distance(gq) + 1.7320508075688774 * (ep + eq)) + k * (4 * U)) * Factor(14);
         }
 
         [ThreadStatic] static double[] carryBox;
@@ -3385,7 +3503,10 @@ namespace g3
                         break;
                 }
             }
-            return g * (1 + 1e-12);
+            // g is a sum of at most ns terms (all, the far part of the cluster and the near ones, or the single term of the
+            // total): the factor of SumTermsFactor covers its roundings and the terms' (it replaces (1 + 1e-12), which is
+            // below ns u from ns = 9007 on)
+            return sum_bound(g, b);
         }
 
         /// <summary>
@@ -3393,7 +3514,8 @@ namespace g3
         /// segment at distance at least C's near (1e-3 s_C) from C contributes its term at that distance, which bounds its term
         /// at any box inside C: the distance there is at least as large, and that box's s, near and slack are at most C's
         /// (s grows with the box's coordinates, which lie within C's). Those terms are summed once (Far); the others (Near)
-        /// per box, as in gradient_bound. The bound is larger than the per-segment sum, never smaller
+        /// per box, as in gradient_bound. The bound is larger than the per-segment sum, never smaller. Far is the raw sum
+        /// (without the factor of SumTermsFactor): gradient_bound multiplies the whole chain, Far plus the near terms, once
         /// </summary>
         internal sealed class ClusterBound
         {

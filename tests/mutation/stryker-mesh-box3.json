@@ -8,7 +8,7 @@
     "mutate": [
       "**/intersection/IntrExactBox3.cs"
     ],
-    "test-case-filter": "FullyQualifiedName~IntrBox3ExactTests|FullyQualifiedName~IntrBox3PublicApiTests",
+    "test-case-filter": "FullyQualifiedName~IntrBox3ExactTests|FullyQualifiedName~IntrBox3PublicApiTests|FullyQualifiedName~IntrBox3FilterEdgeTests",
     "coverage-analysis": "perTest",
     "configuration": "Release",
     "additional-timeout": 30000,
@@ -20,8 +20,8 @@
     ],
     "thresholds": {
       "high": 90,
-      "low": 57,
-      "break": 55
+      "low": 76,
+      "break": 74
     },
     "concurrency": 2
   }
