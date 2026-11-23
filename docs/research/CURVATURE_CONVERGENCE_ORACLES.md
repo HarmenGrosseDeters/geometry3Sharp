@@ -413,3 +413,28 @@ Run `dotnet run -c Release --project benchmarks/CurvatureWeakProbe -- --heat-azi
 On the finest default equator, the signed error is within 0.000011° of zero at longitudes 0° and 45°, yet reaches +0.85283° at 23.44°. Comparing the entire sampled equator with itself after a quarter turn gives a maximum absolute difference of 0.00238° or less. Reflecting longitude and comparing with the sign reversed gives a maximum difference below 0.00166°. The signed field therefore has an approximately repeating quarter-turn pattern with opposite errors across the symmetry plane.
 
 At colatitude 157.13°, the finest default errors at longitudes +25.82° and −25.82° are +11.69874° and −11.69856°. The other six copies follow the same quarter-turn and reflection pattern to within 0.00036°. The previously measured endpoint bias recurs at symmetry-related destinations and changes sign under reflection. These comparisons identify a directional pattern on the cube-sphere but leave the individual walk contributions unresolved.
+
+## Fourfold harmonic of the equatorial error
+
+The quarter-turn and reflection measurements suggest a specific signed angular profile, A sin(4λ), where λ is longitude from the x-axis and A is in degrees. This fixes the phase using the cube axes and fits just one coefficient per grid and time schedule. Higher multiples of four can share these symmetries, so the residual measures how far the sampled profile departs from this single sine wave.
+
+To reproduce the table, use the equator rows of `dotnet run -c Release --project benchmarks/CurvatureWeakProbe -- --heat-azimuth`. Sort by increasing longitude as printed (−180° to 180°) and convert longitude to radians. Give each sample weight w equal to half the sum of its two neighboring longitude gaps, including the gap across the wrap. This approximates uniform angular weighting on the irregularly spaced samples. With signed error e and s = sin(4λ), compute
+
+```text
+A = Σ(w s e) / Σ(w s²)
+residual RMS = √[Σ(w (e − A s)²) / Σw]
+share of squared error described = 1 − Σ(w (e − A s)²) / Σ(w e²)
+```
+
+For the last column, fit A on zero-based even positions in the sorted ring and evaluate residual RMS on odd positions, retaining the original weights. The interleaved samples come from the same solved field.
+
+| Vertices per edge | Schedule | A (°) | Residual RMS (°) | Share of squared error (%) | Odd-position RMS (°) |
+|---:|---|---:|---:|---:|---:|
+| 17 | default | 0.696655 | 0.044113 | 99.206 | 0.024630 |
+| 33 | default | 0.830570 | 0.017127 | 99.915 | 0.012643 |
+| 65 | default | 0.875739 | 0.041030 | 99.563 | 0.041069 |
+| 17 | linear | 0.049546 | 0.018769 | 77.742 | 0.012772 |
+| 33 | linear | 0.060369 | 0.008141 | 96.493 | 0.007340 |
+| 65 | linear | 0.041683 | 0.003062 | 98.933 | 0.002968 |
+
+At 65 vertices per edge the linear schedule reduces the fitted amplitude by a factor of 21.0. For default time the residual remains 0.041° RMS both on the full ring and at the interleaved evaluation points. The fit describes the spatial shape of the equatorial error on these meshes. The eight symmetry-related samples at the far target latitude do not distinguish this harmonic from other shapes between the sampled longitudes.
