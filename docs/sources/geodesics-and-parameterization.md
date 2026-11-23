@@ -156,5 +156,7 @@ The [annulus study](../research/DISCRETE_CONFORMAL_EQUIVALENCE_STUDY.md) uses th
 
 | Source | Use |
 |---|---|
+| B. Springborn, P. Schröder and U. Pinkall, [*Conformal Equivalence of Triangle Meshes*](https://doi.org/10.1145/1360612.1360676), ACM TOG (SIGGRAPH) 2008 | Convex Lobachevsky-Milnor energy, angle gradient and cotangent Hessian |
+| A. I. Bobenko, U. Pinkall and B. A. Springborn, [*Discrete Conformal Maps and Ideal Hyperbolic Polyhedra*](https://doi.org/10.2140/gt.2015.19.2155), Geometry & Topology 19, 2015 | Hyperbolic Delaunay criterion, Ptolemy flip invariance and $C^2$ convexity |
 | M. Gillespie, B. Springborn and K. Crane, [*Discrete Conformal Equivalence of Polyhedral Surfaces*](https://doi.org/10.1145/3450626.3459763), ACM TOG 40(4), 2021 | Vertex scaling, Ptolemy flips, normal-coordinate correspondence and boundary conditions |
 | M. Campen, R. Capouellez, H. Shen, L. Zhu, D. Panozzo and D. Zorin, [*Efficient and Robust Discrete Conformal Equivalence with Boundary*](https://arxiv.org/abs/2104.04614), 2021 | Prescribed boundary curvature and stable flips in the symmetric double cover |

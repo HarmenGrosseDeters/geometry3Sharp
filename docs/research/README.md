@@ -4,7 +4,7 @@ Prior-art checks, literature surveys, external library comparisons, and explorat
 
 | Study | Topic & Summary |
 |---|---|
-| [DISCRETE_CONFORMAL_EQUIVALENCE_STUDY.md](DISCRETE_CONFORMAL_EQUIVALENCE_STUDY.md) | Discrete conformal reference for P1 cylinders and measured limits of reusing the intrinsic Euclidean flip |
+| [DISCRETE_CONFORMAL_EQUIVALENCE_STUDY.md](DISCRETE_CONFORMAL_EQUIVALENCE_STUDY.md) | C# CETM + Ptolemy intrinsic Delaunay solver on 17 P1/jittered/curved/multi-hole cases: 17/17 converge with 0 intrinsic flips (297 solve flips, 78 non-Euclidean intermediate states), seamless on symmetric annuli/disks, nonzero translational holonomy on asymmetric holes; park as P1 fix |
 | [BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md](BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md) | Prior-art check for post-3.0 exact boolean research directions |
 | [ERROR_BOUND_AUDIT_2026-11.md](ERROR_BOUND_AUDIT_2026-11.md) | Audit of the hand-written floating-point error bounds of the exact code: inventory (about 155), an independent re-derivation by a new checker (`tools/ErrorBoundAudit`: 31 bounds checked, 32 derivations proved), an adversarial run against `ExactDyadic`, four findings, and a CI test proposal |
 | [BOOLEAN_CERTIFIED_MODE_2026-11.md](BOOLEAN_CERTIFIED_MODE_2026-11.md) | Spike for plan #1256: measured cost of a certifying checker of `ExactMeshBoolean` (stage 3, the embedding), a certified user mode, and the state of exact coplanar clip coordinates |
