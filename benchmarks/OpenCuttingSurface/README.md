@@ -9,6 +9,7 @@ dotnet run -c Release --project benchmarks/OpenCuttingSurface -- today          
 dotnet run -c Release --project benchmarks/OpenCuttingSurface -- semantics [n]     # the candidates A to E; C samples n^3 points (48)
 dotnet run -c Release --project benchmarks/OpenCuttingSurface -- cost [sizes...]   # sphere against a wavy sheet, median of 5
 dotnet run -c Release --project benchmarks/OpenCuttingSurface -- all
+dotnet run -c Release --project benchmarks/OpenCuttingSurface -- gridfb            # AutomaticSteps None against the default GridBeforeFallback (not part of all)
 ```
 
 - Candidate B (the sheet role of PR #1223) is called by reflection (`ExactMeshBoolean.Roles`), so the project builds on a
@@ -50,3 +51,18 @@ these columns now show the route, not `InputRepair` alone (the two older result 
 The 7 cases the sheet role refuses are the half sheet, the sheet with a hole and the disc inside (a free edge inside the
 cube), the three sheets on the top face (they only touch) and the sheet outside (uncut). The repair path of the fallback is
 unchanged here; the self-intersection check of #1426 is not part of #1447.
+
+## The Grid step before the fallback (`gridfb`)
+
+`SolidBooleanPipeline.AutomaticSteps` defaults to `GridBeforeFallback`: a refused sheet (`RimInsideWorkpiece`) of an open tool the pipeline routed itself is
+retried once on the data grid before the fallback. `gridfb` runs `None` (before) and the default (after) in one process, wall ms, median of 7 after a warm-up
+(2026-11-24, a shared Windows machine, .NET 10; read the ratios of one row, the sphere rows are noisy and run the same code in both columns):
+
+| case | None (before) | default (after) |
+|---|---|---|
+| sphere n=32/64/128 minus a wavy sheet (no refusal) | 206 / 227 / 1317, `SheetRole` | 105 / 243 / 1079, `SheetRole` (the same route: no extra work) |
+| 64-gon cylinder rim +-3 ulps in the top face, 1.2e6, `Refuse` | 3.8, `OpenInput` | 8.8, `Success`, clean, `SheetRole,Grid,SheetRole` |
+| the same, `AutoRepair` | 61.6, `Success`, not clean | 7.8, `Success`, clean |
+| 512-gon, `Refuse` | 61, `OpenInput` | 115, `Success`, clean |
+| 512-gon, `AutoRepair` | 318, `Success`, not clean | 112, `Success`, clean |
+| patch well inside the block (the grid cannot help), `Refuse` | 0.3, `OpenInput` | 0.6, `OpenInput`, `SheetRole,Grid,Fallback,Refused` (one extra boolean) |
