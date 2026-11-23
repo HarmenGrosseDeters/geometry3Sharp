@@ -18,7 +18,7 @@ namespace geometry3Sharp.Tests
         static BigInteger Isqrt(BigInteger n)
         {
             if (n < 2) return n;
-            BigInteger x = BigInteger.One << (int)((n.GetBitLength() + 1) / 2);
+            BigInteger x = BigInteger.One << (int)((ExactPoint3.BitLength(n) + 1) / 2);
             while (true) {
                 BigInteger y = (x + n / x) >> 1;
                 if (y >= x) return x;
@@ -79,6 +79,48 @@ namespace geometry3Sharp.Tests
             Assert.True(ExactMeshBoolean.gradient_bound(new[] { 100.0, 100, 100, 101, 101, 101 }, one, ExactMeshBoolean.cluster_bound(new[] { 99.0, 99, 99, 102, 102, 102 }, one)) > double.MaxValue);
         }
 
+        // piece_cost's diameter: the longest computed edge plus 2 err, times 1 + 8 u (and at least the true diameter of the
+        // piece whose corners are within e per coordinate: the exact longest edge plus sqrt(3) 2 e)
+        [Fact]
+        public void PieceDiameter_IsAtLeastTheTrueDiameter_AndTheFactorIsEightUnitRoundoffs()
+        {
+            var rnd = new Random(1353);
+            double u = Math.Pow(2, -53);
+            for (int trial = 0; trial < 2000; ++trial) {
+                Func<double> v = () => rnd.Next(-1 << 20, 1 << 20) * Math.Pow(2, -10);
+                Vector3d pa = new Vector3d(v(), v(), v()), pb = new Vector3d(v(), v(), v()), pc = new Vector3d(v(), v(), v());
+                double ea = rnd.Next(0, 1000) * Math.Pow(2, -30), eb = rnd.Next(0, 1000) * Math.Pow(2, -30), ec = rnd.Next(0, 1000) * Math.Pow(2, -30);
+                double err = ea + eb + ec;           // exact here (multiples of 2^-30 below 2^12)
+                double diam = ExactMeshBoolean.piece_diameter(pa, pb, pc, err);
+                double m = Math.Max(pa.Distance(pb), Math.Max(pb.Distance(pc), pc.Distance(pa)));
+                Assert.True(diam >= (m + 2 * err) * (1 + 7 * u) && diam <= (m + 2 * err) * (1 + 9 * u), $"trial {trial}: factor");
+                // the exact squared longest edge (dyadic, 2^-20 units) against diam, with the corner errors worst case
+                Func<Vector3d, Vector3d, BigInteger> sq = (a, b) => {
+                    BigInteger s = 0;
+                    for (int c = 0; c < 3; ++c) { BigInteger d = (BigInteger)((a[c] - b[c]) * Math.Pow(2, 10)); s += d * d; }
+                    return s;
+                };
+                BigInteger longest = BigInteger.Max(sq(pa, pb), BigInteger.Max(sq(pb, pc), sq(pc, pa)));
+                // (diam + 0) >= sqrt(longest) 2^-10 + sqrt(3) (e_i + e_j) with e_i + e_j <= err: check diam >= edge + 1.7320508075688774 err
+                double edge = (double)Isqrt(longest << 40) * Math.Pow(2, -30);
+                Assert.True(diam >= edge + 1.732 * err, $"trial {trial}");
+            }
+        }
+
+        // far_term's overflow branch: the quotients one at a time times 1 + 6 u, plus 4 eps
+        [Fact]
+        public void FarTermOverflow_FactorIsSixUnitRoundoffs()
+        {
+            double u = Math.Pow(2, -53);
+            foreach (double d in new[] { 1e155, 3e200, 1e250 })
+                foreach (double length in new[] { 1e100, 7e250, 1.0 }) {
+                    Assert.True(4 * Math.PI * d * d > double.MaxValue);
+                    double r = Math.Min(length / d / d / (4 * Math.PI), 1 / d / (2 * Math.PI));
+                    double term = ExactMeshBoolean.far_term(length, 1, d);
+                    Assert.True(term >= r * (1 + 5 * u) && term <= r * (1 + 7 * u) + 5 * double.Epsilon, $"{length} {d}: {term / r - 1}");
+                }
+        }
+
         // carry_length against exact arithmetic on dyadic points: at least |cp - cq| (the exact distance of the doubles plus
         // sqrt(3) (ep + eq)) and not much more
         [Fact]
@@ -107,9 +149,11 @@ namespace geometry3Sharp.Tests
                 double len = ExactMeshBoolean.carry_length(gp, gq, ep, eq);
                 BigInteger lenUnits = (BigInteger)Math.Ceiling(len * Math.Pow(2, 62));
                 Assert.True(lenUnits >= exact, $"trial {trial}: {len} < exact");
-                double approx = gp.Distance(gq) + 1.7320508075688774 * (ep + eq);
-                double k = Math.Abs(gp.x) + Math.Abs(gp.y) + Math.Abs(gp.z) + Math.Abs(gq.x) + Math.Abs(gq.y) + Math.Abs(gq.z);
-                Assert.True(len <= (approx + k * Math.Pow(2, -51)) * (1 + 2e-15), $"trial {trial}: {len} too large");
+                // the factor: 14 u over the computed sum (kills 12 u and 16 u), the sum as the code adds it
+                double k = (Math.Abs(gp.x) + Math.Abs(gp.y) + Math.Abs(gp.z)) + (Math.Abs(gq.x) + Math.Abs(gq.y) + Math.Abs(gq.z));
+                double sum = (gp.Distance(gq) + 1.7320508075688774 * (ep + eq)) + k * Math.Pow(2, -51);
+                double u = Math.Pow(2, -53);
+                Assert.True(len >= sum * (1 + 13 * u) && len <= sum * (1 + 15 * u), $"trial {trial}: factor");
             }
         }
     }

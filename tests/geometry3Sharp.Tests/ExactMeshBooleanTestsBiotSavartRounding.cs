@@ -18,7 +18,7 @@ namespace geometry3Sharp.Tests
         static BigInteger Isqrt(BigInteger n)
         {
             if (n < 2) return n;
-            BigInteger x = BigInteger.One << (int)((n.GetBitLength() + 1) / 2);
+            BigInteger x = BigInteger.One << (int)((ExactPoint3.BitLength(n) + 1) / 2);
             while (true) {
                 BigInteger y = (x + n / x) >> 1;
                 if (y >= x) return x;
@@ -28,6 +28,15 @@ namespace geometry3Sharp.Tests
 
         // the endpoints are exact grid integers X, Y; x = (double)X, y = (double)Y, as antipodal_grid converts them: the
         // length of the segment XY is at most what boundary_bound stores, which is not much more
+        // is the double v (finite, >= 0) at least the real sqrt(sq)? exactly: v^2 >= sq over BigInteger
+        static bool AtLeastSqrt(double v, BigInteger sq)
+        {
+            BigInteger m; int e;
+            ExactPoint3.Decompose(v, out m, out e);
+            BigInteger a = m * m;
+            return e >= 0 ? (a << (2 * e)) >= sq : a >= (sq << (-2 * e));
+        }
+
         [Fact]
         public void BoundaryLengths_BoundTheExactSegment_OfGridPointsThatTheDoublesRound()
         {
@@ -60,16 +69,18 @@ namespace geometry3Sharp.Tests
                 var y = new Vector3d((double)Y[0], (double)Y[1], (double)Y[2]);
                 BigInteger sq = 0;
                 for (int k = 0; k < 3; ++k) sq += (X[k] - Y[k]) * (X[k] - Y[k]);
-                BigInteger floor = Isqrt(sq), exactCeil = floor * floor == sq ? floor : floor + 1;
-                var b = ExactMeshBoolean.boundary_bound(new[] { x, y });
+                                var b = ExactMeshBoolean.boundary_bound(new[] { x, y });
                 double len = b.Lengths[0];
-                // at least the exact length: ceil(len) >= ceil(exact), and for an integer-valued len strictly the real length
-                Assert.True((BigInteger)Math.Ceiling(len) >= exactCeil, $"trial {trial}: {len} < {exactCeil}");
+                // at least the exact length (exactly: len^2 >= the sum of squares over BigInteger)
+                Assert.True(AtLeastSqrt(len, sq), $"trial {trial}: {len} < the exact length");
                 // not much more: the doubles' length, the rounding of the endpoints (E |x|_1 + E |y|_1) and 12 u relative
                 double r = Math.Abs(x.x) + Math.Abs(x.y) + Math.Abs(x.z) + Math.Abs(y.x) + Math.Abs(y.y) + Math.Abs(y.z);
                 Assert.True(len <= (x.Distance(y) + Math.Pow(2, -52) * r) * (1 + 3e-15), $"trial {trial}: {len} too large");
+                // and the factor itself: 10 u over the sum of the doubles' length and the endpoint term (kills 8 or 12 u)
+                double t = x.Distance(y) + Math.Pow(2, -52) * r;
+                Assert.True(len >= t * (1 + 9 * Math.Pow(2, -53)) && len <= t * (1 + 11 * Math.Pow(2, -53)), $"trial {trial}: factor");
                 // the old length x.Distance(y) (1 + 1e-15) was too small for some of these
-                if (x.Distance(y) * (1 + 1e-15) < (double)exactCeil - 0.5) below++;
+                if (!AtLeastSqrt(x.Distance(y) * (1 + 1e-15), sq)) below++;
             }
             Assert.True(below > 100, $"only {below} cases where the double endpoints' length is below the exact one");
         }
@@ -95,7 +106,7 @@ namespace geometry3Sharp.Tests
             for (int t = 0; t < b.Lengths.Length; ++t)
                 Assert.Equal(BitConverter.DoubleToInt64Bits(b.Lengths[t] * k), BitConverter.DoubleToInt64Bits(bs.Lengths[t]));
             Assert.Equal(BitConverter.DoubleToInt64Bits(b.Total * k), BitConverter.DoubleToInt64Bits(bs.Total));
-            Assert.Equal(b.SumFactor, bs.SumFactor);
+            int finite = 0;
             for (int q = 0; q < 50; ++q) {
                 double ox = rnd.Next(-9000, 9000), oy = rnd.Next(-9000, 9000), oz = rnd.Next(-9000, 9000), w = 1 + rnd.Next(100);
                 double[] box = { ox, oy, oz, ox + w, oy + w, oz + w };
@@ -103,7 +114,34 @@ namespace geometry3Sharp.Tests
                 for (int i = 0; i < 6; ++i) bx[i] = box[i] * k;
                 double a = ExactMeshBoolean.gradient_bound(box, b), c = ExactMeshBoolean.gradient_bound(bx, bs);
                 Assert.Equal(BitConverter.DoubleToInt64Bits(a / k), BitConverter.DoubleToInt64Bits(c));
+                if (a <= double.MaxValue) finite++;
+                // the cluster path: the box in a cluster box twice its size
+                double[] cbox = { ox - w, oy - w, oz - w, ox + 2 * w, oy + 2 * w, oz + 2 * w }, cbx = new double[6];
+                for (int i = 0; i < 6; ++i) cbx[i] = cbox[i] * k;
+                double ac = ExactMeshBoolean.gradient_bound(box, b, ExactMeshBoolean.cluster_bound(cbox, b));
+                double cc = ExactMeshBoolean.gradient_bound(bx, bs, ExactMeshBoolean.cluster_bound(cbx, bs));
+                Assert.Equal(BitConverter.DoubleToInt64Bits(ac / k), BitConverter.DoubleToInt64Bits(cc));
             }
+            Assert.True(finite > 10, $"only {finite} finite bounds: the comparison is mostly infinity = infinity");
+        }
+
+        // #1350: far_term with a subnormal result: the quotient is rounded to a multiple of 2^-1074 (an absolute error), which
+        // the relative factors do not cover. length = 2^-33, d = 2^510: the true term 2^-33 / (pi 2^1022) = 2^19 / pi eps =
+        // 166886.05 eps (eps = 2^-1074), which the plain quotient rounds down to 166886 eps
+        [Fact]
+        public void FarTerm_WithASubnormalResult_IsNotBelowTheTrueTerm()
+        {
+            double eps = double.Epsilon;
+            double d = Math.Pow(2, 510), length = Math.Pow(2, -33);
+            Assert.True(4 * Math.PI * d * d <= double.MaxValue);          // (the main branch)
+            double term = ExactMeshBoolean.far_term(length, 1, d);
+            Assert.True(term / eps >= 166886.05, $"{term / eps} eps");
+            Assert.True(term / eps <= 166886.05 + 3, $"{term / eps} eps: not tight");
+            // zero length or count: the true term is 0
+            Assert.Equal(0.0, ExactMeshBoolean.far_term(0, 1, d));
+            Assert.Equal(0.0, ExactMeshBoolean.far_term(length, 0, d));
+            // a normal result is the plain quotient (bit-identical)
+            Assert.Equal(1e10 / (4 * Math.PI * d * d), ExactMeshBoolean.far_term(1e10, 1, d));
         }
 
         static BigInteger Random(Random rnd, int bits)

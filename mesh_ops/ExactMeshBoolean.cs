@@ -2482,7 +2482,7 @@ namespace g3
         /// ((4 pi) d) d rounds twice, fl(pi) &lt; pi only helps, l / q once; the second: (2 pi) d once, the quotient
         /// once; the minimum of the two is below both) =: 1 + 3u + O(u^2). A left-to-right sum of m non-negative computed
         /// values has at most m - 1 roundings, so S &lt;= S_c / (1 - u)^(m-1); for x = (m - 1) u / (1 - u) &lt;= 1 this is
-        /// at most exp(x) &lt;= 1 + x + x^2 &lt;= 1 + (m - 1) u + (2^-27 (m - 1) + 2 (m - 1)) u^2 &lt;= 1 + (m - 0.5) u for
+        /// at most exp(x) &lt;= 1 + x + x^2, with x &lt;= (m - 1) u (1 + 2u) and x^2 &lt;= 2^-27 (m - 1) u (x &lt;= 2^-27, so first order in u), so &lt;= 1 + (m - 1) u (1 + 2u + 2^-27) &lt;= 1 + (m - 0.5) u for
         /// m &lt;= 2^26 (the lemma needs it: (m - 1) u / (1 - u) stays below 2^-27). With the terms: S_true &lt;= S_c (1 +
         /// (m + 2.5001) u); the product S_c f rounds down by at most u more: f = 1 + (m + 3.5002) u, rounded up to the even
         /// k = m + 4 + (m mod 2) (n = m + 3 roundings of the chain, c = 1 + 1 for the product and the odd-k case; the
@@ -2644,6 +2644,9 @@ namespace g3
                     if (patch[q] != k)
                         continue;
                     double cq = piece_cost(q, b, ws.Cost);
+                    // (the sum of three non-negative values rounds twice, so the true sum is at most the computed one times
+                    // (1 + 2.0001u) = 1 + 2.2e-16; the factor 1 + 1e-12 is 4500 times that and is kept, not derived: it also
+                    // keeps the decisions as they were, #1350)
                     double aq = (a + cp + cq) * (1 + 1e-12);
                     if (!(aq < margin))
                         continue;
@@ -2674,14 +2677,7 @@ namespace g3
                 box[q] = MathUtil.MinExact(pa[q], MathUtil.MinExact(pb[q], pc[q])) - err;
                 box[q + 3] = MathUtil.MaxExact(pa[q], MathUtil.MaxExact(pb[q], pc[q])) + err;
             }
-            // The diameter of the true piece: its corners lie within err_i per coordinate of the approximations (ApproxError), so
-            // an edge is at most its computed length (1 + 4u) (Distance, as boundary_bound: n = 4) plus sqrt(3) (e_i + e_j) <=
-            // sqrt(3) err, since err = e_A + e_B + e_C >= e_i + e_j (the two roundings of the sum of the three leave err_c >=
-            // (1 - u)^2 err). So 2 err_c >= sqrt(3) (e_i + e_j) 2 / sqrt(3) (1 - u)^2: the factor 2 / sqrt(3) = 1.1547 absorbs
-            // the roundings of err and of the sum below. fl(M + 2 err_c) >= (M + 2 err_c) (1 - u); the cost then takes a
-            // product with G and one more rounding: (1 - u)^3 f >= 1 + 4u needs f >= 1 + 7.0001u, so k = 8 (n = 4, c = 4).
-            // Before: (1 + 1e-12)
-            diam = (MathUtil.MaxExact(pa.Distance(pb), MathUtil.MaxExact(pb.Distance(pc), pc.Distance(pa))) + 2 * err) * Factor(8);
+            diam = piece_diameter(pa, pb, pc, err);
             double s = b.Size;
             for (int q = 0; q < 6; ++q)
                 s = MathUtil.MaxExact(s, 3 * Math.Abs(box[q]));
@@ -2701,6 +2697,21 @@ namespace g3
             cost = sum_bound(g, b) * diam;
             cache[p] = cost;
             return cost;
+        }
+
+        /// <summary>
+        /// An upper bound of the diameter of a piece (piece_cost): its corners lie within e_i per coordinate of the
+        /// approximations pa, pb, pc (ApproxError), err = e_A + e_B + e_C. An edge of the true piece is at most its computed
+        /// length (1 + 4u) (Distance, as boundary_bound: n = 4) plus sqrt(3) (e_i + e_j) (the Euclidean norm of two
+        /// per-coordinate errors) &lt;= sqrt(3) err, since err &gt;= e_i + e_j (the two roundings of the sum leave err_c &gt;= (1 -
+        /// u)^2 err). So 2 err_c &gt;= sqrt(3) (e_i + e_j) 2 / sqrt(3) (1 - u)^2: the margin 2 / sqrt(3) = 1.1547 absorbs the
+        /// roundings of err and of the sum below. fl(M + 2 err_c) &gt;= (M + 2 err_c) (1 - u); the cost then takes a product
+        /// with G and one more rounding: (1 - u)^3 f &gt;= 1 + 4u needs f &gt;= 1 + 7.0001u, so k = 8 (n = 4, c = 4). Before: (1 +
+        /// 1e-12)
+        /// </summary>
+        internal static double piece_diameter(Vector3d pa, Vector3d pb, Vector3d pc, double err)
+        {
+            return (MathUtil.MaxExact(pa.Distance(pb), MathUtil.MaxExact(pb.Distance(pc), pc.Distance(pa))) + 2 * err) * Factor(8);
         }
 
         internal static BoundaryBound boundary_bound(Vector3d[] g)
@@ -2825,15 +2836,21 @@ namespace g3
         /// <summary>
         /// the Biot-Savart terms of L1 and L2's gradient bounds: min(length / (4 pi d^2), count / (2 pi d)) for a set of
         /// segments of that total length and count at distance at least d. Where 4 pi d^2 is a finite double the old
-        /// expression (bit-identical); where it overflowed (#719: the term became 0, an unsound bound of a gradient that is
+        /// expression (bit-identical, except a subnormal result, which gets 2 eps added, #1350); where it overflowed (#719: the term became 0, an unsound bound of a gradient that is
         /// not zero) the quotients one at a time, at least the smallest positive double where that underflows (the true
         /// term is below it but not 0), and +infinity where it is not a number (an infinite length or a NaN distance)
         /// </summary>
         internal static double far_term(double length, double count, double d)
         {
             double q = 4 * Math.PI * d * d;
-            if (q <= double.MaxValue)
-                return MathUtil.MinExact(length / q, count / (2 * Math.PI * d));
+            if (q <= double.MaxValue) {
+                double r = MathUtil.MinExact(length / q, count / (2 * Math.PI * d));
+                // (#1350: a subnormal quotient is rounded to a multiple of 2^-1074, an absolute error of half of it per
+                // division, not the relative u of the SumTermsFactor: the two roundings of q and the division leave at most
+                // 0.5 eps + 3u r <= 1.5 eps below 2^-1022; 2 eps covers them, where the true term is positive, which a
+                // quotient that underflowed to 0 would lose: length > 0 and count > 0)
+                return r < 2.2250738585072014E-308 && length > 0 && count > 0 ? r + 2 * double.Epsilon : r;
+            }
             return far_term_overflow(length, count, d);
         }
 
