@@ -48,3 +48,29 @@ As a check of the tests, replace `if (depth % 2 == 0)` with `if (depth >= 0)` in
 - **Non-manifold repair outputs.** Park a general homology check. The point-contact fixture demonstrates a difference in the meaning of connectivity, but the current bowtie guard already rejects it.
 
 A test helper restricted to known disjoint shells is enough for nested Boolean and forced-repair fixtures. The helper repeats the shell extraction already implicit in the summary and builds one winding tree per shell. It performs up to `s(s-1)` containment queries. The timing above measures reconstruction of those trees on the centred-cube fixture, so it gives a cost for small regression tests. A library-wide checker would need a separate workload and a way to avoid all-pairs queries on assemblies with many parts. This study found a test coverage gap on controlled replacements. It found no defect in the measured production outputs.
+
+## Follow-up on cavity ownership
+
+The global Betti numbers discard which material component encloses each cavity. A second procedural fixture isolates that gap after the Boolean and forced-repair paths. The stock is the union of [0,5]³ and its translation by (10,0,0). Subtract two unit cubes with minimum corners (1,1,1) and (3,1,1). The expected result has both cavities in the left stock. Two counterfactual outputs come from changing the cutter placement: one cavity in each stock, or both in the right stock. The strict Boolean constructs all three outputs. The probe also runs `MeshRobustRepair` with clean pass-through disabled on the expected output.
+
+The probe checks cleanliness, then reports the production topology summary, the existing test-local `SolidBetti` result, total volume and the sorted signed shell volumes. It adds four winding queries at the centers of the candidate cavity locations, in x order (1.5, 3.5, 11.5, 13.5), all with y = z = 1.5. These points stay strictly inside material or a cavity in every arrangement. The exact closed-mesh winding path gives 1 for material and 0 for void on this oriented boundary.
+
+Run `dotnet run -c Release --project benchmarks/TopologyOwnershipProbe`. The probe links the existing `SolidBetti` helper directly. Timings are medians of seven batches of 1,000 calls after 1,000 warm-up calls. They exclude Boolean execution, repair and cleanliness checks. The fresh-tree comparison includes winding-cache construction. The existing-tree comparison uses the warmed cache.
+
+This Release run used Linux x64, .NET SDK 10.0.404 and an Intel Xeon Platinum 8573C.
+
+```text
+forced repair path: Repair
+case | triangles | surface (shells, genus, euler) | solid Betti | signed volume | signed shell volumes | landmark material
+expected Boolean | 48 | (4, 0, 8) | (2, 0, 2) | 248 | [-1, -1, 125, 125] | 0011
+forced repair | 48 | (4, 0, 8) | (2, 0, 2) | 248 | [-1, -1, 125, 125] | 0011
+one cavity each | 48 | (4, 0, 8) | (2, 0, 2) | 248 | [-1, -1, 125, 125] | 0101
+both cavities moved | 48 | (4, 0, 8) | (2, 0, 2) | 248 | [-1, -1, 125, 125] | 1100
+SolidBetti: 383.18 us/check (checksum 16000)
+build + four winding queries: 41.90 us/check (checksum 16000)
+four winding queries on existing tree: 2.45 us/check (checksum 16000)
+```
+
+All four outputs are clean and agree on triangle count, surface topology, solid Betti numbers, total volume and signed shell volumes. The unlabelled nesting forest distinguishes one cavity per stock from two cavities under one stock. The forest is isomorphic when both cavities move to the other, identical stock component. The ordered winding results distinguish both replacements, including that relocation. The forced repair preserves the expected pattern. All four examples have two material landmarks, so comparing the number of positive queries would discard the distinction again.
+
+Use the ordered winding assertion in a fixed Boolean difference or forced-repair fixture when the contract says where a cavity must remain. Compose it with the cleanliness and solid Betti checks where those are already relevant. Transform the landmarks together with the test geometry when testing similarities. Four queries on this fixture take about 42 µs including a fresh tree, or 2.5 µs on the already-warm tree. The guarantee is occupancy at the chosen points. Cavity geometry elsewhere, unlabelled inputs, and general cavity correspondence remain outside this check.
