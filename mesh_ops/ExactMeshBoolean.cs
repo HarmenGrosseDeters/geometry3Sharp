@@ -1038,6 +1038,7 @@ namespace g3
                         + (Rounding.EvaluationLimitReached ? "; the repair stopped at its effort limit: the smallest rejected edit is the smallest of those proposed before it" : ""));
                     Result = null;
                     Status = BooleanStatus.RoundingNotClean;
+                    openWithoutEffect = new List<int>();     // (as fail(): the list belongs to a result)
                     return false;
                 }
             }
