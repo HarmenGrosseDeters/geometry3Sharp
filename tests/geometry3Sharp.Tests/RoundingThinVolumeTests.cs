@@ -21,7 +21,7 @@ namespace geometry3Sharp.Tests
 
         static double Pow2(int k) { return BitConverter.Int64BitsToDouble((long)(k + 1023) << 52); }
 
-        static double Volume(DMesh3 m) => MeshMeasurements.VolumeArea(m, m.TriangleIndices(), m.GetVertex).x;
+        internal static double Volume(DMesh3 m) => MeshMeasurements.VolumeArea(m, m.TriangleIndices(), m.GetVertex).x;
         static double Area(DMesh3 m) => MeshMeasurements.VolumeArea(m, m.TriangleIndices(), m.GetVertex).y;
 
         // ---- the meshes ---------------------------------------------------------------------------------------------------------------
@@ -78,7 +78,7 @@ namespace geometry3Sharp.Tests
         // plates beside it (24 face planes), whose corners towards A lie e inside A's side face x = 1 and whose bottoms lie d (to
         // 1.15 d) below A's bottom face: no face of one is coplanar with a face of the other, and the 8 lower corner vertices of B lie
         // within e and d of A's surface without being on it
-        static List<DMesh3> ThinPlates(double tA, double e, double d, double tB = 7.5e-5)
+        internal static List<DMesh3> ThinPlates(double tA, double e, double d, double tB = 7.5e-5)
         {
             DMesh3 a = Prism(RoundedRectangle(0, 1, 0, 1, 0.05, 4), 0, tA);
             var pieces = new List<DMesh3>();
@@ -92,7 +92,7 @@ namespace geometry3Sharp.Tests
         }
 
         // the standard case: A 1 / 50 000 of its side thick, the near miss 3.5e-6 and 1.5e-6 (about 1e-6 of the diagonal 2)
-        const double TA = 2e-5, E = 3.5e-6, Dz = 1.5e-6;
+        internal const double TA = 2e-5, E = 3.5e-6, Dz = 1.5e-6;
 
         // a thin shell over [0, 1] x [0, w], nx by ny quads: the bottom surface at bottom(x), the top t above it
         static DMesh3 Shell(double w, double t, Func<double, double> bottom, int nx, int ny)
@@ -122,7 +122,7 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
-        static DMesh3 Box(Vector3d lo, Vector3d hi, Func<Vector3d, Vector3d> f = null)
+        internal static DMesh3 Box(Vector3d lo, Vector3d hi, Func<Vector3d, Vector3d> f = null)
         {
             DMesh3 m = new TrivialBox3Generator() { Box = new Box3d(new AxisAlignedBox3d(lo, hi)) }.Generate().MakeDMesh();
             if (f != null)
@@ -353,7 +353,7 @@ namespace geometry3Sharp.Tests
         // A: a plate 1 / 250 of its length thick (152 triangles), flat over the first quarter and curving down after it. B: a block with
         // faceted corners (76 triangles, 22 face planes) whose top face z = 1/4 carries the flat part of A: 8 vertices of A lie exactly on
         // it and 12 triangles of A's bottom are coplanar with it; the curved part goes down into the block at a clear angle
-        static List<DMesh3> PlateOnBlock()
+        internal static List<DMesh3> PlateOnBlock()
         {
             DMesh3 plate = Shell(0.3, 0.004, x => 0.25 - (x > 0.25 ? 0.6 * (x - 0.25) * (x - 0.25) : 0), 12, 2);
             DMesh3 block = Prism(RoundedRectangle(-0.0625, 0.9375, -0.0625, 0.25, 0.03125, 4), -0.25, 0.25);

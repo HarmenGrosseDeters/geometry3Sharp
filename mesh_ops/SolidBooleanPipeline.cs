@@ -140,6 +140,13 @@ namespace gs
         /// coordinates resolve (#1216); empty if none
         /// </summary>
         public List<MeshRoundingRepair.RemovedComponentInfo> RoundingRemoved = new List<MeshRoundingRepair.RemovedComponentInfo>();
+        /// <summary>
+        /// the signed volume of the boolean's result before and after its rounding repair (MeshRoundingRepair.VolumeBefore, VolumeAfter):
+        /// their difference is the volume the rounding moved, removed components included (RoundingRemoved lists those). Equal when the
+        /// rounding changed nothing; both 0 when no rounding repair ran. They describe the rounding only: MinThickness and the reduction
+        /// change the volume after it
+        /// </summary>
+        public double RoundingVolumeBefore, RoundingVolumeAfter;
         /// <summary> the solids of the boolean result that MinThickness removed (empty without it) </summary>
         public List<SolidBooleanThinSolid> RemovedThinSolids = new List<SolidBooleanThinSolid>();
         /// <summary> with MinThickness: the inputs thinner than it (see ThinInputs); empty otherwise </summary>
@@ -891,8 +898,11 @@ namespace gs
             // a strict refusal whose only cause is components thinner than the bound: the rounded result is kept (the rounding
             // left no intersection, degenerate triangle or false contact, checked exactly by the repair)
             bool thinOnly = op.Status == ExactMeshBoolean.BooleanStatus.RoundingNotClean && OnlyThinComponents(op.Rounding);
-            if (op.Rounding != null)
+            if (op.Rounding != null) {
                 Report.RoundingRemoved = new List<MeshRoundingRepair.RemovedComponentInfo>(op.Rounding.RemovedComponentInfos);
+                Report.RoundingVolumeBefore = op.Rounding.VolumeBefore;
+                Report.RoundingVolumeAfter = op.Rounding.VolumeAfter;
+            }
             if (op.Status != ExactMeshBoolean.BooleanStatus.Success && !thinOnly) {
                 BooleanStatus = op.Status;
                 SheetReason = op.SheetReason;

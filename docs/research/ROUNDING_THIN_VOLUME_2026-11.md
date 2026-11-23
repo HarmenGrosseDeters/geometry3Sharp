@@ -1,7 +1,8 @@
 # The volume that SafeRounding moves on thin results
 
-Status: diagnosis, fixtures and options. No library change in this PR: every option below changes the API, a default
-or the output, which is the owner's decision.
+Status: diagnosis, fixtures and options; option a1 is built (owner 2026-11-23): `MeshRoundingRepair.VolumeBefore` /
+`VolumeAfter` and `SolidBooleanReport.RoundingVolumeBefore` / `RoundingVolumeAfter`. The output of the rounding is
+unchanged. The other options are not taken for now.
 
 ## The finding
 
@@ -147,13 +148,18 @@ From the papers as known; not re-read for this note, and no code was read.
 | c | The repair prefers the contraction that moves less volume: the other end, the midpoint, or the position that keeps the volume (Lindstrom and Turk) | output change of the default rounding | a spike first: the kept end is an input vertex today, by design; then the mutation shards of the rounding | unknown; in the fixture the other end would move B's corner up and leave A's face flat |
 | d | The repair refuses an edit that moves more than a fraction of the component's volume | output change | small in code, but refused edits leave defects | the six triangles stay degenerate, the result is not clean |
 
-**Recommendation: a1 now, a3 with it if the owner wants a verdict, and a spike for c.** a1 is cheap, changes no
+**Decision (owner 2026-11-23): a1 only.** The recommendation was: a1 now, a3 with it if the owner wants a verdict, and a spike for c. a1 is cheap, changes no
 output and turns a silent change into a number a caller can test; a2 alone would cry wolf (4.7 % for 0.7 %). b does
 not help on the measured case. c is the only option that removes the change instead of reporting it, and the
 simplification literature has the rule for it, but it touches which vertices the rounding keeps, so it needs its own
 measurement on the benchmark corpora before a decision.
 
 ## Tests
+
+`RoundingVolumeReportTests` checks the two numbers of a1: on the plates (the 3.7e-7), where the repair changes nothing
+(shape 2, closed boxes: equal bit for bit), on the paths without a repair (0 and 0), on a strict refusal, after the
+Grid step, on the repair itself (far from the origin, inside out, open, empty, not finite), reuse, and the invariance
+over `Similarity.All()`.
 
 `RoundingThinVolumeTests` (24 cases, each well under a second): the plates (the change and the silence, the cause, the
 thickness sweep, the near-miss sweep, the horizontal contraction, the grid, the Grid step), the shell cut by a box, and
