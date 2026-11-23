@@ -9,6 +9,7 @@ date. The anchors are the lines the model transcribes and the guards it relies o
 
 Run: python3 tools/ErrorBoundAudit/audit.py
 """
+from decimal import Decimal, getcontext
 from fractions import Fraction
 import math
 
@@ -801,38 +802,102 @@ def norm_up(c, r):
     r.add('rounded up', Verdict(rho >= 1, rho, 'at least %s of the true norm (needs 4 u, has 9 u)' % float(rho)))
 
 
-@entry('RC-4 boundary_bound Lengths', BOOL, ['b.Lengths[t] = x.Distance(y) * (1 + 1e-15);', 'b.Total += b.Lengths[t];'],
-       'Lengths[t] >= the length of the segment between the doubles x and y',
-       'the doubles are the segment: NOT so, they are the exact ends rounded once (finding F4); no underflow of the squares',
-       '(1 + 1e-15)')
+def distance_rho():
+    """rho with fl(Distance(x, y)) >= rho * |x - y| for the exact difference of the doubles, no square underflowing: the three
+    differences round (the exact norm is at most (1 + u) that of the computed differences), the radicand loses at most
+    (1 - u)^3 (a square and the two sums), its root (1 - u)^1.5, the root's rounding (1 - u): (1 - u)^3 / (1 + u) is below
+    all of it (norm3_lower counts a product with a round-up factor too, which Distance does not have)"""
+    return (1 - U) ** 3 / (1 + U)
+
+
+@entry('RC-4 boundary_bound Lengths and the sum factor', BOOL,
+       ['double dist = x.Distance(y);', 'b.Lengths[t] = (dist + E * r) * Factor(10);', 'b.Total += b.Lengths[t];',
+        '~internal static double SumTermsFactor(long m)', '~long k = m + 4 + (m & 1);'],
+       'Lengths[t] >= the length of the segment between the EXACT grid points X and Y (the doubles x, y are their conversions, each coordinate within 2^-52 relative); a sum over the segments times SumFactor >= the exact sum of the true terms',
+       'integer grid values (no underflow of the squares); at most 2^26 segments (SumFactor is +infinity above)',
+       '(dist + 2^-52 R) (1 + 10 u); 1 + (ns + 4 + ns mod 2) u')
 def boundary_lengths(c, r):
-    # Distance: differences (1 + u each, so the exact norm is at most (1 + u) that of the computed differences)
-    rho = norm3_lower(1 + 1e-15) / (1 + U)
-    r.add('one length', Verdict(rho >= 1, rho, 'at least %s of the length between the doubles' % float(rho)))
-    r.finding('Total and g (sums of n terms)', 'F4', 'a sum of n terms loses up to (n - 1) u, the ends\' own rounding up to '
-              '2 * 2^-52 of the coordinate size per segment: neither is in a fixed factor; absorbed by the rule\'s spare 1e-6')
+    E = Fraction(1, 2 ** 52)
+    # |x - y| <= dist / rho_d
+    rho_d = distance_rho()
+    # the end points: |X_i - x_i| <= E |X_i| <= E |x_i| / (1 - E), and R = |x|_1 + |y|_1 <= R_c / (1 - u)^3 (the deepest term of
+    # the five additions); E R_c is a power of two times R_c: exact
+    need = max(1 / rho_d, 1 / ((1 - E) * (1 - U) ** 3))
+    # Lengths = fl(fl(dist + E R_c) f) with f = 1 + 10 u exactly (k even): at least (1 - u)^2 f (dist + E R_c)
+    have = (1 - U) ** 2 * (1 + 10 * U)
+    r.add('one length, the end points included', Verdict(have >= need, have / need,
+          'the true length of the exact end points: has %.2f u, needs %.2f u' % (float((have - 1) / U), float((need - 1) / U))))
+    # the sums: m terms of a far term, each at least rho_term of the true one (the far_term model: two products and a quotient,
+    # Math.PI below pi), summed left to right ((1 - u)^(m - 1) at the deepest term), times SumFactor (f = 1 + k u exact, k = m + 4 +
+    # (m mod 2)), whose product rounds once more
+    rho_term = (PI_LO / Fraction(math.pi)) * (1 - UR) / (1 + UR) ** 2
+    getcontext().prec = 80
+    worst = None
+    for m in (1, 2, 3, 4, 5, 100, 1000, 10 ** 6, 2 ** 20, 2 ** 26 - 1, 2 ** 26):
+        k = m + 4 + (m % 2)
+        d_u = Decimal(1) / Decimal(2 ** 53)
+        p = (1 + k * d_u) * (1 - d_u) ** m
+        p = Fraction(p) * rho_term
+        worst = p if worst is None or p < worst else worst
+    r.add('sum of m <= 2^26 terms', Verdict(worst >= 1, worst, 'the sum factor beats (m - 1) roundings, the product and the term chain: has %.2f u spare'
+                                              % float((worst - 1) / U)))
 
 
 @entry('RC-5 far_term', BOOL,
-       ['double q = 4 * Math.PI * d * d;', 'return MathUtil.MinExact(length / q, count / (2 * Math.PI * d));',
-        'return length > 0 || count > 0 ? r * (1 + 1e-15) + 4 * double.Epsilon : r;', 'return g * (1 + 1e-12);',
-        'cost = g * (1 + 1e-12) * diam;'],
+       ['double q = 4 * Math.PI * d * d;', 'double r = MathUtil.MinExact(length / q, count / (2 * Math.PI * d));',
+        'return r < 2.2250738585072014E-308 && length > 0 && count > 0 ? r + 2 * double.Epsilon : r;',
+        'return length > 0 || count > 0 ? r * Factor(6) + 4 * double.Epsilon : r;', 'return sum_bound(g, b);',
+        'cost = sum_bound(g, b) * diam;'],
        'the computed term against min(length / (4 pi d^2), count / (2 pi d)) (MathUtil.MinExact since the determinism proof stage 2: it equals Math.Min where both operands are non-negative and finite, as here, so the model is unchanged)',
-       'one term; q and length / q normal (the callers have d >= 1e-3 s and the grid\'s tiny gate); the sums of terms are finding F4',
-       'the callers\' (1 + 1e-12); (1 + 1e-15) + 4 * 2^-1074 on the overflow path')
+       'one term; the sums of terms are RC-4',
+       'the sums\' SumFactor; 2 * 2^-1074 on a subnormal result; (1 + 6 u) + 4 * 2^-1074 on the overflow path')
 def far_term(c, r):
     assert PI_LO < Fraction(math.pi) * (1 + U) and Fraction(math.pi) < PI_LO     # Math.PI is below pi: q is too small, the term too large
     # q <= 4 pi^ d^2 (1 + u')^2, the quotient loses (1 - u'): the computed term >= rho * the true one
     rho1 = (PI_LO / Fraction(math.pi)) * (1 - UR) / (1 + UR) ** 2
     rho2 = (PI_LO / Fraction(math.pi)) * (1 - UR) / (1 + UR) ** 2      # count / (2 pi^ d): one product, one quotient, at least this
     need = 1 / min(rho1, rho2)
-    have = Fraction(1 + 1e-12) * (1 - UR)
-    r.add('one term, rounded up by the caller', Verdict(have >= need, have / need, 'loses at most %.2f u, the caller adds 1e-12' % float((need - 1) / U)))
-    # the overflow path: three quotients (1 - u') each, the product (1 + 1e-15) one more; d > 1e150 there (4 pi d^2
-    # overflowed), so an underflow error eta of a quotient only shrinks in the next: 3 eta + the product's < 4 * 2^-1074
-    # (and the final sum r (1 + 1e-15) + 4 * 2^-1074: one more rounding)
-    rho = (1 - UR) ** 5 * Fraction(1 + 1e-15)
+    have = (1 + 6 * U) * (1 - UR)                                       # SumFactor of one term (k = 6), its product rounds once
+    r.add('one term, rounded up by the sum factor', Verdict(have >= need, have / need, 'loses at most %.2f u, the factor adds 6 u' % float((need - 1) / U)))
+    # a subnormal result: absolute errors. The division rounds by at most half the spacing (ETA), the two roundings of q (relative u')
+    # move the quotient by 2 u' of the result (below 2^-1022), and Math.PI below pi gives the computed term back (PI_LO / pi^ - 1)
+    # of it: at most ETA + 2 u' 2^-1022 - gain, against the 2 * 2^-1074 added
+    tiny = Fraction(1, 2 ** 1022)
+    shortfall = ETA + 2 * UR * tiny - (PI_LO / Fraction(math.pi) - 1) * tiny
+    r.add('subnormal result', Verdict(2 * 2 * ETA >= shortfall, 2 * 2 * ETA / shortfall, 'at most %.2f * 2^-1074 short, 2 * 2^-1074 added' % float(shortfall * 2 ** 1074)))
+    # the overflow path: three quotients (1 - u') each, the product (1 + 6 u) and the sum with 4 * 2^-1074 one more each; d > 1e150
+    # there (4 pi d^2 overflowed), so an underflow error eta of a quotient only shrinks in the next: 3 eta + the product's < 4 * 2^-1074
+    rho = (1 - UR) ** 5 * (1 + 6 * U)
     r.add('overflow path', Verdict(rho >= 1 and 4 * ETA < 4 * Fraction(5e-324), rho, 'relative %s, absolute 4 eta < 4 * 2^-1074' % float(rho)))
+
+
+@entry('RC-7 piece_diameter', BOOL,
+       ['return (MathUtil.MaxExact(pa.Distance(pb), MathUtil.MaxExact(pb.Distance(pc), pc.Distance(pa))) + 2 * err) * Factor(8);'],
+       'the result >= the diameter of the true piece: its corners are within e_i per coordinate of the approximations (ApproxError, err = e_A + e_B + e_C)',
+       'the edges\' squares do not underflow (a subnormal product is absorbed by the margin 2e-6 of the open winding decision)',
+       '(M + 2 err) (1 + 8 u)')
+def piece_diameter(c, r):
+    sqrt3 = Fraction(17320508075688773, 10 ** 16)                        # above sqrt(3)
+    # the result fl(fl(M + 2 err_c) f) is at least (1 - u)^2 f (M + 2 err_c) and the caller's product rounds once more: (1 - u)^3 f
+    have = (1 - U) ** 3 * (1 + 8 * U)
+    rho_d = distance_rho()
+    r.add('the edge', Verdict(have * rho_d >= 1, have * rho_d, 'has %.2f u spare' % float((have * rho_d - 1) / U)))
+    # the corners' errors: an edge moves by at most sqrt(3) (e_i + e_j) <= sqrt(3) err, err_c >= (1 - u)^2 err, against 2 err_c
+    r.add('the corner errors', Verdict(2 * have * (1 - U) ** 2 >= sqrt3, 2 * have * (1 - U) ** 2 / sqrt3, '2 against sqrt(3): a margin of 15%'))
+
+
+@entry('RC-8 carry_length', BOOL,
+       ['return ((gp.Distance(gq) + 1.7320508075688774 * (ep + eq)) + k * (4 * U)) * Factor(14);'],
+       'the result >= the distance of the exact points whose approximations gp, gq are off by at most ep, eq per coordinate',
+       'no underflow',
+       '(D + sqrt3_c (ep + eq) + 2^-51 K) (1 + 14 u)')
+def carry_length(c, r):
+    # fl(fl(fl(D_c + Q) + W) f) is at least (1 - u)^3 f of D_c + Q + W, and the caller's product with G rounds once more: (1 - u)^4 f
+    have = (1 - U) ** 4 * (1 + 14 * U)
+    rho_d = distance_rho()
+    r.add('the distance', Verdict(have * rho_d >= 1, have * rho_d, 'has %.2f u spare (W = 2^-51 K is a spare term)' % float((have * rho_d - 1) / U)))
+    # the errors: sqrt3_c (ep + eq) >= sqrt(3) (ep + eq) rounds twice (the sum, the product): Q >= (1 - u)^2 of it
+    r.add('the corner errors', Verdict(have * (1 - U) ** 2 >= 1, have * (1 - U) ** 2, 'has %.2f u spare' % float((have * (1 - U) ** 2 - 1) / U)))
 
 
 @entry('RC-6 ExactInterval (one rule)', 'math/ExactIntervals.cs',
