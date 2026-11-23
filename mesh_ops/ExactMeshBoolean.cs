@@ -1308,18 +1308,32 @@ namespace g3
         // That is safe: such a solid has no volume to speak of in the result, and a flat one has none at all. S is computed in
         // doubles too; its relative error (a few u) is far inside the margin of 2. The count n and S are for the component,
         // not for the mesh.
-        static bool negative_volume(DMesh3 mesh, List<int> component)
+        //
+        // The underflow term (#1347). The relative bound assumes no product underflows. Where the differences are near 2^-358
+        // the triple products are subnormal (and S = |x| |y| |z| rounds to 0, so the bound did too: every v6 < 0 was
+        // "certainly negative"). A subnormal product has an absolute rounding error of at most 2^-1075 (half the spacing eps =
+        // 2^-1074); the six products of the cross product err by at most 2^-1074 in each of its components, which the dot
+        // product multiplies by |x_i| (|x|_1 in all), and its three products add 3 * 2^-1075: at most eps (|x|_1 + 1.5) for
+        // one term (the sums of subnormals are exact, the differences of doubles too where subnormal). The term used is
+        // ExactPredicates.UnderflowUnit = 256 eps = 2^-1066 times (|x|_1 + 1) per triangle, as VolumeSumWithBound, which is at
+        // least eps (|x|_1 + 1.5) (256 (|x|_1 + 1) >= |x|_1 + 1.5 for every |x|_1 >= 0). It is also at least the relative
+        // bound where S underflows: S below 2^-1022 means (32 + n) u S < (32 + n) 2^-1075 <= 256 n 2^-1074. The two parts are
+        // added (two non-negative bounds of independent error sources) and the sum rounds once more, far inside the margin of
+        // 2 of the relative part. In the normal range (|x|_1 + 1) 2^-1066 is below u S unless S < about 2^-1010: nothing
+        // changes there. A component that small is not refused: its volume is zero within the rounding of its own size.
+        internal static bool negative_volume(DMesh3 mesh, List<int> component)
         {
             Vector3d o = mesh.GetVertex(mesh.GetTriangle(component[0]).a);
-            double v6 = 0, norms = 0;
+            double v6 = 0, norms = 0, under = 0;
             foreach (int t in component) {
                 Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
                 mesh.GetTriVertices(t, ref a, ref b, ref c);
                 Vector3d x = a - o, y = b - o, z = c - o;
                 v6 += x.Dot(y.Cross(z));
                 norms += x.Length * y.Length * z.Length;
+                under += Math.Abs(x.x) + Math.Abs(x.y) + Math.Abs(x.z) + 1;
             }
-            return v6 < -(32.0 + component.Count) * 1.1102230246251565e-16 * norms;
+            return v6 < -((32.0 + component.Count) * 1.1102230246251565e-16 * norms + ExactPredicates.UnderflowUnit * under);
         }
 
         // every coordinate of the mesh is finite (per coordinate: the sum of finite coordinates can overflow)
