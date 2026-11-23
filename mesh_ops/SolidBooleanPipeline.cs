@@ -109,8 +109,8 @@ namespace gs
         /// <summary> the inputs that were repaired, with the method (empty if none) </summary>
         public List<SolidBooleanInputRepair> RepairedInputs = new List<SolidBooleanInputRepair>();
         /// <summary>
-        /// the route of the open inputs, as the steps taken in their order, each with its reason and what it changed (see SolidBooleanRouteStep); empty
-        /// when every input is closed or has a stated role and nothing is repaired
+        /// the route of the inputs that are not closed, as the steps taken in their order, each with its reason and what it changed (see
+        /// SolidBooleanRouteStep); empty when no input was tried as a sheet, repaired or refused as open
         /// </summary>
         public List<SolidBooleanRouteStep> Route = new List<SolidBooleanRouteStep>();
         /// <summary> triangles of the exact boolean result (before the reduction) </summary>
@@ -410,7 +410,10 @@ namespace gs
         /// practice a surface. Invalid values: InvalidInput
         /// </summary>
         public ThinInputModes ThinInputs = ThinInputModes.Keep;
-        /// <summary> configures the boolean (eg MaxPieces); runs before AllowOpenMeshes = false and StrictRounding = true are set, which stay </summary>
+        /// <summary>
+        /// configures the boolean (eg MaxPieces); runs before AllowOpenMeshes = false and StrictRounding = true are set, which stay. It runs once for
+        /// every boolean of a run: again after an input repair, and again for the run without the route after a refused sheet (Report.Route)
+        /// </summary>
         public Action<ExactMeshBoolean> ConfigureBoolean;
         // (tests) runs before the reduction
         internal Action BeforeReduction;
@@ -515,6 +518,11 @@ namespace gs
         /// goes to the sheet role first (the first input is cut along it exactly, nothing is repaired). If the sheet role refuses, the run is done again
         /// with the inputs as solids, as without this route: InputRepair decides (Refuse: Status OpenInput, with the sheet's refusal in Error).
         /// Report.Route lists the steps taken and why. A stated role (an entry in InputRoles, Solid or Sheet) is used as stated.
+        /// The sheet's orientation is taken as given: the part of the first input behind it is removed, so an open tool whose normals point
+        /// inward removes the other part than its repaired, reoriented copy would; state the role Solid for a tool that is a solid with a hole
+        /// and may be oriented either way. Only a refusal of the sheet falls back: any other failure of the boolean with the sheet (a budget,
+        /// a strict rounding refusal) is the result. With MinThickness a tool without a stated role is measured as before, and one that is
+        /// left out as thin is not routed. ConfigureBoolean runs once more for the run after a refused sheet.
         /// </summary>
         public bool Compute()
         {
@@ -524,9 +532,12 @@ namespace gs
             if (autoRefusal != ExactMeshBoolean.SheetRefusal.None) {
                 ExactMeshBoolean.SheetRefusal refusal = autoRefusal;
                 string text = autoRefusalText;
+                long attempt = Report.BooleanMilliseconds;
                 step("Fallback", -1, "the sheet role refused: " + refusal + ": " + text,
                     "the inputs are used as solids, an open one goes to InputRepair (" + InputRepair + ")", refusal);
                 done = compute(total, false);
+                // (the time of the refused sheet attempt is boolean time of this run)
+                Report.BooleanMilliseconds += attempt;
                 if (Status == PipelineStatus.OpenInput)
                     Error += " (the open tool was tried as a sheet first, which refused: " + refusal + ": " + text + ")";
             }
@@ -596,8 +607,6 @@ namespace gs
                     if (autoSheet == null)
                         autoSheet = new bool[n];
                     autoSheet[i] = true;
-                    step("SheetRole", i, "input " + i + " is open and a tool of the Difference, and InputRoles states no role for it",
-                        "input " + i + " is used as a sheet (an oriented cutting surface): not repaired, the first input is cut along it");
                 }
                 // (a sheet is open by role: not an open input to refuse or repair)
                 anyOpen |= !Report.InputClosed[i] && !isSheet(i);
@@ -609,8 +618,10 @@ namespace gs
             if (MinThickness > 0) {
                 var thin = new bool[n];
                 for (int i = 0; i < n; ++i) {
-                    if (isSheet(i))
-                        continue;       // (a surface has no volume: it is not thin)
+                    // (a surface has no volume: it is not thin. Only by a stated role: an open tool that the route would try as a sheet is
+                    // measured as before the route, so MinThickness and ThinInputs keep their meaning for it)
+                    if (statedSheet(i))
+                        continue;
                     double v, a;
                     MeasureInput(given[i], out v, out a);
                     double t = a > 0 ? 2 * Math.Abs(v) / a : 0;
@@ -644,12 +655,24 @@ namespace gs
                 foreach (int i in active)
                     anyOpen |= !Report.InputClosed[i] && !isSheet(i);
             }
+            // the sheet route of this run: the routed tools that the boolean gets (one left out as thin is not routed)
+            if (autoSheet != null) {
+                bool any = false;
+                foreach (int i in active) {
+                    if (autoSheet[i] == false)
+                        continue;
+                    any = true;
+                    step("SheetRole", i, "input " + i + " is not closed and a tool of the Difference, and InputRoles states no role for it",
+                        "input " + i + " is handed to the boolean as a sheet (an oriented cutting surface): not repaired, the first input is cut along it");
+                }
+                if (any == false)
+                    autoSheet = null;
+            }
             clock.Restart();
             ExactMeshBoolean op = runBoolean(used, active);
             Report.BooleanMilliseconds = clock.ElapsedMilliseconds;
             BooleanStatus = op.Status;
             // (the sheet role refused with an open tool that was made a sheet here: Compute runs again without the route)
-            // (a routed sheet is always among the inputs of the boolean: the thin inputs that are left out are solids)
             if (autoSheet != null && op.Status == ExactMeshBoolean.BooleanStatus.SheetRefused) {
                 autoRefusal = op.SheetReason;
                 autoRefusalText = op.Error;
@@ -1015,8 +1038,11 @@ namespace gs
 
         bool isSheet(int i)
         {
-            if (autoSheet != null && autoSheet[i])
-                return true;
+            return (autoSheet != null && autoSheet[i]) || statedSheet(i);
+        }
+
+        bool statedSheet(int i)
+        {
             return InputRoles != null && i < InputRoles.Count && InputRoles[i] == ExactMeshBoolean.InputRole.Sheet;
         }
 

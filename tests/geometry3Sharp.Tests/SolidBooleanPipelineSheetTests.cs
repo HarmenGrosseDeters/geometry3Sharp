@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using g3;
@@ -72,8 +73,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal(32.0, Volume(p.Result), 9);
             Assert.Equal("SheetRole:1", Names(p));
             SolidBooleanRouteStep step = p.Report.Route[0];
-            Assert.Contains("input 1 is open", step.Reason);
-            Assert.Contains("used as a sheet", step.Change);
+            Assert.Contains("input 1 is not closed", step.Reason);
+            Assert.Contains("handed to the boolean as a sheet", step.Change);
             Assert.Equal(ExactMeshBoolean.SheetRefusal.None, step.SheetReason);
             // the role stated: the same result, and no step (nothing was decided for the caller)
             var stated = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Sheet(2, -1, 5) }, D) { InputRoles = SheetSecond() };
@@ -282,15 +283,103 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void ARoutedSheet_IsNotThin_AndAClosedToolNextToItIsUsedAsBefore()
+        public void WithMinThickness_AToolWithoutAStatedRole_IsMeasuredAsBefore_AndOneLeftOutIsNotRouted()
         {
+            // MinThickness is the caller's statement about thin inputs: an open tool without a stated role is measured as before the route (a flat sheet
+            // has no volume: thin), so ThinInputs decides as before. Only a stated sheet is not measured
             DMesh3 tool = Cube(4);
             MeshTransforms.Translate(tool, new Vector3d(2, 2, 3));
-            var p = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Sheet(2, -1, 5), tool }, D) { MinThickness = 1e-3, ThinInputs = SolidBooleanPipeline.ThinInputModes.Refuse };
-            Assert.True(p.Compute(), p.Status + " " + p.Error);
-            Assert.Equal(32.0 - 4.0, Volume(p.Result), 9);
-            Assert.Empty(p.Report.ThinInputs);
-            Assert.Equal("SheetRole:1", Names(p));
+            Func<SolidBooleanPipeline.ThinInputModes, SolidBooleanPipeline> run = mode => {
+                var q = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Sheet(2, -1, 5), tool }, D) { MinThickness = 1e-3, ThinInputs = mode };
+                q.Compute();
+                return q;
+            };
+            SolidBooleanPipeline refuse = run(SolidBooleanPipeline.ThinInputModes.Refuse);
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.ThinInput, refuse.Status);
+            Assert.Empty(refuse.Report.Route);
+            // left out as empty: the cube minus the closed tool only, and no step for the sheet (it did not reach the boolean)
+            SolidBooleanPipeline empty = run(SolidBooleanPipeline.ThinInputModes.TreatAsEmpty);
+            Assert.True(empty.Status == SolidBooleanPipeline.PipelineStatus.Success, empty.Status + " " + empty.Error);
+            Assert.Equal(64.0 - 4.0, Volume(empty.Result), 9);
+            Assert.Empty(empty.Report.Route);
+            Assert.Single(empty.Report.ThinInputs);
+            // kept (the default of ThinInputs): reported as thin, and routed as a sheet
+            SolidBooleanPipeline keep = run(SolidBooleanPipeline.ThinInputModes.Keep);
+            Assert.True(keep.Status == SolidBooleanPipeline.PipelineStatus.Success, keep.Status + " " + keep.Error);
+            Assert.Equal(32.0 - 4.0, Volume(keep.Result), 9);
+            Assert.Single(keep.Report.ThinInputs);
+            Assert.Equal(1, keep.Report.ThinInputs[0].Index);
+            Assert.Equal("SheetRole:1", Names(keep));
+            // a thin first input left out as empty: the result is empty without a boolean, and nothing was routed
+            DMesh3 slab = Cube(4);
+            MeshTransforms.Scale(slab, new Vector3d(1, 1, 1e-6), Vector3d.Zero);
+            var thinFirst = new SolidBooleanPipeline(new List<DMesh3> { slab, Sheet(2, -1, 5) }, D) { MinThickness = 1e-3, ThinInputs = SolidBooleanPipeline.ThinInputModes.TreatAsEmpty };
+            Assert.True(thinFirst.Compute(), thinFirst.Error);
+            Assert.Equal(0, thinFirst.Result.TriangleCount);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.NotComputed, thinFirst.BooleanStatus);
+            Assert.Empty(thinFirst.Report.Route);
+            // a stated sheet that refuses, next to a tool without a role that is left out as thin: the stated refusal is the result, with no fallback
+            var statedRefusal = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Sheet(2, 1, 3), Sheet(3, -1, 5) }, D) {
+                InputRoles = SheetSecond(), MinThickness = 1e-3, ThinInputs = SolidBooleanPipeline.ThinInputModes.TreatAsEmpty
+            };
+            Assert.False(statedRefusal.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.BooleanFailed, statedRefusal.Status);
+            Assert.Equal(ExactMeshBoolean.SheetRefusal.RimInsideWorkpiece, statedRefusal.SheetReason);
+            Assert.Empty(statedRefusal.Report.Route);
+        }
+
+        [Fact]
+        public void TheSheetsOrientationIsTakenAsGiven_AnInwardBucketRemovesTheOtherPart_UnlessStatedASolid()
+        {
+            // the bucket [1,3]^2 x [1,5] (open at the top, the rim above the cube) with its normals inward: as a sheet the part of the cube behind it is the
+            // part outside the bucket, which is removed: 12 stays. This is the sheet's contract (the orientation is the statement); the route's step
+            // is the only sign of it. Stated as a solid, MeshAutoRepair closes and orients it, and the bucket's part is removed: 52 stays
+            DMesh3 inward = Box(1, 3, 1, 5, false);
+            inward.ReverseOrientation(false);
+            foreach (var repair in new[] { SolidBooleanPipeline.InputRepairModes.Refuse, SolidBooleanPipeline.InputRepairModes.AutoRepair }) {
+                var p = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), inward }, D) { InputRepair = repair };
+                Assert.True(p.Compute(), p.Status + " " + p.Error);
+                Assert.Equal(12.0, Volume(p.Result), 9);
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(p.Result));
+                Assert.Equal("SheetRole:1", Names(p));
+                Assert.Empty(p.Report.RepairedInputs);
+            }
+            var solid = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), inward }, D) {
+                InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair, InputRoles = new Roles { ExactMeshBoolean.InputRole.Solid, ExactMeshBoolean.InputRole.Solid }
+            };
+            Assert.True(solid.Compute(), solid.Status + " " + solid.Error);
+            Assert.Equal(52.0, Volume(solid.Result), 9);
+            Assert.Equal("InputRepair:1", Names(solid));
+        }
+
+        [Fact]
+        public void OnlyARefusalOfTheSheet_FallsBack_AndConfigureBooleanRunsOncePerBoolean()
+        {
+            // a budget that the sheet attempt exceeds is the result (no fallback): the route has the sheet's step only
+            int calls = 0;
+            var budget = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Sheet(2, -1, 5) }, D) { ConfigureBoolean = b => { ++calls; b.MaxPieces = 1; } };
+            Assert.False(budget.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.BooleanFailed, budget.Status);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.BudgetExceeded, budget.BooleanStatus);
+            Assert.Equal("SheetRole:1", Names(budget));
+            Assert.Equal(1, calls);
+            // a refused sheet: the callback runs for the sheet attempt and for the run without the route, and once more after a repair
+            calls = 0;
+            var refused = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Sheet(2, 1, 3) }, D) { ConfigureBoolean = b => ++calls };
+            Assert.False(refused.Compute());
+            Assert.Equal(2, calls);
+            Assert.True(refused.Report.BooleanMilliseconds <= refused.Report.TotalMilliseconds);
+            calls = 0;
+            var repaired = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Box(1, 3, 1, 3, false) }, D) { ConfigureBoolean = b => ++calls, InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair };
+            Assert.True(repaired.Compute(), repaired.Error);
+            Assert.Equal(3, calls);
+            // cancelled before the boolean: nothing was routed
+            var cts = new System.Threading.CancellationTokenSource();
+            cts.Cancel();
+            var cancelled = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Sheet(2, -1, 5) }, D) { Cancellation = cts.Token };
+            Assert.False(cancelled.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.Cancelled, cancelled.Status);
+            Assert.Empty(cancelled.Report.Route);
         }
 
         [Fact]
