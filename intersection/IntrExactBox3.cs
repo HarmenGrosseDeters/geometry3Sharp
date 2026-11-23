@@ -231,6 +231,8 @@ namespace g3
         /// The ray against an axis-aligned box, certified in a few operations: 1 a contact with a positive length, t the entry (0 for an
         /// origin inside), 0 a miss, -1 undecided (a touching contact, a value near the range limits). The origin and the faces are exact, so each
         /// t = (face - origin) / direction is within 2.5 u of its exact value (one rounding for the difference, one for the quotient).
+        /// No losing-bound check of the entry t is needed (unlike <c>Acc.Verdict</c>): every candidate for the entry has a relative error of at most 2.5 u, so the true
+        /// maximum of the candidates is within 2.5 u |tn| of the computed maximum whichever candidate wins; the candidate 0 (origin inside the slab) is exact.
         /// </summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         internal static int RayAabb(ref Vector3d o, ref Vector3d d, ref AxisAlignedBox3d b, double ex, out double t)
@@ -380,7 +382,8 @@ namespace g3
                 if (LoMinus > UpPlus) return 0;
                 if (LoPlus < UpMinus) {
                     if (accurateEnds && (LoBest == double.NegativeInfinity || UpBest == double.PositiveInfinity)) return 3;
-                    // the ends are returned from this route only when they are accurate to a few ulp (a slab with a cancelling P is not)
+                    // the ends are returned from this route only when they are accurate to a few ulp (a slab with a cancelling P is not). The two checks of the winner's own
+                    // error are implied by the checks of the intervals below (LoPlus >= LoBest + LoBestErr, UpMinus <= UpBest - UpBestErr): kept as the cheap first test
                     if (accurateEnds && (LoBestErr > 6 * U * Math.Abs(LoBest) + 1e-300 || UpBestErr > 6 * U * Math.Abs(UpBest) + 1e-300)) return 3;
                     // (and the losing bounds: the exact end is the largest lower bound, in [LoMinus, LoPlus], and the smallest upper bound, in [UpMinus, UpPlus];
                     // a losing bound whose interval reaches past the winner can be the true end, eg a slab whose P cancels)

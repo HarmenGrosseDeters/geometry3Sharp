@@ -760,8 +760,7 @@ namespace geometry3Sharp.Tests
             var r = new SlabQ[3];
             for (int i = 0; i < 3; i++) {
                 Vector3d u = b.Axis(i);
-                Q p = Dot(u, p0 - b.Center);          // (p0 - b.Center as given in rationals below)
-                p = Q.From(u.x) * (Q.From(p0.x) - Q.From(b.Center.x)) + Q.From(u.y) * (Q.From(p0.y) - Q.From(b.Center.y)) + Q.From(u.z) * (Q.From(p0.z) - Q.From(b.Center.z));
+                Q p = Q.From(u.x) * (Q.From(p0.x) - Q.From(b.Center.x)) + Q.From(u.y) * (Q.From(p0.y) - Q.From(b.Center.y)) + Q.From(u.z) * (Q.From(p0.z) - Q.From(b.Center.z));
                 Q q = Q.From(u.x) * (Q.From(p1.x) - Q.From(p0.x)) + Q.From(u.y) * (Q.From(p1.y) - Q.From(p0.y)) + Q.From(u.z) * (Q.From(p1.z) - Q.From(p0.z));
                 Q e = Q.From(b.Extent[i]);
                 r[i] = new SlabQ(p, q, new Q(-e.N, e.D), e);
@@ -832,8 +831,10 @@ namespace geometry3Sharp.Tests
                 Vector3d ctr = new Vector3d((r.NextDouble() - 0.5) * scale * 4, (r.NextDouble() - 0.5) * scale * 4, (r.NextDouble() - 0.5) * scale * 4);
                 if (r.Next(2) == 0) ctr = Vector3d.Zero;
                 Box3d box = new Box3d(ctr, ux, uy, uz, ext);
-                double reach = scale * Math.Pow(10, r.NextDouble());
-                Vector3d o = ctr + ux * ((r.NextDouble() * 2 - 1) * reach / sx) + uy * ((r.NextDouble() * 2 - 1) * reach / sy) + uz * ((r.NextDouble() * 2 - 1) * reach / sz);
+                double reach = scale * Math.Pow(10, r.Next(2) == 0 ? 20 * r.NextDouble() : r.NextDouble());       // (a quarter of the origins far away: up to 1e20 box sizes)
+                // (the components along the axes of very different size, so that the slab values P = dot(axis, o - center) cancel: large terms, a small sum)
+                Func<double> comp = () => (r.NextDouble() * 2 - 1) * (r.Next(2) == 0 ? 1 : Math.Pow(10, -12 * r.NextDouble()));
+                Vector3d o = ctr + ux * (comp() * reach / sx) + uy * (comp() * reach / sy) + uz * (comp() * reach / sz);
                 Vector3d dRand = new Vector3d(Gauss(r), Gauss(r), Gauss(r));
                 if (r.Next(3) == 0) {          // nearly perpendicular to an axis: that slab has a tiny Q
                     Vector3d uk = r.Next(3) == 0 ? ux : (r.Next(2) == 0 ? uy : uz);
@@ -843,15 +844,27 @@ namespace geometry3Sharp.Tests
                 Vector3d d = dRand.Normalized;
                 if (r.Next(10) < 6) {
                     // aimed at a point of the box (almost always a contact)
-                    Vector3d aim = ctr + ux * ((r.NextDouble() * 2 - 1) * ext.x / sx) + uy * ((r.NextDouble() * 2 - 1) * ext.y / sy) + uz * ((r.NextDouble() * 2 - 1) * ext.z / sz);
+                    // (a third of them at an edge or a corner: two or three of the three coordinates on a face)
+                    double fx = (r.NextDouble() * 2 - 1), fy = (r.NextDouble() * 2 - 1), fz = (r.NextDouble() * 2 - 1);
+                    if (r.Next(2) == 0) { fx = r.Next(2) * 2 - 1; fy = r.Next(2) * 2 - 1; if (r.Next(3) == 0) fz = r.Next(2) * 2 - 1; }
+                    Vector3d aim = ctr + ux * (fx * ext.x / sx) + uy * (fy * ext.y / sy) + uz * (fz * ext.z / sz);
                     Vector3d da = (aim - o).Normalized;
                     if (da.IsNormalized) d = da;
                 }
                 if (d.x == 0 && d.y == 0 && d.z == 0 || double.IsNaN(d.x)) continue;
                 var slabs = Slabs(box, o, d);
                 double t0 = -double.MaxValue, t1 = double.MaxValue;
-                int lim = r.Next(4);
-                if (lim == 1) { t0 = -Math.Pow(10, r.Next(0, 291)) * r.NextDouble(); t1 = Math.Pow(10, r.Next(0, 291)) * r.NextDouble(); }
+                int lim = r.Next(5);
+                if (lim == 4) {
+                    // a limit just beside a slab bound (within 1e-7..1e-17 of it, relative): between a losing bound and its error
+                    var bs = new List<double>();
+                    foreach (var sl in slabs) if (sl.Qd.Sign != 0) { bs.Add(((sl.L - sl.P) / sl.Qd).ToDouble()); bs.Add(((sl.H - sl.P) / sl.Qd).ToDouble()); }
+                    if (bs.Count > 0) {
+                        double bnd = bs[r.Next(bs.Count)], lv = bnd * (1 + (r.Next(2) * 2 - 1) * Math.Pow(10, -r.Next(7, 18)) * r.NextDouble());
+                        if (r.Next(2) == 0) t0 = lv; else t1 = lv;
+                    }
+                }
+                else if (lim == 1) { t0 = -Math.Pow(10, r.Next(0, 291)) * r.NextDouble(); t1 = Math.Pow(10, r.Next(0, 291)) * r.NextDouble(); }
                 else if (lim == 2) { t0 = r.NextDouble() * scale; t1 = t0 + r.NextDouble() * scale * 10; }
                 else if (lim == 3) { t0 = Math.Pow(10, r.Next(-5, 200)) * r.NextDouble(); t1 = double.MaxValue; }
                 bool hasMin = t0 > -double.MaxValue, hasMax = t1 < double.MaxValue;
@@ -874,10 +887,42 @@ namespace geometry3Sharp.Tests
                 var es = Contact(SlabsSegment(box, sp0, sp1), new Q(0, 1), new Q(1, 1));
                 var sg = new IntrSegment3Box3(seg, box, true);
                 Assert.Equal(es.kind != 0, sg.Find());
-                if (es.kind != 0) { segHits++; Assert.True(InBoxUpToRounding(box, sg.Point0) && (sg.Quantity == 1 || InBoxUpToRounding(box, sg.Point1)), "a segment point outside the box"); }
+                if (es.kind != 0) {
+                    segHits++;
+                    Assert.True(InBoxUpToRounding(box, sg.Point0) && (sg.Quantity == 1 || InBoxUpToRounding(box, sg.Point1)), "a segment point outside the box");
+                    // the parameters along the segment: the clamped dot product of the direction with the point from the center (ends exactly), ordered
+                    double ext2 = seg.Extent, tolS = 64 * 1.1102230246251565e-16 * (Math.Abs(seg.Center.x) + Math.Abs(seg.Center.y) + Math.Abs(seg.Center.z) + Math.Abs(sg.Point0.x) + Math.Abs(sg.Point0.y) + Math.Abs(sg.Point0.z) + ext2) + 1e-300;
+                    Assert.True(sg.SegmentParam0 >= -ext2 && sg.SegmentParam1 <= ext2 && sg.SegmentParam0 <= sg.SegmentParam1 + tolS, "segment parameters out of order or range");
+                    double expect0 = Math.Max(-ext2, Math.Min(ext2, (Dot(seg.Direction, sg.Point0 - seg.Center)).ToDouble()));
+                    Assert.True(Math.Abs(sg.SegmentParam0 - expect0) <= tolS + 1e-12 * ext2, $"SegmentParam0 {sg.SegmentParam0:R} against {expect0:R}");
+                }
                 n++;
             }
             Assert.True(n > 2500 && hits > 150 && segHits > 150, $"n {n} hits {hits} segHits {segHits}");
+        }
+
+        [Fact]
+        public void Verdict_EndsAreCertifiedOnlyWhenNoLosingBoundReachesPastTheWinner()
+        {
+            // the intervals of the ends (LoMinus..LoPlus for the lower end, UpMinus..UpPlus for the upper) are the filter's whole knowledge: the winner's own error is 0
+            // here and a losing bound reaches 1e-9 past it, so the winner's value is not the end to a few ulp (a random search finds this rarely: 7 in 216k cases)
+            var acc = default(IntrExactBox3.Acc);
+            acc.Init(false, 0, false, 0);
+            acc.LoMinus = 1; acc.LoPlus = 1 + 1e-9; acc.LoBest = 1; acc.LoBestErr = 0;
+            acc.UpMinus = 5; acc.UpPlus = 5; acc.UpBest = 5; acc.UpBestErr = 0;
+            Assert.Equal(3, acc.Verdict(true));
+            Assert.Equal(2, acc.Verdict(false));          // (the decision alone does not need the ends)
+            // the upper end the same
+            acc.LoMinus = 1; acc.LoPlus = 1; acc.LoBest = 1; acc.LoBestErr = 0;
+            acc.UpMinus = 5 - 1e-9; acc.UpPlus = 5; acc.UpBest = 5; acc.UpBestErr = 0;
+            Assert.Equal(3, acc.Verdict(true));
+            Assert.Equal(2, acc.Verdict(false));
+            // both intervals tight: certified with ends
+            acc.UpMinus = 5 - 1e-16; acc.LoPlus = 1 + 1e-16;
+            Assert.Equal(2, acc.Verdict(true));
+            // the winner's own error alone
+            acc.LoBestErr = 1e-9; acc.LoMinus = 1 - 1e-9; acc.LoPlus = 1 + 1e-9;
+            Assert.Equal(3, acc.Verdict(true));
         }
 
         [Fact]
