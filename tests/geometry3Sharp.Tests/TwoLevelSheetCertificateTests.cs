@@ -810,6 +810,60 @@ namespace geometry3Sharp.Tests
             Assert.Equal(List(whole), List(cert));
         }
 
+        /// <summary> a capped TPMS that offers a cache to its caller, and counts what it is asked </summary>
+        sealed class CachedTpms : TestField, IntervalImplicit3dCached
+        {
+            readonly IntervalTpms tpms; readonly double R, cap;
+            public int Caches, PlainCalls, CachedCalls, ForeignCalls; object last;
+            public CachedTpms(TpmsType type, double k, double radius, double cap) { tpms = new IntervalTpms(type, k, 0); R = radius; this.cap = cap; }
+            public object NewEncloseCache() { ++Caches; last = tpms.NewEncloseCache(); return last; }
+            public override IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z) { ++PlainCalls; return finish(tpms.Enclose(x, y, z), x, y, z); }
+            public IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z, object cache)
+            {
+                ++CachedCalls; if (!ReferenceEquals(cache, last)) ++ForeignCalls;
+                return finish(tpms.Enclose(x, y, z, cache), x, y, z);
+            }
+            public long Hits { get { return ((IntervalTpms.SinCosCache)last).Hits; } }
+            public long Misses { get { return ((IntervalTpms.SinCosCache)last).Misses; } }
+            // as CappedTpms
+            IntervalEnclosure finish(IntervalEnclosure e, ExactInterval x, ExactInterval y, ExactInterval z)
+            {
+                ExactInterval r2 = ExactInterval.Square(C(R));
+                ExactInterval u = (ExactInterval.Square(x) + ExactInterval.Square(y) + ExactInterval.Square(z)) / r2;
+                ExactInterval u2 = ExactInterval.Square(u);
+                ExactInterval d = C(6) * C(cap) * u2 / r2;
+                ExactInterval k = C(tpms.K);
+                e.F = (e.F + C(cap) * (u2 * u)) / k; e.Gx = (e.Gx + d * x) / k; e.Gy = (e.Gy + d * y) / k; e.Gz = (e.Gz + d * z) / k;
+                return e;
+            }
+            public override double Value(ref Vector3d p) { throw new NotSupportedException(); }
+        }
+
+        // A field that offers a cache is asked through one cache per run, and the result is the one without the cache.
+        [Fact]
+        public void AFieldWithACache_IsAskedThroughOneCachePerRun_WithTheSameResult()
+        {
+            var plain = new CappedTpms(TpmsType.Gyroid, 2 * Math.PI / 2.2, 0.9, 4);
+            var cached = new CachedTpms(TpmsType.Gyroid, 2 * Math.PI / 2.2, 0.9, 4);
+            TwoLevelMarchingTetrahedra gen = Mesh(plain, 0.5 * 2.2 / 16 / 2, Shift, 2.2, 16);
+            TwoLevelSheetCertificate without = Certify(plain, gen);
+            Assert.True(without.SurfaceCells[0] > 100 && without.CellsCertifiedAlone[0] > 50, Summary(without));
+            var cert = new TwoLevelSheetCertificate { Field = cached, Mesher = gen };
+            cert.Compute();
+            Assert.Equal(List(without), List(cert));
+            Assert.Equal(1, cached.Caches);
+            Assert.Equal(0, cached.PlainCalls);
+            Assert.Equal(0, cached.ForeignCalls);
+            Assert.True(cached.CachedCalls > 10000);
+            // the boxes of a grid share their coordinate intervals: nearly every sine and cosine was there already
+            Assert.True(cached.Hits > 20 * cached.Misses, cached.Hits + " / " + cached.Misses);
+            // a new cache for the next run
+            cert.Compute();
+            Assert.Equal(2, cached.Caches);
+            Assert.Equal(0, cached.ForeignCalls);
+            Assert.Equal(List(without), List(cert));
+        }
+
         static Vector3d NodePoint(int i, int j, int k) { return new Vector3d(Node(0, i), Node(1, j), Node(2, k)); }
 
         // Two blocks that come to overlap are one block: the block around the nodes (3,3,3) and (4,4,3) grows into the

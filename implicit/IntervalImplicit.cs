@@ -28,6 +28,17 @@ namespace g3
     }
 
     /// <summary>
+    /// Optional for an IntervalImplicit3d: enclosures that reuse work between calls through a cache that the caller owns,
+    /// so that the function itself keeps no state (requirement (iii) of IntervalImplicit3d). A cache is used by one thread
+    /// at a time and with the function that made it. The result is the one of Enclose(x, y, z), bit for bit.
+    /// </summary>
+    internal interface IntervalImplicit3dCached : IntervalImplicit3d
+    {
+        object NewEncloseCache();
+        IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z, object cache);
+    }
+
+    /// <summary>
     /// Interval functions beside ExactInterval's +, -, *, / and square root. No call into the runtime's math library
     /// (the error of Math.Sin is not specified): sin and cos are a Taylor polynomial with its Lagrange remainder,
     /// evaluated in ExactInterval arithmetic, so the result is an enclosure and the same on every runtime.
@@ -152,7 +163,7 @@ namespace g3
     /// function: the skeletal styles of TpmsLattice without the domain clip. The sheet style (|g|) and the clip are not
     /// smooth and are not offered here.
     /// </summary>
-    internal sealed class IntervalTpms : IntervalImplicit3d
+    internal sealed class IntervalTpms : IntervalImplicit3dCached
     {
         public readonly TpmsType Type;
         public readonly double K, Level;
@@ -165,12 +176,50 @@ namespace g3
 
         static ExactInterval c(double v) { return ExactInterval.Of(v); }
 
-        public IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z)
+        /// <summary>
+        /// The sines and cosines of phase intervals that were computed before, by the bits of the interval's ends. The
+        /// function is a sum of products of sines and cosines of one coordinate each, and the boxes of a caller on a grid
+        /// share their coordinate intervals: the 64 sub-boxes of a cube have 4 intervals per axis.
+        /// </summary>
+        internal sealed class SinCosCache
+        {
+            internal const int MaxEntries = 1 << 16;
+            internal readonly System.Collections.Generic.Dictionary<ValueTuple<long, long>, ValueTuple<ExactInterval, ExactInterval>> Map
+                = new System.Collections.Generic.Dictionary<ValueTuple<long, long>, ValueTuple<ExactInterval, ExactInterval>>();
+            /// <summary> the calls that found their interval, and those that computed it </summary>
+            internal long Hits, Misses;
+        }
+
+        public object NewEncloseCache() { return new SinCosCache(); }
+
+        public IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z) { return enclose(x, y, z, null); }
+
+        public IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z, object cache)
+        {
+            var own = cache as SinCosCache;
+            if (own == null) throw new ArgumentException("not a cache of NewEncloseCache", nameof(cache));
+            return enclose(x, y, z, own);
+        }
+
+        // IntervalMath.SinCos, or the kept result of the same call
+        static void sinCos(ExactInterval p, SinCosCache cache, out ExactInterval sin, out ExactInterval cos)
+        {
+            if (cache == null) { IntervalMath.SinCos(p, out sin, out cos); return; }
+            var key = new ValueTuple<long, long>(BitConverter.DoubleToInt64Bits(p.Lo), BitConverter.DoubleToInt64Bits(p.Hi));
+            ValueTuple<ExactInterval, ExactInterval> kept;
+            if (cache.Map.TryGetValue(key, out kept)) { ++cache.Hits; sin = kept.Item1; cos = kept.Item2; return; }
+            ++cache.Misses;
+            IntervalMath.SinCos(p, out sin, out cos);
+            if (cache.Map.Count >= SinCosCache.MaxEntries) cache.Map.Clear();
+            cache.Map[key] = new ValueTuple<ExactInterval, ExactInterval>(sin, cos);
+        }
+
+        IntervalEnclosure enclose(ExactInterval x, ExactInterval y, ExactInterval z, SinCosCache cache)
         {
             ExactInterval k = c(K);
             ExactInterval px = k * x, py = k * y, pz = k * z;
             ExactInterval sx, cx, sy, cy, sz, cz;
-            IntervalMath.SinCos(px, out sx, out cx); IntervalMath.SinCos(py, out sy, out cy); IntervalMath.SinCos(pz, out sz, out cz);
+            sinCos(px, cache, out sx, out cx); sinCos(py, cache, out sy, out cy); sinCos(pz, cache, out sz, out cz);
             ExactInterval g, gx, gy, gz;
             switch (Type) {
                 case TpmsType.Gyroid:
@@ -195,7 +244,7 @@ namespace g3
                     break;
                 case TpmsType.IWP: {
                     ExactInterval s2x, c2x, s2y, c2y, s2z, c2z;
-                    doubleAngle(px, py, pz, out s2x, out c2x, out s2y, out c2y, out s2z, out c2z);
+                    doubleAngle(px, py, pz, cache, out s2x, out c2x, out s2y, out c2y, out s2z, out c2z);
                     g = c(2) * (cx * cy + cy * cz + cz * cx) - (c2x + c2y + c2z);
                     gx = c(2) * s2x - c(2) * (sx * (cy + cz));
                     gy = c(2) * s2y - c(2) * (sy * (cx + cz));
@@ -204,7 +253,7 @@ namespace g3
                 }
                 case TpmsType.Lidinoid: {
                     ExactInterval s2x, c2x, s2y, c2y, s2z, c2z;
-                    doubleAngle(px, py, pz, out s2x, out c2x, out s2y, out c2y, out s2z, out c2z);
+                    doubleAngle(px, py, pz, cache, out s2x, out c2x, out s2y, out c2y, out s2z, out c2z);
                     ExactInterval h = c(0.5);
                     g = h * (s2x * cy * sz + s2y * cz * sx + s2z * cx * sy) - h * (c2x * c2y + c2y * c2z + c2z * c2x) + c(0.15);
                     gx = c2x * cy * sz + h * (s2y * cz * cx) - h * (s2z * sx * sy) + s2x * (c2y + c2z);
@@ -219,12 +268,12 @@ namespace g3
         }
 
         // sin and cos of twice the phases, from their own enclosures (doubling an interval's ends is exact)
-        static void doubleAngle(ExactInterval px, ExactInterval py, ExactInterval pz, out ExactInterval s2x, out ExactInterval c2x,
+        static void doubleAngle(ExactInterval px, ExactInterval py, ExactInterval pz, SinCosCache cache, out ExactInterval s2x, out ExactInterval c2x,
             out ExactInterval s2y, out ExactInterval c2y, out ExactInterval s2z, out ExactInterval c2z)
         {
-            IntervalMath.SinCos(new ExactInterval(2 * px.Lo, 2 * px.Hi), out s2x, out c2x);
-            IntervalMath.SinCos(new ExactInterval(2 * py.Lo, 2 * py.Hi), out s2y, out c2y);
-            IntervalMath.SinCos(new ExactInterval(2 * pz.Lo, 2 * pz.Hi), out s2z, out c2z);
+            sinCos(new ExactInterval(2 * px.Lo, 2 * px.Hi), cache, out s2x, out c2x);
+            sinCos(new ExactInterval(2 * py.Lo, 2 * py.Hi), cache, out s2y, out c2y);
+            sinCos(new ExactInterval(2 * pz.Lo, 2 * pz.Hi), cache, out s2z, out c2z);
         }
     }
 }

@@ -542,14 +542,16 @@ covered (point 3 of section 4).
 - Memory: the enclosures over the sub-boxes of a cube (up to 8^t of 72 bytes) are kept for the boxes that take the
   cube in later, within a budget: at most max(`MaxBlockSide`^3, 2^20 / 8^t) cubes, 76 MB with the defaults and at
   t = 4. (Keeping them for one box at a time was tried: one run went from 25 s to 67 s.)
-- Time: one `Compute` took 25 s (IWP), 21 s (Neovius) and 19.5 s (Lidinoid) at 64 cells in the benchmark, at and above the 20 s line
-  for one operation on one input: issue #1436 (diagnosis: the field is enclosed for each level on its own, and
-  nothing is shared between cubes). Not fixed here.
+- Time: one `Compute` took 25 s (IWP), 21 s (Neovius) and 19.5 s (Lidinoid) at 64 cells in the benchmark (issue
+  #1436). 94 % of it was the field's enclosures, and in them the interval sines and cosines. Now a field can offer
+  a cache that the caller owns (`IntervalImplicit3dCached`); `IntervalTpms` keeps the sines and cosines per phase
+  interval in it, which the boxes of a grid share. Same enclosures bit for bit, same results; the slowest run is at
+  3.5 s, all runs 4.7 to 10.4 times faster. Enclosing once for both levels (upper bound: a factor 2) is not built.
 - Measured (`benchmarks/ContouringSmoothCertificate`, mode `sheet`, `results/sheet.csv`): 13 of 28 walls around capped
   TPMS certified; 11 of 12 for gyroid, Schwarz P, Schwarz D and Neovius at 32 or 64 cells per period, none of these at
   16, 2 of 12 for IWP and Lidinoid (not diagnosed). Of the cubes that may hold a zero 86.6 % are certified alone,
-  10.6 % in blocks, 2.8 % are left (direction test or block limit). Cost: 55 to 298 times the time of the mesher,
-  median 153 times, 0.5 ms per such cube; not optimized. It is a check on demand.
+  10.6 % in blocks, 2.8 % are left (direction test or block limit). Cost: 7 to 40 times the time of the mesher,
+  median 23 times, 0.1 ms per such cube. It is a check on demand.
 - Tests: `TwoLevelSheetCertificateTests` (walls around a sphere and a gyroid; the mesh of another field, a level set
   closed inside a cube, two sheets through a cube, a node with the wrong sign, a self-intersecting mesh, a level set in
   the outermost layer, never certified; (S1) and (S2) on their own with an edge crossed twice, a closed curve in a face

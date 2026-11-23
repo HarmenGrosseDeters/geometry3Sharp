@@ -12,13 +12,15 @@ using gs;
 static class Program
 {
     // g(K x) - level + cap (|x|^2 / R^2)^3, inside where negative
-    sealed class CappedTpms : IntervalImplicit3d, ImplicitFunction3d
+    sealed class CappedTpms : IntervalImplicit3dCached, ImplicitFunction3d
     {
         readonly IntervalTpms tpms; readonly double R, cap;
         public CappedTpms(TpmsType type, double k, double radius, double cap) { tpms = new IntervalTpms(type, k, 0); R = radius; this.cap = cap; }
-        public IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z)
+        public object NewEncloseCache() { return tpms.NewEncloseCache(); }
+        public IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z) { return Enclose(x, y, z, null); }
+        public IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z, object cache)
         {
-            IntervalEnclosure e = tpms.Enclose(x, y, z);
+            IntervalEnclosure e = cache == null ? tpms.Enclose(x, y, z) : tpms.Enclose(x, y, z, cache);
             ExactInterval r2 = ExactInterval.Square(ExactInterval.Of(R));
             ExactInterval u = (ExactInterval.Square(x) + ExactInterval.Square(y) + ExactInterval.Square(z)) / r2, u2 = ExactInterval.Square(u);
             ExactInterval d = ExactInterval.Of(6) * ExactInterval.Of(cap) * u2 / r2;
@@ -82,13 +84,15 @@ static class Program
     }
 
     // (g(K x) + cap (|x|^2 / R^2)^3) / K: the capped field scaled to a slope of about 1, so that a half width is a length
-    sealed class ScaledCappedTpms : IntervalImplicit3d, ImplicitFunction3d
+    sealed class ScaledCappedTpms : IntervalImplicit3dCached, ImplicitFunction3d
     {
         readonly CappedTpms inner; readonly double k;
         public ScaledCappedTpms(TpmsType type, double k, double radius, double cap) { inner = new CappedTpms(type, k, radius, cap); this.k = k; }
-        public IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z)
+        public object NewEncloseCache() { return inner.NewEncloseCache(); }
+        public IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z) { return Enclose(x, y, z, null); }
+        public IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z, object cache)
         {
-            IntervalEnclosure e = inner.Enclose(x, y, z);
+            IntervalEnclosure e = inner.Enclose(x, y, z, cache);
             ExactInterval K = ExactInterval.Of(k);
             e.F = e.F / K; e.Gx = e.Gx / K; e.Gy = e.Gy / K; e.Gz = e.Gz / K;
             return e;
