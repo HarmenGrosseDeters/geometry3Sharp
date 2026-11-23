@@ -488,6 +488,21 @@ namespace g3
         public bool ExactWindingA, ExactWindingB;
         /// <summary> the same for every input mesh (in the order of Meshes, or A, B), after Compute() </summary>
         public bool[] ExactWinding;
+        /// <summary>
+        /// after Compute(): the open inputs (indices as in Meshes, or 0 and 1 for A and B, ascending) that enclose nothing where it would
+        /// count. An input is listed if it is classified by the generalized winding number (ExactWinding false, not a Sheet), the
+        /// result at one of its pieces would depend on it (the operation there is true with the input's winding number 1 and
+        /// false with 0, or the reverse, given the other inputs: for a Difference, a piece of a tool inside the first mesh and outside
+        /// the other tools), and yet the result is the one of an input that encloses nothing: no piece's decision changes when the
+        /// input's winding number is taken as 0. The typical case is an open cutting surface used as the tool of a Difference
+        /// without the role Sheet: its generalized winding number stays below 1/2, so it cuts nothing and the result is the first
+        /// mesh, with Status Success (#1211). Decided with the integers of the classification, no tolerance. An open input that
+        /// changes the result is not listed, also where the change is wrong (pieces kept where its generalized winding number
+        /// crosses 1/2: the result is then usually not closed, which the list does not say). Empty with a WindingPredicate (not
+        /// evaluated), when no input is open, and before Compute()
+        /// </summary>
+        public IReadOnlyList<int> OpenInputsWithoutEffect { get { return openWithoutEffect; } }
+        List<int> openWithoutEffect = new List<int>();
         // for tests: use generalized winding numbers also for closed meshes
         internal bool ForceGeneralizedWinding = false;
         // open meshes with fewer boundary segments than this are classified by the Antipodal Method (an exact ray and a
@@ -768,6 +783,7 @@ namespace g3
             ReorientedTriangles = Contacts = InsideOutCells = InsideOutUndecided = 0;
             ExactWindingA = ExactWindingB = false;
             ExactWinding = null;
+            openWithoutEffect = new List<int>();
             SheetReason = SheetRefusal.None;
             SheetError = null;
             SheetWitnessMesh = SheetWitnessTriangle = SheetWitnessTriangle2 = -1;
@@ -1576,7 +1592,7 @@ namespace g3
                     open.Add(m.ToString(System.Globalization.CultureInfo.InvariantCulture));
             return (open.Count == 1 ? "input mesh " : "input meshes ") + string.Join(", ", open) + (open.Count == 1 ? " is" : " are") +
                 " not closed (every edge used equally often in both directions). An open cutting surface used as the tool of a Difference: give it the role Sheet (Roles). " +
-                "A mesh that is meant as a solid: repair it, or set AllowOpenMeshes for the generalized winding number rule (the solid is where it is above 1/2)";
+                "A mesh that is meant as a solid: repair it, or set AllowOpenMeshes for the generalized winding number rule (the solid is where it is above 1/2; see OpenInputsWithoutEffect)";
         }
 
         bool any_generalized()
@@ -1935,6 +1951,25 @@ namespace g3
                 }
                 winding[m] += d;
             };
+            // OpenInputsWithoutEffect: the open inputs (not sheets), whether the result depends on each at one of its own pieces
+            // (matters), and whether any decision changes when its winding number is taken as 0 (effect). The built-in
+            // operations only read whether a winding number is positive, so a piece is evaluated again only where the
+            // input's is; a WindingPredicate is not called with other vectors than the classification's
+            var openInputs = new List<int>();
+            if (WindingPredicate == null)
+                for (int m = 0; m < nm; ++m)
+                    if (ExactWinding[m] == false && (sheetRole == null || sheetRole[m] == false))
+                        openInputs.Add(m);
+            bool[] matters = new bool[nm], effect = new bool[nm], mine = new bool[nm], zeroFront = new bool[nm];
+            // the operation with the winding number of m replaced by value
+            Func<int, int, bool> insideWith = (m, value) => {
+                add(m, 0);
+                int saved = winding[m];
+                winding[m] = value;
+                bool result = inside(winding, touched);
+                winding[m] = saved;
+                return result;
+            };
             for (int i = 0; i < n; ++i) {
                 if (representative[i] == false)
                     continue;
@@ -1954,6 +1989,15 @@ namespace g3
                 if (front != null)
                     front[i] = (int[])winding.Clone();
                 bool inFront = inside(winding, touched);
+                foreach (int m in openInputs) {
+                    mine[m] = ot.Mesh == m;
+                    if (stack[i] != null)
+                        foreach (int ti in stack[i])
+                            mine[m] |= arr.Triangles[ti].Mesh == m;
+                    zeroFront[m] = winding[m] > 0 ? insideWith(m, 0) : inFront;
+                    if (mine[m] && matters[m] == false)
+                        matters[m] = insideWith(m, 0) != insideWith(m, 1);
+                }
                 // back side: crossing the stack from the back to the front changes the winding number of a
                 // mesh by -1 for each of its triangles oriented like the piece, +1 for opposite ones
                 // (a sheet's entry is the label of the cell on each side, not a count of crossings)
@@ -1977,12 +2021,25 @@ namespace g3
                 bool inBack = inside(winding, touched);
                 keep[i] = inFront != inBack;
                 flip[i] = inFront;
+                foreach (int m in openInputs) {
+                    bool zeroBack = winding[m] > 0 ? insideWith(m, 0) : inBack;
+                    if (mine[m] && matters[m] == false)
+                        matters[m] = insideWith(m, 0) != insideWith(m, 1);
+                    // (with the input enclosing nothing the piece is kept where the two sides differ. Its facing cannot be the only
+                    // change: each built-in operation is monotone in every winding number, so if the piece is kept both ways,
+                    // taking m as 0 moves the two sides the same way and they cannot swap)
+                    if ((zeroFront[m] != zeroBack) != keep[i])
+                        effect[m] = true;
+                }
                 foreach (int m in touched) {
                     winding[m] = 0;
                     isTouched[m] = false;
                 }
                 touched.Clear();
             }
+            foreach (int m in openInputs)
+                if (matters[m] && effect[m] == false)
+                    openWithoutEffect.Add(m);
             CertificateFront = front;
             steps.LapMicroseconds("classification.decisions");
         }
