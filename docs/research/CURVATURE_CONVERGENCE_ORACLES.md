@@ -154,3 +154,28 @@ Scalar RMS and maximum errors are over all vertices and use great-circle distanc
 A fixed fourfold increase reduces both kinds of error on the fine grids, while vector RMS still increases under refinement. With t = 0.5h, scalar RMS falls from 0.0129 to 0.00108 and roughly halves on each of the last two steps. On the finest mesh, vector cap RMS is 0.0377° and far RMS is 0.128°, compared with 1.237° and 7.433° at the default. Vector cap RMS remains nonmonotone with the linear schedule, and far RMS initially increases. These are finite-resolution measurements on one mesh family and one source.
 
 The within-mesh control shows that the default errors are sensitive to the diffusion schedule even with intrinsic connectivity fixed. It leaves open the contribution of stencil anisotropy, the connection discretization and the short-time solver. Keep the alternate schedule as a benchmark control and defer a default change or vector-rate assertion. A scale-invariant policy would require a geometric length scale besides h and validation on other mesh families and near cut loci.
+
+## Icosahedral sphere control
+
+Run `dotnet run -c Release --project benchmarks/CurvatureWeakProbe -- --heat-icosphere`. The probe repeats the three diffusion schedules on icosahedral sphere refinements with 320, 1,280, 5,120 and 20,480 triangles. Each step divides every triangle into four, projecting edge midpoints onto the unit sphere, as in the `MeshCurvatureTests` fixture. The source is the same original icosahedron vertex at all levels. The initial vector is the normalized projection of the x-axis into its smooth tangent plane. The great-circle references and angular regions are defined relative to this source. Compared with the cube-sphere, this control changes the triangulation family and the source neighborhood.
+
+The reported vector diffusion ratio equalled the requested factor at every level. The table uses the same metrics and units as the cube-sphere time sweep.
+
+| Schedule | Subdivisions | Mean edge length | Vector cap RMS (°) | Vector far RMS (°) | Scalar RMS | Scalar max |
+|---|---:|---:|---:|---:|---:|---:|
+| default | 2 | 0.299332 | 0.1545 | 0.0151453 | 0.0455219 | 0.0965698 |
+| fourfold | 2 | 0.299332 | 0.0773911 | 0.0151453 | 0.0445002 | 0.0928904 |
+| linear | 2 | 0.299332 | 0.117253 | 0.0151453 | 0.0449676 | 0.0946439 |
+| default | 3 | 0.15073 | 0.0759457 | 0.1746 | 0.0231983 | 0.0506752 |
+| fourfold | 3 | 0.15073 | 0.0349435 | 0.0237292 | 0.0212584 | 0.045568 |
+| linear | 3 | 0.15073 | 0.0386942 | 0.0306851 | 0.021386 | 0.0459306 |
+| default | 4 | 0.0754991 | 0.0478458 | 0.226306 | 0.0133661 | 0.0292058 |
+| fourfold | 4 | 0.0754991 | 0.0169712 | 0.0454842 | 0.0107798 | 0.0233749 |
+| linear | 4 | 0.0754991 | 0.012909 | 0.0228159 | 0.0104532 | 0.0225678 |
+| default | 5 | 0.0377664 | 0.0592679 | 0.23571 | 0.00885611 | 0.0188706 |
+| fourfold | 5 | 0.0377664 | 0.0124484 | 0.0580412 | 0.00585723 | 0.0127068 |
+| linear | 5 | 0.0377664 | 0.00445335 | 0.0145343 | 0.00518083 | 0.011183 |
+
+The default scalar RMS decreases at each icosahedral refinement, from 0.0455 to 0.00886 radians. The cube-sphere default approaches 0.018 radians on its last two grids. The icosahedral cap vector RMS mostly decreases at the default time and rises slightly on the last step. The far-band RMS increases from 0.0151° to 0.236°. At the finest icosahedral level, t = 0.5h gives 0.00445° cap RMS, 0.0145° far RMS and 0.00518 radians scalar RMS. The same time schedule improves fine-grid errors on both families.
+
+The scalar plateau is specific to the tested cube-sphere setup. The default far-band vector error growth appears on both families, with different magnitudes. A global default change still needs evidence across other meshes and sources. This comparison leaves the individual contributions of the triangulation, source neighborhood and discrete heat kernel open.

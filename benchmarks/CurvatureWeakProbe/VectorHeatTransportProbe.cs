@@ -14,22 +14,25 @@ internal static class VectorHeatTransportProbe
         }
     }
 
-    public static void RunTimeSweep()
+    public static void RunTimeSweep(bool icosphere = false)
     {
         Console.WriteLine("schedule resolution h-mean factor vector-cap-rms-deg vector-far-rms-deg scalar-rms scalar-max vector-actual-factor");
-        foreach (int resolution in new[] { 9, 17, 33, 65 }) {
-            var mesh = new Sphere3Generator_NormalizedCube { Radius = 1, EdgeVertices = resolution }.Generate().MakeDMesh();
+        foreach (int resolution in icosphere ? new[] { 2, 3, 4, 5 } : new[] { 9, 17, 33, 65 }) {
+            DMesh3 mesh = icosphere ? IcosphereFixture.Make(resolution)
+                : new Sphere3Generator_NormalizedCube { Radius = 1, EdgeVertices = resolution }.Generate().MakeDMesh();
+            int source = icosphere ? 0 : FindNorthPole(mesh);
             double h = new IntrinsicTriangulation(mesh).MeanEdgeLength;
             foreach (var (schedule, factor) in new[] { ("default", 1.0), ("fourfold", 4.0), ("linear", 0.5 / h) })
-                Measure(mesh, resolution, true, factor, schedule);
+                Measure(mesh, resolution, true, factor, schedule, source);
         }
     }
 
     private static void Measure(DMesh3 mesh, int resolution, bool intrinsicDelaunay,
-        double timeFactor = 1, string schedule = null)
+        double timeFactor = 1, string schedule = null, int? sourceVertex = null)
     {
-        Vector3d north = Vector3d.AxisZ, initial = Vector3d.AxisX;
-        int source = FindNorthPole(mesh);
+        int source = sourceVertex ?? FindNorthPole(mesh);
+        Vector3d north = mesh.GetVertex(source).Normalized;
+        Vector3d initial = (Vector3d.AxisX - north.x * north).Normalized;
 
         var heat = new VectorHeatMethod(mesh) { IntrinsicDelaunay = intrinsicDelaunay, TimeFactor = timeFactor };
         var triangulation = heat.Triangulation;
