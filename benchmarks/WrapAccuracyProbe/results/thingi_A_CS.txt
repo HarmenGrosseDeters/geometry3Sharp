@@ -1,0 +1,16 @@
+<dataset>/raw_meshes/37384.stl
+<dataset>/raw_meshes/270456.stl
+<dataset>/raw_meshes/124042.stl
+<dataset>/raw_meshes/189404.stl
+<dataset>/raw_meshes/124038.stl
+<dataset>/raw_meshes/40602.stl
+<dataset>/raw_meshes/1120775.stl
+<dataset>/raw_meshes/159695.stl
+<dataset>/raw_meshes/49900.stl
+<dataset>/raw_meshes/225936.stl
+<dataset>/raw_meshes/48123.stl
+<dataset>/raw_meshes/1722415.stl
+<dataset>/raw_meshes/77476.stl
+<dataset>/raw_meshes/441722.stl
+<dataset>/raw_meshes/135803.stl
+<dataset>/raw_meshes/1514495.stl
