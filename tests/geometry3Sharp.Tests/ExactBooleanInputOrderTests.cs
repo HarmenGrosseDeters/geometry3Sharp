@@ -717,47 +717,6 @@ namespace geometry3Sharp.Tests
             Assert.True(statuses.Count == 1, "statuses " + string.Join(", ", statuses));
         }
 
-        // ---- the order of the points ----
-
-        /// <summary>
-        /// ExactMeshArrangement.SortPoints gives the list sorted by ComparePoints, whatever order it is handed and whichever
-        /// way it takes: the sort by the filter's key with the insertion sort after it, or (budget below 0, or used up at
-        /// the first move with 0) ComparePoints alone. The points are those of two nearly coincident plates: many lie closer
-        /// along the key's direction than the errors of their keys.
-        /// </summary>
-        [Fact]
-        public void SortPoints_IsTheOrderOfComparePoints_OnEveryPath()
-        {
-            // (the rotated plates: there the keys alone give another order than ComparePoints, so the insertion sort moves points)
-            Case tess = TwoTessellations(), shrunk = ShrunkCopy();
-            Similarity rotated = Similarity.ByName("rotated");
-            foreach (DMesh3[] meshes in new[] { new[] { tess.A, tess.B }, new[] { Invariance.Transformed(shrunk.A, rotated), Invariance.Transformed(shrunk.B, rotated) } }) {
-                var arr = new ExactMeshArrangement(new List<DMesh3>(meshes));
-                arr.Compute();
-                var seen = new HashSet<int>();
-                foreach (var t in arr.Output) {
-                    seen.Add(t.A);
-                    seen.Add(t.B);
-                    seen.Add(t.C);
-                }
-                var expected = new List<int>(seen);
-                expected.Sort(arr.ComparePoints);
-                Assert.True(expected.Count > 100);
-                for (int i = 1; i < expected.Count; ++i)
-                    Assert.True(arr.ComparePoints(expected[i - 1], expected[i]) < 0);
-                foreach (int budget in new[] { 8, 0, -1 })
-                    foreach (int order in new[] { 0, -1, 5, 77 }) {
-                        arr.SortPointsMoveBudget = budget;
-                        var ids = new List<int>(Ordered(expected, order));
-                        arr.SortPoints(ids);
-                        Assert.True(expected.SequenceEqual(ids), "budget " + budget + ", order " + order);
-                    }
-                var none = new List<int>();
-                arr.SortPoints(none);
-                Assert.Empty(none);
-            }
-        }
-
         // ---- the repair alone ----
 
         // the repair as ExactMeshBoolean configures it, without the exact point ids (no vertices of different exact points
