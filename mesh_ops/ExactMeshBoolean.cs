@@ -457,6 +457,14 @@ namespace g3
         /// intersections; vertices of different exact points that the rounding put at one position are, until the repair
         /// separates them). False with Status Success means that defects remain (Rounding.RemainingIntersections,
         /// RemainingDegenerate, RemainingFalseContacts).
+        /// It says nothing about the orientation of the components: a closed sliver of the exact result whose thickness is below
+        /// the resolution of its coordinates can come out of the rounding inside out (the volume of its doubles is negative). It
+        /// meets nothing and has no degenerate triangle, so RoundingClean is true, and MeshRobustRepair.NotCleanReason(Result)
+        /// says "inside-out components". The repair removes such a residue only where it is tiny and enclosed by nothing, and only
+        /// when it ran its removal at all (it found or edited something); a thin one is kept, because it may be a real foil with
+        /// the wrong orientation (MeshRoundingRepair.remove_tiny_components, #1067). Seen at coarse coordinates (eg millimetre
+        /// parts at UTM coordinates) and with inputs a few units in the last place apart
+        /// (docs/research/EXACT_BOOLEAN_FUZZ_2026-11.md, section 5.1). Where the orientation matters, check NotCleanReason too.
         /// </summary>
         public bool RoundingClean { get { return Rounding != null && Rounding.IsClean; } }
 
