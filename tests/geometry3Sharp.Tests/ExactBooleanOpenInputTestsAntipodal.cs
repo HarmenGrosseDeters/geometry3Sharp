@@ -49,7 +49,7 @@ namespace geometry3Sharp.Tests
 
         static ExactMeshBoolean Run(DMesh3 a, DMesh3 b, Ops op, int maxSegments)
         {
-            var r = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AntipodalMaxBoundarySegments = maxSegments };
+            var r = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true, AntipodalMaxBoundarySegments = maxSegments };
             Assert.True(r.Compute(), r.Error);
             return r;
         }
@@ -94,7 +94,7 @@ namespace geometry3Sharp.Tests
             // (the comparison on the pieces themselves: without the flat-region simplification and the rounding repair,
             // which retriangulate around changed pieces, every result triangle is an arrangement piece rounded to doubles)
             Func<int, ExactMeshBoolean> raw = (max) => {
-                var r = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AntipodalMaxBoundarySegments = max,
+                var r = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true, AntipodalMaxBoundarySegments = max,
                     SimplifyFlatRegions = false, SafeRounding = false };
                 Assert.True(r.Compute(), r.Error);
                 return r;
@@ -258,7 +258,7 @@ namespace geometry3Sharp.Tests
             // the repair of a result that does not round clean, as this soup's with its ulp-wide slivers, moves vertices by up
             // to its own bound, 1.2e-8 of the area here since #755; the plain rounding moves each vertex by at most half an
             // ulp, so the same exact solid gives the same area within a few 1e-13, and 1e-9 separates a classification change)
-            var byDefault = new ExactMeshBoolean(new DMesh3(soup), new DMesh3(b), Ops.Intersection) { RecordOpenWinding = true, SafeRounding = false };
+            var byDefault = new ExactMeshBoolean(new DMesh3(soup), new DMesh3(b), Ops.Intersection) { AllowOpenMeshes = true, RecordOpenWinding = true, SafeRounding = false };
             Assert.True(byDefault.Compute(), byDefault.Error);
             Assert.True(byDefault.OpenBoundarySegments[0] >= 1000 && byDefault.OpenBoundarySegments[0] < 20000);
             // (both: the soup and B, open at its cap)
@@ -269,20 +269,20 @@ namespace geometry3Sharp.Tests
             Assert.True(Invariance.AllFinite(byDefault.Result));
             // (the welded sphere is closed: exact winding numbers; the soup's Antipodal values give the same surface up to the
             // ulp gaps between its triangles)
-            var welded = new ExactMeshBoolean(new DMesh3(closed), new DMesh3(b), Ops.Intersection) { SafeRounding = false };
+            var welded = new ExactMeshBoolean(new DMesh3(closed), new DMesh3(b), Ops.Intersection) { AllowOpenMeshes = true, SafeRounding = false };
             Assert.True(welded.Compute(), welded.Error);
             Assert.True(Math.Abs(Invariance.Area(welded.Result) - Invariance.Area(byDefault.Result)) <= 1e-9 * Invariance.Area(welded.Result),
                 $"{Invariance.Area(byDefault.Result)} for {Invariance.Area(welded.Result)}");
             // (fast winding numbers for both, as for an input above the cap: their far field misreads pieces next to the
             // surface, 0.4 % more area here)
-            var fwn = new ExactMeshBoolean(new DMesh3(soup), new DMesh3(b), Ops.Intersection) { AntipodalMaxBoundarySegments = Fwn, SafeRounding = false };
+            var fwn = new ExactMeshBoolean(new DMesh3(soup), new DMesh3(b), Ops.Intersection) { AllowOpenMeshes = true, AntipodalMaxBoundarySegments = Fwn, SafeRounding = false };
             Assert.True(fwn.Compute(), fwn.Error);
             Assert.True(Math.Abs(Invariance.Area(welded.Result) - Invariance.Area(fwn.Result)) > 1e-3 * Invariance.Area(welded.Result));
             // (at the cap, here set to the soup's own count instead of 20000 to keep the test small, as the former default of
             // 1000 did: the soup goes to fast winding numbers, B, below the cap, stays with Antipodal; plainly rounded, that
             // gives the welded sphere's area as well here, the far field of the soup alone does not misread a piece; the
             // 6e-8 measured before with SafeRounding was the repair's, not the classification's)
-            var capped = new ExactMeshBoolean(new DMesh3(soup), new DMesh3(b), Ops.Intersection) { AntipodalMaxBoundarySegments = byDefault.OpenBoundarySegments[0], SafeRounding = false };
+            var capped = new ExactMeshBoolean(new DMesh3(soup), new DMesh3(b), Ops.Intersection) { AllowOpenMeshes = true, AntipodalMaxBoundarySegments = byDefault.OpenBoundarySegments[0], SafeRounding = false };
             Assert.True(capped.Compute(), capped.Error);
             Assert.Equal(1, capped.Counts["antipodal_meshes"]);
             Assert.True(Math.Abs(Invariance.Area(welded.Result) - Invariance.Area(capped.Result)) <= 1e-9 * Invariance.Area(welded.Result),
@@ -313,10 +313,10 @@ namespace geometry3Sharp.Tests
             // goes to Antipodal
             DMesh3 a = Sphere(Vector3d.Zero, 0.6), b = Sphere(CenterB, 2);
             // (no cap by default, owner 2026-11-12 option A; the switch stays for tests)
-            Assert.Equal(int.MaxValue, new ExactMeshBoolean(a, b, Ops.Union).AntipodalMaxTriangles);
-            Assert.Equal(20000, new ExactMeshBoolean(a, b, Ops.Union).AntipodalMaxBoundarySegments);
+            Assert.Equal(int.MaxValue, new ExactMeshBoolean(a, b, Ops.Union) { AllowOpenMeshes = true }.AntipodalMaxTriangles);
+            Assert.Equal(20000, new ExactMeshBoolean(a, b, Ops.Union) { AllowOpenMeshes = true }.AntipodalMaxBoundarySegments);
             ExactMeshBoolean fwn = Run(a, b, Ops.Intersection, Fwn);
-            var capped = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), Ops.Intersection) { AntipodalMaxTriangles = a.TriangleCount };
+            var capped = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), Ops.Intersection) { AllowOpenMeshes = true, AntipodalMaxTriangles = a.TriangleCount };
             Assert.True(capped.Compute(), capped.Error);
             Assert.Equal(0, capped.Counts["antipodal_meshes"]);
             Assert.Equal(-2, capped.OpenBoundarySegments[0]);
@@ -325,7 +325,7 @@ namespace geometry3Sharp.Tests
             // (open: A's hole stays inside B; non-empty and finite)
             Assert.True(capped.Result.TriangleCount > 0);
             Assert.True(Invariance.AllFinite(capped.Result));
-            var under = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), Ops.Intersection) { AntipodalMaxTriangles = a.TriangleCount + 1 };
+            var under = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), Ops.Intersection) { AllowOpenMeshes = true, AntipodalMaxTriangles = a.TriangleCount + 1 };
             Assert.True(under.Compute(), under.Error);
             Assert.Equal(1, under.Counts["antipodal_meshes"]);
             Assert.Equal(ExactMeshBoolean.BoundarySegments(a).Length / 2, under.OpenBoundarySegments[0]);
@@ -480,7 +480,7 @@ namespace geometry3Sharp.Tests
             int[][] first = null;
             int ties = 0;
             for (int seed = 1; seed <= 24; ++seed) {
-                var r = new ExactMeshBoolean(new DMesh3(disk), new DMesh3(ball), Ops.Union) { RecordOpenWinding = true, Seed = seed };
+                var r = new ExactMeshBoolean(new DMesh3(disk), new DMesh3(ball), Ops.Union) { AllowOpenMeshes = true, RecordOpenWinding = true, Seed = seed };
                 Assert.True(r.Compute(), r.Error);
                 Assert.Equal(1, r.Counts["antipodal_meshes"]);
                 Assert.True(r.Result.TriangleCount > 0);
@@ -537,7 +537,7 @@ namespace geometry3Sharp.Tests
             for (int run = 0; run < 3; ++run)
                 Assert.Equal("", Invariance.Difference(serial.Result, Run(a, b, Ops.Difference, Antipodal).Result));
             // the same instance twice, and after a closed operand
-            var op = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), Ops.Difference) { AntipodalMaxBoundarySegments = Antipodal };
+            var op = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), Ops.Difference) { AllowOpenMeshes = true, AntipodalMaxBoundarySegments = Antipodal };
             Assert.True(op.Compute());
             Assert.True(op.Compute());
             Assert.Equal("", Invariance.Difference(serial.Result, op.Result));

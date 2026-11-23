@@ -514,11 +514,11 @@ namespace geometry3Sharp.Tests
             };
             foreach (var c in cases) {
                 foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {
-                    var exact = new ExactMeshBoolean(c.Item1, c.Item2, op);
+                    var exact = new ExactMeshBoolean(c.Item1, c.Item2, op) { AllowOpenMeshes = true };
                     // (both paths for meshes without exact winding numbers: fast winding numbers, and the Antipodal Method,
                     // which a mesh with no boundary segments takes by default; the coplanar case has stacks)
-                    var gen = new ExactMeshBoolean(c.Item1, c.Item2, op) { ForceGeneralizedWinding = true, AntipodalMaxBoundarySegments = 0 };
-                    var ant = new ExactMeshBoolean(c.Item1, c.Item2, op) { ForceGeneralizedWinding = true };
+                    var gen = new ExactMeshBoolean(c.Item1, c.Item2, op) { AllowOpenMeshes = true, ForceGeneralizedWinding = true, AntipodalMaxBoundarySegments = 0 };
+                    var ant = new ExactMeshBoolean(c.Item1, c.Item2, op) { AllowOpenMeshes = true, ForceGeneralizedWinding = true };
                     Assert.True(exact.Compute() && gen.Compute() && ant.Compute());
                     Assert.False(gen.ExactWindingA || gen.ExactWindingB);
                     Assert.Equal(0, gen.Counts["antipodal_meshes"]);
@@ -683,7 +683,7 @@ namespace geometry3Sharp.Tests
                 open.RemoveTriangle(tid, true, false);
             Assert.False(ExactMeshBoolean.IsWindingClosed(open));
             DMesh3 inner = Box(0.5, 0.5, 0.25, 1.5, 1.5, 0.75);
-            var boolean = new ExactMeshBoolean(inner, open, Ops.Intersection);
+            var boolean = new ExactMeshBoolean(inner, open, Ops.Intersection) { AllowOpenMeshes = true };
             Assert.True(boolean.Compute(), boolean.Error);
             Assert.True(boolean.ExactWindingA);
             Assert.False(boolean.ExactWindingB);

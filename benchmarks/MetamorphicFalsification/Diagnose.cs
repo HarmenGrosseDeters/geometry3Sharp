@@ -14,7 +14,7 @@ static class Diagnose
         string refSig = null; int n = 0, same = 0;
         for (int k = 600; k <= 800; k += 4) {
             var x = new Program.Xf { Scale = Math.Pow(2, k) };
-            var s = new ExactMeshBoolean(x.Apply(Mesh(av, t)), x.Apply(Mesh(bv, t)), ExactMeshBoolean.Operations.Difference); bool ok = s.Compute();
+            var s = new ExactMeshBoolean(x.Apply(Mesh(av, t)), x.Apply(Mesh(bv, t)), ExactMeshBoolean.Operations.Difference) { AllowOpenMeshes = true }; bool ok = s.Compute();
             string sg = ok ? Program.Sig(s.Result, x) : "failed"; refSig ??= sg; ++n; if (sg == refSig) ++same;
         }
         Console.WriteLine($"#710 in-range variant (corner 2^-30): scales 2^600 .. 2^800 step 4 (cube from 2^-139 to 2^61): {same} of {n} bit-identical to 2^600");
@@ -41,11 +41,11 @@ static class Diagnose
             double[][] av = { new[]{a0,a0,a0}, new[]{a1,a0,a0}, new[]{a1,a1,a0}, new[]{a0,a1,a0}, new[]{a0,a0,a1}, new[]{a1,a0,a1}, new[]{a1,a1,a1}, new[]{a0,a1,a1} };
             double[][] bv = { new[]{a0,a0,a0}, new[]{a1,a0,a0}, corner, new[]{3.944355863141785E-223, 4.8088722167071076E-223, a0}, new[]{a0,a0,a1}, new[]{a1,a0,a1}, new[]{a1, 4.700807672511442E-223, 4.700807672511442E-223}, new[]{3.944355863141785E-223, 4.8088722167071076E-223, 4.8088722167071076E-223} };
             var sigs = new Dictionary<string, string>();
-            { var x0 = new Program.Xf { Scale = Math.Pow(2, 740) }; var s0 = new ExactMeshBoolean(x0.Apply(Mesh(av, t)), x0.Apply(Mesh(bv, t)), ExactMeshBoolean.Operations.Difference); s0.Compute(); sigs["2^740 sym0"] = Program.Sig(s0.Result, x0); }
+            { var x0 = new Program.Xf { Scale = Math.Pow(2, 740) }; var s0 = new ExactMeshBoolean(x0.Apply(Mesh(av, t)), x0.Apply(Mesh(bv, t)), ExactMeshBoolean.Operations.Difference) { AllowOpenMeshes = true }; s0.Compute(); sigs["2^740 sym0"] = Program.Sig(s0.Result, x0); }
             foreach (int k in new[] { 0, 700, 740, 760 })
                 foreach (var sy in new[] { 0, 1, 7, 3 }) {
                     var x = new Program.Xf { Name = $"2^{k} sym{sy}", Scale = Math.Pow(2, k), Sym = sy };
-                    var s = new ExactMeshBoolean(x.Apply(Mesh(av, t)), x.Apply(Mesh(bv, t)), ExactMeshBoolean.Operations.Difference); bool ok = s.Compute();
+                    var s = new ExactMeshBoolean(x.Apply(Mesh(av, t)), x.Apply(Mesh(bv, t)), ExactMeshBoolean.Operations.Difference) { AllowOpenMeshes = true }; bool ok = s.Compute();
                     string sg = ok ? Program.Sig(s.Result, x) : "failed"; sigs[x.Name] = sg;
                     Console.WriteLine($"#710 {name,-27} {x.Name,-14} ok={ok} tris={s.Result?.TriangleCount} outsideRange={(s.Counts.TryGetValue("rounding_outside_range", out var o) ? o : -1)} roundingClean={s.RoundingClean} sameAs[2^740 sym0]={sg == sigs.GetValueOrDefault("2^740 sym0")}");
                 }

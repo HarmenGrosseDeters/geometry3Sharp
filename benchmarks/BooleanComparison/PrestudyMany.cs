@@ -251,7 +251,7 @@ static class PrestudyMany
 
     static DMesh3 Op(DMesh3 a, DMesh3 b, ExactMeshBoolean.Operations o, ref long roundingMs, ref int notClean)
     {
-        var op = new ExactMeshBoolean(a, b, o);
+        var op = new ExactMeshBoolean(a, b, o) { AllowOpenMeshes = true };
         if (op.Compute() == false) throw new Exception(op.Error);
         roundingMs += op.PhaseMilliseconds.TryGetValue("rounding", out long rm) ? rm : 0;
         if (op.RoundingClean == false) notClean++;
@@ -264,8 +264,8 @@ static class PrestudyMany
         DMesh3 w2 = new DMesh3(w1);
         MeshTransforms.Translate(w2, new Vector3d(0.3, 0.2, 0.1));
         for (int k = 0; k < 3; ++k) {
-            new ExactMeshBoolean(w1, w2, ExactMeshBoolean.Operations.Difference).Compute();
-            new ExactMeshBoolean(new[] { w1, w2 }, ExactMeshBoolean.Operations.Union).Compute();
+            new ExactMeshBoolean(w1, w2, ExactMeshBoolean.Operations.Difference) { AllowOpenMeshes = true }.Compute();
+            new ExactMeshBoolean(new[] { w1, w2 }, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true }.Compute();
         }
     }
 
@@ -319,7 +319,7 @@ static class PrestudyMany
             var meshes = new List<DMesh3> { a };
             meshes.AddRange(list);
             Gc();
-            var op = new ExactMeshBoolean(meshes, ExactMeshBoolean.Operations.Difference);
+            var op = new ExactMeshBoolean(meshes, ExactMeshBoolean.Operations.Difference) { AllowOpenMeshes = true };
             var sw = Stopwatch.StartNew();
             op.Compute();
             op.PhaseMilliseconds["total"] = sw.ElapsedMilliseconds;
@@ -380,7 +380,7 @@ static class PrestudyMany
         for (int rep = 0; rep < repeat; ++rep)
         foreach (bool cull in new[] { false, true }) {
             Gc();
-            var o = new ExactMeshBoolean(meshes, op) { CullOutsideA = cull };
+            var o = new ExactMeshBoolean(meshes, op) { AllowOpenMeshes = true, CullOutsideA = cull };
             var sw = Stopwatch.StartNew();
             o.Compute();
             string k = cull ? "cull" : "base";
@@ -405,7 +405,7 @@ static class PrestudyMany
             foreach (bool cull in new[] { false, true }) {
                 gParallel.SerialOnThisThread = true;
                 try {
-                    var o = new ExactMeshBoolean(meshes, op) { CullOutsideA = cull };
+                    var o = new ExactMeshBoolean(meshes, op) { AllowOpenMeshes = true, CullOutsideA = cull };
                     o.Compute();
                     row[(cull ? "cull" : "base") + "_serial_equal"] = Hash(o.Result) == Hash(results[cull]);
                 } finally {
@@ -456,7 +456,7 @@ static class PrestudyMany
         string[] arrPhases = { "setup", "intersections", "merge", "triangulation" };
         string[] later = { "classification", "simplify", "assembly", "rounding", "input" };
         Func<DMesh3, DMesh3, Dictionary<string, long>> run = (x, y) => {
-            var op = new ExactMeshBoolean(x, y, ExactMeshBoolean.Operations.Intersection);
+            var op = new ExactMeshBoolean(x, y, ExactMeshBoolean.Operations.Intersection) { AllowOpenMeshes = true };
             var sw = Stopwatch.StartNew();
             op.Compute();
             var ph = new Dictionary<string, long>(op.PhaseMilliseconds) { ["total"] = sw.ElapsedMilliseconds };
@@ -508,7 +508,7 @@ static class PrestudyMany
         DMesh3 a; List<DMesh3> bs;
         Workload(kind, n, seed, size, out a, out bs);
         Warm();
-        Func<int, DMesh3> one = (i) => { var b = new ExactMeshBoolean(a, bs[i], op); b.Compute(); return b.Result; };
+        Func<int, DMesh3> one = (i) => { var b = new ExactMeshBoolean(a, bs[i], op) { AllowOpenMeshes = true }; b.Compute(); return b.Result; };
         var variants = new Dictionary<string, Func<DMesh3[]>> {
             ["separate_serial"] = () => Enumerable.Range(0, n).Select(one).ToArray(),
             ["separate_parallel"] = () => { var r = new DMesh3[n]; Parallel.For(0, n, (i) => r[i] = one(i)); return r; },
@@ -554,7 +554,7 @@ static class PrestudyMany
         DMesh3 a; List<DMesh3> bs;
         Workload(kind, n, seed, size, out a, out bs);
         Warm();
-        for (int i = 0; i < Math.Min(n, 3); ++i) new ExactMeshBoolean(a, bs[i], op).Compute();
+        for (int i = 0; i < Math.Min(n, 3); ++i) new ExactMeshBoolean(a, bs[i], op) { AllowOpenMeshes = true }.Compute();
         string grid0 = null;
         int same = 0;
         var grids = new HashSet<string>();
@@ -562,7 +562,7 @@ static class PrestudyMany
         var saved = keys.ToDictionary(k => k, k => 0L);
         long total = 0;
         for (int i = 0; i < n; ++i) {
-            var b = new ExactMeshBoolean(a, bs[i], op);
+            var b = new ExactMeshBoolean(a, bs[i], op) { AllowOpenMeshes = true };
             var sw = Stopwatch.StartNew();
             b.Compute();
             total += sw.ElapsedMilliseconds;
@@ -605,7 +605,7 @@ static class PrestudyMany
             DMesh3 result = null;
             try {
                 if (variant == "onepass") {
-                    var op = new ExactMeshBoolean(new[] { a }.Concat(bs), pred);
+                    var op = new ExactMeshBoolean(new[] { a }.Concat(bs), pred) { AllowOpenMeshes = true };
                     if (op.Compute() == false) throw new Exception(op.Error);
                     result = op.Result; roundings = 1;
                     roundingMs = op.PhaseMilliseconds.TryGetValue("rounding", out long rm) ? rm : 0;
@@ -617,7 +617,7 @@ static class PrestudyMany
                     result = a;
                     foreach (DMesh3 b in bs) { result = Op(result, b, ExactMeshBoolean.Operations.Difference, ref roundingMs, ref notClean); roundings++; }
                 } else if (variant == "twostep") {
-                    var u = new ExactMeshBoolean(bs, ExactMeshBoolean.Operations.Union);
+                    var u = new ExactMeshBoolean(bs, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true };
                     if (u.Compute() == false) throw new Exception(u.Error);
                     if (u.RoundingClean == false) notClean++;
                     roundingMs += u.PhaseMilliseconds.TryGetValue("rounding", out long rm) ? rm : 0;
@@ -713,7 +713,7 @@ static class PrestudyMany
             var notClean = new int[n];
             var sw = Stopwatch.StartNew();
             Action<int> one = (i) => {
-                var op = new ExactMeshBoolean(a, bs[i], ExactMeshBoolean.Operations.Intersection);
+                var op = new ExactMeshBoolean(a, bs[i], ExactMeshBoolean.Operations.Intersection) { AllowOpenMeshes = true };
                 if (op.Compute() == false) throw new Exception(op.Error);
                 results[i] = op.Result; phases[i] = op.PhaseMilliseconds; notClean[i] = op.RoundingClean ? 0 : 1;
             };
@@ -746,7 +746,7 @@ static class PrestudyMany
             Dictionary<string, long> ph = null;
             for (int k = 0; k < 5; ++k) {
                 var sw = Stopwatch.StartNew();
-                var op = new ExactMeshBoolean(a, far, ExactMeshBoolean.Operations.Intersection);
+                var op = new ExactMeshBoolean(a, far, ExactMeshBoolean.Operations.Intersection) { AllowOpenMeshes = true };
                 op.Compute();
                 times.Add(sw.ElapsedMilliseconds); ph = op.PhaseMilliseconds;
             }

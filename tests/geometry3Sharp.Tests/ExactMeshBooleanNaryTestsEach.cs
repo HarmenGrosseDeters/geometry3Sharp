@@ -52,9 +52,12 @@ namespace geometry3Sharp.Tests
             return list;
         }
 
+        // (the bodies include an open one: stated for every boolean, as AllowOpenMeshes is false by default)
+        static readonly Action<ExactMeshBoolean> Open = (b) => b.AllowOpenMeshes = true;
+
         static DMesh3 Separate(DMesh3 a, DMesh3 b, Ops op, Action<ExactMeshBoolean> configure = null)
         {
-            var s = new ExactMeshBoolean(a, b, op);
+            var s = new ExactMeshBoolean(a, b, op) { AllowOpenMeshes = true };
             configure?.Invoke(s);
             s.Compute();
             return s.Result;
@@ -70,7 +73,7 @@ namespace geometry3Sharp.Tests
             foreach (int n in new[] { Math.Max(2 * Environment.ProcessorCount, 6), 2 }) {
                 List<DMesh3> bodies = Bodies(n, 3);
                 var status = new Status[bodies.Count];
-                DMesh3[] each = op == Ops.Intersection ? ExactMeshBoolean.IntersectEach(a, bodies, null, status) : ExactMeshBoolean.DifferenceEach(a, bodies, null, status);
+                DMesh3[] each = op == Ops.Intersection ? ExactMeshBoolean.IntersectEach(a, bodies, Open, status) : ExactMeshBoolean.DifferenceEach(a, bodies, Open, status);
                 Assert.Equal(bodies.Count, each.Length);
                 for (int i = 0; i < bodies.Count; ++i) {
                     Assert.Equal(Status.Success, status[i]);
@@ -90,12 +93,12 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 a = A();
             List<DMesh3> bodies = Bodies(5, 4);
-            Action<ExactMeshBoolean> raw = (b) => { b.SafeRounding = false; b.SimplifyFlatRegions = false; };
+            Action<ExactMeshBoolean> raw = (b) => { b.AllowOpenMeshes = true; b.SafeRounding = false; b.SimplifyFlatRegions = false; };
             DMesh3[] each = ExactMeshBoolean.IntersectEach(a, bodies, raw);
             for (int i = 0; i < bodies.Count; ++i)
                 Assert.Equal("", Invariance.Difference(Separate(a, bodies[i], Ops.Intersection, raw), each[i]));
             // (and it matters: without simplification the results have more triangles)
-            DMesh3[] plain = ExactMeshBoolean.IntersectEach(a, bodies);
+            DMesh3[] plain = ExactMeshBoolean.IntersectEach(a, bodies, Open);
             Assert.True(Enumerable.Range(0, bodies.Count).Sum(i => each[i].TriangleCount) > Enumerable.Range(0, bodies.Count).Sum(i => plain[i].TriangleCount));
         }
 
@@ -109,7 +112,7 @@ namespace geometry3Sharp.Tests
             a.ReverseTriOrientation(a.TriangleIndices().Skip(10).First());
             List<DMesh3> bodies = Bodies(4, 5);
             foreach (Ops op in new[] { Ops.Intersection, Ops.Difference }) {
-                DMesh3[] each = op == Ops.Intersection ? ExactMeshBoolean.IntersectEach(a, bodies) : ExactMeshBoolean.DifferenceEach(a, bodies);
+                DMesh3[] each = op == Ops.Intersection ? ExactMeshBoolean.IntersectEach(a, bodies, Open) : ExactMeshBoolean.DifferenceEach(a, bodies, Open);
                 for (int i = 0; i < bodies.Count; ++i)
                     Assert.Equal("", Invariance.Difference(Separate(a, bodies[i], op), each[i]));
             }
@@ -123,7 +126,7 @@ namespace geometry3Sharp.Tests
             nonFinite.SetVertex(0, new Vector3d(double.NaN, 1, 0.5));
             var bodies = new List<DMesh3> { Box(1, 1, 0.5, 2, 2, 2), null, nonFinite };
             var status = new Status[3];
-            DMesh3[] each = ExactMeshBoolean.IntersectEach(a, bodies, null, status);
+            DMesh3[] each = ExactMeshBoolean.IntersectEach(a, bodies, Open, status);
             Assert.Equal(Status.Success, status[0]);
             Assert.NotNull(each[0]);
             Assert.Equal(Status.InvalidInput, status[1]);
@@ -137,8 +140,8 @@ namespace geometry3Sharp.Tests
             DMesh3[] none = ExactMeshBoolean.DifferenceEach(badA, bodies.Take(1).Concat(bodies.Take(1)).ToList(), null, s2);
             Assert.All(s2, s => Assert.Equal(Status.InvalidInput, s));
             Assert.All(none, r => Assert.Null(r));
-            Assert.Throws<ArgumentNullException>(() => ExactMeshBoolean.IntersectEach(a, null));
-            Assert.Throws<ArgumentException>(() => ExactMeshBoolean.IntersectEach(a, bodies, null, new Status[1]));
+            Assert.Throws<ArgumentNullException>(() => ExactMeshBoolean.IntersectEach(a, null, Open));
+            Assert.Throws<ArgumentException>(() => ExactMeshBoolean.IntersectEach(a, bodies, Open, new Status[1]));
         }
 
         [Fact]
@@ -170,12 +173,12 @@ namespace geometry3Sharp.Tests
             DMesh3[] serial;
             gParallel.SerialOnThisThread = true;
             try {
-                serial = ExactMeshBoolean.IntersectEach(a, bodies);
+                serial = ExactMeshBoolean.IntersectEach(a, bodies, Open);
             } finally {
                 gParallel.SerialOnThisThread = false;
             }
             for (int run = 0; run < 2; ++run) {
-                DMesh3[] p = ExactMeshBoolean.IntersectEach(a, bodies);
+                DMesh3[] p = ExactMeshBoolean.IntersectEach(a, bodies, Open);
                 for (int i = 0; i < bodies.Count; ++i)
                     Assert.Equal("", Invariance.Difference(serial[i], p[i]));
             }
@@ -184,7 +187,7 @@ namespace geometry3Sharp.Tests
             foreach (Similarity sim in Similarity.All()) {
                 DMesh3 ta = Invariance.Transformed(a, sim);
                 List<DMesh3> tb = bodies.Take(4).Select(b => Invariance.Transformed(b, sim)).ToList();
-                DMesh3[] each = ExactMeshBoolean.IntersectEach(ta, tb);
+                DMesh3[] each = ExactMeshBoolean.IntersectEach(ta, tb, Open);
                 for (int i = 0; i < tb.Count; ++i) {
                     Assert.True(Invariance.Difference(Separate(ta, tb[i], Ops.Intersection), each[i]) == "", $"{sim} body {i}");
                     if (sim.IsExact)

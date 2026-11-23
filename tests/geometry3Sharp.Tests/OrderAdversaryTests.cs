@@ -279,12 +279,12 @@ namespace geometry3Sharp.Tests
             DMesh3 box = Box(new Vector3d(-1.2, -1.1, -0.9), new Vector3d(0.3, 0.6, 1.1));
             DMesh3 twisted = Sphere(new Vector3d(0, 0, 0), 1, 8);
             MeshEditor.Append(twisted, Sphere(new Vector3d(0.6, 0.2, 0.1), 0.8, 7));
-            DMesh3 union = AssertOrderIndependent(() => Boolean(() => new ExactMeshBoolean(twisted, box, ExactMeshBoolean.Operations.Union)));
+            DMesh3 union = AssertOrderIndependent(() => Boolean(() => new ExactMeshBoolean(twisted, box, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true }));
             ResultChecks.AssertClosed(union);
             // an open input: generalized winding numbers
             DMesh3 open = Sphere(new Vector3d(-0.2, 0.1, 0), 0.9, 7);
             open.RemoveTriangle(open.TriangleIndices().First());
-            DMesh3 cut = AssertOrderIndependent(() => Boolean(() => new ExactMeshBoolean(open, box, ExactMeshBoolean.Operations.Intersection)));
+            DMesh3 cut = AssertOrderIndependent(() => Boolean(() => new ExactMeshBoolean(open, box, ExactMeshBoolean.Operations.Intersection) { AllowOpenMeshes = true }));
             Assert.True(cut.TriangleCount > 0 && Invariance.AllFinite(cut));
         }
 

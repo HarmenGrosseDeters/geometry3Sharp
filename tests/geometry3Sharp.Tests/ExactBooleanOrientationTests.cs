@@ -127,13 +127,13 @@ namespace geometry3Sharp.Tests
             DMesh3 cavity = Box(Vector3d.One, 2 * Vector3d.One);
             cavity.ReverseOrientation();
             MeshEditor.Append(outer, cavity);       // one mesh of two shells: winding number 0 in the cavity
-            var b = new ExactMeshBoolean(outer, new DMesh3(), ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
+            var b = new ExactMeshBoolean(outer, new DMesh3(), ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true, Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(b.Compute(), b.Error);
             Assert.Equal(0, b.ReorientedTriangles);
             AssertOriented(b.Result, 27 - 1);
             DMesh3 open = Box(Vector3d.Zero, Vector3d.One);
             open.RemoveTriangle(0);
-            var c = new ExactMeshBoolean(open, new DMesh3(), ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
+            var c = new ExactMeshBoolean(open, new DMesh3(), ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true, Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(c.Compute(), c.Error);
             Assert.Equal(0, c.ReorientedTriangles);
         }
@@ -203,7 +203,7 @@ namespace geometry3Sharp.Tests
             m.AppendTriangle(m.AppendVertex(a), m.AppendVertex(b), m.AppendVertex(0.5 * (a + b) + n));
             m.AppendTriangle(m.AppendVertex(b), m.AppendVertex(a), m.AppendVertex(0.5 * (a + b) + 1.5 * n));
             MeshEditor.Append(m, Soup(box));
-            var op = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
+            var op = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true, Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(op.Compute(), op.Error);
             Assert.Equal(1, op.ReorientedTriangles);
             Assert.Equal(0, SameDirectionEdges(op.Result));
@@ -230,7 +230,7 @@ namespace geometry3Sharp.Tests
                 m.AppendTriangle(m.AppendVertex(at(i, 0)), m.AppendVertex(at(i, 1)), m.AppendVertex(at(i + 1, 1)));
                 m.AppendTriangle(m.AppendVertex(at(i, 0)), m.AppendVertex(at(i + 1, 1)), m.AppendVertex(at(i + 1, 0)));
             }
-            var op = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
+            var op = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true, Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(op.Compute(), op.Error);
             Assert.Equal(0, op.ReorientedTriangles);
         }
@@ -338,7 +338,7 @@ namespace geometry3Sharp.Tests
             Index3i e = box.GetTriangle(0);
             Vector3d a = box.GetVertex(e.a), b = box.GetVertex(e.b);
             m.AppendTriangle(m.AppendVertex(a), m.AppendVertex(b), m.AppendVertex(0.5 * (a + b)));
-            var op = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
+            var op = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true, Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(op.Compute(), op.Error);
             Assert.Equal(1, op.ReorientedTriangles);
             AssertOriented(op.Result, 1);

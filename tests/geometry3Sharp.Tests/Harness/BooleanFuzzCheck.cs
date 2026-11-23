@@ -75,8 +75,8 @@ namespace geometry3Sharp.Tests
         static ExactMeshBoolean Make(IList<DMesh3> meshes, Ops op, Func<int[], bool> predicate)
         {
             List<DMesh3> copies = meshes.Select(m => new DMesh3(m)).ToList();
-            if (predicate != null) return new ExactMeshBoolean(copies, predicate);
-            return copies.Count == 2 ? new ExactMeshBoolean(copies[0], copies[1], op) : new ExactMeshBoolean(copies, op);
+            if (predicate != null) return new ExactMeshBoolean(copies, predicate) { AllowOpenMeshes = true };
+            return copies.Count == 2 ? new ExactMeshBoolean(copies[0], copies[1], op) { AllowOpenMeshes = true } : new ExactMeshBoolean(copies, op) { AllowOpenMeshes = true };
         }
 
         /// <summary> an exact run (no SafeRounding, exact vertices); null with a failure if it does not succeed or its result is not a closed surface </summary>

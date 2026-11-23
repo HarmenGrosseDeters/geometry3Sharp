@@ -101,7 +101,7 @@ namespace geometry3Sharp.Tests
             // winding numbers), touching boxes (split edges)
             DMesh3 box = Box(new Vector3d(-1.2, -1.1, -0.9), new Vector3d(0.3, 0.6, 1.1));
             DMesh3 sphere = Sphere(new Vector3d(-0.6, -0.5, 0.2), 0.7, 6);
-            AssertSerialEqualsParallel(() => new ExactMeshBoolean(box, sphere, ExactMeshBoolean.Operations.Difference) { ComputeExactVertices = true });
+            AssertSerialEqualsParallel(() => new ExactMeshBoolean(box, sphere, ExactMeshBoolean.Operations.Difference) { AllowOpenMeshes = true, ComputeExactVertices = true });
             var boxes = new List<DMesh3>();
             for (int i = 0; i < 2; ++i)
                 for (int j = 0; j < 2; ++j)
@@ -109,16 +109,16 @@ namespace geometry3Sharp.Tests
                         boxes.Add(Box(new Vector3d(0.9 * i, 0.9 * j, 0.9 * k), new Vector3d(0.9 * i + 1, 0.9 * j + 1, 0.9 * k + 1)));
                         boxes.Add(Box(new Vector3d(0.9 * i + 0.25, 0.9 * j + 0.25, 0.9 * k + 0.25), new Vector3d(0.9 * i + 0.75, 0.9 * j + 0.75, 0.9 * k + 0.75)));
                     }
-            AssertSerialEqualsParallel(() => new ExactMeshBoolean(boxes, (w) => w.Where((x, m) => m % 2 == 0 && x > 0).Any() && w.Where((x, m) => m % 2 == 1 && x > 0).Any() == false));
+            AssertSerialEqualsParallel(() => new ExactMeshBoolean(boxes, (w) => w.Where((x, m) => m % 2 == 0 && x > 0).Any() && w.Where((x, m) => m % 2 == 1 && x > 0).Any() == false) { AllowOpenMeshes = true });
             DMesh3 twisted = Sphere(new Vector3d(0, 0, 0), 1, 8);
             MeshEditor.Append(twisted, Sphere(new Vector3d(0.6, 0.2, 0.1), 0.8, 7));
-            AssertSerialEqualsParallel(() => new ExactMeshBoolean(twisted, box, ExactMeshBoolean.Operations.Union));
+            AssertSerialEqualsParallel(() => new ExactMeshBoolean(twisted, box, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true });
             DMesh3 open = Sphere(new Vector3d(-0.2, 0.1, 0), 0.9, 7);
             open.RemoveTriangle(open.TriangleIndices().First());
-            AssertSerialEqualsParallel(() => new ExactMeshBoolean(open, box, ExactMeshBoolean.Operations.Intersection));
+            AssertSerialEqualsParallel(() => new ExactMeshBoolean(open, box, ExactMeshBoolean.Operations.Intersection) { AllowOpenMeshes = true });
             var touching = new List<DMesh3>() { Box(new Vector3d(0, 0, 0), new Vector3d(1, 1, 1)), Box(new Vector3d(1, 1, -0.2), new Vector3d(2, 2, 1.3)),
                 Sphere(new Vector3d(1.05, 0.93, 0.5), 0.15, 5) };
-            AssertSerialEqualsParallel(() => new ExactMeshBoolean(touching, ExactMeshBoolean.Operations.Union));
+            AssertSerialEqualsParallel(() => new ExactMeshBoolean(touching, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true });
         }
 
         [Theory]

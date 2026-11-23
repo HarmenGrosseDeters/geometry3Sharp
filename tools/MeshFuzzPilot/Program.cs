@@ -423,7 +423,7 @@ public static partial class Program
         }
         if (c.Op <= 2) {
             var op = c.Op == 0 ? ExactMeshBoolean.Operations.Union : c.Op == 1 ? ExactMeshBoolean.Operations.Intersection : ExactMeshBoolean.Operations.Difference;
-            var b = new ExactMeshBoolean(c.A, c.B, op);
+            var b = new ExactMeshBoolean(c.A, c.B, op) { AllowOpenMeshes = true };
             bool ok = b.Compute();
             bool closed = c.A.IsClosed() && c.B.IsClosed();
             CheckBoolean(what, ok, b.Status, b.Result, b.RoundingClean, b.Contacts, b.NonManifoldTriangles, b.ConflictEdges, inputsClosed: closed);

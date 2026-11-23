@@ -246,7 +246,7 @@ namespace geometry3Sharp.Tests
 
         static ExactMeshBoolean Run(DMesh3 a, DMesh3 b, ExactMeshBoolean.Operations op, bool exactVertices = false)
         {
-            var eb = new ExactMeshBoolean(a, b, op) { ComputeExactVertices = exactVertices };
+            var eb = new ExactMeshBoolean(a, b, op) { AllowOpenMeshes = true, ComputeExactVertices = exactVertices };
             Assert.True(eb.Compute(), eb.Error);
             Assert.True(eb.Result.CheckValidity(true, FailMode.ReturnOnly));
             return eb;
@@ -270,7 +270,7 @@ namespace geometry3Sharp.Tests
             yield return ("open sphere - box", () => Run(open, box, ExactMeshBoolean.Operations.Intersection));
             // (the per-patch evaluation of the open mesh without the traced one: the patch joins are collected for it, in the order of the sorted edges)
             yield return ("open per-patch sphere - box", () => {
-                var eb = new ExactMeshBoolean(open, box, ExactMeshBoolean.Operations.Union) { TracedOpenWinding = false };
+                var eb = new ExactMeshBoolean(open, box, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true, TracedOpenWinding = false };
                 Assert.True(eb.Compute(), eb.Error);
                 Assert.True(eb.Result.CheckValidity(true, FailMode.ReturnOnly));
                 return eb;
@@ -376,7 +376,7 @@ namespace geometry3Sharp.Tests
             WithBlocks(1, 64, () => {
                 DMesh3 box = Box(new Vector3d(-1.2, -1.1, -0.9), new Vector3d(0.3, 0.6, 1.1));
                 DMesh3 sphere = Sphere(new Vector3d(-0.6, -0.5, 0.2), 0.7, 12);
-                var eb = new ExactMeshBoolean(box, sphere, ExactMeshBoolean.Operations.Difference);
+                var eb = new ExactMeshBoolean(box, sphere, ExactMeshBoolean.Operations.Difference) { AllowOpenMeshes = true };
                 Assert.True(eb.Compute(), eb.Error);
                 string a = Structure(eb.Result);
                 Assert.True(eb.Compute(), eb.Error);
@@ -384,7 +384,7 @@ namespace geometry3Sharp.Tests
                 // (and another operation on the instance, against a fresh one)
                 eb.Operation = ExactMeshBoolean.Operations.Union;
                 Assert.True(eb.Compute(), eb.Error);
-                var fresh = new ExactMeshBoolean(box, sphere, ExactMeshBoolean.Operations.Union);
+                var fresh = new ExactMeshBoolean(box, sphere, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true };
                 Assert.True(fresh.Compute(), fresh.Error);
                 Assert.Equal(Structure(fresh.Result), Structure(eb.Result));
             });

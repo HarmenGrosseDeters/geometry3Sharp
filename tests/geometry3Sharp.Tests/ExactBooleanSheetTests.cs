@@ -1295,7 +1295,7 @@ namespace geometry3Sharp.Tests
         {
             // an open solid next to the cube (classified by generalized winding numbers): its per-piece record is kept only with RecordOpenWinding
             foreach (bool record in new[] { false, true }) {
-                var op = new ExactMeshBoolean(new[] { Box(0, 0, 0, 1, 1, 1), Cup(0.25, 0.25, 1.25, 0.75, true) }, Ops.Difference) { RecordOpenWinding = record };
+                var op = new ExactMeshBoolean(new[] { Box(0, 0, 0, 1, 1, 1), Cup(0.25, 0.25, 1.25, 0.75, true) }, Ops.Difference) { AllowOpenMeshes = true, RecordOpenWinding = record };
                 Assert.True(op.Compute(), op.Error);
                 Assert.Equal(record, op.OpenWindingPerPiece != null);
                 Assert.True(op.PhaseMilliseconds.ContainsKey("classification.open_us"));
@@ -1617,7 +1617,7 @@ namespace geometry3Sharp.Tests
 
         static ExactMeshBoolean Plain(Ops op, params DMesh3[] meshes)
         {
-            var b = new ExactMeshBoolean(meshes, op);
+            var b = new ExactMeshBoolean(meshes, op) { AllowOpenMeshes = true };
             Assert.True(b.Compute(), b.Error);
             return b;
         }
@@ -1628,7 +1628,7 @@ namespace geometry3Sharp.Tests
         public void OpenWithoutEffect_ASheetWithoutARole_CutsNothing_AndIsListed()
         {
             DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
-            Assert.Empty(new ExactMeshBoolean(cube, Plate(0.5, -1, 2, -1, 2), Ops.Difference).OpenInputsWithoutEffect);      // before Compute()
+            Assert.Empty(new ExactMeshBoolean(cube, Plate(0.5, -1, 2, -1, 2), Ops.Difference) { AllowOpenMeshes = true }.OpenInputsWithoutEffect);      // before Compute()
             foreach (bool up in new[] { true, false }) {
                 ExactMeshBoolean b = Plain(Ops.Difference, cube, Plate(0.5, -1, 2, -1, 2, up, 2));
                 Assert.Equal(1.0, Volume(b.Result), 12);        // the silent case: Success, the cube unchanged
@@ -1795,7 +1795,7 @@ namespace geometry3Sharp.Tests
             // (the scale is not finite), after the classification, and the list is empty with the failed status
             DMesh3 rod = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(1e300, 1, 1)) }.Generate().MakeDMesh();
             DMesh3 plate = Plate(5, -1, 2, -1, 2);
-            var b = new ExactMeshBoolean(rod, plate, Ops.Union);
+            var b = new ExactMeshBoolean(rod, plate, Ops.Union) { AllowOpenMeshes = true };
             Assert.True(b.Compute(), b.Error);
             Assert.Equal(new[] { 1 }, b.OpenInputsWithoutEffect);
             b.StrictRounding = true;
@@ -1809,7 +1809,7 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 cube = Box(0, 0, 0, 1, 1, 1), plate = Plate(0.5, -1, 2, -1, 2);
             int calls = 0;
-            var b = new ExactMeshBoolean(new[] { cube, plate }, w => { ++calls; return w[0] > 0 && w[1] <= 0; });
+            var b = new ExactMeshBoolean(new[] { cube, plate }, w => { ++calls; return w[0] > 0 && w[1] <= 0; }) { AllowOpenMeshes = true };
             Assert.True(b.Compute(), b.Error);
             Assert.Equal(1.0, Volume(b.Result), 12);
             Assert.Empty(b.OpenInputsWithoutEffect);
@@ -1820,7 +1820,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void OpenWithoutEffect_Reuse_ComputeTwice_AndAfterAChangedTool()
         {
-            var b = new ExactMeshBoolean(Box(0, 0, 0, 1, 1, 1), Plate(0.5, -1, 2, -1, 2), Ops.Difference);
+            var b = new ExactMeshBoolean(Box(0, 0, 0, 1, 1, 1), Plate(0.5, -1, 2, -1, 2), Ops.Difference) { AllowOpenMeshes = true };
             Assert.True(b.Compute(), b.Error);
             Assert.Equal(new[] { 1 }, b.OpenInputsWithoutEffect);
             string first = Fingerprint(b.Result);

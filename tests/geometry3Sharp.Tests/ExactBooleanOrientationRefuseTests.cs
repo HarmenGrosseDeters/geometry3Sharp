@@ -121,7 +121,7 @@ namespace geometry3Sharp.Tests
             var b = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), open, D) { AllowOpenMeshes = false };
             Assert.False(b.Compute());
             Assert.Equal(ExactMeshBoolean.BooleanStatus.OpenInput, b.Status);
-            var withOpen = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), open, D);
+            var withOpen = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), open, D) { AllowOpenMeshes = true };
             Assert.True(withOpen.Compute(), withOpen.Error);
             Assert.True(withOpen.ReorientedTriangles > 0);
             Assert.True(Invariance.AllFinite(withOpen.Result));
@@ -188,7 +188,7 @@ namespace geometry3Sharp.Tests
             DMesh3 tool = FlippedCube(3);
             int a = tool.AppendVertex(new Vector3d(10, 10, 10)), b = tool.AppendVertex(new Vector3d(11, 10, 10)), c = tool.AppendVertex(new Vector3d(10, 11, 10));
             tool.AppendTriangle(a, b, c);
-            var op = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), tool, D);
+            var op = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), tool, D) { AllowOpenMeshes = true };
             Assert.True(op.AllowOpenMeshes);
             Assert.False(op.Compute());
             Assert.Equal(ExactMeshBoolean.BooleanStatus.InconsistentOrientation, op.Status);
