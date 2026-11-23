@@ -316,7 +316,10 @@ namespace g3
                 if (sidex == sidey && sidex != 0)
                     continue; // both pts on same side
 
-                IntrSegment2Segment2 intr = new IntrSegment2Segment2(new Segment2d(x, y), new Segment2d(a, b));
+                // (the tolerance route of IntrSegment2Segment2: the side tests above use tol, the vertices are snapped with VertexSnapTol,
+                // and edges that are collinear within DotThreshold must count as one; an IntervalThreshold above 0 selects it)
+                // (IntervalThreshold = double.Epsilon selects the tolerance route, here only as the selector: upstream used 0, which now means the exact route)
+                IntrSegment2Segment2 intr = new IntrSegment2Segment2(new Segment2d(x, y), new Segment2d(a, b)) { IntervalThreshold = double.Epsilon };
                 if ( intr.Find() ) {
                     hits.Add(new Intersection() {
                         eid = eid, sidex = sidex, sidey = sidey, intr = intr

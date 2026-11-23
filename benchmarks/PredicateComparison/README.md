@@ -46,6 +46,35 @@ What the numbers show:
 - On these pairs the exact path is 4-40 times slower, most for `Find()`: its contact points come from BigInteger determinants.
 - In general position the new route test costs about 0.1-0.2 µs per pair: the normals, the distances to the plane, and rarely an `Orient3d`.
 
+### Exact decision for every pair (2026-11-22)
+
+`IntrTriangle3Triangle3` decides every non-degenerate pair with `ExactTriangleIntersection` (the `TriangleTriangleFilter` in
+front where `nearly_planar`), no longer only coplanar, nearly parallel and near-plane ones; `Find()` of a general crossing
+computes its two end points from the crossing edges in floating point after exact sign tests. Run 22 November 2026, 4 cores,
+`dotnet run -c Release -- triangles`, master `1c7f093a` (before) against the branch (after), two runs each, ns per pair
+`Test()` / `Intersects()` / `Find()`:
+
+| family | before (2 runs) | after (2 runs) |
+|---|---|---|
+| slivers, shared vertex | 612 / 308 / 5711, 624 / 307 / 5699 | 603 / 345 / 5958, 584 / 235 / 5959 |
+| slivers, shared edge | 507 / 259 / 3224, 493 / 258 / 3406 | 477 / 203 / 3426, 477 / 195 / 3417 |
+| half-integer lattice | 576 / 333 / 6013, 579 / 507 / 5956 | 530 / 302 / 6036, 540 / 307 / 6089 |
+| oblique planes | 988 / 518 / 5847, 723 / 512 / 5755 | 690 / 489 / 5839, 671 / 491 / 5994 |
+| tilted within 1e-8 | 432 / 358 / 4375, 438 / 360 / 4425 | 374 / 321 / 4466, 390 / 337 / 4644 |
+| general position | 321 / 249 / 499, 328 / 246 / 499 | 186 / 133 / 280, 231 / 167 / 298 |
+
+The general-position row is the common case of the AABB tree queries: `Test()` 35-45 % and `Intersects()` 32-47 % faster
+(the exact test is cheaper than the floating-point separating axes plus the route test they needed), `Find()` about 40 %.
+The oblique-planes `Test()` is 5-30 % faster; the other special families are within the noise (about 5 %).
+
+Contact points rounded once (22 November 2026, same machine): `Find()` of a generic crossing selects its end points with exact signs and computes
+their coordinates with certified double-word arithmetic (exact fallback, docs/design/TRI3TRI3_DOUBLE_WORD.md). `Find()` on 20000 hit pairs,
+`Stopwatch` per call (median / p90): random mesh-like 759 / 923 ns (master) against 952 / 1632 ns, axis-aligned lattice 894 / 1098 ns against 1034 / 11088 ns
+(4.8 % of the lattice points need the exact route, 3.2 us each; none of the random ones). Whole operations, 3 alternating rounds each, medians:
+`MeshMeshCutContactBenchmark` (`RefuseContact = false`, `Compute()`), 4332 / 18252 / 74892 triangles: master 15.3 / 21.1 / 62.1 ms, now 13.2 / 21.4 / 56.8 ms;
+`DMeshAABBTree3.FindAllIntersections` of two offset spheres (344 / 704 / 1428 contacts): master 5.5-6.1 ms, now 4.9-6.5 ms (noise of the shared container, about 15 %;
+no slowdown).
+
 ### With `TriangleTriangleFilter` in the exact route
 
 The exact route's closed test (`exact_intersects`) runs `TriangleTriangleFilter` (an axis projection decided with the

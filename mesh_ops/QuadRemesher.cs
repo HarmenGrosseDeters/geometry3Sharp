@@ -69,8 +69,10 @@ namespace gs
     ///
     /// Pure quads (opt-in, PureQuads = true): after the extraction the integer offsets of the position field are repaired (a flow
     /// for the regularity, subdivision, local SAT; QuadFlowRepair, QUAD_REMESHING.md stage 3B) and a mesh of quads only is
-    /// extracted. It is used only if every check passes; otherwise Result is the quad-dominant mesh of stage 2 and PureQuadStatus
-    /// says which check failed (never silent).
+    /// extracted. If a check fails, the repair is tried once more with the fixed variables of the flow freed (the edges whose cycle
+    /// has a holonomy take the value of a relaxation first; QUAD_REMESHING.md 4.4d). A pure-quad mesh is used only if every check
+    /// passes; otherwise Result is the quad-dominant mesh of stage 2 and PureQuadStatus says which check of the first attempt failed
+    /// (never silent).
     /// </summary>
     public class QuadRemesher
     {
@@ -147,11 +149,14 @@ namespace gs
         /// Off (default): Result is the quad-dominant mesh of stage 2, bit for bit as without this option. On: the pure-quad repair
         /// runs after the stage 2 extraction; if it passes every check (in this order: the flow completes, the repair stays in its
         /// budget, no triangle of the integer map is inverted (exact), the extracted mesh is a manifold of quads only, no quad is flipped)
-        /// Result is the mesh of quads only and PureQuadStatus is Success. If a check fails, Result is the stage 2 mesh,
+        /// Result is the mesh of quads only and PureQuadStatus is Success. If a check fails, the attempt is repeated once with the fixed
+        /// variables of its flow freed (internal, QUAD_REMESHING.md 4.4d), and the mesh of that second attempt is used if it passes every
+        /// check. If both fail, Result is the stage 2 mesh,
         /// identical to PureQuads = false, Status is still Success (a failed pure-quad attempt is not a failed remeshing) and
-        /// PureQuadStatus names the first failed check. Closed meshes only (a mesh with a boundary gives FlowInfeasible). The attempt succeeds on some meshes only (on shapes with long sharp
+        /// PureQuadStatus names the first failed check of the first attempt (the counters and area ratios are the first attempt's too). Closed meshes only (a mesh with a boundary gives FlowInfeasible). The attempt succeeds on some meshes only (on shapes with long sharp
         /// features or strong curvature changes the integer map often has folds that the repair does not remove): test
-        /// PureQuadStatus. Costs a few times the stage 2 time (QUAD_REMESHING.md, stage 3B).
+        /// PureQuadStatus. Costs a few times the stage 2 time when the first attempt succeeds; an input that needs the second attempt costs
+        /// about twice the attempt more (5 to 20 times the stage 2 time on the gate runs; QUAD_REMESHING.md, stage 3B and 4.4d).
         /// </summary>
         public bool PureQuads = false;
         /// <summary> the outcome of the pure-quad attempt of the last Compute(): NotRequested when PureQuads is false </summary>
@@ -170,6 +175,11 @@ namespace gs
         internal bool SignPenalty = true;
         /// <summary> the last pure-quad attempt (profile and offsets for tests and benchmarks) </summary>
         internal QuadFlowRepair PureQuadRepair;
+        /// <summary> test and benchmark hook: false skips the second pure-quad attempt (the behaviour before it existed) </summary>
+        internal bool PureQuadRetry = true;
+        /// <summary> of the last Compute(): the status of the first pure-quad attempt, and whether the second attempt ran (PureQuadRepair is the attempt that is reported) </summary>
+        internal PureQuadStatus PureQuadFirstStatus = PureQuadStatus.NotRequested;
+        internal bool PureQuadRetried;
 
         public QuadRemeshStatus Status = QuadRemeshStatus.Success;
         public string Error;
@@ -177,20 +187,81 @@ namespace gs
         public DPolyMesh Result;
         /// <summary> seconds of the last Compute(): the cross field (0 if given), the position field, the extraction with its cleanup </summary>
         public double FieldSeconds, PositionSeconds, ExtractSeconds;
-        /// <summary> the position field of the last run (for inspection) </summary>
+        /// <summary>
+        /// the position field of the last Compute(). For a mesh whose longest edge is outside [1, 2) the remesher runs on a copy scaled by a
+        /// power of two (see Compute()): then this field refers to that copy and is in its unit scale, not in the units of Mesh
+        /// (Result is in the units of Mesh)
+        /// </summary>
         public PositionField Positions;
 
         public QuadRemesher(DMesh3 mesh) { Mesh = mesh; }
 
         public bool Success { get { return Status == QuadRemeshStatus.Success; } }
 
+        /// <summary>
+        /// Runs the remesher. The mesh is processed in a unit scale (#1377): a copy with the coordinates times 2^-k, k the binary
+        /// exponent of the longest edge, so that a mesh scaled by 2^j gives the same quads bit for bit at every scale and the fourth
+        /// powers of the parameterization stay in the double range; Result, SizeFunction and TargetEdgeLength are in the units of the mesh.
+        /// Not for a mesh with edge lengths more than 2^200 apart (InvalidInput), nor with a given Field or Frames (they belong to Mesh):
+        /// those run in the units of the mesh as before. Positions and the pure-quad repair refer to the scaled copy.
+        /// </summary>
         public QuadRemeshStatus Compute()
+        {
+            if (Mesh != null && Mesh.TriangleCount > 0 && Field == null && Frames == null && TargetEdgeLength > 0 && !double.IsInfinity(TargetEdgeLength)) {
+                if (IntrinsicTriangulation.HasEdgeDisparity(Mesh)) {
+                    ResetResults();
+                    return Fail(QuadRemeshStatus.InvalidInput, "edge lengths more than 2^200 apart");
+                }
+                int k = IntrinsicTriangulation.EdgeExponent(Mesh);
+                if (k != 0) return ComputeScaled(k);
+            }
+            return ComputeCore();
+        }
+
+        QuadRemeshStatus ComputeScaled(int k)
+        {
+            DMesh3 caller = Mesh;
+            double target = TargetEdgeLength;
+            Func<Vector3d, double> size = SizeFunction;
+            var scaled = new DMesh3(caller);
+            foreach (int vid in caller.VertexIndices()) {
+                Vector3d p = caller.GetVertex(vid);
+                scaled.SetVertex(vid, new Vector3d(ExactPoint3.ScaleB(p.x, -k), ExactPoint3.ScaleB(p.y, -k), ExactPoint3.ScaleB(p.z, -k)));
+            }
+            double targetU = ExactPoint3.ScaleB(target, -k);
+            if (!(targetU > 0)) {
+                ResetResults();
+                return Fail(QuadRemeshStatus.InvalidInput, "TargetEdgeLength is below the range of the mesh");
+            }
+            Mesh = scaled; TargetEdgeLength = targetU;
+            if (size != null)
+                SizeFunction = p => ExactPoint3.ScaleB(size(new Vector3d(ExactPoint3.ScaleB(p.x, k), ExactPoint3.ScaleB(p.y, k), ExactPoint3.ScaleB(p.z, k))), -k);
+            try {
+                ComputeCore();
+            } finally {
+                Mesh = caller; TargetEdgeLength = target; SizeFunction = size;
+            }
+            if (Result != null)
+                for (int v = 0; v < Result.VertexCount; ++v) {
+                    Vector3d p = Result.GetVertex(v);
+                    Result.SetVertex(v, new Vector3d(ExactPoint3.ScaleB(p.x, k), ExactPoint3.ScaleB(p.y, k), ExactPoint3.ScaleB(p.z, k)));
+                }
+            return Status;
+        }
+
+        // the state of a run that has not started (every result field of the last Compute)
+        void ResetResults()
         {
             Status = QuadRemeshStatus.Success; Error = null; FieldStatus = CrossFieldStatus.Success; Result = null; Positions = null;
             FieldSeconds = PositionSeconds = ExtractSeconds = 0;
             CollapsedEdges = RemovedValence2 = DroppedFaces = 0;
             SizeAdaptationApplied = false; CurlBefore = CurlAfter = SizeSeconds = 0; MinSpacing = MaxSpacing = 1;
-            PureQuadStatus = PureQuadStatus.NotRequested; PureQuadAreaRatio = PureQuadAreaRatioAfterFlow = double.NaN; InvertedTriangles = FlippedQuads = 0; FlowSeconds = RepairSeconds = 0; PureQuadRepair = null;
+            PureQuadStatus = PureQuadFirstStatus = PureQuadStatus.NotRequested; PureQuadRetried = false; PureQuadAreaRatio = PureQuadAreaRatioAfterFlow = double.NaN; InvertedTriangles = FlippedQuads = 0; FlowSeconds = RepairSeconds = 0; PureQuadRepair = null;
+        }
+
+        QuadRemeshStatus ComputeCore()
+        {
+            ResetResults();
             if (Mesh == null || Mesh.TriangleCount == 0) return Fail(QuadRemeshStatus.InvalidInput, "no triangles");
             if (!(TargetEdgeLength > 0) || double.IsInfinity(TargetEdgeLength)) return Fail(QuadRemeshStatus.InvalidInput, "TargetEdgeLength must be positive and finite");
             if (!(CornerAngleDegrees >= 0 && CornerAngleDegrees <= 180)) return Fail(QuadRemeshStatus.InvalidInput, "CornerAngleDegrees must be in [0, 180]");
@@ -238,10 +309,20 @@ namespace gs
             if (PureQuads) {
                 var rep = new QuadFlowRepair(Mesh, cf, pf, TargetEdgeLength) { SignPenalty = SignPenalty };
                 PureQuadRepair = rep;
-                PureQuadStatus = rep.Run();
+                PureQuadStatus = PureQuadFirstStatus = rep.Run();
+                FlowSeconds = rep.FlowSeconds; RepairSeconds = rep.RepairSeconds;
+                // the second attempt, only after a first one that is not Success and whose flow has fixed variables (a mesh with a boundary
+                // or a failed setup has none and would fail the same way): the same repair with the fixed variables of the flow freed
+                // (QuadFlowRepair.FreeFrozenEdges). It is used only if it is Success; otherwise everything reported is the first attempt's
+                if (PureQuadRetry && PureQuadStatus != PureQuadStatus.Success && rep.FrozenEdges > 0) {
+                    var second = new QuadFlowRepair(Mesh, cf, pf, TargetEdgeLength) { SignPenalty = SignPenalty, FreeFrozenEdges = true };
+                    PureQuadRetried = true;
+                    PureQuadStatus secondStatus = second.Run();
+                    FlowSeconds += second.FlowSeconds; RepairSeconds += second.RepairSeconds;
+                    if (secondStatus == PureQuadStatus.Success) { rep = second; PureQuadRepair = second; PureQuadStatus = secondStatus; }
+                }
                 InvertedTriangles = rep.InvertedTriangles; FlippedQuads = rep.FlippedQuads;
                 PureQuadAreaRatio = rep.AreaRatio; PureQuadAreaRatioAfterFlow = rep.AreaRatioAfterFlow;
-                FlowSeconds = rep.FlowSeconds; RepairSeconds = rep.RepairSeconds;
                 if (PureQuadStatus == PureQuadStatus.Success) Result = rep.Result;
             }
             return Status;

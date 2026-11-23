@@ -63,7 +63,7 @@ namespace g3cli
             };
             c.Params.Add(Input("mesh", "mesh file whose deviation is measured"));
             c.Params.Add(Input("reference", "reference mesh file"));
-            c.Params.Add(new Param("sign", ParamType.String, "sign of the distance: pseudo_normal (angle weighted pseudo normals, needs a closed reference), winding_number, unsigned") { Default = "pseudo_normal", Enum = EnumNames<MeshDeviation.Signs>() });
+            c.Params.Add(new Param("sign", ParamType.String, "sign of the distance: pseudo_normal (angle weighted pseudo normals, needs a closed reference), winding_number, exact_winding_number (the exact ray-plus-boundary winding number; not exact on a true triangle soup), unsigned") { Default = "pseudo_normal", Enum = EnumNames<MeshDeviation.Signs>() });
             c.Params.Add(new Param("certified", ParamType.Boolean, "also the certified one-sided Hausdorff distance from mesh to reference (hausdorff_lower_bound, hausdorff_upper_bound)") { Default = false });
             c.Params.Add(new Param("certified_tolerance", ParamType.Number, "absolute tolerance of the certified bound (0 = 1e-4 of the bounding box diagonal)") { Default = 0.0 });
             c.Run = args => {

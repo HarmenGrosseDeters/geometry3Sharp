@@ -34,6 +34,10 @@ namespace gs
     /// The detection is exact: after the repair every offset is a small integer, det(D0, D1) of a triangle is an int, and the
     /// number of triangles with det &lt; 0 is InvertedTriangles; a map with such a triangle is not used. Deterministic: everything
     /// is serial, integer where it counts, with no hash order and no tie of a priority queue in a result.
+    ///
+    /// The second attempt of QuadRemesher (FreeFrozenEdges, QUAD_REMESHING.md 4.4d): in step (2) the fixed variables first take the rounded
+    /// values of the relaxation in which they are free too (a min-cost flow on the doubled network of the bi-directed graph of all
+    /// variables, FreeFixedVariables); the other steps are unchanged.
     /// </summary>
     internal sealed class QuadFlowRepair
     {
@@ -54,6 +58,12 @@ namespace gs
         public int SatMaxAttempts = 20000;
         /// <summary> heap operations of the greedy balancing of the fixed variables (initial pushes and pops plus re-pushes after a move; a count, not a clock; before the heap, edge visits); when it is reached, every fixed variable is set to 0 </summary>
         public long GreedyWorkLimit = 400000000;
+        /// <summary>
+        /// the second attempt of QuadRemesher (after a first attempt that was not Success): before the balancing, the fixed variables (the
+        /// edges whose cycle has a holonomy) take the rounded value of the relaxation in which they are free too (FreeFixedVariables);
+        /// false: they keep the rounded offset of the position field
+        /// </summary>
+        public bool FreeFrozenEdges = false;
 
         public PureQuadStatus Status = PureQuadStatus.NotRequested;
         public int InvertedTriangles, FlippedQuads;
@@ -65,6 +75,10 @@ namespace gs
         public double SetupSeconds, FlowPrepSeconds, FlowNetSeconds, SubdivisionSeconds, GreedySeconds, SatSeconds, PositionSeconds, ExtractSeconds;
         public int Triangles, Splits, FlowArcs, FlowNodes, FlowCapacity, FlowSearches, SatAttempts, SatSolved, SatFailed, GreedyMoves, Cancelled, UnpairedTriangles, BadTriangles, Quads;
         public long FlowSettled, SatDecisions, BalancingWork;
+        /// <summary> the fixed variables of the flow (edges), and with FreeFrozenEdges those whose value the relaxation changed </summary>
+        public int FrozenEdges, FrozenEdgesChanged;
+        /// <summary> FreeFrozenEdges: the relaxation's arcs, Dijkstra searches, settled nodes and seconds (the seconds are part of FlowPrepSeconds) </summary>
+        public int RelaxationArcs, RelaxationSearches; public long RelaxationSettled; public double RelaxationSeconds;
         public bool SatBudgetExhausted;
         /// <summary>
         /// DIAGNOSTIC ONLY (it is not a check: no status depends on it): the lattice area of the integer map over the geometric area of the input, both in
@@ -402,6 +416,8 @@ namespace gs
                 Off d = e.Dv;
                 e.Dv = new Off(Math.Max(-H0, Math.Min(H0, d.X)), Math.Max(-H0, Math.Min(H0, d.Y)));
             }
+            FrozenEdges = unbalEdges.Count;
+            if (FreeFrozenEdges && unbalEdges.Count > 0) FreeFixedVariables(edges, ex, balanced);
             // the components of the network (the balanced edges connect the rows of two triangles)
             int NN = 2 * F;
             var uf = new int[NN]; for (int i = 0; i < NN; ++i) uf[i] = i;
@@ -620,6 +636,94 @@ namespace gs
                 if (e.F1 >= 0) tris[e.F1].D[e.S1] = -Off.Rot(e.Dv, e.M);
             }
             return true;
+        }
+
+        /// <summary>
+        /// The values of the fixed variables from the relaxation with every variable free. With the rows of the rotated equations as
+        /// nodes, each component of each edge has two entries of +1 or -1: of opposite sign for a network variable, of the same sign (or
+        /// across the two rows) for a fixed one, so the whole system is a flow in a bi-directed graph (Edmonds and Johnson 1970). Its
+        /// linear relaxation is an ordinary min-cost flow on the doubled network: every node n has a mirror n + NN with the negated
+        /// excess, and a step of +1 on a component with the entries (a, sa), (b, sb) is the arc from the copy of b that loses to the
+        /// copy of a that gains, together with its mirror arc; half the sum of the two is the value, a multiple of 1/2 (the
+        /// skew-symmetric network of Goldberg and Karzanov 2004). Same step costs as the flow below. The capacity is the start range
+        /// -2..2 and needs no growing: every start value lies in it, and all variables at 0 close every equation, so the relaxation
+        /// always has a full flow, and its values stay in the range. A fixed variable takes its relaxed value, a half going to the
+        /// neighbour nearer to the real offset (a tie: towards the start value); the balancing and the flow that follow see it as the
+        /// start value (any integer values there are valid for them). Serial and integer: deterministic.
+        /// </summary>
+        void FreeFixedVariables(List<Edge> edges, int[] ex, bool[] balanced)
+        {
+            const int H = 2;        // the start range of the variables
+            var swRelax = Stopwatch.StartNew();
+            int F = tris.Count, E = edges.Count, NN = 2 * F;
+            var res = new long[NN];
+            foreach (var e in edges) {
+                Off v0 = Off.Rot(e.Dv, ex[e.F0 * 3 + e.S0]), v1 = Off.Rot(e.Dv, ex[e.F1 * 3 + e.S1]);
+                res[2 * e.F0] += v0.X; res[2 * e.F0 + 1] += v0.Y; res[2 * e.F1] += v1.X; res[2 * e.F1 + 1] += v1.Y;
+            }
+            var net = new MinCostFlow(2 * NN, E * 12);
+            var excess = new int[2 * NN];
+            for (int i = 0; i < NN; ++i) { excess[i] = (int)res[i]; excess[i + NN] = -(int)res[i]; }
+            // per component and copy: the first arc and the number of arcs of the steps up, then of the steps down
+            var first = new int[E * 8]; var count = new int[E * 8];
+            for (int k = 0; k < E; ++k) {
+                var e = edges[k];
+                for (int j = 0; j < 2; ++j) {
+                    RowOf(ex[e.F0 * 3 + e.S0], j, out int ra, out int sa); RowOf(ex[e.F1 * 3 + e.S1], j, out int rb, out int sb);
+                    int a = 2 * e.F0 + ra, b = 2 * e.F1 + rb;
+                    int aGain = sa > 0 ? a : a + NN, aLose = sa > 0 ? a + NN : a, bGain = sb > 0 ? b : b + NN, bLose = sb > 0 ? b + NN : b;
+                    int v = j == 0 ? e.Dv.X : e.Dv.Y;
+                    double r = j == 0 ? e.Rr.Item1 : e.Rr.Item2, rg = j == 0 ? e.Rg.Item1 : e.Rg.Item2;
+                    int capF = H - v, capB = H + v;
+                    for (int copy = 0; copy < 2; ++copy) {
+                        int tail = copy == 0 ? bLose : aLose, head = copy == 0 ? aGain : bGain;
+                        int idx = (2 * k + j) * 4 + copy * 2;
+                        int run = 0, pc = 0;
+                        first[idx] = net.ArcCount * 2;
+                        for (int st = 1; st <= capF; ++st) {
+                            int c = StepCost(v + st - 1, v + st, r, rg);
+                            if (run > 0 && c == pc) run++; else { if (run > 0) { net.AddArc(tail, head, run, pc); count[idx]++; } pc = c; run = 1; }
+                        }
+                        if (run > 0) { net.AddArc(tail, head, run, pc); count[idx]++; }
+                        run = 0;
+                        first[idx + 1] = net.ArcCount * 2;
+                        for (int st = 1; st <= capB; ++st) {
+                            int c = StepCost(v - st + 1, v - st, r, rg);
+                            if (run > 0 && c == pc) run++; else { if (run > 0) { net.AddArc(head, tail, run, pc); count[idx + 1]++; } pc = c; run = 1; }
+                        }
+                        if (run > 0) { net.AddArc(head, tail, run, pc); count[idx + 1]++; }
+                    }
+                }
+            }
+            net.Solve(excess, out _);
+            RelaxationArcs = net.ArcCount; RelaxationSearches = net.Searches; RelaxationSettled = net.Settled;
+            for (int k = 0; k < E; ++k) {
+                if (balanced[k]) continue;
+                var e = edges[k];
+                int nx = e.Dv.X, ny = e.Dv.Y;
+                for (int j = 0; j < 2; ++j) {
+                    int x2 = 0;         // twice the relaxed step
+                    for (int copy = 0; copy < 2; ++copy)
+                        for (int dir = 0; dir < 2; ++dir) {
+                            int idx = (2 * k + j) * 4 + copy * 2 + dir;
+                            for (int i = 0; i < count[idx]; ++i) x2 += dir == 0 ? net.ArcFlow(first[idx] + 2 * i) : -net.ArcFlow(first[idx] + 2 * i);
+                        }
+                    int v = j == 0 ? e.Dv.X : e.Dv.Y;
+                    int nv = RoundHalfStep(v, x2, j == 0 ? e.Rr.Item1 : e.Rr.Item2);
+                    if (j == 0) nx = nv; else ny = nv;
+                }
+                if (nx != e.Dv.X || ny != e.Dv.Y) { FrozenEdgesChanged++; e.Dv = new Off(nx, ny); }
+            }
+            RelaxationSeconds = swRelax.Elapsed.TotalSeconds;
+        }
+
+        /// <summary> v + x2 / 2; a half goes to the neighbour nearer to the real offset r, a tie (or a non-finite r) towards v </summary>
+        internal static int RoundHalfStep(int v, int x2, double r)
+        {
+            if ((x2 & 1) == 0) return v + x2 / 2;
+            int lo = v + (x2 - 1) / 2, hi = lo + 1;         // x2 is odd: (x2 - 1) / 2 is the floor of x2 / 2
+            double dl = Math.Abs(lo - r), dh = Math.Abs(hi - r);
+            return dl < dh ? lo : dh < dl ? hi : (x2 > 0 ? lo : hi);
         }
 
         // ------------------------------------------------------------------------------------------ step 4: subdivision

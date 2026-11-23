@@ -25,6 +25,7 @@ namespace gs
         public Func<double[], double> CombineF;
         public double Iso = 0.5;
         public int MaxEdgeHits = 8;
+        public bool UseExactWinding;
         public Func<bool> CancelF = () => { return false; };
 
         // outputs of ContourAdaptive()
@@ -77,7 +78,14 @@ namespace gs
         /// components (their winding number is -1 inside) and builds the trees and winding number caches.
         /// </summary>
         public WindingContouring(IEnumerable<DMesh3> inputs, Func<double[], double> combineF, double fastWindingBeta)
+            : this(inputs, combineF, fastWindingBeta, false)
         {
+        }
+
+        /// <summary> As above; with useExactWinding the field is the exact ray-plus-boundary winding number (not an optional parameter: the 3-argument signature stays binary compatible) </summary>
+        public WindingContouring(IEnumerable<DMesh3> inputs, Func<double[], double> combineF, double fastWindingBeta, bool useExactWinding)
+        {
+            UseExactWinding = useExactWinding;
             List<DMesh3> meshes = new List<DMesh3>();
             var originals = new List<DMesh3>();
             foreach (DMesh3 m in inputs) {
@@ -89,8 +97,12 @@ namespace gs
             Spatials = new DMeshAABBTree3[Meshes.Length];
             for (int i = 0; i < Meshes.Length; ++i) {
                 Spatials[i] = new DMeshAABBTree3(Meshes[i], true);
-                Spatials[i].FWNBeta = fastWindingBeta;
-                Spatials[i].FastWindingNumber(Vector3d.Zero);   // build the cache once, before parallel use
+                if (useExactWinding) {
+                    Spatials[i].WindingNumber(Vector3d.Zero);   // build exact cache once, before parallel use
+                } else {
+                    Spatials[i].FWNBeta = fastWindingBeta;
+                    Spatials[i].FastWindingNumber(Vector3d.Zero);   // build the cache once, before parallel use
+                }
             }
             CombineF = combineF;
         }
@@ -116,10 +128,15 @@ namespace gs
         public double Field(Vector3d p)
         {
             if (Meshes.Length == 1)
-                return Spatials[0].FastWindingNumber(p);
+                return UseExactWinding ? Spatials[0].WindingNumber(p) : Spatials[0].FastWindingNumber(p);
             double[] w = new double[Meshes.Length];
-            for (int i = 0; i < Meshes.Length; ++i)
-                w[i] = Spatials[i].FastWindingNumber(p);
+            if (UseExactWinding) {
+                for (int i = 0; i < Meshes.Length; ++i)
+                    w[i] = Spatials[i].WindingNumber(p);
+            } else {
+                for (int i = 0; i < Meshes.Length; ++i)
+                    w[i] = Spatials[i].FastWindingNumber(p);
+            }
             return CombineF(w);
         }
 
@@ -147,7 +164,7 @@ namespace gs
         WindingNumberOctree build_octree(double cellSize)
         {
             WindingNumberOctree octree = new WindingNumberOctree(Meshes, Spatials, CombineF) {
-                TargetLeafCellSize = cellSize, WindingIso = Iso, CancelF = CancelF,
+                TargetLeafCellSize = cellSize, WindingIso = Iso, UseExactWinding = UseExactWinding, CancelF = CancelF,
                 GridOffset = new Vector3d(0.1371, 0.2713, 0.3891)
             };
             var timer = System.Diagnostics.Stopwatch.StartNew();
@@ -722,7 +739,7 @@ namespace gs
                 int F = 1 << log2F;
                 timer.Restart();
                 if (newLevel) {
-                    fine = new WindingNumberOctree(Meshes, Spatials, CombineF) { WindingIso = Iso, CancelF = CancelF };
+                    fine = new WindingNumberOctree(Meshes, Spatials, CombineF) { WindingIso = Iso, UseExactWinding = UseExactWinding, CancelF = CancelF };
                     fineOctrees.Add(fine);
                 }
                 fine.RegionF = region_filter(region, F);
@@ -765,7 +782,7 @@ namespace gs
                 int F = 1 << log2F;
                 timer.Restart();
                 if (newLevel) {
-                    fine = new WindingNumberOctree(Meshes, Spatials, CombineF) { WindingIso = Iso, CancelF = CancelF };
+                    fine = new WindingNumberOctree(Meshes, Spatials, CombineF) { WindingIso = Iso, UseExactWinding = UseExactWinding, CancelF = CancelF };
                     fineOctrees.Add(fine);
                 }
                 fine.RegionF = region_filter(region, F);
