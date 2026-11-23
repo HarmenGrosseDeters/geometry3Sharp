@@ -31,6 +31,9 @@ not the milliseconds):
 - [results/sheet-role-pr1223.txt](results/sheet-role-pr1223.txt): the head of PR #1223 (`2f3f33ec`), the same source copied
   into a worktree of that branch.
 - [results/sheet-route-pr1447.txt](results/sheet-route-pr1447.txt): PR #1447 (`1e328f8`, 2026-11-23), the sheet route.
+- [results/open-inputs-without-effect.txt](results/open-inputs-without-effect.txt): `today` on the branch that adds
+  `ExactMeshBoolean.OpenInputsWithoutEffect` (2026-11-23); the last column also prints that list. It names the sheet in the 10
+  cases the volume proxy flags and for the disc inside the cube; not for the bucket (it cuts) and the sheet outside.
 
 ## The pipeline columns since the sheet route (#1447)
 

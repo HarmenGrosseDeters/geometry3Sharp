@@ -315,6 +315,15 @@ The feature-fold check of `Remesher.MinTriangleQuality` (#640, issue #621: a fli
 triangle onto a flat cap without flipping a normal is rejected, by the exact triangle test against the triangles that face away
 around its feature corners): own design, no external source.
 
+The ring check of `Remesher.PreventNormalFlips` / `MinTriangleQuality` (issue #1441: a collapse or flip is rejected if a
+new triangle ends more than 70 degrees from the summed normals of the triangles around the edge, weighted with the
+cosine to its old normal, and farther than before): own design, measured on procedural spheres. It is the stateless counterpart of
+`Reducer.PreventFoldOver` (a reference that the operation does not move, against chains of turns below 90 degrees:
+meshoptimizer issue 346, approach only). The usual test, each triangle against its own normal before the collapse, is
+the one of M. Garland, P. Heckbert, *Surface simplification using quadric error metrics*, SIGGRAPH 1997
+("preventing mesh inversion"; cited from memory, the paper was not opened for this change); the remeshing procedure of
+Botsch and Kobbelt 2004 has no such test. No code read.
+
 `Remesher.TargetEdgeLengthF` / `RemeshSizing.FromWallThickness`: sizing below the local feature size, as in
 isotropic remeshing with a sizing field (Botsch, Kobbelt, Pauly, Alliez, Lévy, *Polygon Mesh Processing*, ch. 6); the
 thickness is `MeshWallThickness`'s inscribed sphere (Ma, Bai, Hu, Kim 2012). Own design otherwise.

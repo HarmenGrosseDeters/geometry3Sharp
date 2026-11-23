@@ -27,7 +27,7 @@ static class Program
         Console.WriteLine("n tris | total ms | setup..merge | triangulation | classification | simplify | rounding | other");
         foreach (int n in sizes.Prepend(sizes[0])) {
             DMesh3 a = Sphere(new Vector3d(0, 0, 0), 1, n), b = Sphere(new Vector3d(0.7, 0.3, 0.2), 0.9, n);
-            var bool_ = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union);
+            var bool_ = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true };
             var sw = Stopwatch.StartNew();
             bool ok = bool_.Compute();
             sw.Stop();
@@ -55,7 +55,7 @@ static class Program
                 ExactMeshImprint last = null;
                 for (int r = 0; r < runs + 1; ++r) {
                     var sw = Stopwatch.StartNew();
-                    var bo = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union);
+                    var bo = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true };
                     bo.Compute();
                     double ms1 = sw.Elapsed.TotalMilliseconds;
                     sw.Restart();

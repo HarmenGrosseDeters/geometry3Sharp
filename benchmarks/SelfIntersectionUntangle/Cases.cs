@@ -25,7 +25,7 @@ static class UCases
 
     static DMesh3 Boolean(DMesh3 a, DMesh3 b, ExactMeshBoolean.Operations op)
     {
-        var x = new ExactMeshBoolean(a, b, op);
+        var x = new ExactMeshBoolean(a, b, op) { AllowOpenMeshes = true };
         if (!x.Compute()) throw new Exception("corpus boolean failed: " + x.Status);
         return x.Result;
     }

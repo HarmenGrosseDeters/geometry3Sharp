@@ -409,7 +409,7 @@ namespace DeterminismHarness
                 string tag = zc.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 t.Add(a, "input-a@" + tag); t.Add(b, "input-b@" + tag);
                 foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {
-                    var boolean = new ExactMeshBoolean(a, b, op) { SafeRounding = safe };
+                    var boolean = new ExactMeshBoolean(a, b, op) { AllowOpenMeshes = true, SafeRounding = safe };
                     string name = op.ToString() + "@" + zc.ToString(System.Globalization.CultureInfo.InvariantCulture);
                     t.Section(name);
                     t.Add(boolean.Compute());
@@ -431,7 +431,7 @@ namespace DeterminismHarness
             var t = new Trace();
             t.Add(a, "input-a"); t.Add(b, "input-b");
             foreach (bool safe in new[] { true, false }) {
-                var boolean = new ExactMeshBoolean(a, b, Ops.Union) { SafeRounding = safe };
+                var boolean = new ExactMeshBoolean(a, b, Ops.Union) { AllowOpenMeshes = true, SafeRounding = safe };
                 t.Section("union-" + safe);
                 t.Add(boolean.Compute());
                 if (boolean.Result != null) t.Add(boolean.Result, "union-" + safe);

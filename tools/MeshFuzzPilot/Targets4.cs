@@ -92,11 +92,11 @@ public static partial class Program
         // (an operand with a coordinate near double.MaxValue: the diagonal overflows and the shifted copy is not finite, which
         // the boolean rightly refuses (crash 1377d9ea of campaign b30-n1-v3), so there is nothing to compare)
         if (!AllFinite(third)) return;
-        var nary = new ExactMeshBoolean(new[] { c.A, c.B, third }, ExactMeshBoolean.Operations.Union) { SafeRounding = false };
+        var nary = new ExactMeshBoolean(new[] { c.A, c.B, third }, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true, SafeRounding = false };
         if (!nary.Compute()) throw new Finding($"{what}: n-ary union Compute() false: {nary.Error}");
-        var first = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union) { SafeRounding = false };
+        var first = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true, SafeRounding = false };
         if (!first.Compute()) throw new Finding($"{what}: pairwise union Compute() false where the n-ary union succeeded: {first.Error}");
-        var chain = new ExactMeshBoolean(first.Result, third, ExactMeshBoolean.Operations.Union) { SafeRounding = false };
+        var chain = new ExactMeshBoolean(first.Result, third, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true, SafeRounding = false };
         if (!chain.Compute()) throw new Finding($"{what}: pairwise chain Compute() false: {chain.Error}");
         double vn = B30Volume(nary.Result, out double an), vc = B30Volume(chain.Result, out double ac);
         double tol = B30VolumeTolerance(1e-9, B30Scale(c.A, c.B, third), an, ac);
@@ -111,14 +111,14 @@ public static partial class Program
         bool serial = gParallel.SerialOnThisThread;
         try {
             gParallel.SerialOnThisThread = true;
-            var s = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union);
+            var s = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true };
             if (!s.Compute()) return;
             DMesh3 sr = new DMesh3(s.Result);
             gParallel.SerialOnThisThread = false;
-            var p = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union);
+            var p = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true };
             if (!p.Compute()) throw new Finding($"{what}: parallel Compute() false where serial succeeded: {p.Error}");
             B30CheckIdentical(what, "serial and parallel union differ", sr, p.Result);
-            var q = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union);
+            var q = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true };
             if (!q.Compute()) throw new Finding($"{what}: second parallel Compute() false where the first succeeded: {q.Error}");
             B30CheckIdentical(what, "two parallel runs differ", p.Result, q.Result);
         } finally { gParallel.SerialOnThisThread = serial; }
@@ -128,13 +128,13 @@ public static partial class Program
     /// gives (state kept from the first call would show only there: the same inputs twice give the same result either way) </summary>
     static void RunReuse(Case c, string what)
     {
-        var op = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Difference);
+        var op = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Difference) { AllowOpenMeshes = true };
         if (!op.Compute()) return;
         DMesh3 first = new DMesh3(op.Result);
         if (!op.Compute()) throw new Finding($"{what}: second Compute() false where the first succeeded: {op.Error}");
         B30CheckIdentical(what, "second Compute() of the same instance differs", first, op.Result);
         op.MeshA = c.B; op.MeshB = c.A; op.Operation = ExactMeshBoolean.Operations.Intersection;
-        var fresh = new ExactMeshBoolean(c.B, c.A, ExactMeshBoolean.Operations.Intersection);
+        var fresh = new ExactMeshBoolean(c.B, c.A, ExactMeshBoolean.Operations.Intersection) { AllowOpenMeshes = true };
         bool okFresh = fresh.Compute(), okReused = op.Compute();
         if (okFresh != okReused) throw new Finding($"{what}: new inputs on a reused instance: Compute() {okReused} ({op.Status}), a fresh instance {okFresh} ({fresh.Status})");
         if (okFresh) B30CheckIdentical(what, "new inputs on a reused instance differ from a fresh instance", fresh.Result, op.Result);
@@ -156,7 +156,7 @@ public static partial class Program
         var clock = System.Diagnostics.Stopwatch.StartNew();
         foreach (var op in new[] { ExactMeshBoolean.Operations.Union, ExactMeshBoolean.Operations.Intersection, ExactMeshBoolean.Operations.Difference }) {
             if (B30OverBudget(clock.Elapsed)) return;
-            var x = new ExactMeshBoolean(a, b, op);
+            var x = new ExactMeshBoolean(a, b, op) { AllowOpenMeshes = true };
             bool ok = x.Compute();
             B30CheckOpenStatus(what, op, x.Status, ok, x.Result != null && (x.Result.TriangleCount == 0 || x.Result.CheckValidity(true, FailMode.ReturnOnly)));
         }
@@ -168,8 +168,8 @@ public static partial class Program
     static void RunRoundingEquivalence(Case c, string what)
     {
         if (!c.A.IsClosed() || !c.B.IsClosed()) return;   // volumes are judged on closed operands only (see RunNary)
-        var plain = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union) { SafeRounding = false };
-        var safe = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union) { SafeRounding = true };
+        var plain = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true, SafeRounding = false };
+        var safe = new ExactMeshBoolean(c.A, c.B, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true, SafeRounding = true };
         bool okP = plain.Compute(), okS = safe.Compute();
         if (!okP || !okS || plain.Result == null || safe.Result == null || !safe.RoundingClean) return;
         double vp = B30Volume(plain.Result, out double ap), vs = B30Volume(safe.Result, out double asf);

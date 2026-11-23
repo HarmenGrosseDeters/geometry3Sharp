@@ -202,7 +202,7 @@ static class Program
 
     static Outcome BooleanOpen(DMesh3 w, DMesh3 s)
     {
-        var op = new ExactMeshBoolean(w, s, ExactMeshBoolean.Operations.Difference);
+        var op = new ExactMeshBoolean(w, s, ExactMeshBoolean.Operations.Difference) { AllowOpenMeshes = true };
         op.Compute();
         return new Outcome { Status = op.Status.ToString() + (op.ConflictEdges > 0 ? " conflict(" + op.ConflictEdges + ")" : ""), Result = op.Result };
     }
@@ -211,11 +211,13 @@ static class Program
     // workpiece's (IntersectingPairs) and a result with the workpiece's volume (exact equality: fine for these dyadic cases only)
     static string NoEffectSignal(DMesh3 w, DMesh3 s)
     {
-        var op = new ExactMeshBoolean(w, s, ExactMeshBoolean.Operations.Difference);
+        var op = new ExactMeshBoolean(w, s, ExactMeshBoolean.Operations.Difference) { AllowOpenMeshes = true };
         if (!op.Compute())
             return op.Status.ToString();
         bool open = !op.ExactWinding[1], unchanged = Volume(op.Result) == Volume(w) && OpenEdges(op.Result) == 0;
-        return "pairs " + op.IntersectingPairs + (open && unchanged ? (op.IntersectingPairs > 0 ? ", unchanged: FLAG" : ", unchanged, no contact") : ", changed");
+        // (the member that came out of the study: the decision of the classification, not the volume proxy)
+        string listed = op.OpenInputsWithoutEffect.Count > 0 ? "; OpenInputsWithoutEffect: " + string.Join(",", op.OpenInputsWithoutEffect) : "; OpenInputsWithoutEffect: none";
+        return "pairs " + op.IntersectingPairs + (open && unchanged ? (op.IntersectingPairs > 0 ? ", unchanged: FLAG" : ", unchanged, no contact") : ", changed") + listed;
     }
 
     static Outcome Pipeline(DMesh3 w, DMesh3 s, SolidBooleanPipeline.InputRepairModes mode)
@@ -303,7 +305,7 @@ static class Program
         var roles = (IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(role));
         roles.Add(Enum.Parse(role, "Solid"));
         roles.Add(Enum.Parse(role, "Sheet"));
-        var op = new ExactMeshBoolean(w, s, ExactMeshBoolean.Operations.Difference);
+        var op = new ExactMeshBoolean(w, s, ExactMeshBoolean.Operations.Difference) { AllowOpenMeshes = true };
         field.SetValue(op, roles);
         if (uncutSide != null) {
             var side = typeof(ExactMeshBoolean).GetField("SheetUncutSide");

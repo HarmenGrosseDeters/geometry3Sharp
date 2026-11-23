@@ -22,8 +22,9 @@ namespace g3
     /// output once.
     ///
     /// The winding numbers are exact for meshes that are closed in the winding number sense (every edge used
-    /// equally often in both directions; non-manifold edges and self-intersections are allowed). For other
-    /// (open) meshes the generalized winding number is used (Jacobson et al. 2013, fast approximation), with the
+    /// equally often in both directions; non-manifold edges and self-intersections are allowed). Other (open) meshes
+    /// are refused by default (AllowOpenMeshes is false: Status OpenInput, unless the mesh has the role Sheet). With
+    /// AllowOpenMeshes for such meshes the generalized winding number is used (Jacobson et al. 2013, fast approximation), with the
     /// solid where it is above 0.5, evaluated at every output piece (it varies within a patch: see Performance of open
     /// inputs below); then the result is generally not closed, also along edges where an open boundary
     /// of an input meets other pieces and the kept pieces run the edge the same way (ConflictEdges). An inside-out mesh (winding
@@ -390,8 +391,13 @@ namespace g3
         public bool SimplifyFlatRegions = true;
         /// <summary> vertices removed by SimplifyFlatRegions </summary>
         public int RemovedVertices;
-        /// <summary> if false, Compute() fails for meshes that are not closed in the winding number sense </summary>
-        public bool AllowOpenMeshes = true;
+        /// <summary>
+        /// false (default): Compute() fails with Status OpenInput for a mesh that is not closed in the winding number sense and has no
+        /// role Sheet (Roles); Error names the meshes. true: such a mesh is classified by the generalized winding number, the solid
+        /// where it is above 1/2 (see the class comment); an open cutting surface then usually cuts nothing, silently
+        /// (OpenInputsWithoutEffect), which is why this is stated by the caller (#1211; the default was true before)
+        /// </summary>
+        public bool AllowOpenMeshes = false;
         /// <summary>
         /// after rounding the vertices to double, repair the self-intersections and degenerate triangles (area below
         /// 1e-12 of the squared diagonal; the diagonal of the result's largest connected component, here and below) the
@@ -499,6 +505,27 @@ namespace g3
         public bool ExactWindingA, ExactWindingB;
         /// <summary> the same for every input mesh (in the order of Meshes, or A, B), after Compute() </summary>
         public bool[] ExactWinding;
+        /// <summary>
+        /// after Compute(): the open inputs (indices as in Meshes, or 0 and 1 for A and B, ascending) that enclose nothing where it would
+        /// count. An input is listed if it is classified by the generalized winding number (ExactWinding false, not a Sheet), the
+        /// result at one of its pieces would depend on it (the operation there is true with the input's winding number 1 and
+        /// false with 0, or the reverse, given the other inputs: for a Difference, a piece of a tool inside the first mesh and outside
+        /// the other tools), and yet the result is the one of an input that encloses nothing: no piece's decision changes when the
+        /// input's winding number is taken as 0. The typical case is an open cutting surface used as the tool of a Difference
+        /// without the role Sheet: its generalized winding number usually stays below 1/2, so it cuts nothing and the result is the
+        /// first mesh, with Status Success (#1211). Each listed input is one that encloses nothing by itself: for the tool of a
+        /// Difference or an operand of a Union the result is the one without it; for an operand of an Intersection or the first mesh
+        /// of a Difference the result is empty. Two listed inputs can still have an effect together (the same open tool given twice:
+        /// either could be left out, not both). Decided with the integers of the classification, no tolerance. An open input that
+        /// changes the result is not listed, also where the change is wrong (pieces kept where its generalized winding number
+        /// crosses 1/2: the result is then usually not closed, which the list does not say): the list does not say that the
+        /// result is right. Empty with a WindingPredicate (not evaluated), when no input is open (so always with the default
+        /// AllowOpenMeshes = false, which refuses such an input), when Compute() fails, and before it
+        /// </summary>
+        public IReadOnlyList<int> OpenInputsWithoutEffect { get { return openWithoutEffect; } }
+        List<int> openWithoutEffect = new List<int>();
+        // the list of the classification of the running Compute(), until it succeeds
+        List<int> classifiedWithoutEffect = new List<int>();
         // for tests: use generalized winding numbers also for closed meshes
         internal bool ForceGeneralizedWinding = false;
         // open meshes with fewer boundary segments than this are classified by the Antipodal Method (an exact ray and a
@@ -639,8 +666,9 @@ namespace g3
         /// parallel over the bodies; a's input check and orientation are done once. Result i is null where that boolean
         /// fails (status[i], if given, says why; a null a fails every boolean with InvalidInput, as a separate boolean
         /// would). configure, if given, is applied to every boolean before it is computed (eg SafeRounding); it runs in
-        /// parallel and must not depend on the order. For a terrain or part against many small bodies most of a lies
-        /// outside each body and is left out of its arrangement (Counts["t3a_culled"]).
+        /// parallel and must not depend on the order. An open a or body is refused with the defaults (status OpenInput, a null
+        /// result; an open a fails every boolean): configure can set AllowOpenMeshes. For a closed terrain solid or part against many
+        /// small bodies most of a lies outside each body and is left out of its arrangement (Counts["t3a_culled"]).
         /// </summary>
         /// <exception cref="ArgumentNullException">bodies is null</exception>
         /// <exception cref="ArgumentException">status is shorter than bodies</exception>
@@ -732,14 +760,20 @@ namespace g3
             };
         }
 
-        /// <summary> union of any number of meshes in one arrangement; null if Compute() fails </summary>
+        /// <summary>
+        /// union of any number of meshes in one arrangement; null if Compute() fails, which with the defaults includes an open mesh
+        /// (AllowOpenMeshes is false; use the constructor to set it)
+        /// </summary>
         public static DMesh3 Union(IEnumerable<DMesh3> meshes)
         {
             var op = new ExactMeshBoolean(meshes, Operations.Union);
             return op.Compute() ? op.Result : null;
         }
 
-        /// <summary> intersection of any number of meshes in one arrangement; null if Compute() fails </summary>
+        /// <summary>
+        /// intersection of any number of meshes in one arrangement; null if Compute() fails, which with the defaults includes an open
+        /// mesh (AllowOpenMeshes is false; use the constructor to set it)
+        /// </summary>
         public static DMesh3 Intersection(IEnumerable<DMesh3> meshes)
         {
             var op = new ExactMeshBoolean(meshes, Operations.Intersection);
@@ -779,6 +813,7 @@ namespace g3
             ReorientedTriangles = Contacts = InsideOutCells = InsideOutUndecided = 0;
             ExactWindingA = ExactWindingB = false;
             ExactWinding = null;
+            openWithoutEffect = new List<int>();
             SheetReason = SheetRefusal.None;
             SheetError = null;
             SheetWitnessMesh = SheetWitnessTriangle = SheetWitnessTriangle2 = -1;
@@ -835,7 +870,7 @@ namespace g3
             }
             sheetRole = sheet;
             if (sheet != null) {
-                if (WindingPredicate != null)
+                if (WindingPredicate is not null)
                     return refuse_sheet(SheetRefusal.WithWindingPredicate, "a sheet cannot be used with a WindingPredicate");
                 if (Operation == Operations.Union)
                     return refuse_sheet(SheetRefusal.InUnion, "a sheet cannot be used in a Union");
@@ -889,7 +924,7 @@ namespace g3
             if (sheet != null && ExactWinding[0] == false)
                 return refuse_sheet(SheetRefusal.WorkpieceNotClosed, "the first mesh (the workpiece of a sheet) must be closed (every edge used equally often in both directions)");
             if (AllowOpenMeshes == false && any_generalized())
-                return fail(BooleanStatus.OpenInput, "input meshes must be closed (every edge used equally often in both directions)");
+                return fail(BooleanStatus.OpenInput, open_input_error());
 
             inputClock.Lap("input");
             if (Cancellation.IsCancellationRequested)
@@ -898,7 +933,7 @@ namespace g3
             // (the built-in Difference and Intersection only: a WindingPredicate may keep points outside the first mesh;
             // the first mesh closed, so that the exact ray decides inside and outside)
             // (Difference: inside the first mesh; Intersection: inside every mesh, so against each closed one, in mesh order)
-            if (CullOutsideA && WindingPredicate == null && (Operation == Operations.Difference || Operation == Operations.Intersection)
+            if (CullOutsideA && WindingPredicate is null && (Operation == Operations.Difference || Operation == Operations.Intersection)
                 && inputs.Count > 1) {
                 var against = new List<int>();
                 for (int m = 0; m < inputs.Count && (m == 0 || Operation == Operations.Intersection); ++m)
@@ -1024,12 +1059,7 @@ namespace g3
                 if (StrictRounding && Rounding.IsClean == false) {
                     Error = string.Format(System.Globalization.CultureInfo.InvariantCulture,
                         "rounding not clean within the bound {0:G3}: {1} intersecting pairs, {2} degenerate triangles, {7} contacts made by the rounding left, eg at {3:R} {4:R} {5:R}; the smallest edit rejected by the bound needed {6:G3}; {8} components kept that the bound took as thin (scale disparity); {10} components removed that their coordinates resolve (still defective, or changed by the repair){9}",
-                        Rounding.MaxLength, Rounding.RemainingIntersections, Rounding.RemainingDegenerate,
-                        Rounding.RemainingDefectAt.x, Rounding.RemainingDefectAt.y, Rounding.RemainingDefectAt.z, Rounding.SmallestRejectedDrift,
-                        Rounding.RemainingFalseContacts, Rounding.ScaleDisparity,
-                        (Rounding.ScaleNotFinite ? "; the scale is not finite (a diagonal overflows), every edit rejected" : "") + (Rounding.OutsideRange ? "; the coordinates are outside the supported range (2^-200 .. 2^200), the rounding did not run" : "")
-                        + (Rounding.EvaluationLimitReached ? "; the repair stopped at its effort limit: the smallest rejected edit is the smallest of those proposed before it" : ""),
-                        Rounding.RemovedResolvable);
+                        new object[] { Rounding.MaxLength, Rounding.RemainingIntersections, Rounding.RemainingDegenerate, Rounding.RemainingDefectAt.x, Rounding.RemainingDefectAt.y, Rounding.RemainingDefectAt.z, Rounding.SmallestRejectedDrift, Rounding.RemainingFalseContacts, Rounding.ScaleDisparity, (Rounding.ScaleNotFinite ? "; the scale is not finite (a diagonal overflows), every edit rejected" : "") + (Rounding.OutsideRange ? "; the coordinates are outside the supported range (2^-200 .. 2^200), the rounding did not run" : "") + (Rounding.EvaluationLimitReached ? "; the repair stopped at its effort limit: the smallest rejected edit is the smallest of those proposed before it" : ""), Rounding.RemovedResolvable });
                     Result = null;
                     Status = BooleanStatus.RoundingNotClean;
                     return false;
@@ -1037,6 +1067,7 @@ namespace g3
             }
             Contacts = count_contacts(Result);
             Counts["contacts"] = Contacts;
+            openWithoutEffect = classifiedWithoutEffect;        // (every path to here has run classify to its end)
             Status = BooleanStatus.Success;
             return true;
         }
@@ -1529,7 +1560,7 @@ namespace g3
             PreparedInput first = PreparedFirst;
             Action<int> observer = PrepareObserverForTests;
             gParallel.ForRange(inputs.Count, (m) => {
-                if (observer != null)
+                if (observer is not null)
                     observer(m);
                 // (a sheet is used as given, never oriented by nesting)
                 if (sheet != null && sheet[m]) {
@@ -1579,6 +1610,18 @@ namespace g3
             return fail(BooleanStatus.SheetRefused, text);
         }
 
+        // the text of Status OpenInput: the open inputs by index, and the ways to state what an open input is
+        string open_input_error()
+        {
+            var open = new List<string>();
+            for (int m = 0; m < ExactWinding.Length; ++m)
+                if (ExactWinding[m] == false && (sheetRole == null || sheetRole[m] == false))
+                    open.Add(string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0}", new object[] { m }));
+            return (open.Count == 1 ? "input mesh " : "input meshes ") + string.Join(", ", open) + (open.Count == 1 ? " is" : " are") +
+                " not closed (every edge used equally often in both directions). An open cutting surface used as the tool of a Difference: give it the role Sheet (Roles). " +
+                "A mesh that is meant as a solid: repair it, or set AllowOpenMeshes for the generalized winding number rule (the solid is where it is above 1/2; see OpenInputsWithoutEffect)";
+        }
+
         // some input is open and classified by generalized winding numbers (not a solid, not a sheet)
         bool any_generalized()
         {
@@ -1598,8 +1641,9 @@ namespace g3
 
         /// <summary>
         /// The boundary of the solid of a mesh (where its winding number is positive): self-intersections,
-        /// nested shells and duplicated faces are resolved exactly, the result with SafeRounding (the default).
-        /// Returns null if Compute() fails.
+        /// nested shells and duplicated faces are resolved exactly, the result with SafeRounding (the default). A repair of one
+        /// mesh: an open mesh is taken (AllowOpenMeshes is set here; its solid is where the generalized winding number is above 1/2,
+        /// and the result is then generally open). Returns null if Compute() fails.
         /// </summary>
         public static DMesh3 Resolve(DMesh3 mesh)
         {
@@ -1611,7 +1655,7 @@ namespace g3
         public static DMesh3 Resolve(DMesh3 mesh, bool safeRounding)
         {
             // (a repair of one mesh: an inconsistently oriented one is oriented by area, as before #1210)
-            var op = new ExactMeshBoolean(mesh, new DMesh3(), Operations.Union) { SafeRounding = safeRounding, Orientation = OrientationModes.AreaMajority };
+            var op = new ExactMeshBoolean(mesh, new DMesh3(), Operations.Union) { SafeRounding = safeRounding, Orientation = OrientationModes.AreaMajority, AllowOpenMeshes = true };
             return op.Compute() ? op.Result : null;
         }
 
@@ -1765,7 +1809,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         bool inside(int[] winding, List<int> touched)
         {
-            if (WindingPredicate != null)
+            if (WindingPredicate is not null)
                 return WindingPredicate(winding);
             int count = 0;
             foreach (int m in touched)
@@ -1936,6 +1980,25 @@ namespace g3
                 }
                 winding[m] += d;
             };
+            // OpenInputsWithoutEffect: the open inputs (not sheets), whether the result depends on each at one of its own pieces
+            // (matters), and whether any decision changes when its winding number is taken as 0 (effect). The built-in
+            // operations only read whether a winding number is positive, so a piece is evaluated again only where the
+            // input's is; a WindingPredicate is not called with other vectors than the classification's
+            var openInputs = new List<int>();
+            if (WindingPredicate is null)
+                for (int m = 0; m < nm; ++m)
+                    if (ExactWinding[m] == false && (sheetRole == null || sheetRole[m] == false))
+                        openInputs.Add(m);
+            bool[] matters = new bool[nm], effect = new bool[nm], mine = new bool[nm], zeroFront = new bool[nm];
+            // the operation with the winding number of m replaced by value
+            Func<int, int, bool> insideWith = (m, value) => {
+                add(m, 0);
+                int saved = winding[m];
+                winding[m] = value;
+                bool result = inside(winding, touched);
+                winding[m] = saved;
+                return result;
+            };
             for (int i = 0; i < n; ++i) {
                 if (representative[i] == false)
                     continue;
@@ -1955,6 +2018,15 @@ namespace g3
                 if (front != null)
                     front[i] = (int[])winding.Clone();
                 bool inFront = inside(winding, touched);
+                foreach (int m in openInputs) {
+                    mine[m] = ot.Mesh == m;
+                    if (stack[i] != null)
+                        foreach (int ti in stack[i])
+                            mine[m] |= arr.Triangles[ti].Mesh == m;
+                    zeroFront[m] = winding[m] > 0 ? insideWith(m, 0) : inFront;
+                    if (mine[m] && matters[m] == false)
+                        matters[m] = insideWith(m, 0) != insideWith(m, 1);
+                }
                 // back side: crossing the stack from the back to the front changes the winding number of a
                 // mesh by -1 for each of its triangles oriented like the piece, +1 for opposite ones
                 // (a sheet's entry is the label of the cell on each side, not a count of crossings)
@@ -1978,12 +2050,27 @@ namespace g3
                 bool inBack = inside(winding, touched);
                 keep[i] = inFront != inBack;
                 flip[i] = inFront;
+                foreach (int m in openInputs) {
+                    bool zeroBack = winding[m] > 0 ? insideWith(m, 0) : inBack;
+                    if (mine[m] && matters[m] == false)
+                        matters[m] = insideWith(m, 0) != insideWith(m, 1);
+                    // (with the input enclosing nothing the piece is kept where the two sides differ. Its facing cannot be the only
+                    // change: each built-in operation is monotone in every winding number, so if the piece is kept both ways,
+                    // taking m as 0 moves the two sides the same way and they cannot swap)
+                    if ((zeroFront[m] != zeroBack) != keep[i])
+                        effect[m] = true;
+                }
                 foreach (int m in touched) {
                     winding[m] = 0;
                     isTouched[m] = false;
                 }
                 touched.Clear();
             }
+            // (published by Compute with Status Success only: a run that fails or throws after this leaves the list empty)
+            classifiedWithoutEffect = new List<int>();
+            foreach (int m in openInputs)
+                if (matters[m] && effect[m] == false)
+                    classifiedWithoutEffect.Add(m);
             CertificateFront = front;
             steps.LapMicroseconds("classification.decisions");
         }
@@ -2151,34 +2238,30 @@ namespace g3
                         SheetWitnessPoint = arr.ToInputVector(arr.Exact(u));
                         SheetWitnessTriangle = (w.Mesh == s) ? arr.Triangles[w.Source].Tid : -1;
                         SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "a free edge of sheet {0} lies inside the workpiece, near ({1:R}, {2:R}, {3:R}); it does not separate", s,
-                            SheetWitnessPoint.x, SheetWitnessPoint.y, SheetWitnessPoint.z);
+                            "a free edge of sheet {0} lies inside the workpiece, near ({1:R}, {2:R}, {3:R}); it does not separate", new object[] { s, SheetWitnessPoint.x, SheetWitnessPoint.y, SheetWitnessPoint.z });
                         break;
                     }
                     case SheetRefusal.SidesInconsistent:
                         SheetWitnessTriangle = arr.Triangles[lab.MarkTriangle0].Tid;
                         SheetWitnessTriangle2 = arr.Triangles[lab.MarkTriangle1].Tid;
                         SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "{0} cell(s) of the workpiece are in front of one piece of sheet {1} and behind another, eg triangles {2} (in front of it) and {3} (behind it)",
-                            lab.ConflictingCells, s, SheetWitnessTriangle, SheetWitnessTriangle2);
+                            "{0} cell(s) of the workpiece are in front of one piece of sheet {1} and behind another, eg triangles {2} (in front of it) and {3} (behind it)", new object[] { lab.ConflictingCells, s, SheetWitnessTriangle, SheetWitnessTriangle2 });
                         break;
                     case SheetRefusal.FloatingComponent:
                         SheetWitnessTriangle = lab.MarkTriangle0 >= 0 ? arr.Triangles[lab.MarkTriangle0].Tid : arr.Triangles[lab.MarkTriangle1].Tid;
                         SheetConflictingCells = lab.FloatingCells;
                         SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "{0} part(s) of sheet {1} float inside the workpiece with no edge in common with its surface or with a part that has one, eg at triangle {2}: their side cannot be decided without the nesting of the shells",
-                            lab.FloatingCells, s, SheetWitnessTriangle);
+                            "{0} part(s) of sheet {1} float inside the workpiece with no edge in common with its surface or with a part that has one, eg at triangle {2}: their side cannot be decided without the nesting of the shells", new object[] { lab.FloatingCells, s, SheetWitnessTriangle });
                         break;
                     case SheetRefusal.UncutComponents when lab.MarkTriangle0 >= 0:
                         SheetWitnessTriangle = arr.Triangles[lab.MarkTriangle0].Tid;
                         SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "sheet {0} only touches the surface of the workpiece (no piece of it lies inside, eg triangle {1} on a face): it separates nothing, whatever UncutSide says", s, SheetWitnessTriangle);
+                            "sheet {0} only touches the surface of the workpiece (no piece of it lies inside, eg triangle {1} on a face): it separates nothing, whatever UncutSide says", new object[] { s, SheetWitnessTriangle });
                         break;
                     default:
                         SheetWitnessTriangle = (w.Mesh == 0) ? arr.Triangles[w.Source].Tid : -1;
                         SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "{0} cell(s) of the workpiece are not touched by sheet {1} (UncutSide: {2}, shells of the workpiece: {3}); a triangle of one: {4}",
-                            lab.UncutCells, s, SheetUncutSide, bestCells.ShellCount, SheetWitnessTriangle);
+                            "{0} cell(s) of the workpiece are not touched by sheet {1} (UncutSide: {2}, shells of the workpiece: {3}); a triangle of one: {4}", new object[] { lab.UncutCells, s, SheetUncutSide, bestCells.ShellCount, SheetWitnessTriangle });
                         break;
                 }
 
@@ -2276,9 +2359,9 @@ namespace g3
                 int id = k == 0 ? a : k == 1 ? b : c;
                 Vector3d v = arr.Approx(id);
                 double e = arr.ApproxError(id), lo, hi;
-                widened(v.x, e, out lo, out hi); x0 = Math.Min(x0, lo); x1 = Math.Max(x1, hi);
-                widened(v.y, e, out lo, out hi); y0 = Math.Min(y0, lo); y1 = Math.Max(y1, hi);
-                widened(v.z, e, out lo, out hi); z0 = Math.Min(z0, lo); z1 = Math.Max(z1, hi);
+                widened(v.x, e, out lo, out hi); x0 = MathUtil.MinExact(x0, lo); x1 = MathUtil.MaxExact(x1, hi);
+                widened(v.y, e, out lo, out hi); y0 = MathUtil.MinExact(y0, lo); y1 = MathUtil.MaxExact(y1, hi);
+                widened(v.z, e, out lo, out hi); z0 = MathUtil.MinExact(z0, lo); z1 = MathUtil.MaxExact(z1, hi);
             }
         }
 
@@ -2533,13 +2616,13 @@ namespace g3
             Vector3d pa = arr.Approx(ot.A), pb = arr.Approx(ot.B), pc = arr.Approx(ot.C);
             double err = arr.ApproxError(ot.A) + arr.ApproxError(ot.B) + arr.ApproxError(ot.C);
             for (int q = 0; q < 3; ++q) {
-                box[q] = Math.Min(pa[q], Math.Min(pb[q], pc[q])) - err;
-                box[q + 3] = Math.Max(pa[q], Math.Max(pb[q], pc[q])) + err;
+                box[q] = MathUtil.MinExact(pa[q], MathUtil.MinExact(pb[q], pc[q])) - err;
+                box[q + 3] = MathUtil.MaxExact(pa[q], MathUtil.MaxExact(pb[q], pc[q])) + err;
             }
-            diam = (Math.Max(pa.Distance(pb), Math.Max(pb.Distance(pc), pc.Distance(pa))) + 2 * err) * (1 + 1e-12);
+            diam = (MathUtil.MaxExact(pa.Distance(pb), MathUtil.MaxExact(pb.Distance(pc), pc.Distance(pa))) + 2 * err) * (1 + 1e-12);
             double s = b.Size;
             for (int q = 0; q < 6; ++q)
-                s = Math.Max(s, 3 * Math.Abs(box[q]));
+                s = MathUtil.MaxExact(s, 3 * Math.Abs(box[q]));
             double near = 1e-3 * s, slack = 1e-12 * s;
             double d = box_distance(box, 0, b.All, 0) - slack;
             double g;
@@ -2566,14 +2649,14 @@ namespace g3
             for (int t = 0; t < ns; ++t) {
                 Vector3d x = g[2 * t], y = g[2 * t + 1];
                 for (int q = 0; q < 3; ++q) {
-                    b.Boxes[6 * t + q] = Math.Min(x[q], y[q]);
-                    b.Boxes[6 * t + q + 3] = Math.Max(x[q], y[q]);
-                    b.All[q] = Math.Min(b.All[q], b.Boxes[6 * t + q]);
-                    b.All[q + 3] = Math.Max(b.All[q + 3], b.Boxes[6 * t + q + 3]);
+                    b.Boxes[6 * t + q] = MathUtil.MinExact(x[q], y[q]);
+                    b.Boxes[6 * t + q + 3] = MathUtil.MaxExact(x[q], y[q]);
+                    b.All[q] = MathUtil.MinExact(b.All[q], b.Boxes[6 * t + q]);
+                    b.All[q + 3] = MathUtil.MaxExact(b.All[q + 3], b.Boxes[6 * t + q + 3]);
                 }
                 b.Lengths[t] = x.Distance(y) * (1 + 1e-15);
                 b.Total += b.Lengths[t];
-                b.Size = Math.Max(b.Size, Math.Max(Math.Abs(x.x) + Math.Abs(x.y) + Math.Abs(x.z), Math.Abs(y.x) + Math.Abs(y.y) + Math.Abs(y.z)));
+                b.Size = MathUtil.MaxExact(b.Size, MathUtil.MaxExact(Math.Abs(x.x) + Math.Abs(x.y) + Math.Abs(x.z), Math.Abs(y.x) + Math.Abs(y.y) + Math.Abs(y.z)));
             }
             return b;
         }
@@ -2626,7 +2709,7 @@ namespace g3
         {
             double sum = 0;
             for (int q = 0; q < 3; ++q) {
-                double gap = Math.Max(0, Math.Max(x[a + q] - y[b + q + 3], y[b + q] - x[a + q + 3]));
+                double gap = MathUtil.MaxExact(0, MathUtil.MaxExact(x[a + q] - y[b + q + 3], y[b + q] - x[a + q + 3]));
                 sum += gap * gap;
             }
             // (#719: an overflowed sum of squares would give an infinite distance and far_term a zero bound: then the norm
@@ -2637,9 +2720,9 @@ namespace g3
         [MethodImpl(MethodImplOptions.NoInlining)]
         static double box_distance_scaled(double[] x, int a, double[] y, int b)
         {
-            double g0 = Math.Max(0, Math.Max(x[a] - y[b + 3], y[b] - x[a + 3]));
-            double g1 = Math.Max(0, Math.Max(x[a + 1] - y[b + 4], y[b + 1] - x[a + 4]));
-            double g2 = Math.Max(0, Math.Max(x[a + 2] - y[b + 5], y[b + 2] - x[a + 5]));
+            double g0 = MathUtil.MaxExact(0, MathUtil.MaxExact(x[a] - y[b + 3], y[b] - x[a + 3]));
+            double g1 = MathUtil.MaxExact(0, MathUtil.MaxExact(x[a + 1] - y[b + 4], y[b + 1] - x[a + 4]));
+            double g2 = MathUtil.MaxExact(0, MathUtil.MaxExact(x[a + 2] - y[b + 5], y[b + 2] - x[a + 5]));
             return scaled_norm(g0, g1, g2);
         }
 
@@ -2652,7 +2735,7 @@ namespace g3
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static double scaled_norm(double x, double y, double z)
         {
-            double m = Math.Max(Math.Abs(x), Math.Max(Math.Abs(y), Math.Abs(z)));
+            double m = MathUtil.MaxExact(Math.Abs(x), MathUtil.MaxExact(Math.Abs(y), Math.Abs(z)));
             if (m == 0 || double.IsNaN(m) || double.IsInfinity(m))
                 return m;           // (Math.Max propagates NaN on every target)
             int e = (int)((BitConverter.DoubleToInt64Bits(m) >> 52) & 0x7FF) - 1023;
@@ -2673,14 +2756,14 @@ namespace g3
         {
             double q = 4 * Math.PI * d * d;
             if (q <= double.MaxValue)
-                return Math.Min(length / q, count / (2 * Math.PI * d));
+                return MathUtil.MinExact(length / q, count / (2 * Math.PI * d));
             return far_term_overflow(length, count, d);
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         static double far_term_overflow(double length, double count, double d)
         {
-            double r = Math.Min(length / d / d / (4 * Math.PI), count / d / (2 * Math.PI));
+            double r = MathUtil.MinExact(length / d / d / (4 * Math.PI), count / d / (2 * Math.PI));
             if (double.IsNaN(r))
                 return double.PositiveInfinity;
             // (rounded up, so that it bounds the true term: the three roundings of each quotient, relative 2^-53 each in the
@@ -2895,8 +2978,8 @@ namespace g3
                     double diam = 0, dist = 0;
                     for (int k = 0; k < 3; ++k) {
                         Vector3d a = corner_double(tq.Corners[k]), c = corner_double(tq.Corners[(k + 1) % 3]);
-                        diam = Math.Max(diam, max_abs(a - c));
-                        dist = Math.Max(dist, max_abs(a - fp.Origin));
+                        diam = MathUtil.MaxExact(diam, max_abs(a - c));
+                        dist = MathUtil.MaxExact(dist, max_abs(a - fp.Origin));
                     }
                     if (dist <= 16 * diam)
                         frames[sq] = fp;
@@ -2964,8 +3047,8 @@ namespace g3
                             foreach (int i in pcs) {
                                 piece_box(i, boxes, hasBox, loc);
                                 for (int k = 0; k < 3; ++k) {
-                                    cbox[k] = Math.Min(cbox[k], boxes[6 * loc[i] + k]);
-                                    cbox[k + 3] = Math.Max(cbox[k + 3], boxes[6 * loc[i] + k + 3]);
+                                    cbox[k] = MathUtil.MinExact(cbox[k], boxes[6 * loc[i] + k]);
+                                    cbox[k + 3] = MathUtil.MaxExact(cbox[k + 3], boxes[6 * loc[i] + k + 3]);
                                 }
                             }
                             cbj = cluster_bound(cbox, bb[j]);
@@ -3192,8 +3275,8 @@ namespace g3
             piece_box(p, boxes, hasBox, loc);
             piece_box(q, boxes, hasBox, loc);
             for (int k = 0; k < 3; ++k) {
-                box[k] = Math.Min(boxes[6 * loc[p] + k], boxes[6 * loc[q] + k]);
-                box[k + 3] = Math.Max(boxes[6 * loc[p] + k + 3], boxes[6 * loc[q] + k + 3]);
+                box[k] = MathUtil.MinExact(boxes[6 * loc[p] + k], boxes[6 * loc[q] + k]);
+                box[k + 3] = MathUtil.MaxExact(boxes[6 * loc[p] + k + 3], boxes[6 * loc[q] + k + 3]);
             }
             // (the distance in the local frame: its errors are relative to the input triangle, not to the model)
             double ep, eq;
@@ -3216,8 +3299,8 @@ namespace g3
             Vector3d pa = arr.Approx(ot.A), pb = arr.Approx(ot.B), pc = arr.Approx(ot.C);
             double err = arr.ApproxError(ot.A) + arr.ApproxError(ot.B) + arr.ApproxError(ot.C);
             for (int k = 0; k < 3; ++k) {
-                boxes[6 * loc[i] + k] = Math.Min(pa[k], Math.Min(pb[k], pc[k])) - err;
-                boxes[6 * loc[i] + k + 3] = Math.Max(pa[k], Math.Max(pb[k], pc[k])) + err;
+                boxes[6 * loc[i] + k] = MathUtil.MinExact(pa[k], MathUtil.MinExact(pb[k], pc[k])) - err;
+                boxes[6 * loc[i] + k + 3] = MathUtil.MaxExact(pa[k], MathUtil.MaxExact(pb[k], pc[k])) + err;
             }
             hasBox[loc[i]] = true;
         }
@@ -3229,7 +3312,7 @@ namespace g3
         {
             double s = b.Size;
             for (int q = 0; q < 6; ++q)
-                s = Math.Max(s, 3 * Math.Abs(box[q]));
+                s = MathUtil.MaxExact(s, 3 * Math.Abs(box[q]));
             double near = 1e-3 * s, slack = 1e-12 * s;
             double d = box_distance(box, 0, b.All, 0) - slack;
             double g;
@@ -3272,7 +3355,7 @@ namespace g3
         {
             double s = b.Size;
             for (int q = 0; q < 6; ++q)
-                s = Math.Max(s, 3 * Math.Abs(cbox[q]));
+                s = MathUtil.MaxExact(s, 3 * Math.Abs(cbox[q]));
             double near = 1e-3 * s, slack = 1e-12 * s;
             var c = new ClusterBound();
             var list = new List<int>();
@@ -3394,7 +3477,7 @@ namespace g3
                 double c = (double)arr.Center[k];
                 ip[k] = ExactPoint3.ScaleB(gp[k] + c, arr.ScaleExp);
                 iq[k] = ExactPoint3.ScaleB(gq[k] + c, arr.ScaleExp);
-                e = Math.Max(e, Math.Max(ep + 3.4e-16 * (Math.Abs(gp[k]) + Math.Abs(c)), eq + 3.4e-16 * (Math.Abs(gq[k]) + Math.Abs(c))));
+                e = MathUtil.MaxExact(e, MathUtil.MaxExact(ep + 3.4e-16 * (Math.Abs(gp[k]) + Math.Abs(c)), eq + 3.4e-16 * (Math.Abs(gq[k]) + Math.Abs(c))));
             }
             pad = 1.01 * ExactPoint3.ScaleB(e, arr.ScaleExp) + 1e-300;
             double all = ip.x + ip.y + ip.z + iq.x + iq.y + iq.z + pad;
@@ -3508,7 +3591,7 @@ namespace g3
                 var gl = new double[g.Length + 1];
                 for (int q = 0; q < g.Length; ++q) {
                     gl[q] = l1(g[q]);
-                    gl[g.Length] = Math.Max(gl[g.Length], gl[q]);
+                    gl[g.Length] = MathUtil.MaxExact(gl[g.Length], gl[q]);
                 }
                 return gl;
             }
@@ -3529,12 +3612,12 @@ namespace g3
                     double ax, ay, ae, bxx, byy, be;
                     bool va = Project(g[2 * s], out ax, out ay, out ae), vb = Project(g[2 * s + 1], out bxx, out byy, out be);
                     Valid = va && vb;
-                    box[4 * s] = Math.Min(ax - ae, bxx - be);
-                    box[4 * s + 1] = Math.Min(ay - ae, byy - be);
-                    box[4 * s + 2] = Math.Max(ax + ae, bxx + be);
-                    box[4 * s + 3] = Math.Max(ay + ae, byy + be);
-                    bx0 = Math.Min(bx0, box[4 * s]); by0 = Math.Min(by0, box[4 * s + 1]);
-                    bx1 = Math.Max(bx1, box[4 * s + 2]); by1 = Math.Max(by1, box[4 * s + 3]);
+                    box[4 * s] = MathUtil.MinExact(ax - ae, bxx - be);
+                    box[4 * s + 1] = MathUtil.MinExact(ay - ae, byy - be);
+                    box[4 * s + 2] = MathUtil.MaxExact(ax + ae, bxx + be);
+                    box[4 * s + 3] = MathUtil.MaxExact(ay + ae, byy + be);
+                    bx0 = MathUtil.MinExact(bx0, box[4 * s]); by0 = MathUtil.MinExact(by0, box[4 * s + 1]);
+                    bx1 = MathUtil.MaxExact(bx1, box[4 * s + 2]); by1 = MathUtil.MaxExact(by1, box[4 * s + 3]);
                 }
                 if (Valid == false || Count == 0) {
                     Valid = false;
@@ -3543,8 +3626,8 @@ namespace g3
                 int side = Math.Max(1, (int)Math.Sqrt(Count / 2.0));
                 nx = ny = side;
                 x0 = bx0; y0 = by0;
-                cw = Math.Max((bx1 - bx0) / nx, 1e-300);
-                ch = Math.Max((by1 - by0) / ny, 1e-300);
+                cw = MathUtil.MaxExact((bx1 - bx0) / nx, 1e-300);
+                ch = MathUtil.MaxExact((by1 - by0) / ny, 1e-300);
                 var counts = new int[nx * ny + 1];
                 for (int pass = 0; pass < 2; ++pass) {
                     if (pass == 1) {
@@ -3597,7 +3680,7 @@ namespace g3
                     pe = double.NaN;
                     return false;
                 }
-                pe = 1.01 * Math.Max((di + Math.Abs(px) * dd) / ad + u * Math.Abs(px), (dj + Math.Abs(py) * dd) / ad + u * Math.Abs(py)) + 1e-300;
+                pe = 1.01 * MathUtil.MaxExact((di + Math.Abs(px) * dd) / ad + u * Math.Abs(px), (dj + Math.Abs(py) * dd) / ad + u * Math.Abs(py)) + 1e-300;
                 return Math.Abs(d) > 2 * dd && double.IsNaN(pe + px + py) == false && double.IsInfinity(pe + px + py) == false;
             }
 
@@ -3613,8 +3696,8 @@ namespace g3
                     double px, py, pe;
                     if (Project(v[k], out px, out py, out pe) == false)
                         return null;
-                    ax = Math.Min(ax, px - pe); ay = Math.Min(ay, py - pe);
-                    bx = Math.Max(bx, px + pe); by = Math.Max(by, py + pe);
+                    ax = MathUtil.MinExact(ax, px - pe); ay = MathUtil.MinExact(ay, py - pe);
+                    bx = MathUtil.MaxExact(bx, px + pe); by = MathUtil.MaxExact(by, py + pe);
                 }
                 int cx0, cy0, cx1, cy1;
                 Cells(ax, ay, bx, by, out cx0, out cy0, out cx1, out cy1);
@@ -3676,7 +3759,7 @@ namespace g3
                 return subset;
             double size = gl[gl.Length - 1];
             foreach (Vector3d x in v)
-                size = Math.Max(size, l1(x));
+                size = MathUtil.MaxExact(size, l1(x));
             // (the tetrahedron's faces in their former order, so that n = 4 gives the same planes bit for bit; else every
             // triple, each a supporting plane where all other points are certified on one side of it)
             var faces = new List<int[]>();
@@ -3739,8 +3822,8 @@ namespace g3
         }
 
         static double l1(Vector3d x) { return Math.Abs(x.x) + Math.Abs(x.y) + Math.Abs(x.z); }
-        static double max_abs(Vector3d x) { return Math.Max(Math.Abs(x.x), Math.Max(Math.Abs(x.y), Math.Abs(x.z))); }
-        static double max_sum(Vector3d x, Vector3d y) { return Math.Max(Math.Abs(x.x) + Math.Abs(y.x), Math.Max(Math.Abs(x.y) + Math.Abs(y.y), Math.Abs(x.z) + Math.Abs(y.z))); }
+        static double max_abs(Vector3d x) { return MathUtil.MaxExact(Math.Abs(x.x), MathUtil.MaxExact(Math.Abs(x.y), Math.Abs(x.z))); }
+        static double max_sum(Vector3d x, Vector3d y) { return MathUtil.MaxExact(Math.Abs(x.x) + Math.Abs(y.x), MathUtil.MaxExact(Math.Abs(x.y) + Math.Abs(y.y), Math.Abs(x.z) + Math.Abs(y.z))); }
 
         /// <summary>
         /// L2: coordinates relative to an origin (an input triangle's first corner, an integer grid point), as doubles: each
@@ -3777,7 +3860,7 @@ namespace g3
                 odIsExact = FixedPoint3.DoubleOf(o, out oe) && oe.x == od.x && oe.y == od.y && oe.z == od.z;
                 odError = 0;
                 for (int k = 0; k < 3; ++k)
-                    odError = Math.Max(odError, 2.3e-16 * Math.Abs(od[k]));
+                    odError = MathUtil.MaxExact(odError, 2.3e-16 * Math.Abs(od[k]));
             }
 
             /// <summary>
@@ -3791,7 +3874,7 @@ namespace g3
                 Vector3d g = l + od;
                 double m = 0;
                 for (int k = 0; k < 3; ++k)
-                    m = Math.Max(m, Math.Abs(l[k]) + Math.Abs(od[k]));
+                    m = MathUtil.MaxExact(m, Math.Abs(l[k]) + Math.Abs(od[k]));
                 gridError = (error + odError) * (1 + 1e-15) + 1.2e-16 * m;
                 return g;
             }
@@ -3799,7 +3882,7 @@ namespace g3
             /// <summary> the error bound per coordinate of a point given by Point (each the exact value rounded once) </summary>
             public static double PointError(Vector3d l)
             {
-                return 2.3e-16 * Math.Max(Math.Abs(l.x), Math.Max(Math.Abs(l.y), Math.Abs(l.z)));
+                return 2.3e-16 * MathUtil.MaxExact(Math.Abs(l.x), MathUtil.MaxExact(Math.Abs(l.y), Math.Abs(l.z)));
             }
 
             public Vector3d Point(ExactPoint3 p)
@@ -3938,8 +4021,8 @@ namespace g3
                         continue;
                     double[] ub = corner_box(arr, U);
                     ids.Add(u);
-                    boxes.Add(Math.Max(ub[i], tb[i])); boxes.Add(Math.Max(ub[j], tb[j]));
-                    boxes.Add(Math.Min(ub[i + 3], tb[i + 3])); boxes.Add(Math.Min(ub[j + 3], tb[j + 3]));
+                    boxes.Add(MathUtil.MaxExact(ub[i], tb[i])); boxes.Add(MathUtil.MaxExact(ub[j], tb[j]));
+                    boxes.Add(MathUtil.MinExact(ub[i + 3], tb[i + 3])); boxes.Add(MathUtil.MinExact(ub[j + 3], tb[j + 3]));
                 }
                 tri = ids.ToArray();
                 box = boxes.ToArray();
@@ -3968,8 +4051,8 @@ namespace g3
                     Vector3d a = arr.Approx(t.Corners[k]);
                     double e = arr.ApproxError(t.Corners[k]) * (1 + 1e-15);
                     for (int q = 0; q < 3; ++q) {
-                        r[q] = Math.Min(r[q], a[q] - e);
-                        r[q + 3] = Math.Max(r[q + 3], a[q] + e);
+                        r[q] = MathUtil.MinExact(r[q], a[q] - e);
+                        r[q + 3] = MathUtil.MaxExact(r[q + 3], a[q] + e);
                     }
                 }
                 return r;
@@ -3989,7 +4072,7 @@ namespace g3
                 if (tri.Length == 0)
                     return;
                 double pad = error * (1 + 1e-12) + 1e-15 * (Math.Abs(p[i]) + Math.Abs(p[j]) + Math.Abs(q[i]) + Math.Abs(q[j])) + 1e-300;
-                double ax = Math.Min(p[i], q[i]) - pad, ay = Math.Min(p[j], q[j]) - pad, bx = Math.Max(p[i], q[i]) + pad, by = Math.Max(p[j], q[j]) + pad;
+                double ax = MathUtil.MinExact(p[i], q[i]) - pad, ay = MathUtil.MinExact(p[j], q[j]) - pad, bx = MathUtil.MaxExact(p[i], q[i]) + pad, by = MathUtil.MaxExact(p[j], q[j]) + pad;
                 ++query;
                 for (int cx = cell(ax, x0, cw, nx); cx <= cell(bx, x0, cw, nx); ++cx)
                     for (int cy = cell(ay, y0, ch, ny); cy <= cell(by, y0, ch, ny); ++cy) {
@@ -4140,7 +4223,7 @@ namespace g3
                 P = p, Q = q, Sides = sides
             };
             if (grid != null)
-                grid.Query(xp, xq, Math.Max(ap, aq), ref v);
+                grid.Query(xp, xq, MathUtil.MaxExact(ap, aq), ref v);
             else {
                 // (T5, a step between two input triangles: every triangle of M that meets the segment, from M's box tree in
                 // input coordinates; design note 4.1)
@@ -4592,7 +4675,7 @@ namespace g3
                     local = (a + b + c) / 3;
                     double m = 0;
                     for (int k = 0; k < 3; ++k)
-                        m = Math.Max(m, Math.Abs(a[k]) + Math.Abs(b[k]) + Math.Abs(c[k]));
+                        m = MathUtil.MaxExact(m, Math.Abs(a[k]) + Math.Abs(b[k]) + Math.Abs(c[k]));
                     localError = (LocalFrame.PointError(a) + LocalFrame.PointError(b) + LocalFrame.PointError(c)) / 3 * (1 + 1e-15) + 1.2e-16 * m;
                     hasLocal = true;
                 }
@@ -5196,8 +5279,8 @@ namespace g3
                 Vector3d va = Vector3d.Zero;
                 for (int q = a; q <= b; ++q) {
                     Vector3d v = q < b ? g[Seg[q]] : last, w = q + 1 < b ? g[Seg[q + 1]] : (q + 1 == b ? last : g[Seg[a]]);
-                    r = Math.Max(r, (v - c).Length);
-                    l1 = Math.Max(l1, Math.Abs(v.x) + Math.Abs(v.y) + Math.Abs(v.z));
+                    r = MathUtil.MaxExact(r, (v - c).Length);
+                    l1 = MathUtil.MaxExact(l1, Math.Abs(v.x) + Math.Abs(v.y) + Math.Abs(v.z));
                     length += (w - v).Length;
                     Vector3d cr = (v - c).Cross(w - c);
                     va += cr;
@@ -5344,7 +5427,7 @@ namespace g3
                             // (the full sum's terms of the node's segments: beta, the smallest angle between -x1 and a point
                             // of the cap, with the margin; hypot from below; |theta| of a term at most pi times its side's
                             // angle, at most its length over d - r)
-                            double gamma = libm_value(Math.Acos(Math.Min(1, minusX1U)), 1), alpha = libm_value(Math.Asin(Math.Min(1, rd)), 2);
+                            double gamma = libm_value(Math.Acos(MathUtil.MinExact(1, minusX1U)), 1), alpha = libm_value(Math.Asin(MathUtil.MinExact(1, rd)), 2);
                             double beta = gamma - alpha - 1e-9 - eps;
                             int nk = t.Hi[k] - t.Lo[k];
                             if (beta > 0) {

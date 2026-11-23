@@ -62,7 +62,7 @@ namespace geometry3Sharp.Tests
             gParallel.SerialOnThisThread = true;
             try {
                 long before = GC.GetAllocatedBytesForCurrentThread();
-                result = new ExactMeshBoolean(a, b, op) { DisableFilters = disableFilters };
+                result = new ExactMeshBoolean(a, b, op) { AllowOpenMeshes = true, DisableFilters = disableFilters };
                 result.Compute();
                 return GC.GetAllocatedBytesForCurrentThread() - before;
             } finally {
