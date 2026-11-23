@@ -10,6 +10,7 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 | Topic | State | Next step / waiting on | Link |
 |---|---|---|---|
 | Platform/QA/CI: determinism proof stage 2 | PR open | CI and the incremental mutation run, then merge; the coordinator closes plan #1241 on the merge | #1370, [proof](design/DETERMINISM_PROOF.md), plan #1241 |
+| Exact Boolean: `SolidBooleanPipeline` sends an open tool of a Difference to the sheet role by default (owner 2026-11-22) | Draft PR open: the route, the fallback to the path as before, `Report.Route` | Owner: the new public members (`SolidBooleanRouteStep`, `Report.Route`); the fallback gets the self-intersection check of #1426 when that merges; the opt-in automatic mode comes in later PRs | branch `feature/pipeline-sheet-route` |
 | Rounding/repair: exact zero-volume check for undecided sheets | PR open | CI, both incremental mutation runs (exact-arithmetic, rounding-9), abc-chained outcome diff, then merge | #1195 (#1191) |
 | Tet: deterministic work cap for `TetMeshImprover` | Part 1 merged (#1184); a split-only cap was measured and dropped (owner 2026-11-19: it leaves meshes above 20 s at floor 20) | Measure a bound over all improvement attempts or a pass budget; results to the owner before a PR | #1154 |
 
