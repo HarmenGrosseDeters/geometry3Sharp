@@ -12,16 +12,20 @@ var cases = new (string Name, SwcSkeleton Skel, int Slices, int JointEv, double 
     ("y-junction-60deg", MakeY(60.0), 12, 4, 0.06, 0.14, 0.015, 1, 2),
     ("acute-fork-12deg", MakeY(12.0), 12, 4, 0.06, 0.14, 0.015, 1, 2),
     ("acute-fork-4deg", MakeY(4.0), 12, 4, 0.06, 0.14, 0.015, 1, 2),
-    ("near-tangent-gap-1e-2", MakeNearTangentPair(1e-2), 12, 4, 0.05, 0.12, 0.015, 1, 2),
-    ("near-tangent-gap-1e-6", MakeNearTangentPair(1e-6), 12, 4, 0.05, 0.12, 0.015, 1, 2),
+    // Odd EdgeVertices (5) puts a sphere vertex on each face centre, so the tip spheres' meshes reach exactly
+    // +-r along x and the mesh gap equals the nominal gap (EdgeVertices = 4 reaches only about 0.945 r there).
+    ("near-tangent-gap-1e-2", MakeNearTangentPair(1e-2), 12, 5, 0.05, 0.12, 0.015, 1, 2),
+    ("near-tangent-gap-1e-6", MakeNearTangentPair(1e-6), 12, 5, 0.05, 0.12, 0.015, 1, 2),
     ("intentional-loop", MakeLoop(), 12, 4, 0.06, 0.14, 0.015, 1, 0),
-    ("dendrite-tree-15", MakeDendriteTree(depth: 3, seed: 201, minAngleDeg: 28, maxAngleDeg: 58), 10, 4, 0.07, 0.15, 0.015, 1, 2),
+    ("dendrite-tree-21", MakeDendriteTree(depth: 3, seed: 201, minAngleDeg: 28, maxAngleDeg: 58), 10, 4, 0.07, 0.15, 0.015, 1, 2),
     ("tight-bundle-25", MakeDendriteTree(depth: 4, seed: 202, minAngleDeg: 14, maxAngleDeg: 24, maxSegs: 25), 10, 4, 0.07, 0.15, 0.015, 1, 2),
     ("dendrite-tree-45", MakeDendriteTree(depth: 5, seed: 203, minAngleDeg: 25, maxAngleDeg: 55, maxSegs: 45), 8, 3, 0.09, 0.18, 0.02, 1, 2),
 };
 
+var gapLines = new List<string>();
 foreach (var c in cases) {
     DMesh3[] parts = BuildSkeletonMeshes(c.Skel, c.Slices, c.JointEv);
+    gapLines.Add(DescribeClearance(c.Name, c.Skel, parts));
 
     var bMulti = RunMultiBoolean(parts);
     PrintRow(c.Name, "bool-multi", $"s{c.Slices}/p{parts.Length}", bMulti.Status, bMulti.Result, "", c.ExpectedComp, c.ExpectedEuler, bMulti.Ms);
@@ -37,6 +41,62 @@ foreach (var c in cases) {
 
     var wrap = RunAlphaWrap(parts, c.WrapAlpha, c.WrapOffset);
     PrintRow(c.Name, "wrap", $"{c.WrapAlpha}/{c.WrapOffset}", wrap.Status, wrap.Result, "", c.ExpectedComp, c.ExpectedEuler, wrap.Ms);
+}
+
+Console.WriteLine();
+Console.WriteLine("case | segments | primitives | measured mesh clearance");
+foreach (string line in gapLines)
+    Console.WriteLine(line);
+
+// Near-tangent pairs: the measured minimum distance between the two branch meshes (node spheres 1, 3 and the distal
+// segment on the left; 2, 4 and the distal segment on the right; the soma and the soma segments join both sides).
+// Other cases: the minimum distance between the meshes of two skeleton segments that share no node (a small value
+// marks where non-adjacent branches come close; it does not show that a route fuses them there).
+static string DescribeClearance(string name, SwcSkeleton skel, DMesh3[] parts)
+{
+    int nodeCount = skel.Nodes.Count;
+    if (name.StartsWith("near-tangent", StringComparison.Ordinal)) {
+        int leftSeg = skel.Edges.IndexOf((1, 3)), rightSeg = skel.Edges.IndexOf((2, 4));
+        double gap = MeshDistance(Append(parts[1], parts[3], parts[nodeCount + leftSeg]),
+            Append(parts[2], parts[4], parts[nodeCount + rightSeg]));
+        return $"{name} | {skel.Edges.Count} | {parts.Length} | min gap between the two branch meshes = {gap:G6}";
+    }
+    double best = double.MaxValue;
+    (int, int) bestA = default, bestB = default;
+    for (int i = 0; i < skel.Edges.Count; ++i) {
+        for (int j = i + 1; j < skel.Edges.Count; ++j) {
+            var (a0, a1) = skel.Edges[i];
+            var (b0, b1) = skel.Edges[j];
+            if (a0 == b0 || a0 == b1 || a1 == b0 || a1 == b1)
+                continue;
+            double d = MeshDistance(parts[nodeCount + i], parts[nodeCount + j]);
+            if (d < best) {
+                best = d;
+                bestA = skel.Edges[i];
+                bestB = skel.Edges[j];
+            }
+        }
+    }
+    string where = best == double.MaxValue ? "none (all segments share a node)"
+        : $"{best:G4} between segments {bestA.Item1}-{bestA.Item2} and {bestB.Item1}-{bestB.Item2}";
+    return $"{name} | {skel.Edges.Count} | {parts.Length} | min distance of non-adjacent segment meshes = {where}";
+}
+
+static DMesh3 Append(params DMesh3[] meshes)
+{
+    var appended = new DMesh3();
+    var editor = new MeshEditor(appended);
+    foreach (var m in meshes)
+        editor.AppendMesh(m);
+    return appended;
+}
+
+static double MeshDistance(DMesh3 a, DMesh3 b)
+{
+    var ta = new DMeshAABBTree3(a, autoBuild: true);
+    var tb = new DMeshAABBTree3(b, autoBuild: true);
+    ta.FindNearestTriangles(tb, null, out double distance);
+    return distance;
 }
 
 static SwcSkeleton MakeY(double angleDeg)
@@ -272,7 +332,8 @@ sealed class SwcSkeleton
 }
 
 /// <summary>
-/// Closed-form Cauchy-kernel line-segment convolution surface (Bloomenthal &amp; Shoemake 1991)
+/// Closed-form Cauchy-kernel line-segment convolution surface (McCormack &amp; Sherstyuk 1998; convolution
+/// surfaces after Bloomenthal &amp; Shoemake 1991)
 /// combined with a soma point kernel so straight tubes of any radius r hit the iso-level at
 /// exact distance r and branch junctions blend smoothly without bulges.
 /// </summary>

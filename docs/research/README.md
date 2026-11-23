@@ -4,7 +4,7 @@ Prior-art checks, literature surveys, external library comparisons, and explorat
 
 | Study | Topic & Summary |
 |---|---|
-| [NEURON_SKELETON_MESHES.md](NEURON_SKELETON_MESHES.md) | 9-case SWC-style branching tube stress study (4° forks, 1e-6 gaps, loops, 45-segment/91-primitive trees): ExactMeshBoolean & SolidBooleanPipeline 9/9 clean with exact genus in < 0.5 s; convolution inflation and wrap bridging quantified; stop/park |
+| [NEURON_SKELETON_MESHES.md](NEURON_SKELETON_MESHES.md) | 9-case SWC-style branching tube stress study (4° forks, 1e-6 gaps, loops, 45-segment/91-primitive trees): ExactMeshBoolean & SolidBooleanPipeline 9/9 clean with exact genus (28–463 ms per route, single runs); measured branch-mesh gaps 1e-2 / 1e-6; convolution inflation and wrap bridging quantified; stop/park |
 | [EXACT_TOPOLOGY_CERTIFICATES.md](EXACT_TOPOLOGY_CERTIFICATES.md) | Solid Betti numbers for Boolean and repair tests, measured on C# outputs and clean replacements that exercise the gap in surface topology checks |
 | [BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md](BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md) | Prior-art check for post-3.0 exact boolean research directions |
 | [ERROR_BOUND_AUDIT_2026-11.md](ERROR_BOUND_AUDIT_2026-11.md) | Audit of the hand-written floating-point error bounds of the exact code: inventory (about 155), an independent re-derivation by a new checker (`tools/ErrorBoundAudit`: 31 bounds checked, 32 derivations proved), an adversarial run against `ExactDyadic`, four findings, and a CI test proposal |
