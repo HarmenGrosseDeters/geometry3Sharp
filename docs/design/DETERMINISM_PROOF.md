@@ -290,9 +290,9 @@ and build switches (`G3_PREDICATE_STATS`). What carries the claim:
   with ties, sticky bits beyond the top 64 bits and the overflow boundary (`probe.bigint-double`, determinism run
   43505530553, the same trace hash on all five configurations); `new BigInteger(double)` truncates exactly on both and
   throws `OverflowException` for NaN and infinities (`probe.double-bigint`). Its values are therefore the same bits on
-  both runtimes. Its four sites are registered: none assumes round-to-nearest or a half-ulp bound (`ExactDyadic.Quotient`
-  rounds the exact value itself and converts at most 54 bits; the documented bounds of `ApproxVector3d`, 4 * 2^-52, and of
-  `ExactPoint3.ToDouble`, below 1 ulp, hold under truncation; `FixedPoint3.DoubleOf` checks the conversion by converting back).
+  both runtimes. Its sites are registered: none assumes round-to-nearest or a half-ulp bound (`ExactDyadic.Quotient`
+  rounds the exact value itself and converts at most 54 bits; the documented bound of `ExactPoint3.ApproxVector3d`, 4 * 2^-52, holds under truncation (`ExactPoint3.ToDouble` rounds the exact value itself
+  in integer arithmetic, #1410); `FixedPoint3.DoubleOf` checks the conversion by converting back).
 - T3 (the allow-listed members compute their specified result): the reason on each line of the list; a probe where the
   specification changed between runtimes (`Math.Min / Max`: `probe.minmax-zero`; the two conversions above).
 - T4 (default floating-point environment): as in section 4.1.
@@ -419,7 +419,7 @@ rest of this table is what the registrations argue):
 | P4 delegates and interface calls | `ExactTriangulation2` calls the `orient` and `incircle` callbacks of its caller (16 calls); the box tree calls the visitors of its callers, as delegates (`ActionVisitor`, `FuncVisitor`, `Query`) and through the struct visitors of its generic methods (`IIndexVisitor`, `IPairVisitor`: a call of a member of an interface declared in this assembly is a counted `construct:interface-invocation`, since its implementations, eg `ExactMeshBoolean.CrossVisit`, lie outside the scope) | `P4` lines: the triangulation is a function of the signs; `ExactTriangulation2_EquivalentCallbacks_GiveTheSameTriangulation` gives other formulas, delayed callbacks and a second instance. What a caller's callback computes is that caller's obligation (S2-2, S2-3, S2-6) |
 
 
-**Ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`; stages 0 and 1): 439 external members (194 of them geometry3Sharp members declared outside the scope: 95 pinned, 96 assumed as obligations of stage 2; 12 only on the `#if NET` side), 69 restricted to registered sites (251 sites, 146 of them with an argument form and its tests), 1 restricted to `GetHashCode` implementations; 41 conditional-compilation blocks in 33 members; 15 `double` to integer conversions in 13 member(s); 19 `[SkipLocalsInit]` members; 82 delegate calls in 24 members and 66 string concatenations in 10 members, registered; 0 file restricted to a named type.
+**Ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`; stages 0 and 1): 439 external members (194 of them geometry3Sharp members declared outside the scope: 95 pinned, 96 assumed as obligations of stage 2; 12 only on the `#if NET` side), 69 restricted to registered sites (249 sites, 146 of them with an argument form and its tests), 1 restricted to `GetHashCode` implementations; 41 conditional-compilation blocks in 33 members; 15 `double` to integer conversions in 13 member(s); 19 `[SkipLocalsInit]` members; 82 delegate calls in 24 members and 66 string concatenations in 10 members, registered; 0 file restricted to a named type.
 
 **Claim.** On every runtime that satisfies T1 to T5, `ExactTriangulation2`, `ExactPlanarSimplify`, `SnapRounding2` and `TriangleBoxTree`
 compute functions of their arguments (and, for the first two, of the values of the callbacks and of the stage 2 members listed
