@@ -46,9 +46,12 @@ namespace g3
     ///     (IsoValue 0), the geometry times 2^-60 .. 2^200 with values of order 1, and both together times 2^-100 .. 2^200
     ///     (a smooth field: to 2^400). A factor that is not a power of two gives the same contour up to rounding. Limits:
     ///     the grid stores the node values as float; a dense grid with a value that is not a normal float (nonzero below 2^-126 or
-    ///     above 2^126) is stored times a power of two taken from the values at the sign-changing edges, so the bits are the same
-    ///     for the values times any power of two, down to an iso value of 1e-100 and below (the values of one surface that differ by more than
-    ///     2^126 from each other still lose the smaller ones; far-away values that are not floats keep their sign); the
+    ///     above about 2^127, eg +inf outside the domain or a Gaussian's tail) is stored times a power of two taken from the values at the
+    ///     sign-changing edges, so the bits are the same for the values times any power of two, down to an iso value of 1e-100 and
+    ///     below. A grid of normal floats is not touched, and a field whose values at the surface are normal floats gives the output it
+    ///     gave before (pinned for a Gaussian tail); the output can differ from before only where values at the surface were
+    ///     subnormal or clamped. Cost: one more double per node in the slabs that hold such a value. The values of one surface that
+    ///     differ by more than 2^126 from each other still lose the smaller ones, far-away values that are not floats keep their sign;
     ///     degenerate-triangle rules of creased shapes need the fourth power of an edge to
     ///     be finite (edges below about 2^250); sparse mode and local refinement are not covered (imposed signs use an
     ///     absolute value step). With ExactHermite = false every test is absolute as before 2026-11 (a node difference,
@@ -1471,7 +1474,7 @@ namespace g3
         }
 
 
-        // The grid stores float. A value that is not a normal float (nonzero below 2^-126, or above 2^126, clamped) is damaged.
+        // The grid stores float. A value that is not a normal float (nonzero below 2^-126, or above the clamp of about 2^127) is damaged.
         const double FloatNormalMin = 1.1754943508222875e-38;      // 2^-126
         const double FloatClamp = float.MaxValue / 2;
 
@@ -1494,8 +1497,10 @@ namespace g3
         {
             values = new float[NI * NJ * NK];
             valueShift = 0;
-            bool[] damaged = new bool[NK];
+            // the doubles of the slabs that hold a damaged value (null for the others): the only second copy, and no second evaluation
+            double[][] exactSlabs = new double[NK][];
             Action<int> sample_slab = (k) => {
+                double[] slab = new double[NI * NJ];
                 bool bad = false;
                 for (int j = 0; j < NJ; ++j) {
                     for (int i = 0; i < NI; ++i) {
@@ -1503,11 +1508,12 @@ namespace g3
                         double f = Implicit.Value(ref pos);
                         double a = Math.Abs(f);
                         if ((a < FloatNormalMin && a != 0) || a > FloatClamp) bad = true;
+                        slab[i + NI * j] = f;
                         // keep values finite, a float overflow would turn edge interpolation into NaN
                         values[i + NI * (j + NJ * k)] = (float)MathUtil.Clamp(f, -FloatClamp, FloatClamp);
                     }
                 }
-                damaged[k] = bad;
+                if (bad && ExactHermite) exactSlabs[k] = slab;
             };
             if (ParallelCompute)
                 gParallel.ForEach(Interval1i.Range(NK), sample_slab);
@@ -1515,51 +1521,42 @@ namespace g3
                 for (int k = 0; k < NK; ++k) sample_slab(k);
             // ExactHermite: the size of the values is not part of the level set, so a grid that the float range damages is
             // stored times a power of two (below). ExactHermite = false keeps the clamped floats, its output as before 2026-11.
-            if (ExactHermite && Array.IndexOf(damaged, true) >= 0)
-                rescale_grid();
+            if (Array.Exists(exactSlabs, x => x != null))
+                rescale_grid(exactSlabs);
         }
 
         // The values at the ends of the sign-changing grid edges (the only ones the crossings and the Hermite data read) are
         // brought into [1, 2) at their largest, by a power of two taken from that largest value: 2^k times a field gives
         // k shifted by exactly that factor, so the stored floats (and the mesh) have the same bits. Values far from the surface that
         // are still not floats (a Gaussian's tail) are 0 or clamped, as before: they have the sign they had, which is all
-        // that is read of them.
-        void rescale_grid()
+        // that is read of them. Cost: one more double per node in the slabs that hold a damaged value (a Gaussian's tail
+        // damages most of them), and one pass over the grid; Implicit is not evaluated again, so an impure Implicit stays consistent.
+        void rescale_grid(double[][] exactSlabs)
         {
-            double[] exact = new double[values.Length];
-            Action<int> sample_slab = (k) => {
-                for (int j = 0; j < NJ; ++j) {
-                    for (int i = 0; i < NI; ++i) {
-                        Vector3d pos = origin + CellSize * new Vector3d(i, j, k);
-                        exact[i + NI * (j + NJ * k)] = Implicit.Value(ref pos);
-                    }
-                }
-            };
-            if (ParallelCompute)
-                gParallel.ForEach(Interval1i.Range(NK), sample_slab);
-            else
-                for (int k = 0; k < NK; ++k) sample_slab(k);
-            // the largest |value| at an end of a sign-changing edge (a maximum: the same for any order of the slabs)
+            // the value of node (i, j, k) as sampled: the double where the slab was kept, the stored float elsewhere (a normal float
+            // whose scaling is exact, so it rounds to the same float as the double would)
+            Func<int, int, int, double> at = (i, j, k) => exactSlabs[k] != null ? exactSlabs[k][i + NI * j] : values[i + NI * (j + NJ * k)];
             double largest = 0;
             for (int k = 0; k < NK; ++k)
                 for (int j = 0; j < NJ; ++j)
                     for (int i = 0; i < NI; ++i) {
-                        int c = i + NI * (j + NJ * k);
-                        double f = exact[c];
+                        double f = at(i, j, k);
                         if (double.IsNaN(f) || double.IsInfinity(f)) continue;
                         bool ins = is_inside(f);
                         for (int a = 0; a < 3; ++a) {
                             int ni = i + (a == 0 ? 1 : 0), nj = j + (a == 1 ? 1 : 0), nk = k + (a == 2 ? 1 : 0);
                             if (ni >= NI || nj >= NJ || nk >= NK) continue;
-                            double g = exact[ni + NI * (nj + NJ * nk)];
+                            double g = at(ni, nj, nk);
                             if (double.IsNaN(g) || double.IsInfinity(g) || is_inside(g) == ins) continue;
                             largest = Math.Max(largest, Math.Max(Math.Abs(f), Math.Abs(g)));
                         }
                     }
             if (largest == 0) return;       // no sign change (or only zeros): nothing is read of the values
             int shift = exponent_of(largest);
-            for (int c = 0; c < exact.Length; ++c)
-                values[c] = (float)MathUtil.Clamp(ExactPoint3.ScaleB(exact[c], -shift), -FloatClamp, FloatClamp);
+            for (int k = 0; k < NK; ++k)
+                for (int j = 0; j < NJ; ++j)
+                    for (int i = 0; i < NI; ++i)
+                        values[i + NI * (j + NJ * k)] = (float)MathUtil.Clamp(ExactPoint3.ScaleB(at(i, j, k), -shift), -FloatClamp, FloatClamp);
             valueShift = shift;
         }
         int valueShift;

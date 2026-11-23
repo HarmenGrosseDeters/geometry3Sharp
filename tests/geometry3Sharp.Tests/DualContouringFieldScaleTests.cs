@@ -253,10 +253,9 @@ namespace geometry3Sharp.Tests
 
         // ---------------------------------------------------------------- the float grid (#1376)
 
-        // c f for c far outside the float range of the node values: fails before the fix (2^-150 and below: empty; 2^130 and above:
-        // clamped values, moved vertices)
+        // c f for c far below the float range of the node values: fails before the fix (2^-150 and below: empty; 2^-140: moved vertices)
         public static IEnumerable<object[]> FloatRangeScales() =>
-            from e in new[] { -200, -150, -140, 130, 200 } from c in new[] { "default", "Simplify off" } select new object[] { e, c };
+            from e in new[] { -200, -150, -140 } from c in new[] { "default", "Simplify off" } select new object[] { e, c };
 
         [Theory]
         [MemberData(nameof(FloatRangeScales))]
@@ -267,6 +266,39 @@ namespace geometry3Sharp.Tests
             DMesh3 scaled = Contour(p => c * Sdf(p), UnitBox, 0.125, config);
             AssertSolid(scaled, "scaled");
             Assert.Equal("", Invariance.Difference(unit, scaled));
+        }
+
+        // above the float range the bisected crossings do not read the grid values, so the default is the same on master (these pass
+        // there; they pin that the rescaling does not break it); the interpolated fallback (a HermiteF that declines every edge) does
+        // read them: on master the values are clamped at 2^127 and the crossings are at the middle of the edges. Fails before the fix.
+        [Theory]
+        [InlineData(300)]
+        [InlineData(200)]
+        public void ValuesAboveTheFloatRange_SameMeshBitForBit(int e)
+        {
+            double c = Pow2(e);
+            DMesh3 unit = Contour(Sdf, UnitBox, 0.125);
+            AssertSolid(Contour(p => c * Sdf(p), UnitBox, 0.125), "scaled");
+            Assert.Equal("", Invariance.Difference(unit, Contour(p => c * Sdf(p), UnitBox, 0.125)));
+            DMesh3 Run(double k)
+            {
+                DualContouring dc = Make(p => k * Sdf(p), UnitBox, 0.125);
+                dc.HermiteF = (Vector3d a, Vector3d b, Vector3d crossing, out Vector3d point, out Vector3d normal) => { point = normal = Vector3d.Zero; return false; };
+                dc.Generate();
+                return dc.Mesh;
+            }
+            Assert.Equal("", Invariance.Difference(Run(1), Run(c)));
+        }
+
+        // a field with a Gaussian tail (nonzero values below the smallest normal float far from the surface, +inf outside the domain)
+        // takes the rescaling path: its output is pinned (the surface values are normal floats, so it is the output of master too)
+        [Fact]
+        public void FieldWithATailBelowTheNormalFloats_KeepsItsOutput()
+        {
+            double Tail(Vector3d p) => p.x > 2.4 ? double.PositiveInfinity : Gauss(p);
+            DMesh3 m = Contour(Tail, BigBox, 0.125, "default", -1e-10);
+            AssertSolid(m, "tail");
+            Assert.Equal("276 3E363445554399FC", Digest(m));
         }
 
         // not a power of two: the same contour up to rounding
