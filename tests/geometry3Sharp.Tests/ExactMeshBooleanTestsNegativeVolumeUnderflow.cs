@@ -101,5 +101,25 @@ namespace geometry3Sharp.Tests
             // (exactly one of them is the negative one)
             Assert.True(inwardNegative != outwardNegative, "2^" + k + ": the inside-out solid is not told from the other");
         }
+
+        // The decision at its exact edge (every term of the bound is pinned). Triangle 0 has the corner o first (x = 0: it adds 1
+        // to the underflow sum and nothing else), triangle 1 has x = (1, xy, xz), y = (0, t, 0), z = (0, 0, -w): v6 = -(t w)
+        // exactly, a multiple of 2^-1074 (t = 2^-1000). The norm term (32 + n) u S is below half of 2^-1074 for these (it rounds
+        // to 0), so the bound is UnderflowUnit * (1 + 1 + 1 + |xy| + |xz|) = 2^-1066 * under. d = 0 puts v6 on the bound
+        // (not refused: the test is strict), d = 1 one unit of 2^-1074 beyond it (refused), d = -1 one unit short of it (not).
+        [Theory]
+        [InlineData(0, 0)] [InlineData(2, 0)] [InlineData(0, 4)] [InlineData(2, 4)] [InlineData(-2, -4)] [InlineData(-2, 4)] [InlineData(2, -4)]
+        public void TheBoundOfTheUnderflowTerm_IsStrict_AndSumsTheAbsoluteValuesOfAllThreeCoordinates(double xy, double xz)
+        {
+            double under = 3 + Math.Abs(xy) + Math.Abs(xz);
+            double t = ExactPoint3.ScaleB(1.0, -1000);
+            foreach (int d in new[] { -1, 0, 1 }) {
+                double w = (under * 256 + d) * ExactPoint3.ScaleB(1.0, -74);       // t w = (under 256 + d) 2^-1074, exact
+                Assert.Equal((under * 256 + d) * double.Epsilon, t * w);
+                var xyz = new double[] { 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, xy, xz, 0, t, 0, 0, 0, -w };
+                DMesh3 m = Mesh(xyz, new[] { 0, 1, 2, 3, 4, 5 });
+                Assert.Equal(d > 0, Negative(m));
+            }
+        }
     }
 }
