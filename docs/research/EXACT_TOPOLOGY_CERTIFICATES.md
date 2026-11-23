@@ -14,15 +14,11 @@ For the boundary of a bounded solid with pairwise disjoint, closed, embedded ori
 
 The guarantee is about the Betti numbers of that solid. The three counts leave cavity ownership, geometry, and winding orientation undetermined. For example, moving a cavity from one disconnected material part to another can preserve all three counts. Keep cleanliness and signed-orientation assertions alongside a nesting check. Touching or crossing shells and bowtie vertices fall outside the derivation.
 
-## Probe
+## Probe and tests
 
-The [C# probe](../../benchmarks/TopologyCertificateProbe/Program.cs) calls `ExactMeshBoolean` with safe rounding for the enclosed subtraction and the through-tunnel cut. It sends the enclosed result through `MeshRobustRepair` with clean pass-through enabled and disabled. The expected Betti numbers follow from the procedural constructions. The probe verifies the returned meshes with the library's validity and cleanliness checks and checks the small fixtures for pairwise shell intersections before measuring nesting. It then compares three clean replacements for the expected cavity. The two disjoint boxes have volumes 24 and 2, so the replacement matches the cavity's total signed volume of 26.
+The probe of this study was a benchmark project (`benchmarks/TopologyCertificateProbe`, PR #1449 at `959a48a8`). Its check now lives in the tests, and the project was removed. The helper [`SolidBetti`](../../tests/geometry3Sharp.Tests/Harness/SolidBetti.cs) computes the solid Betti numbers by nesting parity. It asserts the cheap parts of its precondition: the mesh is closed, has no bowtie vertex, and no two shells meet. [`SolidBettiTests`](../../tests/geometry3Sharp.Tests/SolidBettiTests.cs) checks it on procedural boxes: a cube with a cavity `(1, 0, 1)`, two disjoint boxes `(2, 0, 0)`, a part inside a cavity `(2, 0, 1)` and a Boolean through tunnel `(1, 1, 0)`. Its assertions sit in the cavity branches of `ExactMeshBooleanTests.DisjointAndNested` and `NestedShells_SameOrientation_AndInverted`, and in the forced repair (`PassThroughCleanParts = false`) of `RobustRepairPassThroughTests.CleanWholeInput_PartsWhoseBoxesMeet_ReturnedUnchanged`.
 
-Run from the repository root with the .NET 10 SDK.
-
-```sh
-LC_ALL=C dotnet run --project benchmarks/TopologyCertificateProbe -c Release
-```
+The probe called `ExactMeshBoolean` with safe rounding for the enclosed subtraction and the through-tunnel cut. It sent the enclosed result through `MeshRobustRepair` with clean pass-through enabled and disabled. The expected Betti numbers follow from the procedural constructions. The probe verified the returned meshes with the library's validity and cleanliness checks and checked the small fixtures for pairwise shell intersections before measuring nesting. It then compared three clean replacements for the expected cavity. The two disjoint boxes have volumes 24 and 2, so the replacement matches the cavity's total signed volume of 26.
 
 The run below used Release on Linux x64 (.NET SDK 10.0.404, Intel Xeon Platinum 8573C). The timing is the median of seven batches of 1,000 calls after 1,000 warm-up calls per variant. It excludes the Boolean, repair and cleanliness checks. The baseline computes `MeshTopologySummary`; the extended variant computes the same summary and builds fresh winding trees for the nesting queries.
 
@@ -42,7 +38,7 @@ Boolean cavity median us/check: summary=35.41, summary+nesting=164.60
 
 The surface comparison rejects two of the three clean replacements. Adding nesting rejects all three. The disjoint replacement also preserves triangle count and total signed volume, so those assertions do not close the gap. Both real repair paths returned the expected cavity. For the non-manifold control, the two cube boundaries share exactly one mesh vertex and form a wedge of two spheres. Their abstract surface has Betti numbers `(1, 0, 2)`, while the summary reports two edge-connected components and flags the bowtie. The existing cleanliness check rejects that case.
 
-As a check on the probe, replace `if (depth % 2 == 0)` with `if (depth >= 0)` and rerun. This deliberately classifies all shells as outer shells. The probe fails on the first Boolean output with `expected solid Betti (1, 0, 1), got (2, 0, 0)`.
+As a check of the tests, replace `if (depth % 2 == 0)` with `if (depth >= 0)` in `SolidBetti`. This deliberately classifies all shells as outer shells. The cavity, nested-part and all three fixture assertions fail, for example `a - inner: solid Betti numbers (2, 0, 0), expected (1, 0, 1)`; the disjoint-boxes and tunnel cases still pass.
 
 ## Recommendation
 
@@ -51,4 +47,4 @@ As a check on the probe, replace `if (depth % 2 == 0)` with `if (depth >= 0)` an
 - **Existing clean repair pass-through.** Keep the vertex-set, volume and pass-through assertions. The disjoint replacement changes the vertex positions and is already rejected. A forced-repair cavity fixture that only checks the result path, cleanliness or total volume gains a specific cavity-preservation assertion. Soup resolution needs an explicit per-fixture expectation because `NestedPartAsSoup_ResolvedAsSolidNotCavity` intentionally expects solid material.
 - **Non-manifold repair outputs.** Park a general homology check. The point-contact fixture demonstrates a difference in the meaning of connectivity, but the current bowtie guard already rejects it.
 
-A test helper restricted to known disjoint shells is enough for nested Boolean and forced-repair fixtures. The probe repeats the shell extraction already implicit in the summary and builds one winding tree per shell. It performs up to `s(s-1)` containment queries. The timing above measures reconstruction of those trees on the centred-cube fixture, so it gives a cost for small regression tests. A library-wide checker would need a separate workload and a way to avoid all-pairs queries on assemblies with many parts. This study found a test coverage gap on controlled replacements. It found no defect in the measured production outputs.
+A test helper restricted to known disjoint shells is enough for nested Boolean and forced-repair fixtures. The helper repeats the shell extraction already implicit in the summary and builds one winding tree per shell. It performs up to `s(s-1)` containment queries. The timing above measures reconstruction of those trees on the centred-cube fixture, so it gives a cost for small regression tests. A library-wide checker would need a separate workload and a way to avoid all-pairs queries on assemblies with many parts. This study found a test coverage gap on controlled replacements. It found no defect in the measured production outputs.

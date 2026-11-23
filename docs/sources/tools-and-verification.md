@@ -6,7 +6,7 @@ Back to [Sources Index](../SOURCES.md) · [sources/README.md](README.md)
 
 ## Solid topology study
 
-[Solid Betti numbers as Boolean and repair test oracles](../research/EXACT_TOPOLOGY_CERTIFICATES.md) uses these published texts. The probe uses existing library operations.
+[Solid Betti numbers as Boolean and repair test oracles](../research/EXACT_TOPOLOGY_CERTIFICATES.md) uses these published texts. Its test helper (`tests/geometry3Sharp.Tests/Harness/SolidBetti.cs`) uses existing library operations.
 
 | Source | Use |
 |---|---|
