@@ -383,7 +383,7 @@ namespace g3
                 if (LoPlus < UpMinus) {
                     if (accurateEnds && (LoBest == double.NegativeInfinity || UpBest == double.PositiveInfinity)) return 3;
                     // the ends are returned from this route only when they are accurate to a few ulp (a slab with a cancelling P is not). The two checks of the winner's own
-                    // error are implied by the checks of the intervals below (LoPlus >= LoBest + LoBestErr, UpMinus <= UpBest - UpBestErr): kept as the cheap first test
+                    // error are covered by the checks of the intervals below (up to rounding) (LoPlus >= LoBest + LoBestErr, UpMinus <= UpBest - UpBestErr): kept as the cheap first test
                     if (accurateEnds && (LoBestErr > 6 * U * Math.Abs(LoBest) + 1e-300 || UpBestErr > 6 * U * Math.Abs(UpBest) + 1e-300)) return 3;
                     // (and the losing bounds: the exact end is the largest lower bound, in [LoMinus, LoPlus], and the smallest upper bound, in [UpMinus, UpPlus];
                     // a losing bound whose interval reaches past the winner can be the true end, eg a slab whose P cancels)
