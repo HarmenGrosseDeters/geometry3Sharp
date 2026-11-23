@@ -35,7 +35,7 @@ internal static class VectorHeatEdgeProbe
             Vector3d start = mesh.GetVertex(from).Normalized, finish = mesh.GetVertex(to).Normalized;
             Vector3d across = start.Cross(finish).Normalized;
             Vector3d forward = across.Cross(start);
-            double angle = triangulation.Signpost(h) - triangulation.ReverseSignpost(h) + Math.PI;
+            double angle = HeadToTailRotation(triangulation, h);
             double cos = Math.Cos(angle), sin = Math.Sin(angle);
 
             double tangentError = MeasureDirection(triangulation, from, to, start, finish, forward, cos, sin);
@@ -62,9 +62,19 @@ internal static class VectorHeatEdgeProbe
         var rotated = new Vector2d(cos * local.x - sin * local.y, sin * local.x + cos * local.y);
         Vector3d actual = triangulation.ToWorld(to, rotated);
         actual -= actual.Dot(finish) * finish;
-        Vector3d expected = initial - initial.Dot(finish) / (1 + start.Dot(finish)) * (start + finish);
+        Vector3d expected = GreatCircleTransport(start, finish, initial);
         if (!(actual.Length > 0) || !actual.IsFinite)
             throw new InvalidOperationException($"Invalid edge transport from vertex {from} to {to}.");
         return Math.Atan2(expected.Cross(actual).Length, expected.Dot(actual)) * 180 / Math.PI;
+    }
+
+    internal static double HeadToTailRotation(IntrinsicTriangulation triangulation, int halfedge)
+    {
+        return triangulation.Signpost(halfedge) - triangulation.ReverseSignpost(halfedge) + Math.PI;
+    }
+
+    internal static Vector3d GreatCircleTransport(Vector3d start, Vector3d finish, Vector3d initial)
+    {
+        return initial - initial.Dot(finish) / (1 + start.Dot(finish)) * (start + finish);
     }
 }

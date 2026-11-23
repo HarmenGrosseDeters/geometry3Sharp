@@ -250,3 +250,24 @@ For each edge, the probe transports two smooth vectors from j: the unit tangent 
 The measured icosahedral input and Delaunay rows agree at every level. Every cube-sphere Delaunay refinement has smaller single-edge RMS and maximum error than the previous level. On the finest cube-sphere the Delaunay edge RMS is 0.000184° and the maximum is 0.00479°. The inserted edges have a higher RMS than the average over all active Delaunay edges and their RMS still decreases on every step, reaching 0.000252°.
 
 The single-edge error decreases even on this family where the far-band error of full vector heat grows at the default time. This control measures a local consistency property for two input directions per edge. It leaves open how correlated edge errors accumulate and how the weighted diffusion combines paths. A one-edge error threshold cannot serve as an end-to-end convergence oracle on these fixtures.
+
+## Accumulation along a shortest edge path
+
+Run `dotnet run -c Release --project benchmarks/CurvatureWeakProbe -- --heat-paths`. The probe uses the same intrinsic Delaunay sphere meshes and one source per family from the time sweeps. It runs `DijkstraGraphDistance` over the positive-weight edges, using intrinsic edge lengths as the graph costs. The library's graph routine uses single-precision costs and selects one predecessor at each vertex. The probe follows that same predecessor tree in both transport calculations.
+
+At each edge, one calculation applies the signpost rotation in the mesh tangent coordinates. The other transports the smooth vector along the short unit-sphere arc between the same two vertices. Both start with the tangent vector of the previous controls. At each destination, the projected signpost vector is compared to the composed analytic vector. This is the rotation error along the chosen path. Comparing the composed analytic vector with transport along the direct great-circle arc gives the path error. On a sphere, the latter measures the holonomy of the loop formed by the two routes, modulo a full turn. The earlier angle cutoffs exclude the antipode and define the same cap and far-band samples. This experiment uses shortest edge paths as a control for path geometry. The full heat solve combines paths with its own weights.
+
+| Mesh | Level | Path cap RMS (°) | Path far RMS (°) | Rotation cap RMS (°) | Rotation far RMS (°) |
+|---|---:|---:|---:|---:|---:|
+| cube | 9 | 2.04721 | 7.41346 | 0.0738128 | 0.0955596 |
+| cube | 17 | 1.93298 | 10.5183 | 0.0214706 | 0.0284808 |
+| cube | 33 | 1.94152 | 10.6242 | 0.00581227 | 0.00770385 |
+| cube | 65 | 1.93121 | 10.9685 | 0.00150956 | 0.00200858 |
+| ico | 2 | 13.7809 | 31.7163 | 0.0951262 | 0.0568844 |
+| ico | 3 | 12.8295 | 22.7217 | 0.0520729 | 0.0214664 |
+| ico | 4 | 12.5973 | 19.3759 | 0.0268398 | 0.0124363 |
+| ico | 5 | 12.5901 | 18.6423 | 0.0131329 | 0.00546394 |
+
+On the cube-sphere, the far-band path error rises to 10.97° while the rotation error along that same path decreases to 0.00201°. On the icosahedral sphere, the far-band path error decreases but remains 18.64° on the finest mesh. Its rotation error decreases to 0.00546°. On both meshes, the angle from composing smooth transport along the chosen route is much larger than the discrepancy caused by replacing its rotations with signposts.
+
+The shortest edge path is a deliberately constrained control. In particular, the finest icosahedral heat solve previously measured only 0.236° far-band RMS, far below 18.64° for this control. These measurements show that route geometry alone can dominate transport error in an edge-path method. They leave the effective weights and cancellations of the heat resolvent open. The path probe provides no reason to replace vector heat with graph-path transport.
