@@ -98,10 +98,15 @@ as `InputGrid`, which the step never overrides.
 - A run that succeeds is never retried.
 - A tool that the sheet route tried and that was refused with `RimInsideWorkpiece` is retried on the grid before the
   fallback to solids: the rim was probably meant to be flush, and the fallback (with `InputRepair`) would close the
-  sheet as a solid, which changes its meaning. If the sheet is refused on the grid too, the fallback runs as without
-  the step, off the grid.
+  sheet as a solid, which changes its meaning. If the sheet is refused on the grid too, the retry ends there: the
+  inputs are not tried as solids on the grid. The fallback then runs as without the step, off the grid, and its
+  failure is not retried (the next point).
 - Otherwise the retry repeats the run that failed, on the same route (after a fallback: with the inputs as solids).
 - One retry per `Compute`: a rounding refusal of the fallback after a failed retry of the sheet is not retried.
+- Inputs whose vertices are all on the cell already are not run again (the retry would be the run that failed): the
+  `Grid` step says so.
+- The stage times of both runs (input check, repair, boolean) are in the report of the run that is the result, also
+  for a cancelled retry.
 - A retry that fails leaves the first failure as the result (status, error, report), with one `Grid` step in
   `Report.Route` that says so; a cancelled retry is `Cancelled`.
 - `ConfigureBoolean` runs once more for the retry. The cost of a failed retry is one more run up to its failure (for a

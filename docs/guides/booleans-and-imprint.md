@@ -228,10 +228,11 @@ foreach (SolidBooleanRouteStep step in pipeline.Report.Route)   // "SheetRole", 
 - **The report:** `Report.Route` gets a step `Grid`: `Reason` is the failure it answers, `Change` the cell and the number of vertices the snap moved (`Report.InputSnappedVertices`), and `Grid` the cell as a number.
 - **The result is checked like any other** (`Report.NotCleanReason`, `Report.Clean`).
 - **If the retry fails too, the first failure is the result** (status, error and report of the run without the grid); the `Grid` step says that the retry failed and how. A cancelled retry is `Cancelled`.
-- **Before the fallback:** a tool that the sheet route tried and that was refused with `RimInsideWorkpiece` is retried on the grid first. Only if the sheet is refused there too does the run fall back to solids, off the grid.
+- **Before the fallback:** a tool that the sheet route tried and that was refused with `RimInsideWorkpiece` is retried on the grid first, as a sheet. If the sheet is refused there too, the retry ends: the inputs are not tried as solids on the grid. The run then goes on as without the step, with the `Fallback` to solids off the grid, and a failure of that fallback is not retried (the step ran once).
+- **Inputs on the cell already** (the snap would move no vertex) are not run again: the `Grid` step says so and the first failure is the result.
 - **`InputGrid` set:** the step does not run; the caller's grid is used as stated.
 - **Limit:** a snap makes coordinates equal. It cures a rim on a face parallel to a coordinate plane and vertices meant to coincide, not a rim a little inside a slanted face. As with `InputGrid`, features thinner than the cell can collapse; the cell follows the largest coordinate of all inputs, so a small input near the origin next to one far from it gets the coarse cell of the far one.
-- **Cost:** the retry is one more run (`ConfigureBoolean` runs again for it); its time is part of `Report.BooleanMilliseconds`. An undefined value of `AutomaticSteps` is `InvalidInput`.
+- **Cost:** the retry is one more run (`ConfigureBoolean` runs again for it). The stage times of both runs (input check, repair, boolean) are in the report of the one that is the result. An undefined value of `AutomaticSteps` is `InvalidInput`.
 
 ---
 

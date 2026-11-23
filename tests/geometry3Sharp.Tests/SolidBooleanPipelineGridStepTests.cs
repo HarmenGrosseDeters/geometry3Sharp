@@ -293,6 +293,55 @@ namespace geometry3Sharp.Tests
             Assert.Equal(2, booleans);
             Assert.True(q.Report.BooleanMilliseconds >= 390, "boolean " + q.Report.BooleanMilliseconds);
             Assert.True(q.Report.TotalMilliseconds >= 390, "total " + q.Report.TotalMilliseconds);
+            // a retry that is cancelled: the first run waits, and the report of the cancelled run has its time
+            booleans = 0;
+            var cts = new CancellationTokenSource();
+            var c = new SolidBooleanPipeline(FlushRim(), D) { InputRoles = SheetSecond(), AutomaticSteps = Auto.Grid, Cancellation = cts.Token };
+            c.ConfigureBoolean = op => { if (++booleans == 1) Thread.Sleep(400); else cts.Cancel(); };
+            Assert.False(c.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.Cancelled, c.Status);
+            Assert.True(c.Report.BooleanMilliseconds >= 390, "boolean " + c.Report.BooleanMilliseconds);
+        }
+
+        [Fact]
+        public void InputsOnTheCellAlready_AreNotRunAgain()
+        {
+            // the cube [0,4]^3 and a patch inside it at dyadic coordinates: the snap to the cell 2^-38 moves nothing, so the retry would be the
+            // run that failed. (A rounding refusal of inputs on their cell is not at hand: the fragment on its cell is the cured case)
+            Func<List<DMesh3>> inputs = () => new List<DMesh3> {
+                new TrivialBox3Generator() { Box = new Box3d(new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(4, 4, 4))) }.Generate().MakeDMesh(), Sheet(1, 3, 1, 3) };
+            Assert.False(SolidBooleanPipeline.OffGrid(inputs(), Pow2(-38)));
+            var plain = new SolidBooleanPipeline(inputs(), D) { InputRoles = SheetSecond() };
+            Assert.False(plain.Compute());
+            int booleans = 0;
+            var p = new SolidBooleanPipeline(inputs(), D) { InputRoles = SheetSecond(), AutomaticSteps = Auto.Grid, ConfigureBoolean = op => booleans++ };
+            Assert.False(p.Compute());
+            Assert.Equal(1, booleans);
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.BooleanFailed, p.Status);
+            Assert.Equal(Rim, p.SheetReason);
+            Assert.Equal(plain.Error, p.Error);
+            Assert.Equal("Grid:-1", Names(p));
+            Assert.Equal(Pow2(-38), p.Report.Route[0].Grid);
+            Assert.Equal("every input vertex is on the cell 2^-38 (3.637978807091713E-12) already, so the run is not done again and the first failure is the result", p.Report.Route[0].Change);
+            // on the sheet route: the sheet, then the fallback as without the step
+            booleans = 0;
+            var routed = new SolidBooleanPipeline(inputs(), D) { AutomaticSteps = Auto.Grid, ConfigureBoolean = op => booleans++ };
+            Assert.False(routed.Compute());
+            Assert.Equal(2, booleans);
+            Assert.Equal("SheetRole:1,Grid:-1,Fallback:-1,Refused:-1", Names(routed));
+        }
+
+        [Fact]
+        public void OffGrid_IsTrueWhereTheSnapWouldMoveAVertex()
+        {
+            Assert.False(SolidBooleanPipeline.OffGrid(new[] { Points(0.25, -0.5, 8, 0, -0.0, 1e300) }, 0.25));
+            Assert.True(SolidBooleanPipeline.OffGrid(new[] { Points(0.3, 0, 0) }, 0.25));
+            Assert.True(SolidBooleanPipeline.OffGrid(new[] { Points(0, 0.3, 0) }, 0.25));
+            Assert.True(SolidBooleanPipeline.OffGrid(new[] { Points(0, 0, 0.3) }, 0.25));
+            Assert.True(SolidBooleanPipeline.OffGrid(new[] { Points(0, 0, 0), Points(1, 1, 1, 0, -0.1, 0) }, 0.25));
+            // (a coordinate that is not finite is left where it is)
+            Assert.False(SolidBooleanPipeline.OffGrid(new[] { Points(double.NaN, double.PositiveInfinity, 0.5) }, 0.25));
+            Assert.False(SolidBooleanPipeline.OffGrid(new[] { new DMesh3() }, 0.25));
         }
 
         [Fact]

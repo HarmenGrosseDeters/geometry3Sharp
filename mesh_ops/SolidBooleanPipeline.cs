@@ -418,7 +418,8 @@ namespace gs
         /// coordinate of all inputs, so it scales with the inputs and moves a vertex by at most 4.5e-13 of that coordinate (features thinner than the cell can collapse, as with InputGrid). The step
         /// runs only after such a failure, once, never on a success, and not when InputGrid is set (the caller's grid is used as stated).
         /// Its result is checked like any other. Report.Route gets a step "Grid" with the failure it answers, the cell and the number of
-        /// vertices the snap moved. If the retry fails too, the first failure is the result and the step says so. For a tool that the
+        /// vertices the snap moved. If the retry fails too, the first failure is the result and the step says so; inputs that are on the cell
+        /// already are not run again (the step says that). For a tool that the
         /// sheet route refused, the step comes before the Fallback to solids. A snap makes coordinates equal: it cures contacts on
         /// axis-parallel faces and vertices meant to coincide, not a rim a little inside a slanted face. ConfigureBoolean runs once more for
         /// the retry. A value with other bits than those of AutomaticStepModes: InvalidInput
@@ -605,8 +606,9 @@ namespace gs
         }
 
         // The Grid step (AutomaticSteps): the failed run once more, on the same route, with the inputs snapped to the cell of the data. True: the retry
-        // is the result. False: no retry (the step is off, InputGrid is set, or the data gives no cell), or it failed too; then the first failure is
-        // the result again, with the attempt as a step, except for a cancelled retry (Status Cancelled)
+        // is the result. False: no retry (the step is off, InputGrid is set, or the data gives no cell: no step; every vertex is on the cell already: a
+        // step that says so), or it failed too; then the first failure is the result again, with the attempt as a step, except for a cancelled
+        // retry (Status Cancelled). The stage times of the run that is not the result are added to those of the one that is
         bool gridRetry(Stopwatch total, bool sheetRoute, string reason)
         {
             if ((AutomaticSteps & AutomaticStepModes.Grid) == 0 || InputGrid != 0)
@@ -614,36 +616,56 @@ namespace gs
             double cell = DataGrid(Inputs);
             if (cell == 0)
                 return false;
+            string cellText = "2^" + CellExponent(cell) + " (" + cell.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ")";
+            var s = new SolidBooleanRouteStep { Name = "Grid", Reason = reason, Grid = cell };
+            route.Add(s);
+            // (inputs that are on the cell already: the retry would be the run that failed)
+            if (OffGrid(Inputs, cell) == false) {
+                s.Change = "every input vertex is on the cell " + cellText + " already, so the run is not done again and the first failure is the result";
+                return false;
+            }
             SolidBooleanReport firstReport = Report;
             PipelineStatus firstStatus = Status;
             string firstError = Error;
             ExactMeshBoolean.BooleanStatus firstBoolean = BooleanStatus;
             ExactMeshBoolean.SheetRefusal firstSheet = SheetReason;
-            string cellText = "2^" + CellExponent(cell) + " (" + cell.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ")";
-            var s = new SolidBooleanRouteStep { Name = "Grid", Reason = reason, Grid = cell };
-            route.Add(s);
             int mine = route.Count;
             grid = cell;
             bool done = compute(total, sheetRoute);
             grid = InputGrid;
             s.Change = "the inputs are snapped to the cell " + cellText + ", which moved " + Report.InputSnappedVertices + " vertices, and the run is done again";
-            if (done) {
-                // (the time of the failed attempt is boolean time of this run)
-                Report.BooleanMilliseconds += firstReport.BooleanMilliseconds;
-                return true;
+            // (the retry is the result, also where it was cancelled: the time of the failed first run is time of this run)
+            if (done || Status == PipelineStatus.Cancelled) {
+                addStageTimes(Report, firstReport);
+                return done;
             }
-            if (Status == PipelineStatus.Cancelled)
-                return false;
             s.Change += "; it failed too (" + Status + ": " + Error + "), so the first failure is the result";
             route.RemoveRange(mine, route.Count - mine);
-            firstReport.BooleanMilliseconds += Report.BooleanMilliseconds;
+            addStageTimes(firstReport, Report);
             firstReport.TotalMilliseconds = total.ElapsedMilliseconds;
             Report = firstReport;
             Status = firstStatus;
             Error = firstError;
             BooleanStatus = firstBoolean;
             SheetReason = firstSheet;
-            Result = null;
+            return false;
+        }
+
+        // the stage times of a run that failed at its boolean (the input check, the repair, the boolean), added to those of the run that is the result
+        static void addStageTimes(SolidBooleanReport to, SolidBooleanReport from)
+        {
+            to.InputCheckMilliseconds += from.InputCheckMilliseconds;
+            to.RepairMilliseconds += from.RepairMilliseconds;
+            to.BooleanMilliseconds += from.BooleanMilliseconds;
+        }
+
+        // true if the snap to the cell g would move a vertex of an input (as Snapped counts them)
+        internal static bool OffGrid(IEnumerable<DMesh3> inputs, double g)
+        {
+            foreach (DMesh3 m in inputs)
+                foreach (Vector3d p in m.Vertices())
+                    if (!same(snap(p.x, g), p.x) || !same(snap(p.y, g), p.y) || !same(snap(p.z, g), p.z))
+                        return true;
             return false;
         }
 
