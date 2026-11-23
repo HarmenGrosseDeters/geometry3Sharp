@@ -449,6 +449,8 @@ decisions above): the ExactPredicates throw near ±1e308 (fixed: robustness swee
 
 #### Other open items
 
+- **`SolidBooleanPipeline` default `AutomaticSteps = GridBeforeFallback` (local, PR to come).** An open tool of a Difference that the sheet role refuses with `RimInsideWorkpiece` (a rim a few ulps inside a face, far from the origin) is retried once on the data grid before the fallback; `AutomaticSteps = None` is the old behaviour. Known risk, in the guide: the cell can be a visible share of a small feature far from the origin.
+
 Checked against the owner's decisions, git and the open PRs and issues on 2026-11-15; status lines re-checked 2026-11-17.
 
 Open:

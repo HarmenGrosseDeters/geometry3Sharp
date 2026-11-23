@@ -187,7 +187,8 @@ namespace geometry3Sharp.Tests
             Assert.Empty(stated.Report.Route);
 
             // by default (InputRepair Refuse): the sheet role, the fallback with the reason, the refusal as an open input
-            var p = new SolidBooleanPipeline(new List<DMesh3> { workpiece, tool }, D);
+            // (AutomaticSteps None: the route to the fallback without the Grid step that the default adds for a rim inside the workpiece)
+            var p = new SolidBooleanPipeline(new List<DMesh3> { workpiece, tool }, D) { AutomaticSteps = SolidBooleanPipeline.AutomaticStepModes.None };
             Assert.False(p.Compute());
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
             Assert.Equal(ExactMeshBoolean.BooleanStatus.OpenInput, p.BooleanStatus);
@@ -212,7 +213,7 @@ namespace geometry3Sharp.Tests
         public void ARefusedSheetRoute_WithAutoRepair_RepairsAsBefore_AndTheRouteNamesTheRepair()
         {
             // the bucket [1,3]^3, open at the top, inside the cube: its rim is inside (the sheet role refuses), MeshAutoRepair closes it: a cavity of 8
-            var p = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Box(1, 3, 1, 3, false) }, D) { InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair };
+            var p = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Box(1, 3, 1, 3, false) }, D) { InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair, AutomaticSteps = SolidBooleanPipeline.AutomaticStepModes.None };
             Assert.True(p.Compute(), p.Status + " " + p.Error);
             Assert.Equal(64.0 - 8.0, Volume(p.Result), 9);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(p.Result));
@@ -263,7 +264,7 @@ namespace geometry3Sharp.Tests
             var wall = new DMesh3();
             int a = wall.AppendVertex(new Vector3d(3, -1, -1)), b = wall.AppendVertex(new Vector3d(3, -1, 5)), c = wall.AppendVertex(new Vector3d(3, 5, 5)), d = wall.AppendVertex(new Vector3d(3, 5, -1));
             wall.AppendTriangle(a, b, c); wall.AppendTriangle(a, c, d);
-            var p = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Sheet(1, -1, 5), wall }, D);
+            var p = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Sheet(1, -1, 5), wall }, D) { AutomaticSteps = SolidBooleanPipeline.AutomaticStepModes.None };
             Assert.True(p.Compute(), p.Status + " " + p.Error);
             Assert.Equal(36.0, Volume(p.Result), 9);
             Assert.Equal("SheetRole:1,SheetRole:2", Names(p));
@@ -287,7 +288,7 @@ namespace geometry3Sharp.Tests
             Assert.True(p.Compute(), p.Error);
             Assert.Equal("SheetRole:1,SheetRole:2", Names(p));
             // a stated sheet that refuses is not a route to fall back from: its refusal is the result
-            var stated = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Sheet(2, 1, 3), wall }, D) { InputRoles = SheetSecond() };
+            var stated = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Sheet(2, 1, 3), wall }, D) { InputRoles = SheetSecond(), AutomaticSteps = SolidBooleanPipeline.AutomaticStepModes.None };
             Assert.False(stated.Compute());
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, stated.Status);
             Assert.Equal("SheetRole:2,Fallback:-1,Refused:-1", Names(stated));

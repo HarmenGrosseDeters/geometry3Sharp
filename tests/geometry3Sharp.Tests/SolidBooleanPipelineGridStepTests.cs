@@ -70,8 +70,9 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void AFlushRimAFewUlpsInside_IsRefusedWithoutTheStep_AndCutWithIt()
         {
-            var plain = new SolidBooleanPipeline(FlushRim(), D);
-            Assert.Equal(Auto.None, plain.AutomaticSteps);
+            // (the default is GridBeforeFallback, which retries this refusal: None is the run without any step)
+            Assert.Equal(Auto.GridBeforeFallback, new SolidBooleanPipeline(FlushRim(), D).AutomaticSteps);
+            var plain = new SolidBooleanPipeline(FlushRim(), D) { AutomaticSteps = Auto.None };
             Assert.False(plain.Compute());
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, plain.Status);
             Assert.Equal("SheetRole:1,Fallback:-1,Refused:-1", Names(plain));
@@ -192,7 +193,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void WhenTheRetryFailsToo_TheFirstFailureIsTheResult_WithTheAttemptInTheRoute()
         {
-            var plain = new SolidBooleanPipeline(PatchInside(), D);
+            var plain = new SolidBooleanPipeline(PatchInside(), D) { AutomaticSteps = Auto.None };
             Assert.False(plain.Compute());
             var p = new SolidBooleanPipeline(PatchInside(), D) { AutomaticSteps = Auto.Grid };
             Assert.False(p.Compute());
@@ -444,8 +445,8 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        [InlineData(2)]
-        [InlineData(3)]
+        [InlineData(4)]
+        [InlineData(5)]
         [InlineData(-1)]
         public void AnUndefinedValue_IsRefused(int value)
         {
@@ -474,7 +475,7 @@ namespace geometry3Sharp.Tests
                 Func<double> d = () => (1 + rnd.Next(16)) * ulp;
                 DMesh3 sheet = Sheet(lo.x + d(), hi.x - d(), lo.y + d(), hi.y - d());
                 MeshTransforms.Translate(sheet, new Vector3d(0, 0, (lo.z + hi.z) / 2 - 2.5));
-                var plain = new SolidBooleanPipeline(new List<DMesh3> { box, sheet }, D);
+                var plain = new SolidBooleanPipeline(new List<DMesh3> { box, sheet }, D) { AutomaticSteps = Auto.None };
                 Assert.False(plain.Compute());
                 var p = new SolidBooleanPipeline(new List<DMesh3> { box, sheet }, D) { AutomaticSteps = Auto.Grid };
                 if (p.Compute()) {

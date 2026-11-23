@@ -47,7 +47,7 @@ namespace g3.Examples
 
         /// <summary>
         /// The same cut with a sheet that is meant to end flush on the side faces of the box but sits a few rounding units
-        /// inside them: the sheet role refuses (RimInsideWorkpiece). With AutomaticSteps = Grid the run is done once more with
+        /// inside them: the sheet role refuses (RimInsideWorkpiece). With the default AutomaticSteps (GridBeforeFallback) the run is done once more with
         /// the inputs snapped to a cell taken from the data, and Report.Route lists "SheetRole", "Grid" (the refusal, the cell,
         /// the vertices moved) and "SheetRole" again.
         /// </summary>
@@ -61,9 +61,7 @@ namespace g3.Examples
             sheet.AppendTriangle(a, b, c);
             sheet.AppendTriangle(a, c, d);
 
-            var pipeline = new SolidBooleanPipeline(box, sheet, ExactMeshBoolean.Operations.Difference) {
-                AutomaticSteps = SolidBooleanPipeline.AutomaticStepModes.Grid
-            };
+            var pipeline = new SolidBooleanPipeline(box, sheet, ExactMeshBoolean.Operations.Difference);
             pipeline.Compute();
             return pipeline;
         }

@@ -1,7 +1,8 @@
 # The Grid step of `SolidBooleanPipeline`: the cell from the data
 
-`SolidBooleanPipeline.AutomaticSteps = Grid` (opt-in, default off) answers two failures of a run with one retry on a
-snapping grid:
+`SolidBooleanPipeline.AutomaticSteps = Grid` (opt-in) answers two failures of a run with one retry on a
+snapping grid; the default `GridBeforeFallback` takes the second one for a tool the pipeline routed to the sheet role
+itself (decision 2026-11, see the guide):
 
 - the boolean's `RoundingNotClean` (the strict rounding refused the result), and
 - the sheet role's refusal `RimInsideWorkpiece`, typically a rim that is meant to lie flush on the surface of the first
