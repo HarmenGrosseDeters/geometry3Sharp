@@ -10,22 +10,29 @@ namespace geometry3Sharp.Tests
         // a step: a slab of thickness T under a block of height H, extruded along y. The outline in (x, z), counter-clockwise; the foot of
         // the riser, A, lies w beyond the corner C of the slab's top and e below the line of the top, so that (A, C, B) of the end faces
         // is a cap: three corners almost on one line, its only short edge A-C
+        // (l: the length of the cap's long edge C-B; by default B is the end of the slab's top, with l another corner B' of the top lies
+        // l from C and the cap is (A, C, B'))
         internal static DMesh3 Step(double w, double e, double L = 0.5, double T = 1e-4, double H = 0.25, double b = 1e-3, double W = 1,
-            Func<Vector3d, Vector3d> f = null)
+            Func<Vector3d, Vector3d> f = null, double l = 0)
         {
             double X = L + w + b;
-            var o = new[] {
+            var o = new List<Vector2d> {
                 new Vector2d(0, -T), new Vector2d(X, -T), new Vector2d(X, H), new Vector2d(L + w, H),
-                new Vector2d(L + w, -e), new Vector2d(L, 0), new Vector2d(0, 0) };
+                new Vector2d(L + w, -e), new Vector2d(L, 0) };
+            if (l > 0)
+                o.Add(new Vector2d(L - l, 0));
+            o.Add(new Vector2d(0, 0));
             var m = new DMesh3();
             for (int s = 0; s < 2; ++s)
                 foreach (Vector2d p in o) {
                     var q = new Vector3d(p.x, s * W, p.y);
                     m.AppendVertex(f == null ? q : f(q));
                 }
-            int n = o.Length;
-            // Q0 Q1 Q2 Q3 A C B = 0 .. 6
-            int[][] cap = { new[] { 4, 5, 6 }, new[] { 4, 6, 0 }, new[] { 0, 1, 4 }, new[] { 1, 3, 4 }, new[] { 1, 2, 3 } };
+            int n = o.Count;
+            // Q0 Q1 Q2 Q3 A C B = 0 .. 6, or Q0 Q1 Q2 Q3 A C B' B = 0 .. 7
+            var cap = new List<int[]> { new[] { 4, 5, 6 }, new[] { 4, 6, 0 }, new[] { 0, 1, 4 }, new[] { 1, 3, 4 }, new[] { 1, 2, 3 } };
+            if (l > 0)
+                cap.Add(new[] { 6, 7, 0 });
             foreach (int[] t in cap) {
                 m.AppendTriangle(t[0], t[1], t[2]);
                 m.AppendTriangle(n + t[0], n + t[2], n + t[1]);
@@ -36,6 +43,31 @@ namespace geometry3Sharp.Tests
                 m.AppendTriangle(i, n + j, j);
             }
             return m;
+        }
+
+        // WIP (handover 2026-11-23, the criterion is open): a cap with a shorter long edge, so that half the product of its shortest and
+        // longest edge is a few hundred times the degenerate area (761, 476, 190, 76 for l = 4e-4, 2.5e-4, 1e-4, 4e-5), below CapRatio =
+        // 1024. It is still contracted: 2 contractions, the volume changes by 6.25e-7 of 3.0e-4 (0.21 %). This test pins that as it is.
+        // Measured with a switch that is not in the code: with CapRatio 256 the first two are flipped (2 flips, the volume unchanged),
+        // with CapRatio 32, or with "the height over the longest edge is at most a quarter of the shortest edge", all four
+        [Theory]
+        [InlineData(4e-4)]
+        [InlineData(2.5e-4)]
+        [InlineData(1e-4)]
+        [InlineData(4e-5)]
+        public void Step_ACapBelowTheRatio_IsStillContracted(double l)
+        {
+            DMesh3 m = Step(5e-6, 1e-12, l: l);
+            Assert.True(m.IsClosed());
+            double d = gs.MeshRepairMetrics.TriangleBounds(m).DiagonalLength;
+            Assert.InRange(0.5 * 5e-6 * l / (1e-12 * d * d), 64, 900);
+            var r = new MeshRoundingRepair(m);
+            Assert.True(r.Apply());
+            Assert.Equal(2, r.InitialDegenerate);
+            Assert.Equal(2, r.Collapses);
+            Assert.Equal(0, r.Flips);
+            Assert.InRange(r.VolumeAfter - r.VolumeBefore, 6.2e-7, 6.3e-7);
+            Assert.Equal("", Defects(m));
         }
 
         static string Defects(DMesh3 m) => gs.MeshRobustRepair.NotCleanReasons(m);
