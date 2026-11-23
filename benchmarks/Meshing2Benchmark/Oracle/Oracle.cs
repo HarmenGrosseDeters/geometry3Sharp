@@ -1010,20 +1010,47 @@ namespace Meshing2Acceptance
             /// piece (skipped as q); a stretch beyond a hot pixel is another input segment's chain. A pinch vertex (four subsegments) ends a stretch, so what lies beyond it counts as
             /// another chain's: the pinch is a failing violation of its own. Returned as subsegment keys (SubKey)
             /// </summary>
+            void EnsureSubsegmentNeighbours()
+            {
+                if (subsegmentNeighbours != null) return;
+                subsegmentNeighbours = new Dictionary<int, List<int>>();
+                foreach (var g in o.Subsegments ?? new List<SubsegmentOutput>()) {
+                    if (g.A == g.B) continue;
+                    if (!subsegmentNeighbours.TryGetValue(g.A, out var la)) subsegmentNeighbours[g.A] = la = new List<int>();
+                    if (!la.Contains(g.B)) la.Add(g.B);
+                    if (!subsegmentNeighbours.TryGetValue(g.B, out var lb)) subsegmentNeighbours[g.B] = lb = new List<int>();
+                    if (!lb.Contains(g.A)) lb.Add(g.A);
+                }
+            }
+
+            /// <summary>
+            /// The two terminal vertices of the stretch containing ia-ib (OwnStretch): walking from each end through vertices
+            /// that are not hot pixels of the input's rounding and have degree 2 in the subsegment graph. At M2 (no refinement)
+            /// every vertex is a hot pixel of the input's rounding, so this returns (ia, ib).
+            /// </summary>
+            (int endA, int endB) StretchEnds(int ia, int ib)
+            {
+                EnsureSubsegmentNeighbours();
+                int Walk(int start, int from)
+                {
+                    int prev = from, x = start;
+                    var seen = new HashSet<int> { ia, ib };
+                    while (!snapHot.Contains(PixelOf(v[x], snapPixel)) && subsegmentNeighbours.TryGetValue(x, out var nb) && nb.Count == 2) {
+                        if (nb[0] != prev && nb[1] != prev) break;
+                        int next = nb[0] == prev ? nb[1] : nb[0];
+                        if (!seen.Add(next)) break;
+                        prev = x; x = next;
+                    }
+                    return x;
+                }
+                return (Walk(ia, ib), Walk(ib, ia));
+            }
+
             HashSet<long> OwnStretch(int ia, int ib)
             {
                 long key = SubKey(ia, ib);
                 if (ownStretchMemo.TryGetValue(key, out var memo)) return memo;
-                if (subsegmentNeighbours == null) {
-                    subsegmentNeighbours = new Dictionary<int, List<int>>();
-                    foreach (var g in o.Subsegments ?? new List<SubsegmentOutput>()) {
-                        if (g.A == g.B) continue;
-                        if (!subsegmentNeighbours.TryGetValue(g.A, out var la)) subsegmentNeighbours[g.A] = la = new List<int>();
-                        if (!la.Contains(g.B)) la.Add(g.B);
-                        if (!subsegmentNeighbours.TryGetValue(g.B, out var lb)) subsegmentNeighbours[g.B] = lb = new List<int>();
-                        if (!lb.Contains(g.A)) lb.Add(g.A);
-                    }
-                }
+                EnsureSubsegmentNeighbours();
                 var stretch = StretchOf(ia, ib, subsegmentNeighbours, x => snapHot.Contains(PixelOf(v[x], snapPixel)));
                 return ownStretchMemo[key] = stretch;
             }
@@ -4487,15 +4514,62 @@ namespace Meshing2Acceptance
                         r.Add(Violation.RegionLabelWrong, "triangle " + i + " has label " + o.TriangleLabels[i] + ", expected " + expected[i]);
             }
 
-            /// <summary>Each subsegment comes from a constraint and carries its marker: the sole nonzero marker, 0 on a conflict (R8, decision D7).</summary>
+            static ((BigInteger x, BigInteger y), (BigInteger x, BigInteger y)) CanonPixelEdge((BigInteger x, BigInteger y) a, (BigInteger x, BigInteger y) b)
+                => a.x < b.x || (a.x == b.x && a.y <= b.y) ? (a, b) : (b, a);
+
+            /// <summary>Each subsegment comes from a constraint and carries its marker: the sole nonzero marker, 0 on a conflict (R8, decision D7).
+            /// Under snap rounding with identity rules (owner decision Option A, #1403), covering sources are those whose input-only snapped image
+            /// contains the link of the subsegment's stretch (combinatorial chain provenance), not a 1-pixel Euclidean tube.</summary>
             void Marks()
             {
                 if (o.Subsegments == null) return;
+                bool useSnappedChains = input.SnapTolerance > 0 && o.IdentityRules;
+                Dictionary<((BigInteger x, BigInteger y), (BigInteger x, BigInteger y)), List<int>> linkSources = null;
+                HashSet<((BigInteger x, BigInteger y), (BigInteger x, BigInteger y))> hullLinks = null;
+                if (useSnappedChains) {
+                    Snap();
+                    linkSources = new Dictionary<((BigInteger x, BigInteger y), (BigInteger x, BigInteger y)), List<int>>();
+                    for (int k = 0; k < sources.Count; ++k) {
+                        var s0 = sources[k];
+                        if (!inputOnly.Images.TryGetValue((s0.a, s0.b), out var img)) continue;
+                        for (int i = 0; i + 1 < img.Count; ++i) {
+                            if (img[i].Equals(img[i + 1])) continue;
+                            var ek = CanonPixelEdge(img[i], img[i + 1]);
+                            if (!linkSources.TryGetValue(ek, out var list)) linkSources.Add(ek, list = new List<int>());
+                            if (list.Count == 0 || list[list.Count - 1] != k) list.Add(k);
+                        }
+                    }
+                    if (domain.IsHull && inputOnly.Domain.Rings.Count > 0) {
+                        hullLinks = new HashSet<((BigInteger x, BigInteger y), (BigInteger x, BigInteger y))>();
+                        var hr = inputOnly.Domain.Rings[0].ring;
+                        for (int i = 0; i < hr.Length; ++i) {
+                            var pa = PixelOf(hr[i], snapPixel);
+                            var pb = PixelOf(hr[(i + 1) % hr.Length], snapPixel);
+                            if (!pa.Equals(pb)) hullLinks.Add(CanonPixelEdge(pa, pb));
+                        }
+                    }
+                }
                 // on the fast path the sources come from a grid over their boxes widened by the tube, queried with the box of the
                 // subsegment's first end: a superset, in ascending order, of the sources whose box meets it, and MayBeNear drops only
                 // sources certainly farther than the tube, so `covering` is the list of the full scan (as in InventedVertices)
-                var grid = e.Reference ? null : new BoxGrid(sBox, sources.Count);
+                BoxGrid grid = null;
                 foreach (var s in o.Subsegments) {
+                    if (useSnappedChains) {
+                        var (endA, endB) = StretchEnds(s.A, s.B);
+                        var pa = PixelOf(v[endA], snapPixel);
+                        var pb = PixelOf(v[endB], snapPixel);
+                        if (!pa.Equals(pb)) {
+                            var ek = CanonPixelEdge(pa, pb);
+                            if (linkSources.TryGetValue(ek, out var chainIds)) {
+                                var chainMarkers = chainIds.Select(k => sources[k].marker).Where(m => m != 0).Distinct().ToList();
+                                int chainExpected = chainMarkers.Count == 1 ? chainMarkers[0] : 0;
+                                if (s.Marker != chainExpected) r.Add(Violation.SubsegmentMarker, "subsegment " + s.A + "-" + s.B + " has marker " + s.Marker + ", expected " + chainExpected);
+                                continue;
+                            }
+                            if (hullLinks != null && hullLinks.Contains(ek)) continue;
+                        }
+                    }
+                    if (grid == null && !e.Reference) grid = new BoxGrid(sBox, sources.Count);
                     var candidates = grid != null && vKnown[s.A] ? grid.Query(vxl[s.A], vxh[s.A], vyl[s.A], vyh[s.A]) : Enumerable.Range(0, sources.Count).ToList();
                     if (CheckFastPathForTests && grid != null && vKnown[s.A]) BoxGrid.CheckSuperset(sBox, sources.Count, vxl[s.A], vxh[s.A], vyl[s.A], vyh[s.A], candidates, "the sources at a subsegment's end");
                     var covering = candidates.Where(k => NearSource(k, s.A) && NearSource(k, s.B)).Select(k => sources[k]).ToList();
