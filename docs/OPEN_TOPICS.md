@@ -9,6 +9,7 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 
 | Topic | State | Next step / waiting on | Link |
 |---|---|---|---|
+| Exact Boolean: the result and the pipeline's status do not depend on the order of the input triangles and vertex ids (observed by the owner on private inputs) | Decided 2026-11-23 (owner): option A with A2 and D. Draft PR open: the kept pieces ordered by their geometry before the numbering, the flat regions' flips decided exactly, the contract in the guide; bit-identical over reorderings; the ordering is about 1 % of the boolean's time; 40 pinned tests moved | Coordinator: the gate files (`DeterministicApis.txt`, three mutation filters), a CI slot, then review and the mutation runs; the repair's gap is #1465 | #1464, [note](research/BOOLEAN_INPUT_ORDER_2026-11.md) |
 | Rounding/repair: the removal rule for thin and tiny components (#1216) | Decided 2026-11-22 (owner): rule (d1), K = 4 ulps, factor 2; the verdict has its own thresholds: a removal makes the result not clean from 256 ulps and 1e-3 of the bound; every removed component is reported. Built, PR open | CI, exact review, incremental mutation run, then merge; after it the opt-out as a separate small PR | [study](research/ROUNDING_THIN_SOLIDS_2026-11.md), #1216 |
 | Platform/QA/CI: determinism proof stage 2 | PR open | CI and the incremental mutation run, then merge; the coordinator closes plan #1241 on the merge | #1370, [proof](design/DETERMINISM_PROOF.md), plan #1241 |
 | Exact Boolean: `SolidBooleanPipeline` sends an open tool of a Difference to the sheet role by default (owner 2026-11-22) | Draft PR open: the route, the fallback to the path as before, `Report.Route` | Owner: the new public members (`SolidBooleanRouteStep`, `Report.Route`); the fallback gets the self-intersection check of #1426 when that merges; the opt-in automatic mode comes in later PRs | #1447 |
@@ -21,7 +22,6 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 | Topic | State | Next step / waiting on | Link |
 |---|---|---|---|
 | Tet: P4(c), input-conforming CDT for clean inputs | Open; P4(a) merged, P4(b) built (#1196) | Parked (owner 2026-11-22): starts only on the owner's go | [tet](design/TET_MESHING.md), plan #1250 |
-| Exact Boolean: the default-mode result and the pipeline's status depend on the order of the input triangles and vertex ids (observed by the owner on private inputs) | Diagnosed 2026-11-23: the exact result does not depend on it, `MeshRoundingRepair` does (and rarely `ExactPlanarSimplify`); pinned by tests; options measured | Owner: number the exact result by its geometry before the repair (option A with A2, under 1 % time, every result's ids change once), or document only (D); separately an issue for the degenerate triangle the repair cannot remove | #1464, [note](research/BOOLEAN_INPUT_ORDER_2026-11.md) |
 | Platform/QA/CI: delete merged / superseded branches | Decided; branches still exist | Owner deletes them (sessions cannot) | [index](ROADMAP.md#open-decisions-owner), plan #1252 |
 
 ## 3. Ready to start (decided or clearly scoped, nobody on it)

@@ -19,8 +19,22 @@ dotnet run --project benchmarks/BooleanInputOrder -c Release -- tessellations --
 | `--numbered` | also the repair on the exact result numbered by its geometry (option A of the note), with the repair's settings of `StrictRounding` as the pipeline runs it; the emulation reads the boolean's private per-vertex data by reflection and is checked against the library's own repair in every run |
 | `--filter text` | only the cases whose name contains the text |
 
+Two more modes compare a library change before and after (run the same harness on both builds):
+
+```bash
+dotnet run --project benchmarks/BooleanInputOrder -c Release -- timing 5
+dotnet run --project benchmarks/BooleanInputOrder -c Release -- corpus
+```
+
+| mode | what |
+|---|---|
+| `timing [repeats]` | the default-mode boolean on 8 procedural cases of 4k to 58k result triangles (spheres, grid boxes with coplanar faces, plates): per case the median total time and the medians of the simplification, of the ordering of the pieces (`assembly.order_us`, 0 before #1464) and of the rounding |
+| `corpus` | how many results of the generated degenerate families (`DegenerateFamilies`: Cluster, FoldedCluster, Collinear, Sliver; 7 sizes, 3 densities, 6 seeds) are clean in the default mode and succeed with `StrictRounding`, in three frames |
+
 Per case one line: the number of different exact results (as sets of triangles by position), the pipeline's statuses, how many
 orders are `RoundingClean` in the default mode, the number of different default-mode results and the relative spread of their
-volumes; where the repair's counts differ between the orders, one line per count vector. The totals follow at the end.
+volumes; where the repair's counts differ between the orders or a result is not clean, one line per count vector. The totals follow at the end.
 
-Raw outputs: [results/](results/) (2026-11-23, master 083ef07b, 4-core cloud container, .NET 10.0.115).
+Raw outputs: [results/](results/) (2026-11-23, 4-core cloud container, .NET 10.0.115): `plates_*` and `tessellations_*` on master
+083ef07b; `timing_before_*`, `corpus_before` on the PR's commit before the library change (cce2d1f3) and `timing_after_*`, `corpus_after`
+with it, baseline and candidate alternating in one job.

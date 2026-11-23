@@ -111,6 +111,34 @@ Nearly coincident inputs can create exact vertices that round to colliding `doub
 - **Strict mode:** Set `StrictRounding = true` so an unclean result fails with `Status = RoundingNotClean` (no `Result`) rather than returning remaining defects (`Rounding.RemainingIntersections`, `RemainingDegenerate`, `RemainingFalseContacts`, `ScaleDisparity`).
 - **Speed / exact output:** Set `SafeRounding = false` for plain rounding (faster, or when consuming `ResultExactVertices` directly).
 
+### Input Order: What the Result Depends On
+
+For one input the result is deterministic (repeated runs, any number of threads). Since #1464 it also does not depend on how
+the input is numbered: the same triangles in another order, with their corners rotated, and the same vertices with other ids
+give **the same mesh bit for bit, vertex and triangle ids included, and the same status**, for `ExactMeshBoolean` (with and
+without `SafeRounding`) and for `SolidBooleanPipeline` without a reduction target. The kept pieces of the arrangement are put
+into an order that only their geometry gives (an exact comparison of their points) before the vertices are numbered, so the
+rounding repair, which works through its defects by id, always sees the same mesh.
+
+What this does not cover:
+
+- **Another input.** Another triangulation of the same surface, a translation, a rotation or a scale that is not a power of two
+  is another input. The exact result is the same solid; the mesh after the repair can differ within the rounding bound, and
+  with it the volume of a result that is about as thin as that bound (`RoundingMaxDisplacement`) and, rarely, whether the
+  repair ends clean. A scale by a power of two gives the same mesh, scaled, bit for bit.
+- **The order of the operands.** `A ∪ B` and `B ∪ A` are the same solid; the same mesh is not promised.
+- **`MeshRoundingRepair` used directly.** Its result depends on the ids of the mesh it is given (the order of its work lists and
+  ties, the end of a contracted edge it keeps).
+- **The stages of the pipeline around the boolean**: the input repair and the reduction to a target triangle count were not
+  made independent of the order.
+
+One-time change against earlier versions: the vertex and triangle ids of every result and the corner order of its triangles
+changed; a result that the repair edits is another valid result within the same bound; flat regions whose points lie on a
+common circle can have other diagonals (their flips towards Delaunay are now decided exactly, not by the floating-point filter
+alone). How often the repair ends clean hardly changes, and not in one direction: on the corpus of generated degenerate inputs
+1287 instead of 1303 of 1458 results are clean, while a reference part that was lost before is kept and fewer known "not clean" rows
+remain ([BOOLEAN_INPUT_ORDER_2026-11.md](../research/BOOLEAN_INPUT_ORDER_2026-11.md), section 8).
+
 ### Budgets & Cancellation
 
 ```csharp

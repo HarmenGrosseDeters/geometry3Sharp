@@ -5,6 +5,10 @@ reversing the order of the input triangles turned two Differences of nearly coin
 `BooleanFailed / RoundingNotClean`, and changed the volume of a thin curved strip (an Intersection) in the fourth significant
 digit. **No library change**: tests that pin the behaviour, a measurement harness, and options for the owner.
 
+**Status (2026-11-23):** the owner chose A with A2 and D; they are built in the same PR (#1464), see section 8. Sections 1 to 7
+describe the library before that change (master 083ef07b), and `--numbered` is the emulation that was measured before the
+build.
+
 - Harness: [benchmarks/BooleanInputOrder](../../benchmarks/BooleanInputOrder/README.md), raw outputs in its `results/`
   (master 083ef07b, 4-core cloud container, .NET 10.0.115).
 - Tests: `tests/geometry3Sharp.Tests/ExactBooleanInputOrderTests.cs` (11 cases, each under 2 s).
@@ -248,3 +252,73 @@ emulation is the library's repair: without the numbering it gives the library's 
   set by reflection). It is checked against the library's repair run by run, but the cost of the exact comparison and the
   effect on the existing tests are for the implementation PR.
 - A2 is derived from the code and one case; that it is sufficient is expected, not shown.
+
+## 8. What was built (#1464, owner decision 2026-11-23)
+
+**The change.**
+- `ExactMeshBoolean.order_pieces` (called in `assemble` before the simplification): each kept piece is rotated to start at
+  its smallest point and the pieces are sorted by their three points; the points are ranked by
+  `ExactMeshArrangement.SortPoints`, which gives the order of `ComparePoints` (a sort of the filter's double keys, then an
+  insertion sort by the exact comparison). Everything after it follows the pieces: the vertex and triangle ids, the splits
+  where the result touches itself, the copies of vertices at edges with more than two triangles, and every choice the
+  repair makes by id.
+- `ExactPlanarSimplify.fan` starts the hole of a removed point at its smallest link point (A2).
+- **A2 was not enough**, and the note's section 3.2 was incomplete: the flips towards Delaunay called `InCircleFiltered`,
+  which returns 0 where its filter does not decide. The filter reads the stored double approximation of a point and its
+  error, and those depend on how the arrangement computed the point, which follows the input's ids. So the same four
+  points could be flipped for one order and left for another. The flips now use `InCircle` (the filter first, the exact
+  sign where it does not decide): strictly inside flips, exactly on the circle stays. The determinism proof listed the
+  filtered call as "returns the exact sign" (`DeterministicApis.txt`, assumption S2-3); that is true now.
+
+**Result** (`ExactBooleanInputOrderTests`, 28 cases): the same mesh bit for bit, vertex and triangle ids included, and the
+same status over 8 orders (triangle order, vertex ids, corner rotation) for the boolean with and without `SafeRounding` and
+for the pipeline; under `Similarity.All()`; the 2^k scales give the scaled mesh bit for bit. Hand mutants killed: no
+ordering, no corner rotation, the hole's start at the first triangle, the filter-only flips.
+
+**Time** (`BooleanInputOrder timing 5`: 8 procedural cases of 4k to 58k result triangles, median of 5 runs, three
+alternating runs of before and after; `results/timing_*`):
+
+| | before | after |
+|---|---|---|
+| Sum of the medians, three runs | 3784, 3471, 3467 ms | 3643, 3680, 3529 ms |
+| The ordering (`assembly.order_us`) | | 37.8, 38.8, 36.6 ms: 1.04 % of the total, 0.5 to 3.7 % per case |
+| The simplification, with the exact flips | 175, 185, 162 ms | 196, 209, 165 ms |
+
+The totals differ by less than the run-to-run spread. The first version of the ordering (comparison sorts with a delegate)
+took 2.6 % overall and up to 9.5 % on one case; the key sorts above replaced it.
+
+**Clean results on the degenerate-family corpus** (`BooleanInputOrder corpus`: Cluster, FoldedCluster, Collinear and Sliver
+at 7 sizes, 3 densities, 6 seeds, in three frames; 1458 runs; `results/corpus_*`):
+
+| Frame | Default mode clean, before → after | `StrictRounding` succeeds, before → after |
+|---|---|---|
+| identity | 460 → 460 of 486 | 463 → 461 |
+| rotated | 444 → 439 | 448 → 445 |
+| rotated, scale 1e-3, UTM | 399 → 388 | 401 → 400 |
+| all | 1303 → 1287 | 1312 → 1306 |
+
+- The UTM row counts one configuration about 12 times: with seed 0 and every fourth triangle the pokes are below the
+  resolution for every size, so those rows are the same mesh. There the repair ends clean by its own verdict in both
+  versions; after the change `NotCleanReasons` reports self-intersections at vertices the rounding put on one position (the
+  coarse-coordinate case of the class comment), where before a vertex removal cleared them.
+- Two other orders of the pieces, tried with a throw-away patch (the geometric order reversed, and a fixed shuffle of it):
+  1290 and 1293 clean, 1300 and 1297 strict. So on this corpus the generators' own order is the best of the four by
+  about 1 %, and the three others lie within 0.5 % of each other. The repair's limits were tuned on these generators in
+  that order; no order is better in general.
+
+**Existing tests that moved** (40; all re-pinned, each with a comment that names #1464):
+
+| Kind | Tests | Change |
+|---|---|---|
+| Hashes of results, or of reductions that start from a boolean's mesh | `ExactMeshBooleanTestsLever4` (9), `ExactBooleanRadialOrderTests` (2, 44 prints; the counts beside the hashes are unchanged), `ReducerPairedContactsTests` (2), `SolidBooleanPairContactsTests` (2) | new hashes |
+| Cases picked to show one behaviour of the repair | `MeshRoundingRepairTestsPositionSearch` (8), `SafeRoundingBoundTests.StrictRounding_FailsWithTheReason`, `MeshRoundingRepairIncrementalTests`, `MeshRoundingRepairTests` (the cube pair whose rounding self-intersects), `SafeRoundingLastComponentTests` | a neighbouring seed or size with the same behaviour; the rejected-drift case was checked against its mutant |
+| The cube beside the box of 1024 | `MeshRoundingRepairTestsThinSolids` (4), `BooleanCertificateTests` | at 2^-11 it goes as `StillDefective` (before: `VolumeChanged`); 2^-10 where the test is about the changed volume; the factor-2 borderline is the cube of 5/2048 (0.54 times its volume, kept) |
+| Worse | `SafeRoundingBoundTests.Utm_CleanWithTheUlpTolerance` 108 → 106 of 114 by default (102 → 104 with the relative bound only); `RoundingDenseTessellationTests` drift 0.5 → 0.77 of the bound, still clean; `TetMeshLocalAlphaTests` deviation factor 1.1 → 1.103; `SolidBooleanPipelineThinSolidTests` one volume within 1e-8 instead of 1e-9 | thresholds follow |
+| Better | `ReferencePartsTests`: the screw stays at the ratios 1e-5 and 7e-6 (the limit was between 2e-5 and 1e-5, now between 7e-6 and 5e-6); the nightly census of known "not clean" rows 301 → 285; a flattened sliver is no longer turned inside out; the `tessellations` case of section 2 succeeds in every order | pins follow |
+| Other | `ExactBooleanOpenInputTests`: 2 instead of 5 split bowtie vertices in one open-input union (which vertices get copies at an edge with more than two triangles follows the order of the pieces); `ReducerEndpointFallbackTests`: another box size (its inequality was never a rule) | pins follow |
+
+**Not changed:** `MeshRoundingRepair` used directly still depends on the ids of its mesh (pinned by
+`Repair_OfOneMesh_DependsOnItsNumbering`); the operand order, the pipeline's input repair and its reduction are not covered
+(the guide lists the limits). The degenerate triangle of section 4.3 is #1465: after the change the reproducer succeeds in
+every order, which hides the gap there and does not fix it.
+

@@ -7,5 +7,8 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\geometry3Sharp_netstandard.csproj" />
+    <!-- the generated families of degenerate input and the test frames, one source with the tests (the corpus mode) -->
+    <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\DegenerateFamilies.cs" Link="DegenerateFamilies.cs" />
+    <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\Invariance.cs" Link="Invariance.cs" />
   </ItemGroup>
 </Project>

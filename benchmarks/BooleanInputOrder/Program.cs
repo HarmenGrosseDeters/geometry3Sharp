@@ -296,14 +296,138 @@ static class Program
         return sw.ElapsedTicks;
     }
 
+    // ---- timing: the default-mode boolean on larger inputs, for a before / after of a library change ----
+
+    // a box [0, w]^2 x [0, h] with every face on an n by n grid (flat regions with many points on common circles)
+    static DMesh3 GridBox(int n, double w, double h, Vector3d at)
+    {
+        var m = new DMesh3();
+        var ids = new Dictionary<(long, long, long), int>();
+        Func<double, double, double, int> vertex = (x, y, z) => {
+            var key = ((long)Math.Round(x * n), (long)Math.Round(y * n), (long)Math.Round(z * n));
+            if (ids.TryGetValue(key, out int id) == false)
+                ids[key] = id = m.AppendVertex(at + new Vector3d(x * w, y * w, z * h));
+            return id;
+        };
+        // (u, v) over a face; outward orientation by the flag
+        Action<Func<double, double, int>, bool> face = (corner, turn) => {
+            for (int i = 0; i < n; ++i)
+                for (int j = 0; j < n; ++j) {
+                    double u0 = (double)i / n, u1 = (double)(i + 1) / n, v0 = (double)j / n, v1 = (double)(j + 1) / n;
+                    int a = corner(u0, v0), b = corner(u1, v0), c = corner(u1, v1), d = corner(u0, v1);
+                    if (turn) { m.AppendTriangle(a, c, b); m.AppendTriangle(a, d, c); }
+                    else { m.AppendTriangle(a, b, c); m.AppendTriangle(a, c, d); }
+                }
+        };
+        face((u, v) => vertex(u, v, 0), true);
+        face((u, v) => vertex(u, v, 1), false);
+        face((u, v) => vertex(u, 0, v), false);
+        face((u, v) => vertex(u, 1, v), true);
+        face((u, v) => vertex(0, u, v), true);
+        face((u, v) => vertex(1, u, v), false);
+        return m;
+    }
+
+    static DMesh3 Sphere(int edgeVertices, Vector3d at)
+    {
+        DMesh3 s = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = edgeVertices }.Generate().MakeDMesh();
+        MeshTransforms.Translate(s, at);
+        return s;
+    }
+
+    static int Timing(int repeats)
+    {
+        var U = ExactMeshBoolean.Operations.Union;
+        var cases = new List<Case> {
+            new Case { Name = "spheres 40, union", A = () => Sphere(40, Vector3d.Zero), B = () => Sphere(40, new Vector3d(0.7, 0.3, 0.2)), Op = U },
+            new Case { Name = "spheres 40, difference", A = () => Sphere(40, Vector3d.Zero), B = () => Sphere(40, new Vector3d(0.7, 0.3, 0.2)), Op = D },
+            new Case { Name = "grid boxes 24, coplanar faces, union", A = () => GridBox(24, 1, 1, Vector3d.Zero), B = () => GridBox(24, 1, 1, new Vector3d(0.5, 0.25, 0)), Op = U },
+            new Case { Name = "grid boxes 24 and 20, coplanar faces, difference", A = () => GridBox(24, 1, 1, Vector3d.Zero), B = () => GridBox(20, 1, 0.5, new Vector3d(0.3, 0.3, 0.5)), Op = D },
+            new Case { Name = "grid boxes 24, shifted, intersection", A = () => GridBox(24, 1, 1, Vector3d.Zero), B = () => GridBox(24, 1, 1, new Vector3d(0.31, 0.17, 0.23)), Op = I },
+            new Case { Name = "dome plates 40, turned 1e-6, difference", A = () => Plate(40, 0.02, Dome), B = () => Plate(40, 0.02, Dome, p => Rot(p, 1e-6, 0.7e-6)), Op = D },
+            new Case { Name = "wave plates 40 and 41, difference", A = () => Plate(40, 0.02, Wave), B = () => Plate(41, 0.02, Wave), Op = D },
+            new Case { Name = "bowl plates 40, strip, intersection", A = () => Plate(40, 0.02, Bowl), B = () => Plate(40, 0.02, Bowl, p => Rot(p, 1e-6, 0.7e-6) + new Vector3d(0, 0, 0.02 * (1 - 16e-6))), Op = I },
+        };
+        Func<List<double>, double> median = l => { l.Sort(); return l[l.Count / 2]; };
+        Console.WriteLine("case | input triangles | result triangles | removed vertices | total ms | simplify ms | order ms | rounding ms | result");
+        double sumTotal = 0, sumOrder = 0, sumSimplify = 0;
+        foreach (Case cs in cases) {
+            DMesh3 a = cs.A(), b = cs.B();
+            var total = new List<double>();
+            var simplify = new List<double>();
+            var order = new List<double>();
+            var rounding = new List<double>();
+            ExactMeshBoolean last = null;
+            for (int r = 0; r <= repeats; ++r) {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                last = new ExactMeshBoolean(a, b, cs.Op);
+                last.Compute();
+                double ms = sw.ElapsedTicks * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+                if (r == 0)
+                    continue;       // (the first run warms up)
+                total.Add(ms);
+                simplify.Add(last.PhaseMilliseconds.TryGetValue("assembly.simplify_us", out long su) ? su / 1000.0 : 0);
+                order.Add(last.PhaseMilliseconds.TryGetValue("assembly.order_us", out long ou) ? ou / 1000.0 : 0);
+                rounding.Add(last.PhaseMilliseconds.TryGetValue("rounding", out long ro) ? ro : 0);
+            }
+            double t = median(total), s = median(simplify), o = median(order);
+            sumTotal += t;
+            sumOrder += o;
+            sumSimplify += s;
+            Console.WriteLine(string.Format(CultureInfo.InvariantCulture, "{0} | {1}+{2} | {3} | {4} | {5:F1} | {6:F2} | {7:F2} | {8:F0} | {9} {10}",
+                cs.Name, a.TriangleCount, b.TriangleCount, last.Result != null ? last.Result.TriangleCount : 0, last.RemovedVertices, t, s, o, median(rounding),
+                last.Status, TriangleSet(last.Result)));
+            Console.Out.Flush();
+        }
+        Console.WriteLine(string.Format(CultureInfo.InvariantCulture, "sum of medians: total {0:F1} ms, simplify {1:F2} ms, order {2:F2} ms ({3:P2} of the total)", sumTotal, sumSimplify, sumOrder, sumOrder / sumTotal));
+        return 0;
+    }
+
+    // ---- corpus: how many results of the generated degenerate families are clean (a before / after of a library change) ----
+
+    static int Corpus()
+    {
+        var U = ExactMeshBoolean.Operations.Union;
+        int allClean = 0, allStrict = 0, all = 0;
+        foreach (string frame in new[] { "identity", "rotated, scale 1e-3, utm", "rotated" }) {
+            var sim = geometry3Sharp.Tests.Similarity.ByName(frame);
+            int n = 0, clean = 0, strict = 0;
+            foreach (var f in new[] { geometry3Sharp.Tests.DegenerateFamilies.Family.Cluster, geometry3Sharp.Tests.DegenerateFamilies.Family.FoldedCluster,
+                                      geometry3Sharp.Tests.DegenerateFamilies.Family.Collinear, geometry3Sharp.Tests.DegenerateFamilies.Family.Sliver })
+                foreach (int k in new[] { 0, 30, 36, 40, 44, 48, 52 })
+                    foreach (int count in new[] { 2, 4, 8 })
+                        for (int seed = 0; seed < 6; seed++) {
+                            if (k == 0 && f == geometry3Sharp.Tests.DegenerateFamilies.Family.Sliver)
+                                continue;
+                            DMesh3 mesh = geometry3Sharp.Tests.Invariance.Transformed(geometry3Sharp.Tests.DegenerateFamilies.Make(f, k, seed, count), sim);
+                            n++;
+                            var op = new ExactMeshBoolean(new DMesh3(mesh), new DMesh3(), U);
+                            if (op.Compute() && op.RoundingClean && MeshRobustRepair.NotCleanReasons(op.Result) == "") clean++;
+                            var st = new ExactMeshBoolean(new DMesh3(mesh), new DMesh3(), U) { StrictRounding = true };
+                            if (st.Compute()) strict++;
+                        }
+            Console.WriteLine($"{frame}: cases {n}, default mode clean {clean}, StrictRounding succeeds {strict}");
+            Console.Out.Flush();
+            all += n;
+            allClean += clean;
+            allStrict += strict;
+        }
+        Console.WriteLine($"all frames: cases {all}, default mode clean {allClean}, StrictRounding succeeds {allStrict}");
+        return 0;
+    }
+
     // ---- the run ----
 
     static void Add(SortedDictionary<string, int> d, string key) { d[key] = d.TryGetValue(key, out int n) ? n + 1 : 1; }
 
     static int Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "corpus")
+            return Corpus();
+        if (args.Length > 0 && args[0] == "timing")
+            return Timing(args.Length > 1 ? int.Parse(args[1], CultureInfo.InvariantCulture) : 5);
         if (args.Length == 0 || (args[0] != "plates" && args[0] != "tessellations")) {
-            Console.WriteLine("usage: BooleanInputOrder plates|tessellations [--orders N] [--filter text] [--stages] [--numbered]");
+            Console.WriteLine("usage: BooleanInputOrder plates|tessellations [--orders N] [--filter text] [--stages] [--numbered]\n       BooleanInputOrder timing [repeats]\n       BooleanInputOrder corpus");
             return 2;
         }
         int nOrders = 8;
@@ -393,7 +517,7 @@ static class Program
                 "{0,-6} {1,-36} tris {2}+{3} {4,4} ms/order | exact results {5} volume {6:G6} | pipeline {7} | default mode: clean {8}/{9}, results {10}, volume spread {11:G3}",
                 flag, cs.Name, a.TriangleCount, b.TriangleCount, sw.ElapsedMilliseconds / orders.Count, exactSets.Count, vexact,
                 string.Join(", ", status.Select(k => k.Key + " x" + k.Value)), clean, orders.Count, rounded.Count, spread));
-            if (status.Count > 1 || edits.Count > 1)
+            if (status.Count > 1 || edits.Count > 1 || clean != orders.Count)
                 foreach (var k in edits)
                     Console.WriteLine("         x" + k.Value + " " + k.Key);
             if (numbered) {
