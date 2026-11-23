@@ -170,6 +170,17 @@ class TwoStageWorkflow(unittest.TestCase):
             self.assertNotIn("pull_request:", on, name)        # no run of its own on a PR (it would not be in the gate)
         self.assertIn("determinism: ${{ steps.scope.outputs.determinism }}", self.header("scope"))
 
+    def test_the_status_goes_pending_when_the_full_stage_starts(self):
+        # (re-review N1: a bugfix re-run on a green head must not show the old green while it runs)
+        scope = self.job("scope")
+        self.assertIn("statuses: write", self.header("scope"))
+        step = scope.split("- name: The status full-ci is pending while the full stage runs")[1]
+        self.assertIn("if: github.event_name == 'pull_request' && steps.full.outputs.full == 'true'", step)
+        self.assertIn("-f state=pending -f context=full-ci", step)
+        self.assertIn("SHA: ${{ github.event.pull_request.head.sha }}", step)
+        # it comes after the step that decides `full`
+        self.assertLess(scope.index("- id: full"), scope.index("The status full-ci is pending"))
+
     def test_the_suites_of_a_batch_come_from_master_batch(self):
         h = self.header("scope")
         for k in ("library", "g3cli", "ps1"):

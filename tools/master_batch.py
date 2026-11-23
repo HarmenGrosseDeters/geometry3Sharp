@@ -63,16 +63,22 @@ def tested(jobs):
     return True
 
 
+def failed(jobs):
+    """True if a full-stage job of the run failed (the head it tested is red)"""
+    return any(j.get("name") in REQUIRED + OPTIONAL + NEWER and j.get("conclusion") == "failure" for j in jobs)
+
+
 def decide(head, runs, jobs_of, diff, run_id=None, branch="master"):
     """(full, reason, suites): suites is the scope of the diff (tools/ci_scope.py) for a full run that follows from it, else None
     (then the run tests everything). runs: the completed ci.yml runs of the branch, newest first (dicts with id, head_sha, head_branch);
     jobs_of(run) -> its jobs; diff(a, b) -> the changed paths between two commits, or None if git cannot tell"""
-    last = None
+    last, last_jobs = None, []
     for run in [r for r in runs if r.get("id") != run_id and r.get("head_branch") == branch
                 and r.get("event", "push") in MASTER_EVENTS][:MAX_RUNS]:
         try:
-            if tested(jobs_of(run)):
-                last = run
+            jobs = jobs_of(run)
+            if tested(jobs):
+                last, last_jobs = run, jobs
                 break
         except Exception as e:  # an API error: not this run; the search goes on (and ends in a full run if nothing is found)
             print(f"jobs of run {run.get('id')}: {e}", file=sys.stderr)
@@ -87,7 +93,12 @@ def decide(head, runs, jobs_of, diff, run_id=None, branch="master"):
     if not paths or ci_scope.docs_only(paths):
         return False, f"since {sha[:10]} (run {last['id']}) only Markdown that no test reads changed ({len(paths)} files)", None
     suites = ci_scope.scope(paths)
-    what = "library" if suites["library"] else "tools and benchmarks only (library suites skipped)"
+    if failed(last_jobs):
+        # (re-review N2: the last tested head was red; a tools-only batch without the library suites would turn it green)
+        suites = {k: True for k in suites}
+        what = "the last tested head was red: everything runs"
+    else:
+        what = "library" if suites["library"] else "tools and benchmarks only (library suites skipped)"
     return True, f"{len(paths)} files changed since the last tested master head {sha[:10]} (run {last['id']}): {what}", suites
 
 

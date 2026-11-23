@@ -189,7 +189,11 @@ The quick stage is a signal; it can miss a test, the full stage cannot.
 full run; `tier-rule.yml` stays for a manual run), `new-tests-on-base` and `determinism` (reusable workflows that `ci.yml` calls
 in the PR's context: `new-tests-on-base.yml` always, `determinism.yml` when the PR changes what it runs, `tools/ci_scope.py`
 `DETERMINISM_PATHS`; neither has a `pull_request` trigger of its own any more). On a PR it runs only while the PR has the label
-`full-ci`:
+`full-ci`. When the full stage starts on a PR, the job `scope` sets `full-ci` to pending on the head at once (so a re-run on a
+green head, eg after setting `bugfix`, never shows the old green while it runs). Note that `determinism` now gates: for a PR that
+changes its paths (the harness, the reach tool, the doc examples, the core math benchmark) its legs, including the arm64 runners
+(`ubuntu-24.04-arm`, `windows-11-arm`), must pass for `full-ci` to be green; before, it was informational. A leg that fails for
+runner capacity rather than for a difference needs a re-run of the failed jobs.
 
 - The coordinator sets `full-ci` (like `bugfix`) when the PR is ready to merge. The `labeled` event starts the full stage on the
   current head; every later push while the label is on runs it again on the new head, so no removing and re-adding is needed.
@@ -235,7 +239,9 @@ that run's head is master's head, or when only Markdown that no test reads chang
 benchmark changes only runs the full stage with the library suites skipped (the suites from `tools/ci_scope.py` on the diff), so
 the tool tests, the benchmark builds and the error bound audit of `linux` run on master's head. Everything else runs the full
 matrix, and so does a run that finds no tested run or whose diff fails. A red run on an unchanged head is not repeated: a flake
-needs "Re-run failed jobs" or a dispatch. The nightly, coverage and runtime-watch workflows are unchanged.
+needs "Re-run failed jobs" or a dispatch. When the last tested head was red, the next batch runs every suite, also for a batch of
+tool changes only, so a red library state cannot turn green without the library tests. The nightly, coverage and runtime-watch
+workflows are unchanged.
 
 **A red batch** (several merges in one run): `tools/master_bisect.py --good <last green head> --bad <red head> --list` lists the
 merges; `--filter "<the failing tests from the run's log>"` bisects them locally over the first-parent history (`git bisect

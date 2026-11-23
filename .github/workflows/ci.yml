@@ -57,6 +57,7 @@ jobs:
     permissions:
       contents: read
       actions: read          # master_batch.py reads the earlier master runs and their jobs
+      statuses: write        # the status full-ci goes to pending when the full stage starts on a PR (step below)
     outputs:
       # (a scheduled run takes the suites from master_batch.py: a batch of tool or benchmark changes runs the full stage with
       # the library suites skipped, like a tools-only PR)
@@ -100,6 +101,19 @@ jobs:
             *)
               echo "full=true" | tee -a "$GITHUB_OUTPUT" ;;
           esac
+      # (review of #1469, N1) a full run on a head that already has a full-ci status (a bugfix re-run, a re-run of the jobs) sets
+      # it back to pending at once, so a stale green never stands while the head is being tested again; full-ci-status posts the
+      # result. Fork PRs: a read-only token, a warning.
+      - name: The status full-ci is pending while the full stage runs
+        if: github.event_name == 'pull_request' && steps.full.outputs.full == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api -X POST "repos/$REPO/statuses/$SHA" -f state=pending -f context=full-ci -f description="full matrix running on this head" -f target_url="$URL" \
+            || echo "::warning::the status full-ci could not be set to pending (a fork PR has a read-only token)"
 
   # The quick stage of a ready PR (owner 2026-11-23): the builds that catch compile errors (the library for net10.0 and
   # netstandard2.0, the net10.0 test project) and the net10.0 tests of the changed areas without Slow and Nightly

@@ -68,6 +68,18 @@ class Decide(unittest.TestCase):
         # (a run without a diff behind it tests everything)
         self.assertIsNone(mb.decide(HEAD, [], lambda r: [], lambda a, b: [])[2])
 
+    def test_a_red_last_run_runs_the_library_suites(self):
+        # (re-review N2: a tools-only batch after a red library run must not skip the library and report green)
+        red = lambda r: jobs("success", netstandard_b="failure")
+        full, reason, suites = mb.decide(HEAD, [run(2, OLD)], red, lambda a, b: ["tools/a.py"])
+        self.assertTrue(full)
+        self.assertTrue(suites["library"] and suites["g3cli"] and suites["ps1"])
+        self.assertIn("red", reason)
+        # a green last run keeps the tools-only scope
+        self.assertFalse(mb.decide(HEAD, [run(2, OLD)], lambda r: jobs("success"), lambda a, b: ["tools/a.py"])[2]["library"])
+        # and a red run on an unchanged head is still not repeated
+        self.assertFalse(mb.decide(HEAD, [run(2, HEAD)], red, lambda a, b: [])[0])
+
     def test_a_run_counts_as_tested_only_with_every_full_stage_job(self):
         # (review: linux green and a netstandard shard cancelled or timed out is not a tested head)
         self.assertTrue(mb.tested(jobs("success")))
