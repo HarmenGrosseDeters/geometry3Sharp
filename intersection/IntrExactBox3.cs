@@ -261,11 +261,7 @@ namespace g3
         {
             if (IsZero(ref direction))
                 return false;       // (no direction: not a ray)
-            // (one test of the sum of all inputs for NaN and infinities: finite values whose sum overflows take the careful route)
-            double sum = (origin.x + origin.y + origin.z) + (direction.x + direction.y + direction.z) + (b.Center.x + b.Center.y + b.Center.z)
-                + (b.AxisX.x + b.AxisX.y + b.AxisX.z) + (b.AxisY.x + b.AxisY.y + b.AxisY.z) + (b.AxisZ.x + b.AxisZ.y + b.AxisZ.z)
-                + (b.Extent.x + b.Extent.y + b.Extent.z) + expand;
-            if (sum - sum == 0 && fin(b.Extent.x + expand) && fin(b.Extent.y + expand) && fin(b.Extent.z + expand)) {
+            {
                 Vector3d zero = Vector3d.Zero;
                 Acc acc = default(Acc);
                 acc.Init(true, 0, false, 0);
@@ -384,15 +380,10 @@ namespace g3
             }
         }
 
-        /// <summary> one slab: 0 continue, 1 certified miss, 3 undecided (also for a non-finite P, eP, Q or eQ) </summary>
+        /// <summary> one slab: 0 continue, 1 certified miss, 3 undecided (P, eP, Q and eQ finite: FilterOriented checks them, the axis-aligned box has finite inputs) </summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         static int Step(int i, double P, double eP, double Q, double eQ, double L, double H, bool ray, ref Acc c)
         {
-            // (a NaN or an infinity in P, eP, Q or eQ, eg (origin - center) * 0 with an overflowed difference: every comparison below
-            // would be false and the slab would constrain nothing, a certified hit for a miss; one test of the sum, the exact route decides)
-            double fs = (P + eP) + (Q + eQ);
-            if (fs - fs != 0)
-                return 3;
             if (Q == 0 && eQ == 0) {
                 // parallel to the slab, exactly: P itself against L and H
                 if (P + eP < L || P - eP > H) return 1;
@@ -507,6 +498,13 @@ namespace g3
             Prep(bx.AxisX.x, bx.AxisX.y, bx.AxisX.z, cx, cy, cz, ref o, ref dd, out P0, out eP0, out Q0, out eQ0);
             Prep(bx.AxisY.x, bx.AxisY.y, bx.AxisY.z, cx, cy, cz, ref o, ref dd, out P1, out eP1, out Q1, out eQ1);
             Prep(bx.AxisZ.x, bx.AxisZ.y, bx.AxisZ.z, cx, cy, cz, ref o, ref dd, out P2, out eP2, out Q2, out eQ2);
+            // (a NaN or an infinity in an input, or an overflow, eg (origin - center) * 0 with an overflowed difference = inf * 0 = NaN: every comparison
+            // below would be false, the slab would constrain nothing and a miss could be certified as a hit; one test of the sum of the values of
+            // all slabs, one of the extents, the exact route decides)
+            // (the extents each: an expand of double.MaxValue, as DCurve3BoxTree starts with, is finite, only the sum of three of them overflows)
+            double fs = ((P0 + eP0) + (Q0 + eQ0)) + ((P1 + eP1) + (Q1 + eQ1)) + ((P2 + eP2) + (Q2 + eQ2));
+            if ((fs - fs) + ((e0 - e0) + (e1 - e1) + (e2 - e2)) != 0)
+                return 3;
             if (ray) {
                 // the cheap tests of all slabs first: a miss, or an origin strictly inside all slabs (in the box)
                 if (Away(P0, eP0, Q0, eQ0, e0) || Away(P1, eP1, Q1, eQ1, e1) || Away(P2, eP2, Q2, eQ2, e2))
