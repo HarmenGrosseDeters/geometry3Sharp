@@ -2,7 +2,8 @@ name: Mutation tests
 
 # Stryker.NET (Apache-2.0), tests/mutation, docs/QA.md 2.2: too slow for every PR, so in full weekly and on demand, and
 # on ready PRs (not drafts) only for the configs that the PR touches (tests/mutation/select_shards.py). Two jobs:
-# - exact-arithmetic: math/ExactPredicates.cs, ExactPoint3.cs, AdaptivePredicates.cs, ExactDoubleWord.cs and the exact route of IntrTriangle3Triangle3.cs (about 50 minutes);
+# - exact-arithmetic: math/ExactPoint3.cs, ExactDoubleWord.cs and the exact route of IntrTriangle3Triangle3.cs (about 20 minutes; the
+#   predicates ExactPredicates.cs (two parts) and AdaptivePredicates.cs are the shards predicates-1, predicates-2 and adaptive of the exact-mesh job, since 23 November 2026);
 # - exact-mesh: the exact mesh pipeline (mesh_ops/ExactMesh*.cs, ExactPlanarSimplify.cs, ExactTriangulation2.cs,
 #   MeshRoundingRepair.cs, math/FixedPoint3.cs, the arrangement's fixed-width points, and math/Generated/*.cs, the
 #   generated predicates, and mesh_ops/PolyhedralEnvelope.cs, the envelope), in shards that run in
