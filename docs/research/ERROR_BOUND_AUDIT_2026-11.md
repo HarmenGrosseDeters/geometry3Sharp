@@ -113,7 +113,9 @@ rules with Z3, and `tools/FPTaylorPilot` checks leaves of one generated filter; 
 
 Each was reported to the coordinator when found and is an issue (F1 #1347, F2 #1348, F3 #1349, F4 #1350); the fixes are not part of this spike. Reproducers: `dotnet run --project tools/ErrorBoundAudit/Adversarial -c Release`.
 
-### F1 (#1347). `ExactMeshBoolean.negative_volume`: no underflow term (too small, with an input)
+### F1 (#1347). `ExactMeshBoolean.negative_volume`: no underflow term (too small, with an input) - FIXED in #1347
+
+Fixed: `negative_volume` has an absolute underflow term (`ExactPredicates.UnderflowUnit` times the sum of |x|_1 + 1); the model EB-7 proves it and the findings list is empty. The text below is the finding as it was reported.
 
 `mesh_ops/ExactMeshBoolean.cs:1056-1068`. The claim is that v6 < 0 is certain where `v6 < -(32 + n) u S`. In the
 normal range it is proved (EB-7: one term has an error of at most 11.4 u T against the claimed 32 u T, and the sum
@@ -149,7 +151,9 @@ after scaling by 2^600. It is used in the coplanar corner tests of lines 325 and
 shared rays can be missed below about 1e-162. The same pattern, by the inventory and not reproduced here:
 `TerrainSlopeComposite` lines 451, 1400, 1403, 1488 and `TerrainSlopeMap.stitch` line 1321.
 
-### F4 (#1350). The Biot-Savart sums are rounded up by a fixed factor (too small against the stated margin; absorbed)
+### F4 (#1350). The Biot-Savart sums are rounded up by a fixed factor (too small against the stated margin; absorbed) - FIXED in #1350 (PR #1468)
+
+Fixed: every factor is now derived (`SumTermsFactor` for the sums, `Factor(10)` and an end point term for `Lengths`, `piece_diameter`, `carry_length`; the models RC-4, RC-5, RC-7 and RC-8 prove them, the findings list is F1 only). The text below is the finding as it was reported.
 
 `boundary_bound`, `gradient_bound`, `piece_cost`, `cluster_bound` (`mesh_ops/ExactMeshBoolean.cs:2057-2110,
 2757-2820`). One term is sound (RC-4, RC-5: a length loses at most 4u and has 9u; a far term loses 2.65u and the
@@ -226,9 +230,9 @@ The line is that of the bound's first anchor. u = 2^-53.
 | EB-5 orient3d_filtered_err / _near / rows | `mesh_ops/ExactMeshBoolean.cs:5168` | eu = sqrt(3)(ea + eb)(1 + 1e-15) + u \|(\|b\|+\|a\|)\| | as EB-4; ea..ed >= 0 (checked) | root3 (1 + 1e-15) rounded is at least sqrt(3) | checked (arithmetic) | - | - |
 | EB-5 orient3d_filtered_err / _near / rows | `mesh_ops/ExactMeshBoolean.cs:5168` | eu = sqrt(3)(ea + eb)(1 + 1e-15) + u \|(\|b\|+\|a\|)\| | as EB-4; ea..ed >= 0 (checked) | sign (row error 1.000000 eu) | proved | 1.01 | - |
 | EB-6 widened | `mesh_ops/ExactMeshBoolean.cs:1824` | e (1 + 1e-9) + 1e-300 + 1e-14 \|v\| | none | enclosure | proved | 1 +9.01e+06 u | - |
-| EB-7 negative_volume | `mesh_ops/ExactMeshBoolean.cs:1064` | (32 + n) u * sum of \|x\|\|y\|\|z\| | NO UNDERFLOW: every product of three differences normal. Not checked by the code (finding F1) | one term | checked (arithmetic) | - | - |
-| EB-7 negative_volume | `mesh_ops/ExactMeshBoolean.cs:1064` | (32 + n) u * sum of \|x\|\|y\|\|z\| | NO UNDERFLOW: every product of three differences normal. Not checked by the code (finding F1) | n terms | checked (arithmetic) | - | - |
-| EB-7 negative_volume | `mesh_ops/ExactMeshBoolean.cs:1064` | (32 + n) u * sum of \|x\|\|y\|\|z\| | NO UNDERFLOW: every product of three differences normal. Not checked by the code (finding F1) | subnormal products | FINDING F1 | - | - |
+| EB-7 negative_volume | `mesh_ops/ExactMeshBoolean.cs:1332` | (32 + n) u * sum of \|x\|\|y\|\|z\| + 2^-1066 * sum (\|x\|_1 + 1) | none: the absolute term covers the subnormal products (the relative part is derived where all are normal) | one term | checked (arithmetic) | - | - |
+| EB-7 negative_volume | `mesh_ops/ExactMeshBoolean.cs:1332` | (32 + n) u * sum of \|x\|\|y\|\|z\| + 2^-1066 * sum (\|x\|_1 + 1) | none: the absolute term covers the subnormal products (the relative part is derived where all are normal) | n terms | checked (arithmetic) | - | - |
+| EB-7 negative_volume | `mesh_ops/ExactMeshBoolean.cs:1332` | (32 + n) u * sum of \|x\|\|y\|\|z\| + 2^-1066 * sum (\|x\|_1 + 1) | none: the absolute term covers the subnormal products (the relative part is derived where all are normal) | underflow term | checked (arithmetic) | - | - |
 | AR-4 plane_value | `mesh_ops/ExactMeshArrangement.cs:809` | 1.01 (3 * 2^-52 sum\|terms\| + (\|A\|+\|B\|+\|C\|) e) | no product underflows: the coefficients are integers and e >= 1e-300 where a coordinate is not an integer (store adds Tiny); taken as (\|A\|+\|B\|+\|C\|) e >= 1e-300 or exact products | enclosure | proved | 1.01 | 0.99 |
 | AR-6 orient2d_approx | `mesh_ops/ExactMeshArrangement.cs:842` | 1.01 (2 eps (2 M + eps) + 3 * 2^-52 M^2) + 1e-300, eps = 2 e + 2^-52 M | no overflow (checked: not finite is undecided) | enclosure | proved (normal range) | 1.01 | 0.99 |
 | AR-8 order_key | `mesh_ops/ExactMeshArrangement.cs:961` | 1.01 (2.33 e + 2 * 2^-52 sum\|alpha_k a_k\|) + 1e-300 | none | enclosure | proved | 1.012 | 0.988 |
@@ -240,11 +244,16 @@ The line is that of the bound's first anchor. u = 2^-53.
 | RC-1 ExactPoint3.ApproxVector3d / AddPoint | `math/ExactPoint3.cs:106` | relative error below 4 * 2^-52 | (double)BigInteger is within one ulp of the integer (truncated on .NET, as FixedArith.ToDouble states and the tests of FixedPoint3 check); the quotient normal (checked: is_safe) | relative error | proved | 1.6 | - |
 | RC-2 one conversion: grid_coord, LocalPoints, LocalFrame.PointError (2.3e-16) | `mesh_ops/ExactMeshArrangement.cs:1576` | 2.3e-16 \|x^\| | the value normal (checked: tiny / 1e-290 gates) | one ulp | proved | 1.036 | - |
 | RC-3 norm (rounded up) | `mesh_ops/ExactMeshBoolean.cs:5226` | (1 + 1e-15) | no square underflows (the callers' tiny gate) | rounded up | proved | 1 +6 u | - |
-| RC-4 boundary_bound Lengths | `mesh_ops/ExactMeshBoolean.cs:2106` | (1 + 1e-15) | the doubles are the segment: NOT so, they are the exact ends rounded once (finding F4); no underflow of the squares | one length | proved | 1 +5 u | - |
-| RC-4 boundary_bound Lengths | `mesh_ops/ExactMeshBoolean.cs:2106` | (1 + 1e-15) | the doubles are the segment: NOT so, they are the exact ends rounded once (finding F4); no underflow of the squares | Total and g (sums of n terms) | FINDING F4 | - | - |
-| RC-5 far_term | `mesh_ops/ExactMeshBoolean.cs:2206` | the callers' (1 + 1e-12); (1 + 1e-15) + 4 * 2^-1074 on the overflow path | one term; q and length / q normal (the callers have d >= 1e-3 s and the grid's tiny gate); the sums of terms are finding F4 | one term, rounded up by the caller | proved | 1 +9e+03 u | - |
-| RC-5 far_term | `mesh_ops/ExactMeshBoolean.cs:2206` | the callers' (1 + 1e-12); (1 + 1e-15) + 4 * 2^-1074 on the overflow path | one term; q and length / q normal (the callers have d >= 1e-3 s and the grid's tiny gate); the sums of terms are finding F4 | overflow path | proved | 1 +5 u | - |
+| RC-4 boundary_bound Lengths and the sum factor | `mesh_ops/ExactMeshBoolean.cs:2744` | (dist + 2^-52 R) (1 + 10 u); 1 + (ns + 4 + ns mod 2) u | integer grid values (no underflow of the squares); at most 2^26 segments (SumFactor is +infinity above) | one length, the end points included | proved | 1 +3 u | - |
+| RC-4 boundary_bound Lengths and the sum factor | `mesh_ops/ExactMeshBoolean.cs:2744` | (dist + 2^-52 R) (1 + 10 u); 1 + (ns + 4 + ns mod 2) u | integer grid values (no underflow of the squares); at most 2^26 segments (SumFactor is +infinity above) | sum of m <= 2^26 terms | proved | 1 +1.1 u | - |
+| RC-5 far_term | `mesh_ops/ExactMeshBoolean.cs:2847` | the sums' SumFactor; 2 * 2^-1074 on a subnormal result; (1 + 6 u) + 4 * 2^-1074 on the overflow path | one term; the sums of terms are RC-4 | one term, rounded up by the sum factor | proved | 1 +2.35 u | - |
+| RC-5 far_term | `mesh_ops/ExactMeshBoolean.cs:2847` | the sums' SumFactor; 2 * 2^-1074 on a subnormal result; (1 + 6 u) + 4 * 2^-1074 on the overflow path | one term; the sums of terms are RC-4 | subnormal result | proved | 1.51 | - |
+| RC-5 far_term | `mesh_ops/ExactMeshBoolean.cs:2847` | the sums' SumFactor; 2 * 2^-1074 on a subnormal result; (1 + 6 u) + 4 * 2^-1074 on the overflow path | one term; the sums of terms are RC-4 | overflow path | proved | 1 +1 u | - |
 | RC-6 ExactInterval (one rule) | `math/ExactIntervals.cs:46` | one spacing on each side of the round-to-nearest result | none (NaN gives the whole line) | widening covers one rounding | checked (arithmetic) | - | - |
+| RC-7 piece_diameter | `mesh_ops/ExactMeshBoolean.cs:2716` | (M + 2 err) (1 + 8 u) | the edges' squares do not underflow (a subnormal product is absorbed by the margin 2e-6 of the open winding decision) | the edge | proved | 1 +1 u | - |
+| RC-7 piece_diameter | `mesh_ops/ExactMeshBoolean.cs:2716` | (M + 2 err) (1 + 8 u) | the edges' squares do not underflow (a subnormal product is absorbed by the margin 2e-6 of the open winding decision) | the corner errors | proved | 1.155 | - |
+| RC-8 carry_length | `mesh_ops/ExactMeshBoolean.cs:3406` | (D + sqrt3_c (ep + eq) + 2^-51 K) (1 + 14 u) | no underflow | the distance | proved | 1 +6 u | - |
+| RC-8 carry_length | `mesh_ops/ExactMeshBoolean.cs:3406` | (D + sqrt3_c (ep + eq) + 2^-51 K) (1 + 14 u) | no underflow | the corner errors | proved | 1 +8 u | - |
 
 Notes on single entries:
 
@@ -366,8 +375,8 @@ reference expands the same determinant as the library, so it checks the rounding
 ## 7. Proposal: a CI test so that the bounds cannot drift
 
 1. **The table as a test (done in the follow-up to this note's PR).** `tools/ErrorBoundAudit/test_error_bound_audit.py`:
-   every anchor is still in the source; every derivation still proves its bound; the open findings are exactly F1 and
-   F4; the models hold on concrete doubles; mutants of the checker fail. A changed line that a model transcribes or a
+   every anchor is still in the source; every derivation still proves its bound; no finding is open (F1 and F4 are fixed,
+   #1347 and #1350); the models hold on concrete doubles; mutants of the checker fail. A changed line that a model transcribes or a
    guard it relies on (searched inside the model's function) fails the anchor test until the model is brought up to
    date. An operation added between the anchored lines is not seen: the anchors narrow the review, they do not replace
    re-reading a changed function. It runs in the `linux` job of `.github/workflows/ci.yml` (5 s, ten tests, the

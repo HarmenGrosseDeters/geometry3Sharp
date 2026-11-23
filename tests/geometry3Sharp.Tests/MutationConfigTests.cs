@@ -161,6 +161,8 @@ namespace geometry3Sharp.Tests
             var filters = TestFilters(root);
             foreach (string part in new[] { "stryker-mesh-boolean-1", "stryker-mesh-boolean-7", "stryker-mesh-arrangement-1", "stryker-mesh-arrangement-4", "stryker-mesh-planar" })
                 Assert.Contains("FullyQualifiedName~ExactBooleanInputOrderTests", Alternatives(filters[part]));
+            // (SortPoints sits in the span of arrangement-1; its test is in a file of its own, as it does not compile against the base)
+            Assert.Contains("FullyQualifiedName~ExactMeshArrangementSortPointsTests", Alternatives(filters["stryker-mesh-arrangement-1"]));
         }
 
         [Fact]

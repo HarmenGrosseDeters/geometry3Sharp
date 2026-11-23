@@ -313,6 +313,11 @@ at 7 sizes, 3 densities, 6 seeds, in three frames; 1458 runs; `results/corpus_*`
 | rotated, scale 1e-3, UTM | 399 → 388 | 401 → 400 |
 | all | 1303 → 1287 | 1312 → 1306 |
 
+Read per frame from `results/corpus_before.txt` and `corpus_after.txt` (486 cases each): the change costs 0 cases in the identity
+frame (460 → 460), 5 in the rotated frame (444 → 439, 1.0 %) and 11 in the rotated, scaled, UTM frame (399 → 388, 2.3
+points of 486), 16 of 1458 in all (1.1 points; 1.2 % of the 1303). `StrictRounding` loses 2, 3 and 1 (6 in all). The
+cost is in the rotated frames, mostly the UTM one.
+
 - The UTM row counts one configuration about 12 times: with seed 0 and every fourth triangle the pokes are below the
   resolution for every size, so those rows are the same mesh. There the repair ends clean by its own verdict in both
   versions; after the change `NotCleanReasons` reports self-intersections at vertices the rounding put on one position (the
