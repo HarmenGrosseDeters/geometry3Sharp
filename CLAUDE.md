@@ -48,7 +48,9 @@ sessions, combined mutation gates).
 
 Docs-only changes (only `*.md` files) run `python3 tools/check_docs.py` locally and trigger the fast `.github/workflows/docs.yml` check in CI; the full library CI (`.github/workflows/ci.yml`) skips them. Exceptions: `docs/design/FIXED_WIDTH_EXACT_POINTS.md`, whose bound table
 `GeneratedPredicatesTests` checks against the generator, runs CI and the generator tests; `docs/design/DETERMINISM_PROOF.md`,
-whose stage 0 ledger `DeterminismScopeAnalyzerTests` checks against `DeterministicApis.txt`, runs CI and those tests. A change to existing library code, including code in `docs/examples`, runs
+whose stage 0 ledger `DeterminismScopeAnalyzerTests` checks against `DeterministicApis.txt`, runs CI and those tests; and so does all
+other Markdown that a test or the tier rule reads (`tools/ci_scope.py` `CI_MARKDOWN`: the `.md` entries of `SHARED`, eg
+`docs/OPERATIONS.md`, and `docs/guides/**`). A change to existing library code, including code in `docs/examples`, runs
 the full list. A change to tools, tests or new files only runs the filtered tests of the changed areas, the builds of
 all targets (net10.0, netstandard2.0, the net48 test projects) and `dotnet pack` (API validation); GitHub CI runs the
 rest. One PR per feature, as clean commits, not stacked sub-step PRs; Stryker locally once per shard to set its
@@ -118,10 +120,10 @@ CI has two stages on a ready PR (owner 2026-11-23, [docs/qa/ci-and-gates.md](doc
 runs the job `quick` (the library builds for net10.0 and netstandard2.0 and the net10.0 tests of the changed areas,
 `tools/ci_scope.py --quick`; a signal); the full matrix (linux, netstandard a/b with net48, isolated, time-rule, tier-rule,
 new-tests-on-base, determinism) runs only while the PR has the label `full-ci`, which the coordinator sets (like
-`bugfix`, and after it: any label set while `full-ci` is on re-runs the full matrix). The merge rule: the commit status
-`full-ci` green on the final head (for a docs-only PR `docs.yml` posts it), plus `new-tests-on-base` and, where it ran,
-`determinism`. Master runs batched every 2 hours (skipped when nothing the tests read changed,
-`tools/master_batch.py`; a red batch: `tools/master_bisect.py`), manual runs and tags run everything; a PR that changes only
+`bugfix`, best after it: setting `bugfix` later re-runs the full matrix, other labels start nothing). The merge rule: the
+commit status `full-ci` green on the final head (it covers all of these; for a PR of Markdown that no test reads `docs.yml`
+posts it). Master runs batched every 2 hours (skipped when only Markdown that no test reads changed, tools-only batches without
+the library suites; `tools/master_batch.py`; a red batch: `tools/master_bisect.py`), manual runs and tags run everything; a PR that changes only
 tools, benchmarks or docs the tests do not read skips the library suites (`tools/ci_scope.py`). Locally:
 `dotnet test ... --filter "Category!=Slow"` for the quick set.
 
