@@ -688,7 +688,17 @@ namespace gs
             if (anyOpen && op.Status == ExactMeshBoolean.BooleanStatus.OpenInput) {
                 if (InputRepair == InputRepairModes.Refuse) {
                     step("Refused", -1, "an input is not closed and InputRepair is Refuse", "no result (Status OpenInput)");
-                    return fail(PipelineStatus.OpenInput, "an input is not closed (InputRepair is Refuse): " + op.Error, total);
+                    var open = new List<string>();
+                    // (the boolean's own verdict, by this pipeline's indices: InputClosed also counts an input with flipped
+                    // triangles as open, which the boolean accepts with Orientation = AreaMajority)
+                    for (int k = 0; k < active.Count; ++k)
+                        if (op.ExactWinding != null && k < op.ExactWinding.Length && !op.ExactWinding[k] && !isSheet(active[k]))
+                            open.Add(active[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    if (open.Count == 0)
+                        return fail(PipelineStatus.OpenInput, "an input is not closed (InputRepair is Refuse): " + op.Error, total);
+                    return fail(PipelineStatus.OpenInput, (open.Count == 1 ? "input " : "inputs ") + string.Join(", ", open) + (open.Count == 1 ? " is" : " are") +
+                        " not closed (InputRepair is Refuse). State what the input is: an open cutting surface used as the tool of a Difference gets the role Sheet (InputRoles); " +
+                        "a solid with holes can be repaired (InputRepair = AutoRepair or AutoRepairThenRobust; a repair of a cutting surface cuts nothing)", total);
                 }
                 // (the boolean refuses an input that IsWindingClosed accepts: nothing to repair)
                 if (!anyOpen)
