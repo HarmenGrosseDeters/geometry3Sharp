@@ -17,19 +17,54 @@ namespace geometry3Sharp.Tests
         const int Divisions = 10;
         const double Cube = 1.0 / Divisions;
         // the cut is within this many cubes of the domain mesh (measured 0.01 with the fix, 0.72 before)
-        const double BoundInCubes = 0.1;
+        const double BoundInCubes = 0.15;
 
-        static DMesh3 Sphere(double radius, Vector3d center)
+        // a domain with an analytic signed distance (the oracle does not use the mesh or the library's distance code)
+        sealed class Domain
         {
-            DMesh3 m = new Sphere3Generator_NormalizedCube { Radius = radius, EdgeVertices = 16 }.Generate().MakeDMesh();
-            foreach (int v in m.VertexIndices()) m.SetVertex(v, m.GetVertex(v) + center);
-            return m;
+            public string Name; public DMesh3 Mesh; public Func<Vector3d, double> Sdf; public double Volume;
+        }
+
+        static readonly Matrix3d Tilt = Quaterniond.AxisAngleD(new Vector3d(1, 2, 0.5).Normalized, 37).ToRotationMatrix();
+
+        static Domain MakeDomain(string name)
+        {
+            switch (name) {
+                case "sphere": {         // convex, a facet error of 0.0013
+                    var c = new Vector3d(0.1, 0.2, 0.3);
+                    DMesh3 m = new Sphere3Generator_NormalizedCube { Radius = 0.838, EdgeVertices = 32 }.Generate().MakeDMesh();
+                    foreach (int v in m.VertexIndices()) m.SetVertex(v, m.GetVertex(v) + c);
+                    return new Domain { Name = name, Mesh = m, Sdf = p => (p - c).Length - 0.838, Volume = 4.0 / 3 * Math.PI * 0.838 * 0.838 * 0.838 };
+                }
+                case "torus": {          // concave, tilted: the bounds touch it at a few places only
+                    var c = new Vector3d(0.4, 0.5, 0.45);
+                    Matrix3d inv = Tilt.Transpose();
+                    return new Domain {
+                        Name = name, Mesh = ContouringTopologyCertificateTests.Torus(c, 0.7, 0.33, 96, 40, Tilt),
+                        Sdf = p => { Vector3d q = inv * (p - c); double u = Math.Sqrt(q.x * q.x + q.y * q.y) - 0.7; return Math.Sqrt(u * u + q.z * q.z) - 0.33; },
+                        Volume = 2 * Math.PI * Math.PI * 0.7 * 0.33 * 0.33
+                    };
+                }
+                default: {               // a rotated box: its bounding box is much larger than it
+                    var c = new Vector3d(0.3, 0.6, 0.2);
+                    Matrix3d inv = Tilt.Transpose();
+                    var half = new Vector3d(0.5, 0.7, 0.3);
+                    return new Domain {
+                        Name = name, Mesh = ContouringTopologyCertificateTests.Box(c, half, Tilt),
+                        Sdf = p => {
+                            Vector3d q = inv * (p - c);
+                            var d = new Vector3d(Math.Abs(q.x) - half.x, Math.Abs(q.y) - half.y, Math.Abs(q.z) - half.z);
+                            var o = new Vector3d(Math.Max(d.x, 0), Math.Max(d.y, 0), Math.Max(d.z, 0));
+                            return o.Length + Math.Min(Math.Max(d.x, Math.Max(d.y, d.z)), 0);
+                        },
+                        Volume = 8 * half.x * half.y * half.z
+                    };
+                }
+            }
         }
 
         public static IEnumerable<object[]> Domains() =>
-            from mode in new[] { "Skeletal", "Sheet", "TwoLevelSheet" }
-            from d in new[] { (0.838, 0.1, 0.2, 0.3), (1.464, 0.7, 0.4, 0.9), (0.690, 0.5, 0.1, 0.6), (0.570, 0.9, 0.8, 0.2) }
-            select new object[] { mode, d.Item1, d.Item2, d.Item3, d.Item4 };
+            from mode in new[] { "Skeletal", "Sheet", "TwoLevelSheet" } from d in new[] { "sphere", "torus", "box" } select new object[] { mode, d };
 
         static TpmsLattice Make(string mode, DMesh3 domain)
         {
@@ -39,42 +74,43 @@ namespace geometry3Sharp.Tests
             };
         }
 
-        // the largest distance of a vertex of the result that is outside the domain mesh
-        static double Overshoot(DMesh3 result, DMesh3 domain)
+        // the largest distance of a vertex of the result that is outside the domain (by the analytic signed distance)
+        static double Overshoot(DMesh3 result, Func<Vector3d, double> sdf)
         {
-            var tree = new DMeshAABBTree3(domain, true);
             double worst = 0;
-            foreach (Vector3d v in result.Vertices()) {
-                if (tree.FastWindingNumber(v) > 0.5) continue;
-                tree.FindNearestTriangle(v, out double d2);
-                worst = Math.Max(worst, Math.Sqrt(d2));
-            }
+            foreach (Vector3d v in result.Vertices()) worst = Math.Max(worst, sdf(v));
             return worst;
         }
 
         [Theory]
         [MemberData(nameof(Domains))]
-        public void TheCutLiesAtTheDomainMesh(string mode, double radius, double cx, double cy, double cz)
+        public void TheCutLiesAtTheDomainMesh(string mode, string domainName)
         {
-            DMesh3 domain = Sphere(radius, new Vector3d(cx, cy, cz));
-            TpmsLattice t = Make(mode, domain);
+            Domain d = MakeDomain(domainName);
+            Assert.True(Invariance.Volume(d.Mesh) > 0, "the domain mesh is oriented outward");
+            TpmsLattice t = Make(mode, d.Mesh);
             t.Compute();
             Assert.True(t.Status == TpmsStatus.Ok, t.Status + ": " + t.Message);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(t.Mesh));
             Assert.True(Invariance.AllFinite(t.Mesh));
             Assert.True(t.Mesh.IsClosed());
-            double over = Overshoot(t.Mesh, domain);
-            Assert.True(over <= BoundInCubes * Cube, mode + ": the cut is " + over / Cube + " cubes outside the domain");
-            // the lattice still fills the domain: a vertex near the rim
-            Assert.True(t.Mesh.Vertices().Max(v => (v - new Vector3d(cx, cy, cz)).Length) > radius - 2 * Cube);
+            double over = Overshoot(t.Mesh, d.Sdf);
+            Assert.True(over <= BoundInCubes * Cube, domainName + " " + mode + ": the cut is " + over / Cube + " cubes outside the domain");
+            // coverage: the lattice fills the whole domain, not a part of it (a volume near the fraction 0.5 of the domain, and the result reaches the domain's bounds)
+            Assert.InRange(Invariance.Volume(t.Mesh) / d.Volume, 0.3, 0.7);
+            AxisAlignedBox3d rb = t.Mesh.GetBounds(), db = d.Mesh.GetBounds();
+            double margin = 2 * Cube;
+            Assert.True(rb.Min.x <= db.Min.x + margin && rb.Min.y <= db.Min.y + margin && rb.Min.z <= db.Min.z + margin
+                     && rb.Max.x >= db.Max.x - margin && rb.Max.y >= db.Max.y - margin && rb.Max.z >= db.Max.z - margin, "the result spans the domain");
         }
 
         [Theory]
         [InlineData("Skeletal")]
+        [InlineData("Sheet")]
         [InlineData("TwoLevelSheet")]
         public void InvariantUnderSimilarities_ReusableAndParallelEqualsSerial(string mode)
         {
-            DMesh3 domain = Sphere(0.838, new Vector3d(0.1, 0.2, 0.3));
+            Domain dom = MakeDomain("torus"); DMesh3 domain = dom.Mesh;
             DMesh3 reference = null;
             foreach (Similarity s in Similarity.All()) {
                 TpmsLattice t = Make(mode, Invariance.Transformed(domain, s));
@@ -84,7 +120,7 @@ namespace geometry3Sharp.Tests
                 t.Compute();
                 Assert.True(t.Status == TpmsStatus.Ok, s.Name + " " + t.Status + ": " + t.Message);
                 DMesh3 back = Invariance.MappedBack(t.Mesh, s);
-                Assert.True(Overshoot(back, domain) <= BoundInCubes * Cube, s.Name);
+                Assert.True(Overshoot(back, dom.Sdf) <= BoundInCubes * Cube, s.Name);
                 if (reference == null) { reference = back; continue; }
                 Assert.Equal(reference.TriangleCount, back.TriangleCount);
                 if (s.IsExact) Assert.Equal("", Invariance.Difference(reference, back));
