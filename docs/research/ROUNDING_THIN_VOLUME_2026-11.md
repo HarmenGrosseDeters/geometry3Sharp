@@ -95,6 +95,37 @@ size of the result. A change of 0.8 % on such a shape needs a contraction across
 much of the strip; I did not find the placement that gives it. The test documents the behaviour found, not the one
 reported.
 
+### The second description (still not reproduced)
+
+The owner then described 1b more closely: a clearly curved panel (the mid-surface bulges 6 % of the length, the
+normals span almost 90 degrees, 1 / 3400 of the length thick, about 400 triangles), clamped between two box side faces
+with its rim vertices within 2e-12 of the diagonal of them, and the box's top face at about 5 degrees to the panel's
+mean plane; the exact result a thin wedge strip with 1.4 % of the panel's volume and 6 % of its thickness on average;
+3 intersecting pairs and 19 degenerate triangles before the repair, a drift of 3e-6 of the diagonal, 276 triangles
+before and 246 after, a loss of 0.84 % from contractions whose new triangles cut across the curved strip.
+
+Two deliberate constructions (`ClampedPanel`, a cylindrical arc of half angle 0.7, 416 triangles, the rim vertices
+within 3e-12 of the faces):
+
+- **The top face at 5 degrees through the panel** (600 heights, a vault and a sagging panel, two arcs). With exactly
+  flush rims nothing is edited (1 600 placements). With the near-flush rims the repair edits in about a third of the
+  placements: 1 to 4 degenerate triangles at the rims, each cured by a flip, with no drift and no change of the volume.
+  The result is a piece of the panel in its full thickness (4 % to 97 % of it), not a thin strip.
+- **The top face inside the thickness of one facet**, nearly parallel to it (72 cases): a lens of 0.2 % to 2 % of the
+  panel's volume across the full width. Here the repair contracts an edge with a drift of 1.7e-6 to 7e-6 of the
+  diagonal, the size of the owner's, and the volume stays (below 1e-9 in the four cases of the test, and no change at
+  the 1e-6 that the probe printed in the others): the lens lies inside one flat facet, so the contraction runs along
+  it and no new triangle cuts across a crease.
+
+What I could not build is the reported strip itself: a plane that stays within 6 % of the thickness of a panel over
+two thirds of its length, while the panel bulges 200 thicknesses over that length. In a faceted cylindrical panel a
+plane can lie inside the thickness over one facet (a fourteenth of the length here), and where it crosses facets at
+5 degrees it leaves the thickness within 11 thicknesses. The loss as described needs a strip that is thin **and** runs
+over creases, so that a contraction replaces two facets by a triangle across them: the mechanism of 1a with a crease in
+place of the near miss. To reproduce it I need either the direction of the curvature against the cut (a panel curved
+only across the cut, with the plane along its generators, is the one shape where this could happen), or a fragment of
+the two meshes as vertex arrays, as the rounding case of `SolidBooleanPipelineInputGridTests` has.
+
 ## Shape 2: a curved plate partly flush with a block (the guard)
 
 `PlateOnBlock`: a plate of 152 triangles, 1 / 250 of its length thick, flat over its first quarter and curving down
@@ -161,7 +192,7 @@ measurement on the benchmark corpora before a decision.
 Grid step, on the repair itself (far from the origin, inside out, open, empty, not finite), reuse, and the invariance
 over `Similarity.All()`.
 
-`RoundingThinVolumeTests` (24 cases, each well under a second): the plates (the change and the silence, the cause, the
-thickness sweep, the near-miss sweep, the horizontal contraction, the grid, the Grid step), the shell cut by a box, and
-the guard. They document the behaviour as it is: a fix of option c or d will change the plates' numbers, and those
+`RoundingThinVolumeTests` (33 cases, each well under a second): the plates (the change and the silence, the cause, the
+thickness sweep, the near-miss sweep, the horizontal contraction, the grid, the Grid step), the shell cut by a box, the clamped
+panel of the second description (the cut at 5 degrees, the lens inside a facet), and the guard. They document the behaviour as it is: a fix of option c or d will change the plates' numbers, and those
 tests then get the new ones.

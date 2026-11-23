@@ -352,6 +352,98 @@ namespace geometry3Sharp.Tests
             AssertSolid(m.Safe.Result);
         }
 
+        // The second description of shape 1b: a clearly curved panel (a cylindrical arc of half angle 0.7 over a chord of 1, 416
+        // triangles, 1 / 3400 of its length thick, 1.08 wide) clamped between the box's side faces y = 0 and y = 1.08, its rim vertices
+        // within 3e-12 of them and not on them, and the box's top face through it
+        static DMesh3 ClampedPanel(double sign, int seed)
+        {
+            const double w = 1.08, t = 1.0 / 3400, theta = 0.7;
+            const int nx = 14, ny = 6;
+            var m = new DMesh3();
+            double R = 0.5 / Math.Sin(theta);
+            var noise = new Random(seed);
+            Func<int, int, int, int> id = (i, j, k) => (k * (ny + 1) + j) * (nx + 1) + i;
+            for (int k = 0; k < 2; ++k)
+                for (int j = 0; j <= ny; ++j)
+                    for (int i = 0; i <= nx; ++i) {
+                        double a = -theta + 2 * theta * i / nx, r = R + (k == 0 ? 0 : t), y = w * j / ny;
+                        if (j == 0 || j == ny)
+                            y += 3e-12 * (2 * noise.NextDouble() - 1);
+                        m.AppendVertex(new Vector3d(0.5 + r * Math.Sin(a), y, sign * (r * Math.Cos(a) - R * Math.Cos(theta))));
+                    }
+            Action<int, int, int, int> quad = (a, b, c, d) => { if (sign > 0) { m.AppendTriangle(a, c, b); m.AppendTriangle(a, d, c); } else { m.AppendTriangle(a, b, c); m.AppendTriangle(a, c, d); } };
+            for (int j = 0; j < ny; ++j)
+                for (int i = 0; i < nx; ++i) {
+                    quad(id(i, j, 0), id(i + 1, j, 0), id(i + 1, j + 1, 0), id(i, j + 1, 0));
+                    quad(id(i, j, 1), id(i, j + 1, 1), id(i + 1, j + 1, 1), id(i + 1, j, 1));
+                }
+            for (int i = 0; i < nx; ++i) {
+                quad(id(i, 0, 0), id(i, 0, 1), id(i + 1, 0, 1), id(i + 1, 0, 0));
+                quad(id(i, ny, 0), id(i + 1, ny, 0), id(i + 1, ny, 1), id(i, ny, 1));
+            }
+            for (int j = 0; j < ny; ++j) {
+                quad(id(0, j, 0), id(0, j + 1, 0), id(0, j + 1, 1), id(0, j, 1));
+                quad(id(nx, j, 0), id(nx, j, 1), id(nx, j + 1, 1), id(nx, j + 1, 0));
+            }
+            return m;
+        }
+
+        // the box 2.4 long between y = 0 and y = 1.08 whose top face passes through (xm, zm) with the slope sl along x
+        static DMesh3 ClampBox(double xm, double zm, double sl)
+        {
+            return Box(new Vector3d(-0.7, 0, -0.6), new Vector3d(1.7, 1.08, 0), q => q.z == 0 ? new Vector3d(q.x, q.y, zm + sl * (q.x - xm)) : q);
+        }
+
+        [Theory]
+        [InlineData(1.0, 0.0630075575145928)]       // a vault: the part below the plane, 19 % of the panel
+        [InlineData(1.0, 0.08170061422591124)]      // 26 %
+        [InlineData(-1.0, -0.05836649455985357)]    // a sagging panel: 83 %
+        [InlineData(-1.0, -0.1356371257154444)]     // 51 %
+        public void ClampedPanelCutAtFiveDegrees_TheRepairFlipsCapsAtTheRims_AndTheVolumeStays(double sign, double z0)
+        {
+            DMesh3 panel = ClampedPanel(sign, 7);
+            Assert.Equal(416, panel.TriangleCount);
+            Assert.True(panel.IsClosed());
+            var op = new ExactMeshBoolean(new List<DMesh3> { panel, ClampBox(0.5, z0, Math.Tan(5 * Math.PI / 180)) }, I);
+            Assert.True(op.Compute(), op.Error);
+            MeshRoundingRepair r = op.Rounding;
+            // the near-flush rims give degenerate triangles, and the repair edits them: flips, which move nothing
+            Assert.InRange(r.InitialDegenerate, 2, 4);
+            Assert.Equal(r.InitialDegenerate, r.Flips);
+            Assert.Equal(0, r.Collapses);
+            Assert.True(op.RoundingClean);
+            Assert.True(r.VolumeBefore > 0.15 * Volume(panel));
+            Assert.True(Math.Abs(r.VolumeAfter - r.VolumeBefore) <= 1e-12 * r.VolumeBefore, (r.VolumeAfter - r.VolumeBefore).ToString());
+            AssertSolid(op.Result);
+        }
+
+        [Theory]
+        [InlineData(-3e-4)]
+        [InlineData(-1e-4)]
+        [InlineData(0.0)]
+        [InlineData(1e-4)]
+        public void ClampedPanelShavedInsideOneFacet_TheRepairContractsAnEdge_AndTheVolumeStays(double tilt)
+        {
+            // the top face 3 % of the thickness above the lower surface of the facet next to the lowest point of the sagging panel,
+            // nearly parallel to it: a lens 0.2 % of the panel's volume across the full width
+            const double t = 1.0 / 3400, theta = 0.7;
+            double R = 0.5 / Math.Sin(theta);
+            Func<int, Vector3d> lower = (i) => { double a = -theta + 2 * theta * i / 14; return new Vector3d(0.5 + (R + t) * Math.Sin(a), 0, -((R + t) * Math.Cos(a) - R * Math.Cos(theta))); };
+            Vector3d p0 = lower(7), p1 = lower(8);
+            DMesh3 panel = ClampedPanel(-1, 8);
+            var op = new ExactMeshBoolean(new List<DMesh3> { panel, ClampBox((p0.x + p1.x) / 2, (p0.z + p1.z) / 2 + 0.03 * t, (p1.z - p0.z) / (p1.x - p0.x) + tilt) }, I);
+            Assert.True(op.Compute(), op.Error);
+            MeshRoundingRepair r = op.Rounding;
+            Assert.InRange(r.VolumeBefore / Volume(panel), 0.0020, 0.0023);
+            // one contraction, with a drift of 1.7e-6 to 7e-6 of the diagonal, as large as in the owner's measurement: but the lens is
+            // flat (inside one facet), and the contraction runs along it
+            Assert.Equal(1, r.Collapses);
+            Assert.InRange(r.MaxDrift / op.Result.CachedBounds.DiagonalLength, 1e-6, 1e-5);
+            Assert.True(Math.Abs(r.VolumeAfter - r.VolumeBefore) <= 1e-9 * r.VolumeBefore, ((r.VolumeAfter - r.VolumeBefore) / r.VolumeBefore).ToString());
+            Assert.True(op.RoundingClean);
+            AssertSolid(op.Result);
+        }
+
         // ---- shape 2: a curved plate partly flush with a block (the guard) ------------------------------------------------------------
 
         // A: a plate 1 / 250 of its length thick (152 triangles), flat over the first quarter and curving down after it. B: a block with
