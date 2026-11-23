@@ -894,6 +894,25 @@ namespace geometry3Sharp.Tests
             Assert.Equal(List(without), List(again));
         }
 
+        // A field that throws in the middle of a run leaves no cache behind (the entry points of the single conditions would ask
+        // the old field's cache), and the next run on the instance is the one of a fresh certificate.
+        [Fact]
+        public void Compute_WhenTheFieldThrows_LeavesNoEncloseCacheBehind()
+        {
+            var plain = new CappedTpms(TpmsType.Gyroid, 2 * Math.PI / 2.2, 0.9, 4);
+            TwoLevelMarchingTetrahedra gen = Mesh(plain, 0.5 * 2.2 / 16 / 2, Shift, 2.2, 16);
+            TwoLevelSheetCertificate without = Certify(plain, gen);
+            var failing = new CachedTpms(TpmsType.Gyroid, 2 * Math.PI / 2.2, 0.9, 4) { ThrowAt = 500 };
+            var cert = new TwoLevelSheetCertificate { Field = failing, Mesher = gen };
+            Assert.Throws<InvalidOperationException>(() => cert.Compute());
+            Assert.False(cert.HoldsAnEncloseCache);
+            Assert.False(cert.Certified);
+            // the reuse: the field throws once, the second run is complete and equals the run without a cache
+            cert.Compute();
+            Assert.False(cert.HoldsAnEncloseCache);
+            Assert.Equal(List(without), List(cert));
+        }
+
         // The cached field under the scalings by powers of two (a nodal function has no rotated or shifted form here): the
         // same result bit for bit, through the cache.
         [Fact]
