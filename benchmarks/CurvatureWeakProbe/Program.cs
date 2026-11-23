@@ -49,3 +49,5 @@ foreach (int resolution in new[] { 5, 9, 17, 33, 65 }) {
     Console.WriteLine($"{resolution} {h:G8} {edgeLengthSum / mesh.EdgeCount:G8} {Math.Abs(pairing - 24 * Math.PI / 5):G8} {maxError:G8} " +
         $"{Math.Sqrt(sumSquaredError / mesh.VertexCount):G8} {maxDistanceError:G8} {heat.IntrinsicFlips}");
 }
+
+TorusPrincipalCurvatureProbe.Run();
