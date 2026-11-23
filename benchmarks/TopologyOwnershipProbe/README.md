@@ -1,0 +1,3 @@
+# Topology ownership probe
+
+Run `dotnet run --project benchmarks/TopologyOwnershipProbe -c Release`. A procedural two-stock, two-cavity fixture is built four ways (expected Boolean, forced repair, one cavity per stock, both cavities moved) and each output is compared on triangle count, surface topology, solid Betti numbers, signed shell volumes and the ordered winding results at fixed material landmarks. The probe also times `SolidBetti` and the landmark winding queries. The probe links `tests/geometry3Sharp.Tests/Harness/SolidBetti.cs`. Results, the timings (single runs; they vary by machine) and the conclusions are in [docs/research/EXACT_TOPOLOGY_CERTIFICATES.md](../../docs/research/EXACT_TOPOLOGY_CERTIFICATES.md).
