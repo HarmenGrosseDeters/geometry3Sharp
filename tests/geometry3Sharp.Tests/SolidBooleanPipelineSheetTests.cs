@@ -75,6 +75,7 @@ namespace geometry3Sharp.Tests
             SolidBooleanRouteStep step = p.Report.Route[0];
             Assert.Contains("input 1 is not closed", step.Reason);
             Assert.Contains("handed to the boolean as a sheet", step.Change);
+            Assert.EndsWith("; the Difference removed 50 % of the first input's volume (the part behind the sheet)", step.Change);
             Assert.Equal(ExactMeshBoolean.SheetRefusal.None, step.SheetReason);
             // the role stated: the same result, and no step (nothing was decided for the caller)
             var stated = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Sheet(2, -1, 5) }, D) { InputRoles = SheetSecond() };
@@ -266,6 +267,16 @@ namespace geometry3Sharp.Tests
             Assert.True(p.Compute(), p.Status + " " + p.Error);
             Assert.Equal(36.0, Volume(p.Result), 9);
             Assert.Equal("SheetRole:1,SheetRole:2", Names(p));
+            // (the share is of the whole Difference, on every sheet's step: 28 of 64)
+            foreach (SolidBooleanRouteStep s in p.Report.Route)
+                Assert.EndsWith("; the Difference removed 43.75 % of the first input's volume (the part behind the sheet)", s.Change);
+            // the outward bucket removes 12 of 64; a refused sheet's step has no share
+            var bucket = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Box(1, 3, 1, 5, false) }, D);
+            Assert.True(bucket.Compute(), bucket.Error);
+            Assert.Contains("the Difference removed 18.75 % of", bucket.Report.Route[0].Change);
+            var none = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Sheet(2, 1, 3) }, D);
+            Assert.False(none.Compute());
+            Assert.DoesNotContain("removed", none.Report.Route[0].Change);
             // the second tool replaced by a patch inside the cube: its refusal sends both tools to the fallback
             p.Inputs[2] = Sheet(2, 1, 3);
             Assert.False(p.Compute());
@@ -342,6 +353,8 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(12.0, Volume(p.Result), 9);
                 Assert.Equal("", MeshRobustRepair.NotCleanReason(p.Result));
                 Assert.Equal("SheetRole:1", Names(p));
+                // (the sign of it for the reader: 52 of 64 removed, where the outward bucket removes 12 of 64)
+                Assert.Contains("the Difference removed 81.25 % of the first input's volume", p.Report.Route[0].Change);
                 Assert.Empty(p.Report.RepairedInputs);
             }
             var solid = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), inward }, D) {

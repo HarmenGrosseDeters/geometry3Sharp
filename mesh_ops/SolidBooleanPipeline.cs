@@ -52,7 +52,8 @@ namespace gs
 
     /// <summary>
     /// One step of the route a SolidBooleanPipeline run took for its inputs (Report.Route), in the order taken: what was done, why, and what it changed.
-    /// The names so far: "SheetRole" (an open tool of a Difference is used as a sheet), "Fallback" (the sheet role refused: the inputs are used as
+    /// The names so far: "SheetRole" (an open tool of a Difference is used as a sheet; after a cut, Change ends with the share of the first
+    /// input's volume that the Difference removed), "Fallback" (the sheet role refused: the inputs are used as
     /// solids), "InputRepair" (an open input was closed on a copy) and "Refused" (an open input is left and the run fails with OpenInput).
     /// </summary>
     public sealed class SolidBooleanRouteStep
@@ -736,6 +737,20 @@ namespace gs
             DMesh3 mesh = thinOnly ? op.Rounding.Mesh : op.Result;
             BooleanStatus = op.Status;
             Report.BooleanTriangles = mesh.TriangleCount;
+            // the sheet route followed the orientation of the sheets as given: the share of the first input that the Difference removed goes
+            // into the steps, so that a sheet oriented the other way than meant shows (the volumes in doubles: a number for the reader)
+            if (autoSheet != null) {
+                double before, after, area;
+                MeasureInput(used[0], out before, out area);
+                MeasureInput(mesh, out after, out area);
+                if (Math.Abs(before) > 0) {
+                    double share = Math.Max(0, Math.Min(1, 1 - Math.Abs(after) / Math.Abs(before)));
+                    string text = "; the Difference removed " + (100 * share).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + " % of the first input's volume (the part behind the sheet)";
+                    foreach (SolidBooleanRouteStep s in route)
+                        if (s.Name == "SheetRole")
+                            s.Change += text;
+                }
+            }
             Report.ContactsBoolean = thinOnly ? countContacts(mesh, null) : op.Contacts;
             Report.NonManifoldEdgesBoolean = op.NonManifoldEdges;
             Report.ThinComponentsKept = thinOnly ? op.Rounding.ScaleDisparity : 0;
