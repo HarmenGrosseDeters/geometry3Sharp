@@ -4,6 +4,7 @@ Prior-art checks, literature surveys, external library comparisons, and explorat
 
 | Study | Topic & Summary |
 |---|---|
+| [Willmore energy and remeshing](WILLMORE_FLOW_STUDY.md) | Ring-torus energy oracle and a controlled comparison of intersection guards during restricted energy descent |
 | [MOLECULAR_SURFACES_STUDY.md](MOLECULAR_SURFACES_STUDY.md) | 20-case molecular ball-union stress study (1e-12 tangency, cavities, helices, 12–96-ball packings): no Boolean/pipeline defects found; multi-mesh union grows about 6× from 48 to 96 balls, where a binary-tree union was faster; stop/park |
 | [Certified medial-axis feature size](CERTIFIED_MEDIAL_AXIS_STUDY.md) | Exact crease obstruction and thin-box controls for SafeRounding and wrap offsets |
 | [EXACT_TOPOLOGY_CERTIFICATES.md](EXACT_TOPOLOGY_CERTIFICATES.md) | Solid Betti numbers and fixed winding queries for cavity ownership in Boolean and repair tests |
