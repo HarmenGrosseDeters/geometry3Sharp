@@ -43,9 +43,9 @@ which is `TErr`: `ea = (en + |a| eQ) ri + 2 u |a| + AbsErr`, `ri = 1.0000001 / (
 `[1e-290, 1e290]` and a bound `a` outside `{0} U [1e-290, 1e290]` are undecided (`return 3`, exact route); a bound beyond `1e290` in magnitude counts as an
 infinity of its sign (only compared with other bounds, never used as a value); two such on one slab are undecided, except `L - P < 0 < H - P`, where
 the slab is wider than any `t` and constrains nothing. A numerator `L - P` or `H - P` that overflows to an infinity while `P`, `L`, `H` are finite is an infinity
-only when `|Q| <= 1` (the quotient is then beyond the range too); for `|Q| > 1` the quotient is a finite `t`, so the slab is undecided (`return 3`; `RayAabb` returns -1,
-`RayAabbMay` answers "may hit"). The same holds for a non-finite `P`, `eP`, `Q`, `eQ` or extent of an oriented slab (`inf * 0 = NaN` makes every comparison false):
-`FilterOriented` tests their sum once and goes to the exact route.
+only when `|Q| <= 1` (the quotient is then beyond the range too); for `|Q| > 1` the quotient is a finite `t`, so the slab is undecided (`return 3`; `RayAabb` returns -1). The same holds for a non-finite `P`, `eP`, `Q`, `eQ` or extent of an oriented slab (`inf * 0 = NaN` makes every comparison false):
+`FilterOriented` tests their sum once and goes to the exact route. The rule that a bound beyond `1e290` is an infinity assumes the limits of `t` given by a caller
+(`DoClipping`) are within `+-1e290`: `Find` takes the exact route for a limit beyond that (`+-double.MaxValue` still means no limit).
 
 ## 5. The verdicts (`Acc`)
 
@@ -69,7 +69,7 @@ enough: exact route, rounded once). Points on the face of the active axis-aligne
   computed.
 - `RayAabb`: the same for the axis-aligned box in few operations; the faces and the origin are exact, each `t` is within `2.5 u` of the exact value, so
   `tn > tf + 3 u (|tn| + |tf|)` is a miss and `tf - tn > 3 u (|tn| + |tf|)` a contact (`tn`, `tf` the computed bounds).
-- `RayAabbMay` (culling in `DMeshAABBTree3`): the miss test only, no guards except the overflowed difference of a quotient that is finite ("may hit"): an overflowed quotient is an infinity of the right sign, an underflowed one has
+- `RayAabbMay` (culling in `DMeshAABBTree3`): the miss test only, no guards: a difference that overflows gives an infinity in `tn` or `tf`, so the margin `m` is infinite or NaN and `tn > tf + m` is false ("may hit"); an overflowed quotient is an infinity of the right sign, an underflowed one has
   absolute error `<= 2^-1070`; a miss claimed is a true miss. Where nothing is certified it answers "may hit" with `t` outward by `3 u t`.
 
 ## 7. Evidence

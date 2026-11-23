@@ -123,7 +123,9 @@ namespace g3
             bool d0Zero = d0.x == 0 && d0.y == 0 && d0.z == 0;
             Acc acc = default(Acc);
             acc.Init(hasMin, tmin, hasMax, tmax);
-            int verdict = ddOverflow ? 3 : FilterAll(ref box, ref o, ref d0, ref dd, d0Zero, hasMin && tmin == 0 && hasMax == false && d0Zero, false, ref acc);
+            // (a limit of the caller beyond Huge is a number, not the infinite bound of the filter: exact route)
+            bool bigLimit = (hasMin && Math.Abs(tmin) > Huge) || (hasMax && Math.Abs(tmax) > Huge);
+            int verdict = (ddOverflow || bigLimit) ? 3 : FilterAll(ref box, ref o, ref d0, ref dd, d0Zero, hasMin && tmin == 0 && hasMax == false && d0Zero, false, ref acc);
             if (verdict == 0) verdict = acc.Verdict();
             else if (verdict == 1) verdict = 0;
             int act0 = acc.Act0, act1 = acc.Act1;
@@ -288,7 +290,7 @@ namespace g3
         /// exact test hits: the values t = (face - origin) / direction are within 2.5 u of their exact values (one rounding of the difference, one of
         /// the quotient) plus 2^-1070 of underflow, so tn &gt; tf + 3 u (|tn| + |tf|) + 1e-320 cannot hold for an exact hit; an overflowed
         /// quotient is an infinity of the right sign. Where nothing is certified (touching, parallel on a face, subnormal values) the answer is
-        /// true and no exact computation is made.
+        /// true and no exact computation is made. A difference that overflows needs no guard: the infinity it gives makes the margin `m` infinite or NaN, so `tn > tf + m` is false ("may hit"); the limits of the caller do not occur here (the ray starts at 0).
         /// </summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         internal static bool RayAabbMay(ref Vector3d o, ref Vector3d d, ref AxisAlignedBox3d b, double ex, out double t)
@@ -298,16 +300,12 @@ namespace g3
                 double di = d[i], oi = o[i], lo = b.Min[i] - ex, hi = b.Max[i] + ex;
                 if (di > 0) {
                     if (oi > hi) { t = 0; return false; }
-                    double nl = lo - oi, nh = hi - oi;
-                    if ((nl - nl != 0 || nh - nh != 0) && di > 1) { t = 0; return true; }     // (an overflowed difference: no certified miss)
-                    if (oi < lo) { double lt = nl / di; if (lt > tn) tn = lt; }
-                    double ht = nh / di; if (ht < tf) tf = ht;
+                    if (oi < lo) { double lt = (lo - oi) / di; if (lt > tn) tn = lt; }
+                    double ht = (hi - oi) / di; if (ht < tf) tf = ht;
                 } else if (di < 0) {
                     if (oi < lo) { t = 0; return false; }
-                    double nh = hi - oi, nl = lo - oi;
-                    if ((nl - nl != 0 || nh - nh != 0) && di < -1) { t = 0; return true; }
-                    if (oi > hi) { double lt = nh / di; if (lt > tn) tn = lt; }
-                    double ht = nl / di; if (ht < tf) tf = ht;
+                    if (oi > hi) { double lt = (hi - oi) / di; if (lt > tn) tn = lt; }
+                    double ht = (lo - oi) / di; if (ht < tf) tf = ht;
                 } else if (oi < lo || oi > hi) {
                     t = 0; return false;
                 }

@@ -559,6 +559,45 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void DoClipping_WithExtremeCallerLimits_AgreesWithTheOracle()
+        {
+            // the t limits are the caller's: beyond 1e290 they are no infinite bound of the filter but numbers (review of #1432: the box below with
+            // t in [-1e300, -1e298] was a Segment, and with [-1e300, 1e300] t0 was -1e300, a point outside the box)
+            double[] lim = { -1e300, -1e298, -1e295, -1e291, -1e289, -1e100, -5, 0, 2, 1e100, 1e289, 1e291, 1e295, 1e298, 1e300, -double.MaxValue, double.MaxValue };
+            double[] c = { 1, -1, 0.5, 0, 1e295, -1e295, 1e290, -1e290, 3 };
+            var r = new Random(5);
+            int hits = 0, n = 0;
+            for (int it = 0; it < 6000; it++) {
+                Vector3d lo = new Vector3d(-c[r.Next(c.Length)] - 1, -c[r.Next(c.Length)] - 1, -c[r.Next(c.Length)] - 1), hi = new Vector3d(c[r.Next(c.Length)] + 1, c[r.Next(c.Length)] + 1, c[r.Next(c.Length)] + 1);
+                for (int k = 0; k < 3; k++) if (lo[k] > hi[k]) { double tmp = lo[k]; lo[k] = hi[k]; hi[k] = tmp; }
+                Vector3d o = new Vector3d(c[r.Next(c.Length)] * (r.Next(2) * 2 - 1), 0, c[r.Next(c.Length)] * (r.Next(2) * 2 - 1) * 0.5);
+                Vector3d d = r.Next(3) == 0 ? new Vector3d(1, 0, 0) : new Vector3d(r.Next(-2, 3), r.Next(-2, 3), r.Next(-2, 3)).Normalized;
+                if (d.x == 0 && d.y == 0 && d.z == 0) continue;
+                double a = lim[r.Next(lim.Length)], b = lim[r.Next(lim.Length)];
+                double t0 = Math.Min(a, b), t1 = Math.Max(a, b);
+                bool hasMin = t0 > -double.MaxValue, hasMax = t1 < double.MaxValue;
+                var aab = new AxisAlignedBox3d(lo, hi); var ob = new Box3d(0.5 * lo + 0.5 * hi, 0.5 * hi - 0.5 * lo);
+                for (int kind = 0; kind < 2; kind++) {
+                    var s = kind == 0 ? Slabs(aab, o, d) : Slabs(ob, o, d);
+                    var e = Contact(s, hasMin ? Q.From(t0) : (Q?)null, hasMax ? Q.From(t1) : (Q?)null);
+                    double g0 = t0, g1 = t1; int quantity = 0; Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero; var type = IntersectionType.Empty;
+                    bool got = kind == 0
+                        ? IntrLine3AxisAlignedBox3.DoClipping(ref g0, ref g1, ref o, ref d, ref aab, true, ref quantity, ref p0, ref p1, ref type)
+                        : IntrLine3Box3.DoClipping(ref g0, ref g1, o, d, ob, true, ref quantity, ref p0, ref p1, ref type);
+                    Assert.Equal(e.kind != 0, got);
+                    if (got) {
+                        hits++;
+                        Assert.True(Math.Abs((Q.From(g0) - e.t0).ToDouble()) <= 4 * Ulp(g0) && Math.Abs((Q.From(g1) - e.t1).ToDouble()) <= 4 * Ulp(g1),
+                            $"t {g0:R} {g1:R} against {e.t0.ToDouble():R} {e.t1.ToDouble():R}, limits {t0:R} {t1:R}");
+                        Assert.Equal(e.kind == 1 ? IntersectionType.Point : IntersectionType.Segment, type);
+                    }
+                    n++;
+                }
+            }
+            Assert.True(hits > 300 && n > 10000, $"hits {hits} n {n}");
+        }
+
+        [Fact]
         public void ZeroDirection_IsNotARay_TestAndFindAgree()
         {
             var aab = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1, 1, 1));
