@@ -129,6 +129,12 @@ namespace gs
         /// MinThickness they are removed if they are thinner than it (RemovedThinSolids)
         /// </summary>
         public int ThinComponentsKept;
+        /// <summary>
+        /// the closed components the boolean's rounding removed (ExactMeshBoolean.Rounding.RemovedComponentInfos: triangles, area, volume,
+        /// thickness, reason), also where the run failed with BooleanStatus RoundingNotClean because one of them is a solid its
+        /// coordinates resolve (#1216); empty if none
+        /// </summary>
+        public List<MeshRoundingRepair.RemovedComponentInfo> RoundingRemoved = new List<MeshRoundingRepair.RemovedComponentInfo>();
         /// <summary> the solids of the boolean result that MinThickness removed (empty without it) </summary>
         public List<SolidBooleanThinSolid> RemovedThinSolids = new List<SolidBooleanThinSolid>();
         /// <summary> with MinThickness: the inputs thinner than it (see ThinInputs); empty otherwise </summary>
@@ -682,7 +688,17 @@ namespace gs
             if (anyOpen && op.Status == ExactMeshBoolean.BooleanStatus.OpenInput) {
                 if (InputRepair == InputRepairModes.Refuse) {
                     step("Refused", -1, "an input is not closed and InputRepair is Refuse", "no result (Status OpenInput)");
-                    return fail(PipelineStatus.OpenInput, "an input is not closed (InputRepair is Refuse): " + op.Error, total);
+                    var open = new List<string>();
+                    // (the boolean's own verdict, by this pipeline's indices: InputClosed also counts an input with flipped
+                    // triangles as open, which the boolean accepts with Orientation = AreaMajority)
+                    for (int k = 0; k < active.Count; ++k)
+                        if (op.ExactWinding != null && k < op.ExactWinding.Length && !op.ExactWinding[k] && !isSheet(active[k]))
+                            open.Add(active[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    if (open.Count == 0)
+                        return fail(PipelineStatus.OpenInput, "an input is not closed (InputRepair is Refuse): " + op.Error, total);
+                    return fail(PipelineStatus.OpenInput, (open.Count == 1 ? "input " : "inputs ") + string.Join(", ", open) + (open.Count == 1 ? " is" : " are") +
+                        " not closed (InputRepair is Refuse). State what the input is: an open cutting surface used as the tool of a Difference gets the role Sheet (InputRoles); " +
+                        "a solid with holes can be repaired (InputRepair = AutoRepair or AutoRepairThenRobust; a repair of a cutting surface cuts nothing)", total);
                 }
                 // (the boolean refuses an input that IsWindingClosed accepts: nothing to repair)
                 if (!anyOpen)
@@ -722,6 +738,8 @@ namespace gs
             // a strict refusal whose only cause is components thinner than the bound: the rounded result is kept (the rounding
             // left no intersection, degenerate triangle or false contact, checked exactly by the repair)
             bool thinOnly = op.Status == ExactMeshBoolean.BooleanStatus.RoundingNotClean && OnlyThinComponents(op.Rounding);
+            if (op.Rounding != null)
+                Report.RoundingRemoved = new List<MeshRoundingRepair.RemovedComponentInfo>(op.Rounding.RemovedComponentInfos);
             if (op.Status != ExactMeshBoolean.BooleanStatus.Success && !thinOnly) {
                 BooleanStatus = op.Status;
                 SheetReason = op.SheetReason;
@@ -957,7 +975,7 @@ namespace gs
         internal static bool OnlyThinComponents(MeshRoundingRepair r)
         {
             return r != null && r.Mesh != null && r.ScaleDisparity > 0 && r.RemainingIntersections == 0 && r.RemainingDegenerate == 0
-                && r.RemainingFalseContacts == 0 && !r.ScaleNotFinite && !r.OutsideRange;
+                && r.RemainingFalseContacts == 0 && !r.ScaleNotFinite && !r.OutsideRange && r.RemovedResolvable == 0;
         }
 
         /// <summary>

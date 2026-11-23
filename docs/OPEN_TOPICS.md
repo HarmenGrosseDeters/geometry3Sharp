@@ -9,6 +9,7 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 
 | Topic | State | Next step / waiting on | Link |
 |---|---|---|---|
+| Rounding/repair: the removal rule for thin and tiny components (#1216) | Decided 2026-11-22 (owner): rule (d1), K = 4 ulps, factor 2; the verdict has its own thresholds: a removal makes the result not clean from 256 ulps and 1e-3 of the bound; every removed component is reported. Built, PR open | CI, exact review, incremental mutation run, then merge; after it the opt-out as a separate small PR | [study](research/ROUNDING_THIN_SOLIDS_2026-11.md), #1216 |
 | Platform/QA/CI: determinism proof stage 2 | PR open | CI and the incremental mutation run, then merge; the coordinator closes plan #1241 on the merge | #1370, [proof](design/DETERMINISM_PROOF.md), plan #1241 |
 | Exact Boolean: `SolidBooleanPipeline` sends an open tool of a Difference to the sheet role by default (owner 2026-11-22) | Draft PR open: the route, the fallback to the path as before, `Report.Route` | Owner: the new public members (`SolidBooleanRouteStep`, `Report.Route`); the fallback gets the self-intersection check of #1426 when that merges; the opt-in automatic mode comes in later PRs | #1447 |
 | Rounding/repair: exact zero-volume check for undecided sheets | PR open | CI, both incremental mutation runs (exact-arithmetic, rounding-9), abc-chained outcome diff, then merge | #1195 (#1191) |
@@ -25,7 +26,6 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 
 | Topic | State | Next step / waiting on | Link |
 |---|---|---|---|
-| Rounding/repair: the removal rule for thin and tiny components (#1216) | Decided 2026-11-22 (owner): rule (d1), K = 4 ulps, factor 2; a removal of only components below K ulps stays clean and is reported, any other removal makes the result not clean; every removed component is reported (count, volume, thickness). Study merged with #1397 | Build as a separate tier-L PR (outputs change: the 263 hashes, the cohorts, the rounding shards), after #1382 | [study](research/ROUNDING_THIN_SOLIDS_2026-11.md), #1216, [audit](research/SOLID_BOOLEAN_PIPELINE_AUDIT_2026-11.md) |
 | Alpha wrap: feature pass K follow-ups (corners, split retries) | Scoped follow-ups, not scheduled | A PR when a caller needs sharper corners | [research](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model), plan #1237 |
 | Tet: P3 follow-ups | Open: boundary sizing, curvature size field, target element count | Scope with P4; one PR each | [tet](design/TET_MESHING.md), plan #1244 |
 | Geodesics/param: oracle follow-ups (check) | Heat-method tests against the oracle, fragmentation lever open | Tests first; lever only with a proof | [param](roadmap/parameterization-geodesics.md#open-for-the-future-2026-11-15), plan #1238 |

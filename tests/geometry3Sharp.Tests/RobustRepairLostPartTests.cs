@@ -115,7 +115,6 @@ namespace geometry3Sharp.Tests
         [InlineData("box", 16, 8, "LostFarPart")]
         [InlineData("open", 4, 16, "LostFarOpenPart")]
         [InlineData("open", 20, 8, "LostFarOpenPart")]
-        [InlineData("boxes", 16, 2, "LostSeparatePart")]
         [InlineData("boxes", 20, 16, "LostFarPart")]
         public void SmallPartFarAway_IsKept_OrApplyIsFalseWithALostPartReason(string kind, int r, int f, string reason)
         {
@@ -128,6 +127,21 @@ namespace geometry3Sharp.Tests
             // (on these scenes the part is lost: the check is what decides)
             Assert.False(ok);
             Assert.Equal(expected, rr.ResultReason);
+        }
+
+        /// <summary>
+        /// two small boxes that touch, not far from the large part in the sense of LostFarPart: until #1216 the rounding removed the
+        /// tiny part once it had edited it, and Apply() was false with LostSeparatePart. Now the part the edits left as it was
+        /// stays, and the repair succeeds
+        /// </summary>
+        [Fact]
+        public void SmallTouchingBoxes_NotFar_AreKept()
+        {
+            var rr = new MeshRobustRepair(Scene("boxes", 16, 2));
+            bool ok = rr.Apply();
+            Assert.True(small_part_kept(rr.Mesh, 2), $"Apply() {ok}, ResultReason '{rr.ResultReason}'");
+            Assert.True(ok, rr.ResultReason);
+            Assert.True(rr.Mesh.IsClosed());
         }
 
         [Theory]

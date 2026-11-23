@@ -356,11 +356,14 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void Screw_AtRatio1e5_PinnedFailure_TheBooleanDropsTheScrew()
+        public void Screw_AtRatio1e5_PinnedFailure_TheBooleanDropsTheScrew_AndReportsIt()
         {
             // Today's result (not a wanted one): a screw of 1e-3 (1e-5 of the housing) is a closed, welded body 1e-4 above the housing. The
-            // exact boolean itself removes it: SafeRounding's component removal (Rounding.RemovedComponents) takes closed components thinner
-            // than its threshold, which RoundingMaxDisplacement does not change here; with SafeRounding off the screw stays. MeshRobustRepair
+            // exact boolean itself removes it: its triangles are below the degenerate area of the result, the repair contracts them and
+            // what is left is not the screw (its volume changed by more than a factor 2), so SafeRounding's component removal takes it;
+            // with SafeRounding off the screw stays. Since #1216 the removal is listed (VolumeChanged, with the screw's thickness) and the
+            // result is not clean, and the limit is lower: the screw stays down to a ratio of 2e-5 (before: 7e-5), because a component the
+            // edits left as it was is no longer removed. MeshRobustRepair
             // used to lose it too (ExactResolve, degenerate triangles; fixed by #1363, see below), the pipeline loses it at its boolean (first failing step: pipeline).
             ReferencePart part = Parts.ScrewAssembly(1e-5, DefectSet.None(), PartFrame.Identity);
             var kept = new ExactMeshBoolean(part.Input, part.Cutter, ExactMeshBoolean.Operations.Difference) { SafeRounding = false };
@@ -370,11 +373,17 @@ namespace geometry3Sharp.Tests
             Assert.True(dropped.Compute());
             Assert.Equal(1, Checks.Components(dropped.Result, 1e-5).Count);
             Assert.Equal(1, dropped.Rounding.RemovedComponents);
+            MeshRoundingRepair.RemovedComponentInfo screw = Assert.Single(dropped.Rounding.RemovedComponentInfos);
+            Assert.Equal(MeshRoundingRepair.RemovalReasons.VolumeChanged, screw.Reason);
+            Assert.InRange(screw.Thickness, 1e-4, 2e-4);
+            Assert.Equal(1, dropped.Rounding.RemovedResolvable);
+            Assert.False(dropped.RoundingClean);
             var narrow = new ExactMeshBoolean(part.Input, part.Cutter, ExactMeshBoolean.Operations.Difference) { RoundingMaxDisplacement = 1e-9 };
             Assert.True(narrow.Compute());
             Assert.Equal(1, Checks.Components(narrow.Result, 1e-5).Count);       // the threshold is not RoundingMaxDisplacement
-            // the limit lies between the ratios 7e-5 (kept) and 5e-5 (dropped)
-            foreach (var pair in new[] { Tuple.Create(7e-5, 2), Tuple.Create(5e-5, 1) }) {
+            Assert.Equal(MeshRoundingRepair.RemovalReasons.StillDefective, narrow.Rounding.RemovedComponentInfos[0].Reason);
+            // the limit lies between the ratios 2e-5 (kept) and 1e-5 (dropped); before #1216 between 7e-5 and 5e-5
+            foreach (var pair in new[] { Tuple.Create(7e-5, 2), Tuple.Create(5e-5, 2), Tuple.Create(2e-5, 2) }) {
                 ReferencePart p = Parts.ScrewAssembly(pair.Item1, DefectSet.None(), PartFrame.Identity);
                 var b = new ExactMeshBoolean(p.Input, p.Cutter, ExactMeshBoolean.Operations.Difference);
                 Assert.True(b.Compute());

@@ -11,6 +11,7 @@
 // si_from=<k>: only from pass k on (0-based; an alternative that skips the check in the first passes);
 // pin=<deg>: MeshConstraintUtil.PinSharpVertices with this angle deficit in the "on" runs;
 // sizing=<f>: Remesher.TargetEdgeLengthF = RemeshSizing.FromWallThickness(input, f) in the "on" runs
+// spheres=<seeds>: instead of the cases, the jittered spheres of issue #1441 (triangles facing inward; see Spheres)
 // sweep=1: every buffered move pass (smoothing, projection) is also checked with MeshSweepCollision over its motion
 //   (outside the reported time; Sweep* fields of the JSON, a stderr line per pass that starts and ends without a pair)
 using System;
@@ -42,9 +43,98 @@ static class Program
         public string NotClean;
     }
 
+    // spheres=<seeds>: the family of issue #1441. The normalized cube sphere (8 vertices per edge, h = 2/7), every vertex
+    // moved by up to jit * h / 2 per axis (jit 0.3 and 0.45, seeds 1..<seeds>) and put back onto the unit sphere; the inputs
+    // with every triangle facing outward are remeshed to 0.8 h with 6 x BasicRemeshPass (serial, projection onto the
+    // sphere). Per setting: the inputs with a triangle facing inward (area > 1e-12, normal . centroid < 0) after some
+    // pass and after the last one, the number of those triangles, poor triangles and the time.
+    sealed class UnitSphere : IProjectionTarget
+    {
+        public Vector3d Project(Vector3d p, int id = -1) => p.Normalized;
+    }
+
+    static DMesh3 JitteredSphere(int seed, double jit)
+    {
+        DMesh3 m = new Sphere3Generator_NormalizedCube { EdgeVertices = 8, Radius = 1 }.Generate().MakeDMesh();
+        var rnd = new Random(seed);
+        foreach (int v in m.VertexIndices()) {
+            var d = new Vector3d(rnd.NextDouble() * 2 - 1, rnd.NextDouble() * 2 - 1, rnd.NextDouble() * 2 - 1);
+            m.SetVertex(v, (m.GetVertex(v) + d * (jit * (2.0 / 7) / 2)).Normalized);
+        }
+        return m;
+    }
+
+    static int InwardTriangles(DMesh3 m)
+    {
+        int n = 0;
+        Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+        foreach (int t in m.TriangleIndices()) {
+            m.GetTriVertices(t, ref a, ref b, ref c);
+            Vector3d normal = (b - a).Cross(c - a);
+            if (normal.Length * 0.5 > 1e-12 && normal.Dot((a + b + c) / 3) < 0)
+                n++;
+        }
+        return n;
+    }
+
+    static int Spheres(int seeds)
+    {
+        var inputs = new List<(int seed, double jit)>();
+        foreach (double jit in new[] { 0.3, 0.45 })
+            for (int s = 1; s <= seeds; ++s)
+                if (InwardTriangles(JitteredSphere(s, jit)) == 0) inputs.Add((s, jit));
+        var settings = new (string name, Action<Remesher> set)[] {
+            ("MinTriangleQuality = 0.2", r => r.MinTriangleQuality = 0.2),
+            ("+ PreventNormalFlips = true", r => { r.MinTriangleQuality = 0.2; r.PreventNormalFlips = true; }),
+            ("EnableSmoothing = false", r => { r.MinTriangleQuality = 0.2; r.EnableSmoothing = false; }),
+            ("no projection target", r => { r.MinTriangleQuality = 0.2; r.SetProjectionTarget(null); }),
+            ("EnableFlips = false", r => { r.MinTriangleQuality = 0.2; r.EnableFlips = false; }),
+            ("EnableCollapses = false", r => { r.MinTriangleQuality = 0.2; r.EnableCollapses = false; }),
+            ("EnableSplits = false", r => { r.MinTriangleQuality = 0.2; r.EnableSplits = false; }),
+            ("PreventNormalFlips = true alone", r => r.PreventNormalFlips = true),
+            ("neither (opt-out)", r => { }),
+        };
+        Console.WriteLine($"{inputs.Count} inputs (of {2 * seeds})");
+        Console.WriteLine("| setting | inputs with an inward triangle after some pass | after pass 6 | inward triangles after pass 6 | q<0.1 | triangles | not closed or invalid | time s |");
+        Console.WriteLine("|---|---:|---:|---:|---:|---:|---:|---:|");
+        foreach (var (name, set) in settings) {
+            int some = 0, last = 0, lastTriangles = 0, poor = 0, triangles = 0, invalid = 0;
+            var sw = Stopwatch.StartNew();
+            foreach (var (seed, jit) in inputs) {
+                DMesh3 m = JitteredSphere(seed, jit);
+                var r = new Remesher(m) { EnableParallelSmooth = false, EnableParallelProjection = false };
+                r.SetTargetEdgeLength(0.8 * 2.0 / 7);
+                r.SetProjectionTarget(new UnitSphere());
+                set(r);
+                bool any = false;
+                int n = 0;
+                for (int pass = 0; pass < 6; ++pass) {
+                    r.BasicRemeshPass();
+                    n = InwardTriangles(m);
+                    any |= n > 0;
+                }
+                if (any) some++;
+                if (n > 0) last++;
+                lastTriangles += n;
+                triangles += m.TriangleCount;
+                if (m.IsClosed() == false || m.CheckValidity(false, FailMode.ReturnOnly) == false) invalid++;
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                foreach (int t in m.TriangleIndices()) {
+                    m.GetTriVertices(t, ref a, ref b, ref c);
+                    if (MeshRefinerBase.TriangleQuality(ref a, ref b, ref c) < 0.1) poor++;
+                }
+            }
+            Console.WriteLine(string.Format(CultureInfo.InvariantCulture, "| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7:F1} |",
+                name, some, last, lastTriangles, poor, triangles, invalid, sw.Elapsed.TotalSeconds));
+        }
+        return 0;
+    }
+
     static int Main(string[] args)
     {
         var A = args.Select(a => a.Split('=', 2)).ToDictionary(a => a[0], a => a.Length > 1 ? a[1] : "");
+        if (A.ContainsKey("spheres"))
+            return Spheres(int.Parse(A["spheres"]));
         var only = A.ContainsKey("only") ? new Regex(A["only"]) : null;
         // quality=<q> or qualities=<q1>,<q2>,..: the values compared with 0 (off)
         double[] qualities = (A.ContainsKey("qualities") ? A["qualities"] : A.ContainsKey("quality") ? A["quality"] : "0.2")

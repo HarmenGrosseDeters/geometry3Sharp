@@ -215,7 +215,9 @@ static class Program
         if (!op.Compute())
             return op.Status.ToString();
         bool open = !op.ExactWinding[1], unchanged = Volume(op.Result) == Volume(w) && OpenEdges(op.Result) == 0;
-        return "pairs " + op.IntersectingPairs + (open && unchanged ? (op.IntersectingPairs > 0 ? ", unchanged: FLAG" : ", unchanged, no contact") : ", changed");
+        // (the member that came out of the study: the decision of the classification, not the volume proxy)
+        string listed = op.OpenInputsWithoutEffect.Count > 0 ? "; OpenInputsWithoutEffect: " + string.Join(",", op.OpenInputsWithoutEffect) : "; OpenInputsWithoutEffect: none";
+        return "pairs " + op.IntersectingPairs + (open && unchanged ? (op.IntersectingPairs > 0 ? ", unchanged: FLAG" : ", unchanged, no contact") : ", changed") + listed;
     }
 
     static Outcome Pipeline(DMesh3 w, DMesh3 s, SolidBooleanPipeline.InputRepairModes mode)

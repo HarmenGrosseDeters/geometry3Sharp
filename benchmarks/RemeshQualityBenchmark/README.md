@@ -186,6 +186,102 @@ creases on faceted models); new pairs 2113 -> 1186 (x1), 2833 -> 2047 (x2). The 
 The tube135363 tube no longer turns inside out with the option (the rejected flips at its rims were part of the
 inversion); `RemesherInversionGuardTests` test the guard with MinTriangleQuality on tubes that still do.
 
+## Triangles facing into a smooth surface: the ring check (#1441)
+With `PreventNormalFlips` or `MinTriangleQuality`, a collapse or flip was rejected only if it turned a changed triangle
+by 90 degrees or more against its own normal before the operation. On a smooth sphere this left triangles facing inward
+(issue #1441). The family (`spheres=<seeds>` of this benchmark): the normalized cube sphere with 8 vertices per edge
+(h = 2/7), every vertex moved by up to jit h / 2 per axis (jit 0.3 and 0.45) and put back onto the unit sphere; the
+inputs with every triangle facing outward, remeshed to 0.8 h with 6 x `BasicRemeshPass` (serial, projection onto the
+sphere). A triangle faces inward if its area is above 1e-12 and normal . centroid < 0.
+
+**Mechanism** (trace of every operation, seed 1, jit 0.3): the inward triangles are thin (quality 0.16 to 0.21 before
+the operation) and already stand 41 to 45 degrees from the sphere's normal (cosine 0.71 to 0.76): the sagitta of a
+long edge of 0.23 on a unit sphere is 0.007, of the size of the triangle's height, and the midpoints of splits and
+collapses lie up to 0.014 below the sphere until the projection at the end of the pass. One collapse then turns such a
+triangle by another 46 to 70 degrees against its own normal (cosine 0.35 to 0.70), which the flip test passes, and it
+ends 91 to 113 degrees from the sphere's normal. So two steps: an operation or a move that leaves a thin triangle
+tilted, and one collapse; the test never sees the sum. A flip can do it in one step (a triangle of quality 0.90 turned
+by 89.7 degrees into one of quality 0.15, with a vertex 0.012 below the sphere). Of the inward triangles created by an
+edge operation with `MinTriangleQuality = 0.2` (65 inputs, measured right after each operation, before the projection):
+301 by collapses, 37 by flips, 70 by splits (a split of an edge of a triangle that already faces inward).
+
+**The check.** A collapse or a valence flip is rejected if a new triangle ends more than 70 degrees from the ring
+normal and farther from it than before. The ring normal is the sum of the normals (area weighted) of the triangles
+around the edge's two vertices, each weighted with the cosine of its angle to the triangle's old normal, 0 if it faces
+against it (a flip: to the summed normals of the old pair).
+`dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- spheres=300` (503 inputs), master 3c4d93ac -> this
+change, inputs with an inward triangle after some pass / after pass 6:
+
+| setting | master | with the ring check |
+|---|---:|---:|
+| `MinTriangleQuality = 0.2` | 452 / 105 | 2 / 0 |
+| + `PreventNormalFlips = true` | 452 / 105 | 2 / 0 |
+| `EnableSmoothing = false` | 497 / 284 | 4 / 2 |
+| no projection target | 453 / 127 | 2 / 0 |
+| `PreventNormalFlips = true` alone | 420 / 89 | 3 / 0 |
+| neither (opt-out) | 501 / 251 | 501 / 251 (bit-identical) |
+
+With `spheres=40` (the 65 inputs of the issue): 61 / 15 -> 0 / 0 with `MinTriangleQuality = 0.2`, 55 / 14 -> 1 / 0 with
+`PreventNormalFlips` alone (which does not check the smoothing and projection moves), 64 / 38 -> 1 / 1 without
+smoothing. All results are closed and valid; 1 triangle of the 341746 of the 503 results has q < 0.1.
+
+**Alternatives measured** (503 inputs, `MinTriangleQuality = 0.2`, after some pass / after pass 6; the other bounds
+with the constant changed by hand, the last four as prototypes, not in the code):
+
+| variant | inward after some pass / after pass 6 |
+|---|---:|
+| master | 452 / 105 |
+| bound 90 degrees | 152 / 15 |
+| bound 80 degrees | 27 / 1 |
+| bound 70 degrees (chosen) | 2 / 0 |
+| bound 60 degrees | 1 / 0 |
+| weight 0 or 1 (the triangles that face with the old normal), 70 degrees | 1 / 0 |
+| all triangles around the edge with the weight 1, 70 degrees | 1 / 0 |
+| weight 1, only triangles that go from within 70 degrees to beyond it | 103 / 19 |
+| only the triangles within 70 degrees of the old normal, weight 1 | 9 / 1 |
+
+On the 65 inputs, with a bound of 70 degrees every reference tried gave 0 / 0: the ring normal, the exact normal of the
+sphere at the centroid, and the vertex normals at the start of the pass (with a bound of 90 degrees: 8 / 1, 4 / 0 and
+4 / 1). The ring normal needs no state and no projection target, so it also holds in `RemesherPro` and
+`RegionRemesher` and without a target. The weight 0 or 1 was one inward input better on the spheres, but it switches at
+90 degrees, the angle of most CAD creases, on the rounding of a dot product near 0: the result of a cylinder with
+12 slices then changed with a rotation of the input (`RemesherQualityTests.SameResultUnderSimilarity`: 1544 against
+1600 triangles). The cosine weight is continuous. With the weight 1 for all triangles the other wall of a thin part is
+in the reference (tubes: F 0.1 % 0.0456 instead of 0.0868).
+
+**Cost and side effects** on the cases of this benchmark, `MinTriangleQuality = 0.2` (the "on" runs; the "off" runs
+are bit-identical), master 3c4d93ac -> this change, `runs=1` with fidelity for the measures, time as the median of
+`runs=3 fidelity=0`, master and this change one after the other, alone on the machine (4 cores):
+
+| group | q<0.1 | q<1e-3 (cases) | self-intersecting pairs (cases) | rejected passes (cases) | mean hausdorff/target | F 0.1% | normal consistency | edge recall 0.5% | min angle 1% worst | not clean | time s |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| primitives (150) | 5 -> 9 | 0 -> 0 | 129 (2) -> 129 (2) | 2 -> 2 | 0.354 -> 0.348 | 0.8287 -> 0.8273 | 0.9896 -> 0.9896 | 0.9012 -> 0.9012 | 27.72 -> 27.76 | 2 -> 2 | 4.6 -> 5.7 |
+| gears (18) | 438 -> 438 | 0 -> 0 | 0 -> 0 | 0 -> 0 | 0.010 -> 0.010 | 1.0000 -> 1.0000 | 1.0000 -> 1.0000 | 1.0000 -> 1.0000 | 4.50 -> 4.50 | 0 -> 0 | 0.3 -> 0.4 |
+| tubes (24) | 95 -> 96 | 0 -> 0 | 5100 (23) -> 5324 (23) | 3 -> 4 | 0.298 -> 0.303 | 0.0868 -> 0.0865 | 0.9320 -> 0.9368 | 0.3585 -> 0.3505 | 4.33 -> 4.37 | 23 -> 23 | 0.2 -> 0.3 |
+| thingi (20) | 1641 -> 1530 | 195 (7) -> 210 (9) | 2079 (15) -> 1962 (15) | 1 -> 1 | 0.969 -> 0.945 | 0.7225 -> 0.7231 | 0.9428 -> 0.9456 | 0.9299 -> 0.9286 | 9.61 -> 9.67 | 15 -> 15 | 9.2 -> 11.1 |
+
+- The fidelity means move by less than 0.01 in every group. On Thingi10K fewer poor triangles and self-intersecting
+  pairs and a smaller Hausdorff distance; the pairs per mesh move both ways.
+- Worse: 15 more flat triangles on Thingi10K (196126: 31 -> 43, three meshes with one more, two more results with
+  one), and one result (118679) with a zero-area triangle, where master had none. They do not come from the flips that
+  repair a degenerate or poor triangle: those keep their own tests and are not checked against the ring (with the
+  check on them too: the same 210 flat triangles and 2272 instead of 1962 pairs). So the collapses the check rejects
+  keep some slivers; not analysed further. 224 more pairs on the tubes (targets 5 to 32 times the wall thickness).
+- `pin=30` (sharp vertices pinned), 150 primitives: 9 pairs in 2 cases (cone24_x0.15, cone24_x0.2) -> 8 pairs in 3
+  cases (cone12_x0.15, cone12_x0.6, cone32_x0.2); in cone12_x0.15 one edge below the pinned apex, where the triangles
+  face apart by the shape of the input (the others not located). Accepted as a known item (owner 2026-11-23,
+  `docs/roadmap/alpha-wrap-and-repair.md`). Leaving out the operations at fixed vertices moved the pairs to other cases (6 pairs
+  here, 4 in cone12_x0.2 under a translation); not built.
+- Time: +21 % on Thingi10K (9.2 -> 11.1 s), +24 % on the primitives (4.6 -> 5.7 s; two earlier pairs of runs gave
+  +19 % and +24 % on Thingi10K). Accepted with the output change by the owner (2026-11-23). It is the check's own cost, not
+  a consequence of the rejections (measured with the check computed and its result ignored): one more pass over the
+  triangles around the edge per operation that reaches it, on Thingi10K 470k collapses (6.5 % rejected) and 626k
+  flips (1.1 % rejected), about 2 microseconds each. A collapse is checked for each triangle around the edge against
+  all of them, so above 128 triangles around the edge (a fan with thousands of triangles) it is not checked. Not built: a cheaper pass over the triangles of a vertex in
+  `DMesh3`, or a test only for thin new triangles (another threshold, to be measured on this family first).
+- `g3cli remesh` (0.2 by default) and `RegionRemesher.QuickRemesh` (`PreventNormalFlips = true`) give other meshes
+  than before; with neither option set the results are bit-identical (`OptOut_ResultIsUnchanged`).
+
 ## PreventSelfIntersections (opt-in)
 `Remesher.PreventSelfIntersections` rejects the collapses, flips and splits whose new triangles would intersect
 another triangle, and reverts the smoothing and projection moves that would. 4 cores, net10.0, Release, `runs=1`:
