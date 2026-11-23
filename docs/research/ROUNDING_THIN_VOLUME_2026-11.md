@@ -122,9 +122,11 @@ two thirds of its length, while the panel bulges 200 thicknesses over that lengt
 plane can lie inside the thickness over one facet (a fourteenth of the length here), and where it crosses facets at
 5 degrees it leaves the thickness within 11 thicknesses. The loss as described needs a strip that is thin **and** runs
 over creases, so that a contraction replaces two facets by a triangle across them: the mechanism of 1a with a crease in
-place of the near miss. To reproduce it I need either the direction of the curvature against the cut (a panel curved
-only across the cut, with the plane along its generators, is the one shape where this could happen), or a fragment of
-the two meshes as vertex arrays, as the rounding case of `SolidBooleanPipelineInputGridTests` has.
+place of the near miss.
+
+**Outcome (owner 2026-11-23):** shape 1b is not reproduced procedurally. The owner has reproduced it on the shapes
+themselves, which stay local; the two attempts above stay as documentation of what the rounding does on these
+constructions. Where the change occurs, `RoundingVolumeBefore` and `RoundingVolumeAfter` report it.
 
 ## Shape 2: a curved plate partly flush with a block (the guard)
 
