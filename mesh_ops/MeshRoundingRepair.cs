@@ -16,7 +16,8 @@ namespace g3
     /// The edits follow the modification stage of Milenkovic and Sacks ("Geometric rounding and feature
     /// separation in meshes", CAD 2019), applied after rounding: contract a short edge (length at most
     /// MaxDisplacement times the diagonal; the kept vertex at one of the two ends, which keeps the
-    /// coordinates as they are, or at the midpoint), flip an edge (caps), and, beyond the paper, move a single
+    /// coordinates as they are, or at the midpoint), flip an edge (caps; a cap with one short edge is flipped before
+    /// the contraction is tried, which would move a vertex and its triangles), and, beyond the paper, move a single
     /// vertex by a tiny amount (along the normal of the triangle it intersects or away from the base of a
     /// cap), which separates intersections that no contraction can (sheets that come within a rounding unit
     /// of each other), and zip two caps on both sides of an edge whose apexes lie on it (a flip would give two
@@ -3008,18 +3009,29 @@ namespace g3
             return false;
         }
 
+        // (measured on the rounding tests: with 1 and 4, flips of needles in clusters of short edges leave defects that the contractions
+        // removed before; from 16 384 on the same results as 1024)
+        const double CapRatio = 1024;
+
         [MethodImpl(JitHints.Optimize)]
         void fix_degenerate(int t)
         {
-            if (collapse_any(t))
-                return;
-            // caps: flip the longest edge first; else move the corner opposite the longest edge away from it
             Index3i tv = Mesh.GetTriangle(t), te = Mesh.GetTriEdges(t);
             int[] order = { 0, 1, 2 };
             double[] len = new double[3];
             for (int k = 0; k < 3; ++k)
                 len[k] = -pos(tv[k]).Distance(pos(tv[(k + 1) % 3]));
             Array.Sort(len, order);
+            // a cap first: a triangle that is degenerate by its angle, not by a short edge (its shortest and longest edge span CapRatio
+            // times the degenerate area at a right angle: the angle between them is below 1 / CapRatio). A flip of its longest edge
+            // removes it and moves no vertex; a contraction of its short edge moves a vertex by the edge's length and with it every
+            // triangle of that vertex, which on a short edge across a thin strip changes the volume
+            // (docs/research/ROUNDING_THIN_VOLUME_2026-11.md, "Caps first")
+            if (0.5 * len[2] * len[0] >= CapRatio * areaEps_of(tv.a) && try_flip(te[order[0]]))
+                return;
+            if (collapse_any(t))
+                return;
+            // caps: flip the longest edge first; else move the corner opposite the longest edge away from it
             foreach (int k in order)
                 if (try_flip(te[k]) || try_zip(te[k]))
                     return;

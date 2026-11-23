@@ -91,6 +91,7 @@ on:
       - 'tests/geometry3Sharp.Tests/Harness/ContactAssemblyFixtures.cs'
       - 'tests/geometry3Sharp.Tests/ExactArrangementTriangulateMeshesTests.cs'
       - 'tests/geometry3Sharp.Tests/RoundingDriftApexTests.cs'
+      - 'tests/geometry3Sharp.Tests/RoundingCapFirstTests.cs'
       - 'tests/geometry3Sharp.Tests/SafeRoundingBoundTests.cs'
       - 'tests/geometry3Sharp.Tests/SafeRoundingLastComponentTests.cs'
       - 'tests/geometry3Sharp.Tests/SafeRoundingZeroVolumeSheetTests.cs'

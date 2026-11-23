@@ -188,7 +188,54 @@ not help on the measured case. c is the only option that removes the change inst
 simplification literature has the rule for it, but it touches which vertices the rounding keeps, so it needs its own
 measurement on the benchmark corpora before a decision.
 
+## Caps first
+
+A second mechanism, with an output change the owner approved (2026-11-23): a degenerate triangle that is a cap, with one
+short edge.
+
+- **The shape** (`RoundingCapFirstTests.Step`, procedural): a slab under a block, extruded. On both end faces the foot of
+  the riser, A, lies w beyond the corner C of the slab's top (w below the bound) and e = 1e-12 off the line of the top,
+  so that the triangle (A, C, B) has three corners almost on one line: its area is below the degenerate area, its only
+  edge below the bound is A-C.
+- **Before:** `fix_degenerate` tried the contraction of a short edge first, and the flip only where no contraction
+  was accepted. It contracted A-C on both end faces: the foot of the riser moved by w, and with it the riser. The
+  volume changed by w H W / 2: 2.5e-7, 6.25e-7 and 1.0e-6 of 3.0e-4 for w = 2e-6, 5e-6 and 8e-6 (0.08 %, 0.21 %,
+  0.33 %), with `MaxDrift` = w.
+- **Now:** a cap is flipped first. A cap is a degenerate triangle whose shortest and longest edge would span 1024 times
+  the degenerate area at a right angle, so the angle between them is below 1 / 1024: it is degenerate by its angle, not
+  by its short edge. The flip of its longest edge removes it and moves no vertex. On the shape: 2 flips, no contraction,
+  the volume unchanged, `MaxDrift` at most e. Where the flip is not accepted the order is the old one.
+- **The factor 1024** is measured on the rounding tests, not derived. With 1 and 4 the flip also takes needles in
+  clusters of short edges, and defects stay that the contractions removed before (`SafeRoundingDegenerateInputTests`
+  ShortEdge, `MeshRoundingRepairTestsPositionSearch` FoldedCluster 52 8 4, the drift of `RoundingDenseTessellationTests`);
+  with 32 and 256 only edit counts of the clamped-panel tests differ; from 16 384 on every result is that of 1024. The
+  shape qualifies up to about 6e5.
+- **No effect on the fixtures above:** the plates, the shell and the clamped panel give the numbers they gave (their
+  tests are unchanged): their degenerate triangles are not caps by this test, or have no flip that is accepted.
+- **A limit:** in one frame of `Similarity.All()` (rotated, millimetre scale, far from the origin) the rounding of the
+  input folds the cap over its neighbour by 2e-8 of the diagonal. No triangle is degenerate there; the mesh intersects
+  itself, and `fix_intersection` resolves that as before, by the contraction of A-C, with the volume change of that
+  (6.3e-7). Two variants of a flip first in `fix_intersection` (for a pair across an edge, by the angle and by opposed
+  normals) did not change it and are not in the code. Open.
+- **Cost and effect elsewhere** (measured 2026-11-23, before and after, net10.0):
+  - `benchmarks/SnapRoundingExperiment`, `run <case> safe` on 214 cases (every third case of the sets booleans, utm
+    and clusters, all of cylinder, drop and scale up to resolution 81), two alternating passes each, the faster of the
+    two per case: 89.7 s before, 88.8 s after (ratio 0.99; no set above 1.00). 202 cases clean before and after; two
+    cases (Cluster, k = 44) have one edit more, with the same triangle count and drift.
+  - The stress inputs of two probes under review (unions of spheres with gaps and overlaps down to 1e-12, 20 cases;
+    tube skeletons with grazing forks and near-tangent branches, 9 cases) through `SolidBooleanPipeline`: every line
+    identical before and after (status, verdict, triangle count, the volume before and after the rounding). 29 of 29
+    succeed, 28 clean and one with contacts only (two spheres exactly tangent); the largest change of the volume by
+    the rounding is 1.3e-9 of the volume.
+- **Prior art:** caps flipped, needles collapsed is Botsch and Kobbelt 2001 ([sources](../sources/meshing-and-repair.md)),
+  already listed for the repair's flips; the order between the two edits for a cap with a short edge is the change here.
+
 ## Tests
+
+`RoundingCapFirstTests`: the step (the flip, the volume, four cases), the limit between a cap and a needle on both
+sides, reuse, and the invariance over `Similarity.All()` (the 2^k scales bit for bit; the frame of the limit pinned as
+it is).
+
 
 `RoundingVolumeReportTests` checks the two numbers of a1: on the plates (the 3.7e-7), where the repair changes nothing
 (shape 2, closed boxes: equal bit for bit), on the paths without a repair (0 and 0), on a strict refusal, after the

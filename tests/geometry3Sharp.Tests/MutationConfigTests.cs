@@ -222,7 +222,9 @@ namespace geometry3Sharp.Tests
                 ["stryker-mesh-rounding-8"] = new[] {
                     "FullyQualifiedName~RoundingExactPairsTests.SkippingSearch_SameAsFull_AndSkips&DisplayName!~FoldedCluster",
                     "FullyQualifiedName~RoundingExactPairsTests.WithoutSharedPositionsTouch_NoSkip",
-                    "FullyQualifiedName~MeshRoundingRepairTestsPositionSearch" },
+                    "FullyQualifiedName~MeshRoundingRepairTestsPositionSearch",
+                    // (fix_degenerate: a cap is flipped before a contraction is tried; 15 cases, under a second)
+                    "FullyQualifiedName~RoundingCapFirstTests" },
                 // (fix_intersection to the end: the tolerances of the largest component and the ScaleDisparity guard of
                 // remove_tiny_components, and its component walk)
                 ["stryker-mesh-rounding-9"] = new[] {
