@@ -30,3 +30,20 @@ not the milliseconds):
 - [results/master.txt](results/master.txt): master `e875d747`.
 - [results/sheet-role-pr1223.txt](results/sheet-role-pr1223.txt): the head of PR #1223 (`2f3f33ec`), the same source copied
   into a worktree of that branch.
+- [results/sheet-route-pr1447.txt](results/sheet-route-pr1447.txt): PR #1447 (`1e328f8`, 2026-11-23), the sheet route.
+
+## The pipeline columns since the sheet route (#1447)
+
+The three pipeline columns of `today` run `SolidBooleanPipeline` without `InputRoles`. Since #1447 an open tool of a
+Difference without a stated role is tried as a sheet first and falls back to `InputRepair` when the sheet role refuses, so
+these columns now show the route, not `InputRepair` alone (the two older result files show the pipeline before it). On the
+13 cases:
+
+| pipeline | before the route | with the route |
+|---|---|---|
+| `Refuse` (default) | `OpenInput` in 13 of 13 | the cut in the 6 cases whose sheet crosses the cube (all `Success`, clean, the intended volume); `OpenInput` in the other 7 (the sheet role refuses, the fallback refuses as before) |
+| `AutoRepair`, `AutoRepairThenRobust` | `Success` and clean in 13 of 13, wrong in 6 of the 8 with a known intent | the same 6 cuts; the other 7 fall back to the repair as before (`Success`, clean, the cube unchanged), wrong in 1 of the 8 with a known intent (the sheet on the top face with its normals up: intent 0, result 64) |
+
+The 7 cases the sheet role refuses are the half sheet, the sheet with a hole and the disc inside (a free edge inside the
+cube), the three sheets on the top face (they only touch) and the sheet outside (uncut). The repair path of the fallback is
+unchanged here; the self-intersection check of #1426 is not part of #1447.
