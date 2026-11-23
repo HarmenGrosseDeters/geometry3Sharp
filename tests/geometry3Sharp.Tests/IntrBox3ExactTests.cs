@@ -760,8 +760,7 @@ namespace geometry3Sharp.Tests
             var r = new SlabQ[3];
             for (int i = 0; i < 3; i++) {
                 Vector3d u = b.Axis(i);
-                Q p = Dot(u, p0 - b.Center);          // (p0 - b.Center as given in rationals below)
-                p = Q.From(u.x) * (Q.From(p0.x) - Q.From(b.Center.x)) + Q.From(u.y) * (Q.From(p0.y) - Q.From(b.Center.y)) + Q.From(u.z) * (Q.From(p0.z) - Q.From(b.Center.z));
+                Q p = Q.From(u.x) * (Q.From(p0.x) - Q.From(b.Center.x)) + Q.From(u.y) * (Q.From(p0.y) - Q.From(b.Center.y)) + Q.From(u.z) * (Q.From(p0.z) - Q.From(b.Center.z));
                 Q q = Q.From(u.x) * (Q.From(p1.x) - Q.From(p0.x)) + Q.From(u.y) * (Q.From(p1.y) - Q.From(p0.y)) + Q.From(u.z) * (Q.From(p1.z) - Q.From(p0.z));
                 Q e = Q.From(b.Extent[i]);
                 r[i] = new SlabQ(p, q, new Q(-e.N, e.D), e);
@@ -803,6 +802,42 @@ namespace geometry3Sharp.Tests
             if (got) Assert.True(EndsAcceptable(g0, e.t0) && EndsAcceptable(g1, e.t1), $"ends {g0:R} {g1:R} against {e.t0.ToDouble():R} {e.t1.ToDouble():R}");
         }
 
+        [Fact]
+        public void AxisAligned_RaysAimedAtCornersAndEdges_AgreeWithTheOracle_AndTheCullingFormNeverCullsAHit()
+        {
+            // boxes with irrational-looking coordinates and rays aimed at a corner or an edge from far away: the entry and exit of the corner slabs agree to about 1 u,
+            // so the margin 3 u (|tn| + |tf|) decides between a certified answer and the exact route; a smaller margin gives a wrong miss or hit
+            var r = new Random(77);
+            int hits = 0, misses = 0, n = 0;
+            for (int it = 0; it < 30000; it++) {
+                double scale = Math.Pow(10, r.Next(-8, 9) + r.NextDouble());
+                Vector3d lo = new Vector3d((r.NextDouble() - 0.5) * scale, (r.NextDouble() - 0.5) * scale, (r.NextDouble() - 0.5) * scale);
+                Vector3d hi = lo + new Vector3d(r.NextDouble() * scale + scale * 1e-3, r.NextDouble() * scale + scale * 1e-3, r.NextDouble() * scale + scale * 1e-3);
+                var aab = new AxisAlignedBox3d(lo, hi);
+                Vector3d aim = new Vector3d(r.Next(2) == 0 ? lo.x : hi.x, r.Next(2) == 0 ? lo.y : hi.y, r.Next(2) == 0 ? lo.z : hi.z);
+                if (r.Next(2) == 0) { int k = r.Next(3); aim[k] = lo[k] + (hi[k] - lo[k]) * r.NextDouble(); }         // an edge, not a corner
+                Vector3d o = aim + new Vector3d(Gauss(r), Gauss(r), Gauss(r)) * (scale * Math.Pow(10, r.Next(0, 7)));
+                Vector3d d = (aim - o).Normalized;
+                if (d.IsNormalized == false) continue;
+                var ray = new Ray3d(o, d); var line = new Line3d(o, d);
+                var sl = Slabs(aab, o, d);
+                bool er = Contact(sl, new Q(0, 1), null).kind != 0, el = Contact(sl, null, null).kind != 0;
+                Assert.Equal(er, IntrRay3AxisAlignedBox3.Intersects(ref ray, ref aab));
+                Assert.Equal(er, new IntrRay3AxisAlignedBox3(ray, aab).Test());
+                Assert.Equal(er, new IntrRay3AxisAlignedBox3(ray, aab).Find());
+                Assert.Equal(el, new IntrLine3AxisAlignedBox3(line, aab).Test());
+                double t; Assert.Equal(er, IntrRay3AxisAlignedBox3.FindRayIntersectT(ref ray, ref aab, out t));
+                if (er) {
+                    var e = Contact(sl, new Q(0, 1), null);
+                    Assert.True(CorrectlyRounded(t, e.t0) || WithinFilterBound(t, e.t0), $"entry t {t:R} against {e.t0.ToDouble():R}");
+                }
+                double m; if (er) Assert.True(IntrExactBox3.RayAabbMay(ref ray.Origin, ref ray.Direction, ref aab, 0, out m), "the conservative form culled an exact hit");
+                if (er) hits++; else misses++;
+                n++;
+            }
+            Assert.True(n > 20000 && hits > 2000 && misses > 2000, $"n {n} hits {hits} misses {misses}");
+        }
+
         // a rotation from a random quaternion
         static void RandomAxes(Random r, out Vector3d ux, out Vector3d uy, out Vector3d uz)
         {
@@ -832,8 +867,10 @@ namespace geometry3Sharp.Tests
                 Vector3d ctr = new Vector3d((r.NextDouble() - 0.5) * scale * 4, (r.NextDouble() - 0.5) * scale * 4, (r.NextDouble() - 0.5) * scale * 4);
                 if (r.Next(2) == 0) ctr = Vector3d.Zero;
                 Box3d box = new Box3d(ctr, ux, uy, uz, ext);
-                double reach = scale * Math.Pow(10, r.NextDouble());
-                Vector3d o = ctr + ux * ((r.NextDouble() * 2 - 1) * reach / sx) + uy * ((r.NextDouble() * 2 - 1) * reach / sy) + uz * ((r.NextDouble() * 2 - 1) * reach / sz);
+                double reach = scale * Math.Pow(10, r.Next(2) == 0 ? 20 * r.NextDouble() : r.NextDouble());       // (a quarter of the origins far away: up to 1e20 box sizes)
+                // (the components along the axes of very different size, so that the slab values P = dot(axis, o - center) cancel: large terms, a small sum)
+                Func<double> comp = () => (r.NextDouble() * 2 - 1) * (r.Next(2) == 0 ? 1 : Math.Pow(10, -12 * r.NextDouble()));
+                Vector3d o = ctr + ux * (comp() * reach / sx) + uy * (comp() * reach / sy) + uz * (comp() * reach / sz);
                 Vector3d dRand = new Vector3d(Gauss(r), Gauss(r), Gauss(r));
                 if (r.Next(3) == 0) {          // nearly perpendicular to an axis: that slab has a tiny Q
                     Vector3d uk = r.Next(3) == 0 ? ux : (r.Next(2) == 0 ? uy : uz);
@@ -843,15 +880,27 @@ namespace geometry3Sharp.Tests
                 Vector3d d = dRand.Normalized;
                 if (r.Next(10) < 6) {
                     // aimed at a point of the box (almost always a contact)
-                    Vector3d aim = ctr + ux * ((r.NextDouble() * 2 - 1) * ext.x / sx) + uy * ((r.NextDouble() * 2 - 1) * ext.y / sy) + uz * ((r.NextDouble() * 2 - 1) * ext.z / sz);
+                    // (a third of them at an edge or a corner: two or three of the three coordinates on a face)
+                    double fx = (r.NextDouble() * 2 - 1), fy = (r.NextDouble() * 2 - 1), fz = (r.NextDouble() * 2 - 1);
+                    if (r.Next(2) == 0) { fx = r.Next(2) * 2 - 1; fy = r.Next(2) * 2 - 1; if (r.Next(3) == 0) fz = r.Next(2) * 2 - 1; }
+                    Vector3d aim = ctr + ux * (fx * ext.x / sx) + uy * (fy * ext.y / sy) + uz * (fz * ext.z / sz);
                     Vector3d da = (aim - o).Normalized;
                     if (da.IsNormalized) d = da;
                 }
                 if (d.x == 0 && d.y == 0 && d.z == 0 || double.IsNaN(d.x)) continue;
                 var slabs = Slabs(box, o, d);
                 double t0 = -double.MaxValue, t1 = double.MaxValue;
-                int lim = r.Next(4);
-                if (lim == 1) { t0 = -Math.Pow(10, r.Next(0, 291)) * r.NextDouble(); t1 = Math.Pow(10, r.Next(0, 291)) * r.NextDouble(); }
+                int lim = r.Next(5);
+                if (lim == 4) {
+                    // a limit just beside a slab bound (within 1e-7..1e-17 of it, relative): between a losing bound and its error
+                    var bs = new List<double>();
+                    foreach (var sl in slabs) if (sl.Qd.Sign != 0) { bs.Add(((sl.L - sl.P) / sl.Qd).ToDouble()); bs.Add(((sl.H - sl.P) / sl.Qd).ToDouble()); }
+                    if (bs.Count > 0) {
+                        double bnd = bs[r.Next(bs.Count)], lv = bnd * (1 + (r.Next(2) * 2 - 1) * Math.Pow(10, -r.Next(7, 18)) * r.NextDouble());
+                        if (r.Next(2) == 0) t0 = lv; else t1 = lv;
+                    }
+                }
+                else if (lim == 1) { t0 = -Math.Pow(10, r.Next(0, 291)) * r.NextDouble(); t1 = Math.Pow(10, r.Next(0, 291)) * r.NextDouble(); }
                 else if (lim == 2) { t0 = r.NextDouble() * scale; t1 = t0 + r.NextDouble() * scale * 10; }
                 else if (lim == 3) { t0 = Math.Pow(10, r.Next(-5, 200)) * r.NextDouble(); t1 = double.MaxValue; }
                 bool hasMin = t0 > -double.MaxValue, hasMax = t1 < double.MaxValue;
@@ -874,10 +923,42 @@ namespace geometry3Sharp.Tests
                 var es = Contact(SlabsSegment(box, sp0, sp1), new Q(0, 1), new Q(1, 1));
                 var sg = new IntrSegment3Box3(seg, box, true);
                 Assert.Equal(es.kind != 0, sg.Find());
-                if (es.kind != 0) { segHits++; Assert.True(InBoxUpToRounding(box, sg.Point0) && (sg.Quantity == 1 || InBoxUpToRounding(box, sg.Point1)), "a segment point outside the box"); }
+                if (es.kind != 0) {
+                    segHits++;
+                    Assert.True(InBoxUpToRounding(box, sg.Point0) && (sg.Quantity == 1 || InBoxUpToRounding(box, sg.Point1)), "a segment point outside the box");
+                    // the parameters along the segment: the clamped dot product of the direction with the point from the center (ends exactly), ordered
+                    double ext2 = seg.Extent, tolS = 64 * 1.1102230246251565e-16 * (Math.Abs(seg.Center.x) + Math.Abs(seg.Center.y) + Math.Abs(seg.Center.z) + Math.Abs(sg.Point0.x) + Math.Abs(sg.Point0.y) + Math.Abs(sg.Point0.z) + ext2) + 1e-300;
+                    Assert.True(sg.SegmentParam0 >= -ext2 && sg.SegmentParam1 <= ext2 && sg.SegmentParam0 <= sg.SegmentParam1 + tolS, "segment parameters out of order or range");
+                    double expect0 = Math.Max(-ext2, Math.Min(ext2, (Dot(seg.Direction, sg.Point0 - seg.Center)).ToDouble()));
+                    Assert.True(Math.Abs(sg.SegmentParam0 - expect0) <= tolS + 1e-12 * ext2, $"SegmentParam0 {sg.SegmentParam0:R} against {expect0:R}");
+                }
                 n++;
             }
             Assert.True(n > 2500 && hits > 150 && segHits > 150, $"n {n} hits {hits} segHits {segHits}");
+        }
+
+        [Fact]
+        public void Verdict_EndsAreCertifiedOnlyWhenNoLosingBoundReachesPastTheWinner()
+        {
+            // the intervals of the ends (LoMinus..LoPlus for the lower end, UpMinus..UpPlus for the upper) are the filter's whole knowledge: the winner's own error is 0
+            // here and a losing bound reaches 1e-9 past it, so the winner's value is not the end to a few ulp (a random search finds this rarely: 7 in 216k cases)
+            var acc = default(IntrExactBox3.Acc);
+            acc.Init(false, 0, false, 0);
+            acc.LoMinus = 1; acc.LoPlus = 1 + 1e-9; acc.LoBest = 1; acc.LoBestErr = 0;
+            acc.UpMinus = 5; acc.UpPlus = 5; acc.UpBest = 5; acc.UpBestErr = 0;
+            Assert.Equal(3, acc.Verdict(true));
+            Assert.Equal(2, acc.Verdict(false));          // (the decision alone does not need the ends)
+            // the upper end the same
+            acc.LoMinus = 1; acc.LoPlus = 1; acc.LoBest = 1; acc.LoBestErr = 0;
+            acc.UpMinus = 5 - 1e-9; acc.UpPlus = 5; acc.UpBest = 5; acc.UpBestErr = 0;
+            Assert.Equal(3, acc.Verdict(true));
+            Assert.Equal(2, acc.Verdict(false));
+            // both intervals tight: certified with ends
+            acc.UpMinus = 5 - 1e-16; acc.LoPlus = 1 + 1e-16;
+            Assert.Equal(2, acc.Verdict(true));
+            // the winner's own error alone
+            acc.LoBestErr = 1e-9; acc.LoMinus = 1 - 1e-9; acc.LoPlus = 1 + 1e-9;
+            Assert.Equal(3, acc.Verdict(true));
         }
 
         [Fact]
