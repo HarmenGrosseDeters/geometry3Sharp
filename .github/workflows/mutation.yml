@@ -100,6 +100,7 @@ on:
       - 'tests/geometry3Sharp.Tests/SafeRoundingZeroVolumeMarginTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactBooleanFamiliesPropertyTests.CsCheck.cs'
       - 'tests/geometry3Sharp.Tests/SafeRoundingBudgetTests.cs'
+      - 'tests/geometry3Sharp.Tests/RoundingVolumeReportTests.cs'
       - 'tests/geometry3Sharp.Tests/RoundingExactPairsTests.cs'
       - 'tests/geometry3Sharp.Tests/RoundingDirtyTreeTests.cs'
       - 'tests/geometry3Sharp.Tests/RoundingSerialWorkTests.cs'

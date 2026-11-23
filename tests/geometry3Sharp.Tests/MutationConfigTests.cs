@@ -193,6 +193,8 @@ namespace geometry3Sharp.Tests
                     // (RuleLockedEdges and the final stage where they follow a contraction, #1034: the lock tests in parts 1, 10 and 5)
                     sliverStage },
                 ["stryker-mesh-rounding-10"] = new[] { serialWork + "NotFiniteInOneTriangle", serialWork + "Field_SerialEqualsParallel", sliverStage,
+                    // (VolumeBefore / VolumeAfter, #1463: Apply's two sums and signed_volume are in this part's span)
+                    "FullyQualifiedName~RoundingVolumeReportTests",
                     // (the pair budget's growth with the defects, RC4a)
                     "FullyQualifiedName~SafeRoundingBudgetTests" },
                 ["stryker-mesh-rounding-5"] = new[] { sliverStage },
