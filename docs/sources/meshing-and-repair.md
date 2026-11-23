@@ -28,6 +28,8 @@ The parked certified-accuracy mode (not in this tree, branch `claude/biharmonic-
 
 The [procedural sphere-union study](../research/MOLECULAR_SURFACES_STUDY.md) uses the inclusion–exclusion viewpoint of H. Edelsbrunner, [The Union of Balls and Its Dual Shape](https://pub.ista.ac.at/~edels/Papers/1995-02-UnionBallsDualShape.pdf), DCG 13 (1995). Paper text only.
 
+The [branching-tube study](../research/BRANCHING_TUBE_GENUS_STUDY.md) takes the skeleton-to-surface question from J. Bloomenthal and K. Shoemake, [Convolution Surfaces](https://www.bloomenthal.com/JBloom/pdf/CSurfFinal.pdf), SIGGRAPH 1991. It uses explicit tapered cylinders and a hard union to keep the geometric topology reference independent of blending. Paper text only.
+
 ## Alpha wrapping (`MeshAlphaWrap`, `Delaunay3`, `ExactPredicates.InSphere`)
 
 Implemented from the papers, no code taken over. CGAL's implementation (`Alpha_wrap_3`, GPL) was not used.
@@ -382,3 +384,11 @@ the repository pages on 2026-11-22: Jang et al.: none (unlicensed, paper only); 
 | Graph cut for the two labels (`MaxFlow`, Dinic's algorithm) | Y. Boykov, V. Kolmogorov, *An experimental comparison of min-cut/max-flow algorithms for energy minimization in vision*, IEEE PAMI 26(9), 2004 (the energy form the paper uses); E. A. Dinic, *Algorithm for solution of a problem of maximum flow in networks with power estimation*, Soviet Math. Dokl. 11, 1970; textbook algorithm, own code |
 | Least squares point of planes with the vertex as mass point (`Defillet`) | M. Garland, P. Heckbert, *Surface simplification using quadric error metrics*, SIGGRAPH 1997; T. Ju, F. Losasso, S. Schaefer, J. Warren, *Dual contouring of hermite data*, SIGGRAPH 2002; papers only |
 | Prior art read for the options (approach only) | Z. Wu, L. Kobbelt, *Structure recovery via hybrid variational surface approximation*, CGF 24(3), 2005 (rolling-ball blends as a primitive type); M. Attene, B. Falcidieno, J. Rossignac, M. Spagnuolo, *Sharpen&Bend: recovering curved sharp edges in triangle meshes produced by feature-insensitive sampling*, IEEE TVCG 11(2), 2005; FilletRec (arXiv:2511.05561, a graph network on B-rep faces); Dassault Systèmes, *Fillet detection method*, US 2024/0135733 A1 (circles fitted along curvature lines; a patent application: not to be implemented without a check) |
+
+## Research study: neuron skeleton meshes (not implemented; [research/NEURON_SKELETON_MESHES.md](../research/NEURON_SKELETON_MESHES.md), `benchmarks/NeuronSkeletonProbe`)
+
+| Item | Source |
+|---|---|
+| SWC parent-indexed radius tree representation (format reference only; procedural trees generated in C#, no NeuroMorpho data committed) | G. A. Ascoli, D. E. Donohue, M. Halavi, *NeuroMorpho.Org: A Central Resource for Neuronal Morphologies*, J. Neurosci. 27(35), 2007 |
+| Line-segment convolution surface with closed-form Cauchy kernel integral (`CauchyConvolutionImplicit` in probe) | J. Bloomenthal, K. Shoemake, *Convolution Surfaces*, Computer Graphics (SIGGRAPH) 25(4), 1991; J. McCormack, A. Sherstyuk, *Creating and Rendering Convolution Surfaces*, Computer Graphics Forum 17(2), 1998; papers only, own C# probe |
+| Prior art for neuron membrane surface reconstruction | S. Lasserre, J. Hernando, S. Hill, F. Schürmann, P. de Miguel Anasagasti, G. Abou Jaoudé, H. Markram, *A Neuron Membrane Mesh Representation for Visualization of Electrophysiological Simulations*, IEEE TVCG 18(2), 2012 |

@@ -107,6 +107,7 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 | Platform/QA/CI: late cron runs of `mutation.yml` | Kept as they are, owner 2026-11-17 | None | [platform](roadmap/platform.md#open-for-the-future-2026-11-15) |
 | Other: Remesher defaults (degenerates, self-intersections), thin walls 135363 | Defaults upstream's; safe preset opt-in | None | [wrap](roadmap/alpha-wrap-and-repair.md#other-open-items) |
 | Other: CCD on the 1M-triangle ToI frame, serial above 20 s | Documented limit, owner 2026-11-16 | None | [hotspots](roadmap/hotspots.md#open-for-the-future-2026-11-15) |
+| Other: `IntrRay3Box3` / `DCurve3BoxTree` ray queries 1.6 to 1.9 times slower after the exact box decision | Accepted, owner 2026-11-22 | Optional certified division-free SAT prefilter for the oriented ray (needs a Gram-deviation margin for non-orthonormal axes; estimated +20 to 30 % instead of +60 to 90 %) | [benchmark](../benchmarks/IntrBox3Benchmark/README.md) |
 
 ## 7. Owner's local runs
 

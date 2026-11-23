@@ -29,6 +29,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [SnapRoundingExperiment](SnapRoundingExperiment/README.md) | Snap-rounding prototypes and quality measurements for `SAFE_ROUNDING.md` |
 | [SolidBooleanAudit](SolidBooleanAudit/README.md) | Adversarial procedural corpus and an independent oracle (ray crossings, volumes) for an end-to-end audit of `SolidBooleanPipeline` |
 | [SolidBooleanBenchmark](SolidBooleanBenchmark/README.md) | `SolidBooleanPipeline` (exact boolean + guarded reduction + contact pairing) on procedural soups |
+| [NeuronSkeletonProbe](NeuronSkeletonProbe/README.md) | Research probe: SWC-style branching tubes (4° forks, 1e-6 branch gaps, loops, 45-segment trees) closed by multi-mesh and tree `ExactMeshBoolean`, `SolidBooleanPipeline`, convolution-field `MarchingCubes` and `MeshAlphaWrap`, with measured mesh clearances |
 | [ProceduralSphereUnionProbe](ProceduralSphereUnionProbe/README.md) | Research probe: unions of procedural ball sets (tangency, 1e-12 gaps, cavities, helices, 12–96-ball packings) by multi-mesh and tree `ExactMeshBoolean`, `SolidBooleanPipeline`, `MarchingCubes` and `MeshAlphaWrap` |
 
 ## Repair, Alpha Wrap, Remeshing & Simplification
@@ -82,6 +83,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [ContouringSubgridProbe](ContouringSubgridProbe/README.md) | Upper bounds for sharp features from distance grids, walls thinner than a cell (subgrid marching tetrahedra) and a subdivision certificate |
 | [ContouringIsotopySubdivision](ContouringIsotopySubdivision/README.md) | A subdivision isotopy certificate (C0 / C1 cells, outward-rounded intervals) for `DualContouring` of implicit fields, against Theorem 5's cell test and the class P certificate |
 | [ContouringTopology](ContouringTopology/README.md) | Upper-bound study for contouring topology guarantees |
+| [BranchingTubeProbe](BranchingTubeProbe/README.md) | Research probe: genus of a tapered branching-tube fixture with a `1/8` or `1/128` tip gap under aligned and shifted `MarchingCubes`, strict `ExactMeshBoolean` and `MeshAlphaWrap`, with `NotCleanReason` per result |
 | [MeshOffsetBenchmark](MeshOffsetBenchmark/README.md) | `MeshOffset` certified band accuracy and timing vs. SDF Marching Cubes |
 | [ContourLoftBenchmark](ContourLoftBenchmark/README.md) | Scaling and quality of `ContourLoft` and `ContourLoftStack` |
 | [TpmsLattice](TpmsLattice/README.md) | Stage timings for `TpmsLattice` (gyroid, Schwarz P/D, Neovius, I-WP, Lidinoid) |
@@ -91,6 +93,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | Benchmark | Focus |
 |---|---|
 | [IntrinsicBenchmark](IntrinsicBenchmark/README.md) | `IntrinsicTriangulation`, `MeshGeodesicDistance`, and `VectorHeatMethod` timings and accuracy |
+| [IntrBox3Benchmark](IntrBox3Benchmark/README.md) | Ray, line and segment against box classes (exact decision) and the `DMeshAABBTree3` / `DCurve3BoxTree` ray queries that call them, before and after |
 | [IntrinsicIntegerCoordinates](IntrinsicIntegerCoordinates/README.md) | Research spike: integer (normal) coordinates against the traced common subdivision of `IntrinsicTriangulation` |
 | [GeodesicOracleBenchmark](GeodesicOracleBenchmark/README.md) | Window counts, interval width, and timing of `ExactMeshGeodesicDistance` and `PolyhedralGeodesicDistance` |
 | [ParameterizationBenchmark](ParameterizationBenchmark/README.md) | Timings and distortion metrics for LSCM, BFF, ARAP, SLIM, and Tutte parameterizations |
