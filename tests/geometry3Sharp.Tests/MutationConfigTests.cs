@@ -21,6 +21,7 @@ namespace geometry3Sharp.Tests
             ["mesh_ops/MeshRoundingRepair.cs"] = new[] { "public bool Apply(", "Vector3d pos(", "void position_add(", "void rebuild_tree(", "List<int> degenerate_triangles(", "void ghost_add(", "static double segments_distance(", "bool try_zip(", "List<int> strip_around(", "static double ulp(", "void set_vertex(", "void fix_intersection(" },
             ["mesh_ops/PolyhedralEnvelope.cs"] = new[] { "void add(", "static long bit_length(", "public bool ContainsTriangle(" },
             ["mesh_ops/ExactMeshGeodesicDistance.cs"] = new[] { "void Add(" },
+            ["math/ExactPredicates.cs"] = new[] { "static void negate128(" },
         };
 
         static string RepoRoot()
