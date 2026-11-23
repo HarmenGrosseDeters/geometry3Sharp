@@ -126,6 +126,8 @@ namespace geometry3Sharp.Tests
             DMesh3 shell = Run(a, inner, Ops.Difference);
             Assert.Equal(va - vi, Volume(shell), 9);
             Assert.Equal(a.TriangleCount + inner.TriangleCount, shell.TriangleCount);
+            // a cavity, not a second part (volume and triangle count do not tell them apart)
+            SolidBetti.AssertEqual(1, 0, 1, shell, "a - inner");
         }
 
         static Quaterniond RandomRotation(Random rand)
@@ -395,6 +397,8 @@ namespace geometry3Sharp.Tests
             DMesh3 cavity = SolidOf(Merge(outer, Reversed(inner)), out farTris);
             Assert.Equal(27 - 1 + 1, Volume(cavity), 12);
             Assert.Equal(outer.TriangleCount + inner.TriangleCount + farTris, cavity.TriangleCount);
+            // the hollow box and the far box, with one cavity
+            SolidBetti.AssertEqual(2, 0, 1, cavity, "inverted inner shell");
         }
 
         [Fact]
