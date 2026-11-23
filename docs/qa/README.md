@@ -8,7 +8,7 @@ This directory organizes the QA strategy, test tiers, verification gates, fuzzin
 | [testing-and-invariance.md](testing-and-invariance.md) | Invariance, reuse, determinism, result validation, certifying checkers, supported input range, verifiable agent checks |
 | [mutation-and-coverage.md](mutation-and-coverage.md) | Stryker mutation testing shards and changed-line coverage gate |
 | [fuzzing-and-corpora.md](fuzzing-and-corpora.md) | Fuzzing, regression corpora, failure minimization, reference parts, robustness sweep, external issue cases |
-| [ci-and-gates.md](ci-and-gates.md) | API compatibility, gate-change check, scheduled runs, Windows `net48` hang diagnosis, performance & runtime watch |
+| [ci-and-gates.md](ci-and-gates.md) | API compatibility, gate-change check, two-stage PR CI and batched master CI, scheduled runs, Windows `net48` hang diagnosis, performance & runtime watch |
 | [local-setup.md](local-setup.md) | Local .NET SDK installation and verification commands |
 
 ---
@@ -38,11 +38,18 @@ done since and what is open.
 - A draft PR gets no CI (2026-11-15, runner load: most runs of drafts were cancelled by the next push; the gate is the `if:` of the job
   `scope`, the other jobs need it; a skipped run of a draft has its own concurrency group, so it cannot cancel a real run). On demand:
   `workflow_dispatch` (Actions tab, or `gh workflow run ci.yml --ref <branch>`; the checks attach to the head commit), which runs
-  everything. A PR that is ready for review (`ready_for_review` starts the run), every push to master and manual runs run all jobs;
-  check a draft locally with the CLAUDE.md list (with the net48 build). `FULL_TIER` in `ci.yml` is the switch for the Slow tier: it is
-  true for every run that exists now (the draft conditions of `isolated`, `time-rule` and the Windows jobs stay as a second guard).
-  PR runs cancel on a new push. Master and manual runs: one concurrency group per ref without cancel-in-progress (they queue; GitHub keeps
-  one pending run, so a burst of merges runs the first and the newest commit; the newest covers all merged changes).
+  everything. Check a draft locally with the CLAUDE.md list (with the net48 build).
+- **Two stages on a ready PR (owner 2026-11-23, runner load; [ci-and-gates.md](ci-and-gates.md) 2.14).** Every push runs the job
+  `quick`: the library builds for net10.0 and netstandard2.0, the net10.0 test build and the net10.0 tests of the changed areas
+  without `Slow` and `Nightly` (`tools/ci_scope.py --quick`; a broad change runs a smoke set and says so), about 5 minutes, a
+  signal. The **full stage** (`linux` with every net10.0 test, `netstandard` / `netstandard-b` with net48, `isolated`, `time-rule`,
+  and the workflows `new-tests-on-base`, `tier-rule`, `determinism`) runs only while the PR has the label **`full-ci`**, which the
+  coordinator sets (like `bugfix`): setting it starts the full stage on the current head, every later push runs it again on the new
+  head. The merge gate is the commit status `full-ci` (green only from a full run on the PR's final head). Master: no run per
+  merge; a scheduled run every 2 hours tests master's head when anything the tests read changed since the last tested head
+  (`tools/master_batch.py`), `workflow_dispatch` and tags run everything. `FULL_TIER` in `ci.yml` is the switch for the Slow tier:
+  true for every run of the full stage (the draft conditions of `isolated`, `time-rule` and the Windows jobs stay as a second
+  guard). PR runs cancel on a new push. Master and manual runs: one concurrency group per ref without cancel-in-progress (they queue).
 - The full run lists the slowest tests and the untagged tests of 5 s or more in its step summary
   (`tools/trx_durations.py`; a trx has no traits, so the tagged tests come from `dotnet test --list-tests --filter
   "Category=Slow"`). The limits it enforces are those of the ratchet below (it replaced the gate at 60 s for untagged tests,

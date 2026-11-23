@@ -166,6 +166,69 @@ trx, so no test was named. The net48 test steps (both shards and the Clipper2 pa
   sequence files that did not complete in the job summary: the hang is in one of them (usually the last);
 - `--blame` also names the running test when the test host crashes. The trx of a healthy run is the same as before.
 
+## 2.14 Two-stage PR CI and batched master CI (owner 2026-11-23)
+
+Runner load: about 9,000 runner-minutes a day on GitHub-hosted runners (public repository, about 20 parallel jobs), queues of 45
+minutes and more. Mutation runs were 44 % (almost all on PRs, many on PRs that touch no exact code; their new rule is in
+[mutation-and-coverage.md](mutation-and-coverage.md) 2.2), CI 27 %: every push to a ready PR ran the whole matrix, and every
+merge a full master run. Self-hosted runners stay forbidden (fork PRs could run code on them).
+
+**Quick stage** (job `quick` of `ci.yml`, every event of a ready PR while the full stage does not run): builds the library for
+net10.0 and netstandard2.0 and the net10.0 test project (compile errors in either target), and runs the net10.0 tests of the
+changed areas without `Slow` and `Nightly`. `tools/ci_scope.py --quick` picks them: the test classes of a changed test file; for a
+changed library file the classes of the test files that name one of its own types (the types whose names the file name starts
+with or that start with it, e.g. `partial class MeshRoundingRepair` in `MeshRoundingRepairIncremental.cs`); `DocExamplesTests` for
+`docs/examples` and `docs/OPERATIONS.md`; and a smoke set (`SMOKE`) of fast core classes for every library change. A change too
+broad to map (the test harness, a csproj or other build setting, a type that more than `MAX_CLASSES` test files use) runs the
+smoke set and the classes whose names start with the changed types, and the job summary says "Broad change: smoke set only".
+Tools, benchmarks and docs the tests do not read build only; the add-on and the other test projects run in the full stage only.
+The quick stage is a signal; it can miss a test, the full stage cannot.
+
+**Full stage**: `linux` (all net10.0 tests, the CLI and Clipper2 suites, pack, smoke tests, the benchmark and tool steps),
+`netstandard` / `netstandard-b` (net48 against netstandard2.0), `isolated`, `time-rule`, plus the PR jobs of
+`new-tests-on-base.yml`, `tier-rule.yml` and `determinism.yml`. On a PR it runs only while the PR has the label `full-ci`:
+
+- The coordinator sets `full-ci` (like `bugfix`) when the PR is ready to merge. The `labeled` event starts the full stage on the
+  current head; every later push while the label is on runs it again on the new head, so no removing and re-adding is needed.
+- Any other label set while `full-ci` is on re-runs the full stage (a `labeled` event cannot be told apart cheaply without a
+  skipped run that would hide a real check on the same head). So **set `bugfix`, `mutation` and the like before `full-ci`**, and
+  the owner sets `gate-change` best before it too. Removing a label starts nothing in `ci.yml`; do not remove `full-ci` from a
+  PR that is to be merged (`new-tests-on-base` re-runs on `unlabeled` and would skip on the same head).
+- When the full stage runs, `quick` is skipped (the full stage covers it).
+
+**Merge gate**: the commit status `full-ci` on the PR's head, posted by the job `full-ci-status` (`statuses: write`): pending
+("label full-ci not set") without the label, success only if `linux` and `netstandard` passed and `isolated` / `time-rule`
+passed or were skipped (a PR that does not change the library), failure otherwise. A new push has no status until its own run
+ends, so an old green never stands for a new head. The merge rule: `full-ci` green on the final head, and the checks of
+`new-tests-on-base` (with `bugfix`: at least one new test fails on the base) and, where it ran, `tier-rule` and `determinism`
+green. A fork PR's token cannot write statuses: the job warns, and the owner checks the jobs by hand.
+
+**Branch protection (the owner's setting; this PR changes no repository setting).** Settings > Branches > rule for `master` (or a
+ruleset): "Require status checks to pass before merging" with the required checks `quick` (source: GitHub Actions) and
+`full-ci` (a commit status, source: any). Not the job names `linux`, `netstandard`, `netstandard-b`, `isolated`, `time-rule`:
+a skipped job counts as passed there, and they are skipped on every push without the label. Not `tier-rule` and `determinism`
+(they have `paths` filters: a PR outside them would wait forever for the check); `new-tests-on-base` may be added (it runs on
+every ready PR event and reports skipped without `full-ci`, which `full-ci` pending then blocks anyway). "Require branches to be
+up to date" stays off (it would re-run the full stage after every merge to master). `gate-change` stays as it is.
+
+**Batched master CI**: no run per merge. `ci.yml` runs on master every 2 hours (`schedule`, `41 */2 * * *` UTC) and on
+`workflow_dispatch`; tags run as before. The scheduled run asks `tools/master_batch.py` first: it finds the last master run whose
+job `linux` ran to a result (success or failure; cancelled and skipped runs do not count) among the last 30 completed runs,
+skips when that run's head is master's head or when everything changed since then is docs, benchmarks or tools the tests do not
+read (`tools/ci_scope.py`), and runs the full matrix otherwise, and also when no such run is found or the diff fails. The
+nightly, coverage and runtime-watch workflows are unchanged.
+
+**A red batch** (several merges in one run): `tools/master_bisect.py --good <last green head> --bad <red head> --list` lists the
+merges; `--filter "<the failing tests from the run's log>"` bisects them locally over the first-parent history (`git bisect
+--first-parent` with `dotnet test ... -f net10.0 --filter`; `--cmd` takes any other check, e.g. the net48 build), about log2(merges)
+builds and no runner minutes, and names the first bad merge. A failure that shows only on the Windows net48 shards and cannot be
+reproduced locally: make a branch at the middle merge, `gh workflow run ci.yml --ref <branch>`, and halve by hand (each step
+one full run). The bad merge gets a fix PR (with `bugfix`), a revert only for a real defect that cannot wait.
+
+**gate-change** runs on every `synchronize` and label event of every PR; a run is one short job (about 15 s, billed as a
+minute). A `paths` filter would make the check disappear for PRs without gate files (a required check would then wait forever)
+and an early exit inside the job saves seconds, not billed minutes, so it stays as it is.
+
 ## 3.1 Micro benchmarks with regression detection
 
 BenchmarkDotNet (MIT) covers the kernels:
