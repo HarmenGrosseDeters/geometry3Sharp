@@ -178,6 +178,9 @@ namespace g3
             }
             if (gs.MeshRepairMetrics.HasSelfIntersections(mesh)) RunFailure |= SheetCertificateRunFailure.SelfIntersections;
 
+            // a field that offers a cache is asked through one cache for this run (no cache: asked plainly)
+            cachedField = Field as IntervalImplicit3dCached;
+            encloseCache = cachedField != null ? cachedField.NewEncloseCache() : null;
             for (level = 0; level < 2; ++level) {
                 nodeSign = new sbyte[rec.NodeFlags.Length];
                 edgeOk = new Dictionary<long, bool>(); faceOk = new Dictionary<long, bool>();
@@ -201,6 +204,7 @@ namespace g3
                 Blocks[level] = BlockBoxes[level].Count;
                 CellStates[level] = cellState;
             }
+            cachedField = null; encloseCache = null;
             foreach (SheetUncertifiedCell u in UncertifiedCells) if (u.Reason == SheetCertificateReason.OuterLayer) RunFailure |= SheetCertificateRunFailure.OuterLayer;
             Certified = RunFailure == SheetCertificateRunFailure.None && UncertifiedCells.Count == 0;
         }
@@ -230,9 +234,13 @@ namespace g3
         // The level over a box: g - w or -g - w, with the gradient of g. The gradient of the second level is the negative of
         // it, which no test below needs: each asks for one sign of a derivative or for some direction d with d . g > 0, and
         // -d does for -g what d does for g.
+        // a field that reuses work between its enclosures does so through a cache of this run
+        IntervalImplicit3dCached cachedField; object encloseCache;
+        internal bool HoldsAnEncloseCache { get { return encloseCache != null; } }
+
         IntervalEnclosure enclose(ExactInterval x, ExactInterval y, ExactInterval z)
         {
-            IntervalEnclosure e = Field.Enclose(x, y, z);
+            IntervalEnclosure e = encloseCache != null ? cachedField.Enclose(x, y, z, encloseCache) : Field.Enclose(x, y, z);
             e.F = level == 0 ? e.F - W : -e.F - W;
             // a box that may hold a point where g is not smooth has no gradient to test: every test of a derivative fails on it
             if (!e.Smooth) e.Gx = e.Gy = e.Gz = new ExactInterval(double.NegativeInfinity, double.PositiveInfinity);
