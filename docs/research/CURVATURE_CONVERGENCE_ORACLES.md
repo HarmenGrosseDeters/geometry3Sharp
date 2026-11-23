@@ -179,3 +179,32 @@ The reported vector diffusion ratio equalled the requested factor at every level
 The default scalar RMS decreases at each icosahedral refinement, from 0.0455 to 0.00886 radians. The cube-sphere default approaches 0.018 radians on its last two grids. The icosahedral cap vector RMS mostly decreases at the default time and rises slightly on the last step. The far-band RMS increases from 0.0151° to 0.236°. At the finest icosahedral level, t = 0.5h gives 0.00445° cap RMS, 0.0145° far RMS and 0.00518 radians scalar RMS. The same time schedule improves fine-grid errors on both families.
 
 The scalar plateau is specific to the tested cube-sphere setup. The default far-band vector error growth appears on both families, with different magnitudes. A global default change still needs evidence across other meshes and sources. This comparison leaves the individual contributions of the triangulation, source neighborhood and discrete heat kernel open.
+
+## Changing the source on the same mesh
+
+Run `dotnet run -c Release --project benchmarks/CurvatureWeakProbe -- --heat-sources`. The source sweep holds each refined mesh, the default intrinsic Delaunay setting and t = h² fixed. On the cube-sphere it compares the north pole (a cube face center) with the projected (1, 1, 1) cube corner. On the icosahedral sphere it compares original vertex 0 with the projected midpoint of edge (0, 11), which is present at every tested subdivision. The same tangent-vector convention and angular bands are evaluated relative to each source. Changing the source changes both its local stencil and the paths to the destinations, so this experiment measures source-location sensitivity.
+
+All 16 solves used the requested vector diffusion time. The table uses the same units and error metrics as the time sweeps. Cube levels are vertices per edge and icosahedral levels are subdivision counts.
+
+| Source | Level | Mean edge length | Vector cap RMS (°) | Vector far RMS (°) | Scalar RMS | Scalar max |
+|---|---:|---:|---:|---:|---:|---:|
+| cube-pole | 9 | 0.20717 | 0.273496 | 0.773448 | 0.0215733 | 0.0725219 |
+| cube-corner | 9 | 0.20717 | 0.499228 | 0.748727 | 0.0340947 | 0.0914859 |
+| cube-pole | 17 | 0.10394 | 0.672729 | 2.45463 | 0.0175334 | 0.0499383 |
+| cube-corner | 17 | 0.10394 | 0.157999 | 0.799504 | 0.0274582 | 0.0636434 |
+| cube-pole | 33 | 0.0520145 | 1.02673 | 4.75966 | 0.0172995 | 0.0393091 |
+| cube-corner | 33 | 0.0520145 | 0.350567 | 0.474006 | 0.0249258 | 0.0518426 |
+| cube-pole | 65 | 0.0260129 | 1.23684 | 7.43347 | 0.0178775 | 0.0344755 |
+| cube-corner | 65 | 0.0260129 | 0.597588 | 1.06813 | 0.0239289 | 0.0464366 |
+| ico-corner | 2 | 0.299332 | 0.1545 | 0.0151453 | 0.0455219 | 0.0965698 |
+| ico-midpoint | 2 | 0.299332 | 0.324552 | 1.25035 | 0.0392471 | 0.089192 |
+| ico-corner | 3 | 0.15073 | 0.0759457 | 0.1746 | 0.0231983 | 0.0506752 |
+| ico-midpoint | 3 | 0.15073 | 0.162053 | 0.805936 | 0.0215386 | 0.0499449 |
+| ico-corner | 4 | 0.0754991 | 0.0478458 | 0.226306 | 0.0133661 | 0.0292058 |
+| ico-midpoint | 4 | 0.0754991 | 0.0976322 | 0.255205 | 0.0146705 | 0.0328499 |
+| ico-corner | 5 | 0.0377664 | 0.0592679 | 0.23571 | 0.00885611 | 0.0188706 |
+| ico-midpoint | 5 | 0.0377664 | 0.129991 | 0.492421 | 0.0118599 | 0.0250549 |
+
+At the finest cube level, the far-band vector RMS drops from 7.43° at the pole to 1.07° at the corner. The pole error increases on every step, while the corner error is nonmonotone. The corner's scalar RMS is higher at every tested level, yet it decreases across the sweep. On the icosahedral sphere, the far-band RMS increases with refinement from the original vertex. From the midpoint it first decreases from 1.25° to 0.255°, then rebounds to 0.492°.
+
+Source location changes both the magnitude and the refinement trend at the default time. A convergence test for either mesh family should cover multiple sources and measure distance and transport independently. These cases identify source dependence for fixed connectivity. The contributions of the source stencil, the changed distribution of sampled destinations and the discrete propagation paths remain open.

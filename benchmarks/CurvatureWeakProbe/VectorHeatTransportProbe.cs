@@ -27,6 +27,24 @@ internal static class VectorHeatTransportProbe
         }
     }
 
+    public static void RunSourceSweep()
+    {
+        Console.WriteLine("source resolution h-mean factor vector-cap-rms-deg vector-far-rms-deg scalar-rms scalar-max vector-actual-factor");
+        foreach (int resolution in new[] { 9, 17, 33, 65 }) {
+            var mesh = new Sphere3Generator_NormalizedCube { Radius = 1, EdgeVertices = resolution }.Generate().MakeDMesh();
+            Measure(mesh, resolution, true, 1, "cube-pole", FindNorthPole(mesh));
+            int corner = FindSphereVertex(mesh, Vector3d.One.Normalized);
+            Measure(mesh, resolution, true, 1, "cube-corner", corner);
+        }
+        foreach (int subdivisions in new[] { 2, 3, 4, 5 }) {
+            DMesh3 mesh = IcosphereFixture.Make(subdivisions);
+            // Vertices 0 and 11 bound the first edge split in the fixture, at every subdivision.
+            Vector3d midpoint = (mesh.GetVertex(0) + mesh.GetVertex(11)).Normalized;
+            Measure(mesh, subdivisions, true, 1, "ico-corner", 0);
+            Measure(mesh, subdivisions, true, 1, "ico-midpoint", FindSphereVertex(mesh, midpoint));
+        }
+    }
+
     private static void Measure(DMesh3 mesh, int resolution, bool intrinsicDelaunay,
         double timeFactor = 1, string schedule = null, int? sourceVertex = null)
     {
@@ -92,11 +110,16 @@ internal static class VectorHeatTransportProbe
 
     internal static int FindNorthPole(DMesh3 mesh)
     {
+        return FindSphereVertex(mesh, Vector3d.AxisZ);
+    }
+
+    private static int FindSphereVertex(DMesh3 mesh, Vector3d point)
+    {
         foreach (int v in mesh.VertexIndices()) {
-            if (mesh.GetVertex(v).Distance(Vector3d.AxisZ) < 1e-12)
+            if (mesh.GetVertex(v).Distance(point) < 1e-12)
                 return v;
         }
-        throw new InvalidOperationException("The cube-sphere has no north pole vertex.");
+        throw new InvalidOperationException($"The sphere has no vertex at {point}.");
     }
 
     internal static (double Rms, double Maximum, int Flips) MeasureScalarDistance(
