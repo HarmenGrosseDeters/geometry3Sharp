@@ -62,7 +62,7 @@ namespace MetamorphicBugHunt
             try {
                 if (solids.Length == 1) volume = Checks.Volume(solids[0]);
                 else {
-                    var e = new ExactMeshBoolean(solids.Select(x => new DMesh3(x)), w => inside(w.Select(x => x != 0).ToArray()));
+                    var e = new ExactMeshBoolean(solids.Select(x => new DMesh3(x)), w => inside(w.Select(x => x != 0).ToArray())) { AllowOpenMeshes = true };
                     if (e.Compute()) volume = Checks.Volume(e.Result);
                 }
             } catch (Exception) { }

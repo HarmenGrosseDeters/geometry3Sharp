@@ -17,7 +17,7 @@ namespace geometry3Sharp.Tests
         static readonly Dictionary<string, string[]> SplitMethod = new Dictionary<string, string[]>() {
             ["mesh_ops/ExactMeshArrangement.cs"] = new[] { "void build_triangles(", "int candidates(", "void triangulate_touched(" },
             ["mesh_ops/ExactMeshBoolean.cs"] = new[] { "public static EdgeTable Build(", "internal static double far_term(", "void verify_traced(",
-                "static double[] corner_box(", "internal static int plane_side_abs(", "internal static int orient3d_filtered(" },
+                "static double[] corner_box(", "internal static int plane_side_abs(", "internal static double snap_half(", "internal static bool tree_decides(", "internal static int orient3d_filtered(" },
             ["mesh_ops/MeshRoundingRepair.cs"] = new[] { "public bool Apply(", "Vector3d pos(", "void position_add(", "void rebuild_tree(", "List<int> degenerate_triangles(", "void ghost_add(", "static double segments_distance(", "bool try_zip(", "List<int> strip_around(", "static double ulp(", "void set_vertex(", "void fix_intersection(" },
             ["mesh_ops/PolyhedralEnvelope.cs"] = new[] { "void add(", "static long bit_length(", "public bool ContainsTriangle(" },
             ["mesh_ops/ExactMeshGeodesicDistance.cs"] = new[] { "void Add(" },

@@ -56,6 +56,9 @@ on:
       - 'tests/geometry3Sharp.Tests/ExactPoint3ConversionTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactPoint3ToDoubleRoundingTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactPoint3FixedWidthTests.cs'
+      - 'tests/geometry3Sharp.Tests/ExactPoint3ShardBitsTests.cs'
+      - 'tests/geometry3Sharp.Tests/ExactStage2MutantTests.cs'
+      - 'tests/geometry3Sharp.Tests/ExactMeshBooleanTestsAntipodalLibmPerturbation.cs'
       - 'tests/geometry3Sharp.Tests/ExactLimbSignsTests*.cs'
       - 'tests/geometry3Sharp.Tests/ExactOrient3dKernelTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactTouchOnlyCoplanarTests.cs'
@@ -137,6 +140,7 @@ on:
       - 'tests/geometry3Sharp.Tests/SolidBooleanPipelineCavityOwnerTests.cs'
       - 'tests/geometry3Sharp.Tests/SolidBooleanPipelineThinInputTests.cs'
       - 'tests/geometry3Sharp.Tests/SolidBooleanPipelineSheetTests.cs'
+      - 'tests/geometry3Sharp.Tests/SolidBooleanPipelineGridStepTests.cs'
       - 'tests/geometry3Sharp.Tests/SolidBooleanPipelineFinalCheckTests.cs'
       # UV parameterization (tests/mutation/stryker-mesh-uv-*.json: seven shards of parameterization/*.cs, README "UV parameterization")
       - 'parameterization/UVAtlasGenerator.cs'

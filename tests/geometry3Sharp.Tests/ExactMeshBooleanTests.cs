@@ -514,11 +514,11 @@ namespace geometry3Sharp.Tests
             };
             foreach (var c in cases) {
                 foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {
-                    var exact = new ExactMeshBoolean(c.Item1, c.Item2, op);
+                    var exact = new ExactMeshBoolean(c.Item1, c.Item2, op) { AllowOpenMeshes = true };
                     // (both paths for meshes without exact winding numbers: fast winding numbers, and the Antipodal Method,
                     // which a mesh with no boundary segments takes by default; the coplanar case has stacks)
-                    var gen = new ExactMeshBoolean(c.Item1, c.Item2, op) { ForceGeneralizedWinding = true, AntipodalMaxBoundarySegments = 0 };
-                    var ant = new ExactMeshBoolean(c.Item1, c.Item2, op) { ForceGeneralizedWinding = true };
+                    var gen = new ExactMeshBoolean(c.Item1, c.Item2, op) { AllowOpenMeshes = true, ForceGeneralizedWinding = true, AntipodalMaxBoundarySegments = 0 };
+                    var ant = new ExactMeshBoolean(c.Item1, c.Item2, op) { AllowOpenMeshes = true, ForceGeneralizedWinding = true };
                     Assert.True(exact.Compute() && gen.Compute() && ant.Compute());
                     Assert.False(gen.ExactWindingA || gen.ExactWindingB);
                     Assert.Equal(0, gen.Counts["antipodal_meshes"]);
@@ -683,7 +683,7 @@ namespace geometry3Sharp.Tests
                 open.RemoveTriangle(tid, true, false);
             Assert.False(ExactMeshBoolean.IsWindingClosed(open));
             DMesh3 inner = Box(0.5, 0.5, 0.25, 1.5, 1.5, 0.75);
-            var boolean = new ExactMeshBoolean(inner, open, Ops.Intersection);
+            var boolean = new ExactMeshBoolean(inner, open, Ops.Intersection) { AllowOpenMeshes = true };
             Assert.True(boolean.Compute(), boolean.Error);
             Assert.True(boolean.ExactWindingA);
             Assert.False(boolean.ExactWindingB);
@@ -691,8 +691,94 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Volume(inner), Volume(boolean.Result), 12);
             // a box crossing the open box's bottom: the part above the bottom is inside
             DMesh3 crossing = Box(0.5, 0.5, -0.5, 1.5, 1.5, 0.5);
-            DMesh3 inter = Run(crossing, open, Ops.Intersection);
-            Assert.Equal(0.5, Volume(inter), 12);
+            var cross = new ExactMeshBoolean(crossing, open, Ops.Intersection) { AllowOpenMeshes = true };
+            Assert.True(cross.Compute(), cross.Error);
+            Assert.Equal(0.5, Volume(cross.Result), 12);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(cross.Result));
+            // the default: an open input without a role is refused, and the error names it (#1211 S3; before 2026-11-23 the
+            // default was true and this ran with the generalized winding number)
+            var refused = new ExactMeshBoolean(inner, open, Ops.Intersection);
+            Assert.False(refused.AllowOpenMeshes);
+            Assert.False(refused.Compute());
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.OpenInput, refused.Status);
+            Assert.Null(refused.Result);
+            Assert.StartsWith("input mesh 1 is not closed", refused.Error);
+        }
+
+        [Theory]
+        [InlineData(Ops.Union)]
+        [InlineData(Ops.Intersection)]
+        [InlineData(Ops.Difference)]
+        public void OpenInput_WithoutARoleOrAllowOpenMeshes_IsRefusedByDefault(Ops op)
+        {
+            // an open cutting surface as the second operand, and an open box as the first: OpenInput with the defaults, for the
+            // two-mesh and the n-ary constructor; with AllowOpenMeshes = true the same inputs run
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
+            var sheet = new DMesh3();
+            int a = sheet.AppendVertex(new Vector3d(-1, -1, 0.5)), b = sheet.AppendVertex(new Vector3d(2, -1, 0.5)), c = sheet.AppendVertex(new Vector3d(2, 2, 0.5)), d = sheet.AppendVertex(new Vector3d(-1, 2, 0.5));
+            sheet.AppendTriangle(a, b, c);
+            sheet.AppendTriangle(a, c, d);
+            foreach (var pair in new[] { new[] { cube, sheet }, new[] { sheet, cube } }) {
+                var two = new ExactMeshBoolean(pair[0], pair[1], op);
+                Assert.False(two.Compute());
+                Assert.Equal(ExactMeshBoolean.BooleanStatus.OpenInput, two.Status);
+                Assert.Null(two.Result);
+                Assert.StartsWith("input mesh " + (pair[0] == sheet ? 0 : 1) + " is not closed", two.Error);
+                Assert.Empty(two.OpenInputsWithoutEffect);
+                var many = new ExactMeshBoolean(new[] { pair[0], pair[1], Box(3, 3, 3, 4, 4, 4) }, op);
+                Assert.False(many.Compute());
+                Assert.Equal(ExactMeshBoolean.BooleanStatus.OpenInput, many.Status);
+                Assert.Null(many.Result);
+                Assert.StartsWith("input mesh " + (pair[0] == sheet ? 0 : 1) + " is not closed", many.Error);
+                // stated: the flat sheet encloses nothing (its generalized winding number stays below 1/2)
+                var allowed = new ExactMeshBoolean(pair[0], pair[1], op) { AllowOpenMeshes = true };
+                Assert.True(allowed.Compute(), allowed.Error);
+                bool sheetFirst = pair[0] == sheet;
+                // (the cube comes back for a union, and for a difference with the sheet as the tool; otherwise nothing)
+                double expected = op == Ops.Union || (op == Ops.Difference && !sheetFirst) ? 1 : 0;
+                Assert.Equal(expected, Volume(allowed.Result), 12);
+                if (expected > 0)
+                    Assert.Equal("", MeshRobustRepair.NotCleanReason(allowed.Result));
+                else
+                    Assert.Equal(0, allowed.Result.TriangleCount);
+                Assert.Equal(new[] { sheetFirst ? 0 : 1 }, allowed.OpenInputsWithoutEffect);
+                // reuse: a second Compute() on the instance gives the list again, not appended to
+                Assert.True(allowed.Compute(), allowed.Error);
+                Assert.Equal(expected, Volume(allowed.Result), 12);
+                Assert.Equal(new[] { sheetFirst ? 0 : 1 }, allowed.OpenInputsWithoutEffect);
+            }
+            // the static helpers have no configure: null (the constructor is the way to state AllowOpenMeshes)
+            if (op == Ops.Union)
+                Assert.Null(ExactMeshBoolean.Union(new[] { cube, sheet }));
+            if (op == Ops.Intersection)
+                Assert.Null(ExactMeshBoolean.Intersection(new[] { cube, sheet }));
+            // a sheet with its role is not an open input: accepted with the default
+            if (op == Ops.Difference) {
+                var role = new ExactMeshBoolean(new[] { cube, sheet }, op) { Roles = new List<ExactMeshBoolean.InputRole> { ExactMeshBoolean.InputRole.Solid, ExactMeshBoolean.InputRole.Sheet } };
+                Assert.True(role.Compute(), role.Error);
+                Assert.Equal(0.5, Volume(role.Result), 12);
+                Assert.Empty(role.OpenInputsWithoutEffect);
+            }
+            // closed inputs are not affected
+            var closed = new ExactMeshBoolean(cube, Box(0.5, 0.5, 0.5, 2, 2, 2), op);
+            Assert.True(closed.Compute(), closed.Error);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(closed.Result));
+        }
+
+        [Fact]
+        public void Resolve_StillTakesAnOpenMesh()
+        {
+            // a repair of one mesh: Resolve states AllowOpenMeshes itself, so the changed default does not refuse an open input
+            DMesh3 open = Box(0, 0, 0, 2, 2, 2);
+            foreach (int tid in open.TriangleIndices().Where(t => open.GetTriCentroid(t).z == 2).ToArray())
+                open.RemoveTriangle(tid, true, false);
+            DMesh3 r = ExactMeshBoolean.Resolve(open);
+            Assert.NotNull(r);
+            Assert.Equal(open.TriangleCount, r.TriangleCount);
+            Assert.True(r.Vertices().All(v => v.IsFinite));
+            Assert.False(ExactMeshBoolean.IsWindingClosed(r));       // (still the open box: nothing is closed for it)
+            Assert.Equal(open.GetBounds().Max, r.GetBounds().Max);
+            Assert.Equal(open.GetBounds().Min, r.GetBounds().Min);
         }
     }
 }

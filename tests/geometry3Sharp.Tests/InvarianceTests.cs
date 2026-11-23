@@ -212,14 +212,14 @@ namespace geometry3Sharp.Tests
             DMesh3 a2 = open ? OpenBox(new Vector3d(-1.2, -1.1, -0.9), new Vector3d(0.3, 0.6, 1.1)) : Box(new Vector3d(-1.2, -1.1, -0.9), new Vector3d(0.3, 0.6, 1.1));
             DMesh3 b = Sphere(new Vector3d(1.7, 0.4, 0.3), 0.8, 8);
             DMesh3 c = Sphere(new Vector3d(-0.6, -0.5, 0.2), 0.7, 6);
-            var eb = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Difference);
+            var eb = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Difference) { AllowOpenMeshes = true };
             Assert.True(eb.Compute());
             // new inputs and a new operation on the same instance
             eb.MeshA = a2;
             eb.MeshB = c;
             eb.Operation = ExactMeshBoolean.Operations.Intersection;
             Assert.True(eb.Compute());
-            var fresh = new ExactMeshBoolean(a2, c, ExactMeshBoolean.Operations.Intersection);
+            var fresh = new ExactMeshBoolean(a2, c, ExactMeshBoolean.Operations.Intersection) { AllowOpenMeshes = true };
             Assert.True(fresh.Compute());
             Assert.Equal(fresh.Status, eb.Status);
             Assert.True(fresh.Result.TriangleCount > 0);

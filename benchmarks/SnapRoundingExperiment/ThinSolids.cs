@@ -49,7 +49,7 @@ static class ThinSolids
         if (args.Length == 2 && args[0] == "dump") {
             // the operands and the plainly rounded exact result of a case, as text (for a look at a single case)
             var (a, b, op) = Input(args[1]);
-            var plain = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { SafeRounding = false };
+            var plain = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true, SafeRounding = false };
             plain.Compute();
             foreach (var (label, m) in new[] { ("A", a), ("B", b), ("result", plain.Result) }) {
                 Console.WriteLine(label + ": " + m.VertexCount + " vertices, " + m.TriangleCount + " triangles");
@@ -291,8 +291,8 @@ static class ThinSolids
         var (a, b, op) = Input(name);
         var sb = new StringBuilder();
         sb.Append("{\"case\":").Append(Json(name));
-        var plain = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { SafeRounding = false };
-        var safe = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op);
+        var plain = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true, SafeRounding = false };
+        var safe = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true };
         if (!plain.Compute() || !safe.Compute())
             return sb.Append(",\"ok\":false,\"error\":").Append(Json(plain.Error ?? safe.Error ?? "")).Append('}').ToString();
         DMesh3 raw = plain.Result;
@@ -466,12 +466,12 @@ static class ThinSolids
     static string Cost(string name)
     {
         var (a, b, op) = Input(name);
-        new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op).Compute();
-        var safe = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op);
+        new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true }.Compute();
+        var safe = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true };
         var clock = System.Diagnostics.Stopwatch.StartNew();
         safe.Compute();
         double msBoolean = clock.Elapsed.TotalMilliseconds;
-        var plain = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { SafeRounding = false };
+        var plain = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true, SafeRounding = false };
         plain.Compute();
         DMesh3 raw = plain.Result;
         var times = new List<double>();

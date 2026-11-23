@@ -249,11 +249,11 @@ static class Program
         DMesh3 w2 = new DMesh3(w1);
         MeshTransforms.Translate(w2, new Vector3d(0.3, 0.2, 0.1));
         foreach (var o in ops.Values)
-            Configure(new ExactMeshBoolean(w1, w2, o)).Compute();
+            Configure(new ExactMeshBoolean(w1, w2, o) { AllowOpenMeshes = true }).Compute();
         int gc0 = GC.CollectionCount(0), gc2 = GC.CollectionCount(2);
         TimeSpan pause0 = NetCompat.GcPause();
         var sw = Stopwatch.StartNew();
-        var boolean = Configure(new ExactMeshBoolean(a, b, ops[op]));
+        var boolean = Configure(new ExactMeshBoolean(a, b, ops[op]) { AllowOpenMeshes = true });
         bool ok = boolean.Compute();
         long ms = sw.ElapsedMilliseconds;
         var gc = new Dictionary<string, object> { ["gen0"] = GC.CollectionCount(0) - gc0, ["gen2"] = GC.CollectionCount(2) - gc2,

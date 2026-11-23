@@ -183,7 +183,7 @@ static class Program
                     else
                         other.Add(e.Name + " " + oe.Verdict);
                 }
-                // and the plain boolean with its defaults (open meshes allowed, no strict rounding)
+                // and the plain boolean with open meshes allowed (stated) and no strict rounding
                 string plain = plainBoolean(c, f, prep);
                 bump(tally, c.Class, kind == "refused" ? (good.Count > 0 || plain == "ok" ? "refused, answer exists" : "refused, no setting answers") : kind);
                 string d = "- `" + c.Name + "` @ `" + f.Name + "`: **" + o.Verdict + "**";
@@ -220,7 +220,7 @@ static class Program
 
     static string plainBoolean(Case c, Frame f, Prepared prep)
     {
-        var op = new ExactMeshBoolean(prep.Given.ToList(), c.Op);
+        var op = new ExactMeshBoolean(prep.Given.ToList(), c.Op) { AllowOpenMeshes = true };
         using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60))) {
             op.Cancellation = cts.Token;
             try {
@@ -341,7 +341,7 @@ static class Program
             double s = Math.ScaleB(1, k);
             var f = new Frame { Name = "2^" + k, Map = p => s * p, Exact = true };
             var inputs = new List<DMesh3> { f.Apply(mesh(), true), f.Apply(other(), true) };
-            var op = new ExactMeshBoolean(inputs, ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.ByNesting };
+            var op = new ExactMeshBoolean(inputs, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true, Orientation = ExactMeshBoolean.OrientationModes.ByNesting };
             string a;
             try {
                 if (op.Compute()) {
@@ -589,7 +589,7 @@ static class Program
                 long plain = long.MaxValue, total = long.MaxValue, check = 0, boolean = 0, final = 0, nesting = long.MaxValue;
                 for (int rep = 0; rep < 3; ++rep) {
                     var clock = Stopwatch.StartNew();
-                    new ExactMeshBoolean(inputs, op).Compute();
+                    new ExactMeshBoolean(inputs, op) { AllowOpenMeshes = true }.Compute();
                     plain = Math.Min(plain, clock.ElapsedMilliseconds);
                     var pipe = new SolidBooleanPipeline(inputs, op);
                     pipe.Compute();

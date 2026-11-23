@@ -44,6 +44,7 @@ Architecture specifications, algorithm design notes, error-bound derivations, an
 | [ROUNDING_EXACT_PAIRS.md](ROUNDING_EXACT_PAIRS.md) | Skipping pairs already decided by the exact arrangement |
 | [SNAP_ROUNDING_3D.md](SNAP_ROUNDING_3D.md) | Practical 3D snap-rounding leads, falsification runs, and recommendation |
 | [BOOLEAN_PROPERTY_TESTS.md](BOOLEAN_PROPERTY_TESTS.md) | Metamorphic and property-based tests (CsCheck) for booleans |
+| [PIPELINE_GRID_STEP.md](PIPELINE_GRID_STEP.md) | The opt-in Grid step of `SolidBooleanPipeline`: the snapping cell derived from the data (2^12 ulp of the largest coordinate), its limits and prior art |
 
 ---
 

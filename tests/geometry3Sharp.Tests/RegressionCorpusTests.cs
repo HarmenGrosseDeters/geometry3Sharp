@@ -71,7 +71,7 @@ namespace geometry3Sharp.Tests
                 return o;
             },
             ["exact union with box"] = (m, s) => {
-                var eb = new ExactMeshBoolean(m, BoxFor(s), ExactMeshBoolean.Operations.Union);
+                var eb = new ExactMeshBoolean(m, BoxFor(s), ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true };
                 return eb.Compute() ? Outcome(eb.Result, s) : eb.Status.ToString();
             },
             ["exact resolve"] = (m, s) => Outcome(ExactMeshBoolean.Resolve(m), s),

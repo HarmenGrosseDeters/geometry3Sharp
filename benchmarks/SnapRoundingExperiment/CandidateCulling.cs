@@ -54,7 +54,7 @@ static class CandidateCulling
             if (args[i] == "--parts") parts = int.Parse(args[i + 1]);
         }
         DMesh3 a = StandardMeshReader.ReadMesh(Path.Combine(dir, "A.off")), b = StandardMeshReader.ReadMesh(Path.Combine(dir, "B.off"));
-        var boolean = new ExactMeshBoolean(a, b, op) { SafeRounding = false };
+        var boolean = new ExactMeshBoolean(a, b, op) { AllowOpenMeshes = true, SafeRounding = false };
         boolean.Compute();
         DMesh3 mesh = boolean.Result;
 

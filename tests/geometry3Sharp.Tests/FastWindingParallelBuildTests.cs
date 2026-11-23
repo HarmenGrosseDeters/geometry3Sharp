@@ -86,7 +86,7 @@ namespace geometry3Sharp.Tests
             // both inputs open: classify builds their two trees concurrently; each stored tree is the one of its mesh and
             // gives what a tree built afresh from that mesh gives, bit for bit
             DMesh3 a = OpenSphere(Vector3d.Zero, 0.6), b = OpenSphere(new Vector3d(0.6, 0.3, 0.1), 0.5);
-            var op = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), ExactMeshBoolean.Operations.Union) {
+            var op = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true,
                 // (the fast-winding path: with few boundary segments the Antipodal Method needs no tree)
                 AntipodalMaxBoundarySegments = 0 };
             Assert.True(op.Compute(), op.Error);
@@ -116,16 +116,16 @@ namespace geometry3Sharp.Tests
             DMesh3 a = OpenSphere(Vector3d.Zero, 0.6), b = OpenSphere(new Vector3d(0.6, 0.3, 0.1), 2);
             Assert.True(b.IsClosed());
             ExactMeshBoolean serial = null;
-            PlainRecursion(() => { serial = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op); serial.Compute(); });
+            PlainRecursion(() => { serial = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true }; serial.Compute(); });
             Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, serial.Status);
             Assert.True(serial.Result.TriangleCount > 0);
             for (int run = 0; run < 2; ++run) {
-                var parallel = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op);
+                var parallel = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true };
                 parallel.Compute();
                 Assert.Equal("", Invariance.Difference(serial.Result, parallel.Result));
             }
             // the same instance again (the trees of the first Compute are not reused for other meshes)
-            var again = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op);
+            var again = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true };
             again.Compute();
             again.Compute();
             Assert.Equal("", Invariance.Difference(serial.Result, again.Result));
