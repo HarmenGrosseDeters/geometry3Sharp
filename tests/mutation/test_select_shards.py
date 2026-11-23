@@ -9,7 +9,7 @@ import subprocess
 import sys
 import unittest
 
-from select_shards import ALWAYS, skip_on_pr, expand_only, gate_shard, shard_name, TESTS, config_edit_moves_only_spans, load_configs, mode_of, select, test_class, workflow_edit_forces_full
+from select_shards import ALWAYS, pr_selection, eligible, expand_only, shard_name, TESTS, config_edit_moves_only_spans, load_configs, mode_of, select, test_class, workflow_edit_forces_full
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -42,27 +42,31 @@ class SelectShards(unittest.TestCase):
             self.assertTrue(exact_gated(f), f)
         mutated = set().union(*(c[1] for c in CONFIGS.values()))
         for f in mutated & files:
-            self.assertTrue(any(gate_shard(c, [f]) for c in CONFIGS.values()), f)
+            self.assertTrue(any(eligible(c, [f]) for c in CONFIGS.values()), f)
         self.assertFalse(exact_gated("mesh_ops/MeshRoundingRepair.cs"))
         with self.assertRaises(ValueError):
             exact_globs("[*.cs]\nx=1\n")
 
-    def test_gate_shard_is_exact_arithmetic_files_of_the_config_only(self):
+    def test_eligible_is_exact_files_of_the_config_or_the_label(self):
         configs = load_configs()
-        self.assertTrue(gate_shard(configs["config"], ["math/ExactPoint3.cs"]))
-        self.assertTrue(gate_shard(configs["mesh-predicates-1"], ["math/ExactPredicates.cs"]))
-        self.assertTrue(gate_shard(configs["mesh-adaptive"], ["math/AdaptivePredicates.cs"]))
-        self.assertFalse(gate_shard(configs["config"], ["math/ExactPredicates.cs"]))        # (moved to the predicates shards)
-        self.assertTrue(gate_shard(configs["mesh-fixed"], ["math/FixedPoint3.cs"]))
-        self.assertTrue(gate_shard(configs["mesh-generated"], ["math/Generated/IndirectPredicates.cs"]))
-        self.assertFalse(gate_shard(configs["mesh-fixed"], ["math/ExactPredicates.cs"]))        # (not mutated by this shard)
-        self.assertTrue(gate_shard(configs["mesh-boolean-1"], ["mesh_ops/ExactMeshBoolean.cs"]))    # (mesh_ops/ExactMesh*: exact code)
-        self.assertTrue(gate_shard(configs["mesh-arrangement-2"], ["mesh_ops/ExactMeshArrangement.cs"]))
-        self.assertFalse(gate_shard(configs["mesh-boolean-1"], ["mesh_ops/ExactMeshArrangement.cs"]))   # (not mutated by this shard)
-        self.assertFalse(gate_shard(configs["mesh-rounding-1"], ["mesh_ops/MeshRoundingRepair.cs"]))
-        # a script of the runs keeps the full run of its representative shard only (its real Stryker run on the PR)
-        self.assertTrue(gate_shard(configs["mesh-fixed"], ["tests/mutation/run_stryker.sh"], "mesh-fixed"))
-        self.assertFalse(gate_shard(configs["mesh-planar"], ["tests/mutation/run_stryker.sh"], "mesh-planar"))
+        self.assertTrue(eligible(configs["config"], ["math/ExactPoint3.cs"]))
+        self.assertTrue(eligible(configs["mesh-predicates-1"], ["math/ExactPredicates.cs"]))
+        self.assertTrue(eligible(configs["mesh-adaptive"], ["math/AdaptivePredicates.cs"]))
+        self.assertFalse(eligible(configs["config"], ["math/ExactPredicates.cs"]))        # (moved to the predicates shards)
+        self.assertTrue(eligible(configs["mesh-fixed"], ["math/FixedPoint3.cs"]))
+        self.assertTrue(eligible(configs["mesh-generated"], ["math/Generated/IndirectPredicates.cs"]))
+        self.assertFalse(eligible(configs["mesh-fixed"], ["math/ExactPredicates.cs"]))        # (not mutated by this shard)
+        self.assertTrue(eligible(configs["mesh-boolean-1"], ["mesh_ops/ExactMeshBoolean.cs"]))    # (mesh_ops/ExactMesh*: exact code)
+        self.assertTrue(eligible(configs["mesh-arrangement-2"], ["mesh_ops/ExactMeshArrangement.cs"]))
+        self.assertFalse(eligible(configs["mesh-boolean-1"], ["mesh_ops/ExactMeshArrangement.cs"]))   # (not mutated by this shard)
+        self.assertTrue(eligible(configs["mesh-envelope-1"], ["mesh_ops/PolyhedralEnvelope.cs"]))   # (exact in .editorconfig)
+        # non-exact code: only with the label `mutation` (an error bound outside the exact files, set by the coordinator)
+        self.assertFalse(eligible(configs["mesh-rounding-1"], ["mesh_ops/MeshRoundingRepair.cs"]))
+        self.assertTrue(eligible(configs["mesh-rounding-1"], ["mesh_ops/MeshRoundingRepair.cs"], ["mutation"]))
+        self.assertFalse(eligible(configs["mesh-rounding-1"], ["mesh_ops/MeshRoundingRepair.cs"], ["bugfix", "full-ci"]))
+        self.assertFalse(eligible(configs["mesh-planar"], ["mesh_ops/MeshRoundingRepair.cs"], ["mutation"]))
+        # the scripts of the runs are no reason for a PR run of any shard
+        self.assertFalse(eligible(configs["mesh-fixed"], ["tests/mutation/run_stryker.sh"]))
 
     def test_every_path_in_the_configs_exists(self):
         # a renamed file or test class would otherwise silently stop selecting its shard
@@ -77,8 +81,10 @@ class SelectShards(unittest.TestCase):
         block = workflow[workflow.index("paths:"):workflow.index("schedule:")]
         patterns = re.findall(r"- '([^']+)'", block)
         for name, (config, sources, tests) in CONFIGS.items():
-            for path in {config} | sources | tests:
+            for path in {config} | sources:
                 self.assertTrue(any(fnmatch.fnmatch(path, p) for p in patterns), f"{name}: {path} is not in the paths")
+        # (owner 2026-11-23) a change of tests only makes no PR run, so no test file starts the workflow
+        self.assertFalse([p for p in patterns if p.startswith(TESTS)], "test files in the trigger paths")
 
     def test_all_configs_are_known(self):
         self.assertEqual(ALL_MESH | {"config"}, {n.replace("mesh-", "") for n in CONFIGS})
@@ -724,62 +730,132 @@ class SelectShards(unittest.TestCase):
         self.assertNotEqual(0, cli("--all", "--only", "nonsense")[0])
 
 
-class SkippedOnPr(unittest.TestCase):
-    """A shard that would run in full on a PR and is not gated is not started and shows as skipped (NO_FULL, run_stryker.sh).
-    Which shards run Stryker is unchanged: what the job skipped before is what is skipped here, nothing else."""
+class PullRequestSelection(unittest.TestCase):
+    """Owner 2026-11-23 (runner load): a PR runs only the incremental (`source`) runs of the shards that mutate a changed exact-code
+    file, or, with the label `mutation`, of every shard with a changed file. Full runs, runs of changed tests and source runs of
+    non-exact code are not started on a PR; they are listed as skipped, with the reason, and run on master."""
 
-    def pr(self, *changed):
+    def pr(self, *changed, labels=()):
         arithmetic, mesh = select(changed, CONFIGS)
-        a2, mesh2, skipped = skip_on_pr(arithmetic, mesh, CONFIGS, changed)
+        a2, mesh2, skipped = pr_selection(arithmetic, mesh, CONFIGS, changed, labels)
         return (arithmetic, mesh), (a2, mesh2, skipped)
+
+    def kept(self, after):
+        a2, mesh2, _ = after
+        return ({"arithmetic": a2} if a2 != "none" else {}) | {m["shard"]: m["mode"] for m in mesh2}
 
     def exact_source(self, name):
         from select_shards import exact_gated
         return sorted(p for p in CONFIGS[name][1] if exact_gated(p))[0]
 
     def assert_partition(self, before, after):
-        # the shards that run Stryker on the PR are exactly the selected ones minus the skipped ones
+        # the shards that run on the PR are exactly the selected ones minus the skipped ones, and every one of them is a source run
         (arithmetic, mesh), (a2, mesh2, skipped) = before, after
         selected = ({"arithmetic": arithmetic} if arithmetic != "none" else {}) | {m["shard"]: m["mode"] for m in mesh}
-        left = ({"arithmetic": a2} if a2 != "none" else {}) | {m["shard"]: m["mode"] for m in mesh2}
-        self.assertEqual(selected, left | {sh: selected[sh] for sh in skipped})
-        self.assertTrue(all(selected[sh] == "full" for sh in skipped))
-        self.assertTrue(all(left[sh] != "full" or sh not in skipped for sh in left))
+        left = self.kept(after)
+        names = [e["shard"] for e in skipped]
+        self.assertEqual(len(names), len(set(names)))
+        self.assertEqual(set(selected), set(left) | set(names))
+        self.assertFalse(set(left) & set(names))
+        self.assertTrue(all(mode == "source" for mode in left.values()), left)
+        self.assertTrue(all(e["why"] for e in skipped))
+
+    def test_a_non_exact_source_change_runs_nothing_on_the_pr(self):
+        # (the old selection ran the 13 rounding shards incrementally for every MeshRoundingRepair.cs push)
+        before, after = self.pr("mesh_ops/MeshRoundingRepair.cs")
+        self.assertEqual({r: "source" for r in RO}, {m["shard"]: m["mode"] for m in before[1]})
+        self.assertEqual({}, self.kept(after))
+        self.assertEqual(set(RO), {e["shard"] for e in after[2]})
+        self.assertTrue(all("no exact-code file" in e["why"] for e in after[2]))
+        self.assert_partition(before, after)
+
+    def test_the_label_mutation_runs_non_exact_sources_incrementally(self):
+        before, after = self.pr("mesh_ops/MeshRoundingRepair.cs", labels=["mutation"])
+        self.assertEqual({r: "source" for r in RO}, self.kept(after))
+        self.assertEqual([], after[2])
+        # other labels do not
+        self.assertEqual({}, self.kept(self.pr("mesh_ops/MeshRoundingRepair.cs", labels=["bugfix", "full-ci", "gate-change"])[1]))
+
+    def test_an_exact_source_change_runs_its_shards_incrementally(self):
+        before, after = self.pr("mesh_ops/ExactMeshBoolean.cs")
+        self.assertEqual({b: "source" for b in BO}, self.kept(after))
+        self.assertEqual([], after[2])
+        before, after = self.pr("math/ExactPoint3.cs", "mesh_ops/PolyhedralEnvelope.cs")
+        self.assertEqual("source", after[0])
+        self.assertTrue({"envelope-1", "envelope-2", "envelope-3", "envelope-4"} <= set(self.kept(after)))
+        self.assert_partition(before, after)
+
+    def test_test_only_changes_run_nothing_on_the_pr(self):
+        # (the old selection ran a --since report run of every shard that uses the test file)
+        before, after = self.pr(TESTS + "ExactBooleanIssueCasesTests.cs")
+        self.assertTrue(before[1])
+        self.assertEqual({}, self.kept(after))
+        self.assertTrue(all("only tests" in e["why"] for e in after[2]))
+        self.assert_partition(before, after)
+        # the label does not bring them back either (no mutated file changed)
+        self.assertEqual({}, self.kept(self.pr(TESTS + "ExactBooleanIssueCasesTests.cs", labels=["mutation"])[1]))
 
     def test_config_change_on_a_pr_skips_the_shard(self):
         before, after = self.pr(CONFIGS["mesh-planar"][0])
-        self.assertEqual(["planar"], after[2])
-        self.assertEqual("none", after[0])
-        self.assertEqual([], after[1])
+        self.assertEqual(("none", []), after[:2])
+        self.assertEqual(["planar"], [e["shard"] for e in after[2]])
+        self.assertIn("full run on master", after[2][0]["why"])
         self.assert_partition(before, after)
 
     def test_arithmetic_config_change_on_a_pr_skips_it(self):
         before, after = self.pr(CONFIGS["config"][0])
         self.assertEqual("full", before[0])
-        self.assertEqual(("none", [], ["arithmetic"]), after)
+        self.assertEqual(("none", []), after[:2])
+        self.assertEqual(["arithmetic"], [e["shard"] for e in after[2]])
 
-    def test_tools_change_on_a_pr_keeps_only_the_representative_shard(self):
-        # (a change of a script of the runs: every config runs in full by ALWAYS or the script shard; only the script shard is gated)
+    def test_tools_change_on_a_pr_makes_no_full_run(self):
+        # (the old selection kept the full run of the representative shard `fixed` on the PR)
         before, after = self.pr("tests/mutation/run_stryker.sh")
-        self.assertEqual({"fixed"}, {m["shard"] for m in after[1] if m["mode"] == "full"})
-        self.assertNotIn("fixed", after[2])
+        self.assertIn({"shard": "fixed", "mode": "full"}, before[1])
+        self.assertEqual({}, self.kept(after))
+        self.assertIn("fixed", [e["shard"] for e in after[2]])
         self.assert_partition(before, after)
 
-    def test_a_config_change_with_changed_exact_lines_keeps_its_full_run(self):
-        # the gate of CLAUDE.md: the PR changes an exact-code file that this shard mutates, so its full run stays
+    def test_a_config_change_with_changed_exact_lines_makes_no_full_run(self):
+        # (the old gate kept the full run on the PR; now the dispatched full run on master after the merge is the gate)
         exact = self.exact_source("mesh-boolean-1")
         before, after = self.pr(CONFIGS["mesh-boolean-1"][0], exact)
-        self.assertNotIn("boolean-1", after[2])
-        self.assertIn({"shard": "boolean-1", "mode": "full"}, after[1])
+        self.assertIn({"shard": "boolean-1", "mode": "full"}, before[1])
+        self.assertNotIn("boolean-1", self.kept(after))
+        why = [e["why"] for e in after[2] if e["shard"] == "boolean-1"][0]
+        self.assertIn("dispatch the full run", why)
+        # the other boolean shards still run incrementally for the exact file
+        self.assertEqual({b: "source" for b in BO if b != "boolean-1"}, {k: v for k, v in self.kept(after).items() if k in BO})
         self.assert_partition(before, after)
-        # the same config change without the exact file is skipped
-        self.assertIn("boolean-1", self.pr(CONFIGS["mesh-boolean-1"][0])[1][2])
 
-    def test_source_and_tests_runs_are_not_skipped(self):
-        src = sorted(CONFIGS["mesh-planar"][1])[0]
-        before, after = self.pr(src)
-        self.assertEqual(([], before[1]), (after[2], after[1]))
-        self.assertEqual(before[0], after[0])
+    def test_the_arithmetic_gate_makes_no_full_run(self):
+        exact = self.exact_source("config")
+        before, after = self.pr(CONFIGS["config"][0], exact)
+        self.assertEqual("full", before[0])
+        self.assertEqual("none", after[0])
+        self.assertIn("arithmetic", [e["shard"] for e in after[2]])
+
+    def test_a_config_that_only_moved_its_spans_runs_incrementally_for_an_exact_change(self):
+        # (select_shards.py main: such a config is not in `changed` but in `moved`, mode source)
+        exact = self.exact_source("mesh-planar")
+        arithmetic, mesh = select([exact], CONFIGS, moved={"mesh-planar"})
+        a2, mesh2, skipped = pr_selection(arithmetic, mesh, CONFIGS, [exact])
+        self.assertIn({"shard": "planar", "mode": "source"}, mesh2)
+        # a resplit alone (no mutated file changed) is a config change: master
+        arithmetic, mesh = select([], CONFIGS, moved={"mesh-planar"})
+        a2, mesh2, skipped = pr_selection(arithmetic, mesh, CONFIGS, [])
+        self.assertEqual(("none", []), (a2, mesh2))
+        self.assertEqual(["planar"], [e["shard"] for e in skipped])
+
+    def test_every_pr_selection_is_source_only(self):
+        # over single changed files of every config: a PR never gets a full or a tests run
+        paths = set()
+        for config, sources, tests in CONFIGS.values():
+            paths |= {config} | sources | tests
+        for p in sorted(paths) + sorted(ALWAYS) + ["tests/mutation/run_stryker.sh"]:
+            for labels in ((), ("mutation",)):
+                before, after = self.pr(p, labels=labels)
+                self.assert_partition(before, after)
 
     def run_cli(self, *args, stdin="", env=None):
         e = dict(os.environ)
@@ -791,10 +867,18 @@ class SkippedOnPr(unittest.TestCase):
         lines = self.run_cli("--pr", stdin=CONFIGS["mesh-planar"][0] + "\n")
         self.assertIn("arithmetic=none", lines)
         self.assertIn("mesh=[]", lines)
-        self.assertIn('skipped=["planar"]', lines)
+        skipped = json.loads([l for l in lines if l.startswith("skipped=")][0][len("skipped="):])
+        self.assertEqual(["planar"], [e["shard"] for e in skipped])
+
+    def test_cli_reads_the_labels(self):
+        lines = self.run_cli("--pr", "--labels", "bugfix,mutation", stdin="mesh_ops/MeshRoundingRepair.cs\n")
+        mesh = json.loads([l for l in lines if l.startswith("mesh=")][0][len("mesh="):])
+        self.assertEqual(set(RO), {m["shard"] for m in mesh})
+        lines = self.run_cli("--pr", "--labels", "", stdin="mesh_ops/MeshRoundingRepair.cs\n")
+        self.assertIn("mesh=[]", lines)
 
     def test_cli_on_master_selects_as_before(self):
-        # (push and the like: no --pr) the shard runs in full, and no skipped line
+        # (no --pr) the shard runs in full, and no skipped line
         lines = self.run_cli(stdin=CONFIGS["mesh-planar"][0] + "\n")
         self.assertIn('mesh=[{"shard": "planar", "mode": "full"}]', lines)
         self.assertFalse([l for l in lines if l.startswith("skipped=")])
@@ -807,48 +891,31 @@ class SkippedOnPr(unittest.TestCase):
         # (the workflow passes --pr only for a pull_request event; with --all it would not skip either)
         self.assertIn('mesh=[{"shard": "planar", "mode": "full"}]', self.run_cli("--all", "--only", "planar", "--pr"))
 
-    def test_report_names_the_shard_and_the_full_run_on_master(self):
-        notices = self.run_cli("report", '["planar", "arithmetic"]')
+    def test_report_names_the_shard_and_the_reason(self):
+        entries = [{"shard": "planar", "why": "x: full run on master"}, {"shard": "arithmetic", "why": "y: scheduled run on master"}]
+        notices = self.run_cli("report", json.dumps(entries))
         self.assertEqual(2, len(notices))
-        for sh, n in zip(("planar", "arithmetic"), notices):
-            self.assertTrue(n.startswith("::notice::" + sh + ":"))
+        for e, n in zip(entries, notices):
+            self.assertTrue(n.startswith("::notice::" + e["shard"] + ":"))
             self.assertIn("NOT RUN", n)
-            self.assertIn("full run on master", n)
-        summary = "\n".join(self.run_cli("report", '["planar"]', "--summary"))
+            self.assertIn(e["why"], n)
+        summary = "\n".join(self.run_cli("report", json.dumps(entries[:1]), "--summary"))
         self.assertIn("`planar`", summary)
         self.assertIn("full run on master", summary)
         self.assertEqual([], self.run_cli("report", "[]", "--summary"))
 
+    def test_error_bound_hint(self):
+        from select_shards import audit_files, error_bound_hint
+        files = audit_files()
+        self.assertIn("math/ExactPredicates.cs", files)
+        self.assertIn("queries/CertifiedDet3.cs", files)
+        self.assertEqual(["tools/ErrorBoundAudit/bounds.py"], error_bound_hint(["tools/ErrorBoundAudit/bounds.py", "docs/x.md"]))
+        self.assertEqual(["math/ExactPredicates.cs"], error_bound_hint(["math/ExactPredicates.cs"]))
+        self.assertEqual([], error_bound_hint(["mesh_ops/MeshRoundingRepair.cs"]))
+        self.assertEqual([], self.run_cli("hint", stdin="docs/x.md\n"))
+        self.assertTrue(self.run_cli("hint", stdin="tools/ErrorBoundAudit/bounds.py\n")[0].startswith("::warning::"))
+        self.assertIn("label `mutation`", "\n".join(self.run_cli("hint", "--summary", stdin="tools/ErrorBoundAudit/bounds.py\n")))
 
-    def test_the_arithmetic_gate_keeps_its_full_run(self):
-        exact = self.exact_source("config")
-        before, after = self.pr(CONFIGS["config"][0], exact)
-        self.assertEqual(("full", []), (after[0], [s for s in after[2] if s == "arithmetic"]))
-
-    def test_a_config_that_only_moved_its_spans_is_not_skipped(self):
-        # (select_shards.py main: such a config is not in `changed` but in `moved`, mode source)
-        arithmetic, mesh = select([], CONFIGS, moved={"mesh-planar"})
-        self.assertEqual([{"shard": "planar", "mode": "source"}], mesh)
-        self.assertEqual((arithmetic, mesh, []), skip_on_pr(arithmetic, mesh, CONFIGS, []))
-
-    def test_the_selection_agrees_with_the_gate_command_of_the_job(self):
-        # run_stryker.sh asks `select_shards.py gate <config>` with the same changed paths: a shard is skipped here exactly when
-        # that answers `no`, kept when it answers `gate`
-        for names, extra in ((("mesh-boolean-1", "mesh-planar", "config"), (self.exact_source("mesh-boolean-1"),)),
-                             (("mesh-boolean-1", "mesh-planar", "mesh-fixed", "config"), ("tests/mutation/run_stryker.sh",)),
-                             (("mesh-boolean-1", "mesh-planar", "config"), ())):
-            changed = [CONFIGS[n][0] for n in names] + list(extra)
-            _, (a2, mesh2, skipped) = self.pr(*changed)
-            kept = {"arithmetic"} if a2 != "none" else set()
-            kept |= {m["shard"] for m in mesh2}
-            for n in names:
-                shard = shard_name(n)
-                answer = self.run_cli("gate", CONFIGS[n][0], stdin="\n".join(changed) + "\n")[0]
-                if shard in skipped:
-                    self.assertEqual("no", answer, shard)
-                else:
-                    self.assertEqual("gate", answer, shard)
-                    self.assertIn(shard, kept)
 
 if __name__ == "__main__":
     unittest.main()

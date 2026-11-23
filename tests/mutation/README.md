@@ -105,30 +105,27 @@ one pending job and cancels every older pending one, so most shards would end as
 (Owner 2026-11-11; CLAUDE.md "Review before every merge", docs/roadmap/exact-boolean.md "3.0 process".) The per-PR full
 shards cost a 6 hour runner slot each and were cancelled at the limit (#539) without a result, so during 3.0:
 
-- **No full shard run on a pull request.** A shard that would run in full there (its config or the tools changed, split
-  offsets moved, or no baseline in the cache fits) runs nothing; its job summary says "full run on master" and why, and the job
-  succeeds (`run_stryker.sh` with `NO_FULL=1`, set by the workflow for `pull_request` events; `test_run_stryker.py`). Where
-  the selection already knows it (the config or the tools changed, and no changed exact-code file of the shard: `select_shards.py
-  --pr`, `skip_on_pr`), the shard is not started at all: its job shows as skipped, and the `changes` job's notice and summary name
-  it ("NOT RUN on this PR, full run on master"). Only a shard that finds out in the job (no baseline fits) still ends green, with
-  "NOT RUN" in its notice and summary. Which shards run Stryker is the same either way. An
-  incremental run (a mutated file changed, a baseline fits) and a `--since` run (only tests changed) are unchanged. A PR stores
-  no baseline.
-- **The exact-code gate stays.** CLAUDE.md gates a merge on the mutation threshold for a PR that touches exact code. Without a
-  baseline such a PR would pass with no check, so a shard that mutates a file of the exact-code section of `.editorconfig`
+- **Pull requests (owner 2026-11-23, runner load: mutation was 44 % of the Actions minutes, almost all on PRs that touch no
+  exact code).** A PR runs a shard only **incrementally** (`source`: the mutants of the changed lines, the others from the
+  master baseline), and only if the PR changes a file of the exact-code section of `.editorconfig` that the shard mutates
   (`exact_gated` in `select_shards.py` reads its globs: `math/Exact*.cs`, `AdaptivePredicates.cs`, `FixedPoint3.cs`,
-  `Generated/*.cs`, `mesh_ops/ExactMesh*.cs`, the planar, triangulation and envelope files, ...; no second hand-kept list)
-  **and** whose file the PR changes keeps its full run on the PR, also when its config changed in the same PR. That includes the
-  boolean and arrangement shards when a PR changes `ExactMeshBoolean.cs` / `ExactMeshArrangement.cs` and a full run is needed
-  (a moved span alone is an incremental run). Only `rounding-*` and `hausdorff` mutate files that are
-  not in that section. A full shard is 1 to 6 hours; the cost applies only where a full run is needed anyway
-  (`select_shards.py gate <config>`, called by `run_stryker.sh`; `test_select_shards.py` checks every file of the section). The gate fails closed (a git or script error counts as gated). A change to one of the scripts of the runs (`SCRIPTS`) also keeps the
-  full run of its representative shard `fixed`, so these tools get one real Stryker run on the PR. The weekly group refreshes the
-  baselines only once a week, equal to the cache's eviction window: a baseline can be missing late in the week (a gated shard then
-  runs in full on the PR, any other skips with "full run on master"). The
-  `mesh_ops/ExactMesh*` shards are not in it: CLAUDE.md gives them the review, and their mutation check is the incremental run
-  or the scheduled one on master.
-
+  `Generated/*.cs`, `mesh_ops/ExactMesh*.cs`, the planar, triangulation, envelope and terrain-slope files, ...; no second
+  hand-kept list), or if the PR has the label **`mutation`**: then every shard that mutates a changed file runs incrementally.
+  The coordinator sets `mutation` (like `bugfix`) for a PR that adds or changes an error bound outside the exact files (a
+  `rounding-*`, `hausdorff` or `uv-*` file); the `changes` job reads the labels live, so after setting it the coordinator re-runs
+  the PR's latest mutation run (or the next push picks it up; there is no `labeled` trigger, so other labels never cancel a run
+  under way). A PR that touches `tools/ErrorBoundAudit/**` or a file the audit anchors (`tools/ErrorBoundAudit/bounds.py`) gets a
+  hint in the job summary ("error bound touched?"), not an automatic run.
+- **What a PR does not run** (`select_shards.py --pr`, `pr_selection`; the `changes` job lists each shard as "NOT RUN on this
+  PR" with the reason, and the job is not started): full runs (a config, the workflow or the mutation tools changed; also the
+  representative shard of the scripts), `--since` runs of changed tests only, and incremental runs of non-exact code without
+  the label. A shard that finds out in its job that it needs a full run (no baseline in the cache fits) writes "full run on
+  master" to its summary and succeeds (`run_stryker.sh` with `NO_FULL=1`; `test_run_stryker.py`). There is no exception any
+  more: before 2026-11-23 a shard of a changed exact-code file kept its full run on the PR. Such a PR (an exact change that needs
+  a full shard run: no baseline, a changed config) merges on green CI and review, and the full run of its shards that the
+  coordinator dispatches on master after the merge is the gate (CLAUDE.md "Review before every merge"). A PR stores no
+  baseline. The test files of the shards are no longer trigger paths of the workflow (`test_select_shards.py` checks that the
+  paths cover every mutated source and config, and hold no test file).
 - **Scheduled full runs on master** (19:17 UTC): `nightly` (Monday to Saturday: `boolean-*`, `arrangement-*`, `rounding-*`, 24
   of the 47 mesh configs) and `weekly` (Sunday: envelope, geodesic, hausdorff, terrain, planar, fixed, generated, uv, imprint, solid-pipeline, exact-winding, arithmetic: 23
   mesh configs and the arithmetic job), chosen by `select_shards.py --only nightly|weekly` from the cron line that started the run. They seed and refresh
