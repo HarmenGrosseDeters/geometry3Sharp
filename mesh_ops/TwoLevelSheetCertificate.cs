@@ -181,30 +181,31 @@ namespace g3
             // a field that offers a cache is asked through one cache for this run (no cache: asked plainly)
             cachedField = Field as IntervalImplicit3dCached;
             encloseCache = cachedField != null ? cachedField.NewEncloseCache() : null;
-            for (level = 0; level < 2; ++level) {
-                nodeSign = new sbyte[rec.NodeFlags.Length];
-                edgeOk = new Dictionary<long, bool>(); faceOk = new Dictionary<long, bool>();
-                cellPieces = new Dictionary<int, List<IntervalEnclosure>>();
-                cellState = new byte[nx * ny * nz];
-                for (int c = 0; c < cellState.Length; ++c) cellState[c] = UnvisitedState;
-                cellReason = new SheetCertificateReason[cellState.Length];
-                owner = new int[cellState.Length];
-                for (int c = 0; c < owner.Length; ++c) owner[c] = -1;
-                boxes = new List<int[]>();
-                descend(0, 0, 0, nx, ny, nz);
-                growBlocks();
-                for (int k = 0; k < nz; ++k) for (int j = 0; j < ny; ++j) for (int i = 0; i < nx; ++i) {
-                    int c = i + nx * (j + ny * k);
-                    if (cellState[c] == 1) ++CellsCertifiedAlone[level];
-                    else if (cellState[c] == 3) ++CellsInBlocks[level];
-                    else if (cellState[c] == 2) UncertifiedCells.Add(new SheetUncertifiedCell { Level = level, Cell = new Vector3i(i, j, k), Reason = cellReason[c] });
-                    else if (cellState[c] != 0) UncertifiedCells.Add(new SheetUncertifiedCell { Level = level, Cell = new Vector3i(i, j, k), Reason = SheetCertificateReason.Unvisited });
+            try {
+                for (level = 0; level < 2; ++level) {
+                    nodeSign = new sbyte[rec.NodeFlags.Length];
+                    edgeOk = new Dictionary<long, bool>(); faceOk = new Dictionary<long, bool>();
+                    cellPieces = new Dictionary<int, List<IntervalEnclosure>>();
+                    cellState = new byte[nx * ny * nz];
+                    for (int c = 0; c < cellState.Length; ++c) cellState[c] = UnvisitedState;
+                    cellReason = new SheetCertificateReason[cellState.Length];
+                    owner = new int[cellState.Length];
+                    for (int c = 0; c < owner.Length; ++c) owner[c] = -1;
+                    boxes = new List<int[]>();
+                    descend(0, 0, 0, nx, ny, nz);
+                    growBlocks();
+                    for (int k = 0; k < nz; ++k) for (int j = 0; j < ny; ++j) for (int i = 0; i < nx; ++i) {
+                        int c = i + nx * (j + ny * k);
+                        if (cellState[c] == 1) ++CellsCertifiedAlone[level];
+                        else if (cellState[c] == 3) ++CellsInBlocks[level];
+                        else if (cellState[c] == 2) UncertifiedCells.Add(new SheetUncertifiedCell { Level = level, Cell = new Vector3i(i, j, k), Reason = cellReason[c] });
+                        else if (cellState[c] != 0) UncertifiedCells.Add(new SheetUncertifiedCell { Level = level, Cell = new Vector3i(i, j, k), Reason = SheetCertificateReason.Unvisited });
+                    }
+                    foreach (int[] b in boxes) if (b != null) BlockBoxes[level].Add(b);
+                    Blocks[level] = BlockBoxes[level].Count;
+                    CellStates[level] = cellState;
                 }
-                foreach (int[] b in boxes) if (b != null) BlockBoxes[level].Add(b);
-                Blocks[level] = BlockBoxes[level].Count;
-                CellStates[level] = cellState;
-            }
-            cachedField = null; encloseCache = null;
+            } finally { cachedField = null; encloseCache = null; }  // also when the field throws
             foreach (SheetUncertifiedCell u in UncertifiedCells) if (u.Reason == SheetCertificateReason.OuterLayer) RunFailure |= SheetCertificateRunFailure.OuterLayer;
             Certified = RunFailure == SheetCertificateRunFailure.None && UncertifiedCells.Count == 0;
         }
