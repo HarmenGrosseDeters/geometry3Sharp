@@ -489,6 +489,76 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void OverflowingNumerator_FaceMinusOrigin_IsAMiss_NotAnInfiniteBound()
+        {
+            // L - P overflows to an infinity while L, P and Q are finite: the slab bound is a finite t (here 2.7e18, below the 5e18 where the
+            // other slab starts), not an infinite one; certifying the infinity gave a hit with t = 5e18 and points at x = -Infinity (review of #1432)
+            var box = new AxisAlignedBox3d(new Vector3d(-1.7e308, 5e18, -1), new Vector3d(1.7e308, 1e19, 1));
+            var ray = new Ray3d(new Vector3d(1e308, 0, 0), new Vector3d(-1e290, 1, 0), true);
+            Assert.False(IntrRay3AxisAlignedBox3.Intersects(ref ray, ref box));
+            double t; Assert.False(IntrRay3AxisAlignedBox3.FindRayIntersectT(ref ray, ref box, out t));
+            Assert.False(new IntrRay3AxisAlignedBox3(ray, box).Find());
+            Assert.False(new IntrRay3AxisAlignedBox3(ray, box).Test());
+            var line = new Line3d(ray.Origin, ray.Direction);
+            Assert.False(new IntrLine3AxisAlignedBox3(line, box).Find());
+            Assert.False(new IntrLine3AxisAlignedBox3(line, box).Test());
+            double t0 = 0, t1 = double.MaxValue; int quantity = 0; Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero; var type = IntersectionType.Empty;
+            Assert.False(IntrLine3AxisAlignedBox3.DoClipping(ref t0, ref t1, ref ray.Origin, ref ray.Direction, ref box, true, ref quantity, ref p0, ref p1, ref type));
+            // the conservative form may say "may hit" but never culls an exact hit: the box moved so that the ray does hit
+            var hitBox = new AxisAlignedBox3d(new Vector3d(-1.7e308, 1e18, -1), new Vector3d(1.7e308, 2e18, 1));
+            Assert.True(IntrRay3AxisAlignedBox3.Intersects(ref ray, ref hitBox));
+            double m; Assert.True(IntrExactBox3.RayAabbMay(ref ray.Origin, ref ray.Direction, ref hitBox, 0, out m));
+        }
+
+        [Fact]
+        public void ExtremeValues_AxisAlignedAndOriented_AgreeWithTheOracle_ForEveryEntry()
+        {
+            // large extents, origins near the range limits and unnormalized directions: the differences face - origin overflow while the
+            // inputs and the exact answer are finite; every entry against the exact rational oracle
+            double[] c = { 1.7e308, -1.7e308, 1e308, -1e308, 5e18, -5e18, 1e19, 1e154, -1e154, 3, -3, 1, -1, 0, 0.5 };
+            double[] dd = { 1e290, -1e290, 1e300, -1e300, 1e200, 1, -1, 0.5, 0, 1e-200, 3 };
+            var r = new Random(97);
+            int hits = 0, misses = 0, n = 0;
+            for (int it = 0; it < 25000; it++) {
+                Vector3d lo = new Vector3d(c[r.Next(c.Length)], c[r.Next(c.Length)], c[r.Next(c.Length)]), hi = new Vector3d(c[r.Next(c.Length)], c[r.Next(c.Length)], c[r.Next(c.Length)]);
+                for (int k = 0; k < 3; k++) if (lo[k] > hi[k]) { double tmp = lo[k]; lo[k] = hi[k]; hi[k] = tmp; }
+                Vector3d o = new Vector3d(c[r.Next(c.Length)], c[r.Next(c.Length)], c[r.Next(c.Length)]), d = new Vector3d(dd[r.Next(dd.Length)], dd[r.Next(dd.Length)], dd[r.Next(dd.Length)]);
+                if (r.Next(2) == 0) d = -d;
+                if (d.x == 0 && d.y == 0 && d.z == 0) continue;
+                var aab = new AxisAlignedBox3d(lo, hi);
+                Vector3d ctr = 0.5 * lo + 0.5 * hi, ext = 0.5 * hi - 0.5 * lo;
+                var ob = new Box3d(ctr, ext);       // (the half sums may round: the oracle uses the box as given)
+                bool er = false;
+                // the direction as given (Test, Intersects, FindRayIntersectT and the conservative form do not need it normalized: Find does)
+                Vector3d dn = d.Normalized;
+                for (int pass = 0; pass < 2; pass++) {
+                    Vector3d dir = pass == 0 ? d : dn;
+                    if (dir.x == 0 && dir.y == 0 && dir.z == 0) continue;      // (a direction that normalizes to nothing)
+                    bool finds = dir.IsNormalized;
+                    var ray = new Ray3d(o, dir, true); var line = new Line3d(o, dir);
+                    var s = Slabs(aab, o, dir);
+                    bool xr = Contact(s, new Q(0, 1), null).kind != 0, xl = Contact(s, null, null).kind != 0;
+                    if (pass == 0) er = xr;
+                    Assert.Equal(xr, IntrRay3AxisAlignedBox3.Intersects(ref ray, ref aab));
+                    Assert.Equal(xr, new IntrRay3AxisAlignedBox3(ray, aab).Test());
+                    double t; Assert.Equal(xr, IntrRay3AxisAlignedBox3.FindRayIntersectT(ref ray, ref aab, out t));
+                    Assert.Equal(xl, new IntrLine3AxisAlignedBox3(line, aab).Test());
+                    if (finds) { Assert.Equal(xr, new IntrRay3AxisAlignedBox3(ray, aab).Find()); Assert.Equal(xl, new IntrLine3AxisAlignedBox3(line, aab).Find()); }
+                    double m; if (xr) Assert.True(IntrExactBox3.RayAabbMay(ref ray.Origin, ref ray.Direction, ref aab, 0, out m), "the conservative form culled an exact hit");
+                    var so = Slabs(ob, o, dir);
+                    bool eor = Contact(so, new Q(0, 1), null).kind != 0, eol = Contact(so, null, null).kind != 0;
+                    Assert.Equal(eor, IntrRay3Box3.Intersects(ref ray, ref ob));
+                    Assert.Equal(eor, new IntrRay3Box3(ray, ob).Test());
+                    Assert.Equal(eol, new IntrLine3Box3(line, ob).Test());
+                    if (finds) { Assert.Equal(eor, new IntrRay3Box3(ray, ob).Find()); Assert.Equal(eol, new IntrLine3Box3(line, ob).Find()); }
+                }
+                if (er) hits++; else misses++;
+                n++;
+            }
+            Assert.True(hits > 200 && misses > 200 && n > 8000, $"hits {hits} misses {misses} n {n}");
+        }
+
+        [Fact]
         public void ZeroDirection_IsNotARay_TestAndFindAgree()
         {
             var aab = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1, 1, 1));

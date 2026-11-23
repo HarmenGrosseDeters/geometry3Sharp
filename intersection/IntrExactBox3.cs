@@ -237,12 +237,16 @@ namespace g3
                 double di = d[i], oi = o[i], lo = b.Min[i] - ex, hi = b.Max[i] + ex;
                 if (di > 0) {
                     if (oi > hi) return 0;                                  // (leaving the slab or parallel to it outside: exact comparisons)
-                    if (oi < lo) { double lt = (lo - oi) / di; if (lt > tn) tn = lt; }      // (an origin inside the slab enters it at t <= 0)
-                    double ht = (hi - oi) / di; if (ht < tf) tf = ht;
+                    double nl = lo - oi, nh = hi - oi;
+                    if ((nl - nl != 0 || nh - nh != 0) && di > 1) return -1;        // (an overflowed difference of a quotient that is finite: the exact route)
+                    if (oi < lo) { double lt = nl / di; if (lt > tn) tn = lt; }      // (an origin inside the slab enters it at t <= 0)
+                    double ht = nh / di; if (ht < tf) tf = ht;
                 } else if (di < 0) {
                     if (oi < lo) return 0;
-                    if (oi > hi) { double lt = (hi - oi) / di; if (lt > tn) tn = lt; }
-                    double ht = (lo - oi) / di; if (ht < tf) tf = ht;
+                    double nh = hi - oi, nl = lo - oi;
+                    if ((nl - nl != 0 || nh - nh != 0) && di < -1) return -1;
+                    if (oi > hi) { double lt = nh / di; if (lt > tn) tn = lt; }
+                    double ht = nl / di; if (ht < tf) tf = ht;
                 } else if (oi < lo || oi > hi) {
                     return 0;
                 }
@@ -294,12 +298,16 @@ namespace g3
                 double di = d[i], oi = o[i], lo = b.Min[i] - ex, hi = b.Max[i] + ex;
                 if (di > 0) {
                     if (oi > hi) { t = 0; return false; }
-                    if (oi < lo) { double lt = (lo - oi) / di; if (lt > tn) tn = lt; }
-                    double ht = (hi - oi) / di; if (ht < tf) tf = ht;
+                    double nl = lo - oi, nh = hi - oi;
+                    if ((nl - nl != 0 || nh - nh != 0) && di > 1) { t = 0; return true; }     // (an overflowed difference: no certified miss)
+                    if (oi < lo) { double lt = nl / di; if (lt > tn) tn = lt; }
+                    double ht = nh / di; if (ht < tf) tf = ht;
                 } else if (di < 0) {
                     if (oi < lo) { t = 0; return false; }
-                    if (oi > hi) { double lt = (hi - oi) / di; if (lt > tn) tn = lt; }
-                    double ht = (lo - oi) / di; if (ht < tf) tf = ht;
+                    double nh = hi - oi, nl = lo - oi;
+                    if ((nl - nl != 0 || nh - nh != 0) && di < -1) { t = 0; return true; }
+                    if (oi > hi) { double lt = nh / di; if (lt > tn) tn = lt; }
+                    double ht = nl / di; if (ht < tf) tf = ht;
                 } else if (oi < lo || oi > hi) {
                     t = 0; return false;
                 }
@@ -395,6 +403,10 @@ namespace g3
             if (aq <= 2 * eQ || aq < Tiny || aq > Huge)
                 return 3;
             double n1 = L - P, n2 = H - P;
+            // (a numerator that overflows to an infinity while P, L and H are finite: for |Q| > 1 the quotient is a finite t, not an infinite bound;
+            // for |Q| <= 1 the quotient is beyond the range too, an infinity of the right sign)
+            if (aq > 1 && (n1 - n1 != 0 || n2 - n2 != 0))
+                return 3;
             double en1 = eP + U * Math.Abs(n1) + AbsErr, en2 = eP + U * Math.Abs(n2) + AbsErr;
             if (ray && ((Q > 0 && n1 + en1 < 0) || (Q < 0 && n2 - en2 > 0))) {
                 // a ray whose origin is certainly inside the slab on the entering side: the lower bound of t is negative, below the limit 0 of
