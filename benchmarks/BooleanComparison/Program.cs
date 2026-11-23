@@ -275,6 +275,14 @@ static class Program
                 ["pair_tests"] = rr.PairTests, ["evaluations"] = rr.Evaluations, ["max_evaluations"] = rr.MaxEvaluations,
                 ["max_pair_tests"] = rr.MaxPairTests, ["pair_budget"] = rr.PairBudget, ["stopped_by_pair_tests"] = rr.StoppedByPairTests,
                 ["triangles_in"] = boolean.Counts.TryGetValue("pieces", out long pc) ? pc : -1,
+                // the two candidate verdicts on what the removal took (#1216): the library's (RemovedResolvable: 256 ulps and
+                // 1e-3 of the thin bound) and the one by ulps alone; and the removed components themselves (the first 50)
+                ["removed_resolvable"] = rr.RemovedResolvable,
+                ["removed_defective_256ulps"] = rr.RemovedComponentInfos.Count(c => c.ThicknessUlps >= 256
+                    && (c.Reason == MeshRoundingRepair.RemovalReasons.StillDefective || c.Reason == MeshRoundingRepair.RemovalReasons.VolumeChanged)),
+                ["removed"] = rr.RemovedComponentInfos.Take(50).Select(c => new Dictionary<string, object> {
+                    ["reason"] = c.Reason.ToString(), ["triangles"] = c.Triangles, ["thickness"] = Finite(c.Thickness),
+                    ["thickness_ulps"] = Finite(c.ThicknessUlps), ["resolvable"] = c.Resolvable }).ToList(),
             };
         }
         Console.WriteLine(JsonSerializer.Serialize(r));

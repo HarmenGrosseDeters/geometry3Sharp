@@ -424,5 +424,93 @@ namespace geometry3Sharp.Tests
             Assert.True(below > 100 && above > 100, $"{below} below, {above} above, {equal} equal");
         }
 
+
+        // (#1216) the exact volume sum and the comparison of two sums by a factor: what decides whether a repair changed the volume
+        // of a closed component by more than a factor 2 (MeshRoundingRepair.remove_tiny_components)
+        // a tetrahedron with the corner o and the edge vectors a e1, b e2, c e3: six times its volume is a b c
+        static (double[] xyz, int[] corners) Tetrahedron(Vector3d o, double a, double b, double c, bool inverted)
+        {
+            var xyz = new[] { o.x, o.y, o.z, o.x + a, o.y, o.z, o.x, o.y + b, o.z, o.x, o.y, o.z + c };
+            int[] corners = { 0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3 };
+            if (inverted) corners = new[] { 0, 1, 2, 0, 3, 1, 0, 2, 3, 1, 3, 2 };
+            return (xyz, corners);
+        }
+
+        /// <summary> the exact volume sum: its value on tetrahedra (also far from the origin and at mixed exponents), its sign, no value without a triangle or with a NaN </summary>
+        [Fact]
+        public void VolumeSum6Exact_IsTheSumOfTheDeterminants()
+        {
+            // (S = total 2^e: the exponent is three times that of the smallest unit of the coordinates, so total is an integer)
+            Func<BigInteger, int, double> value = (t, x) => (double)t * Math.Pow(2, x);
+            var (xyz, corners) = Tetrahedron(new Vector3d(0, 0, 0), 2, 3, 5, false);
+            Assert.True(ExactPredicates.TryVolumeSum6Exact(xyz, corners, out BigInteger total, out int e));
+            Assert.True(e % 3 == 0);
+            Assert.Equal(30, value(total, e));
+            (xyz, corners) = Tetrahedron(new Vector3d(0, 0, 0), 2, 3, 5, true);
+            Assert.True(ExactPredicates.TryVolumeSum6Exact(xyz, corners, out total, out e));
+            Assert.Equal(-30, value(total, e));
+            // (far from the origin, coordinates with fractions)
+            (xyz, corners) = Tetrahedron(new Vector3d(1e6, -2.5, 0.125), 0.5, 0.25, 3, false);
+            Assert.True(ExactPredicates.TryVolumeSum6Exact(xyz, corners, out total, out e));
+            Assert.True(e < 0 && e % 3 == 0);
+            Assert.Equal(0.375, value(total, e));
+            Assert.Equal(1, total.Sign);
+            Assert.Equal(ExactPredicates.VolumeSignExact(xyz, corners), total.Sign);
+            // (independent of the first corner for a closed surface: the triangles in another order)
+            int[] rotated = corners.Skip(3).Concat(corners.Take(3)).ToArray();
+            Assert.True(ExactPredicates.TryVolumeSum6Exact(xyz, rotated, out BigInteger total2, out int e2));
+            Assert.Equal(total, total2);
+            Assert.Equal(e, e2);
+            Assert.False(ExactPredicates.TryVolumeSum6Exact(xyz, new int[0], out total, out e));
+            Assert.False(ExactPredicates.TryVolumeSum6Exact(xyz, null, out total, out e));
+            xyz[4] = double.NaN;
+            Assert.False(ExactPredicates.TryVolumeSum6Exact(xyz, corners, out total, out e));
+            xyz[4] = double.PositiveInfinity;
+            Assert.False(ExactPredicates.TryVolumeSum6Exact(xyz, corners, out total, out e));
+        }
+
+        /// <summary> "more than a factor 2": exactly 2 is not more, one unit beyond is, in both directions, across exponents, and a changed sign always is </summary>
+        [Fact]
+        public void VolumeSumsDifferByMoreThan_IsStrict_AndExact()
+        {
+            BigInteger big = BigInteger.Pow(2, 200) + 1;
+            Assert.False(ExactPredicates.VolumeSumsDifferByMoreThan(big, 0, big, 0, 1));
+            Assert.False(ExactPredicates.VolumeSumsDifferByMoreThan(big, 0, 2 * big, 0, 1));
+            Assert.True(ExactPredicates.VolumeSumsDifferByMoreThan(big, 0, 2 * big + 1, 0, 1));
+            Assert.False(ExactPredicates.VolumeSumsDifferByMoreThan(2 * big, 0, big, 0, 1));
+            Assert.True(ExactPredicates.VolumeSumsDifferByMoreThan(2 * big + 1, 0, big, 0, 1));
+            // (the same values at different exponents: 2 big = big 2^1; 8 big at -3 = big)
+            Assert.False(ExactPredicates.VolumeSumsDifferByMoreThan(big, 0, big, 1, 1));
+            Assert.True(ExactPredicates.VolumeSumsDifferByMoreThan(big, 0, big + 1, 1, 1));
+            Assert.False(ExactPredicates.VolumeSumsDifferByMoreThan(8 * big, -3, 2 * big, 0, 1));
+            Assert.True(ExactPredicates.VolumeSumsDifferByMoreThan(8 * big - 1, -3, 2 * big, 0, 1));
+            Assert.True(ExactPredicates.VolumeSumsDifferByMoreThan(big, 3, big, 0, 1));
+            // (the factor: 2^2)
+            Assert.False(ExactPredicates.VolumeSumsDifferByMoreThan(big, 0, 4 * big, 0, 2));
+            Assert.True(ExactPredicates.VolumeSumsDifferByMoreThan(big, 0, 4 * big + 1, 0, 2));
+            // (signs: negative sums compare by magnitude; a changed sign, or one of them zero, is a change)
+            Assert.False(ExactPredicates.VolumeSumsDifferByMoreThan(-big, 0, -2 * big, 0, 1));
+            Assert.True(ExactPredicates.VolumeSumsDifferByMoreThan(-big, 0, -2 * big - 1, 0, 1));
+            Assert.True(ExactPredicates.VolumeSumsDifferByMoreThan(big, 0, -big, 0, 1));
+            Assert.True(ExactPredicates.VolumeSumsDifferByMoreThan(big, 0, BigInteger.Zero, 0, 1));
+            Assert.True(ExactPredicates.VolumeSumsDifferByMoreThan(BigInteger.Zero, 0, big, 0, 1));
+            Assert.False(ExactPredicates.VolumeSumsDifferByMoreThan(BigInteger.Zero, 0, BigInteger.Zero, 5, 1));
+            // (the first sum at the larger exponent, small: 1 x 2^4 against 20 is a factor 1.25; shifted the wrong way it were 0)
+            Assert.False(ExactPredicates.VolumeSumsDifferByMoreThan(BigInteger.One, 4, 20, 0, 1));
+            Assert.False(ExactPredicates.VolumeSumsDifferByMoreThan(20, 0, BigInteger.One, 4, 1));
+            Assert.True(ExactPredicates.VolumeSumsDifferByMoreThan(BigInteger.One, 4, 33, 0, 1));
+            Assert.True(ExactPredicates.VolumeSumsDifferByMoreThan(33, 0, BigInteger.One, 4, 1));
+        }
+
+        /// <summary> one triangle is a sum (zero: it is taken relative to its own first corner); fewer than three corners are none </summary>
+        [Fact]
+        public void VolumeSum6Exact_OneTriangle_IsZero_NoTriangle_IsNotComputed()
+        {
+            double[] xyz = { 1, 2, 3, 4, 6, 5, 7, 1, 9 };
+            Assert.True(ExactPredicates.TryVolumeSum6Exact(xyz, new[] { 0, 1, 2 }, out BigInteger total, out int exponent));
+            Assert.True(total.IsZero);
+            Assert.False(ExactPredicates.TryVolumeSum6Exact(xyz, new[] { 0, 1 }, out total, out exponent));
+            Assert.False(ExactPredicates.TryVolumeSum6Exact(xyz, null, out total, out exponent));
+        }
     }
 }

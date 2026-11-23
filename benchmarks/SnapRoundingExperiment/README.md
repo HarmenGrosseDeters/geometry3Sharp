@@ -110,7 +110,10 @@ boolean's own result (`replica`; it does on all 3474 non-empty results).
   candidate adds against the boolean and its rounding.
 - Raw output: `trace/results/thin_2026-11-22/` (`<set>.jsonl.gz`, `tables.txt`, `cost.jsonl`).
 
-No library code is changed and no rule is built: the rules exist only as predicates in `ThinSolids.cs`.
+The results of 2026-11-22 were measured before the rule was built: there the library had the rule `cur`, and the other
+rules existed only as predicates in `ThinSolids.cs`. Since #1216 the library has rule (d1) at 4 ulps (`d_4`); `replica`
+now compares that one with the boolean's own result, and a new `thin.py run` gives the library's new results under
+`safe` (the tables of the note need the stored files).
 
 ## Sets
 

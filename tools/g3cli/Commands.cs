@@ -425,6 +425,7 @@ namespace g3cli
                 ["zips"] = r.Zips,
                 ["strip_zips"] = r.StripZips,
                 ["removed_components"] = r.RemovedComponents,
+                ["removed_resolvable"] = r.RemovedResolvable,
                 ["scale_disparity"] = r.ScaleDisparity,
                 ["scale_not_finite"] = r.ScaleNotFinite,
                 ["removed_triangles"] = r.RemovedTriangles,
