@@ -142,7 +142,7 @@ From the papers as known; not re-read for this note, and no code was read.
 | | what | kind | cost | effect on the fixture |
 |---|---|---|---|---|
 | a1 | Report the change: the volume before and after the repair (`MeshRoundingRepair`, `SolidBooleanReport`), absolute and relative | new public members | two passes of `VolumeArea`, a few lines, tests | the 0.7 % is in the report; the result is unchanged |
-| a2 | Report `MaxDrift` against the thickness `2 V / area` of the result | new public member | as a1 | 4.7 % here: an upper estimate (the real change is 0.7 %), cheap but coarse |
+| a2 | Report `MaxDrift` against the thickness `2 V / area` of the result | new public member | as a1 | 4.7 % here: an indicator, not a bound (the proven bound `MaxDrift * area / V` is 9.5 %; the real change is 0.7 %), cheap but coarse |
 | a3 | A limit on a1 (`MaxRoundingVolumeChange`, relative): beyond it the result is not clean, with `StrictRounding` the run fails | new option, off by default | a1 plus the verdict | the run reports the loss as a failure the caller chose |
 | b | The pipeline answers a large change with the Grid step | output change | small, on a1 and the Grid step | none: the step's cell is far below the near miss, and a coarser cell moves thin plates itself |
 | c | The repair prefers the contraction that moves less volume: the other end, the midpoint, or the position that keeps the volume (Lindstrom and Turk) | output change of the default rounding | a spike first: the kept end is an input vertex today, by design; then the mutation shards of the rounding | unknown; in the fixture the other end would move B's corner up and leave A's face flat |

@@ -248,6 +248,7 @@ namespace geometry3Sharp.Tests
         [InlineData(5e-7, 6)]
         [InlineData(1e-6, 6)]
         [InlineData(1.5e-6, 6)]
+        [InlineData(2e-6, 3)]
         [InlineData(2.5e-6, 0)]
         [InlineData(5e-6, 0)]
         public void ThinPlates_TheChangeGrowsWithTheNearMiss_UntilTheTrianglesBetweenAreNoLongerDegenerateByArea(double d, int edits)
@@ -260,9 +261,12 @@ namespace geometry3Sharp.Tests
                 // diagonal, 4e-12 here): nothing is edited, and the result is the exact one rounded
                 Assert.Equal("", Invariance.Difference(m.Exact.Result, m.Safe.Result));
                 Assert.Equal(0.0, m.Change);
-            } else
+            } else if (edits == 6)
                 // linear in the near miss: 0.247 of volume per unit of d
                 Assert.InRange(m.Change / d, 0.24, 0.255);
+            else
+                // in between, the triangles at three of the six corners are degenerate by area: 0.27 % of the union
+                Assert.InRange(m.Relative, 0.0025, 0.0029);
         }
 
         [Fact]

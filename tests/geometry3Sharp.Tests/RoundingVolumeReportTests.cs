@@ -124,7 +124,8 @@ namespace geometry3Sharp.Tests
         public void AStrictRoundingRefusal_HasTheTwoVolumesOfTheRepairThatRan()
         {
             // the cube of edge 2^-11 beside the box of 1024 (MeshRoundingRepairTestsThinSolids): the repair removes the cube, which the
-            // coordinates resolve, so the strict rounding of the pipeline refuses the result
+            // coordinates resolve, so the strict rounding of the pipeline refuses the result. (The cube is 1e-19 of the box: the two
+            // numbers are set on this path, and cannot show the cube, which RoundingRemoved lists)
             var p = new SolidBooleanPipeline(new List<DMesh3> { Box(0, 0, 0, 1024, 1024, 1024), Box(1100, 0, 0, 1100 + Pow2(-11), Pow2(-11), Pow2(-11)) }, U);
             Assert.False(p.Compute());
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.BooleanFailed, p.Status);
@@ -205,6 +206,14 @@ namespace geometry3Sharp.Tests
             o.Apply();
             Assert.Equal(4.0, o.VolumeBefore, 12);
             Assert.Equal(o.VolumeBefore, o.VolumeAfter);
+            // a vertex that no triangle uses, far away or not finite, does not enter: the centre is that of the triangles' box
+            DMesh3 stray = tetrahedron(new Vector3d(Pow2(38), Pow2(39), -Pow2(38)));
+            stray.AppendVertex(new Vector3d(1e200, -1e200, 0));
+            stray.AppendVertex(new Vector3d(double.NaN, 0, double.PositiveInfinity));
+            var st = new MeshRoundingRepair(stray);
+            st.Apply();
+            Assert.Equal(f0.VolumeBefore, st.VolumeBefore);
+            Assert.Equal(f0.VolumeBefore, st.VolumeAfter);
             // no triangle, and coordinates that are not finite
             var empty = new MeshRoundingRepair(new DMesh3());
             empty.Apply();
