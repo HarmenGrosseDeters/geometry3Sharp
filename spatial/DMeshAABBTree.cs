@@ -2899,7 +2899,8 @@ namespace g3
             AxisAlignedBox3d box = new AxisAlignedBox3d(ref c, e.x + box_eps, e.y + box_eps, e.z + box_eps);
 
             double ray_t;
-            if (IntrRay3AxisAlignedBox3.FindRayIntersectT(ref ray, ref box, out ray_t)) {
+            // (a culling test: the conservative form never misses a box that the exact test hits, and makes no exact computation)
+            if (IntrExactBox3.RayAabbMay(ref ray.Origin, ref ray.Direction, ref box, 0, out ray_t)) {
                 return ray_t;
             } else {
                 return double.PositiveInfinity;     // (a miss: farther than any limit, double.MaxValue included)

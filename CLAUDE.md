@@ -48,7 +48,9 @@ sessions, combined mutation gates).
 
 Docs-only changes (only `*.md` files) run `python3 tools/check_docs.py` locally and trigger the fast `.github/workflows/docs.yml` check in CI; the full library CI (`.github/workflows/ci.yml`) skips them. Exceptions: `docs/design/FIXED_WIDTH_EXACT_POINTS.md`, whose bound table
 `GeneratedPredicatesTests` checks against the generator, runs CI and the generator tests; `docs/design/DETERMINISM_PROOF.md`,
-whose stage 0 ledger `DeterminismScopeAnalyzerTests` checks against `DeterministicApis.txt`, runs CI and those tests. A change to existing library code, including code in `docs/examples`, runs
+whose stage 0 ledger `DeterminismScopeAnalyzerTests` checks against `DeterministicApis.txt`, runs CI and those tests; and so does all
+other Markdown that a test or the tier rule reads (`tools/ci_scope.py` `CI_MARKDOWN`: the `.md` entries of `SHARED`, eg
+`docs/OPERATIONS.md`, and `docs/guides/**`). A change to existing library code, including code in `docs/examples`, runs
 the full list. A change to tools, tests or new files only runs the filtered tests of the changed areas, the builds of
 all targets (net10.0, netstandard2.0, the net48 test projects) and `dotnet pack` (API validation); GitHub CI runs the
 rest. One PR per feature, as clean commits, not stacked sub-step PRs; Stryker locally once per shard to set its
@@ -83,6 +85,7 @@ python3 -m unittest discover -s tools -p 'test_changed_line_coverage.py'
 python3 -m unittest discover -s tools -p 'test_gate_check.py'
 python3 -m unittest discover -s tools -p 'test_review_triggers.py'
 python3 -m unittest discover -s tools -p 'test_check_docs.py'
+python3 -m unittest discover -s tools -p 'test_master_batch.py'
 python3 tools/check_docs.py
 ```
 
@@ -95,8 +98,9 @@ Where documentation changes go (enforced by `tools/check_docs.py` — avoid grow
 - Performance baselines, research notes, and historical audits: `docs/perf/`, `docs/research/`, and `docs/archive/` (+ entry in their `README.md`).
 - Open topics & status tracking: `docs/OPEN_TOPICS.md` and `docs/roadmap/<domain>.md`.
 
-A new mutated file, a test class named in a Stryker config, or a new test file in a shard filter also needs its entry in
-the `paths` of `.github/workflows/mutation.yml`; the `changes` job of that workflow checks it (run from `tests/mutation`):
+A new mutated file or Stryker config also needs its entry in the `paths` of `.github/workflows/mutation.yml` (test files are
+not trigger paths: a change of tests only makes no PR mutation run); the `changes` job of that workflow checks it (run from
+`tests/mutation`):
 
 ```
 python3 test_select_shards.py && python3 test_baseline.py && python3 test_incremental.py && python3 test_suggest_split.py
@@ -108,15 +112,22 @@ it showed.
 
 Draft PRs and spikes: before a push, build the library for all targets (net10.0, netstandard2.0) and the net48 test
 project, and run the tests of the changed areas (`dotnet test --filter ...`). The full list above runs before the PR
-is marked ready for review; the CI of every push of a ready PR runs it on GitHub anyway (a draft has none).
+is marked ready for review; on GitHub the full matrix runs only with the label `full-ci` (below; a draft has no CI).
 
 A draft PR gets no GitHub CI, so the local checks above are the gate of a draft. For a run on GitHub, start `ci.yml` by hand
 (Actions tab, or `gh workflow run ci.yml --ref <branch>`; the checks attach to the head commit; manual runs run the full tier).
-CI has two tiers ([docs/QA.md](docs/QA.md), "Test tiers"): a PR that is ready for review, master and manual runs
-run all of the jobs; a PR that changes only tools, benchmarks or docs the tests do not read skips the library suites
-(`tools/ci_scope.py`). Locally: `dotnet test ... --filter "Category!=Slow"` for the quick set.
+CI has two stages on a ready PR (owner 2026-11-23, [docs/qa/ci-and-gates.md](docs/qa/ci-and-gates.md) 2.14): every push
+runs the job `quick` (the library builds for net10.0 and netstandard2.0 and the net10.0 tests of the changed areas,
+`tools/ci_scope.py --quick`; a signal); the full matrix (linux, netstandard a/b with net48, isolated, time-rule, tier-rule,
+new-tests-on-base, determinism) runs only while the PR has the label `full-ci`, which the coordinator sets (like
+`bugfix`, best after it: setting `bugfix` later re-runs the full matrix, other labels start nothing). The merge rule: the
+commit status `full-ci` green on the final head (it covers all of these; for a PR of Markdown that no test reads `docs.yml`
+posts it). Master runs batched every 2 hours (skipped when only Markdown that no test reads changed, tools-only batches without
+the library suites; `tools/master_batch.py`; a red batch: `tools/master_bisect.py`), manual runs and tags run everything; a PR that changes only
+tools, benchmarks or docs the tests do not read skips the library suites (`tools/ci_scope.py`). Locally:
+`dotnet test ... --filter "Category!=Slow"` for the quick set.
 
-Every push gets a PR; watch its CI (a draft has none) and fix red CI right away. CI runs on pull requests and on master only (a branch
+Every push gets a PR; watch its CI (a draft has none) and fix red CI right away. CI runs on pull requests and on master (batched) only (a branch
 without a PR, or a PR with a merge conflict, which GitHub does not run: resolve the conflict, or start it with
 `workflow_dispatch`), and a new push cancels the PR's run under way.
 
@@ -130,7 +141,9 @@ to exact arithmetic (`math/Exact*`, `math/AdaptivePredicates.cs`, implicit point
 `mesh_ops/ExactMesh*` always get this review, including a check of every new error bound. Mutation runs gate a merge
 only for PRs that touch exact arithmetic (`math/Exact*`, `math/AdaptivePredicates.cs`, implicit points) or add or
 change an error bound: there the incremental mutation run (`tests/mutation`: the changed lines against the master
-baseline) must stay above its threshold before the merge. All other PRs merge on green CI and review; their shards run
+baseline) must stay above its threshold before the merge. A PR runs it only for the shards of a changed exact-code file (the
+exact section of `.editorconfig`); for an error bound outside those files the coordinator sets the label `mutation`, which
+runs the shards of every changed mutated file (owner 2026-11-23). A PR never makes a full shard run. All other PRs merge on green CI and review; their shards run
 nightly on master, and survivors become tasks of the area's next PR (owner 2026-11-13). A PR that would need full shard runs (no master baseline for a shard, a
 changed config, an integration PR) merges on green CI and review; the full run of its shards then runs on master
 (workflow_dispatch), seeds the baselines and is the gate: a shard below its threshold gets a follow-up PR with tests,

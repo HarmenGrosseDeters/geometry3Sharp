@@ -9,6 +9,7 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 
 | Topic | State | Next step / waiting on | Link |
 |---|---|---|---|
+| Exact Boolean: the result and the pipeline's status do not depend on the order of the input triangles and vertex ids (observed by the owner on private inputs) | Decided 2026-11-23 (owner): option A with A2 and D. Draft PR open: the kept pieces ordered by their geometry before the numbering, the flat regions' flips decided exactly, the contract in the guide; bit-identical over reorderings; the ordering is about 1 % of the boolean's time; 40 pinned tests moved | Coordinator: the gate files (`DeterministicApis.txt`, three mutation filters), a CI slot, then review and the mutation runs; the repair's gap is #1465 | #1464, [note](research/BOOLEAN_INPUT_ORDER_2026-11.md) |
 | Rounding/repair: the removal rule for thin and tiny components (#1216) | Decided 2026-11-22 (owner): rule (d1), K = 4 ulps, factor 2; the verdict has its own thresholds: a removal makes the result not clean from 256 ulps and 1e-3 of the bound; every removed component is reported. Built, PR open | CI, exact review, incremental mutation run, then merge; after it the opt-out as a separate small PR | [study](research/ROUNDING_THIN_SOLIDS_2026-11.md), #1216 |
 | Platform/QA/CI: determinism proof stage 2 | PR open | CI and the incremental mutation run, then merge; the coordinator closes plan #1241 on the merge | #1370, [proof](design/DETERMINISM_PROOF.md), plan #1241 |
 | Exact Boolean: `ExactMeshBoolean.AllowOpenMeshes` defaults to `false`, as the g3cli `boolean` option `allow_open` (#1211 S3, owner 2026-11-23) | PR open: the default, the callers that state it, tests | CI, review, then merge; `tools/NativeAotSpike` keeps its own default `allow_open_meshes = 1` (a spike: owner's call) | #1460, [study](research/OPEN_CUTTING_SURFACE_2026-11.md) |
@@ -107,6 +108,7 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 | Platform/QA/CI: late cron runs of `mutation.yml` | Kept as they are, owner 2026-11-17 | None | [platform](roadmap/platform.md#open-for-the-future-2026-11-15) |
 | Other: Remesher defaults (degenerates, self-intersections), thin walls 135363 | Defaults upstream's; safe preset opt-in | None | [wrap](roadmap/alpha-wrap-and-repair.md#other-open-items) |
 | Other: CCD on the 1M-triangle ToI frame, serial above 20 s | Documented limit, owner 2026-11-16 | None | [hotspots](roadmap/hotspots.md#open-for-the-future-2026-11-15) |
+| Other: `IntrRay3Box3` / `DCurve3BoxTree` ray queries 1.6 to 1.9 times slower after the exact box decision | Accepted, owner 2026-11-22 | Optional certified division-free SAT prefilter for the oriented ray (needs a Gram-deviation margin for non-orthonormal axes; estimated +20 to 30 % instead of +60 to 90 %) | [benchmark](../benchmarks/IntrBox3Benchmark/README.md) |
 
 ## 7. Owner's local runs
 

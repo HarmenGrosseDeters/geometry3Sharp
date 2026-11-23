@@ -4,10 +4,15 @@ Prior-art checks, literature surveys, external library comparisons, and explorat
 
 | Study | Topic & Summary |
 |---|---|
-| [EXACT_TOPOLOGY_CERTIFICATES.md](EXACT_TOPOLOGY_CERTIFICATES.md) | Solid Betti numbers for Boolean and repair tests, measured on C# outputs and clean replacements that exercise the gap in surface topology checks |
+| [NEURON_SKELETON_MESHES.md](NEURON_SKELETON_MESHES.md) | 9-case SWC-style branching tube stress study (4° forks, 1e-6 gaps, loops, 45-segment/91-primitive trees): ExactMeshBoolean & SolidBooleanPipeline 9/9 clean with exact genus (28–463 ms per route, single runs); measured branch-mesh gaps 1e-2 / 1e-6; convolution inflation and wrap bridging quantified; stop/park |
+| [MOLECULAR_SURFACES_STUDY.md](MOLECULAR_SURFACES_STUDY.md) | 20-case molecular ball-union stress study (1e-12 tangency, cavities, helices, 12–96-ball packings): no Boolean/pipeline defects found; multi-mesh union grows about 6× from 48 to 96 balls, where a binary-tree union was faster; stop/park |
+| [Procedural branching tubes](BRANCHING_TUBE_GENUS_STUDY.md) | Genus controls for strict Boolean union, implicit contouring and wrapping near a tapered tip gap; a genus oracle must require `NotCleanReason == ""` |
+| [Certified medial-axis feature size](CERTIFIED_MEDIAL_AXIS_STUDY.md) | Exact crease obstruction and thin-box controls for SafeRounding and wrap offsets |
+| [EXACT_TOPOLOGY_CERTIFICATES.md](EXACT_TOPOLOGY_CERTIFICATES.md) | Solid Betti numbers and fixed winding queries for cavity ownership in Boolean and repair tests |
 | [BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md](BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md) | Prior-art check for post-3.0 exact boolean research directions |
 | [ERROR_BOUND_AUDIT_2026-11.md](ERROR_BOUND_AUDIT_2026-11.md) | Audit of the hand-written floating-point error bounds of the exact code: inventory (about 155), an independent re-derivation by a new checker (`tools/ErrorBoundAudit`: 31 bounds checked, 32 derivations proved), an adversarial run against `ExactDyadic`, four findings, and a CI test proposal |
 | [BOOLEAN_CERTIFIED_MODE_2026-11.md](BOOLEAN_CERTIFIED_MODE_2026-11.md) | Spike for plan #1256: measured cost of a certifying checker of `ExactMeshBoolean` (stage 3, the embedding), a certified user mode, and the state of exact coplanar clip coordinates |
+| [BOOLEAN_INPUT_ORDER_2026-11.md](BOOLEAN_INPUT_ORDER_2026-11.md) | Diagnosis: `ExactMeshBoolean` with `SafeRounding` and `SolidBooleanPipeline` under a reordered input (same geometry, other triangle order or vertex ids): the exact result does not depend on it, the rounding repair does (result, volume of thin results, `RoundingNotClean`); measured on 1020 procedural cases, with options (numbering the exact result by geometry) |
 | [BOOLEAN_TRIAGE_2026-11.md](BOOLEAN_TRIAGE_2026-11.md) | Diagnosis and triage of boolean robustness findings collected across corpora |
 | [CROSS_FIELD_GEOMETRY.md](CROSS_FIELD_GEOMETRY.md) | Cross-disciplinary survey of hard computational geometry problems and candidate methods |
 | [OPEN_CUTTING_SURFACE_2026-11.md](OPEN_CUTTING_SURFACE_2026-11.md) | Study for #1211: a Difference whose tool is an open cutting surface (a sheet): prior art, existing building blocks, five candidate semantics measured on procedural cases, a recommendation, and the silent success as a separate decision |

@@ -72,6 +72,20 @@ namespace g3
         {
             return obj is ExactPoint3 && Equals((ExactPoint3)obj);
         }
+        /// <summary>
+        /// Bits of the components for choosing a shard of a lookup structure (ExactMeshArrangement.AddPoint): the low 31 bits of each component
+        /// (the point is canonical, so equal points give equal bits), unseeded; unlike GetHashCode it is a function of the value on every runtime
+        /// </summary>
+        public int ShardBits()
+        {
+            unchecked {
+                int h = (int)(X & int.MaxValue);
+                h = h * 31 + (int)(Y & int.MaxValue);
+                h = h * 31 + (int)(Z & int.MaxValue);
+                return h * 31 + (int)(W & int.MaxValue);
+            }
+        }
+
         [MethodImpl(JitHints.Optimize)]
         public override int GetHashCode()
         {

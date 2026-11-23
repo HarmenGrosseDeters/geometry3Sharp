@@ -157,19 +157,32 @@ from secret tests, which a public repository cannot keep.
 
 ## 8. Cost controls
 
-- Mutation runs on ready PRs cover only the shards the PR touches, with full runs weekly; drafts run none. Thresholds
+- Mutation runs on ready PRs (owner 2026-11-23, runner load): only the incremental run (changed lines against the master
+  baseline) of the shards that mutate a changed exact-code file (the exact section of `.editorconfig`), or, with the label
+  `mutation`, of every shard of a changed file; drafts run none. The coordinator sets `mutation` (like `bugfix`) for a PR that
+  adds or changes an error bound outside the exact files, then re-runs the PR's latest mutation run (the labels are read live).
+  Everything else (full runs, changed tests only, non-exact code) runs on master, nightly / weekly or dispatched. Thresholds
   only go up (a ratchet).
-- Full runs after the merge (owner 2026-11-09): only the incremental run (changed lines against the master baseline)
-  gates a PR. A PR that would need full shard runs (no master baseline, a changed config or mutation tooling, an
-  integration PR) merges on green CI and review; the coordinator cancels its PR mutation run and dispatches the full
-  run of the same shards on master, which seeds the baselines and is the gate (below a threshold: a follow-up PR with
-  tests; a revert only for a real defect). Reason: a full rounding part takes up to 5 h, and the PR run and the master
-  baseline would test nearly the same tree twice.
-- Stryker runs locally once per shard, to set its threshold; after that the CI mutation run on the PR is the gate.
-  Since #230 a PR's run is incremental (only the mutants of the changed lines, the rest from the baseline of the last
-  full run, [tests/mutation/README.md](../tests/mutation/README.md)); a shard without a cached baseline still runs in
-  full, so merge master into a PR before marking it ready. A new push cancels a running mutation run (a full one takes
-  4-5 h): while one runs on your PR, collect fixes and push once, and merge master only when needed (a conflict,
+- Full runs after the merge (owner 2026-11-09, 2026-11-23): a PR never makes a full shard run. A PR that would need one as its
+  gate (an exact change with no master baseline, a changed config or mutation tooling, an integration PR) merges on green CI and
+  review; the coordinator dispatches the full run of the same shards on master, which seeds the baselines and is the gate (below
+  a threshold: a follow-up PR with tests; a revert only for a real defect). Reason: a full rounding part takes up to 5 h, and the
+  PR run and the master baseline would test nearly the same tree twice.
+- Two-stage PR CI (owner 2026-11-23, [docs/qa/ci-and-gates.md](qa/ci-and-gates.md) 2.14): a push to a ready PR runs the quick
+  stage (builds, net10.0 tests of the changed areas, about 5 min); the full matrix runs only while the PR has the label
+  `full-ci`, which the coordinator sets when the PR is otherwise ready to merge (like `bugfix`). The merge rule: the status
+  `full-ci` green on the final head (it covers `tier-rule`, `new-tests-on-base` and `determinism`). A "GATE ON MASTER" warning
+  of the mutation workflow means: dispatch that shard's full run on master after the merge (the job is green, the threshold
+  unchecked). After setting `mutation`, re-run the PR's latest mutation run. Set `bugfix` before `full-ci` when known (setting
+  it later re-runs the full matrix; other labels start nothing), push fixes in one
+  push (each push of a `full-ci` PR is a full run). Master CI runs batched every 2 hours (skipped when only Markdown that no
+  test reads changed; tools-only batches skip the library suites); a red batch is narrowed down to one merge with
+  `tools/master_bisect.py` (locally, no runner minutes) before anything is reverted.
+- Stryker runs locally once per shard, to set its threshold; after that the CI mutation run is the gate (on the PR for exact
+  code, on master otherwise). Since #230 a PR's run is incremental (only the mutants of the changed lines, the rest from the
+  baseline of the last full run, [tests/mutation/README.md](../tests/mutation/README.md)); a shard without a cached baseline
+  is not run on the PR (its gate is the dispatched full run on master), so merge master into a PR before marking it ready. A new push cancels a running mutation run: while one runs on your
+  PR, collect fixes and push once, and merge master only when needed (a conflict,
   or once before ready), not after every merge on master. Hand mutants of generators and rules stay (fast and
   targeted).
 - Gate-change label (owner 2026-11-17): a PR that the gate-change check flags (it changes a file of `tools/gate_files.txt`:

@@ -136,9 +136,11 @@ namespace geometry3Sharp.Tests
             // pinned: how much L2 traces, carries and evaluates directly on this knot (the tracing order, the carry bound and
             // the fallbacks change it; the results do not depend on it, the verify mode checks each value). T5: steps
             // across input-triangle edges only into blocks of at most 4 pieces, so on this dense knot few (within
-            // triangles only: 14179, 55097, 5054)
-            Assert.Equal(14617, serial.Counts["l2_traced"]);
-            Assert.Equal(55503, serial.Counts["l2_carried"]);
+            // triangles only: 14179, 55097, 5054). Since #1464 the constraints of a triangle are inserted from their smaller
+            // end, which triangulates one triangle of the knot another way: one piece is carried that was traced (before:
+            // 14617, 55503; the sum and the other counts are the same)
+            Assert.Equal(14616, serial.Counts["l2_traced"]);
+            Assert.Equal(55504, serial.Counts["l2_carried"]);
             Assert.Equal(4916, serial.Counts["l2_direct"]);
             Assert.Equal(1246, serial.Counts["l2_cross_steps"]);
             Assert.Equal(0, serial.Counts["l2_cross_fallbacks"]);
