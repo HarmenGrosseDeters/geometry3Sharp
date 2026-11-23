@@ -494,18 +494,21 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void ClampedPanelShavedInsideOneFacet_ATiltedLens_ACollapseChangesTheVolumeByAMillionth()
+        public void ClampedPanelShavedInsideOneFacet_ATiltedLens_TheRepairContractsAcrossIt_AndTheVolumeChangeStaysSmall()
         {
             // the top face 2 % of the thickness above the facet, tilted by +1e-4: two contractions with a drift of 6.8e-7 of the diagonal
-            // and a change of the volume of -1.6e-6 of the lens's volume (the lens is 0.14 % of the panel): a case of its own, the
-            // contraction goes across the lens
+            // and a change of the volume of -1.6e-6 of the lens's volume (the lens is 0.14 % of the panel): the contraction goes across
+            // the lens. The loss is NEW with #1464 (with the triangulation of before, the same case contracts twice with the same drift
+            // and no volume change), and the case (tilt -3e-4, 0.04 t) went the other way, from about -1e-6 to -4.5e-15: the order of the
+            // exact result and the exact InCircle decide which edges are there to contract. The assertion is therefore an upper bound on
+            // the magnitude, and a fix of the volume (options c and d of the note) must not fail this test
             ExactMeshBoolean op = Lens(1e-4, 0.02, 8, out DMesh3 panel);
             MeshRoundingRepair r = op.Rounding;
             Assert.InRange(r.VolumeBefore / Volume(panel), 0.0014, 0.00146);
             Assert.Equal(2, r.Collapses);
             Assert.InRange(r.MaxDrift / op.Result.CachedBounds.DiagonalLength, 6e-7, 7.5e-7);
             double change = (r.VolumeAfter - r.VolumeBefore) / r.VolumeBefore;
-            Assert.InRange(change, -2e-6, -1.2e-6);
+            Assert.True(Math.Abs(change) <= 2e-6, change.ToString());
             Assert.True(op.RoundingClean);
             AssertSolid(op.Result);
         }

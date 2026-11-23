@@ -151,6 +151,19 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void InputOrderTests_RunInEveryShardThatMutatesTheCodeOfTheCanonicalOrder()
+        {
+            // #1464: the shards whose span holds the ordering of the pieces, the inside-out triangle, SortPoints, the constraint's
+            // direction in triangulate_touched and the fan start / exact InCircle of ExactPlanarSimplify; a mutant of the old rule
+            // survived the filters of boolean-1 and arrangement-4 that lacked the tests of the order (hand mutants, review)
+            string root = RepoRoot();
+            Assert.NotNull(root);
+            var filters = TestFilters(root);
+            foreach (string part in new[] { "stryker-mesh-boolean-1", "stryker-mesh-boolean-7", "stryker-mesh-arrangement-1", "stryker-mesh-arrangement-4", "stryker-mesh-planar" })
+                Assert.Contains("FullyQualifiedName~ExactBooleanInputOrderTests", Alternatives(filters[part]));
+        }
+
+        [Fact]
         public void Planar_ExactMeshBooleanTests_IsTheClassItself()
         {
             // the bare term matched the 11 classes named after it as well (as in the arrangement shards)

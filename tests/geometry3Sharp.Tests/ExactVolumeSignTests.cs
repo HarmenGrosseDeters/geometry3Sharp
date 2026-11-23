@@ -469,6 +469,29 @@ namespace geometry3Sharp.Tests
             Assert.False(ExactPredicates.TryVolumeSum6Exact(xyz, corners, out total, out e));
         }
 
+        /// <summary>
+        /// the factor is 2 on both sides, not 1.5 or 3 (#1464 review: a growth factor of 1.5 survived every fixture of the thin solids,
+        /// whose volumes end below 1 or beyond 2): growth and shrink at 1.5, 1.99 and 2.01 times, in both directions
+        /// </summary>
+        [Fact]
+        public void VolumeSumsDifferByMoreThan_FactorTwo_JustBelowAndJustAbove_OnBothSides()
+        {
+            BigInteger v = BigInteger.Pow(10, 30);
+            Func<int, bool> grows = permille => ExactPredicates.VolumeSumsDifferByMoreThan(v, 0, v * permille / 1000, 0, 1);
+            Func<int, bool> shrinks = permille => ExactPredicates.VolumeSumsDifferByMoreThan(v * permille / 1000, 0, v, 0, 1);
+            Assert.False(grows(1500));
+            Assert.False(grows(1990));
+            Assert.True(grows(2010));
+            Assert.False(grows(1000));
+            Assert.False(shrinks(1500));
+            Assert.False(shrinks(1990));
+            Assert.True(shrinks(2010));
+            Assert.False(shrinks(1000));
+            // (down to the half, not to 2/3 or 1/3 of the volume)
+            Assert.False(ExactPredicates.VolumeSumsDifferByMoreThan(v, 0, v / 2 + v / 100, 0, 1));
+            Assert.True(ExactPredicates.VolumeSumsDifferByMoreThan(v, 0, v / 2 - v / 100, 0, 1));
+        }
+
         /// <summary> "more than a factor 2": exactly 2 is not more, one unit beyond is, in both directions, across exponents, and a changed sign always is </summary>
         [Fact]
         public void VolumeSumsDifferByMoreThan_IsStrict_AndExact()

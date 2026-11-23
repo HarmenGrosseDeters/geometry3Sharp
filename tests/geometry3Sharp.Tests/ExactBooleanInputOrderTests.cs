@@ -593,7 +593,7 @@ namespace geometry3Sharp.Tests
         {
             op = ExactMeshBoolean.Operations.Union;
             switch (name) {
-                // (the reproducer of the owner's diagnosis: two nearly coincident spheres that cross, a Difference)
+                // (a procedural reproducer of the dependence: two nearly coincident spheres that cross, a Difference)
                 case "spheres turned": {
                     DMesh3 b = Ball(Vector3d.Zero, 1, 8);
                     MeshTransforms.Rotate(b, Vector3d.Zero, Quaterniond.AxisAngleD(new Vector3d(0.3, 0.5, 0.81).Normalized, 1e-4));
@@ -631,7 +631,7 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// Inputs where the repair has many ties: two nearly coincident spheres that cross (the owner's reproducer of the
+        /// Inputs where the repair has many ties: two nearly coincident spheres that cross (a procedural reproducer of the
         /// dependence: reversing the triangles changed most configurations, one of them in its status), and unions of balls
         /// and tubes from the probes of #1455 and #1457 (tangent, 1e-12 and 1e-6 apart or overlapping, a cavity, a grazing
         /// fork). ExactMeshBoolean and SolidBooleanPipeline give the same status and the same mesh, ids included, for every
@@ -697,10 +697,9 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 eight = FigureEightPrism(), box = GridBox(1, 1, 1, new Vector3d(5, 0, 0));
             Assert.True(ExactMeshBoolean.IsWindingClosed(eight));
-            // (the precondition: which triangle is read matters; the fronts of the first and of the last triangle differ)
+            // (that which triangle is read matters is shown by the mutant of the old rule, the first triangle by id: this test fails on it)
             var counts = new HashSet<int>();
             var statuses = new HashSet<string>();
-            var fronts = new HashSet<int>();
             foreach (int[] order in Orders) {
                 DMesh3 a = Reordered(eight, order), b = Reordered(box, order);
                 var op = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { CountInsideOutCells = true };
