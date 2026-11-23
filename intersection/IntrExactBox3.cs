@@ -22,9 +22,9 @@ namespace g3
     /// </summary>
     internal static class IntrExactBox3
     {
-        const double U = 1.1102230246251565e-16;        // 2^-53
-        const double Tiny = 1e-290, Huge = 1e290;        // below / above: the relative bounds do not hold (underflow, overflow), the exact route decides
-        const double AbsErr = 1e-320;                    // absolute error of the underflow of one operation
+        internal const double U = 1.1102230246251565e-16;        // 2^-53
+        internal const double Tiny = 1e-290, Huge = 1e290;        // below / above: the relative bounds do not hold (underflow, overflow), the exact route decides
+        internal const double AbsErr = 1e-320;                    // absolute error of the underflow of one operation
 
         // ------------------------------------------------------------------------------------------------------------
         // the exact numbers: a BigInteger mantissa and a power of two
@@ -358,7 +358,7 @@ namespace g3
 
         /// <summary> the error bound of t = num / q, num with its own error </summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        static double TErr(double errNum, double errQ, double ri, double t)
+        internal static double TErr(double errNum, double errQ, double ri, double t)
         {
             // ri = 1.0000001 / (|q| - errQ)
             return (errNum + Math.Abs(t) * errQ) * ri + U * Math.Abs(t) * 2 + AbsErr;
@@ -401,7 +401,7 @@ namespace g3
         /// the exact |Q| at most aq + eQ, so |exact v| &gt; 2 Huge whenever that quotient is. NaN or an infinite error give 2.
         /// </summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        static int Kind(double v, double ev, double n, double eP, double aq, double eQ)
+        internal static int Kind(double v, double ev, double n, double eP, double aq, double eQ)
         {
             if (Math.Abs(v) + ev <= Huge)
                 return 0;
@@ -411,7 +411,7 @@ namespace g3
 
         /// <summary> one slab: 0 continue, 1 certified miss, 3 undecided (P, eP, Q and eQ finite: FilterOriented checks them, the axis-aligned box has finite inputs) </summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        static int Step(int i, double P, double eP, double Q, double eQ, double L, double H, bool ray, ref Acc c)
+        internal static int Step(int i, double P, double eP, double Q, double eQ, double L, double H, bool ray, ref Acc c)
         {
             if (Q == 0 && eQ == 0) {
                 // parallel to the slab, exactly: P itself against L and H
@@ -506,7 +506,7 @@ namespace g3
         }
 
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        static bool Away(double P, double eP, double Q, double eQ, double e)
+        internal static bool Away(double P, double eP, double Q, double eQ, double e)
         {
             // a ray that starts beyond a face of the slab and does not move toward it (the sign of Q certified) misses
             return (P - eP > e && Q >= eQ && Q >= 0) || (P + eP < -e && -Q >= eQ && Q <= 0);

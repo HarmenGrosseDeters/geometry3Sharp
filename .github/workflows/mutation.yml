@@ -32,6 +32,7 @@ on:
       - 'intersection/IntrExactBox3.cs'
       - 'tests/geometry3Sharp.Tests/IntrBox3ExactTests.cs'
       - 'tests/geometry3Sharp.Tests/IntrBox3PublicApiTests.cs'
+      - 'tests/geometry3Sharp.Tests/IntrBox3FilterEdgeTests.cs'
       - 'math/ExactDoubleWord.cs'
       - 'intersection/IntrTriangle3Triangle3.cs'
       - 'tests/geometry3Sharp.Tests/IntrTriangle3Triangle3DoubleWordTests.cs'
