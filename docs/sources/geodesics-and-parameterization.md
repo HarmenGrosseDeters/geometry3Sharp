@@ -148,3 +148,13 @@ Research probe of the spike [MULTISCALE_SPARSE_CHOLESKY_2026-11.md](../research/
 | Multiscale incomplete Cholesky: coarse-to-fine ordering, pattern by distance against the smaller length scale, zero fill-in factorization with a diagonal shift | J. Chen, F. Schäfer, J. Huang, M. Desbrun, *Multiscale Cholesky Preconditioning for Ill-Conditioned Problems*, ACM Trans. Graph. 40(4), 2021; ordering and pattern theory: F. Schäfer, T. J. Sullivan, H. Owhadi, *Compression, Inversion, and Approximate PCA of Dense Kernel Matrices at Near-Linear Computational Complexity*, Multiscale Model. Simul. 19(2), 2021 |
 | Factorized sparse approximate inverse by one dense solve per row (the closed form of the KL minimisation, applied to the entries of A) | F. Schäfer, M. Katzfuss, H. Owhadi, *Sparse Cholesky Factorization by Kullback-Leibler Minimization*, SIAM J. Sci. Comput. 43(3), 2021; L. Yu. Kolotilina, A. Yu. Yeremin, *Factorized Sparse Approximate Inverse Preconditionings I. Theory*, SIAM J. Matrix Anal. Appl. 14(1), 1993 |
 | Seeded approximate elimination (one sampled edge per neighbour of the eliminated vertex, elimination by current degree, neighbours sorted by weight) | R. Kyng, S. Sachdeva, *Approximate Gaussian Elimination for Laplacians: Fast, Sparse, and Simple*, FOCS 2016; Y. Gao, R. Kyng, D. Spielman, *Robust and Practical Solution of Laplacian Equations by Approximate Elimination*, arXiv:2303.00709, 2023 |
+
+
+## Discrete conformal annulus study
+
+The [annulus study](../research/DISCRETE_CONFORMAL_EQUIVALENCE_STUDY.md) uses the following papers. The procedural reference is derived from vertex scaling. No external code was used.
+
+| Source | Use |
+|---|---|
+| M. Gillespie, B. Springborn and K. Crane, [*Discrete Conformal Equivalence of Polyhedral Surfaces*](https://doi.org/10.1145/3450626.3459763), ACM TOG 40(4), 2021 | Vertex scaling, Ptolemy flips, normal-coordinate correspondence and boundary conditions |
+| M. Campen, R. Capouellez, H. Shen, L. Zhu, D. Panozzo and D. Zorin, [*Efficient and Robust Discrete Conformal Equivalence with Boundary*](https://arxiv.org/abs/2104.04614), 2021 | Prescribed boundary curvature and stable flips in the symmetric double cover |
