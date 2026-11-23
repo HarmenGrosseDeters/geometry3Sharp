@@ -10,11 +10,14 @@ namespace geometry3Sharp.Tests
 {
     /// <summary>
     /// The exact boolean with its default SafeRounding and SolidBooleanPipeline under a reordering of the input (the same
-    /// triangles in another order, the same vertices with other ids): what is the same and what is not, stage by stage
-    /// (docs/research/BOOLEAN_INPUT_ORDER_2026-11.md). The inputs are two nearly coincident curved plates, generated here.
+    /// triangles in another order, with their corners rotated, the same vertices with other ids): the result is the same
+    /// mesh bit for bit, ids included, and so is the status (#1464, docs/research/BOOLEAN_INPUT_ORDER_2026-11.md). The
+    /// inputs are two nearly coincident curved plates, generated here. Before #1464 the kept pieces were the same but the
+    /// rounding repair worked through them in the order of the input, and the flat regions were triangulated by a filter
+    /// that depends on how a point was computed.
     ///
-    /// The tests named ..._Today pin the dependence as it is: they fail when it is removed, and are then turned into the
-    /// invariance they describe. The others hold and stay.
+    /// MeshRoundingRepair itself still depends on the ids of the mesh it is given: the boolean hands it a mesh numbered
+    /// by its geometry (Repair_OfOneMesh_DependsOnItsNumbering pins that limit).
     /// </summary>
     public class ExactBooleanInputOrderTests
     {
@@ -115,10 +118,20 @@ namespace geometry3Sharp.Tests
 
         // ---- reorderings ----
 
-        /// <summary> the orders of the triangles and of the vertex ids: 0 as given, -1 reversed, any other value a seed </summary>
+        /// <summary>
+        /// The orders of the triangles and of the vertex ids (0 as given, -1 reversed, any other value the seed of a
+        /// shuffle), and the seed of a rotation of each triangle's corners (0: as given).
+        /// </summary>
         static readonly int[][] Orders = {
-            new[] { 0, 0 }, new[] { -1, 0 }, new[] { 0, -1 }, new[] { -1, -1 }, new[] { 249, 111 }, new[] { 467, 771 }
+            new[] { 0, 0, 0 }, new[] { -1, 0, 0 }, new[] { 0, -1, 0 }, new[] { -1, -1, 0 }, new[] { 0, 0, 5 },
+            new[] { 249, 111, 0 }, new[] { 467, 771, 3 }, new[] { 12, 34, 56 }
         };
+
+        static ulong Next(ref ulong s)
+        {
+            s = s * 6364136223846793005UL + 1442695040888963407UL;
+            return s >> 33;
+        }
 
         static int[] Ordered(IEnumerable<int> ids, int order)
         {
@@ -129,24 +142,25 @@ namespace geometry3Sharp.Tests
                 // (a Fisher-Yates shuffle with a generator of its own: the same on every runtime)
                 ulong s = (ulong)order * 0x9E3779B97F4A7C15UL + 1;
                 for (int i = a.Length - 1; i > 0; --i) {
-                    s = s * 6364136223846793005UL + 1442695040888963407UL;
-                    int j = (int)((s >> 33) % (ulong)(i + 1));
+                    int j = (int)(Next(ref s) % (ulong)(i + 1));
                     int tmp = a[i]; a[i] = a[j]; a[j] = tmp;
                 }
             }
             return a;
         }
 
-        /// <summary> the same mesh with its triangles and its vertex ids in another order (corners kept) </summary>
-        static DMesh3 Reordered(DMesh3 mesh, int triangleOrder, int vertexOrder)
+        /// <summary> the same mesh with its triangles and its vertex ids in another order and the corners of each triangle rotated </summary>
+        static DMesh3 Reordered(DMesh3 mesh, int[] order)
         {
             var map = new Dictionary<int, int>();
             var r = new DMesh3();
-            foreach (int v in Ordered(mesh.VertexIndices(), vertexOrder))
+            foreach (int v in Ordered(mesh.VertexIndices(), order[1]))
                 map[v] = r.AppendVertex(mesh.GetVertex(v));
-            foreach (int t in Ordered(mesh.TriangleIndices(), triangleOrder)) {
+            ulong s = (ulong)order[2] * 0x9E3779B97F4A7C15UL + 1;
+            foreach (int t in Ordered(mesh.TriangleIndices(), order[0])) {
                 Index3i f = mesh.GetTriangle(t);
-                Assert.True(r.AppendTriangle(map[f.a], map[f.b], map[f.c]) >= 0);
+                int k = order[2] == 0 ? 0 : (int)(Next(ref s) % 3);
+                Assert.True(r.AppendTriangle(map[f[k]], map[f[(k + 1) % 3]], map[f[(k + 2) % 3]]) >= 0);
             }
             return r;
         }
@@ -188,46 +202,47 @@ namespace geometry3Sharp.Tests
             return string.Join("\n", keys);
         }
 
-        /// <summary> the volume, summed in an order that does not depend on the ids </summary>
-        static double Volume(DMesh3 m)
-        {
-            var terms = new List<double>();
-            foreach (int t in m.TriangleIndices()) {
-                Index3i f = m.GetTriangle(t);
-                Vector3d[] p = { m.GetVertex(f.a), m.GetVertex(f.b), m.GetVertex(f.c) };
-                int k = 0;
-                for (int i = 1; i < 3; ++i)
-                    if (Compare(p[i], p[k]) < 0) k = i;
-                terms.Add(p[k].Dot(p[(k + 1) % 3].Cross(p[(k + 2) % 3])));
-            }
-            terms.Sort();
-            double v = 0;
-            foreach (double x in terms) v += x;
-            return v / 6;
-        }
-
         static ExactMeshBoolean Exact(Case c, int[] order, bool simplify = true)
         {
-            var b = new ExactMeshBoolean(Reordered(c.A, order[0], order[1]), Reordered(c.B, order[0], order[1]), c.Op) { SafeRounding = false, SimplifyFlatRegions = simplify };
+            var b = new ExactMeshBoolean(Reordered(c.A, order), Reordered(c.B, order), c.Op) { SafeRounding = false, SimplifyFlatRegions = simplify };
             Assert.True(b.Compute(), c.Name + ": " + b.Error);
             return b;
         }
 
         static ExactMeshBoolean Rounded(Case c, int[] order)
         {
-            var b = new ExactMeshBoolean(Reordered(c.A, order[0], order[1]), Reordered(c.B, order[0], order[1]), c.Op);
+            var b = new ExactMeshBoolean(Reordered(c.A, order), Reordered(c.B, order), c.Op);
             Assert.True(b.Compute(), c.Name + ": " + b.Error);
             return b;
         }
 
         static string Counts(MeshRoundingRepair r)
         {
-            return r.InitialIntersections + " " + r.InitialDegenerate + " " + r.InitialFalseContacts;
+            return r.InitialIntersections + " " + r.InitialDegenerate + " " + r.InitialFalseContacts + " -> " + r.RemainingIntersections + " " + r.RemainingDegenerate + " "
+                + r.RemainingFalseContacts + " | " + r.Collapses + " " + r.Flips + " " + r.Moves + " " + r.Zips + " " + r.StripZips + " " + r.PositionSearchMoves + " " + r.RemovedComponents;
         }
+
+        /// <summary> the mesh with its ids: every vertex id with its coordinates (bits), every triangle id with its corners in order </summary>
+        static string Mesh(DMesh3 m)
+        {
+            if (m == null)
+                return "(no result)";
+            var sb = new StringBuilder();
+            sb.Append(m.MaxVertexID).Append('/').Append(m.MaxTriangleID).Append('\n');
+            foreach (int v in m.VertexIndices())
+                sb.Append(v).Append(':').Append(Bits(m.GetVertex(v))).Append('\n');
+            foreach (int t in m.TriangleIndices()) {
+                Index3i f = m.GetTriangle(t);
+                sb.Append(t).Append(':').Append(f.a).Append(',').Append(f.b).Append(',').Append(f.c).Append('\n');
+            }
+            return sb.ToString();
+        }
+
+        static string Order(int[] order) { return "order " + order[0] + ", " + order[1] + ", " + order[2]; }
 
         public static IEnumerable<object[]> CaseNames()
         {
-            return new[] { new object[] { "shrunk" }, new object[] { "strip" }, new object[] { "tessellations" } };
+            return new[] { new object[] { "shrunk" }, new object[] { "strip" }, new object[] { "tessellations" }, new object[] { "turned" } };
         }
 
         static Case Named(string name)
@@ -235,11 +250,11 @@ namespace geometry3Sharp.Tests
             return name == "shrunk" ? ShrunkCopy() : name == "strip" ? ThinStrip() : name == "tessellations" ? TwoTessellations() : TurnedCopy();
         }
 
-        // ---- stage 1 and 2: the arrangement and the exact result ----
+        // ---- the exact stages ----
 
         /// <summary>
-        /// The kept pieces of the arrangement (no simplification of flat regions, no repair) are the same triangles for
-        /// every order of the input, and so is the exact result of these three cases with the simplification.
+        /// The kept pieces of the arrangement (no simplification of flat regions, no repair) and the exact result are the
+        /// same triangles for every order of the input.
         /// </summary>
         [Theory]
         [MemberData(nameof(CaseNames))]
@@ -249,111 +264,243 @@ namespace geometry3Sharp.Tests
             string pieces = TriangleSet(Exact(c, Orders[0], simplify: false).Result), exact = TriangleSet(Exact(c, Orders[0]).Result);
             Assert.NotEqual(pieces, exact);     // (the simplification removes vertices in these cases)
             foreach (int[] order in Orders.Skip(1)) {
-                Assert.True(pieces == TriangleSet(Exact(c, order, simplify: false).Result), name + ": the pieces differ for order " + order[0] + ", " + order[1]);
-                Assert.True(exact == TriangleSet(Exact(c, order).Result), name + ": the exact result differs for order " + order[0] + ", " + order[1]);
+                Assert.True(pieces == TriangleSet(Exact(c, order, simplify: false).Result), name + ": the pieces differ for " + Order(order));
+                Assert.True(exact == TriangleSet(Exact(c, order).Result), name + ": the exact result differs for " + Order(order));
             }
         }
 
         /// <summary>
-        /// Pinned: ExactPlanarSimplify triangulates the hole of a removed point starting at a corner that depends on the order
-        /// of the pieces, and its flips towards Delaunay stop where the filter does not decide (points on a circle, as on a
-        /// regular grid). So the triangulation of a flat region can depend on the vertex ids of the input: here the same
-        /// pieces, the same number of removed points and of triangles, the same exact surface, another set of triangles.
-        /// </summary>
-        [Fact]
-        public void FlatRegions_AreTriangulatedDifferently_ForReversedVertexIds_Today()
-        {
-            Case c = TurnedCopy();
-            int[] asGiven = { 0, 0 }, reversedIds = { 0, -1 }, reversedTriangles = { -1, 0 };
-            Assert.Equal(TriangleSet(Exact(c, asGiven, simplify: false).Result), TriangleSet(Exact(c, reversedIds, simplify: false).Result));
-            ExactMeshBoolean x = Exact(c, asGiven), y = Exact(c, reversedIds);
-            x.ComputeExactVertices = y.ComputeExactVertices = true;
-            Assert.True(x.Compute() && y.Compute());
-            Assert.Equal(x.RemovedVertices, y.RemovedVertices);
-            Assert.Equal(x.Result.TriangleCount, y.Result.TriangleCount);
-            // (the same surface, exactly: only its triangulation differs)
-            Assert.Equal("", SurfaceFingerprint.Difference(SurfaceFingerprint.Of(x.Result, x.ResultExactVertices), SurfaceFingerprint.Of(y.Result, y.ResultExactVertices)));
-            Assert.Equal(TriangleSet(x.Result), TriangleSet(Exact(c, reversedTriangles).Result));
-            Assert.True(TriangleSet(x.Result) != TriangleSet(y.Result),
-                "the flat regions are triangulated the same way for reversed vertex ids: the dependence is gone, turn this test into the invariance");
-        }
-
-        // ---- stage 3: the rounding repair ----
-
-        /// <summary>
-        /// Pinned: the default result (SafeRounding) depends on the order of the input. Every order gives a clean, closed
-        /// result from the same exact result with the same defects after rounding, but the repair edits them in another
-        /// order and keeps other vertices: other triangles, and a volume that differs in the fourth significant digit (the
-        /// result is a skin or strip about as thin as the repair's bound, so each contraction moves a visible part of it).
+        /// The exact result without the repair is the same mesh, ids included, for every order: the pieces are ordered by
+        /// their geometry before the vertices are numbered (ExactMeshBoolean.order_pieces). "turned" has flat regions whose
+        /// points lie on a circle: before, their flips towards Delaunay were decided by the floating-point filter alone,
+        /// whose verdict depends on how a point was computed, and reversed vertex ids gave other diagonals.
         /// </summary>
         [Theory]
-        [InlineData("shrunk", 1e-4, 2e-2)]
-        [InlineData("strip", 1e-5, 2e-3)]
-        public void RoundedResult_DependsOnTheInputOrder_Today(string name, double leastSpread, double mostSpread)
+        [MemberData(nameof(CaseNames))]
+        public void ExactResult_IsBitIdentical_WhateverTheInputOrder(string name)
         {
             Case c = Named(name);
-            var results = new HashSet<string>();
-            var defects = new HashSet<string>();
-            double low = double.MaxValue, high = double.MinValue;
-            foreach (int[] order in Orders) {
-                ExactMeshBoolean b = Rounded(c, order);
-                Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, b.Status);
-                Assert.True(b.RoundingClean, name + ": not clean for order " + order[0] + ", " + order[1]);
-                ResultChecks.AssertValid(b.Result);
-                ResultChecks.AssertClosed(b.Result);
-                Assert.Equal("", BooleanOracle.CleanReason(b.Result));
-                Assert.True(b.Rounding.Collapses > 0);
-                defects.Add(Counts(b.Rounding));
-                results.Add(TriangleSet(b.Result));
-                double v = Volume(b.Result);
-                low = Math.Min(low, v);
-                high = Math.Max(high, v);
+            ExactMeshBoolean first = Exact(c, Orders[0]);
+            Assert.True(first.RemovedVertices > 0);
+            string mesh = Mesh(first.Result);
+            foreach (int[] order in Orders.Skip(1)) {
+                ExactMeshBoolean b = Exact(c, order);
+                Assert.Equal(first.RemovedVertices, b.RemovedVertices);
+                Assert.True(mesh == Mesh(b.Result), name + ": another exact result for " + Order(order));
             }
-            Assert.Single(defects);     // (the repair starts from the same defects)
-            double spread = (high - low) / high;
-            Assert.True(spread < mostSpread, name + ": the volumes differ by " + spread.ToString("G3") + " relative, more than pinned");
-            Assert.True(results.Count > 1 && spread > leastSpread,
-                name + ": " + results.Count + " results over " + Orders.Length + " orders, volumes within " + spread.ToString("G3") + " relative: the dependence is gone or smaller, turn this test into the invariance");
+        }
+
+        // ---- the default mode and the pipeline ----
+
+        /// <summary>
+        /// The default result (SafeRounding) is the same mesh bit for bit, ids included, for every order of the input, with
+        /// the same verdict and the same edits of the repair; where it is clean it is a closed, clean surface. In all four
+        /// cases the repair edits the result (before #1464: several results per case, volumes that differ in the fourth
+        /// digit, and for "tessellations" a verdict that depends on the order).
+        /// </summary>
+        [Theory]
+        [MemberData(nameof(CaseNames))]
+        public void DefaultResult_IsBitIdentical_WhateverTheInputOrder(string name)
+        {
+            Case c = Named(name);
+            ExactMeshBoolean first = Rounded(c, Orders[0]);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, first.Status);
+            Assert.True(first.Rounding.InitialDegenerate > 0 && first.Rounding.Collapses > 0, name + ": the repair has nothing to do (the test would show nothing)");
+            ResultChecks.AssertValid(first.Result);
+            ResultChecks.AssertClosed(first.Result);
+            if (first.RoundingClean)
+                Assert.Equal("", BooleanOracle.CleanReason(first.Result));
+            string mesh = Mesh(first.Result), counts = Counts(first.Rounding);
+            foreach (int[] order in Orders.Skip(1)) {
+                ExactMeshBoolean b = Rounded(c, order);
+                Assert.Equal(first.Status, b.Status);
+                Assert.Equal(first.RoundingClean, b.RoundingClean);
+                Assert.Equal(counts, Counts(b.Rounding));
+                Assert.Equal(first.Contacts, b.Contacts);
+                Assert.True(mesh == Mesh(b.Result), name + ": another result for " + Order(order));
+            }
         }
 
         /// <summary>
-        /// Pinned: the status of SolidBooleanPipeline (and RoundingClean of the default mode) depends on the order of the
-        /// input. In some orders the repair's sequence of edits leaves one degenerate triangle that no further edit
-        /// removes, and the pipeline fails with RoundingNotClean; in the others it succeeds.
+        /// SolidBooleanPipeline gives the same status and the same mesh for every order of the input: a closed, clean result,
+        /// or RoundingNotClean in every order. Before #1464 "tessellations" succeeded in some orders and failed in others
+        /// (a degenerate triangle that the repair cannot remove from some states, #1465).
         /// </summary>
-        [Fact]
-        public void PipelineStatus_DependsOnTheInputOrder_Today()
+        [Theory]
+        [MemberData(nameof(CaseNames))]
+        public void Pipeline_IsTheSame_WhateverTheInputOrder(string name)
         {
-            Case c = TwoTessellations();
-            var statuses = new List<string>();
+            Case c = Named(name);
+            SolidBooleanPipeline first = null;
             foreach (int[] order in Orders) {
-                DMesh3 a = Reordered(c.A, order[0], order[1]), b = Reordered(c.B, order[0], order[1]);
-                var pipe = new SolidBooleanPipeline(a, b, c.Op);
+                var pipe = new SolidBooleanPipeline(Reordered(c.A, order), Reordered(c.B, order), c.Op);
                 bool ok = pipe.Compute();
-                var plain = new ExactMeshBoolean(a, b, c.Op);
-                Assert.True(plain.Compute());
-                Assert.Equal(ok, plain.RoundingClean);
-                if (ok) {
-                    Assert.Equal(SolidBooleanPipeline.PipelineStatus.Success, pipe.Status);
-                    ResultChecks.AssertClosed(pipe.Result);
-                    Assert.Equal("", BooleanOracle.CleanReason(pipe.Result));
-                } else {
-                    Assert.Equal(SolidBooleanPipeline.PipelineStatus.BooleanFailed, pipe.Status);
-                    Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, pipe.BooleanStatus);
-                    Assert.Null(pipe.Result);
-                    Assert.Equal(0, plain.Rounding.RemainingIntersections);
-                    Assert.Equal(1, plain.Rounding.RemainingDegenerate);
+                if (first == null) {
+                    first = pipe;
+                    if (ok) {
+                        Assert.Equal(SolidBooleanPipeline.PipelineStatus.Success, pipe.Status);
+                        ResultChecks.AssertClosed(pipe.Result);
+                        Assert.Equal("", BooleanOracle.CleanReason(pipe.Result));
+                    } else {
+                        Assert.Equal(SolidBooleanPipeline.PipelineStatus.BooleanFailed, pipe.Status);
+                        Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, pipe.BooleanStatus);
+                        Assert.Null(pipe.Result);
+                    }
+                    continue;
                 }
-                statuses.Add(order[0] + "," + order[1] + ":" + pipe.Status);
+                Assert.Equal(first.Status, pipe.Status);
+                Assert.Equal(first.BooleanStatus, pipe.BooleanStatus);
+                Assert.Equal(first.Report.NotCleanReason, pipe.Report.NotCleanReason);
+                Assert.True(Mesh(first.Result) == Mesh(pipe.Result), name + ": another result for " + Order(order));
             }
-            Assert.True(statuses.Any(s => s.EndsWith(":Success")) && statuses.Any(s => s.EndsWith(":BooleanFailed")),
-                "one status for every order (" + string.Join(" ", statuses) + "): the dependence is gone, turn this test into the invariance");
         }
 
-        // ---- the repair alone, and a numbering that does not depend on the input ----
+        /// <summary> a second Compute() on the same instance gives the same mesh </summary>
+        [Fact]
+        public void DefaultResult_IsTheSame_ForASecondCompute()
+        {
+            Case c = ThinStrip();
+            var b = new ExactMeshBoolean(c.A, c.B, c.Op);
+            Assert.True(b.Compute());
+            string mesh = Mesh(b.Result);
+            Assert.True(b.Compute());
+            Assert.Equal(mesh, Mesh(b.Result));
+        }
+
+        /// <summary>
+        /// Under Similarity.All(): the transformed inputs in two orders give the same mesh bit for bit (the order of the
+        /// pieces is an exact comparison of points, at every scale and place), valid and, unless empty, closed. The 2^k scales give the
+        /// mesh of the untransformed inputs, scaled, bit for bit and with the same ids.
+        /// </summary>
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void DefaultResult_IsBitIdentical_ForReorderedInputs_UnderSimilarities(string similarity)
+        {
+            Similarity s = Similarity.ByName(similarity);
+            foreach (Case c in new[] { ShrunkCopy(), ThinStrip() }) {
+                var moved = new Case { Name = c.Name, Op = c.Op, A = Invariance.Transformed(c.A, s), B = Invariance.Transformed(c.B, s) };
+                ExactMeshBoolean first = Rounded(moved, Orders[0]);
+                ResultChecks.AssertValid(first.Result);
+                // (far from the origin the coordinates do not resolve the skin: the result may be empty)
+                if (first.Result.TriangleCount > 0)
+                    ResultChecks.AssertClosed(first.Result);
+                foreach (int[] order in new[] { Orders[3], Orders[7] }) {
+                    ExactMeshBoolean b = Rounded(moved, order);
+                    Assert.Equal(first.RoundingClean, b.RoundingClean);
+                    Assert.True(Mesh(first.Result) == Mesh(b.Result), c.Name + ", " + s.Name + ": another result for " + Order(order));
+                }
+                if (s.IsExact) {
+                    ExactMeshBoolean plain = Rounded(c, Orders[0]);
+                    Assert.Equal(plain.RoundingClean, first.RoundingClean);
+                    Assert.True(Mesh(plain.Result) == Mesh(Invariance.MappedBack(first.Result, s)), c.Name + ", " + s.Name + ": not the scaled result");
+                }
+            }
+        }
+
+        // ---- the simplification of flat regions on its own ----
+
+        // a fan around the origin in the plane z = 0 whose rim has 8 points on one circle (x^2 + y^2 = 25); ExactPlanarSimplify
+        // on its triangles, the list starting at triangle `first` and each triangle's corners rotated by `turn`: the
+        // triangles left after the hub is removed, as sorted point triples
+        static string SimplifiedFan(int first, int turn)
+        {
+            int[][] rim = { new[] { 5, 0 }, new[] { 4, 3 }, new[] { 3, 4 }, new[] { 0, 5 }, new[] { -3, 4 }, new[] { -4, 3 }, new[] { -5, 0 }, new[] { 0, -5 } };
+            var m = new DMesh3();
+            m.AppendVertex(Vector3d.Zero);
+            foreach (int[] p in rim)
+                m.AppendVertex(new Vector3d(p[0], p[1], 0));
+            int n = rim.Length;
+            for (int i = 0; i < n; ++i)
+                m.AppendTriangle(0, 1 + i, 1 + (i + 1) % n);
+            var arr = new ExactMeshArrangement(new List<DMesh3> { m });
+            arr.Compute();
+            var tris = new List<Index3i>();
+            var source = new List<int>();
+            var flipped = new List<bool>();
+            for (int j = 0; j < n; ++j) {
+                int t = (first + j) % n;
+                Index3i f = m.GetTriangle(t);
+                int k = (turn + j) % 3;
+                tris.Add(new Index3i(arr.Canonical(arr.VertexPoints[0][f[k]]), arr.Canonical(arr.VertexPoints[0][f[(k + 1) % 3]]), arr.Canonical(arr.VertexPoints[0][f[(k + 2) % 3]])));
+                source.Add(arr.MeshTriangles[0][t]);
+                flipped.Add(false);
+            }
+            var simplify = new ExactPlanarSimplify(arr, tris, source, flipped);
+            var keep = new bool[arr.PointCount];
+            int hub = arr.Canonical(arr.VertexPoints[0][0]);
+            for (int i = 0; i < keep.Length; ++i)
+                keep[i] = i != hub;
+            simplify.Run(keep);
+            Assert.Equal(1, simplify.Removed);
+            var keys = new List<string>();
+            foreach (Index3i f in simplify.Result()) {
+                int k = f.a < f.b && f.a < f.c ? 0 : f.b < f.c ? 1 : 2;
+                keys.Add(f[k] + " " + f[(k + 1) % 3] + " " + f[(k + 2) % 3]);
+            }
+            Assert.Equal(n - 2, keys.Count);
+            keys.Sort(string.CompareOrdinal);
+            return string.Join(", ", keys);
+        }
+
+        /// <summary>
+        /// ExactPlanarSimplify triangulates the hole of a removed point the same way whatever the order of the triangles
+        /// it is given and of their corners: the hole starts at its smallest point. With all points of the hole on one
+        /// circle no flip follows, so the ear clipping's start decides (before: a corner of the point's first triangle).
+        /// </summary>
+        [Fact]
+        public void FlatRegion_IsTriangulatedTheSameWay_WhateverTheOrderOfItsTriangles()
+        {
+            string expected = SimplifiedFan(0, 0);
+            for (int first = 0; first < 8; ++first)
+                for (int turn = 0; turn < 3; ++turn)
+                    Assert.True(expected == SimplifiedFan(first, turn), "first triangle " + first + ", corners turned by " + turn + ": " + SimplifiedFan(first, turn) + " instead of " + expected);
+        }
+
+        // ---- the order of the points ----
+
+        /// <summary>
+        /// ExactMeshArrangement.SortPoints gives the list sorted by ComparePoints, whatever order it is handed and whichever
+        /// way it takes: the sort by the filter's key with the insertion sort after it, or (budget below 0, or used up at
+        /// the first move with 0) ComparePoints alone. The points are those of two nearly coincident plates: many lie closer
+        /// along the key's direction than the errors of their keys.
+        /// </summary>
+        [Fact]
+        public void SortPoints_IsTheOrderOfComparePoints_OnEveryPath()
+        {
+            // (the rotated plates: there the keys alone give another order than ComparePoints, so the insertion sort moves points)
+            Case tess = TwoTessellations(), shrunk = ShrunkCopy();
+            Similarity rotated = Similarity.ByName("rotated");
+            foreach (DMesh3[] meshes in new[] { new[] { tess.A, tess.B }, new[] { Invariance.Transformed(shrunk.A, rotated), Invariance.Transformed(shrunk.B, rotated) } }) {
+                var arr = new ExactMeshArrangement(new List<DMesh3>(meshes));
+                arr.Compute();
+                var seen = new HashSet<int>();
+                foreach (var t in arr.Output) {
+                    seen.Add(t.A);
+                    seen.Add(t.B);
+                    seen.Add(t.C);
+                }
+                var expected = new List<int>(seen);
+                expected.Sort(arr.ComparePoints);
+                Assert.True(expected.Count > 100);
+                for (int i = 1; i < expected.Count; ++i)
+                    Assert.True(arr.ComparePoints(expected[i - 1], expected[i]) < 0);
+                foreach (int budget in new[] { 8, 0, -1 })
+                    foreach (int order in new[] { 0, -1, 5, 77 }) {
+                        arr.SortPointsMoveBudget = budget;
+                        var ids = new List<int>(Ordered(expected, order));
+                        arr.SortPoints(ids);
+                        Assert.True(expected.SequenceEqual(ids), "budget " + budget + ", order " + order);
+                    }
+                var none = new List<int>();
+                arr.SortPoints(none);
+                Assert.Empty(none);
+            }
+        }
+
+        // ---- the repair alone ----
 
         // the repair as ExactMeshBoolean configures it, without the exact point ids (no vertices of different exact points
-        // share a position in these cases); fixedAt: the positions of the input vertices
+        // share a position in this case); fixedAt: the positions of the input vertices
         static MeshRoundingRepair Repair(DMesh3 mesh, HashSet<Vector3d> fixedAt)
         {
             var r = new MeshRoundingRepair(mesh) { SharedPositionsTouch = true, FixedWhereCoarse = false };
@@ -367,107 +514,26 @@ namespace geometry3Sharp.Tests
             return r;
         }
 
-        static HashSet<Vector3d> InputPositions(Case c)
-        {
-            var set = new HashSet<Vector3d>();
-            foreach (DMesh3 m in new[] { c.A, c.B })
-                foreach (int v in m.VertexIndices())
-                    set.Add(m.GetVertex(v));
-            return set;
-        }
-
         /// <summary>
-        /// The mesh numbered by its geometry alone: the vertices sorted by position (those at one position by the positions
-        /// of their triangles), each triangle's corners rotated to start at its smallest vertex, the triangles sorted.
-        /// </summary>
-        static DMesh3 NumberedByGeometry(DMesh3 m)
-        {
-            var ring = new Dictionary<int, string>();
-            foreach (int v in m.VertexIndices()) {
-                var l = new List<string>();
-                foreach (int t in m.VtxTrianglesItr(v)) {
-                    Index3i f = m.GetTriangle(t);
-                    int k = f.a == v ? 0 : f.b == v ? 1 : 2;
-                    l.Add(Bits(m.GetVertex(f[(k + 1) % 3])) + Bits(m.GetVertex(f[(k + 2) % 3])));
-                }
-                l.Sort(string.CompareOrdinal);
-                ring[v] = string.Join("|", l);
-            }
-            int[] vs = m.VertexIndices().ToArray();
-            Comparison<int> cmp = (x, y) => { int c = Compare(m.GetVertex(x), m.GetVertex(y)); return c != 0 ? c : string.CompareOrdinal(ring[x], ring[y]); };
-            Array.Sort(vs, cmp);
-            for (int i = 1; i < vs.Length; ++i)
-                Assert.True(cmp(vs[i - 1], vs[i]) != 0, "two vertices that the geometry does not tell apart");
-            var map = new Dictionary<int, int>();
-            var r = new DMesh3();
-            foreach (int v in vs)
-                map[v] = r.AppendVertex(m.GetVertex(v));
-            var tris = new List<Index3i>();
-            foreach (int t in m.TriangleIndices()) {
-                Index3i f = m.GetTriangle(t);
-                int[] c = { map[f.a], map[f.b], map[f.c] };
-                int k = 0;
-                for (int i = 1; i < 3; ++i)
-                    if (c[i] < c[k]) k = i;
-                tris.Add(new Index3i(c[k], c[(k + 1) % 3], c[(k + 2) % 3]));
-            }
-            tris.Sort((x, y) => x.a != y.a ? x.a.CompareTo(y.a) : x.b != y.b ? x.b.CompareTo(y.b) : x.c.CompareTo(y.c));
-            foreach (Index3i f in tris)
-                Assert.True(r.AppendTriangle(f) >= 0);
-            return r;
-        }
-
-        /// <summary>
-        /// Pinned, and the localisation: MeshRoundingRepair on one and the same mesh (the exact result of one order, rounded)
-        /// gives another mesh when only the ids of that mesh are reversed. The dependence is in the repair's use of ids
-        /// (the order of its work lists and ties, the end of an edge it keeps), not in what the boolean hands it.
+        /// The documented limit: MeshRoundingRepair on one and the same mesh gives another mesh when only the ids of that mesh
+        /// are reversed (the order of its work lists and ties, the end of an edge it keeps). The boolean is independent of the
+        /// input order because it hands the repair a mesh numbered by its geometry, not because the repair is.
         /// </summary>
         [Fact]
-        public void Repair_OfOneMesh_DependsOnItsNumbering_Today()
+        public void Repair_OfOneMesh_DependsOnItsNumbering()
         {
             Case c = ShrunkCopy();
-            HashSet<Vector3d> inputs = InputPositions(c);
+            var inputs = new HashSet<Vector3d>();
+            foreach (DMesh3 m in new[] { c.A, c.B })
+                foreach (int v in m.VertexIndices())
+                    inputs.Add(m.GetVertex(v));
             DMesh3 exact = Exact(c, Orders[0]).Result;
-            DMesh3 asGiven = new DMesh3(exact), renumbered = Reordered(exact, -1, -1);
+            DMesh3 asGiven = new DMesh3(exact), renumbered = Reordered(exact, new[] { -1, -1, 0 });
             Assert.Equal(TriangleSet(asGiven), TriangleSet(renumbered));
             MeshRoundingRepair r0 = Repair(asGiven, inputs), r1 = Repair(renumbered, inputs);
             Assert.True(r0.IsClean && r1.IsClean);
-            Assert.Equal(Counts(r0), Counts(r1));
-            Assert.True(r0.InitialDegenerate > 0 && r0.Collapses > 0);
-            Assert.True(TriangleSet(asGiven) != TriangleSet(renumbered),
-                "the repair gives the same mesh for reversed ids: the dependence is gone, turn this test into the invariance");
-        }
-
-        /// <summary>
-        /// The upper bound of the option "number the exact result by its geometry before the repair": with that numbering
-        /// the repair gives one mesh for every order of the input (it is a deterministic function of the numbered mesh), here
-        /// on the three cases whose default result differs between the orders.
-        /// </summary>
-        [Theory]
-        [MemberData(nameof(CaseNames))]
-        public void Repair_AfterNumberingByGeometry_IsTheSame_WhateverTheInputOrder(string name)
-        {
-            Case c = Named(name);
-            HashSet<Vector3d> inputs = InputPositions(c);
-            string first = null;
-            bool firstClean = false;
-            var asToday = new HashSet<string>();
-            foreach (int[] order in Orders) {
-                DMesh3 exact = Exact(c, order).Result;
-                DMesh3 today = new DMesh3(exact);
-                Repair(today, inputs);
-                asToday.Add(TriangleSet(today));
-                DMesh3 numbered = NumberedByGeometry(exact);
-                Assert.Equal(TriangleSet(exact), TriangleSet(numbered));
-                MeshRoundingRepair r = Repair(numbered, inputs);
-                Assert.True(r.InitialDegenerate > 0);
-                if (first == null) {
-                    first = TriangleSet(numbered);
-                    firstClean = r.IsClean;
-                }
-                Assert.True(first == TriangleSet(numbered) && firstClean == r.IsClean, name + ": another result for order " + order[0] + ", " + order[1]);
-            }
-            Assert.True(asToday.Count > 1, name + ": without the numbering the orders give one result (the test would show nothing)");
+            Assert.True(r0.InitialDegenerate > 0 && r0.InitialDegenerate == r1.InitialDegenerate && r0.Collapses > 0);
+            Assert.NotEqual(TriangleSet(asGiven), TriangleSet(renumbered));
         }
     }
 }

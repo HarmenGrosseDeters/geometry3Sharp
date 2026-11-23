@@ -962,6 +962,47 @@ namespace g3
             return x + y + z;
         }
 
+        /// <summary>
+        /// The ids sorted by ComparePoints (distinct points: the one order that it defines). First by the double key of
+        /// ComparePoints' filter, with a sort of doubles, then an insertion sort by ComparePoints itself: where the keys
+        /// decide, that is one comparison per point; where they do not (points closer than their errors along the
+        /// direction of the key), the insertion sort moves the point to its place. If it has to move points more than
+        /// SortPointsMoveBudget times their number (keys that say nothing: approximations beyond the double range), the
+        /// list is sorted by ComparePoints alone. Either way the result is the list sorted by ComparePoints.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal void SortPoints(List<int> ids)
+        {
+            int n = ids.Count;
+            var key = new double[n];
+            var id = new int[n];
+            for (int i = 0; i < n; ++i) {
+                double e;
+                id[i] = ids[i];
+                key[i] = order_key(approx[id[i]], approxErr[id[i]], out e);
+            }
+            Array.Sort(key, id);
+            long moves = 0, most = (long)SortPointsMoveBudget * n;
+            for (int i = 1; i < n && moves <= most; ++i) {
+                int x = id[i], j = i;
+                while (j > 0 && ComparePoints(id[j - 1], x) > 0) {
+                    id[j] = id[j - 1];
+                    j--;
+                    moves++;
+                }
+                id[j] = x;
+            }
+            if (moves > most) {
+                ids.Sort(ComparePoints);
+                return;
+            }
+            for (int i = 0; i < n; ++i)
+                ids[i] = id[i];
+        }
+
+        /// <summary> SortPoints: the moves of its insertion sort per point before it sorts by ComparePoints alone (for tests: below 0, always) </summary>
+        internal int SortPointsMoveBudget = 8;
+
         /// <summary> a total order of the exact points (deterministic, unlike point ids); 0 iff the points are equal </summary>
         [MethodImpl(JitHints.Optimize)]
         public int ComparePoints(int a, int b)

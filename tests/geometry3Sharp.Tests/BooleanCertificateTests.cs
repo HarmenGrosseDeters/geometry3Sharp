@@ -534,8 +534,8 @@ namespace geometry3Sharp.Tests
         /// <summary>
         /// A real removal (case F1 of the pipeline audit: the rounding drops a cube of edge 2^-11 beside a large box while the
         /// boolean succeeds): the checker lists the part and does not report the result as clean; the cube of edge 2^-8,
-        /// which stays, is clean with nothing listed. (Since #1216 the cube of 2^-9 stays as well: the repair collapses it
-        /// to a tetrahedron of 1.85 times its volume, within the factor 2 of the rule; 2^-11 ends at 245 times and goes.)
+        /// which stays, is clean with nothing listed. (Since #1464, which gave the result's ids by its geometry and with them
+        /// the repair another order of edits, the cube of 2^-11 goes as still defective; before, for its changed volume.)
         /// </summary>
         [Fact]
         public void RemovedComponent_OfARealBoolean_IsListed_AndTheResultIsNotClean()
@@ -548,7 +548,7 @@ namespace geometry3Sharp.Tests
             Assert.Empty(kept.RemovedParts);
             BooleanCertificate dropped = Certify(big, Cube(Math.Pow(2, -11)), Ops.Union, out ExactMeshBoolean ed);
             Assert.Equal(1, ed.Rounding.RemovedComponents);
-            Assert.Equal(MeshRoundingRepair.RemovalReasons.VolumeChanged, ed.Rounding.RemovedComponentInfos[0].Reason);
+            Assert.Equal(MeshRoundingRepair.RemovalReasons.StillDefective, ed.Rounding.RemovedComponentInfos[0].Reason);
             Assert.False(ed.RoundingClean);
             string r = dropped.Check();
             Assert.StartsWith("not clean: the rounding removed 1 part(s)", r);

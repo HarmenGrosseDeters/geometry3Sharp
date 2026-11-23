@@ -400,7 +400,7 @@ unused line (G3D0009). No line of `ExactMeshArrangement.cs` changed.
 | tuple literals of up to 7 elements are the constructor of their `ValueTuple` type, and the elements (also named ones) its `ItemN` fields, which are listed like other members; longer tuples stay a pseudo id | `SnapRounding2` is written with value tuples (about 70 literals); before, any tuple was an error that no entry could allow |
 | `construct <member> ; <delegate-invocation or string-concatenation> ; n ; why` | a delegate call has a callee that the caller chooses (`ExactTriangulation2`'s predicates, the visitors of the box tree), a concatenation formats text; both were errors without an entry. They are registered by count per member, like the casts |
 | tag `[form]` on an entry: every site line (and every delegate-invocation line) must start with `P0` to `P5`, the tests in brackets, then the reason; `DeterminismScopeAnalyzerTests` checks that the tests exist | an entry names its argument form (section 4.3) and the tests that attack it. `P0` is not a form of 4.3: the source is a list or an array in index order, and the argument is its type |
-| tag `[assumed]` on an entry for a member of this assembly outside the scope: the signature is listed, the body is neither pinned nor analyzed | the calls of `ExactPlanarSimplify` and `ExactTriangulation2` into the rest of `ExactMeshArrangement` (`ComparePoints`, `Orient`, `InCircleFiltered`, the input triangles): pinning those bodies would fail the build at every change of the 3.0 work, and they are stage 2 obligations anyway (S2-1 to S2-5 below) |
+| tag `[assumed]` on an entry for a member of this assembly outside the scope: the signature is listed, the body is neither pinned nor analyzed | the calls of `ExactPlanarSimplify` and `ExactTriangulation2` into the rest of `ExactMeshArrangement` (`ComparePoints`, `Orient`, `InCircle`, the input triangles): pinning those bodies would fail the build at every change of the 3.0 work, and they are stage 2 obligations anyway (S2-1 to S2-5 below) |
 
 **How the rules R7 to R15 stand in these four pieces** (the 153 external members that the first build reported are on the list; the
 rest of this table is what the registrations argue):
@@ -427,8 +427,9 @@ below) alone: no result depends on the schedule, the process, a hash seed, the o
 keys in a sort, the platform's libm or the clock, and the parallel build of the box tree equals the serial one node for node.
 Checked: the allow list, the registered sites, constructs, casts and `#if` block, and the test named in each site line.
 Assumed: T1 to T5; the reasons of the geometry3Sharp members outside the scope (82 pinned declarations, and 3 implicit constructors that have no declaration to pin); the six assumed stage 2
-members (S2-1 `ComparePoints` is a total order on the distinct points of an arrangement, S2-2 `Orient` and S2-3 `InCircleFiltered`
-return the exact signs, S2-4 `InputTriangle.P` is the exact plane (lazily cached, the same value on every thread), S2-5 the input
+members (S2-1 `ComparePoints` is a total order on the distinct points of an arrangement, S2-2 `Orient` and S2-3 `InCircle`
+return the exact signs (until #1464 the flips of `ExactPlanarSimplify` called `InCircleFiltered`, which returns 0 where its filter
+does not decide and so is not defined by the points alone: its verdict follows the stored approximation of a point), S2-4 `InputTriangle.P` is the exact plane (lazily cached, the same value on every thread), S2-5 the input
 triangle lookups, S2-6 the callbacks that callers pass to the box tree queries compute what the caller's own argument says).
 
 **Open items.**

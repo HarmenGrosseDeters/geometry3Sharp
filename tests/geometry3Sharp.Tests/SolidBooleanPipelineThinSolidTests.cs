@@ -157,7 +157,8 @@ namespace geometry3Sharp.Tests
             Assert.True(q.Compute(), q.Error);
             AssertSolid(q);
             Assert.Empty(q.Report.RemovedThinSolids);
-            Assert.Equal(s.Volume, Volume(q.Result), 9);
+            // (the repair's edits move the surface within its bound: 9e-10 of 4.5 here, 9e-12 until #1464 changed their order)
+            Assert.InRange(Volume(q.Result), s.Volume - 1e-8, s.Volume + 1e-8);
         }
 
         [Fact]

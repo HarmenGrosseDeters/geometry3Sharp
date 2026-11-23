@@ -243,9 +243,11 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Utm_CleanWithTheUlpTolerance_WithinIt()
         {
-            // 108 of 114 clean with the default (UlpFactor 256); 102 with the relative bound only (UlpFactor 0; 95 under
+            // 106 of 114 clean with the default (UlpFactor 256); 104 with the relative bound only (UlpFactor 0; 95 under
             // the apex rule, 92 before the drift was charged to the apex of an edit, 102 with the reference rule of
-            // docs/design/SAFE_ROUNDING_D1_DRIFT.md).
+            // docs/design/SAFE_ROUNDING_D1_DRIFT.md). Until #1464: 108 and 102; the repair now gets the result with ids
+            // given by its geometry, takes its edits in another order, and on these inputs ends clean in two fewer
+            // cases by default and two more with the relative bound only (docs/research/BOOLEAN_INPUT_ORDER_2026-11.md).
             // Every result within its bound, MaxDrift <= MaxLength = 256 ulps (0.24 micrometres here)
             int clean = 0, cleanRelative = 0, removals = 0, n = 0;
             foreach (var (name, mesh) in UtmCases()) {
@@ -265,8 +267,8 @@ namespace geometry3Sharp.Tests
                     cleanRelative++;
             }
             Assert.Equal(114, n);
-            Assert.True(clean >= 108, $"clean {clean} of {n} (relative bound only: {cleanRelative})");
-            Assert.True(cleanRelative >= 102 && cleanRelative < clean, $"relative bound only: {cleanRelative}");
+            Assert.True(clean >= 106, $"clean {clean} of {n} (relative bound only: {cleanRelative})");
+            Assert.True(cleanRelative >= 104 && cleanRelative < clean, $"relative bound only: {cleanRelative}");
             Assert.True(removals > 0, "vertex removals");
         }
 
@@ -385,8 +387,10 @@ namespace geometry3Sharp.Tests
             // a UTM case that the relative bound cannot repair: strict, Compute fails with the defects left, where, and
             // the drift the smallest rejected edit needed; not strict, it is clean
             // (Cluster k0 count 4 seed 0 until Boolean 2.0: the reference rule repairs it within the relative bound;
-            // FoldedCluster k36 count 4 seed 1 until the position search, which repairs it within that bound, too)
-            var (name, mesh) = UtmCases().First(c => c.name == "FoldedCluster k36 count 4 seed 0");
+            // FoldedCluster k36 count 4 seed 1 until the position search, which repairs it within that bound, too;
+            // FoldedCluster k36 count 4 seed 0 until #1464, which gave the result's ids by its geometry: the repair then
+            // takes its edits in another order and repairs that one as well)
+            var (name, mesh) = UtmCases().First(c => c.name == "FoldedCluster k30 count 4 seed 0");
             var strict = new ExactMeshBoolean(new DMesh3(mesh), new DMesh3(), Ops.Union) { StrictRounding = true };
             Assert.False(strict.Compute(), name);
             Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, strict.Status);

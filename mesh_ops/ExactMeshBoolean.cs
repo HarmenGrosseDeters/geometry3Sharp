@@ -5843,6 +5843,8 @@ namespace g3
                 foreach (int vid in arr.Meshes[m].VertexIndices())
                     inputPoints[arr.Canonical(arr.VertexPoints[m][vid])] = true;
             steps.LapMicroseconds("assembly.gather");
+            order_pieces(tris, source, flipped);
+            steps.LapMicroseconds("assembly.order");
             if (SimplifyFlatRegions) {
                 // new points inside flat regions and on straight edges between them are not needed
                 var clock = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
@@ -6018,6 +6020,79 @@ namespace g3
             }
             steps.LapMicroseconds("assembly.rest");
             return result;
+        }
+
+        // The kept pieces in an order that only their geometry gives (#1464): each piece with its corners rotated to start
+        // at its smallest point, the pieces sorted by their three points; the points compared by
+        // ExactMeshArrangement.ComparePoints (exact, a total order of the points, whatever their ids). Everything after it
+        // follows the order of the pieces: the start of the holes and the flips of ExactPlanarSimplify, the numbers of
+        // the result's vertices (the classes of corner slots, numbered by their smallest slot) and triangles, the splits of
+        // edges where the result touches itself, and with them every choice MeshRoundingRepair makes by id. Before, the
+        // pieces came in the order of the input triangles, so the same triangles with other ids or in another order gave
+        // another mesh after the repair, and sometimes another verdict. Pieces with the same three points in the same
+        // direction (two triangles of the result on one another) keep their order.
+        [MethodImpl(JitHints.Optimize)]
+        void order_pieces(List<Index3i> tris, List<int> source, List<bool> flipped)
+        {
+            int n = tris.Count;
+            if (n < 2)
+                return;
+            // the points of the pieces, ranked
+            var rank = new int[arr.PointCount];
+            var points = new List<int>();
+            for (int i = 0; i < n; ++i) {
+                Index3i f = tris[i];
+                for (int k = 0; k < 3; ++k)
+                    if (rank[f[k]] == 0) {
+                        rank[f[k]] = 1;
+                        points.Add(f[k]);
+                    }
+            }
+            arr.SortPoints(points);
+            for (int i = 0; i < points.Count; ++i)
+                rank[points[i]] = i;
+            // by the first two points as one integer (a sort of integers), then the pieces that share them by the third
+            // point and their place in the list (in a manifold result no two pieces share a directed edge)
+            var third = new int[n];
+            var key = new long[n];
+            var order = new int[n];
+            for (int i = 0; i < n; ++i) {
+                Index3i f = tris[i];
+                int ra = rank[f.a], rb = rank[f.b], rc = rank[f.c];
+                if (rb < ra && rb < rc) {
+                    tris[i] = new Index3i(f.b, f.c, f.a);
+                    key[i] = ((long)rb << 32) | (uint)rc;
+                    third[i] = ra;
+                } else if (rc < ra && rc < rb) {
+                    tris[i] = new Index3i(f.c, f.a, f.b);
+                    key[i] = ((long)rc << 32) | (uint)ra;
+                    third[i] = rb;
+                } else {
+                    key[i] = ((long)ra << 32) | (uint)rb;
+                    third[i] = rc;
+                }
+                order[i] = i;
+            }
+            Array.Sort(key, order);
+            for (int i0 = 0, i1; i0 < n; i0 = i1) {
+                i1 = i0 + 1;
+                while (i1 < n && key[i1] == key[i0]) i1++;
+                if (i1 - i0 > 1)
+                    Array.Sort(order, i0, i1 - i0, Comparer<int>.Create((x, y) => third[x] != third[y] ? third[x].CompareTo(third[y]) : x.CompareTo(y)));
+            }
+            var t2 = new Index3i[n];
+            var s2 = new int[n];
+            var f2 = new bool[n];
+            for (int i = 0; i < n; ++i) {
+                t2[i] = tris[order[i]];
+                s2[i] = source[order[i]];
+                f2[i] = flipped[order[i]];
+            }
+            for (int i = 0; i < n; ++i) {
+                tris[i] = t2[i];
+                source[i] = s2[i];
+                flipped[i] = f2[i];
+            }
         }
 
         // Joins the corner slots of the kept pieces across the edges where they are neighbours (assemble). The edges with two
