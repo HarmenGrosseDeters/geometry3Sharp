@@ -815,8 +815,8 @@ namespace geometry3Sharp.Tests
             "math/Generated/DoublePredicates.cs",
             "intersection/ExactTriangleIntersection.cs", "intersection/TriangleTriangleFilter.cs" };
 
-        /// <summary> the files of stage 1 (the exact building blocks); ExactMeshArrangement.cs is in the scope for its class TriangleBoxTree only (a 'type' line) </summary>
-        public static readonly string[] Stage1 = { "mesh_ops/ExactTriangulation2.cs", "mesh_ops/ExactPlanarSimplify.cs", "comp_geom/SnapRounding2.cs", "mesh_ops/ExactMeshArrangement.cs" };
+        /// <summary> the files of stages 1 and 2 (the exact building blocks, then the arrangement and the Boolean as a whole) </summary>
+        public static readonly string[] Stage1 = { "mesh_ops/ExactTriangulation2.cs", "mesh_ops/ExactPlanarSimplify.cs", "comp_geom/SnapRounding2.cs", "mesh_ops/ExactMeshArrangement.cs", "mesh_ops/ExactMeshBoolean.cs" };
 
         static readonly string[] ScopeRules = { DeterminismScopeAnalyzer.ApiId, DeterminismScopeAnalyzer.RestrictedId, DeterminismScopeAnalyzer.ConditionalId,
             DeterminismScopeAnalyzer.CastId, DeterminismScopeAnalyzer.DirectiveId, DeterminismScopeAnalyzer.SkipLocalsInitId, DeterminismScopeAnalyzer.UnusedId };
@@ -839,11 +839,11 @@ namespace geometry3Sharp.Tests
                 .Concat(Directory.GetFiles(Path.Combine(root, "comp_geom"), "*.cs"))
                 .Select(f => Path.GetRelativePath(root, f).Replace(Path.DirectorySeparatorChar, '/'))
                 .Where(f => !kernel.Contains(f)).ToList();
-            Assert.Contains("mesh_ops/ExactMeshBoolean.cs", others);
+            Assert.DoesNotContain("mesh_ops/ExactMeshBoolean.cs", others);
             Assert.Contains("comp_geom/ConstrainedMesh2.cs", others);
-            // the one file that is in the scope for a type only: ExactMeshArrangement.cs, for TriangleBoxTree (stage 2 owns the rest)
+            // no file is in the scope for a type only any more (stage 2 brought in the rest of ExactMeshArrangement.cs)
             var types = DeterministicApiList.Parse(ListText()).Registrations.Where(x => x.Kind == "type").Select(x => x.Member + ":" + x.Test).ToList();
-            Assert.Equal(new[] { "ExactMeshArrangement.cs:TriangleBoxTree" }, types);
+            Assert.Empty(types);
             foreach (string f in others)
                 foreach (string id in ScopeRules)
                     Assert.True(ExactCodeAnalyzerTests.Severity(set, root, f, id) == ReportDiagnostic.Suppress, f + " " + id);
