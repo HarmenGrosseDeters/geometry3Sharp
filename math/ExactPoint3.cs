@@ -83,7 +83,7 @@ namespace g3
             }
         }
 
-        /// <summary> coordinates as doubles, multiplied by 2^scaleExp (each correctly rounded, see ToDouble) </summary>
+        /// <summary> coordinates as doubles, multiplied by 2^scaleExp (nearly correctly rounded: error below 1 ulp, see ToDouble) </summary>
         public Vector3d ToVector3d(int scaleExp = 0)
         {
             return new Vector3d(ToDouble(X, W, scaleExp), ToDouble(Y, W, scaleExp), ToDouble(Z, W, scaleExp));
@@ -112,11 +112,28 @@ namespace g3
         static bool is_safe_or_zero(double v) { return v == 0 || is_safe(v); }
 
         /// <summary>
-        /// num / den * 2^scaleExp as a double, den &gt; 0, correctly rounded: the double nearest to the exact value, ties to even, in one
-        /// rounding also in the subnormal range (a result below 2^-1075 is a zero of the sign of num, one at or above overflows to an infinity)
+        /// num / den * 2^scaleExp as double, den &gt; 0: within 1 ulp by design (a 64-bit truncated quotient, then the conversion to double, which
+        /// truncates), not correctly rounded; the exact Boolean pipeline verifies its rounded results itself. For a double that must be the
+        /// correctly rounded value (certified filters) use <see cref="ToDoubleRounded"/>
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
         public static double ToDouble(BigInteger num, BigInteger den, int scaleExp)
+        {
+            if (num.IsZero)
+                return 0;
+            // quotient with 64 significant bits, then scale
+            long nb = BitLength(num), db = BitLength(den);
+            int shift = (int)(64 - (nb - db));
+            BigInteger q = (shift >= 0) ? (num << shift) / den : num / (den << -shift);
+            return ScaleB((double)q, scaleExp - shift);
+        }
+
+        /// <summary>
+        /// num / den * 2^scaleExp as a double, den &gt; 0, correctly rounded (unlike <see cref="ToDouble"/>): the double nearest to the exact value, ties to even, in one
+        /// rounding also in the subnormal range (a result below 2^-1075 is a zero of the sign of num, one at or above overflows to an infinity)
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static double ToDoubleRounded(BigInteger num, BigInteger den, int scaleExp)
         {
             if (num.IsZero)
                 return 0;

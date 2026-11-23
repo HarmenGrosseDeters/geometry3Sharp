@@ -451,11 +451,11 @@ namespace g3
             return (g[s + a0] - g[r + a0]) * (g[x + a1] - g[r + a1]) - (g[s + a1] - g[r + a1]) * (g[x + a0] - g[r + a0]);
         }
 
-        // num / den * 2^scaleExp (den > 0) correctly rounded to nearest, ties to even (ExactPoint3.ToDouble: the result must not depend on
+        // num / den * 2^scaleExp (den > 0) correctly rounded to nearest, ties to even (ExactPoint3.ToDoubleRounded: the result must not depend on
         // whether the double-word certificate decided, DoubleWord).
         internal static double round_ratio(BigInteger num, BigInteger den, int scaleExp)
         {
-            return ExactPoint3.ToDouble(num, den, scaleExp);
+            return ExactPoint3.ToDoubleRounded(num, den, scaleExp);
         }
 
         // (dp Q - dq P) / (dp - dq) for the points P, Q at offsets p, q of g (the point where a quantity linear along
