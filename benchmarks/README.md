@@ -29,6 +29,8 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [SnapRoundingExperiment](SnapRoundingExperiment/README.md) | Snap-rounding prototypes and quality measurements for `SAFE_ROUNDING.md` |
 | [SolidBooleanAudit](SolidBooleanAudit/README.md) | Adversarial procedural corpus and an independent oracle (ray crossings, volumes) for an end-to-end audit of `SolidBooleanPipeline` |
 | [SolidBooleanBenchmark](SolidBooleanBenchmark/README.md) | `SolidBooleanPipeline` (exact boolean + guarded reduction + contact pairing) on procedural soups |
+| [NeuronSkeletonProbe](NeuronSkeletonProbe/README.md) | Research probe: SWC-style branching tubes (4° forks, 1e-6 branch gaps, loops, 45-segment trees) closed by multi-mesh and tree `ExactMeshBoolean`, `SolidBooleanPipeline`, convolution-field `MarchingCubes` and `MeshAlphaWrap`, with measured mesh clearances |
+| [ProceduralSphereUnionProbe](ProceduralSphereUnionProbe/README.md) | Research probe: unions of procedural ball sets (tangency, 1e-12 gaps, cavities, helices, 12–96-ball packings) by multi-mesh and tree `ExactMeshBoolean`, `SolidBooleanPipeline`, `MarchingCubes` and `MeshAlphaWrap` |
 
 ## Repair, Alpha Wrap, Remeshing & Simplification
 
