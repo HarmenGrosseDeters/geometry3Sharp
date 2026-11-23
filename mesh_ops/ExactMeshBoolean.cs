@@ -466,6 +466,10 @@ namespace g3
         /// intersections; vertices of different exact points that the rounding put at one position are, until the repair
         /// separates them). False with Status Success means that defects remain (Rounding.RemainingIntersections,
         /// RemainingDegenerate, RemainingFalseContacts).
+        /// It is not MeshRobustRepair.NotCleanReason(Result) == "": that counts every pair of triangles that touch, so for a result with
+        /// Contacts &gt; 0 (the exact solid touches itself at a position, as duplicated vertices) it says "self-intersections" there while
+        /// RoundingClean is true. Such pairs are contacts of the exact result, not crossings; compare with Contacts, or
+        /// NotCleanReason(Result, checkSelfIntersections: false), before reading it as a defect (#1431, ExactBooleanInputContactsTests).
         /// It says nothing about the orientation of the components: a closed sliver of the exact result whose thickness is below
         /// the resolution of its coordinates can come out of the rounding inside out (the volume of its doubles is negative). It
         /// meets nothing and has no degenerate triangle, so RoundingClean is true, and MeshRobustRepair.NotCleanReason(Result)
