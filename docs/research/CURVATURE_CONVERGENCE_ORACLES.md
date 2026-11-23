@@ -129,3 +129,28 @@ The default path gives increasing angular error on every measured refinement in 
 ### Vector heat decision
 
 Keep both configurations in the benchmark and defer a first-order rate assertion. The default path misses the empirical trend from the paper on this cube-sphere family. The control shows that the trend depends on the triangulation path, which changes the stencil, weights, and connection coefficients together. The contribution of each change and the asymptotic rates remain open. The existing planar and single-resolution sphere tests still pass.
+
+## Diffusion-time control for scalar and vector heat
+
+Run `dotnet run -c Release --project benchmarks/CurvatureWeakProbe -- --heat-time`. On the unit cube-spheres with 9, 17, 33 and 65 vertices per edge, the probe keeps the mesh, source, intrinsic Delaunay settings and analytic references fixed. It varies only the public `TimeFactor` on both operators. Using the mean input edge length h, the three schedules are the default t = h², t = 4h², and t = 0.5h. The linear schedule is expressed in unit-sphere coordinates. It sends t to zero more slowly while increasing the diffusion length in edge units, √t/h. The reported vector time ratios matched the requested factors to the printed precision, so the automatic increase in diffusion time was inactive.
+
+Scalar RMS and maximum errors are over all vertices and use great-circle distance in radians. Vector RMS errors use the same cap and far band as the transport experiment. The measured default rows match the earlier probes.
+
+| Schedule | Vertices per cube edge | TimeFactor | Vector cap RMS (°) | Vector far RMS (°) | Scalar RMS | Scalar max |
+|---|---:|---:|---:|---:|---:|---:|
+| default | 9 | 1 | 0.273496 | 0.773448 | 0.0215733 | 0.0725219 |
+| fourfold | 9 | 4 | 0.0520047 | 0.0864041 | 0.0107102 | 0.0511612 |
+| linear | 9 | 2.41348 | 0.0530798 | 0.052518 | 0.012892 | 0.0558015 |
+| default | 17 | 1 | 0.672729 | 2.45463 | 0.0175334 | 0.0499383 |
+| fourfold | 17 | 4 | 0.0701504 | 0.226369 | 0.00562192 | 0.0279809 |
+| linear | 17 | 4.81047 | 0.046719 | 0.151661 | 0.00502529 | 0.026728 |
+| default | 33 | 1 | 1.02673 | 4.75966 | 0.0172995 | 0.0393091 |
+| fourfold | 33 | 4 | 0.191823 | 0.670994 | 0.00448337 | 0.0175919 |
+| linear | 33 | 9.6127 | 0.0485887 | 0.152675 | 0.00222784 | 0.0131012 |
+| default | 65 | 1 | 1.23684 | 7.43347 | 0.0178775 | 0.0344755 |
+| fourfold | 65 | 4 | 0.291222 | 1.35921 | 0.00438556 | 0.0127203 |
+| linear | 65 | 19.2213 | 0.0376905 | 0.128427 | 0.00107573 | 0.00651013 |
+
+A fixed fourfold increase reduces both kinds of error on the fine grids, while vector RMS still increases under refinement. With t = 0.5h, scalar RMS falls from 0.0129 to 0.00108 and roughly halves on each of the last two steps. On the finest mesh, vector cap RMS is 0.0377° and far RMS is 0.128°, compared with 1.237° and 7.433° at the default. Vector cap RMS remains nonmonotone with the linear schedule, and far RMS initially increases. These are finite-resolution measurements on one mesh family and one source.
+
+The within-mesh control shows that the default errors are sensitive to the diffusion schedule even with intrinsic connectivity fixed. It leaves open the contribution of stencil anisotropy, the connection discretization and the short-time solver. Keep the alternate schedule as a benchmark control and defer a default change or vector-rate assertion. A scale-invariant policy would require a geometric length scale besides h and validation on other mesh families and near cut loci.

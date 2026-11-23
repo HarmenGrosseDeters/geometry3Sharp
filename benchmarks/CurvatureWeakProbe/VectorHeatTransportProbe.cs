@@ -14,20 +14,24 @@ internal static class VectorHeatTransportProbe
         }
     }
 
-    private static void Measure(DMesh3 mesh, int resolution, bool intrinsicDelaunay)
+    public static void RunTimeSweep()
+    {
+        Console.WriteLine("schedule resolution h-mean factor vector-cap-rms-deg vector-far-rms-deg scalar-rms scalar-max vector-actual-factor");
+        foreach (int resolution in new[] { 9, 17, 33, 65 }) {
+            var mesh = new Sphere3Generator_NormalizedCube { Radius = 1, EdgeVertices = resolution }.Generate().MakeDMesh();
+            double h = new IntrinsicTriangulation(mesh).MeanEdgeLength;
+            foreach (var (schedule, factor) in new[] { ("default", 1.0), ("fourfold", 4.0), ("linear", 0.5 / h) })
+                Measure(mesh, resolution, true, factor, schedule);
+        }
+    }
+
+    private static void Measure(DMesh3 mesh, int resolution, bool intrinsicDelaunay,
+        double timeFactor = 1, string schedule = null)
     {
         Vector3d north = Vector3d.AxisZ, initial = Vector3d.AxisX;
-        int source = -1;
-        foreach (int v in mesh.VertexIndices()) {
-            if (mesh.GetVertex(v).Distance(north) < 1e-12) {
-                source = v;
-                break;
-            }
-        }
-        if (source < 0)
-            throw new InvalidOperationException("The cube-sphere has no north pole vertex.");
+        int source = FindNorthPole(mesh);
 
-        var heat = new VectorHeatMethod(mesh) { IntrinsicDelaunay = intrinsicDelaunay };
+        var heat = new VectorHeatMethod(mesh) { IntrinsicDelaunay = intrinsicDelaunay, TimeFactor = timeFactor };
         var triangulation = heat.Triangulation;
         Vector2d[] moved = heat.TransportVector(source, triangulation.FromWorld(source, initial).Normalized);
 
@@ -69,9 +73,48 @@ internal static class VectorHeatTransportProbe
         }
         double heatEdge = triangulation.MeanEdgeLength;
         double diffusionRatio = heat.DiffusionTime / (heatEdge * heatEdge);
+        if (schedule != null) {
+            var (distanceRms, distanceMax, _) = MeasureScalarDistance(mesh, source, timeFactor);
+            Console.WriteLine($"{schedule} {resolution} {edgeLengthSum / mesh.EdgeCount:G8} {timeFactor:G8} " +
+                $"{Math.Sqrt(capSquared / capCount):G8} {Math.Sqrt(farSquared / farCount):G8} " +
+                $"{distanceRms:G8} {distanceMax:G8} {diffusionRatio:G8}");
+            return;
+        }
+
         string mode = intrinsicDelaunay ? "delaunay" : "input";
         Console.WriteLine($"{mode} {resolution} {edgeLengthSum / mesh.EdgeCount:G8} " +
             $"{capCount} {Math.Sqrt(capSquared / capCount):G8} {capMax:G8} " +
             $"{farCount} {Math.Sqrt(farSquared / farCount):G8} {farMax:G8} {lengthMax:G8} {diffusionRatio:G8}");
+    }
+
+    internal static int FindNorthPole(DMesh3 mesh)
+    {
+        foreach (int v in mesh.VertexIndices()) {
+            if (mesh.GetVertex(v).Distance(Vector3d.AxisZ) < 1e-12)
+                return v;
+        }
+        throw new InvalidOperationException("The cube-sphere has no north pole vertex.");
+    }
+
+    internal static (double Rms, double Maximum, int Flips) MeasureScalarDistance(
+        DMesh3 mesh, int source, double timeFactor)
+    {
+        var heat = new MeshGeodesicDistance(mesh) { TimeFactor = timeFactor };
+        if (!heat.Compute(new[] { source }) || heat.Distance[source] != 0)
+            throw new InvalidOperationException("Heat distance failed at the source.");
+
+        double squaredError = 0, maxError = 0;
+        Vector3d north = mesh.GetVertex(source);
+        foreach (int v in mesh.VertexIndices()) {
+            Vector3d point = mesh.GetVertex(v);
+            double reference = Math.Atan2(north.Cross(point).Length, north.Dot(point));
+            double actual = heat.Distance[v];
+            if (!double.IsFinite(actual) || actual < 0)
+                throw new InvalidOperationException($"Invalid heat distance at vertex {v}.");
+            double error = Math.Abs(actual - reference);
+            squaredError += error * error;
+            maxError = Math.Max(maxError, error);
+        }
+        return (Math.Sqrt(squaredError / mesh.VertexCount), maxError, heat.IntrinsicFlips);
     }
 }
