@@ -886,6 +886,8 @@ namespace geometry3Sharp.Tests
             var again = new TwoLevelSheetCertificate { Field = failing, Mesher = gen };
             Assert.Throws<InvalidOperationException>(() => again.Compute());
             Assert.False(again.Certified);
+            // the failed run leaves no cache behind for the entry points of the single conditions
+            Assert.False(again.HoldsAnEncloseCache);
             again.Compute();
             Assert.Equal(2, failing.Caches);
             Assert.Equal(0, failing.ForeignCalls);
