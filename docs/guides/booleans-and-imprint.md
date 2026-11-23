@@ -122,7 +122,10 @@ without `SafeRounding`, with and without `SimplifyFlatRegions`) and for `SolidBo
 (no input repair, no reduction target). The kept pieces of the arrangement are put into an order that only their geometry gives
 (an exact comparison of their points) before the vertices are numbered, so the rounding repair, which works through its defects
 by id, always sees the same mesh. Tested on closed inputs in general position, on coplanar overlapping faces, on solids that
-touch along an edge or at a vertex, on three inputs and on an open input that is consistently oriented.
+touch along an edge or at a vertex, on near-coincident and tangent inputs, on three inputs and on an open input that is consistently oriented. The
+inside-out check (`CountInsideOutCells`) shoots its ray at a triangle chosen by position, not by input order, so its count is the same too.
+
+A canonical order makes the outcome deterministic, not better: the repair can still end unclean on an input, for every order alike.
 
 What this does not cover:
 

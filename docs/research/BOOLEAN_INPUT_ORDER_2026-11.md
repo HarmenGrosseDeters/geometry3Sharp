@@ -11,7 +11,7 @@ build.
 
 - Harness: [benchmarks/BooleanInputOrder](../../benchmarks/BooleanInputOrder/README.md), raw outputs in its `results/`
   (master 083ef07b, 4-core cloud container, .NET 10.0.115).
-- Tests: `tests/geometry3Sharp.Tests/ExactBooleanInputOrderTests.cs` (11 cases, each under 2 s).
+- Tests: `tests/geometry3Sharp.Tests/ExactBooleanInputOrderTests.cs` (56 cases after #1464, each under 5 s; 11 when the note was written).
 
 ## Answer in short
 
@@ -278,11 +278,18 @@ emulation is the library's repair: without the numbering it gives the library's 
   for reversed triangles (without `SimplifyFlatRegions`). `triangulate_touched` now inserts every constraint from its
   smaller end (`ComparePoints`); 400 such pairs, with and without the simplification, are the same in all 8 orders.
 
-**Result** (`ExactBooleanInputOrderTests`, 46 cases): the same mesh bit for bit, vertex, triangle and edge ids included, and
+- **The inside-out check read an input-dependent triangle.** `count_inside_out` shoots its ray at one triangle per
+  component, and the triangle was the first by input order; for a self-intersecting input the parity of the crossings
+  depends on the triangle. `inside_out_triangle` now picks it by position: the smallest corner (`ComparePoints`) of the
+  triangles with an area, then among the triangles at that point the one whose later corners are smallest. A permutation test
+  of a self-intersecting input (`InsideOutCheck_OfASelfIntersectingInput_IsTheSame_WhateverTheInputOrder`) kills the old rule.
+
+**Result** (`ExactBooleanInputOrderTests`, 56 cases): the same mesh bit for bit, vertex, triangle and edge ids included, and
 the same status over 8 orders (triangle order, vertex ids, corner rotation) for the boolean with and without `SafeRounding`
 and for the pipeline; on the plates, on boxes with coplanar gridded faces, on boxes touching along an edge and at a vertex,
-on three inputs and on an open input, with and without the simplification; under `Similarity.All()`; the 2^k scales give
-the scaled mesh bit for bit. Hand mutants killed: no ordering, no corner rotation, the hole's start at the first triangle,
+on three inputs and on an open input, with and without the simplification; on nine near-coincident and tangent inputs
+(`NearCoincidentAndTangentInputs_AreBitIdentical_WhateverTheInputOrder`: the cases of the repair's own tests); under
+`Similarity.All()`; the 2^k scales give the scaled mesh bit for bit. Hand mutants killed: no ordering, no corner rotation, the hole's start at the first triangle,
 the filter-only flips, the constraint's direction, and in `SortPoints` no insertion and no fallback.
 
 **Time** (`BooleanInputOrder timing 5`: 8 procedural cases of 4k to 58k result triangles, median of 5 runs, three
@@ -314,7 +321,7 @@ at 7 sizes, 3 densities, 6 seeds, in three frames; 1458 runs; `results/corpus_*`
 - Two other orders of the pieces, tried with a throw-away patch (the geometric order reversed, and a fixed shuffle of it):
   1290 and 1293 clean, 1300 and 1297 strict. So on this corpus the generators' own order is the best of the four by
   about 1 %, and the three others lie within 0.5 % of each other. The repair's limits were tuned on these generators in
-  that order; no order is better in general.
+  that order; no order is better in general. A canonical order makes the outcome deterministic, not better.
 
 **Existing tests that moved** (40; all re-pinned, each with a comment that names #1464):
 

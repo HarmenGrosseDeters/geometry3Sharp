@@ -109,9 +109,9 @@ within 3e-12 of the faces; the arc follows the span of the normals of the descri
 length, not 6 %: a circular arc cannot have both):
 
 - **The top face at 5 degrees through the panel** (600 heights, a vault and a sagging panel, two arcs). With exactly
-  flush rims nothing is edited (1 600 placements). With the near-flush rims the repair edits in about a third of the
-  placements: 1 to 4 degenerate triangles at the rims, each cured by a flip, with no drift and no change of the volume.
-  The result is a piece of the panel in its full thickness (4 % to 97 % of it), not a thin strip.
+  flush rims nothing is edited (1 600 placements). With the near-flush rims the repair edited in about a third of the
+  placements (measured before #1464): 1 to 4 degenerate triangles at the rims, each cured by a flip, with no drift and no
+  change of the volume. The result is a piece of the panel in its full thickness (4 % to 97 % of it), not a thin strip.
 - **The top face inside the thickness of one facet**, nearly parallel to it (72 cases): a lens of 0.2 % to 2 % of the
   panel's volume across the full width. Here the repair contracts an edge with a drift of 1.7e-6 to 7e-6 of the
   diagonal, the size described, and the volume stays (below 1e-9 in the four cases of the test, and no change at
@@ -188,6 +188,28 @@ not help on the measured case. c is the only option that removes the change inst
 simplification literature has the rule for it, but it touches which vertices the rounding keeps, so it needs its own
 measurement on the benchmark corpora before a decision.
 
+## Update 2026-11-23 (#1464): the exact InCircle removes most of these cases
+
+The delaunay code of `ExactPlanarSimplify` now decides the flips by the exact `InCircle` (the filter alone returned 0
+where it could not decide: a correctness fix of stage S2-3 of the determinism proof, made for the input-order PR). Flat
+regions are now Delaunay, so the caps that used to round to degenerate triangles at the rims are gone, and most of the
+placements above need no repair. Measured on this branch (the fixtures of `RoundingThinVolumeTests`):
+
+- **Five degrees, default settings**: nothing to repair at seed 7 in all four cases (volume the exact one), and at seed 8
+  in three of them; the sagging panel at z0 -0.05836649455985357 with seed 8 has 1 degenerate triangle, cured by 1 flip,
+  drift 1.5e-7 of the length (1.1e-7 of the diagonal), volume change -3.5e-10 relative. (Other seeds were not swept for this
+  update; a sweep of seeds 0..39 by the first worker of the PR found one more contraction, at seed 22, drift 5.2e-6.)
+- **Five degrees, `SimplifyFlatRegions = false`** (the near-flush rim triangles stay): 18 to 48 degenerate triangles
+  (18, 18, 48, 26 in the four cases, seed 7), 9 to 24 contractions, drift about 1.1e-12, volume within 2.5e-12, clean.
+- **The lens inside one facet** (tilt -3e-4..1e-4 against the facet, top face 0.02 to 0.04 of the thickness above it, seeds
+  8 and 9): 20 of 24 combinations need no repair. Two pairs contract: tilt -3e-4 at 0.04 t (2 contractions, drift 1.3e-6 of
+  the diagonal, volume within 5e-15: the contraction runs along the facet) and tilt +1e-4 at 0.02 t (2 contractions, drift
+  6.8e-7, **volume -1.6e-6 relative**: a contraction that changes the volume, a case of its own). At 0.03 t nothing contracts.
+
+The old assertions "1 to 8 degenerate triangles, cured by flips" and "1 to 3 contractions in all four tilts, volume within
+1e-9" have no successor: that behaviour is gone with the caps. The statement that a canonical order of the input makes the
+outcome deterministic, not better, holds here as well: where a repair is still needed, it is as large as before.
+
 ## Tests
 
 `RoundingVolumeReportTests` checks the two numbers of a1: on the plates (the 3.7e-7), where the repair changes nothing
@@ -195,7 +217,7 @@ measurement on the benchmark corpora before a decision.
 Grid step, on the repair itself (far from the origin, inside out, open, empty, not finite), reuse, and the invariance
 over `Similarity.All()`.
 
-`RoundingThinVolumeTests` (33 cases, each well under a second): the plates (the change and the silence, the cause, the
+`RoundingThinVolumeTests` (37 cases, each well under a second): the plates (the change and the silence, the cause, the
 thickness sweep, the near-miss sweep, the horizontal contraction, the grid, the Grid step), the shell cut by a box, the clamped
-panel of the second description (the cut at 5 degrees, the lens inside a facet), and the guard. They document the behaviour as it is: a fix of option c or d will change the plates' numbers, and those
+panel of the second description (the cut at 5 degrees, with and without the simplification, the flip at seed 8, the lenses inside a facet), and the guard. They document the behaviour as it is: a fix of option c or d will change the plates' numbers, and those
 tests then get the new ones.
