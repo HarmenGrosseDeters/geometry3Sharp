@@ -78,6 +78,7 @@ namespace g3
         internal struct Hit
         {
             public int Kind;
+            public bool Exact;          // the ends come from the exact route (rounded once); else the double filter (within 6 u and 1e-300)
             public double T0, T1;
             public Vector3d P0, P1;
         }
@@ -135,6 +136,7 @@ namespace g3
                 return true;
             }
             bool exact = verdict == 3;
+            hit.Exact = exact;
             Frac f0 = default(Frac), f1 = default(Frac);
             if (exact) {
                 verdict = ExactInterval(ref box, ref o, ref d0, ref d1, hasMin, tmin, hasMax, tmax, out f0, out f1, out act0, out act1);
@@ -386,6 +388,21 @@ namespace g3
             }
         }
 
+        /// <summary>
+        /// The kind of a computed slab bound v = n / Q with the bound ev of its error: 0 a number (|v| + ev &lt;= Huge: its exact value is within
+        /// +-Huge and the relative error bounds hold), 1 an infinity (the exact value is certainly beyond 2 Huge), 2 undecided. For an infinity:
+        /// the exact numerator is at least |n| (1 - 2u) - eP in magnitude (n rounded once, or beyond 1.7e308 where n overflowed to an infinity),
+        /// the exact |Q| at most aq + eQ, so |exact v| &gt; 2 Huge whenever that quotient is. NaN or an infinite error give 2.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        static int Kind(double v, double ev, double n, double eP, double aq, double eQ)
+        {
+            if (Math.Abs(v) + ev <= Huge)
+                return 0;
+            double mag = (n - n == 0) ? Math.Abs(n) * (1 - 2 * U) : 1.7e308;
+            return (mag - eP - AbsErr > 2 * Huge * (aq + eQ)) ? 1 : 2;
+        }
+
         /// <summary> one slab: 0 continue, 1 certified miss, 3 undecided (P, eP, Q and eQ finite: FilterOriented checks them, the axis-aligned box has finite inputs) </summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         static int Step(int i, double P, double eP, double Q, double eQ, double L, double H, bool ray, ref Acc c)
@@ -401,48 +418,42 @@ namespace g3
             if (aq <= 2 * eQ || aq < Tiny || aq > Huge)
                 return 3;
             double n1 = L - P, n2 = H - P;
-            // (a numerator that overflows to an infinity while P, L and H are finite: for |Q| > 1 the quotient is a finite t, not an infinite bound;
-            // for |Q| <= 1 the quotient is beyond the range too, an infinity of the right sign)
-            if (aq > 1 && (n1 - n1 != 0 || n2 - n2 != 0))
-                return 3;
             double en1 = eP + U * Math.Abs(n1) + AbsErr, en2 = eP + U * Math.Abs(n2) + AbsErr;
+            bool exactPQ = eP == 0 && eQ == 0;
+            double ri = 1.0000001 / (aq - eQ);
             if (ray && ((Q > 0 && n1 + en1 < 0) || (Q < 0 && n2 - en2 > 0))) {
                 // a ray whose origin is certainly inside the slab on the entering side: the lower bound of t is negative, below the limit 0 of
                 // the ray, so only the upper bound is needed (one division)
                 double nu = Q > 0 ? n2 : n1, enu = Q > 0 ? en2 : en1;
-                double uv0 = nu / Q, ue0;
-                if (Math.Abs(uv0) > Huge) { uv0 = uv0 > 0 ? double.PositiveInfinity : double.NegativeInfinity; ue0 = 0; }
-                else {
-                    if (uv0 != 0 && Math.Abs(uv0) < Tiny) return 3;
-                    ue0 = (eP == 0 && eQ == 0) ? 2.5 * U * Math.Abs(uv0) + AbsErr : TErr(enu, eQ, 1.0000001 / (aq - eQ), uv0);
-                }
+                double uv0 = nu / Q;
+                double ue0 = exactPQ ? 2.5 * U * Math.Abs(uv0) + AbsErr : TErr(enu, eQ, ri, uv0);
+                int ku = Kind(uv0, ue0, nu, eP, aq, eQ);
+                if (ku == 2)
+                    return 3;
+                if (ku == 1) { uv0 = ((nu > 0) == (Q > 0)) ? double.PositiveInfinity : double.NegativeInfinity; ue0 = 0; }
+                else if (uv0 != 0 && Math.Abs(uv0) < Tiny)
+                    return 3;
                 if (uv0 + ue0 < c.UpPlus) c.UpPlus = uv0 + ue0;
                 if (uv0 - ue0 < c.UpMinus) c.UpMinus = uv0 - ue0;
                 if (uv0 < c.UpBest) { c.UpBest = uv0; c.UpBestErr = ue0; c.Act1 = i; }
                 return 0;
             }
             double a = n1 / Q, b = n2 / Q;
-            // (a bound beyond 1e290 in magnitude, eg of a slab expanded by double.MaxValue, counts as infinite: it is then
-            // compared with the other bounds; two infinite bounds of the same side are not decided)
-            bool ia = Math.Abs(a) > Huge, ib = Math.Abs(b) > Huge;
-            if ((a != 0 && ia == false && Math.Abs(a) < Tiny) || (b != 0 && ib == false && Math.Abs(b) < Tiny))
+            double ea = exactPQ ? 2.5 * U * Math.Abs(a) + AbsErr : TErr(en1, eQ, ri, a);
+            double eb = exactPQ ? 2.5 * U * Math.Abs(b) + AbsErr : TErr(en2, eQ, ri, b);
+            // (a bound is a number (|a| + ea <= 1e290, the relative bounds hold), or certainly beyond every number that the other bounds and the
+            // limits of the caller can reach, with their errors: an infinity, compared with the other bounds; anything between is undecided.
+            // docs/design/BOX3_EXACT_FILTER.md "The infinite bounds")
+            int ka = Kind(a, ea, n1, eP, aq, eQ), kb = Kind(b, eb, n2, eP, aq, eQ);
+            if (ka == 2 || kb == 2)
                 return 3;
-            if (ia) a = a > 0 ? double.PositiveInfinity : double.NegativeInfinity;
-            if (ib) b = b > 0 ? double.PositiveInfinity : double.NegativeInfinity;
-            double ea, eb;
-            if (ia || ib) {
-                // (both bounds beyond reach on opposite sides: the origin is inside a slab that is wider than any t, no constraint)
-                if (ia && ib) return (n1 < 0 && n2 > 0) ? 0 : 3;
-                // (the other bound alone is finite: its error as below)
-                ea = ia ? 0 : (eP == 0 && eQ == 0 ? 2.5 * U * Math.Abs(a) + AbsErr : TErr(en1, eQ, 1.0000001 / (aq - eQ), a));
-                eb = ib ? 0 : (eP == 0 && eQ == 0 ? 2.5 * U * Math.Abs(b) + AbsErr : TErr(en2, eQ, 1.0000001 / (aq - eQ), b));
-            } else if (eP == 0 && eQ == 0) {
-                // exact P and Q (an axis-aligned box, a line or ray): the subtraction and the division round, each by at most u
-                ea = 2.5 * U * Math.Abs(a) + AbsErr; eb = 2.5 * U * Math.Abs(b) + AbsErr;
-            } else {
-                double ri = 1.0000001 / (aq - eQ);
-                ea = TErr(en1, eQ, ri, a); eb = TErr(en2, eQ, ri, b);
-            }
+            if (ka == 0 && a != 0 && Math.Abs(a) < Tiny || kb == 0 && b != 0 && Math.Abs(b) < Tiny)
+                return 3;
+            if (ka == 1) { a = ((n1 > 0) == (Q > 0)) ? double.PositiveInfinity : double.NegativeInfinity; ea = 0; }
+            if (kb == 1) { b = ((n2 > 0) == (Q > 0)) ? double.PositiveInfinity : double.NegativeInfinity; eb = 0; }
+            // (both bounds certainly beyond reach on opposite sides: the slab is wider than any t, no constraint; on the same side: not decided)
+            if (ka == 1 && kb == 1)
+                return (a < 0) != (b < 0) ? 0 : 3;
             double lv, le, uv, ue;
             if (Q > 0) { lv = a; le = ea; uv = b; ue = eb; }
             else { lv = b; le = eb; uv = a; ue = ea; }

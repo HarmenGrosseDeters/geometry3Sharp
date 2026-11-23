@@ -39,13 +39,43 @@ of `Q` and `|Q*| >= |Q| - eQ`, and
              <= (en + |a| eQ) / (|Q| - eQ) + u |a|          (with (1 + u) absorbed in the factor 1.0000001 and 2 u |a|)
 
 which is `TErr`: `ea = (en + |a| eQ) ri + 2 u |a| + AbsErr`, `ri = 1.0000001 / (|Q| - eQ)`. For exact `P` and `Q` (`eP = eQ = 0`) the two roundings
-(difference, quotient) give `|a - t*| <= 2.5 u |a| + AbsErr`. The relative bounds hold when no operation underflowed or overflowed: `Q` outside
-`[1e-290, 1e290]` and a bound `a` outside `{0} U [1e-290, 1e290]` are undecided (`return 3`, exact route); a bound beyond `1e290` in magnitude counts as an
-infinity of its sign (only compared with other bounds, never used as a value); two such on one slab are undecided, except `L - P < 0 < H - P`, where
-the slab is wider than any `t` and constrains nothing. A numerator `L - P` or `H - P` that overflows to an infinity while `P`, `L`, `H` are finite is an infinity
-only when `|Q| <= 1` (the quotient is then beyond the range too); for `|Q| > 1` the quotient is a finite `t`, so the slab is undecided (`return 3`; `RayAabb` returns -1). The same holds for a non-finite `P`, `eP`, `Q`, `eQ` or extent of an oriented slab (`inf * 0 = NaN` makes every comparison false):
-`FilterOriented` tests their sum once and goes to the exact route. The rule that a bound beyond `1e290` is an infinity assumes the limits of `t` given by a caller
-(`DoClipping`) are within `+-1e290`: `Find` takes the exact route for a limit beyond that (`+-double.MaxValue` still means no limit).
+(difference, quotient) give `|a - t*| <= 2.5 u |a| + AbsErr`. These bounds hold when no operation underflowed or overflowed: `Q` outside `[1e-290, 1e290]` and a
+finite bound `a` outside `{0} U [1e-290, 1e290]` are undecided (`return 3`, exact route).
+
+### 4.1 The infinite bounds (the rule, with every error term)
+
+A slab bound that is too large to be a number is replaced by an infinity of its sign, so that the algebra never forms `inf - inf` or `inf * 0`. That is sound
+only if the replacement cannot change a comparison with any other value of the same run. The other values are: the bounds of the other slabs (and of the other
+side of this slab), and the limits of the caller (`tmin`, `tmax`; 0 and none for a ray or line). Let `Huge = 1e290`. `Kind(a, ea, n, eP, aq, eQ)` classifies a
+computed bound `a = n / Q` with its error `ea` (above; `ea` also for an infinite or overflowed `a`: NaN or infinite then means undecided):
+
+- **0, a number:** `|a| + ea <= Huge`. Its exact value `t*` lies in `[-Huge, Huge]` and the relative bounds hold.
+- **1, an infinity:** `|n| (1 - 2u) - eP - AbsErr > 2 Huge (aq + eQ)`. The exact numerator `n* = L - P*` has `|n*| >= |n| (1 - 2u) - eP` (`n` rounded once from `L - P`
+  with `|P - P*| <= eP`; for an `n` that overflowed to an infinity, `|L - P| >= 1.7e308` takes the place of `|n| (1 - 2u)`), the exact `|Q*| <= aq + eQ`, so
+  `|t*| = |n*| / |Q*| > 2 Huge`, and its sign is the sign of `n Q` (`|Q| > 2 eQ` keeps the sign of `Q*`, `|n*| > 0` that of `n`). This is **not** `|a| > Huge`: on an
+  oriented slab `L - P` cancels, `eP` can be most of `|n|`, and a computed `a` beyond `1e290` can have an exact value far inside (the review of 23 November 2026: a computed
+  `-1e290` bound whose exact value `-2.6e289` was the binding one).
+- **2, undecided:** anything between (`Huge - ea < |a|`, not certainly beyond `2 Huge`), a NaN: the exact route.
+
+So every number bound has `|t*| <= Huge`, every infinity has `|t*| > 2 Huge` on its side, and the limits of the caller are numbers within `+-Huge` (`Find` takes the exact route
+for a limit beyond that; `+-double.MaxValue` means no limit). An infinity is therefore on the far side of every number bound and every limit, so it constrains nothing
+that they do not already decide, and a comparison `lower infinity < upper number` is true for the exact values too. Two infinities on opposite sides of one slab (`a*` below `-2 Huge`, `b*` above `2 Huge`)
+are a slab wider than any `t`: no constraint (`return 0`); two on the same side are undecided (`return 3`): the order of the exact values is unknown. The ray branch (origin certainly inside on the
+entering side, only the upper bound) classifies its one bound the same way.
+
+A numerator that overflows (`L - P`, `H - P` beyond 1.7976e308 while `P`, `L`, `H` are finite) is the same case: an infinity if `aq + eQ` is at most about `9e17`, else undecided. A non-finite `P`, `eP`, `Q`, `eQ` or extent
+of an oriented slab (`inf * 0 = NaN` makes every comparison false) is tested once in `FilterOriented` (the sum of the 12 values and the three extents) and goes to the exact route.
+
+`RayAabb` (exact `P`, `Q`; the box and the origin exact) never makes an infinity a value: a difference `face - origin` that overflows with `|di| > 1` returns -1; with `|di| <= 1`
+the quotient is beyond `1.7e308 > Huge`, and every computed `tn` or `tf` outside `[Tiny, Huge]` returns -1 at the end (an infinite `tf` from the `min` is the one that other
+slabs do not hide: `tf == +inf` returns -1, a `-inf` fails the range test). `RayAabbMay` is the miss test only: a difference that overflows gives an infinity in `tn` or `tf`, so the
+margin `m` is infinite or NaN and `tn > tf + m` is false ("may hit"); finite huge values are numbers with the error `3 u` per bound, no infinity rule is used.
+
+Standing test: `IntrBox3ExactTests.OrientedBoxes_CancellingSlabs_BoundsNearHuge_AgreeWithTheOracle_ForEveryEntry` (oriented boxes with the origin placed so that `P` cancels and
+the bound is `1e285` to `1e292`, extreme scales, limits within `+-1e291`, seeded; every entry against the rational oracle; the ends by the route: `|g - e| <= 1/2 ulp(g)` in rationals where
+the exact route ran, `6 u |e| + 1e-300` where the filter did, the points in the box).
+
+A contact end beyond `+-double.MaxValue` is `+-Infinity` in `t` (it is a result, not a limit: the limits `+-MaxValue` mean "none"); the points are finite and on the box.
 
 ## 5. The verdicts (`Acc`)
 

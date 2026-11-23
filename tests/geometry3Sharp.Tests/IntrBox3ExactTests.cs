@@ -587,14 +587,170 @@ namespace geometry3Sharp.Tests
                     Assert.Equal(e.kind != 0, got);
                     if (got) {
                         hits++;
-                        Assert.True(Math.Abs((Q.From(g0) - e.t0).ToDouble()) <= 4 * Ulp(g0) && Math.Abs((Q.From(g1) - e.t1).ToDouble()) <= 4 * Ulp(g1),
+                        // (the route is not visible here: rounded once from the exact contact, or within the certified bound of the double filter; both in rationals)
+                        Assert.True((CorrectlyRounded(g0, e.t0) || WithinFilterBound(g0, e.t0)) && (CorrectlyRounded(g1, e.t1) || WithinFilterBound(g1, e.t1)),
                             $"t {g0:R} {g1:R} against {e.t0.ToDouble():R} {e.t1.ToDouble():R}, limits {t0:R} {t1:R}");
+                        Assert.True(InBoxUpToRounding(ob, p0) && (quantity == 1 || InBoxUpToRounding(ob, p1)), "a point of the contact outside the box");
                         Assert.Equal(e.kind == 1 ? IntersectionType.Point : IntersectionType.Segment, type);
                     }
                     n++;
                 }
             }
             Assert.True(hits > 300 && n > 10000, $"hits {hits} n {n}");
+        }
+
+        [Fact]
+        public void CancellingSlab_BoundBeyondHugeWithAnErrorThatReachesInside_IsNotDroppedAsInfinite()
+        {
+            // oriented slab: L - P cancels, so the computed bound lies beyond 1e290 while its exact value is about 2.6e289 and binds (review of #1432)
+            var box = new Box3d(Vector3d.Zero, new Vector3d(0.6, 0.8, 0), new Vector3d(-0.8, 0.6, 0), new Vector3d(0, 0, 1),
+                new Vector3d(1.2628850212607981E+303, 7.505022788804454E+306, 7.884470018569269E+284));
+            Vector3d o = new Vector3d(4.0034365517084655E+306, -3.000998807504773E+306, -1.3416535123677303E+286);
+            Vector3d d = new Vector3d(-0.14142135447902154, 0.9899494813531506, 0.00015768940037138535);
+            var s = Slabs(box, o, d);
+            Assert.Equal(0, Contact(s, null, null).kind);
+            Assert.Equal(0, Contact(s, new Q(0, 1), null).kind);
+            var ray = new Ray3d(o, d, true);
+            Assert.False(new IntrLine3Box3(new Line3d(o, d), box).Test());
+            Assert.False(IntrRay3Box3.Intersects(ref ray, ref box));
+            Assert.False(new IntrRay3Box3(ray, box).Test());
+            Assert.False(new IntrLine3Box3(new Line3d(o, d), box).Find());
+            // the limits case
+            var box2 = new Box3d(Vector3d.Zero, new Vector3d(0.6, 0.8, 0), new Vector3d(-0.8, 0.6, 0), new Vector3d(0, 0, 1),
+                new Vector3d(2.0586688118345252E+102, 1.0007421359214291E+107, 1));
+            Vector3d o2 = new Vector3d(4.002845023557006E+106, -3.0023911012692337E+106, 0), d2 = new Vector3d(-3.40707396967666E-201, 2.3849517787736615E-200, 0);
+            double t0 = -8.806194077388475E+289, t1 = -8.545073569773265E+289;
+            var s2 = Slabs(box2, o2, d2);
+            Assert.Equal(0, Contact(s2, Q.From(t0), Q.From(t1)).kind);
+            int quantity = 0; Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero; var type = IntersectionType.Empty;
+            Assert.False(IntrLine3Box3.DoClipping(ref t0, ref t1, o2, d2, box2, true, ref quantity, ref p0, ref p1, ref type));
+        }
+
+        // g is the double nearest to the rational e (a tie either way); beyond the range an infinity
+        static bool CorrectlyRounded(double g, Q e)
+        {
+            Q maxHalf = Q.From(double.MaxValue) + new Q(BigInteger.One << 970, 1);
+            if (double.IsInfinity(g))
+                return g > 0 ? e.CompareTo(maxHalf) >= 0 : e.CompareTo(new Q(-maxHalf.N, maxHalf.D)) <= 0;
+            Q half = new Q(1, 2);
+            Q qg = Q.From(g);
+            double dn = Down(g), up = Up(g);
+            Q lo = double.IsInfinity(dn) ? new Q(-maxHalf.N, maxHalf.D) : (qg + Q.From(dn)) * half;
+            Q hi = double.IsInfinity(up) ? maxHalf : (qg + Q.From(up)) * half;
+            return e.CompareTo(lo) >= 0 && e.CompareTo(hi) <= 0;
+        }
+
+        // |g - e| <= 6 u |e| + 1e-300, in rationals
+        static bool WithinFilterBound(double g, Q e)
+        {
+            if (double.IsInfinity(g)) return false;
+            Q diff = Q.From(g) - e; if (diff.Sign < 0) diff = new Q(-diff.N, diff.D);
+            Q ae = e; if (ae.Sign < 0) ae = new Q(-ae.N, ae.D);
+            Q bound = ae * Q.From(6 * 1.1102230246251565e-16) + Q.From(1e-300);
+            return diff.CompareTo(bound) <= 0;
+        }
+
+        // the point lies in the oriented box up to the rounding of its coordinates (a few u of the sums that make the slab values)
+        static bool InBoxUpToRounding(Box3d b, Vector3d p)
+        {
+            for (int i = 0; i < 3; i++) {
+                Vector3d u = b.Axis(i);
+                Q dot = Dot(u, p - b.Center);
+                double scale = Math.Abs(u.x) * (Math.Abs(p.x) + Math.Abs(b.Center.x)) + Math.Abs(u.y) * (Math.Abs(p.y) + Math.Abs(b.Center.y)) + Math.Abs(u.z) * (Math.Abs(p.z) + Math.Abs(b.Center.z)) + b.Extent[i];       // (each coordinate of the point is rounded relative to itself, not to its distance from the center)
+                Q lim = Q.From(b.Extent[i]) + Q.From(64 * 1.1102230246251565e-16 * scale + 1e-300);
+                Q ad = dot; if (ad.Sign < 0) ad = new Q(-ad.N, ad.D);
+                if (ad.CompareTo(lim) > 0) return false;
+            }
+            return true;
+        }
+
+        [Fact]
+        public void OrientedBoxes_CancellingSlabs_BoundsNearHuge_AgreeWithTheOracle_ForEveryEntry()
+        {
+            // the standing property test of the infinite-bound rule (docs/design/BOX3_EXACT_FILTER.md "The infinite bounds"): oriented boxes whose
+            // slab value P cancels against the face (the origin placed so that the bound face - P over Q is about 1e285 to 1e292), extreme
+            // scales and limits of the caller within +-1e291; every entry against the exact rational oracle
+            var r = new Random(20261123);
+            Func<double, double> pow10 = x => Math.Pow(10, x);
+            int hits = 0, misses = 0, exactEnds = 0, filterEnds = 0, n = 0;
+            for (int it = 0; it < 9000; it++) {
+                double ang = r.NextDouble() * 6.283185307179586;
+                Vector3d ux, uy, uz = Vector3d.AxisZ;
+                if (r.Next(3) == 0) { ux = new Vector3d(0.6, 0.8, 0); uy = new Vector3d(-0.8, 0.6, 0); }
+                else if (r.Next(2) == 0) { ux = Vector3d.AxisX; uy = Vector3d.AxisY; }
+                else { ux = new Vector3d(Math.Cos(ang), Math.Sin(ang), 0); uy = new Vector3d(-Math.Sin(ang), Math.Cos(ang), 0); }
+                double scale = pow10(r.Next(-5, 307) + r.NextDouble());
+                Vector3d ext = new Vector3d(scale * pow10(-6 * r.NextDouble()), scale * pow10(-6 * r.NextDouble()), scale * pow10(-12 * r.NextDouble()));
+                Vector3d ctr = r.Next(2) == 0 ? Vector3d.Zero : new Vector3d((r.NextDouble() - 0.5) * scale, (r.NextDouble() - 0.5) * scale, 0);
+                Box3d box = new Box3d(ctr, ux, uy, uz, ext);
+                // the direction: random, some components tiny
+                Vector3d d = new Vector3d((r.NextDouble() - 0.5) * pow10(-r.Next(0, 17)), (r.NextDouble() - 0.5) * pow10(-r.Next(0, 17)), (r.NextDouble() - 0.5) * pow10(-r.Next(0, 17)));
+                d = d.Normalized; if (d.IsNormalized == false || (d.x == 0 && d.y == 0 && d.z == 0)) continue;
+                // the origin: on the slab k at the distance B * Q_k from the face (the bound about B), plus a random part along the others
+                int k = r.Next(2);
+                Vector3d uk = k == 0 ? ux : uy, uo = k == 0 ? uy : ux;
+                double qk = uk.Dot(d);
+                if (qk == 0) continue;
+                double B = (r.Next(2) == 0 ? 1 : -1) * pow10(285 + 7 * r.NextDouble());
+                double Pk = (r.Next(2) == 0 ? ext[k] : -ext[k]) - B * qk;
+                if (double.IsInfinity(Pk) || Math.Abs(Pk) > 1.7e306) Pk = Math.Sign(Pk) * ext[k] * (1 + pow10(-r.Next(0, 17)));
+                double Po = (r.NextDouble() * 2 - 1) * ext[1 - k] * (r.Next(3) == 0 ? 3 : 1);
+                Vector3d o = ctr + uk * Pk + uo * Po + uz * ((r.NextDouble() * 2 - 1) * ext.z);
+                if (double.IsInfinity(o.x) || double.IsInfinity(o.y) || double.IsInfinity(o.z)) continue;
+                if (r.Next(2) == 0) {
+                    // aimed at a point of the box (a contact, with the face bounds still far)
+                    Vector3d aim = ctr + ux * ((r.NextDouble() * 2 - 1) * ext.x) + uy * ((r.NextDouble() * 2 - 1) * ext.y) + uz * ((r.NextDouble() * 2 - 1) * ext.z);
+                    Vector3d dd2 = (aim - o).Normalized;
+                    if (dd2.IsNormalized && (dd2.x != 0 || dd2.y != 0 || dd2.z != 0)) d = dd2;
+                }
+                bool limits = r.Next(3) == 0;
+                double t0 = limits ? -pow10(r.Next(0, 291)) * r.NextDouble() : -double.MaxValue, t1 = limits ? pow10(r.Next(0, 291)) * r.NextDouble() : double.MaxValue;
+                if (limits && r.Next(2) == 0) { t0 = -pow10(r.Next(285, 291)) * (0.5 + r.NextDouble()); t1 = t0 * 0.5; if (t0 > t1) { double tmp = t0; t0 = t1; t1 = tmp; } }
+                bool hasMin = t0 > -double.MaxValue, hasMax = t1 < double.MaxValue;
+                var slabs = Slabs(box, o, d);
+                var e = Contact(slabs, hasMin ? Q.From(t0) : (Q?)null, hasMax ? Q.From(t1) : (Q?)null);
+                // internal Find: the kind, the ends by the route, the points
+                var spec = IntrExactBox3.BoxSpec.Of(ref box, 0);
+                Vector3d zero = Vector3d.Zero; IntrExactBox3.Hit hit;
+                Assert.True(IntrExactBox3.Find(ref spec, ref o, ref zero, ref d, hasMin, t0, hasMax, t1, true, out hit));
+                Assert.True(hit.Kind == (e.kind == 0 ? 0 : (e.kind == 1 ? 1 : 2)) || (hit.Kind == 1 && e.kind == 2),
+                    $"kind {hit.Kind} against {e.kind}: box {box.Extent.x:R} {box.Extent.y:R} {box.Extent.z:R} o {o.x:R} {o.y:R} {o.z:R} d {d.x:R} {d.y:R} {d.z:R} t [{t0:R}, {t1:R}]");
+                if (e.kind != 0) {
+                    hits++;
+                    if (hit.Exact) { exactEnds++; Assert.True(CorrectlyRounded(hit.T0, e.t0) && CorrectlyRounded(hit.T1, e.t1), $"exact ends {hit.T0:R} {hit.T1:R} against {e.t0.ToDouble():R} {e.t1.ToDouble():R}"); }
+                    else { filterEnds++; Assert.True(WithinFilterBound(hit.T0, e.t0) && WithinFilterBound(hit.T1, e.t1), $"filter ends {hit.T0:R} {hit.T1:R} against {e.t0.ToDouble():R} {e.t1.ToDouble():R}"); }
+                    if (double.IsInfinity(hit.P0.x) == false && double.IsInfinity(hit.P0.y) == false && double.IsInfinity(hit.P0.z) == false)
+                        Assert.True(InBoxUpToRounding(box, hit.P0), "P0 outside the box");
+                    if (hit.Kind == 2 && double.IsInfinity(hit.P1.x) == false && double.IsInfinity(hit.P1.y) == false && double.IsInfinity(hit.P1.z) == false)
+                        Assert.True(InBoxUpToRounding(box, hit.P1), $"P1 outside the box: P1 {hit.P1.x:R} {hit.P1.y:R} {hit.P1.z:R} T {hit.T0:R} {hit.T1:R} exact {hit.Exact} box c {ctr.x:R} {ctr.y:R} ext {ext.x:R} {ext.y:R} {ext.z:R} ux {ux.x:R} {ux.y:R} o {o.x:R} {o.y:R} {o.z:R} d {d.x:R} {d.y:R} {d.z:R} t [{t0:R}, {t1:R}]");
+                } else misses++;
+                // the public entries
+                bool el = Contact(slabs, null, null).kind != 0, er = Contact(slabs, new Q(0, 1), null).kind != 0;
+                var ray = new Ray3d(o, d, true); var line = new Line3d(o, d);
+                Assert.Equal(er, IntrRay3Box3.Intersects(ref ray, ref box));
+                Assert.Equal(er, new IntrRay3Box3(ray, box).Test());
+                Assert.Equal(er, new IntrRay3Box3(ray, box).Find());
+                Assert.Equal(el, new IntrLine3Box3(line, box).Test());
+                Assert.Equal(el, new IntrLine3Box3(line, box).Find());
+                double g0 = t0, g1 = t1; int quantity = 0; Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero; var type = IntersectionType.Empty;
+                Assert.Equal(e.kind != 0, IntrLine3Box3.DoClipping(ref g0, ref g1, o, d, box, true, ref quantity, ref p0, ref p1, ref type));
+                n++;
+            }
+            Assert.True(n > 4000 && hits > 200 && misses > 200 && exactEnds > 50 && filterEnds > 20, $"n {n} hits {hits} misses {misses} exact {exactEnds} filter {filterEnds}");
+        }
+
+        [Fact]
+        public void ContactBeyondTheDoubleRange_HasInfiniteT_AndFinitePointsInTheBox()
+        {
+            // documented: a t beyond +-double.MaxValue is +-Infinity (it is the result, not a limit: the limits +-MaxValue mean "none")
+            var box = new AxisAlignedBox3d(new Vector3d(1.7e308, -1, -1), new Vector3d(1.79e308, 1, 1));
+            Vector3d o = new Vector3d(-1.7e308, 0, 0), d = new Vector3d(1, 0, 0);
+            double t0 = -double.MaxValue, t1 = double.MaxValue; int quantity = 0; Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero; var type = IntersectionType.Empty;
+            Assert.True(IntrLine3AxisAlignedBox3.DoClipping(ref t0, ref t1, ref o, ref d, ref box, true, ref quantity, ref p0, ref p1, ref type));
+            Assert.Equal(IntersectionType.Segment, type);
+            Assert.True(double.IsPositiveInfinity(t0) && double.IsPositiveInfinity(t1));
+            Assert.Equal(1.7e308, p0.x); Assert.Equal(1.79e308, p1.x);
+            Assert.True(p0.y == 0 && p0.z == 0 && p1.y == 0 && p1.z == 0);
         }
 
         [Fact]
