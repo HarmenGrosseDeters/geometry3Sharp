@@ -22,8 +22,9 @@ namespace g3
     /// output once.
     ///
     /// The winding numbers are exact for meshes that are closed in the winding number sense (every edge used
-    /// equally often in both directions; non-manifold edges and self-intersections are allowed). For other
-    /// (open) meshes the generalized winding number is used (Jacobson et al. 2013, fast approximation), with the
+    /// equally often in both directions; non-manifold edges and self-intersections are allowed). Other (open) meshes
+    /// are refused by default (AllowOpenMeshes is false: Status OpenInput, unless the mesh has the role Sheet). With
+    /// AllowOpenMeshes for such meshes the generalized winding number is used (Jacobson et al. 2013, fast approximation), with the
     /// solid where it is above 0.5, evaluated at every output piece (it varies within a patch: see Performance of open
     /// inputs below); then the result is generally not closed, also along edges where an open boundary
     /// of an input meets other pieces and the kept pieces run the edge the same way (ConflictEdges). An inside-out mesh (winding
