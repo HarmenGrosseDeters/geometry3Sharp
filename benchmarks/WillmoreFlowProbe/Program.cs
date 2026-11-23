@@ -1,13 +1,15 @@
 using System;
+using System.Diagnostics;
 using g3;
 using gs;
 
 // Unit tube radius. The two angles and winding match the MeshCurvatureTests torus.
-static DMesh3 Torus(double major, int nu, int nv)
+static DMesh3 Torus(double major, int nu, int nv, double warp = 0)
 {
     var mesh = new DMesh3();
     for (int i = 0; i < nu; ++i) {
         double u = 2 * Math.PI * i / nu;
+        u += warp * Math.Sin(u);
         for (int j = 0; j < nv; ++j) {
             double v = 2 * Math.PI * j / nv, rho = major + Math.Cos(v);
             mesh.AppendVertex(new Vector3d(rho * Math.Cos(u), rho * Math.Sin(u), Math.Sin(v)));
@@ -42,6 +44,20 @@ static void CheckTorus(DMesh3 mesh)
     string defect = MeshRobustRepair.NotCleanReason(mesh, checkSelfIntersections: true);
     if (defect.Length != 0 || topology.Components != 1 || topology.Genus != 1)
         throw new InvalidOperationException($"Invalid torus: {defect}, genus {topology.Genus}.");
+}
+
+if (Array.IndexOf(args, "--acceptance") >= 0) {
+    bool timings = Array.IndexOf(args, "--timings") >= 0;
+    if (timings) CompareAcceptance(0.8, "budget", report: false);
+    Console.WriteLine("warp policy proposed-R accepted-R previous moved full smooth accepted energy min-quality");
+    foreach (double warp in new[] { 0.0, 0.8 })
+        foreach (string policy in new[] { "baseline", "strict", "budget", "smooth-only" }) {
+            var clock = Stopwatch.StartNew();
+            CompareAcceptance(warp, policy);
+            if (timings)
+                Console.WriteLine($"elapsed-ms {warp:G2} {policy} {clock.Elapsed.TotalMilliseconds:F2}");
+        }
+    return;
 }
 
 foreach (int nv in new[] { 12, 24, 48 }) {
@@ -97,6 +113,75 @@ static void RunPasses(bool motion, bool guard)
         if (pairs > 0 && !guard) break;
         CheckTorus(moving);
     }
+}
+
+// Replay the four radius proposals measured above for a paired policy comparison.
+static void CompareAcceptance(double warp, string policy, bool report = true)
+{
+    double radius = 3;
+    var current = Torus(radius, 48, 24, warp);
+    foreach (double next in new[] { 2.25, 1.5, 1.40625, 1.400390625 }) {
+        var moved = new DMesh3(current);
+        foreach (int v in moved.VertexIndices()) {
+            var p = moved.GetVertex(v);
+            moved.SetVertex(v, p + (next - radius) * new Vector3d(p.x, p.y, 0).Normalized);
+        }
+        CheckTorus(moved);
+        double previous = Energy(current), before = Energy(moved);
+        var selected = moved;
+        double selectedEnergy = before, quality = WorstQuality(moved);
+        double full = double.NaN, smooth = double.NaN;
+        string choice = "move";
+        if (policy != "baseline") {
+            foreach (bool connectivity in new[] { true, false }) {
+                if (connectivity && policy == "smooth-only") continue;
+                // Each proposal starts from the same clean moved mesh; rejection is lossless.
+                var trial = new DMesh3(moved);
+                var remesher = new Remesher(trial) {
+                    PreventSelfIntersections = true, EnableParallelSmooth = false, EnableParallelProjection = false,
+                    EnableFlips = connectivity, EnableSplits = connectivity, EnableCollapses = connectivity
+                };
+                remesher.SetProjectionTarget(new RingSurface { Major = next });
+                remesher.SetTargetEdgeLength(0.25);
+                remesher.BasicRemeshPass();
+                CheckTorus(trial);
+                double energy = Energy(trial), trialQuality = WorstQuality(trial);
+                if (connectivity) full = energy;
+                else smooth = energy;
+                double ceiling = policy == "strict" ? Math.Min(previous, before) : previous;
+                if (energy <= ceiling && trialQuality > quality) {
+                    selected = trial;
+                    selectedEnergy = energy;
+                    quality = trialQuality;
+                    choice = connectivity ? "full" : "smooth";
+                    break;
+                }
+            }
+        }
+        if (selectedEnergy > previous) {
+            selected = current;
+            selectedEnergy = previous;
+            quality = WorstQuality(current);
+            choice = "hold";
+        } else {
+            radius = next;
+        }
+        current = selected;
+        if (report) Console.WriteLine($"{warp:G2} {policy} {next:G10} {radius:G10} " +
+            $"{previous:G10} {before:G10} {full:G10} {smooth:G10} {choice} {selectedEnergy:G10} {quality:G9}");
+    }
+}
+
+static double WorstQuality(DMesh3 mesh)
+{
+    double minimum = 1;
+    foreach (int t in mesh.TriangleIndices()) {
+        var f = mesh.GetTriangle(t);
+        Vector3d a = mesh.GetVertex(f.a), b = mesh.GetVertex(f.b), c = mesh.GetVertex(f.c);
+        double q = MeshRefinerBase.TriangleQuality(ref a, ref b, ref c);
+        minimum = Math.Min(minimum, q);
+    }
+    return minimum;
 }
 
 internal sealed class RingSurface : IProjectionTarget

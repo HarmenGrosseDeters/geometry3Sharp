@@ -2,7 +2,7 @@
 
 ## Decision
 
-Park a general Willmore fairing operator pending a caller and an energy-stable discretization. The existing operators serve different objectives. `MeshCurvature` provides the ingredients for a vertex quadrature of bending energy. `LaplacianMeshSmoother` minimizes a constrained graph-Laplacian residual and `BiharmonicMeshDeformer` minimizes a displacement energy with handles. Neither exposes descent of the current surface's bending energy. Crane, Pinkall and Schröder describe conformal curvature flow with curvature-space updates and fixed connectivity. The experiment below uses a one-parameter surface family to test the library's curvature and remeshing operations. [Source](../sources/meshing-and-repair.md)
+Use measured output energy as a benchmark acceptance check. The paired experiment below shows when an optional mesh pass can be discarded while retaining a clean, energy-decreasing shape change. The practicality of a general Willmore fairing operator remains open. The existing operators serve different objectives. `MeshCurvature` provides the ingredients for a vertex quadrature of bending energy. `LaplacianMeshSmoother` minimizes a constrained graph-Laplacian residual and `BiharmonicMeshDeformer` minimizes a displacement energy with handles. Neither exposes descent of the current surface's bending energy. Crane, Pinkall and Schröder describe conformal curvature flow with curvature-space updates and fixed connectivity. The experiment below uses a one-parameter surface family to test the library's curvature and remeshing operations. [Source](../sources/meshing-and-repair.md)
 
 The guarded remesher preserved a clean torus through all four tested moves. Its first pass increased the measured bending energy more than fourfold. An intersection guard and analytic projection are therefore insufficient to guarantee energy descent on the evolving triangulation. A production stepping rule would need to check energy on the actual output mesh, including after connectivity changes. The unguarded static control also intersects, so the observed intersections do not establish a defect specific to curvature-driven motion.
 
@@ -31,3 +31,35 @@ On the structured 48 × 24 torus a centered difference with radius increment 1e-
 Each input to a remeshing pass passed the clean-mesh check. Unguarded runs stop at their first positive pair count. Guarded outputs also passed the checks for a single closed, consistently oriented genus-one component, valid curvature samples and absence of self-intersections. The moving guard rejected 125 operations or moves cumulatively. On the first guarded step the vertex count changed from 1,152 to 2,110. The before/after energy difference includes changes in vertices, triangles and curvature quadrature.
 
 The energy measurement costs one curvature evaluation and one vertex sum per mesh, linear in mesh size. Each radius trial repeats this on the structured grid. Remeshing and the exact intersection checks add separate geometry-dependent costs. The energy oracle and the observed near-fourfold error reduction apply to this refinement family. The experiment does not establish stability of unconstrained fourth-order flow, model membrane equilibria under physiological constraints, or give a general remeshing guarantee.
+
+## Keeping the shape change when a mesh pass fails the energy check
+
+Run `LC_ALL=C dotnet run -c Release --project benchmarks/WillmoreFlowProbe -- --acceptance`. Replay the same four proposed radii from R = 3 on the 48 × 24 torus. The second fixture uses longitude u + 0.8 sin(u) in place of u. This crowds vertices near one side while preserving their order and the underlying analytic surface. All policies start from identical meshes for a given fixture.
+
+For each step, keep the old mesh and form a separate, clean moved mesh. The baseline accepts the motion if its energy is at most the old energy. The other policies try a guarded pass on a copy. Each accepted mesh pass must improve the moved mesh's worst triangle quality, using the library's scale-independent score (1 for an equilateral triangle). The full pass enables splits, collapses and flips. The gentler pass enables only the existing smoothing and analytic projection. Each candidate starts from the same moved mesh. The probe checks cleanliness, genus and curvature validity on each candidate and aborts on an unexpected invalid mesh.
+
+- **Strict** tries the full pass, then the gentler pass. Energy must be at most both the old energy and the moved mesh's energy.
+- **Budget** tries the same passes, allowing redistribution to spend part of the energy reduction earned by the shape change. The accepted mesh must still have energy at most the old energy.
+- **Smooth-only** applies the budget rule to the gentler pass directly. If no candidate qualifies, all three policies retain the clean moved mesh if its energy is at most the old energy. Otherwise they retain the old mesh.
+
+| Longitude warp | Policy | Accepted full / gentle passes | Final energy | Worst triangle quality |
+|---:|---|---:|---:|---:|
+| 0 | Baseline | 0 / 0 | 19.507591 | 0.333486 |
+| 0 | Strict | 0 / 1 | 19.507634 | 0.333685 |
+| 0 | Budget or smooth-only | 0 / 4 | 19.508077 | 0.333732 |
+| 0.8 | Baseline | 0 / 0 | 19.500048 | 0.070219 |
+| 0.8 | Strict | 0 / 1 | 19.500137 | 0.070380 |
+| 0.8 | Budget or smooth-only | 0 / 3 | 19.500702 | 0.070706 |
+
+All four radii were accepted on both fixtures and the accepted energy decreased at every step. On the warped fixture's last budget step, the old energy was 19.500894, the moved energy was 19.500702, and the gentle pass returned 19.501005. Keeping the shape change alone preserved descent without a retry or a smaller step. The budget and smooth-only policies selected identical meshes by construction whenever the full pass failed. Their final minimum quality rose about 0.074% over baseline on the regular mesh and 0.69% on the warped mesh. The final discrete energy was slightly higher than baseline in both cases. These percentages describe mesh quality at the same final radius, not an improvement in the analytic Willmore energy of the surface.
+
+The practical result is a small, testable rollback rule. On these inputs skipping full remeshing avoids four rejected candidates per trajectory and preserves all accepted results. The quality gain is modest even on the crowded mesh. This experiment gives no performance or stability guarantee for unrestricted vertex motion, topology-changing remeshing on other inputs, or constrained membrane dynamics.
+
+Add `--timings` after `--acceptance` for end-to-end policy times. Each process warms up on one unreported budget trajectory. The medians of three separate Release runs on this machine, for the four steps together, were:
+
+| Warp | Motion alone | Strict | Budget, full pass first | Budget, gentle pass only |
+|---:|---:|---:|---:|---:|
+| 0 | 69 ms | 690 ms | 605 ms | 168 ms |
+| 0.8 | 61 ms | 544 ms | 457 ms | 161 ms |
+
+These times include mesh copies, clean-mesh checks, energy and quality evaluations, candidate passes and row output. They exclude process startup and warm-up. The gentle-only policy took about 2.7 times the baseline time on the crowded mesh and about 35% of the full-first budget time. For this workload, use the energy check to make optional smoothing reversible when minimum quality matters. Motion alone is the cheaper baseline when the observed sub-percent quality gain is immaterial.
