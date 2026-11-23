@@ -28,6 +28,8 @@ The parked certified-accuracy mode (not in this tree, branch `claude/biharmonic-
 
 The [procedural sphere-union study](../research/MOLECULAR_SURFACES_STUDY.md) uses the inclusion–exclusion viewpoint of H. Edelsbrunner, [The Union of Balls and Its Dual Shape](https://pub.ista.ac.at/~edels/Papers/1995-02-UnionBallsDualShape.pdf), DCG 13 (1995). Paper text only.
 
+The [branching-tube study](../research/BRANCHING_TUBE_GENUS_STUDY.md) takes the skeleton-to-surface question from J. Bloomenthal and K. Shoemake, [Convolution Surfaces](https://www.bloomenthal.com/JBloom/pdf/CSurfFinal.pdf), SIGGRAPH 1991. It uses explicit tapered cylinders and a hard union to keep the geometric topology reference independent of blending. Paper text only.
+
 ## Alpha wrapping (`MeshAlphaWrap`, `Delaunay3`, `ExactPredicates.InSphere`)
 
 Implemented from the papers, no code taken over. CGAL's implementation (`Alpha_wrap_3`, GPL) was not used.
