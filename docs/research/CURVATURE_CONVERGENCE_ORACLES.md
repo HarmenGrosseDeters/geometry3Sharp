@@ -396,3 +396,20 @@ Run `dotnet run -c Release --project benchmarks/CurvatureWeakProbe -- --heat-pro
 | 157.13005 | 3.74898 | 7.65999 | 11.69874 | 0.19525 |
 
 The endpoint reproduces the previous control on all three grids under both schedules. The default error decreases with refinement at the 41.79° station (0.03297° to 0.01473°), but increases at each sampled station from 80.51° onward. On the finest grid the signed error grows from 0.53560° at 80.51° to 2.71940° at 119.64°. Its largest sampled increase is 6.07791°, between 138.21° and the target at 157.13°. With the linear schedule the corresponding increment is 0.07076°. These differences describe the spatial variation in the solved field along one sampled meridian. They do not measure the contribution of walks traversing a particular segment.
+
+## Dependence on longitude at fixed colatitude
+
+Run `dotnet run -c Release --project benchmarks/CurvatureWeakProbe -- --heat-azimuth`. Keep the north-pole source and its x-directed input fixed. The probe evaluates the signed transport error above at every equatorial vertex and every vertex with the z-coordinate of the off-axis target (within 1e-12 on the unit sphere). This yields 64, 128 and 256 equatorial samples and eight target-latitude samples per resolution. Comparisons across longitude are at the same spherical distance from the source, without interpolation. The eight far samples are symmetry-related copies of one off-axis point and give no coverage between those longitudes.
+
+| Vertices per edge | Schedule | Equator max absolute error (°) | Target latitude max absolute error (°) |
+|---:|---|---:|---:|
+| 17 | default | 0.73326 | 3.75274 |
+| 33 | default | 0.82569 | 7.66080 |
+| 65 | default | 0.85324 | 11.69891 |
+| 17 | linear | 0.07082 | 0.23099 |
+| 33 | linear | 0.06800 | 0.23210 |
+| 65 | linear | 0.04423 | 0.19544 |
+
+On the finest default equator, the signed error is within 0.000011° of zero at longitudes 0° and 45°, yet reaches +0.85283° at 23.44°. Comparing the entire sampled equator with itself after a quarter turn gives a maximum absolute difference of 0.00238° or less. Reflecting longitude and comparing with the sign reversed gives a maximum difference below 0.00166°. The signed field therefore has an approximately repeating quarter-turn pattern with opposite errors across the symmetry plane.
+
+At colatitude 157.13°, the finest default errors at longitudes +25.82° and −25.82° are +11.69874° and −11.69856°. The other six copies follow the same quarter-turn and reflection pattern to within 0.00036°. The previously measured endpoint bias recurs at symmetry-related destinations and changes sign under reflection. These comparisons identify a directional pattern on the cube-sphere but leave the individual walk contributions unresolved.
