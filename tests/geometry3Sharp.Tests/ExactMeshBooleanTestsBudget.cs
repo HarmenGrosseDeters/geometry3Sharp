@@ -266,9 +266,11 @@ namespace geometry3Sharp.Tests
         public void Cancellation_DuringTheArrangement_StopsSoon()
         {
             // a knot whose boolean takes seconds, cancelled after 100 ms: Compute returns Cancelled well before the end
+            // (the knots are open tubes: stated, or the boolean would refuse them at once instead of running)
             (DMesh3 a, DMesh3 b) = KnotPair(400, 8, 24, 0.6, 1);
+            Assert.False(ExactMeshBoolean.IsWindingClosed(a));
             using (var cts = new CancellationTokenSource()) {
-                var s = new ExactMeshBoolean(a, b, Ops.Difference) { Cancellation = cts.Token };
+                var s = new ExactMeshBoolean(a, b, Ops.Difference) { AllowOpenMeshes = true, Cancellation = cts.Token };
                 cts.CancelAfter(100);
                 var sw = Stopwatch.StartNew();
                 Assert.False(s.Compute());

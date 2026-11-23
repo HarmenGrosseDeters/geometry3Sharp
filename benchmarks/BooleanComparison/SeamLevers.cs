@@ -161,13 +161,13 @@ static class SeamLevers
             Pair(Math.Min(k, 48), 3, out wa, out wb);
             for (int r = 0; r < 3; ++r) {
                 foreach (var o in opOf.Values)
-                    new ExactMeshBoolean(wa, wb, o) { SafeRounding = rounding }.Compute();
+                    new ExactMeshBoolean(wa, wb, o) { AllowOpenMeshes = true, SafeRounding = rounding }.Compute();
                 Arrangement(new List<DMesh3> { wa, wb }, true, out _, out _, out _);
                 Arrangement(new List<DMesh3> { wa, wb }, false, out _, out _, out _);
                 Traversal("warm", 0, wa, wb, 1, false);
                 Near("warm", 0, wa, wb, 1, false);
                 Stamp("warm", 0, wa, wb, 1, false);
-                var wu = new ExactMeshBoolean(wa, wb, ExactMeshBoolean.Operations.Union) { SafeRounding = rounding };
+                var wu = new ExactMeshBoolean(wa, wb, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true, SafeRounding = rounding };
                 if (wu.Compute())
                     LocalRounding(wu.Result, wa, wb, 1);
             }
@@ -214,7 +214,7 @@ static class SeamLevers
                         int gc0 = GC.CollectionCount(0), gc1 = GC.CollectionCount(1), gc2 = GC.CollectionCount(2);
                         TimeSpan pause0 = NetCompat.GcPause();
                         long alloc0 = NetCompat.AllocatedBytes();
-                        var boolean = new ExactMeshBoolean(a, b, opOf[op]) { SafeRounding = rounding };
+                        var boolean = new ExactMeshBoolean(a, b, opOf[op]) { AllowOpenMeshes = true, SafeRounding = rounding };
                         var sw = Stopwatch.StartNew();
                         bool ok = boolean.Compute();
                         double ms = Ms(sw);
@@ -620,7 +620,7 @@ static class SeamLevers
             DMesh3 small = Box(new Vector3d(1100, 0, 0), new Vector3d(1100 + e, e, e));
             var row = new Dictionary<string, object> { ["part"] = "drop", ["cube_edge"] = e, ["k"] = k };
             foreach (bool safe in new[] { true, false }) {
-                var boolean = new ExactMeshBoolean(big, small, ExactMeshBoolean.Operations.Union) { SafeRounding = safe };
+                var boolean = new ExactMeshBoolean(big, small, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true, SafeRounding = safe };
                 bool ok = boolean.Compute();
                 string tag = safe ? "rounded" : "unrounded";
                 row[tag + "_triangles"] = ok ? boolean.Result.TriangleCount : -1;

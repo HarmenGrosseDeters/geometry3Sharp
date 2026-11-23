@@ -38,7 +38,7 @@ namespace g3.Examples
             if (extrude.Extrude() == false)
                 return null;
 
-            // 4) the exact Difference. AllowOpenMeshes = false: a tool that did not close is refused (Status OpenInput), not guessed
+            // 4) the exact Difference. AllowOpenMeshes = false (the default, stated): a tool that did not close is refused (Status OpenInput), not guessed
             var op = new ExactMeshBoolean(workpiece, tool, ExactMeshBoolean.Operations.Difference) { AllowOpenMeshes = false };
             op.Compute();
             // op.SelfIntersectingPairs > 0: parts of the sheet lie above each other along the direction (or the workpiece

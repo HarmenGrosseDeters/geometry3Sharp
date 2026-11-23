@@ -22,8 +22,9 @@ namespace g3
     /// output once.
     ///
     /// The winding numbers are exact for meshes that are closed in the winding number sense (every edge used
-    /// equally often in both directions; non-manifold edges and self-intersections are allowed). For other
-    /// (open) meshes the generalized winding number is used (Jacobson et al. 2013, fast approximation), with the
+    /// equally often in both directions; non-manifold edges and self-intersections are allowed). Other (open) meshes
+    /// are refused by default (AllowOpenMeshes is false: Status OpenInput, unless the mesh has the role Sheet). With
+    /// AllowOpenMeshes for such meshes the generalized winding number is used (Jacobson et al. 2013, fast approximation), with the
     /// solid where it is above 0.5, evaluated at every output piece (it varies within a patch: see Performance of open
     /// inputs below); then the result is generally not closed, also along edges where an open boundary
     /// of an input meets other pieces and the kept pieces run the edge the same way (ConflictEdges). An inside-out mesh (winding
@@ -390,8 +391,13 @@ namespace g3
         public bool SimplifyFlatRegions = true;
         /// <summary> vertices removed by SimplifyFlatRegions </summary>
         public int RemovedVertices;
-        /// <summary> if false, Compute() fails for meshes that are not closed in the winding number sense </summary>
-        public bool AllowOpenMeshes = true;
+        /// <summary>
+        /// false (default): Compute() fails with Status OpenInput for a mesh that is not closed in the winding number sense and has no
+        /// role Sheet (Roles); Error names the meshes. true: such a mesh is classified by the generalized winding number, the solid
+        /// where it is above 1/2 (see the class comment); an open cutting surface then usually cuts nothing, silently
+        /// (OpenInputsWithoutEffect), which is why this is stated by the caller (#1211; the default was true before)
+        /// </summary>
+        public bool AllowOpenMeshes = false;
         /// <summary>
         /// after rounding the vertices to double, repair the self-intersections and degenerate triangles (area below
         /// 1e-12 of the squared diagonal; the diagonal of the result's largest connected component, here and below) the
@@ -513,10 +519,13 @@ namespace g3
         /// either could be left out, not both). Decided with the integers of the classification, no tolerance. An open input that
         /// changes the result is not listed, also where the change is wrong (pieces kept where its generalized winding number
         /// crosses 1/2: the result is then usually not closed, which the list does not say): the list does not say that the
-        /// result is right. Empty with a WindingPredicate (not evaluated), when no input is open, when Compute() fails, and before it
+        /// result is right. Empty with a WindingPredicate (not evaluated), when no input is open (so always with the default
+        /// AllowOpenMeshes = false, which refuses such an input), when Compute() fails, and before it
         /// </summary>
         public IReadOnlyList<int> OpenInputsWithoutEffect { get { return openWithoutEffect; } }
         List<int> openWithoutEffect = new List<int>();
+        // the list of the classification of the running Compute(), until it succeeds
+        List<int> classifiedWithoutEffect = new List<int>();
         // for tests: use generalized winding numbers also for closed meshes
         internal bool ForceGeneralizedWinding = false;
         // open meshes with fewer boundary segments than this are classified by the Antipodal Method (an exact ray and a
@@ -657,8 +666,9 @@ namespace g3
         /// parallel over the bodies; a's input check and orientation are done once. Result i is null where that boolean
         /// fails (status[i], if given, says why; a null a fails every boolean with InvalidInput, as a separate boolean
         /// would). configure, if given, is applied to every boolean before it is computed (eg SafeRounding); it runs in
-        /// parallel and must not depend on the order. For a terrain or part against many small bodies most of a lies
-        /// outside each body and is left out of its arrangement (Counts["t3a_culled"]).
+        /// parallel and must not depend on the order. An open a or body is refused with the defaults (status OpenInput, a null
+        /// result; an open a fails every boolean): configure can set AllowOpenMeshes. For a closed terrain solid or part against many
+        /// small bodies most of a lies outside each body and is left out of its arrangement (Counts["t3a_culled"]).
         /// </summary>
         /// <exception cref="ArgumentNullException">bodies is null</exception>
         /// <exception cref="ArgumentException">status is shorter than bodies</exception>
@@ -750,14 +760,20 @@ namespace g3
             };
         }
 
-        /// <summary> union of any number of meshes in one arrangement; null if Compute() fails </summary>
+        /// <summary>
+        /// union of any number of meshes in one arrangement; null if Compute() fails, which with the defaults includes an open mesh
+        /// (AllowOpenMeshes is false; use the constructor to set it)
+        /// </summary>
         public static DMesh3 Union(IEnumerable<DMesh3> meshes)
         {
             var op = new ExactMeshBoolean(meshes, Operations.Union);
             return op.Compute() ? op.Result : null;
         }
 
-        /// <summary> intersection of any number of meshes in one arrangement; null if Compute() fails </summary>
+        /// <summary>
+        /// intersection of any number of meshes in one arrangement; null if Compute() fails, which with the defaults includes an open
+        /// mesh (AllowOpenMeshes is false; use the constructor to set it)
+        /// </summary>
         public static DMesh3 Intersection(IEnumerable<DMesh3> meshes)
         {
             var op = new ExactMeshBoolean(meshes, Operations.Intersection);
@@ -1051,12 +1067,12 @@ namespace g3
                         Rounding.RemovedResolvable);
                     Result = null;
                     Status = BooleanStatus.RoundingNotClean;
-                    openWithoutEffect = new List<int>();     // (as fail(): the list belongs to a result)
                     return false;
                 }
             }
             Contacts = count_contacts(Result);
             Counts["contacts"] = Contacts;
+            openWithoutEffect = classifiedWithoutEffect;        // (every path to here has run classify to its end)
             Status = BooleanStatus.Success;
             return true;
         }
@@ -1584,7 +1600,6 @@ namespace g3
         {
             Status = status;
             Error = error;
-            openWithoutEffect = new List<int>();     // (the list belongs to a result: also empty where the run fails after the classification)
             return false;
         }
 
@@ -1631,8 +1646,9 @@ namespace g3
 
         /// <summary>
         /// The boundary of the solid of a mesh (where its winding number is positive): self-intersections,
-        /// nested shells and duplicated faces are resolved exactly, the result with SafeRounding (the default).
-        /// Returns null if Compute() fails.
+        /// nested shells and duplicated faces are resolved exactly, the result with SafeRounding (the default). A repair of one
+        /// mesh: an open mesh is taken (AllowOpenMeshes is set here; its solid is where the generalized winding number is above 1/2,
+        /// and the result is then generally open). Returns null if Compute() fails.
         /// </summary>
         public static DMesh3 Resolve(DMesh3 mesh)
         {
@@ -1644,7 +1660,7 @@ namespace g3
         public static DMesh3 Resolve(DMesh3 mesh, bool safeRounding)
         {
             // (a repair of one mesh: an inconsistently oriented one is oriented by area, as before #1210)
-            var op = new ExactMeshBoolean(mesh, new DMesh3(), Operations.Union) { SafeRounding = safeRounding, Orientation = OrientationModes.AreaMajority };
+            var op = new ExactMeshBoolean(mesh, new DMesh3(), Operations.Union) { SafeRounding = safeRounding, Orientation = OrientationModes.AreaMajority, AllowOpenMeshes = true };
             return op.Compute() ? op.Result : null;
         }
 
@@ -2055,9 +2071,11 @@ namespace g3
                 }
                 touched.Clear();
             }
+            // (published by Compute with Status Success only: a run that fails or throws after this leaves the list empty)
+            classifiedWithoutEffect = new List<int>();
             foreach (int m in openInputs)
                 if (matters[m] && effect[m] == false)
-                    openWithoutEffect.Add(m);
+                    classifiedWithoutEffect.Add(m);
             CertificateFront = front;
             steps.LapMicroseconds("classification.decisions");
         }

@@ -40,7 +40,7 @@ static class Program
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
                 GC.Collect();
-                var boolean = new ExactMeshBoolean(a, b, opOf[op]) { SafeRounding = safe };
+                var boolean = new ExactMeshBoolean(a, b, opOf[op]) { AllowOpenMeshes = true, SafeRounding = safe };
                 var sw = Stopwatch.StartNew();
                 bool ok;
                 string error = null;

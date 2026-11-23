@@ -480,7 +480,7 @@ class Program
             string key = op.ToString().ToLower();
             var sw = Stopwatch.StartNew();
             // BENCH_SAFE_ROUNDING=0: output vertices only rounded (no MeshRoundingRepair)
-            var boolean = new ExactMeshBoolean(a, b, op) { SafeRounding = Environment.GetEnvironmentVariable("BENCH_SAFE_ROUNDING") != "0" };
+            var boolean = new ExactMeshBoolean(a, b, op) { AllowOpenMeshes = true, SafeRounding = Environment.GetEnvironmentVariable("BENCH_SAFE_ROUNDING") != "0" };
             bool ok = boolean.Compute();
             total += sw.ElapsedMilliseconds;
             r["exact_" + key + "_ms"] = sw.ElapsedMilliseconds;

@@ -29,7 +29,7 @@ namespace geometry3Sharp.Tests
             gParallel.SerialOnThisThread = serial;
             try {
                 long bytes = GC.GetAllocatedBytesForCurrentThread();
-                op = new ExactMeshBoolean(a, b, operation);
+                op = new ExactMeshBoolean(a, b, operation) { AllowOpenMeshes = true };
                 if (wide) { op.FixedWidthPoints = false; op.DisableFilters = true; }
                 op.Compute();
                 return GC.GetAllocatedBytesForCurrentThread() - bytes;
