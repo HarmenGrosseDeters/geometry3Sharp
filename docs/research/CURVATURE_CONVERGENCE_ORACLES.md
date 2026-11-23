@@ -315,3 +315,31 @@ The probe calls `VectorHeatMethod.ExtendScalar` with value one at the face cente
 | 65 | 0.679779 | 0.499484 | 0.752756 | −0.002065 |
 
 At 65 vertices per edge, the face-center response is 2.123 times the seam response at the default time. The linear schedule brings that ratio to 0.99794. The x/y face-center ratio is one to the eight printed significant digits throughout. The default operator thus shows a growing directional difference for this equatorial pair across the sampled resolutions, while the linear schedule approaches equal contributions. These are relative amplitudes. The comparison samples two endpoints and sums over all routes to each one. It leaves open how rotations along different walks to a *single* far-band endpoint combine to produce its vector error.
+
+## Cancellation among walks to the same vertex
+
+For a single unit tangent impulse at the north pole, let y be the vector heat solution in local coordinates and φ the scalar response to a unit impulse at that same pole. The expansion over walks above gives φ as the sum of their positive weights and y as the weighted sum of transported unit vectors. Thus R = ‖y‖/φ is the length of their weighted mean at one destination, also called the mean resultant length. R = 1 means all positive-weight directions agree. Smaller R measures more cancellation. The mean direction can still deviate from analytic great-circle transport when R is close to one.
+
+The [diagnostic patch](../../benchmarks/CurvatureWeakProbe/sphere-walk-resultant.patch) returns y/φ before direction normalization and adds the probe command in a disposable worktree. It uses the same scalar and vector solves as the production transport. From the repository root run
+
+```sh
+git worktree add --detach ../sphere-walk-resultant HEAD
+git -C ../sphere-walk-resultant apply "$PWD/benchmarks/CurvatureWeakProbe/sphere-walk-resultant.patch"
+cd ../sphere-walk-resultant
+dotnet run -c Release --project benchmarks/CurvatureWeakProbe -- --heat-resultant
+```
+
+Each grid contains the same off-axis destination, the cube generator's sphere mapping of (1/2, 1/4, −1). The initial vector points along the x-axis. At the fixed vertex the probe records R and the angle between the mean direction and analytic transport. Over the earlier far band it reports the unweighted vertex mean of R and the RMS angle. The probe checks the requested diffusion time and bounds on R at each sampled vertex.
+
+| Vertices per edge | Schedule | Fixed R | Fixed angle (°) | Far vertices | Far mean R | Far RMS angle (°) |
+|---:|---|---:|---:|---:|---:|---:|
+| 9 | default | 0.38277 | 1.27798 | 44 | 0.44258 | 0.77345 |
+| 9 | linear | 0.23344 | 0.07923 | 44 | 0.29534 | 0.05252 |
+| 17 | default | 0.63743 | 3.74898 | 192 | 0.69725 | 2.45463 |
+| 17 | linear | 0.34741 | 0.22748 | 192 | 0.44514 | 0.15166 |
+| 33 | default | 0.81271 | 7.65999 | 772 | 0.84186 | 4.75966 |
+| 33 | linear | 0.48111 | 0.23130 | 772 | 0.56536 | 0.15268 |
+| 65 | default | 0.91302 | 11.69874 | 3100 | 0.91945 | 7.43347 |
+| 65 | linear | 0.61070 | 0.19525 | 3100 | 0.66937 | 0.12843 |
+
+At the fixed destination under default time, R rises from 0.383 to 0.913 as the angular error grows from 1.28° to 11.70°. The transported vectors increasingly agree around a biased direction. On the finest grid the linear schedule gives more cancellation (R = 0.611) and a smaller error (0.195°) at that same point. All eight far-band RMS angles reproduce the production time sweep to its reported precision. Greater agreement among walks is therefore insufficient as an accuracy indicator on this fixture. These first moments do not identify which routes account for the directional bias.
