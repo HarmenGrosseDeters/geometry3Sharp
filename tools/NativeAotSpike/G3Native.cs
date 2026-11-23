@@ -132,7 +132,7 @@ namespace G3Native
             if (!ReadOptions(opt, out o)) return G3Err.BadOptions;
             try
             {
-                var bo = new ExactMeshBoolean(a.Mesh, b.Mesh, (ExactMeshBoolean.Operations)op);
+                var bo = new ExactMeshBoolean(a.Mesh, b.Mesh, (ExactMeshBoolean.Operations)op) { AllowOpenMeshes = true };
                 bo.SafeRounding = o.safe_rounding != 0; bo.StrictRounding = o.strict_rounding != 0;
                 bo.AllowOpenMeshes = o.allow_open_meshes != 0; bo.Seed = o.seed;
                 if (o.struct_size >= 32) bo.MaxPieces = o.max_pieces;

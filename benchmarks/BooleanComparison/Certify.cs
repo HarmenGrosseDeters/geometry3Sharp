@@ -504,7 +504,7 @@ static class Certify
 
     static ExactMeshBoolean Boolean(Case c, bool record)
     {
-        var b = new ExactMeshBoolean(c.Inputs, c.Op);
+        var b = new ExactMeshBoolean(c.Inputs, c.Op) { AllowOpenMeshes = true };
         if (record) {
             b.RecordCertificate = true; b.ComputeExactVertices = true;
             if (c.Op == Ops.Intersection) b.CullOutsideA = false;       // the stages 1-2 checker's class (see its comment)

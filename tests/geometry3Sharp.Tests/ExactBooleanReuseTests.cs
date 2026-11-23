@@ -23,7 +23,7 @@ namespace geometry3Sharp.Tests
 
         static void AssertSameAsNew(ExactMeshBoolean reused)
         {
-            var fresh = new ExactMeshBoolean(reused.MeshA, reused.MeshB, reused.Operation);
+            var fresh = new ExactMeshBoolean(reused.MeshA, reused.MeshB, reused.Operation) { AllowOpenMeshes = reused.AllowOpenMeshes };
             Assert.True(fresh.Compute());
             Assert.Equal(Volume(fresh.Result), Volume(reused.Result), 12);
             Assert.Equal(fresh.Result.TriangleCount, reused.Result.TriangleCount);
@@ -58,7 +58,7 @@ namespace geometry3Sharp.Tests
             open1.RemoveTriangle(open1.TriangleIndices().First(t => open1.GetTriCentroid(t).z == 2), true, false);
             open2.RemoveTriangle(open2.TriangleIndices().First(t => open2.GetTriCentroid(t).z == 7), true, false);
             DMesh3 inner = Box(0.5, 0.5, 0.25, 1.5, 1.5, 0.75);
-            var boolean = new ExactMeshBoolean(inner, open1, Ops.Intersection);
+            var boolean = new ExactMeshBoolean(inner, open1, Ops.Intersection) { AllowOpenMeshes = true };
             Assert.True(boolean.Compute());
             Assert.False(boolean.ExactWindingB);
             Assert.Equal(0.5, Volume(boolean.Result), 12);

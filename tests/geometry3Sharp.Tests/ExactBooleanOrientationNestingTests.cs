@@ -339,7 +339,7 @@ namespace geometry3Sharp.Tests
             var b = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), open, D) { CountInsideOutCells = true, AllowOpenMeshes = false, Orientation = Nesting };
             Assert.False(b.Compute());
             Assert.Equal(ExactMeshBoolean.BooleanStatus.OpenInput, b.Status);
-            var allowed = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), open, D) { CountInsideOutCells = true, Orientation = Nesting };
+            var allowed = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), open, D) { AllowOpenMeshes = true, CountInsideOutCells = true, Orientation = Nesting };
             Assert.True(allowed.Compute(), allowed.Error);
             Assert.Equal(0, allowed.InsideOutCells);
             // (an open input is oriented by area, not by nesting: this consistent one is not changed)

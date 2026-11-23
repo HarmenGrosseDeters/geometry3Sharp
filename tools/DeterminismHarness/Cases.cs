@@ -320,7 +320,7 @@ namespace DeterminismHarness
         static Trace Boolean(Ops op, bool safe, bool serial, bool libm = false)
         {
             DMesh3 a = Inputs.BumpySphere(10, libm), b = Inputs.Sphere(new Vector3d(0.7, 0.2, 0.1), 0.9, 9);
-            var boolean = new ExactMeshBoolean(a, b, op) { SafeRounding = safe };
+            var boolean = new ExactMeshBoolean(a, b, op) { AllowOpenMeshes = true, SafeRounding = safe };
             var t = new Trace();
             t.Add(a, "input-a"); t.Add(b, "input-b");
             t.Add(boolean.Compute());
@@ -331,7 +331,7 @@ namespace DeterminismHarness
         static Trace BooleanBoxSphere(bool serial)
         {
             DMesh3 a = Inputs.Box(Vector3d.Zero, new Vector3d(0.8, 0.7, 0.9)), b = Inputs.Sphere(new Vector3d(0.3, 0.1, 0.2), 0.85, 10);
-            var boolean = new ExactMeshBoolean(a, b, Ops.Union);
+            var boolean = new ExactMeshBoolean(a, b, Ops.Union) { AllowOpenMeshes = true };
             var t = new Trace();
             t.Add(a, "input-a"); t.Add(b, "input-b");
             t.Add(boolean.Compute());

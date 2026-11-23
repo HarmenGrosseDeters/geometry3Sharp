@@ -32,11 +32,11 @@ static class T3aGeom
             // the variant that runs first)
             if (repeat > 1)
                 foreach (bool cull in new[] { false, true })
-                    new ExactMeshBoolean(a, b, op) { CullOutsideA = cull }.Compute();
+                    new ExactMeshBoolean(a, b, op) { AllowOpenMeshes = true, CullOutsideA = cull }.Compute();
             for (int rep = 0; rep < repeat; ++rep)
             foreach (bool cull in new[] { false, true }) {
                 GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
-                var o = new ExactMeshBoolean(a, b, op) { CullOutsideA = cull };
+                var o = new ExactMeshBoolean(a, b, op) { AllowOpenMeshes = true, CullOutsideA = cull };
                 var sw = Stopwatch.StartNew();
                 o.Compute();
                 string k = cull ? "cull" : "base";

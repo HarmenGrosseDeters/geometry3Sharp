@@ -294,7 +294,7 @@ namespace geometry3Sharp.Tests
 
         internal static ExactMeshBoolean Run(DMesh3 a, DMesh3 b, Ops op, bool tree)
         {
-            var r = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AntipodalHierarchical = tree, RecordOpenWinding = true };
+            var r = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true, AntipodalHierarchical = tree, RecordOpenWinding = true };
             Assert.True(r.Compute(), r.Error);
             Assert.True(r.Result.TriangleCount > 0);
             Assert.True(Invariance.AllFinite(r.Result));
@@ -347,7 +347,7 @@ namespace geometry3Sharp.Tests
             } finally {
                 gParallel.SerialOnThisThread = false;
             }
-            var reused = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), Ops.Difference) { RecordOpenWinding = true };
+            var reused = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), Ops.Difference) { AllowOpenMeshes = true, RecordOpenWinding = true };
             for (int run = 0; run < 2; ++run) {
                 Assert.True(reused.Compute(), reused.Error);
                 Assert.Equal("", Invariance.Difference(serial.Result, reused.Result));

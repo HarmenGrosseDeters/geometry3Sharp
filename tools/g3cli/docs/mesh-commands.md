@@ -44,7 +44,7 @@ g3cli repair scan.obj scan_fixed.stl --rounding-max-displacement 1e-6
 
 ```bash
 g3cli boolean part.stl tool.stl cut.3mf --op difference
-g3cli boolean --a a.obj --b b.obj --output ab.glb --op union --allow-open=false
+g3cli boolean --a a.obj --b open.obj --output ab.glb --op union --allow-open
 g3cli boolean a.stl b.stl all.stl --op union --more "c.stl;d.stl"
 g3cli boolean a.stl b.stl two.stl --op at_least --k 2 --more c.stl
 g3cli boolean a.stl b.stl odd.stl --op xor --more c.stl
@@ -53,6 +53,10 @@ g3cli resolve assembly.off solid.ply --simplify-flat-regions false
 g3cli resolve site_utm.stl solid.stl --strict-rounding
 g3cli resolve site_utm.stl solid.stl --rounding-ulp-factor 0 --rounding-absolute-tolerance 1e-3
 ```
+
+### Open Inputs (`--allow-open`)
+
+An input that is not closed (in the winding number sense: every edge used equally often in both directions) fails with `operation_failed` and `OpenInput` in the message, which names the inputs by index. This is the default since 2026-11-23 (before, open inputs were accepted), as for `ExactMeshBoolean.AllowOpenMeshes`. `--allow-open` accepts them and classifies them by the generalized winding number above 1/2: a deep open shell still encloses, a flat open cutting surface usually cuts nothing and the first input comes back unchanged. `resolve` repairs one mesh and takes open inputs as before.
 
 ### Orientation & SafeRounding Options
 

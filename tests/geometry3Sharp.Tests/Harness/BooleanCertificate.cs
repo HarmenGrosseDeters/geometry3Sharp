@@ -119,7 +119,7 @@ namespace geometry3Sharp.Tests
         /// </summary>
         public static BooleanCertificate Run(DMesh3 a, DMesh3 b, Ops op, out ExactMeshBoolean boolean, Action<ExactMeshBoolean> configure = null)
         {
-            boolean = new ExactMeshBoolean(a, b, op) { RecordCertificate = true, ComputeExactVertices = true };
+            boolean = new ExactMeshBoolean(a, b, op) { AllowOpenMeshes = true, RecordCertificate = true, ComputeExactVertices = true };
             configure?.Invoke(boolean);
             if (boolean.Compute() == false)
                 throw new InvalidOperationException("boolean failed: " + boolean.Error);

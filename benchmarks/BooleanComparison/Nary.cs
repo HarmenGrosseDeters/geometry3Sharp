@@ -33,7 +33,7 @@ static class Nary
 
     static DMesh3 Pairwise(DMesh3 a, DMesh3 b, ExactMeshBoolean.Operations op)
     {
-        var boolean = new ExactMeshBoolean(a, b, op);
+        var boolean = new ExactMeshBoolean(a, b, op) { AllowOpenMeshes = true };
         if (boolean.Compute() == false)
             throw new Exception(boolean.Error);
         return boolean.Result;
@@ -41,7 +41,7 @@ static class Nary
 
     static DMesh3 OnePass(List<DMesh3> meshes, Func<int[], bool> predicate, Dictionary<string, object> info)
     {
-        var boolean = new ExactMeshBoolean(meshes, predicate);
+        var boolean = new ExactMeshBoolean(meshes, predicate) { AllowOpenMeshes = true };
         if (boolean.Compute() == false)
             throw new Exception(boolean.Error);
         info["phases_ms"] = boolean.PhaseMilliseconds;
@@ -143,9 +143,9 @@ static class Nary
                 info["booleans"] = 1;
             } else if (variant == "twostep") {
                 // n-ary union of the cubes, then the union minus all voids (n-ary difference)
-                var union = new ExactMeshBoolean(cubes, ExactMeshBoolean.Operations.Union);
+                var union = new ExactMeshBoolean(cubes, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true };
                 if (union.Compute() == false) throw new Exception(union.Error);
-                var diff = new ExactMeshBoolean(new[] { union.Result }.Concat(voids), ExactMeshBoolean.Operations.Difference);
+                var diff = new ExactMeshBoolean(new[] { union.Result }.Concat(voids), ExactMeshBoolean.Operations.Difference) { AllowOpenMeshes = true };
                 if (diff.Compute() == false) throw new Exception(diff.Error);
                 r = diff.Result;
                 info["booleans"] = 2;

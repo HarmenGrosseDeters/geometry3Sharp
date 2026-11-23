@@ -59,6 +59,8 @@ DMesh3[] intersections = ExactMeshBoolean.IntersectEach(terrain, tools, b => b.S
 DMesh3[] differences = ExactMeshBoolean.DifferenceEach(part, tools);
 ```
 
+`terrain` and the tools are closed solids here: an open one is refused (`statuses[i]` is `OpenInput`) unless the lambda also sets `b.AllowOpenMeshes = true`.
+
 Each entry is bit-identical to running an independent boolean against `terrain` / `part`, while validating and orienting the base mesh only once and running bodies in parallel.
 
 ### Input Orientation & Open Meshes
@@ -66,7 +68,7 @@ Each entry is bit-identical to running an independent boolean against `terrain` 
 - **Inconsistent orientation (`Orientation`):** Closed inputs with flipped triangles are refused by default (`Orientation = Refuse`, `Status = InconsistentOrientation`) because inside vs. outside is ambiguous. Set `Orientation = AreaMajority` to reorient each component by its larger area part (`ReorientedTriangles`). `ExactMeshBoolean.Resolve(mesh)` always reorients as a repair operation.
 - **Orientation by nesting (`Orientation = ByNesting`):** an input that is closed modulo 2 and embedded is oriented by the parity of the crossings of one exact ray per component (the solid is the odd-depth region: nested shells and consistently inside-out inputs come out right). An input that self-intersects and is inconsistently oriented is refused with `SelfIntersectingInconsistent`; in such a mesh a consistently oriented component that encloses a negative volume is refused with `InconsistentOrientation`.
 - **Inside-out inputs (`CountInsideOutCells`):** `InsideOutCells` counts the closed components that are inside-out (the solid is empty or reversed) when `CountInsideOutCells` is set (off by default and then free; on, up to about 10 percent on 800k-triangle inputs, within noise below 200k). `SolidBooleanPipeline` sets it and refuses such an input by default (`InsideOutInput`, `AllowInsideOutInputs`).
-- **Open inputs (`AllowOpenMeshes`):** Enabled by default (`true`). Open inputs are classified by generalized winding number (`> 0.5`; `ExactWinding[i]` is `false`), using the exact Antipodal Method below 20,000 boundary segments (hierarchical above 1,000 segments) and fast winding numbers above that cap. Set `AllowOpenMeshes = false` to reject open inputs with `Status = OpenInput`. Where an open boundary meets other sheets along an edge with conflicting orientations, pieces are left unjoined (`ConflictEdges`, always `0` for closed inputs).
+- **Open inputs (`AllowOpenMeshes`):** Off by default (`false`, since 2026-11-23; `true` before): an open input without the role `Sheet` fails with `Status = OpenInput`, and the error names the inputs. Set `AllowOpenMeshes = true` to state the generalized winding number rule. Open inputs are then classified by generalized winding number (`> 0.5`; `ExactWinding[i]` is `false`), using the exact Antipodal Method below 20,000 boundary segments (hierarchical above 1,000 segments) and fast winding numbers above that cap. Where an open boundary meets other sheets along an edge with conflicting orientations, pieces are left unjoined (`ConflictEdges`, always `0` for closed inputs).
 
 ### Open Inputs That Enclose Nothing (`OpenInputsWithoutEffect`)
 
@@ -76,7 +78,7 @@ An open input without a role is classified by the generalized winding number abo
 - **Not listed:** closed inputs; a sheet with the role `Sheet`; an open tool that does cut (a deep cup); in a Difference, a sheet that does not reach the first mesh or a tool hidden inside another tool (a closed one would vanish there too).
 - **Each by itself:** every listed input could be taken as empty alone. Two listed inputs can still have an effect together (the same open tool given twice: either could be left out, not both).
 - **Limit:** the list says that the result is the one of an input that encloses nothing, not that the result is right. An open input that changes the result is not listed, also where the change is wrong (pieces kept where its winding number crosses 1/2, eg a flat sheet that is not planar in doubles after a rotation far from the origin). The result is then usually not closed: check it (`MeshRobustRepair.NotCleanReason`). Not evaluated with a `WindingPredicate`.
-- **What to do:** give a cutting surface the role `Sheet` (next section), or use the swept tool (the recipe below) for a sheet that ends inside. With `AllowOpenMeshes = false` an open input without a role is refused instead; the `OpenInput` error names the inputs by index and these ways out. `SolidBooleanPipeline` sets it, and tries an open Difference tool without a stated role as a sheet first (its sheet route).
+- **What to do:** give a cutting surface the role `Sheet` (next section), or use the swept tool (the recipe below) for a sheet that ends inside. With the default `AllowOpenMeshes = false` an open input without a role is refused, so the list can only be non-empty where the caller set `AllowOpenMeshes = true`; the `OpenInput` error names the inputs by index and these ways out. `SolidBooleanPipeline` sets it, and tries an open Difference tool without a stated role as a sheet first (its sheet route).
 
 ### Open Cutting Surface (Sheet Role)
 
@@ -89,7 +91,7 @@ The role `Sheet` needs a sheet that crosses the workpiece fully and refuses one 
 1. State the direction `d`: where the removed material is, seen from the sheet (the side its normals point away from).
 2. Check that every triangle of the sheet faces away from `d` (`normal · d < 0`); otherwise the swept tool folds over. The example refuses such a sheet. The test is in doubles: a triangle nearly parallel to `d` can pass or fail by rounding.
 3. `MeshExtrudeMesh` on a copy of the sheet, with `ExtrudedPositionF = p + length * d` and `IsPositiveOffset = false`; `length` longer than the common box of both meshes is along `d`.
-4. `ExactMeshBoolean` Difference with `AllowOpenMeshes = false`, so a tool that did not close is refused (`OpenInput`), not guessed.
+4. `ExactMeshBoolean` Difference with `AllowOpenMeshes = false` (the default, stated in the example), so a tool that did not close is refused (`OpenInput`), not guessed.
 
 What it removes is everything under the sheet along `d`, exactly for the tool as built (its far vertices are rounded doubles, so the walls are parallel to `d` up to rounding):
 
@@ -128,7 +130,7 @@ if (!op.Compute())
 
 ### By-Design Behavior (Not Defects)
 
-- **Open inputs yield open results:** The region where generalized winding number `> 0.5` is generally not closed; boundary edges remain where pieces of the open input survive. Close inputs first (`MeshRobustRepair`, `MeshAlphaWrap`) or set `AllowOpenMeshes = false` if a closed solid is required.
+- **Open inputs yield open results:** The region where generalized winding number `> 0.5` is generally not closed; boundary edges remain where pieces of the open input survive. Open inputs are refused by default; this applies with `AllowOpenMeshes = true`. Close inputs first (`MeshRobustRepair`, `MeshAlphaWrap`) if a closed solid is required.
 - **Edge-touching solids duplicate shared vertices:** Two solids sharing only an edge (e.g., two boxes meeting along an edge) are represented in memory as a closed, manifold `DMesh3` with separate vertex copies along the contact (`NonManifoldEdges`, `Contacts`). Welding by position (e.g., writing STL) creates a 4-triangle edge. Call `MeshRobustRepair.SeparateTouchingVertices(mesh, fraction)` if a strictly manifold welded mesh is required. By contrast, *false contacts* (distinct exact vertices that rounded onto the same `double`) are separated automatically by `SafeRounding` (`Rounding.RemainingFalseContacts == 0`).
 
 ---
@@ -137,7 +139,7 @@ if (!op.Compute())
 
 For workflows that feed boolean outputs into downstream solid tools, check results in this order:
 
-1. **Validate or repair inputs first:** Run `MeshRobustRepair` (or verify `MeshRobustRepair.NotCleanReason(mesh) == ""`) and compute with `AllowOpenMeshes = false` so open inputs fail explicitly (`OpenInput`).
+1. **Validate or repair inputs first:** Run `MeshRobustRepair` (or verify `MeshRobustRepair.NotCleanReason(mesh) == ""`) and keep the default `AllowOpenMeshes = false`, so open inputs fail explicitly (`OpenInput`).
 2. **Check status and rounding:** Require `Status == Success` and `RoundingClean == true` (or set `StrictRounding = true`).
 3. **Check `Contacts` and `NonManifoldEdges` before position-welding formats:** Face contacts merge cleanly; edge/vertex contacts carry duplicated vertices. Use `MeshRobustRepair.SeparateTouchingVertices` when strictly manifold welded output is needed.
 4. **Negative-volume components are voids:** An inner cavity shell is oriented inward and has negative signed volume. Sum signed volumes across connected components rather than taking absolute volumes per component.
