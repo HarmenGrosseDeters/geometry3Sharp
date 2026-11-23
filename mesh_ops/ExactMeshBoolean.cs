@@ -824,7 +824,7 @@ namespace g3
             }
             sheetRole = sheet;
             if (sheet != null) {
-                if (WindingPredicate != null)
+                if (WindingPredicate is not null)
                     return refuse_sheet(SheetRefusal.WithWindingPredicate, "a sheet cannot be used with a WindingPredicate");
                 if (Operation == Operations.Union)
                     return refuse_sheet(SheetRefusal.InUnion, "a sheet cannot be used in a Union");
@@ -2138,34 +2138,30 @@ namespace g3
                         SheetWitnessPoint = arr.ToInputVector(arr.Exact(u));
                         SheetWitnessTriangle = (w.Mesh == s) ? arr.Triangles[w.Source].Tid : -1;
                         SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "a free edge of sheet {0} lies inside the workpiece, near ({1:R}, {2:R}, {3:R}); it does not separate", s,
-                            SheetWitnessPoint.x, SheetWitnessPoint.y, SheetWitnessPoint.z);
+                            "a free edge of sheet {0} lies inside the workpiece, near ({1:R}, {2:R}, {3:R}); it does not separate", new object[] { s, SheetWitnessPoint.x, SheetWitnessPoint.y, SheetWitnessPoint.z });
                         break;
                     }
                     case SheetRefusal.SidesInconsistent:
                         SheetWitnessTriangle = arr.Triangles[lab.MarkTriangle0].Tid;
                         SheetWitnessTriangle2 = arr.Triangles[lab.MarkTriangle1].Tid;
                         SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "{0} cell(s) of the workpiece are in front of one piece of sheet {1} and behind another, eg triangles {2} (in front of it) and {3} (behind it)",
-                            lab.ConflictingCells, s, SheetWitnessTriangle, SheetWitnessTriangle2);
+                            "{0} cell(s) of the workpiece are in front of one piece of sheet {1} and behind another, eg triangles {2} (in front of it) and {3} (behind it)", new object[] { lab.ConflictingCells, s, SheetWitnessTriangle, SheetWitnessTriangle2 });
                         break;
                     case SheetRefusal.FloatingComponent:
                         SheetWitnessTriangle = lab.MarkTriangle0 >= 0 ? arr.Triangles[lab.MarkTriangle0].Tid : arr.Triangles[lab.MarkTriangle1].Tid;
                         SheetConflictingCells = lab.FloatingCells;
                         SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "{0} part(s) of sheet {1} float inside the workpiece with no edge in common with its surface or with a part that has one, eg at triangle {2}: their side cannot be decided without the nesting of the shells",
-                            lab.FloatingCells, s, SheetWitnessTriangle);
+                            "{0} part(s) of sheet {1} float inside the workpiece with no edge in common with its surface or with a part that has one, eg at triangle {2}: their side cannot be decided without the nesting of the shells", new object[] { lab.FloatingCells, s, SheetWitnessTriangle });
                         break;
                     case SheetRefusal.UncutComponents when lab.MarkTriangle0 >= 0:
                         SheetWitnessTriangle = arr.Triangles[lab.MarkTriangle0].Tid;
                         SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "sheet {0} only touches the surface of the workpiece (no piece of it lies inside, eg triangle {1} on a face): it separates nothing, whatever UncutSide says", s, SheetWitnessTriangle);
+                            "sheet {0} only touches the surface of the workpiece (no piece of it lies inside, eg triangle {1} on a face): it separates nothing, whatever UncutSide says", new object[] { s, SheetWitnessTriangle });
                         break;
                     default:
                         SheetWitnessTriangle = (w.Mesh == 0) ? arr.Triangles[w.Source].Tid : -1;
                         SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "{0} cell(s) of the workpiece are not touched by sheet {1} (UncutSide: {2}, shells of the workpiece: {3}); a triangle of one: {4}",
-                            lab.UncutCells, s, SheetUncutSide, bestCells.ShellCount, SheetWitnessTriangle);
+                            "{0} cell(s) of the workpiece are not touched by sheet {1} (UncutSide: {2}, shells of the workpiece: {3}); a triangle of one: {4}", new object[] { lab.UncutCells, s, SheetUncutSide, bestCells.ShellCount, SheetWitnessTriangle });
                         break;
                 }
 

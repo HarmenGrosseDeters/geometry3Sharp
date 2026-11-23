@@ -419,7 +419,7 @@ rest of this table is what the registrations argue):
 | P4 delegates and interface calls | `ExactTriangulation2` calls the `orient` and `incircle` callbacks of its caller (16 calls); the box tree calls the visitors of its callers, as delegates (`ActionVisitor`, `FuncVisitor`, `Query`) and through the struct visitors of its generic methods (`IIndexVisitor`, `IPairVisitor`: a call of a member of an interface declared in this assembly is a counted `construct:interface-invocation`, since its implementations, eg `ExactMeshBoolean.CrossVisit`, lie outside the scope) | `P4` lines: the triangulation is a function of the signs; `ExactTriangulation2_EquivalentCallbacks_GiveTheSameTriangulation` gives other formulas, delayed callbacks and a second instance. What a caller's callback computes is that caller's obligation (S2-2, S2-3, S2-6) |
 
 
-**Ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`; stages 0 and 1): 421 external members (178 of them geometry3Sharp members declared outside the scope: 95 pinned, 81 assumed as obligations of stage 2; 12 only on the `#if NET` side), 69 restricted to registered sites (248 sites, 144 of them with an argument form and its tests), 1 restricted to `GetHashCode` implementations; 41 conditional-compilation blocks in 33 members; 15 `double` to integer conversions in 13 member(s); 19 `[SkipLocalsInit]` members; 72 delegate calls in 23 members and 57 string concatenations in 8 members, registered; 0 file restricted to a named type.
+**Ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`; stages 0 and 1): 437 external members (193 of them geometry3Sharp members declared outside the scope: 95 pinned, 95 assumed as obligations of stage 2; 12 only on the `#if NET` side), 69 restricted to registered sites (250 sites, 146 of them with an argument form and its tests), 1 restricted to `GetHashCode` implementations; 41 conditional-compilation blocks in 33 members; 15 `double` to integer conversions in 13 member(s); 19 `[SkipLocalsInit]` members; 75 delegate calls in 24 members and 62 string concatenations in 9 members, registered; 0 file restricted to a named type.
 
 **Claim.** On every runtime that satisfies T1 to T5, `ExactTriangulation2`, `ExactPlanarSimplify`, `SnapRounding2` and `TriangleBoxTree`
 compute functions of their arguments (and, for the first two, of the values of the callbacks and of the stage 2 members listed
@@ -506,12 +506,17 @@ only the phase dictionaries; reviewed, no flow rule), `DMeshAABBTree3.FastWindin
   flow rule and no test with a hostile clock.
 - **O-EXC.** Which exception surfaces from a parallel loop, and whether it is wrapped, is schedule dependent in every loop but `each`
   (R19, outside the claim).
+- **O-SHEET.** The sheet role (#1223, merged from master into this PR) is in the scope as far as `prepare_sheet`, `label_sheets` and the sheet
+  arms of `classify` are concerned (serial loops over the pieces in index order; the sort of `prepare_sheet` has a symmetric reader at every tie);
+  `ExactMeshCells` (`Build`, `Label` and the fields of its results) is assumed: it is serial and uses integers and exact signs, but its code is
+  not under the proof (the padded box of `MayNest` is computed from `ExactPoint3.ToDouble`). Tested serial against parallel and over repeated
+  runs by `ExactBooleanSheetTests.Determinism_*`; no order adversary runs the sheet role.
 - **F2** is registered as P4 with the perturbation tests of the libm calls (`ExactMeshBooleanTestsAntipodalLibmPerturbation`).
 
 **Claim.** On every runtime that satisfies T1 to T5, `ExactMeshArrangement` and `ExactMeshBoolean` compute, for the exact result (and not for the
 assumed members above), functions of their arguments, up to the open obligations: no result depends on the schedule, the process, a hash
 seed, the order of a hash container, the order of equal keys in a sort, the sign of a zero in a minimum or maximum, the clock or the BCL
-version, except through the open obligations above (O-RANDOM, O-ATAN2, O-IDS, O-SORTS, O-PERPATCH, O-DIAG, O-EXC) and the assumed members.
+version, except through the open obligations above (O-RANDOM, O-ATAN2, O-IDS, O-SORTS, O-PERPATCH, O-DIAG, O-EXC, O-SHEET) and the assumed members.
 Checked: the allow list, the registered sites, constructs, casts and `#if` blocks, and that the named tests exist. Attacked by test: P1 to P5 per
 site by the tests named in the site lines, the harness cases and the loop-order adversary.
 
