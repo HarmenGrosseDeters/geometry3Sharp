@@ -138,6 +138,35 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void RemovedComponents_AreInTheDifference()
+        {
+            // a box under a generic rotation minus its copy 4 ulps away (MeshRoundingRepairTestsThinSolids): the exact result is slivers
+            // below the resolution of the coordinates, and the repair removes all of them. Before: their volume; after: nothing
+            DMesh3 a = Box(-0.5, -0.5, -0.5, 0.5, 0.5, 0.5);
+            MeshTransforms.Rotate(a, Vector3d.Zero, Quaterniond.AxisAngleD(new Vector3d(0.3, 0.5, 0.81).Normalized, 23));
+            double largest = a.Vertices().Max(v => v.MaxAbs);
+            double ulp = BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(largest) + 1) - largest;
+            var b = new DMesh3(a);
+            MeshTransforms.Translate(b, 4 * ulp * new Vector3d(0.61, -0.37, 0.7).Normalized);
+            var op = new ExactMeshBoolean(a, b, D);
+            Assert.True(op.Compute(), op.Error);
+            MeshRoundingRepair r = op.Rounding;
+            Assert.Equal(0, op.Result.TriangleCount);
+            Assert.True(r.RemovedComponents > 0);
+            Assert.Equal(0.0, r.VolumeAfter);
+            // (the slivers lie on three faces of the box, 4 ulps of 0.8 thick at most: some 1e-16 of volume)
+            Assert.InRange(r.VolumeBefore, 1e-17, 1e-14);
+            double listed = r.RemovedComponentInfos.Sum(i => i.Volume);
+            Assert.InRange(r.VolumeBefore / listed, 0.5, 2);
+            // the pipeline: the same numbers beside the list, and an empty result
+            var p = new SolidBooleanPipeline(new List<DMesh3> { a, b }, D);
+            p.Compute();
+            Assert.Equal(r.VolumeBefore, p.Report.RoundingVolumeBefore);
+            Assert.Equal(0.0, p.Report.RoundingVolumeAfter);
+            Assert.Equal(r.RemovedComponents, p.Report.RoundingRemoved.Count);
+        }
+
+        [Fact]
         public void AfterTheGridStep_TheVolumesAreThoseOfTheRunThatIsTheResult()
         {
             // the flush sheet of SolidBooleanPipelineGridStepTests: the first run is refused (no repair ran), the retry on the grid cuts
