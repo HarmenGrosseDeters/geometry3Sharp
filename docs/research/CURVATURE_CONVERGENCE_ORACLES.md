@@ -1,4 +1,4 @@
-# Curvature and heat-distance convergence oracles
+# Curvature and heat-method convergence oracles
 
 Hildebrandt, Polthier and Wardetzky, *On the Convergence of Metric and Geometric Properties of Polyhedral Surfaces*, Corollary 4, establishes convergence of the mean-curvature functional in the dual Sobolev norm under totally normal convergence. Example 1 gives a counterexample to general strong convergence for the paper's finite-element representative. The repository uses mixed vertex areas for its nodal representative. The common object is the area gradient integrated against a test field.
 
@@ -40,7 +40,7 @@ The empirical maximum-error orders for successive refinements are 0.76, 0.54, 0.
 
 ### Heat-distance decision
 
-Keep the probe as a baseline and defer a rate assertion for PR-tier tests. The monotone maximum error over these levels gives only a family-specific observation, and the finest RMS values already rule out a monotone RMS assertion on these inputs. The analytic reference and error reduction each cost one traversal of the vertices after the heat solve. Vector heat remains open.
+Keep the probe as a baseline and defer a rate assertion for PR-tier tests. The monotone maximum error over these levels gives only a family-specific observation, and the finest RMS values already rule out a monotone RMS assertion on these inputs. The analytic reference and error reduction each cost one traversal of the vertices after the heat solve.
 
 ## Principal curvature on torus refinements
 
@@ -102,3 +102,30 @@ The cube-sphere energy error falls from 0.11793 to 0.001858, with a final empiri
 ### Cotangent Laplacian decision
 
 Propose a PR-tier test of the stiffness energy using the two squares at 8, 16 and 32 subdivisions. Compare the measured energy errors against h²/3. For a curved check, use the 8, 16 and 32 cube-spheres and require at least a threefold energy-error decrease per step. Matrix assembly and the energy evaluation are linear in mesh size on these fixtures. The checkerboard explains why a general pointwise rate assertion would reject a mathematically expected result. This study provides no evidence of a defect in the assembled stiffness matrix.
+
+## Vector heat parallel transport
+
+Sharp, Soliman and Crane report approximately first-order convergence of angular error for vector heat transport on their refinement experiment. They also report larger discrepancies near the cut locus. This probe measures the library's default intrinsic Delaunay path on the same cube-sphere family as the scalar heat experiment. The existing great-circle transport test checks a single sphere resolution. As a control, the probe repeats each solve with `IntrinsicDelaunay = false` on the same vertices and source. The input-connectivity path still clamps negative cotangent weights in the heat operators. [Paper, §7.3 and Fig. 13](https://arxiv.org/abs/1805.09170)
+
+The source is the north pole s, and the input is the unit x-axis vector u, converted to the source signpost coordinates. At a unit destination p, transport along the unique short great-circle arc rotates the source tangent into the destination tangent. The analytic result is `u − (u · p)(s + p)/(1 + s · p)`. This follows by holding the component perpendicular to the great-circle plane fixed and rotating the component within that plane by the colatitude. The formula also returns u at the source.
+
+Convert the estimated vector to world coordinates with `ToWorld` and project it onto the smooth tangent plane at p. Measure the unsigned angle between the projected estimate and the analytic vector. The angle distinguishes opposite vectors. Report unweighted vertex RMS and maximum angles for colatitudes at most 2.4 radians and for the band from 2.4 to 3.0 radians, exclusive at the lower end. The fixed regions separate the main sample from a band closer to the cut locus and exclude the antipode, where the transport is not unique. The probe also reports the largest departure from unit length in the signpost coordinates and the ratio of the actual diffusion time to the solver's mean edge length squared. Run `dotnet run -c Release --project benchmarks/CurvatureWeakProbe`.
+
+| Connectivity | Vertices per cube edge | Mean input edge length | Cap RMS (°) | Cap max (°) | Far RMS (°) | Far max (°) |
+|---|---:|---:|---:|---:|---:|---:|
+| delaunay | 5 | 0.408789 | 0.180441 | 0.490797 | 0.0414808 | 0.0655371 |
+| input | 5 | 0.408789 | 1.65144 | 6.29108 | 0.607527 | 0.890169 |
+| delaunay | 9 | 0.20717 | 0.273496 | 0.843217 | 0.773448 | 1.29488 |
+| input | 9 | 0.20717 | 1.14052 | 4.99062 | 1.84305 | 3.26294 |
+| delaunay | 17 | 0.10394 | 0.672729 | 2.14894 | 2.45463 | 4.14182 |
+| input | 17 | 0.10394 | 0.851401 | 3.94823 | 1.49785 | 2.78197 |
+| delaunay | 33 | 0.0520145 | 1.02673 | 3.92394 | 4.75966 | 9.53327 |
+| input | 33 | 0.0520145 | 0.780319 | 3.44977 | 1.26005 | 2.61623 |
+| delaunay | 65 | 0.0260129 | 1.23684 | 5.30356 | 7.43347 | 19.1399 |
+| input | 65 | 0.0260129 | 0.791387 | 4.05571 | 1.50278 | 3.51947 |
+
+The default path gives increasing angular error on every measured refinement in both regions. The cap RMS rises from 0.180° to 1.237°, and the far maximum rises from 0.0655° to 19.14°. The sampled cap grows from 89 to 21,341 vertices and the far band from 8 to 3,100. On input connectivity, the cap RMS initially decreases from 1.651° to 0.780° before rising slightly to 0.791°. The input connectivity also has lower far-band error on the finest mesh. The length error stays below 3.34 × 10⁻¹⁶ in both modes. The diffusion ratio is 1 for all ten solves, so the automatic increase in diffusion time was inactive.
+
+### Vector heat decision
+
+Keep both configurations in the benchmark and defer a first-order rate assertion. The default path misses the empirical trend from the paper on this cube-sphere family. The control shows that the trend depends on the triangulation path, which changes the stencil, weights, and connection coefficients together. The contribution of each change and the asymptotic rates remain open. The existing planar and single-resolution sphere tests still pass.
