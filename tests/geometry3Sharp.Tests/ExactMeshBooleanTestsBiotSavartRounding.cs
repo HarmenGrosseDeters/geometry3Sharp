@@ -125,6 +125,22 @@ namespace geometry3Sharp.Tests
             Assert.True(finite > 10, $"only {finite} finite bounds: the comparison is mostly infinity = infinity");
         }
 
+        // length / (4 pi d^2) in units of eps = 2^-1074 times 2^30, rounded up (the rational computed over BigInteger, pi =
+        // 3.14159... to 62 digits: below pi, so the term is slightly above the true one)
+        static BigInteger TrueTermInEps30(double length, double d)
+        {
+            BigInteger mL, md; int eL, ed;
+            ExactPoint3.Decompose(length, out mL, out eL);
+            ExactPoint3.Decompose(d, out md, out ed);
+            BigInteger piNum = BigInteger.Parse("314159265358979323846264338327950288419716939937510582097494459");
+            BigInteger piDen = BigInteger.Pow(10, 62);
+            // term / eps = mL 2^(eL + 1074) / (4 pi md^2 2^(2 ed)) = mL piDen 2^k1 / (4 piNum md^2 2^k2)
+            int k = eL + 1074 - 2 * ed;
+            BigInteger num = mL * piDen, den = 4 * piNum * md * md;
+            if (k >= 0) num <<= k; else den <<= -k;
+            return ((num << 30) + den - 1) / den;
+        }
+
         // #1350: far_term with a subnormal result: the quotient is rounded to a multiple of 2^-1074 (an absolute error), which
         // the relative factors do not cover. length = 2^-33, d = 2^510: the true term 2^-33 / (pi 2^1022) = 2^19 / pi eps =
         // 166886.05 eps (eps = 2^-1074), which the plain quotient rounds down to 166886 eps
@@ -135,8 +151,20 @@ namespace geometry3Sharp.Tests
             double d = Math.Pow(2, 510), length = Math.Pow(2, -33);
             Assert.True(4 * Math.PI * d * d <= double.MaxValue);          // (the main branch)
             double term = ExactMeshBoolean.far_term(length, 1, d);
+            double plain = length / (4 * Math.PI * d * d);
             Assert.True(term / eps >= 166886.05, $"{term / eps} eps");
-            Assert.True(term / eps <= 166886.05 + 3, $"{term / eps} eps: not tight");
+            Assert.Equal(plain + 2 * eps, term);                   // exactly 2 eps above the plain quotient (kills 1 and 3 eps)
+            // the true term (the exact rational with pi truncated to 60 digits, so slightly above it) against far_term: for
+            // this input it is 1.026 eps above the plain quotient, so an addend of 1 eps is unsound
+            double l2 = 7.637943980496431e-65, d2 = 1.700345977589893e+121;
+            double r2 = l2 / (4 * Math.PI * d2 * d2);
+            Assert.True(r2 < 2.2250738585072014E-308 && r2 > 0);
+            BigInteger trueTerm = TrueTermInEps30(l2, d2);
+            BigInteger plain2 = (BigInteger)(r2 / eps) << 30;       // (r2 / eps is an integer below 2^53: exact)
+            Assert.True(trueTerm > plain2 + (BigInteger)(1.02 * (1 << 30)), "the input is not the hard case");
+            double t2 = ExactMeshBoolean.far_term(l2, 1, d2);
+            Assert.True(((BigInteger)(t2 / eps) << 30) >= trueTerm, $"{t2 / eps} eps < the true term");
+            Assert.Equal(r2 + 2 * eps, t2);
             // zero length or count: the true term is 0
             Assert.Equal(0.0, ExactMeshBoolean.far_term(0, 1, d));
             Assert.Equal(0.0, ExactMeshBoolean.far_term(length, 0, d));

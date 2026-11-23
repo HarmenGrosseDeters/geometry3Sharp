@@ -2706,7 +2706,9 @@ namespace g3
         /// per-coordinate errors) &lt;= sqrt(3) err, since err &gt;= e_i + e_j (the two roundings of the sum leave err_c &gt;= (1 -
         /// u)^2 err). So 2 err_c &gt;= sqrt(3) (e_i + e_j) 2 / sqrt(3) (1 - u)^2: the margin 2 / sqrt(3) = 1.1547 absorbs the
         /// roundings of err and of the sum below. fl(M + 2 err_c) &gt;= (M + 2 err_c) (1 - u); the cost then takes a product
-        /// with G and one more rounding: (1 - u)^3 f &gt;= 1 + 4u needs f &gt;= 1 + 7.0001u, so k = 8 (n = 4, c = 4). Before: (1 +
+        /// with G and one more rounding: (1 - u)^3 f &gt;= 1 + 4u needs f &gt;= 1 + 7.0001u, so k = 8 (n = 4, c = 4). The corners
+        /// of arr.Approx are not integers, and a subnormal product or difference is rounded by an absolute 0.5 eps: both are
+        /// absorbed by the 2e-6 of the margin (a piece is decided only more than 2e-6 from every half-integer). Before: (1 +
         /// 1e-12)
         /// </summary>
         internal static double piece_diameter(Vector3d pa, Vector3d pb, Vector3d pc, double err)
@@ -2846,9 +2848,11 @@ namespace g3
             if (q <= double.MaxValue) {
                 double r = MathUtil.MinExact(length / q, count / (2 * Math.PI * d));
                 // (#1350: a subnormal quotient is rounded to a multiple of 2^-1074, an absolute error of half of it per
-                // division, not the relative u of the SumTermsFactor: the two roundings of q and the division leave at most
-                // 0.5 eps + 3u r <= 1.5 eps below 2^-1022; 2 eps covers them, where the true term is positive, which a
-                // quotient that underflowed to 0 would lose: length > 0 and count > 0)
+                // division, not the relative u of the SumTermsFactor: the division leaves at most 0.5 eps, the two roundings
+                // of q (relative u each, below 2^-1022: 2u 2^-1022 = 1 eps) at most 1 eps, and fl(pi) < pi takes back
+                // 0.35u 2^-1022 = 0.18 eps: at most 0.5 + 1 - 0.18 = about 1.33 eps below 2^-1022 (a result of 1.026 eps above the
+                // plain quotient is reached, so 1 eps would not do); 2 eps covers it, where the true term is positive, which
+                // a quotient that underflowed to 0 would lose: length > 0 and count > 0)
                 return r < 2.2250738585072014E-308 && length > 0 && count > 0 ? r + 2 * double.Epsilon : r;
             }
             return far_term_overflow(length, count, d);

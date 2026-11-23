@@ -107,7 +107,7 @@ namespace geometry3Sharp.Tests
                 BigInteger longest = BigInteger.Max(sq(pa, pb), BigInteger.Max(sq(pb, pc), sq(pc, pa)));
                 // (diam + 0) >= sqrt(longest) 2^-10 + sqrt(3) (e_i + e_j) with e_i + e_j <= err: check diam >= edge + 1.7320508075688774 err
                 double edge = (double)Isqrt(longest << 40) * Math.Pow(2, -30);
-                Assert.True(diam >= edge + 1.732 * err, $"trial {trial}");
+                Assert.True(diam >= edge + 1.7320508075688774 * err, $"trial {trial}");
             }
         }
 
@@ -116,13 +116,17 @@ namespace geometry3Sharp.Tests
         public void FarTermOverflow_FactorIsSixUnitRoundoffs()
         {
             double u = Math.Pow(2, -53);
+            int checkedPairs = 0;
             foreach (double d in new[] { 1e155, 3e200, 1e250 })
                 foreach (double length in new[] { 1e100, 7e250, 1.0 }) {
                     Assert.True(4 * Math.PI * d * d > double.MaxValue);
                     double r = Math.Min(length / d / d / (4 * Math.PI), 1 / d / (2 * Math.PI));
+                    if (r < 1e-290) continue;               // (an underflowed quotient tests nothing about the relative factor)
+                    checkedPairs++;
                     double term = ExactMeshBoolean.far_term(length, 1, d);
                     Assert.True(term >= r * (1 + 5 * u) && term <= r * (1 + 7 * u) + 5 * double.Epsilon, $"{length} {d}: {term / r - 1}");
                 }
+            Assert.True(checkedPairs >= 4, $"only {checkedPairs} non-vacuous pairs");
         }
 
         // carry_length against exact arithmetic on dyadic points: at least |cp - cq| (the exact distance of the doubles plus
