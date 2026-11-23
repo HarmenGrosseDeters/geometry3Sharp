@@ -106,12 +106,18 @@ namespace g3
             public List<byte> VertexLevel = new List<byte>();
             /// <summary> per triangle id: its level </summary>
             public List<byte> TriangleLevel = new List<byte>();
-            /// <summary> polygon vertices that were found outside the other level: the level's polygon was cut there. Must be 0 for Lemma 9. </summary>
+            /// <summary>
+            /// How often a polygon vertex was found outside the other level, so that the level's polygon was cut there: a
+            /// count of occurrences (once per tetrahedron and polygon at the vertex), not of distinct vertices. Must be 0 for
+            /// Lemma 9.
+            /// </summary>
             public int ClippedPolygonVertices;
             /// <summary> the generator's NonManifoldTriangles of this run: triangles the mesh refused. Must be 0 for Lemma 9. </summary>
             public int NonManifoldTriangles;
             /// <summary> the half width was a function of the position (HalfWidthF): the levels are then not g - w and -g - w with one w </summary>
             public bool VariableHalfWidth;
+            /// <summary> the half width w of the run (the generator's HalfWidth at that time); NaN if it was a function </summary>
+            public double HalfWidth;
         }
 
         /// <summary> while true, every Generate without a Domain keeps its CertificateRecord </summary>
@@ -121,7 +127,8 @@ namespace g3
         /// <summary>
         /// Test seam: called with the node values of the functions (two levels, and the domain if there is one) after
         /// sampling and the guards, before the mesh is made, so that a test can set values the sampling cannot produce (the
-        /// counter of the record). Values set here are not guarded. Null in every use but those tests.
+        /// counter of the record). Values set here are not guarded. Null in every use but those tests, and for one run
+        /// only: Generate takes it and sets it back to null at once.
         /// </summary>
         internal Action<double[][]> NodeValuesForTest;
         CertificateRecord record;
@@ -144,6 +151,8 @@ namespace g3
         {
             Mesh = null; NonManifoldTriangles = 0; RimNodesMoved = 0; CellDimensions = Vector3i.Zero;
             Certificate = null; record = null;
+            Action<double[][]> nodeValuesForTest = NodeValuesForTest;
+            NodeValuesForTest = null;
             if (Field == null) throw new ArgumentException("TwoLevelMarchingTetrahedra: Field is null");
             if (!(CellSize > 0) || double.IsInfinity(CellSize)) throw new ArgumentException("TwoLevelMarchingTetrahedra: CellSize must be finite and positive");
             if (HalfWidthF == null && (!(HalfWidth > 0) || double.IsInfinity(HalfWidth))) throw new ArgumentException("TwoLevelMarchingTetrahedra: HalfWidth must be finite and positive");
@@ -164,9 +173,10 @@ namespace g3
             floor = new double[nc];
             for (int c = 0; c < nc; ++c) floor[c] = Guard(f[c]);
             if (nc == 3) SeparateRim();
-            if (NodeValuesForTest != null) NodeValuesForTest(f);
+            if (nodeValuesForTest != null) nodeValuesForTest(f);
             if (RecordCertificateData && nc == 2) {
-                record = new CertificateRecord { Nodes = new Vector3i(n1x, n1y, n1z), Origin = origin, CellSize = h, NodeFlags = new byte[f[0].Length], VariableHalfWidth = HalfWidthF != null };
+                record = new CertificateRecord { Nodes = new Vector3i(n1x, n1y, n1z), Origin = origin, CellSize = h, NodeFlags = new byte[f[0].Length], VariableHalfWidth = HalfWidthF != null,
+                    HalfWidth = HalfWidthF != null ? double.NaN : HalfWidth };
                 for (int id = 0; id < record.NodeFlags.Length; ++id)
                     record.NodeFlags[id] = (byte)((f[0][id] < 0 ? 1 : 0) | (f[1][id] < 0 ? 2 : 0) | (f[0][id] == 0 ? 16 : 0) | (f[1][id] == 0 ? 32 : 0));
             }

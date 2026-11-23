@@ -1315,7 +1315,8 @@ times.
 ### 7.14 Theorem 8 and Lemma 7.1: box-shaped blocks for class S, and the cell shape (2026-11-22)
 
 A proof step of its own, in [CONTOURING_BLOCK_CERTIFICATE.md](CONTOURING_BLOCK_CERTIFICATE.md) (written and
-independently reviewed 2026-11-22; Lemma 7.1 is built, Theorem 8 is not). **Theorem 8**: Theorem 5 with box-shaped blocks of cells as in
+independently reviewed 2026-11-22; Lemma 7.1 is built, and Theorem 8 for the walls of `TwoLevelMarchingTetrahedra`:
+`TwoLevelSheetCertificate`). **Theorem 8**: Theorem 5 with box-shaped blocks of cells as in
 Theorem 6, certified by one signed partial derivative and at most one circle of L on the block; tangencies with the
 grid, which Theorem 5 refuses at every resolution, move inside a block, and creases stay covered. Theorems 1, 2, 4, 5,
 6 and 8 need boxes, not cubes. **Lemma 7.1**: Theorem 7 holds for cells that are not exact cubes if the negative

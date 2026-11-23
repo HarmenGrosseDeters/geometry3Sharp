@@ -9,7 +9,8 @@ proof step with its own review before any code. This note is that step. It is th
 there the level set is a mesh and a block is any ball of cells, tested by counting; here the level set is that of a
 function and a block is a box, tested by one direction. It also settles the cell shape (hypothesis (P3) of Theorem 7),
 which the review of #1392 left as "a reading of the premise, not a proved margin". Status: **written and independently
-reviewed on 2026-11-22 (section 5); Lemma 7.1 is built, Theorem 8 is not.**
+reviewed on 2026-11-22 (section 5); Lemma 7.1 is built, and Theorem 8 is built for the levels of a wall of
+`TwoLevelMarchingTetrahedra` (section 4b).**
 
 Why blocks for class S: Theorem 5 refuses a cell whose edge may be crossed twice or whose face may carry a closed curve
 of L, that is every tangency of L with the grid, at every resolution ((S1), (S2)). On the capped TPMS of the spike these
@@ -486,6 +487,77 @@ Remarks.
 7. **Theorem 8 (c) for this mesher**: with Lemma 9 in the place of Theorem 2 and remark 3 in the place of Lemma 6.4;
    (T0) in the place of what (H1) gives for the boundary of the grid.
 
+## 4b. Built: `TwoLevelSheetCertificate` (2026-11-22)
+
+Internal, report only, serial (but for the exact self-intersection test of the mesh): `mesh_ops/TwoLevelSheetCertificate.cs`, on the interface `IntervalImplicit3d` for the
+field g and on the mesher's record (remark 6 of section 4a). If `Certified`, each of the two level sets g = +w and
+g = -w is a closed surface inside the grid, and the part of the mesh that belongs to it is isotopic to it by a map that
+keeps every certified cube and every block in place (Theorem 8 (b) with Lemma 9). Per level; the two together are not
+covered (point 3 of section 4).
+
+| Hypothesis | Test | Refusal |
+|---|---|---|
+| a cube without a zero | the enclosure of the level over a box of cubes, the cube, or all its 2^t sub-boxes per axis (t up to 2) excludes 0, and the mesher's signs at its nodes are that sign | `NodeSign` if a sign differs |
+| (S0), (B0) | at the nodes of a cube, or on the boundary of a block: a point enclosure with a certified sign that is the mesher's | `NodeSign` |
+| (S1), (B1) | on every piece of the edge that may hold a zero (2^t pieces, t up to 2) the derivative along it has one certified sign | `Edge` |
+| (S2), (B2) | on the pieces of the face that may hold a zero a direction d in its plane with d . g > 0 (the mean gradient without its normal part, or an axis of the face); with alternating mesher signs also no zero on the diagonal of the mesher's split (8 * 2^t boxes along it) | `Face` |
+| (S3), (B3) in the form of remark 9 | on the sub-boxes of the cube or block that may hold a zero a direction d with d . g > 0 (the mean gradient, or an axis) | `Direction` |
+| at most one closed curve | counted on the mesher's signs: the crossed cube edges on the boundary, joined across each boundary face as the mesh joins them | `Circles` |
+| the mesh in the box is that many disks (Lemma 6.2 with remark 3 of section 4a) | the cell complex of the five tetrahedra per cube, from the signs: no polygon, or one component of Euler characteristic 1 | `MeshInBlock` |
+| blocks | every cube that fails is the seed of a box that grows by one layer on the sides that carry a failing node, edge or face, and takes in the blocks it overlaps; up to 6 cubes per side, not into the outermost layer | `BlockLimit` |
+| the level set stays inside | no cube of the outermost layer may hold a zero | `OuterLayer` (cube and run) |
+| (T1), (T2), (T3) | no node value of exactly 0; every vertex strictly inside its tetrahedron edge (exact comparisons with the node coordinates), on an edge that its level crosses by the mesher's signs; every triangle of the level of its three vertices; one level negative at every node; no cut polygon, no refused triangle; a constant half width | `MeshSide`, `VariableHalfWidth` (run) |
+| (T4) | `MeshRepairMetrics.HasSelfIntersections`, exact | `SelfIntersections` (run) |
+| the mesh is the recorded run | the record's lists have the mesh's vertex and triangle counts and the flags the grid's node count; at least two nodes per axis; node coordinates increase and are finite | `NoRecord` (run) |
+
+- Every decision is the sign of a bound of an `ExactInterval`, an exact comparison of doubles, or a count on the
+  record. No new error bound. No cell-shape condition (remark 5 of section 1).
+- The edge test asks one sign of the derivative on all pieces that may hold a zero, also if pieces without a zero lie
+  between them: the level is strictly monotone on each such piece in one direction and keeps its sign between them, so
+  it has one zero at most on the edge.
+- Both levels are tested with the gradient of g: every test asks for one sign of a derivative or for some direction d
+  with d . g > 0, and -d does for -g what d does for g.
+- The face test on pieces: one direction d in the plane for all pieces of the face that may hold a zero. The argument
+  of remark 9 carries over to the face, a convex set: the level set in the face lies in those pieces, and there it
+  is a graph along d.
+- The order of the tests of a box is part of the argument: nodes (B0), then edges (S1), then faces (S2), and the first
+  failure ends the test. The face test relies on the two before it: that the chain of boxes on the diagonal gives the
+  pairing of (S2) needs the certified signs at the face's corners and one zero at most on each of its edges. The face
+  test is not used on its own.
+- The diagonal of an alternating face is tested on a chain of boxes whose neighbours share a corner, from one end of
+  the diagonal to the other. Their union is a connected set without a zero that joins the two nodes inside the face,
+  so it separates the two other corners there; this is what the segment of (S2) is used for (the rounded diagonal
+  itself may pass beside a shared corner by an ulp).
+- A box that the field does not report as `Smooth` has no gradient here (its gradient enclosures are replaced by the
+  whole line), as the interface asks: it passes only if the level has no zero in it. So a crease at a level set is
+  refused (`Edge`, `Face` or `Direction`); a crease away from both level sets costs nothing. Tested with a field that
+  reports a ball as not smooth, at the wall and away from it.
+- "The mesh is the recorded run" is checked by counts, dense ids and the vertex positions only; a mesh edited after
+  the run with the same counts is not detected (internal use, on the mesher's own result).
+- One level is negative at every node (a recorded flag; g - w and -g - w are never both non-negative): the mesher
+  skips a tetrahedron where a level is negative at no node, and this check makes that skip harmless for the other level.
+- The mesh side is all or nothing for the run; the level-set side is per cube, and the cubes left are listed with the
+  condition that failed last. The certified blocks are listed as ranges of cubes (`BlockBoxes`). A cube starts as
+  "not reached" and is not certified unless a test set its state; no run leaves one.
+- Memory: the enclosures over the sub-boxes of a cube (up to 8^t of 72 bytes) are kept for the boxes that take the
+  cube in later, within a budget: at most max(`MaxBlockSide`^3, 2^20 / 8^t) cubes, 76 MB with the defaults and at
+  t = 4. (Keeping them for one box at a time was tried: one run went from 25 s to 67 s.)
+- Time: one `Compute` took 25 s (IWP), 21 s (Neovius) and 19.5 s (Lidinoid) at 64 cells in the benchmark, at and above the 20 s line
+  for one operation on one input: issue #1436 (diagnosis: the field is enclosed for each level on its own, and
+  nothing is shared between cubes). Not fixed here.
+- Measured (`benchmarks/ContouringSmoothCertificate`, mode `sheet`, `results/sheet.csv`): 13 of 28 walls around capped
+  TPMS certified; 11 of 12 for gyroid, Schwarz P, Schwarz D and Neovius at 32 or 64 cells per period, none of these at
+  16, 2 of 12 for IWP and Lidinoid (not diagnosed). Of the cubes that may hold a zero 86.6 % are certified alone,
+  10.6 % in blocks, 2.8 % are left (direction test or block limit). Cost: 55 to 298 times the time of the mesher,
+  median 153 times, 0.5 ms per such cube; not optimized. It is a check on demand.
+- Tests: `TwoLevelSheetCertificateTests` (walls around a sphere and a gyroid; the mesh of another field, a level set
+  closed inside a cube, two sheets through a cube, a node with the wrong sign, a self-intersecting mesh, a level set in
+  the outermost layer, never certified; (S1) and (S2) on their own with an edge crossed twice, a closed curve in a face
+  and a face with alternating signs at both parities of the split; the counts on every sign pattern of a cube; an
+  oracle by sampling; invariance over `Similarity.All()`; reuse; blocks that merge, a block at the outermost layer, a node without a
+  certified sign). 112 hand mutants: 111 killed, one equivalent (a 64-bit product in the id of an edge,
+  where the node id fits 32 bits because the record's flag array is indexed by it).
+
 ## 5. Review
 
 Independent review on 2026-11-22 (an agent with the design note only, asked to find errors and gaps): Theorem 8 (a),
@@ -522,4 +594,4 @@ path (two crossings on one edge ordered by rounded quotients) can make (T3) fals
 3. The measurement before any build of blocks: done, section 3a. Blocks close the gap for smooth levels; box blocks
    grown this way do not close a lattice clipped to a domain.
 4. The mesh-side lemma for the mesher that is to be certified: written for marching tetrahedra, Lemma 9 (section
-   4a); open for marching cubes (section 3). Then the build. A public option of `TpmsLattice` is the owner's decision, on an API sketch.
+   4a); open for marching cubes (section 3). The build for marching tetrahedra: done, section 4b. A public option of `TpmsLattice` is the owner's decision, on an API sketch.
