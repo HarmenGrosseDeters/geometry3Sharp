@@ -216,11 +216,12 @@ if (pipeline.Compute()) {
 
 ### The Route of an Open Input (`Report.Route`)
 
-`Report.Route` lists what the pipeline did with open inputs, as steps in the order taken. Each `SolidBooleanRouteStep` has a `Name`, the `Input` it is about (or `-1`), a `Reason` and a `Change` (what the step changed), and for a fallback the sheet's `SheetReason`. The list is empty when no input was tried as a sheet, repaired or refused as open.
+`Report.Route` lists what the pipeline did with open inputs, as steps in the order taken. Each `SolidBooleanRouteStep` has a `Name`, the `Input` it is about (or `-1`), a `Reason` and a `Change` (what the step changed), for a fallback the sheet's `SheetReason`, and for a grid step the cell `Grid`. The list is empty when no input was tried as a sheet, repaired or refused as open and no grid step ran.
 
 | Step | Taken when | What it changes |
 |---|---|---|
 | `SheetRole` | An input of a Difference is not closed (`IsWindingClosed`; this includes a closed surface with flipped triangles, which the sheet role then refuses), is not the first, and `InputRoles` has no entry for it. | The input is handed to the boolean with the role `Sheet`: not repaired, the first input is cut along it. |
+| `Grid` | With `AutomaticSteps = Grid`: the run failed with `RoundingNotClean` or the sheet refusal `RimInsideWorkpiece` (the failure is in `Reason`). | The inputs are snapped to the cell in `Grid` and the run is done again; see [the Grid step](#the-grid-step-automaticsteps). |
 | `Fallback` | The sheet role refused (`SheetReason`, the boolean's text in `Reason`), eg `RimInsideWorkpiece`, `NotSurface`, `OrientationInconsistent`, `SidesInconsistent`, `UncutComponents`, `FloatingComponent`, or `WorkpieceNotClosed` for an open first input. | The run is done again with the inputs as solids, as without the route. |
 | `InputRepair` | An open input was closed on a copy (`InputRepair` is `AutoRepair` or `AutoRepairThenRobust`). | The repair method and the triangle counts, as in `Report.RepairedInputs`. |
 | `Refused` | An open input is left: `InputRepair` is `Refuse`, or no allowed repair closed it. | No result, status `OpenInput`. |
@@ -234,6 +235,34 @@ if (pipeline.Compute()) {
 - **`ConfigureBoolean`** runs once more for the run after a refused sheet.
 - **Unchanged:** inputs that pass `IsWindingClosed`, Union and Intersection, and an open first input with closed tools.
 - **Cost of a refusal:** the sheet attempt is one more arrangement of the inputs before the run without the route; its time is part of `Report.BooleanMilliseconds`.
+
+### The Grid Step (`AutomaticSteps`)
+
+`AutomaticSteps = SolidBooleanPipeline.AutomaticStepModes.Grid` (opt-in; the default `None` leaves every run as it is, bit for bit) answers two failures with one retry on a snapping grid:
+
+- the boolean's `RoundingNotClean`, and
+- the sheet refusal `RimInsideWorkpiece`: typically a rim that is meant to lie flush on the surface of the first input but sits a few rounding units inside it.
+
+The retry is the same run with the inputs snapped as `InputGrid` snaps them. The cell is taken from the data: a power of two, 2^12 times the rounding unit (ulp) of the largest absolute coordinate of all inputs. It scales with the inputs and moves a vertex by at most 4.5e-13 of that coordinate. [PIPELINE_GRID_STEP.md](../design/PIPELINE_GRID_STEP.md) derives it.
+
+```csharp
+var pipeline = new SolidBooleanPipeline(new[] { workpiece, openTool }, ExactMeshBoolean.Operations.Difference) {
+    AutomaticSteps = SolidBooleanPipeline.AutomaticStepModes.Grid
+};
+bool ok = pipeline.Compute();
+foreach (SolidBooleanRouteStep step in pipeline.Report.Route)   // "SheetRole", "Grid", "SheetRole"
+    Console.WriteLine($"{step.Name}: {step.Reason} -> {step.Change}");
+```
+
+- **Only after a failure, once.** A run that succeeds is never retried. There is one retry per `Compute` with one cell.
+- **The report:** `Report.Route` gets a step `Grid`: `Reason` is the failure it answers, `Change` the cell and the number of vertices the snap moved (`Report.InputSnappedVertices`), and `Grid` the cell as a number.
+- **The result is checked like any other** (`Report.NotCleanReason`, `Report.Clean`).
+- **If the retry fails too, the first failure is the result** (status, error and report of the run without the grid); the `Grid` step says that the retry failed and how. A cancelled retry is `Cancelled`.
+- **Before the fallback:** a tool that the sheet route tried and that was refused with `RimInsideWorkpiece` is retried on the grid first, as a sheet. If the sheet is refused there too, the retry ends: the inputs are not tried as solids on the grid. The run then goes on as without the step, with the `Fallback` to solids off the grid, and a failure of that fallback is not retried (the step ran once).
+- **Inputs on the cell already** (the snap would move no vertex) are not run again: the `Grid` step says so and the first failure is the result.
+- **`InputGrid` set:** the step does not run; the caller's grid is used as stated.
+- **Limit:** a snap makes coordinates equal. It cures a rim on a face parallel to a coordinate plane and vertices meant to coincide, not a rim a little inside a slanted face. As with `InputGrid`, features thinner than the cell can collapse; the cell follows the largest coordinate of all inputs, so a small input near the origin next to one far from it gets the coarse cell of the far one.
+- **Cost:** the retry is one more run (`ConfigureBoolean` runs again for it). The stage times of both runs (input check, repair, boolean) are in the report of the one that is the result. An undefined value of `AutomaticSteps` is `InvalidInput`.
 
 ---
 
