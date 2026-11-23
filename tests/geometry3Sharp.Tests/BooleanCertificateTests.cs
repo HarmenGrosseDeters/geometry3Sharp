@@ -577,6 +577,12 @@ namespace geometry3Sharp.Tests
             m.Meshes = new List<DMesh3> { turned, m.Meshes[1] };
             m.ReorientedTriangles = 12;
             Assert.Contains("reversed in a consistently oriented component", m.CheckInputs());
+            // the caller's meshes are the arrangement's (none reversed), the boolean reports 3: only the count can tell
+            m = Fresh();
+            m.Inputs = new List<DMesh3> { m.Meshes[0], m.Meshes[1] };
+            Assert.Equal("", m.CheckInputs());
+            m.ReorientedTriangles = 3;
+            Assert.Equal("0 triangles reversed, 3 reported", m.CheckInputs());
             m = Fresh();
             m.TriTid[1] = m.TriTid[0];
             m.TriMesh[1] = m.TriMesh[0];

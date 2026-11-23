@@ -112,26 +112,19 @@ class RunStryker(unittest.TestCase):
         r = subprocess.run(["bash", SCRIPT, config], cwd=self.work, env=env, capture_output=True, text=True)
         return r, self.read(self.calls), self.read(self.summary)
 
-    def test_pull_request_that_changes_an_exact_file_of_the_shard_keeps_the_full_run(self):
-        # (the gate of CLAUDE.md: a PR that touches exact arithmetic is never merged without the threshold check)
+    def test_pull_request_that_changes_an_exact_file_of_the_shard_makes_no_full_run(self):
+        # (owner 2026-11-23: no full run on any PR; the old gate kept this one. The dispatched full run on master is the gate)
         r, calls, summary = self.gated_run(["math/ExactPredicates.cs"], ["math/ExactPredicates.cs", "math/ExactPoint3.cs"])
-        self.assertEqual(0, r.returncode, r.stderr)
-        self.assertIn("stryker --log-to-file --config-file", calls)
-        self.assertNotIn("full run on master", summary)
-        self.assertTrue(os.path.exists(os.path.join(self.work, "StrykerOutput", "full-run")))
-
-    def test_pull_request_that_changes_an_exact_file_of_another_shard_skips_this_one(self):
-        r, calls, summary = self.gated_run(["math/ExactPredicates.cs"], ["mesh_ops/ExactMeshBoolean.cs"])
         self.assertEqual(0, r.returncode, r.stderr)
         self.assertNotIn("stryker", calls)
         self.assertIn("full run on master", summary)
+        self.assertFalse(os.path.exists(os.path.join(self.work, "StrykerOutput", "full-run")))
 
-    def test_pull_request_that_changes_an_exact_mesh_file_of_the_shard_keeps_the_full_run(self):
-        # (mesh_ops/ExactMesh*.cs is exact code in .editorconfig: a boolean shard that must run in full on such a PR is gated)
+    def test_pull_request_that_changes_an_exact_mesh_file_of_the_shard_makes_no_full_run(self):
         r, calls, summary = self.gated_run(["mesh_ops/ExactMeshBoolean.cs"], ["mesh_ops/ExactMeshBoolean.cs"])
         self.assertEqual(0, r.returncode, r.stderr)
-        self.assertIn("stryker --log-to-file --config-file", calls)
-        self.assertNotIn("full run on master", summary)
+        self.assertNotIn("stryker", calls)
+        self.assertIn("full run on master", summary)
 
     def test_pull_request_that_changes_a_not_exact_file_of_the_shard_skips_the_full_run(self):
         r, calls, summary = self.gated_run(["mesh_ops/MeshRoundingRepair.cs"], ["mesh_ops/MeshRoundingRepair.cs"])
@@ -139,27 +132,15 @@ class RunStryker(unittest.TestCase):
         self.assertNotIn("stryker", calls)
         self.assertIn("full run on master", summary)
 
-    def test_a_git_error_in_the_gate_fails_closed(self):
-        # (the diff against an unknown base fails: the gate must not read that as "nothing changed")
-        env_old = os.environ.pop("G3_CHANGED_PATHS_FILE", None)
-        r, calls, summary = self.run_script("full", True, base="no-such-ref-xyz")
-        self.assertEqual(0, r.returncode, r.stderr)
-        self.assertIn("stryker --log-to-file --config-file", calls)
-        self.assertNotIn("full run on master", summary)
-
-    def test_an_unknown_config_fails_closed(self):
-        self.assertIn("unknown config", subprocess.run(["python3", os.path.join(HERE, "select_shards.py"), "gate", "stryker-x.json"],
-                                                       input="", capture_output=True, text=True).stdout)
-
-    def test_a_script_change_keeps_the_full_run_of_the_representative_shard(self):
+    def test_a_script_change_makes_no_full_run_of_the_representative_shard(self):
         with open(os.path.join(self.work, "changed.txt"), "w") as f:
             f.write("tests/mutation/run_stryker.sh\n")
         old = os.environ.get("G3_CHANGED_PATHS_FILE")
         os.environ["G3_CHANGED_PATHS_FILE"] = os.path.join(self.work, "changed.txt")
         try:
             r, calls, summary = self.run_script_config("full", True, "stryker-mesh-fixed.json")
-            self.assertIn("stryker --log-to-file --config-file", calls)
-            self.assertNotIn("full run on master", summary)
+            self.assertNotIn("stryker", calls)
+            self.assertIn("full run on master", summary)
         finally:
             if old is None:
                 del os.environ["G3_CHANGED_PATHS_FILE"]
