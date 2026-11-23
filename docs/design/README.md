@@ -166,6 +166,7 @@ Architecture specifications, algorithm design notes, error-bound derivations, an
 | [NATIVE_AOT_FEASIBILITY.md](NATIVE_AOT_FEASIBILITY.md) | Native C-ABI interop feasibility via .NET NativeAOT |
 | [CAST_AUDIT_804.md](CAST_AUDIT_804.md) | Historical audit of `double` → integer casts |
 | [DAP_BUGFIX_AUDIT.md](DAP_BUGFIX_AUDIT.md) | Historical bug-fix audit of DAP fork |
+| [BOX3_EXACT_FILTER.md](BOX3_EXACT_FILTER.md) | Exact line, ray and segment against box: the certified double filter, its error bounds and the exact route |
 | [QA20_INVENTORY.md](QA20_INVENTORY.md) | Historical QA 2.0 tools × areas inventory |
 | [QA20_STATUS.md](QA20_STATUS.md) | Historical QA 2.0 rollout status |
 | [RESEARCH_GATES_2026_11_03.md](RESEARCH_GATES_2026_11_03.md) | Historical effort gates for research items 1–3 |
