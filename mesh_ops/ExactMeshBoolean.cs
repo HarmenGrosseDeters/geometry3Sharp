@@ -6212,10 +6212,15 @@ namespace g3
         // pieces came in the order of the input triangles, so the same triangles with other ids or in another order gave
         // another mesh after the repair, and sometimes another verdict. Pieces with the same three points in the same
         // direction (two triangles of the result on one another) keep their order.
-        // Not confirmed by reading: that their order cannot change the output. Nothing after the sort reads them apart except
-        // ExactPlanarSimplify, which takes the plane and orientation of a piece from its source triangle and the triangle of a
-        // group from the first piece it meets; two pieces on one another lie in one plane, but that the output does not depend
-        // on which source triangle (and its flipped flag) is met first was not shown.
+        // Why that order cannot change the output: nothing after this sort reads source and flipped apart from
+        // ExactPlanarSimplify.group_of, which sorts a piece into the group of its oriented plane (the plane of its source triangle
+        // with the orientation of its corners). Two pieces with the same three points in the same direction have the same
+        // oriented plane, so they are in the same group, whichever source triangle each has. The group takes the source triangle
+        // t and the sign (flipped) of the first piece met, and its decisions are groupSign * InCircle(t, ...): the exact
+        // determinant in the projection that drops t's axis (the largest normal component, a tie broken the same way for every
+        // triangle of one plane), times t.Sign, which undoes the mirroring of that projection, times the flipped sign. That is
+        // the in-circle sign with respect to the oriented normal of the group, whichever of its triangles supplies t; the
+        // filter, where it decides, returns the exact sign. Result() hands on the points only, not source or flipped.
         [MethodImpl(JitHints.Optimize)]
         void order_pieces(List<Index3i> tris, List<int> source, List<bool> flipped)
         {
