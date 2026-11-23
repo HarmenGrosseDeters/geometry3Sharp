@@ -387,6 +387,38 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void Boolean_OpenInput_RefusedByDefault_AcceptedWithAllowOpen()
+        {
+            // the default follows ExactMeshBoolean.AllowOpenMeshes (false since 2026-11-23, #1211): the error names the open input
+            string output = m.Path_("open_default.obj");
+            var (exit, r) = Run("boolean", m.Open, m.Shifted, output, "--op", "union");
+            AssertError(exit, r, "operation_failed", 1);
+            Assert.Contains("OpenInput", S(r["message"]));
+            Assert.Contains("input mesh 0 is not closed", S(r["message"]));
+            Assert.False(File.Exists(output));
+            // as the second input, and in an n-ary boolean
+            (exit, r) = Run("boolean", m.Shifted, m.Open, output, "--op", "difference");
+            AssertError(exit, r, "operation_failed", 1);
+            Assert.Contains("input mesh 1 is not closed", S(r["message"]));
+            (exit, r) = Run("boolean", m.Cube, m.Shifted, output, "--op", "union", "--more", m.Open);
+            AssertError(exit, r, "operation_failed", 1);
+            Assert.Contains("input mesh 2 is not closed", S(r["message"]));
+            Assert.False(File.Exists(output));
+            // stated: the open input is classified by the generalized winding number, and the result is written
+            (exit, r) = Run("boolean", m.Open, m.Shifted, output, "--op", "union", "--allow-open");
+            AssertOk(exit, r);
+            Assert.False(B(r["exact_winding_a"]));
+            Assert.True(File.Exists(output));
+            (exit, r) = Run("boolean", m.Open, m.Shifted, m.Path_("open_true.obj"), "--op", "union", "--allow-open=true");
+            AssertOk(exit, r);
+            // resolve repairs one mesh: an open input is taken as before
+            (exit, r) = Run("resolve", m.Open, m.Path_("open_resolved.obj"));
+            AssertOk(exit, r);
+            // the schema states the default
+            Assert.False(B(Commands.Find("boolean").InputSchema()["properties"]["allow_open"]["default"]));
+        }
+
+        [Fact]
         public void Boolean_OpenInputRejectedOnRequest()
         {
             var (exit, r) = Run("boolean", "--a", m.Open, "--b", m.Shifted, "--output", m.Path_("x.obj"), "--op", "union", "--allow-open=false");

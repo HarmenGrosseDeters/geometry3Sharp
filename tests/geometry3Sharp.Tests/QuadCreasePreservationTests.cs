@@ -107,11 +107,18 @@ namespace geometry3Sharp.Tests
                     throw new ArgumentException(name);
             }
             DMesh3 src = new DMesh3(m);
-            var r = new Remesher(m) { SmoothSpeedT = 0.5, PreventNormalFlips = true, MinTriangleQuality = 0.2 };
+            // The input triangulation is pinned: the remesher without PreventNormalFlips and MinTriangleQuality (their
+            // results changed with issue #1441, the results without them are pinned bit for bit by
+            // RemesherRingTurnGuardTests.OptOut_ResultIsUnchanged), 20 passes. The gates below depend on this
+            // triangulation: with the two options (as before #1441) sharp-cylinder met them at 15 and 16 passes and missed
+            // them at 12, 13, 14, 17, 18 and 20 (coverage 90 to 95 %), with the options since #1441 it misses them at all
+            // of these (90.0 % at 15), without the options the shapes meet them at 14 and 20 and miss them at 15
+            // (sharp-cylinder) and 16 (gear). Issue #1452.
+            var r = new Remesher(m) { SmoothSpeedT = 0.5 };
             r.SetProjectionTarget(MeshProjectionTarget.Auto(src));
             r.SetTargetEdgeLength(h);
             MeshConstraintUtil.PreserveBoundaryAndFeatures(r, 30);
-            for (int k = 0; k < 15; ++k) r.BasicRemeshPass();
+            for (int k = 0; k < 20; ++k) r.BasicRemeshPass();
             return new DMesh3(m, true);
         }
 

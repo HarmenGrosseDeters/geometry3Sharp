@@ -99,7 +99,7 @@ static class ImprintCompare
                     break;
                 }
                 case "exact_union": {
-                    var boolean = Program.Configure(new ExactMeshBoolean(target, cutter, ExactMeshBoolean.Operations.Union));
+                    var boolean = Program.Configure(new ExactMeshBoolean(target, cutter, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true });
                     bool ok = boolean.Compute();
                     r["ms"] = sw.ElapsedMilliseconds;
                     r["ok"] = ok;

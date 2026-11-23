@@ -200,7 +200,7 @@ namespace geometry3Sharp.Tests
             Assert.Contains("InputRepair (Refuse)", fallback.Change);
             Assert.Equal(ExactMeshBoolean.SheetRefusal.None, p.Report.Route[0].SheetReason);
             Assert.Equal(ExactMeshBoolean.SheetRefusal.None, p.Report.Route[2].SheetReason);
-            Assert.Contains("an input is not closed (InputRepair is Refuse)", p.Error);
+            Assert.Contains("not closed (InputRepair is Refuse)", p.Error);     // (the inputs are named by index: OpenInputError_NamesTheInputsAndTheWaysOut)
             Assert.Contains("tried as a sheet first, which refused: " + reason + ": ", p.Error);
             // (the run's own reason is the open input: the sheet's is in the route)
             Assert.Equal(ExactMeshBoolean.SheetRefusal.None, p.SheetReason);
@@ -482,6 +482,56 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(0, q.Report.InsideOutCells);
                 Assert.Equal(32.0 - 0.5, Volume(q.Result), 9);
             }
+        }
+        [Fact]
+        public void OpenInputError_NamesTheInputsAndTheWaysOut()
+        {
+            // #1211: the refusal says which input is open and how to state what it is
+            // (the role Solid is stated: an open Difference tool without a stated role is tried as a sheet first, #1447)
+            var solid = ExactMeshBoolean.InputRole.Solid;
+            var p = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Sheet(2, -1, 5) }, D) { InputRoles = new Roles { solid, solid } };
+            Assert.False(p.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
+            Assert.StartsWith("input 1 is not closed (InputRepair is Refuse)", p.Error);
+            // a Union has no sheet route: the same text without stated roles
+            var u = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Sheet(2, -1, 5) }, ExactMeshBoolean.Operations.Union);
+            Assert.False(u.Compute());
+            Assert.StartsWith("input 1 is not closed (InputRepair is Refuse)", u.Error);
+            Assert.Contains("role Sheet (InputRoles)", p.Error);
+            Assert.Contains("InputRepair = AutoRepair or AutoRepairThenRobust", p.Error);
+            // two open inputs; the closed one between them is not named
+            var q = new SolidBooleanPipeline(new List<DMesh3> { Sheet(1, -1, 5), Cube(4), Sheet(3, -1, 5) }, D) { InputRoles = new Roles { solid, solid, solid } };
+            Assert.False(q.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, q.Status);
+            Assert.StartsWith("inputs 0, 2 are not closed", q.Error);
+            // a sheet with its role is not an open input: only the other one is named
+            var r = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Sheet(2, -1, 5), Sheet(3, -1, 5) }, D) { InputRoles = new Roles { solid, ExactMeshBoolean.InputRole.Sheet, solid } };
+            Assert.False(r.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, r.Status);
+            Assert.StartsWith("input 2 is not closed", r.Error);
+            // an input with a flipped triangle is closed for the boolean (Orientation = AreaMajority reorients it), although the
+            // pipeline's own check (Report.InputClosed) counts it as open: it is not named
+            DMesh3 flipped = Cube(4);
+            flipped.ReverseTriOrientation(0);
+            var f = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), flipped, Sheet(2, -1, 5) }, D) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority, InputRoles = new Roles { solid, solid, solid } };
+            Assert.False(f.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, f.Status);
+            Assert.False(f.Report.InputClosed[1]);
+            Assert.StartsWith("input 2 is not closed", f.Error);
+            // a thin input left out before the boolean (TreatAsEmpty): the index is the pipeline's (2), not the boolean's (1)
+            DMesh3 slab = new TrivialBox3Generator() { Box = new Box3d(new AxisAlignedBox3d(new Vector3d(-1, -1, 2), new Vector3d(5, 5, 2.01))) }.Generate().MakeDMesh();
+            DMesh3 open = Cube(4);
+            double top = open.GetBounds().Max.z;
+            foreach (int tid in open.TriangleIndices().ToList()) {
+                Index3i t = open.GetTriangle(tid);
+                if (open.GetVertex(t.a).z == top && open.GetVertex(t.b).z == top && open.GetVertex(t.c).z == top)
+                    open.RemoveTriangle(tid);
+            }
+            var thin = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), slab, open }, D) { MinThickness = 0.1, ThinInputs = SolidBooleanPipeline.ThinInputModes.TreatAsEmpty, InputRoles = new Roles { solid, solid, solid } };
+            Assert.False(thin.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, thin.Status);
+            Assert.Single(thin.Report.ThinInputs);
+            Assert.StartsWith("input 2 is not closed", thin.Error);
         }
     }
 }

@@ -1158,6 +1158,14 @@ namespace geometry3Sharp.Tests
             return op;
         }
 
+        // as RunAll, with the open inputs that have the role Solid classified by the generalized winding number
+        static ExactMeshBoolean RunAllOpen(DMesh3[] meshes, params ExactMeshBoolean.InputRole[] roles)
+        {
+            var op = new ExactMeshBoolean(meshes, Ops.Difference) { Roles = roles.ToList(), AllowOpenMeshes = true };
+            op.Compute();
+            return op;
+        }
+
         const ExactMeshBoolean.InputRole SolidRole = ExactMeshBoolean.InputRole.Solid, SheetRole = ExactMeshBoolean.InputRole.Sheet;
 
         [Fact]
@@ -1295,7 +1303,7 @@ namespace geometry3Sharp.Tests
         {
             // an open solid next to the cube (classified by generalized winding numbers): its per-piece record is kept only with RecordOpenWinding
             foreach (bool record in new[] { false, true }) {
-                var op = new ExactMeshBoolean(new[] { Box(0, 0, 0, 1, 1, 1), Cup(0.25, 0.25, 1.25, 0.75, true) }, Ops.Difference) { RecordOpenWinding = record };
+                var op = new ExactMeshBoolean(new[] { Box(0, 0, 0, 1, 1, 1), Cup(0.25, 0.25, 1.25, 0.75, true) }, Ops.Difference) { AllowOpenMeshes = true, RecordOpenWinding = record };
                 Assert.True(op.Compute(), op.Error);
                 Assert.Equal(record, op.OpenWindingPerPiece != null);
                 Assert.True(op.PhaseMilliseconds.ContainsKey("classification.open_us"));
@@ -1533,7 +1541,7 @@ namespace geometry3Sharp.Tests
             // a free edge of the sheet on a piece that is the triangle of an open solid under it (the same patch as mesh 1, a solid, and as mesh 2, the sheet):
             // the sheet is named, a triangle is not (the piece's triangle is not the sheet's)
             DMesh3 patch = Plate(0.5, 0.25, 0.75, 0.25, 0.75);
-            ExactMeshBoolean rim = RunAll(new[] { cube, patch, new DMesh3(patch) }, SolidRole, SolidRole, SheetRole);
+            ExactMeshBoolean rim = RunAllOpen(new[] { cube, patch, new DMesh3(patch) }, SolidRole, SolidRole, SheetRole);
             AssertRefused(rim, Refusal.RimInsideWorkpiece, "the sheet over an open solid");
             Assert.Equal(2, rim.SheetWitnessMesh);
             Assert.Equal(-1, rim.SheetWitnessTriangle);
@@ -1612,6 +1620,290 @@ namespace geometry3Sharp.Tests
                 AssertRefused(bottom, Refusal.UncutComponents, "plate on the bottom face");
                 Assert.Equal(1, bottom.SheetWitnessTriangle);
             }
+        }
+        // ---- an open tool without a role: OpenInputsWithoutEffect (#1211) ---------------------------------------------------------
+
+        static ExactMeshBoolean Plain(Ops op, params DMesh3[] meshes)
+        {
+            var b = new ExactMeshBoolean(meshes, op) { AllowOpenMeshes = true };
+            Assert.True(b.Compute(), b.Error);
+            return b;
+        }
+
+        static readonly int[] None = new int[0];
+
+        [Fact]
+        public void OpenWithoutEffect_ASheetWithoutARole_CutsNothing_AndIsListed()
+        {
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
+            Assert.Empty(new ExactMeshBoolean(cube, Plate(0.5, -1, 2, -1, 2), Ops.Difference) { AllowOpenMeshes = true }.OpenInputsWithoutEffect);      // before Compute()
+            foreach (bool up in new[] { true, false }) {
+                ExactMeshBoolean b = Plain(Ops.Difference, cube, Plate(0.5, -1, 2, -1, 2, up, 2));
+                Assert.Equal(1.0, Volume(b.Result), 12);        // the silent case: Success, the cube unchanged
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(b.Result));
+                Assert.Equal(new[] { 1 }, b.OpenInputsWithoutEffect);
+                Assert.False(b.ExactWinding[1]);
+            }
+            // a sheet that ends inside, a disc wholly inside, and a sheet on the top face (the cube behind it or in front of it)
+            Assert.Equal(new[] { 1 }, Plain(Ops.Difference, cube, Plate(0.5, -1, 0.5, -1, 2)).OpenInputsWithoutEffect);
+            Assert.Equal(new[] { 1 }, Plain(Ops.Difference, cube, Plate(0.5, 0.25, 0.75, 0.25, 0.75)).OpenInputsWithoutEffect);
+            Assert.Equal(new[] { 1 }, Plain(Ops.Difference, cube, Plate(1, -1, 2, -1, 2, true)).OpenInputsWithoutEffect);
+            Assert.Equal(new[] { 1 }, Plain(Ops.Difference, cube, Plate(1, -1, 2, -1, 2, false)).OpenInputsWithoutEffect);
+        }
+
+        [Fact]
+        public void OpenWithoutEffect_NotListed_ClosedTool_SheetRole_ToolThatCuts_ToolOutside()
+        {
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
+            // a closed tool
+            Assert.Empty(Plain(Ops.Difference, cube, Box(0.25, 0.25, 0.5, 0.75, 0.75, 2)).OpenInputsWithoutEffect);
+            // the same sheet with the role: it cuts
+            ExactMeshBoolean role = Run(cube, Plate(0.5, -1, 2, -1, 2));
+            Assert.True(role.Status == Status.Success, role.Error);
+            Assert.Equal(0.5, Volume(role.Result), 12);
+            Assert.Empty(role.OpenInputsWithoutEffect);
+            // an open tool whose winding number is above 1/2 in the cube: a deep cup with its opening above (it removes its inside)
+            ExactMeshBoolean cup = Plain(Ops.Difference, cube, Cup(0.25, 0.25, 3, 0.25, true));
+            Assert.Equal(1 - 0.5 * 0.5 * 0.75, Volume(cup.Result), 12);
+            Assert.False(cup.ExactWinding[1]);
+            Assert.Empty(cup.OpenInputsWithoutEffect);
+            // a sheet that does not reach the cube: nothing depends on it
+            Assert.Empty(Plain(Ops.Difference, cube, Plate(2, -1, 2, -1, 2)).OpenInputsWithoutEffect);
+        }
+
+        [Fact]
+        public void OpenWithoutEffect_UnionAndIntersection()
+        {
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
+            // Union: a sheet matters where it is outside the others. Floating outside, or crossing: listed; wholly inside: not
+            Assert.Equal(new[] { 1 }, Plain(Ops.Union, cube, Plate(2, -1, 2, -1, 2)).OpenInputsWithoutEffect);
+            Assert.Equal(new[] { 1 }, Plain(Ops.Union, cube, Plate(0.5, -1, 2, -1, 2)).OpenInputsWithoutEffect);
+            Assert.Empty(Plain(Ops.Union, cube, Plate(0.5, 0.25, 0.75, 0.25, 0.75)).OpenInputsWithoutEffect);
+            // Intersection: a sheet matters where it is inside the others; the result is empty, as for an input that encloses nothing
+            ExactMeshBoolean cross = Plain(Ops.Intersection, cube, Plate(0.5, -1, 2, -1, 2));
+            Assert.Equal(0, cross.Result.TriangleCount);
+            Assert.Equal(new[] { 1 }, cross.OpenInputsWithoutEffect);
+            Assert.Empty(Plain(Ops.Intersection, cube, Plate(2, -1, 2, -1, 2)).OpenInputsWithoutEffect);
+            // the deep cup has an effect in both
+            Assert.Empty(Plain(Ops.Union, cube, Cup(0.25, 0.25, 3, 0.25, true)).OpenInputsWithoutEffect);
+            Assert.Empty(Plain(Ops.Intersection, cube, Cup(0.25, 0.25, 3, 0.25, true)).OpenInputsWithoutEffect);
+        }
+
+        [Fact]
+        public void OpenWithoutEffect_SeveralTools_AndAnOpenFirstMesh()
+        {
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1), tool = Box(0.25, 0.25, 0.25, 0.75, 0.75, 2);
+            // a sheet hidden inside a closed tool: a closed operand would vanish there as well
+            Assert.Empty(Plain(Ops.Difference, cube, tool, Plate(0.5, 0.375, 0.625, 0.375, 0.625)).OpenInputsWithoutEffect);
+            // a sheet that crosses the cube next to that tool
+            ExactMeshBoolean b = Plain(Ops.Difference, cube, tool, Plate(0.125, -1, 2, -1, 2));
+            Assert.Equal(new[] { 2 }, b.OpenInputsWithoutEffect);
+            Assert.Equal(1 - 0.5 * 0.5 * 0.75, Volume(b.Result), 12);
+            // two sheets: both, ascending; the closed tool between them is not
+            Assert.Equal(new[] { 1, 3 }, Plain(Ops.Difference, cube, Plate(0.875, -1, 2, -1, 2), tool, Plate(0.125, -1, 2, -1, 2)).OpenInputsWithoutEffect);
+            // the first mesh a sheet: it encloses nothing, the Difference is empty, and it is listed (index 0)
+            ExactMeshBoolean first = Plain(Ops.Difference, Plate(0.5, -1, 2, -1, 2), cube);
+            Assert.Equal(0, first.Result.TriangleCount);
+            Assert.Equal(new[] { 0 }, first.OpenInputsWithoutEffect);
+            // an open first mesh that does enclose (the deep cup) minus a box: not listed
+            Assert.Empty(Plain(Ops.Difference, Cup(0.25, 0.25, 3, 0.25, true), Box(0, 0, 0.5, 1, 1, 0.75)).OpenInputsWithoutEffect);
+        }
+
+        [Fact]
+        public void OpenWithoutEffect_OnlyOpenInputsWithoutARole_AreCandidates()
+        {
+            // the same tool twice: each of the two could be left out without a change, and at its pieces the result depends on it
+            // where the twin is taken away too. That is the definition's case, but only an open input without a role is asked
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1), tool = Box(0.25, 0.25, 0.5, 0.75, 0.75, 2);
+            ExactMeshBoolean closedTwins = Plain(Ops.Difference, cube, tool, new DMesh3(tool));
+            Assert.Equal(1 - 0.5 * 0.5 * 0.5, Volume(closedTwins.Result), 12);
+            Assert.Empty(closedTwins.OpenInputsWithoutEffect);
+            // a sheet with its role, twice
+            DMesh3 plate = Plate(0.5, -1, 2, -1, 2);
+            ExactMeshBoolean sheetTwins = RunAll(new[] { cube, plate, new DMesh3(plate) }, ExactMeshBoolean.InputRole.Solid, ExactMeshBoolean.InputRole.Sheet, ExactMeshBoolean.InputRole.Sheet);
+            Assert.True(sheetTwins.Status == Status.Success, sheetTwins.Status + " " + sheetTwins.SheetReason + " " + sheetTwins.Error);
+            Assert.Equal(0.5, Volume(sheetTwins.Result), 12);
+            Assert.Empty(sheetTwins.OpenInputsWithoutEffect);
+            // open twins that do cut (the deep cup twice): either could be left out, so both are listed
+            DMesh3 cup = Cup(0.25, 0.25, 3, 0.25, true);
+            ExactMeshBoolean cupTwins = Plain(Ops.Difference, cube, cup, new DMesh3(cup));
+            Assert.Equal(1 - 0.5 * 0.5 * 0.75, Volume(cupTwins.Result), 12);
+            Assert.Equal(new[] { 1, 2 }, cupTwins.OpenInputsWithoutEffect);
+        }
+
+        [Fact]
+        public void OpenWithoutEffect_AnEffectSeenOnlyAtAnotherMeshsPieces_OnTheFrontSide()
+        {
+            // a tool made open by a stray sheet: its closed part (a box) swallows a cavity of the second mesh x. None of the
+            // tool's own pieces is kept; the effect shows at the cavity's faces, whose front side is inside the tool
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
+            DMesh3 x = Box(-0.5, -0.5, -0.5, 1.5, 1.5, 1.5);
+            MeshEditor.Append(x, Reversed(Box(0.125, 0.125, 0.125, 0.375, 0.375, 0.375)));
+            MeshEditor.Append(x, Reversed(Box(0.625, 0.625, 0.625, 0.875, 0.875, 0.875)));
+            DMesh3 m = Plate(0.25, 0.1875, 0.3125, 0.1875, 0.3125);
+            MeshEditor.Append(m, Box(0.5625, 0.5625, 0.5625, 0.9375, 0.9375, 0.9375));
+            ExactMeshBoolean without = Plain(Ops.Difference, cube, x);
+            Assert.Equal(2 * 0.015625, Volume(without.Result), 12);     // the two cavities
+            ExactMeshBoolean b = Plain(Ops.Difference, cube, x, m);
+            Assert.False(b.ExactWinding[2]);
+            Assert.Equal(0.015625, Volume(b.Result), 12);               // one of them is gone: an effect
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(b.Result));
+            Assert.Empty(b.OpenInputsWithoutEffect);
+        }
+
+        [Fact]
+        public void OpenWithoutEffect_CoplanarStacks()
+        {
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1), tool = Box(0.25, 0.25, 0.25, 0.75, 0.75, 2);
+            // an open tool whose walls and bottom lie in the cube's faces removes all of it: pieces are lost that no piece of
+            // the tool replaces (an effect through the pieces that are no longer kept)
+            ExactMeshBoolean all = Plain(Ops.Difference, cube, Cup(0, 0.5, 3, 0.5, true));
+            Assert.Equal(0, all.Result.TriangleCount);
+            Assert.Empty(all.OpenInputsWithoutEffect);
+            // a plate in the bottom face of a closed tool, either way up, as the third or the second input, and wider than the face
+            foreach (bool up in new[] { true, false }) {
+                ExactMeshBoolean after = Plain(Ops.Difference, cube, tool, Plate(0.25, 0.25, 0.75, 0.25, 0.75, up));
+                Assert.Equal(new[] { 2 }, after.OpenInputsWithoutEffect);
+                Assert.Equal(1 - 0.5 * 0.5 * 0.75, Volume(after.Result), 12);
+                Assert.Equal(new[] { 1 }, Plain(Ops.Difference, cube, Plate(0.25, 0.25, 0.75, 0.25, 0.75, up), tool).OpenInputsWithoutEffect);
+                Assert.Equal(new[] { 2 }, Plain(Ops.Difference, cube, tool, Plate(0.25, 0.125, 0.875, 0.125, 0.875, up)).OpenInputsWithoutEffect);
+            }
+        }
+
+        [Fact]
+        public void OpenWithoutEffect_ThreeInputs_Intersection_AndNextToASheetWithItsRole()
+        {
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1), column = Box(0.25, 0.25, -1, 0.75, 0.75, 2);
+            // Intersection of three: the plate matters inside both others; the result is empty (without the plate it is 0.25)
+            ExactMeshBoolean i3 = Plain(Ops.Intersection, cube, column, Plate(0.5, -1, 2, -1, 2));
+            Assert.Equal(0, i3.Result.TriangleCount);
+            Assert.Equal(new[] { 2 }, i3.OpenInputsWithoutEffect);
+            // a plate outside the column: nothing depends on it
+            Assert.Empty(Plain(Ops.Intersection, cube, column, Plate(0.5, 0.8, 0.95, 0.8, 0.95)).OpenInputsWithoutEffect);
+            // the deep cup encloses: an effect
+            ExactMeshBoolean cup = Plain(Ops.Intersection, cube, column, Cup(0.25, 0.25, 3, 0.25, true));
+            Assert.Equal(0.5 * 0.5 * 0.75, Volume(cup.Result), 12);
+            Assert.Empty(cup.OpenInputsWithoutEffect);
+            // a sheet with its role (it removes z < 0.5) and a plate without one: listed in the part that stays, not in the removed part
+            var solid = ExactMeshBoolean.InputRole.Solid;
+            ExactMeshBoolean kept = RunAllOpen(new[] { cube, Plate(0.5, -1, 2, -1, 2), Plate(0.75, -1, 2, -1, 2) }, solid, ExactMeshBoolean.InputRole.Sheet, solid);
+            Assert.True(kept.Status == Status.Success, kept.Error);
+            Assert.Equal(0.5, Volume(kept.Result), 12);
+            Assert.Equal(new[] { 2 }, kept.OpenInputsWithoutEffect);
+            ExactMeshBoolean removed = RunAllOpen(new[] { cube, Plate(0.5, -1, 2, -1, 2), Plate(0.25, -1, 2, -1, 2) }, solid, ExactMeshBoolean.InputRole.Sheet, solid);
+            Assert.True(removed.Status == Status.Success, removed.Error);
+            Assert.Equal(0.5, Volume(removed.Result), 12);
+            Assert.Empty(removed.OpenInputsWithoutEffect);
+        }
+
+        [Fact]
+        public void OpenWithoutEffect_IsEmptyAfterARunThatFailsAfterTheClassification()
+        {
+            // a rod to 1e300 and a floating plate: the union lists the plate; with StrictRounding the run fails in the rounding
+            // (the scale is not finite), after the classification, and the list is empty with the failed status
+            DMesh3 rod = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(1e300, 1, 1)) }.Generate().MakeDMesh();
+            DMesh3 plate = Plate(5, -1, 2, -1, 2);
+            var b = new ExactMeshBoolean(rod, plate, Ops.Union) { AllowOpenMeshes = true };
+            Assert.True(b.Compute(), b.Error);
+            Assert.Equal(new[] { 1 }, b.OpenInputsWithoutEffect);
+            b.StrictRounding = true;
+            Assert.False(b.Compute());
+            Assert.Equal(Status.RoundingNotClean, b.Status);
+            Assert.Empty(b.OpenInputsWithoutEffect);
+        }
+
+        [Fact]
+        public void OpenWithoutEffect_NotEvaluatedWithAWindingPredicate()
+        {
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1), plate = Plate(0.5, -1, 2, -1, 2);
+            int calls = 0;
+            var b = new ExactMeshBoolean(new[] { cube, plate }, w => { ++calls; return w[0] > 0 && w[1] <= 0; }) { AllowOpenMeshes = true };
+            Assert.True(b.Compute(), b.Error);
+            Assert.Equal(1.0, Volume(b.Result), 12);
+            Assert.Empty(b.OpenInputsWithoutEffect);
+            // the predicate is called for the two sides of each piece only (this input has no coplanar pieces)
+            Assert.Equal(2 * b.Counts["pieces"], calls);
+        }
+
+        [Fact]
+        public void OpenWithoutEffect_Reuse_ComputeTwice_AndAfterAChangedTool()
+        {
+            var b = new ExactMeshBoolean(Box(0, 0, 0, 1, 1, 1), Plate(0.5, -1, 2, -1, 2), Ops.Difference) { AllowOpenMeshes = true };
+            Assert.True(b.Compute(), b.Error);
+            Assert.Equal(new[] { 1 }, b.OpenInputsWithoutEffect);
+            string first = Fingerprint(b.Result);
+            Assert.True(b.Compute(), b.Error);
+            Assert.Equal(new[] { 1 }, b.OpenInputsWithoutEffect);       // not appended to
+            Assert.Equal(first, Fingerprint(b.Result));
+            b.MeshB = Box(-1, -1, 0.5, 2, 2, 3);
+            Assert.True(b.Compute(), b.Error);
+            Assert.Empty(b.OpenInputsWithoutEffect);
+            Assert.Equal(0.5, Volume(b.Result), 12);
+            // a failed run clears it too
+            b.MeshB = Plate(0.5, -1, 2, -1, 2);
+            Assert.True(b.Compute(), b.Error);
+            Assert.Equal(new[] { 1 }, b.OpenInputsWithoutEffect);
+            b.AllowOpenMeshes = false;
+            Assert.False(b.Compute());
+            Assert.Equal(Status.OpenInput, b.Status);
+            Assert.Empty(b.OpenInputsWithoutEffect);
+        }
+
+        [Fact]
+        public void OpenWithoutEffect_Invariance_AndDeterminism()
+        {
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1), plate = Plate(0.5, -1, 2, -1, 2, true, 3), cup = Cup(0.25, 0.25, 3, 0.25, true);
+            ExactMeshBoolean p0 = Plain(Ops.Difference, cube, plate), c0 = Plain(Ops.Difference, cube, cup);
+            foreach (Similarity s in Similarity.All()) {
+                ExactMeshBoolean p = Plain(Ops.Difference, Invariance.Transformed(cube, s), Invariance.Transformed(plate, s));
+                // the list says exactly that the result is the one without the sheet: listed where the cube comes back, not listed
+                // where the sheet changed the result. (In the frame far from the origin the rotated sheet is not planar in
+                // doubles, its generalized winding number crosses 1/2 at some pieces, and the result is a wrong, open mesh:
+                // an effect, so the sheet is not listed there. Every other frame gives the cube.)
+                double volume = Volume(p.Result) / (s.Scale * s.Scale * s.Scale);
+                bool unchanged = MeshRobustRepair.NotCleanReason(p.Result) == "" && Math.Abs(volume - 1) < 1e-9;
+                Assert.True((p.OpenInputsWithoutEffect.Count == 1) == unchanged, s.Name + ": " + volume);
+                if (s != Similarity.RotatedUtmMillimetre)
+                    Assert.Equal(new[] { 1 }, p.OpenInputsWithoutEffect);
+                if (s.IsExact)
+                    Assert.Equal("", Invariance.Difference(Invariance.Transformed(p0.Result, s), p.Result));
+                ExactMeshBoolean c = Plain(Ops.Difference, Invariance.Transformed(cube, s), Invariance.Transformed(cup, s));
+                Assert.True(c.OpenInputsWithoutEffect.Count == 0, s.Name);
+                if (s.IsExact)
+                    Assert.Equal("", Invariance.Difference(Invariance.Transformed(c0.Result, s), c.Result));
+            }
+            gParallel.SerialOnThisThread = true;
+            try {
+                ExactMeshBoolean serial = Plain(Ops.Difference, cube, plate);
+                Assert.Equal(new[] { 1 }, serial.OpenInputsWithoutEffect);
+                Assert.Equal(Fingerprint(p0.Result), Fingerprint(serial.Result));
+            } finally {
+                gParallel.SerialOnThisThread = false;
+            }
+            for (int run = 0; run < 3; ++run)
+                Assert.Equal(new[] { 1 }, Plain(Ops.Difference, cube, plate).OpenInputsWithoutEffect);
+        }
+        [Fact]
+        public void OpenInputError_NamesTheInputsAndTheWaysOut()
+        {
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1), plate = Plate(0.5, -1, 2, -1, 2);
+            var one = new ExactMeshBoolean(cube, plate, Ops.Difference) { AllowOpenMeshes = false };
+            Assert.False(one.Compute());
+            Assert.Equal(Status.OpenInput, one.Status);
+            Assert.StartsWith("input mesh 1 is not closed (", one.Error);
+            Assert.Contains("role Sheet (Roles)", one.Error);
+            Assert.Contains("AllowOpenMeshes", one.Error);
+            Assert.Contains("OpenInputsWithoutEffect", one.Error);
+            // several, by index; a closed mesh and a sheet with its role are not named
+            var more = new ExactMeshBoolean(new[] { plate, cube, Plate(0.25, -1, 2, -1, 2), Plate(0.75, -1, 2, -1, 2) }, Ops.Union) { AllowOpenMeshes = false };
+            Assert.False(more.Compute());
+            Assert.StartsWith("input meshes 0, 2, 3 are not closed (", more.Error);
+            var role = new ExactMeshBoolean(new[] { cube, Plate(0.25, -1, 2, -1, 2), Plate(0.75, -1, 2, -1, 2) }, Ops.Difference) {
+                AllowOpenMeshes = false, Roles = new List<ExactMeshBoolean.InputRole> { ExactMeshBoolean.InputRole.Solid, ExactMeshBoolean.InputRole.Sheet }
+            };
+            Assert.False(role.Compute());
+            Assert.Equal(Status.OpenInput, role.Status);
+            Assert.StartsWith("input mesh 2 is not closed (", role.Error);
         }
     }
 }
