@@ -201,15 +201,42 @@ short edge.
   was accepted. It contracted A-C on both end faces: the foot of the riser moved by w, and with it the riser. The
   volume changed by w H W / 2: 2.5e-7, 6.25e-7 and 1.0e-6 of 3.0e-4 for w = 2e-6, 5e-6 and 8e-6 (0.08 %, 0.21 %,
   0.33 %), with `MaxDrift` = w.
-- **Now:** a cap is flipped first. A cap is a degenerate triangle whose shortest and longest edge would span 1024 times
-  the degenerate area at a right angle, so the angle between them is below 1 / 1024: it is degenerate by its angle, not
-  by its short edge. The flip of its longest edge removes it and moves no vertex. On the shape: 2 flips, no contraction,
-  the volume unchanged, `MaxDrift` at most e. Where the flip is not accepted the order is the old one.
-- **The factor 1024** is measured on the rounding tests, not derived. With 1 and 4 the flip also takes needles in
-  clusters of short edges, and defects stay that the contractions removed before (`SafeRoundingDegenerateInputTests`
-  ShortEdge, `MeshRoundingRepairTestsPositionSearch` FoldedCluster 52 8 4, the drift of `RoundingDenseTessellationTests`);
-  with 32 and 256 only edit counts of the clamped-panel tests differ; from 16 384 on every result is that of 1024. The
-  shape qualifies up to about 6e5.
+- **Now:** a cap is flipped first. A cap is a degenerate triangle whose shortest and longest edge would span 32 times
+  the degenerate area at a right angle, so the angle between them is below 1 / 32 (`CapRatio` in `fix_degenerate`: half the
+  product of the shortest and the longest edge, over the degenerate area of the component, at least 32): it is degenerate
+  by its angle, not by its short edge. The flip of its longest edge removes it and moves no vertex. On the shape: 2 flips,
+  no contraction, the volume unchanged, `MaxDrift` at most e. Where the flip is not accepted the order is the old one.
+  The decision is made on lengths and on an area that scale by 2^k and 4^k, so it is the same at every power-of-two scale
+  (`RoundingCapFirstTests.Step_AtTheLimitOfACap`, 0.9 and 1.1 times the limit at the scales 1, 2^-10, 2^10).
+- **The limit 32** (owner decision 2026-11-23: the ratio form, not the bare distance of the apex from the longest edge, which
+  breaks an existing test). The first version took 1024; a cap with a ratio of a few hundred was still contracted. The
+  reproducer (`Step(w = 5e-6, e = 1e-12, l: l)`: l is the long edge of the cap, an extra corner on the top of the slab;
+  ratio = 0.5 shortest longest / degenerate area), measured on top of #1464 (net10.0):
+
+  | l | ratio | limit 1024 | limit 32 |
+  |---|---|---|---|
+  | 4e-4 | 761 | 2 contractions, volume +6.25e-7 (of 3.0e-4: 0.21 %), drift 5e-6 | 2 flips, volume change 0, drift 0 |
+  | 2.5e-4 | 476 | as 4e-4 | as 4e-4 |
+  | 1e-4 | 190 | as 4e-4 | as 4e-4 |
+  | 4e-5 | 76 | as 4e-4 | as 4e-4 |
+  | 1e-5 | 19 | 2 contractions, +6.25e-7 | the same: below the limit |
+  | 2e-6 | 3.8 (the shortest edge is then l) | 2 contractions, volume change -1e-18, drift 2e-6 | the same |
+  | none (the edge A-B, 0.5) | 9.5e5 | 2 flips | 2 flips |
+
+  With 256 (measured by the previous worker, on the base before #1464) the first two rows were flipped, the next two still
+  contracted. What each limit breaks, from the rounding tests (the 1139 tests whose names contain Rounding or SolidBoolean;
+  the older numbers are the previous worker's, on the base before #1464, not re-measured):
+  - 1024, 256, 64, 32: no test fails, apart from the pins of the limit itself; the old clamped-panel tests of that base failed
+    at 32 in `InRange(Collapses, 1, 3)` (all four tilts), and #1464 rewrote them: on top of #1464 they pass unchanged at 1024 and 32.
+  - 16: only the tests of the limit itself (a ratio of 28.8 is flipped, a ratio of 19 as well): measured on top of #1464.
+  - 4 and 1: on top of #1464 `RoundingThinVolumeTests.ClampedPanelShavedInsideOneFacet_ATiltedLens_TheRepairContractsAcrossIt_AndTheVolumeChangeStaysSmall`
+    fails (the lens is flipped, no contraction: the assertion on 2 contractions), and the tests of the limit; nothing else.
+    On the base before #1464 the previous worker found at 4 `FoldedCluster 52 8 4` not clean, and at 1 also ShortEdge and
+    DensePatch: with the exact InCircle of #1464 these three no longer fail at 4 and 1 (measured), so the floor of 32 rests
+    on the owner's decision, the lens test and that earlier measurement, not on a failing test of the current base.
+  - the bare apex-distance test: breaks an existing test (previous worker; not re-measured, not in the code).
+  The floor is a trade: a cap below 32 (the ratio of 19 above) is still contracted, with the volume change of a contraction
+  across a thin strip. From 16 384 on every result of the old base was that of 1024; the shape qualifies up to about 9.5e5.
 - **No effect on the fixtures above:** the plates, the shell and the clamped panel give the numbers they gave (their
   tests are unchanged): their degenerate triangles are not caps by this test, or have no flip that is accepted.
 - **A limit:** in one frame of `Similarity.All()` (rotated, millimetre scale, far from the origin) the rounding of the
@@ -218,10 +245,21 @@ short edge.
   (6.3e-7). Two variants of a flip first in `fix_intersection` (for a pair across an edge, by the angle and by opposed
   normals) did not change it and are not in the code. Open.
 - **Cost and effect elsewhere** (measured 2026-11-23, before and after, net10.0):
+  - **At the limit 32, on top of #1464** (2026-11-23, this machine, net10.0): the same job (`run <case> safe`, every third case of
+    booleans, utm and clusters, all of cylinder and drop, scale up to 81: 214 cases, each in its own process, one after the other,
+    two passes with the order of the two builds alternating, the faster of the two per case), `CapRatio` = 1e300 (no cap is
+    taken: the old order) against 32: 83.2 s against 83.2 s (ratio 1.000); the largest ratio of a single case above 200 ms is
+    1.17 (`bool:Collinear:0:Difference:0`, noise). 205 of 214 cases give the same result (clean, triangle count, edits, drift);
+    nine differ, none in cleanliness (the one case that is not clean, `cluster:FoldedCluster:36:8:3`, is not clean before and
+    after): edits +1 in four of them, +2 in `FoldedCluster:36:8:0`, -2 in `FoldedCluster:44:8:3` (triangles 484 to 488), -1 in
+    `FoldedCluster:52:8:3` (drift 2.7e-5 to 3.0e-6); the same edits with another drift in `FoldedCluster:36:8:3` (3.2e-5 to
+    2.8e-5) and `scale:81:Intersection` (triangles 51 688 to 51 690, drift 1.2e-5 to
+    8.4e-6). The driver script is not in the repository; the numbers of the next three bullets are of the first version (1024).
   - `benchmarks/SnapRoundingExperiment`, `run <case> safe` on 214 cases (every third case of the sets booleans, utm
     and clusters, all of cylinder, drop and scale up to resolution 81), two alternating passes each, the faster of the
     two per case: 89.7 s before, 88.8 s after (ratio 0.99; no set above 1.00). 202 cases clean before and after; two
     cases (Cluster, k = 44) have one edit more, with the same triangle count and drift.
+  - (The two bullets below: measured with the limit 1024 on the base before #1464; the previous worker found the same lines at 256 and 32 for the probes; not re-measured on top of #1464.)
   - The stress inputs of two probes under review (unions of spheres with gaps and overlaps down to 1e-12, 20 cases;
     tube skeletons with grazing forks and near-tangent branches, 9 cases) through `SolidBooleanPipeline`: every line
     identical before and after (status, verdict, triangle count, the volume before and after the rounding). 29 of 29
