@@ -753,6 +753,133 @@ namespace geometry3Sharp.Tests
             Assert.True(p0.y == 0 && p0.z == 0 && p1.y == 0 && p1.z == 0);
         }
 
+        static bool EndsAcceptable(double g, Q e) { return CorrectlyRounded(g, e) || WithinFilterBound(g, e); }
+
+        static SlabQ[] SlabsSegment(Box3d b, Vector3d p0, Vector3d p1)
+        {
+            var r = new SlabQ[3];
+            for (int i = 0; i < 3; i++) {
+                Vector3d u = b.Axis(i);
+                Q p = Dot(u, p0 - b.Center);          // (p0 - b.Center as given in rationals below)
+                p = Q.From(u.x) * (Q.From(p0.x) - Q.From(b.Center.x)) + Q.From(u.y) * (Q.From(p0.y) - Q.From(b.Center.y)) + Q.From(u.z) * (Q.From(p0.z) - Q.From(b.Center.z));
+                Q q = Q.From(u.x) * (Q.From(p1.x) - Q.From(p0.x)) + Q.From(u.y) * (Q.From(p1.y) - Q.From(p0.y)) + Q.From(u.z) * (Q.From(p1.z) - Q.From(p0.z));
+                Q e = Q.From(b.Extent[i]);
+                r[i] = new SlabQ(p, q, new Q(-e.N, e.D), e);
+            }
+            return r;
+        }
+
+        [Fact]
+        public void LosingBoundWhoseErrorReachesPastTheWinner_IsNotCertifiedAsTheEnd()
+        {
+            // review of #1432, round 4: the z slab, whose P cancels, gives t0 = 3.186e156; the filter returned the caller's limit 9.965e-6 (the
+            // winning bound's own error was small, the losing bound's was not)
+            var box = new Box3d(new Vector3d(-7.170013077560006E+172, 2.620716251227021E+172, -8.738246261425582E+171), Vector3d.AxisX, Vector3d.AxisY, Vector3d.AxisZ,
+                new Vector3d(5.443946058162502E+172, 5.917840328537399E+172, 1.102845685404016E+173));
+            Vector3d o = new Vector3d(-6.870103607703678E+172, 5.5285587994524134E+172, -1.1902281480182718E+173);
+            Vector3d d = new Vector3d(0.09563784284688663, -0.8370996917198595, 0.5386255741589984);
+            double t0 = 9.965171795322175E-06, t1 = 7.550091272010511E+172;
+            var e = Contact(Slabs(box, o, d), Q.From(t0), Q.From(t1));
+            Assert.NotEqual(0, e.kind);
+            double g0 = t0, g1 = t1; int quantity = 0; Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero; var type = IntersectionType.Empty;
+            Assert.True(IntrLine3Box3.DoClipping(ref g0, ref g1, o, d, box, true, ref quantity, ref p0, ref p1, ref type));
+            Assert.True(EndsAcceptable(g0, e.t0) && EndsAcceptable(g1, e.t1), $"ends {g0:R} {g1:R} against {e.t0.ToDouble():R} {e.t1.ToDouble():R}");
+            Assert.True(g0 > 1e150, "t0 is the caller's limit, not the entry of the z slab");
+        }
+
+        [Fact]
+        public void CancellingSlab_ErrorOfTheOriginTermBeyondTheBound_NeedsEPInTheInfinityTest()
+        {
+            // review of #1432, round 4: scales around 1e100 and Q about 1e-200: eP is most of the numerator; without it in Kind's infinity test
+            // the bound is dropped as an infinity
+            var box = new Box3d(Vector3d.Zero, new Vector3d(0.6, 0.8, 0), new Vector3d(-0.8, 0.6, 0), new Vector3d(0, 0, 1),
+                new Vector3d(1.3189262280796753E+106, 1.0006316229396834E+110, 1));
+            Vector3d o = new Vector3d(4.0033178474955815E+109, -3.0008397278365862E+109, 0), d = new Vector3d(-2.0230697039622207E-201, 1.4161487927735542E-200, 0);
+            double t0 = -8.639777957061202E+289, t1 = 5E+289;
+            var e = Contact(Slabs(box, o, d), Q.From(t0), Q.From(t1));
+            double g0 = t0, g1 = t1; int quantity = 0; Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero; var type = IntersectionType.Empty;
+            bool got = IntrLine3Box3.DoClipping(ref g0, ref g1, o, d, box, true, ref quantity, ref p0, ref p1, ref type);
+            Assert.Equal(e.kind != 0, got);
+            if (got) Assert.True(EndsAcceptable(g0, e.t0) && EndsAcceptable(g1, e.t1), $"ends {g0:R} {g1:R} against {e.t0.ToDouble():R} {e.t1.ToDouble():R}");
+        }
+
+        // a rotation from a random quaternion
+        static void RandomAxes(Random r, out Vector3d ux, out Vector3d uy, out Vector3d uz)
+        {
+            double a = Gauss(r), b = Gauss(r), c = Gauss(r), d = Gauss(r);
+            double n = Math.Sqrt(a * a + b * b + c * c + d * d); a /= n; b /= n; c /= n; d /= n;
+            ux = new Vector3d(1 - 2 * (c * c + d * d), 2 * (b * c + a * d), 2 * (b * d - a * c));
+            uy = new Vector3d(2 * (b * c - a * d), 1 - 2 * (b * b + d * d), 2 * (c * d + a * b));
+            uz = new Vector3d(2 * (b * d + a * c), 2 * (c * d - a * b), 1 - 2 * (b * b + c * c));
+        }
+        static double Gauss(Random r) { double u1 = 1 - r.NextDouble(), u2 = r.NextDouble(); return Math.Sqrt(-2 * Math.Log(u1)) * Math.Cos(2 * Math.PI * u2); }
+
+        [Fact]
+        public void RotatedNonUnitBoxes_StaticDoClippingAndSegments_AgreeWithTheOracle()
+        {
+            // random quaternion rotations, non-unit and slightly non-orthogonal axes, scales 1e-3..1e300, origins around the box, directions with a
+            // component along an axis as small as 1e-200 (tiny Q), caller limits (none, within +-1e291, between the slab bounds): the ends in
+            // rationals (rounded once, or the certified bound of the filter), the points in the box, the segment decision
+            var r = new Random(4242);
+            int hits = 0, n = 0, segHits = 0;
+            for (int it = 0; it < 3500; it++) {
+                Vector3d ux, uy, uz; RandomAxes(r, out ux, out uy, out uz);
+                double sx = 0.5 + 1.5 * r.NextDouble(), sy = 0.5 + 1.5 * r.NextDouble(), sz = 0.5 + 1.5 * r.NextDouble();
+                ux *= sx; uy *= sy; uz *= sz;
+                if (r.Next(3) == 0) uy = uy + ux * (0.05 * r.NextDouble());        // not orthogonal
+                double scale = Math.Pow(10, r.Next(-3, 301) + r.NextDouble());
+                Vector3d ext = new Vector3d(scale * Math.Pow(10, -4 * r.NextDouble()), scale * Math.Pow(10, -4 * r.NextDouble()), scale * Math.Pow(10, -4 * r.NextDouble()));
+                Vector3d ctr = new Vector3d((r.NextDouble() - 0.5) * scale * 4, (r.NextDouble() - 0.5) * scale * 4, (r.NextDouble() - 0.5) * scale * 4);
+                if (r.Next(2) == 0) ctr = Vector3d.Zero;
+                Box3d box = new Box3d(ctr, ux, uy, uz, ext);
+                double reach = scale * Math.Pow(10, r.NextDouble());
+                Vector3d o = ctr + ux * ((r.NextDouble() * 2 - 1) * reach / sx) + uy * ((r.NextDouble() * 2 - 1) * reach / sy) + uz * ((r.NextDouble() * 2 - 1) * reach / sz);
+                Vector3d dRand = new Vector3d(Gauss(r), Gauss(r), Gauss(r));
+                if (r.Next(3) == 0) {          // nearly perpendicular to an axis: that slab has a tiny Q
+                    Vector3d uk = r.Next(3) == 0 ? ux : (r.Next(2) == 0 ? uy : uz);
+                    Vector3d dd = dRand - uk * (dRand.Dot(uk) / uk.LengthSquared) + uk * (Math.Pow(10, -r.Next(150, 201)) * Gauss(r));
+                    if (dd.LengthSquared > 0) dRand = dd;
+                }
+                Vector3d d = dRand.Normalized;
+                if (r.Next(10) < 6) {
+                    // aimed at a point of the box (almost always a contact)
+                    Vector3d aim = ctr + ux * ((r.NextDouble() * 2 - 1) * ext.x / sx) + uy * ((r.NextDouble() * 2 - 1) * ext.y / sy) + uz * ((r.NextDouble() * 2 - 1) * ext.z / sz);
+                    Vector3d da = (aim - o).Normalized;
+                    if (da.IsNormalized) d = da;
+                }
+                if (d.x == 0 && d.y == 0 && d.z == 0 || double.IsNaN(d.x)) continue;
+                var slabs = Slabs(box, o, d);
+                double t0 = -double.MaxValue, t1 = double.MaxValue;
+                int lim = r.Next(4);
+                if (lim == 1) { t0 = -Math.Pow(10, r.Next(0, 291)) * r.NextDouble(); t1 = Math.Pow(10, r.Next(0, 291)) * r.NextDouble(); }
+                else if (lim == 2) { t0 = r.NextDouble() * scale; t1 = t0 + r.NextDouble() * scale * 10; }
+                else if (lim == 3) { t0 = Math.Pow(10, r.Next(-5, 200)) * r.NextDouble(); t1 = double.MaxValue; }
+                bool hasMin = t0 > -double.MaxValue, hasMax = t1 < double.MaxValue;
+                var e = Contact(slabs, hasMin ? Q.From(t0) : (Q?)null, hasMax ? Q.From(t1) : (Q?)null);
+                double g0 = t0, g1 = t1; int quantity = 0; Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero; var type = IntersectionType.Empty;
+                bool got = IntrLine3Box3.DoClipping(ref g0, ref g1, o, d, box, true, ref quantity, ref p0, ref p1, ref type);
+                Assert.True(e.kind != 0 == got, $"decision {got} against {e.kind}: scale {scale:E3} t [{t0:R}, {t1:R}]");
+                if (got) {
+                    hits++;
+                    Assert.True(EndsAcceptable(g0, e.t0) && EndsAcceptable(g1, e.t1), $"ends {g0:R} {g1:R} against {e.t0.ToDouble():R} {e.t1.ToDouble():R}; limits [{t0:R}, {t1:R}]");
+                    Assert.True(InBoxUpToRounding(box, p0) && (quantity == 1 || InBoxUpToRounding(box, p1)), "a point outside the box");
+                }
+                // a segment from the origin to a point of the line beyond the box
+                double len = scale * Math.Pow(10, 3 * r.NextDouble()) * (r.Next(2) == 0 ? 1 : -1);
+                Vector3d far = o + d * len;
+                if (double.IsInfinity(far.x) || double.IsInfinity(far.y) || double.IsInfinity(far.z)) { n++; continue; }
+                var seg = new Segment3d(o, far);
+                Vector3d sp0 = seg.P0, sp1 = seg.P1;
+                if (sp0 == sp1) { n++; continue; }
+                var es = Contact(SlabsSegment(box, sp0, sp1), new Q(0, 1), new Q(1, 1));
+                var sg = new IntrSegment3Box3(seg, box, true);
+                Assert.Equal(es.kind != 0, sg.Find());
+                if (es.kind != 0) { segHits++; Assert.True(InBoxUpToRounding(box, sg.Point0) && (sg.Quantity == 1 || InBoxUpToRounding(box, sg.Point1)), "a segment point outside the box"); }
+                n++;
+            }
+            Assert.True(n > 2500 && hits > 150 && segHits > 150, $"n {n} hits {hits} segHits {segHits}");
+        }
+
         [Fact]
         public void ZeroDirection_IsNotARay_TestAndFindAgree()
         {

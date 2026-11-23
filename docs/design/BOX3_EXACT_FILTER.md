@@ -88,7 +88,9 @@ Each slab updates `LoMinus = max(lv - le)`, `LoPlus = max(lv + le)`, `UpPlus = m
 
 A slab with `Q = 0, eQ = 0` is decided on `P` alone (`P + eP < L` or `P - eP > H`: miss; `L < P - eP`, `P + eP < H`: no constraint; `eP = 0` and `L <= P <= H`: no
 constraint; else undecided). The ends of a certified contact are returned from this route only when `err <= 6 u |t|` (a slab with a cancelling `P` is not accurate
-enough: exact route, rounded once). Points on the face of the active axis-aligned slab are set to the face.
+enough: exact route, rounded once). The exact lower end is the largest of the lower bounds, so it lies in `[LoMinus, LoPlus]`, and the exact upper end in `[UpMinus, UpPlus]`; the
+end returned is the winning bound's value, so it is accurate only if `LoPlus - LoBest <= 6 u |LoBest| + 1e-300` (not just the winner's own error: a losing bound whose interval reaches
+past the winner can be the true end, a z slab whose `P` cancels in the review of round 4) and `UpBest - UpMinus <= 6 u |UpBest| + 1e-300`. Points on the face of the active axis-aligned slab are set to the face.
 
 ## 6. The early tests
 
