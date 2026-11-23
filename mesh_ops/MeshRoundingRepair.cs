@@ -3011,9 +3011,14 @@ namespace g3
             return false;
         }
 
-        // (measured on the rounding tests: with 1 and 4, flips of needles in clusters of short edges leave defects that the contractions
-        // removed before; from 16 384 on the same results as 1024)
-        const double CapRatio = 1024;
+        // the limit of a cap, as a ratio (owner decision 2026-11-23): half the product of the shortest and the longest edge over the degenerate
+        // area, that is the inverse of the sine of the angle between them. A ratio and not the distance of the apex from the longest edge
+        // (that test breaks an existing test). The value is measured, not derived. A floor is needed: at 4 the flip also takes needles in
+        // clusters of short edges and leaves defects that the contractions removed before (FoldedCluster 52 8 4 is not clean), at 1 also
+        // ShortEdge and DensePatch of the degenerate-input tests. With 1024 a cap with a ratio of a few hundred was still contracted
+        // (a step with a long edge of 4e-5 to 4e-4: 2 contractions, +0.21 % volume); at 32 it is flipped; below 32 (a ratio
+        // of 19 in the same step) the contraction stays. See docs/research/ROUNDING_THIN_VOLUME_2026-11.md, "Caps first"
+        const double CapRatio = 32;
 
         [MethodImpl(JitHints.Optimize)]
         void fix_degenerate(int t)

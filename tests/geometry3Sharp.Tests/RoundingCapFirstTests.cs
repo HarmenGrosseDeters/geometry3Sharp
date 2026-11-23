@@ -45,17 +45,15 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
-        // WIP (handover 2026-11-23, the criterion is open): a cap with a shorter long edge, so that half the product of its shortest and
-        // longest edge is a few hundred times the degenerate area (761, 476, 190, 76 for l = 4e-4, 2.5e-4, 1e-4, 4e-5), below CapRatio =
-        // 1024. It is still contracted: 2 contractions, the volume changes by 6.25e-7 of 3.0e-4 (0.21 %). This test pins that as it is.
-        // Measured with a switch that is not in the code: with CapRatio 256 the first two are flipped (2 flips, the volume unchanged),
-        // with CapRatio 32, or with "the height over the longest edge is at most a quarter of the shortest edge", all four
+        // a cap with a long edge of a few hundred times the degenerate area (half the product of its shortest and longest edge over that
+        // area: 761, 476, 190, 76 for l = 4e-4, 2.5e-4, 1e-4, 4e-5): the limit of a cap is 32, so it is flipped. With a limit of 1024
+        // (the first version of this change) these were contracted: 2 contractions, drift w, the volume +6.25e-7 of 3.0e-4 (0.21 %)
         [Theory]
         [InlineData(4e-4)]
         [InlineData(2.5e-4)]
         [InlineData(1e-4)]
         [InlineData(4e-5)]
-        public void Step_ACapBelowTheRatio_IsStillContracted(double l)
+        public void Step_ACapOfAFewHundredTimesTheArea_IsFlippedNotContracted(double l)
         {
             DMesh3 m = Step(5e-6, 1e-12, l: l);
             Assert.True(m.IsClosed());
@@ -64,8 +62,27 @@ namespace geometry3Sharp.Tests
             var r = new MeshRoundingRepair(m);
             Assert.True(r.Apply());
             Assert.Equal(2, r.InitialDegenerate);
-            Assert.Equal(2, r.Collapses);
+            Assert.Equal(2, r.Flips);
+            Assert.Equal(0, r.Collapses + r.Moves + r.Zips + r.StripZips + r.VertexRemovals);
+            Assert.True(r.MaxDrift <= 2e-12, r.MaxDrift.ToString("R"));
+            Assert.True(Math.Abs(r.VolumeAfter - r.VolumeBefore) <= 1e-15, (r.VolumeAfter - r.VolumeBefore).ToString("R"));
+            Assert.Equal("", Defects(m));
+        }
+
+        // below the limit the short edge is still contracted: the floor of the criterion, which a limit of 1 or 4 would take away (and
+        // with it the contractions that remove needles in clusters of short edges). A ratio of 19: the known cost of the floor, the
+        // volume changes by 6.25e-7 as before
+        [Fact]
+        public void Step_ACapBelowTheFloor_IsContracted()
+        {
+            DMesh3 m = Step(5e-6, 1e-12, l: 1e-5);
+            double d = gs.MeshRepairMetrics.TriangleBounds(m).DiagonalLength;
+            Assert.InRange(0.5 * 5e-6 * 1e-5 / (1e-12 * d * d), 15, 25);
+            var r = new MeshRoundingRepair(m);
+            Assert.True(r.Apply());
+            Assert.Equal(2, r.InitialDegenerate);
             Assert.Equal(0, r.Flips);
+            Assert.Equal(2, r.Collapses);
             Assert.InRange(r.VolumeAfter - r.VolumeBefore, 6.2e-7, 6.3e-7);
             Assert.Equal("", Defects(m));
         }
@@ -101,23 +118,29 @@ namespace geometry3Sharp.Tests
             Assert.True(Math.Abs(Volume(m) - before) <= 1e-15);
         }
 
-        // the limit between a cap and a needle: half the product of the shortest and the longest edge against 1024 times the
-        // degenerate area (1e-12 of the squared diagonal). Just below it the short edge is contracted as before, just above
-        // it the long edge is flipped
+        // the limit of a cap: half the product of the shortest edge (A-C, w) and the longest (A-B', l + w) against 32 times the degenerate
+        // area (1e-12 of the squared diagonal). Just below it the short edge is contracted, just above it the longest edge is flipped,
+        // at the scales 1, 2^-10 and 2^10 alike (the decision is made on lengths and areas that scale by exact powers of two)
         [Theory]
-        [InlineData(0.9, 2, 0)]
-        [InlineData(1.1, 0, 2)]
-        public void Step_AtTheLimitOfACap(double factor, int collapses, int flips)
+        [InlineData("identity", 0.9, 2, 0)]
+        [InlineData("identity", 1.1, 0, 2)]
+        [InlineData("scale 2^-10", 0.9, 2, 0)]
+        [InlineData("scale 2^-10", 1.1, 0, 2)]
+        [InlineData("scale 2^10", 0.9, 2, 0)]
+        [InlineData("scale 2^10", 1.1, 0, 2)]
+        public void Step_AtTheLimitOfACap(string frame, double factor, int collapses, int flips)
         {
-            const double L = 0.5;
-            // (a thicker slab, so that the triangle (C, Q0, A) of the flip, w T / 2, is not degenerate itself)
-            double diagonal = gs.MeshRepairMetrics.TriangleBounds(Step(1e-8, 1e-12, T: 0.01)).DiagonalLength;
-            // (the longest edge is A-B, L + w: w is 5e-9 here)
-            double w = factor * 2 * 1024 * 1e-12 * diagonal * diagonal / L;
-            Assert.InRange(w, 4e-9, 1.2e-8);
-            DMesh3 m = Step(w, 1e-12, T: 0.01);
+            const double w = 5e-6;
+            Similarity s = Similarity.ByName(frame);
+            Assert.True(s.IsExact);
+            double diagonal = gs.MeshRepairMetrics.TriangleBounds(Step(w, 1e-12, l: 1e-5)).DiagonalLength;
+            // (l + w is the longest edge: l + w is about 1.6e-5 times the factor, l more than w)
+            double l = factor * 2 * 32 * 1e-12 * diagonal * diagonal / w - w;
+            Assert.InRange(l, 7e-6, 2e-5);
+            DMesh3 m = Invariance.Transformed(Step(w, 1e-12, l: l), s);
             var r = new MeshRoundingRepair(m);
-            Assert.True(r.Apply());
+            Assert.True(r.Apply(), s.Name);
+            Assert.Equal(2, r.InitialDegenerate);
             Assert.Equal(collapses, r.Collapses);
             Assert.Equal(flips, r.Flips);
             Assert.Equal("", Defects(m));
@@ -167,6 +190,27 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, r.Flips + r.Collapses + r.Moves + r.Zips);
             Assert.Equal(r.VolumeBefore, r.VolumeAfter);
             Assert.Equal("", Invariance.Difference(m, copy));
+        }
+
+        // the repair has parallel stages (the evaluation of the edits): serial and parallel runs, and repeated runs, give the same mesh
+        [Theory]
+        [InlineData(5e-6, 0)]
+        [InlineData(5e-6, 1e-4)]
+        public void Step_SerialAndParallelAndRepeatedRuns_GiveTheSameMesh(double w, double l)
+        {
+            DMesh3 first = null;
+            string firstEdits = null;
+            foreach (bool serial in new[] { true, false, true, false }) {
+                DMesh3 m = Step(w, 1e-12, l: l);
+                var r = new MeshRoundingRepair(m);
+                gParallel.SerialOnThisThread = serial;
+                try { Assert.True(r.Apply()); } finally { gParallel.SerialOnThisThread = false; }
+                string edits = r.Flips + " " + r.Collapses + " " + r.Moves + " " + r.VolumeAfter.ToString("R");
+                if (first == null) { first = m; firstEdits = edits; continue; }
+                Assert.Equal(firstEdits, edits);
+                Assert.Equal("", Invariance.Difference(first, m));
+            }
+            Assert.StartsWith("2 0 0", firstEdits);
         }
 
         [Theory]
