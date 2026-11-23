@@ -179,6 +179,8 @@ namespace geometry3Sharp.Tests
             Assert.Null(strict.Result);
             Assert.Contains("1 components removed that their coordinates resolve", strict.Error);
             Assert.DoesNotContain("effort limit", strict.Error);
+            // (nothing follows the counts where no flag of the repair is set)
+            Assert.EndsWith("1 components removed that their coordinates resolve (still defective, or changed by the repair)", strict.Error);
         }
 
         /// <summary>
@@ -391,6 +393,10 @@ namespace geometry3Sharp.Tests
             MeshRoundingRepair.RemovedComponentInfo info = Assert.Single(r.RemovedComponentInfos);
             Assert.Equal(Reasons.BelowResolution, info.Reason);
             Assert.Equal(0.0, info.Volume);
+            // (no area: the thickness is reported as 0, not as 0 / 0)
+            Assert.Equal(0.0, info.Area);
+            Assert.Equal(0.0, info.Thickness);
+            Assert.Equal(0.0, info.ThicknessUlps);
             Assert.False(info.Resolvable);
             Assert.Equal(0, r.RemovedResolvable);
             Assert.True(r.IsClean);
@@ -944,6 +950,16 @@ namespace geometry3Sharp.Tests
             r.Apply();
             Assert.Equal(0, r.InitialIntersections + r.InitialDegenerate + r.InitialFalseContacts);
             Assert.Equal(-1, r.MeasuredBefore);
+
+            // (and the removal does not run either: an inside-out residue beside a mesh with nothing to repair stays, as before)
+            DMesh3 residue = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 6 }.Generate().MakeDMesh();
+            new MeshEditor(residue).AppendMesh(SafeRoundingInsideOutResidueTests.Bipyramid(17, 1e-4, 1e-8, new Vector3d(3, 0, 0), true));
+            int before = residue.TriangleCount;
+            r = new MeshRoundingRepair(residue);
+            r.Apply();
+            Assert.Equal(0, r.InitialIntersections + r.InitialDegenerate + r.InitialFalseContacts);
+            Assert.Equal(0, r.RemovedComponents);
+            Assert.Equal(before, residue.TriangleCount);
 
             // (one thin slab with a needle: measured, one component within the window)
             DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 6 }.Generate().MakeDMesh();
