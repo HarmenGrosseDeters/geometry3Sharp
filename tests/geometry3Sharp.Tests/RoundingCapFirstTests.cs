@@ -161,17 +161,63 @@ namespace geometry3Sharp.Tests
         }
 
         // the refused flip of a cap is evaluated once: with a bound below every edge there is no contraction and no move either, the
-        // caps stay, and the flip of the longest edge is not proposed a second time in the loop over the edges
-        [Fact]
-        public void Step_ARefusedFlip_IsEvaluatedOnce()
+        // caps stay, and the flip of the longest edge is not proposed a second time in the loop over the edges. The same mesh with its
+        // cap just above the limit (flip proposed first, then skipped in the loop) and just below it (the flip proposed once in the
+        // loop, the old order) makes the same number of evaluations; with the skip removed the cap runs 2 more (1184 against 1182)
+        [Theory]
+        [InlineData(0.9)]
+        [InlineData(1.1)]
+        public void Step_ARefusedFlip_IsEvaluatedOnce(double factor)
         {
-            DMesh3 m = Step(6e-9, 1e-12);
-            var r = new MeshRoundingRepair(m) { MaxDisplacement = 1e-13 };
-            Assert.False(r.Apply());
-            Assert.Equal(2, r.RemainingDegenerate);
-            Assert.Equal(0, r.Flips + r.Collapses + r.Moves + r.Zips);
-            Assert.Equal(14, m.VertexCount);
-            Assert.Equal(1198L, r.Evaluations);
+            const double w = 6e-9;
+            double diagonal = gs.MeshRepairMetrics.TriangleBounds(Step(w, 1e-12, l: 1e-2)).DiagonalLength;
+            double Evaluations(double f, out MeshRoundingRepair r, out DMesh3 m)
+            {
+                double l = f * 2 * 32 * 1e-12 * diagonal * diagonal / w - w;
+                m = Step(w, 1e-12, l: l);
+                r = new MeshRoundingRepair(m) { MaxDisplacement = 1e-13 };
+                Assert.False(r.Apply());
+                return r.Evaluations;
+            }
+            double reference = Evaluations(0.9, out _, out _);
+            double e = Evaluations(factor, out MeshRoundingRepair run, out DMesh3 mesh);
+            Assert.Equal(2, run.RemainingDegenerate);
+            Assert.Equal(0, run.Flips + run.Collapses + run.Moves + run.Zips);
+            Assert.Equal(reference, e);
+        }
+
+        // a zero-length edge with a degenerate area of 0 (the exact test finds the triangles bad): 0 >= 0 would make each of them a cap,
+        // and the flip of its longest edge is evaluated (and refused: the zero-length edge stays) before the contraction. With the
+        // guard the contraction is tried first and accepted at once: one evaluation per contraction (without the guard, twice that)
+        [Theory]
+        [InlineData(1, 1)]
+        [InlineData(3, 3)]
+        public void ZeroLengthEdge_WithoutAnAreaThreshold_IsContractedFirst(int coincident, int collapses)
+        {
+            const int n = 6;
+            DMesh3 m = new DMesh3();
+            for (int j = 0; j < n; ++j)
+                for (int i = 0; i < n; ++i)
+                    m.AppendVertex(new Vector3d(i, j, 0));
+            for (int j = 0; j + 1 < n; ++j)
+                for (int i = 0; i + 1 < n; ++i) {
+                    int a = j * n + i;
+                    m.AppendTriangle(a, a + 1, a + n);
+                    m.AppendTriangle(a + 1, a + n + 1, a + n);
+                }
+            // (vertices c + 1, c + n and c + n + 1 move onto c: the edges between them have length 0)
+            int c = 2 * n + 2;
+            m.SetVertex(c + 1, m.GetVertex(c));
+            if (coincident == 3) {
+                m.SetVertex(c + n, m.GetVertex(c));
+                m.SetVertex(c + n + 1, m.GetVertex(c));
+            }
+            var r = new MeshRoundingRepair(m) { DegenerateArea = 0 };
+            Assert.True(r.Apply());
+            Assert.True(r.InitialDegenerate >= 2);
+            Assert.Equal(collapses, r.Collapses);
+            Assert.Equal(0, r.RemainingDegenerate);
+            Assert.Equal(r.Collapses, r.Evaluations);
         }
 
         // a second run on the result changes nothing, and a second instance on a copy gives the same mesh
