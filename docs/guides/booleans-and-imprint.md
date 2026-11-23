@@ -68,9 +68,39 @@ Each entry is bit-identical to running an independent boolean against `terrain` 
 - **Inside-out inputs (`CountInsideOutCells`):** `InsideOutCells` counts the closed components that are inside-out (the solid is empty or reversed) when `CountInsideOutCells` is set (off by default and then free; on, up to about 10 percent on 800k-triangle inputs, within noise below 200k). `SolidBooleanPipeline` sets it and refuses such an input by default (`InsideOutInput`, `AllowInsideOutInputs`).
 - **Open inputs (`AllowOpenMeshes`):** Enabled by default (`true`). Open inputs are classified by generalized winding number (`> 0.5`; `ExactWinding[i]` is `false`), using the exact Antipodal Method below 20,000 boundary segments (hierarchical above 1,000 segments) and fast winding numbers above that cap. Set `AllowOpenMeshes = false` to reject open inputs with `Status = OpenInput`. Where an open boundary meets other sheets along an edge with conflicting orientations, pieces are left unjoined (`ConflictEdges`, always `0` for closed inputs).
 
+### Open Inputs That Enclose Nothing (`OpenInputsWithoutEffect`)
+
+An open input without a role is classified by the generalized winding number above 1/2. A flat or shallow sheet usually stays below 1/2, so as the tool of a Difference it cuts nothing: the result is the first mesh, with `Success` (#1211). `ExactMeshBoolean.OpenInputsWithoutEffect` lists such inputs after a successful `Compute()` (indices as in `Meshes`, ascending; empty otherwise):
+
+- **Listed:** an open input (not a `Sheet`) at one of whose pieces the result would depend on it (for a Difference: a piece of a tool inside the first mesh and outside the other tools), while no decision of the classification changes when its winding number is taken as 0: the result is the one of an input that encloses nothing. For the tool of a Difference or an operand of a Union that is the result without it; for an operand of an Intersection or the first mesh of a Difference it is the empty result. Decided with the integers of the classification; no tolerance.
+- **Not listed:** closed inputs; a sheet with the role `Sheet`; an open tool that does cut (a deep cup); in a Difference, a sheet that does not reach the first mesh or a tool hidden inside another tool (a closed one would vanish there too).
+- **Each by itself:** every listed input could be taken as empty alone. Two listed inputs can still have an effect together (the same open tool given twice: either could be left out, not both).
+- **Limit:** the list says that the result is the one of an input that encloses nothing, not that the result is right. An open input that changes the result is not listed, also where the change is wrong (pieces kept where its winding number crosses 1/2, eg a flat sheet that is not planar in doubles after a rotation far from the origin). The result is then usually not closed: check it (`MeshRobustRepair.NotCleanReason`). Not evaluated with a `WindingPredicate`.
+- **What to do:** give a cutting surface the role `Sheet` (next section), or use the swept tool (the recipe below) for a sheet that ends inside. With `AllowOpenMeshes = false` an open input without a role is refused instead; the `OpenInput` error names the inputs by index and these ways out. `SolidBooleanPipeline` sets it, and tries an open Difference tool without a stated role as a sheet first (its sheet route).
+
 ### Open Cutting Surface (Sheet Role)
 
 An open cutting surface used as the tool of a Difference is stated, not repaired: `InputRoles` gives it the role `Sheet` (`ExactMeshBoolean.Roles` for the boolean alone). The first input must be closed; the part of it behind the sheet (the side the normals point away from) is inside the tool and removed, the part in front stays, decided exactly (no threshold, no repair, no reorientation of the sheet). It is refused, with `BooleanStatus` `SheetRefused`, `SheetReason` and a witness in `Error` (and the `SheetWitness*` fields of the boolean), where the sheet does not define the sides: in a Union or Intersection or as the first input, not an oriented manifold surface (`NotSurface`, `OrientationInconsistent`), a free edge of the sheet inside the first input (`RimInsideWorkpiece`; a rim exactly on its surface is a cut), a part of the first input in front of one piece and behind another (`SidesInconsistent`: a ring, a spiral; also two shells of the first input whose boxes nest, with a mark of each label on them: two cells of different shells are joined by no edge and may be one region of material, so a cut through a hollow body is refused, also where it is consistent, as the nesting of the shells is not looked at; shells with disjoint boxes are independent), a sheet that only touches the first input's surface (every piece of it that meets the first input lies on the surface: a patch or a full sheet on a face, no piece inside) separates nothing and is refused as `UncutComponents`, whatever `UncutSide` says (its contact would mark the whole input, which would then be removed or left as it is, with `Success`), and a part of it that no piece touches (`UncutComponents`, or the side stated with `UncutSide` when the first input has one shell; with several, whether the part is a cavity of a cut part needs the nesting of the shells and is not decided; and only when every part of the sheet shares an edge with the first input's surface or with a part that does: a closed bubble or any other part that floats inside the first input is refused as `FloatingComponent`, also where it would be right, because its cell may be the same region as a cell with the other label). A free edge of a piece that belongs to another tool or sheet shows as `SidesInconsistent`, not `RimInsideWorkpiece`. A part of another tool inside the first input that touches neither the sheet nor its surface is refused the same way. The cells are those of `mesh_ops/ExactMeshCells.cs`. `Orientation` (`Refuse`, `AreaMajority`, `ByNesting`) and the inside-out count apply to the solid inputs only: a sheet is never reoriented, oriented by nesting or counted as inside-out.
+
+### Extruded Cut With an Open Sheet (Recipe)
+
+The role `Sheet` needs a sheet that crosses the workpiece fully and refuses one that ends inside it (`RimInsideWorkpiece`). Where the cut is meant along a direction (a step, a slot, a pocket under the sheet), sweep the sheet to a closed tool and subtract that: [SweptCutExample.cs](../examples/SweptCutExample.cs). There is no class for it; the recipe is `MeshExtrudeMesh` and the closed `ExactMeshBoolean`:
+
+1. State the direction `d`: where the removed material is, seen from the sheet (the side its normals point away from).
+2. Check that every triangle of the sheet faces away from `d` (`normal · d < 0`); otherwise the swept tool folds over. The example refuses such a sheet. The test is in doubles: a triangle nearly parallel to `d` can pass or fail by rounding.
+3. `MeshExtrudeMesh` on a copy of the sheet, with `ExtrudedPositionF = p + length * d` and `IsPositiveOffset = false`; `length` longer than the common box of both meshes is along `d`.
+4. `ExactMeshBoolean` Difference with `AllowOpenMeshes = false`, so a tool that did not close is refused (`OpenInput`), not guessed.
+
+What it removes is everything under the sheet along `d`, exactly for the tool as built (its far vertices are rounded doubles, so the walls are parallel to `d` up to rounding):
+
+| sheet (cube `[0,4]^3`, `d` down) | result |
+|---|---|
+| crosses fully at z = 2 | the upper half (32), as with the role `Sheet` |
+| ends inside (x up to 2) | a step (48) |
+| has a hole inside the cube | the pillar under the hole stays (40) |
+| wholly inside (a disc) | a blind pocket from the bottom (56) |
+
+Limits: the facing test is necessary, not sufficient. Parts of the sheet that lie above each other along `d` pass it, and the result is then the Difference with the union of their swept prisms; `SelfIntersectingPairs > 0` of the boolean shows it. A sheet that folds back along `d` (a bucket) is refused; use the role `Sheet` for it. Background and measurements: [OPEN_CUTTING_SURFACE_2026-11.md](../research/OPEN_CUTTING_SURFACE_2026-11.md), candidate D.
 
 ### `SafeRounding` & `StrictRounding`
 
@@ -111,7 +141,7 @@ For workflows that feed boolean outputs into downstream solid tools, check resul
 2. **Check status and rounding:** Require `Status == Success` and `RoundingClean == true` (or set `StrictRounding = true`).
 3. **Check `Contacts` and `NonManifoldEdges` before position-welding formats:** Face contacts merge cleanly; edge/vertex contacts carry duplicated vertices. Use `MeshRobustRepair.SeparateTouchingVertices` when strictly manifold welded output is needed.
 4. **Negative-volume components are voids:** An inner cavity shell is oriented inward and has negative signed volume. Sum signed volumes across connected components rather than taking absolute volumes per component.
-5. **Thin slabs are valid pieces of the exact solid:** Slabs down to `1e-8` of input size are preserved accurately. `SafeRounding` removes a closed component only if it retains degenerate triangles and is thinner than `RoundingMaxDisplacement` (`Rounding.RemovedComponents`); thin components holding real volume for their area are kept (`Rounding.ScaleDisparity`, `RoundingClean = false`). Filter tiny pieces by volume yourself if they are unwanted.
+5. **Thin slabs are valid pieces of the exact solid:** A thin solid that the rounding repair leaves as it was is kept, down to a few units in the last place of its coordinates. `SafeRounding` removes a closed component that is tiny or thinner than `RoundingMaxDisplacement` only if it was thinner than 4 ulps of its largest coordinate, keeps a defect, or had its volume changed by more than a factor 2 by the repair (`Rounding.RemovedComponents`, listed in `Rounding.RemovedComponentInfos` with volume, thickness and reason). A removal of a solid that did not survive the repair and was at least 256 ulps and 1e-3 of the rounding bound thick (about 1e-8 of the diagonal) sets `Rounding.RemovedResolvable` and `RoundingClean = false` (with `StrictRounding`: `RoundingNotClean`); thinner removals, such as the slivers between copies a few ulps apart or the residues of an earlier rounding in a chain of booleans, are listed and leave the result clean. Thin components holding real volume for their area are kept (`Rounding.ScaleDisparity`, `RoundingClean = false`). Filter thin pieces yourself if they are unwanted (`SolidBooleanPipeline.MinThickness`).
 6. **Do not repair an open boolean result and validate volume against the open mesh:** An open mesh has no exact interior volume (its signed volume depends on the coordinate origin). Close inputs before the boolean rather than wrapping an open boolean result.
 7. **Unreferenced or unwelded vertices do not affect the geometry:** Closed triangle soups give the same boolean solid as welded meshes.
 8. **Check the result itself with `MeshRobustRepair.NotCleanReason(result)`:** this is the check you have today, and it is cheap, about 0.1-0.6 times the boolean (`NotCleanReasons` / `FindDefects` list every failed check). See "What `NotCleanReason(result)` covers" below for what it says and what it does not.
@@ -128,7 +158,7 @@ For workflows that feed boolean outputs into downstream solid tools, check resul
 What it does **not** say:
 
 - **Nothing about the point set.** It looks at the result alone, not at the inputs. It does not say that the result is the union, intersection or difference of the inputs, nor that it lies within the rounding bound of the exact result. A solid that is missing (see the next point), moved, or wrongly selected still gives `""` if what is left is a clean mesh.
-- **A removed component is not reported by it.** `SafeRounding` removes closed components that are tiny or thin and keep a sliver (`Rounding.RemovedComponents`, a documented decision; the audit case is a cube of edge 2^-9 next to a box of edge 1024). The result is then clean but misses that part. Read `Rounding.RemovedComponents` for it.
+- **A removed component is not reported by it.** `SafeRounding` removes closed components that are tiny or thin and that it could not leave as they were (point 5 above). `NotCleanReason` sees the result alone, so it says `""` for a result that misses such a part. `RoundingClean` does report it: it is false when a removed component was a solid of at least 256 ulps and 1e-8 of the diagonal that the repair could not keep (`Rounding.RemovedResolvable`), and `Rounding.RemovedComponentInfos` lists every removed component (the audit case: a cube of edge 2^-11 next to a box of edge 1024).
 - **Touching solids (edge or vertex contact) report "self-intersections".** The result stores the contact as manifold pairs of vertices that coincide in position (`Contacts`, `NonManifoldEdges`; see above), and the exact search counts those as intersections. A contact is not a defect of the boolean; compare with `Contacts` before you read it as one. Face contacts merge and do not show this.
 - **Open inputs:** with `AllowOpenMeshes` the result is not a solid, and "closed" can fail by design.
 
@@ -178,9 +208,61 @@ if (pipeline.Compute()) {
 
 ### Key Options
 
-- **`InputRepair`:** Default `Refuse` fails with `OpenInput` if any input fails `ExactMeshBoolean.IsWindingClosed`. Opt-in `AutoRepair` repairs small holes on a copy (use only for solids, not open cutting sheets); `AutoRepairThenRobust` adds `MeshRobustRepair` as fallback (`Report.RepairedInputs`).
+- **Open tool of a Difference (sheet route, the default):** an open input of a Difference that is not the first and has no entry in `InputRoles` is tried as a sheet first (the [sheet role](#open-cutting-surface-sheet-role)): the first input is cut along it exactly and nothing is repaired. If the sheet role refuses, the run is done again with the inputs as solids, so `InputRepair` decides as before; with `Refuse` the status is `OpenInput` and `Error` ends with the sheet's refusal. Details: [the route and its report](#the-route-of-an-open-input-reportroute).
+- **`InputRepair`:** Default `Refuse` fails with `OpenInput` if an input fails `ExactMeshBoolean.IsWindingClosed` and is not used as a sheet. Opt-in `AutoRepair` repairs small holes on a copy (use only for solids, not open cutting sheets); `AutoRepairThenRobust` adds `MeshRobustRepair` as fallback (`Report.RepairedInputs`).
 - **Reduction targets:** Set one of `TargetTriangleCount`, `TargetFraction`, `MinEdgeLength`, or `MaxQuadricError`. `Report.StopReason` and `StopDetail` explain why reduction stopped if the target was not reached.
 - **Contact-line pairing (`PairContacts` / `PairContactsMode`):** Touching solids limit reduction along contact lines. Opt-in `PairContacts = true` (`PairContactsMode.On`) collapses twin edges along contact lines together (`Reducer.PairCoincidentVertices`) while preserving all guards (`Report.PairedCollapses`; cannot combine with `MaxDeviationTwoSided`). `PairContactsMode.Auto` retries with pairing only when the first pass leaves contacts and is not clean (`Report.PairPassRan`, `PairPassKept`).
+
+
+### The Route of an Open Input (`Report.Route`)
+
+`Report.Route` lists what the pipeline did with open inputs, as steps in the order taken. Each `SolidBooleanRouteStep` has a `Name`, the `Input` it is about (or `-1`), a `Reason` and a `Change` (what the step changed), for a fallback the sheet's `SheetReason`, and for a grid step the cell `Grid`. The list is empty when no input was tried as a sheet, repaired or refused as open and no grid step ran.
+
+| Step | Taken when | What it changes |
+|---|---|---|
+| `SheetRole` | An input of a Difference is not closed (`IsWindingClosed`; this includes a closed surface with flipped triangles, which the sheet role then refuses), is not the first, and `InputRoles` has no entry for it. | The input is handed to the boolean with the role `Sheet`: not repaired, the first input is cut along it. |
+| `Grid` | With `AutomaticSteps = Grid`: the run failed with `RoundingNotClean` or the sheet refusal `RimInsideWorkpiece` (the failure is in `Reason`). | The inputs are snapped to the cell in `Grid` and the run is done again; see [the Grid step](#the-grid-step-automaticsteps). |
+| `Fallback` | The sheet role refused (`SheetReason`, the boolean's text in `Reason`), eg `RimInsideWorkpiece`, `NotSurface`, `OrientationInconsistent`, `SidesInconsistent`, `UncutComponents`, `FloatingComponent`, or `WorkpieceNotClosed` for an open first input. | The run is done again with the inputs as solids, as without the route. |
+| `InputRepair` | An open input was closed on a copy (`InputRepair` is `AutoRepair` or `AutoRepairThenRobust`). | The repair method and the triangle counts, as in `Report.RepairedInputs`. |
+| `Refused` | An open input is left: `InputRepair` is `Refuse`, or no allowed repair closed it. | No result, status `OpenInput`. |
+
+- **Stated roles are used as stated.** An entry in `InputRoles` (`Solid` or `Sheet`) switches the route off for that input: `Solid` gives the behaviour without the route (refused or repaired as an open input), `Sheet` gives the sheet role with its own refusal (`BooleanFailed`, `SheetReason`) and no fallback.
+- **Several open tools** are all tried as sheets; one refusal sends the run to the fallback for all of them.
+- **The orientation of the sheet is taken as given.** The part of the first input behind the sheet is removed. An open tool whose normals point inward (a bucket turned inside out) therefore removes the other part than its repaired, reoriented copy would, with `Success`. The `SheetRole` step shows it: after a cut its `Change` ends with the share of the first input's volume that the Difference removed ("removed 81.25 %" where 18.75 % was meant). State the role `Solid` for a tool that is a solid with a hole and may be oriented either way.
+- **Why the orientation is followed (owner decision 2026-11-23, prior-art check):** every system found that gives "solid minus open surface" a side takes it from the surface's orientation or from an explicit side switch, and none reorients the cutter by a rule: SolidWorks Cut With Surface (a flip flag), Onshape Split (keep one side, an opposite-direction arrow), NX Trim Body (reverse the trim direction), MCUT (fragments above or below by the cut mesh's winding order), and the plane trims of CGAL (`clip` keeps the negative side) and Manifold (`TrimByPlane` keeps the side the normal points to). The others refuse an open tool or split without a side (CGAL `split`, OpenCASCADE Splitter); see [the study](../research/OPEN_CUTTING_SURFACE_2026-11.md), section 3.
+- **Only a refusal of the sheet falls back.** Any other failure of the boolean with the sheet (`BudgetExceeded`, a strict rounding refusal) is the result of the run.
+- **`MinThickness`:** an open tool without a stated role is measured as before (a flat sheet has no volume, so it is thin), and `ThinInputs` decides as before; a tool left out as thin is not routed. Only a stated sheet is not measured.
+- **`ConfigureBoolean`** runs once more for the run after a refused sheet.
+- **Unchanged:** inputs that pass `IsWindingClosed`, Union and Intersection, and an open first input with closed tools.
+- **Cost of a refusal:** the sheet attempt is one more arrangement of the inputs before the run without the route; its time is part of `Report.BooleanMilliseconds`.
+
+### The Grid Step (`AutomaticSteps`)
+
+`AutomaticSteps = SolidBooleanPipeline.AutomaticStepModes.Grid` (opt-in; the default `None` leaves every run as it is, bit for bit) answers two failures with one retry on a snapping grid:
+
+- the boolean's `RoundingNotClean`, and
+- the sheet refusal `RimInsideWorkpiece`: typically a rim that is meant to lie flush on the surface of the first input but sits a few rounding units inside it.
+
+The retry is the same run with the inputs snapped as `InputGrid` snaps them. The cell is taken from the data: a power of two, 2^12 times the rounding unit (ulp) of the largest absolute coordinate of all inputs. It scales with the inputs and moves a vertex by at most 4.5e-13 of that coordinate. [PIPELINE_GRID_STEP.md](../design/PIPELINE_GRID_STEP.md) derives it.
+
+```csharp
+var pipeline = new SolidBooleanPipeline(new[] { workpiece, openTool }, ExactMeshBoolean.Operations.Difference) {
+    AutomaticSteps = SolidBooleanPipeline.AutomaticStepModes.Grid
+};
+bool ok = pipeline.Compute();
+foreach (SolidBooleanRouteStep step in pipeline.Report.Route)   // "SheetRole", "Grid", "SheetRole"
+    Console.WriteLine($"{step.Name}: {step.Reason} -> {step.Change}");
+```
+
+- **Only after a failure, once.** A run that succeeds is never retried. There is one retry per `Compute` with one cell.
+- **The report:** `Report.Route` gets a step `Grid`: `Reason` is the failure it answers, `Change` the cell and the number of vertices the snap moved (`Report.InputSnappedVertices`), and `Grid` the cell as a number.
+- **The result is checked like any other** (`Report.NotCleanReason`, `Report.Clean`).
+- **If the retry fails too, the first failure is the result** (status, error and report of the run without the grid); the `Grid` step says that the retry failed and how. A cancelled retry is `Cancelled`.
+- **Before the fallback:** a tool that the sheet route tried and that was refused with `RimInsideWorkpiece` is retried on the grid first, as a sheet. If the sheet is refused there too, the retry ends: the inputs are not tried as solids on the grid. The run then goes on as without the step, with the `Fallback` to solids off the grid, and a failure of that fallback is not retried (the step ran once).
+- **Inputs on the cell already** (the snap would move no vertex) are not run again: the `Grid` step says so and the first failure is the result.
+- **`InputGrid` set:** the step does not run; the caller's grid is used as stated.
+- **Limit:** a snap makes coordinates equal. It cures a rim on a face parallel to a coordinate plane and vertices meant to coincide, not a rim a little inside a slanted face. As with `InputGrid`, features thinner than the cell can collapse; the cell follows the largest coordinate of all inputs, so a small input near the origin next to one far from it gets the coarse cell of the far one.
+- **Cost:** the retry is one more run (`ConfigureBoolean` runs again for it). The stage times of both runs (input check, repair, boolean) are in the report of the one that is the result. An undefined value of `AutomaticSteps` is `InvalidInput`.
 
 ---
 

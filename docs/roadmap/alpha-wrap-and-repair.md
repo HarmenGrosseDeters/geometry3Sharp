@@ -565,6 +565,14 @@ Reducer A merged in #324 (2026-11-02): −11 to −37 % on the reducer cases, `S
   target from the input (mean Hausdorff of the 150 primitives 0.341 -> 0.115); on Thingi10K it pins 1 vertex in 20
   meshes (39460: Hausdorff 0.78 -> 0.33 target), the other 19 are unchanged (`benchmarks/RemeshQualityBenchmark`,
   PinSharpVertices).
+- [ ] Self-intersecting pairs near a pinned cone apex (known, owner 2026-11-23, #1451): with `PinSharpVertices` and
+  `MinTriangleQuality` a few cones of `benchmarks/RemeshQualityBenchmark` (`pin=30`) end with self-intersecting pairs
+  (cone12_x0.15: about one edge below the pinned apex, where the triangles face apart by the shape of the input; the
+  place was not checked in the other cases). Before the ring check
+  of issue #1441: 9 pairs in 2 of 150 primitives (cone24_x0.15, cone24_x0.2); with it 8 pairs in 3 (cone12_x0.15,
+  cone12_x0.6, cone32_x0.2). Which case is hit is chance; leaving out the operations at fixed vertices moved the pairs
+  to other cases. `RemesherRimFoldTests.Rim_Pinned_NoSelfIntersections_UnderTranslations` checks the rim and bounds
+  these pairs to two edges below the apex. `PreventSelfIntersections` prevents them.
 - [x] `MeshRobustRepair.NotCleanReason` reported only the first failed check: "degenerate triangles" hid the
   self-intersections of most remeshed meshes, and the inside-out result of 135363 without `MinTriangleQuality`. Done in
   #159: `MeshRobustRepair.FindDefects` / `NotCleanReasons` report every failed check (`NotCleanReason` keeps the first),

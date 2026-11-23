@@ -32,6 +32,57 @@ The owner decided:
   well-shaped neighbours (flips, contractions, moves), stays within a **proven bound** of the rounded result.
   `MeshRobustRepair` can run a second repair with a fresh budget: there the total is at most 2 `maxLength`.
 
+**Which tiny or thin components go (#1216, owner 2026-11-22; [study](../research/ROUNDING_THIN_SOLIDS_2026-11.md)).**
+Until then every closed component that was tiny or thinner than `maxLength` and had an edit anywhere was removed, so a
+real sheet went for two contractions of 7.6e-11 and the thinnest sheet kept moved by seven orders of magnitude with the
+frame. Now such a component goes only if
+- it was thinner than 4 units in the last place of its largest coordinate before the edits (its coordinates do not
+  resolve it; the test of the numerically zero volume of #1067 with the factor 4, exact for the computed area), or
+- a defect is left in it (a degenerate triangle, an intersecting pair, a contact the rounding made), or
+- the edits changed its volume by more than a factor 2 or turned it over (exact: the integer volume sums before and
+  after), which is what happens to a solid whose own triangles are below the degenerate area, or
+- it was not measured before the edits (it was then neither tiny nor thin within a factor 2).
+
+A component the edits left as it was stays. Every removed component is listed (`RemovedComponentInfos`: triangles, area,
+volume, thickness, reason).
+
+*The verdict has its own thresholds (owner 2026-11-22, after the cohort runs of the build).* A removed component makes
+the repair not clean only if it went for one of the last three reasons (or, edited, for a numerically zero volume
+after the edits) **and** was, before the edits, at least 256
+units in the last place of its largest coordinate thick (256: the multiple of the bound's ulp term) **and** at least
+1e-3 of the bound `maxLength` of its component thick (1e-8 of the diagonal by default), or was not measured. Both tests
+are the exact volume comparison of #1191 against a threshold formed in doubles (the ulps test: exact products; the
+fraction of the bound: two products, each rounded once); the bound and the area scale exactly with 2^k, so the verdict
+does too. The floating-point keep shortcut in front of the exact comparison (a computed volume above the threshold by
+8 (n + 16) u Σ‖a‖‖b‖‖c‖ is "not below" without the exact test) has a first-order error count of at most
+(0.87 n + 8.7) u Σ‖a‖‖b‖‖c‖ (`volume_below`), so its margin holds 9 times over; if it failed, the answer would keep
+and report. Those components are counted in `RemovedResolvable`; `StrictRounding` and
+`SolidBooleanPipeline` then refuse the result. Thinner removals, the untouched ones of #1067 and components of exactly
+zero volume leave the repair clean. Why the two conditions:
+- *256 ulps.* On the Thingi10K contact cohort the differences of a model and its copy one to a few ulps away, which the
+  decision of 2026-11-16 wants empty and clean, hold slivers of 4 to 14 ulps that the repair mangles; with the removal's
+  4 ulps as the verdict threshold a third of those results were not clean.
+- *A fraction of the bound.* In a chain of booleans the residue between a result that an earlier rounding repaired and
+  the surface it came from is as thick as that repair's drift, whatever its ulps (the stand-in of an abc-chained case:
+  a sliver of 2.4e4 ulps and 6.5e-13 of the diagonal, volume 6e-23). No multiple of the ulp separates such residues
+  from real sheets, and in a chain they are the normal case. The sheets of #1216 are 5e-8 to 5e-6 of the diagonal, above
+  the fraction; the residues seen are five decades below it. The price: the verdict, not the removal, depends on the
+  diagonal again.
+
+*Known limit: no fixed multiple of the ulp is safe for every placement.* The thickness is measured in ulps of the
+component's own largest coordinate, and a copy is shifted by ulps of the model's. A sliver that lies near a coordinate
+plane or the origin has small coordinates of its own, so its thickness counts as many more of its ulps than the shift
+had: 14 where the shift was a few, and without a bound as the sliver's own coordinates go to zero. 256 covers what the
+cohorts hold; a sliver near the origin of a model shifted by one ulp of a coordinate 1e3 times larger would exceed it
+and make the result not clean. A measure relative to the largest coordinate of the whole result would close this and
+bring back a dependence on parts far away; it was not built. The `ScaleDisparity` guard is applied before the rule and `KeepWhenEmptied`
+is judged on what the rule before #1216 would remove, so both give the result and the verdict they gave. The removal set
+is a subset of the former one by construction: only components tiny or thin by the former test are candidates, and an
+untouched inside-out residue goes only if it is inside out also in the nesting of the former rule (keeping an edited
+component changes the nesting depth of what it encloses). Not addressed: a small well-shaped solid whose triangles are below the
+degenerate area of the whole result is still mangled by the edits and then removed (now reported); that needs a
+degenerate area relative to the component.
+
 **Drift (the reference rule, Boolean 2.1; docs/design/SAFE_ROUNDING_D1_DRIFT.md).** Every triangle t has three
 anchors α_t (where its corners were when its bound was last certified) and a carried bound c_t; at the start of
 `Apply` the anchors are its corners and c_t = 0. Its bound is B(t) = c_t + max over its corners k of |pos(v_k) − α_t[k]|.
@@ -66,7 +117,8 @@ result would be removed, nothing is removed (`KeepWhenEmptied`): every component
 counted in `ScaleDisparity` and `KeptWhenEmptied`, and the repair is not clean. The edits before the removal stay applied:
 within the isotropic bound they can change such a slab far beyond its thickness, or turn it inside out, which
 `NotCleanReason` then reports. Fat inputs whose result is only thin pieces (the slivers of nearly coincident surfaces,
-A - A') are removed as before: an empty result, clean. The input test judges each input by its largest component, as the removal judges
+A - A') are removed as before: an empty result, clean where the pieces are thinner than 256 ulps (see the next
+paragraph). The input test judges each input by its largest component, as the removal judges
 the result (two fat parts far apart are not tiny). With `StrictRounding` a kept result fails (`RoundingNotClean`), where
 the empty result succeeded before. `MeshRobustRepair` sends a resolve that kept components this way to
 its wrap fallback, as it did with the empty result. Before, the result was empty and reported clean. A diagonal that is

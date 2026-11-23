@@ -1,6 +1,7 @@
 # SafeRounding and thin solids: why real sheets vanish, and what rule would keep them (study, 2026-11-22)
 
-Status: **research note, no library code; the rule is decided (owner 2026-11-22, end of section 8), not built.**
+Status: **research note; the rule is decided (owner 2026-11-22, end of section 8) and built in the PR of #1216
+(`MeshRoundingRepair.remove_tiny_components`; the tables below are the measurement before it).**
 A design study of two linked items: issue #1216 (SafeRounding removes real thin solids and returns `Success`) and plan #1259 (a guaranteed 3D rounding after Devillers et al.). The removal
 threshold, any output change and any new option are owner decisions; section 8 lists the options with a leaning.
 The owner's decision of 2026-11-22 on the pipeline audit ([ROADMAP.md](../ROADMAP.md), "Decided on 2026-11-22": the
@@ -531,6 +532,19 @@ the starting value. A result that removed only components below K ulps stays cle
 other removal makes the result not clean, as decided earlier that day; every removed component is reported with
 count, volume and thickness (option 0). The build is a separate tier-L PR after #1382, with a plan that settles the
 two cases of 5.4 first. Nothing of it is in this note's PR.
+
+**Amended in the build (owner 2026-11-22, the same day):** the removal keeps K = 4, and the verdict gets its own
+threshold: a removed component makes the result not clean only if it was at least 256 ulps thick (and went as still
+defective or changed), or was not measured. Reason: on the Thingi10K contact cohort (148 non-empty booleans) K = 4 as the
+verdict threshold turned 8 results from clean to not clean, 5 of them differences of a model and its copy a few ulps
+away with mangled slivers of 4 to 14 ulps (2 more were a defect of the build, a zero-area component, fixed). The
+measured counts with the split rule are in the PR of the build; the known limit (no fixed multiple is safe near a
+coordinate plane) is in [SAFE_ROUNDING.md](../design/SAFE_ROUNDING.md) section 1.
+
+**Amended again (owner 2026-11-22):** the verdict needs both 256 ulps and 1e-3 of the bound (1e-8 of the diagonal).
+Reason: in a chain of booleans a residue of an earlier rounding is as thick as that rounding's drift, not as an ulp
+(a stand-in of an abc-chained case lost a sliver of 2.4e4 ulps, 6.5e-13 of the diagonal, and was not clean under the
+ulp threshold alone). The sheets of this note are 5e-8 to 5e-6 of the diagonal and stay above it.
 
 ## 9. Interplay with `SolidBooleanPipeline.MinThickness`
 

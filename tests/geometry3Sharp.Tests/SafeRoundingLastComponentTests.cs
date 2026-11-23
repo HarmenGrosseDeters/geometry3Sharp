@@ -209,7 +209,9 @@ namespace geometry3Sharp.Tests
 
         /// <summary>
         /// the other side of the rule: fat inputs whose result is only thin pieces (the slivers of nearly coincident tetrahedra,
-        /// A - A') still give an empty result, reported clean (owner 2026-11-16)
+        /// A - A') still give an empty result, reported clean (owner 2026-11-16). Since #1216 (owner 2026-11-22) the removal is
+        /// listed: the shell between tetrahedra 1e-12 apart is 844 ulps thick and mangled by the repair (its own triangles are
+        /// degenerate), so it goes as VolumeChanged. At 1e-13 of the diagonal it is far below what makes a result not clean.
         /// </summary>
         [Fact]
         public void FatInputs_ThinResult_IsStillDropped()
@@ -221,6 +223,10 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, d.Rounding.KeptWhenEmptied);
             Assert.Equal(1, d.Rounding.RemovedComponents);
             Assert.Equal(0, d.Result.TriangleCount);
+            Assert.Equal(MeshRoundingRepair.RemovalReasons.VolumeChanged, d.Rounding.RemovedComponentInfos[0].Reason);
+            Assert.InRange(d.Rounding.RemovedComponentInfos[0].ThicknessUlps, 100, 10000);
+            Assert.False(d.Rounding.RemovedComponentInfos[0].Resolvable);
+            Assert.Equal(0, d.Rounding.RemovedResolvable);
             Assert.True(d.RoundingClean);
             // also where the input has components far apart (its box is not the scale, its largest component is)
             DMesh3 a2 = TwoFar(ta, Vector3d.Zero), b2 = TwoFar(ta, new Vector3d(1e-12, 2e-12, -1e-12));
@@ -228,6 +234,8 @@ namespace geometry3Sharp.Tests
             ExactMeshBoolean d2 = Run(a2, b2, Ops.Difference);
             Assert.Equal(0, d2.Rounding.KeptWhenEmptied);
             Assert.Equal(0, d2.Result.TriangleCount);
+            Assert.Equal(d2.Rounding.RemovedComponents, d2.Rounding.RemovedComponentInfos.Count);
+            Assert.Equal(0, d2.Rounding.RemovedResolvable);
             Assert.True(d2.RoundingClean);
         }
 

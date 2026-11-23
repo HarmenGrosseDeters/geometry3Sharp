@@ -18,7 +18,8 @@ RO = sorted("rounding-%d" % i for i in range(1, 14))  # (in the order of the con
 BO = ["boolean-%d" % i for i in range(1, 10)]
 ALL_MESH = set(RO) | set(BO) | {"arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
                                                 "imprint", "terrain-arith", "terrain-kernel", "terrain-overlay", "hausdorff", "geodesic-1", "geodesic-2",
-                                                "uv-atlas", "uv-charts", "uv-pack", "uv-cones", "uv-slim", "uv-foldover", "uv-core", "solid-pipeline", "exact-winding", "cells"}
+                                                "uv-atlas", "uv-charts", "uv-pack", "uv-cones", "uv-slim", "uv-foldover", "uv-core", "solid-pipeline", "exact-winding", "cells",
+                                                "predicates-1", "predicates-2", "adaptive"}
 
 
 def run(*changed):
@@ -48,7 +49,10 @@ class SelectShards(unittest.TestCase):
 
     def test_gate_shard_is_exact_arithmetic_files_of_the_config_only(self):
         configs = load_configs()
-        self.assertTrue(gate_shard(configs["config"], ["math/ExactPredicates.cs"]))
+        self.assertTrue(gate_shard(configs["config"], ["math/ExactPoint3.cs"]))
+        self.assertTrue(gate_shard(configs["mesh-predicates-1"], ["math/ExactPredicates.cs"]))
+        self.assertTrue(gate_shard(configs["mesh-adaptive"], ["math/AdaptivePredicates.cs"]))
+        self.assertFalse(gate_shard(configs["config"], ["math/ExactPredicates.cs"]))        # (moved to the predicates shards)
         self.assertTrue(gate_shard(configs["mesh-fixed"], ["math/FixedPoint3.cs"]))
         self.assertTrue(gate_shard(configs["mesh-generated"], ["math/Generated/IndirectPredicates.cs"]))
         self.assertFalse(gate_shard(configs["mesh-fixed"], ["math/ExactPredicates.cs"]))        # (not mutated by this shard)
@@ -87,13 +91,14 @@ class SelectShards(unittest.TestCase):
         self.assertEqual(("none", {b: "source" for b in BO}), run("mesh_ops/ExactMeshBoolean.cs"))
         self.assertEqual(("none", {"arrangement-1": "source", "arrangement-2": "source", "arrangement-3": "source", "arrangement-4": "source"}),
                          run("mesh_ops/ExactMeshArrangement.cs"))
-        self.assertEqual(("source", {}), run("math/ExactPoint3.cs", "math/ExactPredicates.cs", "math/AdaptivePredicates.cs"))
+        self.assertEqual(("source", {"predicates-1": "source", "predicates-2": "source", "adaptive": "source"}),
+                         run("math/ExactPoint3.cs", "math/ExactPredicates.cs", "math/AdaptivePredicates.cs"))
 
     def test_shard_with_several_files_runs_incrementally_when_one_changed(self):
         # (the unchanged files keep their baseline results)
         self.assertEqual(("none", {"planar": "source"}), run("mesh_ops/ExactTriangulation2.cs"))
         self.assertEqual(("source", {}), run("math/ExactPoint3.cs"))
-        self.assertEqual(("source", {}), run("math/ExactPoint3.cs", "math/ExactPredicates.cs"))
+        self.assertEqual(("source", {"predicates-1": "source", "predicates-2": "source"}), run("math/ExactPoint3.cs", "math/ExactPredicates.cs"))
         self.assertEqual(("none", {"planar": "source"}),
                          run("mesh_ops/ExactTriangulation2.cs", "mesh_ops/ExactPlanarSimplify.cs"))
 
@@ -102,7 +107,7 @@ class SelectShards(unittest.TestCase):
         self.assertEqual(("none", dict({"boolean-1": "tests", "boolean-5": "tests", "boolean-7": "tests"}, **{r: "tests" for r in RO})),
                          run(TESTS + "ExactBooleanIssueCasesTests.cs"))
         self.assertEqual(("none", {"boolean-5": "tests", "boolean-7": "tests"}), run(TESTS + "ExactBooleanFilterTests.cs"))
-        self.assertEqual(("tests", {}), run(TESTS + "PredicateDifferentialTests.cs"))
+        self.assertEqual(("tests", {"predicates-1": "tests", "predicates-2": "tests", "adaptive": "tests"}), run(TESTS + "PredicateDifferentialTests.cs"))
 
     def test_test_class_with_a_method_filter_maps_to_its_file(self):
         arithmetic, mesh = run(TESTS + "MeshRoundingRepairTests.cs")

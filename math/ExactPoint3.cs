@@ -97,7 +97,7 @@ namespace g3
             }
         }
 
-        /// <summary> coordinates as doubles, multiplied by 2^scaleExp (nearly correctly rounded: error below 1 ulp) </summary>
+        /// <summary> coordinates as doubles, multiplied by 2^scaleExp (nearly correctly rounded: error below 1 ulp, see ToDouble) </summary>
         public Vector3d ToVector3d(int scaleExp = 0)
         {
             return new Vector3d(ToDouble(X, W, scaleExp), ToDouble(Y, W, scaleExp), ToDouble(Z, W, scaleExp));
@@ -125,7 +125,11 @@ namespace g3
         static bool is_safe(double v) { return double.IsInfinity(v) == false && double.IsNaN(v) == false && Math.Abs(v) > 1e-290; }
         static bool is_safe_or_zero(double v) { return v == 0 || is_safe(v); }
 
-        /// <summary> num / den * 2^scaleExp as double, den > 0 </summary>
+        /// <summary>
+        /// num / den * 2^scaleExp as double, den &gt; 0: within 1 ulp by design (a 64-bit truncated quotient, then the conversion to double, which
+        /// truncates), not correctly rounded; the exact Boolean pipeline verifies its rounded results itself. For a double that must be the
+        /// correctly rounded value (certified filters) use <see cref="ToDoubleRounded"/>
+        /// </summary>
         [MethodImpl(JitHints.Optimize)]
         public static double ToDouble(BigInteger num, BigInteger den, int scaleExp)
         {
@@ -136,6 +140,41 @@ namespace g3
             int shift = (int)(64 - (nb - db));
             BigInteger q = (shift >= 0) ? (num << shift) / den : num / (den << -shift);
             return ScaleB((double)q, scaleExp - shift);
+        }
+
+        /// <summary>
+        /// num / den * 2^scaleExp as a double, den &gt; 0, correctly rounded (unlike <see cref="ToDouble"/>): the double nearest to the exact value, ties to even, in one
+        /// rounding also in the subnormal range (a result below 2^-1075 is a zero of the sign of num, one at or above overflows to an infinity)
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static double ToDoubleRounded(BigInteger num, BigInteger den, int scaleExp)
+        {
+            if (num.IsZero)
+                return 0;
+            bool negative = num.Sign < 0;
+            BigInteger a = BigInteger.Abs(num), rem;
+            long nb = BitLength(a), db = BitLength(den);
+            int shift = (int)(55 - (nb - db));      // the quotient has 55 or 56 bits
+            long top = (long)scaleExp - shift + 56;     // the value is below 2^top
+            if (top <= -1076)
+                return negative ? -0.0 : 0.0;        // (below half the smallest subnormal; also avoids a huge shift below)
+            BigInteger q = shift >= 0 ? BigInteger.DivRem(a << shift, den, out rem) : BigInteger.DivRem(a, den << -shift, out rem);
+            int extra = (int)(BitLength(q) - 53);
+            // a result below 2^-1022 has fewer than 53 significant bits: round once, to the grid 2^-1074 (rounding to 53 bits first
+            // and then to the grid would round twice)
+            long unit = (long)scaleExp - shift + extra;       // (long: a scaleExp near int.MaxValue must not wrap)
+            if (unit < -1074)
+                extra += (int)(-1074 - unit);
+            BigInteger mant = q >> extra, half = BigInteger.One << (extra - 1), low = q - (mant << extra);
+            // above the midpoint, or on it with a nonzero remainder (the quotient was truncated), or a tie with an odd mantissa
+            if (low > half || (low == half && (rem.IsZero == false || mant.IsEven == false)))
+                mant += 1;
+            if (mant.IsZero)
+                return negative ? -0.0 : 0.0;       // (underflow to zero keeps the sign, as IEEE division does)
+            // (mant <= 2^53, the unit is a double: exact; an exponent beyond +-3000 gives the same infinity or zero as 3000)
+            long e2 = (long)scaleExp - shift + extra;
+            double r = ScaleB((double)mant, (int)Math.Max(-3000L, Math.Min(3000L, e2)));
+            return negative ? -r : r;
         }
 
         /// <summary> x * 2^n, correctly rounded (one rounding, only for a subnormal result) </summary>

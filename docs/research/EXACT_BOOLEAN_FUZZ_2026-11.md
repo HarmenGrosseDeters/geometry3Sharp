@@ -223,7 +223,8 @@ Each first firing was read against the class comments before it counted, as in t
 - **O1**: `RoundingClean` can be true for a result that `MeshRobustRepair.NotCleanReason` calls not clean ("inside-out
   components", section 5.1). It is documented in the code of the rounding repair, not on `RoundingClean`. Options: say it in
   the comment of `RoundingClean` (docs only); or count such components in a new field. A change of `RoundingClean`'s meaning or
-  a new field is the owner's call; nothing is built here.
+  a new field is the owner's call; nothing is built here. Decided 2026-11-22: the comment (docs only); it is on
+  `ExactMeshBoolean.RoundingClean` since the follow-up PR.
 - **O2**: the certificate's grid fix (section 4) changes a test oracle. It makes no check weaker: the grid only preselects
   candidates for the exact distance test.
 

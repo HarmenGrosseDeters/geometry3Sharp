@@ -78,7 +78,7 @@ g3cli remesh part.stl part_remeshed.obj --safe                   # min-quality 0
 g3cli remesh part.stl part_remeshed.obj --sharp-vertex-angle 0   # disable sharp-vertex pinning
 ```
 
-- `--min-quality` defaults to `0.2` in `g3cli` (set `0` to disable, e.g., for very thin walls below edge length).
+- `--min-quality` defaults to `0.2` in `g3cli` (set `0` to disable, e.g., for very thin walls below edge length). With it, collapses and valence flips that turn a triangle away from the surface around the edge are rejected (issue #1441: triangles facing into a smooth surface; measured on jittered spheres, not a guarantee). This changed the output of `remesh` with `--min-quality` above 0.
 - `--sharp-vertex-angle` defaults to `75` degrees (`sharp_vertices_pinned` in output).
 - `--safe` enables `Remesher.ApplySafePreset()` (`MinTriangleQuality = 0.2` + `PreventSelfIntersections`; reports `self_intersections_rejected`).
 - Passes that would turn a closed component inside out are rolled back (`rejected_passes`); warns if target edge length exceeds `4×` estimated wall thickness.

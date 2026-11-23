@@ -33,6 +33,12 @@ recommendation. No library code is changed; the semantics, any new option and an
   curved case) and the pipeline's `AutoRepair` modes (13 of 13 `Success` and `Clean`, 6 of 8 wrong). Leaning: a report field
   now (no behaviour change), and the default `AllowOpenMeshes = false` as an owner decision once the sheet role is merged.
 
+**Update 2026-11-23 (#1447, owner decision 2026-11-22):** the pipeline now sends an open tool of a Difference without a stated
+role to the sheet role (B) first and falls back to `InputRepair` when the sheet role refuses. The pipeline columns below are
+the state of the study (before the route); the re-run with the route is in
+[the benchmark's README](../../benchmarks/OpenCuttingSurface/README.md): with `Refuse` the cut in 6 of 13 cases and
+`OpenInput` in 7, with `AutoRepair` wrong in 1 of the 8 cases with a known intent instead of 6.
+
 ## 2. Today, measured
 
 Workpiece: the cube `[0,4]^3` (volume 64). `intent` is the volume of the cut by the sheet's sides, with the convention of
@@ -318,6 +324,17 @@ winding number rule). S2 is not recommended: a heuristic refusal where S3 gives 
 3. In B: the side convention (the front stays, as the PR; or the back, as #1211 words it).
 4. D as an explicit swept-tool operation: build, document as a recipe, or not now.
 5. The silent success: S0, S1, S3 (or S1 then S3).
+
+## 10. Outcome (2026-11-22/23)
+
+Owner decisions on section 9: (1) B; (2) a sheet that only touches is refused; (3) the front side stays; both in #1223, merged.
+(4) D as a documented and tested recipe without a new API: [the guide](../guides/booleans-and-imprint.md#extruded-cut-with-an-open-sheet-recipe)
+and `docs/examples/SweptCutExample.cs`. (5) S1 now: `ExactMeshBoolean.OpenInputsWithoutEffect` and `OpenInput` errors that name
+the inputs and the ways out; S3 (the default of `AllowOpenMeshes`) is still open. The list is defined on the classification's
+decisions, not on the volume proxy of section 8: on the 13 cases it names the sheet in the 10 flagged ones and for the disc
+inside the cube. It says that the result is the one of an input that encloses nothing (for a Difference tool: the result
+without it), not that the result is right: an open input
+that changes the result wrongly (the sphere case of section 2) is not listed.
 
 ## Sources
 

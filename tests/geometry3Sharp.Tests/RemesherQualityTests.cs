@@ -137,7 +137,10 @@ namespace geometry3Sharp.Tests
             int onRim = 0;
             foreach (int v in mesh.VertexIndices()) {
                 Vector3d p = mesh.GetVertex(v);
-                if ((Math.Abs(p.y) > 1e-9 && Math.Abs(p.y - 2) > 1e-9) || new Vector2d(p.x, p.z).Length < 0.9) continue;
+                if (Math.Abs(p.y) > 1e-9 && Math.Abs(p.y - 2) > 1e-9) continue;
+                // a rim vertex: in a cap's plane with a neighbour on the side (not by its radius: a vertex of the cap
+                // one edge inside the rim can be as far out as the middle of a rim segment, radius 0.966)
+                if (mesh.VtxVerticesItr(v).Any(w => mesh.GetVertex(w).y > 1e-9 && mesh.GetVertex(w).y < 2 - 1e-9) == false) continue;
                 double d = rimSegments.Min(s => Math.Sqrt(s.DistanceSquared(p)));
                 Assert.True(d < 1e-9, $"{p} is {d} off the rim");
                 onRim++;

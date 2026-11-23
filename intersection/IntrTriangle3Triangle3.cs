@@ -451,32 +451,11 @@ namespace g3
             return (g[s + a0] - g[r + a0]) * (g[x + a1] - g[r + a1]) - (g[s + a1] - g[r + a1]) * (g[x + a0] - g[r + a0]);
         }
 
-        // num / den * 2^scaleExp (den > 0) correctly rounded to nearest, ties to even. ExactPoint3.ToDouble truncates its
-        // 64-bit quotient and converts it with BigInteger's explicit conversion, which rounds toward zero: up to one ulp off,
-        // which would make the result depend on whether the double-word certificate decided (DoubleWord).
+        // num / den * 2^scaleExp (den > 0) correctly rounded to nearest, ties to even (ExactPoint3.ToDoubleRounded: the result must not depend on
+        // whether the double-word certificate decided, DoubleWord).
         internal static double round_ratio(BigInteger num, BigInteger den, int scaleExp)
         {
-            if (num.IsZero)
-                return 0;
-            bool negative = num.Sign < 0;
-            BigInteger a = BigInteger.Abs(num), rem;
-            long nb = ExactPoint3.BitLength(a), db = ExactPoint3.BitLength(den);
-            int shift = (int)(55 - (nb - db));      // the quotient has 55 or 56 bits
-            BigInteger q = shift >= 0 ? BigInteger.DivRem(a << shift, den, out rem) : BigInteger.DivRem(a, den << -shift, out rem);
-            int extra = (int)(ExactPoint3.BitLength(q) - 53);
-            // a result below 2^-1022 has fewer than 53 significant bits: round once, to the grid 2^-1074 (rounding to 53 bits first
-            // and then to the grid would round twice)
-            int unit = scaleExp - shift + extra;
-            if (unit < -1074)
-                extra += -1074 - unit;
-            BigInteger low = q & ((BigInteger.One << extra) - 1), half = BigInteger.One << (extra - 1), mant = q >> extra;
-            // above the midpoint, or on it with a nonzero remainder (the quotient was truncated), or a tie with an odd mantissa
-            if (low > half || (low == half && (rem.IsZero == false || mant.IsEven == false)))
-                mant += 1;
-            if (mant.IsZero)
-                return negative ? -0.0 : 0.0;       // (underflow to zero keeps the sign, as IEEE division does)
-            double r = ExactPoint3.ScaleB((double)mant, scaleExp - shift + extra);     // (mant <= 2^53, the unit is a double: exact)
-            return negative ? -r : r;
+            return ExactPoint3.ToDoubleRounded(num, den, scaleExp);
         }
 
         // (dp Q - dq P) / (dp - dq) for the points P, Q at offsets p, q of g (the point where a quantity linear along
