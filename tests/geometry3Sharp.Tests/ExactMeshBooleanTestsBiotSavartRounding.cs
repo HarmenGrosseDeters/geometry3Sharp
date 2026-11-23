@@ -144,6 +144,24 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1e10 / (4 * Math.PI * d * d), ExactMeshBoolean.far_term(1e10, 1, d));
         }
 
+        // the branches of far_term at their edges (mutation survivors of #1350): q = 4 pi d d exactly double.MaxValue is the main
+        // branch (plain quotients), a result of exactly the smallest normal number is not subnormal (no 2 eps), and the overflow
+        // branch keeps its eps term where either the length or the count is positive
+        [Fact]
+        public void FarTerm_AtTheEdgesOfItsBranches()
+        {
+            double d = 3.782272786141309e+153;                              // fl(fl(4 pi d) d) == double.MaxValue
+            Assert.Equal(double.MaxValue, 4 * Math.PI * d * d);
+            Assert.Equal(1e300 / double.MaxValue, ExactMeshBoolean.far_term(1e300, 1e300, d));
+            // length = fl(pi), d = 2^510: the quotient is exactly 2^-1022 (the smallest normal number): not rounded to a multiple of 2^-1074
+            double minNormal = 2.2250738585072014E-308;
+            Assert.Equal(minNormal, ExactMeshBoolean.far_term(Math.PI, 1, Math.Pow(2, 510)));
+            // the overflow branch (q overflows): a positive length or a positive count gives a positive bound (4 eps at least)
+            Assert.Equal(4 * double.Epsilon, ExactMeshBoolean.far_term(1, 0, 1e300));
+            Assert.Equal(4 * double.Epsilon, ExactMeshBoolean.far_term(0, 1, 1e300));
+            Assert.Equal(0.0, ExactMeshBoolean.far_term(0, 0, 1e300));
+        }
+
         static BigInteger Random(Random rnd, int bits)
         {
             var bytes = new byte[bits / 8 + 2];

@@ -71,6 +71,10 @@ namespace geometry3Sharp.Tests
             Assert.True(ExactMeshBoolean.sum_bound(3, b) > double.MaxValue);
             b.SumFactor = 1.5;
             Assert.Equal(4.5, ExactMeshBoolean.sum_bound(3, b));
+            b.SumFactor = 1;                                                         // (the least usable factor)
+            Assert.Equal(3.0, ExactMeshBoolean.sum_bound(3, b));
+            b.SumFactor = double.MaxValue;                                           // (the largest finite one)
+            Assert.Equal(double.MaxValue, ExactMeshBoolean.sum_bound(1, b));
             Assert.Equal(0.0, ExactMeshBoolean.sum_bound(0, b));
             // the gradient bound of a boundary without a usable factor is infinite whatever its terms
             var one = ExactMeshBoolean.boundary_bound(new[] { new Vector3d(0, 0, 0), new Vector3d(1, 0, 0) });
