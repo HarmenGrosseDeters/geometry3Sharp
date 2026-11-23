@@ -225,3 +225,28 @@ A second comparison takes the angular discrepancy between the decoded vector and
 Across the 16 runs, the largest discrepancy from direct mesh-plane projection was 1.50 × 10⁻¹³ degrees. The round-trip maximum decreased on each refinement for all four sources. For the finest cube-pole case, the far-band round-trip RMS was 1.47 × 10⁻⁷ degrees, while the transport RMS was 7.43 degrees.
 
 These results rule out destination coordinate conversion and the final tangent-plane projection as the sole explanation for the observed growth. The analytic field already round-trips accurately through those steps. The experiment leaves the discrete edge rotations, their aggregation in the connection Laplacian and the heat resolvent itself open.
+
+## Single-edge transport control
+
+Run `dotnet run -c Release --project benchmarks/CurvatureWeakProbe -- --heat-edges`. The probe visits each edge once in the input and intrinsic Delaunay triangulations of both sphere families. It measures edges with positive cotangent weights because the heat operator clamps the others to zero. For a halfedge from i to j, the rotation acting from j to i is `Signpost(h) − ReverseSignpost(h) + π`, as in the connection assembly. The benchmark uses the public signposts and applies that rotation directly in tangent coordinates.
+
+For each edge, the probe transports two smooth vectors from j: the unit tangent to the short great-circle arc toward i and a vector angled 45° from it. It compares the decoded result, projected onto the smooth tangent plane at i, with analytic transport along the great circle. The RMS is unweighted across edges and the two vectors. Edges whose endpoints were unconnected in the input mesh are also counted and measured separately. The smooth arc is the comparison reference even for a flipped edge whose polyhedral path differs.
+
+| Mesh | Level | Connectivity | Edge RMS (°) | Edge max (°) | Inserted edges | Inserted RMS (°) |
+|---|---:|---|---:|---:|---:|---:|
+| cube | 9 | input | 0.0323564 | 0.148616 | 0 | - |
+| cube | 9 | delaunay | 0.0327289 | 0.157513 | 192 | 0.0345313 |
+| cube | 17 | input | 0.00573551 | 0.0529321 | 0 | - |
+| cube | 17 | delaunay | 0.00598449 | 0.0529321 | 768 | 0.00709962 |
+| cube | 33 | input | 0.00097769 | 0.0166374 | 0 | - |
+| cube | 33 | delaunay | 0.00105166 | 0.0166374 | 3072 | 0.00136257 |
+| cube | 65 | input | 0.000166815 | 0.00478541 | 0 | - |
+| cube | 65 | delaunay | 0.000183834 | 0.00478541 | 12288 | 0.000252258 |
+| ico | 2 | delaunay | 0.0761433 | 0.167299 | 0 | - |
+| ico | 3 | delaunay | 0.0177126 | 0.0527956 | 0 | - |
+| ico | 4 | delaunay | 0.00347959 | 0.0132814 | 0 | - |
+| ico | 5 | delaunay | 0.000644404 | 0.00332574 | 0 | - |
+
+The measured icosahedral input and Delaunay rows agree at every level. Every cube-sphere Delaunay refinement has smaller single-edge RMS and maximum error than the previous level. On the finest cube-sphere the Delaunay edge RMS is 0.000184° and the maximum is 0.00479°. The inserted edges have a higher RMS than the average over all active Delaunay edges and their RMS still decreases on every step, reaching 0.000252°.
+
+The single-edge error decreases even on this family where the far-band error of full vector heat grows at the default time. This control measures a local consistency property for two input directions per edge. It leaves open how correlated edge errors accumulate and how the weighted diffusion combines paths. A one-edge error threshold cannot serve as an end-to-end convergence oracle on these fixtures.
