@@ -742,6 +742,10 @@ namespace geometry3Sharp.Tests
                 else
                     Assert.Equal(0, allowed.Result.TriangleCount);
                 Assert.Equal(new[] { sheetFirst ? 0 : 1 }, allowed.OpenInputsWithoutEffect);
+                // reuse: a second Compute() on the instance gives the list again, not appended to
+                Assert.True(allowed.Compute(), allowed.Error);
+                Assert.Equal(expected, Volume(allowed.Result), 12);
+                Assert.Equal(new[] { sheetFirst ? 0 : 1 }, allowed.OpenInputsWithoutEffect);
             }
             // the static helpers have no configure: null (the constructor is the way to state AllowOpenMeshes)
             if (op == Ops.Union)

@@ -762,7 +762,7 @@ namespace g3
 
         /// <summary>
         /// union of any number of meshes in one arrangement; null if Compute() fails, which with the defaults includes an open mesh
-        /// (AllowOpenMeshes is false; use the constructor to set it, or Roles)
+        /// (AllowOpenMeshes is false; use the constructor to set it)
         /// </summary>
         public static DMesh3 Union(IEnumerable<DMesh3> meshes)
         {
