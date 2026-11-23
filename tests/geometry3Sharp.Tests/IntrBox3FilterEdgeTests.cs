@@ -87,7 +87,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1, Run(3, 0.5, 0, 0, 1, 2, false, ref c));          // P - eP > H
             Assert.Equal(3, Run(2.5, 0.5, 0, 0, 1, 2, false, ref c));        // P - eP == H
             Assert.Equal(0, Run(1.5, 0.25, 0, 0, 1, 2, false, ref c));       // strictly inside with its error: no constraint
-            Assert.Equal(3, Run(1.5, 0.5, 0, 0, 1, 2, false, ref c));        // L == P - eP
+            Assert.Equal(3, Run(1.5, 0.5, 0, 0, 1, 3, false, ref c));        // L == P - eP (and P + eP < H)
             Assert.Equal(3, Run(1.5, 0.5, 0, 0, 0, 2, false, ref c));        // L < P - eP, but P + eP == H
             Assert.Equal(3, Run(2.5, 0.5, 0, 0, 0, 3, false, ref c));        // P + eP == H
             Assert.Equal(0, Run(1, 0, 0, 0, 1, 2, false, ref c));           // exact P on the face L: the point touches the face (P >= L)
@@ -202,6 +202,126 @@ namespace geometry3Sharp.Tests
             // an error that reaches inside the rule: eP large, the computed bound beyond Huge but not certainly infinite
             c = Fresh();
             Assert.Equal(3, Run(0, 1e300, 1, 0, -1e300, 5, false, ref c));
+        }
+
+        [Fact]
+        public void Step_EachErrorTermAloneUsesTheGeneralBound()
+        {
+            // exactPQ is eP == 0 AND eQ == 0: with one of them alone the bound is TErr, not the 2.5 u of exact P and Q
+            foreach (var (eP, eQ) in new[] { (0.0, 0.25), (0.25, 0.0) }) {
+                var c = Fresh();
+                Assert.Equal(0, Run(0, eP, 2, eQ, 2, 6, false, ref c));
+                double ri = 1.0000001 / (2 - eQ), en1 = eP + U * 2 + AbsErr, en2 = eP + U * 6 + AbsErr;
+                Assert.Equal(1 - IntrExactBox3.TErr(en1, eQ, ri, 1), c.LoMinus);
+                Assert.Equal(3 + IntrExactBox3.TErr(en2, eQ, ri, 3), c.UpPlus);
+            }
+        }
+
+        [Fact]
+        public void Step_RayBranch_UsesTheErrorOfTheUpperNumerator_AndTheTinyEdge()
+        {
+            // Q < 0: the upper bound is (L - P) / Q with the error of n1; Q > 0: (H - P) / Q with the error of n2
+            foreach (double q in new[] { 2.0, -2.0 }) {
+                var c = Fresh();
+                double L = q > 0 ? -2 : -6, H = q > 0 ? 6 : 2;       // the origin certainly inside on the entering side
+                Assert.Equal(0, Run(0, 0.125, q, 0.25, L, H, true, ref c));
+                double nu = q > 0 ? H : L, enu = 0.125 + U * Math.Abs(nu) + AbsErr, uv = nu / q;
+                double ri = 1.0000001 / (Math.Abs(q) - 0.25);
+                Assert.Equal(IntrExactBox3.TErr(enu, 0.25, ri, uv), c.UpBestErr);
+                Assert.Equal(uv + c.UpBestErr, c.UpPlus); Assert.Equal(uv - c.UpBestErr, c.UpMinus);
+            }
+            // the upper bound is below Tiny: undecided; at Tiny exactly it is a number
+            var d = Fresh();
+            Assert.Equal(3, Run(0, 0, 1, 0, -1, 1e-300, true, ref d));
+            d = Fresh();
+            Assert.Equal(0, Run(0, 0, 1, 0, -1, 1e-290, true, ref d));
+            Assert.Equal(1e-290, d.UpBest);
+            // a tie in the ray branch keeps the first slab as the winner
+            d = Fresh();
+            Assert.Equal(0, IntrExactBox3.Step(0, 0, 0, 2, 0, -2, 6, true, ref d));
+            Assert.Equal(0, IntrExactBox3.Step(1, 0, 0, 2, 0, -2, 6, true, ref d));
+            Assert.Equal(0, d.Act1);
+            // a bound of exactly Tiny in the general branch is a number
+            d = Fresh();
+            Assert.Equal(0, Run(0, 0, 1, 0, 1e-290, 5, false, ref d));
+            Assert.Equal(1e-290, d.LoBest);
+            d = Fresh();
+            Assert.Equal(0, Run(0, 0, 1, 0, -5, 1e-290, false, ref d));
+            Assert.Equal(1e-290, d.UpBest);
+        }
+
+        [Fact]
+        public void Prep_ErrorOfQ_IsZeroOnlyWhenEveryProductIsAnExactZero()
+        {
+            Vector3d o = new Vector3d(1.1, 2.2, 3.3), c = Vector3d.Zero;
+            double P, eP, Q, eQ;
+            // every product zero (the direction component or the axis component): exact
+            Vector3d dd = new Vector3d(0, 0.3, 0.7);
+            IntrExactBox3.Prep(1, 0, 0, 0, 0, 0, ref o, ref dd, out P, out eP, out Q, out eQ);
+            Assert.Equal(0.0, eQ); Assert.Equal(0.0, Q);
+            dd = new Vector3d(0.5, 0.3, 0.7);
+            IntrExactBox3.Prep(0, 0, 0, 0, 0, 0, ref o, ref dd, out P, out eP, out Q, out eQ);
+            Assert.Equal(0.0, eQ);
+            // one product not zero: an error
+            IntrExactBox3.Prep(1, 0, 0, 0, 0, 0, ref o, ref dd, out P, out eP, out Q, out eQ);
+            Assert.True(eQ > 0);
+            // each single non-zero product on its own
+            dd = new Vector3d(0, 0.3, 0.7);
+            IntrExactBox3.Prep(0.6, 0.8, 0, 0, 0, 0, ref o, ref dd, out P, out eP, out Q, out eQ);
+            Assert.True(eQ > 0);
+            IntrExactBox3.Prep(0, 0, 1, 0, 0, 0, ref o, ref dd, out P, out eP, out Q, out eQ);
+            Assert.True(eQ > 0);
+            dd = new Vector3d(0.5, 0, 0.7);
+            IntrExactBox3.Prep(0.6, 0.8, 0.1, 0, 0, 0, ref o, ref dd, out P, out eP, out Q, out eQ);
+            Assert.True(eQ > 0);
+            dd = new Vector3d(0.5, 0.3, 0);
+            IntrExactBox3.Prep(0.6, 0.8, 0.1, 0, 0, 0, ref o, ref dd, out P, out eP, out Q, out eQ);
+            Assert.True(eQ > 0);
+            // dd.x == 0 and the others' axis components zero: exact; dd.x != 0 with ux == 0 and others dd == 0: exact
+            dd = new Vector3d(0, 0.3, 0.7);
+            IntrExactBox3.Prep(0.6, 0, 0, 0, 0, 0, ref o, ref dd, out P, out eP, out Q, out eQ);
+            Assert.Equal(0.0, eQ);
+            dd = new Vector3d(0.5, 0, 0);
+            IntrExactBox3.Prep(0, 0.8, 0.1, 0, 0, 0, ref o, ref dd, out P, out eP, out Q, out eQ);
+            Assert.Equal(0.0, eQ);
+            // the error of P is the same sum
+            Assert.True(eP > 0);
+        }
+
+        [Fact]
+        public void NonSolidSegment_WithAnEndOnAFace_IsAHit_ForEachFaceAndEnd()
+        {
+            var box = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1));
+            // the start or the end on the lower or the upper face, the rest inside the open box: a hit when only the surface counts
+            var cases = new[] {
+                (new Vector3d(-1, 0, 0), new Vector3d(0.5, 0, 0)),     // start on the lower face
+                (new Vector3d(1, 0, 0), new Vector3d(-0.5, 0, 0)),     // start on the upper face
+                (new Vector3d(0.5, 0, 0), new Vector3d(-1, 0, 0)),     // end on the lower face
+                (new Vector3d(-0.5, 0, 0), new Vector3d(1, 0, 0)),     // end on the upper face
+            };
+            foreach (var (a, b) in cases) {
+                var s = new IntrSegment3Box3(new Segment3d(a, b), box, false);
+                Assert.True(s.Find());
+                var inside = new IntrSegment3Box3(new Segment3d(a * 0.5, b * 0.5), box, false);
+                Assert.False(inside.Find());                            // strictly inside: no surface contact
+                Assert.True(new IntrSegment3Box3(new Segment3d(a * 0.5, b * 0.5), box, true).Find());
+            }
+        }
+
+        [Fact]
+        public void ZeroDirection_NoComponent_IsNoContact_OnTheExactRoute()
+        {
+            var box = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1));
+            double t0 = -double.MaxValue, t1 = double.MaxValue; int q = 0; Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero; var type = IntersectionType.Segment;
+            Assert.False(IntrLine3Box3.DoClipping(ref t0, ref t1, Vector3d.Zero, Vector3d.Zero, box, true, ref q, ref p0, ref p1, ref type));
+            Assert.Equal(IntersectionType.Empty, type); Assert.Equal(0, q);
+            var aab = new AxisAlignedBox3d(new Vector3d(-1, -1, -1), new Vector3d(1, 1, 1));
+            Vector3d o = Vector3d.Zero, z = Vector3d.Zero;
+            t0 = -double.MaxValue; t1 = double.MaxValue;
+            Assert.False(IntrLine3AxisAlignedBox3.DoClipping(ref t0, ref t1, ref o, ref z, ref aab, true, ref q, ref p0, ref p1, ref type));
+            // with a limit on one side the zero direction is still no direction
+            t0 = 0; t1 = double.MaxValue;
+            Assert.False(IntrLine3Box3.DoClipping(ref t0, ref t1, Vector3d.Zero, Vector3d.Zero, box, true, ref q, ref p0, ref p1, ref type));
         }
 
         // ---- the points: an end of a segment that is an end of the contact is that end exactly ----

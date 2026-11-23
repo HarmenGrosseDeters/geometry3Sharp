@@ -802,6 +802,42 @@ namespace geometry3Sharp.Tests
             if (got) Assert.True(EndsAcceptable(g0, e.t0) && EndsAcceptable(g1, e.t1), $"ends {g0:R} {g1:R} against {e.t0.ToDouble():R} {e.t1.ToDouble():R}");
         }
 
+        [Fact]
+        public void AxisAligned_RaysAimedAtCornersAndEdges_AgreeWithTheOracle_AndTheCullingFormNeverCullsAHit()
+        {
+            // boxes with irrational-looking coordinates and rays aimed at a corner or an edge from far away: the entry and exit of the corner slabs agree to about 1 u,
+            // so the margin 3 u (|tn| + |tf|) decides between a certified answer and the exact route; a smaller margin gives a wrong miss or hit
+            var r = new Random(77);
+            int hits = 0, misses = 0, n = 0;
+            for (int it = 0; it < 30000; it++) {
+                double scale = Math.Pow(10, r.Next(-8, 9) + r.NextDouble());
+                Vector3d lo = new Vector3d((r.NextDouble() - 0.5) * scale, (r.NextDouble() - 0.5) * scale, (r.NextDouble() - 0.5) * scale);
+                Vector3d hi = lo + new Vector3d(r.NextDouble() * scale + scale * 1e-3, r.NextDouble() * scale + scale * 1e-3, r.NextDouble() * scale + scale * 1e-3);
+                var aab = new AxisAlignedBox3d(lo, hi);
+                Vector3d aim = new Vector3d(r.Next(2) == 0 ? lo.x : hi.x, r.Next(2) == 0 ? lo.y : hi.y, r.Next(2) == 0 ? lo.z : hi.z);
+                if (r.Next(2) == 0) { int k = r.Next(3); aim[k] = lo[k] + (hi[k] - lo[k]) * r.NextDouble(); }         // an edge, not a corner
+                Vector3d o = aim + new Vector3d(Gauss(r), Gauss(r), Gauss(r)) * (scale * Math.Pow(10, r.Next(0, 7)));
+                Vector3d d = (aim - o).Normalized;
+                if (d.IsNormalized == false) continue;
+                var ray = new Ray3d(o, d); var line = new Line3d(o, d);
+                var sl = Slabs(aab, o, d);
+                bool er = Contact(sl, new Q(0, 1), null).kind != 0, el = Contact(sl, null, null).kind != 0;
+                Assert.Equal(er, IntrRay3AxisAlignedBox3.Intersects(ref ray, ref aab));
+                Assert.Equal(er, new IntrRay3AxisAlignedBox3(ray, aab).Test());
+                Assert.Equal(er, new IntrRay3AxisAlignedBox3(ray, aab).Find());
+                Assert.Equal(el, new IntrLine3AxisAlignedBox3(line, aab).Test());
+                double t; Assert.Equal(er, IntrRay3AxisAlignedBox3.FindRayIntersectT(ref ray, ref aab, out t));
+                if (er) {
+                    var e = Contact(sl, new Q(0, 1), null);
+                    Assert.True(CorrectlyRounded(t, e.t0) || WithinFilterBound(t, e.t0), $"entry t {t:R} against {e.t0.ToDouble():R}");
+                }
+                double m; if (er) Assert.True(IntrExactBox3.RayAabbMay(ref ray.Origin, ref ray.Direction, ref aab, 0, out m), "the conservative form culled an exact hit");
+                if (er) hits++; else misses++;
+                n++;
+            }
+            Assert.True(n > 20000 && hits > 2000 && misses > 2000, $"n {n} hits {hits} misses {misses}");
+        }
+
         // a rotation from a random quaternion
         static void RandomAxes(Random r, out Vector3d ux, out Vector3d uy, out Vector3d uz)
         {

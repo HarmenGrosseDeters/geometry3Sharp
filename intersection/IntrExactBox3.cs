@@ -495,7 +495,7 @@ namespace g3
 
         /// <summary> P, Q of a slab of an oriented box (o - Center and the direction on the axis u) with the bounds of their error </summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        static void Prep(double ux, double uy, double uz, double cx, double cy, double cz, ref Vector3d o, ref Vector3d dd, out double P, out double eP, out double Q, out double eQ)
+        internal static void Prep(double ux, double uy, double uz, double cx, double cy, double cz, ref Vector3d o, ref Vector3d dd, out double P, out double eP, out double Q, out double eQ)
         {
             double x = (o.x - cx) * ux, y = (o.y - cy) * uy, z = (o.z - cz) * uz;
             double a = dd.x * ux, b = dd.y * uy, w = dd.z * uz;
