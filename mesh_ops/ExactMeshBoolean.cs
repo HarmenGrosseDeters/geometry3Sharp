@@ -1511,13 +1511,18 @@ namespace g3
             return front_crossings(-1, m, arr.Trees[m], rng, null, center, true, null, out far, 0, ti);
         }
 
-        // InsideOutCells: per component of each closed input (its first triangle with an area), the winding number of the input in
-        // front of it; the component is inside-out where that is odd and negative (see InsideOutCells). Before the box trees of the
-        // arrangement are released
+        // InsideOutCells: per component of each closed input, the winding number of the input in front of one of its triangles
+        // with an area; the component is inside-out where that is odd and negative (see InsideOutCells). Before the box trees of
+        // the arrangement are released.
+        // The triangle is chosen by its geometry (#1464): the one with the smallest corner by ComparePoints, of those the one
+        // whose next corners are smallest. In front of the triangles of a component that intersects itself the winding number
+        // need not be the same, and the first triangle by id, as before, made the count, and with it the status of
+        // SolidBooleanPipeline, depend on the order of the input's triangles
         [MethodImpl(JitHints.Optimize)]
         int count_inside_out(PreparedInput[] prepared)
         {
             int count = 0;
+            bool[] seen = null;
             for (int m = 0; m < prepared.Length; ++m) {
                 PreparedInput p = prepared[m];
                 if (p.ComponentStart == null)
@@ -1525,30 +1530,75 @@ namespace g3
                 var triangleOf = new int[p.Input.MaxTriangleID];
                 foreach (int ti in arr.MeshTriangles[m])
                     triangleOf[arr.Triangles[ti].Tid] = ti;
+                if (seen == null)
+                    seen = new bool[arr.PointCount];
                 for (int c = 0; c + 1 < p.ComponentStart.Length; ++c) {
                     if (Cancellation.IsCancellationRequested)
                         return count;
-                    for (int k = p.ComponentStart[c]; k < p.ComponentStart[c + 1]; ++k) {
-                        int ti = triangleOf[p.ComponentTriangles[k]];
-                        if (arr.Triangles[ti].Degenerate)
-                            continue;
-                        int chi;
-                        try {
-                            CountRayObserverForTests?.Invoke(ti);
-                            chi = front_of_triangle(m, ti);
-                        } catch (InvalidOperationException) {
-                            // (no ray found in 200 attempts: the report must not fail the boolean, but it must not hide the component
-                            // either; InsideOutUndecided)
-                            InsideOutUndecided++;
-                            break;
-                        }
-                        if (chi < 0 && (chi & 1) != 0)
-                            count++;
-                        break;
+                    int chosen = inside_out_triangle(p, c, triangleOf, seen);
+                    if (chosen < 0)
+                        continue;
+                    int chi;
+                    try {
+                        CountRayObserverForTests?.Invoke(chosen);
+                        chi = front_of_triangle(m, chosen);
+                    } catch (InvalidOperationException) {
+                        // (no ray found in 200 attempts: the report must not fail the boolean, but it must not hide the component
+                        // either; InsideOutUndecided)
+                        InsideOutUndecided++;
+                        continue;
                     }
+                    if (chi < 0 && (chi & 1) != 0)
+                        count++;
                 }
             }
             return count;
+        }
+
+        // the triangle of component c of a prepared input that count_inside_out reads (an index into arr.Triangles), or -1 if
+        // every triangle of the component is degenerate: first the smallest corner of its triangles with an area (each point
+        // compared once: seen), then, of the triangles at that point, the one whose corners after it, in their order, are smallest
+        [MethodImpl(JitHints.Optimize)]
+        int inside_out_triangle(PreparedInput p, int c, int[] triangleOf, bool[] seen)
+        {
+            int least = -1;
+            for (int k = p.ComponentStart[c]; k < p.ComponentStart[c + 1]; ++k) {
+                ExactMeshArrangement.InputTriangle u = arr.Triangles[triangleOf[p.ComponentTriangles[k]]];
+                if (u.Degenerate)
+                    continue;
+                for (int j = 0; j < 3; ++j) {
+                    int q = arr.Canonical(u.Corners[j]);
+                    if (seen[q])
+                        continue;
+                    seen[q] = true;
+                    if (least < 0 || arr.ComparePoints(q, least) < 0)
+                        least = q;
+                }
+            }
+            int chosen = -1, second = -1, third = -1;
+            for (int k = p.ComponentStart[c]; k < p.ComponentStart[c + 1]; ++k) {
+                int ti = triangleOf[p.ComponentTriangles[k]];
+                ExactMeshArrangement.InputTriangle u = arr.Triangles[ti];
+                if (u.Degenerate)
+                    continue;
+                int a = arr.Canonical(u.Corners[0]), b = arr.Canonical(u.Corners[1]), d = arr.Canonical(u.Corners[2]);
+                // (the marks of this component are cleared for the next one)
+                seen[a] = seen[b] = seen[d] = false;
+                int s, t;
+                if (a == least) { s = b; t = d; }
+                else if (b == least) { s = d; t = a; }
+                else if (d == least) { s = a; t = b; }
+                else continue;
+                int cmp = chosen < 0 ? -1 : arr.ComparePoints(s, second);
+                if (cmp == 0)
+                    cmp = arr.ComparePoints(t, third);
+                if (cmp < 0) {
+                    chosen = ti;
+                    second = s;
+                    third = t;
+                }
+            }
+            return chosen;
         }
 
         // prepare_input of every mesh (the first one from PreparedFirst where given); the meshes are independent and only

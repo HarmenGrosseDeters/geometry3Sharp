@@ -551,6 +551,173 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // ---- nearly coincident spheres, unions of balls and of tubes ----
+
+        static DMesh3 Ball(Vector3d centre, double radius, int edgeVertices)
+        {
+            DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = radius, EdgeVertices = edgeVertices }.Generate().MakeDMesh();
+            MeshTransforms.Translate(m, centre);
+            return m;
+        }
+
+        // a tapered tube from a to b, as benchmarks/NeuronSkeletonProbe builds its segments
+        static DMesh3 Tube(Vector3d a, double ra, Vector3d b, double rb, int slices)
+        {
+            Vector3d axis = b - a;
+            DMesh3 cyl = new CappedCylinderGenerator() { BaseRadius = (float)ra, TopRadius = (float)rb, Height = (float)axis.Length, Slices = slices, NoSharedVertices = false }.Generate().MakeDMesh();
+            MeshTransforms.Rotate(cyl, Vector3d.Zero, new Quaterniond(Vector3d.AxisY, axis.Normalized));
+            MeshTransforms.Translate(cyl, a);
+            return cyl;
+        }
+
+        // a skeleton as a union of balls at its nodes and tubes along its edges (node: position, radius, parent or -1)
+        static List<DMesh3> Skeleton(Vector3d[] at, double[] radius, int[] parent)
+        {
+            var parts = new List<DMesh3>();
+            for (int i = 0; i < at.Length; ++i)
+                parts.Add(Ball(at[i], radius[i], i == 0 ? 6 : 4));
+            for (int i = 0; i < at.Length; ++i)
+                if (parent[i] >= 0)
+                    parts.Add(Tube(at[parent[i]], radius[parent[i]], at[i], radius[i], 8));
+            return parts;
+        }
+
+        public static IEnumerable<object[]> StressCaseNames()
+        {
+            foreach (string name in new[] { "spheres turned", "spheres two tessellations", "balls tangent", "balls gap 1e-12", "balls overlap 1e-12", "balls overlap 1e-6",
+                "balls cavity", "fork 4 degrees", "tubes 1e-6 apart" })
+                yield return new object[] { name };
+        }
+
+        static void StressCase(string name, out List<DMesh3> meshes, out ExactMeshBoolean.Operations op)
+        {
+            op = ExactMeshBoolean.Operations.Union;
+            switch (name) {
+                // (the reproducer of the owner's diagnosis: two nearly coincident spheres that cross, a Difference)
+                case "spheres turned": {
+                    DMesh3 b = Ball(Vector3d.Zero, 1, 8);
+                    MeshTransforms.Rotate(b, Vector3d.Zero, Quaterniond.AxisAngleD(new Vector3d(0.3, 0.5, 0.81).Normalized, 1e-4));
+                    meshes = new List<DMesh3> { Ball(Vector3d.Zero, 1, 8), b };
+                    op = Difference;
+                    break;
+                }
+                case "spheres two tessellations": meshes = new List<DMesh3> { Ball(Vector3d.Zero, 1, 8), Ball(Vector3d.Zero, 1 - 1e-6, 9) }; op = Difference; break;
+                // (from benchmarks/ProceduralSphereUnionProbe, #1455: two unit balls that touch, miss or overlap by a hair, and
+                // the four balls around a cavity)
+                case "balls tangent": meshes = new List<DMesh3> { Ball(new Vector3d(-1, 0, 0), 1, 7), Ball(new Vector3d(1, 0, 0), 1, 7) }; break;
+                case "balls gap 1e-12": meshes = new List<DMesh3> { Ball(new Vector3d(-1 - 0.5e-12, 0, 0), 1, 7), Ball(new Vector3d(1 + 0.5e-12, 0, 0), 1, 7) }; break;
+                case "balls overlap 1e-12": meshes = new List<DMesh3> { Ball(new Vector3d(-1 + 0.5e-12, 0, 0), 1, 7), Ball(new Vector3d(1 - 0.5e-12, 0, 0), 1, 7) }; break;
+                case "balls overlap 1e-6": meshes = new List<DMesh3> { Ball(new Vector3d(-1 + 0.5e-6, 0, 0), 1, 7), Ball(new Vector3d(1 - 0.5e-6, 0, 0), 1, 7) }; break;
+                case "balls cavity": {
+                    double d = 1.68 / (2 * Math.Sqrt(2.0));
+                    meshes = new List<DMesh3> { Ball(new Vector3d(d, d, d), 1, 6), Ball(new Vector3d(d, -d, -d), 1, 6), Ball(new Vector3d(-d, d, -d), 1, 6), Ball(new Vector3d(-d, -d, d), 1, 6) };
+                    break;
+                }
+                // (from benchmarks/NeuronSkeletonProbe, #1457: a fork whose branches part at 4 degrees, and two branches whose
+                // tips pass 1e-6 from each other)
+                case "fork 4 degrees": {
+                    double h = 2 * Math.PI / 180, len = 2;
+                    meshes = Skeleton(new[] { Vector3d.Zero, new Vector3d(0, 0, 1.4), new Vector3d(len * Math.Sin(h), 0, 1.4 + len * Math.Cos(h)), new Vector3d(-len * Math.Sin(h), 0, 1.4 + len * Math.Cos(h)) },
+                        new[] { 0.45, 0.25, 0.12, 0.12 }, new[] { -1, 0, 1, 1 });
+                    break;
+                }
+                default: {
+                    double r = 0.18, tip = r + 0.5e-6;
+                    meshes = Skeleton(new[] { Vector3d.Zero, new Vector3d(-0.9, 0, 0.7), new Vector3d(0.9, 0, 0.7), new Vector3d(-tip, 0, 2), new Vector3d(tip, 0, 2) },
+                        new[] { 0.45, 0.22, 0.22, r, r }, new[] { -1, 0, 0, 1, 2 });
+                    break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Inputs where the repair has many ties: two nearly coincident spheres that cross (the owner's reproducer of the
+        /// dependence: reversing the triangles changed most configurations, one of them in its status), and unions of balls
+        /// and tubes from the probes of #1455 and #1457 (tangent, 1e-12 and 1e-6 apart or overlapping, a cavity, a grazing
+        /// fork). ExactMeshBoolean and SolidBooleanPipeline give the same status and the same mesh, ids included, for every
+        /// order of the triangles, corners and vertex ids.
+        /// </summary>
+        [Theory]
+        [MemberData(nameof(StressCaseNames))]
+        public void NearCoincidentAndTangentInputs_AreBitIdentical_WhateverTheInputOrder(string name)
+        {
+            List<DMesh3> meshes;
+            ExactMeshBoolean.Operations op;
+            StressCase(name, out meshes, out op);
+            string first = null, firstPipe = null;
+            foreach (int[] order in Orders) {
+                List<DMesh3> inputs = meshes.Select(m => Reordered(m, order)).ToList();
+                var b = new ExactMeshBoolean(inputs, op);
+                b.Compute();
+                string mesh = b.Status + " " + b.RoundingClean + " " + (b.Rounding != null ? Counts(b.Rounding) : "") + "\n" + Mesh(b.Result);
+                var pipe = new SolidBooleanPipeline(inputs, op);
+                pipe.Compute();
+                string piped = pipe.Status + " " + pipe.BooleanStatus + " " + pipe.Report.NotCleanReason + "\n" + Mesh(pipe.Result);
+                if (first == null) {
+                    first = mesh;
+                    firstPipe = piped;
+                    Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, b.Status);
+                    Assert.True(b.Result.TriangleCount > 0);
+                }
+                Assert.True(first == mesh, name + ": another result of the boolean for " + Order(order));
+                Assert.True(firstPipe == piped, name + ": another result of the pipeline for " + Order(order) + ": " + piped.Split('\n')[0] + " instead of " + firstPipe.Split('\n')[0]);
+            }
+        }
+
+        // ---- the inside-out check ----
+
+        // a prism over a figure of eight, (0,0) (2,2) (2,0) (0,2): closed, every edge used once in each direction, and
+        // self-intersecting. One lobe is oriented outward and the other inward, so the winding number in front of a triangle
+        // is 0 on the one and -1 on the other
+        static DMesh3 FigureEightPrism()
+        {
+            var m = new DMesh3();
+            double[][] o = { new[] { 0.0, 0 }, new[] { 2.0, 2 }, new[] { 2.0, 0 }, new[] { 0.0, 2 } };
+            for (int s = 0; s < 2; ++s)
+                foreach (double[] p in o)
+                    m.AppendVertex(new Vector3d(p[0], p[1], s));
+            m.AppendTriangle(0, 2, 1); m.AppendTriangle(0, 3, 2);
+            m.AppendTriangle(4, 5, 6); m.AppendTriangle(4, 6, 7);
+            for (int i = 0; i < 4; ++i) {
+                int j = (i + 1) % 4;
+                m.AppendTriangle(i, j, 4 + j);
+                m.AppendTriangle(i, 4 + j, 4 + i);
+            }
+            return m;
+        }
+
+        /// <summary>
+        /// The inside-out check reads one triangle per component. In front of the triangles of a component that intersects
+        /// itself the winding number differs (here 0 on one lobe and -1 on the other), so with the first triangle by id the
+        /// count, and the status of SolidBooleanPipeline (InsideOutInput or not), followed the order of the triangles. The
+        /// triangle is now chosen by its geometry: the same count and status for every order.
+        /// </summary>
+        [Fact]
+        public void InsideOutCheck_OfASelfIntersectingInput_IsTheSame_WhateverTheInputOrder()
+        {
+            DMesh3 eight = FigureEightPrism(), box = GridBox(1, 1, 1, new Vector3d(5, 0, 0));
+            Assert.True(ExactMeshBoolean.IsWindingClosed(eight));
+            // (the precondition: which triangle is read matters; the fronts of the first and of the last triangle differ)
+            var counts = new HashSet<int>();
+            var statuses = new HashSet<string>();
+            var fronts = new HashSet<int>();
+            foreach (int[] order in Orders) {
+                DMesh3 a = Reordered(eight, order), b = Reordered(box, order);
+                var op = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { CountInsideOutCells = true };
+                var read = new List<int>();
+                op.CountRayObserverForTests = ti => read.Add(ti);
+                op.Compute();
+                Assert.Equal(0, op.InsideOutUndecided);
+                Assert.Equal(2, read.Count);
+                counts.Add(op.InsideOutCells);
+                var pipe = new SolidBooleanPipeline(a, b, ExactMeshBoolean.Operations.Union);
+                pipe.Compute();
+                statuses.Add(pipe.Status + "/" + pipe.BooleanStatus);
+            }
+            Assert.True(counts.Count == 1, "inside-out counts " + string.Join(", ", counts));
+            Assert.True(statuses.Count == 1, "statuses " + string.Join(", ", statuses));
+        }
+
         // ---- the order of the points ----
 
         /// <summary>
