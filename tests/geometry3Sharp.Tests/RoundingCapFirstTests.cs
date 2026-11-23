@@ -91,6 +91,34 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", Defects(m));
         }
 
+        // a cap whose flip is refused (the slab is so thin that the triangle (C, Q0, A) of the flip, w T / 2, would be degenerate itself):
+        // the old order follows, and the short edge is contracted
+        [Fact]
+        public void Step_ARefusedFlip_FallsBackToTheContraction()
+        {
+            DMesh3 m = Step(6e-9, 1e-12);
+            var r = new MeshRoundingRepair(m);
+            Assert.True(r.Apply());
+            Assert.Equal(2, r.InitialDegenerate);
+            Assert.Equal(0, r.Flips);
+            Assert.Equal(2, r.Collapses);
+            Assert.Equal("", Defects(m));
+        }
+
+        // the refused flip of a cap is evaluated once: with a bound below every edge there is no contraction and no move either, the
+        // caps stay, and the flip of the longest edge is not proposed a second time in the loop over the edges
+        [Fact]
+        public void Step_ARefusedFlip_IsEvaluatedOnce()
+        {
+            DMesh3 m = Step(6e-9, 1e-12);
+            var r = new MeshRoundingRepair(m) { MaxDisplacement = 1e-13 };
+            Assert.False(r.Apply());
+            Assert.Equal(2, r.RemainingDegenerate);
+            Assert.Equal(0, r.Flips + r.Collapses + r.Moves + r.Zips);
+            Assert.Equal(14, m.VertexCount);
+            Assert.Equal(1198L, r.Evaluations);
+        }
+
         // a second run on the result changes nothing, and a second instance on a copy gives the same mesh
         [Fact]
         public void Step_Reuse()

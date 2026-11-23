@@ -3027,13 +3027,17 @@ namespace g3
             // removes it and moves no vertex; a contraction of its short edge moves a vertex by the edge's length and with it every
             // triangle of that vertex, which on a short edge across a thin strip changes the volume
             // (docs/research/ROUNDING_THIN_VOLUME_2026-11.md, "Caps first")
-            if (0.5 * len[2] * len[0] >= CapRatio * areaEps_of(tv.a) && try_flip(te[order[0]]))
+            // (t is degenerate here, its area below the degenerate area: with the span above CapRatio times that area, the sine of the
+            // angle is below 1 / CapRatio)
+            bool cap = 0.5 * len[2] * len[0] >= CapRatio * areaEps_of(tv.a);
+            if (cap && try_flip(te[order[0]]))
                 return;
             if (collapse_any(t))
                 return;
             // caps: flip the longest edge first; else move the corner opposite the longest edge away from it
+            // (the flip of a cap's longest edge was refused above and nothing changed since: not evaluated a second time)
             foreach (int k in order)
-                if (try_flip(te[k]) || try_zip(te[k]))
+                if ((cap && k == order[0]) ? try_zip(te[k]) : (try_flip(te[k]) || try_zip(te[k])))
                     return;
             if (try_strip(t))
                 return;

@@ -236,7 +236,6 @@ short edge.
 sides, reuse, and the invariance over `Similarity.All()` (the 2^k scales bit for bit; the frame of the limit pinned as
 it is).
 
-
 `RoundingVolumeReportTests` checks the two numbers of a1: on the plates (the 3.7e-7), where the repair changes nothing
 (shape 2, closed boxes: equal bit for bit), on the paths without a repair (0 and 0), on a strict refusal, after the
 Grid step, on the repair itself (far from the origin, inside out, open, empty, not finite), reuse, and the invariance
