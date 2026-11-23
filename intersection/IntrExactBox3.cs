@@ -67,31 +67,7 @@ namespace g3
             /// <summary> sign of a - b </summary>
             public static int Compare(Frac a, Frac b) { return (a.N * b.D - b.N * a.D).Sign; }
             /// <summary> the double nearest to the value (ties to even, a single rounding also in the subnormal range) </summary>
-            public double ToDouble() { return RoundRatio(N.M, D.M, N.E - D.E); }
-        }
-
-        /// <summary> the double nearest to (num / den) 2^scaleExp, ties to even, rounded once (den > 0) </summary>
-        internal static double RoundRatio(BigInteger num, BigInteger den, int scaleExp)
-        {
-            if (num.IsZero)
-                return 0;
-            bool negative = num.Sign < 0;
-            BigInteger a = BigInteger.Abs(num), rem;
-            long nb = ExactPoint3.BitLength(a), db = ExactPoint3.BitLength(den);
-            int shift = (int)(55 - (nb - db));      // the quotient has 55 or 56 bits
-            BigInteger q = shift >= 0 ? BigInteger.DivRem(a << shift, den, out rem) : BigInteger.DivRem(a, den << -shift, out rem);
-            int extra = (int)(ExactPoint3.BitLength(q) - 53);
-            // a result below 2^-1022 has fewer than 53 significant bits: round once, to the grid 2^-1074
-            int unit = scaleExp - shift + extra;
-            if (unit < -1074)
-                extra += -1074 - unit;
-            BigInteger low = q & ((BigInteger.One << extra) - 1), half = BigInteger.One << (extra - 1), mant = q >> extra;
-            if (low > half || (low == half && (rem.IsZero == false || mant.IsEven == false)))
-                mant += 1;
-            if (mant.IsZero)
-                return negative ? -0.0 : 0.0;
-            double r = ExactPoint3.ScaleB((double)mant, scaleExp - shift + extra);
-            return negative ? -r : r;
+            public double ToDouble() { return ExactPoint3.ToDoubleRounded(N.M, D.M, N.E - D.E); }
         }
 
         // ------------------------------------------------------------------------------------------------------------
@@ -622,7 +598,7 @@ namespace g3
                     // o_k + (N / D) (d1_k - d0_k) = (o_k D + N d_k) / D
                     Dy dk = Dy.From(d1[k]) - Dy.From(d0[k]);
                     Dy num = Dy.From(o[k]) * f.D + f.N * dk;
-                    p[k] = RoundRatio(num.M, f.D.M, num.E - f.D.E);
+                    p[k] = ExactPoint3.ToDoubleRounded(num.M, f.D.M, num.E - f.D.E);
                 }
             } else {
                 p = new Vector3d(o.x + t * dd.x, o.y + t * dd.y, o.z + t * dd.z);
