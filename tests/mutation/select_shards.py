@@ -13,13 +13,16 @@ Modes (tests/mutation/README.md):
   tests  only tests that run against the shard changed: mutants those tests cover, report only
 
 The files of a shard come from its config (mutate, test-case-filter). The paths of the workflow are a second list, but
-only a coarse one: test_select_shards.py checks that it covers every config.
+only a coarse one: test_select_shards.py checks that it covers every mutated file of every config.
 An edit of the workflow runs every config in full, unless every changed line lies in a region that cannot change how
 a shard runs (workflow_edit_forces_full below; checked on the diff between $BASE and $HEAD, which the workflow sets):
 adding a test file to the trigger paths, raising max-parallel or editing a reporting step changes no shard.
 A config whose edit only moves the spans of its `mutate` entries (a source edit shifts their character offsets; a
 resplit moves a boundary) runs in `source` mode instead of in full: incremental.py carries the baseline's spans over
 the line diff and runs what the moved boundary adds (config_edit_moves_only_spans; checked on $BASE / $HEAD as well).
+With --pr (pull requests, owner 2026-11-23) only the `source` runs of the shards that mutate a changed exact-code file stay
+(or of every shard with a changed file under the label `mutation`, --labels); the others are listed in `skipped` and run on
+master (pr_selection below).
 With --all every config runs in full (schedule, workflow_dispatch); --all --only arithmetic,rounding-1 runs only those
 (workflow_dispatch input "shards"; "arithmetic" is stryker-config.json, the others are the mesh shards). --only also takes
 prefixes (`boolean-*`) and the groups `nightly` (boolean-*, arrangement-*, rounding-*) and `weekly` (everything else).
@@ -347,13 +350,13 @@ def shard_name(config_name):
 
 
 # These scripts run in every shard's real Stryker run (run_stryker.sh, the baseline store and the incremental plan/merge);
-# the tests with a fake dotnet cannot see Stryker itself. A change to one of them runs the cheapest mesh shard in full
-# (about 30 minutes), as a representative; the others follow their own rules. select_shards.py and the test files run in
-# the `changes` job of every workflow run (their paths are in the workflow's trigger).
-# Exact code for the merge gate (CLAUDE.md "Review before every merge"): a PR that changes one of these files gets the threshold
-# check of the shards that mutate them even where no full run is made on a PR (run_stryker.sh NO_FULL). The list is the section
-# of .editorconfig that holds the exact code (the source of truth: predicates, generated predicates, exact and fixed-width
-# points, mesh_ops/ExactMesh*, ...), found by the glob of the exact mesh pipeline; it is not a second list kept by hand.
+# the tests with a fake dotnet cannot see Stryker itself. A change to one of them selects the cheapest mesh shard in full
+# (about 30 minutes), as a representative; on a PR that full run is not made (pr_selection), so it is the next dispatched or
+# scheduled run on master. select_shards.py and the test files run in the `changes` job of every workflow run.
+# Exact code (CLAUDE.md "Review before every merge"): the files whose change gives a PR the incremental runs of the shards that
+# mutate them (pr_selection). The list is the section of .editorconfig that holds the exact code (the source of truth:
+# predicates, generated predicates, exact and fixed-width points, mesh_ops/ExactMesh*, ...), found by the glob of the exact mesh
+# pipeline; it is not a second list kept by hand.
 EDITORCONFIG = os.path.join(os.path.dirname(os.path.dirname(HERE)), ".editorconfig")
 EXACT_MARKER = "mesh_ops/ExactMesh*.cs"
 
@@ -374,13 +377,32 @@ def exact_gated(path):
     return any(fnmatch.fnmatchcase(path, g) for g in exact_globs())
 
 
-def gate_shard(config, changed, name=None):
-    """True if a changed path is an exact-code file (exact_gated: the exact section of .editorconfig) that this config mutates, or if a script of the runs
-    changed and this is the representative shard that smoke-tests them (SCRIPTS, SCRIPT_SHARD: the PR's only real Stryker run
-    of the tools, which NO_FULL must not drop)"""
-    if name == SCRIPT_SHARD and set(changed) & SCRIPTS:
-        return True
-    return any(exact_gated(p) for p in set(changed) & config[1])
+# Exact-code files that no shard mutates yet (review 2026-11-23 of #1469): a PR that changes one gets no mutation run, only the
+# notice of `select_shards.py hint` ("no mutation shard": the review of CLAUDE.md is its only check). A new exact file goes into a
+# shard's config or onto this list (test_select_shards.py: every existing exact file is in exactly one of the two).
+NO_SHARD = {
+    "comp_geom/SnapRounding2.cs": "the snap rounding grid (its exact tests and double filters)",
+    "intersection/ContinuousCollision.cs": "continuous collision (exact root isolation)",
+    "intersection/ExactTriangleIntersection.cs": "exact triangle intersection (called by the boolean shards' code, not mutated by them)",
+    "intersection/TriangleTriangleFilter.cs": "the triangle pair filter",
+    "math/ExactRayTriangle.cs": "the exact ray-triangle test",
+    "mesh_ops/ContouringTopologyCertificate.cs": "the contouring's topology certificate",
+    "mesh_ops/ExactMeshEdgeGroups.cs": "edge groups of the exact boolean result",
+    "mesh_ops/ExactMeshResultBuilder.cs": "the result builder of the exact boolean",
+    "mesh_ops/TerrainSlopeCatchLineBound.cs": "terrain slopes (the terrain shards mutate the kernel and the overlay)",
+    "mesh_ops/TerrainSlopeComposite.cs": "terrain slopes",
+    "mesh_ops/TerrainSlopeDesign.cs": "terrain slopes",
+    "mesh_ops/TerrainSlopeLocalFrame.cs": "terrain slopes",
+    "mesh_ops/TerrainSlopeMap.cs": "terrain slopes",
+    "mesh_ops/TerrainSlopeRamps.cs": "terrain slopes",
+}
+
+
+def unsharded(changed):
+    """the changed exact-code files that no shard mutates (NO_SHARD, or an exact file missing from both lists)"""
+    configs = load_configs()
+    mutated = set().union(*(c[1] for c in configs.values()))
+    return sorted(p for p in set(changed) if exact_gated(p) and p not in mutated)
 
 
 SCRIPTS = {"tests/mutation/run_stryker.sh", "tests/mutation/incremental.py", "tests/mutation/baseline.py", "tests/mutation/exclude_other_sources.py"}
@@ -407,31 +429,79 @@ def select(changed, configs, run_all=False, only=None, moved=()):
     return modes["config"], mesh
 
 
-def skip_on_pr(arithmetic, mesh, configs, changed):
-    """(arithmetic, mesh, skipped) for a pull request (NO_FULL, run_stryker.sh): a shard that would run in full and is not
-    gated (gate_shard: it mutates no changed exact-code file, and is not the representative shard of changed scripts) makes no
-    full run on a PR, so it is not started and shows as skipped, not as a green run. `skipped`: the shard names (as in --only).
-    Which shards run Stryker does not change: run_stryker.sh skipped exactly these in the job (gated() asks gate_shard too)"""
+# Pull requests (owner 2026-11-23, runner load: mutation took 44 % of the Actions minutes, almost all on PRs that touch no exact
+# code): a PR runs a shard only incrementally (`source`: the changed lines against the master baseline), and only when the PR
+# changes an exact-code file that the shard mutates (exact_gated, the exact section of .editorconfig), or when the PR has the
+# label `mutation` (set by the coordinator for a PR that adds or changes an error bound outside the exact files; then every
+# shard that mutates a changed file runs incrementally). Everything else makes no PR run: full runs (a config, the workflow or
+# the tools changed; a shard without a cached baseline is skipped by run_stryker.sh NO_FULL), runs of changed tests only, and
+# source changes of non-exact code. They run on master: the scheduled nightly / weekly runs, or a dispatch of the shards.
+LABEL = "mutation"
+
+
+def eligible(config, changed, labels=()):
+    """True if a PR with these changed paths and labels gets the incremental run of this shard"""
+    touched = set(changed) & config[1]
+    if LABEL in labels:
+        return bool(touched)
+    return any(exact_gated(p) for p in touched)
+
+
+WHY = {
+    "full": "its config, the workflow or the mutation tools changed: full run on master",
+    "tests": "only tests of this shard changed: scheduled run on master",
+    "source": "the PR changes no exact-code file of this shard (and has no label `mutation`): scheduled run on master",
+    "full-gated": "its config changed, and the PR changes exact code of this shard: no full run on a PR, "
+                  "GATE ON MASTER: dispatch the full run of this shard on master after the merge (it is the gate)",
+}
+
+
+def pr_selection(arithmetic, mesh, configs, changed, labels=()):
+    """(arithmetic, mesh, skipped) for a pull request: only `source` runs of eligible shards stay; every other selected shard is
+    not started and is listed in `skipped` as {"shard": name as in --only, "why": reason}"""
     changed = set(changed)
     skipped = []
-    if arithmetic == "full" and not gate_shard(configs["config"], changed, "config"):
-        skipped.append("arithmetic")
-        arithmetic = "none"
-    kept = []
-    for entry in mesh:
-        name = "mesh-" + entry["shard"]
-        if entry["mode"] == "full" and not gate_shard(configs[name], changed, name):
-            skipped.append(entry["shard"])
-        else:
-            kept.append(entry)
-    return arithmetic, kept, skipped
+
+    def keep(name, mode):
+        if mode == "source" and eligible(configs[name], changed, labels):
+            return True
+        if mode == "full" and eligible(configs[name], changed, labels) and configs[name][0] not in changed:
+            # (full only because of the workflow, the tools or a script, not its own config: its baseline still fits the
+            # config, so the incremental run of the changed exact lines keeps the PR gated; without a fitting baseline
+            # run_stryker.sh skips it with a warning)
+            return True
+        why = WHY["full-gated"] if mode == "full" and eligible(configs[name], changed, labels) else WHY[mode]
+        skipped.append({"shard": shard_name(name), "why": why})
+        return False
+
+    if arithmetic != "none":
+        arithmetic = "source" if keep("config", arithmetic) else "none"
+    mesh = [dict(e, mode="source") for e in mesh if keep("mesh-" + e["shard"], e["mode"])]
+    return arithmetic, mesh, skipped
 
 
-SKIP_WHY = "its config or the tools changed"
+# The error bound audit (tools/ErrorBoundAudit): a PR that touches it or a file it anchors may change an error bound; the
+# coordinator decides whether the label `mutation` is needed (a hint in the job summary, no automatic gating)
+AUDIT_DIR = "tools/ErrorBoundAudit/"
+AUDIT_BOUNDS = os.path.join(os.path.dirname(os.path.dirname(HERE)), "tools", "ErrorBoundAudit", "bounds.py")
 
 
-def skip_notice(shard):
-    return f"::notice::{shard}: NOT RUN on this PR, full run on master ({SKIP_WHY}; the PR changes no exact-code file of this shard)"
+def audit_files(text=None):
+    if text is None:
+        with open(AUDIT_BOUNDS, encoding="utf-8") as f:
+            text = f.read()
+    return set(re.findall(r"'([A-Za-z0-9_]+/[A-Za-z0-9_/]+\.cs)'", text))
+
+
+def error_bound_hint(changed, files=None):
+    files = audit_files() if files is None else files
+    return sorted(p for p in set(changed) if p.startswith(AUDIT_DIR) or p in files)
+
+
+def skip_notice(entry):
+    # (a shard whose gate moves to master is a warning: the coordinator must dispatch its full run after the merge)
+    kind = "warning" if "GATE ON MASTER" in entry["why"] else "notice"
+    return f"::{kind}::{entry['shard']}: NOT RUN on this PR ({entry['why']})"
 
 
 if __name__ == "__main__":
@@ -441,22 +511,35 @@ if __name__ == "__main__":
         shards = json.loads(args[1])
         if "--summary" in args:
             if shards:
-                print("### Shards with no full run on this PR (NOT RUN)\n")
-                for sh in shards:
-                    print(f"- `{sh}`: full run on master ({SKIP_WHY}). The scheduled run on master measures it in full and seeds its baseline (tests/mutation/README.md).")
+                print("### Shards not run on this PR (NOT RUN)\n")
+                for e in shards:
+                    print(f"- `{e['shard']}`: {e['why']} (tests/mutation/README.md).")
         else:
-            for sh in shards:
-                print(skip_notice(sh))
+            for e in shards:
+                print(skip_notice(e))
         sys.exit(0)
-    if args[:1] == ["gate"]:
-        # gate <config path>: changed paths on stdin; prints `gate` if the PR changes an exact-arithmetic file of that config
-        name = os.path.basename(args[1])[len("stryker-"):-len(".json")]
-        configs = load_configs()
-        # (fails closed: run_stryker.sh skips the full run only on exactly `no`)
-        if name not in configs:
-            print("unknown config " + name)
-        else:
-            print("gate" if gate_shard(configs[name], [l.strip() for l in sys.stdin if l.strip()], name) else "no")
+    if args[:1] == ["hint"]:
+        # hint [--summary]: changed paths on stdin; the paths that may change an error bound (the audit or a file it anchors), and
+        # the changed exact-code files that no shard mutates
+        changed = [l.strip() for l in sys.stdin if l.strip()]
+        lonely = unsharded(changed)
+        if lonely:
+            if "--summary" in args:
+                print("### Exact code without a mutation shard\n")
+                print("No mutation run gates these changed exact-code files (select_shards.py NO_SHARD); the review is their check: "
+                      + ", ".join(f"`{p}`" for p in lonely) + ".\n")
+            else:
+                for p in lonely:
+                    print(f"::notice::{p}: exact code without a mutation shard: NOT RUN (the review is its check)")
+        paths = error_bound_hint(changed)
+        if paths:
+            if "--summary" in args:
+                print("### Error bound touched?\n")
+                print("The PR changes the error bound audit or a file it anchors: " + ", ".join(f"`{p}`" for p in paths)
+                      + ". If it adds or changes an error bound outside the exact files, the coordinator sets the label `mutation` "
+                      "and re-runs this workflow (the label is read live).")
+            else:
+                print("::warning::error bound touched? " + ", ".join(paths) + ": label `mutation` if a bound outside the exact files changed")
         sys.exit(0)
     run_all = "--all" in args
     only = None
@@ -493,7 +576,10 @@ if __name__ == "__main__":
     arithmetic, mesh = select(paths, configs, run_all, only, moved)
     skipped = []
     if "--pr" in args and not run_all:
-        arithmetic, mesh, skipped = skip_on_pr(arithmetic, mesh, configs, all_paths)
+        labels = []
+        if "--labels" in args:
+            labels = [x.strip() for x in args[args.index("--labels") + 1].split(",") if x.strip()]
+        arithmetic, mesh, skipped = pr_selection(arithmetic, mesh, configs, all_paths, labels)
     print("arithmetic=" + arithmetic)
     print("mesh=" + json.dumps(mesh))
     if "--pr" in args:
