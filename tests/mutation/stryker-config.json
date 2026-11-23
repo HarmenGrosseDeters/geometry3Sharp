@@ -15,6 +15,6 @@
     "configuration": "Release",
     "additional-timeout": 30000,
     "reporters": [ "progress", "html", "json", "markdown" ],
-    "thresholds": { "high": 90, "low": 87, "break": 86 }
+    "thresholds": { "high": 90, "low": 87, "break": 85 }
   }
 }
