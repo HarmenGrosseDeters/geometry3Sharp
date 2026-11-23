@@ -4,7 +4,7 @@ using gs;
 
 internal static class VectorHeatProfileProbe
 {
-    public static void Run(bool azimuth = false)
+    public static void Run(bool azimuth = false, bool latitude = false)
     {
         const int intervals = 8;
         // CubeMapping of (1/2, 1/4, -1), the target of the last-edge control.
@@ -15,7 +15,7 @@ internal static class VectorHeatProfileProbe
         double arc = Math.Atan2(Vector3d.AxisZ.Cross(target).Length, target.z);
         var coarse = MakeMesh(17);
         var samples = new Vector3d[intervals + 1];
-        Console.WriteLine(azimuth
+        Console.WriteLine(latitude ? "resolution schedule sample longitude-deg interpolated-error-deg" : azimuth
             ? "resolution schedule ring vertex azimuth-deg signed-error-deg"
             : "resolution schedule station colatitude-deg station-offset-deg signed-error-deg");
         for (int i = 0; i <= intervals; ++i) {
@@ -37,6 +37,10 @@ internal static class VectorHeatProfileProbe
                 var moved = heat.TransportVector(source, tri.FromWorld(source, Vector3d.AxisX).Normalized);
                 if (Math.Abs(heat.DiffusionTime / (tri.MeanEdgeLength * tri.MeanEdgeLength * factor) - 1) > 1e-10)
                     throw new InvalidOperationException("The solver changed the requested time.");
+                if (latitude) {
+                    SampleLatitude(mesh, tri, moved, target, resolution, schedule);
+                    continue;
+                }
                 if (azimuth) {
                     foreach (int vertex in mesh.VertexIndices()) {
                         Vector3d p = mesh.GetVertex(vertex).Normalized;
@@ -61,6 +65,46 @@ internal static class VectorHeatProfileProbe
                         $"{offset * MathUtil.Rad2Deg:G9} {error:G9}");
                 }
             }
+        }
+    }
+
+    private static void SampleLatitude(DMesh3 mesh, IntrinsicTriangulation tri, Vector2d[] moved,
+        Vector3d target, int resolution, string schedule)
+    {
+        var tree = new DMeshAABBTree3(mesh, true);
+        double radius = Math.Sqrt(1 - target.z * target.z);
+        double Sample(Vector3d direction) {
+            var ray = new Ray3d(Vector3d.Zero, direction.Normalized);
+            int tid = tree.FindNearestHitTriangle(ray);
+            var hit = MeshQueries.TriangleIntersection(mesh, tid, ray);
+            if (hit == null || hit.Result != IntersectionResult.Intersects)
+                throw new InvalidOperationException("Missing latitude ray intersection.");
+            Index3i vertices = mesh.GetTriangle(tid);
+            Vector3d weights = hit.TriangleBaryCoords;
+            double error = 0;
+            for (int j = 0; j < 3; ++j) {
+                int v = vertices[j];
+                double angle = SignedError(tri, v, mesh.GetVertex(v).Normalized, moved[v]);
+                if (!(Math.Abs(angle) < 90))
+                    throw new InvalidOperationException("Signed errors must lie in one angular chart.");
+                error += weights[j] * angle;
+            }
+            return error;
+        }
+        int anchors = 0;
+        foreach (int v in mesh.VertexIndices()) {
+            Vector3d p = mesh.GetVertex(v).Normalized;
+            if (Math.Abs(p.z - target.z) > 1e-12) continue;
+            if (Math.Abs(Sample(p) - SignedError(tri, v, p, moved[v])) > 1e-8)
+                throw new InvalidOperationException("Latitude interpolation missed a measured vertex.");
+            ++anchors;
+        }
+        if (anchors != 8) throw new InvalidOperationException("Expected eight target-latitude vertices.");
+        const int count = 256;
+        for (int i = 0; i < count; ++i) {
+            double longitude = 2 * Math.PI * i / count;
+            double error = Sample(new Vector3d(radius * Math.Cos(longitude), radius * Math.Sin(longitude), target.z));
+            Console.WriteLine($"{resolution} {schedule} {i} {360.0 * i / count:G12} {error:G12}");
         }
     }
 

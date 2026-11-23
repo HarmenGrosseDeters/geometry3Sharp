@@ -37,6 +37,11 @@ if (Array.IndexOf(args, "--heat-paths") >= 0) {
     return;
 }
 
+if (Array.IndexOf(args, "--heat-latitude") >= 0) {
+    VectorHeatProfileProbe.Run(latitude: true);
+    return;
+}
+
 if (Array.IndexOf(args, "--heat-azimuth") >= 0) {
     VectorHeatProfileProbe.Run(azimuth: true);
     return;

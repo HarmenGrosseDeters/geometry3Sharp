@@ -438,3 +438,20 @@ For the last column, fit A on zero-based even positions in the sorted ring and e
 | 65 | linear | 0.041683 | 0.003062 | 98.933 | 0.002968 |
 
 At 65 vertices per edge the linear schedule reduces the fitted amplitude by a factor of 21.0. For default time the residual remains 0.041° RMS both on the full ring and at the interleaved evaluation points. The fit describes the spatial shape of the equatorial error on these meshes. The eight symmetry-related samples at the far target latitude do not distinguish this harmonic from other shapes between the sampled longitudes.
+
+## Longitude profile at the far target latitude
+
+Run `dotnet run -c Release --project benchmarks/CurvatureWeakProbe -- --heat-latitude`. At the target's 157.13° colatitude, sample 256 equally spaced longitudes around the circle. For each direction, cast a ray from the origin and use its barycentric coordinates in the intersected input triangle to interpolate the **signed vertex errors** defined above. Every contributing vertex error is within (−90°, 90°), where this scalar interpolation is unambiguous. At all eight vertices on the circle, a separate ray query must reproduce the directly measured error within 1e-8°. Between them the values depend on the interpolation and the mesh resolution. The 256 longitudes sample one interpolated field per solve.
+
+For a ring of N samples with longitude λ in radians and signed error e in degrees, compute the amplitude of each sine term as `Aₘ = (2/N) Σ e sin(mλ)`. Uniform spacing makes the m = 4 and m = 8 terms orthogonal. The table gives the RMS residual after fitting the fourfold sine alone, its share of total squared error, and the RMS residual after adding the eightfold sine. Both phases are fixed by the cube axes.
+
+| Vertices per edge | Schedule | A₄ (°) | Fourfold residual RMS (°) | Share (%) | A₈ (°) | Two-term residual RMS (°) |
+|---:|---|---:|---:|---:|---:|---:|
+| 17 | default | 3.557512 | 0.129601 | 99.735 | −0.026833 | 0.128204 |
+| 33 | default | 7.510203 | 0.431302 | 99.345 | −0.598977 | 0.081454 |
+| 65 | default | 11.463937 | 1.490145 | 96.731 | −2.052221 | 0.338716 |
+| 17 | linear | 0.220217 | 0.008521 | 99.701 | 0.006788 | 0.007040 |
+| 33 | linear | 0.234865 | 0.002652 | 99.974 | 0.002986 | 0.001605 |
+| 65 | linear | 0.200461 | 0.001175 | 99.993 | 0.001570 | 0.000384 |
+
+On the finest default grid the fourfold component dominates at both latitudes. Its amplitude rises from 0.876° at the equator to 11.464° at the far latitude, while its share drops from 99.563% to 96.731%. At the far latitude, adding the 45°-period term reduces the remaining RMS from 1.490° to 0.339°. With the linear schedule the fourfold component alone leaves 0.00118° RMS. This measures the angular shape of the solved field at finite resolution. It does not attribute the eightfold component to a particular family of diffusion walks.
