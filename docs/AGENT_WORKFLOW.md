@@ -171,7 +171,9 @@ from secret tests, which a public repository cannot keep.
 - Two-stage PR CI (owner 2026-11-23, [docs/qa/ci-and-gates.md](qa/ci-and-gates.md) 2.14): a push to a ready PR runs the quick
   stage (builds, net10.0 tests of the changed areas, about 5 min); the full matrix runs only while the PR has the label
   `full-ci`, which the coordinator sets when the PR is otherwise ready to merge (like `bugfix`). The merge rule: the status
-  `full-ci` green on the final head (plus `new-tests-on-base`, and `tier-rule` / `determinism` where they ran). Set `bugfix`,
+  `full-ci` green on the final head (plus `new-tests-on-base`, and `determinism` where it ran). A "GATE ON MASTER" warning of the
+  mutation workflow means: dispatch that shard's full run on master after the merge. After setting `mutation`, re-run the PR's
+  latest mutation run. Set `bugfix`,
   `mutation` and the like **before** `full-ci` (any label set while `full-ci` is on re-runs the full matrix), push fixes in one
   push (each push of a `full-ci` PR is a full run), and do not remove `full-ci` from a PR that is to be merged. Master CI runs
   batched every 2 hours (skipped when nothing the tests read changed); a red batch is narrowed down to one merge with

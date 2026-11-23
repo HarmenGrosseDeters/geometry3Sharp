@@ -47,7 +47,7 @@ def bisect(good, bad, command):
     try:
         git("bisect", "start", "--first-parent", bad, good)
         # (exit 125 = skip is not used: a commit that does not build is bad, like a red test)
-        p = subprocess.run(["git", "bisect", "run", "sh", "-c", command + " >/dev/null 2>&1 || exit 1"], capture_output=True, text=True)
+        p = subprocess.run(["git", "bisect", "run", "sh", "-c", "(" + command + ") >/dev/null 2>&1 || exit 1"], capture_output=True, text=True)
         if p.returncode != 0:
             raise SystemExit("git bisect run failed:\n" + p.stdout + p.stderr)
         sha = git("rev-parse", "refs/bisect/bad").strip()

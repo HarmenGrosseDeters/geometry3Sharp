@@ -1,30 +1,17 @@
 # The tier rule of the golden-master policy (docs/design/DETERMINISM.md 6b): a documented operation of tier 1
 # (tools/DeterminismReach/tier1.txt) may not gain a call path to the platform libm. Light (a build of the library and a
-# read of its IL: about a minute). It is a merge-gate check, so it runs in the full stage of PR CI (owner 2026-11-23): on a ready
-# pull request with the label `full-ci` that changes library sources, the documented operations or the tool; determinism.yml
+# read of its IL: about a minute). It is a merge-gate check, so on a pull request it is the job tier-rule of ci.yml (the full
+# stage, label `full-ci`, covered by the status full-ci; owner 2026-11-23); this workflow is its manual run, and determinism.yml
 # runs the same check next to the cross-runtime comparison.
 name: tier-rule
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
-    paths:
-      - '**.cs'
-      - '!tests/**'
-      - '!benchmarks/**'
-      - '!tools/**'
-      - '!addons/**'
-      - '!docs/examples/**'
-      - 'docs/OPERATIONS.md'
-      - 'docs/guides/**'
-      - 'tools/DeterminismReach/**'
-      - '.github/workflows/tier-rule.yml'
+  # (pull requests: the job tier-rule of ci.yml, in the full stage, owner 2026-11-23, so the merge gate full-ci covers it; this
+  # workflow stays for a manual run)
   workflow_dispatch:
 
 jobs:
   tier-rule:
-    # a draft PR runs nothing here (owner 2026-11-23, runner load); a ready PR only with the label `full-ci` (the full stage)
-    if: github.event_name != 'pull_request' || (github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'full-ci'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

@@ -105,6 +105,7 @@ READ_BY = {
 QUICK_FILTER_TAIL = "Category!=Slow&Category!=Nightly"
 _CLASS = re.compile(r"^[^/\n]*?\b(?:class|struct|interface|enum|record)\s+([A-Za-z_][A-Za-z0-9_]*)", re.M)
 _TEST_ATTR = re.compile(r"\[(?:Fact|Theory|Property)\b")
+_NAMESPACE = re.compile(r"^\s*namespace\s", re.M)
 
 
 def _read(root, path):
@@ -198,7 +199,9 @@ def quick_tests(paths, root=ROOT, files=None):
         broad |= _users(p, text, files, classes, notes)
     if library:
         classes |= set(SMOKE)
-    return {"classes": sorted(classes), "broad": broad, "notes": notes}
+    # classes in files without a namespace have the FullyQualifiedName `C.M` (no leading dot): quick_filter matches them by `C.`
+    in_global = {c for f in files if not _NAMESPACE.search(text(f)) for c in test_classes_of(text(f))} & classes if classes else set()
+    return {"classes": sorted(classes), "broad": broad, "notes": notes, "global": sorted(in_global)}
 
 
 def _users(path, text, files, classes, notes):
@@ -224,11 +227,15 @@ def _users(path, text, files, classes, notes):
     return False
 
 
-def quick_filter(classes):
-    """the dotnet test filter for the classes (`.C.` matches the class C in any namespace, not C2 or XC); '' for none"""
+def quick_filter(classes, in_global=()):
+    """the dotnet test filter for the classes: `.C.` matches the class C in any namespace (not C2 or XC), `+C.` a nested class C,
+    and `C.` a class of the global namespace (FullyQualifiedName `C.M`; it may match more, never less); '' for none"""
     if not classes:
         return ""
-    return "(" + "|".join(f"FullyQualifiedName~.{c}." for c in sorted(classes)) + ")&" + QUICK_FILTER_TAIL
+    terms = []
+    for c in sorted(classes):
+        terms += [f"FullyQualifiedName~{c}."] if c in in_global else [f"FullyQualifiedName~.{c}.", f"FullyQualifiedName~+{c}."]
+    return "(" + "|".join(terms) + ")&" + QUICK_FILTER_TAIL
 
 
 def quick_summary(result):
@@ -245,10 +252,24 @@ def quick_summary(result):
     return "\n".join(lines) + "\n"
 
 
+# Markdown files that ci.yml does run for (its pull_request paths): design docs that a test checks against a generator
+CI_MARKDOWN = ("docs/design/FIXED_WIDTH_EXACT_POINTS.md", "docs/design/DETERMINISM_PROOF.md")
+
+
+def docs_only(paths):
+    """True if ci.yml does not run for these changes at all (only Markdown outside CI_MARKDOWN): docs.yml then posts the
+    merge gate `full-ci` itself (owner 2026-11-23), as no full matrix will ever run on such a PR"""
+    paths = [p.strip() for p in paths if p.strip()]
+    return bool(paths) and all(p.endswith(".md") and p not in CI_MARKDOWN for p in paths)
+
+
 def main(argv):
+    if "--docs-only" in argv:
+        print("docs_only=" + ("true" if docs_only(sys.stdin.read().split("\n")) else "false"))
+        return 0
     if "--quick" in argv:
         result = quick_tests(sys.stdin.read().split("\n"))
-        print("filter=" + quick_filter(result["classes"]))
+        print("filter=" + quick_filter(result["classes"], result["global"]))
         print("broad=" + ("true" if result["broad"] else "false"))
         if "--summary" in argv:
             with open(argv[argv.index("--summary") + 1], "a", encoding="utf-8") as f:

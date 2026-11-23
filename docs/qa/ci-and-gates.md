@@ -185,8 +185,9 @@ Tools, benchmarks and docs the tests do not read build only; the add-on and the 
 The quick stage is a signal; it can miss a test, the full stage cannot.
 
 **Full stage**: `linux` (all net10.0 tests, the CLI and Clipper2 suites, pack, smoke tests, the benchmark and tool steps),
-`netstandard` / `netstandard-b` (net48 against netstandard2.0), `isolated`, `time-rule`, plus the PR jobs of
-`new-tests-on-base.yml`, `tier-rule.yml` and `determinism.yml`. On a PR it runs only while the PR has the label `full-ci`:
+`netstandard` / `netstandard-b` (net48 against netstandard2.0), `isolated`, `time-rule`, `tier-rule` (now a job of `ci.yml` on
+every full run; `tier-rule.yml` stays for a manual run), plus the PR jobs of `new-tests-on-base.yml` and `determinism.yml`. On a
+PR it runs only while the PR has the label `full-ci`:
 
 - The coordinator sets `full-ci` (like `bugfix`) when the PR is ready to merge. The `labeled` event starts the full stage on the
   current head; every later push while the label is on runs it again on the new head, so no removing and re-adding is needed.
@@ -197,30 +198,36 @@ The quick stage is a signal; it can miss a test, the full stage cannot.
 - When the full stage runs, `quick` is skipped (the full stage covers it).
 
 **Merge gate**: the commit status `full-ci` on the PR's head, posted by the job `full-ci-status` (`statuses: write`): pending
-("label full-ci not set") without the label, success only if `linux` and `netstandard` passed and `isolated` / `time-rule`
-passed or were skipped (a PR that does not change the library), failure otherwise. A new push has no status until its own run
-ends, so an old green never stands for a new head. The merge rule: `full-ci` green on the final head, and the checks of
-`new-tests-on-base` (with `bugfix`: at least one new test fails on the base) and, where it ran, `tier-rule` and `determinism`
-green. A fork PR's token cannot write statuses: the job warns, and the owner checks the jobs by hand.
+("label full-ci not set") without the label, success only if `linux`, `netstandard` and `tier-rule` passed and `isolated` /
+`time-rule` passed or were skipped (a PR that does not change the library), failure otherwise. A new push has no status until
+its own run ends, so an old green never stands for a new head. A PR of Markdown only never runs `ci.yml` (its `paths`), so
+`docs.yml` posts `full-ci` success for it after the docs check passed (`tools/ci_scope.py --docs-only`). The merge rule:
+`full-ci` green on the final head, plus `new-tests-on-base` (with `bugfix`: at least one new test fails on the base) and, where
+it ran, `determinism` green (the cross-runtime comparison keeps its `paths` filter, so it is not a required check). A fork PR's
+token cannot write statuses: the job warns, and such a PR needs the owner's check of the jobs and an admin merge (bypass).
 
 **Branch protection (the owner's setting; this PR changes no repository setting).** Settings > Branches > rule for `master` (or a
-ruleset): "Require status checks to pass before merging" with the required checks `quick` (source: GitHub Actions) and
-`full-ci` (a commit status, source: any). Not the job names `linux`, `netstandard`, `netstandard-b`, `isolated`, `time-rule`:
-a skipped job counts as passed there, and they are skipped on every push without the label. Not `tier-rule` and `determinism`
-(they have `paths` filters: a PR outside them would wait forever for the check); `new-tests-on-base` may be added (it runs on
-every ready PR event and reports skipped without `full-ci`, which `full-ci` pending then blocks anyway). "Require branches to be
+ruleset): "Require status checks to pass before merging" with the required check `full-ci` (a commit status, source: any), and
+optionally `new-tests-on-base` (source: GitHub Actions; it runs on every ready PR event and reports skipped without `full-ci`,
+which a pending `full-ci` then blocks anyway). Not `quick` (a docs-only PR has none, and the full stage covers it), and not
+the job names `linux`, `netstandard`, `netstandard-b`, `isolated`, `time-rule`, `tier-rule`: a skipped job counts as passed
+there, and they are skipped on every push without the label. Not `determinism` (a `paths` filter: a PR outside it would wait
+forever for the check). "Require branches to be
 up to date" stays off (it would re-run the full stage after every merge to master). `gate-change` stays as it is.
 
 **Batched master CI**: no run per merge. `ci.yml` runs on master every 2 hours (`schedule`, `41 */2 * * *` UTC) and on
 `workflow_dispatch`; tags run as before. The scheduled run asks `tools/master_batch.py` first: it finds the last master run whose
-job `linux` ran to a result (success or failure; cancelled and skipped runs do not count) among the last 30 completed runs,
-skips when that run's head is master's head or when everything changed since then is docs, benchmarks or tools the tests do not
-read (`tools/ci_scope.py`), and runs the full matrix otherwise, and also when no such run is found or the diff fails. The
-nightly, coverage and runtime-watch workflows are unchanged.
+job `linux` ran to a result (success or failure; cancelled and skipped runs do not count) among the last 30 completed master
+runs (events schedule, workflow_dispatch, push: a fork PR from a branch named master does not count), skips when that run's head
+is master's head or when no suite reads anything changed since then (`tools/ci_scope.py`: library, g3cli and ps1 all false;
+a tool or benchmark build broken by a conflict shows in the next library batch, which builds them all), and runs the full
+matrix otherwise, and also when no such run is found or the diff fails. A red run on an unchanged head is not repeated: a flake
+needs "Re-run failed jobs" or a dispatch. The nightly, coverage and runtime-watch workflows are unchanged.
 
 **A red batch** (several merges in one run): `tools/master_bisect.py --good <last green head> --bad <red head> --list` lists the
 merges; `--filter "<the failing tests from the run's log>"` bisects them locally over the first-parent history (`git bisect
---first-parent` with `dotnet test ... -f net10.0 --filter`; `--cmd` takes any other check, e.g. the net48 build), about log2(merges)
+--first-parent` with `dotnet test ... -f net10.0 --filter`; `--cmd` takes any other check, e.g. the net48 build, chained with
+`&&`), about log2(merges)
 builds and no runner minutes, and names the first bad merge. A failure that shows only on the Windows net48 shards and cannot be
 reproduced locally: make a branch at the middle merge, `gh workflow run ci.yml --ref <branch>`, and halve by hand (each step
 one full run). The bad merge gets a fix PR (with `bugfix`), a revert only for a real defect that cannot wait.

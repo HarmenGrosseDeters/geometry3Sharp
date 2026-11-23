@@ -52,6 +52,18 @@ class Decide(unittest.TestCase):
         # one file the tests read: full
         self.assertTrue(self.decide([run(2, OLD)], {2: "success"}, diff=lambda a, b: ["docs/x.md", "docs/OPERATIONS.md"])[0])
 
+    def test_tools_that_a_suite_reads_run(self):
+        # (review: the CLI suite and the Windows benchmark checks are part of the full matrix)
+        for p in ("tools/g3cli/Program.cs", "benchmarks/MeshRepairBenchmark/test_validity_reporting.ps1"):
+            self.assertTrue(self.decide([run(2, OLD)], {2: "success"}, diff=lambda a, b, p=p: [p])[0], p)
+
+    def test_fork_pr_runs_are_not_master_runs(self):
+        # (a fork PR from its branch `master` has head_branch master; its head is not in the clone)
+        fork = dict(run(3, HEAD), event="pull_request")
+        full, reason = self.decide([fork, dict(run(2, OLD), event="schedule")], {3: "success", 2: "success"})
+        self.assertTrue(full)
+        self.assertIn("run 2", reason)
+
     def test_no_tested_run_found_falls_back_to_a_full_run(self):
         full, reason = self.decide([], {})
         self.assertTrue(full)
@@ -140,6 +152,11 @@ class Bisect(unittest.TestCase):
         self.assertEqual("Merge pull request #2", subject)
         # the bisect is reset
         self.assertEqual(self.bad, self.g("rev-parse", "HEAD"))
+
+    def test_a_compound_command_fails_on_any_part(self):
+        # (review: the redirect and the exit code cover the whole command, not only its last part; chain with &&)
+        sha, _ = bis.bisect(self.good, self.bad, "echo checking && grep -q ok v.txt")
+        self.assertEqual(self.merges[2], sha)
 
     def test_a_dirty_tree_is_refused(self):
         with open("v.txt", "a") as f:

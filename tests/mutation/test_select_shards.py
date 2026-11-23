@@ -828,6 +828,28 @@ class PullRequestSelection(unittest.TestCase):
         self.assertEqual({b: "source" for b in BO if b != "boolean-1"}, {k: v for k, v in self.kept(after).items() if k in BO})
         self.assert_partition(before, after)
 
+    def test_an_exact_change_with_a_tool_change_keeps_the_incremental_run(self):
+        # (review: the workflow, the tools or a script force `full` for every shard; for a shard of a changed exact file whose own
+        # config did not change the incremental run still fits its baseline, so the PR stays gated instead of losing the run)
+        for tool, shard in ((".github/workflows/mutation.yml", "boolean-1"), (".config/dotnet-tools.json", "boolean-1"),
+                            ("tests/mutation/run_stryker.sh", "fixed")):
+            exact = self.exact_source("mesh-" + shard)
+            before, after = self.pr(tool, exact)
+            self.assertIn({"shard": shard, "mode": "full"}, before[1], tool)
+            self.assertEqual("source", self.kept(after).get(shard), tool)
+            self.assertNotIn("planar", self.kept(after), tool)
+            self.assert_partition(before, after)
+        before, after = self.pr(".github/workflows/mutation.yml", self.exact_source("config"))
+        self.assertEqual(("full", "source"), (before[0], after[0]))
+
+    def test_a_gate_moved_to_master_is_a_warning(self):
+        exact = self.exact_source("mesh-boolean-1")
+        _, after = self.pr(CONFIGS["mesh-boolean-1"][0], exact)
+        entry = [e for e in after[2] if e["shard"] == "boolean-1"][0]
+        from select_shards import skip_notice
+        self.assertTrue(skip_notice(entry).startswith("::warning::boolean-1:"))
+        self.assertTrue(skip_notice({"shard": "planar", "why": "only tests of this shard changed: scheduled run on master"}).startswith("::notice::"))
+
     def test_the_arithmetic_gate_makes_no_full_run(self):
         exact = self.exact_source("config")
         before, after = self.pr(CONFIGS["config"][0], exact)

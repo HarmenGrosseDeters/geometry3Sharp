@@ -421,14 +421,36 @@ jobs:
           name: ${{ matrix.name }}-results
           path: test-results/
 
-  # The merge gate of a PR (owner 2026-11-23): the commit status `full-ci` on the PR's head. Branch protection requires it (and
-  # the check `quick`), not the job names: a skipped job counts as passed there, a pending status does not. Without the label
+  # The tier rule of the golden-master policy (docs/design/DETERMINISM.md 6b; .github/workflows/tier-rule.yml for a manual run): a
+  # documented operation of tier 1 may not gain a call path to the platform libm. A merge-gate check, so a job of the full stage
+  # (about 2 minutes; it ran on library PRs only before, now on every full run, which keeps the gate free of path filters).
+  tier-rule:
+    needs: scope
+    if: needs.scope.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet build geometry3Sharp_netstandard.csproj -c Release -f net10.0
+      - run: dotnet build tools/DeterminismReach -c Release
+      - name: Self-test and tier rule
+        run: |
+          R="dotnet tools/DeterminismReach/bin/Release/net10.0/DeterminismReach.dll"
+          $R self-test
+          $R tier bin/Release/net10.0/geometry3Sharp.dll --docs docs/OPERATIONS.md --docs docs/guides \
+            --baseline tools/DeterminismReach/tier1.txt
+
+  # The merge gate of a PR (owner 2026-11-23): the commit status `full-ci` on the PR's head. Branch protection requires it (for a
+  # docs-only PR, which never runs this workflow, docs.yml posts it), not the job names: a skipped job counts as passed there, a pending status does not. Without the label
   # `full-ci` the status is pending ("label full-ci not set"), so a PR cannot merge on the quick stage alone; with it, it is green
   # only if the full matrix passed on this head (isolated and time-rule may be skipped, for a PR that does not change the library).
   # A later push gets no status until its own run ends, so an old green never covers a new head. (Fork PRs: the token cannot
   # write statuses; the step warns and the owner checks the jobs by hand.)
   full-ci-status:
-    needs: [scope, linux, isolated, time-rule, netstandard]
+    needs: [scope, linux, isolated, time-rule, netstandard, tier-rule]
     if: always() && github.event_name == 'pull_request' && github.event.pull_request.draft == false && needs.scope.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -443,6 +465,7 @@ jobs:
       NETSTANDARD: ${{ needs.netstandard.result }}
       ISOLATED: ${{ needs.isolated.result }}
       TIME_RULE: ${{ needs.time-rule.result }}
+      TIER_RULE: ${{ needs.tier-rule.result }}
       URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - name: Post the status full-ci
@@ -450,10 +473,10 @@ jobs:
           ok() { [ "$1" = success ] || [ "$1" = skipped ]; }
           if [ "$FULL" != true ]; then
             state=pending; desc="label full-ci not set: the full matrix has not run on this head"
-          elif [ "$LINUX" = success ] && [ "$NETSTANDARD" = success ] && ok "$ISOLATED" && ok "$TIME_RULE"; then
+          elif [ "$LINUX" = success ] && [ "$NETSTANDARD" = success ] && [ "$TIER_RULE" = success ] && ok "$ISOLATED" && ok "$TIME_RULE"; then
             state=success; desc="full matrix passed on this head"
           else
-            state=failure; desc="full matrix: linux $LINUX, netstandard $NETSTANDARD, isolated $ISOLATED, time-rule $TIME_RULE"
+            state=failure; desc="full matrix: linux $LINUX, netstandard $NETSTANDARD, tier-rule $TIER_RULE, isolated $ISOLATED, time-rule $TIME_RULE"
           fi
           echo "full-ci: $state ($desc)"
           printf '### Merge gate\n`full-ci`: **%s** (%s)\n' "$state" "$desc" >> "$GITHUB_STEP_SUMMARY"

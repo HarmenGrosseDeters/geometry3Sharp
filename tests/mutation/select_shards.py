@@ -423,8 +423,8 @@ WHY = {
     "full": "its config, the workflow or the mutation tools changed: full run on master",
     "tests": "only tests of this shard changed: scheduled run on master",
     "source": "the PR changes no exact-code file of this shard (and has no label `mutation`): scheduled run on master",
-    "full-gated": "its config, the workflow or the mutation tools changed, and the PR changes exact code of this shard: no full run on a PR, "
-                  "dispatch the full run of this shard on master after the merge (it is the gate)",
+    "full-gated": "its config changed, and the PR changes exact code of this shard: no full run on a PR, "
+                  "GATE ON MASTER: dispatch the full run of this shard on master after the merge (it is the gate)",
 }
 
 
@@ -437,13 +437,18 @@ def pr_selection(arithmetic, mesh, configs, changed, labels=()):
     def keep(name, mode):
         if mode == "source" and eligible(configs[name], changed, labels):
             return True
+        if mode == "full" and eligible(configs[name], changed, labels) and configs[name][0] not in changed:
+            # (full only because of the workflow, the tools or a script, not its own config: its baseline still fits the
+            # config, so the incremental run of the changed exact lines keeps the PR gated; without a fitting baseline
+            # run_stryker.sh skips it with a warning)
+            return True
         why = WHY["full-gated"] if mode == "full" and eligible(configs[name], changed, labels) else WHY[mode]
         skipped.append({"shard": shard_name(name), "why": why})
         return False
 
-    if arithmetic != "none" and not keep("config", arithmetic):
-        arithmetic = "none"
-    mesh = [e for e in mesh if keep("mesh-" + e["shard"], e["mode"])]
+    if arithmetic != "none":
+        arithmetic = "source" if keep("config", arithmetic) else "none"
+    mesh = [dict(e, mode="source") for e in mesh if keep("mesh-" + e["shard"], e["mode"])]
     return arithmetic, mesh, skipped
 
 
@@ -466,7 +471,9 @@ def error_bound_hint(changed, files=None):
 
 
 def skip_notice(entry):
-    return f"::notice::{entry['shard']}: NOT RUN on this PR ({entry['why']})"
+    # (a shard whose gate moves to master is a warning: the coordinator must dispatch its full run after the merge)
+    kind = "warning" if "GATE ON MASTER" in entry["why"] else "notice"
+    return f"::{kind}::{entry['shard']}: NOT RUN on this PR ({entry['why']})"
 
 
 if __name__ == "__main__":

@@ -96,8 +96,11 @@ class TwoStageWorkflow(unittest.TestCase):
         return self.job(name).split("steps:")[0]
 
     def test_full_stage_jobs_need_the_full_output(self):
-        for name in ("linux", "isolated", "time-rule", "netstandard"):
+        for name in ("linux", "isolated", "time-rule", "netstandard", "tier-rule"):
             self.assertIn("needs.scope.outputs.full == 'true'", self.header(name), name)
+        # (the tier rule is a merge-gate check: in ci.yml, so the status covers it; tier-rule.yml has no pull_request trigger)
+        with open(os.path.join(ROOT, ".github", "workflows", "tier-rule.yml"), encoding="utf-8") as f:
+            self.assertNotIn("pull_request", f.read().split("\njobs:")[0].replace("# (pull requests", ""))
 
     def test_quick_runs_on_a_pr_exactly_when_the_full_stage_does_not(self):
         h = self.header("quick")
@@ -127,7 +130,7 @@ class TwoStageWorkflow(unittest.TestCase):
 
     def test_the_status_is_the_merge_gate(self):
         h = self.header("full-ci-status")
-        self.assertIn("needs: [scope, linux, isolated, time-rule, netstandard]", h)
+        self.assertIn("needs: [scope, linux, isolated, time-rule, netstandard, tier-rule]", h)
         self.assertIn("always()", h)
         self.assertIn("statuses: write", h)
         body = self.job("full-ci-status")
@@ -135,14 +138,41 @@ class TwoStageWorkflow(unittest.TestCase):
         self.assertIn('SHA: ${{ github.event.pull_request.head.sha }}', body)
         # pending without the label; success only from linux and netstandard passed
         self.assertIn('if [ "$FULL" != true ]; then\n            state=pending', body)
-        self.assertIn('[ "$LINUX" = success ] && [ "$NETSTANDARD" = success ]', body)
+        self.assertIn('[ "$LINUX" = success ] && [ "$NETSTANDARD" = success ] && [ "$TIER_RULE" = success ]', body)
 
     def test_the_other_full_stage_workflows_need_the_label(self):
-        for name in ("new-tests-on-base.yml", "tier-rule.yml", "determinism.yml"):
+        for name in ("new-tests-on-base.yml", "determinism.yml"):
             with open(os.path.join(ROOT, ".github", "workflows", name), encoding="utf-8") as f:
                 text = f.read()
             self.assertIn("contains(github.event.pull_request.labels.*.name, 'full-ci')", text, name)
             self.assertRegex(text, r"types: \[[^\]]*\blabeled\b", name)
+
+
+class DocsOnly(unittest.TestCase):
+    """A PR of Markdown only never runs ci.yml (its paths), so docs.yml posts the merge gate `full-ci` for it (review: without that
+    such a PR would wait forever for a required `full-ci`)."""
+
+    def test_docs_only(self):
+        self.assertTrue(c.docs_only(["docs/a.md", "README.md"]))
+        self.assertFalse(c.docs_only(["docs/a.md", "tools/check_docs.py"]))
+        self.assertFalse(c.docs_only(["docs/design/FIXED_WIDTH_EXACT_POINTS.md"]))
+        self.assertFalse(c.docs_only([]))
+
+    def test_the_exceptions_are_those_of_ci_yml(self):
+        with open(os.path.join(ROOT, ".github", "workflows", "ci.yml"), encoding="utf-8") as f:
+            text = f.read()
+        paths = re.search(r"\n  pull_request:\n(?:    [^\n]*\n)*?    paths: \[(.*)\]\n", text).group(1)
+        items = [x.strip().strip("'") for x in paths.split(",")]
+        self.assertEqual(["**", "!**/*.md"], items[:2])
+        self.assertEqual(sorted(c.CI_MARKDOWN), sorted(items[2:]))
+
+    def test_docs_yml_posts_the_gate_only_for_docs_only_prs(self):
+        with open(os.path.join(ROOT, ".github", "workflows", "docs.yml"), encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("statuses: write", text)
+        self.assertIn("tools/ci_scope.py --docs-only", text)
+        self.assertIn("context=full-ci", text)
+        self.assertIn("steps.docs_only.outputs.docs_only == 'true'", text)
 
 
 class Quick(unittest.TestCase):
@@ -230,7 +260,19 @@ class Quick(unittest.TestCase):
 
     def test_the_filter(self):
         f = c.quick_filter(["BTests", "ATests"])
-        self.assertEqual("(FullyQualifiedName~.ATests.|FullyQualifiedName~.BTests.)&Category!=Slow&Category!=Nightly", f)
+        self.assertEqual("(FullyQualifiedName~.ATests.|FullyQualifiedName~+ATests.|FullyQualifiedName~.BTests.|FullyQualifiedName~+BTests.)"
+                         "&Category!=Slow&Category!=Nightly", f)
+        # (a class of the global namespace has the FullyQualifiedName `C.M`)
+        self.assertEqual("(FullyQualifiedName~GTests.)&Category!=Slow&Category!=Nightly", c.quick_filter(["GTests"], ["GTests"]))
+
+    def test_a_class_without_a_namespace_is_marked_global(self):
+        self.write(c.TEST_DIR + "Spatial/GTests.cs", "using Xunit;\npublic class GTests {\n [Fact] public void A() {}\n}\n")
+        self.write(c.TEST_DIR + "NTests.cs", self.case("NTests"))
+        r = self.quick(c.TEST_DIR + "Spatial/GTests.cs", c.TEST_DIR + "NTests.cs")
+        self.assertEqual(["GTests"], r["global"])
+        self.assertIn("GTests", r["classes"])
+        real = c.quick_tests([c.TEST_DIR + "Spatial/NtsQuadtreeComparisonTests.cs"])
+        self.assertIn("NtsQuadtreeComparisonTests", real["global"])
 
     def test_the_smoke_classes_exist_and_are_not_slow(self):
         files = c.test_files(ROOT)

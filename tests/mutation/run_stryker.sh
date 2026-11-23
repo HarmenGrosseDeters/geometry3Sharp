@@ -158,7 +158,8 @@ full_config() {
 # a full run that a pull request does not make: the reason goes to the log and the job summary, the job succeeds
 skip_full() {
   mkdir -p StrykerOutput
-  echo "::notice::$config: NOT RUN on this PR, full run on master ($1)"
+  # (on a PR only shards that gate it are started, select_shards.py --pr: a skipped full run here moves that gate to master)
+  echo "::warning::$config: NOT RUN on this PR, full run on master ($1). GATE ON MASTER: dispatch the full run of this shard after the merge"
   {
     echo "### $config: NOT RUN on this PR, full run on master"
     echo

@@ -19,9 +19,30 @@ jobs:
     if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write        # the merge gate full-ci of a docs-only PR (below)
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - name: Check Markdown documentation hygiene (tools/check_docs.py)
         run: |
           python3 -m unittest discover -s tools -p 'test_check_docs.py' -v
           python3 tools/check_docs.py
+      # The merge gate of PR CI is the commit status full-ci (ci.yml, docs/qa/ci-and-gates.md 2.14). ci.yml never runs for a PR of
+      # Markdown only (its paths), so this job posts full-ci for such a PR, after the checks above passed; for any other PR ci.yml posts it.
+      - name: Docs-only PR?
+        id: docs_only
+        if: github.event_name == 'pull_request'
+        run: git diff --name-only --no-renames HEAD^1 HEAD | python3 tools/ci_scope.py --docs-only | tee -a "$GITHUB_OUTPUT"
+      - name: Post the status full-ci (docs only)
+        if: steps.docs_only.outputs.docs_only == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api -X POST "repos/$REPO/statuses/$SHA" -f state=success -f context=full-ci -f description="docs only: the docs check passed, no library CI needed" -f target_url="$URL" \
+            || echo "::warning::the status full-ci could not be posted (a fork PR has a read-only token)"

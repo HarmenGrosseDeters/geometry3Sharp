@@ -112,14 +112,17 @@ shards cost a 6 hour runner slot each and were cancelled at the limit (#539) wit
   `Generated/*.cs`, `mesh_ops/ExactMesh*.cs`, the planar, triangulation, envelope and terrain-slope files, ...; no second
   hand-kept list), or if the PR has the label **`mutation`**: then every shard that mutates a changed file runs incrementally.
   The coordinator sets `mutation` (like `bugfix`) for a PR that adds or changes an error bound outside the exact files (a
-  `rounding-*`, `hausdorff` or `uv-*` file); the `changes` job reads the labels live, so after setting it the coordinator re-runs
-  the PR's latest mutation run (or the next push picks it up; there is no `labeled` trigger, so other labels never cancel a run
-  under way). A PR that touches `tools/ErrorBoundAudit/**` or a file the audit anchors (`tools/ErrorBoundAudit/bounds.py`) gets a
+  `rounding-*`, `hausdorff` or `uv-*` file); the `changes` job reads the labels live, so after setting it the coordinator
+  **must re-run** the PR's latest mutation run, or set the label before the last push (there is no `labeled` trigger, so other
+  labels never cancel a Stryker run under way; the price is that the label alone starts nothing). A PR that touches `tools/ErrorBoundAudit/**` or a file the audit anchors (`tools/ErrorBoundAudit/bounds.py`) gets a
   hint in the job summary ("error bound touched?"), not an automatic run.
 - **What a PR does not run** (`select_shards.py --pr`, `pr_selection`; the `changes` job lists each shard as "NOT RUN on this
   PR" with the reason, and the job is not started): full runs (a config, the workflow or the mutation tools changed; also the
   representative shard of the scripts), `--since` runs of changed tests only, and incremental runs of non-exact code without
-  the label. A shard that finds out in its job that it needs a full run (no baseline in the cache fits) writes "full run on
+  the label. A shard of a changed exact-code file that is `full` only because the workflow, the tools or a script changed (not
+  its own config) runs incrementally instead (its baseline still fits its config), so the PR stays gated. A gate that moves to
+  master (its own config changed, or no baseline fits) is a `::warning::` with "GATE ON MASTER", in the `changes` job or in the
+  shard's job: the coordinator dispatches that shard's full run on master after the merge. A shard that finds out in its job that it needs a full run (no baseline in the cache fits) writes "full run on
   master" to its summary and succeeds (`run_stryker.sh` with `NO_FULL=1`; `test_run_stryker.py`). There is no exception any
   more: before 2026-11-23 a shard of a changed exact-code file kept its full run on the PR. Such a PR (an exact change that needs
   a full shard run: no baseline, a changed config) merges on green CI and review, and the full run of its shards that the

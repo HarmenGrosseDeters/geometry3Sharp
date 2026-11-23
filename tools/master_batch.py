@@ -7,7 +7,11 @@ scheduled run first asks this script whether there is anything to test:
 - the last master run of ci.yml that tested the library (its job `linux` ran to success or failure, not cancelled or skipped)
   is found among the recent completed runs;
 - its head is master's head: nothing new, skip;
-- the changes since then do not touch what the library tests read (tools/ci_scope.py: docs, benchmarks and tools only): skip;
+- the changes since then need none of the suites (tools/ci_scope.py: library, g3cli and ps1 all false; docs, and benchmarks or
+  tools that neither the tests nor the CLI suite nor the Windows benchmark checks read): skip. A conflict that breaks a tool or
+  benchmark build is caught by the next library batch, which builds them all;
+- a red last tested run on master's head: skip too (the head did not change); a flake needs a re-run of the failed jobs or a
+  dispatch;
 - otherwise, and whenever that run cannot be found or the diff fails: the full matrix runs on master's head.
 
 A red batch is narrowed down to one merge with tools/master_bisect.py.
@@ -29,6 +33,8 @@ import ci_scope  # noqa: E402
 # how many completed master runs are searched for the last tested one (a day of 2-hourly runs plus dispatches)
 MAX_RUNS = 30
 TESTED = ("success", "failure")
+# the events of master runs (a fork PR from a branch named master has head_branch master too)
+MASTER_EVENTS = ("schedule", "workflow_dispatch", "push")
 
 
 def tested(jobs):
@@ -40,7 +46,8 @@ def decide(head, runs, jobs_of, diff, run_id=None, branch="master"):
     """(full, reason). runs: the completed ci.yml runs of the branch, newest first (dicts with id, head_sha, head_branch);
     jobs_of(run) -> its jobs; diff(a, b) -> the changed paths between two commits, or None if git cannot tell"""
     last = None
-    for run in [r for r in runs if r.get("id") != run_id and r.get("head_branch") == branch][:MAX_RUNS]:
+    for run in [r for r in runs if r.get("id") != run_id and r.get("head_branch") == branch
+                and r.get("event", "push") in MASTER_EVENTS][:MAX_RUNS]:
         try:
             if tested(jobs_of(run)):
                 last = run
@@ -55,8 +62,8 @@ def decide(head, runs, jobs_of, diff, run_id=None, branch="master"):
     paths = diff(sha, head)
     if paths is None:
         return True, f"the diff {sha[:10]}..{head[:10]} failed: full run"
-    if not ci_scope.scope(paths)["library"]:
-        return False, f"since {sha[:10]} (run {last['id']}) only docs, benchmarks or tools that the tests do not read changed ({len(paths)} files)"
+    if not any(ci_scope.scope(paths).values()):
+        return False, f"since {sha[:10]} (run {last['id']}) only docs, benchmarks or tools that no suite reads changed ({len(paths)} files)"
     return True, f"{len(paths)} files changed since the last tested master head {sha[:10]} (run {last['id']})"
 
 
