@@ -171,6 +171,14 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0.0, ExactPoint3.ToDoubleRounded(1, 1, -5000));
             Assert.Equal(0.0, ExactPoint3.ToDoubleRounded(1, 1, -1000000000));
             Assert.Equal(double.PositiveInfinity, ExactPoint3.ToDoubleRounded(1, 1, 1000000000));
+            // an exponent near the int limits must not wrap around (num much larger than den makes the shift negative)
+            Assert.Equal(double.PositiveInfinity, ExactPoint3.ToDoubleRounded(one << 100, 1, int.MaxValue));
+            Assert.Equal(double.PositiveInfinity, ExactPoint3.ToDoubleRounded(one << 100, 1, int.MaxValue - 10));
+            Assert.Equal(double.NegativeInfinity, ExactPoint3.ToDoubleRounded(-(one << 100), 1, int.MaxValue - 1));
+            Assert.Equal(double.PositiveInfinity, ExactPoint3.ToDoubleRounded(one << 5000, 1, int.MaxValue - 4000));
+            Assert.Equal(0.0, ExactPoint3.ToDoubleRounded(one << 100, 1, int.MinValue + 60));
+            Assert.Equal(0.0, ExactPoint3.ToDoubleRounded(1, one << 5000, int.MinValue));
+            Assert.Equal(double.PositiveInfinity, ExactPoint3.ToDoubleRounded(1, 1, int.MaxValue));
             Assert.Equal(Math.Pow(2, -100), ExactPoint3.ToDoubleRounded(one << 5000, one << 3000, -2100));      // 2^2000 * 2^-2100
         }
 

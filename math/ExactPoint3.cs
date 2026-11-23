@@ -148,16 +148,18 @@ namespace g3
             int extra = (int)(BitLength(q) - 53);
             // a result below 2^-1022 has fewer than 53 significant bits: round once, to the grid 2^-1074 (rounding to 53 bits first
             // and then to the grid would round twice)
-            int unit = scaleExp - shift + extra;
+            long unit = (long)scaleExp - shift + extra;       // (long: a scaleExp near int.MaxValue must not wrap)
             if (unit < -1074)
-                extra += -1074 - unit;
+                extra += (int)(-1074 - unit);
             BigInteger mant = q >> extra, half = BigInteger.One << (extra - 1), low = q - (mant << extra);
             // above the midpoint, or on it with a nonzero remainder (the quotient was truncated), or a tie with an odd mantissa
             if (low > half || (low == half && (rem.IsZero == false || mant.IsEven == false)))
                 mant += 1;
             if (mant.IsZero)
                 return negative ? -0.0 : 0.0;       // (underflow to zero keeps the sign, as IEEE division does)
-            double r = ScaleB((double)mant, scaleExp - shift + extra);     // (mant <= 2^53, the unit is a double: exact)
+            // (mant <= 2^53, the unit is a double: exact; an exponent beyond +-3000 gives the same infinity or zero as 3000)
+            long e2 = (long)scaleExp - shift + extra;
+            double r = ScaleB((double)mant, (int)Math.Max(-3000L, Math.Min(3000L, e2)));
             return negative ? -r : r;
         }
 
