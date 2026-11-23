@@ -12,11 +12,14 @@ inputs. Stryker.NET (Apache-2.0) mutates `math/ExactPredicates.cs`, `math/ExactP
 
 - A workflow reports the mutation score and the surviving mutants. Since 2026-11-16 (#958, the Exact Boolean 3.0 process) it runs in full on
   master Monday to Saturday for the nightly group (`boolean-*`, `arrangement-*`, `rounding-*`: 24 shards) and on Sunday for the weekly group (the
-  other shards and the arithmetic job), and on demand (`shards=all` or a list); on ready PRs only incrementally for the configs they touch, and a PR
-  makes no full shard run, except the merge gate of a PR that touches exact arithmetic ([tests/mutation/README.md](../../tests/mutation/README.md), "3.0 process").
-  A PR that changes a mutated file runs incrementally: Stryker mutates only the changed lines, the other mutants keep their result from the
-  baseline of the last full run (its report, kept in the Actions cache, matched by a line diff), and the break
-  threshold applies to the combined score of the shard; without a baseline the shard runs in full.
+  other shards and the arithmetic job), and on demand (`shards=all` or a list). On a ready PR (owner 2026-11-23, runner load) only
+  the shards that mutate a changed exact-code file (the exact section of `.editorconfig`) run, and only incrementally; the label
+  `mutation` (set by the coordinator for an error bound outside the exact files) extends that to every shard of a changed file.
+  A PR makes no full shard run and no run for changed tests only; those, and non-exact code, run on master
+  ([tests/mutation/README.md](../../tests/mutation/README.md), "3.0 process").
+  An incremental run: Stryker mutates only the changed lines, the other mutants keep their result from the
+  baseline of the last full run on master (its report, kept in the Actions cache, matched by a line diff), and the break
+  threshold applies to the combined score of the shard; without a baseline the shard is not run on the PR ("full run on master").
 - A score below the break threshold fails a full run (a run for changed tests only reports). It starts at the measured score (rounded down, less one
   point for timeouts that vary between runners) and only goes up.
 - Surviving mutants are either killed with a new test or recorded as equivalent, with a reason.
