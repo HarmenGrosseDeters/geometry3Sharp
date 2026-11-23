@@ -6090,6 +6090,10 @@ namespace g3
         // pieces came in the order of the input triangles, so the same triangles with other ids or in another order gave
         // another mesh after the repair, and sometimes another verdict. Pieces with the same three points in the same
         // direction (two triangles of the result on one another) keep their order.
+        // Not confirmed by reading: that their order cannot change the output. Nothing after the sort reads them apart except
+        // ExactPlanarSimplify, which takes the plane and orientation of a piece from its source triangle and the triangle of a
+        // group from the first piece it meets; two pieces on one another lie in one plane, but that the output does not depend
+        // on which source triangle (and its flipped flag) is met first was not shown.
         [MethodImpl(JitHints.Optimize)]
         void order_pieces(List<Index3i> tris, List<int> source, List<bool> flipped)
         {

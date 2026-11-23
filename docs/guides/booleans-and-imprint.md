@@ -139,6 +139,7 @@ What this does not cover:
 - **The order of the operands.** `A ∪ B` and `B ∪ A` are the same solid; the same mesh is not promised.
 - **`MeshRoundingRepair` used directly.** Its result depends on the ids of the mesh it is given (the order of its work lists and
   ties, the end of a contracted edge it keeps).
+- **The undecided inside-out count.** `front_of_triangle` seeds the random direction of its ray with the id of the triangle it was given, so the retries (and the rare `InsideOutUndecided` outcome after 200 failed attempts) can still differ between orders. The winding number it reads, when a ray is found, is exact and the same.
 - **The stages of the pipeline around the boolean**: the input repair and the reduction to a target triangle count were not
   made independent of the order.
 

@@ -207,8 +207,20 @@ placements above need no repair. Measured on this branch (the fixtures of `Round
   6.8e-7, **volume -1.6e-6 relative**: a contraction that changes the volume, a case of its own). At 0.03 t nothing contracts.
 
 The old assertions "1 to 8 degenerate triangles, cured by flips" and "1 to 3 contractions in all four tilts, volume within
-1e-9" have no successor: that behaviour is gone with the caps. The statement that a canonical order of the input makes the
-outcome deterministic, not better, holds here as well: where a repair is still needed, it is as large as before.
+1e-9" have no successor: that behaviour is gone with the caps.
+
+The change goes in both directions, and the repair is not better in general. The lens at tilt +1e-4 and 0.02 t has no volume
+change without this PR's behaviour changes (2 contractions, the same drift), and with them it loses 1.6e-6 of the lens's
+volume; the lens at tilt -3e-4 and 0.04 t went the other way, from about -1.0e-6 to -4.5e-15 (reviewer's measurement
+with the behaviour changes reverted). Which edges there are to contract follows the triangulation, and the volume is not
+the repair's concern (options c and d above): the test of the +1e-4 lens pins an upper bound of 2e-6 on the magnitude, not
+the loss.
+
+What the tests now guard, honestly: the default five-degree cases no longer exercise the repair (nothing is left to repair),
+so the old claim "the flips move nothing, the volume stays within 1e-12" has no successor; the seed-8 case with one flip
+allows 1e-9 (measured 3.5e-10), and the variant without `SimplifyFlatRegions` allows 5e-12 where the old test allowed 1e-12
+(measured 1.6e-12, 2.5e-12, 1.6e-12 and 3e-14 in the four cases, which is why 1e-12 no longer holds: the contractions of
+18 to 48 rim triangles add up). The bounds are about 2 to 3 times the measured values and were not tightened further.
 
 ## Tests
 

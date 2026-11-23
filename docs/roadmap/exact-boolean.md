@@ -29,8 +29,7 @@ Part of the [roadmap](../ROADMAP.md).
 #### The result does not depend on the order of the input (#1464, draft)
 
 **Decided 2026-11-23 (owner): option A with A2 and D** of
-[BOOLEAN_INPUT_ORDER_2026-11.md](../research/BOOLEAN_INPUT_ORDER_2026-11.md). Observed on private inputs: the same geometry with
-its triangles reversed gave `RoundingNotClean` instead of `Success`, and another volume of a thin strip. Diagnosis: the exact
+[BOOLEAN_INPUT_ORDER_2026-11.md](../research/BOOLEAN_INPUT_ORDER_2026-11.md). Observed by the owner on private inputs. Diagnosis: the exact
 result did not depend on the order, the rounding repair did (it works by ids), and rarely the flips of `ExactPlanarSimplify`.
 Built in #1464: the kept pieces are ordered by their geometry before the vertices are numbered, the hole of a removed point
 starts at its smallest point, and the flips are decided exactly. Result and status are bit for bit the same for reordered

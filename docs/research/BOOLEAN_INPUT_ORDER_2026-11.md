@@ -1,9 +1,8 @@
 # Input order and the exact boolean with rounding: diagnosis and options (2026-11-23)
 
-Diagnosis of a dependence on the order of the input, observed by the owner on private inputs: on the same geometry,
-reversing the order of the input triangles turned two Differences of nearly coincident curved plates from `Success` into
-`BooleanFailed / RoundingNotClean`, and changed the volume of a thin curved strip (an Intersection) in the fourth significant
-digit. **No library change**: tests that pin the behaviour, a measurement harness, and options for the owner.
+Diagnosis of a dependence of the result on the order of the input, observed by the owner on private inputs. The note
+reproduces it on procedural inputs (sections 2 to 4). **No library change** when it was written: tests that pin the
+behaviour, a measurement harness, and options for the owner.
 
 **Status (2026-11-23):** the owner chose A with A2 and D; they are built in the same PR (#1464), see section 8. Sections 1 to 7
 describe the library before that change (master 083ef07b), and `--numbered` is the emulation that was measured before the
@@ -22,7 +21,7 @@ build.
 - **The first stage that diverges is the rounding repair** (`MeshRoundingRepair`). It gets the same rounded triangles and
   finds the same defects, but it works through them by ids, and its edits are not confluent: another order of the same
   edits ends in another mesh. The default-mode result differs between the orders in 889 of 1020 cases.
-- **Both observations are reproduced.** The volume differs by more than 1e-4 relative in 103 of 396 cases of the first
+- **Both effects are reproduced** on procedural families. The volume differs by more than 1e-4 relative in 103 of 396 cases of the first
   family (more than 1e-2 in 44; in 3 the result is empty in some orders only). The pipeline's status differs between the
   orders in 2 of 624 cases of the second family (`Success` in 4 orders, `RoundingNotClean` in 2: one degenerate triangle
   left).
@@ -245,7 +244,7 @@ emulation is the library's repair: without the numbering it gives the library's 
 
 ## 7. Limits of this note
 
-- Two procedural families of one kind (plates on grids); the owner's inputs were not available. The mechanisms do not
+- Two procedural families of one kind (plates on grids); the private inputs were not available. The mechanisms do not
   depend on the family, the rates do.
 - Corner rotations of the input triangles and the reduction stage of the pipeline were not measured.
 - Option A was measured as an emulation outside the library (sorting rounded positions, with the repair's internal hooks
@@ -337,6 +336,10 @@ at 7 sizes, 3 densities, 6 seeds, in three frames; 1458 runs; `results/corpus_*`
 **Open from the review:** the factor-2 test brackets the upper side of the factor only by the sheet at 3.1 times its volume
 (no cube that ends just under 2 was found under the new order); an input whose components are reoriented by area is not
 covered (the guide says so).
+
+**Stated exception:** `front_of_triangle` (the ray of the inside-out check) seeds its random direction with the id of the
+triangle it is given, so the retries, and with them the rare `InsideOutUndecided` outcome after 200 failed attempts, can
+still differ between orders; the winding number it reads once a ray is found is exact. The code was not changed.
 
 **Not changed:** `MeshRoundingRepair` used directly still depends on the ids of its mesh (pinned by
 `Repair_OfOneMesh_DependsOnItsNumbering`); the operand order, the pipeline's input repair and its reduction are not covered
