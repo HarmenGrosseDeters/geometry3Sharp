@@ -222,7 +222,7 @@ namespace geometry3Sharp.Tests
                 + r.RemainingFalseContacts + " | " + r.Collapses + " " + r.Flips + " " + r.Moves + " " + r.Zips + " " + r.StripZips + " " + r.PositionSearchMoves + " " + r.RemovedComponents;
         }
 
-        /// <summary> the mesh with its ids: every vertex id with its coordinates (bits), every triangle id with its corners in order </summary>
+        /// <summary> the mesh with its ids: every vertex id with its coordinates (bits), every triangle id with its corners in order, every edge id with its vertices </summary>
         static string Mesh(DMesh3 m)
         {
             if (m == null)
@@ -234,6 +234,11 @@ namespace geometry3Sharp.Tests
             foreach (int t in m.TriangleIndices()) {
                 Index3i f = m.GetTriangle(t);
                 sb.Append(t).Append(':').Append(f.a).Append(',').Append(f.b).Append(',').Append(f.c).Append('\n');
+            }
+            // (the repair also works by edge ids)
+            foreach (int e in m.EdgeIndices()) {
+                Index2i ev = m.GetEdgeV(e);
+                sb.Append(e).Append('=').Append(ev.a).Append(',').Append(ev.b).Append('\n');
             }
             return sb.ToString();
         }
@@ -322,9 +327,9 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// SolidBooleanPipeline gives the same status and the same mesh for every order of the input: a closed, clean result,
-        /// or RoundingNotClean in every order. Before #1464 "tessellations" succeeded in some orders and failed in others
-        /// (a degenerate triangle that the repair cannot remove from some states, #1465).
+        /// SolidBooleanPipeline gives the same status and the same mesh for every order of the input: here a closed, clean
+        /// result in all four cases. Before #1464 "tessellations" succeeded in some orders and failed in others (a degenerate
+        /// triangle that the repair cannot remove from some states, #1465).
         /// </summary>
         [Theory]
         [MemberData(nameof(CaseNames))]
@@ -337,15 +342,10 @@ namespace geometry3Sharp.Tests
                 bool ok = pipe.Compute();
                 if (first == null) {
                     first = pipe;
-                    if (ok) {
-                        Assert.Equal(SolidBooleanPipeline.PipelineStatus.Success, pipe.Status);
-                        ResultChecks.AssertClosed(pipe.Result);
-                        Assert.Equal("", BooleanOracle.CleanReason(pipe.Result));
-                    } else {
-                        Assert.Equal(SolidBooleanPipeline.PipelineStatus.BooleanFailed, pipe.Status);
-                        Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, pipe.BooleanStatus);
-                        Assert.Null(pipe.Result);
-                    }
+                    Assert.True(ok, name + ": " + pipe.Error);
+                    Assert.Equal(SolidBooleanPipeline.PipelineStatus.Success, pipe.Status);
+                    ResultChecks.AssertClosed(pipe.Result);
+                    Assert.Equal("", BooleanOracle.CleanReason(pipe.Result));
                     continue;
                 }
                 Assert.Equal(first.Status, pipe.Status);
@@ -454,6 +454,101 @@ namespace geometry3Sharp.Tests
             for (int first = 0; first < 8; ++first)
                 for (int turn = 0; turn < 3; ++turn)
                     Assert.True(expected == SimplifiedFan(first, turn), "first triangle " + first + ", corners turned by " + turn + ": " + SimplifiedFan(first, turn) + " instead of " + expected);
+        }
+
+        // ---- coplanar faces, contacts, several and open inputs ----
+
+        // a box [0, w]^2 x [0, h] at `at` with every face on an n by n grid: flat regions with many points on common circles
+        static DMesh3 GridBox(int n, double w, double h, Vector3d at)
+        {
+            var m = new DMesh3();
+            var ids = new Dictionary<long, int>();
+            Func<int, int, int, int> vertex = (i, j, k) => {
+                long key = ((long)i << 40) | ((long)j << 20) | (long)k;
+                int id;
+                if (ids.TryGetValue(key, out id) == false)
+                    ids[key] = id = m.AppendVertex(at + new Vector3d(i * w / n, j * w / n, k * h / n));
+                return id;
+            };
+            Action<Func<int, int, int>, bool> face = (corner, turn) => {
+                for (int i = 0; i < n; ++i)
+                    for (int j = 0; j < n; ++j) {
+                        int a = corner(i, j), b = corner(i + 1, j), c = corner(i + 1, j + 1), d = corner(i, j + 1);
+                        if (turn) { m.AppendTriangle(a, c, b); m.AppendTriangle(a, d, c); }
+                        else { m.AppendTriangle(a, b, c); m.AppendTriangle(a, c, d); }
+                    }
+            };
+            face((u, v) => vertex(u, v, 0), true);
+            face((u, v) => vertex(u, v, n), false);
+            face((u, v) => vertex(u, 0, v), false);
+            face((u, v) => vertex(u, n, v), true);
+            face((u, v) => vertex(0, u, v), true);
+            face((u, v) => vertex(n, u, v), false);
+            return m;
+        }
+
+        public static IEnumerable<object[]> FlatCaseNames()
+        {
+            foreach (string name in new[] { "coplanar union", "coplanar difference", "coplanar intersection", "common diagonal, intersection", "common diagonal, union",
+                "edge contact", "vertex contact", "three boxes", "open input" })
+                foreach (bool simplify in new[] { true, false })
+                    yield return new object[] { name, simplify };
+        }
+
+        static void FlatCase(string name, out List<DMesh3> meshes, out ExactMeshBoolean.Operations op)
+        {
+            op = ExactMeshBoolean.Operations.Union;
+            switch (name) {
+                case "coplanar union": meshes = new List<DMesh3> { GridBox(6, 1, 1, Vector3d.Zero), GridBox(6, 1, 1, new Vector3d(0.5, 0.25, 0)) }; break;
+                case "coplanar difference": meshes = new List<DMesh3> { GridBox(6, 1, 1, Vector3d.Zero), GridBox(5, 1, 0.5, new Vector3d(0.3, 0.3, 0.5)) }; op = Difference; break;
+                case "coplanar intersection": meshes = new List<DMesh3> { GridBox(6, 1, 1, Vector3d.Zero), GridBox(4, 1, 1, new Vector3d(0.25, 0, 0.5)) }; op = Intersection; break;
+                // (a diagonal of the second box's face crosses a triangle of the first whose points lie on one circle: the
+                // constraint along it was inserted in the direction of the lower of the two triangles at the diagonal, and
+                // reversing the triangles gave other pieces; found by the review of #1464)
+                case "common diagonal, intersection": meshes = new List<DMesh3> { GridBox(2, 1, 1, Vector3d.Zero), GridBox(5, 1, 1, new Vector3d(0.125, 0, 0.5)) }; op = Intersection; break;
+                case "common diagonal, union": meshes = new List<DMesh3> { GridBox(2, 1, 1, Vector3d.Zero), GridBox(4, 1, 1, new Vector3d(0, 0.625, 0)) }; break;
+                case "edge contact": meshes = new List<DMesh3> { GridBox(3, 1, 1, Vector3d.Zero), GridBox(3, 1, 1, new Vector3d(1, 1, 0)) }; break;
+                case "vertex contact": meshes = new List<DMesh3> { GridBox(3, 1, 1, Vector3d.Zero), GridBox(3, 1, 1, new Vector3d(1, 1, 1)) }; break;
+                case "three boxes": meshes = new List<DMesh3> { GridBox(4, 1, 1, Vector3d.Zero), GridBox(4, 1, 1, new Vector3d(0.5, 0.5, 0)), GridBox(3, 1, 1, new Vector3d(0.25, 0.75, 0.5)) }; break;
+                default: {
+                    DMesh3 open = GridBox(4, 1, 1, new Vector3d(0.5, 0.25, 0.25));
+                    foreach (int t in open.TriangleIndices().Take(6).ToArray()) open.RemoveTriangle(t);
+                    meshes = new List<DMesh3> { GridBox(5, 1, 1, Vector3d.Zero), new DMesh3(open, true) };
+                    break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Boxes with gridded faces: coplanar overlapping faces (the arrangement triangulates points on common circles, with
+        /// constraints along the other mesh's edges and diagonals), solids that touch along an edge or at a vertex (edges
+        /// with more than two pieces, split and copied vertices), three inputs and an open input. The result is the same
+        /// mesh, ids included, for every order of the inputs' triangles, corners and vertex ids, with and without the
+        /// simplification of flat regions.
+        /// </summary>
+        [Theory]
+        [MemberData(nameof(FlatCaseNames))]
+        public void FlatAndTouchingInputs_AreBitIdentical_WhateverTheInputOrder(string name, bool simplify)
+        {
+            List<DMesh3> meshes;
+            ExactMeshBoolean.Operations op;
+            FlatCase(name, out meshes, out op);
+            string first = null, status = null;
+            foreach (int[] order in Orders) {
+                var b = new ExactMeshBoolean(meshes.Select(m => Reordered(m, order)).ToList(), op) { SimplifyFlatRegions = simplify, AllowOpenMeshes = true };
+                b.Compute();
+                string mesh = Mesh(b.Result), st = b.Status + " " + b.RoundingClean + " " + b.NonManifoldEdges + " " + b.SplitNonManifoldEdges + " " + b.Contacts;
+                if (first == null) {
+                    first = mesh;
+                    status = st;
+                    Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, b.Status);
+                    Assert.True(b.Result.TriangleCount > 0);
+                    if (name.EndsWith("contact"))
+                        Assert.True(b.Contacts > 0, name + ": no contact");
+                }
+                Assert.True(status == st, name + ": " + st + " instead of " + status + " for " + Order(order));
+                Assert.True(first == mesh, name + ", simplify " + simplify + ": another result for " + Order(order));
+            }
         }
 
         // ---- the order of the points ----

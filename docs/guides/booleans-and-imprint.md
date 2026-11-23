@@ -117,10 +117,12 @@ Nearly coincident inputs can create exact vertices that round to colliding `doub
 
 For one input the result is deterministic (repeated runs, any number of threads). Since #1464 it also does not depend on how
 the input is numbered: the same triangles in another order, with their corners rotated, and the same vertices with other ids
-give **the same mesh bit for bit, vertex and triangle ids included, and the same status**, for `ExactMeshBoolean` (with and
-without `SafeRounding`) and for `SolidBooleanPipeline` without a reduction target. The kept pieces of the arrangement are put
-into an order that only their geometry gives (an exact comparison of their points) before the vertices are numbered, so the
-rounding repair, which works through its defects by id, always sees the same mesh.
+give **the same mesh bit for bit, vertex, triangle and edge ids included, and the same status**, for `ExactMeshBoolean` (with and
+without `SafeRounding`, with and without `SimplifyFlatRegions`) and for `SolidBooleanPipeline` where it uses its inputs as given
+(no input repair, no reduction target). The kept pieces of the arrangement are put into an order that only their geometry gives
+(an exact comparison of their points) before the vertices are numbered, so the rounding repair, which works through its defects
+by id, always sees the same mesh. Tested on closed inputs in general position, on coplanar overlapping faces, on solids that
+touch along an edge or at a vertex, on three inputs and on an open input that is consistently oriented.
 
 What this does not cover:
 
@@ -128,6 +130,9 @@ What this does not cover:
   is another input. The exact result is the same solid; the mesh after the repair can differ within the rounding bound, and
   with it the volume of a result that is about as thin as that bound (`RoundingMaxDisplacement`) and, rarely, whether the
   repair ends clean. A scale by a power of two gives the same mesh, scaled, bit for bit.
+- **Inputs that are reoriented.** A component whose triangles are not consistently oriented is oriented by the larger part of its
+  area (open inputs, `Orientation = AreaMajority`); where the two parts are equal within 1e-9 the first triangle decides, and the
+  areas are sums in the order of the triangles. Such an input can come out the other way round for another order.
 - **The order of the operands.** `A ∪ B` and `B ∪ A` are the same solid; the same mesh is not promised.
 - **`MeshRoundingRepair` used directly.** Its result depends on the ids of the mesh it is given (the order of its work lists and
   ties, the end of a contracted edge it keeps).

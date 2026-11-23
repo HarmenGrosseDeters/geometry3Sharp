@@ -2784,6 +2784,12 @@ namespace g3
                         on.Add(r);
                 }
                 on.Sort((a, b) => compare_along(d, a, b));
+                // (from the smaller end, by ComparePoints: d is the direction of the segment's line, and of segments with the
+                // same ends from different lines, eg the common edge of two coplanar triangles of the other mesh, whose edge
+                // planes point opposite ways, the one of the lower triangle index is kept. So the direction followed the
+                // order of the input triangles, and with points on a common circle the triangulation followed it too, #1464)
+                if (ComparePoints(on[0], on[on.Count - 1]) > 0)
+                    on.Reverse();
                 for (int k = 0; k + 1 < on.Count; ++k) {
                     tri.InsertConstraint(on[k], on[k + 1]);
                     constraints.Add(EdgeKey(on[k], on[k + 1]));

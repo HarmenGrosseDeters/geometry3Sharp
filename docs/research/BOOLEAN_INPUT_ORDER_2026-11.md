@@ -270,10 +270,20 @@ emulation is the library's repair: without the numbering it gives the library's 
   sign where it does not decide): strictly inside flips, exactly on the circle stays. The determinism proof listed the
   filtered call as "returns the exact sign" (`DeterministicApis.txt`, assumption S2-3); that is true now.
 
-**Result** (`ExactBooleanInputOrderTests`, 28 cases): the same mesh bit for bit, vertex and triangle ids included, and the
-same status over 8 orders (triangle order, vertex ids, corner rotation) for the boolean with and without `SafeRounding` and
-for the pipeline; under `Similarity.All()`; the 2^k scales give the scaled mesh bit for bit. Hand mutants killed: no
-ordering, no corner rotation, the hole's start at the first triangle, the filter-only flips.
+- **The arrangement itself depended on the triangle order for coplanar faces**, which section 3.1 missed because the plates
+  have none (found by the independent review of the PR). Two segments with the same ends in one input triangle, eg the common
+  diagonal of two coplanar triangles of the other mesh, are reduced to the one of the lower triangle index, and the
+  constraint was inserted in the direction of that segment's line; the two lines point opposite ways. With points on a
+  common circle the constrained triangulation followed the direction: 3 of 240 random pairs of grid boxes gave other pieces
+  for reversed triangles (without `SimplifyFlatRegions`). `triangulate_touched` now inserts every constraint from its
+  smaller end (`ComparePoints`); 400 such pairs, with and without the simplification, are the same in all 8 orders.
+
+**Result** (`ExactBooleanInputOrderTests`, 46 cases): the same mesh bit for bit, vertex, triangle and edge ids included, and
+the same status over 8 orders (triangle order, vertex ids, corner rotation) for the boolean with and without `SafeRounding`
+and for the pipeline; on the plates, on boxes with coplanar gridded faces, on boxes touching along an edge and at a vertex,
+on three inputs and on an open input, with and without the simplification; under `Similarity.All()`; the 2^k scales give
+the scaled mesh bit for bit. Hand mutants killed: no ordering, no corner rotation, the hole's start at the first triangle,
+the filter-only flips, the constraint's direction, and in `SortPoints` no insertion and no fallback.
 
 **Time** (`BooleanInputOrder timing 5`: 8 procedural cases of 4k to 58k result triangles, median of 5 runs, three
 alternating runs of before and after; `results/timing_*`):
@@ -316,6 +326,10 @@ at 7 sizes, 3 densities, 6 seeds, in three frames; 1458 runs; `results/corpus_*`
 | Worse | `SafeRoundingBoundTests.Utm_CleanWithTheUlpTolerance` 108 → 106 of 114 by default (102 → 104 with the relative bound only); `RoundingDenseTessellationTests` drift 0.5 → 0.77 of the bound, still clean; `TetMeshLocalAlphaTests` deviation factor 1.1 → 1.103; `SolidBooleanPipelineThinSolidTests` one volume within 1e-8 instead of 1e-9 | thresholds follow |
 | Better | `ReferencePartsTests`: the screw stays at the ratios 1e-5 and 7e-6 (the limit was between 2e-5 and 1e-5, now between 7e-6 and 5e-6); the nightly census of known "not clean" rows 301 → 285; a flattened sliver is no longer turned inside out; the `tessellations` case of section 2 succeeds in every order | pins follow |
 | Other | `ExactBooleanOpenInputTests`: 2 instead of 5 split bowtie vertices in one open-input union (which vertices get copies at an edge with more than two triangles follows the order of the pieces); `ReducerEndpointFallbackTests`: another box size (its inequality was never a rule) | pins follow |
+
+**Open from the review:** the factor-2 test brackets the upper side of the factor only by the sheet at 3.1 times its volume
+(no cube that ends just under 2 was found under the new order); an input whose components are reoriented by area is not
+covered (the guide says so).
 
 **Not changed:** `MeshRoundingRepair` used directly still depends on the ids of its mesh (pinned by
 `Repair_OfOneMesh_DependsOnItsNumbering`); the operand order, the pipeline's input repair and its reduction are not covered
