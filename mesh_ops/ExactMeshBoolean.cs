@@ -495,11 +495,14 @@ namespace g3
         /// false with 0, or the reverse, given the other inputs: for a Difference, a piece of a tool inside the first mesh and outside
         /// the other tools), and yet the result is the one of an input that encloses nothing: no piece's decision changes when the
         /// input's winding number is taken as 0. The typical case is an open cutting surface used as the tool of a Difference
-        /// without the role Sheet: its generalized winding number stays below 1/2, so it cuts nothing and the result is the first
-        /// mesh, with Status Success (#1211). Decided with the integers of the classification, no tolerance. An open input that
+        /// without the role Sheet: its generalized winding number usually stays below 1/2, so it cuts nothing and the result is the
+        /// first mesh, with Status Success (#1211). Each listed input is one that encloses nothing by itself: for the tool of a
+        /// Difference or an operand of a Union the result is the one without it; for an operand of an Intersection or the first mesh
+        /// of a Difference the result is empty. Two listed inputs can still have an effect together (the same open tool given twice:
+        /// either could be left out, not both). Decided with the integers of the classification, no tolerance. An open input that
         /// changes the result is not listed, also where the change is wrong (pieces kept where its generalized winding number
-        /// crosses 1/2: the result is then usually not closed, which the list does not say). Empty with a WindingPredicate (not
-        /// evaluated), when no input is open, and before Compute()
+        /// crosses 1/2: the result is then usually not closed, which the list does not say): the list does not say that the
+        /// result is right. Empty with a WindingPredicate (not evaluated), when no input is open, when Compute() fails, and before it
         /// </summary>
         public IReadOnlyList<int> OpenInputsWithoutEffect { get { return openWithoutEffect; } }
         List<int> openWithoutEffect = new List<int>();
@@ -1567,6 +1570,7 @@ namespace g3
         {
             Status = status;
             Error = error;
+            openWithoutEffect = new List<int>();     // (the list belongs to a result: also empty where the run fails after the classification)
             return false;
         }
 
@@ -1582,7 +1586,6 @@ namespace g3
             return fail(BooleanStatus.SheetRefused, text);
         }
 
-        // some input is open and classified by generalized winding numbers (not a solid, not a sheet)
         // the text of Status OpenInput: the open inputs by index, and the ways to state what an open input is
         string open_input_error()
         {
@@ -1595,6 +1598,7 @@ namespace g3
                 "A mesh that is meant as a solid: repair it, or set AllowOpenMeshes for the generalized winding number rule (the solid is where it is above 1/2; see OpenInputsWithoutEffect)";
         }
 
+        // some input is open and classified by generalized winding numbers (not a solid, not a sheet)
         bool any_generalized()
         {
             for (int m = 0; m < ExactWinding.Length; ++m)

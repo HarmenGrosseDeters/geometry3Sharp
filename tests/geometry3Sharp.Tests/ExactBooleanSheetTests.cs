@@ -1724,6 +1724,87 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void OpenWithoutEffect_AnEffectSeenOnlyAtAnotherMeshsPieces_OnTheFrontSide()
+        {
+            // a tool made open by a stray sheet: its closed part (a box) swallows a cavity of the second mesh x. None of the
+            // tool's own pieces is kept; the effect shows at the cavity's faces, whose front side is inside the tool
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
+            DMesh3 x = Box(-0.5, -0.5, -0.5, 1.5, 1.5, 1.5);
+            MeshEditor.Append(x, Reversed(Box(0.125, 0.125, 0.125, 0.375, 0.375, 0.375)));
+            MeshEditor.Append(x, Reversed(Box(0.625, 0.625, 0.625, 0.875, 0.875, 0.875)));
+            DMesh3 m = Plate(0.25, 0.1875, 0.3125, 0.1875, 0.3125);
+            MeshEditor.Append(m, Box(0.5625, 0.5625, 0.5625, 0.9375, 0.9375, 0.9375));
+            ExactMeshBoolean without = Plain(Ops.Difference, cube, x);
+            Assert.Equal(2 * 0.015625, Volume(without.Result), 12);     // the two cavities
+            ExactMeshBoolean b = Plain(Ops.Difference, cube, x, m);
+            Assert.False(b.ExactWinding[2]);
+            Assert.Equal(0.015625, Volume(b.Result), 12);               // one of them is gone: an effect
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(b.Result));
+            Assert.Empty(b.OpenInputsWithoutEffect);
+        }
+
+        [Fact]
+        public void OpenWithoutEffect_CoplanarStacks()
+        {
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1), tool = Box(0.25, 0.25, 0.25, 0.75, 0.75, 2);
+            // an open tool whose walls and bottom lie in the cube's faces removes all of it: pieces are lost that no piece of
+            // the tool replaces (an effect through the pieces that are no longer kept)
+            ExactMeshBoolean all = Plain(Ops.Difference, cube, Cup(0, 0.5, 3, 0.5, true));
+            Assert.Equal(0, all.Result.TriangleCount);
+            Assert.Empty(all.OpenInputsWithoutEffect);
+            // a plate in the bottom face of a closed tool, either way up, as the third or the second input, and wider than the face
+            foreach (bool up in new[] { true, false }) {
+                ExactMeshBoolean after = Plain(Ops.Difference, cube, tool, Plate(0.25, 0.25, 0.75, 0.25, 0.75, up));
+                Assert.Equal(new[] { 2 }, after.OpenInputsWithoutEffect);
+                Assert.Equal(1 - 0.5 * 0.5 * 0.75, Volume(after.Result), 12);
+                Assert.Equal(new[] { 1 }, Plain(Ops.Difference, cube, Plate(0.25, 0.25, 0.75, 0.25, 0.75, up), tool).OpenInputsWithoutEffect);
+                Assert.Equal(new[] { 2 }, Plain(Ops.Difference, cube, tool, Plate(0.25, 0.125, 0.875, 0.125, 0.875, up)).OpenInputsWithoutEffect);
+            }
+        }
+
+        [Fact]
+        public void OpenWithoutEffect_ThreeInputs_Intersection_AndNextToASheetWithItsRole()
+        {
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1), column = Box(0.25, 0.25, -1, 0.75, 0.75, 2);
+            // Intersection of three: the plate matters inside both others; the result is empty (without the plate it is 0.25)
+            ExactMeshBoolean i3 = Plain(Ops.Intersection, cube, column, Plate(0.5, -1, 2, -1, 2));
+            Assert.Equal(0, i3.Result.TriangleCount);
+            Assert.Equal(new[] { 2 }, i3.OpenInputsWithoutEffect);
+            // a plate outside the column: nothing depends on it
+            Assert.Empty(Plain(Ops.Intersection, cube, column, Plate(0.5, 0.8, 0.95, 0.8, 0.95)).OpenInputsWithoutEffect);
+            // the deep cup encloses: an effect
+            ExactMeshBoolean cup = Plain(Ops.Intersection, cube, column, Cup(0.25, 0.25, 3, 0.25, true));
+            Assert.Equal(0.5 * 0.5 * 0.75, Volume(cup.Result), 12);
+            Assert.Empty(cup.OpenInputsWithoutEffect);
+            // a sheet with its role (it removes z < 0.5) and a plate without one: listed in the part that stays, not in the removed part
+            var solid = ExactMeshBoolean.InputRole.Solid;
+            ExactMeshBoolean kept = RunAll(new[] { cube, Plate(0.5, -1, 2, -1, 2), Plate(0.75, -1, 2, -1, 2) }, solid, ExactMeshBoolean.InputRole.Sheet, solid);
+            Assert.True(kept.Status == Status.Success, kept.Error);
+            Assert.Equal(0.5, Volume(kept.Result), 12);
+            Assert.Equal(new[] { 2 }, kept.OpenInputsWithoutEffect);
+            ExactMeshBoolean removed = RunAll(new[] { cube, Plate(0.5, -1, 2, -1, 2), Plate(0.25, -1, 2, -1, 2) }, solid, ExactMeshBoolean.InputRole.Sheet, solid);
+            Assert.True(removed.Status == Status.Success, removed.Error);
+            Assert.Equal(0.5, Volume(removed.Result), 12);
+            Assert.Empty(removed.OpenInputsWithoutEffect);
+        }
+
+        [Fact]
+        public void OpenWithoutEffect_IsEmptyAfterARunThatFailsAfterTheClassification()
+        {
+            // a rod to 1e300 and a floating plate: the union lists the plate; with StrictRounding the run fails in the rounding
+            // (the scale is not finite), after the classification, and the list is empty with the failed status
+            DMesh3 rod = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(1e300, 1, 1)) }.Generate().MakeDMesh();
+            DMesh3 plate = Plate(5, -1, 2, -1, 2);
+            var b = new ExactMeshBoolean(rod, plate, Ops.Union);
+            Assert.True(b.Compute(), b.Error);
+            Assert.Equal(new[] { 1 }, b.OpenInputsWithoutEffect);
+            b.StrictRounding = true;
+            Assert.False(b.Compute());
+            Assert.Equal(Status.RoundingNotClean, b.Status);
+            Assert.Empty(b.OpenInputsWithoutEffect);
+        }
+
+        [Fact]
         public void OpenWithoutEffect_NotEvaluatedWithAWindingPredicate()
         {
             DMesh3 cube = Box(0, 0, 0, 1, 1, 1), plate = Plate(0.5, -1, 2, -1, 2);
@@ -1732,12 +1813,8 @@ namespace geometry3Sharp.Tests
             Assert.True(b.Compute(), b.Error);
             Assert.Equal(1.0, Volume(b.Result), 12);
             Assert.Empty(b.OpenInputsWithoutEffect);
-            // the predicate is called for the two sides of each piece only (as without the list)
-            int with = calls;
-            calls = 0;
-            var closed = new ExactMeshBoolean(new[] { cube, Box(-1, -1, 0.5, 2, 2, 3) }, w => { ++calls; return w[0] > 0 && w[1] <= 0; });
-            Assert.True(closed.Compute(), closed.Error);
-            Assert.True(with % 2 == 0 && calls % 2 == 0 && with > 0);
+            // the predicate is called for the two sides of each piece only (this input has no coplanar pieces)
+            Assert.Equal(2 * b.Counts["pieces"], calls);
         }
 
         [Fact]

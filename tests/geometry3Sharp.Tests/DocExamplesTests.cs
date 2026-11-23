@@ -441,6 +441,7 @@ namespace geometry3Sharp.Tests
             ExactMeshBoolean half = SweptCutExample.Run(SweptCutCube(), SweptCutSheet(-1, -1, 5, 5, 1, 1, 1), down);
             AssertSweptCut(half, 48);
             Assert.All(half.Result.VertexIndices(), v => Assert.True(half.Result.GetVertex(v).z >= 1));
+            AssertSweptCut(SweptCutExample.Run(SweptCutCube(), SweptCutSheet(-1, -1, 5, 5, 1, 1, 2), down), 32);     // the guide's first row
             // a sheet that ends inside (x up to 2): a step
             AssertSweptCut(SweptCutExample.Run(SweptCutCube(), SweptCutSheet(-1, -1, 2, 5, 1, 1, 2), down), 48);
             // a sheet with a hole [1,3]^2 inside the cube: a pillar under the hole stays

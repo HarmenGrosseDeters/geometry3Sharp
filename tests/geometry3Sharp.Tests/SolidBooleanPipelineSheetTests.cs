@@ -176,6 +176,29 @@ namespace geometry3Sharp.Tests
             Assert.False(r.Compute());
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, r.Status);
             Assert.StartsWith("input 2 is not closed", r.Error);
+            // an input with a flipped triangle is closed for the boolean (Orientation = AreaMajority reorients it), although the
+            // pipeline's own check (Report.InputClosed) counts it as open: it is not named
+            DMesh3 flipped = Cube(4);
+            flipped.ReverseTriOrientation(0);
+            var f = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), flipped, Sheet(2, -1, 5) }, D) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
+            Assert.False(f.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, f.Status);
+            Assert.False(f.Report.InputClosed[1]);
+            Assert.StartsWith("input 2 is not closed", f.Error);
+            // a thin input left out before the boolean (TreatAsEmpty): the index is the pipeline's (2), not the boolean's (1)
+            DMesh3 slab = new TrivialBox3Generator() { Box = new Box3d(new AxisAlignedBox3d(new Vector3d(-1, -1, 2), new Vector3d(5, 5, 2.01))) }.Generate().MakeDMesh();
+            DMesh3 open = Cube(4);
+            double top = open.GetBounds().Max.z;
+            foreach (int tid in open.TriangleIndices().ToList()) {
+                Index3i t = open.GetTriangle(tid);
+                if (open.GetVertex(t.a).z == top && open.GetVertex(t.b).z == top && open.GetVertex(t.c).z == top)
+                    open.RemoveTriangle(tid);
+            }
+            var thin = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), slab, open }, D) { MinThickness = 0.1, ThinInputs = SolidBooleanPipeline.ThinInputModes.TreatAsEmpty };
+            Assert.False(thin.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, thin.Status);
+            Assert.Single(thin.Report.ThinInputs);
+            Assert.StartsWith("input 2 is not closed", thin.Error);
         }
     }
 }

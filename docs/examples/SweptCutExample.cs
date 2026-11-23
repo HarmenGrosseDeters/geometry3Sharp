@@ -13,8 +13,8 @@ namespace g3.Examples
     {
         /// <summary>
         /// direction: where the removed material is, seen from the sheet (the side the sheet's normals point away from).
-        /// Returns null if a triangle of the sheet does not face away from the direction (the swept tool would fold over), or
-        /// if the sheet's boundary could not be stitched; otherwise the computed boolean (check Status).
+        /// Returns null if a triangle of the sheet does not face away from the direction (the swept tool would fold over; also
+        /// for a zero direction), or if the sheet's boundary could not be stitched; otherwise the computed boolean (check Status).
         /// </summary>
         public static ExactMeshBoolean Run(DMesh3 workpiece, DMesh3 sheet, Vector3d direction)
         {
