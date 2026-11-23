@@ -4,6 +4,8 @@ Back to [Sources Index](../SOURCES.md) · [sources/README.md](README.md)
 
 ---
 
+The [certified medial-axis study](../research/CERTIFIED_MEDIAL_AXIS_STUDY.md) uses the ordinary local feature size definition from N. Amenta and M. Bern, [Surface Reconstruction by Voronoi Filtering](https://escholarship.org/uc/item/4rc7z0d1), DCG 22 (1999). The contact-radius filter is from F. Chazal and A. Lieutier, [The λ-medial axis](https://geometrica.saclay.inria.fr/team/Fred.Chazal/papers/cl-lma-05/mlambda.pdf), Graphical Models 67 (2005). The critical-point criterion is from F. Chazal, D. Cohen-Steiner and A. Lieutier, [A Sampling Theory for Compact Sets in Euclidean Space](https://geometrica.saclay.inria.fr/team/Fred.Chazal/papers/ccsl-stcse-09/ccsl-stcse-09.pdf), DCG 41 (2009). Paper text only.
+
 ## Surface deformation (`ArapMeshDeformer`)
 
 | Item | Source |
