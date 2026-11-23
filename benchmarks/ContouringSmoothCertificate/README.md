@@ -101,7 +101,7 @@ dotnet run -c Release --project benchmarks/ContouringSmoothCertificate -- sheet 
 The yield and the cost of `TwoLevelSheetCertificate` (internal;
 [CONTOURING_BLOCK_CERTIFICATE.md](../../docs/design/CONTOURING_BLOCK_CERTIFICATE.md), section 4b) on walls around six
 capped TPMS (a smooth field, no domain cut): 32 and 64 cells across, one and two periods, half a cell and two cells
-thick (two cells only at one period). `results/sheet.csv`, 2026-11-22, one machine, serial, medians of 3 runs. 36
+thick (two cells only at one period). `results/sheet.csv`, 2026-11-23, one machine, serial, medians of 3 runs (the run without blocks: one run). 36
 runs; in 8 (Schwarz P and Neovius at one period) the wall is empty and the run is certified in 2 to 26 ms; the other 28:
 
 | | |
@@ -115,7 +115,7 @@ runs; in 8 (Schwarz P and Neovius at one period) the wall is empty and the run i
 | cubes left, by the condition that failed last | 3549 direction (B3), 4305 block limit; none by node, edge, face, circle count or mesh |
 | time of the certificate against the mesher with its record | 7 to 40 times, median 23 times (before #1436: 55 to 298, median 153) |
 | time per cube that may hold a zero | 0.06 to 0.17 ms, median 0.10 ms (before: 0.44 to 1.18, median 0.52) |
-| time with blocks against without (`MaxBlockSide = 1`) | 0.95 to 1.80 times, median 1.16 |
+| time with blocks against without (`MaxBlockSide = 1`) | 0.95 to 1.80 times, median 1.16 (one run each; noise at the short times) |
 
 - No run is certified wrong by the benchmark's own view: the certified runs have two components (one per level); it
   does not check more than that. The tests have a sampling oracle.
@@ -124,7 +124,7 @@ runs; in 8 (Schwarz P and Neovius at one period) the wall is empty and the run i
 - Before and after [#1436](https://github.com/HarmenGrosseDeters/geometry3Sharp/issues/1436) (one `Compute` at or
   above 20 s). `results/sheet_before_1436.csv` is the run before; every column but the times is the same in both.
 
-  | slowest run per field (64 cells, 2 periods) | before | after | all runs of the field |
+  | slowest run per field (64 cells, 2 periods) | before | after | the field's runs with a wall |
   |---|---|---|---|
   | Gyroid | 7.6 s | 1.2 s | 4.9 to 6.8 times faster |
   | Schwarz P | 10.8 s | 1.3 s | 7.7 to 8.0 |
@@ -133,7 +133,9 @@ runs; in 8 (Schwarz P and Neovius at one period) the wall is empty and the run i
   | IWP | 25.1 s | 2.5 s | 7.1 to 10.4 |
   | Lidinoid | 19.5 s | 2.9 s | 6.0 to 6.9 |
 
-  What was measured first: 94 % of the time was in the field's enclosures (IWP: 2.95 million calls at 8.8 us), two
+  The 8 runs without a wall take 2 to 26 ms (before: 6 to 35).
+
+  What was measured first (with counters that are not in the code; no csv): 94 % of the time was in the field's enclosures (IWP: 2.95 million calls at 8.8 us), two
   thirds of them for the 64 sub-boxes of each cube. Enclosing once for both levels, the issue's first idea, has an
   upper bound of a factor 2 (1.41 million distinct boxes of the 2.95 million): 12.5 s for IWP, not built. What
   was built: the nodal functions are sums of products of sines and cosines of one coordinate each, and the boxes of a

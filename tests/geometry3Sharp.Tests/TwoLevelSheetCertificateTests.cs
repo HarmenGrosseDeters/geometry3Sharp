@@ -40,9 +40,12 @@ namespace geometry3Sharp.Tests
         {
             readonly IntervalTpms tpms; readonly double R, cap;
             public CappedTpms(TpmsType type, double k, double radius, double cap) { tpms = new IntervalTpms(type, k, 0); R = radius; this.cap = cap; }
-            public override IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z)
+            public object NewCache() { return tpms.NewEncloseCache(); }
+            public override IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z) { return Enclose(x, y, z, null); }
+            /// <summary> with a cache of NewCache, or without one (null) </summary>
+            public IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z, object cache)
             {
-                IntervalEnclosure e = tpms.Enclose(x, y, z);
+                IntervalEnclosure e = cache == null ? tpms.Enclose(x, y, z) : tpms.Enclose(x, y, z, cache);
                 ExactInterval r2 = ExactInterval.Square(C(R));
                 ExactInterval u = (ExactInterval.Square(x) + ExactInterval.Square(y) + ExactInterval.Square(z)) / r2;
                 ExactInterval u2 = ExactInterval.Square(u);
@@ -813,30 +816,24 @@ namespace geometry3Sharp.Tests
         /// <summary> a capped TPMS that offers a cache to its caller, and counts what it is asked </summary>
         sealed class CachedTpms : TestField, IntervalImplicit3dCached
         {
-            readonly IntervalTpms tpms; readonly double R, cap;
+            readonly CappedTpms inner;
             public int Caches, PlainCalls, CachedCalls, ForeignCalls; object last;
-            public CachedTpms(TpmsType type, double k, double radius, double cap) { tpms = new IntervalTpms(type, k, 0); R = radius; this.cap = cap; }
-            public object NewEncloseCache() { ++Caches; last = tpms.NewEncloseCache(); return last; }
-            public override IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z) { ++PlainCalls; return finish(tpms.Enclose(x, y, z), x, y, z); }
+            /// <summary> for a field that offers the interface and no cache </summary>
+            public bool NoCache;
+            /// <summary> the call with a cache that throws (once) </summary>
+            public int ThrowAt = -1;
+            public CachedTpms(TpmsType type, double k, double radius, double cap) { inner = new CappedTpms(type, k, radius, cap); }
+            public object NewEncloseCache() { ++Caches; last = NoCache ? null : inner.NewCache(); return last; }
+            public override IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z) { ++PlainCalls; return inner.Enclose(x, y, z); }
             public IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z, object cache)
             {
-                ++CachedCalls; if (!ReferenceEquals(cache, last)) ++ForeignCalls;
-                return finish(tpms.Enclose(x, y, z, cache), x, y, z);
+                ++CachedCalls; if (cache == null || !ReferenceEquals(cache, last)) ++ForeignCalls;
+                if (CachedCalls == ThrowAt) throw new InvalidOperationException("the field fails");
+                return inner.Enclose(x, y, z, cache);
             }
             public long Hits { get { return ((IntervalTpms.SinCosCache)last).Hits; } }
             public long Misses { get { return ((IntervalTpms.SinCosCache)last).Misses; } }
-            // as CappedTpms
-            IntervalEnclosure finish(IntervalEnclosure e, ExactInterval x, ExactInterval y, ExactInterval z)
-            {
-                ExactInterval r2 = ExactInterval.Square(C(R));
-                ExactInterval u = (ExactInterval.Square(x) + ExactInterval.Square(y) + ExactInterval.Square(z)) / r2;
-                ExactInterval u2 = ExactInterval.Square(u);
-                ExactInterval d = C(6) * C(cap) * u2 / r2;
-                ExactInterval k = C(tpms.K);
-                e.F = (e.F + C(cap) * (u2 * u)) / k; e.Gx = (e.Gx + d * x) / k; e.Gy = (e.Gy + d * y) / k; e.Gz = (e.Gz + d * z) / k;
-                return e;
-            }
-            public override double Value(ref Vector3d p) { throw new NotSupportedException(); }
+            public override double Value(ref Vector3d p) { return inner.Value(ref p); }
         }
 
         // A field that offers a cache is asked through one cache per run, and the result is the one without the cache.
@@ -862,6 +859,60 @@ namespace geometry3Sharp.Tests
             Assert.Equal(2, cached.Caches);
             Assert.Equal(0, cached.ForeignCalls);
             Assert.Equal(List(without), List(cert));
+            // the cache is not kept after the run
+            Assert.False(cert.HoldsAnEncloseCache);
+
+            // another field on the same instance, without a cache: asked on its own, nothing of the cached field is used
+            int calls = cached.CachedCalls;
+            var sphere = new Sphere(new Vector3d(0.03, -0.02, 0.01), 0.7);
+            TwoLevelMarchingTetrahedra other = Mesh(sphere, 0.5 * 2.2 / 16 / 2, Shift, 2.2, 16);
+            cert.Field = sphere; cert.Mesher = other;
+            cert.Compute();
+            Assert.True(cert.Certified);
+            Assert.Equal(List(Certify(sphere, other)), List(cert));
+            Assert.Equal(calls, cached.CachedCalls);
+            Assert.Equal(2, cached.Caches);
+
+            // a field that offers the interface and no cache is asked without one
+            var none = new CachedTpms(TpmsType.Gyroid, 2 * Math.PI / 2.2, 0.9, 4) { NoCache = true };
+            TwoLevelSheetCertificate plainly = Certify(none, gen);
+            Assert.Equal(List(without), List(plainly));
+            Assert.Equal(1, none.Caches);
+            Assert.Equal(0, none.CachedCalls);
+            Assert.True(none.PlainCalls > 10000);
+
+            // a run that the field ends with an exception: the next run has a cache of its own
+            var failing = new CachedTpms(TpmsType.Gyroid, 2 * Math.PI / 2.2, 0.9, 4) { ThrowAt = 500 };
+            var again = new TwoLevelSheetCertificate { Field = failing, Mesher = gen };
+            Assert.Throws<InvalidOperationException>(() => again.Compute());
+            Assert.False(again.Certified);
+            again.Compute();
+            Assert.Equal(2, failing.Caches);
+            Assert.Equal(0, failing.ForeignCalls);
+            Assert.Equal(List(without), List(again));
+        }
+
+        // The cached field under the scalings by powers of two (a nodal function has no rotated or shifted form here): the
+        // same result bit for bit, through the cache.
+        [Fact]
+        public void Invariance_OfAFieldWithACache_UnderScalings()
+        {
+            const int n = 16;
+            Func<double, string> run = scale => {
+                var f = new CachedTpms(TpmsType.Gyroid, 2 * Math.PI / 2.2 / scale, 0.9 * scale, 4);
+                TwoLevelMarchingTetrahedra gen = Mesh(f, scale * 0.5 * 2.2 / n / 2, scale * Shift, scale * 2.2, n);
+                var cert = new TwoLevelSheetCertificate { Field = f, Mesher = gen };
+                cert.Compute();
+                Assert.True(f.CachedCalls > 10000 && f.PlainCalls == 0 && f.ForeignCalls == 0);
+                return List(cert);
+            };
+            string unit = run(1);
+            int scalings = 0;
+            foreach (Similarity sim in Similarity.All().Where(x => x.IsExact)) {
+                Assert.Equal(unit, run(sim.Scale));
+                ++scalings;
+            }
+            Assert.True(scalings >= 2);
         }
 
         static Vector3d NodePoint(int i, int j, int k) { return new Vector3d(Node(0, i), Node(1, j), Node(2, k)); }

@@ -546,7 +546,8 @@ covered (point 3 of section 4).
   #1436). 94 % of it was the field's enclosures, and in them the interval sines and cosines. Now a field can offer
   a cache that the caller owns (`IntervalImplicit3dCached`); `IntervalTpms` keeps the sines and cosines per phase
   interval in it, which the boxes of a grid share. Same enclosures bit for bit, same results; the slowest run is at
-  3.5 s, all runs 4.7 to 10.4 times faster. Enclosing once for both levels (upper bound: a factor 2) is not built.
+  3.5 s, the 28 runs with a wall 4.7 to 10.4 times faster. The cache holds at most 65536 phase intervals (about
+  4.5 MB) and is dropped at the end of the run. Enclosing once for both levels (upper bound: a factor 2) is not built.
 - Measured (`benchmarks/ContouringSmoothCertificate`, mode `sheet`, `results/sheet.csv`): 13 of 28 walls around capped
   TPMS certified; 11 of 12 for gyroid, Schwarz P, Schwarz D and Neovius at 32 or 64 cells per period, none of these at
   16, 2 of 12 for IWP and Lidinoid (not diagnosed). Of the cubes that may hold a zero 86.6 % are certified alone,

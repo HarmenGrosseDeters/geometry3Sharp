@@ -31,6 +31,7 @@ namespace g3
     /// Optional for an IntervalImplicit3d: enclosures that reuse work between calls through a cache that the caller owns,
     /// so that the function itself keeps no state (requirement (iii) of IntervalImplicit3d). A cache is used by one thread
     /// at a time and with the function that made it. The result is the one of Enclose(x, y, z), bit for bit.
+    /// NewEncloseCache may return null (no cache to offer): the caller then uses Enclose(x, y, z).
     /// </summary>
     internal interface IntervalImplicit3dCached : IntervalImplicit3d
     {

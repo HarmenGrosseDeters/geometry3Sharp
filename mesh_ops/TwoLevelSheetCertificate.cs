@@ -141,8 +141,6 @@ namespace g3
             if (MaxBlockSide < 1 || MaxBlockSide > 64) throw new ArgumentOutOfRangeException(nameof(MaxBlockSide));
 
             rec = Mesher.Certificate;
-            cachedField = Field as IntervalImplicit3dCached;
-            encloseCache = cachedField != null ? cachedField.NewEncloseCache() : null;
             DMesh3 mesh = Mesher.Mesh;
             if (rec == null || mesh == null || rec.VertexA.Count != mesh.MaxVertexID || rec.VertexB.Count != mesh.MaxVertexID
                 || rec.VertexLevel.Count != mesh.MaxVertexID || rec.TriangleLevel.Count != mesh.MaxTriangleID
@@ -180,6 +178,9 @@ namespace g3
             }
             if (gs.MeshRepairMetrics.HasSelfIntersections(mesh)) RunFailure |= SheetCertificateRunFailure.SelfIntersections;
 
+            // a field that offers a cache is asked through one cache for this run (no cache: asked plainly)
+            cachedField = Field as IntervalImplicit3dCached;
+            encloseCache = cachedField != null ? cachedField.NewEncloseCache() : null;
             for (level = 0; level < 2; ++level) {
                 nodeSign = new sbyte[rec.NodeFlags.Length];
                 edgeOk = new Dictionary<long, bool>(); faceOk = new Dictionary<long, bool>();
@@ -203,6 +204,7 @@ namespace g3
                 Blocks[level] = BlockBoxes[level].Count;
                 CellStates[level] = cellState;
             }
+            cachedField = null; encloseCache = null;
             foreach (SheetUncertifiedCell u in UncertifiedCells) if (u.Reason == SheetCertificateReason.OuterLayer) RunFailure |= SheetCertificateRunFailure.OuterLayer;
             Certified = RunFailure == SheetCertificateRunFailure.None && UncertifiedCells.Count == 0;
         }
@@ -234,10 +236,11 @@ namespace g3
         // -d does for -g what d does for g.
         // a field that reuses work between its enclosures does so through a cache of this run
         IntervalImplicit3dCached cachedField; object encloseCache;
+        internal bool HoldsAnEncloseCache { get { return encloseCache != null; } }
 
         IntervalEnclosure enclose(ExactInterval x, ExactInterval y, ExactInterval z)
         {
-            IntervalEnclosure e = cachedField != null ? cachedField.Enclose(x, y, z, encloseCache) : Field.Enclose(x, y, z);
+            IntervalEnclosure e = encloseCache != null ? cachedField.Enclose(x, y, z, encloseCache) : Field.Enclose(x, y, z);
             e.F = level == 0 ? e.F - W : -e.F - W;
             // a box that may hold a point where g is not smooth has no gradient to test: every test of a derivative fails on it
             if (!e.Smooth) e.Gx = e.Gy = e.Gz = new ExactInterval(double.NegativeInfinity, double.PositiveInfinity);
