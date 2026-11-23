@@ -53,6 +53,7 @@ on:
       - 'tests/geometry3Sharp.Tests/ExactImplicitPointTests.cs'
       - 'tests/geometry3Sharp.Tests/PredicateDifferentialTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactPoint3ConversionTests.cs'
+      - 'tests/geometry3Sharp.Tests/ExactPoint3ToDoubleRoundingTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactPoint3FixedWidthTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactLimbSignsTests*.cs'
       - 'tests/geometry3Sharp.Tests/ExactOrient3dKernelTests.cs'
