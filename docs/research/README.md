@@ -4,7 +4,7 @@ Prior-art checks, literature surveys, external library comparisons, and explorat
 
 | Study | Topic & Summary |
 |---|---|
-| [Procedural sphere unions](MOLECULAR_SURFACES_STUDY.md) | Analytic topology, volume and area controls for Boolean union, contouring and wrapping |
+| [MOLECULAR_SURFACES_STUDY.md](MOLECULAR_SURFACES_STUDY.md) | 20-case molecular ball-union stress study (1e-12 tangency, cavities, helices, 12–96-ball packings): no Boolean/pipeline defects found; 3.5× binary-tree vs. multi-mesh crossover at 96 balls; stop/park |
 | [EXACT_TOPOLOGY_CERTIFICATES.md](EXACT_TOPOLOGY_CERTIFICATES.md) | Solid Betti numbers for Boolean and repair tests, measured on C# outputs and clean replacements that exercise the gap in surface topology checks |
 | [BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md](BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md) | Prior-art check for post-3.0 exact boolean research directions |
 | [ERROR_BOUND_AUDIT_2026-11.md](ERROR_BOUND_AUDIT_2026-11.md) | Audit of the hand-written floating-point error bounds of the exact code: inventory (about 155), an independent re-derivation by a new checker (`tools/ErrorBoundAudit`: 31 bounds checked, 32 derivations proved), an adversarial run against `ExactDyadic`, four findings, and a CI test proposal |
