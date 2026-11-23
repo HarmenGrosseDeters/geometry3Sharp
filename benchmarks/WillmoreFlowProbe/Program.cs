@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Linq;
 using g3;
 using gs;
 
@@ -44,6 +45,11 @@ static void CheckTorus(DMesh3 mesh)
     string defect = MeshRobustRepair.NotCleanReason(mesh, checkSelfIntersections: true);
     if (defect.Length != 0 || topology.Components != 1 || topology.Genus != 1)
         throw new InvalidOperationException($"Invalid torus: {defect}, genus {topology.Genus}.");
+}
+
+if (args.Length == 2 && args[0] == "--model") {
+    CompareModel(StandardMeshReader.ReadMesh(args[1]) ?? throw new ArgumentException("Unreadable mesh."));
+    return;
 }
 
 if (Array.IndexOf(args, "--acceptance") >= 0) {
@@ -169,6 +175,45 @@ static void CompareAcceptance(double warp, string policy, bool report = true)
         current = selected;
         if (report) Console.WriteLine($"{warp:G2} {policy} {next:G10} {radius:G10} " +
             $"{previous:G10} {before:G10} {full:G10} {smooth:G10} {choice} {selectedEnergy:G10} {quality:G9}");
+    }
+}
+
+// Static shape redistribution, with the input surface as the projection target.
+static void CompareModel(DMesh3 input)
+{
+    string defect = MeshRobustRepair.NotCleanReason(input, checkSelfIntersections: true);
+    if (defect.Length != 0) throw new ArgumentException($"Expected a clean closed input: {defect}");
+    var initial = MeshTopologySummary.Compute(input);
+    double energy = Energy(input), quality = WorstQuality(input);
+    double h = input.EdgeIndices().Average(e => {
+        Index2i ends = input.GetEdgeV(e);
+        return input.GetVertex(ends.a).Distance(input.GetVertex(ends.b));
+    });
+    Console.WriteLine($"input V={input.VertexCount} F={input.TriangleCount} genus={initial.Genus} " +
+        $"mean-edge={h:G9} energy={energy:G10} worst-quality={quality:G9}");
+    var surface = MeshProjectionTarget.Auto(input);
+    foreach (bool features in new[] { false, true }) {
+        foreach (bool full in new[] { false, true }) {
+            var candidate = new DMesh3(input);
+            var pass = new Remesher(candidate) {
+                EnableFlips = full, EnableSplits = full, EnableCollapses = full,
+                PreventSelfIntersections = true, EnableParallelSmooth = false, EnableParallelProjection = false
+            };
+            pass.SetTargetEdgeLength(h);
+            pass.SetProjectionTarget(surface);
+            if (features) MeshConstraintUtil.PreserveBoundaryAndFeatures(pass, 30);
+            pass.BasicRemeshPass();
+            var topo = MeshTopologySummary.Compute(candidate);
+            string reason = MeshRobustRepair.NotCleanReason(candidate, checkSelfIntersections: true);
+            bool clean = reason.Length == 0 && topo.Genus == initial.Genus && topo.Components == initial.Components;
+            double after = clean ? Energy(candidate) : double.NaN;
+            double q = WorstQuality(candidate);
+            var distance = new MeshHausdorffDistance(input, candidate) { Tolerance = 0.01 * h };
+            if (!distance.Compute()) throw new InvalidOperationException("Hausdorff computation failed.");
+            Console.WriteLine($"full={full} features={features} clean={clean} F={candidate.TriangleCount} " +
+                $"energy={after:G10} worst-quality={q:G9} hausdorff/h=[{distance.LowerBound/h:G7},{distance.UpperBound/h:G7}] " +
+                $"accept={clean && after <= energy && q > quality} defect={reason}");
+        }
     }
 }
 

@@ -63,3 +63,20 @@ Add `--timings` after `--acceptance` for end-to-end policy times. Each process w
 | 0.8 | 61 ms | 544 ms | 457 ms | 161 ms |
 
 These times include mesh copies, clean-mesh checks, energy and quality evaluations, candidate passes and row output. They exclude process startup and warm-up. The gentle-only policy took about 2.7 times the baseline time on the crowded mesh and about 35% of the full-first budget time. For this workload, use the energy check to make optional smoothing reversible when minimum quality matters. Motion alone is the cheaper baseline when the observed sub-percent quality gain is immaterial.
+
+## Thingi10K thin-walled part
+
+Thingi10K file 135363 (`4AAA_base.stl`, Thing 51376) is the thin-walled part already characterized in the [remeshing benchmark](../../benchmarks/RemeshQualityBenchmark/README.md). The input has 1,308 vertices, 2,612 triangles, one closed genus-zero component, mixed-area bending energy 3522.582 and worst triangle quality 0.0000191632. Its mean edge length h is 11.6226 model units. The earlier benchmark reports tube wall thickness 0.75 and base thickness 0.8. The very low worst quality and sharp features make the vertex energy a discretization diagnostic. There is no analytic Willmore reference for this model.
+
+Run `dotnet run -c Release --project benchmarks/WillmoreFlowProbe -- --model /path/to/135363.stl` with a local copy. The opt-in command reads the model locally. The default benchmark still generates its inputs. File SHA-256 is `3c9ae76d07378a13e5dc4e1840469f3e693196656e73d494d1a0dc2d0a7af2cd`. The dataset lists Creative Commons Attribution–ShareAlike for this file. [Original design](https://www.thingiverse.com/thing:51376) · [Thingi10K mesh](https://huggingface.co/datasets/Thingi10K/Thingi10K/blob/main/raw_meshes/135363.stl) · [License metadata](https://huggingface.co/datasets/Thingi10K/Thingi10K/blob/main/metadata/input_summary.csv)
+
+There is no prescribed motion. Each of four independent proposals starts from the input and runs one guarded serial pass targeting h, projecting to the input surface. The optional feature constraints use the library's 30° crease threshold. Acceptance requires a clean mesh with the same genus and component count, nonincreasing measured energy and improved minimum triangle quality. Symmetric Hausdorff distance to the input is reported independently using the library's lower and upper estimates with tolerance 0.01 h.
+
+| Pass | Feature constraints | Energy | Worst triangle quality | Hausdorff distance / h | Accepted |
+|---|---|---:|---:|---:|---|
+| Smoothing only | Off | 3396.637 | 0.000012052 | 0.13308–0.14305 | No |
+| Full | Off | 16077.051 | 0.000060481 | 0.45641–0.46502 | No |
+| Smoothing only | On | 3672.552 | 0.000024188 | 0.00133–0.01134 | No |
+| Full | On | 18781.942 | 0.000014841 | 0.08305–0.09239 | No |
+
+All four outputs passed the clean-mesh and topology checks. Energy alone would accept the unconstrained smoothing pass. Its worst triangle quality fell by 37% and its symmetric surface distance was at least 1.54 model units, more than twice the nominal tube wall thickness. This is a global distance, so it does not locate the maximum deviation on a particular wall. Feature-constrained smoothing kept the distance below 0.132 units and improved worst quality by 26%, but raised measured energy by 4.3%. For this engineering part, retaining the input is a useful conservative outcome of the combined rule. If dimensional fidelity and triangle quality are the design requirements, the feature-constrained result warrants comparison to the caller's tolerance. The energy rule alone cannot decide that tradeoff. This single-pass test on one part does not establish a dataset-wide rate or simulate a free Willmore flow.
