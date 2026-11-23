@@ -390,8 +390,13 @@ namespace g3
         public bool SimplifyFlatRegions = true;
         /// <summary> vertices removed by SimplifyFlatRegions </summary>
         public int RemovedVertices;
-        /// <summary> if false, Compute() fails for meshes that are not closed in the winding number sense </summary>
-        public bool AllowOpenMeshes = true;
+        /// <summary>
+        /// false (default): Compute() fails with Status OpenInput for a mesh that is not closed in the winding number sense and has no
+        /// role Sheet (Roles); Error names the meshes. true: such a mesh is classified by the generalized winding number, the solid
+        /// where it is above 1/2 (see the class comment); an open cutting surface then usually cuts nothing, silently
+        /// (OpenInputsWithoutEffect), which is why this is stated by the caller (#1211; the default was true before)
+        /// </summary>
+        public bool AllowOpenMeshes = false;
         /// <summary>
         /// after rounding the vertices to double, repair the self-intersections and degenerate triangles (area below
         /// 1e-12 of the squared diagonal; the diagonal of the result's largest connected component, here and below) the
@@ -517,6 +522,8 @@ namespace g3
         /// </summary>
         public IReadOnlyList<int> OpenInputsWithoutEffect { get { return openWithoutEffect; } }
         List<int> openWithoutEffect = new List<int>();
+        // the list of the classification of the running Compute(), until it succeeds
+        List<int> classifiedWithoutEffect;
         // for tests: use generalized winding numbers also for closed meshes
         internal bool ForceGeneralizedWinding = false;
         // open meshes with fewer boundary segments than this are classified by the Antipodal Method (an exact ray and a
@@ -798,6 +805,7 @@ namespace g3
             ExactWindingA = ExactWindingB = false;
             ExactWinding = null;
             openWithoutEffect = new List<int>();
+            classifiedWithoutEffect = null;
             SheetReason = SheetRefusal.None;
             SheetError = null;
             SheetWitnessMesh = SheetWitnessTriangle = SheetWitnessTriangle2 = -1;
@@ -1051,12 +1059,13 @@ namespace g3
                         Rounding.RemovedResolvable);
                     Result = null;
                     Status = BooleanStatus.RoundingNotClean;
-                    openWithoutEffect = new List<int>();     // (as fail(): the list belongs to a result)
                     return false;
                 }
             }
             Contacts = count_contacts(Result);
             Counts["contacts"] = Contacts;
+            if (classifiedWithoutEffect != null)
+                openWithoutEffect = classifiedWithoutEffect;
             Status = BooleanStatus.Success;
             return true;
         }
@@ -1584,7 +1593,6 @@ namespace g3
         {
             Status = status;
             Error = error;
-            openWithoutEffect = new List<int>();     // (the list belongs to a result: also empty where the run fails after the classification)
             return false;
         }
 
@@ -1644,7 +1652,7 @@ namespace g3
         public static DMesh3 Resolve(DMesh3 mesh, bool safeRounding)
         {
             // (a repair of one mesh: an inconsistently oriented one is oriented by area, as before #1210)
-            var op = new ExactMeshBoolean(mesh, new DMesh3(), Operations.Union) { SafeRounding = safeRounding, Orientation = OrientationModes.AreaMajority };
+            var op = new ExactMeshBoolean(mesh, new DMesh3(), Operations.Union) { SafeRounding = safeRounding, Orientation = OrientationModes.AreaMajority, AllowOpenMeshes = true };
             return op.Compute() ? op.Result : null;
         }
 
@@ -2055,9 +2063,11 @@ namespace g3
                 }
                 touched.Clear();
             }
+            // (published by Compute with Status Success only: a run that fails or throws after this leaves the list empty)
+            classifiedWithoutEffect = new List<int>();
             foreach (int m in openInputs)
                 if (matters[m] && effect[m] == false)
-                    openWithoutEffect.Add(m);
+                    classifiedWithoutEffect.Add(m);
             CertificateFront = front;
             steps.LapMicroseconds("classification.decisions");
         }

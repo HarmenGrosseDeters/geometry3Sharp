@@ -313,7 +313,7 @@ Options:
 How others solve it: refusal by default (CGAL preconditions, OpenCASCADE's dimension rule, Manifold's `NotManifold`);
 where open inputs are accepted without semantics (Blender, VTK), the manuals warn of artefacts.
 
-Leaning: S1 now, since it changes no behaviour and makes the case testable; S3 as the owner's decision after #1223 is
+Decided (section 10): S1 and S3. The leaning at the time of the study: S1 now, since it changes no behaviour and makes the case testable; S3 as the owner's decision after #1223 is
 merged, when every legitimate open input has an explicit way in (`Roles` for a sheet, `AllowOpenMeshes = true` for the
 winding number rule). S2 is not recommended: a heuristic refusal where S3 gives an exact one.
 
@@ -330,7 +330,9 @@ winding number rule). S2 is not recommended: a heuristic refusal where S3 gives 
 Owner decisions on section 9: (1) B; (2) a sheet that only touches is refused; (3) the front side stays; both in #1223, merged.
 (4) D as a documented and tested recipe without a new API: [the guide](../guides/booleans-and-imprint.md#extruded-cut-with-an-open-sheet-recipe)
 and `docs/examples/SweptCutExample.cs`. (5) S1 now: `ExactMeshBoolean.OpenInputsWithoutEffect` and `OpenInput` errors that name
-the inputs and the ways out; S3 (the default of `AllowOpenMeshes`) is still open. The list is defined on the classification's
+the inputs and the ways out. S3 (owner 2026-11-23): the default of `ExactMeshBoolean.AllowOpenMeshes` is `false`; the
+silent `Success` of sections 2 and 8 now needs the caller's `AllowOpenMeshes = true` (repairs of one mesh, `Resolve` and
+`MeshRobustRepair`, set it themselves). The list is defined on the classification's
 decisions, not on the volume proxy of section 8: on the 13 cases it names the sheet in the 10 flagged ones and for the disc
 inside the cube. It says that the result is the one of an input that encloses nothing (for a Difference tool: the result
 without it), not that the result is right: an open input

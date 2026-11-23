@@ -1547,7 +1547,8 @@ namespace gs
                     SafeRounding = SafeRounding, RoundingMaxDisplacement = RoundingMaxDisplacement, RoundingUlpFactor = RoundingUlpFactor,
                     RoundingAbsoluteTolerance = RoundingAbsoluteTolerance, StrictRounding = StrictRounding,
                     RoundingMaxPairTests = RoundingMaxPairTests, RoundingPairTestsDefectScale = RoundingPairTestsDefectScale,
-                    RoundingPairTestsMaxGrowth = RoundingPairTestsMaxGrowth
+                    RoundingPairTestsMaxGrowth = RoundingPairTestsMaxGrowth,
+                    AllowOpenMeshes = true      // (a repair: the input is what it is, open or not)
                 };
                 DMesh3 res = resolve.Compute() ? resolve.Result : null;
                 ExactResolveRounding = resolve.Rounding;

@@ -626,6 +626,7 @@ namespace g3cli
                 var op = new ExactMeshBoolean(mesh, new DMesh3(), ExactMeshBoolean.Operations.Union) {
                     SafeRounding = args.Bool("safe_rounding"), SimplifyFlatRegions = args.Bool("simplify_flat_regions"),
                     Orientation = ExactMeshBoolean.OrientationModes.AreaMajority,
+                    AllowOpenMeshes = true,     // (resolve repairs one mesh, open or not, as ExactMeshBoolean.Resolve)
                 };
                 ApplyRoundingTolerances(op, args);
                 if (op.Compute() == false)
