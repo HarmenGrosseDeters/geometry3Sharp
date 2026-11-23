@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using g3;
 using gs;
 
@@ -25,6 +26,43 @@ internal static class VectorHeatTransportProbe
             foreach (var (schedule, factor) in new[] { ("default", 1.0), ("fourfold", 4.0), ("linear", 0.5 / h) })
                 Measure(mesh, resolution, true, factor, schedule, source);
         }
+    }
+
+    public static void RunEquatorSweep()
+    {
+        Console.WriteLine("resolution schedule actual-factor axis-fraction seam-fraction log-axis-over-seam axis-over-y");
+        foreach (int resolution in new[] { 9, 17, 33, 65 }) {
+            var mesh = new Sphere3Generator_NormalizedCube { Radius = 1, EdgeVertices = resolution }.Generate().MakeDMesh();
+            int pole = FindNorthPole(mesh);
+            int axis = FindSphereVertex(mesh, Vector3d.AxisX);
+            int seam = FindSphereVertex(mesh, (Vector3d.AxisX + Vector3d.AxisY).Normalized);
+            int yAxis = FindSphereVertex(mesh, Vector3d.AxisY);
+            double h = new IntrinsicTriangulation(mesh).MeanEdgeLength;
+            foreach (var (schedule, factor) in new[] { ("default", 1.0), ("linear", 0.5 / h) }) {
+                var heat = new VectorHeatMethod(mesh) { IntrinsicDelaunay = true, TimeFactor = factor };
+                double axisShare = KernelShare(heat, pole, axis, seam);
+                double seamShare = KernelShare(heat, pole, seam, axis);
+                double control = KernelShare(heat, pole, axis, yAxis);
+                double mean = heat.Triangulation.MeanEdgeLength;
+                double actual = heat.DiffusionTime / (mean * mean);
+                if (Math.Abs(axisShare + seamShare - 1) > 1e-10)
+                    throw new InvalidOperationException("The complementary source shares must sum to one.");
+                Console.WriteLine($"{resolution} {schedule} {actual:G8} {axisShare:G8} {seamShare:G8} " +
+                    $"{Math.Log(axisShare / seamShare):G8} {control / (1 - control):G8}");
+            }
+        }
+    }
+
+    private static double KernelShare(VectorHeatMethod heat, int target, int unitSource, int zeroSource)
+    {
+        var values = new Dictionary<int, double> { [unitSource] = 1, [zeroSource] = 0 };
+        double share = heat.ExtendScalar(values)[target];
+        double h = heat.Triangulation.MeanEdgeLength;
+        if (Math.Abs(heat.DiffusionTime / (h * h * heat.TimeFactor) - 1) > 1e-10)
+            throw new InvalidOperationException("The solver changed the diffusion time.");
+        if (!(share > 0 && share < 1))
+            throw new InvalidOperationException("Expected two positive source contributions.");
+        return share;
     }
 
     public static void RunSourceSweep(bool frameControl = false)

@@ -300,3 +300,18 @@ The default-time source sweep kept the scalar distance columns and vector diffus
 The large cube-pole far-band error persists at t = h² with the replacement rotations. At t = 0.5h the finest cube-pole far-band RMS is 0.12843° with signposts and 0.12903° with the replacement, compared with 7.43347° and 7.43436° at t = h². Thus sensitivity to diffusion time persists after replacing the edge rotations by this smooth reference calibration.
 
 For these sphere meshes, the implicit vector heat system can also be read as a sum over walks. Write it as `(A − tW_R)y = b`, where A is the diagonal mass plus weighted degree term and each off-diagonal block of W_R is the nonnegative cotangent weight times its edge rotation. The maximum row sum of the corresponding scalar matrix `A⁻¹tW` is strictly below one because vertex masses are positive. Expanding the inverse as a Neumann series gives one term per walk length. Individual terms multiply the scalar transition factors and compose the rotations along the walk. Changing t changes those factors even with rotations fixed. The experiment does not measure the directional distribution of those terms or identify a particular stencil feature as the source of the error.
+
+## Equal-distance scalar heat contributions at the equator
+
+Run `dotnet run -c Release --project benchmarks/CurvatureWeakProbe -- --heat-equator`. On each cube-sphere, the positive x-axis meets a face center and the direction (1, 1, 0) meets a cube seam. Both vertices lie exactly π/2 radians from the north pole. The continuous unit-sphere scalar heat response at this distance is independent of azimuth.
+
+The probe calls `VectorHeatMethod.ExtendScalar` with value one at the face center and zero at the seam. For the scalar inverse heat matrix K and pole p, the result is K[p, face] / (K[p, face] + K[p, seam]). Swapping the values measures the complementary share independently. Symmetry of K also makes the ratio of shares the ratio of the two responses to one pole impulse. This samples the total scalar weight of all walks to each endpoint. The probe checks that both shares are positive, sum to one within tolerance and use the requested diffusion time. A second pair compares the x and y face centers at the same distance.
+
+| Vertices per edge | Face share, default | Face share, linear schedule | Face/seam log ratio, default | Face/seam log ratio, linear schedule |
+|---:|---:|---:|---:|---:|
+| 9 | 0.496224 | 0.491580 | −0.015106 | −0.033683 |
+| 17 | 0.522082 | 0.495379 | 0.088387 | −0.018486 |
+| 33 | 0.575858 | 0.498031 | 0.305791 | −0.007875 |
+| 65 | 0.679779 | 0.499484 | 0.752756 | −0.002065 |
+
+At 65 vertices per edge, the face-center response is 2.123 times the seam response at the default time. The linear schedule brings that ratio to 0.99794. The x/y face-center ratio is one to the eight printed significant digits throughout. The default operator thus shows a growing directional difference for this equatorial pair across the sampled resolutions, while the linear schedule approaches equal contributions. These are relative amplitudes. The comparison samples two endpoints and sums over all routes to each one. It leaves open how rotations along different walks to a *single* far-band endpoint combine to produce its vector error.

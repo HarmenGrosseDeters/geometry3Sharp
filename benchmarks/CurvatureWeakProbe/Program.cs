@@ -2,6 +2,11 @@ using System;
 using g3;
 using gs;
 
+if (Array.IndexOf(args, "--heat-equator") >= 0) {
+    VectorHeatTransportProbe.RunEquatorSweep();
+    return;
+}
+
 if (Array.IndexOf(args, "--heat-time") >= 0) {
     VectorHeatTransportProbe.RunTimeSweep();
     return;
