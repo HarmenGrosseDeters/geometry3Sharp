@@ -45,9 +45,11 @@ namespace geometry3Sharp.Tests
         // with MinTriangleQuality the rim fold check (#621) keeps the 135363 tube from turning inside out (the flips it
         // rejects at the rims were part of the inversion), so the guard is tested with MinTriangleQuality on a tube with
         // fewer slices that still turns inside out without it, with both remeshers
-        static DMesh3 QualityTube() => Tube(24, 1, 6.9, 0.75, 33);
-        const double QualityTarget = 10;
-        // (the cavity likewise: a tube of 32 slices at 11, which turns inside out with RemesherPro and MinTriangleQuality)
+        // (20 slices at 11 since the ring check of issue #1441, which keeps the tube of 24 slices at 10 from turning
+        // inside out too)
+        static DMesh3 QualityTube() => Tube(20, 1, 6.9, 0.75, 33);
+        const double QualityTarget = 11;
+        // (the cavity likewise: a tube of 24 slices and one ring at 11, which turns inside out with RemesherPro and MinTriangleQuality)
         const double CavityQualityTarget = 11;
 
         // as g3cli remesh (20 passes, smoothing 0.5, projection onto the input, 30 degree creases)
@@ -195,7 +197,7 @@ namespace geometry3Sharp.Tests
         public void Cavity_NotTurnedInsideOut(bool pro, double minQuality)
         {
             DMesh3 input = new GridBox3Generator() { Box = new Box3d(new Vector3d(0, 0, 16.5), new Vector3d(30, 30, 40)), EdgeVertices = 3, NoSharedVertices = false }.Generate().MakeDMesh();
-            DMesh3 cavity = (minQuality > 0) ? Tube(32, 4, 6.9, 0.75, 33) : Tube(24, 4, 6.9, 0.75, 33);
+            DMesh3 cavity = (minQuality > 0) ? Tube(24, 1, 6.9, 0.75, 33) : Tube(24, 4, 6.9, 0.75, 33);
             double target = (minQuality > 0) ? CavityQualityTarget : Target135363;
             cavity.ReverseOrientation();
             new MeshEditor(input).AppendMesh(cavity);

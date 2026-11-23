@@ -47,7 +47,7 @@ namespace MetamorphicBugHunt
 
         public static ExactMeshBoolean Run(DMesh3 a, DMesh3 b, Ops op, string stage, string name)
         {
-            var e = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op);
+            var e = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true };
             bool ok;
             try { ok = Program.Timed(() => e.Compute(), out long ms); if (ms >= Program.SlowMs) Program.Report(stage, name, "", ms); }
             catch (Exception ex) { Program.Report(stage, name, "threw " + ex.GetType().Name + ": " + ex.Message); return null; }

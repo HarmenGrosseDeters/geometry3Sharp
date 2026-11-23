@@ -1547,7 +1547,11 @@ namespace gs
                     SafeRounding = SafeRounding, RoundingMaxDisplacement = RoundingMaxDisplacement, RoundingUlpFactor = RoundingUlpFactor,
                     RoundingAbsoluteTolerance = RoundingAbsoluteTolerance, StrictRounding = StrictRounding,
                     RoundingMaxPairTests = RoundingMaxPairTests, RoundingPairTestsDefectScale = RoundingPairTestsDefectScale,
-                    RoundingPairTestsMaxGrowth = RoundingPairTestsMaxGrowth
+                    RoundingPairTestsMaxGrowth = RoundingPairTestsMaxGrowth,
+                    // (every round's mesh is closed: the first by the IsWindingClosed check above, a later one because the round
+                    // before continues only with a result whose NotCleanReason, without the self-intersection check, is empty. The
+                    // opt-in is kept as a guard, as before the default of AllowOpenMeshes changed)
+                    AllowOpenMeshes = true
                 };
                 DMesh3 res = resolve.Compute() ? resolve.Result : null;
                 ExactResolveRounding = resolve.Rounding;

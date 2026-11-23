@@ -155,8 +155,27 @@ namespace geometry3Sharp.Tests
             for (int k = 0; k < 4; ++k) {
                 var t = new Vector3d(0.37 * k, -0.61 * k, 0.23 * k);
                 DMesh3 m = Remesh(Translated(input, t), edge, 0.2, true, false, 30);
-                int pairs = MeshRepairMetrics.SelfIntersections(m);
-                Assert.True(pairs == 0, $"{name}, translation {k}, pinned: {pairs} self-intersecting pairs");
+                // The pairs at the rim (a triangle with a vertex in the cap's plane, y = 0 of the input): the subject of
+                // this test. Since the ring check of issue #1441 a cone can end with a few pairs near its pinned apex
+                // instead (owner 2026-11-23; cone12_x0.15 untranslated: 2 pairs one edge below the apex; master had
+                // pairs in other pinned cases, cone24_x0.15 and cone24_x0.2: docs/roadmap/alpha-wrap-and-repair.md, "Feature
+                // detection misses vertex features"). Those must lie within two target edges of the apex (y = 2).
+                int rimPairs = 0;
+                foreach (Index2i pair in MeshRepairMetrics.SelfIntersectionPairs(m)) {
+                    bool atRim = false;
+                    double lowest = double.MaxValue;
+                    foreach (int tid in new[] { pair.a, pair.b }) {
+                        Index3i tv = m.GetTriangle(tid);
+                        for (int i = 0; i < 3; ++i) {
+                            double y = m.GetVertex(tv[i]).y - t.y;
+                            if (Math.Abs(y) < 1e-9) atRim = true;
+                            lowest = Math.Min(lowest, y);
+                        }
+                    }
+                    if (atRim) rimPairs++;
+                    else Assert.True(lowest > 2 - 2 * edge, $"{name}, translation {k}, pinned: a self-intersecting pair {2 - lowest} below the apex, away from the rim");
+                }
+                Assert.True(rimPairs == 0, $"{name}, translation {k}, pinned: {rimPairs} self-intersecting pairs at the rim");
                 AssertValid(m, name);
             }
         }

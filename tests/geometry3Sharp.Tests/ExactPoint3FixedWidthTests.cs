@@ -500,7 +500,8 @@ namespace geometry3Sharp.Tests
             Assert.False(arr.ExactEquals(big, small));
             Assert.False(arr.ExactEquals(big, big2));
             Assert.True(arr.ExactEquals(big, big));
-            Assert.Equal(arr.ExactHash(small), arr.ExactHash(small2));
+            var hasher = new ExactMeshArrangement.ExactIdComparer(arr);
+            Assert.Equal(hasher.GetHashCode(small), hasher.GetHashCode(small2));
         }
 
         [Fact]
