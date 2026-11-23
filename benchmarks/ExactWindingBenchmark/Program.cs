@@ -285,6 +285,179 @@ static class Program
         BenchGrid("open sphere 20k", open20k, MeshWindingNumberGrid.ComputeModes.FullGrid, 64, rounds);
         BenchGrid("closed sphere 20k", s20k, MeshWindingNumberGrid.ComputeModes.NarrowBand, 64, rounds);
         BenchGrid("open sphere 20k", open20k, MeshWindingNumberGrid.ComputeModes.NarrowBand, 64, rounds);
+
+        Console.WriteLine();
+        Console.WriteLine("### Downstream adoption (`FastWindingNumber` vs opt-in exact winding)");
+        Console.WriteLine("| operation | case | FWN ms | exact ms | speedup vs FWN |");
+        Console.WriteLine("|---|---|---|---|---|");
+
+        BenchSolidify("closed sphere 20k (dense 64)", s20k, false, 64, rounds);
+        BenchSolidify("closed sphere 20k (adaptive 64)", s20k, true, 64, rounds);
+        BenchSolidify("unwelded closed 20k (dense 64)", unwelded20k, false, 64, rounds);
+        BenchBatchInside("closed sphere 20k (20k pts)", s20k, 20000, rounds);
+        BenchBatchInside("unwelded closed 20k (20k pts)", unwelded20k, 20000, rounds);
+        BenchDeviation("closed sphere 20k (2.4k query vtx)", s20k, rounds);
+
+        Console.WriteLine();
+        Console.WriteLine("### Hierarchical boundary threshold queries (`BoundaryTree`, `MeshBatchQueries.IsInsideBatch`)");
+        Console.WriteLine("| case | tris | |∂M| | queries | linear exact ms | hierarchical exact ms | FWN ms | speedup vs linear | parity |");
+        Console.WriteLine("|---|---|---|---|---|---|---|---|---|");
+
+        DMesh3 cup2k = OpenCup(2000, 6);
+        DMesh3 cup4k = OpenCup(4000, 4);
+        BenchHierarchicalBoundary("open cup rim 2k", cup2k, 2000, rounds);
+        BenchHierarchicalBoundary("open cup rim 4k", cup4k, 2000, rounds);
         return 0;
+    }
+
+    // Open hemispherical cup with `rimEdges` exterior boundary edges along the open rim.
+    static DMesh3 OpenCup(int rimEdges, int rings)
+    {
+        DMesh3 m = new DMesh3();
+        int pole = m.AppendVertex(new Vector3d(0, 0, -1.0));
+        int[,] ringV = new int[rings, rimEdges];
+        for (int r = 0; r < rings; ++r) {
+            double phi = -0.5 * Math.PI + (0.65 * Math.PI) * (r + 1) / rings;
+            double rad = Math.Cos(phi), z = Math.Sin(phi);
+            for (int k = 0; k < rimEdges; ++k) {
+                double th = 2.0 * Math.PI * k / rimEdges;
+                double wobble = 1.0 + 0.05 * Math.Sin(5.0 * th);
+                ringV[r, k] = m.AppendVertex(new Vector3d(rad * wobble * Math.Cos(th), rad * wobble * Math.Sin(th), z));
+            }
+        }
+        for (int k = 0; k < rimEdges; ++k) {
+            int kn = (k + 1) % rimEdges;
+            m.AppendTriangle(pole, ringV[0, kn], ringV[0, k]);
+        }
+        for (int r = 0; r + 1 < rings; ++r) {
+            for (int k = 0; k < rimEdges; ++k) {
+                int kn = (k + 1) % rimEdges;
+                m.AppendTriangle(ringV[r, k], ringV[r, kn], ringV[r + 1, kn]);
+                m.AppendTriangle(ringV[r, k], ringV[r + 1, kn], ringV[r + 1, k]);
+            }
+        }
+        return m;
+    }
+
+    static void BenchSolidify(string label, DMesh3 mesh, bool adaptive, int resolution, int rounds)
+    {
+        var fwnMs = new double[rounds];
+        var exactMs = new double[rounds];
+        var sw = new Stopwatch();
+        for (int r = -1; r < rounds; ++r) {
+            var sFwn = new MeshWindingNumberSolidify(mesh) {
+                Adaptive = adaptive, GridResolution = resolution, UseExactWinding = false,
+                CleanupResult = false, ReduceTolerance = 0
+            };
+            sw.Restart();
+            sFwn.Compute();
+            sw.Stop();
+            if (r >= 0) fwnMs[r] = sw.Elapsed.TotalMilliseconds;
+
+            var sExact = new MeshWindingNumberSolidify(mesh) {
+                Adaptive = adaptive, GridResolution = resolution, UseExactWinding = true,
+                CleanupResult = false, ReduceTolerance = 0
+            };
+            sw.Restart();
+            sExact.Compute();
+            sw.Stop();
+            if (r >= 0) exactMs[r] = sw.Elapsed.TotalMilliseconds;
+        }
+        double ft = Median(fwnMs), et = Median(exactMs);
+        Console.WriteLine($"| `MeshWindingNumberSolidify` | {label} | {ft:F1} | {et:F1} | {ft / Math.Max(et, 1e-6):F1}x |");
+    }
+
+    static void BenchBatchInside(string label, DMesh3 mesh, int nQueries, int rounds)
+    {
+        Vector3d[] pts = RandomQueries(nQueries, 91);
+        var resFwn = new InsideStatus[nQueries];
+        var resExact = new InsideStatus[nQueries];
+        var fwnMs = new double[rounds];
+        var exactMs = new double[rounds];
+        var sw = new Stopwatch();
+        for (int r = -1; r < rounds; ++r) {
+            var tFwn = new DMeshAABBTree3(mesh, true);
+            sw.Restart();
+            MeshBatchQueries.IsInsideBatch(tFwn, pts, resFwn, InsideMethod.WindingNumber);
+            sw.Stop();
+            if (r >= 0) fwnMs[r] = sw.Elapsed.TotalMilliseconds;
+
+            var tExact = new DMeshAABBTree3(mesh, true);
+            sw.Restart();
+            MeshBatchQueries.IsInsideBatch(tExact, pts, resExact, InsideMethod.ExactWindingNumber);
+            sw.Stop();
+            if (r >= 0) exactMs[r] = sw.Elapsed.TotalMilliseconds;
+        }
+        double ft = Median(fwnMs), et = Median(exactMs);
+        Console.WriteLine($"| `MeshBatchQueries.IsInsideBatch` | {label} | {ft:F1} | {et:F1} | {ft / Math.Max(et, 1e-6):F1}x |");
+    }
+
+    static void BenchDeviation(string label, DMesh3 refMesh, int rounds)
+    {
+        DMesh3 queryMesh = Sphere(14);
+        MeshTransforms.Scale(queryMesh, 0.92);
+        MeshTransforms.Translate(queryMesh, new Vector3d(0.15, -0.05, 0.08));
+        var fwnMs = new double[rounds];
+        var exactMs = new double[rounds];
+        var sw = new Stopwatch();
+        for (int r = -1; r < rounds; ++r) {
+            var dFwn = new MeshDeviation(queryMesh, refMesh) { Sign = MeshDeviation.Signs.WindingNumber };
+            sw.Restart();
+            dFwn.Compute();
+            sw.Stop();
+            if (r >= 0) fwnMs[r] = sw.Elapsed.TotalMilliseconds;
+
+            var dExact = new MeshDeviation(queryMesh, refMesh) { Sign = MeshDeviation.Signs.ExactWindingNumber };
+            sw.Restart();
+            dExact.Compute();
+            sw.Stop();
+            if (r >= 0) exactMs[r] = sw.Elapsed.TotalMilliseconds;
+        }
+        double ft = Median(fwnMs), et = Median(exactMs);
+        Console.WriteLine($"| `MeshDeviation` | {label} | {ft:F1} | {et:F1} | {ft / Math.Max(et, 1e-6):F1}x |");
+    }
+
+    static void BenchHierarchicalBoundary(string label, DMesh3 mesh, int nQueries, int rounds)
+    {
+        Vector3d[] pts = RandomQueries(nQueries, 131);
+        var linRes = new InsideStatus[nQueries];
+        var hierRes = new InsideStatus[nQueries];
+        var fwnRes = new InsideStatus[nQueries];
+        var linMs = new double[rounds];
+        var hierMs = new double[rounds];
+        var fwnMs = new double[rounds];
+        var sw = new Stopwatch();
+
+        int boundaryCount = 0;
+        for (int r = -1; r < rounds; ++r) {
+            var tLin = new DMeshAABBTree3(mesh, true);
+            sw.Restart();
+            tLin.WindingNumber(Vector3d.Zero);
+            gParallel.ForEach(Interval1i.Range(nQueries), i => {
+                linRes[i] = tLin.WindingNumber(pts[i]) > 0.5 ? InsideStatus.Inside : InsideStatus.Outside;
+            });
+            sw.Stop();
+            if (r == 0) boundaryCount = GetCacheInfo(tLin).boundaryCount;
+            if (r >= 0) linMs[r] = sw.Elapsed.TotalMilliseconds;
+
+            var tHier = new DMeshAABBTree3(mesh, true);
+            sw.Restart();
+            MeshBatchQueries.IsInsideBatch(tHier, pts, hierRes, InsideMethod.ExactWindingNumber);
+            sw.Stop();
+            if (r >= 0) hierMs[r] = sw.Elapsed.TotalMilliseconds;
+
+            var tFwn = new DMeshAABBTree3(mesh, true);
+            sw.Restart();
+            MeshBatchQueries.IsInsideBatch(tFwn, pts, fwnRes, InsideMethod.WindingNumber);
+            sw.Stop();
+            if (r >= 0) fwnMs[r] = sw.Elapsed.TotalMilliseconds;
+        }
+
+        int matches = 0;
+        for (int i = 0; i < nQueries; ++i)
+            if (linRes[i] == hierRes[i]) matches++;
+
+        double lt = Median(linMs), ht = Median(hierMs), ft = Median(fwnMs);
+        Console.WriteLine($"| {label} | {mesh.TriangleCount} | {boundaryCount} | {nQueries} | {lt:F1} | {ht:F1} | {ft:F1} | {lt / Math.Max(ht, 1e-6):F1}x | {matches}/{nQueries} |");
     }
 }

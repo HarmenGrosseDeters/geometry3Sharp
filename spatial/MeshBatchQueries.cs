@@ -58,7 +58,9 @@ namespace g3
         /// <summary> tree.IsInside(p): the exact parity of the crossings of a ray (closed meshes without self-intersections; meaningless for others) </summary>
         Crossings,
         /// <summary> tree.FastWindingNumber(p) &gt; 0.5: also defined for open, non-manifold and noisy meshes (approximate near the surface, see FastWindingNumber) </summary>
-        WindingNumber
+        WindingNumber,
+        /// <summary> tree.WindingNumber(p) &gt; 0.5: the generalized winding number by an exact ray plus the boundary sum (closed, open, unwelded closed soups, non-manifold; exact decisions for these; faster than FastWindingNumber on closed meshes and without dipole approximation error). On a true triangle soup (boundary edges >= triangles and more than 64 triangles) the cache falls back on the floating-point solid-angle sum over all triangles: not exact, not faster than FastWindingNumber </summary>
+        ExactWindingNumber
     }
 
     /// <summary>
@@ -197,15 +199,18 @@ namespace g3
 
         /// <summary>
         /// For every point whether it is inside the mesh: results[i] is Inside or Outside as tree.IsInside(p)
-        /// (method Crossings, the default: exact, for closed meshes) or as tree.FastWindingNumber(p) &gt; 0.5 (method
-        /// WindingNumber: for any mesh), Invalid for a point that is not finite. options.MaxDistance does not apply (it is still checked to be >= 0). An empty
-        /// mesh has no inside. The winding number cache is built once before the parallel part.
+        /// (method Crossings, the default: exact, for closed meshes), tree.FastWindingNumber(p) &gt; 0.5 (method
+        /// WindingNumber: approximate, for any mesh), or tree.WindingNumber(p) &gt; 0.5 (method ExactWindingNumber:
+        /// exact decisions for closed, open, unwelded closed and non-manifold meshes; on a true triangle soup, boundary
+        /// edges >= triangles and more than 64 triangles, the floating-point solid-angle sum), Invalid for a point that is not
+        /// finite. options.MaxDistance does not apply (it is still checked to be >= 0). An empty mesh has no inside.
+        /// The winding number cache is built once before the parallel part.
         /// </summary>
         public static BatchStatus IsInsideBatch(DMeshAABBTree3 tree, Vector3d[] points, InsideStatus[] results, InsideMethod method = InsideMethod.Crossings, BatchOptions options = null)
         {
             if (tree == null || points == null || results == null)
                 return BatchStatus.InvalidArguments;
-            if (method != InsideMethod.Crossings && method != InsideMethod.WindingNumber)
+            if (method != InsideMethod.Crossings && method != InsideMethod.WindingNumber && method != InsideMethod.ExactWindingNumber)
                 return BatchStatus.InvalidArguments;
             if (results.Length < points.Length)
                 return BatchStatus.BufferTooSmall;
@@ -215,10 +220,25 @@ namespace g3
             bool empty = tree.Mesh.TriangleCount == 0;
             if (options.Cancel.IsCancellationRequested)
                 return BatchStatus.Cancelled;      // (before the cache build)
-            if (method == InsideMethod.WindingNumber && !empty) {
-                // (built under a lock on first use anyway; once here, so that the workers do not queue up on it)
-                for (int i = 0; i < points.Length; ++i)
-                    if (points[i].IsFinite) { tree.FastWindingNumber(points[i]); break; }
+            ExactWindingCache exactCache = null;
+            if (!empty) {
+                if (method == InsideMethod.WindingNumber) {
+                    // (built under a lock on first use anyway; once here, so that the workers do not queue up on it)
+                    for (int i = 0; i < points.Length; ++i)
+                        if (points[i].IsFinite) { tree.FastWindingNumber(points[i]); break; }
+                } else if (method == InsideMethod.ExactWindingNumber) {
+                    if (tree.GetType() == typeof(DMeshAABBTree3) && !tree.ForceLegacyWindingCache) {
+                        for (int i = 0; i < points.Length; ++i)
+                            if (points[i].IsFinite) {
+                                exactCache = tree.GetExactWindingCache();
+                                exactCache.PrepareThresholdQueries();
+                                break;
+                            }
+                    } else {
+                        for (int i = 0; i < points.Length; ++i)
+                            if (points[i].IsFinite) { tree.WindingNumber(points[i]); break; }
+                    }
+                }
             }
             Action<int> one = i => {
                 Vector3d p = points[i];
@@ -228,8 +248,12 @@ namespace g3
                     results[i] = InsideStatus.Outside;
                 else if (method == InsideMethod.Crossings)
                     results[i] = tree.IsInside(p) ? InsideStatus.Inside : InsideStatus.Outside;
-                else
+                else if (method == InsideMethod.WindingNumber)
                     results[i] = tree.FastWindingNumber(p) > 0.5 ? InsideStatus.Inside : InsideStatus.Outside;
+                else if (exactCache != null)
+                    results[i] = exactCache.EvaluateAbove(p, 0.5) ? InsideStatus.Inside : InsideStatus.Outside;
+                else
+                    results[i] = tree.WindingNumber(p) > 0.5 ? InsideStatus.Inside : InsideStatus.Outside;
             };
             return Execute(points.Length, options, () => PointKeys(points), one);
         }

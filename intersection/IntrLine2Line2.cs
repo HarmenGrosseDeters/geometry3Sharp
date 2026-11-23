@@ -2,7 +2,15 @@
 
 namespace g3
 {
-	// ported from WildMagic5 
+	/// <summary>
+	/// Intersection of two lines (originally ported from WildMagic5). The decision is exact: Point (the lines cross),
+	/// Line (the same line) or Empty (parallel, apart), with no tolerance, the same at every 2^k scale. A line is the
+	/// line through <see cref="Line2d.Origin"/> along <see cref="Line2d.Direction"/> exactly as given (parallel is the exact sign of
+	/// cross(d1, d2), the same line the exact sign of cross(o2 - o1, d1)). <see cref="DotThreshold"/> is only used by the static
+	/// <see cref="Classify"/>. Non-finite input is an InvalidQuery, and so is a crossing that is not representable (lines that
+	/// are parallel to within rounding, crossing beyond the range of a double). The crossing point and parameters are computed
+	/// in floating point from the exactly decided crossing.
+	/// </summary>
 	public class IntrLine2Line2
     {
         Line2d line1;
@@ -66,9 +74,31 @@ namespace g3
 				return false;
 			}
 
+			Vector2d o1 = line1.Origin, o2 = line2.Origin;
+			if (IntrExact2d.IsFinite(o1) == false || IntrExact2d.IsFinite(o2) == false) {
+				Type = IntersectionType.Empty;
+				Result = IntersectionResult.InvalidQuery;
+				return false;
+			}
+			Vector2d d1 = line1.Direction, d2 = line2.Direction;
+			Type = IntrExact2d.LineLine(o1, d1, o2, d2);
 			Vector2d s = Vector2d.Zero;
-			Type = Classify(line1.Origin, line1.Direction,
-			                line2.Origin, line2.Direction, dotThresh, ref s);
+			if (Type == IntersectionType.Point) {
+				// the parameters from the cross products (the denominator to about one rounding; the origins scaled by a power of
+				// two first, so that their difference cannot overflow). A crossing that is not representable is an invalid query.
+				double sc = IntrExact2d.ScaleFor(o1, o2, Vector2d.Zero);
+				Vector2d diff = o2 * sc - o1 * sc;
+				// (rounded once: the scale is applied where it is exact, the order chosen by sc, see QuotientScaled)
+				double den = IntrExact2d.AccurateCross(d1, d2);
+				s.x = IntrExact2d.QuotientScaled(IntrExact2d.AccurateCross(diff, d2), den, sc);
+				s.y = IntrExact2d.QuotientScaled(IntrExact2d.AccurateCross(diff, d1), den, sc);
+				Vector2d x = o1 + s.x * d1;
+				if (IntrExact2d.IsFinite(s) == false || IntrExact2d.IsFinite(x) == false) {
+					Type = IntersectionType.Empty;
+					Result = IntersectionResult.InvalidQuery;
+					return false;
+				}
+			}
 
 			if (Type == IntersectionType.Point) {
 				Quantity = 1;
