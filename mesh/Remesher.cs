@@ -45,8 +45,9 @@ namespace g3 {
 		public bool EnableSmoothing = true;
 
         /// <summary>
-        /// Reject collapses and flips that would flip a triangle normal (see EdgeFlipTolerance), or turn a triangle more
-        /// than 70 degrees away from the triangles around the edge (see MinTriangleQuality, which includes both). The
+        /// Reject collapses and flips that would flip a triangle normal (see EdgeFlipTolerance), and collapses and
+        /// valence flips that turn a triangle more than 70 degrees away from the triangles around the edge (see
+        /// MinTriangleQuality, which includes both). The
         /// smoothing and projection moves are not checked by this option. Default false
         /// </summary>
         public bool PreventNormalFlips = false;
@@ -75,7 +76,9 @@ namespace g3 {
         ///  - an edge with a flat neighbouring triangle (its opposite vertex on the edge) is not split, which would
         ///    put the new vertex onto that vertex;
         ///  - collapses and flips that would flip a triangle normal are rejected (as with PreventNormalFlips);
-        ///  - and those that turn a triangle away from the surface around the edge (as with PreventNormalFlips): a new
+        ///  - and the collapses and valence flips that turn a triangle away from the surface around the edge (as with
+        ///    PreventNormalFlips; not the flips for a degenerate or poor triangle, and not a collapse with more than 128
+        ///    triangles around its edge): a new
         ///    triangle more than 70 degrees from the summed normals of the triangles around the edge's two vertices
         ///    (each weighted with the cosine to its old normal, 0 if it faces against it), and farther from them than
         ///    before. The flip test compares a triangle with
@@ -973,10 +976,14 @@ namespace g3 {
         const double RingTurnCos = 0.3420201433256687;      // cos 70 degrees
         // (cosines equal up to rounding are not a turn)
         const double RingTurnSlack = 1e-9;
+        // A collapse is checked for every triangle around the edge against all of them: quadratic in their number. Above
+        // this number (a vertex of a valence above about 60, eg the pole of a fan with thousands of triangles, where
+        // one collapse would take millions of products) the collapse keeps the tests it had.
+        const int RingMaxTriangles = 128;
 
         // (scratch of the ring checks, which run in ProcessEdge, serially: the triangles around the edge's two vertices
         // with their corners and normals before the operation)
-        struct RingTriangle { public int tid; public Index3i t; public Vector3d a, b, c, n; public double invLength; }
+        struct RingTriangle { public int tid; public Index3i t; public Vector3d a, b, c, n, unit; }
         RingTriangle[] ringTriangles = new RingTriangle[32];
         int ringCount = 0;
 
@@ -995,19 +1002,26 @@ namespace g3 {
                     r.tid = tid; r.t = t;
                     mesh.GetTriVertices(tid, ref r.a, ref r.b, ref r.c);
                     r.n = ((r.b - r.a) * f).Cross((r.c - r.a) * f);
-                    r.invLength = 1.0 / r.n.Length;
+                    // (a triangle without an area, or with one too small for the length of its normal, has no weight)
+                    double length = r.n.Length;
+                    r.unit = (length > 0) ? r.n / length : Vector3d.Zero;
                 }
         }
 
-        // the sum of the collected normals, each weighted with the cosine of its angle to o (0 if it faces against o;
-        // a flat triangle, whose invLength is infinite, has a dot of 0 and is left out)
+        // The sum of the collected normals, each weighted with the cosine of its angle to o (0 if it faces against o).
+        // The cosines come from unit vectors, so the sum has the size of a normal (an edge length squared) and the
+        // products in ring_cos that of two: no underflow or overflow where the flip tests have none.
         Vector3d facing_ring_normal(ref Vector3d o)
         {
             Vector3d sum = Vector3d.Zero;
+            double length = o.Length;
+            if (!(length > 0))
+                return sum;
+            Vector3d unit = o / length;
             for (int i = 0; i < ringCount; ++i) {
-                double w = ringTriangles[i].n.Dot(o);
+                double w = ringTriangles[i].unit.Dot(unit);
                 if (w > 0)
-                    sum += (w * ringTriangles[i].invLength) * ringTriangles[i].n;
+                    sum += w * ringTriangles[i].n;
             }
             return sum;
         }
@@ -1037,6 +1051,8 @@ namespace g3 {
             // (one factor for all normals, 1 for ordinary sizes: see collapse_creates_flip_or_invalid)
             double f = flip_edge_scale(ref pa, ref pb, ref pc);
             collect_ring(a, b, f);
+            if (ringCount > RingMaxTriangles)
+                return false;
             for (int i = 0; i < ringCount; ++i) {
                 if (ringTriangles[i].tid == t0 || ringTriangles[i].tid == t1)
                     continue;

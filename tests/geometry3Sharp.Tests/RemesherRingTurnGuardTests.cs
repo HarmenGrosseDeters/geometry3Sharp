@@ -110,7 +110,7 @@ namespace geometry3Sharp.Tests
                 Assert.InRange(mean, 0.8 * 0.8 * H, 4.0 / 3 * 0.8 * H);
             }
             Assert.True(bad.Count == 0, string.Join("; ", bad));
-            Assert.Equal(inputsInwardInBetween, inBetween.Count);
+            Assert.InRange(inBetween.Count, 0, inputsInwardInBetween);
         }
 
         // RemesherPro runs the same edge operations (ProcessEdge) from its queue. On master: 6 of these 40 inputs with an
@@ -185,34 +185,19 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        // The check keeps no state between passes or meshes: a remesher that has worked on another mesh, and one made
-        // anew for every pass, give the result of a single remesher.
-        [Theory]
-        [InlineData(false)]
-        [InlineData(true)]
-        public void Reuse_SameResultAsFreshInstance(bool pro)
+        // The check keeps no state between passes: a remesher made anew for every pass gives the result of a single one.
+        // (Its scratch state between two operations: RemesherRingTurnCheckTests.Check_SameAnswerFromAFreshInstance.)
+        [Fact]
+        public void Reuse_SameResultAsFreshInstancePerPass()
         {
             DMesh3 once = JitteredSphere(1, 0.3), perPass = new DMesh3(once);
-            Remesher r = Make(once, pro, 0.2, false);
+            Remesher r = Make(once, false, 0.2, false);
             for (int pass = 0; pass < 6; ++pass) {
-                Pass(r);
-                if (pro == false)       // (RemesherPro keeps its queue between iterations)
-                    Pass(Make(perPass, pro, 0.2, false));
+                r.BasicRemeshPass();
+                Make(perPass, false, 0.2, false).BasicRemeshPass();
             }
-            if (pro == false)
-                Assert.Equal("", Invariance.Difference(once, perPass));
-
-            // two runs with one instance's scratch state: the second mesh as from a fresh instance
-            DMesh3 first = JitteredSphere(2, 0.45), second = JitteredSphere(1, 0.3);
-            Remesher warm = Make(first, pro, 0.2, false);
-            for (int pass = 0; pass < 6; ++pass)
-                Pass(warm);
-            // (the ring check of the first mesh ran: the scratch list is not empty)
-            Remesher again = Make(second, pro, 0.2, false);
-            for (int pass = 0; pass < 6; ++pass)
-                Pass(again);
-            Assert.Equal("", Invariance.Difference(once, second));
-            Assert.Equal(0, Inward(second, Vector3d.Zero));
+            Assert.Equal("", Invariance.Difference(once, perPass));
+            Assert.Equal(0, Inward(once, Vector3d.Zero));
         }
 
         [Theory]

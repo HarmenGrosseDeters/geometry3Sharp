@@ -255,10 +255,10 @@ are bit-identical), master 3c4d93ac -> this change, `runs=1` with fidelity for t
 
 | group | q<0.1 | q<1e-3 (cases) | self-intersecting pairs (cases) | rejected passes (cases) | mean hausdorff/target | F 0.1% | normal consistency | edge recall 0.5% | min angle 1% worst | not clean | time s |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| primitives (150) | 5 -> 9 | 0 -> 0 | 129 (2) -> 129 (2) | 2 -> 2 | 0.354 -> 0.348 | 0.8287 -> 0.8273 | 0.9896 -> 0.9896 | 0.9012 -> 0.9012 | 27.72 -> 27.76 | 2 -> 2 | 4.7 -> 5.5 |
+| primitives (150) | 5 -> 9 | 0 -> 0 | 129 (2) -> 129 (2) | 2 -> 2 | 0.354 -> 0.348 | 0.8287 -> 0.8273 | 0.9896 -> 0.9896 | 0.9012 -> 0.9012 | 27.72 -> 27.76 | 2 -> 2 | 4.6 -> 5.7 |
 | gears (18) | 438 -> 438 | 0 -> 0 | 0 -> 0 | 0 -> 0 | 0.010 -> 0.010 | 1.0000 -> 1.0000 | 1.0000 -> 1.0000 | 1.0000 -> 1.0000 | 4.50 -> 4.50 | 0 -> 0 | 0.3 -> 0.4 |
 | tubes (24) | 95 -> 96 | 0 -> 0 | 5100 (23) -> 5324 (23) | 3 -> 4 | 0.298 -> 0.303 | 0.0868 -> 0.0865 | 0.9320 -> 0.9368 | 0.3585 -> 0.3505 | 4.33 -> 4.37 | 23 -> 23 | 0.2 -> 0.3 |
-| thingi (20) | 1641 -> 1530 | 195 (7) -> 210 (9) | 2079 (15) -> 1962 (15) | 1 -> 1 | 0.969 -> 0.945 | 0.7225 -> 0.7231 | 0.9428 -> 0.9456 | 0.9299 -> 0.9286 | 9.61 -> 9.67 | 15 -> 15 | 8.8 -> 10.9 |
+| thingi (20) | 1641 -> 1530 | 195 (7) -> 210 (9) | 2079 (15) -> 1962 (15) | 1 -> 1 | 0.969 -> 0.945 | 0.7225 -> 0.7231 | 0.9428 -> 0.9456 | 0.9299 -> 0.9286 | 9.61 -> 9.67 | 15 -> 15 | 9.2 -> 11.1 |
 
 - The fidelity means move by less than 0.01 in every group. On Thingi10K fewer poor triangles and self-intersecting
   pairs and a smaller Hausdorff distance; the pairs per mesh move both ways.
@@ -268,13 +268,16 @@ are bit-identical), master 3c4d93ac -> this change, `runs=1` with fidelity for t
   check on them too: the same 210 flat triangles and 2272 instead of 1962 pairs). So the collapses the check rejects
   keep some slivers; not analysed further. 224 more pairs on the tubes (targets 5 to 32 times the wall thickness).
 - `pin=30` (sharp vertices pinned), 150 primitives: 9 pairs in 2 cases (cone24_x0.15, cone24_x0.2) -> 8 pairs in 3
-  cases (cone12_x0.15, cone12_x0.6, cone32_x0.2), all near the pinned apex of a cone, where the triangles face apart
-  by the shape of the input. Leaving out the operations at fixed vertices moved the pairs to other cases (6 pairs
+  cases (cone12_x0.15, cone12_x0.6, cone32_x0.2); in cone12_x0.15 one edge below the pinned apex, where the triangles
+  face apart by the shape of the input (the others not located). Accepted as a known item (owner 2026-11-23,
+  `docs/roadmap/alpha-wrap-and-repair.md`). Leaving out the operations at fixed vertices moved the pairs to other cases (6 pairs
   here, 4 in cone12_x0.2 under a translation); not built.
-- Time: +24 % on Thingi10K (8.8 -> 10.9 s), +17 % on the primitives (4.7 -> 5.5 s). It is the check's own cost, not
+- Time: +21 % on Thingi10K (9.2 -> 11.1 s), +24 % on the primitives (4.6 -> 5.7 s; two earlier pairs of runs gave
+  +19 % and +24 % on Thingi10K). Accepted with the output change by the owner (2026-11-23). It is the check's own cost, not
   a consequence of the rejections (measured with the check computed and its result ignored): one more pass over the
   triangles around the edge per operation that reaches it, on Thingi10K 470k collapses (6.5 % rejected) and 626k
-  flips (1.1 % rejected), about 2 microseconds each. Not built: a cheaper pass over the triangles of a vertex in
+  flips (1.1 % rejected), about 2 microseconds each. A collapse is checked for each triangle around the edge against
+  all of them, so above 128 triangles around the edge (a fan with thousands of triangles) it is not checked. Not built: a cheaper pass over the triangles of a vertex in
   `DMesh3`, or a test only for thin new triangles (another threshold, to be measured on this family first).
 - `g3cli remesh` (0.2 by default) and `RegionRemesher.QuickRemesh` (`PreventNormalFlips = true`) give other meshes
   than before; with neither option set the results are bit-identical (`OptOut_ResultIsUnchanged`).

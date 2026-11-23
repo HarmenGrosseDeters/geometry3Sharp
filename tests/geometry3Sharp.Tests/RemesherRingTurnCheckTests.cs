@@ -246,6 +246,98 @@ namespace geometry3Sharp.Tests
             Assert.True(r.flip_turns_from_ring(b, a, d, c, wall));
         }
 
+        // Two calls on one instance (a large ring, then a small one, and back): the answers of a fresh instance.
+        [Fact]
+        public void Check_SameAnswerFromAFreshInstance()
+        {
+            FindTiltedCollapse(out DMesh3 m, out _, out _, out _, out _);
+            var used = new RingProbe(m) { MinTriangleQuality = 0.2 };
+            int[] edges = m.EdgeIndices().OrderByDescending(e => m.GetVtxEdgeCount(m.GetEdgeV(e).a) + m.GetVtxEdgeCount(m.GetEdgeV(e).b)).ToArray();
+            int rejected = 0;
+            for (int k = 0; k < edges.Length; ++k) {
+                int eid = (k % 2 == 0) ? edges[k / 2] : edges[edges.Length - 1 - k / 2];        // large and small rings in turn
+                Index2i ev = m.GetEdgeV(eid), et = m.GetEdgeT(eid), ov = m.GetEdgeOpposingV(eid);
+                Vector3d pos = 0.5 * (m.GetVertex(ev.a) + m.GetVertex(ev.b));
+                var fresh = new RingProbe(m) { MinTriangleQuality = 0.2 };
+                bool c = used.collapse_turns_from_ring(ev.a, ev.b, ref pos, et.a, et.b);
+                Assert.Equal(fresh.collapse_turns_from_ring(ev.a, ev.b, ref pos, et.a, et.b), c);
+                Assert.Equal(new RingProbe(m).flip_turns_from_ring(ev.a, ev.b, ov.a, ov.b, et.a), used.flip_turns_from_ring(ev.a, ev.b, ov.a, ov.b, et.a));
+                if (c) rejected++;
+            }
+            Assert.Equal(17, rejected);
+        }
+
+        static DMesh3 Scaled(DMesh3 m, double f)
+        {
+            var copy = new DMesh3(m);
+            foreach (int v in copy.VertexIndices()) copy.SetVertex(v, copy.GetVertex(v) * f);
+            return copy;
+        }
+
+        // The decisions at a copy scaled by 2^k are those at unit size, also where the squares of a normal's components
+        // are far from 1 (an edge length of 1e-48 to 1e48 here; beyond 1e70 the edges are rescaled first, as in the
+        // flip test: FlipTestHugeScaleTests).
+        [Theory]
+        [InlineData(-300)]
+        [InlineData(-160)]
+        [InlineData(-140)]
+        [InlineData(-128)]
+        [InlineData(-100)]
+        [InlineData(100)]
+        [InlineData(128)]
+        [InlineData(140)]
+        [InlineData(160)]
+        [InlineData(300)]
+        public void Check_SameDecisionsAtAPowerOfTwoScale(int k)
+        {
+            double f = Math.Pow(2, k);
+            FindTiltedCollapse(out DMesh3 unit, out int a, out int b, out Vector3d inwardPos, out Index2i t);
+            DMesh3 m = Scaled(unit, f);
+            var r0 = new RingProbe(unit) { MinTriangleQuality = 0.2 };
+            var r = new RingProbe(m) { MinTriangleQuality = 0.2 };
+            Vector3d scaledPos = inwardPos * f;
+            Assert.True(r.collapse_turns_from_ring(a, b, ref scaledPos, t.a, t.b));
+            int collapsesRejected = 0, flipsRejected = 0;
+            foreach (int eid in unit.EdgeIndices()) {
+                Index2i ev = unit.GetEdgeV(eid), et = unit.GetEdgeT(eid), ov = unit.GetEdgeOpposingV(eid);
+                Vector3d pos = 0.5 * (unit.GetVertex(ev.a) + unit.GetVertex(ev.b)), pos2 = pos * f;
+                bool c = r0.collapse_turns_from_ring(ev.a, ev.b, ref pos, et.a, et.b), fl = r0.flip_turns_from_ring(ev.a, ev.b, ov.a, ov.b, et.a);
+                Assert.True(c == r.collapse_turns_from_ring(ev.a, ev.b, ref pos2, et.a, et.b), $"2^{k}: collapse of edge {eid}");
+                Assert.True(fl == r.flip_turns_from_ring(ev.a, ev.b, ov.a, ov.b, et.a), $"2^{k}: flip of edge {eid}");
+                if (c) collapsesRejected++;
+                if (fl) flipsRejected++;
+            }
+            Assert.Equal((17, 43), (collapsesRejected, flipsRejected));
+        }
+
+        // Above 128 triangles around the edge a collapse is not checked (the check is quadratic in their number): at the
+        // centre of a fan of 200 triangles on a cone, the move of the centre far below the rim, which turns every
+        // triangle by more than 90 degrees from the others, is rejected at 100 triangles and passed at 200.
+        [Theory]
+        [InlineData(100, true)]
+        [InlineData(200, false)]
+        public void LargeRing_CollapseIsNotChecked(int n, bool rejected)
+        {
+            var m = new DMesh3();
+            int centre = m.AppendVertex(Tilt * new Vector3d(0, 0, 0.5));
+            int[] rim = new int[n], outer = new int[n];
+            for (int i = 0; i < n; ++i) {
+                double ang = 2 * Math.PI * i / n;
+                rim[i] = m.AppendVertex(Tilt * new Vector3d(Math.Cos(ang), Math.Sin(ang), 0));
+                outer[i] = m.AppendVertex(Tilt * new Vector3d(2 * Math.Cos(ang), 2 * Math.Sin(ang), 0));
+            }
+            for (int i = 0; i < n; ++i) {
+                int j = (i + 1) % n;
+                m.AppendTriangle(centre, rim[i], rim[j]);
+                m.AppendTriangle(rim[i], outer[i], outer[j]); m.AppendTriangle(rim[i], outer[j], rim[j]);
+            }
+            var r = new RingProbe(m) { MinTriangleQuality = 0.2 };
+            Index2i et = m.GetEdgeT(m.FindEdge(centre, rim[0]));
+            // the centre moved along the edge direction to far below the plane of the rim: the cone turned inside out
+            Vector3d pos = Tilt * new Vector3d(0, 0, -5);
+            Assert.Equal(rejected, r.collapse_turns_from_ring(centre, rim[0], ref pos, et.a, et.b));
+        }
+
         sealed class RingProbe : Remesher
         {
             public RingProbe(DMesh3 m) : base(m) { }
