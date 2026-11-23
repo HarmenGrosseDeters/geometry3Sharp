@@ -26,6 +26,26 @@ namespace g3.Examples
         }
 
         /// <summary>
+        /// Cuts a box with an open cutting surface: the square z = 0.5, larger than the box, its normals up. The open tool of a
+        /// Difference goes to the sheet role by default: the part of the box behind the sheet (below it) is removed, nothing is
+        /// repaired, and Report.Route names the step ("SheetRole"). If the sheet role refused (eg the sheet ended inside the box),
+        /// the route would add a "Fallback" step with the reason and the run would treat the tool as an open solid (InputRepair).
+        /// </summary>
+        public static SolidBooleanPipeline CutWithAnOpenSheet()
+        {
+            DMesh3 box = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(0.5, 0.5, 0.5), new Vector3d(0.5, 0.5, 0.5)) }.Generate().MakeDMesh();
+            var sheet = new DMesh3();
+            int a = sheet.AppendVertex(new Vector3d(-1, -1, 0.5)), b = sheet.AppendVertex(new Vector3d(2, -1, 0.5));
+            int c = sheet.AppendVertex(new Vector3d(2, 2, 0.5)), d = sheet.AppendVertex(new Vector3d(-1, 2, 0.5));
+            sheet.AppendTriangle(a, b, c);
+            sheet.AppendTriangle(a, c, d);
+
+            var pipeline = new SolidBooleanPipeline(box, sheet, ExactMeshBoolean.Operations.Difference);
+            pipeline.Compute();
+            return pipeline;
+        }
+
+        /// <summary>
         /// Cuts the exact intersection curves of a cutter box into a target box without removing any triangles.
         /// Preserves target vertex IDs, orientation, and labels the imprinted curve edges.
         /// </summary>

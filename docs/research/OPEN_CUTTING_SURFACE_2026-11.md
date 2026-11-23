@@ -33,6 +33,12 @@ recommendation. No library code is changed; the semantics, any new option and an
   curved case) and the pipeline's `AutoRepair` modes (13 of 13 `Success` and `Clean`, 6 of 8 wrong). Leaning: a report field
   now (no behaviour change), and the default `AllowOpenMeshes = false` as an owner decision once the sheet role is merged.
 
+**Update 2026-11-23 (#1447, owner decision 2026-11-22):** the pipeline now sends an open tool of a Difference without a stated
+role to the sheet role (B) first and falls back to `InputRepair` when the sheet role refuses. The pipeline columns below are
+the state of the study (before the route); the re-run with the route is in
+[the benchmark's README](../../benchmarks/OpenCuttingSurface/README.md): with `Refuse` the cut in 6 of 13 cases and
+`OpenInput` in 7, with `AutoRepair` wrong in 1 of the 8 cases with a known intent instead of 6.
+
 ## 2. Today, measured
 
 Workpiece: the cube `[0,4]^3` (volume 64). `intent` is the volume of the cut by the sheet's sides, with the convention of
