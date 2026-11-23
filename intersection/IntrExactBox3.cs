@@ -164,8 +164,9 @@ namespace g3
             }
             if (box.Aabb) {
                 // an end that the face of a slab bounds lies on that face exactly
-                if (act0 >= 0) hit.P0[act0] = dd[act0] > 0 ? Lo(ref box, act0) : Hi(ref box, act0);
-                if (act1 >= 0) hit.P1[act1] = dd[act1] > 0 ? Hi(ref box, act1) : Lo(ref box, act1);
+                // (the sign of the direction from the two ends, not of dd: d1 - d0 may round to 0 or overflow where the ends differ)
+                if (act0 >= 0) hit.P0[act0] = d1[act0] > d0[act0] ? Lo(ref box, act0) : Hi(ref box, act0);
+                if (act1 >= 0) hit.P1[act1] = d1[act1] > d0[act1] ? Hi(ref box, act1) : Lo(ref box, act1);
                 if (verdict == 1 && act0 >= 0) hit.P1 = hit.P0;
             }
             return true;
@@ -310,7 +311,7 @@ namespace g3
             double m = 3 * U * (Math.Abs(tn) + Math.Abs(tf)) + AbsErr;
             if (tn > tf + m) { t = 0; return false; }
             t = tn - 3 * U * tn - AbsErr;
-            if (t < 0) t = 0;
+            if (!(t >= 0)) t = 0;       // (also for an infinite tn: inf - inf is NaN, and a lower bound of 0 is always valid)
             return true;
         }
 
@@ -383,10 +384,15 @@ namespace g3
             }
         }
 
-        /// <summary> one slab: 0 continue, 1 certified miss, 3 undecided </summary>
+        /// <summary> one slab: 0 continue, 1 certified miss, 3 undecided (also for a non-finite P, eP, Q or eQ) </summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         static int Step(int i, double P, double eP, double Q, double eQ, double L, double H, bool ray, ref Acc c)
         {
+            // (a NaN or an infinity in P, eP, Q or eQ, eg (origin - center) * 0 with an overflowed difference: every comparison below
+            // would be false and the slab would constrain nothing, a certified hit for a miss; one test of the sum, the exact route decides)
+            double fs = (P + eP) + (Q + eQ);
+            if (fs - fs != 0)
+                return 3;
             if (Q == 0 && eQ == 0) {
                 // parallel to the slab, exactly: P itself against L and H
                 if (P + eP < L || P - eP > H) return 1;

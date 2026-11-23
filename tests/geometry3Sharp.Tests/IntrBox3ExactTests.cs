@@ -438,6 +438,22 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void FaceSnap_UsesTheEndsOfTheSegment_NotARoundedDifference()
+        {
+            // x spans more than the range (the difference overflows, only its halves are used), y runs over two subnormal values whose
+            // halves round to the same number (3 and 4 times 2^-1074 give 2 times 2^-1074 both): the sign of the halved difference is 0, and
+            // the point where the segment reaches the lower face of y at its end must still lie on that face
+            double tiny = double.Epsilon;
+            var aab = new AxisAlignedBox3d(new Vector3d(-1.7e308, 4 * tiny, -1), new Vector3d(1.7e308, 5 * tiny, 1));
+            var aspec = IntrExactBox3.BoxSpec.Of(ref aab, 0);
+            Vector3d p0 = new Vector3d(-1.7e308, 3 * tiny, 0), p1 = new Vector3d(1.7e308, 4 * tiny, 0);
+            IntrExactBox3.Hit hit;
+            Assert.True(IntrExactBox3.Find(ref aspec, ref p0, ref p0, ref p1, true, 0, true, 1, true, out hit));
+            Assert.NotEqual(0, hit.Kind);
+            Assert.Equal(4 * tiny, hit.P0.y);
+        }
+
+        [Fact]
         public void ZeroDirection_IsNotARay_TestAndFindAgree()
         {
             var aab = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1, 1, 1));
