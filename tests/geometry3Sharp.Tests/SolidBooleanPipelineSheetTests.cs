@@ -156,5 +156,26 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(32.0 - 0.5, Volume(q.Result), 9);
             }
         }
+        [Fact]
+        public void OpenInputError_NamesTheInputsAndTheWaysOut()
+        {
+            // #1211: the refusal says which input is open and how to state what it is
+            var p = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Sheet(2, -1, 5) }, D);
+            Assert.False(p.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
+            Assert.StartsWith("input 1 is not closed (InputRepair is Refuse)", p.Error);
+            Assert.Contains("role Sheet (InputRoles)", p.Error);
+            Assert.Contains("InputRepair = AutoRepair or AutoRepairThenRobust", p.Error);
+            // two open inputs; the closed one between them is not named
+            var q = new SolidBooleanPipeline(new List<DMesh3> { Sheet(1, -1, 5), Cube(4), Sheet(3, -1, 5) }, D);
+            Assert.False(q.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, q.Status);
+            Assert.StartsWith("inputs 0, 2 are not closed", q.Error);
+            // a sheet with its role is not an open input: only the other one is named
+            var r = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Sheet(2, -1, 5), Sheet(3, -1, 5) }, D) { InputRoles = SheetSecond() };
+            Assert.False(r.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, r.Status);
+            Assert.StartsWith("input 2 is not closed", r.Error);
+        }
     }
 }

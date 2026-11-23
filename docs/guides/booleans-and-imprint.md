@@ -72,6 +72,26 @@ Each entry is bit-identical to running an independent boolean against `terrain` 
 
 An open cutting surface used as the tool of a Difference is stated, not repaired: `InputRoles` gives it the role `Sheet` (`ExactMeshBoolean.Roles` for the boolean alone). The first input must be closed; the part of it behind the sheet (the side the normals point away from) is inside the tool and removed, the part in front stays, decided exactly (no threshold, no repair, no reorientation of the sheet). It is refused, with `BooleanStatus` `SheetRefused`, `SheetReason` and a witness in `Error` (and the `SheetWitness*` fields of the boolean), where the sheet does not define the sides: in a Union or Intersection or as the first input, not an oriented manifold surface (`NotSurface`, `OrientationInconsistent`), a free edge of the sheet inside the first input (`RimInsideWorkpiece`; a rim exactly on its surface is a cut), a part of the first input in front of one piece and behind another (`SidesInconsistent`: a ring, a spiral; also two shells of the first input whose boxes nest, with a mark of each label on them: two cells of different shells are joined by no edge and may be one region of material, so a cut through a hollow body is refused, also where it is consistent, as the nesting of the shells is not looked at; shells with disjoint boxes are independent), a sheet that only touches the first input's surface (every piece of it that meets the first input lies on the surface: a patch or a full sheet on a face, no piece inside) separates nothing and is refused as `UncutComponents`, whatever `UncutSide` says (its contact would mark the whole input, which would then be removed or left as it is, with `Success`), and a part of it that no piece touches (`UncutComponents`, or the side stated with `UncutSide` when the first input has one shell; with several, whether the part is a cavity of a cut part needs the nesting of the shells and is not decided; and only when every part of the sheet shares an edge with the first input's surface or with a part that does: a closed bubble or any other part that floats inside the first input is refused as `FloatingComponent`, also where it would be right, because its cell may be the same region as a cell with the other label). A free edge of a piece that belongs to another tool or sheet shows as `SidesInconsistent`, not `RimInsideWorkpiece`. A part of another tool inside the first input that touches neither the sheet nor its surface is refused the same way. The cells are those of `mesh_ops/ExactMeshCells.cs`. `Orientation` (`Refuse`, `AreaMajority`, `ByNesting`) and the inside-out count apply to the solid inputs only: a sheet is never reoriented, oriented by nesting or counted as inside-out.
 
+### Extruded Cut With an Open Sheet (Recipe)
+
+The role `Sheet` needs a sheet that crosses the workpiece fully and refuses one that ends inside it (`RimInsideWorkpiece`). Where the cut is meant along a direction (a step, a slot, a pocket under the sheet), sweep the sheet to a closed tool and subtract that: [SweptCutExample.cs](../examples/SweptCutExample.cs). There is no class for it; the recipe is `MeshExtrudeMesh` and the closed `ExactMeshBoolean`:
+
+1. State the direction `d`: where the removed material is, seen from the sheet (the side its normals point away from).
+2. Check that every triangle of the sheet faces away from `d` (`normal · d < 0`); otherwise the swept tool folds over. The example refuses such a sheet. The test is in doubles: a triangle nearly parallel to `d` can pass or fail by rounding.
+3. `MeshExtrudeMesh` on a copy of the sheet, with `ExtrudedPositionF = p + length * d` and `IsPositiveOffset = false`; `length` longer than the common box of both meshes is along `d`.
+4. `ExactMeshBoolean` Difference with `AllowOpenMeshes = false`, so a tool that did not close is refused (`OpenInput`), not guessed.
+
+What it removes is everything under the sheet along `d`, exactly for the tool as built (its far vertices are rounded doubles, so the walls are parallel to `d` up to rounding):
+
+| sheet (cube `[0,4]^3`, `d` down) | result |
+|---|---|
+| crosses fully at z = 2 | the upper half (32), as with the role `Sheet` |
+| ends inside (x up to 2) | a step (48) |
+| has a hole inside the cube | the pillar under the hole stays (40) |
+| wholly inside (a disc) | a blind pocket from the bottom (56) |
+
+Limits: the facing test is necessary, not sufficient. Parts of the sheet that lie above each other along `d` pass it, and the result is then the Difference with the union of their swept prisms; `SelfIntersectingPairs > 0` of the boolean shows it. A sheet that folds back along `d` (a bucket) is refused; use the role `Sheet` for it. Background and measurements: [OPEN_CUTTING_SURFACE_2026-11.md](../research/OPEN_CUTTING_SURFACE_2026-11.md), candidate D.
+
 ### `SafeRounding` & `StrictRounding`
 
 Nearly coincident inputs can create exact vertices that round to colliding `double` positions, leaving slivers or self-intersections. `SafeRounding` (on by default) runs `MeshRoundingRepair` after rounding and verifies the output exactly (`RoundingClean`):

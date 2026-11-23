@@ -571,8 +571,15 @@ namespace gs
             Report.BooleanMilliseconds = clock.ElapsedMilliseconds;
             BooleanStatus = op.Status;
             if (anyOpen && op.Status == ExactMeshBoolean.BooleanStatus.OpenInput) {
-                if (InputRepair == InputRepairModes.Refuse)
-                    return fail(PipelineStatus.OpenInput, "an input is not closed (InputRepair is Refuse): " + op.Error, total);
+                if (InputRepair == InputRepairModes.Refuse) {
+                    var open = new List<string>();
+                    foreach (int i in active)
+                        if (!Report.InputClosed[i] && !isSheet(i))
+                            open.Add(i.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    return fail(PipelineStatus.OpenInput, (open.Count == 1 ? "input " : "inputs ") + string.Join(", ", open) + (open.Count == 1 ? " is" : " are") +
+                        " not closed (InputRepair is Refuse). State what the input is: an open cutting surface used as the tool of a Difference gets the role Sheet (InputRoles); " +
+                        "a solid with holes can be repaired (InputRepair = AutoRepair or AutoRepairThenRobust; a repair of a cutting surface cuts nothing)", total);
+                }
                 // (the boolean refuses an input that IsWindingClosed accepts: nothing to repair)
                 if (!anyOpen)
                     return fail(PipelineStatus.OpenInput, op.Error, total);

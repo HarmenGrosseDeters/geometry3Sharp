@@ -319,6 +319,13 @@ winding number rule). S2 is not recommended: a heuristic refusal where S3 gives 
 4. D as an explicit swept-tool operation: build, document as a recipe, or not now.
 5. The silent success: S0, S1, S3 (or S1 then S3).
 
+## 10. Outcome (2026-11-22/23)
+
+Owner decisions on section 9: (1) B; (2) a sheet that only touches is refused; (3) the front side stays; both in #1223, merged.
+(4) D as a documented and tested recipe without a new API: [the guide](../guides/booleans-and-imprint.md#extruded-cut-with-an-open-sheet-recipe)
+and `docs/examples/SweptCutExample.cs`. (5) S1: the `OpenInput` errors of `ExactMeshBoolean` and `SolidBooleanPipeline` name the inputs by index and the ways out;
+the report member is with the owner (its type). S3 (the default of `AllowOpenMeshes`) is still open.
+
 ## Sources
 
 G. Barill, N. G. Dickson, R. Schmidt, D. I. W. Levin, A. Jacobson, *Fast Winding Numbers for Soups and Clouds*, ACM TOG 2018.

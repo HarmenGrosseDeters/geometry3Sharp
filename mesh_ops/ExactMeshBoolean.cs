@@ -878,7 +878,7 @@ namespace g3
             if (sheet != null && ExactWinding[0] == false)
                 return refuse_sheet(SheetRefusal.WorkpieceNotClosed, "the first mesh (the workpiece of a sheet) must be closed (every edge used equally often in both directions)");
             if (AllowOpenMeshes == false && any_generalized())
-                return fail(BooleanStatus.OpenInput, "input meshes must be closed (every edge used equally often in both directions)");
+                return fail(BooleanStatus.OpenInput, open_input_error());
 
             inputClock.Lap("input");
             if (Cancellation.IsCancellationRequested)
@@ -1567,6 +1567,18 @@ namespace g3
         }
 
         // some input is open and classified by generalized winding numbers (not a solid, not a sheet)
+        // the text of Status OpenInput: the open inputs by index, and the ways to state what an open input is
+        string open_input_error()
+        {
+            var open = new List<string>();
+            for (int m = 0; m < ExactWinding.Length; ++m)
+                if (ExactWinding[m] == false && (sheetRole == null || sheetRole[m] == false))
+                    open.Add(m.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            return (open.Count == 1 ? "input mesh " : "input meshes ") + string.Join(", ", open) + (open.Count == 1 ? " is" : " are") +
+                " not closed (every edge used equally often in both directions). An open cutting surface used as the tool of a Difference: give it the role Sheet (Roles). " +
+                "A mesh that is meant as a solid: repair it, or set AllowOpenMeshes for the generalized winding number rule (the solid is where it is above 1/2)";
+        }
+
         bool any_generalized()
         {
             for (int m = 0; m < ExactWinding.Length; ++m)

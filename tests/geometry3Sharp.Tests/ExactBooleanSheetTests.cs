@@ -1613,5 +1613,26 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(1, bottom.SheetWitnessTriangle);
             }
         }
+        [Fact]
+        public void OpenInputError_NamesTheInputsAndTheWaysOut()
+        {
+            DMesh3 cube = Box(0, 0, 0, 1, 1, 1), plate = Plate(0.5, -1, 2, -1, 2);
+            var one = new ExactMeshBoolean(cube, plate, Ops.Difference) { AllowOpenMeshes = false };
+            Assert.False(one.Compute());
+            Assert.Equal(Status.OpenInput, one.Status);
+            Assert.StartsWith("input mesh 1 is not closed (", one.Error);
+            Assert.Contains("role Sheet (Roles)", one.Error);
+            Assert.Contains("AllowOpenMeshes", one.Error);
+            // several, by index; a closed mesh and a sheet with its role are not named
+            var more = new ExactMeshBoolean(new[] { plate, cube, Plate(0.25, -1, 2, -1, 2), Plate(0.75, -1, 2, -1, 2) }, Ops.Union) { AllowOpenMeshes = false };
+            Assert.False(more.Compute());
+            Assert.StartsWith("input meshes 0, 2, 3 are not closed (", more.Error);
+            var role = new ExactMeshBoolean(new[] { cube, Plate(0.25, -1, 2, -1, 2), Plate(0.75, -1, 2, -1, 2) }, Ops.Difference) {
+                AllowOpenMeshes = false, Roles = new List<ExactMeshBoolean.InputRole> { ExactMeshBoolean.InputRole.Solid, ExactMeshBoolean.InputRole.Sheet }
+            };
+            Assert.False(role.Compute());
+            Assert.Equal(Status.OpenInput, role.Status);
+            Assert.StartsWith("input mesh 2 is not closed (", role.Error);
+        }
     }
 }
