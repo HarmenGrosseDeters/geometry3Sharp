@@ -40,7 +40,7 @@ The empirical maximum-error orders for successive refinements are 0.76, 0.54, 0.
 
 ### Heat-distance decision
 
-Keep the probe as a baseline and defer a rate assertion for PR-tier tests. The monotone maximum error over these levels gives only a family-specific observation, and the finest RMS values already rule out a monotone RMS assertion on these inputs. The analytic reference and error reduction each cost one traversal of the vertices after the heat solve. The cotangent Laplacian in isolation and vector heat remain open.
+Keep the probe as a baseline and defer a rate assertion for PR-tier tests. The monotone maximum error over these levels gives only a family-specific observation, and the finest RMS values already rule out a monotone RMS assertion on these inputs. The analytic reference and error reduction each cost one traversal of the vertices after the heat solve. Vector heat remains open.
 
 ## Principal curvature on torus refinements
 
@@ -68,3 +68,37 @@ Both triangulations give empirical order 2.00 to 2.01 on the final refinement fo
 ### Principal-curvature decision
 
 Propose a PR-tier regression using the fixed layout at 16 × 8, 32 × 16 and 64 × 32. Check validity, finite values and a threefold reduction per step in both maximum principal curvature errors. Check the absolute azimuthal angle on the finest test mesh against 0.1° to exercise direction estimation with a stencil that permits azimuthal error. The input has 2,688 vertices across the three grids. The experiment supports these thresholds for the specified torus family and gives no evidence of a defect. The study covers smooth samples on two structured stencils. A convergence guarantee for arbitrary triangulations or noisy samples remains outside this result.
+
+## Scalar cotangent Laplacian
+
+Wardetzky formulates the cotangent stiffness matrix as a discrete Dirichlet pairing and discusses convergence of Laplace–Beltrami operators in a weak formulation. Theorem 3.4 concerns polyhedral surfaces represented as normal graphs and their lifted operators. The two measurements here are the stiffness energy of one interpolated smooth function and the maximum error of a barycentric-mass pointwise estimate. [Paper](https://ddg.math.uni-goettingen.de/pub/convergence_cotan.pdf)
+
+The C# probe uses `IntrinsicTriangulation.CotanLaplacian()` and `VertexAreas()` on input connectivity with zero mollification. The smoother and deformer named in the plan use graph weights, so they would exercise a different operator. For vertex samples `f`, the probe compares `fᵀ L f` with the exact integral of `|∇f|²`. It also compares `(Lf)[i] / area[i]` with the positive-sign smooth Laplacian at interior vertices. All sphere vertices enter the pointwise comparison. Boundary rows on the square are included in the energy pairing and omitted from the pointwise comparison.
+
+- On the unit square, `f = x²` has exact energy 4/3 and positive-sign Laplacian −2. The stiffness row for each interior vertex has cardinal weights 1 and diagonal weights 0 in both meshes. At grid spacing h it gives `Lf = −2h²`. The fixed-diagonal mesh has six right triangles per interior vertex and barycentric area h². The checkerboard has four or eight triangles per vertex, producing areas 2h²/3 and 4h²/3. Its pointwise estimates are therefore −3 and −1.5 at every refinement. In both layouts the linear interpolant is constant in y and has derivative `(2i + 1)h` on strip i. Its energy is lower than 4/3 by exactly h²/3.
+- On the unit sphere, `f = z²` has positive-sign Laplacian `6z² − 2`. Its energy is `4 ∫ (z² − z⁴) dA = 32π/15`.
+
+Run `dotnet run -c Release --project benchmarks/CurvatureWeakProbe`. The resolution is the number of subdivisions per side of the square or per cube edge.
+
+| Mesh | Subdivisions | Absolute energy error | Maximum pointwise error |
+|---|---:|---:|---:|
+| square-fixed | 8 | 0.0052083333 | 5.7287508e-14 |
+| square-checkerboard | 8 | 0.0052083333 | 1 |
+| cube-sphere | 8 | 0.11792834 | 0.48268416 |
+| square-fixed | 16 | 0.0013020833 | 2.2781776e-13 |
+| square-checkerboard | 16 | 0.0013020833 | 1 |
+| cube-sphere | 16 | 0.02966036 | 0.57541133 |
+| square-fixed | 32 | 0.00032552083 | 9.0993879e-13 |
+| square-checkerboard | 32 | 0.00032552083 | 1 |
+| cube-sphere | 32 | 0.0074271653 | 0.62233803 |
+| square-fixed | 64 | 8.1380209e-05 | 3.6384229e-12 |
+| square-checkerboard | 64 | 8.1380208e-05 | 1 |
+| cube-sphere | 64 | 0.0018575625 | 0.64506165 |
+
+The square energy errors match the exact h²/3 formula to rounding precision. The fixed layout reproduces the quadratic pointwise Laplacian to rounding precision. The checkerboard error stays at 1 even though every triangle remains right isosceles and its energy converges at second order. Changing the diagonal pattern leaves this stiffness action unchanged and changes the area used to normalize it.
+
+The cube-sphere energy error falls from 0.11793 to 0.001858, with a final empirical order of 2.00 relative to the inverse subdivision count. Its maximum pointwise error increases from 0.483 to 0.645. At every measured level the maximum occurs at the same projected cube corner, `(1, −1, −1) / √3`, where the exact Laplacian is zero. This is a measurement for one scalar field and mesh family. The planar calculation gives an exact counterexample to a general pointwise convergence requirement for this mass normalization.
+
+### Cotangent Laplacian decision
+
+Propose a PR-tier test of the stiffness energy using the two squares at 8, 16 and 32 subdivisions. Compare the measured energy errors against h²/3. For a curved check, use the 8, 16 and 32 cube-spheres and require at least a threefold energy-error decrease per step. Matrix assembly and the energy evaluation are linear in mesh size on these fixtures. The checkerboard explains why a general pointwise rate assertion would reject a mathematically expected result. This study provides no evidence of a defect in the assembled stiffness matrix.

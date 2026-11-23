@@ -6,6 +6,8 @@ Back to [Sources Index](../SOURCES.md) · [sources/README.md](README.md)
 
 K. Hildebrandt, K. Polthier and M. Wardetzky, [On the Convergence of Metric and Geometric Properties of Polyhedral Surfaces](https://ddg.math.uni-goettingen.de/pub/convergence.pdf), 2006 manuscript, Geometriae Dedicata 123 (2007). Corollary 4 and Example 1 inform the weak curvature oracle. Paper text only.
 
+M. Wardetzky, [Convergence of the Cotangent Formula: An Overview](https://ddg.math.uni-goettingen.de/pub/convergence_cotan.pdf), §§2–3. The finite-element formulation motivates the scalar stiffness-energy oracle and its distinction from barycentric-mass pointwise estimates. Paper text only.
+
 ## Certified exact geodesic distance (`ExactMeshGeodesicDistance`, internal test oracle)
 
 Implemented from the papers and the own claims of [docs/design/GEODESICS.md](../design/GEODESICS.md) (Appendix A); no code

@@ -51,3 +51,4 @@ foreach (int resolution in new[] { 5, 9, 17, 33, 65 }) {
 }
 
 TorusPrincipalCurvatureProbe.Run();
+CotanLaplacianProbe.Run();
