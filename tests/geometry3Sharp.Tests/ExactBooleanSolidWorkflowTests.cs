@@ -15,7 +15,7 @@ namespace geometry3Sharp.Tests
     ///   A  a difference leaves voids: inward shells with negative signed volume, closed, clean;
     ///   B  a real thin piece of the exact solid is kept (removed only where its triangles are degenerate);
     ///   C  solids that touch give Contacts / NonManifoldEdges: closed in memory, non-manifold when welded by position;
-    ///   D  open input (AllowOpenMeshes, default true) gives an open result; AllowOpenMeshes = false refuses it;
+    ///   D  open input (AllowOpenMeshes = true, stated; the default refuses it) gives an open result; AllowOpenMeshes = false refuses it;
     ///   E  MeshRobustRepair on an open boolean result: Apply() is true and the result is clean, but the solidify and the
     ///      wrap are not volume-checked against the open input's solid (documented), so a thin sheet becomes a slab;
     ///   F  unreferenced and unwelded input vertices change nothing.
@@ -356,7 +356,7 @@ namespace geometry3Sharp.Tests
                 DMesh3[] ins = inputs(kv.Item1, kv.Item2).Select(m => Invariance.Transformed(m, s)).ToArray();
                 Assert.Equal(kv.Item1 ? 12 : kv.Item2 ? 24 : 6, ins[0].VertexCount);
                 Assert.Equal(8, ins[0].TriangleCount);
-                var boolean = new ExactMeshBoolean(ins, Ops.Difference) { AllowOpenMeshes = true };
+                var boolean = new ExactMeshBoolean(ins, Ops.Difference);
                 Assert.True(boolean.Compute(), boolean.Error);
                 Assert.True(boolean.ExactWindingA);             // closed in the winding number sense, also unwelded
                 ResultChecks.AssertClosed(boolean.Result);

@@ -313,8 +313,8 @@ namespace geometry3Sharp.Tests
             // goes to Antipodal
             DMesh3 a = Sphere(Vector3d.Zero, 0.6), b = Sphere(CenterB, 2);
             // (no cap by default, owner 2026-11-12 option A; the switch stays for tests)
-            Assert.Equal(int.MaxValue, new ExactMeshBoolean(a, b, Ops.Union) { AllowOpenMeshes = true }.AntipodalMaxTriangles);
-            Assert.Equal(20000, new ExactMeshBoolean(a, b, Ops.Union) { AllowOpenMeshes = true }.AntipodalMaxBoundarySegments);
+            Assert.Equal(int.MaxValue, new ExactMeshBoolean(a, b, Ops.Union).AntipodalMaxTriangles);
+            Assert.Equal(20000, new ExactMeshBoolean(a, b, Ops.Union).AntipodalMaxBoundarySegments);
             ExactMeshBoolean fwn = Run(a, b, Ops.Intersection, Fwn);
             var capped = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), Ops.Intersection) { AllowOpenMeshes = true, AntipodalMaxTriangles = a.TriangleCount };
             Assert.True(capped.Compute(), capped.Error);

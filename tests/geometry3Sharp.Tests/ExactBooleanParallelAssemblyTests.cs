@@ -376,7 +376,7 @@ namespace geometry3Sharp.Tests
             WithBlocks(1, 64, () => {
                 DMesh3 box = Box(new Vector3d(-1.2, -1.1, -0.9), new Vector3d(0.3, 0.6, 1.1));
                 DMesh3 sphere = Sphere(new Vector3d(-0.6, -0.5, 0.2), 0.7, 12);
-                var eb = new ExactMeshBoolean(box, sphere, ExactMeshBoolean.Operations.Difference) { AllowOpenMeshes = true };
+                var eb = new ExactMeshBoolean(box, sphere, ExactMeshBoolean.Operations.Difference);
                 Assert.True(eb.Compute(), eb.Error);
                 string a = Structure(eb.Result);
                 Assert.True(eb.Compute(), eb.Error);
@@ -384,7 +384,7 @@ namespace geometry3Sharp.Tests
                 // (and another operation on the instance, against a fresh one)
                 eb.Operation = ExactMeshBoolean.Operations.Union;
                 Assert.True(eb.Compute(), eb.Error);
-                var fresh = new ExactMeshBoolean(box, sphere, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true };
+                var fresh = new ExactMeshBoolean(box, sphere, ExactMeshBoolean.Operations.Union);
                 Assert.True(fresh.Compute(), fresh.Error);
                 Assert.Equal(Structure(fresh.Result), Structure(eb.Result));
             });

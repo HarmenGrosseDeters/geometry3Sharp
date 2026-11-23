@@ -1548,7 +1548,9 @@ namespace gs
                     RoundingAbsoluteTolerance = RoundingAbsoluteTolerance, StrictRounding = StrictRounding,
                     RoundingMaxPairTests = RoundingMaxPairTests, RoundingPairTestsDefectScale = RoundingPairTestsDefectScale,
                     RoundingPairTestsMaxGrowth = RoundingPairTestsMaxGrowth,
-                    AllowOpenMeshes = true      // (a repair: the input is what it is, open or not)
+                    // (the first round only gets here with a closed mesh, see above; a later round resolves the cleaned result of the
+                    // round before, which is not checked for closedness again: it is taken as it is, as before the default changed)
+                    AllowOpenMeshes = true
                 };
                 DMesh3 res = resolve.Compute() ? resolve.Result : null;
                 ExactResolveRounding = resolve.Rounding;

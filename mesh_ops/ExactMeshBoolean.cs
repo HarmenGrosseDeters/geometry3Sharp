@@ -519,12 +519,13 @@ namespace g3
         /// either could be left out, not both). Decided with the integers of the classification, no tolerance. An open input that
         /// changes the result is not listed, also where the change is wrong (pieces kept where its generalized winding number
         /// crosses 1/2: the result is then usually not closed, which the list does not say): the list does not say that the
-        /// result is right. Empty with a WindingPredicate (not evaluated), when no input is open, when Compute() fails, and before it
+        /// result is right. Empty with a WindingPredicate (not evaluated), when no input is open (so always with the default
+        /// AllowOpenMeshes = false, which refuses such an input), when Compute() fails, and before it
         /// </summary>
         public IReadOnlyList<int> OpenInputsWithoutEffect { get { return openWithoutEffect; } }
         List<int> openWithoutEffect = new List<int>();
         // the list of the classification of the running Compute(), until it succeeds
-        List<int> classifiedWithoutEffect;
+        List<int> classifiedWithoutEffect = new List<int>();
         // for tests: use generalized winding numbers also for closed meshes
         internal bool ForceGeneralizedWinding = false;
         // open meshes with fewer boundary segments than this are classified by the Antipodal Method (an exact ray and a
@@ -665,8 +666,9 @@ namespace g3
         /// parallel over the bodies; a's input check and orientation are done once. Result i is null where that boolean
         /// fails (status[i], if given, says why; a null a fails every boolean with InvalidInput, as a separate boolean
         /// would). configure, if given, is applied to every boolean before it is computed (eg SafeRounding); it runs in
-        /// parallel and must not depend on the order. For a terrain or part against many small bodies most of a lies
-        /// outside each body and is left out of its arrangement (Counts["t3a_culled"]).
+        /// parallel and must not depend on the order. An open a or body is refused with the defaults (status OpenInput, a null
+        /// result; an open a fails every boolean): configure can set AllowOpenMeshes. For a closed terrain solid or part against many
+        /// small bodies most of a lies outside each body and is left out of its arrangement (Counts["t3a_culled"]).
         /// </summary>
         /// <exception cref="ArgumentNullException">bodies is null</exception>
         /// <exception cref="ArgumentException">status is shorter than bodies</exception>
@@ -758,14 +760,20 @@ namespace g3
             };
         }
 
-        /// <summary> union of any number of meshes in one arrangement; null if Compute() fails </summary>
+        /// <summary>
+        /// union of any number of meshes in one arrangement; null if Compute() fails, which with the defaults includes an open mesh
+        /// (AllowOpenMeshes is false; use the constructor to set it, or Roles)
+        /// </summary>
         public static DMesh3 Union(IEnumerable<DMesh3> meshes)
         {
             var op = new ExactMeshBoolean(meshes, Operations.Union);
             return op.Compute() ? op.Result : null;
         }
 
-        /// <summary> intersection of any number of meshes in one arrangement; null if Compute() fails </summary>
+        /// <summary>
+        /// intersection of any number of meshes in one arrangement; null if Compute() fails, which with the defaults includes an open
+        /// mesh (AllowOpenMeshes is false; use the constructor to set it)
+        /// </summary>
         public static DMesh3 Intersection(IEnumerable<DMesh3> meshes)
         {
             var op = new ExactMeshBoolean(meshes, Operations.Intersection);
@@ -806,7 +814,6 @@ namespace g3
             ExactWindingA = ExactWindingB = false;
             ExactWinding = null;
             openWithoutEffect = new List<int>();
-            classifiedWithoutEffect = null;
             SheetReason = SheetRefusal.None;
             SheetError = null;
             SheetWitnessMesh = SheetWitnessTriangle = SheetWitnessTriangle2 = -1;
@@ -1065,8 +1072,7 @@ namespace g3
             }
             Contacts = count_contacts(Result);
             Counts["contacts"] = Contacts;
-            if (classifiedWithoutEffect != null)
-                openWithoutEffect = classifiedWithoutEffect;
+            openWithoutEffect = classifiedWithoutEffect;        // (every path to here has run classify to its end)
             Status = BooleanStatus.Success;
             return true;
         }
@@ -1640,8 +1646,9 @@ namespace g3
 
         /// <summary>
         /// The boundary of the solid of a mesh (where its winding number is positive): self-intersections,
-        /// nested shells and duplicated faces are resolved exactly, the result with SafeRounding (the default).
-        /// Returns null if Compute() fails.
+        /// nested shells and duplicated faces are resolved exactly, the result with SafeRounding (the default). A repair of one
+        /// mesh: an open mesh is taken (AllowOpenMeshes is set here; its solid is where the generalized winding number is above 1/2,
+        /// and the result is then generally open). Returns null if Compute() fails.
         /// </summary>
         public static DMesh3 Resolve(DMesh3 mesh)
         {

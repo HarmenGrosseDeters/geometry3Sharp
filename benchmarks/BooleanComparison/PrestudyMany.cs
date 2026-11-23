@@ -512,7 +512,7 @@ static class PrestudyMany
         var variants = new Dictionary<string, Func<DMesh3[]>> {
             ["separate_serial"] = () => Enumerable.Range(0, n).Select(one).ToArray(),
             ["separate_parallel"] = () => { var r = new DMesh3[n]; Parallel.For(0, n, (i) => r[i] = one(i)); return r; },
-            ["each"] = () => op == ExactMeshBoolean.Operations.Intersection ? ExactMeshBoolean.IntersectEach(a, bs) : ExactMeshBoolean.DifferenceEach(a, bs),
+            ["each"] = () => op == ExactMeshBoolean.Operations.Intersection ? ExactMeshBoolean.IntersectEach(a, bs, b => b.AllowOpenMeshes = true) : ExactMeshBoolean.DifferenceEach(a, bs, b => b.AllowOpenMeshes = true),
         };
         var times = variants.Keys.ToDictionary(k => k, k => new List<long>());
         var hashes = new Dictionary<string, string[]>();

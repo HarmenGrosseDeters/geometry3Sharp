@@ -279,7 +279,7 @@ public static partial class Program
         if (!AllFinite(result))
             throw new Finding($"{what}: a result vertex is not finite");
         if (!inputsClosed)
-            return;     // (open inputs are allowed by default; nothing is promised about the result's shape)
+            return;     // (open inputs are allowed here, stated with AllowOpenMeshes; nothing is promised about the result's shape)
         if (nonManifoldTriangles != 0 || conflictEdges != 0)
             throw new Finding($"{what}: closed inputs, but NonManifoldTriangles {nonManifoldTriangles}, ConflictEdges {conflictEdges}");
         if (result.TriangleCount == 0)

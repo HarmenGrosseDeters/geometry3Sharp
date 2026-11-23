@@ -119,6 +119,31 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void OpenInputs_AreRefusedWithoutConfigure_AndTakenWithIt()
+        {
+            // AllowOpenMeshes is false by default: an open body gives OpenInput and a null result, the other bodies are computed;
+            // an open a fails every boolean; configure states it
+            DMesh3 a = A();
+            List<DMesh3> bodies = Bodies(4, 7);
+            int open = bodies.FindIndex(b => ExactMeshBoolean.IsWindingClosed(b) == false);
+            Assert.True(open >= 0);
+            var status = new Status[bodies.Count];
+            DMesh3[] each = ExactMeshBoolean.IntersectEach(a, bodies, null, status);
+            for (int i = 0; i < bodies.Count; ++i) {
+                Assert.Equal(i == open ? Status.OpenInput : Status.Success, status[i]);
+                Assert.Equal(i == open, each[i] == null);
+            }
+            each = ExactMeshBoolean.DifferenceEach(a, bodies, Open, status);
+            Assert.All(status, s => Assert.Equal(Status.Success, s));
+            Assert.All(each, r => Assert.NotNull(r));
+            DMesh3 openA = A();
+            openA.RemoveTriangle(openA.TriangleIndices().First(), true, false);
+            each = ExactMeshBoolean.DifferenceEach(openA, bodies, null, status);
+            Assert.All(status, s => Assert.Equal(Status.OpenInput, s));
+            Assert.All(each, r => Assert.Null(r));
+        }
+
+        [Fact]
         public void FailingBodies_NullResultAndStatus()
         {
             DMesh3 a = A();

@@ -127,7 +127,7 @@ namespace geometry3Sharp.Tests
             DMesh3 cavity = Box(Vector3d.One, 2 * Vector3d.One);
             cavity.ReverseOrientation();
             MeshEditor.Append(outer, cavity);       // one mesh of two shells: winding number 0 in the cavity
-            var b = new ExactMeshBoolean(outer, new DMesh3(), ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true, Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
+            var b = new ExactMeshBoolean(outer, new DMesh3(), ExactMeshBoolean.Operations.Union) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
             Assert.True(b.Compute(), b.Error);
             Assert.Equal(0, b.ReorientedTriangles);
             AssertOriented(b.Result, 27 - 1);

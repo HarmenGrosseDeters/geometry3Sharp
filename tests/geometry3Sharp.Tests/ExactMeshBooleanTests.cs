@@ -712,7 +712,7 @@ namespace geometry3Sharp.Tests
         public void OpenInput_WithoutARoleOrAllowOpenMeshes_IsRefusedByDefault(Ops op)
         {
             // an open cutting surface as the second operand, and an open box as the first: OpenInput with the defaults, for the
-            // two-mesh and the n-ary constructor and the static helpers; with AllowOpenMeshes = true the same inputs run
+            // two-mesh and the n-ary constructor; with AllowOpenMeshes = true the same inputs run
             DMesh3 cube = Box(0, 0, 0, 1, 1, 1);
             var sheet = new DMesh3();
             int a = sheet.AppendVertex(new Vector3d(-1, -1, 0.5)), b = sheet.AppendVertex(new Vector3d(2, -1, 0.5)), c = sheet.AppendVertex(new Vector3d(2, 2, 0.5)), d = sheet.AppendVertex(new Vector3d(-1, 2, 0.5));
@@ -728,9 +728,32 @@ namespace geometry3Sharp.Tests
                 var many = new ExactMeshBoolean(new[] { pair[0], pair[1], Box(3, 3, 3, 4, 4, 4) }, op);
                 Assert.False(many.Compute());
                 Assert.Equal(ExactMeshBoolean.BooleanStatus.OpenInput, many.Status);
+                Assert.Null(many.Result);
+                Assert.StartsWith("input mesh " + (pair[0] == sheet ? 0 : 1) + " is not closed", many.Error);
+                // stated: the flat sheet encloses nothing (its generalized winding number stays below 1/2)
                 var allowed = new ExactMeshBoolean(pair[0], pair[1], op) { AllowOpenMeshes = true };
                 Assert.True(allowed.Compute(), allowed.Error);
-                Assert.NotNull(allowed.Result);
+                bool sheetFirst = pair[0] == sheet;
+                // (the cube comes back for a union, and for a difference with the sheet as the tool; otherwise nothing)
+                double expected = op == Ops.Union || (op == Ops.Difference && !sheetFirst) ? 1 : 0;
+                Assert.Equal(expected, Volume(allowed.Result), 12);
+                if (expected > 0)
+                    Assert.Equal("", MeshRobustRepair.NotCleanReason(allowed.Result));
+                else
+                    Assert.Equal(0, allowed.Result.TriangleCount);
+                Assert.Equal(new[] { sheetFirst ? 0 : 1 }, allowed.OpenInputsWithoutEffect);
+            }
+            // the static helpers have no configure: null (the constructor is the way to state AllowOpenMeshes)
+            if (op == Ops.Union)
+                Assert.Null(ExactMeshBoolean.Union(new[] { cube, sheet }));
+            if (op == Ops.Intersection)
+                Assert.Null(ExactMeshBoolean.Intersection(new[] { cube, sheet }));
+            // a sheet with its role is not an open input: accepted with the default
+            if (op == Ops.Difference) {
+                var role = new ExactMeshBoolean(new[] { cube, sheet }, op) { Roles = new List<ExactMeshBoolean.InputRole> { ExactMeshBoolean.InputRole.Solid, ExactMeshBoolean.InputRole.Sheet } };
+                Assert.True(role.Compute(), role.Error);
+                Assert.Equal(0.5, Volume(role.Result), 12);
+                Assert.Empty(role.OpenInputsWithoutEffect);
             }
             // closed inputs are not affected
             var closed = new ExactMeshBoolean(cube, Box(0.5, 0.5, 0.5, 2, 2, 2), op);
@@ -748,6 +771,10 @@ namespace geometry3Sharp.Tests
             DMesh3 r = ExactMeshBoolean.Resolve(open);
             Assert.NotNull(r);
             Assert.Equal(open.TriangleCount, r.TriangleCount);
+            Assert.True(r.Vertices().All(v => v.IsFinite));
+            Assert.False(ExactMeshBoolean.IsWindingClosed(r));       // (still the open box: nothing is closed for it)
+            Assert.Equal(open.GetBounds().Max, r.GetBounds().Max);
+            Assert.Equal(open.GetBounds().Min, r.GetBounds().Min);
         }
     }
 }

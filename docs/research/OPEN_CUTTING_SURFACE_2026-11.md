@@ -33,6 +33,10 @@ recommendation. No library code is changed; the semantics, any new option and an
   curved case) and the pipeline's `AutoRepair` modes (13 of 13 `Success` and `Clean`, 6 of 8 wrong). Leaning: a report field
   now (no behaviour change), and the default `AllowOpenMeshes = false` as an owner decision once the sheet role is merged.
 
+**Update 2026-11-23 (owner):** the default of `ExactMeshBoolean.AllowOpenMeshes` is now `false` (S3 of section 8), so the silent
+`Success` of the plain boolean named above needs the caller's `AllowOpenMeshes = true`; the numbers of this study are of the
+default at its time.
+
 **Update 2026-11-23 (#1447, owner decision 2026-11-22):** the pipeline now sends an open tool of a Difference without a stated
 role to the sheet role (B) first and falls back to `InputRepair` when the sheet role refuses. The pipeline columns below are
 the state of the study (before the route); the re-run with the route is in

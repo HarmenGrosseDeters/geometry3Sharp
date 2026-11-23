@@ -183,7 +183,7 @@ static class Program
                     else
                         other.Add(e.Name + " " + oe.Verdict);
                 }
-                // and the plain boolean with its defaults (open meshes allowed, no strict rounding)
+                // and the plain boolean with open meshes allowed (stated) and no strict rounding
                 string plain = plainBoolean(c, f, prep);
                 bump(tally, c.Class, kind == "refused" ? (good.Count > 0 || plain == "ok" ? "refused, answer exists" : "refused, no setting answers") : kind);
                 string d = "- `" + c.Name + "` @ `" + f.Name + "`: **" + o.Verdict + "**";

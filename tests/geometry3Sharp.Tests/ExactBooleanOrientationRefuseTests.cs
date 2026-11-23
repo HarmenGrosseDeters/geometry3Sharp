@@ -184,12 +184,11 @@ namespace geometry3Sharp.Tests
         public void AStrayOpenTriangle_DoesNotSwitchTheRefusalOff()
         {
             // the decision is per component: a closed, inconsistently oriented cube next to a stray open triangle in the same
-            // mesh is refused (with open meshes allowed, the default), not reoriented by area into an empty tool
+            // mesh is refused (with open meshes allowed), not reoriented by area into an empty tool
             DMesh3 tool = FlippedCube(3);
             int a = tool.AppendVertex(new Vector3d(10, 10, 10)), b = tool.AppendVertex(new Vector3d(11, 10, 10)), c = tool.AppendVertex(new Vector3d(10, 11, 10));
             tool.AppendTriangle(a, b, c);
             var op = new ExactMeshBoolean(Box(-1, -1, -1, 2, 2, 2), tool, D) { AllowOpenMeshes = true };
-            Assert.True(op.AllowOpenMeshes);
             Assert.False(op.Compute());
             Assert.Equal(ExactMeshBoolean.BooleanStatus.InconsistentOrientation, op.Status);
             Assert.Contains("6 of its 13 triangles", op.Error);

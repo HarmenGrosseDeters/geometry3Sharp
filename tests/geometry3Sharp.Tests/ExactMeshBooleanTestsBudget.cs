@@ -268,7 +268,7 @@ namespace geometry3Sharp.Tests
             // a knot whose boolean takes seconds, cancelled after 100 ms: Compute returns Cancelled well before the end
             (DMesh3 a, DMesh3 b) = KnotPair(400, 8, 24, 0.6, 1);
             using (var cts = new CancellationTokenSource()) {
-                var s = new ExactMeshBoolean(a, b, Ops.Difference) { AllowOpenMeshes = true, Cancellation = cts.Token };
+                var s = new ExactMeshBoolean(a, b, Ops.Difference) { Cancellation = cts.Token };
                 cts.CancelAfter(100);
                 var sw = Stopwatch.StartNew();
                 Assert.False(s.Compute());

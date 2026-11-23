@@ -187,6 +187,7 @@ static class ChainExact
             ExactMesh e = Lazy(plan, k, leaf);
             foreach (double f in factors) {
                 ExactMeshBoolean b = e.ToBoolean();
+                b.AllowOpenMeshes = true;      // (as the chained booleans of this file)
                 b.RoundingMaxPairTests = (long)(b.RoundingMaxPairTests * f);
                 var sw = Stopwatch.StartNew();
                 bool ok = b.Compute();
@@ -239,6 +240,7 @@ static class ChainExact
                     chainSteps.Add(ms);
                 } else {
                     ExactMeshBoolean b = Lazy(plan, job, leaf).ToBoolean();
+                    b.AllowOpenMeshes = true;      // (as the chained booleans of this file)
                     var sw = Stopwatch.StartNew();
                     bool ok = b.Compute();
                     lazyMs[job].Add(sw.Elapsed.TotalMilliseconds);
