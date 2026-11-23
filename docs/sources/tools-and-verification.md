@@ -4,6 +4,16 @@ Back to [Sources Index](../SOURCES.md) · [sources/README.md](README.md)
 
 ---
 
+## Solid topology study
+
+[Solid Betti numbers as Boolean and repair test oracles](../research/EXACT_TOPOLOGY_CERTIFICATES.md) uses these published texts. The probe uses existing library operations.
+
+| Source | Use |
+|---|---|
+| C. J. A. Delfinado and H. Edelsbrunner, [*An Incremental Algorithm for Betti Numbers of Simplicial Complexes on the 3-Sphere*](https://pub.ista.ac.at/~edels/Papers/1995-03-IncrementalBettiNumbers.pdf), Computer Aided Geometric Design 12(7), pp. 771–784, 1995 | Cycle births and deaths and complement connectivity for embedded complexes |
+| A. Hatcher, [*Algebraic Topology*](https://pi.math.cornell.edu/~hatcher/AT/AT.pdf), 2002, Corollary 3.45 | Alexander duality relating bounded complement components to the second Betti number |
+| Q. Zhou, E. Grinspun, D. Zorin and A. Jacobson, [*Mesh Arrangements for Solid Geometry*](https://www.cs.columbia.edu/cg/mesh-arrangements/), ACM TOG 35(4), 2016 | Prior art on winding labels of regions bounded by surface patches |
+
 ## Test harness (`tests/geometry3Sharp.Tests/Harness/`)
 
 Implemented from the paper, no code taken over.
