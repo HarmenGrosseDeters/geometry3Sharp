@@ -343,3 +343,38 @@ Each grid contains the same off-axis destination, the cube generator's sphere ma
 | 65 | linear | 0.61070 | 0.19525 | 3100 | 0.66937 | 0.12843 |
 
 At the fixed destination under default time, R rises from 0.383 to 0.913 as the angular error grows from 1.28° to 11.70°. The transported vectors increasingly agree around a biased direction. On the finest grid the linear schedule gives more cancellation (R = 0.611) and a smaller error (0.195°) at that same point. All eight far-band RMS angles reproduce the production time sweep to its reported precision. Greater agreement among walks is therefore insufficient as an accuracy indicator on this fixture. These first moments do not identify which routes account for the directional bias.
+
+## Grouping walks by their final edge
+
+At the same off-axis target i, group the walks by their last step from a neighbor j. Write m = y/φ for the local mean vector measured above and Dᵢ for the scalar system diagonal (vertex mass plus t times the sum of incident weights). Because i is away from the source, its scalar and vector system rows give
+
+```text
+pⱼ = t wᵢⱼ φⱼ / (Dᵢ φᵢ)
+sumⱼ pⱼ = 1
+mᵢ = sumⱼ pⱼ Rᵢⱼ mⱼ
+```
+
+Here Rᵢⱼ is the rotation used in the assembled connection matrix. The probe reconstructs both rows, then repeats the vector sum with each neighbor's mean direction replaced by analytic pole-to-neighbor transport encoded in its local frame. Each neighbor retains its measured mean length, its scalar arrival share and its final-edge rotation. The control asks how much directional error the final step produces when supplied with those reference directions. Walks can revisit the target, so a last-edge group can contain earlier visits as well.
+
+To reproduce from the repository root, apply the [arrival control](../../benchmarks/CurvatureWeakProbe/sphere-arrival-control.patch) on top of the preceding resultant patch.
+
+```sh
+git worktree add --detach ../sphere-arrival-control HEAD
+cd ../sphere-arrival-control
+git apply benchmarks/CurvatureWeakProbe/sphere-walk-resultant.patch
+git apply benchmarks/CurvatureWeakProbe/sphere-arrival-control.patch
+dotnet run -c Release --project benchmarks/CurvatureWeakProbe -- --heat-arrivals
+```
+
+| Vertices per edge | Schedule | Largest arrival share | Measured angle (°) | Angle with reference directions at neighbors (°) |
+|---:|---|---:|---:|---:|
+| 9 | default | 0.33028 | 1.27798 | 0.72921 |
+| 9 | linear | 0.28361 | 0.07923 | 0.03795 |
+| 17 | default | 0.37693 | 3.74898 | 0.78557 |
+| 17 | linear | 0.28750 | 0.22748 | 0.04751 |
+| 33 | default | 0.40476 | 7.65999 | 0.57019 |
+| 33 | linear | 0.28662 | 0.23130 | 0.01331 |
+| 65 | default | 0.42271 | 11.69874 | 0.37105 |
+| 65 | linear | 0.28367 | 0.19525 | 0.00299 |
+
+All eight reconstructions agree with the measured angles to the printed precision. The largest scalar or vector row residual is below 5 × 10⁻¹⁶. At the finest resolution one of the six incoming edges carries 42.27% of the scalar weight at default time and the largest share under the linear schedule is 28.37%. With the original weights and mean lengths, supplying analytic neighbor directions reduces the default error from 11.699° to 0.371° and the linear-schedule error from 0.195° to 0.003°. Thus at this destination the large default error depends on the directions already present in the neighboring field. This local substitution neither determines where that bias first develops nor yields an additive split of angular errors.
