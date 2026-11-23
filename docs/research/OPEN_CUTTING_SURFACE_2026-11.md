@@ -326,7 +326,8 @@ Owner decisions on section 9: (1) B; (2) a sheet that only touches is refused; (
 and `docs/examples/SweptCutExample.cs`. (5) S1 now: `ExactMeshBoolean.OpenInputsWithoutEffect` and `OpenInput` errors that name
 the inputs and the ways out; S3 (the default of `AllowOpenMeshes`) is still open. The list is defined on the classification's
 decisions, not on the volume proxy of section 8: on the 13 cases it names the sheet in the 10 flagged ones and for the disc
-inside the cube.
+inside the cube. It says that the result is the one without this input, not that the result is right: an open input
+that changes the result wrongly (the sphere case of section 2) is not listed.
 
 ## Sources
 

@@ -30,3 +30,6 @@ not the milliseconds):
 - [results/master.txt](results/master.txt): master `e875d747`.
 - [results/sheet-role-pr1223.txt](results/sheet-role-pr1223.txt): the head of PR #1223 (`2f3f33ec`), the same source copied
   into a worktree of that branch.
+- [results/open-inputs-without-effect.txt](results/open-inputs-without-effect.txt): `today` on the branch that adds
+  `ExactMeshBoolean.OpenInputsWithoutEffect` (2026-11-23); the last column also prints that list. It names the sheet in the 10
+  cases the volume proxy flags and for the disc inside the cube; not for the bucket (it cuts) and the sheet outside.
