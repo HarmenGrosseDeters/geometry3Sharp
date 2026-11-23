@@ -52,7 +52,7 @@ Measured in Release on Linux x64 with .NET SDK 10.0.115. Every run produced `0` 
 
 † First call includes JIT cold-start warmup.
 
-Measured clearances (identical in both runs): `near-tangent-gap-1e-2` and `-1e-6`: `0.01` and `1e-6` between the two branch meshes. Minimum distance of the meshes of two segments that share no node: `intentional-loop` `0.731`; `dendrite-tree-21` `0.151` (segments `3-8` and `9-21`); `tight-bundle-25` `0` (segments `2-6` and `7-16` overlap; the tight bundle has non-adjacent tubes that intersect, which the Boolean unites as intended); `dendrite-tree-45` `0.0748` (segments `3-8` and `9-20`).
+Measured clearances (identical in both runs): `near-tangent-gap-1e-2` and `-1e-6`: `0.01` and `1e-6` between the two branch meshes. Minimum distance of the meshes of two segments that share no node: `intentional-loop` `0.731`; `dendrite-tree-21` `0.151` (segments `3-8` and `9-21`); `tight-bundle-25` `0` (segments `2-6` and `7-16` overlap; the tight bundle has non-adjacent tubes that intersect, which the Boolean unites as intended; so its expected genus `0` no longer follows from the tree construction alone: it rests on the agreement of the Boolean, the wrap and conv-mc, not on a known answer); `dendrite-tree-45` `0.0748` (segments `3-8` and `9-20`).
 
 ## Key findings
 
