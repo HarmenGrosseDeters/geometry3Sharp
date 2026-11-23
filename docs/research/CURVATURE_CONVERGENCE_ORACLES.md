@@ -378,3 +378,21 @@ dotnet run -c Release --project benchmarks/CurvatureWeakProbe -- --heat-arrivals
 | 65 | linear | 0.28367 | 0.19525 | 0.00299 |
 
 All eight reconstructions agree with the measured angles to the printed precision. The largest scalar or vector row residual is below 5 × 10⁻¹⁶. At the finest resolution one of the six incoming edges carries 42.27% of the scalar weight at default time and the largest share under the linear schedule is 28.37%. With the original weights and mean lengths, supplying analytic neighbor directions reduces the default error from 11.699° to 0.371° and the linear-schedule error from 0.195° to 0.003°. Thus at this destination the large default error depends on the directions already present in the neighboring field. This local substitution neither determines where that bias first develops nor yields an additive split of angular errors.
+
+## Spatial profile from the pole to the off-axis target
+
+Run `dotnet run -c Release --project benchmarks/CurvatureWeakProbe -- --heat-profile`. Divide the short great-circle arc from the north pole to the previous target into eight equal intervals. Select the nearest vertex to each station on the 17-vertex-per-edge cube-sphere, then sample those same physical vertices on the 33 and 65 grids. The largest angular offset from an intended station is 2.78°. The table uses the actual colatitudes. Each value is the signed angle from analytic pole-to-vertex transport to the computed direction projected onto the smooth tangent plane. Positive angles follow the right-hand rule about the outward normal.
+
+| Colatitude (°) | Default 17 (°) | Default 33 (°) | Default 65 (°) | Linear 65 (°) |
+|---:|---:|---:|---:|---:|
+| 0 | 0 | 0 | 0 | 0 |
+| 18.30399 | 0.00065 | 0.00056 | 0.00038 | 0.00006 |
+| 41.78529 | 0.03297 | 0.01858 | 0.01473 | 0.00197 |
+| 60.35664 | 0.15081 | 0.12668 | 0.12628 | 0.00877 |
+| 80.51052 | 0.48554 | 0.51739 | 0.53560 | 0.02932 |
+| 99.48948 | 0.92040 | 1.17149 | 1.26349 | 0.05375 |
+| 119.64336 | 1.51499 | 2.29911 | 2.71940 | 0.08268 |
+| 138.21471 | 2.39204 | 4.26649 | 5.62083 | 0.12448 |
+| 157.13005 | 3.74898 | 7.65999 | 11.69874 | 0.19525 |
+
+The endpoint reproduces the previous control on all three grids under both schedules. The default error decreases with refinement at the 41.79° station (0.03297° to 0.01473°), but increases at each sampled station from 80.51° onward. On the finest grid the signed error grows from 0.53560° at 80.51° to 2.71940° at 119.64°. Its largest sampled increase is 6.07791°, between 138.21° and the target at 157.13°. With the linear schedule the corresponding increment is 0.07076°. These differences describe the spatial variation in the solved field along one sampled meridian. They do not measure the contribution of walks traversing a particular segment.
