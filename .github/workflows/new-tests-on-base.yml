@@ -21,8 +21,10 @@ env:
 
 jobs:
   new-tests-on-base:
-    # a draft PR runs nothing here (owner 2026-11-23, runner load); marking it ready starts the run
-    if: github.event.pull_request.draft != true
+    # a draft PR runs nothing here (owner 2026-11-23, runner load); a ready PR only with the label `full-ci` (the full stage of PR
+    # CI): setting it starts the run (labeled), and every later push while it is set runs again. (Do not remove `full-ci` from a PR
+    # that is to be merged: the unlabeled event skips this job on the same head.)
+    if: github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'full-ci')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:

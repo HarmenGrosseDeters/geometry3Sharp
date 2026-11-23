@@ -1,22 +1,32 @@
 name: CI
 
 on:
+  # Two stages on a pull request (owner 2026-11-23, runner load; docs/QA.md "Test tiers", docs/qa/ci-and-gates.md "Two-stage PR CI"):
+  # every event of a ready PR runs the job `quick` (the builds and the net10.0 tests of the changed areas, a signal); the full
+  # matrix (linux, netstandard a/b with net48, isolated, time-rule) runs only while the PR has the label `full-ci` (set by the
+  # coordinator, like `bugfix`): the labeled event starts it on the current head, and every later push runs it on the new head.
+  # The merge gate is the commit status `full-ci` (job full-ci-status): green only from a full run on the PR's head.
+  # Master (owner 2026-11-23): no run per merge. A run every 2 hours (schedule) tests master's head if anything the library tests
+  # read changed since the last tested head (tools/master_batch.py); a red batch is narrowed down with tools/master_bisect.py.
+  # Tags and workflow_dispatch run the full matrix as before.
   # docs-only changes skip CI (CLAUDE.md, "Before every push"), except the design docs that a test checks: the bound
-  # table (GeneratedPredicatesTests) and the stage 0 ledger of the determinism proof (DeterminismScopeAnalyzerTests). Branches other than master run through their pull request only: a push trigger there
-  # too ran every PR push twice. A branch without a PR: workflow_dispatch.
+  # table (GeneratedPredicatesTests) and the stage 0 ledger of the determinism proof (DeterminismScopeAnalyzerTests). Branches other
+  # than master run through their pull request only. A branch without a PR: workflow_dispatch.
   push:
-    branches: [master]
     tags: ['**']
-    paths: ['**', '!**/*.md', 'docs/design/FIXED_WIDTH_EXACT_POINTS.md', 'docs/design/DETERMINISM_PROOF.md']
-  # ready_for_review: marking a draft ready starts the full run. A draft gets no CI (the job scope below is the gate); on demand: workflow_dispatch.
+  # ready_for_review: marking a draft ready starts the quick stage. A draft gets no CI (the job scope below is the gate); on demand:
+  # workflow_dispatch. labeled: setting `full-ci` starts the full stage. (Any other label set while `full-ci` is on re-runs it:
+  # set `bugfix` and the like before `full-ci`. No unlabeled: removing a label starts nothing.)
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     paths: ['**', '!**/*.md', 'docs/design/FIXED_WIDTH_EXACT_POINTS.md', 'docs/design/DETERMINISM_PROOF.md']
+  schedule:
+    - cron: '41 */2 * * *'     # every 2 hours: the batched master run (skipped when there is nothing new to test)
   workflow_dispatch:
 
 # A new push to the same PR (or branch) cancels the run under way. Master and manual runs are never cancelled: they queue (GitHub
-# keeps the run under way and the newest pending one: a burst of merges runs the first and the newest commit, which covers all of
-# them). A run that the gate of the job scope skips (an event of a draft) has its own group, so it cannot cancel a real run of the PR.
+# keeps the run under way and the newest pending one). A run that the gate of the job scope skips (an event of a draft) has its
+# own group, so it cannot cancel a real run of the PR.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.draft && '-skipped' || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -29,26 +39,32 @@ env:
   FULL_TIER: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
 
 jobs:
-  # Which parts of CI a PR needs (tools/ci_scope.py): a PR that changes only tools, benchmarks or docs that the library
+  # Which parts of CI a run needs (tools/ci_scope.py): a PR that changes only tools, benchmarks or docs that the library
   # build and the test projects do not read skips the library test suites (net10.0, net48, Clipper2). The library build,
-  # the API validation (pack), the smoke tests and the benchmark and tool steps run always.
+  # the API validation (pack), the smoke tests and the benchmark and tool steps of the full stage run always.
   # It is also the gate (owner 2026-11-15, runner load: most runs of draft PRs were cancelled by the next push): a draft PR gets no CI;
   # start one with workflow_dispatch (Actions tab, or `gh workflow run ci.yml --ref <branch>`; its checks attach to the head commit).
-  # opened / synchronize / reopened / ready_for_review of a PR that is not a draft, master, tags and manual runs always run. Every other
-  # job needs scope, so a skipped scope skips all of them (they report "skipped" on the draft only; a ready PR never has a skipped run,
-  # so no skipped check hides a red one of the same name). No job needs a result of an earlier run.
+  # Every other job needs scope, so a skipped scope skips all of them (they report "skipped" on the draft only).
+  # `full` says whether the full stage runs: on a PR the label `full-ci` (from the event: the labeled event carries the new label),
+  # on a scheduled run tools/master_batch.py (skip when master's head, or everything the tests read, was already tested), on tags
+  # and workflow_dispatch always. `quick` runs on a PR exactly when the full stage does not (the full stage covers it).
   scope:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read          # master_batch.py reads the earlier master runs and their jobs
     outputs:
       library: ${{ steps.scope.outputs.library }}
       g3cli: ${{ steps.scope.outputs.g3cli }}
       ps1: ${{ steps.scope.outputs.ps1 }}
+      full: ${{ steps.full.outputs.full }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          # (a scheduled run diffs master's head against the last tested head, which can be many merges back)
+          fetch-depth: ${{ github.event_name == 'schedule' && '0' || '2' }}
       - id: scope
         run: |
           if [ "${{ github.event_name }}" = pull_request ]; then
@@ -58,10 +74,75 @@ jobs:
           else
             python3 tools/ci_scope.py --all | tee -a "$GITHUB_OUTPUT"
           fi
+      - id: full
+        env:
+          EVENT: ${{ github.event_name }}
+          FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          HEAD_SHA: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          case "$EVENT" in
+            pull_request)
+              echo "full=$FULL_LABEL" | tee -a "$GITHUB_OUTPUT"
+              if [ "$FULL_LABEL" != true ]; then
+                printf '### PR CI: quick stage\nThe full matrix runs with the label `full-ci` (the merge gate, commit status `full-ci`).\n' >> "$GITHUB_STEP_SUMMARY"
+              fi ;;
+            schedule)
+              python3 tools/master_batch.py --repo "$REPO" --head "$HEAD_SHA" --run-id "$RUN_ID" --branch "$BRANCH" --summary "$GITHUB_STEP_SUMMARY" | tee -a "$GITHUB_OUTPUT" ;;
+            *)
+              echo "full=true" | tee -a "$GITHUB_OUTPUT" ;;
+          esac
+
+  # The quick stage of a ready PR (owner 2026-11-23): the builds that catch compile errors (the library for net10.0 and
+  # netstandard2.0, the net10.0 test project) and the net10.0 tests of the changed areas without Slow and Nightly
+  # (tools/ci_scope.py --quick: the changed test classes, the classes of the test files that use a changed type, a smoke set;
+  # a broad change runs the smoke set and the directly named classes only, and says so in the summary). A signal, not the gate:
+  # the full stage on the final head is. Target about 5 minutes. It does not run when the full stage runs (that covers it).
+  quick:
+    needs: scope
+    if: github.event_name == 'pull_request' && needs.scope.outputs.full != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: No mutation marker in the sources
+        run: python3 tests/mutation/exclude_other_sources.py check --root .
+      - name: Build the library (net10.0, netstandard2.0)
+        run: dotnet build geometry3Sharp_netstandard.csproj -c Release
+      - name: Build the tests (net10.0)
+        if: needs.scope.outputs.library == 'true'
+        run: dotnet build tests/geometry3Sharp.Tests -c Release -f net10.0
+      - name: Which tests
+        id: which
+        if: needs.scope.outputs.library == 'true'
+        run: |
+          git diff --name-only --no-renames HEAD^1 HEAD > changed.txt
+          python3 tools/ci_scope.py --quick --summary "$GITHUB_STEP_SUMMARY" < changed.txt > which.txt
+          sed -n 's/^broad=//p' which.txt
+          sed -n 's/^filter=//p' which.txt > filter.txt
+          echo "any=$([ -s filter.txt ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - name: Test the changed areas (net10.0)
+        if: steps.which.outputs.any == 'true'
+        run: dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-build --filter "$(cat filter.txt)" --logger "trx;LogFileName=quick.trx" --results-directory test-results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: quick-results
+          path: test-results/
+          if-no-files-found: ignore
 
   # net10.0 build of the library, all tests, NuGet package and package smoke test
   linux:
     needs: scope
+    if: needs.scope.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -84,7 +165,7 @@ jobs:
           dotnet test tests/geometry3Sharp.Tests -c Release "${filter[@]}" --logger "trx;LogFileName=net10.trx" --results-directory test-results
       # the full run's trx, for the job time-rule (the 5 s / 10 s rule is judged on the time alone, see the job isolated)
       - uses: actions/upload-artifact@v4
-        if: always() && needs.scope.outputs.library == 'true' && env.FULL_TIER == 'true'
+        if: always() && needs.scope.outputs.full == 'true' && needs.scope.outputs.library == 'true' && env.FULL_TIER == 'true'
         with:
           name: full-run-trx
           path: test-results/net10.trx
@@ -136,9 +217,10 @@ jobs:
             if [ -f "$f" ]; then cp "$f" golden-current.json; else echo '{"format": 1, "rows": [], "removed": []}' > golden-current.json; fi
             dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 --no-build -- golden verify-changes --base golden-base.json --current golden-current.json || exit 1
           done
-      - name: Test the CI scripts (tools/ci_scope.py, tools/trx_durations.py, tools/changed_line_coverage.py, tools/runtime_watch.py, tools/schedule_guard.py, tools/blame_summary.py, tools/gate_check.py, tools/review_triggers.py, tools/check_docs.py)
+      - name: Test the CI scripts (tools/ci_scope.py, tools/master_batch.py, tools/master_bisect.py, tools/trx_durations.py, tools/changed_line_coverage.py, tools/runtime_watch.py, tools/schedule_guard.py, tools/blame_summary.py, tools/gate_check.py, tools/review_triggers.py, tools/check_docs.py)
         run: |
           python3 -m unittest discover -s tools -p 'test_ci_scope.py' -v
+          python3 -m unittest discover -s tools -p 'test_master_batch.py' -v
           python3 -m unittest discover -s tools -p 'test_trx_durations.py' -v
           python3 -m unittest discover -s tools -p 'test_changed_line_coverage.py' -v
           python3 -m unittest discover -s tools -p 'test_runtime_watch.py' -v
@@ -184,7 +266,7 @@ jobs:
   # class after the other, in parallel to the job linux (it needs no result of it). The job time-rule judges.
   isolated:
     needs: scope
-    if: needs.scope.outputs.library == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    if: needs.scope.outputs.full == 'true' && needs.scope.outputs.library == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -222,7 +304,7 @@ jobs:
   # tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt; that list may only shrink (a PR may not add to the base branch's list).
   time-rule:
     needs: [scope, linux, isolated]
-    if: always() && needs.scope.outputs.library == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.linux.result != 'skipped' && needs.isolated.result != 'skipped'
+    if: always() && needs.scope.outputs.full == 'true' && needs.scope.outputs.library == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.linux.result != 'skipped' && needs.isolated.result != 'skipped'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -266,9 +348,9 @@ jobs:
   netstandard:
     name: ${{ matrix.name }}
     needs: scope
-    # not on a draft PR (like isolated): ready_for_review starts the full run, which reports these checks. A job skipped here
-    # reports "skipped" on the draft, which cannot be merged anyway.
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    # not on a draft PR (like isolated), and on a ready PR only in the full stage (label full-ci): the merge gate is the status
+    # full-ci (job full-ci-status), so a skipped check of these names never stands for a passed one.
+    if: needs.scope.outputs.full == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: windows-latest
     timeout-minutes: 60
     strategy:
@@ -338,3 +420,43 @@ jobs:
         with:
           name: ${{ matrix.name }}-results
           path: test-results/
+
+  # The merge gate of a PR (owner 2026-11-23): the commit status `full-ci` on the PR's head. Branch protection requires it (and
+  # the check `quick`), not the job names: a skipped job counts as passed there, a pending status does not. Without the label
+  # `full-ci` the status is pending ("label full-ci not set"), so a PR cannot merge on the quick stage alone; with it, it is green
+  # only if the full matrix passed on this head (isolated and time-rule may be skipped, for a PR that does not change the library).
+  # A later push gets no status until its own run ends, so an old green never covers a new head. (Fork PRs: the token cannot
+  # write statuses; the step warns and the owner checks the jobs by hand.)
+  full-ci-status:
+    needs: [scope, linux, isolated, time-rule, netstandard]
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.draft == false && needs.scope.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      statuses: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      SHA: ${{ github.event.pull_request.head.sha }}
+      FULL: ${{ needs.scope.outputs.full }}
+      LINUX: ${{ needs.linux.result }}
+      NETSTANDARD: ${{ needs.netstandard.result }}
+      ISOLATED: ${{ needs.isolated.result }}
+      TIME_RULE: ${{ needs.time-rule.result }}
+      URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Post the status full-ci
+        run: |
+          ok() { [ "$1" = success ] || [ "$1" = skipped ]; }
+          if [ "$FULL" != true ]; then
+            state=pending; desc="label full-ci not set: the full matrix has not run on this head"
+          elif [ "$LINUX" = success ] && [ "$NETSTANDARD" = success ] && ok "$ISOLATED" && ok "$TIME_RULE"; then
+            state=success; desc="full matrix passed on this head"
+          else
+            state=failure; desc="full matrix: linux $LINUX, netstandard $NETSTANDARD, isolated $ISOLATED, time-rule $TIME_RULE"
+          fi
+          echo "full-ci: $state ($desc)"
+          printf '### Merge gate\n`full-ci`: **%s** (%s)\n' "$state" "$desc" >> "$GITHUB_STEP_SUMMARY"
+          gh api -X POST "repos/$REPO/statuses/$SHA" -f state="$state" -f context=full-ci -f description="$desc" -f target_url="$URL" \
+            || echo "::warning::the status full-ci could not be posted (a fork PR has a read-only token): check the full jobs by hand"
+          [ "$state" != failure ]

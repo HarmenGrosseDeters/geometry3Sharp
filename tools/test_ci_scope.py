@@ -33,9 +33,11 @@ class CiWorkflow(unittest.TestCase):
     def test_draft_gate_is_on_scope_and_everything_needs_it(self):
         header = self.job("scope").split("steps:")[0]
         self.assertRegex(header, r"(^|\n)    if: github.event_name != 'pull_request' \|\| github.event.pull_request.draft == false\n")
-        # no labeled trigger: a skipped run of a ready PR would put a "skipped" check of the same name on a head SHA that has a real result
-        self.assertRegex(self.text, r"pull_request:\n    types: \[opened, synchronize, reopened, ready_for_review\]\n")
-        self.assertNotIn("labeled", self.text.split("\njobs:\n")[0].replace("# ", "").split("pull_request:")[1].split("workflow_dispatch")[0])
+        # labeled starts the full stage (label full-ci, owner 2026-11-23); a labeled run of a ready PR is a complete run (scope runs,
+        # so no job is skipped that ran before on the same head, except quick, which the full stage covers). No unlabeled: a run
+        # without the label on a head that had a full run would replace its real checks by skipped ones
+        self.assertRegex(self.text, r"pull_request:\n    types: \[opened, synchronize, reopened, ready_for_review, labeled\]\n")
+        self.assertNotIn("unlabeled", re.search(r"pull_request:\n    types: (.*)\n", self.text).group(1))
         names = re.findall(r"\n  ([a-z0-9-]+):\n(?:    [^\n]*\n|\s*#[^\n]*\n)*?    (?:runs-on|name|needs|if):", self.text.split("\njobs:\n")[1])
         self.assertGreaterEqual(len(set(names)), 5)
         for name in set(names) - {"scope"}:
@@ -72,9 +74,182 @@ class CiWorkflow(unittest.TestCase):
         self.assertIn(condition, self.job("isolated").split("steps:")[0])
         header = self.job("netstandard").split("steps:")[0]
         self.assertIn("runs-on: windows-latest", header)
-        self.assertRegex(header, r"\n    if: " + re.escape(condition) + r"\n")
+        self.assertRegex(header, r"\n    if: needs\.scope\.outputs\.full == 'true' && \(" + re.escape(condition) + r"\)\n")
         # its two shards (netstandard, netstandard-b) are the matrix of that one job
         self.assertIn("name: netstandard-b", header)
+
+
+class TwoStageWorkflow(unittest.TestCase):
+    """Owner 2026-11-23 (runner load): quick stage on every event of a ready PR, the full matrix only with the label full-ci, the
+    commit status full-ci as the merge gate, and batched master runs instead of one per merge."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(os.path.join(ROOT, ".github", "workflows", "ci.yml"), encoding="utf-8") as f:
+            cls.text = f.read()
+        cls.on = cls.text.split("\njobs:\n")[0]
+
+    def job(self, name):
+        return re.search(r"\n  %s:\n(.*?)(?=\n  [a-z0-9-]+:\n|\Z)" % name, self.text, re.S).group(1)
+
+    def header(self, name):
+        return self.job(name).split("steps:")[0]
+
+    def test_full_stage_jobs_need_the_full_output(self):
+        for name in ("linux", "isolated", "time-rule", "netstandard"):
+            self.assertIn("needs.scope.outputs.full == 'true'", self.header(name), name)
+
+    def test_quick_runs_on_a_pr_exactly_when_the_full_stage_does_not(self):
+        h = self.header("quick")
+        self.assertRegex(h, r"\n    if: github\.event_name == 'pull_request' && needs\.scope\.outputs\.full != 'true'\n")
+        q = self.job("quick")
+        self.assertIn("dotnet build geometry3Sharp_netstandard.csproj -c Release\n", q)     # both target frameworks
+        self.assertIn("dotnet build tests/geometry3Sharp.Tests -c Release -f net10.0", q)
+        self.assertIn("tools/ci_scope.py --quick", q)
+        self.assertIn('--filter "$(cat filter.txt)"', q)
+        self.assertIn("timeout-minutes: 20", h)
+
+    def test_the_full_output_comes_from_the_label_the_batch_or_always(self):
+        step = self.job("scope").split("- id: full")[1]
+        self.assertIn("FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}", step)
+        self.assertIn('echo "full=$FULL_LABEL"', step)
+        self.assertIn("schedule)\n              python3 tools/master_batch.py", step)
+        self.assertIn('*)\n              echo "full=true"', step)
+        self.assertIn("full: ${{ steps.full.outputs.full }}", self.header("scope"))
+
+    def test_master_is_batched(self):
+        push = self.on.split("  push:\n")[1].split("\n  pull_request:")[0]
+        self.assertNotIn("branches", push)           # no run per merge
+        self.assertIn("tags: ['**']", push)
+        self.assertRegex(self.on, r"\n  schedule:\n    - cron: '\d+ \*/2 \* \* \*'")
+        self.assertIn("workflow_dispatch:", self.on)
+        self.assertIn("actions: read", self.header("scope"))
+
+    def test_the_status_is_the_merge_gate(self):
+        h = self.header("full-ci-status")
+        self.assertIn("needs: [scope, linux, isolated, time-rule, netstandard]", h)
+        self.assertIn("always()", h)
+        self.assertIn("statuses: write", h)
+        body = self.job("full-ci-status")
+        self.assertIn("context=full-ci", body)
+        self.assertIn('SHA: ${{ github.event.pull_request.head.sha }}', body)
+        # pending without the label; success only from linux and netstandard passed
+        self.assertIn('if [ "$FULL" != true ]; then\n            state=pending', body)
+        self.assertIn('[ "$LINUX" = success ] && [ "$NETSTANDARD" = success ]', body)
+
+    def test_the_other_full_stage_workflows_need_the_label(self):
+        for name in ("new-tests-on-base.yml", "tier-rule.yml", "determinism.yml"):
+            with open(os.path.join(ROOT, ".github", "workflows", name), encoding="utf-8") as f:
+                text = f.read()
+            self.assertIn("contains(github.event.pull_request.labels.*.name, 'full-ci')", text, name)
+            self.assertRegex(text, r"types: \[[^\]]*\blabeled\b", name)
+
+
+class Quick(unittest.TestCase):
+    """tools/ci_scope.py --quick: the net10.0 test classes of the changed areas."""
+
+    def setUp(self):
+        import tempfile
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, self.root)
+
+    def write(self, path, text):
+        full = os.path.join(self.root, path)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def case(self, cls, uses=""):
+        return "namespace g3.Tests {\n public class %s {\n  [Fact] public void A() { %s }\n }\n}\n" % (cls, uses)
+
+    def quick(self, *paths):
+        return c.quick_tests(paths, root=self.root)
+
+    def test_a_changed_test_file_runs_its_classes(self):
+        self.write(c.TEST_DIR + "FooTests.cs", self.case("FooTests") + "class Helper {}\n")
+        r = self.quick(c.TEST_DIR + "FooTests.cs")
+        self.assertIn("FooTests", r["classes"])
+        self.assertNotIn("Helper", r["classes"])
+        self.assertFalse(r["broad"])
+        self.assertTrue(set(c.SMOKE) <= set(r["classes"]))
+
+    def test_a_partial_class_file_gives_its_class(self):
+        self.write(c.TEST_DIR + "FooTestsExtra.cs", "// class NotThis\n" + self.case("FooTestsExtra"))
+        self.assertIn("FooTestsExtra", self.quick(c.TEST_DIR + "FooTestsExtra.cs")["classes"])
+        self.assertNotIn("NotThis", self.quick(c.TEST_DIR + "FooTestsExtra.cs")["classes"])
+
+    def test_a_library_file_runs_the_tests_that_use_its_types(self):
+        self.write("mesh_ops/Widget.cs", "namespace g3 {\n public class Widget {\n  class Before {}\n }\n}\n")
+        self.write(c.TEST_DIR + "WidgetTests.cs", self.case("WidgetTests", "new Widget();"))
+        self.write(c.TEST_DIR + "OtherTests.cs", self.case("OtherTests", "Widget w;"))
+        self.write(c.TEST_DIR + "UnrelatedTests.cs", self.case("UnrelatedTests", "Before b; Widgets x;"))
+        r = self.quick("mesh_ops/Widget.cs")
+        self.assertIn("WidgetTests", r["classes"])
+        self.assertIn("OtherTests", r["classes"])
+        self.assertNotIn("UnrelatedTests", r["classes"])      # (a nested type and a longer word do not count)
+        self.assertFalse(r["broad"])
+
+    def test_a_partial_library_file_counts_for_its_class(self):
+        self.write("mesh_ops/WidgetIncremental.cs", "namespace g3 { public partial class Widget { } }\n")
+        self.write(c.TEST_DIR + "OtherTests.cs", self.case("OtherTests", "Widget w;"))
+        self.assertIn("OtherTests", self.quick("mesh_ops/WidgetIncremental.cs")["classes"])
+
+    def test_a_widely_used_type_is_broad(self):
+        self.write("math/Vector.cs", "namespace g3 { public struct Vector { } }\n")
+        for i in range(c.MAX_CLASSES + 1):
+            self.write(c.TEST_DIR + "Use%dTests.cs" % i, self.case("Use%dTests" % i, "Vector v;"))
+        self.write(c.TEST_DIR + "VectorTests.cs", self.case("VectorTests", "Vector v;"))
+        r = self.quick("math/Vector.cs")
+        self.assertTrue(r["broad"])
+        self.assertEqual(sorted(set(c.SMOKE) | {"VectorTests"}), r["classes"])
+        self.assertIn("Broad change: smoke set only", c.quick_summary(r))
+
+    def test_harness_build_settings_and_data_are_broad(self):
+        for p in (c.TEST_DIR + "Harness/Oracle.cs", "geometry3Sharp_netstandard.csproj", "BannedSymbols.txt",
+                  c.TEST_DIR + "geometry3Sharp.Tests.csproj"):
+            r = self.quick(p)
+            self.assertTrue(r["broad"], p)
+            self.assertEqual(sorted(c.SMOKE), r["classes"], p)
+
+    def test_tools_docs_and_other_projects_run_no_test(self):
+        for p in ("tools/a.py", "docs/x.md", "benchmarks/B/Program.cs", "tests/g3cli.Tests/A.cs", "addons/geometry3Sharp.Clipper2/X.cs"):
+            r = self.quick(p)
+            self.assertEqual([], r["classes"], p)
+            self.assertFalse(r["broad"], p)
+        self.assertEqual("", c.quick_filter([]))
+
+    def test_files_the_tests_read_and_doc_examples(self):
+        self.assertIn("DocExamplesTests", self.quick("docs/OPERATIONS.md")["classes"])
+        self.assertIn("DocExamplesTests", self.quick("docs/examples/Ex.cs")["classes"])
+        self.assertIn("RobustnessSweepTests", self.quick("docs/ROBUSTNESS_SWEEP.md")["classes"])
+
+    def test_a_deleted_file_is_left_to_the_build(self):
+        r = self.quick("mesh_ops/Gone.cs")
+        self.assertFalse(r["broad"])
+        self.assertEqual(sorted(c.SMOKE), r["classes"])
+
+    def test_the_filter(self):
+        f = c.quick_filter(["BTests", "ATests"])
+        self.assertEqual("(FullyQualifiedName~.ATests.|FullyQualifiedName~.BTests.)&Category!=Slow&Category!=Nightly", f)
+
+    def test_the_smoke_classes_exist_and_are_not_slow(self):
+        files = c.test_files(ROOT)
+        for cls in c.SMOKE:
+            hits = [f for f in files if cls in c.test_classes_of(open(os.path.join(ROOT, f), encoding="utf-8").read())]
+            self.assertTrue(hits, cls)
+            for f in hits:
+                self.assertNotIn('"Slow"', open(os.path.join(ROOT, f), encoding="utf-8").read(), cls)
+
+    def test_on_the_real_tree(self):
+        r = c.quick_tests(["mesh_ops/MeshRoundingRepair.cs"])
+        self.assertIn("MeshRoundingRepairTests", r["classes"])
+        self.assertLessEqual(len(r["classes"]), c.MAX_CLASSES + len(c.SMOKE) + 20)
+
+    def test_cli(self):
+        import subprocess
+        out = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "ci_scope.py"), "--quick"], input="tools/a.py\n",
+                             capture_output=True, text=True, check=True).stdout.splitlines()
+        self.assertEqual(["filter=", "broad=false"], out)
 
 
 class Scope(unittest.TestCase):

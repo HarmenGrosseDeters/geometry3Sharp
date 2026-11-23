@@ -6,7 +6,8 @@ name: determinism
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    # (labeled: setting `full-ci` starts the run; owner 2026-11-23, the PR part runs in the full stage of PR CI only)
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     paths:
       - 'tools/DeterminismHarness/**'
       - 'tools/DeterminismReach/**'
@@ -26,8 +27,8 @@ on:
 
 jobs:
   linux:
-    # a draft PR runs nothing here (owner 2026-11-23, runner load); marking it ready starts the run
-    if: github.event.pull_request.draft != true
+    # a draft PR runs nothing here (owner 2026-11-23, runner load); a ready PR only with the label `full-ci` (the full stage)
+    if: github.event_name != 'pull_request' || (github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'full-ci'))
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -83,8 +84,8 @@ jobs:
   # arm64: the same harness on a GitHub-hosted Linux arm64 runner, compared with the x64 traces in `compare`. macOS arm64 is
   # opt-in (workflow_dispatch input `macos`): its runners queue for a long time and the job was cancelled in the queue.
   arm64:
-    # a draft PR runs nothing here (owner 2026-11-23, runner load); marking it ready starts the run
-    if: github.event.pull_request.draft != true
+    # a draft PR runs nothing here (owner 2026-11-23, runner load); a ready PR only with the label `full-ci` (the full stage)
+    if: github.event_name != 'pull_request' || (github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'full-ci'))
     strategy:
       fail-fast: false
       matrix:
@@ -130,8 +131,8 @@ jobs:
           path: out
 
   windows:
-    # a draft PR runs nothing here (owner 2026-11-23, runner load); marking it ready starts the run
-    if: github.event.pull_request.draft != true
+    # a draft PR runs nothing here (owner 2026-11-23, runner load); a ready PR only with the label `full-ci` (the full stage)
+    if: github.event_name != 'pull_request' || (github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'full-ci'))
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
