@@ -97,7 +97,7 @@ reported.
 
 ### The second description (still not reproduced)
 
-The owner then described 1b more closely: a clearly curved panel (the mid-surface bulges 6 % of the length, the
+The owner then described 1b more closely, with the numbers of the run: a clearly curved panel (the mid-surface bulges 6 % of the length, the
 normals span almost 90 degrees, 1 / 3400 of the length thick, about 400 triangles), clamped between two box side faces
 with its rim vertices within 2e-12 of the diagonal of them, and the box's top face at about 5 degrees to the panel's
 mean plane; the exact result a thin wedge strip with 1.4 % of the panel's volume and 6 % of its thickness on average;
@@ -105,7 +105,8 @@ mean plane; the exact result a thin wedge strip with 1.4 % of the panel's volume
 before and 246 after, a loss of 0.84 % from contractions whose new triangles cut across the curved strip.
 
 Two deliberate constructions (`ClampedPanel`, a cylindrical arc of half angle 0.7, 416 triangles, the rim vertices
-within 3e-12 of the faces):
+within 3e-12 of the faces; the arc follows the span of the normals of the description, so it bulges 18 % of its
+length, not 6 %: a circular arc cannot have both):
 
 - **The top face at 5 degrees through the panel** (600 heights, a vault and a sagging panel, two arcs). With exactly
   flush rims nothing is edited (1 600 placements). With the near-flush rims the repair edits in about a third of the
@@ -113,7 +114,7 @@ within 3e-12 of the faces):
   The result is a piece of the panel in its full thickness (4 % to 97 % of it), not a thin strip.
 - **The top face inside the thickness of one facet**, nearly parallel to it (72 cases): a lens of 0.2 % to 2 % of the
   panel's volume across the full width. Here the repair contracts an edge with a drift of 1.7e-6 to 7e-6 of the
-  diagonal, the size of the owner's, and the volume stays (below 1e-9 in the four cases of the test, and no change at
+  diagonal, the size described, and the volume stays (below 1e-9 in the four cases of the test, and no change at
   the 1e-6 that the probe printed in the others): the lens lies inside one flat facet, so the contraction runs along
   it and no new triangle cuts across a crease.
 
@@ -124,9 +125,9 @@ plane can lie inside the thickness over one facet (a fourteenth of the length he
 over creases, so that a contraction replaces two facets by a triangle across them: the mechanism of 1a with a crease in
 place of the near miss.
 
-**Outcome (owner 2026-11-23):** shape 1b is not reproduced procedurally. The owner has reproduced it on the shapes
-themselves, which stay local; the two attempts above stay as documentation of what the rounding does on these
-constructions. Where the change occurs, `RoundingVolumeBefore` and `RoundingVolumeAfter` report it.
+**Outcome (owner 2026-11-23):** shape 1b is not reproduced procedurally, and no further attempt is planned. The two
+attempts above stay as documentation of what the rounding does on these constructions. Where the change occurs,
+`RoundingVolumeBefore` and `RoundingVolumeAfter` report it.
 
 ## Shape 2: a curved plate partly flush with a block (the guard)
 

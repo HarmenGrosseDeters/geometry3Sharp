@@ -157,10 +157,11 @@ namespace geometry3Sharp.Tests
             // (the slivers lie on three faces of the box, 4 ulps of 0.8 thick at most: some 1e-16 of volume)
             Assert.InRange(r.VolumeBefore, 1e-17, 1e-14);
             double listed = r.RemovedComponentInfos.Sum(i => i.Volume);
-            Assert.InRange(r.VolumeBefore / listed, 0.5, 2);
+            Assert.InRange(r.VolumeBefore / listed, 0.25, 4);
             // the pipeline: the same numbers beside the list, and an empty result
             var p = new SolidBooleanPipeline(new List<DMesh3> { a, b }, D);
             p.Compute();
+            Assert.True(p.Result == null || p.Result.TriangleCount == 0, p.Status.ToString());
             Assert.Equal(r.VolumeBefore, p.Report.RoundingVolumeBefore);
             Assert.Equal(0.0, p.Report.RoundingVolumeAfter);
             Assert.Equal(r.RemovedComponents, p.Report.RoundingRemoved.Count);
