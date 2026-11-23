@@ -5,6 +5,7 @@ Prior-art checks, literature surveys, external library comparisons, and explorat
 | Study | Topic & Summary |
 |---|---|
 | [MOLECULAR_SURFACES_STUDY.md](MOLECULAR_SURFACES_STUDY.md) | 20-case molecular ball-union stress study (1e-12 tangency, cavities, helices, 12–96-ball packings): no Boolean/pipeline defects found; multi-mesh union grows about 6× from 48 to 96 balls, where a binary-tree union was faster; stop/park |
+| [Certified medial-axis feature size](CERTIFIED_MEDIAL_AXIS_STUDY.md) | Exact crease obstruction and thin-box controls for SafeRounding and wrap offsets |
 | [EXACT_TOPOLOGY_CERTIFICATES.md](EXACT_TOPOLOGY_CERTIFICATES.md) | Solid Betti numbers and fixed winding queries for cavity ownership in Boolean and repair tests |
 | [BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md](BOOLEAN_RESEARCH_PRIOR_ART_2026-11.md) | Prior-art check for post-3.0 exact boolean research directions |
 | [ERROR_BOUND_AUDIT_2026-11.md](ERROR_BOUND_AUDIT_2026-11.md) | Audit of the hand-written floating-point error bounds of the exact code: inventory (about 155), an independent re-derivation by a new checker (`tools/ErrorBoundAudit`: 31 bounds checked, 32 derivations proved), an adversarial run against `ExactDyadic`, four findings, and a CI test proposal |
