@@ -24,6 +24,8 @@ Implemented from the papers; no libigl source (MPL) or other solver code was rea
 
 The parked certified-accuracy mode (not in this tree, branch `claude/biharmonic-certificate-parked`) also cited S. M. Rump, *Verification of Positive Definiteness*, BIT 46 (2006), and Diaconis / Stroock and Sinclair for path-congestion eigenvalue bounds; none of that is in the library.
 
+The [procedural sphere-union study](../research/MOLECULAR_SURFACES_STUDY.md) uses the inclusion–exclusion viewpoint of H. Edelsbrunner, [The Union of Balls and Its Dual Shape](https://pub.ista.ac.at/~edels/Papers/1995-02-UnionBallsDualShape.pdf), DCG 13 (1995). Paper text only.
+
 ## Alpha wrapping (`MeshAlphaWrap`, `Delaunay3`, `ExactPredicates.InSphere`)
 
 Implemented from the papers, no code taken over. CGAL's implementation (`Alpha_wrap_3`, GPL) was not used.
