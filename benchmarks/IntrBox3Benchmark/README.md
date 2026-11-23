@@ -6,19 +6,26 @@ and of `DCurve3BoxTree` ray queries.
 
     dotnet run -c Release          # with DOTNET_TieredCompilation=0 DOTNET_TieredPGO=0 for a stable number
 
-## Result (22 November 2026, 4 cores, ns per call, best of 9; before = master, after = this change)
+## Result (23 November 2026, 4 cores, ns per call, best of 9, two runs; before = master, after = this change)
 
 | Operation | before | after |
 |---|---|---|
-| `IntrRay3AxisAlignedBox3.FindRayIntersectT` (exact; the tree uses `RayAabbMay`, below) | 26 | 35-41 |
-| `IntrRay3AxisAlignedBox3.Intersects` | 15 | 36 |
-| `IntrRay3Box3.Intersects` (oriented, expand 0.01), generic rays | 17 | 43 |
-| `IntrRay3Box3.Intersects`, axis-parallel rays | 6-9 | 25 |
-| `IntrRay3Box3.Find` | 83-105 | 260-350 |
-| `IntrRay3AxisAlignedBox3.Find` | 57-60 | 90-100 |
-| `DMeshAABBTree3.FindNearestHitTriangle` (266412 triangles, conservative form `RayAabbMay`) | 840-1070 | 700-890 |
-| `DCurve3BoxTree.SquaredDistance(ray)` (4000 segments) | 34 us | 55 us |
-| `DCurve3BoxTree.FindClosestRayIntersction` | 4.8 us | 9.0 us |
+| `IntrRay3AxisAlignedBox3.FindRayIntersectT` (exact; the tree uses `RayAabbMay`, below) | 26 | 41-53 |
+| `IntrRay3AxisAlignedBox3.Intersects` | 15 | 41-55 |
+| `IntrRay3Box3.Intersects` (oriented, expand 0.01), generic rays | 17 | 37-50 |
+| `IntrRay3Box3.Find` | 83-105 | 224-280 |
+| `IntrRay3AxisAlignedBox3.Find` | 57-60 | 93-97 |
+| `DMeshAABBTree3.FindNearestHitTriangle` (266412 triangles, conservative form `RayAabbMay`) | 840-1070 | 724-874 |
+| `DCurve3BoxTree.SquaredDistance(ray)` (4000 segments) | 34 us | 52 us |
+| `DCurve3BoxTree.FindClosestRayIntersction` | 4.8 us | 8.7 us |
+
+The two runs differ by up to 25 % on this machine (the second is the faster one); the ratios, not the single numbers, carry the result.
+
+### Looking for a faster path (owner request, 23 November 2026)
+
+- Done: one finiteness test per oriented filter (the sum of the 12 values of the three slabs and one test of the three extents) replaces the sum of 22 inputs and, since the review, the test per slab; an axis-parallel segment of an axis-aligned box has no error in the slabs with `d1 == d0` (before, `eQ = U |q| + AbsErr` sent every such segment to the exact route; it is only reachable through the internal `Find`, the public segment class takes an oriented box, whose `Prep` already had exact zeros). The effect on the numbers above is inside the run-to-run spread.
+- `IntrRay3Box3.Find`: every hit takes the exact route (all 9770 hits of the benchmark's 10 passes): the ends of an oriented contact are certified to 6 u only when `P` does not cancel (`TErr` carries the error of the three dot products, the quotient `t = (face - P) / Q` is as large as `|x| + |y| + |z|` allows), and a result rounded once from the exact contact is the contract of `Point0` and `RayParam0`. A cheaper path would be a double-word evaluation of `P` and `Q` (certified to about 2^-100, as in `docs/design/TRI3TRI3_DOUBLE_WORD.md`) with the BigInteger route as the fallback; it is not built. Weakening the contract to "within a few ulp" would make most hits cheap but is a change of the documented accuracy, so it is not done here.
+- `DCurve3BoxTree`: the cost is the certified bound of the oriented slabs in `IntrRay3Box3.Intersects` (three dot products with absolute-value sums, then up to six divisions); the traversal calls it for every box. A conservative form for the oriented box, like `RayAabbMay` for the axis-aligned one, would remove most of it, but `Intersects` is a public, exact decision and the tree is a caller of it; changing the tree to a culling form is a separate change of that class.
 
 The decision is now exact (hits, misses and the Point/Segment type; no `1e-8` slack, touching counts); the ends of a contact are on the
 face exactly (axis-aligned) or within a few ulp. `DMeshAABBTree3` culls with the conservative form (`RayAabbMay`: false only for a certified miss, never an exact computation), which is cheaper than the old clip chain. The cost of the oriented ray is the certified error bound of each slab (division, absolute errors for the

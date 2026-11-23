@@ -143,5 +143,48 @@ namespace geometry3Sharp.Tests
             }
             Assert.True(n > 1000);
         }
+
+        [Fact]
+        public void NonFiniteBoxOrExpand_IsNeverAHit_ForEveryComponent()
+        {
+            double bad1 = double.NaN, bad2 = double.PositiveInfinity;
+            Ray3d ray = new Ray3d(new Vector3d(0.5, 0.5, 0.5), new Vector3d(1, 0, 0));
+            var line = new Line3d(ray.Origin, ray.Direction);
+            // axis-aligned box: each of the six coordinates, and an expand that is not finite or makes a face overflow
+            for (int k = 0; k < 6; k++) foreach (double bad in new[] { bad1, bad2 }) {
+                Vector3d mn = new Vector3d(0, 0, 0), mx = new Vector3d(1, 1, 1);
+                if (k < 3) mn[k] = bad; else mx[k - 3] = bad;
+                var aab = new AxisAlignedBox3d(mn, mx);
+                Assert.False(new IntrRay3AxisAlignedBox3(ray, aab).Find()); Assert.False(new IntrRay3AxisAlignedBox3(ray, aab).Test());
+                Assert.False(new IntrLine3AxisAlignedBox3(line, aab).Find()); Assert.False(new IntrLine3AxisAlignedBox3(line, aab).Test());
+                Assert.False(IntrRay3AxisAlignedBox3.Intersects(ref ray, ref aab));
+            }
+            foreach (double ex in new[] { bad1, bad2, double.MaxValue }) {
+                // (MaxValue added to a coordinate of 1e308 overflows)
+                var aab = new AxisAlignedBox3d(new Vector3d(0, 0, 0), new Vector3d(1e308, 1, 1));
+                Assert.False(IntrRay3AxisAlignedBox3.Intersects(ref ray, ref aab, ex) && double.IsInfinity(ex));
+                if (double.IsNaN(ex) || double.IsInfinity(ex)) Assert.False(IntrRay3AxisAlignedBox3.Intersects(ref ray, ref aab, ex));
+                for (int k = 0; k < 3; k++) {
+                    Vector3d mn = new Vector3d(0, 0, 0), mx = new Vector3d(1, 1, 1); mx[k] = 1.7e308; mn[(k + 1) % 3] = -1.7e308;
+                    var b2 = new AxisAlignedBox3d(mn, mx);
+                    if (ex == double.MaxValue) Assert.False(IntrRay3AxisAlignedBox3.Intersects(ref ray, ref b2, ex));
+                }
+            }
+            // oriented box: center, axes, extents and expand, one component at a time
+            for (int k = 0; k < 15; k++) foreach (double bad in new[] { bad1, bad2 }) {
+                Vector3d c = new Vector3d(0.5, 0.5, 0.5), ax = Vector3d.AxisX, ay = Vector3d.AxisY, az = Vector3d.AxisZ, e = new Vector3d(1, 1, 1);
+                Vector3d[] vs = { c, ax, ay, az, e };
+                vs[k / 3][k % 3] = bad;
+                var box = new Box3d(vs[0], vs[1], vs[2], vs[3], vs[4]);
+                Assert.False(new IntrRay3Box3(ray, box).Find()); Assert.False(new IntrRay3Box3(ray, box).Test());
+                Assert.False(IntrRay3Box3.Intersects(ref ray, ref box));
+                Assert.False(new IntrLine3Box3(line, box).Find()); Assert.False(new IntrLine3Box3(line, box).Test());
+            }
+            Box3d ok = new Box3d(new Vector3d(0.5, 0.5, 0.5), new Vector3d(1, 1, 1));
+            Assert.False(IntrRay3Box3.Intersects(ref ray, ref ok, double.NaN));
+            Assert.False(IntrRay3Box3.Intersects(ref ray, ref ok, double.PositiveInfinity));
+            Box3d huge = new Box3d(new Vector3d(0.5, 0.5, 0.5), new Vector3d(1.7e308, 1, 1));
+            Assert.False(IntrRay3Box3.Intersects(ref ray, ref huge, double.MaxValue));
+        }
     }
 }
