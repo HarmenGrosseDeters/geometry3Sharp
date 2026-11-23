@@ -19,7 +19,7 @@ BO = ["boolean-%d" % i for i in range(1, 10)]
 ALL_MESH = set(RO) | set(BO) | {"arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
                                                 "imprint", "terrain-arith", "terrain-kernel", "terrain-overlay", "hausdorff", "geodesic-1", "geodesic-2",
                                                 "uv-atlas", "uv-charts", "uv-pack", "uv-cones", "uv-slim", "uv-foldover", "uv-core", "solid-pipeline", "exact-winding", "cells",
-                                                "predicates-1", "predicates-2", "adaptive"}
+                                                "predicates-1", "predicates-2", "adaptive", "box3"}
 
 
 def run(*changed):
@@ -52,6 +52,8 @@ class SelectShards(unittest.TestCase):
         self.assertTrue(gate_shard(configs["config"], ["math/ExactPoint3.cs"]))
         self.assertTrue(gate_shard(configs["mesh-predicates-1"], ["math/ExactPredicates.cs"]))
         self.assertTrue(gate_shard(configs["mesh-adaptive"], ["math/AdaptivePredicates.cs"]))
+        self.assertTrue(gate_shard(configs["mesh-box3"], ["intersection/IntrExactBox3.cs"]))
+        self.assertFalse(gate_shard(configs["mesh-box3"], ["intersection/IntrRay3Box3.cs"]))        # (not an exact-code file: its decision is the shared one)
         self.assertFalse(gate_shard(configs["config"], ["math/ExactPredicates.cs"]))        # (moved to the predicates shards)
         self.assertTrue(gate_shard(configs["mesh-fixed"], ["math/FixedPoint3.cs"]))
         self.assertTrue(gate_shard(configs["mesh-generated"], ["math/Generated/IndirectPredicates.cs"]))
