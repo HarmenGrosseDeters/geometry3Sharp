@@ -17,6 +17,11 @@ if (Array.IndexOf(args, "--heat-sources") >= 0) {
     return;
 }
 
+if (Array.IndexOf(args, "--heat-frames") >= 0) {
+    VectorHeatTransportProbe.RunSourceSweep(frameControl: true);
+    return;
+}
+
 Console.WriteLine("resolution h-max h-mean pairing-error max-nodal-error heat-rms heat-max intrinsic-flips");
 foreach (int resolution in new[] { 5, 9, 17, 33, 65 }) {
     var mesh = new Sphere3Generator_NormalizedCube { Radius = 1, EdgeVertices = resolution }.Generate().MakeDMesh();

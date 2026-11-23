@@ -27,26 +27,28 @@ internal static class VectorHeatTransportProbe
         }
     }
 
-    public static void RunSourceSweep()
+    public static void RunSourceSweep(bool frameControl = false)
     {
-        Console.WriteLine("source resolution h-mean factor vector-cap-rms-deg vector-far-rms-deg scalar-rms scalar-max vector-actual-factor");
+        Console.WriteLine(frameControl
+            ? "source resolution vector-cap-rms-deg vector-far-rms-deg frame-cap-rms-deg frame-far-rms-deg frame-max-deg conversion-max-deg"
+            : "source resolution h-mean factor vector-cap-rms-deg vector-far-rms-deg scalar-rms scalar-max vector-actual-factor");
         foreach (int resolution in new[] { 9, 17, 33, 65 }) {
             var mesh = new Sphere3Generator_NormalizedCube { Radius = 1, EdgeVertices = resolution }.Generate().MakeDMesh();
-            Measure(mesh, resolution, true, 1, "cube-pole", FindNorthPole(mesh));
+            Measure(mesh, resolution, true, 1, "cube-pole", FindNorthPole(mesh), frameControl);
             int corner = FindSphereVertex(mesh, Vector3d.One.Normalized);
-            Measure(mesh, resolution, true, 1, "cube-corner", corner);
+            Measure(mesh, resolution, true, 1, "cube-corner", corner, frameControl);
         }
         foreach (int subdivisions in new[] { 2, 3, 4, 5 }) {
             DMesh3 mesh = IcosphereFixture.Make(subdivisions);
             // Vertices 0 and 11 bound the first edge split in the fixture, at every subdivision.
             Vector3d midpoint = (mesh.GetVertex(0) + mesh.GetVertex(11)).Normalized;
-            Measure(mesh, subdivisions, true, 1, "ico-corner", 0);
-            Measure(mesh, subdivisions, true, 1, "ico-midpoint", FindSphereVertex(mesh, midpoint));
+            Measure(mesh, subdivisions, true, 1, "ico-corner", 0, frameControl);
+            Measure(mesh, subdivisions, true, 1, "ico-midpoint", FindSphereVertex(mesh, midpoint), frameControl);
         }
     }
 
     private static void Measure(DMesh3 mesh, int resolution, bool intrinsicDelaunay,
-        double timeFactor = 1, string schedule = null, int? sourceVertex = null)
+        double timeFactor = 1, string schedule = null, int? sourceVertex = null, bool frameControl = false)
     {
         int source = sourceVertex ?? FindNorthPole(mesh);
         Vector3d north = mesh.GetVertex(source).Normalized;
@@ -58,6 +60,7 @@ internal static class VectorHeatTransportProbe
 
         int capCount = 0, farCount = 0;
         double capSquared = 0, capMax = 0, farSquared = 0, farMax = 0, lengthMax = 0;
+        double frameCapSquared = 0, frameFarSquared = 0, frameMax = 0, conversionMax = 0;
         foreach (int v in mesh.VertexIndices()) {
             Vector3d p = mesh.GetVertex(v).Normalized;
             double colatitude = Math.Atan2(north.Cross(p).Length, north.Dot(p));
@@ -72,7 +75,22 @@ internal static class VectorHeatTransportProbe
 
             // Rotation along the unique short great-circle arc, expressed without a rotation axis at the source.
             Vector3d expected = initial - initial.Dot(p) / (1 + north.Dot(p)) * (north + p);
-            double error = Math.Atan2(expected.Cross(actual).Length, expected.Dot(actual)) * 180 / Math.PI;
+            double error = AngleDegrees(expected, actual);
+            if (frameControl) {
+                Vector3d decoded = triangulation.ToWorld(v, triangulation.FromWorld(v, expected));
+                triangulation.GetTangentBasis(v, out _, out _, out Vector3d meshNormal);
+                Vector3d directProjection = expected - expected.Dot(meshNormal) * meshNormal;
+                conversionMax = Math.Max(conversionMax, AngleDegrees(directProjection, decoded));
+                Vector3d roundTrip = decoded - decoded.Dot(p) * p;
+                if (!(roundTrip.Length > 0) || !roundTrip.IsFinite)
+                    throw new InvalidOperationException($"Invalid frame control at vertex {v}.");
+                double frameError = AngleDegrees(expected, roundTrip);
+                frameMax = Math.Max(frameMax, frameError);
+                if (colatitude <= 2.4)
+                    frameCapSquared += frameError * frameError;
+                else
+                    frameFarSquared += frameError * frameError;
+            }
             lengthMax = Math.Max(lengthMax, Math.Abs(length - 1));
             if (colatitude <= 2.4) {
                 capCount++;
@@ -86,6 +104,12 @@ internal static class VectorHeatTransportProbe
         }
         if (capCount == 0 || farCount == 0)
             throw new InvalidOperationException("Expected vertices in both transport regions.");
+
+        if (frameControl) {
+            Console.WriteLine($"{schedule} {resolution} {Math.Sqrt(capSquared / capCount):G8} {Math.Sqrt(farSquared / farCount):G8} " +
+                $"{Math.Sqrt(frameCapSquared / capCount):G8} {Math.Sqrt(frameFarSquared / farCount):G8} {frameMax:G8} {conversionMax:G8}");
+            return;
+        }
 
         double edgeLengthSum = 0;
         foreach (int e in mesh.EdgeIndices()) {
@@ -106,6 +130,11 @@ internal static class VectorHeatTransportProbe
         Console.WriteLine($"{mode} {resolution} {edgeLengthSum / mesh.EdgeCount:G8} " +
             $"{capCount} {Math.Sqrt(capSquared / capCount):G8} {capMax:G8} " +
             $"{farCount} {Math.Sqrt(farSquared / farCount):G8} {farMax:G8} {lengthMax:G8} {diffusionRatio:G8}");
+    }
+
+    private static double AngleDegrees(Vector3d first, Vector3d second)
+    {
+        return Math.Atan2(first.Cross(second).Length, first.Dot(second)) * 180 / Math.PI;
     }
 
     internal static int FindNorthPole(DMesh3 mesh)

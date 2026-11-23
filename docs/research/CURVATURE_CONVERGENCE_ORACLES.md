@@ -208,3 +208,20 @@ All 16 solves used the requested vector diffusion time. The table uses the same 
 At the finest cube level, the far-band vector RMS drops from 7.43° at the pole to 1.07° at the corner. The pole error increases on every step, while the corner error is nonmonotone. The corner's scalar RMS is higher at every tested level, yet it decreases across the sweep. On the icosahedral sphere, the far-band RMS increases with refinement from the original vertex. From the midpoint it first decreases from 1.25° to 0.255°, then rebounds to 0.492°.
 
 Source location changes both the magnitude and the refinement trend at the default time. A convergence test for either mesh family should cover multiple sources and measure distance and transport independently. These cases identify source dependence for fixed connectivity. The contributions of the source stencil, the changed distribution of sampled destinations and the discrete propagation paths remain open.
+
+## Tangent-coordinate conversion control
+
+Run `dotnet run -c Release --project benchmarks/CurvatureWeakProbe -- --heat-frames`. This repeats the four sources and all refinements from the source sweep. At each sampled destination, encode the analytic great-circle transport with `FromWorld`, decode it with `ToWorld`, and project it back onto the smooth tangent plane. The angular error of this round trip measures the change that the tangent-plane and coordinate conversions can produce for the exact reference direction.
+
+A second comparison takes the angular discrepancy between the decoded vector and the explicit projection of the analytic vector onto the mesh tangent plane from `GetTangentBasis`. This checks the coordinate round trip before the final smooth-plane projection. The usual vector heat solve is measured on the same vertices for comparison. Each reported maximum includes both angular bands.
+
+| Finest mesh source | Transport cap RMS (°) | Transport far RMS (°) | Round-trip cap RMS (°) | Round-trip far RMS (°) | Round-trip max (°) |
+|---|---:|---:|---:|---:|---:|
+| cube-pole | 1.23684 | 7.43347 | 1.2055e-05 | 1.46694e-07 | 0.000348943 |
+| cube-corner | 0.597588 | 1.06813 | 1.02931e-05 | 2.74964e-06 | 0.000311944 |
+| ico-corner | 0.0592679 | 0.23571 | 9.891e-06 | 1.15139e-05 | 4.86756e-05 |
+| ico-midpoint | 0.129991 | 0.492421 | 9.81845e-06 | 9.06861e-06 | 4.85901e-05 |
+
+Across the 16 runs, the largest discrepancy from direct mesh-plane projection was 1.50 × 10⁻¹³ degrees. The round-trip maximum decreased on each refinement for all four sources. For the finest cube-pole case, the far-band round-trip RMS was 1.47 × 10⁻⁷ degrees, while the transport RMS was 7.43 degrees.
+
+These results rule out destination coordinate conversion and the final tangent-plane projection as the sole explanation for the observed growth. The analytic field already round-trips accurately through those steps. The experiment leaves the discrete edge rotations, their aggregation in the connection Laplacian and the heat resolvent itself open.
