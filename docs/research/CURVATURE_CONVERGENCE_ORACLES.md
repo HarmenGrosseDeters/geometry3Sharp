@@ -271,3 +271,32 @@ At each edge, one calculation applies the signpost rotation in the mesh tangent 
 On the cube-sphere, the far-band path error rises to 10.97° while the rotation error along that same path decreases to 0.00201°. On the icosahedral sphere, the far-band path error decreases but remains 18.64° on the finest mesh. Its rotation error decreases to 0.00546°. On both meshes, the angle from composing smooth transport along the chosen route is much larger than the discrepancy caused by replacing its rotations with signposts.
 
 The shortest edge path is a deliberately constrained control. In particular, the finest icosahedral heat solve previously measured only 0.236° far-band RMS, far below 18.64° for this control. These measurements show that route geometry alone can dominate transport error in an edge-path method. They leave the effective weights and cancellations of the heat resolvent open. The path probe provides no reason to replace vector heat with graph-path transport.
+
+## Replacing the connection rotations inside the heat solve
+
+The [unit-sphere control patch](../../benchmarks/CurvatureWeakProbe/sphere-connection-control.patch) changes the rotation used by `VectorHeatMethod` on each edge. It decodes the head's local vector (1, 0), projects it onto the smooth sphere tangent plane, transports it analytically along the short great-circle arc, and encodes the result at the tail. The encoded angle fixes the replacement 2D rotation. This calibrates one reference direction per edge. The signpost-to-world map is piecewise linear in angle, so one rotation need not match analytic transport for every direction. Connectivity, weights, vertex mass, right-hand side, factorization and output conversions stay the same.
+
+Run the baseline from the repository root, then apply the patch in a disposable worktree. The patch assumes unit-sphere vertices and is intended only for the two commands below.
+
+```sh
+dotnet run -c Release --project benchmarks/CurvatureWeakProbe -- --heat-sources
+dotnet run -c Release --project benchmarks/CurvatureWeakProbe -- --heat-time
+git worktree add --detach ../sphere-connection-control HEAD
+git -C ../sphere-connection-control apply "$PWD/benchmarks/CurvatureWeakProbe/sphere-connection-control.patch"
+cd ../sphere-connection-control
+dotnet run -c Release --project benchmarks/CurvatureWeakProbe -- --heat-sources
+dotnet run -c Release --project benchmarks/CurvatureWeakProbe -- --heat-time
+```
+
+The default-time source sweep kept the scalar distance columns and vector diffusion ratios identical in all 16 cases. The finest vector results are below.
+
+| Finest mesh source | Baseline cap RMS (°) | Control cap RMS (°) | Baseline far RMS (°) | Control far RMS (°) |
+|---|---:|---:|---:|---:|
+| cube-pole | 1.23684 | 1.23776 | 7.43347 | 7.43436 |
+| cube-corner | 0.597588 | 0.599334 | 1.06813 | 1.06865 |
+| ico-corner | 0.0592679 | 0.0586036 | 0.23571 | 0.234973 |
+| ico-midpoint | 0.129991 | 0.129518 | 0.492421 | 0.491892 |
+
+The large cube-pole far-band error persists at t = h² with the replacement rotations. At t = 0.5h the finest cube-pole far-band RMS is 0.12843° with signposts and 0.12903° with the replacement, compared with 7.43347° and 7.43436° at t = h². Thus sensitivity to diffusion time persists after replacing the edge rotations by this smooth reference calibration.
+
+For these sphere meshes, the implicit vector heat system can also be read as a sum over walks. Write it as `(A − tW_R)y = b`, where A is the diagonal mass plus weighted degree term and each off-diagonal block of W_R is the nonnegative cotangent weight times its edge rotation. The maximum row sum of the corresponding scalar matrix `A⁻¹tW` is strictly below one because vertex masses are positive. Expanding the inverse as a Neumann series gives one term per walk length. Individual terms multiply the scalar transition factors and compose the rotations along the walk. Changing t changes those factors even with rotations fixed. The experiment does not measure the directional distribution of those terms or identify a particular stencil feature as the source of the error.
