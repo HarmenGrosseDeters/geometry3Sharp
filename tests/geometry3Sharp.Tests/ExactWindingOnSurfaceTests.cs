@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using g3;
 using gs;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace geometry3Sharp.Tests
 {
@@ -18,6 +19,9 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class ExactWindingOnSurfaceTests
     {
+        readonly ITestOutputHelper Output;
+        public ExactWindingOnSurfaceTests(ITestOutputHelper output) { Output = output; }
+
         // ---- fixtures ----
 
         // the box [lo, lo + n step]^3 with n x n quads per face, welded, outward oriented; diag shifts the quad diagonals
@@ -867,6 +871,76 @@ namespace geometry3Sharp.Tests
             foreach (var (name, f) in Frames()) {
                 DMesh3 mm = Map(m, f);
                 Assert.True(Math.Abs(W(mm, f(p))) <= 1e-11, $"{name}: {W(mm, f(p)):R}");
+            }
+        }
+
+        // ---- NarrowBand against FullGrid with nodes exactly on the surface ----
+
+        // Both modes on the same mesh; returns the number of nodes with the value 0.5f (on a flat face of a closed mesh), the number
+        // of nodes that differ and the largest difference. NarrowBand computes the nodes within a cell of the mesh, follows crossings
+        // of the iso value from node to node (strict comparisons: a node exactly at the iso value is never a crossing) and fills the
+        // other nodes along their x row (0 on the outside), so a node whose value moved with the on-surface convention (a node on the
+        // surface reads 0.5 or a fraction, no longer the rounded 0 or 1) can change where the front goes. What a user can rely on:
+        // (1) wherever the two grids differ, both values are on the same side of the iso value and the node is at least one cell from
+        // the mesh; (2) along every x row, between two consecutive nodes whose FullGrid values are on different sides of the iso
+        // value (or one equals it) the NarrowBand values at both nodes are bit-equal to FullGrid: the cells that marching cubes turns
+        // into surface see the same values.
+        (int onHalf, int differ, double maxDiff) CompareNarrowBandAndFullGrid(string name, DMesh3 mesh, double cell)
+        {
+            var tree = new DMeshAABBTree3(mesh, true);
+            var full = new MeshWindingNumberGrid(mesh, tree, cell) { ComputeMode = MeshWindingNumberGrid.ComputeModes.FullGrid };
+            full.Compute();
+            var narrow = new MeshWindingNumberGrid(mesh, new DMeshAABBTree3(mesh, true), cell) { ComputeMode = MeshWindingNumberGrid.ComputeModes.NarrowBand };
+            narrow.Compute();
+            Vector3i dims = full.Dimensions;
+            Assert.Equal(dims, narrow.Dimensions);
+            float iso = full.WindingIsoValue;
+            Vector3d origin = full.GridOriginD;
+            double dx = (float)cell;
+            int onHalf = 0, differ = 0;
+            double maxDiff = 0;
+            Func<float, int> side = v => v < iso ? -1 : (v > iso ? 1 : 0);
+            for (int k = 0; k < dims.z; ++k)
+                for (int j = 0; j < dims.y; ++j)
+                    for (int i = 0; i < dims.x; ++i) {
+                        float f = full[i, j, k], n = narrow[i, j, k];
+                        if (f == 0.5f) ++onHalf;
+                        if (f != n) {
+                            ++differ;
+                            maxDiff = Math.Max(maxDiff, Math.Abs(f - n));
+                            Vector3d p = origin + new Vector3d(i * dx, j * dx, k * dx);
+                            Assert.True(side(f) == side(n), $"{name}: node {i} {j} {k}: full {f:R}, narrow {n:R} are on different sides of the iso value");
+                            int tid = tree.FindNearestTriangle(p);
+                            double dist = Math.Sqrt(MeshQueries.TriDistanceSqr(mesh, tid, p));
+                            Assert.True(dist >= dx * (1 - 1e-6), $"{name}: node {i} {j} {k} at {p}: full {f:R}, narrow {n:R}, only {dist / dx:F3} cells from the mesh");
+                        }
+                        if (i + 1 < dims.x) {
+                            float f2 = full[i + 1, j, k], n2 = narrow[i + 1, j, k];
+                            if (side(f) != side(f2))
+                                Assert.True(f == n && f2 == n2, $"{name}: row y {j} z {k}, nodes {i} and {i + 1}: full {f:R} {f2:R}, narrow {n:R} {n2:R}");
+                        }
+                    }
+            return (onHalf, differ, maxDiff);
+        }
+
+        [Fact]
+        public void MeshWindingNumberGrid_NarrowBandAndFullGrid_AreBitEqualOnClosedBoxesWithNodesOnTheSurface()
+        {
+            // the box [0, 2]^3 with 2 x 2 quads per face and cell 0.25: the origin is -0.5, the faces lie on grid nodes. Before the
+            // value on the surface was the principal value a node on a face read 0 or 1 by rounding (150 of the 294 nodes at 0.5 here).
+            // Not asserted here: an open mesh whose 0.5 contour passes exactly through grid nodes (the box without a face, the plane
+            // of the opening on a node plane): NarrowBand differs from FullGrid there on master as well, a defect of the front
+            // propagation at nodes exactly at the iso value (strict crossing test), fixed separately.
+            DMesh3 closed = GridBox(new Vector3d(0, 0, 0), 1, 2);
+            var rot = AxisRotations()[11];
+            var cases = new List<(string, DMesh3, int)> {
+                ("closed box", closed, 294), ("closed box, axes permuted", Map(closed, rot), 294), ("closed box, sheared", Map(closed, Shear), 150),
+            };
+            foreach (var (name, mesh, expectedOnHalf) in cases) {
+                var (onHalf, differ, maxDiff) = CompareNarrowBandAndFullGrid(name, mesh, 0.25);
+                Output.WriteLine($"{name}: {onHalf} nodes with the value 0.5, {differ} nodes differ, largest difference {maxDiff:R}");
+                Assert.True(onHalf == expectedOnHalf, $"{name}: {onHalf} nodes at 0.5, expected {expectedOnHalf}");
+                Assert.True(differ == 0, $"{name}: {differ} nodes differ, largest difference {maxDiff:R}");
             }
         }
     }
