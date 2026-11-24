@@ -217,6 +217,33 @@ namespace geometry3Sharp.Tests
                 var scaled = new SnapGrid(grid.W * 1024.0);
                 Assert.Equal(c1, scaled.CrossesInterior(a * 1024.0, b * 1024.0, kx, ky));
             }
+
+            // Similarity.All2D() check: exact result invariance under axis-aligned similarities (UTM, 2^-10, 2^10, 1e-3, 1e3)
+            // and filter-equals-exact contract across all 2D similarities including rotated and rotated-UTM-millimetre frames.
+            double baseW = 0.25;
+            var baseGrid = new SnapGrid(baseW);
+            var segs = new[] {
+                (new Vector2d(-0.2, -0.1), new Vector2d(0.2, 0.15), 0L, 0L),        // strictly crossing (0, 0)
+                (new Vector2d(0.2, 0.2), new Vector2d(0.4, 0.05), 0L, 0L),          // strictly outside (0, 0)
+                (new Vector2d(-0.6, 0.1), new Vector2d(0.6, 0.2), 1L, 0L),          // crossing (1, 0)
+            };
+            foreach (var sim in Similarity.All2D()) {
+                var sGrid = new SnapGrid(sim.ApplyLength(baseW));
+                bool axisAligned = sim.Rotation.EpsilonEqual(Matrix3d.Identity, 0);
+                foreach (var (a, b, kx, ky) in segs) {
+                    Vector2d sa = sim.Apply2d(a), sb = sim.Apply2d(b);
+                    Vector2d sc = sim.Apply2d(new Vector2d(kx * baseW, ky * baseW));
+                    long skx = sGrid.Pixel(sc.x), sky = sGrid.Pixel(sc.y);
+                    bool exact = sGrid.CrossesInteriorExact(sa, sb, skx, sky);
+                    int f = sGrid.CrossesInteriorFilter(sa, sb, skx, sky);
+                    Assert.True(f == 0 || (f > 0) == exact, $"{sim.Name}: filter disagreed with exact");
+                    Assert.Equal(exact, sGrid.CrossesInterior(sa, sb, skx, sky));
+                    if (axisAligned) {
+                        bool baseExact = baseGrid.CrossesInterior(a, b, kx, ky);
+                        Assert.Equal(baseExact, exact);
+                    }
+                }
+            }
         }
     }
 }

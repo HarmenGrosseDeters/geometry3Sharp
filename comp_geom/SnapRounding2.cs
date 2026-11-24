@@ -692,8 +692,9 @@ namespace g3
         ///   doubles: dx = DX (1 + d1); ey = (CY (1 + d0) - ay)(1 + d2) = EY (1 + d2) + CY d0 (1 + d2); l = dx ey (1 + d3), and r
         ///   alike; o = (l - r)(1 + d4). With |di| &lt;= u: |o - O| &lt;= (3u + O(u^2)) (|DX| |EY| + |DY| |EX|) + (u + O(u^2)) (|DX| |CY|
         ///   + |DY| |CX|) + u (|l| + |r|) &lt;= 5u (1 + 4u) (|dx| (|ey| + |cy|) + |dy| (|ex| + |cx|)), the computed values standing in
-        ///   for the true ones within (1 + 2u). The bound used is 6e-16 times that sum (about 5.4 u, above 5u (1 + 4u) ≈ 5.551e-16
-        ///   and 1.80x the sign-filter requirement proved in tools/ErrorBoundAudit/bounds.py SN-5): an orientation
+        ///   for the true ones within (1 + 2u). That 5u (1 + 4u) ≈ 5.551e-16 is a coarser majorant (bounding |o - O|); for a sign
+        ///   test only, the final rounding of o drops out and tools/ErrorBoundAudit/bounds.py (SN-5) proves the sharper 3u
+        ///   requirement (~3.331e-16). The bound used is 6e-16 times that sum (~5.4 u, 1.80x margin over the proved 3u requirement): an orientation
         ///   beyond it has its true sign; within it, undecided. Valid where no rounding is absolute: every input, side, product and the
         ///   bound normal and far from overflow, in [1e-140, 1e140] or zero (Ok; else undecided), and a difference of doubles that is
         ///   subnormal is exact.
