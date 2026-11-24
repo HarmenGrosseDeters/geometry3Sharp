@@ -9,7 +9,7 @@ using gs;
 // SolidBooleanPipeline on procedural unwelded triangle soups: the triangle counts after the exact boolean and after the
 // reduction to a fraction of the boolean result, the time per stage, the share of clean results (NotCleanReason == ""),
 // the stop reason, and MeshRobustRepair on the same inputs (the prophylactic route) for the cost.
-// Usage: SolidBooleanBenchmark [fractions, eg 0.25,0.1] | plain | repeated | open | limit | pair
+// Usage: SolidBooleanBenchmark [fractions, eg 0.25,0.1] | plain | repeated | open | limit | pair | auto | verify
 static class Program
 {
     // ---- procedural inputs (all unwelded: every triangle has its own three vertices, like an STL read) ----
@@ -144,6 +144,7 @@ static class Program
         if (args.Length > 0 && args[0] == "limit") { Limit(); return; }
         if (args.Length > 0 && args[0] == "pair") { Pair(); return; }
         if (args.Length > 0 && args[0] == "auto") { Auto(); return; }
+        if (args.Length > 0 && args[0] == "verify") { Verify(); return; }
         double[] fractions = args.Length > 0 ? args[0].Split(',').Select(double.Parse).ToArray() : new[] { 0.25, 0.1 };
         Console.WriteLine("| case | in tris | boolean tris | boolean ms | contacts | " + string.Join(" | ", fractions.Select(f => $"{f:P0}: tris, reduce ms, contacts, result, stop")) + " | RobustRepair of the soup: ms, tris, result |");
         Console.WriteLine("|---|---|---|---|---|" + string.Concat(fractions.Select(f => "---|")) + "---|");
@@ -262,6 +263,39 @@ static class Program
                 Console.WriteLine($"| {c.Name} | {f} | {a.ContactsBoolean} | {a.ResultTriangles} | {Short(a.NotCleanReason)}, {a.ContactsResult} contacts | {a.TotalMilliseconds} | {b.ResultTriangles} | {Short(b.NotCleanReason)}, {b.ContactsResult} contacts | {b.PairPassRan}, {b.PairPassKept}, {b.PairPassMilliseconds} | {b.TotalMilliseconds} | {(b.PairPassRan ? (100.0 * b.PairPassMilliseconds / Math.Max(1, b.TotalMilliseconds)).ToString("F0", CultureInfo.InvariantCulture) + " %" : "-")} | {(b.PairPassRan ? "-" : same.ToString())} |");
             }
         Console.WriteLine($"rows {rows}, second pass ran {ran}, kept {kept}, results without a second pass equal to Off: {sameWhenNotRan} of {notRan}");
+    }
+
+    // Verification (opt-in): the cost of NoInventedSurface and of both checks next to the run without them, on procedural inputs of growing size.
+    // Per row: the median of 5 runs of the whole Compute() (ms) with Verification None, NoInventedSurface, both, and the time of the checks in the
+    // report (VerificationMilliseconds, the median of the same runs)
+    static void Verify()
+    {
+        Console.WriteLine("| case | input tris | result tris | None ms | NoInventedSurface ms (checks ms) | both ms (checks ms) | share |");
+        Console.WriteLine("|---|---|---|---|---|---|---|");
+        var cases = new List<Case>();
+        foreach (int n in new[] { 8, 16, 32, 64 })
+            cases.Add(new Case { Name = "sphere+sphere U, " + n + " edge vertices", Op = ExactMeshBoolean.Operations.Union, Inputs = new List<DMesh3> { Sphere(Vector3d.Zero, 1, n), Sphere(new Vector3d(0.9, 0.15, 0.05), 1, n) } });
+        foreach (int n in new[] { 16, 48 })
+            cases.Add(new Case { Name = "box-sphere D, " + n + " edge vertices", Op = ExactMeshBoolean.Operations.Difference, Inputs = new List<DMesh3> { FineBox(Vector3d.Zero, new Vector3d(1, 1, 1), n), Sphere(new Vector3d(0.9, 0.15, 0.05), 0.8, n) } });
+        foreach (var c in cases) {
+            var times = new Dictionary<SolidBooleanPipeline.VerificationModes, List<long>>();
+            var checks = new Dictionary<SolidBooleanPipeline.VerificationModes, List<long>>();
+            double share = 0;
+            int result = 0;
+            var modes = new[] { SolidBooleanPipeline.VerificationModes.None, SolidBooleanPipeline.VerificationModes.NoInventedSurface, SolidBooleanPipeline.VerificationModes.NoInventedSurface | SolidBooleanPipeline.VerificationModes.RoundingVolume };
+            foreach (var mode in modes) { times[mode] = new List<long>(); checks[mode] = new List<long>(); }
+            new SolidBooleanPipeline(c.Inputs, c.Op).Compute();       // (warm-up: the JIT is not part of the rows)
+            for (int rep = 0; rep < 5; ++rep)
+                foreach (var mode in modes) {
+                    var p = new SolidBooleanPipeline(c.Inputs, c.Op) { Verification = mode, MaxInventedSurfaceShare = double.PositiveInfinity, MaxRoundingVolumeChange = double.PositiveInfinity };
+                    long ms = Time(() => p.Compute());
+                    if (p.Status != SolidBooleanPipeline.PipelineStatus.Success) { Console.WriteLine(c.Name + ": " + p.Status + " " + p.Error); continue; }
+                    times[mode].Add(ms); checks[mode].Add(p.Report.VerificationMilliseconds);
+                    share = p.Report.InventedSurfaceShare; result = p.Report.ResultTriangles;
+                }
+            Func<List<long>, long> med = l => { var q = l.OrderBy(x => x).ToList(); return q.Count == 0 ? -1 : q[q.Count / 2]; };
+            Console.WriteLine($"| {c.Name} | {c.Inputs.Sum(m => m.TriangleCount)} | {result} | {med(times[modes[0]])} | {med(times[modes[1]])} ({med(checks[modes[1]])}) | {med(times[modes[2]])} ({med(checks[modes[2]])}) | {share} |");
+        }
     }
 
     static bool SameMesh(DMesh3 x, DMesh3 y)
