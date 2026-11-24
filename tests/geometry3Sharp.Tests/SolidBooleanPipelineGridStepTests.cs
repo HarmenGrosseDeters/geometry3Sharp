@@ -70,8 +70,9 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void AFlushRimAFewUlpsInside_IsRefusedWithoutTheStep_AndCutWithIt()
         {
-            var plain = new SolidBooleanPipeline(FlushRim(), D);
-            Assert.Equal(Auto.None, plain.AutomaticSteps);
+            // (the default retries this refusal: None is the run without any step)
+            Assert.Equal(Auto.GridBeforeFallback | Auto.GridAfterRoundingNotClean, new SolidBooleanPipeline(FlushRim(), D).AutomaticSteps);
+            var plain = new SolidBooleanPipeline(FlushRim(), D) { AutomaticSteps = Auto.None };
             Assert.False(plain.Compute());
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, plain.Status);
             Assert.Equal("SheetRole:1,Fallback:-1,Refused:-1", Names(plain));
@@ -96,8 +97,9 @@ namespace geometry3Sharp.Tests
             Assert.StartsWith("the sheet role refused: RimInsideWorkpiece: ", g.Reason);
             // every vertex of the box is off the grid (8), and so are the 4 of the sheet
             Assert.Equal(12, p.Report.InputSnappedVertices);
-            Assert.Equal("the inputs are snapped to the cell 2^-38 (3.637978807091713E-12), which moved 12 vertices, and the run is done again", g.Change);
-            Assert.Equal(ExactMeshBoolean.SheetRefusal.None, g.SheetReason);
+            Assert.StartsWith("the inputs are snapped to the cell 2^-38 (3.637978807091713E-12), which moved 12 vertices, and changed the ", g.Change);
+            Assert.EndsWith(", and the run is done again", g.Change);
+            Assert.Equal(Rim, g.SheetReason);       // the refusal the step answers
             // (the removed share belongs to the sheet step of the run that cut)
             Assert.DoesNotContain("removed", p.Report.Route[0].Change);
             Assert.Contains("the Difference removed 50 % of the first input's volume", p.Report.Route[2].Change);
@@ -137,7 +139,7 @@ namespace geometry3Sharp.Tests
         public void ARoundingRefusal_IsAnsweredOnTheGrid_WithTheResultOfInputGridAtThatCell()
         {
             // the fragment of SolidBooleanPipelineInputGridTests (coordinates up to 6.6e6, one ulp 2^-30): RoundingNotClean as given
-            var plain = new SolidBooleanPipeline(SolidBooleanPipelineInputGridTests.Fragment(), D);
+            var plain = new SolidBooleanPipeline(SolidBooleanPipelineInputGridTests.Fragment(), D) { AutomaticSteps = Auto.None };
             Assert.False(plain.Compute());
             Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, plain.BooleanStatus);
             Assert.Empty(plain.Report.Route);
@@ -172,7 +174,7 @@ namespace geometry3Sharp.Tests
                 f[1].ReverseTriOrientation(0);
                 return f;
             };
-            var plain = new SolidBooleanPipeline(inputs(), D) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
+            var plain = new SolidBooleanPipeline(inputs(), D) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority, AutomaticSteps = Auto.None };
             Assert.False(plain.Compute());
             Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, plain.BooleanStatus);
             Assert.Equal("SheetRole:1,Fallback:-1", Names(plain));
@@ -192,7 +194,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void WhenTheRetryFailsToo_TheFirstFailureIsTheResult_WithTheAttemptInTheRoute()
         {
-            var plain = new SolidBooleanPipeline(PatchInside(), D);
+            var plain = new SolidBooleanPipeline(PatchInside(), D) { AutomaticSteps = Auto.None };
             Assert.False(plain.Compute());
             var p = new SolidBooleanPipeline(PatchInside(), D) { AutomaticSteps = Auto.Grid };
             Assert.False(p.Compute());
@@ -204,7 +206,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal("SheetRole:1,Grid:-1,Fallback:-1,Refused:-1", Names(p));
             SolidBooleanRouteStep g = p.Report.Route[1];
             Assert.Equal(Pow2(-38), g.Grid);
-            Assert.StartsWith("the inputs are snapped to the cell 2^-38 (3.637978807091713E-12), which moved 8 vertices, and the run is done again; it failed too (BooleanFailed: SheetRefused: ", g.Change);
+            Assert.StartsWith("the inputs are snapped to the cell 2^-38 (3.637978807091713E-12), which moved 8 vertices, and changed the ", g.Change);
+            Assert.Contains(", and the run is done again; it failed too (BooleanFailed: SheetRefused: ", g.Change);
             Assert.EndsWith("), so the first failure is the result", g.Change);
             Assert.Equal(Rim, p.Report.Route[2].SheetReason);
             // (the report is the one of the run without the grid)
@@ -231,8 +234,8 @@ namespace geometry3Sharp.Tests
             // the retry is stopped by a budget (ConfigureBoolean runs for every boolean: the second is the retry's)
             foreach (bool sheet in new[] { false, true }) {
                 Func<SolidBooleanPipeline> make = () => sheet
-                    ? new SolidBooleanPipeline(FlushRim(), D) { InputRoles = SheetSecond() }
-                    : new SolidBooleanPipeline(SolidBooleanPipelineInputGridTests.Fragment(), D);
+                    ? new SolidBooleanPipeline(FlushRim(), D) { InputRoles = SheetSecond(), AutomaticSteps = Auto.None }
+                    : new SolidBooleanPipeline(SolidBooleanPipelineInputGridTests.Fragment(), D) { AutomaticSteps = Auto.None };
                 SolidBooleanPipeline plain = make();
                 Assert.False(plain.Compute());
                 SolidBooleanPipeline p = make();
@@ -444,8 +447,8 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        [InlineData(2)]
-        [InlineData(3)]
+        [InlineData(8)]
+        [InlineData(9)]
         [InlineData(-1)]
         public void AnUndefinedValue_IsRefused(int value)
         {
@@ -474,7 +477,7 @@ namespace geometry3Sharp.Tests
                 Func<double> d = () => (1 + rnd.Next(16)) * ulp;
                 DMesh3 sheet = Sheet(lo.x + d(), hi.x - d(), lo.y + d(), hi.y - d());
                 MeshTransforms.Translate(sheet, new Vector3d(0, 0, (lo.z + hi.z) / 2 - 2.5));
-                var plain = new SolidBooleanPipeline(new List<DMesh3> { box, sheet }, D);
+                var plain = new SolidBooleanPipeline(new List<DMesh3> { box, sheet }, D) { AutomaticSteps = Auto.None };
                 Assert.False(plain.Compute());
                 var p = new SolidBooleanPipeline(new List<DMesh3> { box, sheet }, D) { AutomaticSteps = Auto.Grid };
                 if (p.Compute()) {
@@ -513,8 +516,11 @@ namespace geometry3Sharp.Tests
         static DMesh3 Points(params double[] xyz)
         {
             var m = new DMesh3();
-            for (int i = 0; i < xyz.Length; i += 3)
-                m.AppendVertex(new Vector3d(xyz[i], xyz[i + 1], xyz[i + 2]));
+            // (every point is used by a triangle, with two vertices at the origin of its own: the cell counts the vertices that triangles use)
+            for (int i = 0; i < xyz.Length; i += 3) {
+                int v = m.AppendVertex(new Vector3d(xyz[i], xyz[i + 1], xyz[i + 2]));
+                m.AppendTriangle(v, m.AppendVertex(Vector3d.Zero), m.AppendVertex(Vector3d.Zero));
+            }
             return m;
         }
 
