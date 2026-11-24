@@ -45,7 +45,7 @@ Architecture specifications, algorithm design notes, error-bound derivations, an
 | [SNAP_ROUNDING_3D.md](SNAP_ROUNDING_3D.md) | Practical 3D snap-rounding leads, falsification runs, and recommendation |
 | [BOOLEAN_PROPERTY_TESTS.md](BOOLEAN_PROPERTY_TESTS.md) | Metamorphic and property-based tests (CsCheck) for booleans |
 | [PIPELINE_GRID_STEP.md](PIPELINE_GRID_STEP.md) | The opt-in Grid step of `SolidBooleanPipeline`: the snapping cell derived from the data (2^12 ulp of the largest coordinate), its limits and prior art |
-| [SHEET_EXTENSION.md](SHEET_EXTENSION.md) | Proposal: continuing a cutting sheet that ends just short of the workpiece's surface, per rim vertex up to the first exit; diagnosis, helper, pipeline option (not implemented) |
+| [SHEET_EXTENSION.md](SHEET_EXTENSION.md) | Proposal: continuing a cutting sheet that ends just short of the workpiece's surface, per rim edge up to the first exit, verified exactly; diagnosis, helper, pipeline option (not implemented) |
 
 ---
 

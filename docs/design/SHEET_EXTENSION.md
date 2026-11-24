@@ -1,8 +1,9 @@
 # Sheet extension: a cutting sheet that ends just short of the workpiece's surface
 
-Status: design proposal, second version (2026-11-24). Nothing is implemented. The first version (a fixed-length strip
+Status: design proposal, third version (2026-11-24). Nothing is implemented. The first version (a fixed-length strip
 with a four-part check of the cut) was withdrawn after an independent review built a counterexample; section 11 keeps
-what was learned. Section 9 lists what is decided and what is open; section 10 is the plan. User-facing behaviour today:
+what was learned. In the review the construction of section 4 was run with the public API on five cases of section 8 (the slot and the
+fin, the free pin, the chord, the rectangle short on four sides, a vertex on the surface); they end as listed there. Section 9 lists what is decided and what is open; section 10 is the plan. User-facing behaviour today:
 [booleans-and-imprint.md](../guides/booleans-and-imprint.md#open-cutting-surface-sheet-role).
 
 ## 1. Problem
@@ -46,49 +47,69 @@ not describe.
 - **C. A pipeline option** that calls B for a refused sheet and cuts. Only this needs the interplay rules of section 6.
   Whether C is worth having is decided on the spike's numbers (section 10); B is its building block either way.
 
-## 4. The construction: up to the surface, per rim vertex
+## 4. The construction: up to the surface, per rim edge
 
 Input: the sheet `S` (the original triangles are kept exactly; only triangles are added) and the closed workpiece `W`.
+The principle: **construct in doubles, verify exactly.** The strip is built with ordinary floating-point geometry; it is
+accepted only if exact tests hold. A degenerate situation (a ray through an edge or a vertex of `W`, a grazing ray) can
+then only cause a refusal, never a wrong cut.
 
-1. **Where.** Only the parts of the rim that lie inside `W` are continued: a rim vertex is inside by the exact winding
-   number of `W`; a run of inside vertices gets one edge of slack at each end. A rim outside `W` is left alone, so a
-   strip cannot reach into an unrelated part of the workpiece from outside.
+1. **Where.** A rim edge is continued if it meets the interior of `W` (the segment against `W`, or the edges the
+   refusal names). The choice is by edge, not by vertex: a long rim edge can pass through `W` while both its ends are
+   outside (a straight rim across a round workpiece). A run is a maximal chain of such edges. A rim that is outside `W`
+   is left alone, so a strip cannot reach into an unrelated part of the workpiece from outside.
 2. **Direction.** For a rim vertex `v` with rim edges `a` and `b`: `n_a`, `n_b` are the unit vectors in the plane of
-   each edge's triangle, perpendicular to the edge and pointing away from the triangle. `d(v) = normalize(n_a + n_b) /
-   cos(half the angle between n_a and n_b)`, the factor capped at 2 (a true mitre: the strip keeps its width at a
-   corner). A vertex on a non-manifold rim (more than two rim edges) gets one point per boundary wedge, or the helper
-   refuses with a named reason; the spike decides which.
-3. **Length.** A ray from `v` along `d(v)`. Its first exit from `W` at distance `g(v)` (the depth of the rim there). The
-   new point is `v + (g(v) + o) d(v)` with a small overshoot `o` so that the strip ends outside. One quad per rim edge
-   between its two vertices and their two new points, split into two triangles, oriented like the triangle it continues.
-4. **Refusals** (each with a reason and a witness):
-   - a ray has no exit within the limit (`g(v)` above `MaxExtension` times the sheet's diagonal);
-   - a ray crosses the surface of `W` again before its end (the overshoot enters other material);
-   - a quad is inverted (its outer edge runs against its rim edge: the rays of neighbouring vertices cross, as at a
-     notch narrower than the depth);
-   - the strip meets `W`'s surface anywhere other than in one curve per continued run, from one end of the run to the
-     other (checked with the exact triangle predicates; this is what stops a strip whose corner rays are fine and whose
-     interior passes through a fin);
-   - the strip intersects the sheet or itself.
-5. **Report.** Per continued run: the largest and mean depth `g`, the length of the run, the area of the strip inside
-   `W`, and the direction-uncertainty volume `U = sum over rim edges of (1/2) g^2 tan(delta) length`, the volume
-   by which the cut could move if the true continuation left the rim at an angle up to `delta` from the strip
-   (`delta` a parameter, proposed 15 degrees). `U` is compared with the smaller of the two parts the cut makes, not with
-   the workpiece.
+   each edge's triangle, perpendicular to the edge and pointing away from the triangle; `d(v) = normalize(n_a + n_b)`,
+   a unit vector. There is no mitre factor: every vertex finds its own exit along its own ray, so a corner needs none.
+   A vertex on a non-manifold rim (more than two rim edges) gets one point per boundary wedge, or the helper refuses
+   with a named reason; the spike decides which.
+3. **Length.** A ray from `v` along `d(v)`. `g(v)` is the Euclidean distance to its first exit from `W` (the depth of
+   the rim at `v`); a vertex outside `W` or on its surface has `g = 0` and ends a run (a vertex on the surface in the
+   middle of the rim ends two runs and its new point is shared by both). The new point is `v + (g(v) + o(v)) d(v)`
+   with the overshoot `o(v) = min(o_max, half the distance from the exit to the ray's next hit of W)`, at least a few
+   rounding units of the coordinates; `o_max` is a small share of the sheet's diagonal. With this rule the new point
+   cannot enter other material along its ray.
+4. **The strip.** One quad per continued rim edge between its two vertices and their two new points, split into two
+   triangles and oriented like the triangle it continues. Where the outer edge of a quad would pass back through `W`
+   (rays that diverge on a curved rim, a convex face between two exits, an edge with both ends outside), the quad is
+   subdivided along the rim edge's direction with further rays until every point of the outer edge is outside. This
+   adds vertices in the strip only; the original triangles are never changed.
+5. **Exact verification; each failure is a refusal with a reason and a witness.**
+   - Depth: every `g(v)` is at most `MaxExtension` times the sheet's diagonal, and every ray has an exit.
+   - Every new point is strictly outside `W` (exact winding number).
+   - No quad is inverted: for a rim edge `A -> B` with new points `A'`, `B'`, `(B' - A') . (B - A) > 0` (the rays of
+     neighbouring vertices do not cross, as they do at a notch narrower than the depth).
+   - The curve rule: the intersection of the strip with the surface of `W` has exactly one connected component per
+     run (an open curve, or a closed loop where the whole rim is inside), and the strip has no coplanar contact with a
+     face of `W`. It is checkable today through the public API: `ExactMeshImprint` of the strip by `W` with
+     `LabelCurves`, counting the distinct curve ids. This is the rule that catches material between two rim vertices
+     whose rays both exit cleanly (a free pin in a slot).
+   - The strip meets neither the sheet, nor itself, nor any other tool or sheet inside `W`.
+   - The sheet role accepts the extended sheet.
+6. **Report.** Per run: the largest and the mean depth `g`, the length of the run, the area of the strip inside `W`,
+   and the direction estimate `U` (section 5), absolute and relative to the smaller of the two parts the cut makes.
 
-Why per vertex and up to the first exit: a strip of one fixed length is accepted by the sheet role as soon as it leaves
-the workpiece *somewhere suitable*, which can be after passing through a second wall (section 11). The first exit is the
+Why per edge and up to the first exit: a strip of one fixed length is accepted by the sheet role as soon as it leaves
+the workpiece somewhere suitable, which can be after passing through a second wall (section 11). The first exit is the
 only length that is local.
 
 ## 5. What the rules guarantee, and what they do not
 
 - The extended sheet equals the original outside the band between the old rim and the first surface the rays meet. The
   band's width is `g(v)`, at most the limit.
-- The band meets the workpiece's surface in exactly one curve per run. So the cut it completes is the one the sheet
-  already made up to the rim; no other part of the workpiece is cut.
-- The reported `U` bounds what the direction of the continuation can change.
+- The band meets the workpiece's surface in exactly one curve per run and touches nothing else. So the extended sheet
+  differs from any other continuation that leaves through the same first surface only inside the wedge between the
+  two continuations.
+- `U` is a first-order ESTIMATE of that wedge, not a bound. For a rim vertex whose ray meets the surface at the angle
+  `alpha`, a continuation tilted by `delta` changes the cut by about `(1/2) g^2 sin(delta) sin(alpha) / sin(alpha -
+  delta)` per unit length of rim; `U` is the sum over the run. It assumes a straight alternative and a locally flat
+  surface. `delta` comes from the sheet itself: `delta(v) = max(delta_min, kappa(v) g(v))`, with `kappa` the sheet's
+  turning per unit length over its last rows of triangles at the rim (the dihedral angle between neighbouring
+  triangles over the distance of their centroids); a planar sheet gets `delta_min`, a curved one more. Where
+  `alpha <= delta` plus a margin the tilted continuation may not exit within the limit at all: that vertex is flagged
+  and the helper refuses.
 - Not guaranteed: that the sheet was meant to go through (intent, section 2); that a curved sheet continues with its
-  curvature (the strip continues each rim triangle's plane; `U` is the measure of that).
+  curvature (the strip continues each rim triangle's plane; `U` is the estimate of what that costs).
 
 A cheap assertion for the implementation, not a safety check: the cut with the extended sheet and the cut with the
 reversed sheet keep volumes that add up to the workpiece's. It holds by construction for any accepted sheet cut (and
@@ -103,7 +124,8 @@ changes its form with `UncutSide`), so it can only catch a bug in the implementa
   inputs as given, not on the snapped copies. With `AutomaticSteps = None` the extension would also absorb flush rims;
   the guide says to keep the grid retry on.
 - **Several sheets.** The sheet role names one refused sheet; only that sheet is continued, then the cut is tried again,
-  each sheet at most once. Sheets that were fine are not touched.
+  each sheet at most once (so up to n + 1 cuts for n sheets). Sheets that were fine are not touched, and a strip that
+  meets another tool or sheet inside the workpiece is refused (section 4).
 - **`MinThickness` and thin inputs** are measured on the inputs as given, before the strip is added.
 - **After a refusal of the extension** the run continues exactly as without the option. Whether a failed extension
   should also block the hole-fill fallback for that tool is open (section 9).
@@ -117,7 +139,8 @@ changes its form with `UncutSide`), so it can only catch a bug in the implementa
 The diagnosis (deliverable A), without effect on results:
 
 - `RimInsideWorkpiece`: the largest depth of the rim inside the workpiece, absolute and relative to the sheet's
-  diagonal, along the direction of section 4, or "no exit within the limit"; and the length of the rim that is inside.
+  diagonal, along the direction of section 4, or "no exit within the limit"; and the length of the rim that is inside,
+  measured per rim edge (an edge can be inside while both its ends are outside).
 - A sheet with an edge used by more than two triangles (`NotSurface`) and an open workpiece (`WorkpieceNotClosed`) stay
   refused as today.
 
@@ -140,17 +163,26 @@ Procedural, no fixture data. The list contains the adversarial cases a review fo
 - **a notch in the rim narrower than the depth**: refused (inverted quad), never a self-intersecting sheet;
 - **a rim outside the workpiece next to another part of it** (a U-shaped workpiece): that rim is not continued;
 - **a bowtie vertex on the rim**: per-wedge points or the named refusal;
+- **a free pin in a slot, between two rim vertices whose rays both exit cleanly**: refused by the curve rule (the
+  sheet role alone accepts that strip and cuts the pin's top off);
+- **a chord**: a straight rim edge across a round workpiece, both ends outside, the middle inside: continued (chosen
+  by edge, the outer edge subdivided);
+- **a rim vertex exactly on the surface**: it ends a run with `g = 0`; no degenerate triangle;
+- **an exit at a grazing angle** (`alpha` near `delta`): refused; and a ray through an edge or a vertex of the workpiece
+  (a rectangular sheet short at a box's corner): accepted only if the exact verification holds;
 - **a concave workpiece** where a longer strip would re-enter: the first exit is used; the re-entry is never reached;
 - a dome and a tray as stated sheets: both continued, both reported;
-- several sheets, one short; `UncutSide` set; a rectangular sheet short on all four sides (the mitre at 90 degrees);
+- several sheets, one short; `UncutSide` set; a rectangular sheet short on all four sides (each corner ray finds its own exit);
 - far from the origin and in rotated frames; without the option: bit for bit as today;
 - the project's standard set: invariance over `Similarity.All()` (2^k scales bit for bit), reuse, repeated runs;
   success paths check the result (closed, manifold, finite, clean) and the volume;
-- mutants: each refusal rule switched off, the first exit replaced by the last, the mitre factor, the slack edges, the
-  orientation of the quads; each must fail a test.
+- mutants: each refusal rule switched off, the first exit replaced by the last, the overshoot rule, the choice by
+  edge replaced by the choice by vertex, the subdivision of the outer edge, the orientation of the quads; each must
+  fail a test.
 
-Cost: one winding query and one ray per rim vertex, the strip-against-surface test, and one sheet cut. Nothing for a
-sheet that cuts directly or on the grid, and nothing without the option.
+Cost: one segment test per rim edge, one ray and one winding query per new point, one imprint of the strip by the
+workpiece for the curve rule, and one sheet cut per continued sheet. Nothing for a sheet that cuts directly or on the
+grid, and nothing without the option. The spike reports the cost of the imprint per case.
 
 ## 9. Decisions
 
@@ -162,7 +194,8 @@ Open:
 1. Is the diagnosis (A) plus the helper (B) enough, or is the pipeline option (C) wanted? Proposed: A now, B after the
    spike, C only if the spike's numbers on the owner's inputs justify it.
 2. The extension only for stated sheets (proposed), or also for auto-routed open tools.
-3. The limits: the depth (5 % decided), `delta` and the bound on `U` relative to the smaller part; after the spike.
+3. The limits: the depth (5 % decided), `delta_min`, the margin on the exit angle, the overshoot cap and the limit on
+   `U` relative to the smaller part; after the spike.
 4. A bowtie rim vertex: per-wedge points or a refusal.
 5. For C: does a failed extension block the hole-fill fallback for that tool; and the strip as a reference surface of
    the verification.
@@ -170,15 +203,20 @@ Open:
 ## 10. Plan
 
 1. **Diagnosis PR (A):** the depth of the rim in the refusal's text and report. No convention, no option.
-2. **Spike (no library change):** a benchmark project that builds the strip of section 4 with the public API on the
-   procedural cases of section 8 and reports, per case, the outcome, the refusal reason, `g`, `U` and the volume against
-   the analytic value. The owner runs the same probe locally on private inputs to get the upper bound: how many
-   `RimInsideWorkpiece` refusals there are, the distribution of the rim's depth relative to the diagonal, the share
-   within the limit, how many of those are continued, and how many accepted cuts are wrong by the project's independent
-   checks (the self-consistency checks, a second Boolean implementation, a reference where one exists). Go: every
-   procedural through cut within the limit gives the analytic volume; every adversarial case of section 8 ends as
-   stated there; no accepted cut on the owner's inputs is wrong. No-go: any accepted wrong cut, or a share of continued
-   cases too small to be worth an option.
+2. **Spike (no library change):** a benchmark project that builds the strip of section 4 with public members only
+   (`ExactMeshImprint` for the curve rule, the sheet cut, a winding query for the choice, since the verification is
+   exact) on the procedural cases of section 8 and reports, per case, the outcome, the refusal reason, `g`, `U`, the
+   cost of the imprint and the volume against the analytic value. The owner runs the same probe locally on private
+   inputs to get the upper bound: how many `RimInsideWorkpiece` refusals there are, how many of them come from stated
+   sheets and how many from auto-routed tools, the distribution of the rim's depth relative to the diagonal, the share
+   within the limit, and how many of those are continued.
+   What can judge an extension: only a reference for what the caller meant. A second Boolean implementation run on the
+   same extended sheet checks the Boolean, not the extension. "Wrong" therefore means: the result differs from a
+   reference result, where one exists, by more than `U` plus the tolerance of the comparison.
+   Go: every procedural through cut within the limit gives the analytic volume; every adversarial case of section 8
+   ends as stated there; no continued cut on the owner's inputs is wrong against a reference. No-go: any accepted wrong
+   cut. Whether the share of continued cases is worth the helper and the option is the owner's decision on the reported
+   numbers.
 3. **Helper PR (B)**, then, if decided, **the pipeline option (C)** after the grid retry default and the verification
    option are on master.
 
@@ -197,8 +235,10 @@ with the public API and found:
 - **"The result does not change when the extension is doubled"** cannot fail either: once the strip has left the
   workpiece, a longer strip changes only the part outside.
 - **"Sheet, not shell" by the cap's area** does not separate the two (section 7).
-- **The mitred strip** inverts at a notch narrower than the extension, and the first version's formula for the mitre
-  was not the true mitre.
+- **The mitred strip** inverts at a notch narrower than the extension. With a ray per vertex to its own exit no mitre
+  is needed at all.
+- **Choosing the continued rim by vertex** (a first revision) misses a rim edge that passes through the workpiece with
+  both ends outside; the choice is by edge.
 
 ## Prior art
 
@@ -207,8 +247,8 @@ with the public API and found:
   unless the face is planar.
 - SolidWorks, Cut With Surface: the surface must fully divide the body; users over-build or extend the surface by hand.
   Its separate Extend Surface feature has the end conditions Distance, Up to point and **Up to surface**, with the
-  extension types "same surface" and "linear" (tangent): "up to surface" with a linear extension is the construction of
-  section 4.
+  extension types "same surface" and "linear" (tangent): "up to surface" with a linear extension is the closest manual
+  analogue of section 4 (there the user picks the target face; here it is the first exit).
 - Open CASCADE has `GeomLib::ExtendSurfByLength` for parametric surfaces (LGPL: cited, not read or ported).
 
 No source was found that documents a check of an automatic extension. No code of any of these was read; the statements
