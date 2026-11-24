@@ -81,7 +81,10 @@ namespace geometry3Sharp.Tests
                     AssertConsistent(b, $"{name} {op} simplify {simplify} safe rounding {safe}");
                     // the unrounded union has bowtie vertices where pieces meet at a point only; they are split (the
                     // result has none, AssertConsistent)
-                    Assert.Equal(name == "minimized, unrounded" && op == ExactMeshBoolean.Operations.Union ? 5 : 0, b.SplitBowtieVertices);
+                    // (2 since #1464, 5 before: a piece that cannot be added at an edge with more than two triangles gets copies
+                    // of its vertices, so how many vertices are left as bowties follows the order in which the pieces are
+                    // added, which is now the order of their geometry)
+                    Assert.Equal(name == "minimized, unrounded" && op == ExactMeshBoolean.Operations.Union ? 2 : 0, b.SplitBowtieVertices);
                 }
         }
 

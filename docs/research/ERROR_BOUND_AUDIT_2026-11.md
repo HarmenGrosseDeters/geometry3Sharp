@@ -113,7 +113,9 @@ rules with Z3, and `tools/FPTaylorPilot` checks leaves of one generated filter; 
 
 Each was reported to the coordinator when found and is an issue (F1 #1347, F2 #1348, F3 #1349, F4 #1350); the fixes are not part of this spike. Reproducers: `dotnet run --project tools/ErrorBoundAudit/Adversarial -c Release`.
 
-### F1 (#1347). `ExactMeshBoolean.negative_volume`: no underflow term (too small, with an input)
+### F1 (#1347). `ExactMeshBoolean.negative_volume`: no underflow term (too small, with an input) - FIXED in #1347
+
+Fixed: `negative_volume` has an absolute underflow term (`ExactPredicates.UnderflowUnit` times the sum of |x|_1 + 1); the model EB-7 proves it and the findings list is empty. The text below is the finding as it was reported.
 
 `mesh_ops/ExactMeshBoolean.cs:1056-1068`. The claim is that v6 < 0 is certain where `v6 < -(32 + n) u S`. In the
 normal range it is proved (EB-7: one term has an error of at most 11.4 u T against the claimed 32 u T, and the sum
@@ -228,9 +230,9 @@ The line is that of the bound's first anchor. u = 2^-53.
 | EB-5 orient3d_filtered_err / _near / rows | `mesh_ops/ExactMeshBoolean.cs:5168` | eu = sqrt(3)(ea + eb)(1 + 1e-15) + u \|(\|b\|+\|a\|)\| | as EB-4; ea..ed >= 0 (checked) | root3 (1 + 1e-15) rounded is at least sqrt(3) | checked (arithmetic) | - | - |
 | EB-5 orient3d_filtered_err / _near / rows | `mesh_ops/ExactMeshBoolean.cs:5168` | eu = sqrt(3)(ea + eb)(1 + 1e-15) + u \|(\|b\|+\|a\|)\| | as EB-4; ea..ed >= 0 (checked) | sign (row error 1.000000 eu) | proved | 1.01 | - |
 | EB-6 widened | `mesh_ops/ExactMeshBoolean.cs:1824` | e (1 + 1e-9) + 1e-300 + 1e-14 \|v\| | none | enclosure | proved | 1 +9.01e+06 u | - |
-| EB-7 negative_volume | `mesh_ops/ExactMeshBoolean.cs:1064` | (32 + n) u * sum of \|x\|\|y\|\|z\| | NO UNDERFLOW: every product of three differences normal. Not checked by the code (finding F1) | one term | checked (arithmetic) | - | - |
-| EB-7 negative_volume | `mesh_ops/ExactMeshBoolean.cs:1064` | (32 + n) u * sum of \|x\|\|y\|\|z\| | NO UNDERFLOW: every product of three differences normal. Not checked by the code (finding F1) | n terms | checked (arithmetic) | - | - |
-| EB-7 negative_volume | `mesh_ops/ExactMeshBoolean.cs:1064` | (32 + n) u * sum of \|x\|\|y\|\|z\| | NO UNDERFLOW: every product of three differences normal. Not checked by the code (finding F1) | subnormal products | FINDING F1 | - | - |
+| EB-7 negative_volume | `mesh_ops/ExactMeshBoolean.cs:1332` | (32 + n) u * sum of \|x\|\|y\|\|z\| + 2^-1066 * sum (\|x\|_1 + 1) | none: the absolute term covers the subnormal products (the relative part is derived where all are normal) | one term | checked (arithmetic) | - | - |
+| EB-7 negative_volume | `mesh_ops/ExactMeshBoolean.cs:1332` | (32 + n) u * sum of \|x\|\|y\|\|z\| + 2^-1066 * sum (\|x\|_1 + 1) | none: the absolute term covers the subnormal products (the relative part is derived where all are normal) | n terms | checked (arithmetic) | - | - |
+| EB-7 negative_volume | `mesh_ops/ExactMeshBoolean.cs:1332` | (32 + n) u * sum of \|x\|\|y\|\|z\| + 2^-1066 * sum (\|x\|_1 + 1) | none: the absolute term covers the subnormal products (the relative part is derived where all are normal) | underflow term | checked (arithmetic) | - | - |
 | AR-4 plane_value | `mesh_ops/ExactMeshArrangement.cs:809` | 1.01 (3 * 2^-52 sum\|terms\| + (\|A\|+\|B\|+\|C\|) e) | no product underflows: the coefficients are integers and e >= 1e-300 where a coordinate is not an integer (store adds Tiny); taken as (\|A\|+\|B\|+\|C\|) e >= 1e-300 or exact products | enclosure | proved | 1.01 | 0.99 |
 | AR-6 orient2d_approx | `mesh_ops/ExactMeshArrangement.cs:842` | 1.01 (2 eps (2 M + eps) + 3 * 2^-52 M^2) + 1e-300, eps = 2 e + 2^-52 M | no overflow (checked: not finite is undecided) | enclosure | proved (normal range) | 1.01 | 0.99 |
 | AR-8 order_key | `mesh_ops/ExactMeshArrangement.cs:961` | 1.01 (2.33 e + 2 * 2^-52 sum\|alpha_k a_k\|) + 1e-300 | none | enclosure | proved | 1.012 | 0.988 |
@@ -373,8 +375,8 @@ reference expands the same determinant as the library, so it checks the rounding
 ## 7. Proposal: a CI test so that the bounds cannot drift
 
 1. **The table as a test (done in the follow-up to this note's PR).** `tools/ErrorBoundAudit/test_error_bound_audit.py`:
-   every anchor is still in the source; every derivation still proves its bound; the open findings are exactly F1 (F4 is fixed,
-   #1350); the models hold on concrete doubles; mutants of the checker fail. A changed line that a model transcribes or a
+   every anchor is still in the source; every derivation still proves its bound; no finding is open (F1 and F4 are fixed,
+   #1347 and #1350); the models hold on concrete doubles; mutants of the checker fail. A changed line that a model transcribes or a
    guard it relies on (searched inside the model's function) fails the anchor test until the model is brought up to
    date. An operation added between the anchored lines is not seen: the anchors narrow the review, they do not replace
    re-reading a changed function. It runs in the `linux` job of `.github/workflows/ci.yml` (5 s, ten tests, the

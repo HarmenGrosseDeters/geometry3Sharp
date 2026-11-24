@@ -559,10 +559,11 @@ def negative_volume_term(c):
 
 @entry('EB-7 negative_volume', BOOL,
        ['v6 += x.Dot(y.Cross(z));', 'norms += x.Length * y.Length * z.Length;',
-        'return v6 < -(32.0 + component.Count) * 1.1102230246251565e-16 * norms;'],
-       'v6 < 0 is certain where v6 < -(32 + n) u S, S the sum of |x| |y| |z|',
-       'NO UNDERFLOW: every product of three differences normal. Not checked by the code (finding F1)',
-       '(32 + n) u * sum of |x||y||z|', emin=-100, emax=100)
+        'under += Math.Abs(x.x) + Math.Abs(x.y) + Math.Abs(x.z) + 1;',
+        'return v6 < -((32.0 + component.Count) * 1.1102230246251565e-16 * norms + ExactPredicates.UnderflowUnit * under);'],
+       'v6 < 0 is certain where v6 < -((32 + n) u S + 2^-1066 sum (|x|_1 + 1)), S the sum of |x| |y| |z|',
+       'none: the absolute term covers the subnormal products (the relative part is derived where all are normal)',
+       '(32 + n) u * sum of |x||y||z| + 2^-1066 * sum (|x|_1 + 1)', emin=-100, emax=100)
 def negative_volume(c, r):
     d = negative_volume_term(c)
     rel = d.err.without_const()
@@ -587,8 +588,15 @@ def negative_volume(c, r):
     r.add(*arith('n terms', worst_n is not None and worst_n >= 2**26, 'holds up to n = 2^%d triangles' % (worst_n.bit_length() - 1)))
     if not d.err.const_part() > 0:
         raise AssertionError('the model lost its underflow term')
-    r.finding('subnormal products', 'F1', 'absolute error %.3g per term with no term or guard in the bound: wrong below about 1e-103 '
-              '(reproducer: Adversarial, F1)' % float(d.err.const_part()))
+    # the absolute part (#1347): a subnormal product errs by at most eps / 2 (eps = 2^-1074 = 2 ETA); the cross product's six
+    # products by eps per component, which the dot product multiplies by |x_i|, and its three products add 3 eps / 2: at most
+    # eps (|x|_1 + 3/2) per term; the bound adds 2^-1066 (|x|_1 + 1) = 256 eps (|x|_1 + 1) per triangle. Where S underflows
+    # (S < 2^-1022) the relative part (32 + n) u S is below (32 + n) eps / 2 <= 256 n eps (largest at n = 1)
+    eps = 2 * ETA
+    covers_terms = all(256 * eps * (a + 1) >= eps * (a + Fraction(3, 2)) for a in (Fraction(0), Fraction(1, 2), Fraction(1), Fraction(10 ** 6)))
+    covers_relative = all((32 + n) * eps / 2 <= 256 * n * eps for n in (1, 2, 3, 10, 2 ** 26))
+    r.add(*arith('underflow term', covers_terms and covers_relative,
+                 'the absolute error of the subnormal products is below 2^-1066 (|x|_1 + 1) per term (a margin of 170 at |x|_1 = 0)'))
 
 
 # --------------------------------------------------------------------------------------------- ExactMeshArrangement
