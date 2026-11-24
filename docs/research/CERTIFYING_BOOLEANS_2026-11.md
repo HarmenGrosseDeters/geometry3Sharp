@@ -227,6 +227,10 @@ certificate that leaves the process.
 | D | A formally verified local core (C1, the C3 rules, C4; about 400 lines) in Isabelle or Lean, following the Rizkallah and Noschinski checkers | research | Parked. Trigger: an owner decision to publish, or a partner. Stop if the planar-map part of C1 cannot reuse an existing formal library. |
 | E | Repair and ε-envelope certificates | study | Only after B, and only with a contract for repair faithfulness agreed with the owner. |
 
+**Owner decision (2026-11-24, relayed by the coordinator):** step A now, built on this branch
+(`research/certifying-booleans-step-a`); step B after A meets its stop rule. The library mode (C) and the verified checker (D)
+stay parked behind their triggers; E stays behind B and a repair contract.
+
 How others solve it: section 2. No library ships a certificate of a mesh Boolean against its inputs. Users check results with a
 separate self-intersection test, and the closest working practice is verified proof checking in SAT solving and verified checkers in
 LEDA and Coq polyhedra.
