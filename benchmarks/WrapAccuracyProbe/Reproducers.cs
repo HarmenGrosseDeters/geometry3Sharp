@@ -77,7 +77,7 @@ static class Reproducers
             case "flipped_closed": { DMesh3 b = Box(16, 10, 6, 0, 0, 0); Flip(b, 0.33, 3); return b; }
             // the same with a small hole (one face's centre: 6 quads)
             case "flipped_hole": { DMesh3 b = Box(16, 10, 6, 0, 0, 0); Inputs.RemovePatch(b, new Vector3d(8, 5, 6), 0.01); Flip(b, 0.33, 3); return b; }
-            // one third of the box (a face's worth: the x faces) flipped as a block: two oppositely oriented parts of one surface
+            // the two x faces (19 % of the triangles, not a third; the name is kept for the result files) reversed as a block: two oppositely oriented parts of one surface
             case "box_flipped_third": { DMesh3 b = Box(16, 10, 6, 0, 0, 0); foreach (int t in b.TriangleIndices().ToList()) if (Math.Abs(b.GetTriNormal(t).x) > 0.99) b.ReverseTriOrientation(t); return b; }
             // a box missing three faces (top, +x, +y): the winding number of the solid's centre is 1/2
             case "open_box_3faces": { DMesh3 b = Box(16, 10, 6, 0, 0, 0); RemoveFaces(b, new Vector3d(0, 0, 1), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0)); return b; }

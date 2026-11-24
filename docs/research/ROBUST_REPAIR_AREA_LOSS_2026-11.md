@@ -13,7 +13,7 @@ never copied or committed; this note and the result files name ids and numbers o
 - **The four `ExactResolve` meshes (42331, 37731, 1038438, 66112) lose interior surface: the correct outcome for a solid (judgment a).** 81 to 98 % of
   the lost area has winding number "inside" on both sides (interior walls, contact faces of touching parts, parts inside other parts), 92 to 100 % of it lies
   inside the result's solid, and 0 to 2.9 % of the visible surface is lost. The rule is the definition of `ExactMeshBoolean.Resolve`: the result is the
-  boundary of the region where the winding number is positive. The volume check cannot object (the solid is the same, IoU 0.9995 to 1), and it should not.
+  boundary of the region where the winding number is positive. The volume check cannot object (the solid is the same, IoU 0.9995 to 1), and it should not. 42331 has a residual that is not explained (section 5: 19 % of its lost area is skin and 8 % lies outside the result's solid; nothing visible is lost).
 - **100040 is real damage (judgment b), and the acceptance check is what caused it.** The repair stage's result is right (0.26 % lost, nothing added)
   and its exact resolve is clean, but `MinVolumeIoU` rejects it (IoU 0.0019) because the *reference* solid, the input's winding-number solid, is nearly empty (the `Solidify` contour of that field encloses 0.6 % of the box,
   the repaired solid is 37.6 % of it). The stages then run on the input and `Solidify` contours the wrong field: 72 % of the area lost, 57 % of the result added.
@@ -22,9 +22,11 @@ never copied or committed; this note and the result files name ids and numbers o
 - **No check measures the lost area**, and the existing ones cannot: `MinVolumeIoU` and `RepairVolumeIoU` compare solids (they do not see interior surface, thin parts, or
   an open sheet, whose winding number is about 1/2 and so no solid); the lost-part check of F1 asks whether the result reaches a part, within 0.25 of the part's
   diagonal, so a fin that is partly inside a solid counts as present (section 7: a fin of 7 % of the visible surface vanishes with `Apply() == true`).
-- A report of the **lost area outside the result's solid** (input surface farther than tau from the result and not inside the result) separates all the cases measured here:
-  72 % (100040), 35 % and 34 % (flipped box, with hole), 6.8 % (fin) against at most 2.6 % on the 20 other meshes and 0 on the by-design cases. The plain lost-area share
-  does not: it is 13 to 50 % on the four correct cases (section 6).
+- A report of the **lost area outside the result's solid** (input surface farther than tau from the result and not inside the result) separates most damaged cases from the
+  by-design ones here, but not at zero: 72 % (100040), 35 % and 34 % (flipped box, with hole), 6.8 % (fin) against at most 2.6 % on the 20 other meshes. The by-design cases
+  are not 0: 1038438 1.3 %, 42331 1.0 %, 66112 0.65 % (only 37731 is 0; table 3.1), so about 1 % of real outside loss sits on the "by design" side and a threshold has to lie above it
+  (here the gap is 1.3 % against 6.8 %). The measure cannot tell that residual from a small real loss, and it does not flag 66640 (2.6 %), whose mechanism is that of 100040 in a weaker
+  form (section 5): that one needs the *added* share (16.3 % against at most 1.9 % on the controls) as well. The plain lost-area share does not separate: it is 13 to 50 % on the four correct cases (section 6).
 - Not the F2 plan (PR #1257): that is about small separable parts in scenes of very different scales. Nothing here is a scale problem; the lost-area report
   would also serve as F2's acceptance measure (section 8).
 
@@ -103,7 +105,7 @@ volume check": for 42331 it is the run that the volume check turns into the 0.16
 
 ## 4. Structure of the five
 
-Counts from `results/lost_open5.jsonl` and `results/lost_structure_open21.jsonl`; winding number at 6000 uniform points of the box (~0: within 0.1 of 0; between: 0.1 to 0.9; ~1: 0.9 to 1.1).
+Counts from `results/lost_open5.jsonl` and `results/lost_structure_open21.jsonl` (the share of inconsistently oriented edges is only in the latter, field `edges_inconsistently_oriented_share`); winding number at 6000 uniform points of the box (~0: within 0.1 of 0; between: 0.1 to 0.9; ~1: 0.9 to 1.1).
 Surface classes: share of the input's area by the winding number on both sides (skin: one side inside; interior wall: both inside).
 
 | id | components (closed), boundary loops | self-int pairs | winding number of the box: ~0 / between / ~1 / 2 and more | surface: skin / interior wall / outside sheet / ambiguous | doubled sheet within 2 tau (20 tau) | edges inconsistently oriented |
@@ -144,6 +146,8 @@ The accepted result has the same solid as the input (IoU 0.9995 to 1): the loss 
 A residual remains in two meshes: visible skin, small but not zero. 1038438 loses 1.2 % of its area as visible skin (123 triangles in 26 components, none a whole component) and 66112 0.65 % (185 triangles in 20 components). That fits triangles
 that straddle the intersection curves of parts (the part of the triangle outside the other part stays, the triangle's sample points are farther than tau), but this was not verified. Visible-surface loss: 0, 0, 2.9 %, 1.0 % (42331, 37731, 1038438, 66112).
 
+**42331: a residual not explained here.** 19 % of its lost area is skin (inside on one side only; 2.9 % of its skin area) and 8 % of the lost area lies outside the result's solid (1.0 % of the input's area, table 3.1); visible is 0. Skin that is lost partly outside the result is not an interior wall: the explanation above (interior walls and parts inside parts) covers the other 81 %, not this. What is established: nothing visible is lost. What is not: why this skin, and this part outside the result's solid, is lost (the guess given for 1038438 and 66112, triangles that straddle intersection curves, was not checked for it). Not diagnosed.
+
 **100040.** Not by the rule of the exact resolve but by the order of the stages, which the volume check set:
 
 1. The repair stage (`MeshAutoRepair` with cleanup) fills the two open ends and orients the bars: closed, 748 triangles, nothing lost or added, but with degenerate triangles (`NotCleanReason`), so the stages go on.
@@ -154,13 +158,13 @@ that straddle the intersection curves of parts (the part of the triangle outside
    its volume is not checked (a solidify result never is), so `Apply()` returns true.
 
 With `MinVolumeIoU = 0` the same input ends in the exact resolve of step 2. The volume check, built to catch a repair that *lost* volume, here rejects the right result against a reference that is itself the defect. 66640 (inside-out, 45 % of the box
-negative, 72 loops) shows a weaker form: its repair result resolves with 0 lost and 0.000 added, is rejected at IoU 0.875, and `Solidify` returns 2.9 % / 16.3 %.
+negative, 72 loops) shows a weaker form: its repair result resolves with 0 lost and 0.000 added, is rejected at IoU 0.875, and `Solidify` returns 2.9 % / 16.3 %. Its lost share outside the result's solid is only 2.6 % (table 3.1), so by that measure alone it falls among the controls (section 6): the added share is what shows this mechanism.
 
 ## 6. Judgment
 
 | id | judgment | what is lost | share of the outer, visible surface lost | rule that dropped it |
 |---|---|---|---:|---|
-| 42331 | **(a)** correct | interior walls and parts inside parts of a 65-part assembly (45 % of its surface is doubled) | 0 | `Resolve`: boundary of the winding-positive region |
+| 42331 | **(a)** for 81 % of the lost area (nothing visible is lost); a residual is not explained | interior walls and parts inside parts of a 65-part assembly (45 % of its surface is doubled); the other 19 % of the lost area is skin, 8 % of it outside the result's solid (1.0 % of the input's area), not diagnosed | 0 | `Resolve`: boundary of the winding-positive region (for the residual: not established) |
 | 37731 | **(a)** correct | interior walls, 26 floating single triangles inside the solid | 0 | the same |
 | 1038438 | **(a)**, with a residual | half the area is interior wall of 482 parts; 1.2 % of the input's area is visible skin along intersection curves (not diagnosed) | 2.9 % | the same |
 | 66112 | **(a)**, with a residual | interior walls; 0.65 % of the area is visible skin | 1.0 % | the same |
@@ -168,15 +172,17 @@ negative, 72 loops) shows a weaker form: its repair result resolves with 0 lost 
 
 Which check should have caught what:
 
-- **`MinVolumeIoU` / `RepairVolumeIoU`** compare solids. They cannot see interior surface (a), a thin part under the sampling, an open sheet (no solid), or a part lost by `Solidify`, whose result is not checked at all.
+- **`MinVolumeIoU` / `RepairVolumeIoU`** compare solids. They cannot see interior surface (a), a thin part under the sampling, an open sheet (no solid), or a part lost by `Solidify`, whose volume is not checked (`MeshRobustRepair.cs`: "the solidify and the wrap themselves are not checked for volume"). The final lost-part check (F1, `MeshRobustRepairLostParts.FirstLost`) does run after every stage, so a separable part that `Solidify` loses whole is reported there (the next bullet says what it cannot see).
   For 100040 the check *fired*, in the wrong direction (section 5): its reference is the winding number solid of an input with inconsistent orientation, and it has no notion of "the reference is not a solid".
   A guard on the reference (share of box points with a winding number between 0.1 and 0.9; share of inconsistently oriented edges) separates 100040 (0.63; 0.22) from the 20 other open meshes (at most 0.18 for between-values on 66640, at most 0.011 inconsistent).
   The three other `Solidify` meshes of the control also have inconsistent edges (66640 0.08 %, 73429 0.9 %, 42293 1.1 %); that this is the cause of their IoU was not traced.
 - **The lost-part check (F1, `MeshRobustRepairLostParts`)** asks whether the result reaches a part: present if the result has a triangle closer than 0.25 of the part's own diagonal to one of 64 samples of the part. It is silent when a
   part is partly inside the solid (the fin of section 7), and it judges whole components only.
 - **No existing check measures the lost area.** What would have caught 100040, the flipped box and the fin: the area of the input that is farther than tau from the result *and not inside the result's solid* (surface inside the solid is dropped
-  by design; surface outside it is gone). Over the 31 inputs of this note: 100040 72.0 %, flipped box 35.3 %, with a hole 33.7 %, 20 % flips 9.3 %, fin 6.8 %; at most 2.6 % on the other 20 open meshes and 0 on the by-design cases
-  (66640 2.6 %, 1038438 1.3 %, 42331 1.0 %, 66112 0.65 %, 37731 0). The plain lost-area share would flag the four correct ones (13 to 50 %). The visible-surface share separates equally (0 / 2.9 / 1.0 / 0 against 73 %) but costs
+  by design; surface outside it is gone). Over the 31 inputs of this note: 100040 72.0 %, flipped box 35.3 %, with a hole 33.7 %, 20 % flips 9.3 %, fin 6.8 %; at most 2.6 % on the other 20 open meshes, and not 0 on the by-design ones
+  (66640 2.6 %, a `Solidify` case, not by design; 1038438 1.3 %, 42331 1.0 %, 66112 0.65 %, 37731 0). So about 1 % of real outside loss sits on the "by design" side, and the
+  measure cannot separate such a residual from a small real loss. 66640 is on the wrong side: section 5 calls it a weaker form of the 100040 mechanism (rejected at IoU 0.875; `Solidify` 2.9 % lost, 16.3 % added), yet its
+  lost-outside share (2.6 %) counts it among the controls, so that share alone does not flag the mechanism; the added share does (16.3 % against at most 1.9 % on the controls; 100040 56.6 %, the flipped box 56 %). The plain lost-area share would flag the four correct ones (13 to 50 %). The visible-surface share separates equally (0 / 2.9 / 1.0 / 0 against 73 %) but costs
   rays; the "outside the result's solid" test costs one winding number per lost sample, and the result is closed (O(log n) each).
 
 ## 7. Procedural reproducers (no meshes; `repro`, `Reproducers.cs`)
@@ -191,13 +197,13 @@ Box 16 x 10 x 6 of unit quads (1264 triangles) unless noted. Lost / added at tau
 | (kept) | `box_in_box`: a closed box inside a closed box | Repair | 0 / 0 | 0 | 0 | same | a nested closed shell is a clean input and stays (`Resolve` alone would drop it: lost 0.103) |
 | (stage rule) | `box_thin_plate` with `ExactResolve = false` | Solidify | **0.185** / 0 | | | | `Solidify` loses the 0.002 plate whole; the 0.02 plate survives (0.031, adaptive refinement); the limit lies between 9e-5 and 9e-4 of the diagonal, not located |
 | **c** | `box_fin_sheet`: a closed box with an open sheet (zero thickness, 6 x 8 outside the box) through its top | ExactResolve, `Apply()` true | 0.102 / 0 | **0.068** | **0.071** | same | zero thickness has winding number 1/2 on the sheet: no solid; the part of the fin outside the box vanishes silently (F1 counts it present: it touches the box) |
-| **b** | `flipped_closed`: the box with 33 % of its triangles reversed (45 % of its edges inconsistent) | **Solidify** (`UsedInput`) | **0.466 / 0.562** | **0.353** | **0.483** | Repair, 0 / 0 | the mechanism of 100040: IoU of the repair result 0.089, rejected; the box becomes a contour of a field whose solid is 7 % of the box (the repaired solid is the whole box) |
-| **b** | `flipped_hole`: the same with a 1 % hole | Solidify | 0.458 / 0.561 | 0.337 | 0.478 | Repair, 0 / 0.010 | the same with an open input |
-| b (wrong stage, no area) | `box_flipped_third`: the two x faces reversed (a closed box) | **AlphaWrap** | 0 / 0 (1.0 at tau 1e-4: moved by the offset d/3000) | 0 | 0 | Repair, 0 / 0 | a clean closed solid goes to the last-resort wrap: IoU 0 against the reference |
+| **b** | `flipped_closed`: the box with 33 % of its triangles reversed (45 % of its edges inconsistent: `edges_inconsistently_oriented_share` 0.4509 in `results/lost_repro.jsonl`) | **Solidify** (`UsedInput`) | **0.466 / 0.562** | **0.353** | **0.483** | Repair, 0 / 0 | the mechanism of 100040: IoU of the repair result 0.089, rejected; the box becomes a contour of a field whose solid is 7 % of the box (the repaired solid is the whole box) |
+| **b** | `flipped_hole`: the same with a 1 % hole (0.445 inconsistent) | Solidify | 0.458 / 0.561 | 0.337 | 0.478 | Repair, 0 / 0.010 | the same with an open input |
+| b (wrong stage, no area) | `box_flipped_third`: the two x faces reversed (a closed box; 19 % of the triangles, not a third: the name is kept because result files use it; 3.4 % of the edges inconsistent) | **AlphaWrap** | 0 / 0 (1.0 at tau 1e-4: moved by the offset d/3000) | 0 | 0 | Repair, 0 / 0 | a clean closed solid goes to the last-resort wrap: IoU 0 against the reference |
 | | `open_tube` (the box without its two x faces) | Solidify | 0.007 / 0.194 | 0 | 0 | ExactResolve, 0 / 0.189 | caps (the added share is the two end faces) |
 | | `open_box_3faces` (three faces missing; winding number at the centre 1/2) | Solidify | 0.035 / 0.417 | 0.024 | 0.046 | ExactResolve, 0.059 / 0.407 | caps; `Solidify` cuts back along the open rim (3.5 % lost) |
 
-Sweep of the flipped share (`results/lost_repro_flip_sweep.jsonl`; share of reversed triangles -> share of inconsistent edges): 0.5 % -> 0.6 %: Repair, IoU 0.9993; 2 % -> 4.2 %: Repair, IoU 0.9955; 5 % -> 8.9 %: **Solidify**, IoU 0.9898 (just under 0.99), 2.4 % lost / 10.6 % added;
+Sweep of the flipped share (`results/lost_repro_flip_sweep.jsonl`, the inconsistent shares are its field `edges_inconsistently_oriented_share`; share of reversed triangles -> share of inconsistent edges): 0.5 % -> 0.6 %: Repair, IoU 0.9993; 2 % -> 4.2 %: Repair, IoU 0.9955; 5 % -> 8.9 %: **Solidify**, IoU 0.9898 (just under 0.99), 2.4 % lost / 10.6 % added;
 10 % -> 17 %: Solidify, 6.0 % / 22 %; 20 % -> 33 %: Solidify, 20.2 % / 51.6 % (outside 9.3 %). `MinVolumeIoU = 0` gives 0 lost at every share. The stage flips between 2 % and 5 % of reversed triangles and the damage grows from there; 100040 has 22 % inconsistent edges.
 
 The rule that drops each: for (b) the volume check against a reference of inconsistent orientation, then the contour of that field by `Solidify` (iso 0.5, cell diagonal / 128); for (c) the winding number definition of the solid, in `ExactResolve`; for the thin plate the
@@ -226,8 +232,8 @@ That note's spike (resolve open inputs by the generalized winding number) stoppe
 
 | option | what | cost | risk | what it fixes |
 |---|---|---|---|---|
-| O1 | **Report**: `LostAreaShare` and `LostOutsideShare` (and maybe the visible share) in `MeshRobustRepair`, 60000 stratified samples, deterministic, tau a fraction of the diagonal (1e-3; the shares move little below it), no change of `Apply()` | 1 day with tests (invariance, reuse, determinism) | none for results; new public fields (API compatible) | (b) and (c) become visible: 100040 72 %, fin 6.8 %, against at most 2.6 % |
-| O2 | **Acceptance**: `Apply()` false (as the F1 reasons) when `LostOutsideShare` exceeds a threshold (5 %), result kept in `Mesh` | O1 + 0.5 day + an 800-mesh run to set the threshold | false alarms on corpus meshes above 5 % that are fine; changes the contract for callers | (c): the fin is reported, not repaired |
+| O1 | **Report**: `LostAreaShare` and `LostOutsideShare` (and maybe the visible share) in `MeshRobustRepair`, 60000 stratified samples, deterministic, tau a fraction of the diagonal (1e-3; the shares move little below it), no change of `Apply()` | 1 day with tests (invariance, reuse, determinism) | none for results; new public fields (API compatible) | (b) and (c) become visible: 100040 72 %, fin 6.8 %, against at most 2.6 % on the controls; the by-design meshes show 0.65 to 1.3 % and 66640 (2.6 %) is not separated: report the added share with it |
+| O2 | **Acceptance**: `Apply()` false (as the F1 reasons) when `LostOutsideShare` exceeds a threshold (5 %) or the added share does (about 5 %: 66640 16 %, controls at most 1.9 %), result kept in `Mesh` | O1 + 0.5 day + an 800-mesh run to set the thresholds (the 5 % of the lost-outside share rests on one case, the fin at 6.8 %, against 2.6 % of 66640 and 1.3 % of the by-design 1038438) | false alarms on corpus meshes above 5 % that are fine; changes the contract for callers | (c): the fin is reported, not repaired |
 | O3 | **Reference guard**: if the input's winding number field has no clear inside (between-values or inconsistent edges above a limit; 0.63 / 0.22 for 100040 against at most 0.18 / 0.011), do not reject the repair result by the volume IoU, or take the IoU against the input with consistent orientation, or arbitrate the stages by the O1 measure (the first result whose lost-outside and added shares are small) | 2 to 4 days with the 800-mesh A/B of the repair benchmark | changes the path of the open-input fallbacks (63 of 66 in the 2026-11-02 count): high; needs the corpus run first | (b): 100040 from 72 % / 57 % to 0.3 % / 0; also 66640 (2.9 % / 16.3 % to 0 / 0.000) |
 | O4 | **Solidify's thin parts**: nothing (documented: "features smaller than the grid cell size are lost"); O1 reports it | 0 | | the thin plate through `ExactResolve = false` |
 
@@ -237,6 +243,7 @@ O3 only if it is large. O2 only on the owner's decision about the contract, as a
 
 ## 11. What was not verified
 
+- The residual of 42331 (19 % of its lost area is skin, 8 % outside the result's solid, nothing visible), and the 66640 case (its lost-outside share does not flag it; only the added share does).
 - The cause of the visible skin loss of 1038438 (1.2 % of its area) and 66112 (0.65 %): consistent with triangles that straddle intersection curves, not checked triangle by triangle.
 - Why 66640, 42293 and 73429 (`Solidify`, inconsistent edges 0.08 to 1.1 %) fail the IoU: only 100040 and the flipped boxes were traced to the reference. A mesh of the control (45341) shows 13056 STL facets against 4348 triangles; not explained, it is a control with no loss.
 - The threshold 5 % of O2 and the tau 1e-3 of O1 come from 31 inputs; the 800-mesh corpus was not run. Whether the visible-share criterion adds anything over the "outside the result's solid" criterion was not tested beyond these inputs.
