@@ -356,16 +356,18 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void Screw_AtRatio1e5_PinnedFailure_TheBooleanDropsTheScrew_AndReportsIt()
+        public void Screw_AtRatio5e6_PinnedFailure_TheBooleanDropsTheScrew_AndReportsIt()
         {
-            // Today's result (not a wanted one): a screw of 1e-3 (1e-5 of the housing) is a closed, welded body 1e-4 above the housing. The
+            // Today's result (not a wanted one): a screw of 5e-4 (5e-6 of the housing) is a closed, welded body above the housing. The
             // exact boolean itself removes it: its triangles are below the degenerate area of the result, the repair contracts them and
             // what is left is not the screw (its volume changed by more than a factor 2), so SafeRounding's component removal takes it;
             // with SafeRounding off the screw stays. Since #1216 the removal is listed (VolumeChanged, with the screw's thickness) and the
             // result is not clean, and the limit is lower: the screw stays down to a ratio of 2e-5 (before: 7e-5), because a component the
             // edits left as it was is no longer removed. MeshRobustRepair
             // used to lose it too (ExactResolve, degenerate triangles; fixed by #1363, see below), the pipeline loses it at its boolean (first failing step: pipeline).
-            ReferencePart part = Parts.ScrewAssembly(1e-5, DefectSet.None(), PartFrame.Identity);
+            // (Since #1464 the limit is lower again: the result's ids are given by its geometry, the repair takes its edits in another order, and
+            // the screw stays at the ratios 1e-5, the pinned one until then, and 7e-6.)
+            ReferencePart part = Parts.ScrewAssembly(5e-6, DefectSet.None(), PartFrame.Identity);
             var kept = new ExactMeshBoolean(part.Input, part.Cutter, ExactMeshBoolean.Operations.Difference) { SafeRounding = false };
             Assert.True(kept.Compute());
             Assert.Equal(2, Checks.Components(kept.Result, 1e-5).Count);
@@ -375,15 +377,15 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1, dropped.Rounding.RemovedComponents);
             MeshRoundingRepair.RemovedComponentInfo screw = Assert.Single(dropped.Rounding.RemovedComponentInfos);
             Assert.Equal(MeshRoundingRepair.RemovalReasons.VolumeChanged, screw.Reason);
-            Assert.InRange(screw.Thickness, 1e-4, 2e-4);
+            Assert.InRange(screw.Thickness, 5e-5, 1e-4);
             Assert.Equal(1, dropped.Rounding.RemovedResolvable);
             Assert.False(dropped.RoundingClean);
             var narrow = new ExactMeshBoolean(part.Input, part.Cutter, ExactMeshBoolean.Operations.Difference) { RoundingMaxDisplacement = 1e-9 };
             Assert.True(narrow.Compute());
             Assert.Equal(1, Checks.Components(narrow.Result, 1e-5).Count);       // the threshold is not RoundingMaxDisplacement
             Assert.Equal(MeshRoundingRepair.RemovalReasons.StillDefective, narrow.Rounding.RemovedComponentInfos[0].Reason);
-            // the limit lies between the ratios 2e-5 (kept) and 1e-5 (dropped); before #1216 between 7e-5 and 5e-5
-            foreach (var pair in new[] { Tuple.Create(7e-5, 2), Tuple.Create(5e-5, 2), Tuple.Create(2e-5, 2) }) {
+            // the limit lies between the ratios 7e-6 (kept) and 5e-6 (dropped); before #1464 between 2e-5 and 1e-5, before #1216 between 7e-5 and 5e-5
+            foreach (var pair in new[] { Tuple.Create(7e-5, 2), Tuple.Create(5e-5, 2), Tuple.Create(2e-5, 2), Tuple.Create(1e-5, 2), Tuple.Create(7e-6, 2) }) {
                 ReferencePart p = Parts.ScrewAssembly(pair.Item1, DefectSet.None(), PartFrame.Identity);
                 var b = new ExactMeshBoolean(p.Input, p.Cutter, ExactMeshBoolean.Operations.Difference);
                 Assert.True(b.Compute());
@@ -400,8 +402,35 @@ namespace geometry3Sharp.Tests
             foreach (StepResult st in lib.Steps.Skip(1))
                 Assert.Equal(2, st.Check("screwSeparate").Value);
             ChainResult pipe = Chains.RunPipelineChain(part);
+            // The pipeline loses it at its boolean (first failing step: pipeline), with the default AutomaticSteps as well as with None. Since #1464 the
+            // screw's rounding failure is not one the data grid cures: the default's retry (GridAfterRoundingNotClean) snaps the inputs to the cell 2^-30,
+            // runs again and fails the same way (RoundingNotClean, one removed component), so the first failure is the result. (Before #1464 the
+            // branch pinned the screw at the ratio 1e-5, where the retry kept it; at 1e-5 the boolean now succeeds without it.) Probed around the limit
+            // (not monotone): 6.5e-6 ok, 6e-6 fails, 5.5e-6 ok, 5e-6 fails, 4.5e-6 fails, 4e-6 to 2.5e-6 ok, 1.5e-6 and below fail; at every one of
+            // them the default gives the result of None, so there is no ratio on this base where only the default succeeds.
             Assert.Equal("pipeline", pipe.FirstFailingName());
             Assert.Equal("pipeline", pipe.FirstFailingName("screwSeparate"));
+            Func<SolidBooleanPipeline.AutomaticStepModes?, SolidBooleanPipeline> run = mode => {
+                var q = new SolidBooleanPipeline(new[] { new DMesh3(part.Input), part.Cutter }, ExactMeshBoolean.Operations.Difference) {
+                    InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepairThenRobust, MaxDeviation = part.Deviation * part.Scale, MaxDeviationTwoSided = true, TargetFraction = 0.1
+                };
+                if (mode.HasValue) q.AutomaticSteps = mode.Value;
+                return q;
+            };
+            SolidBooleanPipeline none = run(SolidBooleanPipeline.AutomaticStepModes.None);
+            Assert.False(none.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.BooleanFailed, none.Status);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, none.BooleanStatus);
+            Assert.Empty(none.Report.Route);                                      // None: no retry
+            SolidBooleanPipeline def = run(null);
+            Assert.False(def.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.BooleanFailed, def.Status);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, def.BooleanStatus);
+            SolidBooleanRouteStep grid = Assert.Single(def.Report.Route);         // the default tried the data grid once, and it failed too
+            Assert.Equal("Grid", grid.Name);
+            Assert.Equal(Math.Pow(2, -30), grid.Grid);
+            Assert.Contains("failed too", grid.Change);
+            Assert.Equal(none.Error, def.Error);                                  // the first failure is the result
         }
 
         // ---------------- invariance and determinism ----------------

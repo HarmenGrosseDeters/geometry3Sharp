@@ -966,6 +966,47 @@ namespace g3
             return x + y + z;
         }
 
+        /// <summary>
+        /// The ids sorted by ComparePoints (distinct points: the one order that it defines). First by the double key of
+        /// ComparePoints' filter, with a sort of doubles, then an insertion sort by ComparePoints itself: where the keys
+        /// decide, that is one comparison per point; where they do not (points closer than their errors along the
+        /// direction of the key), the insertion sort moves the point to its place. If it has to move points more than
+        /// SortPointsMoveBudget times their number (keys that say nothing: approximations beyond the double range), the
+        /// list is sorted by ComparePoints alone. Either way the result is the list sorted by ComparePoints.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal void SortPoints(List<int> ids)
+        {
+            int n = ids.Count;
+            var key = new double[n];
+            var id = new int[n];
+            for (int i = 0; i < n; ++i) {
+                double e;
+                id[i] = ids[i];
+                key[i] = order_key(approx[id[i]], approxErr[id[i]], out e);
+            }
+            Array.Sort(key, id);
+            long moves = 0, most = (long)SortPointsMoveBudget * n;
+            for (int i = 1; i < n && moves <= most; ++i) {
+                int x = id[i], j = i;
+                while (j > 0 && ComparePoints(id[j - 1], x) > 0) {
+                    id[j] = id[j - 1];
+                    j--;
+                    moves++;
+                }
+                id[j] = x;
+            }
+            if (moves > most) {
+                ids.Sort(ComparePoints);
+                return;
+            }
+            for (int i = 0; i < n; ++i)
+                ids[i] = id[i];
+        }
+
+        /// <summary> SortPoints: the moves of its insertion sort per point before it sorts by ComparePoints alone (for tests: below 0, always) </summary>
+        internal int SortPointsMoveBudget = 8;
+
         /// <summary> a total order of the exact points (deterministic, unlike point ids); 0 iff the points are equal </summary>
         [MethodImpl(JitHints.Optimize)]
         public int ComparePoints(int a, int b)
@@ -1470,7 +1511,7 @@ namespace g3
         /// triangle (L3, docs/design/EXACT_BOOLEAN_TAIL_55928.md, section 4): the second filter of Orient and InCircle in
         /// the triangulation, where the points are close together against their distance from the origin and the
         /// approximations' absolute errors exceed their distances. Each coordinate is the exact difference x - o,
-        /// rounded once (ExactPoint3.ToDouble: a 64-bit truncated quotient, then the conversion to double), so its error
+        /// rounded once (ExactPoint3.ToDouble: to nearest since #1410, a 64-bit truncated quotient before), so its error
         /// is below 2^-52 of its magnitude; o cancels exactly in both determinants, which are polynomials in the
         /// differences of the points. Computed when a point first needs it; one instance per triangle and thread.
         /// </summary>
@@ -2743,6 +2784,12 @@ namespace g3
                         on.Add(r);
                 }
                 on.Sort((a, b) => compare_along(d, a, b));
+                // (from the smaller end, by ComparePoints: d is the direction of the segment's line, and of segments with the
+                // same ends from different lines, eg the common edge of two coplanar triangles of the other mesh, whose edge
+                // planes point opposite ways, the one of the lower triangle index is kept. So the direction followed the
+                // order of the input triangles, and with points on a common circle the triangulation followed it too, #1464)
+                if (ComparePoints(on[0], on[on.Count - 1]) > 0)
+                    on.Reverse();
                 for (int k = 0; k + 1 < on.Count; ++k) {
                     tri.InsertConstraint(on[k], on[k + 1]);
                     constraints.Add(EdgeKey(on[k], on[k + 1]));
@@ -3519,7 +3566,9 @@ namespace g3
             }
         }
 
-        static void merge_runs(long[] c, int[] o, long[] dc, int[] dord, int lo, int mid, int hi)
+        // (internal for DeterminismStage1ObligationTests.MergeRuns_EqualCodes_GoByBoxIndex: the sort calls it with runs of ascending index ranges,
+        // where the index tie-break never decides; it is what makes the merge a total order on any two runs)
+        internal static void merge_runs(long[] c, int[] o, long[] dc, int[] dord, int lo, int mid, int hi)
         {
             int i = lo, j = mid, k = lo;
             while (i < mid && j < hi) {

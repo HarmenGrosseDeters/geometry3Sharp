@@ -1308,18 +1308,32 @@ namespace g3
         // That is safe: such a solid has no volume to speak of in the result, and a flat one has none at all. S is computed in
         // doubles too; its relative error (a few u) is far inside the margin of 2. The count n and S are for the component,
         // not for the mesh.
-        static bool negative_volume(DMesh3 mesh, List<int> component)
+        //
+        // The underflow term (#1347). The relative bound assumes no product underflows. Where the differences are near 2^-358
+        // the triple products are subnormal (and S = |x| |y| |z| rounds to 0, so the bound did too: every v6 < 0 was
+        // "certainly negative"). A subnormal product has an absolute rounding error of at most 2^-1075 (half the spacing eps =
+        // 2^-1074); the six products of the cross product err by at most 2^-1074 in each of its components, which the dot
+        // product multiplies by |x_i| (|x|_1 in all), and its three products add 3 * 2^-1075: at most eps (|x|_1 + 1.5) for
+        // one term (the sums of subnormals are exact, the differences of doubles too where subnormal). The term used is
+        // ExactPredicates.UnderflowUnit = 256 eps = 2^-1066 times (|x|_1 + 1) per triangle, as VolumeSumWithBound, which is at
+        // least eps (|x|_1 + 1.5) (256 (|x|_1 + 1) >= |x|_1 + 1.5 for every |x|_1 >= 0). It is also at least the relative
+        // bound where S underflows: S below 2^-1022 means (32 + n) u S < (32 + n) 2^-1075 <= 256 n 2^-1074. The two parts are
+        // added (two non-negative bounds of independent error sources) and the sum rounds once more, far inside the margin of
+        // 2 of the relative part. In the normal range (|x|_1 + 1) 2^-1066 is below u S unless S < about 2^-1010: nothing
+        // changes there. A component that small is not refused: its volume is zero within the rounding of its own size.
+        internal static bool negative_volume(DMesh3 mesh, List<int> component)
         {
             Vector3d o = mesh.GetVertex(mesh.GetTriangle(component[0]).a);
-            double v6 = 0, norms = 0;
+            double v6 = 0, norms = 0, under = 0;
             foreach (int t in component) {
                 Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
                 mesh.GetTriVertices(t, ref a, ref b, ref c);
                 Vector3d x = a - o, y = b - o, z = c - o;
                 v6 += x.Dot(y.Cross(z));
                 norms += x.Length * y.Length * z.Length;
+                under += Math.Abs(x.x) + Math.Abs(x.y) + Math.Abs(x.z) + 1;
             }
-            return v6 < -(32.0 + component.Count) * 1.1102230246251565e-16 * norms;
+            return v6 < -((32.0 + component.Count) * 1.1102230246251565e-16 * norms + ExactPredicates.UnderflowUnit * under);
         }
 
         // every coordinate of the mesh is finite (per coordinate: the sum of finite coordinates can overflow)
@@ -1511,13 +1525,18 @@ namespace g3
             return front_crossings(-1, m, arr.Trees[m], rng, null, center, true, null, out far, 0, ti);
         }
 
-        // InsideOutCells: per component of each closed input (its first triangle with an area), the winding number of the input in
-        // front of it; the component is inside-out where that is odd and negative (see InsideOutCells). Before the box trees of the
-        // arrangement are released
+        // InsideOutCells: per component of each closed input, the winding number of the input in front of one of its triangles
+        // with an area; the component is inside-out where that is odd and negative (see InsideOutCells). Before the box trees of
+        // the arrangement are released.
+        // The triangle is chosen by its geometry (#1464): the one with the smallest corner by ComparePoints, of those the one
+        // whose next corners are smallest. In front of the triangles of a component that intersects itself the winding number
+        // need not be the same, and the first triangle by id, as before, made the count, and with it the status of
+        // SolidBooleanPipeline, depend on the order of the input's triangles
         [MethodImpl(JitHints.Optimize)]
         int count_inside_out(PreparedInput[] prepared)
         {
             int count = 0;
+            bool[] seen = null;
             for (int m = 0; m < prepared.Length; ++m) {
                 PreparedInput p = prepared[m];
                 if (p.ComponentStart == null)
@@ -1525,30 +1544,75 @@ namespace g3
                 var triangleOf = new int[p.Input.MaxTriangleID];
                 foreach (int ti in arr.MeshTriangles[m])
                     triangleOf[arr.Triangles[ti].Tid] = ti;
+                if (seen == null)
+                    seen = new bool[arr.PointCount];
                 for (int c = 0; c + 1 < p.ComponentStart.Length; ++c) {
                     if (Cancellation.IsCancellationRequested)
                         return count;
-                    for (int k = p.ComponentStart[c]; k < p.ComponentStart[c + 1]; ++k) {
-                        int ti = triangleOf[p.ComponentTriangles[k]];
-                        if (arr.Triangles[ti].Degenerate)
-                            continue;
-                        int chi;
-                        try {
-                            CountRayObserverForTests?.Invoke(ti);
-                            chi = front_of_triangle(m, ti);
-                        } catch (InvalidOperationException) {
-                            // (no ray found in 200 attempts: the report must not fail the boolean, but it must not hide the component
-                            // either; InsideOutUndecided)
-                            InsideOutUndecided++;
-                            break;
-                        }
-                        if (chi < 0 && (chi & 1) != 0)
-                            count++;
-                        break;
+                    int chosen = inside_out_triangle(p, c, triangleOf, seen);
+                    if (chosen < 0)
+                        continue;
+                    int chi;
+                    try {
+                        CountRayObserverForTests?.Invoke(chosen);
+                        chi = front_of_triangle(m, chosen);
+                    } catch (InvalidOperationException) {
+                        // (no ray found in 200 attempts: the report must not fail the boolean, but it must not hide the component
+                        // either; InsideOutUndecided)
+                        InsideOutUndecided++;
+                        continue;
                     }
+                    if (chi < 0 && (chi & 1) != 0)
+                        count++;
                 }
             }
             return count;
+        }
+
+        // the triangle of component c of a prepared input that count_inside_out reads (an index into arr.Triangles), or -1 if
+        // every triangle of the component is degenerate: first the smallest corner of its triangles with an area (each point
+        // compared once: seen), then, of the triangles at that point, the one whose corners after it, in their order, are smallest
+        [MethodImpl(JitHints.Optimize)]
+        int inside_out_triangle(PreparedInput p, int c, int[] triangleOf, bool[] seen)
+        {
+            int least = -1;
+            for (int k = p.ComponentStart[c]; k < p.ComponentStart[c + 1]; ++k) {
+                ExactMeshArrangement.InputTriangle u = arr.Triangles[triangleOf[p.ComponentTriangles[k]]];
+                if (u.Degenerate)
+                    continue;
+                for (int j = 0; j < 3; ++j) {
+                    int q = arr.Canonical(u.Corners[j]);
+                    if (seen[q])
+                        continue;
+                    seen[q] = true;
+                    if (least < 0 || arr.ComparePoints(q, least) < 0)
+                        least = q;
+                }
+            }
+            int chosen = -1, second = -1, third = -1;
+            for (int k = p.ComponentStart[c]; k < p.ComponentStart[c + 1]; ++k) {
+                int ti = triangleOf[p.ComponentTriangles[k]];
+                ExactMeshArrangement.InputTriangle u = arr.Triangles[ti];
+                if (u.Degenerate)
+                    continue;
+                int a = arr.Canonical(u.Corners[0]), b = arr.Canonical(u.Corners[1]), d = arr.Canonical(u.Corners[2]);
+                // (the marks of this component are cleared for the next one)
+                seen[a] = seen[b] = seen[d] = false;
+                int s, t;
+                if (a == least) { s = b; t = d; }
+                else if (b == least) { s = d; t = a; }
+                else if (d == least) { s = a; t = b; }
+                else continue;
+                int cmp = chosen < 0 ? -1 : arr.ComparePoints(s, second);
+                if (cmp == 0)
+                    cmp = arr.ComparePoints(t, third);
+                if (cmp < 0) {
+                    chosen = ti;
+                    second = s;
+                    third = t;
+                }
+            }
+            return chosen;
         }
 
         // prepare_input of every mesh (the first one from PreparedFirst where given); the meshes are independent and only
@@ -5974,6 +6038,8 @@ namespace g3
                 foreach (int vid in arr.Meshes[m].VertexIndices())
                     inputPoints[arr.Canonical(arr.VertexPoints[m][vid])] = true;
             steps.LapMicroseconds("assembly.gather");
+            order_pieces(tris, source, flipped);
+            steps.LapMicroseconds("assembly.order");
             if (SimplifyFlatRegions) {
                 // new points inside flat regions and on straight edges between them are not needed
                 var clock = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
@@ -6149,6 +6215,95 @@ namespace g3
             }
             steps.LapMicroseconds("assembly.rest");
             return result;
+        }
+
+        // The kept pieces in an order that only their geometry gives (#1464): each piece with its corners rotated to start
+        // at its smallest point, the pieces sorted by their three points; the points compared by
+        // ExactMeshArrangement.ComparePoints (exact, a total order of the points, whatever their ids). Everything after it
+        // follows the order of the pieces: the start of the holes and the flips of ExactPlanarSimplify, the numbers of
+        // the result's vertices (the classes of corner slots, numbered by their smallest slot) and triangles, the splits of
+        // edges where the result touches itself, and with them every choice MeshRoundingRepair makes by id. Before, the
+        // pieces came in the order of the input triangles, so the same triangles with other ids or in another order gave
+        // another mesh after the repair, and sometimes another verdict. Pieces with the same three points in the same
+        // direction (two triangles of the result on one another) keep their order.
+        // Why that order cannot change the output: nothing after this sort reads source and flipped apart from
+        // ExactPlanarSimplify.group_of, which sorts a piece into the group of its oriented plane (the plane of its source triangle
+        // with the orientation of its corners). Two pieces with the same three points in the same direction have the same
+        // oriented plane, so they are in the same group, whichever source triangle each has. The group takes the source triangle
+        // t and the sign (flipped) of the first piece met, and its decisions are groupSign * InCircle(t, ...): the exact
+        // determinant in the projection that drops t's axis (the largest normal component, a tie broken the same way for every
+        // triangle of one plane), times t.Sign, which undoes the mirroring of that projection, times the flipped sign. That is
+        // the in-circle sign with respect to the oriented normal of the group, whichever of its triangles supplies t; the
+        // filter, where it decides, returns the exact sign. Result() hands on the points only, not source or flipped.
+        [MethodImpl(JitHints.Optimize)]
+        void order_pieces(List<Index3i> tris, List<int> source, List<bool> flipped)
+        {
+            int n = tris.Count;
+            if (n < 2)
+                return;
+            // the points of the pieces, ranked
+            var rank = new int[arr.PointCount];
+            var points = new List<int>();
+            for (int i = 0; i < n; ++i) {
+                Index3i f = tris[i];
+                for (int k = 0; k < 3; ++k)
+                    if (rank[f[k]] == 0) {
+                        rank[f[k]] = 1;
+                        points.Add(f[k]);
+                    }
+            }
+            arr.SortPoints(points);
+            for (int i = 0; i < points.Count; ++i)
+                rank[points[i]] = i;
+            // by the first two points as one integer (a sort of integers), then the pieces that share them by the third
+            // point and their place in the list (in a manifold result no two pieces share a directed edge)
+            var third = new int[n];
+            var key = new long[n];
+            var order = new int[n];
+            for (int i = 0; i < n; ++i) {
+                Index3i f = tris[i];
+                int ra = rank[f.a], rb = rank[f.b], rc = rank[f.c];
+                if (rb < ra && rb < rc) {
+                    tris[i] = new Index3i(f.b, f.c, f.a);
+                    key[i] = ((long)rb << 32) | (uint)rc;
+                    third[i] = ra;
+                } else if (rc < ra && rc < rb) {
+                    tris[i] = new Index3i(f.c, f.a, f.b);
+                    key[i] = ((long)rc << 32) | (uint)ra;
+                    third[i] = rb;
+                } else {
+                    key[i] = ((long)ra << 32) | (uint)rb;
+                    third[i] = rc;
+                }
+                order[i] = i;
+            }
+            Array.Sort(key, order);
+            for (int i0 = 0, i1; i0 < n; i0 = i1) {
+                i1 = i0 + 1;
+                while (i1 < n && key[i1] == key[i0]) i1++;
+                // (an insertion sort of the run: Array.Sort left its pieces in an unspecified order)
+                for (int i = i0 + 1; i < i1; ++i) {
+                    int x = order[i], j = i;
+                    while (j > i0 && (third[order[j - 1]] > third[x] || (third[order[j - 1]] == third[x] && order[j - 1] > x))) {
+                        order[j] = order[j - 1];
+                        j--;
+                    }
+                    order[j] = x;
+                }
+            }
+            var t2 = new Index3i[n];
+            var s2 = new int[n];
+            var f2 = new bool[n];
+            for (int i = 0; i < n; ++i) {
+                t2[i] = tris[order[i]];
+                s2[i] = source[order[i]];
+                f2[i] = flipped[order[i]];
+            }
+            for (int i = 0; i < n; ++i) {
+                tris[i] = t2[i];
+                source[i] = s2[i];
+                flipped[i] = f2[i];
+            }
         }
 
         // Joins the corner slots of the kept pieces across the edges where they are neighbours (assemble). The edges with two

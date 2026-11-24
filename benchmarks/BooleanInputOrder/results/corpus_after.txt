@@ -1,0 +1,4 @@
+identity: cases 486, default mode clean 460, StrictRounding succeeds 461
+rotated, scale 1e-3, utm: cases 486, default mode clean 388, StrictRounding succeeds 400
+rotated: cases 486, default mode clean 439, StrictRounding succeeds 445
+all frames: cases 1458, default mode clean 1287, StrictRounding succeeds 1306

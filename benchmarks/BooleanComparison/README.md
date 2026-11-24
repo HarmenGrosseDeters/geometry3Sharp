@@ -1410,3 +1410,19 @@ Headline (4 cores, the checker serial, shared container; ratios to the boolean):
 0.4-2.7 (3.4-8.4 with many coplanar input triangles), BigInteger 14-100; the stages 1-2 checker as built 16-570; `NotCleanReason` on the
 result 0.1-0.6. Coplanar clip: `IntrTriangle3Triangle3.Find` equals the rounded exact polygon in 120 000 pairs; `IntrTriangle2Triangle2`
 is off by up to 4e9 ulps on nearly parallel edges. The tables and their reading are in the note.
+
+### Certificate size and the whole checker (`certify size`; study 2026-11-24)
+
+For [CERTIFYING_BOOLEANS_2026-11.md](../../docs/research/CERTIFYING_BOOLEANS_2026-11.md). `CertifySize.cs` counts the size of a
+Boolean certificate in two formats (R: rational corners as the test checker reads them; S: each corner as its construction from input
+ids) and times every part of the test checker C0-C5 (with C2) against the boolean, on the 84 runs of the fuzzer's closed families
+(seeds 0-3, three operations; `BooleanFuzzCases.cs` and its helpers are linked in) and the 17 + 4 cases above.
+
+```
+dotnet run -c Release -- certify size 3 4          # -> perf/certify_size.txt
+```
+
+Headline (4 cores, the checker serial): certificate R 0.6-4.0 times the input mesh's bytes (S 0.5-3.4), labels 0.07-0.4; all 105
+runs certify or are inconclusive by the documented limits (4 runs with sliver triangles not covered, 1 with removed parts); the checker as
+built 1.1-118 times the boolean on the fuzz runs (median 9.6), 2-2350 on the procedural cases, the outliers above 20 s in C2's in-plane
+straddle loop and in C5 on tori.

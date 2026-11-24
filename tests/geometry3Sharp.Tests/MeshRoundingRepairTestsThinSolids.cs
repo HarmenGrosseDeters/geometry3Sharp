@@ -145,15 +145,17 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// a solid that matters at the scale of the mesh and does not survive the repair: the cube of edge 2^-11 beside the box of
-        /// 1024 (its triangles are below the degenerate area of the result, the repair collapses it to 245 times its volume). It
-        /// is removed, as before, but now listed with the volume and thickness of the exact result's cube, and the result is not
-        /// clean: the cube is 7e8 ulps and 9e-8 of the diagonal thick. Strict: refused
+        /// a solid that matters at the scale of the mesh and does not survive the repair: the cube of edge 2^-10 beside the box of
+        /// 1024 (its triangles are below the degenerate area of the result, the repair's contractions change its volume by more
+        /// than the factor 2). It is removed, as before, but now listed with the volume and thickness of the exact result's cube,
+        /// and the result is not clean: the cube is 1.4e9 ulps and 1.8e-7 of the diagonal thick. Strict: refused.
+        /// (The cube of 2^-11 until #1464: with the result's ids given by its geometry the repair takes its edits in another
+        /// order, and that cube goes as still defective; 2^-10 and 2^-9 go for their changed volume.)
         /// </summary>
         [Fact]
         public void MangledSolid_IsRemoved_Reported_AndNotClean()
         {
-            double e = Math.Pow(2, -11);
+            double e = Math.Pow(2, -10);
             var (a, b) = BoxAndCube(e);
             ExactMeshBoolean op = Union(a, b);
             Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, op.Status);
@@ -431,7 +433,9 @@ namespace geometry3Sharp.Tests
 
         /// <summary>
         /// the factor is 2: the sheet of 2^-40 ends at 3.1 times its volume and goes (a factor 4 would keep it); the cube of
-        /// 2^-9 beside the box of 1024 ends as a tetrahedron of 1.85 times its volume and stays (the borderline of the study)
+        /// edge 5 / 2048 (between 2^-9 and 2^-8) beside the box of 1024 ends at 0.54 times its volume and stays (a factor 1.8
+        /// would remove it). The borderline of the study was the cube of 2^-9, a tetrahedron of 1.85 times its volume; since
+        /// #1464 the repair takes its edits in another order, and that cube ends beyond the factor and goes
         /// </summary>
         [Fact]
         public void VolumeFactor_IsTwo()
@@ -442,14 +446,14 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Reasons.VolumeChanged, info.Reason);
             Assert.Equal(0, op.Result.TriangleCount);
 
-            double e = Math.Pow(2, -9);
+            double e = 5.0 / 2048;
             var union = new ExactMeshBoolean(Box(0, 0, 0, 1024, 1024, 1024), Box(1100, 0, 0, 1100 + e, e, e), Ops.Union);
             Assert.True(union.Compute());
             Assert.Equal(0, union.Rounding.RemovedComponents);
             DMesh3[] parts = MeshConnectedComponents.Separate(union.Result);
             Assert.Equal(2, parts.Length);
             double small = parts.Min(m => Math.Abs(Invariance.Volume(m)));
-            Assert.InRange(small / (e * e * e), 1.5, 2);
+            Assert.InRange(small / (e * e * e), 0.5, 0.6);
         }
 
         // a box under a generic rotation, and its copy moved by d along a generic direction
@@ -798,7 +802,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.BooleanFailed, lost.Status);
             Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, lost.BooleanStatus);
             MeshRoundingRepair.RemovedComponentInfo info = Assert.Single(lost.Report.RoundingRemoved);
-            Assert.Equal(Reasons.VolumeChanged, info.Reason);
+            // (still defective since #1464, its changed volume before: the order of the repair's edits)
+            Assert.Equal(Reasons.StillDefective, info.Reason);
         }
         // the scene of SlabScene far from the origin (x + 2^24, where a unit in the last place is 2^-28): a sphere of radius 1 and
         // a slab of 0.5 x 0.5 x h with a needle (one contraction repairs it); pierce: a cube through the slab (an intersection
@@ -934,7 +939,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, lost.BooleanStatus);
             Assert.Contains("1 components kept that the bound took as thin", lost.Error);
             MeshRoundingRepair.RemovedComponentInfo info = Assert.Single(lost.Report.RoundingRemoved);
-            Assert.Equal(Reasons.VolumeChanged, info.Reason);
+            // (still defective since #1464, its changed volume before: the order of the repair's edits)
+            Assert.Equal(Reasons.StillDefective, info.Reason);
             Assert.True(info.Resolvable);
         }
         /// <summary>

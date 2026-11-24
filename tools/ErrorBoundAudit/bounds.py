@@ -559,10 +559,11 @@ def negative_volume_term(c):
 
 @entry('EB-7 negative_volume', BOOL,
        ['v6 += x.Dot(y.Cross(z));', 'norms += x.Length * y.Length * z.Length;',
-        'return v6 < -(32.0 + component.Count) * 1.1102230246251565e-16 * norms;'],
-       'v6 < 0 is certain where v6 < -(32 + n) u S, S the sum of |x| |y| |z|',
-       'NO UNDERFLOW: every product of three differences normal. Not checked by the code (finding F1)',
-       '(32 + n) u * sum of |x||y||z|', emin=-100, emax=100)
+        'under += Math.Abs(x.x) + Math.Abs(x.y) + Math.Abs(x.z) + 1;',
+        'return v6 < -((32.0 + component.Count) * 1.1102230246251565e-16 * norms + ExactPredicates.UnderflowUnit * under);'],
+       'v6 < 0 is certain where v6 < -((32 + n) u S + 2^-1066 sum (|x|_1 + 1)), S the sum of |x| |y| |z|',
+       'none: the absolute term covers the subnormal products (the relative part is derived where all are normal)',
+       '(32 + n) u * sum of |x||y||z| + 2^-1066 * sum (|x|_1 + 1)', emin=-100, emax=100)
 def negative_volume(c, r):
     d = negative_volume_term(c)
     rel = d.err.without_const()
@@ -587,8 +588,15 @@ def negative_volume(c, r):
     r.add(*arith('n terms', worst_n is not None and worst_n >= 2**26, 'holds up to n = 2^%d triangles' % (worst_n.bit_length() - 1)))
     if not d.err.const_part() > 0:
         raise AssertionError('the model lost its underflow term')
-    r.finding('subnormal products', 'F1', 'absolute error %.3g per term with no term or guard in the bound: wrong below about 1e-103 '
-              '(reproducer: Adversarial, F1)' % float(d.err.const_part()))
+    # the absolute part (#1347): a subnormal product errs by at most eps / 2 (eps = 2^-1074 = 2 ETA); the cross product's six
+    # products by eps per component, which the dot product multiplies by |x_i|, and its three products add 3 eps / 2: at most
+    # eps (|x|_1 + 3/2) per term; the bound adds 2^-1066 (|x|_1 + 1) = 256 eps (|x|_1 + 1) per triangle. Where S underflows
+    # (S < 2^-1022) the relative part (32 + n) u S is below (32 + n) eps / 2 <= 256 n eps (largest at n = 1)
+    eps = 2 * ETA
+    covers_terms = all(256 * eps * (a + 1) >= eps * (a + Fraction(3, 2)) for a in (Fraction(0), Fraction(1, 2), Fraction(1), Fraction(10 ** 6)))
+    covers_relative = all((32 + n) * eps / 2 <= 256 * n * eps for n in (1, 2, 3, 10, 2 ** 26))
+    r.add(*arith('underflow term', covers_terms and covers_relative,
+                 'the absolute error of the subnormal products is below 2^-1066 (|x|_1 + 1) per term (a margin of 170 at |x|_1 = 0)'))
 
 
 # --------------------------------------------------------------------------------------------- ExactMeshArrangement
@@ -787,10 +795,11 @@ def approx_vector(c, r):
 
 @entry('RC-2 one conversion: grid_coord, LocalPoints, LocalFrame.PointError (2.3e-16)', ARR,
        ['points.Add(new Vector3d(lx, ly, 2.3e-16 * m));'],
-       '|x^ - x| for x^ the exact quotient truncated to a double (ExactPoint3.ToDouble: 64 bits, then 53)',
+       '|x^ - x| for x^ the exact quotient rounded to nearest (ExactPoint3.ToDouble, correctly rounded since #1410)',
        'the value normal (checked: tiny / 1e-290 gates)', '2.3e-16 |x^|')
 def one_conversion(c, r):
-    # truncating twice toward zero is truncating once: |x^ - x| < ulp(x^) <= 2 u |x^|; the product 2.3e-16 * m rounds
+    # one rounding to nearest (ties to even, #1410): |x^ - x| <= ulp(x^) / 2 <= u |x^| (u = 2^-53); the bound used here, one ulp
+    # (the old truncation's), is twice that and still holds; the product 2.3e-16 * m rounds
     have = Fraction(2.3e-16) * (1 - UR)
     r.add('one ulp', Verdict(have >= 2 * U, have / (2 * U), '2.3e-16 (1 - u\') against 2^-52'))
 
@@ -912,3 +921,291 @@ def exact_interval(c, r):
     for x in (0.0, 5e-324, -5e-324, 1.0, -1.0, 2.2250738585072014e-308, 1.7976931348623157e308, -1.7976931348623157e308):
         ok = ok and math.nextafter(x, math.inf) > x
     r.add(*arith('widening covers one rounding', ok, 'half a spacing against a whole one, on every binade and at 0'))
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# The node error of the BoundaryTree of the exact winding cache (spatial/ExactWindingCache.cs, node_query and build_node;
+# design note docs/design/EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md, "The decision margin"; #1427). One model per clause of the
+# node's error as the code computes it; the clause list is the margin table of the note. NOT re-derived here (the note's
+# argument stands): the analytic remainder rem = AAbs r / (d - r)^3 (a Jacobian bound), the cap geometry (cosA, the 1e-9
+# angular margin, the range test of fast_path_certificate) and the coordinate term 2.3e-16 (pm + M1) / dr of coordEps.
+# ---------------------------------------------------------------------------------------------------------------------
+WIND = 'spatial/ExactWindingCache.cs'
+PI_HI = Fraction(314159265358979323847, 10**20)                  # above pi
+ULP2 = Fraction(1, 2**50)                                         # 2 ulp of a result in [2, 4): the assumption of the note on Math.Atan2
+ONE_E14 = Fraction(1, 10**14)
+
+
+@entry('BT-1 node radius R and distance d', WIND,
+       ['double rUp = r * (1.0 + 1e-14);', 'double d = dn * (1.0 - 1e-15);', 'double lv = dv.Length;', 'Vector3d dv = v - c;'],
+       'R >= the largest distance of the node\'s points (exact doubles) from the stored centre c; d <= the exact distance |c - p|',
+       'no square under- or overflows (the range gates of node_query: d in [2^-97, 2^99], 1e-140 <= dd <= 1e140)',
+       'R = max |v - c| (1 + 1e-14); d = |c - p| (1 - 1e-15)')
+def node_radius_distance(c, r):
+    rho = distance_rho()                                  # fl(Length of three rounded differences) >= rho |exact difference|
+    mul = (1 - UR) * Fraction(1.0 + 1e-14)                # the product with the double 1 + 1e-14 rounds once
+    have = mul * rho
+    r.add('R is at least the true radius', Verdict(have >= 1, (have - 1) / (1 - rho) + 1,
+          'the length loses %.2f u, the factor adds %.0f u' % (float((1 - rho) / U), float((Fraction(1.0 + 1e-14) - 1) / U))))
+    # d: the computed distance is at most this much above the exact one: three differences ((1 + u) each, in the norm: (1 + u)^2 of the
+    # radicand), three squares and two sums on non-negative terms (1 + u)^5, the root halves that and rounds, the product rounds
+    radicand = (1 + U) ** 2 * (1 + U) ** 5
+    over = (1 + (radicand - 1) / 2) * (1 + U)             # sqrt(1 + x) <= 1 + x / 2
+    f = Fraction(1.0 - 1e-15)
+    total = over * f * (1 + U)
+    r.add('d is at most the true distance', Verdict(total <= 1, (1 - f) / (over * (1 + U) - 1),
+          'the roundings add %.2f u, the factor takes %.2f u' % (float((over * (1 + U) - 1) / U), float((1 - f) / U))))
+
+
+@entry('BT-2 the error of the area vector (VaErr)', WIND,
+       ['double vaError = 0.5 * prods * (count + 8) * 4.5e-16;', 'double aAbsVal = 0.5 * abs + vaError;', 'Vector3d cr = dv.Cross(dw);',
+        'va += cr;', 'prods += lv * lw;', 'double vaErrTerm = 0.5 * tree.VaErr[k] * absDx * invD3;'],
+       'each component of the stored 0.5 va differs from 0.5 sum (v - c) x (w - c) of the exact doubles by at most VaErr = 0.5 prods (count + 8) 4.5e-16',
+       'no underflow; count <= 2^26',
+       'VaErr = 0.5 prods (count + 8) 4.5e-16')
+def va_error(c, r):
+    u = U
+    rho = distance_rho()
+    worst = None
+    for count in (1, 2, 3, 4, 5, 8, 100, 10**4, 10**6, 2**20, 2**26):
+        # one cross component fl(fl(a b') - fl(a' b)) of the computed differences (relative error u each, two factors per product), the products
+        # (u), the difference (u): at most (3 u + 3 u^2 + u (1 + 3 u)) T with T = |a b'| + |a' b| <= |dv| |dw| (Cauchy-Schwarz); the sum of `count`
+        # terms adds u |partial| <= u sum |cr| per addition, |cr| <= |dv| |dw|
+        need = (3 * u + 3 * u ** 2 + u * (1 + 3 * u) + count * u) * (1 + 10 * u)
+        # prods = sum fl(lv lw) >= rho^2 (1 - u)^(count + 1) of the exact sum of |v - c| |w - c| (lengths, products, the sum)
+        have = Fraction(4.5e-16) * (count + 8) * rho * rho * (1 - (count + 1) * u)       # (1 - u)^n >= 1 - n u
+        m = have / need
+        worst = m if worst is None or m < worst else worst
+    r.add('VaErr bounds the error of 0.5 va', Verdict(worst >= 1, worst, 'smallest ratio over count = 1 .. 2^26: (count + 8) 4.5e-16 against (4 + count) u'))
+    r.add(*arith('AAbs = 0.5 abs + VaErr covers 0.5 sum |cross|', worst >= 2,
+                 'abs sums the computed norms of the same terms, each off by at most the error that VaErr already bounds (a ratio of %.1f)' % float(worst)))
+
+
+@entry('BT-3 the dipole evaluation', WIND,
+       ['halfOmega = 0.5 * (vx * dx + vy * dy + vz * dz) * invD3;', 'double invD3 = 1.0 / (dd * dn);',
+        'double dipScale = 0.5 * (Math.Abs(vx) + Math.Abs(vy) + Math.Abs(vz)) * absDx * invD3;',
+        'nodeErr = rem + vaErrTerm + (1e-12 + 16.0 * coordEps) * dipScale + 1e-11 + 16.0 * coordEps'],
+       'the computed halfOmega differs from 0.5 (A . dx) / |dx|^3 of the same doubles by at most (1e-12 + 16 coordEps) dipScale (the coordinate part, coordEps: not modelled)',
+       'no underflow',
+       '(1e-12 + 16 coordEps) dipScale')
+def dipole_evaluation(c, r):
+    u = U
+    # relative to 0.5 sum |v_i dx_i| / |dx|^3 (dipScale uses |dx|_1 >= every |dx_i|: larger, and itself computed within 12 u)
+    dd = (1 + u) ** 3 - 1                       # three squares and two sums on non-negative terms
+    dn = dd / 2 + u                             # the root halves the radicand's error and rounds
+    prod = dd + dn + u + dd * dn                # dd * dn
+    inv = prod + u                              # 1 / (...)
+    dot = 3 * u + 3 * u ** 2                    # three products and two sums (relative to sum |v_i dx_i|)
+    total = (dot + inv + u) * (1 + 20 * u)      # times invD3, times 0.5 (exact)
+    have = Fraction(1e-12) * (1 - 12 * u)
+    r.add('relative error of halfOmega', Verdict(have >= total, have / total,
+          'about %.1f u of dipScale, against 1e-12 = %.0f u' % (float(total / u), float(Fraction(1e-12) / u))))
+
+
+@entry('BT-4 the sum order and the decision margin', WIND,
+       ['double sumOrderErr = 7.5e-16 * (double)boundary.Length * tree.TotalWeight;',
+        'return 1.01 * (bErr + 1e-9 + 4e-15 * (Math.Abs((double)chi) + Math.Abs(bSum)));',
+        'bErr = 1.01 * (err + sumOrderErr) / MathUtil.TwoPI;'],
+       'the tree sum and the full sum differ by at most the summation order: 2 N u pi sum|w| (N edges, N u < 0.0099); the quotient by 2 pi and chi + bSum round at most u relative each',
+       'N u < 0.0099 (the factor 1.01 covers the accumulation of err)',
+       '7.5e-16 N W; 1.01 (bErr + 1e-9 + 4e-15 (|chi| + |bSum|))')
+def order_and_margin(c, r):
+    # each addition of the sum adds at most u |partial| <= u N pi W to a sum of N terms |w_e| pi; two orders: 2 N u pi W
+    # (n additions of a sum with n u <= 0.0099 have the exact bound n u / (1 - n u) <= 1.0101 n u: the factor is part of the need; the 1.01 on bErr
+    # in the code is a second cushion, not counted here, so the margin is the one of the constant alone)
+    need = 2 * U * PI_HI / (1 - Fraction(99, 10000))
+    r.add('7.5e-16 N W against 2 N u pi W', Verdict(Fraction(7.5e-16) >= need, Fraction(7.5e-16) / need, 'the constant has %.3f of the 2 u pi / (1 - N u) = %.4e it needs (N u <= 0.0099)' % (float(Fraction(7.5e-16) / need), float(need))))
+    # the division by 2 pi (the double TwoPI is itself within u of 2 pi, the same in both sums) and chi + bSum: u relative each, in both sums (4 u of |chi| + |bSum|)
+    r.add('4e-15 (|chi| + |bSum|)', Verdict(Fraction(4e-15) >= 4 * U, Fraction(4e-15) / (4 * U), '%.1f times the four roundings (two per sum)' % float(Fraction(4e-15) / (4 * U))))
+    # the factor 1.01 on err and sumOrderErr: err is a sum of n positive terms, rounded n times: (1 + u)^n <= 1.01 while n u <= 0.0099 (n < 8.9e13)
+    n = Fraction(99, 10000) / U
+    nu = n * U                                                  # (1 + u)^n <= exp(n u) <= 1 + n u + (n u)^2 for n u < 1
+    r.add('1.01 covers the accumulation of err', Verdict(1 + nu + nu * nu <= Fraction(101, 100), Fraction(101, 100) / (1 + nu + nu * nu),
+          'for up to %.2e terms (2^26 edges at most here)' % float(n)))
+
+
+@entry('BT-5 the edge angle under the certificate (A1)', WIND,
+       ['return yz - r >= 1e-9 * d;', 'internal static bool ball_is_small(double r, double d) { return r < 0.25 * d; }',
+        '+ 1e-12 * (double)(tree.Hi[k] - tree.Lo[k]);', 'nodeErr = rem + vaErrTerm + (1e-12 + 16.0 * coordEps) * dipScale + 1e-11 + 16.0 * coordEps'],
+       'for every edge (a, b) of an accepted node and for the chord: |computed angle - exact angle| <= 1e-14 (A1); the code charges 1e-12 per replaced edge and 1e-11 for the chord',
+       'the node is accepted: r < d / 4 and the yz part of c - p exceeds r by 1e-9 d (so every edge is on the fast path, away from the exact zone and from the +x axis)',
+       '1e-12 (hi - lo) and 1e-11 in nodeErr')
+def edge_angle_certified(c, r):
+    # The constants of the proof (steps 2, 4, 5) with the geometry of an accepted node: the unit vectors U, V of two points are at most
+    # 2 asin(1/4) apart, so 1 + U.V >= 1 + cos(2 asin(1/4)) = 1 + (1 - 2/16); hypot = |a||b| sqrt(2 (1 + U.V) x_u x_v);
+    # S1 <= 2 |a||b| sqrt(x_u x_v), S2 <= 4 |a||b| sqrt(x_u x_v) (x_u = 1 - U_x, ...)
+    one_plus = 1 + (1 - Fraction(2, 16))
+    h = Fraction(math.sqrt(float(2 * one_plus))) * (1 - Fraction(1, 10**15))          # <= sqrt(2 (1 + U.V)) (rounded down)
+    angle = PI_HI / 2 * (2 * U * 2 + 22 * U * 4) / h                                  # steps 4, 5: |dnum| <= 2 u S1, |dden| <= 22 u S2, asin x <= (pi / 2) x
+    rounded_vectors = 2 * PI_HI * U                                                   # step 3
+    total = angle + rounded_vectors + ULP2
+    # the proof's 22 u S2 is loose: step 4 itself gives |dden| <= 16 u da db + 3 u (|u_y v_y| + |u_z v_z|) <= 16 u S2 (da db <= S2, the rest <= S2); the same
+    # three terms with 16 (a margin of 1.3 where the note's 22 gives 1.013); the claim of the note keeps the 22, a bound that is valid and simpler
+    sharp = PI_HI / 2 * (2 * U * 2 + 16 * U * 4) / h + rounded_vectors + ULP2
+    r.add('A1: the sharper count (16 u S2)', Verdict(sharp <= ONE_E14 and sharp < total, ONE_E14 / sharp, 'step 4 with 16 u S2: %.3e against 1e-14 (the proof of the note keeps 22 u S2: %.3e)' % (float(sharp), float(total))))
+    r.add('A1: the three terms', Verdict(total <= ONE_E14, ONE_E14 / total,
+          'step 5 %.3e + step 3 %.3e + atan2 %.3e = %.3e against 1e-14 (the note: 9.9e-15)' % (float(angle), float(rounded_vectors), float(ULP2), float(total))))
+    r.add('the 1e-12 charged per replaced edge', Verdict(Fraction(1, 10**12) >= total, Fraction(1, 10**12) / total, 'a margin of %.0f against the bound that the certificate implies' % float(Fraction(1, 10**12) / total)))
+    r.add('the 1e-11 charged for the chord', Verdict(Fraction(1, 10**11) >= total, Fraction(1, 10**11) / total, 'the chord is one edge: a margin of %.0f' % float(Fraction(1, 10**11) / total)))
+    # the certificate keeps phi (the angle between the yz parts of two points) away from pi: r / |yz_c| <= 1 - 1e-9 gives phi <= 2 asin(1 - 1e-9)
+    gap = math.pi - 2 * math.asin(1 - 1e-9)
+    r.add('the certificate keeps phi below pi - 8.9e-5', Verdict(gap >= 8.9e-5, gap / 8.9e-5, 'pi - phi_max = %.3e' % gap))
+    # with it the exact zone cannot fire: |phi| >= 1e-6 gives |num| >= 1e-6 S1 > numErr = 1e-12 S1, and |phi| < 1e-6 gives den >= 0.999 S2 > denErr = 1e-12 S2
+    r.add(*arith('the exact zone never fires', 1e-6 > 1e-12 and 0.999 > 1e-12, 'num >= 1e-6 S1 against 1e-12 S1; den >= 0.999 S2 against 1e-12 S2'))
+    _sample_edges(c, r, certified=True)
+
+
+def _exact_edge(p, a, b):
+    """the exact num, den and the term sizes S1, S2 of the edge (a, b) seen from p, from the exact differences (Decimal, 80 digits)"""
+    getcontext().prec = 80
+    A = [Fraction(a[i]) - Fraction(p[i]) for i in range(3)]
+    B = [Fraction(b[i]) - Fraction(p[i]) for i in range(3)]
+
+    def dec(x):
+        return Decimal(x.numerator) / Decimal(x.denominator)
+    yzA = A[1] ** 2 + A[2] ** 2
+    yzB = B[1] ** 2 + B[2] ** 2
+    la = dec(A[0] ** 2 + yzA).sqrt()
+    lb = dec(B[0] ** 2 + yzB).sqrt()
+    da = dec(yzA) / (la + dec(A[0])) if A[0] > 0 else la - dec(A[0])
+    db = dec(yzB) / (lb + dec(B[0])) if B[0] > 0 else lb - dec(B[0])
+    num = dec(A[2] * B[1] - A[1] * B[2])
+    den = da * db + dec(A[1] * B[1] + A[2] * B[2])
+    s1 = abs(dec(A[1] * B[2])) + abs(dec(A[2] * B[1]))
+    s2 = da * db + abs(dec(A[1] * B[1])) + abs(dec(A[2] * B[2]))
+    return num, den, s1, s2
+
+
+def _fast_edge(p, a, b):
+    """the fast path of boundary_edge_angle_x on doubles, in the order of the source (no FMA): the angle and whether the exact zone fires"""
+    ax, ay, az = a[0] - p[0], a[1] - p[1], a[2] - p[2]
+    bx, by, bz = b[0] - p[0], b[1] - p[1], b[2] - p[2]
+    yzA2 = ay * ay + az * az
+    yzB2 = by * by + bz * bz
+    la = math.sqrt(ax * ax + yzA2)
+    lb = math.sqrt(bx * bx + yzB2)
+    da = yzA2 / (la + ax) if ax > 0.0 else la - ax
+    db = yzB2 / (lb + bx) if bx > 0.0 else lb - bx
+    p1, p2 = ay * bz, az * by
+    num = p2 - p1
+    den = da * db + (ay * by + az * bz)
+    num_err = 1e-12 * (abs(p1) + abs(p2))
+    den_err = 1e-12 * (da * db + abs(ay * by) + abs(az * bz))
+    return math.atan2(num, den), (den <= den_err and abs(num) <= num_err)
+
+
+def _angle_error_bound(num, den, s1, s2):
+    """the error bound of the computed angle without any certificate (the proof of A1, steps 3 to 5): asin(|d| / hypot) <= (pi / 2) |d| / hypot
+    for |d| <= 2 u S1 + 22 u S2 (steps 4, 5) -- unbounded as hypot -> 0 (p approaches the edge), then at most pi -- plus 2 pi u (step 3) and 2 ulp of atan2"""
+    hyp = (num * num + den * den).sqrt()
+    u = Decimal(1) / Decimal(2 ** 53)
+    d = 2 * u * s1 + 22 * u * s2
+    pi = Decimal('3.14159265358979323846264338327950288')
+    first = pi if hyp == 0 or d >= hyp else min(pi, pi / 2 * d / hyp)
+    return first + 2 * pi * u + Decimal(1) / Decimal(2 ** 50)
+
+
+def _accepted_edge(rng, s):
+    """two points of a node that the certificate accepts (r < d / 4, the yz part of the centre exceeds r by 1e-9 d .. 1e-3 d), p, the centre and r;
+    half of the pairs are the two points of the ball's yz disk that the tangents from p touch (phi near pi - 8.9e-5), the extreme of the certificate"""
+    p = tuple(rng.uniform(-1, 1) * s for _ in range(3))
+    d = s * rng.uniform(0.1, 10)
+    rr = d * rng.uniform(0.01, 0.2499)
+    yz = rr + d * 10 ** rng.uniform(-9, -3)
+    if yz >= d:
+        return None
+    ang = rng.uniform(0, 2 * math.pi)
+    e = (math.cos(ang), math.sin(ang))
+    f = (-e[1], e[0])
+    ctr = (p[0] + math.sqrt(d * d - yz * yz) * (1 if rng.random() < 0.5 else -1), p[1] + yz * e[0], p[2] + yz * e[1])
+    if rng.random() < 0.5:
+        # tangent points of the disk seen from p: at distance L = sqrt(yz^2 - rr^2) from p, the angle asin(rr / yz) either side of e (shrunk inside the ball)
+        g = math.asin(rr / yz)
+        L = math.sqrt(yz * yz - rr * rr)
+        pts = []
+        for sg in (1, -1):
+            dirn = (math.cos(g) * e[0] + sg * math.sin(g) * f[0], math.cos(g) * e[1] + sg * math.sin(g) * f[1])
+            q = (L * dirn[0], L * dirn[1])
+            yzc = (yz * e[0], yz * e[1])
+            q = (yzc[0] + (q[0] - yzc[0]) * 0.9999, yzc[1] + (q[1] - yzc[1]) * 0.9999)
+            pts.append((ctr[0] + rng.uniform(-1, 1) * rr * 0.01, p[1] + q[0], p[2] + q[1]))
+        a, b = pts
+    else:
+        pts = []
+        for _ in range(2):
+            w = [rng.uniform(-1, 1) for _ in range(3)]
+            n = math.sqrt(sum(x * x for x in w)) or 1.0
+            ln = rr * 0.999 * rng.random() ** 0.3
+            pts.append(tuple(ctr[i] + w[i] / n * ln for i in range(3)))
+        a, b = pts
+    ok = all(math.dist(x, ctr) <= rr for x in (a, b)) and math.hypot(ctr[1] - p[1], ctr[2] - p[2]) - rr >= 1e-9 * d and rr < 0.25 * d
+    return (p, a, b) if ok else None
+
+
+def _sample_edges(c, r, certified):
+    """concrete run: edges of accepted nodes (certified) or edges with p close to them (not), against the exact angle: the error must be below
+    the bound (1e-14, or the formula of _angle_error_bound); records error / bound"""
+    if c.concrete is None:
+        return
+    rng = c.concrete.rng
+    slack = Decimal(4) / Decimal(10 ** 16)          # the exact angle is atan2 of two correctly rounded doubles: at most 4e-16 off
+    for _ in range(10):
+        s = 2.0 ** rng.randint(-20, 20)
+        if certified:
+            case = _accepted_edge(rng, s)
+            if case is None:
+                continue
+            p, a, b = case
+        else:
+            a = tuple(rng.uniform(-1, 1) * s for _ in range(3))
+            b = tuple(rng.uniform(-1, 1) * s for _ in range(3))
+            t = rng.random()
+            delta = s * 10 ** (-rng.uniform(1, 13))
+            p = tuple(a[i] + t * (b[i] - a[i]) + rng.uniform(-1, 1) * delta for i in range(3))
+            if rng.random() < 0.5:                          # (p in the plane x = const of both end points: the cancellation of den is largest)
+                b = (a[0], b[1], b[2])
+                p = (a[0], p[1], p[2])
+        if (a[1] == p[1] and a[2] == p[2]) or (b[1] == p[1] and b[2] == p[2]):
+            continue
+        num, den, s1, s2 = _exact_edge(p, a, b)
+        got, zone = _fast_edge(p, a, b)
+        if not certified and zone:
+            continue                                        # (the exact zone: decided by the exact predicates, sign only)
+        exact = math.atan2(float(num), float(den))
+        err = abs(got - exact)
+        if not certified:
+            # an uncertified edge (p near it) may lie across the branch cut of the arctangent: the angles are compared as such, modulo 2 pi.
+            # A certified edge never does (part of the proof of A1: |num| >= 1e-6 S1 >> 2 u S1, so the sign of num is the exact one), so a 2 pi
+            # difference there is a real error of 2 pi and stays one: no reduction
+            err = min(err, abs(err - 2 * math.pi))
+        bound = _angle_error_bound(num, den, s1, s2) + slack
+        limit = min(bound, ONE_E14_D + slack) if certified else bound
+        ratio = Decimal(err) / limit
+        r.observed.append(float(ratio))
+        if ratio > 1:
+            c.violations.append(('ERROR ABOVE BOUND', got, err, float(limit)))
+
+
+ONE_E14_D = Decimal(1) / Decimal(10 ** 14)
+
+
+@entry('BT-6 the edge angle error against the distance from the edge', WIND,
+       ['double den = da * db + dotYZ;', 'double dotYZ = ay * by + az * bz;', 'double numErr = 1e-12 * (Math.Abs(p1) + Math.Abs(p2));',
+        'if (den <= denErr && Math.Abs(num) <= numErr) {', 'return Math.Atan2(num, den);'],
+       'the computed angle of boundary_edge_angle_x (fast path) differs from the exact one by at most (pi / 2)(2 u S1 + 22 u S2) / hypot(num, den) + 2 pi u + 2 ulp, '
+       'hypot = |a||b| sqrt(2 (1 + U.V) x_u x_v), S1 <= 2 and S2 <= 4 times |a||b| sqrt(x_u x_v)',
+       'the fast path (normal products). UNBOUNDED as p approaches the edge (1 + U.V -> 0): at most 8e-15 / sin(theta / 2), about 1.6e-14 / theta, for the angular distance theta of p from the '
+       'edge, then at most pi; the exact zone (|num| <= numErr and den <= denErr) is a sign guard, not an accuracy guarantee. NOT the A1 of the tree (BT-5: under the certificate theta is bounded below). '
+       'Describes master: the branch fix/exact-winding-open-edge-angle replaces the fast formula where hypot is small, outside the domain the tree relies on',
+       '(pi / 2)(2 u S1 + 22 u S2) / hypot')
+def edge_angle_domain(c, r):
+    # theta: the angular distance of p from the edge, so that U.V = -cos(theta) and hypot / (|a||b|) = sqrt(2 (1 - cos theta) x_u x_v) = 2 sin(theta / 2) sqrt(x_u x_v);
+    # (2 S1 + 22 S2) <= (2 * 2 + 22 * 4) |a||b| sqrt(x_u x_v), so error <= (pi / 2)(4 + 88) u / (2 sin(theta / 2)) = 23 pi u / sin(theta / 2) = 8.0e-15 / sin(theta / 2) ~ 1.6e-14 / theta (sin(theta / 2) ~ theta / 2)
+    k = PI_HI / 2 * (2 * 2 + 22 * 4) * U / 2
+    theta_1e12 = 2 * math.asin(float(k) / 1e-12)
+    r.add(*arith('the error is at most %.2e / sin(theta / 2), %.2e / theta' % (float(k), float(2 * k)), 7.9e-15 < float(k) < 8.1e-15 and 1.58e-14 < float(2 * k) < 1.62e-14,
+                 'the coefficient (pi / 2)(2 * 2 + 22 * 4) u / 2; measured in the issue draft: error about 1e-16 / theta (the bound is a worst case of the constants)'))
+    theta_cert = math.pi - 2 * math.asin(0.25)
+    r.add(*arith('an accepted node keeps theta >= %.2f rad, far above %.1e' % (theta_cert, theta_1e12), theta_cert > theta_1e12 * 100,
+                 'r < d / 4 puts the two unit vectors at most 2 asin(1/4) = 0.505 rad apart: p sees every edge of the node at theta >= pi - 0.505 (`ball_is_small`, r < d / 4, not the rest of `fast_path_certificate`); below theta = %.1e the formula is weaker than the 1e-12 per edge that nodeErr charges' % theta_1e12))
+    _sample_edges(c, r, certified=False)

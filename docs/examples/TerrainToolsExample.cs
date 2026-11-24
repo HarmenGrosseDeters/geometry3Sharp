@@ -49,6 +49,26 @@ namespace g3.Examples
         }
 
         /// <summary>
+        /// The same surfaces cut into 3D blocks: two elevation bands [8, 10] and [10, 12] over the 2x2 lattice. The material removed lies
+        /// below the ground (the band [8, 10]), the material added above it (the band [10, 12]). Block index = band * nx * ny + i + nx * j.
+        /// </summary>
+        public static TerrainCellVolumes CellBlockVolumes()
+        {
+            var before = new HeightGrid(new double[9], 3, 3, 0, 0, 5.0);
+            var after = new HeightGrid(new double[9], 3, 3, 0, 0, 5.0);
+            for (int j = 0; j < 3; ++j)
+                for (int i = 0; i < 3; ++i) {
+                    before[i, j] = 10.0;
+                    after[i, j] = i == 0 ? 8.0 : (i == 2 ? 12.0 : 10.0);
+                }
+
+            var cv = TerrainCellVolumes.Of(before, after, x0: 0, y0: 0, dx: 5.0, dy: 5.0, nx: 2, ny: 2);
+            cv.BandBoundaries = new[] { 8.0, 10.0, 12.0 };
+            cv.Compute();
+            return cv;
+        }
+
+        /// <summary>
         /// Separates ground points (z = 0) from elevated building/canopy points (z = 5)
         /// using ClothSimulationFilter.
         /// </summary>

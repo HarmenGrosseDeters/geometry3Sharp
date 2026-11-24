@@ -22,7 +22,7 @@ using gs;
 DMesh3 a = StandardMeshReader.ReadMesh("part_a.glb");
 DMesh3 b = StandardMeshReader.ReadMesh("part_b.3mf");
 
-// Exact mesh boolean with SafeRounding (closed, manifold, self-intersection-free)
+// Exact mesh boolean with SafeRounding (closed, manifold, self-intersection-free except at contacts of the exact solid)
 var op = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Difference);
 if (op.Compute() && op.RoundingClean)
     StandardMeshWriter.WriteMesh("result.ply", op.Result, WriteOptions.Defaults);

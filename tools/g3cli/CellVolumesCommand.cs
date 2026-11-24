@@ -23,6 +23,7 @@ namespace g3cli
                     "material removed (cut: 'after' below 'before') and added (fill) in every cell, exact up to rounding, from the overlay of both height fields " +
                     "(each a TIN mesh file; a height grid becomes one with the dgm command and --mesh). The sum over the cells equals the total of the whole footprint " +
                     "(total_cut_volume, total_fill_volume, as TerrainVolumeDifference); a part outside the lattice is reported as outside_*. Swapping the surfaces swaps cut and fill. " +
+                    "With 'bands' (elevation boundaries z0,z1,...) the volume is also given per 3D block (cell x elevation band, docs/design/TERRAIN.md 9.3): the part of the column between the surfaces inside each band, exact up to rounding, and 'blocks_output' is a CSV with one row per block. " +
                     "Without x0, y0, nx and ny the lattice starts at the lower left corner of the bounds of both surfaces and covers them. 'output' is a CSV with one row per cell.",
             };
             c.Params.Add(new Param("before", ParamType.String, "the surface before (a TIN, a height field; " + string.Join(", ", MeshFiles.ReadFormats) + ")") { Required = true, Positional = true });
@@ -34,6 +35,8 @@ namespace g3cli
             c.Params.Add(new Param("y0", ParamType.Number, "lattice origin y; default: the bounds"));
             c.Params.Add(new Param("nx", ParamType.Integer, "number of cells in x; default: covering the bounds"));
             c.Params.Add(new Param("ny", ParamType.Integer, "number of cells in y; default: covering the bounds"));
+            c.Params.Add(new Param("bands", ParamType.String, "elevation band boundaries 'z0,z1,...' (strictly increasing; -inf and inf are allowed at the ends): band k is [z_k, z_k+1]; adds 'bands' (totals per band) to the result"));
+            c.Params.Add(new Param("blocks_output", ParamType.String, "with 'bands': a CSV with one row per block: band, z_min, z_max, ix, iy, x_min, y_min, cut_volume, fill_volume, net_volume"));
             c.Run = args => {
                 double dx = args.Number("cell_size"), dy = args.Has("cell_size_y") ? args.Number("cell_size_y") : dx;
                 if (!(dx > 0) || !(dy > 0) || double.IsInfinity(dx) || double.IsInfinity(dy))
@@ -44,6 +47,27 @@ namespace g3cli
                     if (args.Has(k) && !(Math.Abs(args.Number(k)) < double.PositiveInfinity)) throw new CommandException(ResultCodes.InvalidArguments, $"'{k}' must be finite");
                 string outPath = args.String("output");
                 if (outPath != null) CheckTextWritable(outPath);
+                double[] bands = null;
+                if (args.Has("bands")) {
+                    var list = new List<double>();
+                    foreach (string part in args.String("bands").Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries)) {
+                        string t = part.ToLowerInvariant();
+                        double v;
+                        if (t == "inf" || t == "+inf") v = double.PositiveInfinity;
+                        else if (t == "-inf") v = double.NegativeInfinity;
+                        else if (!double.TryParse(part, NumberStyles.Float, CultureInfo.InvariantCulture, out v) || double.IsNaN(v) || double.IsInfinity(v))
+                            throw new CommandException(ResultCodes.InvalidArguments, $"'bands': '{part}' is not a number (or inf, -inf)");
+                        list.Add(v);
+                        if (list.Count > 1025) throw new CommandException(ResultCodes.InvalidArguments, "'bands': at most 1024 bands");
+                    }
+                    bands = list.ToArray();
+                    for (int q = 0; q < bands.Length; ++q)
+                        if (q > 0 && !(bands[q] > bands[q - 1])) throw new CommandException(ResultCodes.InvalidArguments, "'bands' must be strictly increasing");
+                    if (bands.Length < 2) throw new CommandException(ResultCodes.InvalidArguments, "'bands' needs at least two boundaries");
+                } else if (args.Has("blocks_output"))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'blocks_output' needs 'bands'");
+                string blocksPath = args.String("blocks_output");
+                if (blocksPath != null) CheckTextWritable(blocksPath);
                 var warnings = new List<string>();
                 DMesh3 before = MeshFiles.Read(args.String("before"), warnings), after = MeshFiles.Read(args.String("after"), warnings);
                 AxisAlignedBox3d b = before.GetBounds(); b.Contain(after.GetBounds());
@@ -51,7 +75,9 @@ namespace g3cli
                 double nxd = args.Has("nx") ? args.Integer("nx") : Math.Max(1, Math.Ceiling((b.Max.x - x0) / dx)), nyd = args.Has("ny") ? args.Integer("ny") : Math.Max(1, Math.Ceiling((b.Max.y - y0) / dy));
                 if (!(nxd * nyd <= TerrainCellVolumes.MaxCells)) throw new CommandException(ResultCodes.InvalidArguments, $"the lattice has too many cells ({nxd} x {nyd}, at most 2^20): enlarge cell_size");
                 int nx = (int)nxd, ny = (int)nyd;
-                var cv = new TerrainCellVolumes(before, after, x0, y0, dx, dy, nx, ny);
+                if (bands != null && !((double)(bands.Length - 1) * nx * ny <= TerrainCellVolumes.MaxCells))
+                    throw new CommandException(ResultCodes.InvalidArguments, $"cells x bands is too large ({nx * ny} cells, {bands.Length - 1} bands, at most 2^20 blocks): enlarge cell_size or use fewer bands");
+                var cv = new TerrainCellVolumes(before, after, x0, y0, dx, dy, nx, ny) { BandBoundaries = bands };
                 if (cv.Compute() == false) {
                     if (cv.BeforeOverlaps > 0 || cv.AfterOverlaps > 0)
                         throw new CommandException(ResultCodes.OperationFailed, $"a surface is not a height field (triangles overlapping in XY: before {cv.BeforeOverlaps}, after {cv.AfterOverlaps} pairs)",
@@ -69,6 +95,26 @@ namespace g3cli
                         }
                     WriteText(outPath, sb.ToString());
                 }
+                JsonArray bandTotals = null;
+                if (bands != null) {
+                    int cells = nx * ny;
+                    bandTotals = new JsonArray();
+                    var sbb = new StringBuilder("band,z_min,z_max,ix,iy,x_min,y_min,cut_volume,fill_volume,net_volume\n");
+                    for (int q = 0; q < cv.BandCount; ++q) {
+                        double cutSum = 0, fillSum = 0;
+                        for (int k = 0; k < cells; ++k) {
+                            double cutV = cv.BlockCutVolume[q * cells + k], fillV = cv.BlockFillVolume[q * cells + k];
+                            cutSum += cutV; fillSum += fillV;
+                            if (blocksPath != null)
+                                sbb.Append(q).Append(',').Append(Inv(bands[q])).Append(',').Append(Inv(bands[q + 1])).Append(',').Append(k % nx).Append(',').Append(k / nx).Append(',')
+                                   .Append(Inv(x0 + (k % nx) * dx)).Append(',').Append(Inv(y0 + (k / nx) * dy)).Append(',')
+                                   .Append(Inv(cutV)).Append(',').Append(Inv(fillV)).Append(',').Append(Inv(fillV - cutV)).Append('\n');
+                        }
+                        bandTotals.Add(new JsonObject() { ["band"] = q, ["z_min"] = MeshReport.Num(bands[q]), ["z_max"] = MeshReport.Num(bands[q + 1]),
+                            ["cut_volume"] = MeshReport.Num(cutSum), ["fill_volume"] = MeshReport.Num(fillSum) });
+                    }
+                    if (blocksPath != null) WriteText(blocksPath, sbb.ToString());
+                }
                 int withData = 0;
                 for (int k = 0; k < nx * ny; ++k) if (cv.OverlapArea[k] > 0) ++withData;
                 return new JsonObject() {
@@ -80,6 +126,7 @@ namespace g3cli
                     ["cut_area"] = MeshReport.Num(cv.CutArea.Sum()), ["fill_area"] = MeshReport.Num(cv.FillArea.Sum()), ["overlap_area"] = MeshReport.Num(cv.OverlapArea.Sum()),
                     ["total_cut_volume"] = MeshReport.Num(cv.TotalCutVolume), ["total_fill_volume"] = MeshReport.Num(cv.TotalFillVolume), ["total_overlap_area"] = MeshReport.Num(cv.TotalOverlapArea),
                     ["outside_cut_volume"] = MeshReport.Num(cv.OutsideCutVolume), ["outside_fill_volume"] = MeshReport.Num(cv.OutsideFillVolume),
+                    ["blocks_output"] = blocksPath, ["bands"] = bandTotals,
                     ["warnings"] = Warnings(warnings),
                 };
             };
