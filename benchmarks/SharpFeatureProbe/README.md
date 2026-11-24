@@ -191,5 +191,5 @@ Result at 100k ([design/VARIFOLD_CREASE_INPUT.md](../../docs/design/VARIFOLD_CRE
 `results/soup/soupwrap.jsonl`):
 
 - unwelded, T-junction, duplicated and flipped soups go from recall 0.84-0.98 to the ceiling (0.98-1.00);
-- the varifold costs 0.16-0.39 s, 3-12 % of the wrap;
+- the varifold costs 0.17-0.34 s, 6-12 % of the wrap;
 - every result is clean.

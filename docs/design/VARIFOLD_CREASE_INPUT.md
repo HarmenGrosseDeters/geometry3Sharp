@@ -247,9 +247,9 @@ nearest jittered triangles, while the oracle takes them from the clean ones (fir
 
 | measure | value |
 |---|---|
-| total | 0.16-0.39 s over the 40 cases, the note's bound 0.20-0.47 s |
-| of it, queries | 0.02-0.14 s, 1900-10300 queries |
-| share of the soup's wrap | 3.0-11.9 % |
+| total | 0.17-0.34 s over the 40 cases, the note's bound 0.20-0.47 s |
+| of it, queries | 0.02-0.10 s, 1900-10300 queries |
+| share of the soup's wrap | 5.9-11.8 % |
 | target | < 20 % |
 
 **Tests** (`VarifoldCreaseInputTests`, `VarifoldCreaseInputOnBaseTests`, `DocExamplesTests`): 19 tests, the slowest 3.7 s.
@@ -268,6 +268,20 @@ nearest jittered triangles, while the oracle takes them from the clean ones (fir
   - the radius cut;
   - in the pass: accept every crease point, take x0 = m, no varifold.
 - Neither changed file is in a mutation shard, so there is no Stryker run.
+
+**After the review** (an independent review of the diff against REVIEW_CHECKLIST classes 0-11; 12 had no trigger; no library
+defect found):
+
+- `SheetsThatDoNotMeet` now has a real gap between the floor and the wall.
+- The default-path test pins the hashes that origin/master gives for the wrap and the pass of the L-shape.
+- A triangle no longer than half the radius gets one point at its centroid instead of three. This bounds the memory on fine
+  meshes to about one point per triangle: the reviewer measured 6 M points and 1.5 GB for 2 M tiny triangles before.
+- The measure's build asks `CancelF`.
+- The thin-plate limit (the two faces of a plate thinner than the ball share one unoriented cluster) and the meaning of
+  `InputCreases` are documented.
+
+The benchmark, re-run after these changes, gives the same recall and precision in every row; the cost numbers above are
+from that re-run.
 
 **Next candidates.** The quality misses above are bounded by the oracle and the cost by its target:
 

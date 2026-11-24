@@ -80,7 +80,7 @@ When the ladder ends in the alpha wrap, `AlphaWrapSharpFeatures = true` (off by 
 By default the pass finds the input's creases from the dihedral angles of its edges. A triangle soup (unwelded, duplicated, flipped, T-junctions between faces) has no edge with two triangles, so the pass finds nothing there. Set `AlphaWrapSharpFeaturesOnSoups = true` as well: the creases then come from the input's unoriented varifold, a measure on position x plane that needs no connectivity ([VARIFOLD_CREASE_INPUT.md](../design/VARIFOLD_CREASE_INPUT.md)). Example: `MeshRepairExample.RobustRepairKeepingCreases`.
 
 - **Gain:** on unwelded or flipped CAD soups at 100k triangles, the recall of the creases within one offset rises from 0.84-0.90 to the welded mesh's value (0.98-1.00).
-- **Cost:** a measure of the input at 1.75 alpha spacing, about 7-10 % of the wrap's time.
+- **Cost:** a measure of the input at 1.75 alpha spacing, about 6-12 % of the wrap's time.
 - **Limits:** creases closer than about 3.5 alpha to a corner or to a third plane are partly missed. Faces moved apart by gaps are found within three offsets, but not placed within one. Holes wider than alpha let the wrap inside (issue #1542); the pass does not change that.
 
 ### Important Behaviors & Diagnostics
