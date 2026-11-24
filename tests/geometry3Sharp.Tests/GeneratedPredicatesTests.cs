@@ -292,5 +292,139 @@ namespace geometry3Sharp.Tests
             })
                 Assert.Throws<FormatException>(() => PredicateCompiler.Analyze(bad));
         }
+
+        [Fact]
+        public void SymbolicTaylorVerify_IndirectSpec_AllFiltersPass()
+        {
+            string indirectSpec = File.ReadAllText(Path.Combine(Dir, "indirect.spec"));
+            var report = SymbolicTaylorVerify.VerifySpec(indirectSpec);
+            Assert.True(report.AllPassed, SymbolicTaylorVerify.FormatReport(report));
+            Assert.Equal(8, report.Rows.Count);
+            foreach (var row in report.Rows) {
+                Assert.True(row.Dominates, $"{row.PredicateName} {row.NodeLabel} {row.DomainLabel}: ST={row.SymbolicTaylorBound:E4} > gen={row.GeneratorBound:E4}");
+                Assert.True(row.SamplesValid, $"{row.PredicateName} {row.NodeLabel} {row.DomainLabel}: exact sample violation");
+                Assert.True(row.Ratio > 1.5, $"{row.PredicateName} {row.NodeLabel} {row.DomainLabel}: unexpected ratio {row.Ratio}");
+                Assert.True(row.MaxSampledExactErr <= row.SymbolicTaylorBound);
+            }
+        }
+
+        [Fact]
+        public void SymbolicTaylorVerify_MatchesFPTaylorPilotLeavesAndChains()
+        {
+            string indirectSpec = File.ReadAllText(Path.Combine(Dir, "indirect.spec"));
+            var preds = PredicateCompiler.Analyze(indirectSpec).ToDictionary(p => p.Name);
+
+            // Exact FPTaylorPilot LPI domain: r in [0, 0.5], all other points in [1, 2].
+            var lpi = preds["Orient3dLPI"];
+            var lpiRanges = new Dictionary<string, (double, double)> { ["r"] = (0.0, 0.5) };
+            var lpiNodes = lpi.Nodes.Where(n => n.Name != null).ToDictionary(n => n.Name);
+
+            // Leaf prx = p.x - r.x in [0.5, 2.0]: exact binary64 binade bound is 2^-53 = 1.1102230246251565e-16 (1.00x OCaml FPTaylor).
+            var prxRow = SymbolicTaylorVerify.VerifyNode(lpi, lpiNodes["prx"], "prx", "FPTaylorPilot", (1.0, 2.0), lpiRanges);
+            Assert.True(prxRow.Passed);
+            Assert.Equal(Math.ScaleB(1.0, -53), prxRow.SymbolicTaylorBound);
+
+            // LPI nx and d chains on FPTaylorPilot domain: Symbolic Taylor strictly below generator bound.
+            var nxRow = SymbolicTaylorVerify.VerifyNode(lpi, lpiNodes["nx"], "nx", "FPTaylorPilot", (1.0, 2.0), lpiRanges);
+            var dRow = SymbolicTaylorVerify.VerifyNode(lpi, lpiNodes["d"], "d", "FPTaylorPilot", (1.0, 2.0), lpiRanges);
+            Assert.True(nxRow.Passed && nxRow.Ratio > 1.5);
+            Assert.True(dRow.Passed && dRow.Ratio > 2.0);
+            Assert.True(dRow.SymbolicTaylorBound < 2.6e-14, $"LPI d bound {dRow.SymbolicTaylorBound:E4} unexpectedly loose");
+
+            // Exact FPTaylorPilot TPI domain: all points in [1, 2].
+            // Leaf u1_x = b1.x - a1.x in [-1, 1]: exact binary64 binade bound is 2^-54 = 5.551115123125783e-17 (1.00x OCaml FPTaylor).
+            var tpi = preds["Orient3dTPI"];
+            var tpiNodes = tpi.Nodes.Where(n => n.Name != null).ToDictionary(n => n.Name);
+            var u1xRow = SymbolicTaylorVerify.VerifyNode(tpi, tpiNodes["u1_x"], "u1_x", "FPTaylorPilot", (1.0, 2.0));
+            Assert.True(u1xRow.Passed);
+            Assert.Equal(Math.ScaleB(1.0, -54), u1xRow.SymbolicTaylorBound);
+
+            var d1Row = SymbolicTaylorVerify.VerifyNode(tpi, tpiNodes["D1"], "D1", "FPTaylorPilot", (1.0, 2.0));
+            Assert.True(d1Row.Passed && d1Row.Ratio > 2.0);
+        }
+
+        [Fact]
+        public void SymbolicTaylorVerify_HalfUlpMaxAndDirectedRounding_AreSoundAtBoundaries()
+        {
+            Assert.Equal(0.0, SymbolicTaylorVerify.HalfUlpMax(0.0));
+            Assert.Equal(double.Epsilon, SymbolicTaylorVerify.HalfUlpMax(double.Epsilon));
+            Assert.Equal(double.Epsilon, SymbolicTaylorVerify.HalfUlpMax(Math.ScaleB(1.0, -1022)));
+            Assert.Equal(double.Epsilon, SymbolicTaylorVerify.HalfUlpMax(Math.ScaleB(1.0, -1021)));
+            Assert.Equal(Math.ScaleB(1.0, -54), SymbolicTaylorVerify.HalfUlpMax(Math.BitDecrement(1.0)));
+            Assert.Equal(Math.ScaleB(1.0, -54), SymbolicTaylorVerify.HalfUlpMax(1.0));
+            Assert.Equal(Math.ScaleB(1.0, -53), SymbolicTaylorVerify.HalfUlpMax(Math.BitIncrement(1.0)));
+            Assert.Equal(Math.ScaleB(1.0, -53), SymbolicTaylorVerify.HalfUlpMax(1.5));
+            Assert.Equal(Math.ScaleB(1.0, -53), SymbolicTaylorVerify.HalfUlpMax(2.0));
+            Assert.Equal(Math.ScaleB(1.0, -52), SymbolicTaylorVerify.HalfUlpMax(Math.BitIncrement(2.0)));
+            Assert.True(double.IsPositiveInfinity(SymbolicTaylorVerify.HalfUlpMax(double.PositiveInfinity)));
+            Assert.True(double.IsPositiveInfinity(SymbolicTaylorVerify.HalfUlpMax(double.NaN)));
+
+            // Exact directed rounding checks against Rational across normal, power-of-two, and extreme scales.
+            var rng = new Random(2026);
+            double[] special = { 0.0, 1.0, -1.0, 2.0, -2.0, 0.5, 1.0 / 3.0, Math.BitIncrement(1.0), Math.BitDecrement(2.0), 1e-150, 1e150, double.Epsilon };
+            for (int i = 0; i < 2000; ++i) {
+                double a = i < special.Length * special.Length
+                    ? special[i / special.Length]
+                    : (rng.NextDouble() * 2.0 - 1.0) * Math.ScaleB(1.0, rng.Next(-120, 120));
+                double b = i < special.Length * special.Length
+                    ? special[i % special.Length]
+                    : (rng.NextDouble() * 2.0 - 1.0) * Math.ScaleB(1.0, rng.Next(-120, 120));
+                var ra = Rational.FromDouble(a);
+                var rb = Rational.FromDouble(b);
+
+                double ad = Interval64.AddDown(a, b), au = Interval64.AddUp(a, b);
+                if (double.IsFinite(ad)) Assert.True(Rational.FromDouble(ad) <= ra + rb);
+                if (double.IsFinite(au)) Assert.True(ra + rb <= Rational.FromDouble(au));
+
+                double md = Interval64.MulDown(a, b), mu = Interval64.MulUp(a, b);
+                if (double.IsFinite(md)) Assert.True(Rational.FromDouble(md) <= ra * rb);
+                if (double.IsFinite(mu)) Assert.True(ra * rb <= Rational.FromDouble(mu));
+            }
+        }
+
+        [Fact]
+        public void SymbolicTaylorVerify_RejectsCorruptedGeneratorBound()
+        {
+            string indirectSpec = File.ReadAllText(Path.Combine(Dir, "indirect.spec"));
+            var preds = PredicateCompiler.Analyze(indirectSpec);
+            var lpi = preds.Single(p => p.Name == "Orient3dLPI");
+
+            // Corrupt FilterK and C on both sign factors below the proven Symbolic Taylor bound (1/4 of true value).
+            for (int f = 0; f < lpi.Signs.Count; ++f) {
+                lpi.Signs[f].C = lpi.Signs[f].C / Rational.Int(4);
+                lpi.FilterK[f] *= 0.25;
+            }
+            var report = SymbolicTaylorVerify.VerifyPredicates(new[] { lpi }, maxBoxes: 128, exactSamples: 32);
+            Assert.False(report.AllPassed);
+            Assert.All(report.Rows, r => Assert.False(r.Dominates));
+
+            // Corrupt a tight leaf C to 0.25 * u: both domination and exact sample checks must fail.
+            var prx = lpi.Nodes.Single(n => n.Name == "prx");
+            prx.C = Rational.U / Rational.Int(4);
+            var leafRow = SymbolicTaylorVerify.VerifyNode(lpi, prx, "prx", "corrupted", (1.0, 2.0),
+                new Dictionary<string, (double, double)> { ["r"] = (0.0, 0.5) }, maxBoxes: 32, exactSamples: 64);
+            Assert.False(leafRow.Dominates);
+            Assert.False(leafRow.SamplesValid);
+            Assert.False(leafRow.Passed);
+        }
+
+        [Fact]
+        public void SymbolicTaylorVerify_IsDeterministicAndReusable()
+        {
+            string indirectSpec = File.ReadAllText(Path.Combine(Dir, "indirect.spec"));
+            var r1 = SymbolicTaylorVerify.VerifySpec(indirectSpec, maxBoxes: 64, exactSamples: 32);
+            var r2 = SymbolicTaylorVerify.VerifySpec(indirectSpec, maxBoxes: 64, exactSamples: 32);
+            Assert.Equal(r1.AllPassed, r2.AllPassed);
+            Assert.Equal(r1.Rows.Count, r2.Rows.Count);
+            for (int i = 0; i < r1.Rows.Count; ++i) {
+                Assert.Equal(r1.Rows[i].PredicateName, r2.Rows[i].PredicateName);
+                Assert.Equal(r1.Rows[i].NodeLabel, r2.Rows[i].NodeLabel);
+                Assert.Equal(r1.Rows[i].DomainLabel, r2.Rows[i].DomainLabel);
+                Assert.Equal(r1.Rows[i].SymbolicTaylorBound, r2.Rows[i].SymbolicTaylorBound);
+                Assert.Equal(r1.Rows[i].GeneratorBound, r2.Rows[i].GeneratorBound);
+                Assert.Equal(r1.Rows[i].MaxSampledExactErr, r2.Rows[i].MaxSampledExactErr);
+                Assert.Equal(r1.Rows[i].BoxesEvaluated, r2.Rows[i].BoxesEvaluated);
+            }
+        }
     }
 }

@@ -131,6 +131,13 @@ ported or distributed with geometry3Sharp. Background: Solovyev et al., [*Rigoro
 Floating-Point Round-off Errors with Symbolic Taylor Expansions*](https://soarlab.org/2015/04/fm2015-sjrg/),
 FM 2015. The smoke example does not certify any geometry predicate.
 
+`tools/PredicateCompiler/SymbolicTaylorVerify.cs` (`PredicateCompiler --verify-filters`, test/tool only, zero external
+dependencies) implements reverse-mode Symbolic Taylor error estimation with branch-and-bound from the papers only (no
+FPTaylor OCaml code read or ported): A. Solovyev, M. S. Baranowski, I. Briggs, C. Jacobsen, Z. Rakamarić and
+G. Gopalakrishnan, *Rigorous Estimation of Floating-Point Round-Off Errors with Symbolic Taylor Expansions*, ACM TOPLAS
+40(4), art. 20, 2018; exact IEEE-754 directed-rounding helpers use Knuth's TwoSum and Dekker's TwoProd as summarized in
+J. R. Shewchuk, *Adaptive Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates*, DCG 18(3), 1997.
+
 ## Error bound audit (`tools/ErrorBoundAudit`, test/tool only)
 
 Implemented from the papers and the book, no code taken over; Python standard library only. The audit:
