@@ -192,6 +192,219 @@ static Ball[] MakeOctaCavity()
     };
 }
 
+// Scaling mode (#1466): `scaling [reps] [family:n,n,...]...` runs the multi-mesh and the tree route of each family alternately
+// `reps` times and prints one RAW line per run with the public PhaseMilliseconds and Counts (tree: summed over its unions).
+if (args.Length > 0 && args[0] == "scaling") {
+    RunScaling(args);
+    return;
+}
+// Hybrid mode (#1466): `hybrid [reps] [order] family:n:g,g,...`: bodies in groups of g (order idx = input order, morton = by the
+// Morton code of the ball centres), one ExactMeshBoolean arrangement per group, then a balanced pairwise tree of the group results
+// (g = 1 is the pairwise tree, g >= n the single arrangement).
+if (args.Length > 0 && args[0] == "hybrid") {
+    RunHybrid(args);
+    return;
+}
+
+void RunHybrid(string[] a)
+{
+    int reps = int.Parse(a[1]);
+    string order = a[2];
+    for (int i = 3; i < a.Length; ++i) {
+        var f = a[i].Split(':');
+        string name = f[0];
+        int n = int.Parse(f[1]);
+        var groups = f[2].Split(',').Select(int.Parse).ToArray();
+        var balls = MakeFamily(name, n);
+        if (order == "morton") {
+            var lo = new Vector3d(balls.Min(b => b.Center.x), balls.Min(b => b.Center.y), balls.Min(b => b.Center.z));
+            var hi = new Vector3d(balls.Max(b => b.Center.x), balls.Max(b => b.Center.y), balls.Max(b => b.Center.z));
+            ulong Code(Vector3d c)
+            {
+                ulong code = 0;
+                uint[] q = new uint[3];
+                for (int k = 0; k < 3; ++k) {
+                    double span = Math.Max(hi[k] - lo[k], 1e-12);
+                    q[k] = (uint)Math.Min(1023, Math.Max(0, (c[k] - lo[k]) / span * 1023.0));
+                }
+                for (int bit = 9; bit >= 0; --bit)
+                    for (int k = 0; k < 3; ++k)
+                        code = (code << 1) | ((q[k] >> bit) & 1u);
+                return code;
+            }
+            balls = balls.OrderBy(b => Code(b.Center)).ToArray();
+        }
+        var parts = BuildBallMeshes(balls, 5);
+        Console.WriteLine($"INFO {name} {n} order={order}");
+        for (int r = 0; r < reps; ++r)
+            foreach (int g in groups) {
+                var sw = Stopwatch.StartNew();
+                var phases = new Dictionary<string, long>();
+                var counts = new Dictionary<string, long>();
+                var cur = new List<DMesh3>();
+                string status = "Success";
+                for (int s0 = 0; s0 < parts.Length; s0 += g) {
+                    var grp = parts.Skip(s0).Take(g).ToArray();
+                    if (grp.Length == 1) { cur.Add(grp[0]); continue; }
+                    var res = RunMultiBooleanStats(grp);
+                    if (res.Result == null) { status = res.Status; break; }
+                    foreach (var kv in res.Phases) phases[kv.Key] = phases.GetValueOrDefault(kv.Key) + kv.Value;
+                    foreach (var kv in res.Counts) if (kv.Key != "result_hash") counts[kv.Key] = counts.GetValueOrDefault(kv.Key) + kv.Value;
+                    cur.Add(res.Result);
+                }
+                while (status == "Success" && cur.Count > 1) {
+                    var next = new List<DMesh3>();
+                    for (int i2 = 0; i2 < cur.Count; i2 += 2) {
+                        if (i2 + 1 == cur.Count) { next.Add(cur[i2]); continue; }
+                        var res = RunMultiBooleanStats(new[] { cur[i2], cur[i2 + 1] });
+                        if (res.Result == null) { status = res.Status; break; }
+                        foreach (var kv in res.Phases) phases[kv.Key] = phases.GetValueOrDefault(kv.Key) + kv.Value;
+                        foreach (var kv in res.Counts) if (kv.Key != "result_hash") counts[kv.Key] = counts.GetValueOrDefault(kv.Key) + kv.Value;
+                        next.Add(res.Result);
+                    }
+                    cur = next;
+                }
+                sw.Stop();
+                var fin = status == "Success" ? cur[0] : null;
+                counts["result_hash"] = ResultHash(fin);
+                if (fin != null) {
+                    Vector2d va = MeshMeasurements.VolumeArea(fin, fin.TriangleIndices(), fin.GetVertex);
+                    counts["volume_e9"] = (long)Math.Round(va.x * 1e9);
+                    counts["area_e9"] = (long)Math.Round(va.y * 1e9);
+                }
+                Console.WriteLine($"RAW {name} {n} hyb{g}{(order == "morton" ? "m" : "")} {r} {sw.ElapsedMilliseconds} {fin?.TriangleCount ?? 0} {status} {FormatStats(phases, counts)}");
+            }
+    }
+}
+
+void RunScaling(string[] a)
+{
+    int reps = a.Length > 1 ? int.Parse(a[1]) : 5;
+    var families = new List<(string Name, int[] Sizes)>();
+    for (int i = 2; i < a.Length; ++i) {
+        var parts = a[i].Split(':');
+        families.Add((parts[0], parts[1].Split(',').Select(int.Parse).ToArray()));
+    }
+    if (families.Count == 0)
+        families.Add(("dense104", new[] { 12, 24, 48, 96 }));
+    // (a run to warm up the JIT, not printed)
+    RunMultiBooleanStats(BuildBallMeshes(MakeFamily("dense104", 12), 5));
+    foreach (var (name, sizes) in families) {
+        foreach (int n in sizes) {
+            var balls = MakeFamily(name, n);
+            var parts = BuildBallMeshes(balls, 5);
+            long inTris = parts.Sum(p => (long)p.TriangleCount);
+            // overlap degree: other balls whose sphere overlaps each ball (centre distance below the radii's sum)
+            var deg = new int[balls.Length];
+            for (int i = 0; i < balls.Length; ++i)
+                for (int j = i + 1; j < balls.Length; ++j)
+                    if (balls[i].Center.Distance(balls[j].Center) < balls[i].Radius + balls[j].Radius) { deg[i]++; deg[j]++; }
+            Console.WriteLine($"INFO {name} {n} input_tris={inTris} degree_mean={deg.Average():F2} degree_max={deg.Max()}");
+            for (int r = 0; r < reps; ++r) {
+                var m = RunMultiBooleanStats(parts);
+                AddMeasures(m.Result, m.Counts);
+                Console.WriteLine($"RAW {name} {n} multi {r} {m.Ms} {m.Tris} {m.Status} {FormatStats(m.Phases, m.Counts)}");
+                if (Environment.GetEnvironmentVariable("G3_ROUTES") == "multi")
+                    continue;
+                var t = RunTreeBooleanStats(parts);
+                AddMeasures(t.Result, t.Counts);
+                Console.WriteLine($"RAW {name} {n} tree {r} {t.Ms} {t.Tris} {t.Status} {FormatStats(t.Phases, t.Counts)}");
+            }
+        }
+    }
+}
+
+static void AddMeasures(DMesh3 mesh, Dictionary<string, long> counts)
+{
+    if (mesh == null) return;
+    Vector2d va = MeshMeasurements.VolumeArea(mesh, mesh.TriangleIndices(), mesh.GetVertex);
+    counts["volume_e9"] = (long)Math.Round(va.x * 1e9);
+    counts["area_e9"] = (long)Math.Round(va.y * 1e9);
+}
+
+// FNV-1a over the result's vertex coordinates (bit patterns) and triangles in index order: equal hashes mean the same mesh bit for bit
+static long ResultHash(DMesh3 m)
+{
+    if (m == null) return 0;
+    ulong h = 14695981039346656037UL;
+    foreach (int v in m.VertexIndices()) {
+        var p = m.GetVertex(v);
+        foreach (double d in new[] { p.x, p.y, p.z }) { h = (h ^ (ulong)BitConverter.DoubleToInt64Bits(d)) * 1099511628211UL; }
+    }
+    foreach (int t in m.TriangleIndices()) {
+        var tr = m.GetTriangle(t);
+        h = (h ^ (ulong)tr.a) * 1099511628211UL; h = (h ^ (ulong)tr.b) * 1099511628211UL; h = (h ^ (ulong)tr.c) * 1099511628211UL;
+    }
+    return (long)(h & 0x7FFFFFFFFFFFFFFFUL);
+}
+
+static string FormatStats(Dictionary<string, long> phases, Dictionary<string, long> counts) =>
+    string.Join(";", phases.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => "t." + kv.Key + "=" + kv.Value)
+        .Concat(counts.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => "c." + kv.Key + "=" + kv.Value)));
+
+static Ball[] MakeFamily(string name, int n)
+{
+    // dense<seed>: the random packing (prefixes of one seed are nested); helix: the 1D chain; lattice: a cubic lattice of
+    // equal balls at 0.9 of the diameter (each ball meets its 6 face neighbours); sparse<seed>: the packing at 0.95..1.15 of the radii's sum plus a drift
+    if (name.StartsWith("dense"))
+        return MakeRandomPacking(n, int.Parse(name.Substring(5)));
+    if (name == "helix")
+        return MakeHelix(n);
+    if (name == "lattice") {
+        int side = (int)Math.Ceiling(Math.Pow(n, 1.0 / 3.0));
+        var l = new List<Ball>();
+        for (int k = 0; k < side && l.Count < n; ++k)
+            for (int j = 0; j < side && l.Count < n; ++j)
+                for (int i = 0; i < side && l.Count < n; ++i)
+                    l.Add(new Ball(new Vector3d(i, j, k) * 1.8, 1.0));
+        return l.ToArray();
+    }
+    throw new ArgumentException(name);
+}
+
+static (string Status, DMesh3 Result, long Ms, int Tris, Dictionary<string, long> Phases, Dictionary<string, long> Counts) RunMultiBooleanStats(DMesh3[] parts)
+{
+    var sw = Stopwatch.StartNew();
+    var op = new ExactMeshBoolean(parts, ExactMeshBoolean.Operations.Union) { StrictRounding = true };
+    bool ok = op.Compute();
+    sw.Stop();
+    var counts = new Dictionary<string, long>(op.Counts) { ["patches"] = op.Patches, ["result_hash"] = ResultHash(op.Result) };
+    return (ok ? op.Status.ToString() : $"FAIL:{op.Status}", op.Result, sw.ElapsedMilliseconds, op.Result?.TriangleCount ?? 0, op.PhaseMilliseconds, counts);
+}
+
+static (string Status, DMesh3 Result, long Ms, int Tris, Dictionary<string, long> Phases, Dictionary<string, long> Counts) RunTreeBooleanStats(DMesh3[] parts)
+{
+    var sw = Stopwatch.StartNew();
+    var phases = new Dictionary<string, long>();
+    var counts = new Dictionary<string, long>();
+    counts["unions"] = 0;
+    var cur = new List<DMesh3>(parts);
+    while (cur.Count > 1) {
+        var next = new List<DMesh3>((cur.Count + 1) / 2);
+        for (int i = 0; i < cur.Count; i += 2) {
+            if (i + 1 == cur.Count) {
+                next.Add(cur[i]);
+                continue;
+            }
+            var op = new ExactMeshBoolean(cur[i], cur[i + 1], ExactMeshBoolean.Operations.Union) { StrictRounding = true };
+            bool ok = op.Compute();
+            if (!ok || op.Result == null) {
+                sw.Stop();
+                return ($"FAIL:{op.Status}", op.Result, sw.ElapsedMilliseconds, 0, phases, counts);
+            }
+            foreach (var kv in op.PhaseMilliseconds) phases[kv.Key] = phases.GetValueOrDefault(kv.Key) + kv.Value;
+            foreach (var kv in op.Counts) counts[kv.Key] = counts.GetValueOrDefault(kv.Key) + kv.Value;
+            counts["patches"] = counts.GetValueOrDefault("patches") + op.Patches;
+            counts["unions"]++;
+            next.Add(op.Result);
+        }
+        cur = next;
+    }
+    sw.Stop();
+    counts["result_hash"] = ResultHash(cur[0]);
+    return ("Success", cur[0], sw.ElapsedMilliseconds, cur[0].TriangleCount, phases, counts);
+}
+
 Console.WriteLine("case | route | setting | status | clean | tris | comp | bnd | bow | euler | vol(err) | area(err) | ms");
 
 // --- Group A: Analytic baselines (2-3 collinear spheres) ---

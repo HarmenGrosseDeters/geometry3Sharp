@@ -4,6 +4,7 @@ Prior-art checks, literature surveys, external library comparisons, and explorat
 
 | Study | Topic & Summary |
 |---|---|
+| [NARY_UNION_DENSE_2026-11.md](NARY_UNION_DENSE_2026-11.md) | Diagnosis for #1466: one arrangement of a dense ball packing goes superlinear (96 balls 4x the tree, 192 balls 3.7x) in the per-patch winding rays of the classification (about N * k^3 for overlap degree k); stage counts, upper bounds of the levers (winding propagation -41 / -60 %, grouped union, route by degree), prior art and options |
 | [NEURON_SKELETON_MESHES.md](NEURON_SKELETON_MESHES.md) | 9-case SWC-style branching tube stress study (4° forks, 1e-6 gaps, loops, 45-segment/91-primitive trees): ExactMeshBoolean & SolidBooleanPipeline 9/9 clean with exact genus (28–463 ms per route, single runs); measured branch-mesh gaps 1e-2 / 1e-6; convolution inflation and wrap bridging quantified; stop/park |
 | [MOLECULAR_SURFACES_STUDY.md](MOLECULAR_SURFACES_STUDY.md) | 20-case molecular ball-union stress study (1e-12 tangency, cavities, helices, 12–96-ball packings): no Boolean/pipeline defects found; multi-mesh union grows about 6× from 48 to 96 balls, where a binary-tree union was faster; stop/park |
 | [Procedural branching tubes](BRANCHING_TUBE_GENUS_STUDY.md) | Genus controls for strict Boolean union, implicit contouring and wrapping near a tapered tip gap; a genus oracle must require `NotCleanReason == ""` |
