@@ -946,6 +946,112 @@ namespace geometry3Sharp.Tests
             Assert.True(tried >= 4 && caught >= 4, $"{caught} of {tried}");
         }
 
+        // ---------------------------------------------------------------- the box filters of the checker (step A of the study)
+
+        static DMesh3 FineBox(Vector3d center, double half, int edgeVertices) =>
+            new GridBox3Generator() { Box = new Box3d(center, new Vector3d(half, half, half)), EdgeVertices = edgeVertices }.Generate().MakeDMesh();
+
+        // two fine boxes whose faces touch with different triangulations (B on A's right face, shifted in y and z)
+        static (DMesh3, DMesh3) FineFaceContact() => (FineBox(Vector3d.Zero, 1, 5), FineBox(new Vector3d(2, 0.25, 0.125), 1, 6));
+
+        /// <summary>
+        /// The box filter in front of the two in-plane loops (the stacks of C3, the straddle test of C2) may only skip pairs
+        /// that provably do not meet. Audited against the exact tests on fine boxes whose coplanar faces are triangulated
+        /// differently (every plane holds 60 to 70 input triangles, so the box tree is in use, not the linear scan), for each
+        /// operation: no pair that the exact tests count is lost, the filter does skip most pairs, and the run certifies.
+        /// </summary>
+        [Fact]
+        public void CoplanarBoxFilter_LosesNoPair_OnFineFaceContacts()
+        {
+            var (a, b) = FineFaceContact();
+            long tested = 0, hits = 0;
+            foreach (Ops op in BooleanOracle.AllOps) {
+                BooleanCertificate c = Certify(a, b, op, out _);
+                Assert.Equal("", c.CheckPieces());
+                Assert.Equal("", c.AuditCoplanarFilter(out int t, out int h));
+                Assert.True(Enumerable.Range(0, c.PieceSource.Length).Any(i => c.CoplanarSources(c.PieceSource[i]).Length > 8), "no plane with a box tree");
+                Assert.Equal("", c.CheckEmbedding());
+                tested += t; hits += h;
+            }
+            log.WriteLine($"{tested} pairs of a piece and a coplanar input triangle, {hits} that meet");
+            Assert.True(hits > 100 && tested > 10 * hits, $"{hits} of {tested}");
+        }
+
+        /// <summary>
+        /// The boundary check of C2 on fine faces (the box tree path): a source triangle of a face that others of its plane
+        /// cut is left unsplit as the only piece, and its straddling is found. A filter that drops a neighbour (an inverted
+        /// comparison, a box that is too small) turns this into a certificate for a wrong result.
+        /// </summary>
+        [Fact]
+        public void InjectedMissedSplit_OnFineFaces_IsCaughtThroughTheBoxTree()
+        {
+            var (a, b) = FineFaceContact();
+            Certify(a, b, Ops.Union, out ExactMeshBoolean eb);
+            BooleanCertificate probe = BooleanCertificate.From(eb);
+            Assert.Equal("", probe.CheckPieces());
+            Assert.Equal("", probe.CheckEmbedding());
+            var count = new Dictionary<int, int>();
+            foreach (int s in probe.PieceSource) count[s] = count.TryGetValue(s, out int k) ? k + 1 : 1;
+            int caught = 0, tried = 0;
+            foreach (int source in count.Where(kv => kv.Value > 1).Select(kv => kv.Key).OrderBy(s => s)) {
+                BooleanCertificate c = Unsplit(eb, source);
+                if (c.CoplanarSources(source).Length <= 8 || c.IsClassified(c.PieceSource.Length - 1) == false) continue;
+                int[] keep = { c.PieceSource.Length - 1 };
+                c.PieceMesh = keep.Select(i => c.PieceMesh[i]).ToArray();
+                c.PieceCorners = keep.Select(i => c.PieceCorners[i]).ToArray();
+                c.PieceSource = keep.Select(i => c.PieceSource[i]).ToArray();
+                c.CheckPieces();
+                tried++;
+                // (what the exact test says without any filter: does the unsplit piece straddle a coplanar input triangle?)
+                bool straddles = c.CoplanarSources(source).Any(u => u != source && BooleanCertificate.StraddlesInPlane(c.PieceCorners[0], c.SourceCornersOnGrid(u)));
+                string r = c.CheckEmbedding();
+                bool found = r.Contains("straddles the boundary of the coplanar input triangle");
+                Assert.True(found == straddles, $"source {source}: filtered checker '{r}', exact brute force {straddles}");
+                if (found) caught++;
+            }
+            Assert.True(tried >= 20 && caught >= 20, $"{caught} of {tried}");
+        }
+
+        /// <summary>
+        /// The double filters of C5 (reject by the triangle's box, accept by a point inside it) against the exact test on
+        /// lattice triangles and points: the answers agree, borderline cases (distance exactly delta, on the plane, on an
+        /// edge, a degenerate triangle) included, for coordinates of both small and large size against the same delta.
+        /// </summary>
+        [Fact]
+        public void CoverageFilters_AgreeWithTheExactDistanceTest()
+        {
+            var rng = new Random(20261124);
+            int near = 0, far = 0;
+            foreach (long scale in new long[] { 1, 1L << 20 }) {
+                for (int it = 0; it < 4000; ++it) {
+                    long R() => rng.Next(-6, 7) * scale;
+                    ExactPoint3 P() => ExactPoint3.FromInteger(R(), R(), R());
+                    ExactPoint3[] t = { P(), P(), P() };
+                    if (it % 7 == 0) t[2] = t[1];                       // degenerate
+                    ExactPoint3 p = P();
+                    foreach (double delta in new[] { 1.0 * scale, 2.0 * scale, 0.5 * scale }) {
+                        bool exact = BooleanCertificate.PointNearTriangle(p, t, delta);
+                        Assert.Equal(exact, BooleanCertificate.PointNearTriangleFiltered(p, t, delta, 6.0 * scale));
+                        if (exact) near++; else far++;
+                    }
+                }
+            }
+            Assert.True(near > 1000 && far > 1000, $"{near} near, {far} far");
+            // just inside and just outside delta (by 2^-30 .. 2^-60 of it) from a corner, along an axis and diagonally:
+            // the filters' margin is far above these, so they must hand the decision to the exact test
+            var tri = new[] { G(0, 0, 0), G(0, 8, 0), G(0, 0, 8) };
+            var w = System.Numerics.BigInteger.One << 60;
+            foreach (int k in new[] { 30, 40, 45, 50, 60 })
+                foreach (int sign in new[] { -1, 0, 1 }) {
+                    // distance 1 + sign 2^-k from the corner (0,0,0) along -x (the point is behind the triangle's plane)
+                    System.Numerics.BigInteger x = w + sign * (System.Numerics.BigInteger.One << (60 - k));
+                    ExactPoint3 p = ExactPoint3.Create(-x, 0, 0, w);
+                    bool exact = BooleanCertificate.PointNearTriangle(p, tri, 1.0);
+                    Assert.Equal(sign <= 0, exact);
+                    Assert.Equal(exact, BooleanCertificate.PointNearTriangleFiltered(p, tri, 1.0, 8.0));
+                }
+        }
+
         static readonly System.Numerics.BigInteger BigIntegerOne = System.Numerics.BigInteger.One;
     }
 }
