@@ -127,3 +127,14 @@ dotnet run -c Release --project benchmarks/TetMeshBenchmark -- surfprobe 80 15 1
 ```
 
 No issue was opened: no defect was found.
+
+## 6. Follow-up: options A and B built (owner decision 2026-11-24)
+
+- **A**: the limit is stated in `docs/guides/meshing-2d-and-tet.md` ("Limit: radius-edge next to the fixed boundary"); `Targets` is named a
+  measurement there, not a promise.
+- **B**: `MeshTetrahedralization.BoundaryFollowsSize` (opt-in). Building blocks reused: the local alpha of `MaxSurfaceDeviation`
+  (`MeshAlphaWrap.AlphaField`, `AlphaSizeField` with its input samples and gradation 0.25); the only new part is the source of the sample
+  alphas, `0.6 * h(sample)` (clamped to `[max(alpha / 4, 3 offsets), alpha]`). The factor 0.6 was calibrated with a uniform alpha first
+  (alpha = h: no gain; 0.67 h and 0.5 h: 85-100 % of the bad tets gone). With `MaxSurfaceDeviation` its passes start from these alphas.
+- Result (table in `benchmarks/TetMeshBenchmark/README.md`): bad tets 1358 -> 122 at h = diagonal / 40 and 13193 -> 113 at / 60 on the four
+  shapes, time 1.1-2.2x, tets 1.03-1.14x. Above the 10 % slowdown bound, so it stays opt-in; the default output is unchanged bit for bit.
