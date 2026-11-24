@@ -131,6 +131,17 @@ ported or distributed with geometry3Sharp. Background: Solovyev et al., [*Rigoro
 Floating-Point Round-off Errors with Symbolic Taylor Expansions*](https://soarlab.org/2015/04/fm2015-sjrg/),
 FM 2015. The smoke example does not certify any geometry predicate.
 
+## Symbolic Taylor round-off bounds study (`benchmarks/SymbolicTaylorBoundsProbe`, research probe only)
+
+Implemented from the papers only in pure C# (no FPTaylor, Gappa, or external code read or ported). The study:
+[docs/research/SYMBOLIC_TAYLOR_ERROR_BOUNDS_2026-11.md](../research/SYMBOLIC_TAYLOR_ERROR_BOUNDS_2026-11.md).
+
+| Part | Source |
+|---|---|
+| Symbolic Taylor round-off expansion (first-order sensitivities + rigorous second-order remainder + interval branch-and-bound) | A. Solovyev, M. S. Baranowski, I. Briggs, C. Jacobsen, Z. Rakamarić, G. Gopalakrishnan, [*Rigorous Estimation of Floating-Point Round-off Errors with Symbolic Taylor Expansions*](https://soarlab.org/publications/2018_toplas_sbbjrg/), ACM TOPLAS 41(1), art. 2, 2018 |
+| Exact local rounding model `|fl(z) - z| <= u |fl(z)|` and sign-filter omission of root rounding | C.-P. Jeannerod, S. M. Rump, *On relative errors of floating-point operations: optimal bounds and applications*, Math. Comp. 87, 2018; J. R. Shewchuk, *Adaptive Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates*, DCG 18, 1997, section 4.2 |
+| Prior art on formal floating-point error certification (paper text only; no code read) | F. de Dinechin, C. Lauter, G. Melquiond, *Certifying the floating-point implementation of an elementary function using Gappa*, IEEE Trans. Computers 60(2), 2011 |
+
 ## Error bound audit (`tools/ErrorBoundAudit`, test/tool only)
 
 Implemented from the papers and the book, no code taken over; Python standard library only. The audit:

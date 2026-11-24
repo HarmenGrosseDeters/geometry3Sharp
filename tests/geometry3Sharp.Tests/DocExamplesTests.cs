@@ -1000,6 +1000,13 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0.0, cv.OutsideCutVolume, 9);
             Assert.Equal(0.0, cv.OutsideFillVolume, 9);
 
+            TerrainCellVolumes blocks = TerrainToolsExample.CellBlockVolumes();
+            Assert.Equal(2, blocks.BandCount);
+            Assert.Equal(50.0, blocks.BlockCutVolume.Take(4).Sum(), 9);          // band [8, 10]: all the cut
+            Assert.Equal(0.0, blocks.BlockFillVolume.Take(4).Sum(), 9);
+            Assert.Equal(50.0, blocks.BlockFillVolume.Skip(4).Sum(), 9);         // band [10, 12]: all the fill
+            Assert.Equal(0.0, blocks.BlockCutVolume.Skip(4).Sum(), 9);
+
             int groundCount;
             ClothSimulationFilter csf = TerrainToolsExample.ClassifyGround(out groundCount);
             Assert.NotNull(csf.IsGround);

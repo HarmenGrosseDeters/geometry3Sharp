@@ -592,5 +592,25 @@
     ],
     "reason": "invariant guard, by reading the code, not proven: Realize appends each triangle in the index order of the exact counter-clockwise triangulation of a planar subdivision (append_faces), so two triangles of an interior edge run in opposite directions whatever the rounded positions are (a rounded triangle that flips is caught by the Orient2d check above, not here), and the later edits (collapse, replay, needle flip, stitch) keep the orientation; DMesh3.AppendTriangle does not check orientation, so nothing else guards it; no input reached it in about an hour of trying",
     "approved_in": "#1331"
+  },
+  {
+    "file": "mesh_ops/ExactMeshArrangement.cs",
+    "text": "throw new InvalidOperationException(string.Format(System.Globalization.CultureInfo.InvariantCulture,",
+    "after": [
+      "if (checkPrefilter && proper && apart != (c > 0))",
+      "System.Threading.Interlocked.Increment(ref PrefilterChecked);"
+    ],
+    "reason": "invariant guard of the check mode (CheckPrefilterOnThisThread, used by TriTriPrefilterTests): it throws only if the prefilter apart_on_the_line and the exact construction disagree on a proper pair, which docs/design/TRITRI_PREFILTER.md proves they never do; the tests run the check mode over many pairs and assert that it never throws, and a test cannot make the two disagree without changing the library (no hook injects a wrong prefilter verdict)",
+    "approved_in": "#1496"
+  },
+  {
+    "file": "mesh_ops/ExactMeshArrangement.cs",
+    "text": "\"ExactMeshArrangement: the prefilter says {0}, the construction {1} (triangles {2}, {3})\", new object[] { apart ? \"apart\" : \"meeting\", c > 0 ? \"apart\" : \"meeting\", ti, ui }));",
+    "after": [
+      "throw new InvalidOperationException(string.Format(System.Globalization.CultureInfo.InvariantCulture,",
+      "if (checkPrefilter && proper && apart != (c > 0))"
+    ],
+    "reason": "invariant guard of the check mode (CheckPrefilterOnThisThread, used by TriTriPrefilterTests): it throws only if the prefilter apart_on_the_line and the exact construction disagree on a proper pair, which docs/design/TRITRI_PREFILTER.md proves they never do; the tests run the check mode over many pairs and assert that it never throws, and a test cannot make the two disagree without changing the library (no hook injects a wrong prefilter verdict)",
+    "approved_in": "#1496"
   }
 ]
