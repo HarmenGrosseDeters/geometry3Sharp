@@ -228,7 +228,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1.0 / 3.0, ExactPoint3.ToDouble(-1, -3, 0));
             Assert.Equal(0.0, ExactPoint3.ToDouble(0, -3, 7));
             Assert.Throws<DivideByZeroException>(() => ExactPoint3.ToDouble(1, 0, 0));
-            // den = 0 throws for every num and scaleExp, also where the value would underflow, overflow or be zero (the contract of the old code)
+            // den = 0 throws for every num and scaleExp, also where the value would underflow, overflow or be zero (stricter than the old code, which returned 0 for num = 0 and threw only for num != 0; no ExactPoint3 has W = 0)
             Assert.Throws<DivideByZeroException>(() => ExactPoint3.ToDouble(1, 0, -5000));
             Assert.Throws<DivideByZeroException>(() => ExactPoint3.ToDouble(1, 0, 5000));
             Assert.Throws<DivideByZeroException>(() => ExactPoint3.ToDouble(0, 0, 0));

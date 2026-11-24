@@ -97,9 +97,21 @@ the curve and is reported not clean, as before (test `KnownLimit_ALinkConditionL
 an edit the repair does not have (eg a flip of the long edge, which is a locked part of a split target edge).
 
 Since #1410 (`ExactPoint3.ToDouble` rounds to nearest instead of truncating) that cylinder instance is clean, and the test pins the same limit on
-the rotated box translated into a UTM frame (632117.25, 5712043.5, 113.75) and shifted by +1 ulp along z, cut into its shifted copy: one sliver of area
+the rotated box translated far from the origin (632117.25, 5712043.5, 113.75) and shifted by +1 ulp along z, cut into its shifted copy: one sliver of area
 1.5e-21 is left, its shortest edge (2.6e-11) is refused by `CollapseEdge` (`Failed_InvalidNeighbourhood`) in both directions. The numbers of the paragraph above
-(39 of 40) were measured before that change. The translated frame is worse than that one instance: the capped cylinder in that frame, shifted by 1 to 12 ulps along z (either way, either direction of the cut), leaves 4 to 8 slivers (measured; no test pins it yet).
+(39 of 40) were measured before that change.
+
+The stage is fragile on ulp-shifted near-duplicates in any frame, and the conversion moves where; it does not introduce the fragility. Measured as
+unclean runs out of 48 (shifts of 1 to 12 ulps, both cut directions), master f11323390 against the #1410 branch. At the origin, all shapes and axes: master 1
+(the cylinder along z, the limit above), branch 0. Far from the origin with positive coordinates: box along z master 0, branch 10; cylinder along z master 0,
+branch 48 (4 to 8 slivers each); cylinder along x master 0, branch 2 (6 ulps: the evaluation limit, 23 slivers). The same frame with the translation negated:
+box along z master 24, branch 10; cylinder master 0, branch as with positive coordinates. Mixed signs: as positive coordinates on the branch (the new rounding is
+sign-symmetric). Only z translated: cylinder along x master 0, branch 24. Reading: truncation is a directed rounding (down for positive, up for negative
+coordinates), and it kept near-duplicate copies on one consistent side only for one sign of the coordinates, so the weakness existed before and depended on the
+frame; the rounding to nearest moves it around for the box (10 of 48 in every frame) and is a real shift for the cylinder. Only callers of `ExactMeshImprint`
+are affected (the follow stage is set only by the imprint; `ExactMeshBoolean` and `SolidBooleanPipeline` do not use it): 162 near-coincident Boolean runs per
+library, far from the origin and at it, had no failed `Compute` on either side, and not `RoundingClean` far from the origin was 3 on master, 0 on the branch.
+No test pins the cylinder cases yet; they belong to an issue for the stage, not to the conversion.
 
 The test inputs avoid `Math.Sin` / `Cos` (they differ in the last bit between net48 and net10, `DETERMINISM.md` C1): the rotated
 box is given by its corners as literals, the cylinder is snapped to a grid of 2^-24.

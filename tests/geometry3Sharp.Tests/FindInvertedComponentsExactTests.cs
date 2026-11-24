@@ -142,9 +142,10 @@ namespace geometry3Sharp.Tests
             var d = new ExactMeshBoolean(r2, c.A, Ops.Difference);
             Assert.True(d.Compute());
             Assert.True(d.RoundingClean);
-            // (#1216: what the rounding removed is listed. One sliver is 2.4e4 ulps thick, a residue of the rounding of the step
-            // before, as thick as that step's drift; the repair mangles it and it goes as VolumeChanged. At 1e-12 of the diagonal
-            // it is below the fraction of the bound that makes a result not clean)
+            // (#1216: what the rounding removed is listed. One sliver is 5.6e5 ulps thick, a residue of the rounding of the step
+            // before, as thick as that step's drift; the repair mangles it and it goes as VolumeChanged. At 3.1e-11 of the diagonal
+            // it is below the fraction of the bound that makes a result not clean; it was 2.4e4 ulps and 1e-12 until #1410 re-set the fixture,
+            // so the ranges below are ten times wider and the volume bound a million times)
             Assert.Equal(d.Rounding.RemovedComponents, d.Rounding.RemovedComponentInfos.Count);
             MeshRoundingRepair.RemovedComponentInfo sliver = Assert.Single(d.Rounding.RemovedComponentInfos, i => i.Reason == MeshRoundingRepair.RemovalReasons.VolumeChanged);
             Assert.InRange(sliver.ThicknessUlps, 1e5, 1e6);      // (1e4 to 1e5 until #1410)

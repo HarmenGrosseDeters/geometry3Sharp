@@ -116,16 +116,18 @@ namespace geometry3Sharp.Tests
         }
 
         // all dense clusters, unfolded and folded (the pokes 2^-k outside slivers thinner than that: the surface folds
-        // over itself, in layers on one line): always within the bound and the same solid; clean in most cases (89 of
-        // 108 and 80 of 90; before the strip zip 51 and 41, before the moves stopped depending on the scale 85 and 80),
+        // over itself, in layers on one line): always within the bound and the same solid; clean in most cases (88 of
+        // 108 and 80 of 90, 89 before #1410; before the strip zip 51 and 41, before the moves stopped depending on the scale 85 and 80),
         // the others are counted (docs/design/SAFE_ROUNDING.md
         // section 2: strips that branch or fold, no disk with a monotone boundary)
         // (#698: the rows of a family split its ks; one row per family took up to 9.8 s alone and 21.6 s in the full run. Cluster is three
-        // rows of two k, 36 Booleans each, about 3 s; 93 of the 108 were clean (34, 29 and 30 by row), and the rows' minima 33 + 28 + 28
-        // keep the old 89. FoldedCluster (no k = 0) is two rows: 84 of 90 were clean (51 and 33), and 49 + 31 keep the old 80;
+        // rows of two k, 36 Booleans each, about 3 s; the rows' minima 33 + 28 + 28 were the old 89. FoldedCluster (no k = 0) is two rows,
+        // and 49 + 31 keep the old 80;
         // DenseClusterRows_AreAllTheCases checks the union of the ks and the sums)
-        // (#1410: the conversion of an exact vertex rounds to nearest now; the Cluster row of k 0 and 44 is clean in 32 of its 36 cases (33
-        // before), so the minimum of that row is 32 and the sum for Cluster 88 (the other rows are unchanged))
+        // (#1410: the conversion of an exact vertex rounds to nearest now; a mild loss of repair success on these dense sliver clusters, each
+        // case still within the bound. Clean cases by row, master -> this change (minimum): Cluster [36,40] 31 -> 31 (28); Cluster [0,44] 33 -> 32
+        // (the minimum goes from 33 to 32, so the sum for Cluster is 88); Cluster [30,52] 31 -> 29 (28); FoldedCluster [30,40,44] 50 -> 49 (49: no
+        // slack left); FoldedCluster [36,52] 33 -> 33 (31). In total 178 -> 174 of 198; no row went up)
         public static IEnumerable<object[]> DenseClusterRows() => new[] {
             new object[] { Family.Cluster, new[] { 0, 44 }, 36, 32 },
             new object[] { Family.Cluster, new[] { 30, 52 }, 36, 28 },

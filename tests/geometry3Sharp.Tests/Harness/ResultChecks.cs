@@ -38,8 +38,8 @@ namespace geometry3Sharp.Tests
         /// <summary>
         /// Clean in the sense of what the library promises for a result whose exact solid touches itself (#1410): valid, and
         /// NotCleanReason without the self-intersection check is empty; every pair of triangles that MeshRepairMetrics reports as
-        /// intersecting has a vertex position in common (a contact: duplicated vertices of one exact point, which the rounding
-        /// leaves apart in memory and which the pair test counts), so no two triangles cross
+        /// intersecting meets only at vertex positions the two share (a contact: duplicated vertices of one exact point, which the rounding
+        /// leaves apart in memory and which the pair test counts): with the ids welded by exact position, ExactTriangleIntersection.IntersectsBeyondShared is false
         /// </summary>
         public static void AssertCleanExceptContacts(DMesh3 mesh, string what = "result")
         {
@@ -51,10 +51,14 @@ namespace geometry3Sharp.Tests
             }
             string reason = MeshRobustRepair.NotCleanReasons(mesh, false);
             Assert.True(reason == "", what + ": " + reason);
+            // weld the vertex ids by exact position: two triangles then meet only where they share a position, or the pair is a crossing
+            var canon = new System.Collections.Generic.Dictionary<Vector3d, int>();
+            int Id(int v) { Vector3d p = mesh.GetVertex(v); if (!canon.TryGetValue(p, out int id)) canon[p] = id = canon.Count; return id; }
             foreach (Index2i pair in MeshRepairMetrics.SelfIntersectionPairs(mesh)) {
                 Index3i s = mesh.GetTriangle(pair.a), t = mesh.GetTriangle(pair.b);
-                Vector3d[] ps = { mesh.GetVertex(s.a), mesh.GetVertex(s.b), mesh.GetVertex(s.c) }, pt = { mesh.GetVertex(t.a), mesh.GetVertex(t.b), mesh.GetVertex(t.c) };
-                Assert.True(ps.Any(p => pt.Contains(p)), $"{what}: triangles {pair.a} and {pair.b} cross without a common vertex position");
+                Index3i cs = new Index3i(Id(s.a), Id(s.b), Id(s.c)), ct = new Index3i(Id(t.a), Id(t.b), Id(t.c));
+                Triangle3d A = new Triangle3d(mesh.GetVertex(s.a), mesh.GetVertex(s.b), mesh.GetVertex(s.c)), B = new Triangle3d(mesh.GetVertex(t.a), mesh.GetVertex(t.b), mesh.GetVertex(t.c));
+                Assert.False(ExactTriangleIntersection.IntersectsBeyondShared(cs, ref A, ct, ref B), $"{what}: triangles {pair.a} and {pair.b} meet beyond their shared vertex positions");
             }
         }
 
