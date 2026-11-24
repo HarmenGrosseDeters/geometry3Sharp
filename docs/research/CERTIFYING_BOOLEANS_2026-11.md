@@ -318,6 +318,82 @@ times the boolean, section 8 table). Cause: the linear BigInteger floor in C0 (e
 orientation), the C5 same-chain test (string keys and gcds per edge) and the C2 pair search. The 20 s limit is met by every case.
 Closing the gap means double filters in those four parts (step C territory), not a change of algorithm.
 
+## 9. Step B: the certificate as bytes and a stand-alone checker (2026-11-24)
+
+Test and benchmark code only; no library change, no public API. Files: `tests/geometry3Sharp.Tests/Harness/CertificateFile.cs`
+(writer, strict reader, `Check(bytes, inputs, output)`), `BooleanCertificate.Recording.cs` (the part of the old checker that
+talks to the boolean, split out), `CertificateFileTests.cs`, a case in `ReaderFuzzTests`, and the benchmark mode `certify file`
+(`perf/certify_file_step_b.txt`).
+
+**Format R, version 1.** Little-endian, deterministic, integers only: varints (zigzag for signed), BigInteger as a length and its
+minimal two's complement bytes, the rounding's `MaxLength` as the 64 raw bits of the double (no number text anywhere; the culture
+cannot change a byte, tested under de-DE and en-US). Layout: magic `G3BC`, version, format; operation (built-in only: a custom
+winding predicate has no file format and `Write` refuses it); culling mesh; the rounding settings and `MaxLength`; the grid
+(`ScaleExp`, `Center`); the input triangles the boolean reversed (the reader rebuilds the arrangement's meshes from the caller's
+meshes, so the claim "these were reversed" is checked by C0's orientation test); per input triangle its mesh, id and culled flag;
+the corner points (each once); the pieces (mesh, source, three point ids, keep and flip bits, front winding numbers); the result
+before rounding as exact points and triangles (its double positions are derived from the exact points, so no redundant bytes).
+The output mesh is not in the file: the caller gives it. The reader refuses non-minimal varints and integers, unreduced points,
+`W <= 0`, counts above the bytes left, trailing bytes, and unknown versions, formats or operations (`FormatException`; `Check`
+turns that and any exception of the checker into a rejection).
+
+**Not format S.** Not built in this step. The keys of `ExactMeshArrangement` refer to arrangement point ids and plane keys (four
+per input triangle: its plane and three edge planes), and an edge-plane point may stand on edges between implicit points, so a
+stand-alone S reader needs its own evaluator of the edge planes and of the recursive constructions (the three constructions
+themselves are a few lines of integer arithmetic each, `edge_plane_exact`, `segments_exact`, `planes_exact`). The study's size
+numbers say S is at most 25 percent smaller than R, so R carries step B. Left for a step B2, with the tamper "change a construction".
+
+**Independence.** `BooleanCertificate.cs` and `CertificateFile.cs` contain no `ExactMeshArrangement`, `Arrangement.`, `Compute(`
+or `new ExactMeshBoolean` on a code line; the one use of the boolean's name is the alias of its operations enum (a test reads the
+sources and checks this). What the stand-alone check shares with the in-process one is the checker class itself (C0-C5), which is
+the point: the same decision procedure, fed from bytes. It trusts the file for the claims it verifies (pieces, labels, selection,
+culling, reversed triangles, the result before rounding) and reads three things as settings, not as proofs: the rounding settings
+(a looser bound is a claim a user reads, printed by the caller), `MaxLength` (checked against the bound the reader derives from the
+settings and the output) and the operation.
+
+**Proposal for a public API (the owner decides; none added).** `ExactMeshBoolean.CertificateBytes()` after `Compute()` with
+recording on, and a static `ExactMeshBooleanCertificate.Check(byte[] certificate, IReadOnlyList<DMesh3> inputs, DMesh3 output)`
+returning a reason or empty, as the two entry points; the checker itself would have to move from `tests/` into the library with
+the exact-code review of section 6 step C (filters, error bounds, the `G3E` analyzers). Until then the format is versioned and
+test-only.
+
+**Tests** (each under 5 s; procedural inputs only):
+- Round trip on the 84 fuzz runs (7 closed families, seeds 0-3, three operations): the same bytes twice, read then written gives the
+  same bytes, and the stand-alone verdict is word for word the in-process one (the 5 inconclusive runs included); plus a case with
+  reversed input triangles (`ReorientedInputs_RoundTrip`).
+- Tamper tests of the certificate (20 mutations, each must be rejected): one rational of one piece, of every piece that has it,
+  a denominator, a piece dropped (two ways), two sources swapped, two label sets swapped, a winding number, keep and flip bits, a
+  corner order, the grid scale and centre, a culled flag, an input triangle dropped, the operation, a rounding length above its
+  bound, a result-before-rounding vertex and triangle. One flipped bit at 60 positions on a stride through the file after the
+  settings, for a Union and a Difference: all rejected, except the labels of pieces outside the culling mesh (a Difference discards
+  what lies outside A, so B's winding number there is a don't-care that C3 does not read).
+- Tamper tests of the output and the inputs: a triangle reversed or removed, a vertex moved by ten times Delta or by 3e-3, the output
+  of another operation, other input meshes: rejected.
+- **A vertex moved by one ulp is not rejected, by design.** The certificate claims Hausdorff distance at most Delta, with Delta the
+  rounding bound plus four ulps of the largest coordinate (section 3, C5); a one-ulp move is inside it, and the stand-alone checker
+  gives the in-process answer on it (tested). The sharper claim "the output is exactly the rounding of the exact result" would
+  need the rounding to be a specified function; it is a heuristic of `MeshRoundingRepair`.
+- Invariance over `Similarity.All()` (without the extreme frame): every frame certifies through the file, and the exact 2^k frames
+  give the same pieces on the grid, labels, selection and culling bit for bit (the bytes differ in the grid scale and in the
+  result before rounding, which is in input coordinates).
+- `ReaderFuzzTests.MutatedCertificates_ReadSafely`: random byte mutations, truncations and header numbers never throw, hang or
+  allocate beyond the budget.
+- Hand mutations of the file code (reversed list ignored, flip bit dropped, unreduced check removed, culled flags dropped, trailing
+  bytes allowed, centre ignored, labels read as zero) each turn at least one test red.
+
+**Size and time** (`certify file 3 4`, 4 cores, the checker serial; 105 runs; the stand-alone verdict equals the in-process one on
+all 105):
+
+| | Certificate / output bytes | Certificate / input bytes | Write (ms) | Read (ms) | Check C0-C5 / boolean |
+|---|---|---|---|---|---|
+| 84 fuzz runs | median 2.5 (1.0-12.4; 7 runs have an empty output) | median 1.7 (0.6-11) | median 0.11 | median 0.14 | median 5.9 (1.3-44) |
+| 21 procedural | median 2.6 (0.9-6.9) | median 2.2 (0.9-4.3) | median 6.4 | median 5.4 | median 67 (1.6-150) |
+
+The output size counts 24 bytes per vertex and 12 per triangle (as in section 4). Reading is cheap; the time is the check, as in
+section 8 (same cost as the in-process checker plus the read). The certificate is a few times the output and the input, as
+estimated in section 3.3; the step B stop rule (at most 5 times the input) holds on the procedural cases (max 4.3) and fails on
+tiny fuzz inputs (up to 11, fixed header and labels).
+
 ## Sources
 
 Papers and public documentation only. No code was read or ported, apart from this repository's own.
