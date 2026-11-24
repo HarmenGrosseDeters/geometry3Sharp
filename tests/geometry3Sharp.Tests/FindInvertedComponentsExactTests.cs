@@ -145,14 +145,14 @@ namespace geometry3Sharp.Tests
             // (#1216: what the rounding removed is listed. One sliver is 5.6e5 ulps thick, a residue of the rounding of the step
             // before, as thick as that step's drift; the repair mangles it and it goes as VolumeChanged. At 3.1e-11 of the diagonal
             // it is below the fraction of the bound that makes a result not clean; it was 2.4e4 ulps and 1e-12 until #1410 re-set the fixture,
-            // so the ranges below were widened; since #1489 they are within a factor 2 of the measured values again. Guarded path, checked with hand mutants:
+            // so the ranges below were widened; since #1489 they are within a factor 2 of the measured values again (the upper bound of the volume is master's 1e-15). Guarded path, checked with hand mutants:
             // ReportBoundFraction 1e-3 -> 1e-7 (the sliver would become resolvable), the volume factor of volume_changed 2 -> 2^40 (the sliver would be kept) and
             // ResolutionUlps 4 -> 1e7 (it would go as BelowResolution) each fail this test)
             Assert.Equal(d.Rounding.RemovedComponents, d.Rounding.RemovedComponentInfos.Count);
             MeshRoundingRepair.RemovedComponentInfo sliver = Assert.Single(d.Rounding.RemovedComponentInfos, i => i.Reason == MeshRoundingRepair.RemovalReasons.VolumeChanged);
             Assert.InRange(sliver.ThicknessUlps, 3e5, 1.2e6);      // (measured 5.63e5; 1e4 to 1e5 until #1410)
             Assert.InRange(sliver.Thickness, 1.5e-11, 6e-11);      // (measured 3.13e-11; 1e-12 to 2e-12 until #1410)
-            Assert.InRange(sliver.Volume, 2e-16, 1.5e-15);      // (measured 5.29e-16; below 1e-21 until #1410; 1e-16 of the sphere's volume, numerically zero)
+            Assert.InRange(sliver.Volume, 2e-16, 1e-15);      // (measured 5.29e-16; below 1e-21 until #1410; 1e-16 of the sphere's volume, numerically zero)
             Assert.False(sliver.Resolvable);
             Assert.Equal(0, d.Rounding.RemovedResolvable);
             var rounded = new MeshConnectedComponents(d.Result);

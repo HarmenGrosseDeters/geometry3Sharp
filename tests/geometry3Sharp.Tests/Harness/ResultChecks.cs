@@ -65,7 +65,7 @@ namespace geometry3Sharp.Tests
         /// <summary>
         /// every position that holds more than one vertex of a result computed with ComputeExactVertices holds vertices of ONE exact point: the
         /// contact is a property of the exact solid (it touches itself there: the rounding does not make it, and no rounding could take it away
-        /// without changing the solid), not a contact the rounding made of different exact points (#1489). Returns the number of such positions
+        /// without changing the solid), not a contact the rounding made of different exact points (#1489). ResultExactVertices holds the coordinates from before the repair. Returns the number of such positions
         /// </summary>
         public static int AssertContactsAreOfTheExactSolid(ExactMeshBoolean boolean, string what = "result")
         {

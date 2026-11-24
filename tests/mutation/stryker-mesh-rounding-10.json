@@ -8,7 +8,7 @@
     "mutate": [
       "**/mesh_ops/MeshRoundingRepair.cs{59305..74291}"
     ],
-    "test-case-filter": "(FullyQualifiedName~MeshRoundingRepairTests&FullyQualifiedName!~MeshRoundingRepairTestsPositionSearch)|FullyQualifiedName~ExactMeshBooleanTests.|FullyQualifiedName~MeshRoundingRepairStrategyTests|FullyQualifiedName~ExactBooleanSurvivorTests|FullyQualifiedName~ExactBooleanIssueCasesTests|FullyQualifiedName~ExactBooleanByDesignTests|FullyQualifiedName~SafeRoundingBoundTests|FullyQualifiedName~ExactBooleanPropertyFindings|FullyQualifiedName~RoundingSerialWorkTests.NotFiniteInOneTriangle|FullyQualifiedName~RoundingSerialWorkTests.Field_SerialEqualsParallel|FullyQualifiedName~ExactMeshImprintSliverStageTests|FullyQualifiedName~SafeRoundingBudgetTests|FullyQualifiedName~RoundingVolumeReportTests",
+    "test-case-filter": "(FullyQualifiedName~MeshRoundingRepairTests&FullyQualifiedName!~MeshRoundingRepairTestsPositionSearch)|FullyQualifiedName~ExactMeshBooleanTests.|FullyQualifiedName~MeshRoundingRepairStrategyTests|FullyQualifiedName~ExactBooleanSurvivorTests|FullyQualifiedName~ExactBooleanIssueCasesTests|FullyQualifiedName~ExactBooleanByDesignTests|FullyQualifiedName~SafeRoundingBoundTests|FullyQualifiedName~ExactBooleanPropertyFindings|FullyQualifiedName~RoundingSerialWorkTests.NotFiniteInOneTriangle|FullyQualifiedName~RoundingSerialWorkTests.Field_SerialEqualsParallel|FullyQualifiedName~ExactMeshImprintSliverStageTests|FullyQualifiedName~SafeRoundingBudgetTests|FullyQualifiedName~RoundingVolumeReportTests|FullyQualifiedName~ExactMeshImprintSliverTests.StageEvaluationLimit",
     "ignore-methods": [
       "*PredicateStats.*"
     ],

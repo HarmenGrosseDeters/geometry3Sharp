@@ -293,6 +293,33 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void NeutralContractions_AStrictlyImprovingContraction_IsNotCountedAsNeutral()
+        {
+            // the contraction of v into p removes both slivers: a gain, not a contraction that only keeps the counts (#1489)
+            MeshRoundingRepair repair = SplitEdge(true, out int p, out int q, out int v);
+            repair.AcceptNeutralContractionsInStage = true;
+            Assert.True(repair.Apply());
+            Assert.True(repair.FollowStageRan);
+            Assert.False(repair.Mesh.IsVertex(v));
+            Assert.Equal(1, repair.RuleLockedContractions);
+            Assert.Equal(0, repair.NeutralContractions);
+        }
+
+        [Fact]
+        public void NeutralContractions_ApplyTwiceOnOneRepair_TheCounterIsOfTheSecondRun()
+        {
+            // the imprint builds a new repair per Compute(); a repair that is applied again starts its counter from 0 (Apply's reset)
+            DMesh3 a = Invariance.Transformed(ExactMeshImprintSliverTests.Shape("box"), Similarity.Utm), b = ExactMeshImprintSliverTests.Shifted(a, 2, 1);
+            ExactMeshImprint now = Run(a, b, true);
+            MeshRoundingRepair repair = now.Rounding;
+            // (measured: one neutral contraction, the valence-3 vertex of the needle; the input is libm-free, the same on every runtime)
+            Assert.Equal(1, repair.NeutralContractions);
+            repair.Apply();
+            Assert.Equal(0, repair.NeutralContractions);
+            Assert.False(repair.FollowStageRan);
+        }
+
+        [Fact]
         public void RuleLockedEdges_WithoutFollowing_TheSliverStays()
         {
             MeshRoundingRepair repair = SplitEdge(false, out int p, out int q, out int v);

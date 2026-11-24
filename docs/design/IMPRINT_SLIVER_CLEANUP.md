@@ -46,7 +46,7 @@ after the repair, so every listed curve edge is an edge of `Result` (G5 of `EXAC
 **No output change for clean results:** the stage runs only where the result is not clean without it (the condition is the
 defect lists after the search, which are what `RemainingDegenerate` and `RemainingIntersections` count, `RemoveTinyComponents`
 being off with `FixedHard`). Before the stage, the new set gives the same answers as the old rule (the parts of split edges,
-asked by the same contractions, flips, zips and vertex removals), so every result that is clean today is bit for bit the same.
+asked by the same contractions, flips, zips and vertex removals), so every result that is clean without the stage is bit for bit the same (a result that the stage cleans can differ, section 5).
 The internal switch `ExactMeshImprint.SliverCleanup` (default on) gives the repair without the stage, for the tests;
 `LegacyPartLocks` gives the locks of before the change (one `LockedEdgeF` over the fixed set), and a test checks that the repair without
 the stage equals it bit for bit. A target with defects of its own near the cut (a degenerate triangle or a self-intersection that a
@@ -135,9 +135,13 @@ frame dependence (negated box 24, mixed signs 0) is not a per-sign rule; the sid
 set by `ExactMeshImprint`; `ExactMeshBoolean` does not set it). Invariants: (1) every other rule of the edit is unchanged: the drift bound, no triangle turned over,
 no more degenerate triangles and no more intersecting pairs than before (each tested separately, so "keeps the counts" means equal counts), locks, link condition;
 (2) termination: a contraction removes a vertex and every other edit still has to remove a defect, so (defects, vertices) falls lexicographically with every
-accepted edit; (3) results that are clean without the stage are bit for bit the same (the stage does not run on them); (4) deterministic, no randomness, no rollback:
-a neutral contraction is kept and leaves the mesh no worse by the counts, within the drift bound. A result that was not clean may change (more of them become
-clean; a neutral contraction that no gain follows stays). The tests of the rounding, imprint, Boolean, Metamorphic, invariance and exact-conversion areas (6863) run with it: no pinned count or hash moved; the two pins of the known limit became the property.
+accepted edit; (3) a result that is clean WITHOUT the stage is bit for bit the same (the stage does not run on it); a result that is clean only THANKS to the stage (the stage ran
+and cleaned it) can differ from before while it stays clean: `collapse_any` runs before the flips, zips and moves in `fix_degenerate`, so a neutral contraction can
+pre-empt the edit that used to fix a defect (an independent sweep of 1932 runs found 105 that are clean with the flag off and not bit-identical with it on, none from clean to
+unclean; at the origin the stage runs in every box and cylinder run of the sweep, and neutral contractions occur there under permutation); (4) deterministic, no randomness,
+no rollback: a neutral contraction is kept and leaves the mesh no worse by the counts, within the drift bound. A result that was not clean may change (more of them become
+clean; a neutral contraction that no gain follows stays). The positions the repair picks where candidates tie depend on the vertex ids (a permuted input gives other,
+equally clean positions), on master as well and with the flag off; the exact part of the imprint does not depend on them. The tests of the rounding, imprint, Boolean, Metamorphic, invariance and exact-conversion areas (6863) run with it: no pinned count or hash moved; the two pins of the known limit became the property.
 
 *How this differs from the plateau variant that the owner declined (SNAP_ROUNDING_3D.md section 10, no-go 2026-11-15).* That rule took sideways *position
 moves* of one vertex by random draws, with a journal and a rollback, as a general search after the passes, for the Boolean's leftovers (a gain on 1 of 16 239 cohort
