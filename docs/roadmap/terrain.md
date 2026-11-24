@@ -23,6 +23,11 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
+- **Slope envelope: canonical output, planes per part and local merge during insertion (#1515, draft PR; owner decision (b) of
+  2026-11-24).** Stage 1: one canonical rule for the output (after `Simplify` only exact predicates or `K.Rounded`; no output
+  changes). Stage 2: faster insertion with the same output (`PartSectors`, `Compact`). The near-degenerate difference of 2026-11-10 was
+  the prefilter bug #805, fixed in #806, not a vertex-history leak. Open: review and CI.
+
 - **`TerrainGreedyTIN` bugfixes: done (merged 2026-11-15).** `MaxError = 0` never ended (#855, memory for a height of -2.87e-223
   at the default `MaxVertices`; fixed by #889); the `RemoveVertices` ear choice used an absolute 1e-12 and was not invariant under 2^k
   scaling (#854; fixed by #890). Both are in [UPSTREAM_CHANGES.md](../UPSTREAM_CHANGES.md).
