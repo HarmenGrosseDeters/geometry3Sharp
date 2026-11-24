@@ -701,7 +701,10 @@ namespace geometry3Sharp.Tests
             var good = new SolidBooleanPipeline(map(new List<DMesh3> { CubeAt(0, 4), CubeAt(1, 6) }), D) { Verification = Both };
             Assert.True(good.Compute(), good.Status + " " + good.Error);
             Assert.Equal(0.0, good.Report.InventedSurfaceShare);
-            Assert.Equal(0.0, good.Report.RoundingVolumeChange);
+            // not exactly 0 in every frame: in a rotated frame the rounding repair contracts the edges that the rotation split (4 collapses, vertices moved by
+            // 1 ulp), the signed volume of the other triangulation differs in the last bits. That is round-off (a few ulp of the volume), not a moved volume
+            Assert.True(good.Report.RoundingVolumeChange <= 1e-13, "RoundingVolumeChange " + good.Report.RoundingVolumeChange);
+            Assert.True(good.Report.InventedSurfaceMaxDistance < good.Report.InventedSurfaceTolerance / 8, "max distance " + good.Report.InventedSurfaceMaxDistance + " tolerance " + good.Report.InventedSurfaceTolerance);
         }
 
         [Fact]
