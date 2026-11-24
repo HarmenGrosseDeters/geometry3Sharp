@@ -1237,6 +1237,107 @@ namespace geometry3Sharp.Tests
             }
             Assert.True(compared > 100);
         }
+
+        // ---- paths that the property tests never reach (coverage gate, lines of #1432) ----
+
+        [Fact]
+        public void DyCompare_OrdersExactNumbers_OfEitherExponentOrder()
+        {
+            var a = IntrExactBox3.Dy.From(0.25);          // 1 * 2^-2
+            var b = IntrExactBox3.Dy.From(0.75);          // 3 * 2^-2: the same exponent
+            var c = IntrExactBox3.Dy.From(1e-300);        // a far smaller exponent
+            var d = IntrExactBox3.Dy.From(1e300);
+            Assert.Equal(-1, IntrExactBox3.Dy.Compare(a, b));
+            Assert.Equal(1, IntrExactBox3.Dy.Compare(b, a));
+            Assert.Equal(0, IntrExactBox3.Dy.Compare(a, IntrExactBox3.Dy.From(0.25)));
+            Assert.Equal(-1, IntrExactBox3.Dy.Compare(c, a));       // a.E >= c.E is false for c - a
+            Assert.Equal(1, IntrExactBox3.Dy.Compare(a, c));
+            Assert.Equal(1, IntrExactBox3.Dy.Compare(d, c));
+            Assert.Equal(-1, IntrExactBox3.Dy.Compare(IntrExactBox3.Dy.From(-1e300), c));
+            Assert.Equal(0, IntrExactBox3.Dy.Compare(IntrExactBox3.Dy.From(0), IntrExactBox3.Dy.From(-0.0)));
+        }
+
+        [Fact]
+        public void Line_WithANonFiniteOrigin_AndAUnitDirection_IsAnInvalidQuery()
+        {
+            // (a unit direction passes the normalization check, so it is the finiteness check that refuses)
+            var aab = new AxisAlignedBox3d(new Vector3d(-1, -1, -1), new Vector3d(1, 1, 1));
+            var obox = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1));
+            foreach (double bad in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity }) {
+                var line = new Line3d(new Vector3d(bad, 0, 0), Vector3d.AxisX);
+                var fa = new IntrLine3AxisAlignedBox3(line, aab);
+                Assert.False(fa.Find());
+                Assert.Equal(IntersectionResult.InvalidQuery, fa.Result);
+                Assert.Equal(IntersectionType.Empty, fa.Type);
+                var fo = new IntrLine3Box3(line, obox);
+                Assert.False(fo.Find());
+                Assert.Equal(IntersectionResult.InvalidQuery, fo.Result);
+                Assert.Equal(IntersectionType.Empty, fo.Type);
+                // the same lines with a finite origin do hit
+                var good = new Line3d(Vector3d.Zero, Vector3d.AxisX);
+                Assert.True(new IntrLine3AxisAlignedBox3(good, aab).Find());
+                Assert.True(new IntrLine3Box3(good, obox).Find());
+            }
+        }
+
+        [Fact]
+        public void Segment_WithANonFiniteOrOverflowingEnd_AndAUnitDirection_IsAnInvalidQuery()
+        {
+            var obox = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1));
+            var bad = new[] {
+                new Segment3d(new Vector3d(double.PositiveInfinity, 0, 0), Vector3d.AxisX, 1),
+                new Segment3d(new Vector3d(double.NaN, 0, 0), Vector3d.AxisX, 1),
+                new Segment3d(new Vector3d(1.7e308, 0, 0), Vector3d.AxisX, 1.7e308),      // P1 = 3.4e308 overflows to infinity
+            };
+            foreach (Segment3d s in bad) {
+                var f = new IntrSegment3Box3(s, obox, true);
+                Assert.False(f.Find());
+                Assert.Equal(IntersectionResult.InvalidQuery, f.Result);
+                Assert.Equal(IntersectionType.Empty, f.Type);
+            }
+            var ok = new IntrSegment3Box3(new Segment3d(Vector3d.Zero, Vector3d.AxisX, 3), obox, true);
+            Assert.True(ok.Find());
+        }
+
+        [Fact]
+        public void SegmentDoClipping_ByValueOverload_ClipsTheComponentToTheBox()
+        {
+            var obox = new Box3d(Vector3d.Zero, new Vector3d(1, 2, 3));
+            double t0 = 0, t1 = 10;
+            int quantity = 0; Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero; IntersectionType type = IntersectionType.Empty;
+            // the line x = t - 4 meets the slab |x| <= 1 for t in [3, 5], and the segment component [0, 10] keeps all of it
+            Assert.True(IntrSegment3Box3.DoClipping(ref t0, ref t1, new Vector3d(-4, 0.5, 0.5), Vector3d.AxisX, obox, true, ref quantity, ref p0, ref p1, ref type));
+            Assert.Equal(2, quantity);
+            Assert.Equal(IntersectionType.Segment, type);
+            Assert.Equal(3.0, t0); Assert.Equal(5.0, t1);
+            Assert.Equal(new Vector3d(-1, 0.5, 0.5), p0); Assert.Equal(new Vector3d(1, 0.5, 0.5), p1);
+            // a component that ends before the box
+            t0 = 0; t1 = 2;
+            Assert.False(IntrSegment3Box3.DoClipping(ref t0, ref t1, new Vector3d(-4, 0.5, 0.5), Vector3d.AxisX, obox, true, ref quantity, ref p0, ref p1, ref type));
+            Assert.Equal(0, quantity);
+        }
+
+        [Fact]
+        public void Find_OfAnUnboundedComponent_AgainstTheSurfaceOnly_ReportsTheContactWithTheSurface()
+        {
+            // solid = false: a component inside the open box does not touch it, but one with no start (hasMin = false) cannot lie inside
+            var aab = new AxisAlignedBox3d(new Vector3d(-1, -1, -1), new Vector3d(1, 1, 1));
+            var spec = IntrExactBox3.BoxSpec.Of(ref aab, 0);
+            Vector3d o = Vector3d.Zero, d0 = Vector3d.Zero, d1 = Vector3d.AxisX;
+            IntrExactBox3.Hit hit;
+            // t <= 0.25 along +x from the center: the contact with the box is x in [-1, 0.25], which reaches the face x = -1
+            Assert.True(IntrExactBox3.Find(ref spec, ref o, ref d0, ref d1, false, 0, true, 0.25, false, out hit));
+            Assert.Equal(2, hit.Kind);
+            Assert.Equal(-1.0, hit.T0); Assert.Equal(0.25, hit.T1);
+            Assert.Equal(new Vector3d(-1, 0, 0), hit.P0); Assert.Equal(new Vector3d(0.25, 0, 0), hit.P1);
+            // the bounded component t in [-0.5, 0.25] is inside the open box: no contact with the surface
+            Assert.True(IntrExactBox3.Find(ref spec, ref o, ref d0, ref d1, true, -0.5, true, 0.25, false, out hit));
+            Assert.Equal(0, hit.Kind);
+            // no end: the same, from the other side
+            Assert.True(IntrExactBox3.Find(ref spec, ref o, ref d0, ref d1, true, -0.25, false, 0, false, out hit));
+            Assert.Equal(2, hit.Kind);
+            Assert.Equal(-0.25, hit.T0); Assert.Equal(1.0, hit.T1);
+        }
     }
 
     static class BigIntegerExt
