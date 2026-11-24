@@ -222,7 +222,7 @@ Example: [BooleanVolumeGradientExample](../examples/BooleanVolumeGradientExample
 - `Volume` is the volume of the exact result, and `VolumeBound` is its error bound.
 - The output is bit-identical on every run: the computation is serial and uses no FMA.
 - If the inputs are scaled by 2^k, the gradient and its bound scale by exactly 2^2k and the volume by exactly 2^3k, as
-  long as nothing underflows or overflows.
+  long as no result underflows or overflows. The evaluation itself is in grid units, so it is the same at every scale.
 - The cost is linear in the number of kept pieces. It measured 19-49 % of the boolean's own time
   ([benchmarks/BooleanVolumeGradient](../../benchmarks/BooleanVolumeGradient/README.md)).
 
@@ -240,16 +240,20 @@ differentiated.
 
 **The error bound (proof).**
 1. *Corners.*
-   - Each exact coordinate of a piece corner has the form num/den · 2^e. It is converted with `ExactPoint3.ToDouble`,
-     which is correctly rounded (by its documented method). So the exact value lies within half a spacing of the result
-     x, and therefore within [Down(x), Up(x)], the two neighbouring doubles.
-   - The interval is the single point x only when den = 1 and y = x · 2^-e is an integer equal to num. Then
-     x = num · 2^e exactly: both scalings by a power of two are exact for a normal x, and the code checks that x is
-     normal.
+   - Everything is evaluated in the arrangement's grid units: the input is 2^e times (grid point + center), and the
+     center is left out, since a translation changes neither the gradient nor the volume of a closed result. The grid
+     is independent of the input's magnitude, so nothing underflows or overflows in the evaluation, at any scale.
+   - Each exact grid coordinate num/den of a piece corner is converted with `ExactPoint3.ToDouble`, which is correctly
+     rounded (by its documented method). So the exact value lies within half a spacing of the result x, and therefore
+     within [Down(x), Up(x)], the two neighbouring doubles.
+   - The interval is the single point x only when den = 1 and x is an integer equal to num, which the code checks.
 2. *Terms and sums.*
    - Every operation of `ExactInterval` (+, −, ×, ÷) rounds to nearest and then widens the result by one spacing on both
      sides. So it encloses the exact result of the operation for all operand values in the operand intervals. The proof
      is in `math/ExactIntervals.cs`. A divisor interval that contains 0 gives the whole line.
+   - Four exact identities are kept exact instead of widened: x + 0 = x, x · 0 = 0, x − x = 0 for a single point x,
+     and 0 / b = 0 for a b that excludes 0. Otherwise an exact zero, such as a component of the normal of an
+     axis-aligned face, would become ±2^-1074 and underflow when it is scaled.
    - By induction over the evaluation, each per-vertex sum interval [Lo, Hi] contains the exact derivative. These sums
      add the terms of the formula in piece order.
    - The same holds for the volume, Σ s_P p_0·(p_1×p_2)/6, and for the alternatives of the contact regions. No new error
@@ -260,7 +264,14 @@ differentiated.
      fl(d) is smaller than that only when fl(d) is a power of two 2^j and d is just above it. In that case the spacing of
      2^j upwards equals ulp(d), which is enough. So b ≥ d.
    - Every z in [Lo, Hi] therefore satisfies |z − m| ≤ max(Hi − m, m − Lo) ≤ b.
+   - For a single point, Lo = Hi, the bound is 0.
    - A NaN or infinite end gives b = +∞.
+4. *Scaling to the input's units.*
+   - m and b are multiplied by 2^k: k = 2e for the gradient and the areas, 3e for the volume. A scaling by a power of
+     two is exact unless its result is subnormal or overflows. The code checks exactness by scaling back.
+   - If the result is subnormal, each of the two scalings rounds once, by at most 2^-1075. The bound then becomes
+     Up(b · 2^k + 2^-1074), which covers both roundings.
+   - If the result overflows, the bound is +∞.
 
 **Kinks (contacts of positive area).**
 - V is not differentiable only where faces of different inputs lie in one plane and overlap with positive area.
@@ -278,6 +289,8 @@ differentiated.
   the two extremes of the Clarke generalized gradient.
 - `Alternatives` stays empty in two cases: more than 4 stacked faces, or two faces of one input with the same
   orientation.
+- With a `WindingPredicate`, the predicate is also called with the winding vectors of the other face orders. These are
+  vectors that the classification itself does not produce, so the predicate must be defined for any vector of integers.
 
 The area of the result is not covered:
 - its gradient is not rational;

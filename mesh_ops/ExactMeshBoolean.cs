@@ -1878,15 +1878,6 @@ namespace g3
         // the winding numbers at a point: winding[m] for every mesh m, of which only the meshes in touched can
         // be nonzero (the others are 0)
         [MethodImpl(JitHints.Optimize)]
-        /// <summary> the operation on a dense vector of winding numbers (one per mesh), as the classification decides it </summary>
-        internal bool InsideOf(int[] winding)
-        {
-            var all = new List<int>(winding.Length);
-            for (int m = 0; m < winding.Length; ++m)
-                all.Add(m);
-            return inside(winding, all);
-        }
-
         bool inside(int[] winding, List<int> touched)
         {
             if (WindingPredicate is not null)
@@ -1900,6 +1891,19 @@ namespace g3
                 case Operations.Intersection: return count == winding.Length;
                 default: return winding[0] > 0 && count == 1;
             }
+        }
+
+        /// <summary>
+        /// the operation on a dense vector of winding numbers (one per mesh), as the classification decides it
+        /// (BooleanVolumeGradient: also for the vectors of the other orders of a coplanar stack, which a WindingPredicate is
+        /// then called with)
+        /// </summary>
+        internal bool InsideOf(int[] winding)
+        {
+            var all = new List<int>(winding.Length);
+            for (int m = 0; m < winding.Length; ++m)
+                all.Add(m);
+            return inside(winding, all);
         }
 
 

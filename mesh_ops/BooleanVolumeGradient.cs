@@ -120,18 +120,18 @@ namespace g3
                 var ot = output[i];
                 IV3 p0 = point(ot.A), p1 = point(ot.B), p2 = point(ot.C);
                 ExactInterval s = ExactInterval.Of(flip[i] ? -1 : 1);
-                vol = vol + s * sixth * p0.Dot(p1.Cross(p2));
+                vol = add(vol, mul(mul(s, sixth), p0.Dot(p1.Cross(p2))));
                 IV3 np = piece_area(p0, p1, p2), c = centroid(p0, p1, p2);
                 add_terms(acc, tri(ot.Source), c, np, s);
             }
-            Volume = mid(vol, out VolumeBound);
+            Volume = scaled(vol, 3 * e, out VolumeBound);
             Gradient = new Vector3d[nm][];
             GradientBound = new Vector3d[nm][];
             for (int m = 0; m < nm; ++m) {
                 Gradient[m] = new Vector3d[acc[m].Length];
                 GradientBound[m] = new Vector3d[acc[m].Length];
                 for (int v = 0; v < acc[m].Length; ++v)
-                    Gradient[m][v] = acc[m][v].Mid(out GradientBound[m][v]);
+                    Gradient[m][v] = acc[m][v].Mid(2 * e, out GradientBound[m][v]);
             }
             Contacts = contacts(output, keep, flip, stacks, nm);
             return true;
@@ -163,8 +163,9 @@ namespace g3
             if (known[id])
                 return points[id];
             ExactPoint3 p = arr.Exact(id);
-            int e = arr.ScaleExp;
-            var r = new IV3(enclose(p.X, p.W, e), enclose(p.Y, p.W, e), enclose(p.Z, p.W, e));
+            // (grid units, relative to the arrangement's center: the evaluation does not depend on the input's magnitude, so
+            // nothing under- or overflows at any scale; the results are scaled by 2^2e or 2^3e at the end)
+            var r = new IV3(enclose(p.X, p.W, 0), enclose(p.Y, p.W, 0), enclose(p.Z, p.W, 0));
             points[id] = r;
             known[id] = true;
             return r;
@@ -219,13 +220,13 @@ namespace g3
 
         // the barycentric coordinate k of c (a point of T's plane) in T
         static ExactInterval lambda(Tri T, IV3 c, int k)
-            => (T.P[(k + 1) % 3] - c).Cross(T.P[(k + 2) % 3] - c).Dot(T.N) / T.NN;
+            => div((T.P[(k + 1) % 3] - c).Cross(T.P[(k + 2) % 3] - c).Dot(T.N), T.NN);
 
         // adds s lambda_k(c) np to the corners of T
         static void add_terms(IV3[][] acc, Tri T, IV3 c, IV3 np, ExactInterval s)
         {
             for (int k = 0; k < 3; ++k) {
-                ExactInterval w = s * lambda(T, c, k);
+                ExactInterval w = mul(s, lambda(T, c, k));
                 ref IV3 a = ref acc[T.Mesh][T.Vid[k]];
                 a = a + np * w;
             }
@@ -238,9 +239,29 @@ namespace g3
                 bound = double.PositiveInfinity;
                 return double.IsNaN(m) ? 0 : m;
             }
+            if (x.Lo == x.Hi) {
+                bound = 0;          // (an exact value: m is it)
+                return m;
+            }
             // (Hi - m and m - Lo rounded to nearest, then one spacing up: at least the exact differences)
             bound = ExactInterval.Up(Math.Max(x.Hi - m, m - x.Lo));
             return m;
+        }
+
+        // mid of x times 2^k, with its bound times 2^k: exact scalings unless a result is subnormal (each ScaleB then rounds once,
+        // by at most 2^-1075: both together are covered by adding 2^-1074 and one spacing) or overflows (an infinite bound)
+        internal static double scaled(ExactInterval x, int k, out double bound)
+        {
+            double m = mid(x, out double b);
+            double ms = ExactPoint3.ScaleB(m, k), bs = ExactPoint3.ScaleB(b, k);
+            if (double.IsInfinity(ms) || double.IsInfinity(bs) || double.IsNaN(ms)) {
+                bound = double.PositiveInfinity;
+                return double.IsNaN(ms) ? 0 : ms;
+            }
+            if (ExactPoint3.ScaleB(ms, -k) != m || ExactPoint3.ScaleB(bs, -k) != b)
+                bs = ExactInterval.Up(bs + double.Epsilon);
+            bound = bs;
+            return ms;
         }
 
         // ---- contact regions ----
@@ -320,20 +341,21 @@ namespace g3
                 parent[i] = i;
             Func<int, int> find = null;
             find = x => { int r = x; while (parent[r] != r) r = parent[r]; while (parent[x] != r) { int nx = parent[x]; parent[x] = r; x = nx; } return r; };
-            var edgeOwner = new Dictionary<(int, int), int>();
+            var edgePieces = new Dictionary<(int, int), List<int>>();
             foreach (int i in pieces) {
                 var ot = output[i];
                 int[] c = { arr.Canonical(ot.A), arr.Canonical(ot.B), arr.Canonical(ot.C) };
                 for (int k = 0; k < 3; ++k) {
                     int a = c[k], b = c[(k + 1) % 3];
                     var ek = a < b ? (a, b) : (b, a);
-                    if (edgeOwner.TryGetValue(ek, out int o)) {
+                    if (edgePieces.TryGetValue(ek, out List<int> others) == false)
+                        edgePieces[ek] = others = new List<int>();
+                    foreach (int o in others)
                         if (keyOf[o] == keyOf[i] && coplanar(sheets[o][0].Tri, sheets[i][0].Tri)) {
                             int ra = find(o), rb = find(i);
                             if (ra != rb) parent[Math.Max(ra, rb)] = Math.Min(ra, rb);
                         }
-                    } else
-                        edgeOwner[ek] = i;
+                    others.Add(i);
                 }
             }
             var members = new SortedDictionary<int, List<int>>();
@@ -365,9 +387,9 @@ namespace g3
             foreach (int i in regionPieces) {
                 var ot = output[i];
                 IV3 np = piece_area(point(ot.A), point(ot.B), point(ot.C));
-                area = area + ExactInterval.Sqrt(np.Dot(np));
+                area = add(area, ExactInterval.Sqrt(np.Dot(np)));
             }
-            cr.Area = mid(area, out _);
+            cr.Area = scaled(area, 2 * arr.ScaleExp, out _);
             bool enumerable = sig.Length <= 4;
             for (int j = 1; j < sig.Length; ++j)
                 enumerable &= !(sig[j].Mesh == sig[j - 1].Mesh && sig[j].O == sig[j - 1].O);
@@ -423,7 +445,7 @@ namespace g3
                 var terms = new List<GradientTerm>();
                 foreach (long key in deltaOrder) {
                     Vector3d b;
-                    Vector3d v = delta[key].Mid(out b);
+                    Vector3d v = delta[key].Mid(2 * arr.ScaleExp, out b);
                     terms.Add(new GradientTerm { Mesh = (int)(key >> 32), Vertex = (int)(uint)key, Value = v, Bound = b });
                 }
                 alternatives.Add(terms.ToArray());
@@ -449,7 +471,7 @@ namespace g3
                     a = default(IV3);
                     order.Add(key);
                 }
-                delta[key] = a + npCanon * (s * lambda(T, c, k));
+                delta[key] = a + npCanon * mul(s, lambda(T, c, k));
             }
         }
 
@@ -472,21 +494,31 @@ namespace g3
 
         // ---- interval vectors ----
 
+        // exact identities kept exact: ExactInterval widens every result, also an exact zero, and a widened zero (+-2^-1074 in
+        // grid units) would underflow when scaled to the input's units; x + 0 = x, x * 0 = 0 and x - x = 0 for a point x are exact
+        static bool zero(ExactInterval a) => a.Lo == 0 && a.Hi == 0;
+        static ExactInterval add(ExactInterval a, ExactInterval b) => zero(a) ? b : zero(b) ? a : a + b;
+        internal static ExactInterval sub(ExactInterval a, ExactInterval b)
+            => zero(b) ? a : (a.Lo == a.Hi && b.Lo == b.Hi && a.Lo == b.Lo) ? ExactInterval.Of(0) : zero(a) ? -b : a - b;
+        internal static ExactInterval mul(ExactInterval a, ExactInterval b) => (zero(a) || zero(b)) ? ExactInterval.Of(0) : a * b;
+        // (0 / b = 0 only for a b that excludes 0; else the whole line, as ExactInterval gives)
+        internal static ExactInterval div(ExactInterval a, ExactInterval b) => (zero(a) && (b.Lo > 0 || b.Hi < 0)) ? ExactInterval.Of(0) : a / b;
+
         struct IV3
         {
             public ExactInterval X, Y, Z;     // default: [0, 0]
             public IV3(ExactInterval x, ExactInterval y, ExactInterval z) { X = x; Y = y; Z = z; }
-            public static IV3 operator +(IV3 a, IV3 b) => new IV3(a.X + b.X, a.Y + b.Y, a.Z + b.Z);
-            public static IV3 operator -(IV3 a, IV3 b) => new IV3(a.X - b.X, a.Y - b.Y, a.Z - b.Z);
+            public static IV3 operator +(IV3 a, IV3 b) => new IV3(add(a.X, b.X), add(a.Y, b.Y), add(a.Z, b.Z));
+            public static IV3 operator -(IV3 a, IV3 b) => new IV3(sub(a.X, b.X), sub(a.Y, b.Y), sub(a.Z, b.Z));
             public static IV3 operator -(IV3 a) => new IV3(-a.X, -a.Y, -a.Z);
-            public static IV3 operator *(IV3 a, ExactInterval s) => new IV3(a.X * s, a.Y * s, a.Z * s);
-            public static IV3 operator /(IV3 a, ExactInterval s) => new IV3(a.X / s, a.Y / s, a.Z / s);
-            public ExactInterval Dot(IV3 b) => X * b.X + Y * b.Y + Z * b.Z;
-            public IV3 Cross(IV3 b) => new IV3(Y * b.Z - Z * b.Y, Z * b.X - X * b.Z, X * b.Y - Y * b.X);
-            public Vector3d Mid(out Vector3d bound)
+            public static IV3 operator *(IV3 a, ExactInterval s) => new IV3(mul(a.X, s), mul(a.Y, s), mul(a.Z, s));
+            public static IV3 operator /(IV3 a, ExactInterval s) => new IV3(div(a.X, s), div(a.Y, s), div(a.Z, s));
+            public ExactInterval Dot(IV3 b) => add(add(mul(X, b.X), mul(Y, b.Y)), mul(Z, b.Z));
+            public IV3 Cross(IV3 b) => new IV3(sub(mul(Y, b.Z), mul(Z, b.Y)), sub(mul(Z, b.X), mul(X, b.Z)), sub(mul(X, b.Y), mul(Y, b.X)));
+            public Vector3d Mid(int k, out Vector3d bound)
             {
                 double bx, by, bz;
-                var v = new Vector3d(mid(X, out bx), mid(Y, out by), mid(Z, out bz));
+                var v = new Vector3d(scaled(X, k, out bx), scaled(Y, k, out by), scaled(Z, k, out bz));
                 bound = new Vector3d(bx, by, bz);
                 return v;
             }
