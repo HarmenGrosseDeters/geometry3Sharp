@@ -217,6 +217,24 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void UnionTreeExample_TreeAndOneCallAgreeInVolume()
+        {
+            List<DMesh3> balls = UnionTreeExample.MakeBalls();
+            DMesh3 one = UnionTreeExample.UnionOneCall(balls);
+            DMesh3 tree = UnionTreeExample.UnionTree(balls);
+            Assert.NotNull(one);
+            Assert.NotNull(tree);
+            foreach (DMesh3 m in new[] { one, tree }) {
+                Assert.True(m.IsClosed());
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
+            }
+            Assert.True(Volume(one) > Volume(balls[0]) && Volume(one) < 8 * Volume(balls[0]));
+            Assert.Equal(Volume(one), Volume(tree), 9);
+            // 8 balls, each overlapping all 7 others
+            Assert.Equal(7.0, UnionTreeExample.MeanBoxOverlapDegree(balls), 12);
+        }
+
+        [Fact]
         public void WindingNumberSolidifyExample_ClosesAndUnitesBrokenInput()
         {
             DMesh3 result = WindingNumberSolidifyExample.Run();

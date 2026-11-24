@@ -1,5 +1,7 @@
 # N-ary union on dense packings: where one arrangement goes superlinear (#1466)
 
+The user-facing rule now lives in the guide: [Union of many overlapping bodies: one call or a tree](../guides/booleans-and-imprint.md#union-of-many-overlapping-bodies-one-call-or-a-tree).
+
 Diagnosis only, no library change. Question: `ExactMeshBoolean` with all meshes of a dense ball packing in one arrangement
 takes 4.3 s at 96 balls, a balanced tree of pairwise unions 1.2 s ([#1455](https://github.com/HarmenGrosseDeters/geometry3Sharp/pull/1455),
 `benchmarks/ProceduralSphereUnionProbe`). Where is the superlinear cost, is it inherent, and is there a cheap rule?
@@ -209,6 +211,8 @@ Reading:
   implicit or analytic (alpha shape, power diagram) constructions.
 
 ## 8. Options
+
+Decision (owner, 2026-11-24): option 0, document. The guide carries the rule and a compiled example; nothing is built (no winding propagation, no default or route change). Option 1 stays a possible later optimisation.
 
 | Option | Ceiling (96 / 192 balls) | Sparse cost | Output | Cost of work |
 |---|---|---|---|---|

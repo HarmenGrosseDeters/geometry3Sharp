@@ -51,6 +51,27 @@ Putting multiple operands into a single n-ary operation (`A − (B1 ∪ … ∪ 
 
 For closed first meshes, `Difference` and `Intersection` automatically cull operand triangles wholly outside the relevant solid (`Counts["t3a_culled"]`). Diagnostic counts (`IntersectingPairs`, `SelfIntersectingPairs`, `Patches`) describe the arrangement after culling; use `Union` or `MeshRobustRepair` to inspect self-intersections across an entire operand.
 
+### Union of many overlapping bodies: one call or a tree
+
+Two ways to unite many closed bodies: all of them in one `ExactMeshBoolean` (one arrangement), or a balanced binary tree of pairwise unions ([UnionTreeExample](../examples/UnionTreeExample.cs)). Rule of thumb, measured on procedural ball packings (one loaded desktop machine, net10.0 Release, `StrictRounding = true`; the shape matters, not the absolute times):
+
+- Sparse or chain-like inputs (each body overlaps a few others: helices, lattices, branching tubes): use one call. It was 3 to 4 times faster than the tree in the measured cases (helix of 192 balls 288 ms against 1088 ms; lattice of 216 balls 443 ms against 1305 ms) and grows linearly with the body count.
+- Dense packings (a body overlaps many others): one call becomes superlinear and the tree is faster. The two meet at a mean overlap degree (the number of other bodies a body overlaps) of about 12 to 14.
+
+| Dense packing, balls | mean overlap degree | one call | tree |
+|---|---|---|---|
+| 48 | 14.3 | 263 ms | 245 ms |
+| 96 | 23.3 | 1124 ms | 545 ms |
+| 192 | 34.0 | 4606 ms | 1229 ms |
+
+Why: the classification casts one exact ray per surface patch and overlapping body. A body cut by `k` neighbours has about `k^2 / 2` patches, so the work grows like `N k^3`, and in a dense packing `k` itself rises with `N`. Most of the cut surface (95 % of the pieces at 192 balls) lies inside the union and is discarded at the end; the tree avoids that by removing interior surface after every pairwise union.
+
+The results differ: both are clean and have the same volume (agreement to 1e-9 in the measurement), but the tree returns about 20 % more triangles and another triangulation, so the two are not bit-identical. Choose by speed and do not expect the same mesh.
+
+To estimate the overlap degree of your own input, count for each body the other bodies whose bounding box intersects its box and take the mean (`UnionTreeExample.MeanBoxOverlapDegree`). The threshold above is for balls and their true overlaps; box overlaps over-count, so the box figure at which to switch is somewhat higher. It was not measured for boxes.
+
+Basis: [NARY_UNION_DENSE_2026-11.md](../research/NARY_UNION_DENSE_2026-11.md), the probe [ProceduralSphereUnionProbe](../../benchmarks/ProceduralSphereUnionProbe/README.md), issue #1466. A winding propagation across patches (one ray per body) would remove the superlinear term and keep the output of one call; it is not implemented.
+
 ### Batch One-Against-Many (`IntersectEach` / `DifferenceEach`)
 
 ```csharp
