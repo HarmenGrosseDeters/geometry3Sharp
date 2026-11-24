@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using g3;
+using gs;
 using Xunit;
 
 namespace geometry3Sharp.Tests
@@ -29,6 +30,7 @@ namespace geometry3Sharp.Tests
         public void LoopBelowTheBudget_RunsOnTheCallingThread()
         {
             int me = Environment.CurrentManagedThreadId;
+            gParallel.SmallLoopHandovers = 0;
             WithBudget(long.MaxValue, () => {
                 var threads = new System.Collections.Concurrent.ConcurrentBag<int>();
                 gParallel.ForRangeSmall(5000, (i) => threads.Add(Environment.CurrentManagedThreadId));
@@ -36,23 +38,37 @@ namespace geometry3Sharp.Tests
                 gParallel.ForEachSmall(Enumerable.Range(0, 5000), (i) => threads.Add(Environment.CurrentManagedThreadId));
                 gParallel.BlockStartEndSmall(0, 4999, (a, b) => threads.Add(Environment.CurrentManagedThreadId));
                 Assert.Equal(5000 + 5000 + 5000 + 50, threads.Count);
+                Assert.Equal(0, gParallel.SmallLoopHandovers);
                 Assert.All(threads, t => Assert.Equal(me, t));
             });
         }
 
         [Fact]
-        public void LoopAboveTheBudget_LeavesTheCallingThread()
+        public void LoopAboveTheBudget_HandsTheRestOver_Once()
         {
-            if (Environment.ProcessorCount < 2)
-                return;
-            // a body that takes 1 ms is far above the budget: the rest of the loop runs on other threads too
-            foreach (int kind in new[] { 0, 1, 2 }) {
+            // (a budget of one tick is spent after the first chunk; the hook counts the handover, so the check does not depend on
+            // whether the pool has a free thread)
+            foreach (long budget in new long[] { 1, long.MaxValue }) {
+                WithBudget(budget, () => {
+                    int expected = (budget == 1) ? 1 : 0;
+                    Action<Action> check = (run) => { gParallel.SmallLoopHandovers = 0; run(); Assert.Equal(expected, gParallel.SmallLoopHandovers); };
+                    var sink = new int[200];
+                    check(() => gParallel.ForRangeSmall(200, (i) => sink[i] = i));
+                    check(() => gParallel.ForRangeSmall(200, () => 0, (i, l) => sink[i] = i));
+                    check(() => gParallel.ForEachSmall(Enumerable.Range(0, 200), (i) => sink[i] = i));
+                    check(() => gParallel.BlockStartEndSmall(0, 199, (a, b) => { }, 10));
+                    // one item has nothing to hand over
+                    gParallel.SmallLoopHandovers = 0;
+                    gParallel.ForRangeSmall(1, (i) => { });
+                    Assert.Equal(0, gParallel.SmallLoopHandovers);
+                });
+            }
+            if (Environment.ProcessorCount >= 2) {
+                // and the rest does run on other threads when the loop is slow (a 1 ms body is far above the default budget)
                 var threads = new System.Collections.Concurrent.ConcurrentDictionary<int, bool>();
-                Action<int> body = (i) => { threads[Environment.CurrentManagedThreadId] = true; Thread.Sleep(1); };
-                if (kind == 0) gParallel.ForRangeSmall(200, body);
-                else if (kind == 1) gParallel.ForRangeSmall(200, () => 0, (i, l) => body(i));
-                else gParallel.ForEachSmall(Enumerable.Range(0, 200), body);
-                Assert.True(threads.Count >= 2, "kind " + kind + " stayed on one thread");
+                gParallel.SmallLoopHandovers = 0;
+                gParallel.ForRangeSmall(64, (i) => { threads[Environment.CurrentManagedThreadId] = true; Thread.Sleep(1); });
+                Assert.Equal(1, gParallel.SmallLoopHandovers);
             }
         }
 
@@ -101,30 +117,72 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void ExceptionOfTheBody_IsRethrownAsItIs_InTheInlinePartAndTheParallelPart()
+        public void NextChunk_DoublesWhileTheBudgetLasts_AndDoesNotOverflowOnAnUnlimitedBudget()
         {
-            foreach (long budget in new long[] { 1, long.MaxValue, -1 })
+            // 10 ticks for 1000 items so far, budget left: 1000 ticks -> room for 100000 items, so double the last chunk
+            Assert.Equal(8, gParallel.next_chunk(4, 1000, 0, 10, 1010));
+            // little budget left: only what fits (at least one item)
+            Assert.Equal(5, gParallel.next_chunk(4, 1000, 0, 1000, 1005));
+            Assert.Equal(1, gParallel.next_chunk(4, 1000, 0, 1000, 1000));
+            // unlimited budget: (limit - now) * done would wrap to a negative value and make the chunk 1
+            Assert.Equal(8, gParallel.next_chunk(4, 1000, 0, 10, long.MaxValue));
+            Assert.Equal(8, gParallel.next_chunk(4, int.MaxValue, 0, 1, long.MaxValue));
+        }
+
+        static Type ThrownType(Action a)
+        {
+            try { a(); } catch (Exception e) { return e.GetType(); }
+            return null;
+        }
+
+        [Fact]
+        public void ExceptionOfTheBody_HasTheTypeOfTheLoopItReplaces_InTheInlinePartAndTheParallelPart()
+        {
+            foreach (long budget in new long[] { 0, 1, long.MaxValue, -1 })
                 WithBudget(budget, () => {
-                    Assert.Throws<InvalidOperationException>(() => gParallel.ForRangeSmall(1000, (i) => { if (i == 500) throw new InvalidOperationException("x"); }));
-                    Assert.Throws<InvalidOperationException>(() => gParallel.ForRangeSmall(1000, () => 0, (i, l) => { if (i == 7) throw new InvalidOperationException("x"); }));
-                    Assert.Throws<InvalidOperationException>(() => gParallel.ForRangeSmall(1000, (i) => { if (i == 0) throw new InvalidOperationException("x"); }));
+                    // ForRange: the exception of a single body as it is
+                    foreach (int bad in new[] { 0, 7, 500 }) {
+                        Assert.Equal(typeof(InvalidOperationException), ThrownType(() => gParallel.ForRangeSmall(1000, (i) => { if (i == bad) throw new InvalidOperationException("x"); })));
+                        Assert.Equal(typeof(InvalidOperationException), ThrownType(() => gParallel.ForRangeSmall(1000, () => 0, (i, l) => { if (i == bad) throw new InvalidOperationException("x"); })));
+                        // ForEach: always the AggregateException of Parallel.ForEach
+                        Assert.Equal(ThrownType(() => gParallel.ForEach(Enumerable.Range(0, 1000), (i) => { if (i == bad) throw new InvalidOperationException("x"); })),
+                            ThrownType(() => gParallel.ForEachSmall(Enumerable.Range(0, 1000), (i) => { if (i == bad) throw new InvalidOperationException("x"); })));
+                        Assert.Equal(typeof(AggregateException), ThrownType(() => gParallel.ForEachSmall(Enumerable.Range(0, 1000), (i) => { if (i == bad) throw new InvalidOperationException("x"); })));
+                    }
+                    // the source throwing
+                    Func<IEnumerable<int>> failing = () => Enumerable.Range(0, 100).Select(i => { if (i == 50) throw new InvalidOperationException("x"); return i; });
+                    Assert.Equal(ThrownType(() => gParallel.ForEach(failing(), (i) => { })), ThrownType(() => gParallel.ForEachSmall(failing(), (i) => { })));
+                    // BlockStartEnd: a full block through ForEach (AggregateException), the leftover block inline (as it is)
+                    foreach (int bad in new[] { 0, 250, 999 }) {
+                        Action<int, int> body = (a, b) => { if (a <= bad && bad <= b) throw new InvalidOperationException("x"); };
+                        Assert.Equal(ThrownType(() => gParallel.BlockStartEnd(0, 999, body, 100)), ThrownType(() => gParallel.BlockStartEndSmall(0, 999, body, 100)));
+                        Assert.Equal(ThrownType(() => gParallel.BlockStartEnd(0, 1049, body, 100)), ThrownType(() => gParallel.BlockStartEndSmall(0, 1049, body, 100)));
+                    }
+                    Assert.Equal(typeof(InvalidOperationException), ThrownType(() => gParallel.BlockStartEndSmall(0, 1049, (a, b) => { if (b == 1049) throw new InvalidOperationException("x"); }, 100)));
+                    Assert.Equal(typeof(AggregateException), ThrownType(() => gParallel.BlockStartEndSmall(0, 1049, (a, b) => { if (a == 0) throw new InvalidOperationException("x"); }, 100)));
                 });
         }
 
         [Fact]
-        public void LocalOfTheInlinePart_IsNotSharedWithTheParallelPart()
+        public void Local_IsNeverUsedByTwoThreadsAtOnce_AndTheInlineLocalIsNotSharedWithTheParallelPart()
         {
-            // the body clears the local before it reads it, as the contract of ForRange says; here it also counts the users
-            WithBudget(1, () => {
-                int inside = 0, overlap = 0;
-                var seen = new System.Collections.Concurrent.ConcurrentDictionary<object, int>();
-                gParallel.ForRangeSmall(4000, () => new object(), (i, local) => {
-                    if (Interlocked.Increment(ref inside) > 4 * Environment.ProcessorCount + 4) Interlocked.Increment(ref overlap);
-                    seen.AddOrUpdate(local, 1, (k, v) => v + 1);
-                    Interlocked.Decrement(ref inside);
+            foreach (long budget in new long[] { 1, 2000, long.MaxValue, -1 })
+                WithBudget(budget, () => {
+                    int overlap = 0, items = 0;
+                    var locals = new System.Collections.Concurrent.ConcurrentDictionary<int[], int>();
+                    gParallel.ForRangeSmall(4000, () => new int[1], (i, busy) => {
+                        // (a local is in use by one body at a time: the flag is set while the body runs)
+                        if (Interlocked.Exchange(ref busy[0], 1) != 0)
+                            Interlocked.Increment(ref overlap);
+                        locals.AddOrUpdate(busy, 1, (k, v) => v + 1);
+                        Interlocked.Increment(ref items);
+                        Thread.SpinWait(20);
+                        Volatile.Write(ref busy[0], 0);
+                    });
+                    Assert.Equal(0, overlap);
+                    Assert.Equal(4000, items);
+                    Assert.Equal(4000, locals.Values.Sum());
                 });
-                Assert.Equal(4000, seen.Values.Sum());
-            });
         }
 
         [Fact]
@@ -145,6 +203,71 @@ namespace geometry3Sharp.Tests
                                 && BitConverter.DoubleToInt64Bits(r[i].y) == BitConverter.DoubleToInt64Bits(reference[i].y)
                                 && BitConverter.DoubleToInt64Bits(r[i].z) == BitConverter.DoubleToInt64Bits(reference[i].z), "normal " + i);
                     }
+                });
+        }
+
+        static long Hash(DMesh3 m)
+        {
+            ulong h = 1469598103934665603UL;
+            Action<long> add = (v) => { h = (h ^ (ulong)v) * 1099511628211UL; };
+            foreach (int v in m.VertexIndices()) {
+                Vector3d p = m.GetVertex(v);
+                add(v); add(BitConverter.DoubleToInt64Bits(p.x)); add(BitConverter.DoubleToInt64Bits(p.y)); add(BitConverter.DoubleToInt64Bits(p.z));
+            }
+            foreach (int t in m.TriangleIndices()) {
+                Index3i tv = m.GetTriangle(t);
+                add(t); add(tv.a); add(tv.b); add(tv.c);
+            }
+            return (long)h;
+        }
+
+        static DMesh3 BumpySphere(int n)
+        {
+            DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = n }.Generate().MakeDMesh();
+            foreach (int v in m.VertexIndices()) {
+                Vector3d p = m.GetVertex(v);
+                m.SetVertex(v, p * (1 + 0.05 * Math.Sin(7 * p.x) * Math.Cos(5 * p.y) * Math.Sin(6 * p.z)));
+            }
+            return m;
+        }
+
+        // f serially on this thread, then under every budget (twice): the same bits
+        static void AssertSameUnderEveryBudget(Func<long> f)
+        {
+            long reference;
+            gParallel.SerialOnThisThread = true;
+            try { reference = f(); } finally { gParallel.SerialOnThisThread = false; }
+            foreach (long budget in Budgets)
+                WithBudget(budget, () => {
+                    for (int rep = 0; rep < 2; ++rep)
+                        Assert.Equal(reference, f());
+                });
+        }
+
+        [Fact]
+        public void Reducer_IsTheSameBits_SerialInlineAndParallel()
+        {
+            DMesh3 input = BumpySphere(24);
+            AssertSameUnderEveryBudget(() => {
+                var m = new DMesh3(input);
+                var r = new Reducer(m);
+                r.ReduceToTriangleCount(600);
+                return Hash(m);
+            });
+        }
+
+        [Fact]
+        public void Remesher_IsTheSameBits_SerialInlineAndParallel()
+        {
+            DMesh3 input = BumpySphere(14);
+            foreach (bool pro in new[] { false, true })
+                AssertSameUnderEveryBudget(() => {
+                    var m = new DMesh3(input);
+                    var r = pro ? new RemesherPro(m) : new Remesher(m);
+                    r.SetTargetEdgeLength(0.12);
+                    r.SmoothSpeedT = 0.5;
+                    for (int i = 0; i < 3; ++i) r.BasicRemeshPass();
+                    return Hash(m);
                 });
         }
 

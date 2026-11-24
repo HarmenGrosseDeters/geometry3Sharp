@@ -672,7 +672,7 @@ namespace g3
             int blocks = triangle_blocks(mesh);
             var maxOf = new double[blocks];
             var subnormalIn = new bool[blocks];
-            gParallel.ForRangeSmall(blocks, (b) => {
+            gParallel.ForRange(blocks, (b) => {
                 double max = 0;
                 int end = Math.Min(mesh.MaxTriangleID, (b + 1) * TriangleBlock);
                 for (int tid = b * TriangleBlock; tid < end; ++tid) {
@@ -723,7 +723,7 @@ namespace g3
                         body(tid);
                 return;
             }
-            gParallel.ForRangeSmall(triangle_blocks(mesh), (b) => {
+            gParallel.ForRange(triangle_blocks(mesh), (b) => {
                 int end = Math.Min(mesh.MaxTriangleID, (b + 1) * TriangleBlock);
                 for (int tid = b * TriangleBlock; tid < end; ++tid)
                     if (mesh.IsTriangle(tid))
@@ -1215,7 +1215,7 @@ namespace g3
                 treeTids.Add(tid);
             // (the boxes per triangle in parallel, each into its own slot: min / max, exact; no edit is pending)
             var boxAt = new AxisAlignedBox3d[treeTids.Count];
-            gParallel.ForRangeSmall((treeTids.Count + TriangleBlock - 1) / TriangleBlock, (b) => {
+            gParallel.ForRange((treeTids.Count + TriangleBlock - 1) / TriangleBlock, (b) => {
                 int end = Math.Min(treeTids.Count, (b + 1) * TriangleBlock);
                 for (int i = b * TriangleBlock; i < end; ++i)
                     boxAt[i] = box(Mesh.GetTriangle(treeTids[i]));

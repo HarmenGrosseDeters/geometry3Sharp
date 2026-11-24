@@ -77,7 +77,7 @@ namespace g3
 
             object[] keys = TriangleSetKeys.ToArray();
             var results = new DSubmesh3[keys.Length];
-            gParallel.ForRangeSmall(keys.Length, i => {
+            gParallel.ForRange(keys.Length, i => {
                 results[i] = new DSubmesh3(Mesh, TriangleSetF(keys[i]), 0);
             });
             for (int i = 0; i < keys.Length; ++i) {

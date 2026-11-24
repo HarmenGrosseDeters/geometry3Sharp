@@ -153,6 +153,10 @@ namespace g3
         // loop. A count threshold cannot decide this: the crossover is a total of 10-50 us of work, which is 1000
         // items of 1 ns and 4 items of 2 us (benchmarks/ParallelTinyLoops).
         //
+        // Exceptions are those of the loop a Small loop replaces, whether the item failed inline or after the handover:
+        // ForRangeSmall like ForRange (the exception of a single body as it is), ForEachSmall and BlockStartEndSmall like
+        // ForEach (an AggregateException; the leftover block of BlockStartEnd, which runs inline, as it is).
+        //
         // For callers whose items are cheap, so that the first chunk is no loss of parallelism: a loop of a few heavy
         // items (a boolean per body, Evaluate) must keep calling ForRange / ForEach, or its first item would run
         // before the others start. The result is the same as for ForRange: the body of an item does not depend on
@@ -169,6 +173,9 @@ namespace g3
         [ThreadStatic] internal static long SmallLoopBudgetTicksOnThisThread;
 
         // the time at which a Small loop started at `start` hands over
+        /// <summary> for tests: how many Small loops started on this thread have handed their rest to the parallel loop </summary>
+        [ThreadStatic] internal static int SmallLoopHandovers;
+
         static long small_limit(long start)
         {
             long b = SmallLoopBudgetTicksOnThisThread;
@@ -180,10 +187,12 @@ namespace g3
 
         // the size of the next chunk of a Small loop after `done` items took the time from start to now: at most double the last
         // one, and at most what the rest of the budget allows at the speed so far (so a loop stops near its budget, not at 2x)
-        static int next_chunk(int chunk, int done, long start, long now, long limit)
+        internal static int next_chunk(int chunk, int done, long start, long now, long limit)
         {
             long elapsed = Math.Max(1L, now - start);
-            long fit = (limit - now) * done / elapsed;
+            long room = limit - now;
+            // (saturated: with an unlimited budget room * done would wrap)
+            long fit = (room > long.MaxValue / Math.Max(1, done)) ? int.MaxValue / 2 : room * done / elapsed;
             return (int)Math.Max(1L, Math.Min((long)chunk * 2, Math.Min(fit, int.MaxValue / 2)));
         }
 
@@ -235,6 +244,7 @@ namespace g3
                 if (i < count) {
                     long now = System.Diagnostics.Stopwatch.GetTimestamp();
                     if (now >= limit) {
+                        ++SmallLoopHandovers;
                         parallel_range(i, count, body);
                         return;
                     }
@@ -266,6 +276,7 @@ namespace g3
                 if (i < count && now < limit)
                     chunk = next_chunk(chunk, i, start, now, limit);
                 if (i < count && now >= limit) {
+                    ++SmallLoopHandovers;
                     // (the workers of the rest start with locals of their own)
                     int from = i;
 #if G3_USING_UNITY && (NET_2_0 || NET_2_0_SUBSET)
@@ -294,14 +305,20 @@ namespace g3
             using (IEnumerator<T> e = source.GetEnumerator()) {
                 int done = 0;
                 for (int chunk = 1; ; ) {
-                    for (int k = 0; k < chunk; ++k) {
-                        if (!e.MoveNext())
-                            return;
-                        body(e.Current);
-                        ++done;
+                    try {
+                        for (int k = 0; k < chunk; ++k) {
+                            if (!e.MoveNext())
+                                return;
+                            body(e.Current);
+                            ++done;
+                        }
+                    } catch (Exception x) {
+                        // (as ForEach throws it: Parallel.ForEach wraps even the exception of a single item, and callers catch that type)
+                        throw new AggregateException(x);
                     }
                     long now = System.Diagnostics.Stopwatch.GetTimestamp();
                     if (now >= limit) {
+                        ++SmallLoopHandovers;
                         ForEach(rest_of(e), body);
                         return;
                     }
@@ -324,7 +341,7 @@ namespace g3
                 iBlockSize = 100;
             int N = (iEnd - iStart + 1);
             int num_blocks = N / iBlockSize;
-            ForRangeSmall(num_blocks, (bi) => {
+            ForEachSmall(Interval1i.Range(num_blocks), (bi) => {
                 int k = iStart + iBlockSize * bi;
                 blockF(k, k + iBlockSize - 1);
             });
