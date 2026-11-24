@@ -189,6 +189,38 @@ class Make(Dir):
         self.assertEqual(flt["kept"], ["N.ATests.One", "N.BTests.Three"])
         self.assertTrue(flt["weighted_by_duration"])
 
+    def theory_make(self, row_name):
+        """a theory method Row of 3 rows (2 s each) and a plain test One (1 s); 10 mutants killed by One, covered by all"""
+        trx = os.path.join(self.tmp.name, "t.trx")
+        rows = "".join('<UnitTestResult testName="N.ATests.Row(x: %d)" duration="00:00:02.0" />' % i for i in (1, 2, 3))
+        rows += '<UnitTestResult testName="N.ATests.One" duration="00:00:01.0" />'
+        open(trx, "w").write('<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">'
+                             "<Results>%s</Results></TestRun>" % rows)
+        tests = {"a": (TESTF, "N.ATests.One")}
+        tests.update({t: (TESTF, row_name(i)) for t, i in (("r", 1), ("s", 2), ("u", 3))})
+        rp = os.path.join(self.tmp.name, "r.json")
+        json.dump(report([mutant(i, "Killed", "a", "arsu") for i in range(10)], tests), open(rp, "w"))
+        return nt.make(rp, self.config, trx=trx)
+
+    def test_theory_rows_are_costed_as_their_method_with_or_without_arguments_in_the_name(self):
+        # the dropped Row costs its 3 rows (6 s) per mutant, One 1 s is kept: 1 - 1/7 whatever the form of the names
+        for form in (lambda i: "N.ATests.Row(x: %d)" % i, lambda i: "N.ATests.Row"):
+            flt, msg = self.theory_make(form)
+            self.assertEqual(flt["estimated_saving"], round(6 / 7, 3), msg)
+            self.assertEqual(flt["kept"], ["N.ATests.One"])
+            self.assertEqual(flt["tests_in_report"], 2)  # methods, not rows
+
+    def test_a_kept_theory_method_is_charged_for_all_its_rows(self):
+        tests = {"a": (TESTF, "N.ATests.One")}
+        tests.update({t: (TESTF, "N.ATests.Row(x: %d)" % i) for t, i in (("r", 1), ("s", 2), ("u", 3))})
+        rp = os.path.join(self.tmp.name, "r.json")
+        # Row is the only killer of mutant 20 (kept); every mutant is covered by all four ids
+        ms = [mutant(i, "Killed", "a", "arsu") for i in range(10)] + [mutant(20, "Killed", "r", "arsu")]
+        json.dump(report(ms, tests), open(rp, "w"))
+        flt, _ = nt.make(rp, self.config, min_saving=0.0)
+        self.assertEqual(flt["kept"], ["N.ATests.One", "N.ATests.Row"])
+        self.assertEqual(flt["estimated_saving"], 0.0)  # both methods kept: nothing is saved (1 row of 3 was not kept)
+
     def test_the_filter_records_what_it_was_made_from(self):
         flt, _ = self.make(self.BIG)
         self.assertEqual(flt["terms"], ["ATests", "BTests"])
