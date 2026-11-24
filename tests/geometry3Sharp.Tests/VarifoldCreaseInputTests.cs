@@ -363,6 +363,76 @@ namespace geometry3Sharp.Tests
             Assert.True(q.IsCrease(Vector3d.Zero, Vector3d.AxisX, Vector3d.AxisY, 30, 0.01, out _));
         }
 
+        // a jittered sheet (every triangle's own corners moved up to 0.05 off the plane z = 0): each triangle is tilted by up to
+        // several degrees, the fitted plane is z = 0 within a fraction of a degree, its rms the jitter's scale
+        static DMesh3 JitteredFloor(double amp)
+        {
+            var m = new DMesh3();
+            var rnd = new Random(7);
+            Func<double, double, Vector3d> P = (x, y) => new Vector3d(x, y, amp * (2 * rnd.NextDouble() - 1));
+            int n = 40;
+            for (int j = 0; j < n; ++j)
+                for (int i = 0; i < n; ++i) {
+                    double x0 = -2 + 4.0 * i / n, y0 = -2 + 4.0 * j / n, h = 4.0 / n;
+                    m.AppendTriangle(m.AppendVertex(P(x0, y0)), m.AppendVertex(P(x0 + h, y0)), m.AppendVertex(P(x0 + h, y0 + h)));
+                    m.AppendTriangle(m.AppendVertex(P(x0, y0)), m.AppendVertex(P(x0 + h, y0 + h)), m.AppendVertex(P(x0, y0 + h)));
+                }
+            return m;
+        }
+
+        [Fact]
+        public void VarifoldCreaseQuery_FitPlane_AveragesAJitteredSheet()
+        {
+            DMesh3 floor = JitteredFloor(0.02);
+            double maxTilt = floor.TriangleIndices().Max(t => Vector3d.AngleD(floor.GetTriNormal(t), Vector3d.AxisZ));
+            Assert.True(maxTilt > 5, $"the jitter tilts the triangles by {maxTilt} degrees");
+            var q = new VarifoldCreaseQuery(floor, 0.5);
+            foreach (var x in new[] { new Vector3d(0.13, -0.41, 0), new Vector3d(-1.1, 0.7, 0.01), new Vector3d(0.9, 0.9, -0.01) }) {
+                Assert.True(q.FitPlane(x, Vector3d.AxisZ, 0.5, out Vector3d n, out Vector3d c, out double rms), x.ToString());
+                Assert.True(Vector3d.AngleD(n, Vector3d.AxisZ) < 1.0, $"fitted normal {n}");
+                Assert.InRange(c.z, -0.01, 0.01);
+                Assert.InRange(rms, 0.001, 0.02);
+                // (the normal is turned to the side asked)
+                Assert.True(q.FitPlane(x, -Vector3d.AxisZ, 0.5, out Vector3d nd, out _, out _) && nd.z < 0);
+            }
+        }
+
+        // at a crease the asked plane's cluster holds about half the ball (refused below half: the caller keeps its own plane);
+        // a flat sheet gives its exact plane; a cylinder (not planar at the ball's scale) is refused
+        [Fact]
+        public void VarifoldCreaseQuery_FitPlane_RefusesMixedOrCurved()
+        {
+            var q = new VarifoldCreaseQuery(FloorAndWall(2), 0.5);
+            Assert.True(q.FitPlane(new Vector3d(-1, 0, 0), Vector3d.AxisZ, 0.5, out Vector3d n, out Vector3d c, out double rms));
+            Assert.True(Vector3d.AngleD(n, Vector3d.AxisZ) < 1e-9 && Math.Abs(c.z) < 1e-12 && rms < 1e-9);
+            Assert.False(q.FitPlane(new Vector3d(0.05, 0, 0.05), Vector3d.AxisZ, 0.5, out _, out _, out _));
+            const double R = 0.15;
+            DMesh3 cyl = Grid((u, v) => { double t = 2 * Math.PI * u; return new Vector3d(R * Math.Cos(t), R * Math.Sin(t), -2 + 4 * v); }, 120, 60);
+            var qc = new VarifoldCreaseQuery(cyl, 0.5);
+            Assert.False(qc.FitPlane(new Vector3d(R, 0, 0), Vector3d.AxisX, 0.5, out _, out _, out _));
+        }
+
+        // the fitted planes on a jittered broken soup: the guarantees hold against the soup itself, and the crease is kept at
+        // least as well as with the nearest triangles' planes
+        [Fact]
+        public void VarifoldPlanes_JitteredSoup_KeepGuaranteesAndTheCrease()
+        {
+            DMesh3 soup = Broken(AlphaWrapFeaturePassTests.LShape());
+            var rnd = new Random(11);
+            foreach (int v in soup.VertexIndices().ToArray())
+                soup.SetVertex(v, soup.GetVertex(v) + 0.02 * new Vector3d(2 * rnd.NextDouble() - 1, 2 * rnd.NextDouble() - 1, 2 * rnd.NextDouble() - 1));
+            MeshAlphaWrap w = Wrap(soup);
+            var noPlanes = new AlphaWrapFeaturePass(new DMesh3(w.Result, true), soup, w.UsedAlpha, w.UsedOffset) { VarifoldCreases = true, VarifoldPlaneRadius = 0 };
+            Assert.True(noPlanes.Compute());
+            var planes = Pass(w, soup, true);
+            Assert.True(planes.VarifoldPlanesFitted > 0);
+            Assert.Equal(0, noPlanes.VarifoldPlanesFitted);
+            double c0 = AlphaWrapFeaturePassTests.ConcaveCoverage(noPlanes.Mesh, w.UsedOffset, Similarity.Identity);
+            double c1 = AlphaWrapFeaturePassTests.ConcaveCoverage(planes.Mesh, w.UsedOffset, Similarity.Identity);
+            Assert.True(c1 >= c0 - 0.05 && c1 > 0.8, $"coverage {c0} -> {c1}");
+            AlphaWrapFeaturePassTests.AssertGuarantees(planes.Mesh, soup, w.UsedOffset, "fitted planes on a jittered soup");
+        }
+
         // a fillet of radius 2 (four times the ball) between the floor and the wall: the ball at its middle sees only the
         // cylinder's normals, 45 degrees from both planes; refused
         [Fact]

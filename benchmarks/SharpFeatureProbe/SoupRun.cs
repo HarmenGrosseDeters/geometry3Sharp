@@ -34,6 +34,7 @@ static class SoupRun
         string Get(string k, string d) => opt.TryGetValue(k, out var v) ? v : d;
         double[] D(string k, string d) => Get(k, d).Split(',').Select(x => double.Parse(x, CultureInfo.InvariantCulture)).ToArray();
         if (opt.TryGetValue("threads", out var th)) SoupFeatures.Threads = int.Parse(th);
+        if (opt.TryGetValue("lift", out var lf)) PlaneLift = double.Parse(lf, CultureInfo.InvariantCulture);
         int tris = int.Parse(Get("tris", "50000"));
         using var w = new StreamWriter(outFile, true);
         switch (mode) {
@@ -58,7 +59,7 @@ static class SoupRun
             case "soupwrap":
                 foreach (string shape in Get("shapes", "slot,vnotch,box,fillet").Split(','))
                     foreach (string br in Get("breaks", "clean;soup;nonconf;jitter:0.1;dup:0.2;gap:0.3;gap:1;flip:0.2;mixnh:0.25;mixnh:0.5;mixnh:1;holes:0.1").Split(';'))
-                        SoupWrap(w, shape, br, tris, D("radius", "3.5"));
+                        SoupWrap(w, shape, br, tris, D("radius", "3.5"), D("planes", "0"));
                 break;
             case "wrapbreak": WrapBreaks(w, Get("shapes", "slot"), tris, Get("breaks", "clean;soup;nonconf;jitter:0.025;holes:0.025;dup:0.05;gap:0.15;flip:0.1;mix:0.5").Split(';')); break;
             default: Console.Error.WriteLine("unknown soup mode " + mode); return 2;
@@ -357,7 +358,8 @@ static class SoupRun
     // soup: dihedral creases), after (VarifoldCreases on the soup) and the ceiling (the default pass on the wrap of the clean
     // welded copy). Every row measured against the clean welded copy's creases (EdgeClass: recall of the input's miter lines by the
     // result's sharp edges within 1 and 3 offsets, precision the other way), with the clean status and the times
-    static void SoupWrap(StreamWriter w, string shape, string br, int tris, double[] radii)
+    internal static double PlaneLift = 0;
+    static void SoupWrap(StreamWriter w, string shape, string br, int tris, double[] radii, double[] planes)
     {
         var c = Build(shape, br, tris);
         Soup clean = SoupShapes.Tessellate(c.Patches, c.H, null);
@@ -365,10 +367,12 @@ static class SoupRun
         DMesh3 soup = br == "clean" ? welded : c.Soup.ToMesh();
         // ceiling: the clean copy wrapped, its exact creases; oracle: the soup's wrap with the clean copy's exact creases (the same
         // wrap as before / after: the best a crease source can do there, and the time without the varifold)
-        var runs = new List<(string name, DMesh3 input, bool vf, double radius)> { ("ceiling", welded, false, 0), ("oracle", welded, false, 0), ("before", soup, false, 0) };
-        foreach (double rr in radii) runs.Add(("after_r" + rr.ToString(CultureInfo.InvariantCulture), soup, true, rr));
+        var runs = new List<(string name, DMesh3 input, bool vf, double radius, double planeRadius)> { ("ceiling", welded, false, 0, 0), ("oracle", welded, false, 0, 0), ("before", soup, false, 0, 0) };
+        foreach (double rr in radii)
+            foreach (double pr in planes)
+                runs.Add(("after_r" + rr.ToString(CultureInfo.InvariantCulture) + (pr > 0 ? "_p" + pr.ToString(CultureInfo.InvariantCulture) : ""), soup, true, rr, pr));
         MeshAlphaWrap wrapSoup = null, wrapClean = null; double tSoup = 0, tClean = 0;
-        foreach (var (name, input, vf, radius) in runs) {
+        foreach (var (name, input, vf, radius, planeRadius) in runs) {
             var sw = System.Diagnostics.Stopwatch.StartNew();
             MeshAlphaWrap wrap;
             bool soupWrap = name != "ceiling";
@@ -381,17 +385,19 @@ static class SoupRun
             }
             sw.Restart();
             var fp = new AlphaWrapFeaturePass(new DMesh3(wrap.Result, true), input, wrap.UsedAlpha, wrap.UsedOffset) { VarifoldCreases = vf };
-            if (vf) fp.VarifoldRadius = radius;
+            if (vf) { fp.VarifoldRadius = radius; fp.VarifoldPlaneRadius = planeRadius; fp.VarifoldPlaneLift = PlaneLift; }
             fp.Compute();
             double tPass = sw.Elapsed.TotalSeconds;
             var row = new Dictionary<string, object> { ["kind"] = "soupwrap", ["shape"] = shape, ["break"] = br, ["run"] = name, ["input_tris"] = input.TriangleCount,
                 ["h_over_alpha"] = c.H / wrap.UsedAlpha, ["wrap_s"] = soupWrap ? tSoup : tClean, ["wrap_tris"] = wrap.Result.TriangleCount, ["pass_s"] = tPass,
-                ["input_creases"] = fp.InputCreases, ["snaps"] = fp.CreaseSnaps, ["splits"] = fp.Splits, ["flips"] = fp.Flips, ["plane_moves"] = fp.PlaneMoves,
+                ["input_creases"] = fp.InputCreases, ["rejected_all"] = fp.Rejected, ["snaps"] = fp.CreaseSnaps, ["splits"] = fp.Splits, ["flips"] = fp.Flips, ["plane_moves"] = fp.PlaneMoves,
                 ["not_clean"] = MeshRobustRepair.NotCleanReason(fp.Mesh) };
             if (vf) {
                 // the varifold's share of the pass: the measure (built once) and the queries
                 double f = 1.0 / System.Diagnostics.Stopwatch.Frequency;
                 row["measure_s"] = fp.VarifoldBuildTicks * f; row["query_s"] = fp.VarifoldQueryTicks * f; row["queries"] = fp.VarifoldQueries;
+                row["plane_s"] = fp.VarifoldPlaneTicks * f; row["plane_queries"] = fp.VarifoldPlaneQueries; row["planes_fitted"] = fp.VarifoldPlanesFitted;
+                row["rejected"] = fp.Rejected;
             }
             EdgeClass.Add(welded, fp.Mesh, wrap.UsedAlpha, wrap.UsedOffset, row, 5000);
             MiterMetric(c, fp.Mesh, wrap.UsedAlpha, wrap.UsedOffset, row);

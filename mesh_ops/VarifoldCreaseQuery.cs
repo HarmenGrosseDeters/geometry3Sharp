@@ -43,6 +43,7 @@ namespace gs
 
         readonly double[] pts;      // x, y, z, nx, ny, nz, mass per point, in cell order
         readonly long[] keys;       // the cell key per point, ascending
+        readonly Dictionary<long, int> cellStart = new Dictionary<long, int>();   // the first point of each occupied cell
         readonly int count;
         readonly Vector3d origin;
         readonly long nx, ny, nz;
@@ -55,7 +56,8 @@ namespace gs
         internal VarifoldCreaseQuery(DMesh3 mesh, double radius, Func<bool> cancel = null)
         {
             if (!(radius > 0)) throw new ArgumentException("VarifoldCreaseQuery: the radius must be positive");
-            Radius = radius; cell = radius;
+            // (cells of half the radius: a crease query visits 5 x 5 x 5 of them, a plane query of a smaller ball fewer)
+            Radius = radius; cell = 0.5 * radius;
             double h = 0.5 * radius;
             var raw = new List<double>(7 * mesh.TriangleCount);
             var stack = new Stack<(Vector3d, Vector3d, Vector3d)>();
@@ -119,6 +121,7 @@ namespace gs
             Array.Sort(k0, order);
             for (int j = 0; j < count;) { int e = j; while (e < count && k0[e] == k0[j]) ++e; Array.Sort(order, j, e - j); j = e; }
             keys = k0;
+            for (int j = 0; j < count; ++j) if (j == 0 || k0[j] != k0[j - 1]) cellStart[k0[j]] = j;
             pts = new double[7 * count];
             for (int j = 0; j < count; ++j) for (int q = 0; q < 7; ++q) pts[7 * j + q] = raw[7 * order[j] + q];
         }
@@ -141,13 +144,6 @@ namespace gs
         }
 
         long key(long x, long y, long z) { return (x * ny + y) * nz + z; }
-
-        int lower_bound(long k)
-        {
-            int lo = 0, hi = count;
-            while (lo < hi) { int mid = (lo + hi) >> 1; if (keys[mid] < k) lo = mid + 1; else hi = mid; }
-            return lo;
-        }
 
         // the kernel-weighted sums of one cluster, relative to the query point
         struct Sums
@@ -182,14 +178,15 @@ namespace gs
             if (!(al > 1e-6)) return false;
             axis /= al;
             long cx = (long)Math.Floor((x0.x - origin.x) / cell), cy = (long)Math.Floor((x0.y - origin.y) / cell), cz = (long)Math.Floor((x0.z - origin.z) / cell);
-            for (long x = cx - 1; x <= cx + 1; ++x) {
+            for (long x = cx - 2; x <= cx + 2; ++x) {
                 if (x < 0 || x >= nx) continue;
-                for (long y = cy - 1; y <= cy + 1; ++y) {
+                for (long y = cy - 2; y <= cy + 2; ++y) {
                     if (y < 0 || y >= ny) continue;
-                    for (long z = cz - 1; z <= cz + 1; ++z) {
+                    for (long z = cz - 2; z <= cz + 2; ++z) {
                         if (z < 0 || z >= nz) continue;
                         long k = key(x, y, z);
-                        for (int j = lower_bound(k); j < count && keys[j] == k; ++j) {
+                        if (!cellStart.TryGetValue(k, out int j0)) continue;
+                        for (int j = j0; j < count && keys[j] == k; ++j) {
                             int o = 7 * j;
                             var d = new Vector3d(pts[o] - x0.x, pts[o + 1] - x0.y, pts[o + 2] - x0.z);
                             double t = d.LengthSquared;
@@ -223,6 +220,62 @@ namespace gs
             double c = Math.Max(-1, Math.Min(1, ua.Dot(ub)));
             dihedral = 180 - Math.Acos(c) * MathUtil.Rad2Deg;
             return dihedral >= minDihedralDeg;
+        }
+
+        /// <summary>
+        /// the plane of the input at x (a point on or near it) whose normal is within ClusterAngleDegrees of n0 (unoriented):
+        /// the mass-weighted plane of that cluster within radius (at most Radius) of x, n turned to n0's side, c its centroid.
+        /// False (and n = n0, c = x) if the cluster has less than half the ball's mass or is not planar (rms above
+        /// MaxRmsFraction of radius): the caller keeps its own plane. On a jittered or noisy soup the fitted plane averages the
+        /// triangles' tilts, where the nearest triangle alone carries its own
+        /// </summary>
+        internal bool FitPlane(Vector3d x, Vector3d n0, double radius, out Vector3d n, out Vector3d c, out double rmsOut)
+        {
+            n = n0; c = x; rmsOut = 0;
+            if (count == 0 || !(radius > 0)) return false;
+            radius = Math.Min(radius, Radius);
+            double cosC = Math.Cos(ClusterAngleDegrees * MathUtil.Deg2Rad), r2 = radius * radius, W = 0, WA = 0;
+            // (the cluster is within ClusterAngleDegrees of n0: its normal is the mass-weighted mean of the normals turned to n0's
+            // side, no eigen solve; the centroid and the second moment along that normal give the plane and its rms)
+            Vector3d sn = Vector3d.Zero, sc = Vector3d.Zero;
+            double qxx = 0, qxy = 0, qxz = 0, qyy = 0, qyz = 0, qzz = 0;
+            long cx = (long)Math.Floor((x.x - origin.x) / cell), cy = (long)Math.Floor((x.y - origin.y) / cell), cz = (long)Math.Floor((x.z - origin.z) / cell);
+            long rc = (long)Math.Ceiling(radius / cell);
+            for (long ix = cx - rc; ix <= cx + rc; ++ix) {
+                if (ix < 0 || ix >= nx) continue;
+                for (long iy = cy - rc; iy <= cy + rc; ++iy) {
+                    if (iy < 0 || iy >= ny) continue;
+                    for (long iz = cz - rc; iz <= cz + rc; ++iz) {
+                        if (iz < 0 || iz >= nz) continue;
+                        long k = key(ix, iy, iz);
+                        if (!cellStart.TryGetValue(k, out int j0)) continue;
+                        for (int j = j0; j < count && keys[j] == k; ++j) {
+                            int o = 7 * j;
+                            var d = new Vector3d(pts[o] - x.x, pts[o + 1] - x.y, pts[o + 2] - x.z);
+                            double t = d.LengthSquared;
+                            if (!(t < r2)) continue;
+                            double s = 1 - t / r2, s2 = s * s, w = pts[o + 6] * s2 * s2;
+                            W += w;
+                            var nn = new Vector3d(pts[o + 3], pts[o + 4], pts[o + 5]);
+                            double cn = nn.Dot(n0);
+                            if (Math.Abs(cn) < cosC) continue;
+                            WA += w;
+                            sn += (cn < 0 ? -w : w) * nn;
+                            sc += w * d;
+                            qxx += w * d.x * d.x; qxy += w * d.x * d.y; qxz += w * d.x * d.z; qyy += w * d.y * d.y; qyz += w * d.y * d.z; qzz += w * d.z * d.z;
+                        }
+                    }
+                }
+            }
+            if (!(W > 0) || !(WA >= 0.5 * W)) return false;
+            double snl = sn.Length;
+            if (!(snl > 0)) return false;
+            Vector3d pn = sn / snl, pc = sc / WA;
+            double q = qxx * pn.x * pn.x + qyy * pn.y * pn.y + qzz * pn.z * pn.z + 2 * (qxy * pn.x * pn.y + qxz * pn.x * pn.z + qyz * pn.y * pn.z);
+            double m = pn.Dot(pc), rms = Math.Sqrt(Math.Max(0, q / WA - m * m));
+            if (!MathUtil.IsFinite(rms) || !(rms <= MaxRmsFraction * radius)) return false;
+            n = pn; c = x + pc; rmsOut = rms;
+            return true;
         }
 
         // a cluster's plane: the main eigenvector of sum w n n^T, the centroid, the rms distance of the mass from the plane

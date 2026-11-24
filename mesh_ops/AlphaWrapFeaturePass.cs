@@ -57,6 +57,18 @@ namespace gs
         /// CreaseAngleDegrees (docs/design/VARIFOLD_CREASE_INPUT.md). Off by default; off, the pass is the one before, bit for bit.
         /// </summary>
         internal bool VarifoldCreases = false;
+        /// <summary>
+        /// with VarifoldCreases: a vertex's plane is the input's varifold plane at its nearest input point (the mass-weighted
+        /// plane of the triangles there within 20 degrees of the nearest one's, ball VarifoldPlaneRadius alphas) instead of the
+        /// nearest triangle's own plane, where that cluster is planar; 0 keeps the nearest triangle's plane. On a jittered or
+        /// noisy soup the nearest triangle's tilt is noise; the fitted plane averages it out (docs/design/VARIFOLD_CREASE_INPUT.md 10)
+        /// </summary>
+        internal double VarifoldPlaneRadius = 1.5;
+        /// <summary>
+        /// the fitted plane is moved outward by this many of its rms (the envelope of a jittered sheet: the pass keeps
+        /// MinDistance offsets from the outermost triangles, which the mean plane lies below)
+        /// </summary>
+        internal double VarifoldPlaneLift = 2;
         /// <summary> the ball of the varifold crease test, in alphas </summary>
         internal double VarifoldRadius = 3.5;
         /// <summary> the varifold crease test's distance of each plane from the crease, in offsets (plus 3 rms of the plane) </summary>
@@ -73,7 +85,8 @@ namespace gs
         internal int PlaneMoves, CreaseSnaps, Splits, Flips, Rejected, CrossingEdges, InputCreases;
         /// <summary> (benchmarks) VarifoldCreases: the queries asked, and the Stopwatch ticks of building the measure and of the queries </summary>
         internal int VarifoldQueries;
-        internal long VarifoldBuildTicks, VarifoldQueryTicks;
+        internal long VarifoldBuildTicks, VarifoldQueryTicks, VarifoldPlaneTicks;
+        internal int VarifoldPlaneQueries, VarifoldPlanesFitted;
 
         DMeshAABBTree3 inputTree;
         TriangleHashGrid grid;
@@ -116,7 +129,8 @@ namespace gs
         internal bool Prepare()
         {
             PlaneMoves = CreaseSnaps = Splits = Flips = Rejected = CrossingEdges = InputCreases = VarifoldQueries = 0;
-            VarifoldBuildTicks = VarifoldQueryTicks = 0;
+            VarifoldBuildTicks = VarifoldQueryTicks = VarifoldPlaneTicks = 0;
+            VarifoldPlaneQueries = VarifoldPlanesFitted = 0;
             if (Mesh.TriangleCount == 0 || input.TriangleCount == 0 || !(alpha > 0) || !(offset > 0))
                 return false;
             if (inputTree == null || inputTree.Mesh != input)
@@ -244,6 +258,16 @@ namespace gs
             Vector3d q = dist.TriangleClosest;
             Vector3d n = facing_normal(tid, q, v, dist.TriangleBaryCoords);
             if (n.LengthSquared < 0.5 || !(n.Dot(v - q) > 0)) return new Label();
+            if (varifold != null && VarifoldPlaneRadius > 0) {
+                long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+                bool fit = varifold.FitPlane(q, n, VarifoldPlaneRadius * alpha, out Vector3d nf, out Vector3d cf, out double rf) && nf.Dot(v - cf) > 0;
+                VarifoldPlaneTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+                VarifoldPlaneQueries++;
+                if (fit) {
+                    VarifoldPlanesFitted++;
+                    return new Label { Kind = 1, N = nf, D = nf.Dot(cf) + VarifoldPlaneLift * rf + offset };
+                }
+            }
             return new Label { Kind = 1, N = n, D = n.Dot(q) + offset };
         }
 
