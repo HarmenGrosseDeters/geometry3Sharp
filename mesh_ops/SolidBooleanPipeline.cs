@@ -440,7 +440,8 @@ namespace gs
         }
         /// <summary>
         /// Default GridBeforeFallback | GridAfterRoundingNotClean (owner 2026-11-24: the runs that the first default still refused with RoundingNotClean
-        /// succeeded with the grid retry on private inputs, nearly all with the right volume). GridBeforeFallback: an open tool of a Difference that the pipeline routed to the sheet role by itself (no entry in InputRoles) and that
+        /// succeeded with the grid retry on private inputs, nearly all with the right volume). A default Success can therefore come with Report.Clean == false and
+        /// Report.OnlyContacts == true (a solid whose parts touch): a caller who needs a clean solid checks Report.Clean, not only Status. GridBeforeFallback: an open tool of a Difference that the pipeline routed to the sheet role by itself (no entry in InputRoles) and that
         /// the sheet role refuses with RimInsideWorkpiece (a rim meant to lie in a face of the first input that sits a little inside it) is done once more
         /// on the grid of the data before the Fallback (LIMIT: it helps where the rim lies in a face parallel to a coordinate plane, or where every rim
         /// vertex coincides with a vertex of the workpiece, which the snap makes identical in any orientation; a rim vertex in the interior of a slanted

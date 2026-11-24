@@ -186,6 +186,30 @@ namespace geometry3Sharp.Tests
             Assert.Equal("SheetRole:1,Grid:-1,Fallback:-1,InputRepair:1", Names(p));
         }
 
+        [Fact]
+        public void ARimRefusalThatIsNotAnswered_LeavesTheOneTryForTheRoundingRefusalOfTheFallback()
+        {
+            // the fragment's tool without a triangle is open and routed as a sheet, refused with its rim inside: the rounding bit alone does not answer that, so
+            // the run goes to the fallback, the repair closes the tool, the boolean refuses the rounding, and that is retried once on the grid (the try is not spent)
+            Func<List<DMesh3>> inputs = () => { var f = Fragment(); f[1].RemoveTriangle(HoleTriangle); return f; };
+            var none = new SolidBooleanPipeline(inputs(), D) { InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair, AutomaticSteps = Auto.None };
+            Assert.False(none.Compute());
+            Assert.Equal("SheetRole:1,Fallback:-1,InputRepair:1", Names(none));
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, none.BooleanStatus);
+            var p = new SolidBooleanPipeline(inputs(), D) { InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair, AutomaticSteps = RoundingOnly };
+            bool done = p.Compute();
+            Assert.True(done, p.Status + " " + p.Error);
+            AssertGridResult(p);
+            // (the retry is the run of the fallback on the snapped inputs: it repairs the tool again)
+            Assert.Equal("SheetRole:1,Fallback:-1,InputRepair:1,Grid:-1,InputRepair:1", Names(p));
+            Assert.StartsWith("RoundingNotClean: ", p.Report.Route[3].Reason);
+            Assert.Equal(Pow2(-18), p.Report.Route[3].Grid);
+            Assert.True(Volume(p.Result) > 0 && Volume(p.Result) < Volume(Fragment()[0]));
+            // the sheet bit does not answer it: the same input ends in the refusal
+            var sheetOnly = new SolidBooleanPipeline(inputs(), D) { InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair, AutomaticSteps = SheetOnly };
+            Assert.False(sheetOnly.Compute());
+        }
+
         // ---- the guards apply on this path ----
 
         [Fact]
