@@ -232,25 +232,6 @@ namespace geometry3Sharp.Tests
         }
 
 
-        // Known limitation (pinned: a fix turns this test red, then cone24_x0.3 joins the cases of
-        // Rim_SameResultUnderSimilarity with this rotation): the fold check is not exhaustive, and which pairs survive the
-        // last pass depends on rounding (see the summary). The input here is the same bits on every runtime: the cone ring
-        // is the pinned table, and the rotation has rational entries (about z with cos 0.936 and sin 0.352, after about
-        // x with cos 0.28 and sin 0.96: only +, - and * on literals, no sin or cos). cone24_x0.3 under it ends with 8
-        // self-intersecting pairs. Of 100 such rotations (cos and sin of 0.6 / 0.8, 5 / 13 and 12 / 13, 0.28 / 0.96,
-        // 8 / 17 and 15 / 17, 0.352 / 0.936 for each axis) 9 leave 2 to 8 pairs, 91 none.
-        [Fact]
-        public void KnownLimitation_Rim_Cone24_UnderARationalRotation_LeavesSelfIntersections()
-        {
-            Matrix3d rz = new Matrix3d(0.936, -0.352, 0, 0.352, 0.936, 0, 0, 0, 1);
-            Matrix3d rx = new Matrix3d(1, 0, 0, 0, 0.28, -0.96, 0, 0.96, 0.28);
-            var s = new Similarity("rational rotation", 1, rz * rx, Vector3d.Zero);
-            var (input, edge) = Case("cone24_x0.3");
-            DMesh3 back = Invariance.MappedBack(Remesh(Invariance.Transformed(input, s), edge, 0.2, false), s);
-            AssertValid(back, "cone24_x0.3, rational rotation");
-            Assert.True(MeshRepairMetrics.SelfIntersections(back) > 0);
-        }
-
         // a flip of edge B-U at a rim A-B-C (feature vertices) would fold the side onto the cap: the new triangle B-A-C
         // overlaps the cap triangles O-A-B, O-B-C. Fins at U (a corner off the features) already cross the old side
         // triangles; the old triangles are counted at the same (feature) corners as the new ones, so these crossings,

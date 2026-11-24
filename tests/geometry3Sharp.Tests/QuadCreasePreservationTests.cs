@@ -295,10 +295,12 @@ namespace geometry3Sharp.Tests
         {
             // Triangular prism with 120-degree dihedral edges (equilateral triangle cross-section extruded along z)
             double r = 0.8;
-            // Corners at (r, 0) and (-r/2, +-r sqrt(3)/2): the sqrt(3)/2 literal is the correctly rounded value, so the
-            // input is the same bits on every runtime. The C runtime's Math.Cos / Math.Sin at 2 pi / 3 and 4 pi / 3 are not
-            // correctly rounded on every platform (this Windows runtime is 1 ulp off at the sin of 4 pi / 3), and the
-            // fixture's rim creases below are decided by single bits (see the comment at the gates).
+            // Corners at (r, 0) and (-r/2, +-r sqrt(3)/2), written as literals: exact by construction (-0.5 is exact, the
+            // sqrt(3)/2 literal is its correctly rounded value), with no call of the C runtime's sin and cos. They are not
+            // the correctly rounded cos and sin of the doubles 2 pi / 3 and 4 pi / 3 (-0.4999999999999998, 0.8660254037844387,
+            // -0.5000000000000004, -0.8660254037844384), so this is a new input on every platform. It does not make the
+            // outcome platform-independent: the quad remesher itself calls Atan2, Sin and Cos (mesh_ops/CrossField.cs,
+            // about 14 calls; PositionField.cs, 2), so every quad test depends on the runtime's libm.
             const double HalfSqrt3 = 0.8660254037844386;
             var triPoly = new Polygon2d(new[] {
                 new Vector2d(r, 0),
@@ -320,12 +322,12 @@ namespace geometry3Sharp.Tests
             PolyMeshMetrics metrics = CheckResult(qr.Result, "120-deg triangular prism");
             Assert.True(metrics.QuadFraction >= 0.85, "prism quads " + metrics.QuadFraction);
             // The gates measure the three 120-degree ridges (the edges along z), the subject of this test. The 90-degree
-            // rim creases of the two caps are not measured: whether the output follows them within 0.1 s depends on
-            // the number of fixture remesh passes and on single bits of the input (issue #1452; with the correctly
-            // rounded corners above and 12..20 passes the rim Hausdorff is 0 to 0.56 s, the ridges' is 0 in every run),
-            // so a rim gate would pin the fixture, not the ridges. Without PreserveCreases the ridges end with
-            // coverage 0.10..0.54 and Hausdorff 0.26..0.87 s in the same runs, so these gates still fail on a change
-            // that stops following a ridge.
+            // rim creases of the two caps are not measured, because their result is not guaranteed, not because of the
+            // corners: with PreserveCreases the output can miss one stretch of a rim edge by 0.41 to 0.45 s, depending on
+            // the number of fixture remesh passes (12 to 20) and on 1 ulp of the input (issue #1452); the old rim gate failed
+            // with the runtime's values and with the correctly rounded ones alike. The ridges are followed exactly in all of
+            // these runs. Without PreserveCreases the ridges end with coverage 0.10 to 0.21, angle p95 40 to 42 degrees and
+            // Hausdorff 0.47 to 0.48 s, so these gates still fail on a change that stops following a ridge.
             MeasureFeatures(prism, qr.Result, s, 30, out double cov, out double ang95, out double haus, dir => Math.Abs(dir.z) > 0.99);
             Assert.True(cov > 0.95, "prism ridge coverage " + cov);
             Assert.True(ang95 <= 10.0, "prism ridge angle p95 " + ang95);
