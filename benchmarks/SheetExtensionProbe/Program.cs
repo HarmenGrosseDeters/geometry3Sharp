@@ -110,7 +110,7 @@ namespace SheetExtensionProbe
             row.MaxGRel = rep.MaxDepthRelative; row.U = rep.U; row.URel = rep.URelative; row.Curves = rep.CurveCount; row.CurveIds = rep.CurveIdCount; row.Runs = rep.Runs.Count;
             row.ChosenEdges = rep.ChosenEdges; row.SubdivisionPoints = rep.SubdivisionPoints; row.NewTriangles = rep.NewTriangles;
             row.ConstructMs = rep.ConstructMs; row.VerifyMs = rep.VerifyMs; row.ImprintMs = rep.ImprintMs; row.CutMs = rep.CutMs;
-            if (rep.Runs.Count > 0 && rep.Extended) {
+            if (rep.Runs.Count > 0 && rep.Candidate != null) {
                 row.StripArea = rep.Runs.Sum(r => double.IsNaN(r.StripAreaInside) ? 0 : r.StripAreaInside);
                 double len = rep.Runs.Sum(r => r.Length);
                 row.MeanDepth = len > 0 ? rep.Runs.Sum(r => r.MeanDepth * r.Length) / len : 0;
@@ -333,23 +333,28 @@ namespace SheetExtensionProbe
         static int RunCost()
         {
             var sb = new StringBuilder();
-            sb.AppendLine("| sphere triangles | sheet triangles | strip triangles | subdivision points | construct ms | verify ms (without imprint) | imprint ms | cut ms | imprint / cut |");
-            sb.AppendLine("|---|---|---|---|---|---|---|---|---|");
-            foreach (int[] cfg in new[] { new[] { 14, 12 }, new[] { 30, 24 }, new[] { 60, 48 } }) {
+            sb.AppendLine("| sphere triangles | sheet triangles | strip triangles | subdivision points | diagnosis ms | construct ms | verify ms (without imprint) | imprint ms | cut ms | total Compute ms | imprint / cut |");
+            sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|");
+            foreach (int[] cfg in new[] { new[] { 14, 12 }, new[] { 30, 24 }, new[] { 60, 48 }, new[] { 65, 100 } }) {
                 DMesh3 sphere = Geometry.Sphere(Vector3d.Zero, 5, cfg[0]);
                 DMesh3 sheet = Geometry.Grid(Geometry.Lin(-8, 8, cfg[1]), Geometry.Lin(-8, 4.5, cfg[1]), (x, y) => 0.5, true);
-                var cons = new List<double>(); var ver = new List<double>(); var imp = new List<double>(); var cut = new List<double>();
+                var diag = new List<double>(); var cons = new List<double>(); var ver = new List<double>(); var imp = new List<double>(); var cut = new List<double>(); var tot = new List<double>();
                 ExtensionReport last = null;
-                for (int i = 0; i < 6; ++i) {
+                int runs = cfg[1] >= 100 ? 4 : 6;
+                for (int i = 0; i < runs; ++i) {
+                    var dg = new gs.MeshSheetExtension { Sheet = sheet, Workpiece = sphere };
+                    dg.Diagnose();
+                    var sw = Stopwatch.StartNew();
                     SheetExtension.TryExtend(sheet, sphere, new ExtensionOptions(), out ExtensionReport rep);
+                    sw.Stop();
                     last = rep;
                     if (i == 0) continue;
-                    cons.Add(rep.ConstructMs); ver.Add(rep.VerifyMs); imp.Add(rep.ImprintMs); cut.Add(rep.CutMs);
+                    diag.Add(dg.Report.DiagnoseMs); cons.Add(rep.ConstructMs); ver.Add(rep.VerifyMs); imp.Add(rep.ImprintMs); cut.Add(rep.CutMs); tot.Add(sw.Elapsed.TotalMilliseconds);
                 }
                 Func<List<double>, double> med = l => { var q = l.OrderBy(x => x).ToList(); return q[q.Count / 2]; };
-                sb.AppendLine("| " + sphere.TriangleCount + " | " + sheet.TriangleCount + " | " + last.NewTriangles + " | " + last.SubdivisionPoints + " | " + F(med(cons), "0.0") + " | " + F(med(ver), "0.0") + " | " + F(med(imp), "0.0") + " | " + F(med(cut), "0.0")
-                    + " | " + F(med(imp) / med(cut), "0.00") + " |" + (last.Refusal != ExtensionRefusal.None ? " REFUSED " + last.Refusal : ""));
-                Console.WriteLine(sb.ToString().Split('\n').Reverse().Skip(1).First());
+                sb.AppendLine("| " + sphere.TriangleCount + " | " + sheet.TriangleCount + " | " + last.NewTriangles + " | " + last.SubdivisionPoints + " | " + F(med(diag), "0.0") + " | " + F(med(cons), "0.0") + " | " + F(med(ver), "0.0") + " | " + F(med(imp), "0.0") + " | " + F(med(cut), "0.0")
+                    + " | " + F(med(tot), "0.0") + " | " + F(med(imp) / med(cut), "0.00") + " |" + (last.Refusal != ExtensionRefusal.None ? " REFUSED " + last.Refusal : ""));
+                Console.WriteLine(sb.ToString().Split((char)10).Reverse().Skip(1).First());
             }
             string dir = ResultsDir(); Directory.CreateDirectory(dir);
             File.WriteAllText(Path.Combine(dir, "cost.md"), sb.ToString());

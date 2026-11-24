@@ -1,14 +1,18 @@
 # SheetExtensionProbe
 
 Spike of [docs/design/SHEET_EXTENSION.md](../../docs/design/SHEET_EXTENSION.md) (section 10, step 2): the construction of
-section 4 with public members only, measured on procedural cases. No library code is changed. Findings and the go / no-go:
+section 4, measured on procedural cases. The construction was built here with public members only (the spike); since the helper PR it is the library's
+`gs.MeshSheetExtension` (`mesh_ops/MeshSheetExtension.cs`, [guide](../../docs/guides/booleans-and-imprint.md#a-sheet-that-ends-short-of-the-surface)) and this
+project runs the library: `SheetExtension.cs` is an adapter that keeps the probe's option, report and refusal types, and the mutants of `mutants` are the
+library's internal test switches (`InternalsVisibleTo`). The cases, the frames and the results are those of the spike (outcomes and volumes identical; the digits
+past the 12th differ because the library's Boolean moved). Findings and the go / no-go:
 [docs/research/SHEET_EXTENSION_SPIKE_2026-11.md](../../docs/research/SHEET_EXTENSION_SPIKE_2026-11.md).
 
 ```
 dotnet run -c Release --project benchmarks/SheetExtensionProbe -- selftest         # every case in every frame; exit code 1 if a case does not end as expected
 dotnet run -c Release --project benchmarks/SheetExtensionProbe -- cases [filter]   # the same, writes results/cases.jsonl and results/cases.md (no filter)
 dotnet run -c Release --project benchmarks/SheetExtensionProbe -- mutants          # the mutation runs by hand, writes results/mutants.md
-dotnet run -c Release --project benchmarks/SheetExtensionProbe -- cost             # imprint against cut, writes results/cost.md
+dotnet run -c Release --project benchmarks/SheetExtensionProbe -- cost             # the diagnosis, the construction, the imprint and the cut, writes results/cost.md (the last row is 20,000 sheet triangles against 49,152)
 dotnet run -c Release --project benchmarks/SheetExtensionProbe -- all
 dotnet run -c Release --project benchmarks/SheetExtensionProbe -- file <workpiece> <sheet> [reverse] [uncut=outside|inside]
 ```
@@ -25,7 +29,7 @@ dotnet run -c Release --project benchmarks/SheetExtensionProbe -- file <workpiec
 
 | file | what |
 |---|---|
-| `SheetExtension.cs` | the construction, one static class (`SheetExtension.TryExtend`), options, report and refusal reasons. Nothing in it is specific to a case; it is compiled as it is by a local harness outside the repository. Public API only (`ExactMeshBoolean`, `ExactMeshImprint`, `DMeshAABBTree3`, `ExactTriangleIntersection`, `ExactPredicates`, `MeshRepairMetrics`) |
+| `SheetExtension.cs` | the adapter to `gs.MeshSheetExtension`: `SheetExtension.TryExtend`, the options, the report and the refusal reasons of the spike mapped onto the library's (the construction itself is `mesh_ops/MeshSheetExtension.cs` now) |
 | `Cases.cs`, `Geometry.cs` | the procedural cases with their analytic outcome and volume, and the generators (box, prism of a polygon, sphere, octahedron, height-field grids, welded sheets) |
 | `Program.cs` | the modes, the frames, the rows and the mutants |
 | `results/` | `cases.jsonl` / `cases.md` (one row per case and frame), `mutants.md`, `cost.md` of the run in the research note |
