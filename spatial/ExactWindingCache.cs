@@ -1237,6 +1237,11 @@ namespace g3
         /// in the projection along the plane's axis for the rays), so the value on a flat face is the same exact n + 0.5 on its
         /// inner edges and vertices as inside its triangles. Every other group (a crease, a corner, an open edge) takes the
         /// rounded sum of tri_on_boundary_value.
+        /// Cost: the grouping is one pass over the list per plane, so it is only done where the triangles through p lie in at
+        /// most MaxFlatPlanes planes (a flat face is one plane; a face that another body touches with a corner a few). Where
+        /// more planes meet (the apex of a cone: one plane per triangle) no group can matter in practice and every triangle
+        /// takes the rounded sum, so the work stays linear in the number of triangles through p. The rule depends on the
+        /// number of planes only, not on the order of the triangles.
         /// </summary>
         [MethodImpl(MethodImplOptions.NoInlining)]
         double resolve_pending_on_boundary(double px, double py, double pz, List<int> pending)
@@ -1244,8 +1249,12 @@ namespace g3
             Vector3d p = new Vector3d(px, py, pz);
             int n = pending.Count;
             double sum = 0.0;
+
+            // partition the list by plane: groupEnd[g] is the end of group g
+            int[] groupEnd = new int[MaxFlatPlanes];
+            int groups = 0;
             int g0 = 0;
-            while (g0 < n) {
+            while (g0 < n && groups < MaxFlatPlanes) {
                 // gather the triangles in the plane of pending[g0] behind it
                 FlatTri r = tris[pending[g0]];
                 int g1 = g0 + 1;
@@ -1257,6 +1266,23 @@ namespace g3
                         ++g1;
                     }
                 }
+                groupEnd[groups++] = g1;
+                g0 = g1;
+            }
+
+            if (g0 < n) {
+                // more than MaxFlatPlanes planes through p: the rounded sum for every triangle
+                for (int j = 0; j < n; ++j) {
+                    FlatTri t = tris[pending[j]];
+                    sum += tri_on_boundary_value(p, t.A, t.B, t.C);
+                }
+                pending.Clear();
+                return sum;
+            }
+
+            g0 = 0;
+            for (int g = 0; g < groups; ++g) {
+                int g1 = groupEnd[g];
                 double exact;
                 if (g1 - g0 >= 2 && flat_group_value(p, pending, g0, g1, out exact)) {
                     sum += exact;
@@ -1271,6 +1297,9 @@ namespace g3
             pending.Clear();
             return sum;
         }
+
+        // The largest number of planes through p for which the triangles on whose edge or vertex p lies are grouped by plane.
+        internal const int MaxFlatPlanes = 8;
 
         // The sector of the triangle (a, b, c) at p (p at a vertex or on an edge, not elsewhere), in the triangle's own
         // counter-clockwise order: from the ray through `from` to the ray through `to`. A half plane for p on an edge.
@@ -1306,6 +1335,20 @@ namespace g3
             if (ux != 0)
                 return Math.Sign(V.x.CompareTo(P.x)) == Math.Sign(ux);
             return Math.Sign(V.y.CompareTo(P.y)) == Math.Sign(uy);
+        }
+
+        // The exact order of the rays from P through U and through V by angle (counter-clockwise from the +u axis of the
+        // projection, in [0, 2 pi)): negative if U comes first, 0 for the same ray. The half plane of a ray is decided by
+        // comparisons (angle in [0, pi): above P, or level with it on the +u side); inside one half plane the order is the sign
+        // of Orient2d, and collinear rays of one half plane are the same ray.
+        static int compare_rays(Vector2d P, Vector2d U, Vector2d V)
+        {
+            int hu = (U.y > P.y || (U.y == P.y && U.x > P.x)) ? 0 : 1;
+            int hv = (V.y > P.y || (V.y == P.y && V.x > P.x)) ? 0 : 1;
+            if (hu != hv)
+                return hu - hv;
+            int o = ExactPredicates.Orient2d(P, U, V);
+            return o > 0 ? -1 : (o < 0 ? 1 : 0);
         }
 
         // Is the ray through R inside the sector that runs counter-clockwise (in the projection) from the ray through lo to the
@@ -1350,16 +1393,13 @@ namespace g3
             // Going around p, the number of covering sectors (each counted with its orientation) changes by +1 at the ray where a
             // triangle's own sector starts and by -1 where it ends, whatever the orientation. It is constant iff the start rays
             // and the end rays are the same rays with the same multiplicities.
-            bool[] used = new bool[m];
+            // Both lists are sorted by the exact angle of the ray (compare_rays) and compared entry by entry.
+            Vector2d[] starts = (Vector2d[])from.Clone(), ends = (Vector2d[])to.Clone();
+            Comparison<Vector2d> byAngle = (u, v) => compare_rays(P, u, v);
+            Array.Sort(starts, byAngle);
+            Array.Sort(ends, byAngle);
             for (int k = 0; k < m; ++k) {
-                bool found = false;
-                for (int j = 0; j < m && !found; ++j) {
-                    if (!used[j] && same_ray(P, from[k], to[j])) {
-                        used[j] = true;
-                        found = true;
-                    }
-                }
-                if (!found)
+                if (compare_rays(P, starts[k], ends[k]) != 0)
                     return false;
             }
 
