@@ -1,0 +1,299 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using g3;
+using Xunit;
+using Xunit.Abstractions;
+using Ops = g3.ExactMeshBoolean.Operations;
+using Fx = geometry3Sharp.Tests.ExactBooleanGradientTests;
+
+namespace geometry3Sharp.Tests
+{
+    /// <summary>
+    /// BooleanVolumeGradient (mesh_ops/BooleanVolumeGradient.cs) against the exact rational oracle of the research prototype
+    /// (Harness/BooleanGradient.cs, itself checked against exact central differences in ExactBooleanGradientTests): every
+    /// component within its stated bound, the bound tight, exact scaling under 2^k, reuse, determinism and the contact regions.
+    /// </summary>
+    public class BooleanVolumeGradientTests
+    {
+        readonly ITestOutputHelper output;
+        public BooleanVolumeGradientTests(ITestOutputHelper output) { this.output = output; }
+
+        static BooleanVolumeGradient Run(DMesh3 a, DMesh3 b, Ops op, out ExactMeshBoolean boolean)
+        {
+            boolean = new ExactMeshBoolean(a, b, op) { RetainClassification = true };
+            Assert.True(boolean.Compute(), boolean.Error);
+            var g = new BooleanVolumeGradient(boolean);
+            Assert.True(g.Compute(), g.Error);
+            return g;
+        }
+
+        static BooleanVolumeGradient Run(DMesh3 a, DMesh3 b, Ops op) => Run(a, b, op, out _);
+
+        // |value - exact| <= bound, exactly
+        static bool Within(double value, double bound, BigRational exact)
+        {
+            BigRational d = BigRational.Of(value) - exact;
+            if (d.Sign < 0) d = new BigRational(-d.N, d.D);
+            return (BigRational.Of(bound) - d).Sign >= 0;
+        }
+
+        public static IEnumerable<object[]> Cases()
+        {
+            foreach (string shape in new[] { "axis", "rotated", "edge" })
+                foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference })
+                    yield return new object[] { shape, op };
+            foreach (string shape in new[] { "face", "flush", "flush swapped" })
+                foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference })
+                    yield return new object[] { shape, op };
+        }
+
+        static void Inputs(string shape, out DMesh3 a, out DMesh3 b)
+        {
+            switch (shape) {
+                case "axis": a = Fx.Unit(); b = Fx.ShiftedBox(); break;
+                case "rotated": a = Fx.Unit(); b = Fx.RotatedBox(); break;
+                case "edge": a = Fx.Unit(); b = Fx.EdgeOnTop(); break;
+                case "face": a = Fx.Unit(); b = BooleanFuzzShapes.Box(1, 0.25, 0.25, 2, 0.75, 0.75); break;
+                case "flush": a = Fx.Unit(); b = BooleanFuzzShapes.Box(0.5, 0.25, 0.5, 1.5, 0.75, 1); break;
+                default: a = BooleanFuzzShapes.Box(0.5, 0.25, 0.5, 1.5, 0.75, 1); b = Fx.Unit(); break;
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(Cases))]
+        public void Gradient_IsWithinItsBound_OfTheExactOracle(string shape, Ops op)
+        {
+            Inputs(shape, out DMesh3 a, out DMesh3 b);
+            BooleanVolumeGradient g = Run(a, b, op);
+            BooleanGradient exact = BooleanGradient.Compute(a, b, op, area: false);
+            Assert.True(Within(g.Volume, g.VolumeBound, exact.Volume), $"volume {g.Volume} +- {g.VolumeBound}");
+            Assert.True(g.VolumeBound <= 1e-14 * Math.Max(1, Math.Abs(g.Volume)), $"volume bound {g.VolumeBound}");
+            double worst = 0, largest = 0;
+            for (int m = 0; m < 2; ++m) {
+                DMesh3 mesh = m == 0 ? a : b;
+                Assert.Equal(mesh.MaxVertexID, g.Gradient[m].Length);
+                foreach (int v in mesh.VertexIndices()) {
+                    BigRational[] x = exact.VolumeGradientAt(m, v);
+                    for (int k = 0; k < 3; ++k) {
+                        Assert.True(Within(g.Gradient[m][v][k], g.GradientBound[m][v][k], x[k]),
+                            $"mesh {m} vertex {v} component {k}: {g.Gradient[m][v][k]:R} +- {g.GradientBound[m][v][k]:R}, exact {BooleanGradient.D(x[k]):R}");
+                        worst = Math.Max(worst, g.GradientBound[m][v][k]);
+                        largest = Math.Max(largest, Math.Abs(g.Gradient[m][v][k]));
+                    }
+                }
+            }
+            output.WriteLine($"{shape} {op}: volume {g.Volume:R} +- {g.VolumeBound:E2}, largest |dV/dx| {largest:R}, largest bound {worst:E2}, contacts {g.Contacts.Count}");
+            // a useful bound: a few hundred ulps of the largest entry
+            Assert.True(worst <= 1e-13 * Math.Max(1, largest), $"bound {worst}");
+        }
+
+        [Fact]
+        public void Similarities_PowersOfTwoScaleExactly_OthersWithinTheInputRounding()
+        {
+            DMesh3 a = Fx.Unit(), b = Fx.RotatedBox();
+            BooleanVolumeGradient g = Run(a, b, Ops.Union);
+            foreach (Similarity s in Similarity.All()) {
+                BooleanVolumeGradient gs = Run(Invariance.Transformed(a, s), Invariance.Transformed(b, s), Ops.Union);
+                double s2 = s.Scale * s.Scale, worst = 0;
+                for (int m = 0; m < 2; ++m)
+                    for (int v = 0; v < g.Gradient[m].Length; ++v) {
+                        if (s.IsExact) {
+                            Assert.Equal(g.Gradient[m][v] * s2, gs.Gradient[m][v]);
+                            Assert.Equal(g.GradientBound[m][v] * s2, gs.GradientBound[m][v]);
+                        } else {
+                            Vector3d back = s.Rotation.Transpose() * gs.Gradient[m][v] / s2;
+                            worst = Math.Max(worst, (back - g.Gradient[m][v]).Length);
+                        }
+                    }
+                if (s.IsExact) {
+                    Assert.Equal(g.Volume * s2 * s.Scale, gs.Volume);
+                    Assert.Equal(g.VolumeBound * s2 * s.Scale, gs.VolumeBound);
+                }
+                output.WriteLine($"{s.Name}: exact={s.IsExact}, worst |R^T g'/s^2 - g| = {worst:E3}");
+                Assert.True(worst < 1e-6, s.Name);
+            }
+        }
+
+        static string Bits(BooleanVolumeGradient g)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append(BitConverter.DoubleToInt64Bits(g.Volume)).Append(',').Append(BitConverter.DoubleToInt64Bits(g.VolumeBound));
+            for (int m = 0; m < g.Gradient.Length; ++m)
+                for (int v = 0; v < g.Gradient[m].Length; ++v)
+                    for (int k = 0; k < 3; ++k)
+                        sb.Append(',').Append(BitConverter.DoubleToInt64Bits(g.Gradient[m][v][k])).Append(':').Append(BitConverter.DoubleToInt64Bits(g.GradientBound[m][v][k]));
+            foreach (var c in g.Contacts) {
+                sb.Append('|').Append(string.Join(",", c.Meshes)).Append(';').Append(c.Sheets).Append(';').Append(BitConverter.DoubleToInt64Bits(c.Area));
+                foreach (var alt in c.Alternatives)
+                    foreach (var t in alt)
+                        sb.Append(';').Append(t.Mesh).Append('/').Append(t.Vertex).Append('=').Append(BitConverter.DoubleToInt64Bits(t.Value.x))
+                          .Append('/').Append(BitConverter.DoubleToInt64Bits(t.Value.y)).Append('/').Append(BitConverter.DoubleToInt64Bits(t.Value.z));
+            }
+            return sb.ToString();
+        }
+
+        [Fact]
+        public void Reuse_ComputeTwiceOnOneInstance_GivesTheSameBits()
+        {
+            BooleanVolumeGradient g = Run(Fx.Unit(), BooleanFuzzShapes.Box(0.5, 0.25, 0.5, 1.5, 0.75, 1), Ops.Union, out ExactMeshBoolean b);
+            string first = Bits(g);
+            Assert.True(g.Compute(), g.Error);
+            Assert.Equal(first, Bits(g));
+            // and after the boolean is computed again
+            Assert.True(b.Compute());
+            Assert.True(g.Compute(), g.Error);
+            Assert.Equal(first, Bits(g));
+        }
+
+        [Fact]
+        public void Determinism_RepeatedAndSerialRuns_GiveTheSameBits()
+        {
+            DMesh3 a = Fx.Unit(), b = Fx.RotatedBox();
+            string expected = Bits(Run(a, b, Ops.Difference));
+            for (int run = 0; run < 3; ++run)
+                Assert.Equal(expected, Bits(Run(a, b, Ops.Difference)));
+            gParallel.SerialOnThisThread = true;
+            try {
+                Assert.Equal(expected, Bits(Run(a, b, Ops.Difference)));
+            } finally {
+                gParallel.SerialOnThisThread = false;
+            }
+        }
+
+        [Fact]
+        public void RetainClassification_ChangesNoResult()
+        {
+            foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {
+                var plain = new ExactMeshBoolean(Fx.Unit(), Fx.RotatedBox(), op);
+                var kept = new ExactMeshBoolean(Fx.Unit(), Fx.RotatedBox(), op) { RetainClassification = true };
+                Assert.True(plain.Compute());
+                Assert.True(kept.Compute());
+                Assert.Equal("", Invariance.Difference(plain.Result, kept.Result));
+                Assert.Null(plain.CertificateKeep);
+                Assert.Null(plain.StacksPerPiece);
+            }
+        }
+
+        [Fact]
+        public void Compute_Fails_WithoutRetention_ForAnOpenInput_AndForAFailedBoolean()
+        {
+            var plain = new ExactMeshBoolean(Fx.Unit(), Fx.ShiftedBox(), Ops.Union);
+            Assert.True(plain.Compute());
+            var g = new BooleanVolumeGradient(plain);
+            Assert.False(g.Compute());
+            Assert.Contains("RetainClassification", g.Error);
+            Assert.Null(g.Gradient);
+
+            var open = new ExactMeshBoolean(Fx.Unit(), BooleanFuzzShapes.Without(Fx.ShiftedBox(), 0), Ops.Union) { AllowOpenMeshes = true, RetainClassification = true };
+            Assert.True(open.Compute(), open.Error);
+            g = new BooleanVolumeGradient(open);
+            Assert.False(g.Compute());
+            Assert.Contains("not closed", g.Error);
+
+            var notRun = new ExactMeshBoolean(Fx.Unit(), Fx.ShiftedBox(), Ops.Union) { RetainClassification = true };
+            g = new BooleanVolumeGradient(notRun);
+            Assert.False(g.Compute());
+            Assert.Throws<ArgumentNullException>(() => new BooleanVolumeGradient(null));
+        }
+
+        static double Directional(Vector3d[][] grad, Vector3d[][] d)
+        {
+            double r = 0;
+            for (int m = 0; m < d.Length; ++m)
+                if (d[m] != null)
+                    for (int v = 0; v < d[m].Length; ++v)
+                        r += grad[m][v].Dot(d[m][v]);
+            return r;
+        }
+
+        static double Directional(BooleanVolumeGradient.GradientTerm[] terms, Vector3d[][] d)
+            => terms.Where(t => d[t.Mesh] != null).Sum(t => t.Value.Dot(d[t.Mesh][t.Vertex]));
+
+        [Theory]
+        // face contact of area 1/4 (B moves along +x, away from A): realized and other one-sided derivative
+        [InlineData("face", Ops.Union, 0.25, 0.0)]
+        [InlineData("face", Ops.Intersection, 0.0, -0.25)]
+        [InlineData("face", Ops.Difference, 0.0, 0.25)]
+        // flush tops (B's top moves up): A u B keeps A's copy (left derivative 1/4), B u A keeps B's (right derivative 1/2)
+        [InlineData("flush", Ops.Union, 0.25, 0.5)]
+        [InlineData("flush swapped", Ops.Union, 0.5, 0.25)]
+        public void ContactRegion_GivesTheRealizedAndTheOtherOneSidedDerivative(string shape, Ops op, double realized, double other)
+        {
+            Inputs(shape, out DMesh3 a, out DMesh3 b);
+            BooleanVolumeGradient g = Run(a, b, op);
+            Vector3d[][] d;
+            if (shape == "face")
+                d = new[] { new Vector3d[a.MaxVertexID], Enumerable.Repeat(Vector3d.AxisX, b.MaxVertexID).ToArray() };
+            else {
+                DMesh3 moving = shape == "flush" ? b : a;     // B's box is the first mesh when swapped
+                Vector3d[] top = moving.VertexIndices().Select(v => moving.GetVertex(v).z == 1 ? Vector3d.AxisZ : Vector3d.Zero).ToArray();
+                d = shape == "flush" ? new[] { new Vector3d[a.MaxVertexID], top } : new[] { top, new Vector3d[b.MaxVertexID] };
+            }
+            Assert.Single(g.Contacts);
+            BooleanVolumeGradient.ContactRegion c = g.Contacts[0];
+            output.WriteLine($"{shape} {op}: meshes {string.Join(",", c.Meshes)} sheets {c.Sheets} area {c.Area} alternatives {c.Alternatives.Length}, realized {Directional(g.Gradient, d)}");
+            Assert.Equal(new[] { 0, 1 }, c.Meshes);
+            Assert.Equal(2, c.Sheets);
+            Assert.Equal(shape == "face" ? 0.25 : 0.25, c.Area, 12);
+            Assert.Equal(realized, Directional(g.Gradient, d), 12);
+            Assert.Single(c.Alternatives);
+            Assert.Equal(other, Directional(g.Gradient, d) + Directional(c.Alternatives[0], d), 12);
+        }
+
+        [Theory]
+        [InlineData("axis")]
+        [InlineData("rotated")]
+        [InlineData("edge")]
+        public void NoContactOfPositiveArea_NoRegion(string shape)
+        {
+            Inputs(shape, out DMesh3 a, out DMesh3 b);
+            foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference })
+                Assert.Empty(Run(a, b, op).Contacts);
+        }
+
+        [Fact]
+        public void TwoContacts_AreTwoRegions_InAFixedOrder()
+        {
+            // B touches A's +x face and C touches A's -y face: two regions; their alternatives touch disjoint vertices
+            DMesh3 a = Fx.Unit(), b = BooleanFuzzShapes.Box(1, 0.25, 0.25, 2, 0.75, 0.75), c = BooleanFuzzShapes.Box(0.25, -1, 0.25, 0.75, 0, 0.75);
+            var boolean = new ExactMeshBoolean(new[] { a, b, c }, Ops.Union) { RetainClassification = true };
+            Assert.True(boolean.Compute(), boolean.Error);
+            var g = new BooleanVolumeGradient(boolean);
+            Assert.True(g.Compute(), g.Error);
+            Assert.Equal(2, g.Contacts.Count);
+            Assert.Equal(new[] { 0, 2 }, g.Contacts.Select(r => r.Meshes).OrderBy(m => m[1]).Last());
+            Assert.All(g.Contacts, r => Assert.Single(r.Alternatives));
+            Assert.True(Math.Abs(g.Volume - 1.5) <= g.VolumeBound);
+        }
+
+        [Fact]
+        public void Enclose_ContainsTheExactQuotient_AndIsExactForGridIntegers()
+        {
+            foreach (var (n, d, e) in new[] { (1, 3, 0), (-2, 7, -30), (5, 11, 40), (1, 10, -1060) }) {
+                ExactInterval x = BooleanVolumeGradient.enclose(n, d, e);
+                BigRational q = new BigRational(n, d) * BooleanGradient.Pow2(e);
+                Assert.True((BigRational.Of(x.Lo) - q).Sign < 0 && (BigRational.Of(x.Hi) - q).Sign > 0, $"{n}/{d} 2^{e}");
+            }
+            ExactInterval i = BooleanVolumeGradient.enclose(12345, 1, -20);
+            Assert.Equal(i.Lo, i.Hi);
+            Assert.Equal(12345.0 / (1 << 20), i.Lo);
+            Assert.Equal(0, BooleanVolumeGradient.enclose(0, 5, 3).Hi);
+        }
+
+        [Fact]
+        public void Mid_BoundCoversBothEnds()
+        {
+            // [1, 1 + 2^-52]: the midpoint rounds to 1 (ties to even), so the bound must reach the upper end
+            var x = new ExactInterval(1, ExactInterval.Up(1));
+            double m = BooleanVolumeGradient.mid(x, out double b);
+            // (checked exactly: m + b in double would round up to the end)
+            Assert.True((BigRational.Of(m) - BigRational.Of(b) - BigRational.Of(x.Lo)).Sign <= 0 && (BigRational.Of(m) + BigRational.Of(b) - BigRational.Of(x.Hi)).Sign >= 0, $"{m:R} +- {b:R}");
+            m = BooleanVolumeGradient.mid(new ExactInterval(double.NegativeInfinity, 1), out b);
+            Assert.Equal(double.PositiveInfinity, b);
+            m = BooleanVolumeGradient.mid(new ExactInterval(-3, -3), out b);
+            Assert.Equal(-3, m);
+            Assert.True(b >= 0 && b <= double.Epsilon);
+        }
+    }
+}
