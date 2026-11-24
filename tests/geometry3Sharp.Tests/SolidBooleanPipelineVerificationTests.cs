@@ -62,7 +62,7 @@ namespace geometry3Sharp.Tests
         // lies on no input: 4 of the 120 of area of the result (cube 96, cavity 24)
         static List<DMesh3> CubeAndBucket() => new List<DMesh3> { Cube(4), Bucket(1, 3, 1, 3) };
 
-        static SolidBooleanPipeline Invented(V mode = V.NoInventedSurface, double limit = 1e-3) =>
+        static SolidBooleanPipeline Invented(V mode = V.NoInventedSurface, double limit = 0) =>
             new SolidBooleanPipeline(CubeAndBucket(), D) { InputRepair = Repair, Verification = mode, MaxInventedSurfaceShare = limit };
 
         // a block of 0.02 x 0.02 x 0.01 at 6e5, 5.7e6, 1e2 (the Grid step's cell is 2^-18 = 3.8e-6) whose faces lie a fraction f of the cell above grid
@@ -184,14 +184,17 @@ namespace geometry3Sharp.Tests
             Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, p.BooleanStatus);
             // the error names the check, the value and the limit
             Assert.Contains("NoInventedSurface", p.Error);
-            Assert.Contains("MaxInventedSurfaceShare 0.001", p.Error);
+            Assert.Contains("MaxInventedSurfaceShare 0:", p.Error);
+            Assert.Contains("input 1 by MeshAutoRepair", p.Error);
+            Assert.Equal(2, p.Report.InventedTriangles);        // (the lid: two triangles)
+            Assert.Equal(4.0, p.Report.InventedSurfaceArea, 12);
+            Assert.Contains("2 triangles, area 4", VerificationStep(p).Change);
             Assert.Contains(p.Report.InventedSurfaceShare.ToString("R", System.Globalization.CultureInfo.InvariantCulture), p.Error);
             // the report keeps the run: the route up to the repair, then the Verification step, and the measurements
             Assert.Equal("SheetRole,Grid,Fallback,InputRepair,Verification", Names(p));
             Assert.Single(p.Report.RepairedInputs);
             Assert.Equal(1.0 / 30, p.Report.InventedSurfaceShare, 12);        // the lid, 4 of 120
             Assert.Equal(1.0, p.Report.InventedSurfaceMaxDistance, 12);        // its centre to the nearest wall
-            Assert.True(p.Report.InventedSurfaceShare > 1e-3);
             Assert.Contains("refused", VerificationStep(p).Change);
             Assert.Equal(0.0, p.Report.RoundingVolumeChange);       // (the mode is not set)
         }
@@ -227,23 +230,26 @@ namespace geometry3Sharp.Tests
             var below = Invented(V.NoInventedSurface, share * (1 - 1e-12));
             Assert.False(below.Compute());
             Assert.Equal(Status.VerificationFailed, below.Status);
-            // a limit of 0 refuses any invented triangle
-            Assert.Equal(Status.VerificationFailed, Invented(V.NoInventedSurface, 0).Also(p => p.Compute()).Status);
+            // the default limit is 0: any invented triangle refuses the result
+            var plain = new SolidBooleanPipeline(CubeAndBucket(), D) { InputRepair = Repair, Verification = V.NoInventedSurface };
+            Assert.Equal(0.0, plain.MaxInventedSurfaceShare);
+            Assert.False(plain.Compute());
+            Assert.Equal(Status.VerificationFailed, plain.Status);
         }
 
         [Fact]
-        public void TheSharePassesTheDefaultLimit_WhenTheInventedRegionIsSmall_AndTheToleranceIsNotTooWide()
+        public void ASmallInventedRegion_IsRefusedByTheDefault_AndPassesAboveItsShare_AndTheToleranceIsNotTooWide()
         {
             // a bucket 0.02 wide: its lid is 4e-4 of area, 4e-6 of the result, with samples at most 0.01 from the walls. The tolerance (2e-4) is far below
-            // that, and one 100 times as wide would see none of it
+            // that, and one 100 times as wide would see none of it. The default limit 0 refuses it; a limit above its share passes
             Func<double, SolidBooleanPipeline> make = limit => new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Bucket(1.99, 2.01, 1.99, 2.01) }, D) {
                 InputRepair = Repair, Verification = V.NoInventedSurface, MaxInventedSurfaceShare = limit
             };
-            var p = make(1e-3);
+            var p = make(1e-5);
             Assert.True(p.Compute(), p.Error);
             Assert.InRange(p.Report.InventedSurfaceShare, 4e-6, 4.3e-6);
             Assert.Equal(0.01, p.Report.InventedSurfaceMaxDistance, 9);
-            var strict = make(0);
+            var strict = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), Bucket(1.99, 2.01, 1.99, 2.01) }, D) { InputRepair = Repair, Verification = V.NoInventedSurface };
             Assert.False(strict.Compute());
             Assert.Equal(Status.VerificationFailed, strict.Status);
             Assert.Equal(p.Report.InventedSurfaceShare, strict.Report.InventedSurfaceShare);
@@ -251,17 +257,36 @@ namespace geometry3Sharp.Tests
 
         // ---- the tolerance ----
 
+        // the bound that the rounding repair of the run applied
+        sealed class Boolean { public ExactMeshBoolean Op; }
+
         [Fact]
-        public void TheTolerance_IsThreeTimesTheRoundingBound_AndFollowsTheBooleansSetting()
+        public void TheTolerance_IsThreeTimesTheBoundTheRoundingRepairApplied()
         {
-            var p = new SolidBooleanPipeline(CubeAt(0, 4), CubeAt(1, 6), D) { Verification = V.NoInventedSurface };
+            var seen = new Boolean();
+            var p = new SolidBooleanPipeline(CubeAt(0, 4), CubeAt(1, 6), D) { Verification = V.NoInventedSurface, ConfigureBoolean = op => seen.Op = op };
             Assert.True(p.Compute(), p.Error);
-            double diag = p.Result.GetBounds().DiagonalLength;
-            Assert.Equal(3 * 1e-5 * diag, p.Report.InventedSurfaceTolerance, 15);
-            // the pipeline reads the bound that its boolean was configured with
-            var wide = new SolidBooleanPipeline(CubeAt(0, 4), CubeAt(1, 6), D) { Verification = V.NoInventedSurface, ConfigureBoolean = op => op.RoundingMaxDisplacement = 2e-5 };
+            double bound = seen.Op.Rounding.MaxLength;
+            // (one component: its diagonal times 1e-5 is the result's)
+            Assert.Equal(1e-5 * p.Result.GetBounds().DiagonalLength, bound, 15);
+            Assert.Equal(3 * bound, p.Report.InventedSurfaceTolerance, 15);
+            // the pipeline reads the bound from the repair that ran, which its boolean was configured with
+            var wideSeen = new Boolean();
+            var wide = new SolidBooleanPipeline(CubeAt(0, 4), CubeAt(1, 6), D) { Verification = V.NoInventedSurface, ConfigureBoolean = op => { wideSeen.Op = op; op.RoundingMaxDisplacement = 2e-5; } };
             Assert.True(wide.Compute(), wide.Error);
             Assert.Equal(2 * p.Report.InventedSurfaceTolerance, wide.Report.InventedSurfaceTolerance, 15);
+        }
+
+        static double Ulp(double x) => BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(Math.Abs(x)) + 1) - Math.Abs(x);
+
+        [Fact]
+        public void WithoutARoundingRepair_TheBoundIsZero_AndTheToleranceIsTheUlpTerm()
+        {
+            var p = new SolidBooleanPipeline(CubeAt(0, 4), CubeAt(1, 6), D) { Verification = V.NoInventedSurface, ConfigureBoolean = op => op.SafeRounding = false };
+            Assert.True(p.Compute(), p.Error);
+            // 256 ulp of 6 (the largest coordinate): a power of two, 4 * 2^-50... computed by the exponent
+            Assert.Equal(3 * 256 * Ulp(6), p.Report.InventedSurfaceTolerance, 15);
+            Assert.Equal(0.0, p.Report.InventedSurfaceShare);
         }
 
         [Fact]
@@ -271,7 +296,7 @@ namespace geometry3Sharp.Tests
             double o = 1e9;
             var p = new SolidBooleanPipeline(Box(new Vector3d(o, o, o), new Vector3d(o + 1, o + 1, o + 1)), Box(new Vector3d(o + 0.5, o + 0.5, o + 0.5), new Vector3d(o + 1.5, o + 1.5, o + 1.5)), U) { Verification = V.NoInventedSurface };
             Assert.True(p.Compute(), p.Error);
-            double ulp = BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(o + 1.5) + 1) - (o + 1.5);
+            double ulp = Ulp(o + 1.5);
             double diag = p.Result.GetBounds().DiagonalLength;
             Assert.True(256 * ulp > 1e-5 * diag);
             Assert.Equal(3 * 256 * ulp, p.Report.InventedSurfaceTolerance, 15);
@@ -283,14 +308,15 @@ namespace geometry3Sharp.Tests
         {
             // inputs 0.06 off the grid cell 0.125 (the snap moves a face by 0.06): the result lies on the snapped faces
             double cell = 0.125;
-            var p = new SolidBooleanPipeline(CubeAt(0.06, 4.06), CubeAt(1.04, 6.06), U) { InputGrid = cell, Verification = V.NoInventedSurface };
+            var seen = new Boolean();
+            var p = new SolidBooleanPipeline(CubeAt(0.06, 4.06), CubeAt(1.04, 6.06), U) { InputGrid = cell, Verification = V.NoInventedSurface, ConfigureBoolean = op => seen.Op = op };
             Assert.True(p.Compute(), p.Error);
             Assert.True(p.Report.InputSnappedVertices > 0);
-            double diag = p.Result.GetBounds().DiagonalLength;
-            Assert.Equal(3 * (1e-5 * diag + cell * Math.Sqrt(3)), p.Report.InventedSurfaceTolerance, 12);
+            double bound = seen.Op.Rounding.MaxLength;
+            Assert.Equal(3 * (bound + cell * Math.Sqrt(3)), p.Report.InventedSurfaceTolerance, 12);
             Assert.Equal(0.0, p.Report.InventedSurfaceShare);
             // the snap moved the surface farther than the rounding bound alone allows: the cell term is what keeps it from being invented
-            Assert.True(p.Report.InventedSurfaceMaxDistance > 3 * 1e-5 * diag);
+            Assert.True(p.Report.InventedSurfaceMaxDistance > 3 * bound);
             AssertSolid(p.Result);
         }
 
@@ -306,6 +332,7 @@ namespace geometry3Sharp.Tests
             // the tolerance is that of the run that is the result: with the cell of the Grid step, which the snap used
             double bound = 3 * 1e-5 * p.Result.GetBounds().DiagonalLength;
             Assert.Equal(3 * (1e-5 * p.Result.GetBounds().DiagonalLength + Cell * Math.Sqrt(3)), p.Report.InventedSurfaceTolerance, 12);
+            Assert.Equal(0L, p.VerificationFallbacks);
             // the snap moved the faces by more than the rounding bound without the cell, which would have flagged the result
             Assert.True(p.Report.InventedSurfaceMaxDistance > bound, p.Report.InventedSurfaceMaxDistance + " vs " + bound);
             Assert.True(p.Report.InventedSurfaceMaxDistance < p.Report.InventedSurfaceTolerance);
@@ -447,9 +474,17 @@ namespace geometry3Sharp.Tests
 
         static double ShareOf(DMesh3 mesh, IEnumerable<Vector3d> nearPoints, out double maxDistance)
         {
-            double share;
-            Assert.True(SolidBooleanPipeline.InventedSurfaceOf(mesh, nearPoints.Select(Speck).ToList(), 1e-3, CancellationToken.None, out share, out maxDistance));
-            return share;
+            var m = SolidBooleanPipeline.InventedSurfaceOf(mesh, nearPoints.Select(Speck).ToList(), 1e-3, CancellationToken.None);
+            Assert.NotNull(m);
+            maxDistance = m.MaxDistance;
+            return m.Share;
+        }
+
+        static SolidBooleanPipeline.InventedSurfaceMeasure Measure(DMesh3 mesh, DMesh3 reference, double tolerance)
+        {
+            var m = SolidBooleanPipeline.InventedSurfaceOf(mesh, new List<DMesh3> { reference }, tolerance, CancellationToken.None);
+            Assert.NotNull(m);
+            return m;
         }
 
         [Fact]
@@ -477,24 +512,22 @@ namespace geometry3Sharp.Tests
             var m = UnitTriangle();
             int v0 = m.AppendVertex(new Vector3d(0, 0, 5)), v1 = m.AppendVertex(new Vector3d(2, 0, 5)), v2 = m.AppendVertex(new Vector3d(0, 2, 5));
             m.AppendTriangle(v0, v1, v2);
-            double share, d;
-            Assert.True(SolidBooleanPipeline.InventedSurfaceOf(m, new List<DMesh3> { UnitTriangle() }, 1e-3, CancellationToken.None, out share, out d));
-            Assert.Equal(2.0 / 2.5, share, 15);
-            Assert.Equal(Math.Sqrt(26), d, 9);
-            Assert.True(SolidBooleanPipeline.InventedSurfaceOf(new DMesh3(), new List<DMesh3> { UnitTriangle() }, 1e-3, CancellationToken.None, out share, out d));
-            Assert.Equal(0.0, share);
+            var r = Measure(m, UnitTriangle(), 1e-3);
+            Assert.Equal(2.0 / 2.5, r.Share, 15);
+            Assert.Equal(2.0, r.Area, 15);
+            Assert.Equal(1, r.Triangles);
+            Assert.Equal(Math.Sqrt(26), r.MaxDistance, 9);
+            Assert.Equal(0.0, Measure(new DMesh3(), UnitTriangle(), 1e-3).Share);
         }
 
         [Fact]
         public void ADistanceAtTheToleranceIsNotInvented_OneAboveIs()
         {
-            double share, d;
             var near = UnitTriangle(); foreach (int v in near.VertexIndices()) near.SetVertex(v, near.GetVertex(v) + new Vector3d(0, 0, 0.25));
-            Assert.True(SolidBooleanPipeline.InventedSurfaceOf(near, new List<DMesh3> { UnitTriangle() }, 0.25, CancellationToken.None, out share, out d));
-            Assert.Equal(0.0, share);
-            Assert.Equal(0.25, d);
-            Assert.True(SolidBooleanPipeline.InventedSurfaceOf(near, new List<DMesh3> { UnitTriangle() }, 0.2499, CancellationToken.None, out share, out d));
-            Assert.Equal(1.0, share);
+            var at = Measure(near, UnitTriangle(), 0.25);
+            Assert.Equal(0.0, at.Share);
+            Assert.Equal(0.25, at.MaxDistance);
+            Assert.Equal(1.0, Measure(near, UnitTriangle(), 0.2499).Share);
         }
 
         // ---- RoundingVolume ----
@@ -759,6 +792,184 @@ namespace geometry3Sharp.Tests
             cts.Cancel();
             Assert.False(p.Compute());
             Assert.Equal(Status.Cancelled, p.Status);
+        }
+
+        // ---- found by the review: exact ranking, the bound of the repair, magnitudes, the floor ----
+
+        // the cube of side s centred at (cx, cy, H) straddles the top face of the box [-H, H]^3 (z = H), near one of its diagonals; both rotated by 23 degrees if asked
+        static List<DMesh3> StraddlingCube(double H, double s, double cx, double cy, bool rotated, bool bigFirst)
+        {
+            DMesh3 big = Box(new Vector3d(-H, -H, -H), new Vector3d(H, H, H));
+            DMesh3 small = Box(new Vector3d(cx - s / 2, cy - s / 2, H - s / 2), new Vector3d(cx + s / 2, cy + s / 2, H + s / 2));
+            if (rotated)
+                foreach (DMesh3 m in new[] { big, small })
+                    MeshTransforms.Rotate(m, Vector3d.Zero, Quaterniond.AxisAngleD(new Vector3d(0.3, 0.5, 0.81).Normalized, 23));
+            return bigFirst ? new List<DMesh3> { big, small } : new List<DMesh3> { small, big };
+        }
+
+        public static IEnumerable<object[]> Straddling()
+        {
+            foreach (bool rotated in new[] { false, true })
+                foreach (double[] hs in new[] { new[] { 1e2, 1e-5 }, new[] { 1e4, 1e-5 }, new[] { 1e5, 1e-3 } })
+                    foreach (double sign in new[] { 1.0, -1.0 })
+                        yield return new object[] { hs[0], hs[1], sign, rotated };
+        }
+
+        [Theory]
+        [MemberData(nameof(Straddling))]
+        public void ATinyCubeOnABigFace_IsNotInvented_WhereTheTreesSquaredRankingIsNoise(double H, double s, double sign, bool rotated)
+        {
+            // (a reference triangle of size 1e4 ranks by a squared distance with an error of 1e-8 and more: its absolute error is eps E^2, far above the
+            // squared tolerance. The bounded search alone returned a triangle that is 2e-7 away for a sample that lies on the face)
+            foreach (var op in new[] { I, D }) {
+                var inputs = StraddlingCube(H, s, 0.3 * s, sign * 0.3 * s, rotated, op == I);
+                var p = new SolidBooleanPipeline(inputs, op) { Verification = V.NoInventedSurface };
+                Assert.True(p.Compute(), H + " " + s + " " + op + ": " + p.Status + " " + p.Error);
+                Assert.Equal(0.0, p.Report.InventedSurfaceShare);
+                Assert.Equal(0, p.Report.InventedTriangles);
+                Assert.True(p.Report.InventedSurfaceMaxDistance <= p.Report.InventedSurfaceTolerance);
+                Assert.True(p.VerificationSamples > 0);
+            }
+        }
+
+        [Fact]
+        public void TheExactSearch_IsTakenWhereTheFastPathCannotDecide_AndNotOnOrdinaryInputs()
+        {
+            // the scenario: the fast path alone is wrong for some samples (the test above would fail without the exact search), so the exact search ran
+            var big = new SolidBooleanPipeline(StraddlingCube(1e4, 1e-5, 3e-6, 3e-6, false, true), I) { Verification = V.NoInventedSurface };
+            Assert.True(big.Compute(), big.Error);
+            Assert.True(big.VerificationFallbacks > 0, "fallbacks " + big.VerificationFallbacks + " of " + big.VerificationSamples);
+            Assert.Equal(0.0, big.Report.InventedSurfaceShare);
+            // ordinary inputs: the fast path decides every sample
+            foreach (string name in new[] { "boxes", "spheres", "coplanar", "touching", "contained" }) {
+                var p = new SolidBooleanPipeline(SolidCase(name), U) { Verification = V.NoInventedSurface };
+                Assert.True(p.Compute(), p.Error);
+                Assert.True(p.VerificationSamples > 0);
+                Assert.Equal(0L, p.VerificationFallbacks);
+            }
+            var plates = new SolidBooleanPipeline(Plates(), U) { Verification = V.NoInventedSurface };
+            Assert.True(plates.Compute(), plates.Error);
+            Assert.Equal(0L, plates.VerificationFallbacks);
+            // an invented region takes the exact search for its samples, and only for those
+            var lid = Invented(V.NoInventedSurface, Inf);
+            Assert.True(lid.Compute(), lid.Error);
+            Assert.True(lid.VerificationFallbacks > 0 && lid.VerificationFallbacks < lid.VerificationSamples / 2);
+        }
+
+        [Fact]
+        public void TheBoundIsTheRepairs_NotTheDiagonalOfTheResultAfterMinThickness()
+        {
+            // input 0: a unit cube under a generic rotation plus a far plate 1000 x 1000 x 0.01 in the same mesh; input 1: the cube rotated by 0.1 degree. The
+            // bound of the repair is 1e-5 of the diagonal of the plate (1.4e-2); MinThickness removes the plate, and the result is two cubes, whose own box
+            // is 1e-5 of 1.8 (the old tolerance 5e-5) while the repair legitimately moved the surface by up to 5e-4
+            DMesh3 cube = CubeAt(0, 1);
+            MeshTransforms.Rotate(cube, Vector3d.Zero, Quaterniond.AxisAngleD(new Vector3d(0.3, 0.5, 0.81).Normalized, 23));
+            DMesh3 tilted = new DMesh3(cube);
+            MeshTransforms.Rotate(tilted, new Vector3d(0.5, 0.5, 0.5), Quaterniond.AxisAngleD(new Vector3d(0.2, -0.4, 0.9).Normalized, 0.1));
+            DMesh3 plate = Box(new Vector3d(500, 500, 500), new Vector3d(1500, 1500, 500.01));
+            var first = new DMesh3(cube);
+            var map = new int[plate.MaxVertexID];
+            foreach (int v in plate.VertexIndices()) map[v] = first.AppendVertex(plate.GetVertex(v));
+            foreach (int t in plate.TriangleIndices()) { Index3i q = plate.GetTriangle(t); first.AppendTriangle(map[q.a], map[q.b], map[q.c]); }
+            var seen = new Boolean();
+            var p = new SolidBooleanPipeline(new List<DMesh3> { first, tilted }, U) { MinThickness = 0.05, Verification = V.NoInventedSurface, ConfigureBoolean = op => seen.Op = op };
+            Assert.True(p.Compute(), p.Status + " " + p.Error);
+            Assert.Single(p.Report.RemovedThinSolids);
+            double bound = seen.Op.Rounding.MaxLength;
+            Assert.True(bound > 1e-2);
+            // the result's own box: far smaller than the box that the bound came from
+            Assert.True(1e-5 * p.Result.GetBounds().DiagonalLength < 1e-4);
+            Assert.Equal(0.0, p.Report.InventedSurfaceShare);
+            Assert.Equal(3 * bound, p.Report.InventedSurfaceTolerance, 12);
+            AssertSolid(p.Result);
+        }
+
+        [Fact]
+        public void TheUlpTermIsAtTheMagnitudeOfTheInputs_NotOnlyOfTheResult()
+        {
+            // a big box under a rotation whose top face passes through the origin, and a cube of 1e-7 at the origin: the result is at the origin (its ulp is
+            // 1e-23) but the distance of its samples to the big faces is computed with coordinates of 1e5 (ulp 1.5e-11)
+            foreach (double[] hs in new[] { new[] { 1e5, 1e-7 }, new[] { 1e3, 1e-9 } }) {
+                double H = hs[0], s = hs[1];
+                DMesh3 big = Box(new Vector3d(-H, -H, -2 * H), new Vector3d(H, H, 0));
+                DMesh3 small = Box(new Vector3d(-s / 2, -s / 2, -s / 2), new Vector3d(s / 2, s / 2, s / 2));
+                foreach (DMesh3 m in new[] { big, small })
+                    MeshTransforms.Rotate(m, Vector3d.Zero, Quaterniond.AxisAngleD(new Vector3d(0.3, 0.5, 0.81).Normalized, 23));
+                var p = new SolidBooleanPipeline(new List<DMesh3> { big, small }, I) { Verification = V.NoInventedSurface };
+                Assert.True(p.Compute(), p.Error);
+                Assert.Equal(0.0, p.Report.InventedSurfaceShare);
+                Assert.True(p.Report.InventedSurfaceTolerance >= 3 * 256 * Ulp(H));
+            }
+        }
+
+        [Fact]
+        public void ANonFiniteTolerance_IsAFailedVerification_NotAPass()
+        {
+            // a NaN rounding bound (MaxDisplacement NaN): the tolerance is NaN, and every "farther than" would be false
+            var p = new SolidBooleanPipeline(CubeAt(0, 4), CubeAt(1, 6), U) { Verification = V.NoInventedSurface, ConfigureBoolean = op => op.RoundingMaxDisplacement = double.NaN };
+            bool ok = p.Compute();
+            if (p.Status == Status.BooleanFailed)
+                return;     // (the boolean refuses a NaN bound itself: nothing to verify)
+            Assert.False(ok);
+            Assert.Equal(Status.VerificationFailed, p.Status);
+            Assert.Contains("not finite", p.Error);
+        }
+
+        [Fact]
+        public void TheFloor_UsesTheVerticesTrianglesUse_NotAnIsolatedOne()
+        {
+            var cube = Cube(2);
+            cube.AppendVertex(new Vector3d(1e300, 0, 0));        // (no triangle uses it)
+            double floor = SolidBooleanPipeline.RoundingVolumeFloorOf(new List<DMesh3> { cube, Cube(10) }, i => true);
+            Assert.Equal(1e-6 * 8, floor, 15);
+            // no closed input: the diagonal of the used vertices only
+            double floorOpen = SolidBooleanPipeline.RoundingVolumeFloorOf(new List<DMesh3> { cube }, i => false);
+            Assert.Equal(1e-9 * Math.Pow(Math.Sqrt(12), 3), floorOpen, 15);
+        }
+
+        [Fact]
+        public void TheRoundingVolumeVerdict_HandlesABeforeOfZero_AndAnInfiniteLimit()
+        {
+            double change;
+            // before 0, after not: the change is +infinity, and it fails above the floor
+            Assert.True(SolidBooleanPipeline.RoundingVolumeExceeds(0, 1e-3, 1e-3, 1e-6, out change));
+            Assert.Equal(double.PositiveInfinity, change);
+            Assert.False(SolidBooleanPipeline.RoundingVolumeExceeds(0, 1e-9, 1e-3, 1e-6, out change));      // (below the floor)
+            Assert.Equal(double.PositiveInfinity, change);
+            Assert.False(SolidBooleanPipeline.RoundingVolumeExceeds(0, 1e-3, double.PositiveInfinity, 1e-6, out change));
+            Assert.False(SolidBooleanPipeline.RoundingVolumeExceeds(0, 0, 0, 0, out change));
+            Assert.Equal(0.0, change);
+            // ordinary: relative to before
+            Assert.True(SolidBooleanPipeline.RoundingVolumeExceeds(2, 3, 0.4, 1e-6, out change));
+            Assert.Equal(0.5, change);
+            Assert.False(SolidBooleanPipeline.RoundingVolumeExceeds(2, 3, 0.5, 1e-6, out change));
+            Assert.False(SolidBooleanPipeline.RoundingVolumeExceeds(2, 3, double.PositiveInfinity, 1e-6, out change));
+            Assert.False(SolidBooleanPipeline.RoundingVolumeExceeds(2, 3, 0.4, 1, out change));            // (the floor)
+        }
+
+        [Fact]
+        public void TheSampleLoop_ChecksForCancellation()
+        {
+            var sphere = Sphere(Vector3d.Zero, 1, 20);
+            Assert.True(sphere.TriangleCount > 1024);
+            var cts = new CancellationTokenSource();
+            cts.Cancel();
+            Assert.Null(SolidBooleanPipeline.InventedSurfaceOf(sphere, new List<DMesh3> { sphere }, 1e-3, cts.Token));
+            Assert.NotNull(SolidBooleanPipeline.InventedSurfaceOf(sphere, new List<DMesh3> { sphere }, 1e-3, CancellationToken.None));
+        }
+
+        [Fact]
+        public void TheMeasurement_IsOfTheResultAfterMinThickness_NotBeforeIt()
+        {
+            // a flat bucket far from the cube: an open input that the repair closes with a lid (invented), and MinThickness removes the thin solid that it
+            // makes. The result is the cube: nothing is invented. Measured before MinThickness, the lid would count
+            var flat = Bucket(10, 14, 10, 10.001);
+            var p = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), flat }, U) { InputRepair = Repair, MinThickness = 0.01, Verification = V.NoInventedSurface };
+            Assert.True(p.Compute(), p.Status + " " + p.Error);
+            Assert.Single(p.Report.RepairedInputs);
+            Assert.Single(p.Report.RemovedThinSolids);
+            Assert.Equal(64.0, Volume(p.Result), 9);
+            Assert.Equal(0.0, p.Report.InventedSurfaceShare);
         }
     }
 
