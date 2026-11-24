@@ -181,5 +181,57 @@ namespace geometry3Sharp.Tests
                     Assert.True(Invariance.Difference(reference.Result, Invariance.MappedBack(b.Result, sim)) == "", sim.ToString());
             }
         }
+
+        // counts, then each output triangle by its source and the exact coordinates of its corners (point ids are
+        // assigned in parallel, so they are not compared)
+        static string ArrangementPrint(ExactMeshArrangement arr)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append(arr.Triangles.Count).Append('/').Append(arr.Output.Count).Append('/').Append(arr.MergedPoints)
+              .Append('/').Append(arr.ConstraintEdges.Count).Append('/').Append(arr.IntersectingPairs).Append('/').Append(arr.SegmentCrossings).Append('|');
+            foreach (var o in arr.Output) {
+                sb.Append(o.Mesh).Append(':').Append(o.Source);
+                foreach (int c in new[] { o.A, o.B, o.C })
+                    sb.Append(':').Append(arr.Exact(arr.Canonical(c)));
+                sb.Append(';');
+            }
+            return sb.ToString();
+        }
+
+        // issue 1512: a second Compute() on one instance threw "point coincides with a vertex" when the first run merged points
+        [Theory]
+        [InlineData(0)]
+        [InlineData(5)]
+        public void Arrangement_SecondComputeWithMerges_EqualsFirst(int seed)
+        {
+            List<DMesh3> meshes = CoincidentBoxes(seed);
+            var arr = new ExactMeshArrangement(meshes) { SelfIntersections = true };
+            arr.Compute();
+            Assert.True(arr.MergedPoints > 3, arr.MergedPoints.ToString());
+            string first = ArrangementPrint(arr);
+            arr.Compute();
+            Assert.Equal(first, ArrangementPrint(arr));
+        }
+
+        [Fact]
+        public void Arrangement_Reuse_InvariantOverSimilarities()
+        {
+            List<DMesh3> meshes = CoincidentBoxes(0);
+            var arr = new ExactMeshArrangement(meshes) { SelfIntersections = true };
+            arr.Compute();
+            arr.Compute();
+            int outputs = arr.Output.Count, merged = arr.MergedPoints;
+            foreach (Similarity sim in Similarity.All()) {
+                var b = new ExactMeshArrangement(meshes.Select(m => Invariance.Transformed(m, sim)).ToList()) { SelfIntersections = true };
+                b.Compute();
+                string once = ArrangementPrint(b);
+                b.Compute();
+                Assert.Equal(once, ArrangementPrint(b));
+                if (sim.IsExact) {
+                    Assert.Equal(outputs, b.Output.Count);
+                    Assert.Equal(merged, b.MergedPoints);
+                }
+            }
+        }
     }
 }

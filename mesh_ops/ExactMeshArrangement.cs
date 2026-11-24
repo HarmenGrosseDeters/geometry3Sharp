@@ -360,15 +360,15 @@ namespace g3
         double[] centerD = new double[3];   // Center, exactly (a double)
         // per point: double approximation (grid units), a bound on the error of each coordinate, the construction,
         // the exact point (when computed); input points also have their input coordinates
-        readonly ChunkedList<Vector3d> approx = new ChunkedList<Vector3d>();
-        readonly ChunkedList<double> approxErr = new ChunkedList<double>();
-        readonly ChunkedList<PointKey> keys = new ChunkedList<PointKey>();
+        ChunkedList<Vector3d> approx = new ChunkedList<Vector3d>();
+        ChunkedList<double> approxErr = new ChunkedList<double>();
+        ChunkedList<PointKey> keys = new ChunkedList<PointKey>();
         // The exact point of each id, once computed: in fixed width if it fits (docs/design/FIXED_WIDTH_EXACT_POINTS.md;
         // no objects for the GC to trace or copy), else as an ExactBox. exactRef[id]: 0 = not computed yet, r > 0 = slot
         // r - 1 of fixedPoints, -1 = exactPoints[id]. It is published with Volatile.Write after its data is written.
-        readonly ChunkedList<int> exactRef = new ChunkedList<int>();
-        readonly FixedPointStore fixedPoints = new FixedPointStore();
-        readonly ChunkedList<ExactBox> exactPoints = new ChunkedList<ExactBox>();
+        ChunkedList<int> exactRef = new ChunkedList<int>();
+        FixedPointStore fixedPoints = new FixedPointStore();
+        ChunkedList<ExactBox> exactPoints = new ChunkedList<ExactBox>();
         /// <summary>
         /// for tests: store all exact points as BigInteger (ExactBox), the code before the fixed-width points. Only
         /// before the first point: equality of exact points relies on the representation being a function of the value.
@@ -383,7 +383,7 @@ namespace g3
             }
         }
         bool fixedWidthPoints = true;
-        readonly ChunkedList<Vector3d> inputCoords = new ChunkedList<Vector3d>();
+        ChunkedList<Vector3d> inputCoords = new ChunkedList<Vector3d>();
         int nextPoint;
         // implicit point ids by construction and rational point ids by value, in shards (by hash) so that threads adding
         // points rarely wait for each other (the classification adds the pieces' centroids in parallel)
@@ -411,9 +411,9 @@ namespace g3
         }
         [MethodImpl(JitHints.Optimize)]
         int shard_of(int h) { return SingleShard ? 0 : (h & 0x7FFFFFFF) % Shards; }
-        readonly Dictionary<PointKey, int>[] keyIndex = make_shards<PointKey>();
-        readonly Dictionary<HashedPoint, int>[] rationalIndex = make_shards<HashedPoint>();
-        readonly Dictionary<FixedKey, int>[] fixedIndex = make_shards<FixedKey>();
+        Dictionary<PointKey, int>[] keyIndex = make_shards<PointKey>();
+        Dictionary<HashedPoint, int>[] rationalIndex = make_shards<HashedPoint>();
+        Dictionary<FixedKey, int>[] fixedIndex = make_shards<FixedKey>();
         static Dictionary<T, int>[] make_shards<T>()
         {
             var d = new Dictionary<T, int>[Shards];
@@ -1209,9 +1209,50 @@ namespace g3
             return true;
         }
 
+        // a Compute has run on this instance: the next one starts from the inputs again (reset_run_state)
+        bool computed;
+
+        /// <summary>
+        /// the state a Compute leaves (issue 1512): points, canonical ids, input triangles, output and counters. A second
+        /// Compute on one instance builds them again from the meshes; without this it added the input triangles and points a
+        /// second time, next to the merged ones of the first run, and its triangulation inserted a point twice. Point ids
+        /// from the first run (also those of AddPoint after it) are invalid afterwards.
+        /// </summary>
+        void reset_run_state()
+        {
+            approx = new ChunkedList<Vector3d>();
+            approxErr = new ChunkedList<double>();
+            keys = new ChunkedList<PointKey>();
+            exactRef = new ChunkedList<int>();
+            fixedPoints = new FixedPointStore();
+            exactPoints = new ChunkedList<ExactBox>();
+            inputCoords = new ChunkedList<Vector3d>();
+            keyIndex = make_shards<PointKey>();
+            rationalIndex = make_shards<HashedPoint>();
+            fixedIndex = make_shards<FixedKey>();
+            nextPoint = 0;
+            canonical = null;
+            triangleCount = 0;
+            triMesh = null; triTid = null; triCorners = null; triDegenerate = null; triPlanes = null; triTouch = null;
+            touchedPoints = null;
+            planeRep = null;
+            Culled = null;
+            Output.Clear();
+            ConstraintEdges = new HashSet<long>(EdgeKeyComparer.Instance);
+            MergedPoints = 0;
+            SegmentCrossings = 0;
+            IntersectingPairs = 0;
+            SelfIntersectingPairs = 0;
+            PrefilterRejected = 0; PrefilterChecked = 0;
+            CandidateTests = 0; LocalFilterDecided = 0; LocalFilterPoints = 0; ConstructionZeros = 0;
+        }
+
         [MethodImpl(JitHints.Optimize)]
         public void Compute()
         {
+            if (computed)
+                reset_run_state();
+            computed = true;
             var clock = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
             var total = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
             Stopped = StopReason.None;
