@@ -459,6 +459,34 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void SheetExtensionExample_ShortRimIsContinued_DeepRimIsDiagnosedAndRefused()
+        {
+            // the cube [0,4]^3 and the sheet z = 2 (normals up), wider than the cube in y and ending 0.1 short of the face x = 4 (1.3 % of the diagonal)
+            SheetExtensionExample.Outcome shortRim = SheetExtensionExample.Run(SweptCutCube(), SweptCutSheet(-1, -1, 3.9, 5, 1, 5, 2));
+            Assert.Equal(ExactMeshBoolean.SheetRefusal.RimInsideWorkpiece, shortRim.PlainRefusal);
+            Assert.Equal(MeshSheetExtension.ExtensionStatus.Success, shortRim.Status);
+            Assert.Single(shortRim.Diagnosis.Runs);
+            Assert.Equal(4.0, shortRim.Diagnosis.InsideLength, 9);
+            Assert.InRange(shortRim.Diagnosis.MaxDepthRelative, 0.0129, 0.0135);
+            Assert.True(shortRim.ExtendedSheet.TriangleCount > 2);
+            Assert.NotNull(shortRim.Cut);
+            Assert.Equal("", gs.MeshRobustRepair.NotCleanReason(shortRim.Cut));
+            Assert.Equal(32, Volume(shortRim.Cut), 9);          // the upper half, as the sheet that crosses fully
+            // the same sheet ending in the middle of the cube is too deep (50 % of the diagonal): diagnosed, not extended, nothing cut
+            SheetExtensionExample.Outcome deep = SheetExtensionExample.Run(SweptCutCube(), SweptCutSheet(-1, -1, 2, 5, 1, 1, 2));
+            Assert.Equal(ExactMeshBoolean.SheetRefusal.RimInsideWorkpiece, deep.PlainRefusal);
+            Assert.True(deep.Diagnosis.Runs[0].NoExitWithinLimit);
+            Assert.True(deep.Diagnosis.MaxDepthRelative > 0.2);
+            Assert.Null(deep.ExtendedSheet);
+            Assert.Null(deep.Cut);
+            // a sheet that cuts as it is is cut as it is
+            SheetExtensionExample.Outcome plain = SheetExtensionExample.Run(SweptCutCube(), SweptCutSheet(-1, -1, 5, 5, 1, 1, 2));
+            Assert.Equal(ExactMeshBoolean.SheetRefusal.None, plain.PlainRefusal);
+            Assert.Null(plain.Diagnosis);
+            Assert.Equal(32, Volume(plain.Cut), 9);
+        }
+
+        [Fact]
         public void SweptCutExample_FullCrossing_Step_Pillar_AndPocket()
         {
             Vector3d down = -Vector3d.AxisZ;

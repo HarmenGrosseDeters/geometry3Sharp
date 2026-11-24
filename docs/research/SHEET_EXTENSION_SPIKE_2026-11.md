@@ -4,6 +4,7 @@ Spike of [SHEET_EXTENSION.md](../design/SHEET_EXTENSION.md), section 10 step 2: 
 members only (no library change) and run on the procedural cases of section 8, with the mutations of the construction's rules by hand.
 The part "on the owner's inputs" is run by another session locally and is not in this note.
 
+- Update (helper PR): the construction described here is now the library's `gs.MeshSheetExtension`; [benchmarks/SheetExtensionProbe](../../benchmarks/SheetExtensionProbe/README.md) runs the library through an adapter, with the same cases and outcomes (111 rows, 128 invariance runs). The note below is the spike as it was run; the file names `SheetExtension.cs` and the "public members only" statements refer to the spike.
 - Library: master `f11323390` (2026-11-24); design branch `design/sheet-extension`.
 - Probe, cases and the raw output of every table: [benchmarks/SheetExtensionProbe](../../benchmarks/SheetExtensionProbe/README.md)
   (`results/cases.md`, `cases.jsonl`, `mutants.md`, `cost.md`). The construction is one file, `SheetExtension.cs`.

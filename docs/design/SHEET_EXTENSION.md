@@ -1,6 +1,6 @@
 # Sheet extension: a cutting sheet that ends just short of the workpiece's surface
 
-Status: design proposal, third version (2026-11-24). Nothing is implemented. The first version (a fixed-length strip
+Status: design, third version (2026-11-24); the helper (deliverable B) and the diagnosis (deliverable A, as `Diagnose()` of the same class) are built (`gs.MeshSheetExtension`, [guide](../guides/booleans-and-imprint.md#a-sheet-that-ends-short-of-the-surface), PR of branch `feature/sheet-extension-helper`); the pipeline option (C) is next and not built. The first version (a fixed-length strip
 with a four-part check of the cut) was withdrawn after an independent review built a counterexample; section 11 keeps
 what was learned. In the review the construction of section 4 was run with the public API on five cases of section 8 (the slot and the
 fin, the free pin, the chord, the rectangle short on four sides, a vertex on the surface); they end as listed there. Section 9 lists what is decided and what is open; section 10 is the plan. User-facing behaviour today:
@@ -209,7 +209,7 @@ Open:
 
 ## 10. Plan
 
-1. **Diagnosis PR (A):** the depth of the rim in the refusal's text and report. No convention, no option.
+1. **Diagnosis (A):** built with the helper as `MeshSheetExtension.Diagnose()` (a caller reports the rim's depth and length inside for a refused cut). Not yet in the refusal's text of the boolean or the pipeline (that is C's business). No convention, no option.
 2. **Spike (no library change; done 2026-11-24, [SHEET_EXTENSION_SPIKE_2026-11.md](../research/SHEET_EXTENSION_SPIKE_2026-11.md), [benchmarks/SheetExtensionProbe](../../benchmarks/SheetExtensionProbe/README.md)):** a benchmark project that builds the strip of section 4 with public members only
    (`ExactMeshImprint` for the curve rule, the sheet cut, a winding query for the choice, since the verification is
    exact) on the procedural cases of section 8 and reports, per case, the outcome, the refusal reason, `g`, `U`, the
@@ -224,8 +224,8 @@ Open:
    ends as stated there; no continued cut on the owner's inputs is wrong against a reference. No-go: any accepted wrong
    cut. Whether the share of continued cases is worth the helper and the option is the owner's decision on the reported
    numbers.
-3. **Helper PR (B)**, then, if decided, **the pipeline option (C)** after the grid retry default and the verification
-   option are on master.
+3. **Helper PR (B), built (2026-11-24):** `gs.MeshSheetExtension` (`mesh_ops/MeshSheetExtension.cs`): the spike's construction ported unchanged, with the diagnosis as `Diagnose()` (the rim's depth, length inside, "no exit within the limit" and U per run, without the strip), witnesses with the free edge and the rim vertex, and the refusals of the input (`WorkpieceNotClosed`, `SheetNotSurface`) named. The spike's cases give the same outcomes and volumes through the library (`benchmarks/SheetExtensionProbe` runs the library; 111 rows, 128 invariance runs). Tests: `MeshSheetExtension*Tests`. Bowtie rim vertex: refused (`BowtieVertex`), as in the spike. The measure of the sheet's size stays the box's diagonal (item 2 of the spike's section 5; documented). Open from the build: a rib on the slot wall is refused in the identity frame (`InvertedQuad`) but continued, with the right cut, in a rotated frame (the strip's subdivision finds a way round); no accepted cut was wrong. The mutation shard of the file is a follow-up (`tests/mutation`).
+4. **The pipeline option (C)**, if decided, after the grid retry default and the verification option are on master; it calls the helper for a refused sheet. Open points of section 9 (stated sheets only, whether a failed extension blocks the hole-fill fallback, the strip as a reference surface of the verification) are decided there.
 
 ## 11. What the first version got wrong
 
