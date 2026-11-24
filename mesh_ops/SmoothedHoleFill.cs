@@ -17,6 +17,13 @@ namespace gs
     /// default of 2.5 is arbitrary: set it, eg to the average edge length of the hole boundary. With
     /// ConstrainToHoleInterior = false (default) triangles around the hole are remeshed too. Apply() returns
     /// false if no loop was found or the initial fan fill failed.
+    ///
+    /// With ConstrainToHoleInterior = true (and OffsetDistance = 0) the fill is checked: no fill triangle lies back over
+    /// its neighbour across the seam (normals more than 170 degrees apart) or intersects another triangle of the mesh
+    /// (exactly; intersections the input has are not counted). If it does not hold, the hole is reopened and filled again
+    /// with TargetEdgeLength 0.75, 1 and 0.5 times the mean boundary edge length (an edge length well above the boundary's
+    /// folds the coarse fan fill over the seam, #1507); if no attempt is sound, Apply() returns false and the mesh is as
+    /// before (FillTriangles and FillVertices empty). The check scans the mesh once per attempt.
     /// </summary>
     public class SmoothedHoleFill
     {
@@ -84,7 +91,7 @@ namespace gs
         /// Fill the hole: FillLoop if set, otherwise the loop with the most edges in BorderHintTris, otherwise
         /// the loop with the most vertices. Sets FillTriangles and FillVertices.
         /// </summary>
-        /// <returns>false if the mesh has no boundary loop, the initial fill (or offset extrusion) failed; true otherwise</returns>
+        /// <returns>false if the mesh has no boundary loop, the initial fill (or offset extrusion) failed, or with ConstrainToHoleInterior no attempt gave a fill without a fold or intersection (the mesh is unchanged); true otherwise</returns>
         public bool Apply()
         {
             EdgeLoop useLoop = null;
@@ -104,15 +111,44 @@ namespace gs
             if (useLoop == null)
                 return false;
 
+            // The interior-constrained fill is checked against its surroundings and retried from the original hole with
+            // shorter edges if it folds back over the seam or intersects the mesh (#1507)
+            bool guarded = ConstrainToHoleInterior && OffsetDistance <= 0 && useLoop.Vertices.Length > 3;
+            List<double> lengths = new List<double> { TargetEdgeLength };
+            if (guarded) {
+                double boundary = mean_boundary_edge(useLoop);
+                foreach (double k in RetryBoundaryFactors) {
+                    double retry = k * boundary;
+                    if (retry > 0 && lengths.TrueForAll(l => Math.Abs(l - retry) > 0.01 * retry))
+                        lengths.Add(retry);
+                }
+            }
+            for (int attempt = 0; attempt < lengths.Count; ++attempt) {
+                int fill_result = fill_once(useLoop, lengths[attempt]);
+                if (fill_result <= 0)
+                    return fill_result == 0 ? false : true;
+                if (FillIsSound(Mesh, FillTriangles))
+                    return true;
+                undo_fill();
+            }
+            FillTriangles = new int[0];
+            FillVertices = new int[0];
+            return false;
+        }
+
+
+        // 1: filled, 0: the initial fill failed, -1: filled, the hole had three vertices or fewer
+        int fill_once(EdgeLoop useLoop, double targetEdgeLength)
+        {
             // step 1: do stupid hole fill
             SimpleHoleFiller filler = new SimpleHoleFiller(Mesh, useLoop);
             if (filler.Fill() == false)
-                return false;
+                return 0;
 
             if (useLoop.Vertices.Length <= 3 ) {
                 FillTriangles = filler.NewTriangles;
                 FillVertices = new int[0];
-                return true;
+                return -1;
             }
 
             MeshFaceSelection tris = new MeshFaceSelection(Mesh);
@@ -125,7 +161,7 @@ namespace gs
                     return v + OffsetDistance * OffsetDirection;
                 };
                 if (!extrude.Extrude())
-                    return false;
+                    return 0;
                 tris.Select(extrude.JoinTriangles);
             }
 
@@ -139,7 +175,7 @@ namespace gs
             // remesh the initial coarse fill region
             if (RemeshBeforeSmooth) {
                 RegionRemesher remesh = new RegionRemesher(Mesh, tris);
-                remesh.SetTargetEdgeLength(TargetEdgeLength);
+                remesh.SetTargetEdgeLength(targetEdgeLength);
                 remesh.EnableSmoothing = (SmoothAlpha > 0);
                 remesh.SmoothSpeedT = SmoothAlpha;
                 if (ConfigureRemesherF != null)
@@ -156,11 +192,11 @@ namespace gs
 
             if (ConstrainToHoleInterior) {
                 for (int k = 0; k < SmoothSolveIterations; ++k ) {
-                    smooth_and_remesh_preserve(tris, k == SmoothSolveIterations-1);
+                    smooth_and_remesh_preserve(tris, k == SmoothSolveIterations-1, targetEdgeLength);
                     tris = new MeshFaceSelection(Mesh); tris.Select(FillTriangles);
                 }
             } else {
-                smooth_and_remesh(tris);
+                smooth_and_remesh(tris, targetEdgeLength);
                 tris = new MeshFaceSelection(Mesh); tris.Select(FillTriangles);
             }
 
@@ -168,12 +204,92 @@ namespace gs
             fill_verts.SelectInteriorVertices(tris);
             FillVertices = fill_verts.ToArray();
 
-            return true;
+            return 1;
         }
 
 
 
-        void smooth_and_remesh_preserve(MeshFaceSelection tris, bool bFinal)
+
+        /// <summary>
+        /// ConstrainToHoleInterior (no offset): when the fill with TargetEdgeLength is not sound (see Apply), the
+        /// attempts that follow, each from the original hole, use these multiples of the mean boundary edge length
+        /// as target edge length, in this order. The remeshing of the coarse fan fill folds it back over the seam
+        /// when the edge length is well above the boundary edge length, and runs into the surrounding mesh when it is
+        /// far below (#1507); about the boundary edge length followed the seam in every case measured.
+        /// </summary>
+        static readonly double[] RetryBoundaryFactors = { 0.75, 1.0, 0.5 };
+
+        static double mean_boundary_edge(EdgeLoop loop)
+        {
+            DMesh3 mesh = loop.Mesh;
+            double sum = 0;
+            foreach (int eid in loop.Edges) {
+                Index2i ev = mesh.GetEdgeV(eid);
+                sum += mesh.GetVertex(ev.a).Distance(mesh.GetVertex(ev.b));
+            }
+            return loop.Edges.Length == 0 ? 0 : sum / loop.Edges.Length;
+        }
+
+        /// <summary> seam triangle pairs with normals more than this many degrees apart are a fold (180: lying back over each other) </summary>
+        const double MaxSeamAngleDeg = 170;
+
+        // the fill has no fold over its seam and no triangle that intersects another one of the mesh (exact test of
+        // MeshRepairMetrics, only pairs with a fill triangle: intersections of the input are not ours)
+        internal static bool FillIsSound(DMesh3 mesh, int[] fillTriangles)
+        {
+            HashSet<int> fill = new HashSet<int>(fillTriangles);
+            AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
+            foreach (int tid in fillTriangles) {
+                Index3i t = mesh.GetTriangle(tid);
+                for (int j = 0; j < 3; ++j) {
+                    Vector3d v = mesh.GetVertex(t[j]);
+                    if (double.IsNaN(v.x + v.y + v.z) || double.IsInfinity(v.x + v.y + v.z))
+                        return false;
+                    box.Contain(v);
+                }
+                Index3i te = mesh.GetTriEdges(tid);
+                for (int j = 0; j < 3; ++j) {
+                    Index2i et = mesh.GetEdgeT(te[j]);
+                    int other = (et.a == tid) ? et.b : et.a;
+                    if (other == DMesh3.InvalidID || fill.Contains(other))
+                        continue;
+                    if (Vector3d.AngleD(mesh.GetTriNormal(tid), mesh.GetTriNormal(other)) > MaxSeamAngleDeg)
+                        return false;
+                }
+            }
+
+            List<int> near = new List<int>(fillTriangles);
+            foreach (int tid in mesh.TriangleIndices()) {
+                if (fill.Contains(tid))
+                    continue;
+                Index3i t = mesh.GetTriangle(tid);
+                AxisAlignedBox3d tb = new AxisAlignedBox3d(mesh.GetVertex(t.a));
+                tb.Contain(mesh.GetVertex(t.b)); tb.Contain(mesh.GetVertex(t.c));
+                // (an input triangle with a non-finite vertex cannot be judged; the exact test rejects it)
+                if (double.IsNaN(tb.Min.x + tb.Min.y + tb.Min.z + tb.Max.x + tb.Max.y + tb.Max.z) ||
+                    double.IsInfinity(tb.Min.x + tb.Min.y + tb.Min.z + tb.Max.x + tb.Max.y + tb.Max.z))
+                    continue;
+                if (box.Intersects(tb))
+                    near.Add(tid);
+            }
+            DSubmesh3 sub = new DSubmesh3(mesh) { ComputeTriMaps = true };
+            sub.Compute(near);
+            foreach (Index2i pair in MeshRepairMetrics.SelfIntersectionPairs(sub.SubMesh)) {
+                if (fill.Contains(sub.MapTriangleToBaseMesh(pair.a)) || fill.Contains(sub.MapTriangleToBaseMesh(pair.b)))
+                    return false;
+            }
+            return true;
+        }
+
+        // reopen the hole: the seam edges are constrained in the remeshing, so the boundary loop is as before the fill
+        void undo_fill()
+        {
+            foreach (int tid in FillTriangles)
+                if (Mesh.IsTriangle(tid))
+                    Mesh.RemoveTriangle(tid, true, false);
+        }
+
+        void smooth_and_remesh_preserve(MeshFaceSelection tris, bool bFinal, double targetEdgeLength)
         {
             if (EnableLaplacianSmooth) {
                 LaplacianMeshSmoother.RegionSmooth(Mesh, tris, 2, 2, true);
@@ -183,7 +299,7 @@ namespace gs
                 MeshProjectionTarget target = (bFinal) ? MeshProjectionTarget.Auto(Mesh, tris, 5) : null;
 
                 RegionRemesher remesh2 = new RegionRemesher(Mesh, tris);
-                remesh2.SetTargetEdgeLength(TargetEdgeLength);
+                remesh2.SetTargetEdgeLength(targetEdgeLength);
                 remesh2.SmoothSpeedT = 1.0;
                 remesh2.SetProjectionTarget(target);
                 if (ConfigureRemesherF != null)
@@ -200,7 +316,7 @@ namespace gs
 
 
 
-        void smooth_and_remesh(MeshFaceSelection tris)
+        void smooth_and_remesh(MeshFaceSelection tris, double targetEdgeLength)
         {
             if (EnableLaplacianSmooth) {
                 LaplacianMeshSmoother.RegionSmooth(Mesh, tris, 2, 2, false);
@@ -212,7 +328,7 @@ namespace gs
                 MeshProjectionTarget target = MeshProjectionTarget.Auto(Mesh, tris, 5);
 
                 RegionRemesher remesh2 = new RegionRemesher(Mesh, tris);
-                remesh2.SetTargetEdgeLength(TargetEdgeLength);
+                remesh2.SetTargetEdgeLength(targetEdgeLength);
                 remesh2.SmoothSpeedT = 1.0;
                 remesh2.SetProjectionTarget(target);
                 if (ConfigureRemesherF != null)
