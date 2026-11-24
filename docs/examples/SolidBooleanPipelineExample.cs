@@ -67,6 +67,33 @@ namespace g3.Examples
         }
 
         /// <summary>
+        /// Opt-in verification of a finished result. A bucket (a box without its top face) inside a block is an open tool that the sheet role
+        /// refuses (its rim lies inside the block); InputRepair = AutoRepair closes it with a lid, and the Difference has a cavity whose lid lies on no
+        /// input. Without Verification that is a success; with NoInventedSurface the run is refused (Status VerificationFailed, Result null) and
+        /// Report.InventedSurfaceShare (4 of 120 of the area) and the "Verification" step of Report.Route say why.
+        /// </summary>
+        public static SolidBooleanPipeline RefuseAnInventedLid()
+        {
+            DMesh3 block = new TrivialBox3Generator() { Box = new Box3d(new AxisAlignedBox3d(new Vector3d(0, 0, 0), new Vector3d(4, 4, 4))) }.Generate().MakeDMesh();
+            var bucket = new DMesh3();
+            var v = new int[8];
+            for (int k = 0; k < 8; ++k)
+                v[k] = bucket.AppendVertex(new Vector3d((k & 1) == 0 ? 1 : 3, (k & 2) == 0 ? 1 : 3, (k & 4) == 0 ? 1 : 3));
+            int[][] quads = { new[] { 0, 2, 3, 1 }, new[] { 0, 1, 5, 4 }, new[] { 2, 6, 7, 3 }, new[] { 0, 4, 6, 2 }, new[] { 1, 3, 7, 5 } };
+            foreach (int[] q in quads) {
+                bucket.AppendTriangle(v[q[0]], v[q[1]], v[q[2]]);
+                bucket.AppendTriangle(v[q[0]], v[q[2]], v[q[3]]);
+            }
+
+            var pipeline = new SolidBooleanPipeline(block, bucket, ExactMeshBoolean.Operations.Difference) {
+                InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair,
+                Verification = SolidBooleanPipeline.VerificationModes.NoInventedSurface | SolidBooleanPipeline.VerificationModes.RoundingVolume
+            };
+            pipeline.Compute();
+            return pipeline;
+        }
+
+        /// <summary>
         /// Cuts the exact intersection curves of a cutter box into a target box without removing any triangles.
         /// Preserves target vertex IDs, orientation, and labels the imprinted curve edges.
         /// </summary>
