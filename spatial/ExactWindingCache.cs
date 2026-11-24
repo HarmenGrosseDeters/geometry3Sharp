@@ -861,8 +861,11 @@ namespace g3
         {
             double sum = 0.0;
             FlatTri[] t = tris;
-            for (int i = 0; i < t.Length; ++i)
+            for (int i = 0; i < t.Length; ++i) {
+                if (in_plane_within_box(p, t[i].A, t[i].B, t[i].C))
+                    continue;   // p in the plane of the triangle: its solid angle is exactly 0 (and the rounded formula is at its branch cut)
                 sum += safe_tri_solid_angle(t[i].A, t[i].B, t[i].C, p);
+            }
             return sum / MathUtil.FourPI;
         }
 
@@ -1111,11 +1114,17 @@ namespace g3
         }
 
         // ---- Exact on-surface correction ----
-        // For any point p lying in a closed non-degenerate triangle T (vertex, edge, or face interior), the perturbed
-        // ray-plus-boundary evaluation computes w_M(p_eps), which includes w_T(p_eps). Replacing w_T(p_eps) with
-        // safe_tri_solid_angle(a, b, c, p) / 4pi matches the DMesh3.WindingNumber / FastWindingNumber solid-angle-sum
-        // convention on vertices (e.g. 0.125 on cube corners), edges, and coplanar faces while keeping off-surface
-        // queries decided purely by exact predicates.
+        // The value at a point p ON the mesh is the principal value of the winding number: the sum of the solid angles in which
+        // every triangle whose plane contains p counts 0 (its solid angle from a point of its own plane is exactly 0). That is
+        // the solid-angle fraction the surface subtends at p: n + 0.5 on a flat face of a closed mesh, 0.25 on an edge of a
+        // cube, 0.125 at its corner, and it does not depend on the directions of the coordinate axes.
+        // The perturbed ray-plus-boundary evaluation computes w_M(p_eps), which includes w_T(p_eps) for every triangle T that
+        // contains p (vertex, edge or face interior, decided by exact predicates). The correction subtracts w_T(p_eps): exactly
+        // +-0.5 for p strictly inside T (the side of p_eps is exact), and chi_T(p_eps) plus the three edge angles of T for p on
+        // an edge or a vertex of T (each angle within the bound of boundary_edge_angle_x; its limits at a vertex and on the
+        // open edge are exact). Nothing is added back: the rounded solid angle of T at a point of its own plane is at the
+        // branch cut of the formula (+-2 pi or noise instead of 0), which is why an earlier version that added it returned
+        // values off by 0.5 on faces and on edges in general position.
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         static double tri_on_surface_correction(double px, double py, double pz, Vector3d a, Vector3d b, Vector3d c)
@@ -1148,12 +1157,11 @@ namespace g3
             if (cls == 0)
                 return 0.0;
 
-            double own = safe_tri_solid_angle(a, b, c, p) / MathUtil.FourPI;
             if (cls == 2) {
                 // Strictly inside triangle: p_eps lies infinitesimally on one side of the plane,
                 // so T subtends an exact hemisphere (+0.5 on -N side, -0.5 on +N side).
                 int side = ny != 0 ? ny : (nz != 0 ? nz : nx);
-                return (side < 0 ? 0.5 : -0.5) - own;
+                return side < 0 ? 0.5 : -0.5;
             }
 
             // On an edge or vertex of T: exact perturbed winding of T at p_eps.
@@ -1162,7 +1170,20 @@ namespace g3
             double bsum = boundary_edge_angle_x(p, a, b)
                         + boundary_edge_angle_x(p, b, c)
                         + boundary_edge_angle_x(p, c, a);
-            return ((double)chiT + bsum / MathUtil.TwoPI) - own;
+            return (double)chiT + bsum / MathUtil.TwoPI;
+        }
+
+        // p inside the bounding box of the triangle and exactly in its plane (every point of the closed triangle is)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static bool in_plane_within_box(Vector3d p, Vector3d a, Vector3d b, Vector3d c)
+        {
+            if (p.x < a.x && p.x < b.x && p.x < c.x) return false;
+            if (p.x > a.x && p.x > b.x && p.x > c.x) return false;
+            if (p.y < a.y && p.y < b.y && p.y < c.y) return false;
+            if (p.y > a.y && p.y > b.y && p.y > c.y) return false;
+            if (p.z < a.z && p.z < b.z && p.z < c.z) return false;
+            if (p.z > a.z && p.z > b.z && p.z > c.z) return false;
+            return ExactPredicates.Orient3d(a, b, c, p) == 0;
         }
 
         // Overflow-safe wrapper around MathUtil.TriSolidAngle: halves all four points by exact 0.5 when a
