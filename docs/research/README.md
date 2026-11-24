@@ -4,6 +4,7 @@ Prior-art checks, literature surveys, external library comparisons, and explorat
 
 | Study | Topic & Summary |
 |---|---|
+| [SYMBOLIC_TAYLOR_ERROR_BOUNDS_2026-11.md](SYMBOLIC_TAYLOR_ERROR_BOUNDS_2026-11.md) | Pure-C# Symbolic Taylor round-off analyzer (Solovyev et al. 2018) vs. OCaml FPTaylorPilot, `PredicateCompiler`, and `ExactInterval`: verifies full `Orient3dLPI`/`Orient3dTPI` in < 0.5 s (6.1–7.2× tighter than generator), and a sound Stage-1.5 runtime adjoint filter rescues 40–76% of Stage-A fallbacks (faster and tighter than `Interval64`, 0 wrong signs on 40k exact checks) |
 | [NEURON_SKELETON_MESHES.md](NEURON_SKELETON_MESHES.md) | 9-case SWC-style branching tube stress study (4° forks, 1e-6 gaps, loops, 45-segment/91-primitive trees): ExactMeshBoolean & SolidBooleanPipeline 9/9 clean with exact genus (28–463 ms per route, single runs); measured branch-mesh gaps 1e-2 / 1e-6; convolution inflation and wrap bridging quantified; stop/park |
 | [MOLECULAR_SURFACES_STUDY.md](MOLECULAR_SURFACES_STUDY.md) | 20-case molecular ball-union stress study (1e-12 tangency, cavities, helices, 12–96-ball packings): no Boolean/pipeline defects found; multi-mesh union grows about 6× from 48 to 96 balls, where a binary-tree union was faster; stop/park |
 | [Procedural branching tubes](BRANCHING_TUBE_GENUS_STUDY.md) | Genus controls for strict Boolean union, implicit contouring and wrapping near a tapered tip gap; a genus oracle must require `NotCleanReason == ""` |
