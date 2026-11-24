@@ -22,7 +22,7 @@ static class Program
         var A = args.Select(a => a.Split('=', 2)).ToDictionary(a => a[0], a => a.Length > 1 ? a[1] : "");
         int runs = A.ContainsKey("runs") ? int.Parse(A["runs"]) : 3;
         var only = A.ContainsKey("only") ? new Regex(A["only"]) : null;
-        bool all = !A.ContainsKey("reducer") && !A.ContainsKey("remesher");
+        bool all = !A.ContainsKey("reducer") && !A.ContainsKey("remesher") && !A.ContainsKey("boolean");
         Console.WriteLine($"| case | triangles in | out | rejected | time ms (min of {runs}) | all runs ms | fingerprint |");
         Console.WriteLine("|---|---:|---:|---:|---:|---|---|");
         if (all || A.ContainsKey("reducer")) {
@@ -47,6 +47,12 @@ static class Program
                 Remesh("remesher_jitter_plate_tilted" + s, Tilted(JitterPlate(40, 0.3, 1)), 1.0, 10, prevent, runs, only);
                 Remesh("remesher_box_grid" + s, GridBox(30), 1.0, 10, prevent, runs, only);
             }
+        }
+        if (all || A.ContainsKey("boolean")) {
+            // ExactMeshBoolean (serial, so that the probe's per-site times add up to the wall time) on procedural spheres
+            Boolean("boolean_union_bumpy_spheres", BumpySphere(40), Moved(BumpySphere(40), new Vector3d(0.7, 0.3, 0.2)), ExactMeshBoolean.Operations.Union, runs, only);
+            Boolean("boolean_difference_box_sphere", GridBox(30), Moved(Scaled(BumpySphere(40), 4), new Vector3d(9, 8, 7)), ExactMeshBoolean.Operations.Difference, runs, only);
+            Boolean("boolean_union_tilted_plates_coplanar", Tilted(Slab(JitterPlate(40, 0.3, 1))), Tilted(Moved(Slab(JitterPlate(40, 0.3, 2)), new Vector3d(10.5, 10.5, 0))), ExactMeshBoolean.Operations.Union, runs, only);
         }
         if (A.ContainsKey("thingi")) {
             DMesh3 m = StandardMeshReader.ReadMesh(A["thingi"]);
@@ -86,6 +92,22 @@ static class Program
         });
     }
 
+    static void Boolean(string name, DMesh3 a, DMesh3 b, ExactMeshBoolean.Operations op, int runs, Regex only)
+    {
+        if (only != null && !only.IsMatch(name)) return;
+        Run(name, a, runs, (mesh) => {
+            bool serial = gParallel.SerialOnThisThread;
+            gParallel.SerialOnThisThread = true;
+            try {
+                var e = new ExactMeshBoolean(mesh, b, op);
+                if (e.Compute() == false) throw new Exception(name + ": boolean failed");
+                // (the fingerprint of the result)
+                mesh.Copy(e.Result);
+            } finally { gParallel.SerialOnThisThread = serial; }
+            return -1;
+        });
+    }
+
     static void Run(string name, DMesh3 input, int runs, Func<DMesh3, int> op)
     {
         var times = new List<double>();
@@ -93,7 +115,14 @@ static class Program
         for (int k = 0; k < runs; ++k) {
             DMesh3 mesh = new DMesh3(input);
             ResetStats();
+#if TRITRI_PROBE
+            TriTriProbeRun.Begin();
+#endif
             var sw = Stopwatch.StartNew();
+#if TRITRI_PROBE
+            // (serial, so that the probe's per-site times add up to the wall time)
+            gParallel.SerialOnThisThread = true;
+#endif
             rejected = op(mesh);
             times.Add(sw.Elapsed.TotalMilliseconds);
             string p = Fingerprint(mesh);
@@ -106,6 +135,9 @@ static class Program
         string stats = Stats();
         if (stats != null)
             Console.WriteLine($"|   {name} predicates (last run) | {stats} | | | | | |");
+#if TRITRI_PROBE
+        TriTriProbeRun.Report(name, times[times.Count - 1], () => op(new DMesh3(input)));
+#endif
     }
 
     static void ResetStats() { PredicateStats.Reset(); }
@@ -221,6 +253,40 @@ static class Program
         foreach (int vid in m.VertexIndices()) {
             Vector3d p = m.GetVertex(vid);
             m.SetVertex(vid, p * (1 + 0.1 * Math.Sin(5 * p.x + 1) * Math.Cos(4 * p.y - 0.5) + 0.05 * Math.Sin(9 * p.z)));
+        }
+        return m;
+    }
+
+    static DMesh3 Moved(DMesh3 m, Vector3d d)
+    {
+        var c = new DMesh3(m);
+        foreach (int v in c.VertexIndices()) c.SetVertex(v, c.GetVertex(v) + d);
+        return c;
+    }
+
+    static DMesh3 Scaled(DMesh3 m, double s)
+    {
+        var c = new DMesh3(m);
+        foreach (int v in c.VertexIndices()) c.SetVertex(v, s * c.GetVertex(v));
+        return c;
+    }
+
+    // a closed slab: the plate (z = 0, normals down after the flip) and a copy at z = 1, joined along the boundary
+    static DMesh3 Slab(DMesh3 plate)
+    {
+        var m = new DMesh3();
+        int nv = plate.MaxVertexID;
+        foreach (int v in plate.VertexIndices()) m.AppendVertex(plate.GetVertex(v));
+        foreach (int v in plate.VertexIndices()) m.AppendVertex(plate.GetVertex(v) + new Vector3d(0, 0, 1));
+        foreach (int t in plate.TriangleIndices()) {
+            Index3i tr = plate.GetTriangle(t);
+            m.AppendTriangle(tr.a, tr.c, tr.b);
+            m.AppendTriangle(tr.a + nv, tr.b + nv, tr.c + nv);
+        }
+        foreach (int e in plate.BoundaryEdgeIndices()) {
+            Index2i ev = plate.GetOrientedBoundaryEdgeV(e);
+            m.AppendTriangle(ev.a, ev.b, ev.b + nv);
+            m.AppendTriangle(ev.a, ev.b + nv, ev.a + nv);
         }
         return m;
     }
