@@ -118,7 +118,11 @@ namespace g3
         public MeshRoundingRepair Rounding;
         /// <summary> SafeRounding ran and its result has no new self-intersection or degenerate triangle (and no contact made by the rounding) </summary>
         public bool RoundingClean { get { return Rounding != null && Rounding.IsClean; } }
-        /// <summary> with ComputeExactVertices: per vertex id of Result its exact coordinates (null for ids not in use) </summary>
+        /// <summary>
+        /// with ComputeExactVertices: per vertex id of Result its exact coordinates, taken before the repair (a vertex that the repair removes keeps its entry).
+        /// The entry of an id that was not in use then (a free id of the target that no new vertex took) is <c>default(ExactPoint3)</c>: W = 0, not a point, ToVector3d
+        /// throws; recognise it by <c>W.IsZero</c>
+        /// </summary>
         public ExactPoint3[] ResultExactVertices;
         /// <summary> counts of the last Compute(): pieces, split_triangles, new_vertices, curve_edges, contact_points, rounding_* ... </summary>
         public Dictionary<string, long> Counts = new Dictionary<string, long>();

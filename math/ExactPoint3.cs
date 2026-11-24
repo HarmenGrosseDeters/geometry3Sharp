@@ -97,7 +97,10 @@ namespace g3
             }
         }
 
-        /// <summary> coordinates as doubles, multiplied by 2^scaleExp (each coordinate correctly rounded, see ToDouble) </summary>
+        /// <summary>
+        /// coordinates as doubles, multiplied by 2^scaleExp (each coordinate correctly rounded, see ToDouble). Throws <see cref="DivideByZeroException"/>
+        /// for <c>default(ExactPoint3)</c> (W = 0: not a point; every point made by Create or FromInteger has W &gt; 0)
+        /// </summary>
         public Vector3d ToVector3d(int scaleExp = 0)
         {
             return new Vector3d(ToDouble(X, W, scaleExp), ToDouble(Y, W, scaleExp), ToDouble(Z, W, scaleExp));
@@ -129,7 +132,7 @@ namespace g3
         /// num / den * 2^scaleExp as a double, correctly rounded (issue #1410): the double nearest to the exact value, ties to even, in one
         /// rounding also in the subnormal range; a result of at most 2^-1075 in magnitude (the exact value 2^-1075 is a tie, to even) is a zero of the sign of num, one at or above the middle between the largest
         /// double and 2^1024 an infinity. A negative den is allowed (the quotient has the sign of num * den); den = 0 always throws
-        /// <see cref="DivideByZeroException"/>, also for num = 0 and for a scaleExp that would underflow. See <see cref="ToDoubleRounded"/> for the method
+        /// <see cref="DivideByZeroException"/>, also for num = 0 (as <c>default(ExactPoint3).ToVector3d()</c> does, before #1410 it gave 0) and for a scaleExp that would underflow. See <see cref="ToDoubleRounded"/> for the method
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
         public static double ToDouble(BigInteger num, BigInteger den, int scaleExp)
