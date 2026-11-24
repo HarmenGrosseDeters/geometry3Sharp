@@ -313,6 +313,11 @@ earlier estimate (section 4: filtered C1, C3, C5 would bring the whole checker t
 floating-point filter for C1, the pair search and the chains, a larger change than step A (a candidate for step C, where the filters
 are part of the design). Not done here.
 
+**Known gap (accepted by the owner, 2026-11-24).** The checker misses the 50 times target on curved and fine-box inputs (54-167
+times the boolean, section 8 table). Cause: the linear BigInteger floor in C0 (exact triangle tests and rays), C1 (exact areas and
+orientation), the C5 same-chain test (string keys and gcds per edge) and the C2 pair search. The 20 s limit is met by every case.
+Closing the gap means double filters in those four parts (step C territory), not a change of algorithm.
+
 ## Sources
 
 Papers and public documentation only. No code was read or ported, apart from this repository's own.
