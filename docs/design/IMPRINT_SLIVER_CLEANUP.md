@@ -146,9 +146,17 @@ runs only in the imprint's final stage, only for contractions, only where the re
 (all cells with a translation) become clean, and no cell gets worse. The costs of the no-go (a rollback in the repair, a random walk, the cohort run) do not apply; its termination
 requirement is the lexicographic argument above.
 
-**What remains.** Cylinder x, translated frames at +-6 ulps (2 runs of 48): the evaluation limit (10000 plus 50 per defect) is reached with 23 slivers, the position
-search's 208 proposals per corner use it up; with `MaxEvaluationsPerDefect` 400 they are clean (and sweep time is unchanged, 32 s). Not changed here (a decision on the
-budget, which the Boolean shares). The cases between 1 and 12 ulps are a sample, not a proof; the shifts above 12 ulps and other shapes were not swept.
+**The evaluation limit of the stage (owner decision, 2026-11-24).** Cylinder x in the translated frames at +-6 ulps (2 runs of 48 per frame) reached the limit (10000 plus
+50 per initial defect) with 23 slivers: the position search proposes 26 x 8 moves per corner, and the neutral contractions needed only 25 more evaluations (15 801 used at the
+limit, 15 826 in all). From the start of the stage the limit is 10000 plus 400 per initial defect (`MeshRoundingRepair.StageMaxEvaluationsPerDefect`, set by the imprint to
+`ExactMeshImprint.StageEvaluationsPerDefect`, internal, 400). Only the stage gets it: a run that is clean without the stage, a run that reaches the limit before the
+stage (the stage does not start), the Boolean and every other caller keep the limit of 50 (pinned: `MaxEvaluations` of each). All cells of the sweep are 0 with it.
+Cost: the limit is a ceiling, not a spend: runs that end by themselves use the same evaluations (measured: three runs left unclean on purpose, the stage without neutral
+contractions, use 865, 8 808 and 14 984 evaluations at either limit, the same time within noise). The worst case is a stage that spends the whole budget
+and stays unclean: its evaluations can grow from 10000 + 50 D to 10000 + 400 D (3.5 times for D = 116 initial defects, at most 8 times for large D), at about 6 microseconds
+per evaluation (15 801 evaluations in a 96 ms run), i.e. 0.3 s for D = 116 in the worst case; I could not construct a case that does spend it (every unclean
+case ended by itself: nothing left to propose). The pair-test budget (`MaxPairTests`, 5M, unchanged) bounds the work independently.
+The cases between 1 and 12 ulps are a sample, not a proof; the shifts above 12 ulps and other shapes were not swept.
 
 The test inputs avoid `Math.Sin` / `Cos` (they differ in the last bit between net48 and net10, `DETERMINISM.md` C1): the rotated
 box is given by its corners as literals, the cylinder is snapped to a grid of 2^-24.

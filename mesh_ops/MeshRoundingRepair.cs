@@ -250,6 +250,13 @@ namespace g3
         /// </summary>
         public int MaxEvaluationsPerDefect = 50;
         /// <summary>
+        /// the final stage of RuleLocksFollow only: the evaluations per defect that the whole run may use once the stage starts, if larger than
+        /// MaxEvaluationsPerDefect (the limit is then 10000 plus this value per initial defect; 0: no change). The position search of the stage
+        /// proposes 26 x 8 moves per corner, which used up the limit on clusters of 23 slivers (#1489). Raised when the stage starts, so a run
+        /// that does not reach the stage, or whose limit is reached before it, is as before; only a result that is not clean without the stage can differ
+        /// </summary>
+        internal int StageMaxEvaluationsPerDefect = 0;
+        /// <summary>
         /// effort budget for hopeless inputs: no edit is evaluated once the exact triangle pair tests of the evaluations
         /// exceed it, grown with the initial defects by up to PairTestsMaxGrowth times (PairTestsDefectScale) (the last evaluation may pass it by its own tests; 0 stops once one pair test was made; see
         /// MaxEvaluationsPerDefect). Measured (November 2026, after #327): 5M instead of 20M lost and gained no clean result
@@ -892,6 +899,7 @@ namespace g3
                 InitialFalseContacts = false_contacts().Count;
             // (the contacts the rounding made are defects of their own: they count into the budget)
             maxEvaluations = 10000 + (long)MaxEvaluationsPerDefect * (pairs.Count + bad.Count + InitialFalseContacts);
+            long initialDefects = pairs.Count + bad.Count + InitialFalseContacts;
             pairBudget = pair_budget(MaxPairTests, PairTestsDefectScale, PairTestsMaxGrowth, pairs.Count + bad.Count + InitialFalseContacts);
             // (#1216) the closed components that may be removed as tiny or thin, measured before the first edit; only where an
             // edit can follow (a defect, or coarse coordinates: remove_contact_vertices)
@@ -929,6 +937,8 @@ namespace g3
             // result that is clean without it is the same as without it)
             if (RuleLocksFollow && RuleLockedEdges != null && MaxPasses > 0 && (bad.Count > 0 || pairs.Count > 0) && stopped == false) {
                 FollowStageRan = followRuleLocks = true;
+                if (StageMaxEvaluationsPerDefect > MaxEvaluationsPerDefect)
+                    maxEvaluations = 10000 + (long)StageMaxEvaluationsPerDefect * initialDefects;
                 repair_passes(ref pairs, ref bad);
                 for (int round = 0; round < MaxSearchRounds && (bad.Count > 0 || pairs.Count > 0) && stopped == false && position_search(bad, pairs) > 0; ++round) {
                     bad = degenerate_triangles();

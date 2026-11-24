@@ -79,6 +79,8 @@ namespace g3
         internal bool LegacyPartLocks = false;
         /// <summary> for tests: without it the final stage accepts only contractions that remove a defect (as before #1489, see MeshRoundingRepair.AcceptNeutralContractionsInStage) </summary>
         internal bool NeutralContractions = true;
+        /// <summary> the evaluations per defect once the final stage starts (MeshRoundingRepair.StageMaxEvaluationsPerDefect, #1489); for tests, 0 keeps the repair's own 50 </summary>
+        internal int StageEvaluationsPerDefect = 400;
         /// <summary> SafeRounding within the relative bound only; if its result is not clean, Compute() fails with RoundingNotClean (Result null) </summary>
         public bool StrictRounding = false;
         /// <summary> as <see cref="ExactMeshBoolean.RoundingUlpFactor"/>, RoundingAbsoluteTolerance </summary>
@@ -476,6 +478,7 @@ namespace g3
                     : (a, b) => a < original && b < original && target.FindEdge(a, b) >= 0,
                 // (the parts of the target's split edges: they follow a contraction in the final stage, docs/design/IMPRINT_SLIVER_CLEANUP.md)
                 RuleLockedEdges = LegacyPartLocks ? null : new HashSet<long>(subEdges, EdgeKeyComparer.Instance), RuleLocksFollow = SliverCleanup && LegacyPartLocks == false,
+                StageMaxEvaluationsPerDefect = SliverCleanup && LegacyPartLocks == false ? StageEvaluationsPerDefect : 0,
                 AcceptNeutralContractionsInStage = NeutralContractions && SliverCleanup && LegacyPartLocks == false,
                 AllowLockedContraction = AllowCurveContraction,
                 RemoveTinyComponents = false,

@@ -226,6 +226,95 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // the evaluation limit (#1489): cylinder along x, 6 ulps, in the translated frames, the cases in which the final stage used up the limit of 10000 plus
+        // 50 per defect with 23 slivers left (the stage's position search proposes 26 x 8 moves per corner). The cut is the one that failed: the copy shifted by
+        // -6 cut into the original, and the original cut into the copy shifted by +6
+        public static IEnumerable<object[]> LimitCases()
+        {
+            foreach (string frame in new[] { "utm", "utm-negated", "utm-mixed" }) {
+                yield return new object[] { frame, -6 };
+                yield return new object[] { frame, 6 };
+            }
+        }
+
+        static ExactMeshImprint RunLimitCase(DMesh3 a, int ulps)
+        {
+            DMesh3 b = Shifted(a, 0, ulps);
+            return ulps < 0 ? Run(a, b) : Run(b, a);
+        }
+
+        [Theory]
+        [MemberData(nameof(LimitCases))]
+        public void StageEvaluationLimit_CylinderAlongX_SixUlps_IsCleanClosedManifoldAndKeepsTheVolume(string frame, int ulps)
+        {
+            DMesh3 a = Invariance.Transformed(Shape("cylinder"), FarFrame(frame));
+            ExactMeshImprint imprint = RunLimitCase(a, ulps);
+            DMesh3 target = ulps < 0 ? a : Shifted(a, 0, ulps);
+            AssertCleanAndCarried(target, imprint);
+            ResultChecks.AssertClosed(imprint.Result, "result");
+            Assert.False(imprint.Rounding.EvaluationLimitReached);
+            Assert.True(imprint.Rounding.FollowStageRan);
+            Assert.Equal(0, imprint.Rounding.RemainingDegenerate + imprint.Rounding.RemainingIntersections);
+            Assert.Equal(ResultChecks.Volume(target), ResultChecks.Volume(imprint.Result), 6);      // (the volume sum carries the rounding of the coordinates far from the origin)
+            // the limit that the stage was given: 10000 plus 400 per initial defect
+            Rounding_ExpectLimit(imprint, 400);
+        }
+
+        static void Rounding_ExpectLimit(ExactMeshImprint imprint, int perDefect)
+        {
+            MeshRoundingRepair r = imprint.Rounding;
+            Assert.Equal(10000L + perDefect * (long)(r.InitialIntersections + r.InitialDegenerate + r.InitialFalseContacts), r.MaxEvaluations);
+        }
+
+        [Fact]
+        public void StageEvaluationLimit_OnlyTheStageGetsIt_ACleanRunAndTheBooleanKeepTheLimitOf50()
+        {
+            // a run that is clean without the stage never raises it
+            DMesh3 a = Shape("cylinder"), b = Shifted(a, 1, 1);
+            ExactMeshImprint clean = Run(a, b);
+            Assert.False(clean.Rounding.FollowStageRan);
+            Rounding_ExpectLimit(clean, 50);
+            // a run that needs the stage gets it from the stage's start; the setting is the imprint's, off it the limit is the repair's own
+            DMesh3 far = Invariance.Transformed(a, Similarity.Utm);
+            var off = new ExactMeshImprint() { Target = far, Cutter = Shifted(far, 2, 1), StageEvaluationsPerDefect = 0 };
+            Assert.True(off.Compute(), off.Error);
+            Rounding_ExpectLimit(off, 50);
+            // the Boolean (two overlapping spheres: initial defects) and the repair's default
+            DMesh3 s = ExactMeshImprintTests.Sphere(Vector3d.Zero, 1, 12), t = ExactMeshImprintTests.Sphere(new Vector3d(0.6, 0.2, 0.1), 0.8, 12);
+            var boolean = new ExactMeshBoolean(s, t, ExactMeshBoolean.Operations.Union);
+            Assert.True(boolean.Compute(), boolean.Error);
+            Assert.Equal(0, boolean.Rounding.StageMaxEvaluationsPerDefect);
+            Assert.Equal(50, boolean.Rounding.MaxEvaluationsPerDefect);
+            Assert.Equal(10000L + 50 * (long)(boolean.Rounding.InitialIntersections + boolean.Rounding.InitialDegenerate + boolean.Rounding.InitialFalseContacts), boolean.Rounding.MaxEvaluations);
+            Assert.Equal(50, new MeshRoundingRepair(new DMesh3()).MaxEvaluationsPerDefect);
+        }
+
+        [Fact]
+        public void StageEvaluationLimit_Reuse_SerialEqualsParallel_AndPowersOfTwoGiveTheSameBitsScaled()
+        {
+            DMesh3 a = Invariance.Transformed(Shape("cylinder"), FarFrame("utm"));
+            ExactMeshImprint first = RunLimitCase(a, -6);
+            var again = new ExactMeshImprint() { Target = a, Cutter = Shifted(a, 0, -6) };
+            Assert.True(again.Compute(), again.Error);
+            Assert.True(again.Compute(), again.Error);
+            Assert.True(Same(first.Result, again.Result));
+            gParallel.SerialOnThisThread = true;
+            try { Assert.True(Same(first.Result, RunLimitCase(a, -6).Result)); } finally { gParallel.SerialOnThisThread = false; }
+            // a scale by 2^k of the frame (translation included, exact) scales the result: the same triangles, the vertices times 2^k
+            foreach (int k in new[] { -3, 4 }) {
+                double scale = Math.Pow(2, k);
+                var sim = new Similarity("utm * 2^" + k, scale, Matrix3d.Identity, Similarity.Utm.Translation * scale);
+                DMesh3 sa = Invariance.Transformed(Shape("cylinder"), sim);
+                ExactMeshImprint scaled = RunLimitCase(sa, -6);
+                AssertCleanAndCarried(sa, scaled);
+                Assert.Equal(first.Result.MaxVertexID, scaled.Result.MaxVertexID);
+                foreach (int v in first.Result.VertexIndices())
+                    Assert.Equal(first.Result.GetVertex(v) * scale, scaled.Result.GetVertex(v));
+                foreach (int tri in first.Result.TriangleIndices())
+                    Assert.Equal(first.Result.GetTriangle(tri), scaled.Result.GetTriangle(tri));
+            }
+        }
+
         static bool Same(DMesh3 a, DMesh3 b) =>
             a.MaxVertexID == b.MaxVertexID && a.MaxTriangleID == b.MaxTriangleID
             && a.VertexIndices().All(v => b.IsVertex(v) && a.GetVertex(v) == b.GetVertex(v))
