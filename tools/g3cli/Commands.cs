@@ -550,9 +550,6 @@ namespace g3cli
             c.Params.Add(VolumeGradientParam());
             c.Run = args => {
                 MeshFiles.CheckWritable(args.String("output"));
-                // (off unless given: the boolean then runs as before, without RetainClassification)
-                string gradientPath = args.Has("volume_gradient") ? args.String("volume_gradient") : null;
-                string gradientFormat = gradientPath != null ? VolumeGradientFormat(gradientPath) : null;
                 string opName = args.String("op");
                 if (opName == "at_least" && args.Has("k") == false)
                     throw new CommandException(ResultCodes.InvalidArguments, "op at_least needs k");
@@ -560,6 +557,9 @@ namespace g3cli
                     throw new CommandException(ResultCodes.InvalidArguments, "k is only used with op at_least");
                 if (args.Has("k") && args.Integer("k") < 1)
                     throw new CommandException(ResultCodes.InvalidArguments, "k must be at least 1");
+                // (off unless given: the boolean then runs as before, without RetainClassification)
+                string gradientPath = args.Has("volume_gradient") ? args.String("volume_gradient") : null;
+                string gradientFormat = gradientPath != null ? VolumeGradientFormat(gradientPath) : null;
                 var files = new List<string>() { args.String("a"), args.String("b") };
                 if (args.Has("more"))
                     files.AddRange(args.String("more").Split(';').Select(f => f.Trim()).Where(f => f.Length > 0));
@@ -592,9 +592,16 @@ namespace g3cli
                 op.RetainClassification = gradientPath != null;
                 if (op.Compute() == false)
                     throw new CommandException(ResultCodes.OperationFailed, "boolean failed (" + op.Status + "): " + op.Error, BooleanFailure(op));
-                // (the gradient first: if it fails, nothing is written)
+                // (the gradient first, to a temporary file: if it or the mesh fails, neither file is written)
                 JsonObject gradient = gradientPath != null ? VolumeGradient(op, meshes, gradientPath, gradientFormat) : null;
-                MeshFiles.Write(args.String("output"), op.Result, args.Bool("binary"));
+                bool written = false;
+                try {
+                    MeshFiles.Write(args.String("output"), op.Result, args.Bool("binary"));
+                    written = true;
+                } finally {
+                    if (gradientPath != null)
+                        CommitVolumeGradient(gradientPath, written);
+                }
                 var o = new JsonObject() { ["a"] = args.String("a"), ["b"] = args.String("b"), ["output"] = args.String("output"), ["op"] = opName };
                 o["inputs"] = new JsonArray(files.Select(f => (JsonNode)f).ToArray());
                 if (opName == "at_least")

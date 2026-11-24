@@ -23,7 +23,7 @@ namespace g3.Examples
     public static class BooleanVolumeOptimizerExample
     {
         /// <summary> why the optimizer stopped </summary>
-        public enum StopReason { Converged, MaxIterations, ComputeFailed, ZeroGradient }
+        public enum StopReason { Converged, MaxIterations, ComputeFailed, ZeroGradient, ResultNotClosed }
 
         public sealed class Options
         {
@@ -33,7 +33,7 @@ namespace g3.Examples
             /// below it the steps are mostly lost to the rounding of the positions and the convergence slows down
             /// </summary>
             public double Tolerance = 1e-9;
-            /// <summary> the largest number of Boolean evaluations </summary>
+            /// <summary> the largest number of Boolean evaluations (at least 1 is made) </summary>
             public int MaxIterations = 50;
             /// <summary> the farthest one step moves a vertex, as a fraction of the longest edge of input 1 (as given) </summary>
             public double StepCap = 0.25;
@@ -64,7 +64,11 @@ namespace g3.Examples
             /// <summary> the error of a failed Compute (of the Boolean or the gradient), else null </summary>
             public string Error;
             public List<Iteration> Iterations = new List<Iteration>();
-            /// <summary> input 1 with its moved vertices, and the last successful Boolean result </summary>
+            /// <summary>
+            /// input 1 with its moved vertices, and the Boolean result of exactly these positions (the last successful
+            /// evaluation: after a failed Compute, Moved is set back to the positions of Final); Final is null if the first
+            /// evaluation failed. Converged also requires Final (the rounded result) to be closed, else ResultNotClosed
+            /// </summary>
             public DMesh3 Moved, Final;
         }
 
@@ -84,14 +88,16 @@ namespace g3.Examples
             }
             double cap = options.StepCap * longest;
 
+            DMesh3 good = null;     // the positions of Final
             for (int it = 0; ; ++it) {
                 var boolean = new ExactMeshBoolean(a, moved, op) { RetainClassification = true };
                 if (boolean.Compute() == false)
-                    return stop(r, StopReason.ComputeFailed, "boolean: " + boolean.Error);
+                    return failed(r, good, "boolean: " + boolean.Error);
                 var gradient = new BooleanVolumeGradient(boolean);
                 if (gradient.Compute() == false)
-                    return stop(r, StopReason.ComputeFailed, "gradient: " + gradient.Error);
+                    return failed(r, good, "gradient: " + gradient.Error);
                 r.Final = boolean.Result;
+                good = new DMesh3(moved);
 
                 var step = new Iteration() { Volume = gradient.Volume, VolumeBound = gradient.VolumeBound, Contacts = gradient.Contacts.Count };
                 foreach (BooleanVolumeGradient.ContactRegion region in gradient.Contacts)
@@ -102,7 +108,8 @@ namespace g3.Examples
 
                 double residual = target - gradient.Volume;
                 if (Math.Abs(residual) <= options.Tolerance * Math.Abs(target) + gradient.VolumeBound)
-                    return stop(r, StopReason.Converged, null);
+                    return boolean.Result.IsClosed() ? stop(r, StopReason.Converged, null)
+                        : stop(r, StopReason.ResultNotClosed, "the rounded result is not closed");
                 if (it + 1 >= options.MaxIterations)
                     return stop(r, StopReason.MaxIterations, null);
 
@@ -124,6 +131,14 @@ namespace g3.Examples
                 foreach (int v in moved.VertexIndices())
                     moved.SetVertex(v, moved.GetVertex(v) + t * g[v]);
             }
+        }
+
+        // a failed Compute: back to the last positions that computed (those of Final)
+        static Result failed(Result r, DMesh3 good, string error)
+        {
+            if (good != null)
+                r.Moved = good;
+            return stop(r, StopReason.ComputeFailed, error);
         }
 
         static Result stop(Result r, StopReason reason, string error)

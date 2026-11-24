@@ -86,6 +86,35 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1.125, r.Iterations[0].Volume, 12);
             Assert.Equal(1, r.Iterations[0].Contacts);
             Assert.Equal(0.25, r.Iterations[0].ContactArea, 12);
+            Assert.Equal(1, r.Iterations[1].Contacts);                  // still flush after the first step ...
+
+            // ... because the merged branch has no x entry at the contact face (its pieces are inside the union), while the
+            // separated branch (Gradient plus the contact's alternative) moves that face: the step follows the realized one
+            DMesh3 box = Opt.TouchingBox();
+            var boolean = new ExactMeshBoolean(Opt.Cube(), box, Ops.Union) { RetainClassification = true };
+            Assert.True(boolean.Compute(), boolean.Error);
+            var g = new BooleanVolumeGradient(boolean);
+            Assert.True(g.Compute(), g.Error);
+            int[] face = box.VertexIndices().Where(v => box.GetVertex(v).x == 1).ToArray();
+            Assert.Equal(4, face.Length);
+            Assert.All(face, v => Assert.Equal(0, g.Gradient[1][v].x));
+            double separated = face.Sum(v => g.Gradient[1][v].x)
+                + g.Contacts[0].Alternatives[0].Where(t => t.Mesh == 1 && face.Contains(t.Vertex)).Sum(t => t.Value.x);
+            Assert.True(Math.Abs(separated) > 0.01, $"{separated}");
+            Opt.Result one = Opt.FitVolume(Opt.Cube(), box, Ops.Union, 1.2, new Opt.Options() { MaxIterations = 2 });
+            Assert.All(face, v => Assert.Equal(1.0, one.Moved.GetVertex(v).x));
+        }
+
+        [Fact]
+        public void ZeroGradient_Stops()
+        {
+            // the cube intersected with a disjoint box: V = 0 and no kept piece, so no step can reach the target
+            DMesh3 far = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(5, 0.5, 0.5), new Vector3d(0.5, 0.5, 0.5)) }.Generate().MakeDMesh();
+            Opt.Result r = Opt.FitVolume(Opt.Cube(), far, Ops.Intersection, 0.5);
+            Assert.Equal(Opt.StopReason.ZeroGradient, r.Reason);
+            Assert.Single(r.Iterations);
+            Assert.Equal(0, r.Iterations[0].Volume);
+            Assert.Equal(0, r.Iterations[0].Step);
         }
 
         [Fact]
@@ -160,9 +189,13 @@ namespace geometry3Sharp.Tests
                 double s3 = s.Scale * s.Scale * s.Scale;
                 Opt.Result rs = Opt.FitVolume(Invariance.Transformed(a, s), Invariance.Transformed(b, s), Ops.Union, 1.3 * s3, options);
                 Assert.True(rs.Reason == Opt.StopReason.Converged, $"{s.Name}: {rs.Reason} {rs.Error}");
-                Assert.Equal(r.Iterations.Count, rs.Iterations.Count);
+                // (the same count bit for bit under 2^k; the others may end one step apart, at the tolerance's edge)
+                if (s.IsExact)
+                    Assert.Equal(r.Iterations.Count, rs.Iterations.Count);
+                else
+                    Assert.InRange(rs.Iterations.Count, r.Iterations.Count - 1, r.Iterations.Count + 1);
                 double worst = 0;
-                for (int i = 0; i < r.Iterations.Count; ++i) {
+                for (int i = 0; i < Math.Min(r.Iterations.Count, rs.Iterations.Count); ++i) {
                     if (s.IsExact) {
                         Assert.True(r.Iterations[i].Volume * s3 == rs.Iterations[i].Volume, $"{s.Name} {i}: {r.Iterations[i].Volume:R} {rs.Iterations[i].Volume:R}");
                         Assert.True(r.Iterations[i].VolumeBound * s3 == rs.Iterations[i].VolumeBound, $"{s.Name} {i} bound");

@@ -82,7 +82,7 @@ g3cli boolean a.stl b.stl u.stl --op union --more c.stl --volume-gradient grad.j
 ```
 
 - **`.csv`:** one row per input vertex, `mesh,vertex,x,y,z,gx,gy,gz,bx,by,bz`. `mesh` is the input index (0 for `a`, 1 for
-  `b`, then `--more` in order). `vertex` is the 0-based id in the mesh as read, `x y z` its position, `g*` the entry
+  `b`, then `--more` in order). `vertex` is the 0-based id in the mesh as read (for STL, of the welded vertices: match by `x y z`), `x y z` its position, `g*` the entry
   dV/dx and `b*` its error bound per component (|exact - g| <= b). A vertex of no kept piece has the entry 0.
 - **`.json`:** `{volume, volume_bound, contacts, vertices: [{mesh, vertex, position, gradient, bound}, ...]}`.
 - **Result field `volume_gradient`:** `output`, `format`, `rows`, `volume`, `volume_bound`, `contacts`.
@@ -90,7 +90,7 @@ g3cli boolean a.stl b.stl u.stl --op union --more c.stl --volume-gradient grad.j
   has `meshes`, `sheets`, `area` and `alternatives`. The gradient is the branch the exact result realizes. Each
   alternative is a sparse change `[{mesh, vertex, value, bound}, ...]`: added to the gradient, it gives another branch.
 - **Errors:** an open input (with `--allow-open`) fails with `operation_failed`, adds `volume_gradient_error` to the
-  result, and writes neither file. Another extension fails with `unknown_format`, and a missing directory with
+  result, and writes neither file; nor does a failed write of the mesh. Another extension fails with `unknown_format`, and a missing directory with
   `write_error`, both before the boolean runs.
 - **Smaller option than a new command:** it reuses the inputs, the operations (n-ary, `at_least`, `xor`), the orientation
   and the rounding options of `boolean` (and of its MCP tool, `volume_gradient`), and needs no second arrangement.

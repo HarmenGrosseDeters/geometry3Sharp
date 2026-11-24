@@ -36,7 +36,10 @@ namespace g3cli
             return ext.Substring(1);
         }
 
-        /// <summary> computes the gradient of op (computed with RetainClassification), writes it, and returns the result's summary </summary>
+        /// <summary>
+        /// computes the gradient of op (computed with RetainClassification) and writes it to path + ".g3tmp" (the caller moves it
+        /// into place with CommitVolumeGradient after the mesh is written, or removes it); returns the result's summary
+        /// </summary>
         static JsonObject VolumeGradient(ExactMeshBoolean op, List<DMesh3> meshes, string path, string format)
         {
             var g = new BooleanVolumeGradient(op);
@@ -71,7 +74,6 @@ namespace g3cli
                     if (format == "json")
                         w.Write("\n]}\n");
                 }
-                File.Move(temp, path, true);
             } catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) {
                 try { File.Delete(temp); } catch (Exception) { }
                 throw new CommandException(ResultCodes.WriteError, $"cannot write '{path}': {e.Message}");
@@ -81,6 +83,22 @@ namespace g3cli
                 ["volume"] = MeshReport.Num(g.Volume), ["volume_bound"] = MeshReport.Num(g.VolumeBound),
                 ["contacts"] = contacts,
             };
+        }
+
+        /// <summary> moves the written gradient into place (commit) or removes it </summary>
+        static void CommitVolumeGradient(string path, bool commit)
+        {
+            string temp = path + ".g3tmp";
+            try {
+                if (commit)
+                    File.Move(temp, path, true);
+                else
+                    File.Delete(temp);
+            } catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) {
+                try { File.Delete(temp); } catch (Exception) { }
+                if (commit)
+                    throw new CommandException(ResultCodes.WriteError, $"cannot write '{path}': {e.Message}");
+            }
         }
 
         /// <summary> the contact regions: meshes, sheets, area and per other branch its sparse change of the gradient </summary>

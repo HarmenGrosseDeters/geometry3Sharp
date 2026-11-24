@@ -104,6 +104,41 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void NAry_AtLeastTwo_RowsPerInputInOrder()
+        {
+            // inside at least 2 of cube, shifted and far: the overlap of the first two, V = 4; moving the shifted cube by +x
+            // shrinks it by 4, moving the cube by +x grows it by 4, the far cube (disjoint) changes nothing
+            string grad = m.Path_("at_least_gradient.csv");
+            var (exit, r) = Run("boolean", m.Cube, m.Shifted, m.Path_("at_least.stl"), "--op", "at_least", "--k", "2", "--more", m.Far,
+                "--orientation", "area_majority", "--volume-gradient", grad, "--compact");
+            Assert.Equal(0, exit);
+            Assert.Equal(4.0, D(r["volume_gradient"]["volume"]), 12);
+            string[][] rows = File.ReadAllLines(grad).Skip(1).Select(l => l.Split(',')).ToArray();
+            Assert.Equal(24, rows.Length);
+            Assert.Equal(new[] { 0, 1, 2 }, rows.Select(row => int.Parse(row[0])).Distinct().ToArray());
+            double Sum(string mesh) => rows.Where(row => row[0] == mesh).Sum(row => P(row[5]));
+            Assert.Equal(4.0, Sum("0"), 12);
+            Assert.Equal(-4.0, Sum("1"), 12);
+            Assert.Equal(0.0, Sum("2"), 12);
+            DMesh3 far = StandardMeshReader.ReadMesh(m.Far);
+            foreach (string[] row in rows.Where(row => row[0] == "2"))
+                Assert.Equal(far.GetVertex(int.Parse(row[1])), new Vector3d(P(row[2]), P(row[3]), P(row[4])));
+        }
+
+        [Fact]
+        public void FailedMeshWrite_LeavesNoGradientFile()
+        {
+            // the output path is a directory: the mesh cannot be written, so the gradient is not either
+            string output = m.Path_("is_a_directory.stl"), grad = m.Path_("dir_gradient.csv");
+            Directory.CreateDirectory(output);
+            var (exit, r) = Run("boolean", m.Cube, m.Shifted, output, "--op", "union", "--volume-gradient", grad, "--compact");
+            Assert.NotEqual(0, exit);
+            Assert.Equal("error", S(r["status"]));
+            Assert.False(File.Exists(grad));
+            Assert.False(File.Exists(grad + ".g3tmp"));
+        }
+
+        [Fact]
         public void WithoutTheOption_TheResultIsUnchanged()
         {
             string plain = m.Path_("plain_union.stl"), withGradient = m.Path_("gradient_union.stl");
