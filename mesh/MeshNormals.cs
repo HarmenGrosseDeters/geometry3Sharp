@@ -94,7 +94,7 @@ namespace g3
             if (triN == null || triN.Length < NT)
                 triN = new Vector3d[NT];
             Vector3d[] triN_ = triN;
-            gParallel.ForEach(Mesh.TriangleIndices(), (ti) => {
+            gParallel.ForEachSmall(Mesh.TriangleIndices(), (ti) => {
                 Index3i tri = Mesh.GetTriangle(ti);
                 triN_[ti] = AreaNormal(VertexF(tri.a), VertexF(tri.b), VertexF(tri.c));
             });
@@ -105,7 +105,7 @@ namespace g3
                 Normals[tri.c] += triN_[ti];
             }
 
-            gParallel.BlockStartEnd(0, NV - 1, (vi_start, vi_end) => {
+            gParallel.BlockStartEndSmall(0, NV - 1, (vi_start, vi_end) => {
                 for (int vi = vi_start; vi <= vi_end; vi++)
                     Normals[vi] = UnitOrZero(Normals[vi]);
             });

@@ -15,6 +15,9 @@
   <ItemGroup>
     <!-- the stages 1-2 certifying checker of the tests, timed by the certify mode (Certify.cs) -->
     <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\BooleanCertificate.cs" Link="Harness\BooleanCertificate.cs" />
+    <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\BooleanFuzzCases.cs" Link="Harness\BooleanFuzzCases.cs" />
+    <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\BooleanOracle.cs" Link="Harness\BooleanOracle.cs" />
+    <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\Invariance.cs" Link="Harness\Invariance.cs" />
   </ItemGroup>
 
   <Import Project="..\net48-compare\Net48.props" />

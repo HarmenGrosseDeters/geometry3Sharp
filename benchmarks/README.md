@@ -47,6 +47,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [SolidifyBenchmark](SolidifyBenchmark/README.md) | Time and result hashes for `MeshWindingNumberSolidify` |
 | [ReducerBenchmark](ReducerBenchmark/README.md) | Cost of certified deviation bounds (`Reducer.MaxDeviation`, `TriangleDeviationBounds`) and fold-over checks |
 | [ReducerRemesherBaseline](ReducerRemesherBaseline/README.md) | Milestone baseline harness for `Reducer` and `Remesher` |
+| [ParallelTinyLoops](ParallelTinyLoops/README.md) | Crossover of `gParallel` loops against plain loops and the inline-first Small loops (#1502), alone and with a busy thread pool |
 | [RemeshBenchmark](RemeshBenchmark/README.md) | `Remesher` vs. `RemesherPro` under internal library caller settings |
 | [RemeshPreventBenchmark](RemeshPreventBenchmark/README.md) | Cost and result hashes of `Remesher.PreventSelfIntersections` |
 | [RemeshQualityBenchmark](RemeshQualityBenchmark/README.md) | Quality and timing impact of `Remesher.MinTriangleQuality` and `ApplySafePreset()` |
@@ -137,4 +138,5 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [MetamorphicBugHunt](MetamorphicBugHunt/README.md) | Metamorphic relations and operation chains (Boolean, repair, remesh, tet, wrap, contouring, 2D mesher; second hunt: `PassageWrap`, feature pass, quad, `TpmsLattice`, `ContourLoft`, readers and writers, geodesics, intrinsic triangulation) on procedural inputs with independent checks of every Success |
 | [MagnitudeRobustness](MagnitudeRobustness/README.md) | Probes of the magnitude study: geodesic and intrinsic classes and `DualContouring` at 2^e, root-cause expressions, an exact prescaling wrapper and its cost |
 | [TopologyOwnershipProbe](TopologyOwnershipProbe/README.md) | Ordered winding landmarks vs. Betti numbers and shell volumes as a check of where a cavity ends up after a Boolean or forced repair |
+| [WrapAccuracyProbe](WrapAccuracyProbe/README.md) | Spike: snap back of the alpha wrap onto the input under exact checks and "wrap only the gaps" for solids with holes (procedural and Thingi10K, no mesh files committed) |
 | `Shared` | Shared evaluation helpers (`FidelityFields.cs`, `UvEvaluation.cs`) reused by benchmarks and tests |
