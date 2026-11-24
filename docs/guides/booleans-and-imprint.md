@@ -223,7 +223,7 @@ Example: [BooleanVolumeGradientExample](../examples/BooleanVolumeGradientExample
 - The output is bit-identical on every run: the computation is serial and uses no FMA.
 - If the inputs are scaled by 2^k, the gradient and its bound scale by exactly 2^2k and the volume by exactly 2^3k, as
   long as no result underflows or overflows. The evaluation itself is in grid units, so it is the same at every scale.
-- The cost is linear in the number of kept pieces. It measured 19-49 % of the boolean's own time
+- The cost is linear in the number of kept pieces. It measured 14-53 % of the boolean's own time
   ([benchmarks/BooleanVolumeGradient](../../benchmarks/BooleanVolumeGradient/README.md)).
 
 **Formula.**
