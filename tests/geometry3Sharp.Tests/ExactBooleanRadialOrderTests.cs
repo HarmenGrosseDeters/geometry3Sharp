@@ -496,12 +496,13 @@ namespace geometry3Sharp.Tests
             foreach (DMesh3[] solids in Solids())
                 foreach (Similarity f in new[] { Similarity.Identity, Similarity.Utm, Similarity.Pow2Large, Similarity.Rotated })
                     prints.Add(Union(f, solids));
+            // (re-pinned for #1410: an exact vertex is rounded to the nearest double now, not toward zero; entries 7 and 11 to 19 changed, the other ten did not)
             string[] frozen = {
                 "4352B4BE6D58682A/1", "B9B7219848B16705/1", "4BB68A0AF50E7D13/1", "B72061C9774201C2/1",
-                "DB58B87522721870/1", "45310EFA51B2C4AE/1", "2B2D4F19053AA41C/1", "AAFE528A7D7E9D7C/6",
-                "81069F0735DB6338/0", "BFB770EC5888570E/0", "1EED39B6AD45F7EE/0", "C37957ABE51345E8/2",
-                "EDCAFF5DEC474C4A/0", "73B6BDB6433DD2A5/0", "9591D2C3EE282739/0", "8CEE5D42A8A63D2C/0",
-                "EDC35B1655E65E1C/0", "AABA0474812B2BA6/0", "C94D10DBE7B01512/0", "4A3100F32590D3ED/0",
+                "DB58B87522721870/1", "45310EFA51B2C4AE/1", "2B2D4F19053AA41C/1", "7B31D2B8CB0E9413/6",
+                "81069F0735DB6338/0", "BFB770EC5888570E/0", "1EED39B6AD45F7EE/0", "8BAB457956704044/2",
+                "6D44EDB08E606BB3/0", "3C961EB3580F87BF/0", "D4A25636316F5E1F/0", "9A56595F4876AE39/0",
+                "879C6EDA5172EB09/0", "3FAD211B16A06566/0", "7EC1ED90A0316F73/0", "D7C18CCB04B2969F/0",
             };
             Assert.Equal(string.Join("\n", frozen), string.Join("\n", prints));
         }
