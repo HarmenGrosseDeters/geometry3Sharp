@@ -120,7 +120,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void ChainSliver_OfTheTriage_IsNotInsideOut()
         {
-            DMesh3 s = new Sphere3Generator_NormalizedCube { Radius = 1, EdgeVertices = 12 }.Generate().MakeDMesh();
+            // (EdgeVertices 12 until #1410: the conversion of an exact vertex rounds to nearest now, and that sphere leaves one component only)
+            DMesh3 s = new Sphere3Generator_NormalizedCube { Radius = 1, EdgeVertices = 14 }.Generate().MakeDMesh();
             foreach (int v in s.VertexIndices()) { Vector3d p = s.GetVertex(v); s.SetVertex(v, new Vector3d((float)p.x, (float)p.y, (float)p.z)); }
             var c = ContactTransforms.BuildChain(new DMesh3(s), new DMesh3(s), new DMesh3(s),
                 ContactVariant.PartialOverlap, 2, 1, 1, ContactVariant.UlpShift, 1, -1, 0);
@@ -146,9 +147,9 @@ namespace geometry3Sharp.Tests
             // it is below the fraction of the bound that makes a result not clean)
             Assert.Equal(d.Rounding.RemovedComponents, d.Rounding.RemovedComponentInfos.Count);
             MeshRoundingRepair.RemovedComponentInfo sliver = Assert.Single(d.Rounding.RemovedComponentInfos, i => i.Reason == MeshRoundingRepair.RemovalReasons.VolumeChanged);
-            Assert.InRange(sliver.ThicknessUlps, 1e4, 1e5);
-            Assert.InRange(sliver.Thickness, 1e-12, 2e-12);
-            Assert.True(sliver.Volume > 0 && sliver.Volume < 1e-21);
+            Assert.InRange(sliver.ThicknessUlps, 1e5, 1e6);      // (1e4 to 1e5 until #1410)
+            Assert.InRange(sliver.Thickness, 1e-11, 1e-10);      // (1e-12 to 2e-12 until #1410)
+            Assert.True(sliver.Volume > 0 && sliver.Volume < 1e-15);      // (below 1e-21 until #1410; still 1e-16 of the sphere's volume, numerically zero)
             Assert.False(sliver.Resolvable);
             Assert.Equal(0, d.Rounding.RemovedResolvable);
             var rounded = new MeshConnectedComponents(d.Result);
@@ -157,7 +158,8 @@ namespace geometry3Sharp.Tests
             foreach (var comp in rounded.Components)
                 Assert.Equal(1, Exact(d.Result, comp.Indices));
             Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(d.Result));
-            Assert.Equal("", MeshRobustRepair.NotCleanReason(d.Result));
+            // (clean up to contacts: since #1410 the conversion rounds to nearest, and the result holds duplicated vertices of one exact point)
+            ResultChecks.AssertCleanExceptContacts(d.Result, "rounded result");
         }
 
         [Fact]

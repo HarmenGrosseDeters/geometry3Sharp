@@ -96,6 +96,11 @@ and the other edits at the sliver add a degenerate triangle or an intersection o
 the curve and is reported not clean, as before (test `KnownLimit_ALinkConditionLeavesOneSliver_...`). Removing such a sliver needs
 an edit the repair does not have (eg a flip of the long edge, which is a locked part of a split target edge).
 
+Since #1410 (`ExactPoint3.ToDouble` rounds to nearest instead of truncating) that cylinder instance is clean, and the test pins the same limit on
+the rotated box translated into a UTM frame (632117.25, 5712043.5, 113.75) and shifted by +1 ulp along z, cut into its shifted copy: one sliver of area
+1.5e-21 is left, its shortest edge (2.6e-11) is refused by `CollapseEdge` (`Failed_InvalidNeighbourhood`) in both directions. The numbers of the paragraph above
+(39 of 40) were measured before that change. The translated frame is worse than that one instance: the capped cylinder in that frame, shifted by 1 to 12 ulps along z (either way, either direction of the cut), leaves 4 to 8 slivers (measured; no test pins it yet).
+
 The test inputs avoid `Math.Sin` / `Cos` (they differ in the last bit between net48 and net10, `DETERMINISM.md` C1): the rotated
 box is given by its corners as literals, the cylinder is snapped to a grid of 2^-24.
 
