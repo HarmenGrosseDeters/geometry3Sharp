@@ -1,0 +1,102 @@
+
+######## all
+inputs: 6 configs: 54
+
+H1: growth per decade of the offset (geometric mean of the per-input ratios), wrap only
+| alpha | offset step | triangles x | time x | wrap H x (error shrink) | snapped H x |
+|---|---|---:|---:|---:|---:|
+| d/4 | 0.001 -> 0.0001 | 1.38 | 1.08 | 2.16 | 2.84 |
+| d/4 | 0.0001 -> 1e-05 | 1.09 | 0.61 | 2.16 | 2.57 |
+| d/20 | 0.001 -> 0.0001 | 2.64 | 1.61 | 2.23 | 2.74 |
+| d/20 | 0.0001 -> 1e-05 | 1.15 | 1.07 | 2.15 | 2.24 |
+| d/100 | 0.001 -> 0.0001 | 1.66 | 2.10 | 1.82 | 1.47 |
+| d/100 | 0.0001 -> 1e-05 | 1.54 | 1.42 | 2.15 | 2.28 |
+
+H2: the snapped result at the coarsest offset against the wrap at finer offsets (same alpha): the finest offset whose wrap error is still above the snapped error
+| alpha | snapped H (median) at offset 0.001 | wrap H at 0.001 / 0.0001 / 1e-05 | inputs where the snap at 0.001 beats the wrap at 1e-05 |
+|---|---:|---|---:|
+| d/4 | 0.162 | 0.163 / 0.162 / 0.162 | 1 of 6 |
+| d/20 | 0.0377 | 0.0383 / 0.0348 / 0.035 | 0 of 6 |
+| d/100 | 0.00878 | 0.00942 / 0.00857 / 0.00765 | 1 of 6 |
+
+H3: error against alpha (median over the inputs, snapped = validity-preserving), p99 in brackets
+| offset | alpha d/4 | alpha d/20 | alpha d/100 |
+|---|---:|---:|---:|
+| 0.001 | 0.162 (0.122) | 0.0377 (0.00506) | 0.00878 (9.67e-09) |
+| 0.0001 | 0.162 (0.12) | 0.0347 (0.00463) | 0.00851 (9.67e-09) |
+| 1e-05 | 0.162 (0.0604) | 0.035 (0.00307) | 0.00764 (9.67e-09) |
+
+H4: naive projection damage and what the safe version gives up
+naive: configs 54, clean 13, with self-intersections 40, bad (flipped or collapsed) area share: median 0.0001%, max 0.1492%
+safe : configs 54, clean and 0 self-intersections 54, vertices moved fully: median 99.37%, min 89.09%
+safe H / naive H: median 1.000, max 6.953 (1 = nothing lost)
+
+configs with exceptions / timeouts:
+
+######## convex solids (box, plates, cylinder, sphere)
+inputs: 2 configs: 18
+
+H1: growth per decade of the offset (geometric mean of the per-input ratios), wrap only
+| alpha | offset step | triangles x | time x | wrap H x (error shrink) | snapped H x |
+|---|---|---:|---:|---:|---:|
+| d/4 | 0.001 -> 0.0001 | 1.66 | 1.64 | 10.00 | 22.81 |
+| d/4 | 0.0001 -> 1e-05 | 1.00 | 0.70 | 10.00 | 16.94 |
+| d/20 | 0.001 -> 0.0001 | 2.34 | 1.42 | 10.00 | 19.00 |
+| d/20 | 0.0001 -> 1e-05 | 1.25 | 1.10 | 10.00 | 11.28 |
+| d/100 | 0.001 -> 0.0001 | 1.63 | 2.55 | 5.15 | 2.99 |
+| d/100 | 0.0001 -> 1e-05 | 1.51 | 1.18 | 8.88 | 10.62 |
+
+H2: the snapped result at the coarsest offset against the wrap at finer offsets (same alpha): the finest offset whose wrap error is still above the snapped error
+| alpha | snapped H (median) at offset 0.001 | wrap H at 0.001 / 0.0001 / 1e-05 | inputs where the snap at 0.001 beats the wrap at 1e-05 |
+|---|---:|---|---:|
+| d/4 | 0.000227 | 0.00105 / 0.000105 / 1.05e-05 | 0 of 2 |
+| d/20 | 0.000315 | 0.00105 / 0.000105 / 1.05e-05 | 0 of 2 |
+| d/100 | 0.000611 | 0.00105 / 0.000251 / 3.03e-05 | 0 of 2 |
+
+H3: error against alpha (median over the inputs, snapped = validity-preserving), p99 in brackets
+| offset | alpha d/4 | alpha d/20 | alpha d/100 |
+|---|---:|---:|---:|
+| 0.001 | 0.000227 (1.17e-05) | 0.000315 (1.08e-08) | 0.000611 (1.08e-08) |
+| 0.0001 | 9.68e-06 (1.08e-08) | 1.28e-05 (1.08e-08) | 0.000259 (1.08e-08) |
+| 1e-05 | 5e-07 (1.08e-08) | 1.12e-06 (1.08e-08) | 5.57e-05 (9.67e-09) |
+
+H4: naive projection damage and what the safe version gives up
+naive: configs 18, clean 5, with self-intersections 12, bad (flipped or collapsed) area share: median 0.0006%, max 0.1492%
+safe : configs 18, clean and 0 self-intersections 18, vertices moved fully: median 99.17%, min 89.09%
+safe H / naive H: median 1.436, max 6.953 (1 = nothing lost)
+
+configs with exceptions / timeouts:
+
+######## concave solids (lshape, slots)
+inputs: 4 configs: 36
+
+H1: growth per decade of the offset (geometric mean of the per-input ratios), wrap only
+| alpha | offset step | triangles x | time x | wrap H x (error shrink) | snapped H x |
+|---|---|---:|---:|---:|---:|
+| d/4 | 0.001 -> 0.0001 | 1.26 | 0.88 | 1.00 | 1.00 |
+| d/4 | 0.0001 -> 1e-05 | 1.14 | 0.57 | 1.00 | 1.00 |
+| d/20 | 0.001 -> 0.0001 | 2.81 | 1.72 | 1.05 | 1.04 |
+| d/20 | 0.0001 -> 1e-05 | 1.10 | 1.06 | 1.00 | 1.00 |
+| d/100 | 0.001 -> 0.0001 | 1.67 | 1.91 | 1.08 | 1.03 |
+| d/100 | 0.0001 -> 1e-05 | 1.56 | 1.56 | 1.06 | 1.05 |
+
+H2: the snapped result at the coarsest offset against the wrap at finer offsets (same alpha): the finest offset whose wrap error is still above the snapped error
+| alpha | snapped H (median) at offset 0.001 | wrap H at 0.001 / 0.0001 / 1e-05 | inputs where the snap at 0.001 beats the wrap at 1e-05 |
+|---|---:|---|---:|
+| d/4 | 0.162 | 0.163 / 0.162 / 0.162 | 1 of 4 |
+| d/20 | 0.101 | 0.102 / 0.0994 / 0.0997 | 0 of 4 |
+| d/100 | 0.00906 | 0.00973 / 0.00878 / 0.00844 | 1 of 4 |
+
+H3: error against alpha (median over the inputs, snapped = validity-preserving), p99 in brackets
+| offset | alpha d/4 | alpha d/20 | alpha d/100 |
+|---|---:|---:|---:|
+| 0.001 | 0.162 (0.129) | 0.101 (0.013) | 0.00906 (5.34e-09) |
+| 0.0001 | 0.162 (0.129) | 0.0993 (0.0123) | 0.00872 (5.34e-09) |
+| 1e-05 | 0.162 (0.131) | 0.0997 (0.0122) | 0.00843 (5.34e-09) |
+
+H4: naive projection damage and what the safe version gives up
+naive: configs 36, clean 8, with self-intersections 28, bad (flipped or collapsed) area share: median 0.0001%, max 0.0254%
+safe : configs 36, clean and 0 self-intersections 36, vertices moved fully: median 99.54%, min 95.34%
+safe H / naive H: median 1.000, max 1.000 (1 = nothing lost)
+
+configs with exceptions / timeouts:
