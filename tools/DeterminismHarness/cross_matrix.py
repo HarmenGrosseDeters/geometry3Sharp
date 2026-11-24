@@ -2,9 +2,10 @@
 # Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 """The cross-runtime matrix of docs/research/DETERMINISM_CROSS_RUNTIME_2026-11.md from the traces of a determinism
 workflow run: for every group of cases and every pair of configurations, how many cases have the same hash, and the
-names of those that do not.
+names of those that do not. With --require, the exit status is 1 when a case of a named group differs, is missing or failed in any
+pair (or the group has no case at all): those groups are claims (the stage 1 and 2 cases of the determinism proof), the rest is measurement.
 
-    python3 cross_matrix.py <traces dir>
+    python3 cross_matrix.py <traces dir> [--require GROUP[,GROUP...]]
 
 <traces dir> holds the trace directories of the run (linux-net10-serial, windows-net48-serial, ...). A pair is listed
 when both of its directories exist. Output: a Markdown table on stdout (rows: groups, columns: pairs, a cell is
@@ -92,12 +93,34 @@ def render(pairs, groups, cell, differing):
     return "\n".join(lines)
 
 
+def violations(pairs, groups, differing, required):
+    """-> the lines that say which required group fails: a group without any case, or the cases of it that are not the same in a pair"""
+    out = []
+    for g in required:
+        if g not in groups:
+            out.append("required group %s has no case" % g)
+    for n, _, _ in pairs:
+        for d in differing[n]:
+            if group(d.split(" (")[0]) in required:
+                out.append("%s: %s" % (n, d))
+    return out
+
+
 def main(argv):
-    if len(argv) != 2:
+    args = argv[1:]
+    required = []
+    if len(args) == 3 and args[1] == "--require":
+        required = [g for g in args[2].split(",") if g]
+        args = args[:1]
+    if len(args) != 1:
         sys.stderr.write(__doc__)
         return 2
-    print(render(*matrix(argv[1])))
-    return 0
+    pairs, groups, cell, differing = matrix(args[0])
+    print(render(pairs, groups, cell, differing))
+    bad = violations(pairs, groups, differing, required)
+    for line in bad:
+        sys.stderr.write("REQUIRED GROUP DIFFERS: " + line + "\n")
+    return 1 if bad else 0
 
 
 if __name__ == "__main__":

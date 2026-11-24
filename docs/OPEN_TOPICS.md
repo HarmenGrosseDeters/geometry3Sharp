@@ -34,7 +34,7 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 | Geodesics/param: oracle follow-ups (check) | Heat-method tests against the oracle, fragmentation lever open | Tests first; lever only with a proof | [param](roadmap/parameterization-geodesics.md#open-for-the-future-2026-11-15), plan #1238 |
 | Platform/QA/CI: coverage gate red on master | `coverage.yml` failed in every run 2026-11-18/19 (last 4 runs through 2026-11-21 green — verify & close) | Diagnose the uncovered lines, add tests | [platform](roadmap/platform.md#open-for-the-future-2026-11-15), plan #1239 |
 | Platform/QA/CI: tests above 20 s in some full runs | Open; thread-pool starvation suspected | Diagnose per test, split or fix | #698, plan #1243 |
-| Platform/QA/CI: determinism stage 1 obligations O2-O5 | Open (O1 done) | Small fixes or arguments, with stage 2 | [proof](design/DETERMINISM_PROOF.md), plan #1240 |
+| Platform/QA/CI: determinism stage 1 obligations O2-O5 | Done (O1-O5; O6 stays a reviewed note) | Arguments and tests in [the proof](design/DETERMINISM_PROOF.md) 5.4; the cross-runtime `compare` job now fails on a `stage1` / `stage2` difference | [proof](design/DETERMINISM_PROOF.md), plan #1240 (closed) |
 | Platform/QA/CI: narrowed mutation filters in CI | Filters for 4 shards checked in | Generate after the nightly full run; renew the rest | [platform](roadmap/platform.md), plan #1242 |
 | Other: TPMS Lidinoid formula, primary-source check | Citation verified, paper not opened | Read the paper, update SOURCES.md | [research](roadmap/research.md), plan #1245 |
 

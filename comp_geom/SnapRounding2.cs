@@ -43,7 +43,9 @@ namespace g3
         public SnapGrid Grid;
         /// <summary> the input segments each output chain edge comes from (by the edge's end coordinates, either order), for O12 splits;
         /// several when the chains of several input segments share the edge </summary>
-        public readonly Dictionary<(Vector2d, Vector2d), List<(Vector2d a, Vector2d b)>> Origin = new Dictionary<(Vector2d, Vector2d), List<(Vector2d, Vector2d)>>();
+        // (private: a Dictionary has no specified enumeration order, so nothing outside this class may enumerate it; the members below only
+        // look entries up, and Build adds them in chain order. DeterminismStage1ObligationTests.SnapRounding2_Origin_IsNotVisible)
+        readonly Dictionary<(Vector2d, Vector2d), List<(Vector2d a, Vector2d b)>> Origin = new Dictionary<(Vector2d, Vector2d), List<(Vector2d, Vector2d)>>();
 
         /// <summary> the first input segment an output chain edge comes from, or false (a hull edge, or an edge the mesher made) </summary>
         public bool TryOrigin(Vector2d p, Vector2d q, out (Vector2d a, Vector2d b) origin)

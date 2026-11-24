@@ -50,6 +50,25 @@ class CrossMatrixTests(unittest.TestCase):
             self.assertEqual([], pairs)
             self.assertEqual("| group |  |\n|---|\n", cm.render(pairs, groups, cell, differing))
 
+    def test_required_groups_fail_on_a_difference_a_missing_case_or_no_case(self):
+        with tempfile.TemporaryDirectory() as root:
+            write(root, "linux-net10-serial", ["stage1.a\t1\t1", "stage1.b\t2\t1", "stage2.c\t3\t1", "libm.sin\t1\t9"])
+            write(root, "windows-net10-serial", ["stage1.a\t1\t1", "stage1.b\t2\t1", "stage2.c\t3\t1", "libm.sin\t2\t9"])
+            pairs, groups, cell, differing = cm.matrix(root)
+            # (libm differs, which is a measurement: not required)
+            self.assertEqual([], cm.violations(pairs, groups, differing, ["stage1", "stage2"]))
+            self.assertEqual(["lin=win net10: libm.sin"], cm.violations(pairs, groups, differing, ["libm"]))
+            self.assertEqual(["required group stage3 has no case"], cm.violations(pairs, groups, differing, ["stage3"]))
+            self.assertEqual(0, cm.main(["x", root, "--require", "stage1,stage2"]))
+            self.assertEqual(1, cm.main(["x", root, "--require", "stage1,libm"]))
+            self.assertEqual(2, cm.main(["x", root, "--require"]))
+        with tempfile.TemporaryDirectory() as root:
+            write(root, "linux-net10-serial", ["stage1.a\t1\t1", "stage2.c\t3\t1"])
+            write(root, "windows-net10-serial", ["stage1.a\t9\t1"])
+            pairs, groups, cell, differing = cm.matrix(root)
+            # a hash that differs, and a case that is missing on one side
+            self.assertEqual(["lin=win net10: stage1.a", "lin=win net10: stage2.c (missing)"], cm.violations(pairs, groups, differing, ["stage1", "stage2"]))
+
 
 if __name__ == "__main__":
     unittest.main()

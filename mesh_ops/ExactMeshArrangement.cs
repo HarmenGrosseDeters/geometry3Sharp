@@ -3566,7 +3566,9 @@ namespace g3
             }
         }
 
-        static void merge_runs(long[] c, int[] o, long[] dc, int[] dord, int lo, int mid, int hi)
+        // (internal for DeterminismStage1ObligationTests.MergeRuns_EqualCodes_GoByBoxIndex: the sort calls it with runs of ascending index ranges,
+        // where the index tie-break never decides; it is what makes the merge a total order on any two runs)
+        internal static void merge_runs(long[] c, int[] o, long[] dc, int[] dord, int lo, int mid, int hi)
         {
             int i = lo, j = mid, k = lo;
             while (i < mid && j < hi) {
