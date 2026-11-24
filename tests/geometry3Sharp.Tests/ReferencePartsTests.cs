@@ -400,8 +400,18 @@ namespace geometry3Sharp.Tests
             foreach (StepResult st in lib.Steps.Skip(1))
                 Assert.Equal(2, st.Check("screwSeparate").Value);
             ChainResult pipe = Chains.RunPipelineChain(part);
-            Assert.Equal("pipeline", pipe.FirstFailingName());
-            Assert.Equal("pipeline", pipe.FirstFailingName("screwSeparate"));
+            // The pipeline's default (AutomaticSteps, owner 2026-11-24) answers the strict rounding refusal with a retry on the data grid, which keeps the screw:
+            // the chain passes every check. AutomaticSteps = None is the run that loses it at its boolean (first failing step: pipeline).
+            Assert.Null(pipe.FirstFailingStep());
+            Assert.Equal("-", pipe.FirstFailingName("screwSeparate"));
+            var none = new SolidBooleanPipeline(new[] { new DMesh3(part.Input), part.Cutter }, ExactMeshBoolean.Operations.Difference) {
+                InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepairThenRobust, MaxDeviation = part.Deviation * part.Scale, MaxDeviationTwoSided = true, TargetFraction = 0.1,
+                AutomaticSteps = SolidBooleanPipeline.AutomaticStepModes.None
+            };
+            bool done = none.Compute();
+            Assert.False(done);
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.BooleanFailed, none.Status);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, none.BooleanStatus);
         }
 
         // ---------------- invariance and determinism ----------------

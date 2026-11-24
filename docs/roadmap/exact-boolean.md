@@ -449,7 +449,7 @@ decisions above): the ExactPredicates throw near ±1e308 (fixed: robustness swee
 
 #### Other open items
 
-- **`SolidBooleanPipeline` default `AutomaticSteps = GridBeforeFallback` (local, PR to come).** An open tool of a Difference that the sheet role refuses with `RimInsideWorkpiece` (a rim a few ulps inside a face, far from the origin) is retried once on the data grid before the fallback; `AutomaticSteps = None` is the old behaviour. Known risk, in the guide: the cell can be a visible share of a small feature far from the origin.
+- **`SolidBooleanPipeline` default `AutomaticSteps = GridBeforeFallback | GridAfterRoundingNotClean` (local, PR to come).** An open tool of a Difference that the sheet role refuses with `RimInsideWorkpiece` (a rim a few ulps inside a face, far from the origin) is retried once on the data grid before the fallback, and a run that ends with `RoundingNotClean` is retried once on the grid (owner decision 2026-11-24, after private inputs that the first default still refused all succeeded with the retry, nearly all with the right volume; its result is the Boolean of the snapped inputs); `Grid` also retries a stated sheet; `AutomaticSteps = None` is the old behaviour. Known risk, in the guide: the cell can be a visible share of a small feature far from the origin.
 
 Checked against the owner's decisions, git and the open PRs and issues on 2026-11-15; status lines re-checked 2026-11-17.
 

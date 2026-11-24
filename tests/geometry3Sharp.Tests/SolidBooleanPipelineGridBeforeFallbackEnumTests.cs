@@ -24,9 +24,11 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void TheDefault_IsGridBeforeFallback()
+        public void TheDefault_IsTheSheetRetryAndTheRoundingRetry()
         {
-            Assert.Equal(Auto.GridBeforeFallback, new SolidBooleanPipeline(Inputs(), D).AutomaticSteps);
+            Assert.Equal(Auto.GridBeforeFallback | Auto.GridAfterRoundingNotClean, new SolidBooleanPipeline(Inputs(), D).AutomaticSteps);
+            Assert.Equal((Auto)6, new SolidBooleanPipeline(Inputs(), D).AutomaticSteps);
+            Assert.Equal((Auto)4, Auto.GridAfterRoundingNotClean);
             Assert.Equal((Auto)2, Auto.GridBeforeFallback);
             Assert.Equal((Auto)1, Auto.Grid);
         }
@@ -42,11 +44,15 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void BothBitsTogether_AreDefined_AndOtherBitsAreRefused()
+        public void EveryCombinationOfTheThreeBits_IsDefined_AndOtherBitsAreRefused()
         {
-            var ok = new SolidBooleanPipeline(Inputs(), D) { AutomaticSteps = Auto.Grid | Auto.GridBeforeFallback };
-            Assert.True(ok.Compute(), ok.Error);
-            foreach (int v in new[] { 4, 6, 8, -1 }) {
+            for (int v = 0; v < 8; ++v) {
+                var ok = new SolidBooleanPipeline(Inputs(), D) { AutomaticSteps = (Auto)v };
+                Assert.True(ok.Compute(), v + ": " + ok.Error);
+            }
+            var all = new SolidBooleanPipeline(Inputs(), D) { AutomaticSteps = Auto.Grid | Auto.GridBeforeFallback | Auto.GridAfterRoundingNotClean };
+            Assert.True(all.Compute(), all.Error);
+            foreach (int v in new[] { 8, 9, 16, 12, -1 }) {
                 var p = new SolidBooleanPipeline(Inputs(), D) { AutomaticSteps = (Auto)v };
                 Assert.False(p.Compute());
                 Assert.Equal(SolidBooleanPipeline.PipelineStatus.InvalidInput, p.Status);
