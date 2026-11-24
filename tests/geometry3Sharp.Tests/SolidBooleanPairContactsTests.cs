@@ -30,7 +30,7 @@ namespace geometry3Sharp.Tests
         {
             Assert.False(new SolidBooleanPipeline(new List<DMesh3>(), U).PairContacts);
             var p = Run(EdgeTouch(8), false, x => x.TargetFraction = 0.1);
-            Assert.Equal("CE10E8713978347AEC59A512", ReducerPairedContactsTests.Hash(p.Result));      // (taken on the code before the option)
+            Assert.Equal("316A3AD13E296CA857BE00D8", ReducerPairedContactsTests.Hash(p.Result));      // (taken on the code before the option; taken again, with the option off, when #1464 changed the ids of the boolean's result)
             Assert.Equal(0, p.Report.PairedCollapses);
         }
 
@@ -140,7 +140,7 @@ namespace geometry3Sharp.Tests
         {
             Assert.Equal(SolidBooleanPipeline.PairContactsModes.Off, new SolidBooleanPipeline(new List<DMesh3>(), U).PairContactsMode);
             var p = Run(EdgeTouch(8), false, x => x.TargetFraction = 0.1);
-            Assert.Equal("CE10E8713978347AEC59A512", H(p));
+            Assert.Equal("316A3AD13E296CA857BE00D8", H(p));
             Assert.False(p.Report.PairPassRan);
             Assert.False(p.Report.PairPassKept);
             Assert.Equal(0, p.Report.PairPassMilliseconds);

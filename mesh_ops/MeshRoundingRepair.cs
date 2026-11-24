@@ -408,7 +408,9 @@ namespace g3
         /// without the components removed as tiny or thin, whose volumes are in RemovedComponentInfos). For a closed, outward oriented mesh
         /// the volume it encloses; for an open mesh the same sum over its triangles, which is not a volume. Both are computed in doubles
         /// about the centre of the box of the mesh's triangles at the start, so the difference is not lost far from the origin. Equal, bit
-        /// for bit, when the repair changed nothing (not a number, both, where a coordinate of a triangle is not finite). The repair bounds the distance the surface moves (MaxDrift), not the volume: on a thin solid a
+        /// for bit, when the repair changed nothing. Not a number or infinite, both, where a coordinate of a triangle is not finite, and
+        /// also with finite coordinates outside the supported range (OutsideRange: Apply returns early, the volumes are computed all the
+        /// same), where the products of the sum overflow (coordinates towards 1e308). The repair bounds the distance the surface moves (MaxDrift), not the volume: on a thin solid a
         /// small move of a vertex whose triangles cover a large face can change the volume by a share that matters
         /// (docs/research/ROUNDING_THIN_VOLUME_2026-11.md)
         /// </summary>

@@ -62,18 +62,21 @@ namespace geometry3Sharp.Tests
 
 
         [Fact]
-        public void NearlyCoincidentBoxes_Intersection_RoundingMadeSelfIntersections()
+        public void NearlyCoincidentBoxes_Union_RoundingMadeSelfIntersections()
         {
-            // the cube and a copy turned by 1e-10: intersection points 1e-10 apart and closer
-            var ab = NearlyCoincident(Cube(), new Vector3d(0.19758121236114823, 0.3649866608274107, -0.30151001680712686), 1e-10,
-                1e-10 * new Vector3d(0.5604903733173806, 0.1805782146661441, 0.2501971587772468));
-            var plain = Run(ab, Ops.Intersection, false);
+            // the cube and a copy turned by 1e-13: intersection points 1e-13 apart and closer
+            // (found by a search over 1500 turned and shifted copies, of which this one leaves self-intersections after
+            // rounding. Until #1464 the case was an intersection with a copy turned by 1e-10; since then the flat regions of
+            // the exact result are triangulated another way, and that case rounds without a self-intersection)
+            var ab = NearlyCoincident(Cube(), new Vector3d(0.22771744463952137, -0.42061459409101615, 0.1028773079639661), 1e-13,
+                1e-13 * new Vector3d(0.18290836628661877, -0.2041687856913399, 0.4062450336787128));
+            var plain = Run(ab, Ops.Union, false);
             // without the repair: rounding left self-intersections and slivers
             Assert.True(MeshRepairMetrics.SelfIntersections(plain.Result) > 0);
             Assert.True(Degenerate(plain.Result) > 0);
             Assert.Null(plain.Rounding);
 
-            var safe = Run(ab, Ops.Intersection, true);
+            var safe = Run(ab, Ops.Union, true);
             AssertClean(safe);
             Assert.True(safe.Rounding.InitialIntersections > 0);
             Assert.Equal(8.0, Volume(safe.Result), 6);
