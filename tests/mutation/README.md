@@ -611,6 +611,38 @@ mutants"; the artifacts are not reachable from the cloud sessions):
   `boolean-2` 75 % (before 78 % and 65 %): the uncovered paths of open input are now killed, and the slower open-input
   tests turn more mutants into timeouts, whose number varies between runs. The thresholds follow the rule above (the
   score rounded down, less two points, less half the share of timeouts): `rounding` 59, `boolean-1` 79, `boolean-2` 79.
+- **Bounds and boxes of the exact Boolean (#1423; `ExactBooleanBoundValueTests`, `ExactBooleanBoundValueFrameTests`,
+  `ExactBooleanBoundValueProjectionTests`, in the filters of `boolean-2`, `boolean-4` and, for the grid of
+  `CrossingGrid`, `boolean-5`).** A wrong box padding, scale, cell size or box index changes how many candidates a
+  query visits or when a guarded fallback is taken, not the Boolean's result, so result tests cannot kill it. The value
+  tests call `boundary_bound`, `box_distance`, `scaled_norm`, `sum_bound`, `gradient_bound`, `cluster_bound`, `piece_box`,
+  `piece_cost`, `carry_bound`, `search`, `patch_winding`, `input_segment`, `LocalFrame.ToGrid`, `exact_difference`,
+  `InPlane`, `SegmentProjection` (boxes, cells, `Project`, `Query`), `pierce_prefilter` and `CrossingGrid` (private ones by
+  reflection, on the pieces of a computed union of two tilted boxes) and compare each value with an independent
+  computation (the documented formula re-coded in the test, exact BigInteger arithmetic for the boxes and projections, a
+  brute-force query, exact ties found by search). The mutants of those lines that still survive (counted from the
+  Stryker runs of the PR; the master run 45299876025 had 302 survivors on them) are equivalent or harmless:
+  - Ties of a `>=` against `>` (`d >= near` is killed by constructed exact equality; the remaining ones are `pe` tie
+    `Math.Abs(d) > 2 dd`, the `Abs(side) > threshold` of `usable` and of the final test in `pierce_prefilter`, the
+    cell index `t >= n - 1`, `t < 0` of `clamp`): a double that equals the threshold bit for bit, where both branches
+    give a valid bound.
+  - Terms below the resolution of a value test: `m2 - e2`, `m1 - e1` in `dn` (relative 1e-13 of the term),
+    `7e-16 * n1` in `slope` (1e-9 of it in the regimes where the slope decides), `margin ... + 1e-300`, `pad ... + 1e-300`
+    of the patch query (only where the sum is 0): a change of at most 1e-9 relative, under the factor 1.01 each bound carries.
+  - `pad / Vector3d.One` in `patch_winding`: division by 1.0 is exact.
+  - Guards whose fall-through gives the same value: `scaled_norm` (`m == 0 || NaN || infinite`: `ScaleB` and the square
+    root of 0, NaN and infinity return the same; `>> 52` against `>>> 52`: the mask removes the sign; `e == -1023`: both
+    scalings leave the same final rounding), `box_distance` (`sum <= 1e300`: the scaled norm equals the plain one where the
+    squares do not under- or overflow; below, the plain norm underflows to a smaller distance, which only weakens the
+    bound), `pe + px + py` against `pe + px - py` in `Project` (every non-finite value makes either guard false),
+    `exact_difference` (`(a - av) - (bv - b)`: at most one part of TwoSum's error term is nonzero), the early returns and
+    the `Clear` calls of `search` (the heap is empty at the end of a search; stale heap entries only repeat work;
+    `old <= aq` ties), `carryBox ??` and the cached `return` of `piece_box` (allocation and recomputation of the same
+    value), `if (sign > 0)` and `side >= 0` in `pierce_prefilter` (`side == 0` makes the face unusable anyway), the loop bounds
+    `i <= v.Length`, `j <= v.Length` and `j - 1` (empty loops or duplicates of a face), `pass <= 2` and `return` in
+    `SegmentProjection` (a third counting pass, the grid of an invalid projection, neither is read), the fast path
+    `odIsExact` of `LocalFrame` (the same values, lever 4), `k <= 3` over a three-component vector (the indexer maps 3 to z),
+    `cw >= 0`, `ch >= 0` in `CrossingGrid` (a zero width needs a degenerate triangle: its candidates are skipped).
 
 Set `break` from a measured score as above and only raise it.
 
