@@ -92,7 +92,7 @@ if (robust.Apply()) {
 | Class | Best for |
 |---|---|
 | `gs.MinimalHoleFill` | Sharp/creased or developable holes; flips diagonals that would collide with existing outer edges |
-| `gs.SmoothedHoleFill` | Smooth organic surfaces requiring approximate boundary tangent continuity (solved relative to bounds center) |
+| `gs.SmoothedHoleFill` | Smooth organic surfaces requiring approximate boundary tangent continuity (solved relative to bounds center). With `ConstrainToHoleInterior` the fill is checked for folds over the seam and intersections and refilled with shorter edges, else `Apply()` returns false and the mesh is unchanged |
 | `gs.AutoHoleFill` | General-purpose automatic hole filling across boundary loops |
 | `g3.PlanarHoleFiller` | Planar holes (including nested holes, e.g., from a plane cut through a torus) |
 | `g3.SimpleHoleFiller` | Fast topological triangulation of a single `EdgeLoop` without shape smoothing |
