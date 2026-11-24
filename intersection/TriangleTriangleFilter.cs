@@ -40,6 +40,19 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         internal static bool IntersectsBeyondShared(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
         {
+            int r = BeyondShared(ia, ref A, ib, ref B);
+            if (r == Undecided)
+                return ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B);
+            return r == Intersecting;
+        }
+
+        /// <summary>
+        /// IntersectsBeyondShared (the same answer), with BeyondSharedNeighbours as the filter: for the Reducer's
+        /// self-intersection check
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static bool IntersectsBeyondSharedNeighbours(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
+        {
             int r = BeyondSharedNeighbours(ia, ref A, ib, ref B);
             if (r == Undecided)
                 return ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B);
@@ -61,7 +74,9 @@ namespace g3
         /// <summary>
         /// For neighbours of a mesh (one or two shared vertex ids, as in BeyondShared): Separate if the corners of one
         /// triangle that are not shared lie strictly on one side of the other's plane, where the floating-point filter of
-        /// Orient3d proves the signs; else Undecided (also for pairs without shared vertices). Then that triangle meets
+        /// Orient3d proves the signs, and both triangles are proven non-degenerate (a corner proven off each plane); else
+        /// Undecided (also for pairs without shared vertices, and for degenerate triangles, whose answer is left to the
+        /// exact test, as before). Then that triangle meets
         /// the plane, and so the other triangle, only in the shared vertex or edge. It adds no error bound: a sign it
         /// uses is the sign ExactPredicates.Orient3d returns (Orient3dFilter is its filter stage, with the same
         /// differences). For curved surfaces this decides most neighbour pairs in a few Orient3d filters, before the
@@ -85,9 +100,17 @@ namespace g3
         {
             if (nShared == 0 || nShared >= 3)
                 return Undecided;
-            // (a shared edge: the far corner of B off A's plane suffices; then A's far corner is off B's plane too)
-            if (beyond_plane(ref A, ia, ref B, ib) || (nShared == 1 && beyond_plane(ref B, ib, ref A, ia)))
-                return Separate;
+            // Both triangles must be non-degenerate (the exact test's precondition for shared vertices, so that the
+            // answer is the one it gives). The side test proves the plane it tests against (a degenerate triangle has
+            // Orient3d exactly 0 for every point, which the filter never proves otherwise); the other triangle is
+            // checked exactly (ExactTriangleIntersection.IsDegenerate, its floating-point prefilter first) only where
+            // the side test succeeds
+            if (beyond_plane(ref A, ia, ref B, ib))
+                // with a shared edge s0-s1, B's far corner off A's plane is off the line s0-s1 in it: B is not degenerate.
+                // With one shared vertex s, B can be (s, u, w collinear)
+                return (nShared == 2 || ExactTriangleIntersection.IsDegenerate(ref B) == false) ? Separate : Undecided;
+            if (nShared == 1 && beyond_plane(ref B, ib, ref A, ia))
+                return ExactTriangleIntersection.IsDegenerate(ref A) == false ? Separate : Undecided;
             return Undecided;
         }
 
@@ -129,7 +152,7 @@ namespace g3
 
         /// <summary>
         /// BeyondShared (the same answer where it decides), with NeighbourPlaneSides first for neighbours: for the
-        /// self-intersection checks of the Reducer and the Remesher, whose candidates on curved surfaces are mostly
+        /// self-intersection checks of the Reducer (IntersectsBeyondSharedNeighbours) and the Remesher, whose candidates on curved surfaces are mostly
         /// neighbours with their other corners off each other's planes. (ExactMeshArrangement has made these plane tests
         /// itself before it calls BeyondShared.)
         /// </summary>

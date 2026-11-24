@@ -91,9 +91,13 @@ below 10 % on the others and on the Remesher (where unshared pairs are 4.5-8 % i
 
 ## (b), built
 
-`TriangleTriangleFilter.BeyondSharedNeighbours`, used by `TriangleTriangleFilter.IntersectsBeyondShared` (Reducer,
-`TetMeshImprover`, `MeshPostRepairCleanup`) and by `Remesher.pair_intersects`. For neighbours not in one common axis
-plane, it runs `NeighbourPlaneSides` before the projection.
+`TriangleTriangleFilter.BeyondSharedNeighbours`, opted in only by the Reducer (through
+`TriangleTriangleFilter.IntersectsBeyondSharedNeighbours`) and by `Remesher.pair_intersects`. For neighbours not in one
+common axis plane, it runs `NeighbourPlaneSides` before the projection. The other callers of `TriangleTriangleFilter`
+keep the old path (review of #1544): `IntersectsBeyondShared` (`TetMeshImprover`, `MeshPostRepairCleanup`,
+`AlphaWrapFeaturePass`, `AlphaWrapQualityPass`, `MeshRoundingRepair`) and `BeyondShared` (`ExactMeshArrangement`,
+`MeshRoundingRepair`'s check mode), so their decisions and the rounding-dependent pins of `MeshRoundingRepair` do not
+change.
 
 How `NeighbourPlaneSides` decides:
 - The non-shared corners of one triangle strictly on one side of the other's plane give Separate. A point of the first
@@ -101,7 +105,14 @@ How `NeighbourPlaneSides` decides:
   corners' distances. That is 0 only at the shared vertex or on the shared edge, so the triangles meet at most there.
 - Each sign is the one `ExactPredicates.Orient3d(P.V0, P.V1, P.V2, q)` returns: the same `Orient3dFilter` on the same
   differences, and 0 (not decided) where the filter does not prove it. So no error bound is added.
-- A degenerate plane has `Orient3d` exactly 0, which the filter never proves otherwise.
+- Both triangles must be proven non-degenerate, because the exact test with shared vertices assumes it, and its answer
+  is what the pair gets today. A plane is proven when the filter proves some corner off it; a degenerate triangle has
+  `Orient3d` exactly 0 for every point, so it is never proven. With one shared vertex, the triangle whose plane decided
+  is proven by the deciding signs, and the other one needs one corner proven off its plane. With a shared edge, the far
+  corner of B off A's plane is off the line of the edge, so B is not degenerate either. (The review of #1544 found that
+  without this guard a collinear or point-like A was answered Separate where the exact test answers true: 15 780 of
+  400 000 such pairs. Separate is the geometric answer there, but the exact test's collinear branch is outside its
+  precondition, and this PR does not change it.)
 - Non-finite input gives NaN or infinite permanents, which fail the filter's comparisons.
 
 `ExactMeshArrangement` keeps the plain `BeyondShared`, because it has made these plane tests itself just before
@@ -117,39 +128,51 @@ run):
 
 | case | before ms (each run) | after ms (each run) | change (min) | result |
 |---|---:|---:|---:|---|
-| reducer_harness_plate50_jitter0.5 | 2974, 3062 | 3121, 2914 | -2.0 % | same |
-| reducer_harness_tilt_plate50_jitter0.5 | 2070, 2179 | 2211, 2247 | +6.8 % | same |
-| reducer_harness_tilt_plate50 | 2867, 2891 | 2952, 2884 | +0.6 % | same |
-| reducer_harness_plate100 | 344, 361 | 357, 339 | -1.5 % | same |
-| reducer_jitter_plate_z0 | 71, 72 | 70, 71 | -1.4 % | same |
-| reducer_jitter_plate_z0_to50 | 78, 79 | 77, 81 | -1.3 % | same |
-| reducer_jitter_plate_tilted_to50 | 2589, 2704 | 2766, 2661 | +2.8 % | same |
-| reducer_jitter_plate_tilted | 2498, 2716 | 2767, 2643 | +5.8 % | same |
-| reducer_integer_plate | 405, 365 | 365, 349 | -4.4 % | same |
-| reducer_bumpy_sphere | 294, 246 | 248, 234 | -4.9 % | same |
-| reducer_box_grid | 1744, 1887 | 1465, 1604 | -16.0 % | same |
-| remesher_bumpy_sphere | 157, 129 | 142, 158 | +10.1 % | same |
-| remesher_jitter_plate_z0 | 44, 44 | 44, 43 | -2.3 % | same |
-| remesher_jitter_plate_tilted | 41, 41 | 41, 49 | +0.0 % | same |
-| remesher_box_grid | 56, 54 | 60, 80 | +11.1 % | same |
-| remesher_bumpy_sphere_si | 1103, 1208 | 1091, 1139 | -1.1 % | same |
-| remesher_jitter_plate_z0_si | 205, 198 | 194, 197 | -2.0 % | same |
-| remesher_jitter_plate_tilted_si | 228, 209 | 228, 215 | +2.9 % | same |
-| remesher_box_grid_si | 402, 383 | 382, 385 | -0.3 % | same |
+| reducer_harness_plate50_jitter0.5 | 2973, 3001 | 2902, 2928 | -2.4 % | same |
+| reducer_harness_tilt_plate50_jitter0.5 | 2084, 2097 | 2216, 2280 | +6.3 % | same |
+| reducer_harness_tilt_plate50 | 2790, 2778 | 2928, 2982 | +5.4 % | same |
+| reducer_harness_plate100 | 358, 351 | 373, 384 | +6.3 % | same |
+| reducer_jitter_plate_z0 | 70, 71 | 73, 71 | +1.4 % | same |
+| reducer_jitter_plate_z0_to50 | 77, 78 | 78, 79 | +1.3 % | same |
+| reducer_jitter_plate_tilted_to50 | 2562, 2480 | 2653, 2763 | +7.0 % | same |
+| reducer_jitter_plate_tilted | 2561, 2590 | 2693, 2908 | +5.2 % | same |
+| reducer_integer_plate | 362, 347 | 345, 398 | -0.6 % | same |
+| reducer_bumpy_sphere | 253, 247 | 241, 240 | -2.8 % | same |
+| reducer_box_grid | 1797, 1793 | 1592, 1491 | -16.8 % | same |
+| remesher_bumpy_sphere | 138, 127 | 140, 131 | +3.1 % | same |
+| remesher_jitter_plate_z0 | 44, 42 | 43, 42 | +0.0 % | same |
+| remesher_jitter_plate_tilted | 44, 43 | 45, 52 | +4.7 % | same |
+| remesher_box_grid | 65, 52 | 53, 68 | +1.9 % | same |
+| remesher_bumpy_sphere_si | 1082, 1112 | 1159, 1213 | +7.1 % | same |
+| remesher_jitter_plate_z0_si | 200, 215 | 208, 208 | +4.0 % | same |
+| remesher_jitter_plate_tilted_si | 205, 207 | 232, 247 | +13.2 % | same |
+| remesher_box_grid_si | 376, 374 | 384, 411 | +2.7 % | same |
 
-The Remesher rows without prevention never call the filter, so their ±10 % is the noise of this machine. The rows that
-gain are those of the probe: the box grid (perpendicular faces meeting at a vertex) and the bumpy sphere (-5 % against
-a micro bound of +12 %: the in-place effect is again smaller than the micro loop's). No row is slower beyond the
-noise.
+Re-run of the Remesher rows with prevention (`remesher runs=5 only=_si`, 4 interleaved runs, minimum): bumpy sphere 1091 -> 1072 ms, jitter plate z = 0 200 -> 202, jitter plate tilted 212 -> 220 (+3.8 %), box grid 380 -> 365.
+
+(After the review's degenerate guard; the table before it is in the history of #1544.) The Remesher rows without
+prevention never call the filter, so their movement is the noise of this machine (up to ±10 % in earlier runs). The
+row that gains is the one of the probe, the box grid (perpendicular faces meeting at a vertex); the bumpy sphere gains
+3 % (micro bound +12 %: the in-place effect is again smaller than the micro loop's). The tilted plates are 5-7 %
+slower, within the noise of the earlier runs; jitter plate tilted with prevention measured +13 % once and +3.8 % on
+the interleaved re-run. No row is slower than 10 %.
+
+The degenerate guard first proved the other plane by the other triangle's corners, which cost the tilted plates 10-15 %:
+there the corners are too close to the plane for the filter, so the pairs lost their decision. The exact
+`IsDegenerate` (floating-point prefilter first) costs nothing measurable.
 
 Tests (`TriangleTriangleFilterTests`, `NeighbourPlaneSides_*`):
 - Agreement with `ExactTriangleIntersection.IntersectsBeyondShared` on integer-grid neighbours (touching corners, folds,
   coplanar ones never decided), on random and nearly coplanar ones, at 2^-500, 2^-200, 2^300, 2^500 and with subnormal
   differences (the filter's underflow and overflow guards leave those undecided), and over `Similarity.All()`, with the
   same decisions under the exact scalings.
-- The single cases: the second direction, a shared edge, a degenerate triangle, non-finite corners, a repeated id.
-- Hand mutants of the pretest: 8 tried, the one equivalent mutant made killable by a case (repeated ids), and the
-  removed call in `by_projection` all killed.
+- The single cases: the second direction, a shared edge, degenerate triangles (collinear and point-like, the review's
+  case), non-finite corners, a repeated id, the shared corner at the last index.
+- The equivalence test: on neighbours, slivers, planar pairs and degenerate pairs at 2^0 and 2^±40, the answers of the
+  Reducer's and the Remesher's paths are bit for bit those of the old paths.
+- Hand mutants of the pretest (after the review): 15 tried, all killed but one equivalent one (a shared edge accepting
+  "some corner proven" instead of "all on one side": with one non-shared corner the two are the same). Among them, both
+  degenerate guards dropped, and each of the three ids dropped from the shared-corner check.
 
 ## Literature and library
 

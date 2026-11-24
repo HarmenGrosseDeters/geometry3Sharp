@@ -347,8 +347,8 @@ git apply -R benchmarks/SelfIntersectionBenchmark/probe/tritri_probe.patch
 **(g) The candidate pairs: where `TriangleTriangleFilter`'s time goes (24 November 2026).** Probe and in-place upper
 bounds of fewer candidate pairs, a plane pretest of neighbours and a cheaper filter call, in
 [docs/research/TRI_TRI_CANDIDATE_PAIRS_2026-11.md](../../docs/research/TRI_TRI_CANDIDATE_PAIRS_2026-11.md):
-- Built: the pretest (`TriangleTriangleFilter.BeyondSharedNeighbours`). Reducer box grid 1744 -> 1465 ms (-16 %), bumpy
-  sphere 246 -> 234 ms (-5 %), the rest within the ±10 % noise of the machine, fingerprints the same. Before/after
+- Built: the pretest (`TriangleTriangleFilter.BeyondSharedNeighbours`). Reducer box grid 1793 -> 1491 ms (-17 %), bumpy
+  sphere 247 -> 240 ms (-3 %), the rest within the ±10 % noise of the machine, fingerprints the same. Before/after
   table in the note.
 - Stopped: the cheaper call, below 10 % in place.
 - Open: a cull of the pairs without shared corners, in-place ceiling 10-41 % on four Reducer rows. It needs a new

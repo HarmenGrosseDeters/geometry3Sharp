@@ -590,6 +590,7 @@ namespace geometry3Sharp.Tests
                 if (g != TriangleTriangleFilter.Undecided)
                     Assert.Equal(Exact(p), g == TriangleTriangleFilter.Intersecting);
                 Assert.Equal(Exact(p), TriangleTriangleFilter.IntersectsBeyondShared(p.Ia, ref p.A, p.Ib, ref p.B));
+                Assert.Equal(Exact(p), TriangleTriangleFilter.IntersectsBeyondSharedNeighbours(p.Ia, ref p.A, p.Ib, ref p.B));
             }
             return decided;
         }
@@ -669,6 +670,47 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // neighbours with a degenerate triangle: collinear corners (on an integer grid) or two equal corners, sharing
+        // a vertex or an edge with a random triangle; either order
+        static List<Pair> DegenerateNeighbourPairs(int count, Random rand)
+        {
+            Func<Vector3d> point = () => new Vector3d(rand.Next(-3, 4), rand.Next(-3, 4), rand.Next(-3, 4));
+            var pairs = new List<Pair>();
+            while (pairs.Count < count) {
+                Vector3d a0 = point(), a1 = point(), b1 = point(), b2 = point();
+                Vector3d a2 = rand.Next(3) == 0 ? a1 : a0 + rand.Next(-2, 3) * (a1 - a0);
+                var p = new Pair { Ia = new Index3i(0, 1, 2), A = new Triangle3d(a0, a1, a2) };
+                if (ExactTriangleIntersection.IsDegenerate(ref p.A) == false) continue;
+                int kind = rand.Next(3);
+                if (kind == 0) { p.Ib = new Index3i(0, 3, 4); p.B = new Triangle3d(a0, b1, b2); }
+                else if (kind == 1) { p.Ib = new Index3i(3, 2, 4); p.B = new Triangle3d(b1, a2, b2); }
+                else { p.Ib = new Index3i(1, 0, 4); p.B = new Triangle3d(a1, a0, b2); }
+                if (rand.Next(2) == 0) { var t = p.A; p.A = p.B; p.B = t; var ti = p.Ia; p.Ia = p.Ib; p.Ib = ti; }
+                pairs.Add(p);
+            }
+            return pairs;
+        }
+
+        // Remesher.pair_intersects as it was before the neighbour pretest (#1544): the filter, the exact plane shortcut
+        // for one shared vertex, the exact test
+        static bool OldRemesherPairIntersects(Pair p)
+        {
+            int filtered = TriangleTriangleFilter.BeyondShared(p.Ia, ref p.A, p.Ib, ref p.B);
+            if (filtered != TriangleTriangleFilter.Undecided)
+                return filtered == TriangleTriangleFilter.Intersecting;
+            int nShared = 0, sa = -1, sb = -1;
+            for (int i = 0; i < 3; ++i)
+                for (int j = 0; j < 3; ++j)
+                    if (p.Ia[i] == p.Ib[j]) { nShared++; sa = i; sb = j; }
+            Func<Triangle3d, int, Vector3d, Vector3d, bool> beyond = (T, si, u, w) => {
+                int su = ExactPredicates.Orient3d(T[si], T[(si + 1) % 3], T[(si + 2) % 3], u);
+                return su != 0 && su * ExactPredicates.Orient3d(T[si], T[(si + 1) % 3], T[(si + 2) % 3], w) > 0;
+            };
+            if (nShared == 1 && (beyond(p.A, sa, p.B[(sb + 1) % 3], p.B[(sb + 2) % 3]) || beyond(p.B, sb, p.A[(sa + 1) % 3], p.A[(sa + 2) % 3])))
+                return false;
+            return ExactTriangleIntersection.IntersectsBeyondShared(p.Ia, ref p.A, p.Ib, ref p.B);
+        }
+
         [Fact]
         public void BeyondSharedNeighbours_SameDecisionsAsBeyondShared_SameAnswers()
         {
@@ -685,6 +727,7 @@ namespace geometry3Sharp.Tests
             pairs.AddRange(PlanarPairs(3000, 2, 1.5, 61));
             int zero;
             pairs.AddRange(SliverPairs(3000, 67, out zero));
+            pairs.AddRange(DegenerateNeighbourPairs(6000, rand));
             int onlyNew = 0;
             foreach (int e in new[] { 0, -40, 40 }) {
                 double f = Math.Pow(2, e);
@@ -697,11 +740,14 @@ namespace geometry3Sharp.Tests
                         Assert.Equal(before, after);
                     else if (after != TriangleTriangleFilter.Undecided) {
                         Assert.Equal(TriangleTriangleFilter.Separate, after);
+                        Assert.False(ExactTriangleIntersection.IsDegenerate(ref p.A) || ExactTriangleIntersection.IsDegenerate(ref p.B), "a degenerate pair decided");
                         Assert.False(exact, $"2^{e}: ids {p.Ia} {p.Ib}, A {p.A.V0} {p.A.V1} {p.A.V2}, B {p.B.V0} {p.B.V1} {p.B.V2}");
                         onlyNew++;
                     }
-                    Assert.Equal(exact, TriangleTriangleFilter.IntersectsBeyondShared(p.Ia, ref p.A, p.Ib, ref p.B));
-                    Assert.Equal(exact, Remesher.pair_intersects(p.Ia, ref p.A, p.Ib, ref p.B));
+                    // the answers of both callers bit for bit those of the old path, degenerate pairs included
+                    Assert.Equal(TriangleTriangleFilter.IntersectsBeyondShared(p.Ia, ref p.A, p.Ib, ref p.B),
+                        TriangleTriangleFilter.IntersectsBeyondSharedNeighbours(p.Ia, ref p.A, p.Ib, ref p.B));
+                    Assert.Equal(OldRemesherPairIntersects(p), Remesher.pair_intersects(p.Ia, ref p.A, p.Ib, ref p.B));
                 }
             }
             Assert.True(onlyNew > 1000, $"{onlyNew} pairs decided only by the new path");
@@ -740,11 +786,34 @@ namespace geometry3Sharp.Tests
             Assert.Equal(TriangleTriangleFilter.Undecided, pre(new Index3i(2, 1, 0), new Triangle3d(q, p, s)));
             // a repeated id in B (an index-degenerate triangle): no corner of B outside the shared ones, nothing proven
             Assert.Equal(TriangleTriangleFilter.Undecided, pre(new Index3i(0, 1, 1), new Triangle3d(s, p, p)));
-            // a degenerate A (collinear corners) has no plane (Orient3d is 0): with a shared edge never decided; with a
-            // shared vertex only by B's plane, which the segment s-2p meets only at s (above it: (1, -4, 3) . p > 0)
+            // a degenerate A (collinear corners) has no plane (Orient3d is 0) and is never decided, also where B's plane
+            // has A's other corners strictly on one side (the segment s-2p meets it only at s: (1, -4, 3) . p > 0), so
+            // that the answer stays the exact test's, as before
             var D = new Triangle3d(s, p, 2 * p);
             var Bd = new Triangle3d(s, new Vector3d(1, 1, 1), new Vector3d(-1, 2, 3));
-            Assert.Equal(TriangleTriangleFilter.Separate, TriangleTriangleFilter.NeighbourPlaneSides(ia, ref D, new Index3i(0, 3, 4), ref Bd));
+            Assert.Equal(TriangleTriangleFilter.Undecided, TriangleTriangleFilter.NeighbourPlaneSides(ia, ref D, new Index3i(0, 3, 4), ref Bd));
+            Assert.Equal(TriangleTriangleFilter.Undecided, TriangleTriangleFilter.NeighbourPlaneSides(new Index3i(0, 3, 4), ref Bd, ia, ref D));
+            // a degenerate B (s, u, w collinear) with u, w strictly above A's plane: not decided either
+            var Bc = new Triangle3d(s, new Vector3d(1, 1, 1), new Vector3d(2, 2, 2));
+            Assert.Equal(TriangleTriangleFilter.Undecided, pre(new Index3i(0, 3, 4), Bc));
+            // the review's case (#1544): A a segment (two equal corners), B through its end
+            var Ar = new Triangle3d(new Vector3d(-2, 1, 1), new Vector3d(1, 0, 0), new Vector3d(1, 0, 0));
+            var Br = new Triangle3d(new Vector3d(-2, 1, 1), new Vector3d(3, 3, -2), new Vector3d(1, -3, 3));
+            Assert.Equal(TriangleTriangleFilter.Undecided, TriangleTriangleFilter.NeighbourPlaneSides(ia, ref Ar, new Index3i(0, 3, 4), ref Br));
+            Assert.Equal(TriangleTriangleFilter.IntersectsBeyondShared(ia, ref Ar, new Index3i(0, 3, 4), ref Br),
+                TriangleTriangleFilter.IntersectsBeyondSharedNeighbours(ia, ref Ar, new Index3i(0, 3, 4), ref Br));
+            // the shared corner at the last index of A, of B and of both, in either direction of the test
+            var Ac = new Triangle3d(p, q, s);
+            Index3i iac = new Index3i(1, 2, 0);
+            var Bs = new Triangle3d(new Vector3d(1, 1, 1), new Vector3d(-1, 2, 3), s);
+            Assert.Equal(TriangleTriangleFilter.Separate, TriangleTriangleFilter.NeighbourPlaneSides(iac, ref Ac, new Index3i(3, 4, 0), ref Bs));
+            Assert.Equal(TriangleTriangleFilter.Separate, TriangleTriangleFilter.NeighbourPlaneSides(new Index3i(3, 4, 0), ref Bs, iac, ref Ac));
+            Assert.Equal(TriangleTriangleFilter.Separate, TriangleTriangleFilter.NeighbourPlaneSides(ia, ref A, new Index3i(3, 4, 0), ref Bs));
+            Assert.Equal(TriangleTriangleFilter.Separate, TriangleTriangleFilter.NeighbourPlaneSides(iac, ref Ac, new Index3i(0, 3, 4), ref B2));
+            // a shared edge with ids at the last indices of both: A (q, s, p) ids (2, 0, 1), B (r, s, p) ids (5, 0, 1)
+            var Ae = new Triangle3d(q, s, p);
+            var Bfar = new Triangle3d(new Vector3d(0, -1, 1), s, p);
+            Assert.Equal(TriangleTriangleFilter.Separate, TriangleTriangleFilter.NeighbourPlaneSides(new Index3i(2, 0, 1), ref Ae, new Index3i(5, 0, 1), ref Bfar));
             var Be = new Triangle3d(p, s, new Vector3d(0, 1, 1));
             Assert.Equal(TriangleTriangleFilter.Undecided, TriangleTriangleFilter.NeighbourPlaneSides(ia, ref D, new Index3i(1, 0, 3), ref Be));
             // (B's plane y = z contains the segment)
