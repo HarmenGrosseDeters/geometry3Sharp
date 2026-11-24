@@ -255,22 +255,25 @@ namespace g3
             System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() { return GetEnumerator(); }
         }
         /// <summary>
-        /// The pieces of the arrangement. A, B and C are point ids of this run: the ids of input vertices are deterministic,
-        /// the ids of new points depend on the thread schedule (see the class summary). Compare or sort the corners through
-        /// <see cref="Exact(int)"/> or <see cref="ComparePoints"/>, not by id; the geometry is deterministic.
+        /// The pieces of the last Compute (replaced by a new list at the start of the next one). A, B and C are point ids of
+        /// this run: the ids of input vertices are deterministic, the ids of new points depend on the thread schedule (see the
+        /// class summary). They are invalid after the next Compute, which numbers the points anew (see Compute). Compare or sort
+        /// the corners through <see cref="Exact(int)"/> or <see cref="ComparePoints"/>, not by id; the geometry is deterministic.
         /// </summary>
         public List<OutputTriangle> Output = new List<OutputTriangle>();
         /// <summary>
         /// Undirected edges (<see cref="EdgeKey"/> of two point ids) on intersection curves. The ids are labels of this run
         /// (new points get schedule-dependent ids, see the class summary); the set of edges as geometry is deterministic,
-        /// so map the end points through <see cref="Exact(int)"/> before comparing two runs.
+        /// so map the end points through <see cref="Exact(int)"/> before comparing two runs. Replaced by a new set at the start of
+        /// the next Compute; its ids are invalid after it.
         /// </summary>
         public HashSet<long> ConstraintEdges = new HashSet<long>(EdgeKeyComparer.Instance);     // undirected point id pairs on intersection curves
         /// <summary>
         /// Per mesh: vertex id to point id. Written only in the serial build_points phase (input vertices at the same
         /// double position share one id), so every id here is an input-point id and deterministic: the same input gives the
         /// same ids in every run. It is not updated when equal points are merged later; the merged identity of an id is
-        /// <see cref="Canonical(int)"/> (<see cref="Exact(int)"/> gives its point).
+        /// <see cref="Canonical(int)"/> (<see cref="Exact(int)"/> gives its point). Rebuilt by the next Compute, whose ids
+        /// replace these.
         /// </summary>
         public int[][] VertexPoints;        // per mesh: vertex id -> point id
         public List<int>[] MeshTriangles;   // per mesh: indices into Triangles
@@ -385,18 +388,19 @@ namespace g3
         double[] centerD = new double[3];   // Center, exactly (a double)
         // per point: double approximation (grid units), a bound on the error of each coordinate, the construction,
         // the exact point (when computed); input points also have their input coordinates
-        readonly ChunkedList<Vector3d> approx = new ChunkedList<Vector3d>();
-        readonly ChunkedList<double> approxErr = new ChunkedList<double>();
-        readonly ChunkedList<PointKey> keys = new ChunkedList<PointKey>();
+        ChunkedList<Vector3d> approx = new ChunkedList<Vector3d>();
+        ChunkedList<double> approxErr = new ChunkedList<double>();
+        ChunkedList<PointKey> keys = new ChunkedList<PointKey>();
         // The exact point of each id, once computed: in fixed width if it fits (docs/design/FIXED_WIDTH_EXACT_POINTS.md;
         // no objects for the GC to trace or copy), else as an ExactBox. exactRef[id]: 0 = not computed yet, r > 0 = slot
         // r - 1 of fixedPoints, -1 = exactPoints[id]. It is published with Volatile.Write after its data is written.
-        readonly ChunkedList<int> exactRef = new ChunkedList<int>();
-        readonly FixedPointStore fixedPoints = new FixedPointStore();
-        readonly ChunkedList<ExactBox> exactPoints = new ChunkedList<ExactBox>();
+        ChunkedList<int> exactRef = new ChunkedList<int>();
+        FixedPointStore fixedPoints = new FixedPointStore();
+        ChunkedList<ExactBox> exactPoints = new ChunkedList<ExactBox>();
         /// <summary>
         /// for tests: store all exact points as BigInteger (ExactBox), the code before the fixed-width points. Only
         /// before the first point: equality of exact points relies on the representation being a function of the value.
+        /// (A second Compute empties the point tables, so the value can be changed again between two Computes.)
         /// </summary>
         internal bool FixedWidthPoints
         {
@@ -408,7 +412,7 @@ namespace g3
             }
         }
         bool fixedWidthPoints = true;
-        readonly ChunkedList<Vector3d> inputCoords = new ChunkedList<Vector3d>();
+        ChunkedList<Vector3d> inputCoords = new ChunkedList<Vector3d>();
         int nextPoint;
         // implicit point ids by construction and rational point ids by value, in shards (by hash) so that threads adding
         // points rarely wait for each other (the classification adds the pieces' centroids in parallel)
@@ -436,9 +440,9 @@ namespace g3
         }
         [MethodImpl(JitHints.Optimize)]
         int shard_of(int h) { return SingleShard ? 0 : (h & 0x7FFFFFFF) % Shards; }
-        readonly Dictionary<PointKey, int>[] keyIndex = make_shards<PointKey>();
-        readonly Dictionary<HashedPoint, int>[] rationalIndex = make_shards<HashedPoint>();
-        readonly Dictionary<FixedKey, int>[] fixedIndex = make_shards<FixedKey>();
+        Dictionary<PointKey, int>[] keyIndex = make_shards<PointKey>();
+        Dictionary<HashedPoint, int>[] rationalIndex = make_shards<HashedPoint>();
+        Dictionary<FixedKey, int>[] fixedIndex = make_shards<FixedKey>();
         static Dictionary<T, int>[] make_shards<T>()
         {
             var d = new Dictionary<T, int>[Shards];
@@ -537,7 +541,11 @@ namespace g3
             return r;
         }
 
-        /// <summary> id of an exactly given point, a new one if it is not known yet (thread-safe) </summary>
+        /// <summary>
+        /// id of an exactly given point, a new one if it is not known yet (thread-safe). For use after Compute (the
+        /// boolean's classification adds centroids); the id is invalid after the next Compute. Not supported before the first
+        /// Compute (see Compute).
+        /// </summary>
         [MethodImpl(JitHints.Optimize)]
         public int AddPoint(ExactPoint3 p)
         {
@@ -1267,9 +1275,61 @@ namespace g3
             return true;
         }
 
+        // a Compute has run on this instance: the next one starts from the inputs again (reset_run_state)
+        bool computed;
+
+        /// <summary>
+        /// the state a Compute leaves (issue 1512): points, canonical ids, input triangles, output and counters. A second
+        /// Compute on one instance builds them again from the meshes; without this it added the input triangles and points a
+        /// second time, next to the merged ones of the first run, and its triangulation inserted a point twice. Point ids
+        /// from the first run (also those of AddPoint after it) are invalid afterwards.
+        /// </summary>
+        void reset_run_state()
+        {
+            approx = new ChunkedList<Vector3d>();
+            approxErr = new ChunkedList<double>();
+            keys = new ChunkedList<PointKey>();
+            exactRef = new ChunkedList<int>();
+            fixedPoints = new FixedPointStore();
+            exactPoints = new ChunkedList<ExactBox>();
+            inputCoords = new ChunkedList<Vector3d>();
+            keyIndex = make_shards<PointKey>();
+            rationalIndex = make_shards<HashedPoint>();
+            fixedIndex = make_shards<FixedKey>();
+            nextPoint = 0;
+            canonical = null;
+            triangleCount = 0;
+            triMesh = null; triTid = null; triCorners = null; triDegenerate = null; triPlanes = null; triTouch = null;
+            touchedPoints = null;
+            planeRep = null;
+            Culled = null;
+            Output = new List<OutputTriangle>();
+            ConstraintEdges = new HashSet<long>(EdgeKeyComparer.Instance);
+            MergedPoints = 0;
+            SegmentCrossings = 0;
+            IntersectingPairs = 0;
+            SelfIntersectingPairs = 0;
+            PrefilterRejected = 0; PrefilterChecked = 0; PreDecidedPairs = 0;
+            CulledCount = 0; CullTests = 0; TriangulatedTriangles = 0;
+            CandidatePairs = 0; CandidatePairList = null;
+            Trees = null;
+            CandidateTests = 0; LocalFilterDecided = 0; LocalFilterPoints = 0; ConstructionZeros = 0;
+        }
+
+        /// <summary>
+        /// Computes the arrangement of Meshes. It may be called again on the same instance (also after Meshes changed): every
+        /// call after the first starts from the inputs and gives what a new instance would give. Everything that refers to
+        /// points is then invalid: the ids in Output, VertexPoints, ConstraintEdges and Segments, and the ids AddPoint returned
+        /// after an earlier Compute (the point tables are emptied, so a stale id may be out of range or another point).
+        /// AddPoint before the first Compute is not supported: the inputs' points are numbered by Compute, and the first
+        /// Compute does not reset the tables.
+        /// </summary>
         [MethodImpl(JitHints.Optimize)]
         public void Compute()
         {
+            if (computed)
+                reset_run_state();
+            computed = true;
             var clock = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
             var total = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
             Stopped = StopReason.None;
