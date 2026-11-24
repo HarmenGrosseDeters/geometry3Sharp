@@ -1,6 +1,6 @@
 # Open topics
 
-One board of every open topic of geometry3Sharp, one line each, as of 2026-11-22 (Berlin). Open items only: done, closed and
+One board of every open topic of geometry3Sharp, one line each, as of 2026-11-24 (Berlin). Open items only: done, closed and
 rejected items are not listed. Every item in §§2–5 links to a draft plan PR (`plan/*`, holding `docs/plans/<slug>.md`,
 not to be merged as is). Maintenance rule: a session that opens, finishes or changes the state of a topic updates its row
 here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) and the design notes.
@@ -9,14 +9,15 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 
 | Topic | State | Next step / waiting on | Link |
 |---|---|---|---|
-| Exact Boolean: the result and the pipeline's status do not depend on the order of the input triangles and vertex ids (observed by the owner on private inputs) | Decided 2026-11-23 (owner): option A with A2 and D. Draft PR open: the kept pieces ordered by their geometry before the numbering, the flat regions' flips decided exactly, the contract in the guide; bit-identical over reorderings; the ordering is about 1 % of the boolean's time; 40 pinned tests moved | Coordinator: the gate files (`DeterministicApis.txt`, three mutation filters), a CI slot, then review and the mutation runs; the repair's gap is #1465 | #1464, [note](research/BOOLEAN_INPUT_ORDER_2026-11.md) |
-| Rounding/repair: the removal rule for thin and tiny components (#1216) | Decided 2026-11-22 (owner): rule (d1), K = 4 ulps, factor 2; the verdict has its own thresholds: a removal makes the result not clean from 256 ulps and 1e-3 of the bound; every removed component is reported. Built, PR open | CI, exact review, incremental mutation run, then merge; after it the opt-out as a separate small PR | [study](research/ROUNDING_THIN_SOLIDS_2026-11.md), #1216 |
-| Platform/QA/CI: determinism proof stage 2 | PR open | CI and the incremental mutation run, then merge; the coordinator closes plan #1241 on the merge | #1370, [proof](design/DETERMINISM_PROOF.md), plan #1241 |
-| Exact Boolean: `ExactMeshBoolean.AllowOpenMeshes` defaults to `false`, as the g3cli `boolean` option `allow_open` (#1211 S3, owner 2026-11-23) | PR open: the default, the callers that state it, tests | CI, review, then merge; `tools/NativeAotSpike` keeps its own default `allow_open_meshes = 1` (a spike: owner's call) | #1460, [study](research/OPEN_CUTTING_SURFACE_2026-11.md) |
-| Exact Boolean: `SolidBooleanPipeline` sends an open tool of a Difference to the sheet role by default (owner 2026-11-22) | Draft PR open: the route, the fallback to the path as before, `Report.Route` | Owner: the new public members (`SolidBooleanRouteStep`, `Report.Route`); the fallback gets the self-intersection check of #1426 when that merges; the automatic mode: the Grid step is on by default for a refused routed sheet and for `RoundingNotClean` (`AutomaticSteps = GridBeforeFallback | GridAfterRoundingNotClean`, owner 2026-11-24; `None` is the old behaviour; a stated sheet is retried only with `Grid`), PR to come | #1447 |
-| Rounding/repair: SafeRounding moves about 1 % of the volume of thin results without reporting it (pipeline step 3) | Diagnosed, fixtures as tests; the report now has the volume before and after the rounding (owner 2026-11-23: option a1 only); draft PR open | Review, CI, merge; shape 1b (not reproduced) waits for the owner's description | [note](research/ROUNDING_THIN_VOLUME_2026-11.md) |
-| Rounding/repair: exact zero-volume check for undecided sheets | PR open | CI, both incremental mutation runs (exact-arithmetic, rounding-9), abc-chained outcome diff, then merge | #1195 (#1191) |
 | Tet: deterministic work cap for `TetMeshImprover` | Part 1 merged (#1184); a split-only cap was measured and dropped (owner 2026-11-19: it leaves meshes above 20 s at floor 20) | Measure a bound over all improvement attempts or a pass budget; results to the owner before a PR | #1154 |
+| Exact Boolean: winding near open edges is wrong; the on-surface value is the principal value (0.5 on a face, 0.25 on an edge, 0.125 at a corner) | PR open (#1514): accurate edge angle near an open edge | Review, CI, exact-code gates | #1514, [exact-boolean](roadmap/exact-boolean.md#board-update-2026-11-24-open-items-of-the-exact-boolean-and-the-solid-pipeline) |
+| Exact Boolean: exact-winding shard survivors, perturbed-oracle tests | Draft PR open (tests only) | Kill the survivors, then the shard run; A1 near the plane of an edge is the owner's | #1500, #1427 |
+| Exact Boolean: a second `ExactMeshArrangement.Compute()` throws after point merges | Draft PR open: the run state is reset before every later run | Review, CI, merge | #1518, #1512 |
+| Exact Boolean: `ExactMeshArrangement` output point ids depend on the thread schedule, undocumented | Issue open | Document the contract or make the ids canonical | #1519 |
+| Exact Boolean: certifying Booleans, step A (fast checker) | Draft PR open; step B in progress; options C and D parked; E after B plus a repair contract | Review and CI of A; B | #1520, [study](research/CERTIFYING_BOOLEANS_2026-11.md) |
+| Terrain: slope envelope, canonical output and faster insertion (owner decision (b), 2026-11-24) | Draft PR open: stage 1 canonical rule, stage 2 planes per part and local merge | Review, CI | #1515 |
+| Platform/QA/CI: `narrow_tests.py` duration lookup misses theory rows | Issue open: the estimated saving is too optimistic | Fix the lookup | #1517 |
+| Platform/QA/CI: tiny `gParallel` loops run serially below a size threshold | Issue open (diagnosis in the slow-tests note) | Benchmark first, then the owner's policy | #1502, [note](research/SLOW_TESTS_2026-11.md) |
 
 ## 2. Waiting for an owner decision (options are on the table)
 
@@ -24,6 +25,7 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 |---|---|---|---|
 | Tet: P4(c), input-conforming CDT for clean inputs | Open; P4(a) merged, P4(b) built (#1196) | Parked (owner 2026-11-22): starts only on the owner's go | [tet](design/TET_MESHING.md), plan #1250 |
 | Platform/QA/CI: delete merged / superseded branches | Decided; branches still exist | Owner deletes them (sessions cannot) | [index](ROADMAP.md#open-decisions-owner), plan #1252 |
+| Exact Boolean: exact gradients of the volume and area of a Boolean result | Research note and test-only prototype (#1522); the volume gradient is exact | A public API is the owner's decision | #1522, [exact-boolean](roadmap/exact-boolean.md#board-update-2026-11-24-open-items-of-the-exact-boolean-and-the-solid-pipeline) |
 
 ## 3. Ready to start (decided or clearly scoped, nobody on it)
 
@@ -81,6 +83,7 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 | Other: contouring certificate, thin features and options B / C | Stage 3 built; rest stopped by rule. Spike 2026-11-22 ([note](research/CONTOURING_ISOTOPY_SUBDIVISION_2026-11.md)): a composed proof for smooth fields by subdivision (its premise checked against Plantinga and Vegter's 2004 and 2007 papers); no-go for creases and for option C | Smooth fields: internal certificate built (#1392, cell shape with a proved margin #1414). Class S on box-shaped blocks: proved, measured (#1415) and decided (owner 2026-11-22): build for levels of a smooth field only, with the per-level certificate of `TwoLevelMarchingTetrahedra` without a domain: built, internal (`TwoLevelSheetCertificate`). Open limit: a lattice clipped to a domain; open: the two levels together, a public option | [note](design/CONTOURING_TOPOLOGY.md), [spike](research/CONTOURING_SDF_SUBGRID_2026-11.md), plan #1289 |
 | Other: SIGGRAPH 2026 contouring (distance-grid dual contouring, subgrid marching tetrahedra) | Option 1 built (`TwoLevelMarchingTetrahedra`, `TpmsLattice.TwoLevelSheet`, owner go 2026-11-22); option 2 (certificate per level) built, internal: `TwoLevelSheetCertificate` ([design](design/CONTOURING_BLOCK_CERTIFICATE.md), section 4b) | Options 3 to 6: owner decision | [spike](research/CONTOURING_SDF_SUBGRID_2026-11.md), plan #1297 (closed 2026-11-24, archive) |
 | Other: open research questions (metamorphic testing, agent APIs, showcases) | Listed, not started | Pick one with a synergy | [research](roadmap/research.md#open-research-questions), plan #1290 |
+| Rounding/repair: the certified empty ball as a rounding guarantee | Closed, no build (#1521): it certifies only what SafeRounding's exact verifier certifies already | Only theory remains | [note](research/SNAP_ROUNDING_EMPTY_BALL_GUARANTEE_2026-11.md) |
 
 ## 6. Known limits and tails (documented, kept open on purpose)
 

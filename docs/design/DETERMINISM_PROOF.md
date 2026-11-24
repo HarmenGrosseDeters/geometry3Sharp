@@ -246,7 +246,7 @@ What the adversary is worth, by mutation: of six normalizing sorts removed from 
 order adversary detects two, the same two that the existing repeated-run tests detect; it does so in one serial process
 instead of by parallel repeats, and not more often. The four others (`ExactMeshArrangement.cs` 987, 2509, 2516,
 `ExactMeshBoolean.cs` 4363) survive every determinism test and the harness: redundant on the inputs, or not reached by
-them. They belong to the stage 2 ledger.
+them. They belong to the stage 2 ledger (their obligation O-SORTS is closed in 5.5).
 
 ### 5.2 Stage 0: the exact kernel as a closed world (#859)
 
@@ -530,9 +530,14 @@ only the phase dictionaries; reviewed, no flow rule), `DMeshAABBTree3.FastWindin
   attack is `OrderAdversaryTests` and the harness `adversary` (the loops run backwards and in seeded permutations, which changes the order
   in which `new_id` hands out ids; `boolean.*`, `stage1.*` and `stage2.*` give identical traces). No hook permutes the ids themselves: `new_id`
   is a counter over dense slot arrays, so a permutation needs an indirection (a design change).
-- **O-SORTS.** The tie order of equal `lo` in `merge_points` (`Array.Sort(sortLo, order)`) and the normalizing sorts `Segments.Sort`, `fan.Sort`
-  (and the sort of `merge_sorted`, which is not redundant) are argued, but no test fails when they are removed (5.1: four mutants that survive).
-  Test sketches: a hook that re-permutes runs of equal `lo`; a bowtie whose fan triangles are appended in descending order.
+- **O-SORTS-NM (the part of O-SORTS that stays open).** The two sorts of `ExactMeshBoolean.assemble` at the non-manifold edges, the sort of the
+  pairs of an edge (`nonManifold[i].Value.Sort`) and the sort of the edges (`nmOrder.Sort`), are argued (site line of `assemble`: the keys are
+  total) but no test fails when either is removed: the 33 related tests (`ExactBooleanDeterminismTests.TouchingAlongEdge_*`,
+  `OrderAdversaryTests.ExactBoolean_TouchingAlongEdges_*`, `ExactBooleanEdgeOrderTests`, ...) stay green, and a scan of 72 variants of that scenario
+  (random input orders, with and without simplification) gave the same result with `nonManifold[i].Value.Sort` removed. A killing test needs an
+  edge with at least two pairs whose angular order around the edge (the order `pair_around_edge` returns) differs from the order of their smallest
+  triangle ids, and a result that is split at the edge (`SplitNonManifoldEdges > 0`: the surface must connect around both ends); a ring of
+  prisms around one edge (alternate wedges, no connection around the ends) gave no split edge. Not claimed.
 - **O-PERPATCH.** `open_winding_per_patch` (the L1 loop, `TracedOpenWinding = false`) is tested serial against parallel in the given order
   only; the order adversary runs the default configuration.
 - **O-DIAG.** "Reaches only diagnostics" (`PhaseClock`, the `Counts`, `PreDecidedPairs` and similar counters) is a review argument; there is no
@@ -546,10 +551,40 @@ only the phase dictionaries; reviewed, no flow rule), `DMeshAABBTree3.FastWindin
   runs by `ExactBooleanSheetTests.Determinism_*`; no order adversary runs the sheet role.
 - **F2** is registered as P4 with the perturbation tests of the libm calls (`ExactMeshBooleanTestsAntipodalLibmPerturbation`).
 
+**Closed obligations.**
+
+- **O-SORTS (closed 2026-11-24 except O-SORTS-NM above).** The order of equal `lo` in `merge_points` (`Array.Sort(sortLo, order)`) and the normalizing sorts `Segments.Sort`
+  (`prepare_touched`), `fan.Sort` (`split_bowties`) and the sort of `merge_sorted` are each attacked by a test in
+  `ExactArrangementSortTieTests`. The tests feed the unsorted lists in hostile orders (the loops of the arrangement backwards and in seeded
+  permutations, as in `OrderAdversaryTests`; a fan whose triangles are listed in descending order; runs of equal `lo` reversed and permuted by
+  the internal hook `TieOrderSeed`, which changes no result when it is 0). Hand mutants (one at a time, then restored; the analyzer forbids
+  removing a registered call, so the call stays behind `if (false)`-like guards):
+
+  | mutant | killed by |
+  |---|---|
+  | the sort in `merge_points` removed | `MergePoints_OrderOfEqualLowerEnds_DoesNotChangeTheResult` (all 12 cases), `MergeSorted_SortsTheClusterByPoint_BeforeItReadsRunsOfEqualPoints`, `PrepareTouched_SortsSegments_WhateverTheOrderThePairsWereFound` (existing tests too) |
+  | a reader of the tie order: `merge_cluster` takes the first of a group instead of the point with the smallest key | `MergePoints_OrderOfEqualLowerEnds_DoesNotChangeTheResult` (`maxHashed` 64), `MergeSorted_*`, `PrepareTouched_*` (the first survives every earlier test) |
+  | `Segments.Sort` removed | `PrepareTouched_SortsSegments_WhateverTheOrderThePairsWereFound` and `MergeSorted_*` (deterministic: serial reversed and permuted loop orders; the older `CoplanarTriangles_ShareConstructions_SameOutput` kills it only on some schedules) |
+  | the sort of `merge_sorted` removed | `MergePoints_OrderOfEqualLowerEnds_DoesNotChangeTheResult` (`maxHashed` -1) and `MergeSorted_*` |
+  | `fan.Sort` removed | `SplitBowties_FanListedDescending_IsRedirectedInTriangleIdOrder` (the edge ids and adjacency that `SetTriangle` hands out depend on the order of its calls; pinned for a fan listed as 5, 4, 3) |
+
+  Survivors of 5.1 by method: `Segments.Sort` and `Coplanar.Sort` in `prepare_touched`, `fan.Sort` in `split_bowties`, and the sorts of
+  `assemble` at the non-manifold edges. Closed by a test: `Segments.Sort`, `fan.Sort`, and the two added here (`merge_points`, `merge_sorted`).
+  `Coplanar.Sort` in `prepare_touched` is redundant (an equivalent mutant): `prepare_triangle` sorts the same list before it calls
+  `prepare_touched`, and nothing appends to it in between, so the second sort sees a sorted list; removing it leaves every test green and
+  can change no result. It stays as a guard. The `assemble` sorts stay open as O-SORTS-NM. The hook counts the runs it permutes
+  (`TiedRuns`), and the tie test asserts it is above 0, so the test cannot pass without ties.
+
+  Remaining, stated: in `merge_cluster` the two point case (`best = a` instead of the smaller key) is not killed: no scenario tried (coplanar
+  grids of 2x2 and 3x3 boxes with a rotated box, copies of boxes) has a two point cluster of coincident points with exactly equal `lo`; the equal
+  `lo` runs occur in clusters of three or more, or between distinct points with the same order key (`ComparePoints` separates them, the case
+  returns 0). The case reads its two points symmetrically by inspection. A change of the comparer of `fan.Sort` or `Segments.Sort` is a
+  build error (G3D0002, the site line names the overload).
+
 **Claim.** On every runtime that satisfies T1 to T5, `ExactMeshArrangement` and `ExactMeshBoolean` compute, for the exact result (and not for the
 assumed members above), functions of their arguments, up to the open obligations: no result depends on the schedule, the process, a hash
 seed, the order of a hash container, the order of equal keys in a sort, the sign of a zero in a minimum or maximum, the clock or the BCL
-version, except through the open obligations above (O-RANDOM, O-ATAN2, O-IDS, O-SORTS, O-PERPATCH, O-DIAG, O-EXC, O-SHEET) and the assumed members.
+version, except through the open obligations above (O-RANDOM, O-ATAN2, O-IDS, O-SORTS-NM, O-PERPATCH, O-DIAG, O-EXC, O-SHEET) and the assumed members.
 Checked: the allow list, the registered sites, constructs, casts and `#if` blocks, and that the named tests exist. Attacked by test: P1 to P5 per
 site by the tests named in the site lines, the harness cases and the loop-order adversary.
 
