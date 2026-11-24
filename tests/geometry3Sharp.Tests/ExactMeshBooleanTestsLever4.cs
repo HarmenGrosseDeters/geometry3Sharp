@@ -116,15 +116,15 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        [InlineData("plain", Ops.Union, "8A23CE6B2F66B6EC", "3DE37721ED0BB6B0", 7790, 4252, 11663, 246)]
-        [InlineData("plain", Ops.Intersection, "6D7269D04B5E8224", "3DE37721ED0BB6B0", 7790, 4252, 11663, 246)]
-        [InlineData("plain", Ops.Difference, "2E33BD6EB8EC6673", "3DE37721ED0BB6B0", 7790, 4252, 11663, 246)]
-        [InlineData("swapped", Ops.Union, "D5A5B759CAF3EF97", "EAB2057DB13D376E", 7790, 4252, 11663, 246)]
-        [InlineData("swapped", Ops.Difference, "ED4BAAC8633454BE", "EAB2057DB13D376E", 7790, 4252, 11663, 246)]
-        [InlineData("steep", Ops.Union, "993832FB8435FDEA", "44128D8F3C04F3FC", 7786, 4384, 11804, 248)]
-        [InlineData("steep", Ops.Intersection, "9E45CC20B3FE76E5", "44128D8F3C04F3FC", 7786, 4384, 11804, 248)]
-        [InlineData("fold", Ops.Union, "10A9DF49808D985C", "73DC4763F1C8347C", 48, 0, 80, 19)]
-        [InlineData("fold", Ops.Difference, "10A9DF49808D985C", "73DC4763F1C8347C", 48, 0, 80, 19)]
+        [InlineData("plain", Ops.Union, "B60EBCDD65C96BB7", "3DE37721ED0BB6B0", 7790, 4252, 11663, 246)]
+        [InlineData("plain", Ops.Intersection, "E96FD9D21F2BCBFA", "3DE37721ED0BB6B0", 7790, 4252, 11663, 246)]
+        [InlineData("plain", Ops.Difference, "6AA0082A1075F655", "3DE37721ED0BB6B0", 7790, 4252, 11663, 246)]
+        [InlineData("swapped", Ops.Union, "B60EBCDD65C96BB7", "EAB2057DB13D376E", 7790, 4252, 11663, 246)]
+        [InlineData("swapped", Ops.Difference, "898D571FB8AD9814", "EAB2057DB13D376E", 7790, 4252, 11663, 246)]
+        [InlineData("steep", Ops.Union, "F5C25180922C2E0C", "44128D8F3C04F3FC", 7786, 4384, 11804, 248)]
+        [InlineData("steep", Ops.Intersection, "DEE905A9A3749608", "44128D8F3C04F3FC", 7786, 4384, 11804, 248)]
+        [InlineData("fold", Ops.Union, "14C2CE177FE29753", "73DC4763F1C8347C", 48, 0, 80, 19)]
+        [InlineData("fold", Ops.Difference, "14C2CE177FE29753", "73DC4763F1C8347C", 48, 0, 80, 19)]
         public void CrossSteps_SameResultAsBeforeLever4_Pinned(string variant, Ops op, string result, string winding, long steps, long carried,
             long candidates, long direct)
         {

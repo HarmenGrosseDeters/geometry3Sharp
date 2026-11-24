@@ -39,8 +39,8 @@ namespace geometry3Sharp.Tests
 
         public static IEnumerable<object[]> Cases()
         {
-            yield return new object[] { "utm Cluster 0 4 0" };
-            yield return new object[] { "utm Cluster 36 4 0" };
+            yield return new object[] { "utm Cluster 0 4 1" };
+            yield return new object[] { "utm Cluster 36 4 2" };
             yield return new object[] { "utm FoldedCluster 30 4 0" };
             yield return new object[] { "utm Cluster 0 2 0" };
             // (in AtTheLimit_Stops_SameMeshAsProposingOn, with MaxPairTests 5000: without the stop its SmallestRejectedDrift
