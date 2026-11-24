@@ -7,20 +7,27 @@ namespace gs
     /// <summary>
     /// The lost-area report of <see cref="MeshRobustRepair"/> (#1479, MeasureLostArea): how much of the input's surface is not represented in
     /// the result. Every triangle of the input is sampled at the centroids of the k*k equal sub-triangles of its barycentric subdivision (so
-    /// each sample stands for the same share of the triangle's area, k from the triangle count: SamplesTarget), the distance of each sample to
-    /// the result is the nearest-point query of MeshBatchQueries (the batch runs the single DMeshAABBTree3 queries, so its results do not
-    /// depend on the thread count), and a sample farther than the tolerance from the result is lost. LostArea is the sum of the lost samples'
-    /// shares of their triangles' areas, taken serially in triangle id order (the sums are the same for a parallel and a serial batch, and for
-    /// a power of two scaled input, bit for bit: every operation scales exactly). A report, no judgment: it does not know whether the input
-    /// surface should be in the result (an interior wall of a solid is lost by design).
+    /// each sample stands for the same share of the triangle's area; k from the triangle count, SamplesTarget, and larger for a triangle whose
+    /// area is above the mean: a rule that follows the area, so that one huge triangle among many small ones is not judged by 16 samples), the
+    /// distance of each sample to the result is the nearest-point query of MeshBatchQueries (the batch runs the single DMeshAABBTree3 queries, so its
+    /// results do not depend on the thread count), and a sample farther than the tolerance from the result is lost. LostArea is the sum of the
+    /// lost samples' shares of their triangles' areas, taken serially in triangle id order (the sums are the same for a parallel and a serial batch,
+    /// and for a power of two scaled input, bit for bit: every operation scales exactly). A report, no judgment: it does not know whether the input
+    /// surface should be in the result (an interior wall of a solid is lost by design). Triangles without area are not sampled and never listed.
     /// </summary>
     internal static class MeshRobustRepairLostArea
     {
-        /// <summary> about this many samples in all (k*k per triangle, k in 1..MaxSubdivisions): the cost is that many nearest-triangle queries </summary>
+        /// <summary> about this many samples in all for triangles of the mean area (k*k per triangle, k in 1..MaxSubdivisions): the cost is that many nearest-triangle queries </summary>
         internal const int SamplesTarget = 1 << 19;
         internal const int MaxSubdivisions = 4;
-        // the points of a batch: bounded memory for any input
-        const int ChunkTriangles = 1 << 14;
+        /// <summary>
+        /// a triangle of more than the mean area gets k scaled by the square root of its area over the mean (so about the same area per sample),
+        /// at most this: 1024 samples. The samples spent this way add up to about the base budget again (the areas sum to n times the mean). Beyond the
+        /// cap a triangle of more than 1024 / k^2 times the mean area has samples of a larger share each
+        /// </summary>
+        internal const int MaxLargeSubdivisions = 32;
+        // the points of a batch: bounded memory for any input (a batch ends at the first triangle that reaches this many samples)
+        const int ChunkSamples = 1 << 18;
 
         internal sealed class Report
         {
@@ -28,11 +35,16 @@ namespace gs
             public double InputArea;
             /// <summary> estimated area of the input farther than the tolerance from the result </summary>
             public double LostArea;
-            /// <summary> input triangles with more than half of their samples lost (ids of the input) </summary>
+            /// <summary> input triangles with area and more than half of their samples lost (ids of the input) </summary>
             public List<int> LostTriangles = new List<int>();
             /// <summary> the largest distance of a sample to the result (also of a sample that is not lost); PositiveInfinity for an empty result </summary>
             public double MaxDistance;
+            /// <summary> the subdivisions of a triangle of the mean area (SubdivisionsFor) </summary>
             public int Subdivisions;
+            /// <summary> samples taken in all </summary>
+            public long Samples;
+            /// <summary> the most points one batch held (tests: the buffers follow the input, not a fixed size) </summary>
+            public int PeakBatchSamples;
         }
 
         internal static int SubdivisionsFor(int triangleCount)
@@ -43,6 +55,17 @@ namespace gs
             return Math.Max(1, Math.Min(MaxSubdivisions, k));
         }
 
+        /// <summary> the subdivisions of a triangle of the given area when the base is k and the mean area is mean (0: no samples, a triangle without area) </summary>
+        internal static int SubdivisionsOf(double area, double mean, int k)
+        {
+            if (!(area > 0))
+                return 0;
+            if (!(area > mean) || !(mean > 0))
+                return k;
+            double scaled = Math.Ceiling(k * Math.Sqrt(area / mean));
+            return (int)Math.Min(MaxLargeSubdivisions, Math.Max(k, scaled));
+        }
+
         /// <summary>
         /// Measure the input against the result. tolerance is an absolute length (a sample at a distance of more than it is lost). Returns null if
         /// cancelled. parallel: the batch queries on all cores (the report is the same either way).
@@ -50,49 +73,64 @@ namespace gs
         public static Report Measure(DMesh3 input, DMesh3 result, double tolerance, bool parallel = true, Func<bool> cancel = null)
         {
             var report = new Report();
-            int k = report.Subdivisions = SubdivisionsFor(input.TriangleCount);
-            int perTri = k * k;
-            DMeshAABBTree3 tree = null;
-            if (result.TriangleCount > 0) {
-                tree = new DMeshAABBTree3(result, true);
+            int n = input.TriangleCount;
+            int kBase = report.Subdivisions = SubdivisionsFor(n);
+            var ids = new int[n];
+            var areas = new double[n];
+            double total = 0;
+            int at = 0;
+            foreach (int t in input.TriangleIndices()) {
+                ids[at] = t;
+                double a = input.GetTriArea(t);
+                areas[at++] = a;
+                if (a > 0)
+                    total += a;
             }
+            report.InputArea = total;
+            if (!(total > 0))
+                return report;
+            double mean = total / n;
+            var ks = new int[n];
+            for (int i = 0; i < n; ++i)
+                ks[i] = SubdivisionsOf(areas[i], mean, kBase);
+            DMeshAABBTree3 tree = result.TriangleCount > 0 ? new DMeshAABBTree3(result, true) : null;
             var options = new BatchOptions() { Parallel = parallel };
-            var points = new Vector3d[ChunkTriangles * perTri];
-            var found = new NearestPointResult[points.Length];
-            var ids = new int[ChunkTriangles];
-            var areas = new double[ChunkTriangles];
-            double lost = 0, total = 0, maxDist = 0;
-            int count = 0;
-            IEnumerator<int> en = input.TriangleIndices().GetEnumerator();
-            bool more = true;
-            while (more) {
-                count = 0;
-                while (count < ChunkTriangles) {
-                    if (en.MoveNext() == false) { more = false; break; }
-                    int t = en.Current;
-                    Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
-                    input.GetTriVertices(t, ref a, ref b, ref c);
-                    ids[count] = t;
-                    areas[count] = input.GetTriArea(t);
-                    Samples(a, b, c, k, points, count * perTri);
+            double lost = 0, maxDist = 0;
+            int first = 0;
+            while (first < n) {
+                // the triangles of one batch: up to ChunkSamples samples (at least one triangle)
+                int count = 0, samples = 0;
+                while (first + count < n && (count == 0 || samples < ChunkSamples)) {
+                    samples += ks[first + count] * ks[first + count];
                     count++;
                 }
-                if (count == 0)
-                    break;
                 if (cancel != null && cancel())
                     return null;
-                int n = count * perTri;
-                if (tree != null) {
-                    var chunk = n == points.Length ? points : Trim(points, n);
-                    var res = n == found.Length ? found : new NearestPointResult[n];
-                    MeshBatchQueries.NearestPointBatch(tree, chunk, res, null, options);
-                    if (res != found)
-                        Array.Copy(res, found, n);
+                var points = new Vector3d[samples];
+                int p = 0;
+                for (int i = first; i < first + count; ++i) {
+                    if (ks[i] == 0)
+                        continue;
+                    Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                    input.GetTriVertices(ids[i], ref a, ref b, ref c);
+                    Samples(a, b, c, ks[i], points, p);
+                    p += ks[i] * ks[i];
                 }
-                for (int i = 0; i < count; ++i) {
+                NearestPointResult[] found = null;
+                if (tree != null && samples > 0) {
+                    found = new NearestPointResult[samples];
+                    MeshBatchQueries.NearestPointBatch(tree, points, found, null, options);
+                }
+                report.Samples += samples;
+                report.PeakBatchSamples = Math.Max(report.PeakBatchSamples, samples);
+                p = 0;
+                for (int i = first; i < first + count; ++i) {
+                    int perTri = ks[i] * ks[i];
+                    if (perTri == 0)
+                        continue;
                     int lostSamples = 0;
                     for (int j = 0; j < perTri; ++j) {
-                        double d = tree == null ? double.PositiveInfinity : found[i * perTri + j].Distance;
+                        double d = found == null ? double.PositiveInfinity : found[p + j].Distance;
                         if (d == double.MaxValue)
                             d = double.PositiveInfinity;
                         if (d > maxDist)
@@ -100,24 +138,25 @@ namespace gs
                         if (d > tolerance)
                             lostSamples++;
                     }
-                    total += areas[i];
+                    p += perTri;
                     if (lostSamples > 0)
                         lost += areas[i] * ((double)lostSamples / perTri);
                     if (2 * lostSamples > perTri)
                         report.LostTriangles.Add(ids[i]);
                 }
+                first += count;
             }
-            report.InputArea = total;
             report.LostArea = lost;
             report.MaxDistance = maxDist;
             return report;
         }
 
-        static Vector3d[] Trim(Vector3d[] points, int n)
+        /// <summary> the samples of (a, b, c) for k subdivisions: the centroids of the k*k equal sub-triangles </summary>
+        internal static Vector3d[] SamplePoints(Vector3d a, Vector3d b, Vector3d c, int k)
         {
-            var r = new Vector3d[n];
-            Array.Copy(points, r, n);
-            return r;
+            var into = new Vector3d[k * k];
+            Samples(a, b, c, k, into, 0);
+            return into;
         }
 
         // the centroids of the k*k equal sub-triangles of (a, b, c): k(k+1)/2 pointing like the triangle, k(k-1)/2 pointing the other way

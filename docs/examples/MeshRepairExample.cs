@@ -47,11 +47,7 @@ namespace g3.Examples
         public static double LostAreaShare(DMesh3 input, out int lostTriangles, out double maxDistance)
         {
             var repair = new MeshRobustRepair(new DMesh3(input)) { MeasureLostArea = true };
-            if (!repair.Apply()) {
-                lostTriangles = 0;
-                maxDistance = double.NaN;
-                return double.NaN;
-            }
+            repair.Apply();         // false for a lost part, a cancel: the report is there wherever a result is (NaN without one)
             lostTriangles = repair.LostTriangleIds.Count;       // ids of input's triangles, to locate the loss
             maxDistance = repair.LostAreaMaxDistance;           // the largest distance of any sample of the input to the result
             return repair.LostAreaShare;                        // repair.LostArea is the area; both sides of a sheet count

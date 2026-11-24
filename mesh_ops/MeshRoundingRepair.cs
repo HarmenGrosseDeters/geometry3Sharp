@@ -2661,7 +2661,7 @@ namespace g3
 
         // the unit in the last place of x >= 0 (a power of two; the smallest subnormal for 0 and subnormals; NaN if not
         // finite)
-        static double ulp(double x)
+        internal static double ulp(double x)
         {
             if (!(x < double.PositiveInfinity))
                 return double.NaN;

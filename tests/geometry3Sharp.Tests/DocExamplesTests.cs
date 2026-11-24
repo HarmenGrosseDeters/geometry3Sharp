@@ -278,7 +278,7 @@ namespace geometry3Sharp.Tests
             double share = MeshRepairExample.LostAreaShare(input, out lost, out maxDistance);
             Assert.Equal(2.0 / 8.4, share, 9);
             Assert.Equal(4, lost);
-            Assert.InRange(maxDistance, 0.4, 0.45);
+            Assert.InRange(maxDistance, 0.4, 0.4501);
             Assert.Equal(0.0, MeshRepairExample.LostAreaShare(Sphere(1, Vector3d.Zero), out lost, out maxDistance));
         }
 

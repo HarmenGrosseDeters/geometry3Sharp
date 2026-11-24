@@ -627,8 +627,8 @@ of 9 configurations, 3 of them `RemesherPro` on two procedural inputs of up to a
    of 19k triangles (164 -> 187 ms), 24 % on one of 1.4k (139 -> 172 ms), 18 % on the exact resolve of two spheres (76 -> 90 ms),
    within noise on a wrap (3.4 s, the wrap dominates). Always on would be cheap in absolute terms and would not change a result, but
    measurable on the fast paths: not the default.
-   **Lost-area report** (#1479, owner decision: built as the first step): `MeasureLostArea` (opt-in, default off; 17 % of the repair's time on a 99k-triangle
-   sphere with a hole) sets `LostArea`, `LostAreaShare`, `LostTriangleIds` and `LostAreaMaxDistance`: the input's surface (sampled, both sides of a sheet) farther than a tolerance
+   **Lost-area report** (#1479, owner decision: built as the first step): `MeasureLostArea` (opt-in, default off; 28 % of the repair's time on a 99k-triangle
+   sphere with a hole, `benchmarks/LostAreaBenchmark`) sets `LostArea`, `LostAreaShare`, `LostTriangleIds` and `LostAreaMaxDistance`: the input's surface (sampled, both sides of a sheet) farther than a tolerance
    from the result (twice the solidify cell, twice the wrap offset, else `RoundingMaxDisplacement` times the diagonal; `LostAreaTolerance` overrides). It reports and does not
    judge: an interior wall removed by design and a damaged result read the same (guide `repair-and-wrapping.md`, "Lost-area report"). Open: the share of lost area outside the
    result's solid of the diagnosis note (it separates the by-design cases from the damaged one), the acceptance option O2 (an owner decision), the reference guard O3.
