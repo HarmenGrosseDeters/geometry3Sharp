@@ -12,7 +12,7 @@ namespace geometry3Sharp.Tests
     /// The exact winding number at a point that lies exactly on a triangle of the mesh is the principal value: the mean of the
     /// two sides on a flat face (n + 1/2 on a closed mesh, bit for bit, also on the inner edges and vertices of a flat face),
     /// the solid-angle fraction on a crease or a corner (0.25 on a cube edge, 0.125 at its corner), independent of the
-    /// triangle order, of the vertex order in the triangles and of the directions of the coordinate axes (design note
+    /// triangle order and of the vertex order in the triangles (bit for bit on flat faces; on creases and corners within the rounding of the sum) and of the directions of the coordinate axes (design note
     /// EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md, "A point exactly on a triangle"). Fixtures are procedural with dyadic
     /// coordinates (every frame below is exact in floating point), so a point is exactly on a triangle by construction.
     /// </summary>
@@ -674,6 +674,199 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(new float[] { 0f, 1f, 1f, 1f, 0f }, row);
                 cache.EvaluateFullRowX(-3, 1.5, 5, -1, -3, hits, leaves, diff, row);         // the line through the inner vertices of the face z = -3
                 Assert.Equal(new float[] { 0.25f, 0.5f, 0.5f, 0.5f, 0.25f }, row);
+            }
+        }
+
+        // ---- cost at a vertex of high valence, the cap on the number of planes, the order of the rays ----
+
+        // a flat fan of 8 triangles around p in the plane spanned by e1 and e2 (the ring of the 3 x 3 lattice), with its reversed
+        // copy (own vertices) if doubled: a doubled fan has the value 0 exactly and its boundary edges cancel
+        static DMesh3 Fan(Vector3d p, Vector3d e1, Vector3d e2, bool doubled)
+        {
+            var m = new DMesh3();
+            int[] di = { 1, 1, 0, -1, -1, -1, 0, 1 }, dj = { 0, 1, 1, 1, 0, -1, -1, -1 };
+            for (int rep = 0; rep < (doubled ? 2 : 1); ++rep) {
+                int c = m.AppendVertex(p);
+                var r = new int[8];
+                for (int k = 0; k < 8; ++k) r[k] = m.AppendVertex(p + di[k] * e1 + dj[k] * e2);
+                for (int k = 0; k < 8; ++k) {
+                    if (rep == 0) m.AppendTriangle(c, r[k], r[(k + 1) % 8]); else m.AppendTriangle(c, r[(k + 1) % 8], r[k]);
+                }
+            }
+            return m;
+        }
+
+        [Fact]
+        public void DrumWithAVertexOfValence20000_AtTheApexAndTheFanCentre_IsFast()
+        {
+            // A flat fan of k triangles around (0, 0, 1) on top, a cone with the apex (0, 0, -1) below (one plane per triangle at
+            // the apex), the rim in the plane z = 1 on a rational parametrisation of the circle (no libm). The resolution of the
+            // triangles through the query point was quadratic in k (apex: 3.4 s for k = 20000, fan centre 158 ms); it is linear now
+            // (7 and 13 ms). The limit of 2 s for both queries protects against the quadratic code, which needs more than that
+            // for the apex alone on a fast machine.
+            // (the apex and the fan centre are a copy of the vertex per triangle: DMesh3 finds the edge of a new triangle by a linear
+            // search at its vertices, so a welded vertex of valence 20000 costs 7 s to build; the cache keys the boundary edges by
+            // their coordinates, so the unwelded drum is closed for it, as an unwelded closed STL soup is, and every triangle still has
+            // p on its vertex)
+            const int half = 10000;
+            var m = new DMesh3();
+            var rim = new List<int>();
+            for (int j = 0; j < half; ++j) {          // the right half circle from (0, -1) up to (0, 1), the point (0, 1) excluded
+                double t = -1.0 + 2.0 * j / half, d = 1 + t * t;
+                rim.Add(m.AppendVertex(new Vector3d((1 - t * t) / d, 2 * t / d, 1)));
+            }
+            for (int j = 0; j < half; ++j) {          // the left half circle from (0, 1) down to (0, -1), the point (0, -1) excluded
+                double t = 1.0 - 2.0 * j / half, d = 1 + t * t;
+                rim.Add(m.AppendVertex(new Vector3d(-(1 - t * t) / d, 2 * t / d, 1)));
+            }
+            int k = rim.Count;
+            for (int i = 0; i < k; ++i) {
+                m.AppendTriangle(m.AppendVertex(new Vector3d(0, 0, 1)), rim[i], rim[(i + 1) % k]);
+                m.AppendTriangle(m.AppendVertex(new Vector3d(0, 0, -1)), rim[(i + 1) % k], rim[i]);
+            }
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            foreach (int t in m.TriangleIndices()) {         // the fan is flat: every corner of a top triangle is in the plane z = 1
+                m.GetTriVertices(t, ref a, ref b, ref c);
+                if (a.z != 1 || b.z != 1) continue;     // (a bottom triangle has the apex at z = -1)
+                Assert.True(ExactPredicates.Orient3d(new Vector3d(0, 0, 1), new Vector3d(1, 0, 1), new Vector3d(0, 1, 1), b) == 0 && b.z == 1 && c.z == 1);
+            }
+            var tree = new DMeshAABBTree3(m, true);
+            Assert.True(tree.WindingNumber(new Vector3d(5, 5, 5)) == 0.0);       // (builds the cache)
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            double wCentre = tree.WindingNumber(new Vector3d(0, 0, 1));
+            double wApex = tree.WindingNumber(new Vector3d(0, 0, -1));
+            sw.Stop();
+            Assert.True(sw.Elapsed.TotalSeconds < 2.0, $"two queries took {sw.Elapsed.TotalSeconds:F2} s");
+            Assert.True(wCentre == 0.5, $"fan centre: {wCentre:R}");
+            double reference = Principal(m, new Vector3d(0, 0, -1));
+            // (the bound: 3 edge angles of 2e-13 / 2 pi for each of the 20000 triangles through the apex, 2e-9; the rounded sum is far closer)
+            Assert.True(Math.Abs(wApex - reference) <= 2e-9, $"apex: {wApex:R} vs {reference:R}");
+            Assert.True(wApex > 0.0 && wApex < 0.25);
+        }
+
+        // the box [-3, 3]^3 (3 x 3 quads per face) with count doubled or single flat fans through (1, 1, 3), each in another plane
+        // (all contain the x axis through p: e2 = (0, 1, k)); the top face of the box is the plane number one
+        static DMesh3 BoxWithFans(int count, bool doubled)
+        {
+            DMesh3 m = GridBox(new Vector3d(-3, -3, -3), 2, 3);
+            for (int k = 1; k <= count; ++k)
+                MeshEditor.Append(m, Fan(new Vector3d(1, 1, 3), new Vector3d(1, 0, 0), new Vector3d(0, 1, k), doubled));
+            return m;
+        }
+
+        [Fact]
+        public void PlaneCap_EightPlanesThroughThePoint_FlatFaceIsExact_NineTakeTheRoundedSum()
+        {
+            // p = (1, 1, 3) is an inner vertex of the flat top face of the box. The doubled fans through it have the value 0 exactly
+            // (cover 0), so with the box's plane and 7 more (8 planes = MaxFlatPlanes) every group is resolved exactly and the
+            // value is 0.5 bit for bit; with 8 more (9 planes) no group is formed and every triangle takes the rounded sum, which
+            // leaves noise in the last bits on this point (0.4999999999999998 in the identity frame, a platform-dependent
+            // rounding, so only the bound is asserted): the principal value within the bound of the edge angles.
+            foreach (var (name, f) in Frames().Where(q => q.Item1 == "identity" || q.Item1 == "shear")) {
+                Vector3d p = f(new Vector3d(1, 1, 3));
+                DMesh3 eight = Map(BoxWithFans(7, true), f), nine = Map(BoxWithFans(8, true), f);
+                Assert.True(InPlaneOfATriangleAndBox(eight, p));
+                double w8 = new DMeshAABBTree3(eight, true).WindingNumber(p);
+                Assert.True(w8 == 0.5, $"{name}: 8 planes {w8:R}");
+                double w9 = new DMeshAABBTree3(nine, true).WindingNumber(p);
+                Assert.True(Math.Abs(w9 - 0.5) <= 1e-12, $"{name}: 9 planes {w9:R}");
+            }
+        }
+
+        [Fact]
+        public void PlaneCap_SingleFansAndTheBoxFace_AreThePrincipalValue_NoneIsDropped()
+        {
+            // 8, 9 and 10 planes through p, all but one of them single (open) flat fans whose group is a hemisphere each: with more
+            // than MaxFlatPlanes planes every triangle takes the rounded sum and none may be dropped (the value is the principal
+            // value, 0.5 from the box's face, 0 from each fan)
+            foreach (var (name, f) in Frames().Where(q => q.Item1 == "identity" || q.Item1 == "shear" || q.Item1 == "rot 11")) {
+                Vector3d p = f(new Vector3d(1, 1, 3));
+                foreach (int count in new[] { 7, 8, 9 }) {
+                    DMesh3 m = Map(BoxWithFans(count, false), f);
+                    double w = new DMeshAABBTree3(m, true).WindingNumber(p), r = Principal(m, p);
+                    Assert.True(Math.Abs(w - r) <= 1e-11, $"{name}, {count} fans: {w:R} vs {r:R}");
+                    Assert.True(Math.Abs(w - 0.5) <= 1e-11, $"{name}, {count} fans: {w:R}");
+                }
+            }
+        }
+
+        // a closed prism whose top face is a flat fan around (0, 0, 1): the rim has points on all four half axes (at different
+        // distances: (2, 0), (0, 3), (-4, 0), (0, -1)), in every quadrant, and rays that are opposite to each other
+        static readonly double[][] StarRim = { new[] { 2.0, 0 }, new[] { 1.0, 1 }, new[] { 0.0, 3 }, new[] { -1.0, 1 }, new[] { -4.0, 0 }, new[] { -2.0, -2 }, new[] { 0.0, -1 }, new[] { 1.0, -3 } };
+
+        static DMesh3 StarPrism()
+        {
+            var m = new DMesh3();
+            var ids = new Dictionary<(double, double, double), int>();
+            Func<Vector3d, int> vid = q => {
+                var key = (q.x + 0.0, q.y + 0.0, q.z + 0.0);
+                if (!ids.TryGetValue(key, out int id)) { id = m.AppendVertex(q); ids[key] = id; }
+                return id;
+            };
+            Action<Vector3d, Vector3d, Vector3d, Vector3d> tri = (a, b, c, outward) => {
+                if ((b - a).Cross(c - a).Dot(outward) >= 0) m.AppendTriangle(vid(a), vid(b), vid(c)); else m.AppendTriangle(vid(a), vid(c), vid(b));
+            };
+            Vector3d top = new Vector3d(0, 0, 1), bottom = new Vector3d(0, 0, 0), mid = new Vector3d(0, 0, 0.5);
+            for (int i = 0; i < 8; ++i) {
+                double[] u = StarRim[i], v = StarRim[(i + 1) % 8];
+                Vector3d ut = new Vector3d(u[0], u[1], 1), vt = new Vector3d(v[0], v[1], 1), ub = new Vector3d(u[0], u[1], 0), vb = new Vector3d(v[0], v[1], 0);
+                tri(top, ut, vt, Vector3d.AxisZ);
+                tri(bottom, ub, vb, -Vector3d.AxisZ);
+                Vector3d outward = (0.5 * (ut + vt)) - mid;
+                tri(ub, vb, vt, outward);
+                tri(ub, vt, ut, outward);
+            }
+            return m;
+        }
+
+        [Fact]
+        public void FlatFanWithRaysInEveryQuadrantAndOnTheHalfAxes_IsExactlyHalf()
+        {
+            DMesh3 prism = StarPrism();
+            var pts = new List<Vector3d> { new Vector3d(0, 0, 1) };
+            foreach (double[] r in StarRim) pts.Add(new Vector3d(0.5 * r[0], 0.5 * r[1], 1));        // the middle of each spoke: p on an edge of the fan
+            foreach (var (name, f) in Frames()) {
+                DMesh3 m = Map(prism, f);
+                var tree = new DMeshAABBTree3(m, true);
+                foreach (Vector3d p0 in pts) {
+                    Assert.True(InPlaneOfATriangleAndBox(m, f(p0)));
+                    double w = tree.WindingNumber(f(p0));
+                    Assert.True(w == 0.5, $"{name}, {p0}: {w:R}");
+                }
+            }
+        }
+
+        [Fact]
+        public void StartAndEndRaysThatAreNotTheSameMultiset_AreNotConstantCover_ForAllSixOrders()
+        {
+            // in the plane z = 0 at p = (0, 0, 0): T1 has p on its edge (the upper half plane, 0 to 180 degrees), T3 on its edge
+            // (the lower half plane, 180 to 360), T2 at its corner (0 to 63 degrees). The start rays are {0, 0, 180} degrees, the
+            // end rays {180, 63, 0}: every start ray is among the end rays (a set-inclusion test would accept), but not with the same
+            // multiplicity: the cover is 2 on [0, 63), 1 on [63, 360), not constant, so the group takes the rounded sum and the
+            // value is the principal value, 0 for a flat sheet
+            Vector3d[] t1 = { new Vector3d(-1, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0) };
+            Vector3d[] t2 = { new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0.5, 1, 0) };
+            Vector3d[] t3 = { new Vector3d(1, 0, 0), new Vector3d(-1, 0, 0), new Vector3d(0, -1, 0) };
+            var all = new[] { t1, t2, t3 };
+            int[][] orders = { new[] { 0, 1, 2 }, new[] { 0, 2, 1 }, new[] { 1, 0, 2 }, new[] { 1, 2, 0 }, new[] { 2, 0, 1 }, new[] { 2, 1, 0 } };
+            foreach (var (name, f) in Frames().Where(q => q.Item1 == "identity" || q.Item1 == "shear" || q.Item1 == "rot 3")) {
+                foreach (int[] o in orders) {
+                    DMesh3 m = Soup(o.SelectMany(i => all[i]).Select(f).ToArray());
+                    double w = W(m, f(Vector3d.Zero));
+                    Assert.True(Math.Abs(w) <= 1e-11, $"{name}, order {string.Join("", o)}: {w:R}");
+                }
+            }
+        }
+
+        [Fact]
+        public void LayeredFansOfOppositeOrientation_SameRaysAtDifferentDistances_AreZero()
+        {
+            // a fan around p and a reversed fan of twice the size: the same rays with different lengths, opposite orientations
+            Vector3d p = new Vector3d(0, 0, 1);
+            DMesh3 m = Append(Fan(p, new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), false), Fan(p, new Vector3d(2, 0, 0), new Vector3d(0, 2, 0), true));
+            foreach (var (name, f) in Frames()) {
+                DMesh3 mm = Map(m, f);
+                Assert.True(Math.Abs(W(mm, f(p))) <= 1e-11, $"{name}: {W(mm, f(p)):R}");
             }
         }
     }
