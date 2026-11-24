@@ -219,8 +219,10 @@ Example: [BooleanVolumeGradientExample](../examples/BooleanVolumeGradientExample
   - the boolean did not succeed;
   - it was not run with `RetainClassification`;
   - one of its inputs is not closed, so the result has no volume;
-  - a value or its bound is beyond the double range, for coordinates of about 2^±512. The arrays are still filled in
-    this case.
+  - a value or its bound is beyond the double range. The volume (size cubed) overflows from coordinates of about
+    2^341, the gradient (size squared) from about 2^512. The arrays are still filled in this case. At the small end
+    nothing fails: below coordinates of about 2^-341 for the volume (2^-511 for the gradient), the values are subnormal
+    and their bounds absolute, of about 2^-1074.
 - `Gradient[m]` has `MaxVertexID` entries for input `m`. The input index is 0 for `MeshA` and 1 for `MeshB`, or the index
   in the list of an n-ary boolean. A vertex that belongs to no kept piece has the entry 0.
 - `Volume` is the volume of the exact result, and `VolumeBound` is its error bound.
@@ -288,8 +290,9 @@ differentiated.
      of its result. An end that overflows to infinity is at least as far out as the exact value.
    - For the volume's value and bound, the same check applies. If the result is subnormal, each of the two scalings
      rounds once, by at most 2^-1075, and the bound becomes Up(b · 2^k + 2^-1074).
-   - An infinite bound means that the entry itself is beyond the double range, for coordinates of about 2^±512. Then
-     `Compute()` fails with `Error`.
+   - An infinite bound means that the entry itself is beyond the double range: for the volume from coordinates of about
+     2^341, for the gradient from about 2^512. Then `Compute()` fails with `Error`. Small coordinates fail nothing:
+     subnormal results only make the bound absolute, at about 2^-1074.
 
 **Kinks (contacts of positive area).**
 - V is not differentiable only where faces of different inputs lie in one plane and overlap with positive area.

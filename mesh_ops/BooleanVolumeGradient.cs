@@ -88,7 +88,8 @@ namespace g3
         /// <summary>
         /// computes Volume, Gradient and Contacts from the boolean's last Compute(). False, with Error, if it did not succeed, was
         /// not computed with RetainClassification, has an input that is not closed (the volume of an open result is not defined),
-        /// or if an entry or its bound is beyond the double range (coordinates of about 2^+-512; the arrays are filled then)
+        /// or if an entry or its bound is beyond the double range (the volume from coordinates of about 2^341, the gradient from
+        /// about 2^512; the arrays are filled then; small coordinates fail nothing, the bounds become absolute subnormals)
         /// </summary>
         public bool Compute()
         {

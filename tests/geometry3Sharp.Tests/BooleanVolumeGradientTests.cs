@@ -449,6 +449,15 @@ namespace geometry3Sharp.Tests
             var g = new BooleanVolumeGradient(boolean);
             Assert.False(g.Compute());
             Assert.Contains("double range", g.Error);
+            // scaled by 2^400: the volume, about 2^1200, overflows while the gradient, about 2^800, is a double
+            double s = ExactPoint3.ScaleB(1, 400);
+            var big = new ExactMeshBoolean(BooleanFuzzShapes.Map(Fx.Unit(), p => p * s), BooleanFuzzShapes.Map(Fx.ShiftedBox(), p => p * s), Ops.Union) { RetainClassification = true };
+            Assert.True(big.Compute(), big.Error);
+            g = new BooleanVolumeGradient(big);
+            Assert.False(g.Compute());
+            Assert.Contains("double range", g.Error);
+            Assert.True(double.IsInfinity(g.VolumeBound));
+            Assert.All(g.Gradient, row => Assert.All(row, v => Assert.False(double.IsInfinity(v.MaxAbs))));
         }
 
         [Fact]
