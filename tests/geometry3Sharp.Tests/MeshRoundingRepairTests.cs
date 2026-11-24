@@ -67,9 +67,11 @@ namespace geometry3Sharp.Tests
             // the cube and a copy turned by 1e-13: intersection points 1e-13 apart and closer
             // (found by a search over 1500 turned and shifted copies, of which this one leaves self-intersections after
             // rounding. Until #1464 the case was an intersection with a copy turned by 1e-10; since then the flat regions of
-            // the exact result are triangulated another way, and that case rounds without a self-intersection)
-            var ab = NearlyCoincident(Cube(), new Vector3d(0.22771744463952137, -0.42061459409101615, 0.1028773079639661), 1e-13,
-                1e-13 * new Vector3d(0.18290836628661877, -0.2041687856913399, 0.4062450336787128));
+            // the exact result are triangulated another way, and that case rounds without a self-intersection. Until #1410 the
+            // axis was (0.2277, -0.4206, 0.1029) and the shift 1e-13 * (0.1829, -0.2042, 0.4062); the conversion of an exact vertex
+            // rounds to nearest now, and that copy no longer leaves a self-intersection; this one, of a new search, does)
+            var ab = NearlyCoincident(Cube(), new Vector3d(0.1239883869998103, -0.08118673115092645, -0.07064602830011679), 1e-13,
+                1e-13 * new Vector3d(0.06367290791295144, -0.47886297245456977, 0.3965591066035251));
             var plain = Run(ab, Ops.Union, false);
             // without the repair: rounding left self-intersections and slivers
             Assert.True(MeshRepairMetrics.SelfIntersections(plain.Result) > 0);
