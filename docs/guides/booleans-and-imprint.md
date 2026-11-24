@@ -213,7 +213,11 @@ if (g.Compute()) {
 }
 ```
 
-Example: [BooleanVolumeGradientExample](../examples/BooleanVolumeGradientExample.cs). Method and measurements:
+Example: [BooleanVolumeGradientExample](../examples/BooleanVolumeGradientExample.cs). An optimizer that moves the vertices
+of input 1 along the gradient until the result's volume hits a target (projected step `x += (Vtarget - V) g / |g|^2`,
+capped, the realized branch at a flush contact, each iteration's contacts reported):
+[BooleanVolumeOptimizerExample](../examples/BooleanVolumeOptimizerExample.cs). From the command line:
+`g3cli boolean ... --volume-gradient out.json` ([mesh commands](../../tools/g3cli/docs/mesh-commands.md#volume-gradient---volume-gradient)). Method and measurements:
 [EXACT_BOOLEAN_GRADIENTS_2026-11.md](../research/EXACT_BOOLEAN_GRADIENTS_2026-11.md).
 
 **Contract.**
