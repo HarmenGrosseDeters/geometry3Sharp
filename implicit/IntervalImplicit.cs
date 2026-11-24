@@ -183,8 +183,11 @@ namespace g3
             public ExactInterval SinIv, CosIv;
             public Affine1 SinA, CosA;
             public double Mid, Half;
-            public bool HasIv, HasAffine;
         }
+
+        // Largest phase half-width for which IntervalTpms builds an Affine3 enclosure to intersect with the plain interval.
+        // Above 0.6 rad the quadratic product remainder of Affine3 exceeds the plain interval hull, so coarse blocks skip Affine3.
+        const double MaxAffinePhaseHalf = 0.6;
 
         /// <summary>
         /// The sines and cosines of phase intervals that were computed before, by the bits of the interval's ends. The
@@ -194,61 +197,77 @@ namespace g3
         internal sealed class SinCosCache
         {
             internal const int MaxEntries = 1 << 16;
+            internal readonly bool WithAffine;
             internal readonly System.Collections.Generic.Dictionary<ValueTuple<long, long>, SinCosEntry> Map
                 = new System.Collections.Generic.Dictionary<ValueTuple<long, long>, SinCosEntry>();
             /// <summary> the calls that found their interval, and those that computed it </summary>
             internal long Hits, Misses;
+
+            internal SinCosCache(bool withAffine) { WithAffine = withAffine; }
         }
 
-        public object NewEncloseCache() { return new SinCosCache(); }
+        public object NewEncloseCache() { return new SinCosCache(Type != TpmsType.SchwarzP); }
 
         public IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z) { return enclose(x, y, z, null); }
 
         public IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z, object cache)
         {
             var own = cache as SinCosCache;
-            if (own == null) throw new ArgumentException("not a cache of NewEncloseCache", nameof(cache));
+            if (own == null || own.WithAffine != (Type != TpmsType.SchwarzP))
+                throw new ArgumentException("not a cache of NewEncloseCache", nameof(cache));
             return enclose(x, y, z, own);
         }
 
-        // IntervalMath.SinCos, or the kept result of the same call
-        static void sinCosInterval(ExactInterval p, SinCosCache cache, out ExactInterval sin, out ExactInterval cos)
+        static SinCosEntry computeEntry(ExactInterval p, bool withAffine)
         {
-            if (cache == null) { IntervalMath.SinCos(p, out sin, out cos); return; }
-            var key = new ValueTuple<long, long>(BitConverter.DoubleToInt64Bits(p.Lo), BitConverter.DoubleToInt64Bits(p.Hi));
-            SinCosEntry kept;
-            if (cache.Map.TryGetValue(key, out kept) && kept.HasIv) { ++cache.Hits; sin = kept.SinIv; cos = kept.CosIv; return; }
-            ++cache.Misses;
-            IntervalMath.SinCos(p, out sin, out cos);
-            if (!kept.HasAffine && cache.Map.Count >= SinCosCache.MaxEntries) cache.Map.Clear();
-            kept.SinIv = sin; kept.CosIv = cos; kept.HasIv = true;
-            cache.Map[key] = kept;
-        }
-
-        // Affine1.SinCos, or the kept result of the same call
-        static void sinCosAffine(ExactInterval p, SinCosCache cache, out Affine1 sin, out Affine1 cos, out double mid, out double half)
-        {
-            if (cache == null) { Affine1.SinCos(p, out sin, out cos, out mid, out half); return; }
-            var key = new ValueTuple<long, long>(BitConverter.DoubleToInt64Bits(p.Lo), BitConverter.DoubleToInt64Bits(p.Hi));
-            SinCosEntry kept;
-            if (cache.Map.TryGetValue(key, out kept) && kept.HasAffine) {
-                ++cache.Hits; sin = kept.SinA; cos = kept.CosA; mid = kept.Mid; half = kept.Half; return;
+            ExactInterval sinIv, cosIv;
+            IntervalMath.SinCos(p, out sinIv, out cosIv);
+            if (!withAffine)
+                return new SinCosEntry { SinIv = sinIv, CosIv = cosIv };
+            if (!Affine3.IsFiniteDouble(p.Lo) || !Affine3.IsFiniteDouble(p.Hi) || !(p.Lo <= p.Hi))
+                return new SinCosEntry { SinIv = sinIv, CosIv = cosIv, SinA = Affine1.FromInterval(sinIv), CosA = Affine1.FromInterval(cosIv), Mid = double.NaN, Half = double.PositiveInfinity };
+            double mid, half;
+            Affine1.MidRad(p, out mid, out half);
+            Affine1 sinA, cosA;
+            if (half > 0 && half <= Affine1.MaxTaylorHalf)
+                Affine1.SinCos(p, out sinA, out cosA, out mid, out half);
+            else {
+                sinA = Affine1.FromInterval(sinIv);
+                cosA = Affine1.FromInterval(cosIv);
             }
-            ++cache.Misses;
-            Affine1.SinCos(p, out sin, out cos, out mid, out half);
-            if (!kept.HasIv && cache.Map.Count >= SinCosCache.MaxEntries) cache.Map.Clear();
-            kept.SinA = sin; kept.CosA = cos; kept.Mid = mid; kept.Half = half; kept.HasAffine = true;
-            cache.Map[key] = kept;
+            return new SinCosEntry { SinIv = sinIv, CosIv = cosIv, SinA = sinA, CosA = cosA, Mid = mid, Half = half };
         }
 
-        // Affine1.SinCos of 2 * p, aligned to the parameter u = (theta - mid) / half of p.
-        // Whenever 2 * mid and 2 * half match the doubled interval's parameterization (all normal finite boxes),
-        // the linear correlation is exact; otherwise the linear term is folded into Rad so soundness holds unconditionally.
-        static void sinCosDoubleAffine(ExactInterval p, double mid, double half, SinCosCache cache, out Affine1 sin2, out Affine1 cos2)
+        // IntervalMath.SinCos (and Affine1.SinCos when withAffine), or the kept result of the same call
+        static SinCosEntry lookupSinCos(ExactInterval p, bool withAffine, SinCosCache cache)
         {
-            double m2, h2;
-            sinCosAffine(new ExactInterval(2 * p.Lo, 2 * p.Hi), cache, out sin2, out cos2, out m2, out h2);
-            if (!(m2 == 2 * mid && h2 == 2 * half && Affine3.IsFiniteDouble(m2) && Affine3.IsFiniteDouble(h2))) {
+            if (cache == null) return computeEntry(p, withAffine);
+            var key = new ValueTuple<long, long>(BitConverter.DoubleToInt64Bits(p.Lo), BitConverter.DoubleToInt64Bits(p.Hi));
+            SinCosEntry kept;
+            if (cache.Map.TryGetValue(key, out kept)) { ++cache.Hits; return kept; }
+            ++cache.Misses;
+            kept = computeEntry(p, withAffine);
+            if (cache.Map.Count >= SinCosCache.MaxEntries) cache.Map.Clear();
+            cache.Map[key] = kept;
+            return kept;
+        }
+
+        // Intersection of two sound enclosures of the same real set (falls back to Whole on NaN or Hull if disjoint).
+        static ExactInterval intersect(ExactInterval a, ExactInterval b)
+        {
+            if (double.IsNaN(a.Lo) || double.IsNaN(a.Hi) || double.IsNaN(b.Lo) || double.IsNaN(b.Hi))
+                return Affine3.Whole;
+            double lo = Math.Max(a.Lo, b.Lo), hi = Math.Min(a.Hi, b.Hi);
+            return lo <= hi ? new ExactInterval(lo, hi) : IntervalMath.Hull(a, b);
+        }
+
+        // Align 2*p's affine form to the parameter u = (theta - mid) / half of p.
+        // Whenever 2*mid and 2*half match the doubled interval's parameterization (all normal finite boxes),
+        // the linear correlation is exact; otherwise fold C1 into Rad so soundness holds unconditionally.
+        static void alignDouble(SinCosEntry e2, double mid, double half, out Affine1 sin2, out Affine1 cos2)
+        {
+            sin2 = e2.SinA; cos2 = e2.CosA;
+            if (!(e2.Mid == 2 * mid && e2.Half == 2 * half && Affine3.IsFiniteDouble(e2.Mid) && Affine3.IsFiniteDouble(e2.Half))) {
                 sin2 = sin2.ConstantOnly();
                 cos2 = cos2.ConstantOnly();
             }
@@ -258,83 +277,136 @@ namespace g3
         {
             ExactInterval k = c(K);
             ExactInterval px = k * x, py = k * y, pz = k * z;
-            if (Type == TpmsType.SchwarzP) {
-                // SchwarzP has no shared variables across terms: plain interval arithmetic is already optimal.
-                ExactInterval isx, icx, isy, icy, isz, icz;
-                sinCosInterval(px, cache, out isx, out icx); sinCosInterval(py, cache, out isy, out icy); sinCosInterval(pz, cache, out isz, out icz);
-                ExactInterval g = icx + icy + icz, gx = -isx, gy = -isy, gz = -isz;
-                if (Negate) { g = -g; gx = -gx; gy = -gy; gz = -gz; }
-                return new IntervalEnclosure { F = g - c(Level), Gx = k * gx, Gy = k * gy, Gz = k * gz, Smooth = true };
+            bool withAffine = Type != TpmsType.SchwarzP;
+            SinCosEntry ex = lookupSinCos(px, withAffine, cache);
+            SinCosEntry ey = lookupSinCos(py, withAffine, cache);
+            SinCosEntry ez = lookupSinCos(pz, withAffine, cache);
+            ExactInterval isx = ex.SinIv, icx = ex.CosIv, isy = ey.SinIv, icy = ey.CosIv, isz = ez.SinIv, icz = ez.CosIv;
+            SinCosEntry e2x = default(SinCosEntry), e2y = default(SinCosEntry), e2z = default(SinCosEntry);
+            bool hasDouble = Type == TpmsType.IWP || Type == TpmsType.Lidinoid;
+            if (hasDouble) {
+                e2x = lookupSinCos(new ExactInterval(2 * px.Lo, 2 * px.Hi), withAffine, cache);
+                e2y = lookupSinCos(new ExactInterval(2 * py.Lo, 2 * py.Hi), withAffine, cache);
+                e2z = lookupSinCos(new ExactInterval(2 * pz.Lo, 2 * pz.Hi), withAffine, cache);
             }
-            Affine1 s1x, c1x, s1y, c1y, s1z, c1z;
-            double mx, hx, my, hy, mz, hz;
-            sinCosAffine(px, cache, out s1x, out c1x, out mx, out hx);
-            sinCosAffine(py, cache, out s1y, out c1y, out my, out hy);
-            sinCosAffine(pz, cache, out s1z, out c1z, out mz, out hz);
-            Affine3 sx = s1x.OnAxis(0), cx = c1x.OnAxis(0);
-            Affine3 sy = s1y.OnAxis(1), cy = c1y.OnAxis(1);
-            Affine3 sz = s1z.OnAxis(2), cz = c1z.OnAxis(2);
-            Affine3 ag, agx, agy, agz;
+
+            // Plain interval enclosure (optimal for SchwarzP, points, and coarse boxes; intersected with Affine3 on fine/medium boxes).
+            ExactInterval g, gx, gy, gz;
             switch (Type) {
                 case TpmsType.Gyroid:
-                    ag = sx * cy + sy * cz + sz * cx;
-                    agx = cx * cy - sz * sx; agy = cy * cz - sx * sy; agz = cz * cx - sy * sz;
+                    g = isx * icy + isy * icz + isz * icx;
+                    gx = icx * icy - isz * isx; gy = icy * icz - isx * isy; gz = icz * icx - isy * isz;
                     break;
-                case TpmsType.SchwarzD: {
-                    Affine3 sxsy = sx * sy, cxcy = cx * cy, sxcy = sx * cy, cxsy = cx * sy;
-                    Affine3 cosDiffXY = sxsy + cxcy;        // cos(x - y)
-                    Affine3 cosSumXY = cxcy - sxsy;         // cos(x + y)
-                    Affine3 sinSumXY = sxcy + cxsy;         // sin(x + y)
-                    Affine3 sinDiffXY = sxcy - cxsy;        // sin(x - y)
-                    ag = cosDiffXY * sz + sinSumXY * cz;
-                    agx = cosSumXY * cz - sinDiffXY * sz;
-                    agy = cosSumXY * cz + sinDiffXY * sz;
-                    agz = cosDiffXY * cz - sinSumXY * sz;
+                case TpmsType.SchwarzP:
+                    g = icx + icy + icz;
+                    gx = -isx; gy = -isy; gz = -isz;
                     break;
-                }
-                case TpmsType.Neovius: {
-                    Affine3 cxcy = cx * cy, cycz = cy * cz, cxcz = cx * cz;
-                    ag = (cx + cy + cz).Scale(3) + (cxcy * cz).Scale(4);
-                    agx = -(sx * (cycz.Scale(4).AddConst(3)));
-                    agy = -(sy * (cxcz.Scale(4).AddConst(3)));
-                    agz = -(sz * (cxcy.Scale(4).AddConst(3)));
+                case TpmsType.SchwarzD:
+                    g = isx * isy * isz + isx * icy * icz + icx * isy * icz + icx * icy * isz;
+                    gx = icx * isy * isz + icx * icy * icz - isx * isy * icz - isx * icy * isz;
+                    gy = isx * icy * isz - isx * isy * icz + icx * icy * icz - icx * isy * isz;
+                    gz = isx * isy * icz - isx * icy * isz - icx * isy * isz + icx * icy * icz;
                     break;
-                }
+                case TpmsType.Neovius:
+                    g = c(3) * (icx + icy + icz) + c(4) * (icx * icy * icz);
+                    gx = -(c(3) * isx) - c(4) * (isx * icy * icz);
+                    gy = -(c(3) * isy) - c(4) * (icx * isy * icz);
+                    gz = -(c(3) * isz) - c(4) * (icx * icy * isz);
+                    break;
                 case TpmsType.IWP: {
-                    Affine1 s21x, c21x, s21y, c21y, s21z, c21z;
-                    sinCosDoubleAffine(px, mx, hx, cache, out s21x, out c21x);
-                    sinCosDoubleAffine(py, my, hy, cache, out s21y, out c21y);
-                    sinCosDoubleAffine(pz, mz, hz, cache, out s21z, out c21z);
-                    Affine3 s2x = s21x.OnAxis(0), c2x = c21x.OnAxis(0);
-                    Affine3 s2y = s21y.OnAxis(1), c2y = c21y.OnAxis(1);
-                    Affine3 s2z = s21z.OnAxis(2), c2z = c21z.OnAxis(2);
-                    ag = (cx * cy + cy * cz + cz * cx).Scale(2) - (c2x + c2y + c2z);
-                    agx = (s2x - sx * (cy + cz)).Scale(2);
-                    agy = (s2y - sy * (cx + cz)).Scale(2);
-                    agz = (s2z - sz * (cx + cy)).Scale(2);
+                    ExactInterval is2x = e2x.SinIv, ic2x = e2x.CosIv, is2y = e2y.SinIv, ic2y = e2y.CosIv, is2z = e2z.SinIv, ic2z = e2z.CosIv;
+                    g = c(2) * (icx * icy + icy * icz + icz * icx) - (ic2x + ic2y + ic2z);
+                    gx = c(2) * is2x - c(2) * (isx * (icy + icz));
+                    gy = c(2) * is2y - c(2) * (isy * (icx + icz));
+                    gz = c(2) * is2z - c(2) * (isz * (icx + icy));
                     break;
                 }
                 case TpmsType.Lidinoid: {
-                    Affine1 s21x, c21x, s21y, c21y, s21z, c21z;
-                    sinCosDoubleAffine(px, mx, hx, cache, out s21x, out c21x);
-                    sinCosDoubleAffine(py, my, hy, cache, out s21y, out c21y);
-                    sinCosDoubleAffine(pz, mz, hz, cache, out s21z, out c21z);
-                    Affine3 s2x = s21x.OnAxis(0), c2x = c21x.OnAxis(0);
-                    Affine3 s2y = s21y.OnAxis(1), c2y = c21y.OnAxis(1);
-                    Affine3 s2z = s21z.OnAxis(2), c2z = c21z.OnAxis(2);
-                    Affine3 cySz = cy * sz, czSx = cz * sx, cxSy = cx * sy;
-                    ag = (s2x * cySz + s2y * czSx + s2z * cxSy).Scale(0.5)
-                        - (c2x * c2y + c2y * c2z + c2z * c2x).Scale(0.5);
-                    ag = ag.AddConst(0.15);
-                    agx = c2x * cySz + (s2y * (cz * cx) - s2z * (sx * sy)).Scale(0.5) + s2x * (c2y + c2z);
-                    agy = c2y * czSx + (s2z * (cx * cy) - s2x * (sy * sz)).Scale(0.5) + s2y * (c2x + c2z);
-                    agz = c2z * cxSy + (s2x * (cy * cz) - s2y * (sz * sx)).Scale(0.5) + s2z * (c2x + c2y);
+                    ExactInterval is2x = e2x.SinIv, ic2x = e2x.CosIv, is2y = e2y.SinIv, ic2y = e2y.CosIv, is2z = e2z.SinIv, ic2z = e2z.CosIv;
+                    ExactInterval h = c(0.5);
+                    g = h * (is2x * icy * isz + is2y * icz * isx + is2z * icx * isy) - h * (ic2x * ic2y + ic2y * ic2z + ic2z * ic2x) + c(0.15);
+                    gx = ic2x * icy * isz + h * (is2y * icz * icx) - h * (is2z * isx * isy) + is2x * (ic2y + ic2z);
+                    gy = ic2y * icz * isx + h * (is2z * icx * icy) - h * (is2x * isy * isz) + is2y * (ic2x + ic2z);
+                    gz = ic2z * icx * isy + h * (is2x * icy * icz) - h * (is2y * isz * isx) + is2z * (ic2x + ic2y);
                     break;
                 }
                 default: throw new ArgumentOutOfRangeException(nameof(Type));
             }
-            if (Negate) { ag = -ag; agx = -agx; agy = -agy; agz = -agz; }
-            return new IntervalEnclosure { F = ag.ToInterval() - c(Level), Gx = k * agx.ToInterval(), Gy = k * agy.ToInterval(), Gz = k * agz.ToInterval(), Smooth = true };
+
+            // Intersect with Affine3 on non-point, non-coarse boxes to eliminate O(h) dependency bloat without ever widening coarse boxes.
+            if (withAffine) {
+                double maxHalf = Math.Max(ex.Half, Math.Max(ey.Half, ez.Half));
+                if (maxHalf > 0 && maxHalf <= MaxAffinePhaseHalf) {
+                    Affine3 sx = ex.SinA.OnAxis(0), cx = ex.CosA.OnAxis(0);
+                    Affine3 sy = ey.SinA.OnAxis(1), cy = ey.CosA.OnAxis(1);
+                    Affine3 sz = ez.SinA.OnAxis(2), cz = ez.CosA.OnAxis(2);
+                    Affine3 ag, agx, agy, agz;
+                    switch (Type) {
+                        case TpmsType.Gyroid:
+                            ag = sx * cy + sy * cz + sz * cx;
+                            agx = cx * cy - sz * sx; agy = cy * cz - sx * sy; agz = cz * cx - sy * sz;
+                            break;
+                        case TpmsType.SchwarzD: {
+                            Affine3 sxsy = sx * sy, cxcy = cx * cy, sxcy = sx * cy, cxsy = cx * sy;
+                            Affine3 cosDiffXY = sxsy + cxcy;        // cos(x - y)
+                            Affine3 cosSumXY = cxcy - sxsy;         // cos(x + y)
+                            Affine3 sinSumXY = sxcy + cxsy;         // sin(x + y)
+                            Affine3 sinDiffXY = sxcy - cxsy;        // sin(x - y)
+                            ag = cosDiffXY * sz + sinSumXY * cz;
+                            agx = cosSumXY * cz - sinDiffXY * sz;
+                            agy = cosSumXY * cz + sinDiffXY * sz;
+                            agz = cosDiffXY * cz - sinSumXY * sz;
+                            break;
+                        }
+                        case TpmsType.Neovius: {
+                            Affine3 cxcy = cx * cy, cycz = cy * cz, cxcz = cx * cz;
+                            ag = (cx + cy + cz).Scale(3) + (cxcy * cz).Scale(4);
+                            agx = -(sx * (cycz.Scale(4).AddConst(3)));
+                            agy = -(sy * (cxcz.Scale(4).AddConst(3)));
+                            agz = -(sz * (cxcy.Scale(4).AddConst(3)));
+                            break;
+                        }
+                        case TpmsType.IWP: {
+                            Affine1 s21x, c21x, s21y, c21y, s21z, c21z;
+                            alignDouble(e2x, ex.Mid, ex.Half, out s21x, out c21x);
+                            alignDouble(e2y, ey.Mid, ey.Half, out s21y, out c21y);
+                            alignDouble(e2z, ez.Mid, ez.Half, out s21z, out c21z);
+                            Affine3 s2x = s21x.OnAxis(0), c2x = c21x.OnAxis(0);
+                            Affine3 s2y = s21y.OnAxis(1), c2y = c21y.OnAxis(1);
+                            Affine3 s2z = s21z.OnAxis(2), c2z = c21z.OnAxis(2);
+                            ag = (cx * cy + cy * cz + cz * cx).Scale(2) - (c2x + c2y + c2z);
+                            agx = (s2x - sx * (cy + cz)).Scale(2);
+                            agy = (s2y - sy * (cx + cz)).Scale(2);
+                            agz = (s2z - sz * (cx + cy)).Scale(2);
+                            break;
+                        }
+                        case TpmsType.Lidinoid: {
+                            Affine1 s21x, c21x, s21y, c21y, s21z, c21z;
+                            alignDouble(e2x, ex.Mid, ex.Half, out s21x, out c21x);
+                            alignDouble(e2y, ey.Mid, ey.Half, out s21y, out c21y);
+                            alignDouble(e2z, ez.Mid, ez.Half, out s21z, out c21z);
+                            Affine3 s2x = s21x.OnAxis(0), c2x = c21x.OnAxis(0);
+                            Affine3 s2y = s21y.OnAxis(1), c2y = c21y.OnAxis(1);
+                            Affine3 s2z = s21z.OnAxis(2), c2z = c21z.OnAxis(2);
+                            Affine3 cySz = cy * sz, czSx = cz * sx, cxSy = cx * sy;
+                            ag = (s2x * cySz + s2y * czSx + s2z * cxSy).Scale(0.5)
+                                - (c2x * c2y + c2y * c2z + c2z * c2x).Scale(0.5);
+                            ag = ag.AddConst(0.15);
+                            agx = c2x * cySz + (s2y * (cz * cx) - s2z * (sx * sy)).Scale(0.5) + s2x * (c2y + c2z);
+                            agy = c2y * czSx + (s2z * (cx * cy) - s2x * (sy * sz)).Scale(0.5) + s2y * (c2x + c2z);
+                            agz = c2z * cxSy + (s2x * (cy * cz) - s2y * (sz * sx)).Scale(0.5) + s2z * (c2x + c2y);
+                            break;
+                        }
+                        default: throw new ArgumentOutOfRangeException(nameof(Type));
+                    }
+                    g = intersect(g, ag.ToInterval());
+                    gx = intersect(gx, agx.ToInterval());
+                    gy = intersect(gy, agy.ToInterval());
+                    gz = intersect(gz, agz.ToInterval());
+                }
+            }
+            if (Negate) { g = -g; gx = -gx; gy = -gy; gz = -gz; }
+            return new IntervalEnclosure { F = g - c(Level), Gx = k * gx, Gy = k * gy, Gz = k * gz, Smooth = true };
         }
     }
 }

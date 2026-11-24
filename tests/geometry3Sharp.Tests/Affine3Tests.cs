@@ -435,19 +435,26 @@ namespace geometry3Sharp.Tests
             int[] serialPassed = (int[])cert.PassedAtTightening.Clone();
             var serialUncert = new List<SmoothUncertifiedCell>(cert.UncertifiedCells);
 
-            // Reuse same certificate instance with ParallelCompute = true
-            cert.ParallelCompute = true;
+            // Reuse same certificate instance with ParallelCompute = true (repeated 3x to verify schedule independence)
+            for (int run = 0; run < 3; ++run) {
+                cert.ParallelCompute = true;
+                cert.Compute();
+                Assert.True(field.NewCacheCalls >= 2);
+                Assert.Equal(0, field.UncachedEncloseCalls);
+                Assert.Equal(serialCertified, cert.Certified);
+                Assert.Equal(serialSurf, cert.SurfaceCells);
+                Assert.Equal(serialPassed, cert.PassedAtTightening);
+                Assert.Equal(serialUncert.Count, cert.UncertifiedCells.Count);
+                for (int i = 0; i < serialUncert.Count; ++i) {
+                    Assert.Equal(serialUncert[i].Cell, cert.UncertifiedCells[i].Cell);
+                    Assert.Equal(serialUncert[i].Reason, cert.UncertifiedCells[i].Reason);
+                }
+            }
+            cert.ParallelCompute = false;
             cert.Compute();
-            Assert.True(field.NewCacheCalls >= 2);
-            Assert.Equal(0, field.UncachedEncloseCalls);
             Assert.Equal(serialCertified, cert.Certified);
             Assert.Equal(serialSurf, cert.SurfaceCells);
             Assert.Equal(serialPassed, cert.PassedAtTightening);
-            Assert.Equal(serialUncert.Count, cert.UncertifiedCells.Count);
-            for (int i = 0; i < serialUncert.Count; ++i) {
-                Assert.Equal(serialUncert[i].Cell, cert.UncertifiedCells[i].Cell);
-                Assert.Equal(serialUncert[i].Reason, cert.UncertifiedCells[i].Reason);
-            }
 
             // Null cache returned by NewEncloseCache gracefully falls back to uncached Enclose with identical result
             var nullCacheField = new CountingCachedField(TpmsType.SchwarzD, k, 0.9, 4.0, returnNullCache: true);
@@ -460,6 +467,232 @@ namespace geometry3Sharp.Tests
             Assert.Equal(serialSurf, certNull.SurfaceCells);
             Assert.Equal(serialPassed, certNull.PassedAtTightening);
             Assert.Equal(serialUncert.Count, certNull.UncertifiedCells.Count);
+        }
+
+        [Fact]
+        public void Affine3_ErrorTerms_CoverUnderflowInexactMulMidRadAndSafeSum()
+        {
+            // 1) SubErr: underflowing product 1e-200 * 1e-200 has fl(c0) = 0 while exact value is 1e-400 > 0
+            Affine3 underflow = Affine3.Of(1e-200) * Affine3.Of(1e-200);
+            ExactDyadic exactUnderflow = ExactDyadic.Of(1e-200) * ExactDyadic.Of(1e-200);
+            Assert.True(Contains(underflow.ToInterval(), exactUnderflow));
+
+            // 2) Multiplication / Square / Add / AddConst / Scale rounding-error terms on inexact binary64 operations
+            Affine3 mulInexact = Affine3.Of(0.1) * Affine3.Of(0.1);
+            ExactDyadic exactTenthSq = ExactDyadic.Of(0.1) * ExactDyadic.Of(0.1);
+            Assert.True(Contains(mulInexact.ToInterval(), exactTenthSq));
+            Assert.True(Contains(Affine3.Square(Affine3.Of(0.1)).ToInterval(), exactTenthSq));
+            Assert.True(Contains(Affine3.Of(0.1).Scale(0.1).ToInterval(), exactTenthSq));
+            Assert.True(Contains((Affine3.Of(1.0) + Affine3.Of(1e-16)).ToInterval(), ExactDyadic.Of(1.0) + ExactDyadic.Of(1e-16)));
+            Assert.True(Contains(Affine3.Of(1.0).AddConst(1e-16).ToInterval(), ExactDyadic.Of(1.0) + ExactDyadic.Of(1e-16)));
+            // Non-zero slope inexact multiplication with nl == 0: directly tests px1/px2/py1/py2/pz1/pz2 roundErr terms
+            Affine3 c01 = Affine3.Of(0.1);
+            ExactDyadic d01 = ExactDyadic.Of(0.1), d03 = ExactDyadic.Of(0.3), dProd = d01 * d03;
+            foreach (Affine3 lin in new[] {
+                new Affine3(0, 0.3, 0, 0, 0), new Affine3(0, 0, 0.3, 0, 0), new Affine3(0, 0, 0, 0.3, 0)
+            }) {
+                Assert.True(EnclosesPoint(c01 * lin, ExactDyadic.Of(1.0), ExactDyadic.Of(1.0), ExactDyadic.Of(1.0), dProd));
+                Assert.True(EnclosesPoint(lin * c01, ExactDyadic.Of(1.0), ExactDyadic.Of(1.0), ExactDyadic.Of(1.0), dProd));
+            }
+
+            // 3) MidRad upward rounding: [0.1, 0.3], [-1e-17, 1.0] (left side rounds down), and [-1.0, 1e-17] (right side rounds down)
+            foreach (ExactInterval iv in new[] { new ExactInterval(0.1, 0.3), new ExactInterval(-1e-17, 1.0), new ExactInterval(-1.0, 1e-17) }) {
+                Affine3 fromIv = Affine3.FromInterval(iv);
+                ExactDyadic dLo = ExactDyadic.Of(iv.Lo), dHi = ExactDyadic.Of(iv.Hi);
+                ExactDyadic radIv = ExactDyadic.Of(fromIv.Rad), midIv = ExactDyadic.Of(fromIv.C0);
+                Assert.True(ExactDyadic.Compare(dHi - midIv, radIv) <= 0);
+                Assert.True(ExactDyadic.Compare(midIv - dLo, radIv) <= 0);
+                Affine3 fromAx = Affine3.FromAxis(iv, 0);
+                ExactDyadic hAx = ExactDyadic.Of(fromAx.Cx), midAx = ExactDyadic.Of(fromAx.C0);
+                Assert.True(ExactDyadic.Compare(dHi - midAx, hAx) <= 0);
+                Assert.True(ExactDyadic.Compare(midAx - dLo, hAx) <= 0);
+            }
+
+            // 4) SafeSum factors: sub-0.5-ulp terms absorbed by repeated additions must not drop below exact sum
+            double u2 = Math.Pow(2, -52);
+            double eps = 0.45 * u2;
+            Affine3 exTest = new Affine3(0, 1.0, eps, eps, eps);
+            ExactDyadic exactEx = ExactDyadic.Of(1.0) + ExactDyadic.Of(3.0) * ExactDyadic.Of(eps);
+            Assert.True(ExactDyadic.Compare(ExactDyadic.Of(exTest.Excursion()), exactEx) >= 0);
+            // SafeSum8 in operator +: a.Rad = 1.0 plus 5 terms each 0.45*u2 < 0.5*ulp(1.0) -> exact sum = 1.0 + 2.25*u2
+            Affine3 addA = new Affine3(0.45, 0.45, 0.45, 0.45, 1.0);
+            Affine3 addB = new Affine3(0, 0, 0, 0, eps);
+            Affine3 addSum = addA + addB;
+            ExactDyadic exactAddRad = ExactDyadic.Of(1.0) + ExactDyadic.Of(5.0) * ExactDyadic.Of(eps);
+            Assert.True(ExactDyadic.Compare(ExactDyadic.Of(addSum.Rad), exactAddRad) >= 0);
+            // SafeSum16 in operator *: verifies multiplication preserves SafeSum16 headroom above uninflated sum
+            Affine3 mulA = new Affine3(0, 0, 0, 0, 1.0);
+            Affine3 mulB = new Affine3(1.0, 0.3 * u2, 0.3 * u2, 0.3 * u2, 0.3 * u2);
+            Affine3 mulRes = mulA * mulB;
+            double rAOnly = ExactInterval.Up(1.0);
+            // Without SafeSum16, nl (~1.2*u2) + rA (1+u2) + roundErr terms could lose sub-0.5-ulp contributions; Rad must strictly exceed rA + 1.5*u2
+            Assert.True(mulRes.Rad > ExactInterval.Up(rAOnly + 1.5 * u2));
+
+            // 5) SinCosCache WithAffine mismatch guard: passing a SchwarzP cache to Gyroid (or vice versa) throws
+            var sp = new IntervalTpms(TpmsType.SchwarzP, 1.0, 0.0);
+            var gy = new IntervalTpms(TpmsType.Gyroid, 1.0, 0.0);
+            var box = new ExactInterval(0.1, 0.2);
+            Assert.Throws<ArgumentException>(() => gy.Enclose(box, box, box, sp.NewEncloseCache()));
+            Assert.Throws<ArgumentException>(() => sp.Enclose(box, box, box, gy.NewEncloseCache()));
+        }
+
+        [Fact]
+        public void IntervalTpms_NeverWiderThanPlainInterval_AcrossCoarseAndFineBoxes()
+        {
+            var rng = new Random(99);
+            const double kVal = 1.0;
+            ExactInterval k = ExactInterval.Of(kVal), zero = ExactInterval.Of(0.0), two = ExactInterval.Of(2.0);
+            var gyroid = new IntervalTpms(TpmsType.Gyroid, kVal, 0.0);
+            var iwp = new IntervalTpms(TpmsType.IWP, kVal, 0.0);
+            foreach (double half in new[] { 0.05, 0.5, 1.0 }) {
+                for (int i = 0; i < 200; ++i) {
+                    double x0 = rng.NextDouble() * 10 - 5, y0 = rng.NextDouble() * 10 - 5, z0 = rng.NextDouble() * 10 - 5;
+                    var bx = new ExactInterval(x0 - half, x0 + half);
+                    var by = new ExactInterval(y0 - half, y0 + half);
+                    var bz = new ExactInterval(z0 - half, z0 + half);
+                    ExactInterval px = k * bx, py = k * by, pz = k * bz;
+                    ExactInterval sx, cx, sy, cy, sz, cz, s2x, c2x, s2y, c2y, s2z, c2z;
+                    IntervalMath.SinCos(px, out sx, out cx);
+                    IntervalMath.SinCos(py, out sy, out cy);
+                    IntervalMath.SinCos(pz, out sz, out cz);
+                    ExactInterval pf = (sx * cy + sy * cz + sz * cx) - zero;
+                    ExactInterval pgx = k * (cx * cy - sz * sx), pgy = k * (cy * cz - sx * sy), pgz = k * (cz * cx - sy * sz);
+
+                    IntervalEnclosure e = gyroid.Enclose(bx, by, bz);
+                    Assert.True(e.F.Lo >= pf.Lo && e.F.Hi <= pf.Hi, $"Gyroid half {half}: F wider");
+                    Assert.True(e.Gx.Lo >= pgx.Lo && e.Gx.Hi <= pgx.Hi, $"Gyroid half {half}: Gx wider");
+                    Assert.True(e.Gy.Lo >= pgy.Lo && e.Gy.Hi <= pgy.Hi, $"Gyroid half {half}: Gy wider");
+                    Assert.True(e.Gz.Lo >= pgz.Lo && e.Gz.Hi <= pgz.Hi, $"Gyroid half {half}: Gz wider");
+
+                    IntervalMath.SinCos(new ExactInterval(2 * px.Lo, 2 * px.Hi), out s2x, out c2x);
+                    IntervalMath.SinCos(new ExactInterval(2 * py.Lo, 2 * py.Hi), out s2y, out c2y);
+                    IntervalMath.SinCos(new ExactInterval(2 * pz.Lo, 2 * pz.Hi), out s2z, out c2z);
+                    ExactInterval ifF = (two * (cx * cy + cy * cz + cz * cx) - (c2x + c2y + c2z)) - zero;
+                    ExactInterval igx = k * (two * s2x - two * (sx * (cy + cz)));
+                    ExactInterval igy = k * (two * s2y - two * (sy * (cx + cz)));
+                    ExactInterval igz = k * (two * s2z - two * (sz * (cx + cy)));
+                    IntervalEnclosure ei = iwp.Enclose(bx, by, bz);
+                    Assert.True(ei.F.Lo >= ifF.Lo && ei.F.Hi <= ifF.Hi, $"IWP half {half}: F wider");
+                    Assert.True(ei.Gx.Lo >= igx.Lo && ei.Gx.Hi <= igx.Hi, $"IWP half {half}: Gx wider");
+                    Assert.True(ei.Gy.Lo >= igy.Lo && ei.Gy.Hi <= igy.Hi, $"IWP half {half}: Gy wider");
+                    Assert.True(ei.Gz.Lo >= igz.Lo && ei.Gz.Hi <= igz.Hi, $"IWP half {half}: Gz wider");
+                }
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void Invariance_UnderSimilarities_Tpms(string name)
+        {
+            Similarity sim = System.Linq.Enumerable.First(Similarity.All(), s => s.Name == name);
+            var origin = new Vector3d(-1.113, -1.107, -1.103);
+            const double size = 2.2;
+            const double baseK = 1.2;
+
+            // Base run at Identity for direct comparison
+            var baseField = new CountingCachedField(TpmsType.Gyroid, baseK, 0.85, 2.0);
+            var dc0 = new DualContouring {
+                Implicit = baseField, InsideIsLess = true, CellSize = size / 28, Simplify = false,
+                Bounds = new AxisAlignedBox3d(origin, origin + size * Vector3d.One), RecordCertificateData = true
+            };
+            dc0.Generate();
+            var cert0 = new ContouringSmoothCertificate { Field = baseField, Contour = dc0, ParallelCompute = false };
+            cert0.Compute();
+            Assert.True(cert0.Certified, $"base: uncertified={cert0.UncertifiedCells.Count}, runFailure={cert0.RunFailure}");
+            Assert.True(cert0.SurfaceCells > 50);
+
+            if (sim.IsExact) {
+                // Exact power-of-two scaling: phases (K / s) * (s * x) are bit-identical across all 6 TPMS types (with & without cache)
+                foreach (TpmsType type in new[] { TpmsType.Gyroid, TpmsType.SchwarzP, TpmsType.SchwarzD, TpmsType.Neovius, TpmsType.IWP, TpmsType.Lidinoid }) {
+                    var f0 = new IntervalTpms(type, baseK, 0.1);
+                    var fs = new IntervalTpms(type, baseK / sim.Scale, 0.1);
+                    object c0 = f0.NewEncloseCache(), cs = fs.NewEncloseCache();
+                    var bx = new ExactInterval(-0.31, -0.24);
+                    var by = new ExactInterval(0.12, 0.19);
+                    var bz = new ExactInterval(0.45, 0.52);
+                    var sbx = new ExactInterval(sim.Scale * bx.Lo, sim.Scale * bx.Hi);
+                    var sby = new ExactInterval(sim.Scale * by.Lo, sim.Scale * by.Hi);
+                    var sbz = new ExactInterval(sim.Scale * bz.Lo, sim.Scale * bz.Hi);
+                    foreach (bool cached in new[] { false, true }) {
+                        IntervalEnclosure e0 = cached ? f0.Enclose(bx, by, bz, c0) : f0.Enclose(bx, by, bz);
+                        IntervalEnclosure es = cached ? fs.Enclose(sbx, sby, sbz, cs) : fs.Enclose(sbx, sby, sbz);
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(e0.F.Lo), BitConverter.DoubleToInt64Bits(es.F.Lo));
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(e0.F.Hi), BitConverter.DoubleToInt64Bits(es.F.Hi));
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(e0.Gx.Lo / sim.Scale), BitConverter.DoubleToInt64Bits(es.Gx.Lo));
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(e0.Gx.Hi / sim.Scale), BitConverter.DoubleToInt64Bits(es.Gx.Hi));
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(e0.Gy.Lo / sim.Scale), BitConverter.DoubleToInt64Bits(es.Gy.Lo));
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(e0.Gy.Hi / sim.Scale), BitConverter.DoubleToInt64Bits(es.Gy.Hi));
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(e0.Gz.Lo / sim.Scale), BitConverter.DoubleToInt64Bits(es.Gz.Lo));
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(e0.Gz.Hi / sim.Scale), BitConverter.DoubleToInt64Bits(es.Gz.Hi));
+                    }
+                }
+
+                // End-to-end ContouringSmoothCertificate on capped Gyroid (runs Affine3 + cache): bit-identical verdict & counts
+                var scaledField = new CountingCachedField(TpmsType.Gyroid, baseK / sim.Scale, 0.85 * sim.Scale, 2.0);
+                var dcs = new DualContouring {
+                    Implicit = scaledField, InsideIsLess = true, CellSize = sim.Scale * size / 28, Simplify = false,
+                    Bounds = new AxisAlignedBox3d(sim.Scale * origin, sim.Scale * (origin + size * Vector3d.One)), RecordCertificateData = true
+                };
+                dcs.Generate();
+                var certs = new ContouringSmoothCertificate { Field = scaledField, Contour = dcs, ParallelCompute = false };
+                certs.Compute();
+                Assert.Equal(cert0.Certified, certs.Certified);
+                Assert.Equal(cert0.SurfaceCells, certs.SurfaceCells);
+                Assert.Equal(cert0.PassedAtTightening, certs.PassedAtTightening);
+                Assert.Equal(cert0.UncertifiedCells.Count, certs.UncertifiedCells.Count);
+                Assert.True(scaledField.CachedEncloseCalls > 0);
+            } else {
+                // Non-exact similarity (UTM, scale 1e-3 / 1e3, rotated): wrap capped Gyroid in moved frame and compare against base
+                var inner = new CountingCachedField(TpmsType.Gyroid, baseK, 0.85, 2.0);
+                var moved = new MovedCachedField(inner, sim);
+                Vector3d mOrigin = sim.Apply(Vector3d.Zero) + sim.Scale * origin;
+                var dc = new DualContouring {
+                    Implicit = moved, InsideIsLess = true, CellSize = sim.Scale * size / 28, Simplify = false,
+                    Bounds = new AxisAlignedBox3d(mOrigin, mOrigin + sim.Scale * size * Vector3d.One), RecordCertificateData = true
+                };
+                dc.Generate();
+                var cert = new ContouringSmoothCertificate { Field = moved, Contour = dc, ParallelCompute = false };
+                cert.Compute();
+                Assert.True(cert.Certified, $"{name}: uncertified={cert.UncertifiedCells.Count}, runFailure={cert.RunFailure}");
+                Assert.True(dc0.Mesh.IsClosed() && dc.Mesh.IsClosed());
+                var t0 = gs.MeshTopologySummary.Compute(dc0.Mesh);
+                var tm = gs.MeshTopologySummary.Compute(dc.Mesh);
+                Assert.Equal(t0.Components, tm.Components);
+                Assert.Equal(
+                    System.Linq.Enumerable.OrderBy(System.Linq.Enumerable.Select(t0.ComponentList, c => c.Genus), g => g),
+                    System.Linq.Enumerable.OrderBy(System.Linq.Enumerable.Select(tm.ComponentList, c => c.Genus), g => g));
+                if (sim == Similarity.RotatedUtmMillimetre)
+                    Assert.InRange(cert.SpacingRatioSquared, 1 + 1e-6, 1 + 1e-4);
+                Assert.True(inner.CachedEncloseCalls > 0);
+            }
+        }
+
+        // Adapts an IntervalImplicit3dCached + ImplicitFunction3d into a Similarity-transformed frame
+        sealed class MovedCachedField : IntervalImplicit3dCached, ImplicitFunction3d
+        {
+            readonly CountingCachedField inner;
+            readonly Similarity sim;
+            public MovedCachedField(CountingCachedField inner, Similarity sim) { this.inner = inner; this.sim = sim; }
+            public object NewEncloseCache() { return inner.NewEncloseCache(); }
+            public IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z) { return Enclose(x, y, z, null); }
+            public IntervalEnclosure Enclose(ExactInterval x, ExactInterval y, ExactInterval z, object cache)
+            {
+                ExactInterval sc = ExactInterval.Of(sim.Scale);
+                ExactInterval ox = (x - ExactInterval.Of(sim.Translation.x)) / sc;
+                ExactInterval oy = (y - ExactInterval.Of(sim.Translation.y)) / sc;
+                ExactInterval oz = (z - ExactInterval.Of(sim.Translation.z)) / sc;
+                Matrix3d rt = sim.Rotation.Transpose();
+                ExactInterval lx = ExactInterval.Of(rt.Row0.x) * ox + ExactInterval.Of(rt.Row0.y) * oy + ExactInterval.Of(rt.Row0.z) * oz;
+                ExactInterval ly = ExactInterval.Of(rt.Row1.x) * ox + ExactInterval.Of(rt.Row1.y) * oy + ExactInterval.Of(rt.Row1.z) * oz;
+                ExactInterval lz = ExactInterval.Of(rt.Row2.x) * ox + ExactInterval.Of(rt.Row2.y) * oy + ExactInterval.Of(rt.Row2.z) * oz;
+                IntervalEnclosure e = cache != null ? inner.Enclose(lx, ly, lz, cache) : inner.Enclose(lx, ly, lz);
+                Matrix3d r = sim.Rotation;
+                ExactInterval gx = (ExactInterval.Of(r.Row0.x) * e.Gx + ExactInterval.Of(r.Row0.y) * e.Gy + ExactInterval.Of(r.Row0.z) * e.Gz) / sc;
+                ExactInterval gy = (ExactInterval.Of(r.Row1.x) * e.Gx + ExactInterval.Of(r.Row1.y) * e.Gy + ExactInterval.Of(r.Row1.z) * e.Gz) / sc;
+                ExactInterval gz = (ExactInterval.Of(r.Row2.x) * e.Gx + ExactInterval.Of(r.Row2.y) * e.Gy + ExactInterval.Of(r.Row2.z) * e.Gz) / sc;
+                return new IntervalEnclosure { F = e.F, Gx = gx, Gy = gy, Gz = gz, Smooth = e.Smooth };
+            }
+            public double Value(ref Vector3d p) { Vector3d q = sim.Inverse(p); return inner.Value(ref q); }
         }
 
         [Theory]
