@@ -205,7 +205,13 @@ namespace geometry3Sharp.Tests
             var fill = new SmoothedHoleFill(m, loop) { TargetEdgeLength = 1.0 * MeanEdge(loop), SmoothAlpha = 1, ConstrainToHoleInterior = true };
             Assert.False(fill.Apply());
             Assert.Empty(fill.FillTriangles);
+            // the input is as before: every vertex and triangle with its id and coordinates, nothing else
+            Assert.Equal(before.VertexCount, m.VertexCount);
+            Assert.Equal(before.TriangleCount, m.TriangleCount);
+            foreach (int v in before.VertexIndices()) Assert.True(m.IsVertex(v) && m.GetVertex(v) == before.GetVertex(v), "vertex " + v);
+            foreach (int tid in before.TriangleIndices()) Assert.True(m.IsTriangle(tid) && m.GetTriangle(tid) == before.GetTriangle(tid), "triangle " + tid);
             Assert.Equal("", Invariance.GeometricDifference(before, m));
+            Assert.Equal(loop.Vertices.OrderBy(v => v), new MeshBoundaryLoops(m).Loops.OrderByDescending(l => l.VertexCount).First().Vertices.OrderBy(v => v));
             Assert.Equal(2, new MeshBoundaryLoops(m).Count);          // the hole and the stray triangle
         }
 

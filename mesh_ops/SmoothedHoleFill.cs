@@ -23,7 +23,8 @@ namespace gs
     /// (exactly; intersections the input has are not counted). If it does not hold, the hole is reopened and filled again
     /// with TargetEdgeLength 0.75, 1 and 0.5 times the mean boundary edge length (an edge length well above the boundary's
     /// folds the coarse fan fill over the seam, #1507); if no attempt is sound, Apply() returns false and the mesh is as
-    /// before (FillTriangles and FillVertices empty). The check scans the mesh once per attempt.
+    /// before (the hole is open again, the vertices and triangles of the input keep their ids and coordinates; MaxVertexID and MaxTriangleID
+    /// may be larger; FillTriangles and FillVertices are empty). The check scans the mesh once per attempt.
     /// </summary>
     public class SmoothedHoleFill
     {
@@ -91,7 +92,7 @@ namespace gs
         /// Fill the hole: FillLoop if set, otherwise the loop with the most edges in BorderHintTris, otherwise
         /// the loop with the most vertices. Sets FillTriangles and FillVertices.
         /// </summary>
-        /// <returns>false if the mesh has no boundary loop, the initial fill (or offset extrusion) failed, or with ConstrainToHoleInterior no attempt gave a fill without a fold or intersection (the mesh is unchanged); true otherwise</returns>
+        /// <returns>false if the mesh has no boundary loop, the initial fill (or offset extrusion) failed, or with ConstrainToHoleInterior no attempt gave a fill without a fold or intersection (the mesh is then unchanged); true otherwise</returns>
         public bool Apply()
         {
             EdgeLoop useLoop = null;
@@ -114,6 +115,7 @@ namespace gs
             // The interior-constrained fill is checked against its surroundings and retried from the original hole with
             // shorter edges if it folds back over the seam or intersects the mesh (#1507)
             bool guarded = ConstrainToHoleInterior && OffsetDistance <= 0 && useLoop.Vertices.Length > 3;
+            AttemptCount = 0;
             List<double> lengths = new List<double> { TargetEdgeLength };
             if (guarded) {
                 double boundary = mean_boundary_edge(useLoop);
@@ -124,6 +126,7 @@ namespace gs
                 }
             }
             for (int attempt = 0; attempt < lengths.Count; ++attempt) {
+                ++AttemptCount;
                 int fill_result = fill_once(useLoop, lengths[attempt]);
                 if (fill_result <= 0)
                     return fill_result == 0 ? false : true;
@@ -217,6 +220,9 @@ namespace gs
         /// when the edge length is well above the boundary edge length, and runs into the surrounding mesh when it is
         /// far below (#1507); about the boundary edge length followed the seam in every case measured.
         /// </summary>
+        /// <summary> number of fill attempts of the last Apply() (1 unless the first fill was not sound) </summary>
+        internal int AttemptCount;
+
         static readonly double[] RetryBoundaryFactors = { 0.75, 1.0, 0.5 };
 
         static double mean_boundary_edge(EdgeLoop loop)
