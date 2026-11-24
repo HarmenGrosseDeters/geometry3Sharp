@@ -1419,10 +1419,11 @@ ids) and times every part of the test checker C0-C5 (with C2) against the boolea
 (seeds 0-3, three operations; `BooleanFuzzCases.cs` and its helpers are linked in) and the 17 + 4 cases above.
 
 ```
-dotnet run -c Release -- certify size 3 4          # -> perf/certify_size.txt
+dotnet run -c Release -- certify size 3 4          # -> perf/certify_size.txt (before step A), perf/certify_size_step_a.txt (after)
+dotnet run -c Release -- certify size 1 0 "torus+torus linked|fine box"   # only the cases whose name contains one of the |-separated parts (seeds 0: no fuzz runs)
 ```
 
 Headline (4 cores, the checker serial): certificate R 0.6-4.0 times the input mesh's bytes (S 0.5-3.4), labels 0.07-0.4; all 105
 runs certify or are inconclusive by the documented limits (4 runs with sliver triangles not covered, 1 with removed parts); the checker as
 built 1.1-118 times the boolean on the fuzz runs (median 9.6), 2-2350 on the procedural cases, the outliers above 20 s in C2's in-plane
-straddle loop and in C5 on tori.
+straddle loop and in C5 on tori. Step A (box filters in C2 and a double filter in C5, test code only) removed both: see section 8 of the note.
