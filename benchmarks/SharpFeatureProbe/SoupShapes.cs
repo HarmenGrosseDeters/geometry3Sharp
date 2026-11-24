@@ -22,11 +22,13 @@ sealed class Soup
     public List<Vector3d> V = new List<Vector3d>();       // 3 per triangle
     public List<Vector3d> Clean = new List<Vector3d>();   // the unbroken positions (ground truth lookups)
     public List<int> PatchOf = new List<int>();           // per triangle
+    public Dictionary<int, Vector3d> Shift = new Dictionary<int, Vector3d>();   // per patch: the gap breakage's move
     public int Count => PatchOf.Count;
     public Soup Copy()
     {
         var s = new Soup();
         s.V.AddRange(V); s.Clean.AddRange(Clean); s.PatchOf.AddRange(PatchOf);
+        foreach (var kv in Shift) s.Shift[kv.Key] = kv.Value;
         return s;
     }
     public void Add(Vector3d a, Vector3d b, Vector3d c, Vector3d ca, Vector3d cb, Vector3d cc, int patch)
@@ -231,6 +233,14 @@ static class SoupShapes
     /// </summary>
     public static (List<(Vector3d a, Vector3d b, double dih)> creases, List<(Vector3d a, Vector3d b)> jumps) Truth(List<Patch> ps, Soup clean, double h)
     {
+        var (cr, jumps, _) = TruthWithPatches(ps, clean, h);
+        return (cr, jumps);
+    }
+
+    /// <summary> Truth, with the two patches of every crease segment </summary>
+    public static (List<(Vector3d a, Vector3d b, double dih)> creases, List<(Vector3d a, Vector3d b)> jumps, List<(int pa, int pb)> pairs) TruthWithPatches(List<Patch> ps, Soup clean, double h)
+    {
+        var pairs = new List<(int, int)>();
         var mesh = SoupWeld.Weld(clean, 1e-9 * h, out int[] triOf);
         var tp = new int[mesh.MaxTriangleID];
         for (int t = 0; t < clean.Count; ++t) if (triOf[t] >= 0) tp[triOf[t]] = clean.PatchOf[t];
@@ -243,9 +253,9 @@ static class SoupShapes
             Index2i ev = mesh.GetEdgeV(eid);
             Vector3d a = mesh.GetVertex(ev.a), b = mesh.GetVertex(ev.b), m = 0.5 * (a + b);
             double dih = Vector3d.AngleD(pa.N(m), pb.N(m));
-            if (dih > 5) { cr.Add((a, b, dih)); jumps.Add((a, b)); }
+            if (dih > 5) { cr.Add((a, b, dih)); jumps.Add((a, b)); pairs.Add((pa.Id, pb.Id)); }
             else if (pa.K1 != pb.K1 || pa.K2 != pb.K2) jumps.Add((a, b));
         }
-        return (cr, jumps);
+        return (cr, jumps, pairs);
     }
 }

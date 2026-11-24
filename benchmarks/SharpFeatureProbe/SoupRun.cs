@@ -55,6 +55,11 @@ static class SoupRun
             case "time": Time(w, D("sizes", "10000,50000,100000,200000")); break;
             case "check": Check(w, int.Parse(Get("tris", "20000"))); break;
             case "wrapbound": WrapBound(w, Get("shapes", "box,slot,vnotch,fillet").Split(','), tris); break;
+            case "soupwrap":
+                foreach (string shape in Get("shapes", "slot,vnotch,box,fillet").Split(','))
+                    foreach (string br in Get("breaks", "clean;soup;nonconf;jitter:0.1;dup:0.2;gap:0.3;gap:1;flip:0.2;mixnh:0.25;mixnh:0.5;mixnh:1;holes:0.1").Split(';'))
+                        SoupWrap(w, shape, br, tris, D("radius", "3.5"));
+                break;
             case "wrapbreak": WrapBreaks(w, Get("shapes", "slot"), tris, Get("breaks", "clean;soup;nonconf;jitter:0.025;holes:0.025;dup:0.05;gap:0.15;flip:0.1;mix:0.5").Split(';')); break;
             default: Console.Error.WriteLine("unknown soup mode " + mode); return 2;
         }
@@ -346,6 +351,113 @@ static class SoupRun
             row["varifold_all_edges_s"] = all.Seconds; row["varifold_us_per_query"] = 1e6 * (all.Seconds - (double)row["varifold_sample_s"]) / (3.0 * c.Soup.Count);
             Emit(w, row);
         }
+    }
+
+    // the sharp-feature pass on the wrap of a broken soup (docs/design/VARIFOLD_CREASE_INPUT.md): before (the default pass on the
+    // soup: dihedral creases), after (VarifoldCreases on the soup) and the ceiling (the default pass on the wrap of the clean
+    // welded copy). Every row measured against the clean welded copy's creases (EdgeClass: recall of the input's miter lines by the
+    // result's sharp edges within 1 and 3 offsets, precision the other way), with the clean status and the times
+    static void SoupWrap(StreamWriter w, string shape, string br, int tris, double[] radii)
+    {
+        var c = Build(shape, br, tris);
+        Soup clean = SoupShapes.Tessellate(c.Patches, c.H, null);
+        DMesh3 welded = SoupWeld.Weld(clean, 1e-9 * c.H, out _);
+        DMesh3 soup = br == "clean" ? welded : c.Soup.ToMesh();
+        // ceiling: the clean copy wrapped, its exact creases; oracle: the soup's wrap with the clean copy's exact creases (the same
+        // wrap as before / after: the best a crease source can do there, and the time without the varifold)
+        var runs = new List<(string name, DMesh3 input, bool vf, double radius)> { ("ceiling", welded, false, 0), ("oracle", welded, false, 0), ("before", soup, false, 0) };
+        foreach (double rr in radii) runs.Add(("after_r" + rr.ToString(CultureInfo.InvariantCulture), soup, true, rr));
+        MeshAlphaWrap wrapSoup = null, wrapClean = null; double tSoup = 0, tClean = 0;
+        foreach (var (name, input, vf, radius) in runs) {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            MeshAlphaWrap wrap;
+            bool soupWrap = name != "ceiling";
+            if (soupWrap && wrapSoup != null) wrap = wrapSoup;
+            else if (!soupWrap && wrapClean != null) wrap = wrapClean;
+            else {
+                wrap = new MeshAlphaWrap(soupWrap ? soup : welded) { RelativeAlpha = 300, RelativeOffset = 3000 };
+                wrap.Compute();
+                if (soupWrap) { wrapSoup = wrap; tSoup = sw.Elapsed.TotalSeconds; } else { wrapClean = wrap; tClean = sw.Elapsed.TotalSeconds; }
+            }
+            sw.Restart();
+            var fp = new AlphaWrapFeaturePass(new DMesh3(wrap.Result, true), input, wrap.UsedAlpha, wrap.UsedOffset) { VarifoldCreases = vf };
+            if (vf) fp.VarifoldRadius = radius;
+            fp.Compute();
+            double tPass = sw.Elapsed.TotalSeconds;
+            var row = new Dictionary<string, object> { ["kind"] = "soupwrap", ["shape"] = shape, ["break"] = br, ["run"] = name, ["input_tris"] = input.TriangleCount,
+                ["h_over_alpha"] = c.H / wrap.UsedAlpha, ["wrap_s"] = soupWrap ? tSoup : tClean, ["wrap_tris"] = wrap.Result.TriangleCount, ["pass_s"] = tPass,
+                ["input_creases"] = fp.InputCreases, ["snaps"] = fp.CreaseSnaps, ["splits"] = fp.Splits, ["flips"] = fp.Flips, ["plane_moves"] = fp.PlaneMoves,
+                ["not_clean"] = MeshRobustRepair.NotCleanReason(fp.Mesh) };
+            if (vf) {
+                // the varifold's share of the pass: the measure (built once) and the queries
+                double f = 1.0 / System.Diagnostics.Stopwatch.Frequency;
+                row["measure_s"] = fp.VarifoldBuildTicks * f; row["query_s"] = fp.VarifoldQueryTicks * f; row["queries"] = fp.VarifoldQueries;
+            }
+            EdgeClass.Add(welded, fp.Mesh, wrap.UsedAlpha, wrap.UsedOffset, row, 5000);
+            MiterMetric(c, fp.Mesh, wrap.UsedAlpha, wrap.UsedOffset, row);
+            // recall over both classes (by length) on the miter lines, within 1 and 3 offsets
+            double lc = (double)row["ec_len_cvx"], lv = (double)row["ec_len_ccv"];
+            double R(string k) => row.TryGetValue(k, out var o) && o is double d ? d : 0;
+            row["recall_w1"] = (lc * R("ec_cvx_mi_w1") + lv * R("ec_ccv_mi_w1")) / Math.Max(1e-300, lc + lv);
+            row["recall_w3"] = (lc * R("ec_cvx_mi_w3") + lv * R("ec_ccv_mi_w3")) / Math.Max(1e-300, lc + lv);
+            row["precision_w3"] = R("ec_prec_mi_w3");
+            Emit(w, row);
+        }
+    }
+
+    // recall and precision of the result's sharp edges (dihedral > 30 degrees) against the offset surface's creases of the broken
+    // input itself: every true crease moved with its two patches (the gap breakage moves each patch rigidly), its miter line at one
+    // offset (n1 + n2) / (1 + n1.n2) from the moved planes' line, capped at 4 offsets as the pass caps it. (Jitter is noise around
+    // these lines; the clean copy's miter lines, EdgeClass, are off by the gap.) Rows m_rec1, m_rec3, m_prec1, m_prec3.
+    static void MiterMetric(Case c, DMesh3 result, double alpha, double offset, Dictionary<string, object> row)
+    {
+        Soup clean = SoupShapes.Tessellate(c.Patches, c.H, null);
+        var (cr, _, pairs) = SoupShapes.TruthWithPatches(c.Patches, clean, c.H);
+        var miter = new List<EdgeClass.Seg>();
+        Vector3d Map(Vector3d x, int ia, int ib)
+        {
+            Patch pa = c.Patches[ia], pb = c.Patches[ib];
+            Vector3d na = pa.N(x), nb = pb.N(x);
+            c.Soup.Shift.TryGetValue(ia, out Vector3d da); c.Soup.Shift.TryGetValue(ib, out Vector3d db);
+            double cc = na.Dot(nb), det = 1 - cc * cc;
+            Vector3d p = x + 0.5 * (da + db);
+            if (det > 1e-9) {
+                double r1 = na.Dot(x + da) - na.Dot(p), r2 = nb.Dot(x + db) - nb.Dot(p);
+                p += (r1 - cc * r2) / det * na + (r2 - cc * r1) / det * nb;
+            }
+            Vector3d sft = (na + nb) / Math.Max(1 + cc, 1e-12) * offset;
+            if (sft.Length > 4 * offset) sft *= 4 * offset / sft.Length;
+            return p + sft;
+        }
+        for (int i = 0; i < cr.Count; ++i) miter.Add(new EdgeClass.Seg { A = Map(cr[i].a, pairs[i].pa, pairs[i].pb), B = Map(cr[i].b, pairs[i].pa, pairs[i].pb) });
+        var sharp = new List<EdgeClass.Seg>();
+        double cos30 = Math.Cos(30 * MathUtil.Deg2Rad);
+        foreach (int eid in result.EdgeIndices()) {
+            Index2i et = result.GetEdgeT(eid);
+            if (et.b < 0 || result.GetTriNormal(et.a).Dot(result.GetTriNormal(et.b)) > cos30) continue;
+            Index2i ev = result.GetEdgeV(eid);
+            sharp.Add(new EdgeClass.Seg { A = result.GetVertex(ev.a), B = result.GetVertex(ev.b) });
+        }
+        Vector3d o = result.CachedBounds.Min - 8 * alpha * Vector3d.One;
+        List<Vector3d> Samples(List<EdgeClass.Seg> segs, int n)
+        {
+            double total = segs.Sum(g => g.A.Distance(g.B)), step = total / n, acc = 0, next = 0.5 * step;
+            var pts = new List<Vector3d>();
+            if (!(total > 0)) return pts;
+            foreach (var g in segs) { double l = g.A.Distance(g.B); while (next < acc + l) { pts.Add(Vector3d.Lerp(g.A, g.B, (next - acc) / l)); next += step; } acc += l; }
+            return pts;
+        }
+        (double, double) Within(List<Vector3d> pts, List<EdgeClass.Seg> segs)
+        {
+            if (pts.Count == 0 || segs.Count == 0) return (0, 0);
+            var grid = new EdgeClass.SegGrid(segs, alpha, o);
+            int w1 = 0, w3 = 0;
+            foreach (var p in pts) { double d = grid.Nearest(p, 2 * alpha); if (d <= offset) w1++; if (d <= 3 * offset) w3++; }
+            return ((double)w1 / pts.Count, (double)w3 / pts.Count);
+        }
+        var (r1, r3) = Within(Samples(miter, 4000), sharp);
+        var (p1, p3) = Within(Samples(sharp, 4000), miter);
+        row["m_rec1"] = r1; row["m_rec3"] = r3; row["m_prec1"] = p1; row["m_prec3"] = p3;
     }
 
     // the wrap time of one breakage at a time (diagnosis of the slow wraps of mixed soups)

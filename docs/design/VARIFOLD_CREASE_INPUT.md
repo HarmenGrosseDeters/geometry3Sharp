@@ -1,8 +1,8 @@
 # Varifold creases as the input of the sharp-feature pass
 
-Status: **design, 2026-11-24** (owner go 2026-11-24, after the study
-[research/VARIFOLD_FEATURES_CURVATURE_2026-11.md](../research/VARIFOLD_FEATURES_CURVATURE_2026-11.md), #1537). Step 1 of 2: no
-library code until the coordinator's OK on this note.
+Status: **built, 2026-11-24** (owner go 2026-11-24, after the study
+[research/VARIFOLD_FEATURES_CURVATURE_2026-11.md](../research/VARIFOLD_FEATURES_CURVATURE_2026-11.md), #1537; note approved by the
+coordinator, then built in the same PR #1541). Sections 1-8: the design as approved; section 9: what was built and measured.
 
 ## 1. Problem
 
@@ -179,3 +179,100 @@ Papers only, already listed for the study in [sources/meshing-and-repair.md](../
 Leonardi, Masnou (ARMA 2017; Nonlinear Analysis 2022); Buet, Rumpf (M2AN 2022); Hutchinson (1986); Weber, Hahmann, Hagen
 (SMI 2010, the Gauss map clustering this test resembles); Kobbelt et al. 2001 (the pass itself). The library row gets this
 note and the new class added. No code read or ported.
+
+## 9. Built and measured
+
+**What changed from the note.** Two guards were added to the crease test after the first test run found false creases on
+smooth parts. A thin cylinder (radius 0.25 alpha-units, below the ball) and a sphere next to a box, all unwelded, gave 28
+sharp edges on the smooth parts against the wrap's 4.
+
+- **The mass between the planes.** At most `MaxBetweenFraction = 0.3` of the ball's mass may have a normal between the two
+  planes: outside both clusters and within 30 degrees of their great circle. A curved surface spreads its normals there. A
+  third plane at a corner has its normal along the crease line and does not count. A first version, "the two planes hold 70
+  % of the mass", rejected true creases near corners: the L-shape's coverage under the UTM similarity fell to 0.75.
+- **Planarity.** Each cluster's rms distance from its plane must be at most `MaxRmsFraction = 0.1` of the radius. A thin
+  cylinder gives each cluster two opposite strips.
+
+The rest is as in sections 3-8: the point query replaces `near_miter`, the radius is 3.5 alpha, the tolerance 0.5 offset + 3
+rms, and the default path is untouched.
+
+**Benchmark.** Command: `SharpFeatureProbe soup soupwrap benchmarks/SharpFeatureProbe/results/soup/soupwrap.jsonl tris=100000
+"breaks=clean;soup;nonconf;jitter:0.025;dup:0.2;gap:0.15;gap:0.3;flip:0.2;mixnh:0.25;mixnh:0.5"` (raw rows there; 4 cores, the
+wrap 300 / 3000).
+
+Each case runs the wrap of the broken soup with three passes on it:
+
+| row | input of the pass | creases from |
+|---|---|---|
+| before | the soup | the dihedral (finds none) |
+| after | the soup | `VarifoldCreases` |
+| oracle | the clean welded copy | its exact dihedral |
+
+The ceiling is the clean copy's own wrap with its exact creases.
+
+The metric is recall and precision of the result's sharp edges (dihedral > 30 degrees) against the offset surface's creases
+of the broken input itself, within 1 and 3 offsets. Every true crease is moved with its two patches by the gap breakage.
+`mixnh` is the mixed breakage without holes: holes wider than alpha let the wrap inside (#1542).
+
+Recall within 1 offset (within 3 for the gap rows):
+
+| breakage | slot before -> after (ceiling) | vnotch before -> after (ceiling) | box | fillet |
+|---|---|---|---|---|
+| clean | 0.995 -> 0.995 | 0.979 -> 0.979 | 0.999 -> 0.999 | 0.998 -> 0.998 |
+| soup (unwelded) | 0.836 -> **0.996** (0.995) | 0.900 -> **0.980** (0.979) | 0.977 -> 0.999 | 0.975 -> 0.998 |
+| nonconf (T-junctions) | 0.838 -> 0.997 | 0.899 -> 0.978 | 0.977 -> 0.999 | 0.975 -> 0.997 |
+| dup:0.2 | 0.838 -> 0.995 | 0.898 -> 0.978 | 0.978 -> 0.999 | 0.970 -> 0.998 |
+| flip:0.2 | 0.836 -> 0.996 | 0.900 -> 0.977 | 0.978 -> 0.999 | 0.971 -> 0.998 |
+| jitter:0.025 (oracle) | 0.802 -> 0.949 (0.987) | 0.860 -> 0.955 (0.968) | 0.934 -> 0.988 (0.986) | 0.931 -> 0.982 (0.988) |
+| gap:0.15, within 3 offsets | 0.841 -> 0.992 | 0.822 -> 0.964 | 0.989 -> 0.994 | 0.972 -> 0.987 |
+| gap:0.3, within 3 offsets | 0.570 -> 0.969 | 0.585 -> 0.877 | 0.668 -> 0.924 | 0.611 -> 0.889 |
+| mixnh:0.5, within 3 offsets | 0.839 -> 0.967 | 0.805 -> 0.923 | 0.981 -> 0.984 | 0.921 -> 0.973 |
+
+Every result is clean (`NotCleanReason == ""`, 160 of 160 rows).
+
+**Against the targets** (section 5):
+
+| target | result |
+|---|---|
+| recall within 10 % of the ceiling, up to `mix:0.5` | **met**. Unwelded, T-junction, duplicate and flip rows: equal to the ceiling. Jitter: within 4 % of the oracle. Gap rows (`gap:0.15` and the `mixnh` gaps), within 3 offsets: 0.92-0.99 against the ceiling's 0.99-1.00. |
+| `gap:1` | not measurable at 100k: a gap of 1 h is 1.8 alpha, so the wrap goes inside the shell, as with the holes (#1542). `gap:0.3` (0.55 alpha) is the widest gap the wrap still closes: 0.88-0.97 within 3 offsets, above 0.9 times the ceiling on two of four shapes. |
+| precision not more than 5 points below the ceiling | **met** where the geometry is not moved: unwelded, T-junctions, duplicates, flips. Jitter, against the oracle: box, fillet and vnotch within 3 points, **slot 10.6 points below** (0.828 against 0.934). |
+
+The slot's precision miss does not move with the ball (radius 2.5, 3.5 and 5 alpha give 0.825, 0.828, 0.828:
+`soup soupwrap .../soupwrap_radius.jsonl tris=100000 shapes=slot "breaks=jitter:0.025;mixnh:0.5" radius=2.5,3.5,5`). So the crease test accepts the same points. What differs is the pass's vertex planes: on the soup it takes them from the
+nearest jittered triangles, while the oracle takes them from the clean ones (first candidate below).
+
+**Cost.** The varifold's share of the pass (the measure plus the queries, timed inside the pass: `VarifoldBuildTicks`,
+`VarifoldQueryTicks`):
+
+| measure | value |
+|---|---|
+| total | 0.16-0.39 s over the 40 cases, the note's bound 0.20-0.47 s |
+| of it, queries | 0.02-0.14 s, 1900-10300 queries |
+| share of the soup's wrap | 3.0-11.9 % |
+| target | < 20 % |
+
+**Tests** (`VarifoldCreaseInputTests`, `VarifoldCreaseInputOnBaseTests`, `DocExamplesTests`): 19 tests, the slowest 3.7 s.
+
+- `FeaturePass_UnweldedSoup_RecoversTheConcaveCrease` fails on master: no creases, coverage 0.
+- Each guard of the crease test has a query-level test that isolates it.
+- 14 hand mutants, all killed:
+  - the share of each plane (A and B);
+  - the between guard;
+  - the plane distance (A and B);
+  - the rms guard;
+  - the dihedral threshold;
+  - the cluster angle;
+  - the half-plane orientation;
+  - the kernel weight;
+  - the radius cut;
+  - in the pass: accept every crease point, take x0 = m, no varifold.
+- Neither changed file is in a mutation shard, so there is no Stryker run.
+
+**Next candidates.** The quality misses above are bounded by the oracle and the cost by its target:
+
+| candidate | bound |
+|---|---|
+| The vertex planes on a jittered soup from the varifold's fitted plane (mass-weighted over a ball) instead of the nearest triangle | up to the oracle: slot jitter +0.04 recall, +0.11 precision; nothing on the unmoved breakages, already at the ceiling |
+| A gap-aware placement (planes of the two patches as the label planes near a gap) | `gap:0.3` within 3 offsets 0.88-0.97 now, within 1 offset 0.31-0.68; the bound is the ceiling 0.99, but the reference crease of a gapped input is ambiguous at one offset (the faces are 5 offsets apart) |
+| Local sampling (only near crossing edges) | the measure is 70-90 % of the varifold's share; at most -0.15 to -0.3 s per pass; not needed while the share stays below 12 % |
