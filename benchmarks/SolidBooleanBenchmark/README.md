@@ -253,17 +253,24 @@ dotnet run -c Release --project benchmarks/SolidBooleanBenchmark -- verify
 The cost of the opt-in checks next to the run without them (`Verification = None`, the same code path as before the option). Median of 5 runs of the whole
 `Compute()` after one warm-up run, `net10.0`, Release, Windows, one process (timings vary by 10-20 %); the limits are at infinity, so every run is a success.
 The checks ms are `Report.VerificationMilliseconds`. `RoundingVolume` only reads two numbers of the run (its cost is in the noise: both columns agree);
-`NoInventedSurface` builds one AABB tree per input and asks seven nearest-triangle queries per result triangle, serially (about 5 microseconds per result
+`NoInventedSurface` builds one AABB tree per input and asks seven nearest-triangle queries per result triangle, serially (about 6 microseconds per result
 triangle).
 
 | case | input tris | result tris | None ms | NoInventedSurface ms (checks ms) | both ms (checks ms) | invented share |
 |---|---|---|---|---|---|---|
-| sphere+sphere U, 8 edge vertices | 1176 | 1086 | 15 | 34 (20) | 35 (20) | 0 |
-| sphere+sphere U, 16 edge vertices | 5400 | 4442 | 41 | 69 (30) | 65 (24) | 0 |
-| sphere+sphere U, 32 edge vertices | 23064 | 17878 | 70 | 164 (95) | 191 (102) | 0 |
-| sphere+sphere U, 64 edge vertices | 95256 | 71690 | 190 | 560 (365) | 557 (369) | 0 |
-| box-sphere D, 16 edge vertices | 5400 | 4222 | 26 | 45 (19) | 44 (20) | 0 |
-| box-sphere D, 48 edge vertices | 53016 | 39968 | 122 | 318 (196) | 312 (194) | 0 |
+| sphere+sphere U, 8 edge vertices | 1176 | 1086 | 93 | 282 (43) | 209 (44) | 0 |
+| sphere+sphere U, 16 edge vertices | 5400 | 4442 | 245 | 299 (65) | 224 (42) | 0 |
+| sphere+sphere U, 32 edge vertices | 23064 | 17878 | 120 | 236 (114) | 217 (108) | 0 |
+| sphere+sphere U, 64 edge vertices | 95256 | 71690 | 260 | 635 (432) | 677 (458) | 0 |
+| box-sphere D, 16 edge vertices | 5400 | 4222 | 36 | 57 (27) | 56 (23) | 0 |
+| box-sphere D, 48 edge vertices | 53016 | 39968 | 143 | 376 (227) | 371 (221) | 0 |
+| big box 2e4 & sphere 1e-3 on its top face I, 16 edge vertices | 2712 | 1468 | 11 | 23 (12) | 23 (11) | 0 |
+| big box 2e4 & sphere 1e-3 on its top face I, 32 edge vertices | 11544 | 6012 | 35 | 82 (48) | 86 (49) | 0 |
+
+(The machine was loaded by other sessions during this run: the None column is noisy; the checks column is about 6 microseconds per result triangle on the ordinary
+cases and 8 on the big-box case, where the exact search decides the samples that the bounded search cannot.) A sample that the bounded search shows to be within the
+tolerance is decided by it; every other sample is decided by a second search that ranks by the exact closest point (the tree's squared ranking has an absolute error of
+eps E^2 for a triangle of size E, which is noise for the big faces).
 
 Before the bounded search (a sample is looked up with a distance bound of the tolerance, which prunes the tree for a point on an input) the same checks
 took 5.7 s on the largest sphere case, 30 times the boolean.

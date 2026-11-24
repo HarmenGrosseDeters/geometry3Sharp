@@ -277,6 +277,11 @@ static class Program
             cases.Add(new Case { Name = "sphere+sphere U, " + n + " edge vertices", Op = ExactMeshBoolean.Operations.Union, Inputs = new List<DMesh3> { Sphere(Vector3d.Zero, 1, n), Sphere(new Vector3d(0.9, 0.15, 0.05), 1, n) } });
         foreach (int n in new[] { 16, 48 })
             cases.Add(new Case { Name = "box-sphere D, " + n + " edge vertices", Op = ExactMeshBoolean.Operations.Difference, Inputs = new List<DMesh3> { FineBox(Vector3d.Zero, new Vector3d(1, 1, 1), n), Sphere(new Vector3d(0.9, 0.15, 0.05), 0.8, n) } });
+        // faces much larger than the tolerance: a box of 2e4 and a sphere of 1e-3 whose centre lies on its top face (the exact search decides the samples
+        // that the bounded search cannot)
+        foreach (int n in new[] { 16, 32 })
+            cases.Add(new Case { Name = "big box 2e4 & sphere 1e-3 on its top face I, " + n + " edge vertices", Op = ExactMeshBoolean.Operations.Intersection,
+                Inputs = new List<DMesh3> { Box(Vector3d.Zero, new Vector3d(1e4, 1e4, 1e4)), Sphere(new Vector3d(1.1e-4, 0.7e-4, 1e4), 1e-3, n) } });
         foreach (var c in cases) {
             var times = new Dictionary<SolidBooleanPipeline.VerificationModes, List<long>>();
             var checks = new Dictionary<SolidBooleanPipeline.VerificationModes, List<long>>();
