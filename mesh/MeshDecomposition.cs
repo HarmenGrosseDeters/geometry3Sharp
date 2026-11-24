@@ -145,7 +145,7 @@ namespace g3
             // precompute triangle centroids - wildly expensive to
             // do it inline in sort (!)  I guess O(N) vs O(N log N)
             Vector3d[] centroids = new Vector3d[mesh.MaxTriangleID];
-            gParallel.ForEach(mesh.TriangleIndices(), (ti) => {
+            gParallel.ForEachSmall(mesh.TriangleIndices(), (ti) => {
                 if (mesh.IsTriangle(ti))
                     centroids[ti] = mesh.GetTriCentroid(ti);
             });

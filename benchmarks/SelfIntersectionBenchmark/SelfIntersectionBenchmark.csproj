@@ -5,7 +5,13 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>disable</Nullable>
     <ServerGarbageCollection>false</ServerGarbageCollection>
+    <!-- -p:TriTriProbe=true: the upper-bound probe of a tri-tri plane filter; needs probe/tritri_probe.patch applied -->
+    <DefineConstants Condition="'$(TriTriProbe)' == 'true'">$(DefineConstants);TRITRI_PROBE</DefineConstants>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="probe/**" Condition="'$(TriTriProbe)' != 'true'" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\geometry3Sharp_netstandard.csproj" />

@@ -244,6 +244,81 @@ LEDA and Coq polyhedra.
 - The two outliers above 20 s are diagnosed only by reading (C2) or not at all (C5).
 - The prior-art check reached abstracts and search snippets, not the full texts of the 2026 arXiv paper or the CPP 2023 paper.
 
+## 8. Step A: the quadratic outliers removed (2026-11-24)
+
+Test and benchmark code only (`BooleanCertificate.cs`, its tests, the benchmark's name filter). Raw output: `perf/certify_size_step_a.txt`
+(same command and machine class as section 4, the checker serial; the earlier numbers are `perf/certify_size.txt`).
+
+**Causes (profiled, not only read).**
+1. C2 on touching coplanar inputs: two loops of pieces times all coplanar input triangles of the plane, each a BigInteger test with
+   no box filter: the straddle loop (29 s on fine box edge-touch) and the stacks of C3, prepared inside the first C2 call (4 s). The pair
+   search itself took 0.5 s.
+2. C5 on tori: not the number of exact tests (162 000) but their price: each `Near` is a BigInteger rational distance (with gcd
+   reductions), about 50 microseconds, and a triangle needed about 27 of them. The grid gave 45 candidates per triangle. Distances were
+   tiny (Delta 4e-5 against triangles of 0.02), so almost all tests were decidable in doubles.
+
+**Fixes (verdicts unchanged, soundness kept).**
+- C2: a box filter in front of both loops (`CoplanarNear`): per plane with more than 8 input triangles a box tree (the existing
+  `EmbeddingBoxTree`, now with `Query`), otherwise a linear box scan. Boxes come from the exact corners' approximations widened by a
+  relative 2^-49 (as C2's pair boxes). A pair whose boxes are disjoint is disjoint, so the exact test (`StraddlesInPlane`,
+  `InsideInPlane`) is only skipped where it must answer "no". The source triangle is always kept; candidates stay in group order.
+- C5: two one-sided double filters before the exact `Near`: reject when the point is farther than Delta + 3 eps from the box of the
+  triangle's approximated corners, accept when a point inside the triangle (a clamped convex combination, so even a wrong region of the
+  closest-point routine only gives a larger distance) is within Delta - 3 eps. eps = 2^-40 times the largest coordinate plus extent, never below 2^-480 (below that the squares in the distance underflow: the review of #1520 found an unsound accept at 2^-560).
+  Everything between, and every point without a finite approximation, goes to the exact test.
+
+**Soundness evidence.** Tests: `CoplanarBoxFilter_LosesNoPair_OnFineFaceContacts` (audit against the exact tests, planes of 60-70
+triangles, all operations), `InjectedMissedSplit_OnFineFaces_IsCaughtThroughTheBoxTree` (a wrong result that must not certify; the
+filtered checker agrees with the unfiltered exact brute force on every case), `CoverageFilters_AgreeWithTheExactDistanceTest` (8 000
+random lattice cases, scales 1 and 2^20, plus distances delta +- 2^-30 .. 2^-60). Hand mutations, each turning at least one test red:
+query node test flipped (3 tests), linear scan comparison flipped (16), straddle loop with no neighbours (2), stacks with no neighbours
+(18), box slack removed (18), C5 reject tolerance flipped (48), C5 accept margin flipped (1: only the borderline cases catch it),
+accept with a loose margin (2).
+
+**Verdicts.** All 105 runs (84 fuzz, 21 procedural) end as before: 100 certified, 4 with uncovered slivers, 1 with removed parts, 0
+fail; the verdict text of every run is identical.
+
+**Times** (ms, after / before; in brackets times the boolean):
+
+| Case | Boolean | C1 | C2 | C5 | Checker before (x) | Checker after (x) |
+|---|---|---|---|---|---|---|
+| box+box overlap U | 0.8 | 1 → 1 | 11 → 10 | 2 → 1 | 15 (18) | 14 (17) |
+| box+box face-touch U | 0.8 | 0 → 0 | 0 → 0 | 0 → 0 | 1 (3) | 1 (1) |
+| box+box edge-touch U | 0.6 | 0 → 0 | 0 → 0 | 0 → 0 | 1 (2) | 1 (2) |
+| sphere+sphere overlap U | 45.7 | 518 → 617 | 774 → 673 | 1444 → 999 | 3092 (82) | 2547 (56) |
+| sphere&sphere overlap I | 23.1 | 511 → 510 | 748 → 740 | 534 → 386 | 2119 (93) | 2050 (89) |
+| sphere-sphere D | 26.8 | 413 → 494 | 583 → 571 | 1125 → 830 | 2901 (97) | 2717 (101) |
+| sphere+sphere tangent-ish U | 11.1 | 198 → 237 | 236 → 197 | 665 → 417 | 1210 (87) | 938 (84) |
+| box-cylinder D | 4.9 | 14 → 13 | 212 → 227 | 18 → 15 | 254 (60) | 265 (54) |
+| torus+cylinder U | 16.0 | 180 → 162 | 824 → 529 | 487 → 361 | 1584 (100) | 1221 (76) |
+| torus+torus linked U | 37.9 | 351 → 418 | 803 → 762 | 17128 → 982 | 18447 (517) | 2318 (61) |
+| fine box edge-touch U | 18.6 | 160 → 159 | 43700 → 1357 | 1114 → 1061 | 45045 (2346) | 2638 (142) |
+| fine box vertex-touch U | 14.6 | 160 → 154 | 35013 → 1440 | 1051 → 775 | 36313 (1834) | 2440 (167) |
+| sphere on box face (pole touch) U | 18.2 | 396 → 403 | 14380 → 970 | 1351 → 984 | 16384 (645) | 2576 (142) |
+| two cylinders line-touch U | 3.5 | 12 → 8 | 643 → 304 | 38 → 22 | 703 (241) | 341 (99) |
+| cylinder on box, partial face-touch U | 36.6 | 175 → 168 | 27337 → 1732 | 416 → 395 | 27988 (684) | 2348 (64) |
+| 3 spheres U | 39.2 | 620 → 614 | 1502 → 1292 | 1396 → 844 | 3939 (103) | 3095 (79) |
+| box+sphere+cyl U | 21.6 | 401 → 514 | 771 → 799 | 759 → 612 | 2074 (91) | 2051 (95) |
+| sphere+sphere U n=16 | 17.8 | 260 → 295 | 368 → 367 | 635 → 410 | 1377 (63) | 1158 (65) |
+| sphere+sphere U n=64 | 190.0 | 3194 → 2739 | 3783 → 3469 | 11333 → 9035 | 20984 (112) | 17663 (93) |
+| torus-torus D nu=128 | 92.3 | 888 → 794 | 2297 → 1815 | 52449 → 2924 | 60590 (531) | 11154 (121) |
+| fine box face-on-face U n=16 | 22.5 | 198 → 166 | 38096 → 1771 | 407 → 353 | 38790 (1779) | 2359 (105) |
+
+Fuzz runs: checker / boolean median 8.3 (before 9.6), maximum 49 (before 118).
+
+**Stop rule.** Under 20 s: met by every case (largest: sphere+sphere n=64, 17.7 s; torus-torus nu=128 went from 60.6 s to 11.2 s).
+Under 50 times the boolean: **met only by the fuzz runs and the box cases; not met** by the curved and the fine-box cases (54-167 times).
+That is not a quadratic part any more: it is the linear BigInteger floor, measured per part: C1 0.1-3 s, the same-chain test of C5
+(string keys, gcds per edge: 7.4 s of the 9 s of C5 on n=64), C2's pair search (3 s on n=64), C0 (6 s on torus-torus nu=128). The
+earlier estimate (section 4: filtered C1, C3, C5 would bring the whole checker to 3-16 times) still stands; reaching 50 times needs a
+floating-point filter for C1, the pair search and the chains, a larger change than step A (a candidate for step C, where the filters
+are part of the design). Not done here.
+
+**Known gap (accepted by the owner, 2026-11-24).** The checker misses the 50 times target on curved and fine-box inputs (54-167
+times the boolean, section 8 table). Cause: the linear BigInteger floor in C0 (exact triangle tests and rays), C1 (exact areas and
+orientation), the C5 same-chain test (string keys and gcds per edge) and the C2 pair search. The 20 s limit is met by every case.
+Closing the gap means double filters in those four parts (step C territory), not a change of algorithm.
+
 ## Sources
 
 Papers and public documentation only. No code was read or ported, apart from this repository's own.
