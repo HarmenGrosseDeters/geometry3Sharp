@@ -1,7 +1,8 @@
-# Sheet extension: an opt-in convention for a cutting sheet that ends just short of the workpiece's surface
+# Sheet extension: a cutting sheet that ends just short of the workpiece's surface
 
-Status: design proposal (2026-11-24). Nothing is implemented. Section 9 lists what the owner has decided and what is
-open; section 10 is the plan, which starts with a spike. User-facing behaviour today:
+Status: design proposal, second version (2026-11-24). Nothing is implemented. The first version (a fixed-length strip
+with a four-part check of the cut) was withdrawn after an independent review built a counterexample; section 11 keeps
+what was learned. Section 9 lists what is decided and what is open; section 10 is the plan. User-facing behaviour today:
 [booleans-and-imprint.md](../guides/booleans-and-imprint.md#open-cutting-surface-sheet-role).
 
 ## 1. Problem
@@ -12,178 +13,203 @@ free edge of the sheet lies inside the workpiece: the sheet then does not divide
 sheet" is not defined.
 
 Observed by the owner on private inputs: a class of such refusals are sheets that are meant as through cuts and whose rim
-ends a little short of the workpiece's surface, by about 0.1 % to 1 % of the sheet's size. Two neighbouring classes look
-similar and are different problems:
+ends a little short of the workpiece's surface, by about 0.1 % to 1 % of the sheet's size. Neighbouring classes:
 
 | class | what it is | what answers it |
 |---|---|---|
 | flush rim | the rim is meant to lie in a face and sits a few rounding units inside it | the grid retry of `AutomaticSteps` ([PIPELINE_GRID_STEP.md](PIPELINE_GRID_STEP.md)); exact, no convention needed |
 | short rim | the rim ends visibly short of the surface (far more than a grid cell) | this note |
-| shell with a missing face | a closed body with one face removed, used as a tool | not this note (section 7) |
+| shell with a missing face | a closed body with one face removed, used as a tool | not decidable from the shape (section 7) |
 
 Today a short rim is refused, or, with `InputRepair = AutoRepair`, closed by a hole fill into a solid that the caller did
-not describe: the result then contains surface that lies on no input (what the planned `Verification` option calls
-invented surface).
+not describe.
 
 ## 2. Goal and non-goals
 
-- Goal: an opt-in option that extends such a sheet to the workpiece's surface and cuts, and that accepts the cut only if
-  a coarse check shows that it is unambiguous. Without the option nothing changes, bit for bit, and nothing extra is
-  computed.
-- Non-goals: no change of a default; no new meaning for a sheet that ends well inside the workpiece (a slit, a slot, a
+- Goal: a way to continue such a sheet to the workpiece's surface so that the sheet role can cut, with rules that make
+  the continuation local (it changes nothing but the band between the old rim and the surface) and that refuse where it
+  is not. Without it nothing changes, bit for bit, and nothing extra is computed.
+- Non-goals: no change of a default; no meaning for a sheet that ends well inside the workpiece (a slit, a slot, a
   pocket wall); no closing of open bodies; no change of the exact Boolean or of the sheet role's classification.
+- What no rule can decide: whether a sheet that ends short was meant to end there. That is intent, not geometry; it is
+  why every form of this is opt-in.
 
-## 3. The convention
+## 3. Three deliverables, in the order of their value
 
-Two members on `SolidBooleanPipeline`:
+- **A. Diagnosis (first, on its own).** The refusal says what is missing: the depth of the rim inside the workpiece
+  (section 7). With it a caller can decide between the grid, fixing the input, the extruded-cut recipe of the guide, and
+  B. This helps without any convention and may be enough.
+- **B. An explicit helper.** A public operation that takes a sheet and a workpiece and returns the sheet continued up to
+  the workpiece's surface, or a refusal with a reason (section 4). The caller runs it and passes the result as an
+  ordinary input. The Boolean stays exact and unchanged, the extended sheet is an input like any other (so a later
+  verification of the result has nothing to object to), and what was added is in the helper's report.
+- **C. A pipeline option** that calls B for a refused sheet and cuts. Only this needs the interplay rules of section 6.
+  Whether C is worth having is decided on the spike's numbers (section 10); B is its building block either way.
 
-```csharp
-public bool ExtendSheets = false;          // opt-in
-public double MaxSheetExtension = 0.05;    // relative to the sheet's diagonal; the owner's value (2026-11-23)
-```
+## 4. The construction: up to the surface, per rim vertex
 
-With `ExtendSheets`, a sheet that is still refused with `RimInsideWorkpiece` after the grid retry is tried again as an
-extended sheet:
+Input: the sheet `S` (the original triangles are kept exactly; only triangles are added) and the closed workpiece `W`.
 
-- **The strip.** Every rim vertex `v` gets one new point `v + e * d(v)`. `d(v)` is the outward direction of the rim at
-  `v`: for each of the two rim edges at `v`, the unit vector in the plane of the edge's triangle, perpendicular to the
-  edge and pointing away from the triangle; `d(v)` is their mitred mean (the mean, scaled by `1 / cos` of half the angle
-  between them, the scale capped at 2). Each rim edge gets one quad between its two vertices and their two new points,
-  split into two triangles and oriented like the triangle it continues. The original triangles are kept exactly; only
-  triangles are added.
-- **The length.** `e` is the smallest value on the ladder `L/8, L/4, L/2, L` times the sheet's diagonal, with
-  `L = MaxSheetExtension`, for which the sheet role accepts the extended sheet. If none is accepted, the refusal stands.
-- **The route.** `Report.Route` gets a step `SheetExtension` with the input, `e` (absolute and relative), the area of
-  the strip, and the numbers of the check (section 4), whether it passed or not.
+1. **Where.** Only the parts of the rim that lie inside `W` are continued: a rim vertex is inside by the exact winding
+   number of `W`; a run of inside vertices gets one edge of slack at each end. A rim outside `W` is left alone, so a
+   strip cannot reach into an unrelated part of the workpiece from outside.
+2. **Direction.** For a rim vertex `v` with rim edges `a` and `b`: `n_a`, `n_b` are the unit vectors in the plane of
+   each edge's triangle, perpendicular to the edge and pointing away from the triangle. `d(v) = normalize(n_a + n_b) /
+   cos(half the angle between n_a and n_b)`, the factor capped at 2 (a true mitre: the strip keeps its width at a
+   corner). A vertex on a non-manifold rim (more than two rim edges) gets one point per boundary wedge, or the helper
+   refuses with a named reason; the spike decides which.
+3. **Length.** A ray from `v` along `d(v)`. Its first exit from `W` at distance `g(v)` (the depth of the rim there). The
+   new point is `v + (g(v) + o) d(v)` with a small overshoot `o` so that the strip ends outside. One quad per rim edge
+   between its two vertices and their two new points, split into two triangles, oriented like the triangle it continues.
+4. **Refusals** (each with a reason and a witness):
+   - a ray has no exit within the limit (`g(v)` above `MaxExtension` times the sheet's diagonal);
+   - a ray crosses the surface of `W` again before its end (the overshoot enters other material);
+   - a quad is inverted (its outer edge runs against its rim edge: the rays of neighbouring vertices cross, as at a
+     notch narrower than the depth);
+   - the strip meets `W`'s surface anywhere other than in one curve per continued run, from one end of the run to the
+     other (checked with the exact triangle predicates; this is what stops a strip whose corner rays are fine and whose
+     interior passes through a fin);
+   - the strip intersects the sheet or itself.
+5. **Report.** Per continued run: the largest and mean depth `g`, the length of the run, the area of the strip inside
+   `W`, and the direction-uncertainty volume `U = sum over rim edges of (1/2) g^2 tan(delta) length`, the volume
+   by which the cut could move if the true continuation left the rim at an angle up to `delta` from the strip
+   (`delta` a parameter, proposed 15 degrees). `U` is compared with the smaller of the two parts the cut makes, not with
+   the workpiece.
 
-Why one mitred point per rim vertex and not one flat quad per rim edge with a fan at the vertex: at a concave rim vertex
-flat quads of neighbouring edges overlap, and the extended sheet would intersect itself; the mitred strip is a manifold
-surface for rim angles up to the cap. The price: where the rim is not planar the quads are slightly twisted. The spike
-(section 10) measures both variants on bent sheets before one is chosen.
+Why per vertex and up to the first exit: a strip of one fixed length is accepted by the sheet role as soon as it leaves
+the workpiece *somewhere suitable*, which can be after passing through a second wall (section 11). The first exit is the
+only length that is local.
 
-What the strip is not: a continuation of a curved sheet's curvature. It continues each rim triangle's plane. That is why
-the check below asks whether the result depends on the extension.
+## 5. What the rules guarantee, and what they do not
 
-## 4. The coarse check
+- The extended sheet equals the original outside the band between the old rim and the first surface the rays meet. The
+  band's width is `g(v)`, at most the limit.
+- The band meets the workpiece's surface in exactly one curve per run. So the cut it completes is the one the sheet
+  already made up to the rim; no other part of the workpiece is cut.
+- The reported `U` bounds what the direction of the continuation can change.
+- Not guaranteed: that the sheet was meant to go through (intent, section 2); that a curved sheet continues with its
+  curvature (the strip continues each rim triangle's plane; `U` is the measure of that).
 
-All four parts must hold, otherwise the run is refused exactly as without the option (the step in the route says which
-part failed).
+A cheap assertion for the implementation, not a safety check: the cut with the extended sheet and the cut with the
+reversed sheet keep volumes that add up to the workpiece's. It holds by construction for any accepted sheet cut (and
+changes its form with `UncutSide`), so it can only catch a bug in the implementation.
 
-1. **Sheet, not shell.** The tool must have one boundary loop, and a cap over that loop (a fan from the loop's
-   centroid, only measured, never used) must have an area of at least 0.45 of the area of the tool closed by it. A sheet
-   closed by a cap is a lens: the cap is about as large as the sheet, so its share is near 0.5. A body with a missing
-   face has a small cap. This part runs first; it costs one pass over the tool.
-2. **The cut is consistent.** The cut with the extended sheet and the cut with the extended sheet reversed both succeed
-   through the sheet role, and the two kept volumes add up to the workpiece's volume (relative error at most 1e-9, on
-   the volumes before the rounding repair). A wrong side or a partial cut cannot pass this.
-3. **The result does not depend on the extension.** The cut is computed again with twice the extension, `2 e`. The kept
-   volume changes by less than 1 % of the workpiece's volume. A sheet whose continuation matters (it bends near its rim,
-   or it ends far from the surface) fails here.
-4. **The extension is small.** The share of the new cut face of the result that lies on added triangles, not on the
-   original sheet, is at most 10 %. The share is reported in every case.
+## 6. Interplay (for the pipeline option C)
 
-Thresholds: 0.45, 1e-9, 1 % and 10 % are proposals. Each becomes a named constant with its reason, and the spike reports
-the margin of each on procedural inputs (how far the passing cases and the failing cases are from the threshold).
+- **Which tools.** Proposed: only sheets the caller STATED in `InputRoles`, not tools the pipeline routed by itself. A
+  stated sheet is the caller's word that the tool is a cutting surface. An auto-routed open tool may be a body with a
+  missing face, which shape cannot tell from a sheet (section 7).
+- **Order.** The direct sheet cut, then the grid retry (exact, and it answers the flush rim), then the extension, on the
+  inputs as given, not on the snapped copies. With `AutomaticSteps = None` the extension would also absorb flush rims;
+  the guide says to keep the grid retry on.
+- **Several sheets.** The sheet role names one refused sheet; only that sheet is continued, then the cut is tried again,
+  each sheet at most once. Sheets that were fine are not touched.
+- **`MinThickness` and thin inputs** are measured on the inputs as given, before the strip is added.
+- **After a refusal of the extension** the run continues exactly as without the option. Whether a failed extension
+  should also block the hole-fill fallback for that tool is open (section 9).
+- **`UncutSide`** is passed through; no rule above depends on it.
+- **Verification (`NoInventedSurface`, planned):** with the helper B the extended sheet is an input and nothing is
+  invented. Inside the pipeline option C the strip is not an input the caller passed: proposed, the strip is added to
+  the check's reference surfaces and the strip's area inside the workpiece is reported as what was added.
 
-## 5. Why this cannot produce a gross error silently
+## 7. What stays refused, and the diagnosis
 
-- A wrong side or a partial cut breaks part 2: the two sides do not add up.
-- A sheet that was not meant as a through cut (a slit that ends well inside) needs an extension above
-  `MaxSheetExtension`, or its continuation is arbitrary and part 3 or part 4 fails.
-- A body with a missing face fails part 1.
-- Every accepted result says in its route that the sheet was extended, by how much, and what share of the cut face is
-  new.
-
-What remains possible: a sheet that ends short, is nearly straight at its rim, and was nevertheless meant to end there.
-Geometry cannot tell that case from a short through cut. This is why the option is opt-in and why it is not part of
-`AutomaticSteps`.
-
-## 6. Order in the pipeline and interplay
-
-- **Before it:** the direct sheet cut, then the grid retry (`AutomaticSteps`), which is exact and cheaper and answers
-  the flush rim. The extension is tried only if the refusal is still `RimInsideWorkpiece`.
-- **After it:** if the extension is refused or fails its check, the run continues as today (the fallback, the input
-  repair or the refusal). The first failure's text stands; the step in the route records the try.
-- **Stated roles:** the option applies to auto-routed tools and to sheets stated in `InputRoles` alike: the caller
-  asked for it by name.
-- **`UncutSide`:** unchanged; it is passed to the cuts of the check as to any sheet cut.
-- **Verification (`NoInventedSurface`, planned):** the part of the cut face on the strip lies on no input the caller
-  passed in, so the check would count it as invented and, at its limit 0, refuse every extended cut. Proposal: when the
-  result comes from an accepted extension, the strip is added to the reference surfaces of the check, and the share
-  from part 4 is the reported measure of what was added. The alternative (the caller must raise
-  `MaxInventedSurfaceShare`) makes the two options unusable together. Open for the owner (section 9).
-- **Rounding:** the cuts of the check run the same rounding as any cut; the volumes of part 2 are those before the
-  rounding repair, so a thin result does not spoil the identity.
-
-## 7. What stays refused, with a better diagnosis
-
-A change without effect on results, in the same PR or before it: the refusal says what is missing.
+The diagnosis (deliverable A), without effect on results:
 
 - `RimInsideWorkpiece`: the largest depth of the rim inside the workpiece, absolute and relative to the sheet's
-  diagonal, and whether the tool passes part 1 (sheet or shell). With these two numbers a caller can decide between the
-  grid, the extension and fixing the input.
-- Body with a missing face: stays refused. Observed by the owner on private inputs: the openings of such tools are not
-  planar, so a flat cap does not exist and any closing is a guess. No convention is proposed.
-- Sheet with an edge used by more than two triangles (`NotSurface`): stays refused. A pre-step that separates the
-  pieces at such an edge is a separate question and needs its own procedural study.
-- Open workpiece (`WorkpieceNotClosed`): stays refused by default; the input repair stays opt-in.
+  diagonal, along the direction of section 4, or "no exit within the limit"; and the length of the rim that is inside.
+- A sheet with an edge used by more than two triangles (`NotSurface`) and an open workpiece (`WorkpieceNotClosed`) stay
+  refused as today.
 
-## 8. Tests (procedural, no fixture data) and cost
+Sheet or shell: the first version tried to tell a sheet from a body with a missing face by the area of a cap over the
+boundary loop. Measured on standard shapes, no such measure separates them: a spherical dome of half angle 60 degrees
+(a legitimate sheet) has a cap share of 0.43, a shallow open tray (a shell) 0.42; a hemisphere used as a sheet and a
+sphere with a missing face are the same geometry. It is intent. Hence the rule of section 6: the extension is for
+stated sheets. A shell whose opening lies just below the surface, stated as a sheet, would be continued into the pocket
+its caller probably meant; that is the stated role's consequence and is reported like any extension.
 
-- A box cut by a bent sheet (two planes meeting at an angle) whose rim ends 0.1 %, 0.5 % and 2 % of its diagonal short:
-  with the option the first two cut and give the analytic volume; the third is refused at `MaxSheetExtension = 0.01`
-  and cut at 0.05.
-- The same sheet ending in the middle of the box (a slit): refused at every limit (part 3 or 4), with the old status.
-- A box without a lid as the tool: refused (part 1).
-- A sheet that bends sharply just before its rim, so that the direction of the extension decides the cut: refused
-  (part 3).
-- A rim with a concave vertex, and a rim that is not planar: the strip is a manifold surface and the cut is accepted or
-  refused by the check, never by a self-intersection of the strip.
-- Far from the origin and in rotated frames: the same outcomes.
-- Without the option: every case as today, bit for bit.
-- The project's standard set: invariance over `Similarity.All()` (the 2^k scales bit for bit), reuse (compute twice),
-  repeated runs; success paths check the result (closed, manifold, finite, clean) and the volume.
-- Mutants: each of the four parts switched off, each threshold moved by a factor, the ladder's order, the strip's
-  orientation; each must fail a test.
+## 8. Tests and cost
 
-Cost: nothing without the option, and nothing for a sheet that cuts directly or on the grid. A sheet that reaches the
-extension costs up to four sheet cuts for the ladder plus two for the check (the reversed cut and the cut with `2 e`);
-part 1 is one pass over the tool.
+Procedural, no fixture data. The list contains the adversarial cases a review found against the first version:
+
+- a box and a bent sheet whose rim ends 0.1 %, 0.5 % and 2 % of its diagonal short: continued and cut with the analytic
+  volume within the limit, refused above it;
+- a slit that ends in the middle of the box: refused (no exit within the limit);
+- **a slot and a fin**: a block, a narrow slot, then a thin wall; the rim ends just short of the slot: the strip stops
+  at the slot's wall; the fin is untouched;
+- **a notch in the rim narrower than the depth**: refused (inverted quad), never a self-intersecting sheet;
+- **a rim outside the workpiece next to another part of it** (a U-shaped workpiece): that rim is not continued;
+- **a bowtie vertex on the rim**: per-wedge points or the named refusal;
+- **a concave workpiece** where a longer strip would re-enter: the first exit is used; the re-entry is never reached;
+- a dome and a tray as stated sheets: both continued, both reported;
+- several sheets, one short; `UncutSide` set; a rectangular sheet short on all four sides (the mitre at 90 degrees);
+- far from the origin and in rotated frames; without the option: bit for bit as today;
+- the project's standard set: invariance over `Similarity.All()` (2^k scales bit for bit), reuse, repeated runs;
+  success paths check the result (closed, manifold, finite, clean) and the volume;
+- mutants: each refusal rule switched off, the first exit replaced by the last, the mitre factor, the slack edges, the
+  orientation of the quads; each must fail a test.
+
+Cost: one winding query and one ray per rim vertex, the strip-against-surface test, and one sheet cut. Nothing for a
+sheet that cuts directly or on the grid, and nothing without the option.
 
 ## 9. Decisions
 
-Decided by the owner: the option is opt-in; the limit's default is 5 % of the sheet's diagonal (2026-11-23); bodies
-with a missing face and sheets with non-manifold edges stay refused.
+Decided by the owner: opt-in; a limit of 5 % of the sheet's diagonal (2026-11-23); no convention for bodies with a
+missing face and for sheets with non-manifold edges.
 
 Open:
 
-1. The strip: mitred points at the rim vertices (proposed) or flat quads per rim edge with fans; the spike decides.
-2. The four thresholds, after the spike reports their margins.
-3. Verification: an accepted strip counts as a reference surface of `NoInventedSurface` (proposed), or the caller
-   raises the limit.
-4. Whether the better diagnosis of section 7 goes in first as its own small PR (proposed: yes, it helps without the
-   option).
+1. Is the diagnosis (A) plus the helper (B) enough, or is the pipeline option (C) wanted? Proposed: A now, B after the
+   spike, C only if the spike's numbers on the owner's inputs justify it.
+2. The extension only for stated sheets (proposed), or also for auto-routed open tools.
+3. The limits: the depth (5 % decided), `delta` and the bound on `U` relative to the smaller part; after the spike.
+4. A bowtie rim vertex: per-wedge points or a refusal.
+5. For C: does a failed extension block the hole-fill fallback for that tool; and the strip as a reference surface of
+   the verification.
 
 ## 10. Plan
 
-1. **Spike (no library change):** a benchmark project that builds the strip in both variants on procedural sheets
-   (planar, bent, curved; convex and concave rims; short by 0.05 % to 5 %; slits; shells), runs the four parts through
-   the public API and reports for each case the outcome, the numbers of each part and the margin to its threshold; the
-   owner runs the same probe on private inputs locally. Go: every procedural through cut within the limit is accepted
-   with the analytic volume, every slit and shell is refused, and each threshold separates the two groups with a margin
-   of at least a factor 2. No-go: a class of inputs where the check accepts a wrong cut, or where the margins overlap.
-2. **Diagnosis PR:** the depth of the rim and the sheet-or-shell measure in the refusal's text and report.
-3. **Feature PR:** the option, its tests and the guide, after the grid retry default and the verification option are on
-   master.
+1. **Diagnosis PR (A):** the depth of the rim in the refusal's text and report. No convention, no option.
+2. **Spike (no library change):** a benchmark project that builds the strip of section 4 with the public API on the
+   procedural cases of section 8 and reports, per case, the outcome, the refusal reason, `g`, `U` and the volume against
+   the analytic value. The owner runs the same probe locally on private inputs to get the upper bound: how many
+   `RimInsideWorkpiece` refusals there are, the distribution of the rim's depth relative to the diagonal, the share
+   within the limit, how many of those are continued, and how many accepted cuts are wrong by the project's independent
+   checks (the self-consistency checks, a second Boolean implementation, a reference where one exists). Go: every
+   procedural through cut within the limit gives the analytic volume; every adversarial case of section 8 ends as
+   stated there; no accepted cut on the owner's inputs is wrong. No-go: any accepted wrong cut, or a share of continued
+   cases too small to be worth an option.
+3. **Helper PR (B)**, then, if decided, **the pipeline option (C)** after the grid retry default and the verification
+   option are on master.
+
+## 11. What the first version got wrong
+
+The first version of this note continued the sheet by a strip of one length from a ladder (up to 5 % of the diagonal),
+took the smallest length the sheet role accepted, and accepted the cut if four checks held. A review built the strip
+with the public API and found:
+
+- **The ladder is not local.** A block, a slot 0.05 wide, then a fin 0.3 thick; the sheet's rim ends 0.1 short of the
+  slot. The shorter strips end inside the fin and are refused; the first accepted strip passes through the fin and cuts
+  its top off. The kept volume is wrong by 1.5 % of the workpiece (by as much as one likes with a taller fin), and all
+  four checks pass.
+- **"The cut and the reversed cut add up"** holds by construction for any accepted sheet cut: reversing the sheet swaps
+  every mark of the exact labelling. It cannot fail on a wrong side or a partial cut.
+- **"The result does not change when the extension is doubled"** cannot fail either: once the strip has left the
+  workpiece, a longer strip changes only the part outside.
+- **"Sheet, not shell" by the cap's area** does not separate the two (section 7).
+- **The mitred strip** inverts at a notch narrower than the extension, and the first version's formula for the mitre
+  was not the true mitre.
 
 ## Prior art
 
 - Autodesk Fusion, Split Body: the option "Extend Splitting Tool(s)" extends the selected tool so that it intersects the
-  body to split, automatically where possible (the API member `isSplittingToolExtended` says the same). Users report
-  that the extension can fail or be slow on complex faces and ask for it to be off unless the face is planar: an
-  argument for opt-in and for a check of the result.
-- SolidWorks, Cut With Surface: the surface must fully divide the body; the common advice is to over-build or extend
-  the surface past the part by hand.
+  body, automatically where possible; users report that it can fail or be slow on complex faces and ask for it to be off
+  unless the face is planar.
+- SolidWorks, Cut With Surface: the surface must fully divide the body; users over-build or extend the surface by hand.
+  Its separate Extend Surface feature has the end conditions Distance, Up to point and **Up to surface**, with the
+  extension types "same surface" and "linear" (tangent): "up to surface" with a linear extension is the construction of
+  section 4.
+- Open CASCADE has `GeomLib::ExtendSurfByLength` for parametric surfaces (LGPL: cited, not read or ported).
 
-Both products extend the tool or ask the user to; neither documents a check of the kind in section 4. No code of either
-was read; the statements are from their public help pages and user forums (searched 2026-11-24). Nothing is ported.
+No source was found that documents a check of an automatic extension. No code of any of these was read; the statements
+are from public help pages and forums (searched 2026-11-24). Nothing is ported.
