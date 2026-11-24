@@ -59,11 +59,17 @@ static class Program
             Console.WriteLine(GuaranteeBound.Run(args[1], ba, bb, bop));
             return 0;
         }
+        // the empty ball as a guarantee (EmptyBall.cs, ball.py, docs/research/SNAP_ROUNDING_EMPTY_BALL_GUARANTEE_2026-11.md)
+        if (args.Length >= 2 && args[0] == "ball") {
+            var (ea, eb, eop) = Input(args[1]);
+            Console.WriteLine(EmptyBall.Run(args[1], ea, eb, eop));
+            return 0;
+        }
         if (args.Length == 3 && args[0] == "gen")
             return ProceduralThin.Gen(args[1], args[2]);
         if (args.Length >= 3 && args[0] == "cull")
             return CandidateCulling.Run(args.Skip(1).ToArray());
-        Console.Error.WriteLine("usage: list <set> | run <case> <method>... | cull <case dir> <union|intersection|difference> [--serial] | lattice <case> [seconds] [seed] | bound <case> | bound selfcheck");
+        Console.Error.WriteLine("usage: list <set> | run <case> <method>... | cull <case dir> <union|intersection|difference> [--serial] | lattice <case> [seconds] [seed] | bound <case> | bound selfcheck | ball <case>");
         return 1;
     }
 

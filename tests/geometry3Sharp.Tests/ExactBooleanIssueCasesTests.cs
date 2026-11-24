@@ -234,8 +234,12 @@ namespace geometry3Sharp.Tests
             var lens = Run(s, t, Ops.Intersection);
             AssertCleanResult(lens, ResultChecks.Volume(Run(s, t, Ops.Intersection, false).Result), 1e-9, "lens");
             var d = Run(s, lens.Result, Ops.Difference);
-            ResultChecks.AssertClean(d.Result, "difference");
+            // (the rounding is to the nearest double since #1410; the old truncation pulled every rounded point of a convex shape around
+            // the origin inward, which kept the chain A - (A n B) free of point contacts by accident. Now vertices of one exact point
+            // are duplicated in memory (contacts), which the pair test counts as self-intersections: RoundingClean and clean up to
+            // contacts is what the library promises)
             Assert.True(d.RoundingClean);
+            ResultChecks.AssertCleanExceptContacts(d.Result, "difference");
             Assert.Equal(ResultChecks.Volume(s) - ResultChecks.Volume(lens.Result), ResultChecks.Volume(d.Result), 9);
             // and the difference computed directly is the same solid
             var direct = Run(s, t, Ops.Difference);

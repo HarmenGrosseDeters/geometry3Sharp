@@ -127,14 +127,22 @@ namespace geometry3Sharp.Tests
         {
             Similarity s = Similarity.ByName(name);
             foreach (string kind in new[] { "box", "cylinder" }) {
-                int axis = kind == "box" ? 2 : 0;
-                DMesh3 a = Invariance.Transformed(Shape(kind), s), b = Shifted(a, axis, 1);
+                int axis = kind == "box" ? 2 : 0, ulps = 1;
+                DMesh3 a = Invariance.Transformed(Shape(kind), s);
+                if (name == "utm" && kind == "box") {
+                    // the box in the UTM frame, shifted by +1 ulp: the known limit (one sliver is left; ExactMeshImprintSliverStageTests, section 5 of
+                    // docs/design/IMPRINT_SLIVER_CLEANUP.md), since #1410 (before it this was clean). The shift by -1 ulp is clean, and the property
+                    // is checked with it in this frame
+                    ExactMeshImprintSliverStageTests.AssertOneSliverLeftByTheLinkCondition(a, Shifted(a, axis, 1));
+                    ulps = -1;
+                }
+                DMesh3 b = Shifted(a, axis, ulps);
                 ExactMeshImprint imprint = Run(a, b);
                 AssertCleanAndCarried(a, imprint);
                 // a scaling by 2^k is exact (the ulp scales with it): the same result bit for bit, scaled
                 if (s.IsRotated == false && s.Translation == Vector3d.Zero && Math.Log(s.Scale, 2) % 1 == 0) {
                     DMesh3 a0 = Shape(kind);
-                    ExactMeshImprint i0 = Run(a0, Shifted(a0, axis, 1));
+                    ExactMeshImprint i0 = Run(a0, Shifted(a0, axis, ulps));
                     Assert.Equal(i0.Result.MaxVertexID, imprint.Result.MaxVertexID);
                     foreach (int v in i0.Result.VertexIndices())
                         Assert.Equal(s.Apply(i0.Result.GetVertex(v)), imprint.Result.GetVertex(v));

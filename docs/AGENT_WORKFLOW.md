@@ -69,6 +69,13 @@ Every worker session gets a brief with these fields, and nothing open-ended:
 - **Upper bound before a performance spike**: measure the share of the targeted work and multiply by the possible
   speedup first (a probe or a micro benchmark, minutes). If that bound is below the measurement noise, the stop rule
   applies without full A/B runs (`run_classes.sh` and the like).
+- **A stop ends the design, not the search** (owner, 2026-11-24): the stop rule rejects the design that was measured,
+  not the goal. Before a worker stops, it lists the next candidates its own measurement points to (for example the
+  real hotspot the profile showed), each with a quick upper bound in the same stratum. If one clears the threshold
+  (10 % unless the brief says otherwise), the worker goes on with it within its budget and reports the switch. It
+  stops for good only when no candidate clears the threshold, and the stop note names the candidates and their bounds.
+  (Case: the shared-plane tri-tri filter was bounded at 8 % and stopped correctly, but the same probe showed
+  `TriangleTriangleFilter` itself at 15-40 % of the Reducer; that lead was parked instead of measured.)
 - **Name the stratum and the cost boundary of every share** (owner, 2026-11-12): a reported share ("exact arithmetic is
   X %", "GC is Y %", "it cannot get faster, that is the exact code") states (1) the workload it was measured on (normal
   operations, a study set such as the 66 boolean ops, or the slow tail) and (2) whether it is self time in the functions

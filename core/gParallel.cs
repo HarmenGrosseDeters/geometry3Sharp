@@ -143,6 +143,216 @@ namespace g3
         }
 
 
+        // ---- loops of cheap items: inline first, parallel only when the loop turns out to be long (#1502) ----
+        //
+        // Parallel.For costs 3-15 us alone and, with the thread pool busy, 5-150 ms per call (the wait for a worker),
+        // however few items there are. A loop of a few dozen cheap items (a Boolean of two boxes, a Remesher pass over
+        // a small mesh) is done in a few microseconds, so waiting for a worker is the whole cost. The Small variants run
+        // the items one after the other on the calling thread, in chunks of 1, 2, 4, ... items, and look at the clock
+        // between the chunks: when the loop has used SmallLoopBudgetTicks (about 250 us), the rest goes to the parallel
+        // loop. A count threshold cannot decide this: the crossover is a total of 10-50 us of work, which is 1000
+        // items of 1 ns and 4 items of 2 us (benchmarks/ParallelTinyLoops).
+        //
+        // Exceptions are those of the loop a Small loop replaces, whether the item failed inline or after the handover:
+        // ForRangeSmall like ForRange (the exception of a single body as it is), ForEachSmall and BlockStartEndSmall like
+        // ForEach (an AggregateException; the leftover block of BlockStartEnd, which runs inline, as it is).
+        //
+        // For callers whose items are cheap, so that the first chunk is no loss of parallelism: a loop of a few heavy
+        // items (a boolean per body, Evaluate) must keep calling ForRange / ForEach, or its first item would run
+        // before the others start. The result is the same as for ForRange: the body of an item does not depend on
+        // which thread runs it or in which order (SerialOnThisThread and the order adversary test exactly that).
+
+        /// <summary> the time a Small loop runs inline before it hands the rest to the parallel loop, in Stopwatch ticks (250 us) </summary>
+        internal static readonly long DefaultSmallLoopBudgetTicks = Math.Max(1L, System.Diagnostics.Stopwatch.Frequency / 4000);
+
+        /// <summary>
+        /// for tests and benchmarks: the budget of the Small loops started on this thread, in Stopwatch ticks; 0: the default,
+        /// long.MaxValue: never hand over (the whole loop runs on the calling thread), 1: hand over after the first item,
+        /// -1: no inline phase (the Small loops start the parallel loop at once, for tests of the parallel path)
+        /// </summary>
+        [ThreadStatic] internal static long SmallLoopBudgetTicksOnThisThread;
+
+        // the time at which a Small loop started at `start` hands over
+        /// <summary> for tests: how many Small loops started on this thread have handed their rest to the parallel loop </summary>
+        [ThreadStatic] internal static int SmallLoopHandovers;
+
+        static long small_limit(long start)
+        {
+            long b = SmallLoopBudgetTicksOnThisThread;
+            if (b == 0)
+                b = DefaultSmallLoopBudgetTicks;
+            long limit = unchecked(start + b);
+            return (limit < start) ? long.MaxValue : limit;
+        }
+
+        // the size of the next chunk of a Small loop after `done` items took the time from start to now: at most double the last
+        // one, and at most what the rest of the budget allows at the speed so far (so a loop stops near its budget, not at 2x)
+        internal static int next_chunk(int chunk, int done, long start, long now, long limit)
+        {
+            long elapsed = Math.Max(1L, now - start);
+            long room = limit - now;
+            // (saturated: with an unlimited budget room * done would wrap)
+            long fit = (room > long.MaxValue / Math.Max(1, done)) ? int.MaxValue / 2 : room * done / elapsed;
+            return (int)Math.Max(1L, Math.Min((long)chunk * 2, Math.Min(fit, int.MaxValue / 2)));
+        }
+
+        /// <summary> the loop from..count-1 of ForRange, without the serial test mode (the caller handled it) </summary>
+        static void parallel_range(int from, int count, Action<int> body)
+        {
+#if G3_USING_UNITY && (NET_2_0 || NET_2_0_SUBSET)
+            for_each<int>(Interval1i.Range(from, count - from), body);
+#else
+            try {
+                Parallel.For(from, count, body);
+            } catch (AggregateException e) when (e.InnerExceptions.Count == 1) {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerExceptions[0]).Throw();
+            }
+#endif
+        }
+
+        static void parallel_range_local<TLocal>(int from, int count, Func<TLocal> localInit, Action<int, TLocal> body)
+        {
+#if G3_USING_UNITY && (NET_2_0 || NET_2_0_SUBSET)
+            for_each<int>(Interval1i.Range(from, count - from), (k) => body(k, localInit()));
+#else
+            try {
+                Parallel.For(from, count, localInit, (k, loop, l) => { body(k, l); return l; }, (l) => { });
+            } catch (AggregateException e) when (e.InnerExceptions.Count == 1) {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerExceptions[0]).Throw();
+            }
+#endif
+        }
+
+        /// <summary> ForRange(count, body) for cheap items: inline while the loop is short, see above </summary>
+        internal static void ForRangeSmall(int count, Action<int> body)
+        {
+            if (SerialOnThisThread || count < 2) {
+                ForRange(count, body);
+                return;
+            }
+            if (SmallLoopBudgetTicksOnThisThread < 0) {
+                parallel_range(0, count, body);
+                return;
+            }
+            long start = System.Diagnostics.Stopwatch.GetTimestamp();
+            long limit = small_limit(start);
+            int i = 0;
+            for (int chunk = 1; i < count; ) {
+                int end = (chunk >= count - i) ? count : i + chunk;
+                for (; i < end; ++i)
+                    body(i);
+                if (i < count) {
+                    long now = System.Diagnostics.Stopwatch.GetTimestamp();
+                    if (now >= limit) {
+                        ++SmallLoopHandovers;
+                        parallel_range(i, count, body);
+                        return;
+                    }
+                    chunk = next_chunk(chunk, i, start, now, limit);
+                }
+            }
+        }
+
+        /// <summary> ForRange(count, localInit, body) for cheap items: inline while the loop is short, see above </summary>
+        internal static void ForRangeSmall<TLocal>(int count, Func<TLocal> localInit, Action<int, TLocal> body)
+        {
+            if (SerialOnThisThread || count < 2) {
+                ForRange(count, localInit, body);
+                return;
+            }
+            if (SmallLoopBudgetTicksOnThisThread < 0) {
+                parallel_range_local(0, count, localInit, body);
+                return;
+            }
+            long start = System.Diagnostics.Stopwatch.GetTimestamp();
+            long limit = small_limit(start);
+            TLocal local = localInit();
+            int i = 0;
+            for (int chunk = 1; i < count; ) {
+                int end = (chunk >= count - i) ? count : i + chunk;
+                for (; i < end; ++i)
+                    body(i, local);
+                long now = (i < count) ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+                if (i < count && now < limit)
+                    chunk = next_chunk(chunk, i, start, now, limit);
+                if (i < count && now >= limit) {
+                    ++SmallLoopHandovers;
+                    // (the workers of the rest start with locals of their own)
+                    int from = i;
+#if G3_USING_UNITY && (NET_2_0 || NET_2_0_SUBSET)
+                    for_each<int>(Interval1i.Range(from, count - from), (k) => body(k, localInit()));
+#else
+                    try {
+                        Parallel.For(from, count, localInit, (k, loop, l) => { body(k, l); return l; }, (l) => { });
+                    } catch (AggregateException e) when (e.InnerExceptions.Count == 1) {
+                        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerExceptions[0]).Throw();
+                    }
+#endif
+                    return;
+                }
+            }
+        }
+
+        /// <summary> ForEach(source, body) for cheap items: inline while the loop is short, see above </summary>
+        internal static void ForEachSmall<T>(IEnumerable<T> source, Action<T> body)
+        {
+            if (SerialOnThisThread || SmallLoopBudgetTicksOnThisThread < 0) {
+                ForEach(source, body);
+                return;
+            }
+            long start = System.Diagnostics.Stopwatch.GetTimestamp();
+            long limit = small_limit(start);
+            using (IEnumerator<T> e = source.GetEnumerator()) {
+                int done = 0;
+                for (int chunk = 1; ; ) {
+                    try {
+                        for (int k = 0; k < chunk; ++k) {
+                            if (!e.MoveNext())
+                                return;
+                            body(e.Current);
+                            ++done;
+                        }
+                    } catch (Exception x) {
+                        // (as ForEach throws it: Parallel.ForEach wraps even the exception of a single item, and callers catch that type)
+                        throw new AggregateException(x);
+                    }
+                    long now = System.Diagnostics.Stopwatch.GetTimestamp();
+                    if (now >= limit) {
+                        ++SmallLoopHandovers;
+                        ForEach(rest_of(e), body);
+                        return;
+                    }
+                    chunk = next_chunk(chunk, done, start, now, limit);
+                }
+            }
+        }
+
+        // what is left of an enumerator that a Small loop has started (read under the lock of the parallel loop)
+        static IEnumerable<T> rest_of<T>(IEnumerator<T> e)
+        {
+            while (e.MoveNext())
+                yield return e.Current;
+        }
+
+        /// <summary> BlockStartEnd for cheap blocks (a block of the default size is 100 items): inline while the loop is short </summary>
+        internal static void BlockStartEndSmall(int iStart, int iEnd, Action<int, int> blockF, int iBlockSize = -1)
+        {
+            if (iBlockSize == -1)
+                iBlockSize = 100;
+            int N = (iEnd - iStart + 1);
+            int num_blocks = N / iBlockSize;
+            ForEachSmall(Interval1i.Range(num_blocks), (bi) => {
+                int k = iStart + iBlockSize * bi;
+                blockF(k, k + iBlockSize - 1);
+            });
+            int remaining = N - (num_blocks * iBlockSize);
+            if (remaining > 0) {
+                int k = iStart + num_blocks * iBlockSize;
+                blockF(k, k + remaining - 1);
+            }
+        }
+
+
         /// <summary>
         /// The first InvalidOperationException among the (flattened) inner exceptions of e, else the first
         /// ArgumentException, else null: for a caller that documents these exception types, so that its parallel path

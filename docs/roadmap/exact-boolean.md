@@ -26,7 +26,7 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
-#### The result does not depend on the order of the input (#1464, draft)
+#### The result does not depend on the order of the input (#1464, merged 2026-11-24)
 
 **Decided 2026-11-23 (owner): option A with A2 and D** of
 [BOOLEAN_INPUT_ORDER_2026-11.md](../research/BOOLEAN_INPUT_ORDER_2026-11.md). Observed by the owner on private inputs. Diagnosis: the exact
@@ -34,7 +34,45 @@ result did not depend on the order, the rounding repair did (it works by ids), a
 Built in #1464: the kept pieces are ordered by their geometry before the vertices are numbered, the hole of a removed point
 starts at its smallest point, and the flips are decided exactly. Result and status are bit for bit the same for reordered
 triangles, vertex ids and corners; the ordering is about 1 % of the boolean's time; the ids of every result changed once and
-40 pinned tests moved. Open: the gate review, CI and the mutation runs; the repair's own gap is #1465.
+40 pinned tests moved. Merged as #1464 (2026-11-24). Open: the repair's own gap, #1465 (a degenerate triangle with edges of 1e-8 that no edit removes), and #1519 below (the output ids of `ExactMeshArrangement` depend on the thread schedule).
+
+#### Board update 2026-11-24: open items of the exact Boolean and the solid pipeline
+
+Merged since 2026-11-22 (details in the PRs): the open-tool report and the default `AllowOpenMeshes = false` (#1446, #1460), the sheet
+route of `SolidBooleanPipeline` (#1447), the opt-in Grid step and its default retry (#1459, #1480, owner 2026-11-24:
+`AutomaticSteps = GridBeforeFallback | GridAfterRoundingNotClean`), the removal rule for thin and tiny components of SafeRounding
+(#1421), the volume before and after the rounding in the report (#1463), the cap-first contraction of `MeshRoundingRepair` (#1467),
+the correctly rounded `ExactPoint3.ToDouble` (#1445, #1484), the input-order independence (#1464) and determinism proof stage 2 (#1370).
+
+- **Exact winding near open edges (#1514, PR open).** `ExactWindingCache` loses the edge angle near an open edge (winding numbers
+  were wrong next to open edges); the PR computes it accurately. The semantics on the surface itself are the principal value: 0.5 on
+  a face, 0.25 on an edge, 0.125 at a corner. Open: review, CI and the exact-code gates.
+- **Exact winding, shard survivors (#1500, draft PR; issue #1427).** Perturbed-oracle tests for the edge-angle paths (tests only);
+  the `exact-winding` mutation shard still has survivors to kill; A1 (error <= 1e-12) does not hold close to the plane of an edge
+  with |x| much smaller than |yz| (the owner is handling that, #1427).
+- **A second `ExactMeshArrangement.Compute()` throws (#1518 draft PR, fixes #1512).** The run state of the first run was kept, so
+  merged points were added again. The fix resets the state before every run after the first; tests over `Similarity.All()`.
+  Open: review, CI, merge.
+- **`ExactMeshArrangement` output ids depend on the thread schedule, undocumented (#1519, issue).** The geometry is exact and the
+  same; only the point ids differ between runs. Open: document the contract, or make the ids canonical as #1464 did for the Boolean's output.
+- **Certifying Booleans (#1516 merged study, #1520 draft PR).** Step A, a fast checker: the box filter in front of the C2 stacks and
+  the double reject/accept filters in C5, verdicts unchanged (#1520). Step B is in progress. Options C and D are parked. Option E
+  waits for B and a repair contract. Study: [CERTIFYING_BOOLEANS_2026-11.md](../research/CERTIFYING_BOOLEANS_2026-11.md).
+- **Exact gradients of the volume and area of a Boolean result (#1522, research PR).** Note plus a test-only prototype; the volume
+  gradient is exact. A public API is an owner decision (the note lists the options and their cost).
+- **The certified empty ball as a rounding guarantee: closed, no build (#1521, merged study).** It is the separation lemma of
+  Milenkovic and Sacks with one radius per vertex and certifies only what the exact verifier of SafeRounding certifies already; it
+  does not help on the leftover cases. Only theory remains: [note](../research/SNAP_ROUNDING_EMPTY_BALL_GUARANTEE_2026-11.md).
+
+**Total pipeline order of the solid Boolean pipeline (agreed 2026-11-24).** The order in which the open work on
+`SolidBooleanPipeline` is built, each step on the one before:
+
+1. Routing and report (the route of an open tool, `Report.Route`, the step list).
+2. The Grid step (the retry on a grid taken from the data).
+3. The 8 differences.
+4. The non-manifold edge split.
+5. Uncut, opt-in, the default is to refuse.
+6. Closing shell-like tools.
 
 #### Exact Boolean 2.0 (milestone)
 
@@ -458,6 +496,8 @@ decisions above): the ExactPredicates throw near ±1e308 (fixed: robustness swee
 **PRs:** #397 (projection filter, rounding -16 %, bit-identical), #398 (M3 + contact count), #403 (rounding mutation shard split; the full shard ran past the 350-min job limit). All merged: #397 and #398 through #446, #403 as 1fad195d.
 
 #### Other open items
+
+- **`SolidBooleanPipeline` default `AutomaticSteps = GridBeforeFallback | GridAfterRoundingNotClean` (merged #1480, 2026-11-24).** An open tool of a Difference that the sheet role refuses with `RimInsideWorkpiece` (a rim a few ulps inside a face, far from the origin) is retried once on the data grid before the fallback, and a run that ends with `RoundingNotClean` is retried once on the grid (owner decision 2026-11-24, after private inputs that the first default still refused all succeeded with the retry, nearly all with the right volume; its result is the Boolean of the snapped inputs); `Grid` also retries a stated sheet; `AutomaticSteps = None` is the old behaviour. Known risk, in the guide: the cell can be a visible share of a small feature far from the origin.
 
 Checked against the owner's decisions, git and the open PRs and issues on 2026-11-15; status lines re-checked 2026-11-17.
 

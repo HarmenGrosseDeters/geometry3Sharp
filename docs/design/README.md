@@ -112,6 +112,7 @@ Architecture specifications, algorithm design notes, error-bound derivations, an
 | [TERRAIN_RAMPS.md](TERRAIN_RAMPS.md) | Access ramps as design geometry (`SlopeRamp`) |
 | [TERRAIN_SECTORS.md](TERRAIN_SECTORS.md) | Sector polygons and exterior distance |
 | [TERRAIN_DISTANCE_METRICS.md](TERRAIN_DISTANCE_METRICS.md) | Honest terrain distance metrics |
+| [SLOPE_ENVELOPE_CANONICAL.md](SLOPE_ENVELOPE_CANONICAL.md) | A canonical slope envelope, independent of the construction (stage 1 design) |
 | [TERRAIN_ROUND_TO_GRID.md](TERRAIN_ROUND_TO_GRID.md) | `RoundToGrid` design note for slope design (parked) |
 | [TERRAIN_1A_PLAN.md](TERRAIN_1A_PLAN.md) | Historical completed plan: Terrain phase 1a |
 | [TERRAIN_1B_PLAN.md](TERRAIN_1B_PLAN.md) | Historical completed plan: Terrain phase 1b |
