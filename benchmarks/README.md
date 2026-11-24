@@ -122,6 +122,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [SparseCholeskyBenchmark](SparseCholeskyBenchmark/README.md) | `SparseCholesky` AMD ordering, symbolic/numeric factorization, and solve timings |
 | [SparseSquareBenchmark](SparseSquareBenchmark/README.md) | `SymmetricSparseMatrix.Square` / `Multiply` timings and the product bits of repeated runs |
 | [MultiscaleCholeskyProbe](MultiscaleCholeskyProbe/README.md) | Research spike: multiscale incomplete Cholesky, FSAI and approximate elimination as PCG preconditioners against the direct `SparseCholesky` |
+| [PddProbe](PddProbe/README.md) | Research probe: Pointwise Distance Distributions (kNN rows, AMD, column W1, exact EMD) against D2 and PCA baselines for near-duplicates, retrieval and lattice periods (verdict: stop) |
 | [CoreMathBenchmark](CoreMathBenchmark/README.md) | Cost of correctly rounded `g3.CoreMathPort.CoreMath` elementary functions |
 | [BoxContainBenchmark](BoxContainBenchmark/README.md) | Throughput micro-benchmark for `AxisAlignedBox3d.Contain` |
 | [GridIndexerBenchmark](GridIndexerBenchmark/README.md) | Throughput probe for `ShiftGridIndexer3.ToGrid` |

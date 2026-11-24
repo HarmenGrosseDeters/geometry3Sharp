@@ -1,0 +1,16 @@
+# determinism: gyroid samples N=50000 k=32; hash = FNV-1a over the bits of the normalized PDD rows in lexicographic order
+threads 1 run 0: C2F2A59BE83B4E74
+threads 1 run 1: C2F2A59BE83B4E74
+threads 2 run 0: C2F2A59BE83B4E74
+threads 2 run 1: C2F2A59BE83B4E74
+threads 4 run 0: C2F2A59BE83B4E74
+threads 4 run 1: C2F2A59BE83B4E74
+permuted input:     C2F2A59BE83B4E74
+identity                   C2F2A59BE83B4E74 bit-identical  max rel. AMD deviation 0.0e0
+utm                        5DC7D2693B533B84 differs        max rel. AMD deviation 7.7e-11
+scale 2^-10                C2F2A59BE83B4E74 bit-identical  max rel. AMD deviation 0.0e0
+scale 2^10                 C2F2A59BE83B4E74 bit-identical  max rel. AMD deviation 0.0e0
+scale 1e-3                 A47CC70A1273C796 differs        max rel. AMD deviation 3.7e-15
+scale 1e3                  F277A82EF0B52198 differs        max rel. AMD deviation 3.7e-15
+rotated                    8B5FA81A46D1140C differs        max rel. AMD deviation 8.1e-16
+rotated, scale 1e-3, utm   189AC770F9D0DCBD differs        max rel. AMD deviation 6.7e-8
