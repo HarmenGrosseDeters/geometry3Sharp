@@ -328,8 +328,8 @@ namespace gs
         /// <summary>
         /// Report, additive (changes no result, status or other output): measure how much of the INPUT's surface the result does not represent
         /// (LostArea, LostAreaShare, LostTriangleIds, LostAreaMaxDistance). Off by default: then no extra pass, no copy of the input and no
-        /// allocation for it. On, it copies the input and costs one nearest-triangle query per sample (a few samples per input triangle; about 28 % of
-        /// the repair on a sphere of 99k triangles, 14 to 97 % on the other inputs, benchmarks/LostAreaBenchmark README). It reports and does not judge: an
+        /// allocation for it. On, it copies the input and costs one nearest-triangle query per sample (a few samples per input triangle; about 40 % of
+        /// the repair on a sphere of 99k triangles, 25 to 110 % on the other inputs, benchmarks/LostAreaBenchmark README). It reports and does not judge: an
         /// interior wall of a solid is lost by design, a damaged result reads the same. It is a LOWER bound of the lost area by the blind band of the
         /// tolerance (LostAreaTolerance): input surface closer than that to the result counts as present. Cancelling (CancelF) during the report makes
         /// Apply() false, as a cancel in any stage does; the result stays in Mesh and the report is NaN.
@@ -348,8 +348,13 @@ namespace gs
         /// and, for every path, the rounding bound of the exact resolve: the largest of RoundingMaxDisplacement times the diagonal of the largest component
         /// (1e-5), RoundingUlpFactor times the unit in the last place of the largest coordinate and RoundingAbsoluteTolerance (MeshRoundingRepair's bound of an
         /// edit; also the movement of the repair's cleanups where it is not configured otherwise: set LostAreaTolerance for a repair that moves more). The query's
-        /// own error is added: 8 units in the last place of the largest coordinate (the sample's rounding, 3 operations of at most 1 unit each, and the point
-        /// triangle distance of a point at coordinates of that size, a few units), so that a result that is the input reads exactly 0 far from the origin.
+        /// own error is added: 64 units in the last place of the largest coordinate. The distance is that of the sample to the nearest point the query returns
+        /// (not the query's own distance, which is wrong by about 5e-9 times the size of a triangle on a point on it); what is left is the sample's rounding (3
+        /// operations of at most 1 unit each), the nearest point's (a few units) and the difference; measured on spheres and sheared boxes with samples on the result,
+        /// at most 2.5 units far from the origin (offset 1e3 to 1e7) and 14 units near it, so the term is 4.5 times the worst measured. A setting of the rounding
+        /// (RoundingMaxDisplacement, RoundingUlpFactor, RoundingAbsoluteTolerance) that is not a finite number of at least 0 counts as 0 there, the other terms stand
+        /// (the repair passes such a setting on: MeshRoundingRepair rejects every edit for a bound that is not finite); with nothing valid to derive it from the
+        /// report is not measured (NaN), never 0 lost.
         /// All terms are exact powers of two times the input's lengths, so the tolerance scales exactly with a 2^k scaled input
         /// </summary>
         public double LostAreaTolerance = 0;
@@ -690,32 +695,40 @@ namespace gs
                 return true;
             double tol = LostAreaTolerance > 0 && LostAreaTolerance < double.PositiveInfinity ? LostAreaTolerance * frameScale : 0;
             if (!(tol > 0)) {
-                // the stage's term: what the stage that made the result may move the surface by
+                // the stage's term: what the stage that made the result may move the surface by. A term that is not a finite number of at least 0
+                // (NaN, infinity, negative: an invalid setting, or a diagnostic that is not set) counts as 0 and the others stand: the repair itself
+                // passes such a setting on (MeshRoundingRepair rejects every edit for a bound that is not finite), and a NaN here would make every
+                // comparison "not farther" and read 0 lost where walls were removed
                 double stage = 0;
                 if (ResultPath == ResultPaths.Solidify && Solidify != null)
-                    stage = 2 * Solidify.UsedCellSize * Solidify.RefineFactor;
+                    stage = LostAreaTerm(2 * Solidify.UsedCellSize * Solidify.RefineFactor);
                 else if (ResultPath == ResultPaths.AlphaWrap && AlphaWrap != null)
-                    stage = Math.Max(2, 1 + (AlphaWrapTarget > 0 ? Math.Max(0.5, WrapTargetMaxDistance) : 0.5)) * AlphaWrap.UsedOffset;
+                    stage = LostAreaTerm(Math.Max(2, 1 + (AlphaWrapTarget > 0 ? (WrapTargetMaxDistance >= 0.5 ? WrapTargetMaxDistance : 0.5) : 0.5)) * AlphaWrap.UsedOffset);
                 // the rounding bound (MeshRoundingRepair: the largest of the three terms), and the query's own error
                 AxisAlignedBox3d box = MeshRepairMetrics.TriangleBounds(input);
                 double ulp = MeshRobustRepairLostArea.Ulp(Math.Max(box.Min.MaxAbs, box.Max.MaxAbs));
-                double ulpTerm = RoundingUlpFactor * ulp;
-                double rounding = Math.Max(RoundingMaxDisplacement * MeshRepairMetrics.LargestComponentDiagonal(input), Math.Max(ulpTerm >= 0 ? ulpTerm : 0, RoundingAbsoluteTolerance));
-                tol = Math.Max(stage, rounding) + LostAreaQueryUlps * (ulp >= 0 ? ulp : 0);
+                double rounding = Math.Max(LostAreaTerm(RoundingMaxDisplacement * MeshRepairMetrics.LargestComponentDiagonal(input)),
+                    Math.Max(LostAreaTerm(RoundingUlpFactor * ulp), LostAreaTerm(RoundingAbsoluteTolerance)));
+                tol = Math.Max(stage, rounding) + LostAreaQueryUlps * LostAreaTerm(ulp);
+                // (nothing valid to derive it from, eg coordinates that are not finite: not measured, never "0 lost")
+                if (!(tol > 0 && tol < double.PositiveInfinity))
+                    return true;
             }
             MeshRobustRepairLostArea.Report rep = MeshRobustRepairLostArea.Measure(input, result, tol, true, CancelF);
             if (rep == null)
                 return false;
             UsedLostAreaTolerance = tol;
             LostArea = rep.LostArea;
-            LostAreaShare = rep.InputArea > 0 ? rep.LostArea / rep.InputArea : double.NaN;
+            LostAreaShare = rep.InputArea > 0 && rep.InputArea < double.PositiveInfinity ? rep.LostArea / rep.InputArea : double.NaN;
             LostTriangleIds = rep.LostTriangles;
             LostAreaMaxDistance = rep.MaxDistance;
             return true;
         }
 
         /// <summary> the query's own error in the derived tolerance of MeasureLostArea, in units in the last place of the input's largest coordinate (see LostAreaTolerance) </summary>
-        internal const double LostAreaQueryUlps = 8;
+        internal const double LostAreaQueryUlps = 64;
+
+        static double LostAreaTerm(double x) { return x >= 0 && x < double.PositiveInfinity ? x : 0; }
 
         // the volume IoU of the final result against the input as given (ResultVolumeIoU)
         double final_volume_iou(DMesh3 input, DMesh3 result)

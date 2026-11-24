@@ -27,7 +27,8 @@ namespace gs
         /// </summary>
         internal const int MaxLargeSubdivisions = 32;
         // the points of a batch: bounded memory for any input (a batch ends at the first triangle that reaches this many samples)
-        const int ChunkSamples = 1 << 18;
+        // (small enough that the cancel check between batches, about 25 ms of queries each, is prompt: the batch's own token is not used, the caller's cancel is a Func)
+        const int ChunkSamples = 1 << 15;
 
         internal sealed class Report
         {
@@ -72,6 +73,8 @@ namespace gs
         /// </summary>
         public static Report Measure(DMesh3 input, DMesh3 result, double tolerance, bool parallel = true, Func<bool> cancel = null)
         {
+            if (double.IsNaN(tolerance) || tolerance < 0)
+                throw new ArgumentOutOfRangeException("tolerance", "the tolerance of the lost-area report must be a number of at least 0");
             var report = new Report();
             int n = input.TriangleCount;
             int kBase = report.Subdivisions = SubdivisionsFor(n);
@@ -87,7 +90,8 @@ namespace gs
                     total += a;
             }
             report.InputArea = total;
-            if (!(total > 0))
+            // (not for an input whose areas overflow, coordinates of about 1e150 and more: Apply() works in a frame of extent 1 to 2 and never gets there)
+            if (!(total > 0) || double.IsInfinity(total))
                 return report;
             double mean = total / n;
             var ks = new int[n];
@@ -130,9 +134,13 @@ namespace gs
                         continue;
                     int lostSamples = 0;
                     for (int j = 0; j < perTri; ++j) {
-                        double d = found == null ? double.PositiveInfinity : found[p + j].Distance;
-                        if (d == double.MaxValue)
-                            d = double.PositiveInfinity;
+                        // The distance is that of the sample to the nearest point the query returns, not the query's own distance: that one is the square
+                        // root of a quadratic form of the triangle's corners and the point whose terms cancel for a point on the triangle, so it is wrong by
+                        // about sqrt(epsilon) times the triangle's size (4.6e-9 on a unit sphere against itself, at any distance from the origin), where the
+                        // difference of two points near each other is exact to a few units in the last place of the coordinates
+                        double d = double.PositiveInfinity;
+                        if (found != null && found[p + j].Triangle != DMesh3.InvalidID)
+                            d = (points[p + j] - found[p + j].Point).Length;
                         if (d > maxDist)
                             maxDist = d;
                         if (d > tolerance)

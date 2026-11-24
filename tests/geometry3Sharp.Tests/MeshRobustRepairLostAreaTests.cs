@@ -371,7 +371,7 @@ namespace geometry3Sharp.Tests
         public void FarFromTheOrigin_WithoutTheUlpTerm_TheQueryErrorAloneKeepsItAtZero()
         {
             // RoundingUlpFactor 0 turns the rounding's ulp term off: what is left of the tolerance at extent 1e-6 is 1.7e-11 of relative bound, below the
-            // sample's rounding (2^-33 = 1.2e-10 per unit): the query term of 8 units
+            // sample's rounding (2^-33 = 1.2e-10 per unit): the query term of 64 units
             var r = Run(FarSphere(1e-6), c => c.RoundingUlpFactor = 0);
             Assert.Equal(MeshRobustRepair.ResultPaths.PassThrough, r.ResultPath);
             Assert.Equal(0.0, r.LostArea);
@@ -505,6 +505,7 @@ namespace geometry3Sharp.Tests
             // (ResultPath is set just before the report; every stage before it runs to its end)
             r.CancelF = () => r.ResultPath != MeshRobustRepair.ResultPaths.None;
             Assert.False(r.Apply());
+            Assert.Equal("", r.ResultReason);       // (a cancel has no reason in this class, as in the stages)
             Assert.Equal(MeshRobustRepair.ResultPaths.ExactResolve, r.ResultPath);
             Assert.Equal(6.0, MeshMeasurements.AreaT(r.Mesh, r.Mesh.TriangleIndices()), 9);       // the result is in Mesh
             Assert.True(double.IsNaN(r.LostArea) && double.IsNaN(r.LostAreaShare) && double.IsNaN(r.UsedLostAreaTolerance));
@@ -636,6 +637,114 @@ namespace geometry3Sharp.Tests
             Assert.Equal(4, MeshRobustRepairLostArea.SubdivisionsOf(0.1, 1, 4));
             Assert.Equal(8, MeshRobustRepairLostArea.SubdivisionsOf(4, 1, 4));
             Assert.Equal(MeshRobustRepairLostArea.MaxLargeSubdivisions, MeshRobustRepairLostArea.SubdivisionsOf(1e9, 1, 4));
+        }
+        // a sphere (kind 0) or a sheared box (kind 1) of the given extent at (off, off, off)
+        static DMesh3 FarShape(int kind, double extent, double off)
+        {
+            DMesh3 m = kind == 0 ? Sphere(1, Vector3d.Zero, 12) : Box(Vector3d.Zero, Vector3d.One);
+            foreach (int v in m.VertexIndices().ToList()) {
+                Vector3d p = m.GetVertex(v);
+                if (kind == 1)
+                    p = new Vector3d(p.x + 0.7 * p.y + 0.3 * p.z, p.y + 0.5 * p.z, p.z);
+                m.SetVertex(v, p * (extent / 2) + new Vector3d(off, off, off));
+            }
+            return m;
+        }
+
+        // triangles whose corners are random points of the triangles of the mesh: a surface that lies on it, up to the rounding of the points
+        static DMesh3 OnSurface(DMesh3 result, int seed)
+        {
+            var rnd = new Random(seed);
+            var m = new DMesh3();
+            foreach (int t in result.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                result.GetTriVertices(t, ref a, ref b, ref c);
+                Func<Vector3d> pt = () => { double u = rnd.NextDouble(), v = rnd.NextDouble() * (1 - u); return a + u * (b - a) + v * (c - a); };
+                m.AppendTriangle(m.AppendVertex(pt()), m.AppendVertex(pt()), m.AppendVertex(pt()));
+            }
+            return m;
+        }
+
+        [Fact]
+        public void TheDistanceIsFromTheNearestPoint_AnIdenticalUnitSphereReadsZeroWithATinyRoundingBound()
+        {
+            // the query's own distance of a point on a triangle is off by about 4.6e-9 on a unit sphere (a cancelling quadratic form); with a relative bound of 1e-12 and no
+            // ulp term the tolerance is 1e-12 plus 64 ulp, far below that: an identical result read 29 % lost with the query's distance
+            var r = Run(Sphere(1, Vector3d.Zero, 12), c => { c.RoundingMaxDisplacement = 1e-12; c.RoundingUlpFactor = 0; });
+            Assert.Equal(MeshRobustRepair.ResultPaths.PassThrough, r.ResultPath);
+            Assert.Equal(0.0, r.LostArea);
+            Assert.Empty(r.LostTriangleIds);
+            Assert.True(r.UsedLostAreaTolerance < 1e-11, "tolerance " + r.UsedLostAreaTolerance);
+            Assert.True(r.LostAreaMaxDistance < 1e-14, "largest distance " + r.LostAreaMaxDistance);
+        }
+
+        [Theory]
+        [InlineData(0, 0.0, 1.0)]
+        [InlineData(0, 1e6, 1e-6)]
+        [InlineData(0, 1e6, 1.0)]
+        [InlineData(1, 1e7, 1e-3)]
+        [InlineData(1, 1e7, 1000.0)]
+        [InlineData(1, 0.0, 1000.0)]
+        public void QueryError_StaysFarBelowTheTerm_ForTheInputAndForSamplesOnTheResult(int kind, double off, double extent)
+        {
+            // the margin: the largest distance of any sample to the result, in units in the last place of the largest coordinate, against the term of
+            // LostAreaQueryUlps (64); measured worst: 2.5 far from the origin, 14 for the sheared box about the origin
+            DMesh3 m = FarShape(kind, extent, off);
+            AxisAlignedBox3d b = m.GetBounds();
+            double ulp = MeshRobustRepairLostArea.Ulp(Math.Max(b.Min.MaxAbs, b.Max.MaxAbs));
+            var same = MeshRobustRepairLostArea.Measure(new DMesh3(m), m, 0);
+            var on = MeshRobustRepairLostArea.Measure(OnSurface(m, 7), m, 0);
+            Assert.True(same.MaxDistance <= 16 * ulp, "identical: " + same.MaxDistance / ulp + " ulp");
+            Assert.True(on.MaxDistance <= 16 * ulp, "on the surface: " + on.MaxDistance / ulp + " ulp");
+            // and through the repair with the derived tolerance of the query term alone: nothing is lost
+            var r = Run(new DMesh3(m), c => { c.RoundingMaxDisplacement = 0; c.RoundingUlpFactor = 0; });
+            Assert.Equal(0.0, r.LostArea);
+        }
+
+        public static IEnumerable<object[]> InvalidSettings()
+        {
+            foreach (string name in new[] { "RoundingAbsoluteTolerance", "RoundingMaxDisplacement", "RoundingUlpFactor" })
+                foreach (double v in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity, -1.0 })
+                    yield return new object[] { name, v };
+        }
+
+        [Theory]
+        [MemberData(nameof(InvalidSettings))]
+        public void AnInvalidRoundingSetting_NeverReadsZeroLost(string name, double value)
+        {
+            // the repair passes such a setting on (MeshRoundingRepair rejects every edit for a bound that is not finite); the report ignores the invalid term
+            // and uses the others: the wall (2.0) is still lost. Never 0 for an invalid setting, never a tolerance that is NaN
+            var r = new MeshRobustRepair(BoxWithWall()) { MeasureLostArea = true };
+            if (name == "RoundingAbsoluteTolerance") r.RoundingAbsoluteTolerance = value;
+            else if (name == "RoundingMaxDisplacement") r.RoundingMaxDisplacement = value;
+            else r.RoundingUlpFactor = value;
+            r.Apply();
+            if (r.ResultPath == MeshRobustRepair.ResultPaths.None)
+                Assert.True(double.IsNaN(r.LostArea), "not measured without a result");
+            else {
+                Assert.False(double.IsNaN(r.UsedLostAreaTolerance) || double.IsInfinity(r.UsedLostAreaTolerance) || r.UsedLostAreaTolerance <= 0, name + " " + value + ": tolerance " + r.UsedLostAreaTolerance);
+                // (the wall's two faces, when the result is the box; a result that kept them reads what it kept)
+                double kept = MeshMeasurements.AreaT(r.Mesh, r.Mesh.TriangleIndices());
+                Assert.True(r.LostArea > 0 || kept > 7, name + " " + value + ": lost " + r.LostArea + " of a result of area " + kept);
+                if (kept < 6.5)
+                    Assert.Equal(2.0, r.LostArea, 9);
+            }
+        }
+
+        [Fact]
+        public void Measure_RejectsANaNOrNegativeTolerance_AndAnOverflowingInputIsNotMeasured()
+        {
+            DMesh3 input = Sheet(0), result = Sheet(0);
+            Assert.Throws<ArgumentOutOfRangeException>(() => MeshRobustRepairLostArea.Measure(input, result, double.NaN));
+            Assert.Throws<ArgumentOutOfRangeException>(() => MeshRobustRepairLostArea.Measure(input, result, -1));
+            // coordinates of 1e200: the areas overflow; no NaN, no share (Apply() never gets there, it works in a frame of extent 1 to 2)
+            DMesh3 huge = new DMesh3(input);
+            foreach (int v in huge.VertexIndices().ToList())
+                huge.SetVertex(v, huge.GetVertex(v) * 1e200);
+            var r = MeshRobustRepairLostArea.Measure(huge, huge, 1);
+            Assert.True(double.IsInfinity(r.InputArea));
+            Assert.Equal(0.0, r.LostArea);
+            Assert.Empty(r.LostTriangles);
         }
     }
 }
