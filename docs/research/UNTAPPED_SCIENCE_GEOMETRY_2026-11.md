@@ -188,6 +188,7 @@ Ratings are ordinal estimates following [CROSS_FIELD_GEOMETRY.md](CROSS_FIELD_GE
 ## Part III — Chemistry & Materials Science
 
 ### 11. Pointwise Distance Distributions (PDD) and Crystal Isometry Space
+- **Probe (2026-11-24): stop.** Measured against the D2 histogram and PCA moments in [PDD_PROBE_2026-11.md](PDD_PROBE_2026-11.md): deterministic and fast, but clearly worse than D2 on near-duplicate discrimination and retrieval; the "reference Python code is MIT" claim below was not confirmed (the package shows CC BY-NC-SA 4.0).
 - **Field & sources:** Mathematical Crystallography / Materials Chemistry — Widdowson & Kurlin (*Resolving the Data Ambiguity for Periodic Crystals*, NeurIPS 2022; extended rigorous proofs for **finite and periodic** discrete sets in `[R30]`, SIAM 2025, arXiv:2108.04798v3).
 - **Classification:** Known and proven in crystallography; **transfer** to 3D point clouds, CAD retrieval, and geometry QA.
 - **Core mechanism:** For any finite or periodic point set $S \subset \mathbb{R}^d$ and integer $k$, record for each point $p \in S$ the sorted vector of distances to its $k$ nearest neighbors, collapse identical rows with multiplicity weights, and compare two distributions via the Earth Mover's Distance (or fast vector projections like Average Minimum Distance, AMD). Widdowson & Kurlin proved that PDD is:

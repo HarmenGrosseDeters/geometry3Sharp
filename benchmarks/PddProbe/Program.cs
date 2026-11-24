@@ -28,6 +28,7 @@ static class Program
             case "time": Experiments.Timing(); break;
             case "determinism": Experiments.Determinism(); break;
             case "period": Experiments.Period(); break;
+            case "moments": Experiments.Moments(); break;
             default: Console.WriteLine("modes: disc [N] | retrieval [N] | time | determinism | period"); return 1;
         }
         return 0;
@@ -242,6 +243,13 @@ static class Baselines
         double xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
         foreach (var q in P) { var p = q - c; xx += p.x * p.x; xy += p.x * p.y; xz += p.x * p.z; yy += p.y * p.y; yz += p.y * p.z; zz += p.z * p.z; }
         int n = P.Length; xx /= n; xy /= n; xz /= n; yy /= n; yz /= n; zz /= n;
+        var e = EigenSqrt(xx, xy, xz, yy, yz, zz);
+        return e;
+    }
+
+    /// <summary> sqrt of the eigenvalues of a symmetric 3x3 matrix divided by sqrt(trace), ascending </summary>
+    public static double[] EigenSqrt(double xx, double xy, double xz, double yy, double yz, double zz)
+    {
         // eigenvalues of a symmetric 3x3 matrix, trigonometric method (Smith 1961)
         double p1 = xy * xy + xz * xz + yz * yz, q0 = (xx + yy + zz) / 3;
         double[] ev;
@@ -254,7 +262,8 @@ static class Baselines
             double e1 = q0 + 2 * pp * Math.Cos(phi), e3 = q0 + 2 * pp * Math.Cos(phi + 2 * Math.PI / 3);
             ev = new[] { e1, 3 * q0 - e1 - e3, e3 };
         }
-        var s = ev.Select(e => Math.Sqrt(Math.Max(0, e)) / scale).ToArray(); Array.Sort(s); return s;
+        double tr = Math.Sqrt(xx + yy + zz);
+        var s = ev.Select(e => Math.Sqrt(Math.Max(0, e)) / tr).ToArray(); Array.Sort(s); return s;
     }
 }
 
@@ -266,6 +275,22 @@ static class Shapes
 
     static DMesh3 Build(string name)
     {
+        switch (name) {
+            // other tessellations of the same shapes, "shape@t<i>", i = 0..5, for the moments candidate (Experiments.Moments)
+        }
+        int at = name.IndexOf("@t");
+        if (at > 0) {
+            string b = name.Substring(0, at); int i = int.Parse(name.Substring(at + 2));
+            switch (b) {
+                case "sphere": return new Sphere3Generator_NormalizedCube { Radius = 1, EdgeVertices = 18 + i }.Generate().MakeDMesh();
+                case "ellipsoid": return Scaled(Build("sphere@t" + i), 1, 0.85, 0.7);
+                case "torus": return Torus(1, 0.35, 56 + i, 20 + i);
+                case "box": return new GridBox3Generator { Box = new Box3d(Vector3d.Zero, new Vector3d(1, 0.8, 0.6)), EdgeVertices = 7 + i }.Generate().MakeDMesh();
+                case "cylinder": return new CappedCylinderGenerator { BaseRadius = 0.5f, TopRadius = 0.5f, Height = 1.5f, Slices = 40 + i }.Generate().MakeDMesh();
+                case "gyroid": return Tpms(TpmsType.Gyroid, TpmsStyle.Sheet, 2, new[] { 8, 9, 11, 12, 13, 14 }[i], Matrix3d.Identity);
+                case "schwarzP": return Tpms(TpmsType.SchwarzP, TpmsStyle.SkeletalLow, 2, new[] { 8, 9, 11, 12, 13, 14 }[i], Matrix3d.Identity);
+            }
+        }
         switch (name) {
             case "sphere": return new Sphere3Generator_NormalizedCube { Radius = 1, EdgeVertices = 24 }.Generate().MakeDMesh();
             case "ellipsoid": return Scaled(Build("sphere"), 1, 0.85, 0.7);
@@ -298,9 +323,9 @@ static class Shapes
         return m;
     }
 
-    static DMesh3 Torus(double R, double r)
+    static DMesh3 Torus(double R, double r, int nu = 64, int nv = 24)
     {
-        int nu = 64, nv = 24; var m = new DMesh3();
+        var m = new DMesh3();
         for (int i = 0; i < nu; ++i) for (int j = 0; j < nv; ++j) {
             double u = 2 * Math.PI * i / nu, v = 2 * Math.PI * j / nv;
             m.AppendVertex(new Vector3d((R + r * Math.Cos(v)) * Math.Cos(u), (R + r * Math.Cos(v)) * Math.Sin(u), r * Math.Sin(v)));
@@ -332,6 +357,32 @@ static class Shapes
     }
 
     public static int VertexCount(string name) => Get(name).V.Length;
+
+    public static (Vector3d[] V, Index3i[] T) Mesh(string name) { var e = Get(name); return ((Vector3d[])e.V.Clone(), e.T); }
+
+    /// <summary>
+    /// Sampling-free descriptor (the candidate after the stop): sqrt of the eigenvalues of the exact second-moment tensor of the
+    /// surface (triangle integrals: int_T x x^T dA = A/12 (sum_v v v^T + s s^T), s = a+b+c), divided by its RMS radius. A
+    /// classical moment invariant, not PDD.
+    /// </summary>
+    public static double[] SurfaceMoments(Vector3d[] V, Index3i[] T)
+    {
+        double A = 0; Vector3d c = Vector3d.Zero; var M = new double[6];
+        foreach (var t in T) {
+            Vector3d a = V[t.a], b = V[t.b], d = V[t.c]; double area = MathUtil.Area(a, b, d); var s = a + b + d;
+            A += area; c += area / 3 * s;
+            double[] u = { a.x, b.x, d.x }, v = { a.y, b.y, d.y }, w = { a.z, b.z, d.z };
+            double XX = 0, XY = 0, XZ = 0, YY = 0, YZ = 0, ZZ = 0;
+            for (int i = 0; i < 3; ++i) { XX += u[i] * u[i]; XY += u[i] * v[i]; XZ += u[i] * w[i]; YY += v[i] * v[i]; YZ += v[i] * w[i]; ZZ += w[i] * w[i]; }
+            double f = area / 12;
+            M[0] += f * (XX + s.x * s.x); M[1] += f * (XY + s.x * s.y); M[2] += f * (XZ + s.x * s.z);
+            M[3] += f * (YY + s.y * s.y); M[4] += f * (YZ + s.y * s.z); M[5] += f * (ZZ + s.z * s.z);
+        }
+        c /= A;
+        // the covariance of the surface measure, as a point set of 3 weighted "points" is not needed: use the PCA routine on the tensor
+        double xx = M[0] / A - c.x * c.x, xy = M[1] / A - c.x * c.y, xz = M[2] / A - c.x * c.z, yy = M[3] / A - c.y * c.y, yz = M[4] / A - c.y * c.z, zz = M[5] / A - c.z * c.z;
+        return Baselines.EigenSqrt(xx, xy, xz, yy, yz, zz);
+    }
 
     /// <summary> n points: area-uniform samples of the shape's surface (seeded), or for "blob" an anisotropic Gaussian cloud </summary>
     public static Vector3d[] Sample(string name, int n, ulong seed)
@@ -495,12 +546,13 @@ static class Experiments
     public static void Retrieval(int n)
     {
         string[] shapes = { "sphere", "ellipsoid", "ellipsoid3", "torus", "torus33", "box", "box62", "cylinder", "cylinder145", "gyroid", "schwarzP", "schwarzD", "blob" };
-        int[] ks = { 8, 32, 128 };
-        var metrics = Metrics(n, false);
+        bool full = n <= 400;   // the full PDD (k = N-1) and exact EMD only at small N (O(N^2) / O(N^3))
+        int[] ks = full ? new[] { 8, 32, 128, 100000 } : new[] { 8, 32, 128 };
+        var metrics = Metrics(n, full);
         var refs = new Desc[shapes.Length];
-        Parallel.For(0, shapes.Length, s => refs[s] = Desc.Of(Shapes.Sample(shapes[s], n, 1), ks, false));
+        Parallel.For(0, shapes.Length, s => refs[s] = Desc.Of(Shapes.Sample(shapes[s], n, 1), ks, full));
         int Q = 4; var qs = new Desc[shapes.Length * Q];
-        Parallel.For(0, qs.Length, i => qs[i] = Desc.Of(Shapes.RigidCopy(Shapes.Sample(shapes[i / Q], n, 300 + (ulong)i), 70 + (ulong)i, 1e-3), ks, false));
+        Parallel.For(0, qs.Length, i => qs[i] = Desc.Of(Shapes.RigidCopy(Shapes.Sample(shapes[i / Q], n, 300 + (ulong)i), 70 + (ulong)i, 1e-3), ks, full));
         Console.WriteLine($"# retrieval N={n}, {shapes.Length} shapes ({string.Join(",", shapes)}), {Q} queries each, noise 1e-3, resampled");
         Console.WriteLine("metric    top1   FP@tau(of " + (qs.Length * (shapes.Length - 1)) + ")  confused pairs at tau");
         foreach (var M in metrics) {
@@ -514,6 +566,44 @@ static class Experiments
             int fp = 0; var conf = new SortedSet<string>();
             for (int i = 0; i < qs.Length; ++i) for (int s = 0; s < shapes.Length; ++s) if (s != i / Q && dist[i, s] <= tau) { fp++; conf.Add(shapes[i / Q] + "~" + shapes[s]); }
             Console.WriteLine($"{M.Name,-9} {top1,3}/{qs.Length}  {fp,5}            {string.Join(" ", conf.Take(8))}{(conf.Count > 8 ? " ..." : "")}");
+        }
+    }
+
+    /// <summary>
+    /// Candidate after the stop: is the limit of the resampled stratum the sampling noise? The same shape at a second
+    /// tessellation (other grid, other contour) stands in for "resampled"; positives = 6 rigid copies of the second
+    /// tessellation, negatives = 3 deformed rigid copies per eps. Exact surface moments (no samples) against D2 and PDD on
+    /// 2000 area samples of the second tessellation.
+    /// </summary>
+    public static void Moments()
+    {
+        string[] shapes = { "sphere", "ellipsoid", "torus", "box", "cylinder", "gyroid", "schwarzP" };
+        int n = 2000; int[] ks = { 32 };
+        Console.WriteLine($"# moments: reference = tessellation 0, positives = 6 other tessellations (shape@t0..5), negatives = deformed t1/t3/t5; rigid, no noise; the sphere twist is a control (no shape change); samples N={n}; eps* as in disc");
+        Console.WriteLine("deform  shape     | Moments       D2    AMD32 colW1_32  PCAsmp");
+        foreach (string deform in new[] { "stretch", "bump", "twist" })
+        foreach (string shape in shapes) {
+            var (V0, T0) = Shapes.Mesh(shape);
+            var refM = Shapes.SurfaceMoments(V0, T0); var refD = Desc.Of(Shapes.Sample(shape, n, 1), ks, false);
+            var pos = new List<(double[] m, Desc d)>(); var neg = new List<(int e, double[] m, Desc d)>();
+            for (int i = 0; i < 6; ++i) {   // six other tessellations, rigid copies
+                string alt = shape + "@t" + i; var (V1, T1) = Shapes.Mesh(alt);
+                var V = Shapes.RigidCopy(V1, 10 + (ulong)i, 0);
+                pos.Add((Shapes.SurfaceMoments(V, T1), Desc.Of(Shapes.RigidCopy(Shapes.Sample(alt, n, 100 + (ulong)i), 10 + (ulong)i, 0), ks, false)));
+            }
+            for (int e = 0; e < Ladder.Length; ++e) for (int j = 0; j < 3; ++j) {   // deformed copies of three of them
+                ulong sd = 50 + (ulong)(e * 3 + j); string alt = shape + "@t" + (2 * j + 1); var (V1, T1) = Shapes.Mesh(alt);
+                var V = Shapes.RigidCopy(Shapes.Deform(V1, deform, Ladder[e]), sd, 0);
+                neg.Add((e, Shapes.SurfaceMoments(V, T1), Desc.Of(Shapes.RigidCopy(Shapes.Deform(Shapes.Sample(alt, n, 200 + (ulong)j), deform, Ladder[e]), sd, 0), ks, false)));
+            }
+            var fs = new Func<double[], Desc, double>[] {
+                (m, d) => Pdd.AmdDist(refM, m), (m, d) => Baselines.W1Sorted(refD.D2, d.D2), (m, d) => Pdd.AmdDist(refD.Amd[32], d.Amd[32]),
+                (m, d) => Pdd.ColW1(refD.Cols[32], d.Cols[32]), (m, d) => Pdd.AmdDist(refD.Pca, d.Pca) };
+            var star = fs.Select(f => {
+                double maxPos = pos.Max(p => f(p.m, p.d)); double s = double.NaN;
+                for (int e = Ladder.Length - 1; e >= 0; --e) { double mn = neg.Where(x => x.e == e).Min(x => f(x.m, x.d)); if (mn > maxPos) s = Ladder[e]; else break; }
+                return s; }).ToArray();
+            Console.WriteLine($"{deform,-7} {shape,-9} | {string.Join(" ", star.Select(F))}");
         }
     }
 
