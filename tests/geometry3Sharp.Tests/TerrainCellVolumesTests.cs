@@ -383,5 +383,31 @@ namespace geometry3Sharp.Tests
             // bands times cells above the cap
             Assert.False(new TerrainCellVolumes(before, after, 0, 0, 0.02, 0.02, 1000, 1000) { BandBoundaries = new[] { 0.0, 1.0, 2.0 } }.Compute());
         }
+
+        [Fact]
+        public void The2DCellValues_ArePinnedToTheBitsBeforeTheBlocksRefactor()
+        {
+            // bit patterns computed with the code before integrate was split into integrate_diff (master at the time of the 3D blocks PR)
+            var (before, after) = Pair();
+            var c = Run(before, after, 1, 2, 3.3, 2.9, 7, 7);
+            var pins = new (int k, long cut, long fill, long cutArea, long overlap)[] {
+                (0, 0x40369D003A111C14, 0, 0x402323D70A3D70A4, 0x402323D70A3D70A4), (8, 0x402E02AD0FB8A995, 0, 0x402323D70A3D70A3, 0x402323D70A3D70A3),
+                (17, 0, 0x4034ED71E6B39F67, 0, 0x402323D70A3D70A4), (24, 0, 0x403A8723B8F622EA, 0, 0x402323D70A3D70A6),
+                (30, 0x3EFB6C081997FE39, 0x40311C3C9E444C49, 0x3F609515BD9B38C1, 0x402323D70A3D70A3), (40, 0x401391F25273EC36, 0x3FAF3B52EFD686B2, 0x401ACF2129C16D4A, 0x401CFFFFFFFFFFFC) };
+            foreach (var p in pins) {
+                Assert.Equal(p.cut, BitConverter.DoubleToInt64Bits(c.CutVolume[p.k])); Assert.Equal(p.fill, BitConverter.DoubleToInt64Bits(c.FillVolume[p.k]));
+                Assert.Equal(p.cutArea, BitConverter.DoubleToInt64Bits(c.CutArea[p.k])); Assert.Equal(p.overlap, BitConverter.DoubleToInt64Bits(c.OverlapArea[p.k]));
+            }
+            Assert.Equal(0x40748FA11DD0CA38, BitConverter.DoubleToInt64Bits(c.TotalCutVolume)); Assert.Equal(0x4072C1601B0322D7, BitConverter.DoubleToInt64Bits(c.TotalFillVolume));
+        }
+
+        [Fact]
+        public void ASurfaceExactlyOnABandBoundary_AddsNothingToTheBandAbove()
+        {
+            // before z = 1, after z = 3 over 4 x 4: the top surface lies exactly at the boundary 3
+            DMesh3 before = Grid(0, 0, 4, 4, 2, (x, y) => 1), after = Grid(0, 0, 4, 4, 3, (x, y) => 3, true);
+            TerrainCellVolumes c = RunBands(before, after, new[] { 1.0, 3.0, 5.0 }, 0, 0, 4, 4, 1, 1);
+            Assert.Equal(32.0, c.BlockFillVolume[0], 12); Assert.Equal(0, c.BlockFillVolume[1]);
+        }
     }
 }

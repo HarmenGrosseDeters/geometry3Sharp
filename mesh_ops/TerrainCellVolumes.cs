@@ -46,7 +46,7 @@ namespace gs
         public bool RequireHeightField = true;
         /// <summary>
         /// Optional elevation bands for 3D blocks (docs/design/TERRAIN.md section 9.3): strictly increasing boundaries b0 &lt; b1 &lt; ... &lt; bm (m &gt;= 1), band k
-        /// is [b_k, b_k+1]; the two ends may be -infinity / +infinity (<c>{ -inf, +inf }</c> is one band over all heights). Null (the default): no blocks, and
+        /// is [b_k, b_k+1], in absolute z (not relative to the internal local origin); the two ends may be -infinity / +infinity (<c>{ -inf, +inf }</c> is one band over all heights). Null (the default): no blocks, and
         /// the outputs of the 2D cells are computed exactly as before. With bands, Compute() also fills <see cref="BlockCutVolume"/> and
         /// <see cref="BlockFillVolume"/>, and fails for invalid boundaries (NaN, not strictly increasing, fewer than 2) or more than <see cref="MaxCells"/>
         /// blocks (bands times cells).
