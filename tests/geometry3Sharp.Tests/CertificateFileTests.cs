@@ -407,6 +407,33 @@ namespace geometry3Sharp.Tests
             Assert.True(refused >= 4, refused.ToString());
         }
 
+        /// <summary>
+        /// The piece count claims half of the bytes that follow it (a piece takes at least six): the reader refuses it before it
+        /// allocates the arrays of the pieces (about 26 bytes per piece), so its allocation does not grow with the claim. With a
+        /// bound of one byte per element the arrays would take about 13 times the rest of the file.
+        /// </summary>
+        [Fact]
+        public void APieceCountOfHalfTheRemainingBytes_IsRefusedBeforeTheArraysAreAllocated()
+        {
+            Setup s = Spheres();
+            CertificateFile.Write(s.Cert);
+            int at = CertificateFile.LastSections.First(x => x.section == "pieces").offset;
+            int len = VarintLength(s.Bytes, at);
+            int remaining = s.Bytes.Length - at - len;
+            byte[] claim = Splice(s.Bytes, at, len, Varint((ulong)(remaining / 2)));
+            byte[] baseline = s.Bytes.Take(at).ToArray();                        // the same read up to the piece count
+            long b0 = Allocated();
+            Assert.Throws<FormatException>(() => CertificateFile.Read(baseline, s.Inputs, s.Boolean.Result));
+            long baseAlloc = Allocated() - b0;
+            long c0 = Allocated();
+            Assert.Throws<FormatException>(() => CertificateFile.Read(claim, s.Inputs, s.Boolean.Result));
+            long claimAlloc = Allocated() - c0;
+            log.WriteLine($"{remaining} bytes after the count: baseline {baseAlloc}, with the claim {claimAlloc}");
+#if NETCOREAPP
+            Assert.True(claimAlloc - baseAlloc < remaining, $"{claimAlloc - baseAlloc} bytes for a claim over {remaining} bytes");
+#endif
+        }
+
         [Fact]
         public void PaddedVarints_AndOutOfRangeNumbers_AreRefused()
         {

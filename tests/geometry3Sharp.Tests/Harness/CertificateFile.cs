@@ -66,7 +66,6 @@ namespace geometry3Sharp.Tests
         [ThreadStatic] public static List<(string section, int offset)> LastSections;
 
         /// <summary> the certificate of c in format R; c must come from a built-in operation and not be not-applicable </summary>
-
         /// <summary>
         /// forge (tests only): also writes the vertices of the result before rounding that no triangle uses, and the extra points,
         /// as a hand-made file would; the reader must refuse both
