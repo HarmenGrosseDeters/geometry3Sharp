@@ -392,3 +392,14 @@ the repository pages on 2026-11-22: Jang et al.: none (unlicensed, paper only); 
 | SWC parent-indexed radius tree representation (format reference only; procedural trees generated in C#, no NeuroMorpho data committed) | G. A. Ascoli, D. E. Donohue, M. Halavi, *NeuroMorpho.Org: A Central Resource for Neuronal Morphologies*, J. Neurosci. 27(35), 2007 |
 | Line-segment convolution surface with closed-form Cauchy kernel integral (`CauchyConvolutionImplicit` in probe) | J. Bloomenthal, K. Shoemake, *Convolution Surfaces*, Computer Graphics (SIGGRAPH) 25(4), 1991; J. McCormack, A. Sherstyuk, *Creating and Rendering Convolution Surfaces*, Computer Graphics Forum 17(2), 1998; papers only, own C# probe |
 | Prior art for neuron membrane surface reconstruction | S. Lasserre, J. Hernando, S. Hill, F. Schürmann, P. de Miguel Anasagasti, G. Abou Jaoudé, H. Markram, *A Neuron Membrane Mesh Representation for Visualization of Electrophysiological Simulations*, IEEE TVCG 18(2), 2012 |
+
+## Alpha wrap accuracy spikes (research, `benchmarks/WrapAccuracyProbe`; not library code)
+
+Research note [research/ALPHA_WRAP_ACCURACY_2026-11.md](../research/ALPHA_WRAP_ACCURACY_2026-11.md). Cited, not implemented: nothing is ported, no code was read; the
+snap-back check of the probe is own work on the library's exact predicates (the alpha wrap itself is in the section above).
+
+| Part | Source |
+|---|---|
+| Projection of a coarse wrap onto the input with regularisation (prior art for the snap back; abstract level) | L. Kobbelt et al., *A shrink wrapping approach to remeshing polygonal surfaces*, CGF 18(3), 1999 |
+| Projection along normals with an adaptive alpha (prior art; abstract only, via web search 2026-11-24; the paper was not read) | Dai et al., 2024 (CAGD, paper on adaptive alpha; the note names no further details) |
+| Envelope-style tolerance (the kept-band option A2; from memory) | J. Cohen et al., *Simplification envelopes*, SIGGRAPH 1996 |
