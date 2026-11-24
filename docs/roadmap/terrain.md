@@ -6,7 +6,7 @@ Part of the [roadmap](../ROADMAP.md).
   catch line, volumes, failure kinds, accuracy reporting, LocalFrame, RoundToGrid; the 2D quadtree it waits for;
   honest terrain metrics. Terrain / GIS is a showcase domain (Phase 4).
 - **Status (2026-11-17):** the terrain topic is closed out (owner 2026-11-09: finish the terrain topic). **Terrain plan parked
-  (owner 2026-11-17): further terrain work (slope envelope, 3D blocks, berms, GeoTIFF reader, showcase) later, no use case now.** Done: slope construction
+  (owner 2026-11-17): further terrain work (slope envelope, berms, GeoTIFF reader, showcase) later, no use case now; 3D blocks built on request 2026-11-24.** Done: slope construction
   phase 1 (#357), the DGM reader and writer, the grid TIN with a guaranteed surface error and breaklines (`gs.TerrainGridTin`,
   #491 with the gaps closed in #504: survey heights, world-coordinate margin), the `g3cli` commands `dgm`, `dgm_tin` (#506) and
   `cell_volumes`, volume per cell (`gs.TerrainCellVolumes`, #507) and the terrain kernel mutation score (#508). Close-out
@@ -92,14 +92,15 @@ berms and the GeoTIFF reader are later (owner 2026-11-17, plan parked). The item
   ([research.md](research.md#open-research-questions), snap rounding).
 - **GeoTIFF reader:** later (owner 2026-11-17), not scheduled. When it comes: own implementation, or LibTiff.Net (BSD) in an
   optional package, the owner decides; XYZ ASCII and ESRI ASCII Grid are in.
-- **3D blocks** (volume per block with a z-extent, TERRAIN.md §9.3): the 2D columns are done, the z-extent waits for a use case.
+- **3D blocks** (volume per block with a z-extent, TERRAIN.md §9.3): done (owner approved 2026-11-24): `TerrainCellVolumes.BandBoundaries`
+  gives `BlockCutVolume` / `BlockFillVolume` per cell and elevation band, CLI `cell_volumes --bands`. The 2D results are unchanged.
 - **Biomedical / orthotics** showcase: no work recorded; showcase work is later (owner 2026-11-17).
 
 ### Closed in the close-out (2026-11-09 / 10)
 
 - **DGM to TIN:** `gs.TerrainGridTin`, B2 of [design/TERRAIN_DGM_TO_TIN.md](../design/TERRAIN_DGM_TO_TIN.md) (§11, §11.1 for the gaps).
 - **DGM reader:** `HeightGrid`, `HeightGridReader`, `HeightGridWriter`, `HeightGrid.BuildMesh` (`io/`); CLI / MCP `dgm`, `dgm_tin`.
-- **Volume per cell:** `gs.TerrainCellVolumes`, CLI / MCP `cell_volumes` (TERRAIN.md §9.3).
+- **Volume per cell:** `gs.TerrainCellVolumes`, CLI / MCP `cell_volumes` (TERRAIN.md §9.3); 3D blocks (elevation bands) added 2026-11-24.
 - **Terrain mutation shards:** `terrain-kernel` 83.64 → 87.36 % (threshold 85); the shards were waiting for the restart (#302).
 - **Honest terrain metrics** (task 5, C2(A), benchmark only): done in #399 (2026-11-08), see [below](#task-5-honest-terrain-metrics).
 
@@ -193,7 +194,7 @@ Terrain plan parked (owner 2026-11-17): further terrain work (berms, GeoTIFF, sh
 is correct behaviour), terrain mutation survivors (#908), the `Acos` of `TerrainSlopeDesign` (#1066, 2026-11-17).
 
 1. Sector polygons E1, the exterior distance, S1 and R2: **parked (owner 2026-11-16)**, see [TERRAIN_SECTORS.md](../design/TERRAIN_SECTORS.md#status-2026-11-16-parked-owner) (plan #1268).
-2. Later (owner 2026-11-17): the slope envelope construction (also the lever for the extreme-frame cost of #696), 3D blocks,
+2. Later (owner 2026-11-17): the slope envelope construction (also the lever for the extreme-frame cost of #696),
    berms and inter-ramp checks and the GeoTIFF reader (plan #1267).
 3. Parked until a real case: the §11 performance follow-ups, RoundToGrid (research, snap rounding; plan #1269).
 4. Internal quadtree uses, identified not measured (owner 2026-11-17: not now, waits until terrain resumes; plan #1269): (1) `TerrainSafety`'s

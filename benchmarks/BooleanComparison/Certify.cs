@@ -675,8 +675,15 @@ static class Certify
             case "scale": return Cost(ScaleCases(), reps, true);
             case "scale-c2a": return Cost(ScaleCases(), reps, false);
             case "removed": return Removed();
+            case "size": {
+                // (docs/research/CERTIFYING_BOOLEANS_2026-11.md: certificate size and checker time; CertifySize.cs)
+                int seeds = args.Length > 2 ? int.Parse(args[2], CultureInfo.InvariantCulture) : 4;
+                var all = Cases().Concat(ScaleCases().Where(c => c.Name.EndsWith("n=64") || c.Name.EndsWith("nu=128") || c.Name.EndsWith("n=16")))
+                    .Select(c => (c.Name, c.Inputs, c.Op)).ToList();
+                return CertifySize.Run(CertifySize.FuzzCases(seeds).Concat(all).ToList(), reps);
+            }
         }
-        Console.Error.WriteLine("usage: certify [selftest | cost [reps] | scale [reps] | scale-c2a [reps] | removed]");
+        Console.Error.WriteLine("usage: certify [selftest | cost [reps] | scale [reps] | scale-c2a [reps] | removed | size [reps] [seeds]]");
         return 1;
     }
 }
