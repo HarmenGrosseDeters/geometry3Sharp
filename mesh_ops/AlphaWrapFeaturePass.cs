@@ -14,7 +14,8 @@ namespace gs
     ///   2. crease points: an edge whose two end planes differ by more than CreaseAngleDegrees crosses a crease; its crease point
     ///      is the point of the two planes' intersection line nearest the edge's midpoint, accepted only within MaxMiterDistance
     ///      offsets of the miter line of an input sharp edge (the edge moved onto the offset surface's crease, the shift capped at
-    ///      MaxMiterShift offsets);
+    ///      MaxMiterShift offsets); with VarifoldCreases, accepted where the input's unoriented varifold has a crease between the
+    ///      two planes there instead (VarifoldCreaseQuery: no input connectivity needed, so unwelded soups work);
     ///   3. crease-line snap: a vertex with such a crease point in the near SnapFraction of one of its edges moves onto that line;
     ///   4. the remaining crossing edges are split at their crease points (two crossing edges of a triangle then give an edge
     ///      along the crease), and an edge whose opposite vertices are both crease vertices is flipped onto the crease.
@@ -49,15 +50,30 @@ namespace gs
         internal double MinDistance = 0.9;
         internal double MinAngleFloorDegrees = 10, MaxAngleCeilingDegrees = 150, MaxNormalTurnDegrees = 100;
         internal bool EnableFlips = true;
+        /// <summary>
+        /// the input's creases from its unoriented varifold instead of its edges' dihedral angles (an unwelded, duplicated,
+        /// flipped or T-junctioned soup has no two-triangle edges, so the dihedral finds none there): at every crease point the
+        /// pass asks VarifoldCreaseQuery whether the input's two planes there really meet at a crease of at least
+        /// CreaseAngleDegrees (docs/design/VARIFOLD_CREASE_INPUT.md). Off by default; off, the pass is the one before, bit for bit.
+        /// </summary>
+        internal bool VarifoldCreases = false;
+        /// <summary> the ball of the varifold crease test, in alphas </summary>
+        internal double VarifoldRadius = 3.5;
+        /// <summary> the varifold crease test's distance of each plane from the crease, in offsets (plus 3 rms of the plane) </summary>
+        internal double VarifoldTolerance = 0.5;
         /// <summary> (tests) false: the exact sweep test is skipped (only the end state is checked) </summary>
         internal bool CheckSweep = true;
 
         // outputs
         internal int PlaneMoves, CreaseSnaps, Splits, Flips, Rejected, CrossingEdges, InputCreases;
+        /// <summary> (benchmarks) VarifoldCreases: the queries asked, and the Stopwatch ticks of building the measure and of the queries </summary>
+        internal int VarifoldQueries;
+        internal long VarifoldBuildTicks, VarifoldQueryTicks;
 
         DMeshAABBTree3 inputTree;
         TriangleHashGrid grid;
         SegmentGrid miters;
+        VarifoldCreaseQuery varifold;
         double cosTurn, cosCrease;
 
         /// <summary> mesh: the raw wrap (changed in place); input: the wrap's input; alpha, offset: the wrap's used values </summary>
@@ -93,7 +109,8 @@ namespace gs
         /// </summary>
         internal bool Prepare()
         {
-            PlaneMoves = CreaseSnaps = Splits = Flips = Rejected = CrossingEdges = InputCreases = 0;
+            PlaneMoves = CreaseSnaps = Splits = Flips = Rejected = CrossingEdges = InputCreases = VarifoldQueries = 0;
+            VarifoldBuildTicks = VarifoldQueryTicks = 0;
             if (Mesh.TriangleCount == 0 || input.TriangleCount == 0 || !(alpha > 0) || !(offset > 0))
                 return false;
             if (inputTree == null || inputTree.Mesh != input)
@@ -103,6 +120,15 @@ namespace gs
             grid = build_grid(Mesh);
             labels = new Label[Mesh.MaxVertexID];
             labelled = new bool[Mesh.MaxVertexID];
+            if (VarifoldCreases) {
+                // (InputCreases then counts the crease points the test accepted)
+                miters = null;
+                long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+                varifold = new VarifoldCreaseQuery(input, VarifoldRadius * alpha);
+                VarifoldBuildTicks = System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+                return true;
+            }
+            varifold = null;
             build_miters();
             InputCreases = miters == null ? 0 : miters.Count;
             return miters != null;
@@ -162,6 +188,24 @@ namespace gs
         bool near_miter(Vector3d p)
         {
             return miters.AnyWithin(p, MaxMiterDistance * offset);
+        }
+
+        // the crease point m of the vertex planes la, lb lies on an input crease: near the miter line of an input sharp edge, or
+        // (VarifoldCreases) the input's two planes meet at a crease near m in the varifold sense
+        bool input_crease(Label la, Label lb, Vector3d m)
+        {
+            if (varifold == null)
+                return near_miter(m);
+            // the unshifted planes (the labels are shifted outward by one offset) and their line's point nearest m
+            var ia = new Label { Kind = 1, N = la.N, D = la.D - offset };
+            var ib = new Label { Kind = 1, N = lb.N, D = lb.D - offset };
+            if (!crease_point(ia, ib, m, out Vector3d x0)) return false;
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            bool yes = varifold.IsCrease(x0, la.N, lb.N, CreaseAngleDegrees, VarifoldTolerance * offset, out double _);
+            VarifoldQueryTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+            VarifoldQueries++;
+            if (yes) InputCreases++;
+            return yes;
         }
 
         // ---- vertex planes ----
@@ -293,7 +337,7 @@ namespace gs
                     Vector3d b = Mesh.GetVertex(nb), m, x;
                     if (!crease_point(la, lb, 0.5 * (a + b), out m)) continue;
                     double t = (m - a).Dot(b - a) / (b - a).LengthSquared;
-                    if (t > SnapFraction || !near_miter(m)) continue;
+                    if (t > SnapFraction || !input_crease(la, lb, m)) continue;
                     if (!crease_point(la, lb, a, out x)) continue;
                     double d = x.Distance(a);
                     if (d < bestD) { bestD = d; bestX = x; bestOther = lb; }
@@ -326,7 +370,7 @@ namespace gs
                 Label la = label(ev.a), lb = label(ev.b);
                 if (!crossing(la, lb)) continue;
                 Vector3d a = Mesh.GetVertex(ev.a), b = Mesh.GetVertex(ev.b), m;
-                if (!crease_point(la, lb, 0.5 * (a + b), out m) || !near_miter(m)) continue;
+                if (!crease_point(la, lb, 0.5 * (a + b), out m) || !input_crease(la, lb, m)) continue;
                 // (a, b) in the order of triangle et.a = (a, b, c); et.b = (b, a, d)
                 Index2i et = Mesh.GetEdgeT(eid);
                 int va = ev.a, vb = ev.b;
