@@ -542,6 +542,183 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // ---- NeighbourPlaneSides: the plane-side pretest of neighbours ----
+
+        static int Pretest(Pair p) => TriangleTriangleFilter.NeighbourPlaneSides(p.Ia, ref p.A, p.Ib, ref p.B);
+
+        // neighbours (one shared vertex at a varying corner, or a shared edge either way) with corners from point
+        static List<Pair> NeighbourPairs(int count, Random rand, Func<Vector3d> point)
+        {
+            var pairs = new List<Pair>();
+            while (pairs.Count < count) {
+                Vector3d a0 = point(), a1 = point(), a2 = point(), b1 = point(), b2 = point();
+                var p = new Pair { Ia = new Index3i(0, 1, 2), A = new Triangle3d(a0, a1, a2) };
+                if (pairs.Count % 2 == 0) {
+                    int c = rand.Next(3);
+                    p.Ib = c == 0 ? new Index3i(1, 4, 5) : c == 1 ? new Index3i(4, 1, 5) : new Index3i(4, 5, 1);
+                    p.B = c == 0 ? new Triangle3d(a1, b1, b2) : c == 1 ? new Triangle3d(b1, a1, b2) : new Triangle3d(b1, b2, a1);
+                } else {
+                    bool flip = rand.Next(2) == 0;
+                    p.Ib = flip ? new Index3i(2, 1, 5) : new Index3i(1, 2, 5);
+                    p.B = flip ? new Triangle3d(a2, a1, b2) : new Triangle3d(a1, a2, b2);
+                }
+                if (rand.Next(2) == 0) { var t = p.A; p.A = p.B; p.B = t; var ti = p.Ia; p.Ia = p.Ib; p.Ib = ti; }
+                if (ExactTriangleIntersection.IsDegenerate(ref p.A) || ExactTriangleIntersection.IsDegenerate(ref p.B))
+                    continue;
+                pairs.Add(p);
+            }
+            return pairs;
+        }
+
+        // Separate only where the exact test finds no intersection beyond the shared corners; returns the number decided
+        static int CheckPretest(IEnumerable<Pair> pairs, string what)
+        {
+            int decided = 0;
+            foreach (Pair pair in pairs) {
+                Pair p = pair;
+                int f = Pretest(p);
+                Assert.True(f == TriangleTriangleFilter.Undecided || f == TriangleTriangleFilter.Separate, $"{what}: {f}");
+                if (f == TriangleTriangleFilter.Separate) {
+                    decided++;
+                    Assert.False(Exact(p), $"{what}: pretest separate, exact intersecting, ids {p.Ia} {p.Ib}, A {p.A.V0} {p.A.V1} {p.A.V2}, B {p.B.V0} {p.B.V1} {p.B.V2}");
+                }
+                // the filter with the pretest decides where either decides, as the exact test; the convenience method
+                // (which uses it) gives the exact answer
+                int g = TriangleTriangleFilter.BeyondSharedNeighbours(p.Ia, ref p.A, p.Ib, ref p.B);
+                if (f == TriangleTriangleFilter.Separate || Filter(p) != TriangleTriangleFilter.Undecided)
+                    Assert.NotEqual(TriangleTriangleFilter.Undecided, g);
+                if (g != TriangleTriangleFilter.Undecided)
+                    Assert.Equal(Exact(p), g == TriangleTriangleFilter.Intersecting);
+                Assert.Equal(Exact(p), TriangleTriangleFilter.IntersectsBeyondShared(p.Ia, ref p.A, p.Ib, ref p.B));
+            }
+            return decided;
+        }
+
+        [Fact]
+        public void NeighbourPlaneSides_IntegerGrid_NeverContradictsTheExactTest()
+        {
+            // small integer coordinates: corners on the other plane, folds, coplanar neighbours, touching edges
+            var rand = new Random(41);
+            List<Pair> pairs = NeighbourPairs(40000, rand, () => new Vector3d(rand.Next(0, 4), rand.Next(0, 4), rand.Next(0, 4)));
+            int decided = CheckPretest(pairs, "integer grid");
+            int intersecting = pairs.Count(Exact), coplanarUndecided = 0;
+            foreach (Pair p in pairs) {
+                Pair q = p;
+                Vector3d n = (q.A.V1 - q.A.V0).Cross(q.A.V2 - q.A.V0);
+                bool coplanar = ExactPredicates.Orient3d(q.A.V0, q.A.V1, q.A.V2, q.B.V0) == 0 && ExactPredicates.Orient3d(q.A.V0, q.A.V1, q.A.V2, q.B.V1) == 0
+                    && ExactPredicates.Orient3d(q.A.V0, q.A.V1, q.A.V2, q.B.V2) == 0;
+                if (coplanar) { Assert.Equal(TriangleTriangleFilter.Undecided, Pretest(q)); coplanarUndecided++; }
+            }
+            Assert.True(decided > 15000 && intersecting > 2000 && coplanarUndecided > 500, $"{decided} decided, {intersecting} intersecting, {coplanarUndecided} coplanar");
+        }
+
+        [Fact]
+        public void NeighbourPlaneSides_RandomAndNearlyCoplanar_NeverContradictsTheExactTest()
+        {
+            var rand = new Random(43);
+            int decided = CheckPretest(NeighbourPairs(20000, rand, () => new Vector3d(rand.NextDouble(), rand.NextDouble(), rand.NextDouble())), "random");
+            Assert.True(decided > 10000, $"random: {decided}");
+            // nearly coplanar: z within 1e-12 of a tilted plane, so many Orient3d values are within the filter's bound
+            var q = new Quaterniond(new Vector3d(1, 2, 3).Normalized, 37);
+            int near = CheckPretest(NeighbourPairs(20000, rand, () => q * new Vector3d(rand.NextDouble(), rand.NextDouble(), 1e-12 * (rand.NextDouble() - 0.5))), "nearly coplanar");
+            Assert.True(near < 20000, $"nearly coplanar: all {near} decided");
+        }
+
+        [Fact]
+        public void NeighbourPlaneSides_ExtremeScales_NeverContradictsTheExactTest()
+        {
+            // 2^-500 and 2^500 (exact scalings: the decisions are the same as at scale 1), and subnormal differences,
+            // where the filter's underflow guard leaves the pairs undecided
+            var rand = new Random(47);
+            List<Pair> pairs = NeighbourPairs(6000, rand, () => new Vector3d(rand.Next(-3, 4), rand.Next(-3, 4), rand.Next(-3, 4)) + new Vector3d(0.25 * rand.NextDouble(), 0, 0));
+            int[] reference = pairs.Select(Pretest).ToArray();
+            // 2^-200 and 2^300: the filter's products stay above its underflow limit (1e-200) and finite, the decisions
+            // are those at scale 1; at 2^-500 and 2^500 they underflow or overflow, and the filter's guards leave the
+            // pairs undecided (never wrong)
+            foreach (int e in new[] { -500, -200, 300, 500 }) {
+                double f = Math.Pow(2, e);
+                var scaled = pairs.Select(p => Transformed(p, v => f * v)).ToList();
+                int decided = CheckPretest(scaled, "2^" + e);
+                int[] got = scaled.Select(Pretest).ToArray();
+                if (Math.Abs(e) < 500)
+                    Assert.Equal(reference, got);
+                else
+                    Assert.Equal(0, decided);
+            }
+            // (normal coordinates near 1e-308 whose differences are subnormal)
+            var tiny = pairs.Select(p => Transformed(p, v => new Vector3d(1e-308, 1e-308, 1e-308) + 1e-310 * v)).ToList();
+            Assert.Equal(0, CheckPretest(tiny, "subnormal differences"));
+            var sub = pairs.Select(p => Transformed(p, v => 1e-315 * v)).ToList();
+            int subDecided = CheckPretest(sub, "subnormal coordinates");
+            Assert.Equal(0, subDecided);
+            Assert.True(reference.Count(r => r == TriangleTriangleFilter.Separate) > 2000);
+        }
+
+        [Fact]
+        public void NeighbourPlaneSides_EveryFrame_NeverContradicts_ExactScalesSameDecisions()
+        {
+            var rand = new Random(53);
+            List<Pair> pairs = NeighbourPairs(4000, rand, () => new Vector3d(rand.Next(0, 5), rand.Next(0, 5), rand.Next(0, 5)));
+            int[] reference = pairs.Select(Pretest).ToArray();
+            foreach (Similarity s in Similarity.All()) {
+                var moved = pairs.Select(p => Transformed(p, s.Apply)).ToList();
+                int decided = CheckPretest(moved, s.Name);
+                Assert.True(decided > 1000, $"{s.Name}: {decided}");
+                if (s.IsExact)
+                    Assert.Equal(reference, moved.Select(Pretest).ToArray());
+            }
+        }
+
+        [Fact]
+        public void NeighbourPlaneSides_Cases()
+        {
+            Vector3d s = Vector3d.Zero, p = new Vector3d(1, 0, 0), q = new Vector3d(0, 1, 0);
+            var A = new Triangle3d(s, p, q);
+            Index3i ia = new Index3i(0, 1, 2);
+            Func<Index3i, Triangle3d, int> pre = (ib, B) => TriangleTriangleFilter.NeighbourPlaneSides(ia, ref A, ib, ref B);
+            // B's other corners both above A's plane
+            Assert.Equal(TriangleTriangleFilter.Separate, pre(new Index3i(0, 3, 4), new Triangle3d(s, new Vector3d(1, 1, 1), new Vector3d(-1, 2, 3))));
+            // B's corners straddle A's plane, A's corners on one side of B's plane x + y = 0: decided by the second direction
+            var B2 = new Triangle3d(s, new Vector3d(1, -1, 1), new Vector3d(-2, 2, -1));
+            Assert.Equal(TriangleTriangleFilter.Separate, pre(new Index3i(0, 3, 4), B2));
+            Assert.Equal(TriangleTriangleFilter.Separate, TriangleTriangleFilter.NeighbourPlaneSides(new Index3i(0, 3, 4), ref B2, ia, ref A));
+            Assert.False(ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, new Index3i(0, 3, 4), ref B2));
+            // (the projection alone does not decide it: B's corners project onto a line through s, and B crosses z = 0)
+            Assert.Equal(TriangleTriangleFilter.Undecided, TriangleTriangleFilter.BeyondShared(ia, ref A, new Index3i(0, 3, 4), ref B2));
+            Assert.Equal(TriangleTriangleFilter.Separate, TriangleTriangleFilter.BeyondSharedNeighbours(ia, ref A, new Index3i(0, 3, 4), ref B2));
+            // B straddles A's plane and A straddles B's: B passes through A
+            var B3 = new Triangle3d(s, new Vector3d(1, 1, 1), new Vector3d(1, 1, -1));
+            Assert.Equal(TriangleTriangleFilter.Undecided, pre(new Index3i(0, 3, 4), B3));
+            Assert.True(ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, new Index3i(0, 3, 4), ref B3));
+            // a corner of B on A's plane: not strictly on one side
+            Assert.Equal(TriangleTriangleFilter.Undecided, pre(new Index3i(0, 3, 4), new Triangle3d(s, new Vector3d(2, 2, 0), new Vector3d(-1, 2, 3))));
+            // shared edge s-p: far corner off the plane (either side), or in it (a fold lying flat, or the plane continued)
+            Assert.Equal(TriangleTriangleFilter.Separate, pre(new Index3i(1, 0, 3), new Triangle3d(p, s, new Vector3d(0, -1, 1))));
+            Assert.Equal(TriangleTriangleFilter.Separate, pre(new Index3i(1, 0, 3), new Triangle3d(p, s, new Vector3d(0, 1, -1))));
+            Assert.Equal(TriangleTriangleFilter.Undecided, pre(new Index3i(1, 0, 3), new Triangle3d(p, s, new Vector3d(0, 1, 0) + new Vector3d(0.5, 0, 0))));
+            Assert.Equal(TriangleTriangleFilter.Undecided, pre(new Index3i(1, 0, 3), new Triangle3d(p, s, new Vector3d(0, -1, 0))));
+            // no shared vertex, or all three shared: not a neighbour pair
+            Assert.Equal(TriangleTriangleFilter.Undecided, pre(new Index3i(3, 4, 5), new Triangle3d(new Vector3d(0, 0, 1), new Vector3d(1, 0, 1), new Vector3d(0, 1, 1))));
+            Assert.Equal(TriangleTriangleFilter.Undecided, pre(new Index3i(2, 1, 0), new Triangle3d(q, p, s)));
+            // a repeated id in B (an index-degenerate triangle): no corner of B outside the shared ones, nothing proven
+            Assert.Equal(TriangleTriangleFilter.Undecided, pre(new Index3i(0, 1, 1), new Triangle3d(s, p, p)));
+            // a degenerate A (collinear corners) has no plane (Orient3d is 0): with a shared edge never decided; with a
+            // shared vertex only by B's plane, which the segment s-2p meets only at s (above it: (1, -4, 3) . p > 0)
+            var D = new Triangle3d(s, p, 2 * p);
+            var Bd = new Triangle3d(s, new Vector3d(1, 1, 1), new Vector3d(-1, 2, 3));
+            Assert.Equal(TriangleTriangleFilter.Separate, TriangleTriangleFilter.NeighbourPlaneSides(ia, ref D, new Index3i(0, 3, 4), ref Bd));
+            var Be = new Triangle3d(p, s, new Vector3d(0, 1, 1));
+            Assert.Equal(TriangleTriangleFilter.Undecided, TriangleTriangleFilter.NeighbourPlaneSides(ia, ref D, new Index3i(1, 0, 3), ref Be));
+            // (B's plane y = z contains the segment)
+            var Bf = new Triangle3d(s, new Vector3d(1, 1, 1), new Vector3d(2, 1, 1));
+            Assert.Equal(TriangleTriangleFilter.Undecided, TriangleTriangleFilter.NeighbourPlaneSides(ia, ref D, new Index3i(0, 3, 4), ref Bf));
+            foreach (double bad in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity }) {
+                Assert.Equal(TriangleTriangleFilter.Undecided, pre(new Index3i(0, 3, 4), new Triangle3d(s, new Vector3d(1, bad, 1), new Vector3d(-1, 2, 3))));
+                var An = new Triangle3d(s, new Vector3d(bad, 0, 0), q);
+                Assert.Equal(TriangleTriangleFilter.Undecided, TriangleTriangleFilter.NeighbourPlaneSides(ia, ref An, new Index3i(0, 3, 4), ref Bd));
+            }
+        }
+
         // ---- in the Reducer ----
 
         // rotations of the plate (normal z) out of the axis planes: normal mostly z, mostly x, mostly y, and in the
