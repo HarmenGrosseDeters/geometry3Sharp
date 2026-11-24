@@ -214,7 +214,7 @@ Hand mutations (the PR-tier tests of the class):
 - `CompactDuringInsert`, `PartSectors`, `AfterSimplify` and `ReinsertAfterSimplify` stay internal (coordinator 2026-11-24).
 - (c), divide and conquer, is the next step if the remaining 20x is wanted.
 
-## 7. Found: the fan sectors of ramp pieces are not conservative (pre-existing, follow-up)
+## 7. Found: the fan sectors of ramp pieces are not conservative (pre-existing, #1530)
 
 The invariance test with a ramp (`TerrainSlopeRampTests.Straight`, `LocalFrame`) failed in the frame "rotated" (about z,
 31°). The earlier construction (as on master) gives 218 surface vertices and the default 216. The labels differ by about
@@ -230,7 +230,7 @@ All other frames, and all strip-piece cases, agree with the reference. The surfa
 plane lowers F_k, so the face's label can be a plane of the ramp unit where another one is the true minimum. The outcome
 stays certified against the specs, but it is not the defined envelope.
 
-Follow-up (not in this PR):
+Follow-up (not in this PR; issue [#1530](https://github.com/HarmenGrosseDeters/geometry3Sharp/issues/1530)):
 - Find the face where the window misses the maximum (the polygon piece's fans at several apexes: the angular range is
   measured from each apex, and a face that spans an apex closely, or the ramp's wall fans, may break the argument of
   TERRAIN_1C_PLAN section 9).
