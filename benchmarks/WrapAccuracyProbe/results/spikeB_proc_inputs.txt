@@ -1,0 +1,12 @@
+# Spike B procedural inputs (see SpikeB.cs)
+sheet
+hole:box:face
+hole:box:p:0.01
+hole:box:p:0.1
+hole:box:p:0.3
+hole:box:e:0.1
+hole:box:slit
+hole:cylinder:p:0.1
+hole:sphere:p:0.01
+hole:sphere:p:0.1
+hole:sphere:p:0.3

@@ -50,6 +50,30 @@ namespace gs
         public long Milliseconds;
     }
 
+    /// <summary>
+    /// One step of the route a SolidBooleanPipeline run took for its inputs (Report.Route), in the order taken: what was done, why, and what it changed.
+    /// The names so far: "SheetRole" (an open tool of a Difference is used as a sheet; after a cut, Change ends with the share of the first
+    /// input's volume that the Difference removed), "Fallback" (the sheet role refused: the inputs are used as
+    /// solids), "InputRepair" (an open input was closed on a copy), "Refused" (an open input is left and the run fails with OpenInput) and
+    /// "Grid" (with AutomaticSteps: the run failed and is done once more with the inputs snapped to the cell in Grid; the steps after it are
+    /// those of that run, or, where it failed too, those of the run that goes on without the grid).
+    /// </summary>
+    public sealed class SolidBooleanRouteStep
+    {
+        /// <summary> the name of the step, see the class </summary>
+        public string Name;
+        /// <summary> the input the step is about (index of Inputs), or -1 for a step about the run </summary>
+        public int Input = -1;
+        /// <summary> why the step was taken </summary>
+        public string Reason;
+        /// <summary> what the step changed </summary>
+        public string Change;
+        /// <summary> Fallback, and Grid after a refused sheet: the reason the sheet role refused (the witness is in Reason), else None </summary>
+        public ExactMeshBoolean.SheetRefusal SheetReason = ExactMeshBoolean.SheetRefusal.None;
+        /// <summary> for the step Grid: the cell the inputs were snapped to (a power of two); 0 otherwise </summary>
+        public double Grid;
+    }
+
     /// <summary> one solid of the boolean result that MinThickness removed (an outer shell with the cavities inside it) </summary>
     public sealed class SolidBooleanThinSolid
     {
@@ -85,10 +109,16 @@ namespace gs
         public int[] InputTriangles = new int[0];
         /// <summary> per input: ExactMeshBoolean.IsWindingClosed of the input as given (with InputGrid: of its snapped copy) </summary>
         public bool[] InputClosed = new bool[0];
-        /// <summary> with InputGrid: the input vertices that the snap moved (of all inputs); 0 otherwise </summary>
+        /// <summary> with InputGrid, or in the retry of the Grid step (AutomaticSteps): the input vertices that the snap moved (of all inputs); 0 otherwise </summary>
         public int InputSnappedVertices;
         /// <summary> the inputs that were repaired, with the method (empty if none) </summary>
         public List<SolidBooleanInputRepair> RepairedInputs = new List<SolidBooleanInputRepair>();
+        /// <summary>
+        /// the route of the inputs that are not closed, as the steps taken in their order, each with its reason and what it changed (see
+        /// SolidBooleanRouteStep), and the Grid step of AutomaticSteps; empty when no input was tried as a sheet, repaired or refused as open
+        /// and no Grid step ran
+        /// </summary>
+        public List<SolidBooleanRouteStep> Route = new List<SolidBooleanRouteStep>();
         /// <summary> triangles of the exact boolean result (before the reduction) </summary>
         public int BooleanTriangles;
         /// <summary> the boolean's InsideOutCells: the components of the closed inputs that are inside-out (see ExactMeshBoolean.InsideOutCells) </summary>
@@ -104,6 +134,19 @@ namespace gs
         /// MinThickness they are removed if they are thinner than it (RemovedThinSolids)
         /// </summary>
         public int ThinComponentsKept;
+        /// <summary>
+        /// the closed components the boolean's rounding removed (ExactMeshBoolean.Rounding.RemovedComponentInfos: triangles, area, volume,
+        /// thickness, reason), also where the run failed with BooleanStatus RoundingNotClean because one of them is a solid its
+        /// coordinates resolve (#1216); empty if none
+        /// </summary>
+        public List<MeshRoundingRepair.RemovedComponentInfo> RoundingRemoved = new List<MeshRoundingRepair.RemovedComponentInfo>();
+        /// <summary>
+        /// the signed volume of the boolean's result before and after its rounding repair (MeshRoundingRepair.VolumeBefore, VolumeAfter):
+        /// their difference is the volume the rounding moved, removed components included (RoundingRemoved lists those). Equal when the
+        /// rounding changed nothing; both 0 when no rounding repair ran. They describe the rounding only: MinThickness and the reduction
+        /// change the volume after it
+        /// </summary>
+        public double RoundingVolumeBefore, RoundingVolumeAfter;
         /// <summary> the solids of the boolean result that MinThickness removed (empty without it) </summary>
         public List<SolidBooleanThinSolid> RemovedThinSolids = new List<SolidBooleanThinSolid>();
         /// <summary> with MinThickness: the inputs thinner than it (see ThinInputs); empty otherwise </summary>
@@ -203,7 +246,10 @@ namespace gs
     /// them:
     /// <list type="number">
     /// <item><description>Every input is checked with ExactMeshBoolean.IsWindingClosed (cheap; unwelded copies of a vertex count as one,
-    /// so an STL-like soup of a closed solid is closed). An input that fails and that the boolean refuses as open fails the
+    /// so an STL-like soup of a closed solid is closed). An open input of a Difference that is not the first and has no entry in
+    /// InputRoles is tried as a sheet first (ExactMeshBoolean.InputRole.Sheet: the first input is cut along it exactly, nothing is
+    /// repaired); if the sheet role refuses, the run is done again with the inputs as solids, as described next, and Report.Route
+    /// lists the steps and their reasons. An input that fails and that the boolean refuses as open fails the
     /// run with Status OpenInput by default (InputRepair = Refuse): a missing face is missing information, and no repair
     /// knows what the input means (a solid with a hole, or an open cutting surface). An input that is closed once its
     /// flipped triangles agree is not open: the boolean refuses it with InconsistentOrientation by default (see
@@ -342,6 +388,24 @@ namespace gs
         /// <summary> what to do with an input that is not closed (default Refuse: Status OpenInput; see InputRepairModes.AutoRepair before choosing a repair) </summary>
         public InputRepairModes InputRepair = InputRepairModes.Refuse;
         /// <summary>
+        /// the role of each input (entry i for Inputs[i]; null or a shorter list: the others are Solid). An input with the role Sheet
+        /// (<see cref="ExactMeshBoolean.InputRole.Sheet"/>) is an open, oriented cutting surface, the tool of a Difference: it is handed to the boolean
+        /// as given (never repaired, reoriented, or counted as an open input), the boolean cuts the first input along it exactly, and refuses
+        /// (BooleanStatus SheetRefused, SheetReason) where the sheet does not define the sides; see <see cref="ExactMeshBoolean.SheetRefusal"/>.
+        /// A sheet in a Union or Intersection, or as the first input, is refused. InputGrid still snaps its coordinates.
+        /// An entry here is a statement and is used as it is. An open input of a Difference without an entry (not the first) is tried as a sheet
+        /// and, if the sheet role refuses, first tried once more on the data grid when the refusal is RimInsideWorkpiece (AutomaticSteps), then used as a solid
+        /// (see Compute and Report.Route); the entry Solid switches that off for an input.
+        /// </summary>
+        public List<ExactMeshBoolean.InputRole> InputRoles;
+        /// <summary> the side of the sheets that a part of the first input is on that no sheet touches (see <see cref="ExactMeshBoolean.SheetUncutSide"/>; default Refuse) </summary>
+        public ExactMeshBoolean.SheetUncutSides UncutSide = ExactMeshBoolean.SheetUncutSides.Refuse;
+        /// <summary>
+        /// the reason of a refused sheet (BooleanStatus SheetRefused), else None; the witness is in Error. A sheet that the route tried and that
+        /// refused is not the run's result: its reason is in the Fallback step (or, with AutomaticSteps, the Grid step: its SheetReason field and Reason text) of Report.Route
+        /// </summary>
+        public ExactMeshBoolean.SheetRefusal SheetReason = ExactMeshBoolean.SheetRefusal.None;
+        /// <summary>
         /// Default 0 (off: the inputs are used as given, and the result is the one without this option, bit for bit). Otherwise a
         /// power of two (eg 2^-20, about 1e-6 in metres): every coordinate of every input is moved to the nearest multiple of it,
         /// on copies, before the input check (ties to even). With a power of two the snap is exact, so the snapped
@@ -358,6 +422,70 @@ namespace gs
         /// can add vertices off the grid). Not a power of two, negative or not finite: InvalidInput
         /// </summary>
         public double InputGrid = 0;
+        /// <summary>
+        /// The automatic steps of a run (AutomaticSteps); combine with |. The default is GridBeforeFallback | GridAfterRoundingNotClean; Grid, which
+        /// includes both and also answers a stated sheet, is opt-in
+        /// </summary>
+        [Flags]
+        public enum AutomaticStepModes
+        {
+            /// <summary> no automatic step </summary>
+            None = 0,
+            /// <summary>
+            /// everything: a run that fails with RoundingNotClean or the sheet refusal RimInsideWorkpiece (of a sheet that the pipeline routed or
+            /// that the caller stated) is done once more on a grid taken from the data. It includes GridBeforeFallback and GridAfterRoundingNotClean
+            /// and adds the retry of a stated sheet
+            /// </summary>
+            Grid = 1,
+            /// <summary>
+            /// only the sheet route: an open tool of a Difference that the pipeline routes to the sheet role by itself (no entry in InputRoles) and
+            /// that the sheet role refuses with RimInsideWorkpiece is done once more on the grid taken from the data, before the Fallback to solids
+            /// (one extra boolean at most, none on a success). Other refusals, and a sheet that the caller stated, are not retried by this value; Grid
+            /// retries a stated sheet. The snap closes any gap or skin up to about one cell between a rim and a face (see AutomaticSteps)
+            /// </summary>
+            GridBeforeFallback = 2,
+            /// <summary>
+            /// a run that fails with RoundingNotClean is done once more on the grid taken from the data (one extra boolean on the snapped inputs, none
+            /// on a success). A sheet refusal is not retried by this value, so a sheet that the caller stated behaves as without the step. The result
+            /// of a retry is the boolean of the SNAPPED inputs (within one cell of the given ones), see AutomaticSteps
+            /// </summary>
+            GridAfterRoundingNotClean = 4
+        }
+        /// <summary>
+        /// Default GridBeforeFallback | GridAfterRoundingNotClean (owner 2026-11-24: the runs that the first default still refused with RoundingNotClean
+        /// succeeded with the grid retry on private inputs, nearly all with the right volume). A default Success can therefore come with Report.Clean == false and
+        /// Report.OnlyContacts == true (a solid whose parts touch): a caller who needs a clean solid checks Report.Clean, not only Status. GridBeforeFallback: an open tool of a Difference that the pipeline routed to the sheet role by itself (no entry in InputRoles) and that
+        /// the sheet role refuses with RimInsideWorkpiece (a rim meant to lie in a face of the first input that sits a little inside it) is done once more
+        /// on the grid of the data before the Fallback (LIMIT: it helps where the rim lies in a face parallel to a coordinate plane, or where every rim
+        /// vertex coincides with a vertex of the workpiece, which the snap makes identical in any orientation; a rim vertex in the interior of a slanted
+        /// face or on an edge of the workpiece that is not a vertex keeps its refusal, because the snap rounds each coordinate on its own), whatever InputRepair is; Report.Route shows SheetRole, Grid, SheetRole on success. A run
+        /// without such a refusal is the run without this option, bit for bit; a refused sheet costs one more boolean at most. None: no automatic
+        /// step (a refused sheet goes to the Fallback at once). GridAfterRoundingNotClean: a run that ends with the boolean's RoundingNotClean (any
+        /// route, also after the fallback) is done once more on the grid, one extra boolean on the snapped inputs, and nothing on a run that does not fail
+        /// that way. Grid includes both and also answers a sheet stated in InputRoles; it is not in the default, so that a caller who states roles keeps
+        /// the refusal of a stated sheet as before. A RESULT OF THE RETRY IS THE BOOLEAN OF THE SNAPPED INPUTS: it can differ from the exact one by
+        /// up to about one cell of the data (see CAPTURE DISTANCE), the route says so (Grid step: cell, vertices moved, size change), Report.RoundingVolumeBefore
+        /// and RoundingVolumeAfter are those of the run that is the result, and the result can be reported as only contacts (Report.OnlyContacts).
+        /// AutomaticSteps = None gives the exact run and its refusal; GridBeforeFallback keeps the sheet retry alone.
+        /// The retry snaps all inputs as InputGrid does. The cell is a power of two, 2^12 times the rounding unit (ulp) of the largest absolute
+        /// coordinate of the vertices that triangles use (about 4.5e-13 of that coordinate; 3.8e-6 at 5.7e6, 7.6e-6 at 1.2e7), so it scales with the
+        /// inputs, and a vertex moves by at most half a cell per coordinate. CAPTURE DISTANCE: the faces of the first input move too, so a rim,
+        /// gap or skin of up to about one cell between a tool and a face is closed. That is meant for a rim a few ulps inside a face, and it can
+        /// change the topology of a result where the gap was by design: a tool that stops one micro-unit short of a face, far from the origin, then
+        /// cuts through it, and an open bucket that leaves a thin skin under the top face gives an open pocket instead of an enclosed cavity (which
+        /// the repair of the open tool would give). Features thinner than the cell can collapse, as with InputGrid. Set AutomaticSteps = None to
+        /// switch the step off. The step is not run where the cell is more than 1/64 of the size of any input (thickness 2V/A of a closed
+        /// input, width 2A/L of an open one, L the length of its boundary edges; the step says which input and the first failure is the result), and a
+        /// retry with an empty result of a first input that is not empty is rejected the same way. These guards apply to the opt-in Grid retries too. It runs once, never on a success, and not when InputGrid is set (the caller's
+        /// grid is used as stated). Its result is checked like any other. Report.Route gets a step "Grid" with the failure it answers, the cell,
+        /// the number of vertices the snap moved and the largest relative change of an input's size (volume of a closed input, area of an open one);
+        /// SheetReason is the refusal the step answers. If the retry fails too, the first failure is the
+        /// result and the step says so; inputs that are on the cell already are not run again (the step says that). A snap makes coordinates
+        /// equal: it cures contacts on axis-parallel faces and vertices meant to coincide, not a rim a little inside a slanted face.
+        /// ConfigureBoolean runs once more for the retry (three times, not twice, for a refused rim that the grid does not cure). A value with
+        /// other bits than those of AutomaticStepModes: InvalidInput
+        /// </summary>
+        public AutomaticStepModes AutomaticSteps = AutomaticStepModes.GridBeforeFallback | AutomaticStepModes.GridAfterRoundingNotClean;
         /// <summary>
         /// Default 0 (off). Otherwise a length: every solid of the boolean result (an outer shell with the cavities inside it)
         /// whose thickness 2 Volume / Area is below it is removed before the reduction and listed in Report.RemovedThinSolids.
@@ -379,7 +507,11 @@ namespace gs
         /// practice a surface. Invalid values: InvalidInput
         /// </summary>
         public ThinInputModes ThinInputs = ThinInputModes.Keep;
-        /// <summary> configures the boolean (eg MaxPieces); runs before AllowOpenMeshes = false and StrictRounding = true are set, which stay </summary>
+        /// <summary>
+        /// configures the boolean (eg MaxPieces); runs before AllowOpenMeshes = false and StrictRounding = true are set, which stay. It runs once for
+        /// every boolean of a run: again after an input repair, again for the run without the route after a refused sheet, and again for the retry of the Grid
+        /// step (AutomaticSteps; a refused rim that the grid does not cure runs the boolean three times: the sheet, the grid, the fallback) (Report.Route)
+        /// </summary>
         public Action<ExactMeshBoolean> ConfigureBoolean;
         // (tests) runs before the reduction
         internal Action BeforeReduction;
@@ -466,15 +598,311 @@ namespace gs
             return false;
         }
 
-        /// <summary> runs the pipeline; true if Result is set (Status Success) </summary>
+        // the open tools of a Difference without a stated role that this run hands to the boolean as sheets (null: none)
+        bool[] autoSheet;
+        // the sheet role refused such a tool: the reason and the boolean's text (None: it did not, and the text is not read)
+        ExactMeshBoolean.SheetRefusal autoRefusal;
+        string autoRefusalText;
+        // the refused sheet is one that this run routed (the boolean's witness mesh is an auto-routed tool), not one the caller stated
+        bool autoRefusalRouted;
+        // the steps of the run so far (they outlive the report of a refused sheet route)
+        List<SolidBooleanRouteStep> route;
+        // the first step of the current run in route (the steps before it belong to an earlier run of this Compute)
+        int runStart;
+        // the grid of the current run: InputGrid, or the cell of the Grid step
+        double grid;
+
+        void step(string name, int input, string reason, string change, ExactMeshBoolean.SheetRefusal sheetReason = ExactMeshBoolean.SheetRefusal.None)
+        {
+            route.Add(new SolidBooleanRouteStep { Name = name, Input = input, Reason = reason, Change = change, SheetReason = sheetReason });
+        }
+
+        /// <summary>
+        /// runs the pipeline; true if Result is set (Status Success). An open input of a Difference that is not the first and has no entry in InputRoles
+        /// goes to the sheet role first (the first input is cut along it exactly, nothing is repaired). If the sheet role refuses with RimInsideWorkpiece, the run is done once more on a
+        /// grid taken from the data first (AutomaticSteps, default GridBeforeFallback | GridAfterRoundingNotClean; see there for what the snap can change). If the sheet role refuses
+        /// otherwise, or the grid does not help, the run is done again with the inputs as solids, as without this route: InputRepair decides
+        /// (Refuse: Status OpenInput, with the sheet's refusal in Error).
+        /// Report.Route lists the steps taken and why. A stated role (an entry in InputRoles, Solid or Sheet) is used as stated.
+        /// The sheet's orientation is taken as given: the part of the first input behind it is removed, so an open tool whose normals point
+        /// inward removes the other part than its repaired, reoriented copy would; state the role Solid for a tool that is a solid with a hole
+        /// and may be oriented either way. Only a refusal of the sheet falls back: any other failure of the boolean with the sheet (a budget,
+        /// a strict rounding refusal) is the result. With MinThickness a tool without a stated role is measured as before, and one that is
+        /// left out as thin is not routed. ConfigureBoolean runs once more for the run after a refused sheet. With AutomaticSteps = Grid a run
+        /// that fails with RoundingNotClean or a stated sheet's refusal RimInsideWorkpiece is done once more on a grid taken from the data too (see there).
+        /// </summary>
         public bool Compute()
         {
             var total = Stopwatch.StartNew();
+            route = new List<SolidBooleanRouteStep>();
+            grid = InputGrid;
+            bool gridTried = false;
+            bool done = compute(total, true);
+            if (autoRefusal != ExactMeshBoolean.SheetRefusal.None) {
+                ExactMeshBoolean.SheetRefusal refusal = autoRefusal;
+                string text = autoRefusalText;
+                // the Grid step answers a refused sheet before the tool is given up as a sheet (one try: not again after the fallback)
+                if (refusal == ExactMeshBoolean.SheetRefusal.RimInsideWorkpiece) {
+                    int stepsBefore = route.Count;
+                    bool retried = gridRetry(total, true, "the sheet role refused: " + refusal + ": " + text, refusal, autoRefusalRouted);
+                    // (one try: a step that was made, also a failed one, is the try; an option that does not answer a sheet leaves it for the failure after the fallback)
+                    gridTried = route.Count > stepsBefore || retried;
+                    if (retried)
+                        return true;
+                    if (Status == PipelineStatus.Cancelled)
+                        return false;
+                }
+                long attempt = Report.BooleanMilliseconds;
+                step("Fallback", -1, "the sheet role refused: " + refusal + ": " + text,
+                    "the inputs are used as solids, an open one goes to InputRepair (" + InputRepair + ")", refusal);
+                done = compute(total, false);
+                // (the time of the refused sheet attempt is boolean time of this run)
+                Report.BooleanMilliseconds += attempt;
+                if (Status == PipelineStatus.OpenInput)
+                    Error += " (the open tool was tried as a sheet first, which refused: " + refusal + ": " + text + ")";
+                if (!gridTried && gridFailure())
+                    done = gridRetry(total, false, Error, SheetReason);
+            } else if (gridFailure())
+                done = gridRetry(total, true, Error, SheetReason);
+            return done;
+        }
+
+        // the failures of a run that the Grid step answers: the boolean's RoundingNotClean, and a stated sheet refused with its rim inside the workpiece
+        bool gridFailure()
+        {
+            return Status == PipelineStatus.BooleanFailed && (BooleanStatus == ExactMeshBoolean.BooleanStatus.RoundingNotClean
+                || (BooleanStatus == ExactMeshBoolean.BooleanStatus.SheetRefused && SheetReason == ExactMeshBoolean.SheetRefusal.RimInsideWorkpiece));
+        }
+
+        // Whether AutomaticSteps answers the failure that the run has now: Grid answers every failure of gridFailure; GridBeforeFallback the refused sheet
+        // that the pipeline routed itself (before the fallback); GridAfterRoundingNotClean the boolean's RoundingNotClean and no sheet refusal
+        bool GridStepWanted(bool beforeFallback)
+        {
+            if ((AutomaticSteps & AutomaticStepModes.Grid) != 0)
+                return true;
+            if (beforeFallback && (AutomaticSteps & AutomaticStepModes.GridBeforeFallback) != 0)
+                return true;
+            return (AutomaticSteps & AutomaticStepModes.GridAfterRoundingNotClean) != 0 && Status == PipelineStatus.BooleanFailed
+                && BooleanStatus == ExactMeshBoolean.BooleanStatus.RoundingNotClean;
+        }
+
+        // The Grid step (AutomaticSteps): the failed run once more, on the same route, with the inputs snapped to the cell of the data. True: the retry
+        // is the result. False: no retry (the step is off, InputGrid is set, or the data gives no cell: no step; every vertex is on the cell already: a
+        // step that says so), or it failed too; then the first failure is the result again, with the attempt as a step, except for a cancelled
+        // retry (Status Cancelled). The stage times of the run that is not the result are added to those of the one that is
+        bool gridRetry(Stopwatch total, bool sheetRoute, string reason, ExactMeshBoolean.SheetRefusal sheetReason, bool beforeFallback = false)
+        {
+            if (!GridStepWanted(beforeFallback) || InputGrid != 0)
+                return false;
+            double cell = DataGrid(Inputs);
+            if (cell == 0)
+                return false;
+            string cellText = "2^" + CellExponent(cell) + " (" + cell.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ")";
+            var s = new SolidBooleanRouteStep { Name = "Grid", Reason = reason, Grid = cell, SheetReason = sheetReason };
+            route.Add(s);
+            // (inputs that are on the cell already: the retry would be the run that failed)
+            if (OffGrid(Inputs, cell) == false) {
+                s.Change = "every input vertex is on the cell " + cellText + " already, so the run is not done again and the first failure is the result";
+                return false;
+            }
+            // the snap must not distort an input: the cell must be small against each input's own size (CellShareOfSize)
+            string sizeText;
+            if (!CellSmallAgainstInputs(cell, cellText, out sizeText)) {
+                s.Change = sizeText;
+                return false;
+            }
+            SolidBooleanReport firstReport = Report;
+            PipelineStatus firstStatus = Status;
+            string firstError = Error;
+            ExactMeshBoolean.BooleanStatus firstBoolean = BooleanStatus;
+            ExactMeshBoolean.SheetRefusal firstSheet = SheetReason;
+            int mine = route.Count;
+            grid = cell;
+            bool done = compute(total, sheetRoute);
+            grid = InputGrid;
+            s.Change = "the inputs are snapped to the cell " + cellText + ", which moved " + Report.InputSnappedVertices + " vertices" + sizeText + ", and the run is done again";
+            // an empty result of a non-empty first input means that the snap destroyed the inputs: the retry is rejected as a failed one
+            bool destroyed = done && DestroyedByRetry(Inputs[0], Result);
+            // (the retry is the result, also where it was cancelled: the time of the failed first run is time of this run)
+            if ((done && !destroyed) || Status == PipelineStatus.Cancelled) {
+                addStageTimes(Report, firstReport);
+                return done;
+            }
+            s.Change += destroyed ? "; its result is empty although the first input is not, so it is rejected and the first failure is the result"
+                : "; it failed too (" + Status + ": " + Error + "), so the first failure is the result";
+            Result = null;
+            route.RemoveRange(mine, route.Count - mine);
+            addStageTimes(firstReport, Report);
+            firstReport.TotalMilliseconds = total.ElapsedMilliseconds;
+            Report = firstReport;
+            Status = firstStatus;
+            Error = firstError;
+            BooleanStatus = firstBoolean;
+            SheetReason = firstSheet;
+            return false;
+        }
+
+        // The share of an input's own size that the cell may be at most. The snap moves a point by up to half a cell per coordinate, so it can change
+        // an input by up to about one cell in every direction; an input whose size (thickness 2V/A of a closed one, width 2A/L of an open one) is
+        // not many cells is distorted by the retry, in a way that the result's check does not see (it checks the result, not the inputs). At the
+        // limit a size changes by about 1.6 %. The intended cases are far below it: a block of 10 at 1.2e6 (cell 9.5e-7, size 2.5): 4e-7; a block of
+        // 0.1 x 0.1 x 0.05 at 5.7e6 (cell 3.8e-6, size 0.017): 2e-4; a plate of 1e-3 at 5.7e6 to 1.2e7 (cell 3.8e-6 to 7.6e-6): 4e-3 to 8e-3.
+        // The share is a judgement, not a derived number (owner's call)
+        internal const double CellShareOfSize = 1.0 / 64;
+
+        // The cell against the size of every input with triangles. False: the cell is more than CellShareOfSize of the smallest size (text: which input
+        // and why). True: text reports the largest relative change of an input's size by the snap (volume of a closed input, area of an open one).
+        // The size is the thickness 2|V|/A for a closed input (what MinThickness measures), and for an input that is not winding-closed the width
+        // 2A/L, A the area and L the length of its boundary edges (edges used by one triangle, by position): for a strip of width w and length l it is
+        // w, for an open box of edge e (a bucket) 2.5e, for a square sheet of side e e/2, for a sheet with a hole or a slit the width of the
+        // part between the rims. An open input without boundary edges gets the thickness; a closed input of volume 0 (a doubled sheet) is not measured
+        bool CellSmallAgainstInputs(double cell, string cellText, out string text)
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            double smallest = double.MaxValue, worst = 0;
+            int smallestInput = -1, worstInput = -1;
+            string smallestKind = "", worstKind = "";
+            for (int i = 0; i < Inputs.Count; ++i) {
+                DMesh3 m = Inputs[i];
+                if (m.TriangleCount == 0)
+                    continue;
+                bool closed = Report.InputClosed != null && i < Report.InputClosed.Length ? Report.InputClosed[i] : ExactMeshBoolean.IsWindingClosed(m);
+                double v, a;
+                MeasureInput(m, out v, out a);
+                // (a closed input of volume 0, such as a sheet that is given twice with opposite orientations, has no thickness that the snap could distort:
+                // it is not measured and does not stop the step; the volume is 0 up to the rounding of the measure, which is below 1e-13 * area * extent)
+                if (closed && Math.Abs(v) <= 1e-13 * a * m.GetBounds().MaxDim)
+                    continue;
+                double boundary = closed ? 0 : BoundaryLength(m);
+                bool strip = boundary > 0;
+                double size = strip ? 2 * a / boundary : a > 0 ? 2 * Math.Abs(v) / a : 0;
+                string kind = strip ? "width 2A/L" : "thickness 2V/A";
+                if (size < smallest) {
+                    smallest = size; smallestInput = i; smallestKind = kind;
+                }
+                int moved;
+                double v2, a2;
+                MeasureInput(Snapped(m, cell, out moved), out v2, out a2);
+                double change = strip ? (a > 0 ? (a2 - a) / a : 0) : (v != 0 ? (v2 - v) / v : 0);
+                if (worstInput < 0 || Math.Abs(change) > Math.Abs(worst)) {
+                    worst = change; worstInput = i; worstKind = strip ? "area" : "volume";
+                }
+            }
+            if (smallestInput >= 0 && cell > CellShareOfSize * smallest) {
+                text = "the cell " + cellText + " is more than 1/64 of the size of input " + smallestInput + " (" + smallestKind + " = " + smallest.ToString("R", inv)
+                    + "), which the snap would distort, so the run is not done again and the first failure is the result";
+                return false;
+            }
+            text = worstInput < 0 ? "" : ", and changed the " + worstKind + " of input " + worstInput + " by " + worst.ToString("R", inv) + " of it (the largest relative change of an input)";
+            return true;
+        }
+
+        // the length of the edges that one triangle uses, edges by position (vertices at one position are one)
+        internal static double BoundaryLength(DMesh3 m)
+        {
+            // (one map: the number of triangles that use the edge, and its length; -0.0 is 0.0 in the key, as the two hash alike on every runtime)
+            var edges = new Dictionary<(double, double, double, double, double, double), (int count, double length)>();
+            foreach (int t in m.TriangleIndices()) {
+                Index3i tv = m.GetTriangle(t);
+                for (int k = 0; k < 3; ++k) {
+                    Vector3d p = m.GetVertex(tv[k]), q = m.GetVertex(tv[(k + 1) % 3]);
+                    bool swap = p.x != q.x ? p.x > q.x : p.y != q.y ? p.y > q.y : p.z > q.z;
+                    if (swap) { Vector3d u = p; p = q; q = u; }
+                    var key = (p.x + 0.0, p.y + 0.0, p.z + 0.0, q.x + 0.0, q.y + 0.0, q.z + 0.0);
+                    (int count, double length) e;
+                    edges.TryGetValue(key, out e);
+                    edges[key] = (e.count + 1, (q - p).Length);
+                }
+            }
+            double sum = 0;
+            foreach (var e in edges.Values)
+                if (e.count == 1)
+                    sum += e.length;
+            return sum;
+        }
+
+        // the retry has an empty result although the first input has triangles
+        internal static bool DestroyedByRetry(DMesh3 first, DMesh3 result)
+        {
+            return first != null && first.TriangleCount > 0 && (result == null || result.TriangleCount == 0);
+        }
+
+        // the stage times of a run that failed at its boolean (the input check, the repair, the boolean), added to those of the run that is the result
+        static void addStageTimes(SolidBooleanReport to, SolidBooleanReport from)
+        {
+            to.InputCheckMilliseconds += from.InputCheckMilliseconds;
+            to.RepairMilliseconds += from.RepairMilliseconds;
+            to.BooleanMilliseconds += from.BooleanMilliseconds;
+        }
+
+        // true if the snap to the cell g would move a vertex of an input (as Snapped counts them)
+        internal static bool OffGrid(IEnumerable<DMesh3> inputs, double g)
+        {
+            foreach (DMesh3 m in inputs)
+                foreach (Vector3d p in UsedVertices(m))
+                    if (!same(snap(p.x, g), p.x) || !same(snap(p.y, g), p.y) || !same(snap(p.z, g), p.z))
+                        return true;
+            return false;
+        }
+
+        /// <summary>
+        /// the number of binades of the Grid step's cell above the rounding unit of the largest absolute input coordinate
+        /// (docs/design/PIPELINE_GRID_STEP.md derives it)
+        /// </summary>
+        internal const int GridBinades = 12;
+
+        // The cell of the Grid step: 2^GridBinades times the rounding unit (ulp) of the largest absolute finite coordinate of all inputs, a
+        // power of two, so that inputs scaled by 2^k get the cell scaled by 2^k. 0: no cell (no finite coordinate other than 0, or the cell
+        // would not be a normal number)
+        internal static double DataGrid(IEnumerable<DMesh3> inputs)
+        {
+            double max = 0;
+            // (the vertices that a triangle uses: one that no triangle uses does not move the cell, however far it is)
+            foreach (DMesh3 m in inputs)
+                foreach (Vector3d p in UsedVertices(m)) {
+                    max = largerFinite(max, p.x);
+                    max = largerFinite(max, p.y);
+                    max = largerFinite(max, p.z);
+                }
+            // the exponent field of max is e + 1023 for max in [2^e, 2^(e+1)), and that of its ulp 2^(e-52) is 52 less
+            long field = (BitConverter.DoubleToInt64Bits(max) >> 52) - 52 + GridBinades;
+            return field < 1 ? 0 : BitConverter.Int64BitsToDouble(field << 52);
+        }
+
+        // the positions of the vertices that triangles use (a vertex of several triangles comes once per triangle corner)
+        static IEnumerable<Vector3d> UsedVertices(DMesh3 m)
+        {
+            foreach (int t in m.TriangleIndices()) {
+                Index3i tv = m.GetTriangle(t);
+                yield return m.GetVertex(tv.a);
+                yield return m.GetVertex(tv.b);
+                yield return m.GetVertex(tv.c);
+            }
+        }
+
+        static double largerFinite(double max, double x)
+        {
+            double a = Math.Abs(x);
+            return a > max && !double.IsInfinity(a) ? a : max;
+        }
+
+        // the exponent of a normal power of two
+        internal static int CellExponent(double cell) { return (int)(BitConverter.DoubleToInt64Bits(cell) >> 52) - 1023; }
+
+        // one run; sheetRoute: open tools of a Difference without a stated role are sheets (autoSheet)
+        bool compute(Stopwatch total, bool sheetRoute)
+        {
             Result = null;
             Error = null;
             Status = PipelineStatus.NotComputed;
             BooleanStatus = ExactMeshBoolean.BooleanStatus.NotComputed;
+            SheetReason = ExactMeshBoolean.SheetRefusal.None;
             Report = new SolidBooleanReport();
+            Report.Route = route;
+            runStart = route.Count;
+            autoSheet = null;
+            autoRefusal = ExactMeshBoolean.SheetRefusal.None;
+            autoRefusalRouted = false;
 
             int criteria = (TargetTriangleCount > 0 ? 1 : 0) + (TargetFraction > 0 ? 1 : 0) + (MinEdgeLength > 0 ? 1 : 0) + (MaxQuadricError > 0 ? 1 : 0);
             if (criteria > 1)
@@ -489,6 +917,8 @@ namespace gs
                 return fail(PipelineStatus.InvalidInput, "PairContactsMode is not a defined value", total);
             if (!(InputGrid == 0 || IsPowerOfTwo(InputGrid)))
                 return fail(PipelineStatus.InvalidInput, "InputGrid must be 0 or a positive power of two", total);
+            if ((AutomaticSteps & ~(AutomaticStepModes.Grid | AutomaticStepModes.GridBeforeFallback | AutomaticStepModes.GridAfterRoundingNotClean)) != 0)
+                return fail(PipelineStatus.InvalidInput, "AutomaticSteps is not a defined value", total);
             if (!(MinThickness >= 0) || double.IsInfinity(MinThickness))
                 return fail(PipelineStatus.InvalidInput, "MinThickness must be finite and not negative", total);
             if (ThinInputs < ThinInputModes.Keep || ThinInputs > ThinInputModes.Refuse)
@@ -498,16 +928,20 @@ namespace gs
             for (int i = 0; i < Inputs.Count; ++i)
                 if (Inputs[i] == null)
                     return fail(PipelineStatus.InvalidInput, "input " + i + " is null", total);
+            if (InputRoles != null && InputRoles.Count > Inputs.Count)
+                return fail(PipelineStatus.InvalidInput, "more InputRoles than inputs", total);
+            if (UncutSide < ExactMeshBoolean.SheetUncutSides.Refuse || UncutSide > ExactMeshBoolean.SheetUncutSides.Inside)
+                return fail(PipelineStatus.InvalidInput, "UncutSide is not a defined value", total);
 
             // 1. the snap to InputGrid (on copies), then the cheap check per input
             var clock = Stopwatch.StartNew();
             int n = Inputs.Count;
             List<DMesh3> given = Inputs;
-            if (InputGrid > 0) {
+            if (grid > 0) {
                 given = new List<DMesh3>(n);
                 for (int i = 0; i < n; ++i) {
                     int moved;
-                    given.Add(Snapped(Inputs[i], InputGrid, out moved));
+                    given.Add(Snapped(Inputs[i], grid, out moved));
                     Report.InputSnappedVertices += moved;
                 }
             }
@@ -517,7 +951,14 @@ namespace gs
             for (int i = 0; i < n; ++i) {
                 Report.InputTriangles[i] = Inputs[i].TriangleCount;
                 Report.InputClosed[i] = ExactMeshBoolean.IsWindingClosed(given[i]);
-                anyOpen |= !Report.InputClosed[i];
+                // the sheet route: an open tool of a Difference whose role is not stated
+                if (sheetRoute && Operation == ExactMeshBoolean.Operations.Difference && i > 0 && !Report.InputClosed[i] && (InputRoles == null || i >= InputRoles.Count)) {
+                    if (autoSheet == null)
+                        autoSheet = new bool[n];
+                    autoSheet[i] = true;
+                }
+                // (a sheet is open by role: not an open input to refuse or repair)
+                anyOpen |= !Report.InputClosed[i] && !isSheet(i);
             }
             // the inputs thinner than MinThickness; active: the indices of the inputs the boolean gets
             var active = new List<int>(n);
@@ -526,6 +967,10 @@ namespace gs
             if (MinThickness > 0) {
                 var thin = new bool[n];
                 for (int i = 0; i < n; ++i) {
+                    // (a surface has no volume: it is not thin. Only by a stated role: an open tool that the route would try as a sheet is
+                    // measured as before the route, so MinThickness and ThinInputs keep their meaning for it)
+                    if (statedSheet(i))
+                        continue;
                     double v, a;
                     MeasureInput(given[i], out v, out a);
                     double t = a > 0 ? 2 * Math.Abs(v) / a : 0;
@@ -557,15 +1002,48 @@ namespace gs
                     used.Add(given[i]);
                 anyOpen = false;
                 foreach (int i in active)
-                    anyOpen |= !Report.InputClosed[i];
+                    anyOpen |= !Report.InputClosed[i] && !isSheet(i);
+            }
+            // the sheet route of this run: the routed tools that the boolean gets (one left out as thin is not routed)
+            if (autoSheet != null) {
+                bool any = false;
+                foreach (int i in active) {
+                    if (autoSheet[i] == false)
+                        continue;
+                    any = true;
+                    step("SheetRole", i, "input " + i + " is not closed and a tool of the Difference, and InputRoles states no role for it",
+                        "input " + i + " is handed to the boolean as a sheet (an oriented cutting surface): not repaired, the first input is cut along it");
+                }
+                if (any == false)
+                    autoSheet = null;
             }
             clock.Restart();
-            ExactMeshBoolean op = runBoolean(used);
+            ExactMeshBoolean op = runBoolean(used, active);
             Report.BooleanMilliseconds = clock.ElapsedMilliseconds;
             BooleanStatus = op.Status;
+            // (the sheet role refused with an open tool that was made a sheet here: Compute runs again without the route)
+            if (autoSheet != null && op.Status == ExactMeshBoolean.BooleanStatus.SheetRefused) {
+                autoRefusal = op.SheetReason;
+                autoRefusalText = op.Error;
+                // (the witness is the refused sheet's index among the inputs the boolean got: active maps it to the pipeline's index)
+                autoRefusalRouted = op.SheetWitnessMesh >= 0 && op.SheetWitnessMesh < active.Count && autoSheet[active[op.SheetWitnessMesh]];
+                return fail(PipelineStatus.BooleanFailed, op.Status + ": " + op.Error, total);
+            }
             if (anyOpen && op.Status == ExactMeshBoolean.BooleanStatus.OpenInput) {
-                if (InputRepair == InputRepairModes.Refuse)
-                    return fail(PipelineStatus.OpenInput, "an input is not closed (InputRepair is Refuse): " + op.Error, total);
+                if (InputRepair == InputRepairModes.Refuse) {
+                    step("Refused", -1, "an input is not closed and InputRepair is Refuse", "no result (Status OpenInput)");
+                    var open = new List<string>();
+                    // (the boolean's own verdict, by this pipeline's indices: InputClosed also counts an input with flipped
+                    // triangles as open, which the boolean accepts with Orientation = AreaMajority)
+                    for (int k = 0; k < active.Count; ++k)
+                        if (op.ExactWinding != null && k < op.ExactWinding.Length && !op.ExactWinding[k] && !isSheet(active[k]))
+                            open.Add(active[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    if (open.Count == 0)
+                        return fail(PipelineStatus.OpenInput, "an input is not closed (InputRepair is Refuse): " + op.Error, total);
+                    return fail(PipelineStatus.OpenInput, (open.Count == 1 ? "input " : "inputs ") + string.Join(", ", open) + (open.Count == 1 ? " is" : " are") +
+                        " not closed (InputRepair is Refuse). State what the input is: an open cutting surface used as the tool of a Difference gets the role Sheet (InputRoles); " +
+                        "a solid with holes can be repaired (InputRepair = AutoRepair or AutoRepairThenRobust; a repair of a cutting surface cuts nothing)", total);
+                }
                 // (the boolean refuses an input that IsWindingClosed accepts: nothing to repair)
                 if (!anyOpen)
                     return fail(PipelineStatus.OpenInput, op.Error, total);
@@ -573,13 +1051,17 @@ namespace gs
                 clock.Restart();
                 for (int k = 0; k < active.Count; ++k) {
                     int i = active[k];
-                    if (Report.InputClosed[i])
+                    if (Report.InputClosed[i] || isSheet(i))
                         continue;
                     DMesh3 repaired;
                     SolidBooleanInputRepair r = repair(i, given[i], out repaired);
-                    if (r == null)
+                    if (r == null) {
+                        step("Refused", i, "input " + i + " is not closed and no allowed repair closed it (InputRepair = " + InputRepair + ")", "no result (Status OpenInput)");
                         return fail(PipelineStatus.OpenInput, "input " + i + " is not closed and no allowed repair closed it", total);
+                    }
                     Report.RepairedInputs.Add(r);
+                    step("InputRepair", i, "input " + i + " is not closed and the boolean refuses it as open (InputRepair = " + InputRepair + ")",
+                        "closed by " + r.Method + " on a copy, " + r.TrianglesBefore + " -> " + r.TrianglesAfter + " triangles");
                     // (a MeshAutoRepair copy that self-intersects where the input did not: the repair crosses the input, eg the fill of the
                     // boundary of an open sheet; such a copy is not the solid the input was meant to bound, see InputRepairModes.AutoRepair)
                     if (r.Method == "MeshAutoRepair") {
@@ -587,10 +1069,12 @@ namespace gs
                         Report.RepairMilliseconds = clock.ElapsedMilliseconds;
                         if (added < 0)
                             return fail(PipelineStatus.Cancelled, "cancelled", total);
-                        if (added > 0)
+                        if (added > 0) {
+                            step("Refused", i, "MeshAutoRepair closed input " + i + " into a self-intersecting mesh (" + added + " pairs; the input as given has none)", "no result (Status OpenInput)");
                             return fail(PipelineStatus.OpenInput, "input " + i + " is not closed, and MeshAutoRepair closed it into a self-intersecting mesh (" + added +
                                 " pairs of its triangles meet beyond a common edge or vertex; the input as given has none): the repair (eg its fill of a hole) crosses the input. An open " +
                                 "cutting surface is not a solid; close the input before the boolean so that it bounds the intended solid", total);
+                        }
                     }
                     used[k] = repaired;
                     if (Cancellation.IsCancellationRequested)
@@ -598,7 +1082,7 @@ namespace gs
                 }
                 Report.RepairMilliseconds = clock.ElapsedMilliseconds;
                 clock.Restart();
-                op = runBoolean(used);
+                op = runBoolean(used, active);
                 BooleanStatus = op.Status;
                 Report.BooleanMilliseconds += clock.ElapsedMilliseconds;
             }
@@ -612,8 +1096,14 @@ namespace gs
             // a strict refusal whose only cause is components thinner than the bound: the rounded result is kept (the rounding
             // left no intersection, degenerate triangle or false contact, checked exactly by the repair)
             bool thinOnly = op.Status == ExactMeshBoolean.BooleanStatus.RoundingNotClean && OnlyThinComponents(op.Rounding);
+            if (op.Rounding != null) {
+                Report.RoundingRemoved = new List<MeshRoundingRepair.RemovedComponentInfo>(op.Rounding.RemovedComponentInfos);
+                Report.RoundingVolumeBefore = op.Rounding.VolumeBefore;
+                Report.RoundingVolumeAfter = op.Rounding.VolumeAfter;
+            }
             if (op.Status != ExactMeshBoolean.BooleanStatus.Success && !thinOnly) {
                 BooleanStatus = op.Status;
+                SheetReason = op.SheetReason;
                 return fail(op.Status == ExactMeshBoolean.BooleanStatus.OpenInput ? PipelineStatus.OpenInput : PipelineStatus.BooleanFailed, op.Status + ": " + op.Error, total);
             }
             Report.InsideOutCells = op.InsideOutCells;
@@ -626,6 +1116,20 @@ namespace gs
             DMesh3 mesh = thinOnly ? op.Rounding.Mesh : op.Result;
             BooleanStatus = op.Status;
             Report.BooleanTriangles = mesh.TriangleCount;
+            // the sheet route followed the orientation of the sheets as given: the share of the first input that the Difference removed goes
+            // into the steps, so that a sheet oriented the other way than meant shows (the volumes in doubles: a number for the reader)
+            if (autoSheet != null) {
+                double before, after, area;
+                MeasureInput(used[0], out before, out area);
+                MeasureInput(mesh, out after, out area);
+                if (Math.Abs(before) > 0) {
+                    double share = Math.Max(0, Math.Min(1, 1 - Math.Abs(after) / Math.Abs(before)));
+                    string text = "; the Difference removed " + (100 * share).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + " % of the first input's volume (the part behind the sheet)";
+                    for (int k = runStart; k < route.Count; ++k)
+                        if (route[k].Name == "SheetRole")
+                            route[k].Change += text;
+                }
+            }
             Report.ContactsBoolean = thinOnly ? countContacts(mesh, null) : op.Contacts;
             Report.NonManifoldEdgesBoolean = op.NonManifoldEdges;
             Report.ThinComponentsKept = thinOnly ? op.Rounding.ScaleDisparity : 0;
@@ -832,7 +1336,7 @@ namespace gs
         internal static bool OnlyThinComponents(MeshRoundingRepair r)
         {
             return r != null && r.Mesh != null && r.ScaleDisparity > 0 && r.RemainingIntersections == 0 && r.RemainingDegenerate == 0
-                && r.RemainingFalseContacts == 0 && !r.ScaleNotFinite && !r.OutsideRange;
+                && r.RemainingFalseContacts == 0 && !r.ScaleNotFinite && !r.OutsideRange && r.RemovedResolvable == 0;
         }
 
         /// <summary>
@@ -924,6 +1428,16 @@ namespace gs
                 foreach (int t in tris[c])
                     mesh.RemoveTriangle(t, true, false);
             return removed;
+        }
+
+        bool isSheet(int i)
+        {
+            return (autoSheet != null && autoSheet[i]) || statedSheet(i);
+        }
+
+        bool statedSheet(int i)
+        {
+            return InputRoles != null && i < InputRoles.Count && InputRoles[i] == ExactMeshBoolean.InputRole.Sheet;
         }
 
         /// <summary> a closed shell (some triangles of a mesh) as a sub-mesh with its AABB tree, for exact containment tests </summary>
@@ -1178,13 +1692,21 @@ namespace gs
             return string.Join("; ", parts) + " or set AllowInsideOutInputs";
         }
 
-        ExactMeshBoolean runBoolean(List<DMesh3> meshes)
+        ExactMeshBoolean runBoolean(List<DMesh3> meshes, List<int> active)
         {
             var op = new ExactMeshBoolean(meshes, Operation);
             op.Orientation = Orientation;
             op.CountInsideOutCells = true;      // (the InsideOutInput refusal and Report.InsideOutCells)
             if (ConfigureBoolean != null)
                 ConfigureBoolean(op);
+            // (the roles of the inputs the boolean gets, in its order)
+            if (InputRoles != null || autoSheet != null) {
+                var roles = new List<ExactMeshBoolean.InputRole>(active.Count);
+                foreach (int i in active)
+                    roles.Add(isSheet(i) ? ExactMeshBoolean.InputRole.Sheet : InputRoles != null && i < InputRoles.Count ? InputRoles[i] : ExactMeshBoolean.InputRole.Solid);
+                op.Roles = roles;
+                op.SheetUncutSide = UncutSide;
+            }
             op.AllowOpenMeshes = false;
             op.StrictRounding = true;
             op.Cancellation = Cancellation;

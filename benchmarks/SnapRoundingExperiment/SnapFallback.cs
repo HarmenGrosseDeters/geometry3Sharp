@@ -80,7 +80,7 @@ sealed class SnapFallback
                 double leftOver = maxLength - used;
                 if (!(leftOver > 0))
                     break;
-                var op = new ExactMeshBoolean(m, new DMesh3(), Ops.Union);
+                var op = new ExactMeshBoolean(m, new DMesh3(), Ops.Union) { AllowOpenMeshes = true };
                 var trace = Environment.GetEnvironmentVariable("SNAP_TRACE") == "1" ? System.Diagnostics.Stopwatch.StartNew() : null;
                 // the drift left as the bound of the second repair: the ulp term where the first one used it (far from
                 // the origin), else the relative one
@@ -146,7 +146,7 @@ sealed class SnapFallback
                 snap = Math.Max(snap, q.Distance(p));
                 m.SetVertex(v, q);
             }
-            var op = new ExactMeshBoolean(m, new DMesh3(), Ops.Union);
+            var op = new ExactMeshBoolean(m, new DMesh3(), Ops.Union) { AllowOpenMeshes = true };
             if (!op.Compute())
                 break;
             // (the snap counts only once its mesh is taken: a failed resolve leaves the result unsnapped)

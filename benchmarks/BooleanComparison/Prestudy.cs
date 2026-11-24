@@ -46,7 +46,7 @@ static class Prestudy
         MeshTransforms.Translate(w2, new Vector3d(0.3, 0.2, 0.1));
         for (int k = 0; k < 3; ++k)
             foreach (var o in opOf.Values)
-                new ExactMeshBoolean(w1, w2, o).Compute();
+                new ExactMeshBoolean(w1, w2, o) { AllowOpenMeshes = true }.Compute();
     }
 
     static long Retained()
@@ -99,7 +99,7 @@ static class Prestudy
             long alloc0 = NetCompat.AllocatedBytes();
             int gc0 = GC.CollectionCount(0), gc1 = GC.CollectionCount(1), gc2 = GC.CollectionCount(2);
             TimeSpan pause0 = NetCompat.GcPause();
-            var boolean = new ExactMeshBoolean(a, b, opOf[op]);
+            var boolean = new ExactMeshBoolean(a, b, opOf[op]) { AllowOpenMeshes = true };
             var sw = Stopwatch.StartNew();
             bool ok = boolean.Compute();
             row["ms"] = sw.ElapsedMilliseconds;
@@ -137,7 +137,7 @@ static class Prestudy
         var row = new Dictionary<string, object> { ["case"] = Path.GetFileName(dir.TrimEnd('/')), ["op"] = op };
         foreach (string variant in new[] { "rounded", "unrounded", "exact" }) {
             Retained();
-            var boolean = new ExactMeshBoolean(a, b, opOf[op]) { SafeRounding = variant == "rounded", ComputeExactVertices = variant == "exact" };
+            var boolean = new ExactMeshBoolean(a, b, opOf[op]) { AllowOpenMeshes = true, SafeRounding = variant == "rounded", ComputeExactVertices = variant == "exact" };
             long alloc0 = NetCompat.AllocatedBytes();
             var sw = Stopwatch.StartNew();
             bool ok = boolean.Compute();
@@ -280,7 +280,7 @@ static class Prestudy
     static void CompareTree(string name, List<DMesh3> prims, List<ExactMeshBoolean.Operations> ops)
     {
         // reference: the one pass with exact vertices, rounded to nearest (no repair): within half an ulp per coordinate
-        var reference = new ExactMeshBoolean(prims, TreePredicate(ops)) { SafeRounding = false };
+        var reference = new ExactMeshBoolean(prims, TreePredicate(ops)) { AllowOpenMeshes = true, SafeRounding = false };
         if (reference.Compute() == false) {
             Console.WriteLine(JsonSerializer.Serialize(new Dictionary<string, object> { ["case"] = name, ["error"] = reference.Error }));
             return;
@@ -302,7 +302,7 @@ static class Prestudy
             if (variant == "chained") {
                 result = prims[0];
                 for (int k = 1; k < prims.Count && failed == false; ++k) {
-                    var op = new ExactMeshBoolean(result, prims[k], ops[k - 1]);
+                    var op = new ExactMeshBoolean(result, prims[k], ops[k - 1]) { AllowOpenMeshes = true };
                     if (op.Compute() == false) { row["error"] = op.Error; failed = true; break; }
                     roundings++;
                     roundingMs += op.PhaseMilliseconds.TryGetValue("rounding", out long rm) ? rm : 0;
@@ -312,7 +312,7 @@ static class Prestudy
                     result = op.Result;
                 }
             } else {
-                var op = new ExactMeshBoolean(prims, TreePredicate(ops));
+                var op = new ExactMeshBoolean(prims, TreePredicate(ops)) { AllowOpenMeshes = true };
                 if (op.Compute() == false) { row["error"] = op.Error; failed = true; result = null; }
                 else {
                     roundings = 1;

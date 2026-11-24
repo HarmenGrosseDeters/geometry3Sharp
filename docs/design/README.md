@@ -23,6 +23,7 @@ Architecture specifications, algorithm design notes, error-bound derivations, an
 | [EXACT_VOLUME_SIGN.md](EXACT_VOLUME_SIGN.md) | Exact sign of signed mesh volume for zero-volume sheet removal |
 | [CHEAPER_CONSTRUCTIONS.md](CHEAPER_CONSTRUCTIONS.md) / [`cheaper_constructions.spec`](cheaper_constructions.spec) | Cheaper exact constructions, pair tests, and predicate spec in the arrangement |
 | [PAIR_SEARCH.md](PAIR_SEARCH.md) | Candidate triangle pair search in the exact arrangement |
+| [TRI3TRI3_DOUBLE_WORD.md](TRI3TRI3_DOUBLE_WORD.md) | Certified double-word arithmetic: correctly rounded end points of a triangle crossing (derived error bounds, certificate, fallback) |
 | [TRITRI_PREFILTER.md](TRITRI_PREFILTER.md) | Devillers-Guigue sign-based triangle-triangle prefilter |
 | [EXACT_BOOLEAN_30_PRESTUDY.md](EXACT_BOOLEAN_30_PRESTUDY.md) | Exact Boolean 3.0 pre-study (measurements, upper bounds, targets) |
 | [EXACT_BOOLEAN_40_DESIGN.md](EXACT_BOOLEAN_40_DESIGN.md) | Exact Boolean 4.0 design analysis (lazy `ExactMesh` chains) |
@@ -43,6 +44,7 @@ Architecture specifications, algorithm design notes, error-bound derivations, an
 | [ROUNDING_EXACT_PAIRS.md](ROUNDING_EXACT_PAIRS.md) | Skipping pairs already decided by the exact arrangement |
 | [SNAP_ROUNDING_3D.md](SNAP_ROUNDING_3D.md) | Practical 3D snap-rounding leads, falsification runs, and recommendation |
 | [BOOLEAN_PROPERTY_TESTS.md](BOOLEAN_PROPERTY_TESTS.md) | Metamorphic and property-based tests (CsCheck) for booleans |
+| [PIPELINE_GRID_STEP.md](PIPELINE_GRID_STEP.md) | The opt-in Grid step of `SolidBooleanPipeline`: the snapping cell derived from the data (2^12 ulp of the largest coordinate), its limits and prior art |
 
 ---
 
@@ -109,6 +111,7 @@ Architecture specifications, algorithm design notes, error-bound derivations, an
 | [TERRAIN_RAMPS.md](TERRAIN_RAMPS.md) | Access ramps as design geometry (`SlopeRamp`) |
 | [TERRAIN_SECTORS.md](TERRAIN_SECTORS.md) | Sector polygons and exterior distance |
 | [TERRAIN_DISTANCE_METRICS.md](TERRAIN_DISTANCE_METRICS.md) | Honest terrain distance metrics |
+| [SLOPE_ENVELOPE_CANONICAL.md](SLOPE_ENVELOPE_CANONICAL.md) | A canonical slope envelope, independent of the construction (stage 1 design) |
 | [TERRAIN_ROUND_TO_GRID.md](TERRAIN_ROUND_TO_GRID.md) | `RoundToGrid` design note for slope design (parked) |
 | [TERRAIN_1A_PLAN.md](TERRAIN_1A_PLAN.md) | Historical completed plan: Terrain phase 1a |
 | [TERRAIN_1B_PLAN.md](TERRAIN_1B_PLAN.md) | Historical completed plan: Terrain phase 1b |
@@ -164,6 +167,7 @@ Architecture specifications, algorithm design notes, error-bound derivations, an
 | [NATIVE_AOT_FEASIBILITY.md](NATIVE_AOT_FEASIBILITY.md) | Native C-ABI interop feasibility via .NET NativeAOT |
 | [CAST_AUDIT_804.md](CAST_AUDIT_804.md) | Historical audit of `double` → integer casts |
 | [DAP_BUGFIX_AUDIT.md](DAP_BUGFIX_AUDIT.md) | Historical bug-fix audit of DAP fork |
+| [BOX3_EXACT_FILTER.md](BOX3_EXACT_FILTER.md) | Exact line, ray and segment against box: the certified double filter, its error bounds and the exact route |
 | [QA20_INVENTORY.md](QA20_INVENTORY.md) | Historical QA 2.0 tools × areas inventory |
 | [QA20_STATUS.md](QA20_STATUS.md) | Historical QA 2.0 rollout status |
 | [RESEARCH_GATES_2026_11_03.md](RESEARCH_GATES_2026_11_03.md) | Historical effort gates for research items 1–3 |

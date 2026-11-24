@@ -143,8 +143,9 @@ namespace geometry3Sharp.Tests
         }
 
         // an open input that self-intersects already (the dented box of InsideOutAdviceTests without its inner bottom square):
-        // its repaired copy self-intersects too, and the input is used as before: the boolean of the copy runs (here Success: the
-        // removed square held the triangle that read the copy as inside-out)
+        // its repaired copy self-intersects too, and the input is used as before: the boolean of the copy runs, with the status and
+        // error of the pipeline on that copy given closed (here the copy is refused by ByNesting for its own orientation), not the
+        // refusal of the repair check
         [Fact]
         public void AnInputThatSelfIntersectsAsGiven_IsUsedAsBefore()
         {
@@ -158,15 +159,17 @@ namespace geometry3Sharp.Tests
             Assert.True(own.SelfIntersectingPairs > 0);
             SolidBooleanPipeline p = Run(Parts(open));
             Assert.Equal("MeshAutoRepair", Assert.Single(p.Report.RepairedInputs).Method);
-            Assert.True(p.Status == SolidBooleanPipeline.PipelineStatus.Success, p.Error);
-            Assert.NotNull(p.Result);
-            Assert.True(ExactMeshBoolean.IsWindingClosed(p.Result));
+            Assert.DoesNotContain(Refusal, p.Error ?? "");
+            Assert.NotEqual(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
             // (the copy self-intersects as well: the input's own self-intersections are what keeps it)
             var repair = new MeshAutoRepair(new DMesh3(open));
             repair.Apply();
             var copy = new ExactMeshArrangement(new List<DMesh3> { repair.Mesh }) { SelfIntersections = true };
             copy.Compute();
             Assert.True(copy.SelfIntersectingPairs > 0);
+            SolidBooleanPipeline given = Run(Parts(repair.Mesh), SolidBooleanPipeline.InputRepairModes.Refuse);
+            Assert.Equal(given.Status, p.Status);
+            Assert.Equal(given.Error, p.Error);
         }
 
         [Theory]

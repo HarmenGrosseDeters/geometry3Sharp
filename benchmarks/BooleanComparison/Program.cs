@@ -249,11 +249,11 @@ static class Program
         DMesh3 w2 = new DMesh3(w1);
         MeshTransforms.Translate(w2, new Vector3d(0.3, 0.2, 0.1));
         foreach (var o in ops.Values)
-            Configure(new ExactMeshBoolean(w1, w2, o)).Compute();
+            Configure(new ExactMeshBoolean(w1, w2, o) { AllowOpenMeshes = true }).Compute();
         int gc0 = GC.CollectionCount(0), gc2 = GC.CollectionCount(2);
         TimeSpan pause0 = NetCompat.GcPause();
         var sw = Stopwatch.StartNew();
-        var boolean = Configure(new ExactMeshBoolean(a, b, ops[op]));
+        var boolean = Configure(new ExactMeshBoolean(a, b, ops[op]) { AllowOpenMeshes = true });
         bool ok = boolean.Compute();
         long ms = sw.ElapsedMilliseconds;
         var gc = new Dictionary<string, object> { ["gen0"] = GC.CollectionCount(0) - gc0, ["gen2"] = GC.CollectionCount(2) - gc2,
@@ -275,6 +275,14 @@ static class Program
                 ["pair_tests"] = rr.PairTests, ["evaluations"] = rr.Evaluations, ["max_evaluations"] = rr.MaxEvaluations,
                 ["max_pair_tests"] = rr.MaxPairTests, ["pair_budget"] = rr.PairBudget, ["stopped_by_pair_tests"] = rr.StoppedByPairTests,
                 ["triangles_in"] = boolean.Counts.TryGetValue("pieces", out long pc) ? pc : -1,
+                // the two candidate verdicts on what the removal took (#1216): the library's (RemovedResolvable: 256 ulps and
+                // 1e-3 of the thin bound) and the one by ulps alone; and the removed components themselves (the first 50)
+                ["removed_resolvable"] = rr.RemovedResolvable,
+                ["removed_defective_256ulps"] = rr.RemovedComponentInfos.Count(c => c.ThicknessUlps >= 256
+                    && (c.Reason == MeshRoundingRepair.RemovalReasons.StillDefective || c.Reason == MeshRoundingRepair.RemovalReasons.VolumeChanged)),
+                ["removed"] = rr.RemovedComponentInfos.Take(50).Select(c => new Dictionary<string, object> {
+                    ["reason"] = c.Reason.ToString(), ["triangles"] = c.Triangles, ["thickness"] = Finite(c.Thickness),
+                    ["thickness_ulps"] = Finite(c.ThicknessUlps), ["resolvable"] = c.Resolvable }).ToList(),
             };
         }
         Console.WriteLine(JsonSerializer.Serialize(r));

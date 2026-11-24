@@ -15,11 +15,39 @@ concurrency:
 
 jobs:
   docs:
+    # a draft PR runs nothing here (owner 2026-11-23, runner load); marking it ready starts the run
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write        # the merge gate full-ci of a docs-only PR (below)
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      # The merge gate of PR CI is the commit status full-ci (ci.yml, docs/qa/ci-and-gates.md 2.14). ci.yml never runs for a PR of
+      # Markdown only that no test reads (its paths; tools/ci_scope.py CI_MARKDOWN), so this job posts full-ci for such a PR: success
+      # when the docs check passed, failure when it failed. For any other PR ci.yml posts it.
+      - name: Docs-only PR?
+        id: docs_only
+        if: github.event_name == 'pull_request'
+        run: git diff --name-only --no-renames HEAD^1 HEAD | python3 tools/ci_scope.py --docs-only | tee -a "$GITHUB_OUTPUT"
       - name: Check Markdown documentation hygiene (tools/check_docs.py)
+        id: check
         run: |
           python3 -m unittest discover -s tools -p 'test_check_docs.py' -v
           python3 tools/check_docs.py
+      - name: Post the status full-ci (docs only)
+        if: ${{ !cancelled() && steps.docs_only.outputs.docs_only == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          OUTCOME: ${{ steps.check.outcome }}
+          URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "$OUTCOME" = success ]; then state=success; desc="docs only: the docs check passed, no library CI needed"
+          else state=failure; desc="docs only: the docs check failed"; fi
+          gh api -X POST "repos/$REPO/statuses/$SHA" -f state="$state" -f context=full-ci -f description="$desc" -f target_url="$URL" \
+            || echo "::warning::the status full-ci could not be posted (a fork PR has a read-only token)"

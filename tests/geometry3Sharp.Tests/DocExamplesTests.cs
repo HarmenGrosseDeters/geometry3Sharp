@@ -217,6 +217,31 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void UnionTreeExample_TreeAndOneCallAgreeInVolume()
+        {
+            List<DMesh3> balls = UnionTreeExample.MakeBalls();
+            DMesh3 one = UnionTreeExample.UnionOneCall(balls);
+            DMesh3 tree = UnionTreeExample.UnionTree(balls);
+            Assert.NotNull(one);
+            Assert.NotNull(tree);
+            foreach (DMesh3 m in new[] { one, tree }) {
+                Assert.True(m.IsClosed());
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
+            }
+            Assert.True(Volume(one) > Volume(balls[0]) && Volume(one) < 8 * Volume(balls[0]));
+            Assert.Equal(Volume(one), Volume(tree), 9);
+            // 8 balls: the boxes of all overlap all 7 others, but a ball overlaps only 6 (the opposite corner is 1.3 * sqrt(3) = 2.25 > 2
+            // away): the box degree over-counts
+            Assert.Equal(7.0, UnionTreeExample.MeanBoxOverlapDegree(balls), 12);
+            int ballPairs = 0;
+            for (int i = 0; i < balls.Count; ++i)
+                for (int j = i + 1; j < balls.Count; ++j)
+                    if (balls[i].GetBounds().Center.Distance(balls[j].GetBounds().Center) < 2.0)
+                        ++ballPairs;
+            Assert.Equal(6.0, 2.0 * ballPairs / balls.Count, 12);
+        }
+
+        [Fact]
         public void WindingNumberSolidifyExample_ClosesAndUnitesBrokenInput()
         {
             DMesh3 result = WindingNumberSolidifyExample.Run();
@@ -395,6 +420,110 @@ namespace geometry3Sharp.Tests
                 Assert.True(after < 0.5 * before, $"laplacian={laplacian}: {before} -> {after}");
                 foreach (var kv in boundary)
                     Assert.Equal(kv.Value, mesh.GetVertex(kv.Key));
+            }
+        }
+
+        // z = height on [x0, x1] x [y0, y1], nx x ny cells, normals up; cells with keep == false are left out
+        static DMesh3 SweptCutSheet(double x0, double y0, double x1, double y1, int nx, int ny, double height, Func<double, double, bool> keep = null)
+        {
+            var m = new DMesh3();
+            var id = new Dictionary<(int, int), int>();
+            int vertex(int i, int j)
+            {
+                if (id.TryGetValue((i, j), out int v) == false)
+                    id[(i, j)] = v = m.AppendVertex(new Vector3d(x0 + (x1 - x0) * i / nx, y0 + (y1 - y0) * j / ny, height));
+                return v;
+            }
+            for (int i = 0; i < nx; ++i)
+                for (int j = 0; j < ny; ++j) {
+                    if (keep != null && keep(x0 + (x1 - x0) * (i + 0.5) / nx, y0 + (y1 - y0) * (j + 0.5) / ny) == false)
+                        continue;
+                    int a = vertex(i, j), b = vertex(i + 1, j), c = vertex(i + 1, j + 1), d = vertex(i, j + 1);
+                    m.AppendTriangle(a, b, c);
+                    m.AppendTriangle(a, c, d);
+                }
+            return m;
+        }
+
+        static DMesh3 SweptCutCube()
+        {
+            return new TrivialBox3Generator() { Box = new Box3d(new Vector3d(2, 2, 2), new Vector3d(2, 2, 2)), NoSharedVertices = false }.Generate().MakeDMesh();
+        }
+
+        static void AssertSweptCut(ExactMeshBoolean op, double volume)
+        {
+            Assert.NotNull(op);
+            Assert.True(op.Status == ExactMeshBoolean.BooleanStatus.Success, op.Status + " " + op.Error);
+            Assert.Equal("", gs.MeshRobustRepair.NotCleanReason(op.Result));
+            Assert.Equal(volume, Volume(op.Result), 9);
+        }
+
+        [Fact]
+        public void SweptCutExample_FullCrossing_Step_Pillar_AndPocket()
+        {
+            Vector3d down = -Vector3d.AxisZ;
+            // a sheet that crosses fully: the lower half is removed, the upper half stays (not the mirror image)
+            ExactMeshBoolean half = SweptCutExample.Run(SweptCutCube(), SweptCutSheet(-1, -1, 5, 5, 1, 1, 1), down);
+            AssertSweptCut(half, 48);
+            Assert.All(half.Result.VertexIndices(), v => Assert.True(half.Result.GetVertex(v).z >= 1));
+            AssertSweptCut(SweptCutExample.Run(SweptCutCube(), SweptCutSheet(-1, -1, 5, 5, 1, 1, 2), down), 32);     // the guide's first row
+            // a sheet that ends inside (x up to 2): a step
+            AssertSweptCut(SweptCutExample.Run(SweptCutCube(), SweptCutSheet(-1, -1, 2, 5, 1, 1, 2), down), 48);
+            // a sheet with a hole [1,3]^2 inside the cube: a pillar under the hole stays
+            ExactMeshBoolean pillar = SweptCutExample.Run(SweptCutCube(), SweptCutSheet(-1, -1, 5, 5, 6, 6, 2, (x, y) => !(x > 1 && x < 3 && y > 1 && y < 3)), down);
+            AssertSweptCut(pillar, 40);
+            // a disc wholly inside: a blind pocket from the bottom
+            AssertSweptCut(SweptCutExample.Run(SweptCutCube(), SweptCutSheet(1, 1, 3, 3, 1, 1, 2), down), 56);
+            // the inputs are not modified
+            DMesh3 cube = SweptCutCube(), sheet = SweptCutSheet(-1, -1, 5, 5, 1, 1, 2);
+            SweptCutExample.Run(cube, sheet, down);
+            Assert.Equal(12, cube.TriangleCount);
+            Assert.Equal(2, sheet.TriangleCount);
+        }
+
+        [Fact]
+        public void SweptCutExample_ASheetThatDoesNotFaceAwayFromTheDirection_IsRefused()
+        {
+            DMesh3 sheet = SweptCutSheet(-1, -1, 5, 5, 1, 1, 2);
+            Assert.Null(SweptCutExample.Run(SweptCutCube(), sheet, Vector3d.AxisZ));        // the direction of the normals
+            Assert.Null(SweptCutExample.Run(SweptCutCube(), sheet, Vector3d.AxisX));        // parallel to the sheet
+            // one triangle flipped
+            var flipped = new DMesh3(sheet);
+            flipped.ReverseTriOrientation(0);
+            Assert.Null(SweptCutExample.Run(SweptCutCube(), flipped, -Vector3d.AxisZ));
+            // an oblique direction is fine: the tool leans, the cut is the same where the sheet crosses fully
+            AssertSweptCut(SweptCutExample.Run(SweptCutCube(), SweptCutSheet(-8, -8, 12, 12, 1, 1, 2), new Vector3d(1, 0, -1)), 32);
+        }
+
+        [Fact]
+        public void SweptCutExample_StackedParts_AreVisibleInSelfIntersectingPairs()
+        {
+            // z = 1 everywhere and a second part z = 3 over [1,3]^2: both face away, their prisms overlap
+            DMesh3 sheet = SweptCutSheet(-1, -1, 5, 5, 1, 1, 1);
+            MeshEditor.Append(sheet, SweptCutSheet(1, 1, 3, 3, 1, 1, 3));
+            ExactMeshBoolean op = SweptCutExample.Run(SweptCutCube(), sheet, -Vector3d.AxisZ);
+            Assert.True(op.SelfIntersectingPairs > 0);
+            AssertSweptCut(op, 64 - 16 - 8);        // the union of the two prisms
+            // a single sheet: none
+            Assert.Equal(0, SweptCutExample.Run(SweptCutCube(), SweptCutSheet(-1, -1, 5, 5, 1, 1, 1), -Vector3d.AxisZ).SelfIntersectingPairs);
+        }
+
+        [Fact]
+        public void SweptCutExample_Invariance_OverSimilarities()
+        {
+            DMesh3 cube = SweptCutCube(), sheet = SweptCutSheet(-1, -1, 2, 5, 3, 3, 2);
+            ExactMeshBoolean r0 = SweptCutExample.Run(cube, sheet, -Vector3d.AxisZ);
+            AssertSweptCut(r0, 48);
+            foreach (Similarity s in Similarity.All()) {
+                ExactMeshBoolean r = SweptCutExample.Run(Invariance.Transformed(cube, s), Invariance.Transformed(sheet, s), s.ApplyDirection(-Vector3d.AxisZ));
+                Assert.True(r != null && r.Status == ExactMeshBoolean.BooleanStatus.Success, s.Name);
+                Assert.Equal("", gs.MeshRobustRepair.NotCleanReason(r.Result));
+                if (s.IsExact)
+                    Assert.Equal("", Invariance.Difference(Invariance.Transformed(r0.Result, s), r.Result));
+                else {
+                    double expected = 48 * s.Scale * s.Scale * s.Scale;
+                    Assert.True(Math.Abs(Volume(r.Result) - expected) <= 1e-6 * expected, s.Name + ": the volume " + Volume(r.Result) + " of " + expected);
+                }
             }
         }
 
@@ -615,6 +744,29 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", MeshRobustRepair.NotCleanReason(pw.Result));
             Assert.Single(pw.PinResults);
             Assert.True(pw.PinResults[0].ClearanceLow >= 0.35);
+        }
+
+        [Fact]
+        public void SolidBooleanPipelineExample_CutsWithAnOpenSheet()
+        {
+            SolidBooleanPipeline pipeline = SolidBooleanPipelineExample.CutWithAnOpenSheet();
+            Assert.True(pipeline.Status == SolidBooleanPipeline.PipelineStatus.Success, pipeline.Status + " " + pipeline.Error);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(pipeline.Result));
+            Assert.Equal(0.5, MeshMeasurements.VolumeArea(pipeline.Result, pipeline.Result.TriangleIndices(), pipeline.Result.GetVertex).x, 12);
+            Assert.Single(pipeline.Report.Route);
+            Assert.Equal("SheetRole", pipeline.Report.Route[0].Name);
+        }
+
+        [Fact]
+        public void SolidBooleanPipelineExample_CutsWithAFlushSheetOnTheGrid()
+        {
+            SolidBooleanPipeline pipeline = SolidBooleanPipelineExample.CutWithAFlushSheetOnTheGrid();
+            Assert.True(pipeline.Status == SolidBooleanPipeline.PipelineStatus.Success, pipeline.Status + " " + pipeline.Error);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(pipeline.Result));
+            Assert.True(pipeline.Result.IsClosed());
+            Assert.Equal(0.5, MeshMeasurements.VolumeArea(pipeline.Result, pipeline.Result.TriangleIndices(), pipeline.Result.GetVertex).x, 12);
+            Assert.Equal(new[] { "SheetRole", "Grid", "SheetRole" }, pipeline.Report.Route.Select(s => s.Name).ToArray());
+            Assert.Equal(1.0 / (1L << 40), pipeline.Report.Route[1].Grid);
         }
 
         [Fact]
@@ -872,6 +1024,13 @@ namespace geometry3Sharp.Tests
             Assert.NotNull(cv.FillVolume);
             Assert.Equal(0.0, cv.OutsideCutVolume, 9);
             Assert.Equal(0.0, cv.OutsideFillVolume, 9);
+
+            TerrainCellVolumes blocks = TerrainToolsExample.CellBlockVolumes();
+            Assert.Equal(2, blocks.BandCount);
+            Assert.Equal(50.0, blocks.BlockCutVolume.Take(4).Sum(), 9);          // band [8, 10]: all the cut
+            Assert.Equal(0.0, blocks.BlockFillVolume.Take(4).Sum(), 9);
+            Assert.Equal(50.0, blocks.BlockFillVolume.Skip(4).Sum(), 9);         // band [10, 12]: all the fill
+            Assert.Equal(0.0, blocks.BlockCutVolume.Skip(4).Sum(), 9);
 
             int groundCount;
             ClothSimulationFilter csf = TerrainToolsExample.ClassifyGround(out groundCount);

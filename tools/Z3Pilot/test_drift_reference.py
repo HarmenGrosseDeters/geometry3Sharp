@@ -184,6 +184,12 @@ class DriftReferenceTests(unittest.TestCase):
              'refCarry = new double[Mesh.MaxTriangleID];\n            for_triangles(new DMesh3(), (t) => {'),
             ('MeshRoundingRepair.cs', 'int end = Math.Min(mesh.MaxTriangleID, (b + 1) * TriangleBlock);\n                for (int tid = b * TriangleBlock; tid < end; ++tid)\n                    if (mesh.IsTriangle(tid))',
              'int end = Math.Min(mesh.MaxTriangleID, (b + 1) * TriangleBlock - 1);\n                for (int tid = b * TriangleBlock; tid < end; ++tid)\n                    if (mesh.IsTriangle(tid))'),
+            # the wrapper of the repair: a write before the records start, a volume that writes, a second entry
+            ('MeshRoundingRepair.cs', 'VolumeBefore = signed_volume(centre);\n            try {',
+             'VolumeBefore = signed_volume(centre); Mesh.SetVertex(0, centre);\n            try {'),
+            ('MeshRoundingRepair.cs', 'return MeshMeasurements.VolumeArea(Mesh, Mesh.TriangleIndices(), (v) => Mesh.GetVertex(v) - c).x;',
+             'Mesh.SetVertex(0, c); return MeshMeasurements.VolumeArea(Mesh, Mesh.TriangleIndices(), (v) => Mesh.GetVertex(v) - c).x;'),
+            ('MeshRoundingRepair.cs', '                VolumeAfter = signed_volume(centre);', '                apply(); VolumeAfter = signed_volume(centre);'),
         ]
         for name, old, new in changes:
             with self.subTest(change=new):

@@ -4,6 +4,8 @@ Back to [Sources Index](../SOURCES.md) · [sources/README.md](README.md)
 
 ---
 
+The [certified medial-axis study](../research/CERTIFIED_MEDIAL_AXIS_STUDY.md) uses the ordinary local feature size definition from N. Amenta and M. Bern, [Surface Reconstruction by Voronoi Filtering](https://escholarship.org/uc/item/4rc7z0d1), DCG 22 (1999). The contact-radius filter is from F. Chazal and A. Lieutier, [The λ-medial axis](https://geometrica.saclay.inria.fr/team/Fred.Chazal/papers/cl-lma-05/mlambda.pdf), Graphical Models 67 (2005). The critical-point criterion is from F. Chazal, D. Cohen-Steiner and A. Lieutier, [A Sampling Theory for Compact Sets in Euclidean Space](https://geometrica.saclay.inria.fr/team/Fred.Chazal/papers/ccsl-stcse-09/ccsl-stcse-09.pdf), DCG 41 (2009). Paper text only.
+
 ## Surface deformation (`ArapMeshDeformer`)
 
 | Item | Source |
@@ -24,6 +26,10 @@ Implemented from the papers; no libigl source (MPL) or other solver code was rea
 
 The parked certified-accuracy mode (not in this tree, branch `claude/biharmonic-certificate-parked`) also cited S. M. Rump, *Verification of Positive Definiteness*, BIT 46 (2006), and Diaconis / Stroock and Sinclair for path-congestion eigenvalue bounds; none of that is in the library.
 
+The [procedural sphere-union study](../research/MOLECULAR_SURFACES_STUDY.md) uses the inclusion–exclusion viewpoint of H. Edelsbrunner, [The Union of Balls and Its Dual Shape](https://pub.ista.ac.at/~edels/Papers/1995-02-UnionBallsDualShape.pdf), DCG 13 (1995). Paper text only.
+
+The [branching-tube study](../research/BRANCHING_TUBE_GENUS_STUDY.md) takes the skeleton-to-surface question from J. Bloomenthal and K. Shoemake, [Convolution Surfaces](https://www.bloomenthal.com/JBloom/pdf/CSurfFinal.pdf), SIGGRAPH 1991. It uses explicit tapered cylinders and a hard union to keep the geometric topology reference independent of blending. Paper text only.
+
 ## Alpha wrapping (`MeshAlphaWrap`, `Delaunay3`, `ExactPredicates.InSphere`)
 
 Implemented from the papers, no code taken over. CGAL's implementation (`Alpha_wrap_3`, GPL) was not used.
@@ -33,6 +39,7 @@ Implemented from the papers, no code taken over. CGAL's implementation (`Alpha_w
 | Alpha wrapping: carving a Delaunay triangulation from outside through facets an alpha ball fits through, Steiner points on the offset surface where the dual Voronoi edge crosses it (rule 1) or where a cell intersects the input (projection of the circumcenter, rule 2), manifold post-processing by moving outside cells to the inside | C. Portaneri, M. Rouxel-Labbé, M. Hemmer, D. Cohen-Steiner, P. Alliez, *Alpha Wrapping with an Offset*, ACM TOG 41(4) (SIGGRAPH) 2022, doi:10.1145/3528223.3530152; author version <https://inria.hal.science/hal-03688637> (reading notes: [design/ALPHA_WRAP_PAPER_NOTES.md](../design/ALPHA_WRAP_PAPER_NOTES.md)) |
 | Passage-driven alpha wrap (`PassageWrap`): the clearance bound sqrt((r - offset)^2 - alpha^2) of a wrap from a pin axis, and the open-passage condition alpha + offset < r | own derivation, no source: a barycentric identity (sum l_i \|p_i - m\|^2 = \|q - m\|^2 + sum l_i \|p_i - q\|^2) applied to the facets of the carved wrap (Phi(f) <= alpha at termination, vertices within the offset of the input, paper notes section 2); proof and preconditions in [design/PASSAGE_WRAP.md](../design/PASSAGE_WRAP.md). The a posteriori distance of a polyline to a mesh: branch and bound on the 1-Lipschitz distance function (interval lower bound (fa + fb - L) / 2), the standard Lipschitz global minimisation of P. Hansen, B. Jaumard, S.-H. Lu, *Global optimization of univariate Lipschitz functions*, Math. Programming 55, 1992 |
 | Kernel distances between surfaces as measures on position x normal (benchmark only, `benchmarks/SharpFeatureProbe/VarifoldMeasure.cs`): Gaussian in space, normal kernels 1, u, u^2 and ((1 + u) / 2)^m; study [research/VARIFOLD_WRAP_QUALITY_2026-11.md](../research/VARIFOLD_WRAP_QUALITY_2026-11.md) | M. Vaillant, J. Glaunès, *Surface matching via currents*, IPMI 2005; N. Charon, A. Trouvé, *The varifold representation of nonoriented shapes for diffeomorphic registration*, SIAM J. Imaging Sci. 6(4), 2013, arXiv:1304.6108; I. Kaltenmark, B. Charlier, N. Charon, *A general framework for curve and surface comparison and registration with oriented varifolds*, CVPR 2017. Implemented from the papers; the quadrature (edge-midpoint rule on a congruent subdivision), the cell-grid sum and the small-damage law are own work |
+| Crease detection and curvature on soups and point clouds without connectivity (benchmark only, `benchmarks/SharpFeatureProbe/SoupFeatures.cs`): the unoriented varifold of the quadrature points, regularised first variation, projector-derivative curvature, two-plane crease test; study [research/VARIFOLD_FEATURES_CURVATURE_2026-11.md](../research/VARIFOLD_FEATURES_CURVATURE_2026-11.md) | B. Buet, G. P. Leonardi, S. Masnou, *A varifold approach to surface approximation*, ARMA 226 (2017), arXiv:1609.03625; B. Buet, G. P. Leonardi, S. Masnou, *Weak and approximate curvatures of a measure: a varifold perspective*, Nonlinear Analysis 222 (2022) 112983, arXiv:1904.05930; B. Buet, M. Rumpf, *Mean curvature motion of point cloud varifolds*, ESAIM M2AN 56 (2022), arXiv:2010.09419; J. E. Hutchinson, *Second fundamental form for varifolds and the existence of surfaces minimising curvature*, Indiana Univ. Math. J. 35 (1986). Prior art of the crease test: C. Weber, S. Hahmann, H. Hagen, *Sharp feature detection in point clouds*, SMI 2010 (Gauss map clustering). Baselines: M. Pauly, M. Gross, L. Kobbelt, *Efficient simplification of point-sampled surfaces*, IEEE Vis 2002 (surface variation); F. Cazals, M. Pouget, *Estimating differential quantities using polynomial fitting of osculating jets*, CAGD 22 (2005) (2-jet fit). Implemented from the papers (no code read); the kernel-ratio and least-squares projector derivative, the two-plane decomposition with its localisation test and the procedural ground truth are own work |
 | Pulled pinch points (`MeshAlphaWrap.PullPinchPoints`, opt-in): where the offset projection of an outside cell's circumcenter lies less than the separation inside its circumsphere, the point on the segment from the circumcenter to that projection exactly the separation inside the sphere (empty ball: the separation holds), used if it is at most 2 offsets from the input; refinement at the spots where the carved surface is not a disk instead of moving cells inside | a point inside the circumball closer than its center, chosen to keep a separation: A. Üngör, *Off-centers: a new type of Steiner points for computing size-optimal quality-guaranteed Delaunay triangulations*, LATIN 2004 (CGTA 42, 2009); refinement where the restricted Delaunay surface is not a manifold: J.-D. Boissonnat, S. Oudot, *Provably Good Sampling and Meshing of Surfaces*, Graphical Models 2005; S.-W. Cheng, T. K. Dey, E. A. Ramos, *Delaunay refinement for piecewise smooth complexes*, SODA 2007; own construction otherwise ([design/ALPHA_WRAP_MANIFOLD_QUALITY.md](../design/ALPHA_WRAP_MANIFOLD_QUALITY.md)) |
 | Incremental Delaunay triangulation by cavities | A. Bowyer, *Computing Dirichlet tessellations*, The Computer Journal 1981; D. F. Watson, *Computing the n-dimensional Delaunay tessellation with application to Voronoi polytopes*, The Computer Journal 1981 |
 | Round-based parallel carving (Alpha Wrap 3.0 lever (B)): gates taken in priority order, evaluated in parallel against the round's state, committed in priority order where their read set misses the writes kept before them (the others deferred), insertions planned read only, ids assigned serially, writes applied in parallel; the result independent of the thread count | G. E. Blelloch, J. T. Fineman, P. B. Gibbons, J. Shun, *Internally deterministic parallel algorithms can be fast*, PPoPP 2012 (deterministic reservations: reserve in priority order, commit the winners; Delaunay refinement among the examples); independent cavities in parallel Delaunay refinement: A. N. Chernikov, N. P. Chrisochoides, *Three-dimensional Delaunay refinement for multi-core processors*, ICS 2008; the guarantee and determinism argument: [design/ALPHA_WRAP_ROUNDS.md](../design/ALPHA_WRAP_ROUNDS.md) |
@@ -313,6 +320,15 @@ The feature-fold check of `Remesher.MinTriangleQuality` (#640, issue #621: a fli
 triangle onto a flat cap without flipping a normal is rejected, by the exact triangle test against the triangles that face away
 around its feature corners): own design, no external source.
 
+The ring check of `Remesher.PreventNormalFlips` / `MinTriangleQuality` (issue #1441: a collapse or flip is rejected if a
+new triangle ends more than 70 degrees from the summed normals of the triangles around the edge, weighted with the
+cosine to its old normal, and farther than before): own design, measured on procedural spheres. It is the stateless counterpart of
+`Reducer.PreventFoldOver` (a reference that the operation does not move, against chains of turns below 90 degrees:
+meshoptimizer issue 346, approach only). The usual test, each triangle against its own normal before the collapse, is
+the one of M. Garland, P. Heckbert, *Surface simplification using quadric error metrics*, SIGGRAPH 1997
+("preventing mesh inversion"; cited from memory, the paper was not opened for this change); the remeshing procedure of
+Botsch and Kobbelt 2004 has no such test. No code read.
+
 `Remesher.TargetEdgeLengthF` / `RemeshSizing.FromWallThickness`: sizing below the local feature size, as in
 isotropic remeshing with a sizing field (Botsch, Kobbelt, Pauly, Alliez, Lévy, *Polygon Mesh Processing*, ch. 6); the
 thickness is `MeshWallThickness`'s inscribed sphere (Ma, Bai, Hu, Kim 2012). Own design otherwise.
@@ -369,3 +385,22 @@ the repository pages on 2026-11-22: Jang et al.: none (unlicensed, paper only); 
 | Graph cut for the two labels (`MaxFlow`, Dinic's algorithm) | Y. Boykov, V. Kolmogorov, *An experimental comparison of min-cut/max-flow algorithms for energy minimization in vision*, IEEE PAMI 26(9), 2004 (the energy form the paper uses); E. A. Dinic, *Algorithm for solution of a problem of maximum flow in networks with power estimation*, Soviet Math. Dokl. 11, 1970; textbook algorithm, own code |
 | Least squares point of planes with the vertex as mass point (`Defillet`) | M. Garland, P. Heckbert, *Surface simplification using quadric error metrics*, SIGGRAPH 1997; T. Ju, F. Losasso, S. Schaefer, J. Warren, *Dual contouring of hermite data*, SIGGRAPH 2002; papers only |
 | Prior art read for the options (approach only) | Z. Wu, L. Kobbelt, *Structure recovery via hybrid variational surface approximation*, CGF 24(3), 2005 (rolling-ball blends as a primitive type); M. Attene, B. Falcidieno, J. Rossignac, M. Spagnuolo, *Sharpen&Bend: recovering curved sharp edges in triangle meshes produced by feature-insensitive sampling*, IEEE TVCG 11(2), 2005; FilletRec (arXiv:2511.05561, a graph network on B-rep faces); Dassault Systèmes, *Fillet detection method*, US 2024/0135733 A1 (circles fitted along curvature lines; a patent application: not to be implemented without a check) |
+
+## Research study: neuron skeleton meshes (not implemented; [research/NEURON_SKELETON_MESHES.md](../research/NEURON_SKELETON_MESHES.md), `benchmarks/NeuronSkeletonProbe`)
+
+| Item | Source |
+|---|---|
+| SWC parent-indexed radius tree representation (format reference only; procedural trees generated in C#, no NeuroMorpho data committed) | G. A. Ascoli, D. E. Donohue, M. Halavi, *NeuroMorpho.Org: A Central Resource for Neuronal Morphologies*, J. Neurosci. 27(35), 2007 |
+| Line-segment convolution surface with closed-form Cauchy kernel integral (`CauchyConvolutionImplicit` in probe) | J. Bloomenthal, K. Shoemake, *Convolution Surfaces*, Computer Graphics (SIGGRAPH) 25(4), 1991; J. McCormack, A. Sherstyuk, *Creating and Rendering Convolution Surfaces*, Computer Graphics Forum 17(2), 1998; papers only, own C# probe |
+| Prior art for neuron membrane surface reconstruction | S. Lasserre, J. Hernando, S. Hill, F. Schürmann, P. de Miguel Anasagasti, G. Abou Jaoudé, H. Markram, *A Neuron Membrane Mesh Representation for Visualization of Electrophysiological Simulations*, IEEE TVCG 18(2), 2012 |
+
+## Alpha wrap accuracy spikes (research, `benchmarks/WrapAccuracyProbe`; not library code)
+
+Research note [research/ALPHA_WRAP_ACCURACY_2026-11.md](../research/ALPHA_WRAP_ACCURACY_2026-11.md). Cited, not implemented: nothing is ported, no code was read; the
+snap-back check of the probe is own work on the library's exact predicates (the alpha wrap itself is in the section above).
+
+| Part | Source |
+|---|---|
+| Projection of a coarse wrap onto the input with regularisation (prior art for the snap back; abstract level) | L. Kobbelt et al., *A shrink wrapping approach to remeshing polygonal surfaces*, CGF 18(3), 1999 |
+| Projection along normals with an adaptive alpha (prior art; abstract only, via web search 2026-11-24; the paper was not read) | Dai et al., 2024 (CAGD, paper on adaptive alpha; the note names no further details) |
+| Envelope-style tolerance (the kept-band option A2; from memory) | J. Cohen et al., *Simplification envelopes*, SIGGRAPH 1996 |

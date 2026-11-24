@@ -219,6 +219,9 @@ namespace geometry3Sharp.Tests
             var off = new MeshRobustRepair(new DMesh3(input)) { PassThroughCleanParts = false };
             Assert.True(off.Apply());
             Assert.Equal(MeshRobustRepair.ResultPaths.Repair, off.ResultPath);
+            // the forced repair keeps the cavity (not filled, not turned into a separate part)
+            ResultChecks.AssertClean(off.Mesh, "forced repair");
+            SolidBetti.AssertEqual(1, 0, 1, off.Mesh, "forced repair");
         }
 
         // ConfigureRepair asks for a change of a clean mesh (eg a tolerance): the repair runs; RepairF too; PassThroughCleanParts off too

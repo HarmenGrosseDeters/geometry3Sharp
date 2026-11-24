@@ -6,6 +6,9 @@ using System.Text;
 namespace g3
 {
 	// ported from WildMagic5 
+	/// <summary>
+	/// The infinite line against the closed solid oriented box (the slabs |dot(x - Center, Axis_i)| &lt;= Extent_i): exact decision without a tolerance (see <see cref="IntrExactBox3"/>). A touching contact is a hit; non-finite input is an InvalidQuery.
+	/// </summary>
 	public class IntrLine3Box3
 	{
 		Line3d line;
@@ -59,6 +62,11 @@ namespace g3
 				return false;
 			}
 
+			if (IntrExactBox3.IsFinite(ref line.Origin, ref line.Direction) == false) {
+				Type = IntersectionType.Empty;
+				Result = IntersectionResult.InvalidQuery;
+				return false;
+			}
 			LineParam0 = -double.MaxValue;
 			LineParam1 = double.MaxValue;
 			DoClipping(ref LineParam0, ref LineParam1, line.Origin, line.Direction, box,
@@ -74,90 +82,32 @@ namespace g3
 
 		public bool Test ()
 		{
-			Vector3d AWdU = Vector3d.Zero;
-			Vector3d AWxDdU = Vector3d.Zero;
-			double RHS;
-
-			Vector3d diff = line.Origin - box.Center;
-			Vector3d WxD = line.Direction.Cross(diff);
-
-			AWdU[1] = Math.Abs(line.Direction.Dot(box.AxisY));
-			AWdU[2] = Math.Abs(line.Direction.Dot(box.AxisZ));
-			AWxDdU[0] = Math.Abs(WxD.Dot(box.AxisX));
-			RHS = box.Extent.y*AWdU[2] + box.Extent.z*AWdU[1];
-			if (AWxDdU[0] > RHS) {
-				return false;
-			}
-
-			AWdU[0] = Math.Abs(line.Direction.Dot(box.AxisX));
-			AWxDdU[1] = Math.Abs(WxD.Dot(box.AxisY));
-			RHS = box.Extent.x*AWdU[2] + box.Extent.z*AWdU[0];
-			if (AWxDdU[1] > RHS) {
-				return false;
-			}
-
-			AWxDdU[2] = Math.Abs(WxD.Dot(box.AxisZ));
-			RHS = box.Extent.x*AWdU[1] + box.Extent.y*AWdU[0];
-			if (AWxDdU[2] > RHS) {
-				return false;
-			}
-
-			return true;
+			IntrExactBox3.BoxSpec spec = IntrExactBox3.BoxSpec.Of(ref box, 0);
+			return IntrExactBox3.Touches(ref spec, ref line.Origin, ref line.Direction, false, 0, false, 0);
 		}
 
 
 
 
+		/// <summary>
+		/// The component origin + t direction, t in [t0, t1] (a bound of +-double.MaxValue means none), against the closed solid box: exact,
+		/// without a tolerance (<see cref="IntrExactBox3"/>). On return t0 and t1 are the ends of the contact. False if there is none or an
+		/// input is not finite. (The box is the intersection of the three slabs |dot(x - Center, Axis_i)| &lt;= Extent_i.)
+		/// </summary>
 		static public bool DoClipping (ref double t0, ref double t1,
 		                 Vector3d origin, Vector3d direction,
 		                 Box3d box, bool solid, ref int quantity, 
                          ref Vector3d point0, ref Vector3d point1,
 		                 ref IntersectionType  intrType)
 		{
-			// Convert linear component to box coordinates.
-			Vector3d diff = origin - box.Center;
-			Vector3d BOrigin = new Vector3d(
-				diff.Dot(box.AxisX),
-				diff.Dot(box.AxisY),
-				diff.Dot(box.AxisZ)
-			);
-			Vector3d BDirection = new Vector3d(
-				direction.Dot(box.AxisX),
-				direction.Dot(box.AxisY),
-				direction.Dot(box.AxisZ)
-			);
-
-			double saveT0 = t0, saveT1 = t1;
-			bool notAllClipped =
-				Clip(+BDirection.x, -BOrigin.x-box.Extent.x, ref t0, ref t1) &&
-				Clip(-BDirection.x, +BOrigin.x-box.Extent.x, ref t0, ref t1) &&
-				Clip(+BDirection.y, -BOrigin.y-box.Extent.y, ref t0, ref t1) &&
-				Clip(-BDirection.y, +BOrigin.y-box.Extent.y, ref t0, ref t1) &&
-				Clip(+BDirection.z, -BOrigin.z-box.Extent.z, ref t0, ref t1) &&
-				Clip(-BDirection.z, +BOrigin.z-box.Extent.z, ref t0, ref t1);
-
-			if (notAllClipped && (solid || t0 != saveT0 || t1 != saveT1)) {
-				if (t1 > t0) {
-					intrType = IntersectionType.Segment;
-					quantity = 2;
-					point0 = origin + t0*direction;
-					point1 = origin + t1*direction;
-				} else {
-					intrType = IntersectionType.Point;
-					quantity = 1;
-					point0 = origin + t0*direction;
-				}
-			} else {
-				quantity = 0;
-				intrType = IntersectionType.Empty;
-			}
-
-			return intrType != IntersectionType.Empty;
+			IntrExactBox3.BoxSpec spec = IntrExactBox3.BoxSpec.Of(ref box, 0);
+			return IntrExactBox3.DoClip(ref t0, ref t1, ref origin, ref direction, ref spec, solid, ref quantity, ref point0, ref point1, ref intrType);
 		}
 
 
 
 
+		/// <summary> The slab clip of the WildMagic5 code with its 1e-8 slack; no longer used by this library's intersection classes (they decide exactly, see <see cref="IntrExactBox3"/>). </summary>
 		static public bool Clip (double denom, double numer, ref double t0, ref double t1)
 		{
 			// Return value is 'true' if line segment intersects the current test

@@ -23,11 +23,13 @@ namespace geometry3Sharp.Tests
             return new TrivialBox3Generator() { Box = new Box3d(new AxisAlignedBox3d(new Vector3d(x0, y0, z0), new Vector3d(x1, y1, z1))) }.Generate().MakeDMesh();
         }
 
-        // The unit cube, outward, whose top face is a fan of four triangles to an apex pushed down through the bottom face to
-        // z = -0.5: closed, consistently oriented, self-intersecting (the fan crosses the bottom), volume 1 - 1.5 / 3 = 0.5 > 0.
-        // Below the bottom, inside the tip of the dent (|x - 0.5|, |y - 0.5| < 1/6 at z = 0), the winding number is -1: the bottom
-        // has a small square [0.45, 0.55]^2 there whose triangles come first (the component's deciding triangle), so the one
-        // component is inside-out in part, and InsideOutCells is 1 in every orientation mode.
+        // The unit cube, outward, whose top face is a fan of four triangles to an apex pulled down and out through the box to
+        // (-3, -3, -0.5): closed, consistently oriented, self-intersecting (the fan crosses the walls and the bottom), volume
+        // 1 - 1.5 / 3 = 0.5 > 0 (the sheared pyramid of the dent keeps its volume). Inside the dent's pyramid outside the box the
+        // winding number is -1. The apex is the smallest point by the order of ExactMeshArrangement.ComparePoints (key x + 0.75 y +
+        // 0.57 z), so count_inside_out reads a triangle of the fan (#1464), and the centroid of every fan triangle lies outside the
+        // box (x < 0), in front of it the dent's -1: the one component is inside-out in part, InsideOutCells is 1 in every mode.
+        // (The small square [0.45, 0.55]^2 of the bottom gives RepairSelfIntersectionTests a hole to open.)
         internal static DMesh3 DentedThroughBox()
         {
             const double a = 0.45, b = 0.55;
@@ -35,7 +37,7 @@ namespace geometry3Sharp.Tests
             var o = new[] { m.AppendVertex(new Vector3d(0, 0, 0)), m.AppendVertex(new Vector3d(1, 0, 0)), m.AppendVertex(new Vector3d(1, 1, 0)), m.AppendVertex(new Vector3d(0, 1, 0)) };
             var t = new[] { m.AppendVertex(new Vector3d(0, 0, 1)), m.AppendVertex(new Vector3d(1, 0, 1)), m.AppendVertex(new Vector3d(1, 1, 1)), m.AppendVertex(new Vector3d(0, 1, 1)) };
             var n = new[] { m.AppendVertex(new Vector3d(a, a, 0)), m.AppendVertex(new Vector3d(b, a, 0)), m.AppendVertex(new Vector3d(b, b, 0)), m.AppendVertex(new Vector3d(a, b, 0)) };
-            int apex = m.AppendVertex(new Vector3d(0.5, 0.5, -0.5));
+            int apex = m.AppendVertex(new Vector3d(-3, -3, -0.5));
             // the bottom (normal -z): the inner square first, then the ring
             m.AppendTriangle(n[0], n[2], n[1]);
             m.AppendTriangle(n[0], n[3], n[2]);

@@ -142,17 +142,21 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// A tiny edited solid that encloses the residue goes (the repair edits it), and so does the residue: its nesting is
-        /// judged without the solid that is removed, not as a cavity of it. Nothing of the residue is left behind
+        /// A tiny edited solid that encloses the residue. Since #1216 the solid stays (the repair contracts its needle and leaves
+        /// it as it was), so the residue is its cavity and stays too: its nesting is judged without the components that are
+        /// removed, and none is. (Before, every tiny edited component went, and the residue with it.)
         /// </summary>
         [Fact]
-        public void ResidueInsideATinyEditedSolid_GoesWithIt()
+        public void ResidueInsideATinyEditedSolid_StaysAsItsCavity()
         {
             DMesh3 outer = Bipyramid(17, 5e-5, 5e-5, new Vector3d(3, 0, 0), false);
             Needle(outer);
             new MeshEditor(outer).AppendMesh(Bipyramid(17, 3e-5, 1e-9, new Vector3d(3, 0, 0), true));
-            var (m, r) = Repaired(SphereWithNeedlesAndResidue(outer));
-            Assert.Equal(2, r.RemovedComponents);
+            DMesh3 input = SphereWithNeedlesAndResidue(outer);
+            var (m, r) = Repaired(input);
+            Assert.Equal(0, r.RemovedComponents);
+            Assert.True(r.IsClean);
+            Assert.Equal(MeshConnectedComponents.Separate(input).Length, MeshConnectedComponents.Separate(m).Length);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
             Assert.True(m.IsClosed());
             Assert.True(Invariance.Volume(m) > 4);

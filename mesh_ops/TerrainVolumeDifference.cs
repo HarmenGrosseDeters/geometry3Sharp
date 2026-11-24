@@ -48,6 +48,10 @@ namespace gs
         internal CellLattice Lattice;
         /// <summary> per cell [FillVolume, CutVolume, FillArea, CutArea, OverlapArea] (5 values each), for <see cref="Lattice"/> </summary>
         internal double[] CellValues;
+        /// <summary> optional elevation band boundaries (strictly increasing, ends may be infinite), for <see cref="Lattice"/>: the blocks of <see cref="TerrainCellVolumes"/> </summary>
+        internal double[] Bands;
+        /// <summary> per block [FillVolume, CutVolume] (2 values each), block = band * cells + cell, for <see cref="Bands"/> </summary>
+        internal double[] BlockValues;
 
         internal sealed class CellLattice
         {
@@ -87,6 +91,12 @@ namespace gs
             double[,] partial = new double[tris.Length, 5];
             // (per triangle of Before, in the order of the traversal, which does not depend on the thread: the sum over the cells is deterministic)
             List<(int cell, double[] v)>[] perCell = Lattice != null ? new List<(int, double[])>[tris.Length] : null;
+            List<(int block, double fill, double cut)>[] perBlock = (Lattice != null && Bands != null) ? new List<(int, double, double)>[tris.Length] : null;
+            double[] localBands = null;
+            if (perBlock != null) {
+                localBands = new double[Bands.Length];
+                for (int q = 0; q < Bands.Length; ++q) localBands[q] = Bands[q] - origin.z;
+            }
             double lx0 = Lattice != null ? Lattice.X0 - origin.x : 0, ly0 = Lattice != null ? Lattice.Y0 - origin.y : 0;
 
             gParallel.ForEach(Interval1i.Range(tris.Length), (k) => {
@@ -115,7 +125,7 @@ namespace gs
                         if (poly.Count < 3)
                             return;
                         integrate(poly, planeA, planeB, k, partial, zeroTol);
-                        if (Lattice != null) integrate_cells(poly, planeA, planeB, zeroTol, Lattice, lx0, ly0, ref perCell[k]);
+                        if (Lattice != null) integrate_cells(poly, planeA, planeB, zeroTol, Lattice, lx0, ly0, ref perCell[k], localBands, perBlock, k);
                     }
                 };
                 spatial.DoTraversal(traversal);
@@ -131,12 +141,19 @@ namespace gs
                     if (perCell[k] != null)
                         foreach (var (cell, v) in perCell[k])
                             for (int q = 0; q < 5; ++q) CellValues[5 * cell + q] += v[q];
+                if (perBlock != null) {
+                    BlockValues = new double[2 * (Bands.Length - 1) * Lattice.NX * Lattice.NY];
+                    for (int k = 0; k < tris.Length; ++k)
+                        if (perBlock[k] != null)
+                            foreach (var (block, fill, cut) in perBlock[k]) { BlockValues[2 * block] += fill; BlockValues[2 * block + 1] += cut; }
+                }
             }
             return CancelF() == false;
         }
 
         // the part of the overlay polygon in every cell it touches: clipped by the cell rectangle, then integrated as a whole
-        static void integrate_cells(List<Vector2d> poly, Plane a, Plane b, double zeroTol, CellLattice lat, double lx0, double ly0, ref List<(int cell, double[] v)> into)
+        static void integrate_cells(List<Vector2d> poly, Plane a, Plane b, double zeroTol, CellLattice lat, double lx0, double ly0, ref List<(int cell, double[] v)> into,
+            double[] bands, List<(int block, double fill, double cut)>[] blocks, int k)
         {
             double minx = double.MaxValue, maxx = double.MinValue, miny = double.MaxValue, maxy = double.MinValue;
             foreach (Vector2d p in poly) { minx = Math.Min(minx, p.x); maxx = Math.Max(maxx, p.x); miny = Math.Min(miny, p.y); maxy = Math.Max(maxy, p.y); }
@@ -154,6 +171,7 @@ namespace gs
                     if (one[0, 4] <= 0) continue;
                     if (into == null) into = new List<(int, double[])>();
                     into.Add((i + lat.NX * j, new[] { one[0, 0], one[0, 1], one[0, 2], one[0, 3], one[0, 4] }));
+                    if (bands != null) integrate_bands(piece, a, b, zeroTol, bands, lat.NX * lat.NY, i + lat.NX * j, ref blocks[k]);
                 }
         }
 
@@ -275,6 +293,20 @@ namespace gs
                 diff[i] = b.Z(poly[i]) - a.Z(poly[i]);
                 if (Math.Abs(diff[i]) < zeroTol) diff[i] = 0;      // coincident surfaces, up to rounding
             }
+            double areaPos, volPos, areaNeg, volNeg;
+            integrate_diff(poly, diff, out areaPos, out volPos, out areaNeg, out volNeg);
+            partial[k, 0] += volPos;
+            partial[k, 1] += -volNeg;
+            // where the surfaces coincide (diff = 0) the area is neither cut nor fill
+            if (volPos > 0) partial[k, 2] += areaPos;
+            if (volNeg < 0) partial[k, 3] += areaNeg;
+            partial[k, 4] += area(poly);
+        }
+
+        // the polygon split at the zero of the linear function with vertex values diff, and both parts integrated (area and integral of the positive and the negative part)
+        static void integrate_diff(List<Vector2d> poly, double[] diff, out double areaPos, out double volPos, out double areaNeg, out double volNeg)
+        {
+            int n = poly.Count;
             List<Vector2d> pos = new List<Vector2d>(n + 2), neg = new List<Vector2d>(n + 2);
             List<double> posd = new List<double>(n + 2), negd = new List<double>(n + 2);
             for (int i = 0; i < n; ++i) {
@@ -286,15 +318,73 @@ namespace gs
                     pos.Add(x); posd.Add(0); neg.Add(x); negd.Add(0);
                 }
             }
-            double areaPos, volPos, areaNeg, volNeg;
             integrate_linear(pos, posd, out areaPos, out volPos);
             integrate_linear(neg, negd, out areaNeg, out volNeg);
-            partial[k, 0] += volPos;
-            partial[k, 1] += -volNeg;
-            // where the surfaces coincide (diff = 0) the area is neither cut nor fill
-            if (volPos > 0) partial[k, 2] += areaPos;
-            if (volNeg < 0) partial[k, 3] += areaNeg;
-            partial[k, 4] += area(poly);
+        }
+
+        // 3D blocks: the part of the column between the surfaces (planes a and b, linear on the piece) in each elevation band [bands[q], bands[q + 1]].
+        // The signed thickness in the band is clamp(b) - clamp(a), clamped to the band (fill where positive, cut where negative). The clamp of a plane is
+        // linear on the parts of the piece between the lines where a or b equals a band boundary, so each part is integrated exactly like the 2D case.
+        static void integrate_bands(List<Vector2d> piece, Plane a, Plane b, double zeroTol, double[] bands, int cells, int cell, ref List<(int block, double fill, double cut)> into)
+        {
+            double zmin = double.MaxValue, zmax = double.MinValue;
+            foreach (Vector2d p in piece) {
+                double za = a.Z(p), zb = b.Z(p);
+                zmin = Math.Min(zmin, Math.Min(za, zb)); zmax = Math.Max(zmax, Math.Max(za, zb));
+            }
+            for (int q = 0; q + 1 < bands.Length; ++q) {
+                double z0 = bands[q], z1 = bands[q + 1];
+                if (zmax <= z0 || zmin >= z1) continue;       // the piece lies above or below the band: no column part in it
+                var parts = new List<List<Vector2d>>(4) { piece };
+                for (int f = 0; f < 4; ++f) {
+                    Plane pl = (f < 2) ? a : b;
+                    double c = (f % 2 == 0) ? z0 : z1;
+                    if (double.IsInfinity(c)) continue;
+                    var next = new List<List<Vector2d>>(parts.Count + 2);
+                    foreach (List<Vector2d> part in parts) split_at(part, pl, c, next);
+                    parts = next;
+                }
+                double fill = 0, cut = 0;
+                foreach (List<Vector2d> part in parts) {
+                    int n = part.Count;
+                    double[] diff = new double[n];
+                    for (int i = 0; i < n; ++i) {
+                        diff[i] = Math.Min(Math.Max(b.Z(part[i]), z0), z1) - Math.Min(Math.Max(a.Z(part[i]), z0), z1);
+                        if (Math.Abs(diff[i]) < zeroTol) diff[i] = 0;
+                    }
+                    double areaPos, volPos, areaNeg, volNeg;
+                    integrate_diff(part, diff, out areaPos, out volPos, out areaNeg, out volNeg);
+                    fill += volPos; cut += -volNeg;
+                }
+                if (fill == 0 && cut == 0) continue;
+                if (into == null) into = new List<(int, double, double)>();
+                into.Add((q * cells + cell, fill, cut));
+            }
+        }
+
+        // adds the convex polygon to 'into', split in two at the line where the plane has the height c (not split if it does not cross it)
+        static void split_at(List<Vector2d> poly, Plane pl, double c, List<List<Vector2d>> into)
+        {
+            int n = poly.Count;
+            double[] g = new double[n];
+            bool below = false, above = false;
+            for (int i = 0; i < n; ++i) {
+                g[i] = pl.Z(poly[i]) - c;
+                if (g[i] < 0) below = true; else if (g[i] > 0) above = true;
+            }
+            if (!(below && above)) { into.Add(poly); return; }
+            List<Vector2d> lo = new List<Vector2d>(n + 2), hi = new List<Vector2d>(n + 2);
+            for (int i = 0; i < n; ++i) {
+                int j = (i + 1) % n;
+                if (g[i] <= 0) lo.Add(poly[i]);
+                if (g[i] >= 0) hi.Add(poly[i]);
+                if ((g[i] > 0 && g[j] < 0) || (g[i] < 0 && g[j] > 0)) {
+                    Vector2d x = poly[i] + (g[i] / (g[i] - g[j])) * (poly[j] - poly[i]);
+                    lo.Add(x); hi.Add(x);
+                }
+            }
+            if (lo.Count >= 3) into.Add(lo);
+            if (hi.Count >= 3) into.Add(hi);
         }
 
         // area and integral of the linear function with vertex values f over the convex polygon (fan)

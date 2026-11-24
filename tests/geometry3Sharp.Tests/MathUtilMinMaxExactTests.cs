@@ -213,5 +213,35 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(fill ? PlusZero : MinusZero, Bits(v.z));
             }
         }
+
+        // The exact Boolean (ExactMeshBoolean, ExactMeshArrangement) calls MinExact / MaxExact where it called Math.Min / Math.Max of doubles
+        // (determinism proof stage 2, R4): on .NET Core 3.0 and later the two agree bit for bit on every operand, so the replacement changes
+        // no result there, and on .NET Framework (where Math.Min(+0, -0) is +0 or -0 by operand order) it gives the result of .NET Core.
+        [Fact]
+        public void ReplacingMathMinMax_ChangesNothingOnNetCore_AndFixesZeroOnFramework()
+        {
+            double[] values = { 0.0, MinusZeroValue, 1.5, -1.5, double.PositiveInfinity, double.NegativeInfinity, double.NaN, double.Epsilon, -double.Epsilon };
+            bool core = !System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription.StartsWith(".NET Framework", StringComparison.Ordinal);
+            foreach (double a in values)
+                foreach (double b in values) {
+                    long min = Bits(MathUtil.MinExact(a, b)), max = Bits(MathUtil.MaxExact(a, b));
+                    // (a NaN is a NaN: its payload and sign are not compared)
+                    if (double.IsNaN(a) || double.IsNaN(b)) {
+                        Assert.True(double.IsNaN(MathUtil.MinExact(a, b)) && double.IsNaN(MathUtil.MaxExact(a, b)));
+                        continue;
+                    }
+                    if (core) {
+                        Assert.Equal(Bits(Math.Min(a, b)), min);
+                        Assert.Equal(Bits(Math.Max(a, b)), max);
+                    }
+                    // (every runtime: the zero with the sign bit is the minimum, the one without it the maximum)
+                    if (a == 0 && b == 0) {
+                        Assert.Equal(Bits((Bits(a) | Bits(b)) < 0 ? MinusZeroValue : 0.0), min);
+                        Assert.Equal(Bits((Bits(a) & Bits(b)) < 0 ? MinusZeroValue : 0.0), max);
+                    }
+                }
+        }
+
+        static readonly double MinusZeroValue = BitConverter.Int64BitsToDouble(long.MinValue);
     }
 }

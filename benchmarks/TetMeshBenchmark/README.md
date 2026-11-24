@@ -356,3 +356,24 @@ alpha_long,alpha_short,seeds,tets,min_dihedral,max_dihedral,degenerate_tets,inve
 `inverted_background` counts the warped lattice tets whose exact orientation changed (the discarded ones included; with the 10.78 degree parameters
 they occur mostly on planar faces, with the safe ones never), `inverted_background_with_output` those that produce output tets. `wrap 40 600 hard` prints the
 wrap's own surface angles on the 13 hard inputs (smallest interior dihedral at a surface edge 29.5 to 90 degrees).
+
+## Radius-edge at the fixed boundary and `BoundaryFollowsSize` (`surfprobe`, docs/research/TET_RADIUS_EDGE_AT_SURFACE_2026-11.md; 2026-11-24)
+
+`surfprobe <relAlpha> <surfAngle> <improve> <slide> all <relH> <follow>`: four procedural shapes (sphere, torus, box 2x2x1 with a cylindrical
+hole, twisted bar), `TargetEdgeLength` = diagonal / relH, one thread, defaults otherwise (alpha = diagonal / 40, Improve on); "bad" = tets
+with radius-edge > 2 in the result. 4-core cloud container, one process at a time; the times are single runs (noise about 10-20 %).
+
+| shape | h | off: tets / bad (share) / s | `BoundaryFollowsSize`: tets / bad (share) / s | bad removed |
+|---|---|---|---|---|
+| sphere | diag / 40 | 76040 / 419 (0.55 %) / 1.56 | 78843 / 2 (0.003 %) / 2.84 | 99.5 % |
+| torus | diag / 40 | 32484 / 237 (0.73 %) / 0.73 | 34179 / 37 (0.11 %) / 1.09 | 84 % |
+| box with hole | diag / 40 | 93539 / 518 (0.55 %) / 1.82 | 97263 / 37 (0.04 %) / 2.23 | 93 % |
+| twisted bar | diag / 40 | 18892 / 184 (0.97 %) / 0.42 | 21510 / 46 (0.21 %) / 0.80 | 75 % |
+| sphere | diag / 60 | 254782 / 3729 (1.46 %) / 4.01 | 262238 / 9 (0.003 %) / 5.17 | 99.8 % |
+| torus | diag / 60 | 105570 / 2182 (2.07 %) / 1.80 | 111475 / 33 (0.03 %) / 2.83 | 98.5 % |
+| box with hole | diag / 60 | 305904 / 5675 (1.86 %) / 4.91 | 315775 / 28 (0.01 %) / 5.61 | 99.5 % |
+| twisted bar | diag / 60 | 60721 / 1607 (2.65 %) / 0.86 | 66554 / 43 (0.06 %) / 1.85 | 97 % |
+
+Totals: diag / 40 1358 -> 122 (91 % removed), diag / 60 13193 -> 113 (99 %); time 1.1-2.2x, tets 1.03-1.14x; the smallest dihedral angle stays
+>= 10 degrees on all. The rest (about 30-60 per shape) is the level without size control (24-65 at the defaults): tets at curved and sharp
+parts of the fixed surface, which only boundary splits would remove (option C of the note).

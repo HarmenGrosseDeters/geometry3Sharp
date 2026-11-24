@@ -30,7 +30,7 @@ namespace geometry3Sharp.Tests
 
         static ExactMeshBoolean Run(DMesh3 a, DMesh3 b, Ops op)
         {
-            var r = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op);
+            var r = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true };
             Assert.True(r.Compute(), r.Error);
             return r;
         }
@@ -124,7 +124,7 @@ namespace geometry3Sharp.Tests
             // open ones again: each result as from a fresh instance
             DMesh3 a = Sphere(Vector3d.Zero, 0.6), b = Sphere(CenterB, 0.5), ca = Sphere(Vector3d.Zero, 2), cb = Sphere(CenterB, 2);
             ExactMeshBoolean open = Run(a, b, Ops.Intersection), closed = Run(ca, cb, Ops.Intersection);
-            var op = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), Ops.Intersection);
+            var op = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), Ops.Intersection) { AllowOpenMeshes = true };
             Assert.True(op.Compute(), op.Error);
             Assert.Equal("", Invariance.Difference(open.Result, op.Result));
             op.MeshA = new DMesh3(ca);
@@ -153,7 +153,7 @@ namespace geometry3Sharp.Tests
             }
             for (int run = 0; run < 2; ++run)
                 Assert.Equal("", Invariance.Difference(serial.Result, Run(a, b, Ops.Intersection).Result));
-            var again = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), Ops.Intersection);
+            var again = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), Ops.Intersection) { AllowOpenMeshes = true };
             Assert.True(again.Compute() && again.Compute());
             Assert.Equal("", Invariance.Difference(serial.Result, again.Result));
         }

@@ -176,7 +176,7 @@ static class ChainExact
         for (int k = 0; k < plan.Count; ++k) {
             var row = new Dictionary<string, object>(info) { ["step"] = k + 1, ["op"] = Name(plan[k].Op), ["factors"] = factors };
             if (chainAlive) {
-                var b = new ExactMeshBoolean(plan[k].Left < 0 ? prev : ops[plan[k].Left], ops[plan[k].Right], plan[k].Op);
+                var b = new ExactMeshBoolean(plan[k].Left < 0 ? prev : ops[plan[k].Left], ops[plan[k].Right], plan[k].Op) { AllowOpenMeshes = true };
                 var sw = Stopwatch.StartNew();
                 bool ok = b.Compute();
                 row["chained_ms"] = sw.ElapsedMilliseconds;
@@ -187,6 +187,7 @@ static class ChainExact
             ExactMesh e = Lazy(plan, k, leaf);
             foreach (double f in factors) {
                 ExactMeshBoolean b = e.ToBoolean();
+                b.AllowOpenMeshes = true;      // (as the chained booleans of this file)
                 b.RoundingMaxPairTests = (long)(b.RoundingMaxPairTests * f);
                 var sw = Stopwatch.StartNew();
                 bool ok = b.Compute();
@@ -229,7 +230,7 @@ static class ChainExact
                         if (!alive) { ms[k] = -1; continue; }
                         // (the garbage of the earlier steps is collected outside the clock, as before every lazy job)
                         if (k > 0) { GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect(); }
-                        var b = new ExactMeshBoolean(plan[k].Left < 0 ? prev : ops[plan[k].Left], ops[plan[k].Right], plan[k].Op);
+                        var b = new ExactMeshBoolean(plan[k].Left < 0 ? prev : ops[plan[k].Left], ops[plan[k].Right], plan[k].Op) { AllowOpenMeshes = true };
                         var sw = Stopwatch.StartNew();
                         bool ok = b.Compute();
                         ms[k] = sw.Elapsed.TotalMilliseconds;
@@ -239,6 +240,7 @@ static class ChainExact
                     chainSteps.Add(ms);
                 } else {
                     ExactMeshBoolean b = Lazy(plan, job, leaf).ToBoolean();
+                    b.AllowOpenMeshes = true;      // (as the chained booleans of this file)
                     var sw = Stopwatch.StartNew();
                     bool ok = b.Compute();
                     lazyMs[job].Add(sw.Elapsed.TotalMilliseconds);
@@ -281,7 +283,7 @@ static class ChainExact
                 foreach (bool setting in (rep & 1) == 0 ? new[] { true, false } : new[] { false, true }) {   // balanced: ABBA, so a position effect (heap state after the first run) cancels in the medians of an even number of reps
                     GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
                     // G3_AB_NULL=1: both runs with the pre-decision off (the null test of the A/B: the on/off labels are then only the positions)
-                    var b = new ExactMeshBoolean(left, right, plan[k].Op) { ArrangementPreDecideCoplanar = setting && Environment.GetEnvironmentVariable("G3_AB_NULL") != "1" };
+                    var b = new ExactMeshBoolean(left, right, plan[k].Op) { AllowOpenMeshes = true, ArrangementPreDecideCoplanar = setting && Environment.GetEnvironmentVariable("G3_AB_NULL") != "1" };
                     var sw = Stopwatch.StartNew();
                     bool r = b.Compute();
                     (setting ? on : off).Add(sw.Elapsed.TotalMilliseconds);
@@ -343,7 +345,7 @@ static class ChainExact
             // chained (today): the previous rounded result op the operand
             if (chainAlive) {
                 DMesh3 left = plan[k].Left < 0 ? prev : ops[plan[k].Left];
-                var b = new ExactMeshBoolean(left, ops[plan[k].Right], plan[k].Op);
+                var b = new ExactMeshBoolean(left, ops[plan[k].Right], plan[k].Op) { AllowOpenMeshes = true };
                 var sw = Stopwatch.StartNew();
                 bool ok = b.Compute();
                 row["chained_ms"] = sw.ElapsedMilliseconds;
@@ -359,7 +361,7 @@ static class ChainExact
             foreach (int x in used) { slot[x] = meshes.Count; meshes.Add(ops[x]); }
             Func<int[], bool> pred = Predicate(plan, k, slot);
             {
-                var b = new ExactMeshBoolean(meshes, pred);
+                var b = new ExactMeshBoolean(meshes, pred) { AllowOpenMeshes = true };
                 var sw = Stopwatch.StartNew();
                 bool ok = b.Compute();
                 row["onepass_ms"] = sw.ElapsedMilliseconds;
@@ -367,7 +369,7 @@ static class ChainExact
             }
             {
                 // the exact chain result: unrounded, with its exact vertices
-                var b = new ExactMeshBoolean(meshes, pred) { SafeRounding = false, ComputeExactVertices = true };
+                var b = new ExactMeshBoolean(meshes, pred) { AllowOpenMeshes = true, SafeRounding = false, ComputeExactVertices = true };
                 var sw = Stopwatch.StartNew();
                 bool ok = b.Compute();
                 row["exact_ms"] = sw.ElapsedMilliseconds;
@@ -387,8 +389,8 @@ static class ChainExact
     {
         DMesh3 a = new TrivialBox3Generator { Box = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1)) }.Generate().MakeDMesh();
         DMesh3 b = new TrivialBox3Generator { Box = new Box3d(new Vector3d(0.5, 0.25, 0.125), new Vector3d(1, 1, 1)) }.Generate().MakeDMesh();
-        new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union).Compute();
-        new ExactMeshBoolean(new List<DMesh3> { a, b }, w => w[0] > 0 && w[1] <= 0) { ComputeExactVertices = true }.Compute();
+        new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true }.Compute();
+        new ExactMeshBoolean(new List<DMesh3> { a, b }, w => w[0] > 0 && w[1] <= 0) { AllowOpenMeshes = true, ComputeExactVertices = true }.Compute();
     }
 
     static void Outcome(ExactMeshBoolean b, bool ok, string pre, Dictionary<string, object> row)

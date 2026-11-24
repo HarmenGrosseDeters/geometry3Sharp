@@ -60,7 +60,7 @@ namespace geometry3Sharp.Tests
     /// with BigInteger arithmetic on the exact points (the culled triangles by the library's exact ExactTriangleIntersection
     /// on the input doubles), so it costs several times the boolean: a test oracle, not a mode for users.
     /// </summary>
-    internal sealed class BooleanCertificate
+    internal sealed partial class BooleanCertificate
     {
         // ------------------------------------------------------------------ the data checked (copies: tests mutate them)
 
@@ -96,6 +96,48 @@ namespace geometry3Sharp.Tests
         /// <summary> components the rounding removed (tiny or thin): the coverage of the result before rounding by the result is skipped then </summary>
         public int RemovedComponents;
 
+        /// <summary> the built-in operation of the result (null: a custom winding predicate, which has no file format) </summary>
+        public Ops? Operation;
+        /// <summary> the rounding settings the bound is derived from (the boolean's RoundingMaxDisplacement, RoundingUlpFactor, RoundingAbsoluteTolerance, StrictRounding) </summary>
+        public double SettingMaxDisplacement = 1e-5, SettingUlpFactor = 256, SettingAbsoluteTolerance;
+        public bool SettingStrict;
+        /// <summary> whether the result was rounded (MaxLength and the bound below are 0 otherwise) </summary>
+        public bool Rounded;
+
+        /// <summary>
+        /// Delta, MaxLength's documented bound and the rest of the rounding's numbers from the settings and the two meshes: the
+        /// bound is derived here from the output and the settings, never read from a file
+        /// </summary>
+        public void SetRounding(bool rounded, double maxLength, int removedComponents)
+        {
+            double maxAbs = 0;
+            var box = AxisAlignedBox3d.Empty;
+            // (only the vertices that a triangle uses: a vertex nothing refers to must not widen the bound)
+            foreach (DMesh3 m in new[] { Result, Assembled })
+                if (m != null)
+                    foreach (int t in m.TriangleIndices()) {
+                        Index3i tri = m.GetTriangle(t);
+                        for (int k = 0; k < 3; ++k) {
+                            Vector3d v = m.GetVertex(tri[k]);
+                            maxAbs = Math.Max(maxAbs, Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z))));
+                            box.Contain(v);
+                        }
+                    }
+            // (the rounding's bound, plus the rounding of the exact vertices to the nearest double: at most an ulp of maxAbs
+            // per coordinate; 4 ulps leave room for the split vertices, whose coordinates are midpoints of rounded ends)
+            double ulp = Ulp(maxAbs);
+            Rounded = rounded;
+            MaxLength = rounded ? maxLength : 0;
+            Delta = MaxLength + 4 * ulp;
+            // the documented bound (MeshRoundingRepair: max(MaxDisplacement times the largest component's diagonal,
+            // UlpFactor ulps of its largest coordinate, AbsoluteTolerance); StrictRounding without the last two), from the
+            // settings: the diagonal of all vertices is at least the largest component's, maxAbs at least its coordinates
+            MaxLengthBound = rounded ? Math.Max(SettingMaxDisplacement * (box.DiagonalLength * (1 + 1e-12)),
+                SettingStrict ? 0 : Math.Max(SettingUlpFactor * ulp, SettingAbsoluteTolerance)) : 0;
+            RemovedComponents = rounded ? removedComponents : 0;
+            MaxDisplacement = SettingMaxDisplacement;
+        }
+
         /// <summary> sub-triangle splits tried where no single triangle covers one (C5) </summary>
         public int SplitDepth = 3;
 
@@ -112,91 +154,6 @@ namespace geometry3Sharp.Tests
         public List<string> RemovedParts = new List<string>();
         /// <summary> the rounding's relative bound (for the thin and tiny components it may remove) </summary>
         public double MaxDisplacement = 1e-5;
-
-        /// <summary>
-        /// Runs a boolean with the recording on (and exact vertices) and returns it with its certificate data. configure
-        /// may set more fields (SafeRounding, CullOutsideA, ...).
-        /// </summary>
-        public static BooleanCertificate Run(DMesh3 a, DMesh3 b, Ops op, out ExactMeshBoolean boolean, Action<ExactMeshBoolean> configure = null)
-        {
-            boolean = new ExactMeshBoolean(a, b, op) { RecordCertificate = true, ComputeExactVertices = true };
-            configure?.Invoke(boolean);
-            if (boolean.Compute() == false)
-                throw new InvalidOperationException("boolean failed: " + boolean.Error);
-            return From(boolean);
-        }
-
-        /// <summary>
-        /// The oracle for the property campaigns: runs a op b with the recording (Intersection without the early-out,
-        /// see the class comment) and returns "" if the certificate holds and covers every triangle, else the reason.
-        /// </summary>
-        public static string CheckBoolean(DMesh3 a, DMesh3 b, Ops op)
-        {
-            BooleanCertificate c = Run(a, b, op, out _, x => { if (op == Ops.Intersection) x.CullOutsideA = false; });
-            string r = c.Check();
-            if (r != "") return "certificate " + op + ": " + r;
-            return c.Uncovered == 0 ? "" : $"certificate {op}: {c.Uncovered} triangles not covered within Delta";
-        }
-
-        public static BooleanCertificate From(ExactMeshBoolean b)
-        {
-            ExactMeshArrangement arr = b.Arrangement;
-            var c = new BooleanCertificate {
-                Meshes = arr.Meshes, ScaleExp = arr.ScaleExp, Center = (BigInteger[])arr.Center.Clone(),
-                Front = b.CertificateFront?.Select(f => f == null ? null : (int[])f.Clone()).ToArray(),
-                Keep = (bool[])b.CertificateKeep?.Clone(), Flip = (bool[])b.CertificateFlip?.Clone(),
-                Assembled = b.CertificateAssembled, Result = b.Result, AssembledExact = b.ResultExactVertices
-            };
-            int n = arr.Output.Count;
-            c.PieceMesh = new int[n]; c.PieceSource = new int[n]; c.PieceCorners = new ExactPoint3[n][];
-            for (int i = 0; i < n; ++i) {
-                var ot = arr.Output[i];
-                c.PieceMesh[i] = ot.Mesh; c.PieceSource[i] = ot.Source;
-                c.PieceCorners[i] = new[] { arr.Exact(ot.A), arr.Exact(ot.B), arr.Exact(ot.C) };
-            }
-            int nt = arr.Triangles.Count;
-            c.TriMesh = new int[nt]; c.TriTid = new int[nt]; c.TriCulled = new bool[nt];
-            for (int t = 0; t < nt; ++t) {
-                c.TriMesh[t] = arr.Triangles[t].Mesh; c.TriTid[t] = arr.Triangles[t].Tid;
-                c.TriCulled[t] = arr.Culled != null && arr.Culled[t];
-            }
-            if (b.WindingPredicate != null) c.Predicate = b.WindingPredicate;
-            else c.Predicate = OperationPredicate(b.Operation);
-            if (b.ExactWinding == null || Array.IndexOf(b.ExactWinding, false) >= 0)
-                c.NotApplicableReason = "an input is open (generalized winding numbers)";
-            if (arr.CulledCount > 0) {
-                if (arr.CullOutsideOf == null || arr.CullOutsideOf.Length != 1)
-                    c.NotApplicableReason = c.NotApplicableReason ?? "triangles culled against several meshes (set CullOutsideA = false)";
-                else if (b.WindingPredicate != null || (b.Operation != Ops.Difference && b.Operation != Ops.Intersection))
-                    c.NotApplicableReason = c.NotApplicableReason ?? "culling with a predicate that is not false outside the culling mesh";
-                else
-                    c.CullMesh = arr.CullOutsideOf[0];
-            }
-            c.ReorientedTriangles = b.ReorientedTriangles;
-            double maxAbs = 0;
-            var box = AxisAlignedBox3d.Empty;
-            foreach (DMesh3 m in new[] { b.Result, b.CertificateAssembled })
-                if (m != null)
-                    foreach (Vector3d v in m.Vertices()) {
-                        maxAbs = Math.Max(maxAbs, Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z))));
-                        box.Contain(v);
-                    }
-            // (the rounding's bound, plus the rounding of the exact vertices to the nearest double: at most an ulp of maxAbs
-            // per coordinate; 4 ulps leave room for the split vertices, whose coordinates are midpoints of rounded ends)
-            double ulp = Ulp(maxAbs);
-            c.MaxLength = b.Rounding != null ? b.Rounding.MaxLength : 0;
-            c.Delta = c.MaxLength + 4 * ulp;
-            // the documented bound (MeshRoundingRepair: max(MaxDisplacement times the largest component's diagonal,
-            // UlpFactor ulps of its largest coordinate, AbsoluteTolerance); StrictRounding without the last two), from the
-            // settings: the diagonal of all vertices is at least the largest component's, maxAbs at least its coordinates
-            bool strict = b.StrictRounding;
-            c.MaxLengthBound = b.Rounding == null ? 0 : Math.Max(b.RoundingMaxDisplacement * (box.DiagonalLength * (1 + 1e-12)),
-                strict ? 0 : Math.Max(b.RoundingUlpFactor * ulp, b.RoundingAbsoluteTolerance));
-            c.RemovedComponents = b.Rounding != null ? b.Rounding.RemovedComponents : 0;
-            c.MaxDisplacement = b.RoundingMaxDisplacement;
-            c.Inputs = new List<DMesh3>(b.Meshes ?? new List<DMesh3> { b.MeshA, b.MeshB });
-            return c;
-        }
 
         // the distance between x and the next double away from 0 (2^-1074 at 0)
         static double Ulp(double x)
@@ -349,6 +306,69 @@ namespace geometry3Sharp.Tests
                 if (planeGroups.TryGetValue(triPlane[t], out List<int> g) == false) planeGroups[triPlane[t]] = g = new List<int>();
                 g.Add(t);
             }
+        }
+
+        // A conservative box of exact corners, from their approximations (each within 2 ulp), widened by a relative 2^-49 and the
+        // smallest double: a pair of triangles whose boxes are disjoint is disjoint, so a test that only decides pairs that meet
+        // may skip it. The filter of the two in-plane loops (the stacks, the straddle test of C2); never a decision by itself.
+        static void ApproxBox(ExactPoint3[] c, double[] lo, double[] hi)
+        {
+            var a = new[] { c[0].ApproxVector3d(), c[1].ApproxVector3d(), c[2].ApproxVector3d() };
+            for (int k = 0; k < 3; ++k) {
+                double l = Math.Min(a[0][k], Math.Min(a[1][k], a[2][k])), h = Math.Max(a[0][k], Math.Max(a[1][k], a[2][k]));
+                // (no finite approximation: the box is everything, so that the pair is kept for the exact test)
+                if (double.IsNaN(l) || double.IsNaN(h) || double.IsInfinity(l) || double.IsInfinity(h)) { lo[k] = double.NegativeInfinity; hi[k] = double.PositiveInfinity; continue; }
+                lo[k] = l - Math.Abs(l) * (1.0 / (1L << 49)) - double.Epsilon;
+                hi[k] = h + Math.Abs(h) * (1.0 / (1L << 49)) + double.Epsilon;
+            }
+        }
+
+        // the boxes of the input triangles of one plane (the coplanar ones: planeGroups), with a tree where there are many
+        sealed class PlaneBoxes
+        {
+            public int[] Members; public double[] Lo, Hi; public EmbeddingBoxTree Tree;
+        }
+        Dictionary<string, PlaneBoxes> planeBoxes;
+        const int PlaneTreeMin = 8;
+
+        PlaneBoxes BoxesOfPlane(string plane)
+        {
+            if (planeBoxes == null) planeBoxes = new Dictionary<string, PlaneBoxes>();
+            if (planeBoxes.TryGetValue(plane, out PlaneBoxes pb)) return pb;
+            int[] m = planeGroups[plane].ToArray();
+            pb = new PlaneBoxes { Members = m, Lo = new double[3 * m.Length], Hi = new double[3 * m.Length] };
+            double[] l = new double[3], h = new double[3];
+            for (int i = 0; i < m.Length; ++i) {
+                ApproxBox(triCorners[m[i]], l, h);
+                for (int k = 0; k < 3; ++k) { pb.Lo[3 * i + k] = l[k]; pb.Hi[3 * i + k] = h[k]; }
+            }
+            if (m.Length > PlaneTreeMin) pb.Tree = new EmbeddingBoxTree(pb.Lo, pb.Hi, m.Length);
+            planeBoxes[plane] = pb;
+            return pb;
+        }
+
+        /// <summary>
+        /// the input triangles u of the plane of source src, in the order of planeGroups (ascending), whose box meets the box of the
+        /// piece (and src itself); every coplanar triangle that meets the piece is among them
+        /// </summary>
+        List<int> CoplanarNear(int src, ExactPoint3[] piece)
+        {
+            PlaneBoxes pb = BoxesOfPlane(triPlane[src]);
+            double[] qlo = new double[3], qhi = new double[3];
+            ApproxBox(piece, qlo, qhi);
+            var hit = new List<int>();
+            if (pb.Tree != null) pb.Tree.Query(qlo, qhi, hit);
+            else
+                for (int i = 0; i < pb.Members.Length; ++i) {
+                    int x = 3 * i;
+                    if (pb.Lo[x] <= qhi[0] && qlo[0] <= pb.Hi[x] && pb.Lo[x + 1] <= qhi[1] && qlo[1] <= pb.Hi[x + 1] && pb.Lo[x + 2] <= qhi[2] && qlo[2] <= pb.Hi[x + 2])
+                        hit.Add(i);
+                }
+            var r = new List<int>(hit.Count + 1);
+            foreach (int i in hit) r.Add(pb.Members[i]);
+            if (r.Contains(src) == false) r.Add(src);
+            r.Sort();
+            return r;
         }
 
         // sign of point p against the triangle t's edges in its plane: +1 strictly inside, 0 on the boundary, -1 outside
@@ -712,9 +732,33 @@ namespace geometry3Sharp.Tests
             // classified piece straddles u's boundary: it lies in u, or its interior is disjoint from u's
             foreach (int i in part) {
                 int src = PieceSource[i];
-                foreach (int u in planeGroups[triPlane[src]])
+                foreach (int u in CoplanarNear(src, PieceCorners[i]))
                     if (u != src && TriCulled[u] == false && IsZero(triNormal[u]) == false && StraddlesInPlane(PieceCorners[i], triCorners[u]))
                         return $"piece {i} (source {src}) straddles the boundary of the coplanar input triangle {u}";
+            }
+            return "";
+        }
+
+        /// <summary>
+        /// for tests: the box filter of the two in-plane loops (the stacks of C3, the straddle test of C2) against the exact
+        /// tests it stands in front of: every coplanar input triangle that contains a piece's centroid or touches it (is not
+        /// "interior disjoint") must be among CoplanarNear's. "" or the first piece and triangle that the filter lost.
+        /// </summary>
+        public string AuditCoplanarFilter(out int tested, out int exactHits)
+        {
+            tested = exactHits = 0;
+            PrepareStacks();
+            for (int i = 0; i < PieceCorners.Length; ++i) {
+                int src = PieceSource[i];
+                var near = new HashSet<int>(CoplanarNear(src, PieceCorners[i]));
+                ExactPoint3 cen = Centroid(PieceCorners[i]);
+                foreach (int u in planeGroups[triPlane[src]]) {
+                    if (u == src || TriCulled[u] || IsZero(triNormal[u])) continue;
+                    tested++;
+                    bool hit = InsideInPlane(u, cen) >= 0 || StraddlesInPlane(PieceCorners[i], triCorners[u]);
+                    if (hit) exactHits++;
+                    if (hit && near.Contains(u) == false) return $"piece {i} (source {src}) and coplanar triangle {u}: the box filter dropped a pair that meets";
+                }
             }
             return "";
         }
@@ -931,6 +975,25 @@ namespace geometry3Sharp.Tests
                 return lo[x] <= hi[y] && lo[y] <= hi[x] && lo[x + 1] <= hi[y + 1] && lo[y + 1] <= hi[x + 1] && lo[x + 2] <= hi[y + 2] && lo[y + 2] <= hi[x + 2];
             }
 
+            /// <summary> every item whose box meets the box [qlo, qhi] (closed boxes, as in SelfJoin), appended to result </summary>
+            public void Query(double[] qlo, double[] qhi, List<int> result)
+            {
+                if (items.Length == 0) return;
+                var stack = new Stack<int>();
+                stack.Push(0);
+                while (stack.Count > 0) {
+                    int node = stack.Pop(), o = 6 * node;
+                    if (nodeBox[o] > qhi[0] || qlo[0] > nodeBox[o + 3] || nodeBox[o + 1] > qhi[1] || qlo[1] > nodeBox[o + 4]
+                        || nodeBox[o + 2] > qhi[2] || qlo[2] > nodeBox[o + 5]) continue;
+                    if (nodeLeft[node] >= 0) { stack.Push(nodeLeft[node]); stack.Push(nodeRight[node]); continue; }
+                    for (int i = nodeStart[node]; i < nodeEnd[node]; ++i) {
+                        int x = 3 * items[i];
+                        if (lo[x] <= qhi[0] && qlo[0] <= hi[x] && lo[x + 1] <= qhi[1] && qlo[1] <= hi[x + 1] && lo[x + 2] <= qhi[2] && qlo[2] <= hi[x + 2])
+                            result.Add(items[i]);
+                    }
+                }
+            }
+
             /// <summary> every unordered pair of items of different groups whose boxes meet, once (smaller item first) </summary>
             public void SelfJoin(int[] group, List<(int, int)> pairs) { if (items.Length > 0) Join(0, 0, group, pairs); }
 
@@ -968,7 +1031,7 @@ namespace geometry3Sharp.Tests
                 int src = PieceSource[i];
                 ExactPoint3 cen = Centroid(PieceCorners[i]);
                 var s = new List<int>();
-                foreach (int u in planeGroups[triPlane[src]]) {
+                foreach (int u in CoplanarNear(src, PieceCorners[i])) {
                     if (u == src) { s.Add(u); continue; }
                     if (TriCulled[u]) continue;
                     int inside = InsideInPlane(u, cen);
@@ -1496,6 +1559,95 @@ namespace geometry3Sharp.Tests
             return result;
         }
 
+        // ---- the double filters of C5. They only decide in one direction, with a margin far above the rounding: a point whose
+        // approximation is farther than Delta from the box of a triangle's approximated corners is farther than Delta from the
+        // triangle (reject), and one whose distance to a point computed inside the triangle (a convex combination of the
+        // approximated corners, whatever the rounding made of the weights) is below Delta by the margin is within Delta
+        // (accept). Everything between is decided by the exact test (Near).
+
+        sealed class TriApprox
+        {
+            public bool Ok; public Vector3d A, B, C; public double[] Lo = new double[3], Hi = new double[3];
+        }
+
+        // q as a double (relative error below 2^-50), false where it is not finite or too large for the conversion
+        static bool ApproxQ(Q q, out double v)
+        {
+            v = 0;
+            if (q.N.IsZero) return true;
+            if (ExactPoint3.BitLength(q.N) > 1000 || ExactPoint3.BitLength(q.D) > 1000) return false;
+            v = (double)q.N / (double)q.D;
+            return double.IsInfinity(v) == false && double.IsNaN(v) == false;
+        }
+
+        static bool ApproxPoint(Q[] p, out Vector3d v)
+        {
+            v = Vector3d.Zero;
+            if (ApproxQ(p[0], out double x) && ApproxQ(p[1], out double y) && ApproxQ(p[2], out double z)) { v = new Vector3d(x, y, z); return true; }
+            return false;
+        }
+
+        static TriApprox ApproxTri(Q[][] t)
+        {
+            var r = new TriApprox();
+            if (ApproxPoint(t[0], out r.A) && ApproxPoint(t[1], out r.B) && ApproxPoint(t[2], out r.C)) {
+                r.Ok = true;
+                for (int k = 0; k < 3; ++k) {
+                    r.Lo[k] = Math.Min(r.A[k], Math.Min(r.B[k], r.C[k]));
+                    r.Hi[k] = Math.Max(r.A[k], Math.Max(r.B[k], r.C[k]));
+                }
+            }
+            return r;
+        }
+
+        // the distance from p to a point of the triangle abc that is inside it up to rounding (Ericson 5.1.5; the weights are
+        // clamped to a convex combination, so a wrong region only gives a larger distance); NaN where it cannot be computed
+        static double DistanceToTriangleApprox(Vector3d p, Vector3d a, Vector3d b, Vector3d c)
+        {
+            Vector3d ab = b - a, ac = c - a, ap = p - a;
+            double d1 = ab.Dot(ap), d2 = ac.Dot(ap);
+            double v, w;
+            if (d1 <= 0 && d2 <= 0) { v = 0; w = 0; }
+            else {
+                Vector3d bp = p - b;
+                double d3 = ab.Dot(bp), d4 = ac.Dot(bp);
+                Vector3d cp = p - c;
+                double d5 = ab.Dot(cp), d6 = ac.Dot(cp);
+                double vc = d1 * d4 - d3 * d2, vb = d5 * d2 - d1 * d6, va = d3 * d6 - d5 * d4;
+                if (d3 >= 0 && d4 <= d3) { v = 1; w = 0; }
+                else if (vc <= 0 && d1 >= 0 && d3 <= 0) { v = d1 / (d1 - d3); w = 0; }
+                else if (d6 >= 0 && d5 <= d6) { v = 0; w = 1; }
+                else if (vb <= 0 && d2 >= 0 && d6 <= 0) { v = 0; w = d2 / (d2 - d6); }
+                else if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) { v = 1 - (d4 - d3) / ((d4 - d3) + (d5 - d6)); w = 1 - v; }
+                else { double den = 1 / (va + vb + vc); v = vb * den; w = vc * den; }
+            }
+            if (double.IsNaN(v) || double.IsNaN(w)) return double.NaN;
+            // (a belt: the region tests keep v and w in [0, 1] up to rounding, and an infinite weight from a vanishing denominator
+            // gives an infinite or NaN distance, which no accept takes; 4 million random thin triangles never differed with and without)
+            v = Math.Min(1, Math.Max(0, v)); w = Math.Min(1 - v, Math.Max(0, w));
+            Vector3d q = a + v * ab + w * ac;
+            return (p - q).Length;
+        }
+
+        // The absolute slack of the double filters: 2^-40 of the largest coordinate plus the extent, and never below 2^-480, so that
+        // the squares of a distance (down to 2^-960 times a few) neither underflow below the margin nor reach the subnormals
+        // (found by the review of #1520: at 2^-560 the accept was unsound with a floor of 1e-300)
+        static double FilterEps(double maxAbs, double extent) => Math.Max((maxAbs + extent) / (double)(1L << 40), Math.Pow(2, -480));
+
+        double covDelta, covEps;       // Delta, and the absolute slack of the double filters (set by Cover)
+
+        // Near with the double filters first (pa, ta: the approximations of p and t; ok = they exist)
+        static bool NearFiltered(Q[] p, bool pOk, Vector3d pa, Q[][] t, TriApprox ta, Q delta2, double covDelta, double covEps)
+        {
+            if (pOk && ta.Ok) {
+                double tol = covDelta + 3 * covEps;
+                if (pa.x < ta.Lo[0] - tol || pa.x > ta.Hi[0] + tol || pa.y < ta.Lo[1] - tol || pa.y > ta.Hi[1] + tol
+                    || pa.z < ta.Lo[2] - tol || pa.z > ta.Hi[2] + tol) return false;
+                if (DistanceToTriangleApprox(pa, ta.A, ta.B, ta.C) + 3 * covEps <= covDelta) return true;
+            }
+            return Near(p, t, delta2);
+        }
+
         string Cover(List<Q[][]> from, List<AxisAlignedBox3d> fromBoxes, List<Q[][]> to, List<AxisAlignedBox3d> toBoxes, string fromName, string toName)
         {
             if (from.Count == 0) return "";
@@ -1515,17 +1667,23 @@ namespace geometry3Sharp.Tests
                 var b = toBoxes[j]; b.Expand(pad); grid.Add(j, b);
             }
             Q delta2 = DeltaSquared();
+            covDelta = Delta;
+            covEps = FilterEps(Math.Max(Math.Abs(all.Min.x), Math.Max(Math.Abs(all.Min.y), Math.Max(Math.Abs(all.Min.z),
+                Math.Max(Math.Abs(all.Max.x), Math.Max(Math.Abs(all.Max.y), Math.Abs(all.Max.z)))))), all.MaxDim);
+            var toApprox = new TriApprox[to.Count];
+            for (int j = 0; j < to.Count; ++j) toApprox[j] = ApproxTri(to[j]);
             for (int i = 0; i < from.Count; ++i) {
                 var box = fromBoxes[i]; box.Expand(pad);
                 List<int> cand = grid.Query(box).OrderBy(x => x == i ? -1 : x).ToList();
-                if (Covered(from[i], cand, to, delta2, SplitDepth)) continue;
+                if (Covered(from[i], cand, to, toApprox, delta2, SplitDepth)) continue;
                 Uncovered++;
                 // not certified: is a corner farther than Delta from every triangle (a definite violation)?
                 foreach (Q[] corner in from[i]) {
                     bool near = false;
+                    bool cOk = ApproxPoint(corner, out Vector3d ca);
                     foreach (int j in cand) {
                         CoverageTests++;
-                        if (Near(corner, to[j], delta2)) { near = true; break; }
+                        if (NearFiltered(corner, cOk, ca, to[j], toApprox[j], delta2, covDelta, covEps)) { near = true; break; }
                     }
                     if (near == false) return $"a corner of the {fromName} is farther than {Delta:R} from the {toName}";
                 }
@@ -1560,6 +1718,28 @@ namespace geometry3Sharp.Tests
             return Near(Vec(p), t.Select(Vec).ToArray(), (q * q).Reduce());
         }
 
+        /// <summary>
+        /// for tests: PointNearTriangle through the double filters of C5 (reject by box, accept by a point inside the triangle),
+        /// with the slack the checker derives from the largest coordinate it sees (scale); must give the exact answer
+        /// </summary>
+        public static bool PointNearTriangleFiltered(ExactPoint3 p, ExactPoint3[] t, double delta, double scale)
+        {
+            ExactPoint3 d = FromDouble(new Vector3d(delta, 0, 0));
+            Q q = new Q(d.X, d.W);
+            Q[][] tq = t.Select(Vec).ToArray();
+            Q[] pq = Vec(p);
+            bool pOk = ApproxPoint(pq, out Vector3d pa);
+            return NearFiltered(pq, pOk, pa, tq, ApproxTri(tq), (q * q).Reduce(), delta, FilterEps(scale, scale));
+        }
+
+        /// <summary> for tests: the distance the accept filter computes from p to a point it takes for one of the triangle (NaN: none) </summary>
+        public static double ApproxDistanceToTriangle(ExactPoint3 p, ExactPoint3[] t)
+        {
+            Q[][] tq = t.Select(Vec).ToArray();
+            TriApprox ta = ApproxTri(tq);
+            return ApproxPoint(Vec(p), out Vector3d pa) && ta.Ok ? DistanceToTriangleApprox(pa, ta.A, ta.B, ta.C) : double.NaN;
+        }
+
         static Q SegmentSquaredDistance(Q[] p, Q[] a, Q[] b)
         {
             Q[] ab = VSub(b, a), ap = VSub(p, a);
@@ -1571,21 +1751,23 @@ namespace geometry3Sharp.Tests
             return PointOnSegment(p, a, ab, (t / l2).Reduce());
         }
 
-        bool Covered(Q[][] t, List<int> cand, List<Q[][]> to, Q delta2, int depth)
+        bool Covered(Q[][] t, List<int> cand, List<Q[][]> to, TriApprox[] toApprox, Q delta2, int depth)
         {
+            var cOk = new bool[3]; var pv = new Vector3d[3];
+            for (int k = 0; k < 3; ++k) cOk[k] = ApproxPoint(t[k], out pv[k]);
             foreach (int j in cand) {
                 bool all = true;
-                foreach (Q[] corner in t) {
+                for (int k = 0; k < 3; ++k) {
                     CoverageTests++;
-                    if (Near(corner, to[j], delta2) == false) { all = false; break; }
+                    if (NearFiltered(t[k], cOk[k], pv[k], to[j], toApprox[j], delta2, covDelta, covEps) == false) { all = false; break; }
                 }
                 if (all) return true;
             }
             if (depth == 0) return false;
             Q[] Mid(Q[] a, Q[] b) => new[] { ((a[0] + b[0]) * new Q(1, 2)).Reduce(), ((a[1] + b[1]) * new Q(1, 2)).Reduce(), ((a[2] + b[2]) * new Q(1, 2)).Reduce() };
             Q[] ab = Mid(t[0], t[1]), bc = Mid(t[1], t[2]), ca = Mid(t[2], t[0]);
-            return Covered(new[] { t[0], ab, ca }, cand, to, delta2, depth - 1) && Covered(new[] { ab, t[1], bc }, cand, to, delta2, depth - 1)
-                && Covered(new[] { ca, bc, t[2] }, cand, to, delta2, depth - 1) && Covered(new[] { ab, bc, ca }, cand, to, delta2, depth - 1);
+            return Covered(new[] { t[0], ab, ca }, cand, to, toApprox, delta2, depth - 1) && Covered(new[] { ab, t[1], bc }, cand, to, toApprox, delta2, depth - 1)
+                && Covered(new[] { ca, bc, t[2] }, cand, to, toApprox, delta2, depth - 1) && Covered(new[] { ab, bc, ca }, cand, to, toApprox, delta2, depth - 1);
         }
 
         Q DeltaSquared()

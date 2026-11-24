@@ -1477,7 +1477,7 @@ namespace g3
 			int NT = mesh.MaxTriangleID;
 			QuadricError[] triQuadrics = new QuadricError[NT];
 			double[] triAreas = new double[NT];
-            gParallel.BlockStartEnd(0, mesh.MaxTriangleID-1, (start_tid, end_tid) => {
+            gParallel.BlockStartEndSmall(0, mesh.MaxTriangleID-1, (start_tid, end_tid) => {
                 Vector3d c, n;
                 for (int tid = start_tid; tid <= end_tid; tid++) {
                     if (mesh.IsTriangle(tid)) {
@@ -1490,7 +1490,7 @@ namespace g3
 
 			int NV = mesh.MaxVertexID;
 			vertQuadrics = new QuadricError[NV];
-            gParallel.BlockStartEnd(0, mesh.MaxVertexID-1, (start_vid, end_vid) => {
+            gParallel.BlockStartEndSmall(0, mesh.MaxVertexID-1, (start_vid, end_vid) => {
                 for (int vid = start_vid; vid <= end_vid; vid++) {
                     vertQuadrics[vid] = QuadricError.Zero;
                     if (mesh.IsVertex(vid)) {
@@ -1601,7 +1601,7 @@ namespace g3
             double[] errors = new double[MaxEID];
 
             // vertex quadrics can be computed in parallel
-            gParallel.BlockStartEnd(0, MaxEID-1, (start_eid, end_eid) => {
+            gParallel.BlockStartEndSmall(0, MaxEID-1, (start_eid, end_eid) => {
                 for (int eid = start_eid; eid <= end_eid; eid++) {
                     if (mesh.IsEdge(eid)) {
                         Index2i ev = mesh.GetEdgeV(eid);
@@ -2264,7 +2264,7 @@ skip_to_end:
                 mesh.SetVertex(vID, projected);
             };
 
-            gParallel.ForEach<int>(project_vertices(), project);
+            gParallel.ForEachSmall<int>(project_vertices(), project);
         }
 
 

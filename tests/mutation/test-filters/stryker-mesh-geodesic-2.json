@@ -1,0 +1,23 @@
+{
+ "format": 1,
+ "config": "22d7421f1f025015190eb55290cb47bfc3a5be8ddd277f598781399c45246242",
+ "timeouts": "one",
+ "terms": [
+  "ExactMeshGeodesicDistanceTests"
+ ],
+ "kept": [
+  "geometry3Sharp.Tests.ExactMeshGeodesicDistanceTests.Family_UpperIsTight_OnFlatNearlyFlatAndCurvedSurfaces",
+  "geometry3Sharp.Tests.ExactMeshGeodesicDistanceTests.ForcedCompaction_OfDeadWindows_ChangesNothing",
+  "geometry3Sharp.Tests.ExactMeshGeodesicDistanceTests.Terrain_UnderSimilarities",
+  "geometry3Sharp.Tests.ExactMeshGeodesicDistanceTests.TransformDisk_ContainsTheImageOfEveryPoint_ForEveryEdgeInTheBoxes"
+ ],
+ "tests_in_report": 103,
+ "mutated_files": {
+  "mesh_ops/ExactMeshGeodesicDistance.cs": "73d6d309e4bc9a9fe9c4ba43ce55457fb2821296e2959e95e4367543c2f24d29"
+ },
+ "test_files": {
+  "tests/geometry3Sharp.Tests/ExactMeshGeodesicDistanceTests.cs": "60c154c078e5faeda6accf8131e6fd579ddd18a02605d4923346afd46dc28f21"
+ },
+ "estimated_saving": 0.61,
+ "weighted_by_duration": true
+}

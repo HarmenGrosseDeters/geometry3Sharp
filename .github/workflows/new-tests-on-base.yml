@@ -3,14 +3,11 @@ name: New tests on base
 # Runs the test methods a PR adds against the library of its base branch (docs/QA.md 4a item 1,
 # tools/new_tests_on_base.py). Informational (a summary in the job log and the step summary), except for PRs with
 # the label `bugfix`: then at least one new test must fail on the base.
+# A job of ci.yml (workflow_call, owner 2026-11-23): in the full stage of a ready PR (label `full-ci`), so the merge gate `full-ci`
+# covers it; ci.yml's concurrency group replaces the run under way on a new push. It runs in the PR's context (the event payload
+# of ci.yml): set `bugfix` before `full-ci`, or later (a `bugfix` labeled event re-runs the full stage).
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
-
-# a new push or label change replaces the run under way
-concurrency:
-  group: new-tests-on-base-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  workflow_call:
 
 permissions:
   contents: read
@@ -21,6 +18,8 @@ env:
 
 jobs:
   new-tests-on-base:
+    # (ci.yml calls it only on a ready PR with the label full-ci; the condition stays as a second guard)
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'full-ci')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:

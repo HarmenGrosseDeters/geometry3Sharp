@@ -483,7 +483,10 @@ namespace g3
                     Vector2d va = PointF(ev.a);
                     Vector2d vb = PointF(ev.b);
                     Segment2d edge_seg = uv_segment(va, vb, normalizationEpsilon);
-                    IntrSegment2Segment2 intr = new IntrSegment2Segment2(seg, edge_seg);
+                    // (the tolerance route of IntrSegment2Segment2, as before its exact decision: this insertion relies on edges
+                    // that are parallel to within DotThreshold counting as one, see "numerics are different" below. An
+                    // IntervalThreshold above 0 selects it; double.Epsilon does not change the intervals.)
+                    IntrSegment2Segment2 intr = new IntrSegment2Segment2(seg, edge_seg) { IntervalThreshold = double.Epsilon };
                     intr.Compute();
                     if (intr.Type == IntersectionType.Segment) {
                         // [RMS] we should have already caught this above, so if it happens here it is probably spurious?

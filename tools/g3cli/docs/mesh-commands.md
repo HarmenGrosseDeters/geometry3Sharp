@@ -44,7 +44,7 @@ g3cli repair scan.obj scan_fixed.stl --rounding-max-displacement 1e-6
 
 ```bash
 g3cli boolean part.stl tool.stl cut.3mf --op difference
-g3cli boolean --a a.obj --b b.obj --output ab.glb --op union --allow-open=false
+g3cli boolean --a a.obj --b open.obj --output ab.glb --op union --allow-open
 g3cli boolean a.stl b.stl all.stl --op union --more "c.stl;d.stl"
 g3cli boolean a.stl b.stl two.stl --op at_least --k 2 --more c.stl
 g3cli boolean a.stl b.stl odd.stl --op xor --more c.stl
@@ -53,6 +53,10 @@ g3cli resolve assembly.off solid.ply --simplify-flat-regions false
 g3cli resolve site_utm.stl solid.stl --strict-rounding
 g3cli resolve site_utm.stl solid.stl --rounding-ulp-factor 0 --rounding-absolute-tolerance 1e-3
 ```
+
+### Open Inputs (`--allow-open`)
+
+An input that is not closed (in the winding number sense: every edge used equally often in both directions) fails with `operation_failed` and `OpenInput` in the message, which names the inputs by index. This is the default since 2026-11-23 (before, open inputs were accepted), as for `ExactMeshBoolean.AllowOpenMeshes`. `--allow-open` accepts them and classifies them by the generalized winding number above 1/2: a deep open shell still encloses, a flat open cutting surface usually cuts nothing and the first input comes back unchanged. `resolve` repairs one mesh and takes open inputs as before.
 
 ### Orientation & SafeRounding Options
 
@@ -78,7 +82,7 @@ g3cli remesh part.stl part_remeshed.obj --safe                   # min-quality 0
 g3cli remesh part.stl part_remeshed.obj --sharp-vertex-angle 0   # disable sharp-vertex pinning
 ```
 
-- `--min-quality` defaults to `0.2` in `g3cli` (set `0` to disable, e.g., for very thin walls below edge length).
+- `--min-quality` defaults to `0.2` in `g3cli` (set `0` to disable, e.g., for very thin walls below edge length). With it, collapses and valence flips that turn a triangle away from the surface around the edge are rejected (issue #1441: triangles facing into a smooth surface; measured on jittered spheres, not a guarantee). This changed the output of `remesh` with `--min-quality` above 0.
 - `--sharp-vertex-angle` defaults to `75` degrees (`sharp_vertices_pinned` in output).
 - `--safe` enables `Remesher.ApplySafePreset()` (`MinTriangleQuality = 0.2` + `PreventSelfIntersections`; reports `self_intersections_rejected`).
 - Passes that would turn a closed component inside out are rolled back (`rejected_passes`); warns if target edge length exceeds `4×` estimated wall thickness.

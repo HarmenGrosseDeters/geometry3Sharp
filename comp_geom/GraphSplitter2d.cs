@@ -117,7 +117,9 @@ namespace g3
                     hit.hit_vid = ev.b;
                     hit.line_t = line.Project(b);
                 } else {
-                    IntrLine2Segment2 intr = new IntrLine2Segment2(line, new Segment2d(a, b));
+                    // (the tolerance route, as before the exact decision: the sides of the vertices were decided with OnVertexTol, and a
+                    // vertex within rounding of the line must not make Find() miss; an IntervalThreshold above 0 selects it)
+                    IntrLine2Segment2 intr = new IntrLine2Segment2(line, new Segment2d(a, b)) { IntervalThreshold = double.Epsilon };
                     if (intr.Find() == false)
                         throw new Exception("GraphSplitter2d.Split: signs are different but ray did not it?");
                     if ( intr.IsSimpleIntersection ) {

@@ -1,22 +1,13 @@
 # The tier rule of the golden-master policy (docs/design/DETERMINISM.md 6b): a documented operation of tier 1
 # (tools/DeterminismReach/tier1.txt) may not gain a call path to the platform libm. Light (a build of the library and a
-# read of its IL: about a minute), so it runs on every pull request that changes library sources, the documented operations
-# or the tool; determinism.yml runs the same check next to the cross-runtime comparison.
+# read of its IL: about a minute). It is a merge-gate check, so on a pull request it is the job tier-rule of ci.yml (the full
+# stage, label `full-ci`, covered by the status full-ci; owner 2026-11-23); this workflow is its manual run, and determinism.yml
+# runs the same check next to the cross-runtime comparison.
 name: tier-rule
 
 on:
-  pull_request:
-    paths:
-      - '**.cs'
-      - '!tests/**'
-      - '!benchmarks/**'
-      - '!tools/**'
-      - '!addons/**'
-      - '!docs/examples/**'
-      - 'docs/OPERATIONS.md'
-      - 'docs/guides/**'
-      - 'tools/DeterminismReach/**'
-      - '.github/workflows/tier-rule.yml'
+  # (pull requests: the job tier-rule of ci.yml, in the full stage, owner 2026-11-23, so the merge gate full-ci covers it; this
+  # workflow stays for a manual run)
   workflow_dispatch:
 
 jobs:

@@ -1,0 +1,41 @@
+| case | triangles in | out | rejected | time ms (min of 2) | all runs ms | fingerprint |
+|---|---:|---:|---:|---:|---|---|
+| boolean_union_bumpy_spheres | 18252 | 26908 |  | 192 | 705, 192 | 35f4c4fe965a2827 |
+|   boolean_union_bumpy_spheres predicates (last run) | orient2d 271823 calls, 130 exact (0.0 %); orient3d 536846 calls, 27 exact (0.0 %) | | | | | |
+#### boolean_union_bumpy_spheres: caller 192 ms, probe overhead 26 ms (268454 timed calls x 95.5 ns), net 167 ms
+| site | calls | ms (net) | share of caller |
+|---|---:|---:|---:|
+| IntersectsBeyondShared | 216 | 0.1 | 0.03 % |
+| Intersects (in BeyondShared) | 59 | 0.0 | 0.01 % |
+| TriangleTriangleFilter.BeyondShared | 35503 | 2.7 | 1.60 % |
+| arr.separated | 4174 | 0.2 | 0.09 % |
+| arr.touch_only | 228502 | 7.6 | 4.59 % |
+ceiling, self-intersection callers (BeyondShared + direct Intersects free): 0.03 % of the caller
+boolean_union_bumpy_spheres Intersects pairs: 59 pairs; Orient3d 255 calls, 7 exact (2.75 %); per pair: 6 Orient3d 67.6 ns, ideal 2 cross + 6 dots 15.7 ns, full Intersects 145.2 ns; ideal plane filter saves <= 0.0 ms = 0.00 % of the caller (chk 0)
+boolean_union_bumpy_spheres arr.separated pairs: 4174 pairs; Orient3d 19893 calls, 0 exact (0.00 %); per pair: 6 Orient3d 85.4 ns, ideal 2 cross + 6 dots 22.3 ns; ideal plane filter saves <= 0.3 ms = 0.16 % of the caller (chk 0)
+boolean_union_bumpy_spheres arr.touch_only plane sides: 228502 pairs; per pair: Orient3d plane sides 68.3 ns, ideal 53.5 ns; ideal plane filter saves <= 3.4 ms = 2.03 % of the caller
+| boolean_difference_box_sphere | 10092 | 17680 |  | 192 | 212, 192 | aead4142d1d8dfce |
+|   boolean_difference_box_sphere predicates (last run) | orient2d 666272 calls, 50057 exact (7.5 %); orient3d 295085 calls, 173404 exact (58.8 %) | | | | | |
+#### boolean_difference_box_sphere: caller 192 ms, probe overhead 22 ms (228280 timed calls x 95.5 ns), net 170 ms
+| site | calls | ms (net) | share of caller |
+|---|---:|---:|---:|
+| TriangleTriangleFilter.BeyondShared | 98232 | 11.3 | 6.62 % |
+| arr.separated | 1266 | 0.1 | 0.08 % |
+| arr.touch_only | 128782 | 44.5 | 26.13 % |
+ceiling, self-intersection callers (BeyondShared + direct Intersects free): 0.00 % of the caller
+boolean_difference_box_sphere arr.separated pairs: 1266 pairs; Orient3d 6981 calls, 0 exact (0.00 %); per pair: 6 Orient3d 73.2 ns, ideal 2 cross + 6 dots 21.8 ns; ideal plane filter saves <= 0.1 ms = 0.04 % of the caller (chk 0)
+boolean_difference_box_sphere arr.touch_only plane sides: 128782 pairs; per pair: Orient3d plane sides 146.7 ns, ideal 41.0 ns; ideal plane filter saves <= 13.6 ms = 7.99 % of the caller
+| boolean_union_tilted_plates_coplanar | 6720 | 22930 |  | 1339 | 1489, 1339 | a689e2c16c13c8f0 |
+|   boolean_union_tilted_plates_coplanar predicates (last run) | orient2d 1286106 calls, 11300 exact (0.9 %); orient3d 456879 calls, 137159 exact (30.0 %) | | | | | |
+#### boolean_union_tilted_plates_coplanar: caller 1339 ms, probe overhead 30 ms (312418 timed calls x 95.5 ns), net 1309 ms
+| site | calls | ms (net) | share of caller |
+|---|---:|---:|---:|
+| IntersectsBeyondShared | 5906 | 2.3 | 0.18 % |
+| Intersects (in BeyondShared) | 2093 | 0.6 | 0.05 % |
+| TriangleTriangleFilter.BeyondShared | 191198 | 18.3 | 1.40 % |
+| arr.separated | 31565 | 6.3 | 0.48 % |
+| arr.touch_only | 81656 | 10.3 | 0.79 % |
+ceiling, self-intersection callers (BeyondShared + direct Intersects free): 0.18 % of the caller
+boolean_union_tilted_plates_coplanar Intersects pairs: 2093 pairs; Orient3d 9027 calls, 2632 exact (29.16 %); per pair: 6 Orient3d 174.2 ns, ideal 2 cross + 6 dots 27.3 ns, full Intersects 227.3 ns; ideal plane filter saves <= 0.3 ms = 0.02 % of the caller (chk 1)
+boolean_union_tilted_plates_coplanar arr.separated pairs: 31565 pairs; Orient3d 150900 calls, 42428 exact (28.12 %); per pair: 6 Orient3d 232.9 ns, ideal 2 cross + 6 dots 43.9 ns; ideal plane filter saves <= 6.0 ms = 0.46 % of the caller (chk 0)
+boolean_union_tilted_plates_coplanar arr.touch_only plane sides: 81656 pairs; per pair: Orient3d plane sides 155.7 ns, ideal 64.1 ns; ideal plane filter saves <= 7.5 ms = 0.57 % of the caller

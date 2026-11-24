@@ -1,0 +1,10 @@
+case | input triangles | result triangles | removed vertices | total ms | simplify ms | order ms | rounding ms | result
+spheres 40, union | 18252+18252 | 26780 | 23 | 231.4 | 6.84 | 8.09 | 83 | Success 26780:8DA415794C
+spheres 40, difference | 18252+18252 | 19580 | 23 | 116.2 | 3.33 | 3.21 | 31 | Success 19580:9C7594458A
+grid boxes 24, coplanar faces, union | 6912+6912 | 10080 | 732 | 202.9 | 10.99 | 2.54 | 37 | Success 10080:227B318A06
+grid boxes 24 and 20, coplanar faces, difference | 6912+4800 | 7208 | 100 | 102.5 | 1.42 | 1.07 | 8 | Success 7208:C25F087B6E
+grid boxes 24, shifted, intersection | 6912+6912 | 3960 | 428 | 41.6 | 7.44 | 0.73 | 6 | Success 3960:6883B1869F
+dome plates 40, turned 1e-6, difference | 6720+6720 | 42010 | 181 | 2170.6 | 80.03 | 10.19 | 1532 | Success 42010:5AECA6BE43
+wave plates 40 and 41, difference | 6720+7052 | 58330 | 312 | 715.0 | 82.82 | 11.32 | 79 | Success 58330:9F4221646D
+bowl plates 40, strip, intersection | 6720+6720 | 5540 | 194 | 63.2 | 2.67 | 0.63 | 23 | Success 5540:E174F36761
+sum of medians: total 3643.4 ms, simplify 195.53 ms, order 37.77 ms (1.04 % of the total)

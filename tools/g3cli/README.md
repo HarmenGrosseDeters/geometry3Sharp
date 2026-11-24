@@ -42,7 +42,7 @@ Detailed flags, input schemas, additive JSON fields, and worked examples are org
 | `hull2d` | 2D convex hull of points or mesh XY vertices (`double` or `int64`) | `ConvexHull2` | [2D & Terrain](docs/2d-and-terrain.md#polygon2d-polygon_solids--hull2d) |
 | `dgm` / `dgm_tin` | Read/write XYZ/ESRI height grids and build error-certified TINs with breaklines | `HeightGridReader`/`Writer`, `TerrainGridTin` | [2D & Terrain](docs/2d-and-terrain.md#height-grids-dgm-dgm_tin) |
 | `slope` | Certified cut/fill slope design from GeoJSON toes to a terrain TIN | `TerrainSlopeDesign`, `SlopeToe`, `SlopeSpec` | [2D & Terrain](docs/2d-and-terrain.md#slope-design-input-slope) |
-| `cell_volumes` | Cut/fill volumes per regular XY lattice cell between two terrains | `TerrainCellVolumes` | [2D & Terrain](docs/2d-and-terrain.md#cell_volumes--tpms) |
+| `cell_volumes` | Cut/fill volumes per regular XY lattice cell (and elevation band, `--bands`) between two terrains | `TerrainCellVolumes` | [2D & Terrain](docs/2d-and-terrain.md#cell_volumes--tpms) |
 | `tpms` | Certified TPMS lattices (gyroid, Schwarz, Neovius, I-WP, Lidinoid) | `TpmsLattice` | [2D & Terrain](docs/2d-and-terrain.md#cell_volumes--tpms) |
 
 ---
@@ -77,7 +77,7 @@ Every invocation writes exactly one JSON object to `stdout` (any diagnostic logg
 | `code` | Exit code | Meaning |
 |---|---|---|
 | `ok` | `0` | Success |
-| `operation_failed` | `1` | Operation ran but produced no valid result (e.g., open mesh with `--allow-open=false`) |
+| `operation_failed` | `1` | Operation ran but produced no valid result (e.g., an open mesh without `--allow-open`) |
 | `empty_mesh` | `1` | Input contains no triangles (or no valid grid cells) |
 | `invalid_arguments` | `2` | Missing, unknown, malformed, or out-of-range argument |
 | `unknown_command` | `2` | Unrecognized subcommand |

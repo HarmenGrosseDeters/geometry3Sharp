@@ -202,7 +202,7 @@ static class Program
 
     static Outcome BooleanOpen(DMesh3 w, DMesh3 s)
     {
-        var op = new ExactMeshBoolean(w, s, ExactMeshBoolean.Operations.Difference);
+        var op = new ExactMeshBoolean(w, s, ExactMeshBoolean.Operations.Difference) { AllowOpenMeshes = true };
         op.Compute();
         return new Outcome { Status = op.Status.ToString() + (op.ConflictEdges > 0 ? " conflict(" + op.ConflictEdges + ")" : ""), Result = op.Result };
     }
@@ -211,11 +211,13 @@ static class Program
     // workpiece's (IntersectingPairs) and a result with the workpiece's volume (exact equality: fine for these dyadic cases only)
     static string NoEffectSignal(DMesh3 w, DMesh3 s)
     {
-        var op = new ExactMeshBoolean(w, s, ExactMeshBoolean.Operations.Difference);
+        var op = new ExactMeshBoolean(w, s, ExactMeshBoolean.Operations.Difference) { AllowOpenMeshes = true };
         if (!op.Compute())
             return op.Status.ToString();
         bool open = !op.ExactWinding[1], unchanged = Volume(op.Result) == Volume(w) && OpenEdges(op.Result) == 0;
-        return "pairs " + op.IntersectingPairs + (open && unchanged ? (op.IntersectingPairs > 0 ? ", unchanged: FLAG" : ", unchanged, no contact") : ", changed");
+        // (the member that came out of the study: the decision of the classification, not the volume proxy)
+        string listed = op.OpenInputsWithoutEffect.Count > 0 ? "; OpenInputsWithoutEffect: " + string.Join(",", op.OpenInputsWithoutEffect) : "; OpenInputsWithoutEffect: none";
+        return "pairs " + op.IntersectingPairs + (open && unchanged ? (op.IntersectingPairs > 0 ? ", unchanged: FLAG" : ", unchanged, no contact") : ", changed") + listed;
     }
 
     static Outcome Pipeline(DMesh3 w, DMesh3 s, SolidBooleanPipeline.InputRepairModes mode)
@@ -303,7 +305,7 @@ static class Program
         var roles = (IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(role));
         roles.Add(Enum.Parse(role, "Solid"));
         roles.Add(Enum.Parse(role, "Sheet"));
-        var op = new ExactMeshBoolean(w, s, ExactMeshBoolean.Operations.Difference);
+        var op = new ExactMeshBoolean(w, s, ExactMeshBoolean.Operations.Difference) { AllowOpenMeshes = true };
         field.SetValue(op, roles);
         if (uncutSide != null) {
             var side = typeof(ExactMeshBoolean).GetField("SheetUncutSide");
@@ -487,6 +489,69 @@ static class Program
             new[] { "sphere triangles", "sheet triangles", "swept tool triangles", "today: open boolean", "D swept tool", "B sheet role", "imprint only" }, rows);
     }
 
+
+    // ---------------------------------------------------------------- the Grid step before the fallback (AutomaticSteps)
+
+    // an open cylinder (outward normals, n corners) whose rim lies z = top, pushed by up to 3 ulps above or below per vertex, in the block [t, t+10]^2 x [t, t+5]
+    static DMesh3 FlushCylinder(double t, int n)
+    {
+        var rnd = new Random(7);
+        var m = new DMesh3();
+        var low = new int[n]; var rim = new int[n];
+        for (int i = 0; i < n; ++i) {
+            double x = t + 5 + 3 * Math.Cos(2 * Math.PI * i / n), y = t + 5 + 3 * Math.Sin(2 * Math.PI * i / n), z = t + 5;
+            for (int k = rnd.Next(-3, 4); k != 0; k -= Math.Sign(k)) z = k > 0 ? Math.BitDecrement(z) : Math.BitIncrement(z);
+            low[i] = m.AppendVertex(new Vector3d(x, y, t + 2)); rim[i] = m.AppendVertex(new Vector3d(x, y, z));
+        }
+        for (int i = 0; i < n; ++i) {
+            int j = (i + 1) % n;
+            m.AppendTriangle(low[i], low[j], rim[j]); m.AppendTriangle(low[i], rim[j], rim[i]);
+            if (i >= 1 && i + 1 < n) m.AppendTriangle(low[0], low[i + 1], low[i]);
+        }
+        return m;
+    }
+
+    static DMesh3 Block(double t) => new TrivialBox3Generator() { Box = new Box3d(new AxisAlignedBox3d(new Vector3d(t, t, t), new Vector3d(t + 10, t + 10, t + 5))) }.Generate().MakeDMesh();
+
+    static void GridBeforeFallback()
+    {
+        const int runs = 7;
+        var rows = new List<string[]>();
+        void row(string name, Func<DMesh3> w, Func<DMesh3> s, SolidBooleanPipeline.InputRepairModes repair)
+        {
+            string[] cells = new string[3];
+            string route = "";
+            for (int k = 0; k < 2; ++k) {
+                var mode = k == 0 ? SolidBooleanPipeline.AutomaticStepModes.None : SolidBooleanPipeline.AutomaticStepModes.GridBeforeFallback;
+                var ms = new List<double>();
+                string status = "";
+                for (int i = 0; i < runs + 1; ++i) {
+                    var p = new SolidBooleanPipeline(w(), s(), ExactMeshBoolean.Operations.Difference) { InputRepair = repair, AutomaticSteps = mode };
+                    var sw = Stopwatch.StartNew();
+                    p.Compute();
+                    double t = sw.Elapsed.TotalMilliseconds;
+                    if (i > 0) ms.Add(t);
+                    status = p.Status + (p.Status == SolidBooleanPipeline.PipelineStatus.Success ? (p.Report.Clean ? " clean" : " notclean") : "");
+                    route = string.Join(",", p.Report.Route.Select(x => x.Name));
+                }
+                ms.Sort();
+                cells[k] = ms[ms.Count / 2].ToString("0.0") + " (" + status + "; " + route + ")";
+            }
+            rows.Add(new[] { name, cells[0], cells[1] });
+        }
+        foreach (int n in new[] { 32, 64, 128 })
+            row("sphere n=" + n + " minus the wavy sheet (no refusal)", () => new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = n }.Generate().MakeDMesh(),
+                () => Grid(-1.5, -1.5, 1.5, 1.5, Math.Max(4, n), Math.Max(4, n), (x, y) => 0.125 * Math.Sin(3 * x) * Math.Cos(3 * y), true), SolidBooleanPipeline.InputRepairModes.Refuse);
+        foreach (int n in new[] { 64, 512 })
+            foreach (var repair in new[] { SolidBooleanPipeline.InputRepairModes.Refuse, SolidBooleanPipeline.InputRepairModes.AutoRepair })
+                row(n + "-gon cylinder, rim +-3 ulps in the top face, 1.2e6, " + repair + " (refused sheet)", () => Block(1.2e6), () => FlushCylinder(1.2e6, n), repair);
+        row("patch well inside the block (grid cannot help), Refuse", () => Block(1.2e6), () => {
+            var m = new DMesh3(); double t = 1.2e6;
+            int a = m.AppendVertex(new Vector3d(t + 3.1, t + 3.1, t + 2.5)), b = m.AppendVertex(new Vector3d(t + 7, t + 3.1, t + 2.5)), c = m.AppendVertex(new Vector3d(t + 7, t + 7, t + 2.5)), d = m.AppendVertex(new Vector3d(t + 3.1, t + 7, t + 2.5));
+            m.AppendTriangle(a, b, c); m.AppendTriangle(a, c, d); return m; }, SolidBooleanPipeline.InputRepairModes.Refuse);
+        Table("AutomaticSteps None (before) against the default GridBeforeFallback (after), wall ms, median of " + runs, new[] { "case", "None (before)", "GridBeforeFallback (after)" }, rows);
+    }
+
     static int Main(string[] args)
     {
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
@@ -498,6 +563,8 @@ static class Program
             Semantics(args.Length > 1 && mode == "semantics" ? int.Parse(args[1]) : 48);
         if (mode == "cost" || mode == "all")
             Cost(5, mode == "cost" && args.Length > 1 ? args.Skip(1).Select(int.Parse).ToArray() : new[] { 32, 64, 128 });
+        if (mode == "gridfb")
+            GridBeforeFallback();
         return 0;
     }
 }

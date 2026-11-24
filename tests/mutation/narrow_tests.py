@@ -166,10 +166,20 @@ def make(report_path, config_path, trx=None, min_saving=0.2, timeouts="one"):
             mutants += live
     if not any(m["status"] in KILLS for m in mutants):
         return None, "no killed mutant in the report: nothing to base a filter on"
+    # Everything below works on test methods: a filter can only name a method (all rows of a theory run), the trx
+    # durations are per method, and Stryker's names may or may not carry the arguments of a row (both are handled).
+    meth = {t: method_of(n) for t, n in names.items()}
+    methods = set(meth.values())
+
+    def to_methods(ids):
+        return sorted({meth.get(t, t) for t in ids})
+
+    mutants = [dict(m, killedBy=to_methods(m.get("killedBy") or []), coveredBy=to_methods(m.get("coveredBy") or []))
+               for m in mutants]
     dur = durations_of(trx) if trx else {}
-    cost = (lambda t: dur.get(names.get(t, ""), 0.0)) if trx else (lambda t: 1.0)
-    kept = kept_tests(mutants, cost, lambda t: names.get(t, t), timeouts)
-    unknown = [t for t in kept if t not in names]
+    cost = (lambda t: dur.get(t, 0.0)) if trx else (lambda t: 1.0)
+    kept = kept_tests(mutants, cost, timeouts=timeouts)
+    unknown = [t for t in kept if t not in methods]
     if unknown:
         return None, "killer ids not in the report's test list: %s" % unknown[:3]
     all_cost, kept_cost = mutant_cost(mutants, None, cost), mutant_cost(mutants, kept, cost)
@@ -181,13 +191,13 @@ def make(report_path, config_path, trx=None, min_saving=0.2, timeouts="one"):
         "config": config_hash(config),
         "timeouts": timeouts,
         "terms": sorted(filter_terms(config.get("test-case-filter", ""))),
-        "kept": sorted({method_of(names[t]) for t in kept}),
-        "tests_in_report": len(names),
+        "kept": sorted(kept),
+        "tests_in_report": len(methods),
         "mutated_files": dict(sorted(mutated.items())),
         "test_files": dict(sorted(test_files.items())),
         "estimated_saving": round(saving, 3),
         "weighted_by_duration": bool(trx),
-    }, "kept %d of %d tests, estimated saving of the mutant runs %.0f %%" % (len(kept), len(names), saving * 100)
+    }, "kept %d of %d tests, estimated saving of the mutant runs %.0f %%" % (len(kept), len(methods), saving * 100)
 
 
 def stale_reason(flt, config, repo, config_dir):

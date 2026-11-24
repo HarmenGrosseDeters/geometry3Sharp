@@ -4,6 +4,16 @@ Back to [Sources Index](../SOURCES.md) · [sources/README.md](README.md)
 
 ---
 
+## Solid topology study
+
+[Solid Betti numbers as Boolean and repair test oracles](../research/EXACT_TOPOLOGY_CERTIFICATES.md) uses these published texts. Its test helper (`tests/geometry3Sharp.Tests/Harness/SolidBetti.cs`) uses existing library operations.
+
+| Source | Use |
+|---|---|
+| C. J. A. Delfinado and H. Edelsbrunner, [*An Incremental Algorithm for Betti Numbers of Simplicial Complexes on the 3-Sphere*](https://pub.ista.ac.at/~edels/Papers/1995-03-IncrementalBettiNumbers.pdf), Computer Aided Geometric Design 12(7), pp. 771–784, 1995 | Cycle births and deaths and complement connectivity for embedded complexes |
+| A. Hatcher, [*Algebraic Topology*](https://pi.math.cornell.edu/~hatcher/AT/AT.pdf), 2002, Corollary 3.45 | Alexander duality relating bounded complement components to the second Betti number |
+| Q. Zhou, E. Grinspun, D. Zorin and A. Jacobson, [*Mesh Arrangements for Solid Geometry*](https://www.cs.columbia.edu/cg/mesh-arrangements/), ACM TOG 35(4), 2016 | Prior art on winding labels of regions bounded by surface patches |
+
 ## Test harness (`tests/geometry3Sharp.Tests/Harness/`)
 
 Implemented from the paper, no code taken over.
@@ -120,6 +130,41 @@ Num 1.5, each LGPL-2.1 with the OCaml linking exception, as local build/runtime 
 ported or distributed with geometry3Sharp. Background: Solovyev et al., [*Rigorous Estimation of
 Floating-Point Round-off Errors with Symbolic Taylor Expansions*](https://soarlab.org/2015/04/fm2015-sjrg/),
 FM 2015. The smoke example does not certify any geometry predicate.
+
+`tools/PredicateCompiler/SymbolicTaylorVerify.cs` (`PredicateCompiler --verify-filters`, test/tool only, zero external
+dependencies) implements reverse-mode Symbolic Taylor error estimation with branch-and-bound for global box-max
+consistency checks plus sampled pointwise rational checks, from the papers only (no FPTaylor OCaml code read or
+ported): A. Solovyev, M. S. Baranowski, I. Briggs, C. Jacobsen, Z. Rakamarić and G. Gopalakrishnan, *Rigorous Estimation
+of Floating-Point Round-Off Errors with Symbolic Taylor Expansions*, ACM TOPLAS 40(4), art. 20, 2018; exact IEEE-754
+directed-rounding helpers use Knuth's TwoSum and Dekker's TwoProd as summarized in J. R. Shewchuk, *Adaptive Precision
+Floating-Point Arithmetic and Fast Robust Geometric Predicates*, DCG 18(3), 1997.
+
+## Symbolic Taylor round-off bounds study (`benchmarks/SymbolicTaylorBoundsProbe`, research probe only)
+
+Implemented from the papers only in pure C# (no FPTaylor, Gappa, or external code read or ported). The study:
+[docs/research/SYMBOLIC_TAYLOR_ERROR_BOUNDS_2026-11.md](../research/SYMBOLIC_TAYLOR_ERROR_BOUNDS_2026-11.md).
+
+| Part | Source |
+|---|---|
+| Symbolic Taylor round-off expansion (first-order sensitivities + rigorous second-order remainder + interval branch-and-bound) | A. Solovyev, M. S. Baranowski, I. Briggs, C. Jacobsen, Z. Rakamarić, G. Gopalakrishnan, [*Rigorous Estimation of Floating-Point Round-off Errors with Symbolic Taylor Expansions*](https://soarlab.org/publications/2018_toplas_sbbjrg/), ACM TOPLAS 41(1), art. 2, 2018 |
+| Exact local rounding model `|fl(z) - z| <= u |fl(z)|` and sign-filter omission of root rounding | C.-P. Jeannerod, S. M. Rump, *On relative errors of floating-point operations: optimal bounds and applications*, Math. Comp. 87, 2018; J. R. Shewchuk, *Adaptive Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates*, DCG 18, 1997, section 4.2 |
+| Prior art on formal floating-point error certification (paper text only; no code read) | F. de Dinechin, C. Lauter, G. Melquiond, *Certifying the floating-point implementation of an elementary function using Gappa*, IEEE Trans. Computers 60(2), 2011 |
+
+## PDD research probe (`benchmarks/PddProbe`, research probe only)
+
+Implemented from the papers only: no reference code read. The `average-minimum-distance` package shows a CC BY-NC-SA 4.0
+badge (LICENSE file not read), so it is not a source under the license policy. The study:
+[docs/research/PDD_PROBE_2026-11.md](../research/PDD_PROBE_2026-11.md).
+
+| Part | Source |
+|---|---|
+| Pointwise Distance Distributions, AMD, EMD between PDDs (definitions, continuity and completeness statements) | D. Widdowson, V. Kurlin, [*Pointwise Distance Distributions for Detecting Near-Duplicates in Finite and Periodic Point Sets*](https://arxiv.org/abs/2108.04798) (title as cited in UNTAPPED_SCIENCE_GEOMETRY_2026-11.md), arXiv:2108.04798 v4, 2025 (to appear in SIAM J. Appl. Math.; conference version NeurIPS 2022); paper text CC BY-NC-ND 4.0, read only |
+| Local and global distance distributions as lower bounds of the Gromov-Wasserstein distance (prior art, cited by the PDD paper) | F. Mémoli, *Gromov-Wasserstein distances and the metric approach to object matching*, Found. Comput. Math. 11, 2011 |
+| D2 baseline (histogram of distances of surface point pairs) | R. Osada, T. Funkhouser, B. Chazelle, D. Dobkin, *Shape distributions*, ACM TOG 21(4), 2002 |
+| Exact EMD with uniform weights as an assignment problem; Hungarian algorithm with potentials | H. W. Kuhn, *The Hungarian method for the assignment problem*, Naval Res. Logist. Q. 2, 1955; J. Munkres, J. SIAM 5(1), 1957; R. Jonker, A. Volgenant, Computing 38, 1987 |
+| Eigenvalues of a symmetric 3x3 matrix (trigonometric form) | O. K. Smith, *Eigenvalues of a symmetric 3 x 3 matrix*, Comm. ACM 4(4), 1961 |
+| Moment invariants (the lead after the stop) | F. A. Sadjadi, E. L. Hall, *Three-dimensional moment invariants*, IEEE TPAMI 2(2), 1980; C.-H. Lo, H.-S. Don, *3-D moment forms*, IEEE TPAMI 11(10), 1989 |
+| SplitMix64 | G. L. Steele, D. Lea, C. H. Flood, *Fast splittable pseudorandom number generators*, OOPSLA 2014 |
 
 ## Error bound audit (`tools/ErrorBoundAudit`, test/tool only)
 

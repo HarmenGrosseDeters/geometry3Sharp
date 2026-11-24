@@ -365,6 +365,79 @@ namespace geometry3Sharp.Tests
 
         public static IEnumerable<object[]> TpmsTypes() => Enum.GetValues(typeof(TpmsType)).Cast<TpmsType>().Select(t => new object[] { t });
 
+        static string Bits(IntervalEnclosure e)
+        {
+            return string.Join(",", new[] { e.F.Lo, e.F.Hi, e.Gx.Lo, e.Gx.Hi, e.Gy.Lo, e.Gy.Hi, e.Gz.Lo, e.Gz.Hi }.Select(v => BitConverter.DoubleToInt64Bits(v).ToString("x"))) + "," + e.Smooth;
+        }
+
+        // The enclosure through a cache of the caller is the one without, bit for bit: on boxes that share their coordinate
+        // intervals (a grid and its sub-boxes, where the cache is hit), on points, and on wide, infinite and NaN boxes.
+        [Theory]
+        [InlineData(TpmsType.Gyroid)]
+        [InlineData(TpmsType.SchwarzP)]
+        [InlineData(TpmsType.SchwarzD)]
+        [InlineData(TpmsType.Neovius)]
+        [InlineData(TpmsType.IWP)]
+        [InlineData(TpmsType.Lidinoid)]
+        public void IntervalTpms_WithACache_GivesTheSameEnclosure_BitForBit(TpmsType type)
+        {
+            var f = new IntervalTpms(type, 2.7, 0.1, type == TpmsType.SchwarzD);
+            object cache = f.NewEncloseCache();
+            var own = (IntervalTpms.SinCosCache)cache;
+            var rng = new Random(11);
+            var ends = new List<double>();
+            for (int i = 0; i <= 12; ++i) ends.Add(-1.3 + 0.21 * i);
+            ends.AddRange(new[] { 0.0, -0.0, 1e-300, -1e300, 3e9, double.PositiveInfinity, double.NegativeInfinity, double.NaN });
+            Func<ExactInterval> pick = () => {
+                double a = ends[rng.Next(ends.Count)], b = rng.Next(4) == 0 ? a : ends[rng.Next(ends.Count)];
+                return double.IsNaN(a) || double.IsNaN(b) ? new ExactInterval(a, b) : new ExactInterval(Math.Min(a, b), Math.Max(a, b));
+            };
+            for (int trial = 0; trial < 3000; ++trial) {
+                ExactInterval x = pick(), y = pick(), z = pick();
+                Assert.Equal(Bits(f.Enclose(x, y, z)), Bits(f.Enclose(x, y, z, cache)));
+            }
+            // few intervals, many boxes: nearly every call found its sines and cosines
+            Assert.True(own.Misses <= 2 * 21 * 21 && own.Hits > 20 * own.Misses, own.Hits + " / " + own.Misses);
+            Assert.Equal(own.Misses, own.Map.Count);
+            // an interval is known by both of its ends, whatever the axis: three new intervals and the point of the other two
+            // axes on first use, then nothing new
+            int perPhase = type == TpmsType.IWP || type == TpmsType.Lidinoid ? 2 : 1;      // the phase, and twice the phase
+            for (int axis = 0; axis < 3; ++axis) {
+                ExactInterval p = ExactInterval.Of(0.3 + 0.01 * axis);
+                Func<double, double, IntervalEnclosure> ask = (lo, hi) => {
+                    var b = new ExactInterval(lo + 0.2 * axis, hi + 0.2 * axis);
+                    return f.Enclose(axis == 0 ? b : p, axis == 1 ? b : p, axis == 2 ? b : p, cache);
+                };
+                long before = own.Misses;
+                ask(0.11, 0.12); ask(0.11, 0.13); ask(0.10, 0.13);
+                Assert.Equal(before + 4 * perPhase, own.Misses);
+                ask(0.11, 0.12); ask(0.10, 0.13);
+                Assert.Equal(before + 4 * perPhase, own.Misses);
+            }
+        }
+
+        [Fact]
+        public void IntervalTpms_TheCacheIsBounded_AndOnlyItsOwnKindIsTaken()
+        {
+            var f = new IntervalTpms(TpmsType.SchwarzP, 1.0, 0);
+            object cache = f.NewEncloseCache();
+            var own = (IntervalTpms.SinCosCache)cache;
+            Assert.NotSame(cache, f.NewEncloseCache());
+            ExactInterval p = ExactInterval.Of(0.25);
+            int n = IntervalTpms.SinCosCache.MaxEntries + 10;
+            for (int i = 0; i < n; ++i) {
+                double a = 1e-3 * i;
+                IntervalEnclosure e = f.Enclose(ExactInterval.Of(a), p, p, cache);
+                if (i % 997 == 0) Assert.Equal(Bits(f.Enclose(ExactInterval.Of(a), p, p)), Bits(e));
+                Assert.True(own.Map.Count <= IntervalTpms.SinCosCache.MaxEntries);
+            }
+            // emptied once when full: the entries since then
+            Assert.Equal(n + 1, own.Misses);
+            Assert.Equal(n + 1 - IntervalTpms.SinCosCache.MaxEntries, own.Map.Count);
+            Assert.Throws<ArgumentException>(() => f.Enclose(p, p, p, new object()));
+            Assert.Throws<ArgumentException>(() => f.Enclose(p, p, p, null));
+        }
+
         [Theory]
         [MemberData(nameof(TpmsTypes))]
         public void IntervalTpms_EnclosesValueAndGradient(TpmsType type)
