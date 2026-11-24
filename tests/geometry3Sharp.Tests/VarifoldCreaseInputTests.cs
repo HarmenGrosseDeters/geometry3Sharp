@@ -98,16 +98,19 @@ namespace geometry3Sharp.Tests
             AlphaWrapFeaturePassTests.AssertGuarantees(vf.Mesh, input, w.UsedOffset, "varifold creases on a welded input");
         }
 
-        // the switch off is the pass before, bit for bit (the default path does not reach the new code)
+        // the switch off is the pass before, bit for bit: the wrap and the default pass of the L-shape give the hashes that
+        // origin/master gave before the switch existed (4756880; the default path does not reach the new code)
         [Fact]
         public void VarifoldCreases_Off_IsTheDihedralPass()
         {
             DMesh3 input = AlphaWrapFeaturePassTests.LShape();
             MeshAlphaWrap w = Wrap(input);
+            Assert.Equal("0F395F7D736ABE28", AlphaWrapManifoldStepTests.Hash(w.Result));
             var a = new AlphaWrapFeaturePass(new DMesh3(w.Result, true), input, w.UsedAlpha, w.UsedOffset);
             Assert.True(a.Compute());
+            Assert.Equal("1B19D0198E51ED98", AlphaWrapManifoldStepTests.Hash(a.Mesh));
             var b = Pass(w, input, false);
-            Assert.Equal(AlphaWrapManifoldStepTests.Hash(a.Mesh), AlphaWrapManifoldStepTests.Hash(b.Mesh));
+            Assert.Equal("1B19D0198E51ED98", AlphaWrapManifoldStepTests.Hash(b.Mesh));
             Assert.Equal(0, b.VarifoldQueries);
         }
 
@@ -290,12 +293,14 @@ namespace geometry3Sharp.Tests
             Assert.True(wide.IsCrease(Vector3d.Zero, Vector3d.AxisZ, Vector3d.AxisX, 30, 0.01, out _));
         }
 
-        // a wall standing 0.2 away from where the floor ends (two sheets that do not meet): both planes have their mass, but
-        // the wall's plane is 0.2 from the point; refused, while the same sheets meeting there are accepted
+        // a wall standing 0.2 beyond where the floor ends (two sheets that do not meet, a gap of 0.2): refused at the wall's
+        // foot (the planes' line: the floor's mass is off to one side) and at the floor's end (the wall's plane misses it),
+        // while the same wall standing on a floor that runs on to it is accepted at its foot
         [Fact]
         public void VarifoldCreaseQuery_SheetsThatDoNotMeet_Refused()
         {
-            var apart = new VarifoldCreaseQuery(FloorAndWall(2, 0.2, 0.2), 0.5);
+            var apart = new VarifoldCreaseQuery(FloorAndWall(2, 0.2, 0), 0.5);
+            Assert.False(apart.IsCrease(new Vector3d(0.2, 0, 0), Vector3d.AxisZ, Vector3d.AxisX, 30, 0.01, out _));
             Assert.False(apart.IsCrease(Vector3d.Zero, Vector3d.AxisZ, Vector3d.AxisX, 30, 0.01, out _));
             var meet = new VarifoldCreaseQuery(FloorAndWall(2, 0.2, 0.2), 0.5);
             Assert.True(meet.IsCrease(new Vector3d(0.2, 0, 0), Vector3d.AxisZ, Vector3d.AxisX, 30, 0.01, out _));

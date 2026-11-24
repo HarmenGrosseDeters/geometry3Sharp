@@ -11,14 +11,18 @@ namespace gs
     /// Nonlinear Analysis 2022), so an unwelded, duplicated, flipped or T-junctioned soup is the same measure as its clean mesh.
     /// The measure: every triangle cut into congruent pieces no longer than Radius / 2, the edge-midpoint rule on each (exact
     /// for degree 2; slivers halved at the longest edge first), each point with its mass and its triangle's unit normal (its
-    /// sign carries no meaning). A query at x0 with two plane normals nA, nB takes the kernel (1 - r^2 / Radius^2)^4 over the
+    /// sign carries no meaning); a triangle no longer than Radius / 2 gets one point at its centroid with its whole area (a
+    /// fine mesh: one point per triangle). Memory: 7 doubles and two index words per point, about max(T, 3 A / (Radius / 2)^2)
+    /// points for T triangles of total area A. A query at x0 with two plane normals nA, nB takes the kernel (1 - r^2 / Radius^2)^4 over the
     /// points within Radius, splits the mass into the planes within 20 degrees of nA and of nB, and accepts when each holds
     /// at least MinFraction of the mass and at most MaxBetweenFraction lies between them (no curved surface), each is
     /// planar (rms at most MaxRmsFraction of the radius) and its mass-weighted plane passes within tol plus three times its
     /// rms of x0 (both sheets meet there), and the dihedral of the two half-planes (from their line towards each centroid, so no
     /// orientation is needed) is at least the given angle. Built once, read only after: queries are serial or parallel at will.
     /// Serial, in triangle order; the points sorted by cell, then index; a query sums in a fixed order. Relative lengths only:
-    /// a scale by 2^k gives the same answers.
+    /// a scale by 2^k gives the same answers. Limit: the two faces of a plate thinner than about the radius share one
+    /// unoriented plane and are one cluster, which is then not planar (rms about half the thickness): the plate's rim creases
+    /// are refused when the thickness is above about 2 MaxRmsFraction Radius.
     /// </summary>
     internal sealed class VarifoldCreaseQuery
     {
@@ -44,21 +48,31 @@ namespace gs
         readonly long nx, ny, nz;
         readonly double cell;
 
-        /// <summary> the measure of mesh (not kept) at radius (the quadrature spacing radius / 2) </summary>
-        internal VarifoldCreaseQuery(DMesh3 mesh, double radius)
+        /// <summary>
+        /// the measure of mesh (not kept) at radius (the quadrature spacing radius / 2); cancel (optional) is asked every 4096
+        /// triangles, and true there leaves an empty measure (Cancelled; every query answers false)
+        /// </summary>
+        internal VarifoldCreaseQuery(DMesh3 mesh, double radius, Func<bool> cancel = null)
         {
             if (!(radius > 0)) throw new ArgumentException("VarifoldCreaseQuery: the radius must be positive");
             Radius = radius; cell = radius;
             double h = 0.5 * radius;
-            var raw = new List<double>();
+            var raw = new List<double>(7 * mesh.TriangleCount);
             var stack = new Stack<(Vector3d, Vector3d, Vector3d)>();
+            int seen = 0;
             foreach (int tid in mesh.TriangleIndices()) {
+                if ((++seen & 4095) == 0 && cancel != null && cancel()) { Cancelled = true; raw.Clear(); break; }
                 Vector3d v0 = Vector3d.Zero, v1 = Vector3d.Zero, v2 = Vector3d.Zero;
                 mesh.GetTriVertices(tid, ref v0, ref v1, ref v2);
                 Vector3d cr = (v1 - v0).Cross(v2 - v0);
                 double len = cr.Length;
                 if (!(len > 0) || double.IsInfinity(len)) continue;
                 Vector3d n = cr / len;
+                double longest0 = Math.Max(v0.DistanceSquared(v1), Math.Max(v1.DistanceSquared(v2), v2.DistanceSquared(v0)));
+                if (longest0 <= h * h) {
+                    add(raw, (v0 + v1 + v2) / 3, n, 0.5 * len);
+                    continue;
+                }
                 stack.Push((v0, v1, v2));
                 while (stack.Count > 0) {
                     var (a, b, c) = stack.Pop();
@@ -108,6 +122,9 @@ namespace gs
             pts = new double[7 * count];
             for (int j = 0; j < count; ++j) for (int q = 0; q < 7; ++q) pts[7 * j + q] = raw[7 * order[j] + q];
         }
+
+        /// <summary> the build was cancelled (an empty measure) </summary>
+        internal bool Cancelled;
 
         /// <summary> the number of quadrature points </summary>
         internal int PointCount { get { return count; } }

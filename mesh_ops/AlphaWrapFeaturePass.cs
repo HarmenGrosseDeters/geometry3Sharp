@@ -65,6 +65,11 @@ namespace gs
         internal bool CheckSweep = true;
 
         // outputs
+        /// <summary>
+        /// (InputCreases: with the dihedral source the miter segments of the input's sharp edges, two per edge; with
+        /// VarifoldCreases the crease points the varifold test accepted, counted per query, so a point asked in both the snap
+        /// and the split pass counts twice)
+        /// </summary>
         internal int PlaneMoves, CreaseSnaps, Splits, Flips, Rejected, CrossingEdges, InputCreases;
         /// <summary> (benchmarks) VarifoldCreases: the queries asked, and the Stopwatch ticks of building the measure and of the queries </summary>
         internal int VarifoldQueries;
@@ -105,7 +110,8 @@ namespace gs
 
         /// <summary>
         /// resets the counters and builds the queries (Compute does it; for tests of TryMove); false if there is nothing to do
-        /// (an empty mesh or input, or no sharp edge in the input)
+        /// (an empty mesh or input, or, with the dihedral source, no sharp edge in the input; the varifold source has no list
+        /// of creases to look at first, so with it the pass always runs)
         /// </summary>
         internal bool Prepare()
         {
@@ -124,7 +130,7 @@ namespace gs
                 // (InputCreases then counts the crease points the test accepted)
                 miters = null;
                 long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
-                varifold = new VarifoldCreaseQuery(input, VarifoldRadius * alpha);
+                varifold = new VarifoldCreaseQuery(input, VarifoldRadius * alpha, CancelF);
                 VarifoldBuildTicks = System.Diagnostics.Stopwatch.GetTimestamp() - t0;
                 return true;
             }
