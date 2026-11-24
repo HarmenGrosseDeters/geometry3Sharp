@@ -43,7 +43,9 @@ namespace g3
         public SnapGrid Grid;
         /// <summary> the input segments each output chain edge comes from (by the edge's end coordinates, either order), for O12 splits;
         /// several when the chains of several input segments share the edge </summary>
-        public readonly Dictionary<(Vector2d, Vector2d), List<(Vector2d a, Vector2d b)>> Origin = new Dictionary<(Vector2d, Vector2d), List<(Vector2d, Vector2d)>>();
+        // (private: a Dictionary has no specified enumeration order, so nothing outside this class may enumerate it; the members below only
+        // look entries up, and Build adds them in chain order. DeterminismStage1ObligationTests.SnapRounding2_Origin_IsNotVisible)
+        readonly Dictionary<(Vector2d, Vector2d), List<(Vector2d a, Vector2d b)>> Origin = new Dictionary<(Vector2d, Vector2d), List<(Vector2d, Vector2d)>>();
 
         /// <summary> the first input segment an output chain edge comes from, or false (a hull edge, or an edge the mesher made) </summary>
         public bool TryOrigin(Vector2d p, Vector2d q, out (Vector2d a, Vector2d b) origin)
@@ -54,8 +56,8 @@ namespace g3
             return true;
         }
 
-        /// <summary> all input segments an output chain edge comes from (empty if none) </summary>
-        public List<(Vector2d a, Vector2d b)> Origins(Vector2d p, Vector2d q) => Origin.TryGetValue(Ordered(p, q), out var list) ? list : new List<(Vector2d, Vector2d)>();
+        /// <summary> all input segments an output chain edge comes from (empty if none), in chain order; read only: it is the stored list </summary>
+        public IReadOnlyList<(Vector2d a, Vector2d b)> Origins(Vector2d p, Vector2d q) => Origin.TryGetValue(Ordered(p, q), out var list) ? (IReadOnlyList<(Vector2d a, Vector2d b)>)list : new List<(Vector2d, Vector2d)>();
 
         static (Vector2d, Vector2d) Ordered(Vector2d p, Vector2d q) => p.x < q.x || (p.x == q.x && p.y <= q.y) ? (p, q) : (q, p);
         public readonly List<string> Diagnostics = new List<string>();
