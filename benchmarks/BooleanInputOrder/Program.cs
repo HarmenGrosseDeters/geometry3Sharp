@@ -198,9 +198,9 @@ static partial class Program
     static string Edits(MeshRoundingRepair r)
     {
         return r == null ? "-" : string.Format(CultureInfo.InvariantCulture,
-            "defects {0}/{1}/{2} left {3}/{4}/{5} collapses {6} flips {7} moves {8} zips {9} strips {10} search {11} removed {12} resolvable {13} limit {14} {15}",
+            "defects {0}/{1}/{2} left {3}/{4}/{5} collapses {6} flips {7} moves {8} zips {9} strips {10} search {11} joint {16} proposals {17} removed {12} resolvable {13} limit {14} {15}",
             r.InitialIntersections, r.InitialDegenerate, r.InitialFalseContacts, r.RemainingIntersections, r.RemainingDegenerate, r.RemainingFalseContacts,
-            r.Collapses, r.Flips, r.Moves, r.Zips, r.StripZips, r.PositionSearchMoves, r.RemovedComponents, r.RemovedResolvable, r.EvaluationLimitReached, r.IsClean ? "clean" : "NOT CLEAN");
+            r.Collapses, r.Flips, r.Moves, r.Zips, r.StripZips, r.PositionSearchMoves, r.RemovedComponents, r.RemovedResolvable, r.EvaluationLimitReached, r.IsClean ? "clean" : "NOT CLEAN", r.JointMoves, typeof(MeshRoundingRepair).GetField("JointSearchProposals", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(r));
     }
 
     // ---- the repair on the exact result numbered by its geometry (the upper bound of option A) ----
@@ -546,6 +546,8 @@ static partial class Program
                 VerifyCase(c, name, "control", a, b, D);
             }
             if (oneCase != null) {
+                Console.WriteLine("EDITS " + Edits(plain.Rounding));
+                Console.WriteLine("REASON '" + (plain.Result == null ? "no result" : MeshRobustRepair.NotCleanReason(plain.Result)) + "' contacts " + plain.Contacts + " triangles " + (plain.Result == null ? 0 : plain.Result.TriangleCount));
                 // the error text of StrictRounding (what SolidBooleanPipeline reports as RoundingNotClean)
                 var strict = new ExactMeshBoolean(a, b, D) { StrictRounding = true };
                 bool ok = strict.Compute();
@@ -571,6 +573,8 @@ static partial class Program
             return Families();
         if (args.Length > 0 && args[0] == "search")
             return Search(args);
+        if (args.Length > 0 && args[0] == "joint")
+            return Joint(args);
         if (args.Length > 0 && args[0] == "timing")
             return Timing(args.Length > 1 ? int.Parse(args[1], CultureInfo.InvariantCulture) : 5);
         if (args.Length == 0 || (args[0] != "plates" && args[0] != "tessellations")) {
