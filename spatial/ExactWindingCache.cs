@@ -340,7 +340,9 @@ namespace g3
         /// Exact threshold query matching Evaluate(p) &gt; iso.
         /// For open meshes with large boundaries (|∂M| >= BoundaryTreeMinThreshold), uses a certified
         /// hierarchical dipole sum over boundary chains (EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md §3) and
-        /// falls back to the exact full boundary sum whenever |w_h - iso| &lt;= B_h + 1e-9 or p lies on the mesh.
+        /// falls back to the exact full boundary sum whenever |w_h - iso| &lt;= B_h + 1e-9 or the on-surface correction of p
+        /// is not 0. (A point on the mesh whose correction is exactly 0, eg on a sheet doubled with the opposite orientation,
+        /// takes the tree as well: the tree approximates the same boundary sum, and Evaluate subtracts 0 there.)
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
         internal bool EvaluateAbove(Vector3d p, double iso)
@@ -1151,7 +1153,7 @@ namespace g3
         // contains p (vertex, edge or face interior, decided by exact predicates). The correction subtracts w_T(p_eps): exactly
         // +-0.5 for p strictly inside T (the side of p_eps is exact), and chi_T(p_eps) plus the three edge angles of T for p on
         // an edge or a vertex of T (each angle within the bound of boundary_edge_angle_x; its limits at a vertex and on the
-        // open edge are exact). Nothing is added back: the rounded solid angle of T at a point of its own plane is at the
+        // open edge are defined exactly and evaluated within that bound). Nothing is added back: the rounded solid angle of T at a point of its own plane is at the
         // branch cut of the formula (+-2 pi or noise instead of 0), which is why an earlier version that added it returned
         // values off by 0.5 on faces and on edges in general position.
 
@@ -1216,7 +1218,7 @@ namespace g3
         }
 
         // w_T(p_eps) for p on an edge or at a vertex of T: the crossing of T and its three edge angles (each within the bound
-        // of boundary_edge_angle_x; the limits at a vertex and on the open edge are exact).
+        // of boundary_edge_angle_x; the limits at a vertex and on the open edge are defined exactly and evaluated within that bound).
         static double tri_on_boundary_value(Vector3d p, Vector3d a, Vector3d b, Vector3d c)
         {
             int s = line_crossing_x(p.y, p.z, a, b, c);
