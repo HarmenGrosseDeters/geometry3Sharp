@@ -19,6 +19,17 @@ dotnet run --project benchmarks/BooleanInputOrder -c Release -- tessellations --
 | `--numbered` | also the repair on the exact result numbered by its geometry (option A of the note), with the repair's settings of `StrictRounding` as the pipeline runs it; the emulation reads the boolean's private per-vertex data by reflection and is checked against the library's own repair in every run |
 | `--filter text` | only the cases whose name contains the text |
 
+One more mode searches for a state of the rounding repair (docs/research/ROUNDING_DEGENERATE_LEFT_2026-11.md, #1465):
+
+```bash
+dotnet run --project benchmarks/BooleanInputOrder -c Release -- search --count 4000 --seed 3 --tiny
+dotnet run --project benchmarks/BooleanInputOrder -c Release -- search --count 1 --case wave,1,2,0.2,2e-9,-1.1,0,D
+```
+
+| mode | what |
+|---|---|
+| `search` | a seeded sample of plate pairs (surface, grid n and offset, thickness, rotation 1e-5 to 1e-9 and its axis ratio, shift away from the origin, both ways round) through `ExactMeshBoolean` with `SafeRounding`; per case the class of the repair (clean, left-over degenerate triangles only, intersections, contacts, removed resolvable, other); a line `HIT` for each result that leaves only degenerate triangles, with the repair counts and whether the same result comes in five other orders. `--tiny` n 1 to 3, `--n N` fixes n, `--only I` runs the I-th case of the sample, `--case surface,n,dn,thickness,rotation,ratio,shift,D\|Drev` runs one case and prints the `StrictRounding` error text |
+
 Two more modes compare a library change before and after (run the same harness on both builds):
 
 ```bash

@@ -420,14 +420,107 @@ static class Program
 
     static void Add(SortedDictionary<string, int> d, string key) { d[key] = d.TryGetValue(key, out int n) ? n + 1 : 1; }
 
+
+    // ---- search: a seeded sample of a wide procedural space for results that leave only degenerate triangles ----
+
+    // the space: surface, grid n, grid offset, thickness, rotation e (1e-5 .. 1e-9) and its axis ratio, a shift of both inputs
+    // away from the origin, the operation; per case the state of the repair of the default mode (ExactMeshBoolean, SafeRounding)
+    static int Search(string[] args)
+    {
+        int count = 2000, seed = 1;
+        bool tiny = false;
+        int only = -1;
+        string oneCase = null;
+        int forcedN = 0;
+        for (int i = 1; i < args.Length; ++i) {
+            if (args[i] == "--count") count = int.Parse(args[++i], CultureInfo.InvariantCulture);
+            else if (args[i] == "--seed") seed = int.Parse(args[++i], CultureInfo.InvariantCulture);
+            else if (args[i] == "--tiny") tiny = true;
+            else if (args[i] == "--case") oneCase = args[++i];
+            else if (args[i] == "--n") forcedN = int.Parse(args[++i], CultureInfo.InvariantCulture);
+            else if (args[i] == "--only") only = int.Parse(args[++i], CultureInfo.InvariantCulture);
+            else { Console.WriteLine("unknown argument " + args[i]); return 2; }
+        }
+        var rnd = new Random(seed);
+        var classes = new SortedDictionary<string, int>();
+        int smallest = int.MaxValue;
+        for (int c = 0; c < count; ++c) {
+            var (hn, h) = Surfaces[rnd.Next(Surfaces.Length)];
+            int n = tiny ? rnd.Next(1, 4) : rnd.Next(3, 9), dn = rnd.Next(1, 4);
+            double t = new[] { 0.02, 0.002, 0.2 }[rnd.Next(3)];
+            double e = Math.Pow(10, -5 - 4 * rnd.NextDouble());
+            double ratio = new[] { 0.7, 0.3, 1.9, -1.1 }[rnd.Next(4)];
+            double shift = new[] { 0.0, 0.0, 100.0, 1e4 }[rnd.Next(4)];
+            bool diff = rnd.Next(2) == 0;
+            if (forcedN > 0) n = forcedN;
+            if (oneCase != null) {
+                // "surface,n,dn,t,e,ratio,shift,D|Drev"
+                string[] f = oneCase.Split(',');
+                (hn, h) = Surfaces.First(x => x.Item1 == f[0]);
+                n = int.Parse(f[1], CultureInfo.InvariantCulture); dn = int.Parse(f[2], CultureInfo.InvariantCulture);
+                t = double.Parse(f[3], CultureInfo.InvariantCulture); e = double.Parse(f[4], CultureInfo.InvariantCulture);
+                ratio = double.Parse(f[5], CultureInfo.InvariantCulture); shift = double.Parse(f[6], CultureInfo.InvariantCulture);
+                diff = f[7] == "D";
+                if (c > 0) break;
+            }
+            Func<Vector3d, Vector3d> sh = p => p + new Vector3d(shift, shift * 0.5, -shift * 0.25);
+            Func<DMesh3> coarse = () => Plate(n, t, h, sh), fine = () => Plate(n + dn, t, h, p => sh(Rot(p, e, ratio * e)));
+            DMesh3 a = diff ? coarse() : fine(), b = diff ? fine() : coarse();
+            string name = string.Format(CultureInfo.InvariantCulture, "{0} n{1} grid+{2} t{3:G2} rot {4:G3} ratio {5} shift {6} {7} --case {0},{1},{2},{3:R},{4:R},{5:R},{6:R},{7}", hn, n, dn, t, e, ratio, shift, diff ? "D" : "Drev");
+            if (only >= 0 && only != c) continue;
+            var plain = new ExactMeshBoolean(a, b, D);
+            string cls;
+            try {
+                plain.Compute();
+                MeshRoundingRepair r = plain.Rounding;
+                if (r == null) cls = "no repair";
+                else if (r.IsClean) cls = "clean";
+                else {
+                    var parts = new List<string>();
+                    if (r.RemainingDegenerate > 0) parts.Add("degenerate");
+                    if (r.RemainingIntersections > 0) parts.Add("intersections");
+                    if (r.RemainingFalseContacts > 0) parts.Add("contacts");
+                    if (r.RemovedResolvable > 0) parts.Add("removed-resolvable");
+                    if (r.EvaluationLimitReached) parts.Add("limit");
+                    cls = parts.Count == 0 ? "other" : string.Join("+", parts);
+                    if (cls == "degenerate") {
+                        int tris = a.TriangleCount + b.TriangleCount;
+                        if (tris < smallest) smallest = tris;
+                        // (the same input in other orders: the state does not depend on them since #1464)
+                        int same = 0;
+                        foreach (var (to, vo) in new[] { (-1, 0), (0, -1), (-1, -1), (101, 102), (103, 104) }) {
+                            var other = new ExactMeshBoolean(Reordered(a, to, vo), Reordered(b, to, vo), D);
+                            other.Compute();
+                            if (other.Rounding != null && other.Rounding.RemainingDegenerate == r.RemainingDegenerate && TriangleSet(other.Result) == TriangleSet(plain.Result)) same++;
+                        }
+                        Add(classes, "  hit in 5 other orders: same result " + same);
+                        Console.WriteLine($"HIT #{c} {name} tris {a.TriangleCount}+{b.TriangleCount} left deg {r.RemainingDegenerate} rejected drift {r.SmallestRejectedDrift:G3} | {Edits(r)}");
+                    }
+                }
+            } catch (Exception ex) { cls = "exception " + ex.GetType().Name; }
+            if (oneCase != null) {
+                // the error text of StrictRounding (what SolidBooleanPipeline reports as RoundingNotClean)
+                var strict = new ExactMeshBoolean(a, b, D) { StrictRounding = true };
+                bool ok = strict.Compute();
+                Console.WriteLine($"StrictRounding: {(ok ? "Success" : strict.Status.ToString())} {strict.Error}");
+            }
+            Add(classes, cls);
+        }
+        Console.WriteLine($"search: cases {count}, seed {seed}, tiny {tiny}");
+        foreach (var k in classes) Console.WriteLine($"   {k.Key}: {k.Value}");
+        return 0;
+    }
+
     static int Main(string[] args)
     {
         if (args.Length > 0 && args[0] == "corpus")
             return Corpus();
+        if (args.Length > 0 && args[0] == "search")
+            return Search(args);
         if (args.Length > 0 && args[0] == "timing")
             return Timing(args.Length > 1 ? int.Parse(args[1], CultureInfo.InvariantCulture) : 5);
         if (args.Length == 0 || (args[0] != "plates" && args[0] != "tessellations")) {
-            Console.WriteLine("usage: BooleanInputOrder plates|tessellations [--orders N] [--filter text] [--stages] [--numbered]\n       BooleanInputOrder timing [repeats]\n       BooleanInputOrder corpus");
+            Console.WriteLine("usage: BooleanInputOrder search [--count N] [--seed S] [--tiny] [--n N] [--only I] [--case spec]\n       BooleanInputOrder plates|tessellations [--orders N] [--filter text] [--stages] [--numbered]\n       BooleanInputOrder timing [repeats]\n       BooleanInputOrder corpus");
             return 2;
         }
         int nOrders = 8;
