@@ -308,35 +308,293 @@ namespace g3
         internal Vector2d Point(int v) => new Vector2d(X[v], Y[v]);
         internal int OrientV(int a, int b, int c) => Orient(a, b, c);
 
-        /// <summary>
-        /// Makes u-w an edge by Sloan's flips, given that every edge it crosses is unconstrained, then restores the constrained
-        /// Delaunay property of the new edges by Lawson's flips. Returns the half-edge u -> w.
-        /// </summary>
-        internal int RecoverEdge(int u, int w, List<long> crossed)
+        // reusable scratch buffers for RecoverEdge and RestoreDelaunay (no per-call heap churn)
+        readonly List<int> cavSlots = new List<int>();
+        readonly List<int> cavRightEdges = new List<int>();
+        readonly List<int> cavLeftEdges = new List<int>();
+        readonly List<int> restoreHe = new List<int>();
+        readonly List<int> restoreU = new List<int>();
+        readonly List<int> restoreV = new List<int>();
+        int[] earPrev = new int[32], earNext = new int[32], earQueue = new int[32];
+        bool[] earQueued = new bool[32];
+
+        void EnsureEarCapacity(int m)
         {
-            var queue = new Queue<long>(crossed);
-            var created = new List<long>();
+            if (earPrev.Length >= m) return;
+            int cap = Math.Max(m, 2 * earPrev.Length);
+            earPrev = new int[cap];
+            earNext = new int[cap];
+            earQueue = new int[cap];
+            earQueued = new bool[cap];
+        }
+
+        // For small cavities (k <= threshold), half-edge-tracked Sloan flips do O(1) work with zero array allocation and preserve
+        // exact legacy slot order; above the threshold (or in tests), deterministic linear-time simplified earcut takes over.
+        [ThreadStatic] internal static int CavityEarcutThresholdForTests;
+        const int DefaultCavityEarcutThreshold = 64;
+
+        readonly Queue<int> sloanHe = new Queue<int>();
+        readonly Queue<long> sloanKey = new Queue<long>();
+
+        /// <summary>
+        /// Makes u-w an edge, given that every edge it crosses is unconstrained, then restores the constrained Delaunay property
+        /// of the new edges by Lawson's flips (Lawson 1977). Small cavities use half-edge-tracked Sloan flips (Sloan 1993);
+        /// larger cavities remove the crossed triangles and retriangulate both half-cavities in deterministic linear time by
+        /// simplified earcut (Livesu, Cherchi, Scateni, Attene 2022, IEEE TVCG 28(12):5172-5177).
+        /// <paramref name="crossed"/> holds the crossed unconstrained half-edges in order from u to w (oriented right -> left).
+        /// Returns the half-edge u -> w.
+        /// </summary>
+        internal int RecoverEdge(int u, int w, List<int> crossed)
+        {
+            int k = crossed.Count;
+            if (k == 0) throw new InvalidOperationException("DelaunayKernel2: segment recovery received no crossed edges");
+            int threshold = CavityEarcutThresholdForTests > 0 ? CavityEarcutThresholdForTests : (CavityEarcutThresholdForTests < 0 ? 0 : DefaultCavityEarcutThreshold);
+            if (k <= threshold) return RecoverEdgeSloan(u, w, crossed);
+            return RecoverEdgeCavity(u, w, crossed);
+        }
+
+        int RecoverEdgeSloan(int u, int w, List<int> crossed)
+        {
+            sloanHe.Clear(); sloanKey.Clear();
+            restoreHe.Clear(); restoreU.Clear(); restoreV.Clear();
+            for (int i = 0; i < crossed.Count; ++i) {
+                int h = crossed[i];
+                sloanHe.Enqueue(h);
+                sloanKey.Enqueue(Key(V[h], V[Next(h)]));
+            }
             long guard = 0, limit = 64L * (crossed.Count + 4) * (crossed.Count + 4);
-            while (queue.Count > 0) {
+            int uwHe = -1;
+            while (sloanKey.Count > 0) {
                 if (++guard > limit) throw new InvalidOperationException("DelaunayKernel2: segment recovery does not terminate");
-                long key = queue.Dequeue();
-                int e = FindEdge((int)(key >> 32), (int)(key & 0xffffffff));
-                if (e < 0) continue;   // flipped away meanwhile
+                int he = sloanHe.Dequeue();
+                long key = sloanKey.Dequeue();
+                int a0 = (int)(key >> 32), b0 = (int)(key & 0xffffffff);
+                int e = he;
+                if (e < 0 || e >= 3 * TriangleSlots || V[e] != a0 || V[Next(e)] != b0) {
+                    e = FindEdge(a0, b0);
+                    if (e < 0) continue;   // flipped away meanwhile
+                }
                 int f = H[e];
                 int a = V[e], b = V[Next(e)], c = V[Next(Next(e))], d = V[Next(Next(f))];
                 // the quadrilateral a, d, b, c is strictly convex iff c and d lie on opposite sides of a-b (given) and a, b on
                 // opposite sides of c-d
-                if (Orient(c, d, a) >= 0 || Orient(c, d, b) <= 0) { queue.Enqueue(key); continue; }
+                if (Orient(c, d, a) >= 0 || Orient(c, d, b) <= 0) { sloanHe.Enqueue(e); sloanKey.Enqueue(key); continue; }
+                int t2 = f / 3;
                 Flip(e, out _, out _);
-                // the new edge c-d
-                if (c == u && d == w || c == w && d == u) continue;
-                if (c != u && c != w && d != u && d != w && Orient(u, w, c) * Orient(u, w, d) < 0) queue.Enqueue(Key(c, d));
-                else created.Add(Key(c, d));
+                // after Flip(e): 3*t2 + 2 is c -> d (twin 3*t + 2 is d -> c)
+                int newHe = 3 * t2 + 2;
+                if (c == u && d == w) { uwHe = newHe; continue; }
+                if (c == w && d == u) { uwHe = H[newHe]; continue; }
+                if (c != u && c != w && d != u && d != w && Orient(u, w, c) * Orient(u, w, d) < 0) {
+                    sloanHe.Enqueue(newHe);
+                    sloanKey.Enqueue(Key(c, d));
+                } else {
+                    restoreHe.Add(newHe); restoreU.Add(c); restoreV.Add(d);
+                }
             }
+            if (uwHe < 0 || V[uwHe] != u || V[Next(uwHe)] != w) {
+                uwHe = FindEdge(u, w);
+                if (uwHe < 0) throw new InvalidOperationException("DelaunayKernel2: segment recovery failed");
+            }
+            RestoreDelaunayPending(u, w);
+            if (V[uwHe] == u && V[Next(uwHe)] == w) return uwHe;
+            return FindEdge(u, w);
+        }
+
+        int RecoverEdgeCavity(int u, int w, List<int> crossed)
+        {
+            int k = crossed.Count;
+            cavSlots.Clear();
+            cavRightEdges.Clear();
+            cavLeftEdges.Clear();
+
+            int h0 = crossed[0];
+            int t0 = h0 / 3;
+            if (IsGhost(t0)) throw new InvalidOperationException("DelaunayKernel2: segment recovery crossed a ghost triangle");
+            int tag = Tag[t0];
+            cavSlots.Add(t0);
+            // T_0 = (u, r_0, l_0) with h0 = r_0 -> l_0: Prev(h0) is u -> r_0 (right boundary), Next(h0) is l_0 -> u (left boundary)
+            cavRightEdges.Add(Prev(h0));
+            cavLeftEdges.Add(Next(h0));
+
+            for (int i = 0; i < k; ++i) {
+                int g = H[crossed[i]];
+                int ti = g / 3;
+                if (IsGhost(ti)) throw new InvalidOperationException("DelaunayKernel2: segment recovery crossed a ghost triangle");
+                cavSlots.Add(ti);
+                if (i + 1 < k) {
+                    int hNext = crossed[i + 1];
+                    if (hNext == Next(g)) {
+                        // next crossed edge is right -> v, so Prev(g) = v -> left is on the left boundary
+                        cavLeftEdges.Add(Prev(g));
+                    } else if (hNext == Prev(g)) {
+                        // next crossed edge is v -> left, so Next(g) = right -> v is on the right boundary
+                        cavRightEdges.Add(Next(g));
+                    } else {
+                        throw new InvalidOperationException("DelaunayKernel2: crossed half-edges are not contiguous");
+                    }
+                } else {
+                    // T_k = (left_{k-1}, right_{k-1}, w): Next(g) = right_{k-1} -> w (right), Prev(g) = w -> left_{k-1} (left)
+                    cavRightEdges.Add(Next(g));
+                    cavLeftEdges.Add(Prev(g));
+                }
+            }
+
+            // mark the cavity triangle slots so uncrossed edges shared between two cavity triangles (hanging edges) are detected
+            if (stamp == int.MaxValue) { Array.Clear(mark, 0, mark.Length); stamp = 0; }
+            int cavStamp = ++stamp;
+            for (int i = 0; i < cavSlots.Count; ++i) mark[cavSlots[i]] = cavStamp;
+
+            // cavLeftEdges was collected from u towards w with each edge oriented towards u; reverse it for CCW order w -> ... -> u
+            cavLeftEdges.Reverse();
+
+            // snapshot boundary metadata before any cavity slot is overwritten
+            int rCount = cavRightEdges.Count, lCount = cavLeftEdges.Count;
+            int[] rVerts = new int[rCount + 1], rState = new int[rCount], rTwin = new int[rCount], rSeg = new int[rCount];
+            SnapshotChain(cavRightEdges, cavStamp, rVerts, rState, rTwin, rSeg);
+            int[] lVerts = new int[lCount + 1], lState = new int[lCount], lTwin = new int[lCount], lSeg = new int[lCount];
+            SnapshotChain(cavLeftEdges, cavStamp, lVerts, lState, lTwin, lSeg);
+
+            restoreHe.Clear(); restoreU.Clear(); restoreV.Clear();
+            Dictionary<int, int> internalMates = null;
+            int slotCursor = 0;
+            int baseRight = TriangulateHalfCavity(rVerts, rState, rTwin, rSeg, tag, ref slotCursor, ref internalMates);
+            int baseLeft = TriangulateHalfCavity(lVerts, lState, lTwin, lSeg, tag, ref slotCursor, ref internalMates);
+            if (slotCursor != cavSlots.Count)
+                throw new InvalidOperationException("DelaunayKernel2: cavity retriangulation slot count mismatch");
+
+            // join the recovered segment u -> w (baseLeft) with w -> u (baseRight)
+            Join(baseLeft, baseRight, -1);
+
+            RestoreDelaunayPending(u, w);
+            if (V[baseLeft] == u && V[Next(baseLeft)] == w) return baseLeft;
             int result = FindEdge(u, w);
             if (result < 0) throw new InvalidOperationException("DelaunayKernel2: segment recovery failed");
-            RestoreDelaunay(created, u, w);
-            return FindEdge(u, w);
+            return result;
+        }
+
+        void SnapshotChain(List<int> edges, int cavStamp, int[] verts, int[] state, int[] twin, int[] seg)
+        {
+            verts[0] = V[edges[0]];
+            for (int i = 0; i < edges.Count; ++i) {
+                int e = edges[i];
+                int f = H[e];
+                verts[i + 1] = V[Next(e)];
+                twin[i] = f;
+                seg[i] = Seg[e];
+                // negative state encodes an original cavity half-edge whose twin also lies inside the cavity (a hanging edge)
+                state[i] = mark[f / 3] == cavStamp ? ~e : f;
+            }
+        }
+
+        /// <summary>
+        /// Triangulates a weakly-visible half-cavity polygon (CCW, base edge verts[m-1] -> verts[0]) in deterministic O(m) time
+        /// by cutting strictly convex internal vertices (Livesu, Cherchi, Scateni, Attene 2022). Returns the half-edge along the
+        /// base edge verts[m-1] -> verts[0].
+        /// </summary>
+        int TriangulateHalfCavity(int[] verts, int[] state, int[] twin, int[] seg, int tag, ref int slotCursor, ref Dictionary<int, int> internalMates)
+        {
+            int m = verts.Length;
+            EnsureEarCapacity(m);
+            for (int i = 0; i < m; ++i) {
+                earPrev[i] = i == 0 ? m - 1 : i - 1;
+                earNext[i] = i == m - 1 ? 0 : i + 1;
+                earQueued[i] = false;
+            }
+
+            int qHead = 0, qTail = 0;
+            for (int i = 1; i < m - 1; ++i) {
+                if (Orient(verts[i - 1], verts[i], verts[i + 1]) > 0) {
+                    earQueue[qTail++] = i;
+                    if (qTail == m) qTail = 0;
+                    earQueued[i] = true;
+                }
+            }
+
+            int remaining = m;
+            while (remaining > 3) {
+                if (qHead == qTail)
+                    throw new InvalidOperationException("DelaunayKernel2: cavity half-polygon has no internal ear");
+                int ib = earQueue[qHead++];
+                if (qHead == m) qHead = 0;
+                earQueued[ib] = false;
+                int ia = earPrev[ib], ic = earNext[ib];
+                // cutting a neighbour may have turned ib reflex or collinear since it was enqueued
+                if (Orient(verts[ia], verts[ib], verts[ic]) <= 0) continue;
+
+                int t = cavSlots[slotCursor++];
+                int a = verts[ia], b = verts[ib], c = verts[ic];
+                SetTriangle(t, a, b, c);
+                Tag[t] = tag;
+                AttachCavityEdge(3 * t, ia, state, twin, seg, ref internalMates);
+                AttachCavityEdge(3 * t + 1, ib, state, twin, seg, ref internalMates);
+                // the new diagonal c -> a (half-edge 3*t + 2) borders the remaining polygon's edge ia -> ic
+                state[ia] = 3 * t + 2;
+                seg[ia] = -1;
+                earNext[ia] = ic;
+                earPrev[ic] = ia;
+                restoreHe.Add(3 * t + 2); restoreU.Add(c); restoreV.Add(a);
+                Touch(t);
+                if (Dirty != null) Dirty.Add(t);
+                --remaining;
+
+                if (ia != 0 && ia != m - 1 && !earQueued[ia] && Orient(verts[earPrev[ia]], verts[ia], verts[earNext[ia]]) > 0) {
+                    earQueue[qTail++] = ia;
+                    if (qTail == m) qTail = 0;
+                    earQueued[ia] = true;
+                }
+                if (ic != 0 && ic != m - 1 && !earQueued[ic] && Orient(verts[earPrev[ic]], verts[ic], verts[earNext[ic]]) > 0) {
+                    earQueue[qTail++] = ic;
+                    if (qTail == m) qTail = 0;
+                    earQueued[ic] = true;
+                }
+            }
+
+            int mid = earNext[0];
+            int aLast = verts[0], bLast = verts[mid], cLast = verts[m - 1];
+            if (Orient(aLast, bLast, cLast) <= 0)
+                throw new InvalidOperationException("DelaunayKernel2: last cavity triangle is degenerate");
+            int tLast = cavSlots[slotCursor++];
+            SetTriangle(tLast, aLast, bLast, cLast);
+            Tag[tLast] = tag;
+            AttachCavityEdge(3 * tLast, 0, state, twin, seg, ref internalMates);
+            AttachCavityEdge(3 * tLast + 1, mid, state, twin, seg, ref internalMates);
+            Touch(tLast);
+            if (Dirty != null) Dirty.Add(tLast);
+            return 3 * tLast + 2;
+        }
+
+        void AttachCavityEdge(int newHe, int edgeIdx, int[] state, int[] twin, int[] seg, ref Dictionary<int, int> internalMates)
+        {
+            int st = state[edgeIdx];
+            if (st >= 0) {
+                Join(newHe, st, seg[edgeIdx]);
+                return;
+            }
+            int origE = ~st;
+            int origTwin = twin[edgeIdx];
+            int s = seg[edgeIdx];
+            if (internalMates == null) internalMates = new Dictionary<int, int>();
+            if (internalMates.TryGetValue(origTwin, out int mateNew)) {
+                Join(newHe, mateNew, s);
+                if (s < 0) {
+                    restoreHe.Add(newHe);
+                    restoreU.Add(V[newHe]);
+                    restoreV.Add(V[Next(newHe)]);
+                }
+            } else {
+                internalMates[origE] = newHe;
+            }
+        }
+
+        /// <summary>
+        /// Lawson's flips starting from a single known half-edge e (used right after unconstraining it).
+        /// </summary>
+        internal void RestoreDelaunayEdge(int e)
+        {
+            restoreHe.Clear(); restoreU.Clear(); restoreV.Clear();
+            restoreHe.Add(e); restoreU.Add(V[e]); restoreV.Add(V[Next(e)]);
+            RestoreDelaunayPending(-1, -1);
         }
 
         /// <summary>
@@ -345,21 +603,42 @@ namespace g3
         /// </summary>
         internal void RestoreDelaunay(IEnumerable<long> edges, int skipU = -1, int skipW = -1)
         {
-            var pending = new Stack<long>(edges);
+            restoreHe.Clear(); restoreU.Clear(); restoreV.Clear();
+            foreach (long key in edges) {
+                restoreHe.Add(-1);
+                restoreU.Add((int)(key >> 32));
+                restoreV.Add((int)(key & 0xffffffff));
+            }
+            RestoreDelaunayPending(skipU, skipW);
+        }
+
+        void RestoreDelaunayPending(int skipU, int skipW)
+        {
             long flips = 0, flipLimit = 64L * (TriangleSlots + 16);
-            while (pending.Count > 0) {
-                long key = pending.Pop();
-                int a0 = (int)(key >> 32), b0 = (int)(key & 0xffffffff);
+            while (restoreHe.Count > 0) {
+                int last = restoreHe.Count - 1;
+                int he = restoreHe[last], a0 = restoreU[last], b0 = restoreV[last];
+                restoreHe.RemoveAt(last); restoreU.RemoveAt(last); restoreV.RemoveAt(last);
                 if (a0 == skipU && b0 == skipW || a0 == skipW && b0 == skipU) continue;
-                int e = FindEdge(a0, b0);
-                if (e < 0 || Seg[e] >= 0) continue;
+                int e = he;
+                if (e < 0 || e >= 3 * TriangleSlots || V[e] != a0 || V[Next(e)] != b0) {
+                    e = FindEdge(a0, b0);
+                    if (e < 0) continue;
+                }
+                if (Seg[e] >= 0) continue;
                 int f = H[e];
                 if (IsGhost(e / 3) || IsGhost(f / 3)) continue;
                 int c = V[Next(Next(e))], d = V[Next(Next(f))];
                 if (ExactPredicates.InCircle(Point(a0), Point(b0), Point(c), Point(d)) <= 0) continue;
                 if (++flips > flipLimit) throw new InvalidOperationException("DelaunayKernel2: flips do not terminate");
+                int t = e / 3, t2 = f / 3;
                 Flip(e, out _, out _);
-                pending.Push(Key(c, a0)); pending.Push(Key(a0, d)); pending.Push(Key(d, b0)); pending.Push(Key(b0, c));
+                // after Flip(e): t = (c, a0, d), t2 = (d, b0, c)
+                int e0 = 3 * t, e1 = 3 * t + 1, e2 = 3 * t2, e3 = 3 * t2 + 1;
+                if (Seg[e0] < 0) { restoreHe.Add(e0); restoreU.Add(c); restoreV.Add(a0); }
+                if (Seg[e1] < 0) { restoreHe.Add(e1); restoreU.Add(a0); restoreV.Add(d); }
+                if (Seg[e2] < 0) { restoreHe.Add(e2); restoreU.Add(d); restoreV.Add(b0); }
+                if (Seg[e3] < 0) { restoreHe.Add(e3); restoreU.Add(b0); restoreV.Add(c); }
             }
         }
 

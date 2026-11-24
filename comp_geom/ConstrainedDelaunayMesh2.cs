@@ -679,11 +679,11 @@ namespace g3
                     if (Near(a, u, w, piece.Sources) && Shortens(a, u, w)) { Split(a, piece, pending); return null; }
                     if (Near(b, u, w, piece.Sources) && Shortens(b, u, w)) { Split(b, piece, pending); return null; }
                 }
-                var crossed = new List<long>();
+                var crossed = crossedHalfEdges;
+                crossed.Clear();
                 while (true) {
-                    int right = k.V[h], left = k.V[Next(h)];
                     if (k.Seg[h] >= 0) return Cross(piece, h, pending);
-                    crossed.Add(((long)right << 32) | (uint)left);
+                    crossed.Add(h);
                     int g = k.H[h];
                     int v = k.V[Next(Next(g))];
                     if (v == w) break;
@@ -696,6 +696,8 @@ namespace g3
                 nodingConsecutiveSplits = 0;
                 return null;
             }
+
+            readonly List<int> crossedHalfEdges = new List<int>();
 
             static int Next(int e) => e % 3 == 2 ? e - 2 : e + 1;
 
@@ -717,7 +719,7 @@ namespace g3
                 var other = k.Unconstrain(h);
                 // without its constraint the edge r-l may not be Delaunay: restore that before inserting, since Lawson's insertion
                 // assumes a constrained Delaunay triangulation (review of M2: a non-Delaunay edge survived otherwise)
-                k.RestoreDelaunay(new[] { ((long)r << 32) | (uint)l });
+                k.RestoreDelaunayEdge(h);
                 int before = k.VertexCount;
                 // a vertex within the tolerance of the crossing and of every source of both pieces takes its place (O11): three segments
                 // through one point that is not a double would otherwise leave a triangle a few ulps wide (found with M3)
@@ -1129,8 +1131,8 @@ namespace g3
                 }
                 // every source is in the cells it passes through; one that passes within the tube of u is in u's cell or in a cell
                 // across a border within the tube (review of M2: the star of u can hide a source)
-                double x = ux / gridCell, y = uy / gridCell, r = tube / gridCell;
-                long x0 = MathUtil.ToLongSaturating(Math.Floor(x - r)), x1 = MathUtil.ToLongSaturating(Math.Floor(x + r)), y0 = MathUtil.ToLongSaturating(Math.Floor(y - r)), y1 = MathUtil.ToLongSaturating(Math.Floor(y + r));
+                double x = ux / gridCellX, y = uy / gridCellY, rx = tube / gridCellX, ry = tube / gridCellY;
+                long x0 = MathUtil.ToLongSaturating(Math.Floor(x - rx)), x1 = MathUtil.ToLongSaturating(Math.Floor(x + rx)), y0 = MathUtil.ToLongSaturating(Math.Floor(y - ry)), y1 = MathUtil.ToLongSaturating(Math.Floor(y + ry));
                 for (long cx = x0; cx <= x1; ++cx)
                     for (long cy = y0; cy <= y1; ++cy) {
                         int at = Array.BinarySearch(cellKeys, (cx << 32) ^ (cy & 0xffffffff));
@@ -1156,8 +1158,8 @@ namespace g3
                 if (!(scaledTolerance > 0)) return false;
                 if (cellKeys == null) BuildGrid();
                 if (cellKeys.Length == 0) return false;
-                double x = Scaled(px - gridX) / gridCell, y = Scaled(py - gridY) / gridCell, r = scaledTolerance / gridCell;
-                long x0 = MathUtil.ToLongSaturating(Math.Floor(x - r)), x1 = MathUtil.ToLongSaturating(Math.Floor(x + r)), y0 = MathUtil.ToLongSaturating(Math.Floor(y - r)), y1 = MathUtil.ToLongSaturating(Math.Floor(y + r));
+                double x = Scaled(px - gridX) / gridCellX, y = Scaled(py - gridY) / gridCellY, rx = scaledTolerance / gridCellX, ry = scaledTolerance / gridCellY;
+                long x0 = MathUtil.ToLongSaturating(Math.Floor(x - rx)), x1 = MathUtil.ToLongSaturating(Math.Floor(x + rx)), y0 = MathUtil.ToLongSaturating(Math.Floor(y - ry)), y1 = MathUtil.ToLongSaturating(Math.Floor(y + ry));
                 double tol2 = scaledTolerance * scaledTolerance;
                 for (long cx = x0; cx <= x1; ++cx)
                     for (long cy = y0; cy <= y1; ++cy) {
@@ -1188,7 +1190,7 @@ namespace g3
             long[] cellKeys;
             int[] cellStart, cellSources;
             double[] sax, say, sbx, sby;
-            double gridX, gridY, gridCell;
+            double gridX, gridY, gridCellX, gridCellY;
 
             void BuildGrid()
             {
@@ -1202,8 +1204,9 @@ namespace g3
                 }
                 if (minX > maxX) { cellKeys = new long[0]; return; }
                 gridX = minX; gridY = minY;
-                double extent = Math.Max(Scaled(maxX - minX), Scaled(maxY - minY));
-                gridCell = Math.Max(extent / Math.Max(1, Math.Sqrt(m)), 64 * scaledTolerance);
+                double side = Math.Max(1, Math.Sqrt(m));
+                gridCellX = Math.Max(Scaled(maxX - minX) / side, 64 * scaledTolerance);
+                gridCellY = Math.Max(Scaled(maxY - minY) / side, 64 * scaledTolerance);
                 var keys = new List<long>(4 * m);
                 var values = new List<int>(4 * m);
                 for (int s = 0; s < m; ++s) {
@@ -1211,7 +1214,7 @@ namespace g3
                     if (q.Hull) { sax[s] = double.NaN; continue; }
                     sax[s] = Scaled(q.AX - gridX); say[s] = Scaled(q.AY - gridY); sbx[s] = Scaled(q.BX - gridX); sby[s] = Scaled(q.BY - gridY);
                     int source = s;
-                    Traverse(sax[s] / gridCell, say[s] / gridCell, sbx[s] / gridCell, sby[s] / gridCell, key => { keys.Add(key); values.Add(source); });
+                    Traverse(sax[s] / gridCellX, say[s] / gridCellY, sbx[s] / gridCellX, sby[s] / gridCellY, key => { keys.Add(key); values.Add(source); });
                 }
                 var ka = keys.ToArray(); var va = values.ToArray();
                 Array.Sort(ka, va);
