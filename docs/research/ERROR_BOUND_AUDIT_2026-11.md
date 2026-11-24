@@ -182,7 +182,8 @@ as the tree; until then the spare 1e-6 is a documented part of the bound, not a 
 - `ExactMeshArrangement.cs:836`: the comment says "rounding 2 U M^2", the code uses 3 U M^2 (the larger; AR-6 proves it).
 - `tools/PredicateCompiler/Compiler.cs:251`: the comment says "K > 2^-60", the check is K >= 2^-62 (which is what the argument needs).
 - "Relative error at most 2^-52" of a converted coordinate is used as |x^ - x| <= 2^-52 |x^| (one ulp of the double).
-  That is what a truncating conversion gives, and the 2.3e-16 constants cover it with a margin of 1.036 (RC-2).
+  That is what a truncating conversion gave; `ExactPoint3.ToDouble` has been correctly rounded since #1410 (error at most half an ulp,
+  2^-53 of the value), and the 2.3e-16 constants cover the older one-ulp bound with a margin of 1.036 (RC-2).
 - Lead from the inventory, checked (reproducer L1 of the adversarial tool): `TriangleBoxTree.segment_hits` tests only
   p in its branch for a segment parallel to a slab (`|d| < 1e-300`), without slack. With pad 0 (the call of
   `PolyhedralEnvelope.cs:512`) it returns false for the box x in [1e-310, 1] and the segment from x = 0 to 2e-310,
@@ -306,7 +307,7 @@ rounding constants are of the right order; it is not a proof.
 | `ExactMeshArrangement` `TriangleBoxTree.segment_hits` (slack 1e-9, 1e-12) | 1 | read; one unverified lead (section 3) |
 | `SnapRounding2` `PixelOf` range, `Buckets`, `SnapGrid.Pixel`, `CircumcentrePixelCentre` | 4 | read; `Pixel` needs no bound (monotone rounding, exact fallback) |
 | `FixedPoint3`, `ExactLimbSigns`, `ExactLimbPrepared` scratch and width counts | 15 | fail-safe (an arena overrun throws, no wrong sign); generator-checked for Orient and InCircle (`GeneratedPredicatesTests`) |
-| `ExactPoint3.ToDouble`, `ScaleB` | 2 | read (truncating twice is truncating once; RC-2 uses it) |
+| `ExactPoint3.ToDouble`, `ScaleB` | 2 | read (one rounding to nearest since #1410, error at most 2^-53 of the value; RC-2 uses the looser one-ulp bound) |
 | `PolyhedralEnvelope` (ENVELOPE.md 4.4: `Theta*`, offset margins, `unit`, `length`) | 8 | not read beyond the inventory |
 | `ContinuousCollision` (filter bound B1, corner widths, separating direction) | 5 | not read beyond the inventory |
 | `ExactMeshGeodesicDistance` (`CornerAngle`, `TransformDisk`, `Hypot`, merged radii) | 7 | not read beyond the inventory; `CornerAngle` calls itself "an assumption, not a proof" |
