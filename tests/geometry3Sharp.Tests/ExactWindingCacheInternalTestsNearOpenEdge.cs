@@ -270,14 +270,12 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void PointOnTheSurfaceInThePlaneX0NextToTheEdge_ValueIsHalfForBothTriangleOrders()
+        public void PointOnTheSurfaceInThePlaneX0NextToTheEdge_ValueIsZeroForBothTriangleOrders()
         {
-            // p inside the triangle on its surface, within d of the edge: the exact winding number is 0.5 for both orders;
-            // the sum of the three edge angles is accurate to 1e-12, so the value is 0.5 within that. This asserts the VALUE only
-            // (no decision), in a planar configuration: the triangles lie in the plane x = 0, where the rounded determinant of the
-            // own-triangle term of tri_on_surface_correction (MathUtil.TriSolidAngle) is exactly 0, so that term is the hemisphere
-            // the exact code expects. For a triangle in a general plane the determinant is rounded and p on the triangle is outside
-            // the guarantee (a known open point, see the design note "A point exactly on a triangle").
+            // p inside the triangle on its surface, within d of the edge: the value on the surface is the principal value, the
+            // mean of the two sides, and a single triangle subtends +0.5 on one side and -0.5 on the other: 0. The edge angles
+            // are accurate to 2e-13 each, so the value is 0 within 1e-11 (before the change +-0.5 by the sign of a rounded
+            // determinant). Also for the triangles in the plane x = 0 and for both orientations.
             foreach (double d in new[] { -1e-6, -1e-12, -1e-14, -1e-16, -1.3866900198112808E-17 }) {
                 var values = new List<double>();
                 foreach (bool flip in new[] { false, true }) {
@@ -285,27 +283,24 @@ namespace geometry3Sharp.Tests
                     values.Add(tree.WindingNumber(Vector3d.Zero));
                 }
                 foreach (double w in values)
-                    Assert.True(Math.Abs(Math.Abs(w) - 0.5) <= 1e-11, $"d {d}: winding numbers {values[0]:R}, {values[1]:R}");
+                    Assert.True(Math.Abs(w) <= 1e-11, $"d {d}: winding numbers {values[0]:R}, {values[1]:R}");
             }
         }
 
         [Fact]
-        public void IsInsideBatch_OnTheSurfaceInThePlaneX0NextToTheEdge_FollowsTheValueForBothTriangleOrders()
+        public void IsInsideBatch_OnTheSurfaceInThePlaneX0NextToTheEdge_IsOutsideForBothTriangleOrders()
         {
-            // the reported case: p on the surface of the triangle (exact winding number 0.5), 1.4e-17 from the edge. Before the
-            // fix the first order gave 0.676 (Inside) and the second 0.324 (Outside). A point exactly on the surface is a tie of
-            // the decision (0.5 > 0.5 is false) that the last bit of a floating-point sum decides (0.5000000000000001 against
-            // 0.5). Asserted: the value within 1e-12 and that the decision is that of the value. Only for this planar
-            // configuration (the triangles lie in the plane x = 0, where the rounded determinant of the own-triangle term is exactly
-            // 0); a point on a triangle in a general plane is outside the guarantee (design note, "A point exactly on a triangle").
+            // the reported case: p on the surface of the triangle, 1.4e-17 from the edge. Before the fix the first order gave
+            // 0.676 (Inside) and the second 0.324 (Outside). The value on the surface is 0 (single triangle), so the decision
+            // is Outside for both orders, and it is that of the value.
             foreach (double d in new[] { -1.3866900198112808E-17, -5.1570997421607445E-17, -4.623241721084523E-16, -5.710275727938796E-15, -2.794345575409625E-14 })
                 foreach (bool flip in new[] { false, true }) {
                     var tree = new DMeshAABBTree3(Triangle(d, flip), true);
                     var r = new InsideStatus[1];
                     Assert.Equal(BatchStatus.Ok, MeshBatchQueries.IsInsideBatch(tree, new[] { Vector3d.Zero }, r, InsideMethod.ExactWindingNumber));
                     double w = tree.WindingNumber(Vector3d.Zero);
-                    Assert.True(Math.Abs(w - 0.5) <= 1e-12, $"d {d:R}, flip {flip}: winding number {w:R}");
-                    Assert.Equal(w > 0.5 ? InsideStatus.Inside : InsideStatus.Outside, r[0]);
+                    Assert.True(Math.Abs(w) <= 1e-12, $"d {d:R}, flip {flip}: winding number {w:R}");
+                    Assert.Equal(InsideStatus.Outside, r[0]);
                 }
         }
 
