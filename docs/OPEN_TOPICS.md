@@ -56,7 +56,7 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 | 2D meshing: `.poly` reader keeps crossing segment groups as constraints only | Parked | A use case | [2D](roadmap/meshing2d.md#open), plan #1264 |
 | Geodesics/param: certified biharmonic mode | Parked, owner 2026-11-16 | Owner go; gates #980 (100k) and #976 (20 s tail) | #976, #980, plan #1265 |
 | Geodesics/param: RDR stage 1b (restricted Voronoi cells) | Not now, owner 2026-11-17 | Owner go | [sources](roadmap/sources-surveys.md#open-for-the-future-2026-11-17), plan #1266 |
-| Terrain: slope envelope, 3D blocks, berms, ramps beyond R1, GeoTIFF reader, showcase | Later, owner 2026-11-17 | A terrain use case | [terrain](roadmap/terrain.md#open-for-the-future-2026-11-15), plan #1267 |
+| Terrain: slope envelope, berms, ramps beyond R1, GeoTIFF reader, showcase | Later, owner 2026-11-17 | A terrain use case | [terrain](roadmap/terrain.md#open-for-the-future-2026-11-15), plan #1267 |
 | Terrain: sector polygons E1, S1, R2 | Parked, owner 2026-11-16 | Terrain resumes | [sectors](design/TERRAIN_SECTORS.md), plan #1268 |
 | Terrain: §11 performance follow-ups, RoundToGrid, internal quadtree uses | Parked until a real case or terrain resumes | Upper bound first | [terrain](roadmap/terrain.md#open-for-the-future-2026-11-15), plan #1269 |
 | Platform/QA/CI: .NET 11 migration | Later, owner 2026-11-12 | Owner schedules it | [platform](roadmap/platform.md#open), plan #1271 |

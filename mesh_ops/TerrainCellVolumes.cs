@@ -44,6 +44,24 @@ namespace gs
         public int BeforeOverlaps { get; private set; }
         public int AfterOverlaps { get; private set; }
         public bool RequireHeightField = true;
+        /// <summary>
+        /// Optional elevation bands for 3D blocks (docs/design/TERRAIN.md section 9.3): strictly increasing boundaries b0 &lt; b1 &lt; ... &lt; bm (m &gt;= 1), band k
+        /// is [b_k, b_k+1]; the two ends may be -infinity / +infinity (<c>{ -inf, +inf }</c> is one band over all heights). Null (the default): no blocks, and
+        /// the outputs of the 2D cells are computed exactly as before. With bands, Compute() also fills <see cref="BlockCutVolume"/> and
+        /// <see cref="BlockFillVolume"/>, and fails for invalid boundaries (NaN, not strictly increasing, fewer than 2) or more than <see cref="MaxCells"/>
+        /// blocks (bands times cells).
+        /// </summary>
+        public double[] BandBoundaries;
+        /// <summary> number of bands of the last Compute() (0 without <see cref="BandBoundaries"/>) </summary>
+        public int BandCount { get; private set; }
+        /// <summary>
+        /// Volume per block where After is below Before (cut), the part of the column between the surfaces with z in the band. Index
+        /// <c>band * NX * NY + i + NX * j</c> for the cell (i, j). Heights outside [b0, bm] are not counted; with infinite ends the sum over the bands is
+        /// <see cref="CutVolume"/>. Null without bands.
+        /// </summary>
+        public double[] BlockCutVolume { get; private set; }
+        /// <summary> like <see cref="BlockCutVolume"/> where After is above Before (fill) </summary>
+        public double[] BlockFillVolume { get; private set; }
         /// <summary> the most cells (a polygon that touches many cells holds one small record per cell until the merge, and the outputs take 7 doubles per cell) </summary>
         public const int MaxCells = 1 << 20;
 
@@ -75,13 +93,21 @@ namespace gs
         public bool Compute()
         {
             CutVolume = FillVolume = CutArea = FillArea = OverlapArea = null;
+            BlockCutVolume = BlockFillVolume = null; BandCount = 0;
             TotalCutVolume = TotalFillVolume = TotalOverlapArea = 0;
             if (Before == null || After == null || !(DX > 0) || !(DY > 0) || double.IsInfinity(DX) || double.IsInfinity(DY) || NX < 1 || NY < 1 || (long)NX * NY > MaxCells
                 || double.IsNaN(X0) || double.IsNaN(Y0) || double.IsInfinity(X0) || double.IsInfinity(Y0))
                 return false;
+            if (BandBoundaries != null) {
+                double[] bb = BandBoundaries;
+                if (bb.Length < 2 || (long)(bb.Length - 1) * NX * NY > MaxCells) return false;
+                for (int q = 0; q < bb.Length; ++q)
+                    if (double.IsNaN(bb[q]) || (q > 0 && !(bb[q] > bb[q - 1]))) return false;
+            }
             var diff = new TerrainVolumeDifference(Before, After) {
                 CancelF = CancelF, RequireHeightField = RequireHeightField,
-                Lattice = new TerrainVolumeDifference.CellLattice() { X0 = X0, Y0 = Y0, DX = DX, DY = DY, NX = NX, NY = NY }
+                Lattice = new TerrainVolumeDifference.CellLattice() { X0 = X0, Y0 = Y0, DX = DX, DY = DY, NX = NX, NY = NY },
+                Bands = BandBoundaries != null ? (double[])BandBoundaries.Clone() : null
             };
             bool ok = diff.Compute();
             BeforeOverlaps = diff.BeforeOverlaps; AfterOverlaps = diff.AfterOverlaps;
@@ -91,6 +117,12 @@ namespace gs
             for (int c = 0; c < n; ++c) {
                 FillVolume[c] = diff.CellValues[5 * c]; CutVolume[c] = diff.CellValues[5 * c + 1];
                 FillArea[c] = diff.CellValues[5 * c + 2]; CutArea[c] = diff.CellValues[5 * c + 3]; OverlapArea[c] = diff.CellValues[5 * c + 4];
+            }
+            if (BandBoundaries != null) {
+                BandCount = BandBoundaries.Length - 1;
+                int nb = BandCount * n;
+                BlockFillVolume = new double[nb]; BlockCutVolume = new double[nb];
+                for (int c = 0; c < nb; ++c) { BlockFillVolume[c] = diff.BlockValues[2 * c]; BlockCutVolume[c] = diff.BlockValues[2 * c + 1]; }
             }
             TotalCutVolume = diff.CutVolume; TotalFillVolume = diff.FillVolume; TotalOverlapArea = diff.OverlapArea;
             return true;

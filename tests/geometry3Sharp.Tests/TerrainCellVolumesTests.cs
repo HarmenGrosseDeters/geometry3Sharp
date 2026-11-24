@@ -222,5 +222,166 @@ namespace geometry3Sharp.Tests
             Assert.False(bad.Compute());
             Assert.True(bad.BeforeOverlaps > 0);
         }
+
+        // ---- 3D blocks (elevation bands) ----
+
+        static TerrainCellVolumes RunBands(DMesh3 a, DMesh3 b, double[] bands, double x0 = 1, double y0 = 2, double dx = 3.3, double dy = 2.9, int nx = 7, int ny = 7)
+        {
+            var c = new TerrainCellVolumes(a, b, x0, y0, dx, dy, nx, ny) { BandBoundaries = bands };
+            Assert.True(c.Compute());
+            return c;
+        }
+
+        static readonly double[] AllHeights = { double.NegativeInfinity, double.PositiveInfinity };
+
+        [Fact]
+        public void OneBandOverAllHeights_IsThe2DCellResult()
+        {
+            var (before, after) = Pair();
+            TerrainCellVolumes c = RunBands(before, after, AllHeights), plain = Run(before, after, 1, 2, 3.3, 2.9, 7, 7);
+            Assert.Equal(1, c.BandCount);
+            Assert.Equal(49, c.BlockCutVolume.Length);
+            Assert.True(Sum(plain.CutVolume) > 1 && Sum(plain.FillVolume) > 1);
+            for (int k = 0; k < 49; ++k) {
+                double tol = 1e-12 * (plain.CutVolume[k] + plain.FillVolume[k] + 1e-3);
+                Assert.InRange(Math.Abs(c.BlockCutVolume[k] - plain.CutVolume[k]), 0, tol);
+                Assert.InRange(Math.Abs(c.BlockFillVolume[k] - plain.FillVolume[k]), 0, tol);
+            }
+        }
+
+        [Fact]
+        public void TheBandsDoNotChangeThe2DOutputs_Bitwise()
+        {
+            var (before, after) = Pair();
+            TerrainCellVolumes c = RunBands(before, after, new[] { -1.0, 0.5, 2.0 }), plain = Run(before, after, 1, 2, 3.3, 2.9, 7, 7);
+            Assert.Equal(plain.CutVolume, c.CutVolume); Assert.Equal(plain.FillVolume, c.FillVolume);
+            Assert.Equal(plain.CutArea, c.CutArea); Assert.Equal(plain.FillArea, c.FillArea); Assert.Equal(plain.OverlapArea, c.OverlapArea);
+            Assert.Equal(plain.TotalCutVolume, c.TotalCutVolume); Assert.Equal(plain.TotalFillVolume, c.TotalFillVolume);
+            Assert.Null(plain.BlockCutVolume); Assert.Equal(0, plain.BandCount);
+        }
+
+        [Fact]
+        public void TheSumOverTheBands_IsThe2DCellResult()
+        {
+            var (before, after) = Pair();
+            // the surfaces lie in [-4, 4]; bands that cut through the slopes, with open ends
+            double[] bands = { double.NegativeInfinity, -2.5, -1.1, 0, 0.3, 1.7, double.PositiveInfinity };
+            TerrainCellVolumes c = RunBands(before, after, bands), plain = Run(before, after, 1, 2, 3.3, 2.9, 7, 7);
+            Assert.Equal(6, c.BandCount);
+            for (int k = 0; k < 49; ++k) {
+                double cut = 0, fill = 0;
+                for (int q = 0; q < 6; ++q) { cut += c.BlockCutVolume[q * 49 + k]; fill += c.BlockFillVolume[q * 49 + k]; }
+                double tol = 1e-12 * (plain.CutVolume[k] + plain.FillVolume[k] + 1e-3);
+                Assert.InRange(Math.Abs(cut - plain.CutVolume[k]), 0, tol);
+                Assert.InRange(Math.Abs(fill - plain.FillVolume[k]), 0, tol);
+            }
+            Assert.Contains(Enumerable.Range(0, 6), q => Enumerable.Range(0, 49).Any(k => c.BlockCutVolume[q * 49 + k] > 0) && Enumerable.Range(0, 49).Any(k => c.BlockFillVolume[q * 49 + k] > 0));
+        }
+
+        [Fact]
+        public void ASurfaceCrossingABandBoundary_IsSplitExactly()
+        {
+            // before z = 0, after z = x over [0, 8] x [0, 4] (fill), one cell: the column at x has the height x. Band [2, 5]: thickness clamp(x, 2, 5) - 2 for x
+            // in [0, 8] with the clamp of 0: 0 for x <= 2, x - 2 up to 5 (3), then 3. Integral over x: (3 * 3 / 2) + 3 * 3 = 13.5, times the width 4 = 54
+            DMesh3 before = Grid(0, 0, 8, 4, 2, (x, y) => 0), after = Grid(0, 0, 8, 4, 5, (x, y) => x, true);
+            TerrainCellVolumes c = RunBands(before, after, new[] { 2.0, 5.0 }, 0, 0, 8, 4, 1, 1);
+            Assert.Equal(54, c.BlockFillVolume[0], 12); Assert.Equal(0, c.BlockCutVolume[0], 12);
+            // three bands: [-inf, 2] holds x^2/2 up to 2 and then 2 * 6: 2 * 4 ... exact per band: [-inf, 2]: (2 + 12) * 4 = 56, [2, 5]: 54, [5, inf]: (3 * 3 / 2) * 4 = 18
+            TerrainCellVolumes d = RunBands(before, after, new[] { double.NegativeInfinity, 2.0, 5.0, double.PositiveInfinity }, 0, 0, 8, 4, 1, 1);
+            Assert.Equal(56, d.BlockFillVolume[0], 12); Assert.Equal(54, d.BlockFillVolume[1], 12); Assert.Equal(18, d.BlockFillVolume[2], 12);
+            // the same surfaces below zero: cut, mirrored
+            DMesh3 down = Grid(0, 0, 8, 4, 5, (x, y) => -x, true);
+            TerrainCellVolumes e = RunBands(before, down, new[] { -5.0, -2.0 }, 0, 0, 8, 4, 1, 1);
+            Assert.Equal(54, e.BlockCutVolume[0], 12); Assert.Equal(0, e.BlockFillVolume[0], 12);
+        }
+
+        [Fact]
+        public void BothSurfacesInsideOneBand_AndAColumnAcrossTwoBands()
+        {
+            // before z = 1, after z = 3 (fill thickness 2): bands [0, 2], [2, 4]: 1 each; the band [2.5, 4] holds 0.5, [4, 6] nothing
+            DMesh3 before = Grid(0, 0, 4, 4, 2, (x, y) => 1), after = Grid(0, 0, 4, 4, 3, (x, y) => 3, true);
+            TerrainCellVolumes c = RunBands(before, after, new[] { 0.0, 2.0, 2.5, 4.0, 6.0 }, 0, 0, 4, 4, 1, 1);
+            Assert.Equal(16.0, c.BlockFillVolume[0], 12); Assert.Equal(8.0, c.BlockFillVolume[1], 12);
+            Assert.Equal(8.0, c.BlockFillVolume[2], 12); Assert.Equal(0, c.BlockFillVolume[3], 12);
+            Assert.All(c.BlockCutVolume, v => Assert.Equal(0, v));
+        }
+
+        [Fact]
+        public void SwappingTheSurfaces_SwapsCutAndFillInEveryBlock()
+        {
+            var (before, after) = Pair();
+            double[] bands = { double.NegativeInfinity, -1.2, 0.4, 1.9, double.PositiveInfinity };
+            TerrainCellVolumes ab = RunBands(before, after, bands), ba = RunBands(after, before, bands);
+            for (int k = 0; k < 4 * 49; ++k) {
+                Assert.Equal(ab.BlockCutVolume[k], ba.BlockFillVolume[k], 10); Assert.Equal(ab.BlockFillVolume[k], ba.BlockCutVolume[k], 10);
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(SimilarityNames))]
+        public void Blocks_Invariance_ScaleAndZTranslation(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            if (s.IsRotated) return;       // cells are axis aligned
+            var (b0, a0) = Pair();
+            double[] bands = { -2.5, -0.7, 0.4, 1.9 };
+            TerrainCellVolumes ref0 = RunBands(b0, a0, bands, 1, 2, 3.3, 2.9, 7, 7);
+            var (b1, a1) = (Map(b0, s), Map(a0, s));
+            double[] mapped = bands.Select(z => s.Scale * z + s.Translation.z).ToArray();       // the bands move with the surfaces
+            TerrainCellVolumes c = RunBands(b1, a1, mapped, s.Scale * 1 + s.Translation.x, s.Scale * 2 + s.Translation.y, s.Scale * 3.3, s.Scale * 2.9, 7, 7);
+            double s3 = s.Scale * s.Scale * s.Scale;
+            for (int k = 0; k < 3 * 49; ++k) {
+                if (s.IsExact) {      // a power of two: bit for bit
+                    Assert.Equal(s3 * ref0.BlockCutVolume[k], c.BlockCutVolume[k]); Assert.Equal(s3 * ref0.BlockFillVolume[k], c.BlockFillVolume[k]);
+                } else {
+                    double tol = 1e-8 * s3 * (1 + Math.Abs(s.Translation.x + s.Translation.y + s.Translation.z) / 1e3);
+                    Assert.InRange(Math.Abs(c.BlockCutVolume[k] - s3 * ref0.BlockCutVolume[k]), 0, tol); Assert.InRange(Math.Abs(c.BlockFillVolume[k] - s3 * ref0.BlockFillVolume[k]), 0, tol);
+                }
+            }
+        }
+
+        [Fact]
+        public void Blocks_Compute_Twice_AndRepeated_GiveTheSameBits()
+        {
+            var (before, after) = Pair();
+            var c = new TerrainCellVolumes(before, after, 0, 0, 1.7, 1.3, 12, 16) { BandBoundaries = new[] { -3.0, -0.5, 1.1, 3.0 } };
+            Assert.True(c.Compute());
+            double[] cut = (double[])c.BlockCutVolume.Clone(), fill = (double[])c.BlockFillVolume.Clone();
+            Assert.True(c.Compute());
+            Assert.Equal(cut, c.BlockCutVolume); Assert.Equal(fill, c.BlockFillVolume);
+            for (int k = 0; k < 5; ++k) {
+                var u = RunBands(before, after, c.BandBoundaries, 0, 0, 1.7, 1.3, 12, 16);
+                Assert.Equal(cut, u.BlockCutVolume); Assert.Equal(fill, u.BlockFillVolume);
+            }
+            // switching the bands off on the same instance drops the blocks
+            c.BandBoundaries = null;
+            Assert.True(c.Compute());
+            Assert.Null(c.BlockCutVolume); Assert.Equal(0, c.BandCount);
+        }
+
+        [Fact]
+        public void Blocks_ParallelEqualsSerial()
+        {
+            var (before, after) = Pair();
+            double[] bands = { -3.0, -0.5, 1.1, 3.0 };
+            TerrainCellVolumes par = RunBands(before, after, bands, 0, 0, 1.7, 1.3, 12, 16), ser;
+            gParallel.SerialOnThisThread = true;
+            try { ser = RunBands(before, after, bands, 0, 0, 1.7, 1.3, 12, 16); }
+            finally { gParallel.SerialOnThisThread = false; }
+            Assert.Equal(ser.BlockCutVolume, par.BlockCutVolume); Assert.Equal(ser.BlockFillVolume, par.BlockFillVolume);
+        }
+
+        [Fact]
+        public void InvalidBands_ReturnFalse()
+        {
+            var (before, after) = Pair();
+            foreach (double[] bad in new[] { new double[0], new[] { 1.0 }, new[] { 1.0, 1.0 }, new[] { 2.0, 1.0 }, new[] { 0.0, double.NaN }, new[] { double.PositiveInfinity, double.NegativeInfinity } }) {
+                var c = new TerrainCellVolumes(before, after, 0, 0, 5, 5, 4, 4) { BandBoundaries = bad };
+                Assert.False(c.Compute());
+                Assert.Null(c.BlockCutVolume);
+            }
+            // bands times cells above the cap
+            Assert.False(new TerrainCellVolumes(before, after, 0, 0, 0.02, 0.02, 1000, 1000) { BandBoundaries = new[] { 0.0, 1.0, 2.0 } }.Compute());
+        }
     }
 }

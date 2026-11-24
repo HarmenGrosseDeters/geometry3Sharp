@@ -167,6 +167,12 @@ g3cli slope dgm_tin.ply pit_toe.geojson pit_local.g3mesh --tolerance 0.05 --loca
 
 Computes deterministic cut/fill volumes per regular XY lattice cell (`--cell-size`, up to `2^20` cells) between two terrain TINs, exporting per-cell CSV and exact totals matching `TerrainVolumeDifference`.
 
+With `--bands z0,z1,...` (strictly increasing, `-inf` / `inf` allowed at the ends) the volume is also given per 3D block: the part of the column between the surfaces with z inside each band `[z_k, z_k+1]`, exact up to rounding (`TerrainCellVolumes.BandBoundaries`). The result gets `bands` (cut and fill per band, `null` for an infinite `z_min` / `z_max`), and `--blocks_output file.csv` writes one row per block (`band, z_min, z_max, ix, iy, x_min, y_min, cut_volume, fill_volume, net_volume`). Cells times bands are at most `2^20`. Heights outside the outer boundaries are not counted; with infinite ends the bands add up to the 2D cell volumes.
+
+```bash
+g3cli cell_volumes before.obj after.obj --cell-size 10 --bands -inf,100,110,120,inf --blocks_output blocks.csv
+```
+
 ### `tpms` (`TpmsLattice`)
 
 Generates certified closed, manifold, self-intersection-free TPMS lattices (`gyroid`, `schwarz_p`, `schwarz_d`, `neovius`, `iwp`, `lidinoid`) as `sheet` or `skeletal` solids inside a box (`--box-min`/`--box-max`) or closed `--domain` mesh.
