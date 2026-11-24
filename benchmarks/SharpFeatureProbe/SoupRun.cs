@@ -38,12 +38,12 @@ static class SoupRun
         switch (mode) {
             case "crease":
                 foreach (string shape in Get("shapes", "box,slot,vnotch,fillet,rbox").Split(','))
-                    foreach (string br in Get("breaks", "clean,soup,nonconf,jitter:0.02,jitter:0.1,holes:0.1,dup:0.2,gap:0.3,gap:1,flip:0.2,mix:0.25,mix:0.5,mix:1").Split(';'))
-                        Crease(w, shape, br, tris, D("c", "2"));
+                    foreach (string br in Get("breaks", "clean;soup;nonconf;jitter:0.02;jitter:0.1;holes:0.1;dup:0.2;gap:0.3;gap:1;flip:0.2;mix:0.25;mix:0.5;mix:1").Split(';'))
+                        Crease(w, shape, br, tris, D("c", "2"), D("tol", "0.3"));
                 break;
             case "curv":
                 foreach (string shape in Get("shapes", "fillet,rbox").Split(','))
-                    foreach (string br in Get("breaks", "clean,soup,nonconf,jitter:0.02,jitter:0.1,holes:0.1,dup:0.2,gap:0.3,flip:0.2,mix:0.5,mix:1").Split(';'))
+                    foreach (string br in Get("breaks", "clean;soup;nonconf;jitter:0.02;jitter:0.1;holes:0.1;dup:0.2;gap:0.3;flip:0.2;mix:0.5;mix:1").Split(';'))
                         Curv(w, shape, br, tris, D("eps", "3,5"));
                 break;
             case "cloud":
@@ -113,7 +113,7 @@ static class SoupRun
 
     // ---- creases ----
 
-    static void Crease(StreamWriter w, string shape, string br, int tris, double[] cs)
+    static void Crease(StreamWriter w, string shape, string br, int tris, double[] cs, double[] tols = null)
     {
         var c = Build(shape, br, tris);
         Soup s = c.Soup;
@@ -135,7 +135,9 @@ static class SoupRun
             ("weld_0.3h", () => SoupFeatures.WeldDihedral(s, 0.3 * hm)),
         };
         foreach (double cc in cs) {
-            methods.Add(("varifold_c" + cc.ToString(CultureInfo.InvariantCulture), () => SoupFeatures.VarifoldCreases(s, hm, cc)));
+            foreach (double tl in tols ?? new[] { 0.3 })
+                methods.Add(("varifold_c" + cc.ToString(CultureInfo.InvariantCulture) + (tl == 0.3 ? "" : "_tol" + tl.ToString(CultureInfo.InvariantCulture)),
+                    () => SoupFeatures.VarifoldCreases(s, hm, cc, tolH: tl)));
             methods.Add(("pca_c" + cc.ToString(CultureInfo.InvariantCulture), () => SoupFeatures.PcaCreases(s, hm, cc)));
         }
         foreach (var (name, f) in methods) {

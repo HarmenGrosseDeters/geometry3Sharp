@@ -55,6 +55,21 @@ if cr:
                    f"{f(med([float(r['dih_err_med']) for r in ws if float(r['dih_err_med']) == float(r['dih_err_med'])]), 2)} / {f(med([float(r['dih_err_med']) for r in vs]), 2)} | {f(med([r['f1'] for r in ps]))} |")
     out.append('')
 
+cg = rows('crease_gap.jsonl')
+if cg:
+    out.append('## Localisation tolerance on gaps (bound for an adaptive tolerance): varifold c=2, F1 / precision / recall\n')
+    ms = list(dict.fromkeys(r['method'] for r in cg if r['method'].startswith('varifold')))
+    out.append('| shape | breakage | ' + ' | '.join(ms) + ' |')
+    out.append('|---|---|' + '---|' * len(ms))
+    byg = {(r['shape'], r['break'], r['method']): r for r in cg}
+    for s, b in dict.fromkeys((r['shape'], r['break']) for r in cg):
+        cells = []
+        for m in ms:
+            r = byg[(s, b, m)]
+            cells.append(f"{f(r['f1'])} / {f(r['precision'])} / {f(r['recall'])}" if s != 'rbox' else f"fp {r['fp']}")
+        out.append(f'| {s} | {b} | ' + ' | '.join(cells) + ' |')
+    out.append('')
+
 def curv_table(name, key, title):
     cv = rows(name)
     if not cv: return

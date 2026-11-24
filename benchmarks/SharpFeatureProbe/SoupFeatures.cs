@@ -149,7 +149,7 @@ static class SoupFeatures
     public sealed class CreaseResult { public bool[] Flag; public double[] Dih; public double Seconds; }
 
     /// <summary> per soup edge (3 t + k: from corner k to k + 1): the varifold two-plane crease test at radius c h </summary>
-    public static CreaseResult VarifoldCreases(Soup s, double h, double c = 2.0, double qf = 2.0, double thetaDeg = 30)
+    public static CreaseResult VarifoldCreases(Soup s, double h, double c = 2.0, double qf = 2.0, double thetaDeg = 30, double tolH = 0.3)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         double eps = c * h;
@@ -202,7 +202,7 @@ static class SoupFeatures
                 if (uA.Dot(CA - x0) < 0) uA = -uA;
                 if (uB.Dot(CB - x0) < 0) uB = -uB;
                 double dih = 180 - Vector3d.AngleD(uA, uB);
-                double tol = 0.3 * h + 3 * Math.Max(rmsA, rmsB);
+                double tol = tolH * h + 3 * Math.Max(rmsA, rmsB);
                 double dp = LineDist(p - m, x0, d), dq = LineDist(q - m, x0, d);
                 res.Dih[3 * t + k] = dih;
                 double along = Math.Abs(d.Dot((q - p).Normalized));
