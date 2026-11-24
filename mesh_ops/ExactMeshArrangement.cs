@@ -1249,6 +1249,7 @@ namespace g3
             var total = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
             Stopped = StopReason.None;
             PredictedPieces = 0;
+            TiedRuns = 0;
             if (cancelled())
                 return;
             build_points();
