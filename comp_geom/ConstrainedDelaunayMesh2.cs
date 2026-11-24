@@ -520,19 +520,31 @@ namespace g3
                 // in input order: reverse the stack once
                 var pending = new Stack<Piece>(work);
                 // Each crossing of two input segments makes at most one vertex, so more new vertices than pairs of sources mean the
-                // rounded crossings feed on each other; and the steps per vertex are bounded. Both limits only stop a runaway.
+                // rounded crossings feed on each other. Collinear overlaps can split k overlapping intervals on one line O(k^2) times
+                // without creating vertices (#1400), while every split strictly shortens the piece (exact collinearity or Shortens).
+                // So a runaway can occur only via repeated Cross calls without progress, or an unbounded run of splits without finishing
+                // a piece (a LIFO split chain of a single piece visits each vertex at most once).
                 long m = sources.Count, vertexLimit = m * (m - 1) / 2 + 2 * m + 1000, steps = 0;
+                nodingCrosses = 0; nodingConsecutiveSplits = 0;
                 while (pending.Count > 0) {
                     if ((++steps & 255) == 0) cancel.ThrowIfCancellationRequested();
                     long made = k.VertexCount - (k.N + 1);
-                    if (made > vertexLimit || steps > 64L * (m + n + made) + 100000)
+                    long crossLimit = 64L * (m + n + made) + 100000;
+                    long splitRunLimit = 2L * (n + made) + 1000;
+                    if (made > vertexLimit || nodingCrosses > crossLimit || nodingConsecutiveSplits > splitRunLimit)
                         return Fail(Triangulation2FailureKind.NodingLimit, null, "noding did not settle: " + made + " vertices made in " + steps + " steps");
                     var piece = pending.Pop();
+                    if (StallNodingModeForTests == 1) { ++nodingConsecutiveSplits; pending.Push(piece); continue; }
+                    if (StallNodingModeForTests == 2) { ++nodingCrosses; nodingConsecutiveSplits = 0; pending.Push(piece); continue; }
                     var failure = InsertPiece(piece, pending);
                     if (failure != null) return failure;
                 }
                 return null;
             }
+
+            long nodingCrosses, nodingConsecutiveSplits;
+            /// <summary> tests only: 1 = simulate an endless split run, 2 = simulate endless crossings; verifies NodingLimit still stops runaways </summary>
+            [ThreadStatic] internal static int StallNodingModeForTests;
 
             /// <summary> v is within the tolerance of the open segment u-w and of every source of the piece </summary>
             bool Near(int v, int u, int w, List<int> src)
@@ -616,6 +628,7 @@ namespace g3
 
             void Split(int v, Piece piece, Stack<Piece> pending)
             {
+                ++nodingConsecutiveSplits;
                 pending.Push(new Piece { U = v, W = piece.W, Sources = piece.Sources });
                 pending.Push(new Piece { U = piece.U, W = v, Sources = new List<int>(piece.Sources) });
             }
@@ -623,7 +636,7 @@ namespace g3
             internal ConstrainedTriangulation2Result InsertPiece(Piece piece, Stack<Piece> pending)
             {
                 int u = piece.U, w = piece.W;
-                if (u == w) return null;
+                if (u == w) { nodingConsecutiveSplits = 0; return null; }
                 int existing = k.FindEdge(u, w);
                 if (existing >= 0) {
                     if (k.Seg[existing] < 0) {
@@ -645,6 +658,7 @@ namespace g3
                         var list = k.Sources[k.Seg[existing]];
                         foreach (int src in piece.Sources) if (!list.Contains(src)) list.Add(src);
                     }
+                    nodingConsecutiveSplits = 0;
                     return null;
                 }
                 // the triangle at u whose wedge holds the direction to w
@@ -679,6 +693,7 @@ namespace g3
                 }
                 int edge = k.RecoverEdge(u, w, crossed);
                 k.SetConstraint(edge, k.NewConstraint(piece.Sources));
+                nodingConsecutiveSplits = 0;
                 return null;
             }
 
@@ -694,6 +709,8 @@ namespace g3
             /// <summary> the piece crosses the constrained edge of half-edge h: split both at the rounded crossing </summary>
             ConstrainedTriangulation2Result Cross(Piece piece, int h, Stack<Piece> pending)
             {
+                ++nodingCrosses;
+                nodingConsecutiveSplits = 0;
                 int u = piece.U, w = piece.W, r = k.V[h], l = k.V[Next(h)];
                 var x = Intersection(k.Point(u), k.Point(w), k.Point(r), k.Point(l));
                 if (!resolve) return Fail(Triangulation2FailureKind.CrossingConstraints, x, "constraints cross and ResolveCrossings is off");
