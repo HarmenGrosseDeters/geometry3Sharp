@@ -218,8 +218,11 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(off.b.Counts["intersecting_pairs"], on.b.Counts["intersecting_pairs"]);
                 Assert.Equal(off.b.Counts["pieces"], on.b.Counts["pieces"]);
                 Assert.Equal(off.b.RoundingClean, on.b.RoundingClean);
+                Assert.True(on.b.RoundingClean, name + " " + op);
                 Assert.True(on.result.TriangleCount > 0);
-                Assert.Equal("", MeshRobustRepair.NotCleanReason(on.result));
+                // (clean up to contacts: since #1410 the rounding is to nearest, which leaves duplicated vertices of one exact point in this
+                // chain where the old truncation pulled them apart; see ResultChecks.AssertCleanExceptContacts)
+                ResultChecks.AssertCleanExceptContacts(on.result, name + " " + op);
             }
         }
 

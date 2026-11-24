@@ -178,7 +178,7 @@ namespace geometry3Sharp.Tests
             int c = sheet.AppendVertex(new Vector3d(4.1 - 3 * u, 4.3 - 3 * u, 2.5)), d = sheet.AppendVertex(new Vector3d(0.1 + 3 * u, 4.3 - 3 * u, 2.5));
             sheet.AppendTriangle(a, b, c);
             sheet.AppendTriangle(a, c, d);
-            var plain = new SolidBooleanPipeline(new List<DMesh3> { box, sheet }, D);
+            var plain = new SolidBooleanPipeline(new List<DMesh3> { box, sheet }, D) { AutomaticSteps = SolidBooleanPipeline.AutomaticStepModes.None };
             Assert.False(plain.Compute());
             AssertNone(plain);
             var p = new SolidBooleanPipeline(new List<DMesh3> { box, sheet }, D) { AutomaticSteps = SolidBooleanPipeline.AutomaticStepModes.Grid };

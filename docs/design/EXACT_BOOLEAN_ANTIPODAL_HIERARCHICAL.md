@@ -250,6 +250,8 @@ an edge (`boundary_edge_angle_x`) and θ_e its exact value, the terms are:
 | the rounding of /2π and of chi + bSum (u relative each) | `4e-15 (|chi| + |bSum|)`, about 18 times too large |
 | the rounding of the margin, and of the accumulation of err (n u relative, n visited terms) | the factor 1.01, valid while n u < 0.01 |
 
+Each clause of this table has a model in `tools/ErrorBoundAudit/bounds.py` (BT-1 to BT-6; margins in [the audit note](../research/ERROR_BOUND_AUDIT_2026-11.md)), checked with exact rationals and against doubles; the model agrees with the hand table (the tight clauses: A1 against 1e-14, 1.013 with the proof's constants below, 1.30 with the sharper count of 16u in step 4; `sumOrderErr`, 1.064). The analytic remainder, the cap geometry and the coordinate term of `coordEps` are not modelled.
+
 What the table rests on, and the 1e-9: the rows `1e-11 + 16 coordEps` and `1e-12 (hi - lo)` rest on **A1: for every edge
 of an accepted node, and for the chord, the computed angle T_e is within 1e-14 of its exact value** (the code charges
 1e-12 per edge: a margin of 100). A1 is proved below for the edges of an accepted node, which `node_query` restricts to the fast
@@ -306,6 +308,31 @@ states no bound), so it is a measured assumption: `MathAtan2_IsWithinTwoUlpOfThe
 Taylor series over 2^-220) and asserts ≤ 2 ulp; the largest seen on the CI-type Linux x64 runner is 1.0 ulp. A platform whose
 atan2 is worse fails that test and the 1e-14 test (then the 1e-12 charged per edge still holds up to 1e3 ulp).
 
+**Scope of A1 (#1427).** Proved: for the edges of an *accepted* node and the chord, the computed angle is within 1e-14 of the exact one
+(audit model BT-5 checks the arithmetic of the proof's constants: 9.87e-15; with the 16u that step 4 itself gives instead of the loose 22u: 7.7e-15). What makes the proof apply is the certificate (`fast_path_certificate`; the clause `ball_is_small`, `r < d/4`, gives the separation),
+not the fast path alone: the certificate keeps the two unit vectors of an edge within 2 asin(1/4) of each other, so p is at an angular
+distance of at least pi - 0.505 from every edge of the node, where `hypot(num, den) = |a||b| sqrt(2 (1 + U.V) x_u x_v)` is no smaller than
+1.93 times the size of the terms (the error of num and den is then a constant times u of that size). Not claimed: any edge on the fast path.
+For p near an edge, `1 + U.V` goes to 0 and the same steps 4 and 5 give an error of up to (pi / 2)(2 u S1 + 22 u S2) / hypot + 2 pi u +
+2 ulp, about 8e-15 / sin(theta / 2), that is 1.6e-14 / theta, for the angular distance theta of p from the edge (audit model BT-6): unbounded as theta goes to 0, and
+the exact zone (a sign guard) does not bound it. The leaf edges of the tree and the full sum evaluate the same function bit for bit, so the
+tree's decisions do not depend on this; it is an accuracy statement about the full sum (the value of `Evaluate`) for p near an open edge,
+which is being corrected on the branch `fix/exact-winding-open-edge-angle` (the fast formula stays where it is accurate).
+*The rescaled path* (`boundary_edge_angle_x_extreme`: `rescale_diff_2d`, `scaled_d_factor`, `rescale_pow2`) has no proof of A1: the steps 1 to
+5 are for the fast formulas (rounded differences, `da`, `db`, `den = da db + dotYZ` in doubles). The rescaled path computes `da` as
+`dVal * 2^dExp` with three branches (the exact cancellation-free value, `yz2 / (2 mx)` for a relative exponent above 60, `sqrt(yz2)` below
+-60, each an approximation of relative error below 2^-60 that the proof does not count), cuts the product at an exponent of 180 and the
+angle at 2^-100 (`on_vertex_angle_x`), has products that may be subnormal (the proof's underflow estimate uses `la, lb >= 0.75 * 2^-97`), and
+has an exact zone on rescaled products. A proof would have to give the error counts of those branches in the style of step 4, show that the
+cut-offs are below the 1e-14 (the angle of a cut is below 2^-100 against 1e-14: they are), and cover the subnormal range by an absolute term.
+What it would buy: a weaker certificate, without the clause `d in [2^-97, 2^99]`. Today the cost is at extreme magnitudes only. Measured on an
+open grid of 636 boundary edges (503 nodes), 40 queries per scale, scaled by 2^k (exact), counts per query (a one-off measurement; the test `TreeUse_ByScale_IsUpToAboutTwoToTheNinetyAndExactAboveAndBelow` in `ExactWindingCacheInternalTestsBoundaryTree.cs` reproduces the qualitative statement on the same grid: with 8 queries per scale, nodes accepted and no leaf edge at 2^0, 2^60, 2^90, 2^-90, no node accepted and every edge evaluated at 2^150, 2^200, 2^-100, 2^-150, no tree at 2^230, 2^500, 2^-300), counts per query: k = 0 to 90 accept 15 nodes and
+evaluate no leaf edge; k = 99: 14 accepted, 100 of 636 leaf edges; k = 100: 1 accepted, 618 leaf edges (almost every node fails the range
+clause); k = 150 and 200: 0 accepted, all 636 edges, the cost of the full sum plus the walk; k = 230 and 500: no tree (`Build` stops at
+`mMax > 1e65`); k = -90: as k = 0; k = -97: 493 leaf edges; k = -98 and -100: all 636; k = -300: no tree. So the tree is exact but of no
+use outside about 2^-97 to 2^99 of the scale of the data; the range clause is the only certificate clause that fails there (the yz clause
+did not fail in these runs). A tree below the range would also have to cover the squared-distance gates (`1e-140`, `1e140`) and `pm <= 1e70`.
+
 **Test power.** The oracle test of the proved bound does not fail without the certificate: outside it the edges stay accurate in
 the observed range (4000 edges behind p near the x axis and at scales 2^-130 .. 2^130, the rescaled path, have an error of at most
 3e-21, since the angles are tiny), so the certificate restricts the *proof*, not an observable error, and no oracle case can
@@ -318,7 +345,100 @@ sampled edge of accepted nodes (and the chord) with the exact one (integers over
 cancellation-free quotient for da) and asserts ≤ 1e-14; `EdgeAngle_ErrorIsBelowTheAssumedBound_OnAdversarialEdges` takes
 6300 adversarial edges outside the regime (a vertex within 1e-12 rad of the +x ray, p near the yz line of the edge, p near a
 vertex, yz 1e-5 .. 1e-45 of x, large offsets, scales 2^-90 .. 2^90): the largest error is 2.5e-15. That second test is evidence
-for the code outside the proof; the decision does not rest on it, because a node outside the certificate is not used.
+for the code outside the proof, for its families only (by construction p is not close to the edge in 3D there: an x offset of the size of
+the edge, so the growth of the error near an edge, above, is not in it); the decision does not rest on it, because a node outside the certificate is not used.
+
+**The accuracy of the edge angle (every edge, not only those of an accepted node).** `boundary_edge_angle_x(p, a, b)` returns
+T = atan2(num, den) with num = a_z b_y - a_y b_z and den = da db + a_y b_y + a_z b_z of the differences a - p, b - p, da = |a - p| - (a - p)_x,
+db = |b - p| - (b - p)_x. **For every p, a, b of the supported range, T differs from the exact atan2 of the exact num and den (of the exact
+differences of the doubles) by at most 2e-13; wherever the sign of num decides the side of the branch cut (den ≤ 1e-12 S2, S2 below) the sign of num is exact, so T is on the right side of the cut.** The bound is 1.2e-13 on
+the rounded path and 2e-15 on the accurate path below; the 2e-13 leaves a margin for the library's `Math.Atan2` (assumed within 2 ulp of the
+result, as in step 5 above) and for the second-order terms. The limit cases keep their definition: p on a vertex, p on the open edge, and p on the yz line
+of the edge (exact num = 0) are decided as before (`on_vertex_angle_x`, `on_open_edge_angle_x`, `edge_angle_on_yz_line_x`).
+
+The proof of A1 above covers the edges of an accepted node, where the cancellation of den cannot happen; it does not cover an edge
+for which p is near the open segment (a, b). With A = a - p, B = b - p, u = A/|A|, v = B/|B| (unit vectors), da = |A|(1 - u_x), db = |B|(1 - v_x) and
+dotYZ = |A||B| (u·v - u_x v_x), so that den = |A||B| (1 - u_x - v_x + u·v) and num = ±|A||B| (u×v)_x, the identity of step 2 below gives
+hypot(num, den) = |A||B| sqrt(2 (1 + u·v)(1 - u_x)(1 - v_x)) (checked numerically). The terms of den are of the size S2 ≈ |A||B| ((1 - u_x)(1 - v_x) + |u_yz||v_yz|);
+den (and with it hypot(num, den) relative to S1 + S2) cancels only where 1 + u·v ≈ 0, that is where A and B are antiparallel **in 3D**, p near
+the open segment (a, b) (p almost on the line of the edge is not enough: p = (-10, 0, 0), a = (0, 1, 0), b = (0, -1, 0) has the yz parts exactly antiparallel
+and den = -0.9975, no cancellation; the other factors, 1 - u_x and 1 - v_x, shrink S1 and S2 as fast as hypot). There den = da db + dotYZ cancels: da db is about
+|yz_a||yz_b| and dotYZ about -|yz_a||yz_b|, the rounding of the two terms is 1e-16 |yz_a||yz_b|, while hypot(num, den) = theta |a||b| sqrt(x_u x_v)
+(theta the angular distance of p from the edge), so the error of the rounded angle grows like 1e-16 / theta (7e-15 at theta = 1e-2, 2e-9 at 1e-7,
+0.15 rad at 1e-15, before the fix). The second reason for the accurate path is the branch cut: where den ≤ 1e-12 S2 and |num| ≤ 1e-12 S1 (p near the yz line of
+the edge, the edge in front of p along +x) the sign of the rounded num is not certain, and a wrong sign is an error of 2π. The fix is a test in the one function that both the full sum and the tree use (`finish_edge_angle`), and an
+accurate evaluation behind it (`accurate_edge_angle_x`).
+
+*The test.* Let S1 = |p1| + |p2| and S2 = da db + |a_y b_y| + |a_z b_z| (p1 = a_y b_z, p2 = a_z b_y: the sizes of the terms, computed; S1 and S2 are the
+quantities of the old zone test), and u = 2^-53. Rounded evaluation, each rounded difference ax, ay, ..., bz with relative error at most u:
+
+- num: p1, p2 are one product each of two rounded differences, relative error at most 3u; num = fl(p2 - p1): |Δnum| ≤ 3u S1 + u |num| ≤ 4u S1.
+- da: yz² = ay² + az² has at most 4u (two squares at 3u, one sum), |a|² = ax² + yz² at most 5u, la = sqrt(|a|²) at 3.5u. For ax > 0, da = yz²/(la + ax): la + ax at
+  4.5u, the quotient at 9.5u; for ax ≤ 0, da = la + |ax| at 4.5u. So da and db have at most 9.5u. (The extreme path, `scaled_d_factor`, has the same
+  bounds plus a truncation of at most 2^-59 relative where |ax| < 2^-59 |yz| and 2^-120 where |ax| > 2^60 |yz|; both are below 0.02u.)
+- den: p = fl(da db) at 20u; dotYZ with an absolute error of 3u T + u |dotYZ| ≤ 4u T (T = |a_y b_y| + |a_z b_z|); den = fl(p + dotYZ):
+  |Δden| ≤ 20u p + 4u T + u |den| ≤ 21.1u S2. (The 22u S2 of step 4 above is this bound with the rounding of the differences counted differently;
+  22.1u S2 is used below.)
+
+With Δ = (Δnum, Δden), |Δ| ≤ hypot(4.01u S1, 22.1u S2) ≤ 22.1u (S1 + S2). The exact (num, den) is within |Δ| of the computed pair; if |Δ| < hypot(num, den) = R,
+the two vectors are at an angle of at most asin(|Δ|/R) ≤ 1.0001 |Δ|/R (for |Δ|/R ≤ 0.01), and atan2 is the angle of the vector. The code keeps the rounded
+evaluation when **|num| + |den| ≥ 2^-5 (S1 + S2)**. Since R ≥ (|num| + |den|)/sqrt 2, this gives R ≥ 0.0221 (S1 + S2), |Δ|/R ≤ 22.1 · 1.11e-16 / 0.0221 = 1.11e-13, and the
+rounded angle is within 1.12e-13 of the exact one, plus 2 ulp of Atan2 (8.9e-16): 1.2e-13. The constant 2^-5 is the choice that keeps a factor 1.6 of margin
+to the 2e-13 stated above and leaves the rounded path to every edge whose cancellation is less than a factor 45 (the bit-identity test samples 40000 random edges and finds more than 35000 of them on the rounded path even at the stricter 2^-4). The
+comparison is `an + |den| < 2^-5 (s1 + s2)` (strict: equality would be a first-order tie that either path answers within the bound). Underflow: in the fast path |yz| ≥ 2^-200,
+so S1 + S2 ≥ 2^-400 and the rounding of a subnormal product (2^-1075) is 2^-675 relative; in the extreme path the rescaled yz has a component in [1, 2),
+S1 + S2 ≥ 1, and the truncation of `prod` below 2^-180 is at most 2^-175. No absolute floor is needed, and the decision is invariant under positive 2^k scaling (all
+quantities scale exactly).
+
+The second clause of the old zone test is kept: if den ≤ 1e-12 S2 and |num| ≤ 1e-12 S1 (the branch cut: the sign of the computed num is not certain), the evaluation is the accurate one.
+Where the rounded path is taken and den ≤ 1e-12 S2, |num| > 1e-12 S1 ≫ 4u S1, so the sign of num is that of the exact num, and T is on the right side of the cut:
+the sign of num is exact where it matters. Where den is clearly positive, the rounded path may carry the wrong sign of a tiny rounded num; the angle is then within 1e-13 of 0
+and the bound above covers it (the sign is not claimed there).
+
+*The accurate path.* The six differences are computed exactly (`ExactDyadic`) and placed on a common integer grid. num and dotYZ are exact integers. If num = 0 the
+old exact-predicate logic decides (0 when dotYZ ≥ 0, else the exact Orient2d in xy and `EdgeSignX`, or the open-edge limit). Otherwise den = da db + dotYZ is not a polynomial;
+da db is computed from integer square roots at k extra bits: la_k = isqrt(|a|² 2^2k) = |a| 2^k - ε1, ε1 in [0, 1), da_k = floor(yz² 2^2k / (la_k + ax 2^k)) for ax > 0 and la_k - ax 2^k otherwise.
+Then |da_k - da 2^k| ≤ 2: for ax > 0 the denominator of the quotient is off by less than 1 against la 2^k ≥ da 2^k (la ≥ 1 on the grid), which moves the quotient by less than 1, and the floor adds at most 1.
+den_k = da_k db_k + dotYZ 2^2k has |den_k - den 2^2k| ≤ 2 db_k + 2 (da_k + 2) ≤ 2 (da_k + db_k) + 4. k = 70 + max(0, bits(L) + 2 - bits(num)) with bits(L) the larger bit length of |a|, |b|
+(floor of the square roots, from (bits(aa) + 1) / 2 of the squared lengths) is enough for every input, without a check: da, db ≤ 2 L < 2^bits(L) 2, so da_k + db_k ≤ 4 L 2^k + 4 and the error is below 2^(bits(L) + 3 + k) + 16,
+while |num| 2^2k 2^-62 ≥ 2^(bits(num) - 1 + 2k - 62) ≥ 2^(k + bits(L) + 9) (k ≥ 70 + bits(L) + 2 - bits(num)), 2^6 times the error even for |num| tiny against den. So the absolute error of den is at most
+2^-62 |num| ≤ 2^-62 R. (An earlier version looped, raising k by 32 until this held; the derivation shows the loop never runs, so it was removed and a `Debug.Assert` states the inequality.) Both are converted to doubles with the same power of two (correct rounding by
+`ExactDyadic.Quotient`: the same bits on every runtime), at most 1.2e-16 relative each, and the angle is the atan2 of the pair: the error of the angle is at most 1.0001 · 2^-62 + 1.2e-16 + 8.9e-16
+(Atan2) ≤ 2e-15. If |num| underflows against |den| (a ratio below 2^-2074), its sign is kept (the smallest subnormal with the sign of num): the angle is then ±π or ±0 within 1e-600.
+Cost: one evaluation with integers of a few hundred to a few thousand bits per call, about 10 us (benchmarks/ExactWindingBenchmark/README.md), only for the edges below the test. A point exactly on the yz line of the edge (exact num = 0, Orient2d) does not enter it: the sign of dotYZ is exact from the signs of the coordinate differences (the yz parts are collinear, so ay by and az bz both have the sign of the same factor), and `edge_angle_on_yz_line_x` decides the limit.
+
+*Why no tree decision changes.* The edges of an accepted node and the chord are on the rounded path before and after, with the same bits. First clause: step 2 above gives
+hypot(num, den) ≥ 1.93 la lb sqrt(x_u x_v) and S1 + S2 ≤ 6 la lb sqrt(x_u x_v), so (|num| + |den|) / (S1 + S2) ≥ hypot / (S1 + S2) ≥ 0.32; the code tests (|num| + |den|) against 2^-5 (S1 + S2) = 0.03125 (S1 + S2),
+so the proved factor on the tested quantity is 0.32 / 0.03125, about 10 (it is not 0.32 against 0.0221, which is a bound on hypot, not the quantity compared; an independent review sampled
+400k accepted-node configurations and found (|num| + |den|) / (S1 + S2) ≥ 0.4976). This separation comes from `ball_is_small` (r < d/4, which gives 1 + U·V ≥ 1.87 in step 1);
+`fast_path_certificate` only fixes the regime (the fast path, the yz parts nonzero). The computed sums differ from the exact ones by 1e-13 relative, far below the factor 10.
+Second clause (branch cut): it does not fire because step 2 shows that either |φ| ≥ 1e-6, and then |num| ≥ 1e-6 S1 > 1e-12 S1, or |φ| < 1e-6 (the yz part of the edge radial: num can be 0), and then den ≥ 0.999 S2 > 1e-12 S2;
+the clause needs both |num| ≤ 1e-12 S1 and den ≤ 1e-12 S2. The leaf edges and the full sum call the same function. What changes are the edges within a factor of 45 of cancellation, where
+the old value was wrong by up to O(1): the margin of the tree compares the tree with the full sum, and both now contain the improved value.
+
+*What this means for a decision.* The winding number of an open surface jumps by 1 across the surface and is continuous around an open edge. For a point p that is **not on a triangle of the mesh**
+the boundary sum Σ weight · T / 2π is within |∂M| · 2e-13 / 2π (plus the rounding of the accumulation) of the exact generalized winding number of the mesh,
+and `IsInsideBatch` / `EvaluateAbove` decide `w > iso` from it: the decision is exact whenever |w_exact - iso| exceeds that error. The exact integers on closed meshes are also those of points off the surface.
+For a point exactly on a triangle of the mesh the statement does not hold; see the next part.
+
+*A point exactly on a triangle (not changed here, a known open point).* For a point p exactly on a triangle T, `tri_on_surface_correction` replaces the own-triangle term of the perturbed
+evaluation by an exact hemisphere (+0.5 or -0.5) minus `safe_tri_solid_angle(a, b, c, p) / 4π`, that is `MathUtil.TriSolidAngle`, **in floating point**. For p in the plane of T the exact determinant of
+that solid angle is 0 and its denominator is negative: p is exactly at the branch cut of the arctangent, so the own-triangle term is +0.5 or -0.5 by the sign of a *rounded* determinant, and near an edge of T the denominator cancels.
+Neither the value nor the side is guaranteed there; this is independent of the accurate edge angle (the same numbers on master and on this branch) and holds on closed meshes too. Reproducer: the closed tetrahedron
+a = (0.25, 0.75, 0.625), b = (-1, -0.5, -1.25), c = (0.75, -1.25, 0.125), e = (0.1, -0.2, 3), triangles (0, 2, 1), (0, 1, 3), (1, 2, 3), (2, 0, 3); p = (-0.21875 + d, 0.28125 - d, x + 0.5 y) with x, y its first two coordinates,
+which is exactly on the face abc (`Orient3d` = 0) at distance of the order of d from the edge ab:
+
+| d | `WindingNumber` | `IsInsideBatch(ExactWindingNumber)` | `IsInsideBatch(Crossings)` |
+|---|---|---|---|
+| 1e-3 | 5.2e-15 | Outside | Outside |
+| 1e-10 | 1.0 | Inside | Outside |
+| 1e-12 | 0.99999482 | Inside | Outside |
+| 1e-13 | 5.2e-5 | Outside | Outside |
+| 1e-16 | 0.026 | Outside | Outside |
+
+(By the convention of the on-surface correction, the solid-angle sum, a point on a face of a closed mesh has the value 0.5; none of the values above is that. The five values of d give points with `Orient3d(a, b, c, p) = 0` exactly, checked with the exact predicate.) The planar cases of the tests of this
+note (a triangle in the plane x = 0, where the rounded determinant is exactly 0) do not show it. A fix belongs to the on-surface correction (an exact own-triangle term for p in the plane of T, a decision on the exact
+sign of the determinant and an accurate angle near an edge of T), a change of its own.
 
 Notation: u = 2^-53 ≈ 1.1e-16. Every quantity is in the mesh's scaled grid units, the units of `FarPoints.Segments`.
 The names are those of the code: `AntipodalTree`, `antipodal_tree_value`, `tree_term`, `tree_decides`.

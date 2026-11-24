@@ -1511,7 +1511,7 @@ namespace g3
         /// triangle (L3, docs/design/EXACT_BOOLEAN_TAIL_55928.md, section 4): the second filter of Orient and InCircle in
         /// the triangulation, where the points are close together against their distance from the origin and the
         /// approximations' absolute errors exceed their distances. Each coordinate is the exact difference x - o,
-        /// rounded once (ExactPoint3.ToDouble: a 64-bit truncated quotient, then the conversion to double), so its error
+        /// rounded once (ExactPoint3.ToDouble: to nearest since #1410, a 64-bit truncated quotient before), so its error
         /// is below 2^-52 of its magnitude; o cancels exactly in both determinants, which are polynomials in the
         /// differences of the points. Computed when a point first needs it; one instance per triangle and thread.
         /// </summary>
@@ -3566,7 +3566,9 @@ namespace g3
             }
         }
 
-        static void merge_runs(long[] c, int[] o, long[] dc, int[] dord, int lo, int mid, int hi)
+        // (internal for DeterminismStage1ObligationTests.MergeRuns_EqualCodes_GoByBoxIndex: the sort calls it with runs of ascending index ranges,
+        // where the index tie-break never decides; it is what makes the merge a total order on any two runs)
+        internal static void merge_runs(long[] c, int[] o, long[] dc, int[] dord, int lo, int mid, int hi)
         {
             int i = lo, j = mid, k = lo;
             while (i < mid && j < hi) {
