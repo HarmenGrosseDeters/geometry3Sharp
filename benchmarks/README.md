@@ -46,6 +46,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [SolidifyBenchmark](SolidifyBenchmark/README.md) | Time and result hashes for `MeshWindingNumberSolidify` |
 | [ReducerBenchmark](ReducerBenchmark/README.md) | Cost of certified deviation bounds (`Reducer.MaxDeviation`, `TriangleDeviationBounds`) and fold-over checks |
 | [ReducerRemesherBaseline](ReducerRemesherBaseline/README.md) | Milestone baseline harness for `Reducer` and `Remesher` |
+| [ParallelTinyLoops](ParallelTinyLoops/README.md) | Crossover of `gParallel` loops against plain loops and the inline-first Small loops (#1502), alone and with a busy thread pool |
 | [RemeshBenchmark](RemeshBenchmark/README.md) | `Remesher` vs. `RemesherPro` under internal library caller settings |
 | [RemeshPreventBenchmark](RemeshPreventBenchmark/README.md) | Cost and result hashes of `Remesher.PreventSelfIntersections` |
 | [RemeshQualityBenchmark](RemeshQualityBenchmark/README.md) | Quality and timing impact of `Remesher.MinTriangleQuality` and `ApplySafePreset()` |
