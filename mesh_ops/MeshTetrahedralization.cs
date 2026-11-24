@@ -106,8 +106,11 @@ namespace gs
         /// area-weighted input samples (h the size at the sample), graded with a slope of 0.25, never above the uniform alpha and never below
         /// max(alpha / 4, 3 offsets), so sizes below about 0.4 alpha are not followed. Costs one more wrap and more boundary triangles (measured on
         /// four procedural shapes at h = diagonal / 40 and / 60: 1.1-2.2x the time, 1.03-1.14x the tets). Counts["boundary_size_fine_samples"] says how many samples got a finer alpha;
-        /// Counts["boundary_size_wrap_failed"] = 1 if that wrap failed (the uniform wrap is then meshed). Combines with MaxSurfaceDeviation
-        /// (the smaller alpha wins). Off (the default) or without TargetEdgeLength / SizeFunction (GradingFactor already starts at the
+        /// Counts["boundary_size_wrap_failed"] = 1 if that wrap failed (the uniform wrap is then meshed, and MaxSurfaceDeviation starts from it as without
+        /// this option). The wrap keeps the surface angle refinement (SurfaceMinAngleDegrees; without it the boundary triangles get worse and with them the
+        /// tets on them). If the result misses the dihedral target, Compute() runs once more with half the gradation, as for MaxSurfaceDeviation
+        /// (Counts["local_alpha_retry"]). Combines with MaxSurfaceDeviation: its passes start from these alphas (the smaller alpha wins), and
+        /// Counts["local_alpha_fine_samples"] then counts only the samples it refined beyond them. Off (the default) or without TargetEdgeLength / SizeFunction (GradingFactor already starts at the
         /// wrap's own spacing) or without input triangles: the output as before, bit for bit.
         /// </summary>
         public bool BoundaryFollowsSize = false;
@@ -276,15 +279,29 @@ namespace gs
             if (pos.Length == 0 || !(aMin > 0) || !(aMin < a0))
                 return true;
             var aj = new double[pos.Length];
-            for (int i = 0; i < aj.Length; ++i) aj[i] = sizeAlphas != null && sizeAlphas.Length == aj.Length ? Math.Min(a0, Math.Max(aMin, sizeAlphas[i])) : a0;   // BoundaryFollowsSize: start from its alphas
+            // BoundaryFollowsSize: start from its alphas (the wrap measured first is the size's); then only samples refined beyond them count, and a
+            // pass that refines none does not wrap again (its field would be the one already wrapped)
+            bool seeded = sizeAlphas != null && sizeAlphas.Length == aj.Length;
+            for (int i = 0; i < aj.Length; ++i) aj[i] = seeded ? Math.Min(a0, Math.Max(aMin, sizeAlphas[i])) : a0;
             AlphaSizeField field = null;
             int executed = 0;
+            long refined = 0;
             for (int pass = 0; pass < passes; ++pass) {
                 var tree = new DMeshAABBTree3(wrap.Result, true);
+                long changed = 0;
                 for (int i = 0; i < pos.Length; ++i) {
                     if ((i & 255) == 0 && CancelF()) { localCancelled = true; return false; }
                     tree.FindNearestTriangle(pos[i], out double d2);
-                    aj[i] = NextAlpha(aj[i], Math.Sqrt(d2), tol, aMin);
+                    double next0 = NextAlpha(aj[i], Math.Sqrt(d2), tol, aMin);
+                    if (next0 < aj[i]) changed++;
+                    aj[i] = next0;
+                }
+                if (seeded) {
+                    if (changed == 0) break;
+                    // the samples refined beyond the size alphas, thinned as AlphaSizeField.FineSamples (the unit of the count without the size)
+                    var beyond = new double[aj.Length];
+                    for (int i = 0; i < aj.Length; ++i) beyond[i] = aj[i] < Math.Min(a0, Math.Max(aMin, sizeAlphas[i])) ? aj[i] : a0;
+                    refined = new AlphaSizeField(pos, beyond, a0, aMin, gradation).FineSamples;
                 }
                 field = new AlphaSizeField(pos, aj, a0, aMin, gradation);
                 if (field.FineSamples == 0)
@@ -302,7 +319,7 @@ namespace gs
                 wrap = next;
                 executed++;
             }
-            localAlphaPasses = executed; localFineSamples = field == null ? 0 : field.FineSamples;
+            localAlphaPasses = executed; localFineSamples = seeded ? refined : field == null ? 0 : field.FineSamples;
             return true;
         }
         // BoundaryFollowsSize: the alphas of the input samples (BoundaryAlphaPerSize * size, clamped), also the start of RefineAlpha; null = none
@@ -338,11 +355,15 @@ namespace gs
             var field = new AlphaSizeField(pos, aj, a0, aMin, gradation);
             sizeFineSamples = field.FineSamples;
             if (field.FineSamples == 0) return true;
+            // (with the surface angle refinement, unlike MaxSurfaceDeviation: without it the boundary triangles of the box and the twisted bar of the
+            // research note reach a radius-edge of 4 and the tets above the bound rise 4-5x; the field is constant on the surface for a uniform size,
+            // and a dihedral miss from the steps of a graded one gets the retry of Compute())
             MeshAlphaWrap next = MakeWrap(field.At, surfaceAngle);
-            if (LocalWrapMaxSteinerPoints > 0) next.MaxSteinerPoints = LocalWrapMaxSteinerPoints;
+            int cap = SizeWrapMaxSteinerPoints > 0 ? SizeWrapMaxSteinerPoints : LocalWrapMaxSteinerPoints;
+            if (cap > 0) next.MaxSteinerPoints = cap;
             bool ok = next.Compute();
             if (next.Status == MeshAlphaWrap.WrapStatus.Cancelled) { wrap = next; return false; }
-            if (!ok || next.Status != MeshAlphaWrap.WrapStatus.Success) { sizeWrapFailed = true; return true; }
+            if (!ok || next.Status != MeshAlphaWrap.WrapStatus.Success) { sizeWrapFailed = true; sizeAlphas = null; return true; }   // the uniform wrap, also for MaxSurfaceDeviation
             wrap = next;
             return true;
         }
@@ -359,14 +380,17 @@ namespace gs
         long localAlphaPasses, localFineSamples;
         bool localRan;
         long localWrapFailedStatus;
-        /// <summary> (tests) a point limit for the refined wraps of the local alpha, to force their failure; 0 = the wrap's default </summary>
+        /// <summary> (tests) a point limit for every refined wrap (the passes of MaxSurfaceDeviation and the wrap of BoundaryFollowsSize), to force their
+        /// failure; 0 = the wrap's default. SizeWrapMaxSteinerPoints, if above 0, replaces it for the BoundaryFollowsSize wrap alone </summary>
         internal int LocalWrapMaxSteinerPoints;
+        /// <summary> (tests) a point limit for the BoundaryFollowsSize wrap alone (0 = LocalWrapMaxSteinerPoints) </summary>
+        internal int SizeWrapMaxSteinerPoints;
         /// <summary> (tests) the gradation slope of the first run and of the retry (0 if there was none) </summary>
         internal double GradationFirst, GradationRetry;
         bool localCancelled;
 
         /// <summary>
-        /// Runs the pipeline. With MaxSurfaceDeviation, if the result misses the dihedral target (Targets.MinDihedralMet is false: the size jumps of
+        /// Runs the pipeline. With a local alpha (MaxSurfaceDeviation, or BoundaryFollowsSize when its wrap was refined), if the result misses the dihedral target (Targets.MinDihedralMet is false: the size jumps of
         /// the local alpha can cost the floor on a few meshes, 17.13), (and Improve is on: the target is about the improved mesh) it runs once more with half the gradation slope (0.125, a smoother field) and keeps
         /// the result that meets the target, else the one with the larger smallest dihedral angle (Counts["local_alpha_retry"] = 1, and "local_alpha_retry_kept" = 1 if the
         /// second was kept); the target is checked on the output as ever, so a miss is reported in Targets, never silent.
@@ -376,7 +400,8 @@ namespace gs
             gradation = LocalAlphaGradation;
             RetryFirstWorstMinDihedral = double.NaN; GradationFirst = gradation; GradationRetry = 0;
             bool ok = ComputeOnce();
-            if (!(MaxSurfaceDeviation > 0) || !Improve || Result == null || Targets == null || Targets.MinDihedralMet || localFineSamples == 0)
+            bool graded = (localRan && localFineSamples > 0) || (sizeRan && sizeFineSamples > 0 && !sizeWrapFailed);
+            if (!graded || !Improve || Result == null || Targets == null || Targets.MinDihedralMet)
                 return ok;
             // keep the first run, try the smoother field
             var first = (Result, Targets, Counts, Status, WrapStatus, Wrap, UsedAlpha, UsedOffset, UsedFloor, InvalidSizeSamples, DiagnosticLines, localAlphaPasses, localFineSamples, localRan, ok);

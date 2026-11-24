@@ -42,6 +42,15 @@ namespace geometry3Sharp.Tests
             Assert.Equal(tm.Result.Tets.Count, tm.Targets.Tets);
         }
 
+        // an L of two overlapping boxes (a soup; x and y in [0, 1]): its concave corner is bridged by the wrap, so MaxSurfaceDeviation has work there
+        static DMesh3 LShape()
+        {
+            DMesh3 a = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(0.5, 0.125, 0.125), new Vector3d(0.5, 0.125, 0.125)) }.Generate().MakeDMesh();
+            DMesh3 b = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(0.125, 0.5, 0.125), new Vector3d(0.125, 0.5, 0.125)) }.Generate().MakeDMesh();
+            new MeshEditor(a).AppendMesh(b);
+            return a;
+        }
+
         static double MeanBoundaryEdge(TetMesh3 t)
         {
             double sum = 0; int n = 0;
@@ -144,7 +153,7 @@ namespace geometry3Sharp.Tests
                 Assert.True(Go(tm)); AssertGood(tm);
                 return tm;
             };
-            MeshTetrahedralization atFloor = run(aMin / MeshTetrahedralization.BoundaryAlphaPerSize);
+            MeshTetrahedralization atFloor = run(aMin * (1 - 1e-12) / MeshTetrahedralization.BoundaryAlphaPerSize);   // (just below: 0.6 * (aMin / 0.6) need not round back to aMin)
             MeshTetrahedralization tiny = run(1e-6 * aMin);
             Assert.True(atFloor.Counts["boundary_size_fine_samples"] > 0);
             Assert.Equal(atFloor.Result.Vertices, tiny.Result.Vertices);
@@ -182,18 +191,101 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void WithMaxSurfaceDeviation_BothFieldsApply_AndTheResultIsGood()
         {
+            // the size covers only x > 0.5 (one arm of the L); the deviation (tolerance raised to 2 offsets) must refine beyond the size alphas at the
+            // concave corner (measured: 1468 samples, 678 without the size)
+            DMesh3 input = LShape();
+            double h = Diagonal(input) / 24;
+            Func<Vector3d, double> f = p => p.x > 0.5 ? h : double.NaN;
+            var dev = new MeshTetrahedralization(input) { RelativeAlpha = 12, RescuePasses = 0, Improve = false, SizeFunction = f, MaxSurfaceDeviation = 1e-9 };
+            Assert.True(Go(dev)); AssertGood(dev);
+            var both = new MeshTetrahedralization(input) { RelativeAlpha = 12, RescuePasses = 0, Improve = false, BoundaryFollowsSize = true, SizeFunction = f,
+                MaxSurfaceDeviation = 1e-9 };
+            Assert.True(Go(both)); AssertGood(both);
+            Assert.True(both.Counts["boundary_size_fine_samples"] > 0);
+            Assert.True(both.Counts["local_alpha_fine_samples"] > 0 && both.Counts["local_alpha_passes"] >= 1,
+                both.Counts["local_alpha_fine_samples"] + " samples refined beyond the size, " + both.Counts["local_alpha_passes"] + " passes");
+            // only the refinement beyond the size counts (the corner, which the size does not cover): about what the deviation alone refines there
+            Assert.InRange(both.Counts["local_alpha_fine_samples"], 1, (long)(1.2 * dev.Counts["local_alpha_fine_samples"]));
+            // the size's half is finer than with the deviation alone, and fewer tets are above the bound
+            Func<TetMesh3, double> sizedHalf = t => {
+                double sum = 0; int n = 0;
+                foreach (Index3i q in t.BoundaryTriangles) {
+                    Vector3d c = (t.Vertices[q.a] + t.Vertices[q.b] + t.Vertices[q.c]) / 3;
+                    if (c.x < 0.8) continue;
+                    sum += t.Vertices[q.a].Distance(t.Vertices[q.b]); n++;
+                }
+                return sum / n;
+            };
+            Assert.True(sizedHalf(both.Result) < 0.9 * sizedHalf(dev.Result), sizedHalf(both.Result) + " vs " + sizedHalf(dev.Result));
+            Assert.True(both.Targets.TetsAboveRadiusEdge < dev.Targets.TetsAboveRadiusEdge, both.Targets.TetsAboveRadiusEdge + " vs " + dev.Targets.TetsAboveRadiusEdge);
+        }
+
+        [Fact]
+        public void WithMaxSurfaceDeviation_ThatTheSizeAlreadyMeets_NoDeviationWrapRuns()
+        {
+            // a loose tolerance (half the diagonal) that the size's wrap already meets: no sample is refined beyond the size alphas, so the
+            // deviation pass neither wraps again nor reports work
             DMesh3 input = TetMeshingStage2Tests.Input("box");
             double h = Diagonal(input) / 24;
-            // (the deviation pass meshes without the surface angle refinement: compare with the deviation alone, not with the size alone)
+            var both = new MeshTetrahedralization(input) { RelativeAlpha = 12, RescuePasses = 0, Improve = false, BoundaryFollowsSize = true, TargetEdgeLength = h,
+                MaxSurfaceDeviation = 0.5 * Diagonal(input) };
+            Assert.True(Go(both)); AssertGood(both);
+            Assert.Equal(0, both.Counts["local_alpha_fine_samples"]);
+            Assert.Equal(0, both.Counts["local_alpha_passes"]);
+        }
+
+        [Fact]
+        public void AFailedFollowingWrap_WithMaxSurfaceDeviation_TheDeviationStartsFromTheUniformWrap()
+        {
+            // the size's wrap fails (its own point limit), the deviation wraps do not: the result is that of MaxSurfaceDeviation without the option
+            DMesh3 input = LShape();      // (the deviation has work here, so seeding it with the failed wrap's alphas would change the result)
+            double h = Diagonal(input) / 24;
             var dev = new MeshTetrahedralization(input) { RelativeAlpha = 12, RescuePasses = 0, Improve = false, TargetEdgeLength = h, MaxSurfaceDeviation = 1e-9 };
             Assert.True(Go(dev)); AssertGood(dev);
             var both = new MeshTetrahedralization(input) { RelativeAlpha = 12, RescuePasses = 0, Improve = false, BoundaryFollowsSize = true, TargetEdgeLength = h,
-                MaxSurfaceDeviation = 1e-9 };   // (raised to 2 offsets: refine wherever the wrap is farther than that)
+                MaxSurfaceDeviation = 1e-9, SizeWrapMaxSteinerPoints = 5 };
             Assert.True(Go(both)); AssertGood(both);
-            Assert.True(both.Counts["boundary_size_fine_samples"] > 0 && both.Counts["local_alpha_fine_samples"] > 0);
-            // the deviation pass starts from the size's alphas: a finer boundary and fewer tets above the bound than the deviation alone
-            Assert.True(MeanBoundaryEdge(both.Result) < 0.9 * MeanBoundaryEdge(dev.Result), MeanBoundaryEdge(both.Result) + " vs " + MeanBoundaryEdge(dev.Result));
-            Assert.True(both.Targets.TetsAboveRadiusEdge < dev.Targets.TetsAboveRadiusEdge, both.Targets.TetsAboveRadiusEdge + " vs " + dev.Targets.TetsAboveRadiusEdge);
+            Assert.Equal(1, both.Counts["boundary_size_wrap_failed"]);
+            Assert.Equal(dev.Result.Vertices, both.Result.Vertices);
+            Assert.Equal(dev.Result.Tets, both.Result.Tets);
+            Assert.True(dev.Counts["local_alpha_fine_samples"] > 0);
+            Assert.Equal(dev.Counts["local_alpha_fine_samples"], both.Counts["local_alpha_fine_samples"]);
+        }
+
+        [Fact]
+        public void SteppedSizeFunction_WithStageTwo_MeetsTheDihedralTarget()
+        {
+            // a size that jumps by 3x across x = 0.5 (a graded local alpha with steps): the improved result meets the dihedral target, with the
+            // half-gradation retry of Compute() if the first run misses it
+            DMesh3 input = TetMeshingStage2Tests.Input("box");
+            double h = Diagonal(input) / 30;
+            var tm = new MeshTetrahedralization(input) { RelativeAlpha = 12, RescuePasses = 0, BoundaryFollowsSize = true,
+                SizeFunction = p => p.x > 0.5 ? h : 3 * h };
+            Assert.True(Go(tm)); AssertGood(tm);
+            Assert.True(tm.Counts["boundary_size_fine_samples"] > 0);
+            Assert.True(tm.Targets.MinDihedralMet, tm.Targets.WorstMinDihedral + " degrees, retry " + (tm.Counts.ContainsKey("local_alpha_retry") ? "ran" : "not run"));
+            TetMeshingStage2Tests.Invariants(tm);
+        }
+
+        [Fact]
+        public void MissedDihedralTarget_TheSizePathRunsOnceMoreWithHalfTheGradation()
+        {
+            // a 20 degree target that one improve pass cannot reach (as the retry tests of MaxSurfaceDeviation): with the option the run is repeated
+            // with half the gradation of the size field, the target stays reported as missed; without it (no local alpha) there is no second run
+            DMesh3 input = TetMeshingStage2Tests.Input("box");
+            double h = Diagonal(input) / 24;
+            Func<bool, MeshTetrahedralization> make = follow => new MeshTetrahedralization(input) { RelativeAlpha = 12, RescuePasses = 0, ImprovePasses = 1,
+                SliverDihedralDegrees = 20, BoundaryFollowsSize = follow, SizeFunction = p => p.x > 0.5 ? h : 3 * h };
+            MeshTetrahedralization plain = make(false); Go(plain); Assert.NotNull(plain.Result);
+            Assert.False(plain.Targets.MinDihedralMet);
+            Assert.False(plain.Counts.ContainsKey("local_alpha_retry"));
+            MeshTetrahedralization tm = make(true); Go(tm); Assert.NotNull(tm.Result);
+            Assert.Equal(1, tm.Counts["local_alpha_retry"]);
+            Assert.Equal(0.25, tm.GradationFirst); Assert.Equal(0.125, tm.GradationRetry);
+            Assert.False(double.IsNaN(tm.RetryFirstWorstMinDihedral));
+            Assert.False(tm.Targets.MinDihedralMet);                         // reported, never silent
+            Assert.True(tm.Targets.WorstMinDihedral >= tm.RetryFirstWorstMinDihedral);   // the better of the two runs is kept
+            Assert.Null(TetMeshQuality.NotValidReason(tm.Result));
         }
 
         // ---- reuse, determinism, similarity
