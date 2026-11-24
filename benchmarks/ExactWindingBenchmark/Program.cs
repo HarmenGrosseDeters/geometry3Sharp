@@ -237,6 +237,32 @@ static class Program
         return pts;
     }
 
+    // An axis-aligned box [0,1]^3 without its top (the rim is the 4 edges at z = 1), outward oriented, and the grid of the plane of the rim
+    // (z = 1, step 1/32, x and y from 0 to 1.375): every query is exactly on the yz line of the rim edges parallel to y and z.
+    static DMesh3 OpenBox()
+    {
+        var m = new DMesh3();
+        int[] v = new int[8];
+        for (int i = 0; i < 8; ++i)
+            v[i] = m.AppendVertex(new Vector3d(i & 1, (i >> 1) & 1, (i >> 2) & 1));
+        Action<int, int, int, int> quad = (p0, p1, p2, p3) => { m.AppendTriangle(v[p0], v[p1], v[p2]); m.AppendTriangle(v[p0], v[p2], v[p3]); };
+        quad(0, 2, 3, 1);
+        quad(0, 1, 5, 4);
+        quad(1, 3, 7, 5);
+        quad(3, 2, 6, 7);
+        quad(2, 0, 4, 6);
+        return m;
+    }
+
+    static Vector3d[] RimPlaneGrid()
+    {
+        var pts = new Vector3d[45 * 45];
+        for (int i = 0; i < 45; ++i)
+            for (int j = 0; j < 45; ++j)
+                pts[i * 45 + j] = new Vector3d(i / 32.0, j / 32.0, 1.0);
+        return pts;
+    }
+
     static void BenchNearEdge(string name, DMesh3 mesh, Vector3d[] pts, int rounds)
     {
         var times = new double[rounds];
@@ -301,6 +327,7 @@ static class Program
             BenchNearEdge("closed sphere 20k, random", c20k, RandomQueries(2000, 5), rounds);
             BenchNearEdge("open sphere 20k, random (away from the edges)", o20k, RandomQueries(2000, 5), rounds);
             BenchNearEdge("open sphere 20k, 1e-3 .. 1e-14 from the boundary edges", o20k, NearBoundaryQueries(o20k, 2000, 5), rounds);
+            BenchNearEdge("open box, query grid in the plane of the rim", OpenBox(), RimPlaneGrid(), rounds);
             return 0;
         }
         Console.WriteLine("### Point queries (`DMeshAABBTree3.WindingNumber`)");
@@ -329,6 +356,7 @@ static class Program
         BenchNearEdge("closed sphere 20k, random", s20k, RandomQueries(2000, 5), rounds);
         BenchNearEdge("open sphere 20k, random (away from the edges)", open20k, RandomQueries(2000, 5), rounds);
         BenchNearEdge("open sphere 20k, 1e-3 .. 1e-14 from the boundary edges", open20k, NearBoundaryQueries(open20k, 2000, 5), rounds);
+        BenchNearEdge("open box, query grid in the plane of the rim", OpenBox(), RimPlaneGrid(), rounds);
         Console.WriteLine();
         Console.WriteLine("### Grid evaluation (`MeshWindingNumberGrid`, including cache build)");
         Console.WriteLine("| case | mode | grid | legacy ms | exact row-ray ms | FWN ms | max |exact-legacy| |");

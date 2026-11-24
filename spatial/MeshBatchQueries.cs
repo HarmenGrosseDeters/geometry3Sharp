@@ -204,7 +204,9 @@ namespace g3
         /// exact decisions for closed, open, unwelded closed and non-manifold meshes; on a true triangle soup, boundary
         /// edges >= triangles and more than 64 triangles, the floating-point solid-angle sum; for an open mesh the boundary
         /// edges contribute angles within 2e-13 of their exact values, so the decision is exact except where the winding
-        /// number is within that error times the number of boundary edges of 0.5, eg a point on the surface), Invalid for a point that is not
+        /// number is within about 2e-13 times the number of boundary edges divided by 2 pi of 0.5; a point exactly on a triangle of the
+        /// mesh is outside this guarantee: its own-triangle term is evaluated in floating point at the branch cut of the solid angle,
+        /// so neither the value nor the side is guaranteed there, a known open point), Invalid for a point that is not
         /// finite. options.MaxDistance does not apply (it is still checked to be >= 0). An empty mesh has no inside.
         /// The winding number cache is built once before the parallel part.
         /// </summary>

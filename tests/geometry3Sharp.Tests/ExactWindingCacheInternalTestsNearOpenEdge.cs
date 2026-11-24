@@ -11,7 +11,8 @@ namespace geometry3Sharp.Tests
     /// The accuracy of the edge angle of ExactWindingCache.boundary_edge_angle_x near the line of the edge (docs/design/
     /// EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md, "The accuracy of the edge angle"): for every p, a, b the computed angle
     /// differs from the exact atan2(num, den) of the exact differences by at most 2e-13 (the rounded evaluation 1.2e-13 where
-    /// hypot(num, den) >= 0.0221 (S1 + S2), the evaluation from exact num and den elsewhere). The oracle is that of
+    /// |num| + |den| >= 2^-5 (S1 + S2), which implies hypot(num, den) >= 0.0221 (S1 + S2); the evaluation from exact num and den
+    /// elsewhere). The oracle is that of
     /// ExactWindingCacheInternalTestsEdgeAngleOracle (integers over the grid 2^-1074, exact square roots), independent of
     /// the code under test. The fixtures are rational (no Sin / Cos): the exact angle is computed for the doubles that come
     /// out, so a rounded fixture changes the d of a family but not the validity of the check. The class name starts with
@@ -269,10 +270,14 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void PointOnTheSurfaceNextToTheEdge_DecisionDoesNotDependOnTheTriangleOrder()
+        public void PointOnTheSurfaceInThePlaneX0NextToTheEdge_ValueIsHalfForBothTriangleOrders()
         {
             // p inside the triangle on its surface, within d of the edge: the exact winding number is 0.5 for both orders;
-            // the sum of the three edge angles is accurate to 1e-12, so the value is 0.5 within that
+            // the sum of the three edge angles is accurate to 1e-12, so the value is 0.5 within that. This asserts the VALUE only
+            // (no decision), in a planar configuration: the triangles lie in the plane x = 0, where the rounded determinant of the
+            // own-triangle term of tri_on_surface_correction (MathUtil.TriSolidAngle) is exactly 0, so that term is the hemisphere
+            // the exact code expects. For a triangle in a general plane the determinant is rounded and p on the triangle is outside
+            // the guarantee (a known open point, see the design note "A point exactly on a triangle").
             foreach (double d in new[] { -1e-6, -1e-12, -1e-14, -1e-16, -1.3866900198112808E-17 }) {
                 var values = new List<double>();
                 foreach (bool flip in new[] { false, true }) {
@@ -285,12 +290,14 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void IsInsideBatch_OnTheSurfaceNextToTheEdge_ReportsTheExactValueForBothTriangleOrders()
+        public void IsInsideBatch_OnTheSurfaceInThePlaneX0NextToTheEdge_FollowsTheValueForBothTriangleOrders()
         {
             // the reported case: p on the surface of the triangle (exact winding number 0.5), 1.4e-17 from the edge. Before the
             // fix the first order gave 0.676 (Inside) and the second 0.324 (Outside). A point exactly on the surface is a tie of
             // the decision (0.5 > 0.5 is false) that the last bit of a floating-point sum decides (0.5000000000000001 against
-            // 0.5): what is guaranteed is the value, within 1e-12, and that the decision is that of the value.
+            // 0.5). Asserted: the value within 1e-12 and that the decision is that of the value. Only for this planar
+            // configuration (the triangles lie in the plane x = 0, where the rounded determinant of the own-triangle term is exactly
+            // 0); a point on a triangle in a general plane is outside the guarantee (design note, "A point exactly on a triangle").
             foreach (double d in new[] { -1.3866900198112808E-17, -5.1570997421607445E-17, -4.623241721084523E-16, -5.710275727938796E-15, -2.794345575409625E-14 })
                 foreach (bool flip in new[] { false, true }) {
                     var tree = new DMeshAABBTree3(Triangle(d, flip), true);
@@ -390,7 +397,7 @@ namespace geometry3Sharp.Tests
 
         // points next to the open edges at 10^-1 .. 10^-14 from them, in directions around the edge (rational direction
         // (1 - q^2, 2 q) / (1 + q^2): no Sin / Cos)
-        static List<Vector3d> NearEdgePoints(DMesh3 mesh, int seed)
+        static List<Vector3d> NearEdgePoints(DMesh3 mesh, int seed, int[] distances = null)
         {
             var rnd = new Random(seed);
             var pts = new List<Vector3d>();
@@ -402,8 +409,9 @@ namespace geometry3Sharp.Tests
                 Vector3d w = dir.Cross(u);
                 for (int k = 0; k < 14; ++k) {
                     double t = k < 2 ? 0.001 + 0.998 * k : rnd.NextDouble();       // (k < 2: near the end points, so near a vertex)
-                    double r = Math.Pow(10, -1 - k);
                     double q = 0.2 + 4.0 * rnd.NextDouble();
+                    if (distances != null && Array.IndexOf(distances, k) < 0) continue;     // (the random numbers are drawn either way)
+                    double r = Math.Pow(10, -1 - k);
                     double cs = (1 - q * q) / (1 + q * q), sn = 2 * q / (1 + q * q);
                     pts.Add(a + t * (b - a) + r * (cs * u + sn * w));
                 }
@@ -412,24 +420,35 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void OpenBoxAndAnnulus_NearTheirOpenEdges_AreWithinTheBoundOfTheExactWinding()
+        public void OpenBox_NearItsOpenEdges_IsWithinTheBoundOfTheExactWinding()
+        {
+            Assert_NearTheOpenEdges_WithinTheBound(OpenBox());
+        }
+
+        [Fact]
+        public void AnnulusWithHole_NearItsOpenEdges_IsWithinTheBoundOfTheExactWinding()
+        {
+            Assert_NearTheOpenEdges_WithinTheBound(AnnulusWithHole());
+        }
+
+        // (8 of the 14 distances 10^-1 .. 10^-14 of NearEdgePoints, and one test per mesh, each about 1 s: the oracle of the whole mesh
+        // per point costs most; the distances left out are covered by the families above and by the invariance test)
+        static void Assert_NearTheOpenEdges_WithinTheBound(DMesh3 mesh)
         {
             int n = 0;
-            foreach (DMesh3 mesh in new[] { OpenBox(), AnnulusWithHole() }) {
-                var tree = new DMeshAABBTree3(mesh, true);
-                ExactWindingCache cache = tree.GetExactWindingCache();
-                Assert.True(cache.BoundaryCount > 0);
-                foreach (Vector3d p in NearEdgePoints(mesh, 3)) {
-                    double exact = ExactWinding(mesh, p);
-                    double w = cache.Evaluate(p);
-                    ++n;
-                    // (the exact winding number of an open mesh jumps across its surface: a point on it within rounding is a tie)
-                    if (Math.Abs(Math.Abs(exact) - 0.5) < 1e-9) continue;
-                    Assert.True(Math.Abs(w - exact) <= 1e-11, $"p {p.x:R} {p.y:R} {p.z:R}: {w:R} vs exact {exact:R}, triangles {mesh.TriangleCount}");
-                    Assert.Equal(w, tree.WindingNumber(p));
-                }
+            var tree = new DMeshAABBTree3(mesh, true);
+            ExactWindingCache cache = tree.GetExactWindingCache();
+            Assert.True(cache.BoundaryCount > 0);
+            foreach (Vector3d p in NearEdgePoints(mesh, 3, new[] { 0, 1, 3, 5, 7, 9, 11, 13 })) {
+                double exact = ExactWinding(mesh, p);
+                double w = cache.Evaluate(p);
+                ++n;
+                // (the exact winding number of an open mesh jumps across its surface: a point on it within rounding is a tie)
+                if (Math.Abs(Math.Abs(exact) - 0.5) < 1e-9) continue;
+                Assert.True(Math.Abs(w - exact) <= 1e-11, $"p {p.x:R} {p.y:R} {p.z:R}: {w:R} vs exact {exact:R}, triangles {mesh.TriangleCount}");
+                Assert.Equal(w, tree.WindingNumber(p));
             }
-            Assert.True(n > 200);
+            Assert.True(n > 30, $"{n} points");
         }
 
         // ---- the standard set ----
@@ -491,6 +510,45 @@ namespace geometry3Sharp.Tests
                 double w1 = cache.Evaluate(p), w2 = cache.Evaluate(p), w3 = fresh.Evaluate(p);
                 Assert.True(BitConverter.DoubleToInt64Bits(w1) == BitConverter.DoubleToInt64Bits(w2) && BitConverter.DoubleToInt64Bits(w1) == BitConverter.DoubleToInt64Bits(w3), $"p {p}");
             }
+        }
+
+        [Fact]
+        public void PointExactlyOnTheYzLineOfTheEdge_DoesNotEnterTheIntegerPath_AndKeepsTheValueOfTheExactEvaluation()
+        {
+            // p, a, b with the yz parts exactly collinear (small dyadic numbers, so the products are exact): exact num == 0, a defined
+            // limit (0, +-pi, the open-edge value). The route through Orient2d and the signs of the differences must give the value
+            // of the integer evaluation (accurate_edge_angle_x, which decides num == 0 from its exact dot product) without calling it.
+            var rnd = new Random(2024);
+            var ps = new List<(Vector3d p, Vector3d a, Vector3d b)>();
+            for (int i = 0; i < 4000; ++i) {
+                double s = i % 4 == 0 ? 1.0 : Math.Pow(2, rnd.Next(-8, 8) * (i % 4 == 1 ? 40 : 1));       // 2^+-320: the rescaled path
+                Func<double> q = () => rnd.Next(-6, 7) / 8.0 * s;
+                Vector3d p = new Vector3d(q(), q(), q());
+                int u = rnd.Next(-3, 4), v = rnd.Next(-3, 4);
+                if (u == 0 && v == 0) u = 1;
+                int m = rnd.Next(-4, 5), n = rnd.Next(-4, 5);           // the multiples of (u, v): 0 (a vertex), either side, both ends beyond or between
+                Vector3d a = p + new Vector3d(rnd.Next(-6, 7) / 8.0 * s, m * u / 8.0 * s, m * v / 8.0 * s);
+                Vector3d b = p + new Vector3d(rnd.Next(-6, 7) / 8.0 * s, n * u / 8.0 * s, n * v / 8.0 * s);
+                if (i % 7 == 0) b.x = a.x;                              // an edge in a plane x = const through p: the open-edge case
+                ps.Add((p, a, b));
+            }
+            int c0 = ExactWindingCache.AccurateEdgeAngleCalls;
+            var got = new double[ps.Count];
+            for (int i = 0; i < ps.Count; ++i)
+                got[i] = ExactWindingCache.boundary_edge_angle_x(ps[i].p, ps[i].a, ps[i].b);
+            Assert.Equal(c0, ExactWindingCache.AccurateEdgeAngleCalls);         // no call of the integer evaluation
+            int pis = 0, halves = 0;
+            for (int i = 0; i < ps.Count; ++i) {
+                Assert.True(IsDegenerate(ps[i].p, ps[i].a, ps[i].b), $"input {i} is not on the yz line");
+                // (p on the yz line of a vertex, a - p or b - p with a zero yz part, is decided earlier, as a vertex case, not by this route)
+                if ((ps[i].a.y == ps[i].p.y && ps[i].a.z == ps[i].p.z) || (ps[i].b.y == ps[i].p.y && ps[i].b.z == ps[i].p.z)) continue;
+                double expected = ExactWindingCache.accurate_edge_angle_x(ps[i].p, ps[i].a, ps[i].b);
+                Assert.True(got[i] == expected, $"input {i}: p {ps[i].p} a {ps[i].a} b {ps[i].b}: {got[i]:R} vs {expected:R}");
+                if (Math.Abs(got[i]) == Math.PI) ++pis;
+                if (Math.Abs(got[i]) == Math.PI * 0.5) ++halves;
+            }
+            Assert.True(pis > 100 && halves > 20, $"{pis} values +-pi, {halves} values +-pi/2");     // the branch cut and the open edge are really covered
+            Assert.True(ExactWindingCache.AccurateEdgeAngleCalls > c0);         // (the reference calls were counted: the counter works)
         }
 
         [Fact]
