@@ -73,17 +73,23 @@ then only cause a refusal, never a wrong cut.
    triangles and oriented like the triangle it continues. Where the outer edge of a quad would pass back through `W`
    (rays that diverge on a curved rim, a convex face between two exits, an edge with both ends outside), the quad is
    subdivided along the rim edge's direction with further rays until every point of the outer edge is outside. This
-   adds vertices in the strip only; the original triangles are never changed.
+   adds vertices in the strip only; the original triangles are never changed. (Corrected by the spike: this is the main path, not a repair.
+   Every sheet that is larger than `W` at the sides has rim edges with an end outside, `g = 0`, whose outer edge passes through `W` until it is
+   subdivided; 19 of the spike's 35 cases need it. Where to refine: the middle of the longest stretch of the rim edge inside `W` between the
+   two outer points, retried off-centre if the new point is not strictly outside.)
 5. **Exact verification; each failure is a refusal with a reason and a witness.**
-   - Depth: every `g(v)` is at most `MaxExtension` times the sheet's diagonal, and every ray has an exit.
-   - Every new point is strictly outside `W` (exact winding number).
+   - Depth: every `g(v)` is at most `MaxExtension` times the sheet's diagonal, and every ray has an exit. (The spike: the diagonal of the bounding box is not rotation invariant, a rotated input has a diagonal a quarter to a third smaller; the measure of the sheet's size is open.)
+   - Every new point is strictly outside `W` (exact winding number). (Corrected by the spike: the winding number is symbolically perturbed and cannot tell a point on a
+     face from one beside it; strictly outside is: the exact winding number is 0 and no triangle of `W` contains the point.)
    - No quad is inverted: for a rim edge `A -> B` with new points `A'`, `B'`, `(B' - A') . (B - A) > 0` (the rays of
-     neighbouring vertices do not cross, as they do at a notch narrower than the depth).
+     neighbouring vertices do not cross, as they do at a notch narrower than the depth). (Corrected by the spike: this fails for the segments of a subdivided outer edge at a
+     corner, which can run slightly backwards without any fold, and depends on the frame. Used: every strip triangle's normal has a positive cosine with the normal of the sheet triangle it continues.)
    - The curve rule: the intersection of the strip with the surface of `W` has exactly one connected component per
      run (an open curve, or a closed loop where the whole rim is inside), and the strip has no coplanar contact with a
      face of `W`. It is checkable today through the public API: `ExactMeshImprint` of the strip by `W` with
      `LabelCurves`, counting the distinct curve ids. This is the rule that catches material between two rim vertices
-     whose rays both exit cleanly (a free pin in a slot).
+     whose rays both exit cleanly (a thin free pin in a slot, clear of the outer edge). (Corrected by the spike: count the connected components of `CurveEdges`; `CurveId` joins edges only at
+     vertices where exactly two curve edges meet, so a branching curve would count twice. The two numbers were equal in every case of the spike.)
    - The strip meets neither the sheet, nor itself, nor any other tool or sheet inside `W`.
    - The sheet role accepts the extended sheet.
 6. **Report.** Per run: the largest and the mean depth `g`, the length of the run, the area of the strip inside `W`,
@@ -164,7 +170,8 @@ Procedural, no fixture data. The list contains the adversarial cases a review fo
 - **a rim outside the workpiece next to another part of it** (a U-shaped workpiece): that rim is not continued;
 - **a bowtie vertex on the rim**: per-wedge points or the named refusal;
 - **a free pin in a slot, between two rim vertices whose rays both exit cleanly**: refused by the curve rule (the
-  sheet role alone accepts that strip and cuts the pin's top off);
+  sheet role alone accepts that strip and cuts the pin's top off). (Corrected by the spike: only for a thin pin that stays clear of the outer edge. A pin that reaches the outer edge is routed round by
+  the subdivision and the strip does not touch it, which is right; a rib on the wall cannot be routed round and is refused by the inverted-quad test. The case list has the thin pin, the thick pin and the rib.)
 - **a chord**: a straight rim edge across a round workpiece, both ends outside, the middle inside: continued (chosen
   by edge, the outer edge subdivided);
 - **a rim vertex exactly on the surface**: it ends a run with `g = 0`; no degenerate triangle;
@@ -203,7 +210,7 @@ Open:
 ## 10. Plan
 
 1. **Diagnosis PR (A):** the depth of the rim in the refusal's text and report. No convention, no option.
-2. **Spike (no library change):** a benchmark project that builds the strip of section 4 with public members only
+2. **Spike (no library change; done 2026-11-24, [SHEET_EXTENSION_SPIKE_2026-11.md](../research/SHEET_EXTENSION_SPIKE_2026-11.md), [benchmarks/SheetExtensionProbe](../../benchmarks/SheetExtensionProbe/README.md)):** a benchmark project that builds the strip of section 4 with public members only
    (`ExactMeshImprint` for the curve rule, the sheet cut, a winding query for the choice, since the verification is
    exact) on the procedural cases of section 8 and reports, per case, the outcome, the refusal reason, `g`, `U`, the
    cost of the imprint and the volume against the analytic value. The owner runs the same probe locally on private
