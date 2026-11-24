@@ -7,7 +7,7 @@ takes 4.3 s at 96 balls, a balanced tree of pairwise unions 1.2 s ([#1455](https
 `benchmarks/ProceduralSphereUnionProbe`). Where is the superlinear cost, is it inherent, and is there a cheap rule?
 
 Measured with the probe's new modes `scaling` and `hybrid` (raw lines in `benchmarks/ProceduralSphereUnionProbe/results/`,
-aggregated by `aggregate_scaling.py`). Procedural balls only (`Sphere3Generator_NormalizedCube`, 5 vertices per cube edge, 192
+aggregated by `aggregate_scaling.py`). Machine: a Windows desktop with 12 logical cores (net10.0); the timing tables below are from a quiet run (other sessions used it lightly, +-20 %; raw: `results/scaling_2026-11-24_quiet_timing_raw.txt`). Procedural balls only (`Sphere3Generator_NormalizedCube`, 5 vertices per cube edge, 192
 triangles per ball), `StrictRounding = true`, master 9fd7dcd7a, net10.0 Release.
 
 ## 1. Short answer
@@ -24,7 +24,7 @@ itself rises with `N`. The rest of the arrangement (intersections, merge, triang
 Inputs: `dense<seed>` = `MakeRandomPacking(n, seed)` (the probe's multi-radii packing; prefixes of one seed are nested),
 `helix` (1D chain), `lattice` (cubic, spacing 0.9 of the diameter; each ball meets 6 neighbours). Per size 5 runs of
 multi and tree in alternation, in one process after a warm-up run. Medians, `[min-max]`. Other sessions used the machine:
-absolute times carry about +-20 % (a later series ran 1.4x slower), counts and stage shares are the evidence.
+absolute times carry about +-20 % (a later series ran 1.4x slower), counts and stage shares are the evidence. The crossover is not a machine-independent number, see the second and third data points below.
 
 | Family, balls | overlap degree mean (max) | multi ms | tree ms | multi / tree | result tris multi / tree |
 |---|---|---|---|---|---|
@@ -45,6 +45,17 @@ issue's 4.3 s at 96 balls was a slower run of the same case (1.1 to 1.6 s here);
 (1.1 to 2.1 exponent) sits at overlap degree about 14 and above, and one arrangement wins below that (dense104 24 balls, lattice,
 helix). The crossover between the routes is at mean degree 12 to 14 (dense103, 48 balls, degree 12.4: 214 vs 245 ms, still the
 arrangement).
+
+Second and third data point (loaded machines; the same inputs, `scaling 3 dense104:24,48,96 helix:96`; counts, triangles and volumes identical to the quiet run in all of them):
+
+| Run | 24 balls one call / tree ms | 48 balls | 96 balls | helix 96 |
+|---|---|---|---|---|
+| quiet, 12 threads (above, 5 runs) | 120 / 229 | 263 / 245 | 1124 / 545 | 288 (192 balls) / 1088 |
+| reviewer, heavily loaded 12-thread machine | (not given) | 869 / 1926 (one call 2.2x faster) | 6234 / 6245 (equal) | (not given) |
+| this machine, moderately loaded, 12 threads (`results/scaling_2026-11-24_loaded12_raw.txt`, 3 runs) | 227 / 440 | 612 / 516 | 2422 / 1162 | 272 / 857 |
+| same, `DOTNET_PROCESSOR_COUNT=4` (`..._loaded4_raw.txt`) | 212 / 295 | 467 / 582 | 1883 / 1147 | 300 / 1095 |
+
+Both loaded runs and the 4-processor run moved the crossover towards one call (at 48 balls one call faster; at 96 balls the ratio 1.0 and 1.6 against 2.1), which is the opposite of what a parallel winding loop alone would suggest (fewer free cores should slow the one call more). The cause was not established; a guess is a fixed fork/join cost of the tree's 95 to 191 small parallel regions that weighs more on a busy or small machine. The direction for more than 12 cores was not measured. These are single loaded runs and carry the noise of the load; they show that the 12 to 14 threshold of the quiet run is machine- and load-dependent, not its new value.
 
 Note on "dense": the packing grows by attaching balls to random existing ones, so its mean overlap degree rises with the
 size (6, 8, 14, 23, 30, 34); it is not a constant-density packing. The lattice and helix are the constant-degree controls
@@ -68,6 +79,8 @@ microseconds in `PhaseMilliseconds`.
 | rounding repair | 9 (3 %) | 12 (1 %) | 22 (0.5 %) | - |
 
 Counts (multi, medians; 12, 24, 48, 96, 192 balls):
+
+Regenerated now with the current probe (`results/scaling_2026-11-24_checks_raw.txt`, one run per size, timings not used because the machine was loaded): every count, triangle total and patch count below reproduced exactly; for all 17 sizes (dense104 12 to 192, dense103 24 to 96, helix 24 to 192, lattice 27 to 216 balls) both routes returned a closed mesh with an empty `MeshRobustRepair.NotCleanReason(mesh, checkSelfIntersections: true)` (column `c.clean` = 1) and the volumes of the two routes were equal at the probe's 1e-9 print resolution; the result hashes differ except on the lattice (bit-identical there). The `scaling` and `hybrid` modes check this since this revision; the earlier raw file predates the `volume_e9`, `area_e9`, `result_hash` and `clean` fields.
 
 | Count | 12 | 24 | 48 | 96 | 192 |
 |---|---|---|---|---|---|
@@ -102,10 +115,9 @@ Tree (sums over its 95 or 191 unions): pieces 174752 (96) and 394826 (192), 45 %
    patch is the number of bodies near it; for each, `front_winding` -> `front_crossings` casts an exact ray to a far point
    outside that body's box and tests the planes of the triangles the segment's box query returns (`winding_plane_sides`,
    about 6 tests per (patch, body) at 192 balls; the stage's wall time per test is 215 to 230 ns at 96 and 192 balls).
-3. Why it grows like `N * k^3`: a ball cut by `k` neighbours is a circle arrangement on a sphere, `O(k^2)` faces; measured
-   patches per ball `/ k^2` = 0.42, 0.44, 0.50, 0.52, 0.54 for 12 to 192 balls. Candidates per patch `/ k` = 0.72, 0.64, 0.63,
+3. Why it is measured to grow roughly like `N * k^3`. Derived: a ball cut by `k` neighbours is a circle arrangement on a sphere, `O(k^2)` faces (patches per ball grow like `k^2`). Measured (the constants): patches per ball `/ k^2` = 0.42, 0.44, 0.50, 0.52, 0.54 for 12 to 192 balls. Candidates per patch `/ k` = 0.72, 0.64, 0.63,
    0.56, 0.54: bodies whose box holds a point of the sphere are the point's neighbours. So the ray count is
-   about `0.28 * N * k^3`. With `k` itself growing from 23 to 34 and `N` doubling, 96 to 192 balls is 6.1x in candidates and 6.0x in
+   about `0.28 * N * k^3` (a fit, not a law). Not addressed: the fit uses the mean degree, while the cost goes with the sum of `k_i^3` over the bodies (max degree 86 against mean 34 at 192 balls); the constant 0.28 absorbs the difference. Consistency check: 0.28 N k^3 = 2.1 M at 192 balls and 340 k at 96, against the measured 2.21 M and 359 k candidates. With `k` itself growing from 23 to 34 and `N` doubling, 96 to 192 balls is 6.1x in candidates and 6.0x in
    plane side tests (time 5.6x), 48 to 96 is 8.2x (time 7.1x).
 4. The candidates are the real overlap, not box slack: 94 to 95 % (48 to 192 balls) of the candidate bodies share an
    intersection curve with the patch's ball, and about half evaluate to a nonzero winding.
@@ -153,7 +165,7 @@ Reading:
 
 - B is the ceiling of "classify the pieces by propagating the winding number across patches" (Zhou et al.'s labelling; the
   library's exact radial order, `radial_order`, `ExactMeshCells`, and the test-only `BooleanCertificate` C3 already do the
-  jump rule). The classification would give the same windings as today (integers), so the result stays bit for bit the same.
+  jump rule). The classification would give the same windings as today (integers: expected, not tested, as the propagation is not implemented), so the result is expected to stay bit for bit the same.
   The measured B result is garbage (its `keep` is wrong, so the rounding and assembly times are not comparable); only the
   stage is. It does not reach the tree: the remaining stages at 192 balls (about 1.5 to 2.4 s in these runs, 1.7 s in the
   quiet run: 4606 - 2942) are still 1.4x the tree's 1.2 s, because the arrangement has 2.2x the tree's pieces.
@@ -217,7 +229,7 @@ Decision (owner, 2026-11-24): option 0, document. The guide carries the rule and
 | Option | Ceiling (96 / 192 balls) | Sparse cost | Output | Cost of work |
 |---|---|---|---|---|
 | 0. Nothing in the library: document, and recommend the pairwise tree or the grouped union for dense packings in the guide with the degree threshold | none | none | none | one guide section |
-| 1. Winding propagation across patches (one exact ray per connected component, jump by the exact radial order or the plane-side sign across each curve) | -41 % / -60 % of the time of the single arrangement (idealized); stays 1.4x the tree at 192 balls | at most 1 to 2 % gain, no loss if the adjacency build is linear | the same bit for bit (same integers) | tier L (exact code, a new mechanism: spec, review, mutation) |
+| 1. Winding propagation across patches (one exact ray per connected component, jump by the exact radial order or the plane-side sign across each curve) | -41 % / -60 % of the time of the single arrangement (idealized); stays 1.4x the tree at 192 balls | at most 1 to 2 % gain, no loss if the adjacency build is linear | expected the same bit for bit (same integers; not tested, not implemented) | tier L (exact code, a new mechanism: spec, review, mutation) |
 | 2. Automatic route by mean overlap degree (or the predicted piece count) to the tree | to the tree's time (-52 % / -73 %) | none if the rule only fires above degree about 12 | changes (+19 to +21 % triangles on redirected inputs) | owner decision; a few lines plus the box-overlap degree |
 | 3. Grouped union (g about 16) chosen by the same rule | about 0.75 of the tree's time | none if the rule only fires on dense input | changes; between the tree's and the arrangement's triangle count | owner decision; a design for the grouping order |
 | 4. Memo of non-neighbour windings | -0 to 6 % | none | same | not worth |
@@ -226,7 +238,7 @@ Decision (owner, 2026-11-24): option 0, document. The guide carries the rule and
 Leaning: option 0 now (a short guide paragraph: one arrangement for sparse and chain-like inputs, a grouped union or the tree
 once the mean overlap degree is above about 12, with the numbers of section 2 and the +20 % triangle count of the tree), and
 option 1 as the fix of the superlinear term if the owner wants one arrangement to stay usable on dense packings (it is
-the only lever that keeps the output and removes the `N * k^3` term; with it the single arrangement would be linear in
+the only lever that is expected to keep the output and removes the `N * k^3` term; with it the single arrangement would be linear in
 `N * k`, still above the tree at 192 balls). Options 2 and 3 change the output: owner decision, and they come after a measurement
 of the box-overlap degree as a predictor (the sphere degree used here is not available to the library). What a user pays for
 option 0: 1.1 to 3.7x time for the single arrangement above degree 14 if they do not follow the advice, or +20 % triangles

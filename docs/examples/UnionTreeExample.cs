@@ -11,7 +11,10 @@ namespace g3.Examples
     /// </summary>
     public static class UnionTreeExample
     {
-        /// <summary> A 2 x 2 x 2 block of unit balls whose centres are 1.3 apart: every ball overlaps all the others. </summary>
+        /// <summary>
+        /// A 2 x 2 x 2 block of unit balls whose centres are 1.3 apart. Each ball overlaps 6 of the other 7 (the opposite corner is
+        /// 1.3 * sqrt(3) = 2.25 away, more than 2), but the bounding boxes of all 8 overlap all the others: box counts over-count.
+        /// </summary>
         public static List<DMesh3> MakeBalls()
         {
             var balls = new List<DMesh3>();
@@ -31,7 +34,8 @@ namespace g3.Examples
         }
 
         /// <summary>
-        /// A balanced binary tree of pairwise unions: level by level, neighbours are united and an odd one is carried on.
+        /// A balanced binary tree of pairwise unions, each an eager ExactMeshBoolean(a, b, Union) call (not the lazy ExactMesh.Union
+        /// composition, which is evaluated as one n-ary arrangement again): level by level, neighbours are united and an odd one is carried on.
         /// Every pairwise union drops the interior surface before the next one sees it. Null if a union fails.
         /// </summary>
         public static DMesh3 UnionTree(IList<DMesh3> bodies)
@@ -53,7 +57,8 @@ namespace g3.Examples
 
         /// <summary>
         /// Mean number of other bodies whose bounding box intersects a body's box (an upper estimate of the true overlap
-        /// degree, since boxes over-count; a quadratic loop is fine for a few thousand bodies).
+        /// degree, since boxes over-count (for the balls of MakeBalls: 7 for the boxes, 6 for the balls); a quadratic loop is fine for
+        /// a few thousand bodies). To decide for a given input and machine, time UnionOneCall and UnionTree on it.
         /// </summary>
         public static double MeanBoxOverlapDegree(IList<DMesh3> bodies)
         {

@@ -271,6 +271,7 @@ void RunHybrid(string[] a)
                     Vector2d va = MeshMeasurements.VolumeArea(fin, fin.TriangleIndices(), fin.GetVertex);
                     counts["volume_e9"] = (long)Math.Round(va.x * 1e9);
                     counts["area_e9"] = (long)Math.Round(va.y * 1e9);
+                    counts["clean"] = ReportClean(fin) ? 1 : 0;
                 }
                 Console.WriteLine($"RAW {name} {n} hyb{g}{(order == "morton" ? "m" : "")} {r} {sw.ElapsedMilliseconds} {fin?.TriangleCount ?? 0} {status} {FormatStats(phases, counts)}");
             }
@@ -320,6 +321,16 @@ static void AddMeasures(DMesh3 mesh, Dictionary<string, long> counts)
     Vector2d va = MeshMeasurements.VolumeArea(mesh, mesh.TriangleIndices(), mesh.GetVertex);
     counts["volume_e9"] = (long)Math.Round(va.x * 1e9);
     counts["area_e9"] = (long)Math.Round(va.y * 1e9);
+    counts["clean"] = ReportClean(mesh) ? 1 : 0;
+}
+
+// clean = closed and MeshRobustRepair.NotCleanReason (with the self-intersection check) is empty; a reason is printed as a CLEAN line
+static bool ReportClean(DMesh3 mesh)
+{
+    string reason = MeshRobustRepair.NotCleanReason(mesh, checkSelfIntersections: true);
+    if (!mesh.IsClosed() && reason.Length == 0) reason = "not closed";
+    if (reason.Length > 0) Console.WriteLine($"CLEAN NOT {reason}");
+    return reason.Length == 0;
 }
 
 // FNV-1a over the result's vertex coordinates (bit patterns) and triangles in index order: equal hashes mean the same mesh bit for bit

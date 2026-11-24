@@ -230,8 +230,15 @@ namespace geometry3Sharp.Tests
             }
             Assert.True(Volume(one) > Volume(balls[0]) && Volume(one) < 8 * Volume(balls[0]));
             Assert.Equal(Volume(one), Volume(tree), 9);
-            // 8 balls, each overlapping all 7 others
+            // 8 balls: the boxes of all overlap all 7 others, but a ball overlaps only 6 (the opposite corner is 1.3 * sqrt(3) = 2.25 > 2
+            // away): the box degree over-counts
             Assert.Equal(7.0, UnionTreeExample.MeanBoxOverlapDegree(balls), 12);
+            int ballPairs = 0;
+            for (int i = 0; i < balls.Count; ++i)
+                for (int j = i + 1; j < balls.Count; ++j)
+                    if (balls[i].GetBounds().Center.Distance(balls[j].GetBounds().Center) < 2.0)
+                        ++ballPairs;
+            Assert.Equal(6.0, 2.0 * ballPairs / balls.Count, 12);
         }
 
         [Fact]
