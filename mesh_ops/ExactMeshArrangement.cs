@@ -31,6 +31,15 @@ namespace g3
     /// Arrangements using Floating-point Arithmetic", 2020 (implicit points with filters); Shewchuk, "Adaptive
     /// Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates", 1997 (error bounds); Sloan,
     /// "A fast algorithm for generating constrained Delaunay triangulations", 1993.
+    ///
+    /// Point ids: the geometry of the result (the set of exact points, the triangles and the constraint edges as
+    /// geometry) is deterministic. The ids of the input vertices are deterministic too (build_points runs serially:
+    /// the same input gives the same ids). The ids of new points (intersections, centroids) are assigned in the parallel
+    /// phases and depend on the thread schedule, so they may differ between runs, even between fresh instances on the same
+    /// input. An id is only a label within one run: <see cref="Output"/> and <see cref="ConstraintEdges"/>
+    /// carry such ids (<see cref="VertexPoints"/> holds only the deterministic ids of input points). To compare, sort or store points, go through <see cref="Exact(int)"/>
+    /// (or <see cref="ComparePoints"/> for an order) or the canonical mapping <see cref="Canonical(int)"/>, never
+    /// through the numeric value of an id.
     /// </summary>
     internal class ExactMeshArrangement
     {
@@ -245,8 +254,24 @@ namespace g3
             }
             System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() { return GetEnumerator(); }
         }
+        /// <summary>
+        /// The pieces of the arrangement. A, B and C are point ids of this run: the ids of input vertices are deterministic,
+        /// the ids of new points depend on the thread schedule (see the class summary). Compare or sort the corners through
+        /// <see cref="Exact(int)"/> or <see cref="ComparePoints"/>, not by id; the geometry is deterministic.
+        /// </summary>
         public List<OutputTriangle> Output = new List<OutputTriangle>();
+        /// <summary>
+        /// Undirected edges (<see cref="EdgeKey"/> of two point ids) on intersection curves. The ids are labels of this run
+        /// (new points get schedule-dependent ids, see the class summary); the set of edges as geometry is deterministic,
+        /// so map the end points through <see cref="Exact(int)"/> before comparing two runs.
+        /// </summary>
         public HashSet<long> ConstraintEdges = new HashSet<long>(EdgeKeyComparer.Instance);     // undirected point id pairs on intersection curves
+        /// <summary>
+        /// Per mesh: vertex id to point id. Written only in the serial build_points phase (input vertices at the same
+        /// double position share one id), so every id here is an input-point id and deterministic: the same input gives the
+        /// same ids in every run. It is not updated when equal points are merged later; the merged identity of an id is
+        /// <see cref="Canonical(int)"/> (<see cref="Exact(int)"/> gives its point).
+        /// </summary>
         public int[][] VertexPoints;        // per mesh: vertex id -> point id
         public List<int>[] MeshTriangles;   // per mesh: indices into Triangles
         public int IntersectingPairs;
