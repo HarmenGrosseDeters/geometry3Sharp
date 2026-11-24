@@ -228,7 +228,8 @@ namespace geometry3Sharp.Tests
 
         // the evaluation limit (#1489): cylinder along x, 6 ulps, in the translated frames, the cases in which the final stage used up the limit of 10000 plus
         // 50 per defect with 23 slivers left (the stage's position search proposes 26 x 8 moves per corner). The cut is the one that failed: the copy shifted by
-        // -6 cut into the original, and the original cut into the copy shifted by +6
+        // -6 cut into the original, and the original cut into the copy shifted by +6. They need 25 evaluations more than the limit of 50 gave (15 826 against
+        // 15 800) and nothing else: no neutral contraction is accepted in them (NeutralContractions 0), and they are clean without neutral contractions too
         public static IEnumerable<object[]> LimitCases()
         {
             foreach (string frame in new[] { "utm", "utm-negated", "utm-mixed" }) {
@@ -256,6 +257,13 @@ namespace geometry3Sharp.Tests
             Assert.True(imprint.Rounding.FollowStageRan);
             Assert.Equal(0, imprint.Rounding.RemainingDegenerate + imprint.Rounding.RemainingIntersections);
             Assert.Equal(ResultChecks.Volume(target), ResultChecks.Volume(imprint.Result), 6);      // (the volume sum carries the rounding of the coordinates far from the origin)
+            Assert.Equal(0, imprint.Rounding.NeutralContractions);
+            // the limit alone cleans them: the same without the neutral contractions
+            DMesh3 b = Shifted(a, 0, ulps);
+            var without = ulps < 0 ? new ExactMeshImprint() { Target = a, Cutter = b, NeutralContractions = false } : new ExactMeshImprint() { Target = b, Cutter = a, NeutralContractions = false };
+            Assert.True(without.Compute(), without.Error);
+            Assert.True(without.RoundingClean);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(without.Result));
             // the limit that the stage was given: 10000 plus 400 per initial defect
             Rounding_ExpectLimit(imprint, 400);
         }
@@ -278,6 +286,7 @@ namespace geometry3Sharp.Tests
             DMesh3 far = Invariance.Transformed(a, Similarity.Utm);
             var off = new ExactMeshImprint() { Target = far, Cutter = Shifted(far, 2, 1), StageEvaluationsPerDefect = 0 };
             Assert.True(off.Compute(), off.Error);
+            Assert.True(off.Rounding.FollowStageRan);      // (so that the case cannot become vacuous: the stage runs and still has the limit of 50)
             Rounding_ExpectLimit(off, 50);
             // the Boolean (two overlapping spheres: initial defects) and the repair's default
             DMesh3 s = ExactMeshImprintTests.Sphere(Vector3d.Zero, 1, 12), t = ExactMeshImprintTests.Sphere(new Vector3d(0.6, 0.2, 0.1), 0.8, 12);
@@ -287,6 +296,24 @@ namespace geometry3Sharp.Tests
             Assert.Equal(50, boolean.Rounding.MaxEvaluationsPerDefect);
             Assert.Equal(10000L + 50 * (long)(boolean.Rounding.InitialIntersections + boolean.Rounding.InitialDegenerate + boolean.Rounding.InitialFalseContacts), boolean.Rounding.MaxEvaluations);
             Assert.Equal(50, new MeshRoundingRepair(new DMesh3()).MaxEvaluationsPerDefect);
+        }
+
+        [Fact]
+        public void StageEvaluationLimit_ARunThatReachesTheLimitBeforeTheStage_KeepsTheLimitOf50()
+        {
+            // a 48-slice cylinder (snapped like Shape), translated, along x, -30 ulps: 2318 initial defects, the 125 900 evaluations of 10000 + 50 per defect are used up by
+            // the passes and the stage never starts. Nothing may raise the limit then (a stage that does not run has no limit of its own); it stops on evaluations,
+            // not on the pair budget
+            DMesh3 a0 = Snapped(new CappedCylinderGenerator() { BaseRadius = 1f, TopRadius = 0.6f, Height = 2f, Slices = 48 }.Generate().MakeDMesh());
+            DMesh3 a = Invariance.Transformed(a0, Similarity.Utm), b = Shifted(a, 0, -30);
+            var imprint = new ExactMeshImprint() { Target = a, Cutter = b };
+            Assert.True(imprint.Compute(), imprint.Error);
+            MeshRoundingRepair r = imprint.Rounding;
+            Assert.True(r.EvaluationLimitReached);
+            Assert.False(r.StoppedByPairTests);
+            Assert.False(r.FollowStageRan);
+            Assert.Equal(0, r.NeutralContractions);
+            Rounding_ExpectLimit(imprint, 50);
         }
 
         [Fact]

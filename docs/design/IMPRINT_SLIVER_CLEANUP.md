@@ -151,15 +151,20 @@ runs only in the imprint's final stage, only for contractions, only where the re
 requirement is the lexicographic argument above.
 
 **The evaluation limit of the stage (owner decision, 2026-11-24).** Cylinder x in the translated frames at +-6 ulps (2 runs of 48 per frame) reached the limit (10000 plus
-50 per initial defect) with 23 slivers: the position search proposes 26 x 8 moves per corner, and the neutral contractions needed only 25 more evaluations (15 801 used at the
-limit, 15 826 in all). From the start of the stage the limit is 10000 plus 400 per initial defect (`MeshRoundingRepair.StageMaxEvaluationsPerDefect`, set by the imprint to
+50 per initial defect) with 23 slivers: the position search proposes 26 x 8 moves per corner. These six cases need only 25 evaluations more than the limit gave (15 826 against 15 800 at D = 116) and
+no neutral contraction at all: with the limit of 400 they are clean with `NeutralContractions` 0, and equally clean with the neutral contractions switched off (both
+verified, serial and parallel); the higher limit alone cleans them. From the start of the stage the limit is 10000 plus 400 per initial defect (`MeshRoundingRepair.StageMaxEvaluationsPerDefect`, set by the imprint to
 `ExactMeshImprint.StageEvaluationsPerDefect`, internal, 400). Only the stage gets it: a run that is clean without the stage, a run that reaches the limit before the
-stage (the stage does not start), the Boolean and every other caller keep the limit of 50 (pinned: `MaxEvaluations` of each). All cells of the sweep are 0 with it.
+stage (the stage does not start; pinned by a 48-slice cylinder that uses up its 125 900 evaluations before the stage), the Boolean and every other caller keep the limit of 50 (pinned: `MaxEvaluations` of each). All cells of the sweep are 0 with it.
 Cost: the limit is a ceiling, not a spend: runs that end by themselves use the same evaluations (measured: three runs left unclean on purpose, the stage without neutral
 contractions, use 865, 8 808 and 14 984 evaluations at either limit, the same time within noise). The worst case is a stage that spends the whole budget
-and stays unclean: its evaluations can grow from 10000 + 50 D to 10000 + 400 D (3.5 times for D = 116 initial defects, at most 8 times for large D), at about 6 microseconds
-per evaluation (15 801 evaluations in a 96 ms run), i.e. 0.3 s for D = 116 in the worst case; I could not construct a case that does spend it (every unclean
-case ended by itself: nothing left to propose). The pair-test budget (`MaxPairTests`, 5M, unchanged) bounds the work independently.
+and stays unclean: its evaluations can grow from 10000 + 50 D to 10000 + 400 D (3.57 times for D = 116 initial defects, tending to 8 for large D), at about 6 microseconds
+per evaluation for the small cases (15 801 evaluations in a 96 ms run), i.e. 0.3 s for D = 116 in the worst case; I could not construct a case that does spend it (every unclean
+case ended by itself: nothing left to propose). A large stage run (48-slice cylinder, translated, along x, -20 ulps, D = 2534): the stage ended by itself at 104 849 evaluations and
+2.78 M pair tests, 2.2 to 2.5 s (about 21 microseconds per evaluation, 26 pair tests per evaluation), while its limit grew from 136 700 to 1 023 600; the whole of that limit would be
+about 20 s. What bounds the work: the pair-test budget (`MaxPairTests`, 5 M at this D; set once in `Apply` from the initial defects and not raised by the stage) bounds the
+evaluations that do pair tests, here to about 190 000 evaluations (about 4 s at the measured rate); evaluations that the cheap tests reject (degenerate triangle, orientation)
+do no pair test and are capped only by the evaluation limit, so the limit is the bound for them and a stage consisting only of such proposals could use all of 10000 + 400 D.
 The cases between 1 and 12 ulps are a sample, not a proof; the shifts above 12 ulps and other shapes were not swept.
 
 The test inputs avoid `Math.Sin` / `Cos` (they differ in the last bit between net48 and net10, `DETERMINISM.md` C1): the rotated

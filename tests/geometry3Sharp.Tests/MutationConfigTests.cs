@@ -199,7 +199,8 @@ namespace geometry3Sharp.Tests
             const string serialWork = "FullyQualifiedName~RoundingSerialWorkTests.";
             const string sliverStage = "FullyQualifiedName~ExactMeshImprintSliverStageTests";
             // (the evaluation limit of the final stage, StageMaxEvaluationsPerDefect, #1489: set in Apply, parts 1 and 10; the neutral contractions of the stage,
-            // AcceptNeutralContractionsInStage: improves() in parts 3 and 4, try_collapse in part 5, Apply's reset in part 10, the field in part 1)
+            // AcceptNeutralContractionsInStage: improves() in part 3, try_collapse in part 5, Apply's resets in part 10, the fields in part 1; derived from the changed lines of the PR against
+            // the span of each part, part 4 holds none)
             const string stageLimit = "FullyQualifiedName~ExactMeshImprintSliverTests.StageEvaluationLimit";
             var extras = new Dictionary<string, string[]>() {
                 // (the range check and for_triangles; Apply's finite check and anchors in rounding-10; the tree's boxes in
@@ -223,7 +224,7 @@ namespace geometry3Sharp.Tests
                     "FullyQualifiedName~MeshRoundingRepairFilterTests.FilterDecisions_AgreeWithExactTest",
                     "FullyQualifiedName~MeshRoundingRepairFilterTests.BoundaryPairs_FilterAgreesWithExactTest",
                     "FullyQualifiedName~MeshRoundingRepairIncrementalTests.SharedByIdOnly_SameResultChecked",
-                    "FullyQualifiedName~MeshRoundingRepairIncrementalTests.Searches_IncrementalAfterEdits", sliverStage },
+                    "FullyQualifiedName~MeshRoundingRepairIncrementalTests.Searches_IncrementalAfterEdits" },
                 // (ulp to try_move: the separation of false contacts, try_separate, and the removal of contact vertices,
                 // try_remove_vertex and runs3; gate run 44013112256; about 11 s with Searches_IncrementalAfterEdits: the local
                 // run of the part took 80 minutes)
