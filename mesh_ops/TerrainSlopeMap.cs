@@ -46,6 +46,8 @@ namespace gs
             foreach (int p in planes) MaxGradient = Math.Max(MaxGradient, K.GradientBound(p));
         }
         public int FaceCount { get { return fEdge.Count; } }
+        /// <summary> tests and benchmarks: the calls of split_face so far </summary>
+        internal long SplitCalls;
 
         // ---------------------------------------------------------------- structure
 
@@ -118,6 +120,7 @@ namespace gs
         bool split_face(int f, int line, out int neg, out int pos, out int chord)
         {
             neg = -1; pos = -1; chord = -1;
+            SplitCalls++;
             // (most calls do not cut: the signs first, into reused buffers, the same predicates as before)
             List<int> c = splitCycle;
             c.Clear();
@@ -459,6 +462,7 @@ namespace gs
                 relevant.AddRange(strip);
                 add_sector(relevant, fanB, angB, B.xy, pos, theta);
                 add_sector(relevant, fanA, angA, A.xy, pos, theta);
+                set_sectors(strip, theta, fanB, angB, B.xy, fanA, angA, A.xy);
                 insert_into(f, label, relevant);
             }
         }
@@ -553,6 +557,10 @@ namespace gs
                 relevant.Add(roadPlane);
                 relevant.AddRange(walls);
                 for (int i = 0; i < apexes.Count; ++i) add_sector(relevant, fans[i], angles[i], apexes[i], pos, theta);
+                sectorFixed.Clear(); sectorFixed.Add(roadPlane); sectorFixed.AddRange(walls);
+                sectorFans.Clear();
+                for (int i = 0; i < apexes.Count; ++i) sectorFans.Add((fans[i], angles[i], apexes[i]));
+                sectorTheta = theta;
                 insert_into(f, label, relevant);
             }
         }
@@ -668,6 +676,40 @@ namespace gs
             return o1 * o2 <= 0 && o3 * o4 <= 0;
         }
 
+        // the sector context of the piece being inserted (InsertPiece, InsertPolygonPiece): the planes every part takes, the fans
+        readonly List<int> sectorFixed = new List<int>();
+        readonly List<(List<int> fan, List<double> ang, Vector2d apex)> sectorFans = new List<(List<int>, List<double>, Vector2d)>();
+        double sectorTheta;
+        /// <summary> tests: filter the planes per part of a face by its sector (default); false: every part takes every plane of the face </summary>
+        internal bool PartSectors = true;
+
+        void set_sectors(List<int> strip, double theta, List<int> fanB, List<double> angB, Vector2d b, List<int> fanA, List<double> angA, Vector2d a)
+        {
+            sectorFixed.Clear(); sectorFixed.AddRange(strip);
+            sectorFans.Clear();
+            sectorFans.Add((fanB, angB, b)); sectorFans.Add((fanA, angA, a));
+            sectorTheta = theta;
+        }
+
+        readonly List<int> partPlanes = new List<int>();
+
+        bool part_allows(Dictionary<int, HashSet<int>> allowed, int g, int p)
+        {
+            if (PartSectors == false) return true;
+            HashSet<int> set;
+            if (allowed.TryGetValue(g, out set) == false) {
+                var pos = prefilterPos;
+                pos.Clear(); prefilterVerts.Clear();
+                { int h0 = fEdge[g], h = h0; do { pos.Add(K.Approx(hOrig[h])); prefilterVerts.Add(hOrig[h]); h = hNext[h]; } while (h != h0); }
+                partPlanes.Clear();
+                partPlanes.AddRange(sectorFixed);
+                foreach (var fa in sectorFans) add_sector(partPlanes, fa.fan, fa.ang, fa.apex, pos, sectorTheta);
+                set = new HashSet<int>(partPlanes);
+                allowed[g] = set;
+            }
+            return set.Contains(p);
+        }
+
         void insert_into(int f, int label, List<int> planes)
         {
             // W = f ∩ {P_j < label for all j}, clipped virtually first, so that f is only split if W is not empty
@@ -704,12 +746,18 @@ namespace gs
             // W gets the maximum of the planes (incremental: the parts where the next plane is higher)
             var parts = new List<int>() { cur };
             fLabel[cur] = planes[0];
+            // (each part takes only the planes that can be the piece's maximum on it: the fixed ones and the fan planes of its own
+            // sector, add_sector on the part's corners. A part lies in the face, so its window lies in the face's, and a fan plane
+            // outside the part's window is below one inside it there: the maximum, and so every label, is the same as with all
+            // planes; only the splits by planes that lose at once are left out)
+            var allowed = new Dictionary<int, HashSet<int>>();
             for (int i = 1; i < planes.Count; ++i) {
                 int p = planes[i];
                 var next = new List<int>();
                 foreach (int g in parts) {
+                    if (part_allows(allowed, g, p) == false) { next.Add(g); continue; }
                     int neg, pos, chord;
-                    split_face(g, K.PlaneLine(p, fLabel[g]), out neg, out pos, out chord);
+                    if (split_face(g, K.PlaneLine(p, fLabel[g]), out neg, out pos, out chord)) allowed.Remove(g);
                     if (neg >= 0) next.Add(neg);
                     if (pos >= 0) {
                         // all zero: the same plane, the lower id
@@ -722,6 +770,7 @@ namespace gs
                 }
                 parts = next;
             }
+            if (Compacting) touched.AddRange(parts);
         }
 
         bool all_positive(int f, int line)
@@ -771,29 +820,37 @@ namespace gs
         // ---------------------------------------------------------------- merging during insertion (an alternative construction)
 
         /// <summary>
-        /// merge neighbouring domain faces of one label across non-barrier edges while the union stays convex (an alternative
-        /// construction: fewer live faces during insertion; after Simplify the same partition). Returns the live domain faces.
+        /// merge neighbouring domain faces of one label across non-barrier edges while the union stays convex, starting from the
+        /// faces labelled since the last call (an alternative construction: fewer live faces during insertion; after Simplify the
+        /// same partition). Returns the number of merges.
         /// </summary>
         public int Compact()
         {
             ordered = null;
-            int nf = fEdge.Count;
-            for (int f = 0; f < nf; ++f) {
-                if (in_domain(f) == false) continue;
+            // (only the faces that the pieces inserted since the last call labelled: the rest was compact already)
+            touched.Sort();
+            int merges = 0, last = -1;
+            foreach (int f in touched) {
+                if (f == last || in_domain(f) == false) continue;
+                last = f;
                 for (bool again = true; again;) {
                     again = false;
                     int h0 = fEdge[f], h = h0;
                     do {
                         int t = hTwin[h], g = t >= 0 ? hFace[t] : -1;
-                        if (g >= 0 && g != f && hBar[h] < 0 && in_domain(g) && fLabel[g] == fLabel[f] && try_merge(f, g, h)) { again = true; break; }
+                        if (g >= 0 && g != f && hBar[h] < 0 && in_domain(g) && fLabel[g] == fLabel[f] && try_merge(f, g, h)) { again = true; ++merges; break; }
                         h = hNext[h];
                     } while (h != h0);
                 }
             }
-            int live = 0;
-            for (int f = 0; f < fEdge.Count; ++f) if (in_domain(f)) ++live;
-            return live;
+            touched.Clear();
+            return merges;
         }
+
+        // the faces insert_into labelled since the last Compact (while Compacting)
+        readonly List<int> touched = new List<int>();
+        /// <summary> record the faces for Compact </summary>
+        internal bool Compacting;
 
         // merge face g into f across the run of their shared edges that contains h (f's half-edge with g behind it), if the
         // union is convex (exact: Orient, or the corner's two edges on one kernel line)

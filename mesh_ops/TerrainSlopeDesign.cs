@@ -638,7 +638,7 @@ namespace gs
                 // (each run checks its own clipped region; the mixed composite is built and checked here)
                 BuildComposite = BuildComposite, CompositeKind = CompositeKinds.Replacement,
                 InsertionOrder = InsertionOrder, InsertionSeed = InsertionSeed, CheckCanonical = CheckCanonical,
-                CompactDuringInsert = CompactDuringInsert, AfterSimplify = AfterSimplify,
+                CompactDuringInsert = CompactDuringInsert, PartSectors = PartSectors, AfterSimplify = AfterSimplify,
                 CapEstimateRounds = CapEstimateRounds, RebuildForEachLowering = RebuildForEachLowering
             };
         }
@@ -1433,6 +1433,8 @@ namespace gs
             }
             int cap = kernel.AddHorizontalPlane(H);
             map.LabelDomain(cap);
+            map.Compacting = CompactDuringInsert;
+            map.PartSectors = PartSectors;
 
             phase("domain");
             // insert the pieces, in a random order (the expected work of an incremental envelope; the result does not
@@ -1444,6 +1446,7 @@ namespace gs
                 if (pieces[k].Kind == 1) {
                     RampUnit u = pieces[k].Unit;
                     map.InsertPolygonPiece(k, k + 1, u.RoadPlane, u.Walls, u.Apexes, u.Fans, u.Angles, u.Box, u.ZMin, u.Slb, u.Reach, theta, u.Apexes);
+                    if (CompactDuringInsert) map.Compact();
                     continue;
                 }
                 map.InsertPiece(k, pieces[k].Strip, pieces[k].FanA, pieces[k].AngA, pieces[k].FanB, pieces[k].AngB,
@@ -1451,11 +1454,25 @@ namespace gs
                 if (CompactDuringInsert) map.Compact();
             }
 
+            InsertSplits = map.SplitCalls;
             phase("insert");
             map.Simplify();
             RayCount = Math.Max(RayCount, map.RayCount);
             if (CheckCanonical && CanonicalProblem == "") CanonicalProblem = map.CanonicalProblem();
             if (AfterSimplify != null) AfterSimplify(map);
+            if (ReinsertAfterSimplify) {
+                // (the upper-bound probe of SLOPE_ENVELOPE_CANONICAL.md section 4: every piece again into the final map, the least
+                // work an incremental construction can do; the labels do not change)
+                long s0 = map.SplitCalls;
+                var reSw = System.Diagnostics.Stopwatch.StartNew();
+                foreach (int k in order) {
+                    if (pieces[k].Kind != 0) continue;
+                    map.InsertPiece(k, pieces[k].Strip, pieces[k].FanA, pieces[k].AngA, pieces[k].FanB, pieces[k].AngB,
+                        pieces[k].A1, pieces[k].B1, Math.Min(pieces[k].A1.z, pieces[k].B1.z), pieces[k].Slb, pieces[k].Reach, theta);
+                }
+                ReinsertSeconds = reSw.Elapsed.TotalSeconds; ReinsertSplits = map.SplitCalls - s0;
+                map.Simplify();
+            }
             phase("simplify");
 
             // toe undercut: a face on a toe segment labelled by another piece, lower than the toe by more than Tolerance
@@ -1516,10 +1533,19 @@ namespace gs
         /// <summary> tests: the order in which the pieces are inserted (a permutation of 0 .. n-1), instead of the seeded shuffle </summary>
         internal Func<int, int[]> InsertionOrder;
         internal ulong InsertionSeed = 0x5EED5EEDUL;
-        /// <summary> tests: merge the faces of one label during insertion (SlopeMap.Compact after each piece) </summary>
-        internal bool CompactDuringInsert;
+        /// <summary>
+        /// tests: merge the faces of one label during insertion (SlopeMap.Compact after each piece; default), and filter the planes of
+        /// each part of a face by its sector (SlopeMap.PartSectors; default). False: the earlier construction, which gives the same
+        /// output (docs/design/SLOPE_ENVELOPE_CANONICAL.md)
+        /// </summary>
+        internal bool CompactDuringInsert = true;
+        internal bool PartSectors = true;
         /// <summary> tests: called with each build's map after Simplify </summary>
         internal Action<SlopeMap> AfterSimplify;
+        /// <summary> tests: insert every piece again after Simplify (timed, ReinsertSeconds / ReinsertSplits), then Simplify again </summary>
+        internal bool ReinsertAfterSimplify;
+        internal double ReinsertSeconds;
+        internal long ReinsertSplits, InsertSplits;
         /// <summary> tests: the most rays a build's Simplify cut (reflex corners of the label components) </summary>
         internal int RayCount;
         /// <summary> tests: check each build's map after Simplify (SlopeMap.CanonicalProblem; the first problem, "" if none) </summary>

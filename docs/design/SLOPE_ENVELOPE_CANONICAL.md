@@ -1,6 +1,6 @@
 # Design note: a canonical slope envelope, independent of the construction
 
-Status: **stage 1 design (2026-11-24), for the owner's decision (b) of 2026-11-24.** Branch `terrain/slope-envelope-canonical`.
+Status: **stage 1 done, stage 2 (b) done, (c) not started (2026-11-24); the owner's decision (b) of 2026-11-24.** Branch `terrain/slope-envelope-canonical`.
 Context: [roadmap/terrain.md](../roadmap/terrain.md) ("Slope envelope construction"), [TERRAIN_1C_PLAN.md](TERRAIN_1C_PLAN.md)
 section 9 (randomized insertion order with a canonical result), the earlier prototype
 [`claude/terrain-envelope-dc`](https://github.com/HarmenGrosseDeters/geometry3Sharp/tree/claude/terrain-envelope-dc)
@@ -107,47 +107,105 @@ the default on the map after `Simplify` (every build) and on the slope surface (
 
 **Cost of the rule:** none at runtime (`Rounded` is cached and is computed for these corners anyway).
 
-**Cost of the naive merge during insertion** (`WavyHambach(130)`, phase `insert`): 3.9 s plain against 9.3 s with
+**Cost of the naive merge during insertion** (the first, global version of `Compact`; `WavyHambach(130)`, phase `insert`): 3.9 s plain against 9.3 s with
 `Compact` after every piece. `Compact` scans every face ever made, 48 times, and the larger faces pass the prefilter more
 often. The roadmap's finer variant gained 1.05-1.4x. So merging alone is not the lever, as the profile says: the splits
 cost, not the faces.
 
-## 4. Stage 2: the faster construction (after the OK)
+## 4. Stage 2: the faster construction (coordinator's OK 2026-11-24)
 
-Under R1 every construction is checked the same way: the **pure-function test** (below) must pass, bit for bit. In order:
+Under R1 every construction is checked the same way: the pure-function test (section 5) must pass, bit for bit.
 
-1. **Upper-bound check first** (CLAUDE.md): the time of `InsertPiece` for all pieces on a map that already has the final
-   size. Re-insert every piece into the simplified map; the labels do not change. That is about the least work any
-   incremental construction can do. If it is not well below today's 3-4 s, no incremental variant can pay off.
-2. **Merging during insertion, local:** compact only the faces the last piece touched (the stamp list of `InsertPiece`),
-   with the exact convexity test. Cheap to build; R1 holds trivially (the labels are untouched).
-3. **Divide and conquer** (`E(S) = min(E(left), E(right))`, the prototype's `MergeMin` with an exact interior-disjoint test
-   and no approximate skip). It goes forward only if step 1 shows room and step 2 gains less than 2x. A sector-local
-   envelope is a variant of it (the leaves are the pieces of one sector).
+**(a) Upper bound.** Every piece inserted again into the final simplified map (`TerrainSlopeDesign.ReinsertAfterSimplify`,
+a test switch). This is about the least work any incremental construction can do. The labels do not change
+(`Reinsert_IntoTheFinalMap_ChangesNothing`).
 
-Benchmark: `TerrainBenchmark slope toe=wavy n=48 r=150 h=130 ratio=1.5 tol=0.05`, before and after, `insert` phase and
-total, identical `hash_surface`.
+| design | insert | split calls | faces made | again into the final map |
+|---|---|---|---|---|
+| `WavyHambach(130)` | 4.0 s | 1,588,211 | 139,612 | 0.12 s, 1,933 splits |
+| `WavyOnWaves` n 40 | 1.9 s | 1,003,032 | 97,287 | 0.17 s, 1,799 splits |
 
-## 5. Tests (stage 1)
+Counted by call site: 99.6 % of the split calls are in the maximum of the piece's planes over W (`insert_into`, each part
+against each plane), and 92 % of those do not cut. On average 222k `insert_into` calls take 5.6 planes each. The naive
+merge during insertion made it worse (2.5M splits), because the merged faces are larger: 18.6 planes per call, and
+every part is tested against every plane.
 
-- **Pure function** (`TerrainSlopeEnvelopeCanonicalTests`): for each case, the default construction against merge during
-  insertion and against two other insertion orders (reversed, a seed). Checked: the map after `Simplify` of every build
-  (`PartitionText`), status, builds, toe lowering, `MergedPositions`, and the slope surface bit for bit with its triangle
-  groups. The PR tier gets one regular polygon and one wavy case under 5 s. The full set (the 19 stress cases, the 7-merge
-  `WavyOnWaves`, the old pins) is Nightly, because the run is the check, as with `InsertionOrder_DoesNotChangeTheResult`.
-- **R3 directly:** a map whose face corners are triangulated before any `Rounded` call (a unit test on `SlopeMap` with a
-  vertex defined by two different line pairs). The triangulation is the same as after rounding. Mutation: `Approx` back
-  in `triangulate` must fail it.
-- **Invariance** over `Similarity.All()` of the merge-during-insertion construction (the 2^k frames bit for bit), and
-  **reuse** (`Compute()` twice on one instance with `CompactDuringInsert`). There is no parallel path, so no determinism
-  test.
-- **Mutations by hand:** `Compact` accepting a reflex union (`Orient < 0` check dropped) must fail the pure-function test
-  (the map after `Simplify` is then non-convex or differs). So must a prefilter that skips one face too many (for example
-  the #806 mutant), and a `Simplify` ray that stops at earlier rays.
+**(b) Built: merge during insertion plus planes per part.**
+
+- **Per part** (`SlopeMap.PartSectors`): each part of W takes only the fixed planes and the fan planes of its own sector
+  (`add_sector` on the part's corners). The argument is the same as for the face: a part lies in the face, so its
+  window lies in the face's. A fan plane outside the window is below one inside it there, so the maximum and every label
+  are unchanged; only splits by planes that lose at once are left out. A part's set is computed when the part is first
+  tested and dropped when it is cut.
+- **Merge during insertion** (`SlopeMap.Compact`, `TerrainSlopeDesign.CompactDuringInsert`): only the faces that the last
+  piece labelled, merged with neighbours of the same label across non-barrier edges where the union stays convex
+  (exact `Orient`).
+- Both are internal and on by default. Both off is the earlier construction, which the tests compare against.
+
+In-test counts (`WavyHambach(130)`), from about 4.0 s and 1.59M splits:
+
+| construction | insert | split calls |
+|---|---|---|
+| per part alone | 2.9-3.6 s | 672k |
+| per part and local merge | 2.5 s | 181k |
+
+`TerrainBenchmark slope toe=wavy n=48 r=150 h=130 ratio=1.5 tol=0.05 repeat=3`, two rounds each, master and the branch
+alternating on one machine. `hash_surface` is `22afefbc69823bf8` in all runs, 477 triangles, 2 merged positions:
+
+| | master | branch |
+|---|---|---|
+| phase insert | 2.84 / 2.74 s | 2.46 / 2.30 s |
+| slope_s (last of 3) | 3.02 / 2.90 s | 2.61 / 2.60 s |
+| predicates | 17,272,841 | 12,325,667 |
+| exact constructions | 65,034 | 44,918 |
+| peak MB | 545 / 553 | 470 / 442 |
+
+So (b) gains about 1.15x on the benchmark and 1.3-1.6x in the tests, under 2x. Most of the remaining time is not in the
+splits (181k) but in the per-face work of the insertion: the virtual clip of W, which constructs crossings, and the
+prefilters, all over the faces each piece reaches.
+
+**(c) Divide and conquer: not started.** The condition for it holds: (a) shows room, and (b) gains under 2x. It did not
+fit the session's budget. The approach is the prototype's `MergeMin` (carving the faces of one envelope into the other,
+`claude/terrain-envelope-dc`) with an exact interior-disjoint test and no approximate skip, then `Compact` after each
+merge. The pure-function test is its gate. A sector-local envelope is a variant of it (the leaves are the pieces of one
+sector).
+
+## 5. Tests
+
+`TerrainSlopeEnvelopeCanonicalTests`. The PR tier, durations in the full terrain run:
+
+- `PureFunction_ConstructionAndOrder_SameMapAndSurface` (2.0 s): five cheap cases (regular 10-gon and 16-gon, an open toe,
+  a fill, a straight ramp for `InsertPolygonPiece`). The default is compared with the earlier construction, the earlier
+  construction reversed, and a seeded order. Checked: the map after every `Simplify` (`PartitionText`: label and rounded
+  corners per face, in `OrderedFaces`), status, builds, toe lowering, merges, rays, and the surface bit for bit with its
+  triangle groups.
+- `Reuse_SameMapAndSurface` (0.4 s): `Compute()` twice on one instance.
+- `Invariance_EveryFrame_SameAsTheEarlierConstruction` (1.9 s alone; it was 4.2 s in the full run, trimmed): over `Similarity.All()`,
+  rotated about z. The exact frames map back to the identity bit for bit; the others equal the earlier construction.
+  There is no parallel path, so no determinism test.
+- `Reinsert_IntoTheFinalMap_ChangesNothing` (0.3 s): re-inserting every piece changes no label, with far fewer splits.
+
+Nightly, because the run is the check (the reason is in each test): the 19 stress cases under the earlier construction
+(about 10 s); 600 random regular polygons (55 s); `WavyOnWaves` n 40 (7 merged positions, 8 s per build), the benchmark
+design and the old pins, each under the earlier construction and the reversed order (40 s). No smaller design that
+merges positions is known.
+
+The other existing `TerrainSlope*` tests outside Nightly (578 with these) pass with the new defaults. Among them are
+`InsertionOrder_Reduced_DoesNotChangeTheResult` and `RegularPolygons_NoMergeAfterPrefilterFix_InEveryFrame`.
+
+Hand mutations (the PR-tier tests of the class):
+
+| mutant | result |
+|---|---|
+| `try_merge` without the convexity check at the first end of the run | killed (all four) |
+| per part without the fan sectors (fixed planes only) | killed (all four) |
+| `Compact` without the barrier check on `h`, and also without the one in `try_merge` | **survives**: no cheap case has the same label on both sides of a lateral limit. Follow-up: a case where it does |
+| only one of the two barrier checks | survives (the other one holds: equivalent) |
+| R3 reverted (`Approx` in `triangulate`) | not killable by an output test while `Realize` rounds every corner first (equivalent today; R3 is defensive) |
 
 ## 6. Open points for the owner
 
-- No output changes, so there is nothing to approve on the outputs. The roadmap entry ("not bit-identical in
-  near-degenerate designs") should be corrected: that was #805.
-- Whether `CompactDuringInsert` and `AfterSimplify` stay as internal test switches (as `InsertionOrder` does) or go once
-  stage 2 picks a construction.
+- No output changes, so there is nothing to approve on the outputs. The roadmap entry is corrected (#805, not vertex
+  history).
+- `CompactDuringInsert`, `PartSectors`, `AfterSimplify` and `ReinsertAfterSimplify` stay internal (coordinator 2026-11-24).
+- (c), divide and conquer, is the next step if the remaining 20x is wanted.
