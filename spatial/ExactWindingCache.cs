@@ -1,6 +1,7 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 
 namespace g3
@@ -1276,6 +1277,11 @@ namespace g3
         /// on vertex a, vertex b, the open segment (a, b), or behind a vertex along +x.
         /// Bi-homogeneous of degree (1, 1) in (A, B); handles extreme scales and mixed exponents across the full
         /// double range without overflow or underflow, and is bit-for-bit invariant under positive 2^k scaling.
+        /// Accuracy: for every p, a, b the result differs from the exact atan2(num, den) of the exact differences by at most
+        /// 2e-13, with the sign of num exact (design note EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md, "The accuracy of the edge
+        /// angle"). The rounded evaluation is used where hypot(num, den) is at least 0.0221 (S1 + S2); the edges that are
+        /// nearly antiparallel in yz (p almost on the line of the edge, seen along x) take accurate_edge_angle_x. The limit
+        /// cases (p at a vertex, on the open edge, on the yz line of the edge) are as defined above and below.
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
         internal static double boundary_edge_angle_x(Vector3d p, Vector3d a, Vector3d b)
@@ -1344,9 +1350,10 @@ namespace g3
                 // (5e-312), where the rounding to the subnormal grid (absolute error up to 2^-1075) exceeds 1e-12 relative.
                 // The fast path (|yz| >= 2^-200) reaches that with, eg, |ay| about 2^-200 and |bz| below 2^-822; an edge
                 // like that is decided by atan2 of the rounded num and den where they are within that grid of 0.
-                double numErr = 1e-12 * (Math.Abs(p1) + Math.Abs(p2));
-                double denErr = 1e-12 * (da * db + Math.Abs(ay * by) + Math.Abs(az * bz));
-                return finish_edge_angle(p, a, b, num, den, numErr, denErr, dotYZ);
+                // Sizes of the terms of num and den (S1, S2 of the design note, "The accuracy of the edge angle").
+                double s1 = Math.Abs(p1) + Math.Abs(p2);
+                double s2 = da * db + Math.Abs(ay * by) + Math.Abs(az * bz);
+                return finish_edge_angle(p, a, b, num, den, s1, s2);
             }
 
             return boundary_edge_angle_x_extreme(p, a, b);
@@ -1452,41 +1459,122 @@ namespace g3
             }
 
             double den = prod + dotYZ;
-            double numErr = 1e-12 * (Math.Abs(p1) + Math.Abs(p2));
-            double denErr = 1e-12 * (prod + Math.Abs(ay * by) + Math.Abs(az * bz));
-            return finish_edge_angle(p, a, b, num, den, numErr, denErr, dotYZ);
+            double s1 = Math.Abs(p1) + Math.Abs(p2);
+            double s2 = prod + Math.Abs(ay * by) + Math.Abs(az * bz);
+            return finish_edge_angle(p, a, b, num, den, s1, s2);
         }
 
+        /// <summary>
+        /// Decides between the rounded evaluation Atan2(num, den) and accurate_edge_angle_x. The rounded evaluation is kept
+        /// when (1) |num| + |den| >= 2^-5 (S1 + S2), which makes hypot(num, den) >= 0.0221 (S1 + S2), and (2) the sign of
+        /// num is certain or den is clearly positive (outside the zone of the branch cut: den &lt;= 1e-12 S2 and
+        /// |num| &lt;= 1e-12 S1). Then the angle is within 1.2e-13 of the exact one (design note, "The accuracy of the edge
+        /// angle"); everywhere else it is computed from exact num and den. S1 = |p1| + |p2| and S2 = da db + |ay by| +
+        /// |az bz| are the sizes of the terms of num and den. The comparisons are false for NaN, which stays on the rounded path.
+        /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static double finish_edge_angle(Vector3d p, Vector3d a, Vector3d b, double num, double den, double numErr, double denErr, double dotYZ)
+        static double finish_edge_angle(Vector3d p, Vector3d a, Vector3d b, double num, double den, double s1, double s2)
         {
-            // Couple the branch cut (oyz == 0, den <= 0) and open-edge limit (oyz == 0, ox == 0) with exact predicates.
-            if (den <= denErr && Math.Abs(num) <= numErr) {
-                int oyz = ExactPredicates.Orient2d(new Vector2d(p.y, p.z), new Vector2d(a.y, a.z), new Vector2d(b.y, b.z));
-                if (oyz == 0) {
-                    if (dotYZ >= 0.0)
-                        return 0.0;
-                    Vector3d ab = safe_diff(b, a);
-                    int ox;
-                    if (a.y != b.y && (a.z == b.z || Math.Abs(ab.y) >= Math.Abs(ab.z))) {
-                        ox = ExactPredicates.Orient2d(new Vector2d(a.x, a.y), new Vector2d(b.x, b.y), new Vector2d(p.x, p.y));
-                        if (b.y < a.y) ox = -ox;
-                    } else {
-                        ox = ExactPredicates.Orient2d(new Vector2d(a.x, a.z), new Vector2d(b.x, b.z), new Vector2d(p.x, p.z));
-                        if (b.z < a.z) ox = -ox;
-                    }
-                    if (ox == 0)
-                        return on_open_edge_angle_x(a, b);
-                    if (ox < 0)
-                        return 0.0;
-                    int es = EdgeSignX(p.y, p.z, a, b);
-                    return es == 0 ? 0.0 : (es < 0 ? Math.PI : -Math.PI);
-                }
-                // oyz != 0: exact sign(num) = -oyz. Never override den via 2D ox; only guard num's sign on den <= 0.
-                if (den <= 0.0 && (num == 0.0 || (num > 0.0) != (oyz < 0)))
-                    return oyz < 0 ? Math.PI : -Math.PI;
-            }
+            double an = Math.Abs(num);
+            if (an + Math.Abs(den) < FastAngleRatio * (s1 + s2) || (den <= 1e-12 * s2 && an <= 1e-12 * s1))
+                return accurate_edge_angle_x(p, a, b);
             return Math.Atan2(num, den);
+        }
+
+        // 2^-5. With it the rounded num and den (errors at most 4.01 u S1 and 22.1 u S2, u = 2^-53) give an angle within
+        // asin(22.1 u / 0.0221) <= 1.12e-13 of the exact one.
+        const double FastAngleRatio = 0.03125;
+
+        /// <summary>
+        /// The edge angle atan2(num, den) from exact num and den, for the inputs the rounded evaluation cannot serve (p near the
+        /// yz line of the edge, or the sign of num uncertain). num = az by - ay bz and dotYZ = ay by + az bz are evaluated
+        /// exactly from the exact differences (integers over a common grid); den = da db + dotYZ with da = |A| - ax,
+        /// db = |B| - bx is not a polynomial: da db comes from integer square roots of the exact squared lengths at k extra
+        /// bits, k chosen so that the absolute error of den is at most 2^-62 |num|. The angle is then within 2^-61 of the
+        /// exact one, plus the roundings of the two doubles (1.1e-16 each) and of Atan2. When num is exactly 0 (p on the yz
+        /// line of the edge) the branch cut and the open-edge limit are decided by exact predicates as before.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static double accurate_edge_angle_x(Vector3d p, Vector3d a, Vector3d b)
+        {
+            ExactDyadic[] ds = {
+                ExactDyadic.Of(a.x) - ExactDyadic.Of(p.x), ExactDyadic.Of(a.y) - ExactDyadic.Of(p.y), ExactDyadic.Of(a.z) - ExactDyadic.Of(p.z),
+                ExactDyadic.Of(b.x) - ExactDyadic.Of(p.x), ExactDyadic.Of(b.y) - ExactDyadic.Of(p.y), ExactDyadic.Of(b.z) - ExactDyadic.Of(p.z) };
+            int e0 = int.MaxValue;
+            for (int i = 0; i < ds.Length; ++i)
+                if (!ds[i].M.IsZero && ds[i].E < e0) e0 = ds[i].E;
+            BigInteger[] g = new BigInteger[6];
+            for (int i = 0; i < g.Length; ++i)
+                g[i] = ds[i].M.IsZero ? BigInteger.Zero : ds[i].M << (ds[i].E - e0);
+            BigInteger AX = g[0], AY = g[1], AZ = g[2], BX = g[3], BY = g[4], BZ = g[5];
+
+            BigInteger num = AZ * BY - AY * BZ;
+            BigInteger dot = AY * BY + AZ * BZ;
+            if (num.IsZero)
+                return edge_angle_on_yz_line_x(p, a, b, dot.Sign >= 0);
+
+            BigInteger yzA = AY * AY + AZ * AZ, yzB = BY * BY + BZ * BZ;
+            BigInteger aa = AX * AX + yzA, bb = BX * BX + yzB;
+            long lenBits = Math.Max(ExactPoint3.BitLength(isqrt(aa)), ExactPoint3.BitLength(isqrt(bb)));
+            long k = 70 + Math.Max(0L, lenBits + 2 - ExactPoint3.BitLength(BigInteger.Abs(num)));
+            BigInteger denK, numK;
+            while (true) {
+                int kk = (int)k;
+                BigInteger laK = isqrt(aa << (2 * kk)), lbK = isqrt(bb << (2 * kk));
+                BigInteger daK = AX.Sign > 0 ? (yzA << (2 * kk)) / (laK + (AX << kk)) : laK - (AX << kk);
+                BigInteger dbK = BX.Sign > 0 ? (yzB << (2 * kk)) / (lbK + (BX << kk)) : lbK - (BX << kk);
+                numK = num << (2 * kk);
+                denK = daK * dbK + (dot << (2 * kk));
+                // |error of denK| <= 2 (daK + dbK) + 4: daK, dbK are within 2 of da 2^k, db 2^k
+                BigInteger err = (daK + dbK) * 2 + 8;
+                if ((err << 62) <= BigInteger.Abs(numK))
+                    break;
+                k += 32;
+            }
+
+            long bl = Math.Max(ExactPoint3.BitLength(BigInteger.Abs(numK)), ExactPoint3.BitLength(BigInteger.Abs(denK)));
+            int sh = (int)(bl - 1000);
+            ExactDyadic one = new ExactDyadic(BigInteger.One, 0);
+            double nd = ExactDyadic.Quotient(new ExactDyadic(numK, -sh), one);
+            double dd = denK.IsZero ? 0.0 : ExactDyadic.Quotient(new ExactDyadic(denK, -sh), one);
+            if (nd == 0.0)
+                nd = num.Sign > 0 ? double.Epsilon : -double.Epsilon;   // underflow against a huge den: keep the sign of num
+            return Math.Atan2(nd, dd);
+        }
+
+        // floor(sqrt(n)) for n >= 0, Newton's iteration from above.
+        static BigInteger isqrt(BigInteger n)
+        {
+            if (n.Sign <= 0) return BigInteger.Zero;
+            BigInteger x = BigInteger.One << (int)((ExactPoint3.BitLength(n) + 1) / 2);
+            while (true) {
+                BigInteger y = (x + n / x) >> 1;
+                if (y >= x) return x;
+                x = y;
+            }
+        }
+
+        // p lies exactly on the yz line of the edge (num == 0 exactly): the branch cut (dot &lt; 0) and the open-edge limit are
+        // decided by exact predicates.
+        static double edge_angle_on_yz_line_x(Vector3d p, Vector3d a, Vector3d b, bool dotNonNegative)
+        {
+            if (dotNonNegative)
+                return 0.0;
+            Vector3d ab = safe_diff(b, a);
+            int ox;
+            if (a.y != b.y && (a.z == b.z || Math.Abs(ab.y) >= Math.Abs(ab.z))) {
+                ox = ExactPredicates.Orient2d(new Vector2d(a.x, a.y), new Vector2d(b.x, b.y), new Vector2d(p.x, p.y));
+                if (b.y < a.y) ox = -ox;
+            } else {
+                ox = ExactPredicates.Orient2d(new Vector2d(a.x, a.z), new Vector2d(b.x, b.z), new Vector2d(p.x, p.z));
+                if (b.z < a.z) ox = -ox;
+            }
+            if (ox == 0)
+                return on_open_edge_angle_x(a, b);
+            if (ox < 0)
+                return 0.0;
+            int es = EdgeSignX(p.y, p.z, a, b);
+            return es == 0 ? 0.0 : (es < 0 ? Math.PI : -Math.PI);
         }
 
         // Exact limit of boundary_edge_angle_x(p_eps, a, b) when p lies strictly on open segment (a, b).

@@ -202,7 +202,9 @@ namespace g3
         /// (method Crossings, the default: exact, for closed meshes), tree.FastWindingNumber(p) &gt; 0.5 (method
         /// WindingNumber: approximate, for any mesh), or tree.WindingNumber(p) &gt; 0.5 (method ExactWindingNumber:
         /// exact decisions for closed, open, unwelded closed and non-manifold meshes; on a true triangle soup, boundary
-        /// edges >= triangles and more than 64 triangles, the floating-point solid-angle sum), Invalid for a point that is not
+        /// edges >= triangles and more than 64 triangles, the floating-point solid-angle sum; for an open mesh the boundary
+        /// edges contribute angles within 2e-13 of their exact values, so the decision is exact except where the winding
+        /// number is within that error times the number of boundary edges of 0.5, eg a point on the surface), Invalid for a point that is not
         /// finite. options.MaxDistance does not apply (it is still checked to be >= 0). An empty mesh has no inside.
         /// The winding number cache is built once before the parallel part.
         /// </summary>
