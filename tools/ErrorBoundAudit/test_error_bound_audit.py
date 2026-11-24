@@ -167,7 +167,28 @@ class BoundaryTreeModels(unittest.TestCase):
         charged = [v for (k, l), v in by.items() if k == 'BT-5' and l.startswith('the 1e-12 charged')]
         self.assertTrue(charged and 90 < charged[0] < 120, charged)
         order = [v for (k, l), v in by.items() if k == 'BT-4' and l.startswith('7.5e-16 N W')]
-        self.assertTrue(order and 1.0 <= order[0] < 1.1, order)
+        self.assertTrue(order and 1.06 < order[0] < 1.07, order)         # 1.064: the constant against 2 u pi / (1 - N u), N u <= 0.0099
+        sharp = [v for (k, l), v in by.items() if k == 'BT-5' and l.startswith('A1: the sharper')]
+        self.assertTrue(sharp and 1.25 < sharp[0] < 1.35, sharp)         # 1.30: step 4 with 16 u S2 instead of 22 u S2
+        self.assertTrue(1.01 < a1[0] < 1.02, a1)                         # 1.013: the proof's constants
+        # BT-6: the coefficient is 8.0e-15 / sin(theta / 2), 1.6e-14 / theta (not 8e-15 / theta)
+        near = [e for k, e in es.items() if k == 'BT-6'][0]
+        labels = [l for l, _ in audit.derive(near)]
+        self.assertTrue(any('8.02e-15 / sin(theta / 2), 1.60e-14 / theta' in l for l in labels), labels)
+
+    def test_a_two_pi_error_on_a_certified_edge_is_a_violation_but_not_on_an_uncertified_one(self):
+        # the branch cut of the arctangent is never crossed for the edges of an accepted node (part of the proof of A1), so a 2 pi difference
+        # there is a real error and must not be reduced modulo 2 pi; for an uncertified edge the angles are compared as such
+        es = self.entries()
+        saved = bounds._fast_edge
+        try:
+            bounds._fast_edge = lambda p, a, b: (saved(p, a, b)[0] + 2 * 3.141592653589793, saved(p, a, b)[1])
+            bad, _ = audit.concrete(es['BT-5'], 30)
+            self.assertGreater(len(bad), 0, 'a 2 pi error on a certified edge is hidden')
+            bad, _ = audit.concrete(es['BT-6'], 30)
+            self.assertEqual(bad, [], 'an uncertified edge is compared modulo 2 pi')
+        finally:
+            bounds._fast_edge = saved
 
     def test_the_concrete_edge_samples_see_a_bound_that_is_too_small(self):
         es = self.entries()

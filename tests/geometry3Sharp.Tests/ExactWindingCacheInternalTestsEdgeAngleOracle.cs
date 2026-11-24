@@ -13,7 +13,7 @@ namespace geometry3Sharp.Tests
     /// construction (no family puts p within about 1e-6 rad of the edge seen from p, except by chance) and outside the exact
     /// zone (num and den both within numErr and denErr of 0, where the exact predicates decide the sign). The claim is NOT
     /// general: near an open edge den = da db + dotYZ cancels and the error grows like 1e-16 / theta (the angular distance
-    /// of p from the edge); the tree uses A1 only for the edges of an accepted node (1e-14, proved, under the fast-path certificate:
+    /// of p from the edge; the bound of audit model BT-6 is 1.6e-14 / theta); the tree uses A1 only for the edges of an accepted node (1e-14, proved, under the fast-path certificate:
     /// EdgesOfAcceptedNodes_HaveAnErrorBelowTheProvedBound). Tests of the general claim belong to the change that corrects the
     /// edge angle near an open edge (#1427). The oracle takes the exact num = a.z b.y - a.y b.z and den = da db + a.y b.y + a.z b.z of
     /// the exact differences a - p and b - p in integers over the grid 2^-1074 (da = |a - p| - (a.x - p.x) by the cancellation-free

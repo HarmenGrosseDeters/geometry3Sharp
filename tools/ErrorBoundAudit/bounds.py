@@ -1006,13 +1006,15 @@ def dipole_evaluation(c, r):
        ['double sumOrderErr = 7.5e-16 * (double)boundary.Length * tree.TotalWeight;',
         'return 1.01 * (bErr + 1e-9 + 4e-15 * (Math.Abs((double)chi) + Math.Abs(bSum)));',
         'bErr = 1.01 * (err + sumOrderErr) / MathUtil.TwoPI;'],
-       'the tree sum and the full sum differ by at most the summation order: 2 N u pi sum|w| (N edges, N u < 0.01); the quotient by 2 pi and chi + bSum round at most u relative each',
-       'N u < 0.01 (the factor 1.01 covers the accumulation of err)',
+       'the tree sum and the full sum differ by at most the summation order: 2 N u pi sum|w| (N edges, N u < 0.0099); the quotient by 2 pi and chi + bSum round at most u relative each',
+       'N u < 0.0099 (the factor 1.01 covers the accumulation of err)',
        '7.5e-16 N W; 1.01 (bErr + 1e-9 + 4e-15 (|chi| + |bSum|))')
 def order_and_margin(c, r):
     # each addition of the sum adds at most u |partial| <= u N pi W to a sum of N terms |w_e| pi; two orders: 2 N u pi W
-    need = 2 * U * PI_HI
-    r.add('7.5e-16 N W against 2 N u pi W', Verdict(Fraction(7.5e-16) >= need, Fraction(7.5e-16) / need, 'the constant has %.2f of the 2 u pi = %.4e it needs' % (float(Fraction(7.5e-16) / need), float(need))))
+    # (n additions of a sum with n u <= 0.0099 have the exact bound n u / (1 - n u) <= 1.0101 n u: the factor is part of the need; the 1.01 on bErr
+    # in the code is a second cushion, not counted here, so the margin is the one of the constant alone)
+    need = 2 * U * PI_HI / (1 - Fraction(99, 10000))
+    r.add('7.5e-16 N W against 2 N u pi W', Verdict(Fraction(7.5e-16) >= need, Fraction(7.5e-16) / need, 'the constant has %.3f of the 2 u pi / (1 - N u) = %.4e it needs (N u <= 0.0099)' % (float(Fraction(7.5e-16) / need), float(need))))
     # the division by 2 pi (the double TwoPI is itself within u of 2 pi, the same in both sums) and chi + bSum: u relative each, in both sums (4 u of |chi| + |bSum|)
     r.add('4e-15 (|chi| + |bSum|)', Verdict(Fraction(4e-15) >= 4 * U, Fraction(4e-15) / (4 * U), '%.1f times the four roundings (two per sum)' % float(Fraction(4e-15) / (4 * U))))
     # the factor 1.01 on err and sumOrderErr: err is a sum of n positive terms, rounded n times: (1 + u)^n <= 1.01 while n u <= 0.0099 (n < 8.9e13)
@@ -1037,6 +1039,10 @@ def edge_angle_certified(c, r):
     angle = PI_HI / 2 * (2 * U * 2 + 22 * U * 4) / h                                  # steps 4, 5: |dnum| <= 2 u S1, |dden| <= 22 u S2, asin x <= (pi / 2) x
     rounded_vectors = 2 * PI_HI * U                                                   # step 3
     total = angle + rounded_vectors + ULP2
+    # the proof's 22 u S2 is loose: step 4 itself gives |dden| <= 16 u da db + 3 u (|u_y v_y| + |u_z v_z|) <= 16 u S2 (da db <= S2, the rest <= S2); the same
+    # three terms with 16 (a margin of 1.3 where the note's 22 gives 1.013); the claim of the note keeps the 22, a bound that is valid and simpler
+    sharp = PI_HI / 2 * (2 * U * 2 + 16 * U * 4) / h + rounded_vectors + ULP2
+    r.add('A1: the sharper count (16 u S2)', Verdict(sharp <= ONE_E14 and sharp < total, ONE_E14 / sharp, 'step 4 with 16 u S2: %.3e against 1e-14 (the proof of the note keeps 22 u S2: %.3e)' % (float(sharp), float(total))))
     r.add('A1: the three terms', Verdict(total <= ONE_E14, ONE_E14 / total,
           'step 5 %.3e + step 3 %.3e + atan2 %.3e = %.3e against 1e-14 (the note: 9.9e-15)' % (float(angle), float(rounded_vectors), float(ULP2), float(total))))
     r.add('the 1e-12 charged per replaced edge', Verdict(Fraction(1, 10**12) >= total, Fraction(1, 10**12) / total, 'a margin of %.0f against the bound that the certificate implies' % float(Fraction(1, 10**12) / total)))
@@ -1167,7 +1173,11 @@ def _sample_edges(c, r, certified):
             continue                                        # (the exact zone: decided by the exact predicates, sign only)
         exact = math.atan2(float(num), float(den))
         err = abs(got - exact)
-        err = min(err, abs(err - 2 * math.pi))
+        if not certified:
+            # an uncertified edge (p near it) may lie across the branch cut of the arctangent: the angles are compared as such, modulo 2 pi.
+            # A certified edge never does (part of the proof of A1: |num| >= 1e-6 S1 >> 2 u S1, so the sign of num is the exact one), so a 2 pi
+            # difference there is a real error of 2 pi and stays one: no reduction
+            err = min(err, abs(err - 2 * math.pi))
         bound = _angle_error_bound(num, den, s1, s2) + slack
         limit = min(bound, ONE_E14_D + slack) if certified else bound
         ratio = Decimal(err) / limit
@@ -1184,18 +1194,18 @@ ONE_E14_D = Decimal(1) / Decimal(10 ** 14)
         'if (den <= denErr && Math.Abs(num) <= numErr) {', 'return Math.Atan2(num, den);'],
        'the computed angle of boundary_edge_angle_x (fast path) differs from the exact one by at most (pi / 2)(2 u S1 + 22 u S2) / hypot(num, den) + 2 pi u + 2 ulp, '
        'hypot = |a||b| sqrt(2 (1 + U.V) x_u x_v), S1 <= 2 and S2 <= 4 times |a||b| sqrt(x_u x_v)',
-       'the fast path (normal products). UNBOUNDED as p approaches the edge (1 + U.V -> 0): at most 8e-15 / theta for the angular distance theta of p from the '
+       'the fast path (normal products). UNBOUNDED as p approaches the edge (1 + U.V -> 0): at most 8e-15 / sin(theta / 2), about 1.6e-14 / theta, for the angular distance theta of p from the '
        'edge, then at most pi; the exact zone (|num| <= numErr and den <= denErr) is a sign guard, not an accuracy guarantee. NOT the A1 of the tree (BT-5: under the certificate theta is bounded below). '
        'Describes master: the branch fix/exact-winding-open-edge-angle replaces the fast formula where hypot is small, outside the domain the tree relies on',
        '(pi / 2)(2 u S1 + 22 u S2) / hypot')
 def edge_angle_domain(c, r):
     # theta: the angular distance of p from the edge, so that U.V = -cos(theta) and hypot / (|a||b|) = sqrt(2 (1 - cos theta) x_u x_v) = 2 sin(theta / 2) sqrt(x_u x_v);
-    # (2 S1 + 22 S2) <= (2 * 2 + 22 * 4) |a||b| sqrt(x_u x_v), so error <= (pi / 2)(4 + 88) u / (2 sin(theta / 2)) = 23 pi u / sin(theta / 2) ~ 8e-15 / theta
+    # (2 S1 + 22 S2) <= (2 * 2 + 22 * 4) |a||b| sqrt(x_u x_v), so error <= (pi / 2)(4 + 88) u / (2 sin(theta / 2)) = 23 pi u / sin(theta / 2) = 8.0e-15 / sin(theta / 2) ~ 1.6e-14 / theta (sin(theta / 2) ~ theta / 2)
     k = PI_HI / 2 * (2 * 2 + 22 * 4) * U / 2
     theta_1e12 = 2 * math.asin(float(k) / 1e-12)
-    r.add(*arith('the error is at most %.2e / sin(theta / 2)' % float(k), 5e-15 < float(k) < 5e-14,
+    r.add(*arith('the error is at most %.2e / sin(theta / 2), %.2e / theta' % (float(k), float(2 * k)), 7.9e-15 < float(k) < 8.1e-15 and 1.58e-14 < float(2 * k) < 1.62e-14,
                  'the coefficient (pi / 2)(2 * 2 + 22 * 4) u / 2; measured in the issue draft: error about 1e-16 / theta (the bound is a worst case of the constants)'))
     theta_cert = math.pi - 2 * math.asin(0.25)
     r.add(*arith('an accepted node keeps theta >= %.2f rad, far above %.1e' % (theta_cert, theta_1e12), theta_cert > theta_1e12 * 100,
-                 'r < d / 4 puts the two unit vectors at most 2 asin(1/4) = 0.505 rad apart: p sees every edge of the node at theta >= pi - 0.505; below theta = %.1e the formula is weaker than the 1e-12 per edge that nodeErr charges' % theta_1e12))
+                 'r < d / 4 puts the two unit vectors at most 2 asin(1/4) = 0.505 rad apart: p sees every edge of the node at theta >= pi - 0.505 (`ball_is_small`, r < d / 4, not the rest of `fast_path_certificate`); below theta = %.1e the formula is weaker than the 1e-12 per edge that nodeErr charges' % theta_1e12))
     _sample_edges(c, r, certified=False)

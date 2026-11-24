@@ -250,7 +250,7 @@ an edge (`boundary_edge_angle_x`) and θ_e its exact value, the terms are:
 | the rounding of /2π and of chi + bSum (u relative each) | `4e-15 (|chi| + |bSum|)`, about 18 times too large |
 | the rounding of the margin, and of the accumulation of err (n u relative, n visited terms) | the factor 1.01, valid while n u < 0.01 |
 
-Each clause of this table has a model in `tools/ErrorBoundAudit/bounds.py` (BT-1 to BT-6; margins in [the audit note](../research/ERROR_BOUND_AUDIT_2026-11.md)), checked with exact rationals and against doubles; the model agrees with the hand table (the tight clauses: A1 against 1e-14, 1.013; `sumOrderErr`, 1.075). The analytic remainder, the cap geometry and the coordinate term of `coordEps` are not modelled.
+Each clause of this table has a model in `tools/ErrorBoundAudit/bounds.py` (BT-1 to BT-6; margins in [the audit note](../research/ERROR_BOUND_AUDIT_2026-11.md)), checked with exact rationals and against doubles; the model agrees with the hand table (the tight clauses: A1 against 1e-14, 1.013 with the proof's constants below, 1.30 with the sharper count of 16u in step 4; `sumOrderErr`, 1.064). The analytic remainder, the cap geometry and the coordinate term of `coordEps` are not modelled.
 
 What the table rests on, and the 1e-9: the rows `1e-11 + 16 coordEps` and `1e-12 (hi - lo)` rest on **A1: for every edge
 of an accepted node, and for the chord, the computed angle T_e is within 1e-14 of its exact value** (the code charges
@@ -309,12 +309,12 @@ Taylor series over 2^-220) and asserts ≤ 2 ulp; the largest seen on the CI-typ
 atan2 is worse fails that test and the 1e-14 test (then the 1e-12 charged per edge still holds up to 1e3 ulp).
 
 **Scope of A1 (#1427).** Proved: for the edges of an *accepted* node and the chord, the computed angle is within 1e-14 of the exact one
-(audit model BT-5 re-derives the constants: 9.87e-15). What makes the proof apply is the certificate (`fast_path_certificate`, `r < d/4`),
+(audit model BT-5 checks the arithmetic of the proof's constants: 9.87e-15; with the 16u that step 4 itself gives instead of the loose 22u: 7.7e-15). What makes the proof apply is the certificate (`fast_path_certificate`; the clause `ball_is_small`, `r < d/4`, gives the separation),
 not the fast path alone: the certificate keeps the two unit vectors of an edge within 2 asin(1/4) of each other, so p is at an angular
 distance of at least pi - 0.505 from every edge of the node, where `hypot(num, den) = |a||b| sqrt(2 (1 + U.V) x_u x_v)` is no smaller than
 1.93 times the size of the terms (the error of num and den is then a constant times u of that size). Not claimed: any edge on the fast path.
 For p near an edge, `1 + U.V` goes to 0 and the same steps 4 and 5 give an error of up to (pi / 2)(2 u S1 + 22 u S2) / hypot + 2 pi u +
-2 ulp, about 8e-15 / sin(theta / 2) for the angular distance theta of p from the edge (audit model BT-6): unbounded as theta goes to 0, and
+2 ulp, about 8e-15 / sin(theta / 2), that is 1.6e-14 / theta, for the angular distance theta of p from the edge (audit model BT-6): unbounded as theta goes to 0, and
 the exact zone (a sign guard) does not bound it. The leaf edges of the tree and the full sum evaluate the same function bit for bit, so the
 tree's decisions do not depend on this; it is an accuracy statement about the full sum (the value of `Evaluate`) for p near an open edge,
 which is being corrected on the branch `fix/exact-winding-open-edge-angle` (the fast formula stays where it is accurate).
@@ -326,7 +326,7 @@ angle at 2^-100 (`on_vertex_angle_x`), has products that may be subnormal (the p
 has an exact zone on rescaled products. A proof would have to give the error counts of those branches in the style of step 4, show that the
 cut-offs are below the 1e-14 (the angle of a cut is below 2^-100 against 1e-14: they are), and cover the subnormal range by an absolute term.
 What it would buy: a weaker certificate, without the clause `d in [2^-97, 2^99]`. Today the cost is at extreme magnitudes only. Measured on an
-open grid of 636 boundary edges (503 nodes), 40 queries per scale, scaled by 2^k (exact), counts per query: k = 0 to 90 accept 15 nodes and
+open grid of 636 boundary edges (503 nodes), 40 queries per scale, scaled by 2^k (exact), counts per query (a one-off measurement; the test `TreeUse_ByScale_IsUpToAboutTwoToTheNinetyAndExactAboveAndBelow` in `ExactWindingCacheInternalTestsBoundaryTree.cs` reproduces the qualitative statement on the same grid: with 8 queries per scale, nodes accepted and no leaf edge at 2^0, 2^60, 2^90, 2^-90, no node accepted and every edge evaluated at 2^150, 2^200, 2^-100, 2^-150, no tree at 2^230, 2^500, 2^-300), counts per query: k = 0 to 90 accept 15 nodes and
 evaluate no leaf edge; k = 99: 14 accepted, 100 of 636 leaf edges; k = 100: 1 accepted, 618 leaf edges (almost every node fails the range
 clause); k = 150 and 200: 0 accepted, all 636 edges, the cost of the full sum plus the walk; k = 230 and 500: no tree (`Build` stops at
 `mMax > 1e65`); k = -90: as k = 0; k = -97: 493 leaf edges; k = -98 and -100: all 636; k = -300: no tree. So the tree is exact but of no
