@@ -3,14 +3,16 @@
 // Offline Symbolic Taylor round-off error verifier for PredicateCompiler's floating-point filters (Solovyev et al.,
 // "Rigorous Estimation of Floating-Point Round-Off Errors with Symbolic Taylor Expansions", ACM TOPLAS 40(4), 2018).
 //
-// Operates directly on PredicateCompiler's parsed Predicate / Node DAG with zero external dependencies:
-//   - Directed-rounding IEEE-754 binary64 interval arithmetic (Interval64, via Math.BitDecrement / Math.BitIncrement).
+// Scope: verifies PredicateCompiler's filter bounds on bounded input domains (complementing tools/Z3Pilot/filter_rules.py,
+// which proves the per-operation inductive rules symbolically across the full range gate). Operates directly on
+// PredicateCompiler's parsed Predicate / Node DAG with zero external dependencies:
+//   - Directed-rounding IEEE-754 binary64 interval arithmetic (Interval64, via Knuth TwoSum / Dekker TwoProd).
 //   - Exact IEEE-754 binary64 binade local rounding bound HalfUlpMax(m) (handling exact powers of two and subnormals).
 //   - Reverse-mode interval sensitivities VBar[k] enclosing d(f)/d(v_k) over each box.
 //   - Exact algebraic telescoping identity on +, -, * DAGs:
 //       v~_root - v_root = sum_{k not Input} vBar_k * l_k + sum_{k in Mul} vBar_k * (err_{a_k} * err_{b_k}),
-//     where l_k = fl(s~_k) - s~_k is bounded by HalfUlpMax(Up(|v_k| + preRoundErr_k)) and err_k = v~_k - v_k.
-//   - Best-first branch-and-bound box subdivision to tighten first-order symbolic Taylor bounds.
+//     where l_k = fl(s~_k) - s~_k is bounded by HalfUlpMax(AddUp(|v_k|, preRoundErr_k)) and err_k = v~_k - v_k.
+//   - Best-first branch-and-bound box subdivision with deterministic tie-breaking.
 //   - Exact rational (BigInteger) spot-checks on corners and interior points of each box.
 using System;
 using System.Collections.Generic;
@@ -32,6 +34,8 @@ namespace G3PredicateCompiler
             if (double.IsNaN(lo) || double.IsNaN(hi)) {
                 Lo = double.NegativeInfinity;
                 Hi = double.PositiveInfinity;
+            } else if (lo > hi) {
+                throw new ArgumentException($"Interval64 requires lo <= hi, got [{lo}, {hi}]");
             } else {
                 Lo = lo;
                 Hi = hi;
@@ -58,14 +62,20 @@ namespace G3PredicateCompiler
             return Math.BitIncrement(x);
         }
 
-        // Exact IEEE-754 directed-rounding addition via Knuth's TwoSum (exact even in subnormals; falls back near overflow).
+        // Exact IEEE-754 directed-rounding addition via Knuth's TwoSum (exact even in subnormals; handles finite overflow soundly).
         public static double AddDown(double a, double b)
         {
             if (double.IsNaN(a) || double.IsNaN(b)) return double.NegativeInfinity;
             if (a == 0.0) return b;
             if (b == 0.0) return a;
             double s = a + b;
-            if (!double.IsFinite(s)) return double.IsNaN(s) ? double.NegativeInfinity : s;
+            if (!double.IsFinite(s)) {
+                if (double.IsNaN(s)) return double.NegativeInfinity;
+                // Finite inputs overflowing to +Infinity have a finite exact sum > double.MaxValue: round down to double.MaxValue.
+                if (double.IsPositiveInfinity(s) && double.IsFinite(a) && double.IsFinite(b))
+                    return double.MaxValue;
+                return s;
+            }
             if (Math.Abs(a) <= 1e300 && Math.Abs(b) <= 1e300) {
                 double bv = s - a;
                 double err = (a - (s - bv)) + (b - bv);
@@ -80,7 +90,13 @@ namespace G3PredicateCompiler
             if (a == 0.0) return b;
             if (b == 0.0) return a;
             double s = a + b;
-            if (!double.IsFinite(s)) return double.IsNaN(s) ? double.PositiveInfinity : s;
+            if (!double.IsFinite(s)) {
+                if (double.IsNaN(s)) return double.PositiveInfinity;
+                // Finite inputs overflowing to -Infinity have a finite exact sum < -double.MaxValue: round up to -double.MaxValue.
+                if (double.IsNegativeInfinity(s) && double.IsFinite(a) && double.IsFinite(b))
+                    return -double.MaxValue;
+                return s;
+            }
             if (Math.Abs(a) <= 1e300 && Math.Abs(b) <= 1e300) {
                 double bv = s - a;
                 double err = (a - (s - bv)) + (b - bv);
@@ -92,7 +108,7 @@ namespace G3PredicateCompiler
         public static double SubDown(double a, double b) => AddDown(a, -b);
         public static double SubUp(double a, double b) => AddUp(a, -b);
 
-        // Exact IEEE-754 directed-rounding multiplication via Dekker's TwoProd within [1e-140, 1e140], else BitDecrement/BitIncrement.
+        // Exact IEEE-754 directed-rounding multiplication via Dekker's TwoProd within [1e-140, 1e140]; handles finite overflow soundly.
         static void Split(double a, out double hi, out double lo)
         {
             double c = 134217729.0 * a; // (2^27 + 1) * a
@@ -105,7 +121,12 @@ namespace G3PredicateCompiler
         {
             if (double.IsNaN(a) || double.IsNaN(b)) return double.NegativeInfinity;
             double p = a * b;
-            if (!double.IsFinite(p)) return double.IsNaN(p) ? double.NegativeInfinity : p;
+            if (!double.IsFinite(p)) {
+                if (double.IsNaN(p)) return double.NegativeInfinity;
+                if (double.IsPositiveInfinity(p) && double.IsFinite(a) && double.IsFinite(b))
+                    return double.MaxValue;
+                return p;
+            }
             if (a == 0.0 || b == 0.0) return 0.0;
             double aa = Math.Abs(a), ab = Math.Abs(b);
             if (aa >= 1e-140 && aa <= 1e140 && ab >= 1e-140 && ab <= 1e140) {
@@ -121,7 +142,12 @@ namespace G3PredicateCompiler
         {
             if (double.IsNaN(a) || double.IsNaN(b)) return double.PositiveInfinity;
             double p = a * b;
-            if (!double.IsFinite(p)) return double.IsNaN(p) ? double.PositiveInfinity : p;
+            if (!double.IsFinite(p)) {
+                if (double.IsNaN(p)) return double.PositiveInfinity;
+                if (double.IsNegativeInfinity(p) && double.IsFinite(a) && double.IsFinite(b))
+                    return -double.MaxValue;
+                return p;
+            }
             if (a == 0.0 || b == 0.0) return 0.0;
             double aa = Math.Abs(a), ab = Math.Abs(b);
             if (aa >= 1e-140 && aa <= 1e140 && ab >= 1e-140 && ab <= 1e140) {
@@ -168,8 +194,8 @@ namespace G3PredicateCompiler
         public double MaxSampledExactErr;
         public int BoxesEvaluated;
         public double ElapsedMs;
-        public bool Dominates;              // SymbolicTaylorBound <= GeneratorBound (finite)
-        public bool SamplesValid;           // every exact rational spot-check stayed within both bounds
+        public bool Dominates;              // SymbolicTaylorBound <= GeneratorBound (both finite)
+        public bool SamplesValid;           // every exact rational spot-check stayed within applicable bounds
         public bool Passed => Dominates && SamplesValid;
     }
 
@@ -184,9 +210,9 @@ namespace G3PredicateCompiler
     {
         /// <summary>
         /// Exact upper bound on |fl(z) - z| in IEEE-754 binary64 round-to-nearest for any real z with |z| &lt;= m.
-        /// For m = 2^e (exact power of two, e &gt;= -1021), |z| = 2^e is exact and |z| &lt; 2^e lies in [0, 2^e),
+        /// For m = 2^e (exact power of two, e &gt;= -1020), |z| = 2^e is exact and |z| &lt; 2^e lies in [0, 2^e),
         /// so the largest binade reached is [2^(e-1), 2^e) with half-ulp 2^(e - 54). For 2^e &lt; m &lt; 2^(e+1),
-        /// half-ulp is 2^(e - 53). For 0 &lt; m &lt;= 2^-1021, returns double.Epsilon (2^-1074 &gt; 2^-1075).
+        /// half-ulp is 2^(e - 53). For 0 &lt; m &lt;= 2^-1020, returns double.Epsilon (2^-1074 &gt;= half-ulp).
         /// </summary>
         public static double HalfUlpMax(double m)
         {
@@ -201,6 +227,37 @@ namespace G3PredicateCompiler
             if (halfExp < -1074)
                 return double.Epsilon;
             return Math.ScaleB(1.0, halfExp);
+        }
+
+        // Safe upper-bound conversion of a nonnegative Rational to double (handles subnormal underflow and overflow without throwing).
+        static double SafeCeilDouble(Rational q)
+        {
+            if (q.Num.IsZero) return 0.0;
+            int k = Math.Max(0, (int)q.Num.GetBitLength() - 60);
+            int j = Math.Max(0, (int)q.Den.GetBitLength() - 60);
+            double d = Math.ScaleB((double)(q.Num >> k) / (double)(q.Den >> j), k - j);
+            if (d == 0.0) return double.Epsilon;
+            if (double.IsInfinity(d) || double.IsNaN(d)) return double.PositiveInfinity;
+            while (double.IsFinite(d) && !(Rational.FromDouble(d) >= q)) d = Math.BitIncrement(d);
+            if (!double.IsFinite(d)) return double.PositiveInfinity;
+            while (d > double.Epsilon && Rational.FromDouble(Math.BitDecrement(d)) >= q) d = Math.BitDecrement(d);
+            return d;
+        }
+
+        static double SafeMidpoint(double lo, double hi) => 0.5 * lo + 0.5 * hi;
+
+        static double SafeInterpolate(double lo, double hi, double t)
+        {
+            double span = hi - lo;
+            if (double.IsFinite(span)) return lo + t * span;
+            return (1.0 - t) * lo + t * hi;
+        }
+
+        static double SafeHalfWidth(double lo, double hi)
+        {
+            double span = hi - lo;
+            if (double.IsFinite(span)) return 0.5 * span;
+            return 0.5 * hi - 0.5 * lo;
         }
 
         // Sub-DAG restricted to the ancestors of a target node, indexed 0..N-1 in topological order.
@@ -365,19 +422,27 @@ namespace G3PredicateCompiler
 
             double total = Interval64.AddUp(sumFirst, sumSecond);
 
-            // Split input dimension with largest width * sensitivity.
+            // Split input dimension with largest scale-invariant halfWidth * sensitivity; break all-zero ties by halfWidth.
             int bestDim = 0;
             double bestScore = -1.0;
+            int widestDim = 0;
+            double bestHalfWidth = -1.0;
             for (int d = 0; d < inputBox.Length; ++d) {
-                double width = inputBox[d].Hi - inputBox[d].Lo;
-                if (!(width > 0.0)) continue;
+                double hw = SafeHalfWidth(inputBox[d].Lo, inputBox[d].Hi);
+                if (!(hw > 0.0)) continue;
+                if (hw > bestHalfWidth) {
+                    bestHalfWidth = hw;
+                    widestDim = d;
+                }
                 int subId = dag.InputSubIds[d];
-                double score = width * (VBar[subId].MaxAbs + 1e-30);
+                double score = hw * VBar[subId].MaxAbs;
                 if (score > bestScore) {
                     bestScore = score;
                     bestDim = d;
                 }
             }
+            if (!(bestScore > 0.0))
+                bestDim = widestDim;
 
             return new BoxEval(total, sumFirst, sumSecond, bestDim);
         }
@@ -414,53 +479,64 @@ namespace G3PredicateCompiler
                 if (dag.Nodes[i].Op == Op.Input) continue;
                 sum += Math.Abs(vb[i]) * HalfUlpMax(Math.Abs(v[i]));
             }
-            return sum;
+            return double.IsFinite(sum) ? sum : 0.0;
         }
 
-        // Generator's worst-case box bound: target.C * M_max(box), where M_max follows Compiler.cs's m~ recurrence.
-        // For sign factors, uses FilterK (which is (C / (1 - u)).CeilDouble()); for internal nodes, C.CeilDouble().
+        // Conservative lower bound on the generator's worst-case box bound (target.C * M_max(box), rounded DOWN so
+        // checking SymbolicTaylorBound <= GeneratorBound never masks a 1-ulp violation on non-dyadic domains).
         static double GeneratorBoxBound(Predicate p, SubDag dag, Node target, Interval64[] inputBox)
         {
             int n = dag.Nodes.Length;
-            var V = new Interval64[n];
             var mMax = new double[n];
             for (int i = 0; i < n; ++i) {
                 var nd = dag.Nodes[i];
                 switch (nd.Op) {
                     case Op.Input:
-                        V[i] = inputBox[dag.A[i]];
-                        mMax[i] = V[i].MaxAbs;
+                        mMax[i] = inputBox[dag.A[i]].MaxAbs;
                         break;
                     case Op.Add:
                     case Op.Sub: {
                         int ia = dag.A[i], ib = dag.B[i];
-                        V[i] = nd.Op == Op.Add ? V[ia] + V[ib] : V[ia] - V[ib];
-                        mMax[i] = nd.Leaf ? V[i].MaxAbs : Interval64.AddUp(mMax[ia], mMax[ib]);
+                        if (nd.Leaf) {
+                            var ba = inputBox[dag.A[ia]];
+                            var bb = inputBox[dag.A[ib]];
+                            double dLo = nd.Op == Op.Add ? Interval64.AddUp(ba.Lo, bb.Lo) : Interval64.SubUp(ba.Lo, bb.Hi);
+                            double dHi = nd.Op == Op.Add ? Interval64.AddDown(ba.Hi, bb.Hi) : Interval64.SubDown(ba.Hi, bb.Lo);
+                            // Inner bound on max |x +- y| over the leaf endpoints:
+                            mMax[i] = Math.Max(Math.Abs(dLo), Math.Abs(dHi));
+                        } else {
+                            mMax[i] = Interval64.AddDown(mMax[ia], mMax[ib]);
+                        }
                         break;
                     }
                     case Op.Mul: {
                         int ia = dag.A[i], ib = dag.B[i];
-                        V[i] = V[ia] * V[ib];
-                        mMax[i] = Interval64.MulUp(mMax[ia], mMax[ib]);
+                        mMax[i] = Interval64.MulDown(mMax[ia], mMax[ib]);
                         break;
                     }
                 }
             }
             int signIdx = p.Signs.IndexOf(target);
-            double coeff = signIdx >= 0 ? p.FilterK[signIdx] : target.C.CeilDouble();
-            return Interval64.MulUp(coeff, mMax[dag.Root]);
+            double coeff = signIdx >= 0 ? p.FilterK[signIdx] : SafeCeilDouble(target.C);
+            if (!double.IsFinite(coeff) || !double.IsFinite(mMax[dag.Root]))
+                return double.PositiveInfinity;
+            return Interval64.MulDown(coeff, mMax[dag.Root]);
         }
 
         // Exact rational evaluation on concrete double points inside the box to cross-check both bounds.
         static (bool allOk, double maxExactErr) SpotCheckExact(
             Predicate p, SubDag dag, Node target, Interval64[] inputBox, double symTaylorBound, int samples)
         {
+            if (!double.IsFinite(symTaylorBound))
+                return (false, double.PositiveInfinity);
+
             int d = inputBox.Length;
             int n = dag.Nodes.Length;
             int signIdx = p.Signs.IndexOf(target);
-            double filterK = signIdx >= 0 ? p.FilterK[signIdx] : target.C.CeilDouble();
+            double filterK = signIdx >= 0 ? p.FilterK[signIdx] : SafeCeilDouble(target.C);
             double gateLo = Math.ScaleB(1.0, -p.GateLow);
             double gateHi = Math.ScaleB(1.0, p.GateHigh);
+            Rational symTaylorRat = Rational.FromDouble(symTaylorBound);
 
             var rng = new Random(202611);
             var pt = new double[d];
@@ -477,9 +553,9 @@ namespace G3PredicateCompiler
                     double lo = inputBox[k].Lo, hi = inputBox[k].Hi;
                     if (s == 0) pt[k] = lo;
                     else if (s == 1) pt[k] = hi;
-                    else if (s == 2) pt[k] = 0.5 * (lo + hi);
+                    else if (s == 2) pt[k] = SafeMidpoint(lo, hi);
                     else if (s < samples / 2) pt[k] = rng.Next(2) == 0 ? lo : hi;
-                    else pt[k] = lo + rng.NextDouble() * (hi - lo);
+                    else pt[k] = SafeInterpolate(lo, hi, rng.NextDouble());
                     double ap = Math.Abs(pt[k]);
                     if (pt[k] != 0.0 && !(ap >= gateLo && ap <= gateHi))
                         inGate = false;
@@ -518,26 +594,36 @@ namespace G3PredicateCompiler
                 }
 
                 int r = dag.Root;
+                if (!double.IsFinite(vFp[r])) {
+                    ok = false;
+                    maxErr = double.PositiveInfinity;
+                    continue;
+                }
+
                 Rational diff = Rational.FromDouble(vFp[r]) - vEx[r];
                 Rational absDiff = diff.Num.Sign < 0 ? new Rational(-diff.Num, diff.Den) : diff;
-                if (!(absDiff <= Rational.FromDouble(symTaylorBound)))
+                if (!(absDiff <= symTaylorRat))
                     ok = false;
 
                 // Pointwise check of Compiler.cs's runtime invariant |e~ - e| <= C * m~ (valid inside the range gate).
                 if (inGate) {
-                    Rational genPtBound = target.C * Rational.FromDouble(mFp[r]);
-                    if (!(absDiff <= genPtBound))
+                    if (!double.IsFinite(mFp[r])) {
                         ok = false;
-
-                    // Sign filter check: if |e~| > fl(K * m~), sign(e~) must equal sign(e)
-                    if (signIdx >= 0 && Math.Abs(vFp[r]) > filterK * mFp[r]) {
-                        if (Math.Sign(vFp[r]) != vEx[r].Num.Sign)
+                    } else {
+                        Rational genPtBound = target.C * Rational.FromDouble(mFp[r]);
+                        if (!(absDiff <= genPtBound))
                             ok = false;
+
+                        // Sign filter check: if |e~| > fl(K * m~), sign(e~) must equal sign(e)
+                        if (signIdx >= 0 && Math.Abs(vFp[r]) > filterK * mFp[r]) {
+                            if (Math.Sign(vFp[r]) != vEx[r].Num.Sign)
+                                ok = false;
+                        }
                     }
                 }
 
                 if (!absDiff.Num.IsZero) {
-                    double approxErr = absDiff.CeilDouble();
+                    double approxErr = SafeCeilDouble(absDiff);
                     if (approxErr > maxErr) maxErr = approxErr;
                 }
             }
@@ -552,8 +638,26 @@ namespace G3PredicateCompiler
             public QueueItem(Interval64[] box, BoxEval eval) { Box = box; Eval = eval; }
         }
 
+        readonly struct QueueKey : IComparable<QueueKey>
+        {
+            public readonly double NegTotal;
+            public readonly int Seq;
+            public QueueKey(double negTotal, int seq) { NegTotal = negTotal; Seq = seq; }
+            public int CompareTo(QueueKey other)
+            {
+                int c = NegTotal.CompareTo(other.NegTotal);
+                return c != 0 ? c : Seq.CompareTo(other.Seq);
+            }
+        }
+
+        static void ValidateRange((double Lo, double Hi) range, string name)
+        {
+            if (!double.IsFinite(range.Lo) || !double.IsFinite(range.Hi) || range.Lo > range.Hi)
+                throw new ArgumentException($"Range '{name}' must be finite with Lo <= Hi, got [{range.Lo}, {range.Hi}]");
+        }
+
         /// <summary>
-        /// Verifies a single node of an analyzed `inputs xyz` predicate on the given per-point coordinate ranges.
+        /// Verifies a single non-input node of an analyzed `inputs xyz` predicate on the given per-point coordinate ranges.
         /// Any point absent from `pointRanges` uses `defaultRange`.
         /// </summary>
         public static FilterVerificationRow VerifyNode(
@@ -567,8 +671,23 @@ namespace G3PredicateCompiler
             double relTol = 0.01,
             int exactSamples = 128)
         {
+            if (p == null) throw new ArgumentNullException(nameof(p));
             if (!p.Xyz)
                 throw new NotSupportedException($"{p.Name}: --verify-filters applies only to 'inputs xyz' predicates");
+            if (target == null || !p.Nodes.Contains(target))
+                throw new ArgumentException("target node must belong to predicate p", nameof(target));
+            if (target.Op == Op.Input)
+                throw new ArgumentException("target node must be an operation node, not an input", nameof(target));
+
+            ValidateRange(defaultRange, nameof(defaultRange));
+            if (pointRanges != null) {
+                var knownPoints = new HashSet<string>(p.Points);
+                foreach (var kv in pointRanges) {
+                    if (!knownPoints.Contains(kv.Key))
+                        throw new ArgumentException($"Unknown point '{kv.Key}' in pointRanges for predicate {p.Name}", nameof(pointRanges));
+                    ValidateRange(kv.Value, kv.Key);
+                }
+            }
 
             var sw = Stopwatch.StartNew();
             var dag = SubDag.Extract(p, target);
@@ -588,15 +707,16 @@ namespace G3PredicateCompiler
             var pt = new double[initialBox.Length];
             for (int s = 0; s < 64; ++s) {
                 for (int d = 0; d < initialBox.Length; ++d) {
-                    if (s == 0) pt[d] = 0.5 * (initialBox[d].Lo + initialBox[d].Hi);
+                    if (s == 0) pt[d] = SafeMidpoint(initialBox[d].Lo, initialBox[d].Hi);
                     else if (s < 32) pt[d] = rng.Next(2) == 0 ? initialBox[d].Lo : initialBox[d].Hi;
-                    else pt[d] = initialBox[d].Lo + rng.NextDouble() * (initialBox[d].Hi - initialBox[d].Lo);
+                    else pt[d] = SafeInterpolate(initialBox[d].Lo, initialBox[d].Hi, rng.NextDouble());
                 }
                 lower = Math.Max(lower, PointFirstOrderProxy(dag, pt));
             }
 
-            var pq = new PriorityQueue<QueueItem, double>();
-            pq.Enqueue(new QueueItem(initialBox, eval0), -eval0.Total);
+            int seq = 0;
+            var pq = new PriorityQueue<QueueItem, QueueKey>();
+            pq.Enqueue(new QueueItem(initialBox, eval0), new QueueKey(-eval0.Total, seq++));
             int evaluated = 1;
 
             while (evaluated < maxBoxes && pq.Count > 0) {
@@ -607,11 +727,13 @@ namespace G3PredicateCompiler
 
                 int dim = top.Eval.SplitDim;
                 double lo = top.Box[dim].Lo, hi = top.Box[dim].Hi;
-                if (hi - lo <= 1e-12 * Math.Max(1.0, Math.Abs(hi))) {
-                    pq.Enqueue(top, -top.Eval.Total);
+                double mid = SafeMidpoint(lo, hi);
+                double scale = Math.Max(Math.Abs(lo), Math.Abs(hi));
+                double span = hi - lo;
+                if (!(mid > lo && mid < hi) || (double.IsFinite(span) && scale > 0.0 && span <= 1e-12 * scale)) {
+                    pq.Enqueue(top, new QueueKey(-top.Eval.Total, seq++));
                     break;
                 }
-                double mid = 0.5 * (lo + hi);
 
                 var left = (Interval64[])top.Box.Clone();
                 var right = (Interval64[])top.Box.Clone();
@@ -620,13 +742,13 @@ namespace G3PredicateCompiler
 
                 var el = EvaluateBox(dag, left);
                 var er = EvaluateBox(dag, right);
-                pq.Enqueue(new QueueItem(left, el), -el.Total);
-                pq.Enqueue(new QueueItem(right, er), -er.Total);
+                pq.Enqueue(new QueueItem(left, el), new QueueKey(-el.Total, seq++));
+                pq.Enqueue(new QueueItem(right, er), new QueueKey(-er.Total, seq++));
                 evaluated += 2;
 
-                for (int k = 0; k < left.Length; ++k) pt[k] = 0.5 * (left[k].Lo + left[k].Hi);
+                for (int k = 0; k < left.Length; ++k) pt[k] = SafeMidpoint(left[k].Lo, left[k].Hi);
                 lower = Math.Max(lower, PointFirstOrderProxy(dag, pt));
-                for (int k = 0; k < right.Length; ++k) pt[k] = 0.5 * (right[k].Lo + right[k].Hi);
+                for (int k = 0; k < right.Length; ++k) pt[k] = SafeMidpoint(right[k].Lo, right[k].Hi);
                 lower = Math.Max(lower, PointFirstOrderProxy(dag, pt));
             }
 

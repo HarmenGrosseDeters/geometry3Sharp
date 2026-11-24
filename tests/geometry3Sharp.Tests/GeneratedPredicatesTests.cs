@@ -356,12 +356,25 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Math.ScaleB(1.0, -53), SymbolicTaylorVerify.HalfUlpMax(1.5));
             Assert.Equal(Math.ScaleB(1.0, -53), SymbolicTaylorVerify.HalfUlpMax(2.0));
             Assert.Equal(Math.ScaleB(1.0, -52), SymbolicTaylorVerify.HalfUlpMax(Math.BitIncrement(2.0)));
+            Assert.Equal(Math.ScaleB(1.0, -1073), SymbolicTaylorVerify.HalfUlpMax(Math.BitIncrement(Math.ScaleB(1.0, -1020))));
+            Assert.Equal(Math.ScaleB(1.0, 970), SymbolicTaylorVerify.HalfUlpMax(double.MaxValue));
             Assert.True(double.IsPositiveInfinity(SymbolicTaylorVerify.HalfUlpMax(double.PositiveInfinity)));
             Assert.True(double.IsPositiveInfinity(SymbolicTaylorVerify.HalfUlpMax(double.NaN)));
 
+            // Finite overflow directed rounding must never return wrong-direction infinity.
+            Assert.Equal(double.MaxValue, Interval64.AddDown(double.MaxValue, double.MaxValue));
+            Assert.Equal(-double.MaxValue, Interval64.AddUp(-double.MaxValue, -double.MaxValue));
+            Assert.Equal(double.MaxValue, Interval64.SubDown(double.MaxValue, -double.MaxValue));
+            Assert.Equal(-double.MaxValue, Interval64.SubUp(-double.MaxValue, double.MaxValue));
+            Assert.Equal(double.MaxValue, Interval64.MulDown(1e200, 1e200));
+            Assert.Equal(-double.MaxValue, Interval64.MulUp(1e200, -1e200));
+            var ovSum = Interval64.Point(double.MaxValue) + Interval64.Point(double.MaxValue);
+            Assert.Equal(double.MaxValue, ovSum.Lo);
+            Assert.True(double.IsPositiveInfinity(ovSum.Hi));
+
             // Exact directed rounding checks against Rational across normal, power-of-two, and extreme scales.
             var rng = new Random(2026);
-            double[] special = { 0.0, 1.0, -1.0, 2.0, -2.0, 0.5, 1.0 / 3.0, Math.BitIncrement(1.0), Math.BitDecrement(2.0), 1e-150, 1e150, double.Epsilon };
+            double[] special = { 0.0, 1.0, -1.0, 2.0, -2.0, 0.5, 1.0 / 3.0, Math.BitIncrement(1.0), Math.BitDecrement(2.0), 1e-150, 1e150, 1e200, -1e200, double.MaxValue, -double.MaxValue, double.Epsilon };
             for (int i = 0; i < 2000; ++i) {
                 double a = i < special.Length * special.Length
                     ? special[i / special.Length]
@@ -373,13 +386,62 @@ namespace geometry3Sharp.Tests
                 var rb = Rational.FromDouble(b);
 
                 double ad = Interval64.AddDown(a, b), au = Interval64.AddUp(a, b);
+                Assert.False(double.IsPositiveInfinity(ad));
+                Assert.False(double.IsNegativeInfinity(au));
                 if (double.IsFinite(ad)) Assert.True(Rational.FromDouble(ad) <= ra + rb);
                 if (double.IsFinite(au)) Assert.True(ra + rb <= Rational.FromDouble(au));
 
+                double sd = Interval64.SubDown(a, b), su = Interval64.SubUp(a, b);
+                Assert.False(double.IsPositiveInfinity(sd));
+                Assert.False(double.IsNegativeInfinity(su));
+                if (double.IsFinite(sd)) Assert.True(Rational.FromDouble(sd) <= ra - rb);
+                if (double.IsFinite(su)) Assert.True(ra - rb <= Rational.FromDouble(su));
+
                 double md = Interval64.MulDown(a, b), mu = Interval64.MulUp(a, b);
+                Assert.False(double.IsPositiveInfinity(md));
+                Assert.False(double.IsNegativeInfinity(mu));
                 if (double.IsFinite(md)) Assert.True(Rational.FromDouble(md) <= ra * rb);
                 if (double.IsFinite(mu)) Assert.True(ra * rb <= Rational.FromDouble(mu));
             }
+        }
+
+        [Fact]
+        public void SymbolicTaylorVerify_EdgeScalesAndValidation()
+        {
+            string indirectSpec = File.ReadAllText(Path.Combine(Dir, "indirect.spec"));
+            var preds = PredicateCompiler.Analyze(indirectSpec).ToDictionary(p => p.Name);
+            var lpi = preds["Orient3dLPI"];
+            var tpi = preds["Orient3dTPI"];
+            var nx = lpi.Nodes.Single(n => n.Name == "nx");
+
+            // Small-scale domain (width 2^-45 << 1e-12): branch-and-bound must still split (> 1 box) and pass.
+            double s0 = Math.ScaleB(1.0, -45), s1 = Math.ScaleB(1.0, -44);
+            var smallRow = SymbolicTaylorVerify.VerifyNode(lpi, nx, "nx", "small", (s0, s1), maxBoxes: 64, exactSamples: 32);
+            Assert.True(smallRow.Passed);
+            Assert.True(smallRow.BoxesEvaluated > 1, $"expected splitting at small scale, got {smallRow.BoxesEvaluated} box");
+
+            // Subnormal product domain: must not throw in SpotCheckExact; Symbolic Taylor bound stays sound on all samples.
+            var subRow = SymbolicTaylorVerify.VerifyNode(lpi, nx, "nx", "subnormal", (1e-160, 2e-160), maxBoxes: 16, exactSamples: 32);
+            Assert.True(subRow.SamplesValid);
+            Assert.True(double.IsFinite(subRow.SymbolicTaylorBound));
+
+            // Huge overflowing domain: must fail closed cleanly without crashing or misdecoding Infinity.
+            var hugeRow = SymbolicTaylorVerify.VerifyNode(tpi, tpi.Root, "det", "overflow", (1e100, 2e100), maxBoxes: 16, exactSamples: 16);
+            Assert.False(hugeRow.Passed);
+            Assert.False(hugeRow.Dominates);
+
+            // Spec without any 'inputs xyz' predicates must report AllPassed == false (never vacuous pass).
+            var emptyReport = SymbolicTaylorVerify.VerifySpec(Spec);
+            Assert.Empty(emptyReport.Rows);
+            Assert.False(emptyReport.AllPassed);
+
+            // Validation: unknown point names, inverted/non-finite ranges, and input target nodes are rejected.
+            Assert.Throws<ArgumentException>(() => SymbolicTaylorVerify.VerifyNode(lpi, nx, "nx", "bad", (2.0, 1.0)));
+            Assert.Throws<ArgumentException>(() => SymbolicTaylorVerify.VerifyNode(lpi, nx, "nx", "bad", (double.NaN, 1.0)));
+            Assert.Throws<ArgumentException>(() => SymbolicTaylorVerify.VerifyNode(lpi, nx, "nx", "bad", (1.0, 2.0),
+                new Dictionary<string, (double, double)> { ["unknown_pt"] = (0.0, 1.0) }));
+            Assert.Throws<ArgumentException>(() => SymbolicTaylorVerify.VerifyNode(lpi, lpi.Nodes.First(n => n.Op == Op.Input), "in", "bad", (1.0, 2.0)));
+            Assert.Throws<ArgumentException>(() => new Interval64(2.0, 1.0));
         }
 
         [Fact]

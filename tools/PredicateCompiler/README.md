@@ -15,8 +15,9 @@ and 13.
 The second command rewrites the generated table block of the design doc. `--verify-filters` runs an offline
 reverse-mode Symbolic Taylor round-off verifier (`SymbolicTaylorVerify.cs`, Solovyev et al. 2018) with exact
 IEEE-754 binary64 binade `half-ulp` bounds directly on every `inputs xyz` predicate's parsed DAG over bounded boxes,
-confirming that the generator's filter bounds dominate the Symbolic Taylor upper bounds and cross-checking exact
-rational errors on concrete points without external tools. `GeneratedPredicatesTests` fails when the
+confirming that the generator's worst-case box bounds dominate the Symbolic Taylor upper bounds and cross-checking
+exact rational errors on concrete points without external tools (complementing `tools/Z3Pilot/filter_rules.py`, which
+proves the per-operation inductive rules symbolically across the full range gate). `GeneratedPredicatesTests` fails when the
 block differs from the derivation, when a value exceeds its bound on inputs at `±m`, when the spec's sign differs from
 the kernel's, when the kernels' scratch constants are below the derived scratch, or when filter verification fails.
 
