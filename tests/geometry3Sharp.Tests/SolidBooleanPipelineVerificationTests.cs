@@ -743,8 +743,7 @@ namespace geometry3Sharp.Tests
         {
             var p = Invented(V.None);
             Assert.True(p.Compute(), p.Error);
-            string first = Invariance.Difference(p.Result, p.Result);
-            DMesh3 noneResult = p.Result;
+            DMesh3 noneResult = new DMesh3(p.Result);      // (a copy: the later runs are compared with the result of this first one)
             // the mode on: refused, with the report of that run only
             p.Verification = V.NoInventedSurface;
             Assert.False(p.Compute());
@@ -764,7 +763,6 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0.0, p.Report.InventedSurfaceShare);
             Assert.Equal(0.0, p.Report.InventedSurfaceTolerance);
             Assert.DoesNotContain("Verification", Names(p));
-            Assert.Equal("", first);
             // and with the limit raised on the same instance
             p.Verification = V.NoInventedSurface; p.MaxInventedSurfaceShare = Inf;
             Assert.True(p.Compute(), p.Error);
@@ -985,6 +983,212 @@ namespace geometry3Sharp.Tests
             Assert.False(SolidBooleanPipeline.RoundingVolumeExceeds(2, 3, 0.5, 1e-6, out change));
             Assert.False(SolidBooleanPipeline.RoundingVolumeExceeds(2, 3, double.PositiveInfinity, 1e-6, out change));
             Assert.False(SolidBooleanPipeline.RoundingVolumeExceeds(2, 3, 0.4, 1, out change));            // (the floor)
+        }
+
+        // ---- the allowance of RoundingVolume: parts thinner than the rounding length ----
+
+        // a plate [off, off + 1]^2 x [off, off + h] minus the plate shifted down by t: a slab of thickness t over a whole face (both rotated about the
+        // centre of the bottom face by 23 degrees about the axis when there is one)
+        static List<DMesh3> PlateSlab(double off, double h, double t, Vector3d? axis)
+        {
+            DMesh3 plate = Box(new Vector3d(off, off, off), new Vector3d(off + 1, off + 1, off + h));
+            DMesh3 tool = Box(new Vector3d(off, off, off - t), new Vector3d(off + 1, off + 1, off + h - t));
+            if (axis.HasValue) {
+                var q = Quaterniond.AxisAngleD(axis.Value.Normalized, 23);
+                var centre = new Vector3d(off + 0.5, off + 0.5, off);
+                MeshTransforms.Rotate(plate, centre, q);
+                MeshTransforms.Rotate(tool, centre, q);
+            }
+            return new List<DMesh3> { plate, tool };
+        }
+
+        static readonly Vector3d AxisA = new Vector3d(0.3, 0.5, 0.81), AxisB = new Vector3d(1, 2, 3), AxisC = new Vector3d(-0.7, 0.2, 0.4);
+
+        // (the repair removes the slab as a component that its coordinates do not resolve: removal is a matter of ulps, not of the bound, so it takes a
+        // slab of 1e-9 to 1e-8 over a face, and the smallest input must be a thin plate for the slab's volume to be above the floor share)
+        [Theory]
+        [InlineData(0.0, 0, 17)]
+        [InlineData(0.0, 0, 19)]
+        [InlineData(0.0, 2, 15)]
+        [InlineData(1000.0, 1, 14)]
+        public void AFaceWideSlabThatTheRoundingRemoves_PassesBecauseItIsThinnerThanTheBound(double off, int axis, int step)
+        {
+            double t = 1e-11 * Math.Pow(10, step / 6.0);        // 6.8e-9, 1.5e-8, 3.2e-9, 2.2e-9
+            Vector3d ax = axis == 0 ? AxisA : axis == 1 ? AxisB : AxisC;
+            var p = new SolidBooleanPipeline(PlateSlab(off, 1e-4, t, ax), D) { Verification = V.RoundingVolume };
+            Assert.True(p.Compute(), p.Status + " " + p.Error);
+            Assert.Equal(Status.Success, p.Status);
+            // the slab was removed as a component, whole: its volume is the whole change, and it is above the share of the smallest input (the old floor)
+            Assert.Single(p.Report.RoundingRemoved);
+            var gone = p.Report.RoundingRemoved[0];
+            Assert.True(Math.Abs(p.Report.RoundingVolumeBefore - gone.Volume) <= 1e-6 * Math.Abs(gone.Volume), p.Report.RoundingVolumeBefore + " " + gone.Volume);
+            Assert.Equal(1.0, p.Report.RoundingVolumeChange);
+            double share = SolidBooleanPipeline.RoundingVolumeFloorOf(PlateSlab(off, 1e-4, t, ax), i => true);
+            Assert.True(gone.Volume > share, gone.Volume + " " + share);
+            // the result is empty (a closed solid trivially: nothing is left of a slab)
+            Assert.Equal(0, p.Result.TriangleCount);
+            Assert.Equal(0.0, p.Report.RoundingVolumeAfter);
+            Assert.Contains("thinner than", VerificationStep(p).Change);
+            // it is thinner than the bound (about 1e-5)
+            Assert.True(gone.Thickness < 1e-6);
+        }
+
+        // a thin plate whose result is itself far thinner than the rounding bound: the rounding moves its volume (it grows to a few times the slab's), which is
+        // a move of a few 1e-12 of the surface against a bound of 1e-5
+        [Theory]
+        [InlineData(0.0, 1e-12)]
+        [InlineData(0.0, 2.15e-12)]
+        [InlineData(1000.0, 1e-12)]
+        [InlineData(1000.0, 2.15e-12)]
+        public void AThinResultThatTheRoundingMoves_PassesBecauseItIsThinnerThanTheBound(double off, double t)
+        {
+            var p = new SolidBooleanPipeline(PlateSlab(off, 1e-7, t, null), D) { Verification = V.RoundingVolume };
+            Assert.True(p.Compute(), p.Status + " " + p.Error);
+            AssertSolid(p.Result);
+            Assert.True(p.Report.RoundingVolumeChange > 1e-3, "change " + p.Report.RoundingVolumeChange);       // (more than the limit: only the allowance passes it)
+            Assert.Empty(p.Report.RoundingRemoved);
+            Assert.True(Math.Abs(p.Report.RoundingVolumeAfter - Volume(p.Result)) <= 1e-6 * p.Report.RoundingVolumeAfter, p.Report.RoundingVolumeAfter + " " + Volume(p.Result));
+            double floor = SolidBooleanPipeline.RoundingVolumeFloorOf(PlateSlab(off, 1e-7, t, null), i => true);
+            Assert.True(Math.Abs(p.Report.RoundingVolumeAfter - p.Report.RoundingVolumeBefore) > floor);       // (more than the share of the inputs: the old floor)
+        }
+
+        [Fact]
+        public void TheAllowance_CountsThePartsThinnerThanTheBound_AndNotThickerOnes()
+        {
+            double ell = 1e-4, len;
+            // a closed slab of thickness 0.5 ell over [0, 1]^2 (area 2 + the rim), a slab of 2 ell, a cube, and an open sheet
+            Func<double, DMesh3> slab = th => Box(new Vector3d(0, 0, 0), new Vector3d(1, 1, th));
+            double thin = SolidBooleanPipeline.RoundingVolumeAllowanceOf(slab(0.5 * ell), ell, null, out len);
+            double area = 2 + 4 * 0.5 * ell;
+            Assert.Equal(ell, len);
+            Assert.Equal(ell * area, thin, 15);
+            Assert.Equal(0.0, SolidBooleanPipeline.RoundingVolumeAllowanceOf(slab(2 * ell), ell, null, out len));
+            Assert.Equal(0.0, SolidBooleanPipeline.RoundingVolumeAllowanceOf(Cube(1), ell, null, out len));
+            Assert.Equal(0.0, SolidBooleanPipeline.RoundingVolumeAllowanceOf(Sheet(0, 0, 1), ell, null, out len));      // (open: no volume to speak of)
+            // exactly at the length counts (a slab of thickness ell), a slab a bit above it does not
+            Assert.True(SolidBooleanPipeline.RoundingVolumeAllowanceOf(slab(ell), ell, null, out len) > 0);
+            Assert.Equal(0.0, SolidBooleanPipeline.RoundingVolumeAllowanceOf(slab(ell * (1 + 1e-3)), ell, null, out len));
+            // three components: two thin ones (one far from the origin) and a thick one: only the thin ones count
+            DMesh3 several = slab(0.5 * ell);
+            new MeshEditor(several).AppendMesh(Box(new Vector3d(1e6, 1e6, 1e6), new Vector3d(1e6 + 1, 1e6 + 1, 1e6 + 0.5 * ell)));
+            new MeshEditor(several).AppendMesh(Box(new Vector3d(-5, -5, -5), new Vector3d(-4, -4, -4)));
+            double sum = SolidBooleanPipeline.RoundingVolumeAllowanceOf(several, ell, null, out len);
+            Assert.Equal(2 * thin, sum, 12);
+
+            // the removed components: only those that were measured before the edits and are thinner than the length count, with their own volume
+            Func<MeshRoundingRepair.RemovalReasons, double, double, MeshRoundingRepair.RemovedComponentInfo> info = (reason, thickness, volume) =>
+                new MeshRoundingRepair.RemovedComponentInfo { Reason = reason, Thickness = thickness, Volume = volume, Area = 2 * Math.Abs(volume) / thickness };
+            var removed = new List<MeshRoundingRepair.RemovedComponentInfo> {
+                info(MeshRoundingRepair.RemovalReasons.VolumeChanged, 0.5 * ell, 3e-5),
+                info(MeshRoundingRepair.RemovalReasons.StillDefective, ell, -1e-5),                           // (signed: its size counts)
+                info(MeshRoundingRepair.RemovalReasons.BelowResolution, 1e-9, 1e-9),
+                info(MeshRoundingRepair.RemovalReasons.VolumeChanged, 1.5 * ell, 7),                          // (thicker than the bound: not allowed)
+                info(MeshRoundingRepair.RemovalReasons.ZeroVolume, 0, 5),                                      // (not measured before the edits)
+                info(MeshRoundingRepair.RemovalReasons.InsideOutResidue, 0.5 * ell, 5),
+                info(MeshRoundingRepair.RemovalReasons.NotMeasured, 0.5 * ell, 5),
+            };
+            Assert.Equal(3e-5 + 1e-5 + 1e-9, SolidBooleanPipeline.RoundingVolumeAllowanceOf(new DMesh3(), ell, removed, out len), 15);
+        }
+
+        [Fact]
+        public void TheAllowance_UsesTheUlpTermWhereTheBoundIsSmaller_AndScalesExactly()
+        {
+            // far from the origin the ulp term (256 ulp of 1e6) is the length when the bound is 0
+            DMesh3 far = Box(new Vector3d(1e6, 1e6, 1e6), new Vector3d(1e6 + 1, 1e6 + 1, 1e6 + 1e-8));
+            double len;
+            double a = SolidBooleanPipeline.RoundingVolumeAllowanceOf(far, 0, null, out len);
+            Assert.Equal(256 * Math.Pow(2, 19 - 52), len);          // (1e6 has the exponent 19)
+            Assert.True(a > 0);
+            // a power of two scales the allowance by the cube of the factor, bit for bit
+            foreach (Similarity s in new[] { Similarity.Pow2Small, Similarity.Pow2Large }) {
+                double len3;
+                double b = SolidBooleanPipeline.RoundingVolumeAllowanceOf(Invariance.Transformed(far, s), 0, null, out len3);
+                Assert.True(Same(len * s.Scale, len3), s.Name);
+                Assert.True(Same(a * s.Scale * s.Scale * s.Scale, b), s.Name);
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(Frames))]
+        public void ATinyResult_IsJudgedTheSameInEveryFrame_AndExactlyTheSameUnderPowersOfTwo(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            Func<Similarity, SolidBooleanPipeline> run = sim => {
+                var p = new SolidBooleanPipeline(PlateSlab(0, 1e-7, 1e-12, null).Select(m => Invariance.Transformed(m, sim)).ToList(), D) { Verification = V.RoundingVolume };
+                p.Compute();
+                return p;
+            };
+            var one = run(Similarity.Identity);
+            var other = run(s);
+            Assert.Equal(Status.Success, one.Status);
+            Assert.Equal(Status.Success, other.Status);
+            if (s.IsExact && s.Scale != 1) {
+                Assert.True(Same(one.Report.RoundingVolumeChange, other.Report.RoundingVolumeChange), s.Name);
+                Assert.True(Same(one.Report.RoundingVolumeBefore * s.Scale * s.Scale * s.Scale, other.Report.RoundingVolumeBefore), s.Name);
+            }
+        }
+
+        [Fact]
+        public void TheAllowanceRun_ComputedTwiceOnOneInstance_GivesTheSame()
+        {
+            var p = new SolidBooleanPipeline(PlateSlab(0, 1e-7, 1e-12, null), D) { Verification = V.RoundingVolume };
+            Assert.True(p.Compute(), p.Error);
+            double change = p.Report.RoundingVolumeChange;
+            string step = VerificationStep(p).Change;
+            DMesh3 first = new DMesh3(p.Result);
+            for (int k = 0; k < 2; ++k) {
+                Assert.True(p.Compute(), p.Error);
+                Assert.True(Same(change, p.Report.RoundingVolumeChange));
+                Assert.Equal(step, VerificationStep(p).Change);
+                Assert.Equal("", Invariance.Difference(first, p.Result));
+                Assert.Equal(1, p.Report.Route.Count(r => r.Name == "Verification"));
+            }
+            // the mode off in between: the run without it, and then again as before
+            p.Verification = V.None;
+            Assert.True(p.Compute(), p.Error);
+            Assert.DoesNotContain("Verification", Names(p));
+            Assert.Equal(0.0, p.Report.RoundingVolumeChange);
+            p.Verification = V.RoundingVolume;
+            Assert.True(p.Compute(), p.Error);
+            Assert.Equal(step, VerificationStep(p).Change);
+        }
+
+        [Fact]
+        public void AResultThickerThanTheBound_WhoseVolumeTheRoundingMoves_IsStillRefused()
+        {
+            // the thin plates lose 0.7 % and are refused with the allowance: nothing of the result is thinner than the length, so the allowance is 0
+            var p = new SolidBooleanPipeline(Plates(), U) { Verification = V.RoundingVolume };
+            Assert.False(p.Compute());
+            Assert.Equal(Status.VerificationFailed, p.Status);
+            Assert.Contains("floor", p.Error);
+            Assert.Contains("and 0 of the parts thinner than", VerificationStep(p).Change);
+        }
+
+        [Fact]
+        public void ANonFiniteVolume_IsAFailedVerification_NotAPass()
+        {
+            double change;
+            double nan = double.NaN, inf = double.PositiveInfinity;
+            foreach (double limit in new[] { 1e-3, inf }) {
+                Assert.True(SolidBooleanPipeline.RoundingVolumeExceeds(nan, 1, limit, 0, out change), "before NaN");
+                Assert.True(SolidBooleanPipeline.RoundingVolumeExceeds(1, nan, limit, 0, out change), "after NaN");
+                Assert.True(SolidBooleanPipeline.RoundingVolumeExceeds(inf, inf, limit, 0, out change), "inf - inf");
+                Assert.True(SolidBooleanPipeline.RoundingVolumeExceeds(1, double.NegativeInfinity, limit, 0, out change), "after -inf");
+                Assert.True(SolidBooleanPipeline.RoundingVolumeExceeds(1, 2, limit, nan, out change), "floor NaN");
+                Assert.True(SolidBooleanPipeline.RoundingVolumeExceeds(1, 2, limit, inf, out change), "floor inf");
+                Assert.True(SolidBooleanPipeline.RoundingVolumeExceeds(double.MaxValue, -double.MaxValue, limit, 0, out change), "dV overflows");
+            }
+            // a finite verdict is as before
+            Assert.False(SolidBooleanPipeline.RoundingVolumeExceeds(1, 1, 1e-3, 0, out change));
+            Assert.False(SolidBooleanPipeline.RoundingVolumeExceeds(2, 3, inf, 0, out change));
+            // the pipeline does not get that far with coordinates whose volume overflows (2^400): the boolean refuses, which is what the caller sees
+            // (BooleanFailed), never a pass
+            double k = Math.Pow(2, 400);
+            var p = new SolidBooleanPipeline(Box(Vector3d.Zero, new Vector3d(4 * k, 4 * k, 4 * k)), Box(new Vector3d(k, k, k), new Vector3d(6 * k, 6 * k, 6 * k)), U)
+                { Verification = V.RoundingVolume, MaxRoundingVolumeChange = inf };
+            Assert.False(p.Compute());
+            Assert.NotEqual(Status.Success, p.Status);
+            Assert.Null(p.Result);
         }
 
         [Fact]
