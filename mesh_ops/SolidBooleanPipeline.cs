@@ -68,7 +68,7 @@ namespace gs
         public string Reason;
         /// <summary> what the step changed </summary>
         public string Change;
-        /// <summary> Fallback: the reason the sheet role refused (the witness is in Reason), else None </summary>
+        /// <summary> Fallback, and Grid after a refused sheet: the reason the sheet role refused (the witness is in Reason), else None </summary>
         public ExactMeshBoolean.SheetRefusal SheetReason = ExactMeshBoolean.SheetRefusal.None;
         /// <summary> for the step Grid: the cell the inputs were snapped to (a power of two); 0 otherwise </summary>
         public double Grid;
@@ -389,7 +389,7 @@ namespace gs
         public ExactMeshBoolean.SheetUncutSides UncutSide = ExactMeshBoolean.SheetUncutSides.Refuse;
         /// <summary>
         /// the reason of a refused sheet (BooleanStatus SheetRefused), else None; the witness is in Error. A sheet that the route tried and that
-        /// refused is not the run's result: its reason is in the Fallback step (or, with AutomaticSteps, the Grid step) of Report.Route
+        /// refused is not the run's result: its reason is in the Fallback step (or, with AutomaticSteps, the Grid step: its SheetReason field and Reason text) of Report.Route
         /// </summary>
         public ExactMeshBoolean.SheetRefusal SheetReason = ExactMeshBoolean.SheetRefusal.None;
         /// <summary>
@@ -439,11 +439,12 @@ namespace gs
         /// change the topology of a result where the gap was by design: a tool that stops one micro-unit short of a face, far from the origin, then
         /// cuts through it, and an open bucket that leaves a thin skin under the top face gives an open pocket instead of an enclosed cavity (which
         /// the repair of the open tool would give). Features thinner than the cell can collapse, as with InputGrid. Set AutomaticSteps = None to
-        /// switch the step off. The step is not run where the snap could change the volume of the first input by more than a quarter of it (judged by its surface
-        /// area * the cell, the worst case; the step says so and the first failure is the result), and a retry with an empty result of a
-        /// first input that is not empty is rejected the same way. It runs once, never on a success, and not when InputGrid is set (the caller's
+        /// switch the step off. The step is not run where the cell is more than 1/64 of the size of any input (thickness 2V/A of a closed
+        /// input, width 2A/L of an open one, L the length of its boundary edges; the step says which input and the first failure is the result), and a
+        /// retry with an empty result of a first input that is not empty is rejected the same way. These guards apply to the opt-in Grid retries too. It runs once, never on a success, and not when InputGrid is set (the caller's
         /// grid is used as stated). Its result is checked like any other. Report.Route gets a step "Grid" with the failure it answers, the cell,
-        /// the number of vertices the snap moved and the volume change of the first input. If the retry fails too, the first failure is the
+        /// the number of vertices the snap moved and the largest relative change of an input's size (volume of a closed input, area of an open one);
+        /// SheetReason is the refusal the step answers. If the retry fails too, the first failure is the
         /// result and the step says so; inputs that are on the cell already are not run again (the step says that). A snap makes coordinates
         /// equal: it cures contacts on axis-parallel faces and vertices meant to coincide, not a rim a little inside a slanted face.
         /// ConfigureBoolean runs once more for the retry (three times, not twice, for a refused rim that the grid does not cure). A value with
@@ -608,7 +609,7 @@ namespace gs
                 // the Grid step answers a refused sheet before the tool is given up as a sheet (one try: not again after the fallback)
                 if (refusal == ExactMeshBoolean.SheetRefusal.RimInsideWorkpiece) {
                     gridTried = true;
-                    if (gridRetry(total, true, "the sheet role refused: " + refusal + ": " + text, autoRefusalRouted))
+                    if (gridRetry(total, true, "the sheet role refused: " + refusal + ": " + text, refusal, autoRefusalRouted))
                         return true;
                     if (Status == PipelineStatus.Cancelled)
                         return false;
@@ -622,9 +623,9 @@ namespace gs
                 if (Status == PipelineStatus.OpenInput)
                     Error += " (the open tool was tried as a sheet first, which refused: " + refusal + ": " + text + ")";
                 if (!gridTried && gridFailure())
-                    done = gridRetry(total, false, Error);
+                    done = gridRetry(total, false, Error, SheetReason);
             } else if (gridFailure())
-                done = gridRetry(total, true, Error);
+                done = gridRetry(total, true, Error, SheetReason);
             return done;
         }
 
@@ -639,7 +640,7 @@ namespace gs
         // is the result. False: no retry (the step is off, InputGrid is set, or the data gives no cell: no step; every vertex is on the cell already: a
         // step that says so), or it failed too; then the first failure is the result again, with the attempt as a step, except for a cancelled
         // retry (Status Cancelled). The stage times of the run that is not the result are added to those of the one that is
-        bool gridRetry(Stopwatch total, bool sheetRoute, string reason, bool beforeFallback = false)
+        bool gridRetry(Stopwatch total, bool sheetRoute, string reason, ExactMeshBoolean.SheetRefusal sheetReason, bool beforeFallback = false)
         {
             if (((AutomaticSteps & AutomaticStepModes.Grid) == 0 && !(beforeFallback && (AutomaticSteps & AutomaticStepModes.GridBeforeFallback) != 0)) || InputGrid != 0)
                 return false;
@@ -647,30 +648,18 @@ namespace gs
             if (cell == 0)
                 return false;
             string cellText = "2^" + CellExponent(cell) + " (" + cell.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ")";
-            var s = new SolidBooleanRouteStep { Name = "Grid", Reason = reason, Grid = cell };
+            var s = new SolidBooleanRouteStep { Name = "Grid", Reason = reason, Grid = cell, SheetReason = sheetReason };
             route.Add(s);
             // (inputs that are on the cell already: the retry would be the run that failed)
             if (OffGrid(Inputs, cell) == false) {
                 s.Change = "every input vertex is on the cell " + cellText + " already, so the run is not done again and the first failure is the result";
                 return false;
             }
-            // the snap must not destroy the first input: it can change its volume by up to 0.87 * its surface area * the cell, and the retry is not run
-            // where that is more than VolumeChangeShare of the volume (see there)
-            string volumeText = "";
-            if (Inputs[0].TriangleCount > 0 && ExactMeshBoolean.IsWindingClosed(Inputs[0])) {
-                double before, area, after, area2;
-                MeasureInput(Inputs[0], out before, out area);
-                int movedFirst;
-                MeasureInput(Snapped(Inputs[0], cell, out movedFirst), out after, out area2);
-                double change = after - before, bound = VolumeChangeShare * Math.Abs(before);
-                string numbers = change.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + " of " + before.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
-                if (area * cell > bound) {
-                    s.Change = "the snap to the cell " + cellText + " could change the first input's volume by up to its surface area * the cell = " + (area * cell).ToString("R", System.Globalization.CultureInfo.InvariantCulture)
-                        + ", more than " + VolumeChangeShare + " of its volume " + before.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + " (it would change it by " + change.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
-                        + "), so the run is not done again and the first failure is the result";
-                    return false;
-                }
-                volumeText = ", and changed the first input's volume by " + numbers + " (at most " + (area * cell).ToString("R", System.Globalization.CultureInfo.InvariantCulture) + " by the bound)";
+            // the snap must not distort an input: the cell must be small against each input's own size (CellShareOfSize)
+            string sizeText;
+            if (!CellSmallAgainstInputs(cell, cellText, out sizeText)) {
+                s.Change = sizeText;
+                return false;
             }
             SolidBooleanReport firstReport = Report;
             PipelineStatus firstStatus = Status;
@@ -681,7 +670,7 @@ namespace gs
             grid = cell;
             bool done = compute(total, sheetRoute);
             grid = InputGrid;
-            s.Change = "the inputs are snapped to the cell " + cellText + ", which moved " + Report.InputSnappedVertices + " vertices" + volumeText + ", and the run is done again";
+            s.Change = "the inputs are snapped to the cell " + cellText + ", which moved " + Report.InputSnappedVertices + " vertices" + sizeText + ", and the run is done again";
             // an empty result of a non-empty first input means that the snap destroyed the inputs: the retry is rejected as a failed one
             bool destroyed = done && DestroyedByRetry(Inputs[0], Result);
             // (the retry is the result, also where it was cancelled: the time of the failed first run is time of this run)
@@ -703,12 +692,81 @@ namespace gs
             return false;
         }
 
-        // The share of the first input's volume that the snap may change at most, judged by the worst case: the snap moves a point by at most
-        // sqrt(3)/2 of the cell (half a cell per coordinate), so to first order the volume changes by at most 0.87 * area * cell. The retry is not
-        // run where area * cell exceeds a quarter of the volume, that is where the cell exceeds an eighth of 2 * volume / area (the thickness that
-        // MinThickness measures): there the cell is no longer small against the first input and the snap can destroy it. Where the cell is
-        // 2^12 ulps of the coordinates and the input is of its own size, area * cell / volume is about 1e-12 * coordinate / size
-        internal const double VolumeChangeShare = 0.25;
+        // The share of an input's own size that the cell may be at most. The snap moves a point by up to half a cell per coordinate, so it can change
+        // an input by up to about one cell in every direction; an input whose size (thickness 2V/A of a closed one, width 2A/L of an open one) is
+        // not many cells is distorted by the retry, in a way that the result's check does not see (it checks the result, not the inputs). At the
+        // limit a size changes by about 1.6 %. The intended cases are far below it: a block of 10 at 1.2e6 (cell 9.5e-7, size 2.5): 4e-7; a block of
+        // 0.1 x 0.1 x 0.05 at 5.7e6 (cell 3.8e-6, size 0.017): 2e-4; a plate of 1e-3 at 5.7e6 to 1.2e7 (cell 3.8e-6 to 7.6e-6): 4e-3 to 8e-3.
+        // The share is a judgement, not a derived number (owner's call)
+        internal const double CellShareOfSize = 1.0 / 64;
+
+        // The cell against the size of every input with triangles. False: the cell is more than CellShareOfSize of the smallest size (text: which input
+        // and why). True: text reports the largest relative change of an input's size by the snap (volume of a closed input, area of an open one).
+        // The size is the thickness 2|V|/A for a closed input (what MinThickness measures), and for an input that is not winding-closed the width
+        // 2A/L, A the area and L the length of its boundary edges (edges used by one triangle, by position): for a strip of width w and length l it is
+        // w, for an open box of edge e (a bucket) 2.5e, for a square sheet of side e e/2, for a sheet with a hole or a slit the width of the
+        // part between the rims. An open input without boundary edges, or a closed one of volume 0, gets 0 (the cell is never small against it)
+        bool CellSmallAgainstInputs(double cell, string cellText, out string text)
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            double smallest = double.MaxValue, worst = 0;
+            int smallestInput = -1, worstInput = -1;
+            string smallestKind = "", worstKind = "";
+            for (int i = 0; i < Inputs.Count; ++i) {
+                DMesh3 m = Inputs[i];
+                if (m.TriangleCount == 0)
+                    continue;
+                bool closed = Report.InputClosed != null && i < Report.InputClosed.Length ? Report.InputClosed[i] : ExactMeshBoolean.IsWindingClosed(m);
+                double v, a;
+                MeasureInput(m, out v, out a);
+                double boundary = closed ? 0 : BoundaryLength(m);
+                bool strip = boundary > 0;
+                double size = strip ? 2 * a / boundary : a > 0 ? 2 * Math.Abs(v) / a : 0;
+                string kind = strip ? "width 2A/L" : "thickness 2V/A";
+                if (size < smallest) {
+                    smallest = size; smallestInput = i; smallestKind = kind;
+                }
+                int moved;
+                double v2, a2;
+                MeasureInput(Snapped(m, cell, out moved), out v2, out a2);
+                double change = strip ? (a > 0 ? (a2 - a) / a : 0) : (v != 0 ? (v2 - v) / v : 0);
+                if (worstInput < 0 || Math.Abs(change) > Math.Abs(worst)) {
+                    worst = change; worstInput = i; worstKind = strip ? "area" : "volume";
+                }
+            }
+            if (smallestInput >= 0 && cell > CellShareOfSize * smallest) {
+                text = "the cell " + cellText + " is more than 1/64 of the size of input " + smallestInput + " (" + smallestKind + " = " + smallest.ToString("R", inv)
+                    + "), which the snap would distort, so the run is not done again and the first failure is the result";
+                return false;
+            }
+            text = worstInput < 0 ? "" : ", and changed the " + worstKind + " of input " + worstInput + " by " + worst.ToString("R", inv) + " of it (the largest relative change of an input)";
+            return true;
+        }
+
+        // the length of the edges that one triangle uses, edges by position (vertices at one position are one)
+        static double BoundaryLength(DMesh3 m)
+        {
+            var count = new Dictionary<(double, double, double, double, double, double), int>();
+            var length = new Dictionary<(double, double, double, double, double, double), double>();
+            foreach (int t in m.TriangleIndices()) {
+                Index3i tv = m.GetTriangle(t);
+                for (int k = 0; k < 3; ++k) {
+                    Vector3d p = m.GetVertex(tv[k]), q = m.GetVertex(tv[(k + 1) % 3]);
+                    bool swap = p.x != q.x ? p.x > q.x : p.y != q.y ? p.y > q.y : p.z > q.z;
+                    if (swap) { Vector3d u = p; p = q; q = u; }
+                    var key = (p.x, p.y, p.z, q.x, q.y, q.z);
+                    int c;
+                    count.TryGetValue(key, out c);
+                    count[key] = c + 1;
+                    length[key] = (q - p).Length;
+                }
+            }
+            double sum = 0;
+            foreach (var e in count)
+                if (e.Value == 1)
+                    sum += length[e.Key];
+            return sum;
+        }
 
         // the retry has an empty result although the first input has triangles
         internal static bool DestroyedByRetry(DMesh3 first, DMesh3 result)

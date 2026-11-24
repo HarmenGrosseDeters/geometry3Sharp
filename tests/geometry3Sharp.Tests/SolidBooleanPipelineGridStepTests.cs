@@ -97,9 +97,9 @@ namespace geometry3Sharp.Tests
             Assert.StartsWith("the sheet role refused: RimInsideWorkpiece: ", g.Reason);
             // every vertex of the box is off the grid (8), and so are the 4 of the sheet
             Assert.Equal(12, p.Report.InputSnappedVertices);
-            Assert.StartsWith("the inputs are snapped to the cell 2^-38 (3.637978807091713E-12), which moved 12 vertices, and changed the first input's volume by ", g.Change);
+            Assert.StartsWith("the inputs are snapped to the cell 2^-38 (3.637978807091713E-12), which moved 12 vertices, and changed the ", g.Change);
             Assert.EndsWith(", and the run is done again", g.Change);
-            Assert.Equal(ExactMeshBoolean.SheetRefusal.None, g.SheetReason);
+            Assert.Equal(Rim, g.SheetReason);       // the refusal the step answers
             // (the removed share belongs to the sheet step of the run that cut)
             Assert.DoesNotContain("removed", p.Report.Route[0].Change);
             Assert.Contains("the Difference removed 50 % of the first input's volume", p.Report.Route[2].Change);
@@ -206,7 +206,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal("SheetRole:1,Grid:-1,Fallback:-1,Refused:-1", Names(p));
             SolidBooleanRouteStep g = p.Report.Route[1];
             Assert.Equal(Pow2(-38), g.Grid);
-            Assert.StartsWith("the inputs are snapped to the cell 2^-38 (3.637978807091713E-12), which moved 8 vertices, and changed the first input's volume by ", g.Change);
+            Assert.StartsWith("the inputs are snapped to the cell 2^-38 (3.637978807091713E-12), which moved 8 vertices, and changed the ", g.Change);
             Assert.Contains(", and the run is done again; it failed too (BooleanFailed: SheetRefused: ", g.Change);
             Assert.EndsWith("), so the first failure is the result", g.Change);
             Assert.Equal(Rim, p.Report.Route[2].SheetReason);

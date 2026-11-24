@@ -126,7 +126,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal("SheetRole,Grid,SheetRole", Names(p));
             double cell = SolidBooleanPipeline.DataGrid(p.Inputs);
             Assert.Equal(cell, p.Report.Route[1].Grid);
-            Assert.Equal(ExactMeshBoolean.SheetRefusal.None, p.Report.Route[1].SheetReason);
+            Assert.Equal(Rim, p.Report.Route[1].SheetReason);       // the refusal that the step answers
             Assert.Empty(p.Report.RepairedInputs);
             // the walls of a polygon with corners off the cell move by at most half a cell per coordinate
             double tol = 1e-9 * 500 + (shape == "cylinder" ? 2 * cell * 20 * Depth : 0);
@@ -323,7 +323,7 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(8.0, p.Report.Route[1].Grid);
                 Assert.Equal("SheetRole,Grid,Fallback" + (repair == SolidBooleanPipeline.InputRepairModes.Refuse ? ",Refused" : ",InputRepair"), Names(p));
                 Assert.Contains("so the run is not done again and the first failure is the result", p.Report.Route[1].Change);
-                Assert.Contains("could change the first input's volume", p.Report.Route[1].Change);
+                Assert.Contains("is more than 1/64 of the size of input", p.Report.Route[1].Change);
                 // (no run on the grid: the sheet and the fallback, and the old result)
                 Assert.Equal(repair == SolidBooleanPipeline.InputRepairModes.Refuse ? 2 : 3, booleans);       // (AutoRepair: the repaired tool is a third boolean)
                 Assert.Equal(oldDone, done);
@@ -352,14 +352,91 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void TheGridStep_ReportsTheVolumeChangeOfTheFirstInput()
+        public void TheGridStep_ReportsTheLargestRelativeSizeChange_OfTheInputThatChangesMost()
         {
-            const double t = 1.2e6;
-            double area;
-            var p = new SolidBooleanPipeline(new List<DMesh3> { Block(t), Shape("cylinder", t, i => 2, out area) }, D);
+            // the far block of 0.1 and the sheet 1e-6 inside its faces: both change a little by the snap (cell 2^-18); the step names the larger change
+            const double gap = 1e-6;
+            double cell = Math.Pow(2, -18);
+            Func<double, double> snap = x => Math.Round(x / cell) * cell;
+            double w0x = (X0 + 0.1) - X0, w0y = (Y0 + 0.1) - Y0, w0z = (Z0 + 0.05) - Z0;
+            double block = (snap(X0 + 0.1) - snap(X0)) * (snap(Y0 + 0.1) - snap(Y0)) * (snap(Z0 + 0.05) - snap(Z0)) / (w0x * w0y * w0z) - 1;
+            double sheet = (snap(X0 + 0.1 - gap) - snap(X0 + gap)) * (snap(Y0 + 0.1 - gap) - snap(Y0 + gap)) / (((X0 + 0.1 - gap) - (X0 + gap)) * ((Y0 + 0.1 - gap) - (Y0 + gap))) - 1;
+            Assert.NotEqual(0.0, block);
+            var p = new SolidBooleanPipeline(new List<DMesh3> { FarBlock(), FarSheet(gap) }, D);
             Assert.True(p.Compute(), p.Error);
-            Assert.Contains("and changed the first input's volume by 0 of 500 (at most ", p.Report.Route[1].Change);       // the block is on the cell: its volume does not change
-            Assert.Contains("which moved ", p.Report.Route[1].Change);
+            var m = System.Text.RegularExpressions.Regex.Match(p.Report.Route[1].Change, @"and changed the (\w+) of input (\d+) by (\S+) of it \(the largest relative change of an input\)");
+            Assert.True(m.Success, p.Report.Route[1].Change);
+            bool blockLarger = Math.Abs(block) >= Math.Abs(sheet);
+            Assert.Equal(blockLarger ? "volume" : "area", m.Groups[1].Value);
+            Assert.Equal(blockLarger ? "0" : "1", m.Groups[2].Value);
+            double reported = double.Parse(m.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture), expected = blockLarger ? block : sheet;
+            Assert.True(Math.Abs(reported - expected) <= 1e-3 * Math.Abs(expected), reported + " against " + expected);
+        }
+
+        // ---- every input is guarded, not only the first ----
+
+        // a pocket tool 0.03 wide and 0.03 deep with its rim 2 ulps under the top face z = 5 of the block [0,10]^2 x [0,5]
+        static DMesh3 SmallPocket()
+        {
+            Vector2d[] poly = { new Vector2d(5, 5), new Vector2d(5.03, 5), new Vector2d(5.03, 5.03), new Vector2d(5, 5.03) };
+            return Cutter(0, poly, Fan(4), i => 2, 0.03);
+        }
+
+        static DMesh3 ClosedUnitBoxAt(double x) => new TrivialBox3Generator() { Box = new Box3d(new AxisAlignedBox3d(new Vector3d(x, 0, 0), new Vector3d(x + 1, 1, 1))) }.Generate().MakeDMesh();
+
+        [Fact]
+        public void ASmallToolIsGuarded_ByTheCellOfAFarInput_ButNotWithoutIt()
+        {
+            double pocket = 0.03 * 0.03 * 0.03;
+            var alone = new SolidBooleanPipeline(new List<DMesh3> { Block(0), SmallPocket() }, D);
+            Assert.True(alone.Compute(), alone.Error);
+            AssertClean(alone);
+            Assert.Equal("SheetRole,Grid,SheetRole", Names(alone));
+            Assert.True(Math.Abs(Volume(alone.Result) - (500 - pocket)) <= 1e-9, Volume(alone.Result).ToString());
+            foreach (double x in new[] { 3e10, 1e10 }) {
+                // the far closed box moves the cell to 0.0156 or 0.0078: more than 1/64 of the pocket's width (0.075), so no retry; the pocket would grow by 13 %
+                var p = new SolidBooleanPipeline(new List<DMesh3> { Block(0), SmallPocket(), ClosedUnitBoxAt(x) }, D);
+                Assert.False(p.Compute(), x + " " + p.Status);
+                Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
+                Assert.Equal("SheetRole,Grid,Fallback,Refused", Names(p));
+                Assert.Contains("is more than 1/64 of the size of input 1 (width 2A/L = ", p.Report.Route[1].Change);
+                Assert.Equal(Rim, p.Report.Route[1].SheetReason);
+            }
+        }
+
+        // a plate of 1 x 1 x thickness at coordinates about t, a horizontal sheet 1e-6 inside its side faces
+        static List<DMesh3> Plate(double t, double thickness)
+        {
+            var block = new TrivialBox3Generator() { Box = new Box3d(new AxisAlignedBox3d(new Vector3d(t, t, t), new Vector3d(t + 1, t + 1, t + thickness))) }.Generate().MakeDMesh();
+            var sheet = new DMesh3();
+            double z = t + thickness / 2, a = t + 1e-6, b = t + 1 - 1e-6;
+            int p = sheet.AppendVertex(new Vector3d(a, a, z)), q = sheet.AppendVertex(new Vector3d(b, a, z)), r = sheet.AppendVertex(new Vector3d(b, b, z)), s = sheet.AppendVertex(new Vector3d(a, b, z));
+            sheet.AppendTriangle(p, q, r); sheet.AppendTriangle(p, r, s);
+            return new List<DMesh3> { block, sheet };
+        }
+
+        [Theory]
+        [InlineData(5.7e6, 1e-3, true)]           // cell 3.8e-6: 3.8e-3 of the thickness, the intended plate
+        [InlineData(1.2e7, 1e-3, true)]           // cell 7.6e-6: 7.6e-3
+        [InlineData(5.7e6, 3e-4, true)]           // just under 1/64 (1.2e-2): 3.8e-6 / 3e-4
+        [InlineData(5.7e6, 2e-4, false)]          // just over: 3.8e-6 / 2e-4 = 1.9e-2
+        public void AThinPlate_IsCutOnTheGrid_UntilTheCellIsMoreThanAShareOfItsThickness(double t, double thickness, bool retried)
+        {
+            var p = new SolidBooleanPipeline(Plate(t, thickness), D);
+            bool done = p.Compute();
+            if (retried) {
+                Assert.True(done, p.Status + " " + p.Error);
+                AssertClean(p);
+                Assert.Equal("SheetRole,Grid,SheetRole", Names(p));
+                var c = new DMesh3(p.Result);
+                MeshTransforms.Translate(c, new Vector3d(-t, -t, -t));
+                Assert.True(Math.Abs(Volume(c) - thickness / 2) <= 4 * p.Report.Route[1].Grid, Volume(c).ToString());
+            } else {
+                Assert.False(done);
+                Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
+                Assert.Equal("SheetRole,Grid,Fallback,Refused", Names(p));
+                Assert.Contains("is more than 1/64 of the size of input 0 (thickness 2V/A = ", p.Report.Route[1].Change);
+            }
         }
 
         // ---- a refusal of a sheet that the caller stated is not answered by the default ----
@@ -502,28 +579,31 @@ namespace geometry3Sharp.Tests
             Assert.Equal("SheetRole,Grid,SheetRole", Names(reference));
             var p = new SolidBooleanPipeline(Flush(t).Select(m => Invariance.Transformed(m, s)).ToList(), D);
             bool done = p.Compute();
-            if (s.IsExact) {
-                Assert.True(done, s.Name + ": " + p.Error);
+            if (!s.IsRotated) {
+                // every frame without a rotation keeps the faces parallel to the axes, so the snap puts the rim in the face: the run cuts on the route of the
+                // reference, with its volume (measured near the origin, in the units of the reference, to the half cell that the snap moves each face by)
+                Assert.True(done, s.Name + ": " + p.Status + " " + p.Error + " " + (p.Report.Route.Count > 1 ? p.Report.Route[1].Change : ""));
                 AssertClean(p);
                 Assert.Equal(Names(reference), Names(p));
-                Assert.Equal(reference.Report.Route[1].Grid * s.Scale, p.Report.Route[1].Grid);
-                Assert.Equal("", Invariance.Difference(reference.Result, Invariance.MappedBack(p.Result, s)));
+                DMesh3 back = Invariance.MappedBack(p.Result, s);
+                MeshTransforms.Translate(back, new Vector3d(-t, -t, -t));
+                double cell = p.Report.Route[1].Grid / s.Scale;
+                Assert.True(Math.Abs(Volume(back) - 452) <= 2 * cell * 600 + 1e-12 * 452, s.Name + ": " + Volume(back));
+                if (s.IsExact) {
+                    Assert.Equal(reference.Report.Route[1].Grid * s.Scale, p.Report.Route[1].Grid);
+                    Assert.Equal("", Invariance.Difference(reference.Result, Invariance.MappedBack(p.Result, s)));
+                }
                 return;
             }
-            // another frame: the rim lands elsewhere (and a rotation leaves no face parallel to an axis, so no snap puts the rim on it). Either the
-            // run cuts, on the route of the reference, and the result is clean with the volume of the reference, or the first failure stands with the grid tried once
-            if (done) {
-                AssertClean(p);
-                Assert.Equal(Names(reference), Names(p));
-                double scale3 = s.Scale * s.Scale * s.Scale, cell = p.Report.Route[1].Grid;
-                // (the snap moves the walls and the faces by half a cell each: the bound of the step, area * cell, with the area of the block and the tool)
-                Assert.True(Math.Abs(Volume(p.Result) - Volume(reference.Result) * scale3) <= 1e-6 * 452 * scale3 + 2 * cell * 600 * s.Scale * s.Scale + 1e-3,
-                    s.Name + ": " + Volume(p.Result) + " against " + Volume(reference.Result) * scale3);
-            } else {
-                Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
-                Assert.Equal("SheetRole,Grid,Fallback,Refused", Names(p));
-                Assert.Null(p.Result);
-            }
+            // a rotation leaves no face parallel to an axis: the snap moves the rim and the face to different places, so the rim stays inside the
+            // workpiece and the grid try fails, and the first failure is the result (the sheet is not closed to the face, and the fallback refuses an open tool)
+            Assert.False(done, s.Name);
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
+            Assert.Equal("SheetRole,Grid,Fallback,Refused", Names(p));
+            Assert.Contains("it failed too (BooleanFailed: SheetRefused: ", p.Report.Route[1].Change);
+            Assert.Contains("lies inside the workpiece", p.Report.Route[1].Change);       // (the retry is refused for the same reason: the rim is still inside)
+            Assert.Equal(Rim, p.Report.Route[2].SheetReason);
+            Assert.Null(p.Result);
         }
 
         [Fact]
