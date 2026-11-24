@@ -617,9 +617,24 @@ namespace gs
             if (hi - lo > Math.PI - 4 * theta) { relevant.AddRange(fan); return; }
             // centred on the sector, so that the window never wraps (its half width is below pi / 2 + 2 theta)
             double mid = refAngle + 0.5 * (lo + hi), half = 0.5 * (hi - lo) + 2 * theta;
-            for (int i = 0; i < fan.Count; ++i)
-                if (Math.Abs(wrap(ang[i] - mid)) <= half) relevant.Add(fan[i]);
+            // (and the first plane beyond each end of the window: the fan's planes are tangent planes of one cone at the apex, so
+            // in a direction the highest is the nearest in angle on either side. Where the fan has a gap wider than the margin
+            // (the design side between its end planes, or directions left out next to a wall), the nearest one lies outside the
+            // window, and leaving it out lowered the piece there: #1530)
+            int below = -1, above = -1;
+            double dBelow = double.MaxValue, dAbove = double.MaxValue;
+            for (int i = 0; i < fan.Count; ++i) {
+                double w = wrap(ang[i] - mid);
+                if (Math.Abs(w) <= half) { relevant.Add(fan[i]); continue; }
+                // (beyond the upper end: w - half > 0 going up from mid; beyond the lower end: going down)
+                double up = w > half ? w - half : w + 2 * Math.PI - half, down = w < -half ? -half - w : 2 * Math.PI - half - w;
+                if (up < dAbove) { dAbove = up; above = i; }
+                if (down < dBelow) { dBelow = down; below = i; }
+            }
+            if (above >= 0) relevant.Add(fan[above]);
+            if (below >= 0 && below != above) relevant.Add(fan[below]);
         }
+
 
         static double wrap(double a)
         {

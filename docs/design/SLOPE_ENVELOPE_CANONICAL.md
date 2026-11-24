@@ -214,27 +214,54 @@ Hand mutations (the PR-tier tests of the class):
 - `CompactDuringInsert`, `PartSectors`, `AfterSimplify` and `ReinsertAfterSimplify` stay internal (coordinator 2026-11-24).
 - (c), divide and conquer, is the next step if the remaining 20x is wanted.
 
-## 7. Found: the fan sectors of ramp pieces are not conservative (pre-existing, #1530)
+## 7. Found and fixed: the fan window missed the nearest plane beyond a gap (#1530)
 
-The invariance test with a ramp (`TerrainSlopeRampTests.Straight`, `LocalFrame`) failed in the frame "rotated" (about z,
-31°). The earlier construction (as on master) gives 218 surface vertices and the default 216. The labels differ by about
-0.15 m at one boundary, not only at near-degenerate vertices.
+**Symptom.** The invariance test with a ramp (`TerrainSlopeRampTests.Straight`, `LocalFrame`) failed in the frame
+"rotated" (about z, 31°). The earlier construction gave 218 surface vertices and the default 216. One label boundary
+moved by about 0.15 m. The reference insertion (`NoPrefilters`: no prefilter, every fan plane) gave 217 for both. With
+only the prefilters off, the two constructions still differed, so the cause was the fan window (`add_sector`).
 
-The reference insertion (`NoPrefilters`: no prefilter and every fan plane in every face) gives 217 for both constructions.
-So the prefilters are not the cause; with them alone off, the two constructions still differ. The cause is the fan-sector
-choice (`add_sector`) in `InsertPolygonPiece`: on some faces it leaves out a fan plane that is the piece's maximum. Which
-faces depend on their shapes, so the result depends on the construction, and master's result is not the exact envelope
-there either.
+**Cause.** The fan was not the ramp's. It was the fan of a toe vertex of the pit, a strip piece in `InsertPiece`.
+- A toe vertex's fan covers the slope side only, about 180° here (from -59° through 0° to 121°).
+- A face on the design side of the apex (directions -100° to -150°) lies in the gap between the end planes.
+- The fan's planes are tangent planes of one cone at the apex, so in a direction the highest is the nearest in angle on
+  either side: here an end plane, up to 90° away.
+- The window (the face's directions ± 2θ) held no fan plane, so F_k came out too low there.
 
-All other frames, and all strip-piece cases, agree with the reference. The surface still passes the exact check. A missed
-plane lowers F_k, so the face's label can be a plane of the ramp unit where another one is the true minimum. The outcome
-stays certified against the specs, but it is not the defined envelope.
+The ramp's road only brought such faces into the piece's reach. A face shape decides whether this happens, so it also
+depended on the construction.
 
-Follow-up (not in this PR; issue [#1530](https://github.com/HarmenGrosseDeters/geometry3Sharp/issues/1530)):
-- Find the face where the window misses the maximum (the polygon piece's fans at several apexes: the angular range is
-  measured from each apex, and a face that spans an apex closely, or the ramp's wall fans, may break the argument of
-  TERRAIN_1C_PLAN section 9).
-- Fix `add_sector` for polygon pieces, or take every fan plane there.
-- Add the ramp back to `Invariance_EveryFrame_SameAsTheEarlierConstruction` and `Default_GivesTheReferenceLabels`.
+**Fix.** `add_sector` adds the first plane beyond each end of the window (cyclic, by the angular distance from the end).
+For a direction inside the window's true range, its nearest planes on either side are then in the set. The per-part
+filter of section 4 uses the same function.
 
-Until then R1 holds for strip pieces only.
+**Tests.**
+- `RampInARotatedFrame_BothConstructionsGiveTheReferenceLabels`: fails on master, passes with the fix.
+- The ramp is back in `Invariance_EveryFrame_SameAsTheEarlierConstruction` (it fails on master) and in
+  `Default_GivesTheReferenceLabels`.
+- Hand mutants: without the plane beyond the upper end, both ramp tests fail. Without the plane beyond the lower end,
+  nothing fails: no case found where it decides, across 120 rotations of both ramp designs. It is kept, because the
+  argument is symmetric.
+
+**Output changes.** Strip-only designs (the 19 stress cases, `WavyHambach(130)`) are unchanged. Ramps change wherever a
+face reaches into a gap of a toe fan. Changed outputs (vertices / triangles, builds, margin δ):
+
+| design, frame | master | fixed |
+|---|---|---|
+| `Straight`, rotated | 216 / 259, 1, 1e-6 | 217 / 246, 1, 1e-6 (the reference) |
+| `AroundCorner`, identity, 2^-10, 2^10 | 418 / 620, 1, 1e-6 | 426 / 605, 2, 8e-6 |
+| `AroundCorner`, 1e-3 | 504 / 792, 1, 1e-6 | 667 / 993, 3, 6.4e-5 |
+| `AroundCorner`, 1e3 | 503 / 781, 1, 1e-6 | 567 / 804, 3, 6.4e-5 |
+| `AroundCorner`, rotated | 415 / 617, 1, 1e-6 | 413 / 594, 1, 1e-6 |
+
+The other frames are unchanged. The exact envelope sometimes needs a larger slope margin (one or two raises), so a
+build costs more.
+
+`TerrainSlopeFanBoundTests.Ramp_AfterARefusal_TheDiagnosticsAreTheBuildsOwn` assumed one build at the default margin.
+Its design's exact envelope needs 8e-6 (master's reference run needed that too), so the test now starts at that margin;
+it checks the same diagnostics.
+
+**One refusal more.** `AroundCorner` rotated by 301° (no `LocalFrame`): master returned Success on the inexact envelope.
+The fix, like the reference, returns `SlopeViolation` ("a larger margin does not fit into Tolerance"). At 127°, 205° and
+271°, master, the fix and the reference all fail with "non-manifold realization". That is a separate, pre-existing
+realization problem, not changed here.
