@@ -672,7 +672,7 @@ namespace g3
             int blocks = triangle_blocks(mesh);
             var maxOf = new double[blocks];
             var subnormalIn = new bool[blocks];
-            gParallel.ForRange(blocks, (b) => {
+            gParallel.ForRangeSmall(blocks, (b) => {
                 double max = 0;
                 int end = Math.Min(mesh.MaxTriangleID, (b + 1) * TriangleBlock);
                 for (int tid = b * TriangleBlock; tid < end; ++tid) {
@@ -723,7 +723,7 @@ namespace g3
                         body(tid);
                 return;
             }
-            gParallel.ForRange(triangle_blocks(mesh), (b) => {
+            gParallel.ForRangeSmall(triangle_blocks(mesh), (b) => {
                 int end = Math.Min(mesh.MaxTriangleID, (b + 1) * TriangleBlock);
                 for (int tid = b * TriangleBlock; tid < end; ++tid)
                     if (mesh.IsTriangle(tid))
@@ -1215,7 +1215,7 @@ namespace g3
                 treeTids.Add(tid);
             // (the boxes per triangle in parallel, each into its own slot: min / max, exact; no edit is pending)
             var boxAt = new AxisAlignedBox3d[treeTids.Count];
-            gParallel.ForRange((treeTids.Count + TriangleBlock - 1) / TriangleBlock, (b) => {
+            gParallel.ForRangeSmall((treeTids.Count + TriangleBlock - 1) / TriangleBlock, (b) => {
                 int end = Math.Min(treeTids.Count, (b + 1) * TriangleBlock);
                 for (int i = b * TriangleBlock; i < end; ++i)
                     boxAt[i] = box(Mesh.GetTriangle(treeTids[i]));
@@ -1419,7 +1419,7 @@ namespace g3
             // and counted afterwards, so the threads share no counter)
             var found = new List<Index2i>[tris.Length];
             bool[] skippedAt = skip ? new bool[tris.Length] : null;
-            gParallel.ForRange(tris.Length, (k) => {
+            gParallel.ForRangeSmall(tris.Length, (k) => {
                 int ta = tris[k];
                 // (an exact triangle's pairs with the others are found from those)
                 if (skip && exact_triangle(ta)) {
@@ -1476,7 +1476,7 @@ namespace g3
             changedTris.Sort();
             int[] tris = treeTids.ToArray();
             var found = new List<Index2i>[changedTris.Count];
-            gParallel.ForRange(changedTris.Count, (k) => {
+            gParallel.ForRangeSmall(changedTris.Count, (k) => {
                 int ta = changedTris[k];
                 Index3i ia = Mesh.GetTriangle(ta);
                 Triangle3d A = triangle(ia);

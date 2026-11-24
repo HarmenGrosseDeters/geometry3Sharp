@@ -149,7 +149,7 @@ namespace g3
         // however few items there are. A loop of a few dozen cheap items (a Boolean of two boxes, a Remesher pass over
         // a small mesh) is done in a few microseconds, so waiting for a worker is the whole cost. The Small variants run
         // the items one after the other on the calling thread, in chunks of 1, 2, 4, ... items, and look at the clock
-        // between the chunks: when the loop has used SmallLoopBudgetTicks (about 25 us), the rest goes to the parallel
+        // between the chunks: when the loop has used SmallLoopBudgetTicks (about 250 us), the rest goes to the parallel
         // loop. A count threshold cannot decide this: the crossover is a total of 10-50 us of work, which is 1000
         // items of 1 ns and 4 items of 2 us (benchmarks/ParallelTinyLoops).
         //
@@ -158,12 +158,13 @@ namespace g3
         // before the others start. The result is the same as for ForRange: the body of an item does not depend on
         // which thread runs it or in which order (SerialOnThisThread and the order adversary test exactly that).
 
-        /// <summary> the time a Small loop runs inline before it hands the rest to the parallel loop, in Stopwatch ticks (25 us) </summary>
-        internal static readonly long DefaultSmallLoopBudgetTicks = Math.Max(1L, System.Diagnostics.Stopwatch.Frequency / 40000);
+        /// <summary> the time a Small loop runs inline before it hands the rest to the parallel loop, in Stopwatch ticks (250 us) </summary>
+        internal static readonly long DefaultSmallLoopBudgetTicks = Math.Max(1L, System.Diagnostics.Stopwatch.Frequency / 4000);
 
         /// <summary>
         /// for tests and benchmarks: the budget of the Small loops started on this thread, in Stopwatch ticks; 0: the default,
-        /// long.MaxValue: never hand over (the whole loop runs on the calling thread), 1: hand over after the first item
+        /// long.MaxValue: never hand over (the whole loop runs on the calling thread), 1: hand over after the first item,
+        /// -1: no inline phase (the Small loops start the parallel loop at once, for tests of the parallel path)
         /// </summary>
         [ThreadStatic] internal static long SmallLoopBudgetTicksOnThisThread;
 
@@ -200,11 +201,28 @@ namespace g3
 #endif
         }
 
+        static void parallel_range_local<TLocal>(int from, int count, Func<TLocal> localInit, Action<int, TLocal> body)
+        {
+#if G3_USING_UNITY && (NET_2_0 || NET_2_0_SUBSET)
+            for_each<int>(Interval1i.Range(from, count - from), (k) => body(k, localInit()));
+#else
+            try {
+                Parallel.For(from, count, localInit, (k, loop, l) => { body(k, l); return l; }, (l) => { });
+            } catch (AggregateException e) when (e.InnerExceptions.Count == 1) {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerExceptions[0]).Throw();
+            }
+#endif
+        }
+
         /// <summary> ForRange(count, body) for cheap items: inline while the loop is short, see above </summary>
         internal static void ForRangeSmall(int count, Action<int> body)
         {
             if (SerialOnThisThread || count < 2) {
                 ForRange(count, body);
+                return;
+            }
+            if (SmallLoopBudgetTicksOnThisThread < 0) {
+                parallel_range(0, count, body);
                 return;
             }
             long start = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -230,6 +248,10 @@ namespace g3
         {
             if (SerialOnThisThread || count < 2) {
                 ForRange(count, localInit, body);
+                return;
+            }
+            if (SmallLoopBudgetTicksOnThisThread < 0) {
+                parallel_range_local(0, count, localInit, body);
                 return;
             }
             long start = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -263,7 +285,7 @@ namespace g3
         /// <summary> ForEach(source, body) for cheap items: inline while the loop is short, see above </summary>
         internal static void ForEachSmall<T>(IEnumerable<T> source, Action<T> body)
         {
-            if (SerialOnThisThread) {
+            if (SerialOnThisThread || SmallLoopBudgetTicksOnThisThread < 0) {
                 ForEach(source, body);
                 return;
             }
