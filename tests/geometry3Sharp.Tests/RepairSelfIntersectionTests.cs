@@ -142,10 +142,10 @@ namespace geometry3Sharp.Tests
             Assert.True(Invariance.Volume(p.Result) > 200);
         }
 
-        // an open input that self-intersects already (the dented box of InsideOutAdviceTests without its inner bottom square):
-        // its repaired copy self-intersects too, and the input is used as before: the boolean of the copy runs, with the status and
-        // error of the pipeline on that copy given closed (here the copy is refused by ByNesting for its own orientation), not the
-        // refusal of the repair check
+        // an open input that self-intersects already (the dented box of InsideOutAdviceTests without its inner bottom square): its repaired
+        // copy self-intersects too (the input's own pairs; the fill of the small square crosses nothing), and the input is used as before: the
+        // boolean of the copy runs, with the status and error of the pipeline on that copy given closed. Here ByNesting refuses the copy's
+        // orientation (InconsistentOrientation), not the repair check
         [Fact]
         public void AnInputThatSelfIntersectsAsGiven_IsUsedAsBefore()
         {
@@ -159,9 +159,8 @@ namespace geometry3Sharp.Tests
             Assert.True(own.SelfIntersectingPairs > 0);
             SolidBooleanPipeline p = Run(Parts(open));
             Assert.Equal("MeshAutoRepair", Assert.Single(p.Report.RepairedInputs).Method);
-            Assert.DoesNotContain(Refusal, p.Error ?? "");
-            Assert.NotEqual(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
-            // (the copy self-intersects as well: the input's own self-intersections are what keeps it)
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.InconsistentOrientation, p.Status);
+            Assert.DoesNotContain(Refusal, p.Error);
             var repair = new MeshAutoRepair(new DMesh3(open));
             repair.Apply();
             var copy = new ExactMeshArrangement(new List<DMesh3> { repair.Mesh }) { SelfIntersections = true };
@@ -170,6 +169,44 @@ namespace geometry3Sharp.Tests
             SolidBooleanPipeline given = Run(Parts(repair.Mesh), SolidBooleanPipeline.InputRepairModes.Refuse);
             Assert.Equal(given.Status, p.Status);
             Assert.Equal(given.Error, p.Error);
+        }
+
+        // An input that self-intersects as given AND whose fill crosses it: the wavy sheet (its rim's fill crosses it, InsideOutAdviceTests) and,
+        // in the same mesh, two closed boxes that cross each other (the input's own pairs; closed, so not filled). The copy has the pairs of the
+        // boxes and those of the fill, more than the input, and it is still used as before (the check refuses only an input without pairs of its
+        // own): the result is that of the pipeline on the copy given closed. The tool is stated as a Solid, so that it goes to the repair at once
+        [Fact]
+        public void AnInputThatSelfIntersectsAsGiven_WhoseFillCrossesItToo_IsStillUsedAsBefore()
+        {
+            DMesh3 tool = InsideOutAdviceTests.WavySheet();
+            var editor = new MeshEditor(tool);
+            editor.AppendMesh(Box(0.2, 0.2, 0.5, 0.5, 0.5, 0.8));
+            editor.AppendMesh(Box(0.35, 0.35, 0.65, 0.65, 0.65, 0.95));
+            DMesh3 open = new DMesh3(tool, true);
+            Assert.False(ExactMeshBoolean.IsWindingClosed(open));
+            var own = new ExactMeshArrangement(new List<DMesh3> { open }) { SelfIntersections = true };
+            own.Compute();
+            Assert.True(own.SelfIntersectingPairs > 0);
+            var repair = new MeshAutoRepair(new DMesh3(open));
+            repair.Apply();
+            Assert.True(ExactMeshBoolean.IsWindingClosed(repair.Mesh));
+            var copy = new ExactMeshArrangement(new List<DMesh3> { repair.Mesh }) { SelfIntersections = true };
+            copy.Compute();
+            Assert.True(copy.SelfIntersectingPairs > own.SelfIntersectingPairs, copy.SelfIntersectingPairs + " <= " + own.SelfIntersectingPairs);
+            var solids = new List<ExactMeshBoolean.InputRole> { ExactMeshBoolean.InputRole.Solid, ExactMeshBoolean.InputRole.Solid };
+            var p = new SolidBooleanPipeline(Parts(open), D) { InputRoles = solids, InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair };
+            p.Compute();
+            Assert.Equal("MeshAutoRepair", Assert.Single(p.Report.RepairedInputs).Method);
+            Assert.NotEqual(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
+            Assert.DoesNotContain(Refusal, p.Error ?? "");
+            // (the boolean of the copy runs: the status of the pipeline on the copy given closed, here InsideOutInput; the advice of p
+            // names the repaired copy as well)
+            var given = new SolidBooleanPipeline(Parts(repair.Mesh), D) { InputRoles = solids };
+            given.Compute();
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.InsideOutInput, given.Status);
+            Assert.Equal(given.Status, p.Status);
+            Assert.Equal(given.Report.InsideOutCells, p.Report.InsideOutCells);
+            Assert.Contains("input 1 is the closed copy that the input repair MeshAutoRepair produced from the open input", p.Error);
         }
 
         [Theory]

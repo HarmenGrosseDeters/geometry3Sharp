@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using g3;
 using gs;
 using Xunit;
@@ -87,6 +88,24 @@ namespace geometry3Sharp.Tests
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.Cancelled, p.Status);
             Assert.Equal(atCall, calls);
             Assert.Null(p.Result);
+        }
+
+        // the check runs in the Grid step's retry too: the fragment of SolidBooleanPipelineGridAfterRoundingTests with a hole in its tool is
+        // refused as a sheet, repaired in the fallback, refused by the rounding, and retried once on the grid, where the tool is repaired again
+        // (on the snapped inputs). One check per repair (the copies do not self-intersect: one arrangement each), the second one of the retry
+        [Fact]
+        public void TheRepairCheck_RunsInTheGridRetry_Too()
+        {
+            List<DMesh3> inputs = SolidBooleanPipelineInputGridTests.Fragment();
+            inputs[1].RemoveTriangle(11);
+            var seen = new List<int>();
+            var p = new SolidBooleanPipeline(inputs, D) { InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair,
+                AutomaticSteps = SolidBooleanPipeline.AutomaticStepModes.GridAfterRoundingNotClean, RepairCheckObserverForTests = seen.Add };
+            Assert.True(p.Compute(), p.Status + " " + p.Error);
+            Assert.Equal("SheetRole,Fallback,InputRepair,Grid,InputRepair", string.Join(",", p.Report.Route.Select(s => s.Name)));
+            // (the report is the retry's: its one repair, of the snapped tool, is the second check)
+            Assert.Equal(2, seen.Count);
+            Assert.Equal(Assert.Single(p.Report.RepairedInputs).TrianglesAfter, seen[1]);
         }
     }
 }

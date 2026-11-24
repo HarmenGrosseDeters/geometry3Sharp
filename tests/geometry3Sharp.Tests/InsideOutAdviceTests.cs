@@ -24,7 +24,7 @@ namespace geometry3Sharp.Tests
         }
 
         // The unit cube, outward, whose top face is a fan of four triangles to an apex pulled down and out through the box to
-        // (-3, -3, -0.5): closed, consistently oriented, self-intersecting (the fan crosses the walls and the bottom), volume
+        // (-3, -3, -0.5): closed, consistently oriented, self-intersecting (the fan crosses the walls, not the bottom), volume
         // 1 - 1.5 / 3 = 0.5 > 0 (the sheared pyramid of the dent keeps its volume). Inside the dent's pyramid outside the box the
         // winding number is -1. The apex is the smallest point by the order of ExactMeshArrangement.ComparePoints (key x + 0.75 y +
         // 0.57 z), so count_inside_out reads a triangle of the fan (#1464), and the centroid of every fan triangle lies outside the
