@@ -112,6 +112,7 @@ Nearly coincident inputs can create exact vertices that round to colliding `doub
 - **Effort budget:** Controlled by `RoundingMaxPairTests` (default 5M exact pair tests, scaling with initial defects via `RoundingPairTestsDefectScale` and `RoundingPairTestsMaxGrowth`).
 - **Strict mode:** Set `StrictRounding = true` so an unclean result fails with `Status = RoundingNotClean` (no `Result`) rather than returning remaining defects (`Rounding.RemainingIntersections`, `RemainingDegenerate`, `RemainingFalseContacts`, `ScaleDisparity`).
 - **Speed / exact output:** Set `SafeRounding = false` for plain rounding (faster, or when consuming `ResultExactVertices` directly).
+- **Rounding is to nearest:** An exact vertex is converted to the nearest `double` (`ExactPoint3.ToDouble`, correct rounding since #1410; it used to truncate toward zero). The old conversion pulled every rounded vertex of a convex shape around the origin slightly inward, which kept chained operations on such shapes (eg `A - (A n B)` for a sphere) free of point contacts by accident; with correct rounding they show duplicated vertices of one exact point (`Contacts`) more often, while `RoundingClean` stays true. Data far from the origin never had that bias.
 
 ### Input Order: What the Result Depends On
 
