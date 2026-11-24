@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using g3;
+using g3.CoreMathPort;
 using gs;
 using Xunit;
 
@@ -10,6 +11,11 @@ namespace geometry3Sharp.Tests
     /// <summary>Cut and fill per cell between two surfaces (TerrainCellVolumes): the sum over the cells is the total of TerrainVolumeDifference, analytic cells, swap, invariance, reuse, determinism.</summary>
     public class TerrainCellVolumesTests
     {
+        // Correctly rounded sin and cos (CORE-MATH port): the platform's Math.Sin/Cos are 1 ulp off on some arguments on some C runtimes
+        // (Windows net10.0 vs linux, #1547), which moved the pinned cell values by one ulp; the fixture must not depend on the C runtime.
+        static double Sn(double x) => CoreMath.Sin(x);
+        static double Cs(double x) => CoreMath.Cos(x);
+
         static DMesh3 Grid(double x0, double y0, double x1, double y1, int n, Func<double, double, double> h, bool flip = false)
         {
             DMesh3 mesh = new DMesh3();
@@ -37,8 +43,8 @@ namespace geometry3Sharp.Tests
         // two rough surfaces with different triangulations that cross each other
         static (DMesh3 before, DMesh3 after) Pair(double ox = 0, double oy = 0, double oz = 0, double s = 1)
         {
-            DMesh3 b = Grid(ox, oy, ox + 20 * s, oy + 20 * s, 14, (x, y) => oz + s * (2 * Math.Sin((x - ox) / s * 0.4) + Math.Cos((y - oy) / s * 0.3)));
-            DMesh3 a = Grid(ox, oy, ox + 20 * s, oy + 20 * s, 9, (x, y) => oz + s * (0.15 * (x - ox) / s - 1.5 + Math.Sin((y - oy) / s * 0.5)), true);
+            DMesh3 b = Grid(ox, oy, ox + 20 * s, oy + 20 * s, 14, (x, y) => oz + s * (2 * Sn((x - ox) / s * 0.4) + Cs((y - oy) / s * 0.3)));
+            DMesh3 a = Grid(ox, oy, ox + 20 * s, oy + 20 * s, 9, (x, y) => oz + s * (0.15 * (x - ox) / s - 1.5 + Sn((y - oy) / s * 0.5)), true);
             return (b, a);
         }
 
