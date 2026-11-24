@@ -245,6 +245,10 @@ namespace g3
             }
             System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() { return GetEnumerator(); }
         }
+        /// <summary>
+        /// the pieces of the last Compute (replaced by a new list at the start of the next one). Its point ids are valid until
+        /// the next Compute: every Compute after the first numbers the points anew (see Compute)
+        /// </summary>
         public List<OutputTriangle> Output = new List<OutputTriangle>();
         public HashSet<long> ConstraintEdges = new HashSet<long>(EdgeKeyComparer.Instance);     // undirected point id pairs on intersection curves
         public int[][] VertexPoints;        // per mesh: vertex id -> point id
@@ -372,6 +376,7 @@ namespace g3
         /// <summary>
         /// for tests: store all exact points as BigInteger (ExactBox), the code before the fixed-width points. Only
         /// before the first point: equality of exact points relies on the representation being a function of the value.
+        /// (A second Compute empties the point tables, so the value can be changed again between two Computes.)
         /// </summary>
         internal bool FixedWidthPoints
         {
@@ -512,7 +517,11 @@ namespace g3
             return r;
         }
 
-        /// <summary> id of an exactly given point, a new one if it is not known yet (thread-safe) </summary>
+        /// <summary>
+        /// id of an exactly given point, a new one if it is not known yet (thread-safe). For use after Compute (the
+        /// boolean's classification adds centroids); the id is invalid after the next Compute. Not supported before the first
+        /// Compute (see Compute).
+        /// </summary>
         [MethodImpl(JitHints.Optimize)]
         public int AddPoint(ExactPoint3 p)
         {
@@ -1237,16 +1246,27 @@ namespace g3
             touchedPoints = null;
             planeRep = null;
             Culled = null;
-            Output.Clear();
+            Output = new List<OutputTriangle>();
             ConstraintEdges = new HashSet<long>(EdgeKeyComparer.Instance);
             MergedPoints = 0;
             SegmentCrossings = 0;
             IntersectingPairs = 0;
             SelfIntersectingPairs = 0;
-            PrefilterRejected = 0; PrefilterChecked = 0;
+            PrefilterRejected = 0; PrefilterChecked = 0; PreDecidedPairs = 0;
+            CulledCount = 0; CullTests = 0; TriangulatedTriangles = 0;
+            CandidatePairs = 0; CandidatePairList = null;
+            Trees = null;
             CandidateTests = 0; LocalFilterDecided = 0; LocalFilterPoints = 0; ConstructionZeros = 0;
         }
 
+        /// <summary>
+        /// Computes the arrangement of Meshes. It may be called again on the same instance (also after Meshes changed): every
+        /// call after the first starts from the inputs and gives what a new instance would give. Everything that refers to
+        /// points is then invalid: the ids in Output, VertexPoints, ConstraintEdges and Segments, and the ids AddPoint returned
+        /// after an earlier Compute (the point tables are emptied, so a stale id may be out of range or another point).
+        /// AddPoint before the first Compute is not supported: the inputs' points are numbered by Compute, and the first
+        /// Compute does not reset the tables.
+        /// </summary>
         [MethodImpl(JitHints.Optimize)]
         public void Compute()
         {
