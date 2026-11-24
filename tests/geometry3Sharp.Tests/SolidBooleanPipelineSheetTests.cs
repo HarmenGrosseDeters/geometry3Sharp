@@ -187,8 +187,11 @@ namespace geometry3Sharp.Tests
             Assert.Empty(stated.Report.Route);
 
             // by default (InputRepair Refuse): the sheet role, the fallback with the reason, the refusal as an open input
-            // (AutomaticSteps None: the route to the fallback without the Grid step that the default adds for a rim inside the workpiece)
-            var p = new SolidBooleanPipeline(new List<DMesh3> { workpiece, tool }, D) { AutomaticSteps = SolidBooleanPipeline.AutomaticStepModes.None };
+            // (a rim inside the workpiece: AutomaticSteps None, the route to the fallback without the Grid step that the default adds for it; the structural
+            // refusals run with the default, which does not answer them)
+            var p = new SolidBooleanPipeline(new List<DMesh3> { workpiece, tool }, D);
+            if (reason == ExactMeshBoolean.SheetRefusal.RimInsideWorkpiece)
+                p.AutomaticSteps = SolidBooleanPipeline.AutomaticStepModes.None;
             Assert.False(p.Compute());
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
             Assert.Equal(ExactMeshBoolean.BooleanStatus.OpenInput, p.BooleanStatus);

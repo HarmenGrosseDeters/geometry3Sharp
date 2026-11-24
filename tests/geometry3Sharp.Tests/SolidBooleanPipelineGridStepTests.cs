@@ -97,7 +97,8 @@ namespace geometry3Sharp.Tests
             Assert.StartsWith("the sheet role refused: RimInsideWorkpiece: ", g.Reason);
             // every vertex of the box is off the grid (8), and so are the 4 of the sheet
             Assert.Equal(12, p.Report.InputSnappedVertices);
-            Assert.Equal("the inputs are snapped to the cell 2^-38 (3.637978807091713E-12), which moved 12 vertices, and the run is done again", g.Change);
+            Assert.StartsWith("the inputs are snapped to the cell 2^-38 (3.637978807091713E-12), which moved 12 vertices, and changed the first input's volume by ", g.Change);
+            Assert.EndsWith(", and the run is done again", g.Change);
             Assert.Equal(ExactMeshBoolean.SheetRefusal.None, g.SheetReason);
             // (the removed share belongs to the sheet step of the run that cut)
             Assert.DoesNotContain("removed", p.Report.Route[0].Change);
@@ -205,7 +206,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal("SheetRole:1,Grid:-1,Fallback:-1,Refused:-1", Names(p));
             SolidBooleanRouteStep g = p.Report.Route[1];
             Assert.Equal(Pow2(-38), g.Grid);
-            Assert.StartsWith("the inputs are snapped to the cell 2^-38 (3.637978807091713E-12), which moved 8 vertices, and the run is done again; it failed too (BooleanFailed: SheetRefused: ", g.Change);
+            Assert.StartsWith("the inputs are snapped to the cell 2^-38 (3.637978807091713E-12), which moved 8 vertices, and changed the first input's volume by ", g.Change);
+            Assert.Contains(", and the run is done again; it failed too (BooleanFailed: SheetRefused: ", g.Change);
             Assert.EndsWith("), so the first failure is the result", g.Change);
             Assert.Equal(Rim, p.Report.Route[2].SheetReason);
             // (the report is the one of the run without the grid)
@@ -514,8 +516,11 @@ namespace geometry3Sharp.Tests
         static DMesh3 Points(params double[] xyz)
         {
             var m = new DMesh3();
-            for (int i = 0; i < xyz.Length; i += 3)
-                m.AppendVertex(new Vector3d(xyz[i], xyz[i + 1], xyz[i + 2]));
+            // (every point is used by a triangle, with two vertices at the origin of its own: the cell counts the vertices that triangles use)
+            for (int i = 0; i < xyz.Length; i += 3) {
+                int v = m.AppendVertex(new Vector3d(xyz[i], xyz[i + 1], xyz[i + 2]));
+                m.AppendTriangle(v, m.AppendVertex(Vector3d.Zero), m.AppendVertex(Vector3d.Zero));
+            }
             return m;
         }
 

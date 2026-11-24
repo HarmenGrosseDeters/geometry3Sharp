@@ -36,13 +36,13 @@ namespace geometry3Sharp.Tests
 
         // an open cutter: the prism over the counter-clockwise polygon, its rim at the top z = t + 5 pushed down by ulps(i) ulps per rim vertex, the
         // walls reaching down to z = t + 2, outward normals (the sheet removes what is inside); bottom: the given triangles of the polygon
-        static DMesh3 Cutter(double t, Vector2d[] poly, int[][] bottom, Func<int, int> ulps)
+        static DMesh3 Cutter(double t, Vector2d[] poly, int[][] bottom, Func<int, int> ulps, double depth = Depth)
         {
             var m = new DMesh3();
             int n = poly.Length;
             var low = new int[n]; var rim = new int[n];
             for (int i = 0; i < n; ++i) {
-                low[i] = m.AppendVertex(new Vector3d(t + poly[i].x, t + poly[i].y, t + Top - Depth));
+                low[i] = m.AppendVertex(new Vector3d(t + poly[i].x, t + poly[i].y, t + Top - depth));
                 rim[i] = m.AppendVertex(new Vector3d(t + poly[i].x, t + poly[i].y, Down(t + Top, ulps(i))));
             }
             for (int i = 0; i < n; ++i) {
@@ -121,7 +121,6 @@ namespace geometry3Sharp.Tests
             double area;
             DMesh3 tool = Shape(shape, t, i => 1 + (i % 3), out area);
             var p = new SolidBooleanPipeline(new List<DMesh3> { Block(t), tool }, D);
-            Assert.Equal(Auto.GridBeforeFallback, p.AutomaticSteps);
             Assert.True(p.Compute(), p.Status + " " + p.Error);
             AssertClean(p);
             Assert.Equal("SheetRole,Grid,SheetRole", Names(p));
@@ -280,18 +279,209 @@ namespace geometry3Sharp.Tests
             Assert.Equal(2, booleans);
         }
 
+        // ---- the cell and the retry must not destroy the inputs ----
+
         [Fact]
-        public void BothBitsTogether_AreDefined_AndOtherBitsAreRefused()
+        public void TheCell_IgnoresAVertexThatNoTriangleUses()
         {
+            const double t = 1.2e6;
             double area;
-            var ok = new SolidBooleanPipeline(new List<DMesh3> { Block(0), Shape("box", 0, i => 0, out area) }, D) { AutomaticSteps = Auto.Grid | Auto.GridBeforeFallback };
-            Assert.True(ok.Compute(), ok.Error);
-            foreach (int v in new[] { 4, 6, 8, -1 }) {
-                var p = new SolidBooleanPipeline(new List<DMesh3> { Block(0), Shape("box", 0, i => 0, out area) }, D) { AutomaticSteps = (Auto)v };
-                Assert.False(p.Compute());
-                Assert.Equal(SolidBooleanPipeline.PipelineStatus.InvalidInput, p.Status);
-                Assert.Contains("AutomaticSteps", p.Error);
+            DMesh3 plainTool = Shape("box", t, i => 2, out area);
+            DMesh3 tool = Shape("box", t, i => 2, out area);
+            tool.AppendVertex(new Vector3d(1e15, 0, 0));       // used by no triangle: it must not coarsen the cell to 512
+            Assert.Equal(SolidBooleanPipeline.DataGrid(new[] { Block(t), plainTool }), SolidBooleanPipeline.DataGrid(new[] { Block(t), tool }));
+            foreach (var repair in new[] { SolidBooleanPipeline.InputRepairModes.Refuse, SolidBooleanPipeline.InputRepairModes.AutoRepair }) {
+                var p = new SolidBooleanPipeline(new List<DMesh3> { Block(t), tool }, D) { InputRepair = repair };
+                Assert.True(p.Compute(), p.Status + " " + p.Error);
+                AssertClean(p);
+                Assert.Equal("SheetRole,Grid,SheetRole", Names(p));
+                Assert.Equal(SolidBooleanPipeline.DataGrid(new[] { Block(t), plainTool }), p.Report.Route[1].Grid);
+                Assert.True(p.Result.TriangleCount > 0);
+                Assert.True(Math.Abs(Near(p, t) - 452) <= 1e-6, Near(p, t).ToString());
             }
+        }
+
+        // a far second component of the tool: a triangle that triangles do use, so the cell is as coarse as its coordinates make it
+        static DMesh3 WithFarTriangle(DMesh3 tool, double x)
+        {
+            int a = tool.AppendVertex(new Vector3d(x, 0, 0)), b = tool.AppendVertex(new Vector3d(x + 1, 0, 0)), c = tool.AppendVertex(new Vector3d(x, 1, 0));
+            tool.AppendTriangle(a, b, c);
+            return tool;
+        }
+
+        [Fact]
+        public void ACellThatIsNotSmallAgainstTheFirstInput_IsNotTried_AndTheStepSaysSo()
+        {
+            const double t = 1.2e6;
+            double area;
+            foreach (var repair in new[] { SolidBooleanPipeline.InputRepairModes.Refuse, SolidBooleanPipeline.InputRepairModes.AutoRepair }) {
+                int booleans = 0;
+                var p = new SolidBooleanPipeline(new List<DMesh3> { Block(t), WithFarTriangle(Shape("box", t, i => 2, out area), 1e13) }, D) { InputRepair = repair, ConfigureBoolean = op => booleans++ };
+                var old = new SolidBooleanPipeline(new List<DMesh3> { Block(t), WithFarTriangle(Shape("box", t, i => 2, out area), 1e13) }, D) { InputRepair = repair, AutomaticSteps = Auto.None };
+                bool done = p.Compute(), oldDone = old.Compute();
+                // the cell is 8 (2^12 ulps of 1e13) against a block of 10: the snap could change the volume by more than a quarter
+                Assert.Equal(8.0, p.Report.Route[1].Grid);
+                Assert.Equal("SheetRole,Grid,Fallback" + (repair == SolidBooleanPipeline.InputRepairModes.Refuse ? ",Refused" : ",InputRepair"), Names(p));
+                Assert.Contains("so the run is not done again and the first failure is the result", p.Report.Route[1].Change);
+                Assert.Contains("could change the first input's volume", p.Report.Route[1].Change);
+                // (no run on the grid: the sheet and the fallback, and the old result)
+                Assert.Equal(repair == SolidBooleanPipeline.InputRepairModes.Refuse ? 2 : 3, booleans);       // (AutoRepair: the repaired tool is a third boolean)
+                Assert.Equal(oldDone, done);
+                Assert.Equal(old.Status, p.Status);
+                Assert.Equal(old.Error, p.Error);
+            }
+        }
+
+        [Fact]
+        public void ARetryWithAnEmptyResultOfANonEmptyFirstInput_IsRejected()
+        {
+            // in a run: the rim is refused as inside the block; on the retry the tool is swapped for a sheet far from the block, with UncutSide Inside
+            // (the part that no sheet touches is removed), so the boolean of the retry gives an empty result of a block that is not empty
+            const double t = 1.2e6;
+            double area;
+            int booleans = 0;
+            Func<List<DMesh3>> inputs = () => new List<DMesh3> { Block(t), Shape("box", t, i => 2, out area) };
+            var d = new SolidBooleanPipeline(inputs(), D) { UncutSide = ExactMeshBoolean.SheetUncutSides.Inside, ConfigureBoolean = op => { if (++booleans == 2) op.Meshes[1] = Patch(1e6, 1e6 + 1, 1e6 + 2); } };
+            bool done = d.Compute();
+            Assert.Equal(3, booleans);
+            Assert.False(done, "the retry with an empty result is rejected");
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, d.Status);
+            Assert.Equal("SheetRole,Grid,Fallback,Refused", Names(d));
+            Assert.True(d.Report.Route[1].Change.Contains("its result is empty although the first input is not"), d.Report.Route[1].Change);
+            Assert.Null(d.Result);
+        }
+
+        [Fact]
+        public void TheGridStep_ReportsTheVolumeChangeOfTheFirstInput()
+        {
+            const double t = 1.2e6;
+            double area;
+            var p = new SolidBooleanPipeline(new List<DMesh3> { Block(t), Shape("cylinder", t, i => 2, out area) }, D);
+            Assert.True(p.Compute(), p.Error);
+            Assert.Contains("and changed the first input's volume by 0 of 500 (at most ", p.Report.Route[1].Change);       // the block is on the cell: its volume does not change
+            Assert.Contains("which moved ", p.Report.Route[1].Change);
+        }
+
+        // ---- a refusal of a sheet that the caller stated is not answered by the default ----
+
+        [Fact]
+        public void AStatedSheetThatRefuses_NextToARoutedTool_IsNotSnapped()
+        {
+            const double t = 1.2e6;
+            double area;
+            Func<List<DMesh3>> inputs = () => {
+                var wall = new DMesh3();       // an open wall across the block, no role: it is routed as a sheet
+                int a = wall.AppendVertex(new Vector3d(t + 5, t - 1, t - 1)), b = wall.AppendVertex(new Vector3d(t + 5, t + 11, t - 1));
+                int c = wall.AppendVertex(new Vector3d(t + 5, t + 11, t + 6)), d = wall.AppendVertex(new Vector3d(t + 5, t - 1, t + 6));
+                wall.AppendTriangle(a, b, c); wall.AppendTriangle(a, c, d);
+                return new List<DMesh3> { Block(t), Shape("box", t, i => 2, out area), wall };
+            };
+            Roles roles = new Roles { ExactMeshBoolean.InputRole.Solid, ExactMeshBoolean.InputRole.Sheet };
+            var alone = new SolidBooleanPipeline(new List<DMesh3> { Block(t), Shape("box", t, i => 2, out area) }, D) { InputRoles = roles };
+            Assert.False(alone.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.BooleanFailed, alone.Status);
+
+            var p = new SolidBooleanPipeline(inputs(), D) { InputRoles = roles };
+            var old = new SolidBooleanPipeline(inputs(), D) { InputRoles = roles, AutomaticSteps = Auto.None };
+            bool done = p.Compute(), oldDone = old.Compute();
+            Assert.False(done);
+            Assert.Equal(oldDone, done);
+            Assert.Equal(old.Status, p.Status);
+            Assert.Equal(old.Error, p.Error);
+            Assert.Equal(Names(old), Names(p));
+            Assert.DoesNotContain("Grid", Names(p));
+            // Grid retries a stated sheet, as before
+            var g = new SolidBooleanPipeline(inputs(), D) { InputRoles = roles, AutomaticSteps = Auto.Grid };
+            g.Compute();
+            Assert.Contains("Grid", Names(g));
+        }
+
+        // ---- the capture distance is about one cell: gaps and skins by design are closed too (pinned, with the old behaviour next to it) ----
+
+        // an open box (outward normals) with its rim at rimZ, walls from lo.z up
+        static DMesh3 OpenBox(Vector3d lo, Vector3d hi, double rimZ)
+        {
+            var m = new DMesh3();
+            Vector2d[] c = { new Vector2d(lo.x, lo.y), new Vector2d(hi.x, lo.y), new Vector2d(hi.x, hi.y), new Vector2d(lo.x, hi.y) };
+            var low = new int[4]; var rim = new int[4];
+            for (int i = 0; i < 4; ++i) {
+                low[i] = m.AppendVertex(new Vector3d(c[i].x, c[i].y, lo.z));
+                rim[i] = m.AppendVertex(new Vector3d(c[i].x, c[i].y, rimZ));
+            }
+            for (int i = 0; i < 4; ++i) {
+                int j = (i + 1) % 4;
+                m.AppendTriangle(low[i], low[j], rim[j]); m.AppendTriangle(low[i], rim[j], rim[i]);
+            }
+            m.AppendTriangle(low[0], low[2], low[1]); m.AppendTriangle(low[0], low[3], low[2]);
+            return m;
+        }
+
+        // a block of 0.1 x 0.1 x 0.05 far from the origin (coordinates about 6e5, 5.7e6, 1e2: the cell is 2^-18 = 3.8e-6)
+        const double X0 = 600000, Y0 = 5700000, Z0 = 100;
+
+        static DMesh3 FarBlock() => new TrivialBox3Generator() { Box = new Box3d(new AxisAlignedBox3d(new Vector3d(X0, Y0, Z0), new Vector3d(X0 + 0.1, Y0 + 0.1, Z0 + 0.05))) }.Generate().MakeDMesh();
+
+        static double FarVolume(DMesh3 m)
+        {
+            var c = new DMesh3(m);
+            MeshTransforms.Translate(c, new Vector3d(-X0, -Y0, -Z0));
+            return Volume(c);
+        }
+
+        static DMesh3 FarSheet(double gap)
+        {
+            var m = new DMesh3();
+            double z = Z0 + 0.025, x0 = X0 + gap, x1 = X0 + 0.1 - gap, y0 = Y0 + gap, y1 = Y0 + 0.1 - gap;
+            int a = m.AppendVertex(new Vector3d(x0, y0, z)), b = m.AppendVertex(new Vector3d(x1, y0, z)), c = m.AppendVertex(new Vector3d(x1, y1, z)), d = m.AppendVertex(new Vector3d(x0, y1, z));
+            m.AppendTriangle(a, b, c); m.AppendTriangle(a, c, d);
+            return m;
+        }
+
+        [Theory]
+        [InlineData(1e-6)]
+        [InlineData(1.5e-6)]
+        public void ASheetThatStopsShortOfTheFacesByDesign_IsClosedToThem_ByTheDefault(double gap)
+        {
+            // the sheet ends 1 or 1.5 micro-units inside the block's faces (the cell is 3.8e-6): the default takes it as meant to be flush and cuts the
+            // block in half; None with Refuse refuses, None with AutoRepair closes the sheet and cuts nothing
+            var p = new SolidBooleanPipeline(new List<DMesh3> { FarBlock(), FarSheet(gap) }, D);
+            Assert.True(p.Compute(), p.Status + " " + p.Error);
+            AssertClean(p);
+            Assert.Equal("SheetRole,Grid,SheetRole", Names(p));
+            Assert.Equal(Math.Pow(2, -18), p.Report.Route[1].Grid);
+            Assert.True(Math.Abs(FarVolume(p.Result) - 2.5e-4) < 1e-6, FarVolume(p.Result).ToString());
+
+            var refuse = new SolidBooleanPipeline(new List<DMesh3> { FarBlock(), FarSheet(gap) }, D) { AutomaticSteps = Auto.None };
+            Assert.False(refuse.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, refuse.Status);
+            var repair = new SolidBooleanPipeline(new List<DMesh3> { FarBlock(), FarSheet(gap) }, D) { AutomaticSteps = Auto.None, InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair };
+            Assert.True(repair.Compute(), repair.Error);
+            Assert.Equal("SheetRole,Fallback,InputRepair", Names(repair));
+            Assert.True(Math.Abs(FarVolume(repair.Result) - 5.0e-4) < 1e-6, "nothing is cut: " + FarVolume(repair.Result));
+        }
+
+        static int Shells(DMesh3 m) { var c = new MeshConnectedComponents(m); c.FindConnectedT(); return c.Count; }
+
+        [Fact]
+        public void ABucketThatLeavesASkinUnderTheTopFace_GivesAnOpenPocket_ByTheDefault_AndACavityWithTheRepair()
+        {
+            // the bucket's rim is 1e-6 under the top face (the cell is 3.8e-6): by default the rim lands in the face and the pocket is open (one shell);
+            // None with AutoRepair closes the bucket with a lid and leaves an enclosed cavity under the skin (two shells)
+            Func<DMesh3> tool = () => OpenBox(new Vector3d(X0 + 0.03, Y0 + 0.03, Z0 + 0.01), new Vector3d(X0 + 0.07, Y0 + 0.07, 0), Z0 + 0.05 - 1e-6);
+            var p = new SolidBooleanPipeline(new List<DMesh3> { FarBlock(), tool() }, D);
+            Assert.True(p.Compute(), p.Status + " " + p.Error);
+            AssertClean(p);
+            Assert.Equal("SheetRole,Grid,SheetRole", Names(p));
+            Assert.Equal(1, Shells(p.Result));
+            double pocket = 0.04 * 0.04 * 0.04;
+            Assert.True(Math.Abs(FarVolume(p.Result) - (5e-4 - pocket)) < 1e-6, FarVolume(p.Result).ToString());
+
+            var refuse = new SolidBooleanPipeline(new List<DMesh3> { FarBlock(), tool() }, D) { AutomaticSteps = Auto.None };
+            Assert.False(refuse.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, refuse.Status);
+            var repair = new SolidBooleanPipeline(new List<DMesh3> { FarBlock(), tool() }, D) { AutomaticSteps = Auto.None, InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair };
+            Assert.True(repair.Compute(), repair.Error);
+            Assert.Equal(2, Shells(repair.Result));
         }
 
         // ---- invariance, reuse, repeated runs (the pipeline has no parallel path of its own) ----
@@ -308,21 +498,31 @@ namespace geometry3Sharp.Tests
             const double t = 1.2e5;
             var reference = new SolidBooleanPipeline(Flush(t), D);
             Assert.True(reference.Compute(), reference.Error);
+            AssertClean(reference);
+            Assert.Equal("SheetRole,Grid,SheetRole", Names(reference));
             var p = new SolidBooleanPipeline(Flush(t).Select(m => Invariance.Transformed(m, s)).ToList(), D);
             bool done = p.Compute();
             if (s.IsExact) {
                 Assert.True(done, s.Name + ": " + p.Error);
+                AssertClean(p);
                 Assert.Equal(Names(reference), Names(p));
                 Assert.Equal(reference.Report.Route[1].Grid * s.Scale, p.Report.Route[1].Grid);
                 Assert.Equal("", Invariance.Difference(reference.Result, Invariance.MappedBack(p.Result, s)));
                 return;
             }
-            // another frame: the rim lands elsewhere; the default either cuts (as given or on the grid) or refuses as before, never with another route
-            if (done)
-                Assert.Contains(Names(p), new[] { "SheetRole", "SheetRole,Grid,SheetRole" });
-            else {
+            // another frame: the rim lands elsewhere (and a rotation leaves no face parallel to an axis, so no snap puts the rim on it). Either the
+            // run cuts, on the route of the reference, and the result is clean with the volume of the reference, or the first failure stands with the grid tried once
+            if (done) {
+                AssertClean(p);
+                Assert.Equal(Names(reference), Names(p));
+                double scale3 = s.Scale * s.Scale * s.Scale, cell = p.Report.Route[1].Grid;
+                // (the snap moves the walls and the faces by half a cell each: the bound of the step, area * cell, with the area of the block and the tool)
+                Assert.True(Math.Abs(Volume(p.Result) - Volume(reference.Result) * scale3) <= 1e-6 * 452 * scale3 + 2 * cell * 600 * s.Scale * s.Scale + 1e-3,
+                    s.Name + ": " + Volume(p.Result) + " against " + Volume(reference.Result) * scale3);
+            } else {
                 Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
                 Assert.Equal("SheetRole,Grid,Fallback,Refused", Names(p));
+                Assert.Null(p.Result);
             }
         }
 
