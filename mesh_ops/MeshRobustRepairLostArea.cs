@@ -170,5 +170,18 @@ namespace gs
                         into[at++] = a + (e1 * (i + 2.0 / 3) + e2 * (j + 2.0 / 3)) / k;
                 }
         }
+
+        // The unit in the last place of x >= 0 (2^(e - 1075) for the exponent field e), the same value as the rounding's own
+        // helper (MeshRoundingRepair.ulp, which is private in a file whose mutation shards are split by character
+        // position, so it is repeated here instead of being opened up).
+        internal static double Ulp(double x)
+        {
+            if (!(x < double.PositiveInfinity))
+                return double.NaN;
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int e = (int)((bits >> 52) & 0x7FF);
+            return e > 52 ? BitConverter.Int64BitsToDouble((long)(e - 52) << 52)
+                : e > 0 ? BitConverter.Int64BitsToDouble(1L << (e - 1)) : double.Epsilon;
+        }
     }
 }

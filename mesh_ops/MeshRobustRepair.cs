@@ -698,7 +698,7 @@ namespace gs
                     stage = Math.Max(2, 1 + (AlphaWrapTarget > 0 ? Math.Max(0.5, WrapTargetMaxDistance) : 0.5)) * AlphaWrap.UsedOffset;
                 // the rounding bound (MeshRoundingRepair: the largest of the three terms), and the query's own error
                 AxisAlignedBox3d box = MeshRepairMetrics.TriangleBounds(input);
-                double ulp = MeshRoundingRepair.ulp(Math.Max(box.Min.MaxAbs, box.Max.MaxAbs));
+                double ulp = MeshRobustRepairLostArea.Ulp(Math.Max(box.Min.MaxAbs, box.Max.MaxAbs));
                 double ulpTerm = RoundingUlpFactor * ulp;
                 double rounding = Math.Max(RoundingMaxDisplacement * MeshRepairMetrics.LargestComponentDiagonal(input), Math.Max(ulpTerm >= 0 ? ulpTerm : 0, RoundingAbsoluteTolerance));
                 tol = Math.Max(stage, rounding) + LostAreaQueryUlps * (ulp >= 0 ? ulp : 0);
