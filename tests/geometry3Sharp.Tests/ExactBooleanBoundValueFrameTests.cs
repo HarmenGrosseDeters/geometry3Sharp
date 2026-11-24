@@ -10,7 +10,10 @@ namespace geometry3Sharp.Tests
 {
     /// <summary>
     /// #1423, part 2: the error terms of the local frame and the centroid segment, the Dijkstra factor of the patch search,
-    /// the padding of the winding query, the exactness test of a difference (see ExactBooleanBoundValueTests)
+    /// the padding of the winding query, the exactness test of a difference (see ExactBooleanBoundValueTests).
+    /// Mirrors (change detectors of derived bounds, bit for bit): ToGrid, input_segment (value test). Properties against exact
+    /// arithmetic: exact_difference, the containment of the exact segment ends in the pad of input_segment. Contract tests of
+    /// policy constants: the factor of search (0.99 against 1.01 of 1e-12), the pad of patch_winding (0.999 against 1.001)
     /// </summary>
     public class ExactBooleanBoundValueFrameTests
     {
@@ -116,7 +119,7 @@ namespace geometry3Sharp.Tests
             var m2 = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(0.5, 0.5, 0.5), new Vector3d(1, 1, 1)) }.Generate().MakeDMesh();
             var op = new ExactMeshBoolean(m, m2, ExactMeshBoolean.Operations.Union);
             var arr = new ExactMeshArrangement(new List<DMesh3> { m, m2 }) { ScaleExp = scaleExp, Center = center };
-            typeof(ExactMeshBoolean).GetField("arr", ExactBooleanBoundValueTests.NP).SetValue(op, arr);
+            ExactBooleanBoundValueTests.Field(typeof(ExactMeshBoolean), "arr").SetValue(op, arr);
             return op;
         }
 
@@ -143,7 +146,24 @@ namespace geometry3Sharp.Tests
                     e = Math.Max(e, Math.Max(ep + 3.4e-16 * (Math.Abs(gp[k]) + Math.Abs(c)), eq + 3.4e-16 * (Math.Abs(gq[k]) + Math.Abs(c))));
                 }
                 Assert.Equal(1.01 * ExactPoint3.ScaleB(e, scaleExp) + 1e-300, pad);
+                // property (exact arithmetic): every exact grid point within ep (eq) of gp (gq) per coordinate, in input coordinates
+                // (g + c) 2^scaleExp, lies within the pad of the computed end (the extreme positions of each coordinate are the worst ones)
+                for (int k = 0; k < 3; ++k)
+                    foreach (int sign in new[] { -1, 1 }) {
+                        AssertWithinPad(gp[k], sign * ep, center[k], scaleExp, ip[k], pad, $"trial {trial} p[{k}]");
+                        AssertWithinPad(gq[k], sign * eq, center[k], scaleExp, iq[k], pad, $"trial {trial} q[{k}]");
+                    }
             }
+        }
+
+        /// <summary> |(g + delta + c) 2^s - computed| &lt;= pad in exact arithmetic (g, delta, computed, pad doubles; c an integer) </summary>
+        static void AssertWithinPad(double g, double delta, BigInteger c, int scaleExp, double computed, double pad, string what)
+        {
+            BigInteger unit = BigInteger.One << 1074;                           // Scaled() is v 2^1074
+            BigInteger exact = Scaled(g) + Scaled(delta) + c * unit;           // the exact grid coordinate, in units of 2^-1074
+            BigInteger lhs = Scaled(computed), padS = Scaled(pad);
+            if (scaleExp >= 0) exact <<= scaleExp; else { lhs <<= -scaleExp; padS <<= -scaleExp; }
+            Assert.True(BigInteger.Abs(lhs - exact) <= padS, $"{what}: the exact end is outside the pad");
         }
 
         [Fact]
@@ -178,67 +198,143 @@ namespace geometry3Sharp.Tests
         }
 
         // ---------------------------------------------------------------------------------------------------------------
-        // search: the factor (1 + 1e-12) of the accumulated cost and the comparison with the margin
+        // search: the factor (1 + 1e-12) of the accumulated cost, the comparison with the margin, the costs per boundary
         // ---------------------------------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// A chain of pieces 0 - 1 - 2 - 3 (and an outsider adjacent to piece 1 but in no patch) of the fixture's output, chosen by
+        /// property: the first pieces whose cost is finite and positive under every boundary given. The adjacency is the rig's own
+        /// (search only reads patch, start and adj), so that the costs and the order of the pieces are the only fixture dependence
+        /// </summary>
+        sealed class SearchRig
+        {
+            public readonly ExactBooleanBoundValueTests.Fixture F;
+            public readonly int[] Chain = new int[4];
+            public readonly int Outsider;
+            readonly int n;
+            readonly int[] patch, start, adj;
+
+            public SearchRig(ExactBooleanBoundValueTests.Fixture f, params ExactMeshBoolean.BoundaryBound[] bounds)
+            {
+                F = f;
+                n = f.Arr.Output.Count;
+                var picked = new List<int>();
+                for (int p = 0; p < n && picked.Count < 5; ++p)
+                    if (bounds.All(b => { double c = Cost(b, p); return c > 0 && c < double.MaxValue; }))
+                        picked.Add(p);
+                Assert.True(picked.Count == 5, "the fixture has fewer than 5 pieces of a finite cost under the boundaries");
+                for (int i = 0; i < 4; ++i) Chain[i] = picked[i];
+                Outsider = picked[4];
+                var adjOf = new Dictionary<int, List<int>>();
+                for (int i = 0; i < 4; ++i) {
+                    adjOf[Chain[i]] = new List<int>();
+                    if (i > 0) adjOf[Chain[i]].Add(Chain[i - 1]);
+                    if (i + 1 < 4) adjOf[Chain[i]].Add(Chain[i + 1]);
+                }
+                adjOf[Chain[1]].Add(Outsider);
+                adjOf[Outsider] = new List<int>();
+                start = new int[n + 1];
+                var list = new List<int>();
+                for (int p = 0; p < n; ++p) {
+                    start[p] = list.Count;
+                    if (adjOf.ContainsKey(p)) list.AddRange(adjOf[p]);
+                }
+                start[n] = list.Count;
+                adj = list.ToArray();
+                patch = new int[n];
+                for (int p = 0; p < n; ++p) patch[p] = adjOf.ContainsKey(p) && p != Outsider ? 0 : -1;
+            }
+
+            double Cost(ExactMeshBoolean.BoundaryBound b, int p)
+            {
+                return (double)ExactBooleanBoundValueTests.Call(F.Op, "piece_cost", p, b, new Dictionary<int, double>());
+            }
+
+            /// <summary> the costs of the chain's pieces under b, from a fresh cache </summary>
+            public double[] Costs(ExactMeshBoolean.BoundaryBound b) { return Chain.Select(p => Cost(b, p)).ToArray(); }
+
+            public static object NewWorkSpace()
+            {
+                return Activator.CreateInstance(ExactBooleanBoundValueTests.Nested(typeof(ExactMeshBoolean), "PatchSearch"), true);
+            }
+
+            /// <summary> search from the chain's first piece with the margin; returns how many it decided, and which </summary>
+            public int Run(object ws, ExactMeshBoolean.BoundaryBound b, double margin, out bool[] decided)
+            {
+                decided = new bool[n];
+                return (int)ExactBooleanBoundValueTests.Call(F.Op, "search", ws, 0, Chain[0], margin, patch, start, adj, b, decided);
+            }
+        }
+
+        static ExactMeshBoolean.BoundaryBound Boundary(double reach)
+        {
+            return ExactMeshBoolean.boundary_bound(new[] { new Vector3d(reach, reach, reach), new Vector3d(-reach, reach, -reach), new Vector3d(reach, -reach, 0.3 * reach), new Vector3d(-reach, -0.7 * reach, reach) });
+        }
+
         [Fact]
-        public void Search_AccumulatesTheCostsWithTheFactor_AndDecidesOnlyBelowTheMargin()
+        public void Search_DecidesAPieceWhereItsAccumulatedCostIsBelowTheMargin_ThePlainSumTimesAFactorOfAboutOnePlusOneE12()
         {
             var f = ExactBooleanBoundValueTests.Fixture.Instance.Value;
-            var arr = f.Arr;
-            int n = arr.Output.Count;
-            // a boundary far from the model: every piece has a finite cost
-            var far = new[] { new Vector3d(3e18, 3e18, 3e18), new Vector3d(-3e18, 3e18, -3e18), new Vector3d(2e18, -3e18, 1e18), new Vector3d(-2e18, -2e18, 3e18) };
-            var b = ExactMeshBoolean.boundary_bound(far);
-            int[] chain = { 5, 17, 40, 77 };
-            const int outsider = 90;           // adjacent to the second piece of the chain, in no patch: never reached
-            var cache = new Dictionary<int, double>();
-            double[] c = chain.Select(p => (double)ExactBooleanBoundValueTests.Call(f.Op, "piece_cost", p, b, cache)).ToArray();
-            Assert.All(c, x => Assert.True(x > 0 && x < double.MaxValue));
-            // the chain 0 - 1 - 2 - 3 as adjacency of the pieces 5, 17, 40, 77
-            var adjOf = new Dictionary<int, List<int>>();
-            for (int i = 0; i < chain.Length; ++i) {
-                adjOf[chain[i]] = new List<int>();
-                if (i > 0) adjOf[chain[i]].Add(chain[i - 1]);
-                if (i + 1 < chain.Length) adjOf[chain[i]].Add(chain[i + 1]);
-            }
-            adjOf[chain[1]].Add(outsider);
-            adjOf[outsider] = new List<int>();
-            var start = new int[n + 1];
-            var adj = new List<int>();
-            for (int p = 0; p < n; ++p) {
-                start[p] = adj.Count;
-                if (adjOf.ContainsKey(p)) adj.AddRange(adjOf[p]);
-            }
-            start[n] = adj.Count;
-            var patch = new int[n];
-            for (int p = 0; p < n; ++p) patch[p] = adjOf.ContainsKey(p) && p != outsider ? 0 : -1;
-            // the accumulated costs of the documented recurrence
-            double factor = 1 + 1e-12;
-            var aq = new double[4];
-            aq[1] = (0 + c[0] + c[1]) * factor;
-            aq[2] = (aq[1] + c[1] + c[2]) * factor;
-            aq[3] = (aq[2] + c[2] + c[3]) * factor;
-            Assert.True(aq[1] < aq[2] && aq[2] < aq[3]);
-            Type wsType = typeof(ExactMeshBoolean).GetNestedType("PatchSearch", BindingFlags.NonPublic);
-            object reuse = null;        // (one work space for all the searches: its heap and sums are cleared at each start)
-            // margin: just above, exactly at, and just below each accumulated cost: the pieces below the margin are decided
+            var b = Boundary(3e18);          // far from the model: every piece has a finite cost
+            var rig = new SearchRig(f, b);
+            double[] c = rig.Costs(b);
+            // the plain accumulated costs of the recurrence aq(q) = (aq(p) + c(p) + c(q)) f, along the chain, without the factor
+            var plain = new double[4];
+            plain[1] = c[0] + c[1];
+            plain[2] = plain[1] + c[1] + c[2];
+            plain[3] = plain[2] + c[2] + c[3];
+            Assert.True(plain[1] * 1.001 < plain[2] && plain[2] * 1.001 < plain[3], "the plain costs of the chain do not grow");
+            object ws = SearchRig.NewWorkSpace();      // (one work space for all the searches: it is cleared at each start)
             for (int target = 1; target <= 3; ++target) {
-                foreach (int delta in new[] { -1, 0, 1 }) {
-                    double margin = delta == 0 ? aq[target] : delta < 0 ? BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(aq[target]) - 1)
-                                                                       : BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(aq[target]) + 1);
-                    int expected = 0;
-                    for (int q = 1; q <= 3; ++q) if (aq[q] < margin) ++expected;
-                    var decided = new bool[n];
-                    object ws = reuse ?? Activator.CreateInstance(wsType, true);
-                    reuse = ws;
-                    int got = (int)ExactBooleanBoundValueTests.Call(f.Op, "search", ws, 0, chain[0], margin, patch, start, adj.ToArray(), b, decided);
-                    Assert.Equal(expected, got);
-                    for (int q = 1; q <= 3; ++q)
-                        Assert.Equal(aq[q] < margin, decided[chain[q]]);
-                    Assert.False(decided[chain[0]]);
-                    Assert.False(decided[outsider]);
-                }
+                // contract of the factor f = 1 + 1e-12 (kept, not derived: it is at least the 1 + 2.2e-16 that the rounding needs, and
+                // keeps the decisions of #1350): the true accumulated cost lies between plain (1 + f') and plain (1 + f')^k
+                double below = plain[target] * (1 + 0.99e-12), above = plain[target] * Math.Pow(1 + 1.01e-12, target);
+                bool[] d;
+                int got = rig.Run(ws, b, below, out d);
+                Assert.Equal(target - 1, got);
+                for (int q = 1; q <= 3; ++q) Assert.Equal(q < target, d[rig.Chain[q]]);
+                got = rig.Run(ws, b, above, out d);
+                Assert.Equal(target, got);
+                for (int q = 1; q <= 3; ++q) Assert.Equal(q <= target, d[rig.Chain[q]]);
+                Assert.False(d[rig.Chain[0]]);
+                Assert.False(d[rig.Outsider]);
             }
+            bool[] none;
+            Assert.Equal(0, rig.Run(ws, b, 0, out none));                     // no margin: nothing is decided
+            Assert.Equal(0, rig.Run(ws, b, -1, out none));
+            Assert.Equal(0, rig.Run(ws, b, double.NaN, out none));
+        }
+
+        [Fact]
+        public void Search_OnAWorkSpaceThatServedAFarBoundary_UsesTheCostsOfTheNearerBoundaryOfTheNextOpenMesh()
+        {
+            // PatchSearch is per worker and reused across the patches and across the open meshes j, each with its own boundary bb[j]; its
+            // cost cache is keyed by the piece only, so it must be cleared at each search: costs of a farther boundary are smaller, and
+            // pieces would be decided on an accumulated variation that is too small
+            var f = ExactBooleanBoundValueTests.Fixture.Instance.Value;
+            var far = Boundary(3e18);
+            var near = Boundary(2e17);
+            var rig = new SearchRig(f, far, near);
+            double[] cFar = rig.Costs(far), cNear = rig.Costs(near);
+            for (int q = 0; q < 4; ++q)
+                Assert.True(cNear[q] > 2 * cFar[q], $"piece {q}: nearer boundary cost {cNear[q]:R} not above twice the far one {cFar[q]:R}");
+            // a margin above the accumulated costs of the far boundary for the whole chain, and below the first accumulated cost of the
+            // near one: the fresh near search decides nothing, a search on the stale far costs would decide the three pieces
+            double staleChain = (cFar[0] + cFar[1]) + cFar[1] + cFar[2] + cFar[2] + cFar[3];
+            double margin = staleChain * 2;
+            Assert.True(margin < cNear[0] + cNear[1], "the margin is not below the first accumulated cost of the nearer boundary");
+            bool[] dFresh, dReused, dFar;
+            Assert.Equal(0, rig.Run(SearchRig.NewWorkSpace(), near, margin, out dFresh));
+            object ws = SearchRig.NewWorkSpace();
+            Assert.Equal(3, rig.Run(ws, far, margin, out dFar));               // the far boundary decides the chain on the same margin
+            int got = rig.Run(ws, near, margin, out dReused);                   // the same work space, the next open mesh's boundary
+            Assert.Equal(0, got);
+            Assert.Equal(dFresh, dReused);
+            // and the other way round, from the near boundary (large costs, cached) to the far one: the far search must find its own costs
+            object ws2 = SearchRig.NewWorkSpace();
+            rig.Run(ws2, near, margin, out dFresh);
+            Assert.Equal(3, rig.Run(ws2, far, margin, out dReused));
+            Assert.Equal(dFar, dReused);
         }
 
         // ---------------------------------------------------------------------------------------------------------------
@@ -247,13 +343,14 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void PatchWinding_QueriesTheBoxesWithinAPadOfOneNanoOfTheCentroidsL1Norm()
         {
-            var f = ExactBooleanBoundValueTests.Fixture.Instance.Value;
+            // (an instance of its own: the test replaces the released trees of the arrangement, which the shared fixture must keep)
+            var f = ExactBooleanBoundValueTests.Fixture.MakeInstance();
             var arr = f.Arr;
             // a piece whose centroid has mixed signs, every coordinate at least 15 % of the L1 norm, and the norm well away from 1
             int piece = -1;
             Vector3d pv = Vector3d.Zero;
             for (int i = 0; i < arr.Output.Count && piece < 0; ++i) {
-                ExactPoint3 c = (ExactPoint3)typeof(ExactMeshBoolean).GetMethod("centroid_point", ExactBooleanBoundValueTests.NP).Invoke(f.Op, new object[] { arr.Output[i], true });
+                ExactPoint3 c = (ExactPoint3)ExactBooleanBoundValueTests.Call(f.Op, "centroid_point", arr.Output[i], true);
                 Vector3d v = arr.ToInputVector(c);
                 double l1 = Math.Abs(v.x) + Math.Abs(v.y) + Math.Abs(v.z);
                 double min = Math.Min(Math.Abs(v.x), Math.Min(Math.Abs(v.y), Math.Abs(v.z)));
@@ -261,6 +358,11 @@ namespace geometry3Sharp.Tests
                 if (mixed && min > 0.15 * l1 && l1 > 1.8) { piece = i; pv = v; }
             }
             Assert.True(piece >= 0, "no piece with such a centroid in the fixture");
+            // (the finished computation has released arr.Trees; patch_winding evaluates the winding number of every candidate mesh with
+            // them after it has made the candidate list. Empty trees stand in: no triangle is met, the winding numbers are 0)
+            Assert.Null(arr.Trees);
+            var emptyTree = new TriangleBoxTree(new List<AxisAlignedBox3d> { AxisAlignedBox3d.Empty });
+            arr.Trees = new[] { emptyTree, emptyTree };
             double pad = 1e-9 * (Math.Abs(pv.x) + Math.Abs(pv.y) + Math.Abs(pv.z)) + 1e-300;
             int included = 0;
             for (int axis = 0; axis < 3; ++axis)
@@ -274,10 +376,7 @@ namespace geometry3Sharp.Tests
                         var boxes = new List<AxisAlignedBox3d> { new AxisAlignedBox3d(lo, hi), AxisAlignedBox3d.Empty };
                         var tree = new TriangleBoxTree(boxes);
                         var candidates = new List<int> { 99 };       // (stale content: cleared first)
-                        // (the list of candidate meshes is complete before the winding numbers are evaluated, which needs the trees that the
-                        // finished computation has released: a candidate then ends in a NullReferenceException, after the list was made)
-                        try { ExactBooleanBoundValueTests.Call(f.Op, "patch_winding", piece, new List<int>(), tree, new List<int>(), candidates); }
-                        catch (NullReferenceException) { }
+                        ExactBooleanBoundValueTests.Call(f.Op, "patch_winding", piece, new List<int>(), tree, new List<int>(), candidates);
                         Assert.DoesNotContain(99, candidates);
                         bool has = candidates.Contains(0);
                         Assert.True(has == (factor < 1), $"axis {axis} dir {dir} factor {factor}: candidates {string.Join(",", candidates)}");

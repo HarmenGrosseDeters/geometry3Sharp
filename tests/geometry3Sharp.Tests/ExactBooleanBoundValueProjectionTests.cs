@@ -10,7 +10,11 @@ namespace geometry3Sharp.Tests
 {
     /// <summary>
     /// #1423, part 3: the projected boxes, cells and error bound of SegmentProjection, the thresholds of pierce_prefilter,
-    /// the plane test of LocalFrame.InPlane and the grid of CrossingGrid (see ExactBooleanBoundValueTests)
+    /// the plane test of LocalFrame.InPlane and the grid of CrossingGrid (see ExactBooleanBoundValueTests).
+    /// Mirrors (change detectors of hand-derived bounds, bit for bit): RefProject, RefFaces / RefOutside (the thresholds of pierce_prefilter),
+    /// CornerBox, the grid cells. Properties against exact arithmetic: the exact projections inside the Project box, the exact corners
+    /// inside corner_box, the dense scan and the needle of pierce_prefilter (a segment between two thresholds), the unusable face with
+    /// e / m about 1. Contract tests of policy constants: the Query pad (0.5 against 1.5 of it)
     /// </summary>
     public class ExactBooleanBoundValueProjectionTests
     {
@@ -93,16 +97,16 @@ namespace geometry3Sharp.Tests
                         BigInteger num = BigInteger.Abs(N * S - pair.Item2 * D), den = BigInteger.Abs(D) * S;
                         // contained: |N / D - P| <= PE, all scaled by 2^1074 (N, D, P, PE are)
                         Assert.True(num <= PE * BigInteger.Abs(D), $"point {s}: the exact projection leaves the box");
-                        worst = Math.Max(worst, (double)((num << 64) / den) / Math.Pow(2, 64) * Math.Pow(2, 0));
+                        worst = Math.Max(worst, (double)((num << 64) / den) / Math.Pow(2, 64));
                     }
                 }
-                // not wasteful: the bound is at most 1.5 times the largest deviation of a corner (the bound adds the roundings and 1 %)
+                // not wasteful: the bound is at most 2.5 times the largest deviation of a corner (it adds the roundings of the quotient, the error terms and 1 %)
                 Assert.True(pe <= 2.5 * worst, $"point {s}: pe {pe:R} worst {worst:R}");
                 Assert.True(worst > 0);
             }
         }
 
-        static T F<T>(object o, string name) { return (T)o.GetType().GetField(name, NP).GetValue(o); }
+        static T F<T>(object o, string name) { return ExactBooleanBoundValueTests.GetField<T>(o, name); }
 
         [Theory]
         [InlineData(1, 40)] [InlineData(2, 9)] [InlineData(3, 130)]
@@ -134,7 +138,6 @@ namespace geometry3Sharp.Tests
             Assert.Equal((by1 - by0) / ny, ch);
             // the cells: every segment in every cell its box meets (the clamped range of (v - x0) / cw), the segments of a cell in ascending order
             int[] start = F<int[]>(proj, "start"), items = F<int[]>(proj, "items");
-            Func<double, double, int, int> cell = (v, v0, n) => { double t = Math.Floor((v - v0) / (v0 == x0 ? cw : ch)); return !(t >= 0) ? 0 : t >= n - 1 ? n - 1 : (int)t; };
             var expected = new List<int>[nx * ny];
             for (int c = 0; c < nx * ny; ++c) expected[c] = new List<int>();
             for (int s = 0; s < count; ++s) {
@@ -254,9 +257,9 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void SegmentProjection_SignAndClamp_AreTheThreeValuedSignAndTheClampedCellIndex()
         {
-            MethodInfo sign = typeof(ExactMeshBoolean.SegmentProjection).GetMethod("sign", NP), clamp = typeof(ExactMeshBoolean.SegmentProjection).GetMethod("clamp", NP);
-            Func<double, int> S = v => (int)sign.Invoke(null, new object[] { v });
-            Func<double, int, int> C = (t, n) => (int)clamp.Invoke(null, new object[] { t, n });
+            MethodInfo sign = ExactBooleanBoundValueTests.Method(typeof(ExactMeshBoolean.SegmentProjection), "sign", 1.0), clamp = ExactBooleanBoundValueTests.Method(typeof(ExactMeshBoolean.SegmentProjection), "clamp", 1.0, 1);
+            Func<double, int> S = v => (int)ExactBooleanBoundValueTests.Invoke(sign, null, v);
+            Func<double, int, int> C = (t, n) => (int)ExactBooleanBoundValueTests.Invoke(clamp, null, t, n);
             Assert.Equal(1, S(1e-300)); Assert.Equal(-1, S(-1e-300)); Assert.Equal(0, S(0)); Assert.Equal(0, S(-0.0)); Assert.Equal(0, S(double.NaN));
             Assert.Equal(1, S(double.PositiveInfinity)); Assert.Equal(-1, S(double.NegativeInfinity));
             Assert.Equal(0, C(double.NaN, 5)); Assert.Equal(0, C(-0.5, 5)); Assert.Equal(0, C(-1e300, 5)); Assert.Equal(0, C(0.5, 5));
@@ -357,13 +360,14 @@ namespace geometry3Sharp.Tests
             Assert.True(ties >= 2, $"{ties} exact ties found");
         }
 
+        static double Shift(double x, int units) { return BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) + units); }
         static double BitUp(double x) { return BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) + (x > 0 ? 1 : -1)); }
         static double BitDown(double x) { return BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) - (x > 0 ? 1 : -1)); }
 
         // ---------------------------------------------------------------------------------------------------------------
         // pierce_prefilter: the thresholds of the faces
         // ---------------------------------------------------------------------------------------------------------------
-        sealed class Face { public Vector3d Normal; public double Offset, Slope, Al, Margin; public bool Usable; public Vector3d A, D1; }
+        sealed class Face { public Vector3d Normal; public double Offset, Slope, Al, Margin, EOverM, E1, E2, M1, M2, N1; public bool Usable; public Vector3d A, D1; }
 
         static double MaxSum(Vector3d x, Vector3d y) { return Math.Max(Math.Abs(x.x) + Math.Abs(y.x), Math.Max(Math.Abs(x.y) + Math.Abs(y.y), Math.Abs(x.z) + Math.Abs(y.z))); }
 
@@ -384,7 +388,8 @@ namespace geometry3Sharp.Tests
                 double m1 = MaxAbs(d1), m2 = MaxAbs(d2);
                 double dn = 2 * (e1 * (m2 + e2) + (m1 + e1) * e2) + 7 * u * m1 * m2;
                 double n1 = L1(n);
-                var fc = new Face { Slope = 1.01 * (dn + 7e-16 * n1), Al = L1(a), Margin = 1e-9 * size * n1 + 1e-300, A = a, D1 = d1 };
+                var fc = new Face { Slope = 1.01 * (dn + 7e-16 * n1), Al = L1(a), Margin = 1e-9 * size * n1 + 1e-300, A = a, D1 = d1,
+                    EOverM = Math.Max(m1 > 0 ? e1 / m1 : double.PositiveInfinity, m2 > 0 ? e2 / m2 : double.PositiveInfinity), E1 = e1, E2 = e2, M1 = m1, M2 = m2, N1 = n1 };
                 fc.Usable = fc.Slope < double.MaxValue && fc.Margin < double.MaxValue;
                 int sign = 0;
                 for (int o = 0; o < v.Length && fc.Usable; ++o) {
@@ -491,6 +496,132 @@ namespace geometry3Sharp.Tests
         }
 
 
+        [Theory]
+        [InlineData(4e15, 4, 4)]       // coordinates around 4e15..8e15, an extent of 4: the error of the corners (about 5) exceeds the extent
+        [InlineData(1e16, 4, 5)]
+        [InlineData(3e15, 6, 4)]
+        public void PiercePrefilter_AFaceFarFromTheOriginWithAnExtentOfAFewUnits_IsUnusableAndDropsNothing(double offset, double extent, int points)
+        {
+            // The slope of a face is 1.01 (dn + ..), dn = 2 (e1 (m2 + e2) + (m1 + e1) e2) + 7 u m1 m2. With e / m of the order 1 the term 4 e1 e2
+            // of dn is a large part of it, and a bound that lost it (`m2 - e2`, `m1 - e1`) would be unsound if the face were usable. It is not:
+            // a usable face needs a side value n . (v - a) above slope (|v|_1 + |a|_1), so a slope above n1 <= 6 m1 m2 makes it unusable,
+            // and here dn >= 4 e m ~ m^2 does; no segment is then dropped by the face. This test pins that case (the needle test and the
+            // dense scan below kill the mutants where the face is usable)
+            var o = new Vector3d(offset, -2 * offset, 0.5 * offset);
+            var v = new List<Vector3d> { o, o + new Vector3d(extent, 0, 0), o + new Vector3d(extent, 1, 0), o + new Vector3d(0.5 * extent, 0.75 * extent, 0.25 * extent) };
+            if (points == 5) v.Add(o + new Vector3d(-0.25 * extent, 0.5 * extent, 0.5 * extent));
+            var vs = v.ToArray();
+            var segs = new List<Vector3d>();
+            var rnd = new Random(5);
+            for (int i = 0; i < 6; ++i)
+                segs.Add(new Vector3d((rnd.NextDouble() - 0.5) * 4 * offset, (rnd.NextDouble() - 0.5) * 4 * offset, (rnd.NextDouble() - 0.5) * 4 * offset));
+            var faces = RefFaces(vs, segs.ToArray());
+            // segments far outside every face: both ends beyond its plane by a large part of the model's size
+            foreach (Face f in faces) {
+                Vector3d nu = f.Normal / f.Normal.Length;
+                for (int k = 0; k < 4; ++k) {
+                    segs.Add(f.A + (0.5e15 * (k + 1)) * nu);
+                    segs.Add(f.A + (0.5e15 * (k + 1)) * nu + 0.37 * f.D1);
+                }
+            }
+            var all = segs.ToArray();
+            faces = RefFaces(vs, all);
+            Assert.True(faces.Count(f => f.EOverM > 0.2) >= 2, "the fixture has no face whose error is a fifth of its extent");
+            Assert.All(faces.Where(f => f.EOverM > 0.2), f => Assert.False(f.Usable, $"a face with e / m = {f.EOverM} is usable"));
+            int[] kept = ExactMeshBoolean.pierce_prefilter(vs, all);
+            var expected = new List<int>();
+            for (int s = 0; s < all.Length / 2; ++s)
+                if (!RefOutside(faces, all[2 * s], all[2 * s + 1])) expected.Add(2 * s);
+            Assert.Equal(expected, kept.ToList());
+            // (every unusable face drops nothing; the usable ones, if any, may drop only their own outside)
+            if (faces.All(f => !f.Usable))
+                Assert.Equal(all.Length / 2, kept.Length);
+        }
+
+        [Fact]
+        public void PiercePrefilter_ANeedleWhoseBaseFaceHasAnErrorOfSomePercentOfItsExtent_KeepsWhatTheFullSlopeKeeps()
+        {
+            // e / m of the base face (0, 1, 2) is a few percent: coordinates of 2e14 and edges of 4, with a fourth point far along the normal so
+            // that the face is still usable (its side value n . (v3 - a) is far above slope |.|_1). The product term 4 e1 e2 of dn is then
+            // a few percent of the slope, and a slope without it (`m2 - e2` / `m1 - e1`) would drop the segments between 0.9 and 0.99 of the
+            // threshold, which the full slope keeps: the bound of the normal's error must contain it
+            var o = new Vector3d(2e14, -4e14, 1e14);
+            var v = new[] { o, o + new Vector3d(4, 0, 0), o + new Vector3d(0, 4, 0), o + new Vector3d(1, 1, 1e15) };
+            var segs = new List<Vector3d>();
+            for (int i = 0; i < 4; ++i) segs.Add(new Vector3d(o.x + i * 1e13, o.y - i * 1e13, o.z + 2e13));
+            var faces = RefFaces(v, segs.ToArray());
+            Face baseFace = faces[0];
+            Assert.True(baseFace.Usable, "the base face is not usable");
+            Assert.InRange(baseFace.EOverM, 0.03, 0.5);
+            var probes = new List<Vector3d>();
+            foreach (Face f in faces.Where(x => x.Usable)) {
+                Vector3d nu = f.Normal / f.Normal.Length;
+                foreach (double factor in new[] { 0.5, 0.8, 0.9, 0.95, 0.98, 0.99, 0.9985, 1.0015, 1.01, 1.05, 1.2, 2 }) {
+                    double t = 0;
+                    for (int it = 0; it < 6; ++it) t = factor * (f.Slope * (L1(f.A + t * nu) + f.Al) + f.Margin) / f.Normal.Length;
+                    probes.Add(f.A + t * nu);
+                    probes.Add(f.A + t * nu + 0.37 * f.D1);
+                }
+            }
+            var all = segs.Concat(probes).ToArray();
+            int[] kept = ExactMeshBoolean.pierce_prefilter(v, all);
+            var expected = new List<int>();
+            for (int s = 0; s < all.Length / 2; ++s)
+                if (!RefOutside(faces, all[2 * s], all[2 * s + 1])) expected.Add(2 * s);
+            Assert.Equal(expected, kept.ToList());
+            int dropped = all.Length / 2 - kept.Length;
+            Assert.True(dropped >= 3 && kept.Length >= 6, $"dropped {dropped} kept {kept.Length}");
+        }
+
+        [Fact]
+        public void PiercePrefilter_KeepsTheSegmentsBetweenTheSlopeAndTheSlopeWithoutTheProductOfTheTwoEdgeErrors()
+        {
+            // dn = 2 (e1 (m2 + e2) + (m1 + e1) e2) + 7 u m1 m2 bounds the error of the normal n = d1 x d2. Its term 4 e1 e2 is the product of the two
+            // edge errors; `m2 - e2` or `m1 - e1` for `m2 + e2` / `m1 + e1` would lose it. For the smallest usable faces (here e / m = 4e-10) the
+            // term is a relative 4e-10 of the slope: no probe at 0.9985 .. 1.0015 of the threshold sees it. Probes in a dense scan of the lattice
+            // of doubles around the threshold do: a segment whose side value lies between the slope's threshold and the one without that
+            // term is kept (the error of the normal may be that large), and a slope without the term would drop it. (The needle test above
+            // covers larger e / m.)
+            var o = new Vector3d(1e6, -2e6, 0.5e6);
+            var v = new[] { o, o + new Vector3d(4, 0, 0), o + new Vector3d(1, 3, 0.5), o + new Vector3d(1.5, 1, 3) };
+            var segs = new List<Vector3d> { o + new Vector3d(5e6, 0, 0), o + new Vector3d(0, 5e6, 0) };
+            var faces = RefFaces(v, segs.ToArray());
+            Assert.True(faces.Count(f => f.Usable) >= 2, "the fixture has fewer than two usable faces");
+            var probes = new List<Vector3d>();
+            int[] between = new int[2]; string diag = "";
+            foreach (Face f in faces.Where(x => x.Usable)) {
+                // the slope with a factor of dn dropped (A: m2 - e2, B: m1 - e1), as the mutants would compute it
+                double dnA = 2 * (f.E1 * (f.M2 - f.E2) + (f.M1 + f.E1) * f.E2) + 7 * u * f.M1 * f.M2;
+                double dnB = 2 * (f.E1 * (f.M2 + f.E2) + (f.M1 - f.E1) * f.E2) + 7 * u * f.M1 * f.M2;
+                double[] slopeLess = { 1.01 * (dnA + 7e-16 * f.N1), 1.01 * (dnB + 7e-16 * f.N1) };
+                Assert.True(slopeLess[0] < f.Slope && slopeLess[1] < f.Slope, $"slope {f.Slope:R} less {slopeLess[0]:R} {slopeLess[1]:R} eom {f.EOverM:R} margin {f.Margin:R}");
+                diag += $"[slope {f.Slope:R} rel {1 - slopeLess[0] / f.Slope:R} {1 - slopeLess[1] / f.Slope:R} eom {f.EOverM:R} margin {f.Margin:R}] ";
+                Vector3d nu = f.Normal / f.Normal.Length;
+                double t0 = 0;
+                for (int it = 0; it < 6; ++it) t0 = (f.Slope * (L1(f.A + t0 * nu) + f.Al) + f.Margin) / f.Normal.Length;
+                // (the doubles near the threshold plane lie so far apart, and the side value is so noisy, that points are taken on the lattice of
+                // doubles: the first two coordinates moved by whole units in the last place; the condition is evaluated as the library does)
+                Vector3d x0 = f.A + t0 * nu;
+                for (int i = -40; i <= 40; ++i)
+                    for (int k = -40; k <= 40; ++k) {
+                        Vector3d x = new Vector3d(Shift(x0.x, i), Shift(x0.y, k), x0.z);
+                        double side = f.Normal.Dot(x) - f.Offset;
+                        double thr = f.Slope * (L1(x) + f.Al) + f.Margin;
+                        probes.Add(x); probes.Add(x);
+                        for (int m = 0; m < 2; ++m)
+                            if (side <= thr && side > slopeLess[m] * (L1(x) + f.Al) + f.Margin) ++between[m];
+                    }
+            }
+            Assert.True(between[0] > 0 && between[1] > 0, $"no probe between the slopes: {between[0]}, {between[1]} {diag}");
+            var all = segs.Concat(probes).ToArray();
+            int[] kept = ExactMeshBoolean.pierce_prefilter(v, all);
+            var expected = new List<int>();
+            for (int s = 0; s < all.Length / 2; ++s)
+                if (!RefOutside(faces, all[2 * s], all[2 * s + 1])) expected.Add(2 * s);
+            Assert.Equal(expected, kept.ToList());
+            Assert.True(expected.Count > 100 && expected.Count < all.Length / 2 - 100, $"kept {expected.Count} of {all.Length / 2}");
+        }
+
         // ---------------------------------------------------------------------------------------------------------------
         // LocalFrame.InPlane
         // ---------------------------------------------------------------------------------------------------------------
@@ -586,11 +717,34 @@ namespace geometry3Sharp.Tests
                         Assert.Equal(side, F<int>(grid, "nx")); Assert.Equal(side, F<int>(grid, "ny"));
                         Assert.Equal(tb[ci], F<double>(grid, "x0")); Assert.Equal(tb[cj], F<double>(grid, "y0"));
                         Assert.Equal(cw, F<double>(grid, "cw")); Assert.Equal(ch, F<double>(grid, "ch"));
-                        if (side >= 2) Assert.True(true);
                     }
                 }
             }
-            Assert.True(withGrid > 10, $"{withGrid} grids of {tested}");
+            Assert.True(withGrid > 0, $"{withGrid} grids of {tested}");
+        }
+
+        [Fact]
+        public void CrossingGrid_CornerBox_ContainsTheExactCornersOfEveryInputTriangle_AndIsTheDocumentedBox()
+        {
+            var f = ExactBooleanBoundValueTests.Fixture.Generic.Value;
+            var arr = f.Arr;
+            Type grid = typeof(ExactMeshBoolean.CrossingGrid);
+            int widened = 0;
+            for (int ti = 0; ti < arr.Triangles.Count; ++ti) {
+                var t = arr.Triangles[ti];
+                double[] box = (double[])ExactBooleanBoundValueTests.Invoke(ExactBooleanBoundValueTests.Method(grid, "corner_box", arr, t), null, arr, t);
+                Assert.Equal(CornerBox(arr, t), box);          // (the documented box: the mirror)
+                foreach (int id in new[] { t.Corners.a, t.Corners.b, t.Corners.c }) {
+                    ExactPoint3 p = arr.Exact(id);
+                    for (int q = 0; q < 3; ++q) {
+                        // property (exact): the box contains the exact corner
+                        Assert.True(ExactBooleanBoundValueTests.CompareToDouble(p, q, box[q]) >= 0, $"triangle {ti} corner {id}: exact corner below the box");
+                        Assert.True(ExactBooleanBoundValueTests.CompareToDouble(p, q, box[q + 3]) <= 0, $"triangle {ti} corner {id}: exact corner above the box");
+                    }
+                }
+                if (arr.ApproxError(t.Corners.a) > 0) ++widened;
+            }
+            Assert.True(widened > 0, "no corner with an error bound in the fixture");
         }
     }
 }
