@@ -7,16 +7,18 @@ using Xunit;
 namespace geometry3Sharp.Tests
 {
     /// <summary>
-    /// Assumption A1 of the BoundaryTree bound (docs/design/EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md, "Which tree"): the computed
-    /// angle T of an edge, boundary_edge_angle_x(p, a, b), differs from its exact value by at most 1e-12 wherever the function
-    /// does not hand the decision to its exact predicates (the branch cut: num and den both within numErr and denErr of 0).
-    /// The oracle takes the exact num = a.z b.y - a.y b.z and den = da db + a.y b.y + a.z b.z of the exact differences a - p and
-    /// b - p in integers over the grid 2^-1074 (da = |a - p| - (a.x - p.x) by the cancellation-free quotient), and the angle
-    /// atan2(num, den) of their double conversion: its own error is a few 1e-16, far below the 1e-12 under test. The test
-    /// takes edges that make the angle hard: a vertex within 1e-12 rad of the +x ray, p within 1e-10 of the yz line of the edge,
-    /// p near a vertex, yz much smaller than x (the rescaled path), large offsets (rounded differences). The largest error seen is
-    /// asserted below the bound and reported in the failure message of a regression only. The class name starts with
-    /// ExactWindingCacheInternalTests so that the mutation shard's filter runs it.
+    /// Assumption A1 of the BoundaryTree bound (docs/design/EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md, "Which tree"), as far as these
+    /// tests check it: the computed angle T of an edge, boundary_edge_angle_x(p, a, b), differs from its exact value by at most
+    /// 1e-12 on the inputs of EdgeAngle_ErrorIsBelowTheAssumedBound_OnAdversarialEdges, which keep p away from the edge by
+    /// construction (no family puts p within about 1e-6 rad of the edge seen from p, except by chance) and outside the exact
+    /// zone (num and den both within numErr and denErr of 0, where the exact predicates decide the sign). The claim is NOT
+    /// general: near an open edge den = da db + dotYZ cancels and the error grows like 1e-16 / theta (the angular distance
+    /// of p from the edge); the tree uses A1 only for the edges of an accepted node (1e-14, proved, under the fast-path certificate:
+    /// EdgesOfAcceptedNodes_HaveAnErrorBelowTheProvedBound). Tests of the general claim belong to the change that corrects the
+    /// edge angle near an open edge (#1427). The oracle takes the exact num = a.z b.y - a.y b.z and den = da db + a.y b.y + a.z b.z of
+    /// the exact differences a - p and b - p in integers over the grid 2^-1074 (da = |a - p| - (a.x - p.x) by the cancellation-free
+    /// quotient), and the angle atan2(num, den) of their double conversion: its own error is a few 1e-16, far below the 1e-12 under
+    /// test. The class name starts with ExactWindingCacheInternalTests so that the mutation shard's filter runs it.
     /// </summary>
     public class ExactWindingCacheInternalTestsEdgeAngleOracle
     {

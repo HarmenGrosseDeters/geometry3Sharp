@@ -147,5 +147,53 @@ class Mutants(unittest.TestCase):
         self.assertTrue(any(v[0] == 'WRONG SIGN' for v in c.violations))
 
 
+class BoundaryTreeModels(unittest.TestCase):
+    """the models BT-1 to BT-6 of the node error of the BoundaryTree (#1427): present, proved with the margins of the hand table, and with teeth"""
+
+    def entries(self):
+        return {e.id.split()[0]: e for e in bounds.ENTRIES if e.id.startswith('BT-')}
+
+    def test_the_six_clauses_are_modelled_and_proved_with_their_margins(self):
+        es = self.entries()
+        self.assertEqual(sorted(es), ['BT-1', 'BT-2', 'BT-3', 'BT-4', 'BT-5', 'BT-6'])
+        by = {}
+        for k, e in es.items():
+            for label, v in audit.derive(e):
+                self.assertTrue(v.ok, '%s / %s: %s' % (k, label, v.detail))
+                by[(k, label)] = v.margin
+        # the tight clauses of the hand table: A1 against its 1e-14 (the note: 9.9e-15), the charged 1e-12 (a margin of about 100), the sum order constant
+        a1 = [v for (k, l), v in by.items() if k == 'BT-5' and l.startswith('A1: the three')]
+        self.assertTrue(a1 and 1.0 <= a1[0] < 1.05, a1)
+        charged = [v for (k, l), v in by.items() if k == 'BT-5' and l.startswith('the 1e-12 charged')]
+        self.assertTrue(charged and 90 < charged[0] < 120, charged)
+        order = [v for (k, l), v in by.items() if k == 'BT-4' and l.startswith('7.5e-16 N W')]
+        self.assertTrue(order and 1.0 <= order[0] < 1.1, order)
+
+    def test_the_concrete_edge_samples_see_a_bound_that_is_too_small(self):
+        es = self.entries()
+        # BT-6: the formula divided by 100 is violated by the near-edge samples (they reach 0.04 of the formula)
+        saved = bounds._angle_error_bound
+        try:
+            bad, worst = audit.concrete(es['BT-6'], 30)
+            self.assertEqual(bad, [])
+            self.assertGreater(worst, 0.001, 'the sampling reached no edge near p')
+            bounds._angle_error_bound = lambda *a: saved(*a) / 100
+            bad, _ = audit.concrete(es['BT-6'], 30)
+            self.assertGreater(len(bad), 0, 'a formula 100 times too small is not seen')
+        finally:
+            bounds._angle_error_bound = saved
+        # BT-5: the 1e-14 of A1 itself: accepted nodes reach 0.07 of it (7e-16); a claim of 1e-18 (plus the 4e-16 of the oracle) is violated
+        one = bounds.ONE_E14_D
+        try:
+            bad, worst = audit.concrete(es['BT-5'], 30)
+            self.assertEqual(bad, [])
+            self.assertGreater(worst, 0.01, 'the sampling reached no accepted edge')
+            bounds.ONE_E14_D = one / 10000
+            bad, _ = audit.concrete(es['BT-5'], 30)
+            self.assertGreater(len(bad), 0, 'an A1 of 1e-18 is not seen')
+        finally:
+            bounds.ONE_E14_D = one
+
+
 if __name__ == '__main__':
     unittest.main()

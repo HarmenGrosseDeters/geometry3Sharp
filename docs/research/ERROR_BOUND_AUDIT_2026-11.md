@@ -255,6 +255,21 @@ The line is that of the bound's first anchor. u = 2^-53.
 | RC-7 piece_diameter | `mesh_ops/ExactMeshBoolean.cs:2716` | (M + 2 err) (1 + 8 u) | the edges' squares do not underflow (a subnormal product is absorbed by the margin 2e-6 of the open winding decision) | the corner errors | proved | 1.155 | - |
 | RC-8 carry_length | `mesh_ops/ExactMeshBoolean.cs:3406` | (D + sqrt3_c (ep + eq) + 2^-51 K) (1 + 14 u) | no underflow | the distance | proved | 1 +6 u | - |
 | RC-8 carry_length | `mesh_ops/ExactMeshBoolean.cs:3406` | (D + sqrt3_c (ep + eq) + 2^-51 K) (1 + 14 u) | no underflow | the corner errors | proved | 1 +8 u | - |
+| BT-1 node radius R and distance d | `spatial/ExactWindingCache.cs:834` | R = max \|v - c\| (1 + 1e-14); d = \|c - p\| (1 - 1e-15) | no square under- or overflows (the range gates of node_query: d in [2^-97, 2^99], 1e-140 <= dd <= 1e140) | R is at least the true radius | proved | 22.25 | - |
+| BT-1 node radius R and distance d | `spatial/ExactWindingCache.cs:834` | R = max \|v - c\| (1 + 1e-14); d = \|c - p\| (1 - 1e-15) | no square under- or overflows (the range gates of node_query: d in [2^-97, 2^99], 1e-140 <= dd <= 1e140) | d is at most the true distance | proved | 1.636 | - |
+| BT-2 the error of the area vector (VaErr) | `spatial/ExactWindingCache.cs:835` | VaErr = 0.5 prods (count + 8) 4.5e-16 | no underflow; count <= 2^26 | VaErr bounds the error of 0.5 va | proved | 4.053 | - |
+| BT-2 the error of the area vector (VaErr) | `spatial/ExactWindingCache.cs:835` | VaErr = 0.5 prods (count + 8) 4.5e-16 | no underflow; count <= 2^26 | AAbs = 0.5 abs + VaErr covers 0.5 sum |cross| | checked (arithmetic) | - | - |
+| BT-3 the dipole evaluation | `spatial/ExactWindingCache.cs:568` | (1e-12 + 16 coordEps) dipScale | no underflow | relative error of halfOmega | proved | 783.2 | - |
+| BT-4 the sum order and the decision margin | `spatial/ExactWindingCache.cs:506` | 7.5e-16 N W; 1.01 (bErr + 1e-9 + 4e-15 (\|chi\| + \|bSum\|)) | N u < 0.01 (the factor 1.01 covers the accumulation of err) | 7.5e-16 N W against 2 N u pi W | proved | 1.075 | - |
+| BT-4 the sum order and the decision margin | `spatial/ExactWindingCache.cs:506` | 7.5e-16 N W; 1.01 (bErr + 1e-9 + 4e-15 (\|chi\| + \|bSum\|)) | N u < 0.01 (the factor 1.01 covers the accumulation of err) | 4e-15 (|chi| + |bSum|) | proved | 9.007 | - |
+| BT-4 the sum order and the decision margin | `spatial/ExactWindingCache.cs:506` | 7.5e-16 N W; 1.01 (bErr + 1e-9 + 4e-15 (\|chi\| + \|bSum\|)) | N u < 0.01 (the factor 1.01 covers the accumulation of err) | 1.01 covers the accumulation of err | proved | 1 | - |
+| BT-5 the edge angle under the certificate (A1) | `spatial/ExactWindingCache.cs:621` | 1e-12 (hi - lo) and 1e-11 in nodeErr | the node is accepted: r < d / 4 and the yz part of c - p exceeds r by 1e-9 d (so every edge is on the fast path, away from the exact zone and from the +x axis) | A1: the three terms | proved | 1.013 | 0.0747 |
+| BT-5 the edge angle under the certificate (A1) | `spatial/ExactWindingCache.cs:621` | 1e-12 (hi - lo) and 1e-11 in nodeErr | the node is accepted: r < d / 4 and the yz part of c - p exceeds r by 1e-9 d (so every edge is on the fast path, away from the exact zone and from the +x axis) | the 1e-12 charged per replaced edge | proved | 101.3 | 0.0747 |
+| BT-5 the edge angle under the certificate (A1) | `spatial/ExactWindingCache.cs:621` | 1e-12 (hi - lo) and 1e-11 in nodeErr | the node is accepted: r < d / 4 and the yz part of c - p exceeds r by 1e-9 d (so every edge is on the fast path, away from the exact zone and from the +x axis) | the 1e-11 charged for the chord | proved | 1013 | 0.0747 |
+| BT-5 the edge angle under the certificate (A1) | `spatial/ExactWindingCache.cs:621` | 1e-12 (hi - lo) and 1e-11 in nodeErr | the node is accepted: r < d / 4 and the yz part of c - p exceeds r by 1e-9 d (so every edge is on the fast path, away from the exact zone and from the +x axis) | the certificate keeps phi below pi - 8.9e-5 | proved | 1.005 | 0.0747 |
+| BT-5 the edge angle under the certificate (A1) | `spatial/ExactWindingCache.cs:621` | 1e-12 (hi - lo) and 1e-11 in nodeErr | the node is accepted: r < d / 4 and the yz part of c - p exceeds r by 1e-9 d (so every edge is on the fast path, away from the exact zone and from the +x axis) | the exact zone never fires | checked (arithmetic) | - | 0.0747 |
+| BT-6 the edge angle error against the distance from the edge | `spatial/ExactWindingCache.cs:1339` | (pi / 2)(2 u S1 + 22 u S2) / hypot | the fast path (normal products). UNBOUNDED as p approaches the edge (1 + U.V -> 0): at most 8e-15 / theta for the angular distance theta of p from the edge, then at most pi; the exact zone (\|num\| <= numErr and den <= denErr) is a sign guard, not an accuracy guarantee. NOT the A1 of the tree (BT-5: under the certificate theta is bounded below). Describes master: the branch fix/exact-winding-open-edge-angle replaces the fast formula where hypot is small, outside the domain the tree relies on | the error is at most 8.02e-15 / sin(theta / 2) | checked (arithmetic) | - | 0.0432 |
+| BT-6 the edge angle error against the distance from the edge | `spatial/ExactWindingCache.cs:1339` | (pi / 2)(2 u S1 + 22 u S2) / hypot | the fast path (normal products). UNBOUNDED as p approaches the edge (1 + U.V -> 0): at most 8e-15 / theta for the angular distance theta of p from the edge, then at most pi; the exact zone (\|num\| <= numErr and den <= denErr) is a sign guard, not an accuracy guarantee. NOT the A1 of the tree (BT-5: under the certificate theta is bounded below). Describes master: the branch fix/exact-winding-open-edge-angle replaces the fast formula where hypot is small, outside the domain the tree relies on | an accepted node keeps theta >= 2.64 rad, far above 1.6e-02 | checked (arithmetic) | - | 0.0432 |
 
 Notes on single entries:
 
@@ -272,6 +287,18 @@ Notes on single entries:
 - **AP-2.** The seven constants and Eps are parsed from the source and compared with Shewchuk's; the anchors pin
   their use. Stage B is checked at first order only (the tails of the differences need 2u; the estimate's own error
   is not in the model). Stages C and D are not re-derived.
+- **BT-1 to BT-6 (#1427, the node error of the BoundaryTree of the exact winding cache).** One model per clause of the margin table of
+  [the design note](../design/EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md) ("The decision margin of `BoundaryTree`"): the radius and distance
+  roundings (BT-1), the error of the area vector (BT-2), the dipole evaluation (BT-3), the summation order and the margin of `decide_above`
+  (BT-4), the edge angle under the fast-path certificate, which is A1 (BT-5: margins 101 and 1013 against the 1e-12 per edge and the 1e-11 of
+  the chord, and 1.013 against the proved 1e-14 itself: the proof's 9.9e-15 re-derived as 9.87e-15; sampled accepted nodes, at the tangents of
+  the yz disk included, reach 0.075 of it), and the error of the fast-path angle as a function of the distance from the edge (BT-6). Not
+  re-derived: the analytic remainder `rem`, the cap geometry and the `coordEps` term. BT-6 is the domain statement that A1 lacks: the error
+  is at most (pi / 2)(2 u S1 + 22 u S2) / hypot + 2 pi u + 2 ulp, about 8e-15 / sin(theta / 2) for the angular distance theta of p from the
+  edge, unbounded as theta goes to 0 (sampled near-edge errors reach 0.04 of it); an accepted node keeps theta above 2.6 rad. It describes
+  the fast formula of master; the correction of the edge angle near an open edge replaces it where hypot is small, outside the domain the tree
+  uses. No clause disagrees with the hand table; the tight ones are 1.013 (A1 against 1e-14), 1.075 (`sumOrderErr` 7.5e-16 against 2 u pi) and
+  1.005 (phi below pi - 8.9e-5), all stated by the note with the same slack.
 - **EB-4, EB-5.** `orient3d_filtered_err_near` calls the same `orient3d_rows_filtered` with other rows; one model.
 - **EB-7.** Proved for normal products; the missing absolute term is F1.
 - **AR-6, AR-9, AR-12, AR-13, AR-14** are derived where no product is subnormal (with underflow terms the checker
