@@ -280,5 +280,26 @@ namespace geometry3Sharp.Tests
                     if (cn == "wavyOnWaves40") Assert.True(a.MergedPositions > 0);
                 }
         }
+
+        // a barrier (toe segment or lateral limit) has the domain on one side only, at every stage (after the domain, after each
+        // insertion with its merges, after Simplify): the merge during insertion cannot join faces across a barrier. (The mutant of
+        // Compact without its barrier checks is therefore equivalent; this checks the premise, on toes with lateral limits)
+        [Fact]
+        public void Barriers_HaveTheDomainOnOneSideOnly()
+        {
+            var cases = PrCases().ToList();
+            foreach (var side in new[] { SlopeToe.Sides.Left, SlopeToe.Sides.Right }) {
+                var bent = new List<Vector3d> { new Vector3d(0, 0, 0), new Vector3d(10, 0, 1), new Vector3d(15, 8, 0) };
+                cases.Add(($"bent {side}", () => TerrainSlopeDesignTests.Design(5, 0.02, SlopeToe.Constant(bent, false, side, SlopeSpec.Ratio(1.5)))));
+            }
+            int checkedMaps = 0;
+            foreach (var (name, make) in cases) {
+                var d = make();
+                d.AfterSimplify = m => { Assert.Equal(0, m.BarriersWithDomainOnBothSides()); checkedMaps++; };
+                d.AfterInsert = m => Assert.Equal(0, m.BarriersWithDomainOnBothSides());
+                Assert.True(d.Compute(), name + " " + d.Message);
+            }
+            Assert.True(checkedMaps >= cases.Count, $"{checkedMaps}");
+        }
     }
 }

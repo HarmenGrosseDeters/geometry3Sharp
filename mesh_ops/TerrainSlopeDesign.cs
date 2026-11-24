@@ -1452,6 +1452,7 @@ namespace gs
                 map.InsertPiece(k, pieces[k].Strip, pieces[k].FanA, pieces[k].AngA, pieces[k].FanB, pieces[k].AngB,
                     pieces[k].A1, pieces[k].B1, Math.Min(pieces[k].A1.z, pieces[k].B1.z), pieces[k].Slb, pieces[k].Reach, theta);
                 if (CompactDuringInsert) map.Compact();
+                if (AfterInsert != null) AfterInsert(map);
             }
 
             InsertSplits = map.SplitCalls;
@@ -1540,8 +1541,8 @@ namespace gs
         /// </summary>
         internal bool CompactDuringInsert = true;
         internal bool PartSectors = true;
-        /// <summary> tests: called with each build's map after Simplify </summary>
-        internal Action<SlopeMap> AfterSimplify;
+        /// <summary> tests: called with each build's map after Simplify, and after each piece's insertion (strip pieces) </summary>
+        internal Action<SlopeMap> AfterSimplify, AfterInsert;
         /// <summary> tests: insert every piece again after Simplify (timed, ReinsertSeconds / ReinsertSplits), then Simplify again </summary>
         internal bool ReinsertAfterSimplify;
         internal double ReinsertSeconds;

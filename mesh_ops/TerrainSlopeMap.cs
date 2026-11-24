@@ -885,6 +885,20 @@ namespace gs
             return true;
         }
 
+        /// <summary>
+        /// tests: the live half-edges on a barrier with domain faces on both sides. BuildDomain gives the two sides of a barrier
+        /// opposite verdicts, so there are none; this makes the barrier checks of Compact redundant with in_domain
+        /// </summary>
+        internal int BarriersWithDomainOnBothSides()
+        {
+            int n = 0;
+            for (int h = 0; h < hOrig.Count; ++h) {
+                if (hAlive[h] == false || hBar[h] < 0) continue;
+                if (in_domain(hFace[h]) && in_domain(hFace[hTwin[h]])) ++n;
+            }
+            return n;
+        }
+
         /// <summary> tests: the partition after Simplify as text (per face in OrderedFaces: label, then the rounded corners) </summary>
         internal string PartitionText()
         {

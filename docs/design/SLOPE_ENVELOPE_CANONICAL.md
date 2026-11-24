@@ -184,6 +184,8 @@ sector).
   rotated about z. The exact frames map back to the identity bit for bit; the others equal the earlier construction.
   There is no parallel path, so no determinism test.
 - `Reinsert_IntoTheFinalMap_ChangesNothing` (0.3 s): re-inserting every piece changes no label, with far fewer splits.
+- `Barriers_HaveTheDomainOnOneSideOnly` (0.4 s): no barrier has domain faces on both sides, at any stage. This is the premise
+  that makes the merge's barrier checks redundant.
 
 Nightly, because the run is the check (the reason is in each test): the 19 stress cases under the earlier construction
 (about 10 s); 600 random regular polygons (55 s); `WavyOnWaves` n 40 (7 merged positions, 8 s per build), the benchmark
@@ -199,8 +201,8 @@ Hand mutations (the PR-tier tests of the class):
 |---|---|
 | `try_merge` without the convexity check at the first end of the run | killed (all four) |
 | per part without the fan sectors (fixed planes only) | killed (all four) |
-| `Compact` without the barrier check on `h`, and also without the one in `try_merge` | **survives**: no cheap case has the same label on both sides of a lateral limit. Follow-up: a case where it does |
-| only one of the two barrier checks | survives (the other one holds: equivalent) |
+| `Compact` without the barrier check on `h`, and also without the one in `try_merge` | survives, **equivalent**: a barrier never has domain faces on both sides. `BuildDomain` gives each region bounded by barriers one verdict from a barrier's side, and the two sides of a barrier get opposite verdicts (it fails otherwise). `in_domain` therefore already excludes such a merge; the checks stay as a guard. The premise is tested by `Barriers_HaveTheDomainOnOneSideOnly` (after the domain, after each insertion with its merges, after `Simplify`; open toes with lateral limits included), which kills the mutant that makes both sides domain |
+| only one of the two barrier checks | survives (equivalent, as above) |
 | R3 reverted (`Approx` in `triangulate`) | not killable by an output test while `Realize` rounds every corner first (equivalent today; R3 is defensive) |
 
 ## 6. Open points for the owner
