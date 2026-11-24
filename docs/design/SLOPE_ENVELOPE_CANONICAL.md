@@ -239,9 +239,9 @@ filter of section 4 uses the same function.
 - `RampInARotatedFrame_BothConstructionsGiveTheReferenceLabels`: fails on master, passes with the fix.
 - The ramp is back in `Invariance_EveryFrame_SameAsTheEarlierConstruction` (it fails on master) and in
   `Default_GivesTheReferenceLabels`.
-- Hand mutants: without the plane beyond the upper end, both ramp tests fail. Without the plane beyond the lower end,
-  nothing fails: no case found where it decides, across 120 rotations of both ramp designs. It is kept, because the
-  argument is symmetric.
+- `AddSector_TakesTheNearestPlaneBeyondEachEndOfTheWindow`: a hand-made fan (angles 0 to pi) and faces in its gap, whose
+  nearest plane lies clockwise (-0.6 pi) or counter-clockwise (-0.4 pi). It kills the mutants that drop either end's
+  plane; no design among 120 rotations of both ramps decides on the lower end alone.
 
 **Output changes.** Strip-only designs (the 19 stress cases, `WavyHambach(130)`) are unchanged. Ramps change wherever a
 face reaches into a gap of a toe fan. Changed outputs (vertices / triangles, builds, margin δ):

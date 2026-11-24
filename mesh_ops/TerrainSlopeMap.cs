@@ -594,7 +594,7 @@ namespace gs
         readonly List<Vector2d> prefilterPos = new List<Vector2d>();
         readonly List<int> prefilterVerts = new List<int>();
 
-        void add_sector(List<int> relevant, List<int> fan, List<double> ang, Vector2d apex, List<Vector2d> pos, double theta)
+        internal void add_sector(List<int> relevant, List<int> fan, List<double> ang, Vector2d apex, List<Vector2d> pos, double theta)
         {
             if (fan.Count == 0) return;
             if (NoPrefilters) { relevant.AddRange(fan); return; }

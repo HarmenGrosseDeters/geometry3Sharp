@@ -279,6 +279,12 @@ namespace geometry3Sharp.Tests
             var own = make(4096);
             own.Compute();
             Assert.Equal(1, own.Attempts);
+            // (at the default margin the first build is raised once, to the 8e-6 the exact envelope needs)
+            var atDefault = make(4096);
+            atDefault.SlopeMargin = new TerrainSlopeDesign().SlopeMargin;
+            Assert.True(atDefault.Compute(), atDefault.Message);
+            Assert.Equal(2, atDefault.Attempts);
+            Assert.Equal(8e-6, atDefault.UsedSlopeMargin);
             Assert.Equal(-1, refused.RampGradeTooSmall);
             Assert.Equal(own.UsedRampShare, refused.UsedRampShare);
             Assert.Equal(own.RampShareRoad, refused.RampShareRoad);
