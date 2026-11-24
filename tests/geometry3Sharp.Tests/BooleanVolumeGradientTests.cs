@@ -321,6 +321,12 @@ namespace geometry3Sharp.Tests
             double m = BooleanVolumeGradient.mid(x, out double b);
             // (checked exactly: m + b in double would round up to the end)
             Assert.True((BigRational.Of(m) - BigRational.Of(b) - BigRational.Of(x.Lo)).Sign <= 0 && (BigRational.Of(m) + BigRational.Of(b) - BigRational.Of(x.Hi)).Sign >= 0, $"{m:R} +- {b:R}");
+            // [Down(1), 1]: the midpoint ties to Hi, so the bound must reach Lo; [-1e-300, 1]: m - Lo rounds down to 0.5, so
+            // the bound needs its step up
+            foreach (var y in new[] { new ExactInterval(ExactInterval.Down(1), 1), new ExactInterval(-1e-300, 1) }) {
+                double my = BooleanVolumeGradient.mid(y, out double by);
+                Assert.True((BigRational.Of(my) - BigRational.Of(by) - BigRational.Of(y.Lo)).Sign <= 0 && (BigRational.Of(my) + BigRational.Of(by) - BigRational.Of(y.Hi)).Sign >= 0, $"[{y.Lo:R}, {y.Hi:R}]: {my:R} +- {by:R}");
+            }
             m = BooleanVolumeGradient.mid(new ExactInterval(double.NegativeInfinity, 1), out b);
             Assert.Equal(double.PositiveInfinity, b);
             m = BooleanVolumeGradient.mid(new ExactInterval(-3, -3), out b);
@@ -405,6 +411,59 @@ namespace geometry3Sharp.Tests
                 BigRational M = BigRational.Of(m), B = BigRational.Of(b);
                 Assert.True((M - B - lo).Sign <= 0 && (M + B - hi).Sign >= 0, $"k={k}: {m:R} +- {b:R}");
             }
+        }
+
+        [Theory]
+        [InlineData(-200)]
+        [InlineData(-400)]
+        public void InputsOfVeryDifferentMagnitudes_StayWithinFiniteRelativeBounds_OfTheOracle(int k)
+        {
+            // a unit box and a shifted box, and a tiny box at [-3t, -t]^3 in the second mesh (disjoint components)
+            double t = ExactPoint3.ScaleB(1, k);
+            DMesh3 a = Fx.Unit(), b = BooleanFuzzShapes.Join(Fx.ShiftedBox(), BooleanFuzzShapes.Box(-3 * t, -3 * t, -3 * t, -t, -t, -t));
+            BooleanVolumeGradient g = Run(a, b, Ops.Union);
+            BooleanGradient exact = BooleanGradient.Compute(a, b, Ops.Union, area: false);
+            Assert.True(Within(g.Volume, g.VolumeBound, exact.Volume), $"volume {g.Volume:R} +- {g.VolumeBound:R}");
+            Assert.True(g.VolumeBound <= 1e-14 * Math.Abs(g.Volume), $"volume bound {g.VolumeBound:R} of {g.Volume:R}");
+            for (int m = 0; m < 2; ++m) {
+                DMesh3 mesh = m == 0 ? a : b;
+                foreach (int v in mesh.VertexIndices()) {
+                    BigRational[] x = exact.VolumeGradientAt(m, v);
+                    // the entries of a vertex have its box's magnitude: t^2 for the tiny box, about 1 for the others
+                    double size = mesh.GetVertex(v).x < 0 ? t * t : 1;     // (only the tiny box has negative coordinates)
+                    for (int c = 0; c < 3; ++c) {
+                        Assert.True(Within(g.Gradient[m][v][c], g.GradientBound[m][v][c], x[c]), $"mesh {m} vertex {v} component {c}");
+                        Assert.True(g.GradientBound[m][v][c] <= 1e-13 * size, $"mesh {m} vertex {v}: bound {g.GradientBound[m][v][c]:R}, size {size:R}");
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public void GradientBeyondTheDoubleRange_ComputeFails()
+        {
+            // entries of about (1e300)^2: not a double
+            DMesh3 a = BooleanFuzzShapes.Map(Fx.Unit(), p => p * 1e300), b = BooleanFuzzShapes.Map(Fx.ShiftedBox(), p => p * 1e300);
+            var boolean = new ExactMeshBoolean(a, b, Ops.Union) { RetainClassification = true };
+            Assert.True(boolean.Compute(), boolean.Error);
+            var g = new BooleanVolumeGradient(boolean);
+            Assert.False(g.Compute());
+            Assert.Contains("double range", g.Error);
+        }
+
+        [Fact]
+        public void Subnormals_MidOfAPointIsThePoint_ScaleWidensWhereItRounds()
+        {
+            // 0.5 eps + 0.5 eps rounds to 0: the point branch returns the point itself
+            Assert.Equal(double.Epsilon, BooleanVolumeGradient.mid(ExactInterval.Of(double.Epsilon), out double b));
+            Assert.Equal(0, b);
+            // [3, Up(3)] 2^-1075 is not a multiple of 2^-1074 at its lower end: the scaled interval must still hold the exact ends
+            var x = new ExactInterval(3, ExactInterval.Up(3));
+            foreach (int k in new[] { -1075, -1076, -1060, 10 }) {
+                ExactInterval y = BooleanVolumeGradient.scale(x, k);
+                Assert.True(Contains(y, BigRational.Of(x.Lo) * BooleanGradient.Pow2(k)) && Contains(y, BigRational.Of(x.Hi) * BooleanGradient.Pow2(k)), $"k={k}: [{y.Lo:R}, {y.Hi:R}]");
+            }
+            Assert.Equal(new ExactInterval(6, 2 * ExactInterval.Up(3)).Hi, BooleanVolumeGradient.scale(x, 1).Hi);    // (exact where it can be)
         }
     }
 }

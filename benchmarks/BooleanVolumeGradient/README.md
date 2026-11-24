@@ -28,19 +28,27 @@ Raw output: [gradient-2026-11-24.txt](gradient-2026-11-24.txt), from `gradient 1
 
 | input | op | pieces | boolean | with RetainClassification | gradient | gradient / boolean |
 |---|---|---|---|---|---|---|
-| spheres n=16 | Union | 6428 | 46.4 ms | 46.6 ms | 13.0 ms | 28 % |
-| spheres n=16 | Intersection | 3280 | 28.2 ms | 24.5 ms | 5.1 ms | 18 % |
-| spheres n=16 | Difference | 5228 | 22.8 ms | 22.9 ms | 7.7 ms | 34 % |
-| spheres n=32 | Union | 25196 | 59.9 ms | 61.4 ms | 31.6 ms | 53 % |
-| spheres n=32 | Intersection | 10932 | 48.4 ms | 45.8 ms | 18.0 ms | 37 % |
-| spheres n=32 | Difference | 19578 | 60.7 ms | 63.6 ms | 29.7 ms | 49 % |
-| boxes, flush faces | Union / Intersection / Difference | 58-68 | 0.8-1.0 ms | 0.8-1.0 ms | 0.1-0.2 ms | 14-16 % |
+| spheres n=16 | Union | 6428 | 51.8 ms | 46.0 ms | 22.7 ms | 44 % |
+| spheres n=16 | Intersection | 3280 | 19.2 ms | 18.2 ms | 11.1 ms | 58 % |
+| spheres n=16 | Difference | 5228 | 24.0 ms | 20.7 ms | 20.7 ms | 86 % |
+| spheres n=32 | Union | 25196 | 61.4 ms | 59.8 ms | 86.9 ms | 142 % |
+| spheres n=32 | Intersection | 10932 | 53.7 ms | 43.4 ms | 41.9 ms | 78 % |
+| spheres n=32 | Difference | 19578 | 65.5 ms | 57.0 ms | 69.0 ms | 106 % |
+| boxes, flush faces | Union / Intersection / Difference | 58-68 | 0.9 ms | 0.8 ms | 0.1-0.2 ms | 15-20 % |
 
 What the numbers show:
-- **Gradient:** about 1.1 µs per kept piece, serial. Most of the time goes into the conversion of the exact corners with
-  `ExactPoint3.ToDouble` and the interval terms.
-- **A cheaper conversion was tried and dropped.** It used `ExactPoint3.ApproxVector3d` with its documented bound, saved
-  about 15-30 %, and that is within the noise. It would also have added a second bound to prove.
+- **Gradient:** about 3-4 µs per kept piece, serial. The time goes into the exact local frames:
+  - each piece's three corners relative to its triangle's first corner, as exact BigInteger differences, each converted
+    once with `ExactPoint3.ToDouble`;
+  - the interval terms.
+- **Why the local frames.** An earlier version evaluated in grid units relative to the center, at about 1.2 µs per
+  piece. Its bounds became infinite for inputs that span many magnitudes, for example a unit box with a 2^-200 box in
+  one boolean (exact review of #1535). The local frames keep every bound relative to its own entry. The test is
+  `InputsOfVeryDifferentMagnitudes_StayWithinFiniteRelativeBounds_OfTheOracle`.
+- **Cheaper variants tried:**
+  - five exact differences per piece instead of three: about 1.5 times slower than the version kept;
+  - `ExactPoint3.ApproxVector3d` in the old grid-unit evaluation: 15-30 % faster, within the noise, and it would have
+    added a second bound to prove.
 - **RetainClassification:** its effect on the boolean's time is not visible in the noise (−20 % to +5 % per row, either
   sign). The extra work is a clone of two bool arrays and of the winding vectors of the stacked pieces only.
 

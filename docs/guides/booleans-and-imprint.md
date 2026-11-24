@@ -215,15 +215,22 @@ Example: [BooleanVolumeGradientExample](../examples/BooleanVolumeGradientExample
 [EXACT_BOOLEAN_GRADIENTS_2026-11.md](../research/EXACT_BOOLEAN_GRADIENTS_2026-11.md).
 
 **Contract.**
-- `Compute()` returns false and sets `Error` in three cases: the boolean did not succeed, it was not run with
-  `RetainClassification`, or one of its inputs is not closed, so the result has no volume.
+- `Compute()` returns false and sets `Error` in four cases:
+  - the boolean did not succeed;
+  - it was not run with `RetainClassification`;
+  - one of its inputs is not closed, so the result has no volume;
+  - a value or its bound is beyond the double range, for coordinates of about 2^±512. The arrays are still filled in
+    this case.
 - `Gradient[m]` has `MaxVertexID` entries for input `m`. The input index is 0 for `MeshA` and 1 for `MeshB`, or the index
   in the list of an n-ary boolean. A vertex that belongs to no kept piece has the entry 0.
 - `Volume` is the volume of the exact result, and `VolumeBound` is its error bound.
 - The output is bit-identical on every run: the computation is serial and uses no FMA.
 - If the inputs are scaled by 2^k, the gradient and its bound scale by exactly 2^2k and the volume by exactly 2^3k, as
-  long as no result underflows or overflows. The evaluation itself is in grid units, so it is the same at every scale.
-- The cost is linear in the number of kept pieces. It measured 14-53 % of the boolean's own time
+  long as no result underflows or overflows. The evaluation itself uses local frames (proof, step 1), so it is the same
+  at every scale.
+- The bounds are relative to each entry's own magnitude, also when the inputs span many orders of magnitude (tested
+  with boxes of size 1 and 2^-400 in one boolean).
+- The cost is linear in the number of kept pieces, about 3-4 µs per piece. It measured 15-142 % of the boolean's own time
   ([benchmarks/BooleanVolumeGradient](../../benchmarks/BooleanVolumeGradient/README.md)).
 
 **Formula.**
@@ -239,14 +246,20 @@ The intersection curves have no area, so they do not contribute. This means no i
 differentiated.
 
 **The error bound (proof).**
-1. *Corners.*
-   - Everything is evaluated in the arrangement's grid units: the input is 2^e times (grid point + center), and the
-     center is left out, since a translation changes neither the gradient nor the volume of a closed result. The grid
-     is independent of the input's magnitude, so nothing underflows or overflows in the evaluation, at any scale.
-   - Each exact grid coordinate num/den of a piece corner is converted with `ExactPoint3.ToDouble`, which is correctly
-     rounded (by its documented method). So the exact value lies within half a spacing of the result x, and therefore
-     within [Down(x), Up(x)], the two neighbouring doubles.
+1. *Corners, in a local frame per triangle.*
+   - The exact points are the arrangement's, in grid units: the input is 2^e times (grid point + center).
+   - Each term of input triangle T is evaluated in T's local frame. The coordinates are taken relative to T's first
+     corner and scaled by 2^-S_T, where 2^S_T bounds T's edge coordinates (from the bit lengths of the exact
+     differences), so T's edges have length at most about 1.
+   - Each difference (q − p) 2^-S_T of two exact points is formed exactly in integers, (X_q W_p − X_p W_q) / (W_p W_q),
+     and converted once with `ExactPoint3.ToDouble`, which is correctly rounded (by its documented method). The exact
+     value then lies within half a spacing of the result x, and therefore within [Down(x), Up(x)], the two neighbouring
+     doubles.
    - The interval is the single point x only when den = 1 and x is an integer equal to num, which the code checks.
+   - The volume, V = Σ s_P N_P · p_0 / 3, uses the corner p_0 relative to the center, scaled by 2^-S, where 2^S bounds
+     every coordinate of the kept pieces. Its N_P comes from the local frame, scaled exactly by 2^(2(S_T − S)) (step 4).
+   - So no product is formed of quantities much larger or smaller than 1. The evaluation neither overflows nor loses a
+     small triangle far from the center, however far apart the magnitudes of the inputs are.
 2. *Terms and sums.*
    - Every operation of `ExactInterval` (+, −, ×, ÷) rounds to nearest and then widens the result by one spacing on both
      sides. So it encloses the exact result of the operation for all operand values in the operand intervals. The proof
@@ -267,11 +280,16 @@ differentiated.
    - For a single point, Lo = Hi, the bound is 0.
    - A NaN or infinite end gives b = +∞.
 4. *Scaling to the input's units.*
-   - m and b are multiplied by 2^k: k = 2e for the gradient and the areas, 3e for the volume. A scaling by a power of
-     two is exact unless its result is subnormal or overflows. The code checks exactness by scaling back.
-   - If the result is subnormal, each of the two scalings rounds once, by at most 2^-1075. The bound then becomes
-     Up(b · 2^k + 2^-1074), which covers both roundings.
-   - If the result overflows, the bound is +∞.
+   - Each term interval is scaled by 2^(2(S_T + e)) into the input's units before it is added to its vertex. The volume
+     is scaled by 2^(3(S + e)) at the end.
+   - A scaling by a power of two is exact unless its result is subnormal or overflows. The code checks exactness by
+     scaling back.
+   - Where it is not exact, the interval's ends are widened by one spacing: ScaleB rounds once, by less than one spacing
+     of its result. An end that overflows to infinity is at least as far out as the exact value.
+   - For the volume's value and bound, the same check applies. If the result is subnormal, each of the two scalings
+     rounds once, by at most 2^-1075, and the bound becomes Up(b · 2^k + 2^-1074).
+   - An infinite bound means that the entry itself is beyond the double range, for coordinates of about 2^±512. Then
+     `Compute()` fails with `Error`.
 
 **Kinks (contacts of positive area).**
 - V is not differentiable only where faces of different inputs lie in one plane and overlap with positive area.

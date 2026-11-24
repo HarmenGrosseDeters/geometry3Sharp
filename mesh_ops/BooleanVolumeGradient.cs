@@ -15,8 +15,10 @@ namespace g3
     /// (the volume changes by the integral of the normal velocity over the surface; the intersection curves have no area)
     ///   dV/dx_i = sum over the kept pieces P of a triangle T with corner i of  s_P lambda_i^T(centroid of P) N_P,
     /// N_P the area vector of P oriented like T, s_P = -1 where the result reverses it, lambda^T the barycentric coordinates in
-    /// T. Each term is evaluated in interval arithmetic (<see cref="ExactInterval"/>, which encloses every rounding) from the
-    /// exact corners, and the terms are summed per vertex in the order of the pieces, so the enclosure holds for the sum.
+    /// T. Each term is evaluated in interval arithmetic (<see cref="ExactInterval"/>, which encloses every rounding) in a local
+    /// frame of its triangle (exact differences of the exact corners, rounded once, scaled to the triangle's size), and the
+    /// terms are summed per vertex in the order of the pieces, so the enclosure holds for the sum and the bounds stay relative
+    /// to each entry's magnitude, however far apart the inputs' magnitudes are.
     /// The result is the same bit for bit on every run (serial, no FMA) and scales exactly with a power-of-two scaling of the
     /// inputs (s^2 for the gradient, s^3 for the volume).
     ///
@@ -85,7 +87,8 @@ namespace g3
 
         /// <summary>
         /// computes Volume, Gradient and Contacts from the boolean's last Compute(). False, with Error, if it did not succeed, was
-        /// not computed with RetainClassification, or has an input that is not closed (the volume of an open result is not defined)
+        /// not computed with RetainClassification, has an input that is not closed (the volume of an open result is not defined),
+        /// or if an entry or its bound is beyond the double range (coordinates of about 2^+-512; the arrays are filled then)
         /// </summary>
         public bool Compute()
         {
@@ -103,37 +106,54 @@ namespace g3
             if (boolean.ExactWinding == null || Array.IndexOf(boolean.ExactWinding, false) >= 0)
                 return fail("an input is not closed: the volume of the result is not defined");
 
-            int nm = arr.Meshes.Count, e = arr.ScaleExp;
-            points = new IV3[arr.PointCount];
-            known = new bool[arr.PointCount];
+            int nm = arr.Meshes.Count;
             this.arr = arr;
+            e = arr.ScaleExp;
+            exact = new ExactPoint3[arr.PointCount];
+            haveExact = new bool[arr.PointCount];
             tris = new Tri[arr.Triangles.Count];
+            List<ExactMeshArrangement.OutputTriangle> output = arr.Output;
+
+            // the volume's scale: 2^S above every coordinate of a kept piece (grid units, relative to the center)
+            long top = 0;
+            for (int i = 0; i < output.Count; ++i)
+                if (keep[i]) {
+                    var ot = output[i];
+                    top = Math.Max(top, Math.Max(magnitude(P(ot.A)), Math.Max(magnitude(P(ot.B)), magnitude(P(ot.C)))));
+                }
+            int S = (int)top;
 
             var acc = new IV3[nm][];
             for (int m = 0; m < nm; ++m)
                 acc[m] = new IV3[arr.Meshes[m].MaxVertexID];
-            ExactInterval vol = ExactInterval.Of(0), sixth = ExactInterval.Of(1) / ExactInterval.Of(6);
-            List<ExactMeshArrangement.OutputTriangle> output = arr.Output;
+            ExactInterval vol = ExactInterval.Of(0), third = ExactInterval.Of(1) / ExactInterval.Of(3);
             for (int i = 0; i < output.Count; ++i) {
                 if (keep[i] == false)
                     continue;
                 var ot = output[i];
-                IV3 p0 = point(ot.A), p1 = point(ot.B), p2 = point(ot.C);
+                Tri T = tri(ot.Source);
+                Local l = local(T, ot);
                 ExactInterval s = ExactInterval.Of(flip[i] ? -1 : 1);
-                vol = add(vol, mul(mul(s, sixth), p0.Dot(p1.Cross(p2))));
-                IV3 np = piece_area(p0, p1, p2), c = centroid(p0, p1, p2);
-                add_terms(acc, tri(ot.Source), c, np, s);
+                add_terms(acc, T, l, s);
+                // V = sum of s N_P . p_0 / 3 (the divergence theorem per piece), at the scale 2^S
+                IV3 p0 = new IV3(enclose(P(ot.A).X, P(ot.A).W, -S), enclose(P(ot.A).Y, P(ot.A).W, -S), enclose(P(ot.A).Z, P(ot.A).W, -S));
+                vol = add(vol, mul(mul(s, third), scale(l.N, 2 * (T.S - S)).Dot(p0)));
             }
-            Volume = scaled(vol, 3 * e, out VolumeBound);
+            Volume = scaled(vol, 3 * (S + e), out VolumeBound);
             Gradient = new Vector3d[nm][];
             GradientBound = new Vector3d[nm][];
+            bool finite = !double.IsInfinity(VolumeBound);
             for (int m = 0; m < nm; ++m) {
                 Gradient[m] = new Vector3d[acc[m].Length];
                 GradientBound[m] = new Vector3d[acc[m].Length];
-                for (int v = 0; v < acc[m].Length; ++v)
-                    Gradient[m][v] = acc[m][v].Mid(2 * e, out GradientBound[m][v]);
+                for (int v = 0; v < acc[m].Length; ++v) {
+                    Gradient[m][v] = acc[m][v].Mid(0, out GradientBound[m][v]);
+                    finite &= !double.IsInfinity(GradientBound[m][v].MaxAbs);
+                }
             }
             Contacts = contacts(output, keep, flip, stacks, nm);
+            if (finite == false)
+                return fail("a value is beyond the double range (an entry or its bound is infinite)");
             return true;
         }
 
@@ -142,34 +162,74 @@ namespace g3
         // ---- the terms ----
 
         ExactMeshArrangement arr;
-        IV3[] points;
-        bool[] known;
+        int e;
+        ExactPoint3[] exact;
+        bool[] haveExact;
         Tri[] tris;
 
+        // Every term is evaluated in a local frame of its input triangle T: coordinates relative to T's first corner, scaled
+        // by 2^-S_T so that T's edges are about 1. The differences are formed exactly from the exact points (BigInteger) and
+        // rounded once, so the evaluation neither loses the precision of a small triangle far from the center nor under- or
+        // overflows, whatever the spread of the inputs' magnitudes; each term is then scaled exactly by 2^(2 (S_T + e)) into
+        // the input's units (scale)
         sealed class Tri
         {
             public int Mesh;
             public int[] Vid;           // per corner (in the arrangement's corner order)
-            public IV3[] P;
-            public IV3 N;               // (P1 - P0) x (P2 - P0)
+            public int C0;              // the point id of corner 0 (the local origin)
+            public int S;               // the local scale
+            public IV3 D1, D2;          // corners 1 and 2 in the local frame (corner 0 is the origin)
+            public IV3 N;               // D1 x D2
             public ExactInterval NN;
             public BigInteger[] Normal; // exact, for the orientation of coplanar triangles (when needed)
         }
 
-        // the exact point as an interval in the input's units, relative to the arrangement's center (a translation: the
-        // gradient and the volume of a closed result do not depend on it)
-        IV3 point(int id)
+        // a piece in the local frame of a triangle that contains it: its centroid and its area vector (oriented like the piece)
+        struct Local { public IV3 C, N; }
+
+        ExactPoint3 P(int id)
         {
-            if (known[id])
-                return points[id];
-            ExactPoint3 p = arr.Exact(id);
-            // (grid units, relative to the arrangement's center: the evaluation does not depend on the input's magnitude, so
-            // nothing under- or overflows at any scale; the results are scaled by 2^2e or 2^3e at the end)
-            var r = new IV3(enclose(p.X, p.W, 0), enclose(p.Y, p.W, 0), enclose(p.Z, p.W, 0));
-            points[id] = r;
-            known[id] = true;
-            return r;
+            if (haveExact[id] == false) {
+                exact[id] = arr.Exact(id);
+                haveExact[id] = true;
+            }
+            return exact[id];
         }
+
+        // floor(log2) + 1 of the largest coordinate's magnitude (bit lengths: at most one above)
+        static long magnitude(ExactPoint3 p)
+        {
+            long w = ExactPoint3.BitLength(BigInteger.Abs(p.W));
+            return Math.Max(ExactPoint3.BitLength(BigInteger.Abs(p.X)), Math.Max(ExactPoint3.BitLength(BigInteger.Abs(p.Y)), ExactPoint3.BitLength(BigInteger.Abs(p.Z)))) - w + 1;
+        }
+
+        // (q - p) 2^-s, each coordinate the exact difference of the exact points, rounded once and enclosed
+        IV3 diff(int q, int p, int s)
+        {
+            ExactPoint3 a = P(q), b = P(p);
+            BigInteger den = a.W * b.W;
+            return new IV3(enclose(a.X * b.W - b.X * a.W, den, -s), enclose(a.Y * b.W - b.Y * a.W, den, -s), enclose(a.Z * b.W - b.Z * a.W, den, -s));
+        }
+
+        Local local(Tri T, ExactMeshArrangement.OutputTriangle ot)
+        {
+            // (the piece's edges from the local corners: they are at most about 1 in the local frame, so the subtraction of the
+            // enclosed corners costs a few spacings of 1, not of the far coordinates)
+            IV3 q0 = diff(ot.A, T.C0, T.S), q1 = diff(ot.B, T.C0, T.S), q2 = diff(ot.C, T.C0, T.S);
+            return new Local { C = (q0 + q1 + q2) / ExactInterval.Of(3), N = (q1 - q0).Cross(q2 - q0) * ExactInterval.Of(0.5) };
+        }
+
+        // x 2^k: exact unless an end is subnormal or overflows; then each end is widened by one spacing (ScaleB rounds once,
+        // by less than one spacing of its result; an end that overflows to infinity is at least as far as the exact value)
+        internal static ExactInterval scale(ExactInterval x, int k)
+        {
+            double lo = ExactPoint3.ScaleB(x.Lo, k), hi = ExactPoint3.ScaleB(x.Hi, k);
+            if (ExactPoint3.ScaleB(lo, -k) == x.Lo && ExactPoint3.ScaleB(hi, -k) == x.Hi)
+                return new ExactInterval(lo, hi);
+            return new ExactInterval(ExactInterval.Down(lo), ExactInterval.Up(hi));
+        }
+
+        static IV3 scale(IV3 v, int k) => new IV3(scale(v.X, k), scale(v.Y, k), scale(v.Z, k));
 
         // num / den * 2^e: the correctly rounded double (ExactPoint3.ToDouble), widened by one spacing on both sides unless it
         // is exact (an integer num, den = 1, that x * 2^-e gives back: both scalings by a power of two are exact for a normal x)
@@ -195,7 +255,7 @@ namespace g3
             DMesh3 mesh = arr.Meshes[it.Mesh];
             Index3i v = mesh.GetTriangle(it.Tid);
             int[] corners = { c.a, c.b, c.c }, vids = { v.a, v.b, v.c };
-            var x = new Tri { Mesh = it.Mesh, Vid = new int[3], P = new IV3[3] };
+            var x = new Tri { Mesh = it.Mesh, Vid = new int[3], C0 = corners[0] };
             int[] vp = new int[3];
             for (int k = 0; k < 3; ++k)
                 vp[k] = arr.Canonical(arr.VertexPoints[it.Mesh][vids[k]]);
@@ -206,29 +266,37 @@ namespace g3
                     if (vp[j] == ck) { x.Vid[k] = vids[j]; break; }
                 if (x.Vid[k] < 0)
                     throw new InvalidOperationException("a corner of an input triangle is not one of its vertices");
-                x.P[k] = point(corners[k]);
             }
-            x.N = (x.P[1] - x.P[0]).Cross(x.P[2] - x.P[0]);
+            // the local scale: 2^S at least the largest edge coordinate (0 for a degenerate triangle: no piece comes from it)
+            long sc = long.MinValue;
+            foreach (int k in new[] { 1, 2 }) {
+                ExactPoint3 a = P(corners[k]), b = P(corners[0]);
+                if (a.Equals(b) == false)
+                    sc = Math.Max(sc, magnitude(ExactPoint3.CreateUnreduced(a.X * b.W - b.X * a.W, a.Y * b.W - b.Y * a.W, a.Z * b.W - b.Z * a.W, a.W * b.W)));
+            }
+            x.S = sc == long.MinValue ? 0 : (int)sc;
+            x.D1 = diff(corners[1], corners[0], x.S);
+            x.D2 = diff(corners[2], corners[0], x.S);
+            x.N = x.D1.Cross(x.D2);
             x.NN = x.N.Dot(x.N);
             tris[t] = x;
             return x;
         }
 
-        static IV3 piece_area(IV3 p0, IV3 p1, IV3 p2) => (p1 - p0).Cross(p2 - p0) * ExactInterval.Of(0.5);
+        // corner k of T in its local frame
+        static IV3 corner(Tri T, int k) => k == 0 ? default(IV3) : k == 1 ? T.D1 : T.D2;
 
-        static IV3 centroid(IV3 p0, IV3 p1, IV3 p2) => (p0 + p1 + p2) / ExactInterval.Of(3);
-
-        // the barycentric coordinate k of c (a point of T's plane) in T
+        // the barycentric coordinate k of c (a point of T's plane, in T's local frame) in T
         static ExactInterval lambda(Tri T, IV3 c, int k)
-            => div((T.P[(k + 1) % 3] - c).Cross(T.P[(k + 2) % 3] - c).Dot(T.N), T.NN);
+            => div((corner(T, (k + 1) % 3) - c).Cross(corner(T, (k + 2) % 3) - c).Dot(T.N), T.NN);
 
-        // adds s lambda_k(c) np to the corners of T
-        static void add_terms(IV3[][] acc, Tri T, IV3 c, IV3 np, ExactInterval s)
+        // adds s lambda_k(centroid) N_P to the corners of T, in the input's units
+        void add_terms(IV3[][] acc, Tri T, Local l, ExactInterval s)
         {
             for (int k = 0; k < 3; ++k) {
-                ExactInterval w = mul(s, lambda(T, c, k));
+                ExactInterval w = mul(s, lambda(T, l.C, k));
                 ref IV3 a = ref acc[T.Mesh][T.Vid[k]];
-                a = a + np * w;
+                a = a + scale(l.N * w, 2 * (T.S + e));
             }
         }
 
@@ -240,8 +308,8 @@ namespace g3
                 return double.IsNaN(m) ? 0 : m;
             }
             if (x.Lo == x.Hi) {
-                bound = 0;          // (an exact value: m is it)
-                return m;
+                bound = 0;          // (an exact value)
+                return x.Lo;
             }
             // (Hi - m and m - Lo rounded to nearest, then one spacing up: at least the exact differences)
             bound = ExactInterval.Up(Math.Max(x.Hi - m, m - x.Lo));
@@ -386,10 +454,11 @@ namespace g3
             ExactInterval area = ExactInterval.Of(0);
             foreach (int i in regionPieces) {
                 var ot = output[i];
-                IV3 np = piece_area(point(ot.A), point(ot.B), point(ot.C));
-                area = add(area, ExactInterval.Sqrt(np.Dot(np)));
+                Tri T = tri(ot.Source);
+                IV3 np = local(T, ot).N;
+                area = add(area, scale(ExactInterval.Sqrt(np.Dot(np)), 2 * (T.S + e)));
             }
-            cr.Area = scaled(area, 2 * arr.ScaleExp, out _);
+            cr.Area = scaled(area, 0, out _);
             bool enumerable = sig.Length <= 4;
             for (int j = 1; j < sig.Length; ++j)
                 enumerable &= !(sig[j].Mesh == sig[j - 1].Mesh && sig[j].O == sig[j - 1].O);
@@ -431,21 +500,19 @@ namespace g3
                         continue;
                     differs = true;
                     // the change: the kept sheets of this order minus the realized one, each moving with its own triangle
-                    IV3 p0 = point(ot.A), p1 = point(ot.B), p2 = point(ot.C);
-                    IV3 c = centroid(p0, p1, p2), npRep = piece_area(p0, p1, p2);
-                    // (the area vector on the canonical side: the representative's piece is oriented like its triangle)
-                    IV3 npCanon = rep.O > 0 ? npRep : -npRep;
+                    // (each sheet's term in its own triangle's frame; the area vector on the canonical side: the piece is
+                    // oriented like the representative's triangle)
                     foreach (var (sheet, side) in kept)
-                        add_delta(delta, deltaOrder, tri(sheet.Tri), c, npCanon, side);
+                        add_delta(delta, deltaOrder, tri(sheet.Tri), ot, rep.O, side);
                     foreach (var (sheet, side) in realized)
-                        add_delta(delta, deltaOrder, tri(sheet.Tri), c, npCanon, -side);
+                        add_delta(delta, deltaOrder, tri(sheet.Tri), ot, rep.O, -side);
                 }
                 if (differs == false || seen.Add(label.ToString()) == false)
                     continue;
                 var terms = new List<GradientTerm>();
                 foreach (long key in deltaOrder) {
                     Vector3d b;
-                    Vector3d v = delta[key].Mid(2 * arr.ScaleExp, out b);
+                    Vector3d v = delta[key].Mid(0, out b);
                     terms.Add(new GradientTerm { Mesh = (int)(key >> 32), Vertex = (int)(uint)key, Value = v, Bound = b });
                 }
                 alternatives.Add(terms.ToArray());
@@ -461,9 +528,11 @@ namespace g3
             return b.ToString();
         }
 
-        // side times lambda^T(c) times the area vector on the canonical side, to the corners of T
-        static void add_delta(Dictionary<long, IV3> delta, List<long> order, Tri T, IV3 c, IV3 npCanon, int side)
+        // side times lambda^T(centroid) times the area vector on the canonical side, to the corners of T, in the input's units
+        void add_delta(Dictionary<long, IV3> delta, List<long> order, Tri T, ExactMeshArrangement.OutputTriangle ot, int repO, int side)
         {
+            Local l = local(T, ot);
+            IV3 npCanon = repO > 0 ? l.N : -l.N;
             ExactInterval s = ExactInterval.Of(side);
             for (int k = 0; k < 3; ++k) {
                 long key = ((long)T.Mesh << 32) | (uint)T.Vid[k];
@@ -471,7 +540,7 @@ namespace g3
                     a = default(IV3);
                     order.Add(key);
                 }
-                delta[key] = a + npCanon * mul(s, lambda(T, c, k));
+                delta[key] = a + scale(npCanon * mul(s, lambda(T, l.C, k)), 2 * (T.S + e));
             }
         }
 
