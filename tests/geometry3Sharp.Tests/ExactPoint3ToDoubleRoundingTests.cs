@@ -44,11 +44,14 @@ namespace geometry3Sharp.Tests
         static readonly BigInteger MaxDouble = ((BigInteger.One << 53) - 1) << 971;                 // 2^1024 - 2^971
         static readonly BigInteger OverflowTie = (BigInteger.One << 1024) - (BigInteger.One << 970);  // max + half an ulp
 
-        // ToDouble and ToDoubleRounded (den > 0) are one function: every assertion below holds for both
+        // ToDouble delegates to ToDoubleRounded (den > 0), so comparing the two proves nothing (#1489): the result is checked against the oracle of this
+        // class (the exact rational, the two neighbouring doubles, ties to even; AssertCorrectlyRounded)
         static double Conv(BigInteger num, BigInteger den, int scaleExp)
         {
-            double a = ExactPoint3.ToDouble(num, den, scaleExp), b = ExactPoint3.ToDoubleRounded(num, den, scaleExp);
-            Assert.Equal(BitConverter.DoubleToInt64Bits(b), BitConverter.DoubleToInt64Bits(a));
+            double a = ExactPoint3.ToDouble(num, den, scaleExp);
+            // (the oracle builds 2^scaleExp as an integer: not for the exponents near the int limits, which the assertions of their tests pin by hand)
+            if (Math.Abs((long)scaleExp) <= 6000)
+                AssertCorrectlyRounded(num, den, scaleExp, a, $"{num} / {den} * 2^{scaleExp}");
             return a;
         }
 

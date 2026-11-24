@@ -147,7 +147,7 @@ namespace g3
         /// rounding also in the subnormal range (a result of at most 2^-1075 in magnitude, the tie included, is a zero of the sign of num, one at or above overflows to an infinity).
         /// Method (the standard one: enough quotient bits plus a sticky bit, one round to nearest even): a = |num| is shifted so that the
         /// integer quotient q = floor(n2 / d2) with n2 = a 2^shift, d2 = den (shift &gt;= 0) or n2 = a, d2 = den 2^-shift has 55 or 56 bits
-        /// (2^54 &lt; q &lt; 2^56). The exact value is
+        /// (2^54 &lt;= q &lt; 2^56). The exact value is
         /// (q + f) 2^(scaleExp - shift) with 0 &lt;= f &lt; 1, f &gt; 0 iff q d2 != n2 (the sticky bit; a division without remainder is cheaper, the product is only formed on a tie). The result grid is 2^g with
         /// g = max(bitlength(q) - 53, -1074 - (scaleExp - shift)) quotient bits dropped (53 significant bits, or fewer in the subnormal range,
         /// so the grid is the subnormal grid 2^-1074 and nothing is rounded twice). With mant = q &gt;&gt; g and low = q mod 2^g, the value lies
