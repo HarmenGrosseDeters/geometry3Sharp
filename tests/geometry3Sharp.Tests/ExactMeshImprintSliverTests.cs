@@ -148,63 +148,6 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        // the translated frame of the harness (far from the origin), the same frame with the translation negated, and the one with mixed signs:
-        // the rounding of the exact vertices to the nearest double puts the curve vertices on either side of the target's edges, which
-        // the sliver cleanup must handle in every frame (#1489). Each of these left slivers before the final stage accepted neutral contractions
-        public static IEnumerable<object[]> FarCases()
-        {
-            foreach (string frame in new[] { "utm", "utm-negated", "utm-mixed" }) {
-                yield return new object[] { frame, "box", 2, 1 };
-                yield return new object[] { frame, "box", 2, -3 };
-                yield return new object[] { frame, "cylinder", 2, 1 };
-                yield return new object[] { frame, "cylinder", 2, -4 };
-                yield return new object[] { frame, "cylinder", 2, 12 };
-                yield return new object[] { frame, "cylinder", 0, 3 };
-            }
-            yield return new object[] { "z-only", "cylinder", 0, 2 };
-            yield return new object[] { "z-only", "cylinder", 0, -5 };
-        }
-
-        internal static Similarity FarFrame(string name)
-        {
-            Vector3d t = Similarity.Utm.Translation;
-            switch (name) {
-                case "utm": return Similarity.Utm;
-                case "utm-negated": return new Similarity(name, 1, Matrix3d.Identity, -t);
-                case "origin": return Similarity.Identity;
-                case "utm-mixed": return new Similarity(name, 1, Matrix3d.Identity, new Vector3d(t.x, -t.y, t.z));
-                default: return new Similarity(name, 1, Matrix3d.Identity, new Vector3d(0, 0, t.z));
-            }
-        }
-
-        [Theory]
-        [MemberData(nameof(FarCases))]
-        public void FarFromTheOrigin_UlpShiftedCopy_BothDirections_AreCleanClosedAndCarryTheCurve(string frame, string kind, int axis, int ulps)
-        {
-            DMesh3 a = Invariance.Transformed(Shape(kind), FarFrame(frame)), b = Shifted(a, axis, ulps);
-            AssertCleanAndCarried(a, Run(a, b));
-            AssertCleanAndCarried(b, Run(b, a));
-        }
-
-        // the same pair with its vertices and triangles in another order (#1489): clean, closed, carries the curve, the same volume. The positions of the
-        // repaired vertices are not compared: the repair (not exact code) takes its candidates in id order where they tie, also without the stage
-        // (measured: the box at the origin differs as well)
-        [Theory]
-        [InlineData("utm", "box", 2, 1)]
-        [InlineData("utm-negated", "box", 2, -1)]
-        [InlineData("utm", "cylinder", 2, 1)]
-        public void FarFromTheOrigin_PermutedInput_IsCleanAndKeepsTheVolume(string frame, string kind, int axis, int ulps)
-        {
-            DMesh3 a = Invariance.Transformed(Shape(kind), FarFrame(frame)), b = Shifted(a, axis, ulps);
-            double volume = ResultChecks.Volume(Run(a, b).Result);
-            for (int seed = 1; seed <= 3; ++seed) {
-                DMesh3 pa = Invariance.Permuted(a, seed), pb = Invariance.Permuted(b, 100 + seed);
-                ExactMeshImprint imprint = Run(pa, pb);
-                AssertCleanAndCarried(pa, imprint);
-                Assert.Equal(volume, ResultChecks.Volume(imprint.Result), 6);       // (the volume sum itself carries the rounding of the coordinates far from the origin)
-            }
-        }
-
         [Fact]
         public void FarFromTheOrigin_Reuse_AndSerialEqualsParallel()
         {
@@ -248,7 +191,7 @@ namespace geometry3Sharp.Tests
         [MemberData(nameof(LimitCases))]
         public void StageEvaluationLimit_CylinderAlongX_SixUlps_IsCleanClosedManifoldAndKeepsTheVolume(string frame, int ulps)
         {
-            DMesh3 a = Invariance.Transformed(Shape("cylinder"), FarFrame(frame));
+            DMesh3 a = Invariance.Transformed(Shape("cylinder"), ExactMeshImprintFarFrameTests.FarFrame(frame));
             ExactMeshImprint imprint = RunLimitCase(a, ulps);
             DMesh3 target = ulps < 0 ? a : Shifted(a, 0, ulps);
             AssertCleanAndCarried(target, imprint);
@@ -319,7 +262,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void StageEvaluationLimit_Reuse_SerialEqualsParallel_AndPowersOfTwoGiveTheSameBitsScaled()
         {
-            DMesh3 a = Invariance.Transformed(Shape("cylinder"), FarFrame("utm"));
+            DMesh3 a = Invariance.Transformed(Shape("cylinder"), ExactMeshImprintFarFrameTests.FarFrame("utm"));
             ExactMeshImprint first = RunLimitCase(a, -6);
             var again = new ExactMeshImprint() { Target = a, Cutter = Shifted(a, 0, -6) };
             Assert.True(again.Compute(), again.Error);

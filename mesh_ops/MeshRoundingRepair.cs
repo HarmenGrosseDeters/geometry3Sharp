@@ -1725,7 +1725,6 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         bool improves(double displacement = 0, double surface = 0, bool hasSurface = false, bool removesContact = false)
         {
-            lastAcceptWasNeutral = false;
             // the drift bound first (it does not count as an evaluation)
             // (a bound that is NaN, eg from distances that overflow, rejects the edit)
             double step = hasSurface ? surface : displacement;
@@ -1734,6 +1733,8 @@ namespace g3
             double bound = removed.Count > 0 ? maxLength_of(Mesh.GetTriangle(removed[0]).a) : double.NaN;
             if (within_bound(proposed_drift(step), bound) == false)
                 return false;
+            // (read by try_collapse after an accept only: every path that returns true below sets it or has just cleared it, the Script one included)
+            lastAcceptWasNeutral = false;
             if (Script != null)
                 return true;
             // (for tests: a proposal within the bound that arrives after the limit; none with the stop)

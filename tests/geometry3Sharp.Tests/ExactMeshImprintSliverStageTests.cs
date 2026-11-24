@@ -293,6 +293,32 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void NeutralContractions_PowersOfTwoOfTheFrame_GiveTheSameBitsScaled_AndTheSameContraction()
+        {
+            // the box at UTM coordinates, +1 ulp: one neutral contraction is accepted (the gate must not depend on the scale: no absolute epsilon);
+            // the frame scaled by 2^-3 and 2^4 (translation included, exact) gives the same triangles and the vertices times 2^k (#1489)
+            Similarity Frame(double scale) => new Similarity("utm * " + scale, scale, Matrix3d.Identity, Similarity.Utm.Translation * scale);
+            DMesh3 a = Invariance.Transformed(ExactMeshImprintSliverTests.Shape("box"), Frame(1)), b = ExactMeshImprintSliverTests.Shifted(a, 2, 1);
+            ExactMeshImprint one = Run(a, b, true);
+            ExactMeshImprintSliverTests.AssertCleanAndCarried(a, one);
+            Assert.True(one.Result.IsClosed());
+            Assert.Equal(1, one.Counts["sliver_cleanup_neutral_contractions"]);
+            foreach (double scale in new[] { 0.125, 16.0 }) {
+                DMesh3 sa = Invariance.Transformed(ExactMeshImprintSliverTests.Shape("box"), Frame(scale)), sb = ExactMeshImprintSliverTests.Shifted(sa, 2, 1);
+                ExactMeshImprint scaled = Run(sa, sb, true);
+                ExactMeshImprintSliverTests.AssertCleanAndCarried(sa, scaled);
+                Assert.True(scaled.Result.IsClosed());
+                Assert.Equal(one.Counts["sliver_cleanup_neutral_contractions"], scaled.Counts["sliver_cleanup_neutral_contractions"]);
+                Assert.Equal(one.Result.MaxVertexID, scaled.Result.MaxVertexID);
+                foreach (int v in one.Result.VertexIndices())
+                    Assert.Equal(one.Result.GetVertex(v) * scale, scaled.Result.GetVertex(v));
+                foreach (int tri in one.Result.TriangleIndices())
+                    Assert.Equal(one.Result.GetTriangle(tri), scaled.Result.GetTriangle(tri));
+                Assert.Equal(one.CurveEdges.OrderBy(x => x), scaled.CurveEdges.OrderBy(x => x));
+            }
+        }
+
+        [Fact]
         public void NeutralContractions_AStrictlyImprovingContraction_IsNotCountedAsNeutral()
         {
             // the contraction of v into p removes both slivers: a gain, not a contraction that only keeps the counts (#1489)

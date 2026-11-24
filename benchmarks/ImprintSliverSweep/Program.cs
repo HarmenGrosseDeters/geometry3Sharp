@@ -83,8 +83,35 @@ static class Program
         return null;
     }
 
+    // the large stage run of the evaluation limit (#1489): a 48-slice cylinder, translated, shifted by -20 ulps along x, cut into its copy: about 2500 initial defects, the stage ends by itself
+    // (104 849 evaluations, 2.78 M pair tests in the measurement of 2026-11-24). Public API only: the evaluations and pair tests are internal, so the time, the defects and the stage are printed
+    const double WorstCeilingSeconds = 15;
+    static void Worst()
+    {
+        DMesh3 c = new CappedCylinderGenerator() { BaseRadius = 1f, TopRadius = 0.6f, Height = 2f, Slices = 48 }.Generate().MakeDMesh();
+        const double grid = 1.0 / (1 << 24);
+        foreach (int v in c.VertexIndices().ToArray()) {
+            Vector3d p = c.GetVertex(v);
+            c.SetVertex(v, new Vector3d(Math.Round(p.x / grid) * grid, Math.Round(p.y / grid) * grid, Math.Round(p.z / grid) * grid));
+        }
+        DMesh3 a = Invariance.Transformed(c, Similarity.Utm), b = Shifted(a, 0, -20);
+        var imprint = new ExactMeshImprint() { Target = a, Cutter = b };
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        bool ok = imprint.Compute();
+        sw.Stop();
+        double seconds = sw.Elapsed.TotalSeconds;
+        Console.WriteLine("worst case: 48-slice cylinder, translated, along x, -20 ulps: Compute " + ok + ", " + seconds.ToString("F2") + " s, initial defects "
+            + (imprint.Counts["rounding_intersections"] + imprint.Counts["rounding_degenerate"] + imprint.Counts["rounding_false_contacts"]) + ", stage ran " + imprint.Counts["sliver_cleanup_stage"]
+            + ", rounding edits " + imprint.Counts["rounding_edits"] + ", not clean reason '" + (ok ? MeshRobustRepair.NotCleanReason(imprint.Result) : "") + "'");
+        if (seconds > WorstCeilingSeconds)
+            Console.WriteLine("CEILING EXCEEDED: " + seconds.ToString("F2") + " s is above the ceiling of " + WorstCeilingSeconds + " s (docs/design/IMPRINT_SLIVER_CLEANUP.md section 5)");
+        else
+            Console.WriteLine("within the ceiling of " + WorstCeilingSeconds + " s");
+    }
+
     static void Main(string[] args)
     {
+        if (args.Contains("worst")) { Worst(); return; }
         bool detail = args.Contains("detail");
         bool stats = args.Contains("stats");
         var cases = new (string kind, int axis)[] { ("box", 2), ("cylinder", 2), ("cylinder", 0) };

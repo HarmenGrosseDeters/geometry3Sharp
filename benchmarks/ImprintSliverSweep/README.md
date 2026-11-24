@@ -9,6 +9,7 @@ origin, the translated frame of the test harness (`Similarity.Utm`, far from the
 dotnet run -c Release --project benchmarks/ImprintSliverSweep            # the table (about 30 s)
 dotnet run -c Release --project benchmarks/ImprintSliverSweep -- stats   # with the repair's mean work per cell: initial degenerate / intersections / edits / runs with the final stage
 dotnet run -c Release --project benchmarks/ImprintSliverSweep -- detail  # one line per unclean run
+dotnet run -c Release --project benchmarks/ImprintSliverSweep -- worst   # the large stage run (D about 2500) with a time ceiling
 ```
 
 Unclean runs out of 48 (net10.0, 2026-11-24):
@@ -28,3 +29,8 @@ whole sweep, two runs each, on a loaded machine: limit 50 84 s and 99 s, limit 4
 the limit is a ceiling; a stage that spends all of it is bounded by 10000 + 400 D evaluations against 10000 + 50 D (3.57 times at D = 116, tending to 8); no case of the sweep, also with
 the neutral contractions switched off, spends it. A large case (48-slice cylinder, translated, along x, -20 ulps, D = 2534) ends by itself at 104 849 evaluations and 2.78 M pair tests (2.2 to 2.5 s) while the limit
 grows from 136 700 to 1 023 600; the pair budget (5 M, not raised by the stage) bounds the evaluations that do pair tests to about 190 000, evaluations rejected by the cheap tests are bounded only by the limit (see IMPRINT_SLIVER_CLEANUP.md section 5).
+
+**Worst-case time (`worst`).** The large stage run (48-slice cylinder, translated, along x, -20 ulps, about 2500 initial defects; the stage ends by itself) must stay below **15 s** on the
+reference machine; the benchmark prints `CEILING EXCEEDED` if it does not. Measured: 2.2 to 2.7 s (2026-11-24, a loaded development machine). The 15 s is about the time of the whole
+evaluation limit (10000 + 400 D evaluations at 21 microseconds, 20 s) rounded down: a run above it would mean that the stage spent more than the evaluations the measured case used by a factor of six.
+The evaluations and pair tests of the run (104 849 and 2.78 M) are internal to the library and are not printed here (the benchmark uses the public API only).
