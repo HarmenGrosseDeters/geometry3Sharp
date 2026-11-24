@@ -336,11 +336,13 @@ namespace geometry3Sharp.Tests
                 Assert.Equal("", Invariance.Difference(reference.Result, Invariance.MappedBack(p.Result, s)));
                 return;
             }
-            // the other frames round the coordinates to other doubles: pinned per frame (measured), whether the first run is refused and the grid answers it
-            // or the rounded data runs clean at once; every frame ends in a solid of the reference's volume
+            // the other frames round the coordinates to other doubles. Whether the first run is then refused (and the grid answers it) or the rounded data
+            // runs clean at once depends on the last bit of the coordinates, so it is not pinned per frame: with the correctly rounded ToDouble (#1410)
+            // the frame "scale 1e3", the only one that had needed the grid, runs clean at once. Every frame ends in a solid of the reference's volume,
+            // on one of the two routes; the exact frames above are the ones that must take the grid
             Assert.True(done, s.Name + ": " + p.Status + " " + p.Error);
             AssertGridResult(p);
-            Assert.Equal(frame == "scale 1e3" ? "Grid:-1" : "", Names(p));
+            Assert.Contains(Names(p), new[] { "", "Grid:-1" });
             double scale = s.Scale * s.Scale * s.Scale;
             Assert.True(Math.Abs(Volume(p.Result) - Volume(reference.Result) * scale) <= 1e-6 * Volume(reference.Result) * scale, s.Name + ": " + Volume(p.Result));
         }
