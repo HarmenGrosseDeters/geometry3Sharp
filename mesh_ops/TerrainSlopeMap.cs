@@ -768,6 +768,78 @@ namespace gs
             return 1;
         }
 
+        // ---------------------------------------------------------------- merging during insertion (an alternative construction)
+
+        /// <summary>
+        /// merge neighbouring domain faces of one label across non-barrier edges while the union stays convex (an alternative
+        /// construction: fewer live faces during insertion; after Simplify the same partition). Returns the live domain faces.
+        /// </summary>
+        public int Compact()
+        {
+            ordered = null;
+            int nf = fEdge.Count;
+            for (int f = 0; f < nf; ++f) {
+                if (in_domain(f) == false) continue;
+                for (bool again = true; again;) {
+                    again = false;
+                    int h0 = fEdge[f], h = h0;
+                    do {
+                        int t = hTwin[h], g = t >= 0 ? hFace[t] : -1;
+                        if (g >= 0 && g != f && hBar[h] < 0 && in_domain(g) && fLabel[g] == fLabel[f] && try_merge(f, g, h)) { again = true; break; }
+                        h = hNext[h];
+                    } while (h != h0);
+                }
+            }
+            int live = 0;
+            for (int f = 0; f < fEdge.Count; ++f) if (in_domain(f)) ++live;
+            return live;
+        }
+
+        // merge face g into f across the run of their shared edges that contains h (f's half-edge with g behind it), if the
+        // union is convex (exact: Orient, or the corner's two edges on one kernel line)
+        bool try_merge(int f, int g, int h)
+        {
+            int s = h, guard = 0;
+            while (hFace[hTwin[hPrev[s]]] == g && hPrev[s] != h) { s = hPrev[s]; if (++guard > 100000) return false; }
+            int e = s, m = 1;
+            while (hFace[hTwin[hNext[e]]] == g && hNext[e] != s) { e = hNext[e]; ++m; if (m > 100000) return false; }
+            int shared = 0, nf = 0, ng = 0;
+            { int x = fEdge[f]; do { ++nf; if (hFace[hTwin[x]] == g) ++shared; x = hNext[x]; } while (x != fEdge[f]); }
+            { int x = fEdge[g]; do { ++ng; x = hNext[x]; } while (x != fEdge[g]); }
+            if (shared != m || m >= nf || m >= ng) return false;
+            for (int x = s, i = 0; i < m; x = hNext[x], ++i)
+                if (hBar[x] >= 0 || hBar[hTwin[x]] >= 0) return false;
+            int ts = hTwin[s], te = hTwin[e];
+            // (the inner vertices of the run: degree 2, nothing else meets them)
+            for (int x = s, i = 0; i + 1 < m; x = hNext[x], ++i)
+                if (hNext[hTwin[hNext[x]]] != hTwin[x]) return false;
+            int a = hPrev[s], b = hNext[e], c = hPrev[te], d = hNext[ts];
+            // the corners of the union at the ends of the run: a then d at the origin of s, c then b at the end of e
+            if (on_one_line(a, d) == false && K.Orient(hOrig[a], hOrig[s], hOrig[hTwin[d]]) < 0) return false;
+            if (on_one_line(c, b) == false && K.Orient(hOrig[c], hOrig[te], hOrig[hTwin[b]]) < 0) return false;
+            for (int x = s, i = 0; i < m; x = hNext[x], ++i) { hAlive[x] = false; hAlive[hTwin[x]] = false; }
+            hNext[a] = d; hPrev[d] = a; hNext[c] = b; hPrev[b] = c;
+            fEdge[f] = a;
+            int y = a;
+            do { hFace[y] = f; y = hNext[y]; } while (y != a);
+            fAlive[g] = false;
+            if (fQt[g] >= 0) { qt.Remove(fQt[g]); fQt[g] = -1; }
+            qt_update(f);
+            return true;
+        }
+
+        /// <summary> tests: the partition after Simplify as text (per face in OrderedFaces: label, then the rounded corners) </summary>
+        internal string PartitionText()
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (int f in OrderedFaces()) {
+                sb.Append(fLabel[f]);
+                foreach (int h in cycle(f)) { Vector2d r = K.Rounded(hOrig[h]); sb.Append(FormattableString.Invariant($" {r.x:R},{r.y:R}")); }
+                sb.Append('\n');
+            }
+            return sb.ToString();
+        }
+
         // ---------------------------------------------------------------- simplification
 
         /// <summary>
@@ -1675,7 +1747,9 @@ namespace gs
             }
             if (n > 64)
                 return triangulate_ears(v);
-            var pos = v.Select(K.Approx).ToList();
+            // (the rounded positions, a function of the exact corners: Approx depends on the lines that define a vertex and on
+            // whether it was rounded before, so the choice would depend on the construction's history)
+            var pos = v.Select(K.Rounded).ToList();
             // best[i, j]: the best smallest quality of the sub-polygon i..j (j > i + 1), -1 if none
             var best = new double[n, n];
             var choice = new int[n, n];
@@ -1747,7 +1821,7 @@ namespace gs
         // smallest angle (approximate), for choosing ears
         double quality(int a, int b, int c)
         {
-            Vector2d p = K.Approx(a), q = K.Approx(b), r = K.Approx(c);
+            Vector2d p = K.Rounded(a), q = K.Rounded(b), r = K.Rounded(c);
             Func<Vector2d, Vector2d, Vector2d, double> angle = (x, y, z) => {
                 Vector2d u = y - x, w = z - x;
                 return Math.Abs(CoreMath.Atan2(u.x * w.y - u.y * w.x, u.Dot(w)));

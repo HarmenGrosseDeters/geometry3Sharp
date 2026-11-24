@@ -638,6 +638,7 @@ namespace gs
                 // (each run checks its own clipped region; the mixed composite is built and checked here)
                 BuildComposite = BuildComposite, CompositeKind = CompositeKinds.Replacement,
                 InsertionOrder = InsertionOrder, InsertionSeed = InsertionSeed, CheckCanonical = CheckCanonical,
+                CompactDuringInsert = CompactDuringInsert, AfterSimplify = AfterSimplify,
                 CapEstimateRounds = CapEstimateRounds, RebuildForEachLowering = RebuildForEachLowering
             };
         }
@@ -1447,12 +1448,14 @@ namespace gs
                 }
                 map.InsertPiece(k, pieces[k].Strip, pieces[k].FanA, pieces[k].AngA, pieces[k].FanB, pieces[k].AngB,
                     pieces[k].A1, pieces[k].B1, Math.Min(pieces[k].A1.z, pieces[k].B1.z), pieces[k].Slb, pieces[k].Reach, theta);
+                if (CompactDuringInsert) map.Compact();
             }
 
             phase("insert");
             map.Simplify();
             RayCount = Math.Max(RayCount, map.RayCount);
             if (CheckCanonical && CanonicalProblem == "") CanonicalProblem = map.CanonicalProblem();
+            if (AfterSimplify != null) AfterSimplify(map);
             phase("simplify");
 
             // toe undercut: a face on a toe segment labelled by another piece, lower than the toe by more than Tolerance
@@ -1513,6 +1516,10 @@ namespace gs
         /// <summary> tests: the order in which the pieces are inserted (a permutation of 0 .. n-1), instead of the seeded shuffle </summary>
         internal Func<int, int[]> InsertionOrder;
         internal ulong InsertionSeed = 0x5EED5EEDUL;
+        /// <summary> tests: merge the faces of one label during insertion (SlopeMap.Compact after each piece) </summary>
+        internal bool CompactDuringInsert;
+        /// <summary> tests: called with each build's map after Simplify </summary>
+        internal Action<SlopeMap> AfterSimplify;
         /// <summary> tests: the most rays a build's Simplify cut (reflex corners of the label components) </summary>
         internal int RayCount;
         /// <summary> tests: check each build's map after Simplify (SlopeMap.CanonicalProblem; the first problem, "" if none) </summary>
