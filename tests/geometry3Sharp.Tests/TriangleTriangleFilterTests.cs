@@ -670,6 +670,44 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void BeyondSharedNeighbours_SameDecisionsAsBeyondShared_SameAnswers()
+        {
+            // the new path against the old one on procedural pairs: neighbours with integer corners (touching,
+            // coplanar), nearly coplanar ones, slivers (nearly degenerate), pairs without shared corners and the 2^k
+            // scalings. Where the old filter decides, the new one decides the same; where only the new one decides,
+            // the exact test agrees; the convenience method's answer is the exact one either way
+            var rand = new Random(59);
+            var q = new Quaterniond(new Vector3d(1, 2, 3).Normalized, 37);
+            var pairs = new List<Pair>();
+            pairs.AddRange(NeighbourPairs(4000, rand, () => new Vector3d(rand.Next(0, 4), rand.Next(0, 4), rand.Next(0, 4))));
+            pairs.AddRange(NeighbourPairs(3000, rand, () => q * new Vector3d(rand.NextDouble(), rand.NextDouble(), 1e-12 * (rand.NextDouble() - 0.5))));
+            pairs.AddRange(NeighbourPairs(3000, rand, () => { double t = rand.NextDouble(); return new Vector3d(t, 2 * t + 1e-9 * rand.NextDouble(), rand.Next(0, 2)); }));
+            pairs.AddRange(PlanarPairs(3000, 2, 1.5, 61));
+            int zero;
+            pairs.AddRange(SliverPairs(3000, 67, out zero));
+            int onlyNew = 0;
+            foreach (int e in new[] { 0, -40, 40 }) {
+                double f = Math.Pow(2, e);
+                foreach (Pair pair in pairs) {
+                    Pair p = Transformed(pair, v => f * v);
+                    int before = TriangleTriangleFilter.BeyondShared(p.Ia, ref p.A, p.Ib, ref p.B);
+                    int after = TriangleTriangleFilter.BeyondSharedNeighbours(p.Ia, ref p.A, p.Ib, ref p.B);
+                    bool exact = Exact(p);
+                    if (before != TriangleTriangleFilter.Undecided)
+                        Assert.Equal(before, after);
+                    else if (after != TriangleTriangleFilter.Undecided) {
+                        Assert.Equal(TriangleTriangleFilter.Separate, after);
+                        Assert.False(exact, $"2^{e}: ids {p.Ia} {p.Ib}, A {p.A.V0} {p.A.V1} {p.A.V2}, B {p.B.V0} {p.B.V1} {p.B.V2}");
+                        onlyNew++;
+                    }
+                    Assert.Equal(exact, TriangleTriangleFilter.IntersectsBeyondShared(p.Ia, ref p.A, p.Ib, ref p.B));
+                    Assert.Equal(exact, Remesher.pair_intersects(p.Ia, ref p.A, p.Ib, ref p.B));
+                }
+            }
+            Assert.True(onlyNew > 1000, $"{onlyNew} pairs decided only by the new path");
+        }
+
+        [Fact]
         public void NeighbourPlaneSides_Cases()
         {
             Vector3d s = Vector3d.Zero, p = new Vector3d(1, 0, 0), q = new Vector3d(0, 1, 0);
