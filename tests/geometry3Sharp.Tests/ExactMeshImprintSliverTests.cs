@@ -129,13 +129,6 @@ namespace geometry3Sharp.Tests
             foreach (string kind in new[] { "box", "cylinder" }) {
                 int axis = kind == "box" ? 2 : 0, ulps = 1;
                 DMesh3 a = Invariance.Transformed(Shape(kind), s);
-                if (name == "utm" && kind == "box") {
-                    // the box in the UTM frame, shifted by +1 ulp: the known limit (one sliver is left; ExactMeshImprintSliverStageTests, section 5 of
-                    // docs/design/IMPRINT_SLIVER_CLEANUP.md), since #1410 (before it this was clean). The shift by -1 ulp is clean, and the property
-                    // is checked with it in this frame
-                    ExactMeshImprintSliverStageTests.AssertOneSliverLeftByTheLinkCondition(a, Shifted(a, axis, 1));
-                    ulps = -1;
-                }
                 DMesh3 b = Shifted(a, axis, ulps);
                 ExactMeshImprint imprint = Run(a, b);
                 AssertCleanAndCarried(a, imprint);
@@ -152,6 +145,84 @@ namespace geometry3Sharp.Tests
                     Assert.Equal(i0.CurveEdges.OrderBy(x => x), imprint.CurveEdges.OrderBy(x => x));
                     Assert.Equal(i0.SourceTriangle, imprint.SourceTriangle);
                 }
+            }
+        }
+
+        // the translated frame of the harness (far from the origin), the same frame with the translation negated, and the one with mixed signs:
+        // the rounding of the exact vertices to the nearest double puts the curve vertices on either side of the target's edges, which
+        // the sliver cleanup must handle in every frame (#1489). Each of these left slivers before the final stage accepted neutral contractions
+        public static IEnumerable<object[]> FarCases()
+        {
+            foreach (string frame in new[] { "utm", "utm-negated", "utm-mixed" }) {
+                yield return new object[] { frame, "box", 2, 1 };
+                yield return new object[] { frame, "box", 2, -3 };
+                yield return new object[] { frame, "cylinder", 2, 1 };
+                yield return new object[] { frame, "cylinder", 2, -4 };
+                yield return new object[] { frame, "cylinder", 2, 12 };
+                yield return new object[] { frame, "cylinder", 0, 3 };
+            }
+            yield return new object[] { "z-only", "cylinder", 0, 2 };
+            yield return new object[] { "z-only", "cylinder", 0, -5 };
+        }
+
+        internal static Similarity FarFrame(string name)
+        {
+            Vector3d t = Similarity.Utm.Translation;
+            switch (name) {
+                case "utm": return Similarity.Utm;
+                case "utm-negated": return new Similarity(name, 1, Matrix3d.Identity, -t);
+                case "origin": return Similarity.Identity;
+                case "utm-mixed": return new Similarity(name, 1, Matrix3d.Identity, new Vector3d(t.x, -t.y, t.z));
+                default: return new Similarity(name, 1, Matrix3d.Identity, new Vector3d(0, 0, t.z));
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(FarCases))]
+        public void FarFromTheOrigin_UlpShiftedCopy_BothDirections_AreCleanClosedAndCarryTheCurve(string frame, string kind, int axis, int ulps)
+        {
+            DMesh3 a = Invariance.Transformed(Shape(kind), FarFrame(frame)), b = Shifted(a, axis, ulps);
+            AssertCleanAndCarried(a, Run(a, b));
+            AssertCleanAndCarried(b, Run(b, a));
+        }
+
+        // the same pair with its vertices and triangles in another order (#1489): clean, closed, carries the curve, the same volume. The positions of the
+        // repaired vertices are not compared: the repair (not exact code) takes its candidates in id order where they tie, also without the stage
+        // (measured: the box at the origin differs as well)
+        [Theory]
+        [InlineData("utm", "box", 2, 1)]
+        [InlineData("utm-negated", "box", 2, -1)]
+        [InlineData("utm", "cylinder", 2, 1)]
+        public void FarFromTheOrigin_PermutedInput_IsCleanAndKeepsTheVolume(string frame, string kind, int axis, int ulps)
+        {
+            DMesh3 a = Invariance.Transformed(Shape(kind), FarFrame(frame)), b = Shifted(a, axis, ulps);
+            double volume = ResultChecks.Volume(Run(a, b).Result);
+            for (int seed = 1; seed <= 3; ++seed) {
+                DMesh3 pa = Invariance.Permuted(a, seed), pb = Invariance.Permuted(b, 100 + seed);
+                ExactMeshImprint imprint = Run(pa, pb);
+                AssertCleanAndCarried(pa, imprint);
+                Assert.Equal(volume, ResultChecks.Volume(imprint.Result), 6);       // (the volume sum itself carries the rounding of the coordinates far from the origin)
+            }
+        }
+
+        [Fact]
+        public void FarFromTheOrigin_Reuse_AndSerialEqualsParallel()
+        {
+            DMesh3 a = Invariance.Transformed(Shape("box"), Similarity.Utm), b = Shifted(a, 2, 1);
+            var imprint = new ExactMeshImprint() { Target = a, Cutter = b };
+            Assert.True(imprint.Compute(), imprint.Error);
+            AssertCleanAndCarried(a, imprint);
+            Assert.True(imprint.Rounding.FollowStageRan);
+            DMesh3 first = imprint.Result;
+            Assert.True(imprint.Compute(), imprint.Error);
+            Assert.True(Same(first, imprint.Result));
+            gParallel.SerialOnThisThread = true;
+            try {
+                ExactMeshImprint serial = Run(a, b);
+                Assert.True(Same(first, serial.Result));
+                Assert.Equal(imprint.Counts["sliver_cleanup_neutral_contractions"], serial.Counts["sliver_cleanup_neutral_contractions"]);
+            } finally {
+                gParallel.SerialOnThisThread = false;
             }
         }
 

@@ -194,6 +194,21 @@ namespace g3
         /// <summary> the final stage of RuleLocksFollow ran (the passes and the search left a defect) </summary>
         internal bool FollowStageRan;
         /// <summary>
+        /// in the final stage of RuleLocksFollow only: a contraction that keeps the counts (no more degenerate triangles, no more
+        /// intersecting pairs than before, and no fewer) is accepted as well. Some slivers can be removed only by two contractions,
+        /// of which the first changes no count (#1489: a valence-3 vertex inside a needle that blocks, by the link condition, the
+        /// contraction of its neighbour into the target vertex; alone, each is refused as "no gain"). Termination: a contraction removes
+        /// a vertex and an edit that is not a contraction improves the counts, so (defects, vertices) falls lexicographically with every
+        /// edit and the stage ends. Every other rule of the edit (drift bound, no triangle turned over, no new degenerate triangle or
+        /// intersection, locks, link condition) is unchanged. Where the stage does not run, the result is bit for bit the same.
+        /// Differs from the plateau variant of SNAP_ROUNDING_3D.md section 10 (no-go, owner 2026-11-15): contractions, not random position
+        /// steps; no rollback, since a neutral contraction is kept and never leaves the mesh worse by the counts; deterministic
+        /// </summary>
+        internal bool AcceptNeutralContractionsInStage = false;
+        /// <summary> the contractions of the stage that were accepted only because they keep the counts (AcceptNeutralContractionsInStage) </summary>
+        internal int NeutralContractions;
+        bool lastAcceptWasNeutral;
+        /// <summary>
         /// in that stage, the contractions that moved a lock of RuleLockedEdges to a kept vertex off its edge (the contracted edge is not
         /// one of the set: the chain of parts now passes through that vertex), by whether the kept vertex is fixed (a target vertex);
         /// counted per contraction (an edge rerouted twice counts twice)
@@ -763,6 +778,8 @@ namespace g3
             befores = null;
             LockedContractions = RuleLockedContractions = 0;
             FollowStageRan = followRuleLocks = false;
+            NeutralContractions = 0;
+            lastAcceptWasNeutral = false;
             RuleLocksReroutedThroughFixed = RuleLocksReroutedThroughOther = 0;
             PositionSearchMoves = 0;
             PositionSearchProposals = 0;
@@ -1698,6 +1715,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         bool improves(double displacement = 0, double surface = 0, bool hasSurface = false, bool removesContact = false)
         {
+            lastAcceptWasNeutral = false;
             // the drift bound first (it does not count as an evaluation)
             // (a bound that is NaN, eg from distances that overflow, rejects the edit)
             double step = hasSurface ? surface : displacement;
@@ -1792,7 +1810,10 @@ namespace g3
             cacheRemoved.Clear(); cacheRemoved.AddRange(removed);
             movedV = saveV; movedPos = savePos;
             // (with as many degenerate triangles as before, it must remove an intersection)
-            if (newB == oldB && oldI == 0 && removesContact == false)
+            // (the final stage: a contraction that keeps the counts, AcceptNeutralContractionsInStage; the checks above and below already
+            // reject every edit with more degenerate triangles or more intersections than before)
+            bool neutral = AcceptNeutralContractionsInStage && followRuleLocks && vanishing >= 0;
+            if (newB == oldB && oldI == 0 && removesContact == false && neutral == false)
                 return false;
             for (int i = 0; i < added.Count; ++i) {
                 if (degen[i])
@@ -1814,7 +1835,9 @@ namespace g3
                         if (++newI > oldI) return false;
             }
             // (an edit that removes a contact may keep the counts)
-            return newI + newB < oldI + oldB || (removesContact && newI + newB <= oldI + oldB);
+            bool better = newI + newB < oldI + oldB;
+            lastAcceptWasNeutral = better == false && neutral && removesContact == false && newI + newB <= oldI + oldB;
+            return better || ((removesContact || neutral) && newI + newB <= oldI + oldB);
         }
 
         // the edits of Script (for tests), then the check of every bound in check mode
@@ -2209,6 +2232,8 @@ namespace g3
             touched.Add(b);
             commit_drift();
             Collapses++;
+            if (lastAcceptWasNeutral)
+                NeutralContractions++;
             return true;
         }
 

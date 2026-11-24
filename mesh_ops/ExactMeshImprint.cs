@@ -77,6 +77,8 @@ namespace g3
         internal bool SliverCleanup = true;
         /// <summary> for tests: the locks of the parts of split edges as before #1034 (one LockedEdgeF over the fixed set, no RuleLockedEdges, no stage) </summary>
         internal bool LegacyPartLocks = false;
+        /// <summary> for tests: without it the final stage accepts only contractions that remove a defect (as before #1489, see MeshRoundingRepair.AcceptNeutralContractionsInStage) </summary>
+        internal bool NeutralContractions = true;
         /// <summary> SafeRounding within the relative bound only; if its result is not clean, Compute() fails with RoundingNotClean (Result null) </summary>
         public bool StrictRounding = false;
         /// <summary> as <see cref="ExactMeshBoolean.RoundingUlpFactor"/>, RoundingAbsoluteTolerance </summary>
@@ -474,6 +476,7 @@ namespace g3
                     : (a, b) => a < original && b < original && target.FindEdge(a, b) >= 0,
                 // (the parts of the target's split edges: they follow a contraction in the final stage, docs/design/IMPRINT_SLIVER_CLEANUP.md)
                 RuleLockedEdges = LegacyPartLocks ? null : new HashSet<long>(subEdges, EdgeKeyComparer.Instance), RuleLocksFollow = SliverCleanup && LegacyPartLocks == false,
+                AcceptNeutralContractionsInStage = NeutralContractions && SliverCleanup && LegacyPartLocks == false,
                 AllowLockedContraction = AllowCurveContraction,
                 RemoveTinyComponents = false,
                 UlpFactor = StrictRounding ? 0 : RoundingUlpFactor, AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance,
@@ -494,6 +497,8 @@ namespace g3
             Counts["sliver_cleanup_stage"] = Rounding.FollowStageRan ? 1 : 0;
             Counts["split_edge_reroutes_through_target_vertex"] = Rounding.RuleLocksReroutedThroughFixed;
             Counts["split_edge_reroutes_through_new_vertex"] = Rounding.RuleLocksReroutedThroughOther;
+            // (the stage's contractions that kept the counts of defects, MeshRoundingRepair.AcceptNeutralContractionsInStage)
+            Counts["sliver_cleanup_neutral_contractions"] = Rounding.NeutralContractions;
             // (the contracted edges are gone from the lock set; the curve is what is left of them)
             var edges = new HashSet<long>(EdgeKeyComparer.Instance);
             foreach (long k in locks)

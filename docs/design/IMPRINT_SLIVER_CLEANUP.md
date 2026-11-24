@@ -55,7 +55,7 @@ result that was not clean may change (it stays within the bound and the accept r
 
 Counts (`ExactMeshImprint.Counts`): `sliver_cleanup_stage` (1 if the stage ran), `split_edge_reroutes_through_target_vertex` and
 `split_edge_reroutes_through_new_vertex` (the stage's contractions that moved a part's lock to a kept vertex off its edge, per
-contraction), and as before `target_edge_parts_contracted` and `curve_edges_contracted`. The drift used is `Rounding.MaxDrift`
+contraction), `sliver_cleanup_neutral_contractions` (the stage's contractions accepted only because they keep the counts, section 5), and as before `target_edge_parts_contracted` and `curve_edges_contracted`. The drift used is `Rounding.MaxDrift`
 against `Rounding.MaxLength`.
 `ExactMeshBoolean` does not set `RuleLockedEdges`: its outputs do not change. No exact file, predicate or error bound changes.
 
@@ -96,22 +96,59 @@ and the other edits at the sliver add a degenerate triangle or an intersection o
 the curve and is reported not clean, as before (test `KnownLimit_ALinkConditionLeavesOneSliver_...`). Removing such a sliver needs
 an edit the repair does not have (eg a flip of the long edge, which is a locked part of a split target edge).
 
-Since #1410 (`ExactPoint3.ToDouble` rounds to nearest instead of truncating) that cylinder instance is clean, and the test pins the same limit on
-the rotated box translated far from the origin (632117.25, 5712043.5, 113.75) and shifted by +1 ulp along z, cut into its shifted copy: one sliver of area
-1.5e-21 is left, its shortest edge (2.6e-11) is refused by `CollapseEdge` (`Failed_InvalidNeighbourhood`) in both directions. The numbers of the paragraph above
-(39 of 40) were measured before that change.
+Since #1410 (`ExactPoint3.ToDouble` rounds to nearest instead of truncating) that cylinder instance is clean, and the same limit showed on the rotated box translated
+far from the origin (632117.25, 5712043.5, 113.75) and shifted by +1 ulp along z, cut into its shifted copy: one sliver of area 1.5e-21 left, its shortest
+edge (2.6e-11) refused by `CollapseEdge` (`Failed_InvalidNeighbourhood`) in both directions. The numbers of the paragraph above (39 of 40) were measured before that change.
 
-The stage is fragile on ulp-shifted near-duplicates in any frame, and the conversion moves where; it does not introduce the fragility. Measured as
-unclean runs out of 48 (shifts of 1 to 12 ulps, both cut directions), master f11323390 against the #1410 branch. At the origin, all shapes and axes: master 1
-(the cylinder along z, the limit above), branch 0. Far from the origin with positive coordinates: box along z master 0, branch 10; cylinder along z master 0,
-branch 48 (4 to 8 slivers each); cylinder along x master 0, branch 2 (6 ulps: the evaluation limit, 23 slivers). The same frame with the translation negated:
-box along z master 24, branch 10; cylinder master 0, branch as with positive coordinates. Mixed signs: as positive coordinates on the branch (the new rounding is
-sign-symmetric). Only z translated: cylinder along x master 0, branch 24. Reading: truncation is a directed rounding (down for positive, up for negative
-coordinates), and it kept near-duplicate copies on one consistent side only for one sign of the coordinates, so the weakness existed before and depended on the
-frame; the rounding to nearest moves it around for the box (10 of 48 in every frame) and is a real shift for the cylinder. Only callers of `ExactMeshImprint`
-are affected (the follow stage is set only by the imprint; `ExactMeshBoolean` and `SolidBooleanPipeline` do not use it): 162 near-coincident Boolean runs per
-library, far from the origin and at it, had no failed `Compute` on either side, and not `RoundingClean` far from the origin was 3 on master, 0 on the branch.
-No test pins the cylinder cases yet; they belong to an issue for the stage, not to the conversion.
+**What #1410 exposed (measured for #1489, `benchmarks/ImprintSliverSweep`).** Unclean runs out of 48 (shifts of 1 to 12 ulps, both signs, both cut
+directions), the frames of the harness: at the origin, translated by (632117.25, 5712043.5, 113.75), the translation negated, mixed signs, only z translated.
+
+| shape, axis | origin | translated | negated | mixed | z only |
+|---|---:|---:|---:|---:|---:|
+| truncating `ToDouble` (before #1410): box z | 0 | 0 | 24 | 0 | 0 |
+| cylinder z | 1 | 0 | 0 | 0 | 0 |
+| cylinder x | 0 | 0 | 0 | 0 | 0 |
+| nearest (#1410, before #1489): box z | 0 | 10 | 10 | 10 | 2 |
+| cylinder z | 0 | 48 | 48 | 48 | 2 |
+| cylinder x | 0 | 2 | 2 | 2 | 24 |
+| **nearest, neutral contractions (this change): box z** | 0 | 0 | 0 | 0 | 0 |
+| **cylinder z** | 0 | 0 | 0 | 0 | 0 |
+| **cylinder x** | 0 | 2 | 2 | 2 | 0 |
+
+**Diagnosis: one mechanism, a plateau.** In every left-over cluster the sliver cannot be removed by a single edit that removes a defect, but by two, the
+first of which keeps the counts (`SmallestRejectedDrift` is infinite in all 48 cylinder runs: the drift bound refuses nothing). The box (10 runs, one sliver
+each): a split point of a target edge, 2.6e-11 from the target corner T, with a valence-3 curve vertex inside the thin triangle (T, split point, apex) that the
+rounding put 1.2e-10 off the needle's plane. The contraction of the split point into T is refused (the three-cycle T, split point, apex encloses the valence-3
+vertex: link condition, shown as "new intersection" by the exact test that runs first); the contraction of the valence-3 vertex only turns the sliver into the
+needle triangle (T, split point, apex), whose area (1.1e-11) is itself below the degenerate area (1.3e-11): one defect before and after, refused as "no gain".
+The cylinder: all slivers sit at the two cap centres (target vertices of valence 12); 4 to 8 curve vertices within 1e-14 to 4e-9 of the centre are left, and every
+contraction of one into the centre is "no gain" or "new intersection" until a neighbour has gone first. Refusals over the slivers of the 48 cylinder-z runs
+(288 slivers, every edit the passes try, after the stage): a contraction that makes a target vertex vanish: always refused (fixed); flips and zips at an edge or
+triangle that carries a lock: refused (locked); contractions of curve vertices: "no gain" and "new intersection"; the 26 x 8 moves of the position search: "no
+gain" or "new intersection", none accepted. The link condition is checked last, so it is reached only by edits that pass the exact test.
+
+**Why truncation avoided it** (partly verified). With truncation the rounding left fewer intersecting pairs to repair (cylinder z, translated: 97 against 141 on
+average per run, box 6 against 11), and in the translated box runs the passes were clean without the stage (0 of 48 runs entered it, against 10). The
+frame dependence (negated box 24, mixed signs 0) is not a per-sign rule; the side of the target's edges on which each curve vertex lands was not traced further.
+
+**The change (#1489).** In the final stage only, a contraction that keeps the counts is accepted as well (`MeshRoundingRepair.AcceptNeutralContractionsInStage`,
+set by `ExactMeshImprint`; `ExactMeshBoolean` does not set it). Invariants: (1) every other rule of the edit is unchanged: the drift bound, no triangle turned over,
+no more degenerate triangles and no more intersecting pairs than before (each tested separately, so "keeps the counts" means equal counts), locks, link condition;
+(2) termination: a contraction removes a vertex and every other edit still has to remove a defect, so (defects, vertices) falls lexicographically with every
+accepted edit; (3) results that are clean without the stage are bit for bit the same (the stage does not run on them); (4) deterministic, no randomness, no rollback:
+a neutral contraction is kept and leaves the mesh no worse by the counts, within the drift bound. A result that was not clean may change (more of them become
+clean; a neutral contraction that no gain follows stays). The tests of the rounding, imprint, Boolean, Metamorphic, invariance and exact-conversion areas (6863) run with it: no pinned count or hash moved; the two pins of the known limit became the property.
+
+*How this differs from the plateau variant that the owner declined (SNAP_ROUNDING_3D.md section 10, no-go 2026-11-15).* That rule took sideways *position
+moves* of one vertex by random draws, with a journal and a rollback, as a general search after the passes, for the Boolean's leftovers (a gain on 1 of 16 239 cohort
+operations, 3 to 9 of 19 generated clusters, success depending on seed and budget). This one takes no position moves, draws nothing, needs no rollback and
+runs only in the imprint's final stage, only for contractions, only where the result is not clean without it; its gain is deterministic: 202 of the 208 unclean runs of the sweep above
+(all cells with a translation) become clean, and no cell gets worse. The costs of the no-go (a rollback in the repair, a random walk, the cohort run) do not apply; its termination
+requirement is the lexicographic argument above.
+
+**What remains.** Cylinder x, translated frames at +-6 ulps (2 runs of 48): the evaluation limit (10000 plus 50 per defect) is reached with 23 slivers, the position
+search's 208 proposals per corner use it up; with `MaxEvaluationsPerDefect` 400 they are clean (and sweep time is unchanged, 32 s). Not changed here (a decision on the
+budget, which the Boolean shares). The cases between 1 and 12 ulps are a sample, not a proof; the shifts above 12 ulps and other shapes were not swept.
 
 The test inputs avoid `Math.Sin` / `Cos` (they differ in the last bit between net48 and net10, `DETERMINISM.md` C1): the rotated
 box is given by its corners as literals, the cylinder is snapped to a grid of 2^-24.
