@@ -47,6 +47,8 @@ var atLeast2 = new ExactMeshBoolean(meshes, ExactMeshBoolean.AtLeast(2));
 var xorOdd = new ExactMeshBoolean(meshes, w => w.Count(x => x > 0) % 2 == 1);
 ```
 
+`ExactMeshArrangement` (the arrangement under the booleans): the point ids in its `Output`, `ConstraintEdges` and `VertexPoints` are labels of one run (ids of input vertices are deterministic, ids of new points depend on the thread schedule; the geometry is deterministic); compare or sort through `Exact(id)` or `Canonical(id)`, never by id.
+
 Putting multiple operands into a single n-ary operation (`A − (B1 ∪ … ∪ Bn)`) runs one arrangement and rounds only once, which is both faster and produces fewer triangles than chaining binary booleans.
 
 For closed first meshes, `Difference` and `Intersection` automatically cull operand triangles wholly outside the relevant solid (`Counts["t3a_culled"]`). Diagnostic counts (`IntersectingPairs`, `SelfIntersectingPairs`, `Patches`) describe the arrangement after culling; use `Union` or `MeshRobustRepair` to inspect self-intersections across an entire operand.
