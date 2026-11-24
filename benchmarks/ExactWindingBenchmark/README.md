@@ -87,3 +87,21 @@ rim-and-build timing of the table above; the clause terms are now written only f
   over linear boundary summation (**2.1x–4.9x** faster than `FastWindingNumber`) with **100%** exact threshold parity.
 - **Disconnected soups** (`|∂M| >= F` and `F > 64`): automatically switches to the flat packed direct solid-angle sum,
   still **2.9x** faster per query than the legacy hierarchical cache.
+
+## Edge angle near open edges (2026-11-24)
+
+`dotnet run --project benchmarks/ExactWindingBenchmark/ExactWindingBenchmark.csproj -c Release -- 15 near-edge` runs only this
+section. Before / after of the accurate edge angle (`boundary_edge_angle_x`, design note "The accuracy of the edge angle"),
+exact `DMeshAABBTree3.WindingNumber`, 2000 queries per case, median of 15 rounds, Windows 11 x64, .NET 10 (not the container of the
+tables above, so the absolute times differ from them; compare the two rows of one case). "Near" = a random point of a random
+boundary edge plus 10^-3 .. 10^-14 in a random direction.
+
+| case | tris | us / query before | us / query after | sum of the values before | after |
+|---|---|---|---|---|---|
+| closed sphere 20k, random | 20172 | 0.45 | 0.37 | 308 | 308 (same bits) |
+| open sphere 20k, random (away from the edges) | 14126 | 7.79 | 7.50 | 216.93695380309467 | 216.93695380309467 (same bits) |
+| open sphere 20k, near the boundary edges | 14126 | 8.47 | 20.93 | 612.8912202386 | 612.8910033301 (the old sum is off by 2.2e-4) |
+
+The closed mesh has no boundary edge (unchanged; the difference is noise). Away from the edges the rounded path takes one more
+comparison per edge (inside the noise) and returns the same bits. Near the edges, 12 us more per query: the edges of such a
+point that are within a factor 45 of antiparallel, about one or two of them, take the accurate path (about 10 us each).
