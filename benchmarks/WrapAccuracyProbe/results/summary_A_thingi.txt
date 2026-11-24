@@ -1,0 +1,28 @@
+inputs: 31 configs: 154
+
+H1: growth per decade of the offset (geometric mean of the per-input ratios), wrap only
+| alpha | offset step | triangles x | time x | wrap H x (error shrink) | snapped H x |
+|---|---|---:|---:|---:|---:|
+| d/4 | 0.001 -> 0.0001 | 3.57 | 1.58 | 1.02 | 1.01 |
+| d/20 | 0.001 -> 0.0001 | 4.94 | 2.82 | 1.04 | 1.02 |
+| d/100 | 0.001 -> 0.0001 | 2.78 | 3.22 | 1.09 | 1.04 |
+
+H2: the snapped result at the coarsest offset against the wrap at finer offsets (same alpha): the finest offset whose wrap error is still above the snapped error
+| alpha | snapped H (median) at offset 0.001 | wrap H at 0.001 / 0.0001 | inputs where the snap at 0.001 beats the wrap at 0.0001 |
+|---|---:|---|---:|
+| d/4 | 0.0922 | 0.0928 / 0.0926 | 6 of 15 |
+| d/20 | 0.0431 | 0.0434 / 0.0417 | 15 of 31 |
+| d/100 | 0.0103 | 0.0108 / 0.011 | 16 of 31 |
+
+H3: error against alpha (median over the inputs, snapped = validity-preserving), p99 in brackets
+| offset | alpha d/4 | alpha d/20 | alpha d/100 |
+|---|---:|---:|---:|
+| 0.001 | 0.0922 (0.0734) | 0.0431 (0.0293) | 0.0103 (0.00391) |
+| 0.0001 | 0.0925 (0.0748) | 0.0417 (0.0293) | 0.0109 (0.00355) |
+
+H4: naive projection damage and what the safe version gives up
+naive: configs 154, clean 15, with self-intersections 135, bad (flipped or collapsed) area share: median 0.0031%, max 0.1155%
+safe : configs 154, clean and 0 self-intersections 154, vertices moved fully: median 98.89%, min 90.11%
+safe H / naive H: median 1.000, max 1.002 (1 = nothing lost)
+
+configs with exceptions / timeouts:
