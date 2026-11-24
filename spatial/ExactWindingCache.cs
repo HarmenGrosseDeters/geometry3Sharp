@@ -1013,6 +1013,9 @@ namespace g3
         double row_surface_correction(double px, double py, double pz, List<int> rowLeaves)
         {
             double sc = 0.0;
+            List<int> pending = pendingOnBoundary;
+            if (pending != null && pending.Count > 0)
+                pending.Clear();   // left by an evaluation that threw
             int count = rowLeaves.Count;
             for (int r = 0; r < count; ++r) {
                 ref FlatBox box = ref boxes[rowLeaves[r]];
@@ -1022,9 +1025,16 @@ namespace g3
                 int end = start - (box.Child2 + 2);
                 for (int i = start; i < end; ++i) {
                     ref FlatTri t = ref tris[i];
-                    sc += tri_on_surface_correction(px, py, pz, t.A, t.B, t.C);
+                    int cls = tri_on_surface_class(px, py, pz, t.A, t.B, t.C, out double half);
+                    if (cls == 2)
+                        sc += half;
+                    else if (cls == 1)
+                        add_pending_on_boundary(i);
                 }
             }
+            pending = pendingOnBoundary;
+            if (pending != null && pending.Count > 0)
+                sc += resolve_pending_on_boundary(px, py, pz, pending);
             return sc;
         }
 
@@ -1056,8 +1066,22 @@ namespace g3
 
         // ---- Exact +x BVH traversals ----
 
+        // chi(p_eps) and the on-surface correction: the sum of w_T(p_eps) over the triangles T that contain p
         [MethodImpl(JitHints.Optimize)]
         int signed_crossings_x(int iBox, double px, double py, double pz, ref double surfaceCorrection)
+        {
+            List<int> pending = pendingOnBoundary;
+            if (pending != null && pending.Count > 0)
+                pending.Clear();   // left by an evaluation that threw
+            int chi = signed_crossings_x_rec(iBox, px, py, pz, ref surfaceCorrection);
+            pending = pendingOnBoundary;
+            if (pending != null && pending.Count > 0)
+                surfaceCorrection += resolve_pending_on_boundary(px, py, pz, pending);
+            return chi;
+        }
+
+        [MethodImpl(JitHints.Optimize)]
+        int signed_crossings_x_rec(int iBox, double px, double py, double pz, ref double surfaceCorrection)
         {
             ref FlatBox box = ref boxes[iBox];
             if (py < box.MinY || py > box.MaxY || pz < box.MinZ || pz > box.MaxZ || px > box.MaxX)
@@ -1073,15 +1097,20 @@ namespace g3
                     int s = line_crossing_x(py, pz, t.A, t.B, t.C);
                     if (s != 0 && is_ahead_x(px, py, pz, t.A, t.B, t.C, s))
                         sum += s;
-                    if (mayContainP)
-                        surfaceCorrection += tri_on_surface_correction(px, py, pz, t.A, t.B, t.C);
+                    if (mayContainP) {
+                        int cls = tri_on_surface_class(px, py, pz, t.A, t.B, t.C, out double half);
+                        if (cls == 2)
+                            surfaceCorrection += half;
+                        else if (cls == 1)
+                            add_pending_on_boundary(i);
+                    }
                 }
                 return sum;
             }
 
-            int total = signed_crossings_x(box.Child1, px, py, pz, ref surfaceCorrection);
+            int total = signed_crossings_x_rec(box.Child1, px, py, pz, ref surfaceCorrection);
             if (box.Child2 >= 0)
-                total += signed_crossings_x(box.Child2, px, py, pz, ref surfaceCorrection);
+                total += signed_crossings_x_rec(box.Child2, px, py, pz, ref surfaceCorrection);
             return total;
         }
 
@@ -1126,19 +1155,44 @@ namespace g3
         // branch cut of the formula (+-2 pi or noise instead of 0), which is why an earlier version that added it returned
         // values off by 0.5 on faces and on edges in general position.
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static double tri_on_surface_correction(double px, double py, double pz, Vector3d a, Vector3d b, Vector3d c)
-        {
-            if (px < a.x && px < b.x && px < c.x) return 0.0;
-            if (px > a.x && px > b.x && px > c.x) return 0.0;
-            if (py < a.y && py < b.y && py < c.y) return 0.0;
-            if (py > a.y && py > b.y && py > c.y) return 0.0;
-            if (pz < a.z && pz < b.z && pz < c.z) return 0.0;
-            if (pz > a.z && pz > b.z && pz > c.z) return 0.0;
+        // The triangles that contain p on an edge or at a vertex, collected during one evaluation (indices into tris) and
+        // resolved together by resolve_pending_on_boundary: where they are coplanar and cover the directions around p evenly
+        // (an edge or a vertex inside a flat face) their sum is an exact multiple of 0.5.
+        [ThreadStatic] static List<int> pendingOnBoundary;
 
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static void add_pending_on_boundary(int triIndex)
+        {
+            if (pendingOnBoundary == null)
+                pendingOnBoundary = new List<int>();
+            pendingOnBoundary.Add(triIndex);
+        }
+
+        /// <summary>
+        /// Where p lies relative to the closed triangle (a, b, c), by exact predicates: 0 = not on it (or the triangle has no
+        /// area), 1 = on an edge or at a vertex, 2 = strictly inside. For 2, half is w_T(p_eps): p_eps lies infinitesimally on
+        /// one side of the plane, so T subtends an exact hemisphere (+0.5 on the -N side, -0.5 on the +N side).
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static int tri_on_surface_class(double px, double py, double pz, Vector3d a, Vector3d b, Vector3d c, out double half)
+        {
+            half = 0.0;
+            if (px < a.x && px < b.x && px < c.x) return 0;
+            if (px > a.x && px > b.x && px > c.x) return 0;
+            if (py < a.y && py < b.y && py < c.y) return 0;
+            if (py > a.y && py > b.y && py > c.y) return 0;
+            if (pz < a.z && pz < b.z && pz < c.z) return 0;
+            if (pz > a.z && pz > b.z && pz > c.z) return 0;
+            return tri_on_surface_class_in_box(px, py, pz, a, b, c, out half);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static int tri_on_surface_class_in_box(double px, double py, double pz, Vector3d a, Vector3d b, Vector3d c, out double half)
+        {
+            half = 0.0;
             Vector3d p = new Vector3d(px, py, pz);
             if (ExactPredicates.Orient3d(a, b, c, p) != 0)
-                return 0.0;
+                return 0;
 
             int ny = ExactPredicates.Orient2d(new Vector2d(a.z, a.x), new Vector2d(b.z, b.x), new Vector2d(c.z, c.x));
             int nz = ExactPredicates.Orient2d(new Vector2d(a.x, a.y), new Vector2d(b.x, b.y), new Vector2d(c.x, c.y));
@@ -1152,25 +1206,177 @@ namespace g3
             else if (nz != 0)
                 cls = classify_point_in_tri_2d(px, py, a.x, a.y, b.x, b.y, c.x, c.y, nz);
             else
-                return 0.0; // degenerate collinear triangle
-
-            if (cls == 0)
-                return 0.0;
+                return 0; // degenerate collinear triangle
 
             if (cls == 2) {
-                // Strictly inside triangle: p_eps lies infinitesimally on one side of the plane,
-                // so T subtends an exact hemisphere (+0.5 on -N side, -0.5 on +N side).
                 int side = ny != 0 ? ny : (nz != 0 ? nz : nx);
-                return side < 0 ? 0.5 : -0.5;
+                half = side < 0 ? 0.5 : -0.5;
             }
+            return cls;
+        }
 
-            // On an edge or vertex of T: exact perturbed winding of T at p_eps.
-            int s = line_crossing_x(py, pz, a, b, c);
-            int chiT = (s != 0 && is_ahead_x(px, py, pz, a, b, c, s)) ? s : 0;
+        // w_T(p_eps) for p on an edge or at a vertex of T: the crossing of T and its three edge angles (each within the bound
+        // of boundary_edge_angle_x; the limits at a vertex and on the open edge are exact).
+        static double tri_on_boundary_value(Vector3d p, Vector3d a, Vector3d b, Vector3d c)
+        {
+            int s = line_crossing_x(p.y, p.z, a, b, c);
+            int chiT = (s != 0 && is_ahead_x(p.x, p.y, p.z, a, b, c, s)) ? s : 0;
             double bsum = boundary_edge_angle_x(p, a, b)
                         + boundary_edge_angle_x(p, b, c)
                         + boundary_edge_angle_x(p, c, a);
             return (double)chiT + bsum / MathUtil.TwoPI;
+        }
+
+        /// <summary>
+        /// The sum of w_T(p_eps) over the collected triangles (p on an edge or at a vertex of each), and clears the list.
+        /// The triangles are grouped by plane. Around p each triangle covers a sector of its plane (a half plane for p on an
+        /// edge, the corner's wedge at a vertex). Where the sectors of a group cover every direction the same number m of times,
+        /// counted with the orientation of the triangles (an edge or a vertex inside a flat face: m = 1), the group's sum is
+        /// exactly m times the hemisphere value +-0.5 of the plane: seen from p_eps the group is, up to parts that vanish in
+        /// the limit, m copies of the whole plane. This is decided by exact predicates only (Orient3d for the planes, Orient2d
+        /// in the projection along the plane's axis for the rays), so the value on a flat face is the same exact n + 0.5 on its
+        /// inner edges and vertices as inside its triangles. Every other group (a crease, a corner, an open edge) takes the
+        /// rounded sum of tri_on_boundary_value.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        double resolve_pending_on_boundary(double px, double py, double pz, List<int> pending)
+        {
+            Vector3d p = new Vector3d(px, py, pz);
+            int n = pending.Count;
+            double sum = 0.0;
+            int g0 = 0;
+            while (g0 < n) {
+                // gather the triangles in the plane of pending[g0] behind it
+                FlatTri r = tris[pending[g0]];
+                int g1 = g0 + 1;
+                for (int j = g1; j < n; ++j) {
+                    FlatTri t = tris[pending[j]];
+                    if (ExactPredicates.Orient3d(r.A, r.B, r.C, t.A) == 0 && ExactPredicates.Orient3d(r.A, r.B, r.C, t.B) == 0
+                        && ExactPredicates.Orient3d(r.A, r.B, r.C, t.C) == 0) {
+                        int tmp = pending[g1]; pending[g1] = pending[j]; pending[j] = tmp;
+                        ++g1;
+                    }
+                }
+                double exact;
+                if (g1 - g0 >= 2 && flat_group_value(p, pending, g0, g1, out exact)) {
+                    sum += exact;
+                } else {
+                    for (int j = g0; j < g1; ++j) {
+                        FlatTri t = tris[pending[j]];
+                        sum += tri_on_boundary_value(p, t.A, t.B, t.C);
+                    }
+                }
+                g0 = g1;
+            }
+            pending.Clear();
+            return sum;
+        }
+
+        // The sector of the triangle (a, b, c) at p (p at a vertex or on an edge, not elsewhere), in the triangle's own
+        // counter-clockwise order: from the ray through `from` to the ray through `to`. A half plane for p on an edge.
+        static bool sector_at(Vector3d p, Vector3d a, Vector3d b, Vector3d c, int axis, out Vector2d from, out Vector2d to, out bool halfPlane)
+        {
+            Vector2d P = project(p, axis), A = project(a, axis), B = project(b, axis), C = project(c, axis);
+            halfPlane = false;
+            if (p.x == a.x && p.y == a.y && p.z == a.z) { from = B; to = C; return true; }
+            if (p.x == b.x && p.y == b.y && p.z == b.z) { from = C; to = A; return true; }
+            if (p.x == c.x && p.y == c.y && p.z == c.z) { from = A; to = B; return true; }
+            halfPlane = true;
+            if (ExactPredicates.Orient2d(A, B, P) == 0) { from = B; to = A; return true; }
+            if (ExactPredicates.Orient2d(B, C, P) == 0) { from = C; to = B; return true; }
+            if (ExactPredicates.Orient2d(C, A, P) == 0) { from = A; to = C; return true; }
+            from = to = P;
+            return false;
+        }
+
+        // the projection along the coordinate axis (0 = x, 1 = y, 2 = z), with the orientation of Orient2d as in nx, ny, nz
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static Vector2d project(Vector3d v, int axis)
+        {
+            return axis == 0 ? new Vector2d(v.y, v.z) : (axis == 1 ? new Vector2d(v.z, v.x) : new Vector2d(v.x, v.y));
+        }
+
+        // The rays from P through U and through V are the same ray (U, V different from P).
+        static bool same_ray(Vector2d P, Vector2d U, Vector2d V)
+        {
+            if (ExactPredicates.Orient2d(P, U, V) != 0)
+                return false;
+            // collinear: the same side of P iff the differences have the same sign in a coordinate where one is not 0
+            int ux = U.x.CompareTo(P.x), uy = U.y.CompareTo(P.y);
+            if (ux != 0)
+                return Math.Sign(V.x.CompareTo(P.x)) == Math.Sign(ux);
+            return Math.Sign(V.y.CompareTo(P.y)) == Math.Sign(uy);
+        }
+
+        // Is the ray through R inside the sector that runs counter-clockwise (in the projection) from the ray through lo to the
+        // ray through hi, lo included and hi excluded? The sector is a half plane or smaller.
+        static bool ray_in_sector(Vector2d P, Vector2d lo, Vector2d hi, bool halfPlane, Vector2d R)
+        {
+            if (same_ray(P, lo, R))
+                return true;
+            if (ExactPredicates.Orient2d(P, lo, R) <= 0)
+                return false;
+            return halfPlane || ExactPredicates.Orient2d(P, R, hi) > 0;
+        }
+
+        // The exact sum of w_T(p_eps) over the coplanar triangles pending[g0 .. g1), if their sectors at p cover every direction
+        // the same number of times (see resolve_pending_on_boundary); false otherwise.
+        bool flat_group_value(Vector3d p, List<int> pending, int g0, int g1, out double value)
+        {
+            value = 0.0;
+            FlatTri r = tris[pending[g0]];
+            int rny = ExactPredicates.Orient2d(new Vector2d(r.A.z, r.A.x), new Vector2d(r.B.z, r.B.x), new Vector2d(r.C.z, r.C.x));
+            int rnz = ExactPredicates.Orient2d(new Vector2d(r.A.x, r.A.y), new Vector2d(r.B.x, r.B.y), new Vector2d(r.C.x, r.C.y));
+            int rnx = ExactPredicates.Orient2d(new Vector2d(r.A.y, r.A.z), new Vector2d(r.B.y, r.B.z), new Vector2d(r.C.y, r.C.z));
+            // the axis of the perturbation's side (y, then z, then x): its normal component is not 0 for every triangle of the plane
+            int axis = rny != 0 ? 1 : (rnz != 0 ? 2 : 0);
+            int rs = rny != 0 ? rny : (rnz != 0 ? rnz : rnx);
+            Vector2d P = project(p, axis);
+
+            int m = g1 - g0;
+            Vector2d[] from = new Vector2d[m], to = new Vector2d[m];
+            bool[] half = new bool[m];
+            int[] orient = new int[m];   // +1: oriented like the first triangle, -1: the other way
+            for (int k = 0; k < m; ++k) {
+                FlatTri t = tris[pending[g0 + k]];
+                if (!sector_at(p, t.A, t.B, t.C, axis, out from[k], out to[k], out half[k]))
+                    return false;
+                int ts = ExactPredicates.Orient2d(project(t.A, axis), project(t.B, axis), project(t.C, axis));
+                if (ts == 0)
+                    return false;
+                orient[k] = ts == rs ? 1 : -1;
+            }
+
+            // Going around p, the number of covering sectors (each counted with its orientation) changes by +1 at the ray where a
+            // triangle's own sector starts and by -1 where it ends, whatever the orientation. It is constant iff the start rays
+            // and the end rays are the same rays with the same multiplicities.
+            bool[] used = new bool[m];
+            for (int k = 0; k < m; ++k) {
+                bool found = false;
+                for (int j = 0; j < m && !found; ++j) {
+                    if (!used[j] && same_ray(P, from[k], to[j])) {
+                        used[j] = true;
+                        found = true;
+                    }
+                }
+                if (!found)
+                    return false;
+            }
+
+            // the constant: the signed number of sectors that contain the start ray of the first triangle (counter-clockwise in
+            // the projection, the lower ray included: a triangle's own order is counter-clockwise there iff its projected
+            // orientation is positive)
+            int cover = 0;
+            Vector2d R = from[0];
+            for (int k = 0; k < m; ++k) {
+                bool ccw = (orient[k] > 0) == (rs > 0);
+                Vector2d lo = ccw ? from[k] : to[k], hi = ccw ? to[k] : from[k];
+                if (ray_in_sector(P, lo, hi, half[k], R))
+                    cover += orient[k];
+            }
+            // w of the whole plane oriented like the first triangle at p_eps: +0.5 on the -N side, -0.5 on the +N side
+            value = cover * (rs < 0 ? 0.5 : -0.5);
+            return true;
         }
 
         // p inside the bounding box of the triangle and exactly in its plane (every point of the closed triangle is)
