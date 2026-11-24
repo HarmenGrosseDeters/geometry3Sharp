@@ -125,5 +125,86 @@ namespace geometry3Sharp.Tests
             // the filter decides many cases, both ways, and leaves the touching ones (most of these picks, by design) to the exact test
             Assert.True(decided > 20000 && crossing > 10000 && undecided > 1000, decided + " decided, " + undecided + " undecided, " + crossing + " crossing");
         }
+
+        /// <summary>
+        /// Segments passing near a pixel corner at distance ~[1.5e-15, 7e-15] of the orientation scale were undecided
+        /// under the old 1e-14 constant and are now decided directly by CrossesInteriorFilter with 6e-16 (fails on old code).
+        /// Also stresses 20,000 near-corner segments across [1e-17, 1e-13] w and extreme binary frames against CrossesInteriorExact.
+        /// </summary>
+        [Fact]
+        public void CrossesInteriorFilter_TightBoundDecidesNearCornerBandAndMatchesExact()
+        {
+            // Fails on old 1e-14 constant: at w = 1, pixel (0, 0) has corner (0.5, 0.5).
+            // Segment a = (-0.5, -0.5 + d), b = (1.5, 1.5 + d) has dx = dy = 2, corner (0.5, 0.5) has
+            // ex = 1, ey = 1 - d, o = 2(1 - d) - 2(1) = -2d, sum = 2*(|1-d|+0.5) + 2*(1+0.5) ≈ 6.
+            // With d = 1e-14: |o| = 2e-14, old bound 1e-14 * 6 = 6e-14 (undecided!), new bound 6e-16 * 6 = 3.6e-15 (decided!).
+            var unit = new SnapGrid(1.0);
+            foreach (double d in new[] { 3e-15, -3e-15, 1e-14, -1e-14, 2e-14, -2e-14 }) {
+                var a = new Vector2d(-0.5, -0.5 + d);
+                var b = new Vector2d(1.5, 1.5 + d);
+                int f = unit.CrossesInteriorFilter(a, b, 0, 0);
+                bool exact = unit.CrossesInteriorExact(a, b, 0, 0);
+                Assert.True(f != 0, $"expected tight 6e-16 filter to decide d={d:E2}");
+                Assert.Equal(exact, f > 0);
+                Assert.Equal(exact, unit.CrossesInterior(a, b, 0, 0));
+            }
+
+            // Adversarial near-corner sweep across in-gate scales (-150..150) and out-of-gate extremes (-440, 440).
+            var rnd = new Random(20261124);
+            int decided = 0, undecided = 0;
+            foreach (int exp in new[] { -440, -150, -30, 0, 30, 150, 440 }) {
+                double w = 0.3 * Math.Pow(2.0, exp);
+                var grid = new SnapGrid(w);
+                for (int i = 0; i < 4000; ++i) {
+                    long kx = rnd.Next(-100, 100), ky = rnd.Next(-100, 100);
+                    double cx = kx * w, cy = ky * w, h = 0.5 * w;
+                    double off = Math.Pow(10.0, -17.0 + rnd.NextDouble() * 5.0) * w * (rnd.Next(2) * 2 - 1);
+                    double ang = rnd.NextDouble() * Math.PI * 2.0;
+                    var dir = new Vector2d(Math.Cos(ang), Math.Sin(ang));
+                    var corner = new Vector2d(cx + (rnd.Next(2) * 2 - 1) * h, cy + (rnd.Next(2) * 2 - 1) * h);
+                    var perp = new Vector2d(-dir.y, dir.x);
+                    var a = corner - dir * (2.0 * w) + perp * off;
+                    var b = corner + dir * (2.0 * w) + perp * off;
+
+                    int f = grid.CrossesInteriorFilter(a, b, kx, ky);
+                    bool exact = grid.CrossesInteriorExact(a, b, kx, ky);
+                    if (f == 0) ++undecided;
+                    else {
+                        ++decided;
+                        Assert.Equal(exact, f > 0);
+                    }
+                    Assert.Equal(exact, grid.CrossesInterior(a, b, kx, ky));
+                }
+            }
+            Assert.True(decided > 3000 && undecided > 1000, $"decided={decided}, undecided={undecided}");
+        }
+
+        [Fact]
+        public void CrossesInteriorFilter_InvarianceReuseAndDeterminism()
+        {
+            var grid = new SnapGrid(0.25);
+            var rnd = new Random(99);
+            for (int i = 0; i < 500; ++i) {
+                long kx = rnd.Next(-20, 20), ky = rnd.Next(-20, 20);
+                double cx = kx * grid.W, cy = ky * grid.W;
+                var a = new Vector2d(cx + (rnd.NextDouble() - 0.5) * 3.0 * grid.W, cy + (rnd.NextDouble() - 0.5) * 3.0 * grid.W);
+                var b = new Vector2d(cx + (rnd.NextDouble() - 0.5) * 3.0 * grid.W, cy + (rnd.NextDouble() - 0.5) * 3.0 * grid.W);
+
+                int f1 = grid.CrossesInteriorFilter(a, b, kx, ky);
+                int f2 = grid.CrossesInteriorFilter(a, b, kx, ky);
+                bool c1 = grid.CrossesInterior(a, b, kx, ky);
+                bool c2 = grid.CrossesInterior(a, b, kx, ky);
+                Assert.Equal(f1, f2);
+                Assert.Equal(c1, c2);
+
+                // Endpoint reversal and axis swap preserve crossing truth and agree with filter where decided.
+                Assert.Equal(c1, grid.CrossesInterior(b, a, kx, ky));
+                Assert.Equal(c1, grid.CrossesInterior(new Vector2d(a.y, a.x), new Vector2d(b.y, b.x), ky, kx));
+
+                // Exact power-of-two scaling preserves exact crossing truth.
+                var scaled = new SnapGrid(grid.W * 1024.0);
+                Assert.Equal(c1, scaled.CrossesInterior(a * 1024.0, b * 1024.0, kx, ky));
+            }
+        }
     }
 }

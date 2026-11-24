@@ -753,10 +753,10 @@ def box_pad(c, r):
 
 @entry('SN-5 SnapGrid.CrossesInteriorFilter', 'comp_geom/SnapRounding2.cs',
        ['double ex = cx - a.x, ey = cy - a.y, l = dx * ey, r = dy * ex, o = l - r;',
-        'double bound = 1e-14 * (Math.Abs(dx) * (Math.Abs(ey) + Math.Abs(cy)) + Math.Abs(dy) * (Math.Abs(ex) + Math.Abs(cx)));',
+        'double bound = 6e-16 * (Math.Abs(dx) * (Math.Abs(ey) + Math.Abs(cy)) + Math.Abs(dy) * (Math.Abs(ex) + Math.Abs(cx)));',
         'bool Ok(double v) => v == 0 || (Math.Abs(v) > 1e-140 && Math.Abs(v) < 1e140);'],
        'sign of the orientation of a pixel corner (k +- 1/2) w, rounded once, against the segment a-b',
-       'every input, side and product 0 or in [1e-140, 1e140] (checked: Ok)', '1e-14 (|dx| (|ey| + |cy|) + |dy| (|ex| + |cx|))',
+       'every input, side and product 0 or in [1e-140, 1e140] (checked: Ok)', '6e-16 (|dx| (|ey| + |cy|) + |dy| (|ex| + |cx|))',
        emin=-100, emax=100)
 def crosses_interior(c, r):
     # (no range fact on the differences: the code checks Ok(l), Ok(r), Ok(bound), so where the filter decides the
@@ -768,7 +768,7 @@ def crosses_interior(c, r):
     ex = c.leaf('ex', CX * U + Poly.atom('ex') * U)
     ey = c.leaf('ey', CY * U + Poly.atom('ey') * U)
     o = dx * ey - dy * ex
-    b = c.const(1e-14) * (dx.abs() * (ey.abs() + cyv) + dy.abs() * (ex.abs() + cxv))
+    b = c.const(6e-16) * (dx.abs() * (ey.abs() + cyv) + dy.abs() * (ex.abs() + cxv))
     r.add('sign', sign_dominates(o, b.lo, b.defect, abs_floor=Fraction(1e-140)))
     r.observe_sign(o, b)
 
