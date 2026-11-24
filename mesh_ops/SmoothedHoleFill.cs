@@ -22,9 +22,11 @@ namespace gs
     /// its neighbour across the seam (normals more than 170 degrees apart) or intersects another triangle of the mesh
     /// (exactly; intersections the input has are not counted). If it does not hold, the hole is reopened and filled again
     /// with TargetEdgeLength 0.75, 1 and 0.5 times the mean boundary edge length (an edge length well above the boundary's
-    /// folds the coarse fan fill over the seam, #1507); if no attempt is sound, Apply() returns false and the mesh is as
-    /// before (the hole is open again, the vertices and triangles of the input keep their ids and coordinates; MaxVertexID and MaxTriangleID
-    /// may be larger; FillTriangles and FillVertices are empty). The check scans the mesh once per attempt.
+    /// folds the coarse fan fill over the seam, #1507); if no attempt is sound, Apply() returns false and the hole is open
+    /// again: the vertices and triangles of the input keep their ids, coordinates and (if the mesh has them) vertex normals; MaxVertexID and
+    /// MaxTriangleID may be larger; FillTriangles and FillVertices are empty. A seam counts as a fold above 170 degrees, or above the
+    /// sharpest dihedral of the input at the seam plus 3 degrees (a thin wedge with the hole along its edge). The check scans the
+    /// whole mesh once per attempt (about 60 ms on 265k triangles, 9 ms even for a tiny fill: noticeable only when many holes are filled).
     /// </summary>
     public class SmoothedHoleFill
     {
@@ -116,6 +118,7 @@ namespace gs
             // shorter edges if it folds back over the seam or intersects the mesh (#1507)
             bool guarded = ConstrainToHoleInterior && OffsetDistance <= 0 && useLoop.Vertices.Length > 3;
             AttemptCount = 0;
+            Dictionary<int, Vector3f> savedNormals = (guarded && Mesh.HasVertexNormals) ? save_normals_near(useLoop) : null;
             List<double> lengths = new List<double> { TargetEdgeLength };
             if (guarded) {
                 double boundary = mean_boundary_edge(useLoop);
@@ -134,9 +137,31 @@ namespace gs
                     return true;
                 undo_fill();
             }
+            if (savedNormals != null) {
+                foreach (KeyValuePair<int, Vector3f> kv in savedNormals)
+                    if (Mesh.IsVertex(kv.Key))
+                        Mesh.SetVertexNormal(kv.Key, kv.Value);
+            }
             FillTriangles = new int[0];
             FillVertices = new int[0];
             return false;
+        }
+
+        // the smoothing recomputes the vertex normals around the hole (a few rings outside it): keep them for a failed fill
+        static Dictionary<int, Vector3f> save_normals_near(EdgeLoop loop)
+        {
+            DMesh3 mesh = loop.Mesh;
+            Dictionary<int, Vector3f> saved = new Dictionary<int, Vector3f>();
+            List<int> ring = new List<int>(loop.Vertices);
+            foreach (int v in ring) saved[v] = mesh.GetVertexNormal(v);
+            for (int k = 0; k < 4; ++k) {
+                List<int> next = new List<int>();
+                foreach (int v in ring)
+                    foreach (int nbr in mesh.VtxVerticesItr(v))
+                        if (saved.ContainsKey(nbr) == false) { saved[nbr] = mesh.GetVertexNormal(nbr); next.Add(nbr); }
+                ring = next;
+            }
+            return saved;
         }
 
 
@@ -236,20 +261,31 @@ namespace gs
             return loop.Edges.Length == 0 ? 0 : sum / loop.Edges.Length;
         }
 
-        /// <summary> seam triangle pairs with normals more than this many degrees apart are a fold (180: lying back over each other) </summary>
+        /// <summary>
+        /// seam triangle pairs with normals more than this many degrees apart are a fold (180: lying back over each other),
+        /// unless the input is that sharp itself: the limit is at least the sharpest dihedral of the input triangles at the seam
+        /// plus SeamMarginDeg (a thin wedge with the hole along its edge), and below 180 - SeamMarginDeg / 2
+        /// </summary>
         const double MaxSeamAngleDeg = 170;
+        const double SeamMarginDeg = 3;
 
         // the fill has no fold over its seam and no triangle that intersects another one of the mesh (exact test of
-        // MeshRepairMetrics, only pairs with a fill triangle: intersections of the input are not ours)
+        // MeshRepairMetrics, only pairs with a fill triangle: intersections of the input are not ours). Ids that are no
+        // triangle are skipped.
         internal static bool FillIsSound(DMesh3 mesh, int[] fillTriangles)
         {
-            HashSet<int> fill = new HashSet<int>(fillTriangles);
+            List<int> fillList = new List<int>(fillTriangles.Length);
+            foreach (int tid in fillTriangles)
+                if (mesh.IsTriangle(tid))
+                    fillList.Add(tid);
+            HashSet<int> fill = new HashSet<int>(fillList);
             AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
-            foreach (int tid in fillTriangles) {
+            List<Index2i> seam = new List<Index2i>();       // (fill triangle, input triangle)
+            foreach (int tid in fillList) {
                 Index3i t = mesh.GetTriangle(tid);
                 for (int j = 0; j < 3; ++j) {
                     Vector3d v = mesh.GetVertex(t[j]);
-                    if (double.IsNaN(v.x + v.y + v.z) || double.IsInfinity(v.x + v.y + v.z))
+                    if (is_finite(v.x) == false || is_finite(v.y) == false || is_finite(v.z) == false)
                         return false;
                     box.Contain(v);
                 }
@@ -259,12 +295,31 @@ namespace gs
                     int other = (et.a == tid) ? et.b : et.a;
                     if (other == DMesh3.InvalidID || fill.Contains(other))
                         continue;
-                    if (Vector3d.AngleD(mesh.GetTriNormal(tid), mesh.GetTriNormal(other)) > MaxSeamAngleDeg)
-                        return false;
+                    seam.Add(new Index2i(tid, other));
                 }
             }
 
-            List<int> near = new List<int>(fillTriangles);
+            // the sharpest dihedral of the input at the seam (between its triangles next to the seam and their neighbours)
+            double inputSharpest = 0;
+            HashSet<int> seen = new HashSet<int>();
+            foreach (Index2i pair in seam) {
+                if (seen.Add(pair.b) == false)
+                    continue;
+                Index3i oe = mesh.GetTriEdges(pair.b);
+                for (int j = 0; j < 3; ++j) {
+                    Index2i et = mesh.GetEdgeT(oe[j]);
+                    if (et.b == DMesh3.InvalidID || fill.Contains(et.a) || fill.Contains(et.b))
+                        continue;
+                    double ang = Vector3d.AngleD(mesh.GetTriNormal(et.a), mesh.GetTriNormal(et.b));
+                    if (ang > inputSharpest) inputSharpest = ang;
+                }
+            }
+            double limit = Math.Min(Math.Max(MaxSeamAngleDeg, inputSharpest + SeamMarginDeg), 180 - SeamMarginDeg / 2);
+            foreach (Index2i pair in seam)
+                if (Vector3d.AngleD(mesh.GetTriNormal(pair.a), mesh.GetTriNormal(pair.b)) > limit)
+                    return false;
+
+            List<int> near = new List<int>(fillList);
             foreach (int tid in mesh.TriangleIndices()) {
                 if (fill.Contains(tid))
                     continue;
@@ -272,8 +327,8 @@ namespace gs
                 AxisAlignedBox3d tb = new AxisAlignedBox3d(mesh.GetVertex(t.a));
                 tb.Contain(mesh.GetVertex(t.b)); tb.Contain(mesh.GetVertex(t.c));
                 // (an input triangle with a non-finite vertex cannot be judged; the exact test rejects it)
-                if (double.IsNaN(tb.Min.x + tb.Min.y + tb.Min.z + tb.Max.x + tb.Max.y + tb.Max.z) ||
-                    double.IsInfinity(tb.Min.x + tb.Min.y + tb.Min.z + tb.Max.x + tb.Max.y + tb.Max.z))
+                if (is_finite(tb.Min.x) == false || is_finite(tb.Min.y) == false || is_finite(tb.Min.z) == false ||
+                    is_finite(tb.Max.x) == false || is_finite(tb.Max.y) == false || is_finite(tb.Max.z) == false)
                     continue;
                 if (box.Intersects(tb))
                     near.Add(tid);
@@ -286,6 +341,8 @@ namespace gs
             }
             return true;
         }
+
+        static bool is_finite(double x) { return double.IsNaN(x) == false && double.IsInfinity(x) == false; }
 
         // reopen the hole: the seam edges are constrained in the remeshing, so the boundary loop is as before the fill
         void undo_fill()
