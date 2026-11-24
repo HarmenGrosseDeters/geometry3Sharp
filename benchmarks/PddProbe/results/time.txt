@@ -1,0 +1,17 @@
+# time: gyroid surface samples; 4 logical cores; min of 3 runs; ms
+N       k   kNN-1t   kNN-4t  scale  AMD+cols  compare(AMD+colW1)  D2(1M pairs)+W1  PCA
+10000   16       86       24      9        33                 0.2              238   0.0
+10000   32       42       11      3        24                 0.3                       
+10000   64       71       21      3        53                 0.6                       
+50000   16      146       42     18        79                 0.7              239   0.1
+50000   32      241       87     22       140                 1.7                       
+50000   64      347       93     18       274                 4.3                       
+100000  16      320       89     37       150                 2.2              244   0.3
+100000  32      581      160     37       329                 4.6                       
+100000  64      847      220     34       633                11.6                       
+200000  16      624      171     74       324                 5.3              252   0.5
+200000  32     1221      326     76       671                11.8                       
+200000  64     1887      524     78      1308                24.1                       
+exact EMD (Hungarian) N=200 k=32: 8 ms
+exact EMD (Hungarian) N=400 k=32: 37 ms
+exact EMD (Hungarian) N=800 k=32: 182 ms
