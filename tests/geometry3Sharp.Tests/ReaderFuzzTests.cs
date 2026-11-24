@@ -446,11 +446,24 @@ namespace geometry3Sharp.Tests
                 var rand = new Random(seed * 7919 + 4242);
                 byte[] data = Mutate(valid, false, rand, out string what);
                 string failure = "";
+                long allocated = 0;
                 bool finished = Timed.Finishes(() => {
-                    try { CertificateFile.Check(data, inputs, eb.Result); }
+                    try {
+#if NETCOREAPP
+                        long before = GC.GetAllocatedBytesForCurrentThread();
+#endif
+                        // (Read itself: only FormatException is a refusal; Check would hide any other exception)
+                        try { CertificateFile.Read(data, inputs, eb.Result); } catch (FormatException) { }
+#if NETCOREAPP
+                        // (the reader's allocation, not the checker's: a valid file with large integers costs the checker more)
+                        allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+#endif
+                        CertificateFile.Check(data, inputs, eb.Result);
+                    }
                     catch (Exception e) { failure = e.GetType().Name + ": " + e.Message; }
                 }, TimeBudget);
                 if (finished == false) failure = "no result in the time budget";
+                else if (failure == "" && allocated > 200L * valid.Length + 4_000_000) failure = $"{allocated} bytes allocated for {data.Length} bytes";
                 if (failure != "") failures.Add($"seed {seed} ({what}): {failure}");
             }
             Assert.True(failures.Count == 0, string.Join("\n", failures.Take(20)));

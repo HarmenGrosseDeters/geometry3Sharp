@@ -112,11 +112,16 @@ namespace geometry3Sharp.Tests
         {
             double maxAbs = 0;
             var box = AxisAlignedBox3d.Empty;
+            // (only the vertices that a triangle uses: a vertex nothing refers to must not widen the bound)
             foreach (DMesh3 m in new[] { Result, Assembled })
                 if (m != null)
-                    foreach (Vector3d v in m.Vertices()) {
-                        maxAbs = Math.Max(maxAbs, Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z))));
-                        box.Contain(v);
+                    foreach (int t in m.TriangleIndices()) {
+                        Index3i tri = m.GetTriangle(t);
+                        for (int k = 0; k < 3; ++k) {
+                            Vector3d v = m.GetVertex(tri[k]);
+                            maxAbs = Math.Max(maxAbs, Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z))));
+                            box.Contain(v);
+                        }
                     }
             // (the rounding's bound, plus the rounding of the exact vertices to the nearest double: at most an ulp of maxAbs
             // per coordinate; 4 ulps leave room for the split vertices, whose coordinates are midpoints of rounded ends)

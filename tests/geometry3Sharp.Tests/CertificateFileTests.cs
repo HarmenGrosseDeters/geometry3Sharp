@@ -110,9 +110,9 @@ namespace geometry3Sharp.Tests
             public DMesh3 A, B; public ExactMeshBoolean Boolean; public BooleanCertificate Cert; public byte[] Bytes; public List<DMesh3> Inputs;
         }
 
-        static Setup Spheres(Ops op = Ops.Union)
+        static Setup Spheres(Ops op = Ops.Union, int edgeVertices = 4)
         {
-            var s = new Setup { A = Sphere(Vector3d.Zero), B = Sphere(new Vector3d(0.5, 0.25, 0.125)) };
+            var s = new Setup { A = Sphere(Vector3d.Zero, 1, edgeVertices), B = Sphere(new Vector3d(0.5, 0.25, 0.125), 1, edgeVertices) };
             s.Cert = Run(s.A, s.B, op, out s.Boolean);
             s.Bytes = CertificateFile.Write(s.Cert);
             s.Inputs = new List<DMesh3> { s.A, s.B };
@@ -203,9 +203,9 @@ namespace geometry3Sharp.Tests
         [InlineData(Ops.Difference)]
         public void OneFlippedBit_IsRejected(Ops op)
         {
-            Setup s = Spheres(op);
-            int start = 48;                                     // after the magic, version, format, operation, culling mesh, flags and settings
-            int stride = Math.Max(1, (s.Bytes.Length - start) / 60);
+            Setup s = Spheres(op, 3);
+            int start = 24;                                     // after the magic, version, format, operation, culling mesh, flags and settings
+            int stride = Math.Max(1, (s.Bytes.Length - start) / 80);
             var accepted = new List<string>();
             int tried = 0;
             for (int pos = start; pos < s.Bytes.Length; pos += stride, ++tried) {
@@ -279,6 +279,155 @@ namespace geometry3Sharp.Tests
             fewer.RemoveTriangle(fewer.TriangleIndices().First(), false, false);
             Assert.NotEqual("", CertificateFile.Check(s.Bytes, new List<DMesh3> { fewer, s.B }, s.Boolean.Result));
             Assert.StartsWith("malformed", CertificateFile.Check(s.Bytes, new List<DMesh3> { s.A }, s.Boolean.Result));
+        }
+
+
+        // ---------------------------------------------------------------- forged bounds (review of #1527)
+
+        static DMesh3 WrongOutput(Setup s)
+        {
+            DMesh3 o = new DMesh3(s.Boolean.Result, false, MeshComponents.None);
+            int v = o.VertexIndices().First();
+            o.SetVertex(v, o.GetVertex(v) + new Vector3d(0, 0, 3e-3));           // far above the coverage distance
+            return o;
+        }
+
+        /// <summary>
+        /// E1: a vertex of the result before rounding that no triangle uses, at 1e300, would stretch the box the bound is derived
+        /// from (the bound is a fraction of its diagonal) and with it the coverage distance: the reader refuses such a file, and the
+        /// bound is taken over the vertices that triangles use only.
+        /// </summary>
+        [Fact]
+        public void E1_AnUnreferencedVertexAtOneE300_DoesNotLoosenTheBound()
+        {
+            Setup s = Spheres();
+            DMesh3 wrong = WrongOutput(s);
+            Assert.NotEqual("", CertificateFile.Check(s.Bytes, s.Inputs, wrong));
+            BooleanCertificate c = CertificateFile.Read(s.Bytes, s.Inputs, wrong);
+            int v = c.Assembled.AppendVertex(new Vector3d(1e300, 0, 0));
+            var ex = c.AssembledExact.ToList();
+            while (ex.Count <= v) ex.Add(default(ExactPoint3));
+            ex[v] = ExactPoint3.FromInteger(new System.Numerics.BigInteger(1e300), 0, 0);
+            c.AssembledExact = ex.ToArray();
+            c.SetRounding(true, 0.9, 0);                                         // the claim the loose bound would admit
+            string r = CertificateFile.Check(CertificateFile.Write(c, forge: true), s.Inputs, wrong);
+            Assert.StartsWith("malformed: a vertex of the result before rounding that no triangle uses", r);
+            // the in-memory checker, which has no file to refuse: the unreferenced vertex does not count either
+            Assert.True(c.MaxLength > c.MaxLengthBound, $"{c.MaxLength} {c.MaxLengthBound}");
+        }
+
+        /// <summary>
+        /// E1b: the output has a vertex that no triangle uses, at 1e5; the file claims a rounding length of 0.9. Over all vertices
+        /// the bound would be about 1 and admit it, the wrong output (a vertex moved by 3e-3) would be covered. Over the vertices
+        /// that triangles use, the bound stays at about 2.5e-5 and the claim is refused.
+        /// </summary>
+        [Fact]
+        public void E1b_AnUnreferencedVertexOfTheOutput_DoesNotLoosenTheBound()
+        {
+            Setup s = Spheres();
+            DMesh3 wrong = WrongOutput(s);
+            wrong.AppendVertex(new Vector3d(1e5, 0, 0));
+            BooleanCertificate c = CertificateFile.Read(s.Bytes, s.Inputs, wrong);
+            c.SetRounding(true, 0.9, 0);
+            string r = CertificateFile.Check(CertificateFile.Write(c), s.Inputs, wrong);
+            Assert.Contains("above the documented", r);
+            // and the honest certificate still holds for an output with such a vertex
+            DMesh3 honest = new DMesh3(s.Boolean.Result, false, MeshComponents.None);
+            honest.AppendVertex(new Vector3d(1e5, 0, 0));
+            Assert.Equal("", CertificateFile.Check(s.Bytes, s.Inputs, honest));
+        }
+
+        /// <summary>
+        /// E2: the rounding settings that the bound depends on are the caller's (library defaults), not the file's: a certificate
+        /// whose in-memory settings are loose writes the same bytes, and is judged with the defaults; settings that are not finite
+        /// numbers of at least 0 are refused.
+        /// </summary>
+        [Fact]
+        public void E2_TheFileCannotLoosenItsOwnSettings()
+        {
+            Setup s = Spheres();
+            DMesh3 wrong = WrongOutput(s);
+            BooleanCertificate c = CertificateFile.Read(s.Bytes, s.Inputs, wrong);
+            c.SettingAbsoluteTolerance = 1; c.SettingMaxDisplacement = 1; c.SettingUlpFactor = 1e12;
+            c.SetRounding(true, 0.9, 0);
+            byte[] forged = CertificateFile.Write(c);
+            string r = CertificateFile.Check(forged, s.Inputs, wrong);
+            Assert.Contains("above the documented", r);
+            Assert.Equal(s.Bytes.Length, forged.Length);
+            // what the caller states is used (and shown through Delta)
+            string loose = CertificateFile.Check(forged, s.Inputs, wrong, new CertificateFile.RoundingSettings { AbsoluteTolerance = 1 }, out double delta);
+            Assert.True(delta >= 0.9, delta.ToString());
+            foreach (var bad in new[] { new CertificateFile.RoundingSettings { AbsoluteTolerance = double.NaN }, new CertificateFile.RoundingSettings { MaxDisplacement = -1 },
+                new CertificateFile.RoundingSettings { UlpFactor = double.PositiveInfinity } })
+                Assert.StartsWith("malformed: rounding settings", CertificateFile.Check(s.Bytes, s.Inputs, s.Boolean.Result, bad));
+            Assert.Equal("", CertificateFile.Check(s.Bytes, s.Inputs, s.Boolean.Result, new CertificateFile.RoundingSettings()));
+            log.WriteLine("with the caller's loose settings: '" + loose + "'");
+        }
+
+        // ---------------------------------------------------------------- a reader that cannot be made to allocate
+
+        static byte[] Splice(byte[] b, int at, int removeBytes, byte[] insert) => b.Take(at).Concat(insert).Concat(b.Skip(at + removeBytes)).ToArray();
+
+        static byte[] Varint(ulong v) { var l = new List<byte>(); while (v >= 0x80) { l.Add((byte)(v | 0x80)); v >>= 7; } l.Add((byte)v); return l.ToArray(); }
+
+        // the length of the varint at b[at]
+        static int VarintLength(byte[] b, int at) { int n = 1; while ((b[at + n - 1] & 0x80) != 0) n++; return n; }
+
+        static long Allocated() =>
+#if NETCOREAPP
+            GC.GetAllocatedBytesForCurrentThread();
+#else
+            0;
+#endif
+
+        /// <summary>
+        /// A count that claims 2^31 elements, followed by the end of the bytes: every list of the format is refused by the bytes
+        /// left (at least one byte per element, more for the larger ones), with FormatException and no allocation worth the
+        /// name. Read, not Check: Check would hide any other exception.
+        /// </summary>
+        [Fact]
+        public void HugeCounts_ThenTruncation_AreRefusedWithoutAllocating()
+        {
+            Setup s = Spheres(Ops.Union, 3);
+            CertificateFile.Write(s.Cert);
+            var sections = CertificateFile.LastSections;
+            int refused = 0;
+            foreach (var (name, offset) in sections) {
+                int len = VarintLength(s.Bytes, offset);
+                byte[] huge = Varint((1UL << 31) - 1);
+                byte[] data = Splice(s.Bytes, offset, len, huge).Take(offset + huge.Length + 3).ToArray();
+                long before = Allocated();
+                Assert.Throws<FormatException>(() => CertificateFile.Read(data, s.Inputs, s.Boolean.Result));
+                long used = Allocated() - before;
+#if NETCOREAPP
+                Assert.True(used < 2_000_000, $"{name}: {used} bytes allocated");
+#endif
+                refused++;
+            }
+            Assert.True(refused >= 4, refused.ToString());
+        }
+
+        [Fact]
+        public void PaddedVarints_AndOutOfRangeNumbers_AreRefused()
+        {
+            Setup s = Spheres();
+            // the version as a padded varint (0x81 0x00 for 1)
+            Assert.StartsWith("malformed: non-minimal varint", CertificateFile.Check(Splice(s.Bytes, 4, 1, new byte[] { 0x81, 0x00 }), s.Inputs, s.Boolean.Result));
+            // a count as a padded varint: the triangle list's
+            CertificateFile.Write(s.Cert);
+            int at = CertificateFile.LastSections.First(x => x.section == "triangles").offset;
+            byte[] padded = Varint((ulong)s.Cert.TriMesh.Length);
+            padded[padded.Length - 1] |= 0x80;
+            padded = padded.Concat(new byte[] { 0x00 }).ToArray();
+            Assert.StartsWith("malformed: non-minimal varint", CertificateFile.Check(Splice(s.Bytes, at, VarintLength(s.Bytes, at), padded), s.Inputs, s.Boolean.Result));
+            // a grid scale and a winding number out of range
+            BooleanCertificate c = CertificateFile.Read(s.Bytes, s.Inputs, s.Boolean.Result);
+            c.ScaleExp = 5000;
+            Assert.StartsWith("malformed: a grid scale out of range", CertificateFile.Check(CertificateFile.Write(c), s.Inputs, s.Boolean.Result));
+            // a point table entry that no piece uses
+            byte[] extra = CertificateFile.Write(s.Cert, extraPoints: new[] { ExactPoint3.FromInteger(7, 7, 7) });
+            Assert.StartsWith("malformed: a point that no piece uses", CertificateFile.Check(extra, s.Inputs, s.Boolean.Result));
+            Assert.True(extra.Length > s.Bytes.Length);
         }
 
         // ---------------------------------------------------------------- the file as a format

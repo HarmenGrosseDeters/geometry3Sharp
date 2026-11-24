@@ -17,15 +17,33 @@ namespace geometry3Sharp.Tests
     /// Format R (the rational corners the checker reads), version 1. Little-endian, deterministic, no floating-point text: every
     /// number is an integer (varints, zigzag for signed ones, BigInteger as a length and its two's complement bytes) or the 64
     /// raw bits of a double. Layout: magic "G3BC", version, format; the operation (built-in only: a custom winding predicate has
-    /// no file format); the culling mesh; the rounding's settings, MaxLength, removed components (the bound is derived by the
-    /// reader from the output and the settings, not read); the grid (ScaleExp, Center); the triangles reversed by the boolean (the
+    /// no file format); the culling mesh; whether the result was rounded, MaxLength and the removed components (claims: MaxLength
+    /// is checked against a bound the reader derives from the output and the caller's rounding settings, which are not in the file); the grid (ScaleExp, Center); the triangles reversed by the boolean (the
     /// reader rebuilds the arrangement's meshes from the caller's); per input triangle its mesh, id and culled flag; the points
-    /// (X, Y, Z, W, each once); the pieces (mesh, source, three point ids); the labels (front winding numbers, keep and flip);
+    /// (X, Y, Z, W, each used once or more); the pieces (mesh, source, three point ids); the labels (front winding numbers, keep and flip);
     /// the result before rounding (vertices as exact points, triangles; the double positions are derived). The output mesh is not in the file: the
     /// caller gives it.
     /// </summary>
     internal static class CertificateFile
     {
+        /// <summary>
+        /// The rounding settings the caller used (ExactMeshBoolean.RoundingMaxDisplacement, RoundingUlpFactor,
+        /// RoundingAbsoluteTolerance, StrictRounding), with the library's defaults. They decide the bound that MaxLength is
+        /// checked against, so they come from the caller and not from the file: a certificate cannot loosen its own bound.
+        /// </summary>
+        internal sealed class RoundingSettings
+        {
+            public double MaxDisplacement = 1e-5, UlpFactor = 256, AbsoluteTolerance = 0;
+            public bool Strict;
+            /// <summary> "" or why the settings are refused (not finite, or negative) </summary>
+            public string Validate()
+            {
+                foreach (double v in new[] { MaxDisplacement, UlpFactor, AbsoluteTolerance })
+                    if (double.IsNaN(v) || double.IsInfinity(v) || v < 0) return "rounding settings that are not finite numbers of at least 0";
+                return "";
+            }
+        }
+
         public const int Version = 1;
         static readonly byte[] Magic = { (byte)'G', (byte)'3', (byte)'B', (byte)'C' };
 
@@ -44,11 +62,16 @@ namespace geometry3Sharp.Tests
             public int Position => (int)ms.Position;
         }
 
-        /// <summary> the certificate of c in format R; c must come from a built-in operation and not be not-applicable </summary>
         /// <summary> for tests and reports: where each section of the last Write started </summary>
         [ThreadStatic] public static List<(string section, int offset)> LastSections;
 
-        public static byte[] Write(BooleanCertificate c)
+        /// <summary> the certificate of c in format R; c must come from a built-in operation and not be not-applicable </summary>
+
+        /// <summary>
+        /// forge (tests only): also writes the vertices of the result before rounding that no triangle uses, and the extra points,
+        /// as a hand-made file would; the reader must refuse both
+        /// </summary>
+        public static byte[] Write(BooleanCertificate c, bool forge = false, IList<ExactPoint3> extraPoints = null)
         {
             var sections = LastSections = new List<(string, int)>();
             if (c.NotApplicableReason != null) throw new NotSupportedException("no certificate: " + c.NotApplicableReason);
@@ -58,8 +81,7 @@ namespace geometry3Sharp.Tests
             w.U(Version); w.U(1);                                           // format R
             w.U((ulong)(int)c.Operation.Value);
             w.I(c.CullMesh);
-            w.Byte(c.Rounded ? 1 : 0); w.Byte(c.SettingStrict ? 1 : 0);
-            w.Bits(c.SettingMaxDisplacement); w.Bits(c.SettingUlpFactor); w.Bits(c.SettingAbsoluteTolerance);
+            w.Byte(c.Rounded ? 1 : 0);
             w.Bits(c.MaxLength); w.U((ulong)c.RemovedComponents);
             w.I(c.ScaleExp); foreach (BigInteger x in c.Center) w.Big(x);
             // the triangles the boolean reversed: by comparing corner positions with the caller's meshes
@@ -85,6 +107,7 @@ namespace geometry3Sharp.Tests
                 foreach (ExactPoint3 p in piece)
                     if (ids.ContainsKey(p) == false) { ids[p] = points.Count; points.Add(p); }
             sections.Add(("points", w.Position));
+            if (extraPoints != null) points.AddRange(extraPoints);
             w.U((ulong)points.Count); foreach (ExactPoint3 p in points) w.Point(p);
             int n = c.PieceCorners.Length;
             sections.Add(("pieces", w.Position));
@@ -97,8 +120,11 @@ namespace geometry3Sharp.Tests
             }
             sections.Add(("result before rounding", w.Position));
             var vid = new Dictionary<int, int>();
-            w.U((ulong)c.Assembled.VertexCount);
-            foreach (int v in c.Assembled.VertexIndices()) {
+            var referenced = new SortedSet<int>();
+            foreach (int t in c.Assembled.TriangleIndices()) { Index3i tri = c.Assembled.GetTriangle(t); referenced.Add(tri.a); referenced.Add(tri.b); referenced.Add(tri.c); }
+            if (forge) foreach (int v in c.Assembled.VertexIndices()) referenced.Add(v);
+            w.U((ulong)referenced.Count);
+            foreach (int v in referenced) {
                 vid[v] = vid.Count;
                 w.Point(c.AssembledExact[v]);
             }
@@ -137,7 +163,8 @@ namespace geometry3Sharp.Tests
                 if (v > (ulong)limit) throw new FormatException2("a count above its limit");
                 return (int)v;
             }
-            public int Counted() => Count(b.Length - pos);
+            // a count of elements that take at least minBytes each: it cannot exceed what is left of the bytes
+            public int Counted(int minBytes) => Count((b.Length - pos) / Math.Max(1, minBytes));
             public long I() { ulong v = U(); return (long)(v >> 1) ^ -(long)(v & 1); }
             public double Bits()
             {
@@ -147,7 +174,7 @@ namespace geometry3Sharp.Tests
             }
             public BigInteger Big()
             {
-                int len = Counted();
+                int len = Counted(1);
                 if (len > 4096) throw new FormatException2("an integer of more than 32768 bits");
                 if (len == 0) throw new FormatException2("an empty integer");
                 var bytes = new byte[len]; Array.Copy(b, pos, bytes, 0, len); pos += len;
@@ -169,16 +196,18 @@ namespace geometry3Sharp.Tests
         /// The certificate of bytes for the caller's meshes and the output mesh (not copied: the checker reads it). Throws
         /// FormatException on bytes that are not a certificate of this version.
         /// </summary>
-        public static BooleanCertificate Read(byte[] bytes, IList<DMesh3> inputs, DMesh3 output)
+        public static BooleanCertificate Read(byte[] bytes, IList<DMesh3> inputs, DMesh3 output, RoundingSettings settings = null)
         {
-            try { return Parse(bytes, inputs, output); }
+            try { return Parse(bytes, inputs, output, settings ?? new RoundingSettings()); }
             catch (FormatException2 e) { throw new FormatException(e.Message); }
-            catch (Exception e) when (e is ArgumentException || e is IndexOutOfRangeException || e is OverflowException || e is InvalidOperationException || e is DivideByZeroException || e is OutOfMemoryException)
+            catch (Exception e) when (e is ArgumentException || e is IndexOutOfRangeException || e is OverflowException || e is InvalidOperationException || e is DivideByZeroException)
             { throw new FormatException("malformed certificate: " + e.Message); }
         }
 
-        static BooleanCertificate Parse(byte[] bytes, IList<DMesh3> inputs, DMesh3 output)
+        static BooleanCertificate Parse(byte[] bytes, IList<DMesh3> inputs, DMesh3 output, RoundingSettings settings)
         {
+            string bad = settings.Validate();
+            if (bad != "") throw new FormatException2(bad);
             var r = new R(bytes);
             foreach (byte m in Magic) if (r.Byte() != m) throw new FormatException2("not a certificate (magic)");
             if (r.U() != Version) throw new FormatException2("an unknown version");
@@ -190,22 +219,23 @@ namespace geometry3Sharp.Tests
             long cull = r.I();
             if (cull < -1 || cull >= inputs.Count) throw new FormatException2("a culling mesh out of range");
             c.CullMesh = (int)cull;
-            int rounded = r.Byte(), strict = r.Byte();
-            if (rounded > 1 || strict > 1) throw new FormatException2("a flag out of range");
-            c.SettingStrict = strict == 1;
-            c.SettingMaxDisplacement = r.Bits(); c.SettingUlpFactor = r.Bits(); c.SettingAbsoluteTolerance = r.Bits();
+            int rounded = r.Byte();
+            if (rounded > 1) throw new FormatException2("a flag out of range");
+            c.SettingStrict = settings.Strict; c.SettingMaxDisplacement = settings.MaxDisplacement;
+            c.SettingUlpFactor = settings.UlpFactor; c.SettingAbsoluteTolerance = settings.AbsoluteTolerance;
             double maxLength = r.Bits();
             int removed = r.Count(int.MaxValue);
-            if (double.IsNaN(maxLength) || maxLength < 0 || double.IsNaN(c.SettingMaxDisplacement) || double.IsNaN(c.SettingUlpFactor) || double.IsNaN(c.SettingAbsoluteTolerance))
-                throw new FormatException2("a rounding number that is not a number");
-            c.ScaleExp = (int)Math.Max(-100000, Math.Min(100000, r.I()));
+            if (double.IsNaN(maxLength) || double.IsInfinity(maxLength) || maxLength < 0) throw new FormatException2("a rounding length that is not a finite number of at least 0");
+            long scaleExp = r.I();
+            if (scaleExp < -2200 || scaleExp > 2200) throw new FormatException2("a grid scale out of range");
+            c.ScaleExp = (int)scaleExp;
             c.Center = new[] { r.Big(), r.Big(), r.Big() };
             int meshCount = r.Count(inputs.Count);
             if (meshCount != inputs.Count) throw new FormatException2("a different number of meshes");
             // the meshes of the arrangement: the caller's, with the listed triangles reversed
             c.Inputs = inputs.ToList();
             c.Meshes = inputs.Select(m => new DMesh3(m, false, MeshComponents.None)).ToList();
-            int nrev = r.Counted();
+            int nrev = r.Counted(2);
             var seenRev = new HashSet<(int, int)>();
             for (int i = 0; i < nrev; ++i) {
                 int m = r.Count(inputs.Count - 1), t = r.Count(int.MaxValue);
@@ -213,7 +243,7 @@ namespace geometry3Sharp.Tests
                 c.Meshes[m].ReverseTriOrientation(t);
             }
             c.ReorientedTriangles = r.Count(int.MaxValue);
-            int nt = r.Counted();
+            int nt = r.Counted(3);
             c.TriMesh = new int[nt]; c.TriTid = new int[nt]; c.TriCulled = new bool[nt];
             for (int t = 0; t < nt; ++t) {
                 c.TriMesh[t] = r.Count(inputs.Count - 1); c.TriTid[t] = r.Count(int.MaxValue);
@@ -221,35 +251,47 @@ namespace geometry3Sharp.Tests
                 int cu = r.Byte(); if (cu > 1) throw new FormatException2("a flag out of range");
                 c.TriCulled[t] = cu == 1;
             }
-            int np = r.Counted();
+            int np = r.Counted(8);
+            var pointUsed = new bool[np];
             var points = new ExactPoint3[np];
             for (int i = 0; i < np; ++i) points[i] = r.Point();
-            int n = r.Counted();
+            int n = r.Counted(6);
             c.PieceMesh = new int[n]; c.PieceSource = new int[n]; c.PieceCorners = new ExactPoint3[n][];
             c.Front = new int[n][]; c.Keep = new bool[n]; c.Flip = new bool[n];
             for (int i = 0; i < n; ++i) {
                 c.PieceMesh[i] = r.Count(inputs.Count - 1); c.PieceSource[i] = r.Count(Math.Max(0, nt - 1));
-                c.PieceCorners[i] = new[] { points[r.Count(np - 1)], points[r.Count(np - 1)], points[r.Count(np - 1)] };
+                int[] pid = { r.Count(np - 1), r.Count(np - 1), r.Count(np - 1) };
+                foreach (int k in pid) pointUsed[k] = true;
+                c.PieceCorners[i] = new[] { points[pid[0]], points[pid[1]], points[pid[2]] };
                 int flags = r.Byte();
                 if (flags > 7) throw new FormatException2("flags out of range");
                 c.Keep[i] = (flags & 1) != 0; c.Flip[i] = (flags & 2) != 0;
                 if ((flags & 4) != 0) {
                     c.Front[i] = new int[meshCount];
-                    for (int k = 0; k < meshCount; ++k) c.Front[i][k] = (int)Math.Max(int.MinValue, Math.Min(int.MaxValue, r.I()));
+                    for (int k = 0; k < meshCount; ++k) {
+                        long f = r.I();
+                        if (f < int.MinValue || f > int.MaxValue) throw new FormatException2("a winding number out of range");
+                        c.Front[i][k] = (int)f;
+                    }
                 }
             }
+            if (pointUsed.Contains(false)) throw new FormatException2("a point that no piece uses");
             var assembled = new DMesh3();
-            int nv = r.Counted();
+            int nv = r.Counted(8);
             c.AssembledExact = new ExactPoint3[nv];
             for (int i = 0; i < nv; ++i) {
                 // (the double position is derived from the exact point: within an ulp of it, and what the checker's boxes and Delta need)
                 c.AssembledExact[i] = r.Point();
                 assembled.AppendVertex(c.AssembledExact[i].ToVector3d(0));
             }
-            int ntri = r.Counted();
+            int ntri = r.Counted(3);
+            var vertexUsed = new bool[nv];
             for (int i = 0; i < ntri; ++i) {
-                if (assembled.AppendTriangle(r.Count(nv - 1), r.Count(nv - 1), r.Count(nv - 1)) < 0) throw new FormatException2("a result-before-rounding triangle the mesh cannot hold");
+                int va = r.Count(nv - 1), vb = r.Count(nv - 1), vc = r.Count(nv - 1);
+                vertexUsed[va] = vertexUsed[vb] = vertexUsed[vc] = true;
+                if (assembled.AppendTriangle(va, vb, vc) < 0) throw new FormatException2("a result-before-rounding triangle the mesh cannot hold");
             }
+            if (vertexUsed.Contains(false)) throw new FormatException2("a vertex of the result before rounding that no triangle uses");
             if (r.AtEnd == false) throw new FormatException2("bytes after the certificate");
             c.Assembled = assembled;
             c.Result = output;
@@ -258,12 +300,17 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary> the verdict of the stand-alone checker: "" if the bytes certify output as the result for inputs (C0-C5, nothing removed, everything covered), else the reason </summary>
-        public static string Check(byte[] bytes, IList<DMesh3> inputs, DMesh3 output)
+        public static string Check(byte[] bytes, IList<DMesh3> inputs, DMesh3 output, RoundingSettings settings = null) => Check(bytes, inputs, output, settings, out _);
+
+        /// <summary> as Check, and the coverage distance Delta the verdict was decided with (NaN where the bytes were not read) </summary>
+        public static string Check(byte[] bytes, IList<DMesh3> inputs, DMesh3 output, RoundingSettings settings, out double delta)
         {
             BooleanCertificate c;
-            try { c = Read(bytes, inputs, output); }
+            delta = double.NaN;
+            try { c = Read(bytes, inputs, output, settings); }
             catch (FormatException e) { return "malformed: " + e.Message; }
             string r;
+            delta = c.Delta;
             try { r = c.Check(); }
             catch (Exception e) when (e is OutOfMemoryException == false && e is StackOverflowException == false)
             { return "rejected: the checker could not evaluate the certificate (" + e.GetType().Name + ": " + e.Message + ")"; }

@@ -327,15 +327,16 @@ talks to the boolean, split out), `CertificateFileTests.cs`, a case in `ReaderFu
 (`perf/certify_file_step_b.txt`).
 
 **Format R, version 1.** Little-endian, deterministic, integers only: varints (zigzag for signed), BigInteger as a length and its
-minimal two's complement bytes, the rounding's `MaxLength` as the 64 raw bits of the double (no number text anywhere; the culture
+minimal two's complement bytes, the rounding's `MaxLength` as the 64 raw bits of the double (the rounding settings are not in the file) (no number text anywhere; the culture
 cannot change a byte, tested under de-DE and en-US). Layout: magic `G3BC`, version, format; operation (built-in only: a custom
-winding predicate has no file format and `Write` refuses it); culling mesh; the rounding settings and `MaxLength`; the grid
+winding predicate has no file format and `Write` refuses it); culling mesh; whether the result was rounded, `MaxLength` and the removed components; the grid
 (`ScaleExp`, `Center`); the input triangles the boolean reversed (the reader rebuilds the arrangement's meshes from the caller's
 meshes, so the claim "these were reversed" is checked by C0's orientation test); per input triangle its mesh, id and culled flag;
 the corner points (each once); the pieces (mesh, source, three point ids, keep and flip bits, front winding numbers); the result
 before rounding as exact points and triangles (its double positions are derived from the exact points, so no redundant bytes).
 The output mesh is not in the file: the caller gives it. The reader refuses non-minimal varints and integers, unreduced points,
-`W <= 0`, counts above the bytes left, trailing bytes, and unknown versions, formats or operations (`FormatException`; `Check`
+`W <= 0`, counts above the bytes left (each element at least its minimum size), points no piece uses, result vertices no triangle uses,
+grid scales and winding numbers out of range, trailing bytes, and unknown versions, formats or operations (`FormatException`; `Check`
 turns that and any exception of the checker into a rejection).
 
 **Not format S.** Not built in this step. The keys of `ExactMeshArrangement` refer to arrangement point ids and plane keys (four
@@ -348,9 +349,12 @@ numbers say S is at most 25 percent smaller than R, so R carries step B. Left fo
 or `new ExactMeshBoolean` on a code line; the one use of the boolean's name is the alias of its operations enum (a test reads the
 sources and checks this). What the stand-alone check shares with the in-process one is the checker class itself (C0-C5), which is
 the point: the same decision procedure, fed from bytes. It trusts the file for the claims it verifies (pieces, labels, selection,
-culling, reversed triangles, the result before rounding) and reads three things as settings, not as proofs: the rounding settings
-(a looser bound is a claim a user reads, printed by the caller), `MaxLength` (checked against the bound the reader derives from the
-settings and the output) and the operation.
+culling, reversed triangles, the result before rounding). Three things are not proofs: `MaxLength` and the operation are claims, and
+the rounding settings are the caller's, not the file's (`CertificateFile.RoundingSettings`, the library defaults when not given;
+negative or non-finite values are refused). The bound that `MaxLength` is checked against is derived from the settings and from
+the vertices that triangles use in the output and in the result before rounding (a vertex nothing refers to cannot widen it: the
+review of #1527 forged a bound with one at 1e300 and one at 1e5). The verdict reports the coverage distance Delta (`Check(..., out
+delta)`); a user who passes loose settings sees it in Delta.
 
 **Proposal for a public API (the owner decides; none added).** `ExactMeshBoolean.CertificateBytes()` after `Compute()` with
 recording on, and a static `ExactMeshBooleanCertificate.Check(byte[] certificate, IReadOnlyList<DMesh3> inputs, DMesh3 output)`
@@ -365,7 +369,8 @@ test-only.
 - Tamper tests of the certificate (20 mutations, each must be rejected): one rational of one piece, of every piece that has it,
   a denominator, a piece dropped (two ways), two sources swapped, two label sets swapped, a winding number, keep and flip bits, a
   corner order, the grid scale and centre, a culled flag, an input triangle dropped, the operation, a rounding length above its
-  bound, a result-before-rounding vertex and triangle. One flipped bit at 60 positions on a stride through the file after the
+  bound, a result-before-rounding vertex and triangle; the forged bounds E1 (an unreferenced vertex at 1e300 in the file), E1b (one at 1e5 in
+  the output, claim 0.9) and E2 (loose settings in the certificate object). One flipped bit at 60 positions on a stride through the file after the
   settings, for a Union and a Difference: all rejected, except the labels of pieces outside the culling mesh (a Difference discards
   what lies outside A, so B's winding number there is a don't-care that C3 does not read).
 - Tamper tests of the output and the inputs: a triangle reversed or removed, a vertex moved by ten times Delta or by 3e-3, the output
@@ -377,8 +382,10 @@ test-only.
 - Invariance over `Similarity.All()` (without the extreme frame): every frame certifies through the file, and the exact 2^k frames
   give the same pieces on the grid, labels, selection and culling bit for bit (the bytes differ in the grid scale and in the
   result before rounding, which is in input coordinates).
-- `ReaderFuzzTests.MutatedCertificates_ReadSafely`: random byte mutations, truncations and header numbers never throw, hang or
-  allocate beyond the budget.
+- `ReaderFuzzTests.MutatedCertificates_ReadSafely`: random byte mutations, truncations and header numbers: `Read` throws only
+  `FormatException` (not hidden by `Check`), within the time budget and at most 200 times the input in allocation; plus
+  `HugeCounts_ThenTruncation_AreRefusedWithoutAllocating` (a count of 2^31 in front of every list, then the end of the bytes) and
+  padded varints, out-of-range numbers and unused table entries.
 - Hand mutations of the file code (reversed list ignored, flip bit dropped, unreduced check removed, culled flags dropped, trailing
   bytes allowed, centre ignored, labels read as zero) each turn at least one test red.
 
