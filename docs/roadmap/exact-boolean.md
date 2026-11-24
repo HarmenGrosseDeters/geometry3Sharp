@@ -450,6 +450,7 @@ decisions above): the ExactPredicates throw near ±1e308 (fixed: robustness swee
 #### Other open items
 
 - **`SolidBooleanPipeline` default `AutomaticSteps = GridBeforeFallback` (local, PR to come).** An open tool of a Difference that the sheet role refuses with `RimInsideWorkpiece` (a rim a few ulps inside a face, far from the origin) is retried once on the data grid before the fallback; `AutomaticSteps = None` is the old behaviour. Known risk, in the guide: the cell can be a visible share of a small feature far from the origin.
+- **`SolidBooleanPipeline.Verification` (opt-in, local, PR to come).** Two checks of a finished result, refused with `PipelineStatus.VerificationFailed`: `NoInventedSurface` (a result triangle with a sample, its vertices, centroid or edge midpoints, farther than 3 x (rounding bound + grid cell diagonal) from every input as passed: a hole fill of an open tool made surface that no input has; limit `MaxInventedSurfaceShare` 1e-3 of the area) and `RoundingVolume` (the volume the rounding moved, relative, limit `MaxRoundingVolumeChange` 1e-3, with a floor of 1e-6 of the smallest closed input for slivers; the thin plates of `RoundingThinVolumeTests` lose 0.71 %). Measured before the reduction. Guide: [Verification](../guides/booleans-and-imprint.md#verification-of-the-result-verification).
 
 Checked against the owner's decisions, git and the open PRs and issues on 2026-11-15; status lines re-checked 2026-11-17.
 
