@@ -22,6 +22,15 @@ area-stratified sample distances both ways, the verdict of `MeshRobustRepair.Not
 (`MeshRepairMetrics.SelfIntersectionsAtMost`), and for the snap back the share of vertices that moved fully / partially / not.
 Timings are relative: other sessions ran on the machine, and up to three probe processes ran at the same time here.
 
+- **Lost area (issue #1479), modes `lost` and `repro`.** What `MeshRobustRepair` loses of an input and why: the structure of the input (components, boundary
+  loops, self-intersecting pairs, the generalized winding number field in the box, the surface classified by the winding number on both sides: skin = one
+  side inside, interior wall = both inside, outside sheet = both outside), the lost and added area share (tau = 1e-4, 4e-4, 1e-3, 4e-3 of the diagonal; the
+  issue's numbers are tau = 4e-4 = 4 offsets at offset 1e-4) of the robust result and of each stage on its own (`MeshAutoRepair`, `ExactMeshBoolean.Resolve` of
+  the input and of the repair result, `MeshWindingNumberSolidify` of both, the wrap at the repair's defaults and at d/100, `MeshRobustRepair` with
+  `MinVolumeIoU = 0` and with `ExactResolve = false`), and the lost input triangles clustered into regions (whole component or part, skin / interior /
+  outside, inside the result's solid, visible: share of 64 rays from just off the triangle that leave the input). `repro` runs the same analysis on
+  procedural classes (`Reproducers.cs`). Findings: [docs/research/ROBUST_REPAIR_AREA_LOSS_2026-11.md](../../docs/research/ROBUST_REPAIR_AREA_LOSS_2026-11.md).
+
 ## Commands
 
 ```
@@ -35,6 +44,10 @@ dotnet run -c Release --project benchmarks/WrapAccuracyProbe -- b out.jsonl @res
 # Thingi10K selection (a local copy of the dataset; nothing is copied into the repository)
 dotnet run -c Release --project benchmarks/WrapAccuracyProbe -- classify <dataset>/raw_meshes --seed 2611 --per-class 8 --out results/thingi
 # (the committed results/thingi_*.txt lists name the meshes as <dataset>/raw_meshes/<id>.stl: replace <dataset> with the local copy's path; classify writes real paths)
+# issue #1479: what MeshRobustRepair loses (the lists: the 21 open meshes of results/thingi_selection.md, paths as in the line above)
+dotnet run -c Release --project benchmarks/WrapAccuracyProbe -- lost out.jsonl @list.txt [--taus 1e-4,4e-4,1e-3,4e-3] [--no-stages] [--no-wrap] [--flip]
+dotnet run -c Release --project benchmarks/WrapAccuracyProbe -- repro out.jsonl [touching_boxes box_in_box box_fin_sheet box_fin_solid box_thin_plate flipped_closed flipped_hole box_flipped_third open_box_3faces open_tube | flipped_closed:<share of reversed triangles>]
+python benchmarks/WrapAccuracyProbe/results/make_lost_tables.py results/lost_open5.jsonl results/lost_open16.jsonl results/lost_repro.jsonl > results/tables_lost.md
 # tables
 dotnet run -c Release --project benchmarks/WrapAccuracyProbe -- report a|b out.jsonl [more.jsonl]
 python benchmarks/WrapAccuracyProbe/summarize.py a out.jsonl [more.jsonl]       # hypothesis summaries (H1-H4)

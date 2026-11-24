@@ -26,6 +26,8 @@ class Program
         if (cmd == "selftest") return SelfTest.Run();
         if (cmd == "classify") return Classify.Run(args);
         if (cmd == "report") return Report.Run(args);
+        if (cmd == "lost") return LostArea.Run(args);
+        if (cmd == "repro") return Reproducers.Run(args);
         if (cmd != "a" && cmd != "b") { Console.Error.WriteLine("unknown command " + cmd); return 2; }
         string outFile = args[1];
         var inputs = new List<string>();
