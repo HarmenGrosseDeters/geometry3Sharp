@@ -428,7 +428,9 @@ namespace gs
         /// <summary>
         /// Default GridBeforeFallback: an open tool of a Difference that the pipeline routed to the sheet role by itself (no entry in InputRoles) and that
         /// the sheet role refuses with RimInsideWorkpiece (a rim meant to lie in a face of the first input that sits a little inside it) is done once more
-        /// on the grid of the data before the Fallback, whatever InputRepair is; Report.Route shows SheetRole, Grid, SheetRole on success. A run
+        /// on the grid of the data before the Fallback (LIMIT: it helps where the rim lies in a face parallel to a coordinate plane, or where every rim
+        /// vertex coincides with a vertex of the workpiece, which the snap makes identical in any orientation; a rim vertex in the interior of a slanted
+        /// face or on an edge of the workpiece that is not a vertex keeps its refusal, because the snap rounds each coordinate on its own), whatever InputRepair is; Report.Route shows SheetRole, Grid, SheetRole on success. A run
         /// without such a refusal is the run without this option, bit for bit; a refused sheet costs one more boolean at most. None: no automatic
         /// step (a refused sheet goes to the Fallback at once). Grid includes that try and also answers a sheet stated in InputRoles and
         /// the boolean's RoundingNotClean.
@@ -705,7 +707,7 @@ namespace gs
         // The size is the thickness 2|V|/A for a closed input (what MinThickness measures), and for an input that is not winding-closed the width
         // 2A/L, A the area and L the length of its boundary edges (edges used by one triangle, by position): for a strip of width w and length l it is
         // w, for an open box of edge e (a bucket) 2.5e, for a square sheet of side e e/2, for a sheet with a hole or a slit the width of the
-        // part between the rims. An open input without boundary edges, or a closed one of volume 0, gets 0 (the cell is never small against it)
+        // part between the rims. An open input without boundary edges gets the thickness; a closed input of volume 0 (a doubled sheet) is not measured
         bool CellSmallAgainstInputs(double cell, string cellText, out string text)
         {
             var inv = System.Globalization.CultureInfo.InvariantCulture;
@@ -719,6 +721,10 @@ namespace gs
                 bool closed = Report.InputClosed != null && i < Report.InputClosed.Length ? Report.InputClosed[i] : ExactMeshBoolean.IsWindingClosed(m);
                 double v, a;
                 MeasureInput(m, out v, out a);
+                // (a closed input of volume 0, such as a sheet that is given twice with opposite orientations, has no thickness that the snap could distort:
+                // it is not measured and does not stop the step; the volume is 0 up to the rounding of the measure, which is below 1e-13 * area * extent)
+                if (closed && Math.Abs(v) <= 1e-13 * a * m.GetBounds().MaxDim)
+                    continue;
                 double boundary = closed ? 0 : BoundaryLength(m);
                 bool strip = boundary > 0;
                 double size = strip ? 2 * a / boundary : a > 0 ? 2 * Math.Abs(v) / a : 0;
@@ -744,27 +750,26 @@ namespace gs
         }
 
         // the length of the edges that one triangle uses, edges by position (vertices at one position are one)
-        static double BoundaryLength(DMesh3 m)
+        internal static double BoundaryLength(DMesh3 m)
         {
-            var count = new Dictionary<(double, double, double, double, double, double), int>();
-            var length = new Dictionary<(double, double, double, double, double, double), double>();
+            // (one map: the number of triangles that use the edge, and its length; -0.0 is 0.0 in the key, as the two hash alike on every runtime)
+            var edges = new Dictionary<(double, double, double, double, double, double), (int count, double length)>();
             foreach (int t in m.TriangleIndices()) {
                 Index3i tv = m.GetTriangle(t);
                 for (int k = 0; k < 3; ++k) {
                     Vector3d p = m.GetVertex(tv[k]), q = m.GetVertex(tv[(k + 1) % 3]);
                     bool swap = p.x != q.x ? p.x > q.x : p.y != q.y ? p.y > q.y : p.z > q.z;
                     if (swap) { Vector3d u = p; p = q; q = u; }
-                    var key = (p.x, p.y, p.z, q.x, q.y, q.z);
-                    int c;
-                    count.TryGetValue(key, out c);
-                    count[key] = c + 1;
-                    length[key] = (q - p).Length;
+                    var key = (p.x + 0.0, p.y + 0.0, p.z + 0.0, q.x + 0.0, q.y + 0.0, q.z + 0.0);
+                    (int count, double length) e;
+                    edges.TryGetValue(key, out e);
+                    edges[key] = (e.count + 1, (q - p).Length);
                 }
             }
             double sum = 0;
-            foreach (var e in count)
-                if (e.Value == 1)
-                    sum += length[e.Key];
+            foreach (var e in edges.Values)
+                if (e.count == 1)
+                    sum += e.length;
             return sum;
         }
 

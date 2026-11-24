@@ -561,6 +561,106 @@ namespace geometry3Sharp.Tests
             Assert.Equal(2, Shells(repair.Result));
         }
 
+        // ---- the rim of a tool in a rotated frame ----
+
+        // an open frustum: rim polygon at the top (z = t + 5 pushed down by ulps(i) ulps), bottom polygon at t + 2, both counter-clockwise, outward normals
+        static DMesh3 Frustum(double t, Vector2d[] rimXY, Vector2d[] lowXY, Func<int, int> ulps)
+        {
+            var m = new DMesh3();
+            int n = rimXY.Length;
+            var low = new int[n]; var rim = new int[n];
+            for (int i = 0; i < n; ++i) {
+                low[i] = m.AppendVertex(new Vector3d(t + lowXY[i].x, t + lowXY[i].y, t + Top - Depth));
+                rim[i] = m.AppendVertex(new Vector3d(t + rimXY[i].x, t + rimXY[i].y, Down(t + Top, ulps(i))));
+            }
+            for (int i = 0; i < n; ++i) {
+                int j = (i + 1) % n;
+                m.AppendTriangle(low[i], low[j], rim[j]);
+                m.AppendTriangle(low[i], rim[j], rim[i]);
+            }
+            foreach (int[] f in Fan(n))
+                m.AppendTriangle(low[f[0]], low[f[2]], low[f[1]]);
+            return m;
+        }
+
+        static readonly Vector2d[] Corners = { new Vector2d(0, 0), new Vector2d(10, 0), new Vector2d(10, 10), new Vector2d(0, 10) };
+        static readonly Vector2d[] Midpoints = { new Vector2d(5, 0), new Vector2d(10, 5), new Vector2d(5, 10), new Vector2d(0, 5) };
+        static readonly Vector2d[] Inner = { new Vector2d(2, 2), new Vector2d(8, 2), new Vector2d(8, 8), new Vector2d(2, 8) };
+        static readonly Vector2d[] InnerSmall = { new Vector2d(4, 4), new Vector2d(6, 4), new Vector2d(6, 6), new Vector2d(4, 6) };
+
+        static readonly Vector2d[] CornersAndEdgePoint = { new Vector2d(0, 0), new Vector2d(5, 0), new Vector2d(10, 0), new Vector2d(10, 10), new Vector2d(0, 10) };
+        static readonly Vector2d[] InnerFive = { new Vector2d(2, 2), new Vector2d(5, 2), new Vector2d(8, 2), new Vector2d(8, 8), new Vector2d(2, 8) };
+
+        // what the default does with a rim in a rotated frame (measured, then pinned): the snap rounds each coordinate on its own
+        [Theory]
+        [InlineData("rotated", "corners", true)]                    // every rim vertex is a vertex of the workpiece: the snap makes them identical
+        [InlineData("rotated", "midpoints", false)]                 // rim vertices on edges of the workpiece, rim edges across the interior of the slanted top face
+        [InlineData("rotated", "cornersAndEdgePoint", false)]       // as corners, with one more rim vertex on an edge of the workpiece (not at a vertex)
+        [InlineData("identity", "midpoints", true)]                 // the same rim in the frame of the axes: the top face is a plane of the grid
+        public void InARotatedFrame_TheDefaultCutsWhereTheRimVerticesAreVerticesOfTheWorkpiece_AndKeepsTheRefusalOtherwise(string frame, string rim, bool cuts)
+        {
+            const double t = 1.2e5;
+            Similarity s = Similarity.ByName(frame);
+            DMesh3 tool = rim == "corners" ? Frustum(t, Corners, Inner, i => 2) : rim == "midpoints" ? Frustum(t, Midpoints, InnerSmall, i => 2) : Frustum(t, CornersAndEdgePoint, InnerFive, i => 2);
+            Func<SolidBooleanPipeline.AutomaticStepModes, SolidBooleanPipeline> make = mode => new SolidBooleanPipeline(new List<DMesh3> { Invariance.Transformed(Block(t), s), Invariance.Transformed(tool, s) }, D) { AutomaticSteps = mode };
+            SolidBooleanPipeline p = make((Auto)2), none = make(Auto.None);       // (2: the default, GridBeforeFallback, by value so that this test compiles against the base library, where the default is None)
+            bool done = p.Compute();
+            Assert.False(none.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, none.Status);
+            if (cuts) {
+                Assert.True(done, p.Status + " " + p.Error);
+                AssertClean(p);
+                Assert.Equal("SheetRole,Grid,SheetRole", Names(p));
+            } else {
+                Assert.False(done);
+                Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
+                Assert.Equal("SheetRole,Grid,Fallback,Refused", Names(p));
+                Assert.Contains("it failed too (BooleanFailed: SheetRefused: ", p.Report.Route[1].Change);
+            }
+        }
+
+        // ---- the guard measures what the snap could distort ----
+
+        [Fact]
+        public void AClosedInputOfVolumeZero_AdoubledSheet_DoesNotStopTheStep()
+        {
+            const double t = 1.2e6;
+            double area;
+            var doubled = new DMesh3();       // a sheet and the same sheet reversed: winding-closed, volume 0, beside the block
+            int a = doubled.AppendVertex(new Vector3d(t + 20, t, t)), b = doubled.AppendVertex(new Vector3d(t + 21, t, t)), c = doubled.AppendVertex(new Vector3d(t + 21, t + 1, t)), d = doubled.AppendVertex(new Vector3d(t + 20, t + 1, t));
+            doubled.AppendTriangle(a, b, c); doubled.AppendTriangle(a, c, d);
+            int a2 = doubled.AppendVertex(doubled.GetVertex(a)), b2 = doubled.AppendVertex(doubled.GetVertex(b)), c2 = doubled.AppendVertex(doubled.GetVertex(c)), d2 = doubled.AppendVertex(doubled.GetVertex(d));
+            doubled.AppendTriangle(a2, c2, b2); doubled.AppendTriangle(a2, d2, c2);
+            Assert.True(ExactMeshBoolean.IsWindingClosed(doubled));
+            var p = new SolidBooleanPipeline(new List<DMesh3> { Block(t), Shape("box", t, i => 2, out area), doubled }, D);
+            Assert.True(p.Compute(), p.Status + " " + p.Error + " " + (p.Report.Route.Count > 1 ? p.Report.Route[1].Change : ""));
+            AssertClean(p);
+            Assert.Equal("SheetRole,Grid,SheetRole", Names(p));
+        }
+
+        [Fact]
+        public void TheBoundaryLength_CountsEdgesByPosition_AndTreatsMinusZeroAsZero()
+        {
+            // two triangles of a unit square that share the diagonal by position, with separate vertices, one of them at -0.0
+            var m = new DMesh3();
+            int a = m.AppendVertex(new Vector3d(0, 0, 0)), b = m.AppendVertex(new Vector3d(1, 0, 0)), c = m.AppendVertex(new Vector3d(1, 1, 0));
+            m.AppendTriangle(a, b, c);
+            int a2 = m.AppendVertex(new Vector3d(-0.0, -0.0, -0.0)), c2 = m.AppendVertex(new Vector3d(1, 1, -0.0)), d = m.AppendVertex(new Vector3d(-0.0, 1, 0));
+            m.AppendTriangle(a2, c2, d);
+            Assert.Equal(4.0, SolidBooleanPipeline.BoundaryLength(m));
+            // a lone triangle: its three edges
+            var t = new DMesh3();
+            t.AppendTriangle(t.AppendVertex(new Vector3d(0, 0, 0)), t.AppendVertex(new Vector3d(3, 0, 0)), t.AppendVertex(new Vector3d(0, 4, 0)));
+            Assert.Equal(12.0, SolidBooleanPipeline.BoundaryLength(t));
+        }
+
+        static DMesh3 Moved(DMesh3 m, Similarity s, double t)
+        {
+            DMesh3 back = Invariance.MappedBack(m, s);
+            MeshTransforms.Translate(back, new Vector3d(-t, -t, -t));
+            return back;
+        }
+
         // ---- invariance, reuse, repeated runs (the pipeline has no parallel path of its own) ----
 
         static List<DMesh3> Flush(double t) { double area; return new List<DMesh3> { Block(t), Shape("box", t, i => 1 + i % 3, out area) }; }
