@@ -99,3 +99,29 @@ Because a straight-line compiled Stage-1.5 Symbolic Taylor pass emitted by `Pred
    - **Do NOT build** for `Orient2d`, `Orient3d`, or `InCircle` (Shewchuk adaptive expansions and `orient3d_int` already cover those cheaply; Stage-1.5 rescue is only 15–25%).
    - **For `SN-5 SnapGrid.CrossesInteriorFilter`:** no runtime adjoint pass is needed — simply tightening the shipped `1e-14` constant (30× audited margin) recovers nearly all of the 46.4% rescue at zero runtime cost.
    - **For `Orient3dLPI` / `Orient3dTPI` (and future high-degree indirect predicates):** before any Tier-L `PredicateCompiler` change (which requires an owner go, Z3 proof of the reverse-telescoping rule, bounds review, and mutation gate), instrument the Stage-A fallback rate of `IndirectPredicates` on real `PolyhedralEnvelope` / `ExactMeshBoolean` corpora. If real fallback rates are significant (`> 2%` of calls or `> 5%` of total predicate time), generating a compiled Stage-1.5 Symbolic Taylor pass in `PredicateCompiler` is a clean, general, provably sound speedup that dominates `ExactInterval` on both accuracy and speed.
+
+## 4. Follow-Up Execution & Real-Caller Upper-Bound Verdict
+
+Following the recommendations above:
+
+1. **Offline Symbolic Taylor verifier — Built in PR #1505 (`tools/predicate-compiler-symbolic-taylor-verify`):**
+   Integrated directly into `tools/PredicateCompiler/SymbolicTaylorVerify.cs` (`PredicateCompiler --verify-filters <spec>`) with exact binary64 binade `HalfUlpMax` bounds and exact directed rounding (`Interval64` via Knuth TwoSum / Dekker TwoProd), closing the 1.4–2.0× leaf gap vs. OCaml `FPTaylorPilot` (`LPI prx = 2^-53`, `TPI u1_x = 2^-54`, exact `1.00×` match) and verifying all 8 full sign-factor checks on `indirect.spec` in ~0.8 s.
+2. **`SN-5 SnapGrid.CrossesInteriorFilter` tightening — Built in PR #1506 (`perf/snap-rounding-sn5-filter-bound`):**
+   Tightened the constant in `comp_geom/SnapRounding2.cs` from `1e-14` (`30.02×` margin) to `6e-16` (`1.801×` proved margin in `tools/ErrorBoundAudit/bounds.py`), shrinking the filter blind zone by `16.7×` at zero runtime cost (`-19.2%` fallbacks on near-corner stress `[1e-16, 1e-12] * w`, 0 wrong signs).
+3. **Runtime Stage-1.5 in `IndirectPredicates` — Measured on real caller (`PolyhedralEnvelope`) and PARKED:**
+   `mesh_ops/PolyhedralEnvelope.cs` is the sole production caller of `Orient3dLPI` and `Orient3dTPI` in the library. Replaying `ContainsSegment` (LPI) and `ContainsTriangle` (TPI) with `IndirectPredicates.Orient3dLPIFilter` / `Orient3dTPIFilter` against `Orient3dLPIExact` / `Orient3dTPIExact` and Runtime Symbolic Taylor Stage 1.5 gave:
+
+   | `PolyhedralEnvelope` workload | Calls | Stage-A fallbacks | Exact zeros (`ex == 0`, unrescuable) | Non-zero fallbacks | Stage-1.5 rescued | Rescued of all fallbacks | Wrong signs |
+   |---|---:|---:|---:|---:|---:|---:|---:|
+   | `sphere20 eps=0.5 seg` (LPI) | 2,538,324 | 377 (0.01%) | 205 | 172 | — | `< 0.01%` calls | — |
+   | `sphere20 eps=0.2 seg` (LPI) | 412,063 | 151 (0.04%) | 100 | 51 | — | `< 0.01%` calls | — |
+   | `box6 eps=0.2 seg` (LPI, coplanar) | 522,808 | 5,017 (0.96%) | 3,812 | 1,205 | 286 | **5.7%** | 0 |
+   | `sphere20 eps=0.2 tri` (TPI) | 1,902,717 | 81,203 (4.27%) | 80,737 | 466 | 1 | **0.001%** | 0 |
+   | `box6 eps=0.2 tri` (TPI, coplanar) | 1,118,976 | 78,395 (7.01%) | 21,174 | 57,221 | 1,648 | **2.1%** | 0 |
+   | `box6 eps=0.02 near-surf tri` (TPI) | 951,084 | 64,538 (6.79%) | 19,209 | 45,329 | 2,283 | **3.5%** | 0 |
+
+   **Why Stage 1.5 rescues only `0.001%–5.7%` of real `PolyhedralEnvelope` fallbacks (vs. `40%–76%` on synthetic near-degenerate stress):**
+   - On spheres, `99.4%` of TPI fallbacks are exact zeros (`80,737 / 81,203`), which no floating-point filter can decide.
+   - On coplanar CAD/box meshes, `~27%` of TPI fallbacks are exact zeros and most of the remaining non-zero fallbacks come from parallel/near-parallel offset facets of coplanar triangles where the denominator `d = n1 · (n2 × n3)` cancels below `1 ulp` in IEEE-754 `double` (`|d|` is genuinely indistinguishable from zero in 53-bit precision).
+   - Because a compiled Stage-1.5 pass (~`250–350 ns`) would execute on 100% of Stage-A fallbacks while saving `FixedArith` (~`4,800 ns`) on only `2.1%–3.5%` of them (`~100–170 ns` expected savings vs. `~250–350 ns` cost), Stage 1.5 is break-even to slightly negative on real `PolyhedralEnvelope` workloads and is therefore **parked** (avoiding Tier-L generated-code complexity without a net real-world gain).
+
