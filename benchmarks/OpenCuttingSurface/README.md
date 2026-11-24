@@ -54,7 +54,7 @@ unchanged here; the self-intersection check of #1426 is not part of #1447.
 
 ## The Grid step before the fallback (`gridfb`)
 
-`SolidBooleanPipeline.AutomaticSteps` defaults to `GridBeforeFallback`: a refused sheet (`RimInsideWorkpiece`) of an open tool the pipeline routed itself is
+`SolidBooleanPipeline.AutomaticSteps` defaults to `GridBeforeFallback | GridAfterRoundingNotClean` (the benchmark's cases are refused sheets, so the second bit adds nothing to them): a refused sheet (`RimInsideWorkpiece`) of an open tool the pipeline routed itself is
 retried once on the data grid before the fallback. `gridfb` runs `None` (before) and the default (after) in one process, wall ms, median of 7 after a warm-up
 (2026-11-24, a shared Windows machine, .NET 10; read the ratios of one row, the sphere rows are noisy and run the same code in both columns):
 

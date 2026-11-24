@@ -447,13 +447,20 @@ namespace gs
         /// can add vertices off the grid). Not a power of two, negative or not finite: InvalidInput
         /// </summary>
         public double InputGrid = 0;
-        /// <summary> The automatic steps of a run (AutomaticSteps): GridBeforeFallback is on by default, Grid is opt-in; combine with | </summary>
+        /// <summary>
+        /// The automatic steps of a run (AutomaticSteps); combine with |. The default is GridBeforeFallback | GridAfterRoundingNotClean; Grid, which
+        /// includes both and also answers a stated sheet, is opt-in
+        /// </summary>
         [Flags]
         public enum AutomaticStepModes
         {
             /// <summary> no automatic step </summary>
             None = 0,
-            /// <summary> a run that fails with RoundingNotClean or the sheet refusal RimInsideWorkpiece is done once more on a grid taken from the data </summary>
+            /// <summary>
+            /// everything: a run that fails with RoundingNotClean or the sheet refusal RimInsideWorkpiece (of a sheet that the pipeline routed or
+            /// that the caller stated) is done once more on a grid taken from the data. It includes GridBeforeFallback and GridAfterRoundingNotClean
+            /// and adds the retry of a stated sheet
+            /// </summary>
             Grid = 1,
             /// <summary>
             /// only the sheet route: an open tool of a Difference that the pipeline routes to the sheet role by itself (no entry in InputRoles) and
@@ -461,17 +468,30 @@ namespace gs
             /// (one extra boolean at most, none on a success). Other refusals, and a sheet that the caller stated, are not retried by this value; Grid
             /// retries a stated sheet. The snap closes any gap or skin up to about one cell between a rim and a face (see AutomaticSteps)
             /// </summary>
-            GridBeforeFallback = 2
+            GridBeforeFallback = 2,
+            /// <summary>
+            /// a run that fails with RoundingNotClean is done once more on the grid taken from the data (one extra boolean on the snapped inputs, none
+            /// on a success). A sheet refusal is not retried by this value, so a sheet that the caller stated behaves as without the step. The result
+            /// of a retry is the boolean of the SNAPPED inputs (within one cell of the given ones), see AutomaticSteps
+            /// </summary>
+            GridAfterRoundingNotClean = 4
         }
         /// <summary>
-        /// Default GridBeforeFallback: an open tool of a Difference that the pipeline routed to the sheet role by itself (no entry in InputRoles) and that
+        /// Default GridBeforeFallback | GridAfterRoundingNotClean (owner 2026-11-24: the runs that the first default still refused with RoundingNotClean
+        /// succeeded with the grid retry on private inputs, nearly all with the right volume). A default Success can therefore come with Report.Clean == false and
+        /// Report.OnlyContacts == true (a solid whose parts touch): a caller who needs a clean solid checks Report.Clean, not only Status. GridBeforeFallback: an open tool of a Difference that the pipeline routed to the sheet role by itself (no entry in InputRoles) and that
         /// the sheet role refuses with RimInsideWorkpiece (a rim meant to lie in a face of the first input that sits a little inside it) is done once more
         /// on the grid of the data before the Fallback (LIMIT: it helps where the rim lies in a face parallel to a coordinate plane, or where every rim
         /// vertex coincides with a vertex of the workpiece, which the snap makes identical in any orientation; a rim vertex in the interior of a slanted
         /// face or on an edge of the workpiece that is not a vertex keeps its refusal, because the snap rounds each coordinate on its own), whatever InputRepair is; Report.Route shows SheetRole, Grid, SheetRole on success. A run
         /// without such a refusal is the run without this option, bit for bit; a refused sheet costs one more boolean at most. None: no automatic
-        /// step (a refused sheet goes to the Fallback at once). Grid includes that try and also answers a sheet stated in InputRoles and
-        /// the boolean's RoundingNotClean.
+        /// step (a refused sheet goes to the Fallback at once). GridAfterRoundingNotClean: a run that ends with the boolean's RoundingNotClean (any
+        /// route, also after the fallback) is done once more on the grid, one extra boolean on the snapped inputs, and nothing on a run that does not fail
+        /// that way. Grid includes both and also answers a sheet stated in InputRoles; it is not in the default, so that a caller who states roles keeps
+        /// the refusal of a stated sheet as before. A RESULT OF THE RETRY IS THE BOOLEAN OF THE SNAPPED INPUTS: it can differ from the exact one by
+        /// up to about one cell of the data (see CAPTURE DISTANCE), the route says so (Grid step: cell, vertices moved, size change), Report.RoundingVolumeBefore
+        /// and RoundingVolumeAfter are those of the run that is the result, and the result can be reported as only contacts (Report.OnlyContacts).
+        /// AutomaticSteps = None gives the exact run and its refusal; GridBeforeFallback keeps the sheet retry alone.
         /// The retry snaps all inputs as InputGrid does. The cell is a power of two, 2^12 times the rounding unit (ulp) of the largest absolute
         /// coordinate of the vertices that triangles use (about 4.5e-13 of that coordinate; 3.8e-6 at 5.7e6, 7.6e-6 at 1.2e7), so it scales with the
         /// inputs, and a vertex moves by at most half a cell per coordinate. CAPTURE DISTANCE: the faces of the first input move too, so a rim,
@@ -490,7 +510,7 @@ namespace gs
         /// ConfigureBoolean runs once more for the retry (three times, not twice, for a refused rim that the grid does not cure). A value with
         /// other bits than those of AutomaticStepModes: InvalidInput
         /// </summary>
-        public AutomaticStepModes AutomaticSteps = AutomaticStepModes.GridBeforeFallback;
+        public AutomaticStepModes AutomaticSteps = AutomaticStepModes.GridBeforeFallback | AutomaticStepModes.GridAfterRoundingNotClean;
         /// <summary>
         /// Default 0 (off). Otherwise a length: every solid of the boolean result (an outer shell with the cavities inside it)
         /// whose thickness 2 Volume / Area is below it is removed before the reduction and listed in Report.RemovedThinSolids.
@@ -665,7 +685,7 @@ namespace gs
         /// <summary>
         /// runs the pipeline; true if Result is set (Status Success). An open input of a Difference that is not the first and has no entry in InputRoles
         /// goes to the sheet role first (the first input is cut along it exactly, nothing is repaired). If the sheet role refuses with RimInsideWorkpiece, the run is done once more on a
-        /// grid taken from the data first (AutomaticSteps, default GridBeforeFallback; see there for what the snap can change). If the sheet role refuses
+        /// grid taken from the data first (AutomaticSteps, default GridBeforeFallback | GridAfterRoundingNotClean; see there for what the snap can change). If the sheet role refuses
         /// otherwise, or the grid does not help, the run is done again with the inputs as solids, as without this route: InputRepair decides
         /// (Refuse: Status OpenInput, with the sheet's refusal in Error).
         /// Report.Route lists the steps taken and why. A stated role (an entry in InputRoles, Solid or Sheet) is used as stated.
@@ -697,8 +717,11 @@ namespace gs
                 string text = autoRefusalText;
                 // the Grid step answers a refused sheet before the tool is given up as a sheet (one try: not again after the fallback)
                 if (refusal == ExactMeshBoolean.SheetRefusal.RimInsideWorkpiece) {
-                    gridTried = true;
-                    if (gridRetry(total, true, "the sheet role refused: " + refusal + ": " + text, refusal, autoRefusalRouted))
+                    int stepsBefore = route.Count;
+                    bool retried = gridRetry(total, true, "the sheet role refused: " + refusal + ": " + text, refusal, autoRefusalRouted);
+                    // (one try: a step that was made, also a failed one, is the try; an option that does not answer a sheet leaves it for the failure after the fallback)
+                    gridTried = route.Count > stepsBefore || retried;
+                    if (retried)
                         return true;
                     if (Status == PipelineStatus.Cancelled)
                         return false;
@@ -725,13 +748,25 @@ namespace gs
                 || (BooleanStatus == ExactMeshBoolean.BooleanStatus.SheetRefused && SheetReason == ExactMeshBoolean.SheetRefusal.RimInsideWorkpiece));
         }
 
+        // Whether AutomaticSteps answers the failure that the run has now: Grid answers every failure of gridFailure; GridBeforeFallback the refused sheet
+        // that the pipeline routed itself (before the fallback); GridAfterRoundingNotClean the boolean's RoundingNotClean and no sheet refusal
+        bool GridStepWanted(bool beforeFallback)
+        {
+            if ((AutomaticSteps & AutomaticStepModes.Grid) != 0)
+                return true;
+            if (beforeFallback && (AutomaticSteps & AutomaticStepModes.GridBeforeFallback) != 0)
+                return true;
+            return (AutomaticSteps & AutomaticStepModes.GridAfterRoundingNotClean) != 0 && Status == PipelineStatus.BooleanFailed
+                && BooleanStatus == ExactMeshBoolean.BooleanStatus.RoundingNotClean;
+        }
+
         // The Grid step (AutomaticSteps): the failed run once more, on the same route, with the inputs snapped to the cell of the data. True: the retry
         // is the result. False: no retry (the step is off, InputGrid is set, or the data gives no cell: no step; every vertex is on the cell already: a
         // step that says so), or it failed too; then the first failure is the result again, with the attempt as a step, except for a cancelled
         // retry (Status Cancelled). The stage times of the run that is not the result are added to those of the one that is
         bool gridRetry(Stopwatch total, bool sheetRoute, string reason, ExactMeshBoolean.SheetRefusal sheetReason, bool beforeFallback = false)
         {
-            if (((AutomaticSteps & AutomaticStepModes.Grid) == 0 && !(beforeFallback && (AutomaticSteps & AutomaticStepModes.GridBeforeFallback) != 0)) || InputGrid != 0)
+            if (!GridStepWanted(beforeFallback) || InputGrid != 0)
                 return false;
             double cell = DataGrid(Inputs);
             if (cell == 0)
@@ -960,7 +995,7 @@ namespace gs
                 return fail(PipelineStatus.InvalidInput, "PairContactsMode is not a defined value", total);
             if (!(InputGrid == 0 || IsPowerOfTwo(InputGrid)))
                 return fail(PipelineStatus.InvalidInput, "InputGrid must be 0 or a positive power of two", total);
-            if ((AutomaticSteps & ~(AutomaticStepModes.Grid | AutomaticStepModes.GridBeforeFallback)) != 0)
+            if ((AutomaticSteps & ~(AutomaticStepModes.Grid | AutomaticStepModes.GridBeforeFallback | AutomaticStepModes.GridAfterRoundingNotClean)) != 0)
                 return fail(PipelineStatus.InvalidInput, "AutomaticSteps is not a defined value", total);
             if ((Verification & ~(VerificationModes.NoInventedSurface | VerificationModes.RoundingVolume)) != 0)
                 return fail(PipelineStatus.InvalidInput, "Verification is not a defined value", total);

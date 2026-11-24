@@ -70,8 +70,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void AFlushRimAFewUlpsInside_IsRefusedWithoutTheStep_AndCutWithIt()
         {
-            // (the default is GridBeforeFallback, which retries this refusal: None is the run without any step)
-            Assert.Equal(Auto.GridBeforeFallback, new SolidBooleanPipeline(FlushRim(), D).AutomaticSteps);
+            // (the default retries this refusal: None is the run without any step)
+            Assert.Equal(Auto.GridBeforeFallback | Auto.GridAfterRoundingNotClean, new SolidBooleanPipeline(FlushRim(), D).AutomaticSteps);
             var plain = new SolidBooleanPipeline(FlushRim(), D) { AutomaticSteps = Auto.None };
             Assert.False(plain.Compute());
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, plain.Status);
@@ -139,7 +139,7 @@ namespace geometry3Sharp.Tests
         public void ARoundingRefusal_IsAnsweredOnTheGrid_WithTheResultOfInputGridAtThatCell()
         {
             // the fragment of SolidBooleanPipelineInputGridTests (coordinates up to 6.6e6, one ulp 2^-30): RoundingNotClean as given
-            var plain = new SolidBooleanPipeline(SolidBooleanPipelineInputGridTests.Fragment(), D);
+            var plain = new SolidBooleanPipeline(SolidBooleanPipelineInputGridTests.Fragment(), D) { AutomaticSteps = Auto.None };
             Assert.False(plain.Compute());
             Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, plain.BooleanStatus);
             Assert.Empty(plain.Report.Route);
@@ -174,7 +174,7 @@ namespace geometry3Sharp.Tests
                 f[1].ReverseTriOrientation(0);
                 return f;
             };
-            var plain = new SolidBooleanPipeline(inputs(), D) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority };
+            var plain = new SolidBooleanPipeline(inputs(), D) { Orientation = ExactMeshBoolean.OrientationModes.AreaMajority, AutomaticSteps = Auto.None };
             Assert.False(plain.Compute());
             Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, plain.BooleanStatus);
             Assert.Equal("SheetRole:1,Fallback:-1", Names(plain));
@@ -234,8 +234,8 @@ namespace geometry3Sharp.Tests
             // the retry is stopped by a budget (ConfigureBoolean runs for every boolean: the second is the retry's)
             foreach (bool sheet in new[] { false, true }) {
                 Func<SolidBooleanPipeline> make = () => sheet
-                    ? new SolidBooleanPipeline(FlushRim(), D) { InputRoles = SheetSecond() }
-                    : new SolidBooleanPipeline(SolidBooleanPipelineInputGridTests.Fragment(), D);
+                    ? new SolidBooleanPipeline(FlushRim(), D) { InputRoles = SheetSecond(), AutomaticSteps = Auto.None }
+                    : new SolidBooleanPipeline(SolidBooleanPipelineInputGridTests.Fragment(), D) { AutomaticSteps = Auto.None };
                 SolidBooleanPipeline plain = make();
                 Assert.False(plain.Compute());
                 SolidBooleanPipeline p = make();
@@ -447,8 +447,8 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        [InlineData(4)]
-        [InlineData(5)]
+        [InlineData(8)]
+        [InlineData(9)]
         [InlineData(-1)]
         public void AnUndefinedValue_IsRefused(int value)
         {
