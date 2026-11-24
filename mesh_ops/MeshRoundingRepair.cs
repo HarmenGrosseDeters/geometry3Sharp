@@ -3010,20 +3010,42 @@ namespace g3
             return false;
         }
 
+        // the limit of a cap, as a ratio (owner decision 2026-11-23): half the product of the shortest and the longest edge over the degenerate
+        // area. For a degenerate triangle (area below that area) the ratio is at most 1 / sin of the angle between the two edges, so a cap
+        // has a sine below 1 / CapRatio. A ratio and not the distance of the apex from the longest edge (that test breaks an existing
+        // test). The value is the owner's decision, not derived: it is backed by the tilted-lens test of RoundingThinVolumeTests (at 4 and
+        // 1 the lens is flipped, not contracted) and by the measurement before #1464, where at 4 FoldedCluster 52 8 4 was not clean and
+        // at 1 also ShortEdge and DensePatch (on top of #1464 those no longer fail). With 1024 a cap with a ratio of a few hundred was
+        // still contracted (a step with a long edge of 4e-5 to 4e-4: 2 contractions, +0.21 % volume); at 32 it is flipped; a cap below
+        // 32 (a ratio of 19 in the same step) is still contracted. See docs/research/ROUNDING_THIN_VOLUME_2026-11.md, "Caps first"
+        // A cap needs a nonzero shortest edge and a positive area threshold: with a threshold of 0 (DegenerateArea 0, or an underflow)
+        // the test 0 >= 0 would make every bad triangle a cap, also one with a zero-length edge, which a contraction removes
+        const double CapRatio = 32;
+
         [MethodImpl(JitHints.Optimize)]
         void fix_degenerate(int t)
         {
-            if (collapse_any(t))
-                return;
-            // caps: flip the longest edge first; else move the corner opposite the longest edge away from it
             Index3i tv = Mesh.GetTriangle(t), te = Mesh.GetTriEdges(t);
             int[] order = { 0, 1, 2 };
             double[] len = new double[3];
             for (int k = 0; k < 3; ++k)
                 len[k] = -pos(tv[k]).Distance(pos(tv[(k + 1) % 3]));
             Array.Sort(len, order);
+            // a cap first: a triangle that is degenerate by its angle, not by a short edge (its shortest and longest edge span CapRatio
+            // times the degenerate area at a right angle: the sine of the angle between them is below 1 / CapRatio). A flip of its longest edge
+            // removes it and moves no vertex; a contraction of its short edge moves a vertex by the edge's length and with it every
+            // triangle of that vertex, which on a short edge across a thin strip changes the volume
+            // (docs/research/ROUNDING_THIN_VOLUME_2026-11.md, "Caps first")
+            double capArea = areaEps_of(tv.a);
+            bool cap = len[2] < 0 && capArea > 0 && 0.5 * len[2] * len[0] >= CapRatio * capArea;
+            if (cap && try_flip(te[order[0]]))
+                return;
+            if (collapse_any(t))
+                return;
+            // caps: flip the longest edge first; else move the corner opposite the longest edge away from it
+            // (the flip of a cap's longest edge was refused above and nothing changed since: not evaluated a second time)
             foreach (int k in order)
-                if (try_flip(te[k]) || try_zip(te[k]))
+                if ((cap && k == order[0]) ? try_zip(te[k]) : (try_flip(te[k]) || try_zip(te[k])))
                     return;
             if (try_strip(t))
                 return;
