@@ -42,7 +42,7 @@ Detailed flags, input schemas, additive JSON fields, and worked examples are org
 | `hull2d` | 2D convex hull of points or mesh XY vertices (`double` or `int64`) | `ConvexHull2` | [2D & Terrain](docs/2d-and-terrain.md#polygon2d-polygon_solids--hull2d) |
 | `dgm` / `dgm_tin` | Read/write XYZ/ESRI height grids and build error-certified TINs with breaklines | `HeightGridReader`/`Writer`, `TerrainGridTin` | [2D & Terrain](docs/2d-and-terrain.md#height-grids-dgm-dgm_tin) |
 | `slope` | Certified cut/fill slope design from GeoJSON toes to a terrain TIN | `TerrainSlopeDesign`, `SlopeToe`, `SlopeSpec` | [2D & Terrain](docs/2d-and-terrain.md#slope-design-input-slope) |
-| `cell_volumes` | Cut/fill volumes per regular XY lattice cell between two terrains | `TerrainCellVolumes` | [2D & Terrain](docs/2d-and-terrain.md#cell_volumes--tpms) |
+| `cell_volumes` | Cut/fill volumes per regular XY lattice cell (and elevation band, `--bands`) between two terrains | `TerrainCellVolumes` | [2D & Terrain](docs/2d-and-terrain.md#cell_volumes--tpms) |
 | `tpms` | Certified TPMS lattices (gyroid, Schwarz, Neovius, I-WP, Lidinoid) | `TpmsLattice` | [2D & Terrain](docs/2d-and-terrain.md#cell_volumes--tpms) |
 
 ---

@@ -86,5 +86,41 @@ namespace g3cli.Tests
             var (e2, z) = Run("cell_volumes", p, p, "--cell-size", "5");
             Assert.Equal(0, e2); Assert.Equal(0, D(z["cut_volume"])); Assert.Equal(0, D(z["fill_volume"]));
         }
+
+        [Fact]
+        public void CellVolumes_Bands_AreTheLibrarysBlocks_AndSumToTheCells()
+        {
+            DMesh3 b = Surface(9, (x, y) => Math.Sin(x * 0.5) + 0.1 * y, false), a = Surface(6, (x, y) => 0.3 * x - 1 + Math.Cos(y * 0.4), true);
+            string pb = Write("cvb_b.obj", b), pa = Write("cvb_a.obj", a), csv = m.Path_("cvb.csv");
+            var (exit, r) = Run("cell_volumes", pb, pa, "--cell-size", "2.5", "--cell-size-y", "3", "--bands", "-inf,-0.5,0.7,inf", "--blocks_output", csv);
+            Assert.True(exit == 0, r.ToJsonString());
+            DMesh3 rb = StandardMeshReader.ReadMesh(pb), ra = StandardMeshReader.ReadMesh(pa);
+            var lib = new TerrainCellVolumes(rb, ra, 0, 0, 2.5, 3, 4, 4) { BandBoundaries = new[] { double.NegativeInfinity, -0.5, 0.7, double.PositiveInfinity } };
+            Assert.True(lib.Compute());
+            string[] rows = File.ReadAllLines(csv);
+            Assert.Equal(1 + 3 * 16, rows.Length);
+            for (int k = 0; k < 48; ++k) {
+                string[] f = rows[1 + k].Split(',');
+                Assert.Equal(k / 16, int.Parse(f[0])); Assert.Equal(k % 4, int.Parse(f[3])); Assert.Equal(k % 16 / 4, int.Parse(f[4]));
+                Assert.Equal(lib.BlockCutVolume[k], double.Parse(f[7], CultureInfo.InvariantCulture));
+                Assert.Equal(lib.BlockFillVolume[k], double.Parse(f[8], CultureInfo.InvariantCulture));
+            }
+            var bands = (System.Text.Json.Nodes.JsonArray)r["bands"];
+            Assert.Equal(3, bands.Count);
+            Assert.Null(bands[0]["z_min"]); Assert.Equal(-0.5, D(bands[0]["z_max"]));
+            double cut = 0, fill = 0;
+            foreach (var band in bands) { cut += D(band["cut_volume"]); fill += D(band["fill_volume"]); }
+            Assert.InRange(Math.Abs(cut - D(r["cut_volume"])), 0, 1e-9); Assert.InRange(Math.Abs(fill - D(r["fill_volume"])), 0, 1e-9);
+        }
+
+        [Fact]
+        public void CellVolumes_Bands_Errors_HaveResultCodes()
+        {
+            string p = Write("cvb_s.obj", Surface(4, (x, y) => 0, false));
+            string Code(params string[] a) => S(Run(a).result["code"]);
+            foreach (string bad in new[] { "1", "1,1", "2,1", "a,2", "nan,2", "inf,-inf" })
+                Assert.Equal(ResultCodes.InvalidArguments, Code("cell_volumes", p, p, "--cell-size", "5", "--bands", bad));
+            Assert.Equal(ResultCodes.InvalidArguments, Code("cell_volumes", p, p, "--cell-size", "5", "--blocks_output", m.Path_("x.csv")));
+        }
     }
 }
