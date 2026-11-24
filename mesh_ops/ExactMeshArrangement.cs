@@ -1115,6 +1115,37 @@ namespace g3
             return merged;
         }
 
+        // for tests (DETERMINISM_PROOF.md, O-SORTS): merge_points re-permutes every run of equal lower ends lo after its sort
+        // (-1: reverses the runs, other values: a seeded permutation of each); 0 leaves the order of the sort as it is, and
+        // changes no result (the order among equal lo is unspecified)
+        internal int TieOrderSeed;
+        // runs of two or more equal lo that the hook permuted in all merge_points calls of Compute (0 when it is off)
+        internal int TiedRuns;
+
+        internal static int permute_ties(double[] lo, int[] order, int seed)
+        {
+            int runs = 0;
+            ulong state = (ulong)(uint)seed * 0x9E3779B97F4A7C15UL + 1;
+            for (int a = 0, b; a < lo.Length; a = b) {
+                b = a + 1;
+                while (b < lo.Length && lo[b] == lo[a]) b++;
+                if (b - a > 1)
+                    runs++;
+                if (seed < 0) {
+                    for (int i = a, j = b - 1; i < j; ++i, --j) {
+                        int t = order[i]; order[i] = order[j]; order[j] = t;
+                    }
+                    continue;
+                }
+                for (int i = b - 1; i > a; --i) {
+                    state = state * 6364136223846793005UL + 1442695040888963407UL;
+                    int j = a + (int)((state >> 33) % (ulong)(i - a + 1));
+                    int t = order[i]; order[i] = order[j]; order[j] = t;
+                }
+            }
+            return runs;
+        }
+
         /// <summary>
         /// Merge coincident points from different constructions: each gets the id with the smallest key (a
         /// rational point if there is one, so input vertices keep their coordinates). Candidates are points whose
@@ -1148,6 +1179,8 @@ namespace g3
             });
             double[] sortLo = (double[])lo.Clone();
             Array.Sort(sortLo, order);
+            if (TieOrderSeed != 0)
+                TiedRuns += permute_ties(sortLo, order, TieOrderSeed);
             int[] next = new int[n];
             for (int id = 0; id < n; ++id)
                 next[id] = (prev != null && id < prev.Length) ? prev[id] : id;
@@ -1216,6 +1249,7 @@ namespace g3
             var total = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
             Stopped = StopReason.None;
             PredictedPieces = 0;
+            TiedRuns = 0;
             if (cancelled())
                 return;
             build_points();

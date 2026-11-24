@@ -1,0 +1,138 @@
+diff --git a/intersection/ExactTriangleIntersection.cs b/intersection/ExactTriangleIntersection.cs
+index 5749c1e..b2564b2 100644
+--- a/intersection/ExactTriangleIntersection.cs
++++ b/intersection/ExactTriangleIntersection.cs
+@@ -16,6 +16,14 @@ namespace g3
+         /// <summary> do the closed triangles a and b share at least one point? </summary>
+         [MethodImpl(JitHints.Optimize)]
+         public static bool Intersects(ref Triangle3d a, ref Triangle3d b)
++        {
++            var site = TriTriProbe.InBeyondShared ? TriTriProbe.Site.IntersectsNested : TriTriProbe.Site.IntersectsTop;
++            long t0 = TriTriProbe.Enter(site);
++            TriTriProbe.Record(TriTriProbe.IntersectsPairs, ref a, ref b);
++            try { return intersects_core(ref a, ref b); } finally { TriTriProbe.Leave(site, t0); }
++        }
++
++        internal static bool intersects_core(ref Triangle3d a, ref Triangle3d b)
+         {
+             Vector3d p1 = a.V0, q1 = a.V1, r1 = a.V2, p2 = b.V0, q2 = b.V1, r2 = b.V2;
+             bool degA = is_degenerate(p1, q1, r1), degB = is_degenerate(p2, q2, r2);
+@@ -289,6 +297,12 @@ namespace g3
+         /// </summary>
+         [MethodImpl(JitHints.Optimize)]
+         public static bool IntersectsBeyondShared(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
++        {
++            long t0 = TriTriProbe.Enter(TriTriProbe.Site.BeyondShared);
++            try { return beyond_core(ia, ref A, ib, ref B); } finally { TriTriProbe.Leave(TriTriProbe.Site.BeyondShared, t0); }
++        }
++
++        static bool beyond_core(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
+         {
+             // shared vertices: corner indices in A and B
+             int nShared = 0, sa0 = -1, sb0 = -1, sa1 = -1, sb1 = -1;
+diff --git a/intersection/TriTriProbe.cs b/intersection/TriTriProbe.cs
+new file mode 100644
+index 0000000..e4a7356
+--- /dev/null
++++ b/intersection/TriTriProbe.cs
+@@ -0,0 +1,51 @@
++// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
++// PROBE ONLY (benchmarks/SelfIntersectionBenchmark/probe/tritri_probe.patch): times the triangle-triangle tests and
++// captures their inputs. Never merged into the library.
++using System;
++using System.Collections.Generic;
++using System.Diagnostics;
++using System.Threading;
++
++namespace g3
++{
++    internal static class TriTriProbe
++    {
++        internal enum Site { BeyondShared, IntersectsTop, IntersectsNested, Filter, ArrSeparated, ArrTouchOnly, Count }
++        internal static readonly string[] Names = { "IntersectsBeyondShared", "Intersects (direct)", "Intersects (in BeyondShared)", "TriangleTriangleFilter.BeyondShared", "arr.separated", "arr.touch_only" };
++        static readonly long[] ticks = new long[16 * (int)Site.Count], calls = new long[16 * (int)Site.Count];
++        [ThreadStatic] static int[] depth;
++        internal static int Cap = 400000;
++        internal static readonly List<Triangle3d> IntersectsPairs = new List<Triangle3d>(), SeparatedPairs = new List<Triangle3d>(), TouchPairs = new List<Triangle3d>();
++        internal static readonly List<Index3i> TouchCorners = new List<Index3i>();
++        internal static bool Capture;
++
++        internal static long Enter(Site s)
++        {
++            if (depth == null) depth = new int[(int)Site.Count];
++            return depth[(int)s]++ == 0 ? Stopwatch.GetTimestamp() : 0;
++        }
++        internal static void Leave(Site s, long t0)
++        {
++            if (--depth[(int)s] == 0) {
++                Interlocked.Add(ref ticks[16 * (int)s], Stopwatch.GetTimestamp() - t0);
++                Interlocked.Increment(ref calls[16 * (int)s]);
++            }
++        }
++        internal static bool InBeyondShared { get { return depth != null && depth[(int)Site.BeyondShared] > 0; } }
++        internal static void Record(List<Triangle3d> list, ref Triangle3d a, ref Triangle3d b)
++        {
++            if (Capture && list.Count < 2 * Cap) lock (list) { list.Add(a); list.Add(b); }
++        }
++        internal static void RecordTouch(ref Triangle3d a, Index3i ca, ref Triangle3d b, Index3i cb)
++        {
++            if (Capture && TouchPairs.Count < 2 * Cap) lock (TouchPairs) { TouchPairs.Add(a); TouchPairs.Add(b); TouchCorners.Add(ca); TouchCorners.Add(cb); }
++        }
++        internal static double Ms(Site s) { return 1000.0 * ticks[16 * (int)s] / Stopwatch.Frequency; }
++        internal static long Calls(Site s) { return calls[16 * (int)s]; }
++        internal static void Reset()
++        {
++            Array.Clear(ticks, 0, ticks.Length); Array.Clear(calls, 0, calls.Length);
++            IntersectsPairs.Clear(); SeparatedPairs.Clear(); TouchPairs.Clear(); TouchCorners.Clear();
++        }
++    }
++}
+diff --git a/intersection/TriangleTriangleFilter.cs b/intersection/TriangleTriangleFilter.cs
+index b922ec9..a24c2e7 100644
+--- a/intersection/TriangleTriangleFilter.cs
++++ b/intersection/TriangleTriangleFilter.cs
+@@ -68,6 +68,12 @@ namespace g3
+         /// </summary>
+         [MethodImpl(JitHints.Optimize)]
+         internal static int BeyondShared(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
++        {
++            long t0 = TriTriProbe.Enter(TriTriProbe.Site.Filter);
++            try { return beyond_core(ia, ref A, ib, ref B); } finally { TriTriProbe.Leave(TriTriProbe.Site.Filter, t0); }
++        }
++
++        static int beyond_core(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
+         {
+             if (all_finite(ref A, ref B) == false)
+                 return Undecided;
+diff --git a/mesh_ops/ExactMeshArrangement.cs b/mesh_ops/ExactMeshArrangement.cs
+index a499d86..1655bae 100644
+--- a/mesh_ops/ExactMeshArrangement.cs
++++ b/mesh_ops/ExactMeshArrangement.cs
+@@ -2374,6 +2374,13 @@ namespace g3
+         // all corners of one triangle strictly on one side of the other's plane (exact double predicates)
+         [MethodImpl(JitHints.Optimize)]
+         bool separated(InputTriangle T, InputTriangle U)
++        {
++            long t0 = TriTriProbe.Enter(TriTriProbe.Site.ArrSeparated);
++            if (TriTriProbe.Capture) { var a = new Triangle3d(T.V0, T.V1, T.V2); var b = new Triangle3d(U.V0, U.V1, U.V2); TriTriProbe.Record(TriTriProbe.SeparatedPairs, ref a, ref b); }
++            try { return separated_core(T, U); } finally { TriTriProbe.Leave(TriTriProbe.Site.ArrSeparated, t0); }
++        }
++
++        bool separated_core(InputTriangle T, InputTriangle U)
+         {
+             Vector3d t0 = input_vertex(T, 0), t1 = input_vertex(T, 1), t2 = input_vertex(T, 2);
+             Vector3d u0 = input_vertex(U, 0), u1 = input_vertex(U, 1), u2 = input_vertex(U, 2);
+@@ -2387,6 +2394,13 @@ namespace g3
+         // triangles of one mesh that share vertices and do not intersect anywhere else (exact)
+         [MethodImpl(JitHints.Optimize)]
+         internal bool touch_only(InputTriangle T, InputTriangle U)
++        {
++            long t0 = TriTriProbe.Enter(TriTriProbe.Site.ArrTouchOnly);
++            if (TriTriProbe.Capture) { var a = new Triangle3d(T.V0, T.V1, T.V2); var b = new Triangle3d(U.V0, U.V1, U.V2); TriTriProbe.RecordTouch(ref a, new Index3i(T.Corners[0], T.Corners[1], T.Corners[2]), ref b, new Index3i(U.Corners[0], U.Corners[1], U.Corners[2])); }
++            try { return touch_only_core(T, U); } finally { TriTriProbe.Leave(TriTriProbe.Site.ArrTouchOnly, t0); }
++        }
++
++        bool touch_only_core(InputTriangle T, InputTriangle U)
+         {
+             int shared = 0;
+             for (int k = 0; k < 3; ++k) {
