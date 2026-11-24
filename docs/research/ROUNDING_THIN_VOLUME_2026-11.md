@@ -109,9 +109,9 @@ within 3e-12 of the faces; the arc follows the span of the normals of the descri
 length, not 6 %: a circular arc cannot have both):
 
 - **The top face at 5 degrees through the panel** (600 heights, a vault and a sagging panel, two arcs). With exactly
-  flush rims nothing is edited (1 600 placements). With the near-flush rims the repair edits in about a third of the
-  placements: 1 to 4 degenerate triangles at the rims, each cured by a flip, with no drift and no change of the volume.
-  The result is a piece of the panel in its full thickness (4 % to 97 % of it), not a thin strip.
+  flush rims nothing is edited (1 600 placements). With the near-flush rims the repair edited in about a third of the
+  placements (measured before #1464): 1 to 4 degenerate triangles at the rims, each cured by a flip, with no drift and no
+  change of the volume. The result is a piece of the panel in its full thickness (4 % to 97 % of it), not a thin strip.
 - **The top face inside the thickness of one facet**, nearly parallel to it (72 cases): a lens of 0.2 % to 2 % of the
   panel's volume across the full width. Here the repair contracts an edge with a drift of 1.7e-6 to 7e-6 of the
   diagonal, the size described, and the volume stays (below 1e-9 in the four cases of the test, and no change at
@@ -188,14 +188,134 @@ not help on the measured case. c is the only option that removes the change inst
 simplification literature has the rule for it, but it touches which vertices the rounding keeps, so it needs its own
 measurement on the benchmark corpora before a decision.
 
+## Caps first
+
+A second mechanism, with an output change the owner approved (2026-11-23): a degenerate triangle that is a cap, with one
+short edge.
+
+- **The shape** (`RoundingCapFirstTests.Step`, procedural): a slab under a block, extruded. On both end faces the foot of
+  the riser, A, lies w beyond the corner C of the slab's top (w below the bound) and e = 1e-12 off the line of the top,
+  so that the triangle (A, C, B) has three corners almost on one line: its area is below the degenerate area, its only
+  edge below the bound is A-C.
+- **Before:** `fix_degenerate` tried the contraction of a short edge first, and the flip only where no contraction
+  was accepted. It contracted A-C on both end faces: the foot of the riser moved by w, and with it the riser. The
+  volume changed by w H W / 2: 2.5e-7, 6.25e-7 and 1.0e-6 of 3.0e-4 for w = 2e-6, 5e-6 and 8e-6 (0.08 %, 0.21 %,
+  0.33 %), with `MaxDrift` = w.
+- **Now:** a cap is flipped first. A cap is a degenerate triangle whose shortest and longest edge would span 32 times
+  the degenerate area at a right angle, so the sine of the angle between them is below 1 / 32 (`CapRatio` in `fix_degenerate`:
+  half the product of the shortest and the longest edge, over the degenerate area of the component, at least 32; for a
+  degenerate triangle that ratio is at most 1 / sin of the angle, so the sine is below 1 / 32): it is degenerate by its angle,
+  not by its short edge. A cap also needs a nonzero shortest edge and a positive area threshold (with a threshold of 0, eg
+  `DegenerateArea = 0`, every bad triangle would test as a cap, also one with a zero-length edge, which a contraction removes). The flip of its longest edge removes it and moves no vertex. On the shape: 2 flips,
+  no contraction, the volume unchanged, `MaxDrift` at most e. Where the flip is not accepted the order is the old one.
+  The decision is made on lengths and on an area that scale by 2^k and 4^k, so it is the same at every power-of-two scale
+  (`RoundingCapFirstTests.Step_AtTheLimitOfACap`, 0.9 and 1.1 times the limit at the scales 1, 2^-10, 2^10).
+- **The limit 32** (owner decision 2026-11-23: the ratio form, not the bare distance of the apex from the longest edge, which
+  breaks an existing test). The first version took 1024; a cap with a ratio of a few hundred was still contracted. The
+  reproducer (`Step(w = 5e-6, e = 1e-12, l: l)`: l is the long edge of the cap, an extra corner on the top of the slab;
+  ratio = 0.5 shortest longest / degenerate area), measured on top of #1464 (net10.0):
+
+  | l | ratio | limit 1024 | limit 32 |
+  |---|---|---|---|
+  | 4e-4 | 761 | 2 contractions, volume +6.25e-7 (of 3.0e-4: 0.21 %), drift 5e-6 | 2 flips, volume change 0, drift 0 |
+  | 2.5e-4 | 476 | as 4e-4 | as 4e-4 |
+  | 1e-4 | 190 | as 4e-4 | as 4e-4 |
+  | 4e-5 | 76 | as 4e-4 | as 4e-4 |
+  | 1e-5 | 19 | 2 contractions, +6.25e-7 | the same: below the limit |
+  | 2e-6 | 3.8 (the shortest edge is then l) | 2 contractions, volume change -1e-18, drift 2e-6 | the same |
+  | none (the edge A-B, 0.5) | 9.5e5 | 2 flips | 2 flips |
+
+  With 256 (measured by the previous worker, on the base before #1464) the first two rows were flipped, the next two still
+  contracted. What each limit breaks, from the rounding tests (the 1139 tests whose names contain Rounding or SolidBoolean;
+  the older numbers are the previous worker's, on the base before #1464, not re-measured):
+  - 1024, 256, 64, 32: no test fails, apart from the pins of the limit itself; the old clamped-panel tests of that base failed
+    at 32 in `InRange(Collapses, 1, 3)` (all four tilts), and #1464 rewrote them: on top of #1464 they pass unchanged at 1024 and 32.
+  - 16: only the tests of the limit itself (a ratio of 28.8 is flipped, a ratio of 19 as well): measured on top of #1464.
+  - 4 and 1: on top of #1464 `RoundingThinVolumeTests.ClampedPanelShavedInsideOneFacet_ATiltedLens_TheRepairContractsAcrossIt_AndTheVolumeChangeStaysSmall`
+    fails (the lens is flipped, no contraction: the assertion on 2 contractions), and the tests of the limit; nothing else.
+    On the base before #1464 the previous worker found at 4 `FoldedCluster 52 8 4` not clean, and at 1 also ShortEdge and
+    DensePatch: with the exact InCircle of #1464 these three no longer fail at 4 and 1 (measured), so the floor of 32 rests
+    on the owner's decision, the lens test and that earlier measurement, not on a failing test of the current base.
+  - the bare apex-distance test: breaks an existing test (previous worker; not re-measured, not in the code).
+  The floor is a trade: a cap below 32 (the ratio of 19 above) is still contracted, with the volume change of a contraction
+  across a thin strip. From 16 384 on every result of the old base was that of 1024; the shape qualifies up to about 9.5e5.
+- **No effect on the fixtures above:** the plates, the shell and the clamped panel give the numbers they gave (their
+  tests are unchanged): their degenerate triangles are not caps by this test, or have no flip that is accepted.
+- **A limit:** in one frame of `Similarity.All()` (rotated, millimetre scale, far from the origin) the rounding of the
+  input folds the cap over its neighbour by 2e-8 of the diagonal. No triangle is degenerate there; the mesh intersects
+  itself, and `fix_intersection` resolves that as before, by the contraction of A-C, with the volume change of that
+  (6.3e-7). Two variants of a flip first in `fix_intersection` (for a pair across an edge, by the angle and by opposed
+  normals) did not change it and are not in the code. Open.
+- **Cost and effect elsewhere** (measured 2026-11-23, before and after, net10.0):
+  - **At the limit 32, on top of #1464** (2026-11-23, this machine, net10.0): the same job (`run <case> safe`, every third case of
+    booleans, utm and clusters, all of cylinder and drop, scale up to 81: 214 cases, each in its own process, one after the other,
+    two passes with the order of the two builds alternating, the faster of the two per case), `CapRatio` = 1e300 (no cap is
+    taken: the old order) against 32: 83.2 s against 83.2 s (ratio 1.000); the largest ratio of a single case above 200 ms is
+    1.17 (`bool:Collinear:0:Difference:0`, noise). 205 of 214 cases give the same result (clean, triangle count, edits, drift);
+    nine differ, none in cleanliness (the one case that is not clean, `cluster:FoldedCluster:36:8:3`, is not clean before and
+    after): edits +1 in four of them, +2 in `FoldedCluster:36:8:0`, -2 in `FoldedCluster:44:8:3` (triangles 484 to 488), -1 in
+    `FoldedCluster:52:8:3` (drift 2.7e-5 to 3.0e-6); the same edits with another drift in `FoldedCluster:36:8:3` (3.2e-5 to
+    2.8e-5) and `scale:81:Intersection` (triangles 51 688 to 51 690, drift 1.2e-5 to
+    8.4e-6). The driver is `benchmarks/SnapRoundingExperiment/compare_builds.py` (README, "Comparing two builds"); the numbers of the next three bullets are of the first version (1024).
+  - `benchmarks/SnapRoundingExperiment`, `run <case> safe` on 214 cases (every third case of the sets booleans, utm
+    and clusters, all of cylinder, drop and scale up to resolution 81), two alternating passes each, the faster of the
+    two per case: 89.7 s before, 88.8 s after (ratio 0.99; no set above 1.00). 202 cases clean before and after; two
+    cases (Cluster, k = 44) have one edit more, with the same triangle count and drift.
+  - (The two bullets below: measured with the limit 1024 on the base before #1464; the previous worker found the same lines at 256 and 32 for the probes; not re-measured on top of #1464.)
+  - The stress inputs of two probes under review (unions of spheres with gaps and overlaps down to 1e-12, 20 cases;
+    tube skeletons with grazing forks and near-tangent branches, 9 cases) through `SolidBooleanPipeline`: every line
+    identical before and after (status, verdict, triangle count, the volume before and after the rounding). 29 of 29
+    succeed, 28 clean and one with contacts only (two spheres exactly tangent); the largest change of the volume by
+    the rounding is 1.3e-9 of the volume.
+- **Prior art:** caps flipped, needles collapsed is Botsch and Kobbelt 2001 ([sources](../sources/meshing-and-repair.md)),
+  already listed for the repair's flips; the order between the two edits for a cap with a short edge is the change here.
+
+## Update 2026-11-23 (#1464): the exact InCircle removes most of these cases
+
+The delaunay code of `ExactPlanarSimplify` now decides the flips by the exact `InCircle` (the filter alone returned 0
+where it could not decide: a correctness fix of stage S2-3 of the determinism proof, made for the input-order PR). Flat
+regions are now Delaunay, so the caps that used to round to degenerate triangles at the rims are gone, and most of the
+placements above need no repair. Measured on this branch (the fixtures of `RoundingThinVolumeTests`):
+
+- **Five degrees, default settings**: nothing to repair at seed 7 in all four cases (volume the exact one), and at seed 8
+  in three of them; the sagging panel at z0 -0.05836649455985357 with seed 8 has 1 degenerate triangle, cured by 1 flip,
+  drift 1.5e-7 of the length (1.1e-7 of the diagonal), volume change -3.5e-10 relative. (Other seeds were not swept for this
+  update; a sweep of seeds 0..39 by the first worker of the PR found one more contraction, at seed 22, drift 5.2e-6.)
+- **Five degrees, `SimplifyFlatRegions = false`** (the near-flush rim triangles stay): 18 to 48 degenerate triangles
+  (18, 18, 48, 26 in the four cases, seed 7), 9 to 24 contractions, drift about 1.1e-12, volume within 2.5e-12, clean.
+- **The lens inside one facet** (tilt -3e-4..1e-4 against the facet, top face 0.02 to 0.04 of the thickness above it, seeds
+  8 and 9): 20 of 24 combinations need no repair. Two pairs contract: tilt -3e-4 at 0.04 t (2 contractions, drift 1.3e-6 of
+  the diagonal, volume within 5e-15: the contraction runs along the facet) and tilt +1e-4 at 0.02 t (2 contractions, drift
+  6.8e-7, **volume -1.6e-6 relative**: a contraction that changes the volume, a case of its own). At 0.03 t nothing contracts.
+
+The old assertions "1 to 8 degenerate triangles, cured by flips" and "1 to 3 contractions in all four tilts, volume within
+1e-9" have no successor: that behaviour is gone with the caps.
+
+The change goes in both directions, and the repair is not better in general. The lens at tilt +1e-4 and 0.02 t has no volume
+change without this PR's behaviour changes (2 contractions, the same drift), and with them it loses 1.6e-6 of the lens's
+volume; the lens at tilt -3e-4 and 0.04 t went the other way, from about -1.0e-6 to -4.5e-15 (reviewer's measurement
+with the behaviour changes reverted). Which edges there are to contract follows the triangulation, and the volume is not
+the repair's concern (options c and d above): the test of the +1e-4 lens pins an upper bound of 2e-6 on the magnitude, not
+the loss.
+
+What the tests now guard, honestly: the default five-degree cases no longer exercise the repair (nothing is left to repair),
+so the old claim "the flips move nothing, the volume stays within 1e-12" has no successor; the seed-8 case with one flip
+allows 1e-9 (measured 3.5e-10), and the variant without `SimplifyFlatRegions` allows 5e-12 where the old test allowed 1e-12
+(measured 1.6e-12, 2.5e-12, 1.6e-12 and 3e-14 in the four cases, which is why 1e-12 no longer holds: the contractions of
+18 to 48 rim triangles add up). The bounds are about 2 to 3 times the measured values and were not tightened further.
+
 ## Tests
+
+`RoundingCapFirstTests`: the step (the flip, the volume, four cases), the limit between a cap and a needle on both
+sides, reuse, and the invariance over `Similarity.All()` (the 2^k scales bit for bit; the frame of the limit pinned as
+it is).
 
 `RoundingVolumeReportTests` checks the two numbers of a1: on the plates (the 3.7e-7), where the repair changes nothing
 (shape 2, closed boxes: equal bit for bit), on the paths without a repair (0 and 0), on a strict refusal, after the
 Grid step, on the repair itself (far from the origin, inside out, open, empty, not finite), reuse, and the invariance
 over `Similarity.All()`.
 
-`RoundingThinVolumeTests` (33 cases, each well under a second): the plates (the change and the silence, the cause, the
+`RoundingThinVolumeTests` (37 cases, each well under a second): the plates (the change and the silence, the cause, the
 thickness sweep, the near-miss sweep, the horizontal contraction, the grid, the Grid step), the shell cut by a box, the clamped
-panel of the second description (the cut at 5 degrees, the lens inside a facet), and the guard. They document the behaviour as it is: a fix of option c or d will change the plates' numbers, and those
+panel of the second description (the cut at 5 degrees, with and without the simplification, the flip at seed 8, the lenses inside a facet), and the guard. They document the behaviour as it is: a fix of option c or d will change the plates' numbers, and those
 tests then get the new ones.

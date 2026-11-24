@@ -142,7 +142,9 @@ namespace geometry3Sharp.Tests
         [Theory]
         [InlineData("shared vertex", -46, "inside-out components")]
         [InlineData("shared vertex", 46, "degenerate triangles")]
-        [InlineData("sliver", -46, "inside-out components")]
+        // (sliver at -46 until #1464: with the result's ids given by its geometry the repair takes its edits in another order
+        // and leaves that one with a positive volume; at 45 its edits turn it over)
+        [InlineData("sliver", 45, "degenerate triangles")]
         public void KeptDifferences_TurnedInsideOutByTheEdits_AreReported(string family, int e, string reason)
         {
             var (ta, tb) = ExactBooleanMetamorphicTests.TetFamilies[family];

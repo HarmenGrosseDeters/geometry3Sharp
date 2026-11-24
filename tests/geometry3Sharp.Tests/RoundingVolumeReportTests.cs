@@ -254,7 +254,23 @@ namespace geometry3Sharp.Tests
             var bad = new MeshRoundingRepair(nan);
             bad.Apply();
             Assert.True(double.IsNaN(bad.VolumeBefore) && double.IsNaN(bad.VolumeAfter));
+            // finite coordinates outside the supported range: the repair does not run (OutsideRange), the volumes are computed all the
+            // same, and the products of the sum overflow; a box of 1e60 outside the range too, whose products do not, has its volume
+            foreach (double size in new[] { 1e200, 1e60 }) {
+                DMesh3 huge = Box(0, 0, 0, 2 * size, 3 * size, 4 * size);
+                var outside = new MeshRoundingRepair(huge);
+                Assert.False(outside.Apply());
+                Assert.True(outside.OutsideRange);
+                if (size > 1e100)
+                    Assert.True(IsNotFinite(outside.VolumeBefore) && IsNotFinite(outside.VolumeAfter), outside.VolumeBefore + " " + outside.VolumeAfter);
+                else {
+                    Assert.InRange(outside.VolumeBefore / (24 * size * size * size), 1 - 1e-12, 1 + 1e-12);
+                    Assert.Equal(outside.VolumeBefore, outside.VolumeAfter);
+                }
+            }
         }
+
+        static bool IsNotFinite(double x) { return double.IsNaN(x) || double.IsInfinity(x); }
 
         // ---- reuse --------------------------------------------------------------------------------------------------------------------
 
