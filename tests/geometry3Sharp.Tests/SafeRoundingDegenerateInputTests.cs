@@ -124,8 +124,10 @@ namespace geometry3Sharp.Tests
         // rows of two k, 36 Booleans each, about 3 s; 93 of the 108 were clean (34, 29 and 30 by row), and the rows' minima 33 + 28 + 28
         // keep the old 89. FoldedCluster (no k = 0) is two rows: 84 of 90 were clean (51 and 33), and 49 + 31 keep the old 80;
         // DenseClusterRows_AreAllTheCases checks the union of the ks and the sums)
+        // (#1410: the conversion of an exact vertex rounds to nearest now; the Cluster row of k 0 and 44 is clean in 32 of its 36 cases (33
+        // before), so the minimum of that row is 32 and the sum for Cluster 88 (the other rows are unchanged))
         public static IEnumerable<object[]> DenseClusterRows() => new[] {
-            new object[] { Family.Cluster, new[] { 0, 44 }, 36, 33 },
+            new object[] { Family.Cluster, new[] { 0, 44 }, 36, 32 },
             new object[] { Family.Cluster, new[] { 30, 52 }, 36, 28 },
             new object[] { Family.Cluster, new[] { 36, 40 }, 36, 28 },
             new object[] { Family.FoldedCluster, new[] { 30, 40, 44 }, 54, 49 },
@@ -136,7 +138,7 @@ namespace geometry3Sharp.Tests
         public void DenseClusterRows_AreAllTheCases()
         {
             var rows = DenseClusterRows().ToList();
-            foreach (var (family, ks, total, minClean) in new[] { (Family.Cluster, new[] { 0, 30, 36, 40, 44, 52 }, 108, 89), (Family.FoldedCluster, new[] { 30, 36, 40, 44, 52 }, 90, 80) }) {
+            foreach (var (family, ks, total, minClean) in new[] { (Family.Cluster, new[] { 0, 30, 36, 40, 44, 52 }, 108, 88), (Family.FoldedCluster, new[] { 30, 36, 40, 44, 52 }, 90, 80) }) {
                 var mine = rows.Where(r => (Family)r[0] == family).ToList();
                 Assert.Equal(ks, mine.SelectMany(r => (int[])r[1]).OrderBy(k => k));
                 Assert.Equal(total, mine.Sum(r => (int)r[2]));

@@ -308,7 +308,8 @@ namespace geometry3Sharp.Tests
             // StrictRounding reports the smallest rejected edit: where the repair stopped at its limit, the message says
             // that it is the smallest of the edits proposed before it; without the limit it does not
             // (a dense cluster that the repair leaves unclean also without the limit: both runs report an error)
-            DMesh3 m = SafeRoundingDegenerateInputTests.Make(Family.Cluster, 36, 3, 8);
+            // (seed 3 until #1410: the conversion of an exact vertex rounds to nearest now, and the repair leaves that one clean)
+            DMesh3 m = SafeRoundingDegenerateInputTests.Make(Family.Cluster, 36, 0, 8);
             var limited = new ExactMeshBoolean(new DMesh3(m), new DMesh3(), ExactMeshBoolean.Operations.Union) { StrictRounding = true, RoundingMaxPairTests = 2000 };
             Assert.False(limited.Compute());
             Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, limited.Status);
