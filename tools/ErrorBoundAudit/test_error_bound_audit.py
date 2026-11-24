@@ -20,7 +20,7 @@ import fpbound                                                  # noqa: E402
 from fpbound import Context, Mirrored, Sampler, U, dominates    # noqa: E402
 
 # the findings the note records (id -> entry); a new one, or one that goes away, fails here until the note is updated
-FINDINGS = {'F1': 'EB-7 negative_volume'}
+FINDINGS = {}
 
 
 class AuditTable(unittest.TestCase):

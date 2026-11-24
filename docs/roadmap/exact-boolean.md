@@ -26,6 +26,16 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
+#### The result does not depend on the order of the input (#1464, draft)
+
+**Decided 2026-11-23 (owner): option A with A2 and D** of
+[BOOLEAN_INPUT_ORDER_2026-11.md](../research/BOOLEAN_INPUT_ORDER_2026-11.md). Observed by the owner on private inputs. Diagnosis: the exact
+result did not depend on the order, the rounding repair did (it works by ids), and rarely the flips of `ExactPlanarSimplify`.
+Built in #1464: the kept pieces are ordered by their geometry before the vertices are numbered, the hole of a removed point
+starts at its smallest point, and the flips are decided exactly. Result and status are bit for bit the same for reordered
+triangles, vertex ids and corners; the ordering is about 1 % of the boolean's time; the ids of every result changed once and
+40 pinned tests moved. Open: the gate review, CI and the mutation runs; the repair's own gap is #1465.
+
 #### Exact Boolean 2.0 (milestone)
 
 **Exact Boolean 2.0 (milestone, owner 2026-11-07).** Every operation of the #385 Thingi10K harness (union, intersection, difference; B rotated and translated) at most 5 s of Compute wall time on the cloud machine.
