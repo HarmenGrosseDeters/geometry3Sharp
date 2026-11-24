@@ -73,6 +73,16 @@ if (robust.Apply()) {
 4. **Winding-number solidification (`UsedSolidify`):** Rebuilds the solid via `MeshWindingNumberSolidify` when exact resolve cannot produce a clean result or loses volume (`UsedInput` when reverting to original input).
 5. **Alpha wrap (`UsedAlphaWrap`):** Wraps the input via `MeshAlphaWrap` and simplifies within half the offset while keeping triangle quality `>= 0.3` (optional `AlphaWrapQualityPass` off by default).
 
+### Sharp Features on the Wrap (`AlphaWrapSharpFeatures`, `AlphaWrapSharpFeaturesOnSoups`)
+
+When the ladder ends in the alpha wrap, `AlphaWrapSharpFeatures = true` (off by default) runs the sharp-feature pass on the raw wrap before the simplification. The pass moves vertices onto the offset surface's planes and creases near the input's creases and keeps every wrap guarantee (closed, manifold, no self-intersection, no contact with the input; [ALPHA_WRAP_FEATURE_VALIDITY.md](../design/ALPHA_WRAP_FEATURE_VALIDITY.md)).
+
+By default the pass finds the input's creases from the dihedral angles of its edges. A triangle soup (unwelded, duplicated, flipped, T-junctions between faces) has no edge with two triangles, so the pass finds nothing there. Set `AlphaWrapSharpFeaturesOnSoups = true` as well: the creases then come from the input's unoriented varifold, a measure on position x plane that needs no connectivity ([VARIFOLD_CREASE_INPUT.md](../design/VARIFOLD_CREASE_INPUT.md)). Example: `MeshRepairExample.RobustRepairKeepingCreases`.
+
+- **Gain:** on unwelded or flipped CAD soups at 100k triangles, the recall of the creases within one offset rises from 0.84-0.90 to the welded mesh's value (0.98-1.00).
+- **Cost:** a measure of the input at 1.75 alpha spacing, about 7-10 % of the wrap's time.
+- **Limits:** creases closer than about 3.5 alpha to a corner or to a third plane are partly missed. Faces moved apart by gaps are found within three offsets, but not placed within one. Holes wider than alpha let the wrap inside (issue #1542); the pass does not change that.
+
 ### Important Behaviors & Diagnostics
 
 - **Small inputs (`SmallInputWrapTriangles = 64`):** Inputs with fewer than 64 triangles derive wrap `Alpha` from median edge length (`max(diag / WrapRelativeAlpha, medianEdge / SmallInputWrapEdgeDivisor)`) to avoid generating 100k+ wrap triangles on simple shapes. Set `SmallInputWrapTriangles = 0` to always use `diag / WrapRelativeAlpha`.
