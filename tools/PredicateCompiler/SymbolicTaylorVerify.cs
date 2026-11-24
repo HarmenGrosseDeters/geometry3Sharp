@@ -3,8 +3,10 @@
 // Offline Symbolic Taylor round-off error verifier for PredicateCompiler's floating-point filters (Solovyev et al.,
 // "Rigorous Estimation of Floating-Point Round-Off Errors with Symbolic Taylor Expansions", ACM TOPLAS 40(4), 2018).
 //
-// Scope: verifies PredicateCompiler's filter bounds on bounded input domains (complementing tools/Z3Pilot/filter_rules.py,
-// which proves the per-operation inductive rules symbolically across the full range gate). Operates directly on
+// Scope: performs a global box-max consistency check (sup_box |e~ - e| <= C * M_max(box)) plus a sampled pointwise
+// check (SpotCheckExact, concrete points) over bounded input domains. It does NOT prove the pointwise runtime
+// invariant |e~ - e| <= C * m~(x) for all x in the box (where m~(x) can be smaller than M_max); that pointwise
+// invariant is proved inductively across the full range gate by tools/Z3Pilot/filter_rules.py. Operates directly on
 // PredicateCompiler's parsed Predicate / Node DAG with zero external dependencies:
 //   - Directed-rounding IEEE-754 binary64 interval arithmetic (Interval64, via Knuth TwoSum / Dekker TwoProd).
 //   - Exact IEEE-754 binary64 binade local rounding bound HalfUlpMax(m) (handling exact powers of two and subnormals).
@@ -13,7 +15,7 @@
 //       v~_root - v_root = sum_{k not Input} vBar_k * l_k + sum_{k in Mul} vBar_k * (err_{a_k} * err_{b_k}),
 //     where l_k = fl(s~_k) - s~_k is bounded by HalfUlpMax(AddUp(|v_k|, preRoundErr_k)) and err_k = v~_k - v_k.
 //   - Best-first branch-and-bound box subdivision with deterministic tie-breaking.
-//   - Exact rational (BigInteger) spot-checks on corners and interior points of each box.
+//   - Exact rational (BigInteger) pointwise spot-checks on corners and interior points of each box (sample evidence).
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -523,7 +525,9 @@ namespace G3PredicateCompiler
             return Interval64.MulDown(coeff, mMax[dag.Root]);
         }
 
-        // Exact rational evaluation on concrete double points inside the box to cross-check both bounds.
+        // Exact rational spot-checks on concrete double points inside the box (sample evidence for the pointwise rule,
+        // not a proof over the box). Both vFp and mFp are evaluated in rounded IEEE-754 double identically to
+        // Compiler.cs's generated filter (emit_filter_value), so the sampled check matches the runtime invariant.
         static (bool allOk, double maxExactErr) SpotCheckExact(
             Predicate p, SubDag dag, Node target, Interval64[] inputBox, double symTaylorBound, int samples)
         {

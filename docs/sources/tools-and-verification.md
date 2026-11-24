@@ -132,11 +132,12 @@ Floating-Point Round-off Errors with Symbolic Taylor Expansions*](https://soarla
 FM 2015. The smoke example does not certify any geometry predicate.
 
 `tools/PredicateCompiler/SymbolicTaylorVerify.cs` (`PredicateCompiler --verify-filters`, test/tool only, zero external
-dependencies) implements reverse-mode Symbolic Taylor error estimation with branch-and-bound from the papers only (no
-FPTaylor OCaml code read or ported): A. Solovyev, M. S. Baranowski, I. Briggs, C. Jacobsen, Z. Rakamarić and
-G. Gopalakrishnan, *Rigorous Estimation of Floating-Point Round-Off Errors with Symbolic Taylor Expansions*, ACM TOPLAS
-40(4), art. 20, 2018; exact IEEE-754 directed-rounding helpers use Knuth's TwoSum and Dekker's TwoProd as summarized in
-J. R. Shewchuk, *Adaptive Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates*, DCG 18(3), 1997.
+dependencies) implements reverse-mode Symbolic Taylor error estimation with branch-and-bound for global box-max
+consistency checks plus sampled pointwise rational checks, from the papers only (no FPTaylor OCaml code read or
+ported): A. Solovyev, M. S. Baranowski, I. Briggs, C. Jacobsen, Z. Rakamarić and G. Gopalakrishnan, *Rigorous Estimation
+of Floating-Point Round-Off Errors with Symbolic Taylor Expansions*, ACM TOPLAS 40(4), art. 20, 2018; exact IEEE-754
+directed-rounding helpers use Knuth's TwoSum and Dekker's TwoProd as summarized in J. R. Shewchuk, *Adaptive Precision
+Floating-Point Arithmetic and Fast Robust Geometric Predicates*, DCG 18(3), 1997.
 
 ## Error bound audit (`tools/ErrorBoundAudit`, test/tool only)
 

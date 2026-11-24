@@ -13,13 +13,14 @@ and 13.
     dotnet run --project tools/PredicateCompiler -- --verify-filters tools/PredicateCompiler/indirect.spec
 
 The second command rewrites the generated table block of the design doc. `--verify-filters` runs an offline
-reverse-mode Symbolic Taylor round-off verifier (`SymbolicTaylorVerify.cs`, Solovyev et al. 2018) with exact
+reverse-mode Symbolic Taylor error estimator (`SymbolicTaylorVerify.cs`, Solovyev et al. 2018) with exact
 IEEE-754 binary64 binade `half-ulp` bounds directly on every `inputs xyz` predicate's parsed DAG over bounded boxes,
-confirming that the generator's worst-case box bounds dominate the Symbolic Taylor upper bounds and cross-checking
-exact rational errors on concrete points without external tools (complementing `tools/Z3Pilot/filter_rules.py`, which
-proves the per-operation inductive rules symbolically across the full range gate). `GeneratedPredicatesTests` fails when the
+performing a global box-max consistency check (`sup_box |e~ - e| <= C * M_max(box)`) plus a sampled pointwise check
+against exact rationals on concrete points without external tools. This is a global consistency check plus sample
+evidence rather than a pointwise proof of `|e~ - e| <= C * m~(x)` (which `tools/Z3Pilot/filter_rules.py` proves
+inductively across the full range gate). `GeneratedPredicatesTests` fails when the
 block differs from the derivation, when a value exceeds its bound on inputs at `±m`, when the spec's sign differs from
-the kernel's, when the kernels' scratch constants are below the derived scratch, or when filter verification fails.
+the kernel's, when the kernels' scratch constants are below the derived scratch, or when filter checks fail.
 
 The value bounds know nothing of a runtime; the limbs taken are a model of `FixedArith` in a separate pass. Further
 passes over the same expression graph (a floating-point filter and expansion stages as in #221, predicates on
