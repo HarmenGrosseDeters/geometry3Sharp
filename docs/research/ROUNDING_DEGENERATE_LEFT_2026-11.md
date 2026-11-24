@@ -211,3 +211,37 @@ of reflection and is not committed). Not verified: the joint-move probe does not
 (each is within its room) nor the ghosts; the 24 % is over the 79 triangles of the tiny search; `dome` and
 bigger grids (non-tiny hits, 35 states) were classified by the refusing rules but not probed for joint moves; the instrumented
 counts are per proposal.
+
+## 8. What the pipeline's default grid retry does with these states
+
+Measured on master fc251bad2 (after #1480, the default `AutomaticSteps = GridBeforeFallback | GridAfterRoundingNotClean`, and #1481),
+with `search --pipeline` (new): for every case whose repair leaves a degenerate triangle (group "degenerate", 35 + 54 hits; the
+one tiny case that also has a resolvable removal is in this group) or only a resolvable removed component (group "removed", 542 + 521 cases),
+`SolidBooleanPipeline` on the same inputs and operation with `AutomaticSteps = None` and with the default. Seed 2 (5000 cases),
+seed 3 `--tiny` (4000 cases); the minimal reproducer is added as a third column. The retry cells were 2^-40 to 2^-27 (9e-13 at coordinates
+up to 1, 7.5e-9 at a shift of 1e4); the size guard (cell above 1/64 of an input's size) never fired and no retry result was empty.
+
+| group | seed | cases | `None`: RoundingNotClean | default: success via Grid, clean | default: success via Grid, only contacts | default: size guard | default: fails again on the grid (RoundingNotClean) |
+|---|---|---:|---:|---:|---:|---:|---:|
+| degenerate | 2 | 35 | 35 | 9 | 7 | 0 | 19 |
+| degenerate | 3 tiny | 54 | 54 | 16 | 9 | 0 | 29 |
+| degenerate | minimal | 1 | 1 | 0 | 0 | 0 | 1 |
+| **degenerate, total** | | **90** | **90** | **25 (28 %)** | **16 (18 %)** | **0** | **49 (54 %)** |
+| removed | 2 | 542 | 542 | 3 | 1 | 0 | 538 |
+| removed | 3 tiny | 521 | 521 | 4 | 0 | 0 | 517 |
+| **removed, total** | | **1063** | **1063** | **7 (0.7 %)** | **1** | **0** | **1055 (99 %)** |
+
+Largest relative volume difference of a default success against the non-strict boolean of the unsnapped inputs: degenerate group 0.177
+(seed 2; seed 3: 0.029), removed group 0.433 (seed 2, the only-contacts case; seed 3: 3.4e-7). Of the 41 successes of the degenerate group, 26 differ by more than 0.1 %, 15 by more than 1 %, 6 of them by more than 1 % of the first input's whole volume (largest 7.5 %, a dome plate of thickness 0.002 at a shift of 1e4); the
+others by 1e-10 to 1e-3. All failures are `RoundingNotClean` again on the grid; with `None` every case ends `RoundingNotClean`, as expected, and no run
+ended in another status.
+
+Reading: for the left-over-degenerate state the default retry gives a result in 41 of 90 cases (46 %), 25 of them clean, but it is not a cure: a
+little over half still end `RoundingNotClean` (the snap moves the corners by up to a cell but the wedge of section 3 is still there), and 26 of the 41
+successes differ by more than 0.1 % from the non-strict result (up to 18 % of the result's volume, because the results of these near-coincident plates are slivers of
+a volume about 1e-3 of the input and the snap moves their faces by a cell), so a caller sees a state that is half cured and not always in an accurate way
+(check `Report.Route` for the Grid step and `Report.Clean`). For the other class (removed resolvable) the retry is almost no help (8 of 1063): the
+snapped run ends in the same refusal (the cause of that class was not examined here). The gap of section 6 therefore
+matters in practice for the pipeline too: about 54 % of the degenerate states and 99 % of the removed states stay refused by default. The reference volume
+is the non-strict boolean's result, which is itself a rounded result of an ill-conditioned input; the differences show the order of magnitude, not an error
+against the exact solid. Not measured: other families than these plates; the cells of the retry were not varied.

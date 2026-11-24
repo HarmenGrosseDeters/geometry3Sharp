@@ -29,6 +29,7 @@ dotnet run --project benchmarks/BooleanInputOrder -c Release -- search --count 1
 | mode | what |
 |---|---|
 | `search` | a seeded sample of plate pairs (surface, grid n and offset, thickness, rotation 1e-5 to 1e-9 and its axis ratio, shift away from the origin, both ways round) through `ExactMeshBoolean` with `SafeRounding`; per case the class of the repair (clean, left-over degenerate triangles only, intersections, contacts, removed resolvable, other); a line `HIT` for each result that leaves only degenerate triangles, with the repair counts and whether the same result comes in five other orders. `--tiny` n 1 to 3, `--n N` fixes n, `--only I` runs the I-th case of the sample, `--case surface,n,dn,thickness,rotation,ratio,shift,D\|Drev` runs one case and prints the `StrictRounding` error text |
+| `search --pipeline` | for every case whose repair leaves a degenerate triangle (class containing `degenerate`) or only a resolvable removed component, also `SolidBooleanPipeline` on the same inputs with `AutomaticSteps = None` and with the default; per run a line `PIPE` (status / BooleanStatus, route, the Grid step's cell and text, `Report.Clean`, `Report.OnlyContacts`, `MeshRobustRepair.NotCleanReason`, relative volume difference against the non-strict boolean of the unsnapped inputs), and a tally per group, mode and outcome at the end |
 
 Two more modes compare a library change before and after (run the same harness on both builds):
 

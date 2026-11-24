@@ -432,8 +432,10 @@ static class Program
         int only = -1;
         string oneCase = null;
         int forcedN = 0;
+        bool pipeline = false;
         for (int i = 1; i < args.Length; ++i) {
-            if (args[i] == "--count") count = int.Parse(args[++i], CultureInfo.InvariantCulture);
+            if (args[i] == "--pipeline") pipeline = true;
+            else if (args[i] == "--count") count = int.Parse(args[++i], CultureInfo.InvariantCulture);
             else if (args[i] == "--seed") seed = int.Parse(args[++i], CultureInfo.InvariantCulture);
             else if (args[i] == "--tiny") tiny = true;
             else if (args[i] == "--case") oneCase = args[++i];
@@ -444,6 +446,8 @@ static class Program
         var rnd = new Random(seed);
         var classes = new SortedDictionary<string, int>();
         int smallest = int.MaxValue;
+        var pipeTally = new SortedDictionary<string, int>();
+        double[] maxVolDiff = { 0, 0 };
         for (int c = 0; c < count; ++c) {
             var (hn, h) = Surfaces[rnd.Next(Surfaces.Length)];
             int n = tiny ? rnd.Next(1, 4) : rnd.Next(3, 9), dn = rnd.Next(1, 4);
@@ -498,6 +502,40 @@ static class Program
                     }
                 }
             } catch (Exception ex) { cls = "exception " + ex.GetType().Name; }
+            if (pipeline && (cls.Contains("degenerate") || cls == "removed-resolvable")) {
+                // the pipeline on the same inputs: without the automatic steps, and with the default
+                string group = cls.Contains("degenerate") ? "degenerate" : "removed-resolvable";
+                double vPlain = Volume(plain.Result), vInput = Math.Abs(Volume(a));
+                foreach (bool dflt in new[] { false, true }) {
+                    var pipe = new SolidBooleanPipeline(a, b, D);
+                    if (!dflt) pipe.AutomaticSteps = SolidBooleanPipeline.AutomaticStepModes.None;
+                    pipe.Compute();
+                    var rep = pipe.Report;
+                    string routeText = string.Join(">", rep.Route.Select(x => x.Name));
+                    SolidBooleanRouteStep grid = rep.Route.FirstOrDefault(x => x.Name == "Grid");
+                    string outcome;
+                    string reason = pipe.Result != null ? MeshRobustRepair.NotCleanReason(pipe.Result) : "no result";
+                    double relDiff = double.NaN;
+                    if (pipe.Status == SolidBooleanPipeline.PipelineStatus.Success) {
+                        relDiff = Math.Abs(Volume(pipe.Result) - vPlain) / Math.Max(Math.Abs(vPlain), 1e-300);
+                        outcome = (grid != null ? "success via Grid" : "success without Grid") + (rep.Clean ? ", clean" : rep.OnlyContacts ? ", only contacts" : ", not clean");
+                        if (grid != null) maxVolDiff[1] = Math.Max(maxVolDiff[1], relDiff);
+                        else if (dflt) maxVolDiff[0] = Math.Max(maxVolDiff[0], relDiff);
+                    }
+                    else if (grid != null && grid.Change != null && grid.Change.Contains("1/64")) outcome = "stopped by the size guard";
+                    else if (grid != null && grid.Change != null && grid.Change.Contains("already")) outcome = "no retry: inputs on the cell";
+                    else if (grid != null && grid.Change != null && grid.Change.Contains("it failed too")) outcome = "retry failed too";
+                    else if (grid != null && grid.Change != null && grid.Change.Contains("its result is empty")) outcome = "retry result empty, rejected";
+                    else if (grid != null) outcome = "grid step, other (" + pipe.Status + "/" + pipe.BooleanStatus + ")";
+                    else outcome = pipe.Status + "/" + pipe.BooleanStatus;
+                    Add(pipeTally, group + " | " + (dflt ? "default" : "None") + " | " + outcome);
+                    Console.WriteLine(string.Format(CultureInfo.InvariantCulture,
+                        "PIPE #{0} {1} | {2} {3}/{4} | route {5} | grid {6} | clean {7} onlyContacts {8} | reason '{9}' | rel volume diff {10:G3} | volume diff of input 0 {12:G3} (non-strict result {13:G3}) | {11}",
+                        c, group, dflt ? "default" : "None", pipe.Status, pipe.BooleanStatus, routeText, grid != null ? grid.Grid.ToString("R", CultureInfo.InvariantCulture) : "-",
+                        pipe.Result != null && rep.Clean, rep.OnlyContacts, reason, relDiff, grid != null ? grid.Change : "",
+                        pipe.Result != null ? Math.Abs(Volume(pipe.Result) - vPlain) / vInput : double.NaN, vPlain));
+                }
+            }
             if (oneCase != null) {
                 // the error text of StrictRounding (what SolidBooleanPipeline reports as RoundingNotClean)
                 var strict = new ExactMeshBoolean(a, b, D) { StrictRounding = true };
@@ -508,6 +546,11 @@ static class Program
         }
         Console.WriteLine($"search: cases {count}, seed {seed}, tiny {tiny}");
         foreach (var k in classes) Console.WriteLine($"   {k.Key}: {k.Value}");
+        if (pipeline) {
+            Console.WriteLine("pipeline (group | mode | outcome):");
+            foreach (var k in pipeTally) Console.WriteLine($"   {k.Key}: {k.Value}");
+            Console.WriteLine(string.Format(CultureInfo.InvariantCulture, "   largest relative volume difference of a default success via Grid: {0:G3}; of a default success without Grid: {1:G3}", maxVolDiff[1], maxVolDiff[0]));
+        }
         return 0;
     }
 
@@ -520,7 +563,7 @@ static class Program
         if (args.Length > 0 && args[0] == "timing")
             return Timing(args.Length > 1 ? int.Parse(args[1], CultureInfo.InvariantCulture) : 5);
         if (args.Length == 0 || (args[0] != "plates" && args[0] != "tessellations")) {
-            Console.WriteLine("usage: BooleanInputOrder search [--count N] [--seed S] [--tiny] [--n N] [--only I] [--case spec]\n       BooleanInputOrder plates|tessellations [--orders N] [--filter text] [--stages] [--numbered]\n       BooleanInputOrder timing [repeats]\n       BooleanInputOrder corpus");
+            Console.WriteLine("usage: BooleanInputOrder search [--count N] [--seed S] [--tiny] [--n N] [--only I] [--case spec] [--pipeline]\n       BooleanInputOrder plates|tessellations [--orders N] [--filter text] [--stages] [--numbered]\n       BooleanInputOrder timing [repeats]\n       BooleanInputOrder corpus");
             return 2;
         }
         int nOrders = 8;
