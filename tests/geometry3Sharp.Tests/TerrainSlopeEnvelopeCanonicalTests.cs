@@ -84,16 +84,35 @@ namespace geometry3Sharp.Tests
         }
 
         // R1 directly: the default construction gives the reference labels, those of the insertion without prefilters and with every
-        // fan plane (SlopeMap.NoPrefilters): the same map after Simplify and the same surface. Strip pieces (the ramp's polygon pieces:
-        // see Invariance_EveryFrame_SameAsTheEarlierConstruction)
+        // fan plane (SlopeMap.NoPrefilters): the same map after Simplify and the same surface
         [Fact]
         public void Default_GivesTheReferenceLabels()
         {
-            foreach (var (name, make) in PrCases().Where(c => c.Item1 != "ramp")) {
+            foreach (var (name, make) in PrCases()) {
                 var ma = new List<string>();
                 var a = Run(make, null, ma);
                 var mb = new List<string>();
                 AssertSame(a, Run(make, d => d.NoPrefilters = true, mb), ma, mb, name + " reference");
+            }
+        }
+
+        // #1530: the pit with a ramp in the frame rotated about z by 31 degrees. A face on the design side of a toe vertex's fan (the
+        // gap between its end planes, 180 degrees wide) took no fan plane: the window around the face's directions (2 theta wide
+        // margins) holds none, though the nearest end plane is the fan's maximum there. The labels were not the envelope (master: 218
+        // surface vertices, the merge during insertion 216, the reference 217), and both constructions disagreed. Now both give the
+        // reference labels: the same map after Simplify and the same surface
+        [Fact]
+        public void RampInARotatedFrame_BothConstructionsGiveTheReferenceLabels()
+        {
+            Similarity s0 = Similarity.All().First(x => x.Name == "rotated");
+            Similarity s = new Similarity(s0.Name + " (about z)", s0.Scale, Matrix3d.AxisAngleD(Vector3d.AxisZ, 31), s0.Translation);
+            Func<TerrainSlopeDesign> make = () => InFrame("ramp", s);
+            var mr = new List<string>();
+            var reference = Run(make, d => d.NoPrefilters = true, mr);
+            Assert.True(reference.SlopeSurface != null, reference.Message);
+            foreach (var (vn, v) in new (string, Action<TerrainSlopeDesign>)[] { ("default", null), ("earlier", Earlier) }) {
+                var m = new List<string>();
+                AssertSame(reference, Run(make, v, m), mr, m, vn);
             }
         }
 
@@ -138,12 +157,12 @@ namespace geometry3Sharp.Tests
         }
 
         // in every frame of Similarity.All() (rotated about z): the exact frames map back to the identity's surface bit for bit, and
-        // in the others the default construction gives the earlier one's bit for bit. A closed toe and an open toe with lateral limits.
-        // (Not the ramp: in the rotated frame the fan sectors of InsertPolygonPiece are not conservative, so neither construction gives
-        // the reference labels there, SLOPE_ENVELOPE_CANONICAL.md section 7; a follow-up)
+        // in the others the default construction gives the earlier one's bit for bit. A closed toe, an open toe with lateral limits,
+        // and a ramp (in the rotated frame the fan window left out the nearest plane beyond a gap of the toe's fan, #1530)
         [Theory]
         [InlineData("ngon22")]
         [InlineData("open")]
+        [InlineData("ramp")]
         public void Invariance_EveryFrame_SameAsTheEarlierConstruction(string kind)
         {
             var origin = InFrame(kind, Similarity.Identity);
@@ -344,6 +363,5 @@ namespace geometry3Sharp.Tests
             }
             Assert.True(checkedMaps >= cases.Count, $"{checkedMaps}");
         }
-
     }
 }
