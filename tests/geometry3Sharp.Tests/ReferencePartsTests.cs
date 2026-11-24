@@ -402,18 +402,35 @@ namespace geometry3Sharp.Tests
             foreach (StepResult st in lib.Steps.Skip(1))
                 Assert.Equal(2, st.Check("screwSeparate").Value);
             ChainResult pipe = Chains.RunPipelineChain(part);
-            // The pipeline's default (AutomaticSteps, owner 2026-11-24) answers the strict rounding refusal with a retry on the data grid, which keeps the screw:
-            // the chain passes every check. AutomaticSteps = None is the run that loses it at its boolean (first failing step: pipeline).
-            Assert.Null(pipe.FirstFailingStep());
-            Assert.Equal("-", pipe.FirstFailingName("screwSeparate"));
-            var none = new SolidBooleanPipeline(new[] { new DMesh3(part.Input), part.Cutter }, ExactMeshBoolean.Operations.Difference) {
-                InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepairThenRobust, MaxDeviation = part.Deviation * part.Scale, MaxDeviationTwoSided = true, TargetFraction = 0.1,
-                AutomaticSteps = SolidBooleanPipeline.AutomaticStepModes.None
+            // The pipeline loses it at its boolean (first failing step: pipeline), with the default AutomaticSteps as well as with None. Since #1464 the
+            // screw's rounding failure is not one the data grid cures: the default's retry (GridAfterRoundingNotClean) snaps the inputs to the cell 2^-30,
+            // runs again and fails the same way (RoundingNotClean, one removed component), so the first failure is the result. (Before #1464 the
+            // branch pinned the screw at the ratio 1e-5, where the retry kept it; at 1e-5 the boolean now succeeds without it.) Probed around the limit
+            // (not monotone): 6.5e-6 ok, 6e-6 fails, 5.5e-6 ok, 5e-6 fails, 4.5e-6 fails, 4e-6 to 2.5e-6 ok, 1.5e-6 and below fail; at every one of
+            // them the default gives the result of None, so there is no ratio on this base where only the default succeeds.
+            Assert.Equal("pipeline", pipe.FirstFailingName());
+            Assert.Equal("pipeline", pipe.FirstFailingName("screwSeparate"));
+            Func<SolidBooleanPipeline.AutomaticStepModes?, SolidBooleanPipeline> run = mode => {
+                var q = new SolidBooleanPipeline(new[] { new DMesh3(part.Input), part.Cutter }, ExactMeshBoolean.Operations.Difference) {
+                    InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepairThenRobust, MaxDeviation = part.Deviation * part.Scale, MaxDeviationTwoSided = true, TargetFraction = 0.1
+                };
+                if (mode.HasValue) q.AutomaticSteps = mode.Value;
+                return q;
             };
-            bool done = none.Compute();
-            Assert.False(done);
+            SolidBooleanPipeline none = run(SolidBooleanPipeline.AutomaticStepModes.None);
+            Assert.False(none.Compute());
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.BooleanFailed, none.Status);
             Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, none.BooleanStatus);
+            Assert.Empty(none.Report.Route);                                      // None: no retry
+            SolidBooleanPipeline def = run(null);
+            Assert.False(def.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.BooleanFailed, def.Status);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, def.BooleanStatus);
+            SolidBooleanRouteStep grid = Assert.Single(def.Report.Route);         // the default tried the data grid once, and it failed too
+            Assert.Equal("Grid", grid.Name);
+            Assert.Equal(Math.Pow(2, -30), grid.Grid);
+            Assert.Contains("failed too", grid.Change);
+            Assert.Equal(none.Error, def.Error);                                  // the first failure is the result
         }
 
         // ---------------- invariance and determinism ----------------
