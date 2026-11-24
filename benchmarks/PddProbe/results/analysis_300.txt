@@ -1,0 +1,41 @@
+# benchmarks/PddProbe/results/disc_300.txt: 144 cases, metrics AMD8 colW1_8 AMD32 colW1_32 AMD128 colW1_128 EMD32 EMDall colW1all D2 PCA
+
+## scalable PDD (AMD/colW1, k<=128): AMD8, colW1_8, AMD32, colW1_32, AMD128, colW1_128 vs D2/PCA
+stratum                 PDD  BASE  tie  neither
+resample noise=0          1     6    2       15
+resample noise=0.001      1     6    2       15
+resample noise=0.01       0     5    4       15
+same noise=0              0     0   24        0
+same noise=0.001          5    10    9        0
+same noise=0.01           2    16    6        0
+total                     9    43   47       45
+
+## exact EMD, k=32: EMD32 vs D2/PCA
+stratum                 PDD  BASE  tie  neither
+resample noise=0          1     6    3       14
+resample noise=0.001      1     6    3       14
+resample noise=0.01       0     6    3       15
+same noise=0              0     0   24        0
+same noise=0.001          2    13    9        0
+same noise=0.01           1    16    7        0
+total                     5    47   49       43
+
+## full PDD (k=N-1: EMDall, colW1all): EMDall, colW1all vs D2/PCA
+stratum                 PDD  BASE  tie  neither
+resample noise=0          5     2    6       11
+resample noise=0.001      5     2    6       11
+resample noise=0.01       5     2    6       11
+same noise=0              0     0   24        0
+same noise=0.001          9     8    7        0
+same noise=0.01           8     6   10        0
+total                    32    20   59       33
+
+## all PDD variants: AMD8, colW1_8, AMD32, colW1_32, AMD128, colW1_128, EMD32, EMDall, colW1all vs D2/PCA
+stratum                 PDD  BASE  tie  neither
+resample noise=0          6     1    6       11
+resample noise=0.001      6     1    6       11
+resample noise=0.01       5     1    7       11
+same noise=0              0     0   24        0
+same noise=0.001         11     6    7        0
+same noise=0.01           9     4   11        0
+total                    37    13   61       33

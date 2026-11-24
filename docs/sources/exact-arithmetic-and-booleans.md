@@ -179,12 +179,13 @@ are covered only by the exception tables of the port). A search of the 36000 suc
 `x = 0.082987235660192948` is reached in the tests (the others are special cases of the original that this port's path decides without them); the
 `err = 86` margin of the `Tan` accurate path is not distinguished by any test argument. Both are as in the source and not re-derived.
 
-## Gradients of Boolean results (research, docs/research/EXACT_BOOLEAN_GRADIENTS_2026-11.md; test-only prototype `tests/geometry3Sharp.Tests/Harness/BooleanGradient.cs`)
+## Gradients of Boolean results (`BooleanVolumeGradient`; research docs/research/EXACT_BOOLEAN_GRADIENTS_2026-11.md, test-only prototype `tests/geometry3Sharp.Tests/Harness/BooleanGradient.cs`)
 
 Derived in the note from the textbook shape derivative; papers read as abstracts and metadata only, no code read.
 
 | Part | Source |
 |---|---|
 | Volume gradient as the integral of the normal velocity over the kept pieces (Hadamard / Reynolds), area gradient as the in-plane boundary flux of flat pieces | M. C. Delfour, J.-P. Zolésio, *Shapes and Geometries*, 2nd ed., SIAM 2011; J. Sokołowski, J.-P. Zolésio, *Introduction to Shape Optimization*, Springer 1992; M. Meyer, M. Desbrun, P. Schröder, A. H. Barr, *Discrete Differential-Geometry Operators for Triangulated 2-Manifolds*, VisMath 2003 (polyhedral area gradient) |
+| `BooleanVolumeGradient` (mesh_ops/BooleanVolumeGradient.cs, docs/guides/booleans-and-imprint.md "Volume Gradient"): the Hadamard formula over the kept pieces, each term and per-vertex sum in interval arithmetic (`ExactInterval`) from the exact corners, the one-sided branches of the contact regions from the coplanar stacks | the shape derivative of Delfour and Zolésio and the nonsmooth analysis of Clarke (both as below); interval arithmetic: R. E. Moore, *Interval Analysis*, Prentice-Hall 1966 (inclusion isotonicity); own derivation, no code read |
 | One-sided derivatives and the generalized gradient at contacts; the tie-break read as a symbolic perturbation | F. H. Clarke, *Optimization and Nonsmooth Analysis*, Wiley 1983; J. Bolte, E. Pauwels, *Conservative set valued fields, automatic differentiation, stochastic gradient methods and deep learning*, Math. Programming 2020; H. Edelsbrunner, E. P. Mücke, *Simulation of Simplicity*, ACM TOG 9(1) 1990 |
 | Prior art compared (not used): approximate differentiable CSG, exact derivatives of ball unions and polytopes | Yuan et al., *DiffCSG*, SIGGRAPH Asia 2024 (arXiv 2409.01421); T.-M. Li et al., *Differentiable Monte Carlo Ray Tracing through Edge Sampling*, TOG 2018; H. Edelsbrunner, P. Koehl, PNAS 2003; R. Bryant, H. Edelsbrunner, P. Koehl, M. Levitt, DCG 2004; J. B. Lasserre, JOTA 39, 1983; J. Allard et al., *Volume Contact Constraints at Arbitrary Resolution*, SIGGRAPH 2010 |

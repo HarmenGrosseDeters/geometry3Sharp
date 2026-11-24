@@ -267,6 +267,9 @@ namespace geometry3Sharp.Tests
                 d.HeightLimit = double.NaN;
                 d.Terrain = TerrainSlopeCatchLineTests.Grid(new AxisAlignedBox2d(-150, -150, 150, 150), 8, 8, (x, y) => 18);
                 d.Tolerance = 0.01; d.MaxFanDirections = maxFan;
+                // (the margin its exact envelope needs, so that the first build is the one that succeeds: since #1530 the fan
+                // window keeps the nearest plane beyond a gap, and the build at the default 1e-6 is raised once, to 8e-6)
+                d.SlopeMargin = 8e-6;
                 return d;
             };
             var refused = make(16);
@@ -276,6 +279,12 @@ namespace geometry3Sharp.Tests
             var own = make(4096);
             own.Compute();
             Assert.Equal(1, own.Attempts);
+            // (at the default margin the first build is raised once, to the 8e-6 the exact envelope needs)
+            var atDefault = make(4096);
+            atDefault.SlopeMargin = new TerrainSlopeDesign().SlopeMargin;
+            Assert.True(atDefault.Compute(), atDefault.Message);
+            Assert.Equal(2, atDefault.Attempts);
+            Assert.Equal(8e-6, atDefault.UsedSlopeMargin);
             Assert.Equal(-1, refused.RampGradeTooSmall);
             Assert.Equal(own.UsedRampShare, refused.UsedRampShare);
             Assert.Equal(own.RampShareRoad, refused.RampShareRoad);

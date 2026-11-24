@@ -176,6 +176,16 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void BooleanVolumeGradientExample_RealizedAndOtherOneSidedDerivative()
+        {
+            double[] r = g3.Examples.BooleanVolumeGradientExample.TouchingBoxes(out string error);
+            Assert.True(r != null, error);
+            Assert.Equal(1.25, r[0], 12);     // volume of the union
+            Assert.Equal(0.25, r[1], 12);     // the realized branch: the union merges the touching boxes
+            Assert.Equal(0.0, r[2], 12);      // the other branch: separated
+        }
+
+        [Fact]
         public void ExactMeshBooleanExample_ExactVolumesAndClosedResults()
         {
             // cube 1, bar 0.5 x 0.5 x 2 of which 0.25 lies inside the cube

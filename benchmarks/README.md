@@ -18,6 +18,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 |---|---|
 | [BooleanComparison](BooleanComparison/README.md) | `ExactMeshBoolean` vs. external boolean engines (CGAL, Geogram, Manifold) across Thingi10K & ABC pairs |
 | [BooleanInputOrder](BooleanInputOrder/README.md) | `ExactMeshBoolean` and `SolidBooleanPipeline` under reorderings of the input triangles and vertex ids, stage by stage, on procedural near-coincident plates |
+| [BooleanVolumeGradient](BooleanVolumeGradient/README.md) | `BooleanVolumeGradient`: its cost against the boolean, `RetainClassification`, and the default path before / after the change |
 | [Boolean30Prestudy](Boolean30Prestudy/README.md) | Stage profiling and measurement probes for Exact Boolean 3.0 |
 | [ExactImprint](ExactImprint/README.md) | Cost of `ExactMeshImprint` compared to `ExactMeshBoolean` on procedural pairs |
 | [ExtremeBooleans](ExtremeBooleans/README.md) | Reproduction scripts and profiling for extreme-runtime boolean pairs |
@@ -123,6 +124,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [SparseCholeskyBenchmark](SparseCholeskyBenchmark/README.md) | `SparseCholesky` AMD ordering, symbolic/numeric factorization, and solve timings |
 | [SparseSquareBenchmark](SparseSquareBenchmark/README.md) | `SymmetricSparseMatrix.Square` / `Multiply` timings and the product bits of repeated runs |
 | [MultiscaleCholeskyProbe](MultiscaleCholeskyProbe/README.md) | Research spike: multiscale incomplete Cholesky, FSAI and approximate elimination as PCG preconditioners against the direct `SparseCholesky` |
+| [PddProbe](PddProbe/README.md) | Research probe: Pointwise Distance Distributions (kNN rows, AMD, column W1, exact EMD) against D2 and PCA baselines for near-duplicates, retrieval and lattice periods (verdict: stop) |
 | [CoreMathBenchmark](CoreMathBenchmark/README.md) | Cost of correctly rounded `g3.CoreMathPort.CoreMath` elementary functions |
 | [BoxContainBenchmark](BoxContainBenchmark/README.md) | Throughput micro-benchmark for `AxisAlignedBox3d.Contain` |
 | [GridIndexerBenchmark](GridIndexerBenchmark/README.md) | Throughput probe for `ShiftGridIndexer3.ToGrid` |

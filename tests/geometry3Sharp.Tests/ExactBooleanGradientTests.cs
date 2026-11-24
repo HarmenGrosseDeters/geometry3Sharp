@@ -20,12 +20,12 @@ namespace geometry3Sharp.Tests
         public ExactBooleanGradientTests(ITestOutputHelper output) { this.output = output; }
 
         // inputs on the 2^-24 grid, so x + h delta is exact in double for h = 2^-k, k <= 44
-        static double Grid(double x) => Math.Round(x * (1 << 24)) / (1 << 24);
+        internal static double Grid(double x) => Math.Round(x * (1 << 24)) / (1 << 24);
 
-        static DMesh3 Unit() => BooleanFuzzShapes.Box(0, 0, 0, 1, 1, 1);
+        internal static DMesh3 Unit() => BooleanFuzzShapes.Box(0, 0, 0, 1, 1, 1);
 
         // a box rotated about a generic axis, its corners rounded to the grid (the faces are then slightly bent: generic)
-        static DMesh3 RotatedBox()
+        internal static DMesh3 RotatedBox()
         {
             Matrix3d r = Matrix3d.AxisAngleD(new Vector3d(1, 2, 3).Normalized, 27);
             var c = new Vector3d(0.6, 0.55, 0.5);
@@ -35,7 +35,7 @@ namespace geometry3Sharp.Tests
             });
         }
 
-        static DMesh3 ShiftedBox() => BooleanFuzzShapes.Box(0.5, 0.25, 0.375, 1.5, 1.25, 1.375);
+        internal static DMesh3 ShiftedBox() => BooleanFuzzShapes.Box(0.5, 0.25, 0.375, 1.5, 1.25, 1.375);
 
         public static IEnumerable<object[]> GenericCases()
         {
@@ -44,7 +44,7 @@ namespace geometry3Sharp.Tests
                     yield return new object[] { shape, op };
         }
 
-        static DMesh3 Second(string shape) => shape == "axis" ? ShiftedBox() : RotatedBox();
+        internal static DMesh3 Second(string shape) => shape == "axis" ? ShiftedBox() : RotatedBox();
 
         // a fixed direction: small integer vectors per vertex of both meshes
         static Vector3d[][] Direction(DMesh3 a, DMesh3 b, int seed)
@@ -176,7 +176,7 @@ namespace geometry3Sharp.Tests
         }
 
         // a square prism (diamond cross section in xz) whose lowest edge lies on A's top face
-        static DMesh3 EdgeOnTop() => BooleanFuzzShapes.Map(Unit(), p => new Vector3d(0.5 + 0.25 * (p.x - p.z), 0.25 + 0.5 * p.y, 1 + 0.25 * (p.x + p.z)));
+        internal static DMesh3 EdgeOnTop() => BooleanFuzzShapes.Map(Unit(), p => new Vector3d(0.5 + 0.25 * (p.x - p.z), 0.25 + 0.5 * p.y, 1 + 0.25 * (p.x + p.z)));
 
         [Fact]
         public void EdgeContact_VolumeIsDifferentiable_AreaIsNot()

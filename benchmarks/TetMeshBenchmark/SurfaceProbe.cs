@@ -1,6 +1,6 @@
 // Probe of docs/research/TET_RADIUS_EDGE_AT_SURFACE_2026-11.md: where the tets above the radius-edge bound sit and why the
 // refinement leaves them.
-//   ... -- surfprobe [relativeAlpha] [surfaceMinAngle] [improve 0|1] [slide] [inputs: all | sphere,torus,boxhole,twist] [relH: TargetEdgeLength = diagonal / relH, 0 = off]
+//   ... -- surfprobe [relativeAlpha] [surfaceMinAngle] [improve 0|1] [slide] [inputs: all | sphere,torus,boxhole,twist] [relH: TargetEdgeLength = diagonal / relH, 0 = off] [follow 0|1: BoundaryFollowsSize]
 // For each procedural input one MeshTetrahedralization run, then per tet of Result with radius-edge > MaxRadiusEdgeRatio:
 //   - its boundary contact (boundary vertices, boundary facets), the distance of its centroid to the boundary (in alpha);
 //   - whether its circumcentre lies outside the boundary (the classical "beyond a subfacet" case);
@@ -91,11 +91,12 @@ static class SurfaceProbe
         public long Unrefined, RefusedSurface, RefusedFloor, Peeled;
     }
 
-    internal static Row Probe(string name, DMesh3 input, double ra, double surfAngle, bool improve, double slide, double relH = 0)
+    internal static Row Probe(string name, DMesh3 input, double ra, double surfAngle, bool improve, double slide, double relH = 0, bool follow = false)
     {
         var sw = Stopwatch.StartNew();
         var tm = new MeshTetrahedralization(input) { RelativeAlpha = ra, SurfaceMinAngleDegrees = surfAngle, Improve = improve, BoundarySlideFactor = slide, MaxThreads = 1 };
         if (relH > 0) tm.TargetEdgeLength = input.CachedBounds.DiagonalLength / relH;
+        tm.BoundaryFollowsSize = follow;
         tm.Compute();
         var row = new Row { Name = name, Seconds = sw.Elapsed.TotalSeconds };
         TetMesh3 t = tm.Result;
@@ -187,12 +188,13 @@ static class SurfaceProbe
         double slide = args.Length > 4 ? double.Parse(args[4], Inv) : 0.5;
         string[] names = args.Length > 5 && args[5] != "all" ? args[5].Split(',') : new[] { "sphere", "torus", "boxhole", "twist" };
         double relH = args.Length > 6 ? double.Parse(args[6], Inv) : 0;
-        Console.WriteLine("input,alpha,surf_angle,improve,slide,rel_h,tets,s,bad,worst_re,min_dih,unrefined_s1,refused_surface,refused_floor,peeled,"
+        bool follow = args.Length > 7 && args[7] == "1";
+        Console.WriteLine("input,alpha,surf_angle,improve,slide,rel_h,follow,tets,s,bad,worst_re,min_dih,unrefined_s1,refused_surface,refused_floor,peeled,"
             + "bad_bv0,bad_bv1,bad_bv2,bad_bv3,bad_bv4,bad_bf0,bad_bf1,bad_bf2,bad_bf3,cc_outside,facet_bound_above,encroached,unexplained,max_centroid_dist_alpha,"
             + "surf_tris,surf_tris_above,surf_worst_ratio,surf_min_angle");
         foreach (string n in names) {
-            Row r = Probe(n, Input(n), ra, ang, improve, slide, relH);
-            Console.WriteLine(string.Join(",", new object[] { r.Name, ra, ang, improve ? 1 : 0, slide, relH, r.Tets, r.Seconds.ToString("F2", Inv), r.Bad, r.WorstRe.ToString("F2", Inv), r.MinDih.ToString("F2", Inv),
+            Row r = Probe(n, Input(n), ra, ang, improve, slide, relH, follow);
+            Console.WriteLine(string.Join(",", new object[] { r.Name, ra, ang, improve ? 1 : 0, slide, relH, follow ? 1 : 0, r.Tets, r.Seconds.ToString("F2", Inv), r.Bad, r.WorstRe.ToString("F2", Inv), r.MinDih.ToString("F2", Inv),
                 r.Unrefined, r.RefusedSurface, r.RefusedFloor, r.Peeled,
                 r.ByBoundaryVertices[0], r.ByBoundaryVertices[1], r.ByBoundaryVertices[2], r.ByBoundaryVertices[3], r.ByBoundaryVertices[4],
                 r.ByBoundaryFacets[0], r.ByBoundaryFacets[1], r.ByBoundaryFacets[2], r.ByBoundaryFacets[3],
