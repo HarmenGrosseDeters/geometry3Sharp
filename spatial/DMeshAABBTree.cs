@@ -1297,6 +1297,11 @@ namespace g3
         /// Antipodal / FEWN exterior-edge boundary sum (Martens, Trettner, Bessmeltsev 2026; Xie, Hafner, Wojtan
         /// 2026), falling back to the direct solid-angle sum on disconnected triangle soups (|∂M| &gt;= F).
         /// On closed meshes (|∂M| = 0) this returns the exact integer winding number from a single O(log F) ray.
+        /// A point exactly on a triangle of the mesh has the principal value: the mean of the two sides (the limit of the average
+        /// over a small sphere), independent of the coordinate axes and of the triangle order. On a flat face of a closed mesh it is
+        /// exactly n + 1/2 (inside a triangle and on inner edges and vertices; so w &gt; 0.5 is false there), on a crease or a corner
+        /// the dihedral or solid-angle fraction (0.25 on a cube edge, 0.125 at its corner; 0.75 on a reflex edge), rounded within the
+        /// bound of the edge angles; a flat sheet or a single triangle has 0 on it.
         /// The cache is built on first use (under a lock), so this can be called from multiple threads.
         /// </summary>
         public virtual double WindingNumber(Vector3d p)
