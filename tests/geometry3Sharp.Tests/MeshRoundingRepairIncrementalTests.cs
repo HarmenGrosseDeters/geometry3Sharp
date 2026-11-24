@@ -315,7 +315,14 @@ namespace geometry3Sharp.Tests
             Assert.True(limited.Rounding.EvaluationLimitReached);
             Assert.Contains("stopped at its effort limit", limited.Error);
             var full = new ExactMeshBoolean(new DMesh3(m), new DMesh3(), ExactMeshBoolean.Operations.Union) { StrictRounding = true };
-            Assert.False(full.Compute());
+            // (the joint move of #1465, the repair's last stage, repairs the degenerate triangle this cluster is left with: off here, so that
+            // the state of this test, a cluster that stays unclean without the limit, is the one it was written for)
+            MeshRoundingRepair.NoJointSearchOnThisThread = true;
+            try {
+                Assert.False(full.Compute());
+            } finally {
+                MeshRoundingRepair.NoJointSearchOnThisThread = false;
+            }
             Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, full.Status);
             Assert.False(full.Rounding.EvaluationLimitReached);
             Assert.DoesNotContain("effort limit", full.Error);

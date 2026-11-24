@@ -95,6 +95,7 @@ stage become clean; the one left (shifted by -1 ulp along z, the copy cut by the
 and the other edits at the sliver add a degenerate triangle or an intersection or improve nothing. The result stays closed, carries
 the curve and is reported not clean, as before (test `KnownLimit_ALinkConditionLeavesOneSliver_...`). Removing such a sliver needs
 an edit the repair does not have (eg a flip of the long edge, which is a locked part of a split target edge).
+(Update 2026-11-24, #1465: the repair's last stage, the joint move of two corners (SAFE_ROUNDING.md section 9.1), is such an edit: it repairs this sliver, with the two free corners moved by at most the bound, the target vertices and the curve unchanged; test `KnownLimit_WithTheJointMove_...`. The tests of the stage run with that stage off.)
 
 The test inputs avoid `Math.Sin` / `Cos` (they differ in the last bit between net48 and net10, `DETERMINISM.md` C1): the rotated
 box is given by its corners as literals, the cylinder is snapped to a grid of 2^-24.

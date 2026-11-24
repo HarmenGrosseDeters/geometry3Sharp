@@ -1310,3 +1310,32 @@ same verdict: `summary_cut3000.md`).
   241 against 242 operations above 0.9). 11 search moves in 6 operations; one of them in a component that is then
   removed as tiny (the same result as on master).
 - Time on single cores, in the sum: operations 5438 s against 5444 s, rounding 1091 s against 1104 s.
+
+### 9.1 The joint move: the last resort for a degenerate triangle (#1465, 2026-11-24)
+
+A triangle with an edge of 1e-10 and two of 1e-7 cannot be lifted above the degenerate area (1e-12 of the squared diagonal) by one corner within the bound: the area gained is the edge times the move,
+5e-16 at the bound 1.4e-5 against 2e-12 needed. Two corners moved together gain the product of their moves, 4e-12 at a quarter of the bound each
+(docs/research/ROUNDING_DEGENERATE_LEFT_2026-11.md sections 4 and 10). `MeshRoundingRepair` has this as its last edit (`search_pairs`, `try_move_pair`, `JointSearch`, `JointMoves`).
+
+**The rule.**
+- *When:* in `Apply`, at the very end, after the position search, the passes and the removal of tiny components, for each degenerate triangle that is left; rounds until one makes no move. Not with
+  `MaxPasses` 0. A result without a degenerate triangle is not touched (bit for bit the same).
+- *Which pairs:* the free corners of the triangle (not kept by `FixedVertexF`, no boundary vertex, no bowtie): none or one: no joint move; two or three: the pairs in the order of the corners' coordinates (x, then y, then z), not of their ids.
+- *Candidates:* p = pos(v) + s d for both vertices; the 26 directions of the position search, the sizes s = room / 2^j with the same j for both, j = 7 up to 0 (the smaller step first); the room is each vertex's own `room_at`. Of the
+  26 * 26 * 8 proposals of a pair only those that leave fewer degenerate triangles at the two stars go to `improves` (its own first test; they are no evaluations until `improves` counts them), the first that `improves` accepts is made. No random numbers.
+- *Accepted:* `improves` with two moved vertices: the triangles of both stars (once for a triangle at both) are removed and added again with their corners in the order they have; the counts of both stars together: no more
+  degenerate triangles or intersecting pairs, fewer in all, no triangle above `OrientedArea` times the degenerate area turned over; two vertices onto one position, or onto another vertex's position (`SharedPositionsTouch`), are refused.
+  It counts as one evaluation like every edit, so `MaxEvaluationsPerDefect` and `MaxPairTests` bound it.
+- `JointMoves` counts the accepted pairs; they are also counted in `Moves` (not in `PositionSearchMoves`).
+
+**Guarantees.**
+- *Drift:* a displacement edit of the reference rule with two moved vertices. `proposed_drift` takes the largest bound of the triangles of both stars at their new positions and of the ghosts at both vertices
+  (a ghost with a corner at each is evaluated with both at their new positions). `room_at` counts all triangles and ghosts of a vertex, so a move of at most the room cannot exceed the bound, and `proposed_drift` computes and checks it anyway. The
+  check mode (`check_bounds`, `check_ghosts` for both vertices) and the scripted `MovePair` of `MeshRoundingRepairTestsDriftReference` cover the bookkeeping.
+- *Termination:* each accepted pair lowers the number of defects by at least one; no edit raises it; a round without a move ends the stage.
+- *Invariance:* the directions are constants, the sizes room times powers of two (2^k scales: the same result bit for bit; `MeshRoundingRepairTestsJointMove`); the order of the pair depends on coordinates, not ids.
+- *Determinism:* serial, no randomness.
+- *Not a plateau step* (docs/design/SNAP_ROUNDING_3D.md section 10, no-go 2026-11-15): every accepted pair removes a defect, as every other edit; nothing is journalled or rolled back, and a proposal that is not accepted changes nothing.
+
+**What it repairs, measured** (`BooleanInputOrder search`, the near-coincident plates; research note section 10): `--count 1500 --seed 2`: degenerate 14 -> 7; `--count 4000 --seed 3 --tiny`: 53 -> 19; none new.
+What it does not: a triangle with two fixed corners (the apex alone changes the area), and the states where every lifting position makes an intersection (a fan of 1e-7 edges between two layers 3e-10 apart): 7 of 14 and 19 of 54.
