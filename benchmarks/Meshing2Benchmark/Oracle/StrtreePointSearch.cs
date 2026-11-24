@@ -237,7 +237,7 @@ public sealed class StrtreePointSearch
                 return ni;
             }
             bool splitX = (x1 - x0) >= (y1 - y0);
-            double mid = splitX ? (x0 + x1) * 0.5 : (y0 + y1) * 0.5;
+            double mid = splitX ? x0 + (x1 - x0) * 0.5 : y0 + (y1 - y0) * 0.5;
             int lo = start, hi = start + count - 1;
             while (lo <= hi) {
                 double v = splitX ? vx[pts[lo]] : vy[pts[lo]];

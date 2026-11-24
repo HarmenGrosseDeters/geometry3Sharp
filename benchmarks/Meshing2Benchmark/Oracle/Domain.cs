@@ -337,6 +337,22 @@ namespace Meshing2Acceptance
 
         static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Pt[], EdgeBuckets> edgeBuckets = new System.Runtime.CompilerServices.ConditionalWeakTable<Pt[], EdgeBuckets>();
 
+        /// <summary>Tests only: whether the last ComputeArea on this thread used the laminar fast path.</summary>
+        [ThreadStatic] public static bool LastAreaUsedLaminarForTests;
+        /// <summary>Tests only: counts RingCellCache hits on this thread.</summary>
+        [ThreadStatic] public static long RingCellCacheHitsForTests;
+        /// <summary>Tests only: counts BucketSlice fast-path queries on this thread.</summary>
+        [ThreadStatic] public static long BucketSliceHitsForTests;
+
+        static int ClampIndex(double v, int maxIndex)
+        {
+            if (double.IsNaN(v)) return 0;
+            double f = Math.Floor(v);
+            if (f <= 0) return 0;
+            if (f >= maxIndex) return maxIndex;
+            return (int)f;
+        }
+
         static EdgeBuckets Buckets(Pt[] ring) => edgeBuckets.GetValue(ring, r => {
             var vb = VertexBounds(r);
             int n = r.Length, count = Math.Max(1, n / 4);
@@ -346,12 +362,13 @@ namespace Meshing2Acceptance
             if (!(step > 0) || double.IsInfinity(step)) return null;
             var lists = new List<int>[count];
             for (int b = 0; b < count; ++b) lists[b] = new List<int>();
+            int last = count - 1;
             for (int i = 0; i < n; ++i) {
                 int j = (i + 1) % n;
-                int b0 = 0, b1 = count - 1;
+                int b0 = 0, b1 = last;
                 if (!double.IsNaN(vb[4 * i]) && !double.IsNaN(vb[4 * j])) {
-                    b0 = Math.Max(0, Math.Min(count - 1, (int)Math.Floor((Math.Min(vb[4 * i + 2], vb[4 * j + 2]) - y0) / step) - 1));
-                    b1 = Math.Max(0, Math.Min(count - 1, (int)Math.Floor((Math.Max(vb[4 * i + 3], vb[4 * j + 3]) - y0) / step) + 1));
+                    b0 = ClampIndex((Math.Min(vb[4 * i + 2], vb[4 * j + 2]) - y0) / step - 1.0, last);
+                    b1 = ClampIndex((Math.Max(vb[4 * i + 3], vb[4 * j + 3]) - y0) / step + 1.0, last);
                 }
                 for (int b = b0; b <= b1; ++b) lists[b].Add(i);
             }
@@ -395,13 +412,14 @@ namespace Meshing2Acceptance
             if (filter && bk != null) {
                 if (pyHi < bk.Y0 || pyLo > bk.Y1) return Where.Outside;
                 int last = bk.Buckets.Length - 1;
-                int b0 = Math.Max(0, Math.Min(last, (int)Math.Floor((pyLo - bk.Y0) / bk.Step)));
-                int b1 = Math.Max(0, Math.Min(last, (int)Math.Floor((pyHi - bk.Y0) / bk.Step)));
+                int b0 = ClampIndex((pyLo - bk.Y0) / bk.Step, last);
+                int b1 = ClampIndex((pyHi - bk.Y0) / bk.Step, last);
                 if (b0 == b1) {
                     var allB = bk.Buckets[b0];
                     if (allB.Length > 24) {
                         var sl = bk.GetSlice(b0, n, vb, eb);
                         if (pyLo >= sl.StripLo && pyHi <= sl.StripHi) {
+                            BucketSliceHitsForTests++;
                             // 1. Spanning edges: binary search first index with exl > pxHi; all at >= hi are strictly right and cross ray.
                             var spanExl = sl.SpanExl;
                             int lo = 0, hi = spanExl.Length;
@@ -519,7 +537,7 @@ namespace Meshing2Acceptance
         sealed class RingCellCache
         {
             readonly int gridN;
-            readonly double x0, y0, cellX, cellY;
+            readonly double x0, y0, x1, y1, cellX, cellY;
             readonly byte[] state; // 0 = empty-uncomputed, 1 = mixed (boundary may enter), 2 = Inside, 3 = Outside
             public readonly bool Valid;
 
@@ -529,30 +547,29 @@ namespace Meshing2Acceptance
                 double w = rx1 - rx0, h = ry1 - ry0;
                 if (double.IsInfinity(w) || double.IsInfinity(h)) { Valid = false; return; }
                 gridN = 128;
-                // Slightly pad outer bounds so interior points near the boundary still map cleanly.
-                x0 = rx0; y0 = ry0;
+                x0 = rx0; y0 = ry0; x1 = rx1; y1 = ry1;
                 cellX = w / gridN; cellY = h / gridN;
                 if (!(cellX > 0) || !(cellY > 0)) { Valid = false; return; }
                 state = new byte[gridN * gridN];
-                int n = ring.Length;
+                int n = ring.Length, last = gridN - 1;
                 for (int i = 0; i < n; ++i) {
                     double ex0 = eb[4 * i];
                     if (double.IsNaN(ex0)) { Valid = false; return; }
                     double ex1 = eb[4 * i + 1], ey0 = eb[4 * i + 2], ey1 = eb[4 * i + 3];
-                    int i0 = Math.Max(0, Math.Min(gridN - 1, (int)Math.Floor((ex0 - x0) / cellX) - 1));
-                    int i1 = Math.Max(0, Math.Min(gridN - 1, (int)Math.Floor((ex1 - x0) / cellX) + 1));
-                    int j0 = Math.Max(0, Math.Min(gridN - 1, (int)Math.Floor((ey0 - y0) / cellY) - 1));
-                    int j1 = Math.Max(0, Math.Min(gridN - 1, (int)Math.Floor((ey1 - y0) / cellY) + 1));
-                    int j = (i + 1) % n;
+                    int i0 = ClampIndex((ex0 - x0) / cellX - 1.0, last);
+                    int i1 = ClampIndex((ex1 - x0) / cellX + 1.0, last);
+                    int j0 = ClampIndex((ey0 - y0) / cellY - 1.0, last);
+                    int j1 = ClampIndex((ey1 - y0) / cellY + 1.0, last);
+                    int j = i + 1 < n ? i + 1 : 0;
                     for (int ci = i0; ci <= i1; ++ci) {
                         double cx0 = x0 + ci * cellX;
-                        double cx1 = ci + 1 == gridN ? rx1 : x0 + (ci + 1) * cellX;
+                        double cx1 = ci == last ? x1 : x0 + (ci + 1) * cellX;
                         if (ex1 < cx0 || ex0 > cx1) continue;
                         for (int cj = j0; cj <= j1; ++cj) {
                             int idx = ci * gridN + cj;
                             if (state[idx] == 1) continue;
                             double cy0 = y0 + cj * cellY;
-                            double cy1 = cj + 1 == gridN ? ry1 : y0 + (cj + 1) * cellY;
+                            double cy1 = cj == last ? y1 : y0 + (cj + 1) * cellY;
                             if (ey1 < cy0 || ey0 > cy1) continue;
                             // Cell [cx0, cx1] x [cy0, cy1] is disjoint from edge (i, j) if all 4 corners lie strictly on the same side.
                             int s0 = SureOrient(vb, i, j, cx0, cx0, cy0, cy0);
@@ -572,24 +589,28 @@ namespace Meshing2Acceptance
             {
                 result = Where.Outside;
                 if (!Valid) return false;
-                int ci = (int)Math.Floor((pxl - x0) / cellX);
-                int cj = (int)Math.Floor((pyl - y0) / cellY);
-                if (ci < 0 || ci >= gridN || cj < 0 || cj >= gridN) return false;
+                double fi = Math.Floor((pxl - x0) / cellX);
+                double fj = Math.Floor((pyl - y0) / cellY);
+                if (double.IsNaN(fi) || double.IsNaN(fj) || fi < 0 || fi >= gridN || fj < 0 || fj >= gridN) return false;
+                int ci = (int)fi, cj = (int)fj;
                 int idx = ci * gridN + cj;
                 byte st = state[idx];
                 if (st == 1) return false;
-                double cx0 = x0 + ci * cellX, cx1 = x0 + (ci + 1) * cellX;
-                double cy0 = y0 + cj * cellY, cy1 = y0 + (cj + 1) * cellY;
+                int last = gridN - 1;
+                double cx0 = x0 + ci * cellX, cx1 = ci == last ? x1 : x0 + (ci + 1) * cellX;
+                double cy0 = y0 + cj * cellY, cy1 = cj == last ? y1 : y0 + (cj + 1) * cellY;
                 // Require the point's full enclosing box to lie strictly inside the empty cell.
                 if (!(pxl > cx0 && pxh < cx1 && pyl > cy0 && pyh < cy1)) return false;
                 if (st == 0) {
-                    double mx = (cx0 + cx1) * 0.5, my = (cy0 + cy1) * 0.5;
+                    double mx = cx0 + (cx1 - cx0) * 0.5, my = cy0 + (cy1 - cy0) * 0.5;
+                    if (double.IsNaN(mx) || double.IsInfinity(mx) || double.IsNaN(my) || double.IsInfinity(my)) return false;
                     Pt? center = Pt.FromDoubles(mx, my);
                     var w = InRingCore(ring, vb, eb, bk, ref center, null, true, mx, mx, my, my);
                     if (w == Where.Boundary) { state[idx] = 1; return false; }
                     st = w == Where.Inside ? (byte)2 : (byte)3;
                     state[idx] = st;
                 }
+                RingCellCacheHitsForTests++;
                 result = st == 2 ? Where.Inside : Where.Outside;
                 return true;
             }
@@ -629,7 +650,7 @@ namespace Meshing2Acceptance
         /// avoids constructing the exact <see cref="Pt"/> unless a ring edge's double filter is undecided.
         /// Falls back to <paramref name="getPt"/> whenever Filter is false or bounds are not finite.
         /// </summary>
-        internal Where ClassifyLazy(double pxl, double pxh, double pyl, double pyh, Func<Pt> getPt)
+        public Where ClassifyLazy(double pxl, double pxh, double pyl, double pyh, Func<Pt> getPt)
         {
             if (!Filter || double.IsNaN(pxl) || double.IsNaN(pxh) || double.IsNaN(pyl) || double.IsNaN(pyh)
                 || double.IsInfinity(pxl) || double.IsInfinity(pxh) || double.IsInfinity(pyl) || double.IsInfinity(pyh))
@@ -831,6 +852,7 @@ namespace Meshing2Acceptance
         /// </summary>
         Q ComputeArea()
         {
+            LastAreaUsedLaminarForTests = false;
             var rings = Rings.Select((x, k) => (x.ring, k)).Where(x => x.ring.Length >= 3).ToList();
             if (rings.Count == 0) return Q.Zero;
             // Fast path (Filter == true): when all rings are simple, no edges properly cross, no vertex lies in the open interior
@@ -838,7 +860,7 @@ namespace Meshing2Acceptance
             // (a laminar family of simple polygons), D5's area equals the telescoping shoelace sum over the containment tree:
             //   sum_r ((Decide(anc(r) U {r}) ? 1 : 0) - (Decide(anc(r)) ? 1 : 0)) * shoelaceArea(r).
             // Exact (dyadic common-W BigInteger accumulation when all W are powers of two). The reference path keeps the slabs.
-            if (Filter && TryComputeLaminarArea(rings, out Q laminarArea)) return laminarArea;
+            if (Filter && TryComputeLaminarArea(rings, out Q laminarArea)) { LastAreaUsedLaminarForTests = true; return laminarArea; }
             var edges = new List<(Q ax, Q ay, Q bx, Q by, int ring)>();
             var boxes = new List<(double x0, double x1, double y0, double y1)>();
             bool boxed = Filter;

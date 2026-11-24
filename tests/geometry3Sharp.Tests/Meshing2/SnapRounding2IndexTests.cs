@@ -172,5 +172,39 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(a.Subsegments[i].Marker, b.Subsegments[i].Marker);
             }
         }
+
+        [Fact]
+        public void HorizontalBundle_Over64Segments_TriggersYSweepAndPassesOracle()
+        {
+            // 100 nearly horizontal long segments spanning x in [0, 10] with narrow y-extents (> 50% wider in X than Y)
+            // triggers the Y-sweep branch in SnapRounding2.AddCrossings.
+            var input = new ConstrainedMesh2Input();
+            var rng = new Rng(140299);
+            int n = 100;
+            for (int i = 0; i < n; ++i) {
+                double y0 = i * 0.05;
+                double y1 = y0 + (rng.Next() - 0.5) * 0.12;
+                int a = input.Points.Count;
+                input.Points.Add(new Vector2d(0.0, y0));
+                input.Points.Add(new Vector2d(10.0, y1));
+                input.Segments.Add(new Mesh2Segment(a, a + 1, 1));
+            }
+            // Add a few steep crossers to produce crossings across the horizontal bundle.
+            for (int k = 0; k < 4; ++k) {
+                double x = 2.0 + 2.0 * k;
+                int a = input.Points.Count;
+                input.Points.Add(new Vector2d(x, -0.1));
+                input.Points.Add(new Vector2d(x + 0.3, n * 0.05 + 0.1));
+                input.Segments.Add(new Mesh2Segment(a, a + 1, 2));
+            }
+
+            double tol = 1.0 / 512.0;
+            var mi = ToOracleInput(input, tol);
+            var output = new ConstrainedDelaunayMesh2Candidate().Run(mi);
+            Assert.Equal(Mesh2Status.Success, output.Status);
+            Assert.True(output.Triangles.Length > 0);
+            var report = Oracle.Check(mi, output, new OracleExpect { Milestone = Milestone.M2 });
+            Assert.True(report.Ok, report.ToString());
+        }
     }
 }

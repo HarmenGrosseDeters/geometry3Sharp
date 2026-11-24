@@ -265,7 +265,7 @@ namespace Meshing2Acceptance
                     double ix0 = ex0[idx], ix1 = ex1[idx], iy0 = ey0[idx], iy1 = ey1[idx];
                     if (ix0 < x0) x0 = ix0; if (ix1 > x1) x1 = ix1;
                     if (iy0 < y0) y0 = iy0; if (iy1 > y1) y1 = iy1;
-                    double cx = ix0 + ix1, cy = iy0 + iy1;
+                    double cx = 0.5 * ix0 + 0.5 * ix1, cy = 0.5 * iy0 + 0.5 * iy1;
                     if (cx < cx0) cx0 = cx; if (cx > cx1) cx1 = cx;
                     if (cy < cy0) cy0 = cy; if (cy > cy1) cy1 = cy;
                 }
@@ -277,11 +277,11 @@ namespace Meshing2Acceptance
                     return ni;
                 }
                 bool splitX = (cx1 - cx0) >= (cy1 - cy0);
-                double mid = splitX ? (cx0 + cx1) * 0.5 : (cy0 + cy1) * 0.5;
+                double mid = splitX ? cx0 + (cx1 - cx0) * 0.5 : cy0 + (cy1 - cy0) * 0.5;
                 int lo = start, hi = start + count - 1;
                 while (lo <= hi) {
                     int idx = order[lo];
-                    double v = splitX ? (ex0[idx] + ex1[idx]) : (ey0[idx] + ey1[idx]);
+                    double v = splitX ? (0.5 * ex0[idx] + 0.5 * ex1[idx]) : (0.5 * ey0[idx] + 0.5 * ey1[idx]);
                     if (v < mid) ++lo;
                     else { int tmp = order[lo]; order[lo] = order[hi]; order[hi] = tmp; --hi; }
                 }

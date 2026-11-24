@@ -249,8 +249,8 @@ namespace Meshing2Acceptance
                 var rnd = new Random(20261104);
                 for (int i = n - 1; i > 0; --i) { int j = rnd.Next(i + 1); (perm[i], perm[j]) = (perm[j], perm[i]); }
                 // ranks of the coordinates (doubles compare exactly), 16 bits each
-                var byX = (int[])perm.Clone(); Array.Sort(byX, (p, q) => o.VX[p].CompareTo(o.VX[q]));
-                var byY = (int[])perm.Clone(); Array.Sort(byY, (p, q) => o.VY[p].CompareTo(o.VY[q]));
+                var byX = (int[])perm.Clone(); Array.Sort(byX, (p, q) => { int cmpX = o.VX[p].CompareTo(o.VX[q]); return cmpX != 0 ? cmpX : p.CompareTo(q); });
+                var byY = (int[])perm.Clone(); Array.Sort(byY, (p, q) => { int cmpY = o.VY[p].CompareTo(o.VY[q]); return cmpY != 0 ? cmpY : p.CompareTo(q); });
                 var rx = new int[o.VX.Length]; var ry = new int[o.VX.Length];
                 long denom = Math.Max(1, n - 1);
                 for (int i = 0; i < n; ++i) {

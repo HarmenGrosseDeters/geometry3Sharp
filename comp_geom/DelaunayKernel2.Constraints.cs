@@ -462,6 +462,8 @@ namespace g3
             int baseLeft = TriangulateHalfCavity(lVerts, lState, lTwin, lSeg, tag, ref slotCursor, ref internalMates);
             if (slotCursor != cavSlots.Count)
                 throw new InvalidOperationException("DelaunayKernel2: cavity retriangulation slot count mismatch");
+            if (internalMates != null && internalMates.Count != 0)
+                throw new InvalidOperationException("DelaunayKernel2: unmatched internal cavity mate");
 
             // join the recovered segment u -> w (baseLeft) with w -> u (baseRight)
             Join(baseLeft, baseRight, -1);
@@ -576,6 +578,7 @@ namespace g3
             int s = seg[edgeIdx];
             if (internalMates == null) internalMates = new Dictionary<int, int>();
             if (internalMates.TryGetValue(origTwin, out int mateNew)) {
+                internalMates.Remove(origTwin);
                 Join(newHe, mateNew, s);
                 if (s < 0) {
                     restoreHe.Add(newHe);

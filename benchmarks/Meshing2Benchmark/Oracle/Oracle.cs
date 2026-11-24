@@ -3207,14 +3207,20 @@ namespace Meshing2Acceptance
                 }
                 while (limit.Sign >= 0 && step * step * nn >= limit) step = step * new Q(1, 2);
                 Q mx = m.Qx, my = m.Qy;
-                if (!e.Reference && filterOn && ux.Bounds(out double uxl, out double uxh) && uy.Bounds(out double uyl, out double uyh) && step.Bounds(out double stl, out double sth)) {
+                if (!e.Reference && filterOn && ux.Bounds(out double uxl, out double uxh) && uy.Bounds(out double uyl, out double uyh) && step.Bounds(out double stl, out double sth) && stl > 0) {
                     double uxD = (uxl + uxh) * 0.5, uyD = (uyl + uyh) * 0.5, stD = (stl + sth) * 0.5;
-                    double p1x = md.x - uyD * stD, p1y = md.y + uxD * stD;
-                    double p2x = md.x + uyD * stD, p2y = md.y - uxD * stD;
-                    double mag1 = Math.Max(Math.Max(Math.Abs(md.x), Math.Abs(md.y)), Math.Max(Math.Abs(uyD * stD), Math.Abs(uxD * stD)));
-                    double pad = mag1 * 1e-12 + 1e-300;
-                    if (domain.ClassifyLazy(p1x - pad, p1x + pad, p1y - pad, p1y + pad, () => new Pt(mx - uy * step, my + ux * step)) == Where.Inside) return true;
-                    return domain.ClassifyLazy(p2x - pad, p2x + pad, p2y - pad, p2y + pad, () => new Pt(mx + uy * step, my - ux * step)) == Where.Inside;
+                    double uMag = Math.Max(Math.Abs(uxD), Math.Abs(uyD));
+                    double mMag = Math.Max(Math.Abs(md.x), Math.Abs(md.y));
+                    if (FilterRange(stD) && FilterRange(uMag) && (mMag == 0 || FilterRange(mMag))) {
+                        double p1x = md.x - uyD * stD, p1y = md.y + uxD * stD;
+                        double p2x = md.x + uyD * stD, p2y = md.y - uxD * stD;
+                        double mag1 = Math.Max(mMag, Math.Max(Math.Abs(uyD * stD), Math.Abs(uxD * stD)));
+                        double pad = mag1 * 1e-12 + 1e-300;
+                        if (FilterRange(mag1)) {
+                            if (domain.ClassifyLazy(p1x - pad, p1x + pad, p1y - pad, p1y + pad, () => new Pt(mx - uy * step, my + ux * step)) == Where.Inside) return true;
+                            return domain.ClassifyLazy(p2x - pad, p2x + pad, p2y - pad, p2y + pad, () => new Pt(mx + uy * step, my - ux * step)) == Where.Inside;
+                        }
+                    }
                 }
                 return domain.Classify(new Pt(mx - uy * step, my + ux * step)) == Where.Inside
                     || domain.Classify(new Pt(mx + uy * step, my - ux * step)) == Where.Inside;
@@ -4742,7 +4748,8 @@ namespace Meshing2Acceptance
                 if (a.sourceId == c.sourceId || cross.Sign == 0) { info.Skip = true; return info; }
                 info.Sin2 = cross * cross / ((d1x * d1x + d1y * d1y) * (d2x * d2x + d2y * d2y));
                 info.Sin2Known = info.Sin2.Bounds(out info.Sin2Lo, out info.Sin2Hi);
-                if (info.Sin2Known && info.Sin2Lo > 0 && info.Sin2Hi < 1.0 - 1e-12) {
+                // f(s) = s / (5 - 4 sqrt(1 - s)) is strictly increasing only for s <= 3/4 (phi <= 60 deg), decreasing above 3/4.
+                if (info.Sin2Known && info.Sin2Lo > 0 && info.Sin2Hi <= 0.75) {
                     info.FloorLo = info.Sin2Lo / (5.0 - 4.0 * Math.Sqrt(1.0 - info.Sin2Lo)) * (1.0 - 1e-12);
                     info.FloorHi = info.Sin2Hi / (5.0 - 4.0 * Math.Sqrt(1.0 - info.Sin2Hi)) * (1.0 + 1e-12);
                     info.FloorKnown = !double.IsNaN(info.FloorLo) && !double.IsNaN(info.FloorHi) && info.FloorLo > 0 && !double.IsInfinity(info.FloorHi);
@@ -4757,8 +4764,8 @@ namespace Meshing2Acceptance
                 else if (WithinTube(c, a.b)) info.Apex = a.b;
                 else info.HasApex = false;
                 if (info.HasApex && info.Apex.Bounds(false, out double axl, out double axh) && info.Apex.Bounds(true, out double ayl, out double ayh)) {
-                    info.ApexX = (axl + axh) * 0.5;
-                    info.ApexY = (ayl + ayh) * 0.5;
+                    info.ApexX = axl + (axh - axl) * 0.5;
+                    info.ApexY = ayl + (ayh - ayl) * 0.5;
                     info.ApexHalf = Math.Max(axh - axl, ayh - ayl);
                     info.ApexKnown = true;
                 }

@@ -400,25 +400,33 @@ namespace g3
         {
             int m = routed.Count;
             if (m > 64) {
-                // X-sweep over segment bounding boxes: avoids coarse-bucket saturation and large tested HashSets on long segments
+                // Sweep along the axis with shorter typical segment span (Y for mostly horizontal bundles, X otherwise).
                 var minX = new double[m]; var maxX = new double[m]; var minY = new double[m]; var maxY = new double[m];
                 var order = new int[m];
+                int moreHorizontal = 0;
                 for (int i = 0; i < m; ++i) {
                     var (a, b) = routed[i];
                     var pa = input.Points[a]; var pb = input.Points[b];
-                    minX[i] = Math.Min(pa.x, pb.x); maxX[i] = Math.Max(pa.x, pb.x);
-                    minY[i] = Math.Min(pa.y, pb.y); maxY[i] = Math.Max(pa.y, pb.y);
+                    double lx = Math.Min(pa.x, pb.x), hx = Math.Max(pa.x, pb.x);
+                    double ly = Math.Min(pa.y, pb.y), hy = Math.Max(pa.y, pb.y);
+                    minX[i] = lx; maxX[i] = hx; minY[i] = ly; maxY[i] = hy;
+                    if (hx - lx > hy - ly) ++moreHorizontal;
                     order[i] = i;
                 }
-                MergeSortSegsByMinX(order, new int[m], minX, 0, m);
+                bool sweepY = moreHorizontal > (m >> 1);
+                var sweepLo = sweepY ? minY : minX;
+                var sweepHi = sweepY ? maxY : maxX;
+                var otherLo = sweepY ? minX : minY;
+                var otherHi = sweepY ? maxX : maxY;
+                MergeSortSegsByMinX(order, new int[m], sweepLo, 0, m);
                 for (int u = 0; u < m; ++u) {
                     if ((u & 63) == 0) cancel.ThrowIfCancellationRequested();
                     int i = order[u];
-                    double hiX = maxX[i], loY = minY[i], hiY = maxY[i];
+                    double hiS = sweepHi[i], loO = otherLo[i], hiO = otherHi[i];
                     for (int v = u + 1; v < m; ++v) {
                         int j = order[v];
-                        if (minX[j] > hiX) break;
-                        if (maxY[j] < loY || minY[j] > hiY) continue;
+                        if (sweepLo[j] > hiS) break;
+                        if (otherHi[j] < loO || otherLo[j] > hiO) continue;
                         TestCrossingPair(i, j);
                     }
                 }
