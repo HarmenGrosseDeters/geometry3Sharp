@@ -194,6 +194,134 @@ if (!op.Compute())
 
 `MaxPieces` aborts early with `Status = BudgetExceeded` once exact intersection counts exceed the limit. Cancelled runs return `Status = Cancelled` and the instance can be reused.
 
+### Volume Gradient (`BooleanVolumeGradient`)
+
+`BooleanVolumeGradient` gives the derivative of the volume of the exact result (before the rounding) with respect to
+every input vertex position, for shape and topology optimization.
+
+First run the boolean with `RetainClassification = true`. The option is off by default. It keeps, for each piece of the
+arrangement, whether the piece was kept or flipped, its coplanar stack, and the winding numbers in front of the pieces
+that are stacked. The memory is linear in the number of pieces, and the result does not change. Then:
+
+```csharp
+var boolean = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { RetainClassification = true };
+boolean.Compute();
+var g = new BooleanVolumeGradient(boolean);
+if (g.Compute()) {
+    Vector3d dVdx = g.Gradient[1][vid];          // input 1 (MeshB), vertex vid
+    Vector3d err = g.GradientBound[1][vid];      // |exact - dVdx| <= err per component
+}
+```
+
+Example: [BooleanVolumeGradientExample](../examples/BooleanVolumeGradientExample.cs). Method and measurements:
+[EXACT_BOOLEAN_GRADIENTS_2026-11.md](../research/EXACT_BOOLEAN_GRADIENTS_2026-11.md).
+
+**Contract.**
+- `Compute()` returns false and sets `Error` in four cases:
+  - the boolean did not succeed;
+  - it was not run with `RetainClassification`;
+  - one of its inputs is not closed, so the result has no volume;
+  - a value or its bound is beyond the double range. The volume (size cubed) overflows from coordinates of about
+    2^341, the gradient (size squared) from about 2^512. The arrays are still filled in this case. At the small end
+    nothing fails: below coordinates of about 2^-341 for the volume (2^-511 for the gradient), the values are subnormal
+    and their bounds absolute, of about 2^-1074.
+- `Gradient[m]` has `MaxVertexID` entries for input `m`. The input index is 0 for `MeshA` and 1 for `MeshB`, or the index
+  in the list of an n-ary boolean. A vertex that belongs to no kept piece has the entry 0.
+- `Volume` is the volume of the exact result, and `VolumeBound` is its error bound.
+- The output is bit-identical on every run: the computation is serial and uses no FMA.
+- If the inputs are scaled by 2^k, the gradient and its bound scale by exactly 2^2k and the volume by exactly 2^3k, as
+  long as no result underflows or overflows. The evaluation itself uses local frames (proof, step 1), so it is the same
+  at every scale.
+- The bounds are relative to each entry's own magnitude, also when the inputs span many orders of magnitude (tested
+  with boxes of size 1 and 2^-400 in one boolean).
+- The cost is linear in the number of kept pieces, about 3-4 µs per piece. It measured 15-142 % of the boolean's own time
+  ([benchmarks/BooleanVolumeGradient](../../benchmarks/BooleanVolumeGradient/README.md)).
+
+**Formula.**
+A kept piece P of an input triangle T moves with T. So, by the Hadamard formula, the volume changes by the integral of
+the normal velocity over the surface:
+
+  dV/dx_i = Σ over the kept pieces P of a triangle T with corner i of s_P λ_i^T(centroid P) N_P
+
+Here N_P is the area vector of P, oriented like T. s_P is -1 for a piece that the result reverses, and +1 otherwise.
+λ^T are the barycentric coordinates in T.
+
+The intersection curves have no area, so they do not contribute. This means no intersection point has to be
+differentiated.
+
+**The error bound (proof).**
+1. *Corners, in a local frame per triangle.*
+   - The exact points are the arrangement's, in grid units: the input is 2^e times (grid point + center).
+   - Each term of input triangle T is evaluated in T's local frame. The coordinates are taken relative to T's first
+     corner and scaled by 2^-S_T, where 2^S_T bounds T's edge coordinates (from the bit lengths of the exact
+     differences), so T's edges have length at most about 1.
+   - Each difference (q − p) 2^-S_T of two exact points is formed exactly in integers, (X_q W_p − X_p W_q) / (W_p W_q),
+     and converted once with `ExactPoint3.ToDouble`, which is correctly rounded (by its documented method). The exact
+     value then lies within half a spacing of the result x, and therefore within [Down(x), Up(x)], the two neighbouring
+     doubles.
+   - The interval is the single point x only when den = 1 and x is an integer equal to num, which the code checks.
+   - The volume, V = Σ s_P N_P · p_0 / 3, uses the corner p_0 relative to the center, scaled by 2^-S, where 2^S bounds
+     every coordinate of the kept pieces. Its N_P comes from the local frame, scaled exactly by 2^(2(S_T − S)) (step 4).
+   - So no product is formed of quantities much larger or smaller than 1. The evaluation neither overflows nor loses a
+     small triangle far from the center, however far apart the magnitudes of the inputs are.
+2. *Terms and sums.*
+   - Every operation of `ExactInterval` (+, −, ×, ÷) rounds to nearest and then widens the result by one spacing on both
+     sides. So it encloses the exact result of the operation for all operand values in the operand intervals. The proof
+     is in `math/ExactIntervals.cs`. A divisor interval that contains 0 gives the whole line.
+   - Four exact identities are kept exact instead of widened: x + 0 = x, x · 0 = 0, x − x = 0 for a single point x,
+     and 0 / b = 0 for a b that excludes 0. Otherwise an exact zero, such as a component of the normal of an
+     axis-aligned face, would become ±2^-1074 and underflow when it is scaled.
+   - By induction over the evaluation, each per-vertex sum interval [Lo, Hi] contains the exact derivative. These sums
+     add the terms of the formula in piece order.
+   - The same holds for the volume, Σ s_P p_0·(p_1×p_2)/6, and for the alternatives of the contact regions. No new error
+     constant is involved.
+3. *Value and bound.*
+   - The value is m = fl(Lo/2 + Hi/2), and the bound is b = Up(fl(max(Hi − m, m − Lo))).
+   - For d ≥ 0, fl(d) ≥ d − ulp(d)/2. `Up` then adds one spacing of fl(d), which is at least ulp(d)/2. The spacing of
+     fl(d) is smaller than that only when fl(d) is a power of two 2^j and d is just above it. In that case the spacing of
+     2^j upwards equals ulp(d), which is enough. So b ≥ d.
+   - Every z in [Lo, Hi] therefore satisfies |z − m| ≤ max(Hi − m, m − Lo) ≤ b.
+   - For a single point, Lo = Hi, the bound is 0.
+   - A NaN or infinite end gives b = +∞.
+4. *Scaling to the input's units.*
+   - Each term interval is scaled by 2^(2(S_T + e)) into the input's units before it is added to its vertex. The volume
+     is scaled by 2^(3(S + e)) at the end.
+   - A scaling by a power of two is exact unless its result is subnormal or overflows. The code checks exactness by
+     scaling back.
+   - Where it is not exact, the interval's ends are widened by one spacing: ScaleB rounds once, by less than one spacing
+     of its result. An end that overflows to infinity is at least as far out as the exact value.
+   - For the volume's value and bound, the same check applies. If the result is subnormal, each of the two scalings
+     rounds once, by at most 2^-1075, and the bound becomes Up(b · 2^k + 2^-1074).
+   - An infinite bound means that the entry itself is beyond the double range: for the volume from coordinates of about
+     2^341, for the gradient from about 2^512. Then `Compute()` fails with `Error`. Small coordinates fail nothing:
+     subnormal results only make the bound absolute, at about 2^-1074.
+
+**Kinks (contacts of positive area).**
+- V is not differentiable only where faces of different inputs lie in one plane and overlap with positive area.
+- An edge or a vertex on a face, or two edges crossing, change the overlap by o(t). V is differentiable there.
+- At a contact, `Gradient` is the one-sided derivative of the branch that the exact result realizes:
+  - a union merges touching solids, so it gives the overlapping side;
+  - an intersection and a difference separate them, so they give the separated side;
+  - for flush faces (same orientation), the result keeps the face of the first input, by input order. So A ∪ B and B ∪ A
+    give the two different one-sided derivatives.
+- `Contacts` lists each contact region, in a fixed order. For each region it gives the inputs involved, the number of
+  stacked faces, the area, and `Alternatives`.
+- Each alternative is a sparse change to `Gradient`. It belongs to another order of the faces along the plane's normal,
+  and gives another one-sided derivative.
+- For two faces there is exactly one alternative. The realized gradient and the gradient plus the alternative are then
+  the two extremes of the Clarke generalized gradient.
+- `Alternatives` stays empty in two cases: more than 4 stacked faces, or two faces of one input with the same
+  orientation.
+- With a `WindingPredicate`, the predicate is also called with the winding vectors of the other face orders. These are
+  vectors that the classification itself does not produce, so the predicate must be defined for any vector of integers.
+
+The area of the result is not covered:
+- its gradient is not rational;
+- it grows like 1/sin θ at nearly tangential seams;
+- it also has kinks at edge-on-face contacts.
+
+See the research note for details.
+
 ### By-Design Behavior (Not Defects)
 
 - **Open inputs yield open results:** The region where generalized winding number `> 0.5` is generally not closed; boundary edges remain where pieces of the open input survive. Open inputs are refused by default; this applies with `AllowOpenMeshes = true`. Close inputs first (`MeshRobustRepair`, `MeshAlphaWrap`) if a closed solid is required.
