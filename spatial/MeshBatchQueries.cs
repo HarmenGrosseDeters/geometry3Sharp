@@ -207,8 +207,9 @@ namespace g3
         /// number is within about 2e-13 times the number of boundary edges divided by 2 pi of 0.5; a point exactly on a triangle of the
         /// mesh has the principal value, the mean of the two sides, independent of the coordinate axes: exactly 0.5 on a flat face of a
         /// closed mesh, so a face point is Outside (w > 0.5 is false, deterministically), 0.25 on a cube edge and 0.125 at its corner
-        /// (Outside), above one half on a reflex edge or corner (Inside); on creases, corners and open meshes the value is within the
-        /// bound above), Invalid for a point that is not
+        /// (Outside), above one half on a reflex edge or corner (Inside); on creases, corners and open meshes the value is the rounded sum, within the bound above plus
+        /// 3 edge angles of 2e-13 / 2 pi for each triangle through the point, and only within the rounding independent of the
+        /// input order: a threshold exactly at such a value can flip with it), Invalid for a point that is not
         /// finite. options.MaxDistance does not apply (it is still checked to be >= 0). An empty mesh has no inside.
         /// The winding number cache is built once before the parallel part.
         /// </summary>
