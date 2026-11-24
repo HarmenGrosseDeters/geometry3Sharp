@@ -129,23 +129,31 @@ namespace geometry3Sharp.Tests
         /// <summary>
         /// Segments passing near a pixel corner at distance ~[1.5e-15, 7e-15] of the orientation scale were undecided
         /// under the old 1e-14 constant and are now decided directly by CrossesInteriorFilter with 6e-16 (fails on old code).
-        /// Also stresses 20,000 near-corner segments across [1e-17, 1e-13] w and extreme binary frames against CrossesInteriorExact.
+        /// Also stresses 28,000 near-corner segments across [1e-17, 1e-12] w and binary frames (-440..440) against CrossesInteriorExact.
         /// </summary>
         [Fact]
         public void CrossesInteriorFilter_TightBoundDecidesNearCornerBandAndMatchesExact()
         {
             // Fails on old 1e-14 constant: at w = 1, pixel (0, 0) has corner (0.5, 0.5).
-            // Segment a = (-0.5, -0.5 + d), b = (1.5, 1.5 + d) has dx = dy = 2, corner (0.5, 0.5) has
-            // ex = 1, ey = 1 - d, o = 2(1 - d) - 2(1) = -2d, sum = 2*(|1-d|+0.5) + 2*(1+0.5) ≈ 6.
-            // With d = 1e-14: |o| = 2e-14, old bound 1e-14 * 6 = 6e-14 (undecided!), new bound 6e-16 * 6 = 3.6e-15 (decided!).
+            // Crossing: a = (-0.5, -0.5 + d), b = (1.5, 1.5 + d) has |o| = 2|d|, sum ≈ 6 -> old bound ≈ 6e-14 (undecided), new ≈ 3.6e-15 (decided +1).
+            // Non-crossing: a = (0.0, 1.0 + d), b = (1.0, 0.0 + d) passes just outside corner (0.5, 0.5) with d > 0 -> old undecided, new decided -1.
             var unit = new SnapGrid(1.0);
             foreach (double d in new[] { 3e-15, -3e-15, 1e-14, -1e-14, 2e-14, -2e-14 }) {
                 var a = new Vector2d(-0.5, -0.5 + d);
                 var b = new Vector2d(1.5, 1.5 + d);
                 int f = unit.CrossesInteriorFilter(a, b, 0, 0);
                 bool exact = unit.CrossesInteriorExact(a, b, 0, 0);
-                Assert.True(f != 0, $"expected tight 6e-16 filter to decide d={d:E2}");
-                Assert.Equal(exact, f > 0);
+                Assert.True(f > 0, $"expected tight 6e-16 filter to decide crossing (+1) at d={d:E2}, got {f}");
+                Assert.True(exact);
+                Assert.Equal(exact, unit.CrossesInterior(a, b, 0, 0));
+            }
+            foreach (double d in new[] { 3e-15, 1e-14, 2e-14 }) {
+                var a = new Vector2d(0.0, 1.0 + d);
+                var b = new Vector2d(1.0, 0.0 + d);
+                int f = unit.CrossesInteriorFilter(a, b, 0, 0);
+                bool exact = unit.CrossesInteriorExact(a, b, 0, 0);
+                Assert.True(f < 0, $"expected tight 6e-16 filter to decide non-crossing (-1) at d={d:E2}, got {f}");
+                Assert.False(exact);
                 Assert.Equal(exact, unit.CrossesInterior(a, b, 0, 0));
             }
 
@@ -197,8 +205,12 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(f1, f2);
                 Assert.Equal(c1, c2);
 
-                // Endpoint reversal and axis swap preserve crossing truth and agree with filter where decided.
+                // Endpoint reversal and axis swap preserve crossing truth and agree with the filter where decided.
+                int fRev = grid.CrossesInteriorFilter(b, a, kx, ky);
+                Assert.True(fRev == 0 || (fRev > 0) == c1);
                 Assert.Equal(c1, grid.CrossesInterior(b, a, kx, ky));
+                int fSwap = grid.CrossesInteriorFilter(new Vector2d(a.y, a.x), new Vector2d(b.y, b.x), ky, kx);
+                Assert.True(fSwap == 0 || (fSwap > 0) == c1);
                 Assert.Equal(c1, grid.CrossesInterior(new Vector2d(a.y, a.x), new Vector2d(b.y, b.x), ky, kx));
 
                 // Exact power-of-two scaling preserves exact crossing truth.
