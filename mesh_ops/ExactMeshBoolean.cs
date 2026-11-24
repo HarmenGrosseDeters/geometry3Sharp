@@ -420,6 +420,13 @@ namespace g3
         /// double.
         /// </summary>
         public bool SafeRounding = true;
+        /// <summary>
+        /// false (default): nothing beyond the result is kept. true: Compute() also keeps, per piece of the arrangement, what the
+        /// classification decided (kept, flipped, the coplanar stack and the winding numbers in front of the pieces with one), for
+        /// <see cref="BooleanVolumeGradient"/>. Recording only: it changes no decision and no result; it costs memory linear in the
+        /// pieces and is read after Compute() until the next one
+        /// </summary>
+        public bool RetainClassification = false;
 
         /// <summary> for tests (issue 789): ExactMeshArrangement.HashSalt and SingleShard of the arrangement </summary>
         internal int ArrangementHashSalt;
@@ -979,7 +986,7 @@ namespace g3
                 Result = null;
                 return fail(BooleanStatus.SheetRefused, SheetError);
             }
-            if (RecordCertificate) {
+            if (RecordCertificate || RetainClassification) {
                 CertificateKeep = (bool[])keep.Clone();
                 CertificateFlip = (bool[])flip.Clone();
             }
@@ -1886,6 +1893,19 @@ namespace g3
             }
         }
 
+        /// <summary>
+        /// the operation on a dense vector of winding numbers (one per mesh), as the classification decides it
+        /// (BooleanVolumeGradient: also for the vectors of the other orders of a coplanar stack, which a WindingPredicate is
+        /// then called with)
+        /// </summary>
+        internal bool InsideOf(int[] winding)
+        {
+            var all = new List<int>(winding.Length);
+            for (int m = 0; m < winding.Length; ++m)
+                all.Add(m);
+            return inside(winding, all);
+        }
+
 
         [MethodImpl(JitHints.Optimize)]
         void classify(out bool[] keep, out bool[] flip)
@@ -1902,7 +1922,7 @@ namespace g3
             bool[] representative = new bool[n];
             double[] coplanarBoxes = coplanar_boxes();
             gParallel.ForRange(n, (i) => representative[i] = coplanar_stack(output[i], coplanarBoxes, out stack[i]));
-            StacksPerPiece = RecordStacks ? stack : null;
+            StacksPerPiece = (RecordStacks || RetainClassification) ? stack : null;
             steps.LapMicroseconds("classification.stacks");
 
             // patches: pieces of one mesh connected across edges that are not on an intersection curve, with
@@ -2034,7 +2054,8 @@ namespace g3
             }
 
             int[] winding = new int[nm];
-            int[][] front = RecordCertificate ? new int[n][] : null;
+            // (RetainClassification: only the pieces with a coplanar stack, for the contact regions of BooleanVolumeGradient)
+            int[][] front = (RecordCertificate || RetainClassification) ? new int[n][] : null;
             bool[] isTouched = new bool[nm];
             var touched = new List<int>();
             Action<int, int> add = (m, d) => {
@@ -2079,7 +2100,7 @@ namespace g3
                     for (int m = 0; m < nm; ++m)
                         if (sheetFront[m] != null && sheetFront[m][i] != 0)
                             add(m, sheetFront[m][i]);
-                if (front != null)
+                if (front != null && (RecordCertificate || stack[i] != null))
                     front[i] = (int[])winding.Clone();
                 bool inFront = inside(winding, touched);
                 foreach (int m in openInputs) {
