@@ -35,9 +35,9 @@ namespace g3
     /// Point ids: the geometry of the result (the set of exact points, the triangles and the constraint edges as
     /// geometry) is deterministic. The ids of the input vertices are deterministic too (build_points runs serially:
     /// the same input gives the same ids). The ids of new points (intersections, centroids) are assigned in the parallel
-    /// phases and depend on the thread schedule, so they differ between runs, even between fresh instances on the same
-    /// input. An id is only a label within one run: <see cref="Output"/>, <see cref="ConstraintEdges"/> and
-    /// <see cref="VertexPoints"/> carry such ids. To compare, sort or store points, go through <see cref="Exact(int)"/>
+    /// phases and depend on the thread schedule, so they may differ between runs, even between fresh instances on the same
+    /// input. An id is only a label within one run: <see cref="Output"/> and <see cref="ConstraintEdges"/>
+    /// carry such ids (<see cref="VertexPoints"/> holds only the deterministic ids of input points). To compare, sort or store points, go through <see cref="Exact(int)"/>
     /// (or <see cref="ComparePoints"/> for an order) or the canonical mapping <see cref="Canonical(int)"/>, never
     /// through the numeric value of an id.
     /// </summary>
@@ -267,9 +267,10 @@ namespace g3
         /// </summary>
         public HashSet<long> ConstraintEdges = new HashSet<long>(EdgeKeyComparer.Instance);     // undirected point id pairs on intersection curves
         /// <summary>
-        /// Per mesh: vertex id to point id. Input vertices have deterministic ids; after merging, equal points share an id of
-        /// this run, which may depend on the thread schedule if the point is new (see the class summary). Compare through
-        /// <see cref="Exact(int)"/> or <see cref="Canonical(int)"/>.
+        /// Per mesh: vertex id to point id. Written only in the serial build_points phase (input vertices at the same
+        /// double position share one id), so every id here is an input-point id and deterministic: the same input gives the
+        /// same ids in every run. It is not updated when equal points are merged later; the merged identity of an id is
+        /// <see cref="Canonical(int)"/> (<see cref="Exact(int)"/> gives its point).
         /// </summary>
         public int[][] VertexPoints;        // per mesh: vertex id -> point id
         public List<int>[] MeshTriangles;   // per mesh: indices into Triangles
