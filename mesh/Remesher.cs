@@ -1873,7 +1873,7 @@ namespace g3 {
             };
 
             if (bParallel) {
-                gParallel.ForEach<int>(smooth_vertices(), smooth);
+                gParallel.ForEachSmall<int>(smooth_vertices(), smooth);
             } else {
                 foreach ( int vID in smooth_vertices() )
                     smooth(vID);
@@ -1907,7 +1907,7 @@ namespace g3 {
             };
 
             if (bParallel) {
-                gParallel.ForEach<int>(smooth_vertices(), smooth);
+                gParallel.ForEachSmall<int>(smooth_vertices(), smooth);
             } else {
                 foreach (int vID in smooth_vertices())
                     smooth(vID);
@@ -1985,7 +1985,7 @@ namespace g3 {
             }
             // [TODO] can probably use block-parallel here...
             if (bParallel) {
-                gParallel.BlockStartEnd(0, mesh.MaxVertexID-1, (a,b) => {
+                gParallel.BlockStartEndSmall(0, mesh.MaxVertexID-1, (a,b) => {
                     for (int vid = a; vid <= b; vid++) {
                         if (vModifiedV[vid])
                             Mesh.SetVertex(vid, vBufferV[vid]);
@@ -2081,7 +2081,7 @@ namespace g3 {
                     vBufferV[vID] = projected;
                 };
                 if (EnableParallelProjection)
-                    gParallel.ForEach<int>(project_vertices(), projectBuffered);
+                    gParallel.ForEachSmall<int>(project_vertices(), projectBuffered);
                 else
                     foreach (int vid in project_vertices())
                         projectBuffered(vid);
@@ -2099,7 +2099,7 @@ namespace g3 {
             };
 
             if (EnableParallelProjection) {
-                gParallel.ForEach<int>(project_vertices(), project);
+                gParallel.ForEachSmall<int>(project_vertices(), project);
             } else {
                 foreach (int vid in project_vertices())
                     project(vid);

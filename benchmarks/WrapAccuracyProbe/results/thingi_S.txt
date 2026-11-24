@@ -1,0 +1,8 @@
+<dataset>/raw_meshes/49900.stl
+<dataset>/raw_meshes/225936.stl
+<dataset>/raw_meshes/48123.stl
+<dataset>/raw_meshes/1722415.stl
+<dataset>/raw_meshes/77476.stl
+<dataset>/raw_meshes/441722.stl
+<dataset>/raw_meshes/135803.stl
+<dataset>/raw_meshes/1514495.stl

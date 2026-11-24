@@ -112,6 +112,44 @@ static partial class CertifySize
         return L;
     }
 
+    /// <summary>
+    /// Step B: the certificate as bytes (format R) against the output, and the stand-alone check from the bytes against the
+    /// boolean and the in-process checker: bytes, output bytes, write ms, read + check ms, verdict equal to the in-process one.
+    /// </summary>
+    public static int RunFile(List<(string name, List<DMesh3> inputs, Ops op)> cases, int reps)
+    {
+        Console.WriteLine($"# {Environment.ProcessorCount} logical cores, {System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}; times in ms (boolean: median of {reps} warm runs; write, read+check: one run after a warm-up)");
+        Console.WriteLine("case | input KB | output KB | certificate KB | certificate / output | certificate / input | boolean | write | read | check (C0-C5) | read+check / boolean | verdict | same as in process");
+        int mismatches = 0;
+        foreach (var (name, inputs, op) in cases) {
+            Func<ExactMeshBoolean> run = () => {
+                var b = new ExactMeshBoolean(inputs, op) { AllowOpenMeshes = true, RecordCertificate = true, ComputeExactVertices = true };
+                if (op == Ops.Intersection) b.CullOutsideA = false;
+                if (b.Compute() == false) throw new InvalidOperationException(name + ": " + b.Error);
+                return b;
+            };
+            double tBool = Median(reps, () => run());
+            ExactMeshBoolean bb = run();
+            BooleanCertificate cert = BooleanCertificate.From(bb);
+            if (cert.NotApplicableReason != null) { Console.WriteLine($"{name} | n/a: {cert.NotApplicableReason}"); continue; }
+            long inBytes = inputs.Sum(m => 24L * m.VertexCount + 12L * m.TriangleCount);
+            long outBytes = 24L * bb.Result.VertexCount + 12L * bb.Result.TriangleCount;
+            byte[] bytes = CertificateFile.Write(cert);                                    // warm-up
+            var sw = Stopwatch.StartNew();
+            bytes = CertificateFile.Write(cert); double tWrite = Lap(sw);
+            CertificateFile.Read(bytes, inputs, bb.Result);                               // warm-up
+            sw.Restart();
+            BooleanCertificate back = CertificateFile.Read(bytes, inputs, bb.Result); double tRead = Lap(sw);
+            string r = back.Check(); if (r == "" && back.Uncovered != 0) r = back.Uncovered + " uncovered"; double tCheck = Lap(sw);
+            BooleanCertificate inProc = BooleanCertificate.From(bb);
+            string e = inProc.Check(); if (e == "" && inProc.Uncovered != 0) e = inProc.Uncovered + " uncovered";
+            bool same = e == r; if (!same) mismatches++;
+            Console.WriteLine($"{name} | {K(inBytes)} | {K(outBytes)} | {K(bytes.Length)} | {((double)bytes.Length / outBytes).ToString("0.00", CultureInfo.InvariantCulture)} | {((double)bytes.Length / inBytes).ToString("0.00", CultureInfo.InvariantCulture)} | "
+                + $"{F(tBool)} | {F(tWrite)} | {F(tRead)} | {F(tCheck)} | {((tRead + tCheck) / Math.Max(tBool, 1e-9)).ToString("0.0", CultureInfo.InvariantCulture)} | {(r == "" ? "certified" : r.Length > 60 ? r.Substring(0, 60) : r)} | {(same ? "yes" : "NO: " + e)}");
+        }
+        return mismatches == 0 ? 0 : 1;
+    }
+
     static double Lap(Stopwatch sw) { double t = sw.Elapsed.TotalMilliseconds; sw.Restart(); return t; }
 
     static double Median(int reps, Action a)

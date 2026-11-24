@@ -47,9 +47,36 @@ var atLeast2 = new ExactMeshBoolean(meshes, ExactMeshBoolean.AtLeast(2));
 var xorOdd = new ExactMeshBoolean(meshes, w => w.Count(x => x > 0) % 2 == 1);
 ```
 
-Putting multiple operands into a single n-ary operation (`A − (B1 ∪ … ∪ Bn)`) runs one arrangement and rounds only once, which is both faster and produces fewer triangles than chaining binary booleans.
+`ExactMeshArrangement` (the arrangement under the booleans): the point ids in its `Output` and `ConstraintEdges` are labels of one run (ids of input vertices, all of `VertexPoints`, are deterministic; ids of new points depend on the thread schedule; the geometry is deterministic); compare or sort through `Exact(id)` or `Canonical(id)`, never by id.
+
+Putting multiple operands into a single n-ary operation (`A − (B1 ∪ … ∪ Bn)`) runs one arrangement and rounds only once. In the measured ball packings it never returned more triangles than chaining binary booleans (equal on a lattice, up to 21 % fewer on dense packings), and it is faster for sparse or chain-like inputs. For a union of many bodies that overlap each other densely it is slower than a tree of pairwise unions: see [Union of many overlapping bodies](#union-of-many-overlapping-bodies-one-call-or-a-tree).
 
 For closed first meshes, `Difference` and `Intersection` automatically cull operand triangles wholly outside the relevant solid (`Counts["t3a_culled"]`). Diagnostic counts (`IntersectingPairs`, `SelfIntersectingPairs`, `Patches`) describe the arrangement after culling; use `Union` or `MeshRobustRepair` to inspect self-intersections across an entire operand.
+
+### Union of many overlapping bodies: one call or a tree
+
+Two ways to unite many closed bodies: all of them in one `ExactMeshBoolean` (one arrangement), or a balanced binary tree of pairwise unions ([UnionTreeExample](../examples/UnionTreeExample.cs)). The tree must be built from eager calls, `new ExactMeshBoolean(a, b, Union)` and `Compute()` per pair, as the example does: the lazy `ExactMesh.Union` composition (see the table above) is evaluated as one n-ary arrangement again and gives no tree.
+
+Rule of thumb, measured on procedural ball packings with `StrictRounding = true`, net10.0 Release, on one Windows desktop with 12 logical cores that other sessions used only lightly (times +-20 %). The shape matters, not the absolute times:
+
+- Sparse or chain-like inputs (each body overlaps a few others: helices, lattices, branching tubes): one call. It was 2.9 to 3.8 times faster than the tree in the measured cases (lattice of 216 balls 443 ms against 1305 ms; helix of 192 balls 288 ms against 1088 ms) and grows about linearly with the body count.
+- Dense packings (a body overlaps many others): one call is measured to grow faster than linearly (about quadratically in the body count from 48 to 192 balls), and the tree is faster above a mean overlap degree (the number of other bodies a body overlaps) of about 12 to 14 on this machine.
+
+| Dense packing, balls | mean overlap degree | one call | tree |
+|---|---|---|---|
+| 48 | 14.3 | 263 ms | 245 ms |
+| 96 | 23.3 | 1124 ms | 545 ms |
+| 192 | 34.0 | 4606 ms | 1229 ms |
+
+The threshold is not a property of the input alone. It depends on the machine: the winding stage of one call is a parallel loop, the tree is many small calls, so core count and load change the ratio. A second and a third run of the same inputs (`scaling 3 dense104:24,48,96 helix:96`, counts and results identical) on a heavily loaded machine, and with `DOTNET_PROCESSOR_COUNT=4` on a moderately loaded one, moved the crossover towards one call: at 48 balls (degree 14.3) one call was faster than the tree (by 2.2x in the loaded reviewer's run, by 1.2x with 4 processors; 1.07x slower in the quiet run), and at 96 balls the time of one call over the tree was 1.0 (loaded reviewer run) and 1.6 (4 processors) against 2.1 in the quiet run (a 12-thread rerun under moderate load gave 0.84 and 2.1). So fewer free cores favoured one call in these runs. The cause was not established (a guess: the tree's many small parallel regions pay a fixed fork/join cost that a busy or small machine makes larger relative to the work), and the direction for more cores than 12 was not measured. Measure both on your own input and machine when it matters; the example shows how (time `UnionOneCall` and `UnionTree`).
+
+Why one call grows (derived, then measured): a body cut by `k` neighbours is a circle arrangement on a sphere with `O(k^2)` faces, so the patches per body grow like `k^2` (derived; measured 0.4 to 0.5 `k^2`), and the classification casts one exact ray per patch and overlapping body (candidates per patch about `0.55 k`, measured). That makes about `0.28 N k^3` rays, with `k` itself rising with `N` in a dense packing. The constant 0.28 is a fit: it reproduces the measured candidates (2.1 M at 192 balls, 340 k at 96 against 2.21 M and 359 k), and it hides that the cost goes with the sum of `k_i^3` over bodies, not the mean degree cubed (at 192 balls the maximum degree is 86 against the mean 34). So the work is measured to grow roughly like `N k^3`, not proven to. Most of the cut surface (95 % of the pieces at 192 balls) lies inside the union and is discarded at the end; the tree avoids that by removing interior surface after every pairwise union.
+
+The results differ. Checked with the probe's `scaling` mode on dense (two packings, seeds 104 and 103, 3 to 6 sizes of 12 to 192 balls), helix (24 to 192) and lattice (27 to 216) inputs, 17 sizes in all: both routes returned a closed mesh with an empty `MeshRobustRepair.NotCleanReason(mesh, checkSelfIntersections: true)`, and the volumes agreed to the 1e-9 the probe prints (rounded to 1e-9). The tree returns up to 21 % more triangles on dense packings and a different triangulation (the meshes are bit-identical only on the lattice), so choose by speed and do not expect the same mesh.
+
+To estimate the overlap degree of your own input, count for each body the other bodies whose bounding box intersects its box and take the mean (`UnionTreeExample.MeanBoxOverlapDegree`). The threshold above is for balls and their true overlaps; box overlaps over-count (the 8 balls of the example overlap 6 others each, their boxes 7), so the box figure at which to switch is somewhat higher. It was not measured for boxes.
+
+Basis: [NARY_UNION_DENSE_2026-11.md](../research/NARY_UNION_DENSE_2026-11.md), the probe [ProceduralSphereUnionProbe](../../benchmarks/ProceduralSphereUnionProbe/README.md), issue #1466. A winding propagation across patches (one ray per body) would remove the superlinear term and, as the windings would be the same integers, is expected to keep the output of one call; it is not implemented and not tested.
 
 ### Batch One-Against-Many (`IntersectEach` / `DifferenceEach`)
 

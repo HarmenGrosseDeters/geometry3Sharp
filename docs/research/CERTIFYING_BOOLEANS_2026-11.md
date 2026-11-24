@@ -244,6 +244,164 @@ LEDA and Coq polyhedra.
 - The two outliers above 20 s are diagnosed only by reading (C2) or not at all (C5).
 - The prior-art check reached abstracts and search snippets, not the full texts of the 2026 arXiv paper or the CPP 2023 paper.
 
+## 8. Step A: the quadratic outliers removed (2026-11-24)
+
+Test and benchmark code only (`BooleanCertificate.cs`, its tests, the benchmark's name filter). Raw output: `perf/certify_size_step_a.txt`
+(same command and machine class as section 4, the checker serial; the earlier numbers are `perf/certify_size.txt`).
+
+**Causes (profiled, not only read).**
+1. C2 on touching coplanar inputs: two loops of pieces times all coplanar input triangles of the plane, each a BigInteger test with
+   no box filter: the straddle loop (29 s on fine box edge-touch) and the stacks of C3, prepared inside the first C2 call (4 s). The pair
+   search itself took 0.5 s.
+2. C5 on tori: not the number of exact tests (162 000) but their price: each `Near` is a BigInteger rational distance (with gcd
+   reductions), about 50 microseconds, and a triangle needed about 27 of them. The grid gave 45 candidates per triangle. Distances were
+   tiny (Delta 4e-5 against triangles of 0.02), so almost all tests were decidable in doubles.
+
+**Fixes (verdicts unchanged, soundness kept).**
+- C2: a box filter in front of both loops (`CoplanarNear`): per plane with more than 8 input triangles a box tree (the existing
+  `EmbeddingBoxTree`, now with `Query`), otherwise a linear box scan. Boxes come from the exact corners' approximations widened by a
+  relative 2^-49 (as C2's pair boxes). A pair whose boxes are disjoint is disjoint, so the exact test (`StraddlesInPlane`,
+  `InsideInPlane`) is only skipped where it must answer "no". The source triangle is always kept; candidates stay in group order.
+- C5: two one-sided double filters before the exact `Near`: reject when the point is farther than Delta + 3 eps from the box of the
+  triangle's approximated corners, accept when a point inside the triangle (a clamped convex combination, so even a wrong region of the
+  closest-point routine only gives a larger distance) is within Delta - 3 eps. eps = 2^-40 times the largest coordinate plus extent, never below 2^-480 (below that the squares in the distance underflow: the review of #1520 found an unsound accept at 2^-560).
+  Everything between, and every point without a finite approximation, goes to the exact test.
+
+**Soundness evidence.** Tests: `CoplanarBoxFilter_LosesNoPair_OnFineFaceContacts` (audit against the exact tests, planes of 60-70
+triangles, all operations), `InjectedMissedSplit_OnFineFaces_IsCaughtThroughTheBoxTree` (a wrong result that must not certify; the
+filtered checker agrees with the unfiltered exact brute force on every case), `CoverageFilters_AgreeWithTheExactDistanceTest` (8 000
+random lattice cases, scales 1 and 2^20, plus distances delta +- 2^-30 .. 2^-60). Hand mutations, each turning at least one test red:
+query node test flipped (3 tests), linear scan comparison flipped (16), straddle loop with no neighbours (2), stacks with no neighbours
+(18), box slack removed (18), C5 reject tolerance flipped (48), C5 accept margin flipped (1: only the borderline cases catch it),
+accept with a loose margin (2).
+
+**Verdicts.** All 105 runs (84 fuzz, 21 procedural) end as before: 100 certified, 4 with uncovered slivers, 1 with removed parts, 0
+fail; the verdict text of every run is identical.
+
+**Times** (ms, after / before; in brackets times the boolean):
+
+| Case | Boolean | C1 | C2 | C5 | Checker before (x) | Checker after (x) |
+|---|---|---|---|---|---|---|
+| box+box overlap U | 0.8 | 1 → 1 | 11 → 10 | 2 → 1 | 15 (18) | 14 (17) |
+| box+box face-touch U | 0.8 | 0 → 0 | 0 → 0 | 0 → 0 | 1 (3) | 1 (1) |
+| box+box edge-touch U | 0.6 | 0 → 0 | 0 → 0 | 0 → 0 | 1 (2) | 1 (2) |
+| sphere+sphere overlap U | 45.7 | 518 → 617 | 774 → 673 | 1444 → 999 | 3092 (82) | 2547 (56) |
+| sphere&sphere overlap I | 23.1 | 511 → 510 | 748 → 740 | 534 → 386 | 2119 (93) | 2050 (89) |
+| sphere-sphere D | 26.8 | 413 → 494 | 583 → 571 | 1125 → 830 | 2901 (97) | 2717 (101) |
+| sphere+sphere tangent-ish U | 11.1 | 198 → 237 | 236 → 197 | 665 → 417 | 1210 (87) | 938 (84) |
+| box-cylinder D | 4.9 | 14 → 13 | 212 → 227 | 18 → 15 | 254 (60) | 265 (54) |
+| torus+cylinder U | 16.0 | 180 → 162 | 824 → 529 | 487 → 361 | 1584 (100) | 1221 (76) |
+| torus+torus linked U | 37.9 | 351 → 418 | 803 → 762 | 17128 → 982 | 18447 (517) | 2318 (61) |
+| fine box edge-touch U | 18.6 | 160 → 159 | 43700 → 1357 | 1114 → 1061 | 45045 (2346) | 2638 (142) |
+| fine box vertex-touch U | 14.6 | 160 → 154 | 35013 → 1440 | 1051 → 775 | 36313 (1834) | 2440 (167) |
+| sphere on box face (pole touch) U | 18.2 | 396 → 403 | 14380 → 970 | 1351 → 984 | 16384 (645) | 2576 (142) |
+| two cylinders line-touch U | 3.5 | 12 → 8 | 643 → 304 | 38 → 22 | 703 (241) | 341 (99) |
+| cylinder on box, partial face-touch U | 36.6 | 175 → 168 | 27337 → 1732 | 416 → 395 | 27988 (684) | 2348 (64) |
+| 3 spheres U | 39.2 | 620 → 614 | 1502 → 1292 | 1396 → 844 | 3939 (103) | 3095 (79) |
+| box+sphere+cyl U | 21.6 | 401 → 514 | 771 → 799 | 759 → 612 | 2074 (91) | 2051 (95) |
+| sphere+sphere U n=16 | 17.8 | 260 → 295 | 368 → 367 | 635 → 410 | 1377 (63) | 1158 (65) |
+| sphere+sphere U n=64 | 190.0 | 3194 → 2739 | 3783 → 3469 | 11333 → 9035 | 20984 (112) | 17663 (93) |
+| torus-torus D nu=128 | 92.3 | 888 → 794 | 2297 → 1815 | 52449 → 2924 | 60590 (531) | 11154 (121) |
+| fine box face-on-face U n=16 | 22.5 | 198 → 166 | 38096 → 1771 | 407 → 353 | 38790 (1779) | 2359 (105) |
+
+Fuzz runs: checker / boolean median 8.3 (before 9.6), maximum 49 (before 118).
+
+**Stop rule.** Under 20 s: met by every case (largest: sphere+sphere n=64, 17.7 s; torus-torus nu=128 went from 60.6 s to 11.2 s).
+Under 50 times the boolean: **met only by the fuzz runs and the box cases; not met** by the curved and the fine-box cases (54-167 times).
+That is not a quadratic part any more: it is the linear BigInteger floor, measured per part: C1 0.1-3 s, the same-chain test of C5
+(string keys, gcds per edge: 7.4 s of the 9 s of C5 on n=64), C2's pair search (3 s on n=64), C0 (6 s on torus-torus nu=128). The
+earlier estimate (section 4: filtered C1, C3, C5 would bring the whole checker to 3-16 times) still stands; reaching 50 times needs a
+floating-point filter for C1, the pair search and the chains, a larger change than step A (a candidate for step C, where the filters
+are part of the design). Not done here.
+
+**Known gap (accepted by the owner, 2026-11-24).** The checker misses the 50 times target on curved and fine-box inputs (54-167
+times the boolean, section 8 table). Cause: the linear BigInteger floor in C0 (exact triangle tests and rays), C1 (exact areas and
+orientation), the C5 same-chain test (string keys and gcds per edge) and the C2 pair search. The 20 s limit is met by every case.
+Closing the gap means double filters in those four parts (step C territory), not a change of algorithm.
+
+## 9. Step B: the certificate as bytes and a stand-alone checker (2026-11-24)
+
+Test and benchmark code only; no library change, no public API. Files: `tests/geometry3Sharp.Tests/Harness/CertificateFile.cs`
+(writer, strict reader, `Check(bytes, inputs, output)`), `BooleanCertificate.Recording.cs` (the part of the old checker that
+talks to the boolean, split out), `CertificateFileTests.cs`, a case in `ReaderFuzzTests`, and the benchmark mode `certify file`
+(`perf/certify_file_step_b.txt`).
+
+**Format R, version 1.** Little-endian, deterministic, integers only: varints (zigzag for signed), BigInteger as a length and its
+minimal two's complement bytes, the rounding's `MaxLength` as the 64 raw bits of the double (the rounding settings are not in the file) (no number text anywhere; the culture
+cannot change a byte, tested under de-DE and en-US). Layout: magic `G3BC`, version, format; operation (built-in only: a custom
+winding predicate has no file format and `Write` refuses it); culling mesh; whether the result was rounded, `MaxLength` and the removed components; the grid
+(`ScaleExp`, `Center`); the input triangles the boolean reversed (the reader rebuilds the arrangement's meshes from the caller's
+meshes, so the claim "these were reversed" is checked by C0's orientation test); per input triangle its mesh, id and culled flag;
+the corner points (each once); the pieces (mesh, source, three point ids, keep and flip bits, front winding numbers); the result
+before rounding as exact points and triangles (its double positions are derived from the exact points, so no redundant bytes).
+The output mesh is not in the file: the caller gives it. The reader refuses non-minimal varints and integers, unreduced points,
+`W <= 0`, counts above the bytes left (each element at least its minimum size), points no piece uses, result vertices no triangle uses,
+grid scales and winding numbers out of range, trailing bytes, and unknown versions, formats or operations (`FormatException`; `Check`
+turns that and any exception of the checker into a rejection).
+
+**Not format S.** Not built in this step. The keys of `ExactMeshArrangement` refer to arrangement point ids and plane keys (four
+per input triangle: its plane and three edge planes), and an edge-plane point may stand on edges between implicit points, so a
+stand-alone S reader needs its own evaluator of the edge planes and of the recursive constructions (the three constructions
+themselves are a few lines of integer arithmetic each, `edge_plane_exact`, `segments_exact`, `planes_exact`). The study's size
+numbers say S is at most 25 percent smaller than R, so R carries step B. Left for a step B2, with the tamper "change a construction".
+
+**Independence.** `BooleanCertificate.cs` and `CertificateFile.cs` contain no `ExactMeshArrangement`, `Arrangement.`, `Compute(`
+or `new ExactMeshBoolean` on a code line; the one use of the boolean's name is the alias of its operations enum (a test reads the
+sources and checks this). What the stand-alone check shares with the in-process one is the checker class itself (C0-C5), which is
+the point: the same decision procedure, fed from bytes. It trusts the file for the claims it verifies (pieces, labels, selection,
+culling, reversed triangles, the result before rounding). Three things are not proofs: `MaxLength` and the operation are claims, and
+the rounding settings are the caller's, not the file's (`CertificateFile.RoundingSettings`, the library defaults when not given;
+negative or non-finite values are refused). The bound that `MaxLength` is checked against is derived from the settings and from
+the vertices that triangles use in the output and in the result before rounding (a vertex nothing refers to cannot widen it: the
+review of #1527 forged a bound with one at 1e300 and one at 1e5). The verdict reports the coverage distance Delta (`Check(..., out
+delta)`); a user who passes loose settings sees it in Delta.
+
+**Proposal for a public API (the owner decides; none added).** `ExactMeshBoolean.CertificateBytes()` after `Compute()` with
+recording on, and a static `ExactMeshBooleanCertificate.Check(byte[] certificate, IReadOnlyList<DMesh3> inputs, DMesh3 output)`
+returning a reason or empty, as the two entry points; the checker itself would have to move from `tests/` into the library with
+the exact-code review of section 6 step C (filters, error bounds, the `G3E` analyzers). Until then the format is versioned and
+test-only.
+
+**Tests** (each under 5 s; procedural inputs only):
+- Round trip on the 84 fuzz runs (7 closed families, seeds 0-3, three operations): the same bytes twice, read then written gives the
+  same bytes, and the stand-alone verdict is word for word the in-process one (the 5 inconclusive runs included); plus a case with
+  reversed input triangles (`ReorientedInputs_RoundTrip`).
+- Tamper tests of the certificate (20 mutations, each must be rejected): one rational of one piece, of every piece that has it,
+  a denominator, a piece dropped (two ways), two sources swapped, two label sets swapped, a winding number, keep and flip bits, a
+  corner order, the grid scale and centre, a culled flag, an input triangle dropped, the operation, a rounding length above its
+  bound, a result-before-rounding vertex and triangle; the forged bounds E1 (an unreferenced vertex at 1e300 in the file), E1b (one at 1e5 in
+  the output, claim 0.9) and E2 (loose settings in the certificate object). One flipped bit at 60 positions on a stride through the file after the
+  settings, for a Union and a Difference: all rejected, except the labels of pieces outside the culling mesh (a Difference discards
+  what lies outside A, so B's winding number there is a don't-care that C3 does not read).
+- Tamper tests of the output and the inputs: a triangle reversed or removed, a vertex moved by ten times Delta or by 3e-3, the output
+  of another operation, other input meshes: rejected.
+- **A vertex moved by one ulp is not rejected, by design.** The certificate claims Hausdorff distance at most Delta, with Delta the
+  rounding bound plus four ulps of the largest coordinate (section 3, C5); a one-ulp move is inside it, and the stand-alone checker
+  gives the in-process answer on it (tested). The sharper claim "the output is exactly the rounding of the exact result" would
+  need the rounding to be a specified function; it is a heuristic of `MeshRoundingRepair`.
+- Invariance over `Similarity.All()` (without the extreme frame): every frame certifies through the file, and the exact 2^k frames
+  give the same pieces on the grid, labels, selection and culling bit for bit (the bytes differ in the grid scale and in the
+  result before rounding, which is in input coordinates).
+- `ReaderFuzzTests.MutatedCertificates_ReadSafely`: random byte mutations, truncations and header numbers: `Read` throws only
+  `FormatException` (not hidden by `Check`), within the time budget and at most 200 times the input in allocation; plus
+  `HugeCounts_ThenTruncation_AreRefusedWithoutAllocating` (a count of 2^31 in front of every list, then the end of the bytes) and
+  padded varints, out-of-range numbers and unused table entries.
+- Hand mutations of the file code (reversed list ignored, flip bit dropped, unreduced check removed, culled flags dropped, trailing
+  bytes allowed, centre ignored, labels read as zero) each turn at least one test red.
+
+**Size and time** (`certify file 3 4`, 4 cores, the checker serial; 105 runs; the stand-alone verdict equals the in-process one on
+all 105):
+
+| | Certificate / output bytes | Certificate / input bytes | Write (ms) | Read (ms) | Check C0-C5 / boolean |
+|---|---|---|---|---|---|
+| 84 fuzz runs | median 2.5 (1.0-12.4; 7 runs have an empty output) | median 1.7 (0.6-11) | median 0.11 | median 0.14 | median 5.9 (1.3-44) |
+| 21 procedural | median 2.6 (0.9-6.9) | median 2.2 (0.9-4.3) | median 6.4 | median 5.4 | median 67 (1.6-150) |
+
+The output size counts 24 bytes per vertex and 12 per triangle (as in section 4). Reading is cheap; the time is the check, as in
+section 8 (same cost as the in-process checker plus the read). The certificate is a few times the output and the input, as
+estimated in section 3.3; the step B stop rule (at most 5 times the input) holds on the procedural cases (max 4.3) and fails on
+tiny fuzz inputs (up to 11, fixed header and labels).
+
 ## Sources
 
 Papers and public documentation only. No code was read or ported, apart from this repository's own.

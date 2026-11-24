@@ -9,6 +9,7 @@ namespace G3PredicateCompiler
         // PredicateCompiler --table <spec>: print the bound table
         // PredicateCompiler --doc <spec> <doc.md>: replace the generated table block of the design doc
         // PredicateCompiler --code <spec> <out.cs>: the generated predicates (class IndirectPredicates)
+        // PredicateCompiler --verify-filters <spec>: offline Symbolic Taylor global box-max consistency + sampled pointwise check
         // PredicateCompiler --dtable / --ddoc / --dcode: the same for the monomial pass (dpredicate; class DoublePredicates)
         static int Main(string[] args)
         {
@@ -58,7 +59,12 @@ namespace G3PredicateCompiler
                 Console.WriteLine($"updated {args[2]}");
                 return 0;
             }
-            Console.Error.WriteLine("usage: PredicateCompiler --table <spec> | --doc <spec> <doc.md> | --code <spec> <out.cs> | --dtable <spec> | --ddoc <spec> <doc.md> | --dcode <spec> <out.cs>");
+            if (args.Length == 2 && args[0] == "--verify-filters") {
+                var report = SymbolicTaylorVerify.VerifySpec(File.ReadAllText(args[1]));
+                Console.Write(SymbolicTaylorVerify.FormatReport(report));
+                return report.AllPassed ? 0 : 1;
+            }
+            Console.Error.WriteLine("usage: PredicateCompiler --table <spec> | --doc <spec> <doc.md> | --code <spec> <out.cs> | --verify-filters <spec> | --dtable <spec> | --ddoc <spec> <doc.md> | --dcode <spec> <out.cs>");
             return 2;
         }
     }

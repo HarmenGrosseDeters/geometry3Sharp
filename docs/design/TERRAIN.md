@@ -1456,7 +1456,14 @@ Use case: cut / fill per block-model cell or per grid cell, for reserves and sch
   in `TerrainVolumeDifference`.
 - **3D blocks (z-extent):** per column, integrate the clamp of [lower, upper] surface to [z0, z1]. This is
   piecewise linear after splitting the polygons at the lines where either surface crosses z0 or z1, so it is
-  exact again in 2D.
+  exact again in 2D. **Built (2026-11-24):** `TerrainCellVolumes.BandBoundaries` (strictly increasing boundaries, the ends may be infinite) adds
+  `BlockCutVolume` / `BlockFillVolume` per (band, cell). The thickness of the column part in the band is `clamp(zAfter) - clamp(zBefore)` (clamp to
+  [z0, z1]), positive for fill and negative for cut. Each (polygon, cell) piece is split at the four lines zBefore = z0, zBefore = z1,
+  zAfter = z0, zAfter = z1, where the clamped difference is linear, and each part goes through the 2D split at the zero and "area times the value at
+  the centroid" (`integrate_diff`), relative to the same local origin (bands shifted by its z). Without bands the 2D code path is unchanged (bit for
+  bit). Tests: one band over all heights and the sum over any bands equal the 2D cell result (relative 1e-12), a plane through a band boundary
+  is split exactly, swapping the surfaces swaps cut and fill per block, 2^k scaling gives the blocks scaled bit for bit (a z translation moves
+  the bands with the surfaces), reuse, serial equals parallel.
 - **r3d** (Powell & Abel 2015, *An exact general remeshing scheme applied to physically conservative
   voxelization*, J. Comput. Phys. 297) does general polyhedron clipping and voxelization with moments. License
   checked at github.com/devonmpowell/r3d (October 2026): the current r2d / r3d / rNd files carry a LANL / DOE

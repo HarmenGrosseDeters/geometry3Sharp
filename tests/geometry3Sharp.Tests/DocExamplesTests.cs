@@ -217,6 +217,31 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void UnionTreeExample_TreeAndOneCallAgreeInVolume()
+        {
+            List<DMesh3> balls = UnionTreeExample.MakeBalls();
+            DMesh3 one = UnionTreeExample.UnionOneCall(balls);
+            DMesh3 tree = UnionTreeExample.UnionTree(balls);
+            Assert.NotNull(one);
+            Assert.NotNull(tree);
+            foreach (DMesh3 m in new[] { one, tree }) {
+                Assert.True(m.IsClosed());
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
+            }
+            Assert.True(Volume(one) > Volume(balls[0]) && Volume(one) < 8 * Volume(balls[0]));
+            Assert.Equal(Volume(one), Volume(tree), 9);
+            // 8 balls: the boxes of all overlap all 7 others, but a ball overlaps only 6 (the opposite corner is 1.3 * sqrt(3) = 2.25 > 2
+            // away): the box degree over-counts
+            Assert.Equal(7.0, UnionTreeExample.MeanBoxOverlapDegree(balls), 12);
+            int ballPairs = 0;
+            for (int i = 0; i < balls.Count; ++i)
+                for (int j = i + 1; j < balls.Count; ++j)
+                    if (balls[i].GetBounds().Center.Distance(balls[j].GetBounds().Center) < 2.0)
+                        ++ballPairs;
+            Assert.Equal(6.0, 2.0 * ballPairs / balls.Count, 12);
+        }
+
+        [Fact]
         public void WindingNumberSolidifyExample_ClosesAndUnitesBrokenInput()
         {
             DMesh3 result = WindingNumberSolidifyExample.Run();
@@ -999,6 +1024,13 @@ namespace geometry3Sharp.Tests
             Assert.NotNull(cv.FillVolume);
             Assert.Equal(0.0, cv.OutsideCutVolume, 9);
             Assert.Equal(0.0, cv.OutsideFillVolume, 9);
+
+            TerrainCellVolumes blocks = TerrainToolsExample.CellBlockVolumes();
+            Assert.Equal(2, blocks.BandCount);
+            Assert.Equal(50.0, blocks.BlockCutVolume.Take(4).Sum(), 9);          // band [8, 10]: all the cut
+            Assert.Equal(0.0, blocks.BlockFillVolume.Take(4).Sum(), 9);
+            Assert.Equal(50.0, blocks.BlockFillVolume.Skip(4).Sum(), 9);         // band [10, 12]: all the fill
+            Assert.Equal(0.0, blocks.BlockCutVolume.Skip(4).Sum(), 9);
 
             int groundCount;
             ClothSimulationFilter csf = TerrainToolsExample.ClassifyGround(out groundCount);
