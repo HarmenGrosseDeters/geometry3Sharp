@@ -325,6 +325,40 @@ namespace gs
         /// the reference than about the result, compare it with MeshFidelityMetrics.OuterVolumeIoU, docs/roadmap/alpha-wrap-and-repair.md).
         /// </summary>
         public double ResultVolumeIoU = double.NaN;
+        /// <summary>
+        /// Report, additive (changes no result, status or other output): measure how much of the INPUT's surface the result does not represent
+        /// (LostArea, LostAreaShare, LostTriangleIds, LostAreaMaxDistance). Off by default (no extra pass, no allocation); on it costs one
+        /// nearest-triangle query per sample, a few samples per input triangle (docs/guides/repair-and-wrapping.md, "Lost-area report"). It reports and does not
+        /// judge: an interior wall of a solid is lost by design, a damaged result reads the same.
+        /// </summary>
+        public bool MeasureLostArea = false;
+        /// <summary>
+        /// MeasureLostArea: the distance in the caller's units beyond which an input sample counts as lost. 0 (default) = derived from what the
+        /// stage that made the result may move the surface by (UsedLostAreaTolerance): twice the grid cell of the solidify, twice the offset of the alpha wrap,
+        /// else RoundingMaxDisplacement times the diagonal of the input (the exact resolve's rounding bound, also taken for the repair and the pass-through)
+        /// </summary>
+        public double LostAreaTolerance = 0;
+        /// <summary> MeasureLostArea: the tolerance the last Apply() used, in the caller's units (NaN if not measured) </summary>
+        public double UsedLostAreaTolerance = double.NaN;
+        /// <summary>
+        /// MeasureLostArea: the estimated area of the input (as given to Apply()) that lies farther than UsedLostAreaTolerance from the result in Mesh, in the
+        /// caller's units squared; both sides of a sheet count as the input has them (a triangle counts once, with its area). Sampled: every input triangle at
+        /// the centroids of 1, 4, 9 or 16 equal sub-triangles (fewer for larger inputs, about 500000 samples in all), so an area is resolved to its
+        /// sub-triangles. NaN if not measured (off, Apply() without a result, empty input).
+        /// </summary>
+        public double LostArea = double.NaN;
+        /// <summary> MeasureLostArea: LostArea divided by the area of the input (NaN if not measured or the input has no area); 0 for a result that covers the whole input </summary>
+        public double LostAreaShare = double.NaN;
+        /// <summary>
+        /// MeasureLostArea: the triangle ids (of the input as given to Apply()) with more than half of their samples lost, in increasing order; empty
+        /// if not measured. To locate the loss: the input is the caller's, so it can be kept by copying it before Apply() (the mesh is modified in place)
+        /// </summary>
+        public List<int> LostTriangleIds = new List<int>();
+        /// <summary>
+        /// MeasureLostArea: the largest distance of any sample of the input to the result (also if it is within the tolerance), in the caller's units;
+        /// NaN if not measured, PositiveInfinity for an empty result
+        /// </summary>
+        public double LostAreaMaxDistance = double.NaN;
         /// <summary> the stage that produced the result in Mesh (ResultPath) </summary>
         public enum ResultPaths
         {
@@ -460,6 +494,7 @@ namespace gs
             LastFrameScale = 1;
             reset_outputs();
             ResultVolumeIoU = double.NaN;
+            reset_lost_area();
             ResultPath = ResultPaths.None;
             PassedThroughTriangles = 0;
             PassThroughFellBack = false;
@@ -529,6 +564,9 @@ namespace gs
         void map_back(double s, DMesh3 callersMesh)
         {
             LastFrameScale = 1 / s;
+            UsedLostAreaTolerance *= s;
+            LostArea *= s * s;
+            LostAreaMaxDistance *= s;
             var done = new HashSet<DMesh3>();
             Action<DMesh3> back = (m) => {
                 if (m != null && done.Add(m))
@@ -596,7 +634,7 @@ namespace gs
             else
                 parts = MeshRobustRepairLostParts.Parts(Mesh, out skipped);
             bool far = parts != null && global_scale_share(Mesh) > 0;
-            DMesh3 givenInput = MeasureResultVolumeIoU ? new DMesh3(Mesh) : null;
+            DMesh3 givenInput = MeasureResultVolumeIoU || MeasureLostArea ? new DMesh3(Mesh) : null;
             bool ok = apply_checked();
             if (ok == false && parts != null)
                 skipped = "not reached";
@@ -612,9 +650,42 @@ namespace gs
                 ResultPath = UsedAlphaWrap ? ResultPaths.AlphaWrap : UsedSolidify ? ResultPaths.Solidify : UsedExactResolve ? ResultPaths.ExactResolve
                     : ok && PassedThroughTriangles > 0 && wholePassedThrough ? ResultPaths.PassThrough : ResultPaths.Repair;
             }
-            if (ok && givenInput != null)
+            if (ok && givenInput != null && MeasureResultVolumeIoU)
                 ResultVolumeIoU = final_volume_iou(givenInput, Mesh);
+            if (MeasureLostArea && givenInput != null && (ok || ResultPath != ResultPaths.None))
+                measure_lost_area(givenInput, Mesh);
             return ok;
+        }
+
+        void reset_lost_area()
+        {
+            UsedLostAreaTolerance = LostArea = LostAreaShare = LostAreaMaxDistance = double.NaN;
+            LostTriangleIds = new List<int>();
+        }
+
+        // MeasureLostArea (MeshRobustRepairLostArea), in the working frame: the tolerance from the stage of the result, the lengths back to the caller's
+        // frame in map_back. Also for a false Apply() that leaves a result in Mesh (a lost part): there the report is the most useful
+        void measure_lost_area(DMesh3 input, DMesh3 result)
+        {
+            if (input.TriangleCount == 0)
+                return;
+            double tol = LostAreaTolerance * frameScale;
+            if (!(tol > 0)) {
+                double stage = 0;
+                if (ResultPath == ResultPaths.Solidify && Solidify != null)
+                    stage = 2 * Solidify.UsedCellSize;
+                else if (ResultPath == ResultPaths.AlphaWrap && AlphaWrap != null)
+                    stage = 2 * AlphaWrap.UsedOffset;
+                tol = Math.Max(stage, RoundingMaxDisplacement * MeshRobustRepairLostParts.diagonal(MeshRepairMetrics.TriangleBounds(input)));
+            }
+            MeshRobustRepairLostArea.Report rep = MeshRobustRepairLostArea.Measure(input, result, tol, true, CancelF);
+            if (rep == null)
+                return;
+            UsedLostAreaTolerance = tol;
+            LostArea = rep.LostArea;
+            LostAreaShare = rep.InputArea > 0 ? rep.LostArea / rep.InputArea : double.NaN;
+            LostTriangleIds = rep.LostTriangles;
+            LostAreaMaxDistance = rep.MaxDistance;
         }
 
         // the volume IoU of the final result against the input as given (ResultVolumeIoU)

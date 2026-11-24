@@ -39,5 +39,22 @@ namespace g3.Examples
             fallbackReason = repair.FallbackReason;       // "" if the repair result was clean, eg "self-intersections"
             return repair.Mesh;                           // MeshRobustRepair.NotCleanReason(repair.Mesh) == ""
         }
+
+        /// <summary>
+        /// The lost-area report (MeasureLostArea, opt-in): the share of the input's surface that is farther than the stage's tolerance from the
+        /// result. An interior wall of a solid is lost by design (the result is the solid), so a large share is not damage by itself.
+        /// </summary>
+        public static double LostAreaShare(DMesh3 input, out int lostTriangles, out double maxDistance)
+        {
+            var repair = new MeshRobustRepair(new DMesh3(input)) { MeasureLostArea = true };
+            if (!repair.Apply()) {
+                lostTriangles = 0;
+                maxDistance = double.NaN;
+                return double.NaN;
+            }
+            lostTriangles = repair.LostTriangleIds.Count;       // ids of input's triangles, to locate the loss
+            maxDistance = repair.LostAreaMaxDistance;           // the largest distance of any sample of the input to the result
+            return repair.LostAreaShare;                        // repair.LostArea is the area; both sides of a sheet count
+        }
     }
 }
