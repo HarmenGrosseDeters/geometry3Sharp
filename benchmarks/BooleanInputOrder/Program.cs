@@ -9,7 +9,7 @@ using System.Reflection;
 using g3;
 using gs;
 
-static class Program
+static partial class Program
 {
     const ExactMeshBoolean.Operations D = ExactMeshBoolean.Operations.Difference, I = ExactMeshBoolean.Operations.Intersection;
 
@@ -432,9 +432,12 @@ static class Program
         int only = -1;
         string oneCase = null;
         int forcedN = 0;
-        bool pipeline = false;
+        bool pipeline = false, verify = false;
+        int controls = 0;
         for (int i = 1; i < args.Length; ++i) {
             if (args[i] == "--pipeline") pipeline = true;
+            else if (args[i] == "--verify") { verify = true; pipeline = true; }
+            else if (args[i] == "--controls") controls = int.Parse(args[++i], CultureInfo.InvariantCulture);
             else if (args[i] == "--count") count = int.Parse(args[++i], CultureInfo.InvariantCulture);
             else if (args[i] == "--seed") seed = int.Parse(args[++i], CultureInfo.InvariantCulture);
             else if (args[i] == "--tiny") tiny = true;
@@ -536,6 +539,12 @@ static class Program
                         pipe.Result != null ? Math.Abs(Volume(pipe.Result) - vPlain) / vInput : double.NaN, vPlain));
                 }
             }
+            if (verify && (cls.Contains("degenerate") || cls == "removed-resolvable"))
+                VerifyCase(c, name, cls.Contains("degenerate") ? "degenerate" : "removed", a, b, D);
+            else if (verify && cls == "clean" && controls > 0) {
+                controls--;
+                VerifyCase(c, name, "control", a, b, D);
+            }
             if (oneCase != null) {
                 // the error text of StrictRounding (what SolidBooleanPipeline reports as RoundingNotClean)
                 var strict = new ExactMeshBoolean(a, b, D) { StrictRounding = true };
@@ -558,6 +567,8 @@ static class Program
     {
         if (args.Length > 0 && args[0] == "corpus")
             return Corpus();
+        if (args.Length > 0 && args[0] == "families")
+            return Families();
         if (args.Length > 0 && args[0] == "search")
             return Search(args);
         if (args.Length > 0 && args[0] == "timing")

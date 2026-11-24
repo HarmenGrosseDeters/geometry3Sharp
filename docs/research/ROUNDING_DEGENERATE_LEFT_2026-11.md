@@ -231,7 +231,7 @@ up to 1, 7.5e-9 at a shift of 1e4); the size guard (cell above 1/64 of an input'
 | removed | 3 tiny | 521 | 521 | 4 | 0 | 0 | 517 |
 | **removed, total** | | **1063** | **1063** | **7 (0.7 %)** | **1** | **0** | **1055 (99 %)** |
 
-Largest relative volume difference of a default success against the non-strict boolean of the unsnapped inputs: degenerate group 0.177
+**Correction (section 9): the volume differences in this paragraph and the next are an artifact of the measure, not a property of the results.** `Volume()` of the harness sums the triple products about the origin; at a shift of 1e4 that sum loses several digits of a volume of 1e-3. Measured about the box centre, all 41 successes agree with an independent estimate to 2.1e-4. Largest relative volume difference of a default success against the non-strict boolean of the unsnapped inputs (about the origin): degenerate group 0.177
 (seed 2; seed 3: 0.029), removed group 0.433 (seed 2, the only-contacts case; seed 3: 3.4e-7). Of the 41 successes of the degenerate group, 26 differ by more than 0.1 %, 15 by more than 1 %, 6 of them by more than 1 % of the first input's whole volume (largest 7.5 %, a dome plate of thickness 0.002 at a shift of 1e4); the
 others by 1e-10 to 1e-3. All failures are `RoundingNotClean` again on the grid; with `None` every case ends `RoundingNotClean`, as expected, and no run
 ended in another status.
@@ -245,3 +245,108 @@ snapped run ends in the same refusal (the cause of that class was not examined h
 matters in practice for the pipeline too: about 54 % of the degenerate states and 99 % of the removed states stay refused by default. The reference volume
 is the non-strict boolean's result, which is itself a rounded result of an ill-conditioned input; the differences show the order of magnitude, not an error
 against the exact solid. Not measured: other families than these plates; the cells of the retry were not varied.
+
+## 9. Are the retry's successes right?
+
+**Yes. The volume differences of section 8 come from the measure, not from the retry, the repair or the reference.** Question (2026-11-24): the retry
+returned `Success` where the volume differed from the non-strict boolean by up to 7.5 % of the first input's volume, which a snap by 1e-12 cannot do.
+Settled with `search --pipeline --verify` (new; the same seeds and cases as section 8: seed 2 with 5000 cases, seed 3 `--tiny` with 4000), on master fc251bad2.
+
+### Method
+
+Per case the volumes are measured **about the centre of the box of both inputs** (`VolumeAbout`: the triple products of the vertices minus the centre, sorted, summed).
+`V_exact` is `ExactMeshBoolean` with `SafeRounding = false` on the unsnapped inputs; the first run's `Report.RoundingVolumeBefore`
+(pipeline with `AutomaticSteps = None`; a failed run keeps it) agrees with it in the 6 digits printed, in all 97 failed-or-successful degenerate and removed cases. `V_nonstrict` is the default `ExactMeshBoolean` (the reference of section 8).
+`V_snap_exact` is `RoundingVolumeBefore` of the retry run (and, as a check, `ExactMeshBoolean` with `SafeRounding = false` on the inputs snapped by the pipeline's own `Snapped`: the same).
+`V_retry` is the volume of `pipeline.Result`. `V_mc` does not use a boolean: the winding numbers of the INPUTS along vertical lines. Per jittered column (6 replicas of 250 x 250 columns over the
+box) the crossings of the line with the triangles of each input give the winding number exactly (+1 entering, -1 leaving), the expected solid is the set where `w(A) > 0 and w(B) <= 0`
+(Difference), and its length on the line is summed with the area of a column. The standard error is that of the 6 replicas (1e-5 to 1e-4 of the volume; 1e-3 at most in the control group). The column method is checked against `DMeshAABBTree3.WindingNumber`
+(1500 random points between the crossings per case: 0 mismatches in all cases). Because a line is integrated exactly, a sliver costs nothing. The same columns give, per result, the volume where its winding number is
+positive, negative, and the symmetric difference with the expectation (the sampled membership error, as a volume).
+
+### The 6 cases (the successes of section 8 that differ by more than 1 % of the first input's volume)
+
+All six have shift 1e4. Volumes about the centre, 6 digits. "section 8" is the relative difference of the origin-based `Volume()` of the retry's result against the non-strict one.
+
+| case (seed, #, `--case`) | `V_in0` | `V_exact` | `V_nonstrict` | `V_snap_exact` | `V_retry` | `V_mc` (SE) | step that differs | section 8 | the retry's result |
+|---|---:|---:|---:|---:|---:|---:|---|---:|---|
+| 2, 350 `dome,6,3,0.02,1.77e-9,0.7,1e4,Drev` | 0.02 | 0.00138949 | 0.00138949 | 0.00138949 | 0.00138949 | 0.00138942 (6e-8) | none | 0.144 | 34 components, `OnlyContacts` |
+| 2, 4821 `dome,3,3,0.002,3.86e-8,0.3,1e4,Drev` | 0.002 | 0.00197463 | 0.00197463 | 0.00197463 | 0.00197463 | 0.00197463 (1e-8) | none | 0.0756 | 1 component, clean |
+| 3, 2160 `wave,2,2,0.002,2.44e-9,0.3,1e4,D` | 0.002 | 0.00155248 | 0.00155248 | 0.00155248 | 0.00155248 | 0.00155248 (4e-8) | none | 0.0247 | 4 components, `OnlyContacts` |
+| 3, 2466 `wave,3,3,0.002,1.29e-9,-1.1,1e4,Drev` | 0.002 | 0.00130843 | 0.00130843 | 0.00130843 | 0.00130843 | 0.00130847 (3e-8) | none | 0.029 | 5 components, `OnlyContacts` |
+| 3, 2897 `wave,2,2,0.002,1.14e-7,0.3,1e4,Drev` | 0.002 | 0.00155248 | 0.00155248 | 0.00155248 | 0.00155248 | 0.00155251 (4e-8) | none | 0.0172 | 2 components, clean |
+| 3, 3717 `dome,3,3,0.002,9.98e-9,0.3,1e4,Drev` | 0.002 | 0.00197463 | 0.00197463 | 0.00197463 | 0.00197463 | 0.00197463 (4e-8) | none | 0.0274 | 1 component, clean |
+
+What the results are: the whole solid, not a sliver (the result is 7 % to 99 % of the first input's volume; the "about 1e-3 of the input" of section 8 was wrong for them too). The winding number of the result is never below 0
+(volume with winding below 0: 0 in all six), and no part is missing or extra: the symmetric difference with the expectation is 1.3e-6 to 2.0e-6 of `V_mc` (about 2.5e-9 of 1.4e-3), below the area times the cell (the snap's move of the faces by up to 7.45e-9, area 2).
+In the retry's rounding (a replica: `ExactMeshBoolean` with `StrictRounding` on the snapped inputs, which gives the pipeline's result volume) the volume before and after the repair is equal in 6 digits,
+`MaxDrift` 0 to 3.8e-6, 0 to 59 collapses, at most 1 flip, no resolvable removed component. `NotCleanReason` is "self-intersections" with `OnlyContacts` in three of them (parts that touch), "" in three.
+The Grid step's `Change` text: cell 2^-27 (7.45e-9), 68 to 298 vertices moved, the largest relative change of an input's volume -9e-8 to -5e-7. A caller who reads it sees a snap of 1e-7 of a size, which is what happened.
+
+### Which step makes the difference
+
+None. In the six cases `V_exact`, `V_nonstrict`, `V_snap_exact` and `V_retry` agree in the 6 digits printed, and `V_mc` agrees to its standard error (over all 41 successes the largest
+`|V - V_mc| / SE` is 3.4). The section 8 reference (the non-strict boolean) is right too. What differed is the measure: `Volume()` in `Program.cs` sums `p . (q x r)` about the **origin**. With coordinates of 1e4 the
+cross product of two vectors of 1e4 has a rounding error of 1e-8 per component, times `|p|` = 1e4: 1e-4 per term, against 6 V = 1e-2 for the sum. The same two meshes give, about the origin, 0.00187184 (retry) and 0.00202483 (non-strict), and
+0.00197463 for both about their centre (case 4821). The artifact is where it should be: of the 41 successes of the degenerate group, the 26 with a difference above 0.1 % and the 15 above 1 % are all among the 28 at shift 1e4;
+the 8 at shift 0 and the 5 at shift 100 have none (largest 1e-6 and 5e-8).
+
+### Totals (all of the successes, about the centre)
+
+| set | cases | largest `|V_retry - V_mc| / V_mc` | largest `|V_nonstrict - V_mc| / V_mc` | largest `|V_exact - V_mc| / V_mc` | `|V - V_mc| / SE` at most |
+|---|---:|---:|---:|---:|---:|
+| degenerate group, default success via Grid | 41 | 2.1e-4 | 2.1e-4 | 2.1e-4 | 3.4 |
+| removed group, default success via Grid | 8 | 1.3e-4 | 1.3e-4 | 1.3e-4 | 3.0 |
+| degenerate group, default fails again (no result) | 48 | no result | 9.7e-5 | 9.7e-5 | 4.4 |
+| control: clean without a retry, same searches | 40 | 1.7e-3 | 1.7e-3 | 1.7e-3 | 3.4 |
+
+The largest relative errors are the standard error of the estimate (the control group's results are smaller, hence its larger SE); no case is above 4.4 standard errors. The retry's result differs from `V_exact` by at most 1.2e-4 of its volume (the rounding repair's own move in the
+retry); the snap alone moves the volume by at most 2.3e-6 of it (`V_snap_exact` against `V_exact`).
+
+### Scope: the rounding repair, and other families
+
+- **Without the retry** the same holds: `V_nonstrict` and `V_exact` are within 2.1e-4 (the successes) and 9.7e-5 (the 48 cases where the retry fails again, so they stay refused) of `V_mc`: the non-strict boolean of these inputs is right too. The repair does not move a volume visibly in these cases.
+- **Other families** (new mode `families`): the generated degenerate families (`Cluster`, `FoldedCluster`, `Collinear`, `Sliver`, three frames), and sphere and box pairs that nearly coincide (a copy turned by 1e-9 to 1e-6, another tessellation, `Difference` and `Intersection`, at the origin and at 1e4),
+  1 554 cases. 156 end `RoundingNotClean` without the retry; the default retry succeeds in 120 (all `Cluster` or `FoldedCluster`, no sphere or box pair) and fails again in 36. Of the 120 successes none is wrong (largest error 6.7e-5, largest `dV / |Before|` of the retry run 1.2e-8).
+  The columns take the expectation as the region of winding number above 0, which is the union with nothing.
+
+### The two rules, by hand
+
+There is no wrong result among the successes, so no rule can refuse one here (0 of 0 refused). What can be said is the false alarms and the margin.
+
+| rule | measure | the 49 successes (41 + 8) | control (40 clean runs) | other families (120) |
+|---|---|---|---|---|
+| (a) `RoundingVolume`: `dV = abs(After - Before)` of the result's run, fails when `dV > 1e-3 abs(Before)` (and `dV > 1e-6` of the smallest closed input) | `dV / abs(Before)` | 0 alarms; median 7.7e-9, largest 1.2e-4 | 0 alarms; largest 5.2e-5 | 0 alarms; largest 1.2e-8 |
+| (b) consistency guard: `abs(V_retry - V_first) / (A (cell + drift))`, A the area of the result, `V_first` the first run's `RoundingVolumeBefore`, drift the retry's `MaxDrift` | ratio | median 1.8e-4, largest 0.084 | | |
+| (b') the same with the allowed bound (`RoundingMaxDisplacement` = 1e-5 of the diagonal) in place of the drift | ratio | median 1.3e-5, largest 7.8e-3 | | |
+| (b'') the same with the cell alone: `abs(V_retry - V_first) / (A cell)` | ratio | largest 575; above 1 in 17 of 49, above 10 in 9, above 100 in 5 | | |
+
+(a) never fires; its margin to the 1e-3 is a factor 8 on the largest of the successes. (b) and (b') stay below 0.1: a factor of 1 on them would never raise a false alarm, with a margin of 12 (b) or 128 (b'). (b'') is not usable: the cell
+(7.5e-9 at 1e4, 9e-13 at 1) is far below the drift of the repair (up to 1.5e-5), and 17 of the 49 correct results would be refused. The drift is not in the `Report` (the pipeline would have to take it from the boolean's `Rounding`).
+What neither rule can say is whether it would catch a really wrong retry: none was found.
+
+### Conclusion
+
+**Not a defect of the default retry, of the rounding repair or of the reference.** The retry's results are the right solids (the exact result of the snapped inputs, which is within 2.3e-6 of the volume of the exact result of the given ones; with the repair's own move within 1.2e-4),
+the non-strict boolean and the exact result of these inputs are right as well, and the large differences of section 8 are the harness's volume about the origin at a shift of 1e4. Severity: none for the library. Section 8's reading
+("not always in an accurate way", "up to 18 % of the result's volume") is withdrawn (corrected there). Recommendation: **no fix, no guard now.** (b) would never fire on these inputs and has nothing to catch; if a guard against an unknown failure is wanted later,
+(b) with the drift, or `RoundingVolume` (a), has a margin of 8 or more on everything measured here, but it needs a wrong result to be tuned against. The harness now measures about the centre.
+
+### Smallest reproducer of the observation
+
+Procedural, no mesh files (case 4821 of seed 2: two dome plates of thickness 0.002 on 3 and 6 grid cells, the second turned by 3.9e-8, both at (1e4, 5e3, -2.5e3)):
+
+```
+dotnet run --project benchmarks/BooleanInputOrder -c Release -- search --count 1 --verify --case dome,3,3,0.002,3.8598557935951046E-08,0.3,10000,Drev
+```
+
+It prints `V_exact`, `V_nonstrict`, `V_snap_exact` and `V_retry` as 0.00197463 each, `V_mc` as 0.00197464 +- 1.8e-8, and a line `VERORIGIN`: about the origin 0.00187184 (retry) against 0.00202483 (non-strict), 7.6 % apart; about the centre they are equal.
+The effect of the measure alone: the sum of `p . (q x r) / 6` over the triangles of a closed mesh at an offset of 1e4 (a sphere of radius 0.5 with 40 rings at (1e4, 5e3, -2.5e3), double arithmetic: 0.5220729 about the origin against
+0.5222544 about its centre, 3.5e-4 apart; the error is about 1e-4 of absolute size per mesh, so a solid of volume 2e-3 loses several percent). The library's own volumes (`MeshRoundingRepair.VolumeBefore/After`, hence `Report.RoundingVolumeBefore/After`) are computed about the centre of the mesh's box and are not affected.
+
+### How to repeat and what was not verified
+
+`search --count 5000 --seed 2 --verify --controls 20` and `search --count 4000 --seed 3 --tiny --verify --controls 20` (a `VER` line per case; the environment variable `G3_VERIFY_DETAIL=1` adds the components, the retry's rounding replica and the columns); `families`.
+Not verified: the estimate's standard error is 1e-5 to 1e-4 of the volume (1e-3 at most), so a wrong volume below about 5e-4 of itself would not be seen (the claim is "within 2e-4 to 4 SE", not "exact"); the replica of the retry's rounding is `ExactMeshBoolean` on the pipeline's snapped
+inputs with the pipeline's strict settings, not the pipeline's own object (its volume equals the pipeline's result in the six cases); the section 8 totals for the removed group were re-measured only for its 8 successes; a case with a wrong result, if one exists, is not in these samples
+(9 000 cases, 49 successes of the plate searches, 120 of the other families); nothing for coordinates beyond 1e4, nor for other operations than `Difference` here (`Intersection` only in the families run, `Union` with nothing).
