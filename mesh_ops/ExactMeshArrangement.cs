@@ -1119,13 +1119,18 @@ namespace g3
         // (-1: reverses the runs, other values: a seeded permutation of each); 0 leaves the order of the sort as it is, and
         // changes no result (the order among equal lo is unspecified)
         internal int TieOrderSeed;
+        // runs of two or more equal lo that the hook permuted in all merge_points calls of Compute (0 when it is off)
+        internal int TiedRuns;
 
-        internal static void permute_ties(double[] lo, int[] order, int seed)
+        internal static int permute_ties(double[] lo, int[] order, int seed)
         {
+            int runs = 0;
             ulong state = (ulong)(uint)seed * 0x9E3779B97F4A7C15UL + 1;
             for (int a = 0, b; a < lo.Length; a = b) {
                 b = a + 1;
                 while (b < lo.Length && lo[b] == lo[a]) b++;
+                if (b - a > 1)
+                    runs++;
                 if (seed < 0) {
                     for (int i = a, j = b - 1; i < j; ++i, --j) {
                         int t = order[i]; order[i] = order[j]; order[j] = t;
@@ -1138,6 +1143,7 @@ namespace g3
                     int t = order[i]; order[i] = order[j]; order[j] = t;
                 }
             }
+            return runs;
         }
 
         /// <summary>
@@ -1174,7 +1180,7 @@ namespace g3
             double[] sortLo = (double[])lo.Clone();
             Array.Sort(sortLo, order);
             if (TieOrderSeed != 0)
-                permute_ties(sortLo, order, TieOrderSeed);
+                TiedRuns += permute_ties(sortLo, order, TieOrderSeed);
             int[] next = new int[n];
             for (int id = 0; id < n; ++id)
                 next[id] = (prev != null && id < prev.Length) ? prev[id] : id;

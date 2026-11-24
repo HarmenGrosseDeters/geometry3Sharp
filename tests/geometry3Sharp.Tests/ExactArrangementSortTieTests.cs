@@ -116,6 +116,14 @@ namespace geometry3Sharp.Tests
             // smallest key, not the first of the cluster). The loop order is fixed, so the ids can be compared
             List<DMesh3> meshes = CoplanarGrid(n, gridSeed);
             string reference = Run(meshes, 0, 0, maxHashed, ids: true);
+            // not vacuous: the grid has runs of equal lo (and merges) for the hook to permute
+            int tied = Serial(0, () => {
+                var arr = new ExactMeshArrangement(meshes) { SelfIntersections = true, TieOrderSeed = -1, MaxHashedCluster = maxHashed };
+                arr.Compute();
+                Assert.True(arr.MergedPoints > 0);
+                return arr.TiedRuns;
+            });
+            Assert.True(tied > 0, "no run of equal lo in the grid");
             foreach (int seed in new[] { -1, 1, 2, 3, 4 })
                 Assert.Equal(reference, Run(meshes, 0, seed, maxHashed, ids: true));
         }
