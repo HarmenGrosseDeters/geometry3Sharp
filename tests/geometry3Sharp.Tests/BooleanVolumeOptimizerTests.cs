@@ -1,7 +1,9 @@
 using System;
 using System.IO;
 using System.Linq;
+#if NETCOREAPP
 using System.Text.Json;
+#endif
 using g3;
 using g3.Examples;
 using Xunit;
@@ -190,6 +192,8 @@ namespace geometry3Sharp.Tests
             if (string.IsNullOrEmpty(keep) == false)
                 File.WriteAllText(keep, w.ToString());
 
+#if NETCOREAPP
+            // (System.Text.Json: not referenced by the net48 build)
             using (JsonDocument doc = JsonDocument.Parse(w.ToString())) {
                 Assert.Equal("Converged", doc.RootElement.GetProperty("reason").GetString());
                 JsonElement its = doc.RootElement.GetProperty("iterations");
@@ -205,6 +209,7 @@ namespace geometry3Sharp.Tests
                     Assert.All(ts, t => Assert.InRange(t, 0, vs.Length / 3 - 1));
                 }
             }
+#endif
             // the last iteration's arrays are the final result mesh
             Opt.ToArrays(r.Final, out double[] fv, out int[] ft);
             Assert.Equal(fv, r.Iterations.Last().Vertices);
