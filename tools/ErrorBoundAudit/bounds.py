@@ -795,10 +795,11 @@ def approx_vector(c, r):
 
 @entry('RC-2 one conversion: grid_coord, LocalPoints, LocalFrame.PointError (2.3e-16)', ARR,
        ['points.Add(new Vector3d(lx, ly, 2.3e-16 * m));'],
-       '|x^ - x| for x^ the exact quotient truncated to a double (ExactPoint3.ToDouble: 64 bits, then 53)',
+       '|x^ - x| for x^ the exact quotient rounded to nearest (ExactPoint3.ToDouble, correctly rounded since #1410)',
        'the value normal (checked: tiny / 1e-290 gates)', '2.3e-16 |x^|')
 def one_conversion(c, r):
-    # truncating twice toward zero is truncating once: |x^ - x| < ulp(x^) <= 2 u |x^|; the product 2.3e-16 * m rounds
+    # one rounding to nearest (ties to even, #1410): |x^ - x| <= ulp(x^) / 2 <= u |x^| (u = 2^-53); the bound used here, one ulp
+    # (the old truncation's), is twice that and still holds; the product 2.3e-16 * m rounds
     have = Fraction(2.3e-16) * (1 - UR)
     r.add('one ulp', Verdict(have >= 2 * U, have / (2 * U), '2.3e-16 (1 - u\') against 2^-52'))
 

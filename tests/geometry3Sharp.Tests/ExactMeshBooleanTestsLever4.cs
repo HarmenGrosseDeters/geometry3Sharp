@@ -116,18 +116,20 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        [InlineData("plain", Ops.Union, "B60EBCDD65C96BB7", "3DE37721ED0BB6B0", 7790, 4252, 11663, 246)]
-        [InlineData("plain", Ops.Intersection, "E96FD9D21F2BCBFA", "3DE37721ED0BB6B0", 7790, 4252, 11663, 246)]
-        [InlineData("plain", Ops.Difference, "6AA0082A1075F655", "3DE37721ED0BB6B0", 7790, 4252, 11663, 246)]
-        [InlineData("swapped", Ops.Union, "B60EBCDD65C96BB7", "EAB2057DB13D376E", 7790, 4252, 11663, 246)]
-        [InlineData("swapped", Ops.Difference, "898D571FB8AD9814", "EAB2057DB13D376E", 7790, 4252, 11663, 246)]
-        [InlineData("steep", Ops.Union, "F5C25180922C2E0C", "44128D8F3C04F3FC", 7786, 4384, 11804, 248)]
-        [InlineData("steep", Ops.Intersection, "DEE905A9A3749608", "44128D8F3C04F3FC", 7786, 4384, 11804, 248)]
+        [InlineData("plain", Ops.Union, "1432BAC5B42BEF47", "3DE37721ED0BB6B0", 7790, 4252, 11663, 246)]
+        [InlineData("plain", Ops.Intersection, "75E1BE0A7D9611FB", "3DE37721ED0BB6B0", 7790, 4252, 11663, 246)]
+        [InlineData("plain", Ops.Difference, "E7A40FEAAACA7DF6", "3DE37721ED0BB6B0", 7790, 4252, 11663, 246)]
+        [InlineData("swapped", Ops.Union, "1432BAC5B42BEF47", "EAB2057DB13D376E", 7790, 4252, 11663, 246)]
+        [InlineData("swapped", Ops.Difference, "DC26698BA5AD985F", "EAB2057DB13D376E", 7790, 4252, 11663, 246)]
+        [InlineData("steep", Ops.Union, "E82E46A8EEFB7649", "44128D8F3C04F3FC", 7786, 4384, 11804, 248)]
+        [InlineData("steep", Ops.Intersection, "305C6D8AA69FA564", "44128D8F3C04F3FC", 7786, 4384, 11804, 248)]
         [InlineData("fold", Ops.Union, "14C2CE177FE29753", "73DC4763F1C8347C", 48, 0, 80, 19)]
         [InlineData("fold", Ops.Difference, "14C2CE177FE29753", "73DC4763F1C8347C", 48, 0, 80, 19)]
         public void CrossSteps_SameResultAsBeforeLever4_Pinned(string variant, Ops op, string result, string winding, long steps, long carried,
             long candidates, long direct)
         {
+            // (result hashes re-pinned for #1410: an exact vertex is now rounded to the nearest double, not toward zero; the open winding and
+            // the counts do not depend on the rounding and are unchanged)
             // lever 4 is bit-identical by design: procedural open inputs (Snapped) on the path that queries the box tree from
             // steps across input-triangle edges (CrossVisit with Tris), the result mesh, the open winding of every piece and
             // the counts as the code before lever 4 gave them (master 079e8258, computed there). "plain" is the sheet and cap
