@@ -915,6 +915,43 @@ namespace geometry3Sharp.Tests
             Assert.Contains("not finite", p.Error);
         }
 
+        // the box [0, size]^3 with its own vertices per face (an unwelded soup); the copies that the +x face owns lie jitter (1e-13) off the copies of the other faces
+        static DMesh3 UnweldedBox(double size, double jitter)
+        {
+            var m = new DMesh3();
+            double off = 0;
+            Func<int, int, int, int> v = (i, j, k) => m.AppendVertex(new Vector3d(i * size + off, j * size + off, k * size + off));
+            Action<int[], int[], int[], int[]> quad = (a, b, c, d) => {
+                int ia = v(a[0], a[1], a[2]), ib = v(b[0], b[1], b[2]), ic = v(c[0], c[1], c[2]), id = v(d[0], d[1], d[2]);
+                m.AppendTriangle(ia, ib, ic); m.AppendTriangle(ia, ic, id);
+            };
+            quad(new[] { 0, 0, 0 }, new[] { 0, 1, 0 }, new[] { 1, 1, 0 }, new[] { 1, 0, 0 });
+            quad(new[] { 0, 0, 1 }, new[] { 1, 0, 1 }, new[] { 1, 1, 1 }, new[] { 0, 1, 1 });
+            quad(new[] { 0, 0, 0 }, new[] { 1, 0, 0 }, new[] { 1, 0, 1 }, new[] { 0, 0, 1 });
+            quad(new[] { 0, 1, 0 }, new[] { 0, 1, 1 }, new[] { 1, 1, 1 }, new[] { 1, 1, 0 });
+            quad(new[] { 0, 0, 0 }, new[] { 0, 0, 1 }, new[] { 0, 1, 1 }, new[] { 0, 1, 0 });
+            off = jitter;
+            quad(new[] { 1, 0, 0 }, new[] { 1, 1, 0 }, new[] { 1, 1, 1 }, new[] { 1, 0, 1 });
+            return m;
+        }
+
+        [Fact]
+        public void TheFloor_TakesClosedFromTheInputsAsPassed_NotFromTheSnappedCopies()
+        {
+            // an unwelded box of 2 whose coincident corner copies differ by 1e-13: open as passed (the winding test works by position), closed after the
+            // InputGrid snap merges the copies. The tool (3 x 3 x 3, closed as passed) is the only input that counts for the floor: 1e-6 * 27. A floor
+            // taken from the pipeline's InputClosed (the snapped copies) would also count the box: 1e-6 * 8. Asserted through the floor in the step's text.
+            DMesh3 box = UnweldedBox(2, 1e-13), tool = Box(new Vector3d(1, 1, 1), new Vector3d(4, 4, 4));
+            Assert.False(ExactMeshBoolean.IsWindingClosed(box));
+            Assert.True(ExactMeshBoolean.IsWindingClosed(tool));
+            var p = new SolidBooleanPipeline(new List<DMesh3> { box, tool }, D) { InputGrid = Math.Pow(2, -20), Verification = V.RoundingVolume };
+            Assert.True(p.Compute(), p.Status + " " + p.Error);
+            Assert.True(p.Report.InputSnappedVertices > 0);
+            string text = VerificationStep(p).Change;
+            Assert.Contains("floor " + (1e-6 * 27.0).ToString("R", System.Globalization.CultureInfo.InvariantCulture), text);
+            Assert.DoesNotContain("floor " + (1e-6 * 8.0).ToString("R", System.Globalization.CultureInfo.InvariantCulture), text);
+        }
+
         [Fact]
         public void TheFloor_UsesTheVerticesTrianglesUse_NotAnIsolatedOne()
         {

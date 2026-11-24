@@ -149,12 +149,14 @@ namespace gs
         public double RoundingVolumeBefore, RoundingVolumeAfter;
         /// <summary>
         /// Verification NoInventedSurface: the share of the boolean result's area (before the reduction) in triangles with a sample farther than
-        /// InventedSurfaceTolerance from every input as passed, the largest distance of a sample to the nearest input surface, and the tolerance used;
-        /// all 0 without the mode or without a result surface
+        /// InventedSurfaceTolerance from every input as passed, the largest distance of a sample to an input surface, and the tolerance used;
+        /// the distance of a sample that the fast path accepted is the exact distance to the triangle it accepted (an upper bound of the nearest distance,
+        /// at most the tolerance), that of a far sample the exact nearest distance; all 0 without the mode or without a result surface
         /// </summary>
         public double InventedSurfaceShare, InventedSurfaceMaxDistance, InventedSurfaceTolerance;
-        /// <summary> Verification NoInventedSurface: the area and the number of the invented triangles (the share is the area over that of the result) </summary>
+        /// <summary> Verification NoInventedSurface: the area of the invented triangles (the share is the area over that of the result) </summary>
         public double InventedSurfaceArea;
+        /// <summary> Verification NoInventedSurface: the number of the invented triangles (those with a sample farther than the tolerance) </summary>
         public int InventedTriangles;
         /// <summary> Verification RoundingVolume: |RoundingVolumeAfter - RoundingVolumeBefore| / |RoundingVolumeBefore| (0 when that is 0, or no rounding repair ran), the value MaxRoundingVolumeChange is compared with </summary>
         public double RoundingVolumeChange;
