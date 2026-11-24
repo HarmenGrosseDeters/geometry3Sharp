@@ -29,8 +29,9 @@ namespace g3
 
     /// <summary>
     /// Optional for an IntervalImplicit3d: enclosures that reuse work between calls through a cache that the caller owns,
-    /// so that the function itself keeps no state (requirement (iii) of IntervalImplicit3d). A cache is used by one thread
-    /// at a time and with the function that made it. The result is the one of Enclose(x, y, z), bit for bit.
+    /// so that the function itself keeps no state (requirement (iii) of IntervalImplicit3d). NewEncloseCache may be called
+    /// concurrently from multiple threads; each returned cache is used by one thread at a time and with the function that
+    /// made it. The result is the one of Enclose(x, y, z), bit for bit.
     /// NewEncloseCache may return null (no cache to offer): the caller then uses Enclose(x, y, z).
     /// </summary>
     internal interface IntervalImplicit3dCached : IntervalImplicit3d
@@ -177,6 +178,14 @@ namespace g3
 
         static ExactInterval c(double v) { return ExactInterval.Of(v); }
 
+        internal struct SinCosEntry
+        {
+            public ExactInterval SinIv, CosIv;
+            public Affine1 SinA, CosA;
+            public double Mid, Half;
+            public bool HasIv, HasAffine;
+        }
+
         /// <summary>
         /// The sines and cosines of phase intervals that were computed before, by the bits of the interval's ends. The
         /// function is a sum of products of sines and cosines of one coordinate each, and the boxes of a caller on a grid
@@ -185,8 +194,8 @@ namespace g3
         internal sealed class SinCosCache
         {
             internal const int MaxEntries = 1 << 16;
-            internal readonly System.Collections.Generic.Dictionary<ValueTuple<long, long>, ValueTuple<ExactInterval, ExactInterval>> Map
-                = new System.Collections.Generic.Dictionary<ValueTuple<long, long>, ValueTuple<ExactInterval, ExactInterval>>();
+            internal readonly System.Collections.Generic.Dictionary<ValueTuple<long, long>, SinCosEntry> Map
+                = new System.Collections.Generic.Dictionary<ValueTuple<long, long>, SinCosEntry>();
             /// <summary> the calls that found their interval, and those that computed it </summary>
             internal long Hits, Misses;
         }
@@ -203,78 +212,129 @@ namespace g3
         }
 
         // IntervalMath.SinCos, or the kept result of the same call
-        static void sinCos(ExactInterval p, SinCosCache cache, out ExactInterval sin, out ExactInterval cos)
+        static void sinCosInterval(ExactInterval p, SinCosCache cache, out ExactInterval sin, out ExactInterval cos)
         {
             if (cache == null) { IntervalMath.SinCos(p, out sin, out cos); return; }
             var key = new ValueTuple<long, long>(BitConverter.DoubleToInt64Bits(p.Lo), BitConverter.DoubleToInt64Bits(p.Hi));
-            ValueTuple<ExactInterval, ExactInterval> kept;
-            if (cache.Map.TryGetValue(key, out kept)) { ++cache.Hits; sin = kept.Item1; cos = kept.Item2; return; }
+            SinCosEntry kept;
+            if (cache.Map.TryGetValue(key, out kept) && kept.HasIv) { ++cache.Hits; sin = kept.SinIv; cos = kept.CosIv; return; }
             ++cache.Misses;
             IntervalMath.SinCos(p, out sin, out cos);
-            if (cache.Map.Count >= SinCosCache.MaxEntries) cache.Map.Clear();
-            cache.Map[key] = new ValueTuple<ExactInterval, ExactInterval>(sin, cos);
+            if (!kept.HasAffine && cache.Map.Count >= SinCosCache.MaxEntries) cache.Map.Clear();
+            kept.SinIv = sin; kept.CosIv = cos; kept.HasIv = true;
+            cache.Map[key] = kept;
+        }
+
+        // Affine1.SinCos, or the kept result of the same call
+        static void sinCosAffine(ExactInterval p, SinCosCache cache, out Affine1 sin, out Affine1 cos, out double mid, out double half)
+        {
+            if (cache == null) { Affine1.SinCos(p, out sin, out cos, out mid, out half); return; }
+            var key = new ValueTuple<long, long>(BitConverter.DoubleToInt64Bits(p.Lo), BitConverter.DoubleToInt64Bits(p.Hi));
+            SinCosEntry kept;
+            if (cache.Map.TryGetValue(key, out kept) && kept.HasAffine) {
+                ++cache.Hits; sin = kept.SinA; cos = kept.CosA; mid = kept.Mid; half = kept.Half; return;
+            }
+            ++cache.Misses;
+            Affine1.SinCos(p, out sin, out cos, out mid, out half);
+            if (!kept.HasIv && cache.Map.Count >= SinCosCache.MaxEntries) cache.Map.Clear();
+            kept.SinA = sin; kept.CosA = cos; kept.Mid = mid; kept.Half = half; kept.HasAffine = true;
+            cache.Map[key] = kept;
+        }
+
+        // Affine1.SinCos of 2 * p, aligned to the parameter u = (theta - mid) / half of p.
+        // Whenever 2 * mid and 2 * half match the doubled interval's parameterization (all normal finite boxes),
+        // the linear correlation is exact; otherwise the linear term is folded into Rad so soundness holds unconditionally.
+        static void sinCosDoubleAffine(ExactInterval p, double mid, double half, SinCosCache cache, out Affine1 sin2, out Affine1 cos2)
+        {
+            double m2, h2;
+            sinCosAffine(new ExactInterval(2 * p.Lo, 2 * p.Hi), cache, out sin2, out cos2, out m2, out h2);
+            if (!(m2 == 2 * mid && h2 == 2 * half && Affine3.IsFiniteDouble(m2) && Affine3.IsFiniteDouble(h2))) {
+                sin2 = sin2.ConstantOnly();
+                cos2 = cos2.ConstantOnly();
+            }
         }
 
         IntervalEnclosure enclose(ExactInterval x, ExactInterval y, ExactInterval z, SinCosCache cache)
         {
             ExactInterval k = c(K);
             ExactInterval px = k * x, py = k * y, pz = k * z;
-            ExactInterval sx, cx, sy, cy, sz, cz;
-            sinCos(px, cache, out sx, out cx); sinCos(py, cache, out sy, out cy); sinCos(pz, cache, out sz, out cz);
-            ExactInterval g, gx, gy, gz;
+            if (Type == TpmsType.SchwarzP) {
+                // SchwarzP has no shared variables across terms: plain interval arithmetic is already optimal.
+                ExactInterval isx, icx, isy, icy, isz, icz;
+                sinCosInterval(px, cache, out isx, out icx); sinCosInterval(py, cache, out isy, out icy); sinCosInterval(pz, cache, out isz, out icz);
+                ExactInterval g = icx + icy + icz, gx = -isx, gy = -isy, gz = -isz;
+                if (Negate) { g = -g; gx = -gx; gy = -gy; gz = -gz; }
+                return new IntervalEnclosure { F = g - c(Level), Gx = k * gx, Gy = k * gy, Gz = k * gz, Smooth = true };
+            }
+            Affine1 s1x, c1x, s1y, c1y, s1z, c1z;
+            double mx, hx, my, hy, mz, hz;
+            sinCosAffine(px, cache, out s1x, out c1x, out mx, out hx);
+            sinCosAffine(py, cache, out s1y, out c1y, out my, out hy);
+            sinCosAffine(pz, cache, out s1z, out c1z, out mz, out hz);
+            Affine3 sx = s1x.OnAxis(0), cx = c1x.OnAxis(0);
+            Affine3 sy = s1y.OnAxis(1), cy = c1y.OnAxis(1);
+            Affine3 sz = s1z.OnAxis(2), cz = c1z.OnAxis(2);
+            Affine3 ag, agx, agy, agz;
             switch (Type) {
                 case TpmsType.Gyroid:
-                    g = sx * cy + sy * cz + sz * cx;
-                    gx = cx * cy - sz * sx; gy = cy * cz - sx * sy; gz = cz * cx - sy * sz;
+                    ag = sx * cy + sy * cz + sz * cx;
+                    agx = cx * cy - sz * sx; agy = cy * cz - sx * sy; agz = cz * cx - sy * sz;
                     break;
-                case TpmsType.SchwarzP:
-                    g = cx + cy + cz;
-                    gx = -sx; gy = -sy; gz = -sz;
+                case TpmsType.SchwarzD: {
+                    Affine3 sxsy = sx * sy, cxcy = cx * cy, sxcy = sx * cy, cxsy = cx * sy;
+                    Affine3 cosDiffXY = sxsy + cxcy;        // cos(x - y)
+                    Affine3 cosSumXY = cxcy - sxsy;         // cos(x + y)
+                    Affine3 sinSumXY = sxcy + cxsy;         // sin(x + y)
+                    Affine3 sinDiffXY = sxcy - cxsy;        // sin(x - y)
+                    ag = cosDiffXY * sz + sinSumXY * cz;
+                    agx = cosSumXY * cz - sinDiffXY * sz;
+                    agy = cosSumXY * cz + sinDiffXY * sz;
+                    agz = cosDiffXY * cz - sinSumXY * sz;
                     break;
-                case TpmsType.SchwarzD:
-                    g = sx * sy * sz + sx * cy * cz + cx * sy * cz + cx * cy * sz;
-                    gx = cx * sy * sz + cx * cy * cz - sx * sy * cz - sx * cy * sz;
-                    gy = sx * cy * sz - sx * sy * cz + cx * cy * cz - cx * sy * sz;
-                    gz = sx * sy * cz - sx * cy * sz - cx * sy * sz + cx * cy * cz;
+                }
+                case TpmsType.Neovius: {
+                    Affine3 cxcy = cx * cy, cycz = cy * cz, cxcz = cx * cz;
+                    ag = (cx + cy + cz).Scale(3) + (cxcy * cz).Scale(4);
+                    agx = -(sx * (cycz.Scale(4).AddConst(3)));
+                    agy = -(sy * (cxcz.Scale(4).AddConst(3)));
+                    agz = -(sz * (cxcy.Scale(4).AddConst(3)));
                     break;
-                case TpmsType.Neovius:
-                    g = c(3) * (cx + cy + cz) + c(4) * (cx * cy * cz);
-                    gx = -(c(3) * sx) - c(4) * (sx * cy * cz);
-                    gy = -(c(3) * sy) - c(4) * (cx * sy * cz);
-                    gz = -(c(3) * sz) - c(4) * (cx * cy * sz);
-                    break;
+                }
                 case TpmsType.IWP: {
-                    ExactInterval s2x, c2x, s2y, c2y, s2z, c2z;
-                    doubleAngle(px, py, pz, cache, out s2x, out c2x, out s2y, out c2y, out s2z, out c2z);
-                    g = c(2) * (cx * cy + cy * cz + cz * cx) - (c2x + c2y + c2z);
-                    gx = c(2) * s2x - c(2) * (sx * (cy + cz));
-                    gy = c(2) * s2y - c(2) * (sy * (cx + cz));
-                    gz = c(2) * s2z - c(2) * (sz * (cx + cy));
+                    Affine1 s21x, c21x, s21y, c21y, s21z, c21z;
+                    sinCosDoubleAffine(px, mx, hx, cache, out s21x, out c21x);
+                    sinCosDoubleAffine(py, my, hy, cache, out s21y, out c21y);
+                    sinCosDoubleAffine(pz, mz, hz, cache, out s21z, out c21z);
+                    Affine3 s2x = s21x.OnAxis(0), c2x = c21x.OnAxis(0);
+                    Affine3 s2y = s21y.OnAxis(1), c2y = c21y.OnAxis(1);
+                    Affine3 s2z = s21z.OnAxis(2), c2z = c21z.OnAxis(2);
+                    ag = (cx * cy + cy * cz + cz * cx).Scale(2) - (c2x + c2y + c2z);
+                    agx = (s2x - sx * (cy + cz)).Scale(2);
+                    agy = (s2y - sy * (cx + cz)).Scale(2);
+                    agz = (s2z - sz * (cx + cy)).Scale(2);
                     break;
                 }
                 case TpmsType.Lidinoid: {
-                    ExactInterval s2x, c2x, s2y, c2y, s2z, c2z;
-                    doubleAngle(px, py, pz, cache, out s2x, out c2x, out s2y, out c2y, out s2z, out c2z);
-                    ExactInterval h = c(0.5);
-                    g = h * (s2x * cy * sz + s2y * cz * sx + s2z * cx * sy) - h * (c2x * c2y + c2y * c2z + c2z * c2x) + c(0.15);
-                    gx = c2x * cy * sz + h * (s2y * cz * cx) - h * (s2z * sx * sy) + s2x * (c2y + c2z);
-                    gy = c2y * cz * sx + h * (s2z * cx * cy) - h * (s2x * sy * sz) + s2y * (c2x + c2z);
-                    gz = c2z * cx * sy + h * (s2x * cy * cz) - h * (s2y * sz * sx) + s2z * (c2x + c2y);
+                    Affine1 s21x, c21x, s21y, c21y, s21z, c21z;
+                    sinCosDoubleAffine(px, mx, hx, cache, out s21x, out c21x);
+                    sinCosDoubleAffine(py, my, hy, cache, out s21y, out c21y);
+                    sinCosDoubleAffine(pz, mz, hz, cache, out s21z, out c21z);
+                    Affine3 s2x = s21x.OnAxis(0), c2x = c21x.OnAxis(0);
+                    Affine3 s2y = s21y.OnAxis(1), c2y = c21y.OnAxis(1);
+                    Affine3 s2z = s21z.OnAxis(2), c2z = c21z.OnAxis(2);
+                    Affine3 cySz = cy * sz, czSx = cz * sx, cxSy = cx * sy;
+                    ag = (s2x * cySz + s2y * czSx + s2z * cxSy).Scale(0.5)
+                        - (c2x * c2y + c2y * c2z + c2z * c2x).Scale(0.5);
+                    ag = ag.AddConst(0.15);
+                    agx = c2x * cySz + (s2y * (cz * cx) - s2z * (sx * sy)).Scale(0.5) + s2x * (c2y + c2z);
+                    agy = c2y * czSx + (s2z * (cx * cy) - s2x * (sy * sz)).Scale(0.5) + s2y * (c2x + c2z);
+                    agz = c2z * cxSy + (s2x * (cy * cz) - s2y * (sz * sx)).Scale(0.5) + s2z * (c2x + c2y);
                     break;
                 }
                 default: throw new ArgumentOutOfRangeException(nameof(Type));
             }
-            if (Negate) { g = -g; gx = -gx; gy = -gy; gz = -gz; }
-            return new IntervalEnclosure { F = g - c(Level), Gx = k * gx, Gy = k * gy, Gz = k * gz, Smooth = true };
-        }
-
-        // sin and cos of twice the phases, from their own enclosures (doubling an interval's ends is exact)
-        static void doubleAngle(ExactInterval px, ExactInterval py, ExactInterval pz, SinCosCache cache, out ExactInterval s2x, out ExactInterval c2x,
-            out ExactInterval s2y, out ExactInterval c2y, out ExactInterval s2z, out ExactInterval c2z)
-        {
-            sinCos(new ExactInterval(2 * px.Lo, 2 * px.Hi), cache, out s2x, out c2x);
-            sinCos(new ExactInterval(2 * py.Lo, 2 * py.Hi), cache, out s2y, out c2y);
-            sinCos(new ExactInterval(2 * pz.Lo, 2 * pz.Hi), cache, out s2z, out c2z);
+            if (Negate) { ag = -ag; agx = -agx; agy = -agy; agz = -agz; }
+            return new IntervalEnclosure { F = ag.ToInterval() - c(Level), Gx = k * agx.ToInterval(), Gy = k * agy.ToInterval(), Gz = k * agz.ToInterval(), Smooth = true };
         }
     }
 }
