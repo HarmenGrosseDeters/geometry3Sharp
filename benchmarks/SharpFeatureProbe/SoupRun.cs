@@ -20,6 +20,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using g3;
+using gs;
 
 static class SoupRun
 {
@@ -53,6 +54,8 @@ static class SoupRun
                 break;
             case "time": Time(w, D("sizes", "10000,50000,100000,200000")); break;
             case "check": Check(w, int.Parse(Get("tris", "20000"))); break;
+            case "wrapbound": WrapBound(w, Get("shapes", "box,slot,vnotch,fillet").Split(','), tris); break;
+            case "wrapbreak": WrapBreaks(w, Get("shapes", "slot"), tris, Get("breaks", "clean;soup;nonconf;jitter:0.025;holes:0.025;dup:0.05;gap:0.15;flip:0.1;mix:0.5").Split(';')); break;
             default: Console.Error.WriteLine("unknown soup mode " + mode); return 2;
         }
         return 0;
@@ -307,6 +310,55 @@ static class SoupRun
                 row["curv_queries"] = qc.Length;
                 Emit(w, row);
             }
+        }
+    }
+
+    // ---- the cost bound of a varifold crease input to AlphaWrapFeaturePass (docs/design/VARIFOLD_CREASE_INPUT.md) ----
+
+    // per shape: the alpha wrap (300 / 3000) of the broken soup (mix:0.5) and its time; the feature pass on the clean welded input
+    // (its crossing edges bound the crease-point queries: at most 3 per crossing edge) and on the soup (today: no input crease)
+    static void WrapBound(StreamWriter w, string[] shapes, int tris)
+    {
+        foreach (string shape in shapes) {
+            var c = Build(shape, "mix:0.5", tris);
+            Soup clean = SoupShapes.Tessellate(c.Patches, c.H, null);
+            DMesh3 welded = SoupWeld.Weld(clean, 1e-9 * c.H, out _);
+            DMesh3 soup = c.Soup.ToMesh();
+            var row = new Dictionary<string, object> { ["kind"] = "wrapbound", ["shape"] = shape, ["clean_tris"] = welded.TriangleCount, ["soup_tris"] = soup.TriangleCount };
+            foreach (var (tag, input) in new[] { ("clean", welded), ("soup", soup) }) {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var wrap = new MeshAlphaWrap(input) { RelativeAlpha = 300, RelativeOffset = 3000 };
+                wrap.Compute();
+                row[tag + "_wrap_s"] = sw.Elapsed.TotalSeconds; row[tag + "_wrap_tris"] = wrap.Result.TriangleCount;
+                sw.Restart();
+                var fp = new AlphaWrapFeaturePass(new DMesh3(wrap.Result, true), input, wrap.UsedAlpha, wrap.UsedOffset);
+                fp.Compute();
+                row[tag + "_pass_s"] = sw.Elapsed.TotalSeconds; row[tag + "_input_creases"] = fp.InputCreases; row[tag + "_crossing_edges"] = fp.CrossingEdges;
+                row[tag + "_snaps"] = fp.CreaseSnaps; row[tag + "_splits"] = fp.Splits; row["alpha"] = wrap.UsedAlpha; row["h_over_alpha"] = c.H / wrap.UsedAlpha;
+            }
+            // the varifold side: the soup's measure (spacing h) and its grid, then the full per-edge test for the per-query cost
+            double hm = SoupFeatures.MedianEdge(c.Soup);
+            var sw2 = System.Diagnostics.Stopwatch.StartNew();
+            var ps = SoupFeatures.SoupMeasure(c.Soup, hm);
+            var grid = new SortedGrid(ps, 2 * hm);
+            row["varifold_sample_s"] = sw2.Elapsed.TotalSeconds; row["varifold_points"] = ps.Count;
+            var all = SoupFeatures.VarifoldCreases(c.Soup, hm, 2);
+            row["varifold_all_edges_s"] = all.Seconds; row["varifold_us_per_query"] = 1e6 * (all.Seconds - (double)row["varifold_sample_s"]) / (3.0 * c.Soup.Count);
+            Emit(w, row);
+        }
+    }
+
+    // the wrap time of one breakage at a time (diagnosis of the slow wraps of mixed soups)
+    static void WrapBreaks(StreamWriter w, string shape, int tris, string[] breaks)
+    {
+        foreach (string br in breaks) {
+            var c = Build(shape, br, tris);
+            DMesh3 soup = br == "clean" ? SoupWeld.Weld(c.Soup, 1e-9 * c.H, out _) : c.Soup.ToMesh();
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var wrap = new MeshAlphaWrap(soup) { RelativeAlpha = 300, RelativeOffset = 3000 };
+            wrap.Compute();
+            Emit(w, new Dictionary<string, object> { ["kind"] = "wrapbreak", ["shape"] = shape, ["break"] = br, ["tris"] = soup.TriangleCount,
+                ["wrap_s"] = sw.Elapsed.TotalSeconds, ["wrap_tris"] = wrap.Result.TriangleCount, ["status"] = wrap.Status.ToString(), ["h_over_alpha"] = c.H / wrap.UsedAlpha });
         }
     }
 
