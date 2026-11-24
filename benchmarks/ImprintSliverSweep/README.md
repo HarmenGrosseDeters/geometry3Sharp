@@ -23,7 +23,8 @@ Unclean runs out of 48 (net10.0, 2026-11-24):
 | cylinder x, #1489 (neutral contractions only) | 0 | 2 | 2 | 2 | 0 |
 | cylinder x, #1489 (and the stage's limit of 400) | 0 | 0 | 0 | 0 | 0 |
 
-The two left in the translated frames were the evaluation limit at 6 ulps (23 slivers). Since the stage's limit is 400 per defect (the Boolean keeps 50) they are clean. Time of the
+The two left in the translated frames were the evaluation limit at 6 ulps (23 slivers; 25 evaluations more than the limit of 50 gave, no neutral contraction involved: they are clean with the higher limit alone). Since the stage's limit is 400 per defect (the Boolean keeps 50) they are clean. Time of the
 whole sweep, two runs each, on a loaded machine: limit 50 84 s and 99 s, limit 400 94 s and 107 s (the earlier measurement on an idle machine: 31 to 32 s for both). Worst case:
-the limit is a ceiling; a stage that spends all of it is bounded by 10000 + 400 D evaluations against 10000 + 50 D (see IMPRINT_SLIVER_CLEANUP.md section 5); no case of the sweep, also with
-the neutral contractions switched off, spends it.
+the limit is a ceiling; a stage that spends all of it is bounded by 10000 + 400 D evaluations against 10000 + 50 D (3.57 times at D = 116, tending to 8); no case of the sweep, also with
+the neutral contractions switched off, spends it. A large case (48-slice cylinder, translated, along x, -20 ulps, D = 2534) ends by itself at 104 849 evaluations and 2.78 M pair tests (2.2 to 2.5 s) while the limit
+grows from 136 700 to 1 023 600; the pair budget (5 M, not raised by the stage) bounds the evaluations that do pair tests to about 190 000, evaluations rejected by the cheap tests are bounded only by the limit (see IMPRINT_SLIVER_CLEANUP.md section 5).

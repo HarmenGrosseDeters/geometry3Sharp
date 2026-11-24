@@ -314,9 +314,18 @@ namespace geometry3Sharp.Tests
             MeshRoundingRepair repair = now.Rounding;
             // (measured: one neutral contraction, the valence-3 vertex of the needle; the input is libm-free, the same on every runtime)
             Assert.Equal(1, repair.NeutralContractions);
-            repair.Apply();
+            Assert.True(repair.MaxEvaluations > 0);
+            Assert.True(repair.Apply());
             Assert.Equal(0, repair.NeutralContractions);
             Assert.False(repair.FollowStageRan);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(repair.Mesh));
+            Assert.True(repair.IsClean);
+            // an Apply that returns early (a vertex that is not finite) reports no limit and no evaluations of the earlier one (#1489)
+            repair.Mesh.SetVertex(repair.Mesh.VertexIndices().First(), new Vector3d(double.NaN, 0, 0));
+            Assert.False(repair.Apply());
+            Assert.True(repair.ScaleNotFinite);
+            Assert.Equal(0, repair.MaxEvaluations);
+            Assert.Equal(0, repair.Evaluations);
         }
 
         [Fact]
