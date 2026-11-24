@@ -23,6 +23,6 @@
  "test_files": {
   "tests/geometry3Sharp.Tests/ExactMeshGeodesicDistanceTests.cs": "60c154c078e5faeda6accf8131e6fd579ddd18a02605d4923346afd46dc28f21"
  },
- "estimated_saving": 0.863,
- "weighted_by_duration": false
+ "estimated_saving": 0.636,
+ "weighted_by_duration": true
 }
