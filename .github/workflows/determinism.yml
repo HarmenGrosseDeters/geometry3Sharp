@@ -231,7 +231,8 @@ jobs:
       - name: Cross-runtime matrix
         run: |
           python3 -m unittest discover -s tools/DeterminismHarness -p 'test_cross_matrix.py'
-          # the stage 1 and 2 cases of the proof (docs/design/DETERMINISM_PROOF.md O5) are claims: any difference fails the job
+          # the stage 1 and 2 cases of the proof (docs/design/DETERMINISM_PROOF.md O5) are claims: in every pair of GATE_PAIRS (cross_matrix.py: the comparisons of the
+          # default legs above, not macOS) they must be the same, a missing trace directory or a changed case count fails, and so does a difference
           python3 tools/DeterminismHarness/cross_matrix.py traces --require stage1,stage2
       # the table of DETERMINISM_PROOF.md 5.3 (the exact kernel, its allow list, the rounding Booleans and the probes behind them)
       - name: Measurement rows

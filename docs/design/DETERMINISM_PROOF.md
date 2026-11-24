@@ -438,31 +438,33 @@ triangle lookups, S2-6 the callbacks that callers pass to the box tree queries c
   test knobs: `TriangleBoxTree.ParallelBuildFrom`, `PermutationSeedForTests`, `PermutedTrees` (`mesh_ops/ExactMeshArrangement.cs`), and, from stage 2,
   `ExactMeshBoolean.LibmPerturbForTests`, `LibmPerturbRandomForTests`, `LibmPerturbMaskForTests` (`mesh_ops/ExactMeshBoolean.cs:5509-5512`; the list in the
   first version of this item named only the first three). The argument: the library never writes one (`PermutedTrees++` in `permute_for_tests`,
-  `ExactMeshArrangement.cs:3599`, runs only for a seed a test set, and nothing reads the counter for a result), so in production each has its initial value;
+  `ExactMeshArrangement.cs:3599`, runs only for a seed a test set, and nothing reads the counter for a result; `tools/DeterminismHarness/Stage1.cs:106-129` and `benchmarks/BooleanComparison/Profile.cs:62` also write `ParallelBuildFrom`, and count as test or harness code: the first restores it in a `finally`, the second sets it once from a command line option of a benchmark), so in production each has its initial value;
   and the result is the same for every value: `ParallelBuildFrom` only chooses between the serial and the parallel build (`:3125`, the median or Morton
   choice is `n <= MedianSplitBelow`, `:3112`), which are equal node for node (`BoxTreeParallelBuildTests.ParallelTree_SameAsSerialTree_NodeForNode`,
   `BoxTreeThresholdTests`); the seed only permutes the leaf order (`BoxTreeOrderTests`); the Libm knobs move the four libm results of
   `antipodal_tree_value` by ulps into a bound that has a slack (`ExactMeshBooleanTestsAntipodalLibmPerturbation`). Also the three shared empty
-  collections of an untouched `InputTriangle` (`noSegments`, `noPoints`, `noCoplanar`, `ExactMeshArrangement.cs:83-85`) are `static readonly` but mutable:
-  `prepare_touched` replaces `Points` and `Segments` before it adds, and sorts only lists of two or more (`:2666`, `:2690`, `:2697`). Tests
+  collections of an untouched `InputTriangle` (`noSegments`, `noPoints`, `noCoplanar`, `ExactMeshArrangement.cs:83-85`; `noCoplanar` also stands in for `Partners`, `:99`) are `static readonly` but mutable:
+  `prepare_touched` replaces `Points` and `Segments` before it adds, and sorts only lists of two or more (`:2666`, `:2690`, `:2697`). The `static readonly`
+  arrays have mutable elements, too: `Alpha`, `AlphaInt` and `AlphaLimb` (`ExactMeshArrangement.cs:947-950`, the order of the points) and the empty `noWinding` and
+  `SegmentProjection.None`; nothing in the scope writes an element. Tests
   (`DeterminismStage1ObligationTests`): `MutableStatics_OfTheScope_AreExactlyTheKnobs` (reflection over every type that a scope file declares: the
   non-`ThreadStatic`, non-`readonly` statics are exactly the six, all not public; a new one fails the test and needs an entry and a sentence here),
   `Knobs_AreNotWrittenByTheScope` (a syntax scan of the scope files for an assignment, increment or `ref` / `out` use of a knob, the one exception
-  named above), `SharedEmptyCollections_StayEmpty_AfterABoolean` (three overlapping boxes, then the three shared collections are empty). Hand mutants: a
-  new static field in the scope, and `ParallelBuildFrom = ParallelBuildFrom;` in the constructor, fail the first two; dropping `t.Points = points;`
+  named above), `StaticReadonlyArrays_AreNotWrittenByTheScope` (the same scan for an element write of any static readonly array), `SharedEmptyCollections_StayEmpty_AfterABoolean` (three overlapping boxes, then the three shared collections are empty). Hand mutants: a
+  new static field in the scope, `ParallelBuildFrom = ParallelBuildFrom;` in the constructor and `ExactMeshArrangement.Alpha[0] = 1.0;` fail the first, second and third; dropping `t.Points = points;`
   in `prepare_touched` fails the third (through an exception of the corrupted shared set, not through the count). Not a rule of the analyzer: a rule for
   mutable statics (the number G3D0007 is taken by another rule) would add nothing to these tests for six registered knobs.
 - *O3, `SnapRounding2.Origin`: done (2026-11-24), by a visibility change.* It was a `public` dictionary keyed by value tuples in an `internal` class; the
   enumeration order of a `Dictionary` is not specified (in practice it is the insertion order without removals). Nothing enumerated it: the
   library's consumer `QualityMesh2` calls `TryOrigin` and `Origins` (lookups, `QualityMesh2.cs:1138, 1382`), and no test or benchmark touched the
   field. The field is now private (`comp_geom/SnapRounding2.cs:48`), so the compiler shows that no consumer outside the class can enumerate it; inside
-  the class the analyzer registers every enumeration (R8), and there are none (the lookups are at `:54`, `:60`, the one insertion at `:467`, in
-  chain order, a deterministic order). No result changes (visibility only). Test: `SnapRounding2_Origin_IsNotVisible` (reflection: the field is
+  the class the analyzer registers every enumeration (R8), and there are none (the lookups are at `:54`, `:60`, the one insertion in `Build`, in
+  chain order, a deterministic order; `Origins` now returns the stored list as an `IReadOnlyList`, in an `internal` class, so no API changes and a caller cannot change it). No result changes (visibility only). Test: `SnapRounding2_Origin_IsNotVisible` (reflection: the field is
   private and no property of that name exists; hand mutant: `public` fails it).
 - *O4, an equivalent mutant: done (2026-11-24), attacked directly.* In `merge_runs` the index tie-break `o[j] < o[i]` is never reached by the sort: the
   runs are ranges of box indices, so the left run holds the smaller ones. `merge_runs` is now `internal static` (visibility only,
   `ExactMeshArrangement.cs:3571`) and `MergeRuns_EqualCodes_GoByBoxIndex` merges two runs whose left run holds the larger indices with equal codes
-  (the order must be by index) and two runs with different codes; hand mutant: without the tie-break the test fails. The order of the whole sort
+  (the order must be by index) and two runs with different codes; hand mutants: the clause deleted, and `c[j] <= c[i]` (the right run first on a tie, which the first two cases alone do not catch: a case with the smaller index on the left is the third), each fail the test. The order of the whole sort
   is still also attacked at `fix_ties` (removing it fails 8 of the 12 cases of `ParallelTree_SameAsSerialTree_NodeForNode`).
 - *O6, element equality inside generic containers.* `Dictionary`, `HashSet` and `List.Contains` call `Equals` and `GetHashCode` of the key or element
   type, which the analyzer does not see (eg `List<(Vector2d, Vector2d)>.Contains` in `SnapRounding2.Build` runs `Vector2d.Equals`; the `Origin`
@@ -474,9 +476,13 @@ triangle lookups, S2-6 the callbacks that callers pass to the box tree queries c
   Linux x64 net10.0 serial against parallel, 1 and 3 processors, no SIMD, no AVX2, no tiering, minopts; Windows net10.0 against Linux and against net48; net48
   x64 against a 32-bit x86 process; Linux x64 against Linux arm64; Windows x64 against Windows arm64 (net10.0; the net48 leg there is an emulated x64 process,
   so it is the x64 runtime on another CPU, not the arm64 JIT); Linux against Windows arm64. Not run: macOS (opt-in, runner capacity). The workflow only
-  printed the matrix, so a later difference would not have failed it: `cross_matrix.py` has the option `--require GROUP[,GROUP]` (exit status 1 when a case of
-  a named group differs, is missing or failed in any pair, or the group has no case), and the `compare` job of `determinism.yml` now runs it with
-  `--require stage1,stage2`. Test: `test_cross_matrix.py` (`test_required_groups_fail_on_a_difference_a_missing_case_or_no_case`); a gate-file change
+  printed the matrix, so a later difference would not have failed it: `cross_matrix.py` has the option `--require GROUP[,GROUP]`, and the `compare` job of
+  `determinism.yml` now runs it with `--require stage1,stage2`. It fails (exit status 1) when, in any of the 40 pairs of `GATE_PAIRS` (every comparison of the
+  default legs: Linux and Windows serial against parallel, two parallel runs, 1, 2, 3 and 8 processors, the JIT switches, net10.0 against net48, x64 against x86 and
+  arm64, on Linux and Windows; not macOS, which is opt-in), a case of a named group differs, failed or is missing, a trace directory of the pair is absent
+  (a leg that did not run), the group does not have its expected number of cases (`EXPECTED_CASES`: `stage1` 12, `stage2` 4, so a case that vanishes everywhere, or
+  one added without updating the count, fails), or the group has no case; an empty list is refused. Tests: `test_cross_matrix.py` (one for each of these);
+  a gate-file change
   (the workflow), tightening only.
 
 **Hand mutants** (not a mutation shard; the incremental mutation run of the CI covers the touched exact files): `source.Keys` without

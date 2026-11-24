@@ -103,6 +103,34 @@ namespace geometry3Sharp.Tests
                 x => x.Operand.ToString() == "PermutedTrees");
         }
 
+        // the static readonly arrays of the scope have mutable elements: nothing in the scope writes one (Alpha, AlphaInt, AlphaLimb and the
+        // empty arrays noWinding and SegmentProjection.None; a write to an empty one would throw anyway)
+        [Fact]
+        public void StaticReadonlyArrays_AreNotWrittenByTheScope()
+        {
+            var asm = typeof(DMesh3).Assembly;
+            var arrays = new List<string>();
+            foreach (string name in ScopeTypeNames())
+                foreach (FieldInfo f in asm.GetType(name).GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+                    if (f.IsInitOnly && f.FieldType.IsArray) arrays.Add(f.Name);
+            Assert.Contains("Alpha", arrays);
+            Assert.Contains("AlphaInt", arrays);
+            Assert.Contains("AlphaLimb", arrays);
+            var writes = new List<string>();
+            foreach (string f in ScopeFiles())
+                foreach (var el in Parse(f).GetRoot().DescendantNodes().OfType<ElementAccessExpressionSyntax>()) {
+                    string target = el.Expression is MemberAccessExpressionSyntax ma ? ma.Name.Identifier.Text : (el.Expression as IdentifierNameSyntax)?.Identifier.Text;
+                    if (target == null || !arrays.Contains(target)) continue;
+                    SyntaxNode up = el.Parent;
+                    bool write = (up is AssignmentExpressionSyntax a && a.Left == el) || up is PostfixUnaryExpressionSyntax
+                        || (up is PrefixUnaryExpressionSyntax pu && (pu.IsKind(SyntaxKind.PreIncrementExpression) || pu.IsKind(SyntaxKind.PreDecrementExpression)))
+                        || (up is ArgumentSyntax arg && !arg.RefKindKeyword.IsKind(SyntaxKind.None));
+                    // (a local or a field of an instance with the same name is also reported: the names are specific, and a report is a review)
+                    if (write) writes.Add(f + ": " + up.ToString());
+                }
+            Assert.Empty(writes);
+        }
+
         // the shared empty collections of an untouched input triangle: a write through one would reach every untouched triangle on every thread
         [Fact]
         public void SharedEmptyCollections_StayEmpty_AfterABoolean()
@@ -162,6 +190,18 @@ namespace geometry3Sharp.Tests
             TriangleBoxTree.merge_runs(c2, o2, dc2, dord2, 0, 3, 5);
             Assert.Equal(new long[] { 1, 2, 4, 4, 4 }, dc2);
             Assert.Equal(new[] { 8, 9, 1, 3, 6 }, dord2);
+            // equal codes with the smaller index on the LEFT: it goes first (a merge that takes the right run first on a tie, `<=`, fails here)
+            long[] c3 = { 5, 5, 5, 5 };
+            int[] o3 = { 1, 9, 5, 6 };
+            var dc3 = new long[4]; var dord3 = new int[4];
+            TriangleBoxTree.merge_runs(c3, o3, dc3, dord3, 0, 2, 4);
+            Assert.Equal(new[] { 1, 5, 6, 9 }, dord3);
+            // and the same with a run of one element on each side
+            long[] c4 = { 5, 5 };
+            int[] o4 = { 1, 2 };
+            var dc4 = new long[2]; var dord4 = new int[2];
+            TriangleBoxTree.merge_runs(c4, o4, dc4, dord4, 0, 1, 2);
+            Assert.Equal(new[] { 1, 2 }, dord4);
         }
     }
 }
