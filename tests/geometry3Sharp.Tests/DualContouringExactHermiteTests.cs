@@ -347,5 +347,42 @@ namespace geometry3Sharp.Tests
             }
             Assert.Equal(run(false).TriangleCount, run(true).TriangleCount);
         }
+
+        // a sphere of dyadic numbers (nodes on the grid 1/16, radius 3/4: every value has few bits), times a power of two: exact
+        sealed class ScaledSphere : ImplicitFunction3d
+        {
+            public double Scale = 1;
+            public double Value(ref Vector3d p) { return (p.x * p.x + p.y * p.y + p.z * p.z - 0.5625) * Scale; }
+        }
+
+        static DMesh3 ContourScaledSphere(double scale)
+        {
+            var dc = new DualContouring() { Simplify = false, Implicit = new ScaledSphere() { Scale = scale }, InsideIsLess = true, IsoValue = 0,
+                CellSize = 1.0 / 16, Bounds = new AxisAlignedBox3d(new Vector3d(-33.0 / 32, -33.0 / 32, -33.0 / 32), new Vector3d(1.1, 1.1, 1.1)),
+                ParallelCompute = false };
+            dc.Generate();
+            Assert.Equal(0, dc.NonManifoldTriangles);
+            return dc.Mesh;
+        }
+
+        [Fact]
+        public void SubnormalField_IsRescaledByTheExponentOfItsLargestValue_AndContoursTheSameSurface()
+        {
+            // 2^-1040 is a subnormal double: the values at the sign changes (about 2^-1043 and below) are subnormal too, so the exponent of
+            // the largest one is read from the bits of a copy times 2^64; the floats cannot hold them and are stored scaled
+            double tiny = BitConverter.Int64BitsToDouble(1L << 34);
+            Assert.True(tiny > 0 && tiny < 2.2250738585072014e-308);
+            DMesh3 reference = ContourScaledSphere(1);
+            DMesh3 m = ContourScaledSphere(tiny);
+            Assert.True(m.TriangleCount > 100);
+            Assert.True(m.IsClosed());
+            Assert.Empty(MeshIterators.BowtieVertices(m));
+            Assert.True(Invariance.AllFinite(m));
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
+            // (not the bits of the unscaled field: the bisection evaluates the field between the nodes, where a subnormal keeps few bits)
+            Assert.Equal(reference.TriangleCount, m.TriangleCount);
+            foreach (int v in m.VertexIndices())
+                Assert.InRange(m.GetVertex(v).Length, 0.75 - 0.5 / 16, 0.75 + 0.5 / 16);
+        }
     }
 }
