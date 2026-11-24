@@ -159,7 +159,12 @@ namespace geometry3Sharp.Tests
             BigInteger tie = (one << 53) - 1;      // (2^53 - 1) * 2^-1075 = 2^-1022 - 2^-1075
             Assert.Equal(Math.Pow(2, -1022), Conv(tie, 1, -1075));       // the even one is the normal 2^-1022
             Assert.Equal(Math.Pow(2, -1022) - double.Epsilon, Conv(tie - 1, 1, -1075));
-            // a value within the subnormals rounds at the grid, not first to 53 bits: (2^60 + 2^6 + 1) 2^-1130 is above the middle of two units
+            // double rounding: (1 + 2^-60) 2^-1075 lies just above the tie between 0 and 2^-1074, so it is 2^-1074; rounding to 53 bits first
+            // (giving exactly 2^-1075) and then to the grid would give a tie to 0 (review of #1410)
+            Assert.Equal(double.Epsilon, Conv((one << 60) + 1, one << 60, -1075));
+            Assert.Equal(-double.Epsilon, Conv(-((one << 60) + 1), one << 60, -1075));
+            Assert.Equal(0.0, Conv((one << 60) - 1, one << 60, -1075));
+            // a value within the subnormals checked against the oracle: (2^60 + 2^6 + 1) 2^-1130 is 16 units plus a tiny amount
             BigInteger v = (one << 60) + (one << 6) + 1;
             AssertCorrectlyRounded(v, 1, -1130, Conv(v, 1, -1130), "double rounding");
             for (int k = 0; k < 200; k++)
@@ -223,6 +228,11 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1.0 / 3.0, ExactPoint3.ToDouble(-1, -3, 0));
             Assert.Equal(0.0, ExactPoint3.ToDouble(0, -3, 7));
             Assert.Throws<DivideByZeroException>(() => ExactPoint3.ToDouble(1, 0, 0));
+            // den = 0 throws for every num and scaleExp, also where the value would underflow, overflow or be zero (the contract of the old code)
+            Assert.Throws<DivideByZeroException>(() => ExactPoint3.ToDouble(1, 0, -5000));
+            Assert.Throws<DivideByZeroException>(() => ExactPoint3.ToDouble(1, 0, 5000));
+            Assert.Throws<DivideByZeroException>(() => ExactPoint3.ToDouble(0, 0, 0));
+            Assert.Throws<DivideByZeroException>(() => ExactPoint3.ToDouble(-5, 0, int.MinValue));
         }
 
         // a value that is exactly a double (any magnitude, subnormals included) comes back unchanged, however num / den and the exponent split it
