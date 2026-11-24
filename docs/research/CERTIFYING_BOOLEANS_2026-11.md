@@ -264,7 +264,7 @@ Test and benchmark code only (`BooleanCertificate.cs`, its tests, the benchmark'
   `InsideInPlane`) is only skipped where it must answer "no". The source triangle is always kept; candidates stay in group order.
 - C5: two one-sided double filters before the exact `Near`: reject when the point is farther than Delta + 3 eps from the box of the
   triangle's approximated corners, accept when a point inside the triangle (a clamped convex combination, so even a wrong region of the
-  closest-point routine only gives a larger distance) is within Delta - 3 eps. eps = 2^-40 times the largest coordinate plus extent.
+  closest-point routine only gives a larger distance) is within Delta - 3 eps. eps = 2^-40 times the largest coordinate plus extent, never below 2^-480 (below that the squares in the distance underflow: the review of #1520 found an unsound accept at 2^-560).
   Everything between, and every point without a finite approximation, goes to the exact test.
 
 **Soundness evidence.** Tests: `CoplanarBoxFilter_LosesNoPair_OnFineFaceContacts` (audit against the exact tests, planes of 60-70
@@ -303,6 +303,7 @@ fail; the verdict text of every run is identical.
 | sphere+sphere U n=64 | 190.0 | 3194 → 2739 | 3783 → 3469 | 11333 → 9035 | 20984 (112) | 17663 (93) |
 | torus-torus D nu=128 | 92.3 | 888 → 794 | 2297 → 1815 | 52449 → 2924 | 60590 (531) | 11154 (121) |
 | fine box face-on-face U n=16 | 22.5 | 198 → 166 | 38096 → 1771 | 407 → 353 | 38790 (1779) | 2359 (105) |
+
 Fuzz runs: checker / boolean median 8.3 (before 9.6), maximum 49 (before 118).
 
 **Stop rule.** Under 20 s: met by every case (largest: sphere+sphere n=64, 17.7 s; torus-torus nu=128 went from 60.6 s to 11.2 s).

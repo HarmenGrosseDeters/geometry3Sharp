@@ -359,6 +359,8 @@ namespace geometry3Sharp.Tests
             var a = new[] { c[0].ApproxVector3d(), c[1].ApproxVector3d(), c[2].ApproxVector3d() };
             for (int k = 0; k < 3; ++k) {
                 double l = Math.Min(a[0][k], Math.Min(a[1][k], a[2][k])), h = Math.Max(a[0][k], Math.Max(a[1][k], a[2][k]));
+                // (no finite approximation: the box is everything, so that the pair is kept for the exact test)
+                if (double.IsNaN(l) || double.IsNaN(h) || double.IsInfinity(l) || double.IsInfinity(h)) { lo[k] = double.NegativeInfinity; hi[k] = double.PositiveInfinity; continue; }
                 lo[k] = l - Math.Abs(l) * (1.0 / (1L << 49)) - double.Epsilon;
                 hi[k] = h + Math.Abs(h) * (1.0 / (1L << 49)) + double.Epsilon;
             }
@@ -1663,10 +1665,17 @@ namespace geometry3Sharp.Tests
                 else { double den = 1 / (va + vb + vc); v = vb * den; w = vc * den; }
             }
             if (double.IsNaN(v) || double.IsNaN(w)) return double.NaN;
+            // (a belt: the region tests keep v and w in [0, 1] up to rounding, and an infinite weight from a vanishing denominator
+            // gives an infinite or NaN distance, which no accept takes; 4 million random thin triangles never differed with and without)
             v = Math.Min(1, Math.Max(0, v)); w = Math.Min(1 - v, Math.Max(0, w));
             Vector3d q = a + v * ab + w * ac;
             return (p - q).Length;
         }
+
+        // The absolute slack of the double filters: 2^-40 of the largest coordinate plus the extent, and never below 2^-480, so that
+        // the squares of a distance (down to 2^-960 times a few) neither underflow below the margin nor reach the subnormals
+        // (found by the review of #1520: at 2^-560 the accept was unsound with a floor of 1e-300)
+        static double FilterEps(double maxAbs, double extent) => Math.Max((maxAbs + extent) / (double)(1L << 40), Math.Pow(2, -480));
 
         double covDelta, covEps;       // Delta, and the absolute slack of the double filters (set by Cover)
 
@@ -1702,8 +1711,8 @@ namespace geometry3Sharp.Tests
             }
             Q delta2 = DeltaSquared();
             covDelta = Delta;
-            covEps = (Math.Max(Math.Abs(all.Min.x), Math.Max(Math.Abs(all.Min.y), Math.Max(Math.Abs(all.Min.z),
-                Math.Max(Math.Abs(all.Max.x), Math.Max(Math.Abs(all.Max.y), Math.Abs(all.Max.z)))))) + all.MaxDim) / (double)(1L << 40) + 1e-300;
+            covEps = FilterEps(Math.Max(Math.Abs(all.Min.x), Math.Max(Math.Abs(all.Min.y), Math.Max(Math.Abs(all.Min.z),
+                Math.Max(Math.Abs(all.Max.x), Math.Max(Math.Abs(all.Max.y), Math.Abs(all.Max.z)))))), all.MaxDim);
             var toApprox = new TriApprox[to.Count];
             for (int j = 0; j < to.Count; ++j) toApprox[j] = ApproxTri(to[j]);
             for (int i = 0; i < from.Count; ++i) {
@@ -1763,7 +1772,15 @@ namespace geometry3Sharp.Tests
             Q[][] tq = t.Select(Vec).ToArray();
             Q[] pq = Vec(p);
             bool pOk = ApproxPoint(pq, out Vector3d pa);
-            return NearFiltered(pq, pOk, pa, tq, ApproxTri(tq), (q * q).Reduce(), delta, 2 * scale / (double)(1L << 40) + 1e-300);
+            return NearFiltered(pq, pOk, pa, tq, ApproxTri(tq), (q * q).Reduce(), delta, FilterEps(scale, scale));
+        }
+
+        /// <summary> for tests: the distance the accept filter computes from p to a point it takes for one of the triangle (NaN: none) </summary>
+        public static double ApproxDistanceToTriangle(ExactPoint3 p, ExactPoint3[] t)
+        {
+            Q[][] tq = t.Select(Vec).ToArray();
+            TriApprox ta = ApproxTri(tq);
+            return ApproxPoint(Vec(p), out Vector3d pa) && ta.Ok ? DistanceToTriangleApprox(pa, ta.A, ta.B, ta.C) : double.NaN;
         }
 
         static Q SegmentSquaredDistance(Q[] p, Q[] a, Q[] b)

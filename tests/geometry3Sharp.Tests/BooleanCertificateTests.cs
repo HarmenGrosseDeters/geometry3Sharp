@@ -952,12 +952,12 @@ namespace geometry3Sharp.Tests
             new GridBox3Generator() { Box = new Box3d(center, new Vector3d(half, half, half)), EdgeVertices = edgeVertices }.Generate().MakeDMesh();
 
         // two fine boxes whose faces touch with different triangulations (B on A's right face, shifted in y and z)
-        static (DMesh3, DMesh3) FineFaceContact() => (FineBox(Vector3d.Zero, 1, 5), FineBox(new Vector3d(2, 0.25, 0.125), 1, 6));
+        static (DMesh3, DMesh3) FineFaceContact() => (FineBox(Vector3d.Zero, 1, 4), FineBox(new Vector3d(2, 0.25, 0.125), 1, 5));
 
         /// <summary>
         /// The box filter in front of the two in-plane loops (the stacks of C3, the straddle test of C2) may only skip pairs
         /// that provably do not meet. Audited against the exact tests on fine boxes whose coplanar faces are triangulated
-        /// differently (every plane holds 60 to 70 input triangles, so the box tree is in use, not the linear scan), for each
+        /// differently (every plane holds 40 to 50 input triangles, so the box tree is in use, not the linear scan), for each
         /// operation: no pair that the exact tests count is lost, the filter does skip most pairs, and the run certifies.
         /// </summary>
         [Fact]
@@ -1015,41 +1015,91 @@ namespace geometry3Sharp.Tests
         /// <summary>
         /// The double filters of C5 (reject by the triangle's box, accept by a point inside it) against the exact test on
         /// lattice triangles and points: the answers agree, borderline cases (distance exactly delta, on the plane, on an
-        /// edge, a degenerate triangle) included, for coordinates of both small and large size against the same delta.
+        /// edge, a degenerate triangle) included, for coordinates of very different size against a delta of the same unit:
+        /// 1, 2^20, and 2^-560 and 2^500, where the squares of the distances underflow or overflow (the review of #1520: at
+        /// 2^-560 the accept answered true where the exact test says false).
         /// </summary>
         [Fact]
         public void CoverageFilters_AgreeWithTheExactDistanceTest()
         {
             var rng = new Random(20261124);
             int near = 0, far = 0;
-            foreach (long scale in new long[] { 1, 1L << 20 }) {
-                for (int it = 0; it < 4000; ++it) {
-                    long R() => rng.Next(-6, 7) * scale;
-                    ExactPoint3 P() => ExactPoint3.FromInteger(R(), R(), R());
+            var big = System.Numerics.BigInteger.One;
+            foreach (var (num, den, unit) in new[] { (big, big, 1.0), (big << 20, big, Math.Pow(2, 20)), (big, big << 560, Math.Pow(2, -560)), (big << 500, big, Math.Pow(2, 500)) }) {
+                for (int it = 0; it < 3000; ++it) {
+                    ExactPoint3 P() => ExactPoint3.Create(rng.Next(-6, 7) * num, rng.Next(-6, 7) * num, rng.Next(-6, 7) * num, den);
                     ExactPoint3[] t = { P(), P(), P() };
                     if (it % 7 == 0) t[2] = t[1];                       // degenerate
                     ExactPoint3 p = P();
-                    foreach (double delta in new[] { 1.0 * scale, 2.0 * scale, 0.5 * scale }) {
+                    foreach (double delta in new[] { 1.0 * unit, 2.0 * unit, 0.5 * unit }) {
                         bool exact = BooleanCertificate.PointNearTriangle(p, t, delta);
-                        Assert.Equal(exact, BooleanCertificate.PointNearTriangleFiltered(p, t, delta, 6.0 * scale));
+                        Assert.Equal(exact, BooleanCertificate.PointNearTriangleFiltered(p, t, delta, 6.0 * unit));
                         if (exact) near++; else far++;
                     }
                 }
             }
-            Assert.True(near > 1000 && far > 1000, $"{near} near, {far} far");
+            Assert.True(near > 2000 && far > 2000, $"{near} near, {far} far");
+            // the reproducer of the review: delta = s = 2^-560, the triangle (0, 0, 0), (0, 8s, 0), (0, 0, 8s), the point (-0.8s, -0.8s, 0)
+            // (in units of s / 5): the distance is 0.8 sqrt 2 s, above delta
+            var d5 = System.Numerics.BigInteger.One << 560;
+            ExactPoint3 U(long x, long y, long z) => ExactPoint3.Create(x, y, z, d5 * 5);
+            var tri = new[] { U(0, 0, 0), U(0, 40, 0), U(0, 0, 40) };
+            ExactPoint3 q = U(-4, -4, 0);
+            Assert.False(BooleanCertificate.PointNearTriangle(q, tri, Math.Pow(2, -560)));
+            Assert.False(BooleanCertificate.PointNearTriangleFiltered(q, tri, Math.Pow(2, -560), Math.Pow(2, -560) * 8));
             // just inside and just outside delta (by 2^-30 .. 2^-60 of it) from a corner, along an axis and diagonally:
             // the filters' margin is far above these, so they must hand the decision to the exact test
-            var tri = new[] { G(0, 0, 0), G(0, 8, 0), G(0, 0, 8) };
+            var tri2 = new[] { G(0, 0, 0), G(0, 8, 0), G(0, 0, 8) };
             var w = System.Numerics.BigInteger.One << 60;
             foreach (int k in new[] { 30, 40, 45, 50, 60 })
                 foreach (int sign in new[] { -1, 0, 1 }) {
                     // distance 1 + sign 2^-k from the corner (0,0,0) along -x (the point is behind the triangle's plane)
                     System.Numerics.BigInteger x = w + sign * (System.Numerics.BigInteger.One << (60 - k));
                     ExactPoint3 p = ExactPoint3.Create(-x, 0, 0, w);
-                    bool exact = BooleanCertificate.PointNearTriangle(p, tri, 1.0);
+                    bool exact = BooleanCertificate.PointNearTriangle(p, tri2, 1.0);
                     Assert.Equal(sign <= 0, exact);
-                    Assert.Equal(exact, BooleanCertificate.PointNearTriangleFiltered(p, tri, 1.0, 8.0));
+                    Assert.Equal(exact, BooleanCertificate.PointNearTriangleFiltered(p, tri2, 1.0, 8.0));
                 }
+        }
+
+        /// <summary>
+        /// Thin triangles (a corner almost on the line of the other two, over long lattice steps) against the exact test: the
+        /// closest point routine of the accept filter has weights outside [0, 1] there, and only its clamp keeps the point it
+        /// computes inside the triangle (without the clamp the accept answers true for points that are far).
+        /// </summary>
+        [Fact]
+        public void CoverageFilters_AgreeWithTheExactDistanceTest_OnThinTriangles()
+        {
+            var rng = new Random(77);
+            int near = 0, far = 0, checkedDistances = 0;
+            for (int it = 0; it < 12000; ++it) {
+                long R(int m) => rng.Next(-m, m + 1);
+                // (denominators 3, 7 and 11: the corners are not doubles, so their approximations carry rounding noise and the
+                // cross products of the closest point routine are noise where the corners are nearly collinear)
+                long den = new long[] { 3, 7, 11, 1 }[it % 4];
+                ExactPoint3 Pt(long x, long y, long z) => ExactPoint3.Create(x, y, z, den);
+                long ax = R(4), ay = R(4), az = R(4), dx = R(3), dy = R(3), dz = R(3);
+                if (dx == 0 && dy == 0 && dz == 0) dx = 1;
+                long k1 = R(2000), k2 = R(2000);
+                ExactPoint3 a = Pt(ax, ay, az), b = Pt(ax + k1 * dx, ay + k1 * dy, az + k1 * dz);
+                ExactPoint3 c = Pt(ax + k2 * dx + (it % 3 == 0 ? 1 : 0), ay + k2 * dy + (it % 3 == 1 ? 1 : 0), az + k2 * dz);
+                ExactPoint3[] t = { a, b, c };
+                long m = R(2000);
+                ExactPoint3 p = Pt(ax + m * dx + R(5), ay + m * dy + R(5), az + m * dz + R(5));
+                // the accept filter's own distance is the distance to a point of the triangle, so the exact test must agree at it (the
+                // margin is the rounding of the routine's arithmetic, far above what it can lose)
+                double d = BooleanCertificate.ApproxDistanceToTriangle(p, t);
+                if (double.IsNaN(d) == false && double.IsInfinity(d) == false) {
+                    Assert.True(BooleanCertificate.PointNearTriangle(p, t, d + 1e-9 * (d + 1)), $"it {it}: the closest point routine's distance {d} is below the true one");
+                    checkedDistances++;
+                }
+                foreach (double delta in new[] { 0.5, 3.0, 12.0 }) {
+                    bool exact = BooleanCertificate.PointNearTriangle(p, t, delta);
+                    Assert.True(exact == BooleanCertificate.PointNearTriangleFiltered(p, t, delta, 20000.0), $"it {it} delta {delta}: exact {exact}");
+                    if (exact) near++; else far++;
+                }
+            }
+            Assert.True(near > 500 && far > 500 && checkedDistances > 5000, $"{near} near, {far} far, {checkedDistances} distances");
         }
 
         static readonly System.Numerics.BigInteger BigIntegerOne = System.Numerics.BigInteger.One;
