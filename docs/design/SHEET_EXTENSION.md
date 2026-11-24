@@ -106,6 +106,12 @@ only length that is local.
 - The band meets the workpiece's surface in exactly one curve per run and touches nothing else. So the extended sheet
   differs from any other continuation that leaves through the same first surface only inside the wedge between the
   two continuations.
+  (As built, review of 2026-11-25: what is enforced is weaker than "touches nothing else". The strip's new points are outside, its curve on the workpiece's surface is one
+  connected component per run (a topological test), it meets neither the sheet, nor itself, nor another tool, and the cut is accepted by the sheet role and is clean. A pin that
+  stands beyond the first exit on a thin neck that attaches it to the exit wall is cut through: in the review's case A18 (a pin Box(9.505,4.2,3, 9.512,5.0,8) on a neck
+  Box(9.49,4.55,3, 9.506,4.65,8) in the slot of the slot-and-fin case) the strip is accepted in all eight frames, the whole pin is cut (kept 506.0122 against 506.0304 for a
+  pin that stood free), and no continuation that ends outside the workpiece could avoid the neck. The band is the first surface along each ray, not a guarantee that nothing
+  of the workpiece beyond it is touched.)
 - `U` is a first-order ESTIMATE of that wedge, not a bound. For a rim vertex whose ray meets the surface at the angle
   `alpha`, a continuation tilted by `delta` changes the cut by about `(1/2) g^2 sin(delta) sin(alpha) / sin(alpha -
   delta)` per unit length of rim; `U` is the sum over the run. It assumes a straight alternative and a locally flat
@@ -260,3 +266,24 @@ with the public API and found:
 
 No source was found that documents a check of an automatic extension. No code of any of these was read; the statements
 are from public help pages and forums (searched 2026-11-24). Nothing is ported.
+
+## Under automatic use (for the pipeline option C; from the review of the helper, 2026-11-25)
+
+What the independent review of `gs.MeshSheetExtension` found that a caller inside `SolidBooleanPipeline` has to take into account:
+
+- **Cost per refused sheet.** Before the fix the check of the sheet's edges was quadratic (a `Dictionary<long, int>` with the default hash `a ^ b`: 3.3 s of 3.4 s at 80,000 sheet triangles).
+  After it the diagnosis and the construction are linear in the sheet; the cost table of the guide is the one measured after the fix. A refused sheet costs the diagnosis or the
+  extension (a fraction of one cut) plus, for an extended one, the cut of the last check, which the pipeline would run anyway.
+- **Frame dependence.** The outcome is bit for bit invariant under scaling by 2^k only. Near the depth limit (a share of the bounding box diagonal, which a rotation changes) and
+  where the subdivision finds or misses a way round an obstacle (the rib on the exit wall) the outcome depends on the frame. Never a wrong cut was seen, but a pipeline that
+  reports "extended" or "refused" must not promise the same answer for a rotated input.
+- **`VerifyWithSheetRole` must stay on.** With false, Success means only that the helper's own checks hold; the sheet role was not asked.
+- **The cut is checked for cleanliness** (`MeshRobustRepair.NotCleanReason`, status `CutNotClean`): a workpiece with touching shells (a prism pin touching the slot wall along a line) was
+  accepted by the sheet role with a cut that had self-intersections.
+- **A gap behind the exit below twice the least overshoot is refused** (`GapBelowResolution`): the overshoot floor of 1024 rounding units of the largest coordinate could carry a
+  new point through a second wall of a very narrow slot.
+- **Groups.** New triangles take the triangle group of the rim triangle they continue; new vertices copy the normal, colour and uv of the rim vertex. A pipeline that counts groups
+  as regions sees the strip as part of the sheet's group.
+- **Intent: a shell versus a sheet.** The helper cannot tell a sheet that ends short from a body with a missing face (section 7). Inside the pipeline only a sheet the caller stated
+  (`InputRoles`) is a candidate (section 6); the strip is reported as an addition, not as an input.
+

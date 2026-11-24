@@ -335,7 +335,7 @@ namespace SheetExtensionProbe
             var sb = new StringBuilder();
             sb.AppendLine("| sphere triangles | sheet triangles | strip triangles | subdivision points | diagnosis ms | construct ms | verify ms (without imprint) | imprint ms | cut ms | total Compute ms | imprint / cut |");
             sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|");
-            foreach (int[] cfg in new[] { new[] { 14, 12 }, new[] { 30, 24 }, new[] { 60, 48 }, new[] { 65, 100 } }) {
+            foreach (int[] cfg in new[] { new[] { 14, 12 }, new[] { 30, 24 }, new[] { 60, 48 }, new[] { 65, 100 }, new[] { 65, 200 } }) {
                 DMesh3 sphere = Geometry.Sphere(Vector3d.Zero, 5, cfg[0]);
                 DMesh3 sheet = Geometry.Grid(Geometry.Lin(-8, 8, cfg[1]), Geometry.Lin(-8, 4.5, cfg[1]), (x, y) => 0.5, true);
                 var diag = new List<double>(); var cons = new List<double>(); var ver = new List<double>(); var imp = new List<double>(); var cut = new List<double>(); var tot = new List<double>();

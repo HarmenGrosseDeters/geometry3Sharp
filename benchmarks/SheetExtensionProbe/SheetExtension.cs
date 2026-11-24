@@ -14,7 +14,7 @@ namespace SheetExtensionProbe
     {
         None = 0, InvalidInput, BowtieVertex, NoDirection, NoExit, DepthAboveLimit, GrazingExit, NewPointNotOutside, OuterEdgeInside, InvertedQuad, CurveRule,
         CoplanarContact, MeetsSheet, MeetsItself, MeetsOtherTool, ImprintFailed, ConstructionFailed, SheetRoleRefused, CutFailed, UncertaintyAboveLimit,
-        WorkpieceNotClosed, SheetNotSurface
+        WorkpieceNotClosed, SheetNotSurface, GapBelowResolution, CutNotClean
     }
 
     /// <summary> the verifications that can be switched off (for the mutation runs of the probe; all on by default) </summary>
@@ -22,7 +22,7 @@ namespace SheetExtensionProbe
     public enum Rules
     {
         None = 0, Depth = 1, Grazing = 2, NewPointOutside = 4, InvertedQuad = 8, OuterEdge = 16, CurveRule = 32, CoplanarContact = 64,
-        MeetsSheet = 128, MeetsOtherTool = 256, All = 511
+        MeetsSheet = 128, MeetsOtherTool = 256, Gap = 512, CutClean = 1024, All = 2047
     }
 
     public enum RimChoice { ByEdge, ByVertex }

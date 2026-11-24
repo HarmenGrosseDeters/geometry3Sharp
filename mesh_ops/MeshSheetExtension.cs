@@ -27,14 +27,13 @@ namespace gs
         public double InsideLengthRelative;
         /// <summary>
         /// the largest depth of the rim in the workpiece along the direction of the construction (the distance to the first exit of the ray of a rim point),
-        /// absolute and relative to the sheet's diagonal. After Compute() it is the largest depth of any point of the strip's outer polyline; after
+        /// absolute and relative to the sheet's diagonal. After Compute() it is the largest depth of any point of the strip's outer polyline or of the samples; after
         /// Diagnose() the largest of the sampled points (a lower bound of the largest depth of the rim)
         /// </summary>
         public double MaxDepth, MaxDepthRelative;
         /// <summary>
-        /// the mean depth over the part of the rim that is inside (the integral of the depth, divided by InsideLength), absolute and relative to the diagonal. After
-        /// Diagnose() the mean of the samples; after Compute() the trapezoid over the strip's outer polyline, where an end outside the workpiece has depth 0, so it is a
-        /// little low where the rim crosses the surface (an estimate in both cases)
+        /// the mean depth over the part of the rim that is inside (the integral of the depth, divided by InsideLength), absolute and relative to the diagonal, from the same samples
+        /// in Diagnose() and Compute() (DiagnosisSamples midpoints of each inside stretch of a rim edge and the rim vertices that are inside: an estimate, not a bound)
         /// </summary>
         public double MeanDepth, MeanDepthRelative;
         /// <summary> a ray of the run leaves the workpiece nowhere ("no exit"); Diagnose() only (Compute() refuses with Status NoExit) </summary>
@@ -123,8 +122,17 @@ namespace gs
     /// extended sheet (last, <see cref="VerifyWithSheetRole"/>). Floating point decides only the choice of candidate points, the depth limit, the exit angle
     /// limit and the orientation test of the strip's triangles (a cosine above 1e-9), which are policies and
     /// refuse earlier than the exact checks would. A degenerate situation (a ray through an edge or vertex of the workpiece, a grazing exit) can only
-    /// cause a refusal, never a wrong cut. The rim choice (which edges meet the interior) is made in doubles with a tolerance of a few rounding units; a
-    /// misclassification can lead to a refusal by the exact checks, not to a cut they do not see (argued in the spike note, not proven).
+    /// cause a refusal, never a wrong cut. The rim choice (which edges meet the interior) is exact for the points it tests
+    /// (the exact winding number and the exact "no triangle contains the point" test for every rim vertex and for the midpoint of each stretch of an edge between its
+    /// crossings with the workpiece's faces); the crossings themselves are ray-triangle intersections in doubles, so a stretch narrower than 16 rounding units is not seen.
+    /// A misclassification can lead to a refusal by the exact checks, not to a cut they do not see (argued in the spike note, not proven). The cut that accepts the sheet
+    /// (<see cref="VerifyWithSheetRole"/>) must also be clean (<see cref="MeshRobustRepair.NotCleanReason"/>, else <see cref="ExtensionStatus.CutNotClean"/>).
+    ///
+    /// The rules guarantee that the strip's new points are outside, that it meets the workpiece's surface in one connected curve per run and meets nothing else of the
+    /// inputs; they do not guarantee that the strip stays in the band up to the first surface the rays meet. A thin neck whose pin stands beyond the first exit and
+    /// touches the strip's polyline is cut through, and the curve rule, which is topological, accepts it when the curve stays connected (docs/design/SHEET_EXTENSION.md, section 5,
+    /// the example of a pin on a neck). New triangles take the triangle group of the rim triangle they continue; new vertices copy the normal, colour and uv of the rim vertex
+    /// they come from (the nearer end of the rim edge for a point of subdivision).
     ///
     /// What it does not guarantee. That the sheet was meant to go through (intent: no rule can decide it, hence opt-in); that a curved sheet continues with its
     /// curvature (each rim triangle is continued in its plane; <see cref="SheetExtensionRun.U"/> estimates what that costs, as an estimate, not a bound);
@@ -135,8 +143,10 @@ namespace gs
     ///
     /// The measure of the sheet's size is the diagonal of its bounding box, which is not rotation invariant (a rotated copy has a diagonal a quarter to a third
     /// smaller): the depth limit and the overshoot cap are shares of it, so a rim close to the limit can be continued in one frame and refused in another. The
-    /// strip at a corner of a curved rim is a non-planar quad whose triangulation follows the points of subdivision; the results of rotated frames
-    /// agree on the outcome and the volume to rounding, not bit for bit (scalings by 2^k and repeated runs do).
+    /// strip at a corner of a curved rim is a non-planar quad whose triangulation follows the points of subdivision. The result is invariant bit for bit under scaling by 2^k and
+    /// under repeated runs. Under rotation and translation the outcome can differ near the depth limit (measured against the bounding box diagonal) and where the subdivision
+    /// finds or misses a way round an obstacle (a rib on the exit wall is refused in one frame and cut in another); an accepted cut has the volume of the continuation to rounding;
+    /// there was no wrong cut in any frame tried.
     ///
     /// Usage: set Sheet and Workpiece, optionally OtherTools (the other tools of the Difference the extended sheet is cut with: the strip may meet none of them) and
     /// the limits, call Compute() (true: Result is the extended sheet, or the sheet unchanged where no rim edge meets the interior; false: Status says why, Report has
@@ -195,7 +205,14 @@ namespace gs
             /// <summary> the cut failed for another reason (budget, rounding; Error) </summary>
             CutFailed = 21,
             /// <summary> U relative to the smaller part is above MaxUOverSmallerPart </summary>
-            UncertaintyAboveLimit = 22
+            UncertaintyAboveLimit = 22,
+            /// <summary>
+            /// the next surface behind the exit of a ray is closer than twice the least overshoot (1024 rounding units of the largest coordinate, <see cref="MinOvershootUnits"/>): the
+            /// strip's new point could not be kept short of it, so it could pass through the wall or fin behind the slot. Refused with the gap in the witness
+            /// </summary>
+            GapBelowResolution = 23,
+            /// <summary> the verification cut is accepted by the sheet role but is not clean (<see cref="MeshRobustRepair.NotCleanReason"/>: self-intersections, open or non-manifold parts); Error has the reason </summary>
+            CutNotClean = 24
         }
 
         // ---------------------------------------------------------------- inputs
@@ -226,10 +243,12 @@ namespace gs
         /// <summary> passed to the verification cut (<see cref="ExactMeshBoolean.SheetUncutSide"/>) </summary>
         public ExactMeshBoolean.SheetUncutSides UncutSide = ExactMeshBoolean.SheetUncutSides.Refuse;
         /// <summary>
-        /// the last check: run the sheet role's Difference on the extended sheet and refuse if it does not accept it (default true). With false the strip is
-        /// verified by the other exact checks only and the caller's own cut is the check; Report.Cut, U relative to the smaller part and MaxUOverSmallerPart are then not available
+        /// the last check: run the sheet role's Difference on the extended sheet and refuse if it does not accept it or if the cut is not clean (default true). With false the strip is
+        /// verified by the other exact checks only: Success then means that the helper's own checks hold and that the sheet role was NOT asked (it may still refuse the sheet); the caller's own cut is the check; Report.Cut, U relative to the smaller part and MaxUOverSmallerPart are then not available
         /// </summary>
         public bool VerifyWithSheetRole = true;
+        // (with false, Status Success means: the helper's own checks hold (new points outside, one curve per run, no contact with the sheet, itself or another tool, the outer edges
+        // outside the workpiece); the sheet role was not asked, so it may still refuse the sheet (eg a rim the strip does not reach), and the cut is not clean-checked. The pipeline must keep it on.)
 
         // ---------------------------------------------------------------- internal switches for the hand mutants of the tests
 
@@ -237,10 +256,14 @@ namespace gs
         internal enum Rules
         {
             None = 0, Depth = 1, Grazing = 2, NewPointOutside = 4, InvertedQuad = 8, OuterEdge = 16, CurveRule = 32, CoplanarContact = 64,
-            MeetsSheet = 128, MeetsOtherTool = 256, All = 511
+            MeetsSheet = 128, MeetsOtherTool = 256, Gap = 512, CutClean = 1024, All = 2047
         }
         /// <summary> for tests: the verifications that are on (a mutant switches one off) </summary>
         internal Rules Verify = Rules.All;
+        /// <summary> for tests: the least cosine between a strip triangle's normal and the normal of the sheet triangle it continues (a mutant lowers it) </summary>
+        internal double MinStripCosine = 1e-9;
+        /// <summary> for tests: how far an outer segment that starts on the workpiece's surface is shortened before its contact with the workpiece is tested (a mutant makes it large), as a fraction of its length </summary>
+        internal double OnSurfaceNudge = 1e-7;
         /// <summary> for tests: the rim edges are chosen by vertex instead of by edge </summary>
         internal bool ChooseByVertex;
         /// <summary> for tests: the last exit of the ray instead of the first </summary>
@@ -351,7 +374,17 @@ namespace gs
             public PKey(Vector3d p) { x = p.x + 0.0; y = p.y + 0.0; z = p.z + 0.0; }
             public bool Equals(PKey o) { return x == o.x && y == o.y && z == o.z; }
             public override bool Equals(object o) { return o is PKey k && Equals(k); }
-            public override int GetHashCode() { unchecked { return (x.GetHashCode() * 397 ^ y.GetHashCode()) * 397 ^ z.GetHashCode(); } }
+            public override int GetHashCode()
+            {
+                // the three coordinate words mixed (SplitMix64 finalizer); the default double hashes of grid coordinates collide
+                unchecked {
+                    ulong h = (ulong)BitConverter.DoubleToInt64Bits(x) * 0x9E3779B97F4A7C15UL;
+                    h = (h ^ (ulong)BitConverter.DoubleToInt64Bits(y)) * 0xBF58476D1CE4E5B9UL;
+                    h = (h ^ (ulong)BitConverter.DoubleToInt64Bits(z)) * 0x94D049BB133111EBUL;
+                    h ^= h >> 31;
+                    return (int)h ^ (int)(h >> 32);
+                }
+            }
         }
 
         sealed class Builder
@@ -389,17 +422,12 @@ namespace gs
 
             // ---------------------------------------------------------------- queries on the workpiece
 
+            // (a distance from FindNearestTriangle loses about sqrt(eps) relative to the coordinates, so it is used for witness texts only; every classification below is exact)
             double Dist(Vector3d p) { tree.FindNearestTriangle(p, out double d2); return Math.Sqrt(d2); }
             bool Winding(Vector3d p) { return Math.Abs(tree.WindingNumber(p)) > 0.5; }
-            bool IsOnSurface(Vector3d p) { return Dist(p) <= tolOn; }
-            // (the winding number first: it is a few hundred nanoseconds and settles every point outside; the distance query is the slow one)
-            bool IsInside(Vector3d p) { return Winding(p) && Dist(p) > tolOn; }
-            // strictly outside: the exact winding number is 0 and no triangle of the workpiece contains the point (exact: the same predicate as the
-            // segment test, applied to a degenerate segment); the winding number alone cannot tell a point on the surface from one next to it
-            bool StrictlyOutside(Vector3d p)
+            // some triangle of the workpiece contains the point (exact: the segment test on a degenerate segment)
+            bool OnSurfaceExact(Vector3d p)
             {
-                if (Winding(p))
-                    return false;
                 bool on = false;
                 tree.DoTraversal(new DMeshAABBTree3.TreeTraversal {
                     NextBoxDF = (bx, depth) => !on && bx.Contains(p),
@@ -409,7 +437,15 @@ namespace gs
                         if (ExactTriangleIntersection.SegmentIntersectsTriangle(p, p, ref tri)) on = true;
                     }
                 });
-                return !on;
+                return on;
+            }
+            // inside: the exact winding number is not 0 and the point is on no triangle (the winding number is symbolically perturbed: on the surface it says 0 or 1 by the perturbation)
+            // (the winding number first: it is a few hundred nanoseconds and settles every point outside)
+            bool IsInside(Vector3d p) { return Winding(p) && !OnSurfaceExact(p); }
+            // strictly outside: the exact winding number is 0 and no triangle of the workpiece contains the point
+            bool StrictlyOutside(Vector3d p)
+            {
+                return !Winding(p) && !OnSurfaceExact(p);
             }
 
             static AxisAlignedBox3d TriBox(Triangle3d t)
@@ -501,7 +537,7 @@ namespace gs
                 ts.Sort();
                 for (int i = 0; i + 1 < ts.Count; ++i) {
                     double a = ts[i], b = ts[i + 1];
-                    if (b - a <= tolOn)
+                    if (b - a <= tolT)
                         continue;
                     if (!IsInside(A + dir * ((a + b) / 2)))
                         continue;
@@ -552,7 +588,7 @@ namespace gs
                 vd = new VData { V = v, Pos = S.GetVertex(v) };
                 vdata[v] = vd;
                 vd.Inside = IsInside(vd.Pos);
-                vd.OnSurface = !vd.Inside && IsOnSurface(vd.Pos);
+                vd.OnSurface = !vd.Inside && OnSurfaceExact(vd.Pos);
                 return vd;
             }
 
@@ -618,6 +654,8 @@ namespace gs
                 }
                 if ((O.Verify & Rules.Grazing) != 0 && alpha <= delta + O.AngleMargin)
                     return Fail(ExtensionStatus.GrazingExit, "exit angle " + (alpha * 180 / Math.PI).ToString("0.##") + " deg, delta " + (delta * 180 / Math.PI).ToString("0.##") + " deg", p + d * g);
+                if ((O.Verify & Rules.Gap) != 0 && !O.FixedOvershoot && gap < 2 * oMin)
+                    return Fail(ExtensionStatus.GapBelowResolution, "the next surface is " + gap.ToString("R") + " behind the exit at depth " + g.ToString("R") + ", below twice the least overshoot " + (2 * oMin).ToString("R"), p + d * g);
                 P = p + d * (g + Overshoot(gap));
                 if ((O.Verify & Rules.NewPointOutside) != 0 && !StrictlyOutside(P))
                     return Fail(ExtensionStatus.NewPointNotOutside, "a new point is not strictly outside the workpiece (exit at depth " + g.ToString("R") + ", next surface " + gap.ToString("R") + " beyond; winding " + tree.WindingNumber(P).ToString("R") + ", distance " + Dist(P).ToString("R") + ")", P);
@@ -647,8 +685,8 @@ namespace gs
             {
                 Vector3d a = p.P, b = q.P;
                 // an end on the workpiece's surface (a rim vertex exactly on it, g = 0) is not a contact of the segment
-                if (p.OnSurface) a = a + (b - a) * 1e-7;
-                if (q.OnSurface) b = b + (a - b) * 1e-7;
+                if (p.OnSurface) a = a + (b - a) * O.OnSurfaceNudge;
+                if (q.OnSurface) b = b + (a - b) * O.OnSurfaceNudge;
                 return SegmentTouchesW(a, b);
             }
 
@@ -755,7 +793,7 @@ namespace gs
 
             bool CheckSurface()
             {
-                posEdges = new Dictionary<long, int>();
+                posEdges = new Dictionary<long, int>(EdgeKeyComparer.Instance);   // (the default hash of a long is a ^ b: the keys of a grid collide, and the check was quadratic)
                 posIds = new Dictionary<PKey, int>();
                 foreach (int t in S.TriangleIndices()) {
                     Index3i tv = S.GetTriangle(t);
@@ -893,7 +931,7 @@ namespace gs
                             if (a == b || b == c || a == c) continue;
                             Vector3d n = (b - a).Cross(c - a);
                             double l = n.Length;
-                            if (l > 0 && n.Dot(nSheet) / l > 1e-9) continue;
+                            if (l > 0 && n.Dot(nSheet) / l > O.MinStripCosine) continue;
                             ctxEdge = e.Eid;
                             Fail(ExtensionStatus.InvertedQuad, "a strip triangle of rim edge " + e.Eid + " is turned against the sheet (or degenerate): " + a + " " + b + " " + c, a);
                             return Finish(null);
@@ -917,7 +955,7 @@ namespace gs
                     foreach (OPoint p in e.Outer) {
                         if (p.S == 0) p.Vid = va.G > 0 ? Pid(ext, va) : e.A;
                         else if (p.S == 1) p.Vid = vb.G > 0 ? Pid(ext, vb) : e.B;
-                        else p.Vid = ext.AppendVertex(p.P);
+                        else p.Vid = AppendLike(ext, p.P, p.S < 0.5 ? e.A : e.B);
                     }
                     var tris = new List<Index3i>();
                     int nseg = e.Outer.Count - 1;
@@ -927,7 +965,7 @@ namespace gs
                         if (t.a == t.b || t.b == t.c || t.a == t.c)
                             continue;
                         Index3i tt = O.FlipQuads ? new Index3i(t.a, t.c, t.b) : t;
-                        if (ext.AppendTriangle(tt) < 0) {
+                        if (ext.AppendTriangle(tt, S.HasTriangleGroups ? S.GetTriangleGroup(e.Tri) : -1) < 0) {
                             ctxEdge = e.Eid;
                             Fail(ExtensionStatus.ConstructionFailed, "a strip triangle cannot be appended to a manifold mesh", ext.GetVertex(t.a));
                             Rep.Candidate = null;
@@ -981,7 +1019,7 @@ namespace gs
                     runs[r].StripAreaInside = area;
                     if ((O.Verify & Rules.CurveRule) != 0 && comps != 1) {
                         runs[r].Refusal = ExtensionStatus.CurveRule;
-                        Fail(ExtensionStatus.CurveRule, "run " + r + ": the strip meets the surface in " + comps + " curves, not 1", comps > 1 ? second : (Vector3d?)null);
+                        Fail(ExtensionStatus.CurveRule, "run " + r + ": the strip meets the workpiece's surface in " + comps + " separate curves where 1 was expected (" + (comps > 1 ? "the second one near " + second.ToString() : "no curve") + "): the strip pierces a part of the workpiece between its rim and its outer edge", comps > 1 ? second : (Vector3d?)null);
                         Rep.VerifyMs += Lap();
                         return Finish(null);
                     }
@@ -1066,9 +1104,17 @@ namespace gs
                 return result;
             }
 
+            // a new vertex at pos with the normal, colour and uv of the sheet's vertex src (where the sheet has them; they are copies of the rim vertex's, not recomputed)
+            int AppendLike(DMesh3 ext, Vector3d pos, int src)
+            {
+                NewVertexInfo info = S.GetVertexAll(src);
+                info.v = pos;
+                return ext.AppendVertex(info);
+            }
+
             int Pid(DMesh3 ext, VData vd)
             {
-                if (vd.Pid < 0) vd.Pid = ext.AppendVertex(vd.P);
+                if (vd.Pid < 0) vd.Pid = AppendLike(ext, vd.P, vd.V);
                 return vd.Pid;
             }
 
@@ -1118,18 +1164,12 @@ namespace gs
                 return roots.Count;
             }
 
-            // the per-run depth, direction estimate and mean depth (trapezoids over the polyline points)
+            // the per-run depth, direction estimate and mean depth after the construction: the largest depth, the exit angle and the tilt of the strip's polyline points; the mean depth
+            // and U from the same samples as the diagnosis (SampleRuns), over the part of the rim that is inside, as InsideLength is measured
             void RunStats(List<REdge> edges, List<SheetExtensionRun> runs)
             {
-                var gInt = new double[runs.Count];
                 foreach (REdge e in edges) {
                     SheetExtensionRun r = runs[e.Run];
-                    for (int i = 0; i + 1 < e.Outer.Count; ++i) {
-                        OPoint p = e.Outer[i], q = e.Outer[i + 1];
-                        double w = (q.S - p.S) * e.Len;
-                        gInt[e.Run] += w * (p.G + q.G) / 2;
-                        r.U += w * (Unit(p) + Unit(q)) / 2;
-                    }
                     foreach (OPoint p in e.Outer) {
                         r.MaxDepth = Math.Max(r.MaxDepth, p.G);
                         if (p.G > 0) {
@@ -1138,6 +1178,8 @@ namespace gs
                         }
                     }
                 }
+                var gInt = new double[runs.Count];
+                SampleRuns(edges, runs, gInt, false);
                 FinishRuns(runs, gInt);
             }
 
@@ -1158,11 +1200,6 @@ namespace gs
             }
 
             // the first-order estimate of the cut's change per unit of rim for a continuation tilted by delta (design section 5)
-            static double Unit(OPoint p)
-            {
-                return UnitU(p.G, p.Alpha, p.Delta);
-            }
-
             static double UnitU(double g, double alpha, double delta)
             {
                 if (g <= 0 || alpha <= delta)
@@ -1194,6 +1231,11 @@ namespace gs
                 if (op.Status != ExactMeshBoolean.BooleanStatus.Success || op.Result == null)
                     return Fail(ExtensionStatus.CutFailed, "the cut failed: " + op.Status + " " + op.Error);
                 Rep.Cut = op.Result;
+                if ((O.Verify & Rules.CutClean) != 0) {
+                    string notClean = MeshRobustRepair.NotCleanReason(op.Result);
+                    if (!string.IsNullOrEmpty(notClean))
+                        return Fail(ExtensionStatus.CutNotClean, "the cut with the sheet is accepted by the sheet role but is not clean: " + notClean);
+                }
                 double vw = Volume(W), vk = Volume(op.Result);
                 Rep.SmallerPart = Math.Min(vk, vw - vk);
                 if (Rep.SmallerPart > 0) {
@@ -1208,6 +1250,48 @@ namespace gs
 
             // ---------------------------------------------------------------- the diagnosis alone
 
+            // the depth sampled along the inside stretches of the chosen rim edges (DiagnosisSamples midpoints per stretch, and the rim vertices that are inside), with the direction
+            // interpolated as in the construction: the integral of the depth into gInt, the estimate U and the largest depth into the runs; with diagnosis also the flags
+            // (no exit, above the limit, grazing) and the deepest point as the witness. Compute() uses it for MeanDepth and U (the strip's polyline has too few points on a rim edge
+            // with both ends outside), so that the two modes report the same numbers
+            void SampleRuns(List<REdge> edges, List<SheetExtensionRun> runs, double[] gInt, bool diagnosis)
+            {
+                int n = Math.Max(1, O.DiagnosisSamples);
+                double deepG = 0;
+                foreach (REdge e in edges) {
+                    SheetExtensionRun run = runs[e.Run];
+                    VData va = vdata[e.A], vb = vdata[e.B];
+                    foreach (double[] iv in e.Inside) {
+                        var pts = new List<KeyValuePair<double, double>>();
+                        double dl = (iv[1] - iv[0]) * e.Len / n;
+                        if (iv[0] <= 0 && va.Inside) pts.Add(new KeyValuePair<double, double>(0, 0));
+                        for (int i = 0; i < n; ++i) pts.Add(new KeyValuePair<double, double>(iv[0] + (iv[1] - iv[0]) * (i + 0.5) / n, dl));
+                        if (iv[1] >= 1 && vb.Inside) pts.Add(new KeyValuePair<double, double>(1, 0));
+                        foreach (var pt in pts) {
+                            double s = pt.Key, w = pt.Value;
+                            Vector3d M = e.PA + (e.PB - e.PA) * s;
+                            Vector3d d = InterpDir(va, vb, s);
+                            if (!RayCore(M, d, Math.Max(va.Kappa, vb.Kappa), out double g, out double alpha, out double delta, out double gap)) {
+                                if (diagnosis) {
+                                    if (!run.NoExit) run.Witness = "the ray of rim edge " + e.Eid + " at " + M + " leaves the workpiece nowhere";
+                                    run.NoExit = true;
+                                }
+                                continue;
+                            }
+                            run.MaxDepth = Math.Max(run.MaxDepth, g);
+                            gInt[e.Run] += g * w;
+                            run.U += UnitU(g, alpha, delta) * w;
+                            if (!diagnosis) continue;
+                            if (g > maxDepthAbs) run.DepthAboveLimit = true;
+                            if (alpha <= delta + O.AngleMargin) run.GrazingExit = true;
+                            run.MinAlpha = double.IsNaN(run.MinAlpha) ? alpha : Math.Min(run.MinAlpha, alpha);
+                            run.MaxDelta = Math.Max(run.MaxDelta, delta);
+                            if (g > deepG) { deepG = g; Rep.WitnessEdge = e.Eid; Rep.WitnessPoint = M + d * g; Rep.HasWitnessPoint = true; }
+                        }
+                    }
+                }
+            }
+
             // sampled depth of the chosen edges: no strip, no imprint, no cut; a ray without exit or above a limit is a flag of its run, not a refusal
             DMesh3 Diagnosis(List<REdge> edges)
             {
@@ -1219,38 +1303,7 @@ namespace gs
                 ctxEdge = -1; ctxVertex = -1;
                 List<SheetExtensionRun> runs = BuildRuns(edges, v => vdata[v].Inside);
                 var gInt = new double[runs.Count];
-                int n = Math.Max(1, O.DiagnosisSamples);
-                double deepG = 0;
-                foreach (REdge e in edges) {
-                    SheetExtensionRun run = runs[e.Run];
-                    VData va = vdata[e.A], vb = vdata[e.B];
-                    foreach (double[] iv in e.Inside) {
-                        // the rim vertices that are inside (the depth of the construction there) and the midpoints of n equal parts of the stretch
-                        var pts = new List<KeyValuePair<double, double>>();
-                        double dl = (iv[1] - iv[0]) * e.Len / n;
-                        if (iv[0] <= 0 && va.Inside) pts.Add(new KeyValuePair<double, double>(0, 0));
-                        for (int i = 0; i < n; ++i) pts.Add(new KeyValuePair<double, double>(iv[0] + (iv[1] - iv[0]) * (i + 0.5) / n, dl));
-                        if (iv[1] >= 1 && vb.Inside) pts.Add(new KeyValuePair<double, double>(1, 0));
-                        foreach (var pt in pts) {
-                            double s = pt.Key, w = pt.Value;
-                            Vector3d M = e.PA + (e.PB - e.PA) * s;
-                            Vector3d d = InterpDir(va, vb, s);
-                            if (!RayCore(M, d, Math.Max(va.Kappa, vb.Kappa), out double g, out double alpha, out double delta, out double gap)) {
-                                if (!run.NoExit) run.Witness = "the ray of rim edge " + e.Eid + " at " + M + " leaves the workpiece nowhere";
-                                run.NoExit = true;
-                                continue;
-                            }
-                            run.MaxDepth = Math.Max(run.MaxDepth, g);
-                            gInt[e.Run] += g * w;
-                            if (g > maxDepthAbs) run.DepthAboveLimit = true;
-                            if (alpha <= delta + O.AngleMargin) run.GrazingExit = true;
-                            run.MinAlpha = double.IsNaN(run.MinAlpha) ? alpha : Math.Min(run.MinAlpha, alpha);
-                            run.MaxDelta = Math.Max(run.MaxDelta, delta);
-                            run.U += UnitU(g, alpha, delta) * w;
-                            if (g > deepG) { deepG = g; Rep.WitnessEdge = e.Eid; Rep.WitnessPoint = M + d * g; Rep.HasWitnessPoint = true; }
-                        }
-                    }
-                }
+                SampleRuns(edges, runs, gInt, true);
                 FinishRuns(runs, gInt);
                 foreach (SheetExtensionRun run in runs)
                     if (run.DepthAboveLimit && run.Witness.Length == 0)

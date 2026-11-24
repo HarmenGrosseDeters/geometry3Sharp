@@ -88,11 +88,11 @@ namespace geometry3Sharp.Tests
             Assert.Equal(op.Report.RimLength, dg.Report.RimLength, 12);
             // the length inside is measured the same way
             Assert.Equal(op.Report.InsideLength, dg.Report.InsideLength, 9);
-            // the depths are samples (a lower bound of the largest) and the estimate U is within 15 % of the build's (within a factor of 2 for the chord, where the depth varies
-            // along the one long rim edge and the samples of the diagnosis are coarser than the strip's subdivision)
-            double lo = name.StartsWith("chord") ? 0.5 : 0.85, hi = name.StartsWith("chord") ? 1.5 : 1.15;
+            // the mean depth and U come from the same samples in both modes: equal (the review found Compute's mean biased high on the chord and the test blamed the diagnosis);
+            // the largest depth of the diagnosis is a lower bound of the build's (the strip's points are rays too)
             Assert.InRange(dg.Report.MaxDepth, 0.9 * op.Report.MaxDepth, op.Report.MaxDepth * (1 + 1e-9));
-            Assert.InRange(dg.Report.U, lo * op.Report.U, hi * op.Report.U);
+            Assert.Equal(dg.Report.U, op.Report.U, 12);
+            Assert.Equal(dg.Report.Runs[0].MeanDepth, op.Report.Runs[0].MeanDepth, 12);
         }
 
         [Fact]
