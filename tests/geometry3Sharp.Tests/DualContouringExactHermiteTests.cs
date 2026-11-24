@@ -366,6 +366,21 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ExponentOf_IsTheFloorOfTheBinaryLogarithm_AlsoOfSubnormals()
+        {
+            Assert.Equal(0, DualContouring.exponent_of(1.0));
+            Assert.Equal(0, DualContouring.exponent_of(-1.9999999999999998));
+            Assert.Equal(-1, DualContouring.exponent_of(0.75));
+            Assert.Equal(1023, DualContouring.exponent_of(double.MaxValue));
+            Assert.Equal(-1022, DualContouring.exponent_of(2.2250738585072014e-308));      // the smallest normal
+            // subnormals: 2^-1074 is the smallest double, 3 * 2^-1050 lies in [2^-1049, 2^-1048)
+            Assert.Equal(-1074, DualContouring.exponent_of(double.Epsilon));
+            Assert.Equal(-1049, DualContouring.exponent_of(3 * Math.Pow(2, -1050)));
+            Assert.Equal(-1023, DualContouring.exponent_of(2.2250738585072009e-308));      // the largest subnormal
+            Assert.Equal(-1040, DualContouring.exponent_of(-BitConverter.Int64BitsToDouble(1L << 34)));
+        }
+
+        [Fact]
         public void SubnormalField_IsRescaledByTheExponentOfItsLargestValue_AndContoursTheSameSurface()
         {
             // 2^-1040 is a subnormal double: the values at the sign changes (about 2^-1043 and below) are subnormal too, so the exponent of

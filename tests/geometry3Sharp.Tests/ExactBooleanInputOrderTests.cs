@@ -773,7 +773,8 @@ namespace geometry3Sharp.Tests
                 chosen.Add(corners[(k + 2) % 3].ToString());
             }
             // the same triangle for every order of the input
-            Assert.Single(chosen);
+            // the two candidates leave (0, 0, 0) towards (0, 0, 1) with the third corners (0, 4, 0) and (3, 1, 0): the smaller one is read
+            Assert.Equal(new[] { new Vector3d(0, 4, 0).ToString() }, chosen.ToArray());
         }
 
         // ---- the repair alone ----
