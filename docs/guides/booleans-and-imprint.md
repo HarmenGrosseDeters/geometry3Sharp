@@ -192,6 +192,100 @@ if (!op.Compute())
 
 `MaxPieces` aborts early with `Status = BudgetExceeded` once exact intersection counts exceed the limit. Cancelled runs return `Status = Cancelled` and the instance can be reused.
 
+### Volume Gradient (`BooleanVolumeGradient`)
+
+`BooleanVolumeGradient` gives the derivative of the volume of the exact result (before the rounding) with respect to
+every input vertex position, for shape and topology optimization.
+
+First run the boolean with `RetainClassification = true`. The option is off by default. It keeps, for each piece of the
+arrangement, whether the piece was kept or flipped, its coplanar stack, and the winding numbers in front of the pieces
+that are stacked. The memory is linear in the number of pieces, and the result does not change. Then:
+
+```csharp
+var boolean = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { RetainClassification = true };
+boolean.Compute();
+var g = new BooleanVolumeGradient(boolean);
+if (g.Compute()) {
+    Vector3d dVdx = g.Gradient[1][vid];          // input 1 (MeshB), vertex vid
+    Vector3d err = g.GradientBound[1][vid];      // |exact - dVdx| <= err per component
+}
+```
+
+Example: [BooleanVolumeGradientExample](../examples/BooleanVolumeGradientExample.cs). Method and measurements:
+[EXACT_BOOLEAN_GRADIENTS_2026-11.md](../research/EXACT_BOOLEAN_GRADIENTS_2026-11.md).
+
+**Contract.**
+- `Compute()` returns false and sets `Error` in three cases: the boolean did not succeed, it was not run with
+  `RetainClassification`, or one of its inputs is not closed, so the result has no volume.
+- `Gradient[m]` has `MaxVertexID` entries for input `m`. The input index is 0 for `MeshA` and 1 for `MeshB`, or the index
+  in the list of an n-ary boolean. A vertex that belongs to no kept piece has the entry 0.
+- `Volume` is the volume of the exact result, and `VolumeBound` is its error bound.
+- The output is bit-identical on every run: the computation is serial and uses no FMA.
+- If the inputs are scaled by 2^k, the gradient and its bound scale by exactly 2^2k and the volume by exactly 2^3k, as
+  long as nothing underflows or overflows.
+- The cost is linear in the number of kept pieces. It measured 19-49 % of the boolean's own time
+  ([benchmarks/BooleanVolumeGradient](../../benchmarks/BooleanVolumeGradient/README.md)).
+
+**Formula.**
+A kept piece P of an input triangle T moves with T. So, by the Hadamard formula, the volume changes by the integral of
+the normal velocity over the surface:
+
+  dV/dx_i = Σ over the kept pieces P of a triangle T with corner i of s_P λ_i^T(centroid P) N_P
+
+Here N_P is the area vector of P, oriented like T. s_P is -1 for a piece that the result reverses, and +1 otherwise.
+λ^T are the barycentric coordinates in T.
+
+The intersection curves have no area, so they do not contribute. This means no intersection point has to be
+differentiated.
+
+**The error bound (proof).**
+1. *Corners.*
+   - Each exact coordinate of a piece corner has the form num/den · 2^e. It is converted with `ExactPoint3.ToDouble`,
+     which is correctly rounded (by its documented method). So the exact value lies within half a spacing of the result
+     x, and therefore within [Down(x), Up(x)], the two neighbouring doubles.
+   - The interval is the single point x only when den = 1 and y = x · 2^-e is an integer equal to num. Then
+     x = num · 2^e exactly: both scalings by a power of two are exact for a normal x, and the code checks that x is
+     normal.
+2. *Terms and sums.*
+   - Every operation of `ExactInterval` (+, −, ×, ÷) rounds to nearest and then widens the result by one spacing on both
+     sides. So it encloses the exact result of the operation for all operand values in the operand intervals. The proof
+     is in `math/ExactIntervals.cs`. A divisor interval that contains 0 gives the whole line.
+   - By induction over the evaluation, each per-vertex sum interval [Lo, Hi] contains the exact derivative. These sums
+     add the terms of the formula in piece order.
+   - The same holds for the volume, Σ s_P p_0·(p_1×p_2)/6, and for the alternatives of the contact regions. No new error
+     constant is involved.
+3. *Value and bound.*
+   - The value is m = fl(Lo/2 + Hi/2), and the bound is b = Up(fl(max(Hi − m, m − Lo))).
+   - For d ≥ 0, fl(d) ≥ d − ulp(d)/2. `Up` then adds one spacing of fl(d), which is at least ulp(d)/2. The spacing of
+     fl(d) is smaller than that only when fl(d) is a power of two 2^j and d is just above it. In that case the spacing of
+     2^j upwards equals ulp(d), which is enough. So b ≥ d.
+   - Every z in [Lo, Hi] therefore satisfies |z − m| ≤ max(Hi − m, m − Lo) ≤ b.
+   - A NaN or infinite end gives b = +∞.
+
+**Kinks (contacts of positive area).**
+- V is not differentiable only where faces of different inputs lie in one plane and overlap with positive area.
+- An edge or a vertex on a face, or two edges crossing, change the overlap by o(t). V is differentiable there.
+- At a contact, `Gradient` is the one-sided derivative of the branch that the exact result realizes:
+  - a union merges touching solids, so it gives the overlapping side;
+  - an intersection and a difference separate them, so they give the separated side;
+  - for flush faces (same orientation), the result keeps the face of the first input, by input order. So A ∪ B and B ∪ A
+    give the two different one-sided derivatives.
+- `Contacts` lists each contact region, in a fixed order. For each region it gives the inputs involved, the number of
+  stacked faces, the area, and `Alternatives`.
+- Each alternative is a sparse change to `Gradient`. It belongs to another order of the faces along the plane's normal,
+  and gives another one-sided derivative.
+- For two faces there is exactly one alternative. The realized gradient and the gradient plus the alternative are then
+  the two extremes of the Clarke generalized gradient.
+- `Alternatives` stays empty in two cases: more than 4 stacked faces, or two faces of one input with the same
+  orientation.
+
+The area of the result is not covered:
+- its gradient is not rational;
+- it grows like 1/sin θ at nearly tangential seams;
+- it also has kinks at edge-on-face contacts.
+
+See the research note for details.
+
 ### By-Design Behavior (Not Defects)
 
 - **Open inputs yield open results:** The region where generalized winding number `> 0.5` is generally not closed; boundary edges remain where pieces of the open input survive. Open inputs are refused by default; this applies with `AllowOpenMeshes = true`. Close inputs first (`MeshRobustRepair`, `MeshAlphaWrap`) if a closed solid is required.
