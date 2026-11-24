@@ -1942,7 +1942,10 @@ namespace gs
         /// "" if the mesh is clean (see class comment), otherwise the first problem found, one of "empty",
         /// "not closed", "bowties", "degenerate triangles" (area &lt; 1e-12 * diagonal^2, of the bounds of the triangles),
         /// "inconsistent orientation" (an interior edge whose two triangles run the same way), "inside-out components",
-        /// "self-intersections". Useful as a test assertion: NotCleanReason(mesh) == "".
+        /// "self-intersections" (exact; pairs of triangles that only touch count, also at positions where vertices coincide: a boolean result
+        /// that touches itself, ExactMeshBoolean.Contacts &gt; 0, gets this reason although ExactMeshBoolean.RoundingClean is true, which
+        /// exempts the contacts of the exact result; SolidBooleanPipeline.Report.OnlyContacts tells such a result from one with a crossing).
+        /// Useful as a test assertion: NotCleanReason(mesh) == "".
         /// Stops at the first problem, which can hide the others (eg degenerate triangles hide self-intersections):
         /// NotCleanReasons / FindDefects report all of them.
         /// </summary>

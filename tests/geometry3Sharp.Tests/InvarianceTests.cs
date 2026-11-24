@@ -163,7 +163,7 @@ namespace geometry3Sharp.Tests
             // (rotated, the rounding leaves 107 slivers and 22 intersecting pairs; before the strip zip, 3 slivers were
             // left, which no single checked edit could fix)
             if (s.Name == "rotated") {
-                Assert.Equal(22, eb.Rounding.InitialIntersections);
+                Assert.Equal(45, eb.Rounding.InitialIntersections);      // (22 until #1410: the conversion of an exact vertex rounds to nearest now)
                 Assert.Equal(107, eb.Rounding.InitialDegenerate);
                 Assert.True(eb.Rounding.StripZips > 0);
             }
