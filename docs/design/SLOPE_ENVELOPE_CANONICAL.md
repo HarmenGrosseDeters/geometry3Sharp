@@ -180,10 +180,12 @@ sector).
   corners per face, in `OrderedFaces`), status, builds, toe lowering, merges, rays, and the surface bit for bit with its
   triangle groups.
 - `Reuse_SameMapAndSurface` (0.4 s): `Compute()` twice on one instance.
-- `Invariance_EveryFrame_SameAsTheEarlierConstruction` (1.9 s alone; it was 4.2 s in the full run, trimmed): over `Similarity.All()`,
-  rotated about z. The exact frames map back to the identity bit for bit; the others equal the earlier construction.
+- `Invariance_EveryFrame_SameAsTheEarlierConstruction` (a regular 22-gon, up to 3.4 s; an open toe with lateral limits,
+  0.2 s): over `Similarity.All()`, rotated about z. The exact frames map back to the identity bit for bit; the others equal the earlier construction.
   There is no parallel path, so no determinism test.
 - `Reinsert_IntoTheFinalMap_ChangesNothing` (0.3 s): re-inserting every piece changes no label, with far fewer splits.
+- `Default_GivesTheReferenceLabels` (0.5 s): R1 directly. The default gives the same map and surface as the reference
+  insertion (`SlopeMap.NoPrefilters`: no prefilter, every fan plane), on the strip-piece cases (section 7 for ramps).
 - `Barriers_HaveTheDomainOnOneSideOnly` (0.4 s): no barrier has domain faces on both sides, at any stage. This is the premise
   that makes the merge's barrier checks redundant.
 
@@ -211,3 +213,28 @@ Hand mutations (the PR-tier tests of the class):
   history).
 - `CompactDuringInsert`, `PartSectors`, `AfterSimplify` and `ReinsertAfterSimplify` stay internal (coordinator 2026-11-24).
 - (c), divide and conquer, is the next step if the remaining 20x is wanted.
+
+## 7. Found: the fan sectors of ramp pieces are not conservative (pre-existing, follow-up)
+
+The invariance test with a ramp (`TerrainSlopeRampTests.Straight`, `LocalFrame`) failed in the frame "rotated" (about z,
+31°). The earlier construction (as on master) gives 218 surface vertices and the default 216. The labels differ by about
+0.15 m at one boundary, not only at near-degenerate vertices.
+
+The reference insertion (`NoPrefilters`: no prefilter and every fan plane in every face) gives 217 for both constructions.
+So the prefilters are not the cause; with them alone off, the two constructions still differ. The cause is the fan-sector
+choice (`add_sector`) in `InsertPolygonPiece`: on some faces it leaves out a fan plane that is the piece's maximum. Which
+faces depend on their shapes, so the result depends on the construction, and master's result is not the exact envelope
+there either.
+
+All other frames, and all strip-piece cases, agree with the reference. The surface still passes the exact check. A missed
+plane lowers F_k, so the face's label can be a plane of the ramp unit where another one is the true minimum. The outcome
+stays certified against the specs, but it is not the defined envelope.
+
+Follow-up (not in this PR):
+- Find the face where the window misses the maximum (the polygon piece's fans at several apexes: the angular range is
+  measured from each apex, and a face that spans an apex closely, or the ramp's wall fans, may break the argument of
+  TERRAIN_1C_PLAN section 9).
+- Fix `add_sector` for polygon pieces, or take every fan plane there.
+- Add the ramp back to `Invariance_EveryFrame_SameAsTheEarlierConstruction` and `Default_GivesTheReferenceLabels`.
+
+Until then R1 holds for strip pieces only.

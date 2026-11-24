@@ -447,7 +447,7 @@ namespace gs
                     double dminB = box_segment_distance(bb, A.xy, B.xy);
                     double lowerB = zmin + slb * dminB;
                     double sizeB = bb.Diagonal.Length;
-                    if (lowerB > upperB + 1e-9 * (Math.Abs(upperB) + Math.Abs(lowerB) + slb * (sizeB + dminB)))
+                    if (NoPrefilters == false && lowerB > upperB + 1e-9 * (Math.Abs(upperB) + Math.Abs(lowerB) + slb * (sizeB + dminB)))
                         continue;
                 }
                 var pos = prefilterPos;
@@ -456,7 +456,7 @@ namespace gs
                 // prefilter (conservative): F_k over the face is at least zmin + slb * dmin, with the corners' error
                 double upper = double.MinValue;
                 foreach (var q in pos) upper = Math.Max(upper, K.ApproxHeight(label, q.x, q.y));
-                if (prefilter_skips(pos, upper, zmin, slb, A.xy, B.xy, MaxGradient))
+                if (NoPrefilters == false && prefilter_skips(pos, upper, zmin, slb, A.xy, B.xy, MaxGradient))
                     continue;
                 relevant.Clear();
                 relevant.AddRange(strip);
@@ -535,12 +535,12 @@ namespace gs
                 double dy = Math.Max(Math.Max(polyBox.Min.y - bb.Max.y, bb.Min.y - polyBox.Max.y), 0);
                 double dminB = Math.Sqrt(dx * dx + dy * dy);
                 double lowerB = zmin + slb * dminB;
-                if (lowerB > upperB + 1e-9 * (Math.Abs(upperB) + Math.Abs(lowerB) + slb * (bb.Diagonal.Length + polyBox.Diagonal.Length + dminB)))
+                if (NoPrefilters == false && lowerB > upperB + 1e-9 * (Math.Abs(upperB) + Math.Abs(lowerB) + slb * (bb.Diagonal.Length + polyBox.Diagonal.Length + dminB)))
                     continue;
                 var pos = prefilterPos;
                 pos.Clear(); prefilterVerts.Clear();
                 { int h0 = fEdge[f], h = h0; do { pos.Add(K.Approx(hOrig[h])); prefilterVerts.Add(hOrig[h]); h = hNext[h]; } while (h != h0); }
-                if (polygon != null) {
+                if (polygon != null && NoPrefilters == false) {
                     // the prefilter on the face's approximate corners (as InsertPiece's): the distance of the face to the
                     // polygon taken e shorter, the label's heights at the corners off by at most MaxGradient e
                     double upper = double.MinValue, e = 0;
@@ -597,6 +597,7 @@ namespace gs
         void add_sector(List<int> relevant, List<int> fan, List<double> ang, Vector2d apex, List<Vector2d> pos, double theta)
         {
             if (fan.Count == 0) return;
+            if (NoPrefilters) { relevant.AddRange(fan); return; }
             double refAngle = double.NaN, lo = 0, hi = 0;
             for (int i = 0; i < pos.Count; ++i) {
                 Vector2d q = pos[i];
@@ -682,6 +683,8 @@ namespace gs
         double sectorTheta;
         /// <summary> tests: filter the planes per part of a face by its sector (default); false: every part takes every plane of the face </summary>
         internal bool PartSectors = true;
+        /// <summary> tests: no prefilter and no fan sectors in the insertion (every face the reach box meets is clipped exactly with every plane: the reference labels) </summary>
+        internal bool NoPrefilters;
 
         void set_sectors(List<int> strip, double theta, List<int> fanB, List<double> angB, Vector2d b, List<int> fanA, List<double> angA, Vector2d a)
         {

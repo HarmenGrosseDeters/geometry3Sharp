@@ -66,6 +66,7 @@ namespace geometry3Sharp.Tests
                 ("earlier", Earlier),
                 ("earlier reversed", d => { Earlier(d); d.InsertionOrder = n => Enumerable.Range(0, n).Reverse().ToArray(); }),
                 ("seeded", d => d.InsertionOrder = n => TerrainSlopeDesign.shuffled(n, 7)),
+                ("reversed", d => d.InsertionOrder = n => Enumerable.Range(0, n).Reverse().ToArray()),
             };
             int rays = 0;
             foreach (var (name, make) in PrCases()) {
@@ -80,6 +81,20 @@ namespace geometry3Sharp.Tests
                 }
             }
             Assert.True(rays >= 1, $"{rays}");
+        }
+
+        // R1 directly: the default construction gives the reference labels, those of the insertion without prefilters and with every
+        // fan plane (SlopeMap.NoPrefilters): the same map after Simplify and the same surface. Strip pieces (the ramp's polygon pieces:
+        // see Invariance_EveryFrame_SameAsTheEarlierConstruction)
+        [Fact]
+        public void Default_GivesTheReferenceLabels()
+        {
+            foreach (var (name, make) in PrCases().Where(c => c.Item1 != "ramp")) {
+                var ma = new List<string>();
+                var a = Run(make, null, ma);
+                var mb = new List<string>();
+                AssertSame(a, Run(make, d => d.NoPrefilters = true, mb), ma, mb, name + " reference");
+            }
         }
 
         // compute twice on one instance (the map's merge list and sector context are per build)
@@ -99,35 +114,58 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        // in every frame of Similarity.All() (rotated about z, as in TerrainSlopePrefilterRegressionTests): the exact frames map back
-        // to the identity's surface bit for bit, and in the others the default construction gives the earlier one's bit for bit
-        [Fact]
-        public void Invariance_EveryFrame_SameAsTheEarlierConstruction()
+        // a case in the frame s (rotated about z, as in TerrainSlopePrefilterRegressionTests and the ramp tests): the toes, the ramps,
+        // the height limit and the tolerance mapped; the ramp in a local frame, as in TerrainSlopeRampTests
+        static TerrainSlopeDesign InFrame(string kind, Similarity s)
         {
-            Func<Similarity, TerrainSlopeDesign> make = f => {
-                var toe = SlopeToe.Constant(TerrainSlopeDesignTests.Ngon(22, 12.984759201288576, 0, 0.5293125866583142).Select(p => f.Apply(p)).ToList(), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(3.0107992275202644));
-                return new TerrainSlopeDesign() { Toes = { toe }, HeightLimit = f.Apply(new Vector3d(0, 0, 12.984759201288576 * 0.6)).z, Tolerance = f.ApplyLength(0.05) };
-            };
-            var origin = make(Similarity.Identity);
+            TerrainSlopeDesign d;
+            if (kind == "ngon22")
+                d = TerrainSlopeDesignTests.Design(12.984759201288576 * 0.6, 0.05, SlopeToe.Constant(TerrainSlopeDesignTests.Ngon(22, 12.984759201288576, 0, 0.5293125866583142), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(3.0107992275202644)));
+            else if (kind == "open")
+                d = TerrainSlopeDesignTests.Design(5, 0.02, SlopeToe.Constant(new List<Vector3d> { new Vector3d(0, 0, 0), new Vector3d(10, 0, 1), new Vector3d(15, 8, 0) }, false, SlopeToe.Sides.Left, SlopeSpec.Ratio(1.5)));
+            else {
+                d = TerrainSlopeRampTests.Straight();
+                d.LocalFrame = true;
+            }
+            foreach (var t in d.Toes) t.Points = t.Points.Select(p => s.Apply(p)).ToList();
+            foreach (var r in d.Ramps) {
+                r.Path = r.Path.Select(p => s.Apply(new Vector3d(p.x, p.y, 0)).xy).ToList();
+                r.Width = s.ApplyLength(r.Width);
+            }
+            d.HeightLimit = s.Apply(new Vector3d(0, 0, d.HeightLimit)).z;
+            d.Tolerance = s.ApplyLength(d.Tolerance);
+            return d;
+        }
+
+        // in every frame of Similarity.All() (rotated about z): the exact frames map back to the identity's surface bit for bit, and
+        // in the others the default construction gives the earlier one's bit for bit. A closed toe and an open toe with lateral limits.
+        // (Not the ramp: in the rotated frame the fan sectors of InsertPolygonPiece are not conservative, so neither construction gives
+        // the reference labels there, SLOPE_ENVELOPE_CANONICAL.md section 7; a follow-up)
+        [Theory]
+        [InlineData("ngon22")]
+        [InlineData("open")]
+        public void Invariance_EveryFrame_SameAsTheEarlierConstruction(string kind)
+        {
+            var origin = InFrame(kind, Similarity.Identity);
             Assert.True(origin.Compute(), origin.Message);
-            int exact = 0;
+            int exact = 0, other = 0;
             foreach (Similarity s0 in Similarity.All()) {
                 Similarity s = s0.IsRotated ? new Similarity(s0.Name + " (about z)", s0.Scale, Matrix3d.AxisAngleD(Vector3d.AxisZ, 31), s0.Translation) : s0;
-                var d = make(s);
+                var d = InFrame(kind, s);
                 Assert.True(d.Compute(), s.Name + " " + d.Message);
-                if (s.IsExact == false) {
-                    // (the exact frames are compared with the identity, which is compared with the earlier construction elsewhere)
-                    var e = make(s);
+                if (s.IsExact) {
+                    // (the identity is compared with the earlier construction in PureFunction_ConstructionAndOrder_SameMapAndSurface)
+                    Assert.Equal("", Invariance.Difference(origin.SlopeSurface, Invariance.MappedBack(d.SlopeSurface, s)));
+                    exact++;
+                } else {
+                    var e = InFrame(kind, s);
                     Earlier(e);
                     Assert.True(e.Compute(), s.Name + " " + e.Message);
                     Assert.Equal("", Invariance.Difference(e.SlopeSurface, d.SlopeSurface));
-                }
-                if (s.IsExact) {
-                    Assert.Equal("", Invariance.Difference(origin.SlopeSurface, Invariance.MappedBack(d.SlopeSurface, s)));
-                    exact++;
+                    other++;
                 }
             }
-            Assert.True(exact >= 2, $"{exact}");
+            Assert.True(exact >= 2 && other >= 1, $"{exact} {other}");
         }
 
         // every piece inserted again into the final map changes no label (the envelope is idempotent; an incremental construction
@@ -147,6 +185,11 @@ namespace geometry3Sharp.Tests
                 e.AfterSimplify = m => { mapsE.Add(m.PartitionText()); last = m; };
                 Assert.True(e.Compute(), e.Message);
                 Assert.Equal("", Invariance.Difference(d.SlopeSurface, e.SlopeSurface));
+                // (the map of the last build after its second Simplify: the same partition as without the re-insertion)
+                Assert.Equal(maps.Count, mapsE.Count);
+                Assert.Equal(maps.Take(maps.Count - 1), mapsE.Take(mapsE.Count - 1));
+                Assert.NotNull(last);
+                Assert.Equal(maps[maps.Count - 1], last.PartitionText());
                 Assert.True(e.ReinsertSplits < e.InsertSplits, $"{name}: {e.ReinsertSplits} {e.InsertSplits}");
                 output.WriteLine($"{name}: insert {e.InsertSplits} splits, again {e.ReinsertSplits}");
             }
@@ -301,5 +344,6 @@ namespace geometry3Sharp.Tests
             }
             Assert.True(checkedMaps >= cases.Count, $"{checkedMaps}");
         }
+
     }
 }
