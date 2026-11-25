@@ -23,6 +23,7 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 
 | Topic | State | Next step / waiting on | Link |
 |---|---|---|---|
+| Exact Boolean: sheet extension, pipeline option (C) for a refused stated sheet (the helper `MeshSheetExtension` is PR #1550) | Not started; design `docs/design/SHEET_EXTENSION.md` sections 6 and 9, "Under automatic use" | After #1550: stated sheets only or also auto-routed tools; does a failed extension block the hole-fill fallback; the strip as a reference surface of the verification | #1550, [design](design/SHEET_EXTENSION.md) |
 | Tet: P4(c), input-conforming CDT for clean inputs | Open; P4(a) merged, P4(b) built (#1196) | Parked (owner 2026-11-22): starts only on the owner's go | [tet](design/TET_MESHING.md), plan #1250 |
 | Platform/QA/CI: delete merged / superseded branches | Decided; branches still exist | Owner deletes them (sessions cannot) | [index](ROADMAP.md#open-decisions-owner), plan #1252 |
 | Exact Boolean: exact gradients of the volume and area of a Boolean result | Research note and test-only prototype (#1522); the volume gradient is exact | A public API is the owner's decision | #1522, [exact-boolean](roadmap/exact-boolean.md#board-update-2026-11-24-open-items-of-the-exact-boolean-and-the-solid-pipeline) |
