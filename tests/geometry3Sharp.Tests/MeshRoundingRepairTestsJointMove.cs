@@ -436,6 +436,31 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void StageEndedByItsBudgetAfterMoves_ReportsTheStateOfTheMesh()
+        {
+            // the state the repair leaves without the stage (search case 763 of seed 2: three degenerate triangles, three joint moves), as a mesh for
+            // a repair of its own with a stage budget of k evaluations per degenerate triangle: where a round makes moves and the budget then ends
+            // the stage, the defect lists are those of the mesh as it is, not before the moves (RemainingDegenerate, RemainingIntersections, IsClean; RemainingDefectAt is taken from the same lists)
+            DMesh3 left = RunPlates(Bowl, 3, 3, 0.2, 7.1566755079057365E-09, 0.3, 0.0, false, joint: false).Result;
+            int endedAfterMoves = 0;
+            foreach (int k in new[] { 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610 }) {
+                DMesh3 m = new DMesh3(left);
+                var r = new MeshRoundingRepair(m) { SharedPositionsTouch = true, JointStageEvaluationsPerDefect = k };
+                bool clean = r.Apply();
+                // (what the mesh has: a repair that makes no edit counts its defects at the start)
+                var check = new MeshRoundingRepair(new DMesh3(m)) { SharedPositionsTouch = true, MaxPasses = 0, JointSearch = false };
+                check.Apply();
+                Assert.Equal(check.InitialDegenerate, r.RemainingDegenerate);
+                Assert.Equal(check.InitialIntersections, r.RemainingIntersections);
+                Assert.Equal(r.RemainingDegenerate == 0 && r.RemainingIntersections == 0, clean);
+                Assert.Equal(clean, r.IsClean);
+                if (r.JointMoves > 0 && r.RemainingDegenerate == 0)
+                    endedAfterMoves++;
+            }
+            Assert.True(endedAfterMoves > 0);
+        }
+
+        [Fact]
         public void ClosedInsideOutComponent_IsNotSearched_TheSameMeshTheRightWayRoundIs()
         {
             // the state the repair leaves without the stage (the plates of FailedPairs_...), as a mesh for a repair of its own: the same
@@ -594,7 +619,31 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void Script_MovePair_SameVertexTwiceOrUnmoved_Refused()
+        public void Script_MovePair_VerticesOfTwoComponents_Refused()
+        {
+            // the bound of an edit is that of the component of its first removed triangle: a pair of two components is refused
+            DMesh3 m = Sphere();
+            DMesh3 other = Sphere();
+            foreach (int v in other.VertexIndices())
+                other.SetVertex(v, other.GetVertex(v) + new Vector3d(10, 0, 0));
+            int offset = m.MaxVertexID;
+            var map = new Dictionary<int, int>();
+            foreach (int v in other.VertexIndices())
+                map[v] = m.AppendVertex(other.GetVertex(v));
+            foreach (int t in other.TriangleIndices()) {
+                Index3i tv = other.GetTriangle(t);
+                m.AppendTriangle(map[tv.a], map[tv.b], map[tv.c]);
+            }
+            DMesh3 start = new DMesh3(m);
+            int u = m.VertexIndices().First(), w = map[other.VertexIndices().First()];
+            MeshRoundingRepair r = Script(m, new List<Edit> { MovePair(u, start.GetVertex(u) * 1.001, w, start.GetVertex(w) + new Vector3d(0, 0, 0.001)) }, 0.05);
+            Assert.Equal(new[] { false }, r.ScriptAccepted);
+            Assert.Equal("", Invariance.Difference(start, m));
+            Assert.True(offset > 0);
+        }
+
+        [Fact]
+        public void Script_MovePair_SameVertexTwiceUnmovedOrBeyondTheDriftBound_Refused()
         {
             DMesh3 start = Sphere(), m = new DMesh3(start);
             Edge(start, out int u, out int w);
@@ -603,7 +652,7 @@ namespace geometry3Sharp.Tests
                 MovePair(u, pu, u, pu),                                            // the same vertex twice
                 MovePair(u, start.GetVertex(u), w, start.GetVertex(w) * 1.01),     // the first stays where it is
                 MovePair(u, pu, w, start.GetVertex(w)),                            // the second stays where it is
-                MovePair(u, pu, w, pu),                                            // both onto one position
+                MovePair(u, pu, w, pu),                                            // w moves beyond the drift bound (not the shared-position rule: a script skips it, see Pair_OntoOnePosition...)
             }, 0.05);
             Assert.Equal(new[] { false, false, false, false }, r.ScriptAccepted);
             Assert.Equal("", Invariance.Difference(start, m));

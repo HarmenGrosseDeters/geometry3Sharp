@@ -440,7 +440,7 @@ the cluster `Cluster 36 3 8` that stayed unclean without the limit is now repair
 
 ### 10.5 Not verified
 
-The `families` mode was not run. The cohort acceptance run (the job of #755 on all 5,413 models of the Thingi10K target class, 16,239 operations, base master ca9b55291 against this branch, 2026-11-25): no operation newly unclean; 1 unclean operation becomes clean (Thingi10K 86593 intersection: 2 degenerate triangles left on master, 0 after one joint move); the 16,036 operations that are rounding clean on master keep their result hash; no operation with more defects; `MaxDrift` never above `MaxLength`, deciles unchanged; the joint stage ran in that one operation only; `EvaluationLimitReached` false everywhere in both builds; time sums +1.2 % (operations) and +3.0 % (rounding), noisy. Observed by the owner on private inputs: outcomes unchanged except one result that no longer needs the grid retry.
+The `families` mode was not run. The cohort acceptance run (the job of #755 on all 5,413 models of the Thingi10K target class, 16,239 operations, base master ca9b55291 against this branch, 2026-11-25): no operation newly unclean; 1 unclean operation becomes clean (Thingi10K 86593 intersection: 2 degenerate triangles left on master, 0 after one joint move); the 16,036 operations that are rounding clean on master keep their result hash; no operation with more defects; `MaxDrift` never above `MaxLength`, deciles unchanged; the joint stage ran in that one operation only; `EvaluationLimitReached` false everywhere in both builds; time sums +1.2 % (operations) and +3.0 % (rounding), noisy. Observed by the owner on private inputs: no outcome got worse.
 The time on large meshes was not measured beyond the table of section 10.6; the remaining half (the dome fans, two fixed corners) needs another edit (section 6, options 2 and 3) and is not addressed.
 
 ### 10.6 Review of the joint move (2026-11-24) and the fixes
@@ -471,3 +471,12 @@ An independent review judged the change sound to merge after fixes. Per finding:
 5. *Docs.* "It counts as one evaluation ... so `MaxEvaluationsPerDefect` and `MaxPairTests` bound it" is replaced by the description of the budget (SAFE_ROUNDING.md 9.1, "Cost"); the counts are stated once (10.3); the cohort acceptance run is listed as owed (10.5).
 6. *Tests.* The `now` runs of the imprint stage tests use the default (joint stage on) and assert `JointMoves` 0 (10.4). `NoJointSearchOnThisThread` stays (as `CheckOnThisThread`); it does not reach the parallel n-ary path, which the stage's tests do not cover either.
 7. *Mutants and fixtures.* See 10.4: the shared-position rules cannot be reached through the search (they guard `try_move_pair` against a pair of vertices that are not neighbours, which no caller proposes); the fixtures of the new tests use `CoreMath.Sin` / `Cos`.
+
+### 10.7 Review of PR #1573 and the fixes
+
+1. *Stale defect lists:* a round that made moves and then reached the stage budget left before the lists were recomputed, so a result the stage had made clean was reported not clean. The lists are recomputed whenever a round made a move (test `StageEndedByItsBudgetAfterMoves_ReportsTheStateOfTheMesh`, which fails with the old order).
+2. *Ghost bound at the second vertex:* the case that was meant to pin it listed the ghost at the first vertex too; the new case moves a far vertex and the ghost's vertex (the ghost sets the bound: 0.2 + 0.3, the triangles give 0.3; `Script_JointMove_TheGhostAtTheSecondVertexSetsTheBound`); the mutant that drops the line fails two tests.
+3. `try_move_pair` refuses two vertices of different components (the bound of `improves` is that of one component); test `Script_MovePair_VerticesOfTwoComponents_Refused`.
+4. The 1 872 is a measurement, not a bound (code comment and SAFE_ROUNDING.md).
+5. The script test whose "both onto one position" is refused by the drift bound is renamed; the shared-position rule is tested without a script.
+

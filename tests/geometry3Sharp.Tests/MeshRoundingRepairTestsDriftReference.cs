@@ -95,11 +95,20 @@ namespace geometry3Sharp.Tests
                 ["remove, contract twice, move the ghost's edge as a pair"] = (t, f) => new List<Edit> {
                     Remove(t.U), Collapse(t.N1, t.A, f(t.P(t.A))), Collapse(t.A, t.N2, f(t.P(t.N2))),
                     MovePair(t.N2, f(t.P(t.N2) - Move * t.Normal), t.X, f(t.P(t.X) - 2 * Move * t.Normal)) },
-                // joint_ghosts_of_the_second_vertex: the ghost on n2-x is at the second vertex of the pair only (the first, q, has none); a rule
+                // joint_ghosts_of_the_second_vertex: the ghost on n2-x (a ghost of the tent lists at q too, so this case does not pin the line: see Script_JointMove_TheGhostAtTheSecondVertexSetsTheBound); a rule
                 // that lists the ghosts of the first vertex only misses it
                 ["remove, contract twice, move another vertex and the ghost's vertex as a pair"] = (t, f) => new List<Edit> {
                     Remove(t.U), Collapse(t.N1, t.A, f(t.P(t.A))), Collapse(t.A, t.N2, f(t.P(t.N2))),
                     MovePair(t.Q, f(t.P(t.Q) - Move * t.Normal), t.X, f(t.P(t.X) - 2 * Move * t.Normal)) },
+                // joint_ghost_bound_at_the_second_vertex: a vertex far from the tent and the ghost's vertex x as a pair, x moved by 0.3: the ghost
+                // is listed at x only (not at the first vertex), carries h and its other corner is not far from where it was, so it sets the
+                // maximum (0.5) over the triangles of both stars (0.3); a rule that does not evaluate the ghosts at the second vertex reports 0.3
+                ["remove, contract twice, move a far vertex and the ghost's vertex as a pair, the ghost sets the bound"] = (t, f) => {
+                    int far = t.Mesh.VertexIndices().OrderByDescending(v => t.P(v).Distance(t.P(t.X))).First();
+                    return new List<Edit> {
+                        Remove(t.U), Collapse(t.N1, t.A, f(t.P(t.A))), Collapse(t.A, t.N2, f(t.P(t.N2))),
+                        MovePair(far, f(t.P(far) - (Move / 10) * t.Normal), t.X, f(t.P(t.X) - 3 * Move * t.Normal)) };
+                },
                 // joint_second_vertex_triangles: the tip and a corner of the tent move together, then the tip is removed: the triangles of the
                 // second vertex carry its move too
                 ["move the tip and a corner, remove the tip"] = (t, f) => new List<Edit> {
@@ -208,6 +217,18 @@ namespace geometry3Sharp.Tests
             MeshRoundingRepair rc = Run(mc, Cases[name](t, p => p), check: true);
             Assert.Equal("", Invariance.Difference(m, mc));
             Assert.Equal(r.MaxDrift, rc.MaxDrift);
+        }
+
+        [Fact]
+        public void Script_JointMove_TheGhostAtTheSecondVertexSetsTheBound()
+        {
+            // the reported drift is the ghost's bound, h plus the move of its vertex (0.2 + 0.3), not the 0.3 of the triangles of the two
+            // stars: the ghost lies at the second vertex of the pair only (a far vertex is the first), so only the ghosts at that vertex give it
+            const string name = "remove, contract twice, move a far vertex and the ghost's vertex as a pair, the ghost sets the bound";
+            Tent t = MakeTent();
+            MeshRoundingRepair r = Run(new DMesh3(t.Mesh), Cases[name](t, p => p), check: true);
+            Assert.True(r.ScriptAccepted.All(ok => ok));
+            Assert.Equal(H + 3 * Move, r.MaxDrift, 12);
         }
 
         [Fact]

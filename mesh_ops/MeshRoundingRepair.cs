@@ -3061,10 +3061,14 @@ namespace g3
         // move u to pu and w to pw as one edit (a joint move): the triangles of both are removed and added again with their corners
         // in the order they have, the edit is accepted by improves like every other (the counts of the two stars together: no
         // defect more, fewer in all, the orientation rule with the displacement of each triangle's own corners), and its drift is the largest bound of those triangles and of the
-        // ghosts at u and w at the new positions. Neither is a boundary vertex or a bowtie (callers: search_pairs)
+        // ghosts at u and w at the new positions. Neither is a boundary vertex or a bowtie, both are in one component (callers: search_pairs)
         [MethodImpl(JitHints.Optimize)]
         internal bool try_move_pair(int u, Vector3d pu, int w, Vector3d pw)
         {
+            // (the bound of an edit is that of the component of its first removed triangle, see improves: both vertices must be in it. The
+            // callers pass two corners of one triangle; a pair of two components is refused)
+            if (u != w && componentOf != null && u < componentOf.Length && w < componentOf.Length && componentOf[u] != componentOf[w])
+                return false;
             if (u == w || pu == Mesh.GetVertex(u) || pw == Mesh.GetVertex(w) || double.IsNaN(pu.x + pu.y + pu.z) || double.IsNaN(pw.x + pw.y + pw.z)
                 || hard_fixed(u) || hard_fixed(w))
                 return false;
@@ -3312,7 +3316,7 @@ namespace g3
         /// <summary>
         /// the evaluations the joint stage may use per degenerate triangle it starts with (the proposals that reach improves; the
         /// evaluations that succeeded took at most 301 in the sample of docs/research/ROUNDING_DEGENERATE_LEFT_2026-11.md section 10, a
-        /// pair that fails takes at most 1 872). The stage has its own budget so that it does not use up the one of the repair: it
+        /// pair that failed took 1 872 in the samples: a measurement, not a bound). The stage has its own budget so that it does not use up the one of the repair: it
         /// stops at it, or before the repair's effort limit, without setting EvaluationLimitReached
         /// </summary>
         internal int JointStageEvaluationsPerDefect = 1024;
@@ -3343,11 +3347,14 @@ namespace g3
                     if (Mesh.IsTriangle(t) && is_bad(t) && in_inside_out_component(t, insideOut) == false)
                         search_pairs(t);
                 }
-                if (JointMoves == before || joint_stage_over())
+                if (JointMoves == before)
                     break;
+                // (also where the budget ended the round: the lists are those of the mesh as the moves left it)
                 bad = degenerate_triangles();
                 if (pairs.Count > 0)
                     pairs = intersecting_pairs();
+                if (joint_stage_over())
+                    break;
             }
         }
 

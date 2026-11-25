@@ -1331,7 +1331,7 @@ A triangle with an edge of 1e-10 and two of 1e-7 cannot be lifted above the dege
   the displacement of its own corners; a larger triangle is refused if its normal turns (dot product with the old one not positive). "No triangle turned over" is therefore not the rule: triangles about as high as the move may turn
   over (tiny folds), and the exact intersection checks, not the orientation, keep the result free of self-intersections.
 - *Cost:* each proposal that reaches `improves` is an evaluation. The stage has its own budget, `JointStageEvaluationsPerDefect` (1 024) times the number of degenerate triangles it starts with (a pair that succeeded took at most 301 evaluations
-  in the samples of the research note section 10, a pair that fails 1 872 at most per triangle). It ends at that budget, or at the repair's own limit if that is nearer (`MaxEvaluationsPerDefect`, and 15/16 of the pair test budget `MaxPairTests`),
+  in the samples of the research note section 10, a failing pair took 1 872 here: a measurement, not a bound). It ends at that budget, or at the repair's own limit if that is nearer (`MaxEvaluationsPerDefect`, and 15/16 of the pair test budget `MaxPairTests`),
   **without setting `EvaluationLimitReached`**: the stage can end at the repair's effort limit and the result then says it is not clean for the defect it left, not that the repair was out of effort. If the limit was reached before the stage,
   the stage does not run. The probes of the cheap test are outside the budget.
 - `JointMoves` counts the accepted pairs; they are also counted in `Moves` (not in `PositionSearchMoves`).
