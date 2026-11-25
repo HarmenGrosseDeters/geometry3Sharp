@@ -1746,8 +1746,11 @@ namespace g3
         internal Vector3i VertexCellMin(int vid) { return genCell[vid].Min; }
 
         /// <summary> solve the QEF of one cell with the eigen solver of the caller (a 3x3 solver with 64 iterations, used by one thread at a time; Solve resets it, so it can serve any number of calls) </summary>
-        internal Vector3d solve_qef(SymmetricEigenSolver solver, Vector3d cellMin, double cellSize, List<int> edges, Vector3d[] points, Vector3d[] normals, out Vector3d massPoint, out Vector3d planeNormal, out bool isFeature)
+        internal Vector3d solve_qef(SymmetricEigenSolver solver, Vector3d cellMin, double cellSize, List<int> edges, Vector3d[] points, Vector3d[] normals, out Vector3d massPoint, out Vector3d planeNormal, out bool isFeature, double marginSize = -1)
         {
+            // marginSize: the length QEFCellMargin is relative to (default the cell size). A block of merged cells passes the size of one
+            // cell, so a feature on the block's boundary (a box face on a grid plane) is not pushed 1 % of the block inside (#1598).
+            double marginBase = marginSize >= 0 ? marginSize : cellSize;
             Vector3d mass = Vector3d.Zero;
             foreach (int ci in edges)
                 mass += points[ci];
@@ -1781,7 +1784,7 @@ namespace g3
                 double[] ev0 = solver.GetEigenvector(0);
                 Vector3d e0 = new Vector3d(ev0[0], ev0[1], ev0[2]);
                 Vector3d x1 = (evals[0] > MathUtil.Epsilon) ? (e0.Dot(b) / evals[0]) * e0 : Vector3d.Zero;
-                Vector3d cmin = cellMin + QEFCellMargin * cellSize * Vector3d.One, cmax = cellMin + (1 - QEFCellMargin) * cellSize * Vector3d.One;
+                Vector3d cmin = cellMin + QEFCellMargin * marginBase * Vector3d.One, cmax = marginSize >= 0 ? cellMin + cellSize * Vector3d.One - QEFCellMargin * marginBase * Vector3d.One : cellMin + (1 - QEFCellMargin) * cellSize * Vector3d.One;
                 massPoint = mass + x1;
                 planeNormal = (evals[0] > MathUtil.Epsilon) ? e0.Normalized : Vector3d.Zero;
                 for (int c = 0; c < 3; ++c)
@@ -1798,7 +1801,7 @@ namespace g3
             // the minimum is the best feasible one of the unconstrained solution and the solutions with
             // 1, 2 or 3 coordinates fixed at the cell bounds (faces, edges, corners of the cell).
             // (slightly inside: vertices of neighbouring cells on their common face would coincide)
-            double margin = QEFCellMargin * cellSize;
+            double margin = QEFCellMargin * marginBase;
             Vector3d lo = cellMin - mass + margin * Vector3d.One, hi = lo + (cellSize - 2 * margin) * Vector3d.One;
             double eps = 1e-9 * cellSize;
             if (inside(x, lo, hi, eps))

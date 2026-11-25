@@ -281,7 +281,7 @@ namespace g3
                 Vector3d bmin = origin + owner.CellSize * new Vector3d((c0.x >> l) << l, (c0.y >> l) << l, (c0.z >> l) << l);
                 double bsize = owner.CellSize * (1 << l);
                 Vector3d mass, pn; bool feat;
-                Vector3d x = dc.solve_qef(qefSolver, bmin, bsize, edges, dc.HermitePoints, dc.HermiteNormals, out mass, out pn, out feat);
+                Vector3d x = dc.solve_qef(qefSolver, bmin, bsize, edges, dc.HermitePoints, dc.HermiteNormals, out mass, out pn, out feat, owner.CellSize);
                 bool ok = !(double.IsNaN(x.x) || double.IsNaN(x.y) || double.IsNaN(x.z) || double.IsInfinity(x.x) || double.IsInfinity(x.y) || double.IsInfinity(x.z));
                 if (ok) {
                     foreach (int ci in edges) {
