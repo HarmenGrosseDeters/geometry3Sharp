@@ -143,6 +143,19 @@
      1.596
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 1.273,
+    "ok": true,
+    "runs_s": [
+     1.273,
+     1.265,
+     1.273
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "alphawrap-knot-dense-wrap": [
@@ -288,6 +301,19 @@
      1.742
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 1.433,
+    "ok": true,
+    "runs_s": [
+     1.459,
+     1.381,
+     1.433
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "alphawrap-thingi-111959-wrappipe": [
@@ -437,6 +463,19 @@
      21.76
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 18.54,
+    "ok": true,
+    "runs_s": [
+     18.54,
+     18.559,
+     18.416
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "alphawrap-thingi-1514905-wrappipe": [
@@ -582,6 +621,19 @@
      15.114
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 11.622,
+    "ok": true,
+    "runs_s": [
+     11.622,
+     11.783,
+     11.489
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "alphawrap-thingi-222687-wrappipe": [
@@ -731,6 +783,19 @@
      29.517
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 23.811,
+    "ok": true,
+    "runs_s": [
+     23.811,
+     23.785,
+     24.172
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "alphawrap-thingi-222695-wrappipe": [
@@ -880,6 +945,19 @@
      30.902
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 24.823,
+    "ok": true,
+    "runs_s": [
+     24.642,
+     24.823,
+     24.891
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "alphawrap-thingi-224108-wrappipe": [
@@ -1029,6 +1107,19 @@
      21.058
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 17.029,
+    "ok": true,
+    "runs_s": [
+     17.027,
+     17.056,
+     17.029
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "alphawrap-thingi-39368-wrappipe": [
@@ -1176,6 +1267,19 @@
      17.547
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 14.678,
+    "ok": true,
+    "runs_s": [
+     14.499,
+     14.815,
+     14.678
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "alphawrap-thingi-40118-wrappipe": [
@@ -1311,6 +1415,19 @@
      74.037
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 57.783,
+    "ok": true,
+    "runs_s": [
+     57.732,
+     57.783,
+     57.88
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "alphawrap-thingi-49901-wrappipe": [
@@ -1460,6 +1577,19 @@
      22.697
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 18.764,
+    "ok": true,
+    "runs_s": [
+     18.764,
+     18.88,
+     18.537
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "alphawrap-thingi-49998-wrappipe": [
@@ -1609,6 +1739,19 @@
      19.852
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 15.818,
+    "ok": true,
+    "runs_s": [
+     15.216,
+     15.818,
+     15.981
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "alphawrap-thingi-500097-wrappipe": [
@@ -1758,6 +1901,19 @@
      28.986
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 23.597,
+    "ok": true,
+    "runs_s": [
+     23.597,
+     23.51,
+     23.617
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "alphawrap-thingi-500099-wrappipe": [
@@ -1907,6 +2063,19 @@
      23.626
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 19.482,
+    "ok": true,
+    "runs_s": [
+     19.482,
+     19.334,
+     19.74
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "alphawrap-thingi-500115-wrappipe": [
@@ -2056,6 +2225,19 @@
      27.137
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 21.551,
+    "ok": true,
+    "runs_s": [
+     21.654,
+     21.41,
+     21.551
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "alphawrap-thingi-520646-wrappipe": [
@@ -2205,6 +2387,19 @@
      31.555
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 25.562,
+    "ok": true,
+    "runs_s": [
+     26.413,
+     25.562,
+     25.509
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "alphawrap-thingi-535629-wrappipe": [
@@ -2354,6 +2549,19 @@
      31.881
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 25.593,
+    "ok": true,
+    "runs_s": [
+     25.58,
+     25.843,
+     25.593
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "alphawrap-thingi-679615-wrappipe": [
@@ -2503,6 +2711,19 @@
      25.916
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 20.146,
+    "ok": true,
+    "runs_s": [
+     20.146,
+     20.025,
+     20.502
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "alphawrap-thingi-69261-wrappipe": [
@@ -2652,6 +2873,19 @@
      33.266
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 25.471,
+    "ok": true,
+    "runs_s": [
+     25.471,
+     26.308,
+     25.218
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "alphawrap-thingi-78968-wrappipe": [
@@ -2801,6 +3035,19 @@
      40.305
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 32.066,
+    "ok": true,
+    "runs_s": [
+     32.02,
+     32.066,
+     32.479
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "alphawrap-thingi-84042-wrappipe": [
@@ -2948,6 +3195,19 @@
      17.871
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 14.199,
+    "ok": true,
+    "runs_s": [
+     14.199,
+     14.025,
+     14.359
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "alphawrap-thingi-860049-wrappipe": [
@@ -3097,6 +3357,19 @@
      44.986
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 37.729,
+    "ok": true,
+    "runs_s": [
+     38.126,
+     37.508,
+     37.729
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "boolean-knot-default-union": [
@@ -3242,6 +3515,19 @@
      2.317
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 2.005,
+    "ok": true,
+    "runs_s": [
+     2.253,
+     2.005,
+     1.862
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "boolean-knot-dense-union": [
@@ -3387,6 +3673,19 @@
      5.327
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 4.612,
+    "ok": true,
+    "runs_s": [
+     4.604,
+     4.612,
+     4.631
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "boolean-thingi-1005586-union": [
@@ -3536,6 +3835,19 @@
      78.701
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 32.13,
+    "ok": true,
+    "runs_s": [
+     32.798,
+     32.13,
+     32.107
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "boolean-thingi-107554-union": [
@@ -3685,6 +3997,19 @@
      25.921
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 16.923,
+    "ok": true,
+    "runs_s": [
+     17.011,
+     16.809,
+     16.923
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "boolean-thingi-1087141-union": [
@@ -3834,6 +4159,19 @@
      34.929
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 27.077,
+    "ok": true,
+    "runs_s": [
+     27.077,
+     25.722,
+     27.088
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "boolean-thingi-112798-union": [
@@ -3983,6 +4321,19 @@
      43.704
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 32.036,
+    "ok": true,
+    "runs_s": [
+     31.807,
+     32.036,
+     32.925
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "boolean-thingi-113906-union": [
@@ -4132,6 +4483,19 @@
      0.121
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 0.122,
+    "ok": true,
+    "runs_s": [
+     0.12,
+     0.122,
+     0.125
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "boolean-thingi-117959-union": [
@@ -4281,6 +4645,19 @@
      40.153
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 29.113,
+    "ok": true,
+    "runs_s": [
+     29.144,
+     29.019,
+     29.113
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "boolean-thingi-1368057-union": [
@@ -4430,6 +4807,19 @@
      27.78
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 20.699,
+    "ok": true,
+    "runs_s": [
+     20.653,
+     20.699,
+     20.762
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "boolean-thingi-42327-union": [
@@ -4579,6 +4969,19 @@
      29.305
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 21.774,
+    "ok": true,
+    "runs_s": [
+     21.774,
+     21.578,
+     21.864
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "boolean-thingi-498458-union": [
@@ -4724,6 +5127,19 @@
      13.265
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 11.405,
+    "ok": true,
+    "runs_s": [
+     11.405,
+     11.117,
+     11.538
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "boolean-thingi-519511-union": [
@@ -4869,6 +5285,19 @@
      16.777
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 13.306,
+    "ok": true,
+    "runs_s": [
+     13.317,
+     13.301,
+     13.306
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "boolean-thingi-55928-difference": [
@@ -4996,6 +5425,17 @@
      428.37
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 311.393,
+    "ok": true,
+    "runs_s": [
+     311.393
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ],
   "boolean-thingi-55928-union": [
@@ -5123,6 +5563,17 @@
      458.369
     ],
     "sha": "f11323390a77ffbbe201a3ff2e33ce60b2f27423"
+   },
+   {
+    "date": "2026-11-25T09:53:34Z",
+    "flags": [],
+    "machine": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "median_s": 333.659,
+    "ok": true,
+    "runs_s": [
+     333.659
+    ],
+    "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
    }
   ]
  },
