@@ -1,0 +1,9 @@
+{"kind":"wrapbreak","shape":"slot","break":"clean","tris":104400,"wrap_s":3.4496509,"wrap_tris":243138,"status":"Success","h_over_alpha":1.8569533817705182}
+{"kind":"wrapbreak","shape":"slot","break":"soup","tris":104400,"wrap_s":2.573086,"wrap_tris":243462,"status":"Success","h_over_alpha":1.8569533817705182}
+{"kind":"wrapbreak","shape":"slot","break":"nonconf","tris":131058,"wrap_s":2.3030372,"wrap_tris":243450,"status":"Success","h_over_alpha":1.8569533817705182}
+{"kind":"wrapbreak","shape":"slot","break":"jitter:0.025","tris":104400,"wrap_s":3.1178428,"wrap_tris":244288,"status":"Success","h_over_alpha":1.8559987327032217}
+{"kind":"wrapbreak","shape":"slot","break":"holes:0.025","tris":101835,"wrap_s":13.5979282,"wrap_tris":507722,"status":"Success","h_over_alpha":1.8569533817705182}
+{"kind":"wrapbreak","shape":"slot","break":"dup:0.05","tris":109539,"wrap_s":2.5195966,"wrap_tris":243342,"status":"Success","h_over_alpha":1.8569533817705182}
+{"kind":"wrapbreak","shape":"slot","break":"gap:0.15","tris":104400,"wrap_s":2.6514924,"wrap_tris":245426,"status":"Success","h_over_alpha":1.8522251199756423}
+{"kind":"wrapbreak","shape":"slot","break":"flip:0.1","tris":104400,"wrap_s":2.5104509,"wrap_tris":243476,"status":"Success","h_over_alpha":1.8569533817705182}
+{"kind":"wrapbreak","shape":"slot","break":"mix:0.5","tris":134171,"wrap_s":22.0193529,"wrap_tris":970518,"status":"Success","h_over_alpha":1.851317891759957}

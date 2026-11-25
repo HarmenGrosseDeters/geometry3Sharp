@@ -313,6 +313,25 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", MeshRobustRepair.NotCleanReason(result));
         }
 
+        // an unwelded box soup: a clean solid whichever stage ends the repair (here the repair welds it; the wrap path with the
+        // switches: VarifoldCreaseInputTests.RobustRepair_SharpFeaturesOnSoups_RunsTheVarifoldSource)
+        [Fact]
+        public void MeshRepairExample_RobustRepairKeepingCreases_GivesACleanSolid()
+        {
+            DMesh3 box = AlphaWrapFeaturePassTests.PolyCube(4, 3, 2, (x, y, z) => true);
+            var soup = new DMesh3();
+            foreach (int t in box.TriangleIndices()) {
+                Index3i v = box.GetTriangle(t);
+                int a = soup.AppendVertex(box.GetVertex(v.a)), b = soup.AppendVertex(box.GetVertex(v.b)), c = soup.AppendVertex(box.GetVertex(v.c));
+                soup.AppendTriangle(a, b, c);
+            }
+            DMesh3 result = MeshRepairExample.RobustRepairKeepingCreases(soup, out bool wrapped, 60);
+            Assert.NotNull(result);
+            Assert.False(wrapped);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(result));
+            Assert.InRange(Volume(result), 24 - 1e-9, 24 + 1e-9);
+        }
+
         [Fact]
         public void HoleFillExample_FillsAllHoles()
         {
