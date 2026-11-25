@@ -14,7 +14,9 @@ namespace g3.Examples
     /// respect to the vertices of input 1, and takes the projected (Newton) step x += t g with t = (Vtarget - V) / |g|^2,
     /// so the linearized volume hits the target. A step cap bounds how far one step moves a vertex. The step is
     /// made only of products and quotients of the gradient, the volume difference and the input's longest edge, so a scaling of
-    /// the inputs by 2^k scales every iteration exactly (the positions by 2^k, the volumes by 2^3k).
+    /// the inputs by 2^k scales every iteration exactly (the positions by 2^k, the volumes by 2^3k). The gradient is
+    /// normalized by its largest component before |g|^2 is formed, so this holds over the whole range of the exact Boolean's
+    /// volume (tested at 2^-280 and 2^280; from coordinates of about 2^341 the volume itself overflows and Compute fails).
     ///
     /// At a flush contact (faces of both inputs overlapping in one plane) V has a kink. The optimizer uses the gradient of
     /// the branch the exact result realizes (BooleanVolumeGradient.Gradient) and reports the contacts of each iteration, so a
@@ -23,7 +25,11 @@ namespace g3.Examples
     public static class BooleanVolumeOptimizerExample
     {
         /// <summary> why the optimizer stopped </summary>
-        public enum StopReason { Converged, MaxIterations, ComputeFailed, ZeroGradient, ResultNotClosed }
+        /// <summary>
+        /// why the optimizer stopped. InvalidArguments: a target that is not finite, a StepCap that is not positive and finite, or
+        /// a Tolerance that is negative or NaN (Error says which; nothing is computed)
+        /// </summary>
+        public enum StopReason { Converged, MaxIterations, ComputeFailed, ZeroGradient, ResultNotClosed, InvalidArguments }
 
         public sealed class Options
         {
@@ -39,6 +45,8 @@ namespace g3.Examples
             public double StepCap = 0.25;
             /// <summary> store each iteration's result mesh (the rounded Boolean result) as vertex and triangle arrays </summary>
             public bool RecordMeshes = false;
+            /// <summary> called with the iteration index on each new ExactMeshBoolean before its Compute (eg its rounding options or a Cancellation) </summary>
+            public Action<int, ExactMeshBoolean> Configure;
         }
 
         /// <summary> one Boolean evaluation and the step taken after it </summary>
@@ -46,7 +54,7 @@ namespace g3.Examples
         {
             /// <summary> the volume of the exact result, and its error bound </summary>
             public double Volume, VolumeBound;
-            /// <summary> the farthest the step taken after this evaluation moves a vertex (0 for the last one) </summary>
+            /// <summary> the farthest the step taken after this evaluation moves a vertex (0 for the last one; StepCap times the longest edge exactly when Capped) </summary>
             public double Step;
             /// <summary> true if the step was cut to Options.StepCap </summary>
             public bool Capped;
@@ -61,7 +69,7 @@ namespace g3.Examples
         public sealed class Result
         {
             public StopReason Reason;
-            /// <summary> the error of a failed Compute (of the Boolean or the gradient), else null </summary>
+            /// <summary> the error of a failed Compute (of the Boolean or the gradient) or of InvalidArguments, else null </summary>
             public string Error;
             public List<Iteration> Iterations = new List<Iteration>();
             /// <summary>
@@ -79,6 +87,12 @@ namespace g3.Examples
         {
             options = options ?? new Options();
             var r = new Result() { Moved = new DMesh3(b) };
+            if (double.IsNaN(target) || double.IsInfinity(target))
+                return stop(r, StopReason.InvalidArguments, "the target volume is not finite");
+            if (!(options.StepCap > 0) || double.IsInfinity(options.StepCap))
+                return stop(r, StopReason.InvalidArguments, "StepCap must be positive and finite");
+            if (!(options.Tolerance >= 0))
+                return stop(r, StopReason.InvalidArguments, "Tolerance must be >= 0");
             DMesh3 moved = r.Moved;
             // (lengths, not coordinates, so the steps are the same under a rotation; under a scaling by 2^k they scale exactly)
             double longest = 0;
@@ -91,6 +105,7 @@ namespace g3.Examples
             DMesh3 good = null;     // the positions of Final
             for (int it = 0; ; ++it) {
                 var boolean = new ExactMeshBoolean(a, moved, op) { RetainClassification = true };
+                options.Configure?.Invoke(it, boolean);
                 if (boolean.Compute() == false)
                     return failed(r, good, "boolean: " + boolean.Error);
                 var gradient = new BooleanVolumeGradient(boolean);
@@ -113,23 +128,30 @@ namespace g3.Examples
                 if (it + 1 >= options.MaxIterations)
                     return stop(r, StopReason.MaxIterations, null);
 
-                // the projected step t g, t = residual / |g|^2 (the realized branch at a contact), cut to the cap
+                // the projected step t g, t = residual / |g|^2 (the realized branch at a contact), cut to the cap. With u = g / m,
+                // m the largest component (no overflow or underflow: |u| <= sqrt 3), the step is s u with s = residual / m / |u|^2;
+                // a division by a common factor commutes exactly with a scaling by 2^k
                 Vector3d[] g = gradient.Gradient[1];
-                double gg = 0, gmax = 0;
-                foreach (int v in moved.VertexIndices()) {
-                    gg += g[v].LengthSquared;
-                    gmax = Math.Max(gmax, g[v].Length);
-                }
-                if (gg == 0)
+                double m = 0;
+                foreach (int v in moved.VertexIndices())
+                    m = Math.Max(m, g[v].MaxAbs);
+                if (m == 0)
                     return stop(r, StopReason.ZeroGradient, null);
-                double t = residual / gg;
-                if (Math.Abs(t) * gmax > cap) {
-                    t = Math.Sign(t) * (cap / gmax);
+                double uu = 0, umax = 0;
+                foreach (int v in moved.VertexIndices()) {
+                    Vector3d u = g[v] / m;
+                    uu += u.LengthSquared;
+                    umax = Math.Max(umax, u.Length);
+                }
+                double t = residual / m / uu;
+                step.Step = Math.Abs(t) * umax;
+                if (step.Step > cap) {
+                    t = Math.Sign(t) * (cap / umax);
+                    step.Step = cap;
                     step.Capped = true;
                 }
-                step.Step = Math.Abs(t) * gmax;
                 foreach (int v in moved.VertexIndices())
-                    moved.SetVertex(v, moved.GetVertex(v) + t * g[v]);
+                    moved.SetVertex(v, moved.GetVertex(v) + t * (g[v] / m));
             }
         }
 
@@ -174,7 +196,8 @@ namespace g3.Examples
         /// </summary>
         public static void WriteTrajectory(Result r, TextWriter w)
         {
-            string R(double d) => d.ToString("R", CultureInfo.InvariantCulture);
+            // (G17: round-trips on every runtime; "R" does not always on .NET Framework)
+            string R(double d) => d.ToString("G17", CultureInfo.InvariantCulture);
             w.Write("{\"reason\":\"" + r.Reason + "\",\"iterations\":[");
             for (int i = 0; i < r.Iterations.Count; ++i) {
                 Iteration s = r.Iterations[i];

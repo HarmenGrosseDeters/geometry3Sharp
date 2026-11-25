@@ -592,16 +592,10 @@ namespace g3cli
                 op.RetainClassification = gradientPath != null;
                 if (op.Compute() == false)
                     throw new CommandException(ResultCodes.OperationFailed, "boolean failed (" + op.Status + "): " + op.Error, BooleanFailure(op));
-                // (the gradient first, to a temporary file: if it or the mesh fails, neither file is written)
-                JsonObject gradient = gradientPath != null ? VolumeGradient(op, meshes, gradientPath, gradientFormat) : null;
-                bool written = false;
-                try {
-                    MeshFiles.Write(args.String("output"), op.Result, args.Bool("binary"));
-                    written = true;
-                } finally {
-                    if (gradientPath != null)
-                        CommitVolumeGradient(gradientPath, written);
-                }
+                // (the gradient first, to a temporary file: if it, the mesh or the move fails, neither file is left)
+                string gradientTemp = null;
+                JsonObject gradient = gradientPath != null ? VolumeGradient(op, meshes, gradientPath, gradientFormat, out gradientTemp) : null;
+                WriteMeshAndGradient(args.String("output"), op.Result, args.Bool("binary"), gradientTemp, gradientPath);
                 var o = new JsonObject() { ["a"] = args.String("a"), ["b"] = args.String("b"), ["output"] = args.String("output"), ["op"] = opName };
                 o["inputs"] = new JsonArray(files.Select(f => (JsonNode)f).ToArray());
                 if (opName == "at_least")

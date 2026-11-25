@@ -33,14 +33,16 @@ namespace g3cli
             string dir = Path.GetDirectoryName(Path.GetFullPath(path));
             if (Directory.Exists(dir) == false)
                 throw new CommandException(ResultCodes.WriteError, $"cannot write '{path}': directory does not exist");
+            if (Directory.Exists(path))
+                throw new CommandException(ResultCodes.WriteError, $"cannot write '{path}': it is a directory");
             return ext.Substring(1);
         }
 
         /// <summary>
-        /// computes the gradient of op (computed with RetainClassification) and writes it to path + ".g3tmp" (the caller moves it
-        /// into place with CommitVolumeGradient after the mesh is written, or removes it); returns the result's summary
+        /// computes the gradient of op (computed with RetainClassification) and writes it to a new temporary file next to path
+        /// (temp; WriteMeshAndGradient moves it into place after the mesh is written, or removes it); returns the result's summary
         /// </summary>
-        static JsonObject VolumeGradient(ExactMeshBoolean op, List<DMesh3> meshes, string path, string format)
+        static JsonObject VolumeGradient(ExactMeshBoolean op, List<DMesh3> meshes, string path, string format, out string temp)
         {
             var g = new BooleanVolumeGradient(op);
             if (g.Compute() == false)
@@ -48,10 +50,12 @@ namespace g3cli
                     new JsonObject() { ["volume_gradient_error"] = g.Error, ["boolean"] = BooleanInfo(op) });
             JsonArray contacts = ContactsJson(g);
             int rows = 0;
-            string temp = path + ".g3tmp";
+            // (a name of its own, created new: an existing file is never overwritten or removed)
+            temp = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path)), "." + Path.GetFileName(path) + "." + Path.GetRandomFileName() + ".g3tmp");
+            // ("R" round-trips on .NET Core 3.0 and later, which g3cli targets)
             string R(double d) => d.ToString("R", CultureInfo.InvariantCulture);
             try {
-                using (var w = new StreamWriter(temp, false, new System.Text.UTF8Encoding(false))) {
+                using (var w = new StreamWriter(new FileStream(temp, FileMode.CreateNew, FileAccess.Write), new System.Text.UTF8Encoding(false))) {
                     if (format == "csv")
                         w.Write("mesh,vertex,x,y,z,gx,gy,gz,bx,by,bz\n");
                     else
@@ -75,7 +79,7 @@ namespace g3cli
                         w.Write("\n]}\n");
                 }
             } catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) {
-                try { File.Delete(temp); } catch (Exception) { }
+                TryDelete(temp);
                 throw new CommandException(ResultCodes.WriteError, $"cannot write '{path}': {e.Message}");
             }
             return new JsonObject() {
@@ -85,20 +89,35 @@ namespace g3cli
             };
         }
 
-        /// <summary> moves the written gradient into place (commit) or removes it </summary>
-        static void CommitVolumeGradient(string path, bool commit)
+        /// <summary>
+        /// writes the mesh to output and, with a gradient (temp != null), moves its temporary file to gradientPath. Either both
+        /// files are written or neither is left: a failed mesh write removes the temporary file, a failed move also removes the
+        /// mesh just written (write_error)
+        /// </summary>
+        internal static void WriteMeshAndGradient(string output, DMesh3 mesh, bool binary, string temp, string gradientPath)
         {
-            string temp = path + ".g3tmp";
-            try {
-                if (commit)
-                    File.Move(temp, path, true);
-                else
-                    File.Delete(temp);
-            } catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) {
-                try { File.Delete(temp); } catch (Exception) { }
-                if (commit)
-                    throw new CommandException(ResultCodes.WriteError, $"cannot write '{path}': {e.Message}");
+            if (temp == null) {
+                MeshFiles.Write(output, mesh, binary);
+                return;
             }
+            try {
+                MeshFiles.Write(output, mesh, binary);
+            } catch (Exception) {
+                TryDelete(temp);
+                throw;
+            }
+            try {
+                File.Move(temp, gradientPath, true);
+            } catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) {
+                TryDelete(temp);
+                TryDelete(output);
+                throw new CommandException(ResultCodes.WriteError, $"cannot write '{gradientPath}': {e.Message} (the mesh '{output}' was removed)");
+            }
+        }
+
+        static void TryDelete(string path)
+        {
+            try { File.Delete(path); } catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) { }
         }
 
         /// <summary> the contact regions: meshes, sheets, area and per other branch its sparse change of the gradient </summary>

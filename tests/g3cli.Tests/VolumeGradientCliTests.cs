@@ -71,6 +71,8 @@ namespace g3cli.Tests
             var (exit, r) = Run("boolean", m.Cube, Touching(), m.Path_("touching_union.stl"), "--op", "union", "--volume-gradient", grad, "--compact");
             Assert.Equal(0, exit);
             JsonNode file = JsonNode.Parse(File.ReadAllText(grad));
+            Assert.Equal(16, I(r["volume_gradient"]["rows"]));
+            Assert.Equal("json", S(r["volume_gradient"]["format"]));
             Assert.Equal(16.0, D(file["volume"]), 12);
             Assert.Equal(D(r["volume_gradient"]["volume"]), D(file["volume"]));
             Assert.Equal(D(r["volume_gradient"]["volume_bound"]), D(file["volume_bound"]));
@@ -135,7 +137,57 @@ namespace g3cli.Tests
             Assert.NotEqual(0, exit);
             Assert.Equal("error", S(r["status"]));
             Assert.False(File.Exists(grad));
-            Assert.False(File.Exists(grad + ".g3tmp"));
+            Assert.Empty(Directory.GetFiles(m.Dir, "*.g3tmp"));
+        }
+
+        [Fact]
+        public void DirectoryAsGradientPath_FailsBeforeTheBoolean()
+        {
+            string grad = m.Path_("grad_dir.csv"), output = m.Path_("grad_dir_union.stl");
+            Directory.CreateDirectory(grad);
+            var (exit, r) = Run("boolean", m.Cube, m.Shifted, output, "--op", "union", "--volume-gradient", grad, "--compact");
+            Assert.Equal(ResultCodes.WriteError, S(r["code"]));
+            Assert.Equal(ResultCodes.ExitCode(ResultCodes.WriteError), exit);
+            Assert.Contains("it is a directory", S(r["message"]));      // (the check up front, not a failed move after the boolean)
+            Assert.False(File.Exists(output));
+            Assert.Null(r["boolean"]);                          // (rejected before the boolean ran)
+        }
+
+        [Fact]
+        public void FailedGradientMove_RemovesTheMesh()
+        {
+            // the move of the written gradient fails after the mesh was written (here: the target became a directory): neither
+            // file is left, and the error says so
+            string output = m.Path_("move_fail.stl"), grad = m.Path_("move_fail_dir.json"), temp = m.Path_(".move_fail.tmp.g3tmp");
+            Directory.CreateDirectory(grad);
+            File.WriteAllText(temp, "{}");
+            var e = Assert.Throws<CommandException>(() => Commands.WriteMeshAndGradient(output, CubeMesh(Vector3d.Zero), true, temp, grad));
+            Assert.Equal(ResultCodes.WriteError, e.Code);
+            Assert.Contains("was removed", e.Message);
+            Assert.False(File.Exists(output));
+            Assert.False(File.Exists(temp));
+            Assert.True(Directory.Exists(grad));
+
+            // and the plain path: both written, the temporary file gone
+            string ok = m.Path_("move_ok.json");
+            File.WriteAllText(temp, "{}");
+            Commands.WriteMeshAndGradient(output, CubeMesh(Vector3d.Zero), true, temp, ok);
+            Assert.True(File.Exists(output));
+            Assert.Equal("{}", File.ReadAllText(ok));
+            Assert.False(File.Exists(temp));
+        }
+
+        [Fact]
+        public void ExistingTempLikeFile_IsNotTouched()
+        {
+            // the temporary file has a name of its own: a file named like the old path + ".g3tmp" survives
+            string grad = m.Path_("keep.csv"), other = grad + ".g3tmp";
+            File.WriteAllText(other, "mine");
+            var (exit, _) = Run("boolean", m.Cube, m.Shifted, m.Path_("keep.stl"), "--op", "union", "--volume-gradient", grad, "--compact");
+            Assert.Equal(0, exit);
+            Assert.Equal("mine", File.ReadAllText(other));
+            Assert.True(File.Exists(grad));
+            File.Delete(other);
         }
 
         [Fact]
@@ -165,7 +217,7 @@ namespace g3cli.Tests
             Assert.Contains("not closed", S(r["volume_gradient_error"]));
             Assert.False(File.Exists(grad));
             Assert.False(File.Exists(output));
-            Assert.False(File.Exists(grad + ".g3tmp"));
+            Assert.Empty(Directory.GetFiles(m.Dir, "*.g3tmp"));
         }
 
         [Fact]
