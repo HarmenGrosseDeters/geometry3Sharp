@@ -182,7 +182,7 @@ namespace geometry3Sharp.Tests
 
         static MeshRobustRepair Config(DMesh3 mesh, double relativeAlpha, double fillAlphas, bool guard)
         {
-            return new MeshRobustRepair(mesh) { SolidifyResolution = 80, WrapRelativeAlpha = relativeAlpha, WrapRelativeOffset = 10 * relativeAlpha,
+            return new MeshRobustRepair(mesh) { SolidifyResolution = 80, SimplifyAlphaWrap = false, WrapRelativeAlpha = relativeAlpha, WrapRelativeOffset = 10 * relativeAlpha,
                 WrapFillLoopAlphas = fillAlphas, NoThinShellCheck = guard == false };
         }
 
@@ -236,6 +236,21 @@ namespace geometry3Sharp.Tests
             Assert.Equal(MeshRobustRepair.ResultPaths.AlphaWrap, guarded.ResultPath);
             Assert.Equal(Hash(on.Mesh), Hash(guarded.Mesh));
             Assert.Equal("", MeshRobustRepair.NotCleanReason(guarded.Mesh, true));
+        }
+
+        [Fact]
+        public void OpenBowl_WithSimplification_TheGuardFires()
+        {
+            // the other tests of this file turn the simplification of the wrap off for the test time; the guard judges the simplified wrap too
+            DMesh3 bowl = RobustRepairHollowWrapTests.Bowl(8, -0.2);
+            MeshRobustRepair r = Config(new DMesh3(bowl), 50, RobustRepairWrapHoleFill.MaxLoopAlphas, true);
+            r.SimplifyAlphaWrap = true;
+            Assert.False(r.Apply());
+            Assert.Equal(MeshRobustRepair.ThinShellWrap, r.ResultReason);
+            Assert.True(r.UsedAlphaWrap);
+            Assert.True(r.AlphaWrapSimplified);
+            Assert.Equal(MeshRobustRepair.ResultPaths.AlphaWrap, r.ResultPath);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh, true));
         }
 
         [Fact]
