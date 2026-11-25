@@ -6,6 +6,10 @@ Back to [Sources Index](../SOURCES.md) · [sources/README.md](README.md)
 
 The [certified medial-axis study](../research/CERTIFIED_MEDIAL_AXIS_STUDY.md) uses the ordinary local feature size definition from N. Amenta and M. Bern, [Surface Reconstruction by Voronoi Filtering](https://escholarship.org/uc/item/4rc7z0d1), DCG 22 (1999). The contact-radius filter is from F. Chazal and A. Lieutier, [The λ-medial axis](https://geometrica.saclay.inria.fr/team/Fred.Chazal/papers/cl-lma-05/mlambda.pdf), Graphical Models 67 (2005). The critical-point criterion is from F. Chazal, D. Cohen-Steiner and A. Lieutier, [A Sampling Theory for Compact Sets in Euclidean Space](https://geometrica.saclay.inria.fr/team/Fred.Chazal/papers/ccsl-stcse-09/ccsl-stcse-09.pdf), DCG 41 (2009). Paper text only.
 
+## Willmore fairing
+
+K. Crane, U. Pinkall and P. Schröder, *Robust Fairing via Conformal Curvature Flow*, ACM TOG 32(4), 2013. The authors describe a curvature-space formulation with fixed connectivity. The ring-torus study uses its own restricted radius descent and the library's mixed-area curvature estimator. [Authors’ publication summary](https://www.cs.cmu.edu/~kmcrane/Projects/ConformalWillmoreFlow/)
+
 ## Surface deformation (`ArapMeshDeformer`)
 
 | Item | Source |
