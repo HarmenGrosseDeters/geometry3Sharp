@@ -318,7 +318,7 @@ must still be caught, which costs a completeness check per hint class. And HP 7 
 enumeration, grid lookups) and deciding (predicates); report the bound "search removed" per part for Herne and the
 corpus. *Constraints:* measurement only; the oracle's independence rules stay. *Stop:* if removing all search leaves
 Herne above 2.5 times the mesher, stop: the stop rule of the oracle note holds and hints do not change it. The same
-question, asked of stage 3 of the certifying Boolean checker (plan #1256), is a pointer for that spike, not a second
+question, asked of stage 3 of the certifying Boolean checker ([plan #1256](../plans/boolean-certifying-checker-stage-3.md)), is a pointer for that spike, not a second
 brief.
 
 ### 5.6 Approximate elimination as a second arm of the solver spike
