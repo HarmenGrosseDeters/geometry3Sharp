@@ -87,6 +87,26 @@ namespace gs
         public Vector3d Center;
     }
 
+    /// <summary>
+    /// one closed component of a closed input that was inside-out and thinner than the rounding bound, and that the pipeline
+    /// dropped (from a copy) before the boolean instead of refusing the run (SolidBooleanReport.DroppedInsideOutComponents, #1555)
+    /// </summary>
+    public sealed class SolidBooleanDroppedComponent
+    {
+        /// <summary> index of the input it belongs to </summary>
+        public int Input;
+        /// <summary> its triangles </summary>
+        public int Triangles;
+        /// <summary> its signed volume (negative: inside-out) and its area </summary>
+        public double Volume, Area;
+        /// <summary> 2 |Volume| / Area, below Bound </summary>
+        public double Thickness;
+        /// <summary> the rounding bound it was compared with: 1e-5 (the default ExactMeshBoolean.RoundingMaxDisplacement) times the box diagonal of the largest component of the closed inputs </summary>
+        public double Bound;
+        /// <summary> the centre of its bounding box </summary>
+        public Vector3d Center;
+    }
+
     /// <summary> one input thinner than MinThickness (SolidBooleanPipeline.ThinInputs) </summary>
     public sealed class SolidBooleanThinInput
     {
@@ -149,6 +169,11 @@ namespace gs
         public double RoundingVolumeBefore, RoundingVolumeAfter;
         /// <summary> the solids of the boolean result that MinThickness removed (empty without it) </summary>
         public List<SolidBooleanThinSolid> RemovedThinSolids = new List<SolidBooleanThinSolid>();
+        /// <summary>
+        /// the inside-out components of the closed inputs that were thinner than the rounding bound and were dropped before the
+        /// boolean (see SolidBooleanPipeline.AllowInsideOutInputs); empty otherwise
+        /// </summary>
+        public List<SolidBooleanDroppedComponent> DroppedInsideOutComponents = new List<SolidBooleanDroppedComponent>();
         /// <summary> with MinThickness: the inputs thinner than it (see ThinInputs); empty otherwise </summary>
         public List<SolidBooleanThinInput> ThinInputs = new List<SolidBooleanThinInput>();
         /// <summary> the triangle count asked for (TargetTriangleCount, or TargetFraction of BooleanTriangles); 0 for the other criteria </summary>
@@ -356,7 +381,17 @@ namespace gs
         /// derives the solid the surface encloses instead for an input that is embedded (no self-intersections); a closed input
         /// that self-intersects keeps its given orientation under ByNesting (see ExactMeshBoolean.OrientationModes), so a part of it
         /// that is inside-out stays so and is refused again: the Error then names the self-intersections, and a closed copy that
-        /// the input repair produced (Report.RepairedInputs)
+        /// the input repair produced (Report.RepairedInputs).
+        /// One exception (owner 2026-11-25, #1555): with AllowInsideOutInputs false and Orientation not ByNesting, a closed component
+        /// of a closed input (closed and consistently oriented by its edges) whose exact volume is negative, whose thickness 2 |Volume| / Area is below the
+        /// rounding bound (1e-5, the default ExactMeshBoolean.RoundingMaxDisplacement, times the box diagonal of the largest
+        /// component of the closed inputs; fixed, ConfigureBoolean does not change it) and that lies outside the rest of its input
+        /// at a vertex (exact winding number; a cavity, every vertex inside, stays, a thin one too) is
+        /// dropped from a copy of the input before the boolean and listed in Report.DroppedInsideOutComponents: two nearly
+        /// coincident sheets of the wrong orientation, a residue that the rounding cannot resolve; the run is not refused for it.
+        /// Never all of an input: an input that is nothing but such components is used as it is. The bound is relative to the largest
+        /// component of all closed inputs, so a small flipped part next to a much larger input can be thin by it: check
+        /// Report.DroppedInsideOutComponents (Status and Report.Clean do not show a drop)
         /// </summary>
         public bool AllowInsideOutInputs = false;
 
@@ -960,6 +995,13 @@ namespace gs
                 // (a sheet is open by role: not an open input to refuse or repair)
                 anyOpen |= !Report.InputClosed[i] && !isSheet(i);
             }
+            // the thin inside-out components of the closed inputs (#1555): dropped from copies before the boolean
+            if (!AllowInsideOutInputs && Orientation != ExactMeshBoolean.OrientationModes.ByNesting) {
+                var solid = new bool[n];
+                for (int i = 0; i < n; ++i)
+                    solid[i] = Report.InputClosed[i] && !isSheet(i);
+                given = DropThinInsideOut(given, solid, Report.DroppedInsideOutComponents);
+            }
             // the inputs thinner than MinThickness; active: the indices of the inputs the boolean gets
             var active = new List<int>(n);
             for (int i = 0; i < n; ++i)
@@ -1340,6 +1382,149 @@ namespace gs
         }
 
         /// <summary>
+        /// the rounding bound of DropThinInsideOut, relative to the diagonal: the default ExactMeshBoolean.RoundingMaxDisplacement
+        /// (fixed: a RoundingMaxDisplacement set in ConfigureBoolean does not change it)
+        /// </summary>
+        internal const double InsideOutThinBound = 1e-5;
+
+        /// <summary>
+        /// The inputs (given) with the thin inside-out components of the solid ones dropped (#1555), each listed in dropped. A
+        /// candidate is a component (by edges) of a solid input that has no boundary edge, is consistently oriented (the two
+        /// triangles of every edge run along it in opposite directions), has an exactly negative volume (ExactPredicates.VolumeSign)
+        /// and 2 |Volume| / Area below InsideOutThinBound times the largest box diagonal of the components of the solid inputs (the
+        /// magnitude in doubles, first; the sign exact). The solid inputs are the closed ones that are not sheets: sheets and open
+        /// inputs do not count for the diagonal. It is dropped where the rest of its input (every triangle that is no candidate: the input is winding-closed,
+        /// so this is also exact for shells closed only by position, or split into several components) has a winding number of
+        /// 0 or less at one of its vertices (exact, ShellIndex.ExactWinding; a vertex on or within the touch distance of the rest
+        /// is skipped): it lies outside the solid there. A cavity (every vertex inside the rest) stays, and so does a candidate
+        /// no vertex decides; a candidate that crosses the rest with every vertex inside it stays too. An input that would lose all
+        /// of its triangles is kept as it is. Returns given itself when nothing is dropped, else a new list with copies of the
+        /// changed inputs (the others are the same objects). Volumes are taken relative to a vertex of each component, in a fixed
+        /// order: a scale by 2^k scales every value exactly
+        /// </summary>
+        internal static List<DMesh3> DropThinInsideOut(List<DMesh3> given, bool[] solid, List<SolidBooleanDroppedComponent> dropped)
+        {
+            int n = given.Count;
+            var tris = new int[n][][];
+            var vol = new double[n][];
+            var area = new double[n][];
+            var boxes = new AxisAlignedBox3d[n][];
+            double diagonal = 0;
+            for (int i = 0; i < n; ++i) {
+                if (!solid[i] || given[i].TriangleCount == 0)
+                    continue;
+                DMesh3 mesh = given[i];
+                var cc = new MeshConnectedComponents(mesh);
+                cc.FindConnectedT();
+                int m = cc.Count;
+                tris[i] = new int[m][];
+                vol[i] = new double[m];
+                area[i] = new double[m];
+                boxes[i] = new AxisAlignedBox3d[m];
+                for (int c = 0; c < m; ++c) {
+                    int[] ct = cc.Components[c].Indices;
+                    tris[i][c] = ct;
+                    Vector3d o = mesh.GetVertex(mesh.GetTriangle(ct[0]).a);
+                    double v6 = 0, a2 = 0;
+                    var box = AxisAlignedBox3d.Empty;
+                    foreach (int t in ct) {
+                        Index3i tv = mesh.GetTriangle(t);
+                        Vector3d p = mesh.GetVertex(tv.a), q = mesh.GetVertex(tv.b), r = mesh.GetVertex(tv.c);
+                        box.Contain(p); box.Contain(q); box.Contain(r);
+                        v6 += (p - o).Dot((q - o).Cross(r - o));
+                        a2 += (q - p).Cross(r - p).Length;
+                    }
+                    vol[i][c] = v6 / 6;
+                    area[i][c] = a2 / 2;
+                    boxes[i][c] = box;
+                    diagonal = Math.Max(diagonal, box.Diagonal.Length);
+                }
+            }
+            double bound = InsideOutThinBound * diagonal;
+            List<DMesh3> result = given;
+            for (int i = 0; i < n; ++i) {
+                if (tris[i] == null)
+                    continue;
+                DMesh3 mesh = given[i];
+                int m = tris[i].Length;
+                var candidates = new List<int>();
+                int candidateTriangles = 0;
+                for (int c = 0; c < m; ++c) {
+                    // (the cheap test first, thin by the doubles; then, for the few that pass, closed and consistent by the edges and the
+                    // exact sign of the volume: the sign is decided exactly, the doubles only bound the magnitude)
+                    if (!(2 * Math.Abs(vol[i][c]) < bound * area[i][c]))
+                        continue;
+                    if (!closed_and_consistent(mesh, tris[i][c]) || MeshPostRepairCleanup.volume_sign(mesh, tris[i][c]) >= 0)
+                        continue;
+                    candidates.Add(c);
+                    candidateTriangles += tris[i][c].Length;
+                }
+                // (never all of an input: then it is used as it is, and the boolean decides as before)
+                if (candidates.Count == 0 || candidateTriangles == mesh.TriangleCount)
+                    continue;
+                // the rest of the input: one index for all candidates of the input
+                var isCandidate = new bool[m];
+                foreach (int c in candidates)
+                    isCandidate[c] = true;
+                var restTris = new List<int>(mesh.TriangleCount - candidateTriangles);
+                var restBox = AxisAlignedBox3d.Empty;
+                for (int c = 0; c < m; ++c) {
+                    if (isCandidate[c])
+                        continue;
+                    restTris.AddRange(tris[i][c]);
+                    restBox.Contain(boxes[i][c]);
+                }
+                var rest = new ShellIndex(mesh, restTris.ToArray(), restBox);
+                var drop = new List<int>();
+                foreach (int c in candidates)
+                    if (rest.AnyVertexOutside(mesh, tris[i][c]))
+                        drop.Add(c);
+                if (drop.Count == 0)
+                    continue;
+                var copy = new DMesh3(mesh);
+                foreach (int c in drop) {
+                    foreach (int t in tris[i][c])
+                        copy.RemoveTriangle(t, true, false);
+                    dropped.Add(new SolidBooleanDroppedComponent {
+                        Input = i, Triangles = tris[i][c].Length, Volume = vol[i][c], Area = area[i][c],
+                        Thickness = 2 * Math.Abs(vol[i][c]) / area[i][c], Bound = bound, Center = boxes[i][c].Center
+                    });
+                }
+                if (result == given)
+                    result = new List<DMesh3>(given);
+                result[i] = copy;
+            }
+            return result;
+        }
+
+        // every edge of the triangles tris has two triangles that run along it in opposite directions: closed and consistently
+        // oriented by the edges. (A guard: the input is winding-closed, so a component that is closed by its edges but not
+        // consistent would need another component to balance it at the same positions; no test input reaches it)
+        static bool closed_and_consistent(DMesh3 mesh, int[] tris)
+        {
+            foreach (int t in tris)
+                for (int j = 0; j < 3; ++j)
+                    if (!consistent_edge(mesh, mesh.GetTriEdge(t, j)))
+                        return false;
+            return true;
+        }
+
+        // an edge with two triangles that run along it in opposite directions (a boundary edge is not)
+        static bool consistent_edge(DMesh3 mesh, int eid)
+        {
+            Index4i ev = mesh.GetEdge(eid);
+            if (ev.d == DMesh3.InvalidID)
+                return false;
+            return runs_along(mesh.GetTriangle(ev.c), ev.a, ev.b) != runs_along(mesh.GetTriangle(ev.d), ev.a, ev.b);
+        }
+
+        // does triangle t have the directed edge a -> b
+        static bool runs_along(Index3i t, int a, int b)
+        {
+            return (t.a == a && t.b == b) || (t.b == a && t.c == b) || (t.c == a && t.a == b);
+        }
+
+        /// <summary>
         /// Removes from mesh every solid (an outer shell, positive volume, with the cavities, negative volume, inside it)
         /// whose 2 Volume / Area is below minThickness, and returns them. A cavity belongs to the smallest outer shell whose
         /// box contains the cavity's box and that contains the cavity (ShellIndex.Contains: exact, by a vertex of the cavity); a cavity
@@ -1601,6 +1786,30 @@ namespace gs
                         continue;
                     if (ExactWinding(p, out w))
                         return w > 0;
+                }
+                return false;
+            }
+
+            /// <summary>
+            /// Is the winding number of this shell 0 or less at a vertex of the triangles comp of mesh (in the order of their index;
+            /// a vertex outside the box is outside; one on the shell or within the touch distance of it is skipped)? False if every
+            /// vertex that decides is inside, or none decides (DropThinInsideOut)
+            /// </summary>
+            internal bool AnyVertexOutside(DMesh3 mesh, int[] comp)
+            {
+                var set = new HashSet<int>();
+                foreach (int t in comp) {
+                    Index3i tv = mesh.GetTriangle(t);
+                    set.Add(tv.a); set.Add(tv.b); set.Add(tv.c);
+                }
+                int[] vertices = new int[set.Count];
+                set.CopyTo(vertices);
+                Array.Sort(vertices);
+                int w;
+                foreach (int v in vertices) {
+                    Vector3d p = mesh.GetVertex(v);
+                    if (!touches(p) && ExactWinding(p, out w) && w <= 0)
+                        return true;
                 }
                 return false;
             }
