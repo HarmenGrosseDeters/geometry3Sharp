@@ -409,14 +409,20 @@ namespace g3
                 culprits = new List<Key>();
                 var bad = new HashSet<Key>();
                 // (degenerate area of NotCleanReason: relative to the bounds of the result)
-                double diag = outMesh.GetBounds().DiagonalLength, degenerateArea = 1e-12 * diag * diag;
+                AxisAlignedBox3d outBounds = outMesh.GetBounds();
+                double diag = outBounds.DiagonalLength, degenerateArea = 1e-12 * diag * diag;
+                Vector3d outExtent = outBounds.Max - outBounds.Min;
                 foreach (int t in M0.TriangleIndices()) {
                     Index3i it = M0.GetTriangle(t);
                     int a = map[it.a], b = map[it.b], c = map[it.c];
                     if (a == b || b == c || a == c) continue;
                     // (area below the degenerate area of MeshRobustRepair.NotCleanReason: three cluster vertices on one crease)
                     bool anyCluster = isCluster[it.a] || isCluster[it.b] || isCluster[it.c];
-                    if (anyCluster && 0.5 * (outMesh.GetVertex(b) - outMesh.GetVertex(a)).Cross(outMesh.GetVertex(c) - outMesh.GetVertex(a)).Length < degenerateArea) {
+                    // (the length of the cross product is a second power of the edges: DualContouring.cross_exceeds takes the comparison on
+                    // scaled vectors where diag^2 is not in 1e-100 .. 1e100, so it neither overflows nor underflows there)
+                    if (anyCluster && (diag * diag > 1e-100 && diag * diag < 1e100
+                            ? 0.5 * (outMesh.GetVertex(b) - outMesh.GetVertex(a)).Cross(outMesh.GetVertex(c) - outMesh.GetVertex(a)).Length < degenerateArea
+                            : !DualContouring.cross_exceeds(outMesh.GetVertex(b) - outMesh.GetVertex(a), outMesh.GetVertex(c) - outMesh.GetVertex(a), outExtent, 2e-12))) {
                         foreach (int v in new[] { it.a, it.b, it.c }) if (isCluster[v]) bad.Add(keyOfVertex[v]);
                         continue;
                     }
