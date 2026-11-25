@@ -36,6 +36,9 @@ CONTRACT = [
     'double ta = n.x * a.x + n.y * a.y + n.z * a.z, tb = n.x * b.x + n.y * b.y + n.z * b.z, tc = n.x * c.x + n.y * c.y + n.z * c.z;',
     'double tmin = Math.Min(ta, Math.Min(tb, tc)), tmax = Math.Max(ta, Math.Max(tb, tc));',
     'double bmin = 0, bmax = 0, M = 0;',
+    # the model covers finite values only: the guards that keep the triangle otherwise are part of the contract
+    'if (!(n.x == n.x && n.y == n.y && n.z == n.z) || double.IsInfinity(n.x) || double.IsInfinity(n.y) || double.IsInfinity(n.z))',
+    'if (!(Math.Abs(tmin) <= double.MaxValue && Math.Abs(tmax) <= double.MaxValue && Math.Abs(bmin) <= double.MaxValue && Math.Abs(bmax) <= double.MaxValue))',
     'double l = n[k] * lo[k], h = n[k] * hi[k];',
     'bmin += Math.Min(l, h); bmax += Math.Max(l, h);',
     'M = Math.Max(M, Math.Max(Math.Abs(l), Math.Abs(h)));',

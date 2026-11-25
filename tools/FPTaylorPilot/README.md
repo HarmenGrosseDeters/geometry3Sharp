@@ -148,3 +148,18 @@ FPTaylor; that check needs Linux, since it runs the stub as a program.
 
 The script has not been run on a real WSL distribution yet: this session could not install one (no administrator
 rights). The Linux part ran in an Ubuntu 24.04 container, with the same steps as the script.
+
+## Orient3d stage A on a narrow box (`compare_orient3d.py`, 2026-11-25)
+
+`orient3d_stagea.txt` models `Orient3d`'s stage A expression (`Orient3dFilter` on differences rounded once, left to right) on a box of
+half-width 2^-30 around the witness of `ExactPredicatesFilterBoundTests` (an evaluated error of 4.30 u (permanent + |det|)). On that
+box the permanent is constant to 1 + 2^-25, so FPTaylor's absolute bound E compared with (7 + 56 u) u times the smallest computed
+permanent on the box (exact interval arithmetic, times 1 - 16 u) checks `Orient3dBound` near that point, and at its 2^k copies
+(homogeneity, exact without under- or overflow); the subnormal range is the underflow term's and not modelled. Over all inputs the
+proof is EP-2 of `tools/ErrorBoundAudit`. The exact replay at the witness shows 4 u insufficient and 7 u sufficient without FPTaylor.
+`source_contract` pins the code text of `Orient3dFilter`. Result pending: the session that wrote it could not download the
+installer's github.com archives (network policy), so `orient3d_stagea_result.json` is missing and its test is skipped.
+
+```sh
+python3 tools/FPTaylorPilot/compare_orient3d.py "$base"      # writes orient3d_stagea_result.json
+```

@@ -8,8 +8,9 @@ namespace geometry3Sharp.Tests
     /// The range of the expansion arithmetic, <c>Expansion.InRange</c> ([2^-100, 2^100], math/ExactPredicates.cs): its
     /// edges, and nearly degenerate inputs with full mantissas on both sides of them and far outside, against the
     /// BigInteger determinants. Inside the range AdaptivePredicates decides; outside it the generated kernels do. A range
-    /// widened for speed sends inputs whose stage D products or tails underflow (or overflow) to the expansions, and this
-    /// test fails (docs/qa/exact-bound-inventory.md, gap G2: the hand mutant H6, MinMagnitude 2^-100 to 2^-250, survived
+    /// widened for speed sends inputs whose stage D products or tails underflow to the expansions: under the mutant H6 the
+    /// cocircular rectangles at 2^-220 fail (InCircle +1 for exactly cocircular points); the other rows are regressions of
+    /// the two paths at the edges, which that mutant does not break (docs/qa/exact-bound-inventory.md, gap G2: the hand mutant H6, MinMagnitude 2^-100 to 2^-250, survived
     /// every predicate test; tools/Z3Pilot/adaptive_range.py proves the range the expansions need).
     /// </summary>
     public class ExactPredicatesRangeEdgeTests

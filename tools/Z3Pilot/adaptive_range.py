@@ -26,15 +26,20 @@ source contract pins the predicates, the range check and its callers, so a new p
 unguarded call fails here first. Not proved: Shewchuk's theorems themselves (exactness of his routines without
 underflow and overflow), and that the degree of every intermediate is at most d (read from the code).
 """
+import hashlib
 import math
 import re
 import struct
+import sys
 import time
 from fractions import Fraction
 
 import z3 as z
 
 import pilot
+
+sys.path.insert(0, str(pilot.ROOT / 'tools' / 'ErrorBoundAudit'))
+import range_callers    # noqa: E402
 
 ROOT = pilot.ROOT
 PREDICATES = 'math/ExactPredicates.cs'
@@ -55,11 +60,23 @@ GROWTH = 4 + 1 + 28
 NORMAL_MIN_EXPONENT = -1022
 MAX_EXPONENT = 1023
 
-# calls of the public stages that do not check the range themselves; each is a known exception, reported in
-# docs/qa/exact-bound-inventory.md (a new one fails the contract)
-KNOWN_UNGUARDED = {
-    'mesh_generators/DualContouring.cs': 2,
-}
+# the reviewed text of AdaptivePredicates (whitespace removed): the degrees and GROWTH above were read from it. Any change
+# of the file fails the contract until they are reviewed again and this hash is updated (sha256 of the normalized text)
+ADAPTIVE_SHA256 = 'eaa19935f97821e7aa0f4db5048c07d3b6cf3d48281cc20907de78e702d9df32'
+
+# the range check of every argument (each overload checks all its arguments)
+IN_RANGE_OVERLOADS = """public static bool InRange(double a, double b, double c, double d, double e, double f)
+        {
+            return in_range(a) && in_range(b) && in_range(c) && in_range(d) && in_range(e) && in_range(f);
+        }
+        public static bool InRange(double a, double b, double c, double d, double e, double f, double g, double h)
+        {
+            return InRange(a, b, c, d, e, f) && in_range(g) && in_range(h);
+        }
+        public static bool InRange(double a, double b, double c, double d, double e, double f, double g, double h, double i, double j, double k, double l)
+        {
+            return InRange(a, b, c, d, e, f) && InRange(g, h, i, j, k, l);
+        }"""
 
 
 def _normalize(s):
@@ -91,8 +108,10 @@ def source_contract(root=ROOT):
     """the constants the lemmas use, read from the source; raises on a change that the model does not describe"""
     pred = (root / PREDICATES).read_text(encoding='utf-8')
     adaptive = (root / ADAPTIVE).read_text(encoding='utf-8')
-    if _normalize(IN_RANGE) not in _normalize(pred):
-        raise ValueError(f'{PREDICATES}: in_range changed: check it against tools/Z3Pilot/adaptive_range.py')
+    if _normalize(IN_RANGE) not in _normalize(pred) or _normalize(IN_RANGE_OVERLOADS) not in _normalize(pred):
+        raise ValueError(f'{PREDICATES}: in_range or InRange changed: check it against tools/Z3Pilot/adaptive_range.py')
+    if hashlib.sha256(_normalize(adaptive).encode('utf-8')).hexdigest() != ADAPTIVE_SHA256:
+        raise ValueError(f'{ADAPTIVE} changed: review DEGREES and GROWTH of tools/Z3Pilot/adaptive_range.py, then update ADAPTIVE_SHA256')
     if 'const double Splitter = 134217729.0;' not in pred:
         raise ValueError(f'{PREDICATES}: the splitter changed (GROWTH counts 2^27 + 1)')
     lo, hi = _power_of_two(pred, 'MinMagnitude'), _power_of_two(pred, 'MaxMagnitude')
@@ -100,20 +119,11 @@ def source_contract(root=ROOT):
     found = {n.lower() for n in re.findall(r'\n\s*public static int (\w+)\(double', adaptive)}
     if found != set(DEGREES):
         raise ValueError(f'{ADAPTIVE}: predicates {sorted(found)}, the model knows {sorted(DEGREES)}: review the degrees')
-    # every call of a public stage in the library checks the range in the three lines before it
-    calls = {}
-    for path in sorted(root.rglob('*.cs')):
-        rel = path.relative_to(root).as_posix()
-        if rel.startswith(('tests/', 'tools/', 'benchmarks/', 'addons/')) or '/obj/' in rel or '/bin/' in rel:
-            continue
-        lines = path.read_text(encoding='utf-8', errors='replace').split('\n')
-        for i, line in enumerate(lines):
-            if re.search(r'AdaptivePredicates\.(Orient2d|Orient3d|InCircle)\(', line):
-                guarded = any('Expansion.InRange(' in lines[k] for k in range(max(0, i - 3), i))
-                if not guarded:
-                    calls[rel] = calls.get(rel, 0) + 1
-    if calls != KNOWN_UNGUARDED:
-        raise ValueError(f'unguarded calls of AdaptivePredicates {calls}, known {KNOWN_UNGUARDED}')
+    # every call of a public stage in the library checks the range of all its arguments first (also checked on every
+    # library change by tools/ErrorBoundAudit/test_range_callers.py)
+    calls = range_callers.unguarded_calls(root)
+    if calls != range_callers.KNOWN_UNGUARDED:
+        raise ValueError(f'unguarded calls of AdaptivePredicates {calls}, known {range_callers.KNOWN_UNGUARDED}')
     return dict(min_exponent=lo, max_exponent=hi, degrees=dict(DEGREES), growth=GROWTH, unguarded=calls)
 
 

@@ -54,7 +54,7 @@ rule; **S** speed or strategy only.
 | Orient2d, Orient3d, InCircle, InSphere stage A (EBA EP-1..4), F | `ExactPredicates.cs:21-24` | (3, 7, 10, 16 + O(u)) u * permanent covers the filter error (with the underflow term) | EBA-derived (margins 1 + O(u)); no Z3 lemma (section 7) | H5 (7 to 4 u): EBA anchor and derivation; `ExactPredicatesFilterBoundTests` (this PR; also kills 4.25 u). Library tests before: none |
 | with_underflow, UnderflowLimit 1e-200, UnderflowUnit 2^-1066 | `ExactPredicates.cs:25-60` | the absolute term for subnormal products; dropped only where it rounds away | EBA-derived (part of EP-2..4, `with_underflow_note`); tests `ExactPredicatesTests.UnderflowTerm` | EBA anchor; the Stryker survivors of the term (mutation README, item 1) are not killed by tests |
 | VolumeSumWithBound (EP-5), TryCompareAbsVolume6 slack (EP-6), F | `ExactPredicates.cs:511`, `:542` | Higham's gamma_(n+2) recursive-sum bound on top of Orient3dBound | EBA-derived for n = 1, 2, 7, 40; design doc EXACT_VOLUME_SIGN.md | EBA anchor; the H5 test below goes through this function |
-| Expansion.InRange [2^-100, 2^100] (AP-1), D | `ExactPredicates.cs:701-716` | degree-4 products of the expansions and their rounding errors are normal and finite | EBA-checked (hardcoded 2^-100, 2^-152); Z3 `adaptive_range.py` (this PR, coupled to the source values; admits 2^-203 .. 2^246) | H6 (2^-100 to 2^-250): EBA anchor (text); Z3 (SAT); `ExactPredicatesRangeEdgeTests` (this PR: InCircle +1 for cocircular points at 2^-220). Library tests before: none |
+| Expansion.InRange [2^-100, 2^100] (AP-1), D | `ExactPredicates.cs:701-716` | degree-4 products of the expansions and their rounding errors are normal and finite | EBA-checked (hardcoded 2^-100, 2^-152); Z3 `adaptive_range.py` (this PR; section 6) | H6 (to 2^-250): EBA anchor (text); Z3 (SAT); `ExactPredicatesRangeEdgeTests` (this PR). Library tests before: none |
 | Stage B/C constants (AP-2), F | `AdaptivePredicates.cs:29-36` | Shewchuk's constants | EBA-checked against the paper (reference); CcwErrBoundB re-derived at first order | EBA anchor; stage C mutants cost only time (test-gap audit P6, P7) |
 | Merge order of `sum` and `scale`, D | `AdaptivePredicates.cs:284-297` | non-overlapping, sorted output (Shewchuk's theorems) | Tests only (stage D against BigInteger) | open in the mutation README (item 6); test-gap audit P4 |
 | Coincidence shortcuts, F | `ExactPredicates.cs:194-247` | repeated points give 0 | Tests | equivalent (the exact path gives 0); non-finite input: test-gap audit P3, decided 2026-11-25 |
@@ -75,7 +75,7 @@ rule; **S** speed or strategy only.
 | front_side / plane_side / plane_side_abs / orient3d_filtered (EB-1..5), F | `ExactMeshBoolean.cs:4237-4289`, `:5137-5168` | 1e-14 mag and Shewchuk-form bounds | EBA-derived (plane_side_abs margin 1 + 2u: nothing to spare) | EBA anchor and derivation |
 | widened, negative_volume (EB-6, EB-7), D | `ExactMeshBoolean.cs:1332`, `:1824` | enclosures | EBA-derived (F1 fixed #1347) | EBA |
 | Conversions, norm, boundary_bound, far_term, piece_diameter, carry_length (RC-1..8) | `ExactPoint3.cs:106`, `ExactMeshBoolean.cs:2716-3406`, `:5226` | rounding factors | EBA-derived / checked (F4 fixed #1350) | EBA |
-| Antipodal sum `tol = 16 (ea + eb + 1e-15 + dir)`, `4 tol / hypot`; 20 attempts then 0.5, D, T | `ExactMeshBoolean.cs:5187-5243` | the winding of open input is decided outside the tolerance band | Design doc only ("taken generously"); tests `ExactBooleanOpenInputTestsAntipodal` | not known; no derivation to check |
+| Antipodal sum `tol = 16 (ea + eb + 1e-15 + dir)`, `4 tol / hypot`; 20 attempts then 0.5, D, T | `ExactMeshBoolean.cs:5187-5243` | the winding of open input is decided outside the tolerance band | Design doc only ("taken generously"); tests `ExactBooleanOpenInputTestsAntipodal` | **#1587**: a piece within ~1e-8 of an open edge is read as outside, silently (section 6) |
 | BoundaryTree, L2 carry, projection prefilters | `ExactMeshBoolean.cs` (antipodal_tree_value, carry_bound, pierce_prefilter) | analytic remainder and rounding pads | read (EBA section 5); tests | not known |
 | Arrangement plane_value, orient2d_approx, order_key, merge_points, incircle_approx, along_approx, BoxGrid2 pad (AR-4..14), F | `ExactMeshArrangement.cs:809-2846` | approximate predicates with exact fallback | EBA-derived | EBA |
 | planes_approx, segment_point (quotients), segment_hits slack 1e-9, F | `ExactMeshArrangement.cs` | quotient error bounds | read only (division is outside `fpbound.py`) | not known |
@@ -118,7 +118,7 @@ rule; **S** speed or strategy only.
 
 | Bound | file:line | Claim | Coverage | Mutant killed by |
 |---|---|---|---|---|
-| Approx acceptance `err <= 1e-12 (|x|+|y|)` and the corner error `e = 4e-12 (|x|+|y|) + eps` that consumes it, D (cull) | `ExactSlopeKernel.cs:328-337`, `TerrainSlopeMap.cs:476-482` | the corners are within e of the exact ones | Code comment; tests `TerrainSlopeDesignTests` (prefilter_skips); Z3 `slope_approx.py` (this PR): **finding**, the claim fails at the subnormal edge (section 6); the W-sign part proved; the normal-range bound undecided | tests (a scale-dependent skip was found by them once) |
+| Approx acceptance `err <= 1e-12 (|x|+|y|)` and the corner error `e = 4e-12 (|x|+|y|) + eps` that consumes it, D (cull) | `ExactSlopeKernel.cs:328-337`, `TerrainSlopeMap.cs:476-482` | the corners are within e of the exact ones | Code comment; tests `TerrainSlopeDesignTests` (prefilter_skips); Z3 `slope_approx.py` (this PR): **finding** #1586 at the subnormal edge (section 6) | tests (they found a scale-dependent skip once) |
 | Prefilter slacks `1e-9 (...)`, near `1e-11`, trim_ray eps, D (cull) | `TerrainSlopeMap.cs:450`, `:487`, `:538-553`, `:609`, `:355-359` | no face that the exact test keeps is skipped | Code comments; EBA section 7 names them the first next derivation; tests | not known |
 | Slb `cos(2 theta)(1 - 1e-6)`, reach `1.01`, box `1.05 dMax`, GradientBound `(1 + 1e-9)`, D (cull) | `TerrainSlopeDesign.cs:1389-1426`, `:2193`, `TerrainSlopeRamps.cs:381-385`, `ExactSlopeKernel.cs:111` | lower bounds of the slope, upper bounds of the reach | design docs TERRAIN.md, TERRAIN_RAMPS.md; tests | not known |
 | Tolerance budget (ez, lambdaBound, facet 2^-49, MergeShare, FlipShare), D | `TerrainSlopeDesign.cs:1286-1373`, `:1933-1951`, `TerrainSlopeCatchLineBound.cs:38`, `:112-113` | the realised surface stays within the tolerance | design doc TERRAIN.md (departures); tests | not known |
@@ -141,7 +141,7 @@ rule; **S** speed or strategy only.
 
 | Mutant | Library tests (#1572) | EBA test (CI `linux`) | After this PR |
 |---|---|---|---|
-| H5 `Orient3dBound` 7 u to 4 u | survived (522) | killed: anchor, and EP-2's derivation fails with 4 u | also killed by `ExactPredicatesFilterBoundTests` (an input with error 4.1 u (perm + \|det\|)) and by Z3 `orient3d_bound.py` (SAT) |
+| H5 `Orient3dBound` 7 u to 4 u | survived (522) | killed: anchor, and EP-2's derivation fails with 4 u | also killed by `ExactPredicatesFilterBoundTests` (an input with error 4.30 u (perm + \|det\|), through the shared constant: a change inside Orient3dFilter alone is the anchors' to catch); exact replay in `tools/FPTaylorPilot/compare_orient3d.py` |
 | H6 `MinMagnitude` 2^-100 to 2^-250 | survived (549) | killed by the anchor only (text) | killed by `ExactPredicatesRangeEdgeTests` (wrong sign) and by Z3 `adaptive_range.py` (SAT, replayed) |
 | `MaxMagnitude` 2^100 to 2^250 | not run | anchor only | `InRange_IsClosed...` (boundary); no wrong sign found up to 2^250 (the overflow limit is about 2^254, see `adaptive_range.py`); Z3 SAT shows only that the proof no longer holds |
 | Stryker survivors of `ExactPredicates` (74, mutation README 1) | survived | anchors catch text changes of the anchored lines | unchanged: mostly equivalent (larger bounds, guards) |
@@ -173,16 +173,53 @@ speed-up) times how likely a future edit is to break it (actively tuned code, ma
 
 | Item | Gap | Result |
 |---|---|---|
-| `tools/Z3Pilot/adaptive_range.py` | G2 | Proved: the grid of the inputs, closure of the grid under the expansion operations, no underflow (d (m + 52) <= 1022) and no overflow for degrees 2, 3, 4, with m and M read from the source. Mutants H6, MaxMagnitude 2^250, a finer grid and a quotient are SAT and replayed. The source contract also flags unguarded calls of `AdaptivePredicates` |
+| `tools/Z3Pilot/adaptive_range.py` | G2 | Proved: input grid, grid closure, no underflow (d (m + 52) <= 1022) and no overflow for degrees 2-4, m and M read from the source; `AdaptivePredicates.cs` pinned by hash (the reviewed degrees). Admits 2^-203 .. 2^246 for the expansions' intermediates (not the stage B/C filter products). Mutants SAT and replayed |
 | `tools/Z3Pilot/may_meet_box.py` | G3 | Proved: the separation test is sound under the half-ulp rounding model (both directions, linear real arithmetic). Mutants: factor 1, no eta term (SAT, replayed). The code's factor 3 is the smallest integer factor the lemma admits |
-| `tools/Z3Pilot/slope_approx.py` | G1 (Approx coupling) | **Finding** (SAT, IEEE replay): at the subnormal edge Approx accepts x = y = 0 with a W that contains 0, and the exact vertex can be anywhere (2^-74 in the replay against e = 2^-1074). Reported to the coordinator. Proved: away from the edge acceptance gives W* the sign of w. Undecided: the normal-range bound (nlsat unknown) |
+| `tools/Z3Pilot/slope_approx.py` | G1 (Approx coupling) | **Finding #1586** (SAT, IEEE replay; not shown that real line data produces such intervals): at the subnormal edge Approx accepts x = y = 0 with a W that contains 0, and the exact vertex can be anywhere (2^-74 in the replay against e = 2^-1074). Proved: away from the edge acceptance gives W* the sign of w (both signs queried). Undecided: the normal-range bound (nlsat unknown) |
 | `ExactPredicatesRangeEdgeTests` | G2 | Kills H6: InCircle +1 for exactly cocircular rectangles at 2^-220 (the BigInteger result is 0), plus the closed edges of `InRange`. 27 cases, 0.2 s |
 | `ExactPredicatesFilterBoundTests` | G6 | Kills H5 (and 4.25 u): an input whose evaluated error is 4.30 u (permanent + \|det\|), checked against `VolumeSumWithBound`'s bound in BigInteger. Under 0.01 s |
+
+**G9 diagnosis (coordinator 2026-11-25), issue #1587.** `antipodal_front_winding` returns 0.5 ("undecided, read as outside")
+for status 1 (the point on or next to a segment) and after 20 rays with status 2. Reachable on a procedural input with the default
+routing: an open unit box (top removed, 12 boundary segments) and a closed box of side d about 2 d inside its open top edge;
+`Intersection` drops the closed box for d <= 1e-8 although the direct winding is 0.625 (inside), while the fast winding path keeps it.
+`Compute()` succeeds and only `Counts["antipodal_undecided"]` shows it: a silent wrong result. Cause in the repro: status 1, whose
+test `1 + a.b <= tol` compares a quantity quadratic in the distance with a tolerance linear in its inverse, so "next to" reaches about
+u^(1/3) of the segment length. The 20-attempt path is reachable too (tol NaN, or a ray-independent bound above 1e-6), not in this repro.
+No fix here.
 
 **Lead outside the ranking.** `mesh_generators/DualContouring.cs:2484-2485` (place_face_vertex) calls `AdaptivePredicates.Orient2d`
 without `Expansion.InRange`, against the class's stated precondition. For degree 2 the expansions are exact for coordinates
 down to about 2^-459 and up to about 2^494, so only geometry far beyond the tested 2^-60 .. 2^200 or with subnormal coordinates is
-affected. `adaptive_range.py` lists the two calls as the known exception; reported to the coordinator.
+affected. `tools/ErrorBoundAudit/range_callers.py` lists the two calls as the known exception; its test (`test_range_callers.py`,
+the `linux` job of `ci.yml`, every library change) fails on a new call without `if (Expansion.InRange(<all its arguments>) == false)`
+in the three lines before. Reported to the coordinator.
+
+### 6.1 FPTaylor (owner 2026-11-25)
+
+FPTaylor bounds the absolute rounding error of an expression over a box of inputs; it checks the expression, not the C# code (each
+check pins the code text). Which bound-size claims it can check, and with what model:
+
+| Claim | FPTaylor-checkable? | Model needed | Status |
+|---|---|---|---|
+| Generated filters (Orient3dLPI / TPI: `ux`, `nx`, `D`, leaves, `D1`, `n1x`) | yes, per sub-expression on a box | input boxes as in `orient3dlpi_*.txt`; the generator's relative rule turned into an absolute bound on the box | done (`compare_ux.py`, `compare_nx.py`, `compare_filter_expressions.py`, result JSONs) |
+| Stage A constants K * permanent (EP-1..4, EB-1..5, AR-*, CD-1, SN-5, IntrExactBox3, CCD, may_meet_box) | only on narrow boxes (note 1) | a box around one point; 2^k scaling covers its copies; the underflow term separately | Orient3d: `compare_orient3d.py` written, result pending (note 2) |
+| Absolute bounds on bounded ranges with division or square root (ExactSlopeKernel.Approx, geodesic DiskOfBox / TransformDisk, ExactDoubleWord quotient) | yes on bounded boxes (FPTaylor handles / and sqrt) | input boxes away from 0 for the divisor | not done |
+| Series truncations (TanLowerBound), analytic remainders (Antipodal tree, envelope Theta) | rounding part only | the truncation argument stays a proof on paper | not done |
+| Ranges, grids, termination (AP-1, Pixel, step loops, InRange) | no (not a bound size) | Z3 | Z3 |
+
+Note 1: the bound is relative to the computed permanent, FPTaylor's is absolute; on a box of width 2^-30 the permanent is constant
+to 1 + 2^-25, so E <= K * (smallest permanent on the box) checks K near that point (homogeneity: also at every 2^k copy without
+under- or overflow). Over all inputs the proof is EBA's monomial dominance.
+
+Note 2: the model `orient3d_stagea.txt` is a box around the 4.30 u witness. FPTaylor could not be built in this session (the
+github.com archives of `install.sh` were denied by the network policy), so `orient3d_stagea_result.json` does not exist yet and its
+test is skipped. The exact replay at the witness (4 u insufficient, 7 u sufficient) and the source contract run without FPTaylor.
+
+CI: `ci.yml` runs only the unit tests of `tools/FPTaylorPilot` (`test_*.py`, against the checked-in result JSONs), no FPTaylor run.
+Option for the coordinator (not added: a gate-file change): a job that restores a cached build of the installer's pinned sources
+(OCaml 4.14.2, Num 1.5, FPTaylor b5a77cae, keyed by `install.sh`'s hash) and runs the `compare_*.py` scripts; the build takes
+several minutes once, a cached run under a minute. It needs the github.com archive host in the runner's network (GitHub's runners have it).
 
 ## 7. Left open (stop rule)
 

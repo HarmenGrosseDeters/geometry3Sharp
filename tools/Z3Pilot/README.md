@@ -793,7 +793,7 @@ python3 -m unittest discover -s tools/Z3Pilot -p 'test_clipper_frame.py' -v
 
 Three lemmas for the top gaps of the inventory. Each obligation is an UNSAT counterexample query with its assumptions SAT;
 each has a controlled mutant that must be SAT and is replayed outside Z3; each reads the constants it uses from the source
-and fails on a change of the code around them. Part of the `Z3 pilot` workflow (paths filter, uploaded reports), about 1 min
+and fails on a change of the code around them. Part of the `Z3 pilot` workflow (paths filter, uploaded reports), about 1 to 2 min
 together.
 
 **`adaptive_range.py` (G2, the hand mutant H6 of #1572).** The range of `Expansion.InRange` against what `AdaptivePredicates`
@@ -807,10 +807,13 @@ the frame equality for + and * in 300 s, and the variant with the condition on t
 just below 2^-1022 rounds up to a normal number). Mutants: H6 (2^-250: a degree-4 product of the grid unit 2^-302 is 0 in
 binary64; the .NET replay is `ExactPredicatesRangeEdgeTests`, InCircle +1 for exactly cocircular points at 2^-220), the
 maximum 2^250, the grid one bit too fine, a quotient of integers. Margins in the report: the lemma admits MinMagnitude down to
-2^-203 and MaxMagnitude up to 2^246. The contract also pins the public predicates of `AdaptivePredicates` (a new one needs a
-reviewed degree) and scans the library for calls of `AdaptivePredicates.Orient2d / Orient3d / InCircle` without
-`Expansion.InRange` in the three lines before: the two calls in `mesh_generators/DualContouring.cs` (place_face_vertex) are the
-known exception (reported in the inventory); a new one fails.
+2^-203 and MaxMagnitude up to 2^246 for the expansions' intermediates (the stage B/C filter products, eg IccErrBoundC * permanent,
+are not in the lemma and underflow earlier). The degrees and the growth count are reviewed against `AdaptivePredicates.cs`, whose
+normalized text is pinned by its SHA-256: any change fails the contract until they are reviewed again. The contract also pins the `InRange` overloads (each checks all its arguments) and the public predicates of
+`AdaptivePredicates`, and scans the library for calls of `AdaptivePredicates.Orient2d / Orient3d / InCircle` without
+`if (Expansion.InRange(<all the call's arguments>) == false)` in the three lines before (`tools/ErrorBoundAudit/range_callers.py`;
+its own test runs in `ci.yml` on every library change, since this workflow runs only on its paths): the two calls in
+`mesh_generators/DualContouring.cs` (place_face_vertex) are the known exception; a new one fails.
 
 **`may_meet_box.py` (G3).** `ContouringTopologyCertificate.may_meet_box` drops a triangle if fl(bmax + err) < fl(tmin - err) (or
 the mirror), err = fl(fl(12 u M) + 4 eta). Linear real arithmetic over the rounding model |P - p| <= u |P| + eta (products),
@@ -820,12 +823,12 @@ term (SAT, models replayed in exact rationals). The smallest integer factor the 
 model): the code's 24 u M has no spare factor, as the comment's 22 u M derivation says.
 
 **`slope_approx.py` (G1, the corner error of the terrain prefilter).** `TerrainSlopeMap.prefilter_skips` assumes the corners
-from `ExactSlopeKernel.Approx` are within e = 4e-12 (|x| + |y|) + 2^-1074; Approx accepts if err <= 1e-12 (|x| + |y|). FINDING:
+from `ExactSlopeKernel.Approx` are within e = 4e-12 (|x| + |y|) + 2^-1074; Approx accepts if err <= 1e-12 (|x| + |y|). FINDING (issue #1586):
 at the subnormal edge the claim fails (SAT, the Z3 model replayed, and an IEEE replay of the C# expressions: X = [2^-1074,
 2^-1074], Y = [0, 0], W = [-8, 4] gives x = y = -0 accepted, while the exact vertex for W* = 2^-1000 is x* = 2^-74). The
-acceptance compares with 1e-12 * 0 there and no longer bounds W. Reported to the coordinator 2026-11-25 for a bugfix PR; the
-test pins the finding as SAT while the code is unchanged. Proved: away from the edge (|x| + |y| > 0, no underflow) acceptance
-gives W* the sign of w (a narrow W); mutant: err without its W term. Undecided (not counted): the corner bound itself in the
+acceptance compares with 1e-12 * 0 there and no longer bounds W. Not shown: that real line data produces such intervals. The test pins the finding
+as SAT while the code is unchanged. Proved: away from the edge (|x| + |y| > 0, no underflow) acceptance
+gives W* the sign of w (a narrow W; both signs of w queried); mutant: err without its W term. Undecided (not counted): the corner bound itself in the
 normal range; nlsat returns unknown after 300 s, also after symmetry reductions.
 
 ```sh

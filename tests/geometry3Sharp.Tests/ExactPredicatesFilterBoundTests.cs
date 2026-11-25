@@ -11,7 +11,9 @@ namespace geometry3Sharp.Tests
     /// Orient3dFilter does and returns its bound). Sign tests cannot see a bound that is too small (Shewchuk's bound is
     /// several times the typical error): the hand mutant H5 of #1572, 7 u to 4 u, survived all 522 predicate tests
     /// (docs/qa/exact-bound-inventory.md, gap G6). The proof of the constant is EP-2 of tools/ErrorBoundAudit and
-    /// tools/Z3Pilot/orient3d_bound.py; this test is its witness that a smaller constant is wrong.
+    /// no Z3 lemma (docs/qa/exact-bound-inventory.md section 7); this test is the witness that a smaller constant is wrong.
+    /// It reaches Orient3dFilter through the shared constant only: a change of the bound expression inside Orient3dFilter
+    /// alone is the ErrorBoundAudit anchors' to catch.
     /// </summary>
     public class ExactPredicatesFilterBoundTests
     {
@@ -25,7 +27,7 @@ namespace geometry3Sharp.Tests
             -0.7130060362935128, 7.8161039759070094, -0.23345173296915972,    // c
         };
 
-        // x * 2^shift as an integer (exact for the doubles used here: |x| >= 2^-60 and shift >= 113)
+        // x * 2^shift as an integer; asserts that it is exact (the coordinates are multiples of 2^-55, sum and bound of 2^-180)
         static BigInteger Scaled(double x, int shift)
         {
             long bits = BitConverter.DoubleToInt64Bits(x);
@@ -33,7 +35,7 @@ namespace geometry3Sharp.Tests
             long man = bits & 0xFFFFFFFFFFFFFL;
             if (exp == 0) exp = 1; else man |= 1L << 52;
             int e = exp - 1075 + shift;
-            Assert.True(e >= 0 || (man & ((1L << -e) - 1)) == 0, "not exact at this shift");
+            Assert.True(e >= 0 || (e > -64 && (man & ((1L << -e) - 1)) == 0), "not exact at this shift");
             BigInteger m = man;
             BigInteger r = e >= 0 ? m << e : m >> -e;
             return bits < 0 ? -r : r;

@@ -68,8 +68,9 @@ class SourceCouplingTests(unittest.TestCase):
                   'const double MaxMagnitude = 1.8092513943330656e75;')
         self.assertEqual('sat', self.underflow_results()['no_overflow_incircle'])
 
-    def test_range_at_its_proved_limit_passes(self):
-        # 2^-203 is the smallest MinMagnitude the incircle lemma admits (the margins of the report)
+    def test_range_at_the_lemmas_limit_passes(self):
+        # 2^-203 is the smallest MinMagnitude the incircle lemma admits (the margins of the report): a limit of the
+        # expansions' intermediates only, not of the stage B/C filter products (IccErrBoundC * permanent underflows there)
         self.edit(adaptive_range.PREDICATES, 'const double MinMagnitude = 7.888609052210118e-31;',
                   'const double MinMagnitude = %r;' % 2.0**-203)
         self.assertTrue(all(v == 'unsat' for v in self.underflow_results().values()))
@@ -85,9 +86,16 @@ class SourceCouplingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             adaptive_range.source_contract(self.dir)
 
-    def test_new_predicate_is_rejected(self):
+    def test_changed_adaptive_predicates_is_rejected(self):
+        # a new predicate, or any other change of the file (a new intermediate of higher degree): review the degrees
         self.edit(adaptive_range.ADAPTIVE, 'public static int Orient2d(double',
                   'public static int InSphere(double ax) { return 0; }\n        public static int Orient2d(double')
+        with self.assertRaises(ValueError):
+            adaptive_range.source_contract(self.dir)
+
+    def test_overload_that_skips_an_argument_is_rejected(self):
+        self.edit(adaptive_range.PREDICATES, 'return InRange(a, b, c, d, e, f) && in_range(g) && in_range(h);',
+                  'return InRange(a, b, c, d, e, f) && in_range(g);')
         with self.assertRaises(ValueError):
             adaptive_range.source_contract(self.dir)
 
@@ -97,7 +105,7 @@ class SourceCouplingTests(unittest.TestCase):
         p.write_text('class C { int f() {\n\n\n\n return AdaptivePredicates.InCircle(0, 0, 1, 0, 0, 1, 1, 1); } }\n')
         with self.assertRaises(ValueError):
             adaptive_range.source_contract(self.dir)
-        p.write_text('class C { int f() {\n if (Expansion.InRange(0, 0, 1, 0, 0, 1, 1, 1) == false) return 0;\n'
+        p.write_text('class C { int f() {\n if (Expansion.InRange(0, 0, 1, 0, 0, 1, 1, 1) == false)\n return 0;\n'
                      ' return AdaptivePredicates.InCircle(0, 0, 1, 0, 0, 1, 1, 1); } }\n')
         adaptive_range.source_contract(self.dir)
 

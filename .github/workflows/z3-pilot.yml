@@ -36,6 +36,7 @@ on:
       - 'mesh_ops/ContouringTopologyCertificate.cs'
       - 'math/ExactSlopeKernel.cs'
       - 'mesh_ops/TerrainSlopeMap.cs'
+      - 'tools/ErrorBoundAudit/range_callers.py'
       - '.github/workflows/z3-pilot.yml'
   workflow_dispatch:
 permissions:

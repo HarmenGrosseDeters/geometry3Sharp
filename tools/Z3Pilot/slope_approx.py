@@ -20,8 +20,8 @@ Result (2026-11-25):
 - FINDING (SAT, replayed with IEEE doubles): the claim accepted => |x - x*| + |y - y*| <= e fails at the subnormal edge.
   When the quotient underflows to x = y = 0, the acceptance err <= 1e-12 * 0 no longer bounds the width of W: with
   X = [2^-1074, 2^-1074], Y = [0, 0], W = [-8, 4] Approx returns (-0, -0) while the exact vertex for W* = 2^-1000 is
-  x* = 2^-74. Z3 also finds witnesses with |x| + |y| > 0 in the subnormal range. Reported to the coordinator; no
-  library change here (a bugfix PR of its own). The report pins the finding as SAT while the code is unchanged.
+  x* = 2^-74. Z3 also finds witnesses with |x| + |y| > 0 in the subnormal range. Issue #1586; no library change
+  here (a bugfix PR of its own). Not shown: that real ExactSlopeKernel line data produces such intervals. The report pins the finding as SAT while the code is unchanged.
 - Proved (UNSAT, assumptions SAT): away from the edge (|x| + |y| > 0, no underflow) an accepted position has a W* of the
   sign of w, i.e. W is narrow. Controlled mutant: err without its W term (SAT, replayed).
 - Undecided: the claim itself in the normal range (nlsat returns unknown after 300 s); not counted.
@@ -114,7 +114,7 @@ def model(accept, consume, eta=None, w_term=True):
     formula_w = (V('Xhi') - V('Xlo')) + (V('Yhi') - V('Ylo')) + (s * (V('Whi') - V('Wlo')) if w_term else 0)
     c.append(V('errC') * _abs(V('w')) >= (1 - 8 * u) * formula_w)
     accepted = V('errC') <= (1 + 2 * u) * _q(float(accept)) * s
-    e = (1 - 3 * u) * _q(float(consume)) * s + 2 * eta
+    e = (1 - 3 * u) * _q(float(consume)) * s + _q(ETA)     # double.Epsilon = 2^-1074 = ETA
     claim = _abs(V('x') - V('xs')) + _abs(V('y') - V('ys')) <= e
     return v, c, accepted, claim
 
@@ -167,10 +167,11 @@ def run(timeout_ms=120000):
     # W: away from the edge (|x| + |y| > 0, no underflow), acceptance forces W* to the sign of w: W is narrow
     v0, cons0, acc0, _ = model(c['accept'], c['consume'], eta=0)
     V0 = v0.__getitem__
-    hyp = cons0 + [acc0, _abs(V0('x')) + _abs(V0('y')) > 0, V0('w') > 0]
-    s, r, secs = _check(hyp + [V0('Ws') <= 0], timeout_ms)
-    _, rv, _ = _check(hyp, timeout_ms)
-    rows.append(dict(name='w_sign_normal_range', result=str(r), seconds=round(secs, 3), assumptions_result=str(rv)))
+    for name, pos in (('w_sign_normal_range_w_positive', True), ('w_sign_normal_range_w_negative', False)):
+        hyp = cons0 + [acc0, _abs(V0('x')) + _abs(V0('y')) > 0, V0('w') > 0 if pos else V0('w') < 0]
+        s, r, secs = _check(hyp + [V0('Ws') <= 0 if pos else V0('Ws') >= 0], timeout_ms)
+        _, rv, _ = _check(hyp, timeout_ms)
+        rows.append(dict(name=name, result=str(r), seconds=round(secs, 3), assumptions_result=str(rv)))
     # the finding: the claim fails at the edge (SAT); pinned while ExactSlopeKernel.Approx is unchanged
     s, r, secs = _check(cons + [accepted, z.Not(claim)], timeout_ms)
     finding = dict(name='accepted_corner_within_e', result=str(r), seconds=round(secs, 3),
@@ -194,7 +195,7 @@ def run(timeout_ms=120000):
                 total_seconds=round(sum(x['seconds'] for x in rows + muts) + finding['seconds'], 3),
                 proof_scope='Proved: away from the subnormal edge an accepted Approx has a W of the sign of w (a narrow '
                             'W). Found: at the edge (x = y = 0 by underflow, or subnormal values) the corner error of '
-                            'prefilter_skips does not hold; reported to the coordinator 2026-11-25.')
+                            'prefilter_skips does not hold; issue #1586.')
 
 
 if __name__ == '__main__':
