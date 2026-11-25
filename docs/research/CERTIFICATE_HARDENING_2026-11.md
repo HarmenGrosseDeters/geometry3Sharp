@@ -11,9 +11,9 @@ meshes (Thingi10K). It covers test code and a benchmark mode only; no library co
 `tools/certificate_hand_mutants.py` had 50 mutants from 2026-11-22, none for the filters of 2026-11-24: the box filter in front
 of the in-plane loops of C2 and C3 (`ApproxBox`, `CoplanarNear` with its linear scan and its tree query), the double filters
 of C5 (a reject by the triangle's box, an accept by a point inside the triangle, with the slack `FilterEps` and its floor
-2^-480). The script now has 69 mutants and a list of 18 equivalent ones; `--equivalent` runs those, and each must pass.
+2^-480). The script now has 71 mutants and a list of 16 equivalent ones; `--equivalent` runs those, and each must pass.
 
-The new mutants (24 in the first round, 19 of them kept as mutants): each makes a filter decide wrongly or too early.
+The new mutants (24 in the first round, 19 of them kept as mutants, and 2 of the equivalent list that the tests kill): each makes a filter decide wrongly or too early.
 
 | Group | Mutants | Before the new tests | After |
 |---|---|---|---|
@@ -38,9 +38,9 @@ The tests added for them (`BooleanCertificateTests`, each below 1 s except the w
 
 Equivalent (each with its reason in the script):
 - **Box filter:** the widening of only one side; strict instead of closed comparisons in the scan and the leaves; the
-  widening loosened; always or never the tree; the source not added. Either side's widening of 2^-49 alone covers both
+  widening loosened; always or never the tree. Either side's widening of 2^-49 alone covers both
   boxes' errors, boxes that touch exactly after widening are apart before it, and the other changes only change the cost.
-- **C5 margins:** loosened by a factor 4; the slack loosened to 2^-30, or taken without the extent (extent <= 2 maxAbs); the
+- **C5 margins:** loosened by a factor 4; the slack taken without the extent (extent <= 2 maxAbs); the
   floor at 2^-440 or 2^-520. A larger slack only hands more cases to the exact test. A floor of 2^-520 is still sound: the
   only underflow-sensitive step is the final length of p - q, which loses about 2^-1075 / d absolute, and an accept needs
   delta >= 3 floor; the floor has to stay above about 2^-539.
@@ -55,8 +55,11 @@ that summary is corrected. A targeted search (1.2 million near-collinear cases, 
 v + w, never with an unsound accept. It is listed as equivalent in practice. An exact argument (the face region with a wrong
 sign of va, vb or vc only near region boundaries) is open.
 
-Run (4 cores): the full run of all 69 mutants and the check of the 18 equivalent ones are under way; their result follows in
-this section. The script now first runs the tests on the unmutated checker and stops if they fail (a failing baseline
+Run (2026-11-25, 4 cores, about 2 hours for both lists): **all 69 mutants killed**. Of the 18 then listed as equivalent, 16
+passed and 2 were killed, so they are not equivalent and moved to the mutants: "the source not added" (a faulty piece outside
+its source triangle, as in `InjectedCrossingSheet_AndFoldedCopies_AreCaught`, has no box hit, and the check throws instead of
+rejecting) and "the slack loosened 2^-40 to 2^-30" (`CoverageTest_UsesTheSlackOfItsCoordinates` bounds the slack from above).
+Both are killed in the mutant list as well (checked alone), so the script has 71 mutants, all killed, and 16 equivalent. The script now first runs the tests on the unmutated checker and stops if they fail (a failing baseline
 would count every mutant as killed; it happened once during this work, when a test's threshold was not adjusted to fewer
 iterations).
 
@@ -169,7 +172,8 @@ coplanar pairs dominate.
 ## 3. Summary for the coordinator
 
 - **Mutants:** 19 new mutants of the filters; the 8 that survived the old tests are killed by 3 new tests and a wider
-  existing one (the full re-run of all 69 follows in section 1); 18 equivalent mutants with reasons; one belt (the clamp
+  existing one. Full re-run: 71 of 71 killed (2 moved from the equivalent list, which the tests kill); 16 equivalent mutants
+  with reasons, all pass; one belt (the clamp
   of the weights) not proved equivalent.
 - **Thingi10K:**
   - 156 operations, 146 certified, 0 rejected (no false alarm), 0 not applicable.

@@ -94,6 +94,10 @@ M=[
 ("C5 floor 2^-480 to 1e-300", "Math.Pow(2, -480));", "1e-300);"),
 ("C5 floor 2^-480 to 2^-560", "Math.Pow(2, -480));", "Math.Pow(2, -560));"),
 ("C5 filters see no slack in Cover", "covEps = FilterEps(", "covEps = 0 * FilterEps("),
+# (first listed as equivalent, killed: a faulty piece outside its source triangle (InjectedCrossingSheet_AndFoldedCopies_AreCaught)
+# needs src in the list, or the check throws instead of rejecting; CoverageTest_UsesTheSlackOfItsCoordinates bounds the slack above)
+("box filter: source not added", "if (r.Contains(src) == false) r.Add(src);", ";"),
+("C5 filter bound loosened 2^-40 to 2^-30", "Math.Max((maxAbs + extent) / (double)(1L << 40),", "Math.Max((maxAbs + extent) / (double)(1L << 30),"),
 ]
 
 # Equivalent mutants (not run by default; `--equivalent` runs them, and each must survive). Each changes no verdict:
@@ -119,14 +123,10 @@ EQUIVALENT = [
  "the tree and the linear scan return the same set (the same closed-box test), CoplanarNear sorts it"),
 ("box filter: never the tree", "if (m.Length > PlaneTreeMin) pb.Tree", "if (false) pb.Tree",
  "as above: only the cost changes"),
-("box filter: source not added", "if (r.Contains(src) == false) r.Add(src);", ";",
- "the piece lies in its source triangle, so its widened box always meets the source's: the query already returns src"),
 ("C5 reject margin loosened x4", "double tol = covDelta + 3 * covEps;", "double tol = covDelta + 12 * covEps;",
  "a larger reject tolerance only hands more points to the exact test"),
 ("C5 accept margin loosened x4", "+ 3 * covEps <= covDelta) return true;", "+ 12 * covEps <= covDelta) return true;",
  "a larger accept margin only hands more points to the exact test"),
-("C5 filter bound loosened 2^-40 to 2^-30", "Math.Max((maxAbs + extent) / (double)(1L << 40),", "Math.Max((maxAbs + extent) / (double)(1L << 30),",
- "a larger slack loosens both filters in their safe direction (fewer rejects, fewer accepts)"),
 ("C5 floor 2^-480 to 2^-440", "Math.Pow(2, -480));", "Math.Pow(2, -440));",
  "a larger floor only widens both margins (the safe direction)"),
 ("C5 floor 2^-480 to 2^-520", "Math.Pow(2, -480));", "Math.Pow(2, -520));",
