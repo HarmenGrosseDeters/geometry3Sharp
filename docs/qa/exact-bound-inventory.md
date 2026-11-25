@@ -188,12 +188,12 @@ test `1 + a.b <= tol` compares a quantity quadratic in the distance with a toler
 u^(1/3) of the segment length. The 20-attempt path is reachable too (tol NaN, or a ray-independent bound above 1e-6), not in this repro.
 No fix here.
 
-**Lead outside the ranking.** `mesh_generators/DualContouring.cs:2484-2485` (place_face_vertex) calls `AdaptivePredicates.Orient2d`
+**Lead outside the ranking (issue #1589).** `mesh_generators/DualContouring.cs:2484-2485` (place_face_vertex) calls `AdaptivePredicates.Orient2d`
 without `Expansion.InRange`, against the class's stated precondition. For degree 2 the expansions are exact for coordinates
 down to about 2^-459 and up to about 2^494, so only geometry far beyond the tested 2^-60 .. 2^200 or with subnormal coordinates is
 affected. `tools/ErrorBoundAudit/range_callers.py` lists the two calls as the known exception; its test (`test_range_callers.py`,
 the `linux` job of `ci.yml`, every library change) fails on a new call without `if (Expansion.InRange(<all its arguments>) == false)`
-in the three lines before. Reported to the coordinator.
+in the three lines before.
 
 ### 6.1 FPTaylor (owner 2026-11-25)
 
@@ -203,7 +203,7 @@ check pins the code text). Which bound-size claims it can check, and with what m
 | Claim | FPTaylor-checkable? | Model needed | Status |
 |---|---|---|---|
 | Generated filters (Orient3dLPI / TPI: `ux`, `nx`, `D`, leaves, `D1`, `n1x`) | yes, per sub-expression on a box | input boxes as in `orient3dlpi_*.txt`; the generator's relative rule turned into an absolute bound on the box | done (`compare_ux.py`, `compare_nx.py`, `compare_filter_expressions.py`, result JSONs) |
-| Stage A constants K * permanent (EP-1..4, EB-1..5, AR-*, CD-1, SN-5, IntrExactBox3, CCD, may_meet_box) | only on narrow boxes (note 1) | a box around one point; 2^k scaling covers its copies; the underflow term separately | Orient3d: `compare_orient3d.py` written, result pending (note 2) |
+| Stage A constants K * permanent (EP-1..4, EB-1..5, AR-*, CD-1, SN-5, IntrExactBox3, CCD, may_meet_box) | only on narrow boxes (note 1) | a box around one point; 2^k scaling covers its copies; the underflow term separately | Orient3d: done with the C# Symbolic Taylor probe (note 2) |
 | Absolute bounds on bounded ranges with division or square root (ExactSlopeKernel.Approx, geodesic DiskOfBox / TransformDisk, ExactDoubleWord quotient) | yes on bounded boxes (FPTaylor handles / and sqrt) | input boxes away from 0 for the divisor | not done |
 | Series truncations (TanLowerBound), analytic remainders (Antipodal tree, envelope Theta) | rounding part only | the truncation argument stays a proof on paper | not done |
 | Ranges, grids, termination (AP-1, Pixel, step loops, InRange) | no (not a bound size) | Z3 | Z3 |
@@ -212,14 +212,13 @@ Note 1: the bound is relative to the computed permanent, FPTaylor's is absolute;
 to 1 + 2^-25, so E <= K * (smallest permanent on the box) checks K near that point (homogeneity: also at every 2^k copy without
 under- or overflow). Over all inputs the proof is EBA's monomial dominance.
 
-Note 2: the model `orient3d_stagea.txt` is a box around the 4.30 u witness. FPTaylor could not be built in this session (the
-github.com archives of `install.sh` were denied by the network policy), so `orient3d_stagea_result.json` does not exist yet and its
-test is skipped. The exact replay at the witness (4 u insufficient, 7 u sufficient) and the source contract run without FPTaylor.
+Note 2: `tools/FPTaylorPilot/compare_orient3d.py` on a box of half-width 2^-30 around the 4.30 u witness, through the C# Symbolic
+Taylor probe (`benchmarks/SymbolicTaylorBoundsProbe`, no OCaml; a box-max consistency check, not a pointwise proof): the bound is
+6.00 u * permanent (6.09 u with the final rounding), within the code's 7 u, and its sampled first-order error, 6.00 u, is above 4 u.
+The realized input (the exact replay) has 4.30 u (permanent + |det|). The result JSON is checked in and the unittest compares
+against it; the OCaml FPTaylor model is an optional cross-check, run locally (`tools/FPTaylorPilot/README.md`).
 
-CI: `ci.yml` runs only the unit tests of `tools/FPTaylorPilot` (`test_*.py`, against the checked-in result JSONs), no FPTaylor run.
-Option for the coordinator (not added: a gate-file change): a job that restores a cached build of the installer's pinned sources
-(OCaml 4.14.2, Num 1.5, FPTaylor b5a77cae, keyed by `install.sh`'s hash) and runs the `compare_*.py` scripts; the build takes
-several minutes once, a cached run under a minute. It needs the github.com archive host in the runner's network (GitHub's runners have it).
+CI: `ci.yml` runs the unit tests of `tools/FPTaylorPilot` (against the checked-in result JSONs), no FPTaylor or probe run.
 
 ## 7. Left open (stop rule)
 

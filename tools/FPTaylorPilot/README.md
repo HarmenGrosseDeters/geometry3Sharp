@@ -151,15 +151,26 @@ rights). The Linux part ran in an Ubuntu 24.04 container, with the same steps as
 
 ## Orient3d stage A on a narrow box (`compare_orient3d.py`, 2026-11-25)
 
-`orient3d_stagea.txt` models `Orient3d`'s stage A expression (`Orient3dFilter` on differences rounded once, left to right) on a box of
-half-width 2^-30 around the witness of `ExactPredicatesFilterBoundTests` (an evaluated error of 4.30 u (permanent + |det|)). On that
-box the permanent is constant to 1 + 2^-25, so FPTaylor's absolute bound E compared with (7 + 56 u) u times the smallest computed
-permanent on the box (exact interval arithmetic, times 1 - 16 u) checks `Orient3dBound` near that point, and at its 2^k copies
-(homogeneity, exact without under- or overflow); the subnormal range is the underflow term's and not modelled. Over all inputs the
-proof is EP-2 of `tools/ErrorBoundAudit`. The exact replay at the witness shows 4 u insufficient and 7 u sufficient without FPTaylor.
-`source_contract` pins the code text of `Orient3dFilter`. Result pending: the session that wrote it could not download the
-installer's github.com archives (network policy), so `orient3d_stagea_result.json` is missing and its test is skipped.
+`orient3d_stagea.txt` (FPTaylor) and `orient3d_stagea_box.json` (the C# probe) model `Orient3d`'s stage A expression
+(`Orient3dFilter` on differences rounded once, left to right; `PredicateModels.BuildOrient3dStageA` in
+`benchmarks/SymbolicTaylorBoundsProbe`) on a box of half-width 2^-30 around the witness of `ExactPredicatesFilterBoundTests` (an
+evaluated error of 4.30 u (permanent + |det|)). On that box the permanent is constant to 1 + 2^-25, so an absolute bound E over the
+box compared with (7 + 56 u) u times the smallest computed permanent on the box (exact interval arithmetic, times 1 - 16 u) checks
+`Orient3dBound` near that point, and at its 2^k copies (homogeneity, exact without under- or overflow); the subnormal range is the
+underflow term's and not modelled. Over all inputs the proof is EP-2 of `tools/ErrorBoundAudit`. `source_contract` pins the code text
+of `Orient3dFilter`.
+
+Result (C# Symbolic Taylor, `orient3d_stagea_symtaylor_result.json`, checked in): E = 6.00 u * permanent (sign filter; 6.09 u with
+the final rounding), within the code's 7 u; its sampled first-order error is also 6.00 u, above 4 u. The probe is a box-max
+consistency check, not a proof of the pointwise invariant. The exact replay at the witness (a realized double input) shows the error
+4.30 u (permanent + |det|), so a constant of 4 u is wrong there. The OCaml FPTaylor run is an optional cross-check (its test is
+skipped while `orient3d_stagea_result.json` is missing).
 
 ```sh
-python3 tools/FPTaylorPilot/compare_orient3d.py "$base"      # writes orient3d_stagea_result.json
+python3 tools/FPTaylorPilot/compare_orient3d.py --write-model         # orient3d_stagea.txt and orient3d_stagea_box.json
+python3 tools/FPTaylorPilot/compare_orient3d.py --symbolic-taylor     # dotnet run of the probe, writes orient3d_stagea_symtaylor_result.json
+# optional, OCaml FPTaylor (owner-local): install once, then run the model; writes tools/FPTaylorPilot/orient3d_stagea_result.json
+JOBS=4 bash tools/FPTaylorPilot/install.sh "$PWD/../fptaylor-local"
+python3 tools/FPTaylorPilot/compare_orient3d.py "$PWD/../fptaylor-local/FPTaylor-b5a77cae348400f21f83512210d9f43c4bffb381"
+python3 -m unittest discover -s tools/FPTaylorPilot -p 'test_*.py' -v
 ```

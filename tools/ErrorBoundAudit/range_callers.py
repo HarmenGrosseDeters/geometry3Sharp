@@ -12,9 +12,9 @@ import re
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
-# file -> number of unguarded calls; each an exception reported in docs/qa/exact-bound-inventory.md section 6
+# file -> number of unguarded calls; each an exception with an issue (docs/qa/exact-bound-inventory.md section 6)
 KNOWN_UNGUARDED = {
-    'mesh_generators/DualContouring.cs': 2,
+    'mesh_generators/DualContouring.cs': 2,         # place_face_vertex, issue #1589
 }
 
 CALL = re.compile(r'AdaptivePredicates\.(Orient2d|Orient3d|InCircle)\(([^)]*)\)')

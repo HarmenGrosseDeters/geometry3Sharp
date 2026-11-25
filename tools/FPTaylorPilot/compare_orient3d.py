@@ -19,7 +19,8 @@ FPTaylor checks the expression of MODEL, not the C# code: source_contract pins t
 Orient3d's differences, so a code change cannot leave the model passing.
 
     python3 tools/FPTaylorPilot/compare_orient3d.py --write-model      # (re)writes orient3d_stagea.txt from the witness
-    python3 tools/FPTaylorPilot/compare_orient3d.py <fptaylor_dir>     # runs FPTaylor, writes orient3d_stagea_result.json
+    python3 tools/FPTaylorPilot/compare_orient3d.py --symbolic-taylor  # the C# Symbolic Taylor probe, writes orient3d_stagea_symtaylor_result.json
+    python3 tools/FPTaylorPilot/compare_orient3d.py <fptaylor_dir>     # optional cross-check: OCaml FPTaylor, writes orient3d_stagea_result.json
 """
 import argparse
 from fractions import Fraction
@@ -33,6 +34,9 @@ ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 MODEL_FILE = HERE / 'orient3d_stagea.txt'
 RESULT_FILE = HERE / 'orient3d_stagea_result.json'
+BOX_FILE = HERE / 'orient3d_stagea_box.json'
+SYMTAYLOR_FILE = HERE / 'orient3d_stagea_symtaylor_result.json'
+PROBE = ROOT / 'benchmarks/SymbolicTaylorBoundsProbe/SymbolicTaylorBoundsProbe.csproj'
 U = Fraction(1, 2**53)
 K = (7 + 56 * U) * U
 HALF_WIDTH = Fraction(1, 2**30)
@@ -149,17 +153,61 @@ def compare(fptaylor_bound):
                 fptaylor_over_u_permanent=float(E / (U * lo)), ok=E <= K * lo)
 
 
+def box():
+    """the box as round-trip doubles (each edge c +- 2^-30 is a double: the ulps of the coordinates are below 2^-30)"""
+    names = ['o.x', 'o.y', 'o.z', 'a.x', 'a.y', 'a.z', 'b.x', 'b.y', 'b.z', 'c.x', 'c.y', 'c.z']
+    lo, hi = [], []
+    for x in WITNESS:
+        l, h = float(Fraction(x) - HALF_WIDTH), float(Fraction(x) + HALF_WIDTH)
+        assert Fraction(l) == Fraction(x) - HALF_WIDTH and Fraction(h) == Fraction(x) + HALF_WIDTH
+        lo.append(repr(l))
+        hi.append(repr(h))
+    return dict(names=names, lo=lo, hi=hi)
+
+
+def compare_symtaylor(result):
+    """the C# Symbolic Taylor bound (benchmarks/SymbolicTaylorBoundsProbe, a box-max consistency check, not a proof of the
+    pointwise invariant) against K * the smallest computed permanent over the box, and the code's 4 u against it"""
+    lo = permanent_lower_bound()
+    out = {}
+    for mode in ('sign_filter', 'with_final_rounding'):
+        E = Fraction(float(result[mode]['refined_bound']))
+        L = Fraction(float(result[mode]['sampled_lower']))
+        out[mode] = dict(bound_over_u_permanent=float(E / (U * lo)), sampled_lower_over_u_permanent=float(L / (U * lo)),
+                         within_library_bound=E <= K * lo,
+                         # a constant of 4 u is below the sampled first-order error: insufficient on this box
+                         four_u_below_sampled_error=4 * U * lo * (1 + 16 * U) < L)
+    return out
+
+
+def run_symtaylor():
+    BOX_FILE.write_text(json.dumps(box(), indent=1) + '\n')
+    run = subprocess.run(['dotnet', 'run', '--project', str(PROBE), '-c', 'Release', '--', '--orient3d-stagea', str(BOX_FILE)],
+                         text=True, capture_output=True)
+    if run.returncode:
+        print(run.stdout, run.stderr, file=sys.stderr)
+        return 1
+    result = json.loads(run.stdout.strip().splitlines()[-1])
+    SYMTAYLOR_FILE.write_text(json.dumps(result, indent=2) + '\n')
+    print(json.dumps(dict(result=result, compare=compare_symtaylor(result)), indent=2))
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('fptaylor_dir', type=Path, nargs='?')
     parser.add_argument('--write-model', action='store_true')
+    parser.add_argument('--symbolic-taylor', action='store_true', help='run the C# Symbolic Taylor probe (no OCaml)')
     args = parser.parse_args()
     missing = source_contract()
     if missing:
         raise SystemExit(f'source changed, re-check the model: {missing}')
     if args.write_model:
         MODEL_FILE.write_text(model())
+        BOX_FILE.write_text(json.dumps(box(), indent=1) + '\n')
         return 0
+    if args.symbolic_taylor:
+        return run_symtaylor()
     if MODEL_FILE.read_text() != model():
         raise SystemExit('orient3d_stagea.txt is not the model of the witness: --write-model')
     run = subprocess.run([str(HERE / 'run.sh'), str(args.fptaylor_dir), str(MODEL_FILE)], text=True, capture_output=True)

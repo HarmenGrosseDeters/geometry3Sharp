@@ -6,6 +6,34 @@ using System.Linq;
 using System.Reflection;
 using g3;
 
+// --orient3d-stagea <box.json>: the bound of Orient3d's stage A expression over a box (tools/FPTaylorPilot/compare_orient3d.py
+// writes the box, {"names": [...], "lo": [...], "hi": [...]} with round-trip doubles, and reads the JSON printed here)
+if (args.Length == 2 && args[0] == "--orient3d-stagea") {
+    var doc = System.Text.Json.JsonDocument.Parse(System.IO.File.ReadAllText(args[1])).RootElement;
+    var names = doc.GetProperty("names").EnumerateArray().Select(e => e.GetString()).ToList();
+    var los = doc.GetProperty("lo").EnumerateArray().Select(e => double.Parse(e.GetString(), System.Globalization.CultureInfo.InvariantCulture)).ToList();
+    var his = doc.GetProperty("hi").EnumerateArray().Select(e => double.Parse(e.GetString(), System.Globalization.CultureInfo.InvariantCulture)).ToList();
+    var dag = PredicateModels.BuildOrient3dStageA();
+    var box = new Interval64[dag.InputIds.Count];
+    for (int i = 0; i < box.Length; ++i) {
+        int k = names.IndexOf(dag.Nodes[dag.InputIds[i]].Name);
+        box[i] = new Interval64(los[k], his[k]);
+    }
+    var res = new Dictionary<string, object>();
+    foreach (bool sign in new[] { true, false }) {
+        var r = BoxSymbolicTaylor.Bound(dag, box, maxBoxes: 256, relTol: 0.005, signFilter: sign);
+        res[sign ? "sign_filter" : "with_final_rounding"] = new Dictionary<string, string> {
+            ["refined_bound"] = r.RefinedBound.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+            ["first_order"] = r.FirstOrderBound.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+            ["second_order"] = r.SecondOrderBound.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+            ["sampled_lower"] = r.SampledLowerBound.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+            ["boxes"] = r.BoxesEvaluated.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        };
+    }
+    Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(res));
+    return;
+}
+
 Console.WriteLine("=== Part 1: Offline Bounded-Box Symbolic Taylor vs OCaml FPTaylorPilot & PredicateCompiler ===");
 Console.WriteLine("expr | ops | deg | compilerBound | ocamlFPTaylor | csSymTaylor(1box) | csSymTaylor(bnb) | sampledLower | ratio(bnb/comp) | bnb/ocaml | boxes | ms");
 
