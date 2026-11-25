@@ -235,6 +235,14 @@ angles without a tight region is the common practice; the paper's floor of about
 **Leaning.** Option 1 now. Option 2 only when a use case needs a proven bound near small angles; then as an opt-in mode,
 not as the default. Options 3 to 5 not now.
 
+**Status of option 1: done** (#1358, 2026-11-22). The oracle counts the triangles excused by `SpansSmallInputAngle` (both kinds)
+whose smallest angle is below the floor of the pair that excused them, `OracleReport.BelowMpwFloorExcused`, exact
+(`Exact.BelowMpwFloor`, no root), and lists them in `ExcusedSummary`. A report, no rule: no verdict and no output of the mesher
+changes (the count is taken after the excuse has decided). Tests (`Meshing2OracleMpwFloorTests`): the counts of the classifier of
+section 1.4 on `boxwedge` and `fan5`; since 2026-11-25 also `crossing` against a recount in doubles, including the smallest case of
+section 1.4 (φ = 20 degrees, bound 20, constrained mode, 5.47 degrees); a mesh without small angles counts 0. Design:
+[MESHING2D_SMALL_ANGLES.md](../design/MESHING2D_SMALL_ANGLES.md).
+
 ## 2. HP 7: a certifying oracle
 
 ### 2.1 The question and today's state

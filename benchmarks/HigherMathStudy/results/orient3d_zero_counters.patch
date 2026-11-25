@@ -1,0 +1,23 @@
+diff --git a/math/ExactPredicates.cs b/math/ExactPredicates.cs
+index 29bffa3..865e1d0 100644
+--- a/math/ExactPredicates.cs
++++ b/math/ExactPredicates.cs
+@@ -241,8 +241,18 @@ namespace g3
+             return AdaptivePredicates.Orient2d(a.x, a.y, b.x, b.y, c.x, c.y);
+         }
+ 
++        public static long ProbeZeroTicks, ProbeNonzeroTicks, ProbeZeroCalls, ProbeNonzeroCalls, ProbeTrivialZero;
+         [MethodImpl(JitHints.Optimize)]
+         static int orient3d_exact(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
++        {
++            if (a == b || a == c || a == d || b == c || b == d || c == d) { ProbeTrivialZero++; return 0; }
++            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
++            int r = orient3d_exact_body(a, b, c, d);
++            long dt = System.Diagnostics.Stopwatch.GetTimestamp() - t0;
++            if (r == 0) { ProbeZeroTicks += dt; ProbeZeroCalls++; } else { ProbeNonzeroTicks += dt; ProbeNonzeroCalls++; }
++            return r;
++        }
++        static int orient3d_exact_body(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
+         {
+             if (a == b || a == c || a == d || b == c || b == d || c == d)
+                 return 0;

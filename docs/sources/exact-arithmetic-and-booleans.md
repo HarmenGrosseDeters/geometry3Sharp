@@ -203,3 +203,13 @@ Ratschek and Rokne (ESSA), Attene 2020 and Cherchi et al. 2020 (indirect predica
 | Tighter semi-static and static orientation filters (prior art compared, not built; 2D only) | K. Ozaki, F. Bünger, T. Ogita, S. Oishi, S. M. Rump, *Simple floating-point filters for the two-dimensional orientation problem*, BIT Numer. Math. 56, 2016; K. Ozaki, T. Ogita, S. Oishi, error-free determinant transformation for the 2D orientation problem, Information and Computation 2012 (seen in search results only) |
 | Variants of the exact sign of a sum (prior art compared) | M. Mörig, S. Schirra, *Engineering an exact sign of sum algorithm*, tech. report, Univ. Magdeburg, 2010 |
 | Triangle-triangle overlap as a decision tree over orientation signs (prior art compared, not built) | P. Guigue, O. Devillers, *Fast and robust triangle-triangle overlap test using orientation predicates*, Journal of Graphics Tools 8(1), 2003 |
+
+## Higher mathematics study (2026-11-25, research only, no library code)
+
+[docs/research/HIGHER_MATH_STUDY_2026-11.md](../research/HIGHER_MATH_STUDY_2026-11.md), probes in `benchmarks/HigherMathStudy`.
+Papers read as abstracts only, no code read.
+
+| Part | Source |
+|---|---|
+| Idea 1: volume and Euler characteristic as valuations (inclusion-exclusion on the exact Boolean results), χ(∂M) = 2χ(M) | Hadwiger 1957 and χ(∂M) = 2χ(M) as cited in [meshing-and-repair.md](meshing-and-repair.md) (contouring topology certificate, Theorem 6); D. A. Klain, G.-C. Rota, *Introduction to Geometric Probability*, Cambridge 1997 (from memory); the divergence theorem (any analysis text) |
+| Idea 2: modular sign and zero evaluation of integer predicates, recombined by CRT (prior art compared, not built) | H. Brönnimann, I. Z. Emiris, V. Y. Pan, S. Pion, *Computing exact geometric predicates using modular arithmetic with single precision*, SoCG 1997 (abstract and fragments) |
