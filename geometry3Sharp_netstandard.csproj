@@ -57,6 +57,8 @@
     <Compile Remove="tools\**" />
     <!-- optional packages with their own dependencies (addons/*/*.csproj) -->
     <Compile Remove="addons\**" />
+    <!-- the browser demos (demos/G3Demos, a Blazor WebAssembly app that references this project) -->
+    <Compile Remove="demos\**" />
   </ItemGroup>
 
   <ItemGroup>

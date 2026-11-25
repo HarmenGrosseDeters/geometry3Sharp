@@ -1,0 +1,239 @@
+@using gs
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="shell">
+    <header>
+        <h1>geometry3Sharp in the browser</h1>
+        <nav>
+            @foreach (var (key, label) in tabs) {
+                <button class="tab @(tab == key ? "active" : "")" id="tab-@key" @onclick="() => SwitchTab(key)">@label</button>
+            }
+        </nav>
+        <span class="runtime">@runtimeInfo</span>
+    </header>
+
+    <div class="body">
+        <aside class="params">
+            @if (tab == "boolean") {
+                <h2>Exact Boolean</h2>
+                <label>Operation
+                    <select @bind="bp.Operation" @bind:after="Changed">
+                        <option value="@ExactMeshBoolean.Operations.Union">Union</option>
+                        <option value="@ExactMeshBoolean.Operations.Intersection">Intersection</option>
+                        <option value="@ExactMeshBoolean.Operations.Difference">Difference A - B</option>
+                    </select></label>
+                <label>Engine
+                    <select @bind="bp.Engine" @bind:after="Changed">
+                        <option value="pipeline">SolidBooleanPipeline</option>
+                        <option value="exact">ExactMeshBoolean</option>
+                    </select></label>
+                <label>Operand B
+                    <select @bind="bp.ShapeB" @bind:after="Changed">
+                        <option value="box">box (top face coplanar with A)</option>
+                        <option value="sphere">sphere</option>
+                    </select></label>
+                <label>Resolution (edge vertices): @bp.Resolution
+                    <input type="range" min="2" max="24" @bind="bp.Resolution" @bind:event="onchange" @bind:after="Changed" /></label>
+                <label>Overlap into A: @bp.Overlap.ToString("F3", CultureInfo.InvariantCulture)
+                    <input type="range" min="-0.2" max="0.6" step="0.01" @bind="bp.Overlap" @bind:event="onchange" @bind:after="Changed" /></label>
+                <label>Fine offset
+                    <select @bind="bp.GapSign" @bind:after="Changed">
+                        <option value="0">none (exact)</option>
+                        <option value="1">+ gap 10^-k</option>
+                        <option value="-1">- overlap 10^-k</option>
+                    </select></label>
+                <label>k (fine offset 10^-k): @bp.GapExp
+                    <input type="range" min="1" max="15" @bind="bp.GapExp" @bind:event="onchange" @bind:after="Changed" /></label>
+                <label>Rotation of B about z: @bp.RotZDeg deg
+                    <input type="range" min="-45" max="45" step="0.5" @bind="bp.RotZDeg" @bind:event="onchange" @bind:after="Changed" /></label>
+                <label>Near-coplanar tilt 10^-k rad (0 = off): @bp.TiltExp
+                    <input type="range" min="0" max="15" @bind="bp.TiltExp" @bind:event="onchange" @bind:after="Changed" /></label>
+                <label>Scale 2^k: @bp.ScaleExp
+                    <input type="range" min="-30" max="30" @bind="bp.ScaleExp" @bind:event="onchange" @bind:after="Changed" /></label>
+                <label>Pipeline TargetFraction (0 = no reduction): @bp.TargetFraction.ToString("F2", CultureInfo.InvariantCulture)
+                    <input type="range" min="0" max="1" step="0.05" @bind="bp.TargetFraction" @bind:event="onchange" @bind:after="Changed" /></label>
+                <label class="check"><input type="checkbox" @bind="bp.CheckInclusionExclusion" @bind:after="Changed" /> inclusion-exclusion check (3 runs)</label>
+                <label class="check"><input type="checkbox" @bind="bp.CheckScaleInvariance" @bind:after="Changed" /> 2^k invariance check</label>
+                <label class="check"><input type="checkbox" @bind="bp.ShowInputs" @bind:after="Changed" /> show inputs (ghosted)</label>
+            }
+            @if (tab == "repair") {
+                <h2>MeshRobustRepair</h2>
+                <label>Shape
+                    <select @bind="rp.Shape" @bind:after="Changed">
+                        <option value="sphere">sphere</option>
+                        <option value="box">box</option>
+                        <option value="torus">torus</option>
+                    </select></label>
+                <label>Resolution: @rp.Resolution
+                    <input type="range" min="3" max="24" @bind="rp.Resolution" @bind:event="onchange" @bind:after="Changed" /></label>
+                <label class="check"><input type="checkbox" @bind="rp.Unweld" @bind:after="Changed" /> unwelded (soup)</label>
+                <label>Flip every k-th triangle (0 = none): @rp.FlipEvery
+                    <input type="range" min="0" max="20" @bind="rp.FlipEvery" @bind:event="onchange" @bind:after="Changed" /></label>
+                <label>Holes (triangles removed): @rp.Holes
+                    <input type="range" min="0" max="40" @bind="rp.Holes" @bind:event="onchange" @bind:after="Changed" /></label>
+                <label>Jitter 10^-k of the size (0 = none): @rp.JitterExp
+                    <input type="range" min="0" max="14" @bind="rp.JitterExp" @bind:event="onchange" @bind:after="Changed" /></label>
+                <label>Duplicate faces: @rp.DuplicatePercent %
+                    <input type="range" min="0" max="50" @bind="rp.DuplicatePercent" @bind:event="onchange" @bind:after="Changed" /></label>
+                <label class="check"><input type="checkbox" @bind="rp.OverlappingShell" @bind:after="Changed" /> overlapping second shell (self-intersections)</label>
+                <label>Crossing fins: @rp.Fins
+                    <input type="range" min="0" max="10" @bind="rp.Fins" @bind:event="onchange" @bind:after="Changed" /></label>
+                <label>Seed: @rp.Seed
+                    <input type="range" min="1" max="20" @bind="rp.Seed" @bind:event="onchange" @bind:after="Changed" /></label>
+                <label class="check"><input type="checkbox" @bind="rp.MeasureLostArea" @bind:after="Changed" /> MeasureLostArea</label>
+                <label>View
+                    <select @bind="rp.View" @bind:after="Changed">
+                        <option value="both">before (orange) | after (blue)</option>
+                        <option value="before">before</option>
+                        <option value="after">after</option>
+                    </select></label>
+            }
+            @if (tab == "remesh") {
+                <h2>Remesher</h2>
+                <label>Input
+                    <select @bind="mp.Shape" @bind:after="Changed">
+                        <option value="box">coarse box (2 triangles per face)</option>
+                        <option value="twisted">twisted bar</option>
+                        <option value="sphere">sphere</option>
+                        <option value="torus">coarse torus</option>
+                    </select></label>
+                <label>Target edge / diagonal: @mp.RelativeEdge.ToString("F3", CultureInfo.InvariantCulture)
+                    <input type="range" min="0.01" max="0.2" step="0.005" @bind="mp.RelativeEdge" @bind:event="onchange" @bind:after="Changed" /></label>
+                <label>Passes: @mp.Passes
+                    <input type="range" min="0" max="40" @bind="mp.Passes" @bind:event="onchange" @bind:after="Changed" /></label>
+                <label class="check"><input type="checkbox" @bind="mp.PreventNormalFlips" @bind:after="Changed" /> PreventNormalFlips</label>
+                <label class="check"><input type="checkbox" @bind="mp.SafePreset" @bind:after="Changed" /> ApplySafePreset()</label>
+                <label class="check"><input type="checkbox" @bind="mp.PreserveFeatures" @bind:after="Changed" /> preserve features + pin sharp vertices</label>
+                <label>Crease angle: @mp.CreaseAngle deg
+                    <input type="range" min="10" max="90" @bind="mp.CreaseAngle" @bind:event="onchange" @bind:after="Changed" /></label>
+                <label class="check"><input type="checkbox" @bind="mp.Project" @bind:after="Changed" /> project onto the input (MeshProjectionTarget.Auto)</label>
+                <label>Scale 2^k: @mp.ScaleExp
+                    <input type="range" min="-30" max="30" @bind="mp.ScaleExp" @bind:event="onchange" @bind:after="Changed" /></label>
+                <label class="check"><input type="checkbox" @bind="mp.CheckScaleInvariance" @bind:after="Changed" /> 2^k invariance check</label>
+            }
+            <div class="buttons">
+                <button id="run" @onclick="RunNow" disabled="@busy">Run</button>
+                <label class="check"><input type="checkbox" @bind="autoRun" /> run on change</label>
+            </div>
+            <div class="buttons">
+                <label class="check"><input type="checkbox" @bind="wireframe" @bind:after="StyleChanged" /> wireframe</label>
+                <label class="check"><input type="checkbox" @bind="flat" @bind:after="StyleChanged" /> flat shading</label>
+            </div>
+        </aside>
+
+        <main>
+            <canvas id="view" @ref="canvas"></canvas>
+            <div id="headline" class="headline @StateClass(result?.HeadlineState ?? RowState.Info)"
+                 data-state="@(busy ? "busy" : result == null ? "idle" : "done")" data-tab="@tab">
+                @if (busy) { <span>Computing in WebAssembly ...</span> }
+                else if (error != null) { <span>Exception: @error</span> }
+                else if (result != null) { <span>@result.Headline</span> }
+            </div>
+        </main>
+
+        <aside class="status" id="status">
+            @if (result != null) {
+                @foreach (var g in result.Groups) {
+                    <section>
+                        <h3>@g.Title</h3>
+                        <table>
+                            @foreach (var r in g.Rows) {
+                                <tr class="@StateClass(r.State)"><td>@r.Name</td><td>@r.Value</td></tr>
+                            }
+                        </table>
+                    </section>
+                }
+            }
+        </aside>
+    </div>
+</div>
+
+@code {
+    readonly (string, string)[] tabs = { ("boolean", "Exact Boolean"), ("repair", "Robust repair"), ("remesh", "Remeshing") };
+    string tab = "boolean";
+    BooleanParams bp = new BooleanParams();
+    RepairParams rp = new RepairParams();
+    RemeshParams mp = new RemeshParams();
+    readonly Dictionary<string, DemoResult> results = new Dictionary<string, DemoResult>();
+    DemoResult result;
+    string error;
+    bool busy, autoRun = true, wireframe = false, flat = true, pending;
+    ElementReference canvas;
+    IJSObjectReference viewer;
+    string runtimeInfo = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription + ", "
+        + System.Runtime.InteropServices.RuntimeInformation.OSDescription;
+
+    static string StateClass(RowState s) => s switch { RowState.Good => "good", RowState.Bad => "bad", RowState.Warn => "warn", _ => "" };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        viewer = await JS.InvokeAsync<IJSObjectReference>("import", "./js/viewer.js");
+        await viewer.InvokeAsync<bool>("init", canvas);
+        await RunNow();
+    }
+
+    async Task SwitchTab(string key)
+    {
+        tab = key;
+        if (results.TryGetValue(key, out var r)) {
+            result = r; error = null;
+            await Show();
+        } else {
+            await RunNow();
+        }
+    }
+
+    async Task Changed()
+    {
+        if (!autoRun) return;
+        if (busy) { pending = true; return; }
+        await RunNow();
+    }
+
+    async Task StyleChanged()
+    {
+        if (viewer == null) return;
+        await viewer.InvokeVoidAsync("setStyle", wireframe, flat);
+        await Show();
+    }
+
+    async Task RunNow()
+    {
+        if (busy || viewer == null) return;
+        busy = true; error = null;
+        StateHasChanged();
+        await Task.Delay(30);   // let the browser paint "computing" before the single-threaded run blocks it
+        try {
+            do {
+                pending = false;
+                result = tab switch {
+                    "repair" => RepairDemo.Compute(rp),
+                    "remesh" => RemeshDemo.Compute(mp),
+                    _ => BooleanDemo.Compute(bp)
+                };
+                results[tab] = result;
+            } while (pending);
+        } catch (Exception e) {
+            error = e.GetType().Name + ": " + e.Message;
+            Console.Error.WriteLine("demo exception: " + e);
+            result = null;
+        }
+        busy = false;
+        await Show();
+        StateHasChanged();
+    }
+
+    async Task Show()
+    {
+        if (viewer == null) return;
+        var meshes = result?.Meshes ?? new List<RenderMesh>();
+        await viewer.InvokeAsync<int>("setMeshes", meshes, result?.FitKey ?? "");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (viewer != null) await viewer.DisposeAsync();
+    }
+}
