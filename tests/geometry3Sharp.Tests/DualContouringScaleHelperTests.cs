@@ -144,6 +144,27 @@ namespace geometry3Sharp.Tests
             Assert.True(DualContouring.degenerate(Vector3d.Zero, inf, Vector3d.AxisY));
         }
 
+        [Theory]
+        [InlineData(0.9999e-100)]
+        [InlineData(1.0001e-100)]
+        [InlineData(0.9999e100)]
+        [InlineData(1.0001e100)]
+        public void CrossExceeds_AroundTheEdgesOfTheUnscaledRange_BothBranchesAgree(double r2)
+        {
+            // r2 on either side of the branch limit: the scaled comparison (a power of two, exact) must give the unscaled one
+            double len = Math.Sqrt(r2);
+            var r = new Vector3d(len, 0, 0);
+            foreach (double height in new[] { 1e-13, 1.9e-12, 2.1e-12, 1e-6, 0.5 }) {
+                var u = new Vector3d(len, 0, 0); var v = new Vector3d(0.5 * len, height * len, 0);
+                bool unscaledDecision = u.Cross(v).Length > 2e-12 * r.LengthSquared;
+                Assert.Equal(unscaledDecision, DualContouring.cross_exceeds(u, v, r, 2e-12));
+                // the same triangle scaled by 2^+-1 across the limit
+                foreach (double k in new[] { 0.5, 2.0 }) {
+                    Assert.Equal(unscaledDecision, DualContouring.cross_exceeds(u * k, v * k, r * k, 2e-12));
+                }
+            }
+        }
+
         [Fact]
         public void CrossExceeds_InTheOrdinaryRange_IsTheUnscaledComparison()
         {

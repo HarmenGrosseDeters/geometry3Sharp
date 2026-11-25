@@ -45,7 +45,7 @@ namespace g3
         public int MaxLevel = 6;
         /// <summary> QEF eigenvalues below this fraction of the largest are ignored (as DualContouring.QEFEigenTolerance) </summary>
         public double QEFEigenTolerance = new DualContouring().QEFEigenTolerance;
-        /// <summary> vertices of single cells stay this far (relative to the cell size) inside their cell, as DualContouring.QEFCellMargin </summary>
+        /// <summary> vertices of single cells stay this far (relative to the cell size) inside their cell, as DualContouring.QEFCellMargin; the vertex of a merged block stays this far (relative to one fine cell) inside the block </summary>
         public double QEFCellMargin = new DualContouring().QEFCellMargin;
         /// <summary> the uniform contour the last Generate merged (its counters; its mesh is the input of the merge) </summary>
         internal DualContouring BaseContour;

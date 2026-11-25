@@ -107,7 +107,7 @@ namespace g3
         /// </summary>
         public double QEFEigenTolerance = 0.02;
         internal const double LegacyQEFEigenTolerance = 0.1;
-        /// <summary> vertices stay this far (relative to the cell size) inside their cell </summary>
+        /// <summary> vertices stay this far (relative to the cell size) inside their cell; the vertex of a block of cells merged by Simplify stays this far (relative to the size of ONE cell) inside the block, so that a feature on the block's boundary (a box face on a grid plane) keeps its place within 1 % of a cell </summary>
         public double QEFCellMargin = 0.01;
 
         /// <summary> sparse mode: cells to contour, in grid cell coordinates (see class comment) </summary>
@@ -205,6 +205,8 @@ namespace g3
         /// Finds the sign-changing grid edges (and in sparse mode the hidden gap / wall edges), the first part
         /// of Generate. Can be called again after SetRefinement.
         /// </summary>
+        static bool IsFiniteNode(double origin, double h, double n) { double last = origin + h * (n - 1); return !(double.IsNaN(last) || double.IsInfinity(last)); }
+
         public void FindCrossings()
         {
             CertificateRun = null;
@@ -225,6 +227,10 @@ namespace g3
                 double ni = Math.Ceiling(size.x / CellSize) + 1, nj = Math.Ceiling(size.y / CellSize) + 1, nk = Math.Ceiling(size.z / CellSize) + 1;
                 if (!(ni * nj * nk <= MaxGridNodes) || ni < 1 || nj < 1 || nk < 1)
                     throw new ArgumentException("DualContouring: grid of " + ni + " x " + nj + " x " + nk + " nodes is too large (or invalid)");
+                // the last node of each axis (origin + h (N - 1), up to one cell beyond Bounds.Max) must be finite: a grid whose corner
+                // overflows has no exact predicates (ExactPredicates.Orient2d of the face vertices throws on a non-finite corner)
+                if (!IsFiniteNode(origin.x, h, ni) || !IsFiniteNode(origin.y, h, nj) || !IsFiniteNode(origin.z, h, nk))
+                    throw new ArgumentException("DualContouring: the grid has a node that is not a finite number (Bounds and CellSize near the largest double)");
                 NI = (int)ni; NJ = (int)nj; NK = (int)nk;
                 CornerDimensions = new Vector3i(NI, NJ, NK);
                 sample_grid();

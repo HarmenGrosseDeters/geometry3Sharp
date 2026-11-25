@@ -108,5 +108,19 @@ namespace geometry3Sharp.Tests
             serial.Generate();
             Assert.Equal(first, Digest(serial.Mesh));
         }
+
+        [Fact]
+        public void BoundsNearTheLargestDouble_WhoseLastNodeOverflows_AreRejectedUpFront()
+        {
+            // (the last node is origin + CellSize (N - 1), up to a cell beyond Bounds.Max: +inf here, and ExactPredicates throws on it)
+            var b = new AxisAlignedBox3d(new Vector3d(1.6e308, 1.6e308, 1.6e308), new Vector3d(1.79e308, 1.79e308, 1.79e308));
+            var dc = new DualContouring { Implicit = new BoxSdf(), Bounds = b, CellSize = 2e306, InsideIsLess = true };
+            var ex = Assert.Throws<ArgumentException>(() => dc.Generate());
+            Assert.Contains("the grid has a node", ex.Message);
+            // a grid that fits is not rejected by the check
+            var ok = new DualContouring { Implicit = new BoxSdf(), Bounds = new AxisAlignedBox3d(new Vector3d(-1, -1, -1), new Vector3d(1, 1, 1)), CellSize = 0.5, InsideIsLess = true };
+            ok.Generate();
+            Assert.True(ok.Mesh.TriangleCount > 0);
+        }
     }
 }
