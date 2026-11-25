@@ -127,20 +127,28 @@ namespace g3
             if (version != SerializerVersion)
                 throw new Exception("PolygonFont2d.Restore: invalid version!");
 
-            int nc = reader.ReadInt32();
+            // every size read from the stream is checked before anything is allocated from it (a damaged or hostile file must not make us
+            // allocate gigabytes before the read fails): a character takes at least 8 bytes (the name length and the polygon count),
+            // a polygon at least 8 (the outer polygon's point count and the hole count)
+            int nc = gSerialization.read_count(reader, 8);
             for ( int ci = 0; ci < nc; ++ci) {
-                int buflen = reader.ReadInt32();
-                byte[] stringbuf = reader.ReadBytes(buflen);
+                int buflen = gSerialization.read_count(reader, 1);
+                byte[] stringbuf = gSerialization.read_bytes(reader, buflen);
                 string s = Encoding.Unicode.GetString(stringbuf);
 
-                int numpolys = reader.ReadInt32();
-                GeneralPolygon2d[] polys = new GeneralPolygon2d[numpolys];
+                int numpolys = gSerialization.read_count(reader, 8);
+                // (a character has polygons: AddCharacter takes its bounds from the first one, and Store never writes none)
+                if (numpolys == 0)
+                    throw new InvalidDataException("PolygonFont2d.Restore: a character without polygons");
+                // (a list that grows with the polygons read, not an array of the claimed size: a stream without a length cannot be checked)
+                var polys = new List<GeneralPolygon2d>();
                 for (int k = 0; k < numpolys; ++k) {
-                    polys[k] = new GeneralPolygon2d();
-                    gSerialization.Restore(polys[k], reader);
+                    var polygon = new GeneralPolygon2d();
+                    gSerialization.Restore(polygon, reader);
+                    polys.Add(polygon);
                 }
 
-                font.AddCharacter(s, polys);
+                font.AddCharacter(s, polys.ToArray());
             }
         }
 

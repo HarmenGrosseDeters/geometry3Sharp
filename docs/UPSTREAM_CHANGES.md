@@ -40,6 +40,7 @@ This fork maintains public API compatibility with upstream `geometry3Sharp 1.0.3
 |---|---|---|
 | `DMesh3.CompactInPlace()` | Could throw on isolated live vertices above deletion holes | Preserves isolated vertices, attributes, and vertex mapping |
 | `DMesh3.RebuildFromEdgeRefcounts()` & `gSerialization.Restore(DMesh3, ...)` | Reused destinations kept stale refcounts/adjacency; truncated or corrupt streams filled zeros or corrupted state | Resets derived topology before rebuilding; throws on inconsistent counts/topology (`GenericReaderError`) or truncated arrays (`EndOfStreamException`) |
+| `PolygonFont2d.ReadFont` / `Restore` (damaged sizes) | Allocated from the name length and polygon count of the file before reading (12 bytes cost 954 MB); `IndexOutOfRangeException` for a character without polygons | Sizes checked against the rest of the stream (chunked read without a length); bad input throws `EndOfStreamException`, `InvalidDataException` or `Exception`, as `gSerialization.Restore` (#1615) |
 | `DMesh3.RemoveVertex(..., bPreserveManifold)` | Order-dependent `Failed_WouldCreateBowtie` after partial triangle deletion | Checks whole fan first; more removals succeed, and failures leave the mesh unchanged |
 | `DMesh3.GetBounds()`, `CachedBounds`, `DGraph2/3.GetBounds()` (empty) | Returned zero-size box at origin | Returns `AxisAlignedBox3d.Empty`; sampling grids throw `ArgumentException` on empty meshes |
 | `DMesh3.AllocateTriangleGroup()` | Skipped an ID (returned `6` for groups `0..4`) | Returns next unused ID (`5`) |
