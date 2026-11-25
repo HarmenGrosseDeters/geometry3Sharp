@@ -134,7 +134,7 @@ namespace G3Demos.Demos
             if (!double.IsNaN(expectedVolume)) {
                 double rel = Math.Abs(Volume - expectedVolume) / Math.Max(Math.Abs(expectedVolume), 1e-300);
                 g.Add("expected volume", $"{F(expectedVolume)} (rel. error {rel:E2})",
-                    rel <= volumeTolerance ? RowState.Good : rel <= 1e-3 ? RowState.Warn : RowState.Bad);
+                    rel <= volumeTolerance ? RowState.Good : rel <= Math.Max(1e-3, 10 * volumeTolerance) ? RowState.Warn : RowState.Bad);
             }
             g.Add("check time", $"{Milliseconds} ms");
             return g;
@@ -163,7 +163,7 @@ namespace G3Demos.Demos
         /// a point of the unit circle for u in [0, 1), from the rational parametrization ((1 - t^2), 2t) / (1 + t^2) per quarter
         /// (t in [0, 1)) and exact quarter turns: only + - * /, so the bits are the same on every platform. Math.Sin / Math.Cos
         /// are not (they differ between native .NET and the browser, docs/research/DOGFOODING_DEMOS_2026-11.md finding 16).
-        /// Not uniform in angle (about 2:1 between the middle and the ends of a quarter), which does not matter here
+        /// Not uniform in angle (d angle / dt = 2 / (1 + t^2): 2:1 between the start and the end of each quarter), which does not matter here
         /// </summary>
         public static Vector2d Circle(double u)
         {

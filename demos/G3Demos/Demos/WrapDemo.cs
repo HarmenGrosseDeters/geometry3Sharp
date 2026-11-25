@@ -68,7 +68,7 @@ namespace G3Demos.Demos
                 case "thin-plate": {
                     double t = Math.Pow(10, -p.ThinExp);
                     mesh = Shapes.Box(Vector3d.Zero, new Vector3d(0.5, 0.5, t / 2), Math.Max(2, p.Resolution));
-                    refVolume = Shapes.Volume(mesh);
+                    // no volume reference: thinner than the offset, the wrap is a shell of about area x 2 offset by design
                     what = $"plate 1 x 1 x {t:G3}";
                     break;
                 }
@@ -86,8 +86,9 @@ namespace G3Demos.Demos
                     DMesh3 block = Shapes.Box(Vector3d.Zero, new Vector3d(1, 1, 1), 2);
                     DMesh3 bore = Prism(p.BoreRadius, 32, -1.5, 1.5);
                     var diff = new ExactMeshBoolean(block, bore, ExactMeshBoolean.Operations.Difference);
-                    diff.Compute();
-                    mesh = diff.Result ?? block;
+                    if (!diff.Compute() || diff.Result == null)
+                        throw new InvalidOperationException($"the bored block could not be built: ExactMeshBoolean {diff.Status}: {diff.Error}");
+                    mesh = diff.Result;
                     refVolume = Shapes.Volume(mesh);
                     what = $"block with a bore of radius {p.BoreRadius:G3} ({mesh.TriangleCount} triangles)";
                     break;
@@ -210,17 +211,20 @@ namespace G3Demos.Demos
             var mcc = new MeshConnectedComponents(result);
             mcc.FindConnectedT();
             shells = mcc.Count; nested = 0;
-            if (shells > 1)
-                foreach (var comp in mcc) {
-                    // one vertex of this component, tested against the other components only
-                    var others = new DMesh3();
-                    var mine = new HashSet<int>(comp.Indices);
-                    foreach (var c2 in mcc) if (c2.Indices != comp.Indices) MeshEditor.Append(others, MeshSubset(result, c2.Indices));
-                    Index3i tri = result.GetTriangle(comp.Indices[0]);
-                    if (others.TriangleCount > 0 && new DMeshAABBTree3(others, true).WindingNumber(result.GetVertex(tri.a)) > 0.5)
-                        nested++;
+            if (shells > 1 && shells <= MaxShellsForNesting) {
+                // one tree per component, built once; one vertex of each component tested against the other components
+                var trees = mcc.Components.Select(c => new DMeshAABBTree3(MeshSubset(result, c.Indices), true)).ToList();
+                for (int i = 0; i < shells; ++i) {
+                    Vector3d v = result.GetVertex(result.GetTriangle(mcc.Components[i].Indices[0]).a);
+                    for (int j = 0; j < shells; ++j)
+                        if (j != i && trees[j].WindingNumber(v) > 0.5) { nested++; break; }
                 }
+            } else if (shells > MaxShellsForNesting)
+                nested = -1;   // not checked
         }
+
+        /// <summary> above this many shells the nesting is not checked (a sparse cloud with a small alpha gives one shell per point) </summary>
+        const int MaxShellsForNesting = 50;
 
         static DMesh3 MeshSubset(DMesh3 m, int[] tris)
         {
@@ -236,10 +240,24 @@ namespace G3Demos.Demos
             return sub;
         }
 
+        /// <summary>
+        /// volume / (area x offset) below this: the wrap is a thin shell (a double-sided wrap of a surface has about 1, as its two
+        /// sides are each about one offset from it; a wrap of a solid of size D has about D / (6 offset), hundreds at the defaults)
+        /// </summary>
+        const double ThinShellRatio = 4;
+
         public static DemoResult Compute(WrapParams p)
         {
             var res = new DemoResult { FitKey = "wrap:" + p.Shape };
-            MakeInput(p, p.ScaleExp, out DMesh3 mesh, out List<Vector3d> points, out double refVolume, out string what);
+            DMesh3 mesh; List<Vector3d> points; double refVolume; string what;
+            try {
+                MakeInput(p, p.ScaleExp, out mesh, out points, out refVolume, out what);
+            } catch (Exception ex) {
+                res.Groups.Add(new StatusGroup("Input").Add("input", ex.Message, RowState.Bad));
+                res.Headline = "Input not built: " + ex.Message;
+                res.HeadlineState = RowState.Bad;
+                return res;
+            }
             double frame = Math.Pow(2, p.ScaleExp);
             res.InputHash = mesh != null ? Shapes.Hash(mesh) : Shapes.Hash(PointsMesh(points));
             var ig = new StatusGroup("Input").Add("input", what);
@@ -281,20 +299,24 @@ namespace G3Demos.Demos
 
             MeshCheck rc = null;
             int outside = 0, nested = 0, shells = 0, tested = 0;
+            double shellRatio = double.NaN;
             double minD = double.NaN, maxD = double.NaN;
             if (run.Result != null && run.Result.TriangleCount > 0) {
                 rc = MeshCheck.Of(run.Result);
                 res.Groups.Add(rc.ToGroup("Result checks", refVolume, 0.05));
                 Enclosure(run.Result, mesh, points, out outside, out tested, out minD, out maxD, out shells, out nested);
                 var e = new StatusGroup("Wrap promises (checked on the result)");
-                e.Check("input points inside (winding > 1/2)", outside == 0, $"all {tested} tested", $"{outside} of {tested} outside");
+                e.Check("input points inside (winding > 1/2)", outside == 0, $"all {tested} tested (a subsample of at most 3000)", $"{outside} of {tested} tested outside");
                 if (!double.IsNaN(offset) && offset > 0) {
                     e.Add("min distance to input / offset", MeshCheck.F(minD / offset), minD > 0 ? RowState.Good : RowState.Bad);
                     e.Add("max distance to input / offset", MeshCheck.F(maxD / offset));
                 }
-                e.Add("shells / nested shells", $"{shells} / {nested}", nested > 0 ? RowState.Warn : RowState.Info);
-                if (!double.IsNaN(alpha) && rc.Area > 0 && !double.IsNaN(offset))
-                    e.Add("volume / (area x offset)", MeshCheck.F(rc.Volume / (rc.Area * offset)), RowState.Info);
+                e.Add("shells / nested shells", $"{shells} / {(nested < 0 ? $"not checked (more than {MaxShellsForNesting} shells)" : nested.ToString())}", nested > 0 ? RowState.Warn : RowState.Info);
+                if (rc.Area > 0 && offset > 0) {
+                    shellRatio = rc.Volume / (rc.Area * offset);
+                    e.Add("volume / (area x offset)", MeshCheck.F(shellRatio) + (shellRatio < ThinShellRatio ? " (a thin shell: the wrap lies on both sides of the surface)" : ""),
+                        shellRatio < ThinShellRatio ? RowState.Warn : RowState.Info);
+                }
                 res.Groups.Add(e);
             }
 
@@ -327,9 +349,13 @@ namespace G3Demos.Demos
             bool bad = !run.Ok || run.Exception != null || rc == null || !rc.Clean || outside > 0;
             if (bad)
                 res.Headline = $"Problem: {run.Status} {run.Error} {run.Exception} {(rc != null && !rc.Clean ? "not clean: " + rc.NotCleanReasons : "")} {(outside > 0 ? outside + " input points outside" : "")}".Trim();
+            else if (shellRatio < ThinShellRatio)
+                res.Headline = $"{run.Status}, but the wrap is a thin shell around both sides of the surface (volume / (area x offset) = {shellRatio:F2})"
+                    + (refVolume > 0 ? " where the input is a solid: hollow result" : ": expected for a sheet, a thin part or sparse points") + $", {run.Ms} ms";
             else
                 res.Headline = $"{run.Status}: {rc.Triangles} triangles, {shells} shell(s){(nested > 0 ? $", {nested} nested" : "")}, {run.Ms} ms";
-            res.HeadlineState = bad ? RowState.Bad : nested > 0 ? RowState.Warn : RowState.Good;
+            bool hollowSolid = shellRatio < ThinShellRatio && refVolume > 0;
+            res.HeadlineState = bad || hollowSolid ? RowState.Bad : nested > 0 || shellRatio < ThinShellRatio ? RowState.Warn : RowState.Good;
             return res;
         }
 
