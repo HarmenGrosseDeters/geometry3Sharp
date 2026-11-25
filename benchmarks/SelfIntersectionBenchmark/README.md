@@ -351,8 +351,10 @@ bounds of fewer candidate pairs, a plane pretest of neighbours and a cheaper fil
   sphere 247 -> 240 ms (-3 %), the rest within the ±10 % noise of the machine, fingerprints the same. Before/after
   table in the note.
 - Stopped: the cheaper call, below 10 % in place.
-- Open: a cull of the pairs without shared corners, in-place ceiling 10-41 % on four Reducer rows. It needs a new
-  error bound.
+- Built in a follow-up: the cull of the pairs without shared corners (`TriangleTriangleFilter.ProjectedEdges`, the
+  filter stage of `Orient2d` on the edges of each new triangle). Harness plate 50 with jitter 2910 -> 1417 ms (-51 %),
+  harness tilted plate 50 -17 %, jitter plate tilted -13 % and -10 %, tilted jitter harness -10.5 %, the rest within
+  noise, fingerprints the same.
 
 To re-run the probe (against master fa06338) and the comparison:
 

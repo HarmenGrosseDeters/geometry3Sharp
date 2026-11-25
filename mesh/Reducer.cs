@@ -600,6 +600,9 @@ namespace g3
         internal bool CacheBowtieStates = true;
         protected HashSet<int> gridRingTris = new HashSet<int>();
         AxisAlignedBox3d[] gridNewBoxes = new AxisAlignedBox3d[16];
+        // the projected edges of the new triangles of the collapse being checked (filled with gridNewBoxes in
+        // collapse_creates_intersection, read only by its grid query, si_candidate)
+        TriangleTriangleFilter.ProjectedEdges[] gridNewEdges = new TriangleTriangleFilter.ProjectedEdges[16];
 
         // PairCoincidentVertices, per vertex (null if off): the one other vertex at its position (-1 none; -2 three or more at the
         // position, or two that are the ends of an edge); and the smallest vertex id at its position, which names the position in the
@@ -958,11 +961,13 @@ namespace g3
             // new triangles share the kept vertex, and their boxes overlap: one query visits the cells once instead
             // of about ten times
             if (gridNewBoxes.Length < newTris.Count) gridNewBoxes = new AxisAlignedBox3d[2 * newTris.Count];
+            if (gridNewEdges.Length < newTris.Count) gridNewEdges = new TriangleTriangleFilter.ProjectedEdges[2 * newTris.Count];
             AxisAlignedBox3d union = AxisAlignedBox3d.Empty;
             for (int i = 0; i < newTris.Count; ++i) {
                 Triangle3d A = newTris[i];
                 AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
                 gridNewBoxes[i] = box;
+                gridNewEdges[i] = TriangleTriangleFilter.ProjectedEdges.Of(ref A);
                 if (i == 0) union = box; else union.Contain(box);
             }
             siHit = false;
@@ -991,8 +996,15 @@ namespace g3
             for (int i = 0; i < siNewTris.Count && siHit == false; ++i) {
                 if (triangleGrid.QueryMatches(tc, ref gridNewBoxes[i]) == false)
                     continue;
+                // candidates without a shared vertex: first the edge lines of the new triangle, kept for this collapse
+                // (most such candidates are separated by them: long slivers of reduced plates, docs/research/
+                // TRI_TRI_CANDIDATE_PAIRS_2026-11.md); then the filter and the exact test
+                Index3i ia = siNewIds[i];
+                if (ia.a != ic.a && ia.a != ic.b && ia.a != ic.c && ia.b != ic.a && ia.b != ic.b && ia.b != ic.c
+                    && ia.c != ic.a && ia.c != ic.b && ia.c != ic.c && gridNewEdges[i].Separates(ref C))
+                    continue;
                 Triangle3d A = siNewTris[i];
-                if (TriangleTriangleFilter.IntersectsBeyondSharedNeighbours(siNewIds[i], ref A, ic, ref C))
+                if (TriangleTriangleFilter.IntersectsBeyondSharedNeighbours(ia, ref A, ic, ref C))
                     siHit = true;
             }
         }

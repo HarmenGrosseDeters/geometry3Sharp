@@ -15,8 +15,8 @@ cases of `SelfIntersectionBenchmark`, procedural, serial):
   change is within the noise of this machine, ±10 %: rows that never call the filter moved by as much.
 - (c) is below 10 % in place on every row, in all three forms: all_finite, per-triangle hoisting, and a semi-static 2D
   edge test. Stopped.
-- (a) clears 10 % on four Reducer rows in place (10-41 %). It needs a new error bound (a cull of non-neighbour pairs
-  with precomputed edge lines of the new triangle), which is more than a day of work. Left to the coordinator.
+- (a) clears 10 % on four Reducer rows in place (10-41 %). Built in a follow-up: the cull reuses the filter stage of
+  `Orient2d` on the same doubles, so it needs no new error bound either (section "(a), built").
 
 ## Method
 
@@ -173,6 +173,79 @@ Tests (`TriangleTriangleFilterTests`, `NeighbourPlaneSides_*`):
 - Hand mutants of the pretest (after the review): 15 tried, all killed but one equivalent one (a shared edge accepting
   "some corner proven" instead of "all on one side": with one non-shared corner the two are the same). Among them, both
   degenerate guards dropped, and each of the three ids dropped from the shared-corner check.
+
+## (a), built (follow-up of #1544)
+
+`TriangleTriangleFilter.ProjectedEdges`, used in the Reducer's grid callback (`si_candidate`) for the candidates that
+share no vertex with a new triangle.
+
+How it works:
+- Per new triangle A, once per collapse, filled with `gridNewBoxes`: the projection axis (the dominant axis of A's
+  floating-point normal), A's projected corners, `O = Orient2d` of them (exact), and the three edge differences
+  `e1 - e0` as `Orient2d` computes them.
+- Per candidate C: the three projected corners of C against each edge line by `ExactPredicates.Orient2dFilter`, the
+  filter stage factored out of `Orient2d` (a pure refactor, the same operations in the same order). All three strictly
+  outside one edge (sign times `O` below 0) gives Separate. A linear projection that separates two triangles separates
+  them in 3D.
+- Everything else goes to `IntersectsBeyondSharedNeighbours` and the exact test, unchanged.
+
+No new error bound:
+- The filter gets the same doubles `Orient2d(e0, e1, c)` computes. The projection only drops a coordinate, `e1 - e0`
+  is kept from the start of the collapse, and `c - e0` is computed per call. So every sign it returns is `Orient2d`'s
+  sign, and its bound is the existing `Orient2dBound`.
+- The guards are `Orient2d`'s: below the underflow limit (subnormal products, 2^-500) nothing is proven; non-finite
+  input fails the comparisons. The Reducer checks the candidate for finiteness before.
+- `O = 0` (A degenerate in the projection, including any degenerate A) culls nothing.
+
+Storage: `gridNewEdges` is rebuilt for every collapse check and read only by that check's grid query, so it cannot go
+stale. The Remesher is left out: its pairs without a shared corner are 4.5-8 % of its time in the probe, below the
+line.
+
+Before and after (`reducer remesher runs=3`, master c52b70e against the branch, two interleaved runs, minimum; results
+the same in every run; raw output `probe/results/ab_cull_*`):
+
+| case | before ms (each run) | after ms (each run) | change (min) | result |
+|---|---:|---:|---:|---|
+| reducer_harness_plate50_jitter0.5 | 3029, 2910 | 1417, 1467 | -51.3 % | same |
+| reducer_harness_tilt_plate50_jitter0.5 | 2502, 2304 | 2062, 2101 | -10.5 % | same |
+| reducer_harness_tilt_plate50 | 2980, 2901 | 2474, 2407 | -17.0 % | same |
+| reducer_harness_plate100 | 354, 343 | 351, 338 | -1.5 % | same |
+| reducer_jitter_plate_z0 | 73, 71 | 98, 71 | +0.0 % | same |
+| reducer_jitter_plate_z0_to50 | 81, 78 | 84, 78 | +0.0 % | same |
+| reducer_jitter_plate_tilted_to50 | 2697, 2721 | 2395, 2351 | -12.8 % | same |
+| reducer_jitter_plate_tilted | 2723, 2627 | 2390, 2364 | -10.0 % | same |
+| reducer_integer_plate | 386, 343 | 342, 341 | -0.6 % | same |
+| reducer_bumpy_sphere | 232, 225 | 255, 230 | +2.2 % | same |
+| reducer_box_grid | 1547, 1500 | 1468, 1436 | -4.3 % | same |
+| remesher_bumpy_sphere | 177, 152 | 185, 141 | -7.2 % | same |
+| remesher_jitter_plate_z0 | 48, 45 | 47, 48 | +4.4 % | same |
+| remesher_jitter_plate_tilted | 54, 45 | 55, 47 | +4.4 % | same |
+| remesher_box_grid | 81, 58 | 60, 66 | +3.4 % | same |
+| remesher_bumpy_sphere_si | 1120, 1132 | 1262, 1138 | +1.6 % | same |
+| remesher_jitter_plate_z0_si | 210, 223 | 214, 191 | -9.0 % | same |
+| remesher_jitter_plate_tilted_si | 225, 221 | 237, 215 | -2.7 % | same |
+| remesher_box_grid_si | 374, 376 | 426, 375 | +0.3 % | same |
+
+Rows that never call the filter (the Remesher without prevention) moved by up to ±7 %, the noise of this machine; no
+row is slower than 4.4 %.
+
+Tests (`TriangleTriangleFilterProjectedEdgesTests`, 8 tests: 1.3 s and 0.7 s for the two sign tests with the
+`BigInteger` oracle, the others ≤ 0.12 s, measured alone):
+- Every edge/point sign equals the filter stage of `Orient2d` on its own differences (zeros included), and is 0 or the
+  exact sign, from an exact `BigInteger` determinant independent of `ExactPredicates`. Inputs: random and grid
+  triangles with random and near-collinear points, the ulp grid of Kettner et al. (2008), four inputs where the
+  floating-point sign is wrong within the bound but outside half of it (found by a search), 2^500 and 2^-60 (decisions
+  as at scale 1), and 2^-500, 1e-110, 1e-160 and subnormal differences (nothing proven).
+- `Separates` never culls a pair `ExactTriangleIntersection.Intersects` finds intersecting (integer grids, random and
+  nearly coplanar pairs, both orientations of A), never culls against a degenerate projection, and over
+  `Similarity.All()` never culls wrongly, with the same decisions under the exact scalings.
+- Triangles in planes x = 1 and y = 1 are projected along their own axis and cull a far triangle (along z they would
+  project to a segment and cull nothing).
+- Hand mutants, all killed but one equivalent one: the bound halved, the bound 0, the underflow guard dropped, the edge
+  direction reversed, the sign of `O` flipped, one corner dropped, `O` from a filter, a zero sign counted as outside, a
+  wrong edge, the projection axis fixed to z, and the base point moved to e1. The last is a cyclic permutation of the
+  same orientation, so its signs are right; only the bit-identity assert catches it, because it decides other points
+  than `Orient2d`'s filter. (Equivalent: the `O == 0` check, since then no product of a sign and `O` is below 0.)
 
 ## Literature and library
 
