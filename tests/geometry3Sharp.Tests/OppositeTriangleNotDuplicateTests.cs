@@ -304,6 +304,7 @@ namespace geometry3Sharp.Tests
             Assert.True(t0 >= 0 && t1 >= 0 && t0 != t1);
             Assert.Equal(t1, builder.AppendTriangle(b, a, c));
             Assert.Equal(t1, builder.AppendTriangle(a, c, b));
+            Assert.Equal(t1, builder.AppendTriangle(c, b, a));
             Assert.Equal(t0, builder.AppendTriangle(c, a, b));
             DMesh3 mesh = builder.Meshes[0];
             Assert.Equal(2, mesh.TriangleCount);
@@ -365,6 +366,21 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(ExpectedLabels(PairFirst()), labels);
                 Assert.True(ClosedByPosition(labels));
             }
+        }
+
+        [Fact]
+        public void Obj_BothFlapSidesDetached_RepeatsOfEitherSideAreDuplicates()
+        {
+            // after the box both flap sides get their own vertices; a repeat of either side (the one recorded first
+            // and the one recorded last) is a duplicate of its own copy, not of the other side
+            int[][] repeats = { Flap[0], Flap[1], new[] { 8, 0, 1 }, new[] { 8, 1, 0 } };
+            DMesh3 mesh = ReadObj(Obj(PairLast().Concat(repeats), Similarity.Identity));
+            AssertValidFinite(mesh);
+            Assert.Equal(14, mesh.TriangleCount);
+            Assert.Equal(15, mesh.VertexCount);         // 9 input vertices and the 6 of the two detached flap sides
+            List<string> labels = LabelTriangles(mesh, Similarity.Identity);
+            Assert.Equal(ExpectedLabels(PairLast()), labels);
+            Assert.True(ClosedByPosition(labels));
         }
 
         [Fact]

@@ -34,8 +34,9 @@ namespace g3
         /// it gets its own vertices, so both triangles are kept), whatever their order in the input, also where it
         /// could be welded to the existing triangle (eg the back side of a lone two-sided triangle).
         /// (1.0.324 discarded it as a duplicate whenever it met the existing triangle's vertices; issue #1556.)
-        /// A triangle that the non-manifold path gave its own vertices is remembered by its input vertices, so a later
-        /// copy of it in the same orientation is a duplicate too (in 1.0.324 it got another copy each time).
+        /// A triangle that the non-manifold path gave its own vertices is remembered by its input vertices (by this
+        /// builder, for the meshes it appended triangles to), so a later copy of it in the same orientation is a
+        /// duplicate too (in 1.0.324 it got another copy each time).
         /// The connectivity can still depend on the input order: a triangle that meets an edge with two triangles
         /// gets its own vertices, so which of several triangles on an edge stays welded is decided by their order.
         /// </summary>
@@ -161,7 +162,11 @@ namespace g3
         // vertex IDs (rotated so the smallest comes first; the orientation is kept). FindTriangle cannot see them
         // (they do not use the input vertices), so without this record a repeated triangle would get another copy
         // each time instead of being a duplicate under DuplicateTriBehavior (issue #1556). Only looked up, never
-        // iterated, so the order of the dictionaries does not matter.
+        // iterated, so the order of the dictionaries does not matter. The record belongs to this builder: copies in
+        // a mesh passed to AppendNewMesh(existing) that another builder made are not known. After the caller edits
+        // a mesh (RemoveTriangle, CompactInPlace) a record can point at another triangle; it still counts only for a
+        // triangle at the same positions in the same cyclic order, so at worst a repeat is not welded, and no
+        // triangle of other geometry is dropped. Non-finite positions never match, so their repeats are copied.
         Dictionary<DMesh3, Dictionary<Index3i, int>> detachedCopies;
 
         static Index3i rotated_key(int i, int j, int k)
