@@ -1,0 +1,76 @@
+| case | stratum | status | ms (per run) |
+|---|---|---|---|
+| coplanar boxes | degenerate | Success | 559 |
+|   orient3d_exact | zero 264 calls 22.8 ms | nonzero 0 calls 0.0 ms | trivial zero 0 |
+| Collinear k=20 vs shifted copy | degenerate | Success | 163 |
+|   orient3d_exact | zero 1587 calls 0.3 ms | nonzero 2043 calls 0.4 ms | trivial zero 47 |
+| Collinear k=20 vs itself | degenerate | Success | 90 |
+|   orient3d_exact | zero 3421 calls 0.8 ms | nonzero 5489 calls 1.2 ms | trivial zero 24748 |
+| Collinear k=40 vs shifted copy | degenerate | Success | 28 |
+|   orient3d_exact | zero 1583 calls 0.4 ms | nonzero 2045 calls 0.5 ms | trivial zero 48 |
+| Collinear k=40 vs itself | degenerate | Success | 46 |
+|   orient3d_exact | zero 3423 calls 0.8 ms | nonzero 5494 calls 1.6 ms | trivial zero 24746 |
+| Sliver k=20 vs shifted copy | degenerate | Success | 15 |
+|   orient3d_exact | zero 1348 calls 0.3 ms | nonzero 443 calls 0.1 ms | trivial zero 0 |
+| Sliver k=20 vs itself | degenerate | Success | 55 |
+|   orient3d_exact | zero 3027 calls 0.6 ms | nonzero 2202 calls 0.5 ms | trivial zero 25244 |
+| Sliver k=40 vs shifted copy | degenerate | Success | 34 |
+|   orient3d_exact | zero 1352 calls 0.3 ms | nonzero 537 calls 0.1 ms | trivial zero 0 |
+| Sliver k=40 vs itself | degenerate | Success | 43 |
+|   orient3d_exact | zero 3028 calls 0.7 ms | nonzero 2468 calls 0.5 ms | trivial zero 25622 |
+| ShortEdge k=20 vs shifted copy | degenerate | Success | 23 |
+|   orient3d_exact | zero 1623 calls 0.3 ms | nonzero 235 calls 0.1 ms | trivial zero 0 |
+| ShortEdge k=20 vs itself | degenerate | Success | 39 |
+|   orient3d_exact | zero 4323 calls 0.9 ms | nonzero 790 calls 0.2 ms | trivial zero 26911 |
+| ShortEdge k=40 vs shifted copy | degenerate | Success | 38 |
+|   orient3d_exact | zero 1598 calls 0.4 ms | nonzero 256 calls 0.1 ms | trivial zero 0 |
+| ShortEdge k=40 vs itself | degenerate | Success | 45 |
+|   orient3d_exact | zero 4204 calls 0.9 ms | nonzero 859 calls 0.2 ms | trivial zero 27325 |
+| Coincident k=20 vs shifted copy | degenerate | Success | 16 |
+|   orient3d_exact | zero 1217 calls 0.2 ms | nonzero 0 calls 0.0 ms | trivial zero 0 |
+| Coincident k=20 vs itself | degenerate | Success | 28 |
+|   orient3d_exact | zero 2705 calls 0.6 ms | nonzero 0 calls 0.0 ms | trivial zero 19796 |
+| Coincident k=40 vs shifted copy | degenerate | Success | 25 |
+|   orient3d_exact | zero 1216 calls 0.3 ms | nonzero 0 calls 0.0 ms | trivial zero 0 |
+| Coincident k=40 vs itself | degenerate | Success | 30 |
+|   orient3d_exact | zero 2705 calls 0.5 ms | nonzero 0 calls 0.0 ms | trivial zero 19235 |
+| Unwelded k=20 vs shifted copy | degenerate | Success | 14 |
+|   orient3d_exact | zero 1224 calls 0.3 ms | nonzero 0 calls 0.0 ms | trivial zero 0 |
+| Unwelded k=20 vs itself | degenerate | Success | 19 |
+|   orient3d_exact | zero 2709 calls 0.6 ms | nonzero 0 calls 0.0 ms | trivial zero 19604 |
+| Unwelded k=40 vs shifted copy | degenerate | Success | 11 |
+|   orient3d_exact | zero 1223 calls 0.3 ms | nonzero 0 calls 0.0 ms | trivial zero 0 |
+| Unwelded k=40 vs itself | degenerate | Success | 19 |
+|   orient3d_exact | zero 2708 calls 0.6 ms | nonzero 0 calls 0.0 ms | trivial zero 19626 |
+| VertexOnFace k=20 vs shifted copy | degenerate | Success | 7 |
+|   orient3d_exact | zero 546 calls 0.1 ms | nonzero 0 calls 0.0 ms | trivial zero 0 |
+| VertexOnFace k=20 vs itself | degenerate | Success | 2 |
+|   orient3d_exact | zero 276 calls 0.1 ms | nonzero 0 calls 0.0 ms | trivial zero 1005 |
+| VertexOnFace k=40 vs shifted copy | degenerate | Success | 3 |
+|   orient3d_exact | zero 548 calls 0.1 ms | nonzero 0 calls 0.0 ms | trivial zero 0 |
+| VertexOnFace k=40 vs itself | degenerate | Success | 2 |
+|   orient3d_exact | zero 275 calls 0.1 ms | nonzero 0 calls 0.0 ms | trivial zero 998 |
+| SharedFace k=20 vs shifted copy | degenerate | Success | 5 |
+|   orient3d_exact | zero 1090 calls 0.3 ms | nonzero 0 calls 0.0 ms | trivial zero 0 |
+| SharedFace k=20 vs itself | degenerate | Success | 2 |
+|   orient3d_exact | zero 551 calls 0.1 ms | nonzero 0 calls 0.0 ms | trivial zero 1282 |
+| SharedFace k=40 vs shifted copy | degenerate | Success | 5 |
+|   orient3d_exact | zero 1086 calls 0.3 ms | nonzero 0 calls 0.0 ms | trivial zero 0 |
+| SharedFace k=40 vs itself | degenerate | Success | 2 |
+|   orient3d_exact | zero 550 calls 0.1 ms | nonzero 0 calls 0.0 ms | trivial zero 1245 |
+| Cluster k=20 vs shifted copy | degenerate | Success | 147 |
+|   orient3d_exact | zero 1320 calls 0.4 ms | nonzero 22022 calls 6.8 ms | trivial zero 137 |
+| Cluster k=20 vs itself | degenerate | Success | 121 |
+|   orient3d_exact | zero 2903 calls 0.6 ms | nonzero 53962 calls 10.6 ms | trivial zero 45622 |
+| Cluster k=40 vs shifted copy | degenerate | Success | 124 |
+|   orient3d_exact | zero 1584 calls 0.3 ms | nonzero 61765 calls 9.5 ms | trivial zero 399 |
+| Cluster k=40 vs itself | degenerate | Success | 182 |
+|   orient3d_exact | zero 3894 calls 0.8 ms | nonzero 77260 calls 16.4 ms | trivial zero 46623 |
+| FoldedCluster k=20 vs shifted copy | degenerate | Success | 67 |
+|   orient3d_exact | zero 1320 calls 0.3 ms | nonzero 13805 calls 3.1 ms | trivial zero 32 |
+| FoldedCluster k=20 vs itself | degenerate | Success | 107 |
+|   orient3d_exact | zero 2903 calls 1.5 ms | nonzero 43452 calls 18.2 ms | trivial zero 47552 |
+| FoldedCluster k=40 vs shifted copy | degenerate | Success | 2228 |
+|   orient3d_exact | zero 1677 calls 0.8 ms | nonzero 2231817 calls 467.9 ms | trivial zero 327 |
+| FoldedCluster k=40 vs itself | degenerate | Success | 947 |
+|   orient3d_exact | zero 4009 calls 0.6 ms | nonzero 1605612 calls 229.2 ms | trivial zero 46354 |

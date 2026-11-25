@@ -1,0 +1,45 @@
+== degenerate
+busy time under ExactMeshBoolean.Compute: 16167 ms (idle waits dropped: 0 ms)
+BigInteger arithmetic (inclusive, incl. GC below it): 282 ms = 1.7 %
+BigInteger-keyed containers (hashing, equality): 26 ms = 0.2 %
+| innermost g3 caller of the BigInteger frame | ms | share of busy time |
+|---|---|---|
+| g3.ExactPoint3.Create | 106 | 0.7 % |
+| g3.ExactMeshArrangement.same_plane | 74 | 0.5 % |
+| g3.ExactMeshArrangement.edge_plane_exact | 43 | 0.3 % |
+| g3.ExactMeshArrangement.line_direction | 13 | 0.1 % |
+| g3.ExactMeshArrangement.intersect | 11 | 0.1 % |
+| g3.ExactLimbSigns.Dot | 8 | 0.0 % |
+| g3.ExactLimbSigns.Det4 | 6 | 0.0 % |
+| g3.ExactMeshArrangement.alpha_int | 5 | 0.0 % |
+| g3.ExactMeshBoolean.far_point | 4 | 0.0 % |
+| g3.ExactPlanarSimplify.group_of | 4 | 0.0 % |
+| g3.ExactMeshArrangement.ToInputVector | 3 | 0.0 % |
+| g3.ExactPoint3.ShardBits | 2 | 0.0 % |
+== normal
+busy time under ExactMeshBoolean.Compute: 1369 ms (idle waits dropped: 0 ms)
+BigInteger arithmetic (inclusive, incl. GC below it): 12 ms = 0.9 %
+BigInteger-keyed containers (hashing, equality): 4 ms = 0.3 %
+| innermost g3 caller of the BigInteger frame | ms | share of busy time |
+|---|---|---|
+| g3.ExactMeshArrangement.same_plane | 6 | 0.4 % |
+| g3.ExactMeshArrangement.alpha_int | 4 | 0.3 % |
+| g3.ExactMeshArrangement.line_direction | 1 | 0.1 % |
+| g3.ExactMeshArrangement.exact_ref | 1 | 0.1 % |
+| innermost g3 frame (self time incl. callees outside g3) | share |
+|---|---|
+| g3.TriangleTriangleFilter.by_projection | 11.9 % |
+| g3.ExactPredicates.orient3d_exact | 11.7 % |
+| g3.MeshRoundingRepair.improves | 9.3 % |
+| g3.gParallel.ForRange | 8.4 % |
+| g3.MeshRoundingRepair.canonical_of | 5.0 % |
+| g3.MeshRoundingRepair.intersects | 4.3 % |
+| g3.ExactPredicates.Orient3d | 3.7 % |
+| g3.MeshRoundingRepair.near | 2.9 % |
+| g3.MeshRoundingRepair.zip_strip | 2.4 % |
+| g3.ExactTriangleIntersection.IntersectsBeyondShared | 2.3 % |
+| g3.TriangleBoxTree.Query | 2.3 % |
+| g3.ExactMeshArrangement.intersect | 1.7 % |
+| g3.ExactPredicates.Orient2d | 1.6 % |
+| g3.ExactMeshArrangement.AddPoint | 1.5 % |
+| g3.ExactMeshBoolean.front_crossings | 1.5 % |
