@@ -1,0 +1,76 @@
+corpus	name	frame	op	tris	verdict	route	detail	oracle	today (pipeline report)	boolean ms	certificate ms	C2 ms	C0 ms	C1 ms	C3 ms	C5 ms	filtered C2a ms	other checks ms	caveats
+extras:F1-tiny	tiny cube 2^-8	id	Union	24	Certified	Direct		ok		225	68.2	12.4	13.2	12.0	7.49	23.1	6.46	33.5	
+extras:F1-tiny	tiny cube 2^-9	id	Union	24	NotCertifiable(refused)	Direct	RoundingNotClean: rounding not clean within the bound 0.0177: 0 intersecting pairs, 0 degenerate triangles, 0 contacts made by the rounding left, eg at 0 0 0; the smallest edit rejected by the bound needed Infinity; 0 components kept that the bound took as thin (scale disparity); 1 components removed that their coordinates resolve (still defective, or changed by the repair)			72.2	0.00	0.00	0.00	0.00	0.00	0.00	0.00	0.00	
+extras:F1-tiny	tiny cube 2^-12	id	Union	24	NotCertifiable(refused)	Direct	RoundingNotClean: rounding not clean within the bound 0.0177: 0 intersecting pairs, 0 degenerate triangles, 0 contacts made by the rounding left, eg at 0 0 0; the smallest edit rejected by the bound needed Infinity; 0 components kept that the bound took as thin (scale disparity); 1 components removed that their coordinates resolve (still defective, or changed by the repair)			10.7	0.00	0.00	0.00	0.00	0.00	0.00	0.00	0.00	
+extras:F1-small	I slab 2^-12	id	Intersection	24	Certified	Direct		ok		104	7.11	4.81	0.18	1.07	0.46	0.60	3.44	0.36	
+extras:F1-small	I slab 2^-15	id	Intersection	24	Certified	Direct		ok		1.29	10.5	7.71	0.23	0.94	0.44	1.17	3.50	0.29	
+extras:F1-small	I slab 2^-17	id	Intersection	24	Certified	Direct		ok		1.27	10.6	8.29	0.19	1.00	0.46	0.70	3.47	0.34	
+extras:F1-small	I slab 2^-25	id	Intersection	24	Certified	Direct		ok		11.8	17.6	14.1	0.19	0.96	0.92	1.44	5.79	0.48	
+extras:F1-small	I slab 2^-35	id	Intersection	24	Certified	Direct		ok		1.61	20.0	15.4	0.30	2.48	0.82	1.08	6.79	0.26	
+extras:F1-small	D wall 2^-12	id	Difference	24	Certified	Direct		ok		4.59	10.3	1.36	6.54	0.95	1.00	0.49	0.91	0.34	
+extras:F1-small	D wall 2^-15	id	Difference	24	Certified	Direct		ok		1.34	3.52	1.67	0.27	0.53	0.33	0.71	0.95	0.44	
+extras:F1-small	D wall 2^-17	id	Difference	24	Certified	Direct		ok		1.55	3.30	1.64	0.26	0.53	0.34	0.53	0.91	0.32	
+extras:F1-small	D wall 2^-25	id	Difference	24	Certified	Direct		ok		1.12	5.05	3.16	0.40	0.57	0.34	0.57	0.93	2.09	
+extras:F1-small	D wall 2^-35	id	Difference	24	Certified	Direct		ok		0.95	14.1	9.41	0.37	1.52	1.74	1.05	1.08	0.36	
+extras:F1-small	U plate 2^-12	id	Union	24	Certified	Direct		ok		1.01	1.71	0.33	0.18	0.35	0.16	0.70	0.25	0.54	
+extras:F1-small	U plate 2^-15	id	Union	24	Certified	Direct		ok		1.03	2.56	0.53	0.25	0.46	0.29	1.02	0.21	0.57	
+extras:F1-small	U plate 2^-17	id	Union	24	Certified	Direct		ok		0.56	1.90	0.39	0.18	0.33	0.22	0.78	0.19	0.50	
+extras:F1-small	U plate 2^-25	id	Union	24	Certified	Direct		ok		0.54	18.5	0.67	0.19	0.32	16.0	1.31	0.30	1.40	
+extras:F1-small	U plate 2^-35	id	Union	24	Certified	Direct		ok		5.00	7.26	1.77	0.30	1.07	0.57	3.54	0.19	0.47	
+extras:F1-tiny	tiny cube 2^-8	rot	Union	24	Certified	Direct		ok		1.85	7.99	1.97	0.53	1.72	0.63	3.15	0.18	1.80	
+extras:F1-tiny	tiny cube 2^-9	rot	Union	24	NotCertifiable(refused)	Direct	RoundingNotClean: rounding not clean within the bound 0.0272: 0 intersecting pairs, 0 degenerate triangles, 0 contacts made by the rounding left, eg at 0 0 0; the smallest edit rejected by the bound needed Infinity; 0 components kept that the bound took as thin (scale disparity); 1 components removed that their coordinates resolve (still defective, or changed by the repair)			4.43	0.00	0.00	0.00	0.00	0.00	0.00	0.00	0.00	
+extras:F1-tiny	tiny cube 2^-12	rot	Union	24	NotCertifiable(refused)	Direct	RoundingNotClean: rounding not clean within the bound 0.0272: 0 intersecting pairs, 0 degenerate triangles, 0 contacts made by the rounding left, eg at 0 0 0; the smallest edit rejected by the bound needed Infinity; 0 components kept that the bound took as thin (scale disparity); 1 components removed that their coordinates resolve (still defective, or changed by the repair)			3.90	0.00	0.00	0.00	0.00	0.00	0.00	0.00	0.00	
+extras:F1-small	I slab 2^-12	rot	Intersection	24	Certified	Direct		ok		35.4	176	138	0.52	10.2	6.67	20.2	137	9.64	
+extras:F1-small	I slab 2^-15	rot	Intersection	24	Certified	Direct		ok		274	300	187	1.18	23.5	65.0	23.4	151	36.2	
+extras:F1-small	I slab 2^-17	rot	Intersection	24	Certified	Direct		ok		154	190	84.5	30.9	25.0	4.16	45.3	98.8	19.3	
+extras:F1-small	I slab 2^-25	rot	Intersection	24	Certified	Direct		ok		281	62.8	44.7	0.60	5.36	2.95	9.15	42.1	7.13	
+extras:F1-small	I slab 2^-35	rot	Intersection	24	Certified	Direct		ok		101	68.9	50.6	0.53	5.02	2.52	10.2	23.1	23.3	
+extras:F1-small	D wall 2^-12	rot	Difference	24	Certified	Direct		ok		43.2	60.6	29.2	2.80	5.75	10.5	12.3	12.4	19.8	
+extras:F1-small	D wall 2^-15	rot	Difference	24	Certified	Direct		ok		281	80.9	65.7	0.69	4.10	2.08	8.29	9.23	8.29	
+extras:F1-small	D wall 2^-17	rot	Difference	24	Certified	Direct		ok		44.2	27.5	18.9	0.55	2.73	2.07	3.26	10.7	13.3	
+extras:F1-small	D wall 2^-25	rot	Difference	24	Certified	Direct		ok		19.9	42.5	16.8	0.47	2.66	19.4	3.15	11.0	14.4	
+extras:F1-small	D wall 2^-35	rot	Difference	24	Certified	Direct		ok		121	26.8	18.4	0.68	3.07	1.81	2.82	13.6	16.8	
+extras:F1-small	U plate 2^-12	rot	Union	24	Certified	Direct		ok		17.2	4.35	1.00	0.37	0.90	0.46	1.63	0.20	25.2	
+extras:F1-small	U plate 2^-15	rot	Union	24	Certified	Direct		ok		268	6.00	0.95	0.40	0.98	0.50	3.17	0.15	38.4	
+extras:F1-small	U plate 2^-17	rot	Union	24	Certified	Direct		ok		317	5.31	1.74	0.43	1.13	0.39	1.61	0.12	26.5	
+extras:F1-small	U plate 2^-25	rot	Union	24	Certified	Direct		ok		57.3	4.74	1.21	0.33	1.02	0.47	1.71	0.14	0.86	
+extras:F1-small	U plate 2^-35	rot	Union	24	Certified	Direct		ok		1.21	5.13	1.16	0.42	1.06	0.59	1.91	0.15	30.3	
+extras:F1-tiny	tiny cube 2^-8	rot+utm	Union	24	Certified	Direct		ok		254	14.9	0.87	0.48	9.88	0.44	3.24	0.11	4.67	
+extras:F1-tiny	tiny cube 2^-9	rot+utm	Union	24	NotCertifiable(refused)	Direct	RoundingNotClean: rounding not clean within the bound 0.0272: 0 intersecting pairs, 0 degenerate triangles, 0 contacts made by the rounding left, eg at 0 0 0; the smallest edit rejected by the bound needed Infinity; 0 components kept that the bound took as thin (scale disparity); 1 components removed that their coordinates resolve (still defective, or changed by the repair)			93.1	0.00	0.00	0.00	0.00	0.00	0.00	0.00	0.00	
+extras:F1-tiny	tiny cube 2^-12	rot+utm	Union	24	NotCertifiable(refused)	Direct	RoundingNotClean: rounding not clean within the bound 0.0272: 0 intersecting pairs, 0 degenerate triangles, 0 contacts made by the rounding left, eg at 0 0 0; the smallest edit rejected by the bound needed Infinity; 0 components kept that the bound took as thin (scale disparity); 1 components removed that their coordinates resolve (still defective, or changed by the repair)			17.0	0.00	0.00	0.00	0.00	0.00	0.00	0.00	0.00	
+extras:F1-small	I slab 2^-12	rot+utm	Intersection	24	Certified	Direct		ok		272	71.8	61.7	0.46	4.67	1.85	3.17	12.2	13.0	
+extras:F1-small	I slab 2^-15	rot+utm	Intersection	24	Certified	Direct		ok		73.7	58.6	41.6	0.33	4.28	2.19	10.2	15.4	24.4	
+extras:F1-small	I slab 2^-17	rot+utm	Intersection	24	Certified	Direct		ok		393	44.0	27.6	0.33	7.60	4.64	3.81	12.9	9.86	
+extras:F1-small	I slab 2^-25	rot+utm	Intersection	24	Certified	Direct		ok		6.95	40.4	25.1	0.29	2.85	1.99	10.2	14.6	4.69	
+extras:F1-small	I slab 2^-35	rot+utm	Intersection	24	Rejected(NotClean)	Direct	empty; the rounding removed 1 part(s) of the exact result	ok		70.0	62.5	23.4	0.44	3.96	1.50	33.3	0.00	0.00	rounding removed: 14 triangles, area 8, box [500001, 5.5E+06, 99.4121] to [500002, 5.5E+06, 101.79]
+extras:F1-small	D wall 2^-12	rot+utm	Difference	24	Certified	Direct		ok		306	34.9	27.8	0.44	1.99	1.27	3.36	5.72	16.8	
+extras:F1-small	D wall 2^-15	rot+utm	Difference	24	Certified	Direct		ok		135	52.3	18.2	0.49	2.10	28.1	3.43	4.04	8.16	
+extras:F1-small	D wall 2^-17	rot+utm	Difference	24	Certified	Direct		ok		89.0	24.7	18.0	0.44	1.83	1.38	3.03	4.28	9.73	
+extras:F1-small	D wall 2^-25	rot+utm	Difference	24	Certified	Direct		ok		76.0	23.2	16.3	0.51	2.54	1.34	2.53	9.27	2.71	
+extras:F1-small	D wall 2^-35	rot+utm	Difference	24	Rejected(NotClean)	Direct	empty; the rounding removed 1 part(s) of the exact result	ok		11.5	18.4	12.8	0.33	1.42	1.19	2.74	0.00	0.00	rounding removed: 20 triangles, area 8, box [499999, 5.5E+06, 100] to [500001, 5.5E+06, 102.378]
+extras:F1-small	U plate 2^-12	rot+utm	Union	24	Certified	Direct		ok		0.72	7.00	0.75	0.45	0.86	2.87	2.07	0.15	1.90	
+extras:F1-small	U plate 2^-15	rot+utm	Union	24	Certified	Direct		ok		2.25	3.25	0.82	0.24	0.59	0.34	1.25	0.09	0.21	
+extras:F1-small	U plate 2^-17	rot+utm	Union	24	Certified	Direct		ok		0.40	4.21	0.65	0.42	1.25	0.33	1.56	0.09	0.22	
+extras:F1-small	U plate 2^-25	rot+utm	Union	24	Certified	Direct		ok		0.76	6.33	1.22	0.34	0.96	0.54	3.28	0.26	0.44	
+extras:F1-small	U plate 2^-35	rot+utm	Union	24	Certified, rounding removed parts	Direct		ok		0.77	18.4	1.48	0.36	2.51	0.57	13.4	0.17	6.97	rounding removed: 12 triangles, area 8, box [500001, 5.5E+06, 98.5302] to [500004, 5.5E+06, 99.664]
+extras:1567	A 500^3 U B + inside-out plate (fed whole)	id	Union	36	Certified, input winding outside 0..1	Direct				0.80	37.9	19.0	0.62	16.1	1.21	1.00	0.34	13.8	input 1 has winding number -1 next to piece 24: it overlaps itself or is inside out; the solid is taken as winding number > 0 (the intent is not checkable)
+extras:1567	A 500^3 U B (plate dropped by the caller)	id	Union	24	Certified	Direct				7.00	1.70	0.43	0.17	0.32	0.19	0.58	0.16	0.38	
+extras:1567	same run, labelled as the pipeline's drop (original inputs = with the plate)	id	Union	0	Certified	InputRepair				1.53	1.38	0.30	0.16	0.24	0.15	0.53	0.00	7.47	the exact stage's inputs differ from the inputs as passed (12 triangles of the inputs as passed are not fed, 0 fed triangles are not in them): the certificate is about the inputs it got
+
+## extras: 57 runs
+  Certified: 47 (82.5 %)
+  NotCertifiable(refused): 6 (10.5 %)
+  Rejected(NotClean): 2 (3.5 %)
+  Certified, rounding removed parts: 1 (1.8 %)
+  Certified, input winding outside 0..1: 1 (1.8 %)
+  against the audit's oracle (runs with a result):
+    oracle ok / Certified: 45
+    oracle ok / Certified, rounding removed parts: 1
+    oracle ok / Rejected(NotClean): 2
+  cost, all certified (49): certificate / boolean, BigInteger: median 1.45, p90 10.4, max 47.2; with the filtered embedding check: median 1.12, p90 7.14, max 33.4; with the NotClean and rounding checks added: median 1.72; C2's share of the certificate: median 0.47
+  cost, boolean >= 20 ms (22): certificate / boolean, BigInteger: median 0.29, p90 1.23, max 4.96; with the filtered embedding check: median 0.21, p90 1.01, max 4.92; with the NotClean and rounding checks added: median 0.36; C2's share of the certificate: median 0.69
+  runs with caveats: 5
+
+## every Rejected
+  extras:F1-small | I slab 2^-35 | rot+utm | Intersection | Rejected(NotClean) | empty; the rounding removed 1 part(s) of the exact result | oracle ok
+  extras:F1-small | D wall 2^-35 | rot+utm | Difference | Rejected(NotClean) | empty; the rounding removed 1 part(s) of the exact result | oracle ok

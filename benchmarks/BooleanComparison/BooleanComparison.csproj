@@ -16,6 +16,10 @@
     <!-- the stages 1-2 certifying checker of the tests, timed by the certify mode (Certify.cs) -->
     <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\BooleanCertificate.cs" Link="Harness\BooleanCertificate.cs" />
     <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\BooleanCertificate.Recording.cs" Link="Harness\BooleanCertificate.Recording.cs" />
+    <!-- the pipeline certificate spike (PipelineCertBench.cs): the harness, and the procedural adversarial corpus and oracle of the pipeline audit -->
+    <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\PipelineCertificate.cs" Link="Harness\PipelineCertificate.cs" />
+    <Compile Include="..\SolidBooleanAudit\Corpus.cs" Link="Audit\Corpus.cs" />
+    <Compile Include="..\SolidBooleanAudit\Oracle.cs" Link="Audit\Oracle.cs" />
     <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\CertificateFile.cs" Link="Harness\CertificateFile.cs" />
     <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\BooleanFuzzCases.cs" Link="Harness\BooleanFuzzCases.cs" />
     <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\BooleanOracle.cs" Link="Harness\BooleanOracle.cs" />

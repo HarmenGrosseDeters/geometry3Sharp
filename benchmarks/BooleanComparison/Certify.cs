@@ -491,6 +491,19 @@ static class Certify
         }
     }
 
+    /// <summary>
+    /// the filtered C2a (points, approximations, broad phase and the pair tests with the floating-point filter) of an arrangement, in ms
+    /// (the pipeline certificate spike, PipelineCertBench.cs: the cost of the embedding check with the filter instead of BigInteger)
+    /// </summary>
+    internal static double FilteredC2aMs(ExactMeshArrangement arr, out int violations)
+    {
+        var sw = Stopwatch.StartNew();
+        Embedding e = Embedding.From(arr);
+        e.BroadPhase();
+        violations = e.Check(Mode.Filtered).violations;
+        return sw.Elapsed.TotalMilliseconds;
+    }
+
     // ------------------------------------------------------------------ measurements
 
     static double Median(List<double> v) { v.Sort(); return v[v.Count / 2]; }

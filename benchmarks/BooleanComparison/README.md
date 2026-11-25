@@ -1411,6 +1411,20 @@ Headline (4 cores, the checker serial, shared container; ratios to the boolean):
 result 0.1-0.6. Coplanar clip: `IntrTriangle3Triangle3.Find` equals the rounded exact polygon in 120 000 pairs; `IntrTriangle2Triangle2`
 is off by up to 4e9 ulps on nearly parallel edges. The tables and their reading are in the note.
 
+### The pipeline certificate (`pipeline-cert`; spike 2026-11-25, phase 1)
+
+`PipelineCertBench.cs` measures the harness `tests/geometry3Sharp.Tests/Harness/PipelineCertificate.cs` (the exact stage's checker, the
+`NotCleanReason` check and the #1488-style rounding checks, verdicts Certified / NotCertifiable / Rejected) on the procedural audit corpus
+(`benchmarks/SolidBooleanAudit/Corpus.cs`, linked), on `SolidBooleanPipeline` runs with the boolean captured by `ConfigureBoolean`, and on a
+seeded sample of Thingi10K pairs (the `export` pairing). Note: [PIPELINE_CERTIFICATE_SPIKE_2026-11.md](../../docs/research/PIPELINE_CERTIFICATE_SPIKE_2026-11.md);
+output in `perf/pipeline_cert_*.txt`.
+
+```
+dotnet run -c Release -- pipeline-cert procedural | pipeline | pipeline-repair id | extras
+dotnet run -c Release -- pipeline-cert thingi <dataset>/raw_meshes 300 5000 [seed]     # BOOLCMP_ONLY_IDS=a,b: some models only
+dotnet run -c Release -- pipeline-cert diag <dataset>/raw_meshes/<id>.stl Union         # coverage at growing split depths
+```
+
 ### Certificate size and the whole checker (`certify size`; study 2026-11-24)
 
 For [CERTIFYING_BOOLEANS_2026-11.md](../../docs/research/CERTIFYING_BOOLEANS_2026-11.md). `CertifySize.cs` counts the size of a
