@@ -75,7 +75,7 @@ namespace geometry3Sharp.Tests
         [InlineData(1e12, true)]
         public void NearerOrigins_ResultUnchanged(double origin, bool rotated)
         {
-            // #1590: the test used to pin SHA-256 hashes of the vertex bits. Math.Sin / Math.Cos (TpmsLattice.Evaluate) call the platform
+            // #1590 (the libm cause is inferred from the Linux-pass / Windows-fail pattern, not confirmed on Windows): the test used to pin SHA-256 hashes of the vertex bits. Math.Sin / Math.Cos (TpmsLattice.Evaluate) call the platform
             // libm, whose last bit differs between Linux (glibc) and Windows (CRT), so a pinned hash is a property of the platform and
             // failed on Windows even at origin 0. What the test names is platform-independent: where the world mesh is clean, it is the
             // lattice-frame mesh of the origin-0 run mapped by Origin + Rotation * v, bit for bit on the same platform (same
