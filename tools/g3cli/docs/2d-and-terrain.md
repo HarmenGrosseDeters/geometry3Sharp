@@ -185,3 +185,5 @@ g3cli tpms hybrid.stl --type gyroid --second-type iwp --blend 0,2,0.5 --box-max 
 The check runs on the written coordinates, after `--origin` is applied (very far origins, where an ulp approaches the cube, give `tpms_status` `not_clean` or `self_intersecting` rather than a defective mesh; no file is written then).
 
 Supports `--wall-thickness`, `--cell-size`, `--origin`, `--grade`, `--second-type` + `--blend 'axis,offset,width'`, `--enclosure` (dyadic grid), and `--verify-self-intersections false` (warns with `self_intersection_verified: false`).
+
+A result that is Ok but not the lattice asked for carries the library's message in `warnings` (prefix `tpms: `): an `--enclosure` result with a realized volume fraction above 1 (the margin is larger than the voids: the solid box), and a sheet whose realized fraction is below half of the requested one (a wall thinner than about two cubes). `tpms_status` stays `ok`.
