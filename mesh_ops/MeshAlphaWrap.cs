@@ -2669,7 +2669,8 @@ namespace gs
                     treeMark[mk] = treeMarkValue; treeParent[mk] = u;
                     q.Add(mk);
                 }
-            }            manifoldWork += q.Count;
+            }
+            manifoldWork += q.Count;
         }
 
         /// <summary>
@@ -2681,7 +2682,7 @@ namespace gs
         // re-attachment after a move and the searches that decide whether the outside stays connected: Counts["manifold_star_work"].
         // There is no bound that is linear in the moves for every input: a move cuts a subtree of the forest (or, with one non-exterior
         // outside component, searches until the pieces meet or run out), and a fallback to the general step recomputes the star. Measured:
-        // 1.6 to 4 cells per move on the point-limit sphere (20000 to 160000 points), 20 to 85 on small stars of random soups, 4 to 13
+        // 4.7, 7.5 and 9.5 cells per move on the point-limit sphere at 20000, 40000 and 80000 points (3.2 at 5000, 20 at 160000 with few moves), 20 to 85 on small stars of random soups, 4 to 13
         // times less than the old step's visits on those
         long manifoldWork;
 

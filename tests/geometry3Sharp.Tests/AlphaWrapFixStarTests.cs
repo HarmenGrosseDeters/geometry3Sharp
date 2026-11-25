@@ -63,7 +63,7 @@ namespace geometry3Sharp.Tests
         public void Soups_ResultIsTheOldStepsResult()
         {
             int compared = 0, pointLimited = 0, onePass = 0;
-            for (int seed = 0; seed < 10; ++seed) {
+            for (int seed = 0; seed < 14; ++seed) {
                 var rnd = new Random(100 + seed);
                 double ra = Math.Pow(10, 1.5 + 3.5 * rnd.NextDouble());
                 double ro = ra * (1 + 60 * rnd.NextDouble());
@@ -81,8 +81,8 @@ namespace geometry3Sharp.Tests
                 if (now.Result != null) Assert.Equal("", MeshRobustRepair.NotCleanReason(now.Result));
             }
             // (the cases have to reach the new step, or the test compares the old one with itself)
-            Assert.True(pointLimited >= 6, $"{pointLimited} of {compared} reached the limit");
-            Assert.True(onePass >= 3, $"{onePass} of {compared} took the one-pass step");
+            Assert.True(pointLimited >= 8, $"{pointLimited} of {compared} reached the limit");
+            Assert.True(onePass >= 4, $"{onePass} of {compared} took the one-pass step");
         }
 
         // the work of the step goes with the cells it moves, not with their product with the size of the star: 20000 points gave
