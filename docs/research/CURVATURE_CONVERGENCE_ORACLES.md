@@ -16,6 +16,32 @@ Run `dotnet run -c Release --project benchmarks/CurvatureWeakProbe` on .NET 10. 
 
 All vertices were valid. The last refinement gives an empirical order of 2.02 from log(error ratio) / log(h ratio). This is a single smooth test field, not a measurement of the full dual norm. Corollary 4 does not prescribe this empirical order. The maximum nodal error increased at every level. This observation neither proves asymptotic divergence nor violates the theorem.
 
+### Where the maximum nodal error sits (re-checked 2026-11-25)
+
+A scratch check, not committed, shows three things.
+- **The operator matches its formula.** It recomputed the vector at every vertex from the mixed-area cotangent formula of Meyer et al.
+  (their eq. 8 with the mixed area), independently of `MeshCurvature`. The library matches it to 9e-14 at every level up to 129 vertices per
+  cube edge.
+- **The growing maximum sits on the cube seams.** It is always at a valence-4 vertex on a seam of the normalized cube, where two grid
+  families of neighbouring faces meet. The eight valence-3 corners have zero error by symmetry.
+
+| Vertices per cube edge | RMS nodal error | Maximum on seams | Maximum on face interiors |
+|---:|---:|---:|---:|
+| 5 | 0.21489 | 0.93235 | 0.061415 |
+| 17 | 0.063021 | 1.1234 | 0.014802 |
+| 65 | 0.016505 | 1.1786 | 0.0034927 |
+| 129 | 0.0083278 | 1.1890 | 0.0018365 |
+
+- **The midpoint icosphere (`IcosphereFixture`) converges everywhere.** Its maximum nodal error halves at each subdivision: 0.0334, 0.0167,
+  0.00835, 0.00417 and 0.00209 for levels 2 to 6.
+
+So the seam error levels off at about 1.19 (60 % of |2x|): an O(1) consistency error of the pointwise cotangent operator on a stencil without
+the needed symmetry. It is not a defect of the implementation, and not an artefact of the probe's normalisation (the RMS and the face-interior
+maximum fall as O(h)). This is the known behaviour: pointwise convergence of the cotangent mean-curvature normal needs regular (eg valence-6,
+symmetric) neighbourhoods (G. Xu, *Discrete Laplace-Beltrami operators and their convergence*, CAGD 21, 2004; Wardetzky, *Convergence of the
+cotangent formula: an overview*, 2008). In general it holds only in the weak sense of Hildebrandt, Polthier and Wardetzky's Corollary 4. A
+pointwise oracle for this operator must use a mesh family with regular stencils, or exclude the seams.
+
 ### Mean-curvature decision
 
 Build a small regression oracle using the 9, 17 and 33 resolutions. Require all vertices valid, a positive outward pairing, and at least a threefold error reduction on each of these two steps. That threshold gives margin around the measured fourfold reduction and is specific to this field and mesh generator. Cost is linear in the triangle count per mesh. This oracle checks the integrated area gradient: a compensating change to the mixed area and its reciprocal in the nodal vector would cancel, so it cannot validate either factor separately.
