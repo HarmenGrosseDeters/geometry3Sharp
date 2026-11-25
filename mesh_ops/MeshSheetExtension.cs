@@ -232,7 +232,7 @@ namespace gs
         public double DeltaMin = 0.05;
         /// <summary> the margin on the exit angle, radians: the angle must exceed delta + margin or the exit is refused as grazing (default 0.05) </summary>
         public double AngleMargin = 0.05;
-        /// <summary> the limit of U relative to the smaller part of the cut (default: none; open in the design) </summary>
+        /// <summary> the limit of U relative to the smaller part of the cut (default +infinity: no limit; open in the design). It must be 0 or more: NaN or a negative value is refused as InvalidInput, as is a finite limit with VerifyWithSheetRole = false </summary>
         public double MaxUOverSmallerPart = double.PositiveInfinity;
         /// <summary> the depth of the subdivision of an outer edge (at most 2^depth pieces of a rim edge; default 14) </summary>
         public int MaxSubdivisionDepth = 14;
@@ -774,6 +774,8 @@ namespace gs
                     }
                 if (O.OtherRoles != null && O.OtherRoles.Count > (O.OtherTools == null ? 0 : O.OtherTools.Count))
                     return Fail(ExtensionStatus.InvalidInput, "OtherRoles has more entries (" + O.OtherRoles.Count + ") than OtherTools");
+                if (!(O.MaxUOverSmallerPart >= 0))   // NaN or negative: a comparison with it would be false and the limit skipped silently
+                    return Fail(ExtensionStatus.InvalidInput, "MaxUOverSmallerPart must be 0 or more (+infinity: no limit); " + O.MaxUOverSmallerPart.ToString(System.Globalization.CultureInfo.InvariantCulture) + " would skip or invert the limit");
                 if (!double.IsPositiveInfinity(O.MaxUOverSmallerPart) && !O.VerifyWithSheetRole)
                     return Fail(ExtensionStatus.InvalidInput, "MaxUOverSmallerPart needs the cut of VerifyWithSheetRole (the smaller part of the cut); the limit would be skipped silently");
                 if (!ExactMeshBoolean.IsWindingClosed(W))

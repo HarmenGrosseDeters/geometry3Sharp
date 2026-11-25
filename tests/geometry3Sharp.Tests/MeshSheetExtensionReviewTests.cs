@@ -441,6 +441,15 @@ namespace geometry3Sharp.Tests
             Assert.False(op.Compute());
             Assert.Equal(Status.InvalidInput, op.Status);
             Assert.Contains("MaxUOverSmallerPart", op.Error);
+            // a NaN or negative limit would make every comparison false (NaN) or refuse every cut (negative): refused as InvalidInput, also with the cut on
+            foreach (double bad in new[] { double.NaN, -1e-3, double.NegativeInfinity }) {
+                var opBad = Make(d.Sheets[0], d.W, o => { o.MaxUOverSmallerPart = bad; o.VerifyWithSheetRole = true; });
+                Assert.False(opBad.Compute());
+                Assert.Equal(Status.InvalidInput, opBad.Status);
+                Assert.Contains("MaxUOverSmallerPart", opBad.Error);
+            }
+            // 0 is a valid limit (only a cut without any uncertainty passes) and +infinity means no limit
+            Assert.True(Make(d.Sheets[0], d.W, o => { o.MaxUOverSmallerPart = double.PositiveInfinity; }).Compute());
         }
 
         [Fact]
