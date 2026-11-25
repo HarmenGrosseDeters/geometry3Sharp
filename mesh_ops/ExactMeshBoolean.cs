@@ -5406,7 +5406,9 @@ namespace g3
                 // vectors, so a point on the segment (A + B = 0) always gives 1, a point that gives 1 has |A + B| at most
                 // 1.2 tol, an angle of about 1.2 tol (a distance of about 1.2 tol la lb / (la + lb) from the segment), and
                 // whatever gives 1 here also gave 1 to the test before it, 1 + a.b <= tol, so a value that was decided is
-                // the same bits (tools/Z3Pilot/antipodal_segment.py, S1-S3). The old test was quadratic in the angle against
+                // the same bits (tools/Z3Pilot/antipodal_segment.py, S1-S3; its relative-error model holds except where a
+                // square fl(s_i^2) underflows, |a + b| below about 1e-154, which only lowers the norm: status 1 there anyway,
+                // as it must be). The old test was quadratic in the angle against
                 // a linear tol: it fired up to about tol^(1/2) away, u^(1/3) of the segment's length for a far point)
                 Vector3d ab = a + b;
                 if (ab.Length <= tol)
@@ -5847,8 +5849,10 @@ namespace g3
             a /= la;
             b /= lb;
             // (at a displaced point, L2's approximated centroid, the full sum at the exact one must not take its status-1
-            // test 1 + a.b <= tol there either: 1 + a.b moves by at most about tol between the two, so twice tol; review
-            // of #813)
+            // test there either: 1 + a.b moves by at most about tol between the two, so twice tol; review of #813. Since
+            // #1587 the full sum's test is |a + b| <= tol, which implies 1 + a.b <= tol (S3 of
+            // tools/Z3Pilot/antipodal_segment.py), so this test, kept as it was (the tree's values keep their bits), still
+            // refuses wherever the full sum's test fires)
             if (1 + a.Dot(b) <= ((pointError > 0 || directionError > 0) ? 2 * tol : tol))
                 return 3;
             double num = a.Dot(b.Cross(x1)), den = 1 + a.Dot(b) + a.Dot(x1) + b.Dot(x1);

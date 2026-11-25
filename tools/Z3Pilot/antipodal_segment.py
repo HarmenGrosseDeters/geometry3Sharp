@@ -22,21 +22,28 @@ The model (bridges, reviewed, not Z3; they are the model the sum's comments alre
       rounded la adds the rounding of la and of the division (N2 below bounds |a|^2).
   B2  the triangle inequality: | |a + b| - |A + B| | <= |a - A| + |b - B|; and Cauchy-Schwarz |a_x b_x| + |a_y b_y| +
       |a_z b_z| <= |a| |b|.
-  B3  (T1) cos x >= 1 - x^2 / 2 for every real x, and arccos is decreasing on [-1, 1]: so cos(phi) >= 1 - 2 t^2 with
-      0 <= 2 t <= 0.8 gives phi <= 2 t. The angle phi between the computed (den, num) and the exact one is the change of
-      atan2 (no wrap: the term is not taken where |num| <= tol and den <= tol, so the exact num has the computed one's sign
-      or den > 0 in both).
-  B4  the relative error model is invariant under a positive scale (N2 at |v| = 1), and T1's claim under a rotation and a
-      positive scale of the (den, num) plane (T1 at (1, 0); its error box rotated lies in the disk of radius sqrt(2) tol).
+  B3  (T1) cos x <= 1 - x^2 / 2 + x^4 / 24 for every real x (the alternating Taylor series), so with x = 2 t:
+      cos(2 t) <= c = 1 - 2 t^2 + (2/3) t^4. T1 proves cos(phi) >= c for the angle phi between the computed and the exact
+      (den, num), so cos(phi) >= cos(2 t); arccos is decreasing on [-1, 1] and phi, 2 t are in [0, pi] (2 t <= 0.8), so
+      phi <= 2 t. (Review of #1624: the earlier c = 1 - 2 t^2, which is the lower bound of cos 2t, gave only
+      phi <= 2 asin t, which is above 2 t.) The angle phi is the change of atan2 (no wrap: the term is not taken where
+      |num| <= tol and den <= tol, so the exact num has the computed one's sign or den > 0 in both).
+  B4  T1's claim is invariant under a rotation and a positive scale of the (den, num) plane (T1 at (1, 0); its error box,
+      rotated, lies in the disk of radius sqrt(2) tol).
   Not covered: the SafeNorms pass of antipodal_sum (a squared norm outside [1e-200, 1e300], la from scaled_norm instead of
   the rounded sqrt of N2), which only differences next to the underflow range reach.
+  Underflow: the model's relative error holds for every operation except fl(s_i^2) where |a + b| is below about
+  1e-154 (a square in the subnormal range, or 0): that only lowers the computed n, so S1 (n <= tol) holds a fortiori, and
+  S2, S3 concern n <= tol, which a tiny |a + b| satisfies anyway (|A + B| <= n + 2.01 (ea + eb) + 10u stays within 1.2 tol).
   Every floating operation is the exact result times (1 + d), |d| <= u = 2^-53 (Higham (2.4); no underflow or overflow:
   antipodal_sum takes the squares only in [1e-200, 1e300], and a and b are unit vectors).
 
 The obligations, each UNSAT with satisfiable assumptions:
   N1  the rounded norm fl(sqrt(fl(fl(fl(x^2) + fl(y^2)) + fl(z^2)))) of the rounded sum s = fl(a + b) is within 4u of the
-      exact |a + b| (in squares: (1 - 4u)^2 t^2 <= n^2 <= (1 + 4u)^2 t^2).
-  N2  a normalized vector (each coordinate fl(v_i / la), la the rounded norm of v) has 1 - 10u <= |a|^2 <= 1 + 10u.
+      exact |a + b| (in squares: (1 - 4u)^2 t^2 <= n^2 <= (1 + 4u)^2 t^2), in four queries: N1a the rounded sum, N1b the
+      rounded sum of squares, N1c the rounded sqrt, N1 their composition (one query of all of it took up to the timeout).
+  N2  a normalized vector (each coordinate fl(v_i / la), la the rounded norm of v) has 1 - 10u <= |a|^2 <= 1 + 10u: N2a
+      the rounded division, then the composition with N1b (the squares of v) and N1c (the sqrt).
   D1  the rounded dot product fl(fl(fl(a_x b_x) + fl(a_y b_y)) + fl(a_z b_z)) is within 4u (|a_x b_x| + |a_y b_y| + |a_z b_z|)
       of the exact one.
   S1  soundness: a point on the segment (A + B = 0) gives n <= tol, so status 1 (no ray is tried in vain).
@@ -53,6 +60,7 @@ without its factor 16, S3 without the 1e-15 of tol, T1 with tol <= 0.8 hypot, T1
 import json
 import os
 import sys
+import time
 from fractions import Fraction
 
 import z3
@@ -88,35 +96,63 @@ def fl(x, d):
     return x * (1 + d)
 
 
-def n1():
-    """N1: the rounded norm of the rounded sum of a and b"""
-    a = [z3.Real(f'a{i}') for i in range(3)]
-    b = [z3.Real(f'b{i}') for i in range(3)]
-    d, dc = deltas('d', 9)
-    s = [fl(a[i] + b[i], d[i]) for i in range(3)]
-    sq = [fl(s[i] * s[i], d[3 + i]) for i in range(3)]
-    qq = fl(fl(sq[0] + sq[1], d[6]) + sq[2], d[7])
-    r, n = z3.Real('r'), z3.Real('n')
-    t2 = sum((a[i] + b[i]) * (a[i] + b[i]) for i in range(3))
-    asm = dc + [r >= 0, r * r == qq, n == fl(r, d[8])]
-    lo, hi = (1 - NORM_U * U), (1 + NORM_U * U)
-    return asm, z3.And(n * n <= q(hi * hi) * t2, n * n >= q(lo * lo) * t2)
-
-
-def n2():
-    """N2: |a|^2 of a vector normalized by its rounded norm"""
+def n1a():
+    """N1a: the rounded sum s = fl(a + b), per coordinate, against v = a + b: |s|^2 within (1 +- u)^2 of |v|^2"""
     v = [z3.Real(f'v{i}') for i in range(3)]
-    d, dc = deltas('d', 9)
-    sq = [fl(v[i] * v[i], d[i]) for i in range(3)]
-    sa = fl(fl(sq[0] + sq[1], d[3]) + sq[2], d[4])
-    r, la = z3.Real('r'), z3.Real('la')
-    v2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2]
-    # a_i = fl(v_i / la): a_i la = v_i (1 + d)
-    a = [z3.Real(f'a{i}') for i in range(3)]
-    # (the model is invariant under a positive scale of v, B4: |v| = 1)
-    asm = dc + [v2 == 1, r > 0, r * r == sa, la == fl(r, d[5])] + [a[i] * la == fl(v[i], d[6 + i]) for i in range(3)]
-    a2 = a[0] * a[0] + a[1] * a[1] + a[2] * a[2]
-    return asm, z3.And(a2 <= q(1 + UNIT_U * U), a2 >= q(1 - UNIT_U * U))
+    d, dc = deltas('d', 3)
+    s2 = sum(fl(v[i], d[i]) * fl(v[i], d[i]) for i in range(3))
+    v2 = sum(v[i] * v[i] for i in range(3))
+    return dc, z3.And(s2 <= q((1 + U) ** 2) * v2, s2 >= q((1 - U) ** 2) * v2)
+
+
+def n1b():
+    """N1b: the rounded sum of squares fl(fl(fl(x^2) + fl(y^2)) + fl(z^2)) within (1 +- u)^3 of the exact one"""
+    s = [z3.Real(f's{i}') for i in range(3)]
+    e, ec = deltas('e', 5)
+    sq = [fl(s[i] * s[i], e[i]) for i in range(3)]
+    qq = fl(fl(sq[0] + sq[1], e[3]) + sq[2], e[4])
+    s2 = sum(s[i] * s[i] for i in range(3))
+    return ec, z3.And(qq <= q((1 + U) ** 3) * s2, qq >= q((1 - U) ** 3) * s2)
+
+
+def n1c():
+    """N1c: the rounded square root n = fl(sqrt(Q)): n^2 within (1 +- u)^2 of Q"""
+    Q, r, n = z3.Reals('Q r n')
+    g, gc = deltas('g', 1)
+    asm = gc + [Q >= 0, r >= 0, r * r == Q, n == fl(r, g[0])]
+    return asm, z3.And(n * n <= q((1 + U) ** 2) * Q, n * n >= q((1 - U) ** 2) * Q)
+
+
+def n1(lo_factor=1 - NORM_U * U, hi_factor=1 + NORM_U * U):
+    """N1: N1a-c composed (linear): the computed norm n of a + b has (1 - 4u)^2 t^2 <= n^2 <= (1 + 4u)^2 t^2"""
+    A, S, Q, N = z3.Reals('A S Q N')
+    asm = [A >= 0,
+           S <= q((1 + U) ** 2) * A, S >= q((1 - U) ** 2) * A,
+           Q <= q((1 + U) ** 3) * S, Q >= q((1 - U) ** 3) * S,
+           N <= q((1 + U) ** 2) * Q, N >= q((1 - U) ** 2) * Q]
+    return asm, z3.And(N <= q(hi_factor * hi_factor) * A, N >= q(lo_factor * lo_factor) * A)
+
+
+def n2a():
+    """N2a: one coordinate of the rounded division a_i = fl(v_i / la): a_i^2 la^2 within (1 +- u)^2 of v_i^2"""
+    v, a, la = z3.Reals('v a la')
+    d, dc = deltas('d', 1)
+    asm = dc + [la > 0, a * la == fl(v, d[0])]
+    return asm, z3.And(a * a * la * la <= q((1 + U) ** 2) * v * v, a * a * la * la >= q((1 - U) ** 2) * v * v)
+
+
+def n2(bound=UNIT_U):
+    """N2: a vector normalized by its rounded norm (la = fl(sqrt(sa)), sa the rounded squares of N1b, la^2 by N1c, each
+    coordinate's division by N2a) has 1 - 10u <= |a|^2 <= 1 + 10u"""
+    A, Sa, L2, P = z3.Reals('A Sa L2 P')
+    # (w_i = v_i^2, p_i = a_i^2 la^2: N2a per coordinate; A = sum w_i, P la^2 = sum p_i)
+    w = [z3.Real(f'w{i}') for i in range(3)]
+    pp = [z3.Real(f'p{i}') for i in range(3)]
+    asm = [A > 0, L2 > 0, P >= 0, A == w[0] + w[1] + w[2], P * L2 == pp[0] + pp[1] + pp[2],
+           Sa <= q((1 + U) ** 3) * A, Sa >= q((1 - U) ** 3) * A,
+           L2 <= q((1 + U) ** 2) * Sa, L2 >= q((1 - U) ** 2) * Sa]
+    asm += [z3.And(w[i] >= 0, pp[i] <= q((1 + U) ** 2) * w[i], pp[i] >= q((1 - U) ** 2) * w[i]) for i in range(3)]
+    return asm, z3.And(P <= q(1 + bound * U), P >= q(1 - bound * U))
 
 
 def d1(bound=DOT_U):
@@ -174,9 +210,9 @@ def t1(condition=CONDITION, half_angle=False):
     Vx, Vy = 1 - ex, -ey
     V2 = Vx * Vx + Vy * Vy
     asm = [tol >= 0, ex * ex + ey * ey <= 2 * tol * tol, tol <= q(condition)]
-    # cos(phi) >= 1 - 2 t^2, t = tol / hypot = tol (phi <= 2 t), or, for the mutant, 1 - t^2 / 2 (phi <= t)
-    k = q(Fraction(1, 2)) if half_angle else q(2)
-    c = 1 - k * tol * tol
+    # cos(phi) >= c >= cos(x) (B3) with x = 2 t, t = tol / hypot = tol, so phi <= 2 t; for the mutant x = t (phi <= t)
+    x2 = tol * tol if half_angle else 4 * tol * tol
+    c = 1 - x2 / 2 + x2 * x2 / 24
     return asm, z3.And(Vx >= 0, c >= 0, Vx * Vx >= V2 * c * c)
 
 
@@ -197,7 +233,11 @@ def run(timeout_ms=120000):
     def mutant(name, assumptions, claim):
         queries['mutant_' + name] = (assumptions + [z3.Not(claim)], 'sat')
 
+    lemma('N1a_rounded_sum', *n1a())
+    lemma('N1b_rounded_squares', *n1b())
+    lemma('N1c_rounded_sqrt', *n1c())
     lemma('N1_rounded_norm', *n1())
+    lemma('N2a_rounded_division', *n2a())
     lemma('N2_normalized_vector', *n2())
     lemma('D1_rounded_dot', *d1())
     lemma('S1_on_the_segment_is_status_1', *s1())
@@ -210,12 +250,15 @@ def run(timeout_ms=120000):
     mutant('T1_condition_0.8', *t1(condition=Fraction(4, 5)))
     mutant('T1_angle_tol_over_hypot', *t1(half_angle=True))
     mutant('D1_bound_2u', *d1(bound=2))
+    mutant('N1_bound_3u', *n1(1 - 3 * U, 1 + 3 * U))
+    mutant('N2_bound_6u', *n2(bound=6))
 
     report = {}
     ok = True
     for name, (formulas, expected) in queries.items():
+        t0 = time.perf_counter()
         got = check(formulas, timeout_ms)
-        report[name] = {'expected': expected, 'got': got}
+        report[name] = {'expected': expected, 'got': got, 'seconds': round(time.perf_counter() - t0, 2)}
         ok = ok and got == expected
     return ok, report
 

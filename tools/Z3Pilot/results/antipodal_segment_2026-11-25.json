@@ -1,82 +1,152 @@
 {
+ "N1a_rounded_sum": {
+  "expected": "unsat",
+  "got": "unsat",
+  "seconds": 0.03
+ },
+ "N1a_rounded_sum_assumptions": {
+  "expected": "sat",
+  "got": "sat",
+  "seconds": 0.0
+ },
+ "N1b_rounded_squares": {
+  "expected": "unsat",
+  "got": "unsat",
+  "seconds": 0.07
+ },
+ "N1b_rounded_squares_assumptions": {
+  "expected": "sat",
+  "got": "sat",
+  "seconds": 0.0
+ },
+ "N1c_rounded_sqrt": {
+  "expected": "unsat",
+  "got": "unsat",
+  "seconds": 0.0
+ },
+ "N1c_rounded_sqrt_assumptions": {
+  "expected": "sat",
+  "got": "sat",
+  "seconds": 0.0
+ },
  "N1_rounded_norm": {
   "expected": "unsat",
-  "got": "unsat"
+  "got": "unsat",
+  "seconds": 0.0
  },
  "N1_rounded_norm_assumptions": {
   "expected": "sat",
-  "got": "sat"
+  "got": "sat",
+  "seconds": 0.0
+ },
+ "N2a_rounded_division": {
+  "expected": "unsat",
+  "got": "unsat",
+  "seconds": 0.0
+ },
+ "N2a_rounded_division_assumptions": {
+  "expected": "sat",
+  "got": "sat",
+  "seconds": 0.0
  },
  "N2_normalized_vector": {
   "expected": "unsat",
-  "got": "unsat"
+  "got": "unsat",
+  "seconds": 0.0
  },
  "N2_normalized_vector_assumptions": {
   "expected": "sat",
-  "got": "sat"
+  "got": "sat",
+  "seconds": 0.0
  },
  "D1_rounded_dot": {
   "expected": "unsat",
-  "got": "unsat"
+  "got": "unsat",
+  "seconds": 0.5
  },
  "D1_rounded_dot_assumptions": {
   "expected": "sat",
-  "got": "sat"
+  "got": "sat",
+  "seconds": 0.0
  },
  "S1_on_the_segment_is_status_1": {
   "expected": "unsat",
-  "got": "unsat"
+  "got": "unsat",
+  "seconds": 0.0
  },
  "S1_on_the_segment_is_status_1_assumptions": {
   "expected": "sat",
-  "got": "sat"
+  "got": "sat",
+  "seconds": 0.0
  },
  "S2_status_1_is_linear_in_the_angle": {
   "expected": "unsat",
-  "got": "unsat"
+  "got": "unsat",
+  "seconds": 0.0
  },
  "S2_status_1_is_linear_in_the_angle_assumptions": {
   "expected": "sat",
-  "got": "sat"
+  "got": "sat",
+  "seconds": 0.0
  },
  "S3_new_status_1_implies_old_status_1": {
   "expected": "unsat",
-  "got": "unsat"
+  "got": "unsat",
+  "seconds": 0.01
  },
  "S3_new_status_1_implies_old_status_1_assumptions": {
   "expected": "sat",
-  "got": "sat"
+  "got": "sat",
+  "seconds": 0.0
  },
  "T1_wide_term_error": {
   "expected": "unsat",
-  "got": "unsat"
+  "got": "unsat",
+  "seconds": 0.01
  },
  "T1_wide_term_error_assumptions": {
   "expected": "sat",
-  "got": "sat"
+  "got": "sat",
+  "seconds": 0.0
  },
  "mutant_S2_old_quadratic_test": {
   "expected": "sat",
-  "got": "sat"
+  "got": "sat",
+  "seconds": 0.0
  },
  "mutant_S1_tol_without_factor_16": {
   "expected": "sat",
-  "got": "sat"
+  "got": "sat",
+  "seconds": 0.0
  },
  "mutant_S3_tol_without_floor": {
   "expected": "sat",
-  "got": "sat"
+  "got": "sat",
+  "seconds": 0.0
  },
  "mutant_T1_condition_0.8": {
   "expected": "sat",
-  "got": "sat"
+  "got": "sat",
+  "seconds": 0.01
  },
  "mutant_T1_angle_tol_over_hypot": {
   "expected": "sat",
-  "got": "sat"
+  "got": "sat",
+  "seconds": 0.01
  },
  "mutant_D1_bound_2u": {
   "expected": "sat",
-  "got": "sat"
+  "got": "sat",
+  "seconds": 0.01
+ },
+ "mutant_N1_bound_3u": {
+  "expected": "sat",
+  "got": "sat",
+  "seconds": 0.0
+ },
+ "mutant_N2_bound_6u": {
+  "expected": "sat",
+  "got": "sat",
+  "seconds": 0.01
  }
 }

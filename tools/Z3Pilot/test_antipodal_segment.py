@@ -41,7 +41,7 @@ class AntipodalSegmentTests(unittest.TestCase):
         if out:
             pathlib.Path(out).write_text(json.dumps(report, indent=2) + '\n')
         self.assertTrue(ok, report)
-        self.assertEqual(20, len(report))
+        self.assertEqual(30, len(report))
 
     def test_constants_are_the_codes(self):
         self.assertEqual(antipodal_segment.U, 2.0 ** -53)

@@ -677,17 +677,20 @@ and not recommended for building (the note, 5.3); `test_separating_axis.py` hold
 `antipodal_segment.py` checks the two changes of #1587 in `ExactMeshBoolean.antipodal_sum` (an exact-code file). The
 segment test "the point on or next to the segment" is now `|a + b| <= tol`, linear in the angle between `-a` and `b`; the
 old `1 + a.b <= tol` was quadratic in it against a linear `tol`, so it fired up to about `sqrt(2 tol)` away and the piece
-was undecided, read as outside. N1 (the rounded norm of the rounded `a + b`, within `4u`), N2 (a normalized vector has
-`|a|^2` within `10u` of 1), D1 (the rounded dot product), S1 (a point on the segment gives status 1), S2 (status 1 gives
+was undecided, read as outside. N1 (the rounded norm of the rounded `a + b`, within `4u`; as N1a-c, one rounding step
+each, and their linear composition), N2 (a normalized vector has `|a|^2` within `10u` of 1; N2a per coordinate, then the
+composition), D1 (the rounded dot product), S1 (a point on the segment gives status 1), S2 (status 1 gives
 `|A + B| <= 1.2 tol` for the exact unit vectors) and S3 (the new status 1 implies the old one, so every value that was
 decided keeps its bits) are UNSAT with satisfiable assumptions. T1 bounds a term of the wide evaluation of an undecided
 value (`maxBound` 0.25): with `tol <= 0.4 hypot` per term the sum's `4 tol / hypot` still bounds twice the angle of the
-term's error. Bridges by review (the docstring, B1-B4): the error of the unit vectors from the rounding of the point and
-the ends (the sum's own model, with its 16 times margin), the triangle inequality and Cauchy-Schwarz, `cos x >= 1 - x^2/2`,
-and the invariance of the model under scale and rotation. Six mutants are SAT: the old quadratic test (S2), `tol` without
-its factor 16 (S1), without its `1e-15` (S3), the condition `0.8 hypot` and the angle bound `tol / hypot` (T1), a dot bound
-of `2u`. `test_antipodal_segment.py` holds the source contract on `mesh_ops/ExactMeshBoolean.cs` and `math/Vector3d.cs`.
-20 queries, about 45 s; result of 2026-11-25: `results/antipodal_segment_2026-11-25.json`.
+term's error: T1 proves `cos(phi) >= 1 - 2 t^2 + (2/3) t^4`, which is at least `cos(2 t)`, so `phi <= 2 t` (review of
+#1624: the earlier `1 - 2 t^2`, the lower bound of `cos(2 t)`, gave only `phi <= 2 asin t`). Bridges by review (the docstring, B1-B4): the error of the unit vectors from the rounding of the point and
+the ends (the sum's own model, with its 16 times margin), the triangle inequality and Cauchy-Schwarz, `cos x <= 1 - x^2/2 + x^4/24`,
+and the invariance of T1 under scale and rotation. Eight mutants are SAT: the old quadratic test (S2), `tol` without its
+factor 16 (S1), without its `1e-15` (S3), the condition `0.8 hypot` and the angle bound `tol / hypot` (T1), a dot bound of
+`2u`, a norm bound of `3u` (N1), a normalization bound of `6u` (N2). `test_antipodal_segment.py` holds the source contract on `mesh_ops/ExactMeshBoolean.cs` and `math/Vector3d.cs`.
+30 queries in under 1 s in all, each below 0.5 s (three runs; one query of the whole norm took up to the 120 s timeout,
+review of #1624, hence the split); the report records each query's time; result of 2026-11-25: `results/antipodal_segment_2026-11-25.json`.
 
 ## Pilot 8: the plateau variant of the position search (a design, not library code)
 
