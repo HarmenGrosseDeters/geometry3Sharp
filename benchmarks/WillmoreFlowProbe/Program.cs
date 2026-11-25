@@ -166,7 +166,8 @@ static void CompareAcceptance(double warp, string policy, bool report = true)
                 if (connectivity) { full = energy; fullInverted = inverted; }
                 else { smooth = energy; smoothInverted = inverted; }
                 double ceiling = policy == "strict" ? Math.Min(previous, before) : previous;
-                if (energy <= ceiling && trialQuality > quality) {
+                // (a candidate with triangles inverted against the torus is rejected too: the clean check does not see folds)
+                if (energy <= ceiling && trialQuality > quality && inverted == 0) {
                     selected = trial;
                     selectedEnergy = energy;
                     quality = trialQuality;

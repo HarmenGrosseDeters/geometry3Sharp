@@ -15,9 +15,9 @@ With both guards:
   fraction.
 
 On the paired experiment, an energy-gated rollback works as a benchmark acceptance rule. Each optional mesh pass is kept only if the output is
-clean, has energy at most the old energy, and improves the worst triangle quality.
+clean, has no triangle inverted against the torus, has energy at most the old energy, and improves the worst triangle quality.
 - **On the regular torus** the full pass never qualifies. The gentle smoothing pass gives a tiny quality gain (0.07 %).
-- **On the crowded torus** the budget rule accepts one full pass and two gentle passes. They raise the worst triangle quality by 63 % over
+- **On the crowded torus** the budget rule accepts one full pass and three gentle passes (gentle, full, gentle, gentle). They raise the worst triangle quality by 63 % over
   motion alone (0.1146 against 0.0702), at 10 % higher final discrete energy (21.456 against 19.500).
 
 Whether that trade is wanted is the caller's choice. The energy rule alone does not decide it.
@@ -92,7 +92,8 @@ quality, using the library's scale-independent score (1 for an equilateral trian
 - **The gentler pass** enables only the existing smoothing and analytic projection.
 
 Each candidate starts from the same moved mesh. The probe checks cleanliness, genus and curvature validity on each candidate and reports its
-inverted triangles: every guarded candidate had none.
+inverted triangles. A candidate with an inverted triangle is rejected, whatever its energy and quality. No guarded candidate had one, so this
+rule changes no result here; it only closes the gap that the clean check leaves.
 
 - **Strict** tries the full pass, then the gentler pass. Energy must be at most both the old energy and the moved mesh's energy.
 - **Budget** tries the same passes, allowing redistribution to spend part of the energy reduction earned by the shape change. The accepted mesh
@@ -108,16 +109,17 @@ If no candidate qualifies, all three policies retain the clean moved mesh if its
 | 0 | Budget or smooth-only | 0 / 4 | 19.508077 | 0.333732 |
 | 0.8 | Baseline | 0 / 0 | 19.500048 | 0.070219 |
 | 0.8 | Strict | 0 / 1 | 19.500137 | 0.070380 |
-| 0.8 | Budget | 1 / 2 | 21.456335 | 0.114595 |
+| 0.8 | Budget | 1 / 3 | 21.456335 | 0.114595 |
 | 0.8 | Smooth-only | 0 / 3 | 19.500702 | 0.070706 |
 
 All four radii were accepted on both fixtures, and the accepted energy decreased at every step.
 - **The guarded full passes no longer cost several times the energy.** They gave 29.20, 25.56, 23.57 and 23.51 on the regular torus, and
-  42.09, 23.37, 22.93 and 22.82 for strict on the crowded one. On the regular torus they still exceed the old energy at every step, so no
-  policy accepts one.
+  42.09, 23.37, 22.93 and 22.82 for strict on the crowded one. On the regular torus no policy accepts one, for two reasons. At step 1 the full
+  pass (29.20) is below the old energy (31.26), so budget would allow it, but it does not improve the worst triangle quality; strict also
+  rejects it, because it is above the moved energy (24.65). At steps 2 to 4 it is above the old energy.
 - **On the crowded torus the budget rule accepts a full pass at step 2.** It returned 23.370, against an old energy of 24.641 and a moved energy
-  of 19.656. It spends most of that step's descent on redistribution and lifts the worst quality from 0.0878 to 0.0952. Two gentle passes then
-  lower the energy to 21.456 and raise the quality to 0.1146.
+  of 19.656. It spends most of that step's descent on redistribution and lifts the worst quality from 0.0878 to 0.0952. A gentle pass comes
+  before it at step 1, and two more follow at steps 3 and 4. They lower the energy to 21.456 and raise the quality to 0.1146.
 - **The two budget variants now differ.** Budget and smooth-only choose different meshes on the crowded torus. Smooth-only ends at 0.070706,
   0.69 % above baseline, and budget at 63 % above baseline.
 - **On the regular torus** budget and smooth-only stay identical: the full pass never qualifies there. Their gain is 0.074 % over baseline.
