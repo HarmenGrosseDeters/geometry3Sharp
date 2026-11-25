@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+  <!-- Browser demos of geometry3Sharp (dogfooding, docs/research/DOGFOODING_DEMOS_2026-11.md).
+       Standalone Blazor WebAssembly: the real library (its netstandard2.0 build) runs in the browser.
+       three.js is loaded at runtime from a pinned CDN URL (wwwroot/index.html), it is not part of the repository. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>G3Demos</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <!-- the library uses reflection nowhere the demos need; trimming keeps the download small -->
+    <PublishTrimmed>true</PublishTrimmed>
+    <!-- no service worker, no PWA, no compression variants: a plain static folder -->
+    <CompressionEnabled>false</CompressionEnabled>
+    <BlazorEnableTimeZoneSupport>false</BlazorEnableTimeZoneSupport>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.15" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.15" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- the netstandard2.0 build, as a customer on .NET Framework / Unity / older runtimes would get it -->
+    <ProjectReference Include="..\..\geometry3Sharp_netstandard.csproj" SetTargetFramework="TargetFramework=netstandard2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="e2e\**" />
+    <Content Remove="e2e\**" />
+  </ItemGroup>
+
+</Project>
