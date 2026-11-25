@@ -2,6 +2,8 @@ import contextlib
 import io
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -230,6 +232,22 @@ class MainTests(unittest.TestCase):
 
     def test_file_count_option(self):
         self.assertEqual(self.run_main(["x"], [], extra=["--enforce", "--file-count", "3000"])[0], 1)
+
+
+class Console(unittest.TestCase):
+    def test_a_replacement_character_in_the_summary_is_printed_on_a_legacy_code_page(self):
+        with tempfile.TemporaryDirectory() as d:
+            for name, text in (("gates.txt", ".github/** | workflows" + chr(10)), ("changed.txt", json.dumps(".github/a" + chr(96) + "b") + chr(10)),
+                               ("labels.txt", "")):
+                with open(os.path.join(d, name), "w", encoding="utf-8", newline="") as f:
+                    f.write(text)
+            env = dict(os.environ, PYTHONIOENCODING="ascii", PYTHONUTF8="0")
+            env.pop("GATE_ENFORCE", None)
+            p = subprocess.run([sys.executable, os.path.join(HERE, "gate_check.py"), "--gates", os.path.join(d, "gates.txt"),
+                                "--changed", os.path.join(d, "changed.txt"), "--labels", os.path.join(d, "labels.txt")],
+                               capture_output=True, env=env)
+            self.assertEqual(0, p.returncode, p.stderr)
+            self.assertIn(chr(0xfffd), p.stdout.decode("utf-8"))
 
 
 if __name__ == "__main__":

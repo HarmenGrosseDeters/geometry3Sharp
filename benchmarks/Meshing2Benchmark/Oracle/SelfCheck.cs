@@ -822,6 +822,66 @@ namespace Meshing2Acceptance
                         var rcr = Oracle.Check(xcross, ocr, new OracleExpect { Milestone = Milestone.M2 });
                         Must("accept: two chains meeting at the hot pixel of their crossing (four subsegments there), no pinch listed",
                             rcr.Ok && rcr.KnownViolations.Count == 0, "report: " + rcr + " / " + rcr.ExcusedSummary());
+                        // #1403 (owner decision Option A): under snap rounding, a subsegment's marker follows the sources whose snapped chain
+                        // contains its link (combinatorial), not a 1-pixel Euclidean tube. Two segments crossing at (2, 2) with 1-pixel legs to
+                        // (2, 3) and (1, 2) pass within Euclidean 1 px of each other's endpoints without touching those pixels (Linf > 0.5 px).
+                        {
+                            var xm = new Mesh2Input { SnapTolerance = 1, X = new[] { 2.2, 2.0, 0.8, 3.2 }, Y = new[] { 3.3, 0.9, 2.2, 1.8 } };
+                            xm.Segments.Add(new SegmentInput(0, 1, 5));   // vertical chain (2,3)-(2,2)-(2,1), marker 5
+                            xm.Segments.Add(new SegmentInput(2, 3, 3));   // horizontal chain (1,2)-(2,2)-(3,2), marker 3
+                            var txm = new[] { new[] { 0, 2, 4 }, new[] { 2, 1, 4 }, new[] { 1, 3, 4 }, new[] { 3, 0, 4 } };
+                            Mesh2Output XmOut(int m04, int m41, int m24) => new Mesh2Output {
+                                Status = Mesh2Status.Success,
+                                VX = new double[] { 2, 2, 1, 3, 2 }, VY = new double[] { 3, 1, 2, 2, 2 },
+                                InputToVertex = new[] { 0, 1, 2, 3 }, Triangles = txm, Neighbours = NeighboursOf(txm),
+                                TriangleLabels = new int[4], BadTriangles = new int[0],
+                                Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 4, m04), new SubsegmentOutput(4, 1, m41), new SubsegmentOutput(2, 4, m24), new SubsegmentOutput(4, 3, 3) }
+                            };
+                            var rxmOk = Oracle.Check(xm, XmOut(5, 5, 3), new OracleExpect { Milestone = Milestone.M2 });
+                            Must("accept: snapped crossing with distinct markers keeps each 1-pixel leg's own marker (#1403)", rxmOk.Ok, "report: " + rxmOk);
+                            var rxmZero = Oracle.Check(xm, XmOut(0, 5, 3), new OracleExpect { Milestone = Milestone.M2 });
+                            Must("reject: snapped crossing leg cleared to 0 by non-coinciding crossing segment as SubsegmentMarker", rxmZero.Has(Violation.SubsegmentMarker), "report: " + rxmZero);
+                            // unmarked segment (marker 0) crossing a marked segment (marker 3): unmarked leg must stay 0, not steal 3
+                            var xu = new Mesh2Input { SnapTolerance = 1, X = xm.X, Y = xm.Y };
+                            xu.Segments.Add(new SegmentInput(0, 1, 0));
+                            xu.Segments.Add(new SegmentInput(2, 3, 3));
+                            var rxuOk = Oracle.Check(xu, XmOut(0, 0, 3), new OracleExpect { Milestone = Milestone.M2 });
+                            Must("accept: unmarked snapped leg at crossing keeps marker 0 (#1403)", rxuOk.Ok, "report: " + rxuOk);
+                            var rxuStolen = Oracle.Check(xu, XmOut(3, 0, 3), new OracleExpect { Milestone = Milestone.M2 });
+                            Must("reject: unmarked snapped leg stealing crossing segment's marker as SubsegmentMarker", rxuStolen.Has(Violation.SubsegmentMarker), "report: " + rxuStolen);
+                            // two genuinely coinciding snapped chains (sharing the link (0,0)-(4,0)) with different markers: D7 requires 0
+                            var co = new Mesh2Input { SnapTolerance = 1, X = new[] { 0.0, 4.0, 0.0, 4.0, 2.0 }, Y = new[] { 0.1, 0.1, -0.1, -0.1, 4.0 } };
+                            co.Segments.Add(new SegmentInput(0, 1, 5));
+                            co.Segments.Add(new SegmentInput(2, 3, 3));
+                            var tco = new[] { new[] { 0, 1, 4 } };
+                            Mesh2Output CoOut(int m) => new Mesh2Output {
+                                Status = Mesh2Status.Success,
+                                VX = new double[] { 0, 4, 0, 4, 2 }, VY = new double[] { 0, 0, 0, 0, 4 },
+                                InputToVertex = new[] { 0, 1, 0, 1, 4 }, Triangles = tco, Neighbours = NeighboursOf(tco),
+                                TriangleLabels = new int[1], BadTriangles = new int[0],
+                                Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 1, m) }
+                            };
+                            var rcoOk = Oracle.Check(co, CoOut(0), new OracleExpect { Milestone = Milestone.M2 });
+                            Must("accept: coinciding snapped chains with distinct markers carry marker 0 (D7)", rcoOk.Ok, "report: " + rcoOk);
+                            var rcoBad = Oracle.Check(co, CoOut(5), new OracleExpect { Milestone = Milestone.M2 });
+                            Must("reject: coinciding snapped chains with distinct markers reporting one marker as SubsegmentMarker", rcoBad.Has(Violation.SubsegmentMarker), "report: " + rcoBad);
+                            // M3 stretch: a snapped link (0,0)-(4,0) with marker 5 split at a refinement vertex (2,0), while a marker-3 segment crosses at (0,0)
+                            var m3s = new Mesh2Input { SnapTolerance = 1, X = new[] { 0.0, 4.0, 0.0, 0.2 }, Y = new[] { 0.0, 0.0, 4.0, -0.8 } };
+                            m3s.Segments.Add(new SegmentInput(0, 1, 5));
+                            m3s.Segments.Add(new SegmentInput(2, 3, 3));
+                            var tm3 = new[] { new[] { 0, 4, 2 }, new[] { 4, 1, 2 }, new[] { 3, 4, 0 }, new[] { 3, 1, 4 } };
+                            Mesh2Output M3Out(int m04) => new Mesh2Output {
+                                Status = Mesh2Status.Success,
+                                VX = new double[] { 0, 4, 0, 0, 2 }, VY = new double[] { 0, 0, 4, -1, 0 },
+                                InputToVertex = new[] { 0, 1, 2, 3 }, Triangles = tm3, Neighbours = NeighboursOf(tm3),
+                                TriangleLabels = new int[4], BadTriangles = new int[0],
+                                Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 4, m04), new SubsegmentOutput(4, 1, 5), new SubsegmentOutput(2, 0, 3), new SubsegmentOutput(0, 3, 3) }
+                            };
+                            var rm3Ok = Oracle.Check(m3s, M3Out(5), new OracleExpect { Milestone = Milestone.M3 });
+                            Must("accept: M3 refined snapped stretch keeps its chain marker (#1403)", rm3Ok.Ok, "report: " + rm3Ok);
+                            var rm3Bad = Oracle.Check(m3s, M3Out(0), new OracleExpect { Milestone = Milestone.M3 });
+                            Must("reject: M3 refined snapped stretch with wrong marker as SubsegmentMarker", rm3Bad.Has(Violation.SubsegmentMarker), "report: " + rm3Bad);
+                        }
                         // "on the chain" means on the piece's own chain: with a segment T = (3.4, 1.2) - (4.2, 1.0) added, (4, 1) is an input
                         // point's pixel that S = (5.4, 3.4) - (3.4, 1.2) contacts; T's subsegment from (4, 1) to S's end (3, 1) must not stand
                         // in for S's chain, which Listing 2 leaves at (3, 1) - (5, 3) (review of #36, S2)

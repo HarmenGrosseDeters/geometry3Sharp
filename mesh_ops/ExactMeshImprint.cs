@@ -77,6 +77,10 @@ namespace g3
         internal bool SliverCleanup = true;
         /// <summary> for tests: the locks of the parts of split edges as before #1034 (one LockedEdgeF over the fixed set, no RuleLockedEdges, no stage) </summary>
         internal bool LegacyPartLocks = false;
+        /// <summary> for tests: without it the final stage accepts only contractions that remove a defect (as before #1489, see MeshRoundingRepair.AcceptNeutralContractionsInStage) </summary>
+        internal bool NeutralContractions = true;
+        /// <summary> the evaluations per defect once the final stage starts (MeshRoundingRepair.StageMaxEvaluationsPerDefect, #1489); for tests, 0 keeps the repair's own 50 </summary>
+        internal int StageEvaluationsPerDefect = 400;
         /// <summary> SafeRounding within the relative bound only; if its result is not clean, Compute() fails with RoundingNotClean (Result null) </summary>
         public bool StrictRounding = false;
         /// <summary> as <see cref="ExactMeshBoolean.RoundingUlpFactor"/>, RoundingAbsoluteTolerance </summary>
@@ -114,7 +118,11 @@ namespace g3
         public MeshRoundingRepair Rounding;
         /// <summary> SafeRounding ran and its result has no new self-intersection or degenerate triangle (and no contact made by the rounding) </summary>
         public bool RoundingClean { get { return Rounding != null && Rounding.IsClean; } }
-        /// <summary> with ComputeExactVertices: per vertex id of Result its exact coordinates (null for ids not in use) </summary>
+        /// <summary>
+        /// with ComputeExactVertices: per vertex id of Result its exact coordinates, taken before the repair (a vertex that the repair removes keeps its entry).
+        /// The entry of an id that was not in use then (a free id of the target that no new vertex took) is <c>default(ExactPoint3)</c>: W = 0, not a point, ToVector3d
+        /// throws; recognise it by <c>W.IsZero</c>
+        /// </summary>
         public ExactPoint3[] ResultExactVertices;
         /// <summary> counts of the last Compute(): pieces, split_triangles, new_vertices, curve_edges, contact_points, rounding_* ... </summary>
         public Dictionary<string, long> Counts = new Dictionary<string, long>();
@@ -474,6 +482,8 @@ namespace g3
                     : (a, b) => a < original && b < original && target.FindEdge(a, b) >= 0,
                 // (the parts of the target's split edges: they follow a contraction in the final stage, docs/design/IMPRINT_SLIVER_CLEANUP.md)
                 RuleLockedEdges = LegacyPartLocks ? null : new HashSet<long>(subEdges, EdgeKeyComparer.Instance), RuleLocksFollow = SliverCleanup && LegacyPartLocks == false,
+                StageMaxEvaluationsPerDefect = SliverCleanup && LegacyPartLocks == false ? StageEvaluationsPerDefect : 0,
+                AcceptNeutralContractionsInStage = NeutralContractions && SliverCleanup && LegacyPartLocks == false,
                 AllowLockedContraction = AllowCurveContraction,
                 RemoveTinyComponents = false,
                 UlpFactor = StrictRounding ? 0 : RoundingUlpFactor, AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance,
@@ -494,6 +504,8 @@ namespace g3
             Counts["sliver_cleanup_stage"] = Rounding.FollowStageRan ? 1 : 0;
             Counts["split_edge_reroutes_through_target_vertex"] = Rounding.RuleLocksReroutedThroughFixed;
             Counts["split_edge_reroutes_through_new_vertex"] = Rounding.RuleLocksReroutedThroughOther;
+            // (the stage's contractions that kept the counts of defects, MeshRoundingRepair.AcceptNeutralContractionsInStage)
+            Counts["sliver_cleanup_neutral_contractions"] = Rounding.NeutralContractions;
             // (the contracted edges are gone from the lock set; the curve is what is left of them)
             var edges = new HashSet<long>(EdgeKeyComparer.Instance);
             foreach (long k in locks)

@@ -9,6 +9,7 @@ import stat
 import subprocess
 import tempfile
 import unittest
+import shell_shims
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "run_stryker.sh")
@@ -19,9 +20,10 @@ class RunStryker(unittest.TestCase):
         self.dir = tempfile.mkdtemp()
         self.bin = os.path.join(self.dir, "bin")
         os.mkdir(self.bin)
+        shell_shims.add_python3(self.bin)
         self.calls = os.path.join(self.dir, "calls.txt")
         stub = os.path.join(self.bin, "dotnet")
-        with open(stub, "w") as f:
+        with open(stub, "w", encoding="utf-8", newline="\n") as f:
             f.write('#!/usr/bin/env bash\necho "$@" >> "%s"\n' % self.calls)
         os.chmod(stub, os.stat(stub).st_mode | stat.S_IEXEC)
         self.summary = os.path.join(self.dir, "summary.md")
@@ -39,7 +41,7 @@ class RunStryker(unittest.TestCase):
             env["NO_FULL"] = "1"
         if "G3_CHANGED_PATHS_FILE" not in env and base == "HEAD":
             empty = os.path.join(self.dir, "empty.txt")
-            open(empty, "w").close()
+            open(empty, "w", encoding="utf-8", newline="\n").close()
             env["G3_CHANGED_PATHS_FILE"] = empty
         if baseline is not None:
             env["BASELINE_DIR"] = baseline
@@ -74,9 +76,9 @@ class RunStryker(unittest.TestCase):
         # (a baseline whose files do not match the config: incremental.py plan answers `full`)
         base = os.path.join(self.dir, "baseline")
         os.mkdir(base)
-        with open(os.path.join(base, "stryker-report.json"), "w") as f:
+        with open(os.path.join(base, "stryker-report.json"), "w", encoding="utf-8", newline="\n") as f:
             json.dump({"files": {}}, f)
-        with open(os.path.join(self.work, "stryker-mesh-boolean-1.json"), "w") as f:
+        with open(os.path.join(self.work, "stryker-mesh-boolean-1.json"), "w", encoding="utf-8", newline="\n") as f:
             json.dump({"stryker-config": {"mutate": ["**/mesh_ops/ExactMeshBoolean.cs"]}}, f)
         r, calls, summary = self.run_script("source", True, baseline=base)
         self.assertEqual(0, r.returncode, r.stderr)
@@ -85,11 +87,11 @@ class RunStryker(unittest.TestCase):
 
     def gated_run(self, paths, config_sources):
         """full mode on a pull request, a config that mutates `config_sources`, the PR changing `paths`"""
-        with open(os.path.join(self.work, "changed.txt"), "w") as f:
+        with open(os.path.join(self.work, "changed.txt"), "w", encoding="utf-8", newline="\n") as f:
             f.write("\n".join(paths))
         os.makedirs(os.path.join(self.work, "x"), exist_ok=True)
         cfg = os.path.join(HERE, "stryker-x-gate-test.json")        # (select_shards.py reads the configs next to itself)
-        with open(cfg, "w") as f:
+        with open(cfg, "w", encoding="utf-8", newline="\n") as f:
             json.dump({"stryker-config": {"mutate": ["**/" + p for p in config_sources], "test-case-filter": "FullyQualifiedName~T"}}, f)
         self.addCleanup(os.remove, cfg)
         env_file = os.path.join(self.work, "changed.txt")
@@ -133,7 +135,7 @@ class RunStryker(unittest.TestCase):
         self.assertIn("full run on master", summary)
 
     def test_a_script_change_makes_no_full_run_of_the_representative_shard(self):
-        with open(os.path.join(self.work, "changed.txt"), "w") as f:
+        with open(os.path.join(self.work, "changed.txt"), "w", encoding="utf-8", newline="\n") as f:
             f.write("tests/mutation/run_stryker.sh\n")
         old = os.environ.get("G3_CHANGED_PATHS_FILE")
         os.environ["G3_CHANGED_PATHS_FILE"] = os.path.join(self.work, "changed.txt")

@@ -185,8 +185,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void InputTriangles_CornersAndCoordinatesOfTheirMeshTriangles()
         {
-            // two meshes with removed triangles (ids with gaps), a degenerate triangle and signed zeros (equal values); a second Compute appends the triangles again (as before
-            // the coordinates moved out of the triangles), the first ones keep their coordinates
+            // two meshes with removed triangles (ids with gaps), a degenerate triangle and signed zeros (equal values); a second Compute builds the same triangles again
+            // (issue 1512: it appended them a second time before)
             DMesh3 a = new Sphere3Generator_NormalizedCube() { EdgeVertices = 5 }.Generate().MakeDMesh();
             foreach (int t in a.TriangleIndices().Where(t => t % 7 == 3).ToList())
                 a.RemoveTriangle(t, false, false);
@@ -203,20 +203,18 @@ namespace geometry3Sharp.Tests
             arr.Compute();
             var firstCorners = arr.Triangles.Select(t => t.Corners).ToList();
             arr.Compute();
-            Assert.Equal(firstCorners, arr.Triangles.Take(firstCorners.Count).Select(t => t.Corners));
-            int expected = 2 * (a.TriangleCount + b.TriangleCount);
+            Assert.Equal(firstCorners, arr.Triangles.Select(t => t.Corners));
+            int expected = a.TriangleCount + b.TriangleCount;
             Assert.Equal(expected, arr.Triangles.Count);
             Assert.Contains(arr.Triangles, t => t.Degenerate);
             for (int i = 0; i < arr.Triangles.Count; ++i) {
                 ExactMeshArrangement.InputTriangle t = arr.Triangles[i];
                 DMesh3 m = meshes[t.Mesh];
                 Index3i tv = m.GetTriangle(t.Tid);
-                if (i >= expected / 2)
-                    Assert.Equal(i, arr.MeshTriangles[t.Mesh][i - expected / 2 - (t.Mesh == 0 ? 0 : a.TriangleCount)]);
+                Assert.Equal(i, arr.MeshTriangles[t.Mesh][i - (t.Mesh == 0 ? 0 : a.TriangleCount)]);
                 Vector3d[] got = { t.V0, t.V1, t.V2 };
                 for (int k = 0; k < 3; ++k) {
-                    if (i >= expected / 2)     // (the point ids of the second Compute)
-                        Assert.Equal(arr.VertexPoints[t.Mesh][tv[k]], t.Corners[k]);
+                    Assert.Equal(arr.VertexPoints[t.Mesh][tv[k]], t.Corners[k]);
                     Vector3d want = m.GetVertex(tv[k]);
                     // (the coordinates of the input points: -0.0 is +0.0 there, which no consumer can tell apart,
                     // ArrangementMemoryTests.NegativeZeroCoordinates_GiveTheSameResult)

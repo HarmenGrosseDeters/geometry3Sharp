@@ -246,7 +246,7 @@ What the adversary is worth, by mutation: of six normalizing sorts removed from 
 order adversary detects two, the same two that the existing repeated-run tests detect; it does so in one serial process
 instead of by parallel repeats, and not more often. The four others (`ExactMeshArrangement.cs` 987, 2509, 2516,
 `ExactMeshBoolean.cs` 4363) survive every determinism test and the harness: redundant on the inputs, or not reached by
-them. They belong to the stage 2 ledger.
+them. They belong to the stage 2 ledger (their obligation O-SORTS is closed in 5.5).
 
 ### 5.2 Stage 0: the exact kernel as a closed world (#859)
 
@@ -434,24 +434,56 @@ triangle lookups, S2-6 the callbacks that callers pass to the box tree queries c
 
 **Open items.**
 - *O1, the text of `SnapRounding2.Diagnostics`: done (owner 2026-11-17).* The messages concatenated a long or an int (the pixel in the `Restore` message, a label, a ring index, a count) with the current culture, so a minus sign followed the process's culture (`sv-SE` writes U+2212); a `Vector2d` already prints invariantly (`ToString` uses `CultureInfo.InvariantCulture`), and no double is concatenated. Every number now goes through `SnapRounding2.I`, which uses `CultureInfo.InvariantCulture`, so the text is the same under every culture; only the diagnostic string changed, under non-English cultures only. `SnapRounding2Tests.Diagnostics_AreCultureInvariant` compares the text under the invariant, `de-DE`, `fr-FR` and `sv-SE` cultures. The one-line diagnostic of `ConstrainedDelaunayMesh2` (not `SnapRounding2`) does not vary with the culture (its doubles use `R` with `InvariantCulture`, its int counts are never negative). The `ExactTriangulation2` exception messages keep the current culture (outside this item).
-- *O2, the test knobs of `TriangleBoxTree`.* `ParallelBuildFrom`, `PermutationSeedForTests` and `PermutedTrees` are `internal static` and mutable. The
-  analyzer has no rule for mutable statics yet (G3D0007 of section 6.2 is not built: the number there is another rule); the
-  results are the same for every value of the two (the tests above), so a stray write would change speed and the order of
-  the leaves only.
-- *O3, `SnapRounding2.Origin`* is a public dictionary keyed by value tuples: a consumer outside the scope that enumerates it is not covered
-  (the library's own consumer, `ConstrainedDelaunayMesh2`, only looks entries up).
-- *O4, an equivalent mutant.* In `merge_runs` the index tie-break `o[j] < o[i]` can be removed without a test failing: the runs are
-  ranges of box indices, so the left run holds the smaller ones. It stays as a guard; the order of the whole sort is attacked at
-  `fix_ties` instead (removing it fails 8 of the 12 cases of `ParallelTree_SameAsSerialTree_NodeForNode`).
+- *O2, the mutable statics of the scope: done (2026-11-24).* There are six that are not `[ThreadStatic]` (those are registered site by site, R14), all `internal static`
+  test knobs: `TriangleBoxTree.ParallelBuildFrom`, `PermutationSeedForTests`, `PermutedTrees` (`mesh_ops/ExactMeshArrangement.cs`), and, from stage 2,
+  `ExactMeshBoolean.LibmPerturbForTests`, `LibmPerturbRandomForTests`, `LibmPerturbMaskForTests` (`mesh_ops/ExactMeshBoolean.cs:5509-5512`; the list in the
+  first version of this item named only the first three). The argument: the library never writes one (`PermutedTrees++` in `permute_for_tests`,
+  `ExactMeshArrangement.cs:3599`, runs only for a seed a test set, and nothing reads the counter for a result; `tools/DeterminismHarness/Stage1.cs:106-129` and `benchmarks/BooleanComparison/Profile.cs:62` also write `ParallelBuildFrom`, and count as test or harness code: the first restores it in a `finally`, the second sets it once from a command line option of a benchmark), so in production each has its initial value;
+  and the result is the same for every value: `ParallelBuildFrom` only chooses between the serial and the parallel build (`:3125`, the median or Morton
+  choice is `n <= MedianSplitBelow`, `:3112`), which are equal node for node (`BoxTreeParallelBuildTests.ParallelTree_SameAsSerialTree_NodeForNode`,
+  `BoxTreeThresholdTests`); the seed only permutes the leaf order (`BoxTreeOrderTests`); the Libm knobs move the four libm results of
+  `antipodal_tree_value` by ulps into a bound that has a slack (`ExactMeshBooleanTestsAntipodalLibmPerturbation`). Also the three shared empty
+  collections of an untouched `InputTriangle` (`noSegments`, `noPoints`, `noCoplanar`, `ExactMeshArrangement.cs:83-85`; `noCoplanar` also stands in for `Partners`, `:99`) are `static readonly` but mutable:
+  `prepare_touched` replaces `Points` and `Segments` before it adds, and sorts only lists of two or more (`:2666`, `:2690`, `:2697`). The `static readonly`
+  arrays have mutable elements, too: `Alpha`, `AlphaInt` and `AlphaLimb` (`ExactMeshArrangement.cs:947-950`, the order of the points) and the empty `noWinding` and
+  `SegmentProjection.None`; nothing in the scope writes an element. Tests
+  (`DeterminismStage1ObligationTests`): `MutableStatics_OfTheScope_AreExactlyTheKnobs` (reflection over every type that a scope file declares: the
+  non-`ThreadStatic`, non-`readonly` statics are exactly the six, all not public; a new one fails the test and needs an entry and a sentence here),
+  `Knobs_AreNotWrittenByTheScope` (a syntax scan of the scope files for an assignment, increment or `ref` / `out` use of a knob, the one exception
+  named above), `StaticReadonlyArrays_AreNotWrittenByTheScope` (the same scan for an element write of any static readonly array), `SharedEmptyCollections_StayEmpty_AfterABoolean` (three overlapping boxes, then the three shared collections are empty). Hand mutants: a
+  new static field in the scope, `ParallelBuildFrom = ParallelBuildFrom;` in the constructor and `ExactMeshArrangement.Alpha[0] = 1.0;` fail the first, second and third; dropping `t.Points = points;`
+  in `prepare_touched` fails the third (through an exception of the corrupted shared set, not through the count). Not a rule of the analyzer: a rule for
+  mutable statics (the number G3D0007 is taken by another rule) would add nothing to these tests for six registered knobs.
+- *O3, `SnapRounding2.Origin`: done (2026-11-24), by a visibility change.* It was a `public` dictionary keyed by value tuples in an `internal` class; the
+  enumeration order of a `Dictionary` is not specified (in practice it is the insertion order without removals). Nothing enumerated it: the
+  library's consumer `QualityMesh2` calls `TryOrigin` and `Origins` (lookups, `QualityMesh2.cs:1138, 1382`), and no test or benchmark touched the
+  field. The field is now private (`comp_geom/SnapRounding2.cs:48`), so the compiler shows that no consumer outside the class can enumerate it; inside
+  the class the analyzer registers every enumeration (R8), and there are none (the lookups are at `:54`, `:60`, the one insertion in `Build`, in
+  chain order, a deterministic order; `Origins` now returns the stored list as an `IReadOnlyList`, in an `internal` class, so no API changes and a caller cannot change it). No result changes (visibility only). Test: `SnapRounding2_Origin_IsNotVisible` (reflection: the field is
+  private and no property of that name exists; hand mutant: `public` fails it).
+- *O4, an equivalent mutant: done (2026-11-24), attacked directly.* In `merge_runs` the index tie-break `o[j] < o[i]` is never reached by the sort: the
+  runs are ranges of box indices, so the left run holds the smaller ones. `merge_runs` is now `internal static` (visibility only,
+  `ExactMeshArrangement.cs:3571`) and `MergeRuns_EqualCodes_GoByBoxIndex` merges two runs whose left run holds the larger indices with equal codes
+  (the order must be by index) and two runs with different codes; hand mutants: the clause deleted, and `c[j] <= c[i]` (the right run first on a tie, which the first two cases alone do not catch: a case with the smaller index on the left is the third), each fail the test. The order of the whole sort
+  is still also attacked at `fix_ties` (removing it fails 8 of the 12 cases of `ParallelTree_SameAsSerialTree_NodeForNode`).
 - *O6, element equality inside generic containers.* `Dictionary`, `HashSet` and `List.Contains` call `Equals` and `GetHashCode` of the key or element
   type, which the analyzer does not see (eg `List<(Vector2d, Vector2d)>.Contains` in `SnapRounding2.Build` runs `Vector2d.Equals`; the `Origin`
   keys are `Vector2d` pairs, and on .NET Framework `double.GetHashCode` differs for -0 and +0 although they are equal; the keys are `long * w`,
   never -0). Hashes only place entries; `Equals` of the used types is a field comparison. Also: `TypeScopes` is keyed by the file name (a second
   scope file with the same name would be restricted too), and `[assumed]` is not tied to a stage 2 file; both are reviewed by the list diff.
-- *O5, runs on the other platforms.* The 12 harness cases `stage1.*` (`tools/DeterminismHarness/Stage1.cs`) are in the
-  workflow `determinism.yml`, which runs every case; its first result for these cases (Windows, net48, arm64) is not part of this
-  note. On linux x64, net10.0 locally: the parallel run equals the serial run and a second process (other hash seeds) on all 12, and
-  the order adversary with three seeds changes none.
+- *O5, runs on the other platforms: done (2026-11-24).* The harness cases `stage1.*` (12, `tools/DeterminismHarness/Stage1.cs`) and `stage2.*` (4) run in
+  `determinism.yml` with every other case. The run 45206628105 of the stage 2 PR (head d8d21e3) has them equal in **every** pair of the cross-runtime matrix:
+  Linux x64 net10.0 serial against parallel, 1 and 3 processors, no SIMD, no AVX2, no tiering, minopts; Windows net10.0 against Linux and against net48; net48
+  x64 against a 32-bit x86 process; Linux x64 against Linux arm64; Windows x64 against Windows arm64 (net10.0; the net48 leg there is an emulated x64 process,
+  so it is the x64 runtime on another CPU, not the arm64 JIT); Linux against Windows arm64. Not run: macOS (opt-in, runner capacity). The workflow only
+  printed the matrix, so a later difference would not have failed it: `cross_matrix.py` has the option `--require GROUP[,GROUP]`, and the `compare` job of
+  `determinism.yml` now runs it with `--require stage1,stage2`. It fails (exit status 1) when, in any of the 40 pairs of `GATE_PAIRS` (every comparison of the
+  default legs: Linux and Windows serial against parallel, two parallel runs, 1, 2, 3 and 8 processors, the JIT switches, net10.0 against net48, x64 against x86 and
+  arm64, on Linux and Windows; not macOS, which is opt-in), a case of a named group differs, failed or is missing, a trace directory of the pair is absent
+  (a leg that did not run), the group does not have its expected number of cases (`EXPECTED_CASES`: `stage1` 12, `stage2` 4, so a case that vanishes everywhere, or
+  one added without updating the count, fails), or the group has no case; an empty list is refused. Tests: `test_cross_matrix.py` (one for each of these);
+  a gate-file change
+  (the workflow), tightening only.
 
 **Hand mutants** (not a mutation shard; the incremental mutation run of the CI covers the touched exact files): `source.Keys` without
 `OrderBy` in `SnapRounding2.Build`: the library build fails (G3D0001); `OrderBy` without `ThenBy`: `SnapRounding2_InsertionOrder_*` fails on 6 of 6
@@ -498,9 +530,14 @@ only the phase dictionaries; reviewed, no flow rule), `DMeshAABBTree3.FastWindin
   attack is `OrderAdversaryTests` and the harness `adversary` (the loops run backwards and in seeded permutations, which changes the order
   in which `new_id` hands out ids; `boolean.*`, `stage1.*` and `stage2.*` give identical traces). No hook permutes the ids themselves: `new_id`
   is a counter over dense slot arrays, so a permutation needs an indirection (a design change).
-- **O-SORTS.** The tie order of equal `lo` in `merge_points` (`Array.Sort(sortLo, order)`) and the normalizing sorts `Segments.Sort`, `fan.Sort`
-  (and the sort of `merge_sorted`, which is not redundant) are argued, but no test fails when they are removed (5.1: four mutants that survive).
-  Test sketches: a hook that re-permutes runs of equal `lo`; a bowtie whose fan triangles are appended in descending order.
+- **O-SORTS-NM (the part of O-SORTS that stays open).** The two sorts of `ExactMeshBoolean.assemble` at the non-manifold edges, the sort of the
+  pairs of an edge (`nonManifold[i].Value.Sort`) and the sort of the edges (`nmOrder.Sort`), are argued (site line of `assemble`: the keys are
+  total) but no test fails when either is removed: the 33 related tests (`ExactBooleanDeterminismTests.TouchingAlongEdge_*`,
+  `OrderAdversaryTests.ExactBoolean_TouchingAlongEdges_*`, `ExactBooleanEdgeOrderTests`, ...) stay green, and a scan of 72 variants of that scenario
+  (random input orders, with and without simplification) gave the same result with `nonManifold[i].Value.Sort` removed. A killing test needs an
+  edge with at least two pairs whose angular order around the edge (the order `pair_around_edge` returns) differs from the order of their smallest
+  triangle ids, and a result that is split at the edge (`SplitNonManifoldEdges > 0`: the surface must connect around both ends); a ring of
+  prisms around one edge (alternate wedges, no connection around the ends) gave no split edge. Not claimed.
 - **O-PERPATCH.** `open_winding_per_patch` (the L1 loop, `TracedOpenWinding = false`) is tested serial against parallel in the given order
   only; the order adversary runs the default configuration.
 - **O-DIAG.** "Reaches only diagnostics" (`PhaseClock`, the `Counts`, `PreDecidedPairs` and similar counters) is a review argument; there is no
@@ -514,10 +551,40 @@ only the phase dictionaries; reviewed, no flow rule), `DMeshAABBTree3.FastWindin
   runs by `ExactBooleanSheetTests.Determinism_*`; no order adversary runs the sheet role.
 - **F2** is registered as P4 with the perturbation tests of the libm calls (`ExactMeshBooleanTestsAntipodalLibmPerturbation`).
 
+**Closed obligations.**
+
+- **O-SORTS (closed 2026-11-24 except O-SORTS-NM above).** The order of equal `lo` in `merge_points` (`Array.Sort(sortLo, order)`) and the normalizing sorts `Segments.Sort`
+  (`prepare_touched`), `fan.Sort` (`split_bowties`) and the sort of `merge_sorted` are each attacked by a test in
+  `ExactArrangementSortTieTests`. The tests feed the unsorted lists in hostile orders (the loops of the arrangement backwards and in seeded
+  permutations, as in `OrderAdversaryTests`; a fan whose triangles are listed in descending order; runs of equal `lo` reversed and permuted by
+  the internal hook `TieOrderSeed`, which changes no result when it is 0). Hand mutants (one at a time, then restored; the analyzer forbids
+  removing a registered call, so the call stays behind `if (false)`-like guards):
+
+  | mutant | killed by |
+  |---|---|
+  | the sort in `merge_points` removed | `MergePoints_OrderOfEqualLowerEnds_DoesNotChangeTheResult` (all 12 cases), `MergeSorted_SortsTheClusterByPoint_BeforeItReadsRunsOfEqualPoints`, `PrepareTouched_SortsSegments_WhateverTheOrderThePairsWereFound` (existing tests too) |
+  | a reader of the tie order: `merge_cluster` takes the first of a group instead of the point with the smallest key | `MergePoints_OrderOfEqualLowerEnds_DoesNotChangeTheResult` (`maxHashed` 64), `MergeSorted_*`, `PrepareTouched_*` (the first survives every earlier test) |
+  | `Segments.Sort` removed | `PrepareTouched_SortsSegments_WhateverTheOrderThePairsWereFound` and `MergeSorted_*` (deterministic: serial reversed and permuted loop orders; the older `CoplanarTriangles_ShareConstructions_SameOutput` kills it only on some schedules) |
+  | the sort of `merge_sorted` removed | `MergePoints_OrderOfEqualLowerEnds_DoesNotChangeTheResult` (`maxHashed` -1) and `MergeSorted_*` |
+  | `fan.Sort` removed | `SplitBowties_FanListedDescending_IsRedirectedInTriangleIdOrder` (the edge ids and adjacency that `SetTriangle` hands out depend on the order of its calls; pinned for a fan listed as 5, 4, 3) |
+
+  Survivors of 5.1 by method: `Segments.Sort` and `Coplanar.Sort` in `prepare_touched`, `fan.Sort` in `split_bowties`, and the sorts of
+  `assemble` at the non-manifold edges. Closed by a test: `Segments.Sort`, `fan.Sort`, and the two added here (`merge_points`, `merge_sorted`).
+  `Coplanar.Sort` in `prepare_touched` is redundant (an equivalent mutant): `prepare_triangle` sorts the same list before it calls
+  `prepare_touched`, and nothing appends to it in between, so the second sort sees a sorted list; removing it leaves every test green and
+  can change no result. It stays as a guard. The `assemble` sorts stay open as O-SORTS-NM. The hook counts the runs it permutes
+  (`TiedRuns`), and the tie test asserts it is above 0, so the test cannot pass without ties.
+
+  Remaining, stated: in `merge_cluster` the two point case (`best = a` instead of the smaller key) is not killed: no scenario tried (coplanar
+  grids of 2x2 and 3x3 boxes with a rotated box, copies of boxes) has a two point cluster of coincident points with exactly equal `lo`; the equal
+  `lo` runs occur in clusters of three or more, or between distinct points with the same order key (`ComparePoints` separates them, the case
+  returns 0). The case reads its two points symmetrically by inspection. A change of the comparer of `fan.Sort` or `Segments.Sort` is a
+  build error (G3D0002, the site line names the overload).
+
 **Claim.** On every runtime that satisfies T1 to T5, `ExactMeshArrangement` and `ExactMeshBoolean` compute, for the exact result (and not for the
 assumed members above), functions of their arguments, up to the open obligations: no result depends on the schedule, the process, a hash
 seed, the order of a hash container, the order of equal keys in a sort, the sign of a zero in a minimum or maximum, the clock or the BCL
-version, except through the open obligations above (O-RANDOM, O-ATAN2, O-IDS, O-SORTS, O-PERPATCH, O-DIAG, O-EXC, O-SHEET) and the assumed members.
+version, except through the open obligations above (O-RANDOM, O-ATAN2, O-IDS, O-SORTS-NM, O-PERPATCH, O-DIAG, O-EXC, O-SHEET) and the assumed members.
 Checked: the allow list, the registered sites, constructs, casts and `#if` blocks, and that the named tests exist. Attacked by test: P1 to P5 per
 site by the tests named in the site lines, the harness cases and the loop-order adversary.
 

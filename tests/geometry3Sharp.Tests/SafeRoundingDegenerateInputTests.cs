@@ -128,6 +128,12 @@ namespace geometry3Sharp.Tests
         // case still within the bound. Clean cases by row, master -> this change (minimum): Cluster [36,40] 31 -> 31 (28); Cluster [0,44] 33 -> 32
         // (the minimum goes from 33 to 32, so the sum for Cluster is 88); Cluster [30,52] 31 -> 29 (28); FoldedCluster [30,40,44] 50 -> 49 (49: no
         // slack left); FoldedCluster [36,52] 33 -> 33 (31). In total 178 -> 174 of 198; no row went up)
+        // (#1489, diagnosis, nothing changed: per case, 9 were clean with truncation and are not with nearest, 5 were not and are (all with eight pokes, count 8),
+        // so the net loss of 4 is rounding luck in both directions, not a mechanism. Lost: Cluster k0 s1 and s4, k36 s0, k40 s1, k52 s1 and s5; FoldedCluster k44 s0 and
+        // s3, k52 s1. Won: Cluster k36 s3, k40 s0, k44 s5; FoldedCluster k30 s0, k36 s2. What is left in each of the 24 unclean cases: intersecting pairs (up to 7) or degenerate triangles (up to
+        // 4), some of both, no false contact, no resolvable removal, the evaluation limit not reached, and SmallestRejectedDrift finite (3.4e-5 to 3.5e-3, above
+        // the bound): an edit exists beyond the drift bound, so it is not the state of #1465 (infinite). Neutral contractions (the stage of #1489 in the
+        // Boolean's repair, as an experiment) change none of the 198 results. The default pipeline's grid retry cures 12 of the 24 unclean ones)
         public static IEnumerable<object[]> DenseClusterRows() => new[] {
             new object[] { Family.Cluster, new[] { 0, 44 }, 36, 32 },
             new object[] { Family.Cluster, new[] { 30, 52 }, 36, 28 },

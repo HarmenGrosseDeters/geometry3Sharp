@@ -5,8 +5,11 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
+
+import shell_shims
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FILES = ["run_local.sh", "run_stryker.sh", "local_result.py", "incremental.py", "select_shards.py", "stryker-mesh-boolean-1.json",
@@ -40,7 +43,7 @@ class RunLocal(unittest.TestCase):
         os.makedirs(os.path.join(self.repo, ".config"))
         os.makedirs(os.path.join(self.repo, "mesh_ops"))
         for name in ("ExactMeshBoolean.cs", "Other.cs"):
-            with open(os.path.join(self.repo, "mesh_ops", name), "w") as f:
+            with open(os.path.join(self.repo, "mesh_ops", name), "w", encoding="utf-8", newline="\n") as f:
                 f.write("class %s {}\n" % name[:-3])
         self.seen = os.path.join(self.dir, "seen.txt")
         for f in FILES:
@@ -48,8 +51,9 @@ class RunLocal(unittest.TestCase):
         shutil.copy(os.path.join(HERE, "..", "..", ".config", "dotnet-tools.json"), os.path.join(self.repo, ".config"))
         self.bin = os.path.join(self.dir, "bin")
         os.mkdir(self.bin)
+        shell_shims.add_python3(self.bin)
         stub = os.path.join(self.bin, "dotnet")
-        with open(stub, "w") as f:
+        with open(stub, "w", encoding="utf-8", newline="\n") as f:
             f.write(STUB)
         os.chmod(stub, os.stat(stub).st_mode | stat.S_IEXEC)
         for c in (["init", "-q"], ["config", "user.email", "t@example.com"], ["config", "user.name", "t"], ["add", "-A"], ["commit", "-q", "-m", "base"]):
@@ -61,7 +65,7 @@ class RunLocal(unittest.TestCase):
 
     def run_script(self, args, killed=90, survived=10, rc="0"):
         rep = os.path.join(self.dir, "rep.json")
-        with open(rep, "w") as f:
+        with open(rep, "w", encoding="utf-8", newline="\n") as f:
             json.dump(report(killed, survived), f)
         env = dict(os.environ, PATH=self.bin + os.pathsep + os.environ["PATH"], G3_STUB_REPORT=rep, G3_STUB_RC=rc, PROGRESS_SECONDS="1000000",
                    G3_STUB_ROOT=self.repo, G3_STUB_SEEN=self.seen)
@@ -77,7 +81,7 @@ class RunLocal(unittest.TestCase):
         with open(self.result_path()) as f:
             res = json.load(f)
         self.assertEqual((self.sha, "boolean-1", "full", 90.0), (res["sha"], res["shard"], res["mode"], res["score"]))
-        check = subprocess.run(["python3", os.path.join(HERE, "local_result.py"), "check", "--root", self.repo, "--head", self.sha],
+        check = subprocess.run([sys.executable, os.path.join(HERE, "local_result.py"), "check", "--root", self.repo, "--head", self.sha],
                                capture_output=True, text=True)
         self.assertEqual(0, check.returncode, check.stdout + check.stderr)
 
@@ -85,7 +89,7 @@ class RunLocal(unittest.TestCase):
         r = self.run_script(["boolean-1"], killed=40, survived=60)
         self.assertEqual(1, r.returncode, r.stdout + r.stderr)
         self.assertTrue(os.path.exists(self.result_path()))
-        check = subprocess.run(["python3", os.path.join(HERE, "local_result.py"), "check", "--root", self.repo, "--head", self.sha],
+        check = subprocess.run([sys.executable, os.path.join(HERE, "local_result.py"), "check", "--root", self.repo, "--head", self.sha],
                                capture_output=True, text=True)
         self.assertEqual(1, check.returncode)
         self.assertIn("below the break", check.stdout)
@@ -96,7 +100,7 @@ class RunLocal(unittest.TestCase):
             self.assertIn("G3_FULL_TESTS=1", f.read())
 
     def test_a_dirty_tree_is_refused(self):
-        with open(os.path.join(self.repo, "tests", "mutation", "stryker-config.json"), "a") as f:
+        with open(os.path.join(self.repo, "tests", "mutation", "stryker-config.json"), "a", encoding="utf-8", newline="\n") as f:
             f.write(" ")
         r = self.run_script(["boolean-1"])
         self.assertEqual(2, r.returncode)
@@ -126,12 +130,12 @@ class RunLocal(unittest.TestCase):
     def test_a_failed_restore_fails_the_run(self):
         # (a tracked file that differs after the undo: here a file the undo cannot know, changed by Stryker itself)
         stub = os.path.join(self.bin, "dotnet")
-        with open(stub, "a") as f:
+        with open(stub, "a", encoding="utf-8", newline="\n") as f:
             f.write('')
         with open(stub) as f:
             text = f.read()
         text = text.replace('    exit "${G3_STUB_RC:-0}" ;;', '    echo changed > "$G3_STUB_ROOT/mesh_ops/Other.cs"\n    exit "${G3_STUB_RC:-0}" ;;')
-        with open(stub, "w") as f:
+        with open(stub, "w", encoding="utf-8", newline="\n") as f:
             f.write(text)
         r = self.run_script(["boolean-1"])
         self.assertNotEqual(0, r.returncode)
@@ -140,7 +144,7 @@ class RunLocal(unittest.TestCase):
     def test_the_run_is_a_full_run_not_a_pull_request_run(self):
         # (NO_FULL from the environment must not turn the local run into a skipped one)
         rep = os.path.join(self.dir, "rep.json")
-        with open(rep, "w") as f:
+        with open(rep, "w", encoding="utf-8", newline="\n") as f:
             json.dump(report(90, 10), f)
         env = dict(os.environ, PATH=self.bin + os.pathsep + os.environ["PATH"], G3_STUB_REPORT=rep, NO_FULL="1", PROGRESS_SECONDS="1000000",
                    G3_STUB_ROOT=self.repo, G3_STUB_SEEN=self.seen)

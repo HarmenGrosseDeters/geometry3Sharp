@@ -1,0 +1,149 @@
+diff --git a/intersection/TriTriProbe.cs b/intersection/TriTriProbe.cs
+new file mode 100644
+index 0000000..2e137e3
+--- /dev/null
++++ b/intersection/TriTriProbe.cs
+@@ -0,0 +1,42 @@
++// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
++// PROBE ONLY (benchmarks/SelfIntersectionBenchmark/probe/candidate_probe.patch): times TriangleTriangleFilter by call
++// site and shared-corner count, and samples its inputs. Never merged into the library.
++using System;
++using System.Collections.Generic;
++using System.Diagnostics;
++
++namespace g3
++{
++    internal static class TriTriProbe
++    {
++        internal const int Sites = 6;   // 0 other, 1 reducer fan, 2 reducer grid, 3 remesher fan, 4 remesher grid, 5 remesher fold
++        internal static readonly string[] SiteNames = { "other", "reducer new among themselves", "reducer new vs grid", "remesher new among themselves", "remesher vs grid", "remesher fold_count" };
++        [ThreadStatic] internal static int Site;
++        // [site, nShared 0..3, result -1..1 -> 0..2]
++        internal static readonly long[] Calls = new long[Sites * 4 * 3], Ticks = new long[Sites * 4 * 3];
++        internal static long CheckTicks, CheckCalls;    // the whole check (Reducer.collapse_creates_intersection)
++        internal static int Stride = 0;                 // 0: no capture
++        internal static long seen;
++        internal struct Pair { public Index3i ia, ib; public Triangle3d A, B; public int site, shared, result; }
++        internal static readonly List<Pair> Sample = new List<Pair>();
++
++        internal static int Shared(Index3i ia, Index3i ib)
++        {
++            int n = 0;
++            for (int i = 0; i < 3; ++i) for (int j = 0; j < 3; ++j) if (ia[i] == ib[j]) n++;
++            return Math.Min(n, 3);
++        }
++        internal static void Record(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B, int result, long ticks)
++        {
++            int sh = Shared(ia, ib), k = (Site * 4 + sh) * 3 + result + 1;
++            Calls[k]++; Ticks[k] += ticks;
++            if (Stride > 0 && (seen++ % Stride) == 0)
++                Sample.Add(new Pair { ia = ia, ib = ib, A = A, B = B, site = Site, shared = sh, result = result });
++        }
++        internal static void Reset()
++        {
++            Array.Clear(Calls, 0, Calls.Length); Array.Clear(Ticks, 0, Ticks.Length);
++            CheckTicks = CheckCalls = 0; seen = 0; Sample.Clear();
++        }
++    }
++}
+diff --git a/intersection/TriangleTriangleFilter.cs b/intersection/TriangleTriangleFilter.cs
+index b922ec9..e9f2bcc 100644
+--- a/intersection/TriangleTriangleFilter.cs
++++ b/intersection/TriangleTriangleFilter.cs
+@@ -68,6 +68,14 @@ namespace g3
+         /// </summary>
+         [MethodImpl(JitHints.Optimize)]
+         internal static int BeyondShared(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
++        {
++            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
++            int r = beyond_core(ia, ref A, ib, ref B);
++            TriTriProbe.Record(ia, ref A, ib, ref B, r, System.Diagnostics.Stopwatch.GetTimestamp() - t0);
++            return r;
++        }
++
++        internal static int beyond_core(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
+         {
+             if (all_finite(ref A, ref B) == false)
+                 return Undecided;
+diff --git a/mesh/Reducer.cs b/mesh/Reducer.cs
+index f8e517c..3d8ffe2 100644
+--- a/mesh/Reducer.cs
++++ b/mesh/Reducer.cs
+@@ -909,6 +909,13 @@ namespace g3
+         // (a2, b2, vKeep2 >= 0, PairCoincidentVertices: the twin edge collapses at the same time, to the same position; its new
+         // triangles are checked as well, and a triangle's vertices of one position are one vertex)
+         bool collapse_creates_intersection(int a, int b, int vKeep, Vector3d newPos, int a2, int b2, int vKeep2)
++        {
++            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
++            try { return cci_core(a, b, vKeep, newPos, a2, b2, vKeep2); }
++            finally { TriTriProbe.CheckTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0; TriTriProbe.CheckCalls++; TriTriProbe.Site = 0; }
++        }
++
++        bool cci_core(int a, int b, int vKeep, Vector3d newPos, int a2, int b2, int vKeep2)
+         {
+             if (SelfIntersectionUnionQuery == false && a2 < 0)
+                 return collapse_creates_intersection_per_triangle(a, b, vKeep, newPos);
+@@ -940,6 +947,7 @@ namespace g3
+             if (KeepClearOf != null && (new_triangles_touch_obstacle(newTris) || (KeepClearOfSwept && collapse_sweeps_obstacle(a, b, newPos))))
+                 return true;
+             // the new triangles among themselves
++            TriTriProbe.Site = 1;
+             for (int i = 0; i < newTris.Count; ++i) {
+                 Triangle3d A = newTris[i];
+                 Index3i ia = newIds[i];
+@@ -966,6 +974,7 @@ namespace g3
+                 if (i == 0) union = box; else union.Contain(box);
+             }
+             siHit = false;
++            TriTriProbe.Site = 2;
+             if (siCandidate == null) siCandidate = si_candidate;
+             triangleGrid.Query(union, siCandidate);
+             return siHit;
+diff --git a/mesh/Remesher.cs b/mesh/Remesher.cs
+index 533775d..6205263 100644
+--- a/mesh/Remesher.cs
++++ b/mesh/Remesher.cs
+@@ -1277,6 +1277,12 @@ namespace g3 {
+         // the feature corners of nt other than nt, r0 and r1. vKeep is at newPos and counts as a feature corner; with
+         // a >= 0, a and b are collapsed to it (its triangles are those of a and b), with a < 0 it is a vertex of the mesh
+         int fold_count(Index3i nt, Index3i other, int r0, int r1, int a, int b, int vKeep, Vector3d newPos)
++        {
++            int site = TriTriProbe.Site; TriTriProbe.Site = 5;
++            try { return fold_count_core(nt, other, r0, r1, a, b, vKeep, newPos); } finally { TriTriProbe.Site = site; }
++        }
++
++        int fold_count_core(Index3i nt, Index3i other, int r0, int r1, int a, int b, int vKeep, Vector3d newPos)
+         {
+             var T = new Triangle3d(mapped_vertex(nt.a, vKeep, newPos), mapped_vertex(nt.b, vKeep, newPos), mapped_vertex(nt.c, vKeep, newPos));
+             if (ExactTriangleIntersection.IsDegenerate(ref T))
+@@ -1417,6 +1423,8 @@ namespace g3 {
+             AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
+             bool found = false;
+             Triangle3d tri = A;
++            int site = TriTriProbe.Site; TriTriProbe.Site = 4;
++            try {
+             triangleGrid.Query(box, (tc) => {
+                 // (Query compares closed boxes; AxisAlignedBox3d.Intersects is open and misses the flat boxes of
+                 // coplanar triangles on an axis plane)
+@@ -1433,6 +1441,7 @@ namespace g3 {
+                     hit?.Invoke(tc);
+                 }
+             });
++            } finally { TriTriProbe.Site = site; }
+             return found;
+         }
+ 
+@@ -1471,6 +1480,13 @@ namespace g3 {
+         // the new triangles (gridNewIds, gridNewTris) intersect each other or a triangle outside gridChangedTris
+         bool new_triangles_intersect()
+         {
++            int site = TriTriProbe.Site;
++            try { return nti_core(); } finally { TriTriProbe.Site = site; }
++        }
++
++        bool nti_core()
++        {
++            TriTriProbe.Site = 3;
+             for (int i = 0; i < gridNewTris.Count; ++i) {
+                 Triangle3d A = gridNewTris[i];
+                 Index3i ia = gridNewIds[i];
