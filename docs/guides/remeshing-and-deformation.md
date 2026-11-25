@@ -35,8 +35,13 @@ MeshConstraintUtil.PreserveBoundaryAndFeatures(remesher, mesh, creaseAngleDeg: 4
 MeshConstraintUtil.PinSharpVertices(remesher, mesh, minAngleDeficitDeg: 75);
 remesher.PreventNormalFlips = true;
 remesher.MinTriangleQuality = 0.2;   // or remesher.ApplySafePreset()
-for (int i = 0; i < 20; ++i)
+// A fixed pass count can stop in the middle of the refinement (the passes needed grow with the ratio of the
+// input's to the target's edge length): loop until few edges are modified, not for a fixed count.
+for (int i = 0; i < 50; ++i) {
     remesher.BasicRemeshPass();
+    if (remesher.ModifiedEdgesLastPass < 0.15 * mesh.EdgeCount)
+        break;      // converged (ish); also stop for good if InvertingPassesRejected > 0
+}
 ```
 
 ### Safeguards & Sizing Options
@@ -44,6 +49,7 @@ for (int i = 0; i < 20; ++i)
 - **Feature preservation:** `MeshConstraintUtil.PreserveBoundaryAndFeatures` locks boundary edges, sharp crease edges, and bowtie vertices. Call `MeshConstraintUtil.PinSharpVertices` afterward to pin sharp apices (such as cone tips) by angle deficit.
 - **`MinTriangleQuality` (recommended `0.2`, opt-in):** Rejects flips, collapses, smoothing, and projection moves that create degenerate or sliver triangles.
 - **Turns against the surrounding surface (with `PreventNormalFlips` or `MinTriangleQuality`):** A collapse or valence flip is also rejected if a new triangle ends more than 70 degrees from the normal of the triangles around the edge (weighted with the cosine to its own previous normal) and farther from it than before. The flip test alone compares a triangle with its own previous normal, so turns of thin, tilted triangles added up and left triangles facing into smooth surfaces (issue #1441). Triangles that do not turn (collapses along a crease) are never rejected by it. Not covered: `PreventNormalFlips` alone does not guard smoothing and projection moves; see the summary of `Remesher.MinTriangleQuality` for what stays unguarded.
+- **Convergence and what the options do not guarantee (issue #1578):** `ModifiedEdgesLastPass` (edges split, collapsed or flipped in the last pass) divided by the edge count is the convergence signal; there is no other counter. A box of 12 triangles refined to 4 % of its diagonal with `PreventNormalFlips` modifies 32 to 42 % of its edges in passes 3 to 7, holds 1 to 11 triangles facing against the input surface and self-intersections there (the same box at a 1 % target and 10 passes: 807 inverted triangles of 103946, all in the unconverged state), and none from pass 8 on (14 % modified at pass 13); `RemesherConvergenceReportTests` pins this. `MinTriangleQuality` (also in `ApplySafePreset()`) guards the edge operations and the smoothing and projection moves, not a floor under the result: splits and the projection of their new vertices are not guarded, so after the loop above 8 to 10 triangles of that box stay below 0.2 (11013 of 73274 below 0.1 after the 1 % box's 10 passes). Count them if a bound matters. The safe preset costs about 6 to 17 times the default on these boxes (the exact intersection tests of the new triangles with their neighbours, about 40 % of it in `TriangleHashGrid.Query` and its tests, linear in the triangle count), so a 30 pass 1 % target takes 25 s natively.
 - **`PreventSelfIntersections` (opt-in):** Rejects any edit that introduces a new self-intersection; inputs without self-intersections remain self-intersection-free (higher runtime cost).
 - **`ApplySafePreset()` (opt-in):** Sets `MinTriangleQuality = 0.2` and `PreventSelfIntersections = true`.
 - **Spatially varying edge length (`TargetEdgeLengthF`):** Provide a custom sizing function, or use `RemeshSizing.FromWallThickness` to refine thin walls so opposite faces do not fold through each other.
