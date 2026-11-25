@@ -629,6 +629,10 @@ namespace geometry3Sharp.Tests
             AssertSolid(byLength);
             Assert.True(byLength.Report.ResultTriangles < byLength.Report.BooleanTriangles);
             Assert.True(byLength.Report.Clean, byLength.Report.NotCleanReason);
+            Assert.Equal(SolidBooleanStopReason.TargetReached, byLength.Report.StopReason);
+            DMesh3 r = byLength.Result;                  // (the criterion itself: no edge left below it; "fewer triangles" alone also holds for a criterion passed on as half its value)
+            double shortest = r.EdgeIndices().Min(e => { Index2i ev = r.GetEdgeV(e); return r.GetVertex(ev.a).Distance(r.GetVertex(ev.b)); });
+            Assert.True(shortest >= 0.3, $"shortest edge {shortest:R}");
 
             var byError = new SolidBooleanPipeline(TwoSpheres(), U) { MaxQuadricError = 1e-6 };
             Assert.True(byError.Compute());
