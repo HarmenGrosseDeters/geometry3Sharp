@@ -46,7 +46,7 @@ namespace gs
         public string Method;
         /// <summary> triangles of the input and of its repaired copy </summary>
         public int TrianglesBefore, TrianglesAfter;
-        /// <summary> time of the repair or repairs of this input, in milliseconds </summary>
+        /// <summary> time of the repair or repairs of this input, in milliseconds (without the self-intersection check of a MeshAutoRepair copy, which Report.RepairMilliseconds includes) </summary>
         public long Milliseconds;
     }
 
@@ -287,11 +287,21 @@ namespace gs
             /// MeshAutoRepair on a copy of the input. It fills holes by its own rules, without knowing the other inputs or what
             /// the open input means. For a solid with a small hole that is usually right; for an open cutting surface (a sheet
             /// used as the tool of a Difference) it is about never where the missing face was: the closed copy can enclose
-            /// almost nothing, and the cut then removes almost nothing, with Status Success and a clean report (#1211). Use
-            /// it only for inputs known to be solids with small holes
+            /// almost nothing, and the cut would remove almost nothing (#1211). Where that fill crosses the input (an open sheet whose
+            /// surface crosses the fill of its boundary loop, eg a non-planar or wavy sheet), the closed copy self-intersects: the
+            /// pipeline checks every MeshAutoRepair copy exactly for self-intersections (its own ExactMeshArrangement) and fails
+            /// with Status OpenInput if the copy has some and the input as given has none (an input that self-intersects already
+            /// is used as before; the check runs only for repaired inputs). That also refuses a flat sheet, whose fill lies on it
+            /// (coincident faces count). A sheet whose fill neither crosses nor touches it (eg a U-shaped sheet, whose fill closes
+            /// its opening) still gives a closed copy that encloses the wrong solid, with Status Success. Use it only for
+            /// inputs known to be solids with small holes
             /// </summary>
             AutoRepair = 1,
-            /// <summary> MeshAutoRepair, and if the copy is still not closed, MeshRobustRepair of the input (it may solidify or wrap: the geometry can change) </summary>
+            /// <summary>
+            /// MeshAutoRepair, and if the copy is still not closed, MeshRobustRepair of the input (it may solidify or wrap: the geometry
+            /// can change). A MeshAutoRepair copy that self-intersects where the input does not is refused as with AutoRepair
+            /// (Status OpenInput), without falling back to MeshRobustRepair
+            /// </summary>
             AutoRepairThenRobust = 2
         }
 
@@ -317,7 +327,7 @@ namespace gs
             Success = 0,
             /// <summary> no input, a null input, non-finite coordinates, or more than one reduction criterion (see Error) </summary>
             InvalidInput = 1,
-            /// <summary> an input is not closed and InputRepair is Refuse, or no allowed repair closed it (see Error) </summary>
+            /// <summary> an input is not closed and InputRepair is Refuse, or no allowed repair closed it, or MeshAutoRepair closed it into a self-intersecting mesh (see Error and InputRepairModes.AutoRepair) </summary>
             OpenInput = 2,
             /// <summary> the boolean failed (BooleanStatus and Error), eg RoundingNotClean or BudgetExceeded; Result is null </summary>
             BooleanFailed = 3,
@@ -343,7 +353,10 @@ namespace gs
         /// false (default): an input that is closed and consistently oriented but inside-out (eg a cube whose faces all point
         /// inward, an empty solid for the boolean) fails the run with Status InsideOutInput instead of being taken as an empty
         /// solid silently. true: such an input is used as it is (Report.InsideOutCells still counts it). Orientation = ByNesting
-        /// derives the solid the surface encloses instead (see ExactMeshBoolean.OrientationModes)
+        /// derives the solid the surface encloses instead for an input that is embedded (no self-intersections); a closed input
+        /// that self-intersects keeps its given orientation under ByNesting (see ExactMeshBoolean.OrientationModes), so a part of it
+        /// that is inside-out stays so and is refused again: the Error then names the self-intersections, and a closed copy that
+        /// the input repair produced (Report.RepairedInputs)
         /// </summary>
         public bool AllowInsideOutInputs = false;
 
@@ -1049,6 +1062,20 @@ namespace gs
                     Report.RepairedInputs.Add(r);
                     step("InputRepair", i, "input " + i + " is not closed and the boolean refuses it as open (InputRepair = " + InputRepair + ")",
                         "closed by " + r.Method + " on a copy, " + r.TrianglesBefore + " -> " + r.TrianglesAfter + " triangles");
+                    // (a MeshAutoRepair copy that self-intersects where the input did not: the repair crosses the input, eg the fill of the
+                    // boundary of an open sheet; such a copy is not the solid the input was meant to bound, see InputRepairModes.AutoRepair)
+                    if (r.Method == "MeshAutoRepair") {
+                        int added = repairSelfIntersections(given[i], repaired);
+                        Report.RepairMilliseconds = clock.ElapsedMilliseconds;
+                        if (added < 0)
+                            return fail(PipelineStatus.Cancelled, "cancelled", total);
+                        if (added > 0) {
+                            step("Refused", i, "MeshAutoRepair closed input " + i + " into a self-intersecting mesh (" + added + " pairs; the input as given has none)", "no result (Status OpenInput)");
+                            return fail(PipelineStatus.OpenInput, "input " + i + " is not closed, and MeshAutoRepair closed it into a self-intersecting mesh (" + added +
+                                " pairs of its triangles meet beyond a common edge or vertex; the input as given has none): the repair (eg its fill of a hole) crosses the input. An open " +
+                                "cutting surface is not a solid; close the input before the boolean so that it bounds the intended solid", total);
+                        }
+                    }
                     used[k] = repaired;
                     if (Cancellation.IsCancellationRequested)
                         return fail(PipelineStatus.Cancelled, "cancelled", total);
@@ -1085,7 +1112,7 @@ namespace gs
                 return fail(PipelineStatus.InsideOutInput, op.InsideOutUndecided + " component(s) of the closed inputs could not be tested for being inside-out (no ray found); set AllowInsideOutInputs to use them as they are", total);
             if (op.InsideOutCells > 0 && !AllowInsideOutInputs)
                 return fail(PipelineStatus.InsideOutInput, op.InsideOutCells + " component(s) of the closed inputs are inside-out (the winding number in front of them is negative: an empty or reversed solid, not what the surface encloses); " +
-                    "orient them (Orientation = ByNesting derives the enclosed solid) or set AllowInsideOutInputs", total);
+                    InsideOutAdvice(op, active, Report.RepairedInputs), total);
             DMesh3 mesh = thinOnly ? op.Rounding.Mesh : op.Result;
             BooleanStatus = op.Status;
             Report.BooleanTriangles = mesh.TriangleCount;
@@ -1630,6 +1657,41 @@ namespace gs
             }
         }
 
+        // The advice of the InsideOutInput refusal, per input with inside-out components (active[k]: the pipeline's index of the
+        // boolean's input k). Orientation = ByNesting derives the enclosed solid only for an embedded input: one whose own
+        // arrangement has self-intersecting pairs keeps its given orientation (ExactMeshBoolean.OrientationModes.ByNesting), so for
+        // it the advice names the self-intersections, and a repaired copy as what the repair produced. ByNesting is recommended
+        // where it was not tried, with the self-intersections as its condition when the boolean found some
+        internal static string InsideOutAdvice(ExactMeshBoolean op, List<int> active, List<SolidBooleanInputRepair> repaired)
+        {
+            int[] cells = op.InsideOutCellsOfInput, pairs = op.NestingSelfIntersectingPairsOfInput;
+            var parts = new List<string>();
+            bool nestingCanHelp = false;
+            for (int k = 0; cells != null && k < cells.Length; ++k) {
+                if (cells[k] == 0)
+                    continue;
+                int i = k < active.Count ? active[k] : k;
+                SolidBooleanInputRepair r = repaired.Find(x => x.Index == i);
+                if (op.Orientation != ExactMeshBoolean.OrientationModes.ByNesting || pairs == null || pairs[k] <= 0) {
+                    nestingCanHelp = true;
+                    if (r != null)
+                        parts.Add("input " + i + " is the closed copy that the input repair " + r.Method + " produced from the open input");
+                    continue;
+                }
+                parts.Add("input " + i + (r != null ? " (the closed copy that the input repair " + r.Method + " produced from the open input)" : "") +
+                    " self-intersects (" + pairs[k] + " pairs of its triangles meet beyond a common edge or vertex), so Orientation = ByNesting cannot orient it " +
+                    "(its given orientation stays) and " + cells[k] + " of its components are inside-out at least in part; fix the self-intersections" +
+                    (r != null ? " (close the input before the boolean)" : ""));
+            }
+            if (nestingCanHelp || parts.Count == 0) {
+                string nesting = op.Orientation == ExactMeshBoolean.OrientationModes.ByNesting ? "orient them" :
+                    "orient them (Orientation = ByNesting derives the enclosed solid" +
+                    (op.SelfIntersectingPairs > 0 ? " of an input without self-intersections; the inputs have " + op.SelfIntersectingPairs + " self-intersecting pairs" : "") + ")";
+                parts.Add(nesting);
+            }
+            return string.Join("; ", parts) + " or set AllowInsideOutInputs";
+        }
+
         ExactMeshBoolean runBoolean(List<DMesh3> meshes, List<int> active)
         {
             var op = new ExactMeshBoolean(meshes, Operation);
@@ -1650,6 +1712,30 @@ namespace gs
             op.Cancellation = Cancellation;
             op.Compute();
             return op;
+        }
+
+        // tests: called with the triangle count of each mesh whose self-intersections the repair check computes (the copy, then the input)
+        internal Action<int> RepairCheckObserverForTests;
+
+        // The self-intersecting pairs of a repaired copy (its own arrangement, exact, not triangulated) if the input as given has
+        // none, else 0 (the input is used as before: its self-intersections are its own); -1 if cancelled. The input's own
+        // arrangement runs only if the copy has some.
+        int repairSelfIntersections(DMesh3 input, DMesh3 repaired)
+        {
+            int copy = selfIntersectingPairs(repaired);
+            if (copy <= 0)
+                return copy;
+            int own = selfIntersectingPairs(input);
+            return own < 0 ? -1 : own == 0 ? copy : 0;
+        }
+
+        int selfIntersectingPairs(DMesh3 mesh)
+        {
+            RepairCheckObserverForTests?.Invoke(mesh.TriangleCount);
+            var a = new ExactMeshArrangement(new List<DMesh3> { mesh }) { SelfIntersections = true, Cancellation = Cancellation };
+            a.TriangulateMeshes = new[] { false };
+            a.Compute();
+            return a.Stopped == ExactMeshArrangement.StopReason.Cancelled ? -1 : a.SelfIntersectingPairs;
         }
 
         // the cheapest allowed repair that makes input i closed (on a copy), or null

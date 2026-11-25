@@ -531,10 +531,13 @@ namespace geometry3Sharp.Tests
             var refuse = new SolidBooleanPipeline(new List<DMesh3> { FarBlock(), FarSheet(gap) }, D) { AutomaticSteps = Auto.None };
             Assert.False(refuse.Compute());
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, refuse.Status);
+            // (AutoRepair closed the flat sheet with a fill that lies on it, which cut nothing: a coincident-face self-intersection, so since
+            // owner 2026-11-22 the repaired copy is refused, RepairSelfIntersectionTests)
             var repair = new SolidBooleanPipeline(new List<DMesh3> { FarBlock(), FarSheet(gap) }, D) { AutomaticSteps = Auto.None, InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair };
-            Assert.True(repair.Compute(), repair.Error);
-            Assert.Equal("SheetRole,Fallback,InputRepair", Names(repair));
-            Assert.True(Math.Abs(FarVolume(repair.Result) - 5.0e-4) < 1e-6, "nothing is cut: " + FarVolume(repair.Result));
+            Assert.False(repair.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, repair.Status);
+            Assert.Contains("MeshAutoRepair closed it into a self-intersecting mesh", repair.Error);
+            Assert.Equal("SheetRole,Fallback,InputRepair,Refused", Names(repair));
         }
 
         static int Shells(DMesh3 m) { var c = new MeshConnectedComponents(m); c.FindConnectedT(); return c.Count; }
