@@ -14,10 +14,18 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class ExactMeshImprintSliverStageTests
     {
-        static ExactMeshImprint Run(DMesh3 target, DMesh3 cutter, bool cleanup, bool neutral = true)
+        // (joint: the repair's last stage, the joint move of two corners of #1465, which runs after the cleanup stage. Where the cleanup
+        // leaves no degenerate triangle it has nothing to do (the default, pinned with JointMoves 0 in the tests of the cleanup); the
+        // tests of a limit of the cleanup (what the rule locks do, and where they stop) switch it off, since it repairs what the cleanup leaves)
+        static ExactMeshImprint Run(DMesh3 target, DMesh3 cutter, bool cleanup, bool neutral = true, bool joint = true)
         {
             var imprint = new ExactMeshImprint() { Target = target, Cutter = cutter, SliverCleanup = cleanup, NeutralContractions = neutral };
-            Assert.True(imprint.Compute(), imprint.Error);
+            MeshRoundingRepair.NoJointSearchOnThisThread = joint == false;
+            try {
+                Assert.True(imprint.Compute(), imprint.Error);
+            } finally {
+                MeshRoundingRepair.NoJointSearchOnThisThread = false;
+            }
             return imprint;
         }
 
@@ -32,12 +40,14 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 a = ExactMeshImprintSliverTests.Shape(kind), b = ExactMeshImprintSliverTests.Shifted(a, axis, ulps);
             foreach (var (t, c) in new[] { (a, b), (b, a) }) {
-                ExactMeshImprint old = Run(t, c, false);
+                ExactMeshImprint old = Run(t, c, false, joint: false);
                 Assert.False(old.RoundingClean);
                 Assert.Equal("degenerate triangles", MeshRobustRepair.NotCleanReason(old.Result));
                 Assert.False(old.Rounding.FollowStageRan);
+                // (the default: the joint stage is on, and has nothing to do: the cleanup leaves no degenerate triangle, the stage runs last)
                 ExactMeshImprint now = Run(t, c, true);
                 Assert.True(now.Rounding.FollowStageRan);
+                Assert.Equal(0, now.Rounding.JointMoves);
                 ExactMeshImprintSliverTests.AssertCleanAndCarried(t, now);
                 // the stage contracts parts of split target edges (counted as before the change)
                 Assert.True(now.Counts["target_edge_parts_contracted"] > old.Counts["target_edge_parts_contracted"]);
@@ -59,11 +69,12 @@ namespace geometry3Sharp.Tests
             // the defect lists are then rebuilt and the passes run again (without that, the result is not clean)
             DMesh3 a = FiveSliceCylinder(), b = ExactMeshImprintSliverTests.Shifted(a, 2, ulps);
             DMesh3 target = targetIsTheUnshifted ? a : b, cutter = targetIsTheUnshifted ? b : a;
-            ExactMeshImprint old = Run(target, cutter, false);
+            ExactMeshImprint old = Run(target, cutter, false, joint: false);
             Assert.False(old.RoundingClean);
             Assert.False(old.Rounding.FollowStageRan);
             ExactMeshImprint now = Run(target, cutter, true);
             Assert.True(now.Rounding.FollowStageRan);
+            Assert.Equal(0, now.Rounding.JointMoves);
             Assert.True(now.Rounding.PositionSearchMoves > 0);
             ExactMeshImprintSliverTests.AssertCleanAndCarried(target, now);
             Assert.Equal(0, now.Rounding.RemainingDegenerate);
@@ -209,7 +220,7 @@ namespace geometry3Sharp.Tests
         // the curve and keeps the target's vertices
         internal static void AssertOneSliverLeftByTheLinkCondition(DMesh3 a, DMesh3 b, bool neutral)
         {
-            ExactMeshImprint now = Run(a, b, true, neutral);
+            ExactMeshImprint now = Run(a, b, true, neutral, joint: false);
             Assert.True(now.Rounding.FollowStageRan);
             Assert.False(now.RoundingClean);
             Assert.Equal(1, now.Rounding.RemainingDegenerate);
@@ -231,6 +242,28 @@ namespace geometry3Sharp.Tests
             var (u, w) = edges.OrderBy(e => r.GetVertex(e.Item1).DistanceSquared(r.GetVertex(e.Item2))).First();
             Assert.Equal(MeshResult.Failed_InvalidNeighbourhood, new DMesh3(r).CollapseEdge(u, w, out DMesh3.EdgeCollapseInfo info));
             Assert.Equal(MeshResult.Failed_InvalidNeighbourhood, new DMesh3(r).CollapseEdge(w, u, out info));
+        }
+
+        [Fact]
+        public void LinkConditionLimit_WithTheJointMove_TheSliverIsRepaired_NothingElseMoves()
+        {
+            // the same state as the limit of the box test above (neutral contractions off: the link condition leaves one sliver), with the
+            // repair's last stage (#1465): the two free corners of the sliver move together
+            DMesh3 a = Invariance.Transformed(ExactMeshImprintSliverTests.Shape("box"), Similarity.Utm), b = ExactMeshImprintSliverTests.Shifted(a, 2, 1);
+            ExactMeshImprint limit = Run(a, b, true, neutral: false, joint: false), now = Run(a, b, true, neutral: false, joint: true);
+            Assert.Equal(1, limit.Rounding.RemainingDegenerate);
+            Assert.True(now.RoundingClean);
+            Assert.Equal(0, now.Rounding.RemainingDegenerate);
+            Assert.Equal(1, now.Rounding.JointMoves);
+            Assert.True(now.Result.IsClosed());
+            foreach (int v in a.VertexIndices())
+                Assert.Equal(a.GetVertex(v), now.Result.GetVertex(v));
+            Assert.Equal(limit.CurveEdges.Count, now.CurveEdges.Count);
+            foreach (long k in now.CurveEdges)
+                Assert.True(now.Result.FindEdge((int)(k >> 32), (int)(k & 0xFFFFFFFF)) >= 0);
+            Assert.True(now.Rounding.MaxDrift <= now.Rounding.MaxLength);
+            int moved = limit.Result.VertexIndices().Count(v => now.Result.IsVertex(v) && now.Result.GetVertex(v) != limit.Result.GetVertex(v));
+            Assert.Equal(2, moved);
         }
 
         // ---- MeshRoundingRepair alone ----
