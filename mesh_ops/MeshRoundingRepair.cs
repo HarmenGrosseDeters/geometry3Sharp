@@ -753,6 +753,54 @@ namespace g3
             });
         }
 
+        /// <summary> one component of the mesh as Apply found it, see RecordComponents </summary>
+        internal sealed class ComponentRecord
+        {
+            /// <summary> no boundary edge </summary>
+            public bool Closed;
+            /// <summary> its signed volume (about its first vertex), its area, the diagonal of its box and its largest absolute coordinate </summary>
+            public double Volume, Area, Diagonal, Largest;
+        }
+        /// <summary>
+        /// Off by default (nothing is recorded: Apply is as without it). On: Apply records, before the first edit, every component of the mesh
+        /// (ComponentsBefore, in the order of connected_components) and per vertex the index of the component it was in (ComponentOfVertexBefore: -1 none,
+        /// -2 more than one, where two components touch). The edits add no vertex and stay within a component, so a component after the repair is named
+        /// by its vertices; SolidBooleanPipeline RoundingVolume compares the volume of each part before and after
+        /// </summary>
+        internal bool RecordComponents = RecordComponentsOfNewRepairs;
+        // (set by SolidBooleanPipeline around the boolean that it runs on this thread, which creates its repair itself: the repairs created on this thread record)
+        [ThreadStatic] internal static bool RecordComponentsOfNewRepairs;
+        internal List<ComponentRecord> ComponentsBefore;
+        internal int[] ComponentOfVertexBefore;
+
+        void record_components()
+        {
+            ComponentOfVertexBefore = new int[Mesh.MaxVertexID];
+            for (int v = 0; v < ComponentOfVertexBefore.Length; ++v)
+                ComponentOfVertexBefore[v] = -1;
+            ComponentsBefore = new List<ComponentRecord>();
+            foreach (List<int> comp in connected_components(Mesh)) {
+                Vector3d o = Mesh.GetVertex(Mesh.GetTriangle(comp[0]).a);
+                var r = new ComponentRecord() { Closed = true };
+                var box = AxisAlignedBox3d.Empty;
+                double v6 = 0, a2 = 0;
+                int id = ComponentsBefore.Count;
+                foreach (int t in comp) {
+                    Index3i tv = Mesh.GetTriangle(t), te = Mesh.GetTriEdges(t);
+                    Vector3d pa = Mesh.GetVertex(tv.a), pb = Mesh.GetVertex(tv.b), pc = Mesh.GetVertex(tv.c);
+                    v6 += (pa - o).Dot((pb - o).Cross(pc - o));
+                    a2 += (pb - pa).Cross(pc - pa).Length;
+                    box.Contain(pa); box.Contain(pb); box.Contain(pc);
+                    r.Largest = Math.Max(r.Largest, Math.Max(pa.MaxAbs, Math.Max(pb.MaxAbs, pc.MaxAbs)));
+                    r.Closed &= Mesh.IsBoundaryEdge(te.a) == false && Mesh.IsBoundaryEdge(te.b) == false && Mesh.IsBoundaryEdge(te.c) == false;
+                    for (int k = 0; k < 3; ++k)
+                        ComponentOfVertexBefore[tv[k]] = (ComponentOfVertexBefore[tv[k]] == -1 || ComponentOfVertexBefore[tv[k]] == id) ? id : -2;
+                }
+                r.Volume = v6 / 6; r.Area = a2 / 2; r.Diagonal = box.DiagonalLength;
+                ComponentsBefore.Add(r);
+            }
+        }
+
         /// <summary> repair (see class comment); returns IsClean </summary>
         public bool Apply()
         {
@@ -761,6 +809,10 @@ namespace g3
             // volumes are not either. The volume after is that of the mesh as Apply leaves it, also where a check throws)
             Vector3d centre = gs.MeshRepairMetrics.TriangleBounds(Mesh).Center;
             VolumeBefore = signed_volume(centre);
+            ComponentsBefore = null;
+            ComponentOfVertexBefore = null;
+            if (RecordComponents)
+                record_components();
             try {
                 return apply();
             } finally {

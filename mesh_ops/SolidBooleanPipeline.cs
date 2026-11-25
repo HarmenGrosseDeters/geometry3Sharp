@@ -600,12 +600,13 @@ namespace gs
         /// grid snap and the rounding, which the tolerance covers. A repair that closes a hole of a solid adds surface by design: its share is measured
         /// too. RoundingVolume: dV = |RoundingVolumeAfter - RoundingVolumeBefore| fails when it exceeds both MaxRoundingVolumeChange times
         /// |RoundingVolumeBefore| and a floor: RoundingVolumeFloorShare of the smallest |volume| of the closed inputs as passed (without a closed input,
-        /// RoundingVolumeFloorDiagonal of the cubed diagonal of the inputs), a loss that is immaterial against the inputs, plus the allowance of the parts
-        /// of the boolean's result that are thinner than the rounding length (RoundingVolumeAllowanceOf): a rounding that moves every vertex by at most
-        /// that length changes the volume of a component of area A by at most length * A, so a slab thinner than the length may lose or gain all of its
-        /// volume legitimately (the repair removes such a component and lists it in RoundingRemoved), which a purely relative rule would refuse. A part
-        /// thicker than the length is not allowed anything. A volume or floor that is not finite fails. Report.RoundingVolumeChange is
-        /// dV / |RoundingVolumeBefore| (0 when that is 0, or when no rounding repair ran)
+        /// RoundingVolumeFloorDiagonal of the cubed diagonal of the inputs), a loss that is immaterial against the inputs. The change of a PART that is thinner
+        /// than its own rounding length before and after the repair (RoundingVolumeThinChangeOf: 2 |volume| / area at most MaxDisplacement times the diagonal
+        /// of the part, or 256 ulp) is taken out of dV first, each part by its own change: a rounding that moves every vertex by at most that length changes
+        /// the volume of a component of area A by at most length * A, so a slab thinner than the length may lose or gain all of its volume legitimately (the
+        /// repair removes such a component), which a purely relative rule would refuse. The parts that are thicker are judged by their own change alone, so a
+        /// thin part never hides a loss of a thick one. A volume or floor that is not finite fails. Report.RoundingVolumeChange is
+        /// dV / |RoundingVolumeBefore| of the whole result (0 when that is 0, or when no rounding repair ran)
         /// </summary>
         public VerificationModes Verification = VerificationModes.None;
         /// <summary> NoInventedSurface: the share of the result's area that may be invented (default 0: a tolerance that is a real bound makes the share of a correct result exactly 0, so any invented triangle is evidence); PositiveInfinity measures and reports only. Negative or NaN: InvalidInput </summary>
@@ -615,7 +616,7 @@ namespace gs
         // RoundingVolume: the floor of dV as a share of the smallest closed input's |volume|: a change of the volume that is immaterial against the
         // inputs is not refused however large its share of a tiny result (the share of the result is the check's reading, this is its scale). It does NOT
         // cover a sliver result: a sliver thinner than the rounding bound has a volume of up to (bound * area), which is not below a share of the
-        // inputs (a thin plate input makes the share small); that is the allowance of the thin parts (RoundingVolumeAllowanceOf), added to this floor
+        // inputs (a thin plate input makes the share small); the thin parts' own change is taken out of dV instead (RoundingVolumeThinChangeOf)
         internal const double RoundingVolumeFloorShare = 1e-6;
         // RoundingVolume: the floor of dV as a share of the cubed diagonal of the inputs when no input is a closed solid with volume
         internal const double RoundingVolumeFloorDiagonal = 1e-9;
@@ -1032,8 +1033,9 @@ namespace gs
             autoRefusal = ExactMeshBoolean.SheetRefusal.None;
             autoRefusalRouted = false;
             roundingRan = false;
-            roundingAllowance = 0;
-            roundingLength = 0;
+            roundingExplained = 0;
+            roundingThinParts = 0;
+            roundingMeasureMs = 0;
             roundingBound = 0;
             VerificationSamples = 0;
             VerificationFallbacks = 0;
@@ -1262,12 +1264,15 @@ namespace gs
             DMesh3 mesh = thinOnly ? op.Rounding.Mesh : op.Result;
             BooleanStatus = op.Status;
             Report.BooleanTriangles = mesh.TriangleCount;
-            // Verification RoundingVolume: the volume that the rounding may move without a relative reading (RoundingVolumeAllowanceOf), of this run's boolean result
-            roundingAllowance = 0;
+            // Verification RoundingVolume: the change of the parts that the rounding may move without a relative reading (RoundingVolumeThinChangeOf), of this
+            // run's boolean result (a later run, the retry or the fallback, replaces it; its time is counted only if it is the run that is the result)
+            roundingExplained = 0;
+            roundingThinParts = 0;
+            roundingMeasureMs = 0;
             if ((Verification & VerificationModes.RoundingVolume) != 0 && roundingRan && op.Rounding != null) {
-                var allowanceClock = Stopwatch.StartNew();
-                roundingAllowance = RoundingVolumeAllowanceOf(mesh, roundingBound, op.Rounding.RemovedComponentInfos, out roundingLength);
-                Report.VerificationMilliseconds += allowanceClock.ElapsedMilliseconds;
+                var partsClock = Stopwatch.StartNew();
+                roundingExplained = RoundingVolumeThinChangeOf(op.Rounding, mesh, out roundingThinParts);
+                roundingMeasureMs = partsClock.ElapsedMilliseconds;
             }
             // the sheet route followed the orientation of the sheets as given: the share of the first input that the Difference removed goes
             // into the steps, so that a sheet oriented the other way than meant shows (the volumes in doubles: a number for the reader)
@@ -2039,7 +2044,13 @@ namespace gs
             op.AllowOpenMeshes = false;
             op.StrictRounding = true;
             op.Cancellation = Cancellation;
-            op.Compute();
+            // (the rounding repair that this boolean creates records the components it found, for RoundingVolume)
+            MeshRoundingRepair.RecordComponentsOfNewRepairs = (Verification & VerificationModes.RoundingVolume) != 0;
+            try {
+                op.Compute();
+            } finally {
+                MeshRoundingRepair.RecordComponentsOfNewRepairs = false;
+            }
             roundingBound = op.Rounding != null ? op.Rounding.MaxLength : 0;
             return op;
         }
@@ -2048,8 +2059,11 @@ namespace gs
 
         // the run's boolean ran a rounding repair (Report.RoundingVolumeBefore and After are its volumes)
         bool roundingRan;
-        // RoundingVolume: the volume of the thin parts of the run's boolean result (RoundingVolumeAllowanceOf) and the rounding length it used
-        double roundingAllowance, roundingLength;
+        // RoundingVolume: the signed change of the volume of the thin parts of the run's boolean result (RoundingVolumeThinChangeOf), their number, and the
+        // time that measuring them took
+        double roundingExplained;
+        int roundingThinParts;
+        long roundingMeasureMs;
         // the bound that the rounding repair of the run's last boolean applied (MeshRoundingRepair.MaxLength: the largest over the components of the mesh before
         // the repair), 0 if it did not run
         double roundingBound;
@@ -2235,9 +2249,19 @@ namespace gs
         /// </summary>
         internal static bool RoundingVolumeExceeds(double before, double after, double limit, double floor, out double change)
         {
-            double dV = Math.Abs(after - before);
-            change = before != 0 ? dV / Math.Abs(before) : (dV > 0 ? double.PositiveInfinity : 0);
-            if (!IsFinite(before) || !IsFinite(after) || !IsFinite(dV) || !IsFinite(floor))
+            return RoundingVolumeExceeds(before, after, 0, limit, floor, out change);
+        }
+
+        /// <summary>
+        /// The same with explained, the signed change of the thin parts (RoundingVolumeThinChangeOf): change is of the whole result, the verdict is of
+        /// dV = |after - before - explained|, the change of the other parts
+        /// </summary>
+        internal static bool RoundingVolumeExceeds(double before, double after, double explained, double limit, double floor, out double change)
+        {
+            double all = Math.Abs(after - before);
+            change = before != 0 ? all / Math.Abs(before) : (all > 0 ? double.PositiveInfinity : 0);
+            double dV = Math.Abs(after - before - explained);
+            if (!IsFinite(before) || !IsFinite(after) || !IsFinite(explained) || !IsFinite(dV) || !IsFinite(floor))
                 return true;
             if (double.IsPositiveInfinity(limit))
                 return false;
@@ -2278,19 +2302,21 @@ namespace gs
             if ((Verification & VerificationModes.RoundingVolume) != 0) {
                 double before = Report.RoundingVolumeBefore, after = Report.RoundingVolumeAfter;
                 double dV = Math.Abs(after - before);
+                double rest = Math.Abs(after - before - roundingExplained);
+                Report.VerificationMilliseconds += roundingMeasureMs;
                 if (!roundingRan) {
                     Report.RoundingVolumeChange = 0;
                     text.Add("RoundingVolume: no rounding, change 0");
                 } else {
                     double share = RoundingVolumeFloor();
-                    double floor = share + roundingAllowance;
-                    bool exceeds = RoundingVolumeExceeds(before, after, MaxRoundingVolumeChange, floor, out Report.RoundingVolumeChange);
+                    double floor = share;
+                    bool exceeds = RoundingVolumeExceeds(before, after, roundingExplained, MaxRoundingVolumeChange, floor, out Report.RoundingVolumeChange);
                     string basis = before == 0 ? "Before = 0, relative change " + r(Report.RoundingVolumeChange) : "relative change " + r(Report.RoundingVolumeChange);
-                    text.Add("RoundingVolume: the rounding moved " + r(dV) + " of the volume " + r(before) + ", " + basis + " (limit " + r(MaxRoundingVolumeChange) + ", floor " + r(floor) + ": " + r(share) + " of the inputs and " + r(roundingAllowance) + " of the parts thinner than " + r(roundingLength) + ")");
-                    if (exceeds && (!IsFinite(before) || !IsFinite(after) || !IsFinite(dV) || !IsFinite(floor)))
+                    text.Add("RoundingVolume: the rounding moved " + r(dV) + " of the volume " + r(before) + ", " + basis + " (limit " + r(MaxRoundingVolumeChange) + ", floor " + r(floor) + " of the inputs; " + roundingThinParts + " parts thinner than their rounding length changed by " + r(roundingExplained) + ", the rest by " + r(rest) + ")");
+                    if (exceeds && (!IsFinite(before) || !IsFinite(after) || !IsFinite(dV) || !IsFinite(rest) || !IsFinite(roundingExplained) || !IsFinite(floor)))
                         failures.Add("RoundingVolume: the volume is not finite (before " + r(before) + ", after " + r(after) + ", floor " + r(floor) + "), so the change cannot be compared with MaxRoundingVolumeChange (coordinates whose volume overflows)");
                     else if (exceeds)
-                        failures.Add("RoundingVolume: the rounding repair moved " + r(dV) + " of the volume " + r(before) + " (" + basis + "), more than MaxRoundingVolumeChange "
+                        failures.Add("RoundingVolume: the rounding repair moved " + r(dV) + " of the volume " + r(before) + " (" + basis + "; the parts that are not thin moved " + r(rest) + "), more than MaxRoundingVolumeChange "
                             + r(MaxRoundingVolumeChange) + " and the floor " + r(floor));
                 }
             }
@@ -2304,39 +2330,37 @@ namespace gs
         }
 
         /// <summary>
-        /// The allowance of RoundingVolume: the volume that the rounding may move in the parts of the boolean's result that are thinner than the rounding
-        /// length ell = max(roundingBound, InventedSurfaceUlps ulp(largest coordinate)) (the length of the invented-surface tolerance without its safety
-        /// factor and grid cell). A rounding that moves every vertex by at most ell changes the volume of a closed component of area A by at most ell A, so
-        /// a component that is thinner than ell (2 |V| / A &lt;= ell, a slab; its whole volume is below ell A / 2) may lose or gain all of its volume
-        /// legitimately: each such component of the mesh counts ell A. A component that the repair removed counts its own |volume| when it was thinner than ell
-        /// (RemovedComponentInfo.Volume, measured before the edits for the reasons BelowResolution, StillDefective and VolumeChanged; the others are not
-        /// counted). A component thicker than ell counts nothing: a result that is thicker than the bound and loses a share of its volume is what the
-        /// check is for. The sums are in the order of the components (the order of their first triangle), so they are the same on every run, and every term
-        /// scales by a power of two exactly. length: ell
+        /// The change of the volume that the rounding may make legitimately, part by part: the signed sum, over the closed components of the mesh as the
+        /// rounding repair found it (MeshRoundingRepair.RecordComponents) that are thin before AND after, of (volume after - volume before). A part is thin
+        /// when 2 |volume| / area is at most its own rounding length ell = max(MaxDisplacement x the diagonal of the part, InventedSurfaceUlps ulp(its largest
+        /// coordinate)): the length that the repair's bound would have if the part were alone, so what is said of a part does not depend on the other parts. A
+        /// rounding that moves every vertex by at most ell changes the volume of a component of area A by at most ell A, so such a part may lose or gain all of
+        /// its volume legitimately: a slab that the repair removes (volume after 0; thin before) or that it moves. The parts of the mesh after are matched to
+        /// the parts before by their vertices (the repair adds no vertex and edits within a component); a part after that names no single part before, or is
+        /// open, or a mesh that is not the repair's: nothing is taken out (0), so the answer errs towards refusing. A part that is thicker than its length is
+        /// never taken out, whatever the thin ones do. Serial, in the order of the components: the same on every run, every term scales by a power of two
+        /// exactly. parts: how many parts were taken out
         /// </summary>
-        internal static double RoundingVolumeAllowanceOf(DMesh3 mesh, double roundingBound, IEnumerable<MeshRoundingRepair.RemovedComponentInfo> removed, out double length)
+        internal static double RoundingVolumeThinChangeOf(MeshRoundingRepair rounding, DMesh3 mesh, out int parts)
         {
-            length = Math.Max(roundingBound, InventedSurfaceUlps * ulpOf(LargestUsedCoordinate(new[] { mesh })));
-            if (!(length > 0) || double.IsInfinity(length))
+            parts = 0;
+            List<MeshRoundingRepair.ComponentRecord> before = rounding.ComponentsBefore;
+            int[] map = rounding.ComponentOfVertexBefore;
+            if (before == null || map == null || !ReferenceEquals(rounding.Mesh, mesh))
                 return 0;
-            double allowance = 0;
-            if (removed != null)
-                foreach (MeshRoundingRepair.RemovedComponentInfo x in removed) {
-                    bool measuredBefore = x.Reason == MeshRoundingRepair.RemovalReasons.BelowResolution || x.Reason == MeshRoundingRepair.RemovalReasons.StillDefective
-                        || x.Reason == MeshRoundingRepair.RemovalReasons.VolumeChanged;
-                    if (measuredBefore && x.Thickness <= length)
-                        allowance += Math.Abs(x.Volume);
-                }
-            var label = new HashSet<int>();
+            var afterVolume = new double[before.Count];
+            var afterArea = new double[before.Count];
+            var seen = new HashSet<int>();
             var stack = new Stack<int>();
             foreach (int first in mesh.TriangleIndices()) {
-                if (label.Contains(first))
+                if (seen.Contains(first))
                     continue;
                 // (a component by shared edges; its volume about its first vertex, which keeps a thin one far from the origin well conditioned)
                 Vector3d o = mesh.GetVertex(mesh.GetTriangle(first).a);
                 double v6 = 0, a2 = 0;
                 bool closed = true;
-                label.Add(first);
+                int found = -1;
+                seen.Add(first);
                 stack.Push(first);
                 while (stack.Count > 0) {
                     int t = stack.Pop();
@@ -2344,22 +2368,42 @@ namespace gs
                     Vector3d p = mesh.GetVertex(tv.a) - o, q = mesh.GetVertex(tv.b) - o, w = mesh.GetVertex(tv.c) - o;
                     v6 += p.Dot(q.Cross(w));
                     a2 += (q - p).Cross(w - p).Length;
+                    for (int k = 0; k < 3; ++k) {
+                        int b = tv[k] < map.Length ? map[tv[k]] : -1;
+                        if (b == -2)
+                            continue;
+                        if (b == -1 || (found >= 0 && b != found))
+                            return 0;
+                        found = b;
+                    }
                     Index3i nb = mesh.GetTriNeighbourTris(t);
                     for (int k = 0; k < 3; ++k) {
                         int n = nb[k];
                         if (n == DMesh3.InvalidID)
                             closed = false;
-                        else if (!label.Contains(n)) {
-                            label.Add(n);
+                        else if (seen.Add(n))
                             stack.Push(n);
-                        }
                     }
                 }
-                double area = a2 / 2, volume = Math.Abs(v6 / 6);
-                if (closed && area > 0 && 2 * volume <= length * area)
-                    allowance += length * area;
+                if (!closed || found < 0)
+                    return 0;
+                afterVolume[found] += v6 / 6;
+                afterArea[found] += a2 / 2;
             }
-            return allowance;
+            double explained = 0;
+            for (int j = 0; j < before.Count; ++j) {
+                MeshRoundingRepair.ComponentRecord b = before[j];
+                double ell = Math.Max(rounding.MaxDisplacement * b.Diagonal, InventedSurfaceUlps * ulpOf(b.Largest));
+                if (!b.Closed || !(b.Area > 0) || !(ell > 0) || double.IsInfinity(ell))
+                    continue;
+                bool thinBefore = 2 * Math.Abs(b.Volume) <= ell * b.Area;
+                bool thinAfter = afterArea[j] == 0 || 2 * Math.Abs(afterVolume[j]) <= ell * afterArea[j];
+                if (thinBefore && thinAfter) {
+                    explained += afterVolume[j] - b.Volume;
+                    ++parts;
+                }
+            }
+            return explained;
         }
 
         // the smallest dV of RoundingVolume that can fail (RoundingVolumeFloorOf) for the inputs as passed: whether an input is closed is asked of the input

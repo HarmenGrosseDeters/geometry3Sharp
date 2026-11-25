@@ -985,7 +985,7 @@ namespace geometry3Sharp.Tests
             Assert.False(SolidBooleanPipeline.RoundingVolumeExceeds(2, 3, 0.4, 1, out change));            // (the floor)
         }
 
-        // ---- the allowance of RoundingVolume: parts thinner than the rounding length ----
+        // ---- RoundingVolume: the change of the parts thinner than their own rounding length is taken out, part by part ----
 
         // a plate [off, off + 1]^2 x [off, off + h] minus the plate shifted down by t: a slab of thickness t over a whole face (both rotated about the
         // centre of the bottom face by 23 degrees about the axis when there is one)
@@ -1045,67 +1045,179 @@ namespace geometry3Sharp.Tests
             var p = new SolidBooleanPipeline(PlateSlab(off, 1e-7, t, null), D) { Verification = V.RoundingVolume };
             Assert.True(p.Compute(), p.Status + " " + p.Error);
             AssertSolid(p.Result);
-            Assert.True(p.Report.RoundingVolumeChange > 1e-3, "change " + p.Report.RoundingVolumeChange);       // (more than the limit: only the allowance passes it)
+            Assert.True(p.Report.RoundingVolumeChange > 1e-3, "change " + p.Report.RoundingVolumeChange);       // (more than the limit: only taking the thin part out passes it)
             Assert.Empty(p.Report.RoundingRemoved);
             Assert.True(Math.Abs(p.Report.RoundingVolumeAfter - Volume(p.Result)) <= 1e-6 * p.Report.RoundingVolumeAfter, p.Report.RoundingVolumeAfter + " " + Volume(p.Result));
             double floor = SolidBooleanPipeline.RoundingVolumeFloorOf(PlateSlab(off, 1e-7, t, null), i => true);
             Assert.True(Math.Abs(p.Report.RoundingVolumeAfter - p.Report.RoundingVolumeBefore) > floor);       // (more than the share of the inputs: the old floor)
         }
 
-        [Fact]
-        public void TheAllowance_CountsThePartsThinnerThanTheBound_AndNotThickerOnes()
+        // the rounding repair on a mesh that it leaves as it is (clean boxes), recording the components it found
+        static MeshRoundingRepair Recorded(DMesh3 mesh, double maxDisplacement = 1e-5)
         {
-            double ell = 1e-4, len;
-            // a closed slab of thickness 0.5 ell over [0, 1]^2 (area 2 + the rim), a slab of 2 ell, a cube, and an open sheet
-            Func<double, DMesh3> slab = th => Box(new Vector3d(0, 0, 0), new Vector3d(1, 1, th));
-            double thin = SolidBooleanPipeline.RoundingVolumeAllowanceOf(slab(0.5 * ell), ell, null, out len);
-            double area = 2 + 4 * 0.5 * ell;
-            Assert.Equal(ell, len);
-            Assert.Equal(ell * area, thin, 15);
-            Assert.Equal(0.0, SolidBooleanPipeline.RoundingVolumeAllowanceOf(slab(2 * ell), ell, null, out len));
-            Assert.Equal(0.0, SolidBooleanPipeline.RoundingVolumeAllowanceOf(Cube(1), ell, null, out len));
-            Assert.Equal(0.0, SolidBooleanPipeline.RoundingVolumeAllowanceOf(Sheet(0, 0, 1), ell, null, out len));      // (open: no volume to speak of)
-            // exactly at the length counts (a slab of thickness ell), a slab a bit above it does not
-            Assert.True(SolidBooleanPipeline.RoundingVolumeAllowanceOf(slab(ell), ell, null, out len) > 0);
-            Assert.Equal(0.0, SolidBooleanPipeline.RoundingVolumeAllowanceOf(slab(ell * (1 + 1e-3)), ell, null, out len));
-            // three components: two thin ones (one far from the origin) and a thick one: only the thin ones count
-            DMesh3 several = slab(0.5 * ell);
-            new MeshEditor(several).AppendMesh(Box(new Vector3d(1e6, 1e6, 1e6), new Vector3d(1e6 + 1, 1e6 + 1, 1e6 + 0.5 * ell)));
-            new MeshEditor(several).AppendMesh(Box(new Vector3d(-5, -5, -5), new Vector3d(-4, -4, -4)));
-            double sum = SolidBooleanPipeline.RoundingVolumeAllowanceOf(several, ell, null, out len);
-            Assert.Equal(2 * thin, sum, 12);
+            var r = new MeshRoundingRepair(mesh) { RecordComponents = true, MaxDisplacement = maxDisplacement };
+            r.Apply();
+            return r;
+        }
 
-            // the removed components: only those that were measured before the edits and are thinner than the length count, with their own volume
-            Func<MeshRoundingRepair.RemovalReasons, double, double, MeshRoundingRepair.RemovedComponentInfo> info = (reason, thickness, volume) =>
-                new MeshRoundingRepair.RemovedComponentInfo { Reason = reason, Thickness = thickness, Volume = volume, Area = 2 * Math.Abs(volume) / thickness };
-            var removed = new List<MeshRoundingRepair.RemovedComponentInfo> {
-                info(MeshRoundingRepair.RemovalReasons.VolumeChanged, 0.5 * ell, 3e-5),
-                info(MeshRoundingRepair.RemovalReasons.StillDefective, ell, -1e-5),                           // (signed: its size counts)
-                info(MeshRoundingRepair.RemovalReasons.BelowResolution, 1e-9, 1e-9),
-                info(MeshRoundingRepair.RemovalReasons.VolumeChanged, 1.5 * ell, 7),                          // (thicker than the bound: not allowed)
-                info(MeshRoundingRepair.RemovalReasons.ZeroVolume, 0, 5),                                      // (not measured before the edits)
-                info(MeshRoundingRepair.RemovalReasons.InsideOutResidue, 0.5 * ell, 5),
-                info(MeshRoundingRepair.RemovalReasons.NotMeasured, 0.5 * ell, 5),
-            };
-            Assert.Equal(3e-5 + 1e-5 + 1e-9, SolidBooleanPipeline.RoundingVolumeAllowanceOf(new DMesh3(), ell, removed, out len), 15);
+        static void ScaleZ(DMesh3 m, double z0, double factor)
+        {
+            foreach (int v in m.VertexIndices()) {
+                Vector3d p = m.GetVertex(v);
+                m.SetVertex(v, new Vector3d(p.x, p.y, z0 + (p.z - z0) * factor));
+            }
         }
 
         [Fact]
-        public void TheAllowance_UsesTheUlpTermWhereTheBoundIsSmaller_AndScalesExactly()
+        public void TheThinChange_IsThatOfEachThinPartAlone_AndNeverOfAThickOne()
         {
-            // far from the origin the ulp term (256 ulp of 1e6) is the length when the bound is 0
-            DMesh3 far = Box(new Vector3d(1e6, 1e6, 1e6), new Vector3d(1e6 + 1, 1e6 + 1, 1e6 + 1e-8));
-            double len;
-            double a = SolidBooleanPipeline.RoundingVolumeAllowanceOf(far, 0, null, out len);
-            Assert.Equal(256 * Math.Pow(2, 19 - 52), len);          // (1e6 has the exponent 19)
-            Assert.True(a > 0);
-            // a power of two scales the allowance by the cube of the factor, bit for bit
-            foreach (Similarity s in new[] { Similarity.Pow2Small, Similarity.Pow2Large }) {
-                double len3;
-                double b = SolidBooleanPipeline.RoundingVolumeAllowanceOf(Invariance.Transformed(far, s), 0, null, out len3);
-                Assert.True(Same(len * s.Scale, len3), s.Name);
-                Assert.True(Same(a * s.Scale * s.Scale * s.Scale, b), s.Name);
+            // a slab of 1e-6 over [0,1]^2 (its length 1.4e-5), a cube far from it, a slab of 3e-5 (thicker than its own length 1.4e-5)
+            DMesh3 mesh = Box(Vector3d.Zero, new Vector3d(1, 1, 1e-6));
+            new MeshEditor(mesh).AppendMesh(Box(new Vector3d(5, 5, 5), new Vector3d(6, 6, 6)));
+            new MeshEditor(mesh).AppendMesh(Box(new Vector3d(9, 9, 9), new Vector3d(10, 10, 10 + 3e-5)));
+            int parts;
+            var rounding = Recorded(mesh);
+            Assert.Equal(3, rounding.ComponentsBefore.Count);
+            Assert.Equal(0.0, SolidBooleanPipeline.RoundingVolumeThinChangeOf(rounding, mesh, out parts));      // (nothing moved)
+            Assert.Equal(1, parts);
+            // the thin slab loses half, the thick ones 10 %: only the slab's change is taken out
+            foreach (int v in mesh.VertexIndices()) {
+                Vector3d p = mesh.GetVertex(v);
+                double f = p.x < 2 ? 0.5 : 0.9;
+                mesh.SetVertex(v, new Vector3d(p.x, p.y, p.x < 2 ? p.z * f : p.x < 8 ? 5 + (p.z - 5) * f : 10 + (p.z - 10) * f));
             }
+            double explained = SolidBooleanPipeline.RoundingVolumeThinChangeOf(rounding, mesh, out parts);
+            Assert.Equal(1, parts);
+            Assert.Equal(-0.5e-6, explained, 15);
+        }
+
+        [Fact]
+        public void TheThinChange_OfARemovedThinPart_IsItsWholeVolume_AndNotOfAThickOne()
+        {
+            DMesh3 mesh = Box(Vector3d.Zero, new Vector3d(1, 1, 1e-6));
+            new MeshEditor(mesh).AppendMesh(Box(new Vector3d(5, 5, 5), new Vector3d(6, 6, 6)));
+            var rounding = Recorded(mesh);
+            // the slab's triangles are removed: its volume goes, the cube stays
+            foreach (int t in mesh.TriangleIndices().ToList().Where(t => mesh.GetVertex(mesh.GetTriangle(t).a).x < 2))
+                mesh.RemoveTriangle(t, true);
+            int parts;
+            Assert.Equal(-1e-6, SolidBooleanPipeline.RoundingVolumeThinChangeOf(rounding, mesh, out parts), 15);
+            Assert.Equal(1, parts);
+            // the cube removed instead: a thick part that disappears is not taken out
+            DMesh3 other = Box(Vector3d.Zero, new Vector3d(1, 1, 1e-6));
+            new MeshEditor(other).AppendMesh(Box(new Vector3d(5, 5, 5), new Vector3d(6, 6, 6)));
+            var r2 = Recorded(other);
+            foreach (int t in other.TriangleIndices().ToList().Where(t => other.GetVertex(other.GetTriangle(t).a).x > 2))
+                other.RemoveTriangle(t, true);
+            Assert.Equal(0.0, SolidBooleanPipeline.RoundingVolumeThinChangeOf(r2, other, out parts));
+            Assert.Equal(1, parts);          // (the slab, unchanged, counts as a part with change 0)
+        }
+
+        [Fact]
+        public void TheThinChange_TakesNothingOut_WhereThePartsCannotBeMatched()
+        {
+            int parts;
+            DMesh3 mesh = Box(Vector3d.Zero, new Vector3d(1, 1, 1e-6));
+            var rounding = Recorded(mesh);
+            ScaleZ(mesh, 0, 0.5);
+            Assert.True(SolidBooleanPipeline.RoundingVolumeThinChangeOf(rounding, mesh, out parts) < 0);
+            // a part with vertices that the repair did not have (a new triangle): nothing
+            DMesh3 added = new DMesh3(mesh);
+            added.AppendTriangle(added.AppendVertex(new Vector3d(7, 7, 7)), added.AppendVertex(new Vector3d(8, 7, 7)), added.AppendVertex(new Vector3d(7, 8, 7)));
+            Assert.Equal(0.0, SolidBooleanPipeline.RoundingVolumeThinChangeOf(rounding, added, out parts));
+            Assert.Equal(0, parts);
+            // a mesh that is not the repair's
+            Assert.Equal(0.0, SolidBooleanPipeline.RoundingVolumeThinChangeOf(rounding, new DMesh3(mesh), out parts));
+            // a repair that recorded nothing
+            Assert.Equal(0.0, SolidBooleanPipeline.RoundingVolumeThinChangeOf(new MeshRoundingRepair(mesh), mesh, out parts));
+            // an open part (a sheet): not closed, nothing
+            DMesh3 sheet = Sheet(0, 0, 1);
+            var rs = Recorded(sheet);
+            Assert.Equal(0.0, SolidBooleanPipeline.RoundingVolumeThinChangeOf(rs, sheet, out parts));
+            Assert.Equal(0, parts);
+        }
+
+        [Fact]
+        public void TheThinChange_UsesTheUlpTermWhereTheBoundIsZero_AndScalesExactly()
+        {
+            // far from the origin the ulp term (256 ulp of 1e6 = 2.9e-8) is the length when MaxDisplacement is 0: a slab of 1e-8 is thin, one of 1e-7 is not
+            Func<double, DMesh3> far = th => Box(new Vector3d(1e6, 1e6, 1e6), new Vector3d(1e6 + 1, 1e6 + 1, 1e6 + th));
+            int parts;
+            DMesh3 thin = far(1e-8), thick = far(1e-7);
+            var rt = Recorded(thin, 0);
+            var rk = Recorded(thick, 0);
+            foreach (DMesh3 m in new[] { thin, thick }) {
+                foreach (int v in m.VertexIndices()) {
+                    Vector3d p = m.GetVertex(v);
+                    if (p.z > 1e6 + 1e-9)
+                        m.SetVertex(v, new Vector3d(p.x, p.y, 1e6 + (p.z - 1e6) * 0.5));
+                }
+            }
+            double e = SolidBooleanPipeline.RoundingVolumeThinChangeOf(rt, thin, out parts);
+            Assert.Equal(1, parts);
+            Assert.True(e < 0);
+            Assert.Equal(0.0, SolidBooleanPipeline.RoundingVolumeThinChangeOf(rk, thick, out parts));
+            Assert.Equal(0, parts);
+            // a power of two scales the change by the cube of the factor, bit for bit
+            foreach (Similarity s in new[] { Similarity.Pow2Small, Similarity.Pow2Large }) {
+                DMesh3 m = Invariance.Transformed(far(1e-8), s);
+                var r = Recorded(m, 0);
+                foreach (int v in m.VertexIndices()) {
+                    Vector3d p = m.GetVertex(v);
+                    if (p.z > s.Scale * (1e6 + 1e-9))
+                        m.SetVertex(v, new Vector3d(p.x, p.y, s.Scale * 1e6 + (p.z - s.Scale * 1e6) * 0.5));
+                }
+                double scaled = SolidBooleanPipeline.RoundingVolumeThinChangeOf(r, m, out parts);
+                Assert.Equal(1, parts);
+                Assert.True(Same(e * s.Scale * s.Scale * s.Scale, scaled), s.Name);
+            }
+        }
+
+        // the plates (their loss of 0.71 % is refused) with a separate thin box that the rounding leaves alone: the thin box must not hide the loss
+        // (a pooled allowance of length x area of the thin parts did: 100 times the loss for 1 x 1 x 1e-6, 0.029 for 10 x 10)
+        [Theory]
+        [InlineData(1.0, 0.0)]
+        [InlineData(1.0, 1000.0)]
+        [InlineData(10.0, 0.0)]
+        [InlineData(10.0, 1000.0)]
+        public void ThePlates_WithASeparateThinSlab_AreRefusedLikeThePlatesAlone(double size, double at)
+        {
+            var inputs = Plates();
+            inputs.Add(Box(new Vector3d(at + 20, at + 20, at + 20), new Vector3d(at + 20 + size, at + 20 + size, at + 20 + 1e-6)));
+            var p = new SolidBooleanPipeline(inputs, U) { Verification = V.RoundingVolume };
+            Assert.False(p.Compute(), p.Status + " " + p.Error);
+            Assert.Equal(Status.VerificationFailed, p.Status);
+            Assert.Null(p.Result);
+            Assert.Contains("RoundingVolume", p.Error);
+            // the plates' own loss is above the limit of the whole, and the box's part is taken out as a part that did not move
+            string step = VerificationStep(p).Change;
+            Assert.Contains("1 parts thinner", step);
+            Assert.True(p.Report.RoundingVolumeChange > 1e-3, "change " + p.Report.RoundingVolumeChange);
+            // with the limit above the plates' loss it passes
+            var ok = new SolidBooleanPipeline(inputs, U) { Verification = V.RoundingVolume, MaxRoundingVolumeChange = 0.05 };
+            Assert.True(ok.Compute(), ok.Status + " " + ok.Error);
+            if (at == 0)
+                AssertSolid(ok.Result);
+            else {
+                // (far apart, the plates' triangles are degenerate against the box of everything: an evaluator's reading, not of this check)
+                Assert.True(ok.Result.TriangleCount > 0);
+                Assert.True(Invariance.AllFinite(ok.Result));
+            }
+        }
+
+        [Fact]
+        public void TheThinSlab_AloneOrNextToThePlates_DoesNotChangeTheVerdictOnThePlates()
+        {
+            // the change of the whole run without the slab and with it differ by the slab's own volume only
+            var alone = new SolidBooleanPipeline(Plates(), U) { Verification = V.RoundingVolume, MaxRoundingVolumeChange = Inf };
+            Assert.True(alone.Compute(), alone.Error);
+            var inputs = Plates();
+            inputs.Add(Box(new Vector3d(20, 20, 20), new Vector3d(30, 30, 20 + 1e-6)));
+            var with = new SolidBooleanPipeline(inputs, U) { Verification = V.RoundingVolume, MaxRoundingVolumeChange = Inf };
+            Assert.True(with.Compute(), with.Error);
+            double lost = alone.Report.RoundingVolumeBefore - alone.Report.RoundingVolumeAfter;
+            double lostWith = with.Report.RoundingVolumeBefore - with.Report.RoundingVolumeAfter;
+            Assert.True(Math.Abs(lost - lostWith) <= 1e-2 * Math.Abs(lost), lost + " " + lostWith + " " + alone.Report.RoundingVolumeAfter + " " + with.Report.RoundingVolumeAfter + " " + with.Report.RoundingVolumeBefore);
         }
 
         [Theory]
@@ -1156,12 +1268,12 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void AResultThickerThanTheBound_WhoseVolumeTheRoundingMoves_IsStillRefused()
         {
-            // the thin plates lose 0.7 % and are refused with the allowance: nothing of the result is thinner than the length, so the allowance is 0
+            // the thin plates lose 0.7 % and are refused: no part of the result is thinner than its own length, so nothing is taken out
             var p = new SolidBooleanPipeline(Plates(), U) { Verification = V.RoundingVolume };
             Assert.False(p.Compute());
             Assert.Equal(Status.VerificationFailed, p.Status);
             Assert.Contains("floor", p.Error);
-            Assert.Contains("and 0 of the parts thinner than", VerificationStep(p).Change);
+            Assert.Contains("0 parts thinner than", VerificationStep(p).Change);
         }
 
         [Fact]
