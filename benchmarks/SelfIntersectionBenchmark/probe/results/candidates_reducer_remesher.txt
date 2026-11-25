@@ -1,0 +1,273 @@
+| case | triangles in | out | rejected | time ms (min of 1) | all runs ms | fingerprint |
+| reducer_harness_plate50_jitter0.5 | 5000 | 500 |  | 6932 | 6932 | a9687daf920c8ba9 |
+#### reducer_harness_plate50_jitter0.5: caller 6932 ms, probe overhead 2756 ms (32955442 filter calls x 83.6 ns), net 4176 ms; filter 3680 ms = 88.1 %; Reducer check 2300 calls, 3783 ms net = 90.6 %
+| site | shared | calls | filter ms | share of caller | separate | intersecting | undecided |
+| reducer new among themselves | 1 | 3715649 | 468.3 | 11.21 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new among themselves | 2 | 120583 | 20.2 | 0.48 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 0 | 28559417 | 3100.9 | 74.25 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 1 | 461547 | 77.6 | 1.86 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 2 | 98246 | 12.9 | 0.31 % | 100.0 % | 0.0 % | 0.0 % |
+reducer_harness_plate50_jitter0.5: pretest bound on 302344 sampled pairs
+| site | shared | pretest decides | filter ns | preamble ns | ideal 2D ns | pretest ns | pretest + filter ns | gated ns | filter ms (micro) | saving ms | gated saving ms | ideal 2D saving ms |
+| reducer new among themselves | 1 | 0.0 % | 106.2 | 43.4 | NaN | 18.8 | 121.8 | 124.1 | 394.4 | -58.2 | -66.5 | 0.0 |
+| reducer new among themselves | 2 | 0.0 % | 73.8 | 42.1 | NaN | 9.9 | 84.4 | 94.9 | 8.9 | -1.3 | -2.5 | 0.0 |
+| reducer new vs grid | 0 | 0.0 % | 86.5 | 44.7 | 29.8 | 29.0 | 103.3 | 103.5 | 2471.4 | -478.5 | -483.2 | 1619.8 |
+| reducer new vs grid | 1 | 0.0 % | 108.1 | 43.6 | NaN | 20.2 | 123.6 | 126.0 | 49.9 | -7.1 | -8.2 | 0.0 |
+| reducer new vs grid | 2 | 0.0 % | 75.9 | 42.7 | NaN | 9.8 | 85.8 | 94.7 | 7.5 | -1.0 | -1.8 | 0.0 |
+reducer_harness_plate50_jitter0.5: filter (micro) 2932.1 ms = 70.21 %; plane pretest saves <= -546.1 ms = -13.08 %, gated -562.3 ms = -13.47 %; ideal 2D for unshared pairs saves <= 1619.8 ms = 38.79 % of the caller (negative: slower)
+| reducer_harness_tilt_plate50_jitter0.5 | 5000 | 500 |  | 3808 | 3808 | 7062e82002229584 |
+#### reducer_harness_tilt_plate50_jitter0.5: caller 3808 ms, probe overhead 1203 ms (14381171 filter calls x 83.6 ns), net 2606 ms; filter 1655 ms = 63.5 %; Reducer check 2307 calls, 2105 ms net = 80.8 %
+| site | shared | calls | filter ms | share of caller | separate | intersecting | undecided |
+| reducer new among themselves | 1 | 9789140 | 1158.5 | 44.46 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new among themselves | 2 | 198198 | 22.8 | 0.87 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 0 | 3604947 | 367.7 | 14.11 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 1 | 639653 | 88.3 | 3.39 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 2 | 149233 | 17.3 | 0.66 % | 100.0 % | 0.0 % | 0.0 % |
+reducer_harness_tilt_plate50_jitter0.5: pretest bound on 305983 sampled pairs
+| site | shared | pretest decides | filter ns | preamble ns | ideal 2D ns | pretest ns | pretest + filter ns | gated ns | filter ms (micro) | saving ms | gated saving ms | ideal 2D saving ms |
+| reducer new among themselves | 1 | 40.5 % | 100.5 | 45.2 | NaN | 38.6 | 91.8 | 103.0 | 983.7 | 84.6 | -24.3 | 0.0 |
+| reducer new among themselves | 2 | 32.3 % | 70.7 | 41.9 | NaN | 18.6 | 65.3 | 79.2 | 14.0 | 1.1 | -1.7 | 0.0 |
+| reducer new vs grid | 0 | 25.0 % | 82.4 | 34.9 | 21.4 | 42.8 | 102.9 | 113.6 | 297.1 | -73.7 | -112.2 | 219.9 |
+| reducer new vs grid | 1 | 39.6 % | 102.8 | 41.3 | NaN | 47.3 | 104.2 | 116.9 | 65.8 | -0.9 | -9.0 | 0.0 |
+| reducer new vs grid | 2 | 30.7 % | 68.5 | 39.8 | NaN | 16.0 | 61.9 | 75.4 | 10.2 | 1.0 | -1.0 | 0.0 |
+reducer_harness_tilt_plate50_jitter0.5: filter (micro) 1370.8 ms = 52.61 %; plane pretest saves <= 12.1 ms = 0.47 %, gated -148.2 ms = -5.69 %; ideal 2D for unshared pairs saves <= 219.9 ms = 8.44 % of the caller (negative: slower)
+| reducer_harness_tilt_plate50 | 5000 | 499 |  | 5608 | 5608 | 32ec32f24a527154 |
+#### reducer_harness_tilt_plate50: caller 5608 ms, probe overhead 1704 ms (20373830 filter calls x 83.6 ns), net 3904 ms; filter 2441 ms = 62.5 %; Reducer check 2320 calls, 3337 ms net = 85.5 %
+| site | shared | calls | filter ms | share of caller | separate | intersecting | undecided |
+| reducer new among themselves | 1 | 9792338 | 1265.8 | 32.42 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new among themselves | 2 | 201353 | 25.7 | 0.66 % | 99.9 % | 0.0 % | 0.1 % |
+| reducer new among themselves | 3 | 4 | 0.0 | 0.00 % | 0.0 % | 0.0 % | 100.0 % |
+| reducer new vs grid | 0 | 9542351 | 1015.5 | 26.01 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 1 | 671236 | 111.6 | 2.86 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 2 | 166548 | 22.2 | 0.57 % | 100.0 % | 0.0 % | 0.0 % |
+reducer_harness_tilt_plate50: pretest bound on 304088 sampled pairs
+| site | shared | pretest decides | filter ns | preamble ns | ideal 2D ns | pretest ns | pretest + filter ns | gated ns | filter ms (micro) | saving ms | gated saving ms | ideal 2D saving ms |
+| reducer new among themselves | 1 | 54.9 % | 104.6 | 43.1 | NaN | 41.7 | 84.0 | 94.1 | 1024.0 | 201.2 | 102.8 | 0.0 |
+| reducer new among themselves | 2 | 29.5 % | 70.6 | 41.4 | NaN | 14.5 | 65.8 | 78.7 | 14.2 | 1.0 | -1.6 | 0.0 |
+| reducer new vs grid | 0 | 14.2 % | 86.5 | 38.1 | 23.6 | 42.6 | 133.3 | 122.7 | 825.1 | -446.7 | -345.5 | 599.6 |
+| reducer new vs grid | 1 | 48.9 % | 108.7 | 41.8 | NaN | 50.6 | 103.1 | 113.8 | 73.0 | 3.8 | -3.4 | 0.0 |
+| reducer new vs grid | 2 | 42.1 % | 67.8 | 40.2 | NaN | 14.7 | 57.4 | 71.7 | 11.3 | 1.7 | -0.6 | 0.0 |
+reducer_harness_tilt_plate50: filter (micro) 1947.6 ms = 49.88 %; plane pretest saves <= -239.0 ms = -6.12 %, gated -248.4 ms = -6.36 %; ideal 2D for unshared pairs saves <= 599.6 ms = 15.36 % of the caller (negative: slower)
+| reducer_harness_plate100 | 20000 | 1999 |  | 560 | 560 | 7c04f56dd8592df2 |
+#### reducer_harness_plate100: caller 560 ms, probe overhead 111 ms (1331341 filter calls x 83.6 ns), net 449 ms; filter 203 ms = 45.2 %; Reducer check 9145 calls, 288 ms net = 64.2 %
+| site | shared | calls | filter ms | share of caller | separate | intersecting | undecided |
+| reducer new among themselves | 1 | 317714 | 47.7 | 10.64 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new among themselves | 2 | 80513 | 10.3 | 2.31 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 0 | 301617 | 45.2 | 10.08 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 1 | 551185 | 89.1 | 19.86 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 2 | 80312 | 10.3 | 2.31 % | 100.0 % | 0.0 % | 0.0 % |
+reducer_harness_plate100: pretest bound on 332836 sampled pairs
+| site | shared | pretest decides | filter ns | preamble ns | ideal 2D ns | pretest ns | pretest + filter ns | gated ns | filter ms (micro) | saving ms | gated saving ms | ideal 2D saving ms |
+| reducer new among themselves | 1 | 0.0 % | 114.7 | 44.4 | NaN | 24.4 | 130.8 | 131.3 | 36.4 | -5.1 | -5.3 | 0.0 |
+| reducer new among themselves | 2 | 0.0 % | 80.5 | 48.4 | NaN | 20.6 | 88.2 | 98.8 | 6.5 | -0.6 | -1.5 | 0.0 |
+| reducer new vs grid | 0 | 0.0 % | 111.8 | 40.8 | 35.2 | 17.7 | 128.2 | 131.4 | 33.7 | -4.9 | -5.9 | 23.1 |
+| reducer new vs grid | 1 | 0.0 % | 134.8 | 46.5 | NaN | 26.1 | 142.1 | 143.8 | 74.3 | -4.0 | -5.0 | 0.0 |
+| reducer new vs grid | 2 | 0.0 % | 81.7 | 48.6 | NaN | 19.1 | 88.2 | 97.7 | 6.6 | -0.5 | -1.3 | 0.0 |
+reducer_harness_plate100: filter (micro) 157.5 ms = 35.10 %; plane pretest saves <= -15.3 ms = -3.40 %, gated -19.0 ms = -4.23 %; ideal 2D for unshared pairs saves <= 23.1 ms = 5.15 % of the caller (negative: slower)
+| reducer_jitter_plate_z0 | 5000 | 499 |  | 113 | 113 | 9e28a32d230a1a32 |
+#### reducer_jitter_plate_z0: caller 113 ms, probe overhead 23 ms (271885 filter calls x 83.6 ns), net 90 ms; filter 38 ms = 42.0 %; Reducer check 2323 calls, 56 ms net = 61.9 %
+| site | shared | calls | filter ms | share of caller | separate | intersecting | undecided |
+| reducer new among themselves | 1 | 62518 | 8.9 | 9.92 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new among themselves | 2 | 19004 | 2.4 | 2.62 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 0 | 46576 | 5.9 | 6.61 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 1 | 124985 | 18.2 | 20.27 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 2 | 18802 | 2.3 | 2.57 % | 100.0 % | 0.0 % | 0.0 % |
+reducer_jitter_plate_z0: pretest bound on 271885 sampled pairs
+| site | shared | pretest decides | filter ns | preamble ns | ideal 2D ns | pretest ns | pretest + filter ns | gated ns | filter ms (micro) | saving ms | gated saving ms | ideal 2D saving ms |
+| reducer new among themselves | 1 | 0.0 % | 106.6 | 43.2 | NaN | 22.6 | 124.4 | 125.1 | 6.7 | -1.1 | -1.2 | 0.0 |
+| reducer new among themselves | 2 | 0.0 % | 78.2 | 45.4 | NaN | 18.5 | 85.7 | 96.3 | 1.5 | -0.1 | -0.3 | 0.0 |
+| reducer new vs grid | 0 | 0.0 % | 93.1 | 37.9 | 26.1 | 17.7 | 109.7 | 111.1 | 4.3 | -0.8 | -0.8 | 3.1 |
+| reducer new vs grid | 1 | 0.0 % | 111.1 | 59.3 | NaN | 23.8 | 126.4 | 166.3 | 13.9 | -1.9 | -6.9 | 0.0 |
+| reducer new vs grid | 2 | 0.0 % | 102.6 | 46.2 | NaN | 27.6 | 86.3 | 96.3 | 1.9 | 0.3 | 0.1 | 0.0 |
+reducer_jitter_plate_z0: filter (micro) 28.3 ms = 31.47 %; plane pretest saves <= -3.6 ms = -4.04 %, gated -9.1 ms = -10.15 %; ideal 2D for unshared pairs saves <= 3.1 ms = 3.47 % of the caller (negative: slower)
+| reducer_jitter_plate_z0_to50 | 5000 | 50 |  | 133 | 133 | edaff28e032f93bd |
+#### reducer_jitter_plate_z0_to50: caller 133 ms, probe overhead 25 ms (294109 filter calls x 83.6 ns), net 108 ms; filter 46 ms = 42.7 %; Reducer check 2565 calls, 68 ms net = 63.1 %
+| site | shared | calls | filter ms | share of caller | separate | intersecting | undecided |
+| reducer new among themselves | 1 | 66455 | 9.9 | 9.16 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new among themselves | 2 | 20520 | 2.7 | 2.51 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 0 | 51036 | 6.9 | 6.35 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 1 | 135737 | 24.1 | 22.25 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 2 | 20361 | 2.6 | 2.41 % | 100.0 % | 0.0 % | 0.0 % |
+reducer_jitter_plate_z0_to50: pretest bound on 294109 sampled pairs
+| site | shared | pretest decides | filter ns | preamble ns | ideal 2D ns | pretest ns | pretest + filter ns | gated ns | filter ms (micro) | saving ms | gated saving ms | ideal 2D saving ms |
+| reducer new among themselves | 1 | 0.0 % | 106.8 | 41.6 | NaN | 23.3 | 126.7 | 125.6 | 7.1 | -1.3 | -1.2 | 0.0 |
+| reducer new among themselves | 2 | 0.0 % | 76.3 | 45.9 | NaN | 18.6 | 85.9 | 95.5 | 1.6 | -0.2 | -0.4 | 0.0 |
+| reducer new vs grid | 0 | 0.0 % | 93.4 | 37.0 | 25.9 | 17.8 | 108.7 | 110.6 | 4.8 | -0.8 | -0.9 | 3.4 |
+| reducer new vs grid | 1 | 0.0 % | 110.2 | 46.2 | NaN | 23.9 | 126.0 | 127.0 | 15.0 | -2.1 | -2.3 | 0.0 |
+| reducer new vs grid | 2 | 0.0 % | 76.2 | 47.1 | NaN | 18.6 | 87.2 | 96.9 | 1.6 | -0.2 | -0.4 | 0.0 |
+reducer_jitter_plate_z0_to50: filter (micro) 29.9 ms = 27.68 %; plane pretest saves <= -4.7 ms = -4.32 %, gated -5.2 ms = -4.82 %; ideal 2D for unshared pairs saves <= 3.4 ms = 3.19 % of the caller (negative: slower)
+| reducer_jitter_plate_tilted_to50 | 5000 | 50 |  | 5061 | 5061 | e7ecddd60a105d2c |
+#### reducer_jitter_plate_tilted_to50: caller 5061 ms, probe overhead 1629 ms (19476956 filter calls x 83.6 ns), net 3432 ms; filter 2323 ms = 67.7 %; Reducer check 2614 calls, 2745 ms net = 80.0 %
+| site | shared | calls | filter ms | share of caller | separate | intersecting | undecided |
+| reducer new among themselves | 1 | 11473251 | 1464.5 | 42.67 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new among themselves | 2 | 211848 | 26.3 | 0.77 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 0 | 6775266 | 688.6 | 20.06 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 1 | 827730 | 120.5 | 3.51 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 2 | 188861 | 22.8 | 0.67 % | 100.0 % | 0.0 % | 0.0 % |
+reducer_jitter_plate_tilted_to50: pretest bound on 304328 sampled pairs
+| site | shared | pretest decides | filter ns | preamble ns | ideal 2D ns | pretest ns | pretest + filter ns | gated ns | filter ms (micro) | saving ms | gated saving ms | ideal 2D saving ms |
+| reducer new among themselves | 1 | 45.4 % | 104.4 | 47.9 | NaN | 40.8 | 92.1 | 102.4 | 1197.9 | 141.0 | 23.3 | 0.0 |
+| reducer new among themselves | 2 | 33.0 % | 72.1 | 55.7 | NaN | 15.2 | 63.9 | 84.9 | 15.3 | 1.7 | -2.7 | 0.0 |
+| reducer new vs grid | 0 | 29.4 % | 79.8 | 35.7 | 18.2 | 37.4 | 92.3 | 102.1 | 540.6 | -84.6 | -151.3 | 417.0 |
+| reducer new vs grid | 1 | 37.8 % | 106.5 | 42.1 | NaN | 48.9 | 114.6 | 118.6 | 88.2 | -6.7 | -10.0 | 0.0 |
+| reducer new vs grid | 2 | 35.9 % | 73.2 | 43.0 | NaN | 16.2 | 62.3 | 75.8 | 13.8 | 2.1 | -0.5 | 0.0 |
+reducer_jitter_plate_tilted_to50: filter (micro) 1855.7 ms = 54.07 %; plane pretest saves <= 53.4 ms = 1.56 %, gated -141.3 ms = -4.12 %; ideal 2D for unshared pairs saves <= 417.0 ms = 12.15 % of the caller (negative: slower)
+| reducer_jitter_plate_tilted | 5000 | 500 |  | 5099 | 5099 | 0a0c420ae0b2b56f |
+#### reducer_jitter_plate_tilted: caller 5099 ms, probe overhead 1621 ms (19380772 filter calls x 83.6 ns), net 3479 ms; filter 2345 ms = 67.4 %; Reducer check 2325 calls, 2785 ms net = 80.1 %
+| site | shared | calls | filter ms | share of caller | separate | intersecting | undecided |
+| reducer new among themselves | 1 | 11440891 | 1480.8 | 42.57 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new among themselves | 2 | 208504 | 26.1 | 0.75 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 0 | 6745386 | 694.3 | 19.96 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 1 | 799787 | 121.4 | 3.49 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 2 | 186204 | 22.9 | 0.66 % | 100.0 % | 0.0 % | 0.0 % |
+reducer_jitter_plate_tilted: pretest bound on 302825 sampled pairs
+| site | shared | pretest decides | filter ns | preamble ns | ideal 2D ns | pretest ns | pretest + filter ns | gated ns | filter ms (micro) | saving ms | gated saving ms | ideal 2D saving ms |
+| reducer new among themselves | 1 | 45.5 % | 104.7 | 48.2 | NaN | 43.7 | 92.6 | 102.6 | 1197.9 | 139.0 | 24.2 | 0.0 |
+| reducer new among themselves | 2 | 33.0 % | 73.1 | 41.0 | NaN | 15.5 | 64.8 | 78.0 | 15.2 | 1.7 | -1.0 | 0.0 |
+| reducer new vs grid | 0 | 29.4 % | 78.4 | 34.2 | 17.2 | 36.6 | 90.8 | 103.0 | 528.8 | -83.7 | -165.7 | 412.9 |
+| reducer new vs grid | 1 | 38.5 % | 107.1 | 42.4 | NaN | 49.4 | 109.5 | 118.7 | 85.6 | -1.9 | -9.3 | 0.0 |
+| reducer new vs grid | 2 | 36.2 % | 73.9 | 43.1 | NaN | 16.1 | 62.4 | 77.0 | 13.8 | 2.2 | -0.6 | 0.0 |
+reducer_jitter_plate_tilted: filter (micro) 1841.3 ms = 52.93 %; plane pretest saves <= 57.3 ms = 1.65 %, gated -152.4 ms = -4.38 %; ideal 2D for unshared pairs saves <= 412.9 ms = 11.87 % of the caller (negative: slower)
+| reducer_integer_plate | 20000 | 1999 |  | 605 | 605 | 7c04f56dd8592df2 |
+#### reducer_integer_plate: caller 605 ms, probe overhead 111 ms (1331341 filter calls x 83.6 ns), net 494 ms; filter 204 ms = 41.3 %; Reducer check 9145 calls, 292 ms net = 59.2 %
+| site | shared | calls | filter ms | share of caller | separate | intersecting | undecided |
+| reducer new among themselves | 1 | 317714 | 47.6 | 9.64 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new among themselves | 2 | 80513 | 10.5 | 2.13 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 0 | 301617 | 43.5 | 8.80 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 1 | 551185 | 92.0 | 18.64 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 2 | 80312 | 10.1 | 2.04 % | 100.0 % | 0.0 % | 0.0 % |
+reducer_integer_plate: pretest bound on 332836 sampled pairs
+| site | shared | pretest decides | filter ns | preamble ns | ideal 2D ns | pretest ns | pretest + filter ns | gated ns | filter ms (micro) | saving ms | gated saving ms | ideal 2D saving ms |
+| reducer new among themselves | 1 | 0.0 % | 114.0 | 59.6 | NaN | 24.3 | 130.7 | 132.8 | 36.2 | -5.3 | -6.0 | 0.0 |
+| reducer new among themselves | 2 | 0.0 % | 101.5 | 55.4 | NaN | 29.3 | 112.0 | 112.6 | 8.2 | -0.8 | -0.9 | 0.0 |
+| reducer new vs grid | 0 | 0.0 % | 111.5 | 39.1 | 28.3 | 18.3 | 129.1 | 131.7 | 33.6 | -5.3 | -6.1 | 25.1 |
+| reducer new vs grid | 1 | 0.0 % | 125.9 | 47.8 | NaN | 25.2 | 142.7 | 143.8 | 69.4 | -9.2 | -9.8 | 0.0 |
+| reducer new vs grid | 2 | 0.0 % | 79.6 | 47.8 | NaN | 18.7 | 88.4 | 98.1 | 6.4 | -0.7 | -1.5 | 0.0 |
+reducer_integer_plate: filter (micro) 153.8 ms = 31.17 %; plane pretest saves <= -21.4 ms = -4.34 %, gated -24.3 ms = -4.92 %; ideal 2D for unshared pairs saves <= 25.1 ms = 5.09 % of the caller (negative: slower)
+| reducer_bumpy_sphere | 18252 | 1000 |  | 393 | 393 | e3b1418407bea187 |
+#### reducer_bumpy_sphere: caller 393 ms, probe overhead 53 ms (637174 filter calls x 83.6 ns), net 339 ms; filter 101 ms = 29.6 %; Reducer check 8626 calls, 180 ms net = 52.9 %
+| site | shared | calls | filter ms | share of caller | separate | intersecting | undecided |
+| reducer new among themselves | 1 | 124376 | 20.9 | 6.15 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new among themselves | 2 | 60663 | 8.8 | 2.59 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 0 | 35062 | 5.3 | 1.58 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 1 | 356410 | 57.2 | 16.86 % | 100.0 % | 0.0 % | 0.0 % |
+| reducer new vs grid | 2 | 60663 | 8.3 | 2.46 % | 100.0 % | 0.0 % | 0.0 % |
+reducer_bumpy_sphere: pretest bound on 318587 sampled pairs
+| site | shared | pretest decides | filter ns | preamble ns | ideal 2D ns | pretest ns | pretest + filter ns | gated ns | filter ms (micro) | saving ms | gated saving ms | ideal 2D saving ms |
+| reducer new among themselves | 1 | 94.4 % | 120.6 | 41.6 | NaN | 38.6 | 45.5 | 55.2 | 15.0 | 9.3 | 8.1 | 0.0 |
+| reducer new among themselves | 2 | 100.0 % | 84.8 | 46.9 | NaN | 28.8 | 29.1 | 41.1 | 5.1 | 3.4 | 2.7 | 0.0 |
+| reducer new vs grid | 0 | 75.2 % | 101.0 | 39.2 | 27.8 | 41.5 | 66.3 | 76.4 | 3.5 | 1.2 | 0.9 | 2.6 |
+| reducer new vs grid | 1 | 90.8 % | 126.3 | 49.1 | NaN | 47.4 | 58.6 | 66.7 | 45.0 | 24.1 | 21.2 | 0.0 |
+| reducer new vs grid | 2 | 100.0 % | 92.4 | 61.5 | NaN | 30.5 | 36.2 | 53.9 | 5.6 | 3.4 | 2.3 | 0.0 |
+reducer_bumpy_sphere: filter (micro) 74.3 ms = 21.90 %; plane pretest saves <= 41.4 ms = 12.21 %, gated 35.2 ms = 10.38 %; ideal 2D for unshared pairs saves <= 2.6 ms = 0.76 % of the caller (negative: slower)
+| reducer_box_grid | 10092 | 600 |  | 3101 | 3101 | e9ee2d533f79b2f0 |
+#### reducer_box_grid: caller 3101 ms, probe overhead 657 ms (7853319 filter calls x 83.6 ns), net 2444 ms; filter 1214 ms = 49.7 %; Reducer check 4746 calls, 2108 ms net = 86.3 %
+| site | shared | calls | filter ms | share of caller | separate | intersecting | undecided |
+| reducer new among themselves | 1 | 4941611 | 738.9 | 30.23 % | 78.5 % | 0.0 % | 21.5 % |
+| reducer new among themselves | 2 | 168616 | 24.6 | 1.00 % | 98.4 % | 0.0 % | 1.6 % |
+| reducer new vs grid | 0 | 1518548 | 228.5 | 9.35 % | 99.6 % | 0.0 % | 0.4 % |
+| reducer new vs grid | 1 | 1055928 | 198.1 | 8.10 % | 88.8 % | 0.0 % | 11.2 % |
+| reducer new vs grid | 2 | 168616 | 24.2 | 0.99 % | 99.7 % | 0.0 % | 0.3 % |
+reducer_box_grid: pretest bound on 302051 sampled pairs
+| site | shared | pretest decides | filter ns | preamble ns | ideal 2D ns | pretest ns | pretest + filter ns | gated ns | filter ms (micro) | saving ms | gated saving ms | ideal 2D saving ms |
+| reducer new among themselves | 1 | 86.2 % | 129.3 | 50.3 | NaN | 43.2 | 57.8 | 68.3 | 639.1 | 353.6 | 301.7 | 0.0 |
+| reducer new among themselves | 2 | 45.0 % | 89.2 | 51.8 | NaN | 26.1 | 68.7 | 80.2 | 15.0 | 3.4 | 1.5 | 0.0 |
+| reducer new vs grid | 0 | 31.0 % | 120.5 | 40.1 | 27.9 | 43.0 | 135.4 | 141.1 | 182.9 | -22.6 | -31.3 | 140.5 |
+| reducer new vs grid | 1 | 66.1 % | 140.7 | 49.3 | NaN | 43.8 | 96.7 | 107.5 | 148.6 | 46.5 | 35.1 | 0.0 |
+| reducer new vs grid | 2 | 84.8 % | 87.2 | 47.0 | NaN | 22.7 | 33.3 | 46.3 | 14.7 | 9.1 | 6.9 | 0.0 |
+reducer_box_grid: filter (micro) 1000.4 ms = 40.94 %; plane pretest saves <= 390.1 ms = 15.96 %, gated 314.0 ms = 12.85 %; ideal 2D for unshared pairs saves <= 140.5 ms = 5.75 % of the caller (negative: slower)
+| remesher_bumpy_sphere_si | 18252 | 18190 | 6 | 2962 | 2962 | 6ca25fe754084ad1 |
+#### remesher_bumpy_sphere_si: caller 2962 ms, probe overhead 333 ms (3977498 filter calls x 83.6 ns), net 2629 ms; filter 565 ms = 21.5 %
+| site | shared | calls | filter ms | share of caller | separate | intersecting | undecided |
+| other | 0 | 1241194 | 148.2 | 5.64 % | 100.0 % | 0.0 % | 0.0 % |
+| other | 1 | 1702960 | 259.3 | 9.86 % | 100.0 % | 0.0 % | 0.0 % |
+| other | 2 | 561714 | 71.6 | 2.72 % | 100.0 % | 0.0 % | 0.0 % |
+| remesher new among themselves | 1 | 55698 | 10.1 | 0.39 % | 100.0 % | 0.0 % | 0.0 % |
+| remesher new among themselves | 2 | 40158 | 6.5 | 0.25 % | 99.8 % | 0.0 % | 0.2 % |
+| remesher new among themselves | 3 | 6 | 0.0 | 0.00 % | 0.0 % | 0.0 % | 100.0 % |
+| remesher vs grid | 0 | 12321 | 2.3 | 0.09 % | 99.4 % | 0.0 % | 0.6 % |
+| remesher vs grid | 1 | 310293 | 58.1 | 2.21 % | 99.9 % | 0.0 % | 0.1 % |
+| remesher vs grid | 2 | 53154 | 8.6 | 0.33 % | 99.9 % | 0.0 % | 0.1 % |
+remesher_bumpy_sphere_si: pretest bound on 305962 sampled pairs
+| site | shared | pretest decides | filter ns | preamble ns | ideal 2D ns | pretest ns | pretest + filter ns | gated ns | filter ms (micro) | saving ms | gated saving ms | ideal 2D saving ms |
+| other | 0 | 85.2 % | 94.2 | 36.9 | 30.1 | 40.5 | 54.9 | 64.4 | 117.0 | 48.8 | 37.0 | 79.6 |
+| other | 1 | 92.5 % | 115.0 | 45.9 | NaN | 56.7 | 55.6 | 63.9 | 195.8 | 101.1 | 86.9 | 0.0 |
+| other | 2 | 100.0 % | 81.4 | 47.6 | NaN | 31.0 | 31.9 | 42.2 | 45.7 | 27.8 | 22.0 | 0.0 |
+| remesher new among themselves | 1 | 89.0 % | 133.0 | 47.7 | NaN | 36.2 | 53.7 | 64.8 | 7.4 | 4.4 | 3.8 | 0.0 |
+| remesher new among themselves | 2 | 92.1 % | 89.1 | 50.4 | NaN | 19.3 | 30.6 | 45.8 | 3.6 | 2.3 | 1.7 | 0.0 |
+| remesher vs grid | 0 | 75.4 % | 102.3 | 42.7 | 14.3 | 32.8 | 53.4 | 71.1 | 1.3 | 0.6 | 0.4 | 1.1 |
+| remesher vs grid | 1 | 93.9 % | 135.0 | 47.2 | NaN | 43.4 | 51.2 | 62.3 | 41.9 | 26.0 | 22.6 | 0.0 |
+| remesher vs grid | 2 | 100.0 % | 92.8 | 54.0 | NaN | 23.1 | 23.3 | 40.9 | 4.9 | 3.7 | 2.8 | 0.0 |
+remesher_bumpy_sphere_si: filter (micro) 417.5 ms = 15.88 %; plane pretest saves <= 214.8 ms = 8.17 %, gated 177.2 ms = 6.74 %; ideal 2D for unshared pairs saves <= 80.7 ms = 3.07 % of the caller (negative: slower)
+| remesher_jitter_plate_z0_si | 3200 | 3035 | 32 | 648 | 648 | b10ac1575d0e298f |
+#### remesher_jitter_plate_z0_si: caller 648 ms, probe overhead 65 ms (778810 filter calls x 83.6 ns), net 583 ms; filter 122 ms = 20.9 %
+| site | shared | calls | filter ms | share of caller | separate | intersecting | undecided |
+| other | 0 | 305756 | 41.7 | 7.14 % | 100.0 % | 0.0 % | 0.0 % |
+| other | 1 | 209440 | 39.3 | 6.73 % | 100.0 % | 0.0 % | 0.0 % |
+| other | 2 | 66327 | 9.9 | 1.70 % | 100.0 % | 0.0 % | 0.0 % |
+| remesher new among themselves | 1 | 23174 | 3.9 | 0.67 % | 100.0 % | 0.0 % | 0.0 % |
+| remesher new among themselves | 2 | 16202 | 2.2 | 0.37 % | 99.9 % | 0.1 % | 0.0 % |
+| remesher vs grid | 0 | 15140 | 2.3 | 0.39 % | 100.0 % | 0.0 % | 0.0 % |
+| remesher vs grid | 1 | 121884 | 20.2 | 3.47 % | 100.0 % | 0.0 % | 0.0 % |
+| remesher vs grid | 2 | 20870 | 2.7 | 0.47 % | 100.0 % | 0.0 % | 0.0 % |
+| remesher vs grid | 3 | 17 | 0.0 | 0.00 % | 0.0 % | 0.0 % | 100.0 % |
+remesher_jitter_plate_z0_si: pretest bound on 389405 sampled pairs
+| site | shared | pretest decides | filter ns | preamble ns | ideal 2D ns | pretest ns | pretest + filter ns | gated ns | filter ms (micro) | saving ms | gated saving ms | ideal 2D saving ms |
+| other | 0 | 0.0 % | 94.9 | 39.1 | 28.7 | 18.3 | 109.9 | 111.8 | 29.0 | -4.6 | -5.2 | 20.2 |
+| other | 1 | 0.0 % | 117.5 | 46.1 | NaN | 25.2 | 134.8 | 135.1 | 24.6 | -3.6 | -3.7 | 0.0 |
+| other | 2 | 0.0 % | 79.7 | 60.7 | NaN | 21.4 | 89.2 | 99.7 | 5.3 | -0.6 | -1.3 | 0.0 |
+| remesher new among themselves | 1 | 0.0 % | 138.5 | 44.0 | NaN | 35.7 | 134.7 | 135.3 | 3.2 | 0.1 | 0.1 | 0.0 |
+| remesher new among themselves | 2 | 0.0 % | 79.2 | 45.3 | NaN | 18.6 | 88.3 | 99.4 | 1.3 | -0.1 | -0.3 | 0.0 |
+| remesher vs grid | 0 | 0.0 % | 98.7 | 37.8 | 27.4 | 16.7 | 115.4 | 116.1 | 1.5 | -0.3 | -0.3 | 1.1 |
+| remesher vs grid | 1 | 0.0 % | 121.5 | 46.6 | NaN | 23.4 | 136.9 | 138.6 | 14.8 | -1.9 | -2.1 | 0.0 |
+| remesher vs grid | 2 | 0.0 % | 79.6 | 48.3 | NaN | 18.1 | 88.7 | 98.8 | 1.7 | -0.2 | -0.4 | 0.0 |
+| remesher vs grid | 3 | 0.0 % | 72.6 | 38.8 | NaN | 2.2 | 77.4 | 92.4 | 0.0 | -0.0 | -0.0 | 0.0 |
+remesher_jitter_plate_z0_si: filter (micro) 81.4 ms = 13.96 %; plane pretest saves <= -11.2 ms = -1.92 %, gated -13.2 ms = -2.26 %; ideal 2D for unshared pairs saves <= 21.3 ms = 3.66 % of the caller (negative: slower)
+| remesher_jitter_plate_tilted_si | 3200 | 3016 | 18 | 462 | 462 | 82b6c9c4b6e53e4d |
+#### remesher_jitter_plate_tilted_si: caller 462 ms, probe overhead 65 ms (775079 filter calls x 83.6 ns), net 397 ms; filter 107 ms = 26.9 %
+| site | shared | calls | filter ms | share of caller | separate | intersecting | undecided |
+| other | 0 | 211978 | 24.2 | 6.08 % | 100.0 % | 0.0 % | 0.0 % |
+| other | 1 | 276894 | 42.0 | 10.58 % | 100.0 % | 0.0 % | 0.0 % |
+| other | 2 | 90782 | 11.1 | 2.80 % | 100.0 % | 0.0 % | 0.0 % |
+| remesher new among themselves | 1 | 23952 | 3.9 | 0.97 % | 99.9 % | 0.0 % | 0.1 % |
+| remesher new among themselves | 2 | 16706 | 2.1 | 0.52 % | 99.7 % | 0.0 % | 0.3 % |
+| remesher new among themselves | 3 | 1 | 0.0 | 0.00 % | 0.0 % | 0.0 % | 100.0 % |
+| remesher vs grid | 0 | 7622 | 1.2 | 0.30 % | 98.7 % | 0.0 % | 1.3 % |
+| remesher vs grid | 1 | 125538 | 19.7 | 4.95 % | 99.9 % | 0.0 % | 0.1 % |
+| remesher vs grid | 2 | 21558 | 2.7 | 0.68 % | 99.7 % | 0.0 % | 0.3 % |
+| remesher vs grid | 3 | 48 | 0.0 | 0.00 % | 0.0 % | 0.0 % | 100.0 % |
+remesher_jitter_plate_tilted_si: pretest bound on 387540 sampled pairs
+| site | shared | pretest decides | filter ns | preamble ns | ideal 2D ns | pretest ns | pretest + filter ns | gated ns | filter ms (micro) | saving ms | gated saving ms | ideal 2D saving ms |
+| other | 0 | 47.2 % | 90.3 | 33.6 | 27.2 | 50.1 | 96.9 | 107.2 | 19.1 | -1.4 | -3.6 | 13.4 |
+| other | 1 | 39.4 % | 114.9 | 46.4 | NaN | 53.6 | 116.0 | 129.3 | 31.8 | -0.3 | -4.0 | 0.0 |
+| other | 2 | 45.5 % | 77.7 | 45.3 | NaN | 33.0 | 68.5 | 79.7 | 7.1 | 0.8 | -0.2 | 0.0 |
+| remesher new among themselves | 1 | 43.9 % | 115.1 | 40.9 | NaN | 47.3 | 110.2 | 122.2 | 2.8 | 0.1 | -0.2 | 0.0 |
+| remesher new among themselves | 2 | 47.2 % | 101.4 | 43.6 | NaN | 37.2 | 63.9 | 77.7 | 1.7 | 0.6 | 0.4 | 0.0 |
+| remesher new among themselves | 3 | 0.0 % | 54.7 | 39.0 | NaN | 2.3 | 55.6 | 77.2 | 0.0 | -0.0 | -0.0 | 0.0 |
+| remesher vs grid | 0 | 31.6 % | 95.4 | 33.4 | 22.1 | 37.2 | 108.2 | 122.7 | 0.7 | -0.1 | -0.2 | 0.6 |
+| remesher vs grid | 1 | 44.9 % | 118.1 | 42.1 | NaN | 51.6 | 115.0 | 123.9 | 14.8 | 0.4 | -0.7 | 0.0 |
+| remesher vs grid | 2 | 46.0 % | 75.0 | 44.0 | NaN | 29.4 | 65.7 | 78.6 | 1.6 | 0.2 | -0.1 | 0.0 |
+| remesher vs grid | 3 | 0.0 % | 51.9 | 32.5 | NaN | 2.1 | 54.5 | 68.0 | 0.0 | -0.0 | -0.0 | 0.0 |
+remesher_jitter_plate_tilted_si: filter (micro) 79.6 ms = 20.05 %; plane pretest saves <= 0.4 ms = 0.09 %, gated -8.5 ms = -2.15 %; ideal 2D for unshared pairs saves <= 13.9 ms = 3.51 % of the caller (negative: slower)
+| remesher_box_grid_si | 10092 | 10100 | 0 | 1355 | 1355 | 7e45693ccb810cb4 |
+#### remesher_box_grid_si: caller 1355 ms, probe overhead 163 ms (1954947 filter calls x 83.6 ns), net 1192 ms; filter 337 ms = 28.3 %
+| site | shared | calls | filter ms | share of caller | separate | intersecting | undecided |
+| other | 0 | 875966 | 133.0 | 11.16 % | 100.0 % | 0.0 % | 0.0 % |
+| other | 1 | 814563 | 170.2 | 14.28 % | 100.0 % | 0.0 % | 0.0 % |
+| other | 2 | 264219 | 33.9 | 2.85 % | 100.0 % | 0.0 % | 0.0 % |
+| remesher new among themselves | 1 | 8 | 0.0 | 0.00 % | 100.0 % | 0.0 % | 0.0 % |
+| remesher new among themselves | 2 | 16 | 0.0 | 0.00 % | 100.0 % | 0.0 % | 0.0 % |
+| remesher vs grid | 0 | 55 | 0.0 | 0.00 % | 100.0 % | 0.0 % | 0.0 % |
+| remesher vs grid | 1 | 104 | 0.0 | 0.00 % | 100.0 % | 0.0 % | 0.0 % |
+| remesher vs grid | 2 | 16 | 0.0 | 0.00 % | 100.0 % | 0.0 % | 0.0 % |
+remesher_box_grid_si: pretest bound on 325825 sampled pairs
+| site | shared | pretest decides | filter ns | preamble ns | ideal 2D ns | pretest ns | pretest + filter ns | gated ns | filter ms (micro) | saving ms | gated saving ms | ideal 2D saving ms |
+| other | 0 | 3.0 % | 109.3 | 41.0 | 27.0 | 20.1 | 125.5 | 119.0 | 95.7 | -14.2 | -8.5 | 72.1 |
+| other | 1 | 3.0 % | 143.6 | 41.2 | NaN | 26.6 | 158.4 | 154.6 | 117.0 | -12.0 | -9.0 | 0.0 |
+| other | 2 | 1.8 % | 70.8 | 39.3 | NaN | 25.8 | 80.0 | 80.4 | 18.7 | -2.4 | -2.5 | 0.0 |
+| remesher new among themselves | 1 | 0.0 % | 205.8 | 38.9 | NaN | 25.6 | 222.8 | 238.0 | 0.0 | -0.0 | -0.0 | 0.0 |
+| remesher new among themselves | 2 | 50.0 % | 102.5 | 33.9 | NaN | 13.8 | 41.1 | 46.7 | 0.0 | 0.0 | 0.0 | 0.0 |
+| remesher vs grid | 0 | 0.0 % | 115.2 | 46.5 | 22.6 | 22.4 | 139.5 | 151.0 | 0.0 | -0.0 | -0.0 | 0.0 |
+| remesher vs grid | 1 | 26.3 % | 118.4 | 34.7 | NaN | 19.2 | 100.9 | 101.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| remesher vs grid | 2 | 0.0 % | 53.9 | 26.4 | NaN | 11.6 | 67.0 | 60.8 | 0.0 | -0.0 | -0.0 | 0.0 |
+remesher_box_grid_si: filter (micro) 231.4 ms = 19.41 %; plane pretest saves <= -28.7 ms = -2.41 %, gated -20.0 ms = -1.68 %; ideal 2D for unshared pairs saves <= 72.1 ms = 6.05 % of the caller (negative: slower)

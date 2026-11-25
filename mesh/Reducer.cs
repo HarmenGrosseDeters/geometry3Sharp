@@ -945,7 +945,7 @@ namespace g3
                 Index3i ia = newIds[i];
                 for (int j = i + 1; j < newTris.Count; ++j) {
                     Triangle3d B = newTris[j];
-                    if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, newIds[j], ref B))
+                    if (TriangleTriangleFilter.IntersectsBeyondSharedNeighbours(ia, ref A, newIds[j], ref B))
                         return true;
                 }
             }
@@ -992,7 +992,7 @@ namespace g3
                 if (triangleGrid.QueryMatches(tc, ref gridNewBoxes[i]) == false)
                     continue;
                 Triangle3d A = siNewTris[i];
-                if (TriangleTriangleFilter.IntersectsBeyondShared(siNewIds[i], ref A, ic, ref C))
+                if (TriangleTriangleFilter.IntersectsBeyondSharedNeighbours(siNewIds[i], ref A, ic, ref C))
                     siHit = true;
             }
         }
@@ -1024,7 +1024,7 @@ namespace g3
                 Index3i ia = newIds[i];
                 for (int j = i + 1; j < newTris.Count; ++j) {
                     Triangle3d B = newTris[j];
-                    if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, newIds[j], ref B))
+                    if (TriangleTriangleFilter.IntersectsBeyondSharedNeighbours(ia, ref A, newIds[j], ref B))
                         return true;
                 }
                 AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
@@ -1037,7 +1037,7 @@ namespace g3
                     Triangle3d C = new Triangle3d(mesh.GetVertex(ic.a), mesh.GetVertex(ic.b), mesh.GetVertex(ic.c));
                     // (triangles with a coordinate that is not finite are not checked: the exact tests need finite input)
                     if (is_finite(ref C) == false || ExactTriangleIntersection.IsDegenerate(ref C)) return;
-                    if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, ic, ref C))
+                    if (TriangleTriangleFilter.IntersectsBeyondSharedNeighbours(ia, ref A, ic, ref C))
                         hit = true;
                 });
                 if (hit)
