@@ -253,7 +253,7 @@ Findings:
   0.08 cells inside (two corners at x = -0.496 instead of -0.5): 12 clean triangles, volume -0.2 %.
 - **C4 (medium, #1599):** `MarchingCubes` of a plain sphere has near-zero-area triangles in every root mode (36 of 896 at
   cube 0.1), so it fails `NotCleanReasons` ("degenerate triangles").
-- **C5 (low, comment on #1577):** `TpmsLattice` meshes differ in the browser in 15 of 30 cases (same counts and volumes
+- **C5 (low, comment on #1577; the same libm dependence as #1590, the TPMS pinned hash on Windows):** `TpmsLattice` meshes differ in the browser in 15 of 30 cases (same counts and volumes
   to 10 digits; `Math.Sin` / `Math.Cos` in the field; not in the determinism scope). `MeshOffset`, `DualContouring` and
   `MarchingCubes` gave the same bits.
 - **C6 (low, research note only):** `MeshOffset` by a small distance (0.001 on the unit box) returns `GridTooLarge` with no
