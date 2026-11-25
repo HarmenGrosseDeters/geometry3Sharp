@@ -63,6 +63,8 @@ namespace geometry3Sharp.Tests
         public static IEnumerable<object[]> PairsAndEngines() =>
             CurvedSolids.Pairs.Keys.SelectMany(k => new[] { 0, 1 }.Select(e => new object[] { k, e }));
 
+        public static IEnumerable<object[]> PairNamesOnly() => CurvedSolids.PairNames();
+
         static double Area(DMesh3 m) => m == null ? 0 : Invariance.Area(m);
 
         /// <summary>
@@ -94,6 +96,7 @@ namespace geometry3Sharp.Tests
                 Outcome ab = Engines[engine](p.A, p.B, op), ba = Engines[engine](p.B, p.A, op);
                 string what = $"{EngineName(engine)} {name} {op}";
                 Assert.True(ab.Status == ba.Status, $"{what}: status {ab.Status} vs {ba.Status}");
+                if (p.General) Assert.True(ab.Ok, $"{what}: status {ab.Status}");
                 if (!ab.Ok) continue;
                 Assert.True((ab.Unclean == "") == (ba.Unclean == ""), $"{what}: clean state differs: '{ab.Unclean}' vs '{ba.Unclean}'");
                 if (p.General) { AssertSuccess(ab, what + " A,B", true); AssertSuccess(ba, what + " B,A", true); }
@@ -161,6 +164,7 @@ namespace geometry3Sharp.Tests
                         Outcome r = Engines[engine](a, b, op);
                         string what = $"{EngineName(engine)} {name} {op} {rname} operand {"ABX"[operand]}";
                         Assert.True(baseline.Status == r.Status, $"{what}: status {baseline.Status} vs {r.Status}");
+                        if (p.General) Assert.True(baseline.Ok, $"{what}: baseline status {baseline.Status}");
                         if (!baseline.Ok) continue;
                         Assert.True((baseline.Unclean == "") == (r.Unclean == ""), $"{what}: clean state '{baseline.Unclean}' vs '{r.Unclean}'");
                         double tol = Tol(a, b, baseline, r);
@@ -181,7 +185,10 @@ namespace geometry3Sharp.Tests
                         DMesh3 a = invertA ? CurvedSolids.Inverted(p.A) : p.A, b = invertA ? p.B : CurvedSolids.Inverted(p.B);
                         Outcome o = Engines[engine](a, b, op);
                         string what = $"{EngineName(engine)} {name} {op} inverted {(invertA ? "A" : "B")}";
-                        if (!o.Ok) continue;   // refused: the documented reaction (InsideOutInput for the pipeline)
+                        if (!o.Ok) {   // refused: only the documented refusals (InsideOutInput for the pipeline, InconsistentOrientation)
+                            Assert.True(o.Status == "InsideOutInput" || o.Status.EndsWith("InconsistentOrientation"), $"{what}: refused with {o.Status}, not a documented refusal");
+                            continue;
+                        }
                         // not refused: the inside-out input is an empty solid ("used as given"): the result is the Boolean with that input empty
                         double va = invertA ? 0 : BooleanOracle.Volume(p.A), vb = invertA ? BooleanOracle.Volume(p.B) : 0;
                         double expected = op == Ops.Union ? va + vb : op == Ops.Intersection ? 0 : va;
@@ -190,16 +197,17 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        [Theory, MemberData(nameof(PairsAndEngines))]
-        public void InvertedInput_ByNesting_GivesTheResultOfTheOutwardInput(string name, int engine)
+        // exact engine only: Orientation is a property of ExactMeshBoolean
+        [Theory, MemberData(nameof(PairNamesOnly))]
+        public void InvertedInput_ByNesting_GivesTheResultOfTheOutwardInput(string name)
         {
-            if (engine == 1) return;   // the pipeline sets Orientation on the inner boolean through ConfigureBoolean only; covered by the exact engine
             CurvedSolids.Pair p = CurvedSolids.Pairs[name];
             foreach (Ops op in BooleanOracle.AllOps) {
                 Outcome baseline = Exact(p.A, p.B, op);
                 Outcome r = Exact(CurvedSolids.Inverted(p.A), CurvedSolids.Inverted(p.B), op, ExactMeshBoolean.OrientationModes.ByNesting);
                 string what = $"{name} {op} both inverted, ByNesting";
                 Assert.True(baseline.Status == r.Status, $"{what}: status {baseline.Status} vs {r.Status}");
+                if (p.General) Assert.True(baseline.Ok, $"{what}: baseline status {baseline.Status}");
                 if (!baseline.Ok) continue;
                 Assert.True(Math.Abs(baseline.Volume - r.Volume) <= Tol(p.A, p.B, baseline, r), $"{what}: volume {baseline.Volume:R} vs {r.Volume:R}");
             }
