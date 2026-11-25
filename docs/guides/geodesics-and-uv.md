@@ -32,7 +32,7 @@ using g3;
 using gs;
 
 IntrinsicRefinementResult result;
-var T = IntrinsicTriangulation.BuildDelaunay(mesh, refine: true, out result, minAngle: 25);
+var T = IntrinsicTriangulation.BuildDelaunay(mesh, refine: true, out result, minAngleDegrees: 25);
 SymmetricSparseMatrix L = T.CotanLaplacian();   // T.VertexID(i) = input vid, or -1 if inserted
 
 var geodesic = new MeshGeodesicDistance(mesh) { IntrinsicRefine = true };
