@@ -97,7 +97,10 @@ namespace g3
             }
         }
 
-        /// <summary> coordinates as doubles, multiplied by 2^scaleExp (each coordinate correctly rounded, see ToDouble) </summary>
+        /// <summary>
+        /// coordinates as doubles, multiplied by 2^scaleExp (each coordinate correctly rounded, see ToDouble). Throws <see cref="DivideByZeroException"/>
+        /// for <c>default(ExactPoint3)</c> (W = 0: not a point; every point made by Create or FromInteger has W &gt; 0)
+        /// </summary>
         public Vector3d ToVector3d(int scaleExp = 0)
         {
             return new Vector3d(ToDouble(X, W, scaleExp), ToDouble(Y, W, scaleExp), ToDouble(Z, W, scaleExp));
@@ -129,7 +132,7 @@ namespace g3
         /// num / den * 2^scaleExp as a double, correctly rounded (issue #1410): the double nearest to the exact value, ties to even, in one
         /// rounding also in the subnormal range; a result of at most 2^-1075 in magnitude (the exact value 2^-1075 is a tie, to even) is a zero of the sign of num, one at or above the middle between the largest
         /// double and 2^1024 an infinity. A negative den is allowed (the quotient has the sign of num * den); den = 0 always throws
-        /// <see cref="DivideByZeroException"/>, also for num = 0 and for a scaleExp that would underflow. See <see cref="ToDoubleRounded"/> for the method
+        /// <see cref="DivideByZeroException"/>, also for num = 0 (as <c>default(ExactPoint3).ToVector3d()</c> does, before #1410 it gave 0) and for a scaleExp that would underflow. See <see cref="ToDoubleRounded"/> for the method
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
         public static double ToDouble(BigInteger num, BigInteger den, int scaleExp)
@@ -147,7 +150,7 @@ namespace g3
         /// rounding also in the subnormal range (a result of at most 2^-1075 in magnitude, the tie included, is a zero of the sign of num, one at or above overflows to an infinity).
         /// Method (the standard one: enough quotient bits plus a sticky bit, one round to nearest even): a = |num| is shifted so that the
         /// integer quotient q = floor(n2 / d2) with n2 = a 2^shift, d2 = den (shift &gt;= 0) or n2 = a, d2 = den 2^-shift has 55 or 56 bits
-        /// (2^54 &lt; q &lt; 2^56). The exact value is
+        /// (2^54 &lt;= q &lt; 2^56). The exact value is
         /// (q + f) 2^(scaleExp - shift) with 0 &lt;= f &lt; 1, f &gt; 0 iff q d2 != n2 (the sticky bit; a division without remainder is cheaper, the product is only formed on a tie). The result grid is 2^g with
         /// g = max(bitlength(q) - 53, -1074 - (scaleExp - shift)) quotient bits dropped (53 significant bits, or fewer in the subnormal range,
         /// so the grid is the subnormal grid 2^-1074 and nothing is rounded twice). With mant = q &gt;&gt; g and low = q mod 2^g, the value lies
