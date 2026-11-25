@@ -11,6 +11,7 @@ This directory organizes the QA strategy, test tiers, verification gates, fuzzin
 | [ci-and-gates.md](ci-and-gates.md) | API compatibility, gate-change check, two-stage PR CI and batched master CI, scheduled runs, Windows `net48` hang diagnosis, performance & runtime watch |
 | [local-setup.md](local-setup.md) | Local .NET SDK installation and verification commands |
 | [silent-success-audit.md](silent-success-audit.md) | Audit of success / clean statuses against their checks (2026-11-25): inventory, risk classes, probes, issues #1566, #1567, #1569 |
+| [exact-bound-inventory.md](exact-bound-inventory.md) | Inventory of the exact code's filters, error bounds and termination rules (2026-11-25): coverage by Z3, ErrorBoundAudit, FPTaylor, design docs or tests; which mutants are killed; gaps ranked by risk |
 
 ---
 
