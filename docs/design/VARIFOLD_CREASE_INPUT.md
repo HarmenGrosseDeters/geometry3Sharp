@@ -309,9 +309,30 @@ pass was 3 times slower.
 **Two levers for the cost.** Without them the planes cost 0.3-0.5 s, and the varifold's share was 18-27 % of the wrap
 (`soupwrap_planes` rows, then superseded).
 
-- **A noise gate.** The planes are used only when the median tilt of 512 triangles (at a fixed stride) against their fitted
-  planes is above `VarifoldPlaneMinTiltDegrees` = 0.1 degrees. A clean tessellation measures 0.00; jitter of 0.025 h
-  measures 0.38-0.45.
+- **A noise gate.** The planes are used only when the input's sheets are noisy: `VarifoldCreaseQuery.MedianNoise` over 512
+  triangles at a fixed stride must be above `VarifoldPlaneMinNoise` = 0.003.
+  - For each sampled triangle the cluster's plane is fitted at the plane radius r and at 2 r.
+  - A smooth surface's residual grows as r^2, so rms^2 = sigma^2 + c r^4, while noise does not grow with r.
+  - So `sigma = sqrt((16 rms1^2 - rms2^2) / 15) / r` is the noise alone, relative to the radius.
+
+  A first version gated on the median *tilt* between a facet and its fitted plane (> 0.1 degrees). The review of 22cd0a4
+  showed that it opened on clean curved soups: a facet's centroid sits off its strip's centre, so a 64-slice cylinder
+  measures 0.77-0.90 degrees and a 32-sphere 0.65. On the clean sphere soup that meant 2422 plane moves, the distances
+  spread to 0.94-1.11 offset, and the pass took 4.6 times as long.
+
+  | input | median noise |
+  |---|---|
+  | clean flat soups | 0 |
+  | clean curved soups at alpha = diagonal / 60 (cylinders of 64 and 256 slices, the 32-sphere) | 0.0006-0.0020 |
+  | the same at diagonal / 300 | 0 |
+  | jitter 0.01 h (closed; already at recall 0.99, precision 0.97) | 0.0027 |
+  | `mixnh:0.25` | 0.0038 |
+  | jitter 0.025 h | 0.0066-0.0069 |
+  | `mixnh:0.5` | 0.0071-0.0077 |
+
+  The margin to the curved shapes is 1.5 times. A test pins the closed gate and the unchanged result on the three curved
+  soups. When the ball holds about one triangle (coarse soups: h above about 3 alpha), the noise reads small. That is
+  right: a fitted plane is then that triangle's own, so the planes change nothing.
 - **A parallel prefetch.** When the planes are used, the labels of all wrap vertices are made before the serial passes, in
   parallel (`gParallel.ForRange`, each vertex its own slot, no reduction across threads). The passes ask a vertex's label
   before they move it and nothing moves before them, so these are the labels the lazy path makes. A test checks the same
@@ -336,30 +357,46 @@ The hole-free mixes, recall within 3 offsets / precision within 1 offset:
 | mixnh:0.5, without planes | 0.967 / 0.472 | 0.923 / 0.340 | 0.984 / 0.271 | 0.973 / 0.186 |
 | mixnh:0.5, with planes | 0.985 / 0.529 | 0.943 / 0.372 | 0.982 / 0.279 | 0.976 / 0.211 |
 
-- The unwelded, T-junction, duplicate, flip and gap rows do not use the planes (tilt 0.00) and are as in section 9.
+- The unwelded, T-junction, duplicate, flip and gap rows do not use the planes (noise 0.0000) and are as in section 9.
+- Re-run after the review's gate change (the rows now in `soupwrap.jsonl`): the same gate decisions, the same recall and
+  precision in every row.
 - Every result is clean: 160 of 160 rows.
 - **The slot's precision miss is closed:** 0.932 against the oracle's 0.934.
-- **Cost:** the varifold's share is **7.3-17.5 %** of the wrap over the 40 cases (0.19-0.51 s); the most is box and fillet
-  at `mixnh:0.25`. The target is < 20 %. The pass itself takes longer where the planes are used (about 5 s against 1.5 s):
+- **Cost:** the varifold's share is **8.6-18.9 %** of the wrap over the 40 cases (0.23-0.67 s; the gate now fits two planes
+  per sample); the most is box and fillet at the mixes. The target is < 20 %. The pass itself takes longer where the planes are used (about 5 s against 1.5 s):
   it then moves nearly every vertex onto its denoised plane, each move checked exactly, as the oracle's pass does on the
   clean copy (about 5 s too).
 
 **Tests** added: `FitPlane_AveragesAJitteredSheet`, `FitPlane_RefusesMixedOrCurved` (including two parallel sheets),
 `VarifoldPlanes_JitteredSoup_KeepGuaranteesAndTheCrease`, `VarifoldPlanes_Prefetch_IsTheLazyPath` (the same bits with the
-prefetch, without it and serial) and `VarifoldPlanes_CleanSoup_NotUsed`. The slowest new test takes 3.5 s in the full run
-(`RobustRepair_SharpFeaturesOnSoups_RunsTheVarifoldSource`); the jittered-soup tests take 1.6 s and 1.3 s once split. Hand mutants: 24, 23 killed.
+prefetch, without it and serial) and `VarifoldPlanes_CleanSoup_NotUsed`.
 
-- New for the planes: the half-mass share, the rms guard, the orientation, the cluster test, the lift sign, the gate
-  always off and always on, the fitted plane ignored, and the plane fit's radius cut.
-- Repeated on the crease test: the earlier mutants.
-- The survivor is the plane fit's kernel weight: uniform instead of `(1 - r^2 / R^2)^4`. It is equivalent at this scale:
-  on a flat or jittered sheet both weights give the same plane to within the jitter. It is kept as an accepted survivor.
+After the review of 22cd0a4 (findings F1-F6):
+
+- **F1:** the gate above, and `VarifoldPlanes_CleanCurvedSoups_GateClosed_ResultUnchanged`.
+- **F2:** `VarifoldPlanes_Lift_LetsTheMovesThrough`: the lift lets 1.5 times the plane moves through, with fewer
+  rejections.
+- **F3:** `VarifoldPlanes_Invariance`, `Similarity.All()` on the open-gate path; 2^k bit for bit.
+- **F4:** the repair test without its "off" run, with a coarser solidify: 1.6 s against 8.1 s.
+- **F5:** `VarifoldCreaseQuery_Mass_IsTheArea` (large, sliver, tiny and degenerate triangles) and
+  `VarifoldCreaseQuery_PlaneNearBoth_GoesToTheNearer`.
+- **F6:** `Prepare` resets `VarifoldMedianTilt`, `VarifoldMedianNoise`, `VarifoldPlanesUsed` and the query on every path,
+  and the prefetch asks `CancelF` every 1024 vertices (the vertices it skips get their labels lazily, the same).
+
+The slowest new test takes 3 s (`VarifoldCreases_Invariance`).
+
+Hand mutants: 28, all killed.
+
+- New in this round: the noise formula (the plain rms instead), the tie rule reversed, the lift dropped, the centroid
+  point's mass.
+- Kept from before: every mutant of the planes and of the crease test.
+- The plane fit's kernel weight, a survivor before, is now killed through the gate.
 
 **Remaining candidates and their bounds** (the stop rule: none clears 10 % on the measured set):
 
 | candidate | bound |
 |---|---|
 | Gap-aware placement | `gap:0.3`: recall within 3 offsets 0.877 and 0.889 (vnotch, fillet) against the ceiling's 0.989 and 1.000, at most +0.11 on 2 of 40 rows; elsewhere at most +0.07. That gap is outside the targets (up to `mix:0.5`, whose gap is 0.15 h), and at one offset the reference itself is ambiguous (the faces are moved 2.7-5.5 offsets apart). Below 10 % on every row within the target range. |
-| Local sampling (measure only near crossing edges) | the measure is 0.15-0.25 s of the 0.19-0.51 s; the share is already at most 17.5 %: no target missed |
+| Local sampling (measure only near crossing edges) | the measure is 0.15-0.25 s of the 0.23-0.67 s; the share is already at most 18.9 %: no target missed |
 | A planes gate per region instead of per input | the gate is global; a mostly clean input with one noisy part uses the planes everywhere (cost only, not quality): at most the planes' 0.1-0.25 s |
 | Corners (three planes) | not handled by the pass at all (ALPHA_WRAP_FEATURE_VALIDITY.md); not measured here |
