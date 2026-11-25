@@ -529,8 +529,9 @@ only the phase dictionaries; reviewed, no flow rule), `DMeshAABBTree3.FastWindin
   `Math.Atan2`; `front_generalized_winding` sums them and thresholds `ceil(w - 0.5)`. Tier 2 behaviour (F4 of the research note); only the
   Antipodal path avoids it, except for its rim's branch (#1587): a piece that neither the Antipodal sum nor its wide-bound re-evaluation
   decides (a centroid within the rounding distance of a boundary segment) takes `front_generalized_winding` too, counted in
-  `Counts["antipodal_fast_winding"]`. That value uses `Math.Atan2` (through `TriSolidAngle`) and can differ by 1 ulp between runtimes
-  (#1577; #1627 moves it to `CoreMath`). On one runtime it is the same in every run, serial or parallel
+  `Counts["antipodal_fast_winding"]`. That value is a sum of many `Math.Atan2` terms (through `TriSolidAngle`), each of which can differ by
+  1 ulp between runtimes (#1577; #1627 moves it to `CoreMath`), so the sum can differ by more than 1 ulp, and a value near 0.5 can be
+  classified differently on another runtime. On one runtime it is the same in every run, serial or parallel
   (`ExactMeshBooleanTestsIssue1587.RimBranch_SerialEqualsParallel_Repeated_Reused`).
 - **O-IDS, P5.** The premise "ids are used for equality and lookup only; every ordered use ends in a total order" is by reading, per site. The
   attack is `OrderAdversaryTests` and the harness `adversary` (the loops run backwards and in seeded permutations, which changes the order

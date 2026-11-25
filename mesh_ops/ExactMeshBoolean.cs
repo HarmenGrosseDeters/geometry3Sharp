@@ -5406,9 +5406,10 @@ namespace g3
                 // vectors, so a point on the segment (A + B = 0) always gives 1, a point that gives 1 has |A + B| at most
                 // 1.2 tol, an angle of about 1.2 tol (a distance of about 1.2 tol la lb / (la + lb) from the segment), and
                 // whatever gives 1 here also gave 1 to the test before it, 1 + a.b <= tol, so a value that was decided is
-                // the same bits (tools/Z3Pilot/antipodal_segment.py, S1-S3; its relative-error model holds except where a
-                // square fl(s_i^2) underflows, |a + b| below about 1e-154, which only lowers the norm: status 1 there anyway,
-                // as it must be). The old test was quadratic in the angle against
+                // the same bits (tools/Z3Pilot/antipodal_segment.py, S1-S3; its relative-error model fails where an
+                // operation's result is subnormal, eg the square of one tiny coordinate of a + b or a tiny product in a.b:
+                // that error is absolute, at most a few times 2^-1075, and the margins of the lemmas absorb it). The old
+                // test was quadratic in the angle against
                 // a linear tol: it fired up to about tol^(1/2) away, u^(1/3) of the segment's length for a far point)
                 Vector3d ab = a + b;
                 if (ab.Length <= tol)

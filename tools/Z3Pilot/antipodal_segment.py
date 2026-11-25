@@ -29,14 +29,18 @@ The model (bridges, reviewed, not Z3; they are the model the sum's comments alre
       phi <= 2 asin t, which is above 2 t.) The angle phi is the change of atan2 (no wrap: the term is not taken where
       |num| <= tol and den <= tol, so the exact num has the computed one's sign or den > 0 in both).
   B4  T1's claim is invariant under a rotation and a positive scale of the (den, num) plane (T1 at (1, 0); its error box,
-      rotated, lies in the disk of radius sqrt(2) tol).
+      rotated, lies in the disk of radius sqrt(2) tol). T1 holds up to t = tol / hypot of about 0.68 (checked: UNSAT at
+      17/25, SAT at 7/10), so the unmodelled rounding of hypot, of 0.4 hypot and of 4 tol / hypot (a few u each) is covered
+      by the step from the code's 0.4.
   Not covered: the SafeNorms pass of antipodal_sum (a squared norm outside [1e-200, 1e300], la from scaled_norm instead of
   the rounded sqrt of N2), which only differences next to the underflow range reach.
-  Underflow: the model's relative error holds for every operation except fl(s_i^2) where |a + b| is below about
-  1e-154 (a square in the subnormal range, or 0): that only lowers the computed n, so S1 (n <= tol) holds a fortiori, and
-  S2, S3 concern n <= tol, which a tiny |a + b| satisfies anyway (|A + B| <= n + 2.01 (ea + eb) + 10u stays within 1.2 tol).
-  Every floating operation is the exact result times (1 + d), |d| <= u = 2^-53 (Higham (2.4); no underflow or overflow:
-  antipodal_sum takes the squares only in [1e-200, 1e300], and a and b are unit vectors).
+  Underflow: the relative-error model fails for every operation whose result is subnormal (or flushes to 0), e.g. a
+  square of one tiny coordinate in N1 (a + b = (1e-3, 0, 1e-160)) or in N2 (a v_i^2), or a tiny product a_i b_i in D1
+  (a = (1, 0, 1e-160), b = (0, 1, 1e-160)); there the rounding can also go up. Such an error is absolute, at most a few
+  times 2^-1075 for the few operations involved, and the margins absorb it: N1 uses 7u of its 8u (the squared factor
+  (1 + 4u)^2 against (1 + u)^7), N2 7u of its 10u, and S3 uses D1 only as an absolute term (4u (1 + 10u)) far above it.
+  Every other floating operation is the exact result times (1 + d), |d| <= u = 2^-53 (Higham (2.4); no overflow:
+  antipodal_sum takes the squared norms only in [1e-200, 1e300], and a and b are unit vectors).
 
 The obligations, each UNSAT with satisfiable assumptions:
   N1  the rounded norm fl(sqrt(fl(fl(fl(x^2) + fl(y^2)) + fl(z^2)))) of the rounded sum s = fl(a + b) is within 4u of the

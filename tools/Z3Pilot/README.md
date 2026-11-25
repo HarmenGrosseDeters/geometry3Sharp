@@ -689,7 +689,7 @@ the ends (the sum's own model, with its 16 times margin), the triangle inequalit
 and the invariance of T1 under scale and rotation. Eight mutants are SAT: the old quadratic test (S2), `tol` without its
 factor 16 (S1), without its `1e-15` (S3), the condition `0.8 hypot` and the angle bound `tol / hypot` (T1), a dot bound of
 `2u`, a norm bound of `3u` (N1), a normalization bound of `6u` (N2). `test_antipodal_segment.py` holds the source contract on `mesh_ops/ExactMeshBoolean.cs` and `math/Vector3d.cs`.
-30 queries in under 1 s in all, each below 0.5 s (three runs; one query of the whole norm took up to the 120 s timeout,
+30 queries in about 0.6 s in all, the slowest (D1) about 0.5 s (0.45 to 0.53 s measured; one query of the whole norm took up to the 120 s timeout,
 review of #1624, hence the split); the report records each query's time; result of 2026-11-25: `results/antipodal_segment_2026-11-25.json`.
 
 ## Pilot 8: the plateau variant of the position search (a design, not library code)
