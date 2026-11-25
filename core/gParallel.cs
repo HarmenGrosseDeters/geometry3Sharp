@@ -432,12 +432,13 @@ namespace g3
         // the state shared by the caller and the helpers of one loop
         class CallerFirstLoop
         {
-            public int Next, Count, Chunk;
-            public int Active, Closed;
+            public int Next, Count, MinChunk, Parts;
+            public int Active, Closed, Queued, MaxHelpers;
             public volatile bool Stop;
             public List<Exception> Errors;
-            // (never disposed: a late helper may still call Set after the caller has returned; without a wait it holds no handle)
-            public readonly ManualResetEventSlim Idle = new ManualResetEventSlim(false);
+            // (spins up to 2047 iterations before it blocks, as a helper usually finishes its last chunk within microseconds; never
+            // disposed: a late helper may still call Set after the caller has returned, and without a blocking wait it holds no handle)
+            public readonly ManualResetEventSlim Idle = new ManualResetEventSlim(false, 2047);
 
             public void Fail(Exception e)
             {
@@ -448,14 +449,18 @@ namespace g3
                 Stop = true;
             }
 
-            // a helper joins the loop; false: the caller has closed it (the helper started late and must not touch it)
-            public bool Enter()
+            // a helper joins the loop; false: the caller has closed it (the helper started late and must not touch it). A helper that
+            // joins queues the next one while indices are left, up to MaxHelpers: one wake-up at a time, as Parallel.For starts its
+            // tasks, so that a loop the caller finishes alone wakes one pool thread, not ProcessorCount - 1
+            public bool Enter(WaitCallback help)
             {
                 Interlocked.Increment(ref Active);
                 if (Volatile.Read(ref Closed) == 1) {
                     Leave();
                     return false;
                 }
+                if (Volatile.Read(ref Next) < Count && Interlocked.Increment(ref Queued) <= MaxHelpers)
+                    ThreadPool.QueueUserWorkItem(help);
                 return true;
             }
 
@@ -465,18 +470,37 @@ namespace g3
                     Idle.Set();
             }
 
-            // the next chunk [i0, i1) of the indices; false: none left
+            // the caller starts the loop: the first helper (the others follow from Enter)
+            public void Start(int n, WaitCallback help)
+            {
+                Count = n;
+                MaxHelpers = Math.Max(0, Math.Min(Environment.ProcessorCount - 1, n - 1));
+                Parts = MaxHelpers + 1;
+                // (the smallest chunk, 1/64 of a participant's share: the end of the loop balances unequal items)
+                MinChunk = Math.Max(1, Math.Min(4096, n / (64 * Parts)));
+                if (MaxHelpers > 0) {
+                    Queued = 1;
+                    ThreadPool.QueueUserWorkItem(help);
+                }
+            }
+
+            // the next chunk [i0, i1) of the indices; false: none left. Guided: half of the rest divided by the participants, at least
+            // MinChunk, so the first chunks are large (few counter operations, each participant a contiguous run) and the last small
             public bool Take(out int i0, out int i1)
             {
-                i0 = Interlocked.Add(ref Next, Chunk) - Chunk;
-                // (Next grows by Chunk per take and every participant stops at the first take past Count, so it stays below
-                // Count + Chunk * participants: no overflow for any array-sized Count)
-                if (i0 >= Count) {
-                    i1 = i0;
-                    return false;
+                while (true) {
+                    i0 = Volatile.Read(ref Next);
+                    if (i0 >= Count) {
+                        i1 = i0;
+                        return false;
+                    }
+                    int rest = Count - i0;
+                    i1 = i0 + Math.Min(rest, Math.Max(MinChunk, rest / (2 * Parts)));
+                    // (the chunk [i0, i1) is this caller's only if Next was still i0: the chunks of all participants are disjoint and cover
+                    // [0, Count); Next never exceeds Count)
+                    if (Interlocked.CompareExchange(ref Next, i1, i0) == i0)
+                        return true;
                 }
-                i1 = Math.Min(Count, i0 + Chunk);
-                return true;
             }
 
             // the caller: no helper joins after this; wait for the helpers that joined, then throw the failures
@@ -489,27 +513,17 @@ namespace g3
                 if (Errors != null)
                     throw new AggregateException(Errors);
             }
-
-            // the number of helpers of a loop of n items (the caller is the other participant), and the chunk size: about 1/16 of a
-            // participant's share, so that unequal items balance, and at most 4096 items between two reads of the counter
-            public static int Helpers(int n)
-            {
-                return Math.Max(0, Math.Min(Environment.ProcessorCount - 1, n - 1));
-            }
-            public static int ChunkSize(int n, int helpers)
-            {
-                return Math.Max(1, Math.Min(4096, n / (16 * (helpers + 1))));
-            }
         }
 
         sealed class CallerFirstRange : CallerFirstLoop
         {
             public int From;
             public Action<int> Body;
+            public WaitCallback HelpCallback;
 
             public void Help(object unused)
             {
-                if (!Enter())
+                if (!Enter(HelpCallback))
                     return;
                 try { Run(); } finally { Leave(); }
             }
@@ -534,10 +548,11 @@ namespace g3
             public int From;
             public Func<TLocal> LocalInit;
             public Action<int, TLocal> Body;
+            public WaitCallback HelpCallback;
 
             public void Help(object unused)
             {
-                if (!Enter())
+                if (!Enter(HelpCallback))
                     return;
                 try { Run(); } finally { Leave(); }
             }
@@ -569,11 +584,9 @@ namespace g3
             int n = to - from;
             if (n <= 0)
                 return;
-            int helpers = CallerFirstLoop.Helpers(n);
-            var loop = new CallerFirstRange() { From = from, Body = body, Count = n, Chunk = CallerFirstLoop.ChunkSize(n, helpers) };
-            WaitCallback help = loop.Help;
-            for (int k = 0; k < helpers; ++k)
-                ThreadPool.QueueUserWorkItem(help);
+            var loop = new CallerFirstRange() { From = from, Body = body };
+            loop.HelpCallback = loop.Help;
+            loop.Start(n, loop.HelpCallback);
             loop.Run();
             loop.Close();
         }
@@ -584,11 +597,9 @@ namespace g3
             int n = to - from;
             if (n <= 0)
                 return;
-            int helpers = CallerFirstLoop.Helpers(n);
-            var loop = new CallerFirstRange<TLocal>() { From = from, LocalInit = localInit, Body = body, Count = n, Chunk = CallerFirstLoop.ChunkSize(n, helpers) };
-            WaitCallback help = loop.Help;
-            for (int k = 0; k < helpers; ++k)
-                ThreadPool.QueueUserWorkItem(help);
+            var loop = new CallerFirstRange<TLocal>() { From = from, LocalInit = localInit, Body = body };
+            loop.HelpCallback = loop.Help;
+            loop.Start(n, loop.HelpCallback);
             loop.Run();
             loop.Close();
         }
@@ -614,8 +625,10 @@ namespace g3
                                 while (got < chunk && !ended) {
                                     if (e.MoveNext())
                                         items[got++] = e.Current;
-                                    else
+                                    else {
                                         ended = true;
+                                        Volatile.Write(ref loop.Next, int.MaxValue);
+                                    }
                                 }
                             }
                             if (got == 0)
@@ -629,14 +642,14 @@ namespace g3
                         loop.Fail(x);
                     }
                 };
-                WaitCallback helper = (unused) => {
-                    if (!loop.Enter())
+                WaitCallback helper = null;
+                helper = (unused) => {
+                    if (!loop.Enter(helper))
                         return;
                     try { work(); } finally { loop.Leave(); }
                 };
-                int helpers = Environment.ProcessorCount - 1;
-                for (int k = 0; k < helpers; ++k)
-                    ThreadPool.QueueUserWorkItem(helper);
+                // (the length is unknown: Next < Count until the source has ended, so that the helpers chain up to ProcessorCount - 1)
+                loop.Start(int.MaxValue, helper);
                 work();
                 // (the enumerator is disposed after Close: no helper reads it then)
                 loop.Close();
