@@ -213,3 +213,13 @@ Papers read as abstracts only, no code read.
 |---|---|
 | Idea 1: volume and Euler characteristic as valuations (inclusion-exclusion on the exact Boolean results), χ(∂M) = 2χ(M) | Hadwiger 1957 and χ(∂M) = 2χ(M) as cited in [meshing-and-repair.md](meshing-and-repair.md) (contouring topology certificate, Theorem 6); D. A. Klain, G.-C. Rota, *Introduction to Geometric Probability*, Cambridge 1997 (from memory); the divergence theorem (any analysis text) |
 | Idea 2: modular sign and zero evaluation of integer predicates, recombined by CRT (prior art compared, not built) | H. Brönnimann, I. Z. Emiris, V. Y. Pan, S. Pion, *Computing exact geometric predicates using modular arithmetic with single precision*, SoCG 1997 (abstract and fragments) |
+
+## Solid-shell and trueform reading study (2026-11-25, research only, no library code)
+
+[docs/research/SOLID_SHELL_AND_TRUEFORM_READING_2026-11.md](../research/SOLID_SHELL_AND_TRUEFORM_READING_2026-11.md).
+Cited, not implemented. Papers read as stated per row; no code of either project read.
+
+| Part | Source |
+|---|---|
+| Per-face solid / shell labels by a binary winding number energy with user hint points (prior art for "sheet or shell is intent", not implemented) | S. Wang, J. Meny, I. Grguric, M. Rahimzadeh, D. Zorin, D. Panozzo, H.-T. D. Liu, *Solid-Shell Labeling for Discrete Surfaces*, SIGGRAPH Asia 2025 Conference Papers, DOI 10.1145/3757377.3763847 (read in full). Code github.com/rachael-wang/SolidShellLabeling, MIT (licence and README read, source not read) |
+| Integer-grid arrangement with five contact types, radial order from the input planes, majority votes over topological units, declared sheets as operands (prior art compared, not implemented) | Z. Sajovic, D. Knez, *trueform: fast and robust mesh CSG via topological aggregation*, arXiv 2607.15905, 2026 (read in full); Z. Sajovic, D. Knez, *trueForm: Real-Time Mesh Booleans that Commute with Mesh Idealization*, TechRxiv 2025, DOI 10.36227/techrxiv.174667714.42575478/v1 (abstract only, full text not reachable). Code github.com/polydera/trueform under PolyForm Noncommercial 1.0.0 or a commercial licence: not a permitted source, never read or ported (only its licence files and README were read) |
