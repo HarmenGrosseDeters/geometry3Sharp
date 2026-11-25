@@ -18,29 +18,36 @@ All vertices were valid. The last refinement gives an empirical order of 2.02 fr
 
 ### Where the maximum nodal error sits (re-checked 2026-11-25)
 
-A scratch check, not committed, shows three things.
-- **The operator matches its formula.** It recomputed the vector at every vertex from the mixed-area cotangent formula of Meyer et al.
-  (their eq. 8 with the mixed area), independently of `MeshCurvature`. The library matches it to 9e-14 at every level up to 129 vertices per
-  cube edge.
-- **The growing maximum sits on the cube seams.** It is always at a valence-4 vertex on a seam of the normalized cube, where two grid
-  families of neighbouring faces meet. The eight valence-3 corners have zero error by symmetry.
+The probe prints a second table, "localization of the maximum nodal error". It gives the maximum per vertex class of the normalized cube:
+- **corners**: all three |coordinates| equal, split by valence;
+- **seams**: the two largest |coordinates| equal, corners excluded;
+- **face interiors**.
 
-| Vertices per cube edge | RMS nodal error | Maximum on seams | Maximum on face interiors |
-|---:|---:|---:|---:|
-| 5 | 0.21489 | 0.93235 | 0.061415 |
-| 17 | 0.063021 | 1.1234 | 0.014802 |
-| 65 | 0.016505 | 1.1786 | 0.0034927 |
-| 129 | 0.0083278 | 1.1890 | 0.0018365 |
+The cube-sphere has no valence-3 vertices. Four of its eight corners have valence 4 and the other four valence 5, and every other vertex has
+valence 6.
 
-- **The midpoint icosphere (`IcosphereFixture`) converges everywhere.** Its maximum nodal error halves at each subdivision: 0.0334, 0.0167,
-  0.00835, 0.00417 and 0.00209 for levels 2 to 6.
+A scratch evaluation of the mixed-area cotangent formula of Meyer et al. (their eq. 8 with the mixed area), independent of `MeshCurvature`,
+matches the library to 9e-14 at every level up to 129 vertices per cube edge. The 129 row comes from that scratch run; the probe stops at 65.
 
-So the seam error levels off at about 1.19 (60 % of |2x|): an O(1) consistency error of the pointwise cotangent operator on a stencil without
-the needed symmetry. It is not a defect of the implementation, and not an artefact of the probe's normalisation (the RMS and the face-interior
-maximum fall as O(h)). This is the known behaviour: pointwise convergence of the cotangent mean-curvature normal needs regular (eg valence-6,
-symmetric) neighbourhoods (G. Xu, *Discrete Laplace-Beltrami operators and their convergence*, CAGD 21, 2004; Wardetzky, *Convergence of the
-cotangent formula: an overview*, 2008). In general it holds only in the weak sense of Hildebrandt, Polthier and Wardetzky's Corollary 4. A
-pointwise oracle for this operator must use a mesh family with regular stencils, or exclude the seams.
+| Vertices per cube edge | RMS nodal error | Valence-4 corners | Valence-5 corners | Seams | Face interiors |
+|---:|---:|---:|---:|---:|---:|
+| 5 | 0.21489 | 0.932352 | 0.394750 | 0.140103 | 0.0614146 |
+| 17 | 0.063021 | 1.12345 | 0.489552 | 0.0604134 | 0.0148022 |
+| 65 | 0.016505 | 1.17859 | 0.528345 | 0.0229633 | 0.00349267 |
+| 129 | 0.0083278 | 1.1890 | 0.537 | 0.012444 | 0.0018365 |
+
+- **The growing maximum sits at the four valence-4 corners.** It levels off at about 1.19, 60 % of |2x|.
+- **The valence-5 corners also stay O(1)** and grow slowly, from 0.39 to 0.54.
+- **Seams and face interiors converge**, at about O(h). So does the RMS error.
+- **The midpoint icosphere (`IcosphereFixture`) converges everywhere.** It has twelve valence-5 vertices in a symmetric layout. Its maximum
+  nodal error halves at each subdivision: 0.0334, 0.0167, 0.00835, 0.00417 and 0.00209 for levels 2 to 6.
+
+So the corner error is an O(1) consistency error of the pointwise cotangent operator at vertices of irregular valence without the needed
+symmetry. It is not a defect of the implementation, and not an artefact of the probe's normalisation. This is the known behaviour: pointwise
+convergence of the cotangent mean-curvature normal needs regular (eg valence-6, symmetric) neighbourhoods (G. Xu, *Discrete Laplace-Beltrami
+operators and their convergence*, CAGD 21, 2004; Wardetzky, *Convergence of the cotangent formula: an overview*, 2008). In general it holds only
+in the weak sense of Hildebrandt, Polthier and Wardetzky's Corollary 4. A pointwise oracle for this operator on the cube-sphere must exclude the
+eight corners, or use a mesh family with regular stencils.
 
 ### Mean-curvature decision
 
@@ -302,7 +309,7 @@ The shortest edge path is a deliberately constrained control. In particular, the
 
 The [unit-sphere control patch](../../benchmarks/CurvatureWeakProbe/sphere-connection-control.patch) changes the rotation used by `VectorHeatMethod` on each edge. It decodes the head's local vector (1, 0), projects it onto the smooth sphere tangent plane, transports it analytically along the short great-circle arc, and encodes the result at the tail. The encoded angle fixes the replacement 2D rotation. This calibrates one reference direction per edge. The signpost-to-world map is piecewise linear in angle, so one rotation need not match analytic transport for every direction. Connectivity, weights, vertex mass, right-hand side, factorization and output conversions stay the same.
 
-Run the baseline from the repository root, then apply the patch in a disposable worktree. The patch assumes unit-sphere vertices and is intended only for the two commands below.
+The three `.patch` files are pinned to this branch. They change `mesh_ops/VectorHeatMethod.cs` at blob `3d4001f` (unchanged on master up to 2026-11-25) and the probe files as committed here. The arrival control applies only on top of the resultant patch. After a later change to those files, check out this branch's commit or use `git apply -3`. Run the baseline from the repository root, then apply the patch in a disposable worktree. The patch assumes unit-sphere vertices and is intended only for the two commands below.
 
 ```sh
 dotnet run -c Release --project benchmarks/CurvatureWeakProbe -- --heat-sources

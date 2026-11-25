@@ -8,8 +8,6 @@ K. Hildebrandt, K. Polthier and M. Wardetzky, [On the Convergence of Metric and 
 
 M. Wardetzky, [Convergence of the Cotangent Formula: An Overview](https://ddg.math.uni-goettingen.de/pub/convergence_cotan.pdf), §§2–3. The finite-element formulation motivates the scalar stiffness-energy oracle and its distinction from barycentric-mass pointwise estimates. Paper text only.
 
-G. Xu, *Discrete Laplace-Beltrami operators and their convergence*, Computer Aided Geometric Design 21 (2004). Its pointwise convergence conditions on regular (valence-6) stencils explain the seam error of the weak mean-curvature oracle. Paper text only.
-
 ## Certified exact geodesic distance (`ExactMeshGeodesicDistance`, internal test oracle)
 
 Implemented from the papers and the own claims of [docs/design/GEODESICS.md](../design/GEODESICS.md) (Appendix A); no code
