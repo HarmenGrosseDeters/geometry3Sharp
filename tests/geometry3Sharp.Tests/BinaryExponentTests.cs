@@ -137,11 +137,12 @@ namespace geometry3Sharp.Tests
 
         static TpmsLattice Enclosure(double scale)
         {
-            // CellSize 2^k (the box is 2 cells per side), Divisions 4: the cube and every coordinate are dyadic, so the largest coordinate is
-            // a power of two times a constant for every k
+            // the domain sits at the far end of x: with h = CellSize / 4 the largest grid coordinate is h (ceil(Max / h) + 5) = 2^20 CellSize exactly,
+            // the limit of the proven phase bound (coordinate / CellSize <= 2^20). With scale 2^k that coordinate is the power of two 2^(20 + k).
+            double xmax = (Math.Pow(2, 22) - 5) / 4 * scale;
             return new TpmsLattice {
                 Type = TpmsType.SchwarzP, Style = TpmsStyle.Sheet, VolumeFraction = 0.3, Enclosure = true, CellSize = scale, Divisions = 4,
-                Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1, 1, 1) * scale)
+                Box = new AxisAlignedBox3d(new Vector3d(xmax - 2 * scale, -scale, -scale), new Vector3d(xmax, scale, scale))
             };
         }
 
@@ -152,7 +153,7 @@ namespace geometry3Sharp.Tests
             // (and accepted at 2^28, 2^30, 2^32), because Ceiling(Log(2^k, 2)) is k + 1 there. Scan every k that crosses those.
             var reference = Enclosure(1);
             reference.Compute();
-            Assert.Equal(TpmsStatus.Ok, reference.Status);
+            Assert.True(reference.Status == TpmsStatus.Ok, reference.Status + ": " + reference.Message);
             for (int k = -40; k <= 40; ++k) {
                 var t = Enclosure(Math.Pow(2, k));
                 t.Compute();
@@ -168,15 +169,14 @@ namespace geometry3Sharp.Tests
         {
             TpmsLattice reference = null;
             foreach (Similarity s in Similarity.All()) {
+                if (!s.IsExact) continue;   // Enclosure needs a dyadic grid: only the 2^k scales (and the identity) are valid inputs, by design
                 var t = new TpmsLattice {
                     Type = TpmsType.SchwarzP, Style = TpmsStyle.Sheet, VolumeFraction = 0.3, Enclosure = true, CellSize = s.Scale, Divisions = 4,
                     Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1, 1, 1) * s.Scale),
                     Origin = s.Apply(Vector3d.Zero), Rotation = s.Rotation
                 };
                 t.Compute();
-                Assert.True(t.Status == TpmsStatus.Ok || t.Status == TpmsStatus.NotClean || t.Status == TpmsStatus.SelfIntersecting, s.Name + ": " + t.Status + ": " + t.Message);
-                if (!s.IsExact) continue;   // the exact frames: scale a power of two, Origin and Rotation as in the harness
-                Assert.Equal(TpmsStatus.Ok, t.Status);
+                Assert.True(t.Status == TpmsStatus.Ok, s.Name + ": " + t.Status + ": " + t.Message);
                 if (reference == null) { reference = t; continue; }
                 Assert.Equal(reference.Mesh.TriangleCount, t.Mesh.TriangleCount);
                 Assert.Equal(reference.RealizedVolumeFraction, t.RealizedVolumeFraction);
