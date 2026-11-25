@@ -43,6 +43,7 @@ The problems the papers are measured against:
   `ExactMeshBoolean` with `InputRole.Sheet`, case by case? And where they differ, which one is right, by our exact checks?*
 - One upper-bound check, of a few hours and with no licence question: the share of `ExactMeshBoolean.radial_order` in the
   Boolean's time. It decides whether the plane-based radial order of trueform section 2.3 is worth a design.
+  *Done (2026-11-25): closed.* Measured serially on 135 Thingi10K pairs, the procedural unions, and constructed worst cases (a checkerboard of cubes touching along edges, one edge with 1 024 faces): `radial_order` runs only where the kept result touches itself along an edge (never in the ordinary Boolean runs), and takes at most 1.5 % of the Boolean's time even in the worst constructed case, far below the 10 % of the stop rule. The plane-based radial order is not built.
 
 ## 1. What was read, and access
 
