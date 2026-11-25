@@ -6,6 +6,10 @@ Back to [Sources Index](../SOURCES.md) · [sources/README.md](README.md)
 
 The [certified medial-axis study](../research/CERTIFIED_MEDIAL_AXIS_STUDY.md) uses the ordinary local feature size definition from N. Amenta and M. Bern, [Surface Reconstruction by Voronoi Filtering](https://escholarship.org/uc/item/4rc7z0d1), DCG 22 (1999). The contact-radius filter is from F. Chazal and A. Lieutier, [The λ-medial axis](https://geometrica.saclay.inria.fr/team/Fred.Chazal/papers/cl-lma-05/mlambda.pdf), Graphical Models 67 (2005). The critical-point criterion is from F. Chazal, D. Cohen-Steiner and A. Lieutier, [A Sampling Theory for Compact Sets in Euclidean Space](https://geometrica.saclay.inria.fr/team/Fred.Chazal/papers/ccsl-stcse-09/ccsl-stcse-09.pdf), DCG 41 (2009). Paper text only.
 
+## Willmore fairing
+
+K. Crane, U. Pinkall and P. Schröder, *Robust Fairing via Conformal Curvature Flow*, ACM TOG 32(4), 2013. The authors describe a curvature-space formulation with fixed connectivity. The ring-torus study uses its own restricted radius descent and the library's mixed-area curvature estimator. [Authors’ publication summary](https://www.cs.cmu.edu/~kmcrane/Projects/ConformalWillmoreFlow/)
+
 ## Surface deformation (`ArapMeshDeformer`)
 
 | Item | Source |
@@ -137,7 +141,7 @@ code or any other implementation was read). Stage 1 of [design/QUAD_REMESHING.md
 | The smoothest 4-RoSy field as the smallest eigenvector of the Hermitian connection Laplacian against the vertex areas (vertex based discretization: tangent frames, discrete Levi-Civita transport, cotangent weights, singularity index per face; Poincare-Hopf) | F. Knöppel, K. Crane, U. Pinkall, P. Schröder, *Globally Optimal Direction Fields*, ACM TOG 32(4), SIGGRAPH 2013 |
 | Alignment to boundary and crease edges (a linear problem with prescribed unit values, as in the paper's constraints) and to curvature directions (a soft term in the eigenproblem). The formulation is ours: the weights (K1 - K2)^2 a^2 M, the unknown t without mass eliminated by a rank one update, the gauge of the phase | own choice, documented in `CrossField` |
 | Its solver: the Lanczos method with full reorthogonalization and restarts on (K + eps M)^-1 M, which is self-adjoint for the M inner product; the Sherman-Morrison formula for the rank one update | G. H. Golub, C. F. Van Loan, *Matrix Computations*, 4th ed. 2013, Sec. 10.1 (Lanczos), Sec. 2.1.4 (Sherman-Morrison); the dense eigenproblem of the tridiagonal matrix by `SymmetricEigenSolver` |
-| Principal curvatures and directions per vertex: the second fundamental form per triangle by least squares over the edges (differences of the vertex normals), rotated into the vertex frame, averaged with Voronoi corner areas | S. Rusinkiewicz, *Estimating Curvatures and Their Derivatives on Triangle Meshes*, 3DPVT 2004; M. Meyer, M. Desbrun, P. Schröder, A. H. Barr, *Discrete Differential-Geometry Operators for Triangulated 2-Manifolds*, VisMath 2002 (Voronoi areas); N. Max, *Weights for Computing Vertex Normals from Facet Normals*, J. Graphics Tools 1999 (angle weighted normals) |
+| Principal curvatures and directions per vertex: the second fundamental form per triangle by least squares over the edges (differences of the vertex normals), rotated into the vertex frame, averaged with Voronoi corner areas | S. Rusinkiewicz, [*Estimating Curvatures and Their Derivatives on Triangle Meshes*](https://gfx.cs.princeton.edu/pubs/Rusinkiewicz_2004_ECA/curvpaper.pdf), 3DPVT 2004 (§4 and Fig. 8 motivate the torus refinement oracle); M. Meyer, M. Desbrun, P. Schröder, A. H. Barr, *Discrete Differential-Geometry Operators for Triangulated 2-Manifolds*, VisMath 2002 (Voronoi areas); N. Max, *Weights for Computing Vertex Normals from Facet Normals*, J. Graphics Tools 1999 (angle weighted normals) |
 | Smoothing of the curvature tensors over the one-ring (against noise) | own choice |
 | `SparseHermitianCholesky` (the field matrix as a complex Hermitian system of n unknowns): the analysis of `SparseCholesky` (approximate minimum degree, elimination tree, relaxed supernodes) and a left-looking supernodal Cholesky in complex arithmetic | A. George, J. Liu, *The Evolution of the Minimum Degree Ordering Algorithm*, SIAM Review 1989; P. Amestoy, T. Davis, I. Duff, *An Approximate Minimum Degree Ordering Algorithm*, SIAM J. Matrix Anal. Appl. 1996; E. Ng, B. Peyton, *Block sparse Cholesky algorithms on advanced uniprocessor computers*, SIAM J. Sci. Comput. 1993; C. Ashcraft, R. Grimes, *The influence of relaxed supernode partitions on the multifrontal method*, ACM TOMS 1989. No CHOLMOD / SuiteSparse / Eigen / MUMPS / PARDISO code read or taken over |
 
@@ -217,7 +221,7 @@ Clean room ([MESHING2D_SPEC.md](../design/MESHING2D_SPEC.md)): implemented from 
 | Local Delaunay criterion (verification); the Delaunay subdivision and its cells with cocircular points (tie rule) | C. L. Lawson, *Software for C1 surface interpolation*, 1977; B. Delaunay, *Sur la sphère vide*, 1934 |
 | Constrained Delaunay triangulation: definition and local criterion | D. T. Lee, A. K. Lin, *Generalized Delaunay triangulations for planar graphs*, DCG 1986; L. P. Chew, *Constrained Delaunay triangulations*, Algorithmica 1989 |
 | Point insertion by splitting and flips that do not cross constraints; restoring the property after a segment | C. L. Lawson 1977 (see above) |
-| Segment recovery: walk along the segment, flip the crossed edges until it is an edge | S. W. Sloan, *A fast algorithm for generating constrained Delaunay triangulations*, Computers & Structures 1993 |
+| Segment recovery: walk along the segment; half-edge-tracked flips on small cavities (Sloan 1993) and deterministic linear-time simplified earcut on large cavities (Livesu et al. 2022) | S. W. Sloan, *A fast algorithm for generating constrained Delaunay triangulations*, Computers & Structures 1993; M. Livesu, G. Cherchi, R. Scateni, M. Attene, *Deterministic Linear Time Constrained Triangulation Using Simplified Earcut*, IEEE TVCG 28(12):5172-5177, 2022 |
 | Noding: crossings computed exactly with integers (every double is an integer times a power of two), rounded to nearest | Shewchuk 1997 (see above) for the integer view of doubles; the rounding of the output to doubles is decision D1 of MESHING2D_DECISIONS.md |
 | Domain by the even-odd rule within a ring; cells of the constraints for seeds | the domain definition of MESHING2D_SPEC.md and decisions D5, D6, D16 |
 | Exact predicates | `ExactPredicates.Orient2d`, `InCircle` (see above) |
@@ -404,3 +408,13 @@ snap-back check of the probe is own work on the library's exact predicates (the 
 | Projection of a coarse wrap onto the input with regularisation (prior art for the snap back; abstract level) | L. Kobbelt et al., *A shrink wrapping approach to remeshing polygonal surfaces*, CGF 18(3), 1999 |
 | Projection along normals with an adaptive alpha (prior art; abstract only, via web search 2026-11-24; the paper was not read) | Dai et al., 2024 (CAGD, paper on adaptive alpha; the note names no further details) |
 | Envelope-style tolerance (the kept-band option A2; from memory) | J. Cohen et al., *Simplification envelopes*, SIGGRAPH 1996 |
+
+## Soup orientation as Z2 synchronization (2026-11-25, research only, no library code)
+
+[docs/research/HIGHER_MATH_STUDY_2026-11.md](../research/HIGHER_MATH_STUDY_2026-11.md) section 3, probe `benchmarks/HigherMathStudy` (mode `orient`).
+Papers read as abstracts only, no code read.
+
+| Part | Source |
+|---|---|
+| Spectral relaxation of synchronization (the leading eigenvector of the normalized signed adjacency) | A. Singer, *Angular synchronization by eigenvectors and semidefinite programming*, ACHA 30(1), 2011; M. Cucuringu, *Synchronization over Z2 and community detection in signed multiplex networks with constraints*, arXiv 1504.04061, 2015 |
+| Prior art compared (not used): global flips per patch from winding numbers, patches and visibility, solidity labels | K. Takayama, A. Jacobson, L. Kavan, O. Sorkine-Hornung, *Consistently orienting facets in polygon meshes by minimizing the Dirichlet energy of generalized winding numbers*, arXiv 1406.5431, 2014 (a negative result by its abstract); F. Borodin, G. Zachmann, R. Klein, *Consistent normal orientation for polygonal meshes*, CGI 2004 (from memory); T. M. Murali, T. A. Funkhouser, *Consistent solid and boundary representations from arbitrary polygonal data*, I3D 1997 (from memory) |

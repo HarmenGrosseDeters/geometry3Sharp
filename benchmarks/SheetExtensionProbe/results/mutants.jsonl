@@ -1,0 +1,20 @@
+{"mutant":"rule off: Depth","failing":3,"wrongAccepted":3,"moved":0}
+{"mutant":"rule off: Grazing","failing":1,"wrongAccepted":1,"moved":0}
+{"mutant":"rule off: NewPointOutside","failing":2,"wrongAccepted":0,"moved":1}
+{"mutant":"rule off: InvertedQuad","failing":2,"wrongAccepted":0,"moved":0}
+{"mutant":"rule off: OuterEdge","failing":0,"wrongAccepted":0,"moved":0}
+{"mutant":"rule off: CurveRule","failing":1,"wrongAccepted":1,"moved":0}
+{"mutant":"rule off: CoplanarContact","failing":0,"wrongAccepted":0,"moved":1}
+{"mutant":"rule off: MeetsSheet","failing":0,"wrongAccepted":0,"moved":1}
+{"mutant":"rule off: MeetsOtherTool","failing":1,"wrongAccepted":1,"moved":0}
+{"mutant":"last exit instead of first","failing":6,"wrongAccepted":0,"moved":1}
+{"mutant":"fixed overshoot (o_max) instead of the adaptive rule","failing":5,"wrongAccepted":0,"moved":0}
+{"mutant":"choice by vertex instead of by edge","failing":1,"wrongAccepted":0,"moved":0}
+{"mutant":"no subdivision of the outer edge","failing":19,"wrongAccepted":0,"moved":1}
+{"mutant":"quads oriented against the sheet","failing":19,"wrongAccepted":0,"moved":1}
+{"mutant":"fixed overshoot and curve rule off","failing":5,"wrongAccepted":0,"moved":0}
+{"mutant":"last exit and curve rule off","failing":8,"wrongAccepted":4,"moved":0}
+{"mutant":"inverted-quad test and self-intersection test off","failing":2,"wrongAccepted":0,"moved":1}
+{"mutant":"fixed overshoot, new-point test and curve rule off","failing":6,"wrongAccepted":0,"moved":1}
+{"mutant":"new-point test and coplanar test off","failing":2,"wrongAccepted":0,"moved":2}
+{"mutant":"new-point test and curve rule off","failing":3,"wrongAccepted":1,"moved":1}

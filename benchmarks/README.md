@@ -26,6 +26,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [LevyClassification](LevyClassification/README.md) | Phase-1 propagation classification probe for `ExactMeshBoolean` |
 | [MeshMeshCutContactBenchmark](MeshMeshCutContactBenchmark/README.md) | Cost of exact contact detection in `MeshMeshCut.RefuseContact` |
 | [OpenCuttingSurface](OpenCuttingSurface/README.md) | Prototype of the candidate semantics for a Difference with an open cutting surface (#1211): existing parts, sheet role, winding rules, swept tool |
+| [SheetExtensionProbe](SheetExtensionProbe/README.md) | Spike of the sheet extension design: continues a sheet whose rim ends just short of the workpiece's surface to it (public API only), verifies it exactly, 35 procedural cases in 5 frames with a `selftest` exit code, mutation of the rules by hand, a mode for two mesh files |
 | [PredicateComparison](PredicateComparison/README.md) | Accuracy and speed of `orient2d`, `incircle`, and `orient3d` implementations vs. exact reference |
 | [SelfIntersectionBenchmark](SelfIntersectionBenchmark/README.md) | Cost of exact self-intersection checks and `Reducer.PreventSelfIntersections` |
 | [SelfIntersectionUntangle](SelfIntersectionUntangle/README.md) | Spike: a connectivity-preserving untangling prototype against `MeshRobustRepair`, the exact resolve, the solidify and the alpha wrap on procedural self-intersecting solids |
@@ -43,6 +44,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [NotCleanBenchmark](NotCleanBenchmark/README.md) | Runtime of the checks behind `MeshRobustRepair.NotCleanReason` on large procedural meshes |
 | [OpenSoupWrapBenchmark](OpenSoupWrapBenchmark/README.md) | Alpha-wrap size estimation on open inputs and `WrapMaxEstimatedTriangles` budget |
 | [SmallInputWrapBenchmark](SmallInputWrapBenchmark/README.md) | Alpha-wrap fallback sizing on very small inputs (`SmallInputWrapTriangles`) |
+| [LostAreaBenchmark](LostAreaBenchmark/README.md) | Cost of the `MeshRobustRepair.MeasureLostArea` report against the repair on procedural inputs |
 | [CertifiedMedialAxisProbe](CertifiedMedialAxisProbe/README.md) | Why a certified lower bound on local feature size cannot replace SafeRounding's thin-solid criteria (crease witnesses, thin slabs) |
 | [SharpFeatureProbe](SharpFeatureProbe/README.md) | Measure-first probe for sharp-feature recovery in `MeshAlphaWrap` |
 | [SolidifyBenchmark](SolidifyBenchmark/README.md) | Time and result hashes for `MeshWindingNumberSolidify` |
@@ -61,6 +63,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 |---|---|
 | [Meshing2Benchmark](Meshing2Benchmark/README.md) | Acceptance gates, golden rows, and ALKIS/Herne corpora for `DelaunayMesh2` / `ConstrainedDelaunayMesh2` / `QualityMesh2` |
 | [OracleIndexPilot](OracleIndexPilot/README.md) | Certified STRtree spatial index performance for the independent 2D meshing oracle |
+| [HigherMathStudy](HigherMathStudy/README.md) | Research probes of docs/research/HIGHER_MATH_STUDY_2026-11.md: valuation identity on exact Boolean results, the BigInteger profile workload, triangle-soup orientation (Z2 synchronization vs the library) |
 | [Meshing2HardProblems](Meshing2HardProblems/README.md) | Research spike prototypes: reference small-angle refinement rules (HP 6) and a certifying checker against the 2D meshing oracle (HP 7) |
 | [OracleSourcePilot](OracleSourcePilot/README.md) | Constrained-edge source coverage diagnostics for the 2D meshing oracle |
 | [TetMeshBenchmark](TetMeshBenchmark/README.md) | `MeshTetrahedralization` insertion rates, dihedral quality, size control, and crease recovery |

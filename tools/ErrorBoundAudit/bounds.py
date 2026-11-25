@@ -1077,7 +1077,8 @@ def _exact_edge(p, a, b):
 
 
 def _fast_edge(p, a, b):
-    """the fast path of boundary_edge_angle_x on doubles, in the order of the source (no FMA): the angle and whether the exact zone fires"""
+    """the fast path of boundary_edge_angle_x on doubles, in the order of the source (no FMA): the rounded angle and whether finish_edge_angle
+    sends the edge to the accurate evaluation instead (the cancellation clause, or the branch cut clause with the subnormal guard)"""
     ax, ay, az = a[0] - p[0], a[1] - p[1], a[2] - p[2]
     bx, by, bz = b[0] - p[0], b[1] - p[1], b[2] - p[2]
     yzA2 = ay * ay + az * az
@@ -1089,9 +1090,11 @@ def _fast_edge(p, a, b):
     p1, p2 = ay * bz, az * by
     num = p2 - p1
     den = da * db + (ay * by + az * bz)
-    num_err = 1e-12 * (abs(p1) + abs(p2))
-    den_err = 1e-12 * (da * db + abs(ay * by) + abs(az * bz))
-    return math.atan2(num, den), (den <= den_err and abs(num) <= num_err)
+    s1 = abs(p1) + abs(p2)
+    s2 = da * db + abs(ay * by) + abs(az * bz)
+    an = abs(num)
+    accurate = an + abs(den) < FAST_ANGLE_RATIO * (s1 + s2) or (den <= 1e-12 * s2 and (an <= 1e-12 * s1 or s1 < SUBNORMAL_S1))
+    return math.atan2(num, den), accurate
 
 
 def _angle_error_bound(num, den, s1, s2):
@@ -1168,9 +1171,11 @@ def _sample_edges(c, r, certified):
         if (a[1] == p[1] and a[2] == p[2]) or (b[1] == p[1] and b[2] == p[2]):
             continue
         num, den, s1, s2 = _exact_edge(p, a, b)
-        got, zone = _fast_edge(p, a, b)
-        if not certified and zone:
-            continue                                        # (the exact zone: decided by the exact predicates, sign only)
+        got, accurate = _fast_edge(p, a, b)
+        if certified and accurate:
+            c.violations.append(('CERTIFIED EDGE LEAVES THE ROUNDED PATH', got, 0.0, 0.0))
+        if not certified and accurate:
+            continue                                        # (the accurate evaluation: integer arithmetic, not modelled here)
         exact = math.atan2(float(num), float(den))
         err = abs(got - exact)
         if not certified:
@@ -1179,7 +1184,7 @@ def _sample_edges(c, r, certified):
             # difference there is a real error of 2 pi and stays one: no reduction
             err = min(err, abs(err - 2 * math.pi))
         bound = _angle_error_bound(num, den, s1, s2) + slack
-        limit = min(bound, ONE_E14_D + slack) if certified else bound
+        limit = min(bound, ONE_E14_D + slack) if certified else min(bound, ROUNDED_ANGLE_BOUND)
         ratio = Decimal(err) / limit
         r.observed.append(float(ratio))
         if ratio > 1:
@@ -1187,27 +1192,47 @@ def _sample_edges(c, r, certified):
 
 
 ONE_E14_D = Decimal(1) / Decimal(10 ** 14)
+FAST_ANGLE_RATIO = 0.03125                  # 2^-5, `FastAngleRatio` of the source
+SUBNORMAL_S1 = 9.3326361850321888e-302      # 2^-1000, `SubnormalS1` of the source
+ROUNDED_ANGLE_BOUND = Decimal(2) / Decimal(10 ** 13)    # the 2e-13 the rounded evaluation is kept within
 
 
 @entry('BT-6 the edge angle error against the distance from the edge', WIND,
-       ['double den = da * db + dotYZ;', 'double dotYZ = ay * by + az * bz;', 'double numErr = 1e-12 * (Math.Abs(p1) + Math.Abs(p2));',
-        'if (den <= denErr && Math.Abs(num) <= numErr) {', 'return Math.Atan2(num, den);'],
-       'the computed angle of boundary_edge_angle_x (fast path) differs from the exact one by at most (pi / 2)(2 u S1 + 22 u S2) / hypot(num, den) + 2 pi u + 2 ulp, '
-       'hypot = |a||b| sqrt(2 (1 + U.V) x_u x_v), S1 <= 2 and S2 <= 4 times |a||b| sqrt(x_u x_v)',
-       'the fast path (normal products). UNBOUNDED as p approaches the edge (1 + U.V -> 0): at most 8e-15 / sin(theta / 2), about 1.6e-14 / theta, for the angular distance theta of p from the '
-       'edge, then at most pi; the exact zone (|num| <= numErr and den <= denErr) is a sign guard, not an accuracy guarantee. NOT the A1 of the tree (BT-5: under the certificate theta is bounded below). '
-       'Describes master: the branch fix/exact-winding-open-edge-angle replaces the fast formula where hypot is small, outside the domain the tree relies on',
-       '(pi / 2)(2 u S1 + 22 u S2) / hypot')
+       ['double den = da * db + dotYZ;', 'double dotYZ = ay * by + az * bz;', 'double s1 = Math.Abs(p1) + Math.Abs(p2);',
+        'if (an + Math.Abs(den) < FastAngleRatio * (s1 + s2) || (den <= 1e-12 * s2 && (an <= 1e-12 * s1 || s1 < SubnormalS1))) {',
+        'const double FastAngleRatio = 0.03125;', 'const double SubnormalS1 = 9.3326361850321888e-302;', 'return Math.Atan2(num, den);'],
+       'the rounded angle of finish_edge_angle differs from the exact one by at most (pi / 2)(4.01 u S1 + 22.1 u S2) / hypot(num, den) + 2 pi u + 2 ulp, '
+       'and the rounded path is kept only where |num| + |den| >= 2^-5 (S1 + S2), so hypot >= 0.0220 (S1 + S2)',
+       'the rounded path (normal products in S2; S2 >= 2^-602 on the fast path, S1 may be subnormal). Bounded by 1.8e-13 wherever it is kept: the evaluation near an open edge '
+       '(1 + U.V -> 0, where hypot is small against S1 + S2) goes to the accurate path (exact integers, within 2e-15: not modelled, the note derives it). The sign of the rounded num is the exact one where '
+       'it decides the branch cut (den <= 1e-12 S2): |num| > 1e-12 S1 with S1 >= 2^-1000, the absolute rounding of the products (2^-1074) being below 2^-74 S1; S1 < 2^-1000 goes to the accurate path. '
+       'NOT the A1 of the tree (BT-5: under the certificate the edge keeps the rounded path, margin 10 on the tested quantity)',
+       '(pi / 2)(4.01 u S1 + 22.1 u S2) / hypot')
 def edge_angle_domain(c, r):
-    # theta: the angular distance of p from the edge, so that U.V = -cos(theta) and hypot / (|a||b|) = sqrt(2 (1 - cos theta) x_u x_v) = 2 sin(theta / 2) sqrt(x_u x_v);
-    # (2 S1 + 22 S2) <= (2 * 2 + 22 * 4) |a||b| sqrt(x_u x_v), so error <= (pi / 2)(4 + 88) u / (2 sin(theta / 2)) = 23 pi u / sin(theta / 2) = 8.0e-15 / sin(theta / 2) ~ 1.6e-14 / theta (sin(theta / 2) ~ theta / 2)
-    k = PI_HI / 2 * (2 * 2 + 22 * 4) * U / 2
-    theta_1e12 = 2 * math.asin(float(k) / 1e-12)
-    r.add(*arith('the error is at most %.2e / sin(theta / 2), %.2e / theta' % (float(k), float(2 * k)), 7.9e-15 < float(k) < 8.1e-15 and 1.58e-14 < float(2 * k) < 1.62e-14,
-                 'the coefficient (pi / 2)(2 * 2 + 22 * 4) u / 2; measured in the issue draft: error about 1e-16 / theta (the bound is a worst case of the constants)'))
+    # the decision of finish_edge_angle: rounded where |num| + |den| >= 2^-5 (S1 + S2); hypot >= (|num| + |den|) / sqrt 2
+    hyp_lo = FAST_ANGLE_RATIO / math.sqrt(2)
+    r.add(*arith('the rounded path has hypot >= %.5f (S1 + S2)' % hyp_lo, hyp_lo >= 0.0220 and FAST_ANGLE_RATIO == 2.0 ** -5,
+                 'hypot(num, den) >= (|num| + |den|) / sqrt 2 >= 2^-5 / sqrt 2 (S1 + S2) = 0.022097 (S1 + S2) >= 0.0220 (S1 + S2)'))
+    # |Delta| <= 4.01 u S1 + 22.1 u S2 <= 22.1 u (S1 + S2) (the note's roundings: num 3u + u, da db and dotYZ 22.1u); asin(x) <= (pi / 2) x on [0, 1]
+    ratio = Fraction(221, 10) * U / Fraction(22, 1000)
+    k = float(PI_HI / 2 * ratio)
+    tot = k + float(2 * PI_HI * U) + 2.0 ** -50
+    r.add(*arith('the error of a kept rounded angle is at most %.3e (with 2 pi u + 2 ulp: %.3e), below 2e-13' % (k, tot), tot < 2e-13,
+                 '(pi / 2) 22.1 u (S1 + S2) / (0.0220 (S1 + S2)) = (pi / 2) 1005 u, no dependence on the distance from the edge: the cancellation is cut off by the clause'))
+    # the sign of num where it decides the branch cut: |Delta num| <= 4.01 u S1 + 2^-1074 <= (4.01 u + 2^-74) S1 for S1 >= 2^-1000, below 1e-12 S1 < |num|
+    sign_rel = 4.01 * float(U) + 2.0 ** -74
+    r.add(*arith('the sign of num is exact where |num| > 1e-12 S1 and S1 >= 2^-1000 (error %.3e S1)' % sign_rel,
+                 sign_rel < 1e-12 and 2.0 ** -1074 <= 2.0 ** -74 * SUBNORMAL_S1 and SUBNORMAL_S1 == 2.0 ** -1000,
+                 'the products round to the subnormal grid below 2^-1022 (absolute error 2^-1075 each, 2^-1074 for num); from S1 = 2^-1000 on that is 2^-74 S1; '
+                 'below S1 ~ 2^-1034 it exceeds 1e-12 S1, so the guard 2^-1000 sends S1 < 2^-1000 to the accurate path (the reviewer input of #1514: +pi against -pi)'))
+    # S2 of the fast path is far above the subnormal grid: |yz| >= 2^-100 |a|, 2^-100 <= |a|: da >= yz^2 / (2 |a|) >= 2^-201 |a| >= 2^-301
+    r.add(*arith('the subnormal products of num do not touch the angle bound (S2 >= 2^-602 on the fast path)',
+                 2.0 ** -1074 / 2.0 ** -602 < float(U) * 2.0 ** -100,
+                 'absolute error 2^-1074 of num against 22.1 u S2: 2^-472 relative to S2, below u 2^-100'))
     theta_cert = math.pi - 2 * math.asin(0.25)
-    r.add(*arith('an accepted node keeps theta >= %.2f rad, far above %.1e' % (theta_cert, theta_1e12), theta_cert > theta_1e12 * 100,
-                 'r < d / 4 puts the two unit vectors at most 2 asin(1/4) = 0.505 rad apart: p sees every edge of the node at theta >= pi - 0.505 (`ball_is_small`, r < d / 4, not the rest of `fast_path_certificate`); below theta = %.1e the formula is weaker than the 1e-12 per edge that nodeErr charges' % theta_1e12))
+    r.add(*arith('an accepted node keeps theta >= %.2f rad: |num| + |den| >= 0.32 (S1 + S2), above 2^-5 by the factor 10' % theta_cert, 0.32 / FAST_ANGLE_RATIO > 10,
+                 'r < d / 4 puts the two unit vectors at most 2 asin(1/4) = 0.505 rad apart (`ball_is_small`); the design note: hypot >= 1.93 la lb sqrt(x_u x_v), S1 + S2 <= 6 la lb sqrt(x_u x_v), '
+                 'so every edge of an accepted node keeps the rounded path, bit for bit (the concrete run counts a certified edge on the accurate path as a violation)'))
     _sample_edges(c, r, certified=False)
 
 

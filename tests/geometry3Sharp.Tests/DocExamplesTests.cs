@@ -333,6 +333,21 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void MeshRepairExample_LostAreaShareIsTheWallOfABox()
+        {
+            // the unit box (area 6) and a slab through it from wall to wall: two interior faces of area 1 are lost, the box is the result
+            DMesh3 input = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(.5, .5, .5), new Vector3d(.5, .5, .5)) }.Generate().MakeDMesh();
+            MeshEditor.Append(input, new TrivialBox3Generator() { Box = new Box3d(new Vector3d(.5, .5, .5), new Vector3d(.5, .05, .5)) }.Generate().MakeDMesh());
+            int lost;
+            double maxDistance;
+            double share = MeshRepairExample.LostAreaShare(input, out lost, out maxDistance);
+            Assert.Equal(2.0 / 8.4, share, 9);
+            Assert.Equal(4, lost);
+            Assert.InRange(maxDistance, 0.4, 0.4501);
+            Assert.Equal(0.0, MeshRepairExample.LostAreaShare(Sphere(1, Vector3d.Zero), out lost, out maxDistance));
+        }
+
+        [Fact]
         public void HoleFillExample_FillsAllHoles()
         {
             DMesh3 mesh = Sphere(1, Vector3d.Zero);
@@ -496,6 +511,34 @@ namespace geometry3Sharp.Tests
             Assert.True(op.Status == ExactMeshBoolean.BooleanStatus.Success, op.Status + " " + op.Error);
             Assert.Equal("", gs.MeshRobustRepair.NotCleanReason(op.Result));
             Assert.Equal(volume, Volume(op.Result), 9);
+        }
+
+        [Fact]
+        public void SheetExtensionExample_ShortRimIsContinued_DeepRimIsDiagnosedAndRefused()
+        {
+            // the cube [0,4]^3 and the sheet z = 2 (normals up), wider than the cube in y and ending 0.1 short of the face x = 4 (1.3 % of the diagonal)
+            SheetExtensionExample.Outcome shortRim = SheetExtensionExample.Run(SweptCutCube(), SweptCutSheet(-1, -1, 3.9, 5, 1, 5, 2));
+            Assert.Equal(ExactMeshBoolean.SheetRefusal.RimInsideWorkpiece, shortRim.PlainRefusal);
+            Assert.Equal(MeshSheetExtension.ExtensionStatus.Success, shortRim.Status);
+            Assert.Single(shortRim.Diagnosis.Runs);
+            Assert.Equal(4.0, shortRim.Diagnosis.InsideLength, 9);
+            Assert.InRange(shortRim.Diagnosis.MaxDepthRelative, 0.0129, 0.0135);
+            Assert.True(shortRim.ExtendedSheet.TriangleCount > 2);
+            Assert.NotNull(shortRim.Cut);
+            Assert.Equal("", gs.MeshRobustRepair.NotCleanReason(shortRim.Cut));
+            Assert.Equal(32, Volume(shortRim.Cut), 9);          // the upper half, as the sheet that crosses fully
+            // the same sheet ending in the middle of the cube is too deep (50 % of the diagonal): diagnosed, not extended, nothing cut
+            SheetExtensionExample.Outcome deep = SheetExtensionExample.Run(SweptCutCube(), SweptCutSheet(-1, -1, 2, 5, 1, 1, 2));
+            Assert.Equal(ExactMeshBoolean.SheetRefusal.RimInsideWorkpiece, deep.PlainRefusal);
+            Assert.True(deep.Diagnosis.Runs[0].NoExitWithinLimit);
+            Assert.True(deep.Diagnosis.MaxDepthRelative > 0.2);
+            Assert.Null(deep.ExtendedSheet);
+            Assert.Null(deep.Cut);
+            // a sheet that cuts as it is is cut as it is
+            SheetExtensionExample.Outcome plain = SheetExtensionExample.Run(SweptCutCube(), SweptCutSheet(-1, -1, 5, 5, 1, 1, 2));
+            Assert.Equal(ExactMeshBoolean.SheetRefusal.None, plain.PlainRefusal);
+            Assert.Null(plain.Diagnosis);
+            Assert.Equal(32, Volume(plain.Cut), 9);
         }
 
         [Fact]

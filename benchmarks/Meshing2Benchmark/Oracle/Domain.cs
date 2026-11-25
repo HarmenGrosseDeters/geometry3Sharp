@@ -28,6 +28,14 @@ namespace Meshing2Acceptance
         Q? area;
         public readonly Q Perimeter2Bound; // an upper bound of the summed ring lengths, for area tolerances
 
+        // Per-Domain fast-path geometry caches (populated only when Filter == true)
+        double[] ringBoxFlat;       // 4 doubles per ring: x0, x1, y0, y1 (NaN if unknown)
+        double[] ringInnerFlat;     // 4 doubles per ring: min_i x_hi, max_i x_lo, min_i y_hi, max_i y_lo (NaN if unknown)
+        double[][] ringVB;
+        double[][] ringEB;
+        EdgeBuckets[] ringBuckets;
+        RingGrid ringGrid;
+
         public Domain(Mesh2Input input, bool filter = true)
         {
             Filter = filter;
@@ -44,18 +52,9 @@ namespace Meshing2Acceptance
                 Rings.Insert(0, (hull, false));
                 IsHull = true;
             }
-            inside = new bool[Rings.Count, Rings.Count];
-            for (int a = 0; a < Rings.Count; ++a)
-                for (int b = 0; b < Rings.Count; ++b)
-                    if (a != b) inside[a, b] = Nested(Rings[a].ring, Rings[b].ring, Filter);
+            InitRingStructures();
             area = ComputeArea();
-            Q length = Q.Zero;
-            foreach (var ring in Outers.Concat(Holes))
-                for (int i = 0; i < ring.Length; ++i) {
-                    var a = ring[i]; var b = ring[(i + 1) % ring.Length];
-                    length += Q.Abs(a.Qx - b.Qx) + Q.Abs(a.Qy - b.Qy); // L1 length is at least the Euclidean length
-                }
-            Perimeter2Bound = length;
+            Perimeter2Bound = SumPerimeterL1(Outers.Concat(Holes));
         }
 
         /// <summary>
@@ -70,11 +69,122 @@ namespace Meshing2Acceptance
                 (hole ? Holes : Outers).Add(ring);
                 Rings.Add((ring, hole));
             }
-            inside = new bool[Rings.Count, Rings.Count];
-            for (int a = 0; a < Rings.Count; ++a)
-                for (int b = 0; b < Rings.Count; ++b)
-                    if (a != b) inside[a, b] = Nested(Rings[a].ring, Rings[b].ring, Filter);
+            InitRingStructures();
             Perimeter2Bound = Q.Zero;
+        }
+
+        static Q SumPerimeterL1(IEnumerable<Pt[]> rings)
+        {
+            var list = rings as IList<Pt[]> ?? rings.ToList();
+            System.Numerics.BigInteger maxW = System.Numerics.BigInteger.One;
+            bool dyadic = true;
+            foreach (var ring in list)
+                for (int i = 0; i < ring.Length; ++i) {
+                    var w = ring[i].W;
+                    if (!w.IsPowerOfTwo) { dyadic = false; break; }
+                    if (w > maxW) maxW = w;
+                }
+            if (dyadic) {
+                System.Numerics.BigInteger sum = System.Numerics.BigInteger.Zero;
+                foreach (var ring in list)
+                    for (int i = 0; i < ring.Length; ++i) {
+                        var a = ring[i]; var b = ring[(i + 1) % ring.Length];
+                        var fa = maxW / a.W; var fb = maxW / b.W;
+                        sum += System.Numerics.BigInteger.Abs(a.X * fa - b.X * fb) + System.Numerics.BigInteger.Abs(a.Y * fa - b.Y * fb);
+                    }
+                return new Q(sum, maxW);
+            }
+            Q length = Q.Zero;
+            foreach (var ring in list)
+                for (int i = 0; i < ring.Length; ++i) {
+                    var a = ring[i]; var b = ring[(i + 1) % ring.Length];
+                    length += Q.Abs(a.Qx - b.Qx) + Q.Abs(a.Qy - b.Qy); // L1 length is at least the Euclidean length
+                }
+            return length;
+        }
+
+        void InitRingStructures()
+        {
+            int n = Rings.Count;
+            inside = new bool[n, n];
+            if (!Filter) {
+                for (int a = 0; a < n; ++a)
+                    for (int b = 0; b < n; ++b)
+                        if (a != b) inside[a, b] = Nested(Rings[a].ring, Rings[b].ring, false);
+                return;
+            }
+            ringBoxFlat = new double[4 * n];
+            ringInnerFlat = new double[4 * n];
+            ringVB = new double[n][];
+            ringEB = new double[n][];
+            ringBuckets = new EdgeBuckets[n];
+            for (int k = 0; k < n; ++k) {
+                var r = Rings[k].ring;
+                var vb = VertexBounds(r);
+                ringVB[k] = vb;
+                ringEB[k] = EdgeBoxes(r);
+                if (r.Length == 0) {
+                    for (int j = 0; j < 4; ++j) ringBoxFlat[4 * k + j] = ringInnerFlat[4 * k + j] = double.NaN;
+                    continue;
+                }
+                double x0 = double.PositiveInfinity, x1 = double.NegativeInfinity, y0 = double.PositiveInfinity, y1 = double.NegativeInfinity;
+                double ix0 = double.PositiveInfinity, ix1 = double.NegativeInfinity, iy0 = double.PositiveInfinity, iy1 = double.NegativeInfinity;
+                bool known = true;
+                for (int i = 0; i < r.Length; ++i) {
+                    double vxl = vb[4 * i];
+                    if (double.IsNaN(vxl)) { known = false; break; }
+                    double vxh = vb[4 * i + 1], vyl = vb[4 * i + 2], vyh = vb[4 * i + 3];
+                    if (vxl < x0) x0 = vxl;
+                    if (vxh > x1) x1 = vxh;
+                    if (vyl < y0) y0 = vyl;
+                    if (vyh > y1) y1 = vyh;
+                    if (vxh < ix0) ix0 = vxh;
+                    if (vxl > ix1) ix1 = vxl;
+                    if (vyh < iy0) iy0 = vyh;
+                    if (vyl > iy1) iy1 = vyl;
+                }
+                if (known) {
+                    ringBoxFlat[4 * k] = x0; ringBoxFlat[4 * k + 1] = x1; ringBoxFlat[4 * k + 2] = y0; ringBoxFlat[4 * k + 3] = y1;
+                    ringInnerFlat[4 * k] = ix0; ringInnerFlat[4 * k + 1] = ix1; ringInnerFlat[4 * k + 2] = iy0; ringInnerFlat[4 * k + 3] = iy1;
+                } else {
+                    for (int j = 0; j < 4; ++j) ringBoxFlat[4 * k + j] = ringInnerFlat[4 * k + j] = double.NaN;
+                }
+            }
+            if (n > 16) ringGrid = new RingGrid(ringBoxFlat, n);
+            if (n <= 16) {
+                for (int a = 0; a < n; ++a)
+                    for (int b = 0; b < n; ++b)
+                        if (a != b && RingBoxMayNest(a, b)) inside[a, b] = Nested(Rings[a].ring, Rings[b].ring, true);
+                return;
+            }
+            // Fast path for many rings: ring a can nest in ring b only if their boxes overlap (or either box is unknown).
+            var boxList = new List<(double x0, double x1, double y0, double y1)>(n);
+            var boxIds = new List<int>(n);
+            var unknown = new List<int>();
+            for (int k = 0; k < n; ++k) {
+                if (double.IsNaN(ringBoxFlat[4 * k])) unknown.Add(k);
+                else { boxList.Add((ringBoxFlat[4 * k], ringBoxFlat[4 * k + 1], ringBoxFlat[4 * k + 2], ringBoxFlat[4 * k + 3])); boxIds.Add(k); }
+            }
+            foreach (var (ia, ib) in BoxPairs(boxList)) {
+                int a = boxIds[ia], b = boxIds[ib];
+                if (RingBoxMayNest(a, b)) inside[a, b] = Nested(Rings[a].ring, Rings[b].ring, true);
+                if (RingBoxMayNest(b, a)) inside[b, a] = Nested(Rings[b].ring, Rings[a].ring, true);
+            }
+            foreach (int u in unknown)
+                for (int k = 0; k < n; ++k) {
+                    if (k == u) continue;
+                    inside[u, k] = Nested(Rings[u].ring, Rings[k].ring, true);
+                    inside[k, u] = Nested(Rings[k].ring, Rings[u].ring, true);
+                }
+        }
+
+        /// <summary>False only if some vertex of ring a is provably outside ring b's bounding box.</summary>
+        bool RingBoxMayNest(int a, int b)
+        {
+            if (Rings[a].ring.Length < 3 || Rings[b].ring.Length < 3) return false;
+            if (double.IsNaN(ringInnerFlat[4 * a]) || double.IsNaN(ringBoxFlat[4 * b])) return true;
+            return !(ringInnerFlat[4 * a] < ringBoxFlat[4 * b] || ringInnerFlat[4 * a + 1] > ringBoxFlat[4 * b + 1]
+                  || ringInnerFlat[4 * a + 2] < ringBoxFlat[4 * b + 2] || ringInnerFlat[4 * a + 3] > ringBoxFlat[4 * b + 3]);
         }
 
         static Pt[] OpenRing(Pt[] ring)
@@ -174,13 +284,74 @@ namespace Meshing2Acceptance
         /// interval lies in one bucket needs only that bucket's edges, the others' y ranges exclude it. Edges without bounds are in
         /// every bucket.
         /// </summary>
+        sealed class BucketSlice
+        {
+            public double StripLo, StripHi;
+            public int[] SpanEdge;      // non-negative: bAbove == true (a below, b above); bitwise ~i: bAbove == false
+            public double[] SpanExl;    // ascending
+            public double[] SpanMaxExh; // prefix max of exh
+            public int[] Ending;
+        }
+
         sealed class EdgeBuckets
         {
             public double Y0, Y1, Step;
             public int[][] Buckets;
+            public BucketSlice[] Slices;
+
+            public BucketSlice GetSlice(int b, int n, double[] vb, double[] eb)
+            {
+                var sl = System.Threading.Volatile.Read(ref Slices[b]);
+                if (sl != null) return sl;
+                var all = Buckets[b];
+                double sLo = Y0 + b * Step;
+                double sHi = b + 1 == Buckets.Length ? Y1 : Y0 + (b + 1) * Step;
+                var span = new List<(double exl, double exh, int code)>(all.Length);
+                var end = new List<int>(16);
+                for (int q = 0; q < all.Length; ++q) {
+                    int i = all[q];
+                    double exl = eb[4 * i];
+                    if (double.IsNaN(exl)) { end.Add(i); continue; }
+                    int j = (i + 1) % n;
+                    if (vb[4 * i + 3] < sLo && vb[4 * j + 2] > sHi) span.Add((exl, eb[4 * i + 1], i));
+                    else if (vb[4 * j + 3] < sLo && vb[4 * i + 2] > sHi) span.Add((exl, eb[4 * i + 1], ~i));
+                    else end.Add(i);
+                }
+                span.Sort((a, c) => a.exl.CompareTo(c.exl));
+                int sc = span.Count;
+                var spanEdge = new int[sc];
+                var spanExl = new double[sc];
+                var spanMaxExh = new double[sc];
+                double maxExh = double.NegativeInfinity;
+                for (int k = 0; k < sc; ++k) {
+                    spanEdge[k] = span[k].code;
+                    spanExl[k] = span[k].exl;
+                    if (span[k].exh > maxExh) maxExh = span[k].exh;
+                    spanMaxExh[k] = maxExh;
+                }
+                sl = new BucketSlice { StripLo = sLo, StripHi = sHi, SpanEdge = spanEdge, SpanExl = spanExl, SpanMaxExh = spanMaxExh, Ending = end.ToArray() };
+                System.Threading.Volatile.Write(ref Slices[b], sl);
+                return sl;
+            }
         }
 
         static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Pt[], EdgeBuckets> edgeBuckets = new System.Runtime.CompilerServices.ConditionalWeakTable<Pt[], EdgeBuckets>();
+
+        /// <summary>Tests only: whether the last ComputeArea on this thread used the laminar fast path.</summary>
+        [ThreadStatic] public static bool LastAreaUsedLaminarForTests;
+        /// <summary>Tests only: counts RingCellCache hits on this thread.</summary>
+        [ThreadStatic] public static long RingCellCacheHitsForTests;
+        /// <summary>Tests only: counts BucketSlice fast-path queries on this thread.</summary>
+        [ThreadStatic] public static long BucketSliceHitsForTests;
+
+        static int ClampIndex(double v, int maxIndex)
+        {
+            if (double.IsNaN(v)) return 0;
+            double f = Math.Floor(v);
+            if (f <= 0) return 0;
+            if (f >= maxIndex) return maxIndex;
+            return (int)f;
+        }
 
         static EdgeBuckets Buckets(Pt[] ring) => edgeBuckets.GetValue(ring, r => {
             var vb = VertexBounds(r);
@@ -191,16 +362,17 @@ namespace Meshing2Acceptance
             if (!(step > 0) || double.IsInfinity(step)) return null;
             var lists = new List<int>[count];
             for (int b = 0; b < count; ++b) lists[b] = new List<int>();
+            int last = count - 1;
             for (int i = 0; i < n; ++i) {
                 int j = (i + 1) % n;
-                int b0 = 0, b1 = count - 1;
+                int b0 = 0, b1 = last;
                 if (!double.IsNaN(vb[4 * i]) && !double.IsNaN(vb[4 * j])) {
-                    b0 = Math.Max(0, Math.Min(count - 1, (int)Math.Floor((Math.Min(vb[4 * i + 2], vb[4 * j + 2]) - y0) / step) - 1));
-                    b1 = Math.Max(0, Math.Min(count - 1, (int)Math.Floor((Math.Max(vb[4 * i + 3], vb[4 * j + 3]) - y0) / step) + 1));
+                    b0 = ClampIndex((Math.Min(vb[4 * i + 2], vb[4 * j + 2]) - y0) / step - 1.0, last);
+                    b1 = ClampIndex((Math.Max(vb[4 * i + 3], vb[4 * j + 3]) - y0) / step + 1.0, last);
                 }
                 for (int b = b0; b <= b1; ++b) lists[b].Add(i);
             }
-            return new EdgeBuckets { Y0 = y0, Y1 = y1, Step = step, Buckets = lists.Select(l => l.ToArray()).ToArray() };
+            return new EdgeBuckets { Y0 = y0, Y1 = y1, Step = step, Buckets = lists.Select(l => l.ToArray()).ToArray(), Slices = new BucketSlice[count] };
         });
 
         public static Where InRing(Pt[] ring, Pt p) => InRing(ring, p, true);
@@ -223,58 +395,103 @@ namespace Meshing2Acceptance
         static Where InRing(Pt[] ring, Pt p, bool filter, double pxLo, double pxHi, double pyLo, double pyHi)
         {
             if (ring.Length == 0) return Where.Outside;
+            var vb = filter ? VertexBounds(ring) : null;
+            var eb = filter ? EdgeBoxes(ring) : null;
+            var bk = filter && ring.Length > 16 ? Buckets(ring) : null;
+            Pt? exact = p;
+            return InRingCore(ring, vb, eb, bk, ref exact, null, filter, pxLo, pxHi, pyLo, pyHi);
+        }
+
+        static Where InRingCore(Pt[] ring, double[] vb, double[] eb, EdgeBuckets bk, ref Pt? pCache, Func<Pt> getPt, bool filter, double pxLo, double pxHi, double pyLo, double pyHi)
+        {
+            int n = ring.Length;
+            if (n == 0) return Where.Outside;
             bool inside = false;
             Q py = default; bool pyKnown = false;   // (p.Qy, on first use: a gcd)
-            var vb = VertexBounds(ring);
-            var eb = EdgeBoxes(ring);
-            // the edges to look at: one bucket if p's y interval lies inside it (with a bucket of margin on each side of every edge,
-            // so that rounding in the bucket index cannot drop an edge), else all
             int[] only = null;
-            if (filter && ring.Length > 16) {
-                var bk = Buckets(ring);
-                if (bk != null) {
-                    // beyond every vertex's y interval: outside, not on it (compared directly: the bucket index is rounded, and a point on
-                    // the top edge could get the index past the last bucket; found by the bounds review)
-                    if (pyHi < bk.Y0 || pyLo > bk.Y1) return Where.Outside;
-                    int last = bk.Buckets.Length - 1;
-                    int b0 = Math.Max(0, Math.Min(last, (int)Math.Floor((pyLo - bk.Y0) / bk.Step)));
-                    int b1 = Math.Max(0, Math.Min(last, (int)Math.Floor((pyHi - bk.Y0) / bk.Step)));
-                    // (clamped: an edge at either end is in the end bucket too, it was added with a bucket of margin, clamped the same way)
-                    if (b0 == b1) only = bk.Buckets[b0];
+            if (filter && bk != null) {
+                if (pyHi < bk.Y0 || pyLo > bk.Y1) return Where.Outside;
+                int last = bk.Buckets.Length - 1;
+                int b0 = ClampIndex((pyLo - bk.Y0) / bk.Step, last);
+                int b1 = ClampIndex((pyHi - bk.Y0) / bk.Step, last);
+                if (b0 == b1) {
+                    var allB = bk.Buckets[b0];
+                    if (allB.Length > 24) {
+                        var sl = bk.GetSlice(b0, n, vb, eb);
+                        if (pyLo >= sl.StripLo && pyHi <= sl.StripHi) {
+                            BucketSliceHitsForTests++;
+                            // 1. Spanning edges: binary search first index with exl > pxHi; all at >= hi are strictly right and cross ray.
+                            var spanExl = sl.SpanExl;
+                            int lo = 0, hi = spanExl.Length;
+                            while (lo < hi) {
+                                int mid = lo + ((hi - lo) >> 1);
+                                if (spanExl[mid] > pxHi) hi = mid; else lo = mid + 1;
+                            }
+                            if (((spanExl.Length - hi) & 1) != 0) inside = !inside;
+                            var spanMaxExh = sl.SpanMaxExh;
+                            var spanEdge = sl.SpanEdge;
+                            for (int k = hi - 1; k >= 0; --k) {
+                                if (spanMaxExh[k] < pxLo) break;
+                                int code = spanEdge[k];
+                                bool bAbove = code >= 0;
+                                int i = bAbove ? code : ~code;
+                                if (eb[4 * i + 1] < pxLo) continue;
+                                int j = i + 1 < n ? i + 1 : 0;
+                                int sure = SureOrient(vb, i, j, pxLo, pxHi, pyLo, pyHi);
+                                if (sure == 0) {
+                                    if (!pCache.HasValue) pCache = getPt();
+                                    if (Exact.OnClosedSegment(ring[i], ring[j], pCache.Value)) return Where.Boundary;
+                                    sure = Exact.Orient(ring[i], ring[j], pCache.Value);
+                                }
+                                if (bAbove ? sure > 0 : sure < 0) inside = !inside;
+                            }
+                            // 2. Remaining (ending) edges in this bucket.
+                            only = sl.Ending;
+                        } else only = allB;
+                    } else only = allB;
                 }
             }
-            int count = only?.Length ?? ring.Length;
+            int count = only?.Length ?? n;
             for (int q = 0; q < count; ++q) {
                 int i = only != null ? only[q] : q;
-                int j = (i + 1) % ring.Length;
+                int j = i + 1 < n ? i + 1 : 0;
                 if (filter && !double.IsNaN(eb[4 * i])) {
                     double eyl = eb[4 * i + 2], eyh = eb[4 * i + 3];
                     if (pyHi < eyl || pyLo > eyh) continue;
                     double exl = eb[4 * i], exh = eb[4 * i + 1];
                     if (exh < pxLo) continue;
                     if (exl > pxHi) {
-                        // entirely right of p: a crossing if the ends lie on both sides of p's y (decided in doubles where possible)
-                        int sa = vb[4 * i + 2] > pyHi ? 1 : vb[4 * i + 3] < pyLo ? -1 : 0, sb = vb[4 * j + 2] > pyHi ? 1 : vb[4 * j + 3] < pyLo ? -1 : 0;
-                        if (!pyKnown && (sa == 0 || sb == 0)) { py = p.Qy; pyKnown = true; }
+                        int sa = vb[4 * i + 2] > pyHi ? 1 : vb[4 * i + 3] < pyLo ? -1 : 0;
+                        int sb = vb[4 * j + 2] > pyHi ? 1 : vb[4 * j + 3] < pyLo ? -1 : 0;
+                        if (sa != 0 && sb != 0) {
+                            if ((sa > 0) != (sb > 0)) inside = !inside;
+                            continue;
+                        }
+                        if (!pyKnown) { if (!pCache.HasValue) pCache = getPt(); py = pCache.Value.Qy; pyKnown = true; }
                         bool aUp = sa != 0 ? sa > 0 : ring[i].Qy > py, bUp = sb != 0 ? sb > 0 : ring[j].Qy > py;
                         if (aUp != bUp) inside = !inside;
                         continue;
                     }
                 }
-                Pt a = ring[i], b = ring[j];
-                // (filter: p surely off the edge's line, in doubles, decides "not on the edge" and the side without the exact tests; the
-                // side below is that of Exact.Orient(a, b, p) whenever the filter decides)
                 int sure = filter && !double.IsNaN(vb[4 * i]) && !double.IsNaN(vb[4 * j]) ? SureOrient(vb, i, j, pxLo, pxHi, pyLo, pyHi) : 0;
-                if (sure == 0 && Exact.OnClosedSegment(a, b, p)) return Where.Boundary;
+                if (sure == 0) {
+                    if (!pCache.HasValue) pCache = getPt();
+                    if (Exact.OnClosedSegment(ring[i], ring[j], pCache.Value)) return Where.Boundary;
+                }
                 bool aAbove, bAbove;
                 {
-                    int sa = filter && vb[4 * i + 2] > pyHi ? 1 : filter && vb[4 * i + 3] < pyLo ? -1 : 0, sb = filter && vb[4 * j + 2] > pyHi ? 1 : filter && vb[4 * j + 3] < pyLo ? -1 : 0;
-                    if (sa != 0) aAbove = sa > 0; else { if (!pyKnown) { py = p.Qy; pyKnown = true; } aAbove = a.Qy > py; }
-                    if (sb != 0) bAbove = sb > 0; else { if (!pyKnown) { py = p.Qy; pyKnown = true; } bAbove = b.Qy > py; }
+                    int sa = filter && vb[4 * i + 2] > pyHi ? 1 : filter && vb[4 * i + 3] < pyLo ? -1 : 0;
+                    int sb = filter && vb[4 * j + 2] > pyHi ? 1 : filter && vb[4 * j + 3] < pyLo ? -1 : 0;
+                    if (sa != 0) aAbove = sa > 0; else { if (!pyKnown) { if (!pCache.HasValue) pCache = getPt(); py = pCache.Value.Qy; pyKnown = true; } aAbove = ring[i].Qy > py; }
+                    if (sb != 0) bAbove = sb > 0; else { if (!pyKnown) { if (!pCache.HasValue) pCache = getPt(); py = pCache.Value.Qy; pyKnown = true; } bAbove = ring[j].Qy > py; }
                 }
                 if (aAbove == bAbove) continue;
-                // half-open rule on y: the edge counts if it crosses the ray to the right of p
-                int side = sure != 0 ? sure : Exact.Orient(a, b, p);
+                int side;
+                if (sure != 0) side = sure;
+                else {
+                    if (!pCache.HasValue) pCache = getPt();
+                    side = Exact.Orient(ring[i], ring[j], pCache.Value);
+                }
                 if (bAbove ? side > 0 : side < 0) inside = !inside;
             }
             return inside ? Where.Inside : Where.Outside;
@@ -283,7 +500,7 @@ namespace Meshing2Acceptance
         /// <summary>
         /// The sign of Orient(a, b, p) for the ring's vertices i and j and the point whose box is given, when doubles decide it (0: unsure).
         /// The boxes are the exact coordinates rounded to within 1e-13 of themselves, so the middles are off by at most that; the bound is
-        /// the one of the oracle's SurelyOneSide: delta = 1e-12 of the largest coordinate times the factors of both products, plus 1e-12
+        /// the one of the oracle's SurelyOneSide: delta = max(1e-12 * big, box half-width) times the factors of both products, plus 1e-12
         /// of the products' sizes.
         /// </summary>
         static int SureOrient(double[] vb, int i, int j, double pxl, double pxh, double pyl, double pyh)
@@ -293,46 +510,258 @@ namespace Meshing2Acceptance
             double ux = bx - ax, uy = by - ay, vx = px - ax, vy = py - ay;
             double l = ux * vy, r = uy * vx, det = l - r;
             double big = Math.Max(Math.Max(Math.Max(Math.Abs(ax), Math.Abs(ay)), Math.Max(Math.Abs(bx), Math.Abs(by))), Math.Max(Math.Abs(px), Math.Abs(py)));
-            double delta = big * 1e-12;
+            double pHalf = Math.Max(pxh - pxl, pyh - pyl);
+            double delta = Math.Max(big * 1e-12, pHalf);
             double err = delta * (Math.Abs(ux) + Math.Abs(uy) + Math.Abs(vx) + Math.Abs(vy) + delta) + (Math.Abs(l) + Math.Abs(r)) * 1e-12 + double.Epsilon;
             if (double.IsNaN(det) || double.IsInfinity(err) || big > 1e140 || (big < 1e-140 && big != 0)) return 0;
             return det > err ? 1 : det < -err ? -1 : 0;
         }
 
-        /// <summary> per ring: its box in doubles around the exact one (NaN: unknown) </summary>
-        readonly Dictionary<Pt[], double[]> ringBoxes = new Dictionary<Pt[], double[]>();
-
-        /// <summary> InRing, with the ring's box first: a point certainly outside it is outside the ring and not on it </summary>
-        Where InRingBoxed(Pt[] ring, Pt p, bool known, double pxl, double pxh, double pyl, double pyh)
+        EdgeBuckets GetRingBuckets(int k)
         {
-            if (!Filter || !known) return InRing(ring, p, false);
-            if (!ringBoxes.TryGetValue(ring, out var box)) {
-                box = new[] { double.PositiveInfinity, double.NegativeInfinity, double.PositiveInfinity, double.NegativeInfinity };
-                foreach (var q in ring) {
-                    if (!q.Bounds(false, out double xl, out double xh) || !q.Bounds(true, out double yl, out double yh)) { box = null; break; }
-                    box[0] = Math.Min(box[0], xl); box[1] = Math.Max(box[1], xh); box[2] = Math.Min(box[2], yl); box[3] = Math.Max(box[3], yh);
+            var r = Rings[k].ring;
+            if (r.Length <= 16) return null;
+            var bk = ringBuckets[k];
+            if (bk == null) ringBuckets[k] = bk = Buckets(r);
+            return bk;
+        }
+
+        RingCellCache[] ringCellCaches;
+
+        /// <summary>
+        /// 2D cell grid over a large ring's bounding box: marks every cell that any ring edge may meet as Mixed (1)
+        /// using conservative box overlap + 4-corner <see cref="SureOrient"/> separation. Any unmarked cell is provably
+        /// disjoint from the ring's boundary, so every point inside it shares the exact <see cref="Where"/> of its center
+        /// (classified lazily once and cached).
+        /// </summary>
+        sealed class RingCellCache
+        {
+            readonly int gridN;
+            readonly double x0, y0, x1, y1, cellX, cellY;
+            readonly byte[] state; // 0 = empty-uncomputed, 1 = mixed (boundary may enter), 2 = Inside, 3 = Outside
+            public readonly bool Valid;
+
+            public RingCellCache(Pt[] ring, double[] vb, double[] eb, double rx0, double rx1, double ry0, double ry1)
+            {
+                if (double.IsNaN(rx0) || !(rx1 > rx0) || !(ry1 > ry0)) { Valid = false; return; }
+                double w = rx1 - rx0, h = ry1 - ry0;
+                if (double.IsInfinity(w) || double.IsInfinity(h)) { Valid = false; return; }
+                gridN = 128;
+                x0 = rx0; y0 = ry0; x1 = rx1; y1 = ry1;
+                cellX = w / gridN; cellY = h / gridN;
+                if (!(cellX > 0) || !(cellY > 0)) { Valid = false; return; }
+                state = new byte[gridN * gridN];
+                int n = ring.Length, last = gridN - 1;
+                for (int i = 0; i < n; ++i) {
+                    double ex0 = eb[4 * i];
+                    if (double.IsNaN(ex0)) { Valid = false; return; }
+                    double ex1 = eb[4 * i + 1], ey0 = eb[4 * i + 2], ey1 = eb[4 * i + 3];
+                    int i0 = ClampIndex((ex0 - x0) / cellX - 1.0, last);
+                    int i1 = ClampIndex((ex1 - x0) / cellX + 1.0, last);
+                    int j0 = ClampIndex((ey0 - y0) / cellY - 1.0, last);
+                    int j1 = ClampIndex((ey1 - y0) / cellY + 1.0, last);
+                    int j = i + 1 < n ? i + 1 : 0;
+                    for (int ci = i0; ci <= i1; ++ci) {
+                        double cx0 = x0 + ci * cellX;
+                        double cx1 = ci == last ? x1 : x0 + (ci + 1) * cellX;
+                        if (ex1 < cx0 || ex0 > cx1) continue;
+                        for (int cj = j0; cj <= j1; ++cj) {
+                            int idx = ci * gridN + cj;
+                            if (state[idx] == 1) continue;
+                            double cy0 = y0 + cj * cellY;
+                            double cy1 = cj == last ? y1 : y0 + (cj + 1) * cellY;
+                            if (ey1 < cy0 || ey0 > cy1) continue;
+                            // Cell [cx0, cx1] x [cy0, cy1] is disjoint from edge (i, j) if all 4 corners lie strictly on the same side.
+                            int s0 = SureOrient(vb, i, j, cx0, cx0, cy0, cy0);
+                            if (s0 != 0
+                                && SureOrient(vb, i, j, cx1, cx1, cy0, cy0) == s0
+                                && SureOrient(vb, i, j, cx1, cx1, cy1, cy1) == s0
+                                && SureOrient(vb, i, j, cx0, cx0, cy1, cy1) == s0)
+                                continue;
+                            state[idx] = 1;
+                        }
+                    }
                 }
-                lock (ringBoxes) ringBoxes[ring] = box;
+                Valid = true;
             }
-            if (box != null && (pxh < box[0] || pxl > box[1] || pyh < box[2] || pyl > box[3])) return Where.Outside;
-            return InRing(ring, p, true, pxl, pxh, pyl, pyh);
+
+            public bool TryClassify(double pxl, double pxh, double pyl, double pyh, Pt[] ring, double[] vb, double[] eb, EdgeBuckets bk, out Where result)
+            {
+                result = Where.Outside;
+                if (!Valid) return false;
+                double fi = Math.Floor((pxl - x0) / cellX);
+                double fj = Math.Floor((pyl - y0) / cellY);
+                if (double.IsNaN(fi) || double.IsNaN(fj) || fi < 0 || fi >= gridN || fj < 0 || fj >= gridN) return false;
+                int ci = (int)fi, cj = (int)fj;
+                int idx = ci * gridN + cj;
+                byte st = state[idx];
+                if (st == 1) return false;
+                int last = gridN - 1;
+                double cx0 = x0 + ci * cellX, cx1 = ci == last ? x1 : x0 + (ci + 1) * cellX;
+                double cy0 = y0 + cj * cellY, cy1 = cj == last ? y1 : y0 + (cj + 1) * cellY;
+                // Require the point's full enclosing box to lie strictly inside the empty cell.
+                if (!(pxl > cx0 && pxh < cx1 && pyl > cy0 && pyh < cy1)) return false;
+                if (st == 0) {
+                    double mx = cx0 + (cx1 - cx0) * 0.5, my = cy0 + (cy1 - cy0) * 0.5;
+                    if (double.IsNaN(mx) || double.IsInfinity(mx) || double.IsNaN(my) || double.IsInfinity(my)) return false;
+                    Pt? center = Pt.FromDoubles(mx, my);
+                    var w = InRingCore(ring, vb, eb, bk, ref center, null, true, mx, mx, my, my);
+                    if (w == Where.Boundary) { state[idx] = 1; return false; }
+                    st = w == Where.Inside ? (byte)2 : (byte)3;
+                    state[idx] = st;
+                }
+                RingCellCacheHitsForTests++;
+                result = st == 2 ? Where.Inside : Where.Outside;
+                return true;
+            }
+        }
+
+        Where InRingByIndex(int k, ref Pt? pCache, Func<Pt> getPt, bool known, double pxl, double pxh, double pyl, double pyh)
+        {
+            var ring = Rings[k].ring;
+            if (!Filter || !known) {
+                if (!pCache.HasValue) pCache = getPt();
+                return InRing(ring, pCache.Value, false);
+            }
+            double bx0 = ringBoxFlat[4 * k];
+            if (!double.IsNaN(bx0) && (pxh < bx0 || pxl > ringBoxFlat[4 * k + 1] || pyh < ringBoxFlat[4 * k + 2] || pyl > ringBoxFlat[4 * k + 3]))
+                return Where.Outside;
+            var bk = GetRingBuckets(k);
+            if (ring.Length > 64 && !double.IsNaN(bx0)) {
+                if (ringCellCaches == null) ringCellCaches = new RingCellCache[Rings.Count];
+                var cc = ringCellCaches[k];
+                if (cc == null) ringCellCaches[k] = cc = new RingCellCache(ring, ringVB[k], ringEB[k], bx0, ringBoxFlat[4 * k + 1], ringBoxFlat[4 * k + 2], ringBoxFlat[4 * k + 3]);
+                if (cc.TryClassify(pxl, pxh, pyl, pyh, ring, ringVB[k], ringEB[k], bk, out Where cached))
+                    return cached;
+            }
+            return InRingCore(ring, ringVB[k], ringEB[k], bk, ref pCache, getPt, true, pxl, pxh, pyl, pyh);
         }
 
         public Where Classify(Pt p)
         {
-            // the rings p is strictly inside of, and those it lies on; on a ring's boundary its two sides differ by that ring
-            // (p's interval once for all rings)
             double pxl = 0, pxh = 0, pyl = 0, pyh = 0;
             bool known = Filter && p.Bounds(false, out pxl, out pxh) && p.Bounds(true, out pyl, out pyh);
-            var strictly = new List<int>(); var on = new List<int>();
-            for (int k = 0; k < Rings.Count; ++k) {
-                var w = InRingBoxed(Rings[k].ring, p, known, pxl, pxh, pyl, pyh);
-                if (w == Where.Inside) strictly.Add(k); else if (w == Where.Boundary) on.Add(k);
+            Pt? pCache = p;
+            return ClassifyCore(ref pCache, null, known, pxl, pxh, pyl, pyh);
+        }
+
+        /// <summary>
+        /// Fast-path Classify when an enclosing double box [pxl, pxh] x [pyl, pyh] of the exact point is known:
+        /// avoids constructing the exact <see cref="Pt"/> unless a ring edge's double filter is undecided.
+        /// Falls back to <paramref name="getPt"/> whenever Filter is false or bounds are not finite.
+        /// </summary>
+        public Where ClassifyLazy(double pxl, double pxh, double pyl, double pyh, Func<Pt> getPt)
+        {
+            if (!Filter || double.IsNaN(pxl) || double.IsNaN(pxh) || double.IsNaN(pyl) || double.IsNaN(pyh)
+                || double.IsInfinity(pxl) || double.IsInfinity(pxh) || double.IsInfinity(pyl) || double.IsInfinity(pyh))
+                return Classify(getPt());
+            Pt? pCache = null;
+            return ClassifyCore(ref pCache, getPt, true, pxl, pxh, pyl, pyh);
+        }
+
+        Where ClassifyCore(ref Pt? pCache, Func<Pt> getPt, bool known, double pxl, double pxh, double pyl, double pyh)
+        {
+            int n = Rings.Count;
+            if (n == 0) return Where.Outside;
+            if (n == 1) {
+                var w = InRingByIndex(0, ref pCache, getPt, known, pxl, pxh, pyl, pyh);
+                if (Rings[0].hole) return Where.Outside;
+                return w;
+            }
+            var strictly = new List<int>();
+            var on = new List<int>();
+            if (known && ringGrid != null) {
+                var candidates = ringGrid.Query(pxl, pxh, pyl, pyh);
+                for (int c = 0; c < candidates.Count; ++c) {
+                    int k = candidates[c];
+                    var w = InRingByIndex(k, ref pCache, getPt, true, pxl, pxh, pyl, pyh);
+                    if (w == Where.Inside) strictly.Add(k); else if (w == Where.Boundary) on.Add(k);
+                }
+            } else {
+                for (int k = 0; k < n; ++k) {
+                    var w = InRingByIndex(k, ref pCache, getPt, known, pxl, pxh, pyl, pyh);
+                    if (w == Where.Inside) strictly.Add(k); else if (w == Where.Boundary) on.Add(k);
+                }
             }
             bool without = Decide(strictly);
             if (on.Count == 0) return without ? Where.Inside : Where.Outside;
-            bool with = Decide(strictly.Concat(on).ToList());
+            strictly.AddRange(on);
+            bool with = Decide(strictly);
             return with && without ? Where.Inside : !with && !without ? Where.Outside : Where.Boundary;
+        }
+
+        /// <summary>Uniform spatial grid over ring bounding boxes (fast path only). Returns a superset of all rings whose box meets the query box.</summary>
+        sealed class RingGrid
+        {
+            readonly double[] box;
+            readonly double x0, y0, cell;
+            readonly int nx, ny;
+            readonly Dictionary<long, List<int>> cells = new Dictionary<long, List<int>>();
+            readonly List<int> overflow = new List<int>();
+            readonly List<int> unknown = new List<int>();
+            public RingGrid(double[] box, int count)
+            {
+                this.box = box;
+                double xl = double.PositiveInfinity, xh = double.NegativeInfinity, yl = double.PositiveInfinity, yh = double.NegativeInfinity;
+                for (int i = 0; i < count; ++i) {
+                    if (double.IsNaN(box[4 * i])) continue;
+                    if (box[4 * i] < xl) xl = box[4 * i];
+                    if (box[4 * i + 1] > xh) xh = box[4 * i + 1];
+                    if (box[4 * i + 2] < yl) yl = box[4 * i + 2];
+                    if (box[4 * i + 3] > yh) yh = box[4 * i + 3];
+                }
+                x0 = xl; y0 = yl;
+                double extent = Math.Max(xh - xl, yh - yl);
+                cell = extent > 0 && !double.IsInfinity(extent) ? extent / Math.Max(1, Math.Sqrt(count)) : 1;
+                nx = (int)Math.Min(1 << 14, Math.Max(1, Math.Ceiling((xh - xl) / cell) + 1));
+                ny = (int)Math.Min(1 << 14, Math.Max(1, Math.Ceiling((yh - yl) / cell) + 1));
+                for (int i = 0; i < count; ++i) {
+                    if (double.IsNaN(box[4 * i])) { unknown.Add(i); continue; }
+                    Cells(box[4 * i], box[4 * i + 1], box[4 * i + 2], box[4 * i + 3], out int i0, out int i1, out int j0, out int j1);
+                    if ((long)(i1 - i0 + 1) * (j1 - j0 + 1) > 256) { overflow.Add(i); continue; }
+                    for (int ci = i0; ci <= i1; ++ci)
+                        for (int cj = j0; cj <= j1; ++cj) {
+                            long key = (long)ci * ny + cj;
+                            if (!cells.TryGetValue(key, out var list)) cells.Add(key, list = new List<int>());
+                            list.Add(i);
+                        }
+                }
+            }
+            void Cells(double xl, double xh, double yl, double yh, out int i0, out int i1, out int j0, out int j1)
+            {
+                int Clamp(double v, int n) => double.IsNaN(v) ? 0 : (int)Math.Max(0, Math.Min(n - 1, Math.Floor(v)));
+                i0 = Clamp((xl - x0) / cell, nx); i1 = Clamp((xh - x0) / cell, nx);
+                j0 = Clamp((yl - y0) / cell, ny); j1 = Clamp((yh - y0) / cell, ny);
+            }
+            public List<int> Query(double xl, double xh, double yl, double yh)
+            {
+                var result = new List<int>(unknown.Count + 8);
+                for (int u = 0; u < unknown.Count; ++u) result.Add(unknown[u]);
+                for (int u = 0; u < overflow.Count; ++u) {
+                    int i = overflow[u];
+                    if (!(box[4 * i + 1] < xl || box[4 * i] > xh || box[4 * i + 3] < yl || box[4 * i + 2] > yh)) result.Add(i);
+                }
+                Cells(xl, xh, yl, yh, out int i0, out int i1, out int j0, out int j1);
+                if (i0 == i1 && j0 == j1) {
+                    if (cells.TryGetValue((long)i0 * ny + j0, out var list)) {
+                        for (int k = 0; k < list.Count; ++k) {
+                            int i = list[k];
+                            if (!(box[4 * i + 1] < xl || box[4 * i] > xh || box[4 * i + 3] < yl || box[4 * i + 2] > yh)) result.Add(i);
+                        }
+                    }
+                    return result;
+                }
+                HashSet<int> seen = result.Count > 0 ? new HashSet<int>(result) : new HashSet<int>();
+                for (int ci = i0; ci <= i1; ++ci)
+                    for (int cj = j0; cj <= j1; ++cj)
+                        if (cells.TryGetValue((long)ci * ny + cj, out var list))
+                            for (int k = 0; k < list.Count; ++k) {
+                                int i = list[k];
+                                if (!(box[4 * i + 1] < xl || box[4 * i] > xh || box[4 * i + 3] < yl || box[4 * i + 2] > yh) && seen.Add(i))
+                                    result.Add(i);
+                            }
+                return result;
+            }
         }
 
         /// <summary> one connected piece of the domain for the vanishing rule: the rings nested in one top-level ring, as a domain of its own </summary>
@@ -375,23 +804,13 @@ namespace Meshing2Acceptance
                     for (int b = a + 1; b < top.Count && !whole; ++b)
                         if (RingsMeet(Rings[top[a]].ring, Rings[top[b]].ring)) whole = true;
             }
-            Q Length(IEnumerable<Pt[]> rings)
-            {
-                Q length = Q.Zero;
-                foreach (var ring in rings)
-                    for (int i = 0; i < ring.Length; ++i) {
-                        var a = ring[i]; var b = ring[(i + 1) % ring.Length];
-                        length += Q.Abs(a.Qx - b.Qx) + Q.Abs(a.Qy - b.Qy);
-                    }
-                return length;
-            }
-            if (whole) return components = new List<Component> { new Component { Region = this, Perimeter2Bound = Length(Rings.Select(x => x.ring)) } };
+            if (whole) return components = new List<Component> { new Component { Region = this, Perimeter2Bound = SumPerimeterL1(Rings.Select(x => x.ring)) } };
             components = new List<Component>();
             foreach (var g in groups)
                 {
                 // (input order within the part: Decide picks the latest ring when none is innermost)
                 var ordered = g.OrderBy(k => k).ToList();
-                components.Add(new Component { Region = new Domain(ordered.Select(k => Rings[k]).ToList(), Filter), Perimeter2Bound = Length(ordered.Select(k => Rings[k].ring)) });
+                components.Add(new Component { Region = new Domain(ordered.Select(k => Rings[k]).ToList(), Filter), Perimeter2Bound = SumPerimeterL1(ordered.Select(k => Rings[k].ring)) });
             }
             return components;
         }
@@ -433,16 +852,15 @@ namespace Meshing2Acceptance
         /// </summary>
         Q ComputeArea()
         {
+            LastAreaUsedLaminarForTests = false;
             var rings = Rings.Select((x, k) => (x.ring, k)).Where(x => x.ring.Length >= 3).ToList();
-            // a single simple ring: its area by the shoelace formula, exactly (the slabs below take minutes on a ring of 10 000 edges, eg
-            // poly2tri's debug2, and give the same: a simple ring's parity area is its shoelace area; found with the reference
-            // comparison, the mesh command judging debug2). The reference path keeps the slabs, as a check of this one.
-            if (Filter && rings.Count == 1 && IsSimple(rings[0].ring)) {
-                var r = rings[0].ring;
-                Q twice = Q.Zero;
-                for (int i = 0; i < r.Length; ++i) { Pt a = r[i], b = r[(i + 1) % r.Length]; twice += a.Qx * b.Qy - b.Qx * a.Qy; }
-                return Decide(new List<int> { rings[0].k }) ? Q.Abs(twice) * new Q(1, 2) : Q.Zero;
-            }
+            if (rings.Count == 0) return Q.Zero;
+            // Fast path (Filter == true): when all rings are simple, no edges properly cross, no vertex lies in the open interior
+            // of another ring's edge, no two rings are equal, and every pair of rings has either nested or disjoint interiors
+            // (a laminar family of simple polygons), D5's area equals the telescoping shoelace sum over the containment tree:
+            //   sum_r ((Decide(anc(r) U {r}) ? 1 : 0) - (Decide(anc(r)) ? 1 : 0)) * shoelaceArea(r).
+            // Exact (dyadic common-W BigInteger accumulation when all W are powers of two). The reference path keeps the slabs.
+            if (Filter && TryComputeLaminarArea(rings, out Q laminarArea)) { LastAreaUsedLaminarForTests = true; return laminarArea; }
             var edges = new List<(Q ax, Q ay, Q bx, Q by, int ring)>();
             var boxes = new List<(double x0, double x1, double y0, double y1)>();
             bool boxed = Filter;
@@ -506,6 +924,197 @@ namespace Meshing2Acceptance
             return area;
         }
 
+        /// <summary>
+        /// Verifies that the rings form a laminar family of simple polygons (disjoint or strictly nested interiors) and computes
+        /// the exact D5 area by shoelace accumulation. Returns false (caller falls back to exact slab decomposition) on any
+        /// self-intersection, cross-ring edge crossing, vertex on another ring's open edge, equal rings, or partial interior overlap.
+        /// </summary>
+        bool TryComputeLaminarArea(List<(Pt[] ring, int k)> rings, out Q result)
+        {
+            result = Q.Zero;
+            int m = rings.Count;
+            if (m == 1) {
+                if (!IsSimple(rings[0].ring)) return false;
+                if (!Decide(new List<int> { rings[0].k })) { result = Q.Zero; return true; }
+                result = ShoelaceArea(rings[0].ring);
+                return true;
+            }
+            // Check all ring boxes are known, and collect all edges for one unified simplicity + non-crossing sweep.
+            int totalEdges = 0;
+            var rBoxes = new List<(double x0, double x1, double y0, double y1)>(m);
+            for (int r = 0; r < m; ++r) {
+                int rk = rings[r].k;
+                if (double.IsNaN(ringBoxFlat[4 * rk])) return false;
+                rBoxes.Add((ringBoxFlat[4 * rk], ringBoxFlat[4 * rk + 1], ringBoxFlat[4 * rk + 2], ringBoxFlat[4 * rk + 3]));
+                totalEdges += rings[r].ring.Length;
+            }
+            var eBoxes = new List<(double x0, double x1, double y0, double y1)>(totalEdges);
+            var eRing = new int[totalEdges];
+            var eIdx = new int[totalEdges];
+            int ec = 0;
+            for (int r = 0; r < m; ++r) {
+                var ring = rings[r].ring;
+                var eb = ringEB[rings[r].k];
+                for (int i = 0; i < ring.Length; ++i) {
+                    int i2 = (i + 1) % ring.Length;
+                    if (double.IsNaN(eb[4 * i]) || ring[i].Equals(ring[i2])) return false;
+                    eBoxes.Add((eb[4 * i], eb[4 * i + 1], eb[4 * i + 2], eb[4 * i + 3]));
+                    eRing[ec] = r;
+                    eIdx[ec] = i;
+                    ++ec;
+                }
+            }
+            // Single sweep over all edges: validates every ring is simple, no cross-ring proper crossing, and no vertex in another ring's open edge.
+            foreach (var (ei, ej) in BoxPairs(eBoxes)) {
+                int ra = eRing[ei], rb = eRing[ej];
+                var ringA = rings[ra].ring; var ringB = rings[rb].ring;
+                int ia = eIdx[ei], ib = eIdx[ej];
+                int ia2 = (ia + 1) % ringA.Length, ib2 = (ib + 1) % ringB.Length;
+                Pt a = ringA[ia], b = ringA[ia2], c = ringB[ib], d = ringB[ib2];
+                if (ra == rb) {
+                    int len = ringA.Length;
+                    int lo = Math.Min(ia, ib), hi = Math.Max(ia, ib);
+                    if (hi == lo + 1 || (lo == 0 && hi == len - 1)) {
+                        Pt sv = hi == lo + 1 ? ringA[hi] : ringA[0];
+                        Pt p = hi == lo + 1 ? ringA[lo] : ringA[1];
+                        Pt q = hi == lo + 1 ? ringA[(hi + 1) % len] : ringA[len - 1];
+                        if (Exact.Orient(sv, p, q) == 0 && (p.Qx - sv.Qx) * (q.Qx - sv.Qx) + (p.Qy - sv.Qy) * (q.Qy - sv.Qy) > Q.Zero) return false;
+                        continue;
+                    }
+                    if (Exact.ProperCross(a, b, c, d) || Exact.OnClosedSegment(a, b, c) || Exact.OnClosedSegment(a, b, d)
+                        || Exact.OnClosedSegment(c, d, a) || Exact.OnClosedSegment(c, d, b)) return false;
+                } else {
+                    // Identical edges (shared boundary between touching rings) are allowed.
+                    bool ac = a.Equals(c), ad = a.Equals(d), bc = b.Equals(c), bd = b.Equals(d);
+                    if ((ac && bd) || (ad && bc)) continue;
+                    // Double filter: if one segment's endpoints lie strictly on one side of the other's line, they cannot cross or touch.
+                    var vba = ringVB[rings[ra].k]; var vbb = ringVB[rings[rb].k];
+                    if (!(ac || ad || bc || bd)) {
+                        int oc = SureOrient(vba, ia, ia2, vbb[4 * ib], vbb[4 * ib + 1], vbb[4 * ib + 2], vbb[4 * ib + 3]);
+                        int od = SureOrient(vba, ia, ia2, vbb[4 * ib2], vbb[4 * ib2 + 1], vbb[4 * ib2 + 2], vbb[4 * ib2 + 3]);
+                        if (oc != 0 && oc == od) continue;
+                        int oa = SureOrient(vbb, ib, ib2, vba[4 * ia], vba[4 * ia + 1], vba[4 * ia + 2], vba[4 * ia + 3]);
+                        int ob = SureOrient(vbb, ib, ib2, vba[4 * ia2], vba[4 * ia2 + 1], vba[4 * ia2 + 2], vba[4 * ia2 + 3]);
+                        if (oa != 0 && oa == ob) continue;
+                    }
+                    if (Exact.ProperCross(a, b, c, d)) return false;
+                    // Reject any vertex lying in the open interior of another ring's edge (including partial collinear overlap).
+                    if (!ac && !bc && Exact.OnClosedSegment(a, b, c)) return false;
+                    if (!ad && !bd && Exact.OnClosedSegment(a, b, d)) return false;
+                    if (!ac && !ad && Exact.OnClosedSegment(c, d, a)) return false;
+                    if (!bc && !bd && Exact.OnClosedSegment(c, d, b)) return false;
+                }
+            }
+            // Check pairwise nesting / interior disjointness over overlapping ring-box pairs, and collect ancestors.
+            var ancestors = new List<int>[m];
+            foreach (var (ra, rb) in BoxPairs(rBoxes)) {
+                int ka = rings[ra].k, kb = rings[rb].k;
+                bool aInB = inside[ka, kb], bInA = inside[kb, ka];
+                if (aInB && bInA) return false; // equal rings: fall back to slabs
+                if (aInB) { (ancestors[ra] ??= new List<int>()).Add(kb); continue; }
+                if (bInA) { (ancestors[rb] ??= new List<int>()).Add(ka); continue; }
+                // Neither is nested in the other; verify their interiors are disjoint (no vertex or open-edge midpoint of either lies strictly inside the other).
+                if (HasVertexOrMidpointStrictlyInside(ka, kb) || HasVertexOrMidpointStrictlyInside(kb, ka)) return false;
+            }
+            // All rings form a laminar family of simple polygons: compute telescoping exact shoelace sum.
+            System.Numerics.BigInteger maxW = System.Numerics.BigInteger.One;
+            bool dyadic = true;
+            for (int r = 0; r < m && dyadic; ++r) {
+                var ring = rings[r].ring;
+                for (int i = 0; i < ring.Length; ++i) {
+                    var w = ring[i].W;
+                    if (!w.IsPowerOfTwo) { dyadic = false; break; }
+                    if (w > maxW) maxW = w;
+                }
+            }
+            System.Numerics.BigInteger totalTwice = System.Numerics.BigInteger.Zero;
+            Q totalQ = Q.Zero;
+            var withList = new List<int>();
+            for (int r = 0; r < m; ++r) {
+                var anc = ancestors[r];
+                bool without;
+                bool with;
+                if (anc == null || anc.Count == 0) {
+                    without = false;
+                    with = !Rings[rings[r].k].hole;
+                } else {
+                    anc.Sort();
+                    without = Decide(anc);
+                    withList.Clear();
+                    withList.AddRange(anc);
+                    withList.Add(rings[r].k);
+                    with = Decide(withList);
+                }
+                int sign = (with ? 1 : 0) - (without ? 1 : 0);
+                if (sign == 0) continue;
+                var ring = rings[r].ring;
+                if (dyadic) {
+                    System.Numerics.BigInteger twice = System.Numerics.BigInteger.Zero;
+                    for (int i = 0; i < ring.Length; ++i) {
+                        Pt a = ring[i], b = ring[(i + 1) % ring.Length];
+                        var fa = maxW / a.W; var fb = maxW / b.W;
+                        twice += (a.X * fa) * (b.Y * fb) - (b.X * fb) * (a.Y * fa);
+                    }
+                    totalTwice += sign * System.Numerics.BigInteger.Abs(twice);
+                } else {
+                    Q aQ = ShoelaceArea(ring);
+                    totalQ = sign > 0 ? totalQ + aQ : totalQ - aQ;
+                }
+            }
+            result = dyadic ? new Q(totalTwice, 2 * maxW * maxW) : totalQ;
+            return true;
+        }
+
+        bool HasVertexOrMidpointStrictlyInside(int ka, int kb)
+        {
+            var ra = Rings[ka].ring;
+            var vba = ringVB[ka];
+            double bx0 = ringBoxFlat[4 * kb], bx1 = ringBoxFlat[4 * kb + 1], by0 = ringBoxFlat[4 * kb + 2], by1 = ringBoxFlat[4 * kb + 3];
+            for (int i = 0; i < ra.Length; ++i) {
+                double pxl = vba[4 * i], pxh = vba[4 * i + 1], pyl = vba[4 * i + 2], pyh = vba[4 * i + 3];
+                if (pxh >= bx0 && pxl <= bx1 && pyh >= by0 && pyl <= by1) {
+                    Pt? pc = ra[i];
+                    if (InRingByIndex(kb, ref pc, null, true, pxl, pxh, pyl, pyh) == Where.Inside) return true;
+                }
+                int j = (i + 1) % ra.Length;
+                double mxl = (pxl + vba[4 * j]) * 0.5, mxh = (pxh + vba[4 * j + 1]) * 0.5;
+                double myl = (pyl + vba[4 * j + 2]) * 0.5, myh = (pyh + vba[4 * j + 3]) * 0.5;
+                double padX = Math.Max(Math.Abs(mxl), Math.Abs(mxh)) * 1e-13 + 1e-300;
+                double padY = Math.Max(Math.Abs(myl), Math.Abs(myh)) * 1e-13 + 1e-300;
+                mxl -= padX; mxh += padX; myl -= padY; myh += padY;
+                if (mxh >= bx0 && mxl <= bx1 && myh >= by0 && myl <= by1) {
+                    Pt p = ra[i], q = ra[j];
+                    Pt? mc = null;
+                    if (InRingByIndex(kb, ref mc, () => new Pt((p.Qx + q.Qx) * new Q(1, 2), (p.Qy + q.Qy) * new Q(1, 2)), true, mxl, mxh, myl, myh) == Where.Inside)
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        static Q ShoelaceArea(Pt[] r)
+        {
+            System.Numerics.BigInteger maxW = System.Numerics.BigInteger.One;
+            bool dyadic = true;
+            for (int i = 0; i < r.Length; ++i) {
+                var w = r[i].W;
+                if (!w.IsPowerOfTwo) { dyadic = false; break; }
+                if (w > maxW) maxW = w;
+            }
+            if (dyadic) {
+                System.Numerics.BigInteger twice = System.Numerics.BigInteger.Zero;
+                for (int i = 0; i < r.Length; ++i) {
+                    Pt a = r[i], b = r[(i + 1) % r.Length];
+                    var fa = maxW / a.W; var fb = maxW / b.W;
+                    twice += (a.X * fa) * (b.Y * fb) - (b.X * fb) * (a.Y * fa);
+                }
+                return new Q(System.Numerics.BigInteger.Abs(twice), 2 * maxW * maxW);
+            }
+            Q twiceQ = Q.Zero;
+            for (int i = 0; i < r.Length; ++i) { Pt a = r[i], b = r[(i + 1) % r.Length]; twiceQ += a.Qx * b.Qy - b.Qx * a.Qy; }
+            return Q.Abs(twiceQ) * new Q(1, 2);
+        }
+
         /// <summary> the pairs i &lt; j of boxes that meet (closed), by a sweep in x </summary>
         static IEnumerable<(int, int)> BoxPairs(List<(double x0, double x1, double y0, double y1)> boxes)
         {
@@ -529,20 +1138,29 @@ namespace Meshing2Acceptance
         {
             int n = r.Length;
             var vb = VertexBounds(r);
-            var boxes = new List<(double x0, double x1, double y0, double y1)>();
+            var boxes = new List<(double x0, double x1, double y0, double y1)>(n);
             for (int i = 0; i < n; ++i) {
                 int i2 = (i + 1) % n;
                 if (double.IsNaN(vb[4 * i]) || double.IsNaN(vb[4 * i2]) || r[i].Equals(r[i2])) return false;
                 boxes.Add((Math.Min(vb[4 * i], vb[4 * i2]), Math.Max(vb[4 * i + 1], vb[4 * i2 + 1]), Math.Min(vb[4 * i + 2], vb[4 * i2 + 2]), Math.Max(vb[4 * i + 3], vb[4 * i2 + 3])));
             }
             foreach (var (i, j) in BoxPairs(boxes)) {
-                Pt a = r[i], b = r[(i + 1) % n], c = r[j], d = r[(j + 1) % n];
+                int i2 = (i + 1) % n, j2 = (j + 1) % n;
                 if (j == i + 1 || (i == 0 && j == n - 1)) {
                     // neighbours: they share one vertex s; they overlap when the other ends lie on the same ray from s
-                    Pt sv = j == i + 1 ? b : a, p = j == i + 1 ? a : b, q = j == i + 1 ? d : c;
+                    int si = j == i + 1 ? i2 : i, pi = j == i + 1 ? i : i2, qi = j == i + 1 ? j2 : j;
+                    if (SureOrient(vb, si, pi, vb[4 * qi], vb[4 * qi + 1], vb[4 * qi + 2], vb[4 * qi + 3]) != 0) continue;
+                    Pt sv = r[si], p = r[pi], q = r[qi];
                     if (Exact.Orient(sv, p, q) == 0 && (p.Qx - sv.Qx) * (q.Qx - sv.Qx) + (p.Qy - sv.Qy) * (q.Qy - sv.Qy) > Q.Zero) return false;
                     continue;
                 }
+                int oc = SureOrient(vb, i, i2, vb[4 * j], vb[4 * j + 1], vb[4 * j + 2], vb[4 * j + 3]);
+                int od = SureOrient(vb, i, i2, vb[4 * j2], vb[4 * j2 + 1], vb[4 * j2 + 2], vb[4 * j2 + 3]);
+                if (oc != 0 && oc == od) continue;
+                int oa = SureOrient(vb, j, j2, vb[4 * i], vb[4 * i + 1], vb[4 * i + 2], vb[4 * i + 3]);
+                int ob = SureOrient(vb, j, j2, vb[4 * i2], vb[4 * i2 + 1], vb[4 * i2 + 2], vb[4 * i2 + 3]);
+                if (oa != 0 && oa == ob) continue;
+                Pt a = r[i], b = r[i2], c = r[j], d = r[j2];
                 if (Exact.ProperCross(a, b, c, d) || Exact.OnClosedSegment(a, b, c) || Exact.OnClosedSegment(a, b, d)
                     || Exact.OnClosedSegment(c, d, a) || Exact.OnClosedSegment(c, d, b)) return false;
             }
