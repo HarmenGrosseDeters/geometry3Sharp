@@ -191,3 +191,13 @@ Derived in the note from the textbook shape derivative; papers read as abstracts
 | `BooleanVolumeGradient` (mesh_ops/BooleanVolumeGradient.cs, docs/guides/booleans-and-imprint.md "Volume Gradient"): the Hadamard formula over the kept pieces, each term and per-vertex sum in interval arithmetic (`ExactInterval`) from the exact corners, the one-sided branches of the contact regions from the coplanar stacks | the shape derivative of Delfour and Zolésio and the nonsmooth analysis of Clarke (both as below); interval arithmetic: R. E. Moore, *Interval Analysis*, Prentice-Hall 1966 (inclusion isotonicity); own derivation, no code read |
 | One-sided derivatives and the generalized gradient at contacts; the tie-break read as a symbolic perturbation | F. H. Clarke, *Optimization and Nonsmooth Analysis*, Wiley 1983; J. Bolte, E. Pauwels, *Conservative set valued fields, automatic differentiation, stochastic gradient methods and deep learning*, Math. Programming 2020; H. Edelsbrunner, E. P. Mücke, *Simulation of Simplicity*, ACM TOG 9(1) 1990 |
 | Prior art compared (not used): approximate differentiable CSG, exact derivatives of ball unions and polytopes | Yuan et al., *DiffCSG*, SIGGRAPH Asia 2024 (arXiv 2409.01421); T.-M. Li et al., *Differentiable Monte Carlo Ray Tracing through Edge Sampling*, TOG 2018; H. Edelsbrunner, P. Koehl, PNAS 2003; R. Bryant, H. Edelsbrunner, P. Koehl, M. Levitt, DCG 2004; J. B. Lasserre, JOTA 39, 1983; J. Allard et al., *Volume Contact Constraints at Arbitrary Resolution*, SIGGRAPH 2010 |
+
+## Higher mathematics study (2026-11-25, research only, no library code)
+
+[docs/research/HIGHER_MATH_STUDY_2026-11.md](../research/HIGHER_MATH_STUDY_2026-11.md), probes in `benchmarks/HigherMathStudy`.
+Papers read as abstracts only, no code read.
+
+| Part | Source |
+|---|---|
+| Idea 1: volume and Euler characteristic as valuations (inclusion-exclusion on the exact Boolean results), χ(∂M) = 2χ(M) | Hadwiger 1957 and χ(∂M) = 2χ(M) as cited in [meshing-and-repair.md](meshing-and-repair.md) (contouring topology certificate, Theorem 6); D. A. Klain, G.-C. Rota, *Introduction to Geometric Probability*, Cambridge 1997 (from memory); the divergence theorem (any analysis text) |
+| Idea 2: modular sign and zero evaluation of integer predicates, recombined by CRT (prior art compared, not built) | H. Brönnimann, I. Z. Emiris, V. Y. Pan, S. Pion, *Computing exact geometric predicates using modular arithmetic with single precision*, SoCG 1997 (abstract and fragments) |
