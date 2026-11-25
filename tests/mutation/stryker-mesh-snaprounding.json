@@ -8,7 +8,7 @@
     "mutate": [
       "**/comp_geom/SnapRounding2.cs"
     ],
-    "test-case-filter": "FullyQualifiedName~SnapRounding2Tests|FullyQualifiedName~SnapRounding2IndexTests|FullyQualifiedName~SnapGridPixelFilterTests|FullyQualifiedName~Meshing2SnapGateTests|FullyQualifiedName~QualityMesh2SnapDegenerateTests|FullyQualifiedName~Meshing2OracleSnapMarkerTests|FullyQualifiedName~QualityMesh2OracleRestoreTests|FullyQualifiedName~QualityMesh2ToleranceLimitTests|FullyQualifiedName~QualityMesh2PairKeyHashTests|FullyQualifiedName~QualityMesh2CollapsedRingDomainLibraryTests|FullyQualifiedName~ConstrainedDelaunayMesh2Tests",
+    "test-case-filter": "FullyQualifiedName~SnapRounding2Tests|FullyQualifiedName~SnapRounding2IndexTests|FullyQualifiedName~SnapGridPixelFilterTests|FullyQualifiedName~Meshing2SnapGateTests|FullyQualifiedName~QualityMesh2SnapDegenerateTests|FullyQualifiedName~Meshing2OracleSnapMarkerTests|FullyQualifiedName~QualityMesh2OracleRestoreTests|FullyQualifiedName~QualityMesh2ToleranceLimitTests|FullyQualifiedName~QualityMesh2PairKeyHashTests|FullyQualifiedName~QualityMesh2CollapsedRingDomainLibraryTests|FullyQualifiedName~ConstrainedDelaunayMesh2Tests|FullyQualifiedName~SnapRounding2MeetsGuardTests|FullyQualifiedName~ConstrainedDelaunayMesh2BundleTests|FullyQualifiedName~ConstrainedDelaunayMesh2CavityTests|FullyQualifiedName~ConstrainedDelaunayMesh2NodingCapTests|FullyQualifiedName~ConstrainedDelaunayMesh2OverlapTests|FullyQualifiedName~Meshing2OracleReportedProvenanceTests|FullyQualifiedName~QualityMesh2DroppedPartDiagnosticTests",
     "coverage-analysis": "perTest",
     "configuration": "Release",
     "additional-timeout": 30000,
