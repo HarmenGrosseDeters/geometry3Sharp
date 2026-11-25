@@ -310,29 +310,36 @@ pass was 3 times slower.
 (`soupwrap_planes` rows, then superseded).
 
 - **A noise gate.** The planes are used only when the input's sheets are noisy: `VarifoldCreaseQuery.MedianNoise` over 512
-  triangles at a fixed stride must be above `VarifoldPlaneMinNoise` = 0.003.
+  triangles at a fixed stride must be above `VarifoldPlaneMinNoise` = 0.0005.
   - For each sampled triangle the cluster's plane is fitted at the plane radius r and at 2 r.
-  - A smooth surface's residual grows as r^2, so rms^2 = sigma^2 + c r^4, while noise does not grow with r.
-  - So `sigma = sqrt((16 rms1^2 - rms2^2) / 15) / r` is the noise alone, relative to the radius.
+  - Noise gives the same residual at both radii. A facet edge (a kink) gives rms^2 growing as r^2, and a smooth curve as
+    r^4.
+  - So `sigma = sqrt((4 rms1^2 - rms2^2) / 3) / r` (clamped at 0) removes both. It over-removes a smooth curve and can only
+    err low.
 
-  A first version gated on the median *tilt* between a facet and its fitted plane (> 0.1 degrees). The review of 22cd0a4
-  showed that it opened on clean curved soups: a facet's centroid sits off its strip's centre, so a 64-slice cylinder
-  measures 0.77-0.90 degrees and a 32-sphere 0.65. On the clean sphere soup that meant 2422 plane moves, the distances
-  spread to 0.94-1.11 offset, and the pass took 4.6 times as long.
+  The history:
+
+  | gate | flaw |
+  |---|---|
+  | median tilt between a facet and its fitted plane (22cd0a4) | opened on clean curved soups (a facet's centroid is off its strip's centre: a 64-slice cylinder 0.77-0.90 degrees, a 32-sphere 0.65). On the clean sphere soup that meant 2422 plane moves, the distances spread to 0.94-1.11 offset, and the pass took 4.6 times as long |
+  | an r^4-only model (6bd8925), the first review fix | the coordinator's probe of coarse shapes found a torus of 48 x 24 facets (15 degrees per facet around the tube) at noise 0.0101: a facet edge inside the ball reads as noise in that model |
+
+  Measured with the r^2 model (`SharpFeatureProbe soup gateprobe`, raw `results/soup/gateprobe.jsonl`), at alpha = diagonal
+  / 60 and / 300:
 
   | input | median noise |
   |---|---|
-  | clean flat soups | 0 |
-  | clean curved soups at alpha = diagonal / 60 (cylinders of 64 and 256 slices, the 32-sphere) | 0.0006-0.0020 |
-  | the same at diagonal / 300 | 0 |
-  | jitter 0.01 h (closed; already at recall 0.99, precision 0.97) | 0.0027 |
-  | `mixnh:0.25` | 0.0038 |
-  | jitter 0.025 h | 0.0066-0.0069 |
-  | `mixnh:0.5` | 0.0071-0.0077 |
+  | 32 clean shapes, unwelded: cylinders of 12, 16, 24, 32, 64 and 256 slices; spheres of 6, 8, 12 and 32 edge vertices; tori of 12 x 6, 24 x 12 and 48 x 24; rounded boxes with fillets of 1, 1.5 and 3 balls | 0 on every one |
+  | jitter 0.005 h | 0.0011-0.0013 |
+  | jitter 0.01 h | 0.0022-0.0025 |
+  | `mixnh:0.25` | 0.0031-0.0035 |
+  | jitter 0.025 h | 0.0056-0.0062 |
+  | `mixnh:0.5` | 0.0061-0.0069 |
 
-  The margin to the curved shapes is 1.5 times. A test pins the closed gate and the unchanged result on the three curved
-  soups. When the ball holds about one triangle (coarse soups: h above about 3 alpha), the noise reads small. That is
-  right: a fitted plane is then that triangle's own, so the planes change nothing.
+  The threshold opens the gate from jitter of about 0.003 h. `VarifoldPlanes_CleanCurvedSoups_GateClosed_ResultUnchanged`
+  pins noise 0, the closed gate and the unchanged result on cylinders of 12, 64 and 256 slices, spheres of 6 and 32 and the
+  48 x 24 torus. When the ball holds about one triangle (coarse soups: h above about 3 alpha), the noise reads small. That
+  is right: a fitted plane is then that triangle's own, so the planes change nothing.
 - **A parallel prefetch.** When the planes are used, the labels of all wrap vertices are made before the serial passes, in
   parallel (`gParallel.ForRange`, each vertex its own slot, no reduction across threads). The passes ask a vertex's label
   before they move it and nothing moves before them, so these are the labels the lazy path makes. A test checks the same
@@ -358,12 +365,27 @@ The hole-free mixes, recall within 3 offsets / precision within 1 offset:
 | mixnh:0.5, with planes | 0.985 / 0.529 | 0.943 / 0.372 | 0.982 / 0.279 | 0.976 / 0.211 |
 
 - The unwelded, T-junction, duplicate, flip and gap rows do not use the planes (noise 0.0000) and are as in section 9.
-- Re-run after the review's gate change (the rows now in `soupwrap.jsonl`): the same gate decisions, the same recall and
-  precision in every row.
+- Re-run with the r^2 gate (`soupwrap.jsonl`, 44 cases with `jitter:0.01` added): the same recall and precision as before in
+  every row. `jitter:0.01` now opens the gate (it did not at 0.003). Recall / precision within 1 offset:
+
+  | shape | gate closed | planes on | oracle |
+  |---|---|---|---|
+  | slot | 0.970 / 0.895 | 0.992 / 0.970 | 0.994 / 0.975 |
+  | vnotch | 0.967 / 0.824 | 0.976 / 0.866 | 0.981 / 0.876 |
+  | box | (not run) | 0.994 / 0.976 | 0.998 / 0.981 |
+  | fillet | 0.991 / 0.970 | 0.991 / 0.972 | 0.996 / 0.979 |
+
+  The gate-closed figures are the planes-off rows of `SharpFeatureProbe soup soupwrap .../soupwrap_jitter_small.jsonl
+  tris=100000 shapes=<slot|fillet|vnotch> "breaks=jitter:0.01;jitter:0.005" planes=0,1.5 minnoise=0.0005` (raw rows there,
+  also for `jitter:0.005`: small gains, nothing worse). In the previous report I gave slot at `jitter:0.01` as "already 0.99 / 0.97" with the gate
+  closed: that was wrong. Those were the numbers with the planes on.
 - Every result is clean: 160 of 160 rows.
 - **The slot's precision miss is closed:** 0.932 against the oracle's 0.934.
-- **Cost:** the varifold's share is **8.6-18.9 %** of the wrap over the 40 cases (0.23-0.67 s; the gate now fits two planes
-  per sample); the most is box and fillet at the mixes. The target is < 20 %. The pass itself takes longer where the planes are used (about 5 s against 1.5 s):
+- **Cost:** the varifold's share is **6.9-20.7 %** of the wrap over the 44 cases (0.20-0.65 s; the gate fits two planes per
+  sample). One row is above 20 %: fillet at `mixnh:0.25`, at 20.7 %. Its measure build took 0.34 s in this run against
+  0.15-0.28 s in the other rows and in earlier runs of the same row, where the share was 19 %. That is run-to-run timing on
+  a shared 4-core container, not a trend; the next lever, if it were needed, is a parallel measure build (each triangle's
+  points in its own slot). The target is < 20 %. The pass itself takes longer where the planes are used (about 5 s against 1.5 s):
   it then moves nearly every vertex onto its denoised plane, each move checked exactly, as the oracle's pass does on the
   clean copy (about 5 s too).
 
@@ -373,7 +395,8 @@ prefetch, without it and serial) and `VarifoldPlanes_CleanSoup_NotUsed`.
 
 After the review of 22cd0a4 (findings F1-F6):
 
-- **F1:** the gate above, and `VarifoldPlanes_CleanCurvedSoups_GateClosed_ResultUnchanged`.
+- **F1:** the gate above (the r^2 model after the coarse-shape probe), and
+  `VarifoldPlanes_CleanCurvedSoups_GateClosed_ResultUnchanged`.
 - **F2:** `VarifoldPlanes_Lift_LetsTheMovesThrough`: the lift lets 1.5 times the plane moves through, with fewer
   rejections.
 - **F3:** `VarifoldPlanes_Invariance`, `Similarity.All()` on the open-gate path; 2^k bit for bit.
@@ -385,10 +408,10 @@ After the review of 22cd0a4 (findings F1-F6):
 
 The slowest new test takes 3 s (`VarifoldCreases_Invariance`).
 
-Hand mutants: 28, all killed.
+Hand mutants: 29, all killed.
 
-- New in this round: the noise formula (the plain rms instead), the tie rule reversed, the lift dropped, the centroid
-  point's mass.
+- New in this round: the noise formula (the plain rms instead), the r^4-only model (killed by the torus), the tie rule
+  reversed, the lift dropped, the centroid point's mass.
 - Kept from before: every mutant of the planes and of the crease test.
 - The plane fit's kernel weight, a survivor before, is now killed through the gate.
 
@@ -397,6 +420,6 @@ Hand mutants: 28, all killed.
 | candidate | bound |
 |---|---|
 | Gap-aware placement | `gap:0.3`: recall within 3 offsets 0.877 and 0.889 (vnotch, fillet) against the ceiling's 0.989 and 1.000, at most +0.11 on 2 of 40 rows; elsewhere at most +0.07. That gap is outside the targets (up to `mix:0.5`, whose gap is 0.15 h), and at one offset the reference itself is ambiguous (the faces are moved 2.7-5.5 offsets apart). Below 10 % on every row within the target range. |
-| Local sampling (measure only near crossing edges) | the measure is 0.15-0.25 s of the 0.23-0.67 s; the share is already at most 18.9 %: no target missed |
+| Local sampling, or a parallel measure build | the measure is 0.15-0.34 s of the 0.20-0.65 s; the share is at most 20.7 % (one row, timing) |
 | A planes gate per region instead of per input | the gate is global; a mostly clean input with one noisy part uses the planes everywhere (cost only, not quality): at most the planes' 0.1-0.25 s |
 | Corners (three planes) | not handled by the pass at all (ALPHA_WRAP_FEATURE_VALIDITY.md); not measured here |

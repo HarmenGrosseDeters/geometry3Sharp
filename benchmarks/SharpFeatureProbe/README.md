@@ -192,5 +192,5 @@ Result at 100k ([design/VARIFOLD_CREASE_INPUT.md](../../docs/design/VARIFOLD_CRE
 
 - unwelded, T-junction, duplicated and flipped soups go from recall 0.84-0.98 to the ceiling (0.98-1.00);
 - jittered soups with the fitted vertex planes (section 10) reach the oracle;
-- the varifold costs 0.23-0.67 s, 9-19 % of the wrap;
+- the varifold costs 0.20-0.65 s, 7-21 % of the wrap;
 - every result is clean.
