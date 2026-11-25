@@ -30,10 +30,12 @@ namespace g3
         /// What should we do when AddTriangle() fails because the triangle already exists?
         /// A triangle is a duplicate only if an existing triangle has the same three vertices in the same
         /// orientation (the same cyclic order). A triangle with the same three vertices in the opposite orientation
-        /// is not a duplicate: it is handled like a non-manifold triangle (see NonManifoldTriBehavior; by default it
-        /// gets its own vertices, so both triangles are kept), whatever their order in the input.
-        /// (1.0.324 discarded it as a duplicate, but only when it came before the triangles of the neighbouring
-        /// surface; issue #1556.)
+        /// is not a duplicate: it is always handled like a non-manifold triangle (see NonManifoldTriBehavior; by default
+        /// it gets its own vertices, so both triangles are kept), whatever their order in the input, also where it
+        /// could be welded to the existing triangle (eg the back side of a lone two-sided triangle).
+        /// (1.0.324 discarded it as a duplicate whenever it met the existing triangle's vertices; issue #1556.)
+        /// The connectivity can still depend on the input order: a triangle that meets an edge with two triangles
+        /// gets its own vertices, so which of several triangles on an edge stays welded is decided by their order.
         /// </summary>
         public AddTriangleFailBehaviors DuplicateTriBehavior = AddTriangleFailBehaviors.DiscardTriangle;
 
@@ -123,8 +125,10 @@ namespace g3
             if (existing_tid != DMesh3.InvalidID) {
                 int same_tid = find_same_orientation_triangle(Meshes[nActiveMesh], i, j, k);
                 if (same_tid == DMesh3.InvalidID) {
-                    // only the opposite orientation exists: not a duplicate (issue #1556), but it cannot share
-                    // the existing triangle's vertices either, so it takes the non-manifold path
+                    // only the opposite orientation exists: not a duplicate (issue #1556). It always takes the
+                    // non-manifold path (own vertices by default), also where it could be welded to the existing
+                    // triangle's free edges: welding it would use up those edges, so the result would depend on
+                    // the input order again
                     if (NonManifoldTriBehavior == AddTriangleFailBehaviors.DuplicateAllVertices)
                         return append_duplicate_triangle(i, j, k, g);
                     else

@@ -143,7 +143,8 @@ namespace geometry3Sharp.Tests
             List<string> lf = LabelTriangles(first, Similarity.Identity), ll = LabelTriangles(last, Similarity.Identity);
             Assert.Equal(ll, lf);
             Assert.True(ClosedByPosition(lf));
-            // the box itself stays whole: its 12 triangles are all there
+            // the box's 12 triangles are all there (closed by position; the connectivity differs between the orders:
+            // first, the flap stays welded and one box triangle at the edge gets its own vertices; last, the flap does)
             Assert.Equal(ExpectedLabels(BoxTris), lf.Where(t => t.Contains('8') == false).ToList());
         }
 
@@ -241,6 +242,35 @@ namespace geometry3Sharp.Tests
             Assert.Equal(t1, builder.AppendTriangle(c, b, a));
             Assert.Equal(2, mesh.TriangleCount);
             Assert.Equal(3, mesh.VertexCount);
+        }
+
+        [Fact]
+        public void Builder_DuplicateAllVertices_DoesNotApplyToTheOppositeTriangle()
+        {
+            // DuplicateTriBehavior = DuplicateAllVertices copies a same-orientation duplicate; the opposite triangle
+            // follows NonManifoldTriBehavior (here: refused), not DuplicateTriBehavior
+            var builder = new DMesh3Builder {
+                DuplicateTriBehavior = DMesh3Builder.AddTriangleFailBehaviors.DuplicateAllVertices,
+                NonManifoldTriBehavior = DMesh3Builder.AddTriangleFailBehaviors.DiscardTriangle };
+            builder.AppendNewMesh(false, false, false, false);
+            int a = builder.AppendVertex(0, 0, 0), b = builder.AppendVertex(1, 0, 0), c = builder.AppendVertex(0, 1, 0);
+            int t0 = builder.AppendTriangle(a, b, c);
+            Assert.True(t0 >= 0);
+            Assert.Equal(DMesh3.NonManifoldID, builder.AppendTriangle(b, a, c));
+            Assert.Equal(1, builder.Meshes[0].TriangleCount);
+            int t1 = builder.AppendTriangle(b, c, a);                    // same orientation: a copy with its own vertices
+            Assert.True(t1 >= 0 && t1 != t0);
+            Assert.Equal(2, builder.Meshes[0].TriangleCount);
+            Assert.Equal(6, builder.Meshes[0].VertexCount);
+
+            // and the reverse mix: the opposite triangle gets its own vertices, a same-orientation one is discarded
+            var builder2 = new DMesh3Builder { NonManifoldTriBehavior = DMesh3Builder.AddTriangleFailBehaviors.DuplicateAllVertices };
+            builder2.AppendNewMesh(false, false, false, false);
+            a = builder2.AppendVertex(0, 0, 0); b = builder2.AppendVertex(1, 0, 0); c = builder2.AppendVertex(0, 1, 0);
+            t0 = builder2.AppendTriangle(a, b, c);
+            Assert.True(builder2.AppendTriangle(c, b, a) > t0);
+            Assert.Equal(t0, builder2.AppendTriangle(c, a, b));
+            Assert.Equal(2, builder2.Meshes[0].TriangleCount);
         }
 
         [Fact]
