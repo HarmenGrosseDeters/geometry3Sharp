@@ -144,7 +144,7 @@ Wrap triangle count scales with `surface area / Alpha^2`, not input triangle cou
 
 Set `MaxEstimatedTriangles` (`MeshRobustRepair.WrapMaxEstimatedTriangles`, off by default) to automatically coarsen `Alpha` and `Offset` until the estimated raw triangle count (counting open components twice) fits the budget.
 
-**Holes the alpha ball passes through (by design, [#1542](https://github.com/HarmenGrosseDeters/geometry3Sharp/issues/1542)):** The ball enters a hole whose circumscribed circle is wider than about 2 `Alpha`, for example a dropped triangle of side about 1.9 `Alpha`, whose circumradius is about 1.07 `Alpha`. The wrap then goes through it and becomes one connected surface around both sides of the sheet, with one tunnel per hole it passes through, and it does not seal the hole.
+**Holes the alpha ball passes through (by design, [#1542](https://github.com/HarmenGrosseDeters/geometry3Sharp/issues/1542)):** The ball enters a hole whose circumscribed circle is wider than about 2 `Alpha`, for example a dropped right isosceles grid triangle with legs of about 1.86 `Alpha` (as in the procedural soups below), whose circumradius is half its hypotenuse, about 1.32 `Alpha`. The wrap then goes through it and becomes one connected surface around both sides of the sheet, with one tunnel per hole it passes through, and it does not seal the hole.
 
 On procedural closed shells of about 100k triangles (`RelativeAlpha = 300`, `RelativeOffset = 3000`) with such holes:
 - **Holes alone** (2.5 % of the triangles dropped): about 2 times the raw triangles and 4-5 times the time of the same shell without holes.
