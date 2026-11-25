@@ -1,5 +1,6 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using g3;
 
@@ -103,7 +104,12 @@ namespace gs
         /// CreaseAngleDegrees) as quad edges and corners: PositionField makes crease curves lattice lines and crease corners
         /// (turn above CornerAngleDegrees, junctions) fixed lattice points. When Field is null the cross field is computed with
         /// AlignCreases on (see AlignCreases). Not combined with PureQuads (InvalidInput: the pure-quad repair does not keep the feature curves,
-        /// so a "successful" pure-quad result would silently lose the creases).
+        /// so a "successful" pure-quad result would silently lose the creases). After the extraction the crease vertices are moved onto the
+        /// creases of the input and the corner vertices onto its corners (if within 0.25 and 0.35 edge lengths), the links along each crease
+        /// join consecutive vertices only, and an edge along a curved crease whose middle is more than 0.08 edge lengths from the crease is
+        /// split at the crease (at most 3 % of the faces, so the two faces at it become pentagons): the feature Hausdorff distance of the
+        /// stage 4 gate no longer depends on the lattice spacing along a rim (issue #1452). Not covered: a crease edge across a corner
+        /// (a mesh triangle with all three edges creases, as the remesher can leave at a rim) is followed only by chance.
         /// </summary>
         public bool PreserveCreases = false;
         /// <summary>
@@ -397,9 +403,264 @@ namespace gs
             CollapsedEdges = 0; RemovedValence2 = 0;
             if (Cleanup) CleanupGraph(g, pf.TargetEdgeLength, CollapseLength, out CollapsedEdges, out RemovedValence2, PreserveCreases);
             int dropped;
+            if (PreserveCreases) {
+                // issue #1452: the lattice graph does not follow the creases exactly (see CreaseIndex): the crease vertices are moved onto
+                // them, the links along each crease are made to join consecutive vertices only, and an edge along a curved crease that
+                // is too long for the curve is split at the crease
+                var creases = new CreaseIndex(Mesh, CreaseAngleDegrees, CornerAngleDegrees, pf.TargetEdgeLength);
+                if (creases.Count > 0) {
+                    creases.Snap(g);
+                    creases.RepairLinks(g);
+                    DPolyMesh baseline = BuildFaces(g, MaxFaceSides, out dropped);
+                    int droppedBase = dropped;
+                    // each split turns the two faces at the edge into pentagons (quads): at most 3 % of the faces are split, the farthest edges first,
+                    // so a result with 90 % quads keeps 85 % and more
+                    if (creases.SplitLongEdges(g, (int)(0.03 * baseline.FaceCount))) {
+                        DPolyMesh refined = BuildFaces(g, MaxFaceSides, out dropped);
+                        if (dropped <= droppedBase) { DroppedFaces = dropped; return refined; }   // else a face grew above MaxFaceSides: keep the plain result
+                    }
+                    DroppedFaces = droppedBase;
+                    return baseline;
+                }
+            }
             DPolyMesh poly = BuildFaces(g, MaxFaceSides, out dropped);
             DroppedFaces = dropped;
             return poly;
+        }
+
+        // ---- creases (PreserveCreases, issue #1452)
+
+        /// <summary>
+        /// The creases of the input (MeshTopology with CreaseAngleDegrees) as chains of segments: each chain runs between two vertices where
+        /// the crease ends or meets others (degree other than 2), or is a closed loop, with the arc length along it. Used to correct the
+        /// lattice graph of PositionField at creases, which the extraction draws only approximately: a crease vertex lies on a straight
+        /// lattice line (up to 0.12 s off a curved or facetted crease), a corner cluster is the mean of merged lattice points (up to 0.14 s off
+        /// its corner), two lattice points of a stretched crease can be joined over a vertex between them (a chord) while two consecutive ones are
+        /// not joined, and a quad edge along a curved crease can be so long that its middle is more than 0.1 s from the curve.
+        /// </summary>
+        internal sealed class CreaseIndex
+        {
+            readonly List<Vector3d> A = new List<Vector3d>(), B = new List<Vector3d>();
+            readonly List<int> chainOf = new List<int>();
+            readonly List<double> arc0 = new List<double>();          // arc length at A along the chain
+            readonly List<double> chainLength = new List<double>();
+            readonly List<bool> chainClosed = new List<bool>();
+            readonly List<Vector3d> corners = new List<Vector3d>();
+            readonly Dictionary<long, List<int>> cells = new Dictionary<long, List<int>>();
+            readonly double s, cell;
+
+            public int Count { get { return A.Count; } }
+
+            public CreaseIndex(DMesh3 mesh, double creaseAngleDegrees, double cornerAngleDegrees, double edgeLength)
+            {
+                s = edgeLength; cell = Math.Max(2 * edgeLength, double.Epsilon);
+                var topo = new MeshTopology(mesh) { CreaseAngle = creaseAngleDegrees };
+                topo.Compute();
+                var nb = new SortedDictionary<int, List<int>>();       // vertex -> crease edges
+                foreach (int eid in topo.CreaseEdges.OrderBy(e => e)) {
+                    Index2i ev = mesh.GetEdgeV(eid);
+                    if (!nb.ContainsKey(ev.a)) nb[ev.a] = new List<int>();
+                    if (!nb.ContainsKey(ev.b)) nb[ev.b] = new List<int>();
+                    nb[ev.a].Add(eid); nb[ev.b].Add(eid);
+                }
+                double cosCorner = Math.Cos(cornerAngleDegrees * Math.PI / 180);
+                foreach (var kv in nb) {
+                    bool corner = kv.Value.Count != 2;
+                    if (!corner) {
+                        Index2i e0 = mesh.GetEdgeV(kv.Value[0]), e1 = mesh.GetEdgeV(kv.Value[1]);
+                        Vector3d p = mesh.GetVertex(kv.Key);
+                        Vector3d d0 = p - mesh.GetVertex(e0.a == kv.Key ? e0.b : e0.a), d1 = mesh.GetVertex(e1.a == kv.Key ? e1.b : e1.a) - p;
+                        double l0 = d0.Length, l1 = d1.Length;
+                        corner = !(l0 > 0 && l1 > 0) || d0.Dot(d1) / (l0 * l1) < cosCorner;
+                    }
+                    if (corner) corners.Add(mesh.GetVertex(kv.Key));
+                }
+                var used = new HashSet<int>();
+                // open chains from the vertices of degree != 2, then the loops
+                foreach (var kv in nb) {
+                    if (kv.Value.Count == 2) continue;
+                    foreach (int e in kv.Value) if (!used.Contains(e)) Walk(mesh, nb, used, kv.Key, e, false);
+                }
+                foreach (var kv in nb) {
+                    foreach (int e in kv.Value) if (!used.Contains(e)) Walk(mesh, nb, used, kv.Key, e, true);
+                }
+                for (int i = 0; i < A.Count; ++i) {
+                    var lo = Cell(new Vector3d(Math.Min(A[i].x, B[i].x), Math.Min(A[i].y, B[i].y), Math.Min(A[i].z, B[i].z))); var hi = Cell(new Vector3d(Math.Max(A[i].x, B[i].x), Math.Max(A[i].y, B[i].y), Math.Max(A[i].z, B[i].z)));
+                    for (long x = lo.Item1; x <= hi.Item1; ++x) for (long y = lo.Item2; y <= hi.Item2; ++y) for (long z = lo.Item3; z <= hi.Item3; ++z) {
+                        List<int> l; long k = Key(x, y, z);
+                        if (!cells.TryGetValue(k, out l)) { l = new List<int>(); cells[k] = l; }
+                        l.Add(i);
+                    }
+                }
+            }
+
+            void Walk(DMesh3 mesh, SortedDictionary<int, List<int>> nb, HashSet<int> used, int v0, int e0, bool closed)
+            {
+                int chain = chainLength.Count; double arc = 0; int v = v0, e = e0;
+                while (true) {
+                    used.Add(e);
+                    Index2i ev = mesh.GetEdgeV(e);
+                    int w = ev.a == v ? ev.b : ev.a;
+                    Vector3d pa = mesh.GetVertex(v), pb = mesh.GetVertex(w);
+                    A.Add(pa); B.Add(pb); chainOf.Add(chain); arc0.Add(arc);
+                    arc += (pb - pa).Length;
+                    v = w;
+                    List<int> es = nb[v];
+                    if (es.Count != 2) break;
+                    int next = es[0] == e ? es[1] : es[0];
+                    if (used.Contains(next)) break;
+                    e = next;
+                }
+                chainLength.Add(arc); chainClosed.Add(closed || (v == v0));
+            }
+
+            static long Key(long x, long y, long z) { return (x & 0x1FFFFF) | ((y & 0x1FFFFF) << 21) | ((z & 0x1FFFFF) << 42); }
+            Tuple<long, long, long> Cell(Vector3d p) { return Tuple.Create((long)Math.Floor(p.x / cell), (long)Math.Floor(p.y / cell), (long)Math.Floor(p.z / cell)); }
+
+            /// <summary> the crease point nearest to p within maxDist: its segment, the parameter on it and the distance (false if none) </summary>
+            public bool Nearest(Vector3d p, double maxDist, out int seg, out double t, out double dist)
+            {
+                seg = -1; t = 0; dist = double.MaxValue;
+                var lo = Cell(new Vector3d(p.x - maxDist, p.y - maxDist, p.z - maxDist)); var hi = Cell(new Vector3d(p.x + maxDist, p.y + maxDist, p.z + maxDist));
+                for (long x = lo.Item1; x <= hi.Item1; ++x) for (long y = lo.Item2; y <= hi.Item2; ++y) for (long z = lo.Item3; z <= hi.Item3; ++z) {
+                    List<int> l;
+                    if (!cells.TryGetValue(Key(x, y, z), out l)) continue;
+                    foreach (int i in l) {
+                        Vector3d ab = B[i] - A[i]; double l2 = ab.LengthSquared;
+                        double tt = l2 > 0 ? Math.Max(0, Math.Min(1, (p - A[i]).Dot(ab) / l2)) : 0;
+                        double d = (p - (A[i] + tt * ab)).Length;
+                        if (d < dist || (d == dist && i < seg)) { dist = d; seg = i; t = tt; }
+                    }
+                }
+                return seg >= 0 && dist <= maxDist;
+            }
+
+            Vector3d PointAt(int seg, double t) { return A[seg] + t * (B[seg] - A[seg]); }
+            double ArcAt(int seg, double t) { return arc0[seg] + t * (B[seg] - A[seg]).Length; }
+
+            /// <summary>
+            /// Moves the crease vertices (kind 1) within 0.25 edge lengths of a crease onto it (the nearest point), and the corner vertices
+            /// (kind 2) within 0.35 edge lengths of a corner of the creases onto it
+            /// </summary>
+            public int Snap(PolyGraph g)
+            {
+                int moved = 0;
+                for (int v = 0; v < g.Pos.Count; ++v) {
+                    if (g.Kind[v] < 1) continue;
+                    Vector3d p = g.Pos[v];
+                    if (g.Kind[v] == 2) {
+                        Vector3d best = p; double bd = double.MaxValue;
+                        foreach (Vector3d c in corners) { double d = (p - c).Length; if (d < bd) { bd = d; best = c; } }
+                        if (bd > 0 && bd <= 0.35 * s) { g.Pos[v] = best; moved++; }
+                        continue;
+                    }
+                    int seg; double t, dist;
+                    if (Nearest(p, 0.25 * s, out seg, out t, out dist) && dist > 0) { g.Pos[v] = PointAt(seg, t); moved++; }
+                }
+                return moved;
+            }
+
+            static int chainOfList(List<List<KeyValuePair<double, int>>> lists, List<KeyValuePair<double, int>> l) { return lists.IndexOf(l); }
+
+            // the graph vertices of kind 1 and 2 on each chain (within 0.05 s of it), by arc length
+            List<List<KeyValuePair<double, int>>> VerticesByChain(PolyGraph g)
+            {
+                var lists = new List<List<KeyValuePair<double, int>>>();
+                for (int c = 0; c < chainLength.Count; ++c) lists.Add(new List<KeyValuePair<double, int>>());
+                for (int v = 0; v < g.Pos.Count; ++v) {
+                    if (g.Kind[v] < 1) continue;
+                    int seg; double t, dist;
+                    if (!Nearest(g.Pos[v], 0.05 * s, out seg, out t, out dist)) continue;
+                    lists[chainOf[seg]].Add(new KeyValuePair<double, int>(ArcAt(seg, t), v));
+                }
+                foreach (var l in lists) l.Sort((x, y) => { int c = x.Key.CompareTo(y.Key); return c != 0 ? c : x.Value.CompareTo(y.Value); });
+                return lists;
+            }
+
+            /// <summary>
+            /// The vertices on a crease in order of the arc length: consecutive ones are joined (if the crease between them is at most 2.5 edge
+            /// lengths long), two that are joined with another vertex between them (a chord) are not. A closed chain wraps around.
+            /// </summary>
+            public int RepairLinks(PolyGraph g)
+            {
+                int changes = 0;
+                var lists = VerticesByChain(g);
+                for (int c = 0; c < lists.Count; ++c) {
+                    var l = lists[c]; int n = l.Count;
+                    if (n < 2) continue;
+                    bool closed = chainClosed[c];
+                    // chords first: a link between vertices that are not neighbours in the order (the shorter way round for a loop)
+                    var pos = new Dictionary<int, int>();
+                    for (int i = 0; i < n; ++i) pos[l[i].Value] = i;
+                    for (int i = 0; i < n; ++i) {
+                        int u = l[i].Value;
+                        foreach (int w in g.Adj[u].ToArray()) {
+                            int j;
+                            if (!pos.TryGetValue(w, out j) || j <= i) continue;
+                            int gap = j - i; if (closed) gap = Math.Min(gap, n - gap);
+                            if (gap > 1 && l[j].Key - l[i].Key > 1e-12 && (g.Pos[u] - g.Pos[w]).Length > 0) { g.Unlink(u, w); changes++; }
+                        }
+                    }
+                    int pairs = closed ? n : n - 1;
+                    for (int i = 0; i < pairs; ++i) {
+                        int u = l[i].Value, w = l[(i + 1) % n].Value;
+                        if (u == w || g.Has(u, w)) continue;
+                        double gapLen = (i + 1 < n) ? l[i + 1].Key - l[i].Key : chainLength[c] - l[i].Key + l[0].Key;
+                        if (gapLen > 1e-12 && gapLen <= 2.5 * s) { g.Link(u, w); changes++; }
+                    }
+                }
+                return changes;
+            }
+
+            // an edge between two crease vertices is split at the crease if its middle is farther than this from it (in edge lengths)
+            const double SplitTolerance = 0.08;
+
+            /// <summary>
+            /// An edge between two consecutive vertices of a crease whose middle is farther than 0.08 edge lengths from the crease is split at the
+            /// point of the crease nearest to its middle (the farthest first, at most budget splits, at most 6 rounds): the quads of a curved crease (a rim) are straight
+            /// chords, and the lattice spacing along it varies by up to a factor 2, so a chord of 1.7 s on a circle of 4 s radius is 0.12 s off.
+            /// The two faces at the edge get a corner (a quad becomes a pentagon). True if a vertex was added.
+            /// </summary>
+            public bool SplitLongEdges(PolyGraph g, int budget)
+            {
+                bool any = false;
+                for (int round = 0; round < 6 && budget > 0; ++round) {
+                    // the candidates of this round, the farthest from the crease first (ties by the vertex ids), as many as the budget allows
+                    var cand = new List<(double d, int a, int b, int seg, double t)>();
+                    var lists = VerticesByChain(g);
+                    foreach (var l in lists) {
+                        int n = l.Count, pairs = chainClosed[chainOfList(lists, l)] ? n : n - 1;
+                        for (int i = 0; i < pairs && n > 1; ++i) {
+                            int a = l[i].Value, b = l[(i + 1) % n].Value;
+                            if (a == b || !g.Has(a, b)) continue;
+                            double gap = i + 1 < n ? l[i + 1].Key - l[i].Key : chainLength[chainOfList(lists, l)] - l[i].Key + l[0].Key;
+                            // the point of the chord farthest from the crease, of the quarter points and the middle (the chord is off most near the middle)
+                            int seg = -1; double t = 0, d = 0;
+                            foreach (double f in new[] { 0.25, 0.5, 0.75 }) {
+                                int sg; double tt, dd;
+                                if (Nearest(g.Pos[a] + f * (g.Pos[b] - g.Pos[a]), 0.5 * s, out sg, out tt, out dd) && dd > d) { d = dd; seg = sg; t = tt; }
+                            }
+                            if (seg < 0 || d <= SplitTolerance * s) continue;
+                            double rel = ArcAt(seg, t) - l[i].Key;
+                            if (rel < 0) rel += chainLength[chainOfList(lists, l)];
+                            if (!(rel > 0.2 * gap && rel < 0.8 * gap)) continue;
+                            cand.Add((d, a, b, seg, t));
+                        }
+                    }
+                    if (cand.Count == 0) break;
+                    cand.Sort((x, y) => { int c = y.d.CompareTo(x.d); if (c != 0) return c; c = x.a.CompareTo(y.a); return c != 0 ? c : x.b.CompareTo(y.b); });
+                    foreach (var c in cand) {
+                        if (budget <= 0) break;
+                        if (!g.Has(c.a, c.b)) continue;
+                        Vector3d nn = g.Nrm[c.a] + g.Nrm[c.b]; double nl = nn.Length;
+                        int p = g.Add(PointAt(c.seg, c.t), nl > 0 ? nn / nl : g.Nrm[c.a], 1);
+                        g.Spc[p] = 0.5 * (g.Spc[c.a] + g.Spc[c.b]);
+                        g.Unlink(c.a, c.b); g.Link(c.a, p); g.Link(p, c.b);
+                        any = true; budget--;
+                    }
+                }
+                return any;
+            }
         }
 
         /// <summary> removes the vertices of valence 1 and the chains they leave; true if there was one </summary>
