@@ -31,7 +31,14 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
+      - name: Pin the .NET 10 SDK (the runner image also has a newer SDK, whose workload set does not fit net10.0)
+        run: |
+          v=$(dotnet --list-sdks | awk '/^10\./ {print $1}' | tail -1)
+          test -n "$v"
+          dotnet new globaljson --sdk-version "$v" --roll-forward latestPatch --force
+          dotnet --version
       - name: Install the WebAssembly build tools (AOT)
+        working-directory: demos/G3Demos
         run: dotnet workload install wasm-tools
       - name: Publish the demos (AOT)
         run: dotnet publish demos/G3Demos -c Release -p:RunAOTCompilation=true -o out
@@ -64,6 +71,8 @@ jobs:
 
   deploy:
     needs: build
+    # a run on another branch (workflow_dispatch to check the build) builds and checks but does not publish
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:
       pages: write
