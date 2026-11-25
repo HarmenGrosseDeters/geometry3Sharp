@@ -34,6 +34,8 @@ namespace g3
         /// it gets its own vertices, so both triangles are kept), whatever their order in the input, also where it
         /// could be welded to the existing triangle (eg the back side of a lone two-sided triangle).
         /// (1.0.324 discarded it as a duplicate whenever it met the existing triangle's vertices; issue #1556.)
+        /// A triangle that the non-manifold path gave its own vertices is remembered by its input vertices, so a later
+        /// copy of it in the same orientation is a duplicate too (in 1.0.324 it got another copy each time).
         /// The connectivity can still depend on the input order: a triangle that meets an edge with two triangles
         /// gets its own vertices, so which of several triangles on an edge stays welded is decided by their order.
         /// </summary>
@@ -112,8 +114,9 @@ namespace g3
         /// <summary>
         /// Append triangle (i,j,k) with group g to the active mesh. If the triangle already exists in the same
         /// orientation, returns the existing triangle ID (or appends a copy with duplicated vertices, see
-        /// DuplicateTriBehavior); one with the same vertices in the opposite orientation is not a duplicate and is
-        /// treated as non-manifold. If it would be
+        /// DuplicateTriBehavior), also if the earlier one was given its own vertices by the non-manifold path; one with
+        /// the same vertices in the opposite orientation is not a duplicate and is treated as non-manifold (with
+        /// NonManifoldTriBehavior = DiscardTriangle it returns DMesh3.NonManifoldID). If it would be
         /// non-manifold, appends it with duplicated vertices (default) or returns DMesh3.NonManifoldID,
         /// see NonManifoldTriBehavior.
         /// </summary>
@@ -121,34 +124,93 @@ namespace g3
         {
             // [RMS] What to do here? We definitely do not want to add a duplicate triangle!!
             //   But is silently ignoring the right thing to do?
-            int existing_tid = Meshes[nActiveMesh].FindTriangle(i, j, k);
-            if (existing_tid != DMesh3.InvalidID) {
-                int same_tid = find_same_orientation_triangle(Meshes[nActiveMesh], i, j, k);
-                if (same_tid == DMesh3.InvalidID) {
-                    // only the opposite orientation exists: not a duplicate (issue #1556). It always takes the
-                    // non-manifold path (own vertices by default), also where it could be welded to the existing
-                    // triangle's free edges: welding it would use up those edges, so the result would depend on
-                    // the input order again
-                    if (NonManifoldTriBehavior == AddTriangleFailBehaviors.DuplicateAllVertices)
-                        return append_duplicate_triangle(i, j, k, g);
-                    else
-                        return DMesh3.NonManifoldID;
-                }
+            DMesh3 mesh = Meshes[nActiveMesh];
+            int existing_tid = mesh.FindTriangle(i, j, k);
+            int same_tid = (existing_tid != DMesh3.InvalidID) ? find_same_orientation_triangle(mesh, i, j, k) : DMesh3.InvalidID;
+            if (same_tid == DMesh3.InvalidID)
+                same_tid = find_detached_copy(mesh, i, j, k);
+            if (same_tid != DMesh3.InvalidID) {
                 if (DuplicateTriBehavior == AddTriangleFailBehaviors.DuplicateAllVertices)
                     return append_duplicate_triangle(i, j, k, g);
                 else
                     return same_tid;
             }
 
-            int tid = Meshes[nActiveMesh].AppendTriangle(i, j, k, g);
+            if (existing_tid != DMesh3.InvalidID) {
+                // only the opposite orientation exists: not a duplicate (issue #1556). It always takes the
+                // non-manifold path (own vertices by default), also where it could be welded to the existing
+                // triangle's free edges: welding it would use up those edges, so the result would depend on
+                // the input order again
+                if (NonManifoldTriBehavior == AddTriangleFailBehaviors.DuplicateAllVertices)
+                    return append_detached_copy(mesh, i, j, k, g);
+                else
+                    return DMesh3.NonManifoldID;
+            }
+
+            int tid = mesh.AppendTriangle(i, j, k, g);
             if ( tid == DMesh3.NonManifoldID ) {
                 if (NonManifoldTriBehavior == AddTriangleFailBehaviors.DuplicateAllVertices)
-                    return append_duplicate_triangle(i, j, k, g);
+                    return append_detached_copy(mesh, i, j, k, g);
                 else
                     return DMesh3.NonManifoldID;
             }
             return tid;
         }
+
+        // The triangles that the non-manifold path appended with their own vertices, per mesh, keyed by the input
+        // vertex IDs (rotated so the smallest comes first; the orientation is kept). FindTriangle cannot see them
+        // (they do not use the input vertices), so without this record a repeated triangle would get another copy
+        // each time instead of being a duplicate under DuplicateTriBehavior (issue #1556). Only looked up, never
+        // iterated, so the order of the dictionaries does not matter.
+        Dictionary<DMesh3, Dictionary<Index3i, int>> detachedCopies;
+
+        static Index3i rotated_key(int i, int j, int k)
+        {
+            if (i < j && i < k) return new Index3i(i, j, k);
+            if (j < k) return new Index3i(j, k, i);
+            return new Index3i(k, i, j);
+        }
+
+        /// <summary>
+        /// The copy that the non-manifold path appended for (i,j,k) in this orientation, or InvalidID. A recorded copy
+        /// counts only while it is still a triangle at the positions of i, j, k in this cyclic order (the mesh may have
+        /// been edited since).
+        /// </summary>
+        int find_detached_copy(DMesh3 mesh, int i, int j, int k)
+        {
+            Dictionary<Index3i, int> copies;
+            if (detachedCopies == null || i == j || j == k || i == k || detachedCopies.TryGetValue(mesh, out copies) == false)
+                return DMesh3.InvalidID;
+            Index3i key = rotated_key(i, j, k);
+            int tid;
+            if (copies.TryGetValue(key, out tid) == false)
+                return DMesh3.InvalidID;
+            if (mesh.IsTriangle(tid) && mesh.IsVertex(i) && mesh.IsVertex(j) && mesh.IsVertex(k)) {
+                Index3i tv = mesh.GetTriangle(tid);
+                Vector3d pa = mesh.GetVertex(tv.a), pb = mesh.GetVertex(tv.b), pc = mesh.GetVertex(tv.c);
+                Vector3d pi = mesh.GetVertex(i), pj = mesh.GetVertex(j), pk = mesh.GetVertex(k);
+                if ((pa == pi && pb == pj && pc == pk) || (pa == pj && pb == pk && pc == pi) || (pa == pk && pb == pi && pc == pj))
+                    return tid;
+            }
+            return DMesh3.InvalidID;     // stale (edited since); the next copy overwrites the entry
+        }
+
+        int append_detached_copy(DMesh3 mesh, int i, int j, int k, int g)
+        {
+            int tid = append_duplicate_triangle(i, j, k, g);
+            if (tid >= 0 && i != j && j != k && i != k) {
+                if (detachedCopies == null)
+                    detachedCopies = new Dictionary<DMesh3, Dictionary<Index3i, int>>();
+                Dictionary<Index3i, int> copies;
+                if (detachedCopies.TryGetValue(mesh, out copies) == false) {
+                    copies = new Dictionary<Index3i, int>();
+                    detachedCopies.Add(mesh, copies);
+                }
+                copies[rotated_key(i, j, k)] = tid;
+            }
+            return tid;
+        }
+
         /// <summary>
         /// The triangle of mesh with vertices (i,j,k) in this cyclic order, or InvalidID if only the opposite
         /// orientation exists. Called only after FindTriangle(i,j,k) found a triangle. If i, j, k are not distinct

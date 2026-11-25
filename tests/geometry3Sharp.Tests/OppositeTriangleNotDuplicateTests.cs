@@ -151,13 +151,17 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Obj_SameOrientationDuplicate_IsStillDiscarded()
         {
-            // the flap's first triangle again, as given and rotated: both are the same oriented triangle, so with the
-            // flap before the box (where it shares the box vertices) both copies are discarded
+            // the flap's first triangle again, as given and rotated: both are the same oriented triangle and are
+            // discarded, before the box (where the flap shares the box vertices) and after it (where the non-manifold
+            // rule gave the flap its own vertices; until #1556 each repeat got another copy there)
             int[][] dups = { Flap[0], new[] { 1, 8, 0 } };
-            DMesh3 mesh = ReadObj(Obj(new[] { Flap[0] }.Concat(dups).Concat(BoxTris), Similarity.Identity));
-            AssertValidFinite(mesh);
-            Assert.Equal(13, mesh.TriangleCount);
-            Assert.Equal(ExpectedLabels(BoxTris.Concat(new[] { Flap[0] })), LabelTriangles(mesh, Similarity.Identity));
+            int[][] one = { Flap[0] };
+            foreach (IEnumerable<int[]> order in new[] { one.Concat(dups).Concat(BoxTris), BoxTris.Concat(one).Concat(dups) }) {
+                DMesh3 mesh = ReadObj(Obj(order, Similarity.Identity));
+                AssertValidFinite(mesh);
+                Assert.Equal(13, mesh.TriangleCount);
+                Assert.Equal(ExpectedLabels(BoxTris.Concat(one)), LabelTriangles(mesh, Similarity.Identity));
+            }
 
             // a box triangle again (as given and rotated), before or after the box: discarded
             int[] t = BoxTris[3];
@@ -284,6 +288,113 @@ namespace geometry3Sharp.Tests
             Assert.Equal(t0, builder.AppendTriangle(b, a, b));
             Assert.Equal(1, builder.Meshes[0].TriangleCount);
             Assert.Equal(3, builder.Meshes[0].VertexCount);
+        }
+
+        // ---------------------------------------------------------------- repeated copies of a detached triangle
+
+        [Fact]
+        public void Builder_RepeatedOppositeTriangle_IsADuplicateOfItsCopy()
+        {
+            // (b,a,c) twice and once rotated as (a,c,b): one copy with its own vertices, the repeats return it
+            var builder = new DMesh3Builder();
+            builder.AppendNewMesh(false, false, false, false);
+            int a = builder.AppendVertex(0, 0, 0), b = builder.AppendVertex(1, 0, 0), c = builder.AppendVertex(0, 1, 0);
+            int t0 = builder.AppendTriangle(a, b, c);
+            int t1 = builder.AppendTriangle(b, a, c);
+            Assert.True(t0 >= 0 && t1 >= 0 && t0 != t1);
+            Assert.Equal(t1, builder.AppendTriangle(b, a, c));
+            Assert.Equal(t1, builder.AppendTriangle(a, c, b));
+            Assert.Equal(t0, builder.AppendTriangle(c, a, b));
+            DMesh3 mesh = builder.Meshes[0];
+            Assert.Equal(2, mesh.TriangleCount);
+            Assert.Equal(6, mesh.VertexCount);
+            Assert.True(mesh.CheckValidity(false, FailMode.ReturnOnly));
+        }
+
+        [Fact]
+        public void Builder_RepeatedOppositeTriangle_WithDuplicateAllVertices_IsCopiedAgain()
+        {
+            // DuplicateTriBehavior = DuplicateAllVertices: a repeat of the detached copy is a duplicate, so it is copied
+            var builder = new DMesh3Builder { DuplicateTriBehavior = DMesh3Builder.AddTriangleFailBehaviors.DuplicateAllVertices };
+            builder.AppendNewMesh(false, false, false, false);
+            int a = builder.AppendVertex(0, 0, 0), b = builder.AppendVertex(1, 0, 0), c = builder.AppendVertex(0, 1, 0);
+            builder.AppendTriangle(a, b, c);
+            int t1 = builder.AppendTriangle(b, a, c);
+            int t2 = builder.AppendTriangle(b, a, c);
+            Assert.True(t1 >= 0 && t2 >= 0 && t1 != t2);
+            Assert.Equal(3, builder.Meshes[0].TriangleCount);
+            Assert.Equal(9, builder.Meshes[0].VertexCount);
+        }
+
+        [Fact]
+        public void Builder_RemovedDetachedCopy_IsNotReturnedAsDuplicate()
+        {
+            // the record of a detached copy counts only while the copy is still there
+            var builder = new DMesh3Builder();
+            builder.AppendNewMesh(false, false, false, false);
+            int a = builder.AppendVertex(0, 0, 0), b = builder.AppendVertex(1, 0, 0), c = builder.AppendVertex(0, 1, 0);
+            builder.AppendTriangle(a, b, c);
+            int t1 = builder.AppendTriangle(b, a, c);
+            DMesh3 mesh = builder.Meshes[0];
+            Assert.Equal(MeshResult.Ok, mesh.RemoveTriangle(t1, true, false));
+            int t2 = builder.AppendTriangle(b, a, c);
+            Assert.True(t2 >= 0 && mesh.IsTriangle(t2));
+            Assert.Equal(2, mesh.TriangleCount);
+            Assert.Equal(t2, builder.AppendTriangle(b, a, c));
+            Assert.Equal(2, mesh.TriangleCount);
+
+            // a copy whose vertex was moved is not the same triangle any more
+            Index3i tv = mesh.GetTriangle(t2);
+            mesh.SetVertex(tv.c, new Vector3d(0, 2, 0));
+            int t3 = builder.AppendTriangle(b, a, c);
+            Assert.True(t3 >= 0 && t3 != t2);
+            Assert.Equal(3, mesh.TriangleCount);
+        }
+
+        [Fact]
+        public void Obj_RepeatedOppositeFlapTriangle_BothOrders_Keeps14()
+        {
+            // the flap's opposite side three times (as given, again, rotated): one copy, in either order
+            int[][] repeats = { Flap[1], new[] { 0, 8, 1 } };
+            foreach (bool pairFirst in new[] { true, false }) {
+                IEnumerable<int[]> tris = pairFirst ? PairFirst().Concat(repeats) : PairLast().Concat(repeats);
+                DMesh3 mesh = ReadObj(Obj(tris, Similarity.Identity));
+                AssertValidFinite(mesh);
+                Assert.Equal(14, mesh.TriangleCount);
+                List<string> labels = LabelTriangles(mesh, Similarity.Identity);
+                Assert.Equal(ExpectedLabels(PairFirst()), labels);
+                Assert.True(ClosedByPosition(labels));
+            }
+        }
+
+        [Fact]
+        public void Stl_TwoSidedTriangleWithRepeatedBackSide_KeepsTwoTriangles()
+        {
+            // ASCII STL: ABC, BAC, BAC. Master kept 1 (the back side discarded); the back side is kept once
+            var A = new Vector3d(0, 0, 0); var B = new Vector3d(1, 0, 0); var C = new Vector3d(0, 1, 0);
+            Vector3d[][] facets = { new[] { A, B, C }, new[] { B, A, C }, new[] { B, A, C } };
+            var sb = new StringBuilder("solid flap\n");
+            foreach (Vector3d[] f in facets) {
+                sb.Append("facet normal 0 0 0\nouter loop\n");
+                foreach (Vector3d v in f)
+                    sb.Append("vertex ").Append(v.x.ToString("R", CultureInfo.InvariantCulture)).Append(' ')
+                      .Append(v.y.ToString("R", CultureInfo.InvariantCulture)).Append(' ')
+                      .Append(v.z.ToString("R", CultureInfo.InvariantCulture)).Append('\n');
+                sb.Append("endloop\nendfacet\n");
+            }
+            sb.Append("endsolid flap\n");
+            foreach (STLReader.Strategy strategy in new[] { STLReader.Strategy.AutoBestResult, STLReader.Strategy.IdenticalVertexWeld, STLReader.Strategy.TolerantVertexWeld }) {
+                var builder = new DMesh3Builder();
+                var reader = new STLReader { RebuildStrategy = strategy };
+                IOReadResult r = reader.Read(new StringReader(sb.ToString()), ReadOptions.Defaults, builder);
+                Assert.Equal(IOCode.Ok, r.code);
+                Assert.Single(builder.Meshes);
+                DMesh3 mesh = builder.Meshes[0];
+                Assert.Equal(2, mesh.TriangleCount);
+                AssertValidFinite(mesh);
+                var normals = mesh.TriangleIndices().Select(t => mesh.GetTriNormal(t).z).OrderBy(z => z).ToArray();
+                Assert.Equal(new[] { -1.0, 1.0 }, normals);
+            }
         }
 
         public static IEnumerable<object[]> Similarities() => Similarity.Names();
