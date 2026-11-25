@@ -1353,5 +1353,394 @@
    "Shape": "box",
    "Project": false
   }
+ },
+ {
+  "name": "wrap/sphere-holes0",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 0
+  }
+ },
+ {
+  "name": "wrap/sphere-holes1",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 1
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6
+  }
+ },
+ {
+  "name": "wrap/sphere-holes20",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 20
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-alpha10",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "RelativeAlpha": 10
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-alpha40",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "RelativeAlpha": 40
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-res16",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "Resolution": 16
+  }
+ },
+ {
+  "name": "wrap/sheet",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sheet"
+  }
+ },
+ {
+  "name": "wrap/sheet-alpha60",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sheet",
+   "RelativeAlpha": 60
+  }
+ },
+ {
+  "name": "wrap/sheet-offset100",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sheet",
+   "RelativeOffset": 100
+  }
+ },
+ {
+  "name": "wrap/points200",
+  "demo": "wrap",
+  "p": {
+   "Shape": "points",
+   "Points": 200
+  }
+ },
+ {
+  "name": "wrap/points2000",
+  "demo": "wrap",
+  "p": {
+   "Shape": "points",
+   "Points": 2000
+  }
+ },
+ {
+  "name": "wrap/points10000",
+  "demo": "wrap",
+  "p": {
+   "Shape": "points",
+   "Points": 10000
+  }
+ },
+ {
+  "name": "wrap/points2000-noise2",
+  "demo": "wrap",
+  "p": {
+   "Shape": "points",
+   "Points": 2000,
+   "NoiseExp": 2
+  }
+ },
+ {
+  "name": "wrap/points50",
+  "demo": "wrap",
+  "p": {
+   "Shape": "points",
+   "Points": 50
+  }
+ },
+ {
+  "name": "wrap/thin-plate1e-2",
+  "demo": "wrap",
+  "p": {
+   "Shape": "thin-plate",
+   "ThinExp": 2
+  }
+ },
+ {
+  "name": "wrap/thin-plate1e-4",
+  "demo": "wrap",
+  "p": {
+   "Shape": "thin-plate",
+   "ThinExp": 4
+  }
+ },
+ {
+  "name": "wrap/thin-plate1e-6",
+  "demo": "wrap",
+  "p": {
+   "Shape": "thin-plate",
+   "ThinExp": 6
+  }
+ },
+ {
+  "name": "wrap/thin-plate1e-9",
+  "demo": "wrap",
+  "p": {
+   "Shape": "thin-plate",
+   "ThinExp": 9
+  }
+ },
+ {
+  "name": "wrap/thin-plate1e-12",
+  "demo": "wrap",
+  "p": {
+   "Shape": "thin-plate",
+   "ThinExp": 12
+  }
+ },
+ {
+  "name": "wrap/two-boxes-gap1e-1",
+  "demo": "wrap",
+  "p": {
+   "Shape": "two-boxes",
+   "ThinExp": 1
+  }
+ },
+ {
+  "name": "wrap/two-boxes-gap1e-2",
+  "demo": "wrap",
+  "p": {
+   "Shape": "two-boxes",
+   "ThinExp": 2
+  }
+ },
+ {
+  "name": "wrap/two-boxes-gap1e-3",
+  "demo": "wrap",
+  "p": {
+   "Shape": "two-boxes",
+   "ThinExp": 3
+  }
+ },
+ {
+  "name": "wrap/two-boxes-gap1e-6",
+  "demo": "wrap",
+  "p": {
+   "Shape": "two-boxes",
+   "ThinExp": 6
+  }
+ },
+ {
+  "name": "wrap/two-boxes-gap1e-12",
+  "demo": "wrap",
+  "p": {
+   "Shape": "two-boxes",
+   "ThinExp": 12
+  }
+ },
+ {
+  "name": "wrap/two-boxes-gap1e-2-alpha5",
+  "demo": "wrap",
+  "p": {
+   "Shape": "two-boxes",
+   "ThinExp": 2,
+   "RelativeAlpha": 5
+  }
+ },
+ {
+  "name": "wrap/bored0.3-pin0.2",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "BoreRadius": 0.3,
+   "PinRadius": 0.2
+  }
+ },
+ {
+  "name": "wrap/bored0.3-pin0.29",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "BoreRadius": 0.3,
+   "PinRadius": 0.29
+  }
+ },
+ {
+  "name": "wrap/bored0.3-pin0.31",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "BoreRadius": 0.3,
+   "PinRadius": 0.31
+  }
+ },
+ {
+  "name": "wrap/bored0.15-pin0.1",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "BoreRadius": 0.15,
+   "PinRadius": 0.1
+  }
+ },
+ {
+  "name": "wrap/bored0.6-pin0.5",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "BoreRadius": 0.6,
+   "PinRadius": 0.5
+  }
+ },
+ {
+  "name": "wrap/bored0.3-pin0.05",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "BoreRadius": 0.3,
+   "PinRadius": 0.05
+  }
+ },
+ {
+  "name": "wrap/bored0.3-pin0.2-budget2000",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "BoreRadius": 0.3,
+   "PinRadius": 0.2,
+   "Budget": 2000
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-budget4000",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "Budget": 4000
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-budget4000-cap1.5",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "Budget": 4000,
+   "MaxCoarsening": 1.5
+  }
+ },
+ {
+  "name": "wrap/sheet-budget2000",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sheet",
+   "Budget": 2000
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-pinch",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "PullPinchPoints": true
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-scale2^-20",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "ScaleExp": -20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "wrap/points2000-scale2^-20",
+  "demo": "wrap",
+  "p": {
+   "Shape": "points",
+   "Points": 2000,
+   "ScaleExp": -20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "wrap/bored-scale2^-20",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "ScaleExp": -20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-scale2^20",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "ScaleExp": 20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "wrap/points2000-scale2^20",
+  "demo": "wrap",
+  "p": {
+   "Shape": "points",
+   "Points": 2000,
+   "ScaleExp": 20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "wrap/bored-scale2^20",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "ScaleExp": 20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-alpha200",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "RelativeAlpha": 200
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-alpha200-offset5000",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "RelativeAlpha": 200,
+   "RelativeOffset": 5000
+  }
  }
 ]

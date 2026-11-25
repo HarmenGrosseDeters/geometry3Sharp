@@ -190,7 +190,43 @@ pieces by design). `SolidBooleanPipeline.MinThickness` (default 0) removes it; a
   `implicit/IntervalImplicit.cs:93`).
 - **16:** see section 6.
 
-## Stage 2 proposal (ranked by expected findings)
+## Stage 2: alpha wrap (2026-11-25)
+
+New demo tab "Alpha wrap" (`Demos/WrapDemo.cs`): `MeshAlphaWrap` on a sphere with single-triangle holes, an open curved
+sheet, a point cloud on a torus (with noise), a thin plate (thickness down to 1e-12), two cubes with a gap (down to 1e-12),
+and `PassageWrap` on a block with a bore and a pin. The checks: status, `UsedAlpha` / `UsedOffset`, `AlphaCoarsening`,
+`EstimatedTriangles` against the result, the result checks, the input points inside the wrap (winding number above
+1/2, on a subsample of at most 3000 points), the distance of the wrap's vertices to the input against the offset, shells and nested shells, and per pin the
+certified clearance. 45 cases (`wrap/*` in `e2e/cases.json`). The headline warns when the wrap is a thin shell
+(volume / (area x offset) below 4, both sides of the surface) and marks it red where the input is a solid (a hollow result).
+
+The demo's procedural inputs no longer use `Math.Sin` / `Math.Cos` (finding 16): circles come from the rational
+parametrization `Shapes.Circle` (only + - * /), and the sheet is polynomial. With that, all 164 cases below 10 s natively
+have the same input bits in the browser.
+
+| Result | Native (master fa6f0c7) | Browser (interpreted) |
+|---|---|---|
+| `MeshAlphaWrap` and `PassageWrap`, 45 cases natively, 43 in the browser (without the two `RelativeAlpha = 200` cases, which take 2-13 s natively) | every guarantee held: clean, every sampled input point inside, minimum distance to the input = offset (`PassageWrap` after its simplification: 0.91-0.97 offset, still outside the input), pins certified, `PinBlockedByInput` with a usable reason, 2^k bit for bit at 2^-20 and 2^20 | the same bits as native in all 43; 8.0x the time at the median (1.2-15.7x) |
+| all 164 cases | | 162 bit-identical; the 2 others are the `Solidify` path (#1577, now also on the torus) |
+
+Findings:
+
+- **W1 (medium, #1593):** `EstimatedTriangles` misses the result by 4-8x for open sheets (7.8x), thin plates (4x), and an
+  alpha / offset ratio of 25 (4.35x: 547k triangles and 12.9 s from a 1.5k-triangle sphere). So `MaxEstimatedTriangles`,
+  `WrapMaxEstimatedTriangles` and `PassageWrap.MaxTriangles` do not bound the size there (sheet with a budget of 2000: 4674
+  triangles).
+- **W2 (medium, #1575, #1542):** a hollow wrap is one connected shell with tunnels through the holes (sphere with 6 holes at
+  `RelativeAlpha = 200`: one shell, 3.4 % of the volume). Counting nested shells does not detect it; `volume / (area x
+  offset)` near 1 does. `MeshAlphaWrap` reports nothing; the issue lists the options.
+- **W3 (low, research note only):** a point cloud sparser than alpha (50 or 200 points on the torus) returns `Success`
+  with 22 or 2 shells and 0.2-1.5 % of the solid's volume, a wrap around each point or a hollow torus. That is the
+  documented meaning of alpha, but nothing hints at it (eg the ratio of the median point spacing to alpha).
+
+Re-checked on master after the #1548 fix: findings 1 and 3 are fixed (every flipped repro exact, 0.1-0.24 s). Finding 2
+(#1575) is fixed for the box, the torus and the dense sphere, but not for the default sphere (alpha wrap, 1.3 % of the
+volume, 35 s).
+
+## Stage 2 proposal (ranked by expected findings; 1 done above)
 
 1. **Alpha wrap** (`MeshAlphaWrap`, `PassageWrap`): findings 2 and 3 already end there; holes against alpha, thin parts,
    point clouds, the target triangle count, and its time on small inputs (the 1M-triangle raw wrap) in the browser.
