@@ -345,10 +345,11 @@ namespace g3
         /// <summary>
         /// the midpoint quotient (x, y) of the enclosures X, Y, W of a vertex, if it is within
         /// 4e-12 (|x| + |y|) + double.Epsilon of every exact position X* / W*, Y* / W* inside them (|x - x*| + |y - y*|,
-        /// the proof in docs/qa/exact-bound-inventory.md, gap G1, and tools/Z3Pilot/slope_approx.py): tight intervals
-        /// only (nearly parallel lines have a wide W). Besides err &lt;= 1e-12 (|x| + |y|) it needs |x| + |y| at least
-        /// the smallest normal double and a narrow W ((W.Hi - W.Lo) 5e11 &lt;= |w|): below the normal range the
-        /// acceptance is lost in the absolute rounding errors, x = y = 0 by underflow accepted any W (issue #1586).
+        /// the proof in tools/Z3Pilot/slope_approx.py): tight intervals only (nearly parallel lines have a wide W).
+        /// Besides err &lt;= 1e-12 (|x| + |y|) it needs |x| + |y| at least the smallest normal double and finite, and a
+        /// narrow W ((W.Hi - W.Lo) 5e11 &lt;= |w|): below the normal range the acceptance is lost in the absolute
+        /// rounding errors, x = y = 0 by underflow accepted any W (issue #1586); an |x| + |y| that overflows makes
+        /// err &lt;= inf true for any widths.
         /// Neither condition rejects a position that err accepts in the normal range without underflow (there err
         /// already bounds the width of W by about 1e-12 |w|). The exact origin (X = Y = [0, 0]) stays accepted: it is
         /// exact.
@@ -362,7 +363,7 @@ namespace g3
             if (MathUtil.IsFinite(x) && MathUtil.IsFinite(y) && err <= 1e-12 * (Math.Abs(x) + Math.Abs(y))) {
                 if (X.Lo == 0 && X.Hi == 0 && Y.Lo == 0 && Y.Hi == 0)
                     return true;
-                if (s >= MinNormal && (W.Hi - W.Lo) * 5e11 <= Math.Abs(w))
+                if (s >= MinNormal && s <= double.MaxValue && (W.Hi - W.Lo) * 5e11 <= Math.Abs(w))
                     return true;
             }
             return false;

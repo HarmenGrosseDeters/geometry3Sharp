@@ -13,14 +13,17 @@ replays `width_only` and `guard_only`):
   |x*| + |y*| = 1.5 2^-1074 > e (the absolute rounding of the quotient, the halving and the threshold);
 - the narrow W, (W.Hi - W.Lo) 5e11 <= |w|: without it, X = [2^-1074, 2^-1074], Y = [0, 0], W = 2^-52 [0.875, 1.125]
   has x = 2^-1022 (normal) accepted with err = 0, because s (W.Hi - W.Lo) underflows to 0; x* is 14 % off.
-The exact origin (X = Y = [0, 0]) stays accepted: then x* = y* = 0 = |x|, |y|.
+The exact origin (X = Y = [0, 0]) stays accepted: then x* = y* = 0 = |x|, |y|. The code also rejects an |x| + |y| that
+overflows (then err <= 1e-12 inf holds for any widths; replay `overflow`): the proof is for finite values.
 
 Proof (for |x| + |y| >= 2^-1022 and both new conditions). Rounding model (Higham 2002, 2.1, with gradual underflow):
 a sum or difference of doubles is fl(z) = z (1 + d), |d| <= u = 2^-53 (exact when subnormal); a product or quotient is
 fl(z) = z (1 + d) + n, |d| <= u, |n| <= eta = 2^-1075; rounding is monotone. Step 0 (monotonicity, the lemma
 `midpoint_in_interval` with Z3's floating-point theory, `run(fp=True)`, 89 s): w = fl(0.5 fl(W.Lo + W.Hi)) lies in W (if
-the sum does not overflow; an overflow gives w = inf, x = y = 0, rejected), so |W* - w| <= dW, |X* - xm| <= dX and
-|Y* - ym| <= dY for the computed midpoints xm, ym and the exact widths dX, dY, dW. Then, normalized (delta = dW / |w|,
+the sum does not overflow; an overflow gives w = inf, x = y = 0, rejected), and alike xm in X, ym in Y (the lemma is for
+any doubles a <= b), so |W* - w| <= dW, |X* - xm| <= dX and |Y* - ym| <= dY for the exact widths dX, dY, dW. The guard
+tests the computed fl(|x| + |y|) >= 2^-1022; the lemmas assume the real |x| + |y| >= 2^-1022: the same, because a real
+sum below 2^-1022 has two subnormal terms, whose sum is exact. Then, normalized (delta = dW / |w|,
 a = (dX + dY) / |w|), one lemma per step, linear except L3:
 - L1 width: (W.Hi - W.Lo) 5e11 <= |w| computed gives delta <= D = 1 / ((1 - u) (5e11 (1 - u) - 1/2)) ~ 2e-12 (a
   difference of doubles is 0 or at least 2^-1074, so the product's absolute rounding is at most half of it).
@@ -63,7 +66,7 @@ APPROX = """internal static bool approx_position(ExactInterval X, ExactInterval 
             if (MathUtil.IsFinite(x) && MathUtil.IsFinite(y) && err <= %s * (Math.Abs(x) + Math.Abs(y))) {
                 if (X.Lo == 0 && X.Hi == 0 && Y.Lo == 0 && Y.Hi == 0)
                     return true;
-                if (s >= MinNormal && (W.Hi - W.Lo) * %s <= Math.Abs(w))
+                if (s >= MinNormal && s <= double.MaxValue && (W.Hi - W.Lo) * %s <= Math.Abs(w))
                     return true;
             }
             return false;
@@ -215,7 +218,7 @@ def approx_position(X, Y, W, accept, width, guard=True, narrow=True):
     if math.isfinite(x) and math.isfinite(y) and err <= float(accept) * (abs(x) + abs(y)):
         if X[0] == 0 and X[1] == 0 and Y[0] == 0 and Y[1] == 0:
             return True, x, y
-        if (not guard or s >= 2.0**-1022) and (not narrow or (W[1] - W[0]) * float(width) <= abs(w)):
+        if (not guard or 2.0**-1022 <= s <= 1.7976931348623157e308) and (not narrow or (W[1] - W[0]) * float(width) <= abs(w)):
             return True, x, y
     return False, x, y
 
@@ -230,6 +233,8 @@ REPLAYS = {
     'issue_1586': ((T1074, T1074), (0.0, 0.0), (-8.0, 4.0), (T1074, 0.0, 2.0**-1000), dict(guard=False, narrow=False)),
     'width_only': ((2 * T1074, 3 * T1074), (2 * T1074, 3 * T1074), (4.0, 4.0), (3 * T1074, 3 * T1074, 4.0),
                    dict(guard=False)),
+    'overflow': ((0.5e308, 0.85e308), (0.45e308, 0.45e308), (0.5, 0.5 + 2.0**-53), (0.85e308, 0.45e308, 0.5),
+                 dict(guard=False, narrow=False)),
     'guard_only': ((T1074, T1074), (0.0, 0.0), (0.875 * 2.0**-52, 1.125 * 2.0**-52), (T1074, 0.0, 0.875 * 2.0**-52),
                    dict(narrow=False)),
 }
@@ -241,8 +246,15 @@ def ieee_replay(name, accept, width, consume):
     acc_v, xv, yv = approx_position(X, Y, W, accept, width, **variant)
     miss = abs(Fraction(xv) - Fraction(Xs) / Fraction(Ws)) + abs(Fraction(yv) - Fraction(Ys) / Fraction(Ws))
     acc_fixed, _, _ = approx_position(X, Y, W, accept, width)
-    return dict(variant_accepts=acc_v, miss_over_e=float(miss / Fraction(prefilter_e(consume, xv, yv))),
-                variant_wrong=acc_v and miss > Fraction(prefilter_e(consume, xv, yv)), fixed_accepts=acc_fixed)
+    e = prefilter_e(consume, xv, yv)
+    if math.isinf(e):
+        # (|x| + |y| overflowed: e is infinite; measured against 4e-12 times the exact position's size instead)
+        exact = Fraction(Xs) / Fraction(Ws), Fraction(Ys) / Fraction(Ws)
+        e_ref = Fraction(float(consume)) * (abs(exact[0]) + abs(exact[1])) + TINY
+    else:
+        e_ref = Fraction(e)
+    return dict(variant_accepts=acc_v, miss_over_e=float(miss / e_ref), variant_wrong=acc_v and miss > e_ref,
+                fixed_accepts=acc_fixed)
 
 
 def run(timeout_ms=120000, fp=False):
@@ -272,7 +284,7 @@ def run(timeout_ms=120000, fp=False):
                 proof_scope='Proved: an accepted approx_position (|x| + |y| >= 2^-1022, a narrow W) is within the '
                             'corner error e of prefilter_skips (L1-L4; L0, the midpoint in its interval, with '
                             'run(fp=True), else by the monotonicity of rounding). The exact origin is exact. '
-                            'Replayed: the finding of issue #1586 and the two half fixes, all rejected by the code.')
+                            'Replayed: the finding of issue #1586, the two half fixes and an overflowed |x| + |y|, all rejected by the code.')
 
 
 if __name__ == '__main__':

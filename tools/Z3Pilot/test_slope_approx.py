@@ -24,7 +24,7 @@ class SlopeApproxTests(unittest.TestCase):
         self.assertEqual(['L1_width', 'L2_xy_width', 'L3_coordinate', 'L4_claim'],
                          [o['name'] for o in report['obligations']])
         self.assertTrue(all(o['result'] == 'unsat' for o in report['obligations']))
-        for name in ('issue_1586', 'width_only', 'guard_only'):
+        for name in ('issue_1586', 'width_only', 'guard_only', 'overflow'):
             self.assertTrue(report['replays'][name]['variant_wrong'], name)
             self.assertFalse(report['replays'][name]['fixed_accepts'], name)
 
@@ -46,7 +46,8 @@ class SlopeApproxTests(unittest.TestCase):
             k = d / slope_approx.KERNEL
             ktext = k.read_text(encoding='utf-8')
             # dropping the guard or the width condition is seen
-            for old in ('if (s >= MinNormal && (W.Hi - W.Lo) * 5e11 <= Math.Abs(w))',
+            for old in ('if (s >= MinNormal && s <= double.MaxValue && (W.Hi - W.Lo) * 5e11 <= Math.Abs(w))',
+                        's >= MinNormal && s <= double.MaxValue &&',
                         'if (X.Lo == 0 && X.Hi == 0 && Y.Lo == 0 && Y.Hi == 0)'):
                 k.write_text(ktext.replace(old, 'if (true)'), encoding='utf-8')
                 with self.assertRaises(ValueError):

@@ -772,6 +772,29 @@ namespace geometry3Sharp.Tests
             return true;
         }
 
+        // the next double above c (Math.BitIncrement is not on net48)
+        static double next_up(double c)
+        {
+            if (c == 0) return double.Epsilon;
+            long b = BitConverter.DoubleToInt64Bits(c);
+            return BitConverter.Int64BitsToDouble(c > 0 ? b + 1 : b - 1);
+        }
+
+        // a guard weakened to |x| + |y| > 0 accepts y = 2^-1073 (x = 0 by underflow): 1.25 e off
+        [Fact]
+        public void ApproxPosition_RejectsAQuotientBelowTheNormalRange()
+        {
+            double t = double.Epsilon;
+            Assert.False(ApproxPosition(2 * t, 3 * t, 6 * t, 6 * t, 4, 4, out double x, out double y), $"accepted ({x:R}, {y:R})");
+        }
+
+        // |x| + |y| overflows to infinity: err <= 1e-12 inf holds for any widths (here X is 52 % wide)
+        [Fact]
+        public void ApproxPosition_RejectsAnOverflowedSize()
+        {
+            Assert.False(ApproxPosition(0.5e308, 0.85e308, 0.45e308, 0.45e308, 0.5, 0.5 + Math.Pow(2, -53), out double x, out double y), $"accepted ({x:R}, {y:R})");
+        }
+
         // the replay of the issue: X a point 2^-1074, W = [-8, 4]; the quotient underflows to x = y = -0 with err = 0, and
         // the exact vertex is anywhere (x* = 2^-74 for W* = 2^-1000)
         [Fact]
@@ -820,7 +843,7 @@ namespace geometry3Sharp.Tests
                 Func<double, double, double> hiOf = (c, rel) => {
                     switch (rnd.Next(4)) {
                         case 0: return c;
-                        case 1: return Math.BitIncrement(c);
+                        case 1: return next_up(c);
                         case 2: return c + Math.Abs(c) * rel * rnd.NextDouble();
                         default: return c + double.Epsilon * rnd.Next(1, 4);
                     }
