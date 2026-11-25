@@ -177,6 +177,20 @@ def without_spans(config):
     return dict(config, mutate=[_SPAN.match(e).group("glob") for e in config.get("mutate", [])])
 
 
+# keys of a config that change neither which mutants a run tests nor how they end: a baseline made under other values of
+# them is still the baseline of this config (after a threshold change the merged score is judged against the new break)
+NOT_IN_REUSE_KEY = ("thresholds",)
+
+
+def reuse_key(config):
+    """what must be equal for a baseline to be reused: the config without the spans of `mutate` and without the keys of
+    NOT_IN_REUSE_KEY"""
+    key = without_spans(config)
+    for k in NOT_IN_REUSE_KEY:
+        key.pop(k, None)
+    return key
+
+
 def merged(spans):
     out = []
     for s, e in sorted(spans):
@@ -227,12 +241,12 @@ def load_json(path):
 def plan(config, baseline, repo_root):
     """(run mutate entries, per file: (path, new ranges, old ranges)) or None when the baseline cannot be used.
     The baseline holds the config of its run (`g3-config`, baseline.py store). It is used only if that config equals
-    this one up to the spans of `mutate` (same files in the same order): a source edit moves the character offsets of
+    this one up to the spans of `mutate` (same files in the same order) and the thresholds (reuse_key): a source edit moves the character offsets of
     the spans, and a resplit moves the boundaries between the shards of a file. The part of this config's span that
     the baseline's span, carried over the line diff, does not cover runs too (its mutants were in another shard); a
     span boundary on a changed line moves to the start of that change (map_boundary)."""
     stored = baseline.get("g3-config")
-    if stored is None or without_spans(stored) != without_spans(config):
+    if stored is None or reuse_key(stored) != reuse_key(config):
         return None
     entries = [parse_mutate(e) for e in config["mutate"]]
     old_spans = [parse_mutate(e)[1] for e in stored["mutate"]]
