@@ -293,12 +293,22 @@ class PlanAndMerge(unittest.TestCase):
 
     def test_a_baseline_of_another_config_or_without_one_runs_in_full(self):
         self.assertIsNotNone(inc.plan(self.config, self.baseline, self.root))
-        for other in (dict(CONFIG, thresholds={"break": 60}), dict(CONFIG, mutate=["**/B.cs"]),
+        for other in (dict(CONFIG, mutate=["**/B.cs"]),
                       dict(CONFIG, mutate=["**/A.cs", "**/A.cs"]), dict(CONFIG, **{"test-case-filter": "x"})):
             self.assertIsNone(inc.plan(self.config, dict(self.baseline, **{"g3-config": other}), self.root), other)
         bl = dict(self.baseline)
         del bl["g3-config"]
         self.assertIsNone(inc.plan(self.config, bl, self.root))
+
+    def test_a_baseline_made_under_other_thresholds_is_reused(self):
+        # the thresholds decide only whether the merged score passes; they change no mutant of the run
+        for other in (dict(CONFIG, thresholds={"break": 60}), dict(CONFIG, thresholds={"break": 10, "low": 20, "high": 90}),
+                      {k: v for k, v in CONFIG.items() if k != "thresholds"}):
+            self.assertEqual(inc.plan(self.config, self.baseline, self.root),
+                             inc.plan(self.config, dict(self.baseline, **{"g3-config": other}), self.root), other)
+        self.assertEqual(inc.reuse_key(CONFIG), inc.reuse_key(dict(CONFIG, thresholds={"break": 60})))
+        # the check of a PR's config edit (select_shards) still sees a threshold change as a change
+        self.assertNotEqual(inc.without_spans(CONFIG), inc.without_spans(dict(CONFIG, thresholds={"break": 60})))
 
     def test_map_offset(self):
         new = OLD.replace("class A {\n", "class A {\n\n")
