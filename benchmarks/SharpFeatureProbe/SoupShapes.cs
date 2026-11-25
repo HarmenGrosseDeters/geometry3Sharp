@@ -49,7 +49,9 @@ sealed class Soup
 static class SoupShapes
 {
     public static readonly string[] Names = { "box", "slot", "vnotch", "fillet", "rbox" };
-    const double X = 2, Y = 1.5, Z = 1, R = 0.25;
+    const double X = 2, Y = 1.5, Z = 1;
+    /// <summary> the fillet radius of fillet and rbox (0.25 in the study; the gate probe sets it near the wrap's ball) </summary>
+    public static double R = 0.25;
 
     public static List<Patch> Make(string name)
     {

@@ -194,9 +194,10 @@ namespace gs
 
         /// <summary>
         /// the median noise of the input's sheets relative to radius: over at most samples triangles of mesh at a fixed stride,
-        /// the plane of each one's cluster is fitted at radius and at twice it; a smooth surface's residual grows as the radius
-        /// squared (rms^2 = sigma^2 + c r^4), noise does not, so sigma^2 = (16 rms1^2 - rms2^2) / 15 is the noise alone. A clean
-        /// tessellation, flat or curved, gives about 0; a jittered one its jitter
+        /// the plane of each one's cluster is fitted at radius and at twice it. Noise gives the same residual at both radii; a
+        /// facet edge (a kink) gives rms^2 growing as r^2 and a smooth curve as r^4, so sigma^2 = (4 rms1^2 - rms2^2) / 3 removes
+        /// both (a smooth curve is over-removed and clamped to 0: the estimate can only err low). A clean tessellation, flat or
+        /// curved, gives 0; a jittered one its jitter
         /// </summary>
         internal double MedianNoise(DMesh3 mesh, double radius, int samples = 512)
         {
@@ -208,7 +209,7 @@ namespace gs
                 Vector3d tn = mesh.GetTriNormal(tris[i]), c = mesh.GetTriCentroid(tris[i]);
                 if (!(tn.LengthSquared > 0.5)) continue;
                 if (!FitPlane(c, tn, radius, out _, out _, out double r1) || !FitPlane(c, tn, 2 * radius, out _, out _, out double r2)) continue;
-                a.Add(Math.Sqrt(Math.Max(0, (16 * r1 * r1 - r2 * r2) / 15)) / radius);
+                a.Add(Math.Sqrt(Math.Max(0, (4 * r1 * r1 - r2 * r2) / 3)) / radius);
             }
             if (a.Count == 0) return 0;
             a.Sort();

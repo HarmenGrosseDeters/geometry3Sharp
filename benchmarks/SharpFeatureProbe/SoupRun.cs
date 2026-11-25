@@ -35,6 +35,7 @@ static class SoupRun
         double[] D(string k, string d) => Get(k, d).Split(',').Select(x => double.Parse(x, CultureInfo.InvariantCulture)).ToArray();
         if (opt.TryGetValue("threads", out var th)) SoupFeatures.Threads = int.Parse(th);
         if (opt.TryGetValue("lift", out var lf)) PlaneLift = double.Parse(lf, CultureInfo.InvariantCulture);
+        if (opt.TryGetValue("minnoise", out var mn)) MinNoise = double.Parse(mn, CultureInfo.InvariantCulture);
         int tris = int.Parse(Get("tris", "50000"));
         using var w = new StreamWriter(outFile, true);
         switch (mode) {
@@ -61,6 +62,7 @@ static class SoupRun
                     foreach (string br in Get("breaks", "clean;soup;nonconf;jitter:0.1;dup:0.2;gap:0.3;gap:1;flip:0.2;mixnh:0.25;mixnh:0.5;mixnh:1;holes:0.1").Split(';'))
                         SoupWrap(w, shape, br, tris, D("radius", "3.5"), D("planes", "1.5"));
                 break;
+            case "gateprobe": GateProbe(w); break;
             case "wrapbreak": WrapBreaks(w, Get("shapes", "slot"), tris, Get("breaks", "clean;soup;nonconf;jitter:0.025;holes:0.025;dup:0.05;gap:0.15;flip:0.1;mix:0.5").Split(';')); break;
             default: Console.Error.WriteLine("unknown soup mode " + mode); return 2;
         }
@@ -358,7 +360,7 @@ static class SoupRun
     // soup: dihedral creases), after (VarifoldCreases on the soup) and the ceiling (the default pass on the wrap of the clean
     // welded copy). Every row measured against the clean welded copy's creases (EdgeClass: recall of the input's miter lines by the
     // result's sharp edges within 1 and 3 offsets, precision the other way), with the clean status and the times
-    internal static double PlaneLift = 2;
+    internal static double PlaneLift = 2, MinNoise = -1;
     static void SoupWrap(StreamWriter w, string shape, string br, int tris, double[] radii, double[] planes)
     {
         var c = Build(shape, br, tris);
@@ -385,7 +387,7 @@ static class SoupRun
             }
             sw.Restart();
             var fp = new AlphaWrapFeaturePass(new DMesh3(wrap.Result, true), input, wrap.UsedAlpha, wrap.UsedOffset) { VarifoldCreases = vf };
-            if (vf) { fp.VarifoldRadius = radius; fp.VarifoldPlaneRadius = planeRadius; fp.VarifoldPlaneLift = PlaneLift; }
+            if (vf) { fp.VarifoldRadius = radius; fp.VarifoldPlaneRadius = planeRadius; fp.VarifoldPlaneLift = PlaneLift; if (MinNoise >= 0) fp.VarifoldPlaneMinNoise = MinNoise; }
             fp.Compute();
             double tPass = sw.Elapsed.TotalSeconds;
             var row = new Dictionary<string, object> { ["kind"] = "soupwrap", ["shape"] = shape, ["break"] = br, ["run"] = name, ["input_tris"] = input.TriangleCount,
@@ -465,6 +467,72 @@ static class SoupRun
         var (r1, r3) = Within(Samples(miter, 4000), sharp);
         var (p1, p3) = Within(Samples(sharp, 4000), miter);
         row["m_rec1"] = r1; row["m_rec3"] = r3; row["m_prec1"] = p1; row["m_prec3"] = p3;
+    }
+
+    // the noise gate of the fitted vertex planes on clean, coarse curved soups (review of #1541): MedianNoise and the gate decision
+    // at the plane radius of the pass (1.5 alpha) for alpha = diagonal / 60 (the tests) and / 300 (the pipeline)
+    static void GateProbe(StreamWriter w)
+    {
+        var shapes = new List<(string, Func<DMesh3>)>();
+        foreach (int sl in new[] { 12, 16, 24, 32, 64, 256 })
+            shapes.Add(("cylinder " + sl, () => new CappedCylinderGenerator() { BaseRadius = 1f, TopRadius = 1f, Height = 4, Slices = sl }.Generate().MakeDMesh()));
+        foreach (int ev in new[] { 6, 8, 12, 32 })
+            shapes.Add(("sphere " + ev, () => new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = ev }.Generate().MakeDMesh()));
+        foreach (var (nu, nv) in new[] { (12, 6), (24, 12), (48, 24) })
+            shapes.Add(($"torus {nu}x{nv}", () => Torus(2, 0.6, nu, nv)));
+        foreach (double rr in new[] { 1.0, 1.5, 3.0 }) {
+            double rel = rr;
+            shapes.Add(($"rbox R {rel} alpha60", () => RoundedBoxSoup(rel * 2.69 / 60)));
+            shapes.Add(($"rbox R {rel} alpha300", () => RoundedBoxSoup(rel * 2.69 / 300)));
+        }
+        foreach (var (name, make) in shapes) {
+            DMesh3 soup = Unweld(make());
+            foreach (double relAlpha in new[] { 60.0, 300.0 }) {
+                if (name.Contains("alpha60") && relAlpha != 60 || name.Contains("alpha300") && relAlpha != 300) continue;
+                double alpha = soup.CachedBounds.DiagonalLength / relAlpha;
+                var q = new VarifoldCreaseQuery(soup, 3.5 * alpha);
+                double noise = q.MedianNoise(soup, 1.5 * alpha), tilt = q.MedianTilt(soup, 1.5 * alpha);
+                Emit(w, new Dictionary<string, object> { ["kind"] = "gateprobe", ["shape"] = name, ["tris"] = soup.TriangleCount, ["rel_alpha"] = relAlpha,
+                    ["median_noise"] = noise, ["median_tilt"] = tilt, ["gate_open"] = noise > 0.003 });
+            }
+        }
+    }
+
+    static DMesh3 Unweld(DMesh3 m)
+    {
+        var r = new DMesh3();
+        foreach (int t in m.TriangleIndices()) {
+            Index3i v = m.GetTriangle(t);
+            r.AppendTriangle(r.AppendVertex(m.GetVertex(v.a)), r.AppendVertex(m.GetVertex(v.b)), r.AppendVertex(m.GetVertex(v.c)));
+        }
+        return r;
+    }
+
+    static DMesh3 Torus(double R0, double r0, int nu, int nv)
+    {
+        var m = new DMesh3();
+        Func<int, int, Vector3d> P = (i, j) => {
+            double u = 2 * Math.PI * i / nu, v = 2 * Math.PI * j / nv;
+            return new Vector3d((R0 + r0 * Math.Cos(v)) * Math.Cos(u), (R0 + r0 * Math.Cos(v)) * Math.Sin(u), r0 * Math.Sin(v));
+        };
+        for (int i = 0; i < nu; ++i)
+            for (int j = 0; j < nv; ++j) {
+                Vector3d a = P(i, j), b = P(i + 1, j), c = P(i + 1, j + 1), d = P(i, j + 1);
+                m.AppendTriangle(m.AppendVertex(a), m.AppendVertex(b), m.AppendVertex(c));
+                m.AppendTriangle(m.AppendVertex(a), m.AppendVertex(c), m.AppendVertex(d));
+            }
+        return m;
+    }
+
+    // the probe's rounded box (every edge filleted) with fillet radius r, tessellated at about 50k triangles
+    static DMesh3 RoundedBoxSoup(double r)
+    {
+        double saved = SoupShapes.R;
+        try {
+            SoupShapes.R = r;
+            var ps = SoupShapes.Make("rbox");
+            return SoupShapes.Tessellate(ps, Spacing("rbox", 50000), null).ToMesh();
+        } finally { SoupShapes.R = saved; }
     }
 
     // the wrap time of one breakage at a time (diagnosis of the slow wraps of mixed soups)

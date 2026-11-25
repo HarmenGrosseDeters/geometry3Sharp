@@ -488,28 +488,48 @@ namespace geometry3Sharp.Tests
             } finally { gParallel.SerialOnThisThread = saved; }
         }
 
-        // clean curved soups (cylinders of 64 and 256 slices, a sphere of 32 edge vertices, unwelded): the facets tilt against
-        // their fitted planes (median 0.2-0.9 degrees), but that is curvature, not noise; the gate stays closed and the result is
-        // the one without the planes, bit for bit
+        // clean curved soups, unwelded: cylinders of 12, 64 and 256 slices, spheres of 6 and 32 edge vertices, a torus of 48 x 24
+        // facets (15 degrees per facet around the tube: the case that opened the r^4-only estimate). The facets tilt against their
+        // fitted planes (median up to 2.3 degrees), but that is curvature and facet edges, not noise: the measured noise is 0, the
+        // gate stays closed and the result is the one without the planes, bit for bit
         [Fact]
         public void VarifoldPlanes_CleanCurvedSoups_GateClosed_ResultUnchanged()
         {
             var shapes = new[] {
                 new CappedCylinderGenerator() { BaseRadius = 1f, TopRadius = 1f, Height = 4, Slices = 64 }.Generate().MakeDMesh(),
                 new CappedCylinderGenerator() { BaseRadius = 1f, TopRadius = 1f, Height = 4, Slices = 256 }.Generate().MakeDMesh(),
-                new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 32 }.Generate().MakeDMesh()
+                new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 32 }.Generate().MakeDMesh(),
+                new CappedCylinderGenerator() { BaseRadius = 1f, TopRadius = 1f, Height = 4, Slices = 12 }.Generate().MakeDMesh(),
+                new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 6 }.Generate().MakeDMesh(),
+                Torus(2, 0.6, 48, 24)
             };
             foreach (DMesh3 shape in shapes) {
                 DMesh3 soup = Unweld(shape);
                 MeshAlphaWrap w = Wrap(soup);
                 var p = Pass(w, soup, true);
                 Assert.False(p.VarifoldPlanesUsed, $"median noise {p.VarifoldMedianNoise}, tilt {p.VarifoldMedianTilt}");
-                Assert.True(p.VarifoldMedianNoise < 0.0025, $"median noise {p.VarifoldMedianNoise}");
+                Assert.True(p.VarifoldMedianNoise < 1e-9, $"median noise {p.VarifoldMedianNoise}");
                 Assert.Equal(0, p.VarifoldPlaneQueries);
                 var off = new AlphaWrapFeaturePass(new DMesh3(w.Result, true), soup, w.UsedAlpha, w.UsedOffset) { VarifoldCreases = true, VarifoldPlaneRadius = 0 };
                 Assert.True(off.Compute());
                 Assert.Equal(AlphaWrapManifoldStepTests.Hash(off.Mesh), AlphaWrapManifoldStepTests.Hash(p.Mesh));
             }
+        }
+
+        static DMesh3 Torus(double R0, double r0, int nu, int nv)
+        {
+            var m = new DMesh3();
+            Func<int, int, Vector3d> P = (i, j) => {
+                double u = 2 * Math.PI * i / nu, v = 2 * Math.PI * j / nv;
+                return new Vector3d((R0 + r0 * Math.Cos(v)) * Math.Cos(u), (R0 + r0 * Math.Cos(v)) * Math.Sin(u), r0 * Math.Sin(v));
+            };
+            for (int i = 0; i < nu; ++i)
+                for (int j = 0; j < nv; ++j) {
+                    Vector3d a = P(i, j), b = P(i + 1, j), c = P(i + 1, j + 1), d = P(i, j + 1);
+                    m.AppendTriangle(m.AppendVertex(a), m.AppendVertex(b), m.AppendVertex(c));
+                    m.AppendTriangle(m.AppendVertex(a), m.AppendVertex(c), m.AppendVertex(d));
+                }
+            return m;
         }
 
         // the lift of the fitted plane (2 rms): without it the plane is the jitter's mean, below the outermost triangles, and most

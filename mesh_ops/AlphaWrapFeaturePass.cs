@@ -71,12 +71,12 @@ namespace gs
         internal double VarifoldPlaneLift = 2;
         /// <summary>
         /// the fitted planes are used only on a noisy input: when the median noise of its sheets (VarifoldCreaseQuery.MedianNoise,
-        /// 512 triangles at a fixed stride: the plane residual at the plane radius and at twice it, the part that does not grow
-        /// with the radius, relative to the radius) is above this; 0 uses them always. Measured (design note 10): clean flat or
-        /// curved tessellations 0 to 0.0020 (a 32-sphere and 64- and 256-slice cylinders at alpha = diagonal / 60), jitter of
-        /// 0.025 h 0.0066-0.0069, the mixed breakage at 0.25 0.0038, jitter of 0.01 h 0.0027 (closed: already at 0.99 / 0.97)
+        /// 512 triangles at a fixed stride: the plane residual at the plane radius and at twice it, the part that grows neither
+        /// as r^2 nor as r^4, relative to the radius) is above this; 0 uses them always. Measured (design note 10): 0 on 32 clean
+        /// flat and curved tessellations (cylinders of 12-256 slices, spheres, tori, fillets of 1-3 balls, at alpha = diagonal /
+        /// 60 and / 300); jitter of 0.005 h 0.0011-0.0013, 0.01 h 0.0022-0.0025, 0.025 h 0.0056-0.0062
         /// </summary>
-        internal double VarifoldPlaneMinNoise = 0.003;
+        internal double VarifoldPlaneMinNoise = 0.0005;
         /// <summary> (tests) false: the labels are made lazily, serially, as without the fitted planes (the same bits either way) </summary>
         internal bool VarifoldPrefetch = true;
         /// <summary> (outputs) the median tilt measured, and whether the fitted planes were used </summary>
