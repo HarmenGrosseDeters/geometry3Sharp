@@ -278,6 +278,15 @@ class Quick(unittest.TestCase):
         self.assertNotIn("UnrelatedTests", r["classes"])      # (a nested type and a longer word do not count)
         self.assertFalse(r["broad"])
 
+    def test_a_demo_file_runs_no_library_tests(self):
+        # demos/G3Demos/Demos/Core.cs declares eg `public static class Shapes` and `class MeshCheck`; before demos/ was a tool
+        # directory its types were matched against the tests (about 13 unrelated classes for a demos-only change)
+        self.write("demos/G3Demos/Demos/Core.cs", "namespace G3Demos.Demos {\n public static class Shapes { }\n}\n")
+        self.write(c.TEST_DIR + "ShapesTests.cs", self.case("ShapesTests", "Shapes.X();"))
+        r = self.quick("demos/G3Demos/Demos/Core.cs")
+        self.assertNotIn("ShapesTests", r["classes"])
+        self.assertFalse(r["broad"])
+
     def test_a_partial_library_file_counts_for_its_class(self):
         self.write("mesh_ops/WidgetIncremental.cs", "namespace g3 { public partial class Widget { } }\n")
         self.write(c.TEST_DIR + "OtherTests.cs", self.case("OtherTests", "Widget w;"))
@@ -365,6 +374,13 @@ class Scope(unittest.TestCase):
         for p in ("tools/new_tests_on_base.py", "tools/ReaderFuzzPilot/a.py", "benchmarks/MeshRepairBenchmark/x.py",
                   "benchmarks/TerrainBenchmark/Program.cs", "docs/design/OTHER.md", "tools/g3cli/Program.cs",
                   "tools/PredicateCompiler/Program.cs", "benchmarks/Meshing2Benchmark/Program.cs"):
+            self.assertFalse(c.scope([p])["library"], p)
+
+    def test_demos_are_not_library(self):
+        # the browser demos (demos/G3Demos) only reference the library: a change there runs no library suite, and the quick
+        # stage does not map its file names (eg Demos/Core.cs) to test classes
+        for p in ("demos/G3Demos/Demos/Core.cs", "demos/G3Demos/Pages/DemoPage.razor", "demos/G3Demos/wwwroot/index.html",
+                  "demos/G3Demos/G3Demos.csproj", "demos/G3Demos/e2e/cases.json"):
             self.assertFalse(c.scope([p])["library"], p)
 
     def test_shared_files_count_as_library(self):

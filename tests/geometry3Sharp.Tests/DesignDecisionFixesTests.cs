@@ -50,7 +50,10 @@ namespace geometry3Sharp.Tests
             Exception error = null;
             var worker = new Thread(() => { try { merge.Apply(); } catch (Exception e) { error = e; } }) { IsBackground = true };
             worker.Start();
-            Assert.True(worker.Join(TimeSpan.FromSeconds(20)), "MergeCoincidentEdges.Apply did not terminate");
+            // The watchdog guards termination, not speed: the input is the worst case of Apply (the work grows with the square of the
+            // coincident edges, 1 100 per midpoint here; it needs more than 1 024 to reach the old bug) and takes about 1 s alone on
+            // net10.0 and net48, but once reached 20 s under the load of a full net48 run (#1581). 60 s keeps a hang a failure.
+            Assert.True(worker.Join(TimeSpan.FromSeconds(60)), "MergeCoincidentEdges.Apply did not terminate");
             // it must also finish without an exception and leave a valid mesh
             Assert.Null(error);
             Assert.True(mesh.CheckValidity(true, FailMode.ReturnOnly));

@@ -1,0 +1,41 @@
+| case | ms without | ms with cache | change | cache hits | identical |
+|---|---|---|---|---|---|
+| coplanar boxes | 1 | 1 | 0 % | 0 | yes |
+| Collinear k=20 vs shifted copy | 10 | 11 | 10 % | 1068 | yes |
+| Collinear k=20 vs itself | 14 | 13 | -7 % | 0 | yes |
+| Collinear k=40 vs shifted copy | 8 | 11 | 38 % | 1058 | yes |
+| Collinear k=40 vs itself | 13 | 14 | 8 % | 0 | yes |
+| Sliver k=20 vs shifted copy | 5 | 6 | 20 % | 428 | yes |
+| Sliver k=20 vs itself | 13 | 13 | 0 % | 0 | yes |
+| Sliver k=40 vs shifted copy | 7 | 12 | 71 % | 1038 | yes |
+| Sliver k=40 vs itself | 11 | 14 | 27 % | 0 | yes |
+| ShortEdge k=20 vs shifted copy | 6 | 7 | 17 % | 462 | yes |
+| ShortEdge k=20 vs itself | 15 | 15 | 0 % | 0 | yes |
+| ShortEdge k=40 vs shifted copy | 10 | 12 | 20 % | 1339 | yes |
+| ShortEdge k=40 vs itself | 15 | 16 | 7 % | 353 | yes |
+| Coincident k=20 vs shifted copy | 5 | 5 | 0 % | 139 | yes |
+| Coincident k=20 vs itself | 9 | 7 | -22 % | 0 | yes |
+| Coincident k=40 vs shifted copy | 4 | 5 | 25 % | 224 | yes |
+| Coincident k=40 vs itself | 7 | 7 | 0 % | 0 | yes |
+| Unwelded k=20 vs shifted copy | 4 | 4 | 0 % | 342 | yes |
+| Unwelded k=20 vs itself | 8 | 7 | -12 % | 0 | yes |
+| Unwelded k=40 vs shifted copy | 4 | 5 | 25 % | 656 | yes |
+| Unwelded k=40 vs itself | 10 | 9 | -10 % | 0 | yes |
+| VertexOnFace k=20 vs shifted copy | 1 | 1 | 0 % | 0 | yes |
+| VertexOnFace k=20 vs itself | 1 | 1 | 0 % | 0 | yes |
+| VertexOnFace k=40 vs shifted copy | 1 | 1 | 0 % | 0 | yes |
+| VertexOnFace k=40 vs itself | 1 | 1 | 0 % | 0 | yes |
+| SharedFace k=20 vs shifted copy | 2 | 2 | 0 % | 0 | yes |
+| SharedFace k=20 vs itself | 1 | 1 | 0 % | 0 | yes |
+| SharedFace k=40 vs shifted copy | 2 | 2 | 0 % | 0 | yes |
+| SharedFace k=40 vs itself | 1 | 1 | 0 % | 0 | yes |
+| Cluster k=20 vs shifted copy | 28 | 30 | 7 % | 6591 | yes |
+| Cluster k=20 vs itself | 41 | 46 | 12 % | 5214 | yes |
+| Cluster k=40 vs shifted copy | 51 | 58 | 14 % | 14189 | yes |
+| Cluster k=40 vs itself | 55 | 68 | 24 % | 6774 | yes |
+| FoldedCluster k=20 vs shifted copy | 17 | 23 | 35 % | 4857 | yes |
+| FoldedCluster k=20 vs itself | 35 | 31 | -11 % | 1844 | yes |
+| FoldedCluster k=40 vs shifted copy | 1140 | 1448 | 27 % | 1083385 | yes |
+| FoldedCluster k=40 vs itself | 817 | 1051 | 29 % | 565962 | yes |
+
+total: 2373 ms without, 2959 ms with the cache (24.7 %); identical results 37 of 37

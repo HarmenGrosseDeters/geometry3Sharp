@@ -1,0 +1,72 @@
+diff --git a/benchmarks/CurvatureWeakProbe/Program.cs b/benchmarks/CurvatureWeakProbe/Program.cs
+index 31bd415..cbaa536 100644
+--- a/benchmarks/CurvatureWeakProbe/Program.cs
++++ b/benchmarks/CurvatureWeakProbe/Program.cs
+@@ -4,2 +4,7 @@ using gs;
+
++if (Array.IndexOf(args, "--heat-resultant") >= 0) {
++    VectorHeatTransportProbe.RunResultantSweep();
++    return;
++}
++
+ if (Array.IndexOf(args, "--heat-equator") >= 0) {
+diff --git a/benchmarks/CurvatureWeakProbe/VectorHeatTransportProbe.cs b/benchmarks/CurvatureWeakProbe/VectorHeatTransportProbe.cs
+index 0486528..519de78 100644
+--- a/benchmarks/CurvatureWeakProbe/VectorHeatTransportProbe.cs
++++ b/benchmarks/CurvatureWeakProbe/VectorHeatTransportProbe.cs
+@@ -30,2 +30,45 @@ internal static class VectorHeatTransportProbe
+
++    public static void RunResultantSweep()
++    {
++        Console.WriteLine("resolution schedule fixed-resultant fixed-angle-deg far-count far-mean-resultant far-rms-deg");
++        // CubeMapping of (1/2, 1/4, -1) is a vertex on every grid in this sweep.
++        const double x = 0.5, y = 0.25;
++        var target = new Vector3d(x * Math.Sqrt(0.5 - y * y / 6), y * Math.Sqrt(0.5 - x * x / 6),
++            -Math.Sqrt(1 - (x * x + y * y) / 2 + x * x * y * y / 3));
++        foreach (int resolution in new[] { 9, 17, 33, 65 }) {
++            var mesh = new Sphere3Generator_NormalizedCube { Radius = 1, EdgeVertices = resolution }.Generate().MakeDMesh();
++            int source = FindNorthPole(mesh), fixedVertex = FindSphereVertex(mesh, target);
++            double h = new IntrinsicTriangulation(mesh).MeanEdgeLength;
++            foreach (var (schedule, factor) in new[] { ("default", 1.0), ("linear", 0.5 / h) }) {
++                var heat = new VectorHeatMethod(mesh) { IntrinsicDelaunay = true, TimeFactor = factor };
++                var tri = heat.Triangulation;
++                var moved = heat.TransportVector(source, tri.FromWorld(source, Vector3d.AxisX).Normalized);
++                if (Math.Abs(heat.DiffusionTime / (factor * tri.MeanEdgeLength * tri.MeanEdgeLength) - 1) > 1e-10)
++                    throw new InvalidOperationException("The solver changed the diffusion time.");
++                double fixedAngle = double.NaN, sumLength = 0, sumSquaredAngle = 0;
++                int count = 0;
++                foreach (int v in mesh.VertexIndices()) {
++                    Vector3d p = mesh.GetVertex(v).Normalized;
++                    double colatitude = Math.Atan2(Vector3d.AxisZ.Cross(p).Length, p.z);
++                    if (colatitude <= 2.4 || colatitude > 3.0) continue;
++                    double length = moved[v].Length;
++                    if (!(length > 0 && length <= 1 + 1e-10))
++                        throw new InvalidOperationException("Invalid circular resultant.");
++                    Vector3d actual = tri.ToWorld(v, moved[v] / length);
++                    actual -= actual.Dot(p) * p;
++                    Vector3d expected = Vector3d.AxisX - p.x / (1 + p.z) * (Vector3d.AxisZ + p);
++                    double angle = AngleDegrees(expected, actual);
++                    if (v == fixedVertex) fixedAngle = angle;
++                    sumLength += length;
++                    sumSquaredAngle += angle * angle;
++                    count++;
++                }
++                if (!double.IsFinite(fixedAngle) || !double.IsFinite(sumSquaredAngle))
++                    throw new InvalidOperationException("Invalid far-band sample.");
++                Console.WriteLine($"{resolution} {schedule} {moved[fixedVertex].Length:G9} {fixedAngle:G9} " +
++                    $"{count} {sumLength / count:G9} {Math.Sqrt(sumSquaredAngle / count):G9}");
++            }
++        }
++    }
++
+     public static void RunEquatorSweep()
+diff --git a/mesh_ops/VectorHeatMethod.cs b/mesh_ops/VectorHeatMethod.cs
+index 3d4001f..9223ca5 100644
+--- a/mesh_ops/VectorHeatMethod.cs
++++ b/mesh_ops/VectorHeatMethod.cs
+@@ -393,3 +393,4 @@ namespace gs
+                 if (!(l > 0)) return nan;
+-                return (u[i] / phi[i] / l) * new Vector2d(y[2 * i], y[2 * i + 1]);
++                // Single unit-source benchmark: keep the weighted mean before normalizing its direction.
++                return new Vector2d(y[2 * i], y[2 * i + 1]) / phi[i];
+             }, nan, has);

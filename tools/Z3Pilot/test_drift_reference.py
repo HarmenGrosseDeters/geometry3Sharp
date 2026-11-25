@@ -28,6 +28,13 @@ PINNED = [
      {'p0': '1/2', 'p1': '3/4', 'p2': '1/4', 'q0': '0', 'q1': '0', 'x': '0', 'y': '0'}),
     ('move_skips_ghosts', 3, (('contract', 0, 1), ('move', 1)), 'reported',
      {'p0': '0', 'p1': '1/2', 'p2': '0', 'q0': '0', 'q1': '3/4', 'x': '0', 'y': '0'}),
+    # the joint move (try_move_pair; r{k} the position of its second vertex)
+    ('pair_skips_second_vertex', 3, (('move_pair', 0, 2),), 'reported',
+     {'p0': '0', 'p1': '0', 'p2': '0', 'q0': '0', 'r0': '1/2', 'x': '0', 'y': '0'}),
+    ('pair_skips_second_ghosts', 3, (('contract', 1, 2), ('move_pair', 0, 2)), 'reported',
+     {'p0': '0', 'p1': '1/4', 'p2': '0', 'q0': '0', 'q1': '1/2', 'r1': '3/4', 'x': '0', 'y': '0'}),
+    ('pair_second_at_old_position', 3, (('move_pair', 1, 2),), 'reported',
+     {'p0': '0', 'p1': '0', 'p2': '-1/4', 'q0': '0', 'r0': '0', 'x': '0', 'y': '0'}),
 ]
 
 
@@ -45,17 +52,24 @@ class DriftReferenceTests(unittest.TestCase):
         self.assertTrue(all(r['result'] == 'unsat' and r['assumptions_result'] == 'sat' and r['assumptions_replayed']
                             for r in rows))
         self.assertEqual([], report['failures'])
-        # the rows: convexity (2), the lemma (5), one per configuration of the search, the distance (3), the chain
-        self.assertEqual(2 + 5 + len(dr.SEARCH) + 3 + 1, len(rows))
+        # the rows: convexity (2), the lemma (5) and its joint-move instance (1), one per configuration of the search and
+        # one per configuration of the joint-move search, the distance (3), the chain
+        self.assertEqual(2 + 5 + 1 + len(dr.SEARCH) + len(dr.PAIR_SEARCH) + 3 + 1, len(rows))
         # every script of every configuration was asked
-        for (n, length), row in zip(dr.SEARCH, [r for r in rows if r['part'] == 'C']):
+        singles = [r for r in rows if r['part'] == 'C' and not r['name'].startswith('chain_pair_')]
+        pairs = [r for r in rows if r['name'].startswith('chain_pair_')]
+        for (n, length), row in zip(dr.SEARCH, singles):
             self.assertEqual(sum(1 for _ in dr.scripts(n, length)), row['scripts'], row['name'])
-        self.assertEqual(7038, sum(r['scripts'] for r in rows if r['part'] == 'C'))
+        for (n, length), row in zip(dr.PAIR_SEARCH, pairs):
+            self.assertEqual(sum(1 for _ in dr.scripts(n, length, pairs=True)), row['scripts'], row['name'])
+        self.assertEqual(7038, sum(r['scripts'] for r in singles))
+        self.assertEqual(2150, sum(r['scripts'] for r in pairs))
         # every mutant has a counterexample, replayed outside Z3
         muts = {m['name']: m for m in report['mutants']}
         self.assertEqual(set(dr.MUTANTS) | {'convexity_no_sum', 'convexity_two_corners', 'convexity_no_dot_bound',
                                             'lemma_G_J1_carry_only', 'lemma_G_J2_carry_only', 'lemma_G_J1_no_delta',
                                             'lemma_G_J2_no_delta', 'lemma_G_bound_no_acceptance',
+                                            'lemma_pair_corners_first_only',
                                             'chain_step_with_2_4_model_only'}, set(muts))
         self.assertTrue(all(m['result'] == 'sat' and m['replayed'] for m in muts.values()))
 
@@ -151,7 +165,7 @@ class DriftReferenceTests(unittest.TestCase):
     def test_source_contract_sees_code_drift(self):
         original = dr.ROOT.__class__.read_text
         changes = [
-            ('MeshRoundingRepair.cs', 'movedV = -1;\n            vanishing = -1;', 'movedV = -1; Mesh.SetVertex(0, movedPos);\n            vanishing = -1;'),
+            ('MeshRoundingRepair.cs', 'movedV = movedV2 = -1;\n            vanishing = -1;', 'movedV = movedV2 = -1; Mesh.SetVertex(0, movedPos);\n            vanishing = -1;'),
             ('MeshRoundingRepair.cs', 'removed.Add(tT); removed.Add(tU);', 'removed.Add(tT); removed.Add(tU); movedV = c; movedPos = pa;'),
             ('MeshRoundingRepair.cs', 'if (p != Mesh.GetVertex(b)) {\n                foreach (int t in Mesh.VtxTrianglesItr(b)) {',
              'if (p != Mesh.GetVertex(b) && a > b) {\n                foreach (int t in Mesh.VtxTrianglesItr(b)) {'),
@@ -166,10 +180,28 @@ class DriftReferenceTests(unittest.TestCase):
             ('MeshRoundingRepair.cs', 'editLost.Add(g);\n                    most = Math.Max(most, ghost_bound(g, -1, -1, Vector3d.Zero));',
              'editLost.Add(g);'),                                                                         # generic_ignores_lost_ghosts
             ('MeshRoundingRepair.cs', 'return most + step;', 'return most;'),                             # generic_without_delta
-            ('MeshRoundingRepair.cs', 'Vector3d p0 = (g.at.a == v || g.at.a == gone) ? p : Mesh.GetVertex(g.at.a);',
-             'Vector3d p0 = (g.at.a == v || g.at.a == gone) ? g.a0 : Mesh.GetVertex(g.at.a);'),          # kept_vertex_anchor (a ghost's)
+            ('MeshRoundingRepair.cs', 'Vector3d p0 = (g.at.a == v || g.at.a == gone) ? p : (g.at.a == movedV2)',
+             'Vector3d p0 = (g.at.a == v || g.at.a == gone) ? g.a0 : (g.at.a == movedV2)'),          # kept_vertex_anchor (a ghost's)
             ('MeshRoundingRepair.cs', 'most = Math.Max(most, Math.Max(ghosts_bound(movedV, movedV, vanishing, movedPos), ghosts_bound(vanishing, movedV, vanishing, movedPos)));',
              'most = Math.Max(most, ghosts_bound(vanishing, movedV, vanishing, movedPos));'),             # move_skips_ghosts
+            # the joint move (try_move_pair, search_pairs; the model is Chain.move_pair): the check at the second vertex dropped,
+            # the second vertex's position left out of a bound, the room of the second vertex doubled, a second star not
+            # removed, a candidate that is not judged by the joint move, a second moved vertex proposed elsewhere
+            ('MeshRoundingRepair.cs', 'if (movedV2 >= 0)\n                    most = Math.Max(most, ghosts_bound(movedV2, movedV, vanishing, movedPos));', ''),
+            ('MeshRoundingRepair.cs', 'most = Math.Max(most, ghosts_bound(movedV2, movedV, vanishing, movedPos));',
+             'most = Math.Max(most, ghosts_bound(movedV2, movedV2, vanishing, movedPos2));'),
+            ('MeshRoundingRepair.cs', '(g.at.b == movedV2) ? movedPos2 : Mesh.GetVertex(g.at.b)', 'Mesh.GetVertex(g.at.b)'),
+            ('MeshRoundingRepair.cs', 'return (v == movedV) ? movedPos : (v == movedV2) ? movedPos2 : Mesh.GetVertex(v);',
+             'return (v == movedV) ? movedPos : Mesh.GetVertex(v);'),
+            ('MeshRoundingRepair.cs', 'double ru = room_at(u), rw = room_at(w);', 'double ru = room_at(u), rw = 2 * room_at(w);'),
+            ('MeshRoundingRepair.cs', 'double su = ru / (1 << (SearchSizes - 1)), sw = rw / (1 << (SearchSizes - 1));',
+             'double su = ru / (1 << (SearchSizes - 1)), sw = rw / (1 << (SearchSizes - 2));'),
+            ('MeshRoundingRepair.cs', 'if (try_move_pair(u, pu, w, pw)) {', 'if (sw < rw && try_move_pair(u, pu, w, pw)) {'),
+            ('MeshRoundingRepair.cs', 'foreach (int t in Mesh.VtxTrianglesItr(w)) {\n                // (a triangle at both: once)',
+             'foreach (int t in new int[0]) {\n                // (a triangle at both: once)'),
+            ('MeshRoundingRepair.cs', 'if (u == w || pu == Mesh.GetVertex(u)', 'if (pu == Mesh.GetVertex(u)'),
+            ('MeshRoundingRepair.cs', 'set_vertex(w, pw);\n            foreach (int t in removed)', 'set_vertex(w, pw + Vector3d.One);\n            foreach (int t in removed)'),
+            ('MeshRoundingRepair.cs', 'removed.Add(tT); removed.Add(tU);', 'removed.Add(tT); removed.Add(tU); movedV2 = c; movedPos2 = pa;'),
             # the bookkeeping around the rule
             ('MeshRoundingRepair.cs', 'if (within_bound(proposed_drift(step), bound) == false)', 'if (within_bound(proposed_drift(0), bound) == false)'),
             ('MeshRoundingRepair.cs', 'if (stopped)\n                return false;\n            begin_edit();\n            foreach (int t in Mesh.VtxTrianglesItr(v)) {',

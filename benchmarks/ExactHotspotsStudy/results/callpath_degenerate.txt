@@ -1,0 +1,44 @@
+g3.ExactMeshBoolean.Compute: 16167 ms = 100.0 % of Compute
+g3.MeshRoundingRepair.Apply: 12087 ms = 74.8 % of Compute
+g3.MeshRoundingRepair.improves: 10219 ms = 63.2 % of Compute
+g3.MeshRoundingRepair.intersects: 7690 ms = 47.6 % of Compute
+g3.ExactMeshArrangement.Compute: 2659 ms = 16.4 % of Compute
+== g3.ExactPredicates.orient3d_exact: 1962 ms
+  caller  58.7 %  g3.ExactTriangleIntersection.Intersects < g3.MeshRoundingRepair.intersects
+  caller  25.8 %  g3.ExactTriangleIntersection.SegmentIntersectsTriangle < g3.ExactTriangleIntersection.IntersectsBeyondShared
+  caller   7.5 %  g3.ExactTriangleIntersection.tri_tri < g3.ExactTriangleIntersection.Intersects
+  caller   3.3 %  g3.ExactTriangleIntersection.IntersectsBeyondShared < g3.MeshRoundingRepair.intersects
+  caller   1.5 %  g3.ExactMeshArrangement.separated < g3.ExactMeshArrangement.candidates
+  caller   1.3 %  g3.ExactMeshArrangement.one_side_except_shared < g3.ExactMeshArrangement.touch_only
+  below   99.9 %  g3.ExactPredicates.orient3d_exact
+  below    0.1 %  g3.AdaptivePredicates.orient3d
+  below    0.1 %  g3.AdaptivePredicates.estimate
+== g3.TriangleTriangleFilter.by_projection: 2677 ms
+  caller  97.8 %  g3.MeshRoundingRepair.intersects < g3.MeshRoundingRepair.improves
+  caller   1.1 %  g3.MeshRoundingRepair.intersects < g3.MeshRoundingRepair+<>c__DisplayClass199_1.<intersecting_pairs_all>b__2
+  caller   0.7 %  g3.MeshRoundingRepair+<>c__DisplayClass199_1.<intersecting_pairs_all>b__2 < g3.TriangleBoxTree.Query
+  caller   0.2 %  g3.MeshRoundingRepair+<>c__DisplayClass200_1.<intersecting_pairs_of_changed>b__2 < g3.TriangleBoxTree.Query
+  caller   0.2 %  g3.ExactMeshArrangement.touch_only < g3.ExactMeshArrangement+<>c__DisplayClass191_0.<self_pairs>b__1
+  below   72.6 %  g3.TriangleTriangleFilter.by_projection
+  below    9.6 %  g3.ExactPredicates.Orient2d
+  below    7.0 %  g3.TriangleTriangleFilter.common_axis_plane
+  below    4.2 %  g3.ExactPredicates.orient2d_exact
+  below    3.9 %  g3.AdaptivePredicates.sum
+  below    1.2 %  g3.AdaptivePredicates.orient2d
+  below    0.8 %  g3.AdaptivePredicates.two_products_diff
+  below    0.4 %  g3.AdaptivePredicates+GrowingExpansion.Add
+== g3.MeshRoundingRepair.improves: 10219 ms
+  caller  56.2 %  g3.MeshRoundingRepair.try_move < g3.MeshRoundingRepair.fix_intersection
+  caller  21.7 %  g3.MeshRoundingRepair.try_move < g3.MeshRoundingRepair.search_corners
+  caller  10.0 %  g3.MeshRoundingRepair.try_move < g3.MeshRoundingRepair.fix_degenerate
+  caller   5.7 %  g3.MeshRoundingRepair.try_flip < g3.MeshRoundingRepair.fix_degenerate
+  caller   2.6 %  g3.MeshRoundingRepair.zip_strip < g3.MeshRoundingRepair.try_strip
+  caller   2.6 %  g3.MeshRoundingRepair.try_collapse < g3.MeshRoundingRepair.collapse_any
+  below   18.6 %  g3.TriangleTriangleFilter.by_projection
+  below   18.1 %  g3.ExactPredicates.orient3d_exact
+  below   14.8 %  g3.MeshRoundingRepair.improves
+  below    8.0 %  g3.MeshRoundingRepair.canonical_of
+  below    6.8 %  g3.MeshRoundingRepair.intersects
+  below    5.7 %  g3.ExactPredicates.Orient3d
+  below    4.7 %  g3.MeshRoundingRepair.near
+  below    3.6 %  g3.ExactTriangleIntersection.IntersectsBeyondShared
