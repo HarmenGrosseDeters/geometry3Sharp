@@ -28,6 +28,8 @@ The model (bridges, reviewed, not Z3; they are the model the sum's comments alre
       or den > 0 in both).
   B4  the relative error model is invariant under a positive scale (N2 at |v| = 1), and T1's claim under a rotation and a
       positive scale of the (den, num) plane (T1 at (1, 0); its error box rotated lies in the disk of radius sqrt(2) tol).
+  Not covered: the SafeNorms pass of antipodal_sum (a squared norm outside [1e-200, 1e300], la from scaled_norm instead of
+  the rounded sqrt of N2), which only differences next to the underflow range reach.
   Every floating operation is the exact result times (1 + d), |d| <= u = 2^-53 (Higham (2.4); no underflow or overflow:
   antipodal_sum takes the squares only in [1e-200, 1e300], and a and b are unit vectors).
 

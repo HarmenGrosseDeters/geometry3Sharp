@@ -101,9 +101,7 @@ namespace g3
             InvalidInput = 1,
             /// <summary>
             /// a mesh is not closed in the winding number sense while AllowOpenMeshes is false (after flipped
-            /// triangles are reoriented, see ReorientedTriangles); or, with AllowOpenMeshes, the generalized winding number
-            /// of an open mesh could not be decided at some piece (Counts["antipodal_unresolved"], #1587: a centroid within
-            /// the rounding error of the open mesh's boundary); Error says which. Result is null
+            /// triangles are reoriented, see ReorientedTriangles)
             /// </summary>
             OpenInput = 2,
             /// <summary> Compute() was not called yet </summary>
@@ -847,6 +845,7 @@ namespace g3
             arr = null;
             bounds.Clear();
             windingTrees.Clear();
+            antipodalWindingTrees.Clear();
             antipodalSegments.Clear();
             antipodalFar.Clear();
             segmentProjections.Clear();
@@ -858,6 +857,7 @@ namespace g3
             antipodalUndecided = 0;
             antipodalWide = 0;
             antipodalUnresolved = 0;
+            antipodalFastWinding = 0;
             antipodalSnapped = 0;
             hierUsed = hierFallbacks = 0;
             perPatchDecided = perPatchSaved = 0;
@@ -1002,6 +1002,20 @@ namespace g3
                 Result = null;
                 return fail(BooleanStatus.SheetRefused, SheetError);
             }
+            // (#1587: before the certificate takes the classification, so a failed run keeps none)
+            if (Cancellation.IsCancellationRequested == false) {
+                Counts["antipodal_undecided"] = antipodalUndecided;
+                Counts["antipodal_wide"] = antipodalWide;
+                Counts["antipodal_unresolved"] = antipodalUnresolved;
+                Counts["antipodal_fast_winding"] = antipodalFastWinding;
+                if (antipodalUnresolved > antipodalFastWinding) {
+                    // (only with UnresolvedByFastWinding false: a piece whose generalized winding number nothing decided is
+                    // not read as outside, silently)
+                    Result = null;
+                    arr.Trees = null;
+                    return fail(BooleanStatus.OpenInput, unresolved_error());
+                }
+            }
             if (RecordCertificate || RetainClassification) {
                 CertificateKeep = (bool[])keep.Clone();
                 CertificateFlip = (bool[])flip.Clone();
@@ -1009,14 +1023,6 @@ namespace g3
             clock.Lap("classification");
             if (Cancellation.IsCancellationRequested)
                 return cancelled();
-            Counts["antipodal_undecided"] = antipodalUndecided;
-            Counts["antipodal_wide"] = antipodalWide;
-            Counts["antipodal_unresolved"] = antipodalUnresolved;
-            if (antipodalUnresolved > 0) {
-                // (#1587: a piece whose generalized winding number nothing decided is not read as outside, silently)
-                Result = null;
-                return fail(BooleanStatus.OpenInput, unresolved_error());
-            }
             if (CountInsideOutCells)
                 InsideOutCells = count_inside_out(prepared);
             if (Cancellation.IsCancellationRequested)
@@ -2017,6 +2023,9 @@ namespace g3
                     antipodalFar[m].Segments = antipodalFar[m].Shift > 0 ? antipodal_grid(segments, antipodalFar[m].Shift) : antipodalSegments[m];
                     if (AntipodalHierarchical && segments.Length / 2 >= AntipodalTreeMinSegments)
                         antipodalFar[m].Tree = AntipodalTree.Build(antipodalFar[m].Segments);
+                    // (#1587: the fast-winding tree of the rim's branch, built on first use; the dictionary is filled here,
+                    // serially, and only read by the parallel evaluation)
+                    antipodalWindingTrees[m] = new TreeSlot();
                 }
             }
             // the fast-winding trees of the other open meshes, concurrently (each is independent, built from its own
@@ -5089,6 +5098,9 @@ namespace g3
         }
 
         readonly Dictionary<int, DMeshAABBTree3> windingTrees = new Dictionary<int, DMeshAABBTree3>();
+        // #1587: per Antipodal mesh, its fast-winding tree for the rim's branch of antipodal_front_winding, built on first use
+        readonly Dictionary<int, TreeSlot> antipodalWindingTrees = new Dictionary<int, TreeSlot>();
+        sealed class TreeSlot { public DMeshAABBTree3 Tree; }
 
         // the tree of an open mesh for its fast winding numbers: classify builds one for every open mesh off the Antipodal
         // path before its parallel loops, which only read here (#882: a lazy build inside them raced on the dictionary).
@@ -5097,7 +5109,18 @@ namespace g3
         DMeshAABBTree3 winding_tree(int mesh)
         {
             DMeshAABBTree3 tree;
-            if (windingTrees.TryGetValue(mesh, out tree) == false)
+            TreeSlot slot;
+            // (#1587: an Antipodal mesh's tree, for the rim's branch: built on first use; two threads that ask at once may
+            // both build it, from the mesh only, so the same tree, and the first one published is used by all)
+            if (windingTrees.TryGetValue(mesh, out tree) == false && antipodalWindingTrees.TryGetValue(mesh, out slot)) {
+                tree = System.Threading.Volatile.Read(ref slot.Tree);
+                if (tree == null) {
+                    System.Threading.Interlocked.CompareExchange(ref slot.Tree, new_winding_tree(mesh), null);
+                    tree = System.Threading.Volatile.Read(ref slot.Tree);
+                }
+                return tree;
+            }
+            if (tree == null)
                 throw new InvalidOperationException("ExactMeshBoolean: no fast-winding tree was built for open mesh " + mesh);
             return tree;
         }
@@ -5166,7 +5189,9 @@ namespace g3
         /// bound of k + 1/2 but not equal to it is read as k + 1/2 too (the threshold gives k): the one place where the
         /// result is not exact; the bound is about 1e-13 per boundary segment (1e-10 at 1000 segments), more for a
         /// centroid next to a segment, at most 1e-6 in all (a ray with a larger bound, or with an ill-conditioned term, is
-        /// replaced; on or next to a segment the centroid is undecided anyway). The bound depends on the ray: an exact tie is snapped with every
+        /// replaced). #1587: a value that no ray decides so is evaluated once more with the wide bound (WideBound), taken
+        /// only where it decides the threshold, and a centroid that this does not decide either (within the rounding of a
+        /// segment) gets the fast winding number (the rim's branch, counted). The bound depends on the ray: an exact tie is snapped with every
         /// ray, a value within the bound of a tie but not on it can be snapped with one ray and not with another (one Seed
         /// gives one result). The sum uses portable_atan2, so the value is the same bits on CoreCLR and .NET Framework.
         /// </summary>
@@ -5205,6 +5230,7 @@ namespace g3
             // (#1587: the rays whose bound was too large, for the wide bound below)
             int[] rays = null;
             int tried = 0;
+            bool onSegment = false;
             for (int attempt = 0; attempt < 20; ++attempt) {
                 int j;
                 // (attempts continue the hash sequence of front_crossings: a new far point each time)
@@ -5227,10 +5253,9 @@ namespace g3
                 int status = antipodal_value(p, pm, x1, chi, segments, out w, out bound);
                 if (status == 1) {
                     // (the centroid on or next to a segment: undecided whatever the ray; #1587: within about 1.2 tol of
-                    // the angle, no ray and no wider bound decides it)
-                    System.Threading.Interlocked.Increment(ref antipodalUndecided);
-                    System.Threading.Interlocked.Increment(ref antipodalUnresolved);
-                    return 0.5;
+                    // the angle, no ray and no wider bound decides it: straight to the rim's branch below)
+                    onSegment = true;
+                    break;
                 }
                 if (status == 2) {
                     if (rays == null)
@@ -5257,7 +5282,7 @@ namespace g3
             // a bound above 1e-6 is no more a guess there, it is a bound, and the threshold of the exact value is that of
             // w. Not used for the per-patch or traced margins (usedBound stays -1))
             System.Threading.Interlocked.Increment(ref antipodalUndecided);
-            for (int k = 0; k < tried; ++k) {
+            for (int k = 0; k < (onSegment ? 0 : tried); ++k) {
                 int chi = rays[2 * k], j = rays[2 * k + 1];
                 Vector3d x1 = -(far.Scaled[j] - p).Normalized;
                 double w, bound, roundingBound;
@@ -5269,10 +5294,25 @@ namespace g3
                     return w;
                 }
             }
-            // (nothing decides it: counted, and Compute() fails with Status OpenInput; the 0.5 is never part of a result)
+            // (#1587, the rim's branch: nothing above decides it, the centroid is within the rounding error of a boundary
+            // segment (or no ray's bound decides), where the winding number takes every value between its two sides.
+            // Owner decision 2026-11-25: the fast winding number of the piece (front_generalized_winding, the route of an
+            // open mesh above the cap of segments: no error bound, a value read as it is), counted in
+            // Counts["antipodal_fast_winding"]; with UnresolvedByFastWinding false Compute() fails with Status OpenInput
+            // instead. Never 0.5 read as outside. The fast value is deterministic on one runtime (its tree is built once,
+            // from the mesh only, and read concurrently), but it uses Math.Atan2 (MathUtil.TriSolidAngle), whose last bit
+            // may differ between runtimes, as on the fast-winding route)
             System.Threading.Interlocked.Increment(ref antipodalUnresolved);
+            if (UnresolvedByFastWinding) {
+                System.Threading.Interlocked.Increment(ref antipodalFastWinding);
+                return front_generalized_winding(i, mesh, stack);
+            }
             return 0.5;
         }
+
+        // #1587: the rim's branch of antipodal_front_winding: true (owner decision 2026-11-25) takes the fast winding number
+        // where nothing else decides, false makes Compute() fail with Status OpenInput (tests)
+        internal bool UnresolvedByFastWinding = true;
 
         // #1587: the limit of the error bound of an undecided Antipodal value evaluated once more (antipodal_front_winding):
         // below 1/2, so a value farther than its bound from every half-integer is possible; each term then needs
@@ -5362,7 +5402,7 @@ namespace g3
                 a /= la;
                 b /= lb;
                 // (a and b opposite: the point on or next to the segment. #1587: |a + b|, linear in the angle between -a and
-                // b, against tol: the computed norm is within 2 (ea + eb) + 1.1e-14 of the exact |A + B| of the exact unit
+                // b, against tol: the computed norm is within 2.01 (ea + eb) + 10u of the exact |A + B| of the exact unit
                 // vectors, so a point on the segment (A + B = 0) always gives 1, a point that gives 1 has |A + B| at most
                 // 1.2 tol, an angle of about 1.2 tol (a distance of about 1.2 tol la lb / (la + lb) from the segment), and
                 // whatever gives 1 here also gave 1 to the test before it, 1 + a.b <= tol, so a value that was decided is
@@ -5468,7 +5508,7 @@ namespace g3
 
         // pieces whose Antipodal value could not be decided (the centroid on or next to a boundary segment, or no usable ray);
         // #1587: of them, those decided by the wide bound, and those that nothing decided (Compute() fails)
-        long antipodalUndecided, antipodalWide, antipodalUnresolved;
+        long antipodalUndecided, antipodalWide, antipodalUnresolved, antipodalFastWinding;
         // L1: the (patch, open mesh) pairs decided per patch, and the per-piece evaluations they saved
         long perPatchDecided, perPatchSaved;
         // L2: the evaluations by a carried ray, and the direct ones of the traced input triangles (references and fallbacks)
