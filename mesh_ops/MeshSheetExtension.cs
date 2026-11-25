@@ -60,6 +60,7 @@ namespace gs
         public int CurveComponents = -1, CurveIds = -1;
         /// <summary> the status that refused this run, or Success </summary>
         public MeshSheetExtension.ExtensionStatus Refusal;
+        /// <summary> in words: why this run is refused, or (Diagnose()) where its rays have no exit or the depth is above the limit; empty if there is nothing to say </summary>
         public string Witness = "";
     }
 
@@ -174,7 +175,7 @@ namespace gs
             BowtieVertex = 5,
             /// <summary> the two outward normals of a rim vertex cancel, or a rim triangle is degenerate </summary>
             NoDirection = 6,
-            /// <summary> the ray of a rim point leaves the workpiece nowhere </summary>
+            /// <summary> the ray of a rim point leaves the workpiece nowhere (defensive: a point inside a closed workpiece always has an exit; only a rounding failure of the ray query could give none, and no input is known that does) </summary>
             NoExit = 7,
             /// <summary> the first exit is farther than MaxExtension times the sheet's diagonal: Report.MaxDepth(Relative) and the witness give the depth </summary>
             DepthAboveLimit = 8,
@@ -196,13 +197,13 @@ namespace gs
             MeetsItself = 16,
             /// <summary> the strip meets another tool or sheet (exact) </summary>
             MeetsOtherTool = 17,
-            /// <summary> the imprint of the curve rule failed (Error) </summary>
+            /// <summary> the imprint of the curve rule failed (Error) (defensive: the imprint has no budget, no strict rounding and no cancellation here and the input is validated finite; no input is known that fails) </summary>
             ImprintFailed = 18,
-            /// <summary> the strip could not be appended to a manifold mesh </summary>
+            /// <summary> the strip could not be appended to a manifold mesh (defensive: the sheet's rim is a manifold boundary, so strip triangles along it can be appended; no input is known that fails) </summary>
             ConstructionFailed = 19,
             /// <summary> the sheet role refuses the extended sheet (Report.SheetReason, Error) </summary>
             SheetRoleRefused = 20,
-            /// <summary> the cut failed for another reason (budget, rounding; Error) </summary>
+            /// <summary> the cut failed for another reason (budget, rounding; Error) (defensive: with finite inputs and AllowOpenMeshes the Boolean answers Success or SheetRefused; its budget and rounding failures are not known to occur here) </summary>
             CutFailed = 21,
             /// <summary> U relative to the smaller part is above MaxUOverSmallerPart </summary>
             UncertaintyAboveLimit = 22,
@@ -262,8 +263,6 @@ namespace gs
         internal Rules Verify = Rules.All;
         /// <summary> for tests: the least cosine between a strip triangle's normal and the normal of the sheet triangle it continues (a mutant lowers it) </summary>
         internal double MinStripCosine = 1e-9;
-        /// <summary> for tests: how far an outer segment that starts on the workpiece's surface is shortened before its contact with the workpiece is tested (a mutant makes it large), as a fraction of its length </summary>
-        internal double OnSurfaceNudge = 1e-7;
         /// <summary> for tests: the rim edges are chosen by vertex instead of by edge </summary>
         internal bool ChooseByVertex;
         /// <summary> for tests: the last exit of the ray instead of the first </summary>
@@ -310,6 +309,7 @@ namespace gs
             Result = null;
             Error = null;
             Status = ExtensionStatus.NotComputed;
+            Report = new SheetExtensionReport { Status = ExtensionStatus.NotComputed, Diagnosed = diagnose };      // not the previous run's, whatever happens below
             var b = new Builder(this, diagnose);
             DMesh3 r = b.Execute();
             Report = b.Rep;
@@ -319,12 +319,19 @@ namespace gs
             return Status == ExtensionStatus.Success;
         }
 
+        /// <summary> the limit on U relative to the smaller part is exceeded; with a finite limit an empty smaller part counts as exceeded (the limit is never skipped silently) </summary>
+        internal static bool UBeyondLimit(double u, double smallerPart, double limit)
+        {
+            if (double.IsPositiveInfinity(limit)) return false;
+            return !(smallerPart > 0) || u / smallerPart > limit;
+        }
+
         /// <summary> the volume of a closed (or nearly closed) mesh, summed against its own first vertex so that a far frame costs no digits </summary>
         internal static double Volume(DMesh3 mesh)
         {
             if (mesh == null || mesh.TriangleCount == 0)
                 return 0;
-            Vector3d o = mesh.GetVertex(mesh.VertexIndices().First());
+            Vector3d o = mesh.GetVertex(mesh.GetTriangle(mesh.TriangleIndices().First()).a);        // (a vertex that a triangle uses: an unused one may be far away)
             double v = 0;
             foreach (int t in mesh.TriangleIndices()) {
                 Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
@@ -500,23 +507,6 @@ namespace gs
                 return groups;
             }
 
-            bool SegmentTouchesW(Vector3d p, Vector3d q)
-            {
-                var box = new AxisAlignedBox3d(p);
-                box.Contain(q);
-                box.Expand(tolT);
-                bool hit = false;
-                tree.DoTraversal(new DMeshAABBTree3.TreeTraversal {
-                    NextBoxDF = (bx, depth) => !hit && bx.Intersects(box),
-                    NextTriangleF = tid => {
-                        if (hit) return;
-                        Triangle3d tri = Tri(W, tid);
-                        if (ExactTriangleIntersection.SegmentIntersectsTriangle(p, q, ref tri)) hit = true;
-                    }
-                });
-                return hit;
-            }
-
             // the parts of the segment A-B (as fractions) that lie inside the workpiece (not on its surface)
             List<double[]> InsideIntervals(Vector3d A, Vector3d B)
             {
@@ -681,13 +671,31 @@ namespace gs
                 return new OPoint { P = vd.Pos, OnSurface = vd.OnSurface };
             }
 
+            // the outer segment p-q touches the workpiece (exact). An end that lies on the surface (a rim vertex exactly on it, g = 0) is not a contact by itself: for a triangle that contains
+            // that end the segment is a contact only if it also lies in that triangle's plane (a line meets a plane once; the segment is conservatively a contact then, also where it
+            // leaves the triangle at once). No window around the end is excluded
             bool OuterTouches(OPoint p, OPoint q)
             {
                 Vector3d a = p.P, b = q.P;
-                // an end on the workpiece's surface (a rim vertex exactly on it, g = 0) is not a contact of the segment
-                if (p.OnSurface) a = a + (b - a) * O.OnSurfaceNudge;
-                if (q.OnSurface) b = b + (a - b) * O.OnSurfaceNudge;
-                return SegmentTouchesW(a, b);
+                var box = new AxisAlignedBox3d(a);
+                box.Contain(b);
+                box.Expand(tolT);
+                bool hit = false;
+                tree.DoTraversal(new DMeshAABBTree3.TreeTraversal {
+                    NextBoxDF = (bx, depth) => !hit && bx.Intersects(box),
+                    NextTriangleF = tid => {
+                        if (hit) return;
+                        Triangle3d tri = Tri(W, tid);
+                        if (!ExactTriangleIntersection.SegmentIntersectsTriangle(a, b, ref tri)) return;
+                        bool pOn = p.OnSurface && ExactTriangleIntersection.SegmentIntersectsTriangle(a, a, ref tri);
+                        bool qOn = q.OnSurface && ExactTriangleIntersection.SegmentIntersectsTriangle(b, b, ref tri);
+                        if (!pOn && !qOn) { hit = true; return; }
+                        if (pOn && qOn) { hit = true; return; }                                  // both ends in one triangle: the segment lies in its plane
+                        Vector3d other = pOn ? b : a;
+                        if (ExactPredicates.Orient3d(tri.V0, tri.V1, tri.V2, other) == 0) hit = true;    // in the plane of the triangle that contains the end
+                    }
+                });
+                return hit;
             }
 
             static Vector3d InterpDir(VData va, VData vb, double s)
@@ -753,11 +761,26 @@ namespace gs
                         if (!(Math.Abs(p.x) <= MaxCoordinate && Math.Abs(p.y) <= MaxCoordinate && Math.Abs(p.z) <= MaxCoordinate))
                             return Fail(ExtensionStatus.InvalidInput, "non-finite coordinates, or beyond " + MaxCoordinate + ", in vertex " + v, null);
                     }
+                if (O.OtherTools != null)
+                    for (int i = 0; i < O.OtherTools.Count; ++i) {
+                        DMesh3 tool = O.OtherTools[i];
+                        if (tool == null)
+                            return Fail(ExtensionStatus.InvalidInput, "OtherTools[" + i + "] is null");
+                        foreach (int v in tool.VertexIndices()) {
+                            Vector3d p = tool.GetVertex(v);
+                            if (!(Math.Abs(p.x) <= MaxCoordinate && Math.Abs(p.y) <= MaxCoordinate && Math.Abs(p.z) <= MaxCoordinate))
+                                return Fail(ExtensionStatus.InvalidInput, "non-finite coordinates, or beyond " + MaxCoordinate + ", in vertex " + v + " of OtherTools[" + i + "]", null);
+                        }
+                    }
+                if (O.OtherRoles != null && O.OtherRoles.Count > (O.OtherTools == null ? 0 : O.OtherTools.Count))
+                    return Fail(ExtensionStatus.InvalidInput, "OtherRoles has more entries (" + O.OtherRoles.Count + ") than OtherTools");
+                if (!double.IsPositiveInfinity(O.MaxUOverSmallerPart) && !O.VerifyWithSheetRole)
+                    return Fail(ExtensionStatus.InvalidInput, "MaxUOverSmallerPart needs the cut of VerifyWithSheetRole (the smaller part of the cut); the limit would be skipped silently");
                 if (!ExactMeshBoolean.IsWindingClosed(W))
                     return Fail(ExtensionStatus.WorkpieceNotClosed, "the workpiece is not closed");
                 if (!CheckSurface())
                     return false;
-                AxisAlignedBox3d sb = S.GetBounds(), wb = W.GetBounds();
+                AxisAlignedBox3d sb = TriangleBounds(S), wb = TriangleBounds(W);      // of the vertices that triangles use: an unused vertex far away must not make the diagonal (and with it the depth limit) huge
                 D = sb.Diagonal.Length;
                 Rep.Diagonal = D;
                 double scale = 0;
@@ -772,6 +795,16 @@ namespace gs
                 maxDepthAbs = O.MaxExtension * D;
                 tree = new DMeshAABBTree3(W, true);
                 return true;
+            }
+
+            static AxisAlignedBox3d TriangleBounds(DMesh3 m)
+            {
+                AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
+                foreach (int t in m.TriangleIndices()) {
+                    Index3i tv = m.GetTriangle(t);
+                    for (int i = 0; i < 3; ++i) box.Contain(m.GetVertex(tv[i]));
+                }
+                return box;
             }
 
             // an edge used by more than two triangles by position is no surface (the sheet role refuses it as NotSurface, so do we, before any work)
@@ -942,7 +975,7 @@ namespace gs
 
                 // the strip
                 DMesh3 ext = new DMesh3(S);
-                int tid0 = S.MaxTriangleID;
+                var newTris = new HashSet<int>();      // the ids AppendTriangle returned: it reuses freed ids, so the strip is not "the ids above the sheet's"
                 if (ext.MaxVertexID != S.MaxVertexID || ext.MaxTriangleID != S.MaxTriangleID) {
                     Fail(ExtensionStatus.ConstructionFailed, "the copy of the sheet changed its ids");
                     return Finish(null);
@@ -965,7 +998,9 @@ namespace gs
                         if (t.a == t.b || t.b == t.c || t.a == t.c)
                             continue;
                         Index3i tt = O.FlipQuads ? new Index3i(t.a, t.c, t.b) : t;
-                        if (ext.AppendTriangle(tt, S.HasTriangleGroups ? S.GetTriangleGroup(e.Tri) : -1) < 0) {
+                        int newId = ext.AppendTriangle(tt, S.HasTriangleGroups ? S.GetTriangleGroup(e.Tri) : -1);
+                        if (newId >= 0) newTris.Add(newId);
+                        if (newId < 0) {
                             ctxEdge = e.Eid;
                             Fail(ExtensionStatus.ConstructionFailed, "a strip triangle cannot be appended to a manifold mesh", ext.GetVertex(t.a));
                             Rep.Candidate = null;
@@ -1030,7 +1065,7 @@ namespace gs
                 // 5c. the strip meets neither the sheet, nor itself, nor another tool
                 if ((O.Verify & Rules.MeetsSheet) != 0) {
                     foreach (Index2i pr in MeshRepairMetrics.SelfIntersectionPairs(ext)) {
-                        bool n0 = pr.a >= tid0, n1 = pr.b >= tid0;
+                        bool n0 = newTris.Contains(pr.a), n1 = newTris.Contains(pr.b);
                         if (!n0 && !n1) continue;
                         Fail(n0 && n1 ? ExtensionStatus.MeetsItself : ExtensionStatus.MeetsSheet, "triangles " + pr.a + " and " + pr.b + " of the extended sheet intersect", ext.GetTriCentroid(n0 ? pr.a : pr.b));
                         Rep.VerifyMs += Lap();
@@ -1042,7 +1077,7 @@ namespace gs
                         var tt = new DMeshAABBTree3(tool, true);
                         bool hit = false; Vector3d at = Vector3d.Zero;
                         foreach (int t in ext.TriangleIndices()) {
-                            if (t < tid0 || hit) continue;
+                            if (hit || !newTris.Contains(t)) continue;
                             Triangle3d a = Tri(ext, t);
                             var box = TriBox(a);
                             tt.DoTraversal(new DMeshAABBTree3.TreeTraversal {
@@ -1242,9 +1277,9 @@ namespace gs
                     Rep.URelative = Rep.U / Rep.SmallerPart;
                     foreach (SheetExtensionRun r in runs)
                         r.URelative = r.U / Rep.SmallerPart;
-                    if (Rep.URelative > O.MaxUOverSmallerPart)
-                        return Fail(ExtensionStatus.UncertaintyAboveLimit, "U is " + Rep.URelative.ToString("0.####") + " of the smaller part");
                 }
+                if (UBeyondLimit(Rep.U, Rep.SmallerPart, O.MaxUOverSmallerPart))
+                    return Fail(ExtensionStatus.UncertaintyAboveLimit, Rep.SmallerPart > 0 ? "U is " + Rep.URelative.ToString("0.####") + " of the smaller part" : "the smaller part of the cut is empty: U cannot be related to it");
                 return true;
             }
 

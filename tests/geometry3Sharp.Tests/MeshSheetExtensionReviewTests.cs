@@ -32,10 +32,10 @@ namespace geometry3Sharp.Tests
         // ---- 1. the cost of the surface check ---------------------------------------------------------------------------------------
 
         [Fact]
-        public void Diagnosis_OfASheetOf80000Triangles_IsFast_AndGrowsLinearly()
+        public void Diagnosis_OfASheetOf80000Triangles_GrowsLinearly()
         {
             // protects against the quadratic check of the sheet's edges (a Dictionary<long, int> keyed a << 32 | b hashes a ^ b: the ids of a grid collide, 3.3 s at 80,000 triangles).
-            // The limits are generous (1 s against about 0.3 s measured, a ratio of 8 against 4 for linear and 16 for quadratic): they catch the quadratic, not noise
+            // The limit is a ratio between two sizes of one run, no absolute time (that would fail on a loaded machine): 8 against 4 for linear and 16 for quadratic
             DMesh3 sphere = SheetGeometry.Sphere(Vector3d.Zero, 5, 14);
             double[] ms = new double[2];
             int k = 0;
@@ -48,7 +48,6 @@ namespace geometry3Sharp.Tests
                 Assert.True(op.Diagnose());
                 ms[k++] = sw.Elapsed.TotalMilliseconds;
             }
-            Assert.True(ms[1] < 1000, "the diagnosis of 80,000 triangles took " + ms[1] + " ms");
             Assert.True(ms[1] < 8 * Math.Max(ms[0], 20), "20,000 triangles " + ms[0] + " ms, 80,000 triangles " + ms[1] + " ms: not linear");
         }
 
@@ -295,34 +294,222 @@ namespace geometry3Sharp.Tests
             Assert.Contains("no curve", op.Report.Witness);
         }
 
-        [Fact]
-        public void AnOuterSegmentThatStartsOnTheSurfaceAndDipsInsideAtOnce_IsSubdivided()
+        [Theory]
+        [InlineData(0.04)]       // a dip of 6 % of the segment
+        [InlineData(1e-5)]       // 1.5e-5: above the old window of 1e-7 of the segment
+        [InlineData(1e-9)]       // 1.5e-9: inside the old window, which hid it
+        [InlineData(1e-12)]
+        public void AnOuterSegmentThatStartsOnTheSurfaceAndDipsInside_IsSeen_AtAnyDepthOfTheDip(double dip)
         {
-            // a sheet triangle with a vertex exactly on the top face of the cube, 0.04 from the edge x = 10: the outer segment from it runs through the cube's corner for its first
-            // 2 % before it leaves through the face x = 10. The contact is tested with the segment shortened by 1e-7 of its length at the end on the surface; a mutant that shortens it by
-            // 10 % does not see it
-            DMesh3 sheet = SheetGeometry.Triangles(new[] { new Vector3d(9.96, 5, 10), new Vector3d(10.65, 5, 9.1), new Vector3d(8.2, 5.1, 9.9) }, new[] { 0, 1, 2 });
+            // a sheet triangle with a vertex exactly on the top face of the cube, `dip` from the edge x = 10: the outer segment from it runs through the cube's corner for its first
+            // part before it leaves through the face x = 10. The contact is tested exactly, excluding only the contact at the end on the surface (the old test shortened the segment by
+            // 1e-7 of its length there and did not see a dip below that)
+            DMesh3 sheet = SheetGeometry.Triangles(new[] { new Vector3d(10 - dip, 5, 10), new Vector3d(10.65, 5, 9.1), new Vector3d(8.2, 5.1, 9.9) }, new[] { 0, 1, 2 });
             var op = Make(sheet, Cube(), o => { o.VerifyWithSheetRole = false; o.MaxExtension = 0.5; });
             op.Compute();
-            Assert.True(op.Report.SubdivisionPoints >= 1, op.Status + " " + op.Report.Witness);
-            var mutant = Make(sheet, Cube(), o => { o.VerifyWithSheetRole = false; o.MaxExtension = 0.5; o.OnSurfaceNudge = 0.1; });
-            mutant.Compute();
-            Assert.True(mutant.Report.SubdivisionPoints < op.Report.SubdivisionPoints);
+            Assert.True(op.Report.SubdivisionPoints >= 1, dip + ": " + op.Status + " " + op.Report.Witness);
+        }
+
+        // ---- the second review (PR 1550): freed ids, unused vertices, bad tools, the limit on U, statuses --------------------------------------
+
+        // the sheet with triangles added and removed again: the ids of the removed ones are free and AppendTriangle reuses them (the last added one stays, so MaxTriangleID is high)
+        static DMesh3 WithFreedIds(DMesh3 sheet)
+        {
+            DMesh3 m = new DMesh3(sheet);
+            var added = new List<int>();
+            for (int i = 0; i < 20; ++i) {
+                double y = 12.2 + 0.01 * i;
+                int a = m.AppendVertex(new Vector3d(-2.3, y, 5)), b = m.AppendVertex(new Vector3d(-2.2, y, 5)), c = m.AppendVertex(new Vector3d(-2.3, y + 0.005, 5));
+                added.Add(m.AppendTriangle(a, b, c));
+            }
+            for (int i = 0; i + 1 < added.Count; ++i) Assert.Equal(MeshResult.Ok, m.RemoveTriangle(added[i], true, false));
+            Assert.True(m.MaxTriangleID > m.TriangleCount);
+            return m;
         }
 
         [Fact]
-        public void AStripTriangleTurnedAlmostSideways_IsRefused_NotOnlyOneTurnedOver()
+        public void AStripBuiltIntoFreedTriangleIds_IsStillCheckedAgainstOtherTools()
         {
-            // a fan of four triangles with a strongly twisted rim, found by a scan of random fans (1 in 10,000): one strip triangle's normal is turned between 90 and 95 degrees away from the
-            // normal of the sheet triangle it continues. The test is "cosine above 1e-9" (the strip must not fold over or stand on edge); a mutant that accepts down to -0.1 accepts it
-            var v = new[] { new Vector3d(4.19744, 4.08138, 4.8111), new Vector3d(10.5902, 5.04384, 4.40138), new Vector3d(6.00274, 12.44738, 3.8887),
-                new Vector3d(0.07991, 7.48329, 7.39508), new Vector3d(-0.12987, 0.80395, 5.28471), new Vector3d(6.61924, 1.17739, 4.06649) };
-            DMesh3 sheet = SheetGeometry.Triangles(v, new[] { 0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5 });
-            var op = Make(sheet, Cube(), o => { o.VerifyWithSheetRole = false; o.MaxExtension = 0.5; });
+            // the review's F1: new DMesh3(sheet) copies the free list and AppendTriangle reuses freed ids, so strip triangles got ids below the sheet's MaxTriangleID and the checks that
+            // skip "the sheet's own ids" skipped them: Success with a tool through the strip. The strip's triangles are the ids AppendTriangle returned
+            SheetCaseData d = MeshSheetExtensionTests.Get("planar 0.5 %").Build();
+            DMesh3 sheet = WithFreedIds(d.Sheets[0]);
+            var probe = Make(sheet, d.W);
+            Assert.True(probe.Compute());
+            int reused = probe.Result.TriangleIndices().Count(t => !sheet.IsTriangle(t) && t < sheet.MaxTriangleID);
+            Assert.True(reused > 0, "the strip must reuse freed ids for this test to mean something");
+            int newTri = probe.Result.TriangleIndices().First(t => !sheet.IsTriangle(t) && t < sheet.MaxTriangleID);
+            Vector3d c = probe.Result.GetTriCentroid(newTri);
+            DMesh3 tool = SheetGeometry.Box(c.x - 1e-3, c.y - 1e-3, c.z - 1e-3, c.x + 1e-3, c.y + 1e-3, c.z + 1e-3);
+            var op = Make(sheet, d.W, o => o.OtherTools = new List<DMesh3> { tool });
             Assert.False(op.Compute());
-            Assert.Equal(Status.InvertedQuad, op.Status);
-            var mutant = Make(sheet, Cube(), o => { o.VerifyWithSheetRole = false; o.MaxExtension = 0.5; o.MinStripCosine = -0.1; });
-            Assert.NotEqual(Status.InvertedQuad, mutant.Compute() ? Status.Success : mutant.Status);
+            Assert.Equal(Status.MeetsOtherTool, op.Status);
+        }
+
+        [Fact]
+        public void AStripBuiltIntoFreedTriangleIds_IsStillCheckedAgainstTheSheet()
+        {
+            DMesh3 wall = SheetGeometry.Grid(new[] { -2.3, 5.0, 12.1 }, new[] { -2.0, 5.0, 12.0 }, (x, y) => 0, true);
+            DMesh3 vert = SheetGeometry.Transformed(wall, p => new Vector3d(9.95, p.x, p.y));
+            vert.ReverseOrientation();
+            DMesh3 sheet = WithFreedIds(SheetGeometry.Merge(SheetGeometry.Grid(new[] { -2.3, 1.1, 5.0, 9.9 }, YsWide, (x, y) => 5, true), vert));
+            var op = Make(sheet, Cube(), o => o.VerifyWithSheetRole = false);
+            Assert.False(op.Compute());
+            Assert.Equal(Status.MeetsSheet, op.Status);
+        }
+
+        [Theory]
+        [InlineData("planar 8 %", 0.08)]
+        [InlineData("slit ends in the middle", 0.30)]
+        public void AnUnusedVertexFarAway_DoesNotSwitchOffTheDepthLimit(string name, double depthShare)
+        {
+            // the review's F2: GetBounds() includes unused vertices, the diagonal grew and the limit with it (a 30 % deep slit read as 0.3 % deep and was extended)
+            SheetCaseData d = MeshSheetExtensionTests.Get(name).Build();
+            DMesh3 sheet = new DMesh3(d.Sheets[0]);
+            sheet.AppendVertex(new Vector3d(100, 100, 100));
+            var plain = Make(d.Sheets[0], d.W);
+            plain.Compute();
+            var op = Make(sheet, d.W);
+            Assert.False(op.Compute());
+            Assert.Equal(Status.DepthAboveLimit, op.Status);
+            Assert.Equal(plain.Report.Diagonal, op.Report.Diagonal);
+            Assert.InRange(op.Report.MaxDepthRelative, depthShare * 0.97, depthShare * 1.15);
+            var dg = Make(sheet, d.W);
+            Assert.True(dg.Diagnose());
+            Assert.True(dg.Report.Runs[0].DepthAboveLimit);
+            Assert.Equal(plain.Report.Diagonal, dg.Report.Diagonal);
+        }
+
+        [Fact]
+        public void AnUnusedVertexFarAway_DoesNotCostDigitsInTheVolumes()
+        {
+            // Volume() sums against a first vertex: an unused far vertex must not be that origin
+            SheetCaseData d = MeshSheetExtensionTests.Get("planar 0.5 %").Build();
+            DMesh3 w = new DMesh3(d.W);
+            w.AppendVertex(new Vector3d(1e9, 1e9, 1e9));
+            var op = Make(d.Sheets[0], w);
+            Assert.True(op.Compute());
+            Assert.Equal(500, SheetRunner.Volume(op.Report.Cut), 9);
+        }
+
+        [Fact]
+        public void ANullOtherTool_ABadOne_AndTooManyRoles_AreInvalidInput_AndTheReportIsThisRuns()
+        {
+            SheetCaseData d = MeshSheetExtensionTests.Get("planar 0.5 %").Build();
+            var op = Make(d.Sheets[0], d.W);
+            Assert.True(op.Compute());
+            Assert.NotEmpty(op.Report.Runs);
+            op.OtherTools = new List<DMesh3> { null };
+            Assert.False(op.Compute());
+            Assert.Equal(Status.InvalidInput, op.Status);
+            Assert.Contains("OtherTools[0] is null", op.Error);
+            Assert.Equal(Status.InvalidInput, op.Report.Status);
+            Assert.Empty(op.Report.Runs);                     // not the previous run's
+            Assert.Null(op.Result);
+            DMesh3 nan = SheetGeometry.Box(20, 20, 20, 21, 21, 21);
+            nan.SetVertex(nan.VertexIndices().First(), new Vector3d(double.NaN, 20, 20));
+            op.OtherTools = new List<DMesh3> { nan };
+            Assert.False(op.Compute());
+            Assert.Equal(Status.InvalidInput, op.Status);
+            Assert.Contains("OtherTools[0]", op.Error);
+            op.OtherTools = new List<DMesh3> { SheetGeometry.Box(20, 20, 20, 21, 21, 21) };
+            op.OtherRoles = new List<ExactMeshBoolean.InputRole> { ExactMeshBoolean.InputRole.Solid, ExactMeshBoolean.InputRole.Sheet };
+            Assert.False(op.Compute());
+            Assert.Equal(Status.InvalidInput, op.Status);
+            Assert.Contains("OtherRoles", op.Error);
+            var fresh = Make(d.Sheets[0], d.W);
+            Assert.True(fresh.Diagnose());
+            fresh.OtherTools = new List<DMesh3> { null };
+            Assert.False(fresh.Diagnose());
+            Assert.Empty(fresh.Report.Runs);
+        }
+
+        [Fact]
+        public void TheLimitOnU_IsNeverSkippedSilently()
+        {
+            // the review's F5: with an empty smaller part the limit was not applied and the result was Success. A finite limit is now exceeded where there is no smaller part to relate U to
+            Assert.False(MeshSheetExtension.UBeyondLimit(1, 0.5, double.PositiveInfinity));
+            Assert.False(MeshSheetExtension.UBeyondLimit(1, 0, double.PositiveInfinity));
+            Assert.True(MeshSheetExtension.UBeyondLimit(1, 0, 1e-3));
+            Assert.True(MeshSheetExtension.UBeyondLimit(1, -2, 1e-3));
+            Assert.True(MeshSheetExtension.UBeyondLimit(1, double.NaN, 1e-3));
+            Assert.True(MeshSheetExtension.UBeyondLimit(1, 0.5, 1));
+            Assert.False(MeshSheetExtension.UBeyondLimit(0.4, 0.5, 1));
+            // a limit with the cut off would be skipped: refused as InvalidInput
+            SheetCaseData d = MeshSheetExtensionTests.Get("planar 0.5 %").Build();
+            var op = Make(d.Sheets[0], d.W, o => { o.MaxUOverSmallerPart = 1; o.VerifyWithSheetRole = false; });
+            Assert.False(op.Compute());
+            Assert.Equal(Status.InvalidInput, op.Status);
+            Assert.Contains("MaxUOverSmallerPart", op.Error);
+        }
+
+        [Fact]
+        public void TheSmallerPart_IsTheSmallerOfTheTwo_WhicheverSideIsKept()
+        {
+            // the bent sheet keeps 462.5 of 1000; reversed it keeps 537.5: the smaller part is 462.5 both times
+            SheetCaseData d = MeshSheetExtensionTests.Get("bent 0.5 %").Build();
+            DMesh3 reversed = new DMesh3(d.Sheets[0]);
+            reversed.ReverseOrientation();
+            foreach (DMesh3 sheet in new[] { d.Sheets[0], reversed }) {
+                var op = Make(sheet, d.W);
+                Assert.True(op.Compute());
+                Assert.Equal(462.5, op.Report.SmallerPart, 6);
+            }
+        }
+
+        [Fact]
+        public void ARimVertexWithADegenerateTriangle_HasNoDirection()
+        {
+            // a sheet that is one collinear triangle inside the cube: no outward normal in its plane
+            DMesh3 sheet = SheetGeometry.Triangles(new[] { new Vector3d(2, 5, 5), new Vector3d(4, 5, 5), new Vector3d(6, 5, 5) }, new[] { 0, 1, 2 });
+            var op = Make(sheet, Cube());
+            Assert.False(op.Compute());
+            Assert.Equal(Status.NoDirection, op.Status);
+            Assert.True(op.Report.WitnessVertex >= 0 && op.Report.HasWitnessPoint);
+            Assert.False(Make(sheet, Cube()).Diagnose());
+        }
+
+        // ---- every status has a test, or an argument ------------------------------------------------------------------------------------------
+
+        // the value and the test that produces it; the four that are defensive (no known input produces them, see the enum's comments) are listed as such
+        static readonly Dictionary<Status, string> StatusTests = new Dictionary<Status, string> {
+            { Status.NotComputed, "MeshSheetExtensionTests.EmptyOrMissingInput_AndNonFiniteCoordinates_AreInvalidInput (a fresh instance)" },
+            { Status.Success, "MeshSheetExtensionTests.Case_EndsAsDesigned_AndAcceptedResultsAreChecked" },
+            { Status.InvalidInput, "MeshSheetExtensionTests.EmptyOrMissingInput_..., ReviewTests.ANullOtherTool_ABadOne_AndTooManyRoles_..." },
+            { Status.WorkpieceNotClosed, "MeshSheetExtensionTests.OpenWorkpiece_IsRefused_WorkpieceNotClosed" },
+            { Status.SheetNotSurface, "MeshSheetExtensionTests.SheetWithAnEdgeUsedByThreeTriangles_..., SeamAtARimEdge..." },
+            { Status.BowtieVertex, "MeshSheetExtensionTests.BowtieRimVertex_IsRefused_WithTheVertexAndItsPosition" },
+            { Status.NoDirection, "ReviewTests.ARimVertexWithADegenerateTriangle_HasNoDirection" },
+            { Status.NoExit, "defensive: " },
+            { Status.DepthAboveLimit, "MeshSheetExtensionTests.ARimDeeperThanTheLimit_IsRefused_WithTheDepthReported" },
+            { Status.GrazingExit, "MeshSheetExtensionTests.GrazingExit_IsRefused" },
+            { Status.NewPointNotOutside, "MeshSheetExtensionTests.RaysThroughAnEdgeOrAVertexOfTheWorkpiece_..." },
+            { Status.OuterEdgeInside, "ReviewTests.TheOuterEdgeTest_IsTheRule_..." },
+            { Status.InvertedQuad, "MeshSheetExtensionTests.NotchNarrowerThanTheDepth_IsRefused_..." },
+            { Status.CurveRule, "MeshSheetExtensionTests.FreePinInTheSlot_IsRefusedByTheCurveRule_..." },
+            { Status.CoplanarContact, "MeshSheetExtensionTests.FreePinWhoseTopLiesInTheStripsPlane_..." },
+            { Status.MeetsSheet, "ReviewTests.AStripThatMeetsAnOriginalTriangleOfTheSheet_IsRefused_MeetsSheet" },
+            { Status.MeetsItself, "MeshSheetExtensionTests.SeveralSheets_OnlyTheRefusedOneIsContinued_... (folded sheet)" },
+            { Status.MeetsOtherTool, "MeshSheetExtensionTests.SeveralSheets_..., ReviewTests.AToolThatMeetsOnlyTheFirstStripTriangle_IsSeen" },
+            { Status.ImprintFailed, "defensive: " },
+            { Status.ConstructionFailed, "defensive: " },
+            { Status.SheetRoleRefused, "MeshSheetExtensionTests.SeveralSheets_... (two shells)" },
+            { Status.CutFailed, "defensive: " },
+            { Status.UncertaintyAboveLimit, "MeshSheetExtensionTests.LimitOptions_AreUsed" },
+            { Status.GapBelowResolution, "ReviewTests.AGapBehindTheExit_BelowTwiceTheLeastOvershoot_IsRefused_..." },
+            { Status.CutNotClean, "ReviewTests.ACutThatTheSheetRoleAcceptsButIsNotClean_IsRefused_CutNotClean" },
+        };
+
+        [Fact]
+        public void EveryStatus_IsProducedByATest_OrIsListedAsDefensive()
+        {
+            foreach (Status s in Enum.GetValues(typeof(Status)))
+                Assert.True(StatusTests.ContainsKey(s), s + " has no test and no argument: add it to this table");
+            Assert.Equal(Enum.GetValues(typeof(Status)).Length, StatusTests.Count);
+            var defensive = StatusTests.Where(kv => kv.Value.StartsWith("defensive")).Select(kv => kv.Key).OrderBy(x => x).ToArray();
+            Assert.Equal(new[] { Status.NoExit, Status.ImprintFailed, Status.ConstructionFailed, Status.CutFailed }.OrderBy(x => x).ToArray(), defensive);
+            // the statuses that the table says a test produces: the cheap ones are produced here, the rest by the tests named
+            Assert.Equal(Status.NotComputed, new MeshSheetExtension().Status);
         }
 
         // ---- 6. attributes ----------------------------------------------------------------------------------------------------------

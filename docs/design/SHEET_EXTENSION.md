@@ -90,7 +90,7 @@ then only cause a refusal, never a wrong cut.
      `LabelCurves`, counting the distinct curve ids. This is the rule that catches material between two rim vertices
      whose rays both exit cleanly (a thin free pin in a slot, clear of the outer edge). (Corrected by the spike: count the connected components of `CurveEdges`; `CurveId` joins edges only at
      vertices where exactly two curve edges meet, so a branching curve would count twice. The two numbers were equal in every case of the spike.)
-   - The strip meets neither the sheet, nor itself, nor any other tool or sheet inside `W`.
+   - The strip meets neither the sheet, nor itself, nor any other tool or sheet (the whole strip is checked, not only the part inside `W`).
    - The sheet role accepts the extended sheet.
 6. **Report.** Per run: the largest and the mean depth `g`, the length of the run, the area of the strip inside `W`,
    and the direction estimate `U` (section 5), absolute and relative to the smaller of the two parts the cut makes.
