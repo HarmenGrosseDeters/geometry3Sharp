@@ -21,20 +21,26 @@ namespace geometry3Sharp.Tests
     {
         const ExactMeshBoolean.Operations Difference = ExactMeshBoolean.Operations.Difference;
 
-        static double Wave(double x, double y) { return 0.05 * Math.Sin(3 * x + 1) * Math.Cos(2 * y); }
+        // (correctly rounded sin and cos, the CORE-MATH port: the platform's Math.Sin / Cos differ by an ulp on some arguments on some C
+        // runtimes, and the counts these tests pin depend on the bits of the inputs)
+        static double Sn(double x) { return g3.CoreMathPort.CoreMath.Sin(x); }
+        static double Cs(double x) { return g3.CoreMathPort.CoreMath.Cos(x); }
+
+        static double Wave(double x, double y) { return 0.05 * Sn(3 * x + 1) * Cs(2 * y); }
 
         static readonly Vector3d Center = new Vector3d(0.5, 0.5, 0);
 
         // a curved plate: the surface z = h(x, y) over the unit square on an n by n grid, the thickness t along z, closed by side walls
-        static DMesh3 Plate(int n, double t, Func<Vector3d, Vector3d> map = null)
+        static DMesh3 Plate(int n, double t, Func<Vector3d, Vector3d> map = null, Func<double, double, double> h = null)
         {
+            h = h ?? Wave;
             var m = new DMesh3();
             int N = n + 1;
             var top = new int[N, N];
             var bot = new int[N, N];
             for (int i = 0; i < N; ++i)
                 for (int j = 0; j < N; ++j) {
-                    double x = (double)i / n, y = (double)j / n, z = Wave(x, y);
+                    double x = (double)i / n, y = (double)j / n, z = h(x, y);
                     Vector3d a = new Vector3d(x, y, z + t / 2), b = new Vector3d(x, y, z - t / 2);
                     top[i, j] = m.AppendVertex(map != null ? map(a) : a);
                     bot[i, j] = m.AppendVertex(map != null ? map(b) : b);
@@ -60,10 +66,10 @@ namespace geometry3Sharp.Tests
         static Vector3d Rotated(Vector3d p, double ax, double ay)
         {
             Vector3d q = p - Center;
-            double co = Math.Cos(ax), si = Math.Sin(ax);
+            double co = Cs(ax), si = Sn(ax);
             q = new Vector3d(q.x, co * q.y - si * q.z, si * q.y + co * q.z);
-            co = Math.Cos(ay);
-            si = Math.Sin(ay);
+            co = Cs(ay);
+            si = Sn(ay);
             q = new Vector3d(co * q.x + si * q.z, q.y, -si * q.x + co * q.z);
             return Center + q;
         }
@@ -280,6 +286,231 @@ namespace geometry3Sharp.Tests
             Assert.True(r.Apply());
             Assert.Equal(0, r.JointMoves);
             Assert.Equal(0, r.JointSearchProposals);
+        }
+
+        // ---- plates of the search of benchmarks/BooleanInputOrder: results with two joint moves ----
+
+        static double Bowl(double x, double y) { return 0.3 * ((x - 0.5) * (x - 0.5) + (y - 0.5) * (y - 0.5)); }
+        static double Dome(double x, double y) { return Math.Sqrt(4 - (x - 0.5) * (x - 0.5) - (y - 0.5) * (y - 0.5)); }
+
+        // (surface, grid n, extra cells dn, thickness t, turn e, ratio of the second turn, shift of both inputs, which one is cut)
+        static ExactMeshBoolean RunPlates(Func<double, double, double> h, int n, int dn, double t, double e, double ratio, double shift, bool coarseMinusFine,
+            Similarity s = null, bool joint = true, bool check = false, bool serial = false)
+        {
+            Func<Vector3d, Vector3d> sh = p => p + new Vector3d(shift, shift * 0.5, -shift * 0.25);
+            DMesh3 coarse = Plate(n, t, sh, h), fine = Plate(n + dn, t, p => sh(Rotated(p, e, ratio * e)), h);
+            DMesh3 a = coarseMinusFine ? coarse : fine, b = coarseMinusFine ? fine : coarse;
+            if (s != null) {
+                a = Invariance.Transformed(a, s);
+                b = Invariance.Transformed(b, s);
+            }
+            var op = new ExactMeshBoolean(a, b, Difference);
+            MeshRoundingRepair.NoJointSearchOnThisThread = joint == false;
+            MeshRoundingRepair.CheckOnThisThread = check;
+            gParallel.SerialOnThisThread = serial;
+            try {
+                op.Compute();
+            } finally {
+                MeshRoundingRepair.NoJointSearchOnThisThread = false;
+                MeshRoundingRepair.CheckOnThisThread = false;
+                gParallel.SerialOnThisThread = false;
+            }
+            return op;
+        }
+
+        // inputs of the search (BooleanInputOrder search --count 1500 --seed 2, cases 763 and 152; --count 4000 --seed 3 --tiny, case 489), with
+        // two or three joint moves each: a later move is proposed on a mesh that an earlier one changed, so a box that the earlier move left
+        // stale is read by a later near query (check mode compares every query with a scan). The last one is also mapped by the UTM frame
+        public static IEnumerable<object[]> SeveralJointMoves()
+        {
+            // (name, n, dn, t, e, ratio, shift, coarse minus fine, frame, joint moves, degenerate triangles left)
+            yield return new object[] { "bowl", 3, 3, 0.2, 7.1566755079057365E-09, 0.3, 0.0, false, "", 3, 0 };
+            yield return new object[] { "dome", 3, 3, 0.02, 8.039487869620447E-09, 0.3, 0.0, false, "", 2, 0 };
+            yield return new object[] { "dome", 3, 3, 0.02, 1.4941511698034265E-08, 0.3, 100.0, false, "", 2, 1 };
+            yield return new object[] { "dome", 3, 3, 0.02, 8.039487869620447E-09, 0.3, 0.0, false, "utm", -1, -1 };
+        }
+
+        static Func<double, double, double> Surface(string name) { return name == "bowl" ? (Func<double, double, double>)Bowl : Dome; }
+
+        [Theory]
+        [MemberData(nameof(SeveralJointMoves))]
+        public void SeveralJointMoves_CheckMode_QueriesAgreeWithAScan_ResultUnchanged(string name, int n, int dn, double t, double e, double ratio, double shift, bool diff, string frame, int moves, int degenerateLeft)
+        {
+            Similarity s = frame == "" ? null : Similarity.Utm;
+            ExactMeshBoolean reference = RunPlates(Surface(name), n, dn, t, e, ratio, shift, diff, s);
+            if (moves >= 0) {
+                Assert.Equal(moves, reference.Rounding.JointMoves);
+                Assert.Equal(degenerateLeft, reference.Rounding.RemainingDegenerate);
+            }
+            // (check mode throws where a near query finds another set of triangles than a scan: a box that a joint move left stale)
+            ExactMeshBoolean op = RunPlates(Surface(name), n, dn, t, e, ratio, shift, diff, s, check: true);
+            Assert.Equal(reference.Rounding.JointMoves, op.Rounding.JointMoves);
+            Assert.Equal("", Invariance.Difference(reference.Result, op.Result));
+            Assert.True(op.Rounding.MaxDrift <= op.Rounding.MaxLength);
+        }
+
+        // ---- the cost of the stage: its own budget, and the repair's effort limit is not reached by it ----
+
+        static ExactMeshBoolean RunCluster(int k, bool joint, long pairTests = 5000000)
+        {
+            DMesh3 m = DegenerateFamilies.Make(DegenerateFamilies.Family.Cluster, k, 1, 8);
+            var op = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) { RoundingMaxPairTests = pairTests };
+            MeshRoundingRepair.NoJointSearchOnThisThread = joint == false;
+            try {
+                op.Compute();
+            } finally {
+                MeshRoundingRepair.NoJointSearchOnThisThread = false;
+            }
+            return op;
+        }
+
+        [Fact]
+        public void Cluster_TwoUnrepairableTriangles_TheStageStopsAtItsOwnBudget()
+        {
+            // (cluster k30, 8 poked triangles, seed 1: 2 degenerate triangles that no pair repairs; without a budget 5 pairs of 5 408 proposals
+            // reached improves, 27 040 evaluations; the budget is 1 024 evaluations per triangle the stage starts with)
+            ExactMeshBoolean off = RunCluster(30, false), on = RunCluster(30, true);
+            MeshRoundingRepair r = on.Rounding;
+            Assert.Equal(2, r.RemainingDegenerate);
+            Assert.Equal(off.Rounding.RemainingDegenerate, r.RemainingDegenerate);
+            Assert.Equal(0, r.JointMoves);
+            Assert.Equal(2 * 1024, r.JointSearchProposals);
+            Assert.False(r.EvaluationLimitReached);
+            Assert.Equal("", Invariance.Difference(off.Result, on.Result));
+        }
+
+        [Fact]
+        public void Cluster_ManyUnrepairableTriangles_TheStageDoesNotReachTheEffortLimit()
+        {
+            // (cluster k36: 13 degenerate triangles and 8 intersecting pairs left; the stage's evaluations turned EvaluationLimitReached from
+            // False to True before it had its own budget: the error text of the unrepaired result then said so)
+            ExactMeshBoolean off = RunCluster(36, false), on = RunCluster(36, true);
+            Assert.False(off.Rounding.EvaluationLimitReached);
+            Assert.False(on.Rounding.EvaluationLimitReached);
+            Assert.Equal(off.Rounding.RemainingDegenerate, on.Rounding.RemainingDegenerate);
+            Assert.Equal(off.Rounding.RemainingIntersections, on.Rounding.RemainingIntersections);
+            Assert.Equal(0, on.Rounding.JointMoves);
+            Assert.InRange(on.Rounding.JointSearchProposals, 1, 14 * 1024);
+        }
+
+        [Fact]
+        public void Cluster_EvaluationLimitNearlyUsedUp_TheStageStopsBeforeTheLimit()
+        {
+            // the repair alone, on the 13 degenerate triangles that cluster k36 is left with, with the smallest effort limit (10 000 evaluations):
+            // the stage's own budget (1 024 per triangle, 13 312) is more than what is left, so it ends at the repair's limit and does not reach it
+            DMesh3 left = RunCluster(36, false).Result;
+            DMesh3 m = new DMesh3(left);
+            var r = new MeshRoundingRepair(m) { SharedPositionsTouch = true, MaxEvaluationsPerDefect = 0 };
+            r.Apply();
+            Assert.False(r.EvaluationLimitReached);
+            Assert.True(r.RemainingDegenerate > 0);
+            Assert.True(r.JointSearchProposals > 0);
+            Assert.True(r.Evaluations <= r.MaxEvaluations);
+            Assert.True(r.MaxEvaluations - r.Evaluations < 1024);
+        }
+
+        [Fact]
+        public void Cluster_PairTestBudgetNearlyUsedUp_TheStageStopsBeforeTheLimit()
+        {
+            // 175 000 pair tests: the repair without the stage ends at 94 % of the budget, the stage would use it up (proposals 2 048 at 250 000)
+            ExactMeshBoolean off = RunCluster(30, false, 175000), on = RunCluster(30, true, 175000);
+            Assert.False(off.Rounding.EvaluationLimitReached);
+            Assert.False(on.Rounding.EvaluationLimitReached);
+            Assert.False(on.Rounding.StoppedByPairTests);
+            Assert.InRange(on.Rounding.JointSearchProposals, 1, 2 * 1024 - 1);
+        }
+
+        [Fact]
+        public void FailedPairs_AreNotSearchedAgainInTheNextRound()
+        {
+            // search case 152 of seed 2 (dome, shifted by 100): two joint moves in two rounds, and one triangle that no pair repairs. Its pair
+            // fails in the first round and stays failed in the next ones, where the moves changed no star of its vertices: the proposals are
+            // those of the moves and of one search of the failing pair (a stage that cleared the failed pairs every round proposed them
+            // again, once per round: more than 2 149)
+            ExactMeshBoolean op = RunPlates(Dome, 3, 3, 0.02, 1.4941511698034265E-08, 0.3, 100.0, false);
+            MeshRoundingRepair r = op.Rounding;
+            Assert.Equal(2, r.JointMoves);
+            Assert.Equal(1, r.RemainingDegenerate);
+            Assert.False(r.EvaluationLimitReached);
+            Assert.Equal(2149, r.JointSearchProposals);
+        }
+
+        [Fact]
+        public void ClosedInsideOutComponent_IsNotSearched_TheSameMeshTheRightWayRoundIs()
+        {
+            // the state the repair leaves without the stage (the plates of FailedPairs_...), as a mesh for a repair of its own: the same
+            // degenerate triangles are repaired jointly where the solid is right way round, and left where it is inside out (the volume is
+            // negative: a move there makes it no better, and the stage would use its budget on a result that is not clean anyway)
+            DMesh3 left = RunPlates(Dome, 3, 3, 0.02, 1.4941511698034265E-08, 0.3, 100.0, false, joint: false).Result;
+            Assert.True(left.IsClosed());
+            DMesh3 outside = new DMesh3(left), inside = new DMesh3(left);
+            inside.ReverseOrientation();
+            Assert.True(Invariance.Volume(outside) > 0 && Invariance.Volume(inside) < 0);
+            var rightWay = new MeshRoundingRepair(outside) { SharedPositionsTouch = true };
+            rightWay.Apply();
+            Assert.True(rightWay.JointMoves > 0);
+            Assert.Equal(0, rightWay.RemainingDegenerate);
+            var insideOut = new MeshRoundingRepair(inside) { SharedPositionsTouch = true };
+            Assert.False(insideOut.Apply());
+            Assert.Equal(0, insideOut.JointMoves);
+            Assert.Equal(0, insideOut.JointSearchProposals);
+            Assert.True(insideOut.RemainingDegenerate > 0);
+            Assert.True(Invariance.Volume(inside) < 0);
+        }
+
+        // on the state the repair leaves without the stage (the reproducer), the pair of the joint move and proposals that put one of its
+        // vertices onto the position of the other, onto the position the other leaves, or onto the position of a vertex next to it; each
+        // goes through improves (not the script), which refuses it, and nothing moves. The positions of the vertices are those that
+        // SharedPositionsTouch registers (the rounded mesh of a Boolean). That the refusal comes from the shared-position rules and not from
+        // the counts is not shown here: in this state a vertex that is within the room of the pair is next to it, and moving onto it
+        // makes the triangles at their edge degenerate (the rules are the guard of a pair whose vertices are not neighbours, which the
+        // search does not propose)
+        [Fact]
+        public void Pair_OntoOnePositionOrAnotherVertex_Refused_NothingMoves_TheSuccessPairIsAccepted()
+        {
+            ExactMeshBoolean good = Run(joint: true), probe = Run(joint: false);
+            DMesh3 x = probe.Result, y = good.Result;
+            List<int> moved = x.VertexIndices().Where(v => x.GetVertex(v) != y.GetVertex(v)).ToList();
+            Assert.Equal(2, moved.Count);
+            int u = moved[0], w = moved[1];
+            Vector3d cu = x.GetVertex(u), cw = x.GetVertex(w), pu = y.GetVertex(u), pw = y.GetVertex(w);
+            int neighbour = x.VtxVerticesItr(u).Where(v => v != w).OrderBy(v => x.GetVertex(v).Distance(cu)).First();
+            Vector3d cn = x.GetVertex(neighbour);
+            var refused = new (string, Vector3d, Vector3d)[] {
+                ("both onto the position u moves to", pu, pu),
+                ("both onto the position w moves to", pw, pw),
+                ("u onto the position w leaves", cw, pw),
+                ("w onto the position u leaves", pu, cu),
+                ("u onto the position of a neighbour", cn, pw),
+                ("w onto the position of a neighbour", pu, cn),
+                ("both onto the position of a neighbour", cn, cn),
+            };
+            foreach (var (what, a, b) in refused) {
+                ExactMeshBoolean op = Run(joint: false);
+                MeshRoundingRepair r = op.Rounding;
+                DMesh3 before = new DMesh3(op.Result);
+                Assert.False(r.try_move_pair(u, a, w, b), what);
+                Assert.Equal("", Invariance.Difference(before, op.Result));
+                Assert.Equal(0, r.JointMoves);
+            }
+            ExactMeshBoolean accepted = Run(joint: false);
+            Assert.True(accepted.Rounding.try_move_pair(u, pu, w, pw));
+            Assert.Equal(1, accepted.Rounding.JointMoves);
+            Assert.Equal("", Invariance.Difference(y, accepted.Result));
+        }
+
+        // the displacement that exempts a triangle that turns over is that of its own moved corners
+        [Fact]
+        public void OwnDisplacement_IsThatOfTheMovedCornersOfTheTriangle()
+        {
+            DMesh3 m = new DMesh3();
+            int a = m.AppendVertex(new Vector3d(0, 0, 0)), b = m.AppendVertex(new Vector3d(1, 0, 0)), c = m.AppendVertex(new Vector3d(0, 1, 0)), d = m.AppendVertex(new Vector3d(1, 1, 0));
+            var r = new MeshRoundingRepair(m);
+            Vector3d pb = new Vector3d(1, 0, 0.25), pc = new Vector3d(0, 1, 1.5);
+            Assert.Equal(0.25, r.own_displacement(new Index3i(a, b, d), b, pb, c, pc));
+            Assert.Equal(1.5, r.own_displacement(new Index3i(a, d, c), b, pb, c, pc));
+            Assert.Equal(1.5, r.own_displacement(new Index3i(a, b, c), b, pb, c, pc));
+            Assert.Equal(0, r.own_displacement(new Index3i(a, a, d), b, pb, c, pc));
         }
 
         // ---- the edit itself, by script: the bound of two moved vertices ----

@@ -441,6 +441,7 @@ static partial class Program
             else if (args[i] == "--count") count = int.Parse(args[++i], CultureInfo.InvariantCulture);
             else if (args[i] == "--seed") seed = int.Parse(args[++i], CultureInfo.InvariantCulture);
             else if (args[i] == "--tiny") tiny = true;
+            else if (args[i] == "--nojoint") typeof(MeshRoundingRepair).GetField("NoJointSearchOnThisThread", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static).SetValue(null, true);
             else if (args[i] == "--case") oneCase = args[++i];
             else if (args[i] == "--n") forcedN = int.Parse(args[++i], CultureInfo.InvariantCulture);
             else if (args[i] == "--only") only = int.Parse(args[++i], CultureInfo.InvariantCulture);
@@ -480,6 +481,8 @@ static partial class Program
             try {
                 plain.Compute();
                 MeshRoundingRepair r = plain.Rounding;
+                if (r != null && r.JointMoves >= 2)
+                    Console.WriteLine($"JOINT {r.JointMoves} moves #{c} {name} left deg {r.RemainingDegenerate}");
                 if (r == null) cls = "no repair";
                 else if (r.IsClean) cls = "clean";
                 else {
@@ -573,6 +576,8 @@ static partial class Program
             return Families();
         if (args.Length > 0 && args[0] == "search")
             return Search(args);
+        if (args.Length > 0 && args[0] == "cost")
+            return Cost(args);
         if (args.Length > 0 && args[0] == "joint")
             return Joint(args);
         if (args.Length > 0 && args[0] == "timing")

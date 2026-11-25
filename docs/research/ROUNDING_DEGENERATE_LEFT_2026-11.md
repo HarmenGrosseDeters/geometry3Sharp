@@ -24,7 +24,7 @@ that holds on this master, then lists every edit the repair considers on it and 
 - **A new edit is needed**, and the one that was probed works: a **joint move of two free corners** (section 5). In the minimal case 11 456
   of 16 900 joint moves leave no defect, 1 294 of them also without a turned-over triangle. It is not a small local change
   (a second moved vertex in `improves`, its drift and ghosts, a candidate set, a termination argument that holds
-  for it). Not built at the time of sections 1 to 9; **built in section 10**, which repairs 7 of 14 and 34 of 54 left-overs of two searches; options in section 6.
+  for it). Not built at the time of sections 1 to 9; **built in section 10**, which repairs about half of the left-overs of two searches (section 10.3); options in section 6.
 
 ## 1. What was searched
 
@@ -353,8 +353,7 @@ inputs with the pipeline's strict settings, not the pipeline's own object (its v
 
 ## 10. Attempt at a joint move, 2026-11-24
 
-**Answer: a joint move of two corners is possible and sound, and it repairs about half of the states (7 of the 14 left-overs of `search --count 1500 --seed 2`,
-34 of the 54 of `search --count 4000 --seed 3 --tiny`, the minimal reproducer of section 2); the other half has no such move, for reasons that show in the enumeration.** It is built as the last resort of the
+**Answer: a joint move of two corners is possible and sound, and it repairs about half of the states (the minimal reproducer of section 2 and the left-overs of the two searches of section 10.3); the other half has no such move, for reasons that show in the enumeration.** It is built as the last resort of the
 repair (`search_pairs`, `JointSearch`, `JointMoves`; design: `docs/design/SAFE_ROUNDING.md` section 9.1). A result that has no degenerate triangle without it is unchanged bit for bit
 (it runs only for what is left after everything else, the removal of tiny components included).
 
@@ -363,7 +362,7 @@ repair (`search_pairs`, `JointSearch`, `JointMoves`; design: `docs/design/SAFE_R
 `BooleanInputOrder joint --case <spec>` (new mode, `benchmarks/BooleanInputOrder/Joint.cs`): on the state the repair leaves, for each degenerate triangle, the free corners (not fixed, no boundary vertex, no bowtie)
 in pairs; each vertex over room / 2^j for j = 4 to 0 (the room: `room_at`, 1.4e-5 here: the bound minus what is used) along the 26 directions, so 130 positions per vertex and 16 900 per pair. A pair counts
 as accepted if the rule of `improves` holds for the two stars together (counts recomputed exactly with the library's own `is_bad` and `intersects`: fewer degenerate triangles, no more intersecting pairs,
-no triangle that turned over) and, because each vertex moves by at most its own room, the drift is within the bound by construction (section 10.2). The best pair of the
+no triangle that turned over: the enumeration's own stricter test, not the rule of the built stage, section 10.6) and, because each vertex moves by at most its own room, the drift is within the bound by construction (section 10.2). The best pair of the
 minimal case was checked from scratch on the whole mesh: 0 degenerate triangles, 0 intersecting pairs. A single-corner search through the same evaluator accepts nothing (it must not: it is the state the repair leaves).
 
 | case (`--case`) | bad triangles | free corners | pairs accepted of 16 900 (cheap test: fewer bad triangles) | best pair (step / room, larger of the two) | with the joint stage |
@@ -386,7 +385,7 @@ minimal case was checked from scratch on the whole mesh: 0 degenerate triangles,
 
 The pairs that work move the two free corners by 3.5e-6 and 1.8e-6 (a quarter and an eighth of the room): the product has to reach 4e-12 for the area (section 4: 0.5 d1 d2 = 2e-12),
 so sizes below a sixteenth of the room never remove the triangle, and the pair is the same in every case that has a result (a corner of a plate and its turned copy, one input vertex fixed).
-The rows are the minimal reproducer and the 14 hits of `search --count 1500 --seed 2`; the counts are of the enumeration over 5 sizes (independent for the two vertices), the built search uses 8 sizes at the same level for both.
+The rows are the minimal reproducer and hits of `search --count 1500 --seed 2` as they were before #1528 (the state of some of them changed since: section 10.6); the counts are of the enumeration over 5 sizes (independent for the two vertices), the built search uses 8 sizes at the same level for both.
 
 Why the other half has none: (a) in the four `dome,6` cases every candidate that lifts the triangle (11 450 of 16 900 do: the area is the only cheap test) makes an intersecting pair; the corners lie in a fan of edges of 1e-7 and the faces
 of the double layer are 3e-10 apart on both sides, so a move of 1e-6 either crosses the fan's own link or the other layer. (b) With two fixed corners the apex alone can change the area and
@@ -396,8 +395,9 @@ a second vertex elsewhere does nothing for the triangle: no neighbour partner lo
 
 - *Candidates (finite and deterministic):* the two free corners of a degenerate triangle that no other edit removes, in the order of their coordinates (x, y, z; not their ids), each by its room over 2^j,
   the same j for both, j = 7 up to 0 (the smaller size first), along the 26 directions of the position search (d1 outer, d2 inner); no random numbers, no thread dependence (serial).
-  A proposal goes to `improves` only if it leaves fewer degenerate triangles at the two stars (the first test `improves` makes: not an evaluation). At most 26 * 26 * 8 evaluations per pair, 3 pairs per triangle.
-- *(a), (b):* `improves` with two moved vertices (`movedV2`): the triangles of both stars are removed and added again, the counts of the two stars together, the same acceptance as every edit (fewer defects in all, none more, no triangle turned over, within the
+  A proposal goes to `improves` only if it leaves fewer degenerate triangles at the two stars (a probe of its own, outside the budget). At most 26 * 26 * 8 = 5 408 probes per pair, 3 pairs per triangle; the proposals that reach `improves`
+  are evaluations, limited by the stage's own budget (section 10.6, finding 3).
+- *(a), (b):* `improves` with two moved vertices (`movedV2`): the triangles of both stars are removed and added again, the counts of the two stars together, the same acceptance as every edit (fewer defects in all, none more, the orientation rule of every edit (not "no triangle turned over": section 10.6, finding 2), within the
   bound), `SharedPositionsTouch` and the canonical ids for both. *(c):* `proposed_drift` evaluates the triangles and the ghosts at both vertices at their new positions; each vertex moves by at most its own `room_at`, which
   already counts all of its triangles and ghosts, so the bound holds; `MaxDrift <= MaxLength` is asserted in the tests, with the check mode (every bound from the records) on scripted pairs.
 - *(d):* locks, fixed vertices (the free corners only), boundary vertices and bowties are as in the single search; no vertex disappears (no topology change); a result that was clean is unchanged.
@@ -406,27 +406,68 @@ a second vertex elsewhere does nothing for the triangle: no neighbour partner lo
 
 ### 10.3 Measured
 
-`search --count 1500 --seed 2` (before: this branch without the change): clean 1306 -> 1313, degenerate 14 -> 7 (resolved: #261, #294, #432, #763, #800, #1148, #1420; no new hit), `other` 23 and `removed-resolvable` 157 unchanged.
-`search --count 4000 --seed 3 --tiny`: clean 3379 -> 3413, degenerate 53 -> 19, `degenerate+removed-resolvable` 1 -> 0 (that case now ends `removed-resolvable`: 521 -> 522), `other` 46 unchanged; no new hit.
-In the 14 + 54 states the real runs agree with the enumeration (every state with an accepted pair for each of its bad triangles is repaired; no other). The minimal reproducer: 3 proposals, 1 joint move, clean; the second input order cases of
-`search` (`hit in 5 other orders: same result`) hold: 7 of 7, 19 of 19.
+After #1528 (neutral contractions and the stage limit of the imprint; master of 2026-11-25), stage off against on (`search [--nojoint]`, the same sample):
+
+| search | clean | degenerate only | `degenerate+removed-resolvable` | `removed-resolvable` | other |
+|---|---:|---:|---:|---:|---:|
+| `--count 1500 --seed 2`, off | 1312 | 13 | 0 | 151 | 24 |
+| `--count 1500 --seed 2`, on | 1319 | 6 | 0 | 151 | 24 |
+| `--count 4000 --seed 3 --tiny`, off | 3372 | 62 | 1 | 519 | 46 |
+| `--count 4000 --seed 3 --tiny`, on | 3411 | 23 | 0 | 520 | 46 |
+
+No hit is new (the hits with the stage on are a subset of those with it off); the case that was `degenerate+removed-resolvable` now ends `removed-resolvable`; the same state in 5 other input orders for every hit (6 of 6, 23 of 23). The remaining hits
+are the `dome,6` fans and the plates with two fixed corners of section 10.1 (about half of the states: 7 of 13, 40 of 63). In these states the real runs agree with the enumeration (every state with an accepted pair for each of its bad triangles is
+repaired; no other). The minimal reproducer: 3 proposals, 1 joint move, clean. Plate results with 2 to 3 joint moves (search cases 763 and 152 of seed 2, 489 of seed 3) are in `MeshRoundingRepairTestsJointMove`.
+(Before #1528 the same two searches gave degenerate 14 -> 7 and 53 -> 19; the enumeration of 10.1 was run then.)
 
 ### 10.4 Tests, mutants, moved pins
 
-`MeshRoundingRepairTestsJointMove` (19 tests): the reproducer without the joint search (1 degenerate triangle, the old state), with it (clean up to the one contact the result has, exactly two vertices differ from the old result,
-each within the bound, the same level j for both, 3 proposals), check mode, 2^k scales bit for bit, reuse, serial equals parallel, a result that is clean is unchanged, and scripted `MovePair` edits (bound, refusal, drift counted from the start). Two new cases of
-`MeshRoundingRepairTestsDriftReference` (a ghost at the second vertex of the pair, the second vertex's triangles). Hand mutants (the tests fail): the second moved vertex ignored in `pos` (11 tests), in `ghost_bound` (3), the triangle of both stars not
-deduplicated (8), the second vertex's restore in `improves` (8), the size of the second vertex not doubled (8), `<=` in the cheap test (1), the stage switched off (8), the pair order by coordinates reversed (1). Survivors (the tests do not see them): the shared-position test
-and the canonical id for the second vertex (only reached through `improves`' exact path, which a script skips), `mark_dirty` for the second star only, `max` against `min` of the two moves as the fold displacement, `ghosts_bound` at the second vertex when the ghost is also at
-the first (listed twice), the check-mode loop over the second vertex.
-**Pins that moved (2 of 1 715 tests of the rounding and boolean classes, both because a state that was left degenerate is now repaired):** `SafeRoundingLastComponentTests.KeptDifferences_TurnedInsideOutByTheEdits_AreReported` `sliver, 45`: `NotCleanReason`
-"degenerate triangles" -> "inside-out components" (the result is still not clean, still has a negative volume; its degenerate triangle is repaired, so the next defect is the first); `MeshRoundingRepairIncrementalTests.AtTheLimit_StrictRounding_SaysWhatTheSmallestRejectedEditIs`:
-the cluster `Cluster 36 3 8` that stayed unclean without the limit is now repaired (the test runs that half with the joint search off). In a second run over the classes of the imprint (5 028 tests in all, 20 minutes) 11 more
-moved, all in `ExactMeshImprintSliverStageTests`: the imprint's repair with the rule-lock stage off left slivers (8 tests of `WithoutTheStage_SliversAreLeft_WithItTheResultIsClean`, 2 of `TheStage_SearchesAgain...`), and the documented known limit
-(`KnownLimit_ALinkConditionLeavesOneSliver...`, docs/design/IMPRINT_SLIVER_CLEANUP.md section 5: one sliver whose contraction breaks the link condition) is repaired by the joint move (1 joint move, two vertices, the input vertices and the carried curve unchanged;
-new test `KnownLimit_WithTheJointMove_TheSliverIsRepaired_NothingElseMoves`). Those tests are about what the rule locks do, so they run with the joint search off. All 13 are states that were left degenerate and are now repaired; none got worse. No hash moved.
+`MeshRoundingRepairTestsJointMove` (32 tests): the reproducer without the joint search (1 degenerate triangle, the old state), with it (clean up to the one contact the result has, exactly two vertices differ from the old result,
+each within the bound, the same level j for both, 3 proposals), check mode on it and on three search cases with 2 to 3 joint moves (the review's finding 1), 2^k scales bit for bit, reuse, serial equals parallel, a result that is clean is unchanged, the cost
+(the stage's own budget, no effort limit, the limits of the repair; section 10.6), failed pairs not searched again, a component that is inside out skipped, proposals onto one position or another vertex refused, the displacement of the corners of a triangle, and scripted `MovePair` edits
+(bound, refusal, drift counted from the start). Two cases of `MeshRoundingRepairTestsDriftReference` (a ghost at the second vertex of the pair, the second vertex's triangles). The fixtures use the correctly rounded `CoreMath.Sin` / `Cos`, not the platform's.
+Hand mutants (the tests fail): the second moved vertex ignored in `pos` (11 tests), in `ghost_bound` (3), the triangle of both stars not deduplicated (8), the second vertex's restore in `improves` (8), the size of the second vertex not doubled (8), `<=` in the
+cheap test (1), the stage switched off (8), the pair order by coordinates reversed (1); of the review and the fixes: `mark_dirty` for the first star only (all 4 cases of the new check-mode test: "near found 22 triangles, a scan 23"), the failed pairs cleared every round, no budget,
+no pair test guard, no cap at the repair's limit, no skip of an inside-out component, the corners' own displacement computed as the larger of the two moves in `own_displacement`.
+**Survivors** (the tests do not see them): the three rules of `SharedPositionsTouch` for a joint move (a vertex onto a position of another, onto the position the other moves from, both onto one position: the pairs the search proposes are the two corners of a triangle, so a vertex within the room of one of them is its neighbour,
+and moving onto it makes the triangles at their edge degenerate, which the counts refuse first; `try_move_pair` is the guard of a pair whose vertices are not neighbours, and no caller proposes one); the failed pairs not dropped after a move (`forget_failed_pairs`: the same classes and hits in both
+searches of 10.3); the larger of the two moves as the displacement of a triangle in `improves` (the same in both searches); `near()` not clearing `movedV2` (nearly equivalent: only the rebuild path with more than 256 pending boxes).
+**Pins that moved by the stage (after the merge of #1528; 1 test of 3 885 in the rounding, imprint, boolean and mutation-config classes changed its half that runs the stage, because a state that was left degenerate is now repaired):** `MeshRoundingRepairIncrementalTests.AtTheLimit_StrictRounding_SaysWhatTheSmallestRejectedEditIs`:
+the cluster `Cluster 36 3 8` that stayed unclean without the limit is now repaired (the test runs that half with the joint search off). In `ExactMeshImprintSliverStageTests` the limit of #1489 (the box with `NeutralContractions` off, one sliver whose contraction breaks the link condition) is repaired by the joint move, so it is pinned with the joint stage off
+(`AssertOneSliverLeftByTheLinkCondition`), and the new test `LinkConditionLimit_WithTheJointMove_TheSliverIsRepaired_NothingElseMoves` pins the repair (1 joint move, two vertices, the target's vertices and the carried curve unchanged); the halves *without the cleanup stage* (`WithoutTheStage_SliversAreLeft...`, `TheStage_Searches...`) run with the joint stage off.
+**The composition with the imprint's cleanup stage (#1528):** the halves *with the stage* run with the **default** (joint stage on) and assert `JointMoves` 0: the cleanup stage makes those results clean before the joint stage, which runs last, so no imprint result of #1528 changed. The pin
+`SafeRoundingLastComponentTests...(sliver, 45)` of the first version of this change is gone with master (#1410, #1528: "coplanar faces, 46" is the family turned over now). No hash moved.
 
 ### 10.5 Not verified
 
-Other families than these plates (`families` mode, the cohort of the D1 runs, Thingi10K) were not run; the time of the joint search on large meshes was not measured (at most 1 872 evaluations per failing pair here, 5 408 in the worst case);
-the remaining half (the dome fans, two fixed corners) needs another edit (section 6, options 2 and 3) and is not addressed.
+Other families than these plates (`families` mode, the cohort of the D1 runs, Thingi10K) were not run; the cohort acceptance run (the comparable change #755 had one over 16 239 operations) and the private cases of the owner are still owed (done by the main session, results local only).
+The time on large meshes was not measured beyond the table of section 10.6; the remaining half (the dome fans, two fixed corners) needs another edit (section 6, options 2 and 3) and is not addressed.
+
+### 10.6 Review of the joint move (2026-11-24) and the fixes
+
+An independent review judged the change sound to merge after fixes. Per finding:
+
+1. *Test gap, `mark_dirty` for the second star.* A mutant that marks the triangles of the first vertex's star only survived all 32 tests; check mode threw only on two inputs with two joint moves. The check-mode test now runs four inputs with 2 to 3 joint moves (search cases of
+   both seeds, one in the UTM frame; the review's own two inputs no longer have two moves since #1528 changed the states); the mutant fails all 4.
+2. *"No triangle turned over" is not the rule as built.* The rule is that of every edit (an exemption for slivers and for triangles not higher than the displacement), with the displacement **per triangle**: that of its own moved corners, not the larger of the two moves. That is the exact analogue of the
+   single-corner rule (a triangle is exempt only for a move that one of its corners made), and it changed no result (the same hits in both searches of 10.3). It does not stop triangles from turning over: in the repaired results of 5 cases 2 to 7 triangles of 1.5 to 12 600 times the degenerate area (and a few of area below it) turn over,
+   all at a corner that moved by 1e-6 or more on edges of 1e-7 (tiny folds); the exact intersection checks, not the orientation, make the result clean. The docs (SAFE_ROUNDING.md 9.1) say so.
+3. *Cost.* (a) The failed pairs are kept for the whole stage and dropped only where a move changed a star of one of their vertices. (b) The stage has its own budget of 1 024 evaluations per degenerate triangle at its start (a pair that succeeded took 301 at most in 105 repairs; a failing pair
+   1 872 here); it ends at the repair's own limits if they are nearer (the evaluation limit, 15/16 of the pair test budget) **without setting `EvaluationLimitReached`**. So a result that was not at the limit is not reported as out of effort; the stage can end at the repair's limit, and it does not run where the limit was reached before. The probes
+   of the cheap test stay outside the budget (at most 5 408 per pair, a pair once). (c) The "at most 1 872 evaluations per failing pair, 5 408 in the worst case" of the first version of 10.5 was the measured proposals of one failing pair and the number of probes, not a bound; the bound is the budget.
+   Time and effort, median of 7 runs (15 for the plates), idle machine, stage off / before the fix / after the fix:
+
+   | input | off | stage on, before | stage on, after | proposals that reached `improves`, before -> after | `EvaluationLimitReached` (off / before / after) |
+   |---|---:|---:|---:|---:|---|
+   | `Cluster` k30 count 8 seed 1, Union with empty, identity (2 degenerate triangles left) | 88 to 113 ms | 330 ms | 113 ms | 27 040 -> 2 048 | F / F / F |
+   | `Cluster` k36 count 8 seed 1 (13 degenerate, 8 intersecting pairs left) | 583 to 600 ms | 1 048 ms | 770 ms | 33 189 -> 13 676 | F / **T** / F |
+   | plate `dome,6,2,0.02,1.4959e-9,0.3,100,Drev` (1 unrepairable triangle) | 48 to 59 ms | 82 ms | 61 ms | 1 872 -> 1 024 | F / F / F |
+   | plate `dome,6,2,0.2,1.8712e-8,0.3,10000,Drev` | 56 to 60 ms | 62 ms | 56 ms | 1 872 -> 1 024 | F / F / F |
+
+   (The review measured 539 -> 846 ms, 1 393 -> 1 981 ms and 20 -> 86 ms, 30 -> 122 ms on a loaded machine; the proposals are the same.) What remains is the price of a failing search: at most 1 024 evaluations per left-over degenerate triangle, bounded
+   and independent of the size of the mesh; it grows with the number of triangles that are left degenerate (k36: 13 of them, +190 ms).
+4. *`(sliver, 45)`: a worse state reported better.* The stage moved vertices of a needle component that is inside out (volume -2.45e23 -> -2.82e30, within the bound) and only changed the first defect `NotCleanReason` names. The stage now skips a component that is closed and has a negative volume
+   (a move there cannot make the result clean), and the test that pinned it is gone with master (#1410, #1528); a new test pins the skip on a plate result turned inside out (`ClosedInsideOutComponent_IsNotSearched...`).
+5. *Docs.* "It counts as one evaluation ... so `MaxEvaluationsPerDefect` and `MaxPairTests` bound it" is replaced by the description of the budget (SAFE_ROUNDING.md 9.1, "Cost"); the counts are stated once (10.3); the cohort acceptance run is listed as owed (10.5).
+6. *Tests.* The `now` runs of the imprint stage tests use the default (joint stage on) and assert `JointMoves` 0 (10.4). `NoJointSearchOnThisThread` stays (as `CheckOnThisThread`); it does not reach the parallel n-ary path, which the stage's tests do not cover either.
+7. *Mutants and fixtures.* See 10.4: the shared-position rules cannot be reached through the search (they guard `try_move_pair` against a pair of vertices that are not neighbours, which no caller proposes); the fixtures of the new tests use `CoreMath.Sin` / `Cos`.

@@ -14,8 +14,9 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class ExactMeshImprintSliverStageTests
     {
-        // (joint: the repair's last stage, the joint move of two corners of #1465, which repairs several of the slivers these tests are
-        // about; the tests of the stage itself switch it off, so that what the rule locks do, and where they stop, is what is tested)
+        // (joint: the repair's last stage, the joint move of two corners of #1465, which runs after the cleanup stage. Where the cleanup
+        // leaves no degenerate triangle it has nothing to do (the default, pinned with JointMoves 0 in the tests of the cleanup); the
+        // tests of a limit of the cleanup (what the rule locks do, and where they stop) switch it off, since it repairs what the cleanup leaves)
         static ExactMeshImprint Run(DMesh3 target, DMesh3 cutter, bool cleanup, bool neutral = true, bool joint = true)
         {
             var imprint = new ExactMeshImprint() { Target = target, Cutter = cutter, SliverCleanup = cleanup, NeutralContractions = neutral };
@@ -43,8 +44,10 @@ namespace geometry3Sharp.Tests
                 Assert.False(old.RoundingClean);
                 Assert.Equal("degenerate triangles", MeshRobustRepair.NotCleanReason(old.Result));
                 Assert.False(old.Rounding.FollowStageRan);
-                ExactMeshImprint now = Run(t, c, true, joint: false);
+                // (the default: the joint stage is on, and has nothing to do: the cleanup leaves no degenerate triangle, the stage runs last)
+                ExactMeshImprint now = Run(t, c, true);
                 Assert.True(now.Rounding.FollowStageRan);
+                Assert.Equal(0, now.Rounding.JointMoves);
                 ExactMeshImprintSliverTests.AssertCleanAndCarried(t, now);
                 // the stage contracts parts of split target edges (counted as before the change)
                 Assert.True(now.Counts["target_edge_parts_contracted"] > old.Counts["target_edge_parts_contracted"]);
@@ -69,8 +72,9 @@ namespace geometry3Sharp.Tests
             ExactMeshImprint old = Run(target, cutter, false, joint: false);
             Assert.False(old.RoundingClean);
             Assert.False(old.Rounding.FollowStageRan);
-            ExactMeshImprint now = Run(target, cutter, true, joint: false);
+            ExactMeshImprint now = Run(target, cutter, true);
             Assert.True(now.Rounding.FollowStageRan);
+            Assert.Equal(0, now.Rounding.JointMoves);
             Assert.True(now.Rounding.PositionSearchMoves > 0);
             ExactMeshImprintSliverTests.AssertCleanAndCarried(target, now);
             Assert.Equal(0, now.Rounding.RemainingDegenerate);

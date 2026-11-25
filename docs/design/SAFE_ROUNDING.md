@@ -1319,13 +1319,21 @@ A triangle with an edge of 1e-10 and two of 1e-7 cannot be lifted above the dege
 
 **The rule.**
 - *When:* in `Apply`, at the very end, after the position search, the passes and the removal of tiny components, for each degenerate triangle that is left; rounds until one makes no move. Not with
-  `MaxPasses` 0. A result without a degenerate triangle is not touched (bit for bit the same).
+  `MaxPasses` 0. A result without a degenerate triangle is not touched (bit for bit the same). Not in a component that is closed and inside out (negative volume): a move there makes no
+  result better (it is reported not clean, "inside-out components"), and the stage would only spend its budget on it.
 - *Which pairs:* the free corners of the triangle (not kept by `FixedVertexF`, no boundary vertex, no bowtie): none or one: no joint move; two or three: the pairs in the order of the corners' coordinates (x, then y, then z), not of their ids.
 - *Candidates:* p = pos(v) + s d for both vertices; the 26 directions of the position search, the sizes s = room / 2^j with the same j for both, j = 7 up to 0 (the smaller step first); the room is each vertex's own `room_at`. Of the
-  26 * 26 * 8 proposals of a pair only those that leave fewer degenerate triangles at the two stars go to `improves` (its own first test; they are no evaluations until `improves` counts them), the first that `improves` accepts is made. No random numbers.
+  26 * 26 * 8 proposals of a pair only those that leave fewer degenerate triangles at the two stars go to `improves` (its own first test, a probe: it is not an evaluation, at most 5 408 probes per pair, and a pair that failed is
+  probed once until a move changes the stars of one of its vertices), the first that `improves` accepts is made. No random numbers.
 - *Accepted:* `improves` with two moved vertices: the triangles of both stars (once for a triangle at both) are removed and added again with their corners in the order they have; the counts of both stars together: no more
-  degenerate triangles or intersecting pairs, fewer in all, no triangle above `OrientedArea` times the degenerate area turned over; two vertices onto one position, or onto another vertex's position (`SharedPositionsTouch`), are refused.
-  It counts as one evaluation like every edit, so `MaxEvaluationsPerDefect` and `MaxPairTests` bound it.
+  degenerate triangles or intersecting pairs, fewer in all; two vertices onto one position, or onto another vertex's position (`SharedPositionsTouch`), are refused. The orientation rule is that of every edit, with the
+  displacement of each triangle taken from its own moved corners (not the larger of the two moves): a triangle turns over only if its normal area is below twice `OrientedArea` times the degenerate area (a sliver) or its height is at most
+  the displacement of its own corners; a larger triangle is refused if its normal turns (dot product with the old one not positive). "No triangle turned over" is therefore not the rule: triangles about as high as the move may turn
+  over (tiny folds), and the exact intersection checks, not the orientation, keep the result free of self-intersections.
+- *Cost:* each proposal that reaches `improves` is an evaluation. The stage has its own budget, `JointStageEvaluationsPerDefect` (1 024) times the number of degenerate triangles it starts with (a pair that succeeded took at most 301 evaluations
+  in the samples of the research note section 10, a pair that fails 1 872 at most per triangle). It ends at that budget, or at the repair's own limit if that is nearer (`MaxEvaluationsPerDefect`, and 15/16 of the pair test budget `MaxPairTests`),
+  **without setting `EvaluationLimitReached`**: the stage can end at the repair's effort limit and the result then says it is not clean for the defect it left, not that the repair was out of effort. If the limit was reached before the stage,
+  the stage does not run. The probes of the cheap test are outside the budget.
 - `JointMoves` counts the accepted pairs; they are also counted in `Moves` (not in `PositionSearchMoves`).
 
 **Guarantees.**
@@ -1337,5 +1345,5 @@ A triangle with an edge of 1e-10 and two of 1e-7 cannot be lifted above the dege
 - *Determinism:* serial, no randomness.
 - *Not a plateau step* (docs/design/SNAP_ROUNDING_3D.md section 10, no-go 2026-11-15): every accepted pair removes a defect, as every other edit; nothing is journalled or rolled back, and a proposal that is not accepted changes nothing.
 
-**What it repairs, measured** (`BooleanInputOrder search`, the near-coincident plates; research note section 10): `--count 1500 --seed 2`: degenerate 14 -> 7; `--count 4000 --seed 3 --tiny`: 53 -> 19; none new.
-What it does not: a triangle with two fixed corners (the apex alone changes the area), and the states where every lifting position makes an intersection (a fan of 1e-7 edges between two layers 3e-10 apart): 7 of 14 and 19 of 54.
+**What it repairs, measured** (`BooleanInputOrder search`, the near-coincident plates; counts in docs/research/ROUNDING_DEGENERATE_LEFT_2026-11.md section 10.3, which is the one place that states them): about half of the left-over degenerate triangles of the two searches, no new hit.
+What it does not: a triangle with two fixed corners (the apex alone changes the area), and the states where every lifting position makes an intersection (a fan of 1e-7 edges between two layers 3e-10 apart).
