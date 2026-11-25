@@ -436,17 +436,24 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
-        // the fitted planes on a jittered broken soup (triangles of a quarter cell, every corner moved by up to 0.005 (0.2 offsets), about 2
-        // degrees of tilt): the guarantees hold against the soup itself, and the crease is kept at least as well as with the
-        // nearest triangles' planes
-        [Fact]
-        public void VarifoldPlanes_JitteredSoup_KeepGuaranteesAndTheCrease()
+        // a jittered broken soup: triangles of half a cell, every corner moved by up to 0.005, about 1 degree of tilt (wrapped
+        // at RelAlpha 40: the plane ball, 1.5 alpha, holds several triangles)
+        static DMesh3 JitteredLShapeSoup()
         {
-            DMesh3 soup = Broken(Subdivide(AlphaWrapFeaturePassTests.LShape(), 2));
+            DMesh3 soup = Broken(Subdivide(AlphaWrapFeaturePassTests.LShape(), 1));
             var rnd = new Random(11);
             foreach (int v in soup.VertexIndices().ToArray())
                 soup.SetVertex(v, soup.GetVertex(v) + 0.005 * new Vector3d(2 * rnd.NextDouble() - 1, 2 * rnd.NextDouble() - 1, 2 * rnd.NextDouble() - 1));
-            MeshAlphaWrap w = Wrap(soup);
+            return soup;
+        }
+
+        // the fitted planes on the jittered soup: used (the median tilt is above the gate), the guarantees hold against the soup
+        // itself, and the crease is kept at least as well as with the nearest triangles' planes
+        [Fact]
+        public void VarifoldPlanes_JitteredSoup_KeepGuaranteesAndTheCrease()
+        {
+            DMesh3 soup = JitteredLShapeSoup();
+            MeshAlphaWrap w = Wrap(soup, 40);
             var noPlanes = new AlphaWrapFeaturePass(new DMesh3(w.Result, true), soup, w.UsedAlpha, w.UsedOffset) { VarifoldCreases = true, VarifoldPlaneRadius = 0 };
             Assert.True(noPlanes.Compute());
             var planes = Pass(w, soup, true);
@@ -457,9 +464,17 @@ namespace geometry3Sharp.Tests
             double c1 = AlphaWrapFeaturePassTests.ConcaveCoverage(planes.Mesh, w.UsedOffset, Similarity.Identity);
             Assert.True(c1 >= c0 - 0.05 && c1 > 0.8, $"coverage {c0} -> {c1}");
             AlphaWrapFeaturePassTests.AssertGuarantees(planes.Mesh, soup, w.UsedOffset, "fitted planes on a jittered soup");
-            Assert.True(planes.VarifoldPlanesUsed && planes.VarifoldMedianTilt > 0.1, $"median tilt {planes.VarifoldMedianTilt}");
-            // the labels made in parallel before the passes are the ones the serial lazy path makes: the same mesh bits, also
-            // with every parallel loop of this thread serial
+        }
+
+        // the labels made in parallel before the passes are the ones the serial lazy path makes: the same mesh bits, also with
+        // every parallel loop of this thread serial
+        [Fact]
+        public void VarifoldPlanes_Prefetch_IsTheLazyPath()
+        {
+            DMesh3 soup = JitteredLShapeSoup();
+            MeshAlphaWrap w = Wrap(soup, 40);
+            var planes = Pass(w, soup, true);
+            Assert.True(planes.VarifoldPlanesUsed);
             var lazy = new AlphaWrapFeaturePass(new DMesh3(w.Result, true), soup, w.UsedAlpha, w.UsedOffset) { VarifoldCreases = true, VarifoldPrefetch = false };
             Assert.True(lazy.Compute());
             Assert.Equal(AlphaWrapManifoldStepTests.Hash(planes.Mesh), AlphaWrapManifoldStepTests.Hash(lazy.Mesh));

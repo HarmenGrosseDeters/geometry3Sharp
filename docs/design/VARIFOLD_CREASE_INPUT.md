@@ -345,8 +345,9 @@ The hole-free mixes, recall within 3 offsets / precision within 1 offset:
   clean copy (about 5 s too).
 
 **Tests** added: `FitPlane_AveragesAJitteredSheet`, `FitPlane_RefusesMixedOrCurved` (including two parallel sheets),
-`VarifoldPlanes_JitteredSoup_KeepGuaranteesAndTheCrease` (the same bits with the prefetch, without it and serial) and
-`VarifoldPlanes_CleanSoup_NotUsed`. Hand mutants: 24, 23 killed.
+`VarifoldPlanes_JitteredSoup_KeepGuaranteesAndTheCrease`, `VarifoldPlanes_Prefetch_IsTheLazyPath` (the same bits with the
+prefetch, without it and serial) and `VarifoldPlanes_CleanSoup_NotUsed`. The slowest new test takes 3.5 s in the full run
+(`RobustRepair_SharpFeaturesOnSoups_RunsTheVarifoldSource`); the jittered-soup tests take 1.6 s and 1.3 s once split. Hand mutants: 24, 23 killed.
 
 - New for the planes: the half-mass share, the rms guard, the orientation, the cluster test, the lift sign, the gate
   always off and always on, the fitted plane ignored, and the plane fit's radius cut.
