@@ -17,6 +17,16 @@ shown with its status and error, never hidden; a success whose result does not p
 
 All inputs are procedural. No mesh files are loaded or committed.
 
+## Published demo
+
+https://harmengrossedeters.github.io/geometry3Sharp/ (GitHub Pages, owner OK 2026-11-25). `.github/workflows/pages.yml`
+publishes it on every master change of the demos or of the library sources they compile, and on demand:
+
+- an AOT publish (`-p:RunAOTCompilation=true`, the `wasm-tools` workload): about 4 minutes, 39 MB in 56 files (12 MB
+  gzipped), against 17 MB interpreted; the operations run about 2x native instead of about 10x;
+- the browser check below on the published files, before the upload (the job fails on a console error);
+- the base path set to `/<repository>/`, a `404.html` copy of the page (any deep link opens the app) and `.nojekyll`.
+
 ## Build and run
 
 ```

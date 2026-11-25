@@ -376,6 +376,12 @@ class Scope(unittest.TestCase):
                   "tools/PredicateCompiler/Program.cs", "benchmarks/Meshing2Benchmark/Program.cs"):
             self.assertFalse(c.scope([p])["library"], p)
 
+    def test_the_pages_workflow_is_not_library(self):
+        # the Pages deploy of the demos builds and checks the demos only; every other workflow still counts as library
+        self.assertFalse(c.scope([".github/workflows/pages.yml"])["library"])
+        self.assertTrue(c.scope([".github/workflows/pages.yml", ".github/workflows/ci.yml"])["library"])
+        self.assertTrue(c.scope([".github/workflows/docs.yml"])["library"])
+
     def test_demos_are_not_library(self):
         # the browser demos (demos/G3Demos) only reference the library: a change there runs no library suite, and the quick
         # stage does not map its file names (eg Demos/Core.cs) to test classes
