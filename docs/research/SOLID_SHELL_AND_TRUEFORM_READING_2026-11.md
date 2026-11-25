@@ -2,7 +2,8 @@
 
 Status: reading study, owner approved 2026-11-25. No library code, no probe. The papers were read; no source code of either
 project was read (section 1 says why for each). Numbers in sections 2 and 3 are the papers' own; everything marked
-*(judgement)* is this note's reading, not a measurement.
+*(judgement)* is this note's reading, not a measurement. Owner decision 2026-11-25: trueform is not used as a reference
+implementation (the spike of section 4 is declined); the radial-order check of section 0 is done and closed.
 
 The problems the papers are measured against:
 
@@ -348,6 +349,9 @@ gives in one exact pass.
 (e) a candidate, subject to the owner's licence decision.
 
 ## 4. Spike, if the owner wants one
+
+*Declined by the owner (2026-11-25): trueform is not run, not even as a black box. The section is kept as the record of
+what such a spike would have asked.*
 
 Question: *on procedural cases, does trueform's sheet cut agree with `ExactMeshBoolean` with `InputRole.Sheet`, and where it
 does not, which result passes our exact checks?*
