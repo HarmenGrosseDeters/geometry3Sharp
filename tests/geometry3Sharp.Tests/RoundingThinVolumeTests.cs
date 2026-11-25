@@ -219,7 +219,7 @@ namespace geometry3Sharp.Tests
                 pulled += -to.z * fan / 3;
             }
             // the cones overlap where two of the vertices share a triangle, so their sum is an upper estimate of the change
-            Assert.InRange(m.Change, 0.5 * pulled, pulled);
+            Assert.InRange(m.Change, 0.5 * pulled, pulled * (1 + 1e-12));   // (equal up to 8.3e-15 relative since the exact InCircle)
             // the proven bound of the repair, the drift times the area, holds; it is 13 times the change
             Assert.True(Math.Abs(m.Change) <= r.MaxDrift * Area(m.Safe.Result));
             Assert.InRange(r.MaxDrift * Area(m.Safe.Result) / m.Change, 12, 14);
@@ -394,12 +394,16 @@ namespace geometry3Sharp.Tests
             return Box(new Vector3d(-0.7, 0, -0.6), new Vector3d(1.7, 1.08, 0), q => q.z == 0 ? new Vector3d(q.x, q.y, zm + sl * (q.x - xm)) : q);
         }
 
+        // The exact InCircle of the delaunay code (this PR) makes the flat regions Delaunay, so the caps along the rims that used to
+        // round to degenerate triangles are gone: with the default settings there is nothing left to repair at seed 7. The cases below
+        // keep the shape: the default run (nothing to repair, the volume identical), the run without SimplifyFlatRegions (which keeps the
+        // near-flush rim triangles: the repair contracts them), and one seed (8) of the sagging panel where a flip is still needed
         [Theory]
         [InlineData(1.0, 0.0630075575145928, 0.19)]         // a vault: the part below the plane, 19 % of the panel
         [InlineData(1.0, 0.08170061422591124, 0.256)]       // 26 %
         [InlineData(-1.0, -0.05836649455985357, 0.826)]     // a sagging panel: 83 %
         [InlineData(-1.0, -0.1356371257154444, 0.51)]       // 51 %
-        public void ClampedPanelCutAtFiveDegrees_TheRepairFlipsCapsAtTheRims_AndTheVolumeStays(double sign, double z0, double share)
+        public void ClampedPanelCutAtFiveDegrees_NothingIsLeftToRepair_AndTheVolumeIsTheExactOne(double sign, double z0, double share)
         {
             DMesh3 panel = ClampedPanel(sign, 7);
             Assert.Equal(416, panel.TriangleCount);
@@ -407,40 +411,117 @@ namespace geometry3Sharp.Tests
             var op = new ExactMeshBoolean(new List<DMesh3> { panel, ClampBox(0.5, z0, Math.Tan(5 * Math.PI / 180)) }, I);
             Assert.True(op.Compute(), op.Error);
             MeshRoundingRepair r = op.Rounding;
-            // the near-flush rims give degenerate triangles (2 to 4 here), and the repair edits them, by flips, which move nothing.
-            // (The counts are not pinned: a last bit of the sines of the fixture can move one across the degenerate area)
-            Assert.InRange(r.InitialDegenerate, 1, 8);
-            Assert.True(r.Flips + r.Collapses + r.Zips + r.StripZips + r.Moves >= 1);
-            Assert.True(r.MaxDrift <= 1e-12, r.MaxDrift.ToString());
+            Assert.Equal(0, r.InitialDegenerate);
+            Assert.Equal(0, r.Flips + r.Collapses + r.Zips + r.StripZips + r.Moves);
+            Assert.Equal(0.0, r.MaxDrift);
             Assert.True(op.RoundingClean);
             Assert.InRange(r.VolumeBefore / Volume(panel), share - 0.01, share + 0.01);
-            Assert.True(Math.Abs(r.VolumeAfter - r.VolumeBefore) <= 1e-12 * r.VolumeBefore, (r.VolumeAfter - r.VolumeBefore).ToString());
+            Assert.Equal(r.VolumeBefore, r.VolumeAfter);
             AssertSolid(op.Result);
         }
 
         [Theory]
-        [InlineData(-3e-4)]
-        [InlineData(-1e-4)]
-        [InlineData(0.0)]
-        [InlineData(1e-4)]
-        public void ClampedPanelShavedInsideOneFacet_TheRepairContractsAnEdge_AndTheVolumeStays(double tilt)
+        [InlineData(1.0, 0.0630075575145928, 0.19)]
+        [InlineData(1.0, 0.08170061422591124, 0.256)]
+        [InlineData(-1.0, -0.05836649455985357, 0.826)]
+        [InlineData(-1.0, -0.1356371257154444, 0.51)]
+        public void ClampedPanelCutAtFiveDegrees_WithoutSimplify_TheRepairContractsTheRimTriangles_AndTheVolumeStays(double sign, double z0, double share)
         {
-            // the top face 3 % of the thickness above the lower surface of the facet next to the lowest point of the sagging panel,
-            // nearly parallel to it: a lens 0.2 % of the panel's volume across the full width
+            DMesh3 panel = ClampedPanel(sign, 7);
+            var op = new ExactMeshBoolean(new List<DMesh3> { panel, ClampBox(0.5, z0, Math.Tan(5 * Math.PI / 180)) }, I) { SimplifyFlatRegions = false };
+            Assert.True(op.Compute(), op.Error);
+            MeshRoundingRepair r = op.Rounding;
+            // 18 to 48 degenerate triangles (measured: 18, 18, 48, 26), each pair contracted (9, 9, 24, 13), the rest moves nothing
+            // that matters. (The counts are not pinned: a last bit of the sines of the fixture can move one across the degenerate area)
+            Assert.InRange(r.InitialDegenerate, 10, 60);
+            Assert.InRange(r.Collapses, 5, 30);
+            Assert.True(r.MaxDrift > 0 && r.MaxDrift <= 2e-12, r.MaxDrift.ToString());
+            Assert.True(op.RoundingClean);
+            Assert.InRange(r.VolumeBefore / Volume(panel), share - 0.01, share + 0.01);
+            Assert.True(Math.Abs(r.VolumeAfter - r.VolumeBefore) <= 5e-12 * r.VolumeBefore, ((r.VolumeAfter - r.VolumeBefore) / r.VolumeBefore).ToString());
+            AssertSolid(op.Result);
+        }
+
+        [Fact]
+        public void ClampedPanelCutAtFiveDegrees_ASaggingPanelAtSeed8_NeedsOneFlip_WhichMovesAlmostNothing()
+        {
+            // the rim noise of seed 8 leaves one degenerate triangle in the exact result, flipped; the flip moves a vertex by 1.5e-7
+            // (1.1e-7 of the diagonal) and the volume by 3.5e-10 of itself
+            DMesh3 panel = ClampedPanel(-1, 8);
+            var op = new ExactMeshBoolean(new List<DMesh3> { panel, ClampBox(0.5, -0.05836649455985357, Math.Tan(5 * Math.PI / 180)) }, I);
+            Assert.True(op.Compute(), op.Error);
+            MeshRoundingRepair r = op.Rounding;
+            Assert.Equal(1, r.InitialDegenerate);
+            Assert.Equal(1, r.Flips);
+            Assert.Equal(0, r.Collapses + r.Zips + r.StripZips + r.Moves);
+            Assert.InRange(r.MaxDrift / op.Result.CachedBounds.DiagonalLength, 5e-8, 2e-7);
+            Assert.InRange(r.VolumeBefore / Volume(panel), 0.82, 0.83);
+            Assert.True(Math.Abs(r.VolumeAfter - r.VolumeBefore) <= 1e-9 * r.VolumeBefore, ((r.VolumeAfter - r.VolumeBefore) / r.VolumeBefore).ToString());
+            Assert.True(op.RoundingClean);
+            AssertSolid(op.Result);
+        }
+
+        // A lens: the box's top face a fraction f of the thickness above the lower surface of the facet next to the lowest point of the
+        // sagging panel, nearly parallel to it (tilt in slope), 0.14 to 0.29 % of the panel's volume across the full width. With the exact
+        // InCircle most of the (tilt, f) pairs need no repair (measured on seeds 8 and 9: 20 of the 24 combinations of tilt -3e-4, -1e-4,
+        // 0, 1e-4 and f 0.02, 0.03, 0.04 contract nothing); two pairs (on both seeds) make the repair contract an edge, and they are the cases of the shape
+        static ExactMeshBoolean Lens(double tilt, double f, int seed, out DMesh3 panel)
+        {
             const double t = 1.0 / 3400, theta = 0.7;
             double R = 0.5 / Math.Sin(theta);
             Func<int, Vector3d> lower = (i) => { double a = -theta + 2 * theta * i / 14; return new Vector3d(0.5 + (R + t) * Math.Sin(a), 0, -((R + t) * Math.Cos(a) - R * Math.Cos(theta))); };
             Vector3d p0 = lower(7), p1 = lower(8);
-            DMesh3 panel = ClampedPanel(-1, 8);
-            var op = new ExactMeshBoolean(new List<DMesh3> { panel, ClampBox((p0.x + p1.x) / 2, (p0.z + p1.z) / 2 + 0.03 * t, (p1.z - p0.z) / (p1.x - p0.x) + tilt) }, I);
+            panel = ClampedPanel(-1, seed);
+            var op = new ExactMeshBoolean(new List<DMesh3> { panel, ClampBox((p0.x + p1.x) / 2, (p0.z + p1.z) / 2 + f * t, (p1.z - p0.z) / (p1.x - p0.x) + tilt) }, I);
             Assert.True(op.Compute(), op.Error);
+            return op;
+        }
+
+        [Fact]
+        public void ClampedPanelShavedInsideOneFacet_TheRepairContractsAnEdge_AndTheVolumeStays()
+        {
+            // the top face 4 % of the thickness above the facet, tilted by -3e-4: two contractions, a drift of 1.3e-6 of the diagonal, as
+            // large as the one described for the shape; but the lens is flat (inside one facet), and the contraction runs along it
+            ExactMeshBoolean op = Lens(-3e-4, 0.04, 8, out DMesh3 panel);
             MeshRoundingRepair r = op.Rounding;
-            Assert.InRange(r.VolumeBefore / Volume(panel), 0.0020, 0.0023);
-            // a contraction (one here), with a drift of 1.7e-6 to 7e-6 of the diagonal, as large as the one described for the shape: but
-            // the lens is flat (inside one facet), and the contraction runs along it
-            Assert.InRange(r.Collapses, 1, 3);
-            Assert.InRange(r.MaxDrift / op.Result.CachedBounds.DiagonalLength, 1e-6, 1e-5);
-            Assert.True(Math.Abs(r.VolumeAfter - r.VolumeBefore) <= 1e-9 * r.VolumeBefore, ((r.VolumeAfter - r.VolumeBefore) / r.VolumeBefore).ToString());
+            Assert.InRange(r.VolumeBefore / Volume(panel), 0.0028, 0.0030);
+            Assert.Equal(2, r.Collapses);
+            Assert.Equal(2, r.InitialDegenerate);
+            Assert.InRange(r.MaxDrift / op.Result.CachedBounds.DiagonalLength, 1e-6, 1.5e-6);
+            Assert.True(Math.Abs(r.VolumeAfter - r.VolumeBefore) <= 1e-12 * r.VolumeBefore, ((r.VolumeAfter - r.VolumeBefore) / r.VolumeBefore).ToString());
+            Assert.True(op.RoundingClean);
+            AssertSolid(op.Result);
+        }
+
+        [Fact]
+        public void ClampedPanelShavedInsideOneFacet_ATiltedLens_TheRepairContractsAcrossIt_AndTheVolumeChangeStaysSmall()
+        {
+            // the top face 2 % of the thickness above the facet, tilted by +1e-4: two contractions with a drift of 6.8e-7 of the diagonal
+            // and a change of the volume of -1.6e-6 of the lens's volume (the lens is 0.14 % of the panel): the contraction goes across
+            // the lens. The loss is NEW with #1464 (with the triangulation of before, the same case contracts twice with the same drift
+            // and no volume change), and the case (tilt -3e-4, 0.04 t) went the other way, from about -1e-6 to -4.5e-15: the order of the
+            // exact result and the exact InCircle decide which edges are there to contract. The assertion is therefore an upper bound on
+            // the magnitude, and a fix of the volume (options c and d of the note) must not fail this test
+            ExactMeshBoolean op = Lens(1e-4, 0.02, 8, out DMesh3 panel);
+            MeshRoundingRepair r = op.Rounding;
+            Assert.InRange(r.VolumeBefore / Volume(panel), 0.0014, 0.00146);
+            Assert.Equal(2, r.Collapses);
+            Assert.InRange(r.MaxDrift / op.Result.CachedBounds.DiagonalLength, 6e-7, 7.5e-7);
+            double change = (r.VolumeAfter - r.VolumeBefore) / r.VolumeBefore;
+            Assert.True(Math.Abs(change) <= 2e-6, change.ToString());
+            Assert.True(op.RoundingClean);
+            AssertSolid(op.Result);
+        }
+
+        [Fact]
+        public void ClampedPanelShavedInsideOneFacet_AFlatLens_NeedsNoRepair()
+        {
+            ExactMeshBoolean op = Lens(0, 0.03, 8, out DMesh3 panel);
+            MeshRoundingRepair r = op.Rounding;
+            Assert.InRange(r.VolumeBefore / Volume(panel), 0.0021, 0.0022);
+            Assert.Equal(0, r.InitialDegenerate);
+            Assert.Equal(0.0, r.MaxDrift);
+            Assert.Equal(r.VolumeBefore, r.VolumeAfter);
             Assert.True(op.RoundingClean);
             AssertSolid(op.Result);
         }

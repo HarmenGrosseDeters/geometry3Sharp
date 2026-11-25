@@ -600,6 +600,9 @@ namespace g3
         internal bool CacheBowtieStates = true;
         protected HashSet<int> gridRingTris = new HashSet<int>();
         AxisAlignedBox3d[] gridNewBoxes = new AxisAlignedBox3d[16];
+        // the projected edges of the new triangles of the collapse being checked (filled with gridNewBoxes in
+        // collapse_creates_intersection, read only by its grid query, si_candidate)
+        TriangleTriangleFilter.ProjectedEdges[] gridNewEdges = new TriangleTriangleFilter.ProjectedEdges[16];
 
         // PairCoincidentVertices, per vertex (null if off): the one other vertex at its position (-1 none; -2 three or more at the
         // position, or two that are the ends of an edge); and the smallest vertex id at its position, which names the position in the
@@ -945,7 +948,7 @@ namespace g3
                 Index3i ia = newIds[i];
                 for (int j = i + 1; j < newTris.Count; ++j) {
                     Triangle3d B = newTris[j];
-                    if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, newIds[j], ref B))
+                    if (TriangleTriangleFilter.IntersectsBeyondSharedNeighbours(ia, ref A, newIds[j], ref B))
                         return true;
                 }
             }
@@ -958,11 +961,13 @@ namespace g3
             // new triangles share the kept vertex, and their boxes overlap: one query visits the cells once instead
             // of about ten times
             if (gridNewBoxes.Length < newTris.Count) gridNewBoxes = new AxisAlignedBox3d[2 * newTris.Count];
+            if (gridNewEdges.Length < newTris.Count) gridNewEdges = new TriangleTriangleFilter.ProjectedEdges[2 * newTris.Count];
             AxisAlignedBox3d union = AxisAlignedBox3d.Empty;
             for (int i = 0; i < newTris.Count; ++i) {
                 Triangle3d A = newTris[i];
                 AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
                 gridNewBoxes[i] = box;
+                gridNewEdges[i] = TriangleTriangleFilter.ProjectedEdges.Of(ref A);
                 if (i == 0) union = box; else union.Contain(box);
             }
             siHit = false;
@@ -991,8 +996,15 @@ namespace g3
             for (int i = 0; i < siNewTris.Count && siHit == false; ++i) {
                 if (triangleGrid.QueryMatches(tc, ref gridNewBoxes[i]) == false)
                     continue;
+                // candidates without a shared vertex: first the edge lines of the new triangle, kept for this collapse
+                // (most such candidates are separated by them: long slivers of reduced plates, docs/research/
+                // TRI_TRI_CANDIDATE_PAIRS_2026-11.md); then the filter and the exact test
+                Index3i ia = siNewIds[i];
+                if (ia.a != ic.a && ia.a != ic.b && ia.a != ic.c && ia.b != ic.a && ia.b != ic.b && ia.b != ic.c
+                    && ia.c != ic.a && ia.c != ic.b && ia.c != ic.c && gridNewEdges[i].Separates(ref C))
+                    continue;
                 Triangle3d A = siNewTris[i];
-                if (TriangleTriangleFilter.IntersectsBeyondShared(siNewIds[i], ref A, ic, ref C))
+                if (TriangleTriangleFilter.IntersectsBeyondSharedNeighbours(ia, ref A, ic, ref C))
                     siHit = true;
             }
         }
@@ -1024,7 +1036,7 @@ namespace g3
                 Index3i ia = newIds[i];
                 for (int j = i + 1; j < newTris.Count; ++j) {
                     Triangle3d B = newTris[j];
-                    if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, newIds[j], ref B))
+                    if (TriangleTriangleFilter.IntersectsBeyondSharedNeighbours(ia, ref A, newIds[j], ref B))
                         return true;
                 }
                 AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
@@ -1037,7 +1049,7 @@ namespace g3
                     Triangle3d C = new Triangle3d(mesh.GetVertex(ic.a), mesh.GetVertex(ic.b), mesh.GetVertex(ic.c));
                     // (triangles with a coordinate that is not finite are not checked: the exact tests need finite input)
                     if (is_finite(ref C) == false || ExactTriangleIntersection.IsDegenerate(ref C)) return;
-                    if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, ic, ref C))
+                    if (TriangleTriangleFilter.IntersectsBeyondSharedNeighbours(ia, ref A, ic, ref C))
                         hit = true;
                 });
                 if (hit)
@@ -1477,7 +1489,7 @@ namespace g3
 			int NT = mesh.MaxTriangleID;
 			QuadricError[] triQuadrics = new QuadricError[NT];
 			double[] triAreas = new double[NT];
-            gParallel.BlockStartEnd(0, mesh.MaxTriangleID-1, (start_tid, end_tid) => {
+            gParallel.BlockStartEndSmall(0, mesh.MaxTriangleID-1, (start_tid, end_tid) => {
                 Vector3d c, n;
                 for (int tid = start_tid; tid <= end_tid; tid++) {
                     if (mesh.IsTriangle(tid)) {
@@ -1490,7 +1502,7 @@ namespace g3
 
 			int NV = mesh.MaxVertexID;
 			vertQuadrics = new QuadricError[NV];
-            gParallel.BlockStartEnd(0, mesh.MaxVertexID-1, (start_vid, end_vid) => {
+            gParallel.BlockStartEndSmall(0, mesh.MaxVertexID-1, (start_vid, end_vid) => {
                 for (int vid = start_vid; vid <= end_vid; vid++) {
                     vertQuadrics[vid] = QuadricError.Zero;
                     if (mesh.IsVertex(vid)) {
@@ -1601,7 +1613,7 @@ namespace g3
             double[] errors = new double[MaxEID];
 
             // vertex quadrics can be computed in parallel
-            gParallel.BlockStartEnd(0, MaxEID-1, (start_eid, end_eid) => {
+            gParallel.BlockStartEndSmall(0, MaxEID-1, (start_eid, end_eid) => {
                 for (int eid = start_eid; eid <= end_eid; eid++) {
                     if (mesh.IsEdge(eid)) {
                         Index2i ev = mesh.GetEdgeV(eid);
@@ -2264,7 +2276,7 @@ skip_to_end:
                 mesh.SetVertex(vID, projected);
             };
 
-            gParallel.ForEach<int>(project_vertices(), project);
+            gParallel.ForEachSmall<int>(project_vertices(), project);
         }
 
 

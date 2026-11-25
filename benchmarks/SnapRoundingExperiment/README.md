@@ -145,3 +145,24 @@ run; the output is appended one line per result, and a run resumes where it stop
 pairs the certificate rejects, `SNAP_TRACE=1` every grid round of B with its time).
 
 The results are in SAFE_ROUNDING.md section 8.
+
+## Comparing two builds
+
+`compare_builds.py <dir A> <dir B> [<out.json>]` runs `run <case> safe` of 214 cases (every third of booleans, utm and clusters, all of
+cylinder and drop, scale up to 81) on two copies of `bin/Release/net10.0`, one process per run, two passes with the order alternating, the
+faster run per case counting, and prints the total times and the cases whose result (clean, triangles, edits, drift) differs. About 35
+minutes. The cost of the cap limit of `MeshRoundingRepair` (docs/research/ROUNDING_THIN_VOLUME_2026-11.md, "Caps first") was measured
+with the library built once with `CapRatio = 1e300` (no cap is taken) and once with 32:
+
+```sh
+dotnet build benchmarks/SnapRoundingExperiment -c Release && cp -r bin/Release/net10.0 /tmp/buildA   # after the edit of the constant
+python3 compare_builds.py /tmp/buildA /tmp/buildB
+```
+
+## The empty ball as a rounding guarantee (2026-11-24)
+
+The probe of [docs/research/SNAP_ROUNDING_EMPTY_BALL_GUARANTEE_2026-11.md](../../docs/research/SNAP_ROUNDING_EMPTY_BALL_GUARANTEE_2026-11.md):
+`ball <case>` (`EmptyBall.cs`) prints the exact result (rational vertices), its pairs closer than 16 ulps that share no
+corner, and the leftovers of SafeRounding; `ball.py run <out.jsonl> <case>...` decides the clearance lemma with
+fractions, `ball.py tables <out.jsonl> [--unclean]` prints the tables, `ball.py selfcheck` checks the exact distance.
+Raw output: `trace/results/ball_leftovers_2026-11-24.jsonl`, `ball_control_2026-11-24.jsonl`.

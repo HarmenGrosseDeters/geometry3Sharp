@@ -6,6 +6,9 @@ using System.Text;
 namespace g3
 {
 	// adapted from IntrLine3Box3
+	/// <summary>
+	/// The infinite line against the closed axis-aligned box [Min, Max]: exact decision without a tolerance (see <see cref="IntrExactBox3"/>).
+	/// </summary>
 	public class IntrLine3AxisAlignedBox3
 	{
 		Line3d line;
@@ -59,6 +62,11 @@ namespace g3
 				return false;
 			}
 
+			if (IntrExactBox3.IsFinite(ref line.Origin, ref line.Direction) == false) {
+				Type = IntersectionType.Empty;
+				Result = IntersectionResult.InvalidQuery;
+				return false;
+			}
 			LineParam0 = -double.MaxValue;
 			LineParam1 = double.MaxValue;
 			DoClipping(ref LineParam0, ref LineParam1, ref line.Origin, ref line.Direction, ref box,
@@ -74,77 +82,25 @@ namespace g3
         // [RMS TODO: lots of useless dot products below!! left over from obox conversion]
 		public bool Test ()
 		{
-			Vector3d AWdU = Vector3d.Zero;
-			Vector3d AWxDdU = Vector3d.Zero;
-			double RHS;
-
-			Vector3d diff = line.Origin - box.Center;
-			Vector3d WxD = line.Direction.Cross(diff);
-
-            Vector3d extent = box.Extents;
-
-			AWdU[1] = Math.Abs(line.Direction.Dot(Vector3d.AxisY));
-			AWdU[2] = Math.Abs(line.Direction.Dot(Vector3d.AxisZ));
-			AWxDdU[0] = Math.Abs(WxD.Dot(Vector3d.AxisX));
-			RHS = extent.y*AWdU[2] + extent.z*AWdU[1];
-			if (AWxDdU[0] > RHS) {
-				return false;
-			}
-
-			AWdU[0] = Math.Abs(line.Direction.Dot(Vector3d.AxisX));
-			AWxDdU[1] = Math.Abs(WxD.Dot(Vector3d.AxisY));
-			RHS = extent.x*AWdU[2] + extent.z*AWdU[0];
-			if (AWxDdU[1] > RHS) {
-				return false;
-			}
-
-			AWxDdU[2] = Math.Abs(WxD.Dot(Vector3d.AxisZ));
-			RHS = extent.x*AWdU[1] + extent.y*AWdU[0];
-			if (AWxDdU[2] > RHS) {
-				return false;
-			}
-
-			return true;
+			IntrExactBox3.BoxSpec spec = IntrExactBox3.BoxSpec.Of(ref box, 0);
+			return IntrExactBox3.Touches(ref spec, ref line.Origin, ref line.Direction, false, 0, false, 0);
 		}
 
 
 
 
+		/// <summary>
+		/// The component origin + t direction, t in [t0, t1] (a bound of +-double.MaxValue means none), against the closed box: exact, without
+		/// a tolerance (<see cref="IntrExactBox3"/>). On return t0 and t1 are the ends of the contact. False if there is none or an input is not finite.
+		/// </summary>
 		static public bool DoClipping (ref double t0, ref double t1,
 		                 ref Vector3d origin, ref Vector3d direction,
 		                 ref AxisAlignedBox3d box, bool solid, ref int quantity, 
                          ref Vector3d point0, ref Vector3d point1,
 		                 ref IntersectionType  intrType)
 		{
-            Vector3d BOrigin = origin - box.Center;
-            Vector3d extent = box.Extents;
-
-			double saveT0 = t0, saveT1 = t1;
-			bool notAllClipped =
-				Clip(+direction.x, -BOrigin.x-extent.x, ref t0, ref t1) &&
-				Clip(-direction.x, +BOrigin.x-extent.x, ref t0, ref t1) &&
-				Clip(+direction.y, -BOrigin.y-extent.y, ref t0, ref t1) &&
-				Clip(-direction.y, +BOrigin.y-extent.y, ref t0, ref t1) &&
-				Clip(+direction.z, -BOrigin.z-extent.z, ref t0, ref t1) &&
-				Clip(-direction.z, +BOrigin.z-extent.z, ref t0, ref t1);
-
-			if (notAllClipped && (solid || t0 != saveT0 || t1 != saveT1)) {
-				if (t1 > t0) {
-					intrType = IntersectionType.Segment;
-					quantity = 2;
-					point0 = origin + t0*direction;
-					point1 = origin + t1*direction;
-				} else {
-					intrType = IntersectionType.Point;
-					quantity = 1;
-					point0 = origin + t0*direction;
-				}
-			} else {
-				quantity = 0;
-				intrType = IntersectionType.Empty;
-			}
-
-			return intrType != IntersectionType.Empty;
+			IntrExactBox3.BoxSpec spec = IntrExactBox3.BoxSpec.Of(ref box, 0);
+			return IntrExactBox3.DoClip(ref t0, ref t1, ref origin, ref direction, ref spec, solid, ref quantity, ref point0, ref point1, ref intrType);
 		}
 
 

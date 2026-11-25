@@ -140,7 +140,7 @@ namespace geometry3Sharp.Tests
             AssertAll(d);
         }
 
-        static List<Vector3d> Ngon(int n, double r, double z, double phase = 0.1) =>
+        internal static List<Vector3d> Ngon(int n, double r, double z, double phase = 0.1) =>
             Enumerable.Range(0, n).Select(i => new Vector3d(r * Math.Cos(phase + 2 * Math.PI * i / n), r * Math.Sin(phase + 2 * Math.PI * i / n), z)).ToList();
 
         // the height of the surface at p (in the triangle that contains it, linear)

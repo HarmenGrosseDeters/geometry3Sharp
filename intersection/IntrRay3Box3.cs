@@ -6,6 +6,9 @@ using System.Text;
 namespace g3
 {
 	// ported from WildMagic5 
+	/// <summary>
+	/// The ray against the closed solid oriented box: exact decision without a tolerance (see <see cref="IntrExactBox3"/>). <see cref="Intersects"/> takes an optional expansion of the extents.
+	/// </summary>
 	public class IntrRay3Box3
 	{
 		Ray3d ray;
@@ -59,6 +62,11 @@ namespace g3
 				return false;
 			}
 
+			if (IntrExactBox3.IsFinite(ref ray.Origin, ref ray.Direction) == false) {
+				Type = IntersectionType.Empty;
+				Result = IntersectionResult.InvalidQuery;
+				return false;
+			}
 			RayParam0 = 0.0;
 			RayParam1 = double.MaxValue;
 			IntrLine3Box3.DoClipping(ref RayParam0, ref RayParam1, ray.Origin, ray.Direction, box,
@@ -85,66 +93,9 @@ namespace g3
         /// </summary>
         public static bool Intersects(ref Ray3d ray, ref Box3d box, double expandExtents = 0)
         {
-            Vector3d WdU = Vector3d.Zero;
-            Vector3d AWdU = Vector3d.Zero;
-            Vector3d DdU = Vector3d.Zero;
-            Vector3d ADdU = Vector3d.Zero;
-            Vector3d AWxDdU = Vector3d.Zero;
-            double RHS;
-
-            Vector3d diff = ray.Origin - box.Center;
-            Vector3d extent = box.Extent + expandExtents;
-
-            WdU[0] = ray.Direction.Dot(ref box.AxisX);
-            AWdU[0] = Math.Abs(WdU[0]);
-            DdU[0] = diff.Dot(ref box.AxisX);
-            ADdU[0] = Math.Abs(DdU[0]);
-            if (ADdU[0] > extent.x && DdU[0] * WdU[0] >= (double)0) {
-                return false;
-            }
-
-            WdU[1] = ray.Direction.Dot(ref box.AxisY);
-            AWdU[1] = Math.Abs(WdU[1]);
-            DdU[1] = diff.Dot(ref box.AxisY);
-            ADdU[1] = Math.Abs(DdU[1]);
-            if (ADdU[1] > extent.y && DdU[1] * WdU[1] >= (double)0) {
-                return false;
-            }
-
-            WdU[2] = ray.Direction.Dot(ref box.AxisZ);
-            AWdU[2] = Math.Abs(WdU[2]);
-            DdU[2] = diff.Dot(ref box.AxisZ);
-            ADdU[2] = Math.Abs(DdU[2]);
-            if (ADdU[2] > extent.z && DdU[2] * WdU[2] >= (double)0) {
-                return false;
-            }
-
-            Vector3d WxD = ray.Direction.Cross(diff);
-
-            AWxDdU[0] = Math.Abs(WxD.Dot(ref box.AxisX));
-            RHS = extent.y * AWdU[2] + extent.z * AWdU[1];
-            if (AWxDdU[0] > RHS) {
-                return false;
-            }
-
-            AWxDdU[1] = Math.Abs(WxD.Dot(ref box.AxisY));
-            RHS = extent.x * AWdU[2] + extent.z * AWdU[0];
-            if (AWxDdU[1] > RHS) {
-                return false;
-            }
-
-            AWxDdU[2] = Math.Abs(WxD.Dot(ref box.AxisZ));
-            RHS = extent.x * AWdU[1] + extent.y * AWdU[0];
-            if (AWxDdU[2] > RHS) {
-                return false;
-            }
-
-            return true;
+            // exact, closed, without a tolerance (IntrExactBox3); expandExtents is added to each extent (one rounding)
+            return IntrExactBox3.RayTouchesBox3(ref ray.Origin, ref ray.Direction, ref box, expandExtents);
         }
-
-
-
-
 
     }
 }

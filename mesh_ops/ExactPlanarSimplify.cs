@@ -246,8 +246,16 @@ namespace g3
             foreach (int q in ends)
                 if (next.ContainsKey(q) == false)
                     return null;
-            // one cycle; feature edges: where the group changes
+            // one cycle; feature edges: where the group changes. It starts at the smallest link point (ComparePoints), not at
+            // a corner of v's first triangle: the hole of a flat region is clipped from the start of its cycle, and the flips
+            // towards Delaunay leave the choice where the filter does not decide (points on a circle), so a start that
+            // follows the order of the triangles made the triangulation depend on the order of the input (#1464)
             int start = at(list[0], v).b;
+            for (int i = 1; i < n; ++i) {
+                int b = at(list[i], v).b;
+                if (arr.ComparePoints(b, start) < 0)
+                    start = b;
+            }
             var cycle = new List<int>(n);       // link vertices in order
             var tri = new List<int>(n);         // triangle (v, cycle[i], cycle[i+1])
             int x = start;
@@ -451,8 +459,11 @@ namespace g3
 
         // Lawson flips of the edges inside regions, starting from the given edges, towards the Delaunay
         // triangulation of the projection. Only for the shape of the triangles: an edge is flipped only if the
-        // floating-point filter shows that the opposite point is strictly inside the circumcircle (so it
-        // terminates, and does not depend on DisableFilters); nearly cocircular cases are left as they are. The
+        // opposite point is strictly inside the circumcircle, by the exact sign (so it terminates: every flip is a
+        // strict step towards Delaunay; and does not depend on DisableFilters); points exactly on the circle are left
+        // as they are. Until #1464 the floating-point filter alone decided, and what it did not decide was left: its
+        // verdict follows the stored approximation of a point, which depends on how the arrangement computed the
+        // point, so the same flat region got other diagonals for another order of the input. The
         // new triangles are checked exactly (strictly convex quad). The queue holds directed edges (directed());
         // pending, their EdgeKeys.
         [MethodImpl(JitHints.Optimize)]
@@ -485,7 +496,7 @@ namespace g3
                 if (t1.b != y || t2.c != y)
                     continue;
                 int p = t1.c, q = t2.b;
-                if (p == q || groupSign[g] * arr.InCircleFiltered(groupTri[g], x, y, p, q) <= 0)
+                if (p == q || groupSign[g] * arr.InCircle(groupTri[g], x, y, p, q) <= 0)
                     continue;
                 // the quad x, q, y, p must be strictly convex at x and y
                 if (orient(g, p, x, q) <= 0 || orient(g, q, y, p) <= 0 || has_edge(p, q))

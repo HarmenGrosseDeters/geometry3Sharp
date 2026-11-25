@@ -222,6 +222,66 @@ static class Program
         Console.WriteLine($"| {name} | {mode} | {resolution}^3 | {lt:F1} | {et:F1} ({lt / Math.Max(et, 1e-6):F1}x) | {ft:F1} | {maxDiff:E2} |");
     }
 
+    // Points at 10^-3 .. 10^-14 from the boundary edges of an open mesh (the edge angle is ill-conditioned there).
+    static Vector3d[] NearBoundaryQueries(DMesh3 mesh, int n, int seed)
+    {
+        var rnd = new Random(seed);
+        int[] edges = mesh.BoundaryEdgeIndices().ToArray();
+        var pts = new Vector3d[n];
+        for (int i = 0; i < n; ++i) {
+            Index2i ev = mesh.GetEdgeV(edges[rnd.Next(edges.Length)]);
+            Vector3d a = mesh.GetVertex(ev.a), b = mesh.GetVertex(ev.b);
+            Vector3d dir = new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5).Normalized;
+            pts[i] = a + rnd.NextDouble() * (b - a) + Math.Pow(10, -3 - 11 * rnd.NextDouble()) * dir;
+        }
+        return pts;
+    }
+
+    // An axis-aligned box [0,1]^3 without its top (the rim is the 4 edges at z = 1), outward oriented, and the grid of the plane of the rim
+    // (z = 1, step 1/32, x and y from 0 to 1.375): every query is exactly on the yz line of the rim edges parallel to y and z.
+    static DMesh3 OpenBox()
+    {
+        var m = new DMesh3();
+        int[] v = new int[8];
+        for (int i = 0; i < 8; ++i)
+            v[i] = m.AppendVertex(new Vector3d(i & 1, (i >> 1) & 1, (i >> 2) & 1));
+        Action<int, int, int, int> quad = (p0, p1, p2, p3) => { m.AppendTriangle(v[p0], v[p1], v[p2]); m.AppendTriangle(v[p0], v[p2], v[p3]); };
+        quad(0, 2, 3, 1);
+        quad(0, 1, 5, 4);
+        quad(1, 3, 7, 5);
+        quad(3, 2, 6, 7);
+        quad(2, 0, 4, 6);
+        return m;
+    }
+
+    static Vector3d[] RimPlaneGrid()
+    {
+        var pts = new Vector3d[45 * 45];
+        for (int i = 0; i < 45; ++i)
+            for (int j = 0; j < 45; ++j)
+                pts[i * 45 + j] = new Vector3d(i / 32.0, j / 32.0, 1.0);
+        return pts;
+    }
+
+    static void BenchNearEdge(string name, DMesh3 mesh, Vector3d[] pts, int rounds)
+    {
+        var times = new double[rounds];
+        double checksum = 0;
+        for (int r = -1; r < rounds; ++r) {
+            var tree = new DMeshAABBTree3(mesh, true);
+            tree.WindingNumber(pts[0]);          // (cache build)
+            var sw = Stopwatch.StartNew();
+            double sum = 0;
+            for (int i = 0; i < pts.Length; ++i)
+                sum += tree.WindingNumber(pts[i]);
+            sw.Stop();
+            checksum = sum;
+            if (r >= 0) times[r] = sw.Elapsed.TotalMilliseconds;
+        }
+        double ms = Median(times);
+        Console.WriteLine($"| {name} | {mesh.TriangleCount} | {pts.Length} | {ms:F2} | {1000.0 * ms / pts.Length:F2} | {checksum:R} |");
+    }
+
     static void Warmup()
     {
         DMesh3 warmClosed = Sphere(12);
@@ -258,6 +318,18 @@ static class Program
         Warmup();
         Console.WriteLine($"ExactWindingBenchmark (rounds={rounds}, processors={Environment.ProcessorCount})");
         Console.WriteLine();
+        bool nearOnly = args.Length > 1 && args[1] == "near-edge";
+        if (nearOnly) {
+            DMesh3 c20k = Sphere(42), o20k = OpenSphere(42);
+            Console.WriteLine("### Edge angle near open edges (`DMeshAABBTree3.WindingNumber`, exact cache, per-query time)");
+            Console.WriteLine("| case | tris | queries | total ms | us / query | sum of the values |");
+            Console.WriteLine("|---|---|---|---|---|---|");
+            BenchNearEdge("closed sphere 20k, random", c20k, RandomQueries(2000, 5), rounds);
+            BenchNearEdge("open sphere 20k, random (away from the edges)", o20k, RandomQueries(2000, 5), rounds);
+            BenchNearEdge("open sphere 20k, 1e-3 .. 1e-14 from the boundary edges", o20k, NearBoundaryQueries(o20k, 2000, 5), rounds);
+            BenchNearEdge("open box, query grid in the plane of the rim", OpenBox(), RimPlaneGrid(), rounds);
+            return 0;
+        }
         Console.WriteLine("### Point queries (`DMeshAABBTree3.WindingNumber`)");
         Console.WriteLine("| case | tris | |∂M| | queries | legacy build ms | exact build ms | legacy query ms | exact query ms | FWN build/query ms | max |exact-legacy| | max |FWN-legacy| |");
         Console.WriteLine("|---|---|---|---|---|---|---|---|---|---|---|");
@@ -276,6 +348,15 @@ static class Program
         BenchPointQueries("unwelded closed 20k", unwelded20k, 1000, rounds);
         BenchPointQueries("disconnected soup 5k", openSoup5k, 200, rounds);
 
+
+        Console.WriteLine();
+        Console.WriteLine("### Edge angle near open edges (`DMeshAABBTree3.WindingNumber`, exact cache, per-query time)");
+        Console.WriteLine("| case | tris | queries | total ms | us / query | sum of the values |");
+        Console.WriteLine("|---|---|---|---|---|---|");
+        BenchNearEdge("closed sphere 20k, random", s20k, RandomQueries(2000, 5), rounds);
+        BenchNearEdge("open sphere 20k, random (away from the edges)", open20k, RandomQueries(2000, 5), rounds);
+        BenchNearEdge("open sphere 20k, 1e-3 .. 1e-14 from the boundary edges", open20k, NearBoundaryQueries(open20k, 2000, 5), rounds);
+        BenchNearEdge("open box, query grid in the plane of the rim", OpenBox(), RimPlaneGrid(), rounds);
         Console.WriteLine();
         Console.WriteLine("### Grid evaluation (`MeshWindingNumberGrid`, including cache build)");
         Console.WriteLine("| case | mode | grid | legacy ms | exact row-ray ms | FWN ms | max |exact-legacy| |");

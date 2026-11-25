@@ -67,6 +67,10 @@
     <InternalsVisibleTo Include="MeshRepairBenchmark" />
     <InternalsVisibleTo Include="TetMeshBenchmark" />
     <InternalsVisibleTo Include="ReducerBenchmark" />
+    <!-- the crossover of gParallel.ForRange (benchmarks/ParallelTinyLoops) -->
+    <InternalsVisibleTo Include="ParallelTinyLoops" />
+    <!-- the hand mutants of the sheet extension (benchmarks/SheetExtensionProbe) -->
+    <InternalsVisibleTo Include="SheetExtensionProbe" />
     <!-- predicate counts of the self-intersection checks (benchmarks/SelfIntersectionBenchmark) -->
     <InternalsVisibleTo Include="SelfIntersectionBenchmark" />
     <!-- the floor switch of refinement on the grid (benchmarks/Meshing2Benchmark gridcounts) -->

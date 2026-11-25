@@ -6,9 +6,12 @@ fingerprint of the result (FNV-1a over every vertex coordinate bit and every tri
 for bit-identical results.
 
 ```
-dotnet run -c Release --project benchmarks/SelfIntersectionBenchmark -- [reducer] [remesher] [runs=3] [only=<regex>]
+dotnet run -c Release --project benchmarks/SelfIntersectionBenchmark -- [reducer] [remesher] [boolean] [runs=3] [only=<regex>]
     [thingi=<file>] [thingi_passes=5] [thingi_runs=1] [thingi_factor=1]
 ```
+
+`boolean`: three serial `ExactMeshBoolean` cases on procedural solids (two bumpy spheres, a box grid minus a sphere,
+two tilted slabs with coplanar faces), for the probe of section (f).
 
 Build with `-p:G3PredicateStats=true` to also print the Orient2d / Orient3d calls and the share that reaches their
 exact stage (slower: the counters are interlocked).
@@ -322,6 +325,48 @@ the move. Only pairs without a shared vertex qualify; their whole cost (their te
 whole grid query applies to 3 % of the operations on 135363. Not built. (The literature review,
 `docs/design/RESEARCH_REDUCER_REMESHER.md`, has the per-vertex clearance lemma; the measurement above bounds what it can
 give here.)
+
+**(f) A shared-plane filter in front of the exact triangle-triangle test (24 November 2026).** Upper bound of computing
+each triangle's normal once and deciding the plane-side signs of `ExactTriangleIntersection.Intersects` by dot
+products: an ideal filter (no bound, no fallback) saves at most 0.02 % of the reducer and remesher cases and 1.1-8.0 %
+of the three boolean cases; the exact tri-tri test is at most 5.3 % (reducer box grid), while
+`TriangleTriangleFilter` itself is 13-40 %. Stop; details, the table and the method in
+[docs/research/TRI_TRI_FILTER_UPPER_BOUND_2026-11.md](../../docs/research/TRI_TRI_FILTER_UPPER_BOUND_2026-11.md). To
+re-run (master ecd6f8e; the probe is a patch, never merged):
+
+```
+git apply benchmarks/SelfIntersectionBenchmark/probe/tritri_probe.patch
+dotnet build benchmarks/SelfIntersectionBenchmark -c Release -p:TriTriProbe=true -p:G3PredicateStats=true -p:RunAnalyzers=false -o <dir>
+DOTNET_TieredCompilation=0 dotnet <dir>/SelfIntersectionBenchmark.dll reducer remesher boolean runs=1
+git apply -R benchmarks/SelfIntersectionBenchmark/probe/tritri_probe.patch
+```
+
+(`RunAnalyzers=false`: the determinism analyzer rejects the probe's timers in the exact files.) Raw output in
+`probe/results/`.
+
+**(g) The candidate pairs: where `TriangleTriangleFilter`'s time goes (24 November 2026).** Probe and in-place upper
+bounds of fewer candidate pairs, a plane pretest of neighbours and a cheaper filter call, in
+[docs/research/TRI_TRI_CANDIDATE_PAIRS_2026-11.md](../../docs/research/TRI_TRI_CANDIDATE_PAIRS_2026-11.md):
+- Built: the pretest (`TriangleTriangleFilter.BeyondSharedNeighbours`). Reducer box grid 1793 -> 1491 ms (-17 %), bumpy
+  sphere 247 -> 240 ms (-3 %), the rest within the ±10 % noise of the machine, fingerprints the same. Before/after
+  table in the note.
+- Stopped: the cheaper call, below 10 % in place.
+- Built in a follow-up: the cull of the pairs without shared corners (`TriangleTriangleFilter.ProjectedEdges`, the
+  filter stage of `Orient2d` on the edges of each new triangle). Harness plate 50 with jitter 2910 -> 1417 ms (-51 %),
+  harness tilted plate 50 -17 %, jitter plate tilted -13 % and -10 %, tilted jitter harness -10.5 %, the rest within
+  noise, fingerprints the same.
+
+To re-run the probe (against master fa06338) and the comparison:
+
+```
+git apply benchmarks/SelfIntersectionBenchmark/probe/candidate_probe.patch
+dotnet build benchmarks/SelfIntersectionBenchmark -c Release -p:CandidateProbe=true -p:RunAnalyzers=false -o <dir>
+DOTNET_TieredCompilation=0 dotnet <dir>/SelfIntersectionBenchmark.dll reducer remesher runs=1 > probe.txt
+python3 benchmarks/SelfIntersectionBenchmark/probe/sum_candidates.py probe.txt
+git apply -R benchmarks/SelfIntersectionBenchmark/probe/candidate_probe.patch
+# before/after: build master and this branch (-o <a>, -o <b>), run "reducer remesher runs=3" of each twice, interleaved
+python3 benchmarks/SelfIntersectionBenchmark/probe/ab_compare.py <a runs...> -- <b runs...>
+```
 
 **MeshRobustRepair volume IoU, a tighter sample region (parked).** The question: can the region the IoU estimator
 samples (component boxes expanded by `sqrt(n * area / (1.6 pi))`) provably shrink while still containing the union of

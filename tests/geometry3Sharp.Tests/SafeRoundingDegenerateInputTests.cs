@@ -116,16 +116,26 @@ namespace geometry3Sharp.Tests
         }
 
         // all dense clusters, unfolded and folded (the pokes 2^-k outside slivers thinner than that: the surface folds
-        // over itself, in layers on one line): always within the bound and the same solid; clean in most cases (89 of
-        // 108 and 80 of 90; before the strip zip 51 and 41, before the moves stopped depending on the scale 85 and 80),
+        // over itself, in layers on one line): always within the bound and the same solid; clean in most cases (88 of
+        // 108 and 80 of 90, 89 before #1410; before the strip zip 51 and 41, before the moves stopped depending on the scale 85 and 80),
         // the others are counted (docs/design/SAFE_ROUNDING.md
         // section 2: strips that branch or fold, no disk with a monotone boundary)
         // (#698: the rows of a family split its ks; one row per family took up to 9.8 s alone and 21.6 s in the full run. Cluster is three
-        // rows of two k, 36 Booleans each, about 3 s; 93 of the 108 were clean (34, 29 and 30 by row), and the rows' minima 33 + 28 + 28
-        // keep the old 89. FoldedCluster (no k = 0) is two rows: 84 of 90 were clean (51 and 33), and 49 + 31 keep the old 80;
+        // rows of two k, 36 Booleans each, about 3 s; the rows' minima 33 + 28 + 28 were the old 89. FoldedCluster (no k = 0) is two rows,
+        // and 49 + 31 keep the old 80;
         // DenseClusterRows_AreAllTheCases checks the union of the ks and the sums)
+        // (#1410: the conversion of an exact vertex rounds to nearest now; a mild loss of repair success on these dense sliver clusters, each
+        // case still within the bound. Clean cases by row, master -> this change (minimum): Cluster [36,40] 31 -> 31 (28); Cluster [0,44] 33 -> 32
+        // (the minimum goes from 33 to 32, so the sum for Cluster is 88); Cluster [30,52] 31 -> 29 (28); FoldedCluster [30,40,44] 50 -> 49 (49: no
+        // slack left); FoldedCluster [36,52] 33 -> 33 (31). In total 178 -> 174 of 198; no row went up)
+        // (#1489, diagnosis, nothing changed: per case, 9 were clean with truncation and are not with nearest, 5 were not and are (all with eight pokes, count 8),
+        // so the net loss of 4 is rounding luck in both directions, not a mechanism. Lost: Cluster k0 s1 and s4, k36 s0, k40 s1, k52 s1 and s5; FoldedCluster k44 s0 and
+        // s3, k52 s1. Won: Cluster k36 s3, k40 s0, k44 s5; FoldedCluster k30 s0, k36 s2. What is left in each of the 24 unclean cases: intersecting pairs (up to 7) or degenerate triangles (up to
+        // 4), some of both, no false contact, no resolvable removal, the evaluation limit not reached, and SmallestRejectedDrift finite (3.4e-5 to 3.5e-3, above
+        // the bound): an edit exists beyond the drift bound, so it is not the state of #1465 (infinite). Neutral contractions (the stage of #1489 in the
+        // Boolean's repair, as an experiment) change none of the 198 results. The default pipeline's grid retry cures 12 of the 24 unclean ones)
         public static IEnumerable<object[]> DenseClusterRows() => new[] {
-            new object[] { Family.Cluster, new[] { 0, 44 }, 36, 33 },
+            new object[] { Family.Cluster, new[] { 0, 44 }, 36, 32 },
             new object[] { Family.Cluster, new[] { 30, 52 }, 36, 28 },
             new object[] { Family.Cluster, new[] { 36, 40 }, 36, 28 },
             new object[] { Family.FoldedCluster, new[] { 30, 40, 44 }, 54, 49 },
@@ -136,7 +146,7 @@ namespace geometry3Sharp.Tests
         public void DenseClusterRows_AreAllTheCases()
         {
             var rows = DenseClusterRows().ToList();
-            foreach (var (family, ks, total, minClean) in new[] { (Family.Cluster, new[] { 0, 30, 36, 40, 44, 52 }, 108, 89), (Family.FoldedCluster, new[] { 30, 36, 40, 44, 52 }, 90, 80) }) {
+            foreach (var (family, ks, total, minClean) in new[] { (Family.Cluster, new[] { 0, 30, 36, 40, 44, 52 }, 108, 88), (Family.FoldedCluster, new[] { 30, 36, 40, 44, 52 }, 90, 80) }) {
                 var mine = rows.Where(r => (Family)r[0] == family).ToList();
                 Assert.Equal(ks, mine.SelectMany(r => (int[])r[1]).OrderBy(k => k));
                 Assert.Equal(total, mine.Sum(r => (int)r[2]));

@@ -430,15 +430,17 @@ namespace g3cli.Tests
             Assert.Equal(Volume(one) - Volume(two) + Volume(core), Volume(xor3), 5);
         }
 
-        // the cube and a copy turned by 1e-10 about a generic axis and shifted by about 1e-10: rounding the intersection
-        // points leaves slivers and self-intersections (as in MeshRoundingRepairTests)
+        // the cube and a copy turned by 1e-13 about a generic axis and shifted by about 1e-13: rounding the points of the
+        // union leaves slivers and self-intersections (the pair of MeshRoundingRepairTests; until #1464 an intersection with a
+        // copy turned by 1e-10, which rounds without a self-intersection since the flat regions are triangulated in the
+        // canonical order; the axis and the shift of the new search of #1410, as in MeshRoundingRepairTests)
         string NearlyCoincidentCubes()
         {
             string path = m.Path_("cube_turned.g3mesh");
             if (File.Exists(path) == false) {
                 DMesh3 b = CubeMesh(Vector3d.Zero);
-                MeshTransforms.Rotate(b, Vector3d.Zero, new Quaterniond(new Vector3d(0.19758121236114823, 0.3649866608274107, -0.30151001680712686).Normalized, 1e-10 * MathUtil.Rad2Deg));
-                MeshTransforms.Translate(b, 1e-10 * new Vector3d(0.5604903733173806, 0.1805782146661441, 0.2501971587772468));
+                MeshTransforms.Rotate(b, Vector3d.Zero, new Quaterniond(new Vector3d(0.1239883869998103, -0.08118673115092645, -0.07064602830011679).Normalized, 1e-13 * MathUtil.Rad2Deg));
+                MeshTransforms.Translate(b, 1e-13 * new Vector3d(0.06367290791295144, -0.47886297245456977, 0.3965591066035251));
                 Assert.Equal(IOCode.Ok, StandardMeshWriter.WriteMesh(path, b, WriteOptions.Defaults).code);
                 Assert.Equal(IOCode.Ok, StandardMeshWriter.WriteMesh(m.Path_("cube_exact.g3mesh"), CubeMesh(Vector3d.Zero), WriteOptions.Defaults).code);
             }
@@ -449,7 +451,7 @@ namespace g3cli.Tests
         public void Boolean_SafeRounding_RepairsAndReportsTheRounding()
         {
             string b = NearlyCoincidentCubes(), a = m.Path_("cube_exact.g3mesh");
-            var (exit, r) = Run("boolean", a, b, m.Path_("safe.g3mesh"), "--op", "intersection");
+            var (exit, r) = Run("boolean", a, b, m.Path_("safe.g3mesh"), "--op", "union");
             AssertOk(exit, r);
             JsonNode info = r["boolean"];
             Assert.True(B(info["safe_rounding"]));
@@ -538,13 +540,15 @@ namespace g3cli.Tests
 
         // a sphere with clusters of pokes (fans of slivers and zero-area triangles), turned and moved to UTM coordinates at
         // millimetre scale: a case that the relative bound alone cannot repair (#287; seed 3 since Boolean 2.1, whose
-        // reference rule repairs seed 0 within the relative bound)
+        // reference rule repairs seed 0 within the relative bound; seed 26 since #1464: with the canonical order the default
+        // result of seed 3 keeps a contact at a duplicated vertex, which the mesh report counts as self-intersections; seed 24 since #1410:
+        // the conversion of an exact vertex rounds to nearest, and the relative bound repairs seed 26)
         string UtmCluster()
         {
             string path = m.Path_("utm_cluster.g3mesh");
             if (File.Exists(path)) return path;
             DMesh3 mesh = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 6 }.Generate().MakeDMesh();
-            var rnd = new Random(3);
+            var rnd = new Random(24);
             foreach (int t0 in mesh.TriangleIndices().Where(t => t % 17 == 0).ToArray()) {
                 int tid = t0;
                 for (int i = 0; i < 4; i++) {

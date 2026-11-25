@@ -136,14 +136,18 @@ def review_classes(diff, text):
 
 
 def main(argv):
+    # (a Windows console or pipe has a legacy code page: paths and diff lines are UTF-8, and a character it cannot show must not stop the run)
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     if len(argv) != 2:
         print(__doc__)
         return 2
     if argv[1] == "-":
-        diff = sys.stdin.read()
+        diff = sys.stdin.buffer.read().decode("utf-8", errors="replace")
     else:
         try:
-            diff = subprocess.run(["git", "-c", "core.quotepath=false", "diff", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", argv[1]], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+            diff = subprocess.run(["git", "-c", "core.quotepath=false", "diff", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", argv[1]], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True).stdout
         except subprocess.CalledProcessError as e:
             print("git diff failed: " + e.stderr.strip())
             return 2

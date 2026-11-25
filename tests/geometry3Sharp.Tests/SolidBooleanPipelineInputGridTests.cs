@@ -162,7 +162,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void NearlyCoincidentFacesFarFromTheOrigin_FailWithoutTheGrid_AndAreCleanWithIt()
         {
-            var plain = new SolidBooleanPipeline(Fragment(), D);
+            // (AutomaticSteps = None is the refusal itself; by default the pipeline retries it on a grid of its own, see SolidBooleanPipelineGridStepTests)
+            var plain = new SolidBooleanPipeline(Fragment(), D) { AutomaticSteps = SolidBooleanPipeline.AutomaticStepModes.None };
             Assert.False(plain.Compute());
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.BooleanFailed, plain.Status);
             Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, plain.BooleanStatus);
@@ -318,7 +319,9 @@ namespace geometry3Sharp.Tests
             Assert.True(p.Compute(), p.Error);
             Assert.Equal("", Invariance.Difference(first, p.Result));
             Assert.Equal(moved, p.Report.InputSnappedVertices);
+            // (no grid of the caller and no automatic step: the refusal)
             p.InputGrid = 0;
+            p.AutomaticSteps = SolidBooleanPipeline.AutomaticStepModes.None;
             Assert.False(p.Compute());
             Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, p.BooleanStatus);
             Assert.Equal(0, p.Report.InputSnappedVertices);

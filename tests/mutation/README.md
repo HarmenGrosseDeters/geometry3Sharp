@@ -105,30 +105,36 @@ one pending job and cancels every older pending one, so most shards would end as
 (Owner 2026-11-11; CLAUDE.md "Review before every merge", docs/roadmap/exact-boolean.md "3.0 process".) The per-PR full
 shards cost a 6 hour runner slot each and were cancelled at the limit (#539) without a result, so during 3.0:
 
-- **No full shard run on a pull request.** A shard that would run in full there (its config or the tools changed, split
-  offsets moved, or no baseline in the cache fits) runs nothing; its job summary says "full run on master" and why, and the job
-  succeeds (`run_stryker.sh` with `NO_FULL=1`, set by the workflow for `pull_request` events; `test_run_stryker.py`). Where
-  the selection already knows it (the config or the tools changed, and no changed exact-code file of the shard: `select_shards.py
-  --pr`, `skip_on_pr`), the shard is not started at all: its job shows as skipped, and the `changes` job's notice and summary name
-  it ("NOT RUN on this PR, full run on master"). Only a shard that finds out in the job (no baseline fits) still ends green, with
-  "NOT RUN" in its notice and summary. Which shards run Stryker is the same either way. An
-  incremental run (a mutated file changed, a baseline fits) and a `--since` run (only tests changed) are unchanged. A PR stores
-  no baseline.
-- **The exact-code gate stays.** CLAUDE.md gates a merge on the mutation threshold for a PR that touches exact code. Without a
-  baseline such a PR would pass with no check, so a shard that mutates a file of the exact-code section of `.editorconfig`
+- **Pull requests (owner 2026-11-23, runner load: mutation was 44 % of the Actions minutes, almost all on PRs that touch no
+  exact code).** A PR runs a shard only **incrementally** (`source`: the mutants of the changed lines, the others from the
+  master baseline), and only if the PR changes a file of the exact-code section of `.editorconfig` that the shard mutates
   (`exact_gated` in `select_shards.py` reads its globs: `math/Exact*.cs`, `AdaptivePredicates.cs`, `FixedPoint3.cs`,
-  `Generated/*.cs`, `mesh_ops/ExactMesh*.cs`, the planar, triangulation and envelope files, ...; no second hand-kept list)
-  **and** whose file the PR changes keeps its full run on the PR, also when its config changed in the same PR. That includes the
-  boolean and arrangement shards when a PR changes `ExactMeshBoolean.cs` / `ExactMeshArrangement.cs` and a full run is needed
-  (a moved span alone is an incremental run). Only `rounding-*` and `hausdorff` mutate files that are
-  not in that section. A full shard is 1 to 6 hours; the cost applies only where a full run is needed anyway
-  (`select_shards.py gate <config>`, called by `run_stryker.sh`; `test_select_shards.py` checks every file of the section). The gate fails closed (a git or script error counts as gated). A change to one of the scripts of the runs (`SCRIPTS`) also keeps the
-  full run of its representative shard `fixed`, so these tools get one real Stryker run on the PR. The weekly group refreshes the
-  baselines only once a week, equal to the cache's eviction window: a baseline can be missing late in the week (a gated shard then
-  runs in full on the PR, any other skips with "full run on master"). The
-  `mesh_ops/ExactMesh*` shards are not in it: CLAUDE.md gives them the review, and their mutation check is the incremental run
-  or the scheduled one on master.
-
+  `Generated/*.cs`, `mesh_ops/ExactMesh*.cs`, the planar, triangulation, envelope and terrain-slope files, ...; no second
+  hand-kept list), or if the PR has the label **`mutation`**: then every shard that mutates a changed file runs incrementally.
+  The coordinator sets `mutation` (like `bugfix`) for a PR that adds or changes an error bound outside the exact files (a
+  `rounding-*`, `hausdorff` or `uv-*` file); the `changes` job reads the labels live, so after setting it the coordinator
+  **must re-run** the PR's latest mutation run, or set the label before the last push (there is no `labeled` trigger, so other
+  labels never cancel a Stryker run under way; the price is that the label alone starts nothing). A PR that touches `tools/ErrorBoundAudit/**` or a file the audit anchors (`tools/ErrorBoundAudit/bounds.py`) gets a
+  hint in the job summary ("error bound touched?"), not an automatic run.
+- **What a PR does not run** (`select_shards.py --pr`, `pr_selection`; the `changes` job lists each shard as "NOT RUN on this
+  PR" with the reason, and the job is not started): full runs (a config, the workflow or the mutation tools changed; also the
+  representative shard of the scripts), `--since` runs of changed tests only, and incremental runs of non-exact code without
+  the label. A shard of a changed exact-code file that is `full` only because the workflow, the tools or a script changed (not
+  its own config) runs incrementally instead (its baseline still fits its config), so the PR stays gated. A gate that moves to
+  master (its own config changed, or no baseline fits) is a `::warning::` with "GATE ON MASTER", in the `changes` job or in the
+  shard's job: the coordinator dispatches that shard's full run on master after the merge. Such a job is green, but its
+  threshold was not checked: read the warning, not the colour.
+- **Exact code without a shard** (`NO_SHARD` in `select_shards.py`: the continuous collision, the exact
+  triangle intersection and its filter, the exact ray test, the contouring certificate, two helpers of the exact boolean, the
+  terrain slope files outside the terrain shards): a PR that changes one gets no mutation run, only the notice "exact code without
+  a mutation shard" in the `changes` job (`select_shards.py hint`); the review is its check. The workflow's trigger paths hold
+  every glob of the exact section, and `test_select_shards.py` checks that every exact file is in a shard or on that list. A shard that finds out in its job that it needs a full run (no baseline in the cache fits) writes "full run on
+  master" to its summary and succeeds (`run_stryker.sh` with `NO_FULL=1`; `test_run_stryker.py`). There is no exception any
+  more: before 2026-11-23 a shard of a changed exact-code file kept its full run on the PR. Such a PR (an exact change that needs
+  a full shard run: no baseline, a changed config) merges on green CI and review, and the full run of its shards that the
+  coordinator dispatches on master after the merge is the gate (CLAUDE.md "Review before every merge"). A PR stores no
+  baseline. The test files of the shards are no longer trigger paths of the workflow (`test_select_shards.py` checks that the
+  paths cover every mutated source and config, and hold no test file).
 - **Scheduled full runs on master** (19:17 UTC): `nightly` (Monday to Saturday: `boolean-*`, `arrangement-*`, `rounding-*`, 24
   of the 47 mesh configs) and `weekly` (Sunday: envelope, geodesic, hausdorff, terrain, planar, fixed, generated, uv, imprint, solid-pipeline, exact-winding, arithmetic: 23
   mesh configs and the arithmetic job), chosen by `select_shards.py --only nightly|weekly` from the cron line that started the run. They seed and refresh
@@ -285,7 +291,7 @@ mutant that a dropped test still kills). Measured on the stored reports of 2026-
 full run of 2026-11-13, so the numbers are a proxy): see [docs/roadmap/platform.md](../../docs/roadmap/platform.md).
 **Checked-in filters** (`test-filters/`, made 2026-11-15 from the newest full master reports with `--durations` of the master
 full run of 2026-11-13, `--timeouts one`): envelope-1 (9 of 21 tests, estimated saving of the mutant runs 93 %), envelope-2
-(9 of 21, 85 %), envelope-3 (10 of 21, 52 %), terrain-arith (18 of 47, 57 %). Not made, and why: envelope-4 (8 %) and
+(9 of 21, 85 %), envelope-3 (10 of 21, 52 %), terrain-arith (18 of 47, 57 %). geodesic-1 (9 of 103 tests, 64 %) and geodesic-2 (4 of 103, 61 %) were made on 2026-11-24 from the reports of the weekly full run 45088174041 (2026-11-23) with `--durations` of the master full run 45457969552 (linux net10.0, 2026-11-24); both shards are dominated by timeouts (172 and 225 against 190 and 130 kills), which `--timeouts one` keeps with one covering test each, so the next weekly (unfiltered) run is the check that the filtered run loses no timeout. Not made, and why: envelope-4 (7 % weighted by the same durations, 31 % unweighted; the kept set holds the expensive `ContainsTriangle` oracle tests) and
 terrain-overlay (19 %) are below 20 %; terrain-kernel (85 %) is already stale (new test file `TerrainSlopeLocalFrameTests.cs`
 names its classes); rounding-1..8 (76-100 %) are stale (`MeshRoundingRepair.cs` changed since the reports of 2026-11-11);
 arrangement, planar and boolean have no full master report (boolean is another session's, see its shard PRs). A filter is
@@ -322,6 +328,8 @@ Limits:
 
 The HTML report is uploaded as an artifact, and a summary appears in the job summary. Tests of the selection:
 `python3 tests/mutation/test_select_shards.py`.
+
+The Python tests of this directory also run on Windows (Git Bash, `python` instead of `python3`; run them from `tests/mutation`). The tests that start `run_stryker.sh` put a `python3` next to the fake `dotnet` (`shell_shims.py`, as the Store stub of that name fails), and write their files with LF; two signal tests of `test_run_stryker_restore.py` are skipped there (POSIX process groups). `test_exclude_other_sources.py` takes about 20 minutes on a Windows disk with a virus scanner (it applies and undoes the marker on 520 files for each of 70 configs); the rest of the directory takes a few minutes.
 
 To run it locally, from the repository root:
 
@@ -433,6 +441,8 @@ each). Each shard runs the unit tests of its file (the `test-case-filter` of its
 | `generated` | `math/Generated/IndirectPredicates.cs` (the generated indirect predicates, docs/design/INDIRECT_PREDICATES.md; with the filter (#250) 94.94 %, 826 of 870 killed; the survivors: 26 that only shrink the filter's bound (its magnitude path; no input reaches the slack, the derivation and the constant tests guard it), exception texts, comparisons at equality that cannot occur, the always-exact path; break 92), and `math/Generated/DoublePredicates.cs` (the generated monomial kernels of the exact predicates on doubles, docs/design/EXACT_FALLBACK_MONOMIALS.md; that file alone, local run 2026-11-13: 518 mutants, 506 killed, 12 timeouts, none survived; 52 are marked in the generated code with their reason: 29 that change no result (`>>` against `>>>` on unsigned operands, comparisons at an equality that cannot occur, `|=` against `^=` on a clear bit, a carry only tested against 0, more limbs than needed), and 23 real ones of the same mutator on the same statements (19 shift directions, 2 `|=` to `&=`, 2 comparison directions); a run without the marks killed those, and they are pinned as hand mutants at the generator (27 in all, each applied, the kernels regenerated, `GeneratedDoublePredicatesTests` must fail: all killed; the script and its output are on the branch `runs/exact-numbers`, `pr1/hand_mutants.sh`)) | `GeneratedPredicatesIndirectTests`, `GeneratedDoublePredicatesTests` |
 | `predicates-1`, `predicates-2` | `math/ExactPredicates.cs`, split at `negate128` (459 and 456 mutants by the suggestion; since 23 November 2026, before part of `stryker-config.json`; thresholds of the old shard, break 86, low 87, until the first full run of each part) | `ExactPredicatesTests`, `ExactImplicitPointTests`, `ExactBooleanBuildingBlockTests`, `PredicateDifferentialTests`, `ExactPoint3ConversionTests`, `ExactOrient3dKernelTests` and the others of the filter of `stryker-config.json`, the same filter in all four configs |
 | `adaptive` | `math/AdaptivePredicates.cs` (471 mutants; since 23 November 2026, before part of `stryker-config.json`; break 86, low 87 until its first full run) | the same filter |
+| `box3` | `intersection/IntrExactBox3.cs` (the exact box decisions of the line, ray and segment classes with the oriented and the axis-aligned box, and the culling form of `DMeshAABBTree3`; an exact-code file of `.editorconfig`, so it is gated). Local full runs on 23 and 24 November 2026 (959 mutants, about 40 to 55 minutes): 57.56 % with the first tests of #1432, 66.12 % after the review rounds, 73.94 % with the edge tests of `IntrBox3FilterEdgeTests`, **76.83 %** (788 killed, 8 timeouts, 234 survived, 6 without coverage) with the corner-aimed rays and the `Prep`, ray-branch and non-solid tests; so break 74, low 76, high 90 until the CI run on master. The remaining survivors by direction: about 61 flip a strictness at a tie of computed values (same value, only the index of the winner differs, or the bound is certified either way), 7 are the loop bound `i <= 3` (the index 3 reads the same data), 19 are the finiteness sum, `Away` and the origin-inside test (a changed sign makes more cases take the longer route, or tests the same finite values), 55 are in `RayAabb` and `RayAabbMay` (comparison ties and the equivalent guards), and about 96 are in the exact route and the routing (a mutant that sends a case to the exact route gives the same answer). Mutants that shrink an error bound or a margin were the target of the edge tests: `Kind`, `TErr`, `Away`, `Verdict`, `Prep`'s exact-zero test of `eQ`, the margin `3 u (|tn| + |tf|)` (killed by rays aimed at corners and edges), the errors with only `eP` or only `eQ` non-zero; left: `eQ` of an axis-aligned box in a segment (only the internal `Find` takes a segment with an axis-aligned box: no public path), and the ties of the exact route. | `IntrBox3ExactTests`, `IntrBox3PublicApiTests`, `IntrBox3FilterEdgeTests` |
+| `snaprounding` | `comp_geom/SnapRounding2.cs` (the snap rounding grid `SnapGrid` and `SnapRounding2.Apply`: exact tests and their double filters; an exact-code file of `.editorconfig`, so it is gated; weekly group; since 24 November 2026; thresholds break 86, low 87, high 90 until its first full run, no score yet) | `SnapRounding2Tests`, `SnapRounding2IndexTests`, `SnapGridPixelFilterTests`, `Meshing2SnapGateTests`, `QualityMesh2SnapDegenerateTests`, `Meshing2OracleSnapMarkerTests`, `QualityMesh2OracleRestoreTests`, `QualityMesh2ToleranceLimitTests`, `QualityMesh2PairKeyHashTests`, `QualityMesh2CollapsedRingDomainLibraryTests`, `ConstrainedDelaunayMesh2Tests`, `SnapRounding2MeetsGuardTests` (the only test that kills the 2^29 guard mutant), `ConstrainedDelaunayMesh2BundleTests`, `...CavityTests`, `...NodingCapTests`, `...OverlapTests`, `Meshing2OracleReportedProvenanceTests`, `QualityMesh2DroppedPartDiagnosticTests`; not `QualityMesh2GradingLibraryTests` (10 s for its calls of the snap) |
 | `envelope-1` .. `envelope-4` | `mesh_ops/PolyhedralEnvelope.cs`, split at `Builder.add`, `bit_length` and `ContainsTriangle` (since 8 November 2026 four shards: the whole file had 687 mutants, each running all 15 tests (`coverage-analysis` all) with a 30 s additional timeout, and the job was cancelled after 350 minutes; the polyhedral envelope, docs/design/ENVELOPE.md 4.4). First CI measurement (run 42474504758, 8 November 2026): `envelope-1` 82.18 % (138 killed, 5 timeouts, 30 survived, 1 no coverage), `envelope-2` 76.30 % (121 / 11 / 34 / 7), `envelope-3` 87.61 % (94 / 5 / 13 / 1), `envelope-4` 77.69 % (187 / 1 / 48 / 6); break 80, 74, 85 and 75 (the score rounded down, less two points), low = break + 2. Killed without timeouts: 540 of 702, 76.9 %. The earlier break of 90 came from a provisional local score of an older file and older tests (#263, before `ContainsTriangle`: 385 killed and 96 timeouts of 494, 97.37 %, of which 19.4 points were timeouts; the killed share then was 77.9 %, the same as now). Stryker's timeout per run is 1.5 times the initial run plus the additional timeout; the oracle test `ContainsTriangle_MatchesOracle` (141 s of the suite's 183 s) widened that window from about 75 s to about 305 s, so mutants that only slow the BigInteger paths (filters, helpers, margins) now finish and survive instead of timing out as "killed". The survivors are mostly such performance or bound-slack mutants (as the filter bounds below); a few look like real gaps (the cube axis choice, `Math.Abs(d.y) < Math.Abs(d.z)`, `f > nf`, the `Orient3d > 0` of the output check) and are open. Each part runs 2 to 4 hours on a runner, the coverage pass 20 to 37 minutes of it) | `PolyhedralEnvelopeTests` |
 | `terrain-arith` | `math/ExactIntervals.cs`, `math/ExactSlopePredicates.cs`, `mesh_ops/TerrainSlope.cs` (terrain slope design, phase 1a: exact intervals and slope predicates; local run 88.65 % at #267; break 85) | `ExactIntervalsTests`, `TerrainSlopeOracleTests` |
 | `terrain-kernel` | `math/ExactSlopeKernel.cs` (the exact slope kernel of phase 1a; local run 89.08 % at #283; break 85) | `ExactSlopeKernelTests` and the fast `TerrainSlopeDesignTests` cases named in the filter |

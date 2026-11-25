@@ -97,8 +97,15 @@ centroid, displaced infinitely close to the front side.
   reached with acc(q) < margin takes the threshold of p. The search does not expand past acc >= margin.
 - All other pieces are evaluated as today. That includes pieces not reached, pieces with a stack, and pieces whose box
   comes within 1e-3 of the coordinates' size of a segment box; the latter have G = infinity and are never crossed.
-- All factors are rounded upwards (relative 1e-12). The boxes are widened by the error bounds of the approximations of the
-  corners.
+- All factors are rounded upwards, each derived (#1350; the derivations are in the code comments): the segment lengths
+  carry the rounding of the grid end points to doubles (`boundary_bound`, factor 1 + 10u and a term 2^-52 times the L1
+  norms of the end points), the sums over the boundary segments one factor 1 + (ns + 4 + (ns mod 2)) u for ns terms
+  (`SumTermsFactor`, u = 2^-53), the piece diameter 1 + 8u (`piece_diameter`), the path length of L2 1 + 14u
+  (`carry_length`), the overflow branch of the far terms 1 + 6u, and a subnormal far term gets 2 eps added. The sum
+  lemma holds up to 2^26 segments; a boundary with more has the factor +infinity, so every bound of it is infinite
+  and its pieces are evaluated one by one. The distance slack 1e-12 s stays (its need is at most 2.1e-15 s), and so
+  does the factor 1 + 1e-12 of the Dijkstra step (two roundings). The boxes are widened by the error bounds of the
+  approximations of the corners.
 
 **Why it is bit-identical.**
 - If acc(q) < margin, the true w(q) lies within acc(q) of the true w(p), and that lies within e_p of w_p. So the true
@@ -225,8 +232,8 @@ orientation tests fail often; the exact stages on the rational centroids then do
 BigInteger arithmetic). L2 therefore gives the filters coordinates relative to an origin O, the first corner of the input
 triangle (an input point, so an integer grid point):
 
-- Each coordinate is the exact value of x - O, rounded once: `ExactPoint3.ToDouble` takes a 64-bit truncated quotient
-  (relative error below 2^-63), then one rounding to double (2^-53). That is below 2^-52 relative per coordinate, the
+- Each coordinate is the exact value of x - O, rounded once: `ExactPoint3.ToDouble` is correctly rounded (#1410; it
+  was a 64-bit truncated quotient, then a truncating conversion). That is at most 2^-53 relative per coordinate, below 2^-52, the
   input assumption of `orient3d_filtered`; coordinates below `TinyCoordinate` give NaN, which the filter refuses.
 - `orient3d_filtered` certifies the sign of the exact determinant of points within that relative error of its inputs. Its
   bound already carries the input term: eu, ev, ew are 3 * 2^-52 of the inputs' magnitudes per row, 2^-52 for each of the
@@ -397,8 +404,8 @@ The local filter never gave a sign different from the exact one.
 **Step 1, the local filter (`ExactMeshArrangement.LocalPoints`, bit-identical).** For each triangle, the points'
 coordinates relative to its first corner o (an input point, so an integer grid point), in the triangle's projection.
 Each one is the exact difference x - o, rounded once, computed when a point first needs it.
-- `ExactPoint3.ToDouble` takes a 64-bit truncated quotient (relative error below 2^-63), then converts it to double:
-  2^-53 when the conversion rounds to nearest, 2^-52 if it truncates, as .NET Framework may. Both are below
+- `ExactPoint3.ToDouble` is correctly rounded since #1410 (relative error at most 2^-53; before, a truncated quotient and a truncating
+  conversion gave below 2^-52). Both are below
   2.3e-16 |l_k| per coordinate, the bound used. Values near the subnormal range or beyond 1e300 are not used.
 - Orient and InCircle are polynomials in the differences of their points (the 2x2 and the lifted 3x3 determinant),
   so o cancels exactly. The sign of the local determinant is that of the exact points.

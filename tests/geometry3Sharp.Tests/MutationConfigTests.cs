@@ -151,6 +151,21 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void InputOrderTests_RunInEveryShardThatMutatesTheCodeOfTheCanonicalOrder()
+        {
+            // #1464: the shards whose span holds the ordering of the pieces, the inside-out triangle, SortPoints, the constraint's
+            // direction in triangulate_touched and the fan start / exact InCircle of ExactPlanarSimplify; a mutant of the old rule
+            // survived the filters of boolean-1 and arrangement-4 that lacked the tests of the order (hand mutants, review)
+            string root = RepoRoot();
+            Assert.NotNull(root);
+            var filters = TestFilters(root);
+            foreach (string part in new[] { "stryker-mesh-boolean-1", "stryker-mesh-boolean-7", "stryker-mesh-arrangement-1", "stryker-mesh-arrangement-4", "stryker-mesh-planar" })
+                Assert.Contains("FullyQualifiedName~ExactBooleanInputOrderTests", Alternatives(filters[part]));
+            // (SortPoints sits in the span of arrangement-1; its test is in a file of its own, as it does not compile against the base)
+            Assert.Contains("FullyQualifiedName~ExactMeshArrangementSortPointsTests", Alternatives(filters["stryker-mesh-arrangement-1"]));
+        }
+
+        [Fact]
         public void Planar_ExactMeshBooleanTests_IsTheClassItself()
         {
             // the bare term matched the 11 classes named after it as well (as in the arrangement shards)
@@ -183,6 +198,10 @@ namespace geometry3Sharp.Tests
             // Apply and the range check, the tree's boxes, degenerate_triangles, remove_tiny_components)
             const string serialWork = "FullyQualifiedName~RoundingSerialWorkTests.";
             const string sliverStage = "FullyQualifiedName~ExactMeshImprintSliverStageTests";
+            // (the evaluation limit of the final stage, StageMaxEvaluationsPerDefect, #1489: set in Apply, parts 1 and 10; the neutral contractions of the stage,
+            // AcceptNeutralContractionsInStage: improves() in part 3, try_collapse in part 5, Apply's resets in part 10, the fields in part 1; derived from the changed lines of the PR against
+            // the span of each part, part 4 holds none)
+            const string stageLimit = "FullyQualifiedName~ExactMeshImprintSliverTests.StageEvaluationLimit";
             var extras = new Dictionary<string, string[]>() {
                 // (the range check and for_triangles; Apply's finite check and anchors in rounding-10; the tree's boxes in
                 // rounding-12)
@@ -191,8 +210,10 @@ namespace geometry3Sharp.Tests
                     // (IsThinOrTiny, the input test of KeepWhenEmptied, #985)
                     "FullyQualifiedName~SafeRoundingLastComponentTests",
                     // (RuleLockedEdges and the final stage where they follow a contraction, #1034: the lock tests in parts 1, 10 and 5)
-                    sliverStage },
-                ["stryker-mesh-rounding-10"] = new[] { serialWork + "NotFiniteInOneTriangle", serialWork + "Field_SerialEqualsParallel", sliverStage,
+                    sliverStage, stageLimit },
+                ["stryker-mesh-rounding-10"] = new[] { serialWork + "NotFiniteInOneTriangle", serialWork + "Field_SerialEqualsParallel", sliverStage, stageLimit,
+                    // (VolumeBefore / VolumeAfter, #1463: Apply's two sums and signed_volume are in this part's span)
+                    "FullyQualifiedName~RoundingVolumeReportTests",
                     // (the pair budget's growth with the defects, RC4a)
                     "FullyQualifiedName~SafeRoundingBudgetTests" },
                 ["stryker-mesh-rounding-5"] = new[] { sliverStage },
@@ -217,12 +238,14 @@ namespace geometry3Sharp.Tests
                     serialWork + "Field_Clean" },
                 ["stryker-mesh-rounding-3"] = new[] { serialWork + "NoPasses_OneBlock", serialWork + "NoPasses_TinyDegenerate", serialWork + "Field_Clean",
                     // (pair_budget, RC4a)
-                    "FullyQualifiedName~SafeRoundingBudgetTests" },
+                    "FullyQualifiedName~SafeRoundingBudgetTests", sliverStage },
                 // (set_vertex to fix_intersection: the exact flag a position write clears, the position search)
                 ["stryker-mesh-rounding-8"] = new[] {
                     "FullyQualifiedName~RoundingExactPairsTests.SkippingSearch_SameAsFull_AndSkips&DisplayName!~FoldedCluster",
                     "FullyQualifiedName~RoundingExactPairsTests.WithoutSharedPositionsTouch_NoSkip",
-                    "FullyQualifiedName~MeshRoundingRepairTestsPositionSearch" },
+                    "FullyQualifiedName~MeshRoundingRepairTestsPositionSearch",
+                    // (fix_degenerate: a cap is flipped before a contraction is tried; under a second)
+                    "FullyQualifiedName~RoundingCapFirstTests" },
                 // (fix_intersection to the end: the tolerances of the largest component and the ScaleDisparity guard of
                 // remove_tiny_components, and its component walk)
                 ["stryker-mesh-rounding-9"] = new[] {

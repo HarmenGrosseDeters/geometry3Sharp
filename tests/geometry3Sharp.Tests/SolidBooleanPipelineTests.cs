@@ -193,9 +193,9 @@ namespace geometry3Sharp.Tests
         public void ACubeMinusAnOpenCuttingSheet_StatedAsASolid_IsRefusedByDefault_NotReturnedUnchanged()
         {
             // #1211: [0,4]^3 minus the square sheet z = 2 (larger than the cube). The intended result is a half of the cube;
-            // MeshAutoRepair closes the sheet to a surface that encloses nothing, so with AutoRepair the cube comes back
-            // unchanged (volume 64) with Status Success and a clean report. With the role Solid stated for the sheet (without a
-            // stated role it goes to the sheet role, below) the default refuses it
+            // MeshAutoRepair closes the sheet to a surface that encloses nothing (its rim filled flat, on the sheet). With the role
+            // Solid stated for the sheet (without a stated role it goes to the sheet role, below) the default refuses it, and so does
+            // AutoRepair since the repaired copy is checked
             var sheet = new DMesh3();
             int a = sheet.AppendVertex(new Vector3d(-1, -1, 2)), b = sheet.AppendVertex(new Vector3d(5, -1, 2)), c = sheet.AppendVertex(new Vector3d(5, 5, 2)), d = sheet.AppendVertex(new Vector3d(-1, 5, 2));
             sheet.AppendTriangle(a, b, c);
@@ -207,10 +207,14 @@ namespace geometry3Sharp.Tests
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
             Assert.Contains("not closed", p.Error);
             Assert.DoesNotContain("as a sheet", p.Error);
-            // the documented hazard of AutoRepair, pinned: the cube unchanged
+            // the documented hazard of AutoRepair was the cube unchanged (volume 64, Success): the flat fill of the sheet's rim lies on
+            // the sheet, so the closed copy self-intersects (coincident faces), and since owner 2026-11-22 it is refused as OpenInput
+            // (RepairSelfIntersectionTests)
             var repaired = new SolidBooleanPipeline(new List<DMesh3> { cube, sheet }, ExactMeshBoolean.Operations.Difference) { InputRoles = solids, InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair };
-            Assert.True(repaired.Compute(), repaired.Error);
-            Assert.Equal(64, MeshMeasurements.VolumeArea(repaired.Result, repaired.Result.TriangleIndices(), repaired.Result.GetVertex).x, 6);
+            Assert.False(repaired.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, repaired.Status);
+            Assert.Contains("MeshAutoRepair closed it into a self-intersecting mesh", repaired.Error);
+            Assert.Null(repaired.Result);
         }
 
         // ---- the sheet route: an open tool of a Difference without a stated role goes to the sheet role first ------------------------------------

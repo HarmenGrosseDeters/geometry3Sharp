@@ -124,11 +124,13 @@ namespace geometry3Sharp.Tests
         /// for an exponent of magnitude BooleanKnownDefectFrom or more, a flattened row can be not clean where the unflattened one is
         /// (degenerate triangles: the flattened input itself is degenerate by the relative threshold; or a component the repair's
         /// edits turned inside out), always reported (RoundingClean false). Never open or empty: the census asserts it. Measured:
-        /// 301 of the 1656 rows of the sweep (6 families, 3 axes, 92 exponents; 689 rows before the fix, all open). Below the
+        /// 282 of the 1656 rows of the sweep (6 families, 3 axes, 92 exponents; 689 rows before the fix, all open; 301 until
+        /// #1464 gave the result's ids by its geometry, and with them the repair another order of edits; 285 until #1410 made
+        /// the conversion of an exact vertex round to nearest). Below the
         /// magnitude every row passes.
         /// </summary>
         public const int BooleanKnownDefectFrom = 18;
-        public const int BooleanKnownDefectRows = 301;
+        public const int BooleanKnownDefectRows = 282;
 
         /// <summary> "" if the relation holds for the row, else the violation (for the 3 operations; the first one reported) </summary>
         static string BooleanViolation(string family, int axis, int e)

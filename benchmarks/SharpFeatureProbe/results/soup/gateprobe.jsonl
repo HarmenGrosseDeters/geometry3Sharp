@@ -1,0 +1,32 @@
+{"kind":"gateprobe","shape":"cylinder 12","tris":48,"rel_alpha":60,"median_noise":0,"median_tilt":0,"gate_open":false}
+{"kind":"gateprobe","shape":"cylinder 12","tris":48,"rel_alpha":300,"median_noise":0,"median_tilt":0,"gate_open":false}
+{"kind":"gateprobe","shape":"cylinder 16","tris":64,"rel_alpha":60,"median_noise":0,"median_tilt":0,"gate_open":false}
+{"kind":"gateprobe","shape":"cylinder 16","tris":64,"rel_alpha":300,"median_noise":0,"median_tilt":0,"gate_open":false}
+{"kind":"gateprobe","shape":"cylinder 24","tris":96,"rel_alpha":60,"median_noise":0,"median_tilt":0.0554324335706263,"gate_open":false}
+{"kind":"gateprobe","shape":"cylinder 24","tris":96,"rel_alpha":300,"median_noise":0,"median_tilt":0,"gate_open":false}
+{"kind":"gateprobe","shape":"cylinder 32","tris":128,"rel_alpha":60,"median_noise":0,"median_tilt":0.3667932853914154,"gate_open":false}
+{"kind":"gateprobe","shape":"cylinder 32","tris":128,"rel_alpha":300,"median_noise":0,"median_tilt":0,"gate_open":false}
+{"kind":"gateprobe","shape":"cylinder 64","tris":256,"rel_alpha":60,"median_noise":0,"median_tilt":0.9034504953177369,"gate_open":false}
+{"kind":"gateprobe","shape":"cylinder 64","tris":256,"rel_alpha":300,"median_noise":0,"median_tilt":0,"gate_open":false}
+{"kind":"gateprobe","shape":"cylinder 256","tris":1024,"rel_alpha":60,"median_noise":0,"median_tilt":0.23438732441884308,"gate_open":false}
+{"kind":"gateprobe","shape":"cylinder 256","tris":1024,"rel_alpha":300,"median_noise":0,"median_tilt":0.177523848551078,"gate_open":false}
+{"kind":"gateprobe","shape":"sphere 6","tris":300,"rel_alpha":60,"median_noise":0,"median_tilt":0.000795445378328431,"gate_open":false}
+{"kind":"gateprobe","shape":"sphere 6","tris":300,"rel_alpha":300,"median_noise":0,"median_tilt":0,"gate_open":false}
+{"kind":"gateprobe","shape":"sphere 8","tris":588,"rel_alpha":60,"median_noise":0,"median_tilt":0.03588584532012065,"gate_open":false}
+{"kind":"gateprobe","shape":"sphere 8","tris":588,"rel_alpha":300,"median_noise":0,"median_tilt":0,"gate_open":false}
+{"kind":"gateprobe","shape":"sphere 12","tris":1452,"rel_alpha":60,"median_noise":0,"median_tilt":0.48432380261522384,"gate_open":false}
+{"kind":"gateprobe","shape":"sphere 12","tris":1452,"rel_alpha":300,"median_noise":0,"median_tilt":0,"gate_open":false}
+{"kind":"gateprobe","shape":"sphere 32","tris":11532,"rel_alpha":60,"median_noise":0,"median_tilt":0.647787678652405,"gate_open":false}
+{"kind":"gateprobe","shape":"sphere 32","tris":11532,"rel_alpha":300,"median_noise":0,"median_tilt":0.002805512413449754,"gate_open":false}
+{"kind":"gateprobe","shape":"torus 12x6","tris":144,"rel_alpha":60,"median_noise":0,"median_tilt":0,"gate_open":false}
+{"kind":"gateprobe","shape":"torus 12x6","tris":144,"rel_alpha":300,"median_noise":0,"median_tilt":0,"gate_open":false}
+{"kind":"gateprobe","shape":"torus 24x12","tris":576,"rel_alpha":60,"median_noise":0,"median_tilt":0.00011786406258529336,"gate_open":false}
+{"kind":"gateprobe","shape":"torus 24x12","tris":576,"rel_alpha":300,"median_noise":0,"median_tilt":0,"gate_open":false}
+{"kind":"gateprobe","shape":"torus 48x24","tris":2304,"rel_alpha":60,"median_noise":0,"median_tilt":2.3349327276437015,"gate_open":false}
+{"kind":"gateprobe","shape":"torus 48x24","tris":2304,"rel_alpha":300,"median_noise":0,"median_tilt":0,"gate_open":false}
+{"kind":"gateprobe","shape":"rbox R 1 alpha60","tris":48776,"rel_alpha":60,"median_noise":0,"median_tilt":0,"gate_open":false}
+{"kind":"gateprobe","shape":"rbox R 1 alpha300","tris":50332,"rel_alpha":300,"median_noise":0,"median_tilt":0,"gate_open":false}
+{"kind":"gateprobe","shape":"rbox R 1.5 alpha60","tris":48824,"rel_alpha":60,"median_noise":0,"median_tilt":0,"gate_open":false}
+{"kind":"gateprobe","shape":"rbox R 1.5 alpha300","tris":50332,"rel_alpha":300,"median_noise":0,"median_tilt":0,"gate_open":false}
+{"kind":"gateprobe","shape":"rbox R 3 alpha60","tris":45944,"rel_alpha":60,"median_noise":0,"median_tilt":0,"gate_open":false}
+{"kind":"gateprobe","shape":"rbox R 3 alpha300","tris":50336,"rel_alpha":300,"median_noise":0,"median_tilt":0,"gate_open":false}
