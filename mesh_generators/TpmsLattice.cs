@@ -632,7 +632,7 @@ namespace g3
                 for (int d = 0; d < 3; ++d)
                     maxCoord = Math.Max(maxCoord, Math.Max(Math.Abs(h * (kmin[d] - 1)), Math.Abs(h * (kmin[d] + cells[d] + 2))));
                 if (maxCoord <= 0) maxCoord = h;
-                double s = Math.Pow(2, Math.Ceiling(Math.Log(maxCoord, 2)));
+                double s = MathUtil.IsFinite(maxCoord) ? Math.Pow(2, MathUtil.CeilLog2(maxCoord)) : maxCoord;   // #1612: the exact ceiling
                 while (s < maxCoord) s *= 2;
                 double unit = s * Math.Pow(2, -40);
                 enclosureUnit = unit;
