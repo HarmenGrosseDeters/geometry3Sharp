@@ -1,6 +1,7 @@
 using System;
 using g3;
 using g3.CoreMathPort;
+using g3.Tests;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -44,6 +45,56 @@ namespace geometry3Sharp.Tests
             output.WriteLine("Math.Atan2 differs from the correctly rounded value in " + libmDiffers + " of " + n);
         }
 
+
+        [Fact]
+        public void TermAtan2_MatchesTheHighPrecisionReference_OnASeededSampleAndTheQuadrantEdges()
+        {
+            // (CoreMathReference.Atan2 is exact arithmetic rounded once; the terms of random triangles, then the axes and diagonals)
+            var rnd = new Random(4242);
+            Func<Vector3d> r = () => new Vector3d(rnd.NextDouble() * 2 - 1, rnd.NextDouble() * 2 - 1, rnd.NextDouble() * 2 - 1);
+            for (int i = 0; i < 300; ++i) {
+                Vector3d a = r(), b = r(), c = r(), p = 1.5 * r();
+                Terms(a, b, c, p, out double top, out double bottom);
+                Assert.Equal(2.0 * CoreMathReference.Atan2(top, bottom), MathUtil.TriSolidAngle(a, b, c, ref p));
+            }
+            double[] edges = { 0.0, -0.0, 1.0, -1.0, 1e-300, -1e-300, 1e300, -1e300, double.PositiveInfinity, double.NegativeInfinity, double.NaN };
+            foreach (double y in edges)
+                foreach (double x in edges) {
+                    double got = CoreMath.Atan2(y, x), want = CoreMathReference.Atan2(y, x);
+                    Assert.True(BitConverter.DoubleToInt64Bits(got) == BitConverter.DoubleToInt64Bits(want) || (double.IsNaN(got) && double.IsNaN(want)), "atan2(" + y + ", " + x + ") = " + got + " expected " + want);
+                    // (the special values are the same as the platform's: nothing a caller of the sign of zero or an infinity could see changes)
+                    double libm = Math.Atan2(y, x);
+                    Assert.True(BitConverter.DoubleToInt64Bits(got) == BitConverter.DoubleToInt64Bits(libm) || (double.IsNaN(got) && double.IsNaN(libm)), "special value atan2(" + y + ", " + x + ")");
+                }
+        }
+
+        [Fact]
+        public void TriSolidAngle_OfDegenerateAndNonFiniteInput_IsFiniteOrNaNAsBefore()
+        {
+            Vector3d a = new Vector3d(1, 0, 0), b = new Vector3d(0, 1, 0), c = new Vector3d(0, 0, 1);
+            Vector3d atVertex = a, onPlane = new Vector3d(0.25, 0.25, 0.5), nan = new Vector3d(double.NaN, 0, 0);
+            Assert.False(double.IsNaN(MathUtil.TriSolidAngle(a, b, c, ref onPlane)));
+            Assert.Equal(Math.Atan2(0.0, 0.0) * 2, MathUtil.TriSolidAngle(a, a, a, ref atVertex));
+            Assert.True(double.IsNaN(MathUtil.TriSolidAngle(a, b, c, ref nan)));
+        }
+
+        [Fact]
+        public void FastWindingNumber_UnderEverySimilarity_IsTheSameUpToRounding_AndTheVectorPathEqualsTheReferencePath()
+        {
+            DMesh3 m = Sphere(1);
+            var pts = new[] { new Vector3d(0.1, 0.2, 0.3), new Vector3d(0.7, 0.1, -0.2), new Vector3d(1.4, 0.3, 0.9), new Vector3d(0.99, 0.05, 0.05) };
+            foreach (Similarity s in Similarity.All()) {
+                var tree = new DMeshAABBTree3(Invariance.Transformed(m, s), true);
+                var reference = new DMeshAABBTree3(Invariance.Transformed(m, s), true) { FastWindingForceScalar = true };
+                var plain = new DMeshAABBTree3(m, true);
+                foreach (Vector3d p in pts) {
+                    double w = tree.FastWindingNumber(s.Apply(p));
+                    Assert.Equal(reference.FastWindingNumber(s.Apply(p)), w);                 // kernel and reference path: the same bits
+                    Assert.InRange(Math.Abs(w - plain.FastWindingNumber(p)), 0, 1e-2);        // (a rotation or a translation rounds the input and builds other boxes, so the far-field expansions differ by their own error: not bit for bit)
+                }
+            }
+        }
+
         static DMesh3 Sphere(double scale)
         {
             DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 8 }.Generate().MakeDMesh();
@@ -65,7 +116,7 @@ namespace geometry3Sharp.Tests
                 var got = new double[pts.Length];
                 for (int i = 0; i < pts.Length; ++i) {
                     got[i] = tree.FastWindingNumber(k * pts[i]);
-                    Assert.True(double.IsFinite(got[i]));
+                    Assert.True(!double.IsNaN(got[i]) && !double.IsInfinity(got[i]));
                 }
                 if (expected == null) expected = got;
                 else for (int i = 0; i < pts.Length; ++i) Assert.Equal(expected[i], got[i]);
