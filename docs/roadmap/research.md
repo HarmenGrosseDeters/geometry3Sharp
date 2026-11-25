@@ -670,7 +670,9 @@ Ordered by expected value for the library.
      - or a refinement rule with a proof that keeps more of the bound ([meshing2d.md](meshing2d.md)).
    - 2026-11-22, spike done ([note](../research/MESHING2D_HP6_HP7_SPIKE_2026-11.md), section 1): the exemption of Miller, Pav and
      Walkington 2005 is proven up to 26.45° with a floor of about φ, for circumcentres only; on 96 procedural inputs the library's
-     excused triangles are all at the apex or spanning, 3.5 to 4 % of them below that floor. Options with the owner; nothing is built.
+     excused triangles are all at the apex or spanning, 3.5 to 4 % of them below that floor. Option 1 done: the oracle reports the
+     excused triangles below that floor (`OracleReport.BelowMpwFloorExcused`, #1358; a report, no rule); the crossing case of the
+     note (5.47°) is pinned by a test since 2026-11-25. Options 2 to 5 with the owner; the mesher is unchanged.
 7. **Meshing2D oracle speed.**
    - Status: the fast oracle stopped at its stop rule (Herne 3.6x the mesher, target <= 2x).
    - Open: a certifying-algorithm design (McConnell et al. 2011) for the remaining parts, coverage under the Q17

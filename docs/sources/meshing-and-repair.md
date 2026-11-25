@@ -408,3 +408,13 @@ snap-back check of the probe is own work on the library's exact predicates (the 
 | Projection of a coarse wrap onto the input with regularisation (prior art for the snap back; abstract level) | L. Kobbelt et al., *A shrink wrapping approach to remeshing polygonal surfaces*, CGF 18(3), 1999 |
 | Projection along normals with an adaptive alpha (prior art; abstract only, via web search 2026-11-24; the paper was not read) | Dai et al., 2024 (CAGD, paper on adaptive alpha; the note names no further details) |
 | Envelope-style tolerance (the kept-band option A2; from memory) | J. Cohen et al., *Simplification envelopes*, SIGGRAPH 1996 |
+
+## Soup orientation as Z2 synchronization (2026-11-25, research only, no library code)
+
+[docs/research/HIGHER_MATH_STUDY_2026-11.md](../research/HIGHER_MATH_STUDY_2026-11.md) section 3, probe `benchmarks/HigherMathStudy` (mode `orient`).
+Papers read as abstracts only, no code read.
+
+| Part | Source |
+|---|---|
+| Spectral relaxation of synchronization (the leading eigenvector of the normalized signed adjacency) | A. Singer, *Angular synchronization by eigenvectors and semidefinite programming*, ACHA 30(1), 2011; M. Cucuringu, *Synchronization over Z2 and community detection in signed multiplex networks with constraints*, arXiv 1504.04061, 2015 |
+| Prior art compared (not used): global flips per patch from winding numbers, patches and visibility, solidity labels | K. Takayama, A. Jacobson, L. Kavan, O. Sorkine-Hornung, *Consistently orienting facets in polygon meshes by minimizing the Dirichlet energy of generalized winding numbers*, arXiv 1406.5431, 2014 (a negative result by its abstract); F. Borodin, G. Zachmann, R. Klein, *Consistent normal orientation for polygonal meshes*, CGI 2004 (from memory); T. M. Murali, T. A. Funkhouser, *Consistent solid and boundary representations from arbitrary polygonal data*, I3D 1997 (from memory) |
