@@ -417,6 +417,7 @@ namespace g3
 
 
 
+#if !(G3_USING_UNITY && (NET_2_0 || NET_2_0_SUBSET))
         // ---- the parallel loops: caller first (#1502) ----
         //
         // Parallel.For waits for every worker task it queued, including those that have not started: called from a thread that is not a
@@ -427,7 +428,9 @@ namespace g3
         // nothing of the caller's. Which thread runs an item does not change the result (the contract of ForRange: a body writes per
         // item); SerialOnThisThread and the order adversary test exactly that. The helpers are queued with ThreadPool.QueueUserWorkItem,
         // which flows the ExecutionContext (AsyncLocal values) as Parallel.For's tasks do. Exceptions: an AggregateException of every
-        // failure, as Parallel.For; after a failure no participant starts another item (the items running finish).
+        // failure, as Parallel.For; after a failure no participant starts another item (the items running finish). The helpers run on
+        // the default pool whatever TaskScheduler.Current is (Parallel.For queued to TaskScheduler.Current; a ConcurrentExclusiveSchedulerPair
+        // with a concurrency level of 2 did not limit its loops either: 4 items at once were measured on 4 cores).
 
         // the state shared by the caller and the helpers of one loop
         class CallerFirstLoop
@@ -459,8 +462,15 @@ namespace g3
                     Leave();
                     return false;
                 }
-                if (Volatile.Read(ref Next) < Count && Interlocked.Increment(ref Queued) <= MaxHelpers)
-                    ThreadPool.QueueUserWorkItem(help);
+                if (Volatile.Read(ref Next) < Count && Interlocked.Increment(ref Queued) <= MaxHelpers) {
+                    try {
+                        ThreadPool.QueueUserWorkItem(help);
+                    } catch {
+                        // (no helper is queued: this one leaves, so that the caller does not wait for it)
+                        Leave();
+                        throw;
+                    }
+                }
                 return true;
             }
 
@@ -622,13 +632,21 @@ namespace g3
                         while (!loop.Stop) {
                             int got = 0;
                             lock (loop) {
-                                while (got < chunk && !ended) {
-                                    if (e.MoveNext())
-                                        items[got++] = e.Current;
-                                    else {
-                                        ended = true;
-                                        Volatile.Write(ref loop.Next, int.MaxValue);
+                                try {
+                                    while (got < chunk && !ended) {
+                                        if (e.MoveNext())
+                                            items[got++] = e.Current;
+                                        else {
+                                            ended = true;
+                                            Volatile.Write(ref loop.Next, int.MaxValue);
+                                        }
                                     }
+                                } catch {
+                                    // (a failed MoveNext ends the source for every participant: nobody calls it again)
+                                    ended = true;
+                                    loop.Stop = true;
+                                    Volatile.Write(ref loop.Next, int.MaxValue);
+                                    throw;
                                 }
                             }
                             if (got == 0)
@@ -656,6 +674,8 @@ namespace g3
             }
         }
 
+
+#endif
 
         // parallel for-each that will work on .net 3.5 (maybe?)
         // adapted from https://www.microsoft.com/en-us/download/details.aspx?id=19222

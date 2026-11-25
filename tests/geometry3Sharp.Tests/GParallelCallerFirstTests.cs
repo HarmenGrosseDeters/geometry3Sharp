@@ -8,13 +8,19 @@ using Xunit;
 
 namespace geometry3Sharp.Tests
 {
+    [CollectionDefinition("GParallelCallerFirst", DisableParallelization = true)]
+    public class GParallelCallerFirstCollection { }
+
     /// <summary>
     /// The parallel loops of gParallel run caller first (#1502): the calling thread takes chunks of the items at once and waits
     /// only for chunks a helper has taken, never for a helper that has not started. Parallel.For, which the loops used before,
     /// waited for every task it had queued: from a thread outside the pool, with the pool busy, a loop of a few trivial items
     /// waited until the pool ran its tasks (292 ms per call measured, benchmarks/ParallelTinyLoops). The contract stays that of
     /// ForRange: every index exactly once, on any thread in any order, a local never used by two threads at once, exceptions as before.
+    /// The class runs alone (its own collection without parallelization): BlockedPool holds every pool worker of the process for
+    /// the few milliseconds of a test, which would stall the pool work of tests in other collections.
     /// </summary>
+    [Collection("GParallelCallerFirst")]
     public class GParallelCallerFirstTests
     {
         // A pool with no free worker, made deterministically: more blocked work items are queued than the pool runs, so a work item
@@ -194,15 +200,17 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Failure_StopsTheLoop_AndNoItemRunsAfterTheThrow()
         {
-            // the first item that a helper runs fails, while the caller is still taking chunks: the caller must stop too (a failure
-            // on the caller alone ends the loop anyway, since the caller then closes it). The items are slow (about 75 ms on one
-            // thread), so a helper starts; if none did (a pool without a free worker) the loop ends without a failure and there is
-            // nothing to check
+            // the first item that a helper runs fails, while the caller is still taking chunks: the caller must stop too, within the
+            // item it is running (a failure on the caller alone ends the loop anyway, since the caller then closes it). If no helper
+            // started (a pool without a free worker) the loop ends without a failure and there is nothing to check
             int caller = Environment.CurrentManagedThreadId;
-            int ran = 0;
+            int ran = 0, ranAtFailure = -1;
             const int n = 100000;
             Exception e = Record.Exception(() => gParallel.ForRange(n, (i) => {
-                if (Environment.CurrentManagedThreadId != caller) throw new InvalidOperationException();
+                if (Environment.CurrentManagedThreadId != caller) {
+                    Interlocked.CompareExchange(ref ranAtFailure, Volatile.Read(ref ran), -1);
+                    throw new InvalidOperationException();
+                }
                 Interlocked.Increment(ref ran);
                 Thread.SpinWait(200);
             }));
@@ -215,7 +223,44 @@ namespace geometry3Sharp.Tests
             }
             var all = (e is AggregateException ae) ? ae.Flatten().InnerExceptions.ToList() : new List<Exception>() { e };
             Assert.All(all, x => Assert.IsType<InvalidOperationException>(x));
-            Assert.True(atThrow < n / 2, $"{atThrow} of {n} items ran on the caller after a helper failed");
+            // (the caller reads the stop before every item: after the failure it finishes the item it is in, and at most a few more
+            // that it had started before the failure was recorded; generous for a descheduled caller)
+            Assert.True(atThrow - ranAtFailure <= 64, $"{atThrow - ranAtFailure} items ran on the caller after a helper failed");
+        }
+
+        [Fact]
+        public void FailingEnumerator_IsNotCalledAgain()
+        {
+            // MoveNext throws once; no participant may call it again (a List enumerator after "collection modified" would throw again)
+            int calls = 0;
+            IEnumerable<int> source = Failing(() => Interlocked.Increment(ref calls));
+            var e = Assert.Throws<AggregateException>(() => gParallel.ForEach(source, (i) => Thread.SpinWait(50)));
+            Assert.IsType<InvalidOperationException>(Assert.Single(e.InnerExceptions));
+            Assert.Equal(1, Volatile.Read(ref calls));
+        }
+
+        // an enumerable whose MoveNext throws from the 200th call on, counting the calls that throw
+        static IEnumerable<int> Failing(Action onThrow)
+        {
+            return new FailingSource(onThrow);
+        }
+        sealed class FailingSource : IEnumerable<int>, IEnumerator<int>
+        {
+            readonly Action onThrow;
+            int k = -1;
+            public FailingSource(Action onThrow) { this.onThrow = onThrow; }
+            public int Current => k;
+            object System.Collections.IEnumerator.Current => k;
+            public bool MoveNext()
+            {
+                if (k + 1 >= 200) { onThrow(); throw new InvalidOperationException("source failed"); }
+                ++k;
+                return true;
+            }
+            public void Reset() { k = -1; }
+            public void Dispose() { }
+            public IEnumerator<int> GetEnumerator() => this;
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => this;
         }
 
         [Fact]
