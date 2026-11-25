@@ -324,18 +324,48 @@ namespace g3
             return (v.eX - E(p.x) * v.eW).Sign == 0 && (v.eY - E(p.y) * v.eW).Sign == 0;
         }
 
-        /// <summary> an approximation of the vertex position (for bounding boxes and heuristics only) </summary>
+        /// <summary>
+        /// an approximation of the vertex position (for bounding boxes and heuristics): within
+        /// 4e-12 (|x| + |y|) + double.Epsilon of the exact position (|x - x*| + |y - y*|), the corner error that
+        /// TerrainSlopeMap.prefilter_skips assumes (approx_position)
+        /// </summary>
         public Vector2d Approx(int vertex)
         {
             Vertex v = vertices[vertex];
             if (v.rounded) return new Vector2d(v.rx, v.ry);
-            double w = 0.5 * (v.W.Lo + v.W.Hi);
-            double x = 0.5 * (v.X.Lo + v.X.Hi) / w, y = 0.5 * (v.Y.Lo + v.Y.Hi) / w;
-            // tight intervals only (nearly parallel lines have a wide W): else the rounded exact position
-            double err = ((v.X.Hi - v.X.Lo) + (v.Y.Hi - v.Y.Lo)) / Math.Abs(w) + (Math.Abs(x) + Math.Abs(y)) * (v.W.Hi - v.W.Lo) / Math.Abs(w);
-            if (MathUtil.IsFinite(x) && MathUtil.IsFinite(y) && err <= 1e-12 * (Math.Abs(x) + Math.Abs(y)))
+            double x, y;
+            if (approx_position(v.X, v.Y, v.W, out x, out y))
                 return new Vector2d(x, y);
             return Rounded(vertex);
+        }
+
+        /// <summary> the smallest positive normal double, 2^-1022 </summary>
+        internal const double MinNormal = 2.2250738585072014e-308;
+
+        /// <summary>
+        /// the midpoint quotient (x, y) of the enclosures X, Y, W of a vertex, if it is within
+        /// 4e-12 (|x| + |y|) + double.Epsilon of every exact position X* / W*, Y* / W* inside them (|x - x*| + |y - y*|,
+        /// the proof in docs/qa/exact-bound-inventory.md, gap G1, and tools/Z3Pilot/slope_approx.py): tight intervals
+        /// only (nearly parallel lines have a wide W). Besides err &lt;= 1e-12 (|x| + |y|) it needs |x| + |y| at least
+        /// the smallest normal double and a narrow W ((W.Hi - W.Lo) 5e11 &lt;= |w|): below the normal range the
+        /// acceptance is lost in the absolute rounding errors, x = y = 0 by underflow accepted any W (issue #1586).
+        /// Neither condition rejects a position that err accepts in the normal range without underflow (there err
+        /// already bounds the width of W by about 1e-12 |w|). The exact origin (X = Y = [0, 0]) stays accepted: it is
+        /// exact.
+        /// </summary>
+        internal static bool approx_position(ExactInterval X, ExactInterval Y, ExactInterval W, out double x, out double y)
+        {
+            double w = 0.5 * (W.Lo + W.Hi);
+            x = 0.5 * (X.Lo + X.Hi) / w; y = 0.5 * (Y.Lo + Y.Hi) / w;
+            double s = Math.Abs(x) + Math.Abs(y);
+            double err = ((X.Hi - X.Lo) + (Y.Hi - Y.Lo)) / Math.Abs(w) + s * (W.Hi - W.Lo) / Math.Abs(w);
+            if (MathUtil.IsFinite(x) && MathUtil.IsFinite(y) && err <= 1e-12 * (Math.Abs(x) + Math.Abs(y))) {
+                if (X.Lo == 0 && X.Hi == 0 && Y.Lo == 0 && Y.Hi == 0)
+                    return true;
+                if (s >= MinNormal && (W.Hi - W.Lo) * 5e11 <= Math.Abs(w))
+                    return true;
+            }
+            return false;
         }
 
         /// <summary> the plane's height at the double point (x, y), rounded to nearest from the exact value </summary>

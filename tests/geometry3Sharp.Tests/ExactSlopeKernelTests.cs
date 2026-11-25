@@ -732,5 +732,142 @@ namespace geometry3Sharp.Tests
             Assert.False(k.IsAt(v, new Vector2d(1, 1e-300)));
             Assert.False(k.IsAt(v, new Vector2d(0, 0)));
         }
+        // ---- issue #1586: the corner error of the terrain prefilter (TerrainSlopeMap.prefilter_skips) ----
+        // Approx returns approx_position's midpoint quotient (x, y) of the vertex enclosures X, Y, W when it accepts it;
+        // the prefilter assumes it is within e = 4e-12 (|x| + |y|) + double.Epsilon of the exact vertex. The kernel
+        // cannot be driven to the failing intervals from its inputs: X, Y and W of a crossing are products of the same
+        // line coefficients, so a W wide enough to contain 0 (or 25 % wide) comes with an X of at least about
+        // 2^-1074 / u |w|, a normal x, and err's W term rejects it. So these tests call approx_position directly
+        // (internal; by reflection, so that they also run, and fail, against the library before the fix). The proof of
+        // the bound: tools/Z3Pilot/slope_approx.py.
+
+        static readonly System.Reflection.MethodInfo approxPosition =
+            typeof(ExactSlopeKernel).GetMethod("approx_position", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+
+        static bool ApproxPosition(double xlo, double xhi, double ylo, double yhi, double wlo, double whi, out double x, out double y)
+        {
+            Assert.NotNull(approxPosition);
+            var args = new object[] { new ExactInterval(xlo, xhi), new ExactInterval(ylo, yhi), new ExactInterval(wlo, whi), 0.0, 0.0 };
+            bool r = (bool)approxPosition.Invoke(null, args);
+            x = (double)args[3]; y = (double)args[4];
+            return r;
+        }
+
+        // |x - X*/W*| + |y - Y*/W*| <= e for the exact (X*, Y*, W*) at the corners of the box (for a W not containing 0
+        // the worst X* and Y* are endpoints, and X*/W* is monotone in W*: each coordinate's worst case is a corner)
+        static bool WithinCornerError(double x, double y, double xlo, double xhi, double ylo, double yhi, double wlo, double whi, out string why)
+        {
+            why = null;
+            // (the exact origin: X* = Y* = 0 is the point (0, 0) for every W* != 0)
+            if (xlo == 0 && xhi == 0 && ylo == 0 && yhi == 0) return x == 0 && y == 0;
+            if (!(wlo > 0 || whi < 0)) { why = "W contains 0"; return false; }
+            double e = 4e-12 * (Math.Abs(x) + Math.Abs(y)) + double.Epsilon;
+            Q worstX = new Q(0, 1), worstY = new Q(0, 1);
+            foreach (double W in new[] { wlo, whi }) {
+                foreach (double X in new[] { xlo, xhi }) { Q d = Q.Of(x) - Q.Of(X) / Q.Of(W); if (d.Sign < 0) d = new Q(-d.N, d.D); if ((d - worstX).Sign > 0) worstX = d; }
+                foreach (double Y in new[] { ylo, yhi }) { Q d = Q.Of(y) - Q.Of(Y) / Q.Of(W); if (d.Sign < 0) d = new Q(-d.N, d.D); if ((d - worstY).Sign > 0) worstY = d; }
+            }
+            Q miss = worstX + worstY;
+            if ((miss - Q.Of(e)).Sign > 0) { why = $"miss {(double)miss.N / (double)miss.D:R} > e {e:R}"; return false; }
+            return true;
+        }
+
+        // the replay of the issue: X a point 2^-1074, W = [-8, 4]; the quotient underflows to x = y = -0 with err = 0, and
+        // the exact vertex is anywhere (x* = 2^-74 for W* = 2^-1000)
+        [Fact]
+        public void ApproxPosition_RejectsAnUnderflowedQuotient_Issue1586()
+        {
+            double t = double.Epsilon;
+            Assert.False(ApproxPosition(t, t, 0, 0, -8, 4, out double x, out double y), $"accepted ({x:R}, {y:R}) with a W that contains 0");
+        }
+
+        // without the guard |x| + |y| >= 2^-1022 (the width condition alone): x = y = 0 by underflow, W a point, and the
+        // exact vertex 1.5 double.Epsilon away (the absolute rounding of the halving, the quotient and the threshold)
+        [Fact]
+        public void ApproxPosition_RejectsASubnormalQuotient_WithANarrowW()
+        {
+            double t = double.Epsilon;
+            Assert.False(ApproxPosition(2 * t, 3 * t, 2 * t, 3 * t, 4, 4, out double x, out double y), $"accepted ({x:R}, {y:R})");
+        }
+
+        // without the width condition (the guard alone): x = 2^-1022 is normal, but s (W.Hi - W.Lo) underflows to 0, so
+        // err = 0 accepts a W 25 % wide; the exact x* is 14 % off
+        [Fact]
+        public void ApproxPosition_RejectsAWideW_WhenErrsWidthTermUnderflows()
+        {
+            double t = double.Epsilon, w = Math.Pow(2, -52);
+            Assert.False(ApproxPosition(t, t, 0, 0, 0.875 * w, 1.125 * w, out double x, out double y), $"accepted ({x:R}, {y:R})");
+        }
+
+        // every accepted position is within the corner error, on random enclosures across the whole range, the subnormal
+        // edge included (point and one-ulp intervals, widths near the thresholds); the exact origin is accepted
+        [Fact]
+        public void ApproxPosition_Accepted_IsWithinTheCornerErrorOfThePrefilter()
+        {
+            var rnd = new Random(1586);
+            int accepted = 0, edge = 0;
+            Func<int, int, double> mag = (lo, hi) => Math.Pow(2, rnd.Next(lo, hi)) * (1 + rnd.NextDouble());
+            Func<double> sign = () => rnd.Next(2) == 0 ? -1.0 : 1.0;
+            for (int i = 0; i < 20000; ++i) {
+                bool tiny = i % 2 == 0;
+                // a centre (subnormal or a few ulps of double.Epsilon at the edge), and a width relative to it or in ulps
+                Func<double> centre = () => {
+                    int k = rnd.Next(4);
+                    if (k == 0) return 0;
+                    if (tiny) return sign() * double.Epsilon * rnd.Next(1, 1 << rnd.Next(1, 30));
+                    return sign() * mag(-60, 60);
+                };
+                Func<double, double, double> hiOf = (c, rel) => {
+                    switch (rnd.Next(4)) {
+                        case 0: return c;
+                        case 1: return Math.BitIncrement(c);
+                        case 2: return c + Math.Abs(c) * rel * rnd.NextDouble();
+                        default: return c + double.Epsilon * rnd.Next(1, 4);
+                    }
+                };
+                double xlo = centre(), ylo = centre();
+                double xhi = hiOf(xlo, 1e-11), yhi = hiOf(ylo, 1e-11);
+                double wlo = sign() * (tiny && rnd.Next(2) == 0 ? double.Epsilon * rnd.Next(1, 1 << 20) : mag(-1074 + 30, 60));
+                if (rnd.Next(3) == 0) wlo = sign() * mag(-60, -40);
+                double whi = hiOf(wlo, rnd.Next(2) == 0 ? 4e-12 : 0.5);
+                if (rnd.Next(10) == 0) { wlo = -8; whi = 4; }
+                if (!ApproxPosition(xlo, xhi, ylo, yhi, wlo, whi, out double x, out double y)) continue;
+                accepted++;
+                if (Math.Abs(x) + Math.Abs(y) < 1e-300) edge++;
+                Assert.True(WithinCornerError(x, y, xlo, xhi, ylo, yhi, wlo, whi, out string why),
+                            $"case {i}: X [{xlo:R}, {xhi:R}] Y [{ylo:R}, {yhi:R}] W [{wlo:R}, {whi:R}] -> ({x:R}, {y:R}): {why}");
+            }
+            Assert.True(accepted > 2000 && edge > 100, $"accepted {accepted}, near the edge {edge}");
+            Assert.True(ApproxPosition(0, 0, 0, 0, -3, -2.5, out double ox, out double oy) && ox == 0 && oy == 0);
+        }
+
+        // the 2^k scales of Similarity.All() (the others are not exact on intervals): X, Y scaled by 2^k scale the
+        // accepted position by 2^k bit for bit, and do not change the decision. In the normal range only: there every
+        // scale stays on the same side of the guard (|x| + |y| >= 2^-1022 with values near 1, also the narrow and the
+        // wide W); at the subnormal edge the roundings are not scale invariant (2^-10 underflows double.Epsilon), so the
+        // edge cases above are single-scale
+        [Fact]
+        public void ApproxPosition_IsInvariantUnderTheExactScales()
+        {
+            var rnd = new Random(15861);
+            var scales = new List<double>();
+            foreach (var sim in Similarity.All())
+                if (sim.IsExact) scales.Add(sim.Scale);
+            Assert.Contains(1.0 / 1024, scales); Assert.Contains(1024.0, scales);
+            int accepted = 0, rejected = 0;
+            for (int i = 0; i < 2000; ++i) {
+                double xlo = rnd.NextDouble() - 0.5, ylo = rnd.NextDouble() - 0.5, wlo = 0.5 + rnd.NextDouble();
+                double xhi = xlo + Math.Abs(xlo) * 1e-13 * rnd.Next(3), yhi = ylo + Math.Abs(ylo) * 1e-13 * rnd.Next(3);
+                double whi = wlo + wlo * (i % 3 == 0 ? 3e-12 : 1e-13) * rnd.NextDouble();
+                bool r = ApproxPosition(xlo, xhi, ylo, yhi, wlo, whi, out double x, out double y);
+                if (r) accepted++; else rejected++;
+                foreach (double k in scales) {
+                    bool rk = ApproxPosition(k * xlo, k * xhi, k * ylo, k * yhi, wlo, whi, out double xk, out double yk);
+                    Assert.Equal(r, rk);
+                    if (r) { Assert.Equal(k * x, xk); Assert.Equal(k * y, yk); }
+                }
+            }
+            Assert.True(accepted > 100 && rejected > 100, $"accepted {accepted}, rejected {rejected}");
+        }
     }
 }

@@ -688,6 +688,21 @@ check. Not modelled: the candidates and their seeded order (any sequence termina
 note, 10.5). 28 queries and P2, under a second; result of 2026-11-15: `results/plateau_search_2026-11-15.json`.
 `test_plateau_search.py` also checks that no state but the end is stuck, and holds a source contract on the probe.
 
+## The corner error of the terrain prefilter (`slope_approx.py`, issue #1586)
+
+`TerrainSlopeMap.prefilter_skips` culls a face without an exact recheck, assuming that every corner from
+`ExactSlopeKernel.Approx` is within e = 4e-12 (|x| + |y|) + 2^-1074 of the exact vertex. Before #1586 Approx accepted at
+the subnormal edge (x = y = 0 by underflow) any W; the fix needs |x| + |y| >= 2^-1022 and a narrow W
+((W.Hi - W.Lo) 5e11 <= |w|), and each half alone fails (IEEE replays). The proof is four lemmas, one per step
+(width of W, width of X and Y, one coordinate, the claim), linear except one; controlled mutants (SAT): the claim
+without the guard, with twice the width, and with a consumer of 3e-12. Step 0 (the computed midpoint lies in its
+interval) by the monotonicity of rounding, or with Z3's binary64 theory (`--fp`, 89 s). Under two seconds without `--fp`.
+
+```sh
+python3 tools/Z3Pilot/slope_approx.py [--fp]
+python3 -m unittest discover -s tools/Z3Pilot -p 'test_slope_approx.py' -v
+```
+
 ## Mesher checks (pilot 3, `mesher_checks.py`, 2026-11-08)
 
 Z3 checks for the 2D mesher `QualityMesh2` (owner 2026-11-08): the error bound of the exact-corner filter `ShortestEdgeCorner` (#437) and
