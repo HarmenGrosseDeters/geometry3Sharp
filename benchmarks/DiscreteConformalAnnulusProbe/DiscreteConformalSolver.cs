@@ -9,8 +9,8 @@ using g3;
 /// <summary>
 /// Prototype discrete conformal equivalence solver (Springborn-Schroeder-Pinkall 2008;
 /// Bobenko-Pinkall-Springborn 2015; Gillespie-Springborn-Crane 2021) using Ptolemy intrinsic
-/// Delaunay flips and damped Newton minimization of the convex Lobachevsky-Milnor energy via
-/// geometry3Sharp's SparseCholesky.
+/// Delaunay flips and damped Newton minimization of the convex discrete conformal energy (with the
+/// Lobachevsky function) via geometry3Sharp's SparseCholesky.
 /// </summary>
 internal sealed class DiscreteConformalSolver
 {
@@ -25,6 +25,14 @@ internal sealed class DiscreteConformalSolver
         /// Free boundary curvature with u = 0 fixed on all boundary vertices (Dirichlet).
         /// </summary>
         FixedBoundaryScale,
+
+        /// <summary>
+        /// Boundary turning per loop distributed by input arc length: a boundary vertex gets the share
+        /// (l_prev + l_next) / (2 * perimeter) of the loop's +2*pi (outer) or -2*pi (inner holes), with the
+        /// 3D lengths of the two incident boundary edges. A second boundary-curvature choice next to the
+        /// uniform one, to see whether the translational holonomy depends on it.
+        /// </summary>
+        ArcLengthLoopTurning,
     }
 
     public sealed class SolveResult
@@ -35,8 +43,25 @@ internal sealed class DiscreteConformalSolver
         public int SolveFlips;
         public int TotalFlipChecks;
         public int NearTieChecks;
+        // Consistency check only: for Euclidean triangles the two signs agree by a theorem
+        // ((a^2 + b^2 - e^2)/(ab) = 2 cos(gamma), and cos(g1) + cos(g2) >= 0 iff g1 + g2 <= pi
+        // iff cot(g1) + cot(g2) >= 0); non-Euclidean diamonds are skipped.
         public int CotanVsHyperbolicSignDisagreements;
-        public int NonEuclideanBeforeFlipEvents;
+        // Accepted Newton iterates whose trial scale factors, on the triangulation before the
+        // re-flip, gave at least one triangle that violates the triangle inequality.
+        public int AcceptedIteratesNonEuclideanBeforeFlip;
+        // Sum over accepted iterates of the number of such triangles.
+        public int NonEuclideanTrianglesAtAcceptedIterates;
+        // Line-search acceptances by the Armijo energy-descent test, and by the round-off fallback
+        // (energy not above the start by more than its round-off bound and a smaller angle residual).
+        public int ArmijoAcceptances;
+        public int RoundoffFallbackAcceptances;
+        // Negative cotan Hessian edge weights (kept, not clamped), split by interior / boundary edge, and the
+        // most negative ones.
+        public int NegativeInteriorHessianWeights;
+        public int NegativeBoundaryHessianWeights;
+        public double MostNegativeInteriorHessianWeight;
+        public double MostNegativeBoundaryHessianWeight;
         public double MaxAngleResidual;
         public double MaxEdgeScaleResidual;
         public double MaxRotationalHolonomyRad;
@@ -60,6 +85,8 @@ internal sealed class DiscreteConformalSolver
     private readonly double[] _baseLogLen;
     private readonly bool[] _isBoundaryVertex;
     private readonly List<List<int>> _boundaryLoops;
+    private readonly List<double[]> _loopEdgeLen3D; // _loopEdgeLen3D[li][i] = 3D length of loop[i] -> loop[i+1]
+    private readonly int[] _compactToV;
 
     // 8-point Gauss-Legendre nodes and weights on [0, 1] for Milnor-Lobachevsky function.
     private static readonly double[] GlNodes = {
@@ -78,7 +105,9 @@ internal sealed class DiscreteConformalSolver
         int[] twin,
         double[] baseLogLen,
         bool[] isBoundaryVertex,
-        List<List<int>> boundaryLoops)
+        List<List<int>> boundaryLoops,
+        List<double[]> loopEdgeLen3D,
+        int[] compactToV)
     {
         _vertexCount = vertexCount;
         _triCount = triCount;
@@ -87,7 +116,12 @@ internal sealed class DiscreteConformalSolver
         _baseLogLen = baseLogLen;
         _isBoundaryVertex = isBoundaryVertex;
         _boundaryLoops = boundaryLoops;
+        _loopEdgeLen3D = loopEdgeLen3D;
+        _compactToV = compactToV;
     }
+
+    /// <summary> Input vertex id of compact vertex index i (the index of SeamlessVertexUV). </summary>
+    public int InputVertexID(int i) => _compactToV[i];
 
     public static DiscreteConformalSolver FromMesh(DMesh3 mesh)
     {
@@ -163,6 +197,13 @@ internal sealed class DiscreteConformalSolver
             loops.Add((perim, loop));
         }
         loops.Sort((x, y) => y.Perim.CompareTo(x.Perim));
+        var loopLens = new List<double[]>(loops.Count);
+        foreach (var (_, verts) in loops) {
+            var lens = new double[verts.Count];
+            for (int i = 0; i < verts.Count; ++i)
+                lens[i] = mesh.GetVertex(compactToV[verts[i]]).Distance(mesh.GetVertex(compactToV[verts[(i + 1) % verts.Count]]));
+            loopLens.Add(lens);
+        }
 
         return new DiscreteConformalSolver(
             compactToV.Count,
@@ -171,7 +212,9 @@ internal sealed class DiscreteConformalSolver
             twin,
             baseLogLen,
             isBoundary,
-            loops.Select(l => l.Verts).ToList());
+            loops.Select(l => l.Verts).ToList(),
+            loopLens,
+            compactToV.ToArray());
     }
 
     private static int Next(int h) => 3 * (h / 3) + (h + 1) % 3;
@@ -345,8 +388,6 @@ internal sealed class DiscreteConformalSolver
             if (TryCotanSum(h, u, out double cotSum)) {
                 if ((hyp < -eps && cotSum > eps) || (hyp > eps && cotSum < -eps))
                     ++stats.CotanVsHyperbolicSignDisagreements;
-            } else {
-                ++stats.NonEuclideanBeforeFlipEvents;
             }
 
             if (hyp < -eps) {
@@ -368,16 +409,28 @@ internal sealed class DiscreteConformalSolver
         return flips;
     }
 
+    private int CountNonEuclideanTriangles(double[] u)
+    {
+        int count = 0;
+        for (int f = 0; f < _triCount; ++f) {
+            double l0 = ScaledLen(3 * f, u), l1 = ScaledLen(3 * f + 1, u), l2 = ScaledLen(3 * f + 2, u);
+            if (!(l0 < l1 + l2 && l1 < l2 + l0 && l2 < l0 + l1))
+                ++count;
+        }
+        return count;
+    }
+
     private bool EvaluateAnglesAndEnergy(
         double[] u,
         double[] targetTheta,
         out double[] theta,
         out double energy,
+        out double energyRoundoff,
         out double[] halfEdgeCotan)
     {
         theta = new double[_vertexCount];
         halfEdgeCotan = new double[3 * _triCount];
-        double sumTri = 0;
+        double sumTri = 0, sumAbs = 0;
         for (int f = 0; f < _triCount; ++f) {
             int h0 = 3 * f, h1 = 3 * f + 1, h2 = 3 * f + 2;
             // Edges: h0 = v0->v1 (opposite v2), h1 = v1->v2 (opposite v0), h2 = v2->v0 (opposite v1)
@@ -391,6 +444,7 @@ internal sealed class DiscreteConformalSolver
             double areaSq = s * (s - l0) * (s - l1) * (s - l2);
             if (areaSq <= 0 || !double.IsFinite(areaSq)) {
                 energy = double.PositiveInfinity;
+                energyRoundoff = 0;
                 return false;
             }
             double fourArea = 4.0 * Math.Sqrt(areaSq);
@@ -410,20 +464,28 @@ internal sealed class DiscreteConformalSolver
             halfEdgeCotan[h1] = (l1 * l1 + l2 * l2 - l0 * l0) / fourArea;
             halfEdgeCotan[h2] = (l2 * l2 + l0 * l0 - l1 * l1) / fourArea;
 
-            sumTri += 2.0 * (a0 * lam0 + a1 * lam1 + a2 * lam2
-                + Lobachevsky(a0) + Lobachevsky(a1) + Lobachevsky(a2));
+            // Full per-triangle term of Springborn-Schroeder-Pinkall (2008) with lambda = 2 log(l):
+            // 2 f(lambda) - (pi/2) * sum(lambda), f = 1/2 sum(alpha*lambda) + sum(Lobachevsky(alpha)).
+            // The -pi*sum(log l) term includes the u-independent part, which changes under a Ptolemy
+            // flip; with it the energy is one function of u across flips (Bobenko-Pinkall-Springborn 2015).
+            double tri = 2.0 * (a0 * lam0 + a1 * lam1 + a2 * lam2
+                + Lobachevsky(a0) + Lobachevsky(a1) + Lobachevsky(a2))
+                - Math.PI * (lam0 + lam1 + lam2);
+            sumTri += tri;
+            sumAbs += 2.0 * (Math.Abs(a0 * lam0) + Math.Abs(a1 * lam1) + Math.Abs(a2 * lam2))
+                + Math.PI * (Math.Abs(lam0) + Math.Abs(lam1) + Math.Abs(lam2)) + 1.0;
         }
 
-        // Count incident triangles per vertex for exact linear term.
-        int[] degF = new int[_vertexCount];
-        for (int h = 0; h < 3 * _triCount; ++h)
-            ++degF[_head[h]];
-
         double lin = 0;
-        for (int v = 0; v < _vertexCount; ++v)
-            lin += (targetTheta[v] - Math.PI * degF[v]) * u[v];
+        for (int v = 0; v < _vertexCount; ++v) {
+            lin += targetTheta[v] * u[v];
+            sumAbs += Math.Abs(targetTheta[v] * u[v]);
+        }
 
         energy = sumTri + lin;
+        // Generous bound for the round-off of the sum (and the quadrature error of the Lobachevsky
+        // function, about 1e-12 per call for 8-point Gauss-Legendre on [0, pi/2]).
+        energyRoundoff = 64.0 * 1.1102230246251565e-16 * sumAbs + 1e-12 * 3 * _triCount;
         return double.IsFinite(energy);
     }
 
@@ -448,9 +510,14 @@ internal sealed class DiscreteConformalSolver
             for (int li = 0; li < _boundaryLoops.Count; ++li) {
                 var loop = _boundaryLoops[li];
                 double turnSign = li == 0 ? 1.0 : -1.0; // outer loop +2*pi, inner holes -2*pi
-                double angle = Math.PI - turnSign * (2.0 * Math.PI / loop.Count);
-                foreach (int v in loop)
-                    targetTheta[v] = angle;
+                double[] lens = _loopEdgeLen3D[li];
+                double perim = lens.Sum();
+                for (int i = 0; i < loop.Count; ++i) {
+                    double share = mode == BoundaryMode.ArcLengthLoopTurning
+                        ? 0.5 * (lens[(i + loop.Count - 1) % loop.Count] + lens[i]) / perim
+                        : 1.0 / loop.Count;
+                    targetTheta[loop[i]] = Math.PI - turnSign * 2.0 * Math.PI * share;
+                }
             }
             fixedU[0] = true; // fix global scale factor
         }
@@ -464,7 +531,7 @@ internal sealed class DiscreteConformalSolver
         }
 
         res.InitialFlips = FlipToHyperbolicDelaunay(u, res);
-        if (!EvaluateAnglesAndEnergy(u, targetTheta, out double[] theta, out double energy, out double[] halfEdgeCotan)) {
+        if (!EvaluateAnglesAndEnergy(u, targetTheta, out double[] theta, out double energy, out double energyRoundoff, out double[] halfEdgeCotan)) {
             res.Note = "Initial Delaunay triangulation is non-Euclidean.";
             res.ElapsedMs = sw.Elapsed.TotalMilliseconds;
             return res;
@@ -485,8 +552,13 @@ internal sealed class DiscreteConformalSolver
             if (freeCount == 0)
                 break;
 
-            // Assemble positive-definite cotan Hessian on free vertices:
+            // Assemble the cotan Hessian on free vertices:
             // H_ii = sum_e 0.5*(cot_L + cot_R), H_ij = -0.5*(cot_L + cot_R).
+            // This is the exact Hessian of the energy (Springborn-Schroeder-Pinkall 2008). It is the cotan
+            // Laplacian of a Euclidean triangulation, so it is positive semi-definite even with negative
+            // weights (boundary edges with an obtuse opposite angle are not constrained by the Delaunay
+            // flips), and positive definite on the free vertices. Weights are not clamped; negative ones
+            // are only counted (NegativeHessianWeights).
             var entries = new List<KeyValuePair<Index2i, double>>(6 * _triCount);
             double[] diag = new double[freeCount];
             for (int h = 0; h < 3 * _triCount; ++h) {
@@ -494,8 +566,15 @@ internal sealed class DiscreteConformalSolver
                 if (tw >= 0 && tw < h)
                     continue;
                 double w = 0.5 * (halfEdgeCotan[h] + (tw >= 0 ? halfEdgeCotan[tw] : 0.0));
-                if (w < 0)
-                    w = 0; // numerical guard at near-zero Delaunay ties
+                if (w < 0) {
+                    if (tw >= 0) {
+                        ++res.NegativeInteriorHessianWeights;
+                        res.MostNegativeInteriorHessianWeight = Math.Min(res.MostNegativeInteriorHessianWeight, w);
+                    } else {
+                        ++res.NegativeBoundaryHessianWeights;
+                        res.MostNegativeBoundaryHessianWeight = Math.Min(res.MostNegativeBoundaryHessianWeight, w);
+                    }
+                }
                 int a = Tail(h), b = _head[h];
                 int ia = varIndex[a], ib = varIndex[b];
                 if (ia >= 0) diag[ia] += w;
@@ -506,7 +585,7 @@ internal sealed class DiscreteConformalSolver
                 }
             }
             for (int i = 0; i < freeCount; ++i)
-                entries.Add(new KeyValuePair<Index2i, double>(new Index2i(i, i), diag[i] + 1e-14));
+                entries.Add(new KeyValuePair<Index2i, double>(new Index2i(i, i), diag[i]));
 
             double[] rhs = new double[freeCount];
             for (int v = 0; v < _vertexCount; ++v) {
@@ -522,6 +601,10 @@ internal sealed class DiscreteConformalSolver
             }
             double[] step = new double[freeCount];
             chol.Solve(rhs, step);
+            // Directional derivative of E along step: grad E = -rhs, so grad.step = -rhs.step < 0.
+            double slope = 0;
+            for (int i = 0; i < freeCount; ++i)
+                slope -= rhs[i] * step[i];
 
             // Clamp extreme single step to avoid exp overflow in trial points.
             double maxStep = step.Max(Math.Abs);
@@ -537,7 +620,9 @@ internal sealed class DiscreteConformalSolver
             double[] trialTheta = theta;
             double[] trialCotan = halfEdgeCotan;
             double trialEnergy = energy;
+            double trialRoundoff = energyRoundoff;
             double trialRes = maxRes;
+            int trialNonEuclidean = 0;
 
             for (int ls = 0; ls < 30; ++ls) {
                 Array.Copy(savedHead, _head, _head.Length);
@@ -551,10 +636,19 @@ internal sealed class DiscreteConformalSolver
                         trialU[v] += alpha * step[iv];
                 }
 
+                trialNonEuclidean = CountNonEuclideanTriangles(trialU);
                 int stepFlips = FlipToHyperbolicDelaunay(trialU, res);
-                if (EvaluateAnglesAndEnergy(trialU, targetTheta, out trialTheta, out trialEnergy, out trialCotan)) {
+                if (EvaluateAnglesAndEnergy(trialU, targetTheta, out trialTheta, out trialEnergy, out trialRoundoff, out trialCotan)) {
                     trialRes = ComputeResidual(trialTheta);
-                    if (trialEnergy <= energy + 1e-12 || trialRes < maxRes) {
+                    // Armijo energy descent (c = 1e-4) on the full energy, which is comparable across flips.
+                    bool armijo = trialEnergy <= energy + 1e-4 * alpha * slope;
+                    // Near convergence the decrease (about residual^2) falls below the round-off of E;
+                    // then accept a step that does not raise E beyond that bound and lowers the residual.
+                    bool roundoff = !armijo
+                        && trialEnergy <= energy + Math.Max(energyRoundoff, trialRoundoff)
+                        && trialRes < maxRes;
+                    if (armijo || roundoff) {
+                        if (armijo) ++res.ArmijoAcceptances; else ++res.RoundoffFallbackAcceptances;
                         res.SolveFlips += stepFlips;
                         accepted = true;
                         break;
@@ -575,7 +669,12 @@ internal sealed class DiscreteConformalSolver
             theta = trialTheta;
             halfEdgeCotan = trialCotan;
             energy = trialEnergy;
+            energyRoundoff = trialRoundoff;
             maxRes = trialRes;
+            if (trialNonEuclidean > 0) {
+                ++res.AcceptedIteratesNonEuclideanBeforeFlip;
+                res.NonEuclideanTrianglesAtAcceptedIterates += trialNonEuclidean;
+            }
             res.NewtonIterations = iter + 1;
         }
 
@@ -645,9 +744,13 @@ internal sealed class DiscreteConformalSolver
                 minX = Math.Min(minX, p.x); maxX = Math.Max(maxX, p.x);
                 minY = Math.Min(minY, p.y); maxY = Math.Max(maxY, p.y);
             }
+            // ThirdVertexCCW places every third vertex on the left of its edge (with ySq clamped
+            // to >= 0), so 'flipped' is 0 by construction; it guards the layout code, not the solve.
+            // The degeneracy test is relative to the longest edge squared (scale-free).
             double area2 = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
-            if (area2 < -1e-15) ++flipped;
-            else if (Math.Abs(area2) <= 1e-15) ++degen;
+            double maxLenSq = Math.Max((p1 - p0).LengthSquared, Math.Max((p2 - p1).LengthSquared, (p0 - p2).LengthSquared));
+            if (area2 < -1e-12 * maxLenSq) ++flipped;
+            else if (Math.Abs(area2) <= 1e-12 * maxLenSq) ++degen;
 
             // Check edge length match against scaled intrinsic metric.
             double e0 = p0.Distance(p1), s0 = ScaledLen(3 * f + 0, u);

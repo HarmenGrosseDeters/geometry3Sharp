@@ -138,7 +138,7 @@ static void Demand(bool condition, string message)
 }
 
 Console.WriteLine("=== Part 1: Full CETM + Ptolemy Intrinsic Delaunay Solver vs LSCM and Spectral ===");
-Console.WriteLine("case | mode | LSCM (flips+deg) | Spectral (status/flips) | CETM conv/iters | init+solve flips | maxAngleRes | rotHol(rad) | transHol(rel) | intrFlips | bndContacts | meanConf | ms");
+Console.WriteLine("case | mode | LSCM (flips+deg) | Spectral (status/flips) | CETM conv/iters | init+solve flips | maxAngleRes | rotHol(rad) | transHol(rel) | inputUV flips+deg | bndContacts | meanConf | nonEucl iters/tris | armijo+fallback | ms");
 
 var cases = new (string Label, DMesh3 Mesh, DiscreteConformalSolver.BoundaryMode Mode)[] {
     ("P1 cyl 8x3 h=1.8", MakeCylinder(8, 3, 1.8), DiscreteConformalSolver.BoundaryMode.UniformLoopTurning),
@@ -158,11 +158,25 @@ var cases = new (string Label, DMesh3 Mesh, DiscreteConformalSolver.BoundaryMode
     ("sharp cone h=4 (disk)", MakeHighCurvatureCone(24, 8, 4.0, jitter: 0.05), DiscreteConformalSolver.BoundaryMode.UniformLoopTurning),
     ("sharp cone (fixed u_b=0)", MakeHighCurvatureCone(24, 8, 4.0, jitter: 0.05), DiscreteConformalSolver.BoundaryMode.FixedBoundaryScale),
     ("2-hole bumped plate", MakeTwoHolePlate(20, 12, 0.5), DiscreteConformalSolver.BoundaryMode.UniformLoopTurning),
+    // Second boundary-curvature choice (turning by input arc length) on the cases the uniform turning leaves open,
+    // plus two symmetric controls.
+    ("P1 cyl 24x6 h=1.8", MakeCylinder(24, 6, 1.8), DiscreteConformalSolver.BoundaryMode.ArcLengthLoopTurning),
+    ("pinched waist 24x8", MakeCylinder(24, 8, 2.4, waistScale: 0.45), DiscreteConformalSolver.BoundaryMode.ArcLengthLoopTurning),
+    ("z-jit10% 8x3 h=1.8", MakeCylinder(8, 3, 1.8, zJitterFrac: 0.10, seed: 42), DiscreteConformalSolver.BoundaryMode.ArcLengthLoopTurning),
+    ("z-jit10% 8x3 h=3.6", MakeCylinder(8, 3, 3.6, zJitterFrac: 0.10, seed: 42), DiscreteConformalSolver.BoundaryMode.ArcLengthLoopTurning),
+    ("z-jit10% 24x6 h=1.8", MakeCylinder(24, 6, 1.8, zJitterFrac: 0.10, seed: 42), DiscreteConformalSolver.BoundaryMode.ArcLengthLoopTurning),
+    ("z-jit10% 24x6 h=3.6", MakeCylinder(24, 6, 3.6, zJitterFrac: 0.10, seed: 42), DiscreteConformalSolver.BoundaryMode.ArcLengthLoopTurning),
+    ("3D-jit 24x6 h=1.8", MakeCylinder(24, 6, 1.8, zJitterFrac: 0.10, radialJitterFrac: 0.05, sharedAngleJitter: 0.05, seed: 42), DiscreteConformalSolver.BoundaryMode.ArcLengthLoopTurning),
+    ("bent banana 16x8 70deg", MakeCylinder(16, 8, 2.4, bendAngleRad: 70.0 * Math.PI / 180.0), DiscreteConformalSolver.BoundaryMode.ArcLengthLoopTurning),
+    ("2-hole bumped plate", MakeTwoHolePlate(20, 12, 0.5), DiscreteConformalSolver.BoundaryMode.ArcLengthLoopTurning),
 };
 
 int totalSignDisagreements = 0;
-int totalNonEuclideanBeforeFlip = 0;
+int totalNonEuclideanIterates = 0;
+int totalNonEuclideanTris = 0;
 int totalSolveFlips = 0;
+int totalArmijo = 0, totalFallback = 0, totalNegInterior = 0, totalNegBoundary = 0;
+double mostNegInterior = 0, mostNegBoundary = 0;
 
 foreach (var (label, mesh, mode) in cases) {
     var lscm = new LSCMParameterization(mesh).Compute();
@@ -180,19 +194,43 @@ foreach (var (label, mesh, mode) in cases) {
     var r = solver.Solve(mode);
 
     totalSignDisagreements += r.CotanVsHyperbolicSignDisagreements;
-    totalNonEuclideanBeforeFlip += r.NonEuclideanBeforeFlipEvents;
+    totalNonEuclideanIterates += r.AcceptedIteratesNonEuclideanBeforeFlip;
+    totalNonEuclideanTris += r.NonEuclideanTrianglesAtAcceptedIterates;
     totalSolveFlips += r.SolveFlips;
+    totalArmijo += r.ArmijoAcceptances;
+    totalFallback += r.RoundoffFallbackAcceptances;
+    totalNegInterior += r.NegativeInteriorHessianWeights;
+    totalNegBoundary += r.NegativeBoundaryHessianWeights;
+    mostNegInterior = Math.Min(mostNegInterior, r.MostNegativeInteriorHessianWeight);
+    mostNegBoundary = Math.Min(mostNegBoundary, r.MostNegativeBoundaryHessianWeight);
 
-    string modeTag = mode == DiscreteConformalSolver.BoundaryMode.UniformLoopTurning ? "turn" : "u_b=0";
+    // Input-mesh check, measured the same way as LSCM: the seamless per-vertex UV evaluated on the INPUT triangles
+    // (linear per triangle). After intrinsic flips the input edges are not straight in the flat metric, so this is
+    // what a per-vertex UV export of the chart would give; with holonomy there is no single-valued vertex UV.
+    string inputUvStr = "n/a (hol)";
+    if (r.SeamlessVertexUV != null) {
+        var uv = new Vector2d[mesh.MaxVertexID];
+        for (int i = 0; i < r.SeamlessVertexUV.Length; ++i)
+            uv[solver.InputVertexID(i)] = r.SeamlessVertexUV[i];
+        var dist = ParameterizationDistortion.Compute(mesh, uv);
+        inputUvStr = $"{dist.FlippedTriangles}+{dist.DegenerateUVTriangles}";
+    }
+
+    string modeTag = mode switch {
+        DiscreteConformalSolver.BoundaryMode.UniformLoopTurning => "turn",
+        DiscreteConformalSolver.BoundaryMode.ArcLengthLoopTurning => "turn-len",
+        _ => "u_b=0",
+    };
     string convStr = r.Converged ? $"yes/{r.NewtonIterations}" : $"NO/{r.NewtonIterations}";
     string bndStr = r.NonAdjacentBoundaryContacts < 0 ? "open(hol)" : r.NonAdjacentBoundaryContacts.ToString();
     Console.WriteLine(
         $"{label} | {modeTag} | {lscmStr} | {specStr} | {convStr} | {r.InitialFlips}+{r.SolveFlips} | " +
         $"{r.MaxAngleResidual:E2} | {r.MaxRotationalHolonomyRad:E2} | {r.MaxTranslationalHolonomyRel:E2} | " +
-        $"{r.FlippedIntrinsicTriangles}+{r.DegenerateIntrinsicTriangles} | {bndStr} | {r.MeanIntrinsicConformalDistortion:F4} | {r.ElapsedMs:F1}");
+        $"{inputUvStr} | {bndStr} | {r.MeanIntrinsicConformalDistortion:F4} | " +
+        $"{r.AcceptedIteratesNonEuclideanBeforeFlip}/{r.NonEuclideanTrianglesAtAcceptedIterates} | {r.ArmijoAcceptances}+{r.RoundoffFallbackAcceptances} | {r.ElapsedMs:F1}");
 
-    // Verify invariants: whenever CETM converged, all unfolded intrinsic triangles must be positive-area
-    // and match the vertex-scaled metric to near machine precision.
+    // Layout guards: the unfolded intrinsic triangles are CCW by construction (ThirdVertexCCW), so the flipped
+    // count only guards the layout code; non-degeneracy (relative) and the edge-length match are real checks.
     if (r.Converged) {
         Demand(r.FlippedIntrinsicTriangles == 0 && r.DegenerateIntrinsicTriangles == 0,
             $"{label}: converged CETM produced flipped/degenerate intrinsic triangles");
@@ -201,7 +239,10 @@ foreach (var (label, mesh, mode) in cases) {
     }
 }
 
-Console.WriteLine($"Summary across all solver runs: totalSolveFlips={totalSolveFlips}, nonEuclideanBeforeFlip={totalNonEuclideanBeforeFlip}, cotanVsHypDisagreements={totalSignDisagreements}");
+Console.WriteLine($"Summary across all {cases.Length} solver runs: totalSolveFlips={totalSolveFlips}, " +
+    $"acceptedIteratesNonEuclideanBeforeFlip={totalNonEuclideanIterates} (triangles {totalNonEuclideanTris}), " +
+    $"armijo={totalArmijo}, roundoffFallback={totalFallback}, negativeHessianWeights (not clamped) interior={totalNegInterior} (min {mostNegInterior:E2}) boundary={totalNegBoundary} (min {mostNegBoundary:E2}), " +
+    $"cotanVsHypDisagreements={totalSignDisagreements} (consistency check)");
 
 Console.WriteLine();
 Console.WriteLine("=== Part 2: Exact vs Double Delaunay Flip Predicates (InCircle, CotanSum, Exact Hyperbolic Polynomial) ===");
