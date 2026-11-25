@@ -225,7 +225,42 @@ Re-checked on master after the #1548 fix: findings 1 and 3 are fixed (every flip
 (#1575) is fixed for the box, the torus and the dense sphere, but not for the default sphere (alpha wrap, 1.3 % of the
 volume, 35 s).
 
-## Stage 2 proposal (ranked by expected findings; 1 done above)
+## Stage 2b: contouring and TPMS (2026-11-25)
+
+New demo tab "Contouring & TPMS" (`Demos/ContourDemo.cs`), each with an analytic or self-reported reference:
+- `TpmsLattice` (6 types x 3 styles, volume fraction, divisions, `Enclosure`) against its `RealizedVolumeFraction` and the
+  measured volume of the mesh;
+- `MeshOffset` of the box 1 x 0.7 x 0.5 (rotated, cell size, inset and offset) against the exact offset volume (the box
+  plus its Minkowski rounding) and the exact inset box;
+- `DualContouring` of the exact box SDF (sharp, must be exact) and of a sphere, `MarchingCubes` of the sphere, on aligned and
+  shifted grids.
+
+78 cases (`contour/*`). What held: every result that `MeshOffset` returned is clean, certified (`BandCertified`) and
+within 0.25 % of the analytic offset volume at the default cell (0.06 % at d = 0.1, 0.002 % at a fine cell), with
+exact insets of the axis-aligned box (0.03 % rotated); every TPMS
+type and style is clean and its `RealizedVolumeFraction` is the measured one; 2^k invariance held bit for bit in all
+modes; the DualContouring box is exact on shifted grids.
+
+Findings:
+
+- **C1 (medium, #1596):** `TpmsLattice` with `Enclosure = true` on a Gyroid sheet returns the solid (enlarged) box
+  (volume 9.35 of a 2.1^3 box, `RealizedVolumeFraction` 1.17), `Status == Ok`. And a sheet wall thinner than about one
+  cube loses most of the material with `Status == Ok` (requested 0.1, realized 0.0088; `TwoLevelSheet` gives 0.101).
+- **C2 (medium, #1597):** `MeshOffset` insets that leave a part of 0.01-0.03 (the box inset by 0.235-0.245) return `Empty`,
+  documented as "an inset beyond the thickness of the part"; the part exists and `RelativeCellSize = 0.05` returns it exactly.
+- **C3 (medium, #1598):** `DualContouring` with exact Hermite data places one edge of a box whose faces lie on grid planes
+  0.08 cells inside (two corners at x = -0.496 instead of -0.5): 12 clean triangles, volume -0.2 %.
+- **C4 (medium, #1599):** `MarchingCubes` of a plain sphere has near-zero-area triangles in every root mode (36 of 896 at
+  cube 0.1), so it fails `NotCleanReasons` ("degenerate triangles").
+- **C5 (low, comment on #1577):** `TpmsLattice` meshes differ in the browser in 15 of 30 cases (same counts and volumes
+  to 10 digits; `Math.Sin` / `Math.Cos` in the field; not in the determinism scope). `MeshOffset`, `DualContouring` and
+  `MarchingCubes` gave the same bits.
+- **C6 (low, research note only):** `MeshOffset` by a small distance (0.001 on the unit box) returns `GridTooLarge` with no
+  message: the default cell (0.25 d) needs 6e10 nodes; a customer has to find `CellSize` or `RelativeCellSize` alone.
+
+Browser: 73 cases, 17x native at the median; `MeshOffset` (exact certification) 50-72x interpreted.
+
+## Stage 2 proposal (ranked by expected findings; 1 and 2 done above)
 
 1. **Alpha wrap** (`MeshAlphaWrap`, `PassageWrap`): findings 2 and 3 already end there; holes against alpha, thin parts,
    point clouds, the target triangle count, and its time on small inputs (the 1M-triangle raw wrap) in the browser.
