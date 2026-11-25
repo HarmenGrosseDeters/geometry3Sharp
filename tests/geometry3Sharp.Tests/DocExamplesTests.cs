@@ -853,6 +853,18 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void SolidBooleanPipelineExample_RefusesAnInventedLid()
+        {
+            SolidBooleanPipeline pipeline = SolidBooleanPipelineExample.RefuseAnInventedLid();
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.VerificationFailed, pipeline.Status);
+            Assert.Null(pipeline.Result);
+            Assert.Contains("NoInventedSurface", pipeline.Error);
+            Assert.Equal(1.0 / 30, pipeline.Report.InventedSurfaceShare, 12);
+            Assert.Equal("Verification", pipeline.Report.Route[pipeline.Report.Route.Count - 1].Name);
+            Assert.Equal(0.0, pipeline.Report.RoundingVolumeChange);
+        }
+
+        [Fact]
         public void SolidBooleanPipelineExample_UnionsAndImprintsCleanly()
         {
             SolidBooleanPipeline pipeline = SolidBooleanPipelineExample.UnionAndReduce();
