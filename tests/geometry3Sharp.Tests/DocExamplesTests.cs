@@ -186,6 +186,17 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void BooleanVolumeOptimizerExample_GrowsTheUnionToTheTargetVolume()
+        {
+            // (the optimizer's convergence, invariance, determinism and failures: BooleanVolumeOptimizerTests)
+            var r = g3.Examples.BooleanVolumeOptimizerExample.GrowUnion();
+            Assert.True(r.Reason == g3.Examples.BooleanVolumeOptimizerExample.StopReason.Converged, r.Error);
+            Assert.Equal(1.3, r.Iterations[r.Iterations.Count - 1].Volume, 8);
+            Assert.True(r.Final.IsClosed());
+            Assert.Equal(1.3, Volume(r.Final), 6);
+        }
+
+        [Fact]
         public void ExactMeshBooleanExample_ExactVolumesAndClosedResults()
         {
             // cube 1, bar 0.5 x 0.5 x 2 of which 0.25 lies inside the cube

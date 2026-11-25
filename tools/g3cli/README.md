@@ -18,6 +18,7 @@ Detailed flags, input schemas, additive JSON fields, and worked examples are org
 | `measure` | Counts, components, closedness, volume, area, genus, self-intersections, Hausdorff | `MeshMeasurements`, `MeshRepairMetrics`, `MeshHausdorffDistance` | [Analysis](docs/analysis-commands.md#measure) |
 | `repair` | Robust (`--method robust`, default) or auto mesh repair into a clean solid | `MeshRobustRepair`, `MeshAutoRepair` | [Mesh](docs/mesh-commands.md#repair) |
 | `boolean` | Exact binary/n-ary union, intersection, difference, `at_least`, `xor` + SafeRounding | `ExactMeshBoolean`, `MeshRoundingRepair` | [Mesh](docs/mesh-commands.md#boolean--resolve) |
+| `boolean --volume-gradient` | Gradient of the exact result's volume per input vertex, with bounds and flush contacts (.csv / .json) | `BooleanVolumeGradient` | [Mesh](docs/mesh-commands.md#volume-gradient---volume-gradient) |
 | `resolve` | Resolve self-intersections, nested shells, and duplicate faces in one mesh | `ExactMeshBoolean.Resolve` | [Mesh](docs/mesh-commands.md#boolean--resolve) |
 | `remesh` | Isotropic remeshing preserving boundaries, creases, sharp vertices (`--safe`) | `Remesher`, `MeshConstraintUtil` | [Mesh](docs/mesh-commands.md#remesh) |
 | `simplify` | QEM simplification by count, ratio, error, or edge length (`--partitioned`) | `Reducer`, `PartitionedReducer` | [Mesh](docs/mesh-commands.md#simplify) |
