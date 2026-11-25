@@ -164,7 +164,9 @@ solid and the result is closed.
    before, it ran on the lattice-frame mesh, and at an `Origin` near `1e13` the rounding of the transform made a mesh that
    passed it degenerate and self-intersecting while `Status` was `Ok`). An a-priori bound of the rounding (about an ulp of
    the world coordinates per vertex) would need the smallest separation of non-adjacent triangles to decide, which the exact
-   check does not compute, so the world mesh is checked directly; the cost is unchanged.
+   check does not compute, so the world mesh is checked directly, once per grid attempt as before, with no extra pass. The
+   retry on degenerate triangles so also fires on degeneracy from the rounding (a far origin tries every shift before
+   `NotClean`), and a lattice-frame sliver that the rounding makes non-degenerate is accepted without a retry.
    Reason for a runtime certificate: the table argument is exact-arithmetic; rounded crossings that nearly coincide
    can in theory break embeddedness and we do not claim to have excluded that.
 2. **Periodicity and symmetry** hold for the field exactly in the mathematical sense and to evaluation rounding

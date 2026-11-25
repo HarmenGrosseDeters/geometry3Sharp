@@ -66,6 +66,9 @@ namespace geometry3Sharp.Tests
             Assert.NotEqual(TpmsStatus.Ok, t.Status);   // at this ratio the world mesh is not clean for any grid shift
         }
 
+        // the origin-0 reference, computed once for the three cases (test time)
+        static readonly Lazy<TpmsLattice> AtZero = new Lazy<TpmsLattice>(() => { var t = Make(0, false); t.Compute(); return t; });
+
         [Theory]
         [InlineData(0.0, false, "8C30D2FDE0546C41")]
         [InlineData(1e12, false, "4D7A850805D34742")]
@@ -73,14 +76,13 @@ namespace geometry3Sharp.Tests
         public void NearerOrigins_ResultUnchanged(double origin, bool rotated, string pin)
         {
             // where the world mesh is clean the result is bit for bit the one before the fix (pins taken on master b5ab94d)
-            var t = Make(origin, rotated);
-            t.Compute();
+            TpmsLattice atZero = AtZero.Value;
+            TpmsLattice t = origin == 0 && !rotated ? atZero : Make(origin, rotated);
+            if (t != atZero) t.Compute();
             Assert.True(t.Status == TpmsStatus.Ok, t.Status + ": " + t.Message);
             Assert.Equal("", MeshRobustRepair.NotCleanReasons(t.Mesh));
             Assert.Equal(pin, Hash(t.Mesh));
             // the volume is measured in the lattice frame (before the transform): the same as at the origin, bit for bit
-            var atZero = Make(0, false);
-            atZero.Compute();
             Assert.Equal(atZero.RealizedVolumeFraction, t.RealizedVolumeFraction);
             Assert.Equal(atZero.MeanWallThickness, t.MeanWallThickness);
         }
