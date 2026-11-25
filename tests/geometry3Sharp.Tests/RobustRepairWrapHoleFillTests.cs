@@ -266,6 +266,72 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Hash(off.Mesh), Hash(on.Mesh));
         }
 
+        // a 10 x 10 unit plate whose z sags by up to sag in the middle (a curved open sheet: no solid)
+        static DMesh3 SaggedPlate(double sag)
+        {
+            DMesh3 p = RobustRepairHollowWrapTests.Plate(10);
+            foreach (int v in p.VertexIndices().ToList()) {
+                Vector3d q = p.GetVertex(v);
+                p.SetVertex(v, new Vector3d(q.x, q.y, -sag * 16 * q.x * (1 - q.x) * q.y * (1 - q.y)));
+            }
+            return p;
+        }
+
+        [Fact]
+        public void SaggedPlate_IsACurvedSheet_NotAShell_NotRefused()
+        {
+            // review of #1588: a slight curvature made the cone volume of the open plate (to the center of its box) look like a solid; its winding
+            // number is just above 0.5 in the lens under it (0.508), below ThinShellWinding. At alpha = diagonal / 150 the wrap runs (a sag of 0.02 is
+            // solidified instead), and the old rule refused it (cone 0.0044 against twice the wrap, 0.0038); at the default / 300 too, in 9 s
+            MeshRobustRepair r = Config(SaggedPlate(0.01), 150, RobustRepairWrapHoleFill.MaxLoopAlphas, true);
+            Assert.True(r.Apply(), r.ResultReason);
+            Assert.Equal("", r.ResultReason);
+            Assert.True(r.UsedAlphaWrap);
+            Assert.Equal(MeshRobustRepair.ResultPaths.AlphaWrap, r.ResultPath);
+            Assert.True(r.Mesh.IsClosed());
+        }
+
+        [Fact]
+        public void EnclosedVolume_SheetsHaveNone_ABowlAndASphereDo()
+        {
+            const double tau = MeshRobustRepair.ThinShellWinding;
+            const int n = MeshRobustRepair.ThinShellGrid;
+            Assert.Equal(0, MeshRobustRepair.enclosed_volume(RobustRepairHollowWrapTests.Plate(10), tau, n));
+            Assert.Equal(0, MeshRobustRepair.enclosed_volume(SaggedPlate(0.01), tau, n));
+            Assert.Equal(0, MeshRobustRepair.enclosed_volume(SaggedPlate(0.1), tau, n));
+            // the bowl of the guard tests (a cap of 0.3 of a sphere of radius 0.5): about 0.07 of its lens of about 0.1
+            double bowl = MeshRobustRepair.enclosed_volume(RobustRepairHollowWrapTests.Bowl(8, -0.2), tau, n);
+            Assert.InRange(bowl, 0.04, 0.11);
+            // a closed sphere: its volume, within the grid
+            DMesh3 sphere = Sphere(10);
+            double v = MeshMeasurements.VolumeArea(sphere, sphere.TriangleIndices(), sphere.GetVertex).x;
+            Assert.InRange(MeshRobustRepair.enclosed_volume(sphere, tau, n), 0.9 * v, 1.1 * v);
+            // a power-of-two scale scales it bit for bit
+            DMesh3 big = new DMesh3(sphere);
+            MeshTransforms.Scale(big, 1024);
+            Assert.Equal(MeshRobustRepair.enclosed_volume(sphere, tau, n) * 1024.0 * 1024.0 * 1024.0, MeshRobustRepair.enclosed_volume(big, tau, n));
+        }
+
+        [Fact]
+        public void EnclosedVolume_Determinism_ParallelEqualsSerial_InAnyOrder_AndRepeated()
+        {
+            DMesh3 bowl = RobustRepairHollowWrapTests.Bowl(8, -0.2);
+            double parallel = MeshRobustRepair.enclosed_volume(bowl, MeshRobustRepair.ThinShellWinding, MeshRobustRepair.ThinShellGrid);
+            Assert.True(parallel > 0);
+            for (int i = 0; i < 3; ++i)
+                Assert.Equal(parallel, MeshRobustRepair.enclosed_volume(bowl, MeshRobustRepair.ThinShellWinding, MeshRobustRepair.ThinShellGrid));
+            try {
+                gParallel.SerialOnThisThread = true;
+                foreach (int order in new[] { 0, -1, 7 }) {
+                    gParallel.SerialOrderOnThisThread = order;
+                    Assert.Equal(parallel, MeshRobustRepair.enclosed_volume(bowl, MeshRobustRepair.ThinShellWinding, MeshRobustRepair.ThinShellGrid));
+                }
+            } finally {
+                gParallel.SerialOrderOnThisThread = 0;
+                gParallel.SerialOnThisThread = false;
+            }
+        }
+
         [Fact]
         public void ClosedCleanInput_IsUnchanged_ByTheSwitches()
         {

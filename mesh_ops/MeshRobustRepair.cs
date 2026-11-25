@@ -1759,11 +1759,20 @@ namespace gs
         /// <summary> the shell test: the volume of the wrap is at most this many times area * offset (a wrap of both sides of a sheet has volume = area * offset: 2 * offset thick, the area counted on both sides; a solid has the volume of its size) </summary>
         internal const double ThinShellVolumeFactor = 2;
 
+        /// <summary> the solid of the reference for the shell test: the points where the magnitude of its generalized winding number exceeds this. Above 0.5 (the
+        /// solid of MeshRepairMetrics) because an open sheet with a slight curvature has a winding number just above 0.5 in the thin lens between it and the plane
+        /// of its rim: measured 0.508 for a 10 x 10 plate with a sag of 0.01, 0.66 at a sag of 0.2; a closed surface with holes is near 1 inside, a shallow cap
+        /// (the bowl of the tests) 0.76 </summary>
+        internal const double ThinShellWinding = 0.6;
+        /// <summary> the cells per axis of the grid on which the solid of the reference is sampled (at the cell centers, in its bounding box) </summary>
+        internal const int ThinShellGrid = 32;
+
         // The wrap is a thin shell around an input that has a solid (#1575): its volume is at most ThinShellVolumeFactor * area * offset (both sides of a sheet
         // are wrapped), the wrapped surface still has a boundary (a closed one is a solid, a flattened one a solid of no thickness, whose wrap is its wrap), and
-        // the reference solid has more than twice the volume of the wrap. A wrap encloses its input: it has the volume of the solid and more, so that this cannot
-        // hold for a repair, and a small solid (a few offsets across, thin by the first test) or a sheet (no solid) is not taken for a shell. The volume of the
-        // reference is taken about the center of its bounding box (an open reference has no volume of its own: a large hole counts as a cone to the center)
+        // the solid of the reference (|winding number| > ThinShellWinding, sampled on a grid in its bounding box) has more than twice the volume of the wrap.
+        // A wrap encloses its input: it has the volume of the solid and more, so that this cannot hold for a repair, and a small solid (a few offsets across,
+        // thin by the first test) or a sheet, flat or curved (no point enclosed enough), is not taken for a shell. The magnitude, because an open reference
+        // has no orientation of its own. Cells are counted per slab in parallel and summed in order: deterministic
         bool is_thin_shell(DMesh3 wrapped, double offset, DMesh3 wrapFrom, DMesh3 reference)
         {
             if (NoThinShellCheck || !(offset > 0) || wrapFrom.IsClosed() || reference.TriangleCount == 0)
@@ -1771,9 +1780,33 @@ namespace gs
             Vector2d va = MeshMeasurements.VolumeArea(wrapped, wrapped.TriangleIndices(), wrapped.GetVertex);
             if (!(va.y > 0) || !(Math.Abs(va.x) <= ThinShellVolumeFactor * va.y * offset))
                 return false;
-            Vector3d center = MeshRepairMetrics.TriangleBounds(reference).Center;
-            double volume = MeshMeasurements.VolumeArea(reference, reference.TriangleIndices(), (vid) => reference.GetVertex(vid) - center).x;
-            return Math.Abs(volume) > 2 * Math.Abs(va.x);
+            return enclosed_volume(reference, ThinShellWinding, ThinShellGrid) > 2 * Math.Abs(va.x);
+        }
+
+        // the volume of the points of the bounding box of mesh where |winding number| > tau, sampled at the centers of n^3 cells
+        internal static double enclosed_volume(DMesh3 mesh, double tau, int n)
+        {
+            AxisAlignedBox3d box = MeshRepairMetrics.TriangleBounds(mesh);
+            if (!(box.Volume > 0))
+                return 0;
+            var tree = new DMeshAABBTree3(mesh, true);
+            tree.FastWindingNumber(box.Center);   // builds the cache before the parallel queries
+            Vector3d d = new Vector3d(box.Width / n, box.Height / n, box.Depth / n);
+            var count = new int[n];
+            gParallel.ForEach(Interval1i.Range(n), (i) => {
+                int c = 0;
+                for (int j = 0; j < n; ++j)
+                    for (int k = 0; k < n; ++k) {
+                        Vector3d q = new Vector3d(box.Min.x + (i + 0.5) * d.x, box.Min.y + (j + 0.5) * d.y, box.Min.z + (k + 0.5) * d.z);
+                        if (Math.Abs(tree.FastWindingNumber(q)) > tau)
+                            c++;
+                    }
+                count[i] = c;
+            });
+            long total = 0;
+            for (int i = 0; i < n; ++i)
+                total += count[i];
+            return total * (d.x * d.y * d.z);
         }
 
         internal static void angle_stats(DMesh3 m, out double minAngle, out double maxAngle, out double shareAbove170)
