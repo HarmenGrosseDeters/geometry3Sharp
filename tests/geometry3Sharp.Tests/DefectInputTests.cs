@@ -116,7 +116,11 @@ namespace geometry3Sharp.Tests
                 Assert.False(ok, name + ": an empty input is documented to fail");
                 return;
             }
-            Assert.True(ok, $"{name}: Apply failed ({r.ResultReason})");
+            // (#1566: an outward sphere inside another is read as a cavity by the repair; the result is then in Mesh, but Apply() is false with the
+            // reason that says so: "nested and tiny" is such an input)
+            bool nesting = ok == false && r.ResultReason.StartsWith("nesting ambiguous");
+            Assert.True(ok || nesting, $"{name}: Apply failed ({r.ResultReason})");
+            Assert.True(nesting == (name == "nested and tiny"), $"{name}: nesting ambiguous: {nesting}");
             AssertValid(r.Mesh, name);
             // ResultReason "" claims a clean result: check it independently
             if (r.ResultReason == "")

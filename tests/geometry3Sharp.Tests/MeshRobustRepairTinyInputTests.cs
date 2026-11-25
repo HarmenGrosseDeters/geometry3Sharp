@@ -103,8 +103,16 @@ namespace geometry3Sharp.Tests
             Assert.Equal(20, m.TriangleCount);
             var r = new MeshRobustRepair(m);
             bool ok = r.Apply();
-            TinyRepairInputs.AssertRepaired(r, ok);
+            // (the soup is unwelded between the cubes: since #1548 the fallbacks start from the welded, oriented copy, whose solidify is clean, so the
+            // wrap is no longer needed; what this case guards, a result of a few hundred to a few thousand triangles, not 869 654, still holds)
+            Assert.True(ok, "Apply() " + r.ResultReason);
+            Assert.Equal("", r.ResultReason);
+            Assert.True(r.UsedAlphaWrap || r.UsedSolidify, "the case is about the fallbacks");
+            Assert.True(r.Mesh.IsClosed());
+            Assert.True(TinyRepairInputs.AllFinite(r.Mesh));
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(TinyRepairInputs.Normalized(r.Mesh)));
             Assert.True(r.AlphaWrapTriangles < 5000, "wrap triangles " + r.AlphaWrapTriangles);   // master: 869 654
+            Assert.True(r.Mesh.TriangleCount < 5000, "triangles " + r.Mesh.TriangleCount);
         }
     }
 }
