@@ -11,7 +11,7 @@ namespace geometry3Sharp.Tests
     /// The accuracy of the edge angle of ExactWindingCache.boundary_edge_angle_x near the line of the edge (docs/design/
     /// EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md, "The accuracy of the edge angle"): for every p, a, b the computed angle
     /// differs from the exact atan2(num, den) of the exact differences by at most 2e-13 (the rounded evaluation 1.2e-13 where
-    /// |num| + |den| >= 2^-5 (S1 + S2), which implies hypot(num, den) >= 0.0221 (S1 + S2); the evaluation from exact num and den
+    /// |num| + |den| >= 2^-5 (S1 + S2), which implies hypot(num, den) >= 0.0220 (S1 + S2); the evaluation from exact num and den
     /// elsewhere). The oracle is that of
     /// ExactWindingCacheInternalTestsEdgeAngleOracle (integers over the grid 2^-1074, exact square roots), independent of
     /// the code under test. The fixtures are rational (no Sin / Cos): the exact angle is computed for the doubles that come
@@ -45,7 +45,7 @@ namespace geometry3Sharp.Tests
 
         // exact num = az by - ay bz of the exact differences is 0: p is on the yz line of the edge exactly, and the angle is a
         // defined limit (0, +-pi or the open-edge value), not a value of atan2 of an exact den (the oracle cannot give it)
-        static bool IsDegenerate(Vector3d p, Vector3d a, Vector3d b)
+        internal static bool IsDegenerate(Vector3d p, Vector3d a, Vector3d b)
         {
             ExactDyadic ay = ExactDyadic.Of(a.y) - ExactDyadic.Of(p.y), az = ExactDyadic.Of(a.z) - ExactDyadic.Of(p.z);
             ExactDyadic by = ExactDyadic.Of(b.y) - ExactDyadic.Of(p.y), bz = ExactDyadic.Of(b.z) - ExactDyadic.Of(p.z);
@@ -512,43 +512,95 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        [Fact]
-        public void PointExactlyOnTheYzLineOfTheEdge_DoesNotEnterTheIntegerPath_AndKeepsTheValueOfTheExactEvaluation()
+        static Vector3d Scale(Vector3d v, double f) { return new Vector3d(v.x * f, v.y * f, v.z * f); }
+
+        // (v * f) / f == v: the scaling by a power of two loses no bit (no underflow into the subnormal range, no overflow)
+        static bool ScalesExactly(Vector3d v, double f)
         {
-            // p, a, b with the yz parts exactly collinear (small dyadic numbers, so the products are exact): exact num == 0, a defined
-            // limit (0, +-pi, the open-edge value). The route through Orient2d and the signs of the differences must give the value
-            // of the integer evaluation (accurate_edge_angle_x, which decides num == 0 from its exact dot product) without calling it.
-            var rnd = new Random(2024);
-            var ps = new List<(Vector3d p, Vector3d a, Vector3d b)>();
-            for (int i = 0; i < 4000; ++i) {
-                double s = i % 4 == 0 ? 1.0 : Math.Pow(2, rnd.Next(-8, 8) * (i % 4 == 1 ? 40 : 1));       // 2^+-320: the rescaled path
-                Func<double> q = () => rnd.Next(-6, 7) / 8.0 * s;
-                Vector3d p = new Vector3d(q(), q(), q());
-                int u = rnd.Next(-3, 4), v = rnd.Next(-3, 4);
-                if (u == 0 && v == 0) u = 1;
-                int m = rnd.Next(-4, 5), n = rnd.Next(-4, 5);           // the multiples of (u, v): 0 (a vertex), either side, both ends beyond or between
-                Vector3d a = p + new Vector3d(rnd.Next(-6, 7) / 8.0 * s, m * u / 8.0 * s, m * v / 8.0 * s);
-                Vector3d b = p + new Vector3d(rnd.Next(-6, 7) / 8.0 * s, n * u / 8.0 * s, n * v / 8.0 * s);
-                if (i % 7 == 0) b.x = a.x;                              // an edge in a plane x = const through p: the open-edge case
-                ps.Add((p, a, b));
+            Vector3d w = Scale(v, f);
+            return w.x / f == v.x && w.y / f == v.y && w.z / f == v.z;
+        }
+
+        [Fact]
+        public void SubnormalProducts_DoNotFlipTheSignOfNum_AtTheBranchCut()
+        {
+            // S1 = |ay bz| + |az by| below 2^-1000: the products are rounded to the subnormal grid (absolute error up to 2^-1075), and the
+            // rounded num can have the wrong sign while den < 0: +pi instead of -pi, a winding number off by 1 (review of #1514).
+            // Exact Orient2d of (p, a, b) in yz is 1. The input, its mirror images (a and b swapped: +pi; z negated: +pi) and the
+            // 2^k scalings that lose no bit, from the subnormal products up (the rescaled path takes over below 2^-100 and above 2^100).
+            var p = new Vector3d(0, 5.334489550943501e-77, 0);
+            var a = new Vector3d(7.888609052210118e-31, 6.963444032852826e-61, 1.3734963702551047e-262);
+            var b = new Vector3d(7.888609052210118e-31, -7.374133604637322e-61, -1.4545023542892055e-262);
+            Assert.Equal(1, ExactPredicates.Orient2d(new Vector2d(p.y, p.z), new Vector2d(a.y, a.z), new Vector2d(b.y, b.z)));
+            int n = 0;
+            foreach (int k in new[] { 0, 1, -1, 7, -7, 50, -50, 100, -100, 300, -300, 500 }) {
+                double f = Math.Pow(2, k);
+                Vector3d ps = Scale(p, f), as_ = Scale(a, f), bs = Scale(b, f);
+                if (!ScalesExactly(p, f) || !ScalesExactly(a, f) || !ScalesExactly(b, f)) continue;
+                ++n;
+                foreach (bool swap in new[] { false, true })
+                    foreach (bool negZ in new[] { false, true }) {
+                        Vector3d a2 = swap ? bs : as_, b2 = swap ? as_ : bs;
+                        Vector3d p2 = ps;
+                        if (negZ) { a2 = new Vector3d(a2.x, a2.y, -a2.z); b2 = new Vector3d(b2.x, b2.y, -b2.z); }
+                        double err = Error(p2, a2, b2, out double got, out double exact);
+                        Assert.True(err <= Bound, $"2^{k}, swap {swap}, negZ {negZ}: got {got:R}, exact {exact:R}, error {err:E2}");
+                        // (mirrored once: the other side of the cut, +pi; mirrored twice, or not at all: -pi)
+                        double want = (swap ^ negZ) ? Math.PI : -Math.PI;
+                        Assert.True(Math.Abs(got - want) <= 1e-13, $"2^{k}, swap {swap}, negZ {negZ}: got {got:R}");
+                    }
             }
-            int c0 = ExactWindingCache.AccurateEdgeAngleCalls;
-            var got = new double[ps.Count];
-            for (int i = 0; i < ps.Count; ++i)
-                got[i] = ExactWindingCache.boundary_edge_angle_x(ps[i].p, ps[i].a, ps[i].b);
-            Assert.Equal(c0, ExactWindingCache.AccurateEdgeAngleCalls);         // no call of the integer evaluation
-            int pis = 0, halves = 0;
-            for (int i = 0; i < ps.Count; ++i) {
-                Assert.True(IsDegenerate(ps[i].p, ps[i].a, ps[i].b), $"input {i} is not on the yz line");
-                // (p on the yz line of a vertex, a - p or b - p with a zero yz part, is decided earlier, as a vertex case, not by this route)
-                if ((ps[i].a.y == ps[i].p.y && ps[i].a.z == ps[i].p.z) || (ps[i].b.y == ps[i].p.y && ps[i].b.z == ps[i].p.z)) continue;
-                double expected = ExactWindingCache.accurate_edge_angle_x(ps[i].p, ps[i].a, ps[i].b);
-                Assert.True(got[i] == expected, $"input {i}: p {ps[i].p} a {ps[i].a} b {ps[i].b}: {got[i]:R} vs {expected:R}");
-                if (Math.Abs(got[i]) == Math.PI) ++pis;
-                if (Math.Abs(got[i]) == Math.PI * 0.5) ++halves;
-            }
-            Assert.True(pis > 100 && halves > 20, $"{pis} values +-pi, {halves} values +-pi/2");     // the branch cut and the open edge are really covered
-            Assert.True(ExactWindingCache.AccurateEdgeAngleCalls > c0);         // (the reference calls were counted: the counter works)
+            Assert.True(n >= 8, $"{n} scalings");
+        }
+
+        [Fact]
+        public void SubnormalProducts_NeighbourhoodOfTheReviewerInput_IsAccurate()
+        {
+            // the products of num around the subnormal grid: a.z and b.z scaled so that S1 runs from 2^-1060 to 2^-900
+            var p = new Vector3d(0, 5.334489550943501e-77, 0);
+            var a = new Vector3d(7.888609052210118e-31, 6.963444032852826e-61, 1.3734963702551047e-262);
+            var b = new Vector3d(7.888609052210118e-31, -7.374133604637322e-61, -1.4545023542892055e-262);
+            int n = 0;
+            for (int e = -40; e <= 60; e += 5)
+                foreach (double r in new[] { 1.0, 1.0000000000000002, 0.9999999999999999, 0.5, 1.5, 3.0 }) {
+                    double f = Math.Pow(2, e) * r;
+                    var a2 = new Vector3d(a.x, a.y, a.z * f);
+                    var b2 = new Vector3d(b.x, b.y, b.z * (1.0 / r) * Math.Pow(2, e));
+                    double err = Error(p, a2, b2, out double got, out double exact);
+                    Assert.True(err <= Bound, $"e {e}, r {r}: p {p} a {a2} b {b2}: got {got:R}, exact {exact:R}, error {err:E2}");
+                    ++n;
+                }
+            Assert.Equal(21 * 6, n);
+        }
+
+        [Fact]
+        public void LongEdges_NearTheOpenSegment_AreAccurate_AtThePrecisionOfTheExactEvaluation()
+        {
+            // an edge of length 2^60 .. 2^100 times its yz extent with p near it: the exact evaluation needs k = 70 + lenBits + 2 - bits(num)
+            // bits (a fixed 70 gives 0.07710721005579022 instead of 0.077087507655067 at X = 1.2345678901234567 2^60 and 3.14159 instead of
+            // 0.0771621882431914 at 2^100, review of #1514)
+            var p = new Vector3d(0.1, 0.3, -0.2);
+            foreach (int e in new[] { 40, 50, 60, 70, 80, 90, 100 })
+                foreach (double xf in new[] { 1.2345678901234567, 1.0, 1.9999999999999998 }) {
+                    double X = xf * Math.Pow(2, e);
+                    var a = new Vector3d(p.x - X, p.y + 0.7071067811865476, p.z + 0.1);
+                    var b = new Vector3d(p.x + 0.9 * X, p.y - 0.6364, p.z - 0.09);
+                    double err = Error(p, a, b, out double got, out double exact);
+                    Assert.True(err <= Bound, $"X = {xf:R} 2^{e}: got {got:R}, exact {exact:R}, error {err:E2}");
+                }
+        }
+
+        [Fact]
+        public void OracleIsExact_BelowTheGridOfTheInput()
+        {
+            // p = 0, a = (-2^100, 1, 0), b = (2^100, -1, 2^-1074): den = da db - 1 is far below 2^-1074 and num = -2^-1074; the angle is
+            // -pi/2 (an oracle without extra bits below the grid says -pi), and so is the library's
+            var a = new Vector3d(-Math.Pow(2, 100), 1, 0);
+            var b = new Vector3d(Math.Pow(2, 100), -1, double.Epsilon);
+            ExactWindingCacheInternalTestsEdgeAngleOracle.ExactAngle(Vector3d.Zero, a, b, out double exact, out _);
+            Assert.True(Math.Abs(exact + Math.PI * 0.5) <= 1e-15, $"{exact:R}");
+            double got = ExactWindingCache.boundary_edge_angle_x(Vector3d.Zero, a, b);
+            Assert.True(Math.Abs(got - exact) <= Bound, $"{got:R}");
         }
 
         [Fact]

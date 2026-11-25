@@ -11,13 +11,13 @@ namespace geometry3Sharp.Tests
     /// tests check it: the computed angle T of an edge, boundary_edge_angle_x(p, a, b), differs from its exact value by at most
     /// 1e-12 on the inputs of EdgeAngle_ErrorIsBelowTheAssumedBound_OnAdversarialEdges, which keep p away from the edge by
     /// construction (no family puts p within about 1e-6 rad of the edge seen from p, except by chance) and outside the exact
-    /// zone (num and den both within numErr and denErr of 0, where the exact predicates decide the sign). The claim is NOT
-    /// general: near an open edge den = da db + dotYZ cancels and the error grows like 1e-16 / theta (the angular distance
-    /// of p from the edge; the bound of audit model BT-6 is 1.6e-14 / theta); the tree uses A1 only for the edges of an accepted node (1e-14, proved, under the fast-path certificate:
-    /// EdgesOfAcceptedNodes_HaveAnErrorBelowTheProvedBound). Tests of the general claim belong to the change that corrects the
-    /// edge angle near an open edge (#1427). The oracle takes the exact num = a.z b.y - a.y b.z and den = da db + a.y b.y + a.z b.z of
-    /// the exact differences a - p and b - p in integers over the grid 2^-1074 (da = |a - p| - (a.x - p.x) by the cancellation-free
-    /// quotient), and the angle atan2(num, den) of their double conversion: its own error is a few 1e-16, far below the 1e-12 under
+    /// zone (num and den both within 1e-12 S1 and 1e-12 S2 of 0, where the exact path decides). The general claim, for every p near an
+    /// open edge, is tested in ExactWindingCacheInternalTestsNearOpenEdge; the tree uses A1 only for the edges of an accepted node (1e-14,
+    /// proved, under the fast-path certificate: EdgesOfAcceptedNodes_HaveAnErrorBelowTheProvedBound). The oracle takes the exact
+    /// num = a.z b.y - a.y b.z and den = da db + a.y b.y + a.z b.z of the exact differences a - p and b - p in integers over the grid
+    /// 2^-1074; da db (square roots) is computed at as many extra bits as the cancellation of den needs, so that the oracle is exact also
+    /// where den is far below the grid (a = (-2^100, 1, 0), b = (2^100, -1, 2^-1074): -pi/2). The angle is atan2 of the double
+    /// conversion of the exact integers: its own error is a few 1e-16, far below the 1e-12 under
     /// test. The class name starts with ExactWindingCacheInternalTests so that the mutation shard's filter runs it.
     /// </summary>
     public class ExactWindingCacheInternalTestsEdgeAngleOracle
@@ -59,21 +59,45 @@ namespace geometry3Sharp.Tests
             BigInteger ax = Grid(a.x) - Grid(p.x), ay = Grid(a.y) - Grid(p.y), az = Grid(a.z) - Grid(p.z);
             BigInteger bx = Grid(b.x) - Grid(p.x), by = Grid(b.y) - Grid(p.y), bz = Grid(b.z) - Grid(p.z);
             BigInteger yzA = ay * ay + az * az, yzB = by * by + bz * bz;
-            BigInteger la = ISqrt(ax * ax + yzA), lb = ISqrt(bx * bx + yzB);
-            // da = la - ax without cancellation: yz2 / (la + ax) for ax > 0 (all over the grid, so the quotient stays on it)
-            BigInteger da = ax.Sign > 0 ? yzA / (la + ax) : la - ax;
-            BigInteger db = bx.Sign > 0 ? yzB / (lb + bx) : lb - bx;
+            BigInteger aa = ax * ax + yzA, bb = bx * bx + yzB;
             BigInteger num = az * by - ay * bz;
-            BigInteger den = da * db + ay * by + az * bz;
-            // the sizes of the terms, for the exact zone
+            BigInteger dot = ay * by + az * bz;
+            // the sizes of the terms, for the exact zone (da, db over the grid: a zone indicator, not part of the angle)
+            BigInteger la0 = ISqrt(aa), lb0 = ISqrt(bb);
+            BigInteger da0 = ax.Sign > 0 ? yzA / (la0 + ax) : la0 - ax;
+            BigInteger db0 = bx.Sign > 0 ? yzB / (lb0 + bx) : lb0 - bx;
             BigInteger s1 = BigInteger.Abs(ay * bz) + BigInteger.Abs(az * by);
-            BigInteger s2 = da * db + BigInteger.Abs(ay * by) + BigInteger.Abs(az * bz);
+            BigInteger s2 = da0 * db0 + BigInteger.Abs(ay * by) + BigInteger.Abs(az * bz);
             double d1 = 1e-12 * 1.01;
             // |num| <= numErr and den <= denErr, with a margin of 1 % (the zone of the exact fallback)
-            inExactZone = RatioLE(BigInteger.Abs(num), s1, d1) && RatioLE(den, s2, d1);
-            int bits = Math.Max(Math.Max(Bits(num), Bits(den)), 1);
+            inExactZone = RatioLE(BigInteger.Abs(num), s1, d1) && RatioLE(da0 * db0 + dot, s2, d1);
+            // The angle: num and dot are exact integers; da db is not (square roots), so it is computed at K extra bits (the integer
+            // parts of 2^K |a|, 2^K |b| by exact floor square roots, da_K = floor(2^2K yz^2 / (la_K + 2^K ax)) or la_K - 2^K ax), each within 2
+            // of its value. K is raised until the error of den_K (at most 2 (da_K + db_K) + 4) is below 2^-60 |num_K|: whatever the ratio of
+            // num to den, including grids finer than 2^-1074 (da db - |dot| cancelling far below the grid of the input).
+            if (num.IsZero) {
+                BigInteger den0 = da0 * db0 + dot;
+                angle = Math.Atan2(0.0, den0.Sign >= 0 ? 1.0 : -1.0);
+                return true;
+            }
+            BigInteger numK, denK;
+            for (int k = 128; ; k += 128) {
+                int k2 = 2 * k;
+                BigInteger laK = ISqrt(aa << k2), lbK = ISqrt(bb << k2);
+                BigInteger daK = ax.Sign > 0 ? (yzA << k2) / (laK + (ax << k)) : laK - (ax << k);
+                BigInteger dbK = bx.Sign > 0 ? (yzB << k2) / (lbK + (bx << k)) : lbK - (bx << k);
+                numK = num << k2;
+                denK = daK * dbK + (dot << k2);
+                if ((((daK + dbK) * 2 + 4) << 60) <= BigInteger.Abs(numK))
+                    break;
+                Assert.True(k < 20000, "the oracle does not converge");
+            }
+            int bits = Math.Max(Math.Max(Bits(numK), Bits(denK)), 1);
             int shift = Math.Max(0, bits - 900);
-            angle = Math.Atan2(ToDouble(num, shift), ToDouble(den, shift));
+            double nd = ToDouble(numK, shift), dd = ToDouble(denK, shift);
+            if (nd == 0.0)
+                nd = num.Sign > 0 ? double.Epsilon : -double.Epsilon;   // against a huge den: the sign of num decides the side
+            angle = Math.Atan2(nd, dd);
             return true;
         }
 
