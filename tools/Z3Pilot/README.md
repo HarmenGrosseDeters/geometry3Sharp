@@ -613,24 +613,34 @@ python -m unittest discover -s tools/Z3Pilot -p 'test_drift_reference.py' -v
 - **A, convexity** (nonlinear real arithmetic): a point of a triangle moves by at most the largest move of a corner,
   in R^3, as two queries (the dot bound in coordinates, the claim over the Gram entries). The claim on the
   coordinates directly returned unknown and is not counted.
-- **B, the one-edit lemma**, shape-free, distances as real variables, as `drift_apex.generic_formula`.
+- **B, the one-edit lemma**, shape-free, distances as real variables, as `drift_apex.generic_formula`. `lemma_pair_corners`: the joint move
+  (`try_move_pair`) is an instance of the displacement edit: its bound is the largest distance of any corner from its anchor, so the joint check is the
+  conjunction of the checks at the two moved vertices (the check that drops the second vertex's corner is the SAT mutant).
 - **C, the bounded search** (linear real arithmetic, complete for its configurations): chains of 3 to 5 vertices on
   the real line, every script of up to three edits (two for five vertices), 7038 scripts, each with one query for
   "a segment has a point beyond its bound, or the start has a point beyond the largest bound, or a bound exceeds
   the apex rule's drift, or a bound at the end exceeds the reported drift". `Chain` is written once over a backend, so the same code replays a witness with fractions.
+  **The joint move** (`Chain.move_pair`, edit `move_pair`): two distinct vertices, each at its own position (`q{k}`, `r{k}`), as one displacement
+  edit; judged by the largest bound of the segments at either vertex and of the ghosts at either, all at the new positions. The scripts with at
+  least one joint move (`PAIR_SEARCH`: 3 vertices up to 3 edits, 4 and 5 vertices up to 2; 2150 scripts) are asked the same four claims plus a
+  fifth, the reduction: the script with every joint move replaced by the two single moves in turn ends with the same positions and the same bound
+  at every segment and ghost (a displacement edit changes no anchor), so the lemma of the single move covers each bound the joint move
+  accepts. Mutants: the second vertex's segments and ghosts not evaluated, its ghosts not evaluated, its segments evaluated with it still in place.
 - **D, the rounding**: `Vector3d.Distance` in three steps (Higham (2.4) per operation), and the induction step of
   the chain bound (Higham (2.5) for the stored sums; the (2.4) variant is the SAT mutant, as in step 1).
-- **Mutants**: 16, each SAT with a replayed witness; the seven of the rule are pinned in the test (`PINNED`) as
+- **Mutants**: 20, each SAT with a replayed witness; the ten of the rule (seven of the single edits, three of the joint move) are pinned in the test (`PINNED`) as
   regression cases for the implementation, among them the spike that shows why collapsed triangles must be kept as
   ghosts and why one anchor per vertex is not enough. As meshes they are the scripted cases of
   `MeshRoundingRepairTestsDriftReference` (each fails with its mutant in the C# code).
 - **Source contract**: the facts about `MeshRoundingRepair.cs` and `Vector3d.Distance` that the lemma assumes (one
-  writer of positions; only `try_move` and `try_collapse` propose a moved vertex and list its triangles corner for
-  corner), and the rule as implemented: the methods of the bounds, the proposal, the ghosts and the commit compared as
+  writer of positions; only `try_move`, `try_collapse` and the joint move `try_move_pair` propose a moved vertex and list its triangles corner for
+  corner), the joint move itself (`try_move_pair`: the triangles of both stars, a triangle at both once, both positions proposed together and judged by
+  `improves`, both written afterwards; `pos`; `search_pairs`: the sizes of each vertex from its own `room_at`, every candidate through `try_move_pair`),
+  and the rule as implemented: the methods of the bounds, the proposal, the ghosts and the commit compared as
   text (`RULE_METHODS`), the drift checked first in `improves`, no move proposed past the evaluation limit (and no second copy of the rule),
   the position search (`search_corners`) taking only its candidate sizes from `room_at` and passing every candidate to
   `try_move`, every generic edit naming its added triangles, the records starting at `Apply`. A test applies the seven
-  mutants and seven other changes to the code and expects the contract to fail on each.
+  mutants, eleven changes to the joint move and seven other changes to the code and expects the contract to fail on each.
 
 Review only: the two-sided bounds (E1), (E2) per edit type; ghosts on edges (a chain has ghosts at vertices only);
 which simplices an edit removes; the induction over the edits; the rounding model. Result of 2026-11-09:

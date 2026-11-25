@@ -1338,7 +1338,8 @@ A triangle with an edge of 1e-10 and two of 1e-7 cannot be lifted above the dege
 
 **Guarantees.**
 - *Drift:* a displacement edit of the reference rule with two moved vertices. `proposed_drift` takes the largest bound of the triangles of both stars at their new positions and of the ghosts at both vertices
-  (a ghost with a corner at each is evaluated with both at their new positions). `room_at` counts all triangles and ghosts of a vertex, so a move of at most the room cannot exceed the bound, and `proposed_drift` computes and checks it anyway. The
+  (a ghost with a corner at each is evaluated with both at their new positions). `room_at` counts all triangles and ghosts of a vertex, so a move of at most the room cannot exceed the bound, and `proposed_drift` computes and checks it anyway. The lemma covers it: the joint move is modelled in `tools/Z3Pilot/drift_reference.py` (`Chain.move_pair`, every script with a joint move on chains of 3 to 5 vertices, and its
+  reduction to the two single moves), and its source contract pins `try_move_pair`, `search_pairs`, `pos` and the bound methods. The
   check mode (`check_bounds`, `check_ghosts` for both vertices) and the scripted `MovePair` of `MeshRoundingRepairTestsDriftReference` cover the bookkeeping.
 - *Termination:* each accepted pair lowers the number of defects by at least one; no edit raises it; a round without a move ends the stage.
 - *Invariance:* the directions are constants, the sizes room times powers of two (2^k scales: the same result bit for bit; `MeshRoundingRepairTestsJointMove`); the order of the pair depends on coordinates, not ids.
