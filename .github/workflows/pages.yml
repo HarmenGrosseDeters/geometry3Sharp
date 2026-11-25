@@ -19,7 +19,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: pages
+  # per ref: a dispatched check of another branch never replaces a pending master run (which would then not deploy)
+  group: pages-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -36,7 +37,7 @@ jobs:
           v=$(dotnet --list-sdks | awk '/^10\./ {print $1}' | tail -1)
           test -n "$v"
           dotnet new globaljson --sdk-version "$v" --roll-forward latestPatch --force
-          dotnet --version
+          [[ "$(dotnet --version)" == 10.* ]]
       - name: Install the WebAssembly build tools (AOT)
         working-directory: demos/G3Demos
         run: dotnet workload install wasm-tools
