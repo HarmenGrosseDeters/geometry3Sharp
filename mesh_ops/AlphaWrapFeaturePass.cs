@@ -69,6 +69,17 @@ namespace gs
         /// MinDistance offsets from the outermost triangles, which the mean plane lies below)
         /// </summary>
         internal double VarifoldPlaneLift = 2;
+        /// <summary>
+        /// the fitted planes are used only where they change something: when the median tilt of the input's triangles against
+        /// their fitted planes (VarifoldCreaseQuery.MedianTilt, 512 triangles at a fixed stride) is above this many degrees;
+        /// 0 uses them always. A clean tessellation of planes and curves has a median tilt near 0 and pays nothing
+        /// </summary>
+        internal double VarifoldPlaneMinTiltDegrees = 0.1;
+        /// <summary> (tests) false: the labels are made lazily, serially, as without the fitted planes (the same bits either way) </summary>
+        internal bool VarifoldPrefetch = true;
+        /// <summary> (outputs) the median tilt measured, and whether the fitted planes were used </summary>
+        internal double VarifoldMedianTilt;
+        internal bool VarifoldPlanesUsed;
         /// <summary> the ball of the varifold crease test, in alphas </summary>
         internal double VarifoldRadius = 3.5;
         /// <summary> the varifold crease test's distance of each plane from the crease, in offsets (plus 3 rms of the plane) </summary>
@@ -130,6 +141,7 @@ namespace gs
         {
             PlaneMoves = CreaseSnaps = Splits = Flips = Rejected = CrossingEdges = InputCreases = VarifoldQueries = 0;
             VarifoldBuildTicks = VarifoldQueryTicks = VarifoldPlaneTicks = 0;
+            VarifoldPlanesUsed = false;
             VarifoldPlaneQueries = VarifoldPlanesFitted = 0;
             if (Mesh.TriangleCount == 0 || input.TriangleCount == 0 || !(alpha > 0) || !(offset > 0))
                 return false;
@@ -146,6 +158,14 @@ namespace gs
                 long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
                 varifold = new VarifoldCreaseQuery(input, VarifoldRadius * alpha, CancelF);
                 VarifoldBuildTicks = System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+                VarifoldMedianTilt = 0; VarifoldPlanesUsed = false;
+                if (VarifoldPlaneRadius > 0) {
+                    long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
+                    VarifoldMedianTilt = varifold.MedianTilt(input, VarifoldPlaneRadius * alpha);
+                    VarifoldPlanesUsed = VarifoldMedianTilt > VarifoldPlaneMinTiltDegrees;
+                    if (VarifoldPlanesUsed && VarifoldPrefetch) prefetch_labels();
+                    VarifoldPlaneTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t1;
+                }
                 return true;
             }
             varifold = null;
@@ -237,10 +257,27 @@ namespace gs
                 Array.Resize(ref labelled, labels.Length);
             }
             if (!labelled[vid]) {
-                labels[vid] = make_label(Mesh.GetVertex(vid));
+                labels[vid] = make_label(Mesh.GetVertex(vid), out int fit);
                 labelled[vid] = true;
+                if (fit > 0) { VarifoldPlaneQueries++; if (fit == 2) VarifoldPlanesFitted++; }
             }
             return labels[vid];
+        }
+
+        // the labels of all vertices at their current positions, in parallel (each vertex writes its own slot; no reduction across
+        // threads). The passes ask a vertex's label before they move it, and nothing moves before them, so these are the labels
+        // the lazy path would make: the same bits
+        void prefetch_labels()
+        {
+            int nv = Mesh.MaxVertexID;
+            var fits = new int[nv];
+            gParallel.ForRange(nv, vid => {
+                if (!Mesh.IsVertex(vid)) return;
+                labels[vid] = make_label(Mesh.GetVertex(vid), out fits[vid]);
+                labelled[vid] = true;
+            });
+            for (int vid = 0; vid < nv; ++vid)
+                if (fits[vid] > 0) { VarifoldPlaneQueries++; if (fits[vid] == 2) VarifoldPlanesFitted++; }
         }
 
         void set_label(int vid, Label l)
@@ -249,8 +286,11 @@ namespace gs
             labels[vid] = l;
         }
 
-        Label make_label(Vector3d v)
+        // (fit: 0 no plane fit asked, 1 asked and refused, 2 the fitted plane taken; no shared state is written, so labels of
+        // different vertices may be made in parallel)
+        Label make_label(Vector3d v, out int fit)
         {
+            fit = 0;
             double d2;
             int tid = inputTree.FindNearestTriangle(v, out d2, PlaneRadius * alpha);
             if (tid == DMesh3.InvalidID) return new Label();
@@ -258,13 +298,10 @@ namespace gs
             Vector3d q = dist.TriangleClosest;
             Vector3d n = facing_normal(tid, q, v, dist.TriangleBaryCoords);
             if (n.LengthSquared < 0.5 || !(n.Dot(v - q) > 0)) return new Label();
-            if (varifold != null && VarifoldPlaneRadius > 0) {
-                long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
-                bool fit = varifold.FitPlane(q, n, VarifoldPlaneRadius * alpha, out Vector3d nf, out Vector3d cf, out double rf) && nf.Dot(v - cf) > 0;
-                VarifoldPlaneTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
-                VarifoldPlaneQueries++;
-                if (fit) {
-                    VarifoldPlanesFitted++;
+            if (varifold != null && VarifoldPlanesUsed) {
+                fit = 1;
+                if (varifold.FitPlane(q, n, VarifoldPlaneRadius * alpha, out Vector3d nf, out Vector3d cf, out double rf) && nf.Dot(v - cf) > 0) {
+                    fit = 2;
                     return new Label { Kind = 1, N = nf, D = nf.Dot(cf) + VarifoldPlaneLift * rf + offset };
                 }
             }

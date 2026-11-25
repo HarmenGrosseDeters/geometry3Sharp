@@ -59,7 +59,7 @@ static class SoupRun
             case "soupwrap":
                 foreach (string shape in Get("shapes", "slot,vnotch,box,fillet").Split(','))
                     foreach (string br in Get("breaks", "clean;soup;nonconf;jitter:0.1;dup:0.2;gap:0.3;gap:1;flip:0.2;mixnh:0.25;mixnh:0.5;mixnh:1;holes:0.1").Split(';'))
-                        SoupWrap(w, shape, br, tris, D("radius", "3.5"), D("planes", "0"));
+                        SoupWrap(w, shape, br, tris, D("radius", "3.5"), D("planes", "1.5"));
                 break;
             case "wrapbreak": WrapBreaks(w, Get("shapes", "slot"), tris, Get("breaks", "clean;soup;nonconf;jitter:0.025;holes:0.025;dup:0.05;gap:0.15;flip:0.1;mix:0.5").Split(';')); break;
             default: Console.Error.WriteLine("unknown soup mode " + mode); return 2;
@@ -358,7 +358,7 @@ static class SoupRun
     // soup: dihedral creases), after (VarifoldCreases on the soup) and the ceiling (the default pass on the wrap of the clean
     // welded copy). Every row measured against the clean welded copy's creases (EdgeClass: recall of the input's miter lines by the
     // result's sharp edges within 1 and 3 offsets, precision the other way), with the clean status and the times
-    internal static double PlaneLift = 0;
+    internal static double PlaneLift = 2;
     static void SoupWrap(StreamWriter w, string shape, string br, int tris, double[] radii, double[] planes)
     {
         var c = Build(shape, br, tris);
@@ -398,6 +398,7 @@ static class SoupRun
                 row["measure_s"] = fp.VarifoldBuildTicks * f; row["query_s"] = fp.VarifoldQueryTicks * f; row["queries"] = fp.VarifoldQueries;
                 row["plane_s"] = fp.VarifoldPlaneTicks * f; row["plane_queries"] = fp.VarifoldPlaneQueries; row["planes_fitted"] = fp.VarifoldPlanesFitted;
                 row["rejected"] = fp.Rejected;
+                row["median_tilt"] = fp.VarifoldMedianTilt; row["planes_used"] = fp.VarifoldPlanesUsed;
             }
             EdgeClass.Add(welded, fp.Mesh, wrap.UsedAlpha, wrap.UsedOffset, row, 5000);
             MiterMetric(c, fp.Mesh, wrap.UsedAlpha, wrap.UsedOffset, row);

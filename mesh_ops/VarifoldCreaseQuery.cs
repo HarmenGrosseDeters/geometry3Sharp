@@ -43,7 +43,10 @@ namespace gs
 
         readonly double[] pts;      // x, y, z, nx, ny, nz, mass per point, in cell order
         readonly long[] keys;       // the cell key per point, ascending
-        readonly Dictionary<long, int> cellStart = new Dictionary<long, int>();   // the first point of each occupied cell
+        // the first point of each occupied cell: a dense table where the grid has at most 4 cells per point (and 2^26 cells),
+        // otherwise a dictionary
+        readonly int[] denseStart;
+        readonly Dictionary<long, int> cellStart;
         readonly int count;
         readonly Vector3d origin;
         readonly long nx, ny, nz;
@@ -121,7 +124,15 @@ namespace gs
             Array.Sort(k0, order);
             for (int j = 0; j < count;) { int e = j; while (e < count && k0[e] == k0[j]) ++e; Array.Sort(order, j, e - j); j = e; }
             keys = k0;
-            for (int j = 0; j < count; ++j) if (j == 0 || k0[j] != k0[j - 1]) cellStart[k0[j]] = j;
+            double cells = (double)nx * ny * nz;
+            if (cells <= Math.Min(4.0 * Math.Max(count, 1), 1 << 26)) {
+                denseStart = new int[(long)cells];
+                for (long c = 0; c < denseStart.Length; ++c) denseStart[c] = -1;
+                for (int j = 0; j < count; ++j) if (j == 0 || k0[j] != k0[j - 1]) denseStart[k0[j]] = j;
+            } else {
+                cellStart = new Dictionary<long, int>();
+                for (int j = 0; j < count; ++j) if (j == 0 || k0[j] != k0[j - 1]) cellStart[k0[j]] = j;
+            }
             pts = new double[7 * count];
             for (int j = 0; j < count; ++j) for (int q = 0; q < 7; ++q) pts[7 * j + q] = raw[7 * order[j] + q];
         }
@@ -144,6 +155,34 @@ namespace gs
         }
 
         long key(long x, long y, long z) { return (x * ny + y) * nz + z; }
+
+        int first(long k)
+        {
+            if (denseStart != null) return denseStart[k];
+            return cellStart.TryGetValue(k, out int j) ? j : -1;
+        }
+
+        /// <summary>
+        /// the median angle (degrees) between a triangle's normal and the fitted plane of its neighbourhood (radius) at its
+        /// centroid, over at most samples triangles of mesh taken at a fixed stride: about 0 for a clean tessellation of planes,
+        /// the noise's tilt for a jittered one
+        /// </summary>
+        internal double MedianTilt(DMesh3 mesh, double radius, int samples = 512)
+        {
+            var tris = new List<int>(mesh.TriangleIndices());
+            if (tris.Count == 0) return 0;
+            int stride = Math.Max(1, tris.Count / samples);
+            var a = new List<double>();
+            for (int i = 0; i < tris.Count; i += stride) {
+                Vector3d tn = mesh.GetTriNormal(tris[i]);
+                if (!(tn.LengthSquared > 0.5)) continue;
+                if (FitPlane(mesh.GetTriCentroid(tris[i]), tn, radius, out Vector3d n, out _, out _))
+                    a.Add(Vector3d.AngleD(tn, n));
+            }
+            if (a.Count == 0) return 0;
+            a.Sort();
+            return a[a.Count / 2];
+        }
 
         // the kernel-weighted sums of one cluster, relative to the query point
         struct Sums
@@ -185,7 +224,8 @@ namespace gs
                     for (long z = cz - 2; z <= cz + 2; ++z) {
                         if (z < 0 || z >= nz) continue;
                         long k = key(x, y, z);
-                        if (!cellStart.TryGetValue(k, out int j0)) continue;
+                        int j0 = first(k);
+                        if (j0 < 0) continue;
                         for (int j = j0; j < count && keys[j] == k; ++j) {
                             int o = 7 * j;
                             var d = new Vector3d(pts[o] - x0.x, pts[o + 1] - x0.y, pts[o + 2] - x0.z);
@@ -248,7 +288,8 @@ namespace gs
                     for (long iz = cz - rc; iz <= cz + rc; ++iz) {
                         if (iz < 0 || iz >= nz) continue;
                         long k = key(ix, iy, iz);
-                        if (!cellStart.TryGetValue(k, out int j0)) continue;
+                        int j0 = first(k);
+                        if (j0 < 0) continue;
                         for (int j = j0; j < count && keys[j] == k; ++j) {
                             int o = 7 * j;
                             var d = new Vector3d(pts[o] - x.x, pts[o + 1] - x.y, pts[o + 2] - x.z);
