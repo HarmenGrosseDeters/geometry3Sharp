@@ -106,7 +106,7 @@ namespace gs
         /// for the volume IoU, eg a screw of an assembly) is treated like one whose volume differs ("parts of the input lost").
         /// Only with MinVolumeIoU &gt; 0 (0 turns off both). Off by default: on the 430 Thingi10K meshes of
         /// benchmarks/MeshRepairBenchmark it found no lost part, but rejected 3 repairs whose nested closed parts were
-        /// oriented differently from the reference (a part inside another taken for a cavity), and the fallbacks from
+        /// oriented differently from the reference (a part inside another taken for a cavity: the ambiguity that ComponentsFlippedByNesting and ResultReason NestingAmbiguous report, #1566), and the fallbacks from
         /// the open input were worse (one mesh fewer repaired). For inputs with separate small parts (assemblies). The fallbacks after such a rejection (solidify, wrap) are not
         /// checked for it: their ResultReason can be "" although they lost the same part (unless it is a separable part, which the final
         /// lost-part check of Apply() reports), see FallbackReason and UsedInput.
@@ -523,6 +523,7 @@ namespace gs
             frameScale = 1;
             LastFrameScale = 1;
             reset_outputs();
+            ComponentsFlippedByNesting = 0;
             ResultVolumeIoU = double.NaN;
             reset_lost_area();
             ResultPath = ResultPaths.None;
@@ -667,6 +668,9 @@ namespace gs
             DMesh3 givenInput = MeasureResultVolumeIoU || MeasureLostArea ? new DMesh3(Mesh) : null;
             // (the solid the volume checks used, for ResultVolumeIoU: see OrientedReference)
             DMesh3 givenSolid = MeasureResultVolumeIoU ? (OrientedReference(givenInput) ?? givenInput) : null;
+            DMesh3 nestedReading, nestedUnion;
+            int nested;
+            nesting_references(Mesh, out nestedReading, out nestedUnion, out nested);
             bool ok = apply_checked();
             if (ok == false && parts != null)
                 skipped = "not reached";
@@ -684,6 +688,18 @@ namespace gs
             }
             if (ok && givenInput != null && MeasureResultVolumeIoU)
                 ResultVolumeIoU = final_volume_iou(givenSolid, Mesh);
+            ComponentsFlippedByNesting = nested;
+            // (#1566) outward shells inside others, taken for cavities: the solid differs from the union of the shells, which no reference derived the
+            // same way can see
+            if (ok && nested > 0 && MinVolumeIoU > 0 && CancelF() == false) {
+                double nestingIoU;
+                var readingSolid = new MeshRepairMetrics.SolidReference(nestedReading);
+                var unionSolid = MeshRepairMetrics.SolidReference.Unoriented(nestedUnion);
+                if (MeshRepairMetrics.VolumeIoUAtLeast(readingSolid, unionSolid, MinVolumeIoU, out nestingIoU, useCells: SampleCellsInVolumeCheck, childBudget: SampleCellsChildBudget) == false) {
+                    ResultReason = ResultReason == "" ? NestingAmbiguous : NestingAmbiguous + "; " + ResultReason;
+                    ok = false;
+                }
+            }
             // (a cancel during the report is a cancel: false, as in every stage; the result stays in Mesh)
             if (MeasureLostArea && givenInput != null && (ok || ResultPath != ResultPaths.None) && measure_lost_area(givenInput, Mesh) == false)
                 ok = false;
@@ -1290,6 +1306,14 @@ namespace gs
         /// </summary>
         internal static DMesh3 OrientedReference(DMesh3 input)
         {
+            DMesh3 welded = WeldedOriented(input);
+            return welded == null ? null : WindingContouring.OrientedCopy(welded);
+        }
+
+        // the welded, per component consistently oriented mesh of OrientedReference (before the nesting and the global orientation), null for a welded,
+        // consistently oriented input
+        static DMesh3 WeldedOriented(DMesh3 input)
+        {
             if (input.TriangleCount == 0)
                 return null;
             int maxV = input.MaxVertexID;
@@ -1389,7 +1413,57 @@ namespace gs
             if (m.TriangleCount == 0)
                 return null;
             new MeshRepairOrientation(m).OrientComponents();
-            return WindingContouring.OrientedCopy(m);
+            return m;
+        }
+
+        /// <summary>
+        /// the number of closed components of the last Apply()'s input that the repair's reading of nesting flips although they are outward by
+        /// their own volume (#1566): a closed shell inside an odd number of others counts as a cavity (MeshPostRepairCleanup.FindInvertedComponents,
+        /// by parity), so a shell that is oriented outward inside another (an insert in a housing, a part modelled twice) is reversed and the
+        /// result is hollow where the plain union of the input's shells (the nonzero winding number, the reading of ExactMeshBoolean.Resolve) is
+        /// solid. 0 for an input without such a shell, and so for a real cavity (inward inside outward). The input as given to Apply(), counted
+        /// on its welded, oriented copy if it is unwelded (#1548). If MinVolumeIoU is above 0 and the two readings differ in volume by more than
+        /// 1 - MinVolumeIoU, Apply() is false with ResultReason NestingAmbiguous; below that difference it only reports the count
+        /// </summary>
+        public int ComponentsFlippedByNesting { get; private set; }
+
+        /// <summary>
+        /// ResultReason of an Apply() that is false because the input has outward shells inside others (ComponentsFlippedByNesting above 0) that the
+        /// repair took for cavities, and the solid with them taken for cavities differs from the plain union of the input's shells by more than
+        /// 1 - MinVolumeIoU: the input is ambiguous (an insert inside a housing, or a cavity modelled with the wrong orientation), and the repair
+        /// does not decide it silently. The result (the reading as cavities) stays in Mesh. Any earlier ResultReason follows after "; "
+        /// </summary>
+        public const string NestingAmbiguous = "nesting ambiguous: inner shells taken as cavities";
+
+        // the solid of the input as the repair reads its nesting (reference) and as the plain union of its shells (a component outward by its own
+        // volume is not reversed for lying inside another); count: the components that differ, 0 if the two are the same solid
+        static void nesting_references(DMesh3 given, out DMesh3 reading, out DMesh3 union, out int count)
+        {
+            reading = union = null;
+            count = 0;
+            if (given.TriangleCount == 0)
+                return;
+            DMesh3 b = WeldedOriented(given) ?? given;
+            var flagged = MeshPostRepairCleanup.FindInvertedComponents(b);
+            if (flagged.Count == 0)
+                return;
+            DMesh3 plain = new DMesh3(b, true);
+            foreach (int[] comp in flagged) {
+                bool outward = MeshPostRepairCleanup.volume_sign(b, comp) > 0;
+                if (outward)
+                    ++count;
+                foreach (int tid in comp) {
+                    if (outward == false)
+                        plain.ReverseTriOrientation(tid);
+                }
+            }
+            if (count == 0)
+                return;
+            reading = WindingContouring.OrientedCopy(b);
+            Vector3d c = plain.CachedBounds.Center;
+            if (MeshMeasurements.VolumeArea(plain, plain.TriangleIndices(), (vid) => plain.GetVertex(vid) - c).x < 0)
+                plain.ReverseOrientation(false);
+            union = plain;
         }
 
         // an unclean repair result can have lost parts of the input as well (eg erosion of an open region, which the

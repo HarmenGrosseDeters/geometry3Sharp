@@ -271,6 +271,20 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
+        // a cube of half size 1 with a cavity (an inner cube of the given half size, oriented inward): no outward shell inside another
+        static DMesh3 NestedBoxes(double inner)
+        {
+            var g = new TrivialBox3Generator { Box = new Box3d(new Vector3d(1, 1, 1), new Vector3d(1, 1, 1)), NoSharedVertices = false };
+            g.Generate();
+            DMesh3 m = g.MakeDMesh();
+            var h = new TrivialBox3Generator { Box = new Box3d(new Vector3d(1, 1, 1), new Vector3d(inner, inner, inner)), NoSharedVertices = false };
+            h.Generate();
+            DMesh3 n = h.MakeDMesh();
+            n.ReverseOrientation(false);
+            MeshEditor.Append(m, n);
+            return m;
+        }
+
         static DMesh3 OpenBox()
         {
             DMesh3 m = Box();
@@ -282,6 +296,8 @@ namespace geometry3Sharp.Tests
             { "box", "21E5FF898E321D9C8D1A8590995FEC42AAA38A7AE733DB3A75D6DBAC52E1ABA7" },
             { "two overlapping boxes", "5042964F629766C3B5EA86305963BC2FCD3C9612252C3E38E23B493C1738726D" },
             { "overlapping spheres, solidify", "98863A74EDE975EBE3168E768217582FB117FAD59110A60FAE4321CBD5754296" },
+            { "real cavity 0.5", "B5CF7E3A596BE1E67CE9839C7058B705FFF8CCE3D9D686C7CB9F9EB8883DC688" },
+            { "real cavity 0.8", "5D343579C6AC8DC8EA924530EE5834A33C3A7F250BC6C1F3A850CB562373120B" },
             { "box with a missing triangle", "D8080BA780D421192566C1365FB1B10F0704024E516E3BED08E522CEFE4E1186" },
         };
 
@@ -292,6 +308,8 @@ namespace geometry3Sharp.Tests
             switch (name) {
                 case "box": return Run(Box());
                 case "two overlapping boxes": return Run(TwoBoxes());
+                case "real cavity 0.5": return Run(NestedBoxes(0.5));
+                case "real cavity 0.8": return Run(NestedBoxes(0.8));
                 case "overlapping spheres, solidify": return Run(OverlappingSpheres(), x => { x.ExactResolve = false; x.AlphaWrapFallback = false; x.SolidifyResolution = 48; });
                 default: return Run(OpenBox());
             }
