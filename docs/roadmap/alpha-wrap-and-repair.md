@@ -659,7 +659,7 @@ of 9 configurations, 3 of them `RemesherPro` on two procedural inputs of up to a
    defaults (wrap 543k triangles before the simplification): above the 20 s line of CLAUDE.md for one input; filed as #1113 (no test reproduces it; closed 2026-11-18).
 5. ~~Remesher `RejectInvertingPasses` snapshot~~: closed 2026-11-17, see the "Done and removed" line above (plan #1273).
 6. Reducer scale-safe quadrics below about 1e-280 of the extent (#618, FINDINGS item 6): only on demand.
-7. Remove `external/cgal_wrap.cpp` once no comparison needs it (plan #1260).
+7. Remove `external/cgal_wrap.cpp` once no comparison needs it ([plan #1260](../plans/alphawrap-remove-cgal-wrap-and-second-ref.md)).
 8. Local self-intersection untangling before the wrap (SIGGRAPH 2025 / 2026): spike done 2026-11-22
    ([research/SELF_INTERSECTION_UNTANGLING_2026-11.md](../research/SELF_INTERSECTION_UNTANGLING_2026-11.md)), no-go for
    untangling the input: the repair ends in the exact resolve on 84 of 84 procedural runs, and a prototype (40 of 42 clean)
