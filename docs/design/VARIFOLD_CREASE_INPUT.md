@@ -283,10 +283,82 @@ defect found):
 The benchmark, re-run after these changes, gives the same recall and precision in every row; the cost numbers above are
 from that re-run.
 
-**Next candidates.** The quality misses above are bounded by the oracle and the cost by its target:
+**Next candidates** at this point (the first one was built, section 10):
 
 | candidate | bound |
 |---|---|
 | The vertex planes on a jittered soup from the varifold's fitted plane (mass-weighted over a ball) instead of the nearest triangle | up to the oracle: slot jitter +0.04 recall, +0.11 precision; nothing on the unmoved breakages, already at the ceiling |
 | A gap-aware placement (planes of the two patches as the label planes near a gap) | `gap:0.3` within 3 offsets 0.88-0.97 now, within 1 offset 0.31-0.68; the bound is the ceiling 0.99, but the reference crease of a gapped input is ambiguous at one offset (the faces are 5 offsets apart) |
 | Local sampling (only near crossing edges) | the measure is 70-90 % of the varifold's share; at most -0.15 to -0.3 s per pass; not needed while the share stays below 12 % |
+
+## 10. The fitted vertex planes (coordinator 2026-11-24: the first candidate of section 9, same PR)
+
+**What.** The pass gives every wrap vertex a plane: before, the plane of its nearest input triangle. On a jittered soup that
+plane carries the triangle's own tilt.
+
+With `VarifoldCreases`, the vertex takes the input's varifold plane at its nearest input point instead (`FitPlane`):
+- the cluster is the triangles within 20 degrees of the nearest one, in a ball of `VarifoldPlaneRadius` = 1.5 alpha;
+- the cluster must hold at least half the ball's mass and be planar (rms at most 0.1 of the ball);
+- the normal is the mass-weighted mean of the cluster's normals, turned to the vertex's side;
+- the plane is lifted by `VarifoldPlaneLift` = 2 rms.
+
+The lift matters. The fitted plane runs through the middle of the jitter, but the pass keeps 0.9 offset from the outermost
+triangles, so without the lift the moves onto the plane are rejected. Measured without the lift (slot, jitter): precision 0.828 -> 0.75-0.79, and the
+pass was 3 times slower.
+
+**Two levers for the cost.** Without them the planes cost 0.3-0.5 s, and the varifold's share was 18-27 % of the wrap
+(`soupwrap_planes` rows, then superseded).
+
+- **A noise gate.** The planes are used only when the median tilt of 512 triangles (at a fixed stride) against their fitted
+  planes is above `VarifoldPlaneMinTiltDegrees` = 0.1 degrees. A clean tessellation measures 0.00; jitter of 0.025 h
+  measures 0.38-0.45.
+- **A parallel prefetch.** When the planes are used, the labels of all wrap vertices are made before the serial passes, in
+  parallel (`gParallel.ForRange`, each vertex its own slot, no reduction across threads). The passes ask a vertex's label
+  before they move it and nothing moves before them, so these are the labels the lazy path makes. A test checks the same
+  bits with the prefetch, without it, and with every loop serial.
+
+Also: cells of half the radius and a dense cell table where the grid is small (at most 4 cells per point).
+
+**Benchmark** (the same command as section 9, raw rows `results/soup/soupwrap.jsonl`; the rows of section 9, without the
+planes, are now `soupwrap_planes_off.jsonl`). Recall / precision within 1 offset:
+
+| breakage | slot | vnotch | box | fillet |
+|---|---|---|---|---|
+| jitter:0.025, before | 0.802 / 0.597 | 0.860 / 0.650 | 0.934 / 0.863 | 0.931 / 0.844 |
+| jitter:0.025, varifold without planes | 0.949 / 0.828 | 0.955 / 0.799 | 0.988 / 0.944 | 0.982 / 0.930 |
+| **jitter:0.025, with the planes** | **0.981 / 0.932** | **0.969 / 0.840** | 0.987 / 0.933 | 0.982 / 0.932 |
+| jitter:0.025, oracle | 0.987 / 0.934 | 0.968 / 0.830 | 0.986 / 0.934 | 0.988 / 0.937 |
+
+The hole-free mixes, recall within 3 offsets / precision within 1 offset:
+
+| breakage | slot | vnotch | box | fillet |
+|---|---|---|---|---|
+| mixnh:0.5, without planes | 0.967 / 0.472 | 0.923 / 0.340 | 0.984 / 0.271 | 0.973 / 0.186 |
+| mixnh:0.5, with planes | 0.985 / 0.529 | 0.943 / 0.372 | 0.982 / 0.279 | 0.976 / 0.211 |
+
+- The unwelded, T-junction, duplicate, flip and gap rows do not use the planes (tilt 0.00) and are as in section 9.
+- Every result is clean: 160 of 160 rows.
+- **The slot's precision miss is closed:** 0.932 against the oracle's 0.934.
+- **Cost:** the varifold's share is **7.3-17.5 %** of the wrap over the 40 cases (0.19-0.51 s); the most is box and fillet
+  at `mixnh:0.25`. The target is < 20 %. The pass itself takes longer where the planes are used (about 5 s against 1.5 s):
+  it then moves nearly every vertex onto its denoised plane, each move checked exactly, as the oracle's pass does on the
+  clean copy (about 5 s too).
+
+**Tests** added: `FitPlane_AveragesAJitteredSheet`, `FitPlane_RefusesMixedOrCurved` (including two parallel sheets),
+`VarifoldPlanes_JitteredSoup_KeepGuaranteesAndTheCrease` (the same bits with the prefetch, without it and serial) and
+`VarifoldPlanes_CleanSoup_NotUsed`. Hand mutants: 24, 23 killed.
+
+- New for the planes: the half-mass share, the rms guard, the orientation, the cluster test, the lift sign, the gate
+  always off and always on, the fitted plane ignored, and the plane fit's radius cut.
+- Repeated on the crease test: the earlier mutants.
+- The survivor is the plane fit's kernel weight: uniform instead of `(1 - r^2 / R^2)^4`. It is equivalent at this scale:
+  on a flat or jittered sheet both weights give the same plane to within the jitter. It is kept as an accepted survivor.
+
+**Remaining candidates and their bounds** (the stop rule: none clears 10 % on the measured set):
+
+| candidate | bound |
+|---|---|
+| Gap-aware placement | `gap:0.3`: recall within 3 offsets 0.877 and 0.889 (vnotch, fillet) against the ceiling's 0.989 and 1.000, at most +0.11 on 2 of 40 rows; elsewhere at most +0.07. That gap is outside the targets (up to `mix:0.5`, whose gap is 0.15 h), and at one offset the reference itself is ambiguous (the faces are moved 2.7-5.5 offsets apart). Below 10 % on every row within the target range. |
+| Local sampling (measure only near crossing edges) | the measure is 0.15-0.25 s of the 0.19-0.51 s; the share is already at most 17.5 %: no target missed |
+| A planes gate per region instead of per input | the gate is global; a mostly clean input with one noisy part uses the planes everywhere (cost only, not quality): at most the planes' 0.1-0.25 s |
+| Corners (three planes) | not handled by the pass at all (ALPHA_WRAP_FEATURE_VALIDITY.md); not measured here |
