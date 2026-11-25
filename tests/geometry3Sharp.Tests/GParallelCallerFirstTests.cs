@@ -198,22 +198,40 @@ namespace geometry3Sharp.Tests
             Assert.Throws<InvalidOperationException>(() => gParallel.ForRange(1, (i) => throw new InvalidOperationException()));
         }
 
+        // a fixed amount of integer work (Thread.SpinWait differs by a factor of 10 or more between CPUs and runtimes)
+        static int Work(int i, int rounds)
+        {
+            uint x = (uint)i * 2654435761u + 1;
+            for (int k = 0; k < rounds; ++k)
+                x = x * 1664525u + 1013904223u;
+            return (int)x;
+        }
+        static int workSink;
+
         [Fact]
         public void Failure_StopsTheLoop_AndNoItemRunsAfterTheThrow()
         {
-            // the first item that a helper runs fails, while the caller is still taking chunks: the caller must stop too, within the
-            // item it is running (a failure on the caller alone ends the loop anyway, since the caller then closes it). If no helper
-            // started (a pool without a free worker) the loop ends without a failure and there is nothing to check
+            // the caller's first item waits until a helper has started, and the first item a helper runs fails: the failure comes
+            // when nearly all of the 400000 items are left. The caller must then stop (it reads the stop before every item); how many
+            // items it runs before the stop is set depends on how long the throw takes (75 were measured on net48 under load), so the
+            // bound is a quarter of the items: without the stop the caller runs all of its chunks, more than half of them. If no helper
+            // started within 2 s (a pool without a free worker) the loop ends without a failure and there is nothing to check
             int caller = Environment.CurrentManagedThreadId;
-            int ran = 0, ranAtFailure = -1;
-            const int n = 100000;
+            int ran = 0, ranAtFailure = -1, helperIn = 0;
+            const int n = 400000;
             Exception e = Record.Exception(() => gParallel.ForRange(n, (i) => {
                 if (Environment.CurrentManagedThreadId != caller) {
                     Interlocked.CompareExchange(ref ranAtFailure, Volatile.Read(ref ran), -1);
+                    Volatile.Write(ref helperIn, 1);
                     throw new InvalidOperationException();
                 }
+                if (i == 0) {
+                    var wait = System.Diagnostics.Stopwatch.StartNew();
+                    while (Volatile.Read(ref helperIn) == 0 && wait.ElapsedMilliseconds < 2000)
+                        Thread.Yield();
+                }
                 Interlocked.Increment(ref ran);
-                Thread.SpinWait(200);
+                workSink += Work(i, 300);
             }));
             int atThrow = Volatile.Read(ref ran);
             Thread.Sleep(50);
@@ -224,9 +242,7 @@ namespace geometry3Sharp.Tests
             }
             var all = (e is AggregateException ae) ? ae.Flatten().InnerExceptions.ToList() : new List<Exception>() { e };
             Assert.All(all, x => Assert.IsType<InvalidOperationException>(x));
-            // (the caller reads the stop before every item: after the failure it finishes the item it is in, and at most a few more
-            // that it had started before the failure was recorded; generous for a descheduled caller)
-            Assert.True(atThrow - ranAtFailure <= 64, $"{atThrow - ranAtFailure} items ran on the caller after a helper failed");
+            Assert.True(atThrow - ranAtFailure <= n / 4, $"{atThrow - ranAtFailure} of {n} items ran on the caller after a helper failed");
         }
 
         [Fact]
