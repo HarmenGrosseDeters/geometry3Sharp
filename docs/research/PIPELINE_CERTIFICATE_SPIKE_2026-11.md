@@ -24,7 +24,7 @@ rounding-dropped solids), [CERTIFYING_BOOLEANS_2026-11.md](CERTIFYING_BOOLEANS_2
 | Cost, Thingi10K | the certificate costs a median 93 times the boolean (p90 200, max 1092) with BigInteger; with the filtered embedding check of `Certify.cs` in place of C2 a median 40 times (p90 80). C2 is 74 % of the certificate in the median; the other clauses stay BigInteger. |
 | Does it find a wrong result that today's checks miss? | **No.** On the procedural corpus through the real pipeline, 28 runs are `Success` and wrong against the audit's oracle. 8 are results the rounding emptied: today's report already says `Clean = false`, and the certificate rejects them (`NotClean`, with the removed part listed). 20 are inputs given with the wrong orientation (a cavity wall outward): `Clean = true` today, and the exact-stage certificate holds for them (it is about the winding numbers of the inputs as given). On Thingi10K there is no reference, and no run is rejected. |
 | What is new and cheap | A caveat from the certificate's own witness: an input mesh with a winding number outside {0, 1} (it overlaps itself or is inside out). It flags 20 of the 20 silent-wrong pipeline runs (and 31 correct runs: precision 39 %; direct runs: 60 of 60 wrong, and 34 correct), and costs nothing: the winding numbers are in the witness. It does not need the BigInteger checker. |
-| Stop rule | **Applies so far** (section 6): no wrong result found that today's checks miss, and the cost is 40 to 100 times the boolean, with a filter on one clause only. On the routes that alter the inputs the rounding checks work as #1488 describes; for a direct run the certificate adds nothing that today's checks do not already say. |
+| Stop rule | **Applies; the spike stops after phase 1** (owner 2026-11-25) (section 6): no wrong result found that today's checks miss, and the cost is 40 to 100 times the boolean, with a filter on one clause only. On the routes that alter the inputs the rounding checks work as #1488 describes; for a direct run the certificate adds nothing that today's checks do not already say. |
 
 ## 1. The statement (the repair contract)
 
@@ -202,7 +202,7 @@ The hook in `SolidBooleanPipeline` does not have to contain the checker. The lea
 
 The stop rule of the plan: if the measurement finds no wrong result that today's checks miss, and the cost is above the use, say so plainly.
 
-**It applies so far.**
+**It applies.** The spike stops after phase 1 (owner decision 2026-11-25): the certificate does not become a library feature, phase 2 (the hook in `SolidBooleanPipeline` and the run on the owner's inputs) is not done, and the harness stays in the tests as a QA tool for corpora without a reference. The winding-number caveat goes on as a warning field of the pipeline's report, together with the result kind of #1576 (a separate PR).
 
 - *No wrong result found that today's checks miss and that the certificate catches.* On the procedural corpus and Thingi10K (1062 runs), plus 57 extras and 9 repair runs, the certificate rejects 21 results the rounding emptied, which the pipeline's report already marks (`Clean = false`, `RoundingRemoved`), and 3 results with invented surface, which #1488 already refuses. The 20 runs where the pipeline succeeds with a wrong result and a clean report are all inputs whose intent differs from their winding numbers: the exact-stage certificate holds for them by construction and cannot see them. On Thingi10K there are 0 rejections in 462 runs; there is no reference there, so this says only that no clause fired.
 - *The cost is above the use.* 93 times the boolean in the median on the Thingi10K pairs, 40 with the one filter that exists, for a verdict that on these corpora was `Certified` for 89 % of the runs and never `Rejected`. A fully filtered checker is estimated at 3 to 16 times; that is not measured and not built.
@@ -212,7 +212,9 @@ What would change the verdict: a wrong result on the owner's private inputs that
 
 ## 7. Owner's inputs
 
-*Placeholder.* The owner's private results (observed by the owner on private inputs, aggregated) come from the main session later and are added here. Nothing in this note was run on private inputs.
+Not run: phase 2 is not done (section 6). The owner's private inputs went through the pipeline's verification (#1488) and a second Boolean implementation before this spike; on every accepted result that differed from the owner's reference the second implementation agreed with the pipeline (observed by the owner on private inputs). A wrong result that the certificate rejects and the verification lets through is therefore not expected there, which was the only way the verdict could still change.
+
+**Why the certificate is blind to intent errors.** It proves that the output matches the exact result of the operation on the inputs as passed, in winding-number semantics. When the inputs describe a different solid than the caller meant (a cavity wall facing outward, an inside-out part, a shell nested where a cavity was meant), the exact result is that other solid, and certifying it is correct by the certificate's definition. Only a signal about the inputs, such as the winding caveat, can point at such a case; it cannot decide it.
 
 ## 8. Reproduce
 
