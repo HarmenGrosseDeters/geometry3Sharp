@@ -21,6 +21,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [BooleanVolumeGradient](BooleanVolumeGradient/README.md) | `BooleanVolumeGradient`: its cost against the boolean, `RetainClassification`, and the default path before / after the change |
 | [Boolean30Prestudy](Boolean30Prestudy/README.md) | Stage profiling and measurement probes for Exact Boolean 3.0 |
 | [ExactImprint](ExactImprint/README.md) | Cost of `ExactMeshImprint` compared to `ExactMeshBoolean` on procedural pairs |
+| [ImprintSliverSweep](ImprintSliverSweep/README.md) | Unclean runs of `ExactMeshImprint` on ulp-shifted near-duplicates, per shape, axis and frame (far from the origin) (#1489) |
 | [ExtremeBooleans](ExtremeBooleans/README.md) | Reproduction scripts and profiling for extreme-runtime boolean pairs |
 | [LevyClassification](LevyClassification/README.md) | Phase-1 propagation classification probe for `ExactMeshBoolean` |
 | [MeshMeshCutContactBenchmark](MeshMeshCutContactBenchmark/README.md) | Cost of exact contact detection in `MeshMeshCut.RefuseContact` |
