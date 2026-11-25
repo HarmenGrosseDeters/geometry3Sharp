@@ -51,7 +51,9 @@ namespace g3.Examples
             lostTriangles = repair.LostTriangleIds.Count;       // ids of input's triangles, to locate the loss
             maxDistance = repair.LostAreaMaxDistance;           // the largest distance of any sample of the input to the result
             return repair.LostAreaShare;                        // repair.LostArea is the area; both sides of a sheet count
+        }
 
+        /// <summary>
         /// Repair of a broken triangle soup that keeps its sharp edges if the repair ends in the alpha wrap: the sharp-feature
         /// pass on the wrap, with the creases taken from the soup's varifold (no welded edges needed). wrapped says whether the
         /// wrap was used (otherwise the switches change nothing). wrapRelativeAlpha: the wrap's alpha is the diagonal over it
