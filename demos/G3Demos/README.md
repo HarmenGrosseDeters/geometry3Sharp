@@ -20,7 +20,8 @@ All inputs are procedural. No mesh files are loaded or committed.
 ## Published demo
 
 https://harmengrossedeters.github.io/geometry3Sharp/ (GitHub Pages, owner OK 2026-11-25). `.github/workflows/pages.yml`
-publishes it on every master change of the demos or of the library sources they compile, and on demand:
+publishes it on every master change of the demos (or of the workflow), once a day (03:17 UTC, so library changes reach the
+page within a day without an AOT build per library merge), and on demand:
 
 - an AOT publish (`-p:RunAOTCompilation=true`, the `wasm-tools` workload): about 4 minutes, 39 MB in 56 files (12 MB
   gzipped), against 17 MB interpreted; the operations run about 2x native instead of about 10x;

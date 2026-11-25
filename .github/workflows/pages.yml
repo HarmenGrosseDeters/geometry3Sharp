@@ -1,23 +1,18 @@
 name: Pages (browser demos)
 
 # Publishes the browser demos (demos/G3Demos, Blazor WebAssembly, AOT-compiled) to GitHub Pages (owner OK 2026-11-25).
-# Runs on master when the demos or the library sources they compile change (the library project compiles every *.cs below
-# the root except tests/, benchmarks/, docs/, tools/, addons/ and demos/, see geometry3Sharp_netstandard.csproj), and on demand.
-# The browser check (demos/G3Demos/e2e/smoke.mjs) runs on the published files before the upload; three.js comes from
-# `npm pack three@0.170.0` (the npm registry), nothing of it is committed. Pages source: GitHub Actions (set by the owner).
+# Runs on master when the demos or this workflow change, once a day (so library changes reach the page within a day without
+# an AOT build per library merge; runner load, coordinator 2026-11-25), and on demand. The browser check
+# (demos/G3Demos/e2e/smoke.mjs) runs on the published files before the upload; three.js comes from `npm pack three@0.170.0`
+# (the npm registry), nothing of it is committed. Pages source: GitHub Actions (set by the owner).
 on:
   push:
     branches: [master]
     paths:
-      - '**'
-      - '!**/*.md'
-      - '!tests/**'
-      - '!benchmarks/**'
-      - '!docs/**'
-      - '!tools/**'
-      - '!addons/**'
-      - '!.github/**'
+      - 'demos/**'
       - '.github/workflows/pages.yml'
+  schedule:
+    - cron: '17 3 * * *'     # daily: picks up the library changes of the day
   workflow_dispatch:
 
 permissions:
