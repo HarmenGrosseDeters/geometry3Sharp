@@ -98,6 +98,9 @@ namespace geometry3Sharp.Tests
             foreach (var t in output.Triangles) {
                 double m = MinAngleDeg(output, t);
                 // only the excused triangles count: those below the bound (at phi = 40 the floor, 27.5 degrees, is above the bound 20)
+                // the tie at the bound: at phi = bound the apex triangles have the angle phi exactly (the oracle's exact test does not count
+                // them as below); atan2 may round to either side, so they are excluded explicitly, and they are above the floor (floor < phi)
+                if (Math.Abs(m - bound) <= 1e-6) { Assert.True(m > floorDeg, "a tie at the bound below the floor: " + m); continue; }
                 if (!(m < bound)) continue;
                 ++recountBelow;
                 // away from the knife edge, where doubles cannot decide (none of these inputs is near it)
