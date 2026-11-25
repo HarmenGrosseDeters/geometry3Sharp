@@ -6,7 +6,7 @@
     ],
     "target-framework": "net10.0",
     "mutate": [
-      "**/math/ExactPredicates.cs{22130..1000000}"
+      "**/math/ExactPredicates.cs{22881..1000000}"
     ],
     "test-case-filter": "FullyQualifiedName~IntrTriangle3Triangle3DoubleWordTests|FullyQualifiedName~IntrTriangle3Triangle3ExactDecisionTests|FullyQualifiedName~ExactPredicatesTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~PredicateDifferentialTests|FullyQualifiedName~ExactPoint3ConversionTests|FullyQualifiedName~ExactPoint3ToDoubleRoundingTests|FullyQualifiedName~ExactOrient3dKernelTests|FullyQualifiedName~GeneratedDoublePredicatesTests|FullyQualifiedName~ExactPredicatesBeyondRangeTests|FullyQualifiedName~ExactVolumeSignTests|FullyQualifiedName~FindInvertedComponentsExactTests",
     "ignore-methods": [
