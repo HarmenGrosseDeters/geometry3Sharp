@@ -126,6 +126,25 @@ namespace geometry3Sharp.Tests
             Assert.Equal(data, Bytes(w => PolygonFont2d.Store(back, w)));
         }
 
+        /// <summary> two characters of one name: a format error of the stream, not the ArgumentException of the dictionary </summary>
+        [Fact]
+        public void DuplicateCharacterName_IsAFormatError()
+        {
+            byte[] one = Bytes(w => {
+                w.Write(Version); w.Write(2);
+                for (int k = 0; k < 2; ++k) {
+                    byte[] name = System.Text.Encoding.Unicode.GetBytes("A");
+                    w.Write(name.Length); w.Write(name);
+                    w.Write(1);                                       // one polygon: a square, no holes
+                    w.Write(4);
+                    foreach (var p in new[] { new Vector2d(0, 0), new Vector2d(1, 0), new Vector2d(1, 1), new Vector2d(0, 1) }) { w.Write(p.x); w.Write(p.y); }
+                    w.Write(0);
+                }
+            });
+            Exception e = Record.Exception(() => PolygonFont2d.ReadFont(new MemoryStream(one, false)));
+            Assert.IsType<InvalidDataException>(e);
+        }
+
         /// <summary> a font cut short anywhere throws a stream error, never another exception type </summary>
         [Fact]
         public void TruncatedFont_ThrowsAStreamError_AtEveryLength()

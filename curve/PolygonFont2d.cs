@@ -148,6 +148,9 @@ namespace g3
                     polys.Add(polygon);
                 }
 
+                // (two characters of one name: Dictionary.Add would throw an ArgumentException, which is not a format error of the stream)
+                if (font.Characters.ContainsKey(s))
+                    throw new InvalidDataException("PolygonFont2d.Restore: the character \"" + s + "\" occurs twice");
                 font.AddCharacter(s, polys.ToArray());
             }
         }

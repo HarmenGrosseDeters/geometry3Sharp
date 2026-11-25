@@ -132,6 +132,38 @@ namespace geometry3Sharp.Tests
             Assert.Same(wrongA, mismatchA.SpatialA);
         }
 
+        /// <summary> the roles swapped on one instance, the same object as both meshes, and a caller's tree that went stale by an edit in place: each equals a fresh instance, bit for bit </summary>
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void SwappedMeshes_SameObject_StaleCallerTree_EqualAFreshInstance(bool symmetric)
+        {
+            DMesh3 a = Box(new Vector3d(1, 1, 1), 1.0), b = Sphere(1.3, new Vector3d(1, 1.2, 1));
+            var h = new MeshHausdorffDistance(a, b) { Symmetric = symmetric };
+            Assert.True(h.Compute());
+            h.MeshA = b; h.MeshB = a;                       // swapped: the tree built for B is now the tree for the other role
+            Assert.True(h.Compute());
+            AssertSame(Fresh(b, a, symmetric), h, "swapped");
+            h.MeshA = a; h.MeshB = a;                       // the same object in both roles
+            Assert.True(h.Compute());
+            AssertSame(Fresh(a, a, symmetric), h, "MeshA = MeshB");
+            Assert.Equal(0.0, h.LowerBound);
+            h.MeshA = b; h.MeshB = a;
+            Assert.True(h.Compute());
+            AssertSame(Fresh(b, a, symmetric), h, "swapped again");
+
+            // a caller's tree, valid at the first call, stale after an edit in place: ignored, the result is that of a fresh instance
+            DMesh3 c = new DMesh3(a), d = new DMesh3(b);
+            var tc = new DMeshAABBTree3(d, true);
+            var given = new MeshHausdorffDistance(c, d) { Symmetric = symmetric, SpatialB = tc };
+            Assert.True(given.Compute());
+            foreach (int v in d.VertexIndices().ToList()) d.SetVertex(v, d.GetVertex(v) + new Vector3d(0.5, 0, 0));
+            Assert.False(tc.IsValid);
+            Assert.True(given.Compute());
+            AssertSame(Fresh(new DMesh3(c), new DMesh3(d), symmetric), given, "the caller's tree is stale after an edit in place");
+            Assert.Same(tc, given.SpatialB);
+        }
+
         /// <summary> under every similarity: an instance that measured the untransformed pair, then the transformed one, equals a fresh instance on the transformed pair </summary>
         [Theory]
         [InlineData(false)]
