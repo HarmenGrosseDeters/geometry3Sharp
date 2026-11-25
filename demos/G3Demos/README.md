@@ -25,7 +25,9 @@ dotnet publish demos/G3Demos -c Release -o <dir>
 ```
 
 Serve `<dir>/wwwroot` with any static file server (the page works from any sub path) and open it. three.js 0.170.0 (MIT)
-is loaded at runtime from `cdn.jsdelivr.net` through the import map in `wwwroot/index.html`; it is not in the repository.
+is loaded at runtime from `cdn.jsdelivr.net` through the import map in `wwwroot/index.html`, pinned by sha384 integrity
+hashes of the npm package's files; it is not in the repository. CI builds the demo (`dotnet build`, linux job), so a library
+change that breaks it shows there; the browser check below stays local.
 `dotnet run --project demos/G3Demos` serves it locally too.
 
 WebAssembly runs the .NET IL interpreter by default. `-p:RunAOTCompilation=true` (needs `dotnet workload install

@@ -47,7 +47,8 @@ page.on('pageerror', e => problems.push('pageerror: ' + e.message));
 page.on('requestfailed', r => problems.push('requestfailed: ' + r.url()));
 await page.route('https://cdn.jsdelivr.net/npm/three@0.170.0/**', async route => {
     const rel = new URL(route.request().url()).pathname.replace('/npm/three@0.170.0/', '');
-    route.fulfill({ body: await readFile(join(threeDir, rel)), contentType: 'text/javascript' });
+    // (CORS header as the CDN sends it: the import map's integrity check needs a CORS response)
+    route.fulfill({ body: await readFile(join(threeDir, rel)), contentType: 'text/javascript', headers: { 'access-control-allow-origin': '*' } });
 });
 
 async function waitDone(label) {

@@ -200,6 +200,6 @@ pieces by design). `SolidBooleanPipeline.MinThickness` (default 0) removes it; a
 3. **Terrain**: large grids, the known libm site in `TerrainSlope*` (#802) would show up in the browser.
 4. **Parameterization**: fewer silent-failure modes (distortion is visible); lowest expected yield.
 
-CI: the demo build is not in CI. Proposal for the coordinator (a gate change): `dotnet build demos/G3Demos -c Release`
-in the `quick` job when `demos/**` or the library changes, so a breaking library change shows up there; the browser check
-stays local (it needs three.js from npm and a browser).
+CI (coordinator 2026-11-25): the linux job builds the demo (`dotnet build demos/G3Demos -c Release`, next to the benchmarks),
+so a library API change that breaks it shows there; `tools/ci_scope.py` treats `demos/` as a tool directory (a demos-only
+change runs no library suite). The browser check stays local (it needs three.js from npm and a browser).

@@ -7,12 +7,18 @@
     <base href="./" />
     <link rel="stylesheet" href="css/app.css" />
     <!-- three.js (MIT) at a pinned version from the CDN; it is not part of the repository.
-         The local browser check (e2e/smoke.mjs) serves the same version from `npm pack three@0.170.0` instead. -->
+         The local browser check (e2e/smoke.mjs) serves the same version from `npm pack three@0.170.0` instead.
+         "integrity": sha384 of the two files of that npm package (openssl dgst -sha384 -binary <file> | base64); a browser that
+         supports import map integrity refuses a file with other bytes. -->
     <script type="importmap">
     {
         "imports": {
             "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
             "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        },
+        "integrity": {
+            "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js": "sha384-GY5FqjttLCFRt/McQbyaVdCk2O1IQtOeX8Py6NfD89BIAsIyJFRl4UgSXrk2vXAk",
+            "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/controls/OrbitControls.js": "sha384-aJoe4qqS/DgF2jh9njAuvA6QIveJYoCuYOfYjdFY8P3eawzmc9bEQ40jq2TvOyuP"
         }
     }
     </script>
