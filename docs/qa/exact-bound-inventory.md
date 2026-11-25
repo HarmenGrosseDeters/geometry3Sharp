@@ -51,10 +51,10 @@ rule; **S** speed or strategy only.
 
 | Bound | file:line | Claim | Coverage | Mutant killed by |
 |---|---|---|---|---|
-| Orient2d, Orient3d, InCircle, InSphere stage A (EBA EP-1..4), F | `ExactPredicates.cs:21-24` | (3, 7, 10, 16 + O(u)) u * permanent covers the filter error (with the underflow term) | EBA-derived (margins 1 + O(u)); Z3 `orient3d_bound.py` (planned, Step 2) | H5 (7 to 4 u): EBA anchor and derivation; `ExactPredicatesFilterBoundTests` (planned, Step 2). Library tests before: none |
+| Orient2d, Orient3d, InCircle, InSphere stage A (EBA EP-1..4), F | `ExactPredicates.cs:21-24` | (3, 7, 10, 16 + O(u)) u * permanent covers the filter error (with the underflow term) | EBA-derived (margins 1 + O(u)); no Z3 lemma (section 7) | H5 (7 to 4 u): EBA anchor and derivation; `ExactPredicatesFilterBoundTests` (this PR; also kills 4.25 u). Library tests before: none |
 | with_underflow, UnderflowLimit 1e-200, UnderflowUnit 2^-1066 | `ExactPredicates.cs:25-60` | the absolute term for subnormal products; dropped only where it rounds away | EBA-derived (part of EP-2..4, `with_underflow_note`); tests `ExactPredicatesTests.UnderflowTerm` | EBA anchor; the Stryker survivors of the term (mutation README, item 1) are not killed by tests |
 | VolumeSumWithBound (EP-5), TryCompareAbsVolume6 slack (EP-6), F | `ExactPredicates.cs:511`, `:542` | Higham's gamma_(n+2) recursive-sum bound on top of Orient3dBound | EBA-derived for n = 1, 2, 7, 40; design doc EXACT_VOLUME_SIGN.md | EBA anchor; the H5 test below goes through this function |
-| Expansion.InRange [2^-100, 2^100] (AP-1), D | `ExactPredicates.cs:701-716` | degree-4 products of the expansions and their rounding errors are normal and finite | EBA-checked (hardcoded 2^-100, 2^-152); Z3 `adaptive_range.py` (planned, Step 2, coupled to the source values) | H6 (2^-100 to 2^-250): EBA anchor (text); `ExactPredicatesRangeEdgeTests` (planned, Step 2, InCircle 1 for cocircular points at 2^-220). Library tests before: none |
+| Expansion.InRange [2^-100, 2^100] (AP-1), D | `ExactPredicates.cs:701-716` | degree-4 products of the expansions and their rounding errors are normal and finite | EBA-checked (hardcoded 2^-100, 2^-152); Z3 `adaptive_range.py` (this PR, coupled to the source values; admits 2^-203 .. 2^246) | H6 (2^-100 to 2^-250): EBA anchor (text); Z3 (SAT); `ExactPredicatesRangeEdgeTests` (this PR: InCircle +1 for cocircular points at 2^-220). Library tests before: none |
 | Stage B/C constants (AP-2), F | `AdaptivePredicates.cs:29-36` | Shewchuk's constants | EBA-checked against the paper (reference); CcwErrBoundB re-derived at first order | EBA anchor; stage C mutants cost only time (test-gap audit P6, P7) |
 | Merge order of `sum` and `scale`, D | `AdaptivePredicates.cs:284-297` | non-overlapping, sorted output (Shewchuk's theorems) | Tests only (stage D against BigInteger) | open in the mutation README (item 6); test-gap audit P4 |
 | Coincidence shortcuts, F | `ExactPredicates.cs:194-247` | repeated points give 0 | Tests | equivalent (the exact path gives 0); non-finite input: test-gap audit P3, decided 2026-11-25 |
@@ -111,14 +111,14 @@ rule; **S** speed or strategy only.
 |---|---|---|---|---|
 | PolyhedralEnvelope Theta* (9, 29, 11, 7, 20, 61 u), margins eta, muPlan, corr, delta, rho, R, D | `PolyhedralEnvelope.cs:36-42`, `:91-121`, `:207-235`, `:302-305` | the polyhedra lie inside the epsilon envelope | Design doc ENVELOPE.md 4.4; a-posteriori check `mu <= muPlan` (TooThin); tests `PolyhedralEnvelopeTests` | not known |
 | Geodesic CornerAngle (Atan2 widened 2 spacings), Emit 1e-9, DiskOfBox, TransformDisk factors, D | `ExactMeshGeodesicDistance.cs:193-199`, `:396`, `:421`, `:629-646` | enclosures of the windows; Lower is a lower bound | Design doc GEODESICS.md; CornerAngle calls itself "an assumption" (correct rounding of CoreMath.Atan2); tests | not known |
-| may_meet_box `err = 24 u M + 8 eta`, D (cull) | `ContouringTopologyCertificate.cs:420-432` | 22 u M + 6 eta + O(u^2 M) suffices | Code-comment derivation; tests (`may_meet_box` 10 mentions); Z3 `may_meet_box.py` (planned, Step 2) | tests (not measured) |
+| may_meet_box `err = 24 u M + 8 eta`, D (cull) | `ContouringTopologyCertificate.cs:420-432` | 22 u M + 6 eta + O(u^2 M) suffices | Code-comment derivation; tests (`may_meet_box` 10 mentions); Z3 `may_meet_box.py` (this PR; factor 3 is the smallest the lemma admits) | factor 3 to 1: survives the 50 contouring certificate tests; killed by Z3 (reads the factor) |
 | first_bin / last_bin searches, T | `ContouringTopologyCertificate.cs:321-336` | exact comparisons from an estimate; no cap | review | an infinite coordinate does not end (callers reject non-finite input: not verified here) |
 
 ### 3.7 Terrain (`mesh_ops/TerrainSlope*.cs`, `math/ExactSlope*.cs`)
 
 | Bound | file:line | Claim | Coverage | Mutant killed by |
 |---|---|---|---|---|
-| Approx acceptance `err <= 1e-12 (|x|+|y|)` and the corner error `e = 4e-12 (|x|+|y|) + eps` that consumes it, D (cull) | `ExactSlopeKernel.cs:328-337`, `TerrainSlopeMap.cs:476-482` | the corners are within e of the exact ones | Code comment; tests `TerrainSlopeDesignTests` (prefilter_skips); Z3 `slope_approx.py` (planned, Step 2) | tests (a scale-dependent skip was found by them once) |
+| Approx acceptance `err <= 1e-12 (|x|+|y|)` and the corner error `e = 4e-12 (|x|+|y|) + eps` that consumes it, D (cull) | `ExactSlopeKernel.cs:328-337`, `TerrainSlopeMap.cs:476-482` | the corners are within e of the exact ones | Code comment; tests `TerrainSlopeDesignTests` (prefilter_skips); Z3 `slope_approx.py` (this PR): **finding**, the claim fails at the subnormal edge (section 6); the W-sign part proved; the normal-range bound undecided | tests (a scale-dependent skip was found by them once) |
 | Prefilter slacks `1e-9 (...)`, near `1e-11`, trim_ray eps, D (cull) | `TerrainSlopeMap.cs:450`, `:487`, `:538-553`, `:609`, `:355-359` | no face that the exact test keeps is skipped | Code comments; EBA section 7 names them the first next derivation; tests | not known |
 | Slb `cos(2 theta)(1 - 1e-6)`, reach `1.01`, box `1.05 dMax`, GradientBound `(1 + 1e-9)`, D (cull) | `TerrainSlopeDesign.cs:1389-1426`, `:2193`, `TerrainSlopeRamps.cs:381-385`, `ExactSlopeKernel.cs:111` | lower bounds of the slope, upper bounds of the reach | design docs TERRAIN.md, TERRAIN_RAMPS.md; tests | not known |
 | Tolerance budget (ez, lambdaBound, facet 2^-49, MergeShare, FlipShare), D | `TerrainSlopeDesign.cs:1286-1373`, `:1933-1951`, `TerrainSlopeCatchLineBound.cs:38`, `:112-113` | the realised surface stays within the tolerance | design doc TERRAIN.md (departures); tests | not known |
@@ -139,7 +139,7 @@ rule; **S** speed or strategy only.
 
 ## 4. Mutants
 
-| Mutant | Library tests (#1572) | EBA test (CI `linux`) | After Step 2 (planned) |
+| Mutant | Library tests (#1572) | EBA test (CI `linux`) | After this PR |
 |---|---|---|---|
 | H5 `Orient3dBound` 7 u to 4 u | survived (522) | killed: anchor, and EP-2's derivation fails with 4 u | also killed by `ExactPredicatesFilterBoundTests` (an input with error 4.1 u (perm + \|det\|)) and by Z3 `orient3d_bound.py` (SAT) |
 | H6 `MinMagnitude` 2^-100 to 2^-250 | survived (549) | killed by the anchor only (text) | killed by `ExactPredicatesRangeEdgeTests` (wrong sign) and by Z3 `adaptive_range.py` (SAT, replayed) |
@@ -154,11 +154,11 @@ speed-up) times how likely a future edit is to break it (actively tuned code, ma
 | Rank | Gap | Why |
 |---|---|---|
 | 1 | G1 Terrain prefilters and the Approx error coupling (3.7, rows 1-3) | cull without recheck; dozens of constants in active, speed-tuned code; a too-small slack skips a face and the design violates the slope; only tests; one such skip already happened (the 4e-12 term) |
-| 2 | G2 `Expansion.InRange` (H6) | a wrong sign of a public predicate; the proof had hardcoded numbers; no test failed |
+| 2 | G2 `Expansion.InRange` (H6) | a wrong sign of a public predicate; the proof had hardcoded numbers; no test failed (closed by this PR) |
 | 3 | G3 `may_meet_box` err | cull without recheck in a certificate (a wrong topology claim); a hand derivation in a comment only |
 | 4 | G4 ContinuousCollision filter (2^-47, 16 eta) | a missed collision; hand table in CCD.md only; no exact fallback |
 | 5 | G5 PolyhedralEnvelope Theta constants and margins | a false "inside"; eleven constants derived in ENVELOPE.md, not checked |
-| 6 | G6 `Orient3dBound` and the stage A constants (H5) | a wrong sign; machine-derived (EBA), but no .NET test killed a shrink |
+| 6 | G6 `Orient3dBound` and the stage A constants (H5) | a wrong sign; machine-derived (EBA), but no .NET test killed a shrink (closed by this PR) |
 | 7 | G7 IntrExactBox3 filters | a wrong certified ray/box answer; derivation in BOX3_EXACT_FILTER.md; edge tests exist |
 | 8 | G8 Geodesic window enclosures (CornerAngle, Emit 1e-9, disk factors) | a lower bound that is not one; one assumption (correct Atan2) stated as such |
 | 9 | G9 Antipodal tolerance factor 16 and the silent 0.5 | a wrong inside/outside of open input; no derivation exists |
@@ -171,8 +171,27 @@ speed-up) times how likely a future edit is to break it (actively tuned code, ma
 
 ## 6. Lemmas and tests added (Step 2)
 
-Planned: Z3 lemmas for G2 (H6), G6 (H5), G3 and the Approx coupling of G1, and .NET tests that kill H5 and H6.
+| Item | Gap | Result |
+|---|---|---|
+| `tools/Z3Pilot/adaptive_range.py` | G2 | Proved: the grid of the inputs, closure of the grid under the expansion operations, no underflow (d (m + 52) <= 1022) and no overflow for degrees 2, 3, 4, with m and M read from the source. Mutants H6, MaxMagnitude 2^250, a finer grid and a quotient are SAT and replayed. The source contract also flags unguarded calls of `AdaptivePredicates` |
+| `tools/Z3Pilot/may_meet_box.py` | G3 | Proved: the separation test is sound under the half-ulp rounding model (both directions, linear real arithmetic). Mutants: factor 1, no eta term (SAT, replayed). The code's factor 3 is the smallest integer factor the lemma admits |
+| `tools/Z3Pilot/slope_approx.py` | G1 (Approx coupling) | **Finding** (SAT, IEEE replay): at the subnormal edge Approx accepts x = y = 0 with a W that contains 0, and the exact vertex can be anywhere (2^-74 in the replay against e = 2^-1074). Reported to the coordinator. Proved: away from the edge acceptance gives W* the sign of w. Undecided: the normal-range bound (nlsat unknown) |
+| `ExactPredicatesRangeEdgeTests` | G2 | Kills H6: InCircle +1 for exactly cocircular rectangles at 2^-220 (the BigInteger result is 0), plus the closed edges of `InRange`. 27 cases, 0.2 s |
+| `ExactPredicatesFilterBoundTests` | G6 | Kills H5 (and 4.25 u): an input whose evaluated error is 4.30 u (permanent + \|det\|), checked against `VolumeSumWithBound`'s bound in BigInteger. Under 0.01 s |
 
-## 7. Left open
+**Lead outside the ranking.** `mesh_generators/DualContouring.cs:2484-2485` (place_face_vertex) calls `AdaptivePredicates.Orient2d`
+without `Expansion.InRange`, against the class's stated precondition. For degree 2 the expansions are exact for coordinates
+down to about 2^-459 and up to about 2^494, so only geometry far beyond the tested 2^-60 .. 2^200 or with subnormal coordinates is
+affected. `adaptive_range.py` lists the two calls as the known exception; reported to the coordinator.
 
-To be filled at the end of Step 2.
+## 7. Left open (stop rule)
+
+| Gap | Why left |
+|---|---|
+| G6 as a Z3 lemma | Already machine-derived (EBA EP-2, a full proof whose derivation fails for 4 u); the generic per-operation rules of `filter_rules.py` give 8 u for this expression and cannot reproduce Shewchuk's 7 u, so a Z3 version would be a second hand model of the same proof. The new .NET test is the semantic kill |
+| G1 slacks (1e-9 terms, near 1e-11, trim_ray eps, Slb, reach) | Each rests on an analytic argument about the plane heights over a face, not on a rounding bound; a lemma needs that argument written first (EBA section 7.4 has them first in its list). The Approx finding should be fixed before |
+| G4 ContinuousCollision, G5 PolyhedralEnvelope, G7 IntrExactBox3, G8 geodesic windows | Hand derivations exist (CCD.md, ENVELOPE.md 4.4, BOX3_EXACT_FILTER.md, GEODESICS.md) and their structure (sums of rounded products against a margin) fits `may_meet_box.py` or `tools/ErrorBoundAudit`; not done for budget. Next in this order |
+| G9 Antipodal factor 16 | No derivation exists to check; one has to be written first |
+| G10 merge order of `sum` | A test of the expansion invariants (sorted, non-overlapping, exact against BigInteger) is cheap; it is test-gap audit P4, left to that follow-up |
+| `may_meet_box` factor 1 as a .NET test | Needs an adversarial input that meets a box by less than 16 u M; the Z3 lemma kills the mutant through the source contract |
+| The rest of section 5 | Low risk: speed only, equivalent, a crash rather than a wrong answer, or non-finite input only |

@@ -788,3 +788,49 @@ monotonicity of a rounded subtraction or product): that a coordinate within the 
 python3 tools/Z3Pilot/clipper_frame.py --out /tmp/clipper-frame.json
 python3 -m unittest discover -s tools/Z3Pilot -p 'test_clipper_frame.py' -v
 ```
+
+## Exact-bound inventory lemmas (2026-11-25, `docs/qa/exact-bound-inventory.md`)
+
+Three lemmas for the top gaps of the inventory. Each obligation is an UNSAT counterexample query with its assumptions SAT;
+each has a controlled mutant that must be SAT and is replayed outside Z3; each reads the constants it uses from the source
+and fails on a change of the code around them. Part of the `Z3 pilot` workflow (paths filter, uploaded reports), about 1 min
+together.
+
+**`adaptive_range.py` (G2, the hand mutant H6 of #1572).** The range of `Expansion.InRange` against what `AdaptivePredicates`
+needs. Proved (binary64 / wide frame, bit-precise): a double >= 2^-m is a multiple of 2^-(m + 52), and RNE sums, differences and
+products of integers in the wide frame (precision 53, 15-bit exponent) are integers (TwoSum, the split and TwoProduct are
+chains of these). With m and M read from `math/ExactPredicates.cs` (powers of two, else the contract fails): for each predicate
+of degree d (orient2d 2, orient3d 3, incircle 4, reviewed) d (m + 52) <= 1022 (no underflow) and d (M + 1) + 33 <= 1023 (no
+overflow; 33 counts the terms, the sums and the splitter, as AP-1 of `tools/ErrorBoundAudit` does). Stated, not queried: the
+bridge, that a binary64 operation whose exact result is 0 or normal is the wide frame's (the IEEE definition; Z3 does not decide
+the frame equality for + and * in 300 s, and the variant with the condition on the rounded result is false: an exact product
+just below 2^-1022 rounds up to a normal number). Mutants: H6 (2^-250: a degree-4 product of the grid unit 2^-302 is 0 in
+binary64; the .NET replay is `ExactPredicatesRangeEdgeTests`, InCircle +1 for exactly cocircular points at 2^-220), the
+maximum 2^250, the grid one bit too fine, a quotient of integers. Margins in the report: the lemma admits MinMagnitude down to
+2^-203 and MaxMagnitude up to 2^246. The contract also pins the public predicates of `AdaptivePredicates` (a new one needs a
+reviewed degree) and scans the library for calls of `AdaptivePredicates.Orient2d / Orient3d / InCircle` without
+`Expansion.InRange` in the three lines before: the two calls in `mesh_generators/DualContouring.cs` (place_face_vertex) are the
+known exception (reported in the inventory); a new one fails.
+
+**`may_meet_box.py` (G3).** `ContouringTopologyCertificate.may_meet_box` drops a triangle if fl(bmax + err) < fl(tmin - err) (or
+the mirror), err = fl(fl(12 u M) + 4 eta). Linear real arithmetic over the rounding model |P - p| <= u |P| + eta (products),
+|S - s| <= u |S| (sums): the computed separation implies the exact one, for one box corner and one triangle point (the corner of
+the largest projection by monotone rounding, tmin below every point's projection). Mutants: the factor 1 instead of 3, no eta
+term (SAT, models replayed in exact rationals). The smallest integer factor the lemma admits is 3 (16 u M is not enough in the
+model): the code's 24 u M has no spare factor, as the comment's 22 u M derivation says.
+
+**`slope_approx.py` (G1, the corner error of the terrain prefilter).** `TerrainSlopeMap.prefilter_skips` assumes the corners
+from `ExactSlopeKernel.Approx` are within e = 4e-12 (|x| + |y|) + 2^-1074; Approx accepts if err <= 1e-12 (|x| + |y|). FINDING:
+at the subnormal edge the claim fails (SAT, the Z3 model replayed, and an IEEE replay of the C# expressions: X = [2^-1074,
+2^-1074], Y = [0, 0], W = [-8, 4] gives x = y = -0 accepted, while the exact vertex for W* = 2^-1000 is x* = 2^-74). The
+acceptance compares with 1e-12 * 0 there and no longer bounds W. Reported to the coordinator 2026-11-25 for a bugfix PR; the
+test pins the finding as SAT while the code is unchanged. Proved: away from the edge (|x| + |y| > 0, no underflow) acceptance
+gives W* the sign of w (a narrow W); mutant: err without its W term. Undecided (not counted): the corner bound itself in the
+normal range; nlsat returns unknown after 300 s, also after symmetry reductions.
+
+```sh
+python3 tools/Z3Pilot/adaptive_range.py --out /tmp/adaptive-range.json
+python3 tools/Z3Pilot/may_meet_box.py
+python3 tools/Z3Pilot/slope_approx.py
+python3 -m unittest discover -s tools/Z3Pilot -p 'test_adaptive_range.py' -v
+```
