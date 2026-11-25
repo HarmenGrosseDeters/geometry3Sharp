@@ -169,6 +169,7 @@ namespace geometry3Sharp.Tests
 
         // ---- a sweep: the Nightly tier runs every degree; the ones that still fail are listed, so that a new one is a regression ----
 
+        // #1539 (open): removing an angle from this list is that issue's done-check.
         // angles of the 1 degree sweep that still end in a typed non-Success status or "Failed" (the same family of slivers, whose
         // neighbour cannot be stitched: the edge m x of the split exists already, or the sliver's long edge is no boundary edge)
         static readonly HashSet<int> StillFailing = new HashSet<int> { 96, 100, 119, 120, 132, 159, 177, 234, 236, 238, 244, 278, 291, 301 };
