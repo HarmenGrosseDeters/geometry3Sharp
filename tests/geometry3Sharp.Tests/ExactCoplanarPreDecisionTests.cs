@@ -196,7 +196,7 @@ namespace geometry3Sharp.Tests
             var first = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { ArrangementPreDecideCoplanar = preDecide };
             Assert.True(first.Compute());
             DMesh3 r = first.Result;
-            var step = new ExactMeshBoolean(r, a, op) { ArrangementPreDecideCoplanar = preDecide };
+            var step = new ExactMeshBoolean(r, a, op) { ArrangementPreDecideCoplanar = preDecide, ComputeExactVertices = true };
             bool wasSerial = gParallel.SerialOnThisThread;
             gParallel.SerialOnThisThread = serial;
             try { Assert.True(step.Compute()); } finally { gParallel.SerialOnThisThread = wasSerial; }
@@ -218,8 +218,15 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(off.b.Counts["intersecting_pairs"], on.b.Counts["intersecting_pairs"]);
                 Assert.Equal(off.b.Counts["pieces"], on.b.Counts["pieces"]);
                 Assert.Equal(off.b.RoundingClean, on.b.RoundingClean);
+                Assert.True(on.b.RoundingClean, name + " " + op);
                 Assert.True(on.result.TriangleCount > 0);
-                Assert.Equal("", MeshRobustRepair.NotCleanReason(on.result));
+                // (clean up to contacts: since #1410 the rounding is to nearest, which leaves duplicated vertices of one exact point in this
+                // chain where the old truncation pulled them apart; see ResultChecks.AssertCleanExceptContacts)
+                ResultChecks.AssertCleanExceptContacts(on.result, name + " " + op);
+                // the contacts are of the exact solid (#1489, measured with the exact vertices): only the rotated frame's difference has any (3 positions, each one
+                // exact point; the 6 contacts the rounding made of different exact points were separated by the repair)
+                int contacts = ResultChecks.AssertContactsAreOfTheExactSolid(on.b, name + " " + op);
+                Assert.Equal(name == "rotated" && op == ExactMeshBoolean.Operations.Difference ? 3 : 0, contacts);
             }
         }
 

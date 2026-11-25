@@ -44,7 +44,9 @@ namespace gs
     /// the guarantees above, but MeshRobustRepair.NotCleanReason reports them.
     ///
     /// Features of the offset surface narrower than about a cell (RelativeCellSize * |Distance|) can be lost or merged, as in any
-    /// grid contouring; an inset deeper than half the thickness of a part removes it (Status Empty if nothing is left).
+    /// grid contouring; an inset deeper than half the thickness of a part removes it. Status Empty means that nothing is left at this grid: it is also
+    /// returned for a part thinner than about half a cell (RelativeCellSize * |Distance|) after the inset, which still exists (a finer grid, ie a smaller
+    /// RelativeCellSize, finds it; #1597), so Empty does not prove that the part is gone.
     /// Usage: set the fields, call Compute(), read Result and the reports. Compute() can be called again after changes.
     /// </summary>
     public class MeshOffset
@@ -63,7 +65,7 @@ namespace gs
             InvalidParameters,
             /// <summary> the grid would have more than MaxGridNodes nodes </summary>
             GridTooLarge,
-            /// <summary> the offset surface is empty at this grid (an inset beyond the thickness of the part) </summary>
+            /// <summary> nothing resolved at this grid: the inset is beyond the thickness of the part, or the part left is thinner than about half a cell and a smaller RelativeCellSize can still find it </summary>
             Empty,
             /// <summary> the contour is not closed and manifold (left-out polygons, NonManifoldTriangles) or not finite; Result kept for diagnostics </summary>
             Failed,

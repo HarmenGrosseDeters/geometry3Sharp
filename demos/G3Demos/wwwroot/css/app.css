@@ -1,0 +1,32 @@
+:root { --bg: #ffffff; --fg: #1f2937; --muted: #6b7280; --line: #e5e7eb; --good: #15803d; --bad: #b91c1c; --warn: #b45309; --accent: #2563eb; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+#app, .shell { height: 100%; }
+.loading { padding: 2rem; color: var(--muted); }
+.shell { display: flex; flex-direction: column; }
+header { display: flex; align-items: center; gap: 1rem; padding: 0.4rem 0.8rem; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+header h1 { font-size: 15px; margin: 0; }
+header .runtime { margin-left: auto; color: var(--muted); font-size: 11px; }
+.tab { border: 1px solid var(--line); background: #f9fafb; padding: 0.3rem 0.7rem; border-radius: 6px; cursor: pointer; }
+.tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.body { flex: 1; display: grid; grid-template-columns: 260px 1fr 380px; min-height: 0; }
+.params, .status { overflow: auto; padding: 0.6rem 0.8rem; border-right: 1px solid var(--line); }
+.status { border-right: 0; border-left: 1px solid var(--line); }
+.params h2 { font-size: 14px; margin: 0.2rem 0 0.6rem; }
+.params label { display: block; margin-bottom: 0.55rem; }
+.params label.check { display: flex; gap: 0.4rem; align-items: center; }
+.params select, .params input[type=range] { width: 100%; }
+.buttons { display: flex; gap: 0.8rem; align-items: center; margin-top: 0.6rem; }
+#run { padding: 0.35rem 1rem; }
+main { position: relative; display: flex; flex-direction: column; min-width: 0; }
+canvas#view { flex: 1; width: 100%; min-height: 300px; display: block; }
+.headline { padding: 0.5rem 0.8rem; border-top: 1px solid var(--line); font-weight: 600; }
+.status h3 { font-size: 12px; margin: 0.7rem 0 0.2rem; text-transform: uppercase; color: var(--muted); letter-spacing: 0.03em; }
+.status table { width: 100%; border-collapse: collapse; }
+.status td { padding: 2px 4px; border-bottom: 1px solid var(--line); vertical-align: top; word-break: break-word; }
+.status td:first-child { color: var(--muted); width: 45%; }
+.good td:last-child, .headline.good { color: var(--good); }
+.bad td:last-child, .headline.bad { color: var(--bad); }
+.warn td:last-child, .headline.warn { color: var(--warn); }
+#blazor-error-ui { display: none; position: fixed; bottom: 0; left: 0; right: 0; background: #fee2e2; padding: 0.5rem 1rem; }
+@media (max-width: 900px) { .body { grid-template-columns: 1fr; } canvas#view { height: 55vh; } }

@@ -360,7 +360,10 @@ namespace g3
         /// component (the exact signed crossings of a ray from its centroid into its front side with the other triangles of the
         /// mesh) is odd and negative, so that the front of the surface is inside the solid it bounds (a consistently inverted cube:
         /// 1, and its solid is empty). Computed only with CountInsideOutCells (else 0), in every Orientation mode, also on success; 0 after Orientation = ByNesting of an
-        /// embedded input (the solid is then what the surface encloses). Exact, no tolerance; for an input that self-intersects
+        /// embedded input (the solid is then what the surface encloses). ByNesting does not change it for an input that is not
+        /// embedded (SelfIntersectingPairs of its own arrangement above 0): such an input keeps its given orientation, so a
+        /// consistently oriented, self-intersecting input with an inside-out part (eg a box with a face pushed through the opposite
+        /// one) is counted in every mode. Exact, no tolerance; for an input that self-intersects
         /// it reads the one triangle of each component, so a component that is inside-out only in part is not seen. An
         /// overlapping or nested shell with the right orientation for the winding number (eg a cavity wall given outward: its
         /// front is inside the solid, the winding number there is 1) is not counted: that is a union, not an inversion.
@@ -372,6 +375,12 @@ namespace g3
         /// known whether they are inside-out; not part of InsideOutCells. SolidBooleanPipeline refuses them like inside-out ones
         /// </summary>
         public int InsideOutUndecided;
+        // (internal, for the messages of SolidBooleanPipeline) per input of Compute(): its part of InsideOutCells (null without
+        // CountInsideOutCells), and with Orientation = ByNesting the SelfIntersectingPairs of its own one-mesh arrangement (0:
+        // embedded, so nesting oriented it; > 0: not embedded, the given orientation stayed; -1: not closed modulo 2, not tested);
+        // null in the other modes
+        internal int[] InsideOutCellsOfInput;
+        internal int[] NestingSelfIntersectingPairsOfInput;
         // tests: called with the input triangle of each component's ray before it is shot (it may throw InvalidOperationException,
         // as a ray that finds no direction does)
         internal Action<int> CountRayObserverForTests;
@@ -420,6 +429,13 @@ namespace g3
         /// double.
         /// </summary>
         public bool SafeRounding = true;
+        /// <summary>
+        /// false (default): nothing beyond the result is kept. true: Compute() also keeps, per piece of the arrangement, what the
+        /// classification decided (kept, flipped, the coplanar stack and the winding numbers in front of the pieces with one), for
+        /// <see cref="BooleanVolumeGradient"/>. Recording only: it changes no decision and no result; it costs memory linear in the
+        /// pieces and is read after Compute() until the next one
+        /// </summary>
+        public bool RetainClassification = false;
 
         /// <summary> for tests (issue 789): ExactMeshArrangement.HashSalt and SingleShard of the arrangement </summary>
         internal int ArrangementHashSalt;
@@ -811,6 +827,8 @@ namespace g3
             IntersectingPairs = SelfIntersectingPairs = NonManifoldEdges = NonManifoldTriangles = SplitNonManifoldEdges = ConflictEdges = Patches = RemovedVertices = 0;
             SplitBowtieVertices = 0;
             ReorientedTriangles = Contacts = InsideOutCells = InsideOutUndecided = 0;
+            InsideOutCellsOfInput = null;
+            NestingSelfIntersectingPairsOfInput = null;
             ExactWindingA = ExactWindingB = false;
             ExactWinding = null;
             openWithoutEffect = new List<int>();
@@ -895,6 +913,7 @@ namespace g3
                 }
             if (Orientation == OrientationModes.ByNesting) {
                 // (each input on its own: its nesting is that of its own triangles; the ray is exact, see nest_input)
+                NestingSelfIntersectingPairsOfInput = new int[inputs.Count];
                 for (int m = 0; m < inputs.Count; ++m) {
                     if (sheet != null && sheet[m])
                         continue;       // (a sheet is used as given: it is never oriented)
@@ -979,7 +998,7 @@ namespace g3
                 Result = null;
                 return fail(BooleanStatus.SheetRefused, SheetError);
             }
-            if (RecordCertificate) {
+            if (RecordCertificate || RetainClassification) {
                 CertificateKeep = (bool[])keep.Clone();
                 CertificateFlip = (bool[])flip.Clone();
             }
@@ -1396,6 +1415,8 @@ namespace g3
             PreparedInput p = prepare_input(mesh, nest, CountInsideOutCells);
             if (nest.Stopped)
                 return BooleanStatus.Cancelled;
+            if (NestingSelfIntersectingPairsOfInput != null)
+                NestingSelfIntersectingPairsOfInput[m] = nest.Tested ? nest.SelfIntersectingPairs : -1;
             if (nest.Inconsistent > 0) {
                 error = "input mesh " + m + " is closed modulo 2 but not embedded (" + nest.SelfIntersectingPairs + " pairs of its triangles meet beyond a common edge or vertex: " +
                     "self-intersections or coincident faces), and " + nest.Inconsistent + " of its triangles disagree with the orientation of the rest of their component: " +
@@ -1442,6 +1463,8 @@ namespace g3
             ExactMeshBoolean one;               // the instance whose arrangement is the one-mesh arrangement of mesh
             int[] triangleOf;                   // per triangle id of mesh: its index in that arrangement
             bool begun;
+            /// <summary> the one-mesh arrangement was computed (the mesh is closed modulo 2); Embedded and SelfIntersectingPairs are meaningful only then </summary>
+            public bool Tested => begun && !Stopped;
             /// <summary> the arrangement of the mesh has no pair of triangles that meet beyond a common edge or vertex </summary>
             public bool Embedded;
             /// <summary> cancelled while the arrangement was computed </summary>
@@ -1536,6 +1559,7 @@ namespace g3
         int count_inside_out(PreparedInput[] prepared)
         {
             int count = 0;
+            InsideOutCellsOfInput = new int[prepared.Length];
             bool[] seen = null;
             for (int m = 0; m < prepared.Length; ++m) {
                 PreparedInput p = prepared[m];
@@ -1562,8 +1586,10 @@ namespace g3
                         InsideOutUndecided++;
                         continue;
                     }
-                    if (chi < 0 && (chi & 1) != 0)
+                    if (chi < 0 && (chi & 1) != 0) {
                         count++;
+                        InsideOutCellsOfInput[m]++;
+                    }
                 }
             }
             return count;
@@ -1886,6 +1912,19 @@ namespace g3
             }
         }
 
+        /// <summary>
+        /// the operation on a dense vector of winding numbers (one per mesh), as the classification decides it
+        /// (BooleanVolumeGradient: also for the vectors of the other orders of a coplanar stack, which a WindingPredicate is
+        /// then called with)
+        /// </summary>
+        internal bool InsideOf(int[] winding)
+        {
+            var all = new List<int>(winding.Length);
+            for (int m = 0; m < winding.Length; ++m)
+                all.Add(m);
+            return inside(winding, all);
+        }
+
 
         [MethodImpl(JitHints.Optimize)]
         void classify(out bool[] keep, out bool[] flip)
@@ -1902,7 +1941,7 @@ namespace g3
             bool[] representative = new bool[n];
             double[] coplanarBoxes = coplanar_boxes();
             gParallel.ForRange(n, (i) => representative[i] = coplanar_stack(output[i], coplanarBoxes, out stack[i]));
-            StacksPerPiece = RecordStacks ? stack : null;
+            StacksPerPiece = (RecordStacks || RetainClassification) ? stack : null;
             steps.LapMicroseconds("classification.stacks");
 
             // patches: pieces of one mesh connected across edges that are not on an intersection curve, with
@@ -2034,7 +2073,8 @@ namespace g3
             }
 
             int[] winding = new int[nm];
-            int[][] front = RecordCertificate ? new int[n][] : null;
+            // (RetainClassification: only the pieces with a coplanar stack, for the contact regions of BooleanVolumeGradient)
+            int[][] front = (RecordCertificate || RetainClassification) ? new int[n][] : null;
             bool[] isTouched = new bool[nm];
             var touched = new List<int>();
             Action<int, int> add = (m, d) => {
@@ -2079,7 +2119,7 @@ namespace g3
                     for (int m = 0; m < nm; ++m)
                         if (sheetFront[m] != null && sheetFront[m][i] != 0)
                             add(m, sheetFront[m][i]);
-                if (front != null)
+                if (front != null && (RecordCertificate || stack[i] != null))
                     front[i] = (int[])winding.Clone();
                 bool inFront = inside(winding, touched);
                 foreach (int m in openInputs) {
@@ -3454,12 +3494,12 @@ namespace g3
 
         /// <summary>
         /// An upper bound of the distance of the exact points whose approximations are gp and gq, off by at most ep and eq per
-        /// coordinate (carry_bound, #1350), times the product with G that the caller takes. Derivation: |c_p - c_q| <= |gp -
-        /// gq| + sqrt(3) (ep + eq), and the computed distance D_c has |gp - gq| <= D_c (1 + 4u) (n = 4, as in boundary_bound),
-        /// with D_c <= K (1 + 4u), K = |gp|_1 + |gq|_1, so D_c (1 + 4u) <= D_c + 4u K (1 + 4u); K_true <= K_c (1 + 4u) (5
-        /// roundings, the deepest term 3) and W = K_c 2^-51 is exact: 4u K (1 + 4u) <= W (1 + 8u). Q = fl(sqrt3_c fl(ep + eq))
-        /// with sqrt3_c = 1.7320508075688774 > sqrt(3): sqrt(3) (ep + eq) <= Q (1 + 3u). Together |c_p - c_q| <= (D_c + Q + W) (1
-        /// + 8u), the sum S = fl(fl(D_c + Q) + W) >= (D_c + Q + W) (1 - u)^2, so |c_p - c_q| <= S (1 + 10.0001u). The result
+        /// coordinate (carry_bound, #1350), times the product with G that the caller takes. Derivation: |c_p - c_q| &lt;= |gp -
+        /// gq| + sqrt(3) (ep + eq), and the computed distance D_c has |gp - gq| &lt;= D_c (1 + 4u) (n = 4, as in boundary_bound),
+        /// with D_c &lt;= K (1 + 4u), K = |gp|_1 + |gq|_1, so D_c (1 + 4u) &lt;= D_c + 4u K (1 + 4u); K_true &lt;= K_c (1 + 4u) (5
+        /// roundings, the deepest term 3) and W = K_c 2^-51 is exact: 4u K (1 + 4u) &lt;= W (1 + 8u). Q = fl(sqrt3_c fl(ep + eq))
+        /// with sqrt3_c = 1.7320508075688774 > sqrt(3): sqrt(3) (ep + eq) &lt;= Q (1 + 3u). Together |c_p - c_q| &lt;= (D_c + Q + W) (1
+        /// + 8u), the sum S = fl(fl(D_c + Q) + W) >= (D_c + Q + W) (1 - u)^2, so |c_p - c_q| &lt;= S (1 + 10.0001u). The result
         /// fl(S f) and then the caller's fl(G * result) round down by u each: f (1 - u)^2 >= 1 + 10.0001u needs f >= 1 +
         /// 12.0002u, so k = 14 (n = 10, c = 4). Before: (D_c + sqrt3_c (ep + eq) + 1e-15 K_c) (1 + 1e-12). No underflow
         /// is assumed (the centroids of pieces of input triangles are far from 2^-1000 of the model)

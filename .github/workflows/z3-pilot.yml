@@ -27,9 +27,16 @@ on:
       # pilot 8: the plateau variant of the position search, a design (plateau_search.py, its source contract on the probe)
       - 'benchmarks/SnapRoundingExperiment/LatticeProbe.cs'
       - 'math/Interval1d.cs'
-      # the corner error of the terrain prefilter (slope_approx.py, issue #1586, its source contract)
+      # the exact-bound inventory (docs/qa/exact-bound-inventory.md): the expansion range (adaptive_range.py, its source
+      # contract also scans the library for unguarded calls of AdaptivePredicates), may_meet_box (may_meet_box.py) and the
+      # corner error of the terrain prefilter (slope_approx.py)
+      - 'math/ExactPredicates.cs'
+      - 'math/AdaptivePredicates.cs'
+      - 'mesh_generators/DualContouring.cs'
+      - 'mesh_ops/ContouringTopologyCertificate.cs'
       - 'math/ExactSlopeKernel.cs'
       - 'mesh_ops/TerrainSlopeMap.cs'
+      - 'tools/ErrorBoundAudit/range_callers.py'
       - '.github/workflows/z3-pilot.yml'
   workflow_dispatch:
 permissions:
@@ -66,6 +73,8 @@ jobs:
           Z3_SPLIT_TERMINATION_REPORT: z3-split-termination-report.json
           Z3_SEPARATING_AXIS_REPORT: z3-separating-axis-report.json
           Z3_PLATEAU_SEARCH_REPORT: z3-plateau-search-report.json
+          Z3_ADAPTIVE_RANGE_REPORT: z3-adaptive-range-report.json
+          Z3_MAY_MEET_BOX_REPORT: z3-may-meet-box-report.json
           Z3_SLOPE_APPROX_REPORT: z3-slope-approx-report.json
       - uses: actions/upload-artifact@v4
         if: always()
@@ -83,4 +92,6 @@ jobs:
             z3-split-termination-report.json
             z3-separating-axis-report.json
             z3-plateau-search-report.json
+            z3-adaptive-range-report.json
+            z3-may-meet-box-report.json
             z3-slope-approx-report.json

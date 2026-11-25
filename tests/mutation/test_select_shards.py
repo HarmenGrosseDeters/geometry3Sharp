@@ -19,7 +19,7 @@ BO = ["boolean-%d" % i for i in range(1, 10)]
 ALL_MESH = set(RO) | set(BO) | {"arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
                                                 "imprint", "terrain-arith", "terrain-kernel", "terrain-overlay", "hausdorff", "geodesic-1", "geodesic-2",
                                                 "uv-atlas", "uv-charts", "uv-pack", "uv-cones", "uv-slim", "uv-foldover", "uv-core", "solid-pipeline", "exact-winding", "cells",
-                                                "predicates-1", "predicates-2", "adaptive", "box3"}
+                                                "predicates-1", "predicates-2", "adaptive", "box3", "snaprounding"}
 
 
 def run(*changed):
@@ -953,10 +953,10 @@ class PullRequestSelection(unittest.TestCase):
 
     def test_unsharded_exact_files_get_a_notice(self):
         from select_shards import unsharded
-        self.assertEqual(["comp_geom/SnapRounding2.cs"], unsharded(["comp_geom/SnapRounding2.cs", "math/ExactPoint3.cs", "docs/x.md"]))
-        notice = self.run_cli("hint", stdin="comp_geom/SnapRounding2.cs\n")
-        self.assertTrue(notice and notice[0].startswith("::notice::comp_geom/SnapRounding2.cs"))
-        self.assertIn("without a mutation shard", "\n".join(self.run_cli("hint", "--summary", stdin="comp_geom/SnapRounding2.cs\n")))
+        self.assertEqual(["math/ExactRayTriangle.cs"], unsharded(["math/ExactRayTriangle.cs", "math/ExactPoint3.cs", "comp_geom/SnapRounding2.cs", "docs/x.md"]))
+        notice = self.run_cli("hint", stdin="math/ExactRayTriangle.cs\n")
+        self.assertTrue(notice and notice[0].startswith("::notice::math/ExactRayTriangle.cs"))
+        self.assertIn("without a mutation shard", "\n".join(self.run_cli("hint", "--summary", stdin="math/ExactRayTriangle.cs\n")))
         self.assertEqual([], self.run_cli("hint", stdin="math/FixedPoint3.cs\n"))
 
     def test_error_bound_hint(self):

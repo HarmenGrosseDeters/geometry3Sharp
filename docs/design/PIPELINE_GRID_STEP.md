@@ -1,7 +1,12 @@
 # The Grid step of `SolidBooleanPipeline`: the cell from the data
 
-`SolidBooleanPipeline.AutomaticSteps = Grid` (opt-in, default off) answers two failures of a run with one retry on a
-snapping grid:
+`SolidBooleanPipeline.AutomaticSteps` answers two failures of a run with one retry on a snapping grid. The default is
+`GridBeforeFallback | GridAfterRoundingNotClean` (owner decision 2026-11-24 for the first failure; the runs that the narrower
+default still refused with `RoundingNotClean` succeeded with the retry on private inputs, nearly all with the right
+volume): `GridAfterRoundingNotClean` takes the first failure, `GridBeforeFallback` the second one for a tool the pipeline
+routed to the sheet role itself. The opt-in `Grid` includes both and also retries a sheet that the caller stated. The result
+of a retry is the Boolean of the snapped inputs, within one cell of the given ones (see the guide for the capture distance
+of about one cell and the guards):
 
 - the boolean's `RoundingNotClean` (the strict rounding refused the result), and
 - the sheet role's refusal `RimInsideWorkpiece`, typically a rim that is meant to lie flush on the surface of the first
@@ -42,7 +47,7 @@ automatic step should absorb: the caller knows that quantum and states it as `In
 cell has to be about `2^4 * 4 * 100`, that is `2^12` to `2^13` ulp.
 
 **The upper bound.** A vertex moves by at most `g / 2 = 2^11 ulp(M)` per coordinate, at most `2^-41 M` (4.5e-13 of the
-largest coordinate): 2 micrometres at coordinates of 6.6e6 m (UTM northings), 2e-12 m at 4 m. That stays five orders of
+largest coordinate): 2 micrometres at coordinates of 6.6e6 m (northings far from the origin), 2e-12 m at 4 m. That stays five orders of
 magnitude below the single precision grid (`2^29 ulp`), so coordinates that were read from single precision values of
 the magnitude of `M` are multiples of the cell and do not move. Every binade more halves the miss chance and doubles
 the move and the size of the features that the snap can collapse; beyond the noise model there is nothing left to gain.

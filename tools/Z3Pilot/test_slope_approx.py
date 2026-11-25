@@ -21,8 +21,9 @@ class SlopeApproxTests(unittest.TestCase):
         self.assertEqual(dict(accept='1e-12', width='5e11', consume='4e-12'), report['contract'])
         # the finding of 2026-11-25 (issue #1586) is now an obligation: the corner error holds (L1-L4 UNSAT), and the
         # replay of the finding and of the two half fixes is rejected by the fixed code
-        self.assertEqual(['L1_width', 'L2_xy_width', 'L3_coordinate', 'L4_claim'],
-                         [o['name'] for o in report['obligations']])
+        self.assertEqual(['L1_width', 'L2_xy_width', 'L3_coordinate', 'L4_claim', 'w_sign_normal_range_w_positive',
+                          'w_sign_normal_range_w_negative'], [o['name'] for o in report['obligations']])
+        self.assertIn('err_without_the_w_term', [m['name'] for m in report['mutants']])
         self.assertTrue(all(o['result'] == 'unsat' for o in report['obligations']))
         for name in ('issue_1586', 'width_only', 'guard_only', 'overflow'):
             self.assertTrue(report['replays'][name]['variant_wrong'], name)

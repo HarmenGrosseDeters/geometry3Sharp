@@ -107,7 +107,7 @@ rule for a certificate (`RecordCertificateData`, `ContourGrid()`, internal). The
    per period before any curvature of the surface itself, against 16 to 32 with the analytic gradient (section 5).
    This is arithmetic, not a measurement.
 3. *With a Lipschitz bound only* (a signed distance grid: 1-Lipschitz). The value enclosure f(node) +- distance proves
-   cells empty (C0, what `TpmsLattice` and plan #1276 use) and nothing else: a Lipschitz bound cannot prove a crossing
+   cells empty (C0, what `TpmsLattice` and [plan #1276](../plans/dc-coarse-first-construction.md) use) and nothing else: a Lipschitz bound cannot prove a crossing
    pattern (Kalra and Barr 1989, as the design note says). A distance field is not smooth where the nearest point
    changes, so no gradient enclosure follows from the samples.
 

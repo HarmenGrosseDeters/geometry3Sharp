@@ -34,6 +34,8 @@ a = (dX + dY) / |w|), one lemma per step, linear except L3:
 - L4 the claim: |x - xi| <= u |xi| + eta per coordinate, L3 for both, a <= A s, and the consumer's e at least
   (1 - u)^3 C4 s (C4 the double 4e-12; the max over the corners is at least this corner's fl(|x| + |y|)) give
   |x - x*| + |y - y*| <= e.
+Also kept from #1582 (its scope: no underflow): an accepted position has a W* of the sign of w (UNSAT, both signs), and
+its mutant err without the W term (SAT, replayed).
 Controlled mutants (SAT): L4 without the guard s >= 2^-1022, L4 with D twice as large (the width condition with 2.5e11), and
 the consumer with 3e-12 instead of 4e-12 (the bound is used to about 3e-12 (|x| + |y|)).
 
@@ -204,6 +206,79 @@ def lemma_midpoint_fp(timeout_ms):
     return _check(cons, z.Not(z.And(z.fpLEQ(a, m), z.fpLEQ(m, b))), timeout_ms)
 
 
+# ---- from #1582: the W-sign lemmas away from the edge (no underflow, eta = 0) and their mutant. They model only the
+# err acceptance (the guard and the width condition only make it stronger, so the UNSAT results carry over). Their
+# rounding model of err ((1 - 8 u) times the formula) is valid without underflow only: that is their scope ----
+
+def legacy_model(accept, consume, eta=None, w_term=True):
+    u, eta = _q(U), _q(ETA if eta is None else eta)
+    R = z.Real
+    v = {n: R(n) for n in 'Xlo Xhi Ylo Yhi Wlo Whi Xs Ys Ws xs ys w x y xm ym Wsum Xsum Ysum errC'.split()}
+    V = v.__getitem__
+    c = []
+    rnd = lambda F, f: c.append(_abs(F - f) <= u * _abs(F) + eta)
+    c += [V('Xlo') <= V('Xs'), V('Xs') <= V('Xhi'), V('Ylo') <= V('Ys'), V('Ys') <= V('Yhi'),
+          V('Wlo') <= V('Ws'), V('Ws') <= V('Whi'), V('Ws') != 0,
+          V('xs') * V('Ws') == V('Xs'), V('ys') * V('Ws') == V('Ys')]
+    # w = fl(0.5 fl(Wlo + Whi)), xm = fl(0.5 fl(Xlo + Xhi)), x = fl(xm / w) (as x w = xm within the rounding)
+    rnd(V('Wsum'), V('Wlo') + V('Whi')); rnd(V('w'), V('Wsum') / 2)
+    rnd(V('Xsum'), V('Xlo') + V('Xhi')); rnd(V('xm'), V('Xsum') / 2)
+    rnd(V('Ysum'), V('Ylo') + V('Yhi')); rnd(V('ym'), V('Ysum') / 2)
+    c.append(V('w') != 0)
+    for q, qm in (('x', 'xm'), ('y', 'ym')):
+        c.append(_abs(V(q) * V('w') - V(qm)) <= (u * _abs(V(q)) + eta) * _abs(V('w')))
+    s = _abs(V('x')) + _abs(V('y'))
+    # the computed err, at least (1 - 8 u) times its formula (written times |w|)
+    formula_w = (V('Xhi') - V('Xlo')) + (V('Yhi') - V('Ylo')) + (s * (V('Whi') - V('Wlo')) if w_term else 0)
+    c.append(V('errC') * _abs(V('w')) >= (1 - 8 * u) * formula_w)
+    accepted = V('errC') <= (1 + 2 * u) * _q(float(accept)) * s
+    e = (1 - 3 * u) * _q(float(consume)) * s + _q(ETA)     # double.Epsilon = 2^-1074 = ETA
+    claim = _abs(V('x') - V('xs')) + _abs(V('y') - V('ys')) <= e
+    return v, c, accepted, claim
+
+
+
+def _check_formulas(formulas, timeout_ms):
+    s = z.Solver()
+    s.set(timeout=timeout_ms)
+    s.add(*formulas)
+    t0 = time.monotonic()
+    r = s.check()
+    return s, r, time.monotonic() - t0
+
+
+def _replay(m, v, formulas):
+    vals = {}
+    for n, var in v.items():
+        val = m.eval(var, model_completion=True)
+        if not z.is_rational_value(val):
+            return False      # an algebraic number: not replayed (nlsat may answer with one)
+        vals[n] = val.as_fraction()
+    sub = [(var, z.RealVal(str(vals[n]))) for n, var in v.items()]
+    return all(z.is_true(z.simplify(z.substitute(f, *sub))) for f in formulas)
+
+
+
+def legacy_obligations(accept, consume, timeout_ms):
+    """away from the edge (|x| + |y| > 0, no underflow) acceptance forces W* to the sign of w (UNSAT, both signs);
+    mutant: err without its W term lets W contain 0 (SAT, replayed)"""
+    rows, muts = [], []
+    v0, cons0, acc0, _ = legacy_model(accept, consume, eta=0)
+    V0 = v0.__getitem__
+    for name, pos in (('w_sign_normal_range_w_positive', True), ('w_sign_normal_range_w_negative', False)):
+        hyp = cons0 + [acc0, _abs(V0('x')) + _abs(V0('y')) > 0, V0('w') > 0 if pos else V0('w') < 0]
+        _, r, secs = _check_formulas(hyp + [V0('Ws') <= 0 if pos else V0('Ws') >= 0], timeout_ms)
+        _, rv, _ = _check_formulas(hyp, timeout_ms)
+        rows.append(dict(name=name, result=str(r), seconds=round(secs, 3), assumptions_result=str(rv)))
+    v1, cons1, acc1, _ = legacy_model(accept, consume, eta=0, w_term=False)
+    V1 = v1.__getitem__
+    f = cons1 + [acc1, _abs(V1('x')) + _abs(V1('y')) > 0, V1('w') > 0, V1('Ws') <= 0]
+    s, r, secs = _check_formulas(f, timeout_ms)
+    muts.append(dict(name='err_without_the_w_term', result=str(r), seconds=round(secs, 3),
+                     replayed=r == z.sat and _replay(s.model(), v1, f)))
+    return rows, muts
+
+
 # ---- the C# expressions in binary64 (Python floats: round to nearest, no FMA), the exact vertex in rationals ----
 
 def approx_position(X, Y, W, accept, width, guard=True, narrow=True):
@@ -274,9 +349,12 @@ def run(timeout_ms=120000, fp=False):
                                 ('L4_width_condition_2.5e11', lemma_claim(2 * D, A, c['consume'], timeout_ms)),
                                 ('L4_consumer_3e-12', lemma_claim(D, A, '3e-12', timeout_ms))):
         mutants.append(dict(name=name, result=r, seconds=secs))
+    rows, muts = legacy_obligations(c['accept'], c['consume'], timeout_ms)
+    obligations += rows
+    mutants += [dict(name=m['name'], result=m['result'], seconds=m['seconds']) for m in muts]
     replays = {n: ieee_replay(n, c['accept'], c['width'], c['consume']) for n in REPLAYS}
     passed = (all(o['result'] == 'unsat' and o['assumptions_result'] == 'sat' for o in obligations)
-              and all(m['result'] == 'sat' for m in mutants)
+              and all(m['result'] == 'sat' for m in mutants) and all(m['replayed'] for m in muts)
               and all(r['variant_wrong'] and not r['fixed_accepts'] for r in replays.values()))
     return dict(z3=z.get_version_string(), contract=c, D=float(D), A=float(A), obligations=obligations,
                 mutants=mutants, replays=replays, passed=passed,

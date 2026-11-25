@@ -187,6 +187,19 @@ namespace geometry3Sharp.Tests
         /// </summary>
         void Campaign<T>(string name, Gen<T> gen, Func<T, string> property, int samples, uint campaign)
         {
+            // Serial on this thread (#698, docs/research/SLOW_TESTS_2026-11.md): a case is a Boolean of two 12-triangle boxes, whose
+            // library loops (gParallel.ForRange over a few dozen items) cost nothing alone (the whole campaign: 5.1 s parallel, 4.4 s
+            // serial) but, in a full run on a busy pool, each waits for pool workers (the campaign: 944 s parallel, 14 s serial under four
+            // busy parallel loops; 17-52 s in CI full runs against 2-5 s alone). The parallel path is checked against the serial one in
+            // ExactBooleanDeterminismTests (SerialEqualsParallel_BitIdentical and the salted shard runs)
+            bool wasSerial = gParallel.SerialOnThisThread;
+            gParallel.SerialOnThisThread = true;
+            try { CampaignSerial(name, gen, property, samples, campaign); }
+            finally { gParallel.SerialOnThisThread = wasSerial; }
+        }
+
+        void CampaignSerial<T>(string name, Gen<T> gen, Func<T, string> property, int samples, uint campaign)
+        {
             void Check(T t) { string r = property(t); if (r != "") throw new Exception(r); }
             var watch = Stopwatch.StartNew();
             string replay = Environment.GetEnvironmentVariable("G3_PROPERTY_CAMPAIGN") == name ? Environment.GetEnvironmentVariable("G3_PROPERTY_REPLAY") : null;

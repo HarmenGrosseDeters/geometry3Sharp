@@ -334,7 +334,8 @@ left from where SafeRounding put it, and no triangle above 100 times the degener
   move that the repair does not propose. Its moves go along the normal of the intersected triangle or away from the
   base of a cap, at a few fixed sizes.
 - Steps that keep the defect count (a plateau) add 5-13 cases; moving several vertices at once adds little beyond
-  that.
+  that. (2026-11-24, #1465: a joint move of two corners that removes a defect, no plateau, is the last resort of the repair for a degenerate triangle
+  with an edge of 1e-10, which no single corner can lift within the bound: SAFE_ROUNDING.md section 9.1; it repairs about half of the left-overs of two generated searches, counts in docs/research/ROUNDING_DEGENERATE_LEFT_2026-11.md section 10.3.)
 - Most clean ends used most of the drift left (the random walk wanders), so the probe says a solution exists within the
   bound, not how near one is.
 

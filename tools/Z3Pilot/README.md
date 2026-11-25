@@ -613,24 +613,34 @@ python -m unittest discover -s tools/Z3Pilot -p 'test_drift_reference.py' -v
 - **A, convexity** (nonlinear real arithmetic): a point of a triangle moves by at most the largest move of a corner,
   in R^3, as two queries (the dot bound in coordinates, the claim over the Gram entries). The claim on the
   coordinates directly returned unknown and is not counted.
-- **B, the one-edit lemma**, shape-free, distances as real variables, as `drift_apex.generic_formula`.
+- **B, the one-edit lemma**, shape-free, distances as real variables, as `drift_apex.generic_formula`. `lemma_pair_corners`: the joint move
+  (`try_move_pair`) is an instance of the displacement edit: its bound is the largest distance of any corner from its anchor, so the joint check is the
+  conjunction of the checks at the two moved vertices (the check that drops the second vertex's corner is the SAT mutant).
 - **C, the bounded search** (linear real arithmetic, complete for its configurations): chains of 3 to 5 vertices on
   the real line, every script of up to three edits (two for five vertices), 7038 scripts, each with one query for
   "a segment has a point beyond its bound, or the start has a point beyond the largest bound, or a bound exceeds
   the apex rule's drift, or a bound at the end exceeds the reported drift". `Chain` is written once over a backend, so the same code replays a witness with fractions.
+  **The joint move** (`Chain.move_pair`, edit `move_pair`): two distinct vertices, each at its own position (`q{k}`, `r{k}`), as one displacement
+  edit; judged by the largest bound of the segments at either vertex and of the ghosts at either, all at the new positions. The scripts with at
+  least one joint move (`PAIR_SEARCH`: 3 vertices up to 3 edits, 4 and 5 vertices up to 2; 2150 scripts) are asked the same four claims plus a
+  fifth, the reduction: the script with every joint move replaced by the two single moves in turn ends with the same positions and the same bound
+  at every segment and ghost (a displacement edit changes no anchor), so the lemma of the single move covers each bound the joint move
+  accepts. Mutants: the second vertex's segments and ghosts not evaluated, its ghosts not evaluated, its segments evaluated with it still in place.
 - **D, the rounding**: `Vector3d.Distance` in three steps (Higham (2.4) per operation), and the induction step of
   the chain bound (Higham (2.5) for the stored sums; the (2.4) variant is the SAT mutant, as in step 1).
-- **Mutants**: 16, each SAT with a replayed witness; the seven of the rule are pinned in the test (`PINNED`) as
+- **Mutants**: 20, each SAT with a replayed witness; the ten of the rule (seven of the single edits, three of the joint move) are pinned in the test (`PINNED`) as
   regression cases for the implementation, among them the spike that shows why collapsed triangles must be kept as
   ghosts and why one anchor per vertex is not enough. As meshes they are the scripted cases of
   `MeshRoundingRepairTestsDriftReference` (each fails with its mutant in the C# code).
 - **Source contract**: the facts about `MeshRoundingRepair.cs` and `Vector3d.Distance` that the lemma assumes (one
-  writer of positions; only `try_move` and `try_collapse` propose a moved vertex and list its triangles corner for
-  corner), and the rule as implemented: the methods of the bounds, the proposal, the ghosts and the commit compared as
+  writer of positions; only `try_move`, `try_collapse` and the joint move `try_move_pair` propose a moved vertex and list its triangles corner for
+  corner), the joint move itself (`try_move_pair`: the triangles of both stars, a triangle at both once, both positions proposed together and judged by
+  `improves`, both written afterwards; `pos`; `search_pairs`: the sizes of each vertex from its own `room_at`, every candidate through `try_move_pair`),
+  and the rule as implemented: the methods of the bounds, the proposal, the ghosts and the commit compared as
   text (`RULE_METHODS`), the drift checked first in `improves`, no move proposed past the evaluation limit (and no second copy of the rule),
   the position search (`search_corners`) taking only its candidate sizes from `room_at` and passing every candidate to
   `try_move`, every generic edit naming its added triangles, the records starting at `Apply`. A test applies the seven
-  mutants and seven other changes to the code and expects the contract to fail on each.
+  mutants, eleven changes to the joint move and seven other changes to the code and expects the contract to fail on each.
 
 Review only: the two-sided bounds (E1), (E2) per edit type; ghosts on edges (a chain has ghosts at vertices only);
 which simplices an edit removes; the induction over the edits; the rounding model. Result of 2026-11-09:
@@ -687,21 +697,6 @@ check. Not modelled: the candidates and their seeded order (any sequence termina
 (the candidates are those of the built search), and the state besides the positions that a build must restore (the
 note, 10.5). 28 queries and P2, under a second; result of 2026-11-15: `results/plateau_search_2026-11-15.json`.
 `test_plateau_search.py` also checks that no state but the end is stuck, and holds a source contract on the probe.
-
-## The corner error of the terrain prefilter (`slope_approx.py`, issue #1586)
-
-`TerrainSlopeMap.prefilter_skips` culls a face without an exact recheck, assuming that every corner from
-`ExactSlopeKernel.Approx` is within e = 4e-12 (|x| + |y|) + 2^-1074 of the exact vertex. Before #1586 Approx accepted at
-the subnormal edge (x = y = 0 by underflow) any W; the fix needs |x| + |y| >= 2^-1022 and a narrow W
-((W.Hi - W.Lo) 5e11 <= |w|), and each half alone fails (IEEE replays). The proof is four lemmas, one per step
-(width of W, width of X and Y, one coordinate, the claim), linear except one; controlled mutants (SAT): the claim
-without the guard, with twice the width, and with a consumer of 3e-12. Step 0 (the computed midpoint lies in its
-interval) by the monotonicity of rounding, or with Z3's binary64 theory (`--fp`, 89 s). Under two seconds without `--fp`.
-
-```sh
-python3 tools/Z3Pilot/slope_approx.py [--fp]
-python3 -m unittest discover -s tools/Z3Pilot -p 'test_slope_approx.py' -v
-```
 
 ## Mesher checks (pilot 3, `mesher_checks.py`, 2026-11-08)
 
@@ -802,4 +797,55 @@ monotonicity of a rounded subtraction or product): that a coordinate within the 
 ```sh
 python3 tools/Z3Pilot/clipper_frame.py --out /tmp/clipper-frame.json
 python3 -m unittest discover -s tools/Z3Pilot -p 'test_clipper_frame.py' -v
+```
+
+## Exact-bound inventory lemmas (2026-11-25, `docs/qa/exact-bound-inventory.md`)
+
+Three lemmas for the top gaps of the inventory. Each obligation is an UNSAT counterexample query with its assumptions SAT;
+each has a controlled mutant that must be SAT and is replayed outside Z3; each reads the constants it uses from the source
+and fails on a change of the code around them. Part of the `Z3 pilot` workflow (paths filter, uploaded reports), about 1 to 2 min
+together.
+
+**`adaptive_range.py` (G2, the hand mutant H6 of #1572).** The range of `Expansion.InRange` against what `AdaptivePredicates`
+needs. Proved (binary64 / wide frame, bit-precise): a double >= 2^-m is a multiple of 2^-(m + 52), and RNE sums, differences and
+products of integers in the wide frame (precision 53, 15-bit exponent) are integers (TwoSum, the split and TwoProduct are
+chains of these). With m and M read from `math/ExactPredicates.cs` (powers of two, else the contract fails): for each predicate
+of degree d (orient2d 2, orient3d 3, incircle 4, reviewed) d (m + 52) <= 1022 (no underflow) and d (M + 1) + 33 <= 1023 (no
+overflow; 33 counts the terms, the sums and the splitter, as AP-1 of `tools/ErrorBoundAudit` does). Stated, not queried: the
+bridge, that a binary64 operation whose exact result is 0 or normal is the wide frame's (the IEEE definition; Z3 does not decide
+the frame equality for + and * in 300 s, and the variant with the condition on the rounded result is false: an exact product
+just below 2^-1022 rounds up to a normal number). Mutants: H6 (2^-250: a degree-4 product of the grid unit 2^-302 is 0 in
+binary64; the .NET replay is `ExactPredicatesRangeEdgeTests`, InCircle +1 for exactly cocircular points at 2^-220), the
+maximum 2^250, the grid one bit too fine, a quotient of integers. Margins in the report: the lemma admits MinMagnitude down to
+2^-203 and MaxMagnitude up to 2^246 for the expansions' intermediates (the stage B/C filter products, eg IccErrBoundC * permanent,
+are not in the lemma and underflow earlier). The degrees and the growth count are reviewed against `AdaptivePredicates.cs`, whose
+normalized text is pinned by its SHA-256: any change fails the contract until they are reviewed again. The contract also pins the `InRange` overloads (each checks all its arguments) and the public predicates of
+`AdaptivePredicates`, and scans the library for calls of `AdaptivePredicates.Orient2d / Orient3d / InCircle` without
+`if (Expansion.InRange(<all the call's arguments>) == false)` in the three lines before (`tools/ErrorBoundAudit/range_callers.py`;
+its own test runs in `ci.yml` on every library change, since this workflow runs only on its paths): the two calls in
+`mesh_generators/DualContouring.cs` (place_face_vertex) are the known exception; a new one fails.
+
+**`may_meet_box.py` (G3).** `ContouringTopologyCertificate.may_meet_box` drops a triangle if fl(bmax + err) < fl(tmin - err) (or
+the mirror), err = fl(fl(12 u M) + 4 eta). Linear real arithmetic over the rounding model |P - p| <= u |P| + eta (products),
+|S - s| <= u |S| (sums): the computed separation implies the exact one, for one box corner and one triangle point (the corner of
+the largest projection by monotone rounding, tmin below every point's projection). Mutants: the factor 1 instead of 3, no eta
+term (SAT, models replayed in exact rationals). The smallest integer factor the lemma admits is 3 (16 u M is not enough in the
+model): the code's 24 u M has no spare factor, as the comment's 22 u M derivation says.
+
+**`slope_approx.py` (G1, the corner error of the terrain prefilter; issue #1586, fixed by #1619).** `TerrainSlopeMap.prefilter_skips`
+assumes the corners from `ExactSlopeKernel.Approx` are within e = 4e-12 (|x| + |y|) + 2^-1074. Approx used to accept if
+err <= 1e-12 (|x| + |y|); at the subnormal edge that failed (the finding, kept as the IEEE replay `issue_1586`: X = [2^-1074,
+2^-1074], Y = [0, 0], W = [-8, 4] gave x = y = -0 accepted, while the exact vertex for W* = 2^-1000 is x* = 2^-74). The fix
+(`approx_position`) also needs 2^-1022 <= |x| + |y| <= double.MaxValue and a narrow W ((W.Hi - W.Lo) 5e11 <= |w|); each of the
+two halves alone fails (replays `width_only`, `guard_only`), and so does an overflowed |x| + |y| (`overflow`). Proved: four
+lemmas, one per step (width of W, width of X and Y, one coordinate, the claim), linear except the coordinate step (nlsat),
+under two seconds; the midpoint in its interval by monotone rounding, or with Z3's binary64 theory (`--fp`, 89 s). Mutants
+(SAT): the claim without the guard, with twice the width, with a consumer of 3e-12. Kept from the first version (its scope:
+no underflow): acceptance gives W* the sign of w (both signs); mutant: err without its W term.
+
+```sh
+python3 tools/Z3Pilot/adaptive_range.py --out /tmp/adaptive-range.json
+python3 tools/Z3Pilot/may_meet_box.py
+python3 tools/Z3Pilot/slope_approx.py [--fp]
+python3 -m unittest discover -s tools/Z3Pilot -p 'test_adaptive_range.py' -v
 ```

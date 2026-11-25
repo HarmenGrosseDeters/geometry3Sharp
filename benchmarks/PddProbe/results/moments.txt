@@ -1,0 +1,23 @@
+# moments: reference = tessellation 0, positives = 6 other tessellations (shape@t0..5), negatives = deformed t1/t3/t5; rigid, no noise; the sphere twist is a control (no shape change); samples N=2000; eps* as in disc
+deform  shape     | Moments       D2    AMD32 colW1_32  PCAsmp
+stretch sphere    |     1e-5     1e-1        -        -     1e-1
+stretch ellipsoid |     1e-4     3e-2     3e-1     3e-1     1e-1
+stretch torus     |     3e-3     3e-1     1e-1     1e-1     1e-1
+stretch box       |     1e-5     1e-1     3e-1     3e-1     3e-2
+stretch cylinder  |     1e-3     1e-1     3e-1     3e-1     1e-1
+stretch gyroid    |     1e-2     3e-1     3e-1     3e-1     1e-1
+stretch schwarzP  |     1e-5     3e-1        -        -     1e-1
+bump    sphere    |     1e-5     3e-1        -        -        -
+bump    ellipsoid |     1e-3     3e-1        -        -        -
+bump    torus     |     3e-2        -        -        -        -
+bump    box       |     1e-5        -        -        -        -
+bump    cylinder  |     3e-3        -        -     3e-1        -
+bump    gyroid    |     3e-1        -        -        -        -
+bump    schwarzP  |     1e-5        -        -        -        -
+twist   sphere    |     1e-5        -        -        -        -
+twist   ellipsoid |     1e-1        -        -        -        -
+twist   torus     |        -        -        -        -        -
+twist   box       |     1e-5        -        -        -        -
+twist   cylinder  |     1e-1        -        -        -        -
+twist   gyroid    |        -        -        -        -        -
+twist   schwarzP  |     3e-2        -        -        -        -

@@ -47,6 +47,7 @@ SHARED = (
     "tools/analyzers/",
     "tools/PredicateCompiler/Compiler.cs",
     "tools/PredicateCompiler/Monomials.cs",
+    "tools/PredicateCompiler/SymbolicTaylorVerify.cs",
     "tools/PredicateCompiler/predicates.spec",
     "tools/PredicateCompiler/indirect.spec",
     "tools/PredicateCompiler/doubles.spec",
@@ -64,7 +65,7 @@ SHARED = (
     "docs/design/MESHING2D_GOLDEN_FORMAT.md",
     "docs/design/MESHING2D_CATALOGUE.md",
 )
-TOOL_DIRS = ("tools/", "benchmarks/", "docs/")
+TOOL_DIRS = ("tools/", "benchmarks/", "docs/", "demos/")   # demos/: the browser demos (demos/G3Demos), built by the linux job
 PS1_DIRS = ("benchmarks/MeshRepairBenchmark/", "benchmarks/net48-compare/", "benchmarks/BooleanComparison/", "benchmarks/SmallInputWrapBenchmark/")
 
 
@@ -72,9 +73,15 @@ def is_shared(path):
     return any(path == s or (s.endswith("/") and path.startswith(s)) for s in SHARED)
 
 
+# workflows that run no library test and that no test reads: a change to them alone runs no library suite
+TOOL_FILES = (".github/workflows/pages.yml",)   # the Pages deploy of the browser demos (demos/G3Demos)
+
+
 def affects_library_tests(path):
     """True if the library test suites must run for a change to this path."""
     if path.startswith(TOOL_DIRS) and not is_shared(path):
+        return False
+    if path in TOOL_FILES:
         return False
     return True
 

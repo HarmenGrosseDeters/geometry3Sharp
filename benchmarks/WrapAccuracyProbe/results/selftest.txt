@@ -1,0 +1,41 @@
+pass  harmless in-plane move accepted
+pass  harmless move up accepted
+pass  move far in plane (folds the fan) rejected, reason 1
+pass  collapse onto a neighbour rejected as degenerate
+pass  move through the bottom layer rejected as self-intersection
+pass  mutant without the self check lets the move through the layer pass
+pass  mutant without the degenerate check lets the collapse pass
+pass  mutant without flip and self checks lets the fold pass
+pass  apex through the base rejected
+pass  apex lowered but above the base accepted
+pass  box: safe result clean (clean), independent self-intersections 0
+      (all checks off on box: degenerate triangles)
+      (flip check off on box: clean)
+      (degenerate check off on box: degenerate triangles)
+      (self check off on box: clean)
+pass  slot0.20: safe result clean (clean), independent self-intersections 0
+      (all checks off on slot0.20: degenerate triangles)
+      (flip check off on slot0.20: clean)
+      (degenerate check off on slot0.20: degenerate triangles)
+      (self check off on slot0.20: clean)
+pass  plate1e-3: safe result clean (clean), independent self-intersections 0
+      (all checks off on plate1e-3: degenerate triangles)
+      (flip check off on plate1e-3: clean)
+      (degenerate check off on plate1e-3: degenerate triangles)
+      (self check off on plate1e-3: clean)
+pass  sphere: safe result clean (clean), independent self-intersections 0
+      (all checks off on sphere: clean)
+      (flip check off on sphere: clean)
+      (degenerate check off on sphere: clean)
+      (self check off on sphere: clean)
+pass  cylinder: safe result clean (clean), independent self-intersections 0
+      (all checks off on cylinder: degenerate triangles)
+      (flip check off on cylinder: clean)
+      (degenerate check off on cylinder: degenerate triangles)
+      (self check off on cylinder: self-intersections)
+pass  with the checks off at least one input of the battery is not clean (the battery can see the checks)
+pass  signed volume of the 10 x 6 x 4 box is 240 from any origin
+pass  Hausdorff interval [0,25, 0,250807] contains the shift 0.25
+pass  FarShare of a mesh against itself is 0
+pass  FarShare against a copy shifted by 5 is 1 (max dist 5)
+ALL PASS

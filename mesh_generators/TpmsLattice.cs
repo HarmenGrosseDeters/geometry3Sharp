@@ -74,7 +74,8 @@ namespace g3
     /// about two cubes (CellSize / Divisions) with marching cubes; for thinner sheet walls see TwoLevelSheet.
     ///
     /// The lattice lives in a local frame (Origin, Rotation): phase zero at the origin, the Box in local coordinates,
-    /// the grid anchored at multiples of the cube size. The result is mapped to world coordinates at the end, so the
+    /// the grid anchored at multiples of the cube size. The result is mapped to world coordinates before the certificate (which so
+    /// checks the returned coordinates; far from the origin the rounding of the transform can make it fail, #1569), so the
     /// operation is equivariant under similarities (bit for bit under power-of-two scales): a generator, not a field that is
     /// invariant under rotating its input.
     /// </summary>
@@ -148,6 +149,7 @@ namespace g3
 
         // ---- outputs ----
         public TpmsStatus Status;
+        /// <summary> Why the status is not Ok, or for Ok a warning that the result is not the lattice asked for (an Enclosure whose realized fraction is above 1; a Sheet that realized less than half of the requested fraction: a wall thinner than about two cubes, see TwoLevelSheet); empty otherwise. </summary>
         public string Message = "";
         /// <summary> The lattice mesh in world coordinates; null unless Status == Ok. </summary>
         public DMesh3 Mesh;
@@ -680,6 +682,7 @@ namespace g3
             // The first grid is moved by half a cube so that the planes of an aligned box fall between nodes.
             DMesh3 result = null;
             Vector3i gridCells = Vector3i.Zero;
+            Vector2d vol = Vector2d.Zero;
             string last = "";
             string reason = "";
             for (int attempt = 0; attempt < GridShifts.Length; ++attempt) {
@@ -720,7 +723,16 @@ namespace g3
                 if (field.WeightNaN) { Fail(TpmsStatus.ContouringFailed, "the blend weight returned NaN"); return; }
                 if (field.LevelNaN) { Fail(TpmsStatus.ContouringFailed, "VolumeFractionAt returned NaN"); return; }
                 if (result.TriangleCount == 0) { Fail(TpmsStatus.ContouringFailed, "the lattice is empty in this domain"); return; }
-                // ---- certificate of the result ----
+                // volume and area in the lattice frame (no cancellation from a far origin), then to world coordinates
+                vol = MeshMeasurements.VolumeArea(result, result.TriangleIndices(), result.GetVertex);
+                ToWorld(result);
+                // ---- certificate of the result, on the returned (world) coordinates ----
+                // #1569: the rounding of Origin + Rotation * v moves a vertex by up to about an ulp of its world coordinates. Far from the
+                // origin (eg 1e13 with a cube of 1/32, an ulp of 2e-3) that collapses and crosses triangles of a mesh that was clean in the
+                // lattice frame. No a-priori bound can rule this out cheaply: it would need the smallest separation of non-adjacent triangles,
+                // which the exact self-intersection check does not compute. So the certificate runs once, after the transform, on the mesh that
+                // is returned (the same cost as before: the lattice-frame check is not repeated). With the identity transform the coordinates
+                // are the lattice coordinates (0 + v = v), and wherever both frames are clean the result is the same as before.
                 reason = MeshRobustRepair.NotCleanReason(result, VerifySelfIntersections);
                 // a node with a field value within rounding of the level makes a sliver triangle: another grid avoids it
                 // (only when degenerate triangles are the sole reason; a combined reason is reported, not retried)
@@ -739,17 +751,29 @@ namespace g3
                 return;
             }
 
-            // volume and area in the lattice frame (no cancellation from a far origin), then to world coordinates
-            Vector2d vol = MeshMeasurements.VolumeArea(result, result.TriangleIndices(), result.GetVertex);
             RealizedVolumeFraction = vol.x / domainVolume;
             MeanWallThickness = vol.y > 0 ? 2 * vol.x / vol.y : 0;
-            bool identity = Rotation.EpsilonEqual(Matrix3d.Identity, 0);
-            foreach (int vid in result.VertexIndices()) {
-                Vector3d v = result.GetVertex(vid);
-                result.SetVertex(vid, identity ? Origin + v : Origin + Rotation * v);
-            }
             Mesh = result;
             Status = TpmsStatus.Ok;
+            // #1596: Ok with a result that is not the lattice asked for gets a Message (the status is not changed)
+            if (Enclosure && RealizedVolumeFraction > 1)
+                Message = "Enclosure: the realized volume fraction is " + RealizedVolumeFraction.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                    + " (above 1): the error margin of the enclosure is larger than the voids of the lattice, so the result is the solid box (enlarged by the margin), not a lattice; use a smaller CellSize / more Divisions, or a lower margin";
+            else if (!Enclosure && !TwoLevelSheet && Style == TpmsStyle.Sheet && !hybrid && VolumeFractionAt == null
+                     && fraction > 0 && RealizedVolumeFraction < 0.5 * fraction)
+                Message = "Sheet: the realized volume fraction " + RealizedVolumeFraction.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                    + " is less than half of the requested " + fraction.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                    + ": the wall is thinner than about two cubes (CellSize / Divisions) and marching cubes loses it; set TwoLevelSheet = true or raise Divisions";
+        }
+
+        // the lattice frame to world coordinates, in place: Origin + Rotation * v (Origin + v for the identity rotation)
+        void ToWorld(DMesh3 mesh)
+        {
+            bool identity = Rotation.EpsilonEqual(Matrix3d.Identity, 0);
+            foreach (int vid in mesh.VertexIndices()) {
+                Vector3d v = mesh.GetVertex(vid);
+                mesh.SetVertex(vid, identity ? Origin + v : Origin + Rotation * v);
+            }
         }
 
         // ================= helpers =================

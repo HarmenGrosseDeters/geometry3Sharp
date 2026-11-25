@@ -470,6 +470,61 @@ namespace gs
             return result;
         }
 
+        /// <summary>
+        /// false if no closed component has its box inside the box of another closed component: then no shell lies inside another, and
+        /// FindInvertedComponents flags only the components that are inside out by their own volume. Cheap (components, boxes, a sweep), no exact volume
+        /// </summary>
+        internal static bool MayHaveNestedShells(DMesh3 mesh)
+        {
+            var comp = new int[mesh.MaxTriangleID];      // (component id + 1, 0: not reached)
+            var stack = new Stack<int>();
+            var closedOf = new List<bool>();
+            foreach (int start in mesh.TriangleIndices()) {
+                if (comp[start] != 0)
+                    continue;
+                int id = closedOf.Count + 1;
+                bool closed = true;
+                comp[start] = id;
+                stack.Push(start);
+                while (stack.Count > 0) {
+                    int t = stack.Pop();
+                    Index3i te = mesh.GetTriEdges(t);
+                    for (int k = 0; k < 3; ++k) {
+                        Index2i et = mesh.GetEdgeT(te[k]);
+                        if (et.b == DMesh3.InvalidID) {
+                            closed = false;
+                            continue;
+                        }
+                        int o = et.a == t ? et.b : et.a;
+                        if (comp[o] == 0) {
+                            comp[o] = id;
+                            stack.Push(o);
+                        }
+                    }
+                }
+                closedOf.Add(closed);
+                // (a mesh of one component, the common case, is done after this flood: no boxes)
+                if (closedOf.Count == 1 && stack.Count == 0 && mesh.TriangleIndices().All(t => comp[t] != 0))
+                    return false;
+            }
+            var boxes = new AxisAlignedBox3d[closedOf.Count];
+            for (int i = 0; i < boxes.Length; ++i)
+                boxes[i] = AxisAlignedBox3d.Empty;
+            foreach (int t in mesh.TriangleIndices())
+                if (closedOf[comp[t] - 1])
+                    boxes[comp[t] - 1].Contain(mesh.GetTriBounds(t));
+            var closedBoxes = new List<AxisAlignedBox3d>();
+            for (int i = 0; i < boxes.Length; ++i)
+                if (closedOf[i])
+                    closedBoxes.Add(boxes[i]);
+            if (closedBoxes.Count < 2)
+                return false;
+            foreach (var l in enclosing_boxes(closedBoxes))
+                if (l.Count > 0)
+                    return true;
+            return false;
+        }
+
         // the exact sign of the signed volume of the triangles tris (ExactPredicates.VolumeSign, relative to a vertex of
         // the first triangle)
         internal static int volume_sign(DMesh3 mesh, int[] tris)

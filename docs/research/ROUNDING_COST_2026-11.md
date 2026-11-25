@@ -1,7 +1,7 @@
 # The cost of the rounding: box neighbours, `near`, tree and setup (study, 2026-11-22)
 
 Status: **research note, no library code.** Owner go 2026-11-22 for a study of hard problem 3, parts (b) to (d)
-([roadmap/research.md](../roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model), plan #1258):
+([roadmap/research.md](../roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model), [plan #1258](../plans/repair-rounding-cost-levers.md)):
 measurements and options only, no default or output change, no library speed PR. Boolean speed levers are stopped
 (owner 2026-11-16), so every lever below is an option with numbers; the owner decides whether one is built
 (section 9).

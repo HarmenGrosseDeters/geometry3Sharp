@@ -1,0 +1,80 @@
+round 1 before
+spheres n=16 (2700+2700 tris)      Union        boolean (default) median    43.47 ms of 21, allocated min 11705752 max 11779960 bytes
+spheres n=16 (2700+2700 tris)      Intersection boolean (default) median    26.38 ms of 21, allocated min 9972736 max 10028776 bytes
+spheres n=16 (2700+2700 tris)      Difference   boolean (default) median    26.26 ms of 21, allocated min 11708416 max 11754288 bytes
+spheres n=32 (11532+11532 tris)    Union        boolean (default) median    56.83 ms of 21, allocated min 39113560 max 39384904 bytes
+spheres n=32 (11532+11532 tris)    Intersection boolean (default) median    47.06 ms of 21, allocated min 32127384 max 32266960 bytes
+spheres n=32 (11532+11532 tris)    Difference   boolean (default) median    60.33 ms of 21, allocated min 38938760 max 39224256 bytes
+boxes, flush faces                 Union        boolean (default) median     0.90 ms of 21, allocated min 697064 max 700144 bytes
+boxes, flush faces                 Intersection boolean (default) median     0.96 ms of 21, allocated min 678264 max 681416 bytes
+boxes, flush faces                 Difference   boolean (default) median     0.98 ms of 21, allocated min 692064 max 696200 bytes
+round 1 after
+spheres n=16 (2700+2700 tris)      Union        boolean (default) median    41.43 ms of 21, allocated min 11710248 max 11774496 bytes
+spheres n=16 (2700+2700 tris)      Intersection boolean (default) median    23.86 ms of 21, allocated min 9977832 max 10042552 bytes
+spheres n=16 (2700+2700 tris)      Difference   boolean (default) median    24.37 ms of 21, allocated min 11707048 max 11769024 bytes
+spheres n=32 (11532+11532 tris)    Union        boolean (default) median    60.60 ms of 21, allocated min 39195152 max 39335808 bytes
+spheres n=32 (11532+11532 tris)    Intersection boolean (default) median    45.03 ms of 21, allocated min 32103928 max 32292832 bytes
+spheres n=32 (11532+11532 tris)    Difference   boolean (default) median    60.18 ms of 21, allocated min 39006760 max 39291216 bytes
+boxes, flush faces                 Union        boolean (default) median     0.89 ms of 21, allocated min 697656 max 701056 bytes
+boxes, flush faces                 Intersection boolean (default) median     0.81 ms of 21, allocated min 677576 max 680528 bytes
+boxes, flush faces                 Difference   boolean (default) median     1.30 ms of 21, allocated min 691672 max 694656 bytes
+round 2 before
+spheres n=16 (2700+2700 tris)      Union        boolean (default) median    44.72 ms of 21, allocated min 11689224 max 11773048 bytes
+spheres n=16 (2700+2700 tris)      Intersection boolean (default) median    25.06 ms of 21, allocated min 9979384 max 10029592 bytes
+spheres n=16 (2700+2700 tris)      Difference   boolean (default) median    24.32 ms of 21, allocated min 11716768 max 11766696 bytes
+spheres n=32 (11532+11532 tris)    Union        boolean (default) median    56.95 ms of 21, allocated min 39166624 max 39335888 bytes
+spheres n=32 (11532+11532 tris)    Intersection boolean (default) median    48.66 ms of 21, allocated min 32121072 max 32271096 bytes
+spheres n=32 (11532+11532 tris)    Difference   boolean (default) median    58.53 ms of 21, allocated min 39020504 max 39206216 bytes
+boxes, flush faces                 Union        boolean (default) median     0.84 ms of 21, allocated min 695312 max 700480 bytes
+boxes, flush faces                 Intersection boolean (default) median     0.72 ms of 21, allocated min 678040 max 680688 bytes
+boxes, flush faces                 Difference   boolean (default) median     0.92 ms of 21, allocated min 692648 max 695080 bytes
+round 2 after
+spheres n=16 (2700+2700 tris)      Union        boolean (default) median    43.48 ms of 21, allocated min 11712304 max 11799504 bytes
+spheres n=16 (2700+2700 tris)      Intersection boolean (default) median    26.00 ms of 21, allocated min 9972160 max 10039720 bytes
+spheres n=16 (2700+2700 tris)      Difference   boolean (default) median    25.13 ms of 21, allocated min 11692864 max 11765320 bytes
+spheres n=32 (11532+11532 tris)    Union        boolean (default) median    63.24 ms of 21, allocated min 39136128 max 39355480 bytes
+spheres n=32 (11532+11532 tris)    Intersection boolean (default) median    49.01 ms of 21, allocated min 32104632 max 32266504 bytes
+spheres n=32 (11532+11532 tris)    Difference   boolean (default) median    53.57 ms of 21, allocated min 38981224 max 39163752 bytes
+boxes, flush faces                 Union        boolean (default) median     1.19 ms of 21, allocated min 696416 max 701296 bytes
+boxes, flush faces                 Intersection boolean (default) median     1.19 ms of 21, allocated min 677560 max 681016 bytes
+boxes, flush faces                 Difference   boolean (default) median     0.74 ms of 21, allocated min 692640 max 696312 bytes
+round 3 before
+spheres n=16 (2700+2700 tris)      Union        boolean (default) median    47.89 ms of 21, allocated min 11686488 max 11783592 bytes
+spheres n=16 (2700+2700 tris)      Intersection boolean (default) median    29.35 ms of 21, allocated min 9972216 max 10040440 bytes
+spheres n=16 (2700+2700 tris)      Difference   boolean (default) median    26.19 ms of 21, allocated min 11695600 max 11759920 bytes
+spheres n=32 (11532+11532 tris)    Union        boolean (default) median    59.23 ms of 21, allocated min 39111016 max 39400488 bytes
+spheres n=32 (11532+11532 tris)    Intersection boolean (default) median    50.43 ms of 21, allocated min 32108800 max 32260904 bytes
+spheres n=32 (11532+11532 tris)    Difference   boolean (default) median    56.94 ms of 21, allocated min 38963552 max 39203872 bytes
+boxes, flush faces                 Union        boolean (default) median     0.79 ms of 21, allocated min 697856 max 701224 bytes
+boxes, flush faces                 Intersection boolean (default) median     0.78 ms of 21, allocated min 677568 max 681264 bytes
+boxes, flush faces                 Difference   boolean (default) median     1.12 ms of 21, allocated min 691632 max 695544 bytes
+round 3 after
+spheres n=16 (2700+2700 tris)      Union        boolean (default) median    56.58 ms of 21, allocated min 11711720 max 11773720 bytes
+spheres n=16 (2700+2700 tris)      Intersection boolean (default) median    27.80 ms of 21, allocated min 9955120 max 10051936 bytes
+spheres n=16 (2700+2700 tris)      Difference   boolean (default) median    22.92 ms of 21, allocated min 11704440 max 11765992 bytes
+spheres n=32 (11532+11532 tris)    Union        boolean (default) median    60.69 ms of 21, allocated min 39177896 max 39402104 bytes
+spheres n=32 (11532+11532 tris)    Intersection boolean (default) median    46.64 ms of 21, allocated min 32127976 max 32285760 bytes
+spheres n=32 (11532+11532 tris)    Difference   boolean (default) median    56.58 ms of 21, allocated min 38996064 max 39226888 bytes
+boxes, flush faces                 Union        boolean (default) median     0.87 ms of 21, allocated min 697712 max 700216 bytes
+boxes, flush faces                 Intersection boolean (default) median     0.78 ms of 21, allocated min 677912 max 680688 bytes
+boxes, flush faces                 Difference   boolean (default) median     1.10 ms of 21, allocated min 691120 max 694776 bytes
+round 4 before
+spheres n=16 (2700+2700 tris)      Union        boolean (default) median    45.73 ms of 21, allocated min 11690032 max 11765400 bytes
+spheres n=16 (2700+2700 tris)      Intersection boolean (default) median    26.49 ms of 21, allocated min 9968984 max 10027824 bytes
+spheres n=16 (2700+2700 tris)      Difference   boolean (default) median    24.14 ms of 21, allocated min 11700216 max 11755544 bytes
+spheres n=32 (11532+11532 tris)    Union        boolean (default) median    57.35 ms of 21, allocated min 39208680 max 39399104 bytes
+spheres n=32 (11532+11532 tris)    Intersection boolean (default) median    50.68 ms of 21, allocated min 32149408 max 32258920 bytes
+spheres n=32 (11532+11532 tris)    Difference   boolean (default) median    58.67 ms of 21, allocated min 38956896 max 39195072 bytes
+boxes, flush faces                 Union        boolean (default) median     1.33 ms of 21, allocated min 698016 max 722664 bytes
+boxes, flush faces                 Intersection boolean (default) median     0.81 ms of 21, allocated min 678440 max 682024 bytes
+boxes, flush faces                 Difference   boolean (default) median     0.81 ms of 21, allocated min 692872 max 695392 bytes
+round 4 after
+spheres n=16 (2700+2700 tris)      Union        boolean (default) median    41.16 ms of 21, allocated min 11709072 max 11768544 bytes
+spheres n=16 (2700+2700 tris)      Intersection boolean (default) median    23.98 ms of 21, allocated min 9973232 max 10035784 bytes
+spheres n=16 (2700+2700 tris)      Difference   boolean (default) median    22.49 ms of 21, allocated min 11693376 max 11762688 bytes
+spheres n=32 (11532+11532 tris)    Union        boolean (default) median    62.36 ms of 21, allocated min 39093824 max 39391560 bytes
+spheres n=32 (11532+11532 tris)    Intersection boolean (default) median    51.88 ms of 21, allocated min 32111032 max 32238744 bytes
+spheres n=32 (11532+11532 tris)    Difference   boolean (default) median    65.69 ms of 21, allocated min 38988920 max 39270840 bytes
+boxes, flush faces                 Union        boolean (default) median     1.16 ms of 21, allocated min 697888 max 700880 bytes
+boxes, flush faces                 Intersection boolean (default) median     1.27 ms of 21, allocated min 678344 max 680704 bytes
+boxes, flush faces                 Difference   boolean (default) median     1.27 ms of 21, allocated min 692216 max 694960 bytes

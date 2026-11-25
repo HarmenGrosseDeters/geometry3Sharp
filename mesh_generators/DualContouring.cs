@@ -1482,7 +1482,7 @@ namespace g3
         double grid_value(int c) { return valueShift == 0 ? values[c] : ExactPoint3.ScaleB(values[c], valueShift); }
 
         // floor(log2 |x|) of a finite nonzero double
-        static int exponent_of(double x)
+        internal static int exponent_of(double x)
         {
             long bits = BitConverter.DoubleToInt64Bits(Math.Abs(x));
             int e = (int)((bits >> 52) & 0x7FF);

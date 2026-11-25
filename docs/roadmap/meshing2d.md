@@ -95,7 +95,7 @@ Research or not scheduled (not built without a new decision):
 - **A Chew-2 variant** (Rand, CCCG 2011, 28.6°): a different algorithm; see the lens decision under Done / history.
 - **Iterated rounding can depend on the order** (Hershberger 2013); no case is known. If one appears, the mesher returns its
   collapsed double chains as a certificate that the oracle checks.
-- **Parked** (no use case; [platform.md](platform.md#stage-8-planned-follow-ups), plan #1264): the `.poly` reader keeps crossing /
+- **Parked** (no use case; [platform.md](platform.md#stage-8-planned-follow-ups), [plan #1264](../plans/meshing2d-poly-reader-crossing-segments.md)): the `.poly` reader keeps crossing /
   touching / overlapping segment groups as constraints only. Done (2026-11-12): the d² exact tests at a vertex of degree d are an
   angular sort (d log d; wheel of n spokes, ReadPoly: 5000 0.39 s to 0.27 s, 10 000 1.25 s to 0.97 s, 20 000 5.5 s to 4.0 s: the rest is the quadtree visiting the long segments of a hub, a loose
   quadtree keeps them in its top nodes, so a sweep would be the next lever, not parked work of its own), and the mesh2d report
@@ -447,8 +447,8 @@ Decision rule (owner 2026-11-16, as for the boolean): build only what is measure
 else waits for a concrete use case or is closed with its measurement.
 
 1. Fast-oracle leftovers: 373600 q30 Delaunay remainder, corpus segments and conformity (no issue; parked while they do
-   not run in PR CI; if they make PR CI noticeably slower, they become a CI item; plan #1263; certifying oracle study, plan #1283).
-2. Blocked on inputs: stmlf (no issue; plan #1263).
+   not run in PR CI; if they make PR CI noticeably slower, they become a CI item; [plan #1263](../plans/meshing2d-fast-oracle-leftovers-stmlf.md); certifying oracle study, plan #1283).
+2. Blocked on inputs: stmlf (no issue; [plan #1263](../plans/meshing2d-fast-oracle-leftovers-stmlf.md)).
 3. ~~`Dirty` deduplication in `Collect`~~ closed as measured and not taken (2026-11-16, the item under #638 above: -2.9 % to -7.7 % in total on normal inputs, below the 10 % rule; 61 golden rows and the grading bound change).
 4. Fuzz group (f) slow units (#947, closed 2026-11-16; oracle fix #975 merged 2026-11-16; measured 2026-11-16): the time is in the **oracle** (`benchmarks/Meshing2Benchmark/Oracle`), not in
    `QualityMesh2` or Clipper2. The 14 units' bytes are not on `runs/mesh-fuzz` (only `timing-master.txt`), so they could not be split
@@ -462,7 +462,7 @@ else waits for a concrete use case or is closed with its measurement.
    a documented limit: 2-4.4 s per such input, in `segments` (the exact selection and the chain checks, about 3 s on the slowest),
    `coverage` and `marks`; they are a cost of the exact oracle on these inputs (1000 and more bits per coordinate difference), a
    profile (dotnet-trace was not available in the session) would be the next step. The mesher's output is unchanged.
-5. Research, parked until a concrete use case (plan #1262; HP 6 small-angle cascade study, plan #1282): Shewchuk's Terminator with a region-based oracle excuse (until a real
+5. Research, parked until a concrete use case ([plan #1262](../plans/meshing2d-research-items.md); HP 6 small-angle cascade study, plan #1282): Shewchuk's Terminator with a region-based oracle excuse (until a real
    input fails the current small-angle rule); matched shells (the constrained quality mode is the answer); grading
    placement strategy (if fewer triangles matter, eg FE meshes); Chew-2 (no issues). Spike of 2026-11-22 on HP 6 and HP 7
    (plans #1282, #1283): [MESHING2D_HP6_HP7_SPIKE_2026-11.md](../research/MESHING2D_HP6_HP7_SPIKE_2026-11.md), options with the owner.

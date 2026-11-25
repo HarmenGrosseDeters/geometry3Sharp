@@ -1,0 +1,30 @@
+== iterations 300 (columns: case | BFS | Z2 spectral | ms BFS / spectral / library / auto)
+| #1548 PolyCube(4,3,2), every 5th | 1 | 1 | 1 / 5 / 58 / 134 |
+| #1548 PolyCube(4,3,2), every 3rd | 1 | 1 | 0 / 0 / 2 / 36 |
+| #1548 PolyCube(4,3,2), every 2nd | 1 | 1 | 0 / 0 / 2 / 16 |
+| cube, jitter 1e-4, 30 % random, eps 1e-3 | 1 | 1 | 0 / 0 / 1 / 4 |
+| sphere n=16, jitter 1e-4, 50 % random, eps 1e-3 | 1 | 0.681 | 2 / 9 / 62 / 160 |
+| cube, 10 % dropped, every 3rd | 1 | 1 | 0 / 0 / 2 / 35 |
+| checkerboard (non-manifold edges), every 3rd | 0.484 | 0.693 | 0 / 0 / 3 / 52 |
+| two blocks, gap 5e-4 < eps 1e-3, every 3rd | 0.917 | 0.521 | 0 / 0 / 1 / 33 |
+| cube, jitter 1e-3 = eps (welds fail), every 3rd | 0.490 | 0.490 | 0 / 2 / 4 / 2 |
+== iterations 3000 (columns: case | BFS | Z2 spectral | ms BFS / spectral / library / auto)
+| #1548 PolyCube(4,3,2), every 5th | 1 | 1 | 1 / 8 / 60 / 93 |
+| #1548 PolyCube(4,3,2), every 3rd | 1 | 1 | 0 / 2 / 1 / 27 |
+| #1548 PolyCube(4,3,2), every 2nd | 1 | 1 | 0 / 2 / 1 / 15 |
+| cube, jitter 1e-4, 30 % random, eps 1e-3 | 1 | 1 | 0 / 2 / 1 / 4 |
+| sphere n=16, jitter 1e-4, 50 % random, eps 1e-3 | 1 | 1 | 2 / 87 / 70 / 140 |
+| cube, 10 % dropped, every 3rd | 1 | 1 | 0 / 2 / 1 / 18 |
+| checkerboard (non-manifold edges), every 3rd | 0.484 | 0.609 | 0 / 7 / 2 / 48 |
+| two blocks, gap 5e-4 < eps 1e-3, every 3rd | 0.917 | 0.917 | 0 / 3 / 1 / 29 |
+| cube, jitter 1e-3 = eps (welds fail), every 3rd | 0.490 | 0.490 | 0 / 3 / 3 / 3 |
+== iterations 30000 (columns: case | BFS | Z2 spectral | ms BFS / spectral / library / auto)
+| #1548 PolyCube(4,3,2), every 5th | 1 | 1 | 1 / 47 / 76 / 117 |
+| #1548 PolyCube(4,3,2), every 3rd | 1 | 1 | 0 / 29 / 2 / 31 |
+| #1548 PolyCube(4,3,2), every 2nd | 1 | 1 | 0 / 37 / 2 / 21 |
+| cube, jitter 1e-4, 30 % random, eps 1e-3 | 1 | 1 | 0 / 25 / 1 / 4 |
+| sphere n=16, jitter 1e-4, 50 % random, eps 1e-3 | 1 | 1 | 3 / 968 / 74 / 159 |
+| cube, 10 % dropped, every 3rd | 1 | 1 | 0 / 29 / 2 / 24 |
+| checkerboard (non-manifold edges), every 3rd | 0.484 | 0.396 | 0 / 103 / 3 / 50 |
+| two blocks, gap 5e-4 < eps 1e-3, every 3rd | 0.917 | 0.917 | 0 / 31 / 1 / 30 |
+| cube, jitter 1e-3 = eps (welds fail), every 3rd | 0.490 | 0.490 | 0 / 13 / 3 / 3 |
