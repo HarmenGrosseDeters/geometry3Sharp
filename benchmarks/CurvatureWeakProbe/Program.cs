@@ -64,11 +64,13 @@ foreach (int resolution in new[] { 5, 9, 17, 33, 65 }) {
     // seams (the two largest |coordinates| equal), face interiors; and the class and valence of the overall maximum
     var classMax = new System.Collections.Generic.SortedDictionary<string, double>();
     string argClass = "";
+    double sumSquares = 0;
     foreach (int v in mesh.VertexIndices()) {
         Vector3d x = mesh.GetVertex(v);
         var field = new Vector3d(x.x * x.x * x.x, x.y * x.y * x.y, x.z * x.z * x.z);
         pairing += curvature.MixedArea[v] * curvature.MeanCurvatureNormal[v].Dot(field);
         double error = (curvature.MeanCurvatureNormal[v] - 2 * x).Length;
+        sumSquares += error * error;
         double[] a = { Math.Abs(x.x), Math.Abs(x.y), Math.Abs(x.z) };
         Array.Sort(a);
         int valence = mesh.GetVtxEdgeCount(v);
@@ -76,7 +78,7 @@ foreach (int resolution in new[] { 5, 9, 17, 33, 65 }) {
         classMax[vertexClass] = Math.Max(classMax.TryGetValue(vertexClass, out double m) ? m : 0, error);
         if (error > maxError) { maxError = error; argClass = $"{vertexClass} (valence {valence})"; }
     }
-    localization.Add($"{resolution} max-at {argClass} " + string.Join(" ", classMax.Select(kv => $"{kv.Key}={kv.Value:G6}")));
+    localization.Add($"{resolution} rms={Math.Sqrt(sumSquares / mesh.VertexCount):G6} max-at {argClass} " + string.Join(" ", classMax.Select(kv => $"{kv.Key}={kv.Value:G6}")));
     foreach (int e in mesh.EdgeIndices()) {
         Index2i ends = mesh.GetEdgeV(e);
         double length = mesh.GetVertex(ends.a).Distance(mesh.GetVertex(ends.b));
@@ -92,6 +94,19 @@ foreach (int resolution in new[] { 5, 9, 17, 33, 65 }) {
 
 Console.WriteLine("resolution localization of the maximum nodal error (class maxima)");
 foreach (string line in localization) Console.WriteLine(line);
+// the same nodal error on the midpoint icosphere (twelve symmetric valence-5 vertices, valence 6 elsewhere)
+Console.WriteLine("icosphere-level vertices rms-nodal-error max-nodal-error");
+for (int level = 2; level <= 6; ++level) {
+    var sphere = IcosphereFixture.Make(level);
+    var k = MeshCurvature.Compute(sphere);
+    if (k.ValidVertices != sphere.VertexCount) throw new InvalidOperationException("Invalid vertex");
+    double sq = 0, max = 0;
+    foreach (int v in sphere.VertexIndices()) {
+        double e = (k.MeanCurvatureNormal[v] - 2 * sphere.GetVertex(v)).Length;
+        sq += e * e; max = Math.Max(max, e);
+    }
+    Console.WriteLine($"{level} {sphere.VertexCount} {Math.Sqrt(sq / sphere.VertexCount):G6} {max:G6}");
+}
 
 TorusPrincipalCurvatureProbe.Run();
 CotanLaplacianProbe.Run();
