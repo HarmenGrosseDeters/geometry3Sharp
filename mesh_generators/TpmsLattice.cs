@@ -149,6 +149,7 @@ namespace g3
 
         // ---- outputs ----
         public TpmsStatus Status;
+        /// <summary> Why the status is not Ok, or for Ok a warning that the result is not the lattice asked for (an Enclosure whose realized fraction is above 1; a Sheet that realized less than half of the requested fraction: a wall thinner than about two cubes, see TwoLevelSheet); empty otherwise. </summary>
         public string Message = "";
         /// <summary> The lattice mesh in world coordinates; null unless Status == Ok. </summary>
         public DMesh3 Mesh;
@@ -754,6 +755,15 @@ namespace g3
             MeanWallThickness = vol.y > 0 ? 2 * vol.x / vol.y : 0;
             Mesh = result;
             Status = TpmsStatus.Ok;
+            // #1596: Ok with a result that is not the lattice asked for gets a Message (the status is not changed)
+            if (Enclosure && RealizedVolumeFraction > 1)
+                Message = "Enclosure: the realized volume fraction is " + RealizedVolumeFraction.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                    + " (above 1): the error margin of the enclosure is larger than the voids of the lattice, so the result is the solid box (enlarged by the margin), not a lattice; use a smaller CellSize / more Divisions, or a lower margin";
+            else if (!Enclosure && !TwoLevelSheet && Style == TpmsStyle.Sheet && !hybrid && VolumeFractionAt == null
+                     && fraction > 0 && RealizedVolumeFraction < 0.5 * fraction)
+                Message = "Sheet: the realized volume fraction " + RealizedVolumeFraction.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                    + " is less than half of the requested " + fraction.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                    + ": the wall is thinner than about two cubes (CellSize / Divisions) and marching cubes loses it; set TwoLevelSheet = true or raise Divisions";
         }
 
         // the lattice frame to world coordinates, in place: Origin + Rotation * v (Origin + v for the identity rotation)
