@@ -322,6 +322,16 @@ not depend on the implementer's own tests. Order of priority:
     symmetries in the PR tier, all 48 in the nightly job (`Category=Nightly`). `CostInvarianceTests`: the output size on a
     transformed copy is equal under the 2^k scales and at most twice as large otherwise (#664 as a rule, the 2D mesher and
     `ExactMeshBoolean`), and the wall time of every sweep operation at most 20 times and 50 ms more (nightly).
+    Curved solids (session S2, 2026-11-25): `BooleanMetamorphicCurvedTests` runs `ExactMeshBoolean` and `SolidBooleanPipeline`
+    on 13 procedural pairs (spheres, a torus, rotated boxes; overlapping, nested, disjoint, touching, near-coincident, identical;
+    `Harness/CurvedSolids.cs`; non-dyadic coordinates, so volumes are compared within the measured rounding drift, itself checked
+    against the documented 1e-5 bound): commutativity (same solid, same status and clean state; the same mesh is not promised),
+    inclusion-exclusion, A u A = A, A - A empty, refinement by midpoint splits of one or both operands, and an inverted operand
+    (refused, or the Boolean with that operand empty; `ByNesting` gives the result of the outward input). `OperationMetamorphicTests`:
+    `MeshOffset` (offset(d) contains offset(d') for d > d', insets nested in the input) and `Remesher` with a projection target
+    (volume and area within 5 %, clean with `PreventSelfIntersections`). All held on master (a sweep of 81 further generated pairs, shifts 1e-14 to 1,
+    found no violation); the slowest test takes 2.5 s. `MeshRobustRepair` / `MeshAutoRepair` under a permutation of vertex and triangle order
+    (measurement only, not asserted): 11 broken inputs x 19 orders gave the same result in every order (same triangles by position, same status).
 11. **Cross-platform determinism**: the bit-identity hashes weekly on Windows and arm64, and the net48 tests (not only
     the build) on a Windows runner.
 12. **Tool-checked error bounds**: new floating-point filter bounds also derived with FPTaylor (MIT) and compared in
