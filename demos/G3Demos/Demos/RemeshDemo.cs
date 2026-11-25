@@ -34,8 +34,8 @@ namespace G3Demos.Demos
                     // a long bar twisted by 90 degrees: curved faces, sharp twisted edges, long thin input triangles
                     m = Shapes.Box(Vector3d.Zero, new Vector3d(0.15, 0.15, 0.7), 5);
                     Shapes.Transform(m, v => {
-                        double a = (v.z + 0.7) / 1.4 * Math.PI / 2;
-                        return new Vector3d(v.x * Math.Cos(a) - v.y * Math.Sin(a), v.x * Math.Sin(a) + v.y * Math.Cos(a), v.z);
+                        Vector2d c = Shapes.Circle((v.z + 0.7) / 1.4 / 4);   // up to a quarter turn (exact arithmetic, Shapes.Circle)
+                        return new Vector3d(v.x * c.x - v.y * c.y, v.x * c.y + v.y * c.x, v.z);
                     });
                     break;
                 default:

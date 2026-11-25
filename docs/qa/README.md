@@ -12,6 +12,7 @@ This directory organizes the QA strategy, test tiers, verification gates, fuzzin
 | [local-setup.md](local-setup.md) | Local .NET SDK installation and verification commands |
 | [test-gap-audit.md](test-gap-audit.md) | Test-gap audit of 2026-11-25: gaps, weak tests and edge cases of the exact Boolean, repair, predicates, remeshing and 2D meshing, with hand mutations and a ranked top 15 |
 | [silent-success-audit.md](silent-success-audit.md) | Audit of success / clean statuses against their checks (2026-11-25): inventory, risk classes, probes, issues #1566, #1567, #1569 |
+| [exact-bound-inventory.md](exact-bound-inventory.md) | Inventory of the exact code's filters, error bounds and termination rules (2026-11-25): coverage by Z3, ErrorBoundAudit, FPTaylor, design docs or tests; which mutants are killed; gaps ranked by risk |
 
 ---
 

@@ -37,7 +37,7 @@ namespace g3
 #if G3_USING_UNITY && (NET_2_0 || NET_2_0_SUBSET)
             for_each<T>(source, body);
 #else
-            Parallel.ForEach<T>(source, body);
+            caller_first_each<T>(source, body);
 #endif
         }
 
@@ -114,7 +114,7 @@ namespace g3
             for_each<int>(Interval1i.Range(count), (i) => body(i, localInit()));
 #else
             try {
-                Parallel.For(0, count, localInit, (i, loop, local) => { body(i, local); return local; }, (local) => { });
+                caller_first_range(0, count, localInit, body);
             } catch (AggregateException e) when (e.InnerExceptions.Count == 1) {
                 // (the exception of the body, as a serial loop would throw it)
                 System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerExceptions[0]).Throw();
@@ -135,7 +135,7 @@ namespace g3
             for_each<int>(Interval1i.Range(count), body);
 #else
             try {
-                Parallel.For(0, count, body);
+                caller_first_range(0, count, body);
             } catch (AggregateException e) when (e.InnerExceptions.Count == 1) {
                 System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerExceptions[0]).Throw();
             }
@@ -203,7 +203,7 @@ namespace g3
             for_each<int>(Interval1i.Range(from, count - from), body);
 #else
             try {
-                Parallel.For(from, count, body);
+                caller_first_range(from, count, body);
             } catch (AggregateException e) when (e.InnerExceptions.Count == 1) {
                 System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerExceptions[0]).Throw();
             }
@@ -216,7 +216,7 @@ namespace g3
             for_each<int>(Interval1i.Range(from, count - from), (k) => body(k, localInit()));
 #else
             try {
-                Parallel.For(from, count, localInit, (k, loop, l) => { body(k, l); return l; }, (l) => { });
+                caller_first_range(from, count, localInit, body);
             } catch (AggregateException e) when (e.InnerExceptions.Count == 1) {
                 System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerExceptions[0]).Throw();
             }
@@ -283,7 +283,7 @@ namespace g3
                     for_each<int>(Interval1i.Range(from, count - from), (k) => body(k, localInit()));
 #else
                     try {
-                        Parallel.For(from, count, localInit, (k, loop, l) => { body(k, l); return l; }, (l) => { });
+                        caller_first_range(from, count, localInit, body);
                     } catch (AggregateException e) when (e.InnerExceptions.Count == 1) {
                         System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerExceptions[0]).Throw();
                     }
@@ -416,6 +416,282 @@ namespace g3
         }
 
 
+
+#if !(G3_USING_UNITY && (NET_2_0 || NET_2_0_SUBSET))
+        // ---- the parallel loops: caller first (#1502) ----
+        //
+        // Parallel.For waits for every worker task it queued, including those that have not started: called from a thread that is not a
+        // pool thread (an application thread, a test runner's thread), the tasks sit in the pool's global queue, and with the pool busy one
+        // call of a few dozen trivial items took 292 ms instead of 0.01 ms (4 cores; benchmarks/ParallelTinyLoops). These loops queue helpers
+        // and run the items on the calling thread at once: the caller and the helpers take chunks of indices from one counter, and the
+        // caller waits only for chunks that were taken. A helper that starts after the loop has ended finds nothing to do and touches
+        // nothing of the caller's. Which thread runs an item does not change the result (the contract of ForRange: a body writes per
+        // item); SerialOnThisThread and the order adversary test exactly that. The helpers are queued with ThreadPool.QueueUserWorkItem,
+        // which flows the ExecutionContext (AsyncLocal values) as Parallel.For's tasks do. Exceptions: an AggregateException of every
+        // failure, as Parallel.For; after a failure no participant starts another item (the items running finish). The helpers run on
+        // the default pool whatever TaskScheduler.Current is (Parallel.For queued to TaskScheduler.Current; a ConcurrentExclusiveSchedulerPair
+        // with a concurrency level of 2 did not limit its loops either: 4 items at once were measured on 4 cores).
+
+        /// <summary>
+        /// for tests (contention): every chunk of the loops started on this thread has this size (0: the guided chunks of production)
+        /// </summary>
+        [ThreadStatic] internal static int ChunkForTestsOnThisThread;
+
+        // the state shared by the caller and the helpers of one loop
+        class CallerFirstLoop
+        {
+            public int Next, Count, MinChunk, Parts, FixedChunk;
+            public int Active, Closed, Queued, MaxHelpers;
+            public volatile bool Stop;
+            public List<Exception> Errors;
+            // (spins up to 2047 iterations before it blocks, as a helper usually finishes its last chunk within microseconds; never
+            // disposed: a late helper may still call Set after the caller has returned, and without a blocking wait it holds no handle)
+            public readonly ManualResetEventSlim Idle = new ManualResetEventSlim(false, 2047);
+
+            public void Fail(Exception e)
+            {
+                lock (this) {
+                    if (Errors == null) Errors = new List<Exception>();
+                    Errors.Add(e);
+                }
+                Stop = true;
+            }
+
+            // a helper joins the loop; false: the caller has closed it (the helper started late and must not touch it). A helper that
+            // joins queues the next one while indices are left, up to MaxHelpers: one wake-up at a time, as Parallel.For starts its
+            // tasks, so that a loop the caller finishes alone wakes one pool thread, not ProcessorCount - 1
+            public bool Enter(WaitCallback help)
+            {
+                Interlocked.Increment(ref Active);
+                if (Volatile.Read(ref Closed) == 1) {
+                    Leave();
+                    return false;
+                }
+                if (Volatile.Read(ref Next) < Count && Interlocked.Increment(ref Queued) <= MaxHelpers) {
+                    try {
+                        ThreadPool.QueueUserWorkItem(help);
+                    } catch (Exception) {
+                        // (no further helper: this one stays and works, the caller finishes the rest; an exception thrown on to the pool
+                        // thread would end the process)
+                    }
+                }
+                return true;
+            }
+
+            public void Leave()
+            {
+                if (Interlocked.Decrement(ref Active) == 0 && Volatile.Read(ref Closed) == 1)
+                    Idle.Set();
+            }
+
+            // the caller starts the loop: the first helper (the others follow from Enter)
+            public void Start(int n, WaitCallback help)
+            {
+                Count = n;
+                MaxHelpers = Math.Max(0, Math.Min(Environment.ProcessorCount - 1, n - 1));
+                Parts = MaxHelpers + 1;
+                // (the smallest chunk, 1/64 of a participant's share: the end of the loop balances unequal items)
+                MinChunk = Math.Max(1, Math.Min(4096, n / (64 * Parts)));
+                FixedChunk = ChunkForTestsOnThisThread;
+                if (MaxHelpers > 0) {
+                    Queued = 1;
+                    ThreadPool.QueueUserWorkItem(help);
+                }
+            }
+
+            // the next chunk [i0, i1) of the indices; false: none left. Guided: half of the rest divided by the participants, at least
+            // MinChunk, so the first chunks are large (few counter operations, each participant a contiguous run) and the last small
+            public bool Take(out int i0, out int i1)
+            {
+                while (true) {
+                    i0 = Volatile.Read(ref Next);
+                    if (i0 >= Count) {
+                        i1 = i0;
+                        return false;
+                    }
+                    int rest = Count - i0;
+                    i1 = i0 + Math.Min(rest, (FixedChunk > 0) ? FixedChunk : Math.Max(MinChunk, rest / (2 * Parts)));
+                    // (the chunk [i0, i1) is this caller's only if Next was still i0: the chunks of all participants are disjoint and cover
+                    // [0, Count); Next never exceeds Count)
+                    if (Interlocked.CompareExchange(ref Next, i1, i0) == i0)
+                        return true;
+                }
+            }
+
+            // the caller: no helper joins after this; wait for the helpers that joined, then throw the failures
+            public void Close()
+            {
+                // (a full fence between closing and reading Active, against Enter's increment before its read of Closed)
+                Interlocked.Exchange(ref Closed, 1);
+                if (Volatile.Read(ref Active) != 0)
+                    Idle.Wait();
+                if (Errors != null)
+                    throw new AggregateException(Errors);
+            }
+        }
+
+        sealed class CallerFirstRange : CallerFirstLoop
+        {
+            public int From;
+            public Action<int> Body;
+            public WaitCallback HelpCallback;
+
+            public void Help(object unused)
+            {
+                if (!Enter(HelpCallback))
+                    return;
+                try { Run(); } finally { Leave(); }
+            }
+
+            // a participant: chunks until none is left or an item failed
+            public void Run()
+            {
+                try {
+                    int i0, i1;
+                    while (!Stop && Take(out i0, out i1)) {
+                        for (int i = i0; i < i1 && !Stop; ++i)
+                            Body(From + i);
+                    }
+                } catch (Exception e) {
+                    Fail(e);
+                }
+            }
+        }
+
+        sealed class CallerFirstRange<TLocal> : CallerFirstLoop
+        {
+            public int From;
+            public Func<TLocal> LocalInit;
+            public Action<int, TLocal> Body;
+            public WaitCallback HelpCallback;
+
+            public void Help(object unused)
+            {
+                if (!Enter(HelpCallback))
+                    return;
+                try { Run(); } finally { Leave(); }
+            }
+
+            // a participant: its own local, made when it takes its first chunk
+            public void Run()
+            {
+                try {
+                    bool haveLocal = false;
+                    TLocal local = default(TLocal);
+                    int i0, i1;
+                    while (!Stop && Take(out i0, out i1)) {
+                        if (!haveLocal) {
+                            local = LocalInit();
+                            haveLocal = true;
+                        }
+                        for (int i = i0; i < i1 && !Stop; ++i)
+                            Body(From + i, local);
+                    }
+                } catch (Exception e) {
+                    Fail(e);
+                }
+            }
+        }
+
+        /// <summary> body(i) for every i in [from, to), caller first </summary>
+        static void caller_first_range(int from, int to, Action<int> body)
+        {
+            long span = (long)to - from;
+            if (span <= 0)
+                return;
+            if (span > int.MaxValue) {
+                // (more indices than an int counts, only for a negative from: the loop of before)
+                Parallel.For(from, to, body);
+                return;
+            }
+            int n = (int)span;
+            var loop = new CallerFirstRange() { From = from, Body = body };
+            loop.HelpCallback = loop.Help;
+            loop.Start(n, loop.HelpCallback);
+            loop.Run();
+            loop.Close();
+        }
+
+        /// <summary> body(i, local) for every i in [from, to), caller first; local from localInit once per participant that takes a chunk </summary>
+        static void caller_first_range<TLocal>(int from, int to, Func<TLocal> localInit, Action<int, TLocal> body)
+        {
+            long span = (long)to - from;
+            if (span <= 0)
+                return;
+            if (span > int.MaxValue) {
+                Parallel.For(from, to, localInit, (i, state, l) => { body(i, l); return l; }, (l) => { });
+                return;
+            }
+            int n = (int)span;
+            var loop = new CallerFirstRange<TLocal>() { From = from, LocalInit = localInit, Body = body };
+            loop.HelpCallback = loop.Help;
+            loop.Start(n, loop.HelpCallback);
+            loop.Run();
+            loop.Close();
+        }
+
+        /// <summary> body(v) for every v of source, caller first (an IList by index, any other source in growing chunks under a lock) </summary>
+        static void caller_first_each<T>(IEnumerable<T> source, Action<T> body)
+        {
+            var list = source as IList<T>;
+            if (list != null) {
+                caller_first_range(0, list.Count, (i) => body(list[i]));
+                return;
+            }
+            var loop = new CallerFirstLoop();
+            using (IEnumerator<T> e = source.GetEnumerator()) {
+                bool ended = false;
+                Action work = () => {
+                    var items = new T[64];
+                    int chunk = 1;
+                    try {
+                        while (!loop.Stop) {
+                            int got = 0;
+                            lock (loop) {
+                                try {
+                                    while (got < chunk && !ended) {
+                                        if (e.MoveNext())
+                                            items[got++] = e.Current;
+                                        else {
+                                            ended = true;
+                                            Volatile.Write(ref loop.Next, int.MaxValue);
+                                        }
+                                    }
+                                } catch {
+                                    // (a failed MoveNext ends the source for every participant: nobody calls it again)
+                                    ended = true;
+                                    loop.Stop = true;
+                                    Volatile.Write(ref loop.Next, int.MaxValue);
+                                    throw;
+                                }
+                            }
+                            if (got == 0)
+                                break;
+                            for (int k = 0; k < got && !loop.Stop; ++k)
+                                body(items[k]);
+                            if (chunk < items.Length)
+                                chunk *= 2;
+                        }
+                    } catch (Exception x) {
+                        loop.Fail(x);
+                    }
+                };
+                WaitCallback helper = null;
+                helper = (unused) => {
+                    if (!loop.Enter(helper))
+                        return;
+                    try { work(); } finally { loop.Leave(); }
+                };
+                // (the length is unknown: Next < Count until the source has ended, so that the helpers chain up to ProcessorCount - 1)
+                loop.Start(int.MaxValue, helper);
+                work();
+                // (the enumerator is disposed after Close: no helper reads it then)
+                loop.Close();
+            }
+        }
+
+
+#endif
 
         // parallel for-each that will work on .net 3.5 (maybe?)
         // adapted from https://www.microsoft.com/en-us/download/details.aspx?id=19222

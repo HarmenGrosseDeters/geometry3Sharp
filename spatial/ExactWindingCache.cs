@@ -370,7 +370,7 @@ namespace g3
 
         /// <summary>
         /// The decision margin of a threshold query from the tree: the tree value wH = chi + bSum decides only when it is
-        /// farther from iso than this, so that |wH - W| <= margin where W is the value of the full sum (Evaluate), all in winding
+        /// farther from iso than this, so that |wH - W| &lt;= margin where W is the value of the full sum (Evaluate), all in winding
         /// units (divided by 2 pi). Derivation in docs/design/EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md ("Which tree", the decision
         /// margin): bErr covers the summation order, the nodes' approximation and the evaluation error of the replaced edges;
         /// 4e-15 (|chi| + |bSum|) covers the roundings of the division by 2 pi and of chi + bSum (u relative each, about 18

@@ -62,6 +62,9 @@ MUTANTS = {
     'generic_without_delta': 'a generic edit does not add its bound',
     'kept_vertex_anchor': 'a contraction gives the renamed corner the kept vertex\'s position as its anchor',
     'move_skips_ghosts': 'a move does not evaluate the ghosts at the moved vertex (the reported drift misses them)',
+    'pair_skips_second_vertex': 'a joint move evaluates the segments and the ghosts at the first vertex only',
+    'pair_skips_second_ghosts': 'a joint move does not evaluate the ghosts at the second vertex',
+    'pair_second_at_old_position': 'a joint move evaluates the segments at the first vertex with the second one still in place',
 }
 
 
@@ -180,6 +183,23 @@ def lemma_formula(B, v, claim, variant=None):
     raise ValueError(claim)
 
 
+PAIR_VARS = 'c d0 d1 d2 L'
+
+
+def pair_formula(B, v, variant=None):
+    """the joint move as an instance of the displacement edit (lemma B: rho2 is the largest move of ANY corner of the
+    triangle from its anchor, however many corners the edit moved): a triangle with corners 0 and 1 at the two moved
+    vertices u, w and corner 2 at neither (the corners are symmetric), d_k the distance of corner k at its proposed
+    position from its anchor, c the carried bound. The joint move accepts the triangle if its bound c + max(d0, d1, d2)
+    is within L, which is the conjunction of the check at u (corner 0, with w at its new position) and of the check at
+    w (corner 1). Negated claim: the joint check accepts and a corner's bound is beyond L. Variant 'first_only'
+    (mutant): the corner at the second vertex is not checked."""
+    hyps = [v.c >= 0, v.d0 >= 0, v.d1 >= 0, v.d2 >= 0, v.L >= 0]
+    corners = [v.d0, v.d2] if variant == 'first_only' else [v.d0, v.d1, v.d2]
+    hyps.append(v.c + _max(B, corners) <= v.L)
+    return hyps, B.Or(v.c + v.d0 > v.L, v.c + v.d1 > v.L, v.c + v.d2 > v.L)
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # C. the bounded search: a chain on the real line
 
@@ -216,17 +236,44 @@ class Chain:
     def segs_at(self, v):
         return [s for s in self.segs if v in s['ends']]
 
-    def _apex_charge(self, R_verts, A_segs, delta):
+    def _apex_charge(self, R_verts, A_segs, delta, apex=True):
         B = self.B
         m_set = list(dict.fromkeys(R_verts + [x for s in A_segs for x in s]))
         M = _max(B, [self.d[x] for x in m_set])
-        apexes = [x for x in A_segs[0] if all(x in s for s in A_segs)] if A_segs else []
+        apexes = [x for x in A_segs[0] if all(x in s for s in A_segs)] if A_segs and apex else []
         charged = [apexes[0]] if apexes else m_set
         for x in charged:
             self.d[x] = M + delta
         self.accepted_apex.append(M + delta)
 
     # the edits
+    def move_pair(self, u, w, qu, qw):
+        """the joint move (try_move_pair): the distinct vertices u and w move to qu and qw as one displacement edit. R = A =
+        the segments at u or at w (a segment at both once), nothing collapses, no anchor changes; the edit is judged by
+        the largest bound of those segments and of the ghosts at u and at w, all at the new positions. It is two
+        single-vertex checks: the elements at u and the elements at w, each with the other vertex at its new position
+        (an element at both is in both). The apex rule of today has no shadow for it: every vertex of R is charged."""
+        B = self.B
+        if u == w:
+            raise ValueError('move_pair: two distinct vertices')
+        delta = _max(B, [_abs(B, qu - self.pos[u]), _abs(B, qw - self.pos[w])])
+        at_u, at_w = self.segs_at(u), self.segs_at(w)
+        both = at_u + [s for s in at_w if s not in at_u]
+        self._apex_charge([x for s in both for x in s['ends']], [tuple(s['ends']) for s in both], delta, apex=False)
+        old_w = self.pos[w]
+        self.pos[u], self.pos[w] = qu, qw
+        if self.mutant == 'pair_second_at_old_position':
+            self.pos[w] = old_w
+        changed = [self.bound(s) for s in at_u]
+        changed += [self.ghost_bound(g) for g in self.ghosts if g['rep'] == u]
+        if self.mutant == 'pair_second_at_old_position':
+            self.pos[w] = qw
+        if self.mutant != 'pair_skips_second_vertex':
+            changed += [self.bound(s) for s in at_w if s not in at_u]
+            if self.mutant != 'pair_skips_second_ghosts':
+                changed += [self.ghost_bound(g) for g in self.ghosts if g['rep'] == w]
+        self.accepted_ref.append(_max(B, changed))
+
     def move(self, v, q):
         B = self.B
         delta = _abs(B, q - self.pos[v])
@@ -370,14 +417,17 @@ class Chain:
         raise ValueError(claim)
 
 
-def scripts(n, length):
+def scripts(n, length, pairs=False):
     """every script of exactly `length` edits on a chain of n vertices, as tuples of (kind, vertices); the vertex
-    names are those of the start (0 .. n-1), the chain's order is kept"""
+    names are those of the start (0 .. n-1), the chain's order is kept. pairs: the scripts with at least one joint move
+    ('move_pair', u, w), u < w by the order of the names, and no others"""
     def extend(verts, k):
         if k == 0:
             yield ()
             return
         steps = [('move', v) for v in verts] + [('reanchor', v) for v in verts]
+        if pairs:
+            steps += [('move_pair', a, b) for a, b in itertools.combinations(verts, 2)]
         if len(verts) >= 3:
             for i in range(len(verts) - 1):
                 a, b = verts[i], verts[i + 1]
@@ -387,16 +437,25 @@ def scripts(n, length):
             rest = [v for v in verts if not (st[0] in ('contract', 'contract_moving', 'remove') and v == st[1])]
             for tail in extend(rest, k - 1):
                 yield (st,) + tail
-    yield from extend(list(range(n)), length)
+    for script in extend(list(range(n)), length):
+        if not pairs or any(st[0] == 'move_pair' for st in script):
+            yield script
 
 
-def run_script(B, n, script, values, mutant=None):
+def run_script(B, n, script, values, mutant=None, split_pairs=False):
     """the chain after the script; values: p0..p(n-1), and per edit k its parameter q{k} (the new position of a
-    move or of the kept vertex, or the point f of a removal)"""
+    move or of the kept vertex, or the point f of a removal; of a joint move the position of its first vertex, r{k}
+    that of its second). split_pairs: every joint move as the two single moves, first then second (for the claim that
+    it changes every bound as they do)"""
     chain = Chain(B, [values[f'p{i}'] for i in range(n)], mutant)
     for k, st in enumerate(script):
         if st[0] == 'move':
             chain.move(st[1], values[f'q{k}'])
+        elif st[0] == 'move_pair' and split_pairs:
+            chain.move(st[1], values[f'q{k}'])
+            chain.move(st[2], values[f'r{k}'])
+        elif st[0] == 'move_pair':
+            chain.move_pair(st[1], st[2], values[f'q{k}'], values[f'r{k}'])
         elif st[0] == 'reanchor':
             chain.reanchor(st[1])
         elif st[0] == 'contract':
@@ -411,7 +470,8 @@ def run_script(B, n, script, values, mutant=None):
 
 
 def script_vars(n, script):
-    names = [f'p{i}' for i in range(n)] + [f'q{k}' for k in range(len(script))] + ['x', 'y']
+    names = ([f'p{i}' for i in range(n)] + [f'q{k}' for k in range(len(script))]
+             + [f'r{k}' for k, st in enumerate(script) if st[0] == 'move_pair'] + ['x', 'y'])
     return Vars({x: z.Real(x) for x in names})
 
 
@@ -420,6 +480,17 @@ def script_formula(n, script, claim, mutant=None):
         chain = run_script(B, n, script, v, mutant)
         return list(chain.side), chain.bad(claim, x=v['x'], y=v['y'])
     return f
+
+
+def split_differs(B, n, script, v):
+    """the negation of: the script with every joint move as two single moves leaves every bound of every segment and
+    ghost, and every position, as the joint move does (a displacement edit changes no anchor: the bounds are those of
+    the final positions) -- and the value the joint move is judged by is at least each of them"""
+    joint, split = run_script(B, n, script, v), run_script(B, n, script, v, split_pairs=True)
+    a, b = joint.all_bounds(), split.all_bounds()
+    out = [joint.pos[x] != split.pos[x] for x in joint.verts]
+    out += [x != y for x, y in zip(a, b)]
+    return B.Or(*out)
 
 
 def hausdorff_on_the_line(n, script, values, mutant=None):
@@ -434,6 +505,8 @@ def hausdorff_on_the_line(n, script, values, mutant=None):
 # the configurations of the search: (vertices, script length)
 SEARCH = [(3, 1), (3, 2), (3, 3), (4, 1), (4, 2), (4, 3), (5, 1), (5, 2)]
 CLAIMS = ('H1', 'H2', 'dominated', 'reported')
+# the joint move (try_move_pair): the scripts with at least one, up to the same length (3 for 3 vertices, 2 for 4 and 5)
+PAIR_SEARCH = [(3, 1), (3, 2), (3, 3), (4, 1), (4, 2), (5, 1), (5, 2)]
 
 # per mutant a script on which it has a counterexample (found with search() on the smallest configurations first,
 # 2026-11-09; the lost ghost by hand: a ghost is lost only at an inner vertex that both segments of a start vertex
@@ -447,6 +520,9 @@ MUTANT_SCRIPTS = {
     'generic_without_delta': (3, (('remove', 1),)),
     'kept_vertex_anchor': (3, (('move', 0), ('contract', 1, 0))),
     'move_skips_ghosts': (3, (('contract', 0, 1), ('move', 1))),
+    'pair_skips_second_vertex': (3, (('move_pair', 0, 2),)),
+    'pair_skips_second_ghosts': (3, (('contract', 1, 2), ('move_pair', 0, 2))),
+    'pair_second_at_old_position': (3, (('move_pair', 1, 2),)),
 }
 
 
@@ -584,6 +660,12 @@ def run(timeout_ms=120000, configurations=None):
                            ('G_bound', 'no_acceptance')):
         f = (lambda claim, variant: lambda B, w: lemma_formula(B, w, claim, variant))(claim, variant)
         muts.append(dict(part='B', name=f'lemma_{claim}_{variant}', **_refute(f, _real_vars(LEMMA_VARS), timeout_ms)))
+    # B, the joint move
+    r, t, rr, rep = _prove(lambda B, w: pair_formula(B, w), _real_vars(PAIR_VARS), timeout_ms)
+    rows.append(dict(part='B', name='lemma_pair_corners', result=str(r), seconds=round(t, 3),
+                     assumptions_result=str(rr), assumptions_replayed=rep))
+    muts.append(dict(part='B', name='lemma_pair_corners_first_only',
+                     **_refute(lambda B, w: pair_formula(B, w, 'first_only'), _real_vars(PAIR_VARS), timeout_ms)))
     # C: every script, every claim
     counts = []
     for n, length in (configurations or SEARCH):
@@ -605,6 +687,27 @@ def run(timeout_ms=120000, configurations=None):
             # the script's side conditions are satisfiable (the claims are not vacuous)
             assumed = assumed and _check(hyps, z.BoolVal(True), timeout_ms)[1] == z.sat
         rows.append(dict(part='C', name=f'chain_{n}_vertices_{length}_edits', scripts=number, result=str(worst),
+                         seconds=round(secs, 3), assumptions_result='sat' if assumed else 'unsat or unknown',
+                         assumptions_replayed=assumed))
+    # C, the joint move: every script with at least one joint move, the same claims, and the reduction to two single
+    # moves (the joint move changes every bound and position as the two moves in turn do)
+    for n, length in (PAIR_SEARCH if configurations is None else []):
+        number, secs, worst, assumed = 0, 0.0, z.unsat, True
+        for script in scripts(n, length, pairs=True):
+            v = script_vars(n, script)
+            chain = run_script(ZB, n, script, v)
+            hyps = list(chain.side)
+            bad = z.Or(*[chain.bad(claim, x=v['x'], y=v['y']) for claim in CLAIMS], split_differs(ZB, n, script, v))
+            _, r, t = _check(hyps, bad, timeout_ms)
+            secs += t
+            number += 1
+            if r != z.unsat:
+                if worst == z.unsat:
+                    worst = r
+                counts.append(dict(vertices=n, script=[list(st) for st in script], claims=['H1/H2/dominated/reported/split'],
+                                   result=str(r)))
+            assumed = assumed and _check(hyps, z.BoolVal(True), timeout_ms)[1] == z.sat
+        rows.append(dict(part='C', name=f'chain_pair_{n}_vertices_{length}_edits', scripts=number, result=str(worst),
                          seconds=round(secs, 3), assumptions_result='sat' if assumed else 'unsat or unknown',
                          assumptions_replayed=assumed))
     for mutant in MUTANTS:
@@ -629,7 +732,8 @@ def run(timeout_ms=120000, configurations=None):
                 obligations_passed=passed,
                 proof_scope='A: convexity in R^3. B: one edit, shape-free, distances as real variables. C: chains of '
                             '3-5 vertices on the real line, every script of up to 3 edits (2 for 5 vertices), every '
-                            'real position. D: the computed point distance and one generic edit of the chain bound. '
+                            'real position, and every script with a joint move (two vertices moved by one edit; also '
+                            'against the two single moves in turn). D: the computed point distance and one generic edit of the chain bound. '
                             'Review only: (E1)/(E2) per edit type, which triangles an edit touches, lost ghosts on '
                             'edges (a 1-complex has ghosts at vertices only), the induction over edits.')
 
@@ -666,9 +770,10 @@ RULE_METHODS = [
         }"""),
     ('double ghost_bound(', r"""double ghost_bound(Ghost g, int v, int gone, Vector3d p)
         {
-            Vector3d p0 = (g.at.a == v || g.at.a == gone) ? p : Mesh.GetVertex(g.at.a);
-            Vector3d p1 = (g.at.b == v || g.at.b == gone) ? p : Mesh.GetVertex(g.at.b);
-            Vector3d p2 = (g.at.c == v || g.at.c == gone) ? p : Mesh.GetVertex(g.at.c);
+            // (the second moved vertex of a joint move at its proposed position as well: movedV2 is -1 for every other edit)
+            Vector3d p0 = (g.at.a == v || g.at.a == gone) ? p : (g.at.a == movedV2) ? movedPos2 : Mesh.GetVertex(g.at.a);
+            Vector3d p1 = (g.at.b == v || g.at.b == gone) ? p : (g.at.b == movedV2) ? movedPos2 : Mesh.GetVertex(g.at.b);
+            Vector3d p2 = (g.at.c == v || g.at.c == gone) ? p : (g.at.c == movedV2) ? movedPos2 : Mesh.GetVertex(g.at.c);
             return g.carry + Math.Max(p0.Distance(g.a0), Math.Max(p1.Distance(g.a1), p2.Distance(g.a2)));
         }"""),
     ('double ghosts_bound(', r"""double ghosts_bound(int u, int v, int gone, Vector3d p)
@@ -685,7 +790,7 @@ RULE_METHODS = [
         {
             editGhosts.Clear(); editLost.Clear();
             editMoves = movedV >= 0;
-            editKept = movedV; editGone = vanishing;
+            editKept = movedV; editGone = vanishing; editKept2 = movedV2;
             editKeptMoved = editMoves && movedPos != Mesh.GetVertex(movedV);
             double most = 0;
             if (editMoves) {
@@ -709,6 +814,9 @@ RULE_METHODS = [
                     most = Math.Max(most, ghost_bound(g, movedV, -1, movedPos));
                 }
                 most = Math.Max(most, Math.Max(ghosts_bound(movedV, movedV, vanishing, movedPos), ghosts_bound(vanishing, movedV, vanishing, movedPos)));
+                // (a joint move: the ghosts at the second vertex as well)
+                if (movedV2 >= 0)
+                    most = Math.Max(most, ghosts_bound(movedV2, movedV, vanishing, movedPos));
                 // (a step that is not a number, eg from a position that is not finite, rejects the edit)
                 return (step >= 0) ? most : double.NaN;
             }
@@ -843,6 +951,8 @@ RULE_METHODS = [
                 if (check) {
                     check_bounds(editKeptMoved);
                     check_ghosts(editKept);
+                    if (editKept2 >= 0)
+                        check_ghosts(editKept2);
                     if (editGone >= 0 && ghostsAt.ContainsKey(editGone))
                         throw new InvalidOperationException("MeshRoundingRepair check: ghosts left at the vanished vertex " + editGone);
                 }
@@ -877,7 +987,7 @@ RULE_METHODS = [
 
 def source_contract():
     """The code against the rule: the facts the note's lemma assumes (section 3.4: one place writes positions, only
-    try_move and try_collapse propose a moved vertex and list every triangle of it), and the rule itself as implemented
+    try_move, try_collapse and the joint move try_move_pair propose a moved vertex and list every triangle of it), and the rule itself as implemented
     (RULE_METHODS, compared as text; improves accepts by proposed_drift before anything else; every generic edit names
     the ids of its added triangles before commit_drift; the records start at Apply). The check-mode blocks are in the
     compared methods; what they check is tested by the C# check-mode tests (RoundingDriftApexTests,
@@ -889,9 +999,14 @@ def source_contract():
         raise ValueError('positions are written outside set_vertex; review drift_reference.py')
     # the displacement edits are try_move and try_collapse: only they propose a moved vertex
     proposals = re.findall(r'movedV = (\w+); movedPos = (\w+);( vanishing = \w+;)?', text)
+    # (the joint move, try_move_pair, and its cheap pre-test pair_removes_bad, propose two: u at pu and w at pw)
     if sorted(proposals) != sorted([('b', 'p', ' vanishing = a;'), ('v', 'p', ''), ('saveV', 'savePos', ''),
-                                    ('saveV', 'savePos', '')]):
-        raise ValueError('an edit other than try_move and try_collapse proposes a moved vertex; review '
+                                    ('saveV', 'savePos', ''), ('u', 'pu', ''), ('u', 'pu', '')]):
+        raise ValueError('an edit other than try_move, try_collapse and try_move_pair proposes a moved vertex; review '
+                         'drift_reference.py')
+    # (every other write of movedV2 clears it, or restores what improves and near saved)
+    if sorted(re.findall(r'movedV2 = (-?\w+)', text)) != sorted(['-1'] * 7 + ['save2', 'saveV2', 'saveV2', 'w', 'w']):
+        raise ValueError('a second moved vertex is proposed elsewhere than try_move_pair and its pre-test; review '
                          'drift_reference.py')
     # a move removes and re-adds every triangle of the moved vertex, corner for corner
     move = norm(_method(text, 'bool try_move('))
@@ -922,6 +1037,59 @@ def source_contract():
                 }
             }""") not in collapse:
         raise ValueError('try_collapse: the triangles of the contraction changed; review drift_reference.py')
+    # the joint move (model: Chain.move_pair): two distinct vertices, each at its own position, as one displacement edit:
+    # every triangle of the star of either is removed and added again corner for corner (a triangle at both once), both
+    # positions are proposed together, the edit is judged by improves (proposed_drift, which evaluates the triangles
+    # and the ghosts at both vertices at the proposed positions), and only then are both written, as the same commit
+    if norm(_method(text, 'Vector3d pos(')) != norm("""Vector3d pos(int v)
+        {
+            return (v == movedV) ? movedPos : (v == movedV2) ? movedPos2 : Mesh.GetVertex(v);
+        }"""):
+        raise ValueError('pos: the proposed positions of the two moved vertices changed; review drift_reference.py')
+    pair = norm(_method(text, 'bool try_move_pair('))
+    if norm("""if (u == w || pu == Mesh.GetVertex(u) || pw == Mesh.GetVertex(w) || double.IsNaN(pu.x + pu.y + pu.z) || double.IsNaN(pw.x + pw.y + pw.z)
+                || hard_fixed(u) || hard_fixed(w))
+                return false;
+            if (stopped)
+                return false;
+            begin_edit();
+            foreach (int t in Mesh.VtxTrianglesItr(u)) {
+                removed.Add(t);
+                added.Add(Mesh.GetTriangle(t));
+                addedFrom.Add(removed.Count - 1);
+            }
+            int fromU = removed.Count;
+            foreach (int t in Mesh.VtxTrianglesItr(w)) {
+                if (removed.IndexOf(t, 0, fromU) >= 0)
+                    continue;
+                removed.Add(t);
+                added.Add(Mesh.GetTriangle(t));
+                addedFrom.Add(removed.Count - 1);
+            }
+            movedV = u; movedPos = pu; movedV2 = w; movedPos2 = pw;
+            bool ok = improves(Math.Max(pu.Distance(Mesh.GetVertex(u)), pw.Distance(Mesh.GetVertex(w))));
+            movedV = movedV2 = -1;
+            if (ok == false)
+                return false;
+            set_vertex(u, pu);
+            set_vertex(w, pw);
+            foreach (int t in removed)
+                mark_dirty(t);
+            touched.Add(u);
+            touched.Add(w);
+            commit_drift();""") not in pair or text.count('try_move_pair(') != 3:
+        raise ValueError('try_move_pair: the joint move changed, or is called elsewhere; review drift_reference.py')
+    # its candidates (search_pairs): each vertex by its own room over 2^j, the same j for both, along the 26 directions; every
+    # candidate goes through try_move_pair (the room decides sizes only)
+    pairs = norm(_method(text, 'bool search_pairs('))
+    if (norm('double ru = room_at(u), rw = room_at(w);') not in pairs
+            or norm('double su = ru / (1 << (SearchSizes - 1)), sw = rw / (1 << (SearchSizes - 1));') not in pairs
+            or norm('for (int level = 0; level < SearchSizes; ++level, su *= 2, sw *= 2)') not in pairs
+            or norm('Vector3d pu = cu + su * du;') not in pairs or norm('Vector3d pw = cw + sw * dw;') not in pairs
+            or norm('if (try_move_pair(u, pu, w, pw)) {') not in pairs or 'set_vertex' in pairs or 'improves' in pairs
+            or 'Mesh.SetVertex' in pairs):
+        raise ValueError('search_pairs: the sizes of the joint move or its way through try_move_pair changed; review '
+                         'drift_reference.py')
     # the distance of two points, as modelled in D
     vec = (ROOT / 'math/Vector3d.cs').read_text(encoding='utf-8-sig')
     if norm("""public double Distance(Vector3d v2) {
@@ -935,7 +1103,7 @@ def source_contract():
             raise ValueError(signature + ' is gone; review drift_reference.py')
         if norm(_method(text, signature)) != norm(expected):
             raise ValueError(signature + ' changed; review it against the rule and update RULE_METHODS in drift_reference.py')
-    if text.count('within_bound(') != 2 or text.count('proposed_drift(') != 2 or text.count('commit_drift();') != 6:
+    if text.count('within_bound(') != 2 or text.count('proposed_drift(') != 2 or text.count('commit_drift();') != 7:
         raise ValueError('within_bound, proposed_drift or commit_drift is called elsewhere; review drift_reference.py')
     # improves: the drift is the first thing checked, with the bound of the edit's component
     improves = norm(_method(text, 'bool improves('))
@@ -953,7 +1121,7 @@ def source_contract():
     # the position search sizes its candidates by room_at (the bound that is left at a vertex): room_at is used there
     # only, and every candidate goes through try_move, so the drift it is judged by comes from proposed_drift
     search = norm(_method(text, 'bool search_corners('))
-    if (text.count('room_at(') != 2 or norm('double room = room_at(v);') not in search
+    if (text.count('room_at(') != 4 or norm('double room = room_at(v);') not in search
             or norm('if (try_move(v, c + s * d)) {') not in search or 'set_vertex' in search or 'improves' in search):
         raise ValueError('search_corners: room_at decides more than the sizes, or a candidate bypasses try_move; review '
                          'drift_reference.py')
@@ -971,13 +1139,21 @@ def source_contract():
         {
             Vector3d centre = gs.MeshRepairMetrics.TriangleBounds(Mesh).Center;
             VolumeBefore = signed_volume(centre);
+            ComponentsBefore = null;
+            ComponentOfVertexBefore = null;
+            if (RecordComponents)
+                record_components();
             try {
                 return apply();
             } finally {
                 VolumeAfter = signed_volume(centre);
             }
         }""") or text.count('apply()') != 2:
-        raise ValueError('Apply: more than the two volumes around apply, or apply is called elsewhere; review drift_reference.py')
+        raise ValueError('Apply: more than the two volumes and the component records around apply, or apply is called elsewhere; review drift_reference.py')
+    # the component records of SolidBooleanPipeline (RecordComponents, #1488) only read the mesh
+    if re.search(r'\bMesh\s*=[^=]|\bMesh\.(Set|Append|Remove|Insert|Split|Collapse|Flip|Compact|Reverse|Merge|Clear)',
+                 _method(text, 'void record_components(')):
+        raise ValueError('record_components writes to the mesh before the records start; review drift_reference.py')
     if norm(_method(text, 'double signed_volume(')) != norm("""double signed_volume(Vector3d c)
         {
             return MeshMeasurements.VolumeArea(Mesh, Mesh.TriangleIndices(), (v) => Mesh.GetVertex(v) - c).x;

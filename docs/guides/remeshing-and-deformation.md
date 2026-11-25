@@ -31,8 +31,8 @@ using g3;
 var remesher = new Remesher(mesh);
 remesher.SetTargetEdgeLength(0.5);
 remesher.SetProjectionTarget(MeshProjectionTarget.Auto(mesh));
-MeshConstraintUtil.PreserveBoundaryAndFeatures(remesher, mesh, creaseAngleDeg: 40);
-MeshConstraintUtil.PinSharpVertices(remesher, mesh, minAngleDeficitDeg: 75);
+MeshConstraintUtil.PreserveBoundaryAndFeatures(remesher, creaseAngle: 40);
+MeshConstraintUtil.PinSharpVertices(remesher, minAngleDeficit: 75);
 remesher.PreventNormalFlips = true;
 remesher.MinTriangleQuality = 0.2;   // or remesher.ApplySafePreset()
 for (int i = 0; i < 20; ++i)
