@@ -144,6 +144,13 @@ Wrap triangle count scales with `surface area / Alpha^2`, not input triangle cou
 
 Set `MaxEstimatedTriangles` (`MeshRobustRepair.WrapMaxEstimatedTriangles`, off by default) to automatically coarsen `Alpha` and `Offset` until the estimated raw triangle count (counting open components twice) fits the budget.
 
+**Holes wider than `Alpha` (by design, [#1542](https://github.com/HarmenGrosseDeters/geometry3Sharp/issues/1542)):** The alpha ball passes through every hole wider than `Alpha`. Then the wrap becomes one connected surface around both sides of the sheet, with one tunnel per hole it passes through, and it does not seal the hole. On a procedural closed shell (about 100k triangles, `RelativeAlpha = 300`, `RelativeOffset = 3000`) with 2.5 % of its triangles dropped (each hole about 1.9 `Alpha` wide), the wrap does about 4-5 times the work of the same shell without holes:
+- **Area:** about twice that of the input.
+- **Density:** about 2.2 times the triangles per area. Between the two sides only a thin layer stays inside, and the points there come from projections.
+- **Totals:** about 2 times the raw triangles and 4-5 times the time; 4 times the triangles and 6-9 times the time when the holes come with other soup defects (jitter, gaps, duplicates, flips, T-junctions).
+
+The time stays linear in that work. To bound it, set `MaxEstimatedTriangles` (on `MeshRobustRepair`: `WrapMaxEstimatedTriangles`) to the raw triangle count you accept, eg about twice the wrap of the closed shape at the same alpha, and `MaxAlphaCoarsening` (`WrapMaxAlphaCoarsening`) to cap how far `Alpha` may grow. The estimate counts a component twice only if a boundary chain is wider than 4 `Alpha`, so holes between 1 and 4 `Alpha` count once: set the budget from the triangle count you accept, not from the input's size. A coarser `Alpha` also closes every hole and cavity narrower than about 2 `UsedAlpha`. To keep the alpha and seal the holes instead, fill short boundary loops on the welded input before wrapping (see [Hole Filling](#hole-filling)).
+
 ---
 
 ## `PassageWrap` (Clearance-Certified Wrapping)
