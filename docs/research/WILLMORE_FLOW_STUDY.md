@@ -4,7 +4,7 @@
 
 Use measured output energy as a benchmark acceptance check. The paired experiment below shows when an optional mesh pass can be discarded while retaining a clean, energy-decreasing shape change. The practicality of a general Willmore fairing operator remains open. The existing operators serve different objectives. `MeshCurvature` provides the ingredients for a vertex quadrature of bending energy. `LaplacianMeshSmoother` minimizes a constrained graph-Laplacian residual and `BiharmonicMeshDeformer` minimizes a displacement energy with handles. Neither exposes descent of the current surface's bending energy. Crane, Pinkall and Schröder describe conformal curvature flow with curvature-space updates and fixed connectivity. The experiment below uses a one-parameter surface family to test the library's curvature and remeshing operations. [Source](../sources/meshing-and-repair.md)
 
-The guarded remesher preserved a clean torus through all four tested moves. Its first pass increased the measured bending energy more than fourfold. An intersection guard and analytic projection are therefore insufficient to guarantee energy descent on the evolving triangulation. A production stepping rule would need to check energy on the actual output mesh, including after connectivity changes. The unguarded static control also intersects, so the observed intersections do not establish a defect specific to curvature-driven motion.
+The remesher guarded only by `PreventSelfIntersections` kept the torus free of intersections through all four tested moves, but its first pass increased the measured bending energy more than fourfold. The cause is folds, not the motion: see [Correction: folds from the unguarded valence flips](#correction-folds-from-the-unguarded-valence-flips). With the documented normal guard `PreventNormalFlips` added, the first moving pass raises the energy from 24.65 to 29.20 instead of 111.63. A production stepping rule should still check energy on the actual output mesh, because connectivity changes alone raised it by 13-18 % here. The unguarded static control also intersects, so the observed intersections do not establish a defect specific to curvature-driven motion.
 
 ## Reproduce
 
@@ -31,6 +31,41 @@ On the structured 48 × 24 torus a centered difference with radius increment 1e-
 Each input to a remeshing pass passed the clean-mesh check. Unguarded runs stop at their first positive pair count. Guarded outputs also passed the checks for a single closed, consistently oriented genus-one component, valid curvature samples and absence of self-intersections. The moving guard rejected 125 operations or moves cumulatively. On the first guarded step the vertex count changed from 1,152 to 2,110. The before/after energy difference includes changes in vertices, triangles and curvature quadrature.
 
 The energy measurement costs one curvature evaluation and one vertex sum per mesh, linear in mesh size. Each radius trial repeats this on the structured grid. Remeshing and the exact intersection checks add separate geometry-dependent costs. The energy oracle and the observed near-fourfold error reduction apply to this refinement family. The experiment does not establish stability of unconstrained fourth-order flow, model membrane equilibria under physiological constraints, or give a general remeshing guarantee.
+
+## Correction: folds from the unguarded valence flips
+
+Re-checked on 2026-11-25. The rows above use `PreventSelfIntersections` as the only guard, and the clean-mesh check (`NotCleanReason`, closed,
+oriented, genus one) passes on folded triangles. A triangle can be inverted against the smooth surface while the mesh stays consistently oriented
+and free of intersections. Counting the triangles whose normal points against the analytic outward normal of the torus at their centroid, one static
+pass at R = 3 gives these results:
+
+| Remesher setting (one static pass, 48 × 24, target 0.25) | W after pass | Intersecting pairs | Inverted triangles |
+|---|---:|---:|---:|
+| defaults | 77.934 | 7 | 15 |
+| `PreventSelfIntersections` | 76.962 | 0 | 14 |
+| `PreventNormalFlips` | 35.515 | 0 | 0 |
+| `ApplySafePreset()` | 35.500 | 0 | 0 |
+
+The analytic W is 31.405. Switching the pass's sub-operations off one at a time locates the cause in the valence flips after the splits. Splits and
+flips alone, without smoothing, collapses or projection, give 75 inverted triangles and 22 intersecting pairs. Without flips, every count stays 0
+over five passes. By default (as upstream) a valence flip has no normal test. `PreventNormalFlips`, `MinTriangleQuality > 0` and
+`ApplySafePreset()` each add one, and each kept every count at 0 over five passes. The remeshing guide states that the upstream defaults do not guard
+against flipped normals. So the intersections are expected behaviour without that guard, not a Remesher defect.
+
+The probe's moving experiment with `PreventNormalFlips` and `PreventSelfIntersections` both enabled (a one-line local change of the probe, not
+committed) gives:
+
+| Motion | R | Structured W | Moving mesh W before pass | W after pass | Intersecting pairs |
+|---|---:|---:|---:|---:|---:|
+| Static | 3 | 31.2631 | 31.2631 | 35.5149 | 0 |
+| Moving | 2.25 | 24.6537 | 24.6537 | 29.2013 | 0 |
+| Moving | 1.5 | 19.6642 | 34.8364 | 39.3950 | 0 |
+| Moving | 1.40625 | 19.5078 | 42.1571 | 26.7117 | 0 |
+| Moving | 1.40039 | 19.5076 | 26.7865 | 26.3363 | 0 |
+
+The fourfold rise of the first guarded pass in the table above came from folds. With the normal guard, the remaining rise is the quadrature
+change of the irregular, split mesh. Any later study that remeshes should enable `PreventNormalFlips` (or `ApplySafePreset()`) and count inverted
+triangles, not only intersections.
 
 ## Keeping the shape change when a mesh pass fails the energy check
 
