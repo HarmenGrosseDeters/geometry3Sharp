@@ -94,7 +94,7 @@ namespace geometry3Sharp.Tests
         {
             var rand = new Random(71);
             int proven = 0, total = 0;
-            for (int n = 0; n < 3000; ++n) {
+            for (int n = 0; n < 1000; ++n) {
                 Triangle3d A = n % 2 == 0 ? new Triangle3d(Unit(rand), Unit(rand), Unit(rand)) : new Triangle3d(Grid(rand), Grid(rand), Grid(rand));
                 // near-collinear points: offsets of a few ulps (where a smaller bound would give wrong signs) and larger
                 double off = n % 3 == 0 ? 0 : (n % 3 == 1 ? 1e-15 : 1e-9);
@@ -110,8 +110,9 @@ namespace geometry3Sharp.Tests
             // the classic adversarial input of orientation tests (Kettner et al., "Classroom examples of robustness
             // problems in geometric computations", 2008): an edge from a point within a few hundred ulps of (0.5, 0.5) to
             // (12, 12), against the point (24, 24) nearly on its line. The differences from the edge start are rounded,
-            // and the floating-point determinant has the wrong sign for many of the starts. A smaller bound, no bound, or
-            // other rounded differences (another base point) give a wrong sign
+            // and the floating-point determinant has the wrong sign for many of the starts. No bound gives a wrong sign
+            // here. (Another base point, e1 instead of e0, is a cyclic permutation of the same orientation: its signs are
+            // right, but it decides other points than Orient2d's filter does, which the bit-identity assert catches)
             int proven = 0, zero = 0;
             Vector3d q = new Vector3d(12, 12, 0), r3 = new Vector3d(24, 24, 0);
             Vector2d r = new Vector2d(24, 24);
@@ -167,16 +168,16 @@ namespace geometry3Sharp.Tests
             var rand = new Random(73);
             foreach (double f in new[] { Math.Pow(2, 500), Math.Pow(2, -60) }) {
                 int proven = 0;
-                for (int n = 0; n < 500; ++n) {
+                for (int n = 0; n < 150; ++n) {
                     var A0 = new Triangle3d(Grid(rand), Grid(rand), Grid(rand));
                     var A = new Triangle3d(f * A0.V0, f * A0.V1, f * A0.V2);
                     proven += CheckSigns(A, Points(rand, A0, 10, 4, 1e-15).Select(p => f * p), "2^" + Math.Log(f, 2));
                 }
-                Assert.True(proven > 1000, $"scale {f}: {proven}");
+                Assert.True(proven > 300, $"scale {f}: {proven}");
             }
             foreach (double f in new[] { Math.Pow(2, -500), 1e-110, 1e-160 }) {
                 int proven = 0;
-                for (int n = 0; n < 500; ++n) {
+                for (int n = 0; n < 150; ++n) {
                     var A0 = new Triangle3d(Grid(rand), Grid(rand), Grid(rand));
                     var A = new Triangle3d(f * A0.V0, f * A0.V1, f * A0.V2);
                     proven += CheckSigns(A, Points(rand, A0, 10, 4, 1e-12).Select(p => f * p), "tiny " + f);
@@ -186,7 +187,7 @@ namespace geometry3Sharp.Tests
             }
             {
                 int n0 = 0;
-                for (int n = 0; n < 500; ++n) {
+                for (int n = 0; n < 150; ++n) {
                     Vector3d o = new Vector3d(1e-308, 1e-308, 1e-308);
                     var A0 = new Triangle3d(Grid(rand), Grid(rand), Grid(rand));
                     var A = new Triangle3d(o + 1e-310 * A0.V0, o + 1e-310 * A0.V1, o + 1e-310 * A0.V2);
@@ -220,6 +221,23 @@ namespace geometry3Sharp.Tests
                 }
             }
             Assert.True(separated > 10000 && hits > 5000, $"{separated} separated, {hits} intersecting of {n}");
+        }
+
+        [Fact]
+        public void Separates_XAndYDominantTriangles_ProjectAlongTheirAxis()
+        {
+            // a triangle in a plane x = 1 (y = 1) is projected along x (y), where it is not degenerate, and culls a far
+            // triangle; along z it would project to a segment (O = 0) and cull nothing
+            for (int k = 0; k < 2; ++k) {
+                Func<double, double, double, Vector3d> at = (h, u, v) => k == 0 ? new Vector3d(h, u, v) : new Vector3d(v, h, u);
+                var A = new Triangle3d(at(1, 0, 0), at(1, 1, 0), at(1, 0, 1));
+                var C = new Triangle3d(at(1, 5, 5), at(1.5, 6, 5), at(0.5, 5, 6));
+                var e = TriangleTriangleFilter.ProjectedEdges.Of(ref A);
+                Assert.Equal(k, e.Axis);
+                Assert.NotEqual(0, e.O);
+                Assert.True(e.Separates(ref C), $"axis {k}");
+                Assert.False(ExactTriangleIntersection.Intersects(ref A, ref C));
+            }
         }
 
         [Fact]

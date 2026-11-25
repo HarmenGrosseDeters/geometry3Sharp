@@ -229,7 +229,8 @@ the same in every run; raw output `probe/results/ab_cull_*`):
 Rows that never call the filter (the Remesher without prevention) moved by up to ±7 %, the noise of this machine; no
 row is slower than 4.4 %.
 
-Tests (`TriangleTriangleFilterProjectedEdgesTests`, each ≤ 0.3 s):
+Tests (`TriangleTriangleFilterProjectedEdgesTests`, 8 tests: 1.3 s and 0.7 s for the two sign tests with the
+`BigInteger` oracle, the others ≤ 0.12 s, measured alone):
 - Every edge/point sign equals the filter stage of `Orient2d` on its own differences (zeros included), and is 0 or the
   exact sign, from an exact `BigInteger` determinant independent of `ExactPredicates`. Inputs: random and grid
   triangles with random and near-collinear points, the ulp grid of Kettner et al. (2008), four inputs where the
@@ -238,10 +239,13 @@ Tests (`TriangleTriangleFilterProjectedEdgesTests`, each ≤ 0.3 s):
 - `Separates` never culls a pair `ExactTriangleIntersection.Intersects` finds intersecting (integer grids, random and
   nearly coplanar pairs, both orientations of A), never culls against a degenerate projection, and over
   `Similarity.All()` never culls wrongly, with the same decisions under the exact scalings.
-- Hand mutants, all killed but one equivalent one: the bound halved, the bound 0, the underflow guard dropped, the base
-  point moved to e1, the edge direction reversed, the sign of `O` flipped, one corner dropped, `O` from a filter,
-  a zero sign counted as outside, a wrong edge. (Equivalent: the `O == 0` check, since then no product of a sign and
-  `O` is below 0.)
+- Triangles in planes x = 1 and y = 1 are projected along their own axis and cull a far triangle (along z they would
+  project to a segment and cull nothing).
+- Hand mutants, all killed but one equivalent one: the bound halved, the bound 0, the underflow guard dropped, the edge
+  direction reversed, the sign of `O` flipped, one corner dropped, `O` from a filter, a zero sign counted as outside, a
+  wrong edge, the projection axis fixed to z, and the base point moved to e1. The last is a cyclic permutation of the
+  same orientation, so its signs are right; only the bit-identity assert catches it, because it decides other points
+  than `Orient2d`'s filter. (Equivalent: the `O == 0` check, since then no product of a sign and `O` is below 0.)
 
 ## Literature and library
 

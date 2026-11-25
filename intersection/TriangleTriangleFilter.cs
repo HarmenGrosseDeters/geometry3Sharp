@@ -145,7 +145,8 @@ namespace g3
         /// Orient2d(e0, e1, c) computes (e1 - e0 kept from Of, c - e0 per call; the projection only drops a coordinate),
         /// so a sign it returns is the sign of Orient2d. O is Orient2d of A's projected corners, exact; for O = 0 (A
         /// degenerate in the projection, eg a degenerate A) nothing is culled. Everything Separates does not prove is left
-        /// to BeyondShared and the exact test (docs/research/TRI_TRI_CANDIDATE_PAIRS_2026-11.md, candidate (a)).
+        /// to BeyondShared and the exact test (docs/research/TRI_TRI_CANDIDATE_PAIRS_2026-11.md, candidate (a)). The caller
+        /// guarantees finite coordinates (the Reducer checks both triangles first).
         /// </summary>
         internal struct ProjectedEdges
         {
