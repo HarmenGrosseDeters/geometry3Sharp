@@ -159,14 +159,34 @@ namespace G3Demos.Demos
             return m;
         }
 
+        /// <summary>
+        /// a point of the unit circle for u in [0, 1), from the rational parametrization ((1 - t^2), 2t) / (1 + t^2) per quarter
+        /// (t in [0, 1)) and exact quarter turns: only + - * /, so the bits are the same on every platform. Math.Sin / Math.Cos
+        /// are not (they differ between native .NET and the browser, docs/research/DOGFOODING_DEMOS_2026-11.md finding 16).
+        /// Not uniform in angle (about 2:1 between the middle and the ends of a quarter), which does not matter here
+        /// </summary>
+        public static Vector2d Circle(double u)
+        {
+            double q = (u - Math.Floor(u)) * 4;
+            int k = (int)Math.Floor(q);
+            double t = q - k, d = 1 + t * t;
+            double x = (1 - t * t) / d, y = 2 * t / d;
+            switch (k & 3) {
+                case 1: return new Vector2d(-y, x);
+                case 2: return new Vector2d(-x, -y);
+                case 3: return new Vector2d(y, -x);
+                default: return new Vector2d(x, y);
+            }
+        }
+
         public static DMesh3 Torus(double major, double minor, int nu, int nv)
         {
             var m = new DMesh3();
             for (int i = 0; i < nu; ++i)
                 for (int j = 0; j < nv; ++j) {
-                    double u = 2 * Math.PI * i / nu, v = 2 * Math.PI * j / nv;
-                    double r = major + minor * Math.Cos(v);
-                    m.AppendVertex(new Vector3d(r * Math.Cos(u), minor * Math.Sin(v), r * Math.Sin(u)));
+                    Vector2d cu = Circle((double)i / nu), cv = Circle((double)j / nv);
+                    double r = major + minor * cv.x;
+                    m.AppendVertex(new Vector3d(r * cu.x, minor * cv.y, r * cu.y));
                 }
             for (int i = 0; i < nu; ++i)
                 for (int j = 0; j < nv; ++j) {

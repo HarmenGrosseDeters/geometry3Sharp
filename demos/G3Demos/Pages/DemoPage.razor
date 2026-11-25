@@ -112,6 +112,56 @@
                     <input type="range" min="-30" max="30" @bind="mp.ScaleExp" @bind:event="onchange" @bind:after="Changed" /></label>
                 <label class="check"><input type="checkbox" @bind="mp.CheckScaleInvariance" @bind:after="Changed" /> 2^k invariance check</label>
             }
+            @if (tab == "wrap") {
+                <h2>MeshAlphaWrap / PassageWrap</h2>
+                <label>Input
+                    <select @bind="wp.Shape" @bind:after="Changed">
+                        <option value="sphere-holes">sphere with single-triangle holes</option>
+                        <option value="sheet">open curved sheet</option>
+                        <option value="points">point cloud (torus)</option>
+                        <option value="thin-plate">thin plate</option>
+                        <option value="two-boxes">two cubes with a gap</option>
+                        <option value="bored-block">block with a bore (PassageWrap)</option>
+                    </select></label>
+                @if (wp.Shape != "bored-block") {
+                    <label>RelativeAlpha (alpha = diagonal / x): @wp.RelativeAlpha
+                        <input type="range" min="3" max="200" step="1" @bind="wp.RelativeAlpha" @bind:event="onchange" @bind:after="Changed" /></label>
+                    <label>RelativeOffset (offset = diagonal / x): @wp.RelativeOffset
+                        <input type="range" min="20" max="5000" step="10" @bind="wp.RelativeOffset" @bind:event="onchange" @bind:after="Changed" /></label>
+                    <label>MaxAlphaCoarsening (0 = no limit): @wp.MaxCoarsening
+                        <input type="range" min="0" max="4" step="0.25" @bind="wp.MaxCoarsening" @bind:event="onchange" @bind:after="Changed" /></label>
+                }
+                <label>Budget, MaxEstimatedTriangles / MaxTriangles (0 = off): @wp.Budget
+                    <input type="range" min="0" max="200000" step="2000" @bind="wp.Budget" @bind:event="onchange" @bind:after="Changed" /></label>
+                <label class="check"><input type="checkbox" @bind="wp.PullPinchPoints" @bind:after="Changed" /> PullPinchPoints</label>
+                @if (wp.Shape == "sphere-holes") {
+                    <label>Holes: @wp.Holes
+                        <input type="range" min="0" max="40" @bind="wp.Holes" @bind:event="onchange" @bind:after="Changed" /></label>
+                }
+                @if (wp.Shape is "sphere-holes" or "sheet" or "thin-plate") {
+                    <label>Resolution: @wp.Resolution
+                        <input type="range" min="3" max="24" @bind="wp.Resolution" @bind:event="onchange" @bind:after="Changed" /></label>
+                }
+                @if (wp.Shape == "points") {
+                    <label>Points: @wp.Points
+                        <input type="range" min="50" max="20000" step="50" @bind="wp.Points" @bind:event="onchange" @bind:after="Changed" /></label>
+                    <label>Noise 10^-k (0 = none): @wp.NoiseExp
+                        <input type="range" min="0" max="12" @bind="wp.NoiseExp" @bind:event="onchange" @bind:after="Changed" /></label>
+                }
+                @if (wp.Shape is "thin-plate" or "two-boxes") {
+                    <label>@(wp.Shape == "thin-plate" ? "Thickness" : "Gap") 10^-k: @wp.ThinExp
+                        <input type="range" min="1" max="12" @bind="wp.ThinExp" @bind:event="onchange" @bind:after="Changed" /></label>
+                }
+                @if (wp.Shape == "bored-block") {
+                    <label>Bore radius: @wp.BoreRadius.ToString("F2", CultureInfo.InvariantCulture)
+                        <input type="range" min="0.05" max="0.9" step="0.01" @bind="wp.BoreRadius" @bind:event="onchange" @bind:after="Changed" /></label>
+                    <label>Pin radius: @wp.PinRadius.ToString("F2", CultureInfo.InvariantCulture)
+                        <input type="range" min="0.01" max="0.9" step="0.01" @bind="wp.PinRadius" @bind:event="onchange" @bind:after="Changed" /></label>
+                }
+                <label>Scale 2^k: @wp.ScaleExp
+                    <input type="range" min="-30" max="30" @bind="wp.ScaleExp" @bind:event="onchange" @bind:after="Changed" /></label>
+                <label class="check"><input type="checkbox" @bind="wp.CheckScaleInvariance" @bind:after="Changed" /> 2^k invariance check</label>
+            }
             <div class="buttons">
                 <button id="run" @onclick="RunNow" disabled="@busy">Run</button>
                 <label class="check"><input type="checkbox" @bind="autoRun" /> run on change</label>
@@ -150,11 +200,12 @@
 </div>
 
 @code {
-    readonly (string, string)[] tabs = { ("boolean", "Exact Boolean"), ("repair", "Robust repair"), ("remesh", "Remeshing") };
+    readonly (string, string)[] tabs = { ("boolean", "Exact Boolean"), ("repair", "Robust repair"), ("remesh", "Remeshing"), ("wrap", "Alpha wrap") };
     string tab = "boolean";
     BooleanParams bp = new BooleanParams();
     RepairParams rp = new RepairParams();
     RemeshParams mp = new RemeshParams();
+    WrapParams wp = new WrapParams();
     readonly Dictionary<string, DemoResult> results = new Dictionary<string, DemoResult>();
     DemoResult result;
     string error;
@@ -211,6 +262,7 @@
                 result = tab switch {
                     "repair" => RepairDemo.Compute(rp),
                     "remesh" => RemeshDemo.Compute(mp),
+                    "wrap" => WrapDemo.Compute(wp),
                     _ => BooleanDemo.Compute(bp)
                 };
                 results[tab] = result;

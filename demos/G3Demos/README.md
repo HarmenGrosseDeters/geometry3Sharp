@@ -10,12 +10,15 @@ findings are in [docs/research/DOGFOODING_DEMOS_2026-11.md](../../docs/research/
 | Exact Boolean | `SolidBooleanPipeline` (default) or `ExactMeshBoolean` | operation, box or sphere operand, overlap, fine gap or overlap `10^-k`, rotation, near-coplanar tilt `10^-k` rad, scale `2^k`, pipeline `TargetFraction` | status and error, `Report` (clean, contacts, rounding volume, route, stage times), result checks, analytic volume (axis-aligned boxes), inclusion-exclusion over the three operations, bit-identity under `2^k` |
 | Robust repair | `MeshRobustRepair` (defaults) | sphere, box or torus; unwelded soup, every k-th triangle flipped, holes, jitter, duplicate faces, an overlapping second shell, crossing fins | before and after: result checks, boundary edges in red, `ResultPath` and reasons, volume IoU, the volume against the known volume |
 | Remeshing | `Remesher` with `PreventNormalFlips`, `ApplySafePreset()`, `PreserveBoundaryAndFeatures`, `PinSharpVertices`, `MeshProjectionTarget.Auto` | input (coarse box, twisted bar, sphere, coarse torus), target edge length, passes, each guard on or off, scale `2^k` | result checks, inverted triangles (normal against the nearest input triangle), minimum quality, slivers, distance to the input, guard counters, time per pass |
+| Alpha wrap | `MeshAlphaWrap`, `PassageWrap` (bored block) | sphere with single-triangle holes, open curved sheet, point cloud on a torus (noise), thin plate and two cubes with a gap (down to `10^-12`), bore and pin radius; relative alpha and offset, size budget, `MaxAlphaCoarsening`, `PullPinchPoints`, scale `2^k` | status, used alpha and offset, coarsening, estimated against actual triangles, result checks, every input point inside, distance of the wrap to the input against the offset, shells and nested shells, certified pin clearance |
 
 Result checks (`Demos/Core.cs`, `MeshCheck`): closed (boundary edges and `ExactMeshBoolean.IsWindingClosed`), manifold
 vertices, finite coordinates, components, `MeshRobustRepair.NotCleanReasons`, volume and area. A failure or refusal is
 shown with its status and error, never hidden; a success whose result does not pass the checks is shown in red.
 
-All inputs are procedural. No mesh files are loaded or committed.
+All inputs are procedural. No mesh files are loaded or committed. Circles and curves use exact arithmetic only
+(`Shapes.Circle`, a rational parametrization), not `Math.Sin` / `Math.Cos`, whose bits differ between native .NET and the
+browser: native and browser runs get the same input bits.
 
 ## Build and run
 

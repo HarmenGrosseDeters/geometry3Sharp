@@ -23,6 +23,7 @@ namespace G3Demos.Demos
                     case "boolean": r = BooleanDemo.Compute(JsonSerializer.Deserialize<BooleanParams>(json, options)); break;
                     case "repair": r = RepairDemo.Compute(JsonSerializer.Deserialize<RepairParams>(json, options)); break;
                     case "remesh": r = RemeshDemo.Compute(JsonSerializer.Deserialize<RemeshParams>(json, options)); break;
+                    case "wrap": r = WrapDemo.Compute(JsonSerializer.Deserialize<WrapParams>(json, options)); break;
                     default: return "unknown demo " + demo;
                 }
             } catch (Exception e) {
@@ -33,7 +34,8 @@ namespace G3Demos.Demos
             foreach (StatusGroup g in r.Groups)
                 foreach (StatusRow row in g.Rows)
                     if (row.State == RowState.Bad || row.State == RowState.Warn || row.Name.StartsWith("V(") || row.Name == "ResultPath"
-                        || row.Name == "triangles / vertices" || row.Name == "volume / area" || row.Name == "Status")
+                        || row.Name == "triangles / vertices" || row.Name == "volume / area" || row.Name == "Status"
+                        || row.Name.StartsWith("shells") || row.Name.StartsWith("min distance") || row.Name == "pin" || row.Name.StartsWith("EstimatedTriangles"))
                         sb.Append(" | ").Append(g.Title.Split(' ')[0]).Append('.').Append(row.Name).Append('=').Append(row.Value);
             return sb.ToString();
         }
