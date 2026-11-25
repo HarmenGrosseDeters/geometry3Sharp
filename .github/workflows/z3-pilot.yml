@@ -27,6 +27,8 @@ on:
       # pilot 8: the plateau variant of the position search, a design (plateau_search.py, its source contract on the probe)
       - 'benchmarks/SnapRoundingExperiment/LatticeProbe.cs'
       - 'math/Interval1d.cs'
+      # pilot 9: the segment test and the wide bound of the Antipodal sum (antipodal_segment.py, its source contract)
+      - 'mesh_ops/ExactMeshBoolean.cs'
       - '.github/workflows/z3-pilot.yml'
   workflow_dispatch:
 permissions:
@@ -63,6 +65,7 @@ jobs:
           Z3_SPLIT_TERMINATION_REPORT: z3-split-termination-report.json
           Z3_SEPARATING_AXIS_REPORT: z3-separating-axis-report.json
           Z3_PLATEAU_SEARCH_REPORT: z3-plateau-search-report.json
+          Z3_ANTIPODAL_SEGMENT_REPORT: z3-antipodal-segment-report.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -79,3 +82,4 @@ jobs:
             z3-split-termination-report.json
             z3-separating-axis-report.json
             z3-plateau-search-report.json
+            z3-antipodal-segment-report.json

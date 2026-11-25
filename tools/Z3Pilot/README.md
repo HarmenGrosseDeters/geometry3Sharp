@@ -662,6 +662,23 @@ and not recommended for building (the note, 5.3); `test_separating_axis.py` hold
 `benchmarks/SnapRoundingExperiment/CandidateCulling.cs`. 14 queries, about 3.5 s; result of 2026-11-12:
 `results/separating_axis_2026-11-12.json`.
 
+## Pilot 9: the segment test and the wide bound of the Antipodal sum (#1587, library code)
+
+`antipodal_segment.py` checks the two changes of #1587 in `ExactMeshBoolean.antipodal_sum` (an exact-code file). The
+segment test "the point on or next to the segment" is now `|a + b| <= tol`, linear in the angle between `-a` and `b`; the
+old `1 + a.b <= tol` was quadratic in it against a linear `tol`, so it fired up to about `sqrt(2 tol)` away and the piece
+was undecided, read as outside. N1 (the rounded norm of the rounded `a + b`, within `4u`), N2 (a normalized vector has
+`|a|^2` within `10u` of 1), D1 (the rounded dot product), S1 (a point on the segment gives status 1), S2 (status 1 gives
+`|A + B| <= 1.2 tol` for the exact unit vectors) and S3 (the new status 1 implies the old one, so every value that was
+decided keeps its bits) are UNSAT with satisfiable assumptions. T1 bounds a term of the wide evaluation of an undecided
+value (`maxBound` 0.25): with `tol <= 0.4 hypot` per term the sum's `4 tol / hypot` still bounds twice the angle of the
+term's error. Bridges by review (the docstring, B1-B4): the error of the unit vectors from the rounding of the point and
+the ends (the sum's own model, with its 16 times margin), the triangle inequality and Cauchy-Schwarz, `cos x >= 1 - x^2/2`,
+and the invariance of the model under scale and rotation. Six mutants are SAT: the old quadratic test (S2), `tol` without
+its factor 16 (S1), without its `1e-15` (S3), the condition `0.8 hypot` and the angle bound `tol / hypot` (T1), a dot bound
+of `2u`. `test_antipodal_segment.py` holds the source contract on `mesh_ops/ExactMeshBoolean.cs` and `math/Vector3d.cs`.
+20 queries, about 45 s; result of 2026-11-25: `results/antipodal_segment_2026-11-25.json`.
+
 ## Pilot 8: the plateau variant of the position search (a design, not library code)
 
 `plateau_search.py` checks the argument of docs/design/SNAP_ROUNDING_3D.md section 10 for a position search that also

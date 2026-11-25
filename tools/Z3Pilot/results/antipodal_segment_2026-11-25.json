@@ -1,0 +1,82 @@
+{
+ "N1_rounded_norm": {
+  "expected": "unsat",
+  "got": "unsat"
+ },
+ "N1_rounded_norm_assumptions": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "N2_normalized_vector": {
+  "expected": "unsat",
+  "got": "unsat"
+ },
+ "N2_normalized_vector_assumptions": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "D1_rounded_dot": {
+  "expected": "unsat",
+  "got": "unsat"
+ },
+ "D1_rounded_dot_assumptions": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "S1_on_the_segment_is_status_1": {
+  "expected": "unsat",
+  "got": "unsat"
+ },
+ "S1_on_the_segment_is_status_1_assumptions": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "S2_status_1_is_linear_in_the_angle": {
+  "expected": "unsat",
+  "got": "unsat"
+ },
+ "S2_status_1_is_linear_in_the_angle_assumptions": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "S3_new_status_1_implies_old_status_1": {
+  "expected": "unsat",
+  "got": "unsat"
+ },
+ "S3_new_status_1_implies_old_status_1_assumptions": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "T1_wide_term_error": {
+  "expected": "unsat",
+  "got": "unsat"
+ },
+ "T1_wide_term_error_assumptions": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "mutant_S2_old_quadratic_test": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "mutant_S1_tol_without_factor_16": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "mutant_S3_tol_without_floor": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "mutant_T1_condition_0.8": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "mutant_T1_angle_tol_over_hypot": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "mutant_D1_bound_2u": {
+  "expected": "sat",
+  "got": "sat"
+ }
+}
