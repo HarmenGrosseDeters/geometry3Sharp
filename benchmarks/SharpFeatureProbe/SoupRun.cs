@@ -398,7 +398,7 @@ static class SoupRun
                 row["measure_s"] = fp.VarifoldBuildTicks * f; row["query_s"] = fp.VarifoldQueryTicks * f; row["queries"] = fp.VarifoldQueries;
                 row["plane_s"] = fp.VarifoldPlaneTicks * f; row["plane_queries"] = fp.VarifoldPlaneQueries; row["planes_fitted"] = fp.VarifoldPlanesFitted;
                 row["rejected"] = fp.Rejected;
-                row["median_tilt"] = fp.VarifoldMedianTilt; row["planes_used"] = fp.VarifoldPlanesUsed;
+                row["median_tilt"] = fp.VarifoldMedianTilt; row["median_noise"] = fp.VarifoldMedianNoise; row["planes_used"] = fp.VarifoldPlanesUsed;
             }
             EdgeClass.Add(welded, fp.Mesh, wrap.UsedAlpha, wrap.UsedOffset, row, 5000);
             MiterMetric(c, fp.Mesh, wrap.UsedAlpha, wrap.UsedOffset, row);

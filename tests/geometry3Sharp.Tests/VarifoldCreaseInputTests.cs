@@ -177,19 +177,20 @@ namespace geometry3Sharp.Tests
             DMesh3 soup = Unweld(MeshRobustRepairTests.ThinPlates(6));
             Func<bool, MeshRobustRepair> run = (on) => {
                 var r = new MeshRobustRepair(soup) {
-                    RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 32, WrapRelativeAlpha = 40, WrapRelativeOffset = 400,
+                    RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 16, WrapRelativeAlpha = 25, WrapRelativeOffset = 250,
                     AlphaWrapSharpFeatures = true, AlphaWrapSharpFeaturesOnSoups = on
                 };
                 Assert.True(MeshRobustRepairTests.WithUnrepairedContour(() => r.Apply()));
                 Assert.True(r.UsedAlphaWrap);
                 return r;
             };
-            var off = run(false);
+            // (the switch off on a soup: the dihedral source finds nothing and the pass changes nothing, AlphaWrapSharpFeaturesApplied
+            // false; checked at the pass level by VarifoldCreases_BrokenSoup_*, not repeated here for the time)
             var on = run(true);
             Assert.True(on.AlphaWrapSharpFeaturesApplied);
+            Assert.True(on.PhaseMilliseconds.ContainsKey("wrap.features"));
             Assert.Equal("", on.ResultReason);
             Assert.True(MeshRobustRepair.NotCleanReason(on.Mesh) == "");
-            Assert.NotEqual(AlphaWrapManifoldStepTests.Hash(off.Mesh), AlphaWrapManifoldStepTests.Hash(on.Mesh));
         }
 
         // smooth parts (a thin cylinder, radius below the test's ball, and a sphere) next to a box, all unwelded: the varifold
@@ -436,14 +437,14 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
-        // a jittered broken soup: triangles of half a cell, every corner moved by up to 0.005, about 1 degree of tilt (wrapped
-        // at RelAlpha 40: the plane ball, 1.5 alpha, holds several triangles)
+        // a jittered broken soup: triangles of half a cell, every corner moved by up to 0.01 (wrapped at RelAlpha 40: the plane
+        // ball, 1.5 alpha, holds several triangles; median noise about 0.0065, twice the gate's threshold)
         static DMesh3 JitteredLShapeSoup()
         {
             DMesh3 soup = Broken(Subdivide(AlphaWrapFeaturePassTests.LShape(), 1));
             var rnd = new Random(11);
             foreach (int v in soup.VertexIndices().ToArray())
-                soup.SetVertex(v, soup.GetVertex(v) + 0.005 * new Vector3d(2 * rnd.NextDouble() - 1, 2 * rnd.NextDouble() - 1, 2 * rnd.NextDouble() - 1));
+                soup.SetVertex(v, soup.GetVertex(v) + 0.01 * new Vector3d(2 * rnd.NextDouble() - 1, 2 * rnd.NextDouble() - 1, 2 * rnd.NextDouble() - 1));
             return soup;
         }
 
@@ -457,7 +458,7 @@ namespace geometry3Sharp.Tests
             var noPlanes = new AlphaWrapFeaturePass(new DMesh3(w.Result, true), soup, w.UsedAlpha, w.UsedOffset) { VarifoldCreases = true, VarifoldPlaneRadius = 0 };
             Assert.True(noPlanes.Compute());
             var planes = Pass(w, soup, true);
-            Assert.True(planes.VarifoldPlanesUsed, $"median tilt {planes.VarifoldMedianTilt}");
+            Assert.True(planes.VarifoldPlanesUsed, $"median noise {planes.VarifoldMedianNoise}");
             Assert.True(planes.VarifoldPlanesFitted > 0);
             Assert.Equal(0, noPlanes.VarifoldPlanesFitted);
             double c0 = AlphaWrapFeaturePassTests.ConcaveCoverage(noPlanes.Mesh, w.UsedOffset, Similarity.Identity);
@@ -487,6 +488,114 @@ namespace geometry3Sharp.Tests
             } finally { gParallel.SerialOnThisThread = saved; }
         }
 
+        // clean curved soups (cylinders of 64 and 256 slices, a sphere of 32 edge vertices, unwelded): the facets tilt against
+        // their fitted planes (median 0.2-0.9 degrees), but that is curvature, not noise; the gate stays closed and the result is
+        // the one without the planes, bit for bit
+        [Fact]
+        public void VarifoldPlanes_CleanCurvedSoups_GateClosed_ResultUnchanged()
+        {
+            var shapes = new[] {
+                new CappedCylinderGenerator() { BaseRadius = 1f, TopRadius = 1f, Height = 4, Slices = 64 }.Generate().MakeDMesh(),
+                new CappedCylinderGenerator() { BaseRadius = 1f, TopRadius = 1f, Height = 4, Slices = 256 }.Generate().MakeDMesh(),
+                new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 32 }.Generate().MakeDMesh()
+            };
+            foreach (DMesh3 shape in shapes) {
+                DMesh3 soup = Unweld(shape);
+                MeshAlphaWrap w = Wrap(soup);
+                var p = Pass(w, soup, true);
+                Assert.False(p.VarifoldPlanesUsed, $"median noise {p.VarifoldMedianNoise}, tilt {p.VarifoldMedianTilt}");
+                Assert.True(p.VarifoldMedianNoise < 0.0025, $"median noise {p.VarifoldMedianNoise}");
+                Assert.Equal(0, p.VarifoldPlaneQueries);
+                var off = new AlphaWrapFeaturePass(new DMesh3(w.Result, true), soup, w.UsedAlpha, w.UsedOffset) { VarifoldCreases = true, VarifoldPlaneRadius = 0 };
+                Assert.True(off.Compute());
+                Assert.Equal(AlphaWrapManifoldStepTests.Hash(off.Mesh), AlphaWrapManifoldStepTests.Hash(p.Mesh));
+            }
+        }
+
+        // the lift of the fitted plane (2 rms): without it the plane is the jitter's mean, below the outermost triangles, and most
+        // moves onto it break the pass's distance from the input (refused); with it nearly every vertex reaches its plane
+        [Fact]
+        public void VarifoldPlanes_Lift_LetsTheMovesThrough()
+        {
+            DMesh3 soup = JitteredLShapeSoup();
+            MeshAlphaWrap w = Wrap(soup, 40);
+            var lifted = Pass(w, soup, true);
+            Assert.Equal(2.0, lifted.VarifoldPlaneLift);
+            var flat = new AlphaWrapFeaturePass(new DMesh3(w.Result, true), soup, w.UsedAlpha, w.UsedOffset) { VarifoldCreases = true, VarifoldPlaneLift = 0 };
+            Assert.True(flat.Compute());
+            Assert.True(lifted.VarifoldPlanesUsed && flat.VarifoldPlanesUsed);
+            Assert.True(lifted.PlaneMoves > 1.3 * flat.PlaneMoves, $"plane moves: lifted {lifted.PlaneMoves}, not lifted {flat.PlaneMoves}");
+            Assert.True(lifted.Rejected < flat.Rejected, $"rejected: lifted {lifted.Rejected}, not lifted {flat.Rejected}");
+        }
+
+        // Similarity.All() over the fitted-plane path (the jittered soup, the gate open on every transformed copy: the noise is
+        // relative to the radius): clean, the crease kept; 2^k scales the result bit for bit
+        [Fact]
+        public void VarifoldPlanes_Invariance()
+        {
+            DMesh3 soup = JitteredLShapeSoup();
+            MeshAlphaWrap w0 = Wrap(soup, 40);
+            var p0 = Pass(w0, soup, true);
+            Assert.True(p0.VarifoldPlanesUsed);
+            foreach (Similarity s in Similarity.All()) {
+                DMesh3 m = new DMesh3(soup);
+                MeshTransforms.PerVertexTransform(m, s.Apply);
+                MeshAlphaWrap w = Wrap(m, 40);
+                var p = Pass(w, m, true);
+                Assert.True(p.VarifoldPlanesUsed, s.Name + $": median noise {p.VarifoldMedianNoise}");
+                Assert.True(MeshRobustRepair.NotCleanReason(p.Mesh) == "", s.Name + ": " + MeshRobustRepair.NotCleanReason(p.Mesh));
+                double cov = AlphaWrapFeaturePassTests.ConcaveCoverage(p.Mesh, w.UsedOffset, s);
+                Assert.True(cov > 0.8, s.Name + " " + cov);
+                if (s.IsExact) {
+                    Assert.Equal(p0.VarifoldMedianNoise, p.VarifoldMedianNoise);
+                    Assert.Equal(p0.Mesh.TriangleCount, p.Mesh.TriangleCount);
+                    Assert.True(p0.Mesh.VertexIndices().All(v => p.Mesh.GetVertex(v) == s.Apply(p0.Mesh.GetVertex(v))), s.Name);
+                }
+            }
+        }
+
+        // the quadrature's masses add up to the area: large triangles (subdivided), slivers (halved first), triangles smaller than
+        // the spacing (one point each) and degenerate ones (none)
+        [Fact]
+        public void VarifoldCreaseQuery_Mass_IsTheArea()
+        {
+            var m = new DMesh3();
+            var rnd = new Random(3);
+            Action<Vector3d, Vector3d, Vector3d> add = (a, b, c) => m.AppendTriangle(m.AppendVertex(a), m.AppendVertex(b), m.AppendVertex(c));
+            add(Vector3d.Zero, new Vector3d(3, 0, 0), new Vector3d(0, 2, 0));                 // large
+            add(Vector3d.Zero, new Vector3d(5, 0, 0), new Vector3d(2.5, 0.01, 0.002));        // sliver
+            add(new Vector3d(1, 1, 1), new Vector3d(1.01, 1, 1), new Vector3d(1, 1.02, 1));   // tiny
+            add(Vector3d.Zero, new Vector3d(1, 0, 0), new Vector3d(2, 0, 0));                 // degenerate
+            for (int i = 0; i < 50; ++i) {
+                var o = new Vector3d(rnd.NextDouble() * 4, rnd.NextDouble() * 4, rnd.NextDouble() * 4);
+                add(o, o + new Vector3d(rnd.NextDouble(), rnd.NextDouble(), rnd.NextDouble()), o + new Vector3d(rnd.NextDouble(), rnd.NextDouble(), rnd.NextDouble()));
+            }
+            double area = m.TriangleIndices().Sum(t => m.GetTriArea(t));
+            foreach (double r in new[] { 0.05, 0.3, 2.0 }) {
+                var q = new VarifoldCreaseQuery(m, r);
+                Assert.True(Math.Abs(q.TotalMass() - area) <= 1e-12 * area, $"radius {r}: mass {q.TotalMass()}, area {area}");
+            }
+        }
+
+        // a plane within the cluster angle of both asked normals goes to the nearer one: a floor tilted 14 degrees from nA and 16
+        // from nB, and a slope at nB itself; the floor must be plane A (with the rule the other way plane A is empty, refused)
+        [Fact]
+        public void VarifoldCreaseQuery_PlaneNearBoth_GoesToTheNearer()
+        {
+            double a14 = 14 * MathUtil.Deg2Rad, a30 = 30 * MathUtil.Deg2Rad;
+            // the floor's normal is z turned 14 degrees about y, the slope's z turned 30 degrees; both pass through the y axis
+            Vector3d nf = new Vector3d(Math.Sin(a14), 0, Math.Cos(a14)), ns = new Vector3d(Math.Sin(a30), 0, Math.Cos(a30));
+            Vector3d uf = ns.Cross(Vector3d.AxisY).Normalized, us = Vector3d.AxisY.Cross(ns).Normalized;
+            // (each sheet on its own side of the y axis, in its own plane)
+            Vector3d df = nf.Cross(Vector3d.AxisY).Normalized, ds = Vector3d.AxisY.Cross(ns).Normalized;
+            if (df.x > 0) df = -df;
+            if (ds.x < 0) ds = -ds;
+            DMesh3 m = Join(Grid((u, v) => 2 * u * df + new Vector3d(0, -2 + 4 * v, 0), 20, 40), Grid((u, v) => 2 * u * ds + new Vector3d(0, -2 + 4 * v, 0), 20, 40));
+            var q = new VarifoldCreaseQuery(m, 0.5);
+            Assert.True(q.IsCrease(Vector3d.Zero, Vector3d.AxisZ, ns, 10, 0.01, out double dih), "floor nearer nA must be plane A");
+            Assert.InRange(dih, 15.5, 16.5);
+        }
+
         // a clean soup (no jitter): the median tilt is 0, the fitted planes are not used and cost nothing
         [Fact]
         public void VarifoldPlanes_CleanSoup_NotUsed()
@@ -495,7 +604,7 @@ namespace geometry3Sharp.Tests
             MeshAlphaWrap w = Wrap(soup);
             var p = Pass(w, soup, true);
             Assert.False(p.VarifoldPlanesUsed);
-            Assert.True(p.VarifoldMedianTilt < 1e-6, $"median tilt {p.VarifoldMedianTilt}");
+            Assert.True(p.VarifoldMedianNoise < 1e-6 && p.VarifoldMedianTilt < 1e-6, $"median noise {p.VarifoldMedianNoise}, tilt {p.VarifoldMedianTilt}");
             Assert.Equal(0, p.VarifoldPlaneQueries);
         }
 

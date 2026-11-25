@@ -70,15 +70,17 @@ namespace gs
         /// </summary>
         internal double VarifoldPlaneLift = 2;
         /// <summary>
-        /// the fitted planes are used only where they change something: when the median tilt of the input's triangles against
-        /// their fitted planes (VarifoldCreaseQuery.MedianTilt, 512 triangles at a fixed stride) is above this many degrees;
-        /// 0 uses them always. A clean tessellation of planes and curves has a median tilt near 0 and pays nothing
+        /// the fitted planes are used only on a noisy input: when the median noise of its sheets (VarifoldCreaseQuery.MedianNoise,
+        /// 512 triangles at a fixed stride: the plane residual at the plane radius and at twice it, the part that does not grow
+        /// with the radius, relative to the radius) is above this; 0 uses them always. Measured (design note 10): clean flat or
+        /// curved tessellations 0 to 0.0020 (a 32-sphere and 64- and 256-slice cylinders at alpha = diagonal / 60), jitter of
+        /// 0.025 h 0.0066-0.0069, the mixed breakage at 0.25 0.0038, jitter of 0.01 h 0.0027 (closed: already at 0.99 / 0.97)
         /// </summary>
-        internal double VarifoldPlaneMinTiltDegrees = 0.1;
+        internal double VarifoldPlaneMinNoise = 0.003;
         /// <summary> (tests) false: the labels are made lazily, serially, as without the fitted planes (the same bits either way) </summary>
         internal bool VarifoldPrefetch = true;
         /// <summary> (outputs) the median tilt measured, and whether the fitted planes were used </summary>
-        internal double VarifoldMedianTilt;
+        internal double VarifoldMedianTilt, VarifoldMedianNoise;
         internal bool VarifoldPlanesUsed;
         /// <summary> the ball of the varifold crease test, in alphas </summary>
         internal double VarifoldRadius = 3.5;
@@ -142,7 +144,9 @@ namespace gs
             PlaneMoves = CreaseSnaps = Splits = Flips = Rejected = CrossingEdges = InputCreases = VarifoldQueries = 0;
             VarifoldBuildTicks = VarifoldQueryTicks = VarifoldPlaneTicks = 0;
             VarifoldPlanesUsed = false;
+            VarifoldMedianTilt = VarifoldMedianNoise = 0;
             VarifoldPlaneQueries = VarifoldPlanesFitted = 0;
+            varifold = null;
             if (Mesh.TriangleCount == 0 || input.TriangleCount == 0 || !(alpha > 0) || !(offset > 0))
                 return false;
             if (inputTree == null || inputTree.Mesh != input)
@@ -158,11 +162,12 @@ namespace gs
                 long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
                 varifold = new VarifoldCreaseQuery(input, VarifoldRadius * alpha, CancelF);
                 VarifoldBuildTicks = System.Diagnostics.Stopwatch.GetTimestamp() - t0;
-                VarifoldMedianTilt = 0; VarifoldPlanesUsed = false;
+                VarifoldMedianTilt = VarifoldMedianNoise = 0; VarifoldPlanesUsed = false;
                 if (VarifoldPlaneRadius > 0) {
                     long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
                     VarifoldMedianTilt = varifold.MedianTilt(input, VarifoldPlaneRadius * alpha);
-                    VarifoldPlanesUsed = VarifoldMedianTilt > VarifoldPlaneMinTiltDegrees;
+                    VarifoldMedianNoise = varifold.MedianNoise(input, VarifoldPlaneRadius * alpha);
+                    VarifoldPlanesUsed = VarifoldMedianNoise > VarifoldPlaneMinNoise;
                     if (VarifoldPlanesUsed && VarifoldPrefetch) prefetch_labels();
                     VarifoldPlaneTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t1;
                 }
@@ -271,8 +276,11 @@ namespace gs
         {
             int nv = Mesh.MaxVertexID;
             var fits = new int[nv];
+            // (cancellation: asked every 1024 vertices; the vertices skipped after it keep no label and get one lazily, the same)
+            bool cancelled = false;
             gParallel.ForRange(nv, vid => {
-                if (!Mesh.IsVertex(vid)) return;
+                if ((vid & 1023) == 0 && CancelF()) cancelled = true;
+                if (cancelled || !Mesh.IsVertex(vid)) return;
                 labels[vid] = make_label(Mesh.GetVertex(vid), out fits[vid]);
                 labelled[vid] = true;
             });

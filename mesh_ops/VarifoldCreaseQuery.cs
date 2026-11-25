@@ -143,6 +143,14 @@ namespace gs
         /// <summary> the number of quadrature points </summary>
         internal int PointCount { get { return count; } }
 
+        /// <summary> the total mass of the quadrature points (the area of the mesh's non-degenerate triangles) </summary>
+        internal double TotalMass()
+        {
+            double m = 0;
+            for (int j = 0; j < count; ++j) m += pts[7 * j + 6];
+            return m;
+        }
+
         static void add(List<double> raw, Vector3d p, Vector3d n, double m)
         {
             raw.Add(p.x); raw.Add(p.y); raw.Add(p.z); raw.Add(n.x); raw.Add(n.y); raw.Add(n.z); raw.Add(m);
@@ -178,6 +186,29 @@ namespace gs
                 if (!(tn.LengthSquared > 0.5)) continue;
                 if (FitPlane(mesh.GetTriCentroid(tris[i]), tn, radius, out Vector3d n, out _, out _))
                     a.Add(Vector3d.AngleD(tn, n));
+            }
+            if (a.Count == 0) return 0;
+            a.Sort();
+            return a[a.Count / 2];
+        }
+
+        /// <summary>
+        /// the median noise of the input's sheets relative to radius: over at most samples triangles of mesh at a fixed stride,
+        /// the plane of each one's cluster is fitted at radius and at twice it; a smooth surface's residual grows as the radius
+        /// squared (rms^2 = sigma^2 + c r^4), noise does not, so sigma^2 = (16 rms1^2 - rms2^2) / 15 is the noise alone. A clean
+        /// tessellation, flat or curved, gives about 0; a jittered one its jitter
+        /// </summary>
+        internal double MedianNoise(DMesh3 mesh, double radius, int samples = 512)
+        {
+            var tris = new List<int>(mesh.TriangleIndices());
+            if (tris.Count == 0 || !(2 * radius <= Radius)) return 0;
+            int stride = Math.Max(1, tris.Count / samples);
+            var a = new List<double>();
+            for (int i = 0; i < tris.Count; i += stride) {
+                Vector3d tn = mesh.GetTriNormal(tris[i]), c = mesh.GetTriCentroid(tris[i]);
+                if (!(tn.LengthSquared > 0.5)) continue;
+                if (!FitPlane(c, tn, radius, out _, out _, out double r1) || !FitPlane(c, tn, 2 * radius, out _, out _, out double r2)) continue;
+                a.Add(Math.Sqrt(Math.Max(0, (16 * r1 * r1 - r2 * r2) / 15)) / radius);
             }
             if (a.Count == 0) return 0;
             a.Sort();
