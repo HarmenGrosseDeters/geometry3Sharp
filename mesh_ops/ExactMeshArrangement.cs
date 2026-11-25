@@ -31,6 +31,15 @@ namespace g3
     /// Arrangements using Floating-point Arithmetic", 2020 (implicit points with filters); Shewchuk, "Adaptive
     /// Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates", 1997 (error bounds); Sloan,
     /// "A fast algorithm for generating constrained Delaunay triangulations", 1993.
+    ///
+    /// Point ids: the geometry of the result (the set of exact points, the triangles and the constraint edges as
+    /// geometry) is deterministic. The ids of the input vertices are deterministic too (build_points runs serially:
+    /// the same input gives the same ids). The ids of new points (intersections, centroids) are assigned in the parallel
+    /// phases and depend on the thread schedule, so they may differ between runs, even between fresh instances on the same
+    /// input. An id is only a label within one run: <see cref="Output"/> and <see cref="ConstraintEdges"/>
+    /// carry such ids (<see cref="VertexPoints"/> holds only the deterministic ids of input points). To compare, sort or store points, go through <see cref="Exact(int)"/>
+    /// (or <see cref="ComparePoints"/> for an order) or the canonical mapping <see cref="Canonical(int)"/>, never
+    /// through the numeric value of an id.
     /// </summary>
     internal class ExactMeshArrangement
     {
@@ -245,8 +254,27 @@ namespace g3
             }
             System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() { return GetEnumerator(); }
         }
+        /// <summary>
+        /// The pieces of the last Compute (replaced by a new list at the start of the next one). A, B and C are point ids of
+        /// this run: the ids of input vertices are deterministic, the ids of new points depend on the thread schedule (see the
+        /// class summary). They are invalid after the next Compute, which numbers the points anew (see Compute). Compare or sort
+        /// the corners through <see cref="Exact(int)"/> or <see cref="ComparePoints"/>, not by id; the geometry is deterministic.
+        /// </summary>
         public List<OutputTriangle> Output = new List<OutputTriangle>();
+        /// <summary>
+        /// Undirected edges (<see cref="EdgeKey"/> of two point ids) on intersection curves. The ids are labels of this run
+        /// (new points get schedule-dependent ids, see the class summary); the set of edges as geometry is deterministic,
+        /// so map the end points through <see cref="Exact(int)"/> before comparing two runs. Replaced by a new set at the start of
+        /// the next Compute; its ids are invalid after it.
+        /// </summary>
         public HashSet<long> ConstraintEdges = new HashSet<long>(EdgeKeyComparer.Instance);     // undirected point id pairs on intersection curves
+        /// <summary>
+        /// Per mesh: vertex id to point id. Written only in the serial build_points phase (input vertices at the same
+        /// double position share one id), so every id here is an input-point id and deterministic: the same input gives the
+        /// same ids in every run. It is not updated when equal points are merged later; the merged identity of an id is
+        /// <see cref="Canonical(int)"/> (<see cref="Exact(int)"/> gives its point). Rebuilt by the next Compute, whose ids
+        /// replace these.
+        /// </summary>
         public int[][] VertexPoints;        // per mesh: vertex id -> point id
         public List<int>[] MeshTriangles;   // per mesh: indices into Triangles
         public int IntersectingPairs;
@@ -311,8 +339,10 @@ namespace g3
 
             public bool Equals(PointKey o) { return Kind == o.Kind && A == o.A && B == o.B && C == o.C; }
             public override bool Equals(object obj) { return obj is PointKey && Equals((PointKey)obj); }
+            public override int GetHashCode() { return Mixed(); }
+            /// <summary> the hash of the key (unseeded: three SplitMix64 rounds), also for choosing a shard, which is not a hash container </summary>
             [MethodImpl(JitHints.Optimize)]
-            public override int GetHashCode()
+            internal int Mixed()
             {
                 ulong h = (ulong)Kind;
                 h = mix(h ^ (ulong)A);
@@ -358,18 +388,19 @@ namespace g3
         double[] centerD = new double[3];   // Center, exactly (a double)
         // per point: double approximation (grid units), a bound on the error of each coordinate, the construction,
         // the exact point (when computed); input points also have their input coordinates
-        readonly ChunkedList<Vector3d> approx = new ChunkedList<Vector3d>();
-        readonly ChunkedList<double> approxErr = new ChunkedList<double>();
-        readonly ChunkedList<PointKey> keys = new ChunkedList<PointKey>();
+        ChunkedList<Vector3d> approx = new ChunkedList<Vector3d>();
+        ChunkedList<double> approxErr = new ChunkedList<double>();
+        ChunkedList<PointKey> keys = new ChunkedList<PointKey>();
         // The exact point of each id, once computed: in fixed width if it fits (docs/design/FIXED_WIDTH_EXACT_POINTS.md;
         // no objects for the GC to trace or copy), else as an ExactBox. exactRef[id]: 0 = not computed yet, r > 0 = slot
         // r - 1 of fixedPoints, -1 = exactPoints[id]. It is published with Volatile.Write after its data is written.
-        readonly ChunkedList<int> exactRef = new ChunkedList<int>();
-        readonly FixedPointStore fixedPoints = new FixedPointStore();
-        readonly ChunkedList<ExactBox> exactPoints = new ChunkedList<ExactBox>();
+        ChunkedList<int> exactRef = new ChunkedList<int>();
+        FixedPointStore fixedPoints = new FixedPointStore();
+        ChunkedList<ExactBox> exactPoints = new ChunkedList<ExactBox>();
         /// <summary>
         /// for tests: store all exact points as BigInteger (ExactBox), the code before the fixed-width points. Only
         /// before the first point: equality of exact points relies on the representation being a function of the value.
+        /// (A second Compute empties the point tables, so the value can be changed again between two Computes.)
         /// </summary>
         internal bool FixedWidthPoints
         {
@@ -381,7 +412,7 @@ namespace g3
             }
         }
         bool fixedWidthPoints = true;
-        readonly ChunkedList<Vector3d> inputCoords = new ChunkedList<Vector3d>();
+        ChunkedList<Vector3d> inputCoords = new ChunkedList<Vector3d>();
         int nextPoint;
         // implicit point ids by construction and rational point ids by value, in shards (by hash) so that threads adding
         // points rarely wait for each other (the classification adds the pieces' centroids in parallel)
@@ -389,7 +420,7 @@ namespace g3
         /// <summary>
         /// for tests (issue 789): a salt for the hashes of exact points (0: their own hashes). The hash of an exact
         /// point is seeded per process on .NET (BigInteger.GetHashCode); a non-zero salt scrambles the hashes of the
-        /// rational and fixed-width points (their shard and their bucket in it, and ExactHash of the merge) and the
+        /// rational and fixed-width points (their shard and their bucket in it, and the hash of ExactIdComparer in the merge) and the
         /// shard of the implicit points (their bucket keeps PointKey's own hash, which is not seeded), so that a test
         /// can show that no result depends on them. SingleShard puts every point into the first shard. Both are set
         /// before the first point is added.
@@ -397,19 +428,21 @@ namespace g3
         internal int HashSalt;
         internal bool SingleShard;
         [MethodImpl(JitHints.Optimize)]
-        int salted(int h)
+        int salted(int h) { return salted(h, HashSalt); }
+        [MethodImpl(JitHints.Optimize)]
+        static int salted(int h, int salt)
         {
-            if (HashSalt == 0)
+            if (salt == 0)
                 return h;
-            ulong z = (uint)(h ^ HashSalt) * 0x9E3779B97F4A7C15UL;
+            ulong z = (uint)(h ^ salt) * 0x9E3779B97F4A7C15UL;
             z = (z ^ (z >> 29)) * 0xBF58476D1CE4E5B9UL;
             return (int)(z ^ (z >> 32));
         }
         [MethodImpl(JitHints.Optimize)]
         int shard_of(int h) { return SingleShard ? 0 : (h & 0x7FFFFFFF) % Shards; }
-        readonly Dictionary<PointKey, int>[] keyIndex = make_shards<PointKey>();
-        readonly Dictionary<HashedPoint, int>[] rationalIndex = make_shards<HashedPoint>();
-        readonly Dictionary<FixedKey, int>[] fixedIndex = make_shards<FixedKey>();
+        Dictionary<PointKey, int>[] keyIndex = make_shards<PointKey>();
+        Dictionary<HashedPoint, int>[] rationalIndex = make_shards<HashedPoint>();
+        Dictionary<FixedKey, int>[] fixedIndex = make_shards<FixedKey>();
         static Dictionary<T, int>[] make_shards<T>()
         {
             var d = new Dictionary<T, int>[Shards];
@@ -418,15 +451,16 @@ namespace g3
             return d;
         }
 
-        // an exact point with its hash computed once, outside the lock (the hash of four BigIntegers is not cheap)
+        // an exact point as the key of a shard of rationalIndex: the (salted) hash of its four BigIntegers is a hash value, which stays inside
+        // GetHashCode (a hash value only reaches a hash container); the shard is chosen by ExactPoint3.ShardBits, unseeded
         readonly struct HashedPoint : IEquatable<HashedPoint>
         {
             public readonly ExactPoint3 P;
-            public readonly int Hash;
-            public HashedPoint(ExactPoint3 p, int hash) { P = p; Hash = hash; }
-            public bool Equals(HashedPoint o) { return Hash == o.Hash && P.Equals(o.P); }
+            readonly int salt;
+            public HashedPoint(ExactPoint3 p, int salt) { P = p; this.salt = salt; }
+            public bool Equals(HashedPoint o) { return P.Equals(o.P); }
             public override bool Equals(object o) { return o is HashedPoint h && Equals(h); }
-            public override int GetHashCode() { return Hash; }
+            public override int GetHashCode() { return salted(P.GetHashCode(), salt); }
         }
         // a point in fixed width with its hash (computed once, outside the lock)
         // (the limbs only: IsDouble and D are not set in the key)
@@ -507,7 +541,11 @@ namespace g3
             return r;
         }
 
-        /// <summary> id of an exactly given point, a new one if it is not known yet (thread-safe) </summary>
+        /// <summary>
+        /// id of an exactly given point, a new one if it is not known yet (thread-safe). For use after Compute (the
+        /// boolean's classification adds centroids); the id is invalid after the next Compute. Not supported before the first
+        /// Compute (see Compute).
+        /// </summary>
         [MethodImpl(JitHints.Optimize)]
         public int AddPoint(ExactPoint3 p)
         {
@@ -530,8 +568,8 @@ namespace g3
                     return id;
                 }
             }
-            var hp = new HashedPoint(p, salted(p.GetHashCode()));
-            var shard = rationalIndex[shard_of(hp.Hash)];
+            var hp = new HashedPoint(p, HashSalt);
+            var shard = rationalIndex[shard_of(salted(p.ShardBits()))];
             lock (shard) {
                 int id;
                 if (shard.TryGetValue(hp, out id))
@@ -559,7 +597,7 @@ namespace g3
                 a = x.ApproxVector3d();
                 e = 4 * U * max_abs(a) + Tiny;
             }
-            var shard = keyIndex[shard_of(salted(key.GetHashCode()))];
+            var shard = keyIndex[shard_of(salted(key.Mixed()))];
             lock (shard) {
                 int id;
                 if (shard.TryGetValue(key, out id))
@@ -619,20 +657,19 @@ namespace g3
             return exactPoints[a].P.Equals(exactPoints[b].P);
         }
 
-        [MethodImpl(JitHints.Optimize)]
-        internal int ExactHash(int id)
-        {
-            int r = exact_ref(id);
-            return salted((r > 0) ? fixedPoints[r - 1].Hash() : exactPoints[id].P.GetHashCode());
-        }
 
         // point ids compared by their exact points
-        sealed class ExactIdComparer : IEqualityComparer<int>
+        internal sealed class ExactIdComparer : IEqualityComparer<int>
         {
             readonly ExactMeshArrangement arr;
             public ExactIdComparer(ExactMeshArrangement arr) { this.arr = arr; }
             public bool Equals(int a, int b) { return a == b || arr.ExactEquals(a, b); }
-            public int GetHashCode(int id) { return arr.ExactHash(id); }
+            [MethodImpl(JitHints.Optimize)]
+            public int GetHashCode(int id)
+            {
+                int r = arr.exact_ref(id);
+                return arr.salted((r > 0) ? arr.fixedPoints[r - 1].Hash() : arr.exactPoints[id].P.GetHashCode());
+            }
         }
 
         // the grid point of input coordinates
@@ -757,10 +794,10 @@ namespace g3
             p = (int)(e1 >> 32); q = (int)(e1 & 0xFFFFFFFF); r = (int)(e2 >> 32); s = (int)(e2 & 0xFFFFFFFF);
             int i = (axis + 1) % 3, j = (axis + 2) % 3;
             Vector3d P = approx[p], Q = approx[q], R = approx[r], S = approx[s];
-            double ep = approxErr[p], eq = approxErr[q], er = Math.Max(approxErr[r], approxErr[s]);
+            double ep = approxErr[p], eq = approxErr[q], er = MathUtil.MaxExact(approxErr[r], approxErr[s]);
             double esp, esq;
-            double sp = orient2d_approx(R, S, P, i, j, Math.Max(er, ep), out esp);
-            double sq = orient2d_approx(R, S, Q, i, j, Math.Max(er, eq), out esq);
+            double sp = orient2d_approx(R, S, P, i, j, MathUtil.MaxExact(er, ep), out esp);
+            double sq = orient2d_approx(R, S, Q, i, j, MathUtil.MaxExact(er, eq), out esq);
             double e;
             Vector3d a = segment_point(P, ep, Q, eq, sp, esp, sq, esq, out e);
             return add_implicit(new PointKey(PointKind.Segments, e1, e2, axis), a, e);
@@ -791,7 +828,7 @@ namespace g3
 
         static double max_abs(Vector3d a)
         {
-            return Math.Max(Math.Abs(a.x), Math.Max(Math.Abs(a.y), Math.Abs(a.z)));
+            return MathUtil.MaxExact(Math.Abs(a.x), MathUtil.MaxExact(Math.Abs(a.y), Math.Abs(a.z)));
         }
 
         [MethodImpl(JitHints.Optimize)]
@@ -827,7 +864,7 @@ namespace g3
             double dt = (den > 2 * ee) ? ee / (den - ee) + 2 * U : 1;
             if (!(dt < 1)) dt = 1;
             Vector3d d = Q - P;
-            err = 1.01 * (Math.Max(ep, eq) + dt * max_abs(d) + 3 * U * (max_abs(P) + max_abs(d))) + Tiny;
+            err = 1.01 * (MathUtil.MaxExact(ep, eq) + dt * max_abs(d) + 3 * U * (max_abs(P) + max_abs(d))) + Tiny;
             return P + t * d;
         }
 
@@ -838,7 +875,7 @@ namespace g3
         internal static double orient2d_approx(Vector3d a, Vector3d b, Vector3d c, int i, int j, double e, out double err)
         {
             double bx = b[i] - a[i], by = b[j] - a[j], cx = c[i] - a[i], cy = c[j] - a[j];
-            double M = Math.Max(Math.Max(Math.Abs(bx), Math.Abs(by)), Math.Max(Math.Abs(cx), Math.Abs(cy)));
+            double M = MathUtil.MaxExact(MathUtil.MaxExact(Math.Abs(bx), Math.Abs(by)), MathUtil.MaxExact(Math.Abs(cx), Math.Abs(cy)));
             double eps = 2 * e + U * M;
             err = 1.01 * (2 * eps * (2 * M + eps) + 3 * U * M * M) + Tiny;
             double det = bx * cy - by * cx;
@@ -888,7 +925,7 @@ namespace g3
             if (ad > 2.02 * edet) {
                 double den = ad - 1.01 * edet;
                 double ex = (enx + Math.Abs(x.x) * edet) / den, ey = (eny + Math.Abs(x.y) * edet) / den, ez = (enz + Math.Abs(x.z) * edet) / den;
-                err = 1.01 * Math.Max(ex, Math.Max(ey, ez)) + 2 * U * max_abs(x) + Tiny;
+                err = 1.01 * MathUtil.MaxExact(ex, MathUtil.MaxExact(ey, ez)) + 2 * U * max_abs(x) + Tiny;
             }
             return x;
         }
@@ -961,6 +998,47 @@ namespace g3
             err = 1.01 * (2.33 * e + 2 * U * (Math.Abs(x) + Math.Abs(y) + Math.Abs(z))) + Tiny;
             return x + y + z;
         }
+
+        /// <summary>
+        /// The ids sorted by ComparePoints (distinct points: the one order that it defines). First by the double key of
+        /// ComparePoints' filter, with a sort of doubles, then an insertion sort by ComparePoints itself: where the keys
+        /// decide, that is one comparison per point; where they do not (points closer than their errors along the
+        /// direction of the key), the insertion sort moves the point to its place. If it has to move points more than
+        /// SortPointsMoveBudget times their number (keys that say nothing: approximations beyond the double range), the
+        /// list is sorted by ComparePoints alone. Either way the result is the list sorted by ComparePoints.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal void SortPoints(List<int> ids)
+        {
+            int n = ids.Count;
+            var key = new double[n];
+            var id = new int[n];
+            for (int i = 0; i < n; ++i) {
+                double e;
+                id[i] = ids[i];
+                key[i] = order_key(approx[id[i]], approxErr[id[i]], out e);
+            }
+            Array.Sort(key, id);
+            long moves = 0, most = (long)SortPointsMoveBudget * n;
+            for (int i = 1; i < n && moves <= most; ++i) {
+                int x = id[i], j = i;
+                while (j > 0 && ComparePoints(id[j - 1], x) > 0) {
+                    id[j] = id[j - 1];
+                    j--;
+                    moves++;
+                }
+                id[j] = x;
+            }
+            if (moves > most) {
+                ids.Sort(ComparePoints);
+                return;
+            }
+            for (int i = 0; i < n; ++i)
+                ids[i] = id[i];
+        }
+
+        /// <summary> SortPoints: the moves of its insertion sort per point before it sorts by ComparePoints alone (for tests: below 0, always) </summary>
+        internal int SortPointsMoveBudget = 8;
 
         /// <summary> a total order of the exact points (deterministic, unlike point ids); 0 iff the points are equal </summary>
         [MethodImpl(JitHints.Optimize)]
@@ -1070,6 +1148,37 @@ namespace g3
             return merged;
         }
 
+        // for tests (DETERMINISM_PROOF.md, O-SORTS): merge_points re-permutes every run of equal lower ends lo after its sort
+        // (-1: reverses the runs, other values: a seeded permutation of each); 0 leaves the order of the sort as it is, and
+        // changes no result (the order among equal lo is unspecified)
+        internal int TieOrderSeed;
+        // runs of two or more equal lo that the hook permuted in all merge_points calls of Compute (0 when it is off)
+        internal int TiedRuns;
+
+        internal static int permute_ties(double[] lo, int[] order, int seed)
+        {
+            int runs = 0;
+            ulong state = (ulong)(uint)seed * 0x9E3779B97F4A7C15UL + 1;
+            for (int a = 0, b; a < lo.Length; a = b) {
+                b = a + 1;
+                while (b < lo.Length && lo[b] == lo[a]) b++;
+                if (b - a > 1)
+                    runs++;
+                if (seed < 0) {
+                    for (int i = a, j = b - 1; i < j; ++i, --j) {
+                        int t = order[i]; order[i] = order[j]; order[j] = t;
+                    }
+                    continue;
+                }
+                for (int i = b - 1; i > a; --i) {
+                    state = state * 6364136223846793005UL + 1442695040888963407UL;
+                    int j = a + (int)((state >> 33) % (ulong)(i - a + 1));
+                    int t = order[i]; order[i] = order[j]; order[j] = t;
+                }
+            }
+            return runs;
+        }
+
         /// <summary>
         /// Merge coincident points from different constructions: each gets the id with the smallest key (a
         /// rational point if there is one, so input vertices keep their coordinates). Candidates are points whose
@@ -1103,6 +1212,8 @@ namespace g3
             });
             double[] sortLo = (double[])lo.Clone();
             Array.Sort(sortLo, order);
+            if (TieOrderSeed != 0)
+                TiedRuns += permute_ties(sortLo, order, TieOrderSeed);
             int[] next = new int[n];
             for (int id = 0; id < n; ++id)
                 next[id] = (prev != null && id < prev.Length) ? prev[id] : id;
@@ -1111,7 +1222,7 @@ namespace g3
                 double top = hi[order[s]];
                 int e = s + 1;
                 while (e < m && lo[order[e]] <= top) {
-                    top = Math.Max(top, hi[order[e]]);
+                    top = MathUtil.MaxExact(top, hi[order[e]]);
                     e++;
                 }
                 if (e - s > 1)
@@ -1164,13 +1275,66 @@ namespace g3
             return true;
         }
 
+        // a Compute has run on this instance: the next one starts from the inputs again (reset_run_state)
+        bool computed;
+
+        /// <summary>
+        /// the state a Compute leaves (issue 1512): points, canonical ids, input triangles, output and counters. A second
+        /// Compute on one instance builds them again from the meshes; without this it added the input triangles and points a
+        /// second time, next to the merged ones of the first run, and its triangulation inserted a point twice. Point ids
+        /// from the first run (also those of AddPoint after it) are invalid afterwards.
+        /// </summary>
+        void reset_run_state()
+        {
+            approx = new ChunkedList<Vector3d>();
+            approxErr = new ChunkedList<double>();
+            keys = new ChunkedList<PointKey>();
+            exactRef = new ChunkedList<int>();
+            fixedPoints = new FixedPointStore();
+            exactPoints = new ChunkedList<ExactBox>();
+            inputCoords = new ChunkedList<Vector3d>();
+            keyIndex = make_shards<PointKey>();
+            rationalIndex = make_shards<HashedPoint>();
+            fixedIndex = make_shards<FixedKey>();
+            nextPoint = 0;
+            canonical = null;
+            triangleCount = 0;
+            triMesh = null; triTid = null; triCorners = null; triDegenerate = null; triPlanes = null; triTouch = null;
+            touchedPoints = null;
+            planeRep = null;
+            Culled = null;
+            Output = new List<OutputTriangle>();
+            ConstraintEdges = new HashSet<long>(EdgeKeyComparer.Instance);
+            MergedPoints = 0;
+            SegmentCrossings = 0;
+            IntersectingPairs = 0;
+            SelfIntersectingPairs = 0;
+            PrefilterRejected = 0; PrefilterChecked = 0; PreDecidedPairs = 0;
+            CulledCount = 0; CullTests = 0; TriangulatedTriangles = 0;
+            CandidatePairs = 0; CandidatePairList = null;
+            Trees = null;
+            CandidateTests = 0; LocalFilterDecided = 0; LocalFilterPoints = 0; ConstructionZeros = 0;
+        }
+
+        /// <summary>
+        /// Computes the arrangement of Meshes. It may be called again on the same instance (also after Meshes changed): every
+        /// call after the first starts from the inputs and gives what a new instance would give. Everything that refers to
+        /// points is then invalid: the ids in Output, VertexPoints, ConstraintEdges and Segments, and the ids AddPoint returned
+        /// after an earlier Compute (the point tables are emptied, so a stale id may be out of range or another point).
+        /// AddPoint before the first Compute is not supported: the inputs' points are numbered by Compute, and the first
+        /// Compute does not reset the tables.
+        /// </summary>
         [MethodImpl(JitHints.Optimize)]
         public void Compute()
         {
+            if (computed)
+                reset_run_state();
+            computed = true;
             var clock = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
             var total = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
             Stopped = StopReason.None;
             PredictedPieces = 0;
+            TiedRuns = 0;
             if (cancelled())
                 return;
             build_points();
@@ -1361,7 +1525,7 @@ namespace g3
                         for (int k = 0; k < 3; ++k) {
                             // grid value v 2^-ScaleExp (exact) minus the center: rounded once, error below u |a|
                             a[k] = ExactPoint3.ScaleB(v[k], -ScaleExp) - centerD[k];
-                            e = Math.Max(e, U * Math.Abs(a[k]));
+                            e = MathUtil.MaxExact(e, U * Math.Abs(a[k]));
                         }
                         if (finite(a) == false) {
                             // beyond the double range in grid units
@@ -1466,7 +1630,7 @@ namespace g3
         /// triangle (L3, docs/design/EXACT_BOOLEAN_TAIL_55928.md, section 4): the second filter of Orient and InCircle in
         /// the triangulation, where the points are close together against their distance from the origin and the
         /// approximations' absolute errors exceed their distances. Each coordinate is the exact difference x - o,
-        /// rounded once (ExactPoint3.ToDouble: a 64-bit truncated quotient, then the conversion to double), so its error
+        /// rounded once (ExactPoint3.ToDouble: to nearest since #1410, a 64-bit truncated quotient before), so its error
         /// is below 2^-52 of its magnitude; o cancels exactly in both determinants, which are polynomials in the
         /// differences of the points. Computed when a point first needs it; one instance per triangle and thread.
         /// </summary>
@@ -1567,7 +1731,7 @@ namespace g3
                 if (index.TryGetValue(p, out k) == false) {
                     ExactPoint3 x = arr.Exact(p);
                     double lx = ExactPoint3.ToDouble(x[i] - o[i] * x.W, x.W, 0), ly = ExactPoint3.ToDouble(x[j] - o[j] * x.W, x.W, 0);
-                    double m = Math.Max(Math.Abs(lx), Math.Abs(ly));
+                    double m = MathUtil.MaxExact(Math.Abs(lx), Math.Abs(ly));
                     // (an infinite or NaN value, or a nonzero one near the subnormal range, where the relative bound
                     // does not hold: not usable)
                     if (!(m < 1e300) || tiny(lx) || tiny(ly))
@@ -1657,7 +1821,7 @@ namespace g3
             if (edge == 0) { p = f.A; q = f.B; ep = f.EA; eq = f.EB; }
             else if (edge == 1) { p = f.B; q = f.C; ep = f.EB; eq = f.EC; }
             else { p = f.C; q = f.A; ep = f.EC; eq = f.EA; }
-            double e = Math.Max(ep, Math.Max(eq, ex));
+            double e = MathUtil.MaxExact(ep, MathUtil.MaxExact(eq, ex));
             double err;
             double fdet = orient2d_approx(p, q, px, f.I, f.J, e, out err);
             if (fdet > err) return f.Sign0;
@@ -1674,7 +1838,7 @@ namespace g3
             PredicateStats.Call(PredicateStats.Kind.ArrOrient);
             int i = (t.Axis + 1) % 3, j = (t.Axis + 2) % 3;
             if (DisableFilters == false) {
-                double e = Math.Max(approxErr[p], Math.Max(approxErr[q], approxErr[r]));
+                double e = MathUtil.MaxExact(approxErr[p], MathUtil.MaxExact(approxErr[q], approxErr[r]));
                 double err;
                 double fdet = orient2d_approx(approx[p], approx[q], approx[r], i, j, e, out err);
                 if (fdet > err) return t.Sign;
@@ -1699,7 +1863,7 @@ namespace g3
             Vector3d lp, lq, lr;
             if (local != null && DisableFilters == false && local.Get(p, out lp) && local.Get(q, out lq) && local.Get(r, out lr)) {
                 double err;
-                double fdet = orient2d_approx(lp, lq, lr, 0, 1, Math.Max(lp.z, Math.Max(lq.z, lr.z)), out err);
+                double fdet = orient2d_approx(lp, lq, lr, 0, 1, MathUtil.MaxExact(lp.z, MathUtil.MaxExact(lq.z, lr.z)), out err);
                 if (fdet > err) { local.Decided++; return t.Sign; }
                 if (-fdet > err) { local.Decided++; return -t.Sign; }
             }
@@ -1711,7 +1875,7 @@ namespace g3
         internal int InCircleFiltered(InputTriangle t, int p, int q, int r, int s)
         {
             int i = (t.Axis + 1) % 3, j = (t.Axis + 2) % 3;
-            double e = Math.Max(Math.Max(approxErr[p], approxErr[q]), Math.Max(approxErr[r], approxErr[s]));
+            double e = MathUtil.MaxExact(MathUtil.MaxExact(approxErr[p], approxErr[q]), MathUtil.MaxExact(approxErr[r], approxErr[s]));
             double bound;
             double fdet = incircle_approx(approx[p], approx[q], approx[r], approx[s], i, j, e, out bound);
             if (fdet > bound) return t.Sign;
@@ -1731,7 +1895,7 @@ namespace g3
             double fdet = (adx * adx + ady * ady) * (bdx * cdy - cdx * bdy)
                 + (bdx * bdx + bdy * bdy) * (cdx * ady - adx * cdy)
                 + (cdx * cdx + cdy * cdy) * (adx * bdy - bdx * ady);
-            double M = Math.Max(Math.Max(Math.Max(Math.Abs(adx), Math.Abs(ady)), Math.Max(Math.Abs(bdx), Math.Abs(bdy))), Math.Max(Math.Abs(cdx), Math.Abs(cdy)));
+            double M = MathUtil.MaxExact(MathUtil.MaxExact(MathUtil.MaxExact(Math.Abs(adx), Math.Abs(ady)), MathUtil.MaxExact(Math.Abs(bdx), Math.Abs(bdy))), MathUtil.MaxExact(Math.Abs(cdx), Math.Abs(cdy)));
             double eps = 2 * e + U * M, eta = 2 * eps * (2 * M + eps), M2 = M * M;
             bound = 1.01 * (3 * eta * (4 * M2 + eta) + 64 * U * M2 * M2) + Tiny;
             // (a term overflowed: the terms reach 12 M^4 while the bound's M^4 can still be finite, so for M between about
@@ -1779,7 +1943,7 @@ namespace g3
             Vector3d lp, lq, lr, ls;
             if (local != null && DisableFilters == false && local.Get(p, out lp) && local.Get(q, out lq) && local.Get(r, out lr) && local.Get(s, out ls)) {
                 double bound;
-                double fdet = incircle_approx(lp, lq, lr, ls, 0, 1, Math.Max(Math.Max(lp.z, lq.z), Math.Max(lr.z, ls.z)), out bound);
+                double fdet = incircle_approx(lp, lq, lr, ls, 0, 1, MathUtil.MaxExact(MathUtil.MaxExact(lp.z, lq.z), MathUtil.MaxExact(lr.z, ls.z)), out bound);
                 if (fdet > bound) { local.Decided++; return t.Sign; }
                 if (-fdet > bound) { local.Decided++; return -t.Sign; }
             }
@@ -1838,7 +2002,7 @@ namespace g3
             PredicateStats.Call(PredicateStats.Kind.ArrAlong);
             if (DisableFilters == false) {
                 double bound;
-                double diff = along_approx(d.FX, d.FY, d.FZ, approx[p1], approx[p2], Math.Max(approxErr[p1], approxErr[p2]), out bound);
+                double diff = along_approx(d.FX, d.FY, d.FZ, approx[p1], approx[p2], MathUtil.MaxExact(approxErr[p1], approxErr[p2]), out bound);
                 if (diff > bound) return 1;
                 if (-diff > bound) return -1;
             }
@@ -2088,7 +2252,7 @@ namespace g3
             if (double.IsNaN(x) || double.IsInfinity(x))
                 return x;
             // 2^(e - 30) for the exponent e of max(1, |x|): a power of two, so that values a few ulps apart round alike
-            long e = (BitConverter.DoubleToInt64Bits(Math.Max(1, Math.Abs(x))) >> 52) & 0x7FF;
+            long e = (BitConverter.DoubleToInt64Bits(MathUtil.MaxExact(1, Math.Abs(x))) >> 52) & 0x7FF;
             double scale = BitConverter.Int64BitsToDouble((e - 30) << 52);
             double r = Math.Round(x / scale) * scale;
             return (r == 0) ? 0 : r;    // (-0)
@@ -2112,7 +2276,7 @@ namespace g3
             Culled = new bool[Triangles.Count];
             CulledCount = 0;
             CullTests = 0;
-            if (CullOutsideOf == null || CullTest == null)
+            if (CullOutsideOf is null || CullTest is null)
                 return;
             CullPrepare?.Invoke();
             var free = new bool[Triangles.Count];
@@ -2422,7 +2586,8 @@ namespace g3
             if (checkPrefilter && proper)
                 System.Threading.Interlocked.Increment(ref PrefilterChecked);
             if (checkPrefilter && proper && apart != (c > 0))
-                throw new InvalidOperationException($"ExactMeshArrangement: the prefilter says {(apart ? "apart" : "meeting")}, the construction {(c > 0 ? "apart" : "meeting")} (triangles {ti}, {ui})");
+                throw new InvalidOperationException(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "ExactMeshArrangement: the prefilter says {0}, the construction {1} (triangles {2}, {3})", new object[] { apart ? "apart" : "meeting", c > 0 ? "apart" : "meeting", ti, ui }));
             if (c > 0)
                 return;
             System.Threading.Interlocked.Increment(ref IntersectingPairs);
@@ -2614,6 +2779,10 @@ namespace g3
         void prepare_triangle(int ti)
         {
             InputTriangle t = Triangles[ti];
+            // (the coplanar triangles that it meets only at shared vertices or edges are added by the pair loop, in the order the
+            // loop ran, without a point or a segment: ascending before the early return, as prepare_touched makes it for the others;
+            // the list of an untouched triangle is the shared empty one: only a list of two or more is sorted)
+            if (t.Coplanar.Count > 1) t.Coplanar.Sort();
             if (t.Degenerate || (t.Segments.Count == 0 && t.Points.Count == 0))
                 return;
             prepare_touched(ti, t);
@@ -2734,6 +2903,12 @@ namespace g3
                         on.Add(r);
                 }
                 on.Sort((a, b) => compare_along(d, a, b));
+                // (from the smaller end, by ComparePoints: d is the direction of the segment's line, and of segments with the
+                // same ends from different lines, eg the common edge of two coplanar triangles of the other mesh, whose edge
+                // planes point opposite ways, the one of the lower triangle index is kept. So the direction followed the
+                // order of the input triangles, and with points on a common circle the triangulation followed it too, #1464)
+                if (ComparePoints(on[0], on[on.Count - 1]) > 0)
+                    on.Reverse();
                 for (int k = 0; k + 1 < on.Count; ++k) {
                     tri.InsertConstraint(on[k], on[k + 1]);
                     constraints.Add(EdgeKey(on[k], on[k + 1]));
@@ -2791,7 +2966,7 @@ namespace g3
                 for (int k = 0; k < 3; ++k) {
                     int c = t.Corners[k];
                     Box2 cb = box(c, c);
-                    b[0] = Math.Min(b[0], cb[0]); b[1] = Math.Min(b[1], cb[1]); b[2] = Math.Max(b[2], cb[2]); b[3] = Math.Max(b[3], cb[3]);
+                    b[0] = MathUtil.MinExact(b[0], cb[0]); b[1] = MathUtil.MinExact(b[1], cb[1]); b[2] = MathUtil.MaxExact(b[2], cb[2]); b[3] = MathUtil.MaxExact(b[3], cb[3]);
                 }
                 bounds = b;
                 n0 = (count < 16) ? 1 : Math.Min(1024, (int)Math.Ceiling(Math.Sqrt(count)));
@@ -2839,8 +3014,8 @@ namespace g3
             Box2 box(int p, int q)
             {
                 Vector3d a = arr.approx[p], c = arr.approx[q];
-                double e = Math.Max(arr.approxErr[p], arr.approxErr[q]);
-                var r = new Box2 { X0 = Math.Min(a[i], c[i]), Y0 = Math.Min(a[j], c[j]), X1 = Math.Max(a[i], c[i]), Y1 = Math.Max(a[j], c[j]) };
+                double e = MathUtil.MaxExact(arr.approxErr[p], arr.approxErr[q]);
+                var r = new Box2 { X0 = MathUtil.MinExact(a[i], c[i]), Y0 = MathUtil.MinExact(a[j], c[j]), X1 = MathUtil.MaxExact(a[i], c[i]), Y1 = MathUtil.MaxExact(a[j], c[j]) };
                 for (int k = 0; k < 4; ++k) {
                     // widened by the error bound and the rounding of this sum
                     double w = e + 4 * U * (Math.Abs(r[k]) + e);
@@ -3510,7 +3685,9 @@ namespace g3
             }
         }
 
-        static void merge_runs(long[] c, int[] o, long[] dc, int[] dord, int lo, int mid, int hi)
+        // (internal for DeterminismStage1ObligationTests.MergeRuns_EqualCodes_GoByBoxIndex: the sort calls it with runs of ascending index ranges,
+        // where the index tie-break never decides; it is what makes the merge a total order on any two runs)
+        internal static void merge_runs(long[] c, int[] o, long[] dc, int[] dord, int lo, int mid, int hi)
         {
             int i = lo, j = mid, k = lo;
             while (i < mid && j < hi) {

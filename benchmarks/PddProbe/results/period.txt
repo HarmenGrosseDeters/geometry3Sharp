@@ -1,0 +1,6 @@
+# period: gyroid sheet, CellSize 1, Divisions 10, VF 0.3; PDD k=16 on the vertices; row tolerance 1e-9, match tolerance 1e-6
+cells rot  V      distinct  V/distinct | PDD: cand verif  ms  basis |  all-vertex baseline: verif  ms | known-period check ms
+1     no   1032   349             2.96 |    6     5    12 0 found |   401    120 0 found | n/a
+2     no   7968   1604            4.97 |  162   132   251 0.866025/0.866025/0.866025 |   401    982 0 found | ok 2
+3     no   26568  4099            6.48 |  750   132  1208 0.866025/0.866025/0.866025 |   401   4610 0 found | ok 13
+2     yes  7968   5065            1.57 |  162   132   245 0.866025/0.866025/0.866025 |   401   1008 0 found | ok 3

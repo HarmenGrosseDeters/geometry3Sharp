@@ -6,6 +6,9 @@ using System.Text;
 namespace g3
 {
 	// adapted from IntrRay3Box3
+	/// <summary>
+	/// The ray against the closed axis-aligned box [Min, Max]: exact decision without a tolerance (see <see cref="IntrExactBox3"/>); the entry parameter of <see cref="FindRayIntersectT"/> is within a few ulp of the exact one.
+	/// </summary>
 	public class IntrRay3AxisAlignedBox3
 	{
 		Ray3d ray;
@@ -59,6 +62,11 @@ namespace g3
 				return false;
 			}
 
+			if (IntrExactBox3.IsFinite(ref ray.Origin, ref ray.Direction) == false) {
+				Type = IntersectionType.Empty;
+				Result = IntersectionResult.InvalidQuery;
+				return false;
+			}
 			RayParam0 = 0.0;
 			RayParam1 = double.MaxValue;
 			IntrLine3AxisAlignedBox3.DoClipping(ref RayParam0, ref RayParam1, ref ray.Origin, ref ray.Direction, ref box,
@@ -83,63 +91,10 @@ namespace g3
         /// </summary>
         public static bool Intersects(ref Ray3d ray, ref AxisAlignedBox3d box, double expandExtents = 0)
         {
-            Vector3d WdU = Vector3d.Zero;
-            Vector3d AWdU = Vector3d.Zero;
-            Vector3d DdU = Vector3d.Zero;
-            Vector3d ADdU = Vector3d.Zero;
-            double RHS;
-
-            Vector3d diff = ray.Origin - box.Center;
-            Vector3d extent = box.Extents + expandExtents;
-
-            WdU.x = ray.Direction.x; // ray.Direction.Dot(Vector3d.AxisX);
-            AWdU.x = Math.Abs(WdU.x);
-            DdU.x = diff.x; // diff.Dot(Vector3d.AxisX);
-            ADdU.x = Math.Abs(DdU.x);
-            if (ADdU.x > extent.x && DdU.x * WdU.x >= (double)0) {
-                return false;
-            }
-
-            WdU.y = ray.Direction.y; // ray.Direction.Dot(Vector3d.AxisY);
-            AWdU.y = Math.Abs(WdU.y);
-            DdU.y = diff.y; // diff.Dot(Vector3d.AxisY);
-            ADdU.y = Math.Abs(DdU.y);
-            if (ADdU.y > extent.y && DdU.y * WdU.y >= (double)0) {
-                return false;
-            }
-
-            WdU.z = ray.Direction.z; // ray.Direction.Dot(Vector3d.AxisZ);
-            AWdU.z = Math.Abs(WdU.z);
-            DdU.z = diff.z; // diff.Dot(Vector3d.AxisZ);
-            ADdU.z = Math.Abs(DdU.z);
-            if (ADdU.z > extent.z && DdU.z * WdU.z >= (double)0) {
-                return false;
-            }
-
-            Vector3d WxD = ray.Direction.Cross(diff);
-            Vector3d AWxDdU = Vector3d.Zero;
-
-            AWxDdU.x = Math.Abs(WxD.x); // Math.Abs(WxD.Dot(Vector3d.AxisX));
-            RHS = extent.y * AWdU.z + extent.z * AWdU.y;
-            if (AWxDdU.x > RHS) {
-                return false;
-            }
-
-            AWxDdU.y = Math.Abs(WxD.y); // Math.Abs(WxD.Dot(Vector3d.AxisY));
-            RHS = extent.x * AWdU.z + extent.z * AWdU.x;
-            if (AWxDdU.y > RHS) {
-                return false;
-            }
-
-            AWxDdU.z = Math.Abs(WxD.z); // Math.Abs(WxD.Dot(Vector3d.AxisZ));
-            RHS = extent.x * AWdU.y + extent.y * AWdU.x;
-            if (AWxDdU.z > RHS) {
-                return false;
-            }
-
-            return true;
+            // exact, closed, without a tolerance (IntrExactBox3); expandExtents moves each face outward by that amount (one rounding of the face)
+            IntrExactBox3.BoxSpec spec = IntrExactBox3.BoxSpec.Of(ref box, expandExtents);
+            return IntrExactBox3.Touches(ref spec, ref ray.Origin, ref ray.Direction, true, 0, false, 0);
         }
-
 
         /// <summary>
         /// Find intersection of ray with AABB, without having to construct any new classes.
@@ -147,26 +102,12 @@ namespace g3
         /// </summary>
         public static bool FindRayIntersectT(ref Ray3d ray, ref AxisAlignedBox3d box, out double RayParam)
         {
-            double RayParam0 = 0.0;
-            double RayParam1 = double.MaxValue;
-            int Quantity = 0;
-            Vector3d Point0 = Vector3d.Zero;
-            Vector3d Point1 = Vector3d.Zero;
-            IntersectionType Type = IntersectionType.Empty;
-            IntrLine3AxisAlignedBox3.DoClipping(ref RayParam0, ref RayParam1, ref ray.Origin, ref ray.Direction, ref box,
-                      true, ref Quantity, ref Point0, ref Point1, ref Type);
-
-            if (Type != IntersectionType.Empty) {
-                RayParam = RayParam0;
+            // exact decision, closed box (IntrExactBox3); the entry parameter is within a few ulp of the exact one
+            IntrExactBox3.BoxSpec spec = IntrExactBox3.BoxSpec.Of(ref box, 0);
+            if (IntrExactBox3.RayEntry(ref spec, ref ray.Origin, ref ray.Direction, out RayParam))
                 return true;
-            } else {
-                RayParam = double.MaxValue;
-                return false;
-            }
+            RayParam = double.MaxValue;
+            return false;
         }
-
-
-
-
     }
 }

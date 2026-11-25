@@ -220,7 +220,7 @@ def main(argv):
     source = None
     if a.source:
         with open(a.source, encoding="utf-8-sig", newline="") as f:
-            source = f.read()
+            source = f.read().replace('\r\n', '\n')   # (as resplit.read_source: the LF text Stryker reads on Linux)
     try:
         r = suggest(report, a.file, a.parts, a.target_minutes, a.concurrency, a.b, a.timeout_ratio, a.additional_timeout,
                     a.overhead_minutes, source)

@@ -14,9 +14,9 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class ExactMeshImprintSliverStageTests
     {
-        static ExactMeshImprint Run(DMesh3 target, DMesh3 cutter, bool cleanup)
+        static ExactMeshImprint Run(DMesh3 target, DMesh3 cutter, bool cleanup, bool neutral = true)
         {
-            var imprint = new ExactMeshImprint() { Target = target, Cutter = cutter, SliverCleanup = cleanup };
+            var imprint = new ExactMeshImprint() { Target = target, Cutter = cutter, SliverCleanup = cleanup, NeutralContractions = neutral };
             Assert.True(imprint.Compute(), imprint.Error);
             return imprint;
         }
@@ -171,14 +171,16 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Counts_ReportTheStage_TheReroutes_AndTheDriftWithinTheBound()
         {
-            // the cylinder shifted by -1 ulp along x: curve vertices on split edges next to vertices off those edges, so chains of
+            // the cylinder shifted by 3 ulps along x: curve vertices on split edges next to vertices off those edges, so chains of
             // parts pass through them after the stage (through target vertices and through new ones)
-            DMesh3 a = ExactMeshImprintSliverTests.Shape("cylinder"), b = ExactMeshImprintSliverTests.Shifted(a, 0, -1);
+            // (-1 ulp until #1410: the exact vertices are rounded to the nearest double now, and that shift gave four reroutes through
+            // new vertices and none through a target vertex; 3 ulps gives both kinds)
+            DMesh3 a = ExactMeshImprintSliverTests.Shape("cylinder"), b = ExactMeshImprintSliverTests.Shifted(a, 0, 3);
             ExactMeshImprint now = Run(a, b, true);
             Assert.Equal(1, now.Counts["sliver_cleanup_stage"]);
-            // (measured: two reroutes through target vertices, one through a new vertex; the input is libm-free, the same on every runtime)
-            Assert.Equal(2, now.Counts["split_edge_reroutes_through_target_vertex"]);
-            Assert.Equal(1, now.Counts["split_edge_reroutes_through_new_vertex"]);
+            // (measured: one reroute through a target vertex, two through a new vertex; the input is libm-free, the same on every runtime)
+            Assert.Equal(1, now.Counts["split_edge_reroutes_through_target_vertex"]);
+            Assert.Equal(2, now.Counts["split_edge_reroutes_through_new_vertex"]);
             Assert.Equal(now.Rounding.RuleLocksReroutedThroughFixed, now.Counts["split_edge_reroutes_through_target_vertex"]);
             Assert.Equal(now.Rounding.RuleLocksReroutedThroughOther, now.Counts["split_edge_reroutes_through_new_vertex"]);
             Assert.True(now.Rounding.MaxDrift <= now.Rounding.MaxLength);
@@ -188,26 +190,47 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void KnownLimit_ALinkConditionLeavesOneSliver_TheResultStaysClosedAndCarriesTheCurve()
+        public void BoxFarFromTheOrigin_PlusOneUlp_IsCleanWithNeutralContractions_AndLeavesOneSliverWithoutThem()
         {
-            // the cylinder shifted by -1 ulp along z, cut into the shifted copy: one sliver is left. Its short edge (1.4e-11, a curve
-            // edge and a part of a split edge) cannot be contracted: the contraction breaks the link condition (DMesh3.CollapseEdge
-            // refuses it), and the other edits at the sliver add a degenerate triangle or an intersection, or improve nothing
-            // (docs/design/IMPRINT_SLIVER_CLEANUP.md, section 5). Not clean, as before the stage; the rest of the guarantees hold
-            DMesh3 a = ExactMeshImprintSliverTests.Shape("cylinder"), b = ExactMeshImprintSliverTests.Shifted(a, 2, -1);
-            ExactMeshImprint now = Run(b, a, true);
+            // #1489: the sliver below is removed by two contractions, the first of which keeps the counts (a valence-3 curve vertex inside the
+            // needle that blocks, by the link condition, the contraction of its neighbour into the target corner)
+            DMesh3 a = Invariance.Transformed(ExactMeshImprintSliverTests.Shape("box"), Similarity.Utm), b = ExactMeshImprintSliverTests.Shifted(a, 2, 1);
+            AssertOneSliverLeftByTheLinkCondition(a, b, false);
+            ExactMeshImprint now = Run(a, b, true);
+            Assert.True(now.Rounding.FollowStageRan);
+            Assert.True(now.Rounding.AcceptNeutralContractionsInStage);
+            Assert.True(now.Counts["sliver_cleanup_neutral_contractions"] > 0);
+            Assert.Equal(now.Rounding.NeutralContractions, now.Counts["sliver_cleanup_neutral_contractions"]);
+            Assert.Equal(0, Run(a, b, true, false).Counts["sliver_cleanup_neutral_contractions"]);
+            ExactMeshImprintSliverTests.AssertCleanAndCarried(a, now);
+        }
+
+        // the limit of the stage without neutral contractions (before #1489): one sliver is left, whose short edge the link condition keeps from contracting; the result stays closed, carries
+        // the curve and keeps the target's vertices
+        internal static void AssertOneSliverLeftByTheLinkCondition(DMesh3 a, DMesh3 b, bool neutral)
+        {
+            ExactMeshImprint now = Run(a, b, true, neutral);
             Assert.True(now.Rounding.FollowStageRan);
             Assert.False(now.RoundingClean);
             Assert.Equal(1, now.Rounding.RemainingDegenerate);
             Assert.Equal(0, now.Rounding.RemainingIntersections);
             Assert.False(now.Rounding.EvaluationLimitReached);
             Assert.True(now.Result.IsClosed());
-            foreach (int v in b.VertexIndices())
-                Assert.Equal(b.GetVertex(v), now.Result.GetVertex(v));
+            foreach (int v in a.VertexIndices())
+                Assert.Equal(a.GetVertex(v), now.Result.GetVertex(v));
             Assert.NotEmpty(now.CurveEdges);
             foreach (long k in now.CurveEdges)
                 Assert.True(now.Result.FindEdge((int)(k >> 32), (int)(k & 0xFFFFFFFF)) >= 0);
             Assert.True(now.Rounding.MaxDrift <= now.Rounding.MaxLength);
+            // the sliver and its shortest edge: the contraction is refused in either direction
+            DMesh3 r = now.Result;
+            double diag = r.CachedBounds.DiagonalLength;
+            int sliver = Assert.Single(r.TriangleIndices().Where(t => r.GetTriArea(t) < 1e-12 * diag * diag));
+            Index3i f = r.GetTriangle(sliver);
+            var edges = new[] { (f.a, f.b), (f.b, f.c), (f.c, f.a) };
+            var (u, w) = edges.OrderBy(e => r.GetVertex(e.Item1).DistanceSquared(r.GetVertex(e.Item2))).First();
+            Assert.Equal(MeshResult.Failed_InvalidNeighbourhood, new DMesh3(r).CollapseEdge(u, w, out DMesh3.EdgeCollapseInfo info));
+            Assert.Equal(MeshResult.Failed_InvalidNeighbourhood, new DMesh3(r).CollapseEdge(w, u, out info));
         }
 
         // ---- MeshRoundingRepair alone ----
@@ -246,6 +269,89 @@ namespace geometry3Sharp.Tests
             Assert.True(repair.FollowStageRan);
             Assert.True(repair.Mesh.IsVertex(v));
             Assert.Equal(2, repair.RemainingDegenerate);
+        }
+
+        [Fact]
+        public void NeutralContractions_AreOnlyContractions_NoMoveFlipOrZipThatKeepsTheCountsIsAccepted()
+        {
+            // (#1489: termination of the stage rests on it: a contraction removes a vertex, any other edit has to remove a defect)
+            // the fixture of RuleLockedEdges_Following_DoesNotLoseALockOfLockedEdgeF: no contraction is possible, the two slivers stay.
+            // Positions that keep two defects (a move of v by a few units of 1e-14 to 1e-13) exist, and none is taken
+            MeshRoundingRepair repair = SplitEdge(true, out int p, out int q, out int v);
+            repair.AcceptNeutralContractionsInStage = true;
+            repair.RuleLockedEdges.Remove(MeshRoundingRepair.LockedKey(v, q));
+            int vv = v, qq = q;
+            repair.LockedEdgeF = (x, y) => MeshRoundingRepair.LockedKey(x, y) == MeshRoundingRepair.LockedKey(vv, qq);
+            var before = repair.Mesh.VertexIndices().ToDictionary(x => x, x => repair.Mesh.GetVertex(x));
+            Assert.False(repair.Apply());
+            Assert.True(repair.FollowStageRan);
+            Assert.Equal(2, repair.RemainingDegenerate);
+            Assert.Equal(0, repair.Moves + repair.Flips + repair.Zips);
+            Assert.Equal(0, repair.NeutralContractions);
+            foreach (var kv in before)
+                Assert.Equal(kv.Value, repair.Mesh.GetVertex(kv.Key));
+        }
+
+        [Fact]
+        public void NeutralContractions_PowersOfTwoOfTheFrame_GiveTheSameBitsScaled_AndTheSameContraction()
+        {
+            // the box at UTM coordinates, +1 ulp: one neutral contraction is accepted (the gate must not depend on the scale: no absolute epsilon);
+            // the frame scaled by 2^-3 and 2^4 (translation included, exact) gives the same triangles and the vertices times 2^k (#1489)
+            Similarity Frame(double scale) => new Similarity("utm * " + scale, scale, Matrix3d.Identity, Similarity.Utm.Translation * scale);
+            DMesh3 a = Invariance.Transformed(ExactMeshImprintSliverTests.Shape("box"), Frame(1)), b = ExactMeshImprintSliverTests.Shifted(a, 2, 1);
+            ExactMeshImprint one = Run(a, b, true);
+            ExactMeshImprintSliverTests.AssertCleanAndCarried(a, one);
+            Assert.True(one.Result.IsClosed());
+            Assert.Equal(1, one.Counts["sliver_cleanup_neutral_contractions"]);
+            foreach (double scale in new[] { 0.125, 16.0 }) {
+                DMesh3 sa = Invariance.Transformed(ExactMeshImprintSliverTests.Shape("box"), Frame(scale)), sb = ExactMeshImprintSliverTests.Shifted(sa, 2, 1);
+                ExactMeshImprint scaled = Run(sa, sb, true);
+                ExactMeshImprintSliverTests.AssertCleanAndCarried(sa, scaled);
+                Assert.True(scaled.Result.IsClosed());
+                Assert.Equal(one.Counts["sliver_cleanup_neutral_contractions"], scaled.Counts["sliver_cleanup_neutral_contractions"]);
+                Assert.Equal(one.Result.MaxVertexID, scaled.Result.MaxVertexID);
+                foreach (int v in one.Result.VertexIndices())
+                    Assert.Equal(one.Result.GetVertex(v) * scale, scaled.Result.GetVertex(v));
+                foreach (int tri in one.Result.TriangleIndices())
+                    Assert.Equal(one.Result.GetTriangle(tri), scaled.Result.GetTriangle(tri));
+                Assert.Equal(one.CurveEdges.OrderBy(x => x), scaled.CurveEdges.OrderBy(x => x));
+            }
+        }
+
+        [Fact]
+        public void NeutralContractions_AStrictlyImprovingContraction_IsNotCountedAsNeutral()
+        {
+            // the contraction of v into p removes both slivers: a gain, not a contraction that only keeps the counts (#1489)
+            MeshRoundingRepair repair = SplitEdge(true, out int p, out int q, out int v);
+            repair.AcceptNeutralContractionsInStage = true;
+            Assert.True(repair.Apply());
+            Assert.True(repair.FollowStageRan);
+            Assert.False(repair.Mesh.IsVertex(v));
+            Assert.Equal(1, repair.RuleLockedContractions);
+            Assert.Equal(0, repair.NeutralContractions);
+        }
+
+        [Fact]
+        public void NeutralContractions_ApplyTwiceOnOneRepair_TheCounterIsOfTheSecondRun()
+        {
+            // the imprint builds a new repair per Compute(); a repair that is applied again starts its counter from 0 (Apply's reset)
+            DMesh3 a = Invariance.Transformed(ExactMeshImprintSliverTests.Shape("box"), Similarity.Utm), b = ExactMeshImprintSliverTests.Shifted(a, 2, 1);
+            ExactMeshImprint now = Run(a, b, true);
+            MeshRoundingRepair repair = now.Rounding;
+            // (measured: one neutral contraction, the valence-3 vertex of the needle; the input is libm-free, the same on every runtime)
+            Assert.Equal(1, repair.NeutralContractions);
+            Assert.True(repair.MaxEvaluations > 0);
+            Assert.True(repair.Apply());
+            Assert.Equal(0, repair.NeutralContractions);
+            Assert.False(repair.FollowStageRan);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(repair.Mesh));
+            Assert.True(repair.IsClean);
+            // an Apply that returns early (a vertex that is not finite) reports no limit and no evaluations of the earlier one (#1489)
+            repair.Mesh.SetVertex(repair.Mesh.VertexIndices().First(), new Vector3d(double.NaN, 0, 0));
+            Assert.False(repair.Apply());
+            Assert.True(repair.ScaleNotFinite);
+            Assert.Equal(0, repair.MaxEvaluations);
+            Assert.Equal(0, repair.Evaluations);
         }
 
         [Fact]

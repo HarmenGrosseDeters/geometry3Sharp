@@ -58,7 +58,7 @@ namespace geometry3Sharp.Tests
 
         static ExactMeshBoolean Run(IList<DMesh3> meshes, Ops op, bool cull, int seed = 31337)
         {
-            var b = new ExactMeshBoolean(meshes.Select(m => new DMesh3(m)), op) { CullOutsideA = cull, Seed = seed };
+            var b = new ExactMeshBoolean(meshes.Select(m => new DMesh3(m)), op) { AllowOpenMeshes = true, CullOutsideA = cull, Seed = seed };
             Assert.True(b.Compute(), b.Error);
             Assert.Equal(Status.Success, b.Status);
             return b;
@@ -236,7 +236,7 @@ namespace geometry3Sharp.Tests
             // a closed A, but a union (its result is not inside A) or a predicate of one's own
             meshes[0] = a;
             Assert.Equal(0, Run(meshes, Ops.Union, true).Counts["t3a_culled"]);
-            var own = new ExactMeshBoolean(meshes.Select(m => new DMesh3(m)), (w) => w[0] > 0 && w.Skip(1).All(x => x <= 0));
+            var own = new ExactMeshBoolean(meshes.Select(m => new DMesh3(m)), (w) => w[0] > 0 && w.Skip(1).All(x => x <= 0)) { AllowOpenMeshes = true };
             Assert.True(own.Compute(), own.Error);
             Assert.Equal(0, own.Counts["t3a_culled"]);
             // and the same predicate as the built-in Difference gives the same result
@@ -258,7 +258,7 @@ namespace geometry3Sharp.Tests
             var meshes = new List<DMesh3> { a, h };
             foreach (int maxSegments in new[] { 1000, 0 }) {
                 Func<bool, ExactMeshBoolean> run = (cull) => {
-                    var b = new ExactMeshBoolean(meshes.Select(m => new DMesh3(m)), Ops.Difference) { CullOutsideA = cull, AntipodalMaxBoundarySegments = maxSegments };
+                    var b = new ExactMeshBoolean(meshes.Select(m => new DMesh3(m)), Ops.Difference) { AllowOpenMeshes = true, CullOutsideA = cull, AntipodalMaxBoundarySegments = maxSegments };
                     Assert.True(b.Compute(), b.Error);
                     return b;
                 };
@@ -306,7 +306,7 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(serial.Counts["t3a_culled"], p.Counts["t3a_culled"]);
                 Assert.Equal("", Invariance.Difference(serial.Result, p.Result));
             }
-            var op = new ExactMeshBoolean(meshes.Select(m => new DMesh3(m)), Ops.Difference);
+            var op = new ExactMeshBoolean(meshes.Select(m => new DMesh3(m)), Ops.Difference) { AllowOpenMeshes = true };
             Assert.True(op.Compute());
             long first = op.Counts["t3a_culled"];
             Assert.True(op.Compute());

@@ -59,11 +59,17 @@ static class Program
             Console.WriteLine(GuaranteeBound.Run(args[1], ba, bb, bop));
             return 0;
         }
+        // the empty ball as a guarantee (EmptyBall.cs, ball.py, docs/research/SNAP_ROUNDING_EMPTY_BALL_GUARANTEE_2026-11.md)
+        if (args.Length >= 2 && args[0] == "ball") {
+            var (ea, eb, eop) = Input(args[1]);
+            Console.WriteLine(EmptyBall.Run(args[1], ea, eb, eop));
+            return 0;
+        }
         if (args.Length == 3 && args[0] == "gen")
             return ProceduralThin.Gen(args[1], args[2]);
         if (args.Length >= 3 && args[0] == "cull")
             return CandidateCulling.Run(args.Skip(1).ToArray());
-        Console.Error.WriteLine("usage: list <set> | run <case> <method>... | cull <case dir> <union|intersection|difference> [--serial] | lattice <case> [seconds] [seed] | bound <case> | bound selfcheck");
+        Console.Error.WriteLine("usage: list <set> | run <case> <method>... | cull <case dir> <union|intersection|difference> [--serial] | lattice <case> [seconds] [seed] | bound <case> | bound selfcheck | ball <case>");
         return 1;
     }
 
@@ -142,7 +148,7 @@ static class Program
                 MeshTransforms.Rotate(tool, Vector3d.Zero, Quaterniond.AxisAngleD(Vector3d.AxisX, 90));
                 MeshTransforms.Translate(tool, new Vector3d(0.17, -0.11, -1.5));
                 for (int step = 0; step < steps; step++) {
-                    var d = new ExactMeshBoolean(work, tool, Ops.Difference);
+                    var d = new ExactMeshBoolean(work, tool, Ops.Difference) { AllowOpenMeshes = true };
                     if (!d.Compute()) throw new InvalidOperationException(d.Error);
                     work = d.Result;
                     MeshTransforms.Translate(tool, new Vector3d(0, 0, -1));
@@ -194,7 +200,7 @@ static class Program
         var sb = new StringBuilder();
         sb.Append("{\"case\":").Append(Json(name)).Append(",\"method\":").Append(Json(method));
         var clock = Stopwatch.StartNew();
-        var boolean = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { SafeRounding = method != "plain" };
+        var boolean = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true, SafeRounding = method != "plain" };
         bool ok;
         try { ok = boolean.Compute(); } catch (Exception ex) { return sb.Append(",\"ok\":false,\"error\":\"").Append(ex.GetType().Name).Append("\"}").ToString(); }
         if (!ok)
@@ -242,7 +248,7 @@ static class Program
                 }
             var sub = new DSubmesh3(result, defects.ToArray());
             var pc = Stopwatch.StartNew();
-            var pop = new ExactMeshBoolean(sub.SubMesh, new DMesh3(), Ops.Union);
+            var pop = new ExactMeshBoolean(sub.SubMesh, new DMesh3(), Ops.Union) { AllowOpenMeshes = true };
             bool pok = false;
             try { pok = pop.Compute(); } catch (Exception) { }
             sb.Append(",\"patch_tris\":").Append(sub.SubMesh.TriangleCount).Append(",\"patch_ms\":").Append(pc.Elapsed.TotalMilliseconds.ToString("F1", ci)).Append(",\"patch_ok\":").Append(pok ? "true" : "false");
@@ -257,7 +263,7 @@ static class Program
         if (method != "plain" && method != "patch") {
             // Hausdorff distance to the exact result, rounded (SafeRounding off): an upper bound of the distance to the
             // exact one, up to the rounding of its new vertices (half an ulp per coordinate)
-            var raw = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { SafeRounding = false };
+            var raw = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true, SafeRounding = false };
             if (raw.Compute() && raw.Result.TriangleCount > 0 && result.TriangleCount > 0) {
                 var hd = new gs.MeshHausdorffDistance(result, raw.Result) { Tolerance = Math.Max(1e-2 * maxLength, 1e-300), MaxSubdivisions = 2000000 };
                 if (hd.Compute())

@@ -504,7 +504,7 @@ static class Certify
 
     static ExactMeshBoolean Boolean(Case c, bool record)
     {
-        var b = new ExactMeshBoolean(c.Inputs, c.Op);
+        var b = new ExactMeshBoolean(c.Inputs, c.Op) { AllowOpenMeshes = true };
         if (record) {
             b.RecordCertificate = true; b.ComputeExactVertices = true;
             if (c.Op == Ops.Intersection) b.CullOutsideA = false;       // the stages 1-2 checker's class (see its comment)
@@ -675,8 +675,27 @@ static class Certify
             case "scale": return Cost(ScaleCases(), reps, true);
             case "scale-c2a": return Cost(ScaleCases(), reps, false);
             case "removed": return Removed();
+            case "file": {
+                // (step B of the study: the certificate as bytes; CertificateFile.cs)
+                int seeds = args.Length > 2 ? int.Parse(args[2], CultureInfo.InvariantCulture) : 4;
+                var all = Cases().Concat(ScaleCases().Where(c => c.Name.EndsWith("n=64") || c.Name.EndsWith("nu=128") || c.Name.EndsWith("n=16")))
+                    .Select(c => (c.Name, c.Inputs, c.Op)).ToList();
+                var chosen = CertifySize.FuzzCases(seeds).Concat(all).ToList();
+                if (args.Length > 3) { var parts = args[3].Split('|'); chosen = chosen.Where(c => parts.Any(p => c.Item1.Contains(p))).ToList(); }
+                return CertifySize.RunFile(chosen, reps);
+            }
+            case "size": {
+                // (docs/research/CERTIFYING_BOOLEANS_2026-11.md: certificate size and checker time; CertifySize.cs)
+                int seeds = args.Length > 2 ? int.Parse(args[2], CultureInfo.InvariantCulture) : 4;
+                var all = Cases().Concat(ScaleCases().Where(c => c.Name.EndsWith("n=64") || c.Name.EndsWith("nu=128") || c.Name.EndsWith("n=16")))
+                    .Select(c => (c.Name, c.Inputs, c.Op)).ToList();
+                var chosen = CertifySize.FuzzCases(seeds).Concat(all).ToList();
+                // optional 4th argument: only the cases whose name contains one of the |-separated substrings (a quick rerun of the slow ones)
+                if (args.Length > 3) { var parts = args[3].Split('|'); chosen = chosen.Where(c => parts.Any(p => c.Item1.Contains(p))).ToList(); }
+                return CertifySize.Run(chosen, reps);
+            }
         }
-        Console.Error.WriteLine("usage: certify [selftest | cost [reps] | scale [reps] | scale-c2a [reps] | removed]");
+        Console.Error.WriteLine("usage: certify [selftest | cost [reps] | scale [reps] | scale-c2a [reps] | removed | size [reps] [seeds] [name filter a|b] | file [reps] [seeds] [name filter]]");
         return 1;
     }
 }

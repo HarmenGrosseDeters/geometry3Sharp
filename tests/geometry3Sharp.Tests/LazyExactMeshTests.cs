@@ -341,10 +341,18 @@ namespace geometry3Sharp.Tests
             Assert.False(open.IsClosed());
             ExactMesh eo = ExactMesh.FromDMesh(open), eb = ExactMesh.FromDMesh(B());
             ExactMesh e = ea.Difference(eo).Union(eb.Intersection(ea));
+            // with the defaults an open source is refused (AllowOpenMeshes is false), also as a single leaf; configure states it
+            Assert.Null(e.Round());
+            Assert.Null(eo.Round());
+            ExactMeshBoolean refused = e.ToBoolean();
+            Assert.False(refused.Compute());
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.OpenInput, refused.Status);
+            Assert.NotNull(e.Round(b => b.AllowOpenMeshes = true));
             ExactMeshBoolean x = e.ToBoolean();
             Assert.NotNull(x.WindingPredicate);
+            x.AllowOpenMeshes = true;       // (an open source is stated, as for the boolean itself)
             Assert.True(x.Compute(), x.Error);
-            var manual = new ExactMeshBoolean(new List<DMesh3>(e.Sources), Manual(w => (w[0] && !w[1]) || (w[2] && w[0])));
+            var manual = new ExactMeshBoolean(new List<DMesh3>(e.Sources), Manual(w => (w[0] && !w[1]) || (w[2] && w[0]))) { AllowOpenMeshes = true };
             Assert.Equal("", Invariance.Difference(Compute(manual), x.Result));
             Assert.True(x.Result.TriangleCount > 0);
             // (not closed: the open box's missing top leaves the hole it cuts into A open, as in the n-ary boolean itself)

@@ -75,8 +75,8 @@ namespace geometry3Sharp.Tests
         static ExactMeshBoolean Make(IList<DMesh3> meshes, Ops op, Func<int[], bool> predicate)
         {
             List<DMesh3> copies = meshes.Select(m => new DMesh3(m)).ToList();
-            if (predicate != null) return new ExactMeshBoolean(copies, predicate);
-            return copies.Count == 2 ? new ExactMeshBoolean(copies[0], copies[1], op) : new ExactMeshBoolean(copies, op);
+            if (predicate != null) return new ExactMeshBoolean(copies, predicate) { AllowOpenMeshes = true };
+            return copies.Count == 2 ? new ExactMeshBoolean(copies[0], copies[1], op) { AllowOpenMeshes = true } : new ExactMeshBoolean(copies, op) { AllowOpenMeshes = true };
         }
 
         /// <summary> an exact run (no SafeRounding, exact vertices); null with a failure if it does not succeed or its result is not a closed surface </summary>
@@ -120,6 +120,32 @@ namespace geometry3Sharp.Tests
             catch (Exception e) { Fail(name, "Compute() threw " + e.GetType().Name + ": " + e.Message); return false; }
             if (!ok || b.Status != ExactMeshBoolean.BooleanStatus.Success || b.Result == null) {
                 Fail(name, $"Compute() {ok}, status {b.Status}, error {b.Error}");
+                return false;
+            }
+            return DefaultRefusesOpen(name, b);
+        }
+
+        // Make states AllowOpenMeshes for every run. The default (false) for a run that had an open input: the same boolean
+        // without it is refused with OpenInput before the arrangement, has no result, an empty OpenInputsWithoutEffect, and its
+        // error names exactly the inputs that the run classified by the generalized winding number
+        bool DefaultRefusesOpen(string name, ExactMeshBoolean b)
+        {
+            if (b.AllowOpenMeshes == false || b.ExactWinding == null || Array.IndexOf(b.ExactWinding, false) < 0)
+                return true;
+            ++Relations;
+            var meshes = b.Meshes != null ? new List<DMesh3>(b.Meshes) : new List<DMesh3> { b.MeshA, b.MeshB };
+            ExactMeshBoolean d = b.WindingPredicate != null ? new ExactMeshBoolean(meshes, b.WindingPredicate) : new ExactMeshBoolean(meshes, b.Operation);
+            d.Orientation = b.Orientation;
+            if (d.AllowOpenMeshes) { Fail(name, "AllowOpenMeshes is true by default"); return false; }
+            bool ok;
+            try { ok = d.Compute(); }
+            catch (Exception e) { Fail(name, "the default run threw " + e.GetType().Name + ": " + e.Message); return false; }
+            var open = new List<string>();
+            for (int m = 0; m < b.ExactWinding.Length; ++m)
+                if (b.ExactWinding[m] == false) open.Add(m.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            string start = (open.Count == 1 ? "input mesh " : "input meshes ") + string.Join(", ", open) + (open.Count == 1 ? " is" : " are") + " not closed";
+            if (ok || d.Status != ExactMeshBoolean.BooleanStatus.OpenInput || d.Result != null || d.OpenInputsWithoutEffect.Count != 0 || d.Error == null || !d.Error.StartsWith(start)) {
+                Fail(name, $"with the default AllowOpenMeshes an open input gives Compute() {ok}, status {d.Status}, error {d.Error}; expected OpenInput and '{start}'");
                 return false;
             }
             return true;

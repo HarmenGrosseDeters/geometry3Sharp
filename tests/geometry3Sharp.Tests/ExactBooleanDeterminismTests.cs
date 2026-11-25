@@ -115,7 +115,7 @@ namespace geometry3Sharp.Tests
             AssertSerialEqualsParallel(() => new ExactMeshBoolean(twisted, box, ExactMeshBoolean.Operations.Union));
             DMesh3 open = Sphere(new Vector3d(-0.2, 0.1, 0), 0.9, 7);
             open.RemoveTriangle(open.TriangleIndices().First());
-            AssertSerialEqualsParallel(() => new ExactMeshBoolean(open, box, ExactMeshBoolean.Operations.Intersection));
+            AssertSerialEqualsParallel(() => new ExactMeshBoolean(open, box, ExactMeshBoolean.Operations.Intersection) { AllowOpenMeshes = true });
             var touching = new List<DMesh3>() { Box(new Vector3d(0, 0, 0), new Vector3d(1, 1, 1)), Box(new Vector3d(1, 1, -0.2), new Vector3d(2, 2, 1.3)),
                 Sphere(new Vector3d(1.05, 0.93, 0.5), 0.15, 5) };
             AssertSerialEqualsParallel(() => new ExactMeshBoolean(touching, ExactMeshBoolean.Operations.Union));

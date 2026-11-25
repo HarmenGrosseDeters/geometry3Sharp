@@ -9,10 +9,10 @@ code against its exact types, and the findings. No exact code was changed. Base:
 
 - **Inventory:** about 155 hand-written bounds that back an exact or certified decision, 28 uses of `ExactInterval`
   (sound by construction, one rule) and about 100 tolerances without a soundness claim (not audited).
-- **Checked by the new tool: 31 bounds** (section 4). 32 proof obligations are derived and all hold, among them every
+- **Checked by the new tool: 42 bounds** (section 4; `len(bounds.ENTRIES)`). 50 proof obligations are derived and all hold, among them every
   sign filter of `ExactPredicates`, `CertifiedDet3`, the boolean's plane and orientation filters, the arrangement's
-  approximate predicates and the snap grid's corner filter; 5 of the 32 are derived for the normal range only (the
-  subnormal range argued and sampled). 9 further rows are checks of numbers (widths, ranges, rounding factors) and
+  approximate predicates and the snap grid's corner filter; 5 of the 50 are derived for the normal range only (the
+  subnormal range argued and sampled). 14 further rows are checks of numbers (widths, ranges, rounding factors) and
   8 compare a constant with its published value; they are marked as such, not as derivations. The constants of
   Shewchuk's stage A hold to second order: this analysis proves Orient3d with 7u + 49u^2 (the code has 7u + 56u^2)
   and InSphere with 15u (the code has 16u). The tightest hand-made bound is `plane_side_abs` (margin 1 + 2u: sound,
@@ -30,7 +30,7 @@ Verdicts, in the three classes of the brief:
 
 | Verdict | Bounds |
 |---|---|
-| sound with margin x | the 31 of section 4 (margins in the table; 5 of them derived for the normal range only), apart from the finding rows of EB-7 and RC-4 |
+| sound with margin x | the 42 of section 4 (margins in the table; 5 of them derived for the normal range only), apart from the finding rows of EB-7 and RC-4 |
 | sound only under a range assumption the callers do not enforce | F2 `SecondPoint`, F3 `same_ray`, F4 the Biot-Savart sums (through the spare 1e-6) |
 | too small, with an input | F1 `negative_volume` (subnormal range); F4 against its own stated margin from about 9 000 segments, with no wrong decision (the spare) |
 
@@ -82,7 +82,8 @@ The analysis is itself tested: every model also runs on concrete doubles (Python
 fractions, and each node's three facts are checked at every sample; mutants (a smaller constant, no underflow term, a
 product rule without its rounding, a guard removed from one of three functions that share its line) must fail
 (`test_error_bound_audit.py`). The column "observed" is the largest error / bound seen in the concrete samples (300
-per model; 40 and 1 for EP-5 with 7 and 40 triangles): values near 1 show a bound that is attained, not only proved.
+per model; 40 and 1 for EP-5 with 7 and 40 triangles): values near 1 show a bound that is attained, not only proved. The BT rows are those of
+`python tools/ErrorBoundAudit/audit.py --markdown --samples 30` (the default run of 50 samples gives 0.079 for BT-5 and 0.027 for BT-6, as the console table shows).
 "-" means the model has no such observation (a check of numbers, or an enclosure checked as contained or not).
 
 The table's result column separates what was done: **proved** (a derivation by these rules), **proved (normal
@@ -113,7 +114,9 @@ rules with Z3, and `tools/FPTaylorPilot` checks leaves of one generated filter; 
 
 Each was reported to the coordinator when found and is an issue (F1 #1347, F2 #1348, F3 #1349, F4 #1350); the fixes are not part of this spike. Reproducers: `dotnet run --project tools/ErrorBoundAudit/Adversarial -c Release`.
 
-### F1 (#1347). `ExactMeshBoolean.negative_volume`: no underflow term (too small, with an input)
+### F1 (#1347). `ExactMeshBoolean.negative_volume`: no underflow term (too small, with an input) - FIXED in #1347
+
+Fixed: `negative_volume` has an absolute underflow term (`ExactPredicates.UnderflowUnit` times the sum of |x|_1 + 1); the model EB-7 proves it and the findings list is empty. The text below is the finding as it was reported.
 
 `mesh_ops/ExactMeshBoolean.cs:1056-1068`. The claim is that v6 < 0 is certain where `v6 < -(32 + n) u S`. In the
 normal range it is proved (EB-7: one term has an error of at most 11.4 u T against the claimed 32 u T, and the sum
@@ -149,7 +152,9 @@ after scaling by 2^600. It is used in the coplanar corner tests of lines 325 and
 shared rays can be missed below about 1e-162. The same pattern, by the inventory and not reproduced here:
 `TerrainSlopeComposite` lines 451, 1400, 1403, 1488 and `TerrainSlopeMap.stitch` line 1321.
 
-### F4 (#1350). The Biot-Savart sums are rounded up by a fixed factor (too small against the stated margin; absorbed)
+### F4 (#1350). The Biot-Savart sums are rounded up by a fixed factor (too small against the stated margin; absorbed) - FIXED in #1350 (PR #1468)
+
+Fixed: every factor is now derived (`SumTermsFactor` for the sums, `Factor(10)` and an end point term for `Lengths`, `piece_diameter`, `carry_length`; the models RC-4, RC-5, RC-7 and RC-8 prove them, the findings list is F1 only). The text below is the finding as it was reported.
 
 `boundary_bound`, `gradient_bound`, `piece_cost`, `cluster_bound` (`mesh_ops/ExactMeshBoolean.cs:2057-2110,
 2757-2820`). One term is sound (RC-4, RC-5: a length loses at most 4u and has 9u; a far term loses 2.65u and the
@@ -178,7 +183,8 @@ as the tree; until then the spare 1e-6 is a documented part of the bound, not a 
 - `ExactMeshArrangement.cs:836`: the comment says "rounding 2 U M^2", the code uses 3 U M^2 (the larger; AR-6 proves it).
 - `tools/PredicateCompiler/Compiler.cs:251`: the comment says "K > 2^-60", the check is K >= 2^-62 (which is what the argument needs).
 - "Relative error at most 2^-52" of a converted coordinate is used as |x^ - x| <= 2^-52 |x^| (one ulp of the double).
-  That is what a truncating conversion gives, and the 2.3e-16 constants cover it with a margin of 1.036 (RC-2).
+  That is what a truncating conversion gave; `ExactPoint3.ToDouble` has been correctly rounded since #1410 (error at most half an ulp,
+  2^-53 of the value), and the 2.3e-16 constants cover the older one-ulp bound with a margin of 1.036 (RC-2).
 - Lead from the inventory, checked (reproducer L1 of the adversarial tool): `TriangleBoxTree.segment_hits` tests only
   p in its branch for a segment parallel to a slab (`|d| < 1e-300`), without slack. With pad 0 (the call of
   `PolyhedralEnvelope.cs:512`) it returns false for the box x in [1e-310, 1] and the segment from x = 0 to 2e-310,
@@ -226,9 +232,9 @@ The line is that of the bound's first anchor. u = 2^-53.
 | EB-5 orient3d_filtered_err / _near / rows | `mesh_ops/ExactMeshBoolean.cs:5168` | eu = sqrt(3)(ea + eb)(1 + 1e-15) + u \|(\|b\|+\|a\|)\| | as EB-4; ea..ed >= 0 (checked) | root3 (1 + 1e-15) rounded is at least sqrt(3) | checked (arithmetic) | - | - |
 | EB-5 orient3d_filtered_err / _near / rows | `mesh_ops/ExactMeshBoolean.cs:5168` | eu = sqrt(3)(ea + eb)(1 + 1e-15) + u \|(\|b\|+\|a\|)\| | as EB-4; ea..ed >= 0 (checked) | sign (row error 1.000000 eu) | proved | 1.01 | - |
 | EB-6 widened | `mesh_ops/ExactMeshBoolean.cs:1824` | e (1 + 1e-9) + 1e-300 + 1e-14 \|v\| | none | enclosure | proved | 1 +9.01e+06 u | - |
-| EB-7 negative_volume | `mesh_ops/ExactMeshBoolean.cs:1064` | (32 + n) u * sum of \|x\|\|y\|\|z\| | NO UNDERFLOW: every product of three differences normal. Not checked by the code (finding F1) | one term | checked (arithmetic) | - | - |
-| EB-7 negative_volume | `mesh_ops/ExactMeshBoolean.cs:1064` | (32 + n) u * sum of \|x\|\|y\|\|z\| | NO UNDERFLOW: every product of three differences normal. Not checked by the code (finding F1) | n terms | checked (arithmetic) | - | - |
-| EB-7 negative_volume | `mesh_ops/ExactMeshBoolean.cs:1064` | (32 + n) u * sum of \|x\|\|y\|\|z\| | NO UNDERFLOW: every product of three differences normal. Not checked by the code (finding F1) | subnormal products | FINDING F1 | - | - |
+| EB-7 negative_volume | `mesh_ops/ExactMeshBoolean.cs:1332` | (32 + n) u * sum of \|x\|\|y\|\|z\| + 2^-1066 * sum (\|x\|_1 + 1) | none: the absolute term covers the subnormal products (the relative part is derived where all are normal) | one term | checked (arithmetic) | - | - |
+| EB-7 negative_volume | `mesh_ops/ExactMeshBoolean.cs:1332` | (32 + n) u * sum of \|x\|\|y\|\|z\| + 2^-1066 * sum (\|x\|_1 + 1) | none: the absolute term covers the subnormal products (the relative part is derived where all are normal) | n terms | checked (arithmetic) | - | - |
+| EB-7 negative_volume | `mesh_ops/ExactMeshBoolean.cs:1332` | (32 + n) u * sum of \|x\|\|y\|\|z\| + 2^-1066 * sum (\|x\|_1 + 1) | none: the absolute term covers the subnormal products (the relative part is derived where all are normal) | underflow term | checked (arithmetic) | - | - |
 | AR-4 plane_value | `mesh_ops/ExactMeshArrangement.cs:809` | 1.01 (3 * 2^-52 sum\|terms\| + (\|A\|+\|B\|+\|C\|) e) | no product underflows: the coefficients are integers and e >= 1e-300 where a coordinate is not an integer (store adds Tiny); taken as (\|A\|+\|B\|+\|C\|) e >= 1e-300 or exact products | enclosure | proved | 1.01 | 0.99 |
 | AR-6 orient2d_approx | `mesh_ops/ExactMeshArrangement.cs:842` | 1.01 (2 eps (2 M + eps) + 3 * 2^-52 M^2) + 1e-300, eps = 2 e + 2^-52 M | no overflow (checked: not finite is undecided) | enclosure | proved (normal range) | 1.01 | 0.99 |
 | AR-8 order_key | `mesh_ops/ExactMeshArrangement.cs:961` | 1.01 (2.33 e + 2 * 2^-52 sum\|alpha_k a_k\|) + 1e-300 | none | enclosure | proved | 1.012 | 0.988 |
@@ -240,11 +246,35 @@ The line is that of the bound's first anchor. u = 2^-53.
 | RC-1 ExactPoint3.ApproxVector3d / AddPoint | `math/ExactPoint3.cs:106` | relative error below 4 * 2^-52 | (double)BigInteger is within one ulp of the integer (truncated on .NET, as FixedArith.ToDouble states and the tests of FixedPoint3 check); the quotient normal (checked: is_safe) | relative error | proved | 1.6 | - |
 | RC-2 one conversion: grid_coord, LocalPoints, LocalFrame.PointError (2.3e-16) | `mesh_ops/ExactMeshArrangement.cs:1576` | 2.3e-16 \|x^\| | the value normal (checked: tiny / 1e-290 gates) | one ulp | proved | 1.036 | - |
 | RC-3 norm (rounded up) | `mesh_ops/ExactMeshBoolean.cs:5226` | (1 + 1e-15) | no square underflows (the callers' tiny gate) | rounded up | proved | 1 +6 u | - |
-| RC-4 boundary_bound Lengths | `mesh_ops/ExactMeshBoolean.cs:2106` | (1 + 1e-15) | the doubles are the segment: NOT so, they are the exact ends rounded once (finding F4); no underflow of the squares | one length | proved | 1 +5 u | - |
-| RC-4 boundary_bound Lengths | `mesh_ops/ExactMeshBoolean.cs:2106` | (1 + 1e-15) | the doubles are the segment: NOT so, they are the exact ends rounded once (finding F4); no underflow of the squares | Total and g (sums of n terms) | FINDING F4 | - | - |
-| RC-5 far_term | `mesh_ops/ExactMeshBoolean.cs:2206` | the callers' (1 + 1e-12); (1 + 1e-15) + 4 * 2^-1074 on the overflow path | one term; q and length / q normal (the callers have d >= 1e-3 s and the grid's tiny gate); the sums of terms are finding F4 | one term, rounded up by the caller | proved | 1 +9e+03 u | - |
-| RC-5 far_term | `mesh_ops/ExactMeshBoolean.cs:2206` | the callers' (1 + 1e-12); (1 + 1e-15) + 4 * 2^-1074 on the overflow path | one term; q and length / q normal (the callers have d >= 1e-3 s and the grid's tiny gate); the sums of terms are finding F4 | overflow path | proved | 1 +5 u | - |
+| RC-4 boundary_bound Lengths and the sum factor | `mesh_ops/ExactMeshBoolean.cs:2744` | (dist + 2^-52 R) (1 + 10 u); 1 + (ns + 4 + ns mod 2) u | integer grid values (no underflow of the squares); at most 2^26 segments (SumFactor is +infinity above) | one length, the end points included | proved | 1 +3 u | - |
+| RC-4 boundary_bound Lengths and the sum factor | `mesh_ops/ExactMeshBoolean.cs:2744` | (dist + 2^-52 R) (1 + 10 u); 1 + (ns + 4 + ns mod 2) u | integer grid values (no underflow of the squares); at most 2^26 segments (SumFactor is +infinity above) | sum of m <= 2^26 terms | proved | 1 +1.1 u | - |
+| RC-5 far_term | `mesh_ops/ExactMeshBoolean.cs:2847` | the sums' SumFactor; 2 * 2^-1074 on a subnormal result; (1 + 6 u) + 4 * 2^-1074 on the overflow path | one term; the sums of terms are RC-4 | one term, rounded up by the sum factor | proved | 1 +2.35 u | - |
+| RC-5 far_term | `mesh_ops/ExactMeshBoolean.cs:2847` | the sums' SumFactor; 2 * 2^-1074 on a subnormal result; (1 + 6 u) + 4 * 2^-1074 on the overflow path | one term; the sums of terms are RC-4 | subnormal result | proved | 1.51 | - |
+| RC-5 far_term | `mesh_ops/ExactMeshBoolean.cs:2847` | the sums' SumFactor; 2 * 2^-1074 on a subnormal result; (1 + 6 u) + 4 * 2^-1074 on the overflow path | one term; the sums of terms are RC-4 | overflow path | proved | 1 +1 u | - |
 | RC-6 ExactInterval (one rule) | `math/ExactIntervals.cs:46` | one spacing on each side of the round-to-nearest result | none (NaN gives the whole line) | widening covers one rounding | checked (arithmetic) | - | - |
+| RC-7 piece_diameter | `mesh_ops/ExactMeshBoolean.cs:2716` | (M + 2 err) (1 + 8 u) | the edges' squares do not underflow (a subnormal product is absorbed by the margin 2e-6 of the open winding decision) | the edge | proved | 1 +1 u | - |
+| RC-7 piece_diameter | `mesh_ops/ExactMeshBoolean.cs:2716` | (M + 2 err) (1 + 8 u) | the edges' squares do not underflow (a subnormal product is absorbed by the margin 2e-6 of the open winding decision) | the corner errors | proved | 1.155 | - |
+| RC-8 carry_length | `mesh_ops/ExactMeshBoolean.cs:3406` | (D + sqrt3_c (ep + eq) + 2^-51 K) (1 + 14 u) | no underflow | the distance | proved | 1 +6 u | - |
+| RC-8 carry_length | `mesh_ops/ExactMeshBoolean.cs:3406` | (D + sqrt3_c (ep + eq) + 2^-51 K) (1 + 14 u) | no underflow | the corner errors | proved | 1 +8 u | - |
+| BT-1 node radius R and distance d | `spatial/ExactWindingCache.cs:836` | R = max \|v - c\| (1 + 1e-14); d = \|c - p\| (1 - 1e-15) | no square under- or overflows (the range gates of node_query: d in [2^-97, 2^99], 1e-140 <= dd <= 1e140) | R is at least the true radius | proved | 22.25 | - |
+| BT-1 node radius R and distance d | `spatial/ExactWindingCache.cs:836` | R = max \|v - c\| (1 + 1e-14); d = \|c - p\| (1 - 1e-15) | no square under- or overflows (the range gates of node_query: d in [2^-97, 2^99], 1e-140 <= dd <= 1e140) | d is at most the true distance | proved | 1.636 | - |
+| BT-2 the error of the area vector (VaErr) | `spatial/ExactWindingCache.cs:837` | VaErr = 0.5 prods (count + 8) 4.5e-16 | no underflow; count <= 2^26 | VaErr bounds the error of 0.5 va | proved | 4.053 | - |
+| BT-2 the error of the area vector (VaErr) | `spatial/ExactWindingCache.cs:837` | VaErr = 0.5 prods (count + 8) 4.5e-16 | no underflow; count <= 2^26 | AAbs = 0.5 abs + VaErr covers 0.5 sum |cross| | checked (arithmetic) | - | - |
+| BT-3 the dipole evaluation | `spatial/ExactWindingCache.cs:570` | (1e-12 + 16 coordEps) dipScale | no underflow | relative error of halfOmega | proved | 783.2 | - |
+| BT-4 the sum order and the decision margin | `spatial/ExactWindingCache.cs:508` | 7.5e-16 N W; 1.01 (bErr + 1e-9 + 4e-15 (\|chi\| + \|bSum\|)) | N u < 0.0099 (the factor 1.01 covers the accumulation of err) | 7.5e-16 N W against 2 N u pi W | proved | 1.065 | - |
+| BT-4 the sum order and the decision margin | `spatial/ExactWindingCache.cs:508` | 7.5e-16 N W; 1.01 (bErr + 1e-9 + 4e-15 (\|chi\| + \|bSum\|)) | N u < 0.0099 (the factor 1.01 covers the accumulation of err) | 4e-15 (|chi| + |bSum|) | proved | 9.007 | - |
+| BT-4 the sum order and the decision margin | `spatial/ExactWindingCache.cs:508` | 7.5e-16 N W; 1.01 (bErr + 1e-9 + 4e-15 (\|chi\| + \|bSum\|)) | N u < 0.0099 (the factor 1.01 covers the accumulation of err) | 1.01 covers the accumulation of err | proved | 1 | - |
+| BT-5 the edge angle under the certificate (A1) | `spatial/ExactWindingCache.cs:623` | 1e-12 (hi - lo) and 1e-11 in nodeErr | the node is accepted: r < d / 4 and the yz part of c - p exceeds r by 1e-9 d (so every edge is on the fast path, away from the exact zone and from the +x axis) | A1: the sharper count (16 u S2) | proved | 1.297 | 0.0747 |
+| BT-5 the edge angle under the certificate (A1) | `spatial/ExactWindingCache.cs:623` | 1e-12 (hi - lo) and 1e-11 in nodeErr | the node is accepted: r < d / 4 and the yz part of c - p exceeds r by 1e-9 d (so every edge is on the fast path, away from the exact zone and from the +x axis) | A1: the three terms | proved | 1.013 | 0.0747 |
+| BT-5 the edge angle under the certificate (A1) | `spatial/ExactWindingCache.cs:623` | 1e-12 (hi - lo) and 1e-11 in nodeErr | the node is accepted: r < d / 4 and the yz part of c - p exceeds r by 1e-9 d (so every edge is on the fast path, away from the exact zone and from the +x axis) | the 1e-12 charged per replaced edge | proved | 101.3 | 0.0747 |
+| BT-5 the edge angle under the certificate (A1) | `spatial/ExactWindingCache.cs:623` | 1e-12 (hi - lo) and 1e-11 in nodeErr | the node is accepted: r < d / 4 and the yz part of c - p exceeds r by 1e-9 d (so every edge is on the fast path, away from the exact zone and from the +x axis) | the 1e-11 charged for the chord | proved | 1013 | 0.0747 |
+| BT-5 the edge angle under the certificate (A1) | `spatial/ExactWindingCache.cs:623` | 1e-12 (hi - lo) and 1e-11 in nodeErr | the node is accepted: r < d / 4 and the yz part of c - p exceeds r by 1e-9 d (so every edge is on the fast path, away from the exact zone and from the +x axis) | the certificate keeps phi below pi - 8.9e-5 | proved | 1.005 | 0.0747 |
+| BT-5 the edge angle under the certificate (A1) | `spatial/ExactWindingCache.cs:623` | 1e-12 (hi - lo) and 1e-11 in nodeErr | the node is accepted: r < d / 4 and the yz part of c - p exceeds r by 1e-9 d (so every edge is on the fast path, away from the exact zone and from the +x axis) | the exact zone never fires | checked (arithmetic) | - | 0.0747 |
+| BT-6 the edge angle error against the distance from the edge | `spatial/ExactWindingCache.cs:1350` | (pi / 2)(4.01 u S1 + 22.1 u S2) / hypot | the rounded path (normal products in S2; S2 >= 2^-602 on the fast path, S1 may be subnormal). Bounded by 1.8e-13 wherever it is kept: the evaluation near an open edge (1 + U.V -> 0, where hypot is small against S1 + S2) goes to the accurate path (exact integers, within 2e-15: not modelled, the note derives it). The sign of the rounded num is the exact one where it decides the branch cut (den <= 1e-12 S2): \|num\| > 1e-12 S1 with S1 >= 2^-1000, the absolute rounding of the products (2^-1074) being below 2^-74 S1; S1 < 2^-1000 goes to the accurate path. NOT the A1 of the tree (BT-5: under the certificate the edge keeps the rounded path, margin 10 on the tested quantity) | the rounded path has hypot >= 0.02210 (S1 + S2) | checked (arithmetic) | - | 0.0249 |
+| BT-6 the edge angle error against the distance from the edge | `spatial/ExactWindingCache.cs:1350` | (pi / 2)(4.01 u S1 + 22.1 u S2) / hypot | the rounded path (normal products in S2; S2 >= 2^-602 on the fast path, S1 may be subnormal). Bounded by 1.8e-13 wherever it is kept: the evaluation near an open edge (1 + U.V -> 0, where hypot is small against S1 + S2) goes to the accurate path (exact integers, within 2e-15: not modelled, the note derives it). The sign of the rounded num is the exact one where it decides the branch cut (den <= 1e-12 S2): \|num\| > 1e-12 S1 with S1 >= 2^-1000, the absolute rounding of the products (2^-1074) being below 2^-74 S1; S1 < 2^-1000 goes to the accurate path. NOT the A1 of the tree (BT-5: under the certificate the edge keeps the rounded path, margin 10 on the tested quantity) | the error of a kept rounded angle is at most 1.752e-13 (with 2 pi u + 2 ulp: 1.768e-13), below 2e-13 | checked (arithmetic) | - | 0.0249 |
+| BT-6 the edge angle error against the distance from the edge | `spatial/ExactWindingCache.cs:1350` | (pi / 2)(4.01 u S1 + 22.1 u S2) / hypot | the rounded path (normal products in S2; S2 >= 2^-602 on the fast path, S1 may be subnormal). Bounded by 1.8e-13 wherever it is kept: the evaluation near an open edge (1 + U.V -> 0, where hypot is small against S1 + S2) goes to the accurate path (exact integers, within 2e-15: not modelled, the note derives it). The sign of the rounded num is the exact one where it decides the branch cut (den <= 1e-12 S2): \|num\| > 1e-12 S1 with S1 >= 2^-1000, the absolute rounding of the products (2^-1074) being below 2^-74 S1; S1 < 2^-1000 goes to the accurate path. NOT the A1 of the tree (BT-5: under the certificate the edge keeps the rounded path, margin 10 on the tested quantity) | the sign of num is exact where |num| > 1e-12 S1 and S1 >= 2^-1000 (error 4.452e-16 S1) | checked (arithmetic) | - | 0.0249 |
+| BT-6 the edge angle error against the distance from the edge | `spatial/ExactWindingCache.cs:1350` | (pi / 2)(4.01 u S1 + 22.1 u S2) / hypot | the rounded path (normal products in S2; S2 >= 2^-602 on the fast path, S1 may be subnormal). Bounded by 1.8e-13 wherever it is kept: the evaluation near an open edge (1 + U.V -> 0, where hypot is small against S1 + S2) goes to the accurate path (exact integers, within 2e-15: not modelled, the note derives it). The sign of the rounded num is the exact one where it decides the branch cut (den <= 1e-12 S2): \|num\| > 1e-12 S1 with S1 >= 2^-1000, the absolute rounding of the products (2^-1074) being below 2^-74 S1; S1 < 2^-1000 goes to the accurate path. NOT the A1 of the tree (BT-5: under the certificate the edge keeps the rounded path, margin 10 on the tested quantity) | the subnormal products of num do not touch the angle bound (S2 >= 2^-602 on the fast path) | checked (arithmetic) | - | 0.0249 |
+| BT-6 the edge angle error against the distance from the edge | `spatial/ExactWindingCache.cs:1350` | (pi / 2)(4.01 u S1 + 22.1 u S2) / hypot | the rounded path (normal products in S2; S2 >= 2^-602 on the fast path, S1 may be subnormal). Bounded by 1.8e-13 wherever it is kept: the evaluation near an open edge (1 + U.V -> 0, where hypot is small against S1 + S2) goes to the accurate path (exact integers, within 2e-15: not modelled, the note derives it). The sign of the rounded num is the exact one where it decides the branch cut (den <= 1e-12 S2): \|num\| > 1e-12 S1 with S1 >= 2^-1000, the absolute rounding of the products (2^-1074) being below 2^-74 S1; S1 < 2^-1000 goes to the accurate path. NOT the A1 of the tree (BT-5: under the certificate the edge keeps the rounded path, margin 10 on the tested quantity) | an accepted node keeps theta >= 2.64 rad: |num| + |den| >= 0.32 (S1 + S2), above 2^-5 by the factor 10 | checked (arithmetic) | - | 0.0249 |
 
 Notes on single entries:
 
@@ -262,6 +292,22 @@ Notes on single entries:
 - **AP-2.** The seven constants and Eps are parsed from the source and compared with Shewchuk's; the anchors pin
   their use. Stage B is checked at first order only (the tails of the differences need 2u; the estimate's own error
   is not in the model). Stages C and D are not re-derived.
+- **BT-1 to BT-6 (#1427, the node error of the BoundaryTree of the exact winding cache).** One model per clause of the margin table of
+  [the design note](../design/EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md) ("The decision margin of `BoundaryTree`"): the radius and distance
+  roundings (BT-1), the error of the area vector (BT-2), the dipole evaluation (BT-3), the summation order and the margin of `decide_above`
+  (BT-4), the edge angle under the fast-path certificate, which is A1 (BT-5: margins 101 and 1013 against the 1e-12 per edge and the 1e-11 of
+  the chord, and 1.013 against the proved 1e-14 itself: the proof's 9.9e-15 recomputed from its constants (2, 22, 1.875), as 9.87e-15; the model
+  checks the arithmetic of the proof's constants, it does not derive them. The 22 u S2 of step 4 is loose: the step's own count is
+  16 u da db + 3 u (|u_y v_y| + |u_z v_z|) <= 16 u S2, which gives 7.7e-15, a margin of 1.30; the note keeps the valid 22, the more conservative
+  number. Sampled accepted nodes, at the tangents of the yz disk included, reach 0.075 of the bound with `--samples 30`, 0.079 with the default 50), and the error of the fast-path angle as a function of the distance from the edge (BT-6). Not
+  re-derived: the analytic remainder `rem`, the cap geometry and the `coordEps` term. BT-6 is the domain statement that A1 lacks, for the code of the correction of the edge angle near an open edge (#1514):
+  `finish_edge_angle` keeps the rounded angle only where |num| + |den| >= 2^-5 (S1 + S2), that is hypot >= 0.0220 (S1 + S2), and then the error is at most
+  (pi / 2)(4.01 u S1 + 22.1 u S2) / hypot + 2 pi u + 2 ulp <= 1.77e-13 whatever the distance from the edge; where hypot is smaller (p near the open segment, theta -> 0, where the
+  rounded formula had 1.6e-14 / theta) the accurate evaluation from exact integers decides (within 2e-15; not re-derived here, the note derives it). The sign of the rounded num is the exact one where
+  it decides the branch cut (den <= 1e-12 S2) when |num| > 1e-12 S1 and S1 >= 2^-1000 (the absolute error 2^-1074 of subnormal products is then below 2^-74 S1); S1 < 2^-1000 goes to the accurate path (the review
+  of #1514 found +pi for -pi there). The derivation also caught the note's 0.0221 for 2^-5 / sqrt 2 = 0.022097 (now 0.0220). An accepted node keeps the rounded path (the concrete run counts a
+  certified edge on the accurate path as a violation); sampled near-edge errors on the rounded path reach 0.025 of the bound (0.027 with the default 50) with `--samples 30`. No clause disagrees with the hand table; the tight ones are 1.013 (A1 against 1e-14), 1.064 (`sumOrderErr` 7.5e-16 against 2 u pi / (1 - N u), N u <= 0.0099; 1.074 without the 1/(1 - N u) of the exact sum bound, which the 1.01 on `bErr` also covers) and
+  1.005 (phi below pi - 8.9e-5), all stated by the note with the same slack.
 - **EB-4, EB-5.** `orient3d_filtered_err_near` calls the same `orient3d_rows_filtered` with other rows; one model.
 - **EB-7.** Proved for normal products; the missing absolute term is F1.
 - **AR-6, AR-9, AR-12, AR-13, AR-14** are derived where no product is subnormal (with underflow terms the checker
@@ -297,7 +343,7 @@ rounding constants are of the right order; it is not a proof.
 | `ExactMeshArrangement` `TriangleBoxTree.segment_hits` (slack 1e-9, 1e-12) | 1 | read; one unverified lead (section 3) |
 | `SnapRounding2` `PixelOf` range, `Buckets`, `SnapGrid.Pixel`, `CircumcentrePixelCentre` | 4 | read; `Pixel` needs no bound (monotone rounding, exact fallback) |
 | `FixedPoint3`, `ExactLimbSigns`, `ExactLimbPrepared` scratch and width counts | 15 | fail-safe (an arena overrun throws, no wrong sign); generator-checked for Orient and InCircle (`GeneratedPredicatesTests`) |
-| `ExactPoint3.ToDouble`, `ScaleB` | 2 | read (truncating twice is truncating once; RC-2 uses it) |
+| `ExactPoint3.ToDouble`, `ScaleB` | 2 | read (one rounding to nearest since #1410, error at most 2^-53 of the value; RC-2 uses the looser one-ulp bound) |
 | `PolyhedralEnvelope` (ENVELOPE.md 4.4: `Theta*`, offset margins, `unit`, `length`) | 8 | not read beyond the inventory |
 | `ContinuousCollision` (filter bound B1, corner widths, separating direction) | 5 | not read beyond the inventory |
 | `ExactMeshGeodesicDistance` (`CornerAngle`, `TransformDisk`, `Hypot`, merged radii) | 7 | not read beyond the inventory; `CornerAngle` calls itself "an assumption, not a proof" |
@@ -366,8 +412,8 @@ reference expands the same determinant as the library, so it checks the rounding
 ## 7. Proposal: a CI test so that the bounds cannot drift
 
 1. **The table as a test (done in the follow-up to this note's PR).** `tools/ErrorBoundAudit/test_error_bound_audit.py`:
-   every anchor is still in the source; every derivation still proves its bound; the open findings are exactly F1 and
-   F4; the models hold on concrete doubles; mutants of the checker fail. A changed line that a model transcribes or a
+   every anchor is still in the source; every derivation still proves its bound; no finding is open (F1 and F4 are fixed,
+   #1347 and #1350); the models hold on concrete doubles; mutants of the checker fail. A changed line that a model transcribes or a
    guard it relies on (searched inside the model's function) fails the anchor test until the model is brought up to
    date. An operation added between the anchored lines is not seen: the anchors narrow the review, they do not replace
    re-reading a changed function. It runs in the `linux` job of `.github/workflows/ci.yml` (5 s, ten tests, the

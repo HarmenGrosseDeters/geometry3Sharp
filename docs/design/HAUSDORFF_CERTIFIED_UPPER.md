@@ -382,3 +382,21 @@ of the coordinates of the distance to the triangle. It does not cancel. Three ch
   `point_distance` by the form; no second pass; no slack in it; the first direction's certified bound replaced by its
   computed one; the tree keeping the first triangle; no box descent; the tol/2 cut set to 0.
 
+## 13. Range-guarded hardware-double fast paths (`CertifiedTriangleBounds`)
+
+In the normal double range (`NormalSqLo = 1e-290`, `NormalSqHi = 1e290`, `NormalLinLo = 1e-140`, `NormalLinHi = 1e140`),
+`LengthUpper`, `PointTriangleUpper`, `CutRounding`, and `CoveringUpper` evaluate in hardware `double` arithmetic with
+static forward error bounds instead of `ExactInterval`, falling back to the `ExactInterval` implementations outside
+those guards (including subnormal scales, overflow, near-collinear slivers, out-of-range `lambda`, and `NaN` / infinities).
+
+- **Hand-derived, anchored bounds (`tools/ErrorBoundAudit/bounds.py`, entries `CTB-1`..`CTB-4`, scalar inequalities checked in exact rational arithmetic against anchored source lines):**
+  - `CTB-1` (`LengthUpper`): `Math.Sqrt(s) * (1 + 1e-15)` (3.20× margin over exact squared length; floor `1e-145 >> 2^-537`, slack `>> 2^-590`).
+  - `CTB-2` (`PointTriangleUpper`, evaluated relative to `v0` as `(x - v0) - s(v1 - v0) - t(v2 - v0)` so rounding scales with triangle size rather than global coordinate offset): `Math.Sqrt(r2) * (1 + 1e-15) + 1.25e-16 * e` (norm margin 4.67×, forward-error margin 1.126×; absorbs `sqrt(3*ETA/(1-u))` underflow with floor `1.25e-156 >> 2^-537` and slack `1.4e-157 >> 2^-590`, preserving section 8 for scaled-down copies).
+  - `CTB-3` (`CutRounding`): `d * (1 + 1e-15) + 1.25e-16 * e` (diff margin 2.67×, interpolation-error margin 1.126×, including subnormal `d`).
+  - `CTB-4` (`CoveringUpper`): non-acute guard `2e-15 * ssum` (margin 2.57×), cross-product lower bound `|nx| - 1e-15 * mx` (margin 1.80×), and circumradius factor `1 + 2e-15` (margin 2.77×).
+- **Measured (`LC_ALL=C dotnet run --project benchmarks/HausdorffBenchmark -c Release -- 3`):** `CertifiedUpper` overhead
+  drops from +45%..+304% down to -46%..+54% (typically +10%..+35%, identical subdivision counts on all 21 rows; e.g.,
+  `coplanar grids 16/17 tol1e-12 sym`: +304% → +35%; `reduced 1/8 of 21k sym`: +120% → +13%; `utm spheres sym`: +107% → +6%;
+  `cube-vs-sphere sym`: +215% → +15%).
+
+

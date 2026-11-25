@@ -428,10 +428,10 @@ namespace geometry3Sharp.Tests
             DMesh3 a = Box(0, 0, 0, 2, 2, 2), b = Box(1, 0.5, 0.25, 3, 2.5, 1.75), c = Box(0.5, 1.25, -1, 1.75, 3, 1);
             var meshes = new[] { a, b, c };
             foreach (var predicate in new[] { ExactMeshBoolean.AtLeast(1), ExactMeshBoolean.AtLeast(2), ExactMeshBoolean.AtLeast(3) }) {
-                var exact = Check(new ExactMeshBoolean(meshes, predicate));
+                var exact = Check(new ExactMeshBoolean(meshes, predicate) { AllowOpenMeshes = true });
                 // (both paths: fast winding numbers, and the Antipodal Method, which meshes without boundary take by default)
-                var general = new ExactMeshBoolean(meshes, predicate) { ForceGeneralizedWinding = true, AntipodalMaxBoundarySegments = 0 };
-                var antipodal = new ExactMeshBoolean(meshes, predicate) { ForceGeneralizedWinding = true };
+                var general = new ExactMeshBoolean(meshes, predicate) { AllowOpenMeshes = true, ForceGeneralizedWinding = true, AntipodalMaxBoundarySegments = 0 };
+                var antipodal = new ExactMeshBoolean(meshes, predicate) { AllowOpenMeshes = true, ForceGeneralizedWinding = true };
                 Check(general);
                 Check(antipodal);
                 Assert.DoesNotContain(true, general.ExactWinding);
@@ -445,7 +445,7 @@ namespace geometry3Sharp.Tests
             DMesh3 open = Box(0, 0, 0, 2, 2, 2);
             foreach (int tid in open.TriangleIndices().Where(t => open.GetTriCentroid(t).z == 2).ToArray())
                 open.RemoveTriangle(tid, true, false);
-            var mixed = new ExactMeshBoolean(new[] { Box(0.5, 0.5, -0.5, 1.5, 1.5, 0.5), open, Box(0.5, 0.5, 0.25, 1.5, 1.5, 1) }, ExactMeshBoolean.AtLeast(2));
+            var mixed = new ExactMeshBoolean(new[] { Box(0.5, 0.5, -0.5, 1.5, 1.5, 0.5), open, Box(0.5, 0.5, 0.25, 1.5, 1.5, 1) }, ExactMeshBoolean.AtLeast(2)) { AllowOpenMeshes = true };
             Assert.True(mixed.Compute(), mixed.Error);
             Assert.Equal(new[] { true, false, true }, mixed.ExactWinding);
             // inside the open box above z = 0 and in one of the others: z in [0, 1]; or in both others: z in [0.25, 0.5]

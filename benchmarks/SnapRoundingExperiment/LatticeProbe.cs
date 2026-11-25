@@ -36,7 +36,7 @@ static class LatticeProbe
     public static string Run(string name, DMesh3 a, DMesh3 b, ExactMeshBoolean.Operations op, double seconds, int seed)
     {
         var ci = CultureInfo.InvariantCulture;
-        var boolean = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op);
+        var boolean = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true };
         if (!boolean.Compute())
             return "{\"case\":\"" + name + "\",\"ok\":false}";
         DMesh3 m = boolean.Result;

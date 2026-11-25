@@ -20,8 +20,7 @@ the same `X` with BigInteger determinants (`grid`, `det`, `lerp`) and rounds wit
 round to nearest even). The double-word route computes each coordinate as a `DoubleWord` `Hi + Lo` with a bound `Err` such
 that the exact coordinate lies in `[Hi + Lo - Err, Hi + Lo + Err]`, and accepts `Hi` only if the rounding is certain (section 4).
 
-Note on `ExactPoint3.ToDouble`: it truncates its 64-bit quotient and converts with `(double)BigInteger`, which rounds toward zero, so
-it can be one ulp off (example in the PR). `round_ratio` is used instead in this class; `ExactPoint3` is unchanged.
+Note on `ExactPoint3.ToDouble`: it used to truncate a 64-bit quotient and convert with `(double)BigInteger`, which rounds toward zero, so it could be one ulp off (issue #1410). It is now the correctly rounded conversion (nearest, ties to even, one rounding also in the subnormal range), the same function as the internal `ExactPoint3.ToDoubleRounded` that `round_ratio` calls.
 
 ## 2. Primitives and conditions
 

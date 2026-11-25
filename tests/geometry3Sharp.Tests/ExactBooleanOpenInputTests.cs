@@ -75,13 +75,16 @@ namespace geometry3Sharp.Tests
         {
             foreach (bool simplify in new[] { false, true })
                 foreach (bool safe in new[] { false, true }) {
-                    var b = new ExactMeshBoolean(Input(name), TestBox(), op) { SimplifyFlatRegions = simplify, SafeRounding = safe };
+                    var b = new ExactMeshBoolean(Input(name), TestBox(), op) { AllowOpenMeshes = true, SimplifyFlatRegions = simplify, SafeRounding = safe };
                     b.Compute();
                     Assert.False(b.ExactWindingA);
                     AssertConsistent(b, $"{name} {op} simplify {simplify} safe rounding {safe}");
                     // the unrounded union has bowtie vertices where pieces meet at a point only; they are split (the
                     // result has none, AssertConsistent)
-                    Assert.Equal(name == "minimized, unrounded" && op == ExactMeshBoolean.Operations.Union ? 5 : 0, b.SplitBowtieVertices);
+                    // (2 since #1464, 5 before: a piece that cannot be added at an edge with more than two triangles gets copies
+                    // of its vertices, so how many vertices are left as bowties follows the order in which the pieces are
+                    // added, which is now the order of their geometry)
+                    Assert.Equal(name == "minimized, unrounded" && op == ExactMeshBoolean.Operations.Union ? 2 : 0, b.SplitBowtieVertices);
                 }
         }
 
@@ -90,7 +93,7 @@ namespace geometry3Sharp.Tests
         {
             // the union keeps two pieces that run the edge from the origin along the open edge of the fourth
             // triangle the same way (the edge where that triangle meets the coplanar ones)
-            var b = new ExactMeshBoolean(DefectInputTests.MinimizedRandomEdits6(), TestBox(), ExactMeshBoolean.Operations.Union);
+            var b = new ExactMeshBoolean(DefectInputTests.MinimizedRandomEdits6(), TestBox(), ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true };
             Assert.True(b.Compute(), b.Error);
             AssertConsistent(b, "union");
             Assert.True(b.ConflictEdges > 0);
@@ -139,9 +142,9 @@ namespace geometry3Sharp.Tests
         {
             Similarity s = Similarity.ByName(name);
             DMesh3 a = Input(input), b = TestBox();
-            var op0 = new ExactMeshBoolean(a, b, operation);
+            var op0 = new ExactMeshBoolean(a, b, operation) { AllowOpenMeshes = true };
             Assert.True(op0.Compute(), op0.Error);
-            var op = new ExactMeshBoolean(Invariance.Transformed(a, s), Invariance.Transformed(b, s), operation);
+            var op = new ExactMeshBoolean(Invariance.Transformed(a, s), Invariance.Transformed(b, s), operation) { AllowOpenMeshes = true };
             Assert.True(op.Compute(), op.Error);
             // a consistent result under every transform; the same one under the exact ones (the others round the
             // coordinates, and the case depends on exact coplanarity and coincidence: another arrangement)
@@ -155,7 +158,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void ReusedInstance_ConflictEdgesReset_SameResult()
         {
-            var op = new ExactMeshBoolean(DefectInputTests.MinimizedRandomEdits6(), TestBox(), ExactMeshBoolean.Operations.Union);
+            var op = new ExactMeshBoolean(DefectInputTests.MinimizedRandomEdits6(), TestBox(), ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true };
             Assert.True(op.Compute(), op.Error);
             int conflicts = op.ConflictEdges;
             DMesh3 first = op.Result;
@@ -168,7 +171,7 @@ namespace geometry3Sharp.Tests
             op.MeshB = Box(new Vector3d(0.5, 0.5, 0.5), new Vector3d(1, 0.3, 0.3));
             Assert.True(op.Compute(), op.Error);
             Assert.Equal(0, op.ConflictEdges);
-            var fresh = new ExactMeshBoolean(op.MeshA, op.MeshB, ExactMeshBoolean.Operations.Union);
+            var fresh = new ExactMeshBoolean(op.MeshA, op.MeshB, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true };
             Assert.True(fresh.Compute(), fresh.Error);
             Assert.Equal("", Invariance.Difference(fresh.Result, op.Result));
         }
@@ -182,7 +185,7 @@ namespace geometry3Sharp.Tests
             DMesh3 first = null;
             int conflicts = -1;
             for (int run = 0; run < 20; ++run) {
-                var op = new ExactMeshBoolean(Input(name), TestBox(), operation);
+                var op = new ExactMeshBoolean(Input(name), TestBox(), operation) { AllowOpenMeshes = true };
                 Assert.True(op.Compute(), op.Error);
                 if (first == null) {
                     first = op.Result;

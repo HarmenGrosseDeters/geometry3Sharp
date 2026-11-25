@@ -284,7 +284,7 @@ namespace geometry3Sharp.Tests
             // an open input: generalized winding numbers
             DMesh3 open = Sphere(new Vector3d(-0.2, 0.1, 0), 0.9, 7);
             open.RemoveTriangle(open.TriangleIndices().First());
-            DMesh3 cut = AssertOrderIndependent(() => Boolean(() => new ExactMeshBoolean(open, box, ExactMeshBoolean.Operations.Intersection)));
+            DMesh3 cut = AssertOrderIndependent(() => Boolean(() => new ExactMeshBoolean(open, box, ExactMeshBoolean.Operations.Intersection) { AllowOpenMeshes = true }));
             Assert.True(cut.TriangleCount > 0 && Invariance.AllFinite(cut));
         }
 

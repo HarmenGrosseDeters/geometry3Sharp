@@ -10,10 +10,17 @@ and 13.
     dotnet run --project tools/PredicateCompiler -- --doc tools/PredicateCompiler/predicates.spec docs/design/FIXED_WIDTH_EXACT_POINTS.md
     dotnet run --project tools/PredicateCompiler -- --code tools/PredicateCompiler/indirect.spec math/Generated/IndirectPredicates.cs
     dotnet run --project tools/PredicateCompiler -- --doc tools/PredicateCompiler/indirect.spec docs/design/INDIRECT_PREDICATES.md
+    dotnet run --project tools/PredicateCompiler -- --verify-filters tools/PredicateCompiler/indirect.spec
 
-The second command rewrites the generated table block of the design doc. `GeneratedPredicatesTests` fails when the
+The second command rewrites the generated table block of the design doc. `--verify-filters` runs an offline
+reverse-mode Symbolic Taylor error estimator (`SymbolicTaylorVerify.cs`, Solovyev et al. 2018) with exact
+IEEE-754 binary64 binade `half-ulp` bounds directly on every `inputs xyz` predicate's parsed DAG over bounded boxes,
+performing a global box-max consistency check (`sup_box |e~ - e| <= C * M_max(box)`) plus a sampled pointwise check
+against exact rationals on concrete points without external tools. This is a global consistency check plus sample
+evidence rather than a pointwise proof of `|e~ - e| <= C * m~(x)` (which `tools/Z3Pilot/filter_rules.py` proves
+inductively across the full range gate). `GeneratedPredicatesTests` fails when the
 block differs from the derivation, when a value exceeds its bound on inputs at `±m`, when the spec's sign differs from
-the kernel's, or when the kernels' scratch constants are below the derived scratch.
+the kernel's, when the kernels' scratch constants are below the derived scratch, or when filter checks fail.
 
 The value bounds know nothing of a runtime; the limbs taken are a model of `FixedArith` in a separate pass. Further
 passes over the same expression graph (a floating-point filter and expansion stages as in #221, predicates on

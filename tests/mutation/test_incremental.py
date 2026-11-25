@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 
+import shell_shims
 import incremental as inc
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -132,7 +133,7 @@ class PlanAndMerge(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.root = self.dir.name
-        with open(os.path.join(self.root, "A.cs"), "w") as f:
+        with open(os.path.join(self.root, "A.cs"), "w", encoding="utf-8", newline="\n") as f:
             f.write(NEW)
         self.config = dict(CONFIG)
         self.baseline = report(OLD, [mutant(2, "Killed"), mutant(3, "Killed"), mutant(3, "Survived"),
@@ -152,13 +153,13 @@ class PlanAndMerge(unittest.TestCase):
         with open(os.path.join(self.root, "A.cs"), "w", newline="") as f:
             f.write(NEW.replace("\n", "\r\n"))
         self.assertIsNone(inc.plan(self.config, self.baseline, self.root))
-        with open(os.path.join(self.root, "A.cs"), "w") as f:
+        with open(os.path.join(self.root, "A.cs"), "w", encoding="utf-8", newline="\n") as f:
             f.write(NEW)
         self.assertIsNone(inc.plan(self.config, report(OLD.replace("\n", "\r\n"), []), self.root))
 
     def test_plan_ignores_a_byte_order_mark(self):
         # (Stryker reads the file without it: the offsets must not count it)
-        with open(os.path.join(self.root, "A.cs"), "w", encoding="utf-8-sig") as f:
+        with open(os.path.join(self.root, "A.cs"), "w", encoding="utf-8-sig", newline="\n") as f:
             f.write(NEW)
         mutate, _ = inc.plan(self.config, self.baseline, self.root)
         a, b = inc.parse_mutate(mutate[0])[1]
@@ -200,7 +201,7 @@ class PlanAndMerge(unittest.TestCase):
         self.assertEqual(0, self.cli("merge", cfg, bl, run)[0])
 
     def test_merge_counts_a_deletion_once(self):
-        with open(os.path.join(self.root, "A.cs"), "w") as f:
+        with open(os.path.join(self.root, "A.cs"), "w", encoding="utf-8", newline="\n") as f:
             f.write(OLD.replace("    int g(int a) { return a - 1; }\n", ""))
         bl = report(OLD, [mutant(2, "Survived"), mutant(3, "Killed"), mutant(4, "Survived"), mutant(5, "Killed")])
         run = report(NEW, [mutant(2, "Survived"), mutant(3, "Survived")])     # f and h, rerun
@@ -219,7 +220,7 @@ class PlanAndMerge(unittest.TestCase):
 
     def spans(self, old_span, new_span, new_text=OLD, mutants=None):
         # a baseline of OLD with the span old_span, the file now new_text, the config with new_span
-        with open(os.path.join(self.root, "A.cs"), "w") as f:
+        with open(os.path.join(self.root, "A.cs"), "w", encoding="utf-8", newline="\n") as f:
             f.write(new_text)
         old_cfg = dict(CONFIG, mutate=["**/A.cs{%d..%d}" % old_span])
         bl = report(OLD, mutants or [mutant(4, "Killed"), mutant(5, "Survived"), mutant(6, "Killed")], config=old_cfg)
@@ -267,7 +268,7 @@ class PlanAndMerge(unittest.TestCase):
         old = "".join("    int f%d() { return %d; }\n" % (k, k) for k in range(20))
         new = old.replace("return 10;", "return 11;")
         b = old.index("    int f10")
-        with open(os.path.join(self.root, "A.cs"), "w") as f:
+        with open(os.path.join(self.root, "A.cs"), "w", encoding="utf-8", newline="\n") as f:
             f.write(new)
         cfg = dict(CONFIG, mutate=["**/A.cs{%d..%d}" % (b, len(old))])
         bl = {"projectRoot": "/w/repo", "g3-config": cfg, "files": {"/w/repo/A.cs": {
@@ -292,12 +293,23 @@ class PlanAndMerge(unittest.TestCase):
 
     def test_a_baseline_of_another_config_or_without_one_runs_in_full(self):
         self.assertIsNotNone(inc.plan(self.config, self.baseline, self.root))
-        for other in (dict(CONFIG, thresholds={"break": 60}), dict(CONFIG, mutate=["**/B.cs"]),
+        for other in (dict(CONFIG, mutate=["**/B.cs"]),
                       dict(CONFIG, mutate=["**/A.cs", "**/A.cs"]), dict(CONFIG, **{"test-case-filter": "x"})):
             self.assertIsNone(inc.plan(self.config, dict(self.baseline, **{"g3-config": other}), self.root), other)
         bl = dict(self.baseline)
         del bl["g3-config"]
         self.assertIsNone(inc.plan(self.config, bl, self.root))
+
+    def test_a_baseline_made_under_other_thresholds_is_reused(self):
+        # the thresholds decide only whether the merged score passes; they change no mutant of the run
+        self.assertIsNotNone(inc.plan(self.config, self.baseline, self.root))
+        for other in (dict(CONFIG, thresholds={"break": 60}), dict(CONFIG, thresholds={"break": 10, "low": 20, "high": 90}),
+                      {k: v for k, v in CONFIG.items() if k != "thresholds"}):
+            self.assertEqual(inc.plan(self.config, self.baseline, self.root),
+                             inc.plan(self.config, dict(self.baseline, **{"g3-config": other}), self.root), other)
+        self.assertEqual(inc.reuse_key(CONFIG), inc.reuse_key(dict(CONFIG, thresholds={"break": 60})))
+        # the check of a PR's config edit (select_shards) still sees a threshold change as a change
+        self.assertNotEqual(inc.without_spans(CONFIG), inc.without_spans(dict(CONFIG, thresholds={"break": 60})))
 
     def test_map_offset(self):
         new = OLD.replace("class A {\n", "class A {\n\n")
@@ -317,7 +329,7 @@ class PlanAndMerge(unittest.TestCase):
 
     def write(self, name, doc):
         path = os.path.join(self.root, name)
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(doc, f)
         return path
 
@@ -336,7 +348,7 @@ class PlanAndMerge(unittest.TestCase):
 
     def test_cli_plan_none_and_full(self):
         cfg = self.write("cfg.json", {"stryker-config": self.config})
-        with open(os.path.join(self.root, "A.cs"), "w") as f:
+        with open(os.path.join(self.root, "A.cs"), "w", encoding="utf-8", newline="\n") as f:
             f.write(OLD)
         self.assertIn("plan=none", self.cli("plan", cfg, self.write("bl.json", self.baseline), "run.json")[1])
         self.assertIn("plan=full", self.cli("plan", cfg, os.path.join(self.root, "missing.json"), "run.json")[1])
@@ -358,6 +370,16 @@ class PlanAndMerge(unittest.TestCase):
         self.assertEqual(0, code, out)                   # 2 of 4 = 50 %
         self.assertIn("50.00 %", out)
 
+    def test_cli_merge_judges_against_the_break_of_the_current_config(self):
+        # a baseline stored under a lower break (10) does not lower the break of the current config (50)
+        bl = self.write("bl.json", report(OLD, [mutant(2, "Killed"), mutant(3, "Killed"), mutant(3, "Survived"),
+                                                mutant(4, "Survived"), mutant(1, "Killed", 8), mutant(2, "Ignored")],
+                                          config=dict(CONFIG, thresholds={"break": 10})))
+        bad = self.write("run-bad.json", report(NEW, [mutant(3, "Survived"), mutant(5, "Survived"), mutant(5, "NoCoverage")]))
+        code, out = self.cli("merge", self.write("cfg.json", {"stryker-config": self.config}), bl, bad)
+        self.assertEqual(1, code, out)                   # 1 of 5 = 20 % < 50 (but >= 10)
+        self.assertIn("below the break threshold", out)
+
 
 class RunStryker(unittest.TestCase):
     """run_stryker.sh with a fake dotnet that logs its arguments and writes a report"""
@@ -367,15 +389,16 @@ class RunStryker(unittest.TestCase):
             root = os.path.join(d, "repo")
             work = os.path.join(root, "tests", "mutation")
             os.makedirs(work)
-            with open(os.path.join(root, "A.cs"), "w") as f:
+            with open(os.path.join(root, "A.cs"), "w", encoding="utf-8", newline="\n") as f:
                 f.write(source)
             config = {"mutate": ["**/A.cs"], "thresholds": {"break": 0}}
-            with open(os.path.join(work, "stryker-x.json"), "w") as f:
+            with open(os.path.join(work, "stryker-x.json"), "w", encoding="utf-8", newline="\n") as f:
                 json.dump({"stryker-config": config}, f)
             bindir = os.path.join(d, "bin")
             os.makedirs(bindir)
+            shell_shims.add_python3(bindir)
             run_report = json.dumps(report(NEW, [mutant(3, "Killed")]))
-            with open(os.path.join(bindir, "dotnet"), "w") as f:
+            with open(os.path.join(bindir, "dotnet"), "w", encoding="utf-8", newline="\n") as f:
                 # (slow: the log files Stryker writes with --log-to-file, Stryker's count, `runners` test runs (and a
                 # file that only contains "Runner "), and time for the progress line; late: they appear that many
                 # seconds after Stryker started; rc: the exit code of dotnet stryker after it wrote its report)
@@ -389,7 +412,7 @@ class RunStryker(unittest.TestCase):
             os.chmod(os.path.join(bindir, "dotnet"), 0o755)
             if with_baseline:
                 os.makedirs(os.path.join(work, "baseline"))
-                with open(os.path.join(work, "baseline", "stryker-report.json"), "w") as f:
+                with open(os.path.join(work, "baseline", "stryker-report.json"), "w", encoding="utf-8", newline="\n") as f:
                     json.dump(report(OLD, [mutant(2, "Killed"), mutant(3, "Killed")], config=config), f)
             # (G3_NO_EXCLUDE: the marking of the other sources has its own tests, test_run_stryker_restore.py)
             env = dict(os.environ, PATH=bindir + os.pathsep + os.environ["PATH"], MODE=mode, BASE="abc123",
@@ -473,11 +496,12 @@ class RunStryker(unittest.TestCase):
             work = os.path.join(d, "repo", "tests", "mutation")
             os.makedirs(work)
             config = {"mutate": ["**/A.cs"], "thresholds": {"break": 0}}
-            with open(os.path.join(work, "stryker-x.json"), "w") as f:
+            with open(os.path.join(work, "stryker-x.json"), "w", encoding="utf-8", newline="\n") as f:
                 json.dump({"stryker-config": config}, f)
             bindir = os.path.join(d, "bin")
             os.makedirs(bindir)
-            with open(os.path.join(bindir, "dotnet"), "w") as f:
+            shell_shims.add_python3(bindir)
+            with open(os.path.join(bindir, "dotnet"), "w", encoding="utf-8", newline="\n") as f:
                 f.write("#!/usr/bin/env bash\n" + body)
             os.chmod(os.path.join(bindir, "dotnet"), 0o755)
             env = dict(os.environ, PATH=bindir + os.pathsep + os.environ["PATH"], MODE="full",

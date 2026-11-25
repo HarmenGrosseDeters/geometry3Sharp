@@ -69,10 +69,14 @@ Measured values behind the failures (canonical mm; `-` pass; the pin must clear 
 | screw ratio 1e-5, 1e-6 | repair (ExactResolve; degenerate triangles) and the pipeline's boolean | the screw is gone: one body; `volume` still passes (the screw is about 1e-15 of it) |
 | flange in UTM coordinates (test) | stl | float32 spacing 0.5 at y = 5.7e6: the bore no longer takes the pin |
 
-Diagnosis of the screw loss (`ReferencePartsTests.Screw_AtRatio1e5_PinnedFailure_TheBooleanDropsTheScrew`): `ExactMeshBoolean` itself
-drops the separate screw below a ratio of about 6e-5 (kept at 7e-5): SafeRounding's removal of closed components that are thinner than its
-threshold (`Rounding.RemovedComponents` = 1; `RoundingMaxDisplacement = 1e-9` does not change it; `SafeRounding = false` keeps the screw).
-The screw is a valid solid in the input and the result has no trace of it.
+Diagnosis of the screw loss (`ReferencePartsTests.Screw_AtRatio5e6_PinnedFailure_TheBooleanDropsTheScrew_AndReportsIt`): `ExactMeshBoolean`
+itself drops the separate screw: SafeRounding's removal of closed components (`Rounding.RemovedComponents` = 1; `RoundingMaxDisplacement = 1e-9`
+does not change it; `SafeRounding = false` keeps the screw). Until #1216 that was below a ratio of about 6e-5 (kept at 7e-5), for every
+component thinner than the threshold that the repair had edited. Since #1216 a component the edits left as it was stays, so the screw is
+kept down to a ratio of 2e-5; at 1e-5 its own triangles are below the degenerate area, the repair mangles it and it still goes, now listed
+(`Rounding.RemovedComponentInfos`: `VolumeChanged`, thickness 1.3e-4) with `RoundingClean` false. Since #1464 (the result's ids are given by
+its geometry, so the repair takes its edits in another order) the screw is kept at 1e-5 and 7e-6 as well and goes at 5e-6 (`VolumeChanged`,
+thickness 6.6e-5), the ratio the test pins now. The table above is the run before both changes.
 
 Float32: the STL step changes the measured pin clearance by about 1e-5 mm at offset 1000 (visible, far below the pin's margin of 0.17 mm)
 and the `screwBox` error of the 0.01 mm screw (ratio 1e-4) by 1e-6 .. 3e-5 mm (library 2.263e-4 to 2.256e-4, pipeline 7.42e-4 to 7.75e-4; the

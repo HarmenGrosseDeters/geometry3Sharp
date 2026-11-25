@@ -1,0 +1,37 @@
+sheet role available (ExactMeshBoolean.Roles): True
+
+### What the existing parts give (volume of the result; the cube has 64)
+
+| case | intent | ExactMeshBoolean (open, w > 1/2) | pipeline Refuse | pipeline AutoRepair | pipeline AutoRepairThenRobust | MeshRobustRepair of the sheet, then closed Difference | MeshPlaneCut + FillHoles | ExactMeshImprint | open tool without effect (signal) |
+|---|---|---|---|---|---|---|---|---|---|
+| plane z=2, normals up | 32 | Success 64 WRONG | OpenInput | Success clean 64 WRONG | Success clean 64 WRONG | Success 59.206 WRONG | ok 32 ok | 8 curve edges, 2 regions | pairs 12, unchanged: FLAG; OpenInputsWithoutEffect: 1 |
+| plane z=2, normals down | 32 | Success 64 WRONG | OpenInput | Success clean 64 WRONG | Success clean 64 WRONG | Success 59.206 WRONG | ok 32 ok | 8 curve edges, 2 regions | pairs 12, unchanged: FLAG; OpenInputsWithoutEffect: 1 |
+| tilted plane z = 1 + x/2, up | 32 | Success 64 WRONG | OpenInput | Success clean 64 WRONG | Success clean 64 WRONG | Success 58.002 WRONG | ok 32 ok | 8 curve edges, 2 regions | pairs 12, unchanged: FLAG; OpenInputsWithoutEffect: 1 |
+| bowl (12x12 grid), up | 37.25 | Success 64 WRONG | OpenInput | Success clean 57.573 WRONG | Success clean 57.573 WRONG | Success 57.385 WRONG | - | 36 curve edges, 2 regions | pairs 160, unchanged: FLAG; OpenInputsWithoutEffect: 1 |
+| bucket (opening above), outward | 52 | Success 52 ok | OpenInput | Success clean 52 ok | Success clean 52 ok | Success 52 ok | - | 8 curve edges, 2 regions | pairs 12, changed; OpenInputsWithoutEffect: none |
+| rim on the surface: z=2 on [0,4]^2, up | 32 | Success 64 WRONG | OpenInput | Success clean 64 WRONG | Success clean 64 WRONG | Success 60.924 WRONG | ok 32 ok | 8 curve edges, 2 regions | pairs 12, unchanged: FLAG; OpenInputsWithoutEffect: 1 |
+| half sheet: z=2, x in [-1,2], up | - | Success 64 | OpenInput | Success clean 64 | Success clean 64 | Success 61.587 | ok 32 | 6 curve edges, 1 region | pairs 8, unchanged: FLAG; OpenInputsWithoutEffect: 1 |
+| sheet with a hole [1,3]^2, up | - | Success 64 | OpenInput | Success clean 64 | Success clean 64 | Success 63.909 | ok 32 | 16 curve edges, 2 regions | pairs 112, unchanged: FLAG; OpenInputsWithoutEffect: 1 |
+| disc inside: z=2 on [1,3]^2, up | - | Success 64 | OpenInput | Success clean 64 | Success clean 64 | Success 63.604 | ok 32 | 0 curve edges, 1 region | pairs 0, unchanged, no contact; OpenInputsWithoutEffect: 1 |
+| on the top face: z=4, up | 0 | Success 64 WRONG | OpenInput | Success clean 64 WRONG | Success clean 64 WRONG | Success 61.601 WRONG | ok 0 ok | 5 curve edges, 3 regions | pairs 18, unchanged: FLAG; OpenInputsWithoutEffect: 1 |
+| on the top face: z=4, down | 64 | Success 64 ok | OpenInput | Success clean 64 ok | Success clean 64 ok | Success 61.603 WRONG | ok 64 ok | 5 curve edges, 3 regions | pairs 18, unchanged: FLAG; OpenInputsWithoutEffect: 1 |
+| patch on the top face: z=4 on [1,3]^2, up | - | Success 64 | OpenInput | Success clean 64 | Success clean 64 | Success 63.802 | ok 0 | 5 curve edges, 3 regions | pairs 4, unchanged: FLAG; OpenInputsWithoutEffect: 1 |
+| outside: z=6, up | - | Success 64 | OpenInput | Success clean 64 | Success clean 64 | Success 64 | ok 0 | 0 curve edges, 1 region | pairs 0, unchanged, no contact; OpenInputsWithoutEffect: none |
+
+### MeshRobustRepair of the sheet alone
+
+| case | result path, volume, triangles |
+|---|---|
+| plane z=2, normals up | AlphaWrap vol 10.693 tris 128 |
+| plane z=2, normals down | AlphaWrap vol 10.696 tris 128 |
+| tilted plane z = 1 + x/2, up | AlphaWrap vol 13.723 tris 132 |
+| bowl (12x12 grid), up | Solidify vol 9.245 tris 17506 |
+| bucket (opening above), outward | Repair vol 16 tris 12 |
+| rim on the surface: z=2 on [0,4]^2, up | AlphaWrap vol 3.17 tris 126 |
+| half sheet: z=2, x in [-1,2], up | AlphaWrap vol 4.827 tris 78 |
+| sheet with a hole [1,3]^2, up | AlphaWrap vol 0.204 tris 8926 |
+| disc inside: z=2 on [1,3]^2, up | AlphaWrap vol 0.396 tris 126 |
+| on the top face: z=4, up | AlphaWrap vol 10.729 tris 132 |
+| on the top face: z=4, down | AlphaWrap vol 10.716 tris 130 |
+| patch on the top face: z=4 on [1,3]^2, up | AlphaWrap vol 0.395 tris 128 |
+| outside: z=6, up | AlphaWrap vol 10.734 tris 132 |

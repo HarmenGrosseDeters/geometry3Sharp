@@ -83,7 +83,7 @@ namespace geometry3Sharp.Tests
         {
             yield return ("taper16_x0.1 q0.2", Taper(16), 0.1, 0.2);
             yield return ("taper10_x0.15 q0", Taper(10), 0.15, 0);
-            yield return ("cone24_x0.6 q0.2", Cone(24), 0.6, 0.2);
+            yield return ("cone24_x0.45 q0.2", Cone(24), 0.45, 0.2);     // (at 0.6 the ring check of #1441 leaves the grid nothing to reject)
             yield return ("cone12_x0.15 q0", Cone(12), 0.15, 0);
             yield return ("gear24_3_x1 q0", Gear(24, 0.2, 3), 1.0, 0);
             yield return ("gear40_1_x1 q0", Gear(40, 0.25, 1), 1.0, 0);

@@ -44,6 +44,8 @@ Architecture specifications, algorithm design notes, error-bound derivations, an
 | [ROUNDING_EXACT_PAIRS.md](ROUNDING_EXACT_PAIRS.md) | Skipping pairs already decided by the exact arrangement |
 | [SNAP_ROUNDING_3D.md](SNAP_ROUNDING_3D.md) | Practical 3D snap-rounding leads, falsification runs, and recommendation |
 | [BOOLEAN_PROPERTY_TESTS.md](BOOLEAN_PROPERTY_TESTS.md) | Metamorphic and property-based tests (CsCheck) for booleans |
+| [PIPELINE_GRID_STEP.md](PIPELINE_GRID_STEP.md) | The opt-in Grid step of `SolidBooleanPipeline`: the snapping cell derived from the data (2^12 ulp of the largest coordinate), its limits and prior art |
+| [SHEET_EXTENSION.md](SHEET_EXTENSION.md) | Continuing a cutting sheet that ends just short of the workpiece's surface, per rim edge up to the first exit, verified exactly; diagnosis and helper built (`gs.MeshSheetExtension`), pipeline option (not built) |
 
 ---
 
@@ -56,6 +58,7 @@ Architecture specifications, algorithm design notes, error-bound derivations, an
 | [ALPHA_WRAP_QUALITY.md](ALPHA_WRAP_QUALITY.md) | Alpha wrap quality pass (stage 7b) |
 | [ALPHA_WRAP_ROUNDS.md](ALPHA_WRAP_ROUNDS.md) | Round-based parallel carving determinism and guarantees |
 | [ALPHA_WRAP_FEATURE_VALIDITY.md](ALPHA_WRAP_FEATURE_VALIDITY.md) | Validity theorem and proof for the sharp-feature pass (`AlphaWrapFeaturePass`): checked moves, splits and flips keep the wrap closed, manifold, intersection-free and enclosing |
+| [VARIFOLD_CREASE_INPUT.md](VARIFOLD_CREASE_INPUT.md) | Design (opt-in): varifold creases as the input of the sharp-feature pass on unwelded soups, where the dihedral finds none: a point query at the crease points replacing `near_miter`, radius in alphas; built: unwelded, T-junction, duplicated and flipped soups at the ceiling, jittered ones at the oracle (fitted vertex planes), 7-21 % of the wrap |
 | [PASSAGE_WRAP.md](PASSAGE_WRAP.md) | Clearance-certified wrapping (`PassageWrap`) for open bores/channels |
 | [FINISH_HOLES_COVERAGE.md](FINISH_HOLES_COVERAGE.md) | Procedural coverage of `FinishHoles` |
 | [ROBUST_REPAIR_SCALE_FREE.md](ROBUST_REPAIR_SCALE_FREE.md) | Scale-free `MeshRobustRepair` design note |
@@ -110,6 +113,7 @@ Architecture specifications, algorithm design notes, error-bound derivations, an
 | [TERRAIN_RAMPS.md](TERRAIN_RAMPS.md) | Access ramps as design geometry (`SlopeRamp`) |
 | [TERRAIN_SECTORS.md](TERRAIN_SECTORS.md) | Sector polygons and exterior distance |
 | [TERRAIN_DISTANCE_METRICS.md](TERRAIN_DISTANCE_METRICS.md) | Honest terrain distance metrics |
+| [SLOPE_ENVELOPE_CANONICAL.md](SLOPE_ENVELOPE_CANONICAL.md) | A canonical slope envelope, independent of the construction (stage 1 design) |
 | [TERRAIN_ROUND_TO_GRID.md](TERRAIN_ROUND_TO_GRID.md) | `RoundToGrid` design note for slope design (parked) |
 | [TERRAIN_1A_PLAN.md](TERRAIN_1A_PLAN.md) | Historical completed plan: Terrain phase 1a |
 | [TERRAIN_1B_PLAN.md](TERRAIN_1B_PLAN.md) | Historical completed plan: Terrain phase 1b |
@@ -165,6 +169,7 @@ Architecture specifications, algorithm design notes, error-bound derivations, an
 | [NATIVE_AOT_FEASIBILITY.md](NATIVE_AOT_FEASIBILITY.md) | Native C-ABI interop feasibility via .NET NativeAOT |
 | [CAST_AUDIT_804.md](CAST_AUDIT_804.md) | Historical audit of `double` → integer casts |
 | [DAP_BUGFIX_AUDIT.md](DAP_BUGFIX_AUDIT.md) | Historical bug-fix audit of DAP fork |
+| [BOX3_EXACT_FILTER.md](BOX3_EXACT_FILTER.md) | Exact line, ray and segment against box: the certified double filter, its error bounds and the exact route |
 | [QA20_INVENTORY.md](QA20_INVENTORY.md) | Historical QA 2.0 tools × areas inventory |
 | [QA20_STATUS.md](QA20_STATUS.md) | Historical QA 2.0 rollout status |
 | [RESEARCH_GATES_2026_11_03.md](RESEARCH_GATES_2026_11_03.md) | Historical effort gates for research items 1–3 |

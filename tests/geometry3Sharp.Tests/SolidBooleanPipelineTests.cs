@@ -190,24 +190,208 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void ACubeMinusAnOpenCuttingSheet_IsRefusedByDefault_NotReturnedUnchanged()
+        public void ACubeMinusAnOpenCuttingSheet_StatedAsASolid_IsRefusedByDefault_NotReturnedUnchanged()
         {
             // #1211: [0,4]^3 minus the square sheet z = 2 (larger than the cube). The intended result is a half of the cube;
-            // MeshAutoRepair closes the sheet to a surface that encloses nothing, so with AutoRepair the cube comes back
-            // unchanged (volume 64) with Status Success and a clean report. The default refuses it
+            // MeshAutoRepair closes the sheet to a surface that encloses nothing (its rim filled flat, on the sheet). With the role
+            // Solid stated for the sheet (without a stated role it goes to the sheet role, below) the default refuses it, and so does
+            // AutoRepair since the repaired copy is checked
             var sheet = new DMesh3();
             int a = sheet.AppendVertex(new Vector3d(-1, -1, 2)), b = sheet.AppendVertex(new Vector3d(5, -1, 2)), c = sheet.AppendVertex(new Vector3d(5, 5, 2)), d = sheet.AppendVertex(new Vector3d(-1, 5, 2));
             sheet.AppendTriangle(a, b, c);
             sheet.AppendTriangle(a, c, d);
             DMesh3 cube = new TrivialBox3Generator() { Box = new Box3d(new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(4, 4, 4))) }.Generate().MakeDMesh();
-            var p = new SolidBooleanPipeline(new List<DMesh3> { cube, sheet }, ExactMeshBoolean.Operations.Difference);
+            var solids = new List<ExactMeshBoolean.InputRole> { ExactMeshBoolean.InputRole.Solid, ExactMeshBoolean.InputRole.Solid };
+            var p = new SolidBooleanPipeline(new List<DMesh3> { cube, sheet }, ExactMeshBoolean.Operations.Difference) { InputRoles = solids };
             Assert.False(p.Compute());
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
             Assert.Contains("not closed", p.Error);
-            // the documented hazard of AutoRepair, pinned: the cube unchanged
-            var repaired = new SolidBooleanPipeline(new List<DMesh3> { cube, sheet }, ExactMeshBoolean.Operations.Difference) { InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair };
-            Assert.True(repaired.Compute(), repaired.Error);
-            Assert.Equal(64, MeshMeasurements.VolumeArea(repaired.Result, repaired.Result.TriangleIndices(), repaired.Result.GetVertex).x, 6);
+            Assert.DoesNotContain("as a sheet", p.Error);
+            // the documented hazard of AutoRepair was the cube unchanged (volume 64, Success): the flat fill of the sheet's rim lies on
+            // the sheet, so the closed copy self-intersects (coincident faces), and since owner 2026-11-22 it is refused as OpenInput
+            // (RepairSelfIntersectionTests)
+            var repaired = new SolidBooleanPipeline(new List<DMesh3> { cube, sheet }, ExactMeshBoolean.Operations.Difference) { InputRoles = solids, InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair };
+            Assert.False(repaired.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, repaired.Status);
+            Assert.Contains("MeshAutoRepair closed it into a self-intersecting mesh", repaired.Error);
+            Assert.Null(repaired.Result);
+        }
+
+        // ---- the sheet route: an open tool of a Difference without a stated role goes to the sheet role first ------------------------------------
+
+        static DMesh3 RouteCube(double size) { return new TrivialBox3Generator() { Box = new Box3d(new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(size, size, size))) }.Generate().MakeDMesh(); }
+
+        // the square z = z over [x0, x1]^2, two triangles, the normal up or down
+        static DMesh3 RouteSheet(double z, double x0, double x1, bool up = true)
+        {
+            var m = new DMesh3();
+            int a = m.AppendVertex(new Vector3d(x0, x0, z)), b = m.AppendVertex(new Vector3d(x1, x0, z)), c = m.AppendVertex(new Vector3d(x1, x1, z)), d = m.AppendVertex(new Vector3d(x0, x1, z));
+            if (up) { m.AppendTriangle(a, b, c); m.AppendTriangle(a, c, d); } else { m.AppendTriangle(a, c, b); m.AppendTriangle(a, d, c); }
+            return m;
+        }
+
+        // the box [x0, x1]^2 x [z0, z1] with outward normals and shared vertices; top: with its top face (without: a bucket, open at z1)
+        static DMesh3 RouteBox(double x0, double x1, double z0, double z1, bool top)
+        {
+            var m = new DMesh3();
+            var v = new int[8];
+            for (int k = 0; k < 8; ++k)
+                v[k] = m.AppendVertex(new Vector3d((k & 1) == 0 ? x0 : x1, (k & 2) == 0 ? x0 : x1, (k & 4) == 0 ? z0 : z1));
+            Action<int, int, int, int> quad = (a, b, c, d) => { m.AppendTriangle(v[a], v[b], v[c]); m.AppendTriangle(v[a], v[c], v[d]); };
+            quad(0, 2, 3, 1);       // bottom
+            quad(0, 1, 5, 4);       // y = x0
+            quad(2, 6, 7, 3);       // y = x1
+            quad(0, 4, 6, 2);       // x = x0
+            quad(1, 3, 7, 5);       // x = x1
+            if (top)
+                quad(4, 5, 7, 6);
+            return m;
+        }
+
+        static double RouteVolume(DMesh3 m) { return MeshMeasurements.VolumeArea(m, m.TriangleIndices(), m.GetVertex).x; }
+
+        static void AssertCleanSolid(SolidBooleanPipeline p, double volume, string what)
+        {
+            Assert.True(p.Status == SolidBooleanPipeline.PipelineStatus.Success, what + ": " + p.Status + " " + p.Error);
+            ResultChecks.AssertClosed(p.Result, what);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(p.Result));
+            Assert.Equal("", p.Report.NotCleanReason);
+            Assert.True(Invariance.AllFinite(p.Result), what + ": not finite");
+            Assert.Equal(volume, RouteVolume(p.Result), 9);
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void SheetRoute_ACubeMinusAnOpenSheet_IsHalfTheCube_ByDefault(bool up)
+        {
+            // #1211 with the default settings and no roles: the open tool is a sheet, the cube is cut along it, nothing is repaired
+            foreach (var repair in new[] { SolidBooleanPipeline.InputRepairModes.Refuse, SolidBooleanPipeline.InputRepairModes.AutoRepair, SolidBooleanPipeline.InputRepairModes.AutoRepairThenRobust }) {
+                var p = new SolidBooleanPipeline(new List<DMesh3> { RouteCube(4), RouteSheet(2, -1, 5, up) }, D) { InputRepair = repair };
+                p.Compute();
+                AssertCleanSolid(p, 32, "sheet, up " + up + ", " + repair);
+                Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, p.BooleanStatus);
+                Assert.Empty(p.Report.RepairedInputs);
+                Assert.False(p.Report.InputClosed[1]);
+                // (in front of the sheet stays)
+                Assert.Equal(up ? 2.0 : 0.0, p.Result.Vertices().Min(v => v.z), 12);
+                Assert.Equal(up ? 4.0 : 2.0, p.Result.Vertices().Max(v => v.z), 12);
+            }
+        }
+
+        [Fact]
+        public void SheetRoute_ABucketWhoseRimIsOutside_CutsLikeItsClosedBox_AndWithTheRimInsideFallsBackToTheRepair()
+        {
+            // the bucket [1,3]^2 x [1,5], open at the top, above the cube [0,4]^3: as a sheet it removes what the closed box removes
+            var open = new SolidBooleanPipeline(new List<DMesh3> { RouteCube(4), RouteBox(1, 3, 1, 5, false) }, D);
+            open.Compute();
+            AssertCleanSolid(open, 64 - 12, "bucket, rim outside");
+            Assert.Empty(open.Report.RepairedInputs);
+            var closed = new SolidBooleanPipeline(new List<DMesh3> { RouteCube(4), RouteBox(1, 3, 1, 5, true) }, D);
+            closed.Compute();
+            AssertCleanSolid(closed, 64 - 12, "closed box");
+            // the bucket [1,3]^3 with its rim inside the cube: the sheet role refuses (a free edge inside), and by default the run fails as before,
+            // with the sheet's refusal in the error
+            var inside = new SolidBooleanPipeline(new List<DMesh3> { RouteCube(4), RouteBox(1, 3, 1, 3, false) }, D);
+            Assert.False(inside.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, inside.Status);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.OpenInput, inside.BooleanStatus);
+            Assert.Null(inside.Result);
+            Assert.Contains("not closed", inside.Error);
+            Assert.Contains("RimInsideWorkpiece", inside.Error);
+            // with AutoRepair the fallback closes the bucket (its top) and the closed box is removed: a cavity
+            var repaired = new SolidBooleanPipeline(new List<DMesh3> { RouteCube(4), RouteBox(1, 3, 1, 3, false) }, D) { InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair };
+            repaired.Compute();
+            AssertCleanSolid(repaired, 64 - 8, "bucket, rim inside, AutoRepair");
+            Assert.Single(repaired.Report.RepairedInputs);
+            Assert.Equal(1, repaired.Report.RepairedInputs[0].Index);
+            Assert.Equal("MeshAutoRepair", repaired.Report.RepairedInputs[0].Method);
+        }
+
+        [Fact]
+        public void SheetRoute_OnlyForATool_OfADifference_WithoutAStatedRole()
+        {
+            DMesh3 cube = RouteCube(4), sheet = RouteSheet(2, -1, 5);
+            // a Union and an Intersection with an open input: refused as open, as before
+            foreach (var operation in new[] { U, I }) {
+                var p = new SolidBooleanPipeline(new List<DMesh3> { cube, sheet }, operation);
+                Assert.False(p.Compute());
+                Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
+                Assert.DoesNotContain("as a sheet", p.Error);
+            }
+            // an open first input (the workpiece) with a closed tool: refused as open, as before
+            var first = new SolidBooleanPipeline(new List<DMesh3> { RouteBox(0, 4, 0, 4, false), RouteBox(1, 3, 1, 5, true) }, D);
+            Assert.False(first.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, first.Status);
+            Assert.DoesNotContain("as a sheet", first.Error);
+            // an open workpiece and an open tool: the sheet role needs a closed first input, so the run falls back and is refused as open
+            var both = new SolidBooleanPipeline(new List<DMesh3> { RouteBox(0, 4, 0, 4, false), sheet }, D);
+            Assert.False(both.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, both.Status);
+            Assert.Contains("WorkpieceNotClosed", both.Error);
+            // closed inputs: nothing changes (the same result with and without stated roles)
+            var plain = new SolidBooleanPipeline(new List<DMesh3> { cube, RouteBox(1, 3, 1, 5, true) }, D);
+            var stated = new SolidBooleanPipeline(new List<DMesh3> { cube, RouteBox(1, 3, 1, 5, true) }, D) { InputRoles = new List<ExactMeshBoolean.InputRole> { ExactMeshBoolean.InputRole.Solid, ExactMeshBoolean.InputRole.Solid } };
+            Assert.True(plain.Compute() && stated.Compute());
+            Assert.Equal("", Invariance.Difference(plain.Result, stated.Result));
+        }
+
+        [Fact]
+        public void SheetRoute_InvariantOverTheSimilarities_PowersOfTwoBitForBit()
+        {
+            DMesh3 cube = RouteCube(4), bucket = RouteBox(1, 3, 1, 5, false);
+            var p0 = new SolidBooleanPipeline(new List<DMesh3> { cube, bucket }, D);
+            Assert.True(p0.Compute(), p0.Error);
+            foreach (Similarity s in Similarity.All()) {
+                var p = new SolidBooleanPipeline(new List<DMesh3> { Invariance.Transformed(cube, s), Invariance.Transformed(bucket, s) }, D);
+                Assert.True(p.Compute(), s.Name + ": " + p.Status + " " + p.Error);
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(p.Result));
+                Assert.Empty(p.Report.RepairedInputs);
+                if (s.IsExact)
+                    Assert.Equal("", Invariance.Difference(Invariance.Transformed(p0.Result, s), p.Result));
+                else {
+                    double expected = 52 * s.Scale * s.Scale * s.Scale;
+                    Assert.True(Math.Abs(Invariance.Volume(p.Result) - expected) <= 1e-4 * expected, s.Name + ": the volume");
+                }
+                // the fallback is the same in every frame: the rim inside is refused
+                var refused = new SolidBooleanPipeline(new List<DMesh3> { Invariance.Transformed(cube, s), Invariance.Transformed(RouteBox(1, 3, 1, 3, false), s) }, D);
+                Assert.False(refused.Compute());
+                Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, refused.Status);
+                Assert.Contains("RimInsideWorkpiece", refused.Error);
+            }
+        }
+
+        [Fact]
+        public void SheetRoute_Reuse_AndParallelEqualsSerial()
+        {
+            var p = new SolidBooleanPipeline(new List<DMesh3> { RouteCube(4), RouteBox(1, 3, 1, 5, false) }, D);
+            Assert.True(p.Compute(), p.Error);
+            DMesh3 first = new DMesh3(p.Result);
+            Assert.True(p.Compute(), p.Error);
+            Assert.Equal("", Invariance.Difference(first, p.Result));
+            // a refused sheet on the same instance, then the first tool again: no state is left over
+            p.Inputs[1] = RouteBox(1, 3, 1, 3, false);
+            Assert.False(p.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
+            Assert.Null(p.Result);
+            p.Inputs[1] = RouteBox(1, 3, 1, 5, false);
+            Assert.True(p.Compute(), p.Error);
+            Assert.Equal("", Invariance.Difference(first, p.Result));
+            Assert.Equal(ExactMeshBoolean.SheetRefusal.None, p.SheetReason);
+            // serial and parallel, repeated
+            gParallel.SerialOnThisThread = true;
+            try {
+                var serial = new SolidBooleanPipeline(new List<DMesh3> { RouteCube(4), RouteBox(1, 3, 1, 5, false) }, D);
+                Assert.True(serial.Compute(), serial.Error);
+                Assert.Equal("", Invariance.Difference(first, serial.Result));
+            } finally {
+                gParallel.SerialOnThisThread = false;
+            }
+            for (int run = 0; run < 3; ++run) {
+                var again = new SolidBooleanPipeline(new List<DMesh3> { RouteCube(4), RouteBox(1, 3, 1, 5, false) }, D);
+                Assert.True(again.Compute(), again.Error);
+                Assert.Equal("", Invariance.Difference(first, again.Result));
+            }
         }
 
         [Fact]

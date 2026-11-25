@@ -1,0 +1,186 @@
+input=box alpha_den=4 offset_rel=0,001 variant=wrap status=Success tris=666 ms=34,94 verdict=clean vol_err=0,01164 h_res_in=0,01282 h_in_res=0,01294
+input=box alpha_den=4 offset_rel=0,001 variant=naive tris=666 verdict=degenerate triangles vol_err=-4,737E-16 h_res_in=0,0004767 h_in_res=0,0006147
+input=box alpha_den=4 offset_rel=0,001 variant=safe tris=666 verdict=clean vol_err=2,405E-07 h_res_in=0,001324 h_in_res=0,001315
+input=box alpha_den=4 offset_rel=0,0001 variant=wrap status=Success tris=836 ms=45,44 verdict=clean vol_err=0,001138 h_res_in=0,001233 h_in_res=0,001294
+input=box alpha_den=4 offset_rel=0,0001 variant=naive tris=836 verdict=clean vol_err=-8,29E-16 h_res_in=5,906E-05 h_in_res=6,162E-05
+input=box alpha_den=4 offset_rel=0,0001 variant=safe tris=836 verdict=clean vol_err=-8,29E-16 h_res_in=5,906E-05 h_in_res=6,162E-05
+input=box alpha_den=4 offset_rel=1E-05 variant=wrap status=Success tris=1038 ms=47,28 verdict=clean vol_err=0,0001154 h_res_in=0,0001233 h_in_res=0,0001294
+input=box alpha_den=4 offset_rel=1E-05 variant=naive tris=1038 verdict=clean vol_err=-1,421E-15 h_res_in=3,688E-06 h_in_res=6,161E-06
+input=box alpha_den=4 offset_rel=1E-05 variant=safe tris=1038 verdict=clean vol_err=-1,421E-15 h_res_in=3,688E-06 h_in_res=6,161E-06
+input=box alpha_den=20 offset_rel=0,001 variant=wrap status=Success tris=1822 ms=81,14 verdict=clean vol_err=0,01211 h_res_in=0,01233 h_in_res=0,01295
+input=box alpha_den=20 offset_rel=0,001 variant=naive tris=1822 verdict=degenerate triangles vol_err=-1,604E-07 h_res_in=0,004771 h_in_res=0,006389
+input=box alpha_den=20 offset_rel=0,001 variant=safe tris=1822 verdict=clean vol_err=2,909E-08 h_res_in=0,004771 h_in_res=0,006389
+input=box alpha_den=20 offset_rel=0,0001 variant=wrap status=Success tris=5734 ms=110,1 verdict=clean vol_err=0,001233 h_res_in=0,001233 h_in_res=0,001295
+input=box alpha_den=20 offset_rel=0,0001 variant=naive tris=5734 verdict=degenerate triangles vol_err=-1,421E-15 h_res_in=5,27E-05 h_in_res=6,164E-05
+input=box alpha_den=20 offset_rel=0,0001 variant=safe tris=5734 verdict=clean vol_err=1,167E-08 h_res_in=0,0001054 h_in_res=0,0001385
+input=box alpha_den=20 offset_rel=1E-05 variant=wrap status=Success tris=7454 ms=100,6 verdict=clean vol_err=0,0001236 h_res_in=0,0001233 h_in_res=0,0001295
+input=box alpha_den=20 offset_rel=1E-05 variant=naive tris=7454 verdict=degenerate triangles vol_err=-9,829E-15 h_res_in=4,69E-06 h_in_res=6,164E-06
+input=box alpha_den=20 offset_rel=1E-05 variant=safe tris=7454 verdict=clean vol_err=7,588E-11 h_res_in=1,339E-05 h_in_res=1,386E-05
+input=box alpha_den=100 offset_rel=0,001 variant=wrap status=Success tris=22744 ms=241,9 verdict=clean vol_err=0,01265 h_res_in=0,01233 h_in_res=0,01295
+input=box alpha_den=100 offset_rel=0,001 variant=naive tris=22744 verdict=clean vol_err=-2,517E-07 h_res_in=0,005857 h_in_res=0,00783
+input=box alpha_den=100 offset_rel=0,001 variant=safe tris=22744 verdict=clean vol_err=-2,517E-07 h_res_in=0,005857 h_in_res=0,00783
+input=box alpha_den=100 offset_rel=0,0001 variant=wrap status=Success tris=37318 ms=538,3 verdict=clean vol_err=0,001266 h_res_in=0,001277 h_in_res=0,001295
+input=box alpha_den=100 offset_rel=0,0001 variant=naive tris=37318 verdict=degenerate triangles vol_err=-2,875E-10 h_res_in=0,0004726 h_in_res=0,0007033
+input=box alpha_den=100 offset_rel=0,0001 variant=safe tris=37318 verdict=clean vol_err=7,54E-09 h_res_in=0,001233 h_in_res=0,001233
+input=box alpha_den=100 offset_rel=1E-05 variant=wrap status=Success tris=56134 ms=763,9 verdict=clean vol_err=0,0001268 h_res_in=0,0001233 h_in_res=0,0001295
+input=box alpha_den=100 offset_rel=1E-05 variant=naive tris=56134 verdict=degenerate triangles vol_err=-8,053E-14 h_res_in=3,428E-05 h_in_res=4,23E-05
+input=box alpha_den=100 offset_rel=1E-05 variant=safe tris=56134 verdict=clean vol_err=4,085E-11 h_res_in=3,428E-05 h_in_res=4,23E-05
+input=lshape alpha_den=4 offset_rel=0,001 variant=wrap status=Success tris=46 ms=3,83 verdict=clean vol_err=0,1086 h_res_in=2,502 h_in_res=1,937
+input=lshape alpha_den=4 offset_rel=0,001 variant=naive tris=46 verdict=clean vol_err=0,09716 h_res_in=2,5 h_in_res=1,926
+input=lshape alpha_den=4 offset_rel=0,001 variant=safe tris=46 verdict=clean vol_err=0,09716 h_res_in=2,5 h_in_res=1,926
+input=lshape alpha_den=4 offset_rel=0,0001 variant=wrap status=Success tris=46 ms=6,553 verdict=clean vol_err=0,09836 h_res_in=2,5 h_in_res=1,927
+input=lshape alpha_den=4 offset_rel=0,0001 variant=naive tris=46 verdict=clean vol_err=0,09722 h_res_in=2,5 h_in_res=1,926
+input=lshape alpha_den=4 offset_rel=0,0001 variant=safe tris=46 verdict=clean vol_err=0,09722 h_res_in=2,5 h_in_res=1,926
+input=lshape alpha_den=4 offset_rel=1E-05 variant=wrap status=Success tris=46 ms=3,92 verdict=clean vol_err=0,09734 h_res_in=2,5 h_in_res=1,926
+input=lshape alpha_den=4 offset_rel=1E-05 variant=naive tris=46 verdict=clean vol_err=0,09722 h_res_in=2,5 h_in_res=1,926
+input=lshape alpha_den=4 offset_rel=1E-05 variant=safe tris=46 verdict=clean vol_err=0,09722 h_res_in=2,5 h_in_res=1,926
+input=lshape alpha_den=20 offset_rel=0,001 variant=wrap status=Success tris=2100 ms=26,67 verdict=clean vol_err=0,01744 h_res_in=0,446 h_in_res=0,5263
+input=lshape alpha_den=20 offset_rel=0,001 variant=naive tris=2100 verdict=degenerate triangles vol_err=0,002985 h_res_in=0,4392 h_in_res=0,5177
+input=lshape alpha_den=20 offset_rel=0,001 variant=safe tris=2100 verdict=clean vol_err=0,002986 h_res_in=0,4392 h_in_res=0,5177
+input=lshape alpha_den=20 offset_rel=0,0001 variant=wrap status=Success tris=5606 ms=95,87 verdict=clean vol_err=0,004277 h_res_in=0,4064 h_in_res=0,4869
+input=lshape alpha_den=20 offset_rel=0,0001 variant=naive tris=5606 verdict=degenerate triangles vol_err=0,002814 h_res_in=0,4058 h_in_res=0,4858
+input=lshape alpha_den=20 offset_rel=0,0001 variant=safe tris=5606 verdict=clean vol_err=0,002814 h_res_in=0,4058 h_in_res=0,4858
+input=lshape alpha_den=20 offset_rel=1E-05 variant=wrap status=Success tris=7244 ms=92,7 verdict=clean vol_err=0,002212 h_res_in=0,373 h_in_res=0,4827
+input=lshape alpha_den=20 offset_rel=1E-05 variant=naive tris=7244 verdict=degenerate triangles vol_err=0,002065 h_res_in=0,373 h_in_res=0,4826
+input=lshape alpha_den=20 offset_rel=1E-05 variant=safe tris=7244 verdict=clean vol_err=0,002065 h_res_in=0,373 h_in_res=0,4826
+input=lshape alpha_den=100 offset_rel=0,001 variant=wrap status=Success tris=20292 ms=185,7 verdict=clean vol_err=0,01516 h_res_in=0,1024 h_in_res=0,141
+input=lshape alpha_den=100 offset_rel=0,001 variant=naive tris=20292 verdict=degenerate triangles vol_err=0,0001236 h_res_in=0,0953 h_in_res=0,1314
+input=lshape alpha_den=100 offset_rel=0,001 variant=safe tris=20292 verdict=clean vol_err=0,0001236 h_res_in=0,0953 h_in_res=0,1314
+input=lshape alpha_den=100 offset_rel=0,0001 variant=wrap status=Success tris=33250 ms=406,4 verdict=clean vol_err=0,00161 h_res_in=0,09725 h_in_res=0,1242
+input=lshape alpha_den=100 offset_rel=0,0001 variant=naive tris=33250 verdict=degenerate triangles vol_err=0,0001052 h_res_in=0,09651 h_in_res=0,1233
+input=lshape alpha_den=100 offset_rel=0,0001 variant=safe tris=33250 verdict=clean vol_err=0,0001052 h_res_in=0,09651 h_in_res=0,1233
+input=lshape alpha_den=100 offset_rel=1E-05 variant=wrap status=Success tris=57416 ms=877,5 verdict=clean vol_err=0,0002455 h_res_in=0,08728 h_in_res=0,1068
+input=lshape alpha_den=100 offset_rel=1E-05 variant=naive tris=57416 verdict=degenerate triangles vol_err=9,464E-05 h_res_in=0,08721 h_in_res=0,1067
+input=lshape alpha_den=100 offset_rel=1E-05 variant=safe tris=57416 verdict=clean vol_err=9,464E-05 h_res_in=0,08721 h_in_res=0,1067
+input=slot0.20 alpha_den=4 offset_rel=0,001 variant=wrap status=Success tris=342 ms=6,229 verdict=clean vol_err=0,1529 h_res_in=1,234 h_in_res=2,012
+input=slot0.20 alpha_den=4 offset_rel=0,001 variant=naive tris=342 verdict=clean vol_err=0,1406 h_res_in=1,233 h_in_res=2
+input=slot0.20 alpha_den=4 offset_rel=0,001 variant=safe tris=342 verdict=clean vol_err=0,1406 h_res_in=1,233 h_in_res=2
+input=slot0.20 alpha_den=4 offset_rel=0,0001 variant=wrap status=Success tris=460 ms=8,964 verdict=clean vol_err=0,1418 h_res_in=1,233 h_in_res=2,001
+input=slot0.20 alpha_den=4 offset_rel=0,0001 variant=naive tris=460 verdict=clean vol_err=0,1406 h_res_in=1,233 h_in_res=2
+input=slot0.20 alpha_den=4 offset_rel=0,0001 variant=safe tris=460 verdict=clean vol_err=0,1406 h_res_in=1,233 h_in_res=2
+input=slot0.20 alpha_den=4 offset_rel=1E-05 variant=wrap status=Success tris=610 ms=7,447 verdict=clean vol_err=0,1407 h_res_in=1,233 h_in_res=2
+input=slot0.20 alpha_den=4 offset_rel=1E-05 variant=naive tris=610 verdict=clean vol_err=0,1406 h_res_in=1,233 h_in_res=2
+input=slot0.20 alpha_den=4 offset_rel=1E-05 variant=safe tris=610 verdict=clean vol_err=0,1406 h_res_in=1,233 h_in_res=2
+input=slot0.20 alpha_den=20 offset_rel=0,001 variant=wrap status=Success tris=2392 ms=33,84 verdict=clean vol_err=0,01981 h_res_in=0,4094 h_in_res=0,5024
+input=slot0.20 alpha_den=20 offset_rel=0,001 variant=naive tris=2392 verdict=degenerate triangles vol_err=0,005675 h_res_in=0,4034 h_in_res=0,4946
+input=slot0.20 alpha_den=20 offset_rel=0,001 variant=safe tris=2392 verdict=clean vol_err=0,005676 h_res_in=0,4034 h_in_res=0,4946
+input=slot0.20 alpha_den=20 offset_rel=0,0001 variant=wrap status=Success tris=7230 ms=86,55 verdict=clean vol_err=0,006729 h_res_in=0,373 h_in_res=0,4494
+input=slot0.20 alpha_den=20 offset_rel=0,0001 variant=naive tris=7230 verdict=degenerate triangles vol_err=0,005293 h_res_in=0,3724 h_in_res=0,4486
+input=slot0.20 alpha_den=20 offset_rel=0,0001 variant=safe tris=7230 verdict=clean vol_err=0,005293 h_res_in=0,3724 h_in_res=0,4486
+input=slot0.20 alpha_den=20 offset_rel=1E-05 variant=wrap status=Success tris=6730 ms=61,01 verdict=clean vol_err=0,006363 h_res_in=0,3681 h_in_res=0,4587
+input=slot0.20 alpha_den=20 offset_rel=1E-05 variant=naive tris=6730 verdict=degenerate triangles vol_err=0,006221 h_res_in=0,368 h_in_res=0,4586
+input=slot0.20 alpha_den=20 offset_rel=1E-05 variant=safe tris=6730 verdict=clean vol_err=0,006221 h_res_in=0,368 h_in_res=0,4586
+input=slot0.20 alpha_den=100 offset_rel=0,001 variant=wrap status=Success tris=23970 ms=221,4 verdict=clean vol_err=0,01511 h_res_in=0,09274 h_in_res=0,114
+input=slot0.20 alpha_den=100 offset_rel=0,001 variant=naive tris=23970 verdict=degenerate triangles vol_err=0,000226 h_res_in=0,08669 h_in_res=0,1064
+input=slot0.20 alpha_den=100 offset_rel=0,001 variant=safe tris=23970 verdict=clean vol_err=0,000226 h_res_in=0,08669 h_in_res=0,1064
+input=slot0.20 alpha_den=100 offset_rel=0,0001 variant=wrap status=Success tris=42542 ms=589,1 verdict=clean vol_err=0,001707 h_res_in=0,08178 h_in_res=0,1072
+input=slot0.20 alpha_den=100 offset_rel=0,0001 variant=naive tris=42542 verdict=degenerate triangles vol_err=0,0002157 h_res_in=0,08117 h_in_res=0,1063
+input=slot0.20 alpha_den=100 offset_rel=0,0001 variant=safe tris=42542 verdict=clean vol_err=0,0002157 h_res_in=0,08117 h_in_res=0,1063
+input=slot0.20 alpha_den=100 offset_rel=1E-05 variant=wrap status=Success tris=61946 ms=766,3 verdict=clean vol_err=0,0003564 h_res_in=0,08453 h_in_res=0,1091
+input=slot0.20 alpha_den=100 offset_rel=1E-05 variant=naive tris=61946 verdict=degenerate triangles vol_err=0,0002072 h_res_in=0,08447 h_in_res=0,109
+input=slot0.20 alpha_den=100 offset_rel=1E-05 variant=safe tris=61946 verdict=clean vol_err=0,0002072 h_res_in=0,08447 h_in_res=0,109
+input=slot0.05 alpha_den=4 offset_rel=0,001 variant=wrap status=Success tris=634 ms=14,83 verdict=clean vol_err=0,04327 h_res_in=0,3091 h_in_res=2,013
+input=slot0.05 alpha_den=4 offset_rel=0,001 variant=naive tris=634 verdict=degenerate triangles vol_err=0,0318 h_res_in=0,3088 h_in_res=2
+input=slot0.05 alpha_den=4 offset_rel=0,001 variant=safe tris=634 verdict=clean vol_err=0,0318 h_res_in=0,3088 h_in_res=2
+input=slot0.05 alpha_den=4 offset_rel=0,0001 variant=wrap status=Success tris=954 ms=10,53 verdict=clean vol_err=0,03297 h_res_in=0,3083 h_in_res=2,001
+input=slot0.05 alpha_den=4 offset_rel=0,0001 variant=naive tris=954 verdict=degenerate triangles vol_err=0,0318 h_res_in=0,3083 h_in_res=2
+input=slot0.05 alpha_den=4 offset_rel=0,0001 variant=safe tris=954 verdict=clean vol_err=0,0318 h_res_in=0,3083 h_in_res=2
+input=slot0.05 alpha_den=4 offset_rel=1E-05 variant=wrap status=Success tris=1042 ms=13,55 verdict=clean vol_err=0,03192 h_res_in=0,3082 h_in_res=2
+input=slot0.05 alpha_den=4 offset_rel=1E-05 variant=naive tris=1042 verdict=clean vol_err=0,0318 h_res_in=0,3082 h_in_res=2
+input=slot0.05 alpha_den=4 offset_rel=1E-05 variant=safe tris=1042 verdict=clean vol_err=0,0318 h_res_in=0,3082 h_in_res=2
+input=slot0.05 alpha_den=20 offset_rel=0,001 variant=wrap status=Success tris=2010 ms=25,19 verdict=clean vol_err=0,04428 h_res_in=0,3091 h_in_res=2,013
+input=slot0.05 alpha_den=20 offset_rel=0,001 variant=naive tris=2010 verdict=degenerate triangles vol_err=0,0318 h_res_in=0,3088 h_in_res=2
+input=slot0.05 alpha_den=20 offset_rel=0,001 variant=safe tris=2010 verdict=clean vol_err=0,0318 h_res_in=0,3088 h_in_res=2
+input=slot0.05 alpha_den=20 offset_rel=0,0001 variant=wrap status=Success tris=5398 ms=80,14 verdict=clean vol_err=0,03307 h_res_in=0,3083 h_in_res=2,001
+input=slot0.05 alpha_den=20 offset_rel=0,0001 variant=naive tris=5398 verdict=degenerate triangles vol_err=0,0318 h_res_in=0,3083 h_in_res=2
+input=slot0.05 alpha_den=20 offset_rel=0,0001 variant=safe tris=5398 verdict=clean vol_err=0,0318 h_res_in=0,3083 h_in_res=2
+input=slot0.05 alpha_den=20 offset_rel=1E-05 variant=wrap status=Success tris=6732 ms=72,14 verdict=clean vol_err=0,03193 h_res_in=0,3082 h_in_res=2
+input=slot0.05 alpha_den=20 offset_rel=1E-05 variant=naive tris=6732 verdict=degenerate triangles vol_err=0,0318 h_res_in=0,3082 h_in_res=2
+input=slot0.05 alpha_den=20 offset_rel=1E-05 variant=safe tris=6732 verdict=clean vol_err=0,0318 h_res_in=0,3082 h_in_res=2
+input=slot0.05 alpha_den=100 offset_rel=0,001 variant=wrap status=Success tris=24876 ms=303,7 verdict=clean vol_err=0,01429 h_res_in=0,08941 h_in_res=0,1217
+input=slot0.05 alpha_den=100 offset_rel=0,001 variant=naive tris=24876 verdict=degenerate triangles vol_err=0,0002401 h_res_in=0,08297 h_in_res=0,1133
+input=slot0.05 alpha_den=100 offset_rel=0,001 variant=safe tris=24876 verdict=clean vol_err=0,0002401 h_res_in=0,08297 h_in_res=0,1133
+input=slot0.05 alpha_den=100 offset_rel=0,0001 variant=wrap status=Success tris=41978 ms=529,6 verdict=clean vol_err=0,001613 h_res_in=0,08309 h_in_res=0,1094
+input=slot0.05 alpha_den=100 offset_rel=0,0001 variant=naive tris=41978 verdict=degenerate triangles vol_err=0,0002062 h_res_in=0,08247 h_in_res=0,1086
+input=slot0.05 alpha_den=100 offset_rel=0,0001 variant=safe tris=41978 verdict=clean vol_err=0,0002062 h_res_in=0,08247 h_in_res=0,1086
+input=slot0.05 alpha_den=100 offset_rel=1E-05 variant=wrap status=Success tris=65560 ms=927,8 verdict=clean vol_err=0,0003232 h_res_in=0,0802 h_in_res=0,09903
+input=slot0.05 alpha_den=100 offset_rel=1E-05 variant=naive tris=65560 verdict=degenerate triangles vol_err=0,0001822 h_res_in=0,08013 h_in_res=0,09894
+input=slot0.05 alpha_den=100 offset_rel=1E-05 variant=safe tris=65560 verdict=clean vol_err=0,0001822 h_res_in=0,08013 h_in_res=0,09894
+input=slot0.01 alpha_den=4 offset_rel=0,001 variant=wrap status=Success tris=876 ms=13,33 verdict=clean vol_err=0,01807 h_res_in=0,06348 h_in_res=2,013
+input=slot0.01 alpha_den=4 offset_rel=0,001 variant=naive tris=876 verdict=degenerate triangles vol_err=0,006203 h_res_in=0,06226 h_in_res=2
+input=slot0.01 alpha_den=4 offset_rel=0,001 variant=safe tris=876 verdict=clean vol_err=0,006203 h_res_in=0,06226 h_in_res=2
+input=slot0.01 alpha_den=4 offset_rel=0,0001 variant=wrap status=Success tris=1108 ms=10,57 verdict=clean vol_err=0,007367 h_res_in=0,06172 h_in_res=2,001
+input=slot0.01 alpha_den=4 offset_rel=0,0001 variant=naive tris=1108 verdict=degenerate triangles vol_err=0,006203 h_res_in=0,06171 h_in_res=2
+input=slot0.01 alpha_den=4 offset_rel=0,0001 variant=safe tris=1108 verdict=clean vol_err=0,006203 h_res_in=0,06171 h_in_res=2
+input=slot0.01 alpha_den=4 offset_rel=1E-05 variant=wrap status=Success tris=1276 ms=16,23 verdict=clean vol_err=0,00632 h_res_in=0,06165 h_in_res=2
+input=slot0.01 alpha_den=4 offset_rel=1E-05 variant=naive tris=1276 verdict=clean vol_err=0,006203 h_res_in=0,06165 h_in_res=2
+input=slot0.01 alpha_den=4 offset_rel=1E-05 variant=safe tris=1276 verdict=clean vol_err=0,006203 h_res_in=0,06165 h_in_res=2
+input=slot0.01 alpha_den=20 offset_rel=0,001 variant=wrap status=Success tris=2092 ms=27,26 verdict=clean vol_err=0,01843 h_res_in=0,06348 h_in_res=2,013
+input=slot0.01 alpha_den=20 offset_rel=0,001 variant=naive tris=2092 verdict=degenerate triangles vol_err=0,006203 h_res_in=0,06226 h_in_res=2,001
+input=slot0.01 alpha_den=20 offset_rel=0,001 variant=safe tris=2092 verdict=clean vol_err=0,006203 h_res_in=0,06226 h_in_res=2,001
+input=slot0.01 alpha_den=20 offset_rel=0,0001 variant=wrap status=Success tris=6026 ms=68,15 verdict=clean vol_err=0,007444 h_res_in=0,06172 h_in_res=2,001
+input=slot0.01 alpha_den=20 offset_rel=0,0001 variant=naive tris=6026 verdict=degenerate triangles vol_err=0,006203 h_res_in=0,06171 h_in_res=2
+input=slot0.01 alpha_den=20 offset_rel=0,0001 variant=safe tris=6026 verdict=clean vol_err=0,006203 h_res_in=0,06171 h_in_res=2
+input=slot0.01 alpha_den=20 offset_rel=1E-05 variant=wrap status=Success tris=5880 ms=62,29 verdict=clean vol_err=0,006327 h_res_in=0,06165 h_in_res=2
+input=slot0.01 alpha_den=20 offset_rel=1E-05 variant=naive tris=5880 verdict=degenerate triangles vol_err=0,006203 h_res_in=0,06165 h_in_res=2
+input=slot0.01 alpha_den=20 offset_rel=1E-05 variant=safe tris=5880 verdict=clean vol_err=0,006203 h_res_in=0,06165 h_in_res=2
+input=slot0.01 alpha_den=100 offset_rel=0,001 variant=wrap status=Success tris=22796 ms=177,7 verdict=clean vol_err=0,01892 h_res_in=0,06348 h_in_res=2,013
+input=slot0.01 alpha_den=100 offset_rel=0,001 variant=naive tris=22796 verdict=degenerate triangles vol_err=0,006202 h_res_in=0,06226 h_in_res=2,001
+input=slot0.01 alpha_den=100 offset_rel=0,001 variant=safe tris=22796 verdict=clean vol_err=0,006202 h_res_in=0,06226 h_in_res=2,001
+input=slot0.01 alpha_den=100 offset_rel=0,0001 variant=wrap status=Success tris=36040 ms=300,8 verdict=clean vol_err=0,007475 h_res_in=0,06172 h_in_res=2,001
+input=slot0.01 alpha_den=100 offset_rel=0,0001 variant=naive tris=36040 verdict=degenerate triangles vol_err=0,006203 h_res_in=0,06171 h_in_res=2
+input=slot0.01 alpha_den=100 offset_rel=0,0001 variant=safe tris=36040 verdict=clean vol_err=0,006203 h_res_in=0,06171 h_in_res=2
+input=slot0.01 alpha_den=100 offset_rel=1E-05 variant=wrap status=Success tris=53786 ms=458,3 verdict=clean vol_err=0,00633 h_res_in=0,06165 h_in_res=2
+input=slot0.01 alpha_den=100 offset_rel=1E-05 variant=naive tris=53786 verdict=degenerate triangles vol_err=0,006203 h_res_in=0,06165 h_in_res=2
+input=slot0.01 alpha_den=100 offset_rel=1E-05 variant=safe tris=53786 verdict=clean vol_err=0,006203 h_res_in=0,06165 h_in_res=2
+input=plate1e-2 alpha_den=4 offset_rel=0,001 variant=wrap status=Success tris=1408 ms=14,42 verdict=clean vol_err=0,2032 h_res_in=0,01477 h_in_res=0,01485
+input=plate1e-2 alpha_den=4 offset_rel=0,001 variant=naive tris=1408 verdict=degenerate triangles vol_err=1,382E-15 h_res_in=0,0006786 h_in_res=0,0007068
+input=plate1e-2 alpha_den=4 offset_rel=0,001 variant=safe tris=1408 verdict=clean vol_err=0,0001038 h_res_in=0,004914 h_in_res=0,003234
+input=plate1e-2 alpha_den=4 offset_rel=0,0001 variant=wrap status=Success tris=3084 ms=29,92 verdict=clean vol_err=0,0202 h_res_in=0,00147 h_in_res=0,001485
+input=plate1e-2 alpha_den=4 offset_rel=0,0001 variant=naive tris=3084 verdict=degenerate triangles vol_err=2,135E-15 h_res_in=6,905E-05 h_in_res=7,071E-05
+input=plate1e-2 alpha_den=4 offset_rel=0,0001 variant=safe tris=3084 verdict=clean vol_err=7,949E-07 h_res_in=0,000203 h_in_res=0,0001937
+input=plate1e-2 alpha_den=4 offset_rel=1E-05 variant=wrap status=Success tris=2494 ms=37,08 verdict=clean vol_err=0,002018 h_res_in=0,0001483 h_in_res=0,0001485
+input=plate1e-2 alpha_den=4 offset_rel=1E-05 variant=naive tris=2494 verdict=clean vol_err=1,633E-15 h_res_in=6,893E-06 h_in_res=7,071E-06
+input=plate1e-2 alpha_den=4 offset_rel=1E-05 variant=safe tris=2494 verdict=clean vol_err=1,633E-15 h_res_in=6,893E-06 h_in_res=7,071E-06
+input=plate1e-2 alpha_den=20 offset_rel=0,001 variant=wrap status=Success tris=2588 ms=31,9 verdict=clean vol_err=0,2025 h_res_in=0,01475 h_in_res=0,01485
+input=plate1e-2 alpha_den=20 offset_rel=0,001 variant=naive tris=2588 verdict=degenerate triangles vol_err=-1,382E-15 h_res_in=0,000688 h_in_res=0,000707
+input=plate1e-2 alpha_den=20 offset_rel=0,001 variant=safe tris=2588 verdict=clean vol_err=1,109E-05 h_res_in=0,001559 h_in_res=0,001584
+input=plate1e-2 alpha_den=20 offset_rel=0,0001 variant=wrap status=Success tris=4510 ms=59,81 verdict=clean vol_err=0,02022 h_res_in=0,001484 h_in_res=0,001485
+input=plate1e-2 alpha_den=20 offset_rel=0,0001 variant=naive tris=4510 verdict=degenerate triangles vol_err=2,01E-15 h_res_in=6,935E-05 h_in_res=7,071E-05
+input=plate1e-2 alpha_den=20 offset_rel=0,0001 variant=safe tris=4510 verdict=clean vol_err=1,472E-07 h_res_in=0,0001938 h_in_res=0,0002024
+input=plate1e-2 alpha_den=20 offset_rel=1E-05 variant=wrap status=Success tris=5432 ms=51,39 verdict=clean vol_err=0,002022 h_res_in=0,0001454 h_in_res=0,0001485
+input=plate1e-2 alpha_den=20 offset_rel=1E-05 variant=naive tris=5432 verdict=degenerate triangles vol_err=2,135E-15 h_res_in=7,058E-06 h_in_res=7,071E-06
+input=plate1e-2 alpha_den=20 offset_rel=1E-05 variant=safe tris=5432 verdict=clean vol_err=3,338E-10 h_res_in=1,588E-05 h_in_res=1,59E-05
+input=plate1e-2 alpha_den=100 offset_rel=0,001 variant=wrap status=Success tris=14528 ms=119,4 verdict=clean vol_err=0,2035 h_res_in=0,0145 h_in_res=0,01485
+input=plate1e-2 alpha_den=100 offset_rel=0,001 variant=naive tris=14528 verdict=clean vol_err=-5,547E-06 h_res_in=0,00725 h_in_res=0,008301
+input=plate1e-2 alpha_den=100 offset_rel=0,001 variant=safe tris=14528 verdict=clean vol_err=-5,547E-06 h_res_in=0,00725 h_in_res=0,008301
+input=plate1e-2 alpha_den=100 offset_rel=0,0001 variant=wrap status=Success tris=23514 ms=302,4 verdict=clean vol_err=0,02038 h_res_in=0,001484 h_in_res=0,001485
+input=plate1e-2 alpha_den=100 offset_rel=0,0001 variant=naive tris=23514 verdict=degenerate triangles vol_err=-2,44E-09 h_res_in=0,0002287 h_in_res=0,0002998
+input=plate1e-2 alpha_den=100 offset_rel=0,0001 variant=safe tris=23514 verdict=clean vol_err=1,572E-07 h_res_in=0,0002245 h_in_res=0,0002998
+input=plate1e-2 alpha_den=100 offset_rel=1E-05 variant=wrap status=Success tris=35472 ms=315,3 verdict=clean vol_err=0,00204 h_res_in=0,0001483 h_in_res=0,0007097
+input=plate1e-2 alpha_den=100 offset_rel=1E-05 variant=naive tris=35472 verdict=degenerate triangles vol_err=-3,966E-12 h_res_in=2,997E-05 h_in_res=0,001363
+input=plate1e-2 alpha_den=100 offset_rel=1E-05 variant=safe tris=35472 verdict=clean vol_err=1,015E-09 h_res_in=2,997E-05 h_in_res=0,001526
+input=plate1e-3 alpha_den=4 offset_rel=0,001 variant=wrap status=Success tris=2738 ms=30,94 verdict=clean vol_err=2,009 h_res_in=0,01484 h_in_res=0,01485
+input=plate1e-3 alpha_den=4 offset_rel=0,001 variant=naive tris=2738 verdict=degenerate triangles vol_err=-1,6E-06 h_res_in=0,004954 h_in_res=0,007235
+input=plate1e-3 alpha_den=4 offset_rel=0,001 variant=safe tris=2738 verdict=clean vol_err=0,001491 h_res_in=0,005166 h_in_res=0,007236
+input=plate1e-3 alpha_den=4 offset_rel=0,0001 variant=wrap status=Success tris=8350 ms=99,41 verdict=clean vol_err=0,2005 h_res_in=0,001484 h_in_res=0,001485
+input=plate1e-3 alpha_den=4 offset_rel=0,0001 variant=naive tris=8350 verdict=degenerate triangles vol_err=-1,57E-16 h_res_in=7,067E-05 h_in_res=7,071E-05
+input=plate1e-3 alpha_den=4 offset_rel=0,0001 variant=safe tris=8350 verdict=clean vol_err=4,329E-05 h_res_in=0,0005139 h_in_res=0,0004809
+input=plate1e-3 alpha_den=4 offset_rel=1E-05 variant=wrap status=Success tris=12882 ms=139,8 verdict=clean vol_err=0,02002 h_res_in=0,0001472 h_in_res=0,0007943
+input=plate1e-3 alpha_den=4 offset_rel=1E-05 variant=naive tris=12882 verdict=degenerate triangles vol_err=-4,082E-15 h_res_in=7,067E-06 h_in_res=0,001119
+input=plate1e-3 alpha_den=4 offset_rel=1E-05 variant=safe tris=12882 verdict=clean vol_err=4,563E-07 h_res_in=2,027E-05 h_in_res=0,003141
+input=plate1e-3 alpha_den=20 offset_rel=0,001 variant=wrap status=Success tris=5802 ms=64,25 verdict=clean vol_err=2,006 h_res_in=0,01481 h_in_res=0,01485
+input=plate1e-3 alpha_den=20 offset_rel=0,001 variant=naive tris=5802 verdict=degenerate triangles vol_err=-1,685E-06 h_res_in=0,002973 h_in_res=0,003643
+input=plate1e-3 alpha_den=20 offset_rel=0,001 variant=safe tris=5802 verdict=clean vol_err=0,0002732 h_res_in=0,002973 h_in_res=0,003643
+input=plate1e-3 alpha_den=20 offset_rel=0,0001 variant=wrap status=Success tris=17838 ms=168,2 verdict=clean vol_err=0,2003 h_res_in=0,001484 h_in_res=0,001485
+input=plate1e-3 alpha_den=20 offset_rel=0,0001 variant=naive tris=17838 verdict=degenerate triangles vol_err=-5,725E-10 h_res_in=0,000129 h_in_res=0,0009612
+input=plate1e-3 alpha_den=20 offset_rel=0,0001 variant=safe tris=17838 verdict=clean vol_err=1,118E-05 h_res_in=0,0002033 h_in_res=0,001107
+input=plate1e-3 alpha_den=20 offset_rel=1E-05 variant=wrap status=Success tris=27726 ms=248,6 verdict=clean vol_err=0,02002 h_res_in=0,0001485 h_in_res=0,004495
+input=plate1e-3 alpha_den=20 offset_rel=1E-05 variant=naive tris=27726 verdict=degenerate triangles vol_err=8,164E-15 h_res_in=7,067E-06 h_in_res=0,002441
+input=plate1e-3 alpha_den=20 offset_rel=1E-05 variant=safe tris=27726 verdict=clean vol_err=7,838E-08 h_res_in=2,031E-05 h_in_res=0,003453
+input=plate1e-3 alpha_den=100 offset_rel=0,001 variant=wrap status=Success tris=22816 ms=162,8 verdict=clean vol_err=2,004 h_res_in=0,01482 h_in_res=0,01485
+input=plate1e-3 alpha_den=100 offset_rel=0,001 variant=naive tris=22816 verdict=degenerate triangles vol_err=-4,422E-05 h_res_in=0,00601 h_in_res=0,009401
+input=plate1e-3 alpha_den=100 offset_rel=0,001 variant=safe tris=22816 verdict=clean vol_err=-4,223E-05 h_res_in=0,00601 h_in_res=0,009401
+input=plate1e-3 alpha_den=100 offset_rel=0,0001 variant=wrap status=Success tris=56914 ms=437 verdict=clean vol_err=0,2002 h_res_in=0,001484 h_in_res=0,005185
+input=plate1e-3 alpha_den=100 offset_rel=0,0001 variant=naive tris=56914 verdict=degenerate triangles vol_err=-9,983E-08 h_res_in=0,000607 h_in_res=0,004883
+input=plate1e-3 alpha_den=100 offset_rel=0,0001 variant=safe tris=56914 verdict=clean vol_err=1,728E-06 h_res_in=0,000595 h_in_res=0,004494

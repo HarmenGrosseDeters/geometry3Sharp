@@ -201,7 +201,7 @@ the call materializes all of them and runs today's `BigInteger` code (identical 
   `AlphaInt` (integers, `α_k ≤ 2^53`).
 - Optional, only if step 3 shows the classification regressing: `front_winding` gets the grid doubles of a point
   from the limbs (`GridDouble(id)`, bit-identical to today's `grid_double(Exact(id))`, which uses `(double)BigInteger`
-  truncation and `ToDouble`) and materializes the points only when `orient3d_filtered` fails.
+  truncation, and `ToDouble`, correctly rounded since #1410) and materializes the points only when `orient3d_filtered` fails.
 
 ## 5. Bit bounds (each to be reviewed independently)
 

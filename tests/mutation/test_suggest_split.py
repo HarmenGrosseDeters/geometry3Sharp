@@ -11,6 +11,8 @@ import sys
 import tempfile
 import unittest
 
+import resplit
+
 import suggest_split as sp
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -101,8 +103,7 @@ class Detection(unittest.TestCase):
                     m = re.match(r"^\*\*/(.+?)\{(\d+)\.\.(\d+)\}$", entry)
                     if not m or int(m.group(2)) == 0:
                         continue
-                    with open(os.path.join(ROOT, m.group(1)), encoding="utf-8-sig", newline="") as src:
-                        text = src.read()
+                    text = resplit.read_source(os.path.join(ROOT, m.group(1)))   # (LF text, as the configs were computed on Linux)
                     self.assertIn(int(m.group(2)), [x for _, _, ok in sp.method_starts(text) for x in ok], cfg)
                     n += 1
         self.assertGreaterEqual(n, 8)
@@ -176,6 +177,23 @@ class Suggest(unittest.TestCase):
         with self.assertRaises(ValueError):
             sp.suggest(self.report(), "A.cs")
         self.assertEqual(2, len(sp.suggest(self.report(), "A.cs", parts=2, source=SRC)["parts"]))
+
+    def test_a_source_file_with_crlf_gives_the_offsets_of_the_lf_text(self):
+        # (a Windows checkout has CRLF; the reported offsets and the source check are those of the LF text Stryker reads on Linux)
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "r.json")
+            with open(path, "w", newline="\n") as f:
+                json.dump(self.report(), f)
+            outs = []
+            for eol in ("\n", "\r\n"):
+                src = os.path.join(d, "A%d.cs" % len(eol))
+                with open(src, "w", encoding="utf-8", newline="") as f:
+                    f.write(SRC.replace("\n", eol))
+                p = subprocess.run([sys.executable, os.path.join(HERE, "suggest_split.py"), path, "A.cs", "--parts", "2",
+                                    "--source", src], capture_output=True, text=True)
+                self.assertEqual(0, p.returncode, p.stderr)
+                outs.append(p.stdout)
+            self.assertEqual(outs[0], outs[1])
 
     def test_command_line(self):
         with tempfile.TemporaryDirectory() as d:

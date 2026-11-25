@@ -66,7 +66,7 @@ static class Profile
         MeshTransforms.Translate(w2, new Vector3d(0.3, 0.2, 0.1));
         for (int k = 0; k < 3; ++k)
             foreach (var o in opOf.Values)
-                new ExactMeshBoolean(w1, w2, o) { ComputeExactVertices = exact, SafeRounding = safe }.Compute();
+                new ExactMeshBoolean(w1, w2, o) { AllowOpenMeshes = true, ComputeExactVertices = exact, SafeRounding = safe }.Compute();
 
         foreach (string c in cases) {
             List<KeyValuePair<string, Func<ExactMeshBoolean>>> runs = new List<KeyValuePair<string, Func<ExactMeshBoolean>>>();
@@ -76,7 +76,7 @@ static class Profile
                 List<DMesh3> cubes, voids; Func<int[], bool> predicate; double expected;
                 Nary.Inputs(kind, n, out cubes, out voids, out predicate, out expected);
                 var all = cubes.Concat(voids).ToList();
-                runs.Add(new KeyValuePair<string, Func<ExactMeshBoolean>>("onepass", () => new ExactMeshBoolean(all, predicate)));
+                runs.Add(new KeyValuePair<string, Func<ExactMeshBoolean>>("onepass", () => new ExactMeshBoolean(all, predicate) { AllowOpenMeshes = true }));
             } else if (File.Exists(Path.Combine(c, "N000.off"))) {
                 var inputs = Directory.GetFiles(c, "N*.off").OrderBy(f => f, StringComparer.Ordinal).Select(f => StandardMeshReader.ReadMesh(f)).ToList();
                 if (inputs.Any(m => m == null)) {
@@ -89,7 +89,7 @@ static class Profile
                             return true;
                     return false;
                 };
-                runs.Add(new KeyValuePair<string, Func<ExactMeshBoolean>>("onepass", () => new ExactMeshBoolean(inputs, union)));
+                runs.Add(new KeyValuePair<string, Func<ExactMeshBoolean>>("onepass", () => new ExactMeshBoolean(inputs, union) { AllowOpenMeshes = true }));
             } else {
                 DMesh3 a = StandardMeshReader.ReadMesh(Path.Combine(c, "A.off")), b = StandardMeshReader.ReadMesh(Path.Combine(c, "B.off"));
                 if (a == null || b == null) {
@@ -98,7 +98,7 @@ static class Profile
                 }
                 foreach (string op in ops) {
                     var o = opOf[op];
-                    runs.Add(new KeyValuePair<string, Func<ExactMeshBoolean>>(op, () => new ExactMeshBoolean(a, b, o)));
+                    runs.Add(new KeyValuePair<string, Func<ExactMeshBoolean>>(op, () => new ExactMeshBoolean(a, b, o) { AllowOpenMeshes = true }));
                 }
             }
             foreach (var run in runs) {

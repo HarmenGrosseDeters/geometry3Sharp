@@ -72,6 +72,20 @@ namespace g3
         {
             return obj is ExactPoint3 && Equals((ExactPoint3)obj);
         }
+        /// <summary>
+        /// Bits of the components for choosing a shard of a lookup structure (ExactMeshArrangement.AddPoint): the low 31 bits of each component
+        /// (the point is canonical, so equal points give equal bits), unseeded; unlike GetHashCode it is a function of the value on every runtime
+        /// </summary>
+        public int ShardBits()
+        {
+            unchecked {
+                int h = (int)(X & int.MaxValue);
+                h = h * 31 + (int)(Y & int.MaxValue);
+                h = h * 31 + (int)(Z & int.MaxValue);
+                return h * 31 + (int)(W & int.MaxValue);
+            }
+        }
+
         [MethodImpl(JitHints.Optimize)]
         public override int GetHashCode()
         {
@@ -83,7 +97,10 @@ namespace g3
             }
         }
 
-        /// <summary> coordinates as doubles, multiplied by 2^scaleExp (nearly correctly rounded: error below 1 ulp) </summary>
+        /// <summary>
+        /// coordinates as doubles, multiplied by 2^scaleExp (each coordinate correctly rounded, see ToDouble). Throws <see cref="DivideByZeroException"/>
+        /// for <c>default(ExactPoint3)</c> (W = 0: not a point; every point made by Create or FromInteger has W &gt; 0)
+        /// </summary>
         public Vector3d ToVector3d(int scaleExp = 0)
         {
             return new Vector3d(ToDouble(X, W, scaleExp), ToDouble(Y, W, scaleExp), ToDouble(Z, W, scaleExp));
@@ -111,17 +128,72 @@ namespace g3
         static bool is_safe(double v) { return double.IsInfinity(v) == false && double.IsNaN(v) == false && Math.Abs(v) > 1e-290; }
         static bool is_safe_or_zero(double v) { return v == 0 || is_safe(v); }
 
-        /// <summary> num / den * 2^scaleExp as double, den > 0 </summary>
+        /// <summary>
+        /// num / den * 2^scaleExp as a double, correctly rounded (issue #1410): the double nearest to the exact value, ties to even, in one
+        /// rounding also in the subnormal range; a result of at most 2^-1075 in magnitude (the exact value 2^-1075 is a tie, to even) is a zero of the sign of num, one at or above the middle between the largest
+        /// double and 2^1024 an infinity. A negative den is allowed (the quotient has the sign of num * den); den = 0 always throws
+        /// <see cref="DivideByZeroException"/>, also for num = 0 (as <c>default(ExactPoint3).ToVector3d()</c> does, before #1410 it gave 0) and for a scaleExp that would underflow. See <see cref="ToDoubleRounded"/> for the method
+        /// </summary>
         [MethodImpl(JitHints.Optimize)]
         public static double ToDouble(BigInteger num, BigInteger den, int scaleExp)
         {
+            if (den.IsZero)
+                throw new DivideByZeroException();
+            if (den.Sign < 0) {
+                num = -num; den = -den;
+            }
+            return ToDoubleRounded(num, den, scaleExp);
+        }
+
+        /// <summary>
+        /// num / den * 2^scaleExp as a double, den &gt; 0, correctly rounded: the double nearest to the exact value, ties to even, in one
+        /// rounding also in the subnormal range (a result of at most 2^-1075 in magnitude, the tie included, is a zero of the sign of num, one at or above overflows to an infinity).
+        /// Method (the standard one: enough quotient bits plus a sticky bit, one round to nearest even): a = |num| is shifted so that the
+        /// integer quotient q = floor(n2 / d2) with n2 = a 2^shift, d2 = den (shift &gt;= 0) or n2 = a, d2 = den 2^-shift has 55 or 56 bits
+        /// (2^54 &lt;= q &lt; 2^56). The exact value is
+        /// (q + f) 2^(scaleExp - shift) with 0 &lt;= f &lt; 1, f &gt; 0 iff q d2 != n2 (the sticky bit; a division without remainder is cheaper, the product is only formed on a tie). The result grid is 2^g with
+        /// g = max(bitlength(q) - 53, -1074 - (scaleExp - shift)) quotient bits dropped (53 significant bits, or fewer in the subnormal range,
+        /// so the grid is the subnormal grid 2^-1074 and nothing is rounded twice). With mant = q &gt;&gt; g and low = q mod 2^g, the value lies
+        /// above the midpoint iff low &gt; 2^(g-1) or (low = 2^(g-1) and f &gt; 0), on it iff low = 2^(g-1) and f = 0 (then the even mant wins);
+        /// below otherwise. mant + 1 can be 2^53, a power of two, which converts exactly (the next binade, or an overflow in ScaleB).
+        /// g &gt;= 57 means q is below half a unit (q &lt; 2^56 &lt;= 2^(g-1)), so the result is zero. The shifts and the masks are exact. The final
+        /// ScaleB scales an integer mant &lt;= 2^53 by 2^e2 with e2 &gt;= -1074 (the grid), so mant 2^e2 is a multiple of the smallest subnormal and
+        /// ScaleB, whose only rounding is in a subnormal result, does not round: no second rounding.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static double ToDoubleRounded(BigInteger num, BigInteger den, int scaleExp)
+        {
             if (num.IsZero)
                 return 0;
-            // quotient with 64 significant bits, then scale
-            long nb = BitLength(num), db = BitLength(den);
-            int shift = (int)(64 - (nb - db));
-            BigInteger q = (shift >= 0) ? (num << shift) / den : num / (den << -shift);
-            return ScaleB((double)q, scaleExp - shift);
+            bool negative = num.Sign < 0;
+            BigInteger a = negative ? -num : num;
+            long nb = BitLength(a), db = BitLength(den);
+            int shift = (int)(55 - (nb - db));      // the quotient has 55 or 56 bits
+            long top = (long)scaleExp - shift + 56;     // the value is below 2^top
+            if (top <= -1076)
+                return negative ? -0.0 : 0.0;        // (below half the smallest subnormal; also avoids a huge shift below)
+            // (q < 2^56 fits a ulong: the rounding below is integer arithmetic on 64 bits)
+            BigInteger n2 = shift >= 0 ? a << shift : a, d2 = shift >= 0 ? den : den << -shift, qb = n2 / d2;
+            ulong q = (ulong)qb;
+            long extra = ((q >> 55) != 0 ? 56 : 55) - 53;
+            // a result below 2^-1022 has fewer than 53 significant bits: round once, to the grid 2^-1074 (rounding to 53 bits first
+            // and then to the grid would round twice)
+            long unit = (long)scaleExp - shift + extra;       // (long: a scaleExp near int.MaxValue must not wrap)
+            if (unit < -1074)
+                extra += -1074 - unit;
+            if (extra >= 57)     // (defensive: g = 57 and 58 give mant = 0 below as well; the guard keeps every shift count under 64)
+                return negative ? -0.0 : 0.0;       // (q < 2^56 is below half a unit; underflow to zero keeps the sign, as IEEE division does)
+            int g = (int)extra;
+            ulong mant = q >> g, half = 1UL << (g - 1), low = q & ((1UL << g) - 1);
+            // above the midpoint, or on it with a nonzero remainder (the quotient was truncated: q d2 != n2, only computed on a tie), or a tie with an odd mantissa
+            if (low > half || (low == half && ((mant & 1) != 0 || (qb * d2 == n2) == false)))
+                mant += 1;
+            if (mant == 0)
+                return negative ? -0.0 : 0.0;
+            // (mant <= 2^53, the unit is a double: exact; an exponent beyond +-3000 gives the same infinity or zero as 3000)
+            long e2 = (long)scaleExp - shift + g;
+            double r = ScaleB((double)mant, (int)Math.Max(-3000L, Math.Min(3000L, e2)));
+            return negative ? -r : r;
         }
 
         /// <summary> x * 2^n, correctly rounded (one rounding, only for a subnormal result) </summary>

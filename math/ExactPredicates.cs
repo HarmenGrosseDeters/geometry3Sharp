@@ -57,16 +57,29 @@ namespace g3
         public static int Orient2d(Vector2d a, Vector2d b, Vector2d c)
         {
             PredicateStats.Call(PredicateStats.Kind.Orient2d);
-            double ux = b.x - a.x, uy = b.y - a.y, vx = c.x - a.x, vy = c.y - a.y;
+            int s = Orient2dFilter(b.x - a.x, b.y - a.y, c.x - a.x, c.y - a.y);
+            if (s != 0) return s;
+            PredicateStats.ExactStage(PredicateStats.Kind.Orient2d);
+            return orient2d_exact(a, b, c);
+        }
+
+        /// <summary>
+        /// The floating-point filter of Orient2d(a, b, c), given the differences u = b - a, v = c - a (each rounded once,
+        /// as Orient2d computes them): the sign of u x v where the error bound proves it, 0 where it does not decide
+        /// (then Orient2d(a, b, c) decides). The only implementation of the filter, so a caller that keeps u for many c
+        /// (TriangleTriangleFilter.ProjectedEdges, an edge against many points) gets Orient2d's decisions bit for bit.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static int Orient2dFilter(double ux, double uy, double vx, double vy)
+        {
             double l = ux * vy, r = uy * vx;
             double det = l - r;
             double sum = Math.Abs(l) + Math.Abs(r);
             double bound = Orient2dBound * sum;
-            // the relative error bound does not hold when products underflow (subnormal): exact then
+            // the relative error bound does not hold when products underflow (subnormal): undecided then
             if (det > bound && sum > UnderflowLimit) return 1;
             if (-det > bound && sum > UnderflowLimit) return -1;
-            PredicateStats.ExactStage(PredicateStats.Kind.Orient2d);
-            return orient2d_exact(a, b, c);
+            return 0;
         }
 
         /// <summary>
@@ -560,6 +573,48 @@ namespace g3
             BigInteger lhs = BigInteger.Abs(total) << (3 * emin - low), rhs = (3 * new BigInteger(mt)) << (et - low);
             sign = lhs.CompareTo(rhs);
             return true;
+        }
+
+        /// <summary>
+        /// The sum S of VolumeSign (six times the signed volume of the triangles, relative to their first corner), exactly:
+        /// S = total 2^exponent, in integers, without a filter (the comparison of two such sums, #1216: whether a repair changed
+        /// the volume of a closed component by more than a factor). False, and nothing computed, without a triangle or where a
+        /// coordinate is not finite. For a closed, consistently oriented surface S does not depend on the corner.
+        /// </summary>
+        internal static bool TryVolumeSum6Exact(double[] xyz, int[] corners, out BigInteger total, out int exponent)
+        {
+            total = BigInteger.Zero;
+            exponent = 0;
+            if (corners == null || corners.Length < 3)
+                return false;
+            for (int k = 0; k < xyz.Length; ++k)
+                if (double.IsNaN(xyz[k]) || double.IsInfinity(xyz[k]))
+                    return false;
+            BigInteger[] q = to_integers(xyz, out int emin);
+            int io = 3 * corners[0];
+            for (int t = 0; t < corners.Length / 3; ++t) {
+                int ia = 3 * corners[3 * t], ib = 3 * corners[3 * t + 1], ic = 3 * corners[3 * t + 2];
+                BigInteger ux = q[ia] - q[io], uy = q[ia + 1] - q[io + 1], uz = q[ia + 2] - q[io + 2];
+                BigInteger vx = q[ib] - q[io], vy = q[ib + 1] - q[io + 1], vz = q[ib + 2] - q[io + 2];
+                BigInteger wx = q[ic] - q[io], wy = q[ic + 1] - q[io + 1], wz = q[ic + 2] - q[io + 2];
+                total += wx * (uy * vz - uz * vy) + wy * (uz * vx - ux * vz) + wz * (ux * vy - uy * vx);
+            }
+            exponent = 3 * emin;
+            return true;
+        }
+
+        /// <summary>
+        /// Whether |S1| and |S0| of two exact sums (TryVolumeSum6Exact: S = total 2^exponent) differ by more than the factor
+        /// 2^shift, or the sums have different signs: |S1| &gt; 2^shift |S0|, or 2^shift |S1| &lt; |S0|, or sign(S1) != sign(S0).
+        /// Exact (integers shifted to the smaller exponent); exactly the factor is not more than it.
+        /// </summary>
+        internal static bool VolumeSumsDifferByMoreThan(BigInteger total0, int exponent0, BigInteger total1, int exponent1, int shift)
+        {
+            if (total0.Sign != total1.Sign)
+                return true;
+            int low = Math.Min(exponent0, exponent1);
+            BigInteger a0 = BigInteger.Abs(total0) << (exponent0 - low), a1 = BigInteger.Abs(total1) << (exponent1 - low);
+            return a1 > (a0 << shift) || (a1 << shift) < a0;
         }
 
         /// <summary> VolumeSign without the filter: the sum of the determinants in integers (exact, slow) </summary>

@@ -1,37 +1,41 @@
 name: Mutation tests
 
-# Stryker.NET (Apache-2.0), tests/mutation, docs/QA.md 2.2: too slow for every PR, so in full weekly and on demand, and
-# on ready PRs (not drafts) only for the configs that the PR touches (tests/mutation/select_shards.py). Two jobs:
-# - exact-arithmetic: math/ExactPredicates.cs, ExactPoint3.cs, AdaptivePredicates.cs, ExactDoubleWord.cs and the exact route of IntrTriangle3Triangle3.cs (about 50 minutes);
+# Stryker.NET (Apache-2.0), tests/mutation, docs/QA.md 2.2 (docs/qa/mutation-and-coverage.md): too slow for every PR, so the
+# shards run in full on master (scheduled nightly / weekly groups, and workflow_dispatch), and a ready PR (not a draft) runs only
+# what gates its merge (owner 2026-11-23, runner load; tests/mutation/select_shards.py --pr). Two jobs:
+# - exact-arithmetic: math/ExactPoint3.cs, ExactDoubleWord.cs and the exact route of IntrTriangle3Triangle3.cs (about 20 minutes; the
+#   predicates ExactPredicates.cs (two parts) and AdaptivePredicates.cs are the shards predicates-1, predicates-2 and adaptive of the exact-mesh job, since 23 November 2026);
 # - exact-mesh: the exact mesh pipeline (mesh_ops/ExactMesh*.cs, ExactPlanarSimplify.cs, ExactTriangulation2.cs,
 #   MeshRoundingRepair.cs, math/FixedPoint3.cs, the arrangement's fixed-width points, and math/Generated/*.cs, the
 #   generated predicates, and mesh_ops/PolyhedralEnvelope.cs, the envelope), in shards that run in
 #   parallel (tests/mutation/stryker-mesh-*.json). The UV parameterization (parameterization/*.cs) has seven shards of
 #   its own (stryker-mesh-uv-*.json, tests/mutation/README.md "UV parameterization"); they are not exact code.
-# A shard whose mutated file changed runs incrementally (tests/mutation/incremental.py): Stryker mutates only the changed
-# lines, the other mutants keep their results from the last full run (the baseline, kept in the Actions cache), and the
-# shard fails when the combined score drops below the break threshold of its config; without a cached baseline it runs
-# in full (on a pull request: not at all, see below). A shard whose config
-# or tools changed runs in full, except a config edit that only moves the spans of `mutate`: that shard runs
-# incrementally too. Exact Boolean 3.0 (CLAUDE.md, tests/mutation/README.md "3.0 process"): a PR makes no full shard run (a full
-# shard is a 3-6 hour runner slot; NO_FULL=1 in run_stryker.sh): such a shard writes "full run on master" to its summary and
-# succeeds, and the scheduled run on master measures it and seeds the baseline. Exception, the merge gate: a shard that mutates
-# an exact-code file (.editorconfig) that the PR changes keeps its full run (select_shards.py gate). A shard of which only tests changed runs with --since and only reports. Every full run
-# stores its report as the baseline. The reports list the surviving mutants.
+# On a pull request a shard runs only incrementally (tests/mutation/incremental.py: Stryker mutates only the changed lines, the
+# other mutants keep their results from the last full run on master, the baseline in the Actions cache, and the shard fails when
+# the combined score drops below the break threshold of its config), and only if the PR changes an exact-code file that the
+# shard mutates (the exact section of .editorconfig), or if the PR has the label `mutation` (set by the coordinator for a PR that
+# adds or changes an error bound outside the exact files; read live, so a re-run after setting it sees it). A PR never makes a
+# full run (NO_FULL=1 in run_stryker.sh: a shard without a cached baseline writes "full run on master" and succeeds), nor a run
+# of changed tests only, nor a run of non-exact code without the label: those shards are listed as NOT RUN with the reason, and
+# master runs them (a PR that needs a full shard run as its gate gets it dispatched on master after the merge, CLAUDE.md).
+# On master (schedule, dispatch) every selected shard runs in full and stores its report as the baseline. The reports list the
+# surviving mutants.
 
 on:
   pull_request:
     # (converted_to_draft and closed: the concurrency group below cancels a run that is under way; on closed, which
     # includes a merge, the selection job is skipped, so nothing new runs and no runner stays busy for a finished PR)
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, closed]
+    # (owner 2026-11-23: only the mutated sources, the configs and the tooling. A PR runs only incremental runs of the shards of a
+    # changed exact-code file, or of every changed mutated file under the label `mutation` (select_shards.py --pr); a change of
+    # tests only makes no PR run, so the test files are not trigger paths)
     paths:
       - 'math/ExactPredicates.cs'
       - 'math/ExactPoint3.cs'
       - 'math/AdaptivePredicates.cs'
+      - 'intersection/IntrExactBox3.cs'
       - 'math/ExactDoubleWord.cs'
       - 'intersection/IntrTriangle3Triangle3.cs'
-      - 'tests/geometry3Sharp.Tests/IntrTriangle3Triangle3DoubleWordTests.cs'
-      - 'tests/geometry3Sharp.Tests/IntrTriangle3Triangle3ExactDecisionTests.cs'
       - 'math/FixedPoint3.cs'
       - 'math/ExactLimbSigns.cs'
       - 'math/ExactLimbPrepared.cs'
@@ -45,96 +49,15 @@ on:
       - 'math/ExactSlopePredicates.cs'
       - 'math/ExactSlopeKernel.cs'
       - 'mesh_ops/TerrainSlope*.cs'
-      - 'tests/geometry3Sharp.Tests/ExactPredicatesTests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactPredicatesBeyondRangeTests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactVolumeSignTests.cs'
-      - 'tests/geometry3Sharp.Tests/FindInvertedComponentsExactTests.cs'
-      - 'tests/geometry3Sharp.Tests/GeneratedDoublePredicatesTests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactImplicitPointTests.cs'
-      - 'tests/geometry3Sharp.Tests/PredicateDifferentialTests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactPoint3ConversionTests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactPoint3FixedWidthTests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactLimbSignsTests*.cs'
-      - 'tests/geometry3Sharp.Tests/ExactOrient3dKernelTests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactTouchOnlyCoplanarTests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactCoplanarPreDecisionTests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactTouchOnlyFilterTests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactPlanesFixedWidthTests.cs'
-      - 'tests/geometry3Sharp.Tests/GeneratedPredicatesIndirectTests.cs'
-      - 'tests/geometry3Sharp.Tests/PolyhedralEnvelopeTests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactMeshBoolean*Tests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactBoolean*Tests.cs'
-      - 'tests/geometry3Sharp.Tests/BooleanCertificateTests.cs'
-      - 'tests/geometry3Sharp.Tests/Harness/BooleanCertificate.cs'
-      # (the classes of the boolean parts' coverage-based sets, coverage_select.py: also names with a suffix after Tests)
-      - 'tests/geometry3Sharp.Tests/ExactMeshBooleanTests*.cs'
-      - 'tests/geometry3Sharp.Tests/ExactMeshBooleanNaryTests*.cs'
-      - 'tests/geometry3Sharp.Tests/ExactBooleanOpenInputTests*.cs'
-      - 'tests/geometry3Sharp.Tests/ExactFilterBoundTests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactArrangementScalingTests.cs'
-      - 'tests/geometry3Sharp.Tests/BoxTreeMortonTests.cs'
-      - 'tests/geometry3Sharp.Tests/BoxTreeOrderTests.cs'
-      - 'tests/geometry3Sharp.Tests/BoxTreeParallelBuildTests.cs'
-      - 'tests/geometry3Sharp.Tests/BoxTreeThresholdTests.cs'
-      - 'tests/geometry3Sharp.Tests/TriTriPrefilterTests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactPlanarSimplifyTests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactPlanarSimplifyEarClipTests.cs'
-      - 'tests/geometry3Sharp.Tests/MeshRoundingRepair*Tests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactMeshGeodesicDistanceTests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactMeshCellsTests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactMeshImprintTests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactMeshImprintSliver*Tests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactImprintAssemblyTests.cs'
-      - 'tests/geometry3Sharp.Tests/Harness/ContactAssemblies.cs'
-      - 'tests/geometry3Sharp.Tests/Harness/ContactAssemblyFixtures.cs'
-      - 'tests/geometry3Sharp.Tests/ExactArrangementTriangulateMeshesTests.cs'
-      - 'tests/geometry3Sharp.Tests/RoundingDriftApexTests.cs'
-      - 'tests/geometry3Sharp.Tests/SafeRoundingBoundTests.cs'
-      - 'tests/geometry3Sharp.Tests/SafeRoundingLastComponentTests.cs'
-      - 'tests/geometry3Sharp.Tests/SafeRoundingZeroVolumeSheetTests.cs'
-      - 'tests/geometry3Sharp.Tests/SafeRoundingZeroVolumeMarginTests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactBooleanFamiliesPropertyTests.CsCheck.cs'
-      - 'tests/geometry3Sharp.Tests/SafeRoundingBudgetTests.cs'
-      - 'tests/geometry3Sharp.Tests/RoundingExactPairsTests.cs'
-      - 'tests/geometry3Sharp.Tests/RoundingDirtyTreeTests.cs'
-      - 'tests/geometry3Sharp.Tests/RoundingSerialWorkTests.cs'
-      - 'tests/geometry3Sharp.Tests/MeshRoundingRepairTestsPositionSearch.cs'
-      - 'tests/geometry3Sharp.Tests/ExactBooleanPropertyFindings.cs'
-      - 'tests/geometry3Sharp.Tests/ExactTriangulation2Tests.cs'
-      - 'tests/geometry3Sharp.Tests/BooleanPerformanceTests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactIntervalsTests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactSlopeKernelTests.cs'
-      - 'tests/geometry3Sharp.Tests/TerrainSlope*Tests.cs'
       - 'mesh_ops/MeshHausdorffDistance.cs'
       - 'queries/TriangleDeviationBounds.cs'
       - 'queries/CertifiedTriangleBounds.cs'
       - 'queries/CertifiedDet3.cs'
       - 'queries/CertifiedPointMeshDistance.cs'
-      - 'tests/geometry3Sharp.Tests/CertifiedTriangleBoundsTests.cs'
-      - 'tests/geometry3Sharp.Tests/CertifiedPatchBoundTests.cs'
-      - 'tests/geometry3Sharp.Tests/Hausdorff*Tests.cs'
-      - 'tests/geometry3Sharp.Tests/MeshDeviationTests.cs'
-      - 'tests/geometry3Sharp.Tests/ReducerParallelDeviationCheckTests.cs'
       # exact winding number (tests/mutation/stryker-mesh-exact-winding.json)
       - 'spatial/ExactWindingCache.cs'
-      - 'tests/geometry3Sharp.Tests/ExactWindingNumberTests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactWindingCacheInternalTests.cs'
-      - 'tests/geometry3Sharp.Tests/ExactWindingCacheInternalTestsBoundaryTree.cs'
-      - 'tests/geometry3Sharp.Tests/ExactWindingCacheInternalTestsEdgeAngleOracle.cs'
-      - 'tests/geometry3Sharp.Tests/FastWindingExpansionUsedTests.cs'
-      - 'tests/geometry3Sharp.Tests/WindingNumberTests.cs'
-      - 'tests/geometry3Sharp.Tests/WindingEdgeCaseTests.cs'
       # SolidBooleanPipeline (tests/mutation/stryker-mesh-solid-pipeline.json)
       - 'mesh_ops/SolidBooleanPipeline.cs'
-      - 'tests/geometry3Sharp.Tests/SolidBooleanPipelineTests.cs'
-      - 'tests/geometry3Sharp.Tests/SolidBooleanPairContactsTests.cs'
-      - 'tests/geometry3Sharp.Tests/SolidBooleanPipelinePropertyTests.CsCheck.cs'
-      - 'tests/geometry3Sharp.Tests/SolidBooleanPipelineInputGridTests.cs'
-      - 'tests/geometry3Sharp.Tests/SolidBooleanPipelineThinSolidTests.cs'
-      - 'tests/geometry3Sharp.Tests/SolidBooleanPipelineCavityOwnerTests.cs'
-      - 'tests/geometry3Sharp.Tests/SolidBooleanPipelineThinInputTests.cs'
-      - 'tests/geometry3Sharp.Tests/SolidBooleanPipelineSheetTests.cs'
-      - 'tests/geometry3Sharp.Tests/SolidBooleanPipelineFinalCheckTests.cs'
       # UV parameterization (tests/mutation/stryker-mesh-uv-*.json: seven shards of parameterization/*.cs, README "UV parameterization")
       - 'parameterization/UVAtlasGenerator.cs'
       - 'parameterization/MeshChartSegmentation.cs'
@@ -149,13 +72,13 @@ on:
       - 'parameterization/LSCMParameterization.cs'
       - 'parameterization/SpectralConformalParameterization.cs'
       - 'parameterization/MeshParameterization.cs'
-      - 'tests/geometry3Sharp.Tests/UVAtlasTests.cs'
-      - 'tests/geometry3Sharp.Tests/ParameterizationTests.cs'
-      - 'tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs'
-      - 'tests/geometry3Sharp.Tests/ParameterizationFlippedMapTests.cs'
-      - 'tests/geometry3Sharp.Tests/FoldoverFreeTests.cs'
-      - 'tests/geometry3Sharp.Tests/FoldoverFreeToleranceTests.cs'
-      - 'tests/geometry3Sharp.Tests/SpectralConformalParameterizationTests.cs'
+      # the exact code of .editorconfig (select_shards.exact_globs; the files without a shard get the notice of `hint`)
+      - 'comp_geom/SnapRounding2.cs'
+      - 'math/Exact*.cs'
+      - 'intersection/ExactTriangleIntersection.cs'
+      - 'intersection/TriangleTriangleFilter.cs'
+      - 'intersection/ContinuousCollision.cs'
+      - 'mesh_ops/ContouringTopologyCertificate.cs'
       - 'tests/mutation/*'
       - 'tests/mutation/local-results/**'
       - '.config/dotnet-tools.json'
@@ -208,6 +131,7 @@ jobs:
     permissions:
       contents: read
       actions: read          # the schedule guard reads the earlier runs of today
+      pull-requests: read    # the labels of the PR, read live (a re-run after the label `mutation` was set sees it)
     outputs:
       arithmetic: ${{ steps.select.outputs.arithmetic }}
       mesh: ${{ steps.select.outputs.mesh }}
@@ -265,6 +189,9 @@ jobs:
           SCHEDULE: ${{ github.event.schedule }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
         run: |
           # a failed git diff must fail this step: empty input would select nothing and skip the runs in green
           set -o pipefail
@@ -279,11 +206,18 @@ jobs:
             fi
             python3 tests/mutation/select_shards.py --all --only "${SHARDS:-all}" | tee -a "$GITHUB_OUTPUT"
           else
-            git diff --name-only "$BASE...$HEAD" | python3 tests/mutation/select_shards.py --pr | tee -a "$GITHUB_OUTPUT"
+            # (the labels are read live, not from the event payload: the label `mutation` is set by the coordinator, and a re-run of
+            # this run after that must see it; the PR has no `labeled` trigger, so another label cannot cancel a run under way)
+            labels="$(gh api --paginate "repos/$REPO/issues/$PR_NUMBER/labels" --jq '.[].name' | paste -sd, -)"
+            echo "labels: $labels"
+            git diff --name-only "$BASE...$HEAD" > changed.txt
+            python3 tests/mutation/select_shards.py --pr --labels "$labels" < changed.txt | tee -a "$GITHUB_OUTPUT"
+            python3 tests/mutation/select_shards.py hint < changed.txt
+            python3 tests/mutation/select_shards.py hint --summary < changed.txt >> "$GITHUB_STEP_SUMMARY"
           fi
-      - name: Shards with no full run on this PR
-        # (a shard that would run in full and is not gated makes no full run on a PR, run_stryker.sh NO_FULL: it is not
-        # started, so it shows as skipped, with the notice and the summary here; the scheduled run on master measures it)
+      - name: Shards not run on this PR
+        # (select_shards.py --pr: a shard that is not an incremental run of a changed exact-code file (or of a changed file under the
+        # label `mutation`) is not started, so it shows as skipped, with the notice and the summary here; master runs it)
         if: github.event_name == 'pull_request' && steps.select.outputs.skipped != '' && steps.select.outputs.skipped != '[]'
         env:
           SKIPPED: ${{ steps.select.outputs.skipped }}
@@ -318,7 +252,7 @@ jobs:
         env:
           MODE: ${{ needs.changes.outputs.arithmetic }}
           BASE: ${{ github.event.pull_request.base.sha }}
-          NO_FULL: ${{ github.event_name == 'pull_request' && '1' || '' }}   # (3.0: no full run on a PR, except the exact-arithmetic gate; run_stryker.sh)
+          NO_FULL: ${{ github.event_name == 'pull_request' && '1' || '' }}   # (no full run on a PR, owner 2026-11-23; run_stryker.sh)
           G3_FULL_TESTS: ${{ github.event.schedule == '17 19 * * 0' && '1' || '' }}   # (the weekly run is unfiltered, decided by its cron line, not by the clock when a late shard starts)
           G3_LIMIT_SECONDS: '9000'                # the job's timeout-minutes (150) in seconds, for the early stop
         run: bash run_stryker.sh stryker-config.json
@@ -402,7 +336,7 @@ jobs:
           DOTNET_GCHeapHardLimit: '0x180000000'   # 6 GB
           MODE: ${{ matrix.mode }}
           BASE: ${{ github.event.pull_request.base.sha }}
-          NO_FULL: ${{ github.event_name == 'pull_request' && '1' || '' }}   # (3.0: no full run on a PR, except the exact-arithmetic gate; run_stryker.sh)
+          NO_FULL: ${{ github.event_name == 'pull_request' && '1' || '' }}   # (no full run on a PR, owner 2026-11-23; run_stryker.sh)
           G3_FULL_TESTS: ${{ github.event.schedule == '17 19 * * 0' && '1' || '' }}   # (the weekly run is unfiltered, decided by its cron line, not by the clock when a late shard starts)
         run: bash run_stryker.sh stryker-mesh-${{ matrix.shard }}.json
       - name: Summary

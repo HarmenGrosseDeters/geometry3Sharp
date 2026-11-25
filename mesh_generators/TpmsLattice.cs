@@ -125,7 +125,7 @@ namespace g3
         public Matrix3d Rotation = Matrix3d.Identity;
         /// <summary> Domain in local coordinates (used if DomainMesh is null). </summary>
         public AxisAlignedBox3d Box = new AxisAlignedBox3d(Vector3d.Zero, 1);
-        /// <summary> Domain as the inside of a closed manifold mesh in world coordinates (wins over Box). Not with Enclosure. </summary>
+        /// <summary> Domain as the inside of a closed manifold mesh in world coordinates (wins over Box). Not with Enclosure. The cut lies at the mesh up to the rounding of the contour (a fraction of a cube; #1372: it used to lie up to a cube outside it near the mesh's bounds). </summary>
         public DMesh3 DomainMesh;
         /// <summary> Run the exact self-intersection check on the result (cost O(T log T), see the benchmark). </summary>
         public bool VerifySelfIntersections = true;
@@ -438,13 +438,14 @@ namespace g3
                 return g;
             }
 
-            // signed distance to the closed domain mesh (negative inside); outside the bounds a lower bound (the box distance)
+            // signed distance to the closed domain mesh (negative inside)
             double DomainDistance(Vector3d p)
             {
-                double ox = Math.Max(Math.Max(DomainBounds.Min.x - p.x, p.x - DomainBounds.Max.x), 0);
-                double oy = Math.Max(Math.Max(DomainBounds.Min.y - p.y, p.y - DomainBounds.Max.y), 0);
-                double oz = Math.Max(Math.Max(DomainBounds.Min.z - p.z, p.z - DomainBounds.Max.z), 0);
-                if (ox > 0 || oy > 0 || oz > 0) return Math.Sqrt(ox * ox + oy * oy + oz * oz);
+                // outside the bounds the winding number is 0 (a closed mesh): the distance is the one to the nearest triangle
+                if (!DomainBounds.Contains(p)) {
+                    int tid0 = DomainTree.FindNearestTriangle(p, out double d20);
+                    return tid0 >= 0 ? Math.Sqrt(d20) : double.MaxValue;
+                }
                 double dist = double.MaxValue;
                 int tid = DomainTree.FindNearestTriangle(p, out double d2);
                 if (tid >= 0) dist = Math.Sqrt(d2);

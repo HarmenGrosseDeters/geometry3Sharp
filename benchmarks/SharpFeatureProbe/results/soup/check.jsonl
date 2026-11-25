@@ -1,0 +1,18 @@
+{"kind":"check","shape":"fillet","what":"threads 1 vs 4, repeated","crease_equal":true,"curv_equal":true}
+{"kind":"similarity","shape":"fillet","sim":"identity","crease_bits_equal":true,"curv_bits_equal":true,"flag_agreement":1,"k1_max_rel_diff":0}
+{"kind":"similarity","shape":"fillet","sim":"utm","crease_bits_equal":false,"curv_bits_equal":false,"flag_agreement":1,"k1_max_rel_diff":5.820681557300311E-06}
+{"kind":"similarity","shape":"fillet","sim":"scale 2^-10","crease_bits_equal":true,"curv_bits_equal":true,"flag_agreement":1,"k1_max_rel_diff":0}
+{"kind":"similarity","shape":"fillet","sim":"scale 2^10","crease_bits_equal":true,"curv_bits_equal":true,"flag_agreement":1,"k1_max_rel_diff":0}
+{"kind":"similarity","shape":"fillet","sim":"scale 1e-3","crease_bits_equal":false,"curv_bits_equal":false,"flag_agreement":1,"k1_max_rel_diff":5.72624589291438E-13}
+{"kind":"similarity","shape":"fillet","sim":"scale 1e3","crease_bits_equal":false,"curv_bits_equal":false,"flag_agreement":1,"k1_max_rel_diff":5.553366714634421E-13}
+{"kind":"similarity","shape":"fillet","sim":"rotated","crease_bits_equal":false,"curv_bits_equal":false,"flag_agreement":1,"k1_max_rel_diff":1.7627324794084249E-12}
+{"kind":"similarity","shape":"fillet","sim":"rotated, scale 1e-3, utm","crease_bits_equal":false,"curv_bits_equal":false,"flag_agreement":1,"k1_max_rel_diff":0.002995003497092706}
+{"kind":"check","shape":"rbox","what":"threads 1 vs 4, repeated","crease_equal":true,"curv_equal":true}
+{"kind":"similarity","shape":"rbox","sim":"identity","crease_bits_equal":true,"curv_bits_equal":true,"flag_agreement":1,"k1_max_rel_diff":0}
+{"kind":"similarity","shape":"rbox","sim":"utm","crease_bits_equal":false,"curv_bits_equal":false,"flag_agreement":1,"k1_max_rel_diff":1.969580816774119E-07}
+{"kind":"similarity","shape":"rbox","sim":"scale 2^-10","crease_bits_equal":true,"curv_bits_equal":true,"flag_agreement":1,"k1_max_rel_diff":0}
+{"kind":"similarity","shape":"rbox","sim":"scale 2^10","crease_bits_equal":true,"curv_bits_equal":true,"flag_agreement":1,"k1_max_rel_diff":0}
+{"kind":"similarity","shape":"rbox","sim":"scale 1e-3","crease_bits_equal":false,"curv_bits_equal":false,"flag_agreement":1,"k1_max_rel_diff":1.2101430968414206E-13}
+{"kind":"similarity","shape":"rbox","sim":"scale 1e3","crease_bits_equal":false,"curv_bits_equal":false,"flag_agreement":1,"k1_max_rel_diff":5.2541304640385533E-14}
+{"kind":"similarity","shape":"rbox","sim":"rotated","crease_bits_equal":false,"curv_bits_equal":false,"flag_agreement":1,"k1_max_rel_diff":1.0688672169578695E-13}
+{"kind":"similarity","shape":"rbox","sim":"rotated, scale 1e-3, utm","crease_bits_equal":false,"curv_bits_equal":false,"flag_agreement":1,"k1_max_rel_diff":0.0001793624428948204}

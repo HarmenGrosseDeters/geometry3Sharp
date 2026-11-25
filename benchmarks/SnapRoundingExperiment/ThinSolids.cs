@@ -3,8 +3,9 @@
 // in the library is changed: the boolean runs once with the default (what happens today) and once without SafeRounding;
 // on that plainly rounded exact result the tool runs the same repair as the boolean does (the same options, the fixed
 // vertices and point ids read from the boolean by reflection) with RemoveTinyComponents off, and then applies each
-// rule to the components of the repaired mesh itself. The rule "cur" is today's rule written out again; `replica`
-// says whether it gives the triangles of the boolean's own result (the check that the replay is faithful).
+// rule to the components of the repaired mesh itself. The rule "cur" is the rule before #1216 written out again, "d_4"
+// the rule the library has since; `replica` says whether the library's rule, written out here, gives the triangles of the
+// boolean's own result (the check that the replay is faithful).
 //   thin list <set>     the case names of a set (sheet, issue, copies, plate, and the sets of `list`)
 //   thin <case>...      one JSON line per case
 //   thin set <set>      one JSON line per case of the set, in one process (no timings are taken)
@@ -48,7 +49,7 @@ static class ThinSolids
         if (args.Length == 2 && args[0] == "dump") {
             // the operands and the plainly rounded exact result of a case, as text (for a look at a single case)
             var (a, b, op) = Input(args[1]);
-            var plain = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { SafeRounding = false };
+            var plain = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true, SafeRounding = false };
             plain.Compute();
             foreach (var (label, m) in new[] { ("A", a), ("B", b), ("result", plain.Result) }) {
                 Console.WriteLine(label + ": " + m.VertexCount + " vertices, " + m.TriangleCount + " triangles");
@@ -282,13 +283,16 @@ static class ThinSolids
         ("e_256", c => c.Thickness0 < 256 * c.Ulp0 || ((c.Tiny || c.Thin) && (c.Defective || c.Thickness0 < 2 * c.Drift))),
     };
 
+    // the rule the library has: until #1216 "cur" (the committed results of 2026-11-22 were measured with it), since then d1 at 4 ulps
+    const string LibraryRule = "d_4";
+
     static string Measure(string name)
     {
         var (a, b, op) = Input(name);
         var sb = new StringBuilder();
         sb.Append("{\"case\":").Append(Json(name));
-        var plain = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { SafeRounding = false };
-        var safe = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op);
+        var plain = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true, SafeRounding = false };
+        var safe = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true };
         if (!plain.Compute() || !safe.Compute())
             return sb.Append(",\"ok\":false,\"error\":").Append(Json(plain.Error ?? safe.Error ?? "")).Append('}').ToString();
         DMesh3 raw = plain.Result;
@@ -301,6 +305,7 @@ static class ThinSolids
         sb.Append(",\"reasons\":").Append(Json(gs.MeshRobustRepair.NotCleanReasons(safe.Result)));
         sb.Append(",\"rounding_clean\":").Append(B(r.IsClean)).Append(",\"removed_components\":").Append(r.RemovedComponents).Append(",\"removed_tris\":").Append(r.RemovedTriangles);
         sb.Append(",\"scale_disparity\":").Append(r.ScaleDisparity).Append(",\"limit\":").Append(B(r.EvaluationLimitReached));
+        sb.Append(",\"removed_resolvable\":").Append(r.RemovedResolvable).Append(",\"removal_reasons\":").Append(Json(string.Join(",", r.RemovedComponentInfos.Select(i => i.Reason + ":" + i.ThicknessUlps.ToString("G3", ci)))));
         sb.Append(",\"init_intersections\":").Append(r.InitialIntersections).Append(",\"init_degenerate\":").Append(r.InitialDegenerate).Append(",\"init_false_contacts\":").Append(r.InitialFalseContacts);
         sb.Append(",\"collapses\":").Append(r.Collapses).Append(",\"flips\":").Append(r.Flips).Append(",\"moves\":").Append(r.Moves).Append(",\"zips\":").Append(r.Zips);
         sb.Append(",\"vertex_removals\":").Append(r.VertexRemovals).Append(",\"max_length\":").Append(D(r.MaxLength)).Append(",\"max_drift\":").Append(D(r.MaxDrift)).Append('}');
@@ -439,13 +444,15 @@ static class ThinSolids
                 outcomes[key] = outcome = outcomes.Count;
                 outcomeList.Append(outcome > 0 ? "," : "").Append("{\"removed\":[").Append(key).Append("],\"tris\":").Append(final.TriangleCount).Append(",\"volume\":").Append(S(ExactVolume(final, final.TriangleIndices())));
                 outcomeList.Append(",\"defective_components\":").Append(defects).Append(",\"reasons\":").Append(Json(final.TriangleCount > 0 ? gs.MeshRobustRepair.NotCleanReasons(final) : "empty")).Append('}');
-                if (rule == "cur") {
-                    // the check of the replay: today's rule, written out here, against the boolean's own result
-                    var mine = new HashSet<(Vector3d, Vector3d, Vector3d)>();
-                    foreach (int t in final.TriangleIndices()) mine.Add(GuaranteeBound.Key(final, t));
-                    replica = final.TriangleCount == safe.Result.TriangleCount && go.Count == r.RemovedComponents;
-                    foreach (int t in safe.Result.TriangleIndices()) replica &= mine.Contains(GuaranteeBound.Key(safe.Result, t));
-                }
+            }
+            if (rule == LibraryRule) {
+                // the check of the replay: the library's rule, written out here, against the boolean's own result
+                var final = new DMesh3(mesh);
+                foreach (int i in go) foreach (int t in comps[i].Tris) final.RemoveTriangle(t, true);
+                var mine = new HashSet<(Vector3d, Vector3d, Vector3d)>();
+                foreach (int t in final.TriangleIndices()) mine.Add(GuaranteeBound.Key(final, t));
+                replica = final.TriangleCount == safe.Result.TriangleCount && go.Count == r.RemovedComponents;
+                foreach (int t in safe.Result.TriangleIndices()) replica &= mine.Contains(GuaranteeBound.Key(safe.Result, t));
             }
             ruleList.Append(ruleList.Length > 0 ? "," : "").Append(Json(rule)).Append(":[").Append(outcome).Append(',').Append(disparity).Append(']');
         }
@@ -459,12 +466,12 @@ static class ThinSolids
     static string Cost(string name)
     {
         var (a, b, op) = Input(name);
-        new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op).Compute();
-        var safe = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op);
+        new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true }.Compute();
+        var safe = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true };
         var clock = System.Diagnostics.Stopwatch.StartNew();
         safe.Compute();
         double msBoolean = clock.Elapsed.TotalMilliseconds;
-        var plain = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { SafeRounding = false };
+        var plain = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true, SafeRounding = false };
         plain.Compute();
         DMesh3 raw = plain.Result;
         var times = new List<double>();

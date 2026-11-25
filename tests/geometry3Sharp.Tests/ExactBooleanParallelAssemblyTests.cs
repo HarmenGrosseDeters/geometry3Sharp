@@ -246,7 +246,7 @@ namespace geometry3Sharp.Tests
 
         static ExactMeshBoolean Run(DMesh3 a, DMesh3 b, ExactMeshBoolean.Operations op, bool exactVertices = false)
         {
-            var eb = new ExactMeshBoolean(a, b, op) { ComputeExactVertices = exactVertices };
+            var eb = new ExactMeshBoolean(a, b, op) { AllowOpenMeshes = true, ComputeExactVertices = exactVertices };
             Assert.True(eb.Compute(), eb.Error);
             Assert.True(eb.Result.CheckValidity(true, FailMode.ReturnOnly));
             return eb;
@@ -270,7 +270,7 @@ namespace geometry3Sharp.Tests
             yield return ("open sphere - box", () => Run(open, box, ExactMeshBoolean.Operations.Intersection));
             // (the per-patch evaluation of the open mesh without the traced one: the patch joins are collected for it, in the order of the sorted edges)
             yield return ("open per-patch sphere - box", () => {
-                var eb = new ExactMeshBoolean(open, box, ExactMeshBoolean.Operations.Union) { TracedOpenWinding = false };
+                var eb = new ExactMeshBoolean(open, box, ExactMeshBoolean.Operations.Union) { AllowOpenMeshes = true, TracedOpenWinding = false };
                 Assert.True(eb.Compute(), eb.Error);
                 Assert.True(eb.Result.CheckValidity(true, FailMode.ReturnOnly));
                 return eb;

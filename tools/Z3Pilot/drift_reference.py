@@ -966,7 +966,24 @@ def source_contract():
                              'drift_reference.py')
     # the records start at Apply: the anchors are the corners, the carried bounds 0, no ghosts (the anchors are set per
     # triangle by for_triangles, which visits every triangle id once: in this thread for one block of ids, else per block)
-    apply = norm(_method(text, 'public bool Apply('))
+    # (Apply itself only reads the mesh, for the volume before and after, around apply, which holds the repair)
+    if norm(_method(text, 'public bool Apply(')) != norm("""public bool Apply()
+        {
+            Vector3d centre = gs.MeshRepairMetrics.TriangleBounds(Mesh).Center;
+            VolumeBefore = signed_volume(centre);
+            try {
+                return apply();
+            } finally {
+                VolumeAfter = signed_volume(centre);
+            }
+        }""") or text.count('apply()') != 2:
+        raise ValueError('Apply: more than the two volumes around apply, or apply is called elsewhere; review drift_reference.py')
+    if norm(_method(text, 'double signed_volume(')) != norm("""double signed_volume(Vector3d c)
+        {
+            return MeshMeasurements.VolumeArea(Mesh, Mesh.TriangleIndices(), (v) => Mesh.GetVertex(v) - c).x;
+        }"""):
+        raise ValueError('signed_volume changed: it must only read the mesh; review drift_reference.py')
+    apply = norm(_method(text, 'bool apply('))
     if norm("""refAnchor = new Vector3d[3 * Mesh.MaxTriangleID];
             refCarry = new double[Mesh.MaxTriangleID];
             for_triangles(Mesh, (t) => {

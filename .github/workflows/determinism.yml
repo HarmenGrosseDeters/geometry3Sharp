@@ -1,18 +1,20 @@
 # Bit-for-bit determinism across runtimes (docs/design/DETERMINISM.md): the harness in tools/DeterminismHarness runs fixed
 # procedural inputs through the main operations on net10.0 (Linux and Windows) and net48 (Windows, the netstandard2.0
 # build of the library), serial and parallel, and the compare job lists every case whose values differ with the first
-# diverging value. Not part of the PR gate: it runs when the harness changes, and on demand.
+# diverging value. On a pull request it is a job of ci.yml (workflow_call, owner 2026-11-23): in the full stage (label
+# `full-ci`), when the PR changes the harness, the reach tool, the doc examples, the core math benchmark or this workflow
+# (tools/ci_scope.py DETERMINISM_PATHS), so the merge gate `full-ci` covers it. On demand: workflow_dispatch.
 name: determinism
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - 'tools/DeterminismHarness/**'
-      - 'tools/DeterminismReach/**'
-      - 'docs/examples/**'
-      - 'benchmarks/CoreMathBenchmark/**'
-      - '.github/workflows/determinism.yml'
+  workflow_call:
+    inputs:
+      macos:
+        type: boolean
+        default: false
+      suite:
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       macos:
@@ -26,8 +28,8 @@ on:
 
 jobs:
   linux:
-    # a draft PR runs nothing here (owner 2026-11-23, runner load); marking it ready starts the run
-    if: github.event.pull_request.draft != true
+    # a draft PR runs nothing here (owner 2026-11-23, runner load); a ready PR only with the label `full-ci` (the full stage)
+    if: github.event_name != 'pull_request' || (github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'full-ci'))
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -83,8 +85,8 @@ jobs:
   # arm64: the same harness on a GitHub-hosted Linux arm64 runner, compared with the x64 traces in `compare`. macOS arm64 is
   # opt-in (workflow_dispatch input `macos`): its runners queue for a long time and the job was cancelled in the queue.
   arm64:
-    # a draft PR runs nothing here (owner 2026-11-23, runner load); marking it ready starts the run
-    if: github.event.pull_request.draft != true
+    # a draft PR runs nothing here (owner 2026-11-23, runner load); a ready PR only with the label `full-ci` (the full stage)
+    if: github.event_name != 'pull_request' || (github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'full-ci'))
     strategy:
       fail-fast: false
       matrix:
@@ -130,8 +132,8 @@ jobs:
           path: out
 
   windows:
-    # a draft PR runs nothing here (owner 2026-11-23, runner load); marking it ready starts the run
-    if: github.event.pull_request.draft != true
+    # a draft PR runs nothing here (owner 2026-11-23, runner load); a ready PR only with the label `full-ci` (the full stage)
+    if: github.event_name != 'pull_request' || (github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'full-ci'))
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -181,6 +183,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: traces
+          pattern: traces-*
           merge-multiple: true
       - run: dotnet build tools/DeterminismHarness -c Release -f net10.0
       - name: Compare
@@ -228,7 +231,9 @@ jobs:
       - name: Cross-runtime matrix
         run: |
           python3 -m unittest discover -s tools/DeterminismHarness -p 'test_cross_matrix.py'
-          python3 tools/DeterminismHarness/cross_matrix.py traces
+          # the stage 1 and 2 cases of the proof (docs/design/DETERMINISM_PROOF.md O5) are claims: in every pair of GATE_PAIRS (cross_matrix.py: the comparisons of the
+          # default legs above, not macOS) they must be the same, a missing trace directory or a changed case count fails, and so does a difference
+          python3 tools/DeterminismHarness/cross_matrix.py traces --require stage1,stage2
       # the table of DETERMINISM_PROOF.md 5.3 (the exact kernel, its allow list, the rounding Booleans and the probes behind them)
       - name: Measurement rows
         run: |
