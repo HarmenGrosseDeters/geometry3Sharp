@@ -28,7 +28,7 @@ overlapping operands, the least favourable set for this) the local set is still 
 |---|---|---|---|---|---|---|
 | 1a | Rounding proportional to the new triangles: no tree of all result triangles, setup scans only where needed | −32 % at 1 thread, −45 % at 4 (all of the rounding's far work); the tree alone, by prototype: **at most −11 % at 1 thread** | the tree alone, by prototype: **at most −3.9 % at 1 thread** (−2.8 % on the booleans without an edit); all of it: about −14 to −19 % (estimate, section 4.2) | kept: the rule of ROUNDING_EXACT_PAIRS.md already skips the pairs of unchanged triangles; only the structure around it changes. Bit-identical | M, tier M (`MeshRoundingRepair` is not an exact file); risk low for the tree, medium for the scans | **build first**, in two steps |
 | 1b | Pass-through of untouched regions in classification and assembly | −16 % at 1 thread, −14 % at 4 | about −7 % (estimate) | kept, bit-identical ids required | L, exact files, ids must be reproduced | after 1a, only if a seam workload is a target |
-| 2 | Skip the operand self-join for operands certified clean (the library's own clean results, by a content stamp) | −20 % at 1 thread, −9 % at 4 | **0 on raw inputs**; a T6-like step with certified operands: −24 % at 1 thread, −15 % at 4 | kept only with a verified certificate (never a caller's flag); the stamp costs 1-2 % of the self-join it replaces | plan #1255, tier L | parked item, now with numbers; it unlocks nothing else on raw inputs |
+| 2 | Skip the operand self-join for operands certified clean (the library's own clean results, by a content stamp) | −20 % at 1 thread, −9 % at 4 | **0 on raw inputs**; a T6-like step with certified operands: −24 % at 1 thread, −15 % at 4 | kept only with a verified certificate (never a caller's flag); the stamp costs 1-2 % of the self-join it replaces | [plan #1255](../plans/boolean-ember-lever-2.md), tier L | parked item, now with numbers; it unlocks nothing else on raw inputs |
 | ceiling | All far work free (more than 1a + 1b + 2: setup and the trees of the far part stay even then) | −90 % at 1 thread, −93 % at 4 | – | as above | – | the ceiling, not a plan |
 | 3 | The serial tail: `ExactPlanarSimplify`, result vertices, `setup.points`, input checks, classification's serial steps, contact count | not split (the rounding dominates there, lever 1a) | serial share 16.5 % of the 4-thread time: **at most −12 %** at 4 threads if all of it scaled, realistically half; contact count by prototype −0.4 % | kept, bit-identical | M each, partly exact files | worth it for 12 threads; one small PR at a time |
 | 3x | (found on the way) the rounding's pair search increments one shared counter per skipped triangle from all threads | −4 % at 4 threads (72-114 ms → 11-47 ms of 1.37 s; a scratch switch, ten runs of one input) | not measured | kept, a count only | S | **build**: a few lines |
@@ -249,14 +249,14 @@ upper bound for a step whose two operands are both certified. On a single boolea
 certificate for a raw operand costs the search it would save.
 
 **The certificate.** Owner 2026-11-16: never a caller's flag; only the library's own clean results or a prepared operand
-(plan #1255). A content stamp of an operand (every vertex's bits and every triangle, in id order) costs, for all 196 T6
+([plan #1255](../plans/boolean-ember-lever-2.md)). A content stamp of an operand (every vertex's bits and every triangle, in id order) costs, for all 196 T6
 operands, 48 ms as a 64-bit mix and 111 ms as SHA-256, against the 5665 ms of their self-joins: **0.8 % and 2.0 %**. So a
 stamp taken when a boolean returns a clean result and checked when the mesh comes back as an operand is affordable, and
 it does not depend on `DMesh3.Timestamp` (which a write to the public buffers bypasses). SHA-256 leaves no realistic
 collision if the stamp also covers the vertex and triangle counts (the probe hashes the bare records, which is enough
 for the timing but not injective); a 64-bit mix would be an accidental-collision argument only.
 
-Open points for a design (plan #1255), not settled here:
+Open points for a design ([plan #1255](../plans/boolean-ember-lever-2.md)), not settled here:
 - where the stamp lives. It must be something a caller cannot forge by setting a field (the plan's prepared-operand
   handle, or a table inside the library keyed by the mesh instance); otherwise it is a caller's flag in disguise;
 - who pays for taking it: 1-2 % of a self-join on every clean result, also for callers who never chain, unless it is
@@ -510,7 +510,7 @@ rounding's far work.
 | 2 | **1a, step 1: the first pair search without a tree of all triangles**; the full tree built on the first edit | bound by prototype: seam union −11 %, T6 −3.9 % at 1 thread; expected with a tree built on the first edit: T6 −2.8 %, seam unions with edits 0; the bound needs the edits' queries served without the full tree (section 4.2) | the same candidate set by construction (equal pair counts on 303 booleans), the existing lemma | S for the lazy tree, M with the edit queries | low to medium: every later query must be served; `CheckOnThisThread` already compares searches |
 | 3 | **1a, step 2: setup scans proportional to the new triangles** (`atPosition`, anchors, `component_scales` from the operands, shared finite / range scans) | seam: up to the rest of the rounding's far work (−21 % at 1 thread; about −30 % at 4, with the tree's 4-thread time taken from the step probe); T6 estimate −10 to −15 %; expected half | each scan needs its own argument that the unchanged triangles cannot contribute; results bit-identical | M-L | medium: `Contacts`, false contacts and the scales are observable |
 | 4 | **3: serial tail**, one step per PR, by size: `ExactPlanarSimplify` per region, result vertices, `setup.points`, input checks; the flat contact count on the way | T6 at 4 threads: bound −12 %, expected −6 %; more at 12 threads | bit-identical ids; determinism tests per new loop | M each | medium; exact files need the allow-list review |
-| 5 | **2: certified operands** (plan #1255, with the content stamp of section 5) | chained steps: bound −24 % at 1 thread, −15 % at 4; raw single booleans 0 | a verified stamp, never a flag | L | medium: API (additive), exact files |
+| 5 | **2: certified operands** ([plan #1255](../plans/boolean-ember-lever-2.md), with the content stamp of section 5) | chained steps: bound −24 % at 1 thread, −15 % at 4; raw single booleans 0 | a verified stamp, never a flag | L | medium: API (additive), exact files |
 | 6 | **1b: pass-through in classification and assembly** | seam: −16 % / −14 %; T6 estimate −7 % | bit-identical ids | L | high |
 | – | 4 (wide tree, packets) | ≤ 4 % | – | L | dropped |
 | – | 5 (weaker-guarantee kernel) | 3-4x, by giving up the guarantees | none | a second product | not proposed; owner decision |

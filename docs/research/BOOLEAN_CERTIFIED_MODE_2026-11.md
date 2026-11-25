@@ -342,7 +342,7 @@ with a separate self-intersection test; Manifold guarantees by construction).
 | D1 | Coplanar: close the item for the boolean and the 3D query (already exact); document the 2D class as legacy and remove the dead caller | the roadmap matches the code | S (later library PR) | none |
 | D2 / D3 | An exact `IntrTriangle2Triangle2.Find`, or an additive exact 2D clip | exact 2D clip for direct callers | M | D2 changes public results; neither has a caller |
 
-**Leaning.** B, then stop. It is the cheap part of plan #1256, closes the one hole in the oracle's argument, and needs
+**Leaning.** B, then stop. It is the cheap part of [plan #1256](../plans/boolean-certifying-checker-stage-3.md), closes the one hole in the oracle's argument, and needs
 no decision on API or exact files. C stays parked behind its trigger (a caller who needs a certificate); if that
 trigger comes, sections 4 and 5 are its budget and the first step is the filter for C1 / C3 / C5 with a measurement
 like 4.1. A is a paragraph in the boolean's guide and can ride with B. For the coplanar item: D1.

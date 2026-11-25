@@ -670,7 +670,9 @@ Ordered by expected value for the library.
      - or a refinement rule with a proof that keeps more of the bound ([meshing2d.md](meshing2d.md)).
    - 2026-11-22, spike done ([note](../research/MESHING2D_HP6_HP7_SPIKE_2026-11.md), section 1): the exemption of Miller, Pav and
      Walkington 2005 is proven up to 26.45° with a floor of about φ, for circumcentres only; on 96 procedural inputs the library's
-     excused triangles are all at the apex or spanning, 3.5 to 4 % of them below that floor. Options with the owner; nothing is built.
+     excused triangles are all at the apex or spanning, 3.5 to 4 % of them below that floor. Option 1 done: the oracle reports the
+     excused triangles below that floor (`OracleReport.BelowMpwFloorExcused`, #1358; a report, no rule); the crossing case of the
+     note (5.47°) is pinned by a test since 2026-11-25. Options 2 to 5 with the owner; the mesher is unchanged.
 7. **Meshing2D oracle speed.**
    - Status: the fast oracle stopped at its stop rule (Herne 3.6x the mesher, target <= 2x).
    - Open: a certifying-algorithm design (McConnell et al. 2011) for the remaining parts, coverage under the Q17
@@ -767,9 +769,9 @@ owner 2026-11-15), CCD broad phase with sub-step boxes (#945).
 4. Contouring topology certificate: stage 3 built (#944, closed 2026-11-17); refinement for the thin features not built by the stop
    rule (upper bound one run). Options B and C only after a reviewed proof (plan #1289).
 5. #848: certified Hausdorff upper bound (patch bound); hard problem 10, the envelope algorithm (Phase 5 #2; plan #1288). Design note and upper-bound measurement 2026-11-16 ([CERTIFIED_PATCH_BOUND.md](../design/CERTIFIED_PATCH_BOUND.md)): 61-100 % fewer subdivisions on reduced meshes against their originals; recommendation go for a filtered-double design (spike first). Owner 2026-11-16: parked until a use case; **owner 2026-11-18: unparked, implemented** (merged, #848 closed 2026-11-19; `certified_patch_bound` and `CertifiedDet3`, design note section 10: subdivisions -61 to -100 %, time -28 to -95 % on the reduced rows).
-6. ~~#886~~: ARAP (#896) and biharmonic (#897) merged 2026-11-16, issue closed. Open: the certified biharmonic mode, parked (owner 2026-11-16), gates #980 and #976 (plan #1265).
-7. Hard problem 9 (scale-free repair): study done, no-go for a larger effort; bugfix F1 done (#1101, owner 2026-11-17; F2 not now, plan #1257)
+6. ~~#886~~: ARAP (#896) and biharmonic (#897) merged 2026-11-16, issue closed. Open: the certified biharmonic mode, parked (owner 2026-11-16), gates #980 and #976 ([plan #1265](../plans/geodesics-certified-biharmonic-mode.md)).
+7. Hard problem 9 (scale-free repair): study done, no-go for a larger effort; bugfix F1 done (#1101, owner 2026-11-17; F2 not now, [plan #1257](../plans/repair-mesh-robust-repair-f2.md))
    ([ROBUST_REPAIR_SCALE_FREE_STUDY.md](../design/ROBUST_REPAIR_SCALE_FREE_STUDY.md), 2026-11-17, #1095). Hard problem 8 (open operands: correctness fixed in #528, only
-   speed and Lévy-style propagation left; plan #1279): not scheduled, Boolean speed work stopped (owner 2026-11-16); the rounding spike is a no-go (HP 1 plan #1278; HP 3 plan #1258; HP 4 pass K follow-ups plan #1237, provable recovery plan #1280).
+   speed and Lévy-style propagation left; [plan #1279](../plans/research-hp8-open-operand-speed-levy.md)): not scheduled, Boolean speed work stopped (owner 2026-11-16); the rounding spike is a no-go (HP 1 plan #1278; HP 3 [plan #1258](../plans/repair-rounding-cost-levers.md); HP 4 pass K follow-ups [plan #1237](../plans/alphawrap-feature-pass-k-follow-ups.md), provable recovery plan #1280).
 8. `ContourLoft` stage 2 (several contours per slice, branching, merging, caps, holes): `ContourLoftStack`, design approved 2026-11-19 ([CONTOUR_LOFT.md](../design/CONTOUR_LOFT.md) section 10), merged (#1159, 2026-11-19); holes inside branching groups built in #1197 (owner 2026-11-19, section 10.10); the opt-in `LoweredSaddle` for contained groups built (section 10.11, owner 2026-11-19); cut-group saddles at `BranchFraction` (1c probed, no gain), terminal-with-child, islands in branching holes and the straight skeleton (Barequet et al. 2004, not built: no building block, algebraic events) are documented limits (section 10.11). ContourLoft has no open items.
-9. Other draft plans for items in this subpage: TPMS Lidinoid primary-source check (plan #1245), TPMS wall-thickness transitions (plan #1274), open research questions (plan #1290).
+9. Other draft plans for items in this subpage: TPMS Lidinoid primary-source check ([plan #1245](../plans/tpms-lidinoid-primary-source.md)), TPMS wall-thickness transitions ([plan #1274](../plans/tpms-transitions-wall-thickness.md)), open research questions ([plan #1290](../plans/research-open-questions-metamorphic-agents-showcases.md)).

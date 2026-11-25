@@ -20,6 +20,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [BooleanInputOrder](BooleanInputOrder/README.md) | `ExactMeshBoolean` and `SolidBooleanPipeline` under reorderings of the input triangles and vertex ids, stage by stage, on procedural near-coincident plates |
 | [BooleanVolumeGradient](BooleanVolumeGradient/README.md) | `BooleanVolumeGradient`: its cost against the boolean, `RetainClassification`, and the default path before / after the change |
 | [Boolean30Prestudy](Boolean30Prestudy/README.md) | Stage profiling and measurement probes for Exact Boolean 3.0 |
+| [ExactHotspotsStudy](ExactHotspotsStudy/README.md) | Research probes of docs/research/EXACT_HOTSPOTS_STUDY_2026-11.md: the exact `orient3d` stage histogram, the repetition of the rounding repair's tri-tri tests, and a pair-cache spike (temporary library patch, not committed) |
 | [ExactImprint](ExactImprint/README.md) | Cost of `ExactMeshImprint` compared to `ExactMeshBoolean` on procedural pairs |
 | [ImprintSliverSweep](ImprintSliverSweep/README.md) | Unclean runs of `ExactMeshImprint` on ulp-shifted near-duplicates, per shape, axis and frame (far from the origin) (#1489) |
 | [ExtremeBooleans](ExtremeBooleans/README.md) | Reproduction scripts and profiling for extreme-runtime boolean pairs |
@@ -63,6 +64,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 |---|---|
 | [Meshing2Benchmark](Meshing2Benchmark/README.md) | Acceptance gates, golden rows, and ALKIS/Herne corpora for `DelaunayMesh2` / `ConstrainedDelaunayMesh2` / `QualityMesh2` |
 | [OracleIndexPilot](OracleIndexPilot/README.md) | Certified STRtree spatial index performance for the independent 2D meshing oracle |
+| [HigherMathStudy](HigherMathStudy/README.md) | Research probes of docs/research/HIGHER_MATH_STUDY_2026-11.md: valuation identity on exact Boolean results, the BigInteger profile workload, triangle-soup orientation (Z2 synchronization vs the library) |
 | [Meshing2HardProblems](Meshing2HardProblems/README.md) | Research spike prototypes: reference small-angle refinement rules (HP 6) and a certifying checker against the 2D meshing oracle (HP 7) |
 | [OracleSourcePilot](OracleSourcePilot/README.md) | Constrained-edge source coverage diagnostics for the 2D meshing oracle |
 | [TetMeshBenchmark](TetMeshBenchmark/README.md) | `MeshTetrahedralization` insertion rates, dihedral quality, size control, and crease recovery |
