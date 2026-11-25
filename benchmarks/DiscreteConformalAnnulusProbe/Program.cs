@@ -137,6 +137,10 @@ static void Demand(bool condition, string message)
         throw new InvalidOperationException(message);
 }
 
+double lobErr = DiscreteConformalSolver.MaxLobachevskyQuadratureError();
+Console.WriteLine($"=== Part 0: Lobachevsky quadrature: max |8-point GL - 256-panel reference| over 1999 angles in (0, pi) = {lobErr:E2} ===");
+Demand(lobErr < 1e-12, $"Lobachevsky quadrature error {lobErr} above the 1e-12 per call the energy round-off bound assumes");
+Console.WriteLine();
 Console.WriteLine("=== Part 1: Full CETM + Ptolemy Intrinsic Delaunay Solver vs LSCM and Spectral ===");
 Console.WriteLine("case | mode | LSCM (flips+deg) | Spectral (status/flips) | CETM conv/iters | init+solve flips | maxAngleRes | rotHol(rad) | transHol(rel) | inputUV flips+deg | bndContacts | meanConf | nonEucl iters/tris | armijo+fallback | ms");
 

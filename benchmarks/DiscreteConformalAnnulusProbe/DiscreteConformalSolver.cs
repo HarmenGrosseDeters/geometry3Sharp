@@ -230,6 +230,34 @@ internal sealed class DiscreteConformalSolver
         return m + Math.Log(Math.Exp(a - m) + Math.Exp(b - m));
     }
 
+    /// <summary>
+    /// Max |Lobachevsky(alpha) - reference| over n angles in (0, pi), where the reference integrates the same
+    /// integrand with the 8-point rule on 256 panels (a high-order composite reference).
+    /// </summary>
+    public static double MaxLobachevskyQuadratureError(int n = 1999)
+    {
+        static double Reference(double alpha)
+        {
+            if (alpha > 0.5 * Math.PI)
+                return -Reference(Math.PI - alpha);
+            const int panels = 256;
+            double h = alpha / panels, integral = 0;
+            for (int p = 0; p < panels; ++p) {
+                for (int i = 0; i < GlNodes.Length; ++i) {
+                    double t = (p + GlNodes[i]) * h;
+                    integral += GlWeights[i] * h * Math.Log(Math.Sin(t) / t);
+                }
+            }
+            return alpha * (1.0 - Math.Log(2.0 * alpha)) - integral;
+        }
+        double maxErr = 0;
+        for (int k = 1; k <= n; ++k) {
+            double alpha = Math.PI * k / (n + 1);
+            maxErr = Math.Max(maxErr, Math.Abs(Lobachevsky(alpha) - Reference(alpha)));
+        }
+        return maxErr;
+    }
+
     private static double Lobachevsky(double alpha)
     {
         if (alpha <= 0 || alpha >= Math.PI)
@@ -483,8 +511,8 @@ internal sealed class DiscreteConformalSolver
         }
 
         energy = sumTri + lin;
-        // Generous bound for the round-off of the sum (and the quadrature error of the Lobachevsky
-        // function, about 1e-12 per call for 8-point Gauss-Legendre on [0, pi/2]).
+        // Generous bound for the round-off of the sum and the quadrature error of the Lobachevsky
+        // function (1e-12 per call; the measured max error is printed by the probe, Part 0).
         energyRoundoff = 64.0 * 1.1102230246251565e-16 * sumAbs + 1e-12 * 3 * _triCount;
         return double.IsFinite(energy);
     }
