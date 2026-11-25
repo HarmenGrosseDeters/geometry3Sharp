@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using BigInteger = System.Numerics.BigInteger;
 using g3;
 using Xunit;
 using Xunit.Abstractions;
@@ -1016,7 +1017,7 @@ namespace geometry3Sharp.Tests
         /// The double filters of C5 (reject by the triangle's box, accept by a point inside it) against the exact test on
         /// lattice triangles and points: the answers agree, borderline cases (distance exactly delta, on the plane, on an
         /// edge, a degenerate triangle) included, for coordinates of very different size against a delta of the same unit:
-        /// 1, 2^20, and 2^-560 and 2^500, where the squares of the distances underflow or overflow (the review of #1520: at
+        /// 1, 2^20, and 2^-560, 2^-545 and 2^500, where the squares of the distances underflow or overflow (the review of #1520: at
         /// 2^-560 the accept answered true where the exact test says false).
         /// </summary>
         [Fact]
@@ -1025,8 +1026,8 @@ namespace geometry3Sharp.Tests
             var rng = new Random(20261124);
             int near = 0, far = 0;
             var big = System.Numerics.BigInteger.One;
-            foreach (var (num, den, unit) in new[] { (big, big, 1.0), (big << 20, big, Math.Pow(2, 20)), (big, big << 560, Math.Pow(2, -560)), (big << 500, big, Math.Pow(2, 500)) }) {
-                for (int it = 0; it < 3000; ++it) {
+            foreach (var (num, den, unit) in new[] { (big, big, 1.0), (big << 20, big, Math.Pow(2, 20)), (big, big << 560, Math.Pow(2, -560)), (big, big << 545, Math.Pow(2, -545)), (big << 500, big, Math.Pow(2, 500)) }) {
+                for (int it = 0; it < 2000; ++it) {
                     ExactPoint3 P() => ExactPoint3.Create(rng.Next(-6, 7) * num, rng.Next(-6, 7) * num, rng.Next(-6, 7) * num, den);
                     ExactPoint3[] t = { P(), P(), P() };
                     if (it % 7 == 0) t[2] = t[1];                       // degenerate
@@ -1038,7 +1039,7 @@ namespace geometry3Sharp.Tests
                     }
                 }
             }
-            Assert.True(near > 2000 && far > 2000, $"{near} near, {far} far");
+            Assert.True(near > 1500 && far > 1500, $"{near} near, {far} far");
             // the reproducer of the review: delta = s = 2^-560, the triangle (0, 0, 0), (0, 8s, 0), (0, 0, 8s), the point (-0.8s, -0.8s, 0)
             // (in units of s / 5): the distance is 0.8 sqrt 2 s, above delta
             var d5 = System.Numerics.BigInteger.One << 560;
@@ -1064,8 +1065,10 @@ namespace geometry3Sharp.Tests
 
         /// <summary>
         /// Thin triangles (a corner almost on the line of the other two, over long lattice steps) against the exact test: the
-        /// closest point routine of the accept filter has weights outside [0, 1] there, and only its clamp keeps the point it
-        /// computes inside the triangle (without the clamp the accept answers true for points that are far).
+        /// closest point routine of the accept filter works near its region boundaries there, and the distance it computes
+        /// must never be below the true one. (Its clamp of the weights to [0, 1] is a belt: no input of this test or of the
+        /// searches of the 2026-11-25 hand mutants took the weights outside [0, 1] by more than an ulp; see
+        /// tools/certificate_hand_mutants.py.)
         /// </summary>
         [Fact]
         public void CoverageFilters_AgreeWithTheExactDistanceTest_OnThinTriangles()
@@ -1100,6 +1103,116 @@ namespace geometry3Sharp.Tests
                 }
             }
             Assert.True(near > 500 && far > 500 && checkedDistances > 5000, $"{near} near, {far} far, {checkedDistances} distances");
+        }
+
+
+        // ---------------------------------------------------------------- the filters at their bounds (2026-11-25, the hand mutants of the filters)
+
+        // a uniform long in [lo, hi) from three draws of Next (Random.NextInt64 is not in net48)
+        static long Next64(Random rng, long lo, long hi)
+        {
+            ulong x = ((ulong)(uint)rng.Next() << 33) ^ ((ulong)(uint)rng.Next() << 11) ^ (uint)rng.Next();
+            return lo + (long)(x % (ulong)(hi - lo));
+        }
+
+        // a rational of about value with the denominator w: round(value w) + jitter over w
+        static BigInteger Num(BigInteger whole, BigInteger frac, BigInteger fracDen, BigInteger w, int jitter) =>
+            (whole * w * fracDen + frac * w) / fracDen + jitter;
+
+        /// <summary>
+        /// The widening of the box filter (ApproxBox) against its own error: two triangles whose exact boxes touch or overlap by
+        /// less than an ulp, with corners of large odd denominators, so that the approximations (three roundings each, not
+        /// monotone) often come out in the wrong order. Their filter boxes must meet. Without the widening (or with one far
+        /// below the error) the filter drops such pairs; coordinates beyond the double range give infinite approximations, and
+        /// the box must then be everything.
+        /// </summary>
+        [Fact]
+        public void BoxFilter_KeepsBoxesThatTouch_WhenTheApproximationsAreOutOfOrder()
+        {
+            var rng = new Random(20261125);
+            BigInteger W() => (BigInteger.One << 62) + 2 * new BigInteger(Next64(rng, 1, 1L << 60)) + 1;
+            int reversed = 0, tried = 0;
+            foreach (long whole in new long[] { 0, 1, 3, 1000, -7, 1L << 40 })
+                for (int it = 0; it < 400; ++it) {
+                    // a's largest x and b's smallest x are both about whole + f, b's at most a's (by 0 to 2 units of 1 / w)
+                    BigInteger f = Next64(rng, 1, 1L << 50), fd = BigInteger.One << 51;
+                    BigInteger wa = W(), wb = W();
+                    BigInteger xa = Num(whole, f, fd, wa, 0);
+                    // xb / wb <= xa / wa: the floor of xa wb / wa, less 0..2
+                    BigInteger xb = BigInteger.Divide(xa * wb - (xa.Sign < 0 ? wa - 1 : 0), wa) - rng.Next(0, 3);
+                    if (xb * wa > xa * wb) continue;
+                    var a = new[] { ExactPoint3.Create(xa, 0, 0, wa), ExactPoint3.Create(xa - 5 * wa, 3 * wa, 0, wa), ExactPoint3.Create(xa - 4 * wa, 0, 2 * wa, wa) };
+                    var b = new[] { ExactPoint3.Create(xb, 1 * wb, 1 * wb, wb), ExactPoint3.Create(xb + 6 * wb, 2 * wb, 0, wb), ExactPoint3.Create(xb + 2 * wb, 0, 3 * wb, wb) };
+                    tried++;
+                    if (b[0].ApproxVector3d().x > a[0].ApproxVector3d().x) reversed++;
+                    Assert.True(BooleanCertificate.ApproxBoxesMeet(a, b), $"whole {whole} it {it}: the boxes touch, the filter's do not");
+                    Assert.True(BooleanCertificate.ApproxBoxesMeet(b, a), $"whole {whole} it {it}: the boxes touch, the filter's do not (b, a)");
+                }
+            Assert.True(tried > 2000 && reversed > 100, $"{reversed} of {tried} pairs with approximations out of order");
+            // beyond the double range: the approximation is infinite, the box everything
+            BigInteger big = BigInteger.One << 1100;
+            var h = new[] { ExactPoint3.Create(big, 0, 0, 1), ExactPoint3.Create(big, big, 0, 1), ExactPoint3.Create(big, 0, big, 1) };
+            Assert.True(double.IsInfinity(h[0].ApproxVector3d().x), "the approximation of 2^1100 is finite");
+            Assert.True(BooleanCertificate.ApproxBoxesMeet(h, h), "a triangle beyond the double range does not meet itself");
+            // and boxes that are apart by far more than the error stay apart (the filter filters)
+            Assert.False(BooleanCertificate.ApproxBoxesMeet(new[] { G(0, 0), G(1, 0), G(0, 1) }, new[] { G(2, 0), G(3, 0), G(2, 1) }));
+        }
+
+        /// <summary>
+        /// The double filters of C5 at their margins: a point at distance 1 + s 2^-k (k = 36 to 70) from the face of a triangle
+        /// whose plane is x = c, with every coordinate a rational of a large odd denominator (so that the approximations are
+        /// off by up to a few ulps of c), for c from 0 to 2^20, against the exact test. A reject without its margin, or an
+        /// accept whose margin is smaller than the approximation error of the coordinates (a bound tightened by a factor),
+        /// answers wrongly for some of them.
+        /// </summary>
+        [Fact]
+        public void CoverageFilters_AgreeWithTheExactTest_AtDistanceDeltaWithRoundedCoordinates()
+        {
+            var rng = new Random(1125);
+            BigInteger W() => (BigInteger.One << 62) + 2 * new BigInteger(Next64(rng, 1, 1L << 60)) + 1;
+            int near = 0, far = 0;
+            foreach (long c in new long[] { 0, 3, 1000, 1L << 20 })
+                for (int k = 36; k <= 70; ++k)
+                    foreach (int s in new[] { -1, 1 })
+                        for (int rep = 0; rep < 6; ++rep) {
+                            BigInteger w0 = W(), w = W();
+                            // the plane x = c + r / 2^30 (r random), corners (x, 0, 0), (x, 8, 0), (x, 0, 8)
+                            BigInteger r = rng.Next(1, 1 << 30), rd = BigInteger.One << 30;
+                            BigInteger x0 = Num(c, r, rd, w0, rng.Next(-1, 2));
+                            var t = new[] { ExactPoint3.Create(x0, 0, 0, w0), ExactPoint3.Create(x0, 8 * w0, 0, w0), ExactPoint3.Create(x0, 0, 8 * w0, w0) };
+                            // the point at x = plane - (1 + s 2^-k), y = z = 1 + 1/3 (over the face), denominator w
+                            BigInteger num = (x0 * w * (BigInteger.One << k) - w0 * w * ((BigInteger.One << k) + s)) / (w0 * (BigInteger.One << k)) + rng.Next(-1, 2);
+                            var p = ExactPoint3.Create(num, (4 * w) / 3, (4 * w) / 3, w);
+                            bool exact = BooleanCertificate.PointNearTriangle(p, t, 1.0);
+                            Assert.True(exact == BooleanCertificate.PointNearTriangleFiltered(p, t, 1.0, c + 9.0), $"c {c} k {k} s {s}: exact {exact}");
+                            if (exact) near++; else far++;
+                        }
+            Assert.True(near > 600 && far > 600, $"{near} near, {far} far");
+            // a point whose x has a numerator beyond 2^1024 (its double is infinite) at about 2^1000, within delta of the triangle
+            // (x = 2^1000) there: the approximations must not reject it (they are not finite: the exact test decides)
+            BigInteger e1000 = BigInteger.One << 1000, d = (BigInteger.One << 100) + 3;
+            var hugeT = new[] { ExactPoint3.Create(e1000, 0, 0, 1), ExactPoint3.Create(e1000, e1000, 0, 1), ExactPoint3.Create(e1000, 0, e1000, 1) };
+            var hugeP = ExactPoint3.Create((BigInteger.One << 1100) + 1, (BigInteger.One << 998) * d, (BigInteger.One << 998) * d, d);
+            Assert.True(BooleanCertificate.PointNearTriangle(hugeP, hugeT, Math.Pow(2, 950)));
+            Assert.True(BooleanCertificate.PointNearTriangleFiltered(hugeP, hugeT, Math.Pow(2, 950), Math.Pow(2, 1001)));
+        }
+
+        /// <summary>
+        /// The coverage test of C5 runs its double filters with the slack of the coordinates it compares (FilterEps of the box
+        /// of both triangle sets): far from the origin that slack is above 2^-40 of the largest coordinate. A coverage test
+        /// that ran its filters with no slack, or with one taken from other numbers, accepts and rejects on rounding noise.
+        /// </summary>
+        [Fact]
+        public void CoverageTest_UsesTheSlackOfItsCoordinates()
+        {
+            var a = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(1024.5, -3.25, 0.0625), new Vector3d(1, 1, 1)) }.Generate().MakeDMesh();
+            var b = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(1025.25, -2.75, 0.5), new Vector3d(1, 1, 1)) }.Generate().MakeDMesh();
+            BooleanCertificate c = Certify(a, b, Ops.Union, out ExactMeshBoolean eb);
+            Assert.Equal(0.0, c.CoverageSlack);
+            Assert.Equal("", c.Check());
+            double maxAbs = eb.Result.Vertices().Max(v => Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z))));
+            Assert.True(c.CoverageSlack >= maxAbs / (1L << 40), $"slack {c.CoverageSlack:R}, coordinates up to {maxAbs:R}");
+            Assert.True(c.CoverageSlack <= 4 * (maxAbs + 4) / (1L << 40), $"slack {c.CoverageSlack:R}: not the coordinates' (too large)");
         }
 
         static readonly System.Numerics.BigInteger BigIntegerOne = System.Numerics.BigInteger.One;

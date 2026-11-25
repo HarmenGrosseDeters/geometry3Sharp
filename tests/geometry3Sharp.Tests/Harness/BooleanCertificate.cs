@@ -323,6 +323,19 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        /// <summary>
+        /// for tests: whether the conservative boxes of the box filter (ApproxBox) of two triangles meet; they must whenever the
+        /// exact closed boxes do
+        /// </summary>
+        public static bool ApproxBoxesMeet(ExactPoint3[] p, ExactPoint3[] q)
+        {
+            double[] pl = new double[3], ph = new double[3], ql = new double[3], qh = new double[3];
+            ApproxBox(p, pl, ph); ApproxBox(q, ql, qh);
+            // (the closed-box test of the scan and the tree: a NaN bound meets nothing)
+            for (int k = 0; k < 3; ++k) if ((pl[k] <= qh[k] && ql[k] <= ph[k]) == false) return false;
+            return true;
+        }
+
         // the boxes of the input triangles of one plane (the coplanar ones: planeGroups), with a tree where there are many
         sealed class PlaneBoxes
         {
@@ -1635,6 +1648,8 @@ namespace geometry3Sharp.Tests
         static double FilterEps(double maxAbs, double extent) => Math.Max((maxAbs + extent) / (double)(1L << 40), Math.Pow(2, -480));
 
         double covDelta, covEps;       // Delta, and the absolute slack of the double filters (set by Cover)
+        /// <summary> for tests: the slack of the double filters of C5 in the last coverage test (0 before one ran) </summary>
+        public double CoverageSlack => covEps;
 
         // Near with the double filters first (pa, ta: the approximations of p and t; ok = they exist)
         static bool NearFiltered(Q[] p, bool pOk, Vector3d pa, Q[][] t, TriApprox ta, Q delta2, double covDelta, double covEps)

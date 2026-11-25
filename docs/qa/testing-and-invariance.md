@@ -180,8 +180,10 @@ vertex moved, a two-sided sheet, a moved exact vertex): all caught. C2 has its o
 cases put back unsplit (the arrangement's classic fault, a missed intersection: C1 still holds, only C2 sees it), a sheet
 through the middle of a result, and a folded coplanar piece. No false alarm: every case above, the campaigns and the
 Nightly corpus certify. The checker itself is a test file, so Stryker does
-not mutate it; `tools/certificate_hand_mutants.py` switches off or reverses each condition and sign of the checker (50
-mutants, about 45 minutes), and `BooleanCertificateTests` kills every one. Cost (warm, two spheres, 696 pieces): the boolean 4 ms, C1 19 ms, C3 + C4 10 ms,
+not mutate it; `tools/certificate_hand_mutants.py` switches off or reverses each condition and sign of the checker and makes each
+floating-point filter decide wrongly or too early (69 mutants, 2026-11-25, about 75 minutes), and `BooleanCertificateTests` kills
+every one; 18 equivalent mutants are listed with their reasons (`--equivalent` checks that they pass;
+[CERTIFICATE_HARDENING_2026-11.md](../research/CERTIFICATE_HARDENING_2026-11.md)). Cost (warm, two spheres, 696 pieces): the boolean 4 ms, C1 19 ms, C3 + C4 10 ms,
 C5 65 ms, C2 about 40 ms (the prototype of the research note measured 9 us per pair with BigInteger): several times the
 boolean, as BigInteger decides every sign (an oracle for tests, not a mode for users).
 
