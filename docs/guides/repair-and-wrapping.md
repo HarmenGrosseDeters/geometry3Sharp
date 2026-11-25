@@ -166,6 +166,21 @@ Wrap triangle count scales with `surface area / Alpha^2`, not input triangle cou
 
 Set `MaxEstimatedTriangles` (`MeshRobustRepair.WrapMaxEstimatedTriangles`, off by default) to automatically coarsen `Alpha` and `Offset` until the estimated raw triangle count (counting open components twice) fits the budget.
 
+**Holes the alpha ball passes through (by design, [#1542](https://github.com/HarmenGrosseDeters/geometry3Sharp/issues/1542)):** The ball enters a hole whose circumscribed circle is wider than about 2 `Alpha`, for example a dropped right isosceles grid triangle with legs of about 1.86 `Alpha` (as in the procedural soups below), whose circumradius is half its hypotenuse, about 1.32 `Alpha`. The wrap then goes through it and becomes one connected surface around both sides of the sheet, with one tunnel per hole it passes through, and it does not seal the hole.
+
+On procedural closed shells of about 100k triangles (`RelativeAlpha = 300`, `RelativeOffset = 3000`) with such holes:
+- **Holes alone** (2.5 % of the triangles dropped): about 2 times the raw triangles and 4-5 times the time of the same shell without holes.
+- **With other soup defects** (jitter, gaps, duplicates, flips, T-junctions): about 4 times the triangles and 5.6-8.2 times the time.
+- **Why** (from a 20k-triangle run of the same shell, with holes of about 4 `Alpha`): the wrap had about twice the input's area and about 2.2 times the triangles per area. Between the two sides only a thin layer stays inside, and the points there come from projections. The time stays linear in that work.
+
+`MaxEstimatedTriangles` (on `MeshRobustRepair`: `WrapMaxEstimatedTriangles`), with `MaxAlphaCoarsening` (`WrapMaxAlphaCoarsening`) as a cap on the growth of `Alpha`, is the guard. It caps the estimate (3 × area / `Alpha`²), not the result:
+- **What the estimate counts:** it counts a component twice only if the bounding-box diagonal of one of its boundary chains is above 4 `Alpha`. That diagonal is about 1.5 times the hole width, so only holes wider than about 2.7 `Alpha` count twice.
+- **What it misses:** the narrow holes above count once, and the estimate sees neither the second side nor the denser surface. A budget of twice the closed shape's wrap therefore coarsens `Alpha` by only about 1.0-1.1, and the result can stay up to about twice the budget: about the budget with holes alone, about twice it with the other defects.
+- **Setting it:** from the estimate's formula (not measured with a budget), set the budget to about half the raw triangle count you accept when such holes are expected, and check `AlphaCoarsening` and the result size.
+- **Side effect:** a coarser `Alpha` also closes holes and cavities narrower than about 2 `UsedAlpha`.
+
+To keep the alpha and seal the holes instead, fill short boundary loops on the welded input before wrapping (see [Hole Filling](#hole-filling)).
+
 ---
 
 ## `PassageWrap` (Clearance-Certified Wrapping)
