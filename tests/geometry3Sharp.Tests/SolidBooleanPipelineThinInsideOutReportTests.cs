@@ -128,5 +128,72 @@ namespace geometry3Sharp.Tests
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.InsideOutInput, p.Status);
             Assert.Empty(p.Report.DroppedInsideOutComponents);
         }
+
+        [Theory]
+        [InlineData(1.0 / (1 << 20))]
+        [InlineData(1.0 / (1L << 36))]
+        public void AThinCavityFlushUnderTheTopFace_IsNotDropped_UnderEverySimilarity(double lift)
+        {
+            // the lens's quad lies in the box's top face z = 1, from inside, the apex at 1 - lift; flipped, so its volume is
+            // negative: a thin cavity that touches the wall. Its quad vertices lie on the rest (the top face), and after a
+            // rotation far from the origin within the touch distance of it: they are skipped (ShellIndex touch), the apex decides
+            // (inside). Without the skip a rounded quad vertex can fall outside the face and drop the cavity
+            foreach (Similarity s in Similarity.All()) {
+                DMesh3 a = T.Box(0, 0, 0, 1, 1, 1);
+                T.AddLens(a, 0.375, 1, -lift, true);
+                Assert.True(Invariance.Volume(a) < 1);
+                var inputs = new List<DMesh3> { a, T.Other() }.Select(m => Invariance.Transformed(m, s)).ToList();
+                var p = new SolidBooleanPipeline(inputs, I);
+                bool ok = p.Compute();
+                Assert.True(p.Report.DroppedInsideOutComponents.Count == 0, s.Name);
+                // (the boolean decides as before; where it succeeds, the result is a closed solid that keeps the cavity)
+                if (ok) {
+                    Assert.True(p.Result.IsClosed(), s.Name);
+                    Assert.True(p.Result.CheckValidity(false, FailMode.ReturnOnly), s.Name);
+                    double v = Invariance.Volume(Invariance.MappedBack(p.Result, s));
+                    // (the cavity is some 1e-7 of the volume: under a rotation it is below the rounding of the result, so only bounds)
+                    Assert.True(v < 0.5 + 1e-7 && v > 0.5 - 1e-6, s.Name + ": " + v);
+                    if (s.IsExact)
+                        Assert.True(v < 0.5, s.Name + ": " + v);
+                } else
+                    Assert.Equal(SolidBooleanPipeline.PipelineStatus.InsideOutInput, p.Status);
+            }
+        }
+
+        [Fact]
+        public void ALargeSheet_DoesNotRaiseTheBound()
+        {
+            // a Difference with a stated sheet of 100 x 100 (diagonal 141) that cuts the box at z = 0.25: were the sheet counted,
+            // the bound would be 1.4e-3 and the lens of NotThinLift (thickness 8.1e-5) would be dropped; it is not thin by the
+            // closed inputs (bound 1.7e-5 by the box with the lens) and is refused as before
+            DMesh3 a = T.BoxWithLens(T.Outside, T.NotThinLift);
+            var sheet = new DMesh3();
+            int v0 = sheet.AppendVertex(new Vector3d(-50, -50, 0.25)), v1 = sheet.AppendVertex(new Vector3d(50, -50, 0.25));
+            int v2 = sheet.AppendVertex(new Vector3d(50, 50, 0.25)), v3 = sheet.AppendVertex(new Vector3d(-50, 50, 0.25));
+            sheet.AppendTriangle(v0, v1, v2); sheet.AppendTriangle(v0, v2, v3);
+            var p = new SolidBooleanPipeline(new List<DMesh3> { a, sheet }, ExactMeshBoolean.Operations.Difference) {
+                InputRoles = new List<ExactMeshBoolean.InputRole> { ExactMeshBoolean.InputRole.Solid, ExactMeshBoolean.InputRole.Sheet }
+            };
+            Assert.False(p.Compute());
+            Assert.Empty(p.Report.DroppedInsideOutComponents);
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.InsideOutInput, p.Status);
+            // the same with the thin lens: dropped, and the bound is that of the closed input
+            DMesh3 b = T.BoxWithLens(T.Outside, T.ThinLift);
+            var q = new SolidBooleanPipeline(new List<DMesh3> { b, sheet }, ExactMeshBoolean.Operations.Difference) {
+                InputRoles = new List<ExactMeshBoolean.InputRole> { ExactMeshBoolean.InputRole.Solid, ExactMeshBoolean.InputRole.Sheet }
+            };
+            Assert.True(q.Compute(), q.Error);
+            SolidBooleanDroppedComponent d = Assert.Single(q.Report.DroppedInsideOutComponents);
+            double diagonal = 0;
+            var cc = new MeshConnectedComponents(b);
+            cc.FindConnectedT();
+            foreach (var c in cc.Components) {
+                var box = AxisAlignedBox3d.Empty;
+                foreach (int t in c.Indices) { var tv = b.GetTriangle(t); box.Contain(b.GetVertex(tv.a)); box.Contain(b.GetVertex(tv.b)); box.Contain(b.GetVertex(tv.c)); }
+                diagonal = Math.Max(diagonal, box.Diagonal.Length);
+            }
+            Assert.Equal(1e-5 * diagonal, d.Bound);
+            Assert.True(q.Result.IsClosed());
+        }
     }
 }

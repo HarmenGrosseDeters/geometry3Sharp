@@ -1391,8 +1391,9 @@ namespace gs
         /// The inputs (given) with the thin inside-out components of the solid ones dropped (#1555), each listed in dropped. A
         /// candidate is a component (by edges) of a solid input that has no boundary edge, is consistently oriented (the two
         /// triangles of every edge run along it in opposite directions), has an exactly negative volume (ExactPredicates.VolumeSign)
-        /// and 2 |Volume| / Area below InsideOutThinBound times the largest box diagonal of the components of the solid inputs (in
-        /// doubles). It is dropped where the rest of its input (every triangle that is no candidate: the input is winding-closed,
+        /// and 2 |Volume| / Area below InsideOutThinBound times the largest box diagonal of the components of the solid inputs (the
+        /// magnitude in doubles, first; the sign exact). The solid inputs are the closed ones that are not sheets: sheets and open
+        /// inputs do not count for the diagonal. It is dropped where the rest of its input (every triangle that is no candidate: the input is winding-closed,
         /// so this is also exact for shells closed only by position, or split into several components) has a winding number of
         /// 0 or less at one of its vertices (exact, ShellIndex.ExactWinding; a vertex on or within the touch distance of the rest
         /// is skipped): it lies outside the solid there. A cavity (every vertex inside the rest) stays, and so does a candidate
@@ -1407,7 +1408,6 @@ namespace gs
             var tris = new int[n][][];
             var vol = new double[n][];
             var area = new double[n][];
-            var closed = new bool[n][];
             var boxes = new AxisAlignedBox3d[n][];
             double diagonal = 0;
             for (int i = 0; i < n; ++i) {
@@ -1420,7 +1420,6 @@ namespace gs
                 tris[i] = new int[m][];
                 vol[i] = new double[m];
                 area[i] = new double[m];
-                closed[i] = new bool[m];
                 boxes[i] = new AxisAlignedBox3d[m];
                 for (int c = 0; c < m; ++c) {
                     int[] ct = cc.Components[c].Indices;
@@ -1428,19 +1427,15 @@ namespace gs
                     Vector3d o = mesh.GetVertex(mesh.GetTriangle(ct[0]).a);
                     double v6 = 0, a2 = 0;
                     var box = AxisAlignedBox3d.Empty;
-                    bool ok = true;
                     foreach (int t in ct) {
                         Index3i tv = mesh.GetTriangle(t);
                         Vector3d p = mesh.GetVertex(tv.a), q = mesh.GetVertex(tv.b), r = mesh.GetVertex(tv.c);
                         box.Contain(p); box.Contain(q); box.Contain(r);
                         v6 += (p - o).Dot((q - o).Cross(r - o));
                         a2 += (q - p).Cross(r - p).Length;
-                        for (int j = 0; j < 3 && ok; ++j)
-                            ok = consistent_edge(mesh, mesh.GetTriEdge(t, j));
                     }
                     vol[i][c] = v6 / 6;
                     area[i][c] = a2 / 2;
-                    closed[i][c] = ok;
                     boxes[i][c] = box;
                     diagonal = Math.Max(diagonal, box.Diagonal.Length);
                 }
@@ -1455,10 +1450,11 @@ namespace gs
                 var candidates = new List<int>();
                 int candidateTriangles = 0;
                 for (int c = 0; c < m; ++c) {
-                    // (the cheap tests first: thin by the doubles, then the exact sign of the volume)
-                    if (!closed[i][c] || !(vol[i][c] < 0) || !(2 * -vol[i][c] < bound * area[i][c]))
+                    // (the cheap test first, thin by the doubles; then, for the few that pass, closed and consistent by the edges and the
+                    // exact sign of the volume: the sign is decided exactly, the doubles only bound the magnitude)
+                    if (!(2 * Math.Abs(vol[i][c]) < bound * area[i][c]))
                         continue;
-                    if (MeshPostRepairCleanup.volume_sign(mesh, tris[i][c]) >= 0)
+                    if (!closed_and_consistent(mesh, tris[i][c]) || MeshPostRepairCleanup.volume_sign(mesh, tris[i][c]) >= 0)
                         continue;
                     candidates.Add(c);
                     candidateTriangles += tris[i][c].Length;
@@ -1491,7 +1487,7 @@ namespace gs
                         copy.RemoveTriangle(t, true, false);
                     dropped.Add(new SolidBooleanDroppedComponent {
                         Input = i, Triangles = tris[i][c].Length, Volume = vol[i][c], Area = area[i][c],
-                        Thickness = 2 * -vol[i][c] / area[i][c], Bound = bound, Center = boxes[i][c].Center
+                        Thickness = 2 * Math.Abs(vol[i][c]) / area[i][c], Bound = bound, Center = boxes[i][c].Center
                     });
                 }
                 if (result == given)
@@ -1499,6 +1495,18 @@ namespace gs
                 result[i] = copy;
             }
             return result;
+        }
+
+        // every edge of the triangles tris has two triangles that run along it in opposite directions: closed and consistently
+        // oriented by the edges. (A guard: the input is winding-closed, so a component that is closed by its edges but not
+        // consistent would need another component to balance it at the same positions; no test input reaches it)
+        static bool closed_and_consistent(DMesh3 mesh, int[] tris)
+        {
+            foreach (int t in tris)
+                for (int j = 0; j < 3; ++j)
+                    if (!consistent_edge(mesh, mesh.GetTriEdge(t, j)))
+                        return false;
+            return true;
         }
 
         // an edge with two triangles that run along it in opposite directions (a boundary edge is not)

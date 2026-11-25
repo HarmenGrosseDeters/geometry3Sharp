@@ -31,15 +31,19 @@ namespace geometry3Sharp.Tests
         }
 
         // the lens over the quad [x0, x0 + 0.5] x [0.25, 0.75] at height z, apex lifted by lift: inside-out for lift > 0
-        internal static void AddLens(DMesh3 m, double x0, double z, double lift)
+        internal static void AddLens(DMesh3 m, double x0, double z, double lift) { AddLens(m, x0, z, lift, false); }
+
+        // flip: every triangle reversed (the lens with the apex below the quad and flip is inside-out again)
+        internal static void AddLens(DMesh3 m, double x0, double z, double lift, bool flip)
         {
             double x1 = x0 + 0.5, y0 = 0.25, y1 = 0.75;
             int a = m.AppendVertex(new Vector3d(x0, y0, z)), b = m.AppendVertex(new Vector3d(x1, y0, z));
             int c = m.AppendVertex(new Vector3d(x1, y1, z)), d = m.AppendVertex(new Vector3d(x0, y1, z));
             int e = m.AppendVertex(new Vector3d((x0 + x1) / 2, (y0 + y1) / 2, z + lift));
-            Assert.True(m.AppendTriangle(a, b, c) >= 0 && m.AppendTriangle(a, c, d) >= 0);      // up
-            Assert.True(m.AppendTriangle(e, b, a) >= 0 && m.AppendTriangle(e, c, b) >= 0
-                && m.AppendTriangle(e, d, c) >= 0 && m.AppendTriangle(e, a, d) >= 0);            // down
+            var tris = new[] { new Index3i(a, b, c), new Index3i(a, c, d),                        // up
+                new Index3i(e, b, a), new Index3i(e, c, b), new Index3i(e, d, c), new Index3i(e, a, d) };  // down
+            foreach (Index3i t in tris)
+                Assert.True((flip ? m.AppendTriangle(t.a, t.c, t.b) : m.AppendTriangle(t.a, t.b, t.c)) >= 0);
         }
 
         internal static DMesh3 BoxWithLens(double x0, double lift)
