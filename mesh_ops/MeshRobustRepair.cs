@@ -665,6 +665,8 @@ namespace gs
                 parts = MeshRobustRepairLostParts.Parts(Mesh, out skipped);
             bool far = parts != null && global_scale_share(Mesh) > 0;
             DMesh3 givenInput = MeasureResultVolumeIoU || MeasureLostArea ? new DMesh3(Mesh) : null;
+            // (the solid the volume checks used, for ResultVolumeIoU: see OrientedReference)
+            DMesh3 givenSolid = MeasureResultVolumeIoU ? (OrientedReference(givenInput) ?? givenInput) : null;
             bool ok = apply_checked();
             if (ok == false && parts != null)
                 skipped = "not reached";
@@ -681,7 +683,7 @@ namespace gs
                     : ok && PassedThroughTriangles > 0 && wholePassedThrough ? ResultPaths.PassThrough : ResultPaths.Repair;
             }
             if (ok && givenInput != null && MeasureResultVolumeIoU)
-                ResultVolumeIoU = final_volume_iou(givenInput, Mesh);
+                ResultVolumeIoU = final_volume_iou(givenSolid, Mesh);
             // (a cancel during the report is a cancel: false, as in every stage; the result stays in Mesh)
             if (MeasureLostArea && givenInput != null && (ok || ResultPath != ResultPaths.None) && measure_lost_area(givenInput, Mesh) == false)
                 ok = false;
@@ -922,6 +924,9 @@ namespace gs
         bool apply_core()
         {
             DMesh3 input = new DMesh3(Mesh);
+            // the input's solid for the volume checks and the fallbacks: an oriented, welded copy if the input is unwelded or its triangles
+            // disagree in orientation (#1548), else the input itself
+            DMesh3 reference = OrientedReference(input) ?? input;
             bool disparity = global_scale_share(input) > 0;
             // far parts for the repair stage and the first resolve: few closed components (a cracked or unwelded surface, a soup, has many
             // open pieces that are no separate parts: its tolerances stay relative to the whole)
@@ -967,28 +972,28 @@ namespace gs
             bool uncleanVolumePending = false;
             if (FallbackReason == "") {
                 // (NaN: the input has no solid to compare with, accepted)
-                string differs = volume_check(input, result, out RepairVolumeIoU);
+                string differs = volume_check(reference, result, out RepairVolumeIoU);
                 // components far apart: the repair stage's cleanups (relative to all triangles) may have collapsed a part, which the
                 // volume check does not see; the input is resolved instead
-                if (differs == "" && lostPartInput != null && BypassEarlyLostPartChecks == false && lost_part(input, result))
+                if (differs == "" && lostPartInput != null && BypassEarlyLostPartChecks == false && lost_part(reference, result))
                     differs = PartsLostFarReason;
                 if (differs != "") {
                     FallbackReason = differs;
-                    solidifyFrom = input;
+                    solidifyFrom = reference;
                 }
                 end_phase("volume");
             } else if (result.TriangleCount == 0) {
-                solidifyFrom = input;
+                solidifyFrom = reference;
             } else if (ExactResolve == false || input.TriangleCount == 0) {
                 // (an empty input: the check sends the fallbacks to it, and Apply() stops below, as before)
-                unclean_result_volume(input, result, ref solidifyFrom);
+                unclean_result_volume(reference, result, ref solidifyFrom);
             } else {
                 // with ExactResolve, the volume of an unclean result is checked only if its exact resolve fails: a
                 // successful one replaces UsedInput and RepairVolumeIoU, and solidifyFrom is not used. The check, and
                 // so its outputs, are the same as if it had run here
                 uncleanVolumePending = true;
             }
-            UsedInput = solidifyFrom == input;
+            UsedInput = solidifyFrom == reference;
             if (FallbackReason == "") {
                 Mesh = result;
                 ResultReason = "";
@@ -1004,23 +1009,23 @@ namespace gs
                     // a clean result whose volume differs resolves to its own solid again: skip to the next try
                     bool cleanButDiffers = FallbackReason == VolumeDiffers || FallbackReason == PartsLost || FallbackReason == PartsLostFarReason;
                     if (cleanButDiffers == false)
-                        exact = resolve_exactly(result, input, false);
+                        exact = resolve_exactly(result, reference, false);
                     // its volume may differ (or a part be lost) only because components are oriented differently from
                     // the input (eg a nested part taken for a cavity): then resolve it again, oriented by the input's
                     // solid, if that orientation differs at all
                     if (exact == null && (cleanButDiffers || ExactResolveReason == VolumeDiffers || ExactResolveReason == PartsLost || ExactResolveReason == PartsLostFarReason) && CancelF() == false)
-                        exact = resolve_exactly(result, input, true);
+                        exact = resolve_exactly(result, reference, true);
                 }
                 bool fromResult = exact != null;
                 if (exact == null && uncleanVolumePending) {
                     end_phase("exact");
-                    unclean_result_volume(input, result, ref solidifyFrom);
-                    UsedInput = solidifyFrom == input;
+                    unclean_result_volume(reference, result, ref solidifyFrom);
+                    UsedInput = solidifyFrom == reference;
                 }
                 // then the input itself (a clean result whose volume differs, or an unclean one that lost volume)
                 if (exact == null && solidifyFrom != result && CancelF() == false) {
                     string reason = ExactResolveReason;
-                    exact = resolve_exactly(solidifyFrom, input, false);
+                    exact = resolve_exactly(solidifyFrom, reference, false);
                     if (exact == null && reason != "")
                         ExactResolveReason = reason + "; input: " + ExactResolveReason;
                 }
@@ -1031,12 +1036,12 @@ namespace gs
                 if (exact == null && CancelF() == false) {
                     DMesh3 from = solidifyFrom != result || result.TriangleCount == 0 ? solidifyFrom : result;
                     if (lostFarRejected)
-                        from = input;
+                        from = reference;
                     MaxScaleErosionShare = global_scale_share(from);
                     if (MaxScaleErosionShare > 0 && from != notClosedFrom) {
                         ScaleRetry = true;
                         string reason = ExactResolveReason;
-                        exact = resolve_exactly(from, input, false, true);
+                        exact = resolve_exactly(from, reference, false, true);
                         if (exact == null)
                             ExactResolveReason = reason + "; relative to the largest component: " + ExactResolveReason;
                         else
@@ -1274,6 +1279,118 @@ namespace gs
         // the exact resolve that is clean but for that (null: none), and whether it came from the input
         DMesh3 scaleOnly;
         bool scaleOnlyFromInput;
+
+        /// <summary>
+        /// the input's solid, for an input that is unwelded or whose triangles disagree in orientation (#1548), else null (the input itself is the
+        /// reference). The winding number of such an input cancels at the flipped faces, so a volume reference taken from it is too small, a
+        /// correct repair result fails the volume check, and the fallbacks would start from the raw soup. Here: the vertices on boundary edges
+        /// welded within a hundredth of the median of the shortest edges (and of the shortest edge at either vertex), the welded mesh oriented consistently per connected component
+        /// (MeshRepairOrientation.OrientComponents, the step of MeshAutoRepair), then the whole (WindingContouring.OrientedCopy). A
+        /// welded, consistently oriented input gets null, and so the unchanged behaviour
+        /// </summary>
+        internal static DMesh3 OrientedReference(DMesh3 input)
+        {
+            if (input.TriangleCount == 0)
+                return null;
+            int maxV = input.MaxVertexID;
+            var onBoundary = new bool[maxV];
+            bool conflict = false;
+            foreach (int eid in input.EdgeIndices()) {
+                Index2i et = input.GetEdgeT(eid);
+                Index2i ev = input.GetEdgeV(eid);
+                if (et.b == DMesh3.InvalidID) {
+                    onBoundary[ev.a] = onBoundary[ev.b] = true;
+                } else if (conflict == false) {
+                    Index3i ta = input.GetTriangle(et.a), tb = input.GetTriangle(et.b);
+                    conflict = (IndexUtil.find_tri_ordered_edge(ev.a, ev.b, ref ta) != DMesh3.InvalidID)
+                        == (IndexUtil.find_tri_ordered_edge(ev.a, ev.b, ref tb) != DMesh3.InvalidID);
+                }
+            }
+            // (a closed mesh has nothing to weld: the scan above is its gate)
+            bool anyBoundary = false;
+            foreach (bool b in onBoundary)
+                anyBoundary |= b;
+            if (anyBoundary == false && conflict == false)
+                return null;
+            // the shortest edge at each vertex: a vertex is welded to another only within a hundredth of it, and of the median of those (the weld
+            // distance of MeshAutoRepair is 1e-8 of the diagonal, capped by a hundredth of the median edge; here the hundredth only, so that a soup with
+            // noise on its corners is welded too, and local, so that a small part far from the others keeps its vertices)
+            var shortest = new double[maxV];
+            for (int i = 0; i < maxV; ++i)
+                shortest[i] = double.PositiveInfinity;
+            foreach (int eid in input.EdgeIndices()) {
+                Index2i ev = input.GetEdgeV(eid);
+                double len = input.GetVertex(ev.a).Distance(input.GetVertex(ev.b));
+                if (len < shortest[ev.a]) shortest[ev.a] = len;
+                if (len < shortest[ev.b]) shortest[ev.b] = len;
+            }
+            var finite = new List<double>();
+            for (int i = 0; i < maxV; ++i)
+                if (shortest[i] < double.PositiveInfinity)
+                    finite.Add(shortest[i]);
+            finite.Sort();
+            double tol = finite.Count > 0 ? 0.01 * finite[finite.Count / 2] : 0;
+            if (!(tol > 0 && tol < double.PositiveInfinity))
+                return null;
+            // the vertices on boundary edges, welded by the cells of the tolerance (the first one of a cell is the representative)
+            var rep = new int[maxV];
+            var cells = new Dictionary<Tuple<long, long, long>, List<int>>();
+            bool welded = false;
+            foreach (int vid in input.VertexIndices()) {
+                rep[vid] = vid;
+                if (onBoundary[vid] == false)
+                    continue;
+                Vector3d p = input.GetVertex(vid);
+                if (!(Math.Abs(p.x) < double.PositiveInfinity && Math.Abs(p.y) < double.PositiveInfinity && Math.Abs(p.z) < double.PositiveInfinity))
+                    return null;
+                if (Math.Max(Math.Abs(p.x), Math.Max(Math.Abs(p.y), Math.Abs(p.z))) / tol > 1e18)
+                    return null;      // (cells that a long cannot index: no weld)
+                long cx = (long)Math.Floor(p.x / tol), cy = (long)Math.Floor(p.y / tol), cz = (long)Math.Floor(p.z / tol);
+                int found = -1;
+                for (long dx = -1; dx <= 1 && found < 0; ++dx)
+                    for (long dy = -1; dy <= 1 && found < 0; ++dy)
+                        for (long dz = -1; dz <= 1 && found < 0; ++dz) {
+                            List<int> list;
+                            if (cells.TryGetValue(Tuple.Create(cx + dx, cy + dy, cz + dz), out list))
+                                foreach (int r in list) {
+                                    double d = input.GetVertex(r).Distance(p);
+                                    if (d <= tol && d <= 0.01 * Math.Min(shortest[r], shortest[vid])) {
+                                        found = r;
+                                        break;
+                                    }
+                                }
+                        }
+                if (found >= 0) {
+                    rep[vid] = found;
+                    welded = true;
+                } else {
+                    List<int> list;
+                    var key = Tuple.Create(cx, cy, cz);
+                    if (cells.TryGetValue(key, out list) == false)
+                        cells[key] = list = new List<int>();
+                    list.Add(vid);
+                }
+            }
+            if (welded == false && conflict == false)
+                return null;
+            var m = new DMesh3(false, false, false);
+            var newId = new int[maxV];
+            foreach (int vid in input.VertexIndices())
+                if (rep[vid] == vid)
+                    newId[vid] = m.AppendVertex(input.GetVertex(vid));
+            foreach (int vid in input.VertexIndices())
+                newId[vid] = newId[rep[vid]];
+            foreach (int tid in input.TriangleIndices()) {
+                Index3i t = input.GetTriangle(tid);
+                int a = newId[t.a], b = newId[t.b], c = newId[t.c];
+                if (a != b && b != c && a != c)
+                    m.AppendTriangle(a, b, c);      // (a triangle that would make an edge of three triangles is left out)
+            }
+            if (m.TriangleCount == 0)
+                return null;
+            new MeshRepairOrientation(m).OrientComponents();
+            return WindingContouring.OrientedCopy(m);
+        }
 
         // an unclean repair result can have lost parts of the input as well (eg erosion of an open region, which the
         // volume check of the exact stage rejects, but the solidify and the wrap do not check): then the fallbacks start
