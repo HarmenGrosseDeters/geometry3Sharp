@@ -276,7 +276,7 @@ differences c - p and the square root, about 3u d) is absorbed in the 1e-9 d mar
    U, V, W = -x̂, (U·V×W)² + (1 + U·V + V·W + W·U)² = 2 (1 + U·V)(1 + V·W)(1 + W·U), hypot(num, den) =
    la lb sqrt(2 (1 + U·V) x_u x_v) ≥ 1.93 la lb sqrt(x_u x_v). The sizes of the terms: S1 = |u_y v_z| + |u_z v_y| ≤ la lb s_u s_v
    ≤ 2 la lb sqrt(x_u x_v) (Cauchy-Schwarz) and S2 = da db + |u_y v_y| + |u_z v_z| ≤ la lb (x_u x_v + s_u s_v) ≤ 4 la lb sqrt(x_u x_v)
-   (x_u x_v ≤ 2 sqrt(x_u x_v), as x_u x_v ≤ 4). The exact fallback needs |num| ≤ numErr = 1e-12 S1 **and** den ≤ denErr = 1e-12 S2.
+   (x_u x_v ≤ 2 sqrt(x_u x_v), as x_u x_v ≤ 4). The exact fallback of the branch cut needs |num| ≤ 1e-12 S1 (or S1 < 2^-1000) **and** den ≤ 1e-12 S2 (`finish_edge_angle`; below, "numErr" and "denErr" are 1e-12 S1 and 1e-12 S2).
    The yz parts of the node's points lie in a disk of radius r about the yz part of c - p, whose norm exceeds r by 1e-9 d, so r/|yz_c| ≤
    1 - 1e-9 and φ ≤ 2 asin(1 - 1e-9) ≤ π - 8.9e-5. If |φ| ≥ 1e-6, sin|φ| ≥ 1e-6 and |num| = la lb s_u s_v sin|φ| ≥ 1e-6 S1 > numErr.
    If |φ| < 1e-6, cos φ > 0.999 and den ≥ la lb (x_u x_v + 0.999 s_u s_v) ≥ 0.999 S2 > denErr. The fallback never fires (and
@@ -314,10 +314,10 @@ not the fast path alone: the certificate keeps the two unit vectors of an edge w
 distance of at least pi - 0.505 from every edge of the node, where `hypot(num, den) = |a||b| sqrt(2 (1 + U.V) x_u x_v)` is no smaller than
 1.93 times the size of the terms (the error of num and den is then a constant times u of that size). Not claimed: any edge on the fast path.
 For p near an edge, `1 + U.V` goes to 0 and the same steps 4 and 5 give an error of up to (pi / 2)(2 u S1 + 22 u S2) / hypot + 2 pi u +
-2 ulp, about 8e-15 / sin(theta / 2), that is 1.6e-14 / theta, for the angular distance theta of p from the edge (audit model BT-6): unbounded as theta goes to 0, and
-the exact zone (a sign guard) does not bound it. The leaf edges of the tree and the full sum evaluate the same function bit for bit, so the
-tree's decisions do not depend on this; it is an accuracy statement about the full sum (the value of `Evaluate`) for p near an open edge,
-which is being corrected on the branch `fix/exact-winding-open-edge-angle` (the fast formula stays where it is accurate).
+2 ulp, about 8e-15 / sin(theta / 2), that is 1.6e-14 / theta, for the angular distance theta of p from the edge: unbounded as theta goes to 0. That was the
+fast formula of master, and the exact zone (a sign guard) did not bound it. It is corrected by "The accuracy of the edge angle" below (`finish_edge_angle`: the rounded angle is kept only where
+hypot ≥ 0.0220 (S1 + S2), error at most 1.8e-13, else the accurate evaluation; audit model BT-6 re-derives the rounded part). The leaf edges of the tree and the full sum evaluate the same function bit for bit, so the
+tree's decisions do not depend on this; it is an accuracy statement about the full sum (the value of `Evaluate`) for p near an open edge.
 *The rescaled path* (`boundary_edge_angle_x_extreme`: `rescale_diff_2d`, `scaled_d_factor`, `rescale_pow2`) has no proof of A1: the steps 1 to
 5 are for the fast formulas (rounded differences, `da`, `db`, `den = da db + dotYZ` in doubles). The rescaled path computes `da` as
 `dVal * 2^dExp` with three branches (the exact cancellation-free value, `yz2 / (2 mx)` for a relative exponent above 60, `sqrt(yz2)` below
@@ -351,7 +351,7 @@ the edge, so the growth of the error near an edge, above, is not in it); the dec
 **The accuracy of the edge angle (every edge, not only those of an accepted node).** `boundary_edge_angle_x(p, a, b)` returns
 T = atan2(num, den) with num = a_z b_y - a_y b_z and den = da db + a_y b_y + a_z b_z of the differences a - p, b - p, da = |a - p| - (a - p)_x,
 db = |b - p| - (b - p)_x. **For every p, a, b of the supported range, T differs from the exact atan2 of the exact num and den (of the exact
-differences of the doubles) by at most 2e-13; wherever the sign of num decides the side of the branch cut (den ≤ 1e-12 S2, S2 below) the sign of num is exact, so T is on the right side of the cut.** The bound is 1.2e-13 on
+differences of the doubles) by at most 2e-13; wherever the sign of num decides the side of the branch cut (den ≤ 1e-12 S2, S2 below), T is on the right side of the cut: the sign of the rounded num is the exact one where |num| > 1e-12 S1 and S1 ≥ 2^-1000, and where S1 < 2^-1000 (the products of num are subnormal) the exact path decides.** The bound is 1.2e-13 on
 the rounded path and 2e-15 on the accurate path below; the 2e-13 leaves a margin for the library's `Math.Atan2` (assumed within 2 ulp of the
 result, as in step 5 above) and for the second-order terms. The limit cases keep their definition: p on a vertex, p on the open edge, and p on the yz line
 of the edge (exact num = 0) are decided as before (`on_vertex_angle_x`, `on_open_edge_angle_x`, `edge_angle_on_yz_line_x`).
@@ -359,7 +359,7 @@ of the edge (exact num = 0) are decided as before (`on_vertex_angle_x`, `on_open
 The proof of A1 above covers the edges of an accepted node, where the cancellation of den cannot happen; it does not cover an edge
 for which p is near the open segment (a, b). With A = a - p, B = b - p, u = A/|A|, v = B/|B| (unit vectors), da = |A|(1 - u_x), db = |B|(1 - v_x) and
 dotYZ = |A||B| (u·v - u_x v_x), so that den = |A||B| (1 - u_x - v_x + u·v) and num = ±|A||B| (u×v)_x, the identity of step 2 below gives
-hypot(num, den) = |A||B| sqrt(2 (1 + u·v)(1 - u_x)(1 - v_x)) (checked numerically). The terms of den are of the size S2 ≈ |A||B| ((1 - u_x)(1 - v_x) + |u_yz||v_yz|);
+hypot(num, den) = |A||B| sqrt(2 (1 + u·v)(1 - u_x)(1 - v_x)): the identity of Van Oosterom and Strackee (1983), det(u, v, w)² + (1 + u·v + v·w + w·u)² = 2 (1 + u·v)(1 + v·w)(1 + w·u) for unit vectors, with w = (-1, 0, 0), where det(u, v, w) = ±(u×v)_x and 1 + u·w = 1 - u_x. The terms of den are of the size S2 ≈ |A||B| ((1 - u_x)(1 - v_x) + |u_yz||v_yz|);
 den (and with it hypot(num, den) relative to S1 + S2) cancels only where 1 + u·v ≈ 0, that is where A and B are antiparallel **in 3D**, p near
 the open segment (a, b) (p almost on the line of the edge is not enough: p = (-10, 0, 0), a = (0, 1, 0), b = (0, -1, 0) has the yz parts exactly antiparallel
 and den = -0.9975, no cancellation; the other factors, 1 - u_x and 1 - v_x, shrink S1 and S2 as fast as hypot). There den = da db + dotYZ cancels: da db is about
@@ -382,13 +382,15 @@ quantities of the old zone test), and u = 2^-53. Rounded evaluation, each rounde
 
 With Δ = (Δnum, Δden), |Δ| ≤ hypot(4.01u S1, 22.1u S2) ≤ 22.1u (S1 + S2). The exact (num, den) is within |Δ| of the computed pair; if |Δ| < hypot(num, den) = R,
 the two vectors are at an angle of at most asin(|Δ|/R) ≤ 1.0001 |Δ|/R (for |Δ|/R ≤ 0.01), and atan2 is the angle of the vector. The code keeps the rounded
-evaluation when **|num| + |den| ≥ 2^-5 (S1 + S2)**. Since R ≥ (|num| + |den|)/sqrt 2, this gives R ≥ 0.0221 (S1 + S2), |Δ|/R ≤ 22.1 · 1.11e-16 / 0.0221 = 1.11e-13, and the
+evaluation when **|num| + |den| ≥ 2^-5 (S1 + S2)**. Since R ≥ (|num| + |den|)/sqrt 2, this gives R ≥ 0.0220 (S1 + S2) (2^-5 / sqrt 2 = 0.022097), |Δ|/R ≤ 22.1 · 1.11e-16 / 0.0220 = 1.12e-13, and the
 rounded angle is within 1.12e-13 of the exact one, plus 2 ulp of Atan2 (8.9e-16): 1.2e-13. The constant 2^-5 is the choice that keeps a factor 1.6 of margin
 to the 2e-13 stated above and leaves the rounded path to every edge whose cancellation is less than a factor 45 (the bit-identity test samples 40000 random edges and finds more than 35000 of them on the rounded path even at the stricter 2^-4). The
-comparison is `an + |den| < 2^-5 (s1 + s2)` (strict: equality would be a first-order tie that either path answers within the bound). Underflow: in the fast path |yz| ≥ 2^-200,
-so S1 + S2 ≥ 2^-400 and the rounding of a subnormal product (2^-1075) is 2^-675 relative; in the extreme path the rescaled yz has a component in [1, 2),
-S1 + S2 ≥ 1, and the truncation of `prod` below 2^-180 is at most 2^-175. No absolute floor is needed, and the decision is invariant under positive 2^k scaling (all
-quantities scale exactly).
+comparison is `an + |den| < 2^-5 (s1 + s2)` (strict: equality would be a first-order tie that either path answers within the bound). Underflow, the accuracy of the angle: in the fast path S2 ≥ da db ≥ 2^-602 (|yz| ≥ 2^-100 |a|, 2^-100 ≤ |a| ≤ 2^100), so the absolute rounding error of the
+subnormal products of num (at most 2^-1074 in all) is below 2^-470 S2 and does not touch the bound on |Δ| above; in the extreme path the rescaled yz has a component in [1, 2), S1 + S2 ≥ 1, and the truncation of `prod` below 2^-180 is at most 2^-175.
+Underflow, the sign of num: the relative error 3u of a product holds while it is a normal number; below that the rounding to the subnormal grid has an absolute error of up to 2^-1075 per product
+(2^-1074 for num), which is no longer below 1e-12 S1 once S1 < 2^-1074 · 10^12 ≈ 2^-1034, and a tiny num can have the wrong sign at the branch cut (reviewer's input of #1514: p = (0, 5.334489550943501e-77, 0), a = (2^-100, 6.963444032852826e-61, 1.3734963702551047e-262),
+b = (2^-100, -7.374133604637322e-61, -1.4545023542892055e-262): +π from the rounded num, −π exact). The second clause therefore reads: den ≤ 1e-12 S2 and (|num| ≤ 1e-12 S1 **or S1 < 2^-1000**). For S1 ≥ 2^-1000,
+2^-1074 ≤ 2^-74 S1, so the error of the rounded num is at most (4.01u + 2^-74) S1 and |num| > 1e-12 S1 fixes the sign. The decision `s1 < 2^-1000` is the one comparison against an absolute value, because the subnormal grid is absolute: a 2^k scaling that moves S1 across 2^-1000 can change the path (and the angle by at most 2e-13, both paths being within the bound); every other decision is invariant under positive 2^k scaling (all quantities scale exactly while they are normal), bit for bit. Where S1 < 2^-1000 and den > 1e-12 S2 the rounded path is kept: the angle is within 2^-470 of the exact one (a wrong sign of num there moves the angle by that much, not by 2π).
 
 The second clause of the old zone test is kept: if den ≤ 1e-12 S2 and |num| ≤ 1e-12 S1 (the branch cut: the sign of the computed num is not certain), the evaluation is the accurate one.
 Where the rounded path is taken and den ≤ 1e-12 S2, |num| > 1e-12 S1 ≫ 4u S1, so the sign of num is that of the exact num, and T is on the right side of the cut:
@@ -399,8 +401,8 @@ and the bound above covers it (the sign is not claimed there).
 old exact-predicate logic decides (0 when dotYZ ≥ 0, else the exact Orient2d in xy and `EdgeSignX`, or the open-edge limit). Otherwise den = da db + dotYZ is not a polynomial;
 da db is computed from integer square roots at k extra bits: la_k = isqrt(|a|² 2^2k) = |a| 2^k - ε1, ε1 in [0, 1), da_k = floor(yz² 2^2k / (la_k + ax 2^k)) for ax > 0 and la_k - ax 2^k otherwise.
 Then |da_k - da 2^k| ≤ 2: for ax > 0 the denominator of the quotient is off by less than 1 against la 2^k ≥ da 2^k (la ≥ 1 on the grid), which moves the quotient by less than 1, and the floor adds at most 1.
-den_k = da_k db_k + dotYZ 2^2k has |den_k - den 2^2k| ≤ 2 db_k + 2 (da_k + 2) ≤ 2 (da_k + db_k) + 4. k = 70 + max(0, bits(L) + 2 - bits(num)) with bits(L) the larger bit length of |a|, |b|
-(floor of the square roots, from (bits(aa) + 1) / 2 of the squared lengths) is enough for every input, without a check: da, db ≤ 2 L < 2^bits(L) 2, so da_k + db_k ≤ 4 L 2^k + 4 and the error is below 2^(bits(L) + 3 + k) + 16,
+den_k = da_k db_k + dotYZ 2^2k has |den_k - den 2^2k| ≤ 2 da_k + 2 db 2^k ≤ 2 da_k + 2 (db_k + 2) = 2 (da_k + db_k) + 4 (da_k db_k - da db 2^2k = da_k (db_k - db 2^k) + db 2^k (da_k - da 2^k)). k = 70 + max(0, bits(L) + 2 - bits(num)) with bits(L) the larger bit length of |a|, |b|
+(floor of the square roots, from (bits(aa) + 1) / 2 of the squared lengths) is enough for every input, without a check: da, db ≤ 2 L < 2^bits(L) 2, so da_k + db_k ≤ 4 L 2^k + 4 and the error 2 (da_k + db_k) + 4 is at most 8 L 2^k + 12 < 2^(bits(L) + 3 + k) + 12 (the `Debug.Assert` states 2^62 (2 (da_k + db_k) + 4) ≤ |num_k|),
 while |num| 2^2k 2^-62 ≥ 2^(bits(num) - 1 + 2k - 62) ≥ 2^(k + bits(L) + 9) (k ≥ 70 + bits(L) + 2 - bits(num)), 2^6 times the error even for |num| tiny against den. So the absolute error of den is at most
 2^-62 |num| ≤ 2^-62 R. (An earlier version looped, raising k by 32 until this held; the derivation shows the loop never runs, so it was removed and a `Debug.Assert` states the inequality.) Both are converted to doubles with the same power of two (correct rounding by
 `ExactDyadic.Quotient`: the same bits on every runtime), at most 1.2e-16 relative each, and the angle is the atan2 of the pair: the error of the angle is at most 1.0001 · 2^-62 + 1.2e-16 + 8.9e-16
@@ -409,11 +411,11 @@ Cost: one evaluation with integers of a few hundred to a few thousand bits per c
 
 *Why no tree decision changes.* The edges of an accepted node and the chord are on the rounded path before and after, with the same bits. First clause: step 2 above gives
 hypot(num, den) ≥ 1.93 la lb sqrt(x_u x_v) and S1 + S2 ≤ 6 la lb sqrt(x_u x_v), so (|num| + |den|) / (S1 + S2) ≥ hypot / (S1 + S2) ≥ 0.32; the code tests (|num| + |den|) against 2^-5 (S1 + S2) = 0.03125 (S1 + S2),
-so the proved factor on the tested quantity is 0.32 / 0.03125, about 10 (it is not 0.32 against 0.0221, which is a bound on hypot, not the quantity compared; an independent review sampled
+so the proved factor on the tested quantity is 0.32 / 0.03125, about 10 (it is not 0.32 against 0.0220, which is a bound on hypot, not the quantity compared; an independent review sampled
 400k accepted-node configurations and found (|num| + |den|) / (S1 + S2) ≥ 0.4976). This separation comes from `ball_is_small` (r < d/4, which gives 1 + U·V ≥ 1.87 in step 1);
 `fast_path_certificate` only fixes the regime (the fast path, the yz parts nonzero). The computed sums differ from the exact ones by 1e-13 relative, far below the factor 10.
 Second clause (branch cut): it does not fire because step 2 shows that either |φ| ≥ 1e-6, and then |num| ≥ 1e-6 S1 > 1e-12 S1, or |φ| < 1e-6 (the yz part of the edge radial: num can be 0), and then den ≥ 0.999 S2 > 1e-12 S2;
-the clause needs both |num| ≤ 1e-12 S1 and den ≤ 1e-12 S2. The leaf edges and the full sum call the same function. What changes are the edges within a factor of 45 of cancellation, where
+the clause needs den ≤ 1e-12 S2 and (|num| ≤ 1e-12 S1 or S1 < 2^-1000); with S1 < 2^-1000 ≤ 2^-398 S2 (S2 ≥ 2^-602 on the fast path), |num| ≤ S1 is negligible against S2, and the first clause's bound |num| + |den| ≥ 0.32 (S1 + S2) gives den ≥ 0.3 S2 > 1e-12 S2. The leaf edges and the full sum call the same function. What changes are the edges within a factor of 45 of cancellation, where
 the old value was wrong by up to O(1): the margin of the tree compares the tree with the full sum, and both now contain the improved value.
 
 *What this means for a decision.* The winding number of an open surface jumps by 1 across the surface and is continuous around an open edge. For a point p that is **not on a triangle of the mesh**

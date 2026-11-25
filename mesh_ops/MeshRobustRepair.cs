@@ -262,6 +262,14 @@ namespace gs
         /// 0.72x the triangles, the pipeline 3.8 -> 5.1 s (median; the pass itself 0.8 s; benchmarks/SharpFeatureProbe, variant KR).
         /// </summary>
         public bool AlphaWrapSharpFeatures = false;
+        /// <summary>
+        /// with AlphaWrapSharpFeatures: take the input's creases from its unoriented varifold (a measure on position x plane, no
+        /// connectivity) instead of the dihedral angles of its edges. For unwelded, duplicated, flipped or T-junctioned triangle
+        /// soups, where an edge has one triangle and the dihedral finds no crease at all (so the pass did nothing). The same
+        /// checks and guarantees; the cost is a measure of the input at 1.75 alpha spacing, built once (about 0.2-0.5 s at
+        /// 100k-triangle CAD soups, docs/design/VARIFOLD_CREASE_INPUT.md). Off by default.
+        /// </summary>
+        public bool AlphaWrapSharpFeaturesOnSoups = false;
         /// <summary> alpha wrap fallback: true if AlphaWrapSharpFeatures ran and changed the raw wrap </summary>
         public bool AlphaWrapSharpFeaturesApplied;
         /// <summary> (benchmarks, tests) sets the switches of the sharp-feature pass (AlphaWrapSharpFeatures) </summary>
@@ -987,7 +995,8 @@ namespace gs
                     AlphaWrapTriangles = AlphaWrap.Result.TriangleCount;
                     DMesh3 raw = AlphaWrap.Result;
                     if (AlphaWrapSharpFeatures) {
-                        var features = new AlphaWrapFeaturePass(new DMesh3(raw, true), solidifyFrom, AlphaWrap.UsedAlpha, AlphaWrap.UsedOffset) { CancelF = CancelF };
+                        var features = new AlphaWrapFeaturePass(new DMesh3(raw, true), solidifyFrom, AlphaWrap.UsedAlpha, AlphaWrap.UsedOffset) {
+                            CancelF = CancelF, VarifoldCreases = AlphaWrapSharpFeaturesOnSoups };
                         ConfigureWrapFeatures?.Invoke(features);
                         bool computed = features.Compute();
                         end_phase("wrap.features");

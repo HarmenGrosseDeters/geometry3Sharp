@@ -1436,14 +1436,16 @@ namespace g3 {
             return found;
         }
 
-        // ExactTriangleIntersection.IntersectsBeyondShared (the same answer). First TriangleTriangleFilter, which decides
+        // ExactTriangleIntersection.IntersectsBeyondShared (the same answer). First TriangleTriangleFilter (with the plane
+        // sides of neighbours in Orient3d's filter, BeyondSharedNeighbours, which decide most neighbours on curved surfaces), which decides
         // the pairs a projection onto an axis plane settles (nearly coplanar neighbours, triangles in one axis plane)
         // with Orient2d alone; then an exact shortcut for the common case of neighbours that share one vertex s: if the
         // other two corners of one triangle lie strictly on the same side of the other's plane, it meets that plane only
         // at s, so the pair meets only at s
         internal static bool pair_intersects(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
         {
-            int filtered = TriangleTriangleFilter.BeyondShared(ia, ref A, ib, ref B);
+            // (neighbours on a curved surface: the plane sides in Orient3d's filter decide most of them first)
+            int filtered = TriangleTriangleFilter.BeyondSharedNeighbours(ia, ref A, ib, ref B);
             if (filtered != TriangleTriangleFilter.Undecided)
                 return filtered == TriangleTriangleFilter.Intersecting;
             int nShared = 0, sa = -1, sb = -1;

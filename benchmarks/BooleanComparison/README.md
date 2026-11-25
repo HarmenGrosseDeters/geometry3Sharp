@@ -1426,4 +1426,4 @@ dotnet run -c Release -- certify size 1 0 "torus+torus linked|fine box"   # only
 Headline (4 cores, the checker serial): certificate R 0.6-4.0 times the input mesh's bytes (S 0.5-3.4), labels 0.07-0.4; all 105
 runs certify or are inconclusive by the documented limits (4 runs with sliver triangles not covered, 1 with removed parts); the checker as
 built 1.1-118 times the boolean on the fuzz runs (median 9.6), 2-2350 on the procedural cases, the outliers above 20 s in C2's in-plane
-straddle loop and in C5 on tori. Step A (box filters in C2 and a double filter in C5, test code only) removed both: see section 8 of the note.
+straddle loop and in C5 on tori. Step B adds `certify file [reps] [seeds] [filter]` (certificate bytes against the output, write / read / stand-alone check times, verdict equal to the in-process one; `perf/certify_file_step_b.txt`). Step A (box filters in C2 and a double filter in C5, test code only) removed both: see section 8 of the note.

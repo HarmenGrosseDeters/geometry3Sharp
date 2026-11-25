@@ -30,7 +30,7 @@ static class SoupBreak
                 case "gap": {
                     var shift = new Dictionary<int, Vector3d>();
                     for (int t = 0; t < s.Count; ++t) {
-                        if (!shift.TryGetValue(s.PatchOf[t], out Vector3d d)) { d = x * h * Ball(rnd).Normalized; shift[s.PatchOf[t]] = d; }
+                        if (!shift.TryGetValue(s.PatchOf[t], out Vector3d d)) { d = x * h * Ball(rnd).Normalized; shift[s.PatchOf[t]] = d; s.Shift[s.PatchOf[t]] = d; }
                         for (int k = 0; k < 3; ++k) s.V[3 * t + k] += d;
                     }
                     break;
@@ -66,12 +66,14 @@ static class SoupBreak
     static IEnumerable<string> Expand(string spec)
     {
         foreach (string part in spec.Split(',')) {
-            if (part.StartsWith("mix:")) {
-                double m = double.Parse(part.Substring(4), CultureInfo.InvariantCulture);
+            if (part.StartsWith("mix:") || part.StartsWith("mixnh:")) {
+                // (mixnh: the same without the holes, which let a wrap at alpha below the hole size inside: issue #1542)
+                bool holes = part.StartsWith("mix:");
+                double m = double.Parse(part.Substring(part.IndexOf(':') + 1), CultureInfo.InvariantCulture);
                 if (m <= 0) continue;
                 string F(double v) => v.ToString("R", CultureInfo.InvariantCulture);
                 yield return "nonconf"; yield return "gap:" + F(0.3 * m); yield return "jitter:" + F(0.05 * m);
-                yield return "holes:" + F(0.05 * m); yield return "dup:" + F(0.1 * m); yield return "flip:" + F(0.2 * m);
+                if (holes) yield return "holes:" + F(0.05 * m); yield return "dup:" + F(0.1 * m); yield return "flip:" + F(0.2 * m);
             } else if (part.Length > 0 && part != "clean" && part != "soup") yield return part;
         }
     }

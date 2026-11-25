@@ -1,0 +1,9 @@
+spheres n=16 (2700+2700 tris)      Union        pieces   6428  boolean     51.8 ms  retained     46.0 ms (-11.2 %)  gradient     22.7 ms ( 43.9 % of the boolean)  contacts 0
+spheres n=16 (2700+2700 tris)      Intersection pieces   3280  boolean     19.2 ms  retained     18.2 ms ( -5.2 %)  gradient     11.1 ms ( 57.6 % of the boolean)  contacts 0
+spheres n=16 (2700+2700 tris)      Difference   pieces   5228  boolean     24.0 ms  retained     20.7 ms (-13.8 %)  gradient     20.7 ms ( 86.3 % of the boolean)  contacts 0
+spheres n=32 (11532+11532 tris)    Union        pieces  25196  boolean     61.4 ms  retained     59.8 ms ( -2.5 %)  gradient     86.9 ms (141.7 % of the boolean)  contacts 0
+spheres n=32 (11532+11532 tris)    Intersection pieces  10932  boolean     53.7 ms  retained     43.4 ms (-19.2 %)  gradient     41.9 ms ( 78.0 % of the boolean)  contacts 0
+spheres n=32 (11532+11532 tris)    Difference   pieces  19578  boolean     65.5 ms  retained     57.0 ms (-12.9 %)  gradient     69.0 ms (105.5 % of the boolean)  contacts 0
+boxes, flush faces                 Union        pieces     68  boolean      0.9 ms  retained      0.8 ms (-13.1 %)  gradient      0.2 ms ( 19.0 % of the boolean)  contacts 1
+boxes, flush faces                 Intersection pieces     58  boolean      0.9 ms  retained      0.8 ms (-16.4 %)  gradient      0.1 ms ( 14.9 % of the boolean)  contacts 1
+boxes, flush faces                 Difference   pieces     66  boolean      0.9 ms  retained      0.8 ms ( -3.7 %)  gradient      0.2 ms ( 19.5 % of the boolean)  contacts 1

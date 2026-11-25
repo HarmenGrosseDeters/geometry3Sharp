@@ -46,7 +46,7 @@ namespace gs
         public string Method;
         /// <summary> triangles of the input and of its repaired copy </summary>
         public int TrianglesBefore, TrianglesAfter;
-        /// <summary> time of the repair or repairs of this input, in milliseconds </summary>
+        /// <summary> time of the repair or repairs of this input, in milliseconds (without the self-intersection check of a MeshAutoRepair copy, which Report.RepairMilliseconds includes) </summary>
         public long Milliseconds;
     }
 
@@ -84,6 +84,26 @@ namespace gs
         /// <summary> 2 Volume / Area: the thickness of a flat slab or wall; a cube of edge a gives a / 3, a ball of radius r gives 2 r / 3 </summary>
         public double Thickness;
         /// <summary> the centre of the bounding box of the outer shell </summary>
+        public Vector3d Center;
+    }
+
+    /// <summary>
+    /// one closed component of a closed input that was inside-out and thinner than the rounding bound, and that the pipeline
+    /// dropped (from a copy) before the boolean instead of refusing the run (SolidBooleanReport.DroppedInsideOutComponents, #1555)
+    /// </summary>
+    public sealed class SolidBooleanDroppedComponent
+    {
+        /// <summary> index of the input it belongs to </summary>
+        public int Input;
+        /// <summary> its triangles </summary>
+        public int Triangles;
+        /// <summary> its signed volume (negative: inside-out) and its area </summary>
+        public double Volume, Area;
+        /// <summary> 2 |Volume| / Area, below Bound </summary>
+        public double Thickness;
+        /// <summary> the rounding bound it was compared with: 1e-5 (the default ExactMeshBoolean.RoundingMaxDisplacement) times the box diagonal of the largest component of the closed inputs </summary>
+        public double Bound;
+        /// <summary> the centre of its bounding box </summary>
         public Vector3d Center;
     }
 
@@ -149,6 +169,11 @@ namespace gs
         public double RoundingVolumeBefore, RoundingVolumeAfter;
         /// <summary> the solids of the boolean result that MinThickness removed (empty without it) </summary>
         public List<SolidBooleanThinSolid> RemovedThinSolids = new List<SolidBooleanThinSolid>();
+        /// <summary>
+        /// the inside-out components of the closed inputs that were thinner than the rounding bound and were dropped before the
+        /// boolean (see SolidBooleanPipeline.AllowInsideOutInputs); empty otherwise
+        /// </summary>
+        public List<SolidBooleanDroppedComponent> DroppedInsideOutComponents = new List<SolidBooleanDroppedComponent>();
         /// <summary> with MinThickness: the inputs thinner than it (see ThinInputs); empty otherwise </summary>
         public List<SolidBooleanThinInput> ThinInputs = new List<SolidBooleanThinInput>();
         /// <summary> the triangle count asked for (TargetTriangleCount, or TargetFraction of BooleanTriangles); 0 for the other criteria </summary>
@@ -287,11 +312,21 @@ namespace gs
             /// MeshAutoRepair on a copy of the input. It fills holes by its own rules, without knowing the other inputs or what
             /// the open input means. For a solid with a small hole that is usually right; for an open cutting surface (a sheet
             /// used as the tool of a Difference) it is about never where the missing face was: the closed copy can enclose
-            /// almost nothing, and the cut then removes almost nothing, with Status Success and a clean report (#1211). Use
-            /// it only for inputs known to be solids with small holes
+            /// almost nothing, and the cut would remove almost nothing (#1211). Where that fill crosses the input (an open sheet whose
+            /// surface crosses the fill of its boundary loop, eg a non-planar or wavy sheet), the closed copy self-intersects: the
+            /// pipeline checks every MeshAutoRepair copy exactly for self-intersections (its own ExactMeshArrangement) and fails
+            /// with Status OpenInput if the copy has some and the input as given has none (an input that self-intersects already
+            /// is used as before; the check runs only for repaired inputs). That also refuses a flat sheet, whose fill lies on it
+            /// (coincident faces count). A sheet whose fill neither crosses nor touches it (eg a U-shaped sheet, whose fill closes
+            /// its opening) still gives a closed copy that encloses the wrong solid, with Status Success. Use it only for
+            /// inputs known to be solids with small holes
             /// </summary>
             AutoRepair = 1,
-            /// <summary> MeshAutoRepair, and if the copy is still not closed, MeshRobustRepair of the input (it may solidify or wrap: the geometry can change) </summary>
+            /// <summary>
+            /// MeshAutoRepair, and if the copy is still not closed, MeshRobustRepair of the input (it may solidify or wrap: the geometry
+            /// can change). A MeshAutoRepair copy that self-intersects where the input does not is refused as with AutoRepair
+            /// (Status OpenInput), without falling back to MeshRobustRepair
+            /// </summary>
             AutoRepairThenRobust = 2
         }
 
@@ -317,7 +352,7 @@ namespace gs
             Success = 0,
             /// <summary> no input, a null input, non-finite coordinates, or more than one reduction criterion (see Error) </summary>
             InvalidInput = 1,
-            /// <summary> an input is not closed and InputRepair is Refuse, or no allowed repair closed it (see Error) </summary>
+            /// <summary> an input is not closed and InputRepair is Refuse, or no allowed repair closed it, or MeshAutoRepair closed it into a self-intersecting mesh (see Error and InputRepairModes.AutoRepair) </summary>
             OpenInput = 2,
             /// <summary> the boolean failed (BooleanStatus and Error), eg RoundingNotClean or BudgetExceeded; Result is null </summary>
             BooleanFailed = 3,
@@ -343,7 +378,20 @@ namespace gs
         /// false (default): an input that is closed and consistently oriented but inside-out (eg a cube whose faces all point
         /// inward, an empty solid for the boolean) fails the run with Status InsideOutInput instead of being taken as an empty
         /// solid silently. true: such an input is used as it is (Report.InsideOutCells still counts it). Orientation = ByNesting
-        /// derives the solid the surface encloses instead (see ExactMeshBoolean.OrientationModes)
+        /// derives the solid the surface encloses instead for an input that is embedded (no self-intersections); a closed input
+        /// that self-intersects keeps its given orientation under ByNesting (see ExactMeshBoolean.OrientationModes), so a part of it
+        /// that is inside-out stays so and is refused again: the Error then names the self-intersections, and a closed copy that
+        /// the input repair produced (Report.RepairedInputs).
+        /// One exception (owner 2026-11-25, #1555): with AllowInsideOutInputs false and Orientation not ByNesting, a closed component
+        /// of a closed input (closed and consistently oriented by its edges) whose exact volume is negative, whose thickness 2 |Volume| / Area is below the
+        /// rounding bound (1e-5, the default ExactMeshBoolean.RoundingMaxDisplacement, times the box diagonal of the largest
+        /// component of the closed inputs; fixed, ConfigureBoolean does not change it) and that lies outside the rest of its input
+        /// at a vertex (exact winding number; a cavity, every vertex inside, stays, a thin one too) is
+        /// dropped from a copy of the input before the boolean and listed in Report.DroppedInsideOutComponents: two nearly
+        /// coincident sheets of the wrong orientation, a residue that the rounding cannot resolve; the run is not refused for it.
+        /// Never all of an input: an input that is nothing but such components is used as it is. The bound is relative to the largest
+        /// component of all closed inputs, so a small flipped part next to a much larger input can be thin by it: check
+        /// Report.DroppedInsideOutComponents (Status and Report.Clean do not show a drop)
         /// </summary>
         public bool AllowInsideOutInputs = false;
 
@@ -947,6 +995,13 @@ namespace gs
                 // (a sheet is open by role: not an open input to refuse or repair)
                 anyOpen |= !Report.InputClosed[i] && !isSheet(i);
             }
+            // the thin inside-out components of the closed inputs (#1555): dropped from copies before the boolean
+            if (!AllowInsideOutInputs && Orientation != ExactMeshBoolean.OrientationModes.ByNesting) {
+                var solid = new bool[n];
+                for (int i = 0; i < n; ++i)
+                    solid[i] = Report.InputClosed[i] && !isSheet(i);
+                given = DropThinInsideOut(given, solid, Report.DroppedInsideOutComponents);
+            }
             // the inputs thinner than MinThickness; active: the indices of the inputs the boolean gets
             var active = new List<int>(n);
             for (int i = 0; i < n; ++i)
@@ -1049,6 +1104,20 @@ namespace gs
                     Report.RepairedInputs.Add(r);
                     step("InputRepair", i, "input " + i + " is not closed and the boolean refuses it as open (InputRepair = " + InputRepair + ")",
                         "closed by " + r.Method + " on a copy, " + r.TrianglesBefore + " -> " + r.TrianglesAfter + " triangles");
+                    // (a MeshAutoRepair copy that self-intersects where the input did not: the repair crosses the input, eg the fill of the
+                    // boundary of an open sheet; such a copy is not the solid the input was meant to bound, see InputRepairModes.AutoRepair)
+                    if (r.Method == "MeshAutoRepair") {
+                        int added = repairSelfIntersections(given[i], repaired);
+                        Report.RepairMilliseconds = clock.ElapsedMilliseconds;
+                        if (added < 0)
+                            return fail(PipelineStatus.Cancelled, "cancelled", total);
+                        if (added > 0) {
+                            step("Refused", i, "MeshAutoRepair closed input " + i + " into a self-intersecting mesh (" + added + " pairs; the input as given has none)", "no result (Status OpenInput)");
+                            return fail(PipelineStatus.OpenInput, "input " + i + " is not closed, and MeshAutoRepair closed it into a self-intersecting mesh (" + added +
+                                " pairs of its triangles meet beyond a common edge or vertex; the input as given has none): the repair (eg its fill of a hole) crosses the input. An open " +
+                                "cutting surface is not a solid; close the input before the boolean so that it bounds the intended solid", total);
+                        }
+                    }
                     used[k] = repaired;
                     if (Cancellation.IsCancellationRequested)
                         return fail(PipelineStatus.Cancelled, "cancelled", total);
@@ -1085,7 +1154,7 @@ namespace gs
                 return fail(PipelineStatus.InsideOutInput, op.InsideOutUndecided + " component(s) of the closed inputs could not be tested for being inside-out (no ray found); set AllowInsideOutInputs to use them as they are", total);
             if (op.InsideOutCells > 0 && !AllowInsideOutInputs)
                 return fail(PipelineStatus.InsideOutInput, op.InsideOutCells + " component(s) of the closed inputs are inside-out (the winding number in front of them is negative: an empty or reversed solid, not what the surface encloses); " +
-                    "orient them (Orientation = ByNesting derives the enclosed solid) or set AllowInsideOutInputs", total);
+                    InsideOutAdvice(op, active, Report.RepairedInputs), total);
             DMesh3 mesh = thinOnly ? op.Rounding.Mesh : op.Result;
             BooleanStatus = op.Status;
             Report.BooleanTriangles = mesh.TriangleCount;
@@ -1170,8 +1239,8 @@ namespace gs
         /// The triangles at the given vertices that cross another triangle of the mesh beyond what they share, where vertices
         /// at one position count as one (so a touch at a contact, a position with several vertices, is not a crossing, but a
         /// triangle that passes through another one is; ExactTriangleIntersection.IntersectsBeyondShared, exact), or that are
-        /// degenerate, or that share a position with a degenerate triangle (conservative: IntersectsBeyondShared needs
-        /// non-degenerate triangles there). tree: a tree over the mesh whose triangles have moved at most pad / 2 since it was
+        /// degenerate, or that share a position with a degenerate triangle (conservative, kept from before #1551, when
+        /// IntersectsBeyondShared needed non-degenerate triangles there; it decides them exactly now). tree: a tree over the mesh whose triangles have moved at most pad / 2 since it was
         /// built (null: one is built). Not used by the pipeline: the reference of CrossingTrianglesOfAll (its tests compare the two)
         /// </summary>
         internal static HashSet<int> CrossingTriangles(DMesh3 mesh, IEnumerable<int> vertices, DMeshAABBTree3 tree = null, double pad = 0)
@@ -1216,7 +1285,7 @@ namespace gs
                         var ib = new Index3i(id(tb.a), id(tb.b), id(tb.c));
                         bool shares = ia.a == ib.a || ia.a == ib.b || ia.a == ib.c || ia.b == ib.a || ia.b == ib.b || ia.b == ib.c || ia.c == ib.a || ia.c == ib.b || ia.c == ib.c;
                         if (shares && ExactTriangleIntersection.IsDegenerate(ref B))
-                            hit = true;     // (conservative: a degenerate neighbour cannot be judged by IntersectsBeyondShared)
+                            hit = true;     // (conservative, kept from before #1551: IntersectsBeyondShared decides degenerate neighbours exactly now)
                         else if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B))
                             hit = true;
                     }
@@ -1310,6 +1379,149 @@ namespace gs
         {
             return r != null && r.Mesh != null && r.ScaleDisparity > 0 && r.RemainingIntersections == 0 && r.RemainingDegenerate == 0
                 && r.RemainingFalseContacts == 0 && !r.ScaleNotFinite && !r.OutsideRange && r.RemovedResolvable == 0;
+        }
+
+        /// <summary>
+        /// the rounding bound of DropThinInsideOut, relative to the diagonal: the default ExactMeshBoolean.RoundingMaxDisplacement
+        /// (fixed: a RoundingMaxDisplacement set in ConfigureBoolean does not change it)
+        /// </summary>
+        internal const double InsideOutThinBound = 1e-5;
+
+        /// <summary>
+        /// The inputs (given) with the thin inside-out components of the solid ones dropped (#1555), each listed in dropped. A
+        /// candidate is a component (by edges) of a solid input that has no boundary edge, is consistently oriented (the two
+        /// triangles of every edge run along it in opposite directions), has an exactly negative volume (ExactPredicates.VolumeSign)
+        /// and 2 |Volume| / Area below InsideOutThinBound times the largest box diagonal of the components of the solid inputs (the
+        /// magnitude in doubles, first; the sign exact). The solid inputs are the closed ones that are not sheets: sheets and open
+        /// inputs do not count for the diagonal. It is dropped where the rest of its input (every triangle that is no candidate: the input is winding-closed,
+        /// so this is also exact for shells closed only by position, or split into several components) has a winding number of
+        /// 0 or less at one of its vertices (exact, ShellIndex.ExactWinding; a vertex on or within the touch distance of the rest
+        /// is skipped): it lies outside the solid there. A cavity (every vertex inside the rest) stays, and so does a candidate
+        /// no vertex decides; a candidate that crosses the rest with every vertex inside it stays too. An input that would lose all
+        /// of its triangles is kept as it is. Returns given itself when nothing is dropped, else a new list with copies of the
+        /// changed inputs (the others are the same objects). Volumes are taken relative to a vertex of each component, in a fixed
+        /// order: a scale by 2^k scales every value exactly
+        /// </summary>
+        internal static List<DMesh3> DropThinInsideOut(List<DMesh3> given, bool[] solid, List<SolidBooleanDroppedComponent> dropped)
+        {
+            int n = given.Count;
+            var tris = new int[n][][];
+            var vol = new double[n][];
+            var area = new double[n][];
+            var boxes = new AxisAlignedBox3d[n][];
+            double diagonal = 0;
+            for (int i = 0; i < n; ++i) {
+                if (!solid[i] || given[i].TriangleCount == 0)
+                    continue;
+                DMesh3 mesh = given[i];
+                var cc = new MeshConnectedComponents(mesh);
+                cc.FindConnectedT();
+                int m = cc.Count;
+                tris[i] = new int[m][];
+                vol[i] = new double[m];
+                area[i] = new double[m];
+                boxes[i] = new AxisAlignedBox3d[m];
+                for (int c = 0; c < m; ++c) {
+                    int[] ct = cc.Components[c].Indices;
+                    tris[i][c] = ct;
+                    Vector3d o = mesh.GetVertex(mesh.GetTriangle(ct[0]).a);
+                    double v6 = 0, a2 = 0;
+                    var box = AxisAlignedBox3d.Empty;
+                    foreach (int t in ct) {
+                        Index3i tv = mesh.GetTriangle(t);
+                        Vector3d p = mesh.GetVertex(tv.a), q = mesh.GetVertex(tv.b), r = mesh.GetVertex(tv.c);
+                        box.Contain(p); box.Contain(q); box.Contain(r);
+                        v6 += (p - o).Dot((q - o).Cross(r - o));
+                        a2 += (q - p).Cross(r - p).Length;
+                    }
+                    vol[i][c] = v6 / 6;
+                    area[i][c] = a2 / 2;
+                    boxes[i][c] = box;
+                    diagonal = Math.Max(diagonal, box.Diagonal.Length);
+                }
+            }
+            double bound = InsideOutThinBound * diagonal;
+            List<DMesh3> result = given;
+            for (int i = 0; i < n; ++i) {
+                if (tris[i] == null)
+                    continue;
+                DMesh3 mesh = given[i];
+                int m = tris[i].Length;
+                var candidates = new List<int>();
+                int candidateTriangles = 0;
+                for (int c = 0; c < m; ++c) {
+                    // (the cheap test first, thin by the doubles; then, for the few that pass, closed and consistent by the edges and the
+                    // exact sign of the volume: the sign is decided exactly, the doubles only bound the magnitude)
+                    if (!(2 * Math.Abs(vol[i][c]) < bound * area[i][c]))
+                        continue;
+                    if (!closed_and_consistent(mesh, tris[i][c]) || MeshPostRepairCleanup.volume_sign(mesh, tris[i][c]) >= 0)
+                        continue;
+                    candidates.Add(c);
+                    candidateTriangles += tris[i][c].Length;
+                }
+                // (never all of an input: then it is used as it is, and the boolean decides as before)
+                if (candidates.Count == 0 || candidateTriangles == mesh.TriangleCount)
+                    continue;
+                // the rest of the input: one index for all candidates of the input
+                var isCandidate = new bool[m];
+                foreach (int c in candidates)
+                    isCandidate[c] = true;
+                var restTris = new List<int>(mesh.TriangleCount - candidateTriangles);
+                var restBox = AxisAlignedBox3d.Empty;
+                for (int c = 0; c < m; ++c) {
+                    if (isCandidate[c])
+                        continue;
+                    restTris.AddRange(tris[i][c]);
+                    restBox.Contain(boxes[i][c]);
+                }
+                var rest = new ShellIndex(mesh, restTris.ToArray(), restBox);
+                var drop = new List<int>();
+                foreach (int c in candidates)
+                    if (rest.AnyVertexOutside(mesh, tris[i][c]))
+                        drop.Add(c);
+                if (drop.Count == 0)
+                    continue;
+                var copy = new DMesh3(mesh);
+                foreach (int c in drop) {
+                    foreach (int t in tris[i][c])
+                        copy.RemoveTriangle(t, true, false);
+                    dropped.Add(new SolidBooleanDroppedComponent {
+                        Input = i, Triangles = tris[i][c].Length, Volume = vol[i][c], Area = area[i][c],
+                        Thickness = 2 * Math.Abs(vol[i][c]) / area[i][c], Bound = bound, Center = boxes[i][c].Center
+                    });
+                }
+                if (result == given)
+                    result = new List<DMesh3>(given);
+                result[i] = copy;
+            }
+            return result;
+        }
+
+        // every edge of the triangles tris has two triangles that run along it in opposite directions: closed and consistently
+        // oriented by the edges. (A guard: the input is winding-closed, so a component that is closed by its edges but not
+        // consistent would need another component to balance it at the same positions; no test input reaches it)
+        static bool closed_and_consistent(DMesh3 mesh, int[] tris)
+        {
+            foreach (int t in tris)
+                for (int j = 0; j < 3; ++j)
+                    if (!consistent_edge(mesh, mesh.GetTriEdge(t, j)))
+                        return false;
+            return true;
+        }
+
+        // an edge with two triangles that run along it in opposite directions (a boundary edge is not)
+        static bool consistent_edge(DMesh3 mesh, int eid)
+        {
+            Index4i ev = mesh.GetEdge(eid);
+            if (ev.d == DMesh3.InvalidID)
+                return false;
+            return runs_along(mesh.GetTriangle(ev.c), ev.a, ev.b) != runs_along(mesh.GetTriangle(ev.d), ev.a, ev.b);
+        }
+
+        // does triangle t have the directed edge a -> b
+        static bool runs_along(Index3i t, int a, int b)
+        {
+            return (t.a == a && t.b == b) || (t.b == a && t.c == b) || (t.c == a && t.a == b);
         }
 
         /// <summary>
@@ -1579,6 +1791,30 @@ namespace gs
             }
 
             /// <summary>
+            /// Is the winding number of this shell 0 or less at a vertex of the triangles comp of mesh (in the order of their index;
+            /// a vertex outside the box is outside; one on the shell or within the touch distance of it is skipped)? False if every
+            /// vertex that decides is inside, or none decides (DropThinInsideOut)
+            /// </summary>
+            internal bool AnyVertexOutside(DMesh3 mesh, int[] comp)
+            {
+                var set = new HashSet<int>();
+                foreach (int t in comp) {
+                    Index3i tv = mesh.GetTriangle(t);
+                    set.Add(tv.a); set.Add(tv.b); set.Add(tv.c);
+                }
+                int[] vertices = new int[set.Count];
+                set.CopyTo(vertices);
+                Array.Sort(vertices);
+                int w;
+                foreach (int v in vertices) {
+                    Vector3d p = mesh.GetVertex(v);
+                    if (!touches(p) && ExactWinding(p, out w) && w <= 0)
+                        return true;
+                }
+                return false;
+            }
+
+            /// <summary>
             /// The winding number of the shell at p, exactly: false if p lies on the shell (exact orientation and point in the
             /// closed triangle), or if no direction avoided every edge and vertex (not expected). The count is taken along a
             /// segment from p to just beyond the nearest face of the shell's box (its direction jittered by a fixed seed, and
@@ -1630,6 +1866,41 @@ namespace gs
             }
         }
 
+        // The advice of the InsideOutInput refusal, per input with inside-out components (active[k]: the pipeline's index of the
+        // boolean's input k). Orientation = ByNesting derives the enclosed solid only for an embedded input: one whose own
+        // arrangement has self-intersecting pairs keeps its given orientation (ExactMeshBoolean.OrientationModes.ByNesting), so for
+        // it the advice names the self-intersections, and a repaired copy as what the repair produced. ByNesting is recommended
+        // where it was not tried, with the self-intersections as its condition when the boolean found some
+        internal static string InsideOutAdvice(ExactMeshBoolean op, List<int> active, List<SolidBooleanInputRepair> repaired)
+        {
+            int[] cells = op.InsideOutCellsOfInput, pairs = op.NestingSelfIntersectingPairsOfInput;
+            var parts = new List<string>();
+            bool nestingCanHelp = false;
+            for (int k = 0; cells != null && k < cells.Length; ++k) {
+                if (cells[k] == 0)
+                    continue;
+                int i = k < active.Count ? active[k] : k;
+                SolidBooleanInputRepair r = repaired.Find(x => x.Index == i);
+                if (op.Orientation != ExactMeshBoolean.OrientationModes.ByNesting || pairs == null || pairs[k] <= 0) {
+                    nestingCanHelp = true;
+                    if (r != null)
+                        parts.Add("input " + i + " is the closed copy that the input repair " + r.Method + " produced from the open input");
+                    continue;
+                }
+                parts.Add("input " + i + (r != null ? " (the closed copy that the input repair " + r.Method + " produced from the open input)" : "") +
+                    " self-intersects (" + pairs[k] + " pairs of its triangles meet beyond a common edge or vertex), so Orientation = ByNesting cannot orient it " +
+                    "(its given orientation stays) and " + cells[k] + " of its components are inside-out at least in part; fix the self-intersections" +
+                    (r != null ? " (close the input before the boolean)" : ""));
+            }
+            if (nestingCanHelp || parts.Count == 0) {
+                string nesting = op.Orientation == ExactMeshBoolean.OrientationModes.ByNesting ? "orient them" :
+                    "orient them (Orientation = ByNesting derives the enclosed solid" +
+                    (op.SelfIntersectingPairs > 0 ? " of an input without self-intersections; the inputs have " + op.SelfIntersectingPairs + " self-intersecting pairs" : "") + ")";
+                parts.Add(nesting);
+            }
+            return string.Join("; ", parts) + " or set AllowInsideOutInputs";
+        }
+
         ExactMeshBoolean runBoolean(List<DMesh3> meshes, List<int> active)
         {
             var op = new ExactMeshBoolean(meshes, Operation);
@@ -1650,6 +1921,30 @@ namespace gs
             op.Cancellation = Cancellation;
             op.Compute();
             return op;
+        }
+
+        // tests: called with the triangle count of each mesh whose self-intersections the repair check computes (the copy, then the input)
+        internal Action<int> RepairCheckObserverForTests;
+
+        // The self-intersecting pairs of a repaired copy (its own arrangement, exact, not triangulated) if the input as given has
+        // none, else 0 (the input is used as before: its self-intersections are its own); -1 if cancelled. The input's own
+        // arrangement runs only if the copy has some.
+        int repairSelfIntersections(DMesh3 input, DMesh3 repaired)
+        {
+            int copy = selfIntersectingPairs(repaired);
+            if (copy <= 0)
+                return copy;
+            int own = selfIntersectingPairs(input);
+            return own < 0 ? -1 : own == 0 ? copy : 0;
+        }
+
+        int selfIntersectingPairs(DMesh3 mesh)
+        {
+            RepairCheckObserverForTests?.Invoke(mesh.TriangleCount);
+            var a = new ExactMeshArrangement(new List<DMesh3> { mesh }) { SelfIntersections = true, Cancellation = Cancellation };
+            a.TriangulateMeshes = new[] { false };
+            a.Compute();
+            return a.Stopped == ExactMeshArrangement.StopReason.Cancelled ? -1 : a.SelfIntersectingPairs;
         }
 
         // the cheapest allowed repair that makes input i closed (on a copy), or null

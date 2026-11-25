@@ -344,6 +344,30 @@ git apply -R benchmarks/SelfIntersectionBenchmark/probe/tritri_probe.patch
 (`RunAnalyzers=false`: the determinism analyzer rejects the probe's timers in the exact files.) Raw output in
 `probe/results/`.
 
+**(g) The candidate pairs: where `TriangleTriangleFilter`'s time goes (24 November 2026).** Probe and in-place upper
+bounds of fewer candidate pairs, a plane pretest of neighbours and a cheaper filter call, in
+[docs/research/TRI_TRI_CANDIDATE_PAIRS_2026-11.md](../../docs/research/TRI_TRI_CANDIDATE_PAIRS_2026-11.md):
+- Built: the pretest (`TriangleTriangleFilter.BeyondSharedNeighbours`). Reducer box grid 1793 -> 1491 ms (-17 %), bumpy
+  sphere 247 -> 240 ms (-3 %), the rest within the ±10 % noise of the machine, fingerprints the same. Before/after
+  table in the note.
+- Stopped: the cheaper call, below 10 % in place.
+- Built in a follow-up: the cull of the pairs without shared corners (`TriangleTriangleFilter.ProjectedEdges`, the
+  filter stage of `Orient2d` on the edges of each new triangle). Harness plate 50 with jitter 2910 -> 1417 ms (-51 %),
+  harness tilted plate 50 -17 %, jitter plate tilted -13 % and -10 %, tilted jitter harness -10.5 %, the rest within
+  noise, fingerprints the same.
+
+To re-run the probe (against master fa06338) and the comparison:
+
+```
+git apply benchmarks/SelfIntersectionBenchmark/probe/candidate_probe.patch
+dotnet build benchmarks/SelfIntersectionBenchmark -c Release -p:CandidateProbe=true -p:RunAnalyzers=false -o <dir>
+DOTNET_TieredCompilation=0 dotnet <dir>/SelfIntersectionBenchmark.dll reducer remesher runs=1 > probe.txt
+python3 benchmarks/SelfIntersectionBenchmark/probe/sum_candidates.py probe.txt
+git apply -R benchmarks/SelfIntersectionBenchmark/probe/candidate_probe.patch
+# before/after: build master and this branch (-o <a>, -o <b>), run "reducer remesher runs=3" of each twice, interleaved
+python3 benchmarks/SelfIntersectionBenchmark/probe/ab_compare.py <a runs...> -- <b runs...>
+```
+
 **MeshRobustRepair volume IoU, a tighter sample region (parked).** The question: can the region the IoU estimator
 samples (component boxes expanded by `sqrt(n * area / (1.6 pi))`) provably shrink while still containing the union of
 both solids? Measured on Thingi10K 61765 (`BENCH_REPAIR=robust` in `MeshRepairBenchmark`), a 32^3 grid of cells over

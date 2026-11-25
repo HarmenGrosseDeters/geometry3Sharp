@@ -176,6 +176,27 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void BooleanVolumeGradientExample_RealizedAndOtherOneSidedDerivative()
+        {
+            double[] r = g3.Examples.BooleanVolumeGradientExample.TouchingBoxes(out string error);
+            Assert.True(r != null, error);
+            Assert.Equal(1.25, r[0], 12);     // volume of the union
+            Assert.Equal(0.25, r[1], 12);     // the realized branch: the union merges the touching boxes
+            Assert.Equal(0.0, r[2], 12);      // the other branch: separated
+        }
+
+        [Fact]
+        public void BooleanVolumeOptimizerExample_GrowsTheUnionToTheTargetVolume()
+        {
+            // (the optimizer's convergence, invariance, determinism and failures: BooleanVolumeOptimizerTests)
+            var r = g3.Examples.BooleanVolumeOptimizerExample.GrowUnion();
+            Assert.True(r.Reason == g3.Examples.BooleanVolumeOptimizerExample.StopReason.Converged, r.Error);
+            Assert.Equal(1.3, r.Iterations[r.Iterations.Count - 1].Volume, 8);
+            Assert.True(r.Final.IsClosed());
+            Assert.Equal(1.3, Volume(r.Final), 6);
+        }
+
+        [Fact]
         public void ExactMeshBooleanExample_ExactVolumesAndClosedResults()
         {
             // cube 1, bar 0.5 x 0.5 x 2 of which 0.25 lies inside the cube
@@ -290,6 +311,25 @@ namespace geometry3Sharp.Tests
             Assert.False(usedSolidify);
             Assert.Equal("self-intersections", reason);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(result));
+        }
+
+        // an unwelded box soup: a clean solid whichever stage ends the repair (here the repair welds it; the wrap path with the
+        // switches: VarifoldCreaseInputTests.RobustRepair_SharpFeaturesOnSoups_RunsTheVarifoldSource)
+        [Fact]
+        public void MeshRepairExample_RobustRepairKeepingCreases_GivesACleanSolid()
+        {
+            DMesh3 box = AlphaWrapFeaturePassTests.PolyCube(4, 3, 2, (x, y, z) => true);
+            var soup = new DMesh3();
+            foreach (int t in box.TriangleIndices()) {
+                Index3i v = box.GetTriangle(t);
+                int a = soup.AppendVertex(box.GetVertex(v.a)), b = soup.AppendVertex(box.GetVertex(v.b)), c = soup.AppendVertex(box.GetVertex(v.c));
+                soup.AppendTriangle(a, b, c);
+            }
+            DMesh3 result = MeshRepairExample.RobustRepairKeepingCreases(soup, out bool wrapped, 60);
+            Assert.NotNull(result);
+            Assert.False(wrapped);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(result));
+            Assert.InRange(Volume(result), 24 - 1e-9, 24 + 1e-9);
         }
 
         [Fact]
