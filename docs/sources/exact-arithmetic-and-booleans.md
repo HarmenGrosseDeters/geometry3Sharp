@@ -111,6 +111,17 @@ and [parallelism pitfalls](https://learn.microsoft.com/en-us/dotnet/standard/par
 This is an independently written ordering fix, not a code port; `MarchingCubes` retains its existing polygonization
 and uses bounded slab batches rather than buffering the entire volume.
 
+### Caller-first scheduling of the `gParallel` loops (#1502)
+
+Own implementation; no code read. `ForRange`, `ForEach` and the handovers of the Small loops queue helpers to the thread pool
+and run the items on the calling thread at once, taking chunks from one shared counter (the dynamic schedule of OpenMP, with
+the caller as a participant); the caller waits only for chunks that were taken, not for helpers that never started. Why:
+`Parallel.For` waits for every task it queued, and from a thread outside the pool those tasks sit in the global queue behind
+the pool's other work ([dotnet/runtime#4727](https://github.com/dotnet/runtime/issues/4727): `Parallel` is "at the mercy of the
+underlying scheduler" for its tasks; [dotnet/runtime#72981](https://github.com/dotnet/runtime/issues/72981); Criteo,
+[.NET ThreadPool starvation, and how queuing makes it worse](https://medium.com/criteo-labs/net-threadpool-starvation-and-how-queuing-makes-it-worse-512c8d570527)).
+Numbers: `benchmarks/ParallelTinyLoops/README.md`.
+
 ### Parallel edge groups, union-find and result builder of the boolean (`mesh_ops/ExactMeshEdgeGroups.cs`, `ExactMeshResultBuilder.cs`, `DMesh3.FromEdgeStructure`)
 
 Implemented from the papers; no code read. Levers 2 and 4 of [perf/BOOLEAN_THREAD_SCALING.md](../perf/BOOLEAN_THREAD_SCALING.md): the
