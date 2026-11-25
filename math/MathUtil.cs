@@ -716,7 +716,7 @@ namespace g3
             double la = a.Length, lb = b.Length, lc = c.Length;
             double bottom = (la * lb * lc) + a.Dot(ref b) * lc + b.Dot(ref c) * la + c.Dot(ref a) * lb;
             double top = a.x * (b.y * c.z - c.y * b.z) - a.y * (b.x * c.z - c.x * b.z) + a.z * (b.x * c.y - c.x * b.y);
-            return 2.0 * Math.Atan2(top, bottom);
+            return 2.0 * g3.CoreMathPort.CoreMath.Atan2(top, bottom);   // (correctly rounded: the same bits on every runtime, WebAssembly included, #1577)
         }
 
 

@@ -78,10 +78,10 @@ namespace g3
             Vector256<double> bottom = (la * lb * lc) + dab * lc + dbc * la + dca * lb;
             Vector256<double> top = ax * (by * cz - cy * bz) - ay * (bx * cz - cx * bz) + az * (bx * cy - cx * by);
             // (2 atan2 / 4 pi per lane: the product and the quotient are correctly rounded in a vector as in a scalar)
-            Vector256<double> at = Vector256.Create(Math.Atan2(top.GetElement(0), bottom.GetElement(0)),
-                n > 1 ? Math.Atan2(top.GetElement(1), bottom.GetElement(1)) : 0,
-                n > 2 ? Math.Atan2(top.GetElement(2), bottom.GetElement(2)) : 0,
-                n > 3 ? Math.Atan2(top.GetElement(3), bottom.GetElement(3)) : 0);
+            Vector256<double> at = Vector256.Create(g3.CoreMathPort.CoreMath.Atan2(top.GetElement(0), bottom.GetElement(0)),
+                n > 1 ? g3.CoreMathPort.CoreMath.Atan2(top.GetElement(1), bottom.GetElement(1)) : 0,
+                n > 2 ? g3.CoreMathPort.CoreMath.Atan2(top.GetElement(2), bottom.GetElement(2)) : 0,
+                n > 3 ? g3.CoreMathPort.CoreMath.Atan2(top.GetElement(3), bottom.GetElement(3)) : 0);
             Vector256<double> term = Vector256.Create(2.0) * at / Vector256.Create(MathUtil.FourPI);
             sum += term.GetElement(0);
             if (n > 1) sum += term.GetElement(1);
