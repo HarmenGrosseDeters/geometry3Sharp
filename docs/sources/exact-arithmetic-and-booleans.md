@@ -192,6 +192,18 @@ Derived in the note from the textbook shape derivative; papers read as abstracts
 | One-sided derivatives and the generalized gradient at contacts; the tie-break read as a symbolic perturbation | F. H. Clarke, *Optimization and Nonsmooth Analysis*, Wiley 1983; J. Bolte, E. Pauwels, *Conservative set valued fields, automatic differentiation, stochastic gradient methods and deep learning*, Math. Programming 2020; H. Edelsbrunner, E. P. Mücke, *Simulation of Simplicity*, ACM TOG 9(1) 1990 |
 | Prior art compared (not used): approximate differentiable CSG, exact derivatives of ball unions and polytopes | Yuan et al., *DiffCSG*, SIGGRAPH Asia 2024 (arXiv 2409.01421); T.-M. Li et al., *Differentiable Monte Carlo Ray Tracing through Edge Sampling*, TOG 2018; H. Edelsbrunner, P. Koehl, PNAS 2003; R. Bryant, H. Edelsbrunner, P. Koehl, M. Levitt, DCG 2004; J. B. Lasserre, JOTA 39, 1983; J. Allard et al., *Volume Contact Constraints at Arbitrary Resolution*, SIGGRAPH 2010 |
 
+## Exact hot spots study (2026-11-25, research only, no library code)
+
+[docs/research/EXACT_HOTSPOTS_STUDY_2026-11.md](../research/EXACT_HOTSPOTS_STUDY_2026-11.md), probes in `benchmarks/ExactHotspotsStudy`.
+Papers read as abstracts, metadata and opening pages only, no code read. Brönnimann, Burnikel, Pion 2001 (interval filters),
+Ratschek and Rokne (ESSA), Attene 2020 and Cherchi et al. 2020 (indirect predicates) as cited above.
+
+| Part | Source |
+|---|---|
+| Tighter semi-static and static orientation filters (prior art compared, not built; 2D only) | K. Ozaki, F. Bünger, T. Ogita, S. Oishi, S. M. Rump, *Simple floating-point filters for the two-dimensional orientation problem*, BIT Numer. Math. 56, 2016; K. Ozaki, T. Ogita, S. Oishi, error-free determinant transformation for the 2D orientation problem, Information and Computation 2012 (seen in search results only) |
+| Variants of the exact sign of a sum (prior art compared) | M. Mörig, S. Schirra, *Engineering an exact sign of sum algorithm*, tech. report, Univ. Magdeburg, 2010 |
+| Triangle-triangle overlap as a decision tree over orientation signs (prior art compared, not built) | P. Guigue, O. Devillers, *Fast and robust triangle-triangle overlap test using orientation predicates*, Journal of Graphics Tools 8(1), 2003 |
+
 ## Higher mathematics study (2026-11-25, research only, no library code)
 
 [docs/research/HIGHER_MATH_STUDY_2026-11.md](../research/HIGHER_MATH_STUDY_2026-11.md), probes in `benchmarks/HigherMathStudy`.
