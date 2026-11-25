@@ -117,7 +117,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        [InlineData(Family.FoldedCluster, 40, 6, 1)]
+        [InlineData(Family.FoldedCluster, 30, 6, 1)]      // (40 6 1 until #1410: the conversion of an exact vertex rounds to nearest now; that case needs one search round)
         public void Rounds_UntilASearchAcceptsNothing(Family f, int k, int count, int seed)
         {
             // the passes after a search open the way for another search: one round leaves defects, the rounds none
@@ -142,8 +142,9 @@ namespace geometry3Sharp.Tests
             // the passes had an edit rejected that needed many times the bound, and that stays the smallest (reported
             // from the search it would be the bound and a few ulps)
             // (utm FoldedCluster 36 4 0, whose passes had an edit rejected at 3 % above the bound, until #1464: with the
-            // result's ids given by its geometry the search repairs that case)
-            foreach (string name in new[] { "utm FoldedCluster 30 4 0", "utm FoldedCluster 36 4 4" }) {
+            // result's ids given by its geometry the search repairs that case. "utm FoldedCluster 30 4 0" until #1410: the conversion of an
+            // exact vertex rounds to nearest now and the passes repair that one; "36 4 6" has an edit rejected at 2.5 % above the bound)
+            foreach (string name in new[] { "utm FoldedCluster 36 4 6", "utm FoldedCluster 36 4 4" }) {
                 var strict = new ExactMeshBoolean(Leftover(name), new DMesh3(), Ops.Union) { StrictRounding = true };
                 Assert.False(strict.Compute());
                 MeshRoundingRepair r = strict.Rounding;
@@ -409,16 +410,16 @@ namespace geometry3Sharp.Tests
         // seed when #1464 gave the boolean's result ids by its geometry)
         public static IEnumerable<object[]> Leftovers()
         {
-            yield return new object[] { "Cluster 0 8 4" };
-            yield return new object[] { "Cluster 40 8 1" };
+            yield return new object[] { "Cluster 0 8 6" };
+            yield return new object[] { "Cluster 40 8 0" };
             yield return new object[] { "Cluster 44 8 6" };
-            yield return new object[] { "Cluster 52 8 5" };
-            yield return new object[] { "FoldedCluster 30 8 7" };
-            yield return new object[] { "FoldedCluster 44 8 0" };
-            yield return new object[] { "FoldedCluster 44 8 3" };
-            yield return new object[] { "FoldedCluster 52 8 1" };
-            yield return new object[] { "utm FoldedCluster 30 4 4" };
-            yield return new object[] { "utm FoldedCluster 36 4 0" };
+            yield return new object[] { "Cluster 52 8 4" };
+            yield return new object[] { "FoldedCluster 30 8 6" };
+            yield return new object[] { "FoldedCluster 44 8 4" };
+            yield return new object[] { "FoldedCluster 44 8 11" };
+            yield return new object[] { "FoldedCluster 52 8 0" };
+            yield return new object[] { "utm FoldedCluster 30 4 14" };
+            yield return new object[] { "utm FoldedCluster 36 4 4" };
         }
 
         static DMesh3 Leftover(string name)
@@ -455,7 +456,7 @@ namespace geometry3Sharp.Tests
         {
             // through the Boolean, with the passes: the checked run (every search and bound compared with its slow
             // reference) gives the same mesh; the 2^k scales bit for bit; serial equals parallel, repeated
-            DMesh3 input = Leftover("Cluster 52 8 5");
+            DMesh3 input = Leftover("Cluster 52 8 4");
             Func<DMesh3, bool, bool, ExactMeshBoolean> run = (mesh, check, serial) => {
                 MeshRoundingRepair.CheckOnThisThread = check;
                 gParallel.SerialOnThisThread = serial;

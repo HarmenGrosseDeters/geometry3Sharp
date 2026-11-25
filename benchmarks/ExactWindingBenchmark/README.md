@@ -87,3 +87,26 @@ rim-and-build timing of the table above; the clause terms are now written only f
   over linear boundary summation (**2.1x–4.9x** faster than `FastWindingNumber`) with **100%** exact threshold parity.
 - **Disconnected soups** (`|∂M| >= F` and `F > 64`): automatically switches to the flat packed direct solid-angle sum,
   still **2.9x** faster per query than the legacy hierarchical cache.
+
+## Edge angle near open edges (2026-11-24)
+
+`dotnet run --project benchmarks/ExactWindingBenchmark/ExactWindingBenchmark.csproj -c Release -- 15 near-edge` runs only this
+section. Before / after of the accurate edge angle (`boundary_edge_angle_x`, design note "The accuracy of the edge angle"),
+exact `DMeshAABBTree3.WindingNumber`, 2000 queries per case, median of 15 rounds, Windows 11 x64, .NET 10 (not the container of the
+tables above, so the absolute times differ from them; compare the before and after columns of one case). "Near" = a random point of a random
+boundary edge plus 10^-3 .. 10^-14 in a random direction.
+
+| case | tris | us / query before (master) | us / query after | sum of the values before | after |
+|---|---|---|---|---|---|
+| closed sphere 20k, random | 20172 | 0.41 | 0.40 | 308 | 308 (same bits) |
+| open sphere 20k, random (away from the edges) | 14126 | 7.80 | 7.92 | 216.93695380309467 | 216.93695380309467 (same bits) |
+| open sphere 20k, near the boundary edges | 14126 | 8.64 | 18.86 | 612.891220238622 | 612.8910033301383 (the old sum is off by 2.2e-4) |
+| open box, query grid in the plane of its rim (every query exactly on the yz line of rim edges) | 10 | 0.31 | 0.36 | 512 | 512 (same bits) |
+
+(Median of 15 rounds, one machine, re-run of all columns in one session; the run to run noise is about 10 %: a first run of the box
+case gave 0.52 and the sphere rows move by 0.3 us.) The closed mesh has no boundary edge (unchanged; the difference is noise).
+Away from the edges the rounded path takes one more comparison per edge (inside the noise) and returns the same bits. Near the
+edges, 10 us more per query: the edges of such a point that are within a factor 45 of cancellation (p near the open segment), about
+one or two of them, take the accurate path (about 10 us each). A point exactly on the yz line of an edge (the box grid) does not enter
+the integer evaluation: an earlier revision of this change sent it through it (the same box case 0.64 us, the sphere near-edge case
+21.8 us before the accurate evaluation was shortened by `lenBits` from the bit length and the removal of the precision loop).

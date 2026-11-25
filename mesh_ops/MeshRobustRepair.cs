@@ -262,6 +262,14 @@ namespace gs
         /// 0.72x the triangles, the pipeline 3.8 -> 5.1 s (median; the pass itself 0.8 s; benchmarks/SharpFeatureProbe, variant KR).
         /// </summary>
         public bool AlphaWrapSharpFeatures = false;
+        /// <summary>
+        /// with AlphaWrapSharpFeatures: take the input's creases from its unoriented varifold (a measure on position x plane, no
+        /// connectivity) instead of the dihedral angles of its edges. For unwelded, duplicated, flipped or T-junctioned triangle
+        /// soups, where an edge has one triangle and the dihedral finds no crease at all (so the pass did nothing). The same
+        /// checks and guarantees; the cost is a measure of the input at 1.75 alpha spacing, built once (about 0.2-0.5 s at
+        /// 100k-triangle CAD soups, docs/design/VARIFOLD_CREASE_INPUT.md). Off by default.
+        /// </summary>
+        public bool AlphaWrapSharpFeaturesOnSoups = false;
         /// <summary> alpha wrap fallback: true if AlphaWrapSharpFeatures ran and changed the raw wrap </summary>
         public bool AlphaWrapSharpFeaturesApplied;
         /// <summary> (benchmarks, tests) sets the switches of the sharp-feature pass (AlphaWrapSharpFeatures) </summary>
@@ -987,7 +995,8 @@ namespace gs
                     AlphaWrapTriangles = AlphaWrap.Result.TriangleCount;
                     DMesh3 raw = AlphaWrap.Result;
                     if (AlphaWrapSharpFeatures) {
-                        var features = new AlphaWrapFeaturePass(new DMesh3(raw, true), solidifyFrom, AlphaWrap.UsedAlpha, AlphaWrap.UsedOffset) { CancelF = CancelF };
+                        var features = new AlphaWrapFeaturePass(new DMesh3(raw, true), solidifyFrom, AlphaWrap.UsedAlpha, AlphaWrap.UsedOffset) {
+                            CancelF = CancelF, VarifoldCreases = AlphaWrapSharpFeaturesOnSoups };
                         ConfigureWrapFeatures?.Invoke(features);
                         bool computed = features.Compute();
                         end_phase("wrap.features");
@@ -1942,7 +1951,10 @@ namespace gs
         /// "" if the mesh is clean (see class comment), otherwise the first problem found, one of "empty",
         /// "not closed", "bowties", "degenerate triangles" (area &lt; 1e-12 * diagonal^2, of the bounds of the triangles),
         /// "inconsistent orientation" (an interior edge whose two triangles run the same way), "inside-out components",
-        /// "self-intersections". Useful as a test assertion: NotCleanReason(mesh) == "".
+        /// "self-intersections" (exact; pairs of triangles that only touch count, also at positions where vertices coincide: a boolean result
+        /// that touches itself, ExactMeshBoolean.Contacts &gt; 0, gets this reason although ExactMeshBoolean.RoundingClean is true, which
+        /// exempts the contacts of the exact result; SolidBooleanPipeline.Report.OnlyContacts tells such a result from one with a crossing).
+        /// Useful as a test assertion: NotCleanReason(mesh) == "".
         /// Stops at the first problem, which can hide the others (eg degenerate triangles hide self-intersections):
         /// NotCleanReasons / FindDefects report all of them.
         /// </summary>

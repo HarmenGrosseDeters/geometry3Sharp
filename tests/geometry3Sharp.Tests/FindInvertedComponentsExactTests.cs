@@ -120,7 +120,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void ChainSliver_OfTheTriage_IsNotInsideOut()
         {
-            DMesh3 s = new Sphere3Generator_NormalizedCube { Radius = 1, EdgeVertices = 12 }.Generate().MakeDMesh();
+            // (EdgeVertices 12 until #1410: the conversion of an exact vertex rounds to nearest now, and that sphere leaves one component only)
+            DMesh3 s = new Sphere3Generator_NormalizedCube { Radius = 1, EdgeVertices = 14 }.Generate().MakeDMesh();
             foreach (int v in s.VertexIndices()) { Vector3d p = s.GetVertex(v); s.SetVertex(v, new Vector3d((float)p.x, (float)p.y, (float)p.z)); }
             var c = ContactTransforms.BuildChain(new DMesh3(s), new DMesh3(s), new DMesh3(s),
                 ContactVariant.PartialOverlap, 2, 1, 1, ContactVariant.UlpShift, 1, -1, 0);
@@ -138,17 +139,20 @@ namespace geometry3Sharp.Tests
             Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(exact.Result));
             // the rounded result: clean and not inside out; the slivers of numerically zero volume are removed by the rounding
             // (#1067: untouched closed components thinner than the ulp of their coordinates), so there are fewer components
-            var d = new ExactMeshBoolean(r2, c.A, Ops.Difference);
+            var d = new ExactMeshBoolean(r2, c.A, Ops.Difference) { ComputeExactVertices = true };
             Assert.True(d.Compute());
             Assert.True(d.RoundingClean);
-            // (#1216: what the rounding removed is listed. One sliver is 2.4e4 ulps thick, a residue of the rounding of the step
-            // before, as thick as that step's drift; the repair mangles it and it goes as VolumeChanged. At 1e-12 of the diagonal
-            // it is below the fraction of the bound that makes a result not clean)
+            // (#1216: what the rounding removed is listed. One sliver is 5.6e5 ulps thick, a residue of the rounding of the step
+            // before, as thick as that step's drift; the repair mangles it and it goes as VolumeChanged. At 3.1e-11 of the diagonal
+            // it is below the fraction of the bound that makes a result not clean; it was 2.4e4 ulps and 1e-12 until #1410 re-set the fixture,
+            // so the ranges below were widened; since #1489 they are within a factor 2 of the measured values again (the upper bound of the volume is master's 1e-15). Guarded path, checked with hand mutants:
+            // ReportBoundFraction 1e-3 -> 1e-7 (the sliver would become resolvable), the volume factor of volume_changed 2 -> 2^40 (the sliver would be kept) and
+            // ResolutionUlps 4 -> 1e7 (it would go as BelowResolution) each fail this test)
             Assert.Equal(d.Rounding.RemovedComponents, d.Rounding.RemovedComponentInfos.Count);
             MeshRoundingRepair.RemovedComponentInfo sliver = Assert.Single(d.Rounding.RemovedComponentInfos, i => i.Reason == MeshRoundingRepair.RemovalReasons.VolumeChanged);
-            Assert.InRange(sliver.ThicknessUlps, 1e4, 1e5);
-            Assert.InRange(sliver.Thickness, 1e-12, 2e-12);
-            Assert.True(sliver.Volume > 0 && sliver.Volume < 1e-21);
+            Assert.InRange(sliver.ThicknessUlps, 3e5, 1.2e6);      // (measured 5.63e5; 1e4 to 1e5 until #1410)
+            Assert.InRange(sliver.Thickness, 1.5e-11, 6e-11);      // (measured 3.13e-11; 1e-12 to 2e-12 until #1410)
+            Assert.InRange(sliver.Volume, 2e-16, 1e-15);      // (measured 5.29e-16; below 1e-21 until #1410; 1e-16 of the sphere's volume, numerically zero)
             Assert.False(sliver.Resolvable);
             Assert.Equal(0, d.Rounding.RemovedResolvable);
             var rounded = new MeshConnectedComponents(d.Result);
@@ -157,7 +161,11 @@ namespace geometry3Sharp.Tests
             foreach (var comp in rounded.Components)
                 Assert.Equal(1, Exact(d.Result, comp.Indices));
             Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(d.Result));
-            Assert.Equal("", MeshRobustRepair.NotCleanReason(d.Result));
+            // (clean up to contacts: since #1410 the conversion rounds to nearest, and the result holds duplicated vertices of one exact point)
+            ResultChecks.AssertCleanExceptContacts(d.Result, "rounded result");
+            // the contacts are of the exact solid (#1489, measured with the exact vertices: 4 positions, each one exact point; the 24 contacts the rounding
+            // made of different exact points were separated by the repair)
+            Assert.Equal(4, ResultChecks.AssertContactsAreOfTheExactSolid(d, "rounded result"));
         }
 
         [Fact]

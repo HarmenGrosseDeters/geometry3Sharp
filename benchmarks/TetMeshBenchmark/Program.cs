@@ -8,6 +8,7 @@
 //   ... -- ours <mesh> [relativeAlpha] [relativeOffset]                           (stage-0 path timed, the same row as eval)
 //   ... -- maxdih <mesh|proc> <relativeAlpha> <floor> <G> [nohdr]   (stage 2 with and without MaxDihedralDegrees, MaxDihedral.cs)
 //   ... -- tieorder <mesh|proc> <relativeAlpha> <relativeOffset> <floor> [orders] [trace.csv] [nohdr]   (stage 2 under relabelings of the stage-1 mesh, TieOrder.cs)
+//   ... -- surfprobe [relativeAlpha] [surfaceMinAngle] [improve 0|1] [slide] [inputs] [relH] [follow 0|1]   (where the tets above the radius-edge bound are, SurfaceProbe.cs)
 //   ... -- refine [proc|<mesh>] [relativeAlpha] [relativeOffset] [maxSteiner] [surfaceMinAngle]   (stage 1; refine_s = total - a separate wrap)
 using System;
 using System.Collections.Generic;
@@ -26,6 +27,7 @@ static class Program
         string mode = args.Length > 0 ? args[0] : "wrap";
         if (mode == "feature") { FeatureProbe.Run(args.Length > 1 ? double.Parse(args[1], Inv) : 40, args.Length > 2 ? double.Parse(args[2], Inv) : 600); return 0; }
         if (mode == "featurefiles") { FeatureProbe.RunFiles(System.IO.Directory.GetFiles(args[1], "*.stl").OrderBy(x => x), 40, 600); return 0; }
+        if (mode == "surfprobe") return SurfaceProbe.Run(args);   // surfprobe [relativeAlpha] [surfaceMinAngle] [improve 0|1] [slide] [inputs] [relH] [follow 0|1]: the bad tets at the surface (SurfaceProbe.cs)
         if (mode == "insert") {
             foreach (int n in args.Length > 1 ? args.Skip(1).Select(int.Parse) : new[] { 20000, 100000, 400000 })
                 Insert(n);

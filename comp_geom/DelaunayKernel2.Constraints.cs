@@ -331,6 +331,7 @@ namespace g3
         // For small cavities (k <= threshold), half-edge-tracked Sloan flips do O(1) work with zero array allocation and preserve
         // exact legacy slot order; above the threshold (or in tests), deterministic linear-time simplified earcut takes over.
         [ThreadStatic] internal static int CavityEarcutThresholdForTests;
+        [ThreadStatic] internal static bool SkipEarcutRestoreForTests;
         const int DefaultCavityEarcutThreshold = 64;
 
         readonly Queue<int> sloanHe = new Queue<int>();
@@ -468,7 +469,7 @@ namespace g3
             // join the recovered segment u -> w (baseLeft) with w -> u (baseRight)
             Join(baseLeft, baseRight, -1);
 
-            RestoreDelaunayPending(u, w);
+            if (!SkipEarcutRestoreForTests) RestoreDelaunayPending(u, w);
             if (V[baseLeft] == u && V[Next(baseLeft)] == w) return baseLeft;
             int result = FindEdge(u, w);
             if (result < 0) throw new InvalidOperationException("DelaunayKernel2: segment recovery failed");
@@ -521,8 +522,9 @@ namespace g3
                 if (qHead == m) qHead = 0;
                 earQueued[ib] = false;
                 int ia = earPrev[ib], ic = earNext[ib];
-                // cutting a neighbour may have turned ib reflex or collinear since it was enqueued
-                if (Orient(verts[ia], verts[ib], verts[ic]) <= 0) continue;
+                // By Livesu et al. 2022 (Lemma 1), every strictly convex internal vertex of a weakly-visible half-cavity
+                // is an empty ear, so cutting an adjacent ear strictly decreases interior angles (0 < theta' < theta < pi)
+                // and never turns an already-queued vertex reflex or collinear.
 
                 int t = cavSlots[slotCursor++];
                 int a = verts[ia], b = verts[ib], c = verts[ic];

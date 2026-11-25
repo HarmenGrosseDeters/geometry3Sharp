@@ -206,5 +206,174 @@ namespace geometry3Sharp.Tests
             var report = Oracle.Check(mi, output, new OracleExpect { Milestone = Milestone.M2 });
             Assert.True(report.Ok, report.ToString());
         }
+
+        [Fact]
+        public void OverflowSpan_1518500250Pixels_EndToEnd_DoesNotTriggerSpuriousCriticalPixel()
+        {
+            // End-to-end regression for the 2^29 guard in SnapRounding2.MeetsPixelCentreInterior:
+            // At M = 1_518_500_250 (exact in double, pixel width = 1.0), 4*M^2 > long.MaxValue while 4*M^2 - 4*M < long.MaxValue.
+            // Without the 2^29 guard, Critical() falsely flags (0, M) as crossing the interior of (0,0)-(M,M) and Restore() throws.
+            const double M = 1_518_500_250.0;
+            var input = new ConstrainedMesh2Input();
+            input.Points.Add(new Vector2d(0.0, 0.0));
+            input.Points.Add(new Vector2d(M, M));
+            input.Points.Add(new Vector2d(0.0, M));
+            input.Points.Add(new Vector2d(M, 0.0));
+            input.Segments.Add(new Mesh2Segment(0, 1, 1));
+
+            var sr = SnapRounding2.Apply(input, 1.0);
+            Assert.Equal(1, sr.Rounds);
+            Assert.Equal(0, sr.Crossings);
+            Assert.Equal(0, sr.Spread);
+            Assert.Equal(0, sr.ForcedSpread);
+            Assert.Single(sr.Result.Segments);
+
+            var res = new ConstrainedDelaunayMesh2 { SnapTolerance = 1.0 }.Compute(input);
+            Assert.Equal(Triangulation2Status.Success, res.Status);
+            Assert.Equal(2, res.Mesh.Triangles.Count);
+        }
+
+        static ulong HashSnapResult(ulong h, SnapRounding2 sr)
+        {
+            static ulong Mix(ulong state, ulong v) => (state ^ v) * 1099511628211UL;
+            static ulong MixLong(ulong state, long v) => Mix(state, unchecked((ulong)v));
+            static ulong MixDouble(ulong state, double v) => MixLong(state, BitConverter.DoubleToInt64Bits(v));
+
+            h = MixLong(h, sr.Rounds);
+            h = MixLong(h, sr.Crossings);
+            h = MixLong(h, sr.Spread);
+            h = MixLong(h, sr.Widened);
+            h = MixLong(h, sr.ForcedSpread);
+            h = MixLong(h, sr.CollapsedSegments);
+            h = MixLong(h, sr.CollapsedRings);
+            h = MixLong(h, sr.DroppedSeeds);
+            h = MixLong(h, sr.OuterRingsCollapsed ? 1L : 0L);
+            h = MixDouble(h, sr.MaxDisplacement);
+
+            var r = sr.Result;
+            h = MixLong(h, r.Points.Count);
+            foreach (var p in r.Points) { h = MixDouble(h, p.x); h = MixDouble(h, p.y); }
+            h = MixLong(h, r.Segments.Count);
+            foreach (var s in r.Segments) {
+                h = MixLong(h, s.A);
+                h = MixLong(h, s.B);
+                h = MixLong(h, s.Marker);
+                h = MixLong(h, s.Locked ? 1L : 0L);
+            }
+            h = MixLong(h, r.Rings.Count);
+            foreach (var ring in r.Rings) {
+                h = MixLong(h, ring.Hole ? 1L : 0L);
+                h = MixLong(h, ring.Vertices.Length);
+                foreach (int v in ring.Vertices) h = MixLong(h, v);
+            }
+            h = MixLong(h, sr.Diagnostics.Count);
+            foreach (var d in sr.Diagnostics) {
+                h = MixLong(h, d.Length);
+                foreach (char ch in d) h = MixLong(h, ch);
+            }
+            return h;
+        }
+
+        [Fact]
+        public void SnapRounding2_ProceduralCorpus_MatchesGoldenBitIdenticalHash()
+        {
+            // Pins exact bit-for-bit output (points, segments, rings, counters, diagnostics) across:
+            // 1) Random soup at two tolerances (X-sweep + multi-round Restore/Free choices),
+            // 2) Horizontal bundle (Y-sweep),
+            // 3) T-chain (dense collinear contacts + Restore),
+            // 4) Near-collinear crossing where double Orient has the WRONG nonzero sign (kills OrientFilter bypass),
+            // 5) Rings + repeated segments at a non-power-of-two tolerance (0.003).
+            ulong h = 14695981039346656037UL;
+
+            // 1. Random soup at 2^-10 and 2^-20 (multi-round Restore/Free).
+            var soup = RandomSoup(100, seed: 1402);
+            var srSoupCoarse = SnapRounding2.Apply(soup, 1.0 / 1024.0);
+            Assert.True(srSoupCoarse.Rounds >= 2 && srSoupCoarse.Spread > 0, "Expected multi-round Restore on RandomSoup(100)");
+            h = HashSnapResult(h, srSoupCoarse);
+            h = HashSnapResult(h, SnapRounding2.Apply(soup, 1.0 / 1048576.0));
+
+            // 2. Horizontal bundle (triggers Y-sweep).
+            var hBundle = new ConstrainedMesh2Input();
+            var rng = new Rng(140299);
+            for (int i = 0; i < 80; ++i) {
+                double y0 = i * 0.05, y1 = y0 + (rng.Next() - 0.5) * 0.12;
+                int a = hBundle.Points.Count;
+                hBundle.Points.Add(new Vector2d(0.0, y0));
+                hBundle.Points.Add(new Vector2d(10.0, y1));
+                hBundle.Segments.Add(new Mesh2Segment(a, a + 1, (i % 5) + 1));
+            }
+            for (int k = 0; k < 4; ++k) {
+                double x = 2.0 + 2.0 * k;
+                int a = hBundle.Points.Count;
+                hBundle.Points.Add(new Vector2d(x, -0.1));
+                hBundle.Points.Add(new Vector2d(x + 0.3, 4.1));
+                hBundle.Segments.Add(new Mesh2Segment(a, a + 1, 9));
+            }
+            h = HashSnapResult(h, SnapRounding2.Apply(hBundle, 1.0 / 512.0));
+
+            // 3. T-chain (dense hot pixels + Restore).
+            h = HashSnapResult(h, SnapRounding2.Apply(TChain(120), 1.0 / 1024.0));
+
+            // 4. Near-collinear crossing where double (b-a)x(c-a) has sign -1 while exact BigInteger Orient is +1.
+            // Both segments properly cross ~9 pixels away from c at tol = 1/1024.
+            var nearCollinear = new ConstrainedMesh2Input();
+            nearCollinear.Points.Add(new Vector2d(0.1, 0.3));
+            nearCollinear.Points.Add(new Vector2d(1.7, 2.6));
+            nearCollinear.Points.Add(new Vector2d(
+                BitConverter.Int64BitsToDouble(0x3fe6666666666668L),
+                BitConverter.Int64BitsToDouble(0x3ff299999999999bL)));
+            nearCollinear.Points.Add(new Vector2d(
+                BitConverter.Int64BitsToDouble(0x3ff4cccccccccccdL),
+                BitConverter.Int64BitsToDouble(0x4000333333333332L)));
+            nearCollinear.Segments.Add(new Mesh2Segment(0, 1, 1));
+            nearCollinear.Segments.Add(new Mesh2Segment(2, 3, 2));
+            var srNear = SnapRounding2.Apply(nearCollinear, 1.0 / 1024.0);
+            Assert.Equal(1, srNear.Crossings);
+            h = HashSnapResult(h, srNear);
+
+            // 5. Outer ring + hole + repeated & crossing segments at non-power-of-two tolerance 0.003.
+            var ringed = new ConstrainedMesh2Input();
+            ringed.Points.Add(new Vector2d(0.0, 0.0));
+            ringed.Points.Add(new Vector2d(1.0, 0.0));
+            ringed.Points.Add(new Vector2d(1.0, 1.0));
+            ringed.Points.Add(new Vector2d(0.0, 1.0));
+            ringed.Points.Add(new Vector2d(0.25, 0.25));
+            ringed.Points.Add(new Vector2d(0.75, 0.25));
+            ringed.Points.Add(new Vector2d(0.75, 0.75));
+            ringed.Points.Add(new Vector2d(0.25, 0.75));
+            ringed.Points.Add(new Vector2d(0.1, 0.501));
+            ringed.Points.Add(new Vector2d(0.9, 0.499));
+            ringed.Rings.Add(new Mesh2Ring(new[] { 0, 1, 2, 3 }, false));
+            ringed.Rings.Add(new Mesh2Ring(new[] { 4, 5, 6, 7 }, true));
+            ringed.Segments.Add(new Mesh2Segment(8, 9, 3));
+            ringed.Segments.Add(new Mesh2Segment(9, 8, 3)); // repeated reversed segment
+            ringed.Segments.Add(new Mesh2Segment(0, 2, 4));
+            ringed.Segments.Add(new Mesh2Segment(1, 3, 5));
+            h = HashSnapResult(h, SnapRounding2.Apply(ringed, 0.003));
+
+            // 6. Vertical/steep bundle + coarse random soup (dense multi-round Restore where steep/vertical chain edges
+            // hit px == eb.MinX in Free(), pinning the exact < vs <= bounding-box prune).
+            var vBundle = new ConstrainedMesh2Input();
+            var rngV = new Rng(140277);
+            for (int i = 0; i < 80; ++i) {
+                double x0 = i * 0.05, x1 = x0 + (rngV.Next() - 0.5) * 0.12;
+                int a = vBundle.Points.Count;
+                vBundle.Points.Add(new Vector2d(x0, 0.0));
+                vBundle.Points.Add(new Vector2d(x1, 10.0));
+                vBundle.Segments.Add(new Mesh2Segment(a, a + 1, (i % 5) + 1));
+            }
+            for (int k = 0; k < 6; ++k) {
+                double y = 1.0 + 1.5 * k;
+                int a = vBundle.Points.Count;
+                vBundle.Points.Add(new Vector2d(-0.1, y));
+                vBundle.Points.Add(new Vector2d(4.1, y + 0.35));
+                vBundle.Segments.Add(new Mesh2Segment(a, a + 1, 9));
+            }
+            h = HashSnapResult(h, SnapRounding2.Apply(vBundle, 1.0 / 64.0));
+            h = HashSnapResult(h, SnapRounding2.Apply(RandomSoup(100, seed: 42), 1.0 / 64.0));
+
+            // Pinned bit-for-bit golden hash (verified identical to pre-#1402 SnapRounding2 on master).
+            Assert.Equal(4633619528224767930UL, h);
+        }
     }
 }

@@ -291,7 +291,7 @@ mutant that a dropped test still kills). Measured on the stored reports of 2026-
 full run of 2026-11-13, so the numbers are a proxy): see [docs/roadmap/platform.md](../../docs/roadmap/platform.md).
 **Checked-in filters** (`test-filters/`, made 2026-11-15 from the newest full master reports with `--durations` of the master
 full run of 2026-11-13, `--timeouts one`): envelope-1 (9 of 21 tests, estimated saving of the mutant runs 93 %), envelope-2
-(9 of 21, 85 %), envelope-3 (10 of 21, 52 %), terrain-arith (18 of 47, 57 %). Not made, and why: envelope-4 (8 %) and
+(9 of 21, 85 %), envelope-3 (10 of 21, 52 %), terrain-arith (18 of 47, 57 %). geodesic-1 (9 of 103 tests, 64 %) and geodesic-2 (4 of 103, 61 %) were made on 2026-11-24 from the reports of the weekly full run 45088174041 (2026-11-23) with `--durations` of the master full run 45457969552 (linux net10.0, 2026-11-24); both shards are dominated by timeouts (172 and 225 against 190 and 130 kills), which `--timeouts one` keeps with one covering test each, so the next weekly (unfiltered) run is the check that the filtered run loses no timeout. Not made, and why: envelope-4 (7 % weighted by the same durations, 31 % unweighted; the kept set holds the expensive `ContainsTriangle` oracle tests) and
 terrain-overlay (19 %) are below 20 %; terrain-kernel (85 %) is already stale (new test file `TerrainSlopeLocalFrameTests.cs`
 names its classes); rounding-1..8 (76-100 %) are stale (`MeshRoundingRepair.cs` changed since the reports of 2026-11-11);
 arrangement, planar and boolean have no full master report (boolean is another session's, see its shard PRs). A filter is
@@ -328,6 +328,8 @@ Limits:
 
 The HTML report is uploaded as an artifact, and a summary appears in the job summary. Tests of the selection:
 `python3 tests/mutation/test_select_shards.py`.
+
+The Python tests of this directory also run on Windows (Git Bash, `python` instead of `python3`; run them from `tests/mutation`). The tests that start `run_stryker.sh` put a `python3` next to the fake `dotnet` (`shell_shims.py`, as the Store stub of that name fails), and write their files with LF; two signal tests of `test_run_stryker_restore.py` are skipped there (POSIX process groups). `test_exclude_other_sources.py` takes about 20 minutes on a Windows disk with a virus scanner (it applies and undoes the marker on 520 files for each of 70 configs); the rest of the directory takes a few minutes.
 
 To run it locally, from the repository root:
 

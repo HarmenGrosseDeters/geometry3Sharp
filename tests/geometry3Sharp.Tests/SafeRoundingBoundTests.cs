@@ -389,8 +389,9 @@ namespace geometry3Sharp.Tests
             // (Cluster k0 count 4 seed 0 until Boolean 2.0: the reference rule repairs it within the relative bound;
             // FoldedCluster k36 count 4 seed 1 until the position search, which repairs it within that bound, too;
             // FoldedCluster k36 count 4 seed 0 until #1464, which gave the result's ids by its geometry: the repair then
-            // takes its edits in another order and repairs that one as well)
-            var (name, mesh) = UtmCases().First(c => c.name == "FoldedCluster k30 count 4 seed 0");
+            // takes its edits in another order and repairs that one as well; FoldedCluster k30 count 4 seed 0 until #1410: the
+            // conversion of an exact vertex rounds to nearest now, and the repair takes that one; of the 114 cases only this one is not)
+            var (name, mesh) = UtmCases().First(c => c.name == "Cluster k30 count 4 seed 0");
             var strict = new ExactMeshBoolean(new DMesh3(mesh), new DMesh3(), Ops.Union) { StrictRounding = true };
             Assert.False(strict.Compute(), name);
             Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, strict.Status);

@@ -43,7 +43,9 @@ namespace g3
         public SnapGrid Grid;
         /// <summary> the input segments each output chain edge comes from (by the edge's end coordinates, either order), for O12 splits;
         /// several when the chains of several input segments share the edge </summary>
-        public readonly Dictionary<(Vector2d, Vector2d), List<(Vector2d a, Vector2d b)>> Origin = new Dictionary<(Vector2d, Vector2d), List<(Vector2d, Vector2d)>>();
+        // (private: a Dictionary has no specified enumeration order, so nothing outside this class may enumerate it; the members below only
+        // look entries up, and Build adds them in chain order. DeterminismStage1ObligationTests.SnapRounding2_Origin_IsNotVisible)
+        readonly Dictionary<(Vector2d, Vector2d), List<(Vector2d a, Vector2d b)>> Origin = new Dictionary<(Vector2d, Vector2d), List<(Vector2d, Vector2d)>>();
 
         /// <summary> the first input segment an output chain edge comes from, or false (a hull edge, or an edge the mesher made) </summary>
         public bool TryOrigin(Vector2d p, Vector2d q, out (Vector2d a, Vector2d b) origin)
@@ -54,8 +56,8 @@ namespace g3
             return true;
         }
 
-        /// <summary> all input segments an output chain edge comes from (empty if none) </summary>
-        public List<(Vector2d a, Vector2d b)> Origins(Vector2d p, Vector2d q) => Origin.TryGetValue(Ordered(p, q), out var list) ? list : new List<(Vector2d, Vector2d)>();
+        /// <summary> all input segments an output chain edge comes from (empty if none), in chain order; read only: it is the stored list </summary>
+        public IReadOnlyList<(Vector2d a, Vector2d b)> Origins(Vector2d p, Vector2d q) => Origin.TryGetValue(Ordered(p, q), out var list) ? (IReadOnlyList<(Vector2d a, Vector2d b)>)list : new List<(Vector2d, Vector2d)>();
 
         static (Vector2d, Vector2d) Ordered(Vector2d p, Vector2d q) => p.x < q.x || (p.x == q.x && p.y <= q.y) ? (p, q) : (q, p);
         public readonly List<string> Diagnostics = new List<string>();
@@ -166,6 +168,7 @@ namespace g3
         (long x, long y)[] hotPts;
         HotNode[] hotNodes;
         int hotNodeCount;
+        // Shared scratch buffers for QueryHot and Restore/Free; neither method may be called re-entrantly.
         readonly List<(long, long)> queryHits = new List<(long, long)>();
         readonly int[] queryStack = new int[128];
 
@@ -219,7 +222,7 @@ namespace g3
         /// equivalent to Meets(Cx(p), Cy(p), Cx(q), Cy(q), k, true), with the common factor W &gt; 0 divided out.
         /// Uses exact 64-bit integer arithmetic when |dx|, |dy| &lt;= 2^29 (|det| &lt;= 2^61 + 2^31 &lt; 2^63), else BigInteger.
         /// </summary>
-        static bool MeetsPixelCentreInterior((long, long) p, (long, long) q, (long, long) k)
+        internal static bool MeetsPixelCentreInterior((long, long) p, (long, long) q, (long, long) k)
         {
             long px = p.Item1, py = p.Item2, qx = q.Item1, qy = q.Item2, kx = k.Item1, ky = k.Item2;
             long lx = px < qx ? px : qx, hx = px > qx ? px : qx;

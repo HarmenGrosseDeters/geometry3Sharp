@@ -76,6 +76,17 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Primitives_NoFlatTriangles_FewerSelfIntersections()
         {
+            // serial on this thread (#698, docs/research/SLOW_TESTS_2026-11.md): 48 remeshes of several passes each start thousands of tiny parallel
+            // loops. Alone 3.6 s parallel, 4.8 s serial; with the pool busy more than 240 s parallel, 6.2 s serial; 27-35 s in CI full runs
+            // against 1.9-2.9 s alone. The parallel path is checked against the serial one in RemesherDeterminismTests
+            bool wasSerial = gParallel.SerialOnThisThread;
+            gParallel.SerialOnThisThread = true;
+            try { NoFlatTrianglesFewerSelfIntersections(); }
+            finally { gParallel.SerialOnThisThread = wasSerial; }
+        }
+
+        void NoFlatTrianglesFewerSelfIntersections()
+        {
             // per case: no flat triangles; in all fewer self-intersecting pairs than without the option. (Not per case:
             // the option creates far fewer intersections during the passes, but which survive the last one is
             // chance, and projection moves across the rim of a flat cap can intersect without flipping a normal; in

@@ -198,6 +198,10 @@ namespace geometry3Sharp.Tests
             // Apply and the range check, the tree's boxes, degenerate_triangles, remove_tiny_components)
             const string serialWork = "FullyQualifiedName~RoundingSerialWorkTests.";
             const string sliverStage = "FullyQualifiedName~ExactMeshImprintSliverStageTests";
+            // (the evaluation limit of the final stage, StageMaxEvaluationsPerDefect, #1489: set in Apply, parts 1 and 10; the neutral contractions of the stage,
+            // AcceptNeutralContractionsInStage: improves() in part 3, try_collapse in part 5, Apply's resets in part 10, the fields in part 1; derived from the changed lines of the PR against
+            // the span of each part, part 4 holds none)
+            const string stageLimit = "FullyQualifiedName~ExactMeshImprintSliverTests.StageEvaluationLimit";
             var extras = new Dictionary<string, string[]>() {
                 // (the range check and for_triangles; Apply's finite check and anchors in rounding-10; the tree's boxes in
                 // rounding-12)
@@ -206,8 +210,8 @@ namespace geometry3Sharp.Tests
                     // (IsThinOrTiny, the input test of KeepWhenEmptied, #985)
                     "FullyQualifiedName~SafeRoundingLastComponentTests",
                     // (RuleLockedEdges and the final stage where they follow a contraction, #1034: the lock tests in parts 1, 10 and 5)
-                    sliverStage },
-                ["stryker-mesh-rounding-10"] = new[] { serialWork + "NotFiniteInOneTriangle", serialWork + "Field_SerialEqualsParallel", sliverStage,
+                    sliverStage, stageLimit },
+                ["stryker-mesh-rounding-10"] = new[] { serialWork + "NotFiniteInOneTriangle", serialWork + "Field_SerialEqualsParallel", sliverStage, stageLimit,
                     // (VolumeBefore / VolumeAfter, #1463: Apply's two sums and signed_volume are in this part's span)
                     "FullyQualifiedName~RoundingVolumeReportTests",
                     // (the pair budget's growth with the defects, RC4a)
@@ -234,7 +238,7 @@ namespace geometry3Sharp.Tests
                     serialWork + "Field_Clean" },
                 ["stryker-mesh-rounding-3"] = new[] { serialWork + "NoPasses_OneBlock", serialWork + "NoPasses_TinyDegenerate", serialWork + "Field_Clean",
                     // (pair_budget, RC4a)
-                    "FullyQualifiedName~SafeRoundingBudgetTests" },
+                    "FullyQualifiedName~SafeRoundingBudgetTests", sliverStage },
                 // (set_vertex to fix_intersection: the exact flag a position write clears, the position search)
                 ["stryker-mesh-rounding-8"] = new[] {
                     "FullyQualifiedName~RoundingExactPairsTests.SkippingSearch_SameAsFull_AndSkips&DisplayName!~FoldedCluster",

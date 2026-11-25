@@ -130,6 +130,25 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(Mesh2Status.Success, output.Status);
                 var report = Oracle.Check(mi, output, new OracleExpect { Milestone = Milestone.M2 });
                 Assert.True(report.Ok, name + ": " + report);
+                if (name == "scale 2^-10" || name == "scale 2^10") {
+                    var idRes = new ConstrainedDelaunayMesh2().Compute(raw);
+                    var scRes = new ConstrainedDelaunayMesh2().Compute(transformed);
+                    Assert.Equal(Triangulation2Status.Success, idRes.Status);
+                    Assert.Equal(Triangulation2Status.Success, scRes.Status);
+                    Assert.Equal(idRes.Mesh.Vertices.Count, scRes.Mesh.Vertices.Count);
+                    for (int i = 0; i < idRes.Mesh.Vertices.Count; ++i) {
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(s.Scale * idRes.Mesh.Vertices[i].x), BitConverter.DoubleToInt64Bits(scRes.Mesh.Vertices[i].x));
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(s.Scale * idRes.Mesh.Vertices[i].y), BitConverter.DoubleToInt64Bits(scRes.Mesh.Vertices[i].y));
+                    }
+                    Assert.Equal(idRes.Mesh.Triangles.Count, scRes.Mesh.Triangles.Count);
+                    for (int i = 0; i < idRes.Mesh.Triangles.Count; ++i) Assert.Equal(idRes.Mesh.Triangles[i], scRes.Mesh.Triangles[i]);
+                    Assert.Equal(idRes.Mesh.Subsegments.Count, scRes.Mesh.Subsegments.Count);
+                    for (int i = 0; i < idRes.Mesh.Subsegments.Count; ++i) {
+                        Assert.Equal(idRes.Mesh.Subsegments[i].A, scRes.Mesh.Subsegments[i].A);
+                        Assert.Equal(idRes.Mesh.Subsegments[i].B, scRes.Mesh.Subsegments[i].B);
+                        Assert.Equal(idRes.Mesh.Subsegments[i].Marker, scRes.Mesh.Subsegments[i].Marker);
+                    }
+                }
             }
         }
 

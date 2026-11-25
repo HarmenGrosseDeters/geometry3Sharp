@@ -5,13 +5,24 @@ namespace g3
 {
     /// <summary>
     /// Certified upper bounds for TriangleDeviationBounds in its certified mode (MeshHausdorffDistance.CertifiedUpper, #742): never
-    /// below the exact value, rounding included. Every bound is an outward-rounded (ExactInterval) evaluation, or a single rounded
-    /// operation followed by one step up; a NaN anywhere gives +infinity. Derivations: docs/design/HAUSDORFF_CERTIFIED_UPPER.md.
+    /// below the exact value, rounding included. In the normal double range each hot bound uses a range-guarded hardware-double fast
+    /// path with static forward error bounds (CTB-1..CTB-4 in tools/ErrorBoundAudit/bounds.py), falling back outside that range to an
+    /// outward-rounded (ExactInterval) evaluation or a single rounded operation followed by one step up; a NaN anywhere gives
+    /// +infinity. Derivations: docs/design/HAUSDORFF_CERTIFIED_UPPER.md.
     /// </summary>
     internal static class CertifiedTriangleBounds
     {
         /// <summary> 1/sqrt(3) rounded up: the nearest double, 3 K^2 >= 1 exactly (tested) </summary>
         internal const double K = 0.5773502691896258;
+
+        // Range guards for the hardware-double fast paths (no overflow, no subnormal distortion, and
+        // every returned PointTriangleUpper / LengthUpper stays far above 2^-537 with slack far above 2^-590,
+        // preserving HAUSDORFF_CERTIFIED_UPPER.md section 8 for scaled-down meshes). Outside these bounds
+        // (and for any NaN / Infinity) each method falls back to ExactInterval.
+        const double NormalSqLo = 1e-290;
+        const double NormalSqHi = 1e290;
+        const double NormalLinLo = 1e-140;
+        const double NormalLinHi = 1e140;
 
         /// <summary>
         /// B1: an upper bound of the distance from x to the triangle (v0, v1, v2): the distance to its point v0 + s (v1 - v0) + t (v2 - v0),
@@ -21,6 +32,19 @@ namespace g3
         internal static double PointTriangleUpper(Vector3d x, Vector3d v0, Vector3d v1, Vector3d v2, double w1, double w2)
         {
             Clamp(w1, w2, out double s, out double t);
+            double d0x = x.x - v0.x, q1x = s * (v1.x - v0.x), q2x = t * (v2.x - v0.x), d1x = d0x - q1x, rx = d1x - q2x;
+            double d0y = x.y - v0.y, q1y = s * (v1.y - v0.y), q2y = t * (v2.y - v0.y), d1y = d0y - q1y, ry = d1y - q2y;
+            double d0z = x.z - v0.z, q1z = s * (v1.z - v0.z), q2z = t * (v2.z - v0.z), d1z = d0z - q1z, rz = d1z - q2z;
+            double e = 2.0 * (Math.Abs(q1x) + Math.Abs(q2x) + Math.Abs(q1y) + Math.Abs(q2y) + Math.Abs(q1z) + Math.Abs(q2z))
+                     + (Math.Abs(d0x) + Math.Abs(d1x) + Math.Abs(rx) + Math.Abs(d0y) + Math.Abs(d1y) + Math.Abs(ry) + Math.Abs(d0z) + Math.Abs(d1z) + Math.Abs(rz));
+            double r2 = rx * rx + ry * ry + rz * rz;
+            if (e > NormalLinLo && e < NormalLinHi && r2 < NormalSqHi)
+                return Math.Sqrt(r2) * (1.0 + 1e-15) + 1.25e-16 * e;
+            return point_triangle_upper_interval(x, v0, v1, v2, s, t);
+        }
+
+        static double point_triangle_upper_interval(Vector3d x, Vector3d v0, Vector3d v1, Vector3d v2, double s, double t)
+        {
             ExactInterval si = ExactInterval.Of(s), ti = ExactInterval.Of(t), sum = ExactInterval.Of(0);
             for (int k = 0; k < 3; ++k) {
                 ExactInterval a = ExactInterval.Of(v0[k]);
@@ -46,6 +70,10 @@ namespace g3
         /// <summary> an upper bound of |a - b| </summary>
         internal static double LengthUpper(Vector3d a, Vector3d b)
         {
+            double dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+            double s = dx * dx + dy * dy + dz * dz;
+            if (s > NormalSqLo && s < NormalSqHi)
+                return Math.Sqrt(s) * (1.0 + 1e-15);
             return sqrt_up(SquaredLength(a, b).Hi);
         }
 
@@ -64,6 +92,41 @@ namespace g3
         /// of l/sqrt(3) and the circumradius (both bound it for any triangle)
         /// </summary>
         internal static double CoveringUpper(Vector3d p0, Vector3d p1, Vector3d p2, double e01, double e12, double e20)
+        {
+            double ax = p1.x - p0.x, ay = p1.y - p0.y, az = p1.z - p0.z;
+            double bx = p2.x - p0.x, by = p2.y - p0.y, bz = p2.z - p0.z;
+            double cx = p2.x - p1.x, cy = p2.y - p1.y, cz = p2.z - p1.z;
+            double s01 = ax * ax + ay * ay + az * az;
+            double s12 = cx * cx + cy * cy + cz * cz;
+            double s20 = bx * bx + by * by + bz * bz;
+            double ssum = s01 + s12 + s20;
+            if (ssum > NormalSqLo && ssum < NormalSqHi && e01 >= 0 && e12 >= 0 && e20 >= 0) {
+                double tol = 2e-15 * ssum;
+                if (s12 + s20 - s01 <= -tol) return up(0.5 * e01);
+                if (s01 + s20 - s12 <= -tol) return up(0.5 * e12);
+                if (s01 + s12 - s20 <= -tol) return up(0.5 * e20);
+                double l = max(e01, max(e12, e20));
+                double res = up(l * K);
+                double p1x = ay * bz, p2x = az * by, nx = p1x - p2x, mx = Math.Abs(p1x) + Math.Abs(p2x);
+                double p1y = az * bx, p2y = ax * bz, ny = p1y - p2y, my = Math.Abs(p1y) + Math.Abs(p2y);
+                double p1z = ax * by, p2z = ay * bx, nz = p1z - p2z, mz = Math.Abs(p1z) + Math.Abs(p2z);
+                double lnx = Math.Abs(nx) - 1e-15 * mx;
+                double lny = Math.Abs(ny) - 1e-15 * my;
+                double lnz = Math.Abs(nz) - 1e-15 * mz;
+                double x2 = (lnx > 0 ? lnx * lnx : 0) + (lny > 0 ? lny * lny : 0) + (lnz > 0 ? lnz * lnz : 0);
+                if (x2 > NormalSqLo && x2 < NormalSqHi) {
+                    double num = e01 * e12 * e20;
+                    if (num > NormalSqLo && num < NormalSqHi) {
+                        double r = num / (2.0 * Math.Sqrt(x2)) * (1.0 + 2e-15);
+                        if (r < res) res = r;
+                        return res;
+                    }
+                }
+            }
+            return covering_upper_interval(p0, p1, p2, e01, e12, e20);
+        }
+
+        static double covering_upper_interval(Vector3d p0, Vector3d p1, Vector3d p2, double e01, double e12, double e20)
         {
             ExactInterval q01 = SquaredLength(p0, p1), q12 = SquaredLength(p1, p2), q20 = SquaredLength(p2, p0);
             // (the angle opposite an edge is at least 90 degrees if its square is at least the sum of the other two; that edge is then
@@ -103,6 +166,20 @@ namespace g3
         /// Vector3d's operators) and the exact a + lambda (b - a): the L1 sum of the enclosure's distances from c, each step rounded up
         /// </summary>
         internal static double CutRounding(Vector3d a, Vector3d b, double lambda, Vector3d c)
+        {
+            if (lambda >= 0 && lambda <= 1) {
+                double px = lambda * (b.x - a.x), qx = a.x + px, dx = Math.Abs(c.x - qx);
+                double py = lambda * (b.y - a.y), qy = a.y + py, dy = Math.Abs(c.y - qy);
+                double pz = lambda * (b.z - a.z), qz = a.z + pz, dz = Math.Abs(c.z - qz);
+                double e = 2.0 * (Math.Abs(px) + Math.Abs(py) + Math.Abs(pz)) + (Math.Abs(qx) + Math.Abs(qy) + Math.Abs(qz));
+                double d = dx + dy + dz;
+                if (e > NormalLinLo && e < NormalLinHi && d < NormalLinHi)
+                    return d * (1.0 + 1e-15) + 1.25e-16 * e;
+            }
+            return cut_rounding_interval(a, b, lambda, c);
+        }
+
+        static double cut_rounding_interval(Vector3d a, Vector3d b, double lambda, Vector3d c)
         {
             double rho = 0;
             ExactInterval li = ExactInterval.Of(lambda);

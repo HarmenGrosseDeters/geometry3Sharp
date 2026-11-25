@@ -74,10 +74,22 @@ if (design.Status != TerrainSlopeDesign.Statuses.Success
 | Task | Classes | Notes |
 |---|---|---|
 | Cut/fill volumes per regular XY lattice cell | `gs.TerrainCellVolumes`, `gs.TerrainVolumeDifference` | Exact up to rounding; cell sums match whole-footprint `TerrainVolumeDifference`; reports outside-lattice remainder; deterministic |
+| 3D blocks: cut/fill per cell and elevation band | `gs.TerrainCellVolumes.BandBoundaries`, `BlockCutVolume`, `BlockFillVolume` | See [3D blocks](#3d-blocks-elevation-bands); exact up to rounding; bands add up to the 2D cell volumes; CLI `cell_volumes --bands` |
 | Terrain dual contouring & safety lines | `gs.TerrainDualContouring`, `gs.TerrainSafetyLines` | Deterministic overlap removal; bounded safety-line certification (`MaxCertifySteps`, `MaxSourcePoints`, `MaxRefinedTriangles`) |
 | LiDAR ground classification | `gs.ClothSimulationFilter` | Separates ground vs. non-ground points from 3D point clouds (Zhang et al. 2016) |
 
-- **Example:** [TerrainToolsExample.cs](../examples/TerrainToolsExample.cs)
+- **Example:** [TerrainToolsExample.cs](../examples/TerrainToolsExample.cs) (`CellCutFillVolumes`, `CellBlockVolumes`)
+
+### 3D blocks (elevation bands)
+
+Set `BandBoundaries` on a `TerrainCellVolumes` before `Compute()` to split every cell column by elevation: boundaries `b0 < b1 < ... < bm` give the bands `[b_k, b_k+1]`; in absolute z, not relative to any local origin; the ends may be `double.NegativeInfinity` / `double.PositiveInfinity` (`{ -inf, +inf }` is one band over all heights).
+
+- **Result:** `BlockCutVolume` / `BlockFillVolume`, index `band * NX * NY + i + NX * j` for the cell `(i, j)`; `BandCount` bands. A block holds the volume of the part of the column between the surfaces whose z lies in the band: cut where `After` is below `Before`, fill where it is above. Heights outside `[b0, bm]` are not counted; with infinite ends the bands add up to `CutVolume` / `FillVolume` of the cell (relative 1e-12 in the tests).
+- **Exactness:** the overlay polygons are additionally split at the lines where either surface crosses a band boundary, so the clamped thickness is linear on every part and is integrated exactly like the 2D case. Without `BandBoundaries` nothing changes (the 2D outputs are bit for bit the same, with or without bands).
+- **Failure:** `Compute()` returns `false` for fewer than two boundaries, a NaN, boundaries that are not strictly increasing, or more than `MaxCells` (2^20) blocks (bands times cells).
+- **Limits:** a thickness below 1e-10 times the largest bounds extent counts as zero (as in 2D); volumes only (no per-block areas); the cost grows with the bands that a polygon touches, not with the number of bands.
+- **CLI:** `g3cli cell_volumes before after --cell-size 10 --bands -inf,100,110,inf --blocks_output blocks.csv` ([2D & Terrain](../../tools/g3cli/docs/2d-and-terrain.md#cell_volumes--tpms)).
+- **Example:** `TerrainToolsExample.CellBlockVolumes()`.
 
 ---
 

@@ -839,5 +839,64 @@ namespace geometry3Sharp.Tests
                 Assert.True(BitConverter.DoubleToInt64Bits(ExactWindingCache.boundary_edge_angle_x(p, a, b)) >= 0);     // (+0.0, not -0.0)
             }
         }
+
+        // How much of an open grid the tree decides at the scale 2^k (design note "Scope of A1": the range clause d in [2^-97, 2^99] is the only
+        // certificate clause that fails at extreme scales): per query the accepted nodes, the leaf edges evaluated directly, and the nodes
+        // with status < 0 (outside the certified range, the query falls back on the full sum). The mesh and the points are scaled by 2^k (exact).
+        static void TreeUse(int k, int queries, out int accepted, out int leafEdges, out int outOfRange, out bool hasTree, out int boundaryEdges)
+        {
+            double f = Math.Pow(2.0, k);
+            DMesh3 grid = Grid(159);
+            DMesh3 m = new DMesh3();
+            foreach (int v in grid.VertexIndices()) { Vector3d x = grid.GetVertex(v); m.AppendVertex(new Vector3d(x.x * f, x.y * f, x.z * f)); }
+            foreach (int t in grid.TriangleIndices()) m.AppendTriangle(grid.GetTriangle(t));
+            ExactWindingCache cache = Cache(m);
+            hasTree = cache.HasBoundaryTree;
+            boundaryEdges = cache.BoundaryCount;
+            accepted = leafEdges = outOfRange = 0;
+            if (!hasTree) return;
+            var rnd = new Random(1427);
+            for (int q = 0; q < queries; ++q) {
+                var p = new Vector3d((rnd.NextDouble() * 3 - 1.5) * f, (rnd.NextDouble() * 3 - 1.5) * f, (rnd.NextDouble() * 3 - 1.5) * f);
+                var stack = new Stack<int>();
+                foreach (int root in cache.BoundaryTreeRoots) {
+                    stack.Push(root);
+                    while (stack.Count > 0) {
+                        ExactWindingCache.NodeInfo node = cache.DescribeBoundaryNode(stack.Pop(), p);
+                        if (node.Left < 0) { leafEdges += node.Vertices.Length - 1; continue; }
+                        if (node.Status < 0) { ++outOfRange; continue; }
+                        if (node.Status > 0) { ++accepted; continue; }
+                        stack.Push(node.Right);
+                        stack.Push(node.Left);
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public void TreeUse_ByScale_IsUpToAboutTwoToTheNinetyAndExactAboveAndBelow()
+        {
+            // the measurement quoted in the design note, "Scope of A1" (636 boundary edges; counts here are totals over 8 queries)
+            const int Queries = 8;
+            foreach (int k in new[] { 0, 60, 90, -90 }) {
+                TreeUse(k, Queries, out int acc, out int leaf, out int oor, out bool tree, out int edges);
+                Assert.True(tree);
+                Assert.Equal(636, edges);
+                Assert.True(acc > 0, $"k = {k}: accepted {acc}");
+                Assert.Equal(0, oor);
+                Assert.True(leaf < Queries * 636 / 4, $"k = {k}: leaf edges {leaf} (the tree decides most of the boundary)");
+            }
+            foreach (int k in new[] { 150, 200, -100, -150 }) {
+                TreeUse(k, Queries, out int acc, out int leaf, out int oor, out bool tree, out int edges);
+                Assert.True(tree, $"k = {k}");
+                Assert.Equal(0, acc);                                      // the range clause fails for every node
+                Assert.Equal(0, oor);
+                Assert.Equal(Queries * 636, leaf);                         // every edge is evaluated directly (the cost of the full sum plus the walk)
+            }
+            foreach (int k in new[] { 230, 500, -300 }) {
+                TreeUse(k, 1, out _, out _, out _, out bool tree, out _);
+                Assert.False(tree, $"k = {k}: Build stops at mMax > 1e65, and below the range the tree is not built");
+            }
+        }
     }
 }

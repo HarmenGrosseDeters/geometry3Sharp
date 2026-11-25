@@ -31,6 +31,15 @@ namespace g3
     /// Arrangements using Floating-point Arithmetic", 2020 (implicit points with filters); Shewchuk, "Adaptive
     /// Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates", 1997 (error bounds); Sloan,
     /// "A fast algorithm for generating constrained Delaunay triangulations", 1993.
+    ///
+    /// Point ids: the geometry of the result (the set of exact points, the triangles and the constraint edges as
+    /// geometry) is deterministic. The ids of the input vertices are deterministic too (build_points runs serially:
+    /// the same input gives the same ids). The ids of new points (intersections, centroids) are assigned in the parallel
+    /// phases and depend on the thread schedule, so they may differ between runs, even between fresh instances on the same
+    /// input. An id is only a label within one run: <see cref="Output"/> and <see cref="ConstraintEdges"/>
+    /// carry such ids (<see cref="VertexPoints"/> holds only the deterministic ids of input points). To compare, sort or store points, go through <see cref="Exact(int)"/>
+    /// (or <see cref="ComparePoints"/> for an order) or the canonical mapping <see cref="Canonical(int)"/>, never
+    /// through the numeric value of an id.
     /// </summary>
     internal class ExactMeshArrangement
     {
@@ -245,8 +254,27 @@ namespace g3
             }
             System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() { return GetEnumerator(); }
         }
+        /// <summary>
+        /// The pieces of the last Compute (replaced by a new list at the start of the next one). A, B and C are point ids of
+        /// this run: the ids of input vertices are deterministic, the ids of new points depend on the thread schedule (see the
+        /// class summary). They are invalid after the next Compute, which numbers the points anew (see Compute). Compare or sort
+        /// the corners through <see cref="Exact(int)"/> or <see cref="ComparePoints"/>, not by id; the geometry is deterministic.
+        /// </summary>
         public List<OutputTriangle> Output = new List<OutputTriangle>();
+        /// <summary>
+        /// Undirected edges (<see cref="EdgeKey"/> of two point ids) on intersection curves. The ids are labels of this run
+        /// (new points get schedule-dependent ids, see the class summary); the set of edges as geometry is deterministic,
+        /// so map the end points through <see cref="Exact(int)"/> before comparing two runs. Replaced by a new set at the start of
+        /// the next Compute; its ids are invalid after it.
+        /// </summary>
         public HashSet<long> ConstraintEdges = new HashSet<long>(EdgeKeyComparer.Instance);     // undirected point id pairs on intersection curves
+        /// <summary>
+        /// Per mesh: vertex id to point id. Written only in the serial build_points phase (input vertices at the same
+        /// double position share one id), so every id here is an input-point id and deterministic: the same input gives the
+        /// same ids in every run. It is not updated when equal points are merged later; the merged identity of an id is
+        /// <see cref="Canonical(int)"/> (<see cref="Exact(int)"/> gives its point). Rebuilt by the next Compute, whose ids
+        /// replace these.
+        /// </summary>
         public int[][] VertexPoints;        // per mesh: vertex id -> point id
         public List<int>[] MeshTriangles;   // per mesh: indices into Triangles
         public int IntersectingPairs;
@@ -360,18 +388,19 @@ namespace g3
         double[] centerD = new double[3];   // Center, exactly (a double)
         // per point: double approximation (grid units), a bound on the error of each coordinate, the construction,
         // the exact point (when computed); input points also have their input coordinates
-        readonly ChunkedList<Vector3d> approx = new ChunkedList<Vector3d>();
-        readonly ChunkedList<double> approxErr = new ChunkedList<double>();
-        readonly ChunkedList<PointKey> keys = new ChunkedList<PointKey>();
+        ChunkedList<Vector3d> approx = new ChunkedList<Vector3d>();
+        ChunkedList<double> approxErr = new ChunkedList<double>();
+        ChunkedList<PointKey> keys = new ChunkedList<PointKey>();
         // The exact point of each id, once computed: in fixed width if it fits (docs/design/FIXED_WIDTH_EXACT_POINTS.md;
         // no objects for the GC to trace or copy), else as an ExactBox. exactRef[id]: 0 = not computed yet, r > 0 = slot
         // r - 1 of fixedPoints, -1 = exactPoints[id]. It is published with Volatile.Write after its data is written.
-        readonly ChunkedList<int> exactRef = new ChunkedList<int>();
-        readonly FixedPointStore fixedPoints = new FixedPointStore();
-        readonly ChunkedList<ExactBox> exactPoints = new ChunkedList<ExactBox>();
+        ChunkedList<int> exactRef = new ChunkedList<int>();
+        FixedPointStore fixedPoints = new FixedPointStore();
+        ChunkedList<ExactBox> exactPoints = new ChunkedList<ExactBox>();
         /// <summary>
         /// for tests: store all exact points as BigInteger (ExactBox), the code before the fixed-width points. Only
         /// before the first point: equality of exact points relies on the representation being a function of the value.
+        /// (A second Compute empties the point tables, so the value can be changed again between two Computes.)
         /// </summary>
         internal bool FixedWidthPoints
         {
@@ -383,7 +412,7 @@ namespace g3
             }
         }
         bool fixedWidthPoints = true;
-        readonly ChunkedList<Vector3d> inputCoords = new ChunkedList<Vector3d>();
+        ChunkedList<Vector3d> inputCoords = new ChunkedList<Vector3d>();
         int nextPoint;
         // implicit point ids by construction and rational point ids by value, in shards (by hash) so that threads adding
         // points rarely wait for each other (the classification adds the pieces' centroids in parallel)
@@ -411,9 +440,9 @@ namespace g3
         }
         [MethodImpl(JitHints.Optimize)]
         int shard_of(int h) { return SingleShard ? 0 : (h & 0x7FFFFFFF) % Shards; }
-        readonly Dictionary<PointKey, int>[] keyIndex = make_shards<PointKey>();
-        readonly Dictionary<HashedPoint, int>[] rationalIndex = make_shards<HashedPoint>();
-        readonly Dictionary<FixedKey, int>[] fixedIndex = make_shards<FixedKey>();
+        Dictionary<PointKey, int>[] keyIndex = make_shards<PointKey>();
+        Dictionary<HashedPoint, int>[] rationalIndex = make_shards<HashedPoint>();
+        Dictionary<FixedKey, int>[] fixedIndex = make_shards<FixedKey>();
         static Dictionary<T, int>[] make_shards<T>()
         {
             var d = new Dictionary<T, int>[Shards];
@@ -512,7 +541,11 @@ namespace g3
             return r;
         }
 
-        /// <summary> id of an exactly given point, a new one if it is not known yet (thread-safe) </summary>
+        /// <summary>
+        /// id of an exactly given point, a new one if it is not known yet (thread-safe). For use after Compute (the
+        /// boolean's classification adds centroids); the id is invalid after the next Compute. Not supported before the first
+        /// Compute (see Compute).
+        /// </summary>
         [MethodImpl(JitHints.Optimize)]
         public int AddPoint(ExactPoint3 p)
         {
@@ -1115,6 +1148,37 @@ namespace g3
             return merged;
         }
 
+        // for tests (DETERMINISM_PROOF.md, O-SORTS): merge_points re-permutes every run of equal lower ends lo after its sort
+        // (-1: reverses the runs, other values: a seeded permutation of each); 0 leaves the order of the sort as it is, and
+        // changes no result (the order among equal lo is unspecified)
+        internal int TieOrderSeed;
+        // runs of two or more equal lo that the hook permuted in all merge_points calls of Compute (0 when it is off)
+        internal int TiedRuns;
+
+        internal static int permute_ties(double[] lo, int[] order, int seed)
+        {
+            int runs = 0;
+            ulong state = (ulong)(uint)seed * 0x9E3779B97F4A7C15UL + 1;
+            for (int a = 0, b; a < lo.Length; a = b) {
+                b = a + 1;
+                while (b < lo.Length && lo[b] == lo[a]) b++;
+                if (b - a > 1)
+                    runs++;
+                if (seed < 0) {
+                    for (int i = a, j = b - 1; i < j; ++i, --j) {
+                        int t = order[i]; order[i] = order[j]; order[j] = t;
+                    }
+                    continue;
+                }
+                for (int i = b - 1; i > a; --i) {
+                    state = state * 6364136223846793005UL + 1442695040888963407UL;
+                    int j = a + (int)((state >> 33) % (ulong)(i - a + 1));
+                    int t = order[i]; order[i] = order[j]; order[j] = t;
+                }
+            }
+            return runs;
+        }
+
         /// <summary>
         /// Merge coincident points from different constructions: each gets the id with the smallest key (a
         /// rational point if there is one, so input vertices keep their coordinates). Candidates are points whose
@@ -1148,6 +1212,8 @@ namespace g3
             });
             double[] sortLo = (double[])lo.Clone();
             Array.Sort(sortLo, order);
+            if (TieOrderSeed != 0)
+                TiedRuns += permute_ties(sortLo, order, TieOrderSeed);
             int[] next = new int[n];
             for (int id = 0; id < n; ++id)
                 next[id] = (prev != null && id < prev.Length) ? prev[id] : id;
@@ -1209,13 +1275,66 @@ namespace g3
             return true;
         }
 
+        // a Compute has run on this instance: the next one starts from the inputs again (reset_run_state)
+        bool computed;
+
+        /// <summary>
+        /// the state a Compute leaves (issue 1512): points, canonical ids, input triangles, output and counters. A second
+        /// Compute on one instance builds them again from the meshes; without this it added the input triangles and points a
+        /// second time, next to the merged ones of the first run, and its triangulation inserted a point twice. Point ids
+        /// from the first run (also those of AddPoint after it) are invalid afterwards.
+        /// </summary>
+        void reset_run_state()
+        {
+            approx = new ChunkedList<Vector3d>();
+            approxErr = new ChunkedList<double>();
+            keys = new ChunkedList<PointKey>();
+            exactRef = new ChunkedList<int>();
+            fixedPoints = new FixedPointStore();
+            exactPoints = new ChunkedList<ExactBox>();
+            inputCoords = new ChunkedList<Vector3d>();
+            keyIndex = make_shards<PointKey>();
+            rationalIndex = make_shards<HashedPoint>();
+            fixedIndex = make_shards<FixedKey>();
+            nextPoint = 0;
+            canonical = null;
+            triangleCount = 0;
+            triMesh = null; triTid = null; triCorners = null; triDegenerate = null; triPlanes = null; triTouch = null;
+            touchedPoints = null;
+            planeRep = null;
+            Culled = null;
+            Output = new List<OutputTriangle>();
+            ConstraintEdges = new HashSet<long>(EdgeKeyComparer.Instance);
+            MergedPoints = 0;
+            SegmentCrossings = 0;
+            IntersectingPairs = 0;
+            SelfIntersectingPairs = 0;
+            PrefilterRejected = 0; PrefilterChecked = 0; PreDecidedPairs = 0;
+            CulledCount = 0; CullTests = 0; TriangulatedTriangles = 0;
+            CandidatePairs = 0; CandidatePairList = null;
+            Trees = null;
+            CandidateTests = 0; LocalFilterDecided = 0; LocalFilterPoints = 0; ConstructionZeros = 0;
+        }
+
+        /// <summary>
+        /// Computes the arrangement of Meshes. It may be called again on the same instance (also after Meshes changed): every
+        /// call after the first starts from the inputs and gives what a new instance would give. Everything that refers to
+        /// points is then invalid: the ids in Output, VertexPoints, ConstraintEdges and Segments, and the ids AddPoint returned
+        /// after an earlier Compute (the point tables are emptied, so a stale id may be out of range or another point).
+        /// AddPoint before the first Compute is not supported: the inputs' points are numbered by Compute, and the first
+        /// Compute does not reset the tables.
+        /// </summary>
         [MethodImpl(JitHints.Optimize)]
         public void Compute()
         {
+            if (computed)
+                reset_run_state();
+            computed = true;
             var clock = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
             var total = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
             Stopped = StopReason.None;
             PredictedPieces = 0;
+            TiedRuns = 0;
             if (cancelled())
                 return;
             build_points();
@@ -1511,7 +1630,7 @@ namespace g3
         /// triangle (L3, docs/design/EXACT_BOOLEAN_TAIL_55928.md, section 4): the second filter of Orient and InCircle in
         /// the triangulation, where the points are close together against their distance from the origin and the
         /// approximations' absolute errors exceed their distances. Each coordinate is the exact difference x - o,
-        /// rounded once (ExactPoint3.ToDouble: a 64-bit truncated quotient, then the conversion to double), so its error
+        /// rounded once (ExactPoint3.ToDouble: to nearest since #1410, a 64-bit truncated quotient before), so its error
         /// is below 2^-52 of its magnitude; o cancels exactly in both determinants, which are polynomials in the
         /// differences of the points. Computed when a point first needs it; one instance per triangle and thread.
         /// </summary>
@@ -3566,7 +3685,9 @@ namespace g3
             }
         }
 
-        static void merge_runs(long[] c, int[] o, long[] dc, int[] dord, int lo, int mid, int hi)
+        // (internal for DeterminismStage1ObligationTests.MergeRuns_EqualCodes_GoByBoxIndex: the sort calls it with runs of ascending index ranges,
+        // where the index tie-break never decides; it is what makes the merge a total order on any two runs)
+        internal static void merge_runs(long[] c, int[] o, long[] dc, int[] dord, int lo, int mid, int hi)
         {
             int i = lo, j = mid, k = lo;
             while (i < mid && j < hi) {

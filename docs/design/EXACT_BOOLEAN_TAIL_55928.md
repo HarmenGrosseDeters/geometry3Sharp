@@ -232,8 +232,8 @@ orientation tests fail often; the exact stages on the rational centroids then do
 BigInteger arithmetic). L2 therefore gives the filters coordinates relative to an origin O, the first corner of the input
 triangle (an input point, so an integer grid point):
 
-- Each coordinate is the exact value of x - O, rounded once: `ExactPoint3.ToDouble` takes a 64-bit truncated quotient
-  (relative error below 2^-63), then one rounding to double (2^-53). That is below 2^-52 relative per coordinate, the
+- Each coordinate is the exact value of x - O, rounded once: `ExactPoint3.ToDouble` is correctly rounded (#1410; it
+  was a 64-bit truncated quotient, then a truncating conversion). That is at most 2^-53 relative per coordinate, below 2^-52, the
   input assumption of `orient3d_filtered`; coordinates below `TinyCoordinate` give NaN, which the filter refuses.
 - `orient3d_filtered` certifies the sign of the exact determinant of points within that relative error of its inputs. Its
   bound already carries the input term: eu, ev, ew are 3 * 2^-52 of the inputs' magnitudes per row, 2^-52 for each of the
@@ -404,8 +404,8 @@ The local filter never gave a sign different from the exact one.
 **Step 1, the local filter (`ExactMeshArrangement.LocalPoints`, bit-identical).** For each triangle, the points'
 coordinates relative to its first corner o (an input point, so an integer grid point), in the triangle's projection.
 Each one is the exact difference x - o, rounded once, computed when a point first needs it.
-- `ExactPoint3.ToDouble` takes a 64-bit truncated quotient (relative error below 2^-63), then converts it to double:
-  2^-53 when the conversion rounds to nearest, 2^-52 if it truncates, as .NET Framework may. Both are below
+- `ExactPoint3.ToDouble` is correctly rounded since #1410 (relative error at most 2^-53; before, a truncated quotient and a truncating
+  conversion gave below 2^-52). Both are below
   2.3e-16 |l_k| per coordinate, the bound used. Values near the subnormal range or beyond 1e300 are not used.
 - Orient and InCircle are polynomials in the differences of their points (the 2x2 and the lifted 3x3 determinant),
   so o cancels exactly. The sign of the local determinant is that of the exact points.

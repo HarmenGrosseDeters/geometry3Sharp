@@ -159,3 +159,10 @@ dotnet build benchmarks/SnapRoundingExperiment -c Release && cp -r bin/Release/n
 python3 compare_builds.py /tmp/buildA /tmp/buildB
 ```
 
+## The empty ball as a rounding guarantee (2026-11-24)
+
+The probe of [docs/research/SNAP_ROUNDING_EMPTY_BALL_GUARANTEE_2026-11.md](../../docs/research/SNAP_ROUNDING_EMPTY_BALL_GUARANTEE_2026-11.md):
+`ball <case>` (`EmptyBall.cs`) prints the exact result (rational vertices), its pairs closer than 16 ulps that share no
+corner, and the leftovers of SafeRounding; `ball.py run <out.jsonl> <case>...` decides the clearance lemma with
+fractions, `ball.py tables <out.jsonl> [--unclean]` prints the tables, `ball.py selfcheck` checks the exact distance.
+Raw output: `trace/results/ball_leftovers_2026-11-24.jsonl`, `ball_control_2026-11-24.jsonl`.

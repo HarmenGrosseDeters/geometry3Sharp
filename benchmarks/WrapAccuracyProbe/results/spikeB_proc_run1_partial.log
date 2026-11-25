@@ -1,0 +1,92 @@
+input=sheet alpha_den=4 offset_rel=0,001 variant=wrap status=Success tris=3362 ms=263,7 verdict=clean added_share=0,001183 lost_share=0
+input=sheet alpha_den=4 offset_rel=0,001 variant=snap tris=3362 verdict=clean added_share=0,0001333 lost_share=0
+input=sheet alpha_den=4 offset_rel=0,001 variant=auto tris=1250 ms=389,6 verdict=self-intersections added_share=0,2232 lost_share=0
+input=sheet alpha_den=4 offset_rel=0,001 variant=robust status= tris=20908 ms=3889 verdict=clean added_share=0,4853 lost_share=0,0427
+input=sheet alpha_den=4 offset_rel=0,0001 variant=wrap status=Success tris=17044 ms=605,2 verdict=clean added_share=0,1714 lost_share=0
+input=sheet alpha_den=4 offset_rel=0,0001 variant=snap tris=17044 verdict=clean added_share=0,0767 lost_share=0
+input=sheet alpha_den=4 offset_rel=0,0001 variant=auto tris=1250 ms=131,8 verdict=self-intersections added_share=0,3301 lost_share=0
+input=sheet alpha_den=4 offset_rel=0,0001 variant=robust status= tris=20908 ms=1900 verdict=clean added_share=0,5073 lost_share=0,06565
+input=sheet alpha_den=20 offset_rel=0,001 variant=wrap status=Success tris=8570 ms=149,5 verdict=clean added_share=0 lost_share=0
+input=sheet alpha_den=20 offset_rel=0,001 variant=snap tris=8570 verdict=clean added_share=0 lost_share=0
+input=sheet alpha_den=20 offset_rel=0,001 variant=auto tris=1250 ms=115,3 verdict=self-intersections added_share=0,2232 lost_share=0
+input=sheet alpha_den=20 offset_rel=0,001 variant=robust status= tris=20908 ms=1387 verdict=clean added_share=0,4853 lost_share=0,0427
+input=sheet alpha_den=20 offset_rel=0,0001 variant=wrap status=Success tris=70294 ms=863,8 verdict=clean added_share=0 lost_share=0
+input=sheet alpha_den=20 offset_rel=0,0001 variant=snap tris=70294 verdict=clean added_share=0 lost_share=0
+input=sheet alpha_den=20 offset_rel=0,0001 variant=auto tris=1250 ms=73,93 verdict=self-intersections added_share=0,3301 lost_share=0
+input=sheet alpha_den=20 offset_rel=0,0001 variant=robust status= tris=20908 ms=1325 verdict=clean added_share=0,5073 lost_share=0,06565
+input=sheet alpha_den=100 offset_rel=0,001 variant=wrap status=Success tris=33684 ms=322,7 verdict=clean added_share=0 lost_share=0
+input=sheet alpha_den=100 offset_rel=0,001 variant=snap tris=33684 verdict=clean added_share=0 lost_share=0
+input=sheet alpha_den=100 offset_rel=0,001 variant=auto tris=1250 ms=71,73 verdict=self-intersections added_share=0,2232 lost_share=0
+input=sheet alpha_den=100 offset_rel=0,001 variant=robust status= tris=20908 ms=1260 verdict=clean added_share=0,4853 lost_share=0,0427
+input=sheet alpha_den=100 offset_rel=0,0001 variant=wrap status=Success tris=300292 ms=3345 verdict=clean added_share=0 lost_share=0
+input=sheet alpha_den=100 offset_rel=0,0001 variant=snap tris=300292 verdict=clean added_share=0 lost_share=0
+input=sheet alpha_den=100 offset_rel=0,0001 variant=auto tris=1250 ms=254,8 verdict=self-intersections added_share=0,3301 lost_share=0
+input=sheet alpha_den=100 offset_rel=0,0001 variant=robust status= tris=20908 ms=1585 verdict=clean added_share=0,5073 lost_share=0,06565
+input=hole_box_face alpha_den=4 offset_rel=0,001 variant=wrap status=Success tris=1920 ms=43,82 verdict=clean added_share=0,3391 lost_share=0
+input=hole_box_face alpha_den=4 offset_rel=0,001 variant=snap tris=1920 verdict=clean added_share=0,3401 lost_share=0
+input=hole_box_face alpha_den=4 offset_rel=0,001 variant=auto tris=994 ms=60,58 verdict=clean added_share=0,2464 lost_share=0
+input=hole_box_face alpha_den=4 offset_rel=0,001 variant=robust status= tris=994 ms=294,7 verdict=clean added_share=0,2464 lost_share=0
+input=hole_box_face alpha_den=4 offset_rel=0,0001 variant=wrap status=Success tris=7558 ms=127,9 verdict=clean added_share=0,3475 lost_share=0
+input=hole_box_face alpha_den=4 offset_rel=0,0001 variant=snap tris=7558 verdict=clean added_share=0,3474 lost_share=0
+input=hole_box_face alpha_den=4 offset_rel=0,0001 variant=auto tris=994 ms=47,41 verdict=clean added_share=0,2525 lost_share=0
+input=hole_box_face alpha_den=4 offset_rel=0,0001 variant=robust status= tris=994 ms=241,8 verdict=clean added_share=0,2525 lost_share=0
+input=hole_box_face alpha_den=20 offset_rel=0,001 variant=wrap status=Success tris=13732 ms=181,3 verdict=clean added_share=0,09838 lost_share=0
+input=hole_box_face alpha_den=20 offset_rel=0,001 variant=snap tris=13732 verdict=clean added_share=0,09718 lost_share=0
+input=hole_box_face alpha_den=20 offset_rel=0,001 variant=auto tris=994 ms=45,93 verdict=clean added_share=0,2464 lost_share=0
+input=hole_box_face alpha_den=20 offset_rel=0,001 variant=robust status= tris=994 ms=282,3 verdict=clean added_share=0,2464 lost_share=0
+input=hole_box_face alpha_den=20 offset_rel=0,0001 variant=wrap status=Success tris=106624 ms=1252 verdict=clean added_share=0,1134 lost_share=0
+input=hole_box_face alpha_den=20 offset_rel=0,0001 variant=snap tris=106624 verdict=clean added_share=0,1137 lost_share=0
+input=hole_box_face alpha_den=20 offset_rel=0,0001 variant=auto tris=994 ms=45,66 verdict=clean added_share=0,2525 lost_share=0
+input=hole_box_face alpha_den=20 offset_rel=0,0001 variant=robust status= tris=994 ms=260,7 verdict=clean added_share=0,2525 lost_share=0
+input=hole_box_face alpha_den=100 offset_rel=0,001 variant=wrap status=Success tris=69904 ms=697,9 verdict=clean added_share=0,01198 lost_share=0
+input=hole_box_face alpha_den=100 offset_rel=0,001 variant=snap tris=69904 verdict=clean added_share=0,0089 lost_share=0
+input=hole_box_face alpha_den=100 offset_rel=0,001 variant=auto tris=994 ms=52,13 verdict=clean added_share=0,2464 lost_share=0
+input=hole_box_face alpha_den=100 offset_rel=0,001 variant=robust status= tris=994 ms=339,7 verdict=clean added_share=0,2464 lost_share=0
+input=hole_box_face alpha_den=100 offset_rel=0,0001 variant=wrap status=Success tris=605782 ms=8007 verdict=clean added_share=0,0219 lost_share=0
+input=hole_box_face alpha_den=100 offset_rel=0,0001 variant=snap tris=605782 verdict=clean added_share=0,02288 lost_share=0
+input=hole_box_face alpha_den=100 offset_rel=0,0001 variant=auto tris=994 ms=48,81 verdict=clean added_share=0,2525 lost_share=0
+input=hole_box_face alpha_den=100 offset_rel=0,0001 variant=robust status= tris=994 ms=223,7 verdict=clean added_share=0,2525 lost_share=0
+input=hole_box_p_0.01 alpha_den=4 offset_rel=0,001 variant=wrap status=Success tris=344 ms=22,82 verdict=clean added_share=0,00885 lost_share=0
+input=hole_box_p_0.01 alpha_den=4 offset_rel=0,001 variant=snap tris=344 verdict=clean added_share=0,008833 lost_share=0
+input=hole_box_p_0.01 alpha_den=4 offset_rel=0,001 variant=auto tris=1262 ms=28,87 verdict=clean added_share=0,0086 lost_share=0
+input=hole_box_p_0.01 alpha_den=4 offset_rel=0,001 variant=robust status= tris=1262 ms=54,77 verdict=clean added_share=0,0086 lost_share=0
+input=hole_box_p_0.01 alpha_den=4 offset_rel=0,0001 variant=wrap status=Success tris=534 ms=14,94 verdict=clean added_share=0,009667 lost_share=0
+input=hole_box_p_0.01 alpha_den=4 offset_rel=0,0001 variant=snap tris=534 verdict=clean added_share=0,009667 lost_share=0
+input=hole_box_p_0.01 alpha_den=4 offset_rel=0,0001 variant=auto tris=1262 ms=27,24 verdict=clean added_share=0,0101 lost_share=0
+input=hole_box_p_0.01 alpha_den=4 offset_rel=0,0001 variant=robust status= tris=1262 ms=47,79 verdict=clean added_share=0,0101 lost_share=0
+input=hole_box_p_0.01 alpha_den=20 offset_rel=0,001 variant=wrap status=Success tris=14042 ms=254 verdict=clean added_share=0,1282 lost_share=0
+input=hole_box_p_0.01 alpha_den=20 offset_rel=0,001 variant=snap tris=14042 verdict=clean added_share=0,1262 lost_share=0
+input=hole_box_p_0.01 alpha_den=20 offset_rel=0,001 variant=auto tris=1262 ms=27,42 verdict=clean added_share=0,0086 lost_share=0
+input=hole_box_p_0.01 alpha_den=20 offset_rel=0,001 variant=robust status= tris=1262 ms=79,41 verdict=clean added_share=0,0086 lost_share=0
+input=hole_box_p_0.01 alpha_den=20 offset_rel=0,0001 variant=wrap status=Success tris=113656 ms=1459 verdict=clean added_share=0,1446 lost_share=0
+input=hole_box_p_0.01 alpha_den=20 offset_rel=0,0001 variant=snap tris=113656 verdict=clean added_share=0,1442 lost_share=0
+input=hole_box_p_0.01 alpha_den=20 offset_rel=0,0001 variant=auto tris=1262 ms=47,02 verdict=clean added_share=0,0101 lost_share=0
+input=hole_box_p_0.01 alpha_den=20 offset_rel=0,0001 variant=robust status= tris=1262 ms=60 verdict=clean added_share=0,0101 lost_share=0
+input=hole_box_p_0.01 alpha_den=100 offset_rel=0,001 variant=wrap status=Success tris=90580 ms=913,7 verdict=clean added_share=0,01418 lost_share=0
+input=hole_box_p_0.01 alpha_den=100 offset_rel=0,001 variant=snap tris=90580 verdict=clean added_share=0,01217 lost_share=0
+input=hole_box_p_0.01 alpha_den=100 offset_rel=0,001 variant=auto tris=1262 ms=25,85 verdict=clean added_share=0,0086 lost_share=0
+input=hole_box_p_0.01 alpha_den=100 offset_rel=0,001 variant=robust status= tris=1262 ms=53,24 verdict=clean added_share=0,0086 lost_share=0
+input=hole_box_p_0.01 alpha_den=100 offset_rel=0,0001 variant=wrap status=Success tris=768882 ms=1,311E+04 verdict=clean added_share=0,02938 lost_share=0
+input=hole_box_p_0.01 alpha_den=100 offset_rel=0,0001 variant=snap tris=768882 verdict=clean added_share=0,03005 lost_share=0
+input=hole_box_p_0.01 alpha_den=100 offset_rel=0,0001 variant=auto tris=1262 ms=27,07 verdict=clean added_share=0,0101 lost_share=0
+input=hole_box_p_0.01 alpha_den=100 offset_rel=0,0001 variant=robust status= tris=1262 ms=45,36 verdict=clean added_share=0,0101 lost_share=0
+input=hole_box_p_0.1 alpha_den=4 offset_rel=0,001 variant=wrap status=Success tris=560 ms=13,35 verdict=clean added_share=0,095 lost_share=0
+input=hole_box_p_0.1 alpha_den=4 offset_rel=0,001 variant=snap tris=560 verdict=clean added_share=0,09528 lost_share=0
+input=hole_box_p_0.1 alpha_den=4 offset_rel=0,001 variant=auto tris=1174 ms=28,33 verdict=clean added_share=0,0953 lost_share=0
+input=hole_box_p_0.1 alpha_den=4 offset_rel=0,001 variant=robust status= tris=1174 ms=50,08 verdict=clean added_share=0,0953 lost_share=0
+input=hole_box_p_0.1 alpha_den=4 offset_rel=0,0001 variant=wrap status=Success tris=918 ms=13,49 verdict=clean added_share=0,09947 lost_share=0
+input=hole_box_p_0.1 alpha_den=4 offset_rel=0,0001 variant=snap tris=918 verdict=clean added_share=0,09952 lost_share=0
+input=hole_box_p_0.1 alpha_den=4 offset_rel=0,0001 variant=auto tris=1174 ms=31,31 verdict=clean added_share=0,09997 lost_share=0
+input=hole_box_p_0.1 alpha_den=4 offset_rel=0,0001 variant=robust status= tris=1174 ms=86,88 verdict=clean added_share=0,09997 lost_share=0
+input=hole_box_p_0.1 alpha_den=20 offset_rel=0,001 variant=wrap status=Success tris=13368 ms=209,2 verdict=clean added_share=0,1391 lost_share=0
+input=hole_box_p_0.1 alpha_den=20 offset_rel=0,001 variant=snap tris=13368 verdict=clean added_share=0,1364 lost_share=0
+input=hole_box_p_0.1 alpha_den=20 offset_rel=0,001 variant=auto tris=1174 ms=41,64 verdict=clean added_share=0,0953 lost_share=0
+input=hole_box_p_0.1 alpha_den=20 offset_rel=0,001 variant=robust status= tris=1174 ms=74,52 verdict=clean added_share=0,0953 lost_share=0
+input=hole_box_p_0.1 alpha_den=20 offset_rel=0,0001 variant=wrap status=Success tris=104026 ms=1482 verdict=clean added_share=0,1621 lost_share=0
+input=hole_box_p_0.1 alpha_den=20 offset_rel=0,0001 variant=snap tris=104026 verdict=clean added_share=0,1614 lost_share=0
+input=hole_box_p_0.1 alpha_den=20 offset_rel=0,0001 variant=auto tris=1174 ms=49,5 verdict=clean added_share=0,09997 lost_share=0
+input=hole_box_p_0.1 alpha_den=20 offset_rel=0,0001 variant=robust status= tris=1174 ms=66,89 verdict=clean added_share=0,09997 lost_share=0
+input=hole_box_p_0.1 alpha_den=100 offset_rel=0,001 variant=wrap status=Success tris=82804 ms=873,6 verdict=clean added_share=0,0169 lost_share=0
+input=hole_box_p_0.1 alpha_den=100 offset_rel=0,001 variant=snap tris=82804 verdict=clean added_share=0,01352 lost_share=0
+input=hole_box_p_0.1 alpha_den=100 offset_rel=0,001 variant=auto tris=1174 ms=89,7 verdict=clean added_share=0,0953 lost_share=0
+input=hole_box_p_0.1 alpha_den=100 offset_rel=0,001 variant=robust status= tris=1174 ms=140,7 verdict=clean added_share=0,0953 lost_share=0

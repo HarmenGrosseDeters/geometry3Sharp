@@ -46,6 +46,8 @@ namespace gs
             foreach (int p in planes) MaxGradient = Math.Max(MaxGradient, K.GradientBound(p));
         }
         public int FaceCount { get { return fEdge.Count; } }
+        /// <summary> tests and benchmarks: the calls of split_face so far </summary>
+        internal long SplitCalls;
 
         // ---------------------------------------------------------------- structure
 
@@ -118,6 +120,7 @@ namespace gs
         bool split_face(int f, int line, out int neg, out int pos, out int chord)
         {
             neg = -1; pos = -1; chord = -1;
+            SplitCalls++;
             // (most calls do not cut: the signs first, into reused buffers, the same predicates as before)
             List<int> c = splitCycle;
             c.Clear();
@@ -444,7 +447,7 @@ namespace gs
                     double dminB = box_segment_distance(bb, A.xy, B.xy);
                     double lowerB = zmin + slb * dminB;
                     double sizeB = bb.Diagonal.Length;
-                    if (lowerB > upperB + 1e-9 * (Math.Abs(upperB) + Math.Abs(lowerB) + slb * (sizeB + dminB)))
+                    if (NoPrefilters == false && lowerB > upperB + 1e-9 * (Math.Abs(upperB) + Math.Abs(lowerB) + slb * (sizeB + dminB)))
                         continue;
                 }
                 var pos = prefilterPos;
@@ -453,12 +456,13 @@ namespace gs
                 // prefilter (conservative): F_k over the face is at least zmin + slb * dmin, with the corners' error
                 double upper = double.MinValue;
                 foreach (var q in pos) upper = Math.Max(upper, K.ApproxHeight(label, q.x, q.y));
-                if (prefilter_skips(pos, upper, zmin, slb, A.xy, B.xy, MaxGradient))
+                if (NoPrefilters == false && prefilter_skips(pos, upper, zmin, slb, A.xy, B.xy, MaxGradient))
                     continue;
                 relevant.Clear();
                 relevant.AddRange(strip);
                 add_sector(relevant, fanB, angB, B.xy, pos, theta);
                 add_sector(relevant, fanA, angA, A.xy, pos, theta);
+                set_sectors(strip, theta, fanB, angB, B.xy, fanA, angA, A.xy);
                 insert_into(f, label, relevant);
             }
         }
@@ -531,12 +535,12 @@ namespace gs
                 double dy = Math.Max(Math.Max(polyBox.Min.y - bb.Max.y, bb.Min.y - polyBox.Max.y), 0);
                 double dminB = Math.Sqrt(dx * dx + dy * dy);
                 double lowerB = zmin + slb * dminB;
-                if (lowerB > upperB + 1e-9 * (Math.Abs(upperB) + Math.Abs(lowerB) + slb * (bb.Diagonal.Length + polyBox.Diagonal.Length + dminB)))
+                if (NoPrefilters == false && lowerB > upperB + 1e-9 * (Math.Abs(upperB) + Math.Abs(lowerB) + slb * (bb.Diagonal.Length + polyBox.Diagonal.Length + dminB)))
                     continue;
                 var pos = prefilterPos;
                 pos.Clear(); prefilterVerts.Clear();
                 { int h0 = fEdge[f], h = h0; do { pos.Add(K.Approx(hOrig[h])); prefilterVerts.Add(hOrig[h]); h = hNext[h]; } while (h != h0); }
-                if (polygon != null) {
+                if (polygon != null && NoPrefilters == false) {
                     // the prefilter on the face's approximate corners (as InsertPiece's): the distance of the face to the
                     // polygon taken e shorter, the label's heights at the corners off by at most MaxGradient e
                     double upper = double.MinValue, e = 0;
@@ -553,6 +557,10 @@ namespace gs
                 relevant.Add(roadPlane);
                 relevant.AddRange(walls);
                 for (int i = 0; i < apexes.Count; ++i) add_sector(relevant, fans[i], angles[i], apexes[i], pos, theta);
+                sectorFixed.Clear(); sectorFixed.Add(roadPlane); sectorFixed.AddRange(walls);
+                sectorFans.Clear();
+                for (int i = 0; i < apexes.Count; ++i) sectorFans.Add((fans[i], angles[i], apexes[i]));
+                sectorTheta = theta;
                 insert_into(f, label, relevant);
             }
         }
@@ -586,9 +594,10 @@ namespace gs
         readonly List<Vector2d> prefilterPos = new List<Vector2d>();
         readonly List<int> prefilterVerts = new List<int>();
 
-        void add_sector(List<int> relevant, List<int> fan, List<double> ang, Vector2d apex, List<Vector2d> pos, double theta)
+        internal void add_sector(List<int> relevant, List<int> fan, List<double> ang, Vector2d apex, List<Vector2d> pos, double theta)
         {
             if (fan.Count == 0) return;
+            if (NoPrefilters) { relevant.AddRange(fan); return; }
             double refAngle = double.NaN, lo = 0, hi = 0;
             for (int i = 0; i < pos.Count; ++i) {
                 Vector2d q = pos[i];
@@ -608,9 +617,24 @@ namespace gs
             if (hi - lo > Math.PI - 4 * theta) { relevant.AddRange(fan); return; }
             // centred on the sector, so that the window never wraps (its half width is below pi / 2 + 2 theta)
             double mid = refAngle + 0.5 * (lo + hi), half = 0.5 * (hi - lo) + 2 * theta;
-            for (int i = 0; i < fan.Count; ++i)
-                if (Math.Abs(wrap(ang[i] - mid)) <= half) relevant.Add(fan[i]);
+            // (and the first plane beyond each end of the window: the fan's planes are tangent planes of one cone at the apex, so
+            // in a direction the highest is the nearest in angle on either side. Where the fan has a gap wider than the margin
+            // (the design side between its end planes, or directions left out next to a wall), the nearest one lies outside the
+            // window, and leaving it out lowered the piece there: #1530)
+            int below = -1, above = -1;
+            double dBelow = double.MaxValue, dAbove = double.MaxValue;
+            for (int i = 0; i < fan.Count; ++i) {
+                double w = wrap(ang[i] - mid);
+                if (Math.Abs(w) <= half) { relevant.Add(fan[i]); continue; }
+                // (beyond the upper end: w - half > 0 going up from mid; beyond the lower end: going down)
+                double up = w > half ? w - half : w + 2 * Math.PI - half, down = w < -half ? -half - w : 2 * Math.PI - half - w;
+                if (up < dAbove) { dAbove = up; above = i; }
+                if (down < dBelow) { dBelow = down; below = i; }
+            }
+            if (above >= 0) relevant.Add(fan[above]);
+            if (below >= 0 && below != above) relevant.Add(fan[below]);
         }
+
 
         static double wrap(double a)
         {
@@ -668,6 +692,42 @@ namespace gs
             return o1 * o2 <= 0 && o3 * o4 <= 0;
         }
 
+        // the sector context of the piece being inserted (InsertPiece, InsertPolygonPiece): the planes every part takes, the fans
+        readonly List<int> sectorFixed = new List<int>();
+        readonly List<(List<int> fan, List<double> ang, Vector2d apex)> sectorFans = new List<(List<int>, List<double>, Vector2d)>();
+        double sectorTheta;
+        /// <summary> tests: filter the planes per part of a face by its sector (default); false: every part takes every plane of the face </summary>
+        internal bool PartSectors = true;
+        /// <summary> tests: no prefilter and no fan sectors in the insertion (every face the reach box meets is clipped exactly with every plane: the reference labels) </summary>
+        internal bool NoPrefilters;
+
+        void set_sectors(List<int> strip, double theta, List<int> fanB, List<double> angB, Vector2d b, List<int> fanA, List<double> angA, Vector2d a)
+        {
+            sectorFixed.Clear(); sectorFixed.AddRange(strip);
+            sectorFans.Clear();
+            sectorFans.Add((fanB, angB, b)); sectorFans.Add((fanA, angA, a));
+            sectorTheta = theta;
+        }
+
+        readonly List<int> partPlanes = new List<int>();
+
+        bool part_allows(Dictionary<int, HashSet<int>> allowed, int g, int p)
+        {
+            if (PartSectors == false) return true;
+            HashSet<int> set;
+            if (allowed.TryGetValue(g, out set) == false) {
+                var pos = prefilterPos;
+                pos.Clear(); prefilterVerts.Clear();
+                { int h0 = fEdge[g], h = h0; do { pos.Add(K.Approx(hOrig[h])); prefilterVerts.Add(hOrig[h]); h = hNext[h]; } while (h != h0); }
+                partPlanes.Clear();
+                partPlanes.AddRange(sectorFixed);
+                foreach (var fa in sectorFans) add_sector(partPlanes, fa.fan, fa.ang, fa.apex, pos, sectorTheta);
+                set = new HashSet<int>(partPlanes);
+                allowed[g] = set;
+            }
+            return set.Contains(p);
+        }
+
         void insert_into(int f, int label, List<int> planes)
         {
             // W = f ∩ {P_j < label for all j}, clipped virtually first, so that f is only split if W is not empty
@@ -704,12 +764,18 @@ namespace gs
             // W gets the maximum of the planes (incremental: the parts where the next plane is higher)
             var parts = new List<int>() { cur };
             fLabel[cur] = planes[0];
+            // (each part takes only the planes that can be the piece's maximum on it: the fixed ones and the fan planes of its own
+            // sector, add_sector on the part's corners. A part lies in the face, so its window lies in the face's, and a fan plane
+            // outside the part's window is below one inside it there: the maximum, and so every label, is the same as with all
+            // planes; only the splits by planes that lose at once are left out)
+            var allowed = new Dictionary<int, HashSet<int>>();
             for (int i = 1; i < planes.Count; ++i) {
                 int p = planes[i];
                 var next = new List<int>();
                 foreach (int g in parts) {
+                    if (part_allows(allowed, g, p) == false) { next.Add(g); continue; }
                     int neg, pos, chord;
-                    split_face(g, K.PlaneLine(p, fLabel[g]), out neg, out pos, out chord);
+                    if (split_face(g, K.PlaneLine(p, fLabel[g]), out neg, out pos, out chord)) allowed.Remove(g);
                     if (neg >= 0) next.Add(neg);
                     if (pos >= 0) {
                         // all zero: the same plane, the lower id
@@ -722,6 +788,7 @@ namespace gs
                 }
                 parts = next;
             }
+            if (Compacting) touched.AddRange(parts);
         }
 
         bool all_positive(int f, int line)
@@ -766,6 +833,100 @@ namespace gs
             }
             verts = nv; elines = nl;
             return 1;
+        }
+
+        // ---------------------------------------------------------------- merging during insertion (an alternative construction)
+
+        /// <summary>
+        /// merge neighbouring domain faces of one label across non-barrier edges while the union stays convex, starting from the
+        /// faces labelled since the last call (an alternative construction: fewer live faces during insertion; after Simplify the
+        /// same partition). Returns the number of merges.
+        /// </summary>
+        public int Compact()
+        {
+            ordered = null;
+            // (only the faces that the pieces inserted since the last call labelled: the rest was compact already)
+            touched.Sort();
+            int merges = 0, last = -1;
+            foreach (int f in touched) {
+                if (f == last || in_domain(f) == false) continue;
+                last = f;
+                for (bool again = true; again;) {
+                    again = false;
+                    int h0 = fEdge[f], h = h0;
+                    do {
+                        int t = hTwin[h], g = t >= 0 ? hFace[t] : -1;
+                        if (g >= 0 && g != f && hBar[h] < 0 && in_domain(g) && fLabel[g] == fLabel[f] && try_merge(f, g, h)) { again = true; ++merges; break; }
+                        h = hNext[h];
+                    } while (h != h0);
+                }
+            }
+            touched.Clear();
+            return merges;
+        }
+
+        // the faces insert_into labelled since the last Compact (while Compacting)
+        readonly List<int> touched = new List<int>();
+        /// <summary> record the faces for Compact </summary>
+        internal bool Compacting;
+
+        // merge face g into f across the run of their shared edges that contains h (f's half-edge with g behind it), if the
+        // union is convex (exact: Orient, or the corner's two edges on one kernel line)
+        bool try_merge(int f, int g, int h)
+        {
+            int s = h, guard = 0;
+            while (hFace[hTwin[hPrev[s]]] == g && hPrev[s] != h) { s = hPrev[s]; if (++guard > 100000) return false; }
+            int e = s, m = 1;
+            while (hFace[hTwin[hNext[e]]] == g && hNext[e] != s) { e = hNext[e]; ++m; if (m > 100000) return false; }
+            int shared = 0, nf = 0, ng = 0;
+            { int x = fEdge[f]; do { ++nf; if (hFace[hTwin[x]] == g) ++shared; x = hNext[x]; } while (x != fEdge[f]); }
+            { int x = fEdge[g]; do { ++ng; x = hNext[x]; } while (x != fEdge[g]); }
+            if (shared != m || m >= nf || m >= ng) return false;
+            for (int x = s, i = 0; i < m; x = hNext[x], ++i)
+                if (hBar[x] >= 0 || hBar[hTwin[x]] >= 0) return false;
+            int ts = hTwin[s], te = hTwin[e];
+            // (the inner vertices of the run: degree 2, nothing else meets them)
+            for (int x = s, i = 0; i + 1 < m; x = hNext[x], ++i)
+                if (hNext[hTwin[hNext[x]]] != hTwin[x]) return false;
+            int a = hPrev[s], b = hNext[e], c = hPrev[te], d = hNext[ts];
+            // the corners of the union at the ends of the run: a then d at the origin of s, c then b at the end of e
+            if (on_one_line(a, d) == false && K.Orient(hOrig[a], hOrig[s], hOrig[hTwin[d]]) < 0) return false;
+            if (on_one_line(c, b) == false && K.Orient(hOrig[c], hOrig[te], hOrig[hTwin[b]]) < 0) return false;
+            for (int x = s, i = 0; i < m; x = hNext[x], ++i) { hAlive[x] = false; hAlive[hTwin[x]] = false; }
+            hNext[a] = d; hPrev[d] = a; hNext[c] = b; hPrev[b] = c;
+            fEdge[f] = a;
+            int y = a;
+            do { hFace[y] = f; y = hNext[y]; } while (y != a);
+            fAlive[g] = false;
+            if (fQt[g] >= 0) { qt.Remove(fQt[g]); fQt[g] = -1; }
+            qt_update(f);
+            return true;
+        }
+
+        /// <summary>
+        /// tests: the live half-edges on a barrier with domain faces on both sides. BuildDomain gives the two sides of a barrier
+        /// opposite verdicts, so there are none; this makes the barrier checks of Compact redundant with in_domain
+        /// </summary>
+        internal int BarriersWithDomainOnBothSides()
+        {
+            int n = 0;
+            for (int h = 0; h < hOrig.Count; ++h) {
+                if (hAlive[h] == false || hBar[h] < 0) continue;
+                if (in_domain(hFace[h]) && in_domain(hFace[hTwin[h]])) ++n;
+            }
+            return n;
+        }
+
+        /// <summary> tests: the partition after Simplify as text (per face in OrderedFaces: label, then the rounded corners) </summary>
+        internal string PartitionText()
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (int f in OrderedFaces()) {
+                sb.Append(fLabel[f]);
+                foreach (int h in cycle(f)) { Vector2d r = K.Rounded(hOrig[h]); sb.Append(FormattableString.Invariant($" {r.x:R},{r.y:R}")); }
+                sb.Append('\n');
+            }
+            return sb.ToString();
         }
 
         // ---------------------------------------------------------------- simplification
@@ -1675,7 +1836,9 @@ namespace gs
             }
             if (n > 64)
                 return triangulate_ears(v);
-            var pos = v.Select(K.Approx).ToList();
+            // (the rounded positions, a function of the exact corners: Approx depends on the lines that define a vertex and on
+            // whether it was rounded before, so the choice would depend on the construction's history)
+            var pos = v.Select(K.Rounded).ToList();
             // best[i, j]: the best smallest quality of the sub-polygon i..j (j > i + 1), -1 if none
             var best = new double[n, n];
             var choice = new int[n, n];
@@ -1747,7 +1910,7 @@ namespace gs
         // smallest angle (approximate), for choosing ears
         double quality(int a, int b, int c)
         {
-            Vector2d p = K.Approx(a), q = K.Approx(b), r = K.Approx(c);
+            Vector2d p = K.Rounded(a), q = K.Rounded(b), r = K.Rounded(c);
             Func<Vector2d, Vector2d, Vector2d, double> angle = (x, y, z) => {
                 Vector2d u = y - x, w = z - x;
                 return Math.Abs(CoreMath.Atan2(u.x * w.y - u.y * w.x, u.Dot(w)));
