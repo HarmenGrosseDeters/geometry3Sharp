@@ -199,5 +199,5 @@ Papers read as abstracts only, no code read.
 
 | Part | Source |
 |---|---|
-| Idea 1: volume and Euler characteristic as valuations (inclusion-exclusion on the exact Boolean results), χ(∂M) = 2χ(M) | H. Hadwiger, *Vorlesungen über Inhalt, Oberfläche und Isoperimetrie*, Springer 1957; D. A. Klain, G.-C. Rota, *Introduction to Geometric Probability*, Cambridge 1997 (from memory); the divergence theorem (any analysis text) |
+| Idea 1: volume and Euler characteristic as valuations (inclusion-exclusion on the exact Boolean results), χ(∂M) = 2χ(M) | Hadwiger 1957 and χ(∂M) = 2χ(M) as cited in [meshing-and-repair.md](meshing-and-repair.md) (contouring topology certificate, Theorem 6); D. A. Klain, G.-C. Rota, *Introduction to Geometric Probability*, Cambridge 1997 (from memory); the divergence theorem (any analysis text) |
 | Idea 2: modular sign and zero evaluation of integer predicates, recombined by CRT (prior art compared, not built) | H. Brönnimann, I. Z. Emiris, V. Y. Pan, S. Pion, *Computing exact geometric predicates using modular arithmetic with single precision*, SoCG 1997 (abstract and fragments) |

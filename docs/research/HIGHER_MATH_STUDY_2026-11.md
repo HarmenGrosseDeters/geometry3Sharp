@@ -10,9 +10,9 @@ numbers are single runs on a Linux container with 4 cores (Xeon 2.1 GHz) and .NE
 
 | Idea | Upper bound (measured) | Stop rule | Leaning |
 |---|---|---|---|
-| 1. Valuation certificate for the exact Booleans (V and χ by inclusion-exclusion) | It catches nothing that the existing checks (closedness, C1 of the test certificate) do not already catch. The identity follows from the pieces tiling the input surfaces, so a mislabelled piece or a whole mislabelled component passes it (7 defects injected, section 1.4). It costs one extra Boolean plus 1.0-1.8 times the operation for the exact volumes. It says nothing about the rounding step, which is where #1488's case lies | no gain in power over the existing checks: stop as a certificate | no library mode. Optionally a tolerance-free test oracle for the exact path (option 1b) |
+| 1. Valuation certificate for the exact Booleans (V and χ by inclusion-exclusion) | It catches nothing that the existing checks (closedness, C1 of the test certificate) do not already catch. The identity follows from the pieces tiling the input surfaces, so a mislabelled piece or a whole mislabelled component passes it (7 defects injected, section 1.4). Together with the extra Boolean, it costs about 1.5-2.6 times the operation (section 1.5). It says nothing about the rounding step, which is where #1488's case lies | no gain in power over the existing checks: stop as a certificate | no library mode. Optionally a tolerance-free test oracle for the exact path (option 1b) |
 | 2. Multi-modular zero tests instead of BigInteger | BigInteger is **1.7 %** of the exact Boolean's busy time on the degenerate stratum and **0.9 %** on general position. The exact stage of `orient3d` that returns 0, the only part a modular test could take over, is **0.35 %**. The bound is below 2.1 % | below 10 %: stop | no build. The next candidates are listed in section 2.5 |
-| 3. Soup orientation as Z2 synchronization (spectral) | **0 percentage points** on #1548 (k = 5, 3, 2): a weld by position plus the library's `MeshRepairOrientation` is already exact (1.000). On frustrated graphs the converged spectral method equals BFS and is worse than the library (0.484 vs 0.880, 0.917 vs 0.958), at 45 times BFS's time | 0 / negative: stop the spectral design | no Z2 solver. The lever is the links, not the solver: radial-neighbour links at non-manifold edges remove every wrong link (BFS 1.000 on both frustrated cases, +12 and +4 points over the library; section 3.5) |
+| 3. Soup orientation as Z2 synchronization (spectral) | **0 percentage points** on #1548 (k = 5, 3, 2): a weld by position plus the library's `MeshRepairOrientation` is already exact (1.000). On frustrated graphs the spectral method does not settle on the checkerboard soup (0.693, 0.609 and 0.396 at 300, 3000 and 30000 iterations). It stays below the library there (0.880), and at best equals BFS on the thin gap (0.917 vs 0.958), at 45 times BFS's time | 0 / negative: stop the spectral design | no Z2 solver. The lever is the links, not the solver: radial-neighbour links at non-manifold edges remove every wrong link (BFS 1.000 on both frustrated cases, +12 and +4 points over the library; section 3.5) |
 
 **How others solve it, in one line each.**
 1. Inclusion-exclusion of volumes serves as a test oracle with a tolerance (this repository's metamorphic tests). No published
@@ -51,6 +51,8 @@ corners; χ = V − E + F per shell, with χ(∂M) = 2χ(M). The questions:
 Write each result's volume by the divergence theorem as the flux through its pieces.
 - Every piece of ∂A lies in exactly one of ∂(A∪B) (outside B) and ∂(A∩B) (inside B), and likewise for ∂B.
 - Coplanar pieces with the same orientation go once to each result.
+- Coplanar pieces with opposite orientations (A and B touching face to face) go to neither result, and their fluxes cancel
+  on the right-hand side as well.
 - So the flux of U plus the flux of I equals the flux of all pieces of ∂A and ∂B, which is V(A) + V(B).
 
 This holds whatever label each piece gets. The identity is a conservation law of the tiling, not a check of the classification. The same
@@ -80,7 +82,7 @@ From the same run. One row per case. The certificate costs the complementary Boo
 
 | case | triangles A+B | union ms | intersection ms | exact volumes ms | certificate / operation |
 |---|---|---|---|---|---|
-| spheres n = 24 | 12 696 | 624 (includes JIT) | 111 | 485 | 1.0 |
+| spheres n = 24 | 12 696 | 624 (includes JIT) | 111 | 485 | 1.0 (the union's time includes the JIT, so this ratio is too low) |
 | spheres n = 64 | 95 256 | 672 | 543 | 1194 | 2.6 |
 | two spheres + box | 5 412 | 36 | 50 | 43 | 2.6 |
 
@@ -108,7 +110,7 @@ proposes. That is a refinement of the reviewer's fix, not a certificate.
 | # | option | gain | effort | risk |
 |---|---|---|---|---|
 | 1a | a library "valuation certificate" mode | none over closedness + C1. It misses misclassification, component swaps and tangential errors, and it says nothing about rounding | M | false confidence: a "certified" result that is wrong |
-| 1b | a tolerance-free test oracle: the exact identity on the pre-rounding result, in the fuzz and metamorphic tests next to the toleranced one | it catches exact-geometry errors below the rounding tolerance without the heavy C1 checker. It costs one extra Boolean plus about 1-2 times the operation in tests | S (test harness only) | low |
+| 1b | a tolerance-free test oracle: the exact identity on the pre-rounding result, in the fuzz and metamorphic tests next to the toleranced one | it catches exact-geometry errors below the rounding tolerance without the heavy C1 checker. It costs about 1.5-2.6 times the operation in tests, the extra Boolean included | S (test harness only) | low |
 | 1c | exact per-component "before" volumes for #1488's RoundingVolume | the "before" side becomes exact. The allowance stays | S-M, in the owner's #1488 work | low |
 | 1d | nothing | | | |
 
@@ -227,7 +229,7 @@ iterations).
 - The BFS, Z2 and library columns all run on the same graph, a weld of the soup's corners within eps.
 - The global sign is the signed volume per component for BFS and Z2, and the library's ray voting for the library.
 
-| case (tris) | wrong links / links | BFS | Z2 spectral (converged) | library weld + `MeshRepairOrientation` | `MeshAutoRepair` (output tris) | `OrientedCopy` steps |
+| case (tris) | wrong links / links | BFS | Z2 spectral, 3000 iterations | library weld + `MeshRepairOrientation` | `MeshAutoRepair` (output tris) | `OrientedCopy` steps |
 |---|---|---|---|---|---|---|
 | #1548 PolyCube(4,3,2), every 5th (104) | 0 / 156 | 1 | 1 | 1 | 0.981 (134) | 0.798 |
 | #1548, every 3rd (104) | 0 / 156 | 1 | 1 | 1 | 0.663 (200) | 0.663 |
@@ -235,8 +237,8 @@ iterations).
 | cube, jitter 1e-4, 30 % random flips, eps 1e-3 (104) | 0 / 156 | 1 | 1 | 1 | 0 (0: empty) | 0.750 |
 | sphere n = 16, jitter 1e-4, 50 % random, eps 1e-3 (2700) | 0 / 4050 | 1 | 1 | 1 | 0 (0: empty) | 0.507 |
 | cube, 10 % triangles dropped, every 3rd (90) | 0 / 118 | 1 | 1 | 1 | 0.544 (158) | 0.667 |
-| checkerboard cells, non-manifold edges, every 3rd (192) | 84 / 456 | 0.484 | 0.484 | **0.880** (52 not appended) | 0.714 | 0.667 |
-| two blocks, gap 5e-4 < eps 1e-3, every 3rd (96) | 32 / 208 | 0.917 | 0.917 | **0.958** (16 not appended) | 0.740 | 0.667 |
+| checkerboard cells, non-manifold edges, every 3rd (192) | 84 / 456 | 0.484 | 0.609 (0.693 at 300, 0.396 at 30000) | **0.880** (52 not appended) | 0.714 | 0.667 |
+| two blocks, gap 5e-4 < eps 1e-3, every 3rd (96) | 32 / 208 | 0.917 | 0.917 (0.521 at 300) | **0.958** (16 not appended) | 0.740 | 0.667 |
 | cube, jitter 1e-3 = eps (welds fail, 71 components) (104) | 0 / 33 | 0.490 | 0.490 | **0.654** | 0 (0: empty) | 0.663 |
 
 Times on the 2700-triangle sphere:
@@ -253,7 +255,9 @@ Findings:
   "MergeEdges never joins edges that run the same way"), so a flipped triangle never becomes adjacent to its neighbours.
 - At jitter 1e-4 (relative 2e-5) `MeshAutoRepair` returns an empty mesh on the cube and the sphere: its default weld tolerance
   is relative 1e-8. This is a side finding for the owner's #1548 work.
-- On frustrated graphs the converged spectral solution equals BFS's and loses to the library's patch spanning forest. The
+- On frustrated graphs the spectral method loses to the library's patch spanning forest. On the checkerboard soup it does not
+  converge: its sign pattern changes with the number of iterations (0.693, 0.609, 0.396 at 300, 3000, 30000), which points to
+  near-equal leading eigenvalues of the frustrated graph. On the thin gap it reaches BFS's 0.917 only from 3000 iterations on. The
   wrong links of a non-manifold edge are structured, not random: two solids touching at an edge give four triangles, and the
   four non-adjacent pairs among them are measured wrong. A global relaxation averages them in rather than outvoting them.
 - When the welds fail (jitter = eps), the graph carries almost no information (33 links, 71 components). No solver helps;
