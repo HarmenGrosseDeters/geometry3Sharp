@@ -166,6 +166,7 @@ namespace g3
         (long x, long y)[] hotPts;
         HotNode[] hotNodes;
         int hotNodeCount;
+        // Shared scratch buffers for QueryHot and Restore/Free; neither method may be called re-entrantly.
         readonly List<(long, long)> queryHits = new List<(long, long)>();
         readonly int[] queryStack = new int[128];
 
@@ -219,7 +220,7 @@ namespace g3
         /// equivalent to Meets(Cx(p), Cy(p), Cx(q), Cy(q), k, true), with the common factor W &gt; 0 divided out.
         /// Uses exact 64-bit integer arithmetic when |dx|, |dy| &lt;= 2^29 (|det| &lt;= 2^61 + 2^31 &lt; 2^63), else BigInteger.
         /// </summary>
-        static bool MeetsPixelCentreInterior((long, long) p, (long, long) q, (long, long) k)
+        internal static bool MeetsPixelCentreInterior((long, long) p, (long, long) q, (long, long) k)
         {
             long px = p.Item1, py = p.Item2, qx = q.Item1, qy = q.Item2, kx = k.Item1, ky = k.Item2;
             long lx = px < qx ? px : qx, hx = px > qx ? px : qx;
