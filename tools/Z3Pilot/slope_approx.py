@@ -19,7 +19,7 @@ overflows (then err <= 1e-12 inf holds for any widths; replay `overflow`): the p
 Proof (for |x| + |y| >= 2^-1022 and both new conditions). Rounding model (Higham 2002, 2.1, with gradual underflow):
 a sum or difference of doubles is fl(z) = z (1 + d), |d| <= u = 2^-53 (exact when subnormal); a product or quotient is
 fl(z) = z (1 + d) + n, |d| <= u, |n| <= eta = 2^-1075; rounding is monotone. Step 0 (monotonicity, the lemma
-`midpoint_in_interval` with Z3's floating-point theory, `run(fp=True)`, 89 s): w = fl(0.5 fl(W.Lo + W.Hi)) lies in W (if
+`midpoint_in_interval` with Z3's floating-point theory, `run(fp=True)`, 89 to 253 s by machine): w = fl(0.5 fl(W.Lo + W.Hi)) lies in W (if
 the sum does not overflow; an overflow gives w = inf, x = y = 0, rejected), and alike xm in X, ym in Y (the lemma is for
 any doubles a <= b), so |W* - w| <= dW, |X* - xm| <= dX and |Y* - ym| <= dY for the exact widths dX, dY, dW. The guard
 tests the computed fl(|x| + |y|) >= 2^-1022; the lemmas assume the real |x| + |y| >= 2^-1022: the same, because a real
@@ -208,7 +208,9 @@ def lemma_midpoint_fp(timeout_ms):
 
 # ---- from #1582: the W-sign lemmas away from the edge (no underflow, eta = 0) and their mutant. They model only the
 # err acceptance (the guard and the width condition only make it stronger, so the UNSAT results carry over). Their
-# rounding model of err ((1 - 8 u) times the formula) is valid without underflow only: that is their scope ----
+# rounding model of err ((1 - 8 u) times the formula) is valid without underflow only: that is their scope. Since the
+# fix they are also implied by L1 for every accepted input but the exact origin, underflow included: dW <= D |w| with
+# D ~ 2e-12 < 1 puts W* on the side of w ----
 
 def legacy_model(accept, consume, eta=None, w_term=True):
     u, eta = _q(U), _q(ETA if eta is None else eta)

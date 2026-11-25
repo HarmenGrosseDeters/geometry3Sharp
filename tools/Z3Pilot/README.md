@@ -839,8 +839,8 @@ err <= 1e-12 (|x| + |y|); at the subnormal edge that failed (the finding, kept a
 (`approx_position`) also needs 2^-1022 <= |x| + |y| <= double.MaxValue and a narrow W ((W.Hi - W.Lo) 5e11 <= |w|); each of the
 two halves alone fails (replays `width_only`, `guard_only`), and so does an overflowed |x| + |y| (`overflow`). Proved: four
 lemmas, one per step (width of W, width of X and Y, one coordinate, the claim), linear except the coordinate step (nlsat),
-under two seconds; the midpoint in its interval by monotone rounding, or with Z3's binary64 theory (`--fp`, 89 s). Mutants
-(SAT): the claim without the guard, with twice the width, with a consumer of 3e-12. Kept from the first version (its scope:
+under two seconds; the midpoint in its interval by monotone rounding, or with Z3's binary64 theory (`--fp`, 89 s here, 253 s on another machine). Mutants
+(SAT): the claim without the guard, with twice the width, with a consumer of 3e-12 (the last two show the 2x slack of the proof, which uses |W* - w| <= dW where the midpoint gives dW / 2, not wrong code; a width condition of 1e11 is wrong, killed by a .NET test). Run it as a plain script or from the module directory, not with `python3 -I` (it imports `pilot` from its own directory). Kept from the first version (its scope:
 no underflow): acceptance gives W* the sign of w (both signs); mutant: err without its W term.
 
 ```sh

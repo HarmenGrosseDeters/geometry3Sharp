@@ -780,6 +780,16 @@ namespace geometry3Sharp.Tests
             return BitConverter.Int64BitsToDouble(c > 0 ? b + 1 : b - 1);
         }
 
+        // just above the width bound: dW / |w| = 9.9e-12, which a width condition of 1e11 instead of 5e11 accepts (x = 2^-1022,
+        // the W term of err underflows), 1.24 e off x* at W.Hi; 5e11 must reject it or be within e
+        [Fact]
+        public void ApproxPosition_RejectsAWideW_JustAboveTheWidthBound()
+        {
+            double t = double.Epsilon, w = Math.Pow(2, -52), wlo = w * (1 - 9.9e-12);
+            if (ApproxPosition(t, t, 0, 0, wlo, w, out double x, out double y))
+                Assert.True(WithinCornerError(x, y, t, t, 0, 0, wlo, w, out string why), why);
+        }
+
         // a guard weakened to |x| + |y| > 0 accepts y = 2^-1073 (x = 0 by underflow): 1.25 e off
         [Fact]
         public void ApproxPosition_RejectsAQuotientBelowTheNormalRange()
