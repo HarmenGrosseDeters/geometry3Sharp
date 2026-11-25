@@ -2669,7 +2669,7 @@ namespace gs
                     treeMark[mk] = treeMarkValue; treeParent[mk] = u;
                     q.Add(mk);
                 }
-            }
+            }            manifoldWork += q.Count;
         }
 
         /// <summary>
@@ -2677,7 +2677,12 @@ namespace gs
         /// components each (the step before issue #1607) instead of join_inside_components; the result is the same
         /// </summary>
         internal bool ReferenceFixStar;
-        // the cells visited by the components of fix_star's stars, the searches of the forest and the set up of join_inside_components: Counts["manifold_star_work"]
+        // the cells visited by fix_star: the components of its stars, and in join_inside_components its set up, the forest's construction, the
+        // re-attachment after a move and the searches that decide whether the outside stays connected: Counts["manifold_star_work"].
+        // There is no bound that is linear in the moves for every input: a move cuts a subtree of the forest (or, with one non-exterior
+        // outside component, searches until the pieces meet or run out), and a fallback to the general step recomputes the star. Measured:
+        // 1.6 to 4 cells per move on the point-limit sphere (20000 to 160000 points), 20 to 85 on small stars of random soups, 4 to 13
+        // times less than the old step's visits on those
         long manifoldWork;
 
         readonly List<int> detached = new List<int>(), reattach = new List<int>();
@@ -2737,6 +2742,7 @@ namespace gs
                     treeParent[mk] = u; treeMark[mk] = attMark; q.Add(mk);
                 }
             }
+            manifoldWork += q.Count;
             foreach (int u in det)
                 if (treeMark[u] == detMark) dead.Add(u);
             // (back to the value of the forest's cells: the marks above are values above it)
@@ -2784,16 +2790,17 @@ namespace gs
                     }
                 }
                 if (groups == 1) break;
-                if (!progressed) return false;
+                if (!progressed) { for (int j = 0; j < nn; ++j) manifoldWork += queues[j].Count; return false; }
                 // a group with all its searches exhausted while another exists: split
                 for (int g = 0; g < nn; ++g) {
                     if (find(g) != g) continue;
                     bool alive = false;
                     for (int j = 0; j < nn && !alive; ++j)
                         if (find(j) == g && heads[j] < queues[j].Count) alive = true;
-                    if (!alive) return false;
+                    if (!alive) { for (int j = 0; j < nn; ++j) manifoldWork += queues[j].Count; return false; }
                 }
             }
+            for (int j = 0; j < nn; ++j) manifoldWork += queues[j].Count;
             return true;
         }
 

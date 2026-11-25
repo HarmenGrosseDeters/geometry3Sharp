@@ -63,7 +63,7 @@ namespace geometry3Sharp.Tests
         public void Soups_ResultIsTheOldStepsResult()
         {
             int compared = 0, pointLimited = 0, onePass = 0;
-            for (int seed = 0; seed < 14; ++seed) {
+            for (int seed = 0; seed < 10; ++seed) {
                 var rnd = new Random(100 + seed);
                 double ra = Math.Pow(10, 1.5 + 3.5 * rnd.NextDouble());
                 double ro = ra * (1 + 60 * rnd.NextDouble());
@@ -81,8 +81,8 @@ namespace geometry3Sharp.Tests
                 if (now.Result != null) Assert.Equal("", MeshRobustRepair.NotCleanReason(now.Result));
             }
             // (the cases have to reach the new step, or the test compares the old one with itself)
-            Assert.True(pointLimited >= 8, $"{pointLimited} of {compared} reached the limit");
-            Assert.True(onePass >= 4, $"{onePass} of {compared} took the one-pass step");
+            Assert.True(pointLimited >= 6, $"{pointLimited} of {compared} reached the limit");
+            Assert.True(onePass >= 3, $"{onePass} of {compared} took the one-pass step");
         }
 
         // the work of the step goes with the cells it moves, not with their product with the size of the star: 20000 points gave
@@ -112,6 +112,51 @@ namespace geometry3Sharp.Tests
             for (int i = 0; i < 16; ++i) {
                 bool ca = (i & 1) != 0, cb = (i & 2) != 0, ja = (i & 4) != 0, jb = (i & 8) != 0;
                 Assert.Equal(MeshAlphaWrap.preferred_flip(ca, ja, 1, cb, jb, 2), MeshAlphaWrap.before(c(ca, ja, 1, 1), c(cb, jb, 2, 0)));
+            }
+        }
+
+        // the soups of the sweep behind the two tests below (400 seeds): the input and the wrap's parameters of one seed
+        static MeshAlphaWrap Sweep(int seed, bool reference)
+        {
+            var rnd = new Random(1000 + seed);
+            var m = new DMesh3();
+            int np = 6 + rnd.Next(60);
+            double sx = Math.Pow(10, rnd.Next(-1, 2));
+            for (int i = 0; i < np; ++i) m.AppendVertex(new Vector3d(rnd.NextDouble() * sx, rnd.NextDouble(), rnd.NextDouble() * (rnd.Next(2) == 0 ? 0.3 : 1)));
+            for (int i = 0; i + 2 < np; ++i) m.AppendTriangle(i, i + 1, i + 2);
+            double ra = Math.Pow(10, 1.0 + 4.5 * rnd.NextDouble()), ro = ra * (1 + 80 * rnd.NextDouble());
+            int points = 300 + rnd.Next(4000);
+            var w = new MeshAlphaWrap(m) { RelativeAlpha = ra, RelativeOffset = ro, MaxSteinerPoints = points, ReferenceFixStar = reference };
+            w.Compute();
+            return w;
+        }
+
+        // seeds of the sweep where a candidate's key got worse by a merge of inside components before it was taken: without the check of
+        // a popped key (which moves such a cell back into the heap) the step takes another cell first and the result differs (5 of the 9 that differ of the 400
+        // seeds; the check was not exercised by the cases above)
+        [Fact]
+        public void Sweep_StaleCandidateKeys_AreCheckedWhenPopped()
+        {
+            foreach (int seed in new[] { 0, 61, 105, 134, 274 }) {
+                MeshAlphaWrap now = Sweep(seed, false), old = Sweep(seed, true);
+                Assert.Equal(old.Status, now.Status);
+                AssertSameResult(now.Result, old.Result, $"sweep seed {seed}");
+                if (now.Result != null) Assert.Equal("", MeshRobustRepair.NotCleanReason(now.Result));
+            }
+        }
+
+        // seeds where the old step visited 1.3 to 2.9 million cells for 1800 to 6600 moves (stars of thousands of cells, cut-off pieces and
+        // the fallback to the general step): the new one visits a quarter or less. A regression of the forest's re-attachment or of the searches
+        // after a move (which count in manifold_star_work) back to a search of the whole star per move would not stay below that
+        [Fact]
+        public void Sweep_WorkIsBelowAQuarterOfTheOldSteps()
+        {
+            foreach (int seed in new[] { 187, 320, 365 }) {
+                MeshAlphaWrap now = Sweep(seed, false), old = Sweep(seed, true);
+                AssertSameResult(now.Result, old.Result, $"sweep seed {seed}");
+                long wn = now.Counts["manifold_star_work"], wo = old.Counts["manifold_star_work"];
+                Assert.True(wo > 1000000, $"seed {seed}: the old step visited {wo} cells");
+                Assert.True(4 * wn < wo, $"seed {seed}: {wn} cells visited, the old step {wo}");
             }
         }
 

@@ -14,11 +14,11 @@ Before (master 36d19843) and after, net10.0 Linux, Release; `moves` and `triangl
 | MaxSteinerPoints | total before | total after | manifold ms before | manifold ms after | moves | cells visited after |
 |---|---|---|---|---|---|---|
 | 2000 | 0.48 s | 0.51 s | 26 | 31 | 0 | 0 |
-| 5000 | 0.61 s | 0.39 s | 117 | 113 | 10021 | 14146 |
-| 10000 | 1.02 s | 0.55 s | 536 | 141 | 16480 | 43493 |
-| 20000 | 2.51 s | 0.67 s | 1908 | 109 | 40548 | 74873 |
-| 40000 | 12.51 s | 1.05 s | 11853 | 162 | 80152 | 168428 |
-| 80000 | 51.77 s | 1.85 s | 50391 | 348 | 109828 | 330200 |
-| 160000 | 48.71 s | 3.25 s | 45780 | 274 | 15652 | 84306 |
+| 5000 | 0.61 s | 0.39 s | 117 | 113 | 10021 | 32107 |
+| 10000 | 1.02 s | 0.55 s | 536 | 141 | 16480 | 105089 |
+| 20000 | 2.51 s | 0.67 s | 1908 | 109 | 40548 | 188810 |
+| 40000 | 12.51 s | 1.05 s | 11853 | 162 | 80152 | 602253 |
+| 80000 | 51.77 s | 1.85 s | 50391 | 348 | 109828 | 1046469 |
+| 160000 | 48.71 s | 3.25 s | 45780 | 274 | 15652 | 314682 |
 
-The cells visited before were about 38 million at 20000 points (counted on an instrumented copy). The time that is left is the wrap phase.
+Cells visited per move after: 3.2, 6.4, 4.7, 7.5, 9.5 (80000 points) and 20 (160000: few moves); it grows with the size of the stars, so the step is not strictly linear in the moves (the forest's re-attachments and the searches of the single-component case are counted), but far from the product of moves and star size before. The cells visited before were about 38 million at 20000 points (counted on an instrumented copy). The time that is left is the wrap phase.
