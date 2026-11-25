@@ -1301,7 +1301,7 @@ namespace g3
         /// over a small sphere), independent of the coordinate axes. On a flat face of a closed mesh it is
         /// exactly n + 1/2 (inside a triangle and on inner edges and vertices; so w &gt; 0.5 is false there), on a crease or a corner
         /// the dihedral or solid-angle fraction (0.25 on a cube edge, 0.125 at its corner; 0.75 on a reflex edge), rounded within the
-        /// bound of the edge angles; a flat sheet or a single triangle has 0 on it. On a flat face (and strictly inside a triangle) the value is independent of the triangle and corner order bit for bit; on creases, corners and open meshes it is independent of the order only within the rounding of the sum (about 1e-16), so a threshold exactly at such a value can flip with the input order.
+        /// bound of the edge angles; a flat sheet or a single triangle has 0 on it. However many planes of other bodies pass through a flat face point, the value is exactly n + 1/2. The value on the surface is independent of the order of the triangles and of the order of their corners bit for bit, also on creases, corners, cone apexes and open meshes (the triangles through the point are summed in a canonical order, grouped by the exact direction of their normal, O(n log n) for n triangles through the point), so a threshold exactly at such a value gives the same answer for every input order, and the same bits at every power-of-two scale, also across extreme exponents.
         /// The cache is built on first use (under a lock), so this can be called from multiple threads.
         /// </summary>
         public virtual double WindingNumber(Vector3d p)

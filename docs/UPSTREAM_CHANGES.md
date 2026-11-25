@@ -150,7 +150,9 @@ This fork maintains public API compatibility with upstream `geometry3Sharp 1.0.3
 | `Remesher.vModifiedV` (`protected`) | `BitArray` | `bool[]` |
 | `DMeshAABBTree3.box_centers`, `box_extents` (`protected`) | `DVector<Vector3f>` | `DVector<Vector3d>` (accurate far from origin / UTM) |
 | `DVector.Clear()` | Undeprecated | `[Obsolete]` (warning `CS0618`) |
-| `MeshMeshCut`, `MeshBoolean` (float) | Undeprecated | `[Obsolete]` (warning `CS0618`, behavior unchanged); points to `ExactMeshImprint` and `ExactMeshBoolean` |
+| `MeshMeshCut`, `MeshBoolean` (float) | Undeprecated | `[Obsolete]` (warning `CS0618`; behavior unchanged except for touching or coplanar inputs, see below); points to `ExactMeshImprint` and `ExactMeshBoolean` |
+
+`MeshMeshCut.RemoveContained` (and so the legacy `MeshBoolean`) reads the winding number at the centroid of a Target triangle (`> 0.9`). The exact winding number of the tree on a triangle of the mesh is now the principal value (0.5 in a face of a single closed shell; see the `DMeshAABBTree3.WindingNumber` row above), where it read 0 or 1 by the rounding of a zero determinant. A centroid in a face of the cut mesh therefore no longer counts as contained and the triangle stays. Only inputs that touch or are coplanar are affected, and `Compute()` refuses them unless `RefuseContact = false`. With `RefuseContact = false` the touching-cube cases "coplanar faces overlap" and "inner cube on the faces" of `MeshMeshCutContactTests.MeshBoolean_OnTouchingCubes_KeepsItsBehaviour` change from 31 vertices / 48 triangles to 36 / 60 and from 15 / 20 to 24 / 36 (both results are open before and after; "shared face" and "overlap" are unchanged). Other cases at a face centroid: nested shells give n + 0.5, a glued interface of two bodies 1 (removed), a reflex region 0.75. Use `ExactMeshImprint` / `ExactMeshBoolean` for touching or coplanar inputs.
 
 ---
 

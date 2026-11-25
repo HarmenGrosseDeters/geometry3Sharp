@@ -14,8 +14,10 @@ namespace g3
     /// splits the triangles of Target so that the intersection curves run along its edges. CutMesh is not
     /// modified. Afterwards RemoveContained() deletes the triangles of Target that are inside CutMesh (winding
     /// number above 0.9 at the centroid), which leaves Target open along the cut. A triangle whose centroid lies exactly in a face of
-    /// CutMesh (touching or coplanar inputs, which Compute() refuses unless RefuseContact is false) has the winding number 0.5 there,
-    /// the mean of the two sides, so it is not contained and stays.
+    /// CutMesh (touching or coplanar inputs, which Compute() refuses unless RefuseContact is false) has the principal value of the
+    /// winding number there, the mean of the two sides: 0.5 in a face of a single closed shell, so it is not contained and stays.
+    /// Other cases: in a face of nested shells it is n + 0.5, on the interface of two glued bodies 1 (contained, removed), in a
+    /// reflex region (a reflex edge) 0.75, and in a convex crease or corner a fraction below one half; only values above 0.9 are removed.
     ///
     /// Intersection points within VertexSnapTol are merged with existing vertices. Not robust: segments that
     /// cannot be inserted are counted in FailedSegmentInsertions (the cut then has gaps), and only
