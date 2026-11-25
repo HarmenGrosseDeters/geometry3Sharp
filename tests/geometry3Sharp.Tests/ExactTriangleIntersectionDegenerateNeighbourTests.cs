@@ -10,7 +10,10 @@ namespace geometry3Sharp.Tests
     /// (collinear corners, or two equal corners), #1551. The oracle is independent of the method: the part of two
     /// such triangles beyond their shared vertex (or edge) is convex and contains the shared part, so it is not empty
     /// iff a point a small step beyond the shared part, in a direction of the degenerate triangle, lies in both. The
-    /// step is a power of two, so the point is exact, and membership is decided by the exact predicates.
+    /// step is a power of two, so the point is exact, and membership is decided by the exact predicates. On these
+    /// integer grids (coordinates in [-3, 3], multiples up to 3) the step 2^-20 cannot miss an overlap: where the part
+    /// beyond the shared vertex or edge is not empty it reaches from it at least a fraction of the segment that is
+    /// bounded by the inverse of a determinant of grid coordinates (far above 2^-20).
     /// </summary>
     public class ExactTriangleIntersectionDegenerateNeighbourTests
     {
@@ -131,6 +134,43 @@ namespace geometry3Sharp.Tests
             Assert.False(ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A2, ib, ref B2));
         }
 
+        [Fact]
+        public void AllIdsShared_False_InEveryCornerOrder()
+        {
+            // one (degenerate) triangle twice: nothing beyond what is shared, whatever the order of its corners (review of
+            // #1554: the edge branch gave false or true by the order)
+            Vector3d a = new Vector3d(0, 0, 0), b = new Vector3d(1, 0, 0), c = new Vector3d(2, 0, 0);
+            Index3i ids = new Index3i(0, 1, 2);
+            foreach (var T0 in new[] { new Triangle3d(a, b, c), new Triangle3d(a, c, b), new Triangle3d(b, a, c), new Triangle3d(c, b, a) }) {
+                var T = T0; var U = T0;
+                Assert.False(ExactTriangleIntersection.IntersectsBeyondShared(ids, ref T, ids, ref U));
+            }
+        }
+
+        [Fact]
+        public void SharedEdgeAtOnePosition_AsOneSharedVertex()
+        {
+            // the two shared ids at one position: the "edge" is a point, the pair is two segments from it (review of #1554)
+            Vector3d o = Vector3d.Zero;
+            Index3i ia = new Index3i(0, 1, 2), ib = new Index3i(1, 0, 3);
+            var A = new Triangle3d(o, o, new Vector3d(1, 1, 0));
+            var B = new Triangle3d(o, o, new Vector3d(2, 2, 0));
+            Assert.True(ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B));
+            var B2 = new Triangle3d(o, o, new Vector3d(-1, -1, 0));
+            Assert.False(ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B2));
+        }
+
+        [Fact]
+        public void PointLikeAgainstSegment_OnlyTheSharedVertex()
+        {
+            // A all at s: nothing beyond s, also against a degenerate B through s (review of #1554: same_ray_3d's x = s guard)
+            Vector3d s = new Vector3d(1, 2, 3);
+            var A = new Triangle3d(s, s, s);
+            var B = new Triangle3d(s, s, new Vector3d(2, 2, 3));
+            Assert.False(ExactTriangleIntersection.IntersectsBeyondShared(new Index3i(0, 1, 2), ref A, new Index3i(0, 3, 4), ref B));
+            Assert.False(ExactTriangleIntersection.IntersectsBeyondShared(new Index3i(0, 3, 4), ref B, new Index3i(0, 1, 2), ref A));
+        }
+
         // degenerate A (collinear on an integer grid, or two equal corners) sharing a vertex at a varying corner with a
         // random or a degenerate B; either order
         [Fact]
@@ -153,7 +193,6 @@ namespace geometry3Sharp.Tests
                 var A = new Triangle3d(s, p, q);
                 var B = new Triangle3d(s, u, w);
                 if (Collinear(s, p, q) == false) continue;
-                if (u == s || w == s) continue;     // (B's other corners distinct from s, as in a mesh)
                 bool expected = OracleOneShared(s, p, q, ref A, ref B) || (Collinear(s, u, w) && OracleOneShared(s, u, w, ref B, ref A));
                 // the shared vertex at a varying corner of each, and either order
                 int ca = rand.Next(3), cb = rand.Next(3);
@@ -208,8 +247,9 @@ namespace geometry3Sharp.Tests
                 var A = new Triangle3d(s, p, q); var B = new Triangle3d(s, u, w);
                 cases.Add((A, B, ExactTriangleIntersection.IntersectsBeyondShared(new Index3i(0, 1, 2), ref A, new Index3i(0, 3, 4), ref B)));
             }
+            // (the exact scalings, and the UTM translation, which is exact on these small integer coordinates)
             foreach (Similarity sim in Similarity.All()) {
-                if (sim.IsExact == false) continue;
+                if (sim.IsExact == false && sim != Similarity.Utm) continue;
                 foreach (var (A0, B0, expected) in cases) {
                     var A = new Triangle3d(sim.Apply(A0.V0), sim.Apply(A0.V1), sim.Apply(A0.V2));
                     var B = new Triangle3d(sim.Apply(B0.V0), sim.Apply(B0.V1), sim.Apply(B0.V2));

@@ -1170,8 +1170,8 @@ namespace gs
         /// The triangles at the given vertices that cross another triangle of the mesh beyond what they share, where vertices
         /// at one position count as one (so a touch at a contact, a position with several vertices, is not a crossing, but a
         /// triangle that passes through another one is; ExactTriangleIntersection.IntersectsBeyondShared, exact), or that are
-        /// degenerate, or that share a position with a degenerate triangle (conservative: IntersectsBeyondShared needs
-        /// non-degenerate triangles there). tree: a tree over the mesh whose triangles have moved at most pad / 2 since it was
+        /// degenerate, or that share a position with a degenerate triangle (conservative, kept from before #1551, when
+        /// IntersectsBeyondShared needed non-degenerate triangles there; it decides them exactly now). tree: a tree over the mesh whose triangles have moved at most pad / 2 since it was
         /// built (null: one is built). Not used by the pipeline: the reference of CrossingTrianglesOfAll (its tests compare the two)
         /// </summary>
         internal static HashSet<int> CrossingTriangles(DMesh3 mesh, IEnumerable<int> vertices, DMeshAABBTree3 tree = null, double pad = 0)
@@ -1216,7 +1216,7 @@ namespace gs
                         var ib = new Index3i(id(tb.a), id(tb.b), id(tb.c));
                         bool shares = ia.a == ib.a || ia.a == ib.b || ia.a == ib.c || ia.b == ib.a || ia.b == ib.b || ia.b == ib.c || ia.c == ib.a || ia.c == ib.b || ia.c == ib.c;
                         if (shares && ExactTriangleIntersection.IsDegenerate(ref B))
-                            hit = true;     // (conservative: a degenerate neighbour cannot be judged by IntersectsBeyondShared)
+                            hit = true;     // (conservative, kept from before #1551: IntersectsBeyondShared decides degenerate neighbours exactly now)
                         else if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B))
                             hit = true;
                     }

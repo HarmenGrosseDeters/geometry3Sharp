@@ -304,7 +304,8 @@ namespace g3
             if (nShared == 0)
                 return Intersects(ref A, ref B);
             // degenerate triangles (collinear corners): segments from the shared part, not planes (#1551)
-            bool degA = is_degenerate(A.V0, A.V1, A.V2), degB = is_degenerate(B.V0, B.V1, B.V2);
+            // (IsDegenerate: its floating-point prefilter first, so that the common non-degenerate pair pays no exact Orient2d)
+            bool degA = IsDegenerate(ref A), degB = IsDegenerate(ref B);
             if (degA || degB)
                 return degenerate_beyond_shared(nShared, sa0, sb0, sa1, sb1, ref A, ref B, degA, degB);
             if (nShared >= 2) {
@@ -345,6 +346,10 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         static bool degenerate_beyond_shared(int nShared, int sa0, int sb0, int sa1, int sb1, ref Triangle3d A, ref Triangle3d B, bool degA, bool degB)
         {
+            // all three ids shared: one triangle twice (as before #1551; the edge branch below would depend on the order
+            // of the corners)
+            if (nShared >= 3)
+                return false;
             if (nShared >= 2) {
                 Vector3d a = A[sa0], b = A[sa1], c = A[3 - sa0 - sa1], d = B[3 - sb0 - sb1];
                 if (a == b)
@@ -353,9 +358,9 @@ namespace g3
                     return false;
                 // both on the line a-b: the order along it is the order of a coordinate in which a and b differ
                 int k = a.x != b.x ? 0 : (a.y != b.y ? 1 : 2);
-                int dir = b[k] > a[k] ? 1 : -1;
-                bool cb = dir * (c[k] - b[k]) > 0, ca = dir * (a[k] - c[k]) > 0;
-                bool db = dir * (d[k] - b[k]) > 0, da = dir * (a[k] - d[k]) > 0;
+                int dir = b[k].CompareTo(a[k]);
+                bool cb = c[k].CompareTo(b[k]) == dir, ca = a[k].CompareTo(c[k]) == dir;
+                bool db = d[k].CompareTo(b[k]) == dir, da = a[k].CompareTo(d[k]) == dir;
                 return (cb && db) || (ca && da);
             }
             Vector3d s = A[sa0];
@@ -401,7 +406,7 @@ namespace g3
         }
 
         /// <summary>
-        /// IntersectsBeyondShared for two non-degenerate triangles whose corners are known to lie in one plane (the caller has the Orient3d of the far corners, all 0): the same result, without
+        /// IntersectsBeyondShared for two non-degenerate triangles whose corners are known to lie in one plane (the caller has the Orient3d of the far corners, all 0): the same result for such triangles (not for degenerate ones, which IntersectsBeyondShared decides by their segments since #1551), without
         /// the Orient3d calls that are then 0 (the coplanar branches of IntersectsBeyondShared and of
         /// SegmentIntersectsTriangle, in the same order, with the same projections). ExactMeshArrangement's pair
         /// search calls it for coplanar neighbours (docs/design/CHEAPER_CONSTRUCTIONS.md, section 4.1).
