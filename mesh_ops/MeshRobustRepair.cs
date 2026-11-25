@@ -1773,7 +1773,7 @@ namespace gs
         // A wrap encloses its input: it has the volume of the solid and more, so that this cannot hold for a repair, and a small solid (a few offsets across,
         // thin by the first test) or a sheet, flat or curved (no point enclosed enough), is not taken for a shell. The magnitude, because an open reference
         // has no orientation of its own. Cells are counted per slab in parallel and summed in order: deterministic
-        bool is_thin_shell(DMesh3 wrapped, double offset, DMesh3 wrapFrom, DMesh3 reference)
+        internal bool is_thin_shell(DMesh3 wrapped, double offset, DMesh3 wrapFrom, DMesh3 reference)
         {
             if (NoThinShellCheck || !(offset > 0) || wrapFrom.IsClosed() || reference.TriangleCount == 0)
                 return false;

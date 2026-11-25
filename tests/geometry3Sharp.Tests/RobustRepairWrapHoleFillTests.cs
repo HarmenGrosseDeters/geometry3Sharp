@@ -332,6 +332,61 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // an open cylinder panel of radius 0.5 and length 1 over the given angle (24 segments around, 10 along)
+        static DMesh3 CylinderPanel(double angle)
+        {
+            var m = new DMesh3();
+            for (int j = 0; j <= 10; ++j)
+                for (int i = 0; i <= 24; ++i) {
+                    double a = angle * i / 24;
+                    m.AppendVertex(new Vector3d(0.5 * Math.Cos(a), 0.5 * Math.Sin(a), j / 10.0));
+                }
+            for (int j = 0; j < 10; ++j)
+                for (int i = 0; i < 24; ++i) {
+                    int a = j * 25 + i, b = a + 1, c = a + 25, d = c + 1;
+                    m.AppendTriangle(a, b, d);
+                    m.AppendTriangle(a, d, c);
+                }
+            return m;
+        }
+
+        [Fact]
+        public void QuarterAndHalfCylinderPanels_AreSheets_NotRefused()
+        {
+            // the defaults, but a solidify grid of 32 for the test time (the default 128 takes 4 to 5 s each): both panels are solidified, the
+            // guard is not reached
+            foreach (double angle in new[] { Math.PI / 2, Math.PI }) {
+                var r = new MeshRobustRepair(CylinderPanel(angle)) { SolidifyResolution = 32 };
+                Assert.True(r.Apply(), r.ResultReason);
+                Assert.NotEqual(MeshRobustRepair.ThinShellWrap, r.ResultReason);
+                Assert.Equal(MeshRobustRepair.ResultPaths.Solidify, r.ResultPath);
+            }
+            // the quarter panel through the wrap (a solidify grid of 4 fails): the guard judges it a sheet (enclosed beyond 0.6: 0.0027, twice the
+            // wrap: 0.0039)
+            var q = new MeshRobustRepair(CylinderPanel(Math.PI / 2)) { SolidifyResolution = 4, WrapRelativeAlpha = 100, WrapRelativeOffset = 1000, SimplifyAlphaWrap = false };
+            Assert.True(q.Apply(), q.ResultReason);
+            Assert.True(q.UsedAlphaWrap);
+            Assert.Equal("", q.ResultReason);
+        }
+
+        [Fact]
+        public void HalfCylinderPanel_ItsThinWrap_IsTakenForAShell_ADocumentedLimit()
+        {
+            // through Apply the half panel is solidified (above), but where its wrap is thin the guard refuses it: the space under a half cylinder is
+            // enclosed beyond ThinShellWinding (0.086 of it, the maximum winding number 0.69) far more than twice the wrap's volume. The guide names it
+            // next to the long tube
+            DMesh3 half = CylinderPanel(Math.PI);
+            var w = new MeshAlphaWrap(half) { RelativeAlpha = 100, RelativeOffset = 1000 };
+            Assert.True(w.Compute());
+            var r = new MeshRobustRepair(new DMesh3(half));
+            Assert.True(r.is_thin_shell(w.Result, w.UsedOffset, half, WindingContouring.OrientedCopy(half)));
+            // the quarter panel's wrap is not
+            DMesh3 quarter = CylinderPanel(Math.PI / 2);
+            var wq = new MeshAlphaWrap(quarter) { RelativeAlpha = 100, RelativeOffset = 1000 };
+            Assert.True(wq.Compute());
+            Assert.False(r.is_thin_shell(wq.Result, wq.UsedOffset, quarter, WindingContouring.OrientedCopy(quarter)));
+        }
+
         [Fact]
         public void ClosedCleanInput_IsUnchanged_ByTheSwitches()
         {
