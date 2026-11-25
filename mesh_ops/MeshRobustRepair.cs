@@ -513,7 +513,7 @@ namespace gs
         /// false if cancelled, if the input is empty, if its diagonal is not finite (ResultReason ScaleNotFinite), or if
         /// both the solidify fallback (eg the grid would be too large) and the alpha wrap failed; Mesh is then not replaced. Also false with
         /// LostFarPart, LostSeparatePart (a closed part) or LostFarOpenPart (an open part), the result in Mesh, if a separable part of an input
-        /// of two or more parts is not in the result (MeshRobustRepairLostParts: judged against the part's own size). true otherwise, also for an unclean solidify result (when the wrap is off or failed): check ResultReason.
+        /// of two or more parts is not in the result (MeshRobustRepairLostParts: judged against the part's own size), or if the alpha wrap is a thin shell around an input that has a solid (ThinShellWrap, in Mesh). true otherwise, also for an unclean solidify result (when the wrap is off or failed): check ResultReason.
         /// </returns>
         public bool Apply()
         {
@@ -886,6 +886,7 @@ namespace gs
             ResultReason = "not repaired";
             UsedInput = false;
             UsedAlphaWrap = false;
+            WrapFilledLoops = WrapFillCandidateLoops = 0;
             AlphaWrapTriangles = 0;
             AlphaWrapCoarsening = 1;
             AlphaWrapSimplified = false;
@@ -1112,7 +1113,20 @@ namespace gs
                 double smallAlpha = 0, smallOffset = 0;
                 if (SmallInputWrapTriangles > 0 && input.TriangleCount < SmallInputWrapTriangles && solidifyFrom.TriangleCount < SmallInputWrapTriangles && lostPartInput == null)
                     small_input_wrap(solidifyFrom, out smallAlpha, out smallOffset);
-                AlphaWrap = new MeshAlphaWrap(solidifyFrom) { RelativeAlpha = WrapRelativeAlpha, RelativeOffset = WrapRelativeOffset, Alpha = smallAlpha, Offset = smallOffset, CancelF = CancelF,
+                // the short boundary loops of the welded input are holes of a surface meant to be closed: filled, so that the alpha ball does not
+                // pass them and wrap both sides of the sheet (#1542, #1575). Not copied if there is none
+                DMesh3 wrapFrom = solidifyFrom;
+                WrapFilledLoops = WrapFillCandidateLoops = 0;
+                if (WrapFillLoopAlphas > 0) {
+                    double nominalAlpha = smallAlpha > 0 ? smallAlpha : WrapRelativeAlpha > 0 ? MeshRepairMetrics.TriangleBounds(solidifyFrom).DiagonalLength / WrapRelativeAlpha : 0;
+                    DMesh3 filledCopy = RobustRepairWrapHoleFill.Fill(solidifyFrom, nominalAlpha, WrapFillLoopAlphas, CancelF, out WrapFilledLoops, out WrapFillCandidateLoops);
+                    end_phase("wrap.fill");
+                    if (CancelF())
+                        return false;
+                    if (filledCopy != null)
+                        wrapFrom = filledCopy;
+                }
+                AlphaWrap = new MeshAlphaWrap(wrapFrom) { RelativeAlpha = WrapRelativeAlpha, RelativeOffset = WrapRelativeOffset, Alpha = smallAlpha, Offset = smallOffset, CancelF = CancelF,
                     MaxEstimatedTriangles = WrapMaxEstimatedTriangles, MaxAlphaCoarsening = WrapMaxAlphaCoarsening, MaxThreads = WrapMaxThreads };
                 AlphaWrap.Compute();
                 AlphaWrapCoarsening = AlphaWrap.AlphaCoarsening;
@@ -1129,7 +1143,7 @@ namespace gs
                     AlphaWrapTriangles = AlphaWrap.Result.TriangleCount;
                     DMesh3 raw = AlphaWrap.Result;
                     if (AlphaWrapSharpFeatures) {
-                        var features = new AlphaWrapFeaturePass(new DMesh3(raw, true), solidifyFrom, AlphaWrap.UsedAlpha, AlphaWrap.UsedOffset) {
+                        var features = new AlphaWrapFeaturePass(new DMesh3(raw, true), wrapFrom, AlphaWrap.UsedAlpha, AlphaWrap.UsedOffset) {
                             CancelF = CancelF, VarifoldCreases = AlphaWrapSharpFeaturesOnSoups };
                         ConfigureWrapFeatures?.Invoke(features);
                         bool computed = features.Compute();
@@ -1145,7 +1159,7 @@ namespace gs
                     int target = WrapTargetTriangles > 0 ? WrapTargetTriangles
                         : WrapTargetFactor > 0 ? (int)Math.Min(int.MaxValue, Math.Max(1.0, Math.Ceiling(WrapTargetFactor * input.TriangleCount))) : 0;
                     if (SimplifyAlphaWrap) {
-                        wrapped = simplify_wrap(raw, AlphaWrap.UsedOffset, solidifyFrom) ?? raw;
+                        wrapped = simplify_wrap(raw, AlphaWrap.UsedOffset, wrapFrom) ?? raw;
                         end_phase("wrap.simplify");
                         if (CancelF())
                             return false;
@@ -1158,7 +1172,7 @@ namespace gs
                                 targetLimit = TargetLimitNotSimplified;
                         }
                         else if (wrapped.TriangleCount > target) {
-                            DMesh3 reduced = ReduceToTarget(wrapped, raw, target, (WrapTargetMaxDistance >= 0.5 ? WrapTargetMaxDistance : 0.5) * AlphaWrap.UsedOffset, CheckSelfIntersections, CancelF, solidifyFrom);
+                            DMesh3 reduced = ReduceToTarget(wrapped, raw, target, (WrapTargetMaxDistance >= 0.5 ? WrapTargetMaxDistance : 0.5) * AlphaWrap.UsedOffset, CheckSelfIntersections, CancelF, wrapFrom);
                             end_phase("wrap.target");
                             if (CancelF())
                                 return false;
@@ -1173,7 +1187,7 @@ namespace gs
                     }
                     if (AlphaWrapQualityPass && wrapped != raw) {
                         DMesh3 improved = ImproveWrapQuality(wrapped, raw, 0.5 * AlphaWrap.UsedOffset, CheckSelfIntersections, CancelF,
-                            (p) => { DefaultWrapQuality(p); p.KeepClearOf = new DMeshAABBTree3(solidifyFrom, true); ConfigureWrapQuality?.Invoke(p); });
+                            (p) => { DefaultWrapQuality(p); p.KeepClearOf = new DMeshAABBTree3(wrapFrom, true); ConfigureWrapQuality?.Invoke(p); });
                         end_phase("wrap.quality");
                         if (CancelF())
                             return false;
@@ -1190,6 +1204,12 @@ namespace gs
                     Mesh = wrapped;
                     UsedAlphaWrap = true;
                     angle_stats(wrapped, out AlphaWrapMinAngleDegrees, out AlphaWrapMaxAngleDegrees, out AlphaWrapShareAbove170);
+                    // a wrap of both sides of a surface that is no solid (an open sheet, holes the fill did not close) is a thin shell around it: a
+                    // clean mesh, but no repair of the input (#1575). Detected, not repaired: the shell stays in Mesh
+                    if (is_thin_shell(wrapped, AlphaWrap.UsedOffset, wrapFrom, reference)) {
+                        ResultReason = ThinShellWrap;
+                        return false;
+                    }
                     ResultReason = "";
                     return true;
                     }
@@ -1705,6 +1725,37 @@ namespace gs
         }
 
         // the smallest and largest triangle angle (degrees) and the share of triangles with an angle above 170 degrees
+        /// <summary> the boundary loops filled before the alpha wrap (RobustRepairWrapHoleFill) in the last Apply() that wrapped </summary>
+        internal int WrapFilledLoops;
+        /// <summary> the boundary loops short enough to be filled (some may be skipped: invalid, or a fill larger than half its component) </summary>
+        internal int WrapFillCandidateLoops;
+        /// <summary> (tests) the longest boundary loop that the wrap's hole fill closes, in alphas of the wrap (RobustRepairWrapHoleFill.MaxLoopAlphas); 0 = no fill </summary>
+        internal double WrapFillLoopAlphas = RobustRepairWrapHoleFill.MaxLoopAlphas;
+        /// <summary> (tests) the thin-shell check of the wrap is off </summary>
+        internal bool NoThinShellCheck;
+
+        /// <summary> ResultReason when the alpha wrap is a thin shell around the input's surface, which has a solid (volume of the reference more than twice the wrap's): holes wider than alpha that the fill did not close let the ball pass, and the wrap covers both sides of the surface. Apply() is false, the shell is in Mesh </summary>
+        public const string ThinShellWrap = "the wrap is a thin shell around the surface (holes wider than alpha: both sides of the surface are wrapped, a thin shell, not the solid)";
+        /// <summary> the shell test: the volume of the wrap is at most this many times area * offset (a wrap of both sides of a sheet has volume = area * offset: 2 * offset thick, the area counted on both sides; a solid has the volume of its size) </summary>
+        internal const double ThinShellVolumeFactor = 2;
+
+        // The wrap is a thin shell around an input that has a solid (#1575): its volume is at most ThinShellVolumeFactor * area * offset (both sides of a sheet
+        // are wrapped), the wrapped surface still has a boundary (a closed one is a solid, a flattened one a solid of no thickness, whose wrap is its wrap), and
+        // the reference solid has more than twice the volume of the wrap. A wrap encloses its input: it has the volume of the solid and more, so that this cannot
+        // hold for a repair, and a small solid (a few offsets across, thin by the first test) or a sheet (no solid) is not taken for a shell. The volume of the
+        // reference is taken about the center of its bounding box (an open reference has no volume of its own: a large hole counts as a cone to the center)
+        bool is_thin_shell(DMesh3 wrapped, double offset, DMesh3 wrapFrom, DMesh3 reference)
+        {
+            if (NoThinShellCheck || !(offset > 0) || wrapFrom.IsClosed() || reference.TriangleCount == 0)
+                return false;
+            Vector2d va = MeshMeasurements.VolumeArea(wrapped, wrapped.TriangleIndices(), wrapped.GetVertex);
+            if (!(va.y > 0) || !(Math.Abs(va.x) <= ThinShellVolumeFactor * va.y * offset))
+                return false;
+            Vector3d center = MeshRepairMetrics.TriangleBounds(reference).Center;
+            double volume = MeshMeasurements.VolumeArea(reference, reference.TriangleIndices(), (vid) => reference.GetVertex(vid) - center).x;
+            return Math.Abs(volume) > 2 * Math.Abs(va.x);
+        }
+
         internal static void angle_stats(DMesh3 m, out double minAngle, out double maxAngle, out double shareAbove170)
         {
             minAngle = double.MaxValue; maxAngle = 0;
