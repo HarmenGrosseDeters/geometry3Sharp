@@ -28,6 +28,12 @@ namespace g3
 
         /// <summary>
         /// What should we do when AddTriangle() fails because the triangle already exists?
+        /// A triangle is a duplicate only if an existing triangle has the same three vertices in the same
+        /// orientation (the same cyclic order). A triangle with the same three vertices in the opposite orientation
+        /// is not a duplicate: it is handled like a non-manifold triangle (see NonManifoldTriBehavior; by default it
+        /// gets its own vertices, so both triangles are kept), whatever their order in the input.
+        /// (1.0.324 discarded it as a duplicate, but only when it came before the triangles of the neighbouring
+        /// surface; issue #1556.)
         /// </summary>
         public AddTriangleFailBehaviors DuplicateTriBehavior = AddTriangleFailBehaviors.DiscardTriangle;
 
@@ -102,8 +108,10 @@ namespace g3
         }
 
         /// <summary>
-        /// Append triangle (i,j,k) with group g to the active mesh. If the triangle already exists, returns the existing
-        /// triangle ID (or appends a copy with duplicated vertices, see DuplicateTriBehavior). If it would be
+        /// Append triangle (i,j,k) with group g to the active mesh. If the triangle already exists in the same
+        /// orientation, returns the existing triangle ID (or appends a copy with duplicated vertices, see
+        /// DuplicateTriBehavior); one with the same vertices in the opposite orientation is not a duplicate and is
+        /// treated as non-manifold. If it would be
         /// non-manifold, appends it with duplicated vertices (default) or returns DMesh3.NonManifoldID,
         /// see NonManifoldTriBehavior.
         /// </summary>
@@ -113,10 +121,19 @@ namespace g3
             //   But is silently ignoring the right thing to do?
             int existing_tid = Meshes[nActiveMesh].FindTriangle(i, j, k);
             if (existing_tid != DMesh3.InvalidID) {
+                int same_tid = find_same_orientation_triangle(Meshes[nActiveMesh], i, j, k);
+                if (same_tid == DMesh3.InvalidID) {
+                    // only the opposite orientation exists: not a duplicate (issue #1556), but it cannot share
+                    // the existing triangle's vertices either, so it takes the non-manifold path
+                    if (NonManifoldTriBehavior == AddTriangleFailBehaviors.DuplicateAllVertices)
+                        return append_duplicate_triangle(i, j, k, g);
+                    else
+                        return DMesh3.NonManifoldID;
+                }
                 if (DuplicateTriBehavior == AddTriangleFailBehaviors.DuplicateAllVertices)
                     return append_duplicate_triangle(i, j, k, g);
                 else
-                    return existing_tid;
+                    return same_tid;
             }
 
             int tid = Meshes[nActiveMesh].AppendTriangle(i, j, k, g);
@@ -127,6 +144,31 @@ namespace g3
                     return DMesh3.NonManifoldID;
             }
             return tid;
+        }
+        /// <summary>
+        /// The triangle of mesh with vertices (i,j,k) in this cyclic order, or InvalidID if only the opposite
+        /// orientation exists. Called only after FindTriangle(i,j,k) found a triangle. If i, j, k are not distinct
+        /// (a degenerate triangle has no orientation), returns FindTriangle's triangle, as before.
+        /// </summary>
+        static int find_same_orientation_triangle(DMesh3 mesh, int i, int j, int k)
+        {
+            if (i == j || j == k || i == k)
+                return mesh.FindTriangle(i, j, k);
+            int eid = mesh.FindEdge(i, j);
+            if (eid == DMesh3.InvalidID)
+                return DMesh3.InvalidID;
+            Index2i et = mesh.GetEdgeT(eid);
+            for (int n = 0; n < 2; ++n) {
+                int tid = et[n];
+                if (tid == DMesh3.InvalidID)
+                    continue;
+                Index3i tv = mesh.GetTriangle(tid);
+                for (int x = 0; x < 3; ++x) {
+                    if (tv[x] == i && tv[(x + 1) % 3] == j && tv[(x + 2) % 3] == k)
+                        return tid;
+                }
+            }
+            return DMesh3.InvalidID;
         }
         int append_duplicate_triangle(int i, int j, int k, int g)
         {
