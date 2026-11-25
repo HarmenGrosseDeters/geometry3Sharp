@@ -1323,7 +1323,7 @@ namespace gs
         /// 'lower' (rounded to nearest from the exact value), faces triangulated at their exact corners; group id = piece;
         /// z negated for fill
         /// </summary>
-        public DMesh3 Realize(int cap, bool fill, double mergeRadius = 0, double lower = 0)
+        public DMesh3 Realize(int cap, bool fill, double mergeRadius = 0, double lower = 0, bool strict = false)
         {
             var mesh = new DMesh3(false, false, false, true);
             // the planes incident to each rounded position (all domain faces, the cap too)
@@ -1372,7 +1372,7 @@ namespace gs
             merge_close_positions(labelsAt, barrierPos, BarriersAt, mergeRadius, repOf);
             DroppedTriangles = append_faces(mesh,
                 faces.Select(f => new KeyValuePair<int, List<int>>(owner[fLabel[f]], cycle(f).Select(h => hOrig[h]).ToList())),
-                triangulate, outVertex);
+                triangulate, outVertex, strict);
             foreach (int v in mesh.VertexIndices()) OnBarrier.Add(barrierPos.Contains(mesh.GetVertex(v).xy));
             return mesh;
         }
@@ -1446,24 +1446,52 @@ namespace gs
         // rounded vertices (outVertex). A face narrower than the rounding, eg between two creases a few ulps apart, has
         // no area once rounded: its triangles are dropped (kept, they would be vertical walls over their neighbours) and
         // the neighbours stitched, which leaves no gap. Returns the number dropped. (Static: tests feed it faces.)
+        // Strict (#1539, the retry after a NonManifoldRealization): the same for a sliver that the rounding turned over
+        // (clockwise), that runs along an edge in the direction a triangle of the mesh does (it lies over that triangle),
+        // or that the mesh refuses (an edge with two triangles already): near-degenerate clusters, where slivers of
+        // different faces a few ulps wide lie along one line, round to such triangles. Not the default: a turned-over
+        // sliver that is not in the way is kept (later repairs remove it), and dropping it can leave a crack.
         internal static int append_faces(DMesh3 mesh, IEnumerable<KeyValuePair<int, List<int>>> faces,
-                                         Func<List<int>, List<Index3i>> triangulate, Func<int, int> outVertex)
+                                         Func<List<int>, List<Index3i>> triangulate, Func<int, int> outVertex, bool strict = false)
         {
             var dropped = new List<Index3i>();
             foreach (var face in faces) {
                 foreach (Index3i t in triangulate(face.Value)) {
                     int a = outVertex(t.a), b = outVertex(t.b), c = outVertex(t.c);
                     if (a == b || b == c || c == a) continue;
-                    if (ExactPredicates.Orient2d(mesh.GetVertex(a).xy, mesh.GetVertex(b).xy, mesh.GetVertex(c).xy) == 0) {
+                    int orient = ExactPredicates.Orient2d(mesh.GetVertex(a).xy, mesh.GetVertex(b).xy, mesh.GetVertex(c).xy);
+                    if (orient == 0 || (strict && (orient < 0 || overlaps(mesh, a, b, c)))) {
                         dropped.Add(new Index3i(a, b, c));
                         continue;
                     }
                     int tid = mesh.AppendTriangle(a, b, c, face.Key);
-                    if (tid < 0) throw new NonManifoldRealization();
+                    if (tid < 0) {
+                        if (strict == false) throw new NonManifoldRealization();
+                        dropped.Add(new Index3i(a, b, c));
+                    }
                 }
             }
             stitch(mesh, dropped);
             return dropped.Count;
+        }
+
+        // an edge of (a, b, c) that a triangle of the mesh runs along in the same direction: the two overlap
+        static bool overlaps(DMesh3 mesh, int a, int b, int c)
+        {
+            return same_direction(mesh, a, b) || same_direction(mesh, b, c) || same_direction(mesh, c, a);
+        }
+
+        static bool same_direction(DMesh3 mesh, int u, int v)
+        {
+            int e = mesh.FindEdge(u, v);
+            if (e < 0) return false;
+            Index2i et = mesh.GetEdgeT(e);
+            foreach (int t in new[] { et.a, et.b }) {
+                if (t < 0) continue;
+                Index3i tv = mesh.GetTriangle(t);
+                if ((tv.a == u && tv.b == v) || (tv.b == u && tv.c == v) || (tv.c == u && tv.a == v)) return true;
+            }
+            return false;
         }
 
         // A dropped triangle (rounded corners exactly collinear) leaves its middle corner m on the long edge (e0, e1) of

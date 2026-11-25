@@ -1599,12 +1599,22 @@ namespace gs
             // lowering must cover, see RepairLambda: both only where both together fit under λ's bound)
             bool mayMerge = repairLambda(2) <= lambdaBound;
             bool mergedWithin = mayMerge;
-            try {
-                mesh = map.Realize(cap, fill, mayMerge ? mergeRadius : 0, lambda);
-            } catch (SlopeMap.NonManifoldRealization) when (mayMerge) {
-                mesh = map.Realize(cap, fill, 0, lambda);
-                map.MergedCount = 0;
-                mergedWithin = false;
+            // (#1539: where neither realization is manifold, the same two with strict rounding, which drops the slivers that
+            // the rounding turned over or laid over a neighbour)
+            var attempts = new List<KeyValuePair<bool, bool>>();      // (merge, strict)
+            if (mayMerge) attempts.Add(new KeyValuePair<bool, bool>(true, false));
+            attempts.Add(new KeyValuePair<bool, bool>(false, false));
+            if (mayMerge) attempts.Add(new KeyValuePair<bool, bool>(true, true));
+            attempts.Add(new KeyValuePair<bool, bool>(false, true));
+            mesh = null;
+            for (int attempt = 0; mesh == null; ++attempt) {
+                bool merge = attempts[attempt].Key, strict = attempts[attempt].Value;
+                try {
+                    mesh = map.Realize(cap, fill, merge ? mergeRadius : 0, lambda, strict);
+                } catch (SlopeMap.NonManifoldRealization) when (attempt + 1 < attempts.Count) {
+                    continue;
+                }
+                if (merge == false && mayMerge) { map.MergedCount = 0; mergedWithin = false; }
             }
             // (the collapses decided on the build's first realization, made again on the later ones: TERRAIN.md 5.4)
             if (collapsesMade.Made == null) {
