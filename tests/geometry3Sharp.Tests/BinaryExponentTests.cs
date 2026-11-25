@@ -132,5 +132,56 @@ namespace geometry3Sharp.Tests
                 }
             }
         }
+
+        // ---- TpmsLattice Enclosure: the dyadic level pad s = 2^ceil(log2 maxCoord) ----
+
+        static TpmsLattice Enclosure(double scale)
+        {
+            // CellSize 2^k (the box is 2 cells per side), Divisions 4: the cube and every coordinate are dyadic, so the largest coordinate is
+            // a power of two times a constant for every k
+            return new TpmsLattice {
+                Type = TpmsType.SchwarzP, Style = TpmsStyle.Sheet, VolumeFraction = 0.3, Enclosure = true, CellSize = scale, Divisions = 4,
+                Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1, 1, 1) * scale)
+            };
+        }
+
+        [Fact]
+        public void TpmsEnclosure_PowerOfTwoScales_AreAllAcceptedAndGiveTheScaledMesh()
+        {
+            // #1612 (S1): the same problem scaled by 2^k was refused with "coordinate / CellSize > 2^20" at the largest coordinates 2^29 and 2^31
+            // (and accepted at 2^28, 2^30, 2^32), because Ceiling(Log(2^k, 2)) is k + 1 there. Scan every k that crosses those.
+            var reference = Enclosure(1);
+            reference.Compute();
+            Assert.Equal(TpmsStatus.Ok, reference.Status);
+            for (int k = -40; k <= 40; ++k) {
+                var t = Enclosure(Math.Pow(2, k));
+                t.Compute();
+                Assert.True(t.Status == TpmsStatus.Ok, "2^" + k + ": " + t.Status + ": " + t.Message);
+                Assert.Equal(reference.Mesh.TriangleCount, t.Mesh.TriangleCount);
+                Assert.Equal(reference.RealizedVolumeFraction, t.RealizedVolumeFraction);
+                Assert.Equal(reference.IsoValueUsed * Math.Pow(2, k), t.IsoValueUsed);
+            }
+        }
+
+        [Fact]
+        public void TpmsEnclosure_UnderSimilarities()
+        {
+            TpmsLattice reference = null;
+            foreach (Similarity s in Similarity.All()) {
+                var t = new TpmsLattice {
+                    Type = TpmsType.SchwarzP, Style = TpmsStyle.Sheet, VolumeFraction = 0.3, Enclosure = true, CellSize = s.Scale, Divisions = 4,
+                    Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1, 1, 1) * s.Scale),
+                    Origin = s.Apply(Vector3d.Zero), Rotation = s.Rotation
+                };
+                t.Compute();
+                Assert.True(t.Status == TpmsStatus.Ok || t.Status == TpmsStatus.NotClean || t.Status == TpmsStatus.SelfIntersecting, s.Name + ": " + t.Status + ": " + t.Message);
+                if (!s.IsExact) continue;   // the exact frames: scale a power of two, Origin and Rotation as in the harness
+                Assert.Equal(TpmsStatus.Ok, t.Status);
+                if (reference == null) { reference = t; continue; }
+                Assert.Equal(reference.Mesh.TriangleCount, t.Mesh.TriangleCount);
+                Assert.Equal(reference.RealizedVolumeFraction, t.RealizedVolumeFraction);
+                Assert.Equal("", Invariance.Difference(reference.Mesh, Invariance.MappedBack(t.Mesh, s)));
+            }
+        }
     }
 }
