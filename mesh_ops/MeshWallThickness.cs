@@ -37,7 +37,9 @@ namespace gs
     /// the ray) hit an inconsistently oriented or open part; it is ignored. Points without any valid ray
     /// get NaN, and so do degenerate triangles (area below 1e-12 times the squared bounding box diagonal),
     /// which also do not count as walls. Closed components that are inside out for their nesting, and a mesh that is inside out as
-    /// a whole, are taken with flipped normals (OrientInvertedParts; the mesh is not changed).
+    /// a whole, are taken with flipped normals (OrientInvertedParts; the mesh is not changed). The nesting is read by parity (a closed shell inside an odd
+    /// number of others is a cavity), so an outward shell inside another, eg an insert in a housing, is taken as a cavity too, with the wall normals
+    /// of its surface reversed; that and a real cavity are both legitimate readings of such a mesh. ComponentsFlippedByNesting counts those shells (#1609).
     /// </summary>
     public class MeshWallThickness
     {
@@ -65,6 +67,29 @@ namespace gs
 
         /// <summary> treat inside-out closed components (MeshPostRepairCleanup.FindInvertedComponents) and an inside-out mesh as flipped </summary>
         public bool OrientInvertedParts = true;
+
+        /// <summary>
+        /// The number of closed components of Mesh that OrientInvertedParts takes with flipped normals although they are outward by their own volume (#1609,
+        /// as MeshRobustRepair.ComponentsFlippedByNesting): the nesting is read by parity, a shell inside an odd number of others is a cavity, so an outward
+        /// shell inside another (an insert in a housing) counts. 0 for a mesh without such a shell, for a real cavity (inward inside outward), and with
+        /// OrientInvertedParts false. Nothing is refused: both readings (an insert, a cavity) are legitimate, and the thicknesses follow the parity one
+        /// </summary>
+        public int ComponentsFlippedByNesting
+        {
+            get {
+                if (OrientInvertedParts == false)
+                    return 0;
+                lock (toleranceLock) {
+                    if (nestedSource != Mesh || nestedStamp != Mesh.ShapeTimestamp) {
+                        nestedCount = MeshRepairMetrics.ComponentsFlippedByNesting(Mesh);
+                        nestedSource = Mesh; nestedStamp = Mesh.ShapeTimestamp;
+                    }
+                    return nestedCount;
+                }
+            }
+        }
+        int nestedStamp = -1, nestedCount;
+        DMesh3 nestedSource;
 
         public bool ComputeVertices = true;
         public bool ComputeTriangles = true;

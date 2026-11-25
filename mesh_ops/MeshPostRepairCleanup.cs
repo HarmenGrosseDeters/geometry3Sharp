@@ -471,6 +471,43 @@ namespace gs
         }
 
         /// <summary>
+        /// The two readings of the nesting of mesh (#1566, #1609): reading is WindingContouring.OrientedCopy(mesh) (a closed shell inside an odd number of
+        /// others counts as a cavity and is reversed, FindInvertedComponents), union the plain union of the shells (a component that is outward by its own
+        /// volume is not reversed for lying inside another; the nonzero winding number), count the components that differ (flagged although outward by their
+        /// own volume). Both null and 0 if there is none (no shell can lie inside another, MayHaveNestedShells, or no flagged component is outward)
+        /// </summary>
+        internal static void NestingReadings(DMesh3 b, out DMesh3 reading, out DMesh3 union, out int count)
+        {
+            reading = union = null;
+            count = 0;
+            if (b.TriangleCount == 0)
+                return;
+            // (a shell can only be taken for a cavity inside another: no closed shell whose box lies in another's, no flip)
+            if (MayHaveNestedShells(b) == false)
+                return;
+            var flagged = FindInvertedComponents(b);
+            if (flagged.Count == 0)
+                return;
+            DMesh3 plain = new DMesh3(b, true);
+            foreach (int[] comp in flagged) {
+                bool outward = volume_sign(b, comp) > 0;
+                if (outward)
+                    ++count;
+                foreach (int tid in comp) {
+                    if (outward == false)
+                        plain.ReverseTriOrientation(tid);
+                }
+            }
+            if (count == 0)
+                return;
+            reading = WindingContouring.OrientedCopy(b);
+            Vector3d c = plain.CachedBounds.Center;
+            if (MeshMeasurements.VolumeArea(plain, plain.TriangleIndices(), (vid) => plain.GetVertex(vid) - c).x < 0)
+                plain.ReverseOrientation(false);
+            union = plain;
+        }
+
+        /// <summary>
         /// false if no closed component has its box inside the box of another closed component: then no shell lies inside another, and
         /// FindInvertedComponents flags only the components that are inside out by their own volume. Cheap (components, boxes, a sweep), no exact volume
         /// </summary>
