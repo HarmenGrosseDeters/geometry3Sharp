@@ -333,6 +333,21 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void MeshRepairExample_LostAreaShareIsTheWallOfABox()
+        {
+            // the unit box (area 6) and a slab through it from wall to wall: two interior faces of area 1 are lost, the box is the result
+            DMesh3 input = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(.5, .5, .5), new Vector3d(.5, .5, .5)) }.Generate().MakeDMesh();
+            MeshEditor.Append(input, new TrivialBox3Generator() { Box = new Box3d(new Vector3d(.5, .5, .5), new Vector3d(.5, .05, .5)) }.Generate().MakeDMesh());
+            int lost;
+            double maxDistance;
+            double share = MeshRepairExample.LostAreaShare(input, out lost, out maxDistance);
+            Assert.Equal(2.0 / 8.4, share, 9);
+            Assert.Equal(4, lost);
+            Assert.InRange(maxDistance, 0.4, 0.4501);
+            Assert.Equal(0.0, MeshRepairExample.LostAreaShare(Sphere(1, Vector3d.Zero), out lost, out maxDistance));
+        }
+
+        [Fact]
         public void HoleFillExample_FillsAllHoles()
         {
             DMesh3 mesh = Sphere(1, Vector3d.Zero);

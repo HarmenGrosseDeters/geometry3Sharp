@@ -1,0 +1,88 @@
+--- a/mesh_ops/VectorHeatMethod.cs
++++ b/mesh_ops/VectorHeatMethod.cs
+@@ -80,2 +80,4 @@
+
++        public double[] ProbeScalarImpulse { get; private set; }
++
+         public VectorHeatMethod(DMesh3 mesh)
+@@ -389,2 +391,3 @@
+             ops.Vector.Solve(b, y);
++            ProbeScalarImpulse = phi;
+             Vector2d nan = new Vector2d(double.NaN, double.NaN);
+--- a/benchmarks/CurvatureWeakProbe/Program.cs
++++ b/benchmarks/CurvatureWeakProbe/Program.cs
+@@ -3,2 +3,7 @@
+ using gs;
++
++if (Array.IndexOf(args, "--heat-arrivals") >= 0) {
++    VectorHeatTransportProbe.RunResultantSweep(arrivals: true);
++    return;
++}
+
+--- a/benchmarks/CurvatureWeakProbe/VectorHeatTransportProbe.cs
++++ b/benchmarks/CurvatureWeakProbe/VectorHeatTransportProbe.cs
+@@ -30,5 +30,6 @@
+
+-    public static void RunResultantSweep()
+-    {
+-        Console.WriteLine("resolution schedule fixed-resultant fixed-angle-deg far-count far-mean-resultant far-rms-deg");
++    public static void RunResultantSweep(bool arrivals = false)
++    {
++        Console.WriteLine(arrivals ? "resolution schedule edges max-share closure measured-deg reconstructed-deg reset-deg"
++            : "resolution schedule fixed-resultant fixed-angle-deg far-count far-mean-resultant far-rms-deg");
+         // CubeMapping of (1/2, 1/4, -1) is a vertex on every grid in this sweep.
+@@ -47,2 +48,6 @@
+                     throw new InvalidOperationException("The solver changed the diffusion time.");
++                if (arrivals) {
++                    MeasureArrivals(mesh, heat, moved, fixedVertex, resolution, schedule);
++                    continue;
++                }
+                 double fixedAngle = double.NaN, sumLength = 0, sumSquaredAngle = 0;
+@@ -71,2 +76,47 @@
+         }
++    }
++
++    private static void MeasureArrivals(DMesh3 mesh, VectorHeatMethod heat, Vector2d[] moved,
++        int target, int resolution, string schedule)
++    {
++        var tri = heat.Triangulation;
++        int i = tri.VertexIndex(target);
++        var phi = heat.ProbeScalarImpulse;
++        Vector3d p = mesh.GetVertex(target).Normalized;
++        Vector3d reference = VectorHeatEdgeProbe.GreatCircleTransport(Vector3d.AxisZ, p, Vector3d.AxisX);
++        Vector2d sum = Vector2d.Zero, reset = Vector2d.Zero;
++        double total = 0, largest = 0, diagonal = tri.VertexAreas()[i];
++        int count = 0;
++        for (int h = 0; h < tri.HalfedgeCount; h++) {
++            if (tri.Tail(h) != i) continue;
++            int j = tri.Head(h), neighbor = tri.VertexID(j);
++            int assemblyEdge = Math.Min(h, tri.Twin(h));
++            double c = heat.DiffusionTime * Math.Max(0, tri.CotanWeight(assemblyEdge));
++            if (c == 0) continue;
++            double angle = VectorHeatEdgeProbe.HeadToTailRotation(tri, assemblyEdge);
++            if (assemblyEdge != h) angle = -angle;
++            double cos = Math.Cos(angle), sin = Math.Sin(angle);
++            Vector2d Rotate(Vector2d v) => new Vector2d(cos * v.x - sin * v.y, sin * v.x + cos * v.y);
++
++            double weight = c * phi[j] / phi[i];
++            sum += weight * Rotate(moved[neighbor]);
++            Vector3d q = mesh.GetVertex(neighbor).Normalized;
++            Vector3d exact = VectorHeatEdgeProbe.GreatCircleTransport(Vector3d.AxisZ, q, Vector3d.AxisX);
++            Vector2d corrected = moved[neighbor].Length * tri.FromWorld(neighbor, exact).Normalized;
++            reset += weight * Rotate(corrected);
++            diagonal += c;
++            total += weight;
++            largest = Math.Max(largest, weight);
++            count++;
++        }
++        sum /= diagonal;
++        double closure = Math.Max(Math.Abs(total / diagonal - 1), (sum - moved[target]).Length);
++        if (!(closure < 1e-10) || !(reset.Length > 0))
++            throw new InvalidOperationException("The reconstructed scalar or vector row failed to close.");
++        double Error(Vector2d v) {
++            Vector3d world = tri.ToWorld(target, v.Normalized);
++            return AngleDegrees(reference, world - world.Dot(p) * p);
++        }
++        Console.WriteLine($"{resolution} {schedule} {count} {largest / total:G9} {closure:G3} " +
++            $"{Error(moved[target]):G9} {Error(sum):G9} {Error(reset):G9}");
+     }
