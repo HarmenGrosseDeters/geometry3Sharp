@@ -179,5 +179,29 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", r.ResultReason);
             Assert.Equal(8 - Math.Pow(2 * inner, 3), Invariance.Volume(r.Mesh), 6);
         }
+
+        // a fallback that returns the other reading: the alpha wrap of the input is solid (the union of the shells), so it is no result "taken as cavity"
+        // and is not refused, whatever the two readings differ by (found by review; Apply() used to be false here with the wrap in Mesh)
+        [Fact]
+        public void WrapResultThatFollowsTheUnion_IsNotRefused()
+        {
+            var r = new MeshRobustRepair(Nested(0.8, false)) { RepairF = x => new DMesh3(), ExactResolve = false, SolidifyResolution = 4 };
+            bool ok = r.Apply();
+            Assert.Equal(1, Flipped(r));
+            Assert.Equal(MeshRobustRepair.ResultPaths.AlphaWrap, r.ResultPath);
+            Assert.True(Invariance.Volume(r.Mesh) > 8, "volume " + Invariance.Volume(r.Mesh));      // (solid: no cavity of volume 4.096)
+            Assert.True(ok, r.ResultReason);
+            Assert.Equal("", r.ResultReason);
+        }
+
+        // the same input where the result is the cavity reading: refused, by every path
+        [Fact]
+        public void FallbackResultThatFollowsTheCavity_IsRefused()
+        {
+            var r = new MeshRobustRepair(Nested(0.8, false)) { RepairF = x => new DMesh3(), ExactResolve = false, SolidifyResolution = 64 };
+            Assert.False(r.Apply());
+            Assert.StartsWith(AmbiguousText(), r.ResultReason);
+            Assert.Equal(3.904, Invariance.Volume(r.Mesh), 3);
+        }
     }
 }

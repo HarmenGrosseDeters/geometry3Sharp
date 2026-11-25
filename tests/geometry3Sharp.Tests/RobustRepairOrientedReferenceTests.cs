@@ -224,13 +224,17 @@ namespace geometry3Sharp.Tests
         }
 
         // all similarities: the box comes back (volume scaled); the 2^k scales bit for bit
-        [Fact]
-        public void FlippedSoup_Invariance()
+        static readonly Lazy<MeshRobustRepair> InvarianceIdentity = new Lazy<MeshRobustRepair>(() => Run(Soup(Box(), EveryKth(5))));
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void FlippedSoup_Invariance(string name)
         {
             DMesh3 soup = Soup(Box(), EveryKth(5));
-            MeshRobustRepair id = Run(soup);
-            foreach (Similarity s in Similarity.All()) {
-                MeshRobustRepair r = Run(Invariance.Transformed(soup, s));
+            MeshRobustRepair id = InvarianceIdentity.Value;
+            Similarity s = Similarity.ByName(name);
+            {
+                MeshRobustRepair r = s == Similarity.Identity ? id : Run(Invariance.Transformed(soup, s));
                 Assert.True(r.ResultReason == "", s.Name + ": " + r.ResultReason);
                 AssertClean(r, s.Name);
                 double v = Invariance.Volume(r.Mesh) / (s.Scale * s.Scale * s.Scale);
@@ -251,6 +255,32 @@ namespace geometry3Sharp.Tests
                     Assert.Equal(BitConverter.DoubleToInt64Bits(id.ResultVolumeIoU), BitConverter.DoubleToInt64Bits(r.ResultVolumeIoU));
                 }
             }
+        }
+
+        // the WELDED box of the demos comment of #1548 (a grid box with shared vertices) with every k-th triangle reversed: the input is consistent
+        // in no edge, the repair result is accepted against the oriented reference (path Repair), where the raw winding number gives IoU far below
+        // MinVolumeIoU and the repair would fall back
+        [Theory]
+        [InlineData(2)]
+        [InlineData(3)]
+        [InlineData(4)]
+        public void WeldedFlippedBox_RepairIsAcceptedAgainstTheOrientedReference(int k)
+        {
+            var g = new GridBox3Generator { EdgeVertices = 10 };
+            g.Generate();
+            DMesh3 m = g.MakeDMesh();
+            double volume = Invariance.Volume(m);
+            int i = 0;
+            foreach (int tid in m.TriangleIndices().ToArray())
+                if (i++ % k == k - 1)
+                    m.ReverseTriOrientation(tid);
+            MeshRobustRepair r = Run(m);
+            AssertClean(r, "welded k=" + k);
+            Assert.Equal("", r.ResultReason);
+            Assert.Equal(volume, Invariance.Volume(r.Mesh), 6);
+            Assert.True(r.RepairVolumeIoU >= 0.99, "repair IoU " + r.RepairVolumeIoU);
+            Assert.True(r.ResultVolumeIoU >= 0.99, "result IoU " + r.ResultVolumeIoU);
+            Assert.Equal(MeshRobustRepair.ResultPaths.Repair, r.ResultPath);
         }
 
         // Inputs that are welded and consistently oriented: the reference is the input itself, the results are those of master (SHA-256 of the

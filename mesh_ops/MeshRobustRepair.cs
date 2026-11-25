@@ -667,10 +667,14 @@ namespace gs
             bool far = parts != null && global_scale_share(Mesh) > 0;
             DMesh3 givenInput = MeasureResultVolumeIoU || MeasureLostArea ? new DMesh3(Mesh) : null;
             // (the solid the volume checks used, for ResultVolumeIoU: see OrientedReference)
-            DMesh3 givenSolid = MeasureResultVolumeIoU ? (OrientedReference(givenInput) ?? givenInput) : null;
+            // the welded, oriented copy of the input, once for the whole Apply() (apply_core, the volume IoU and the nesting reading take it)
+            givenWelded = WeldedOriented(Mesh);
+            givenFor = Mesh;
+            givenStamp = Mesh.ShapeTimestamp;
+            DMesh3 givenSolid = MeasureResultVolumeIoU ? (givenWelded != null ? WindingContouring.OrientedCopy(givenWelded) : givenInput) : null;
             DMesh3 nestedReading, nestedUnion;
             int nested;
-            nesting_references(Mesh, out nestedReading, out nestedUnion, out nested);
+            nesting_references(Mesh, givenWelded, out nestedReading, out nestedUnion, out nested);
             bool ok = apply_checked();
             if (ok == false && parts != null)
                 skipped = "not reached";
@@ -696,8 +700,16 @@ namespace gs
                 var readingSolid = new MeshRepairMetrics.SolidReference(nestedReading);
                 var unionSolid = MeshRepairMetrics.SolidReference.Unoriented(nestedUnion);
                 if (MeshRepairMetrics.VolumeIoUAtLeast(readingSolid, unionSolid, MinVolumeIoU, out nestingIoU, useCells: SampleCellsInVolumeCheck, childBudget: SampleCellsChildBudget) == false) {
-                    ResultReason = ResultReason == "" ? NestingAmbiguous : NestingAmbiguous + "; " + ResultReason;
-                    ok = false;
+                    // only a result that follows the cavity reading is refused: a fallback can return the union (the alpha wrap of the input, a resolve of
+                    // it), which is the other reading, chosen and visible in ComponentsFlippedByNesting
+                    var resultSolid = MeshRepairMetrics.SolidReference.Unoriented(Mesh);
+                    double toReading, toUnion;
+                    MeshRepairMetrics.VolumeIoUAtLeast(readingSolid, resultSolid, 1.0, out toReading, useCells: SampleCellsInVolumeCheck, childBudget: SampleCellsChildBudget);
+                    MeshRepairMetrics.VolumeIoUAtLeast(unionSolid, resultSolid, 1.0, out toUnion, useCells: SampleCellsInVolumeCheck, childBudget: SampleCellsChildBudget);
+                    if (!(toUnion > toReading)) {
+                        ResultReason = ResultReason == "" ? NestingAmbiguous : NestingAmbiguous + "; " + ResultReason;
+                        ok = false;
+                    }
                 }
             }
             // (a cancel during the report is a cancel: false, as in every stage; the result stays in Mesh)
@@ -942,7 +954,9 @@ namespace gs
             DMesh3 input = new DMesh3(Mesh);
             // the input's solid for the volume checks and the fallbacks: an oriented, welded copy if the input is unwelded or its triangles
             // disagree in orientation (#1548), else the input itself
-            DMesh3 reference = OrientedReference(input) ?? input;
+            // (the welded copy of apply_reported, if Mesh is still the mesh it took it from; a pass-through of parts repairs another mesh)
+            DMesh3 reference = (givenFor == Mesh && givenStamp == Mesh.ShapeTimestamp)
+                ? (givenWelded != null ? WindingContouring.OrientedCopy(givenWelded) : input) : OrientedReference(input) ?? input;
             bool disparity = global_scale_share(input) > 0;
             // far parts for the repair stage and the first resolve: few closed components (a cracked or unwelded surface, a soup, has many
             // open pieces that are no separate parts: its tolerances stay relative to the whole)
@@ -1304,6 +1318,9 @@ namespace gs
         /// (MeshRepairOrientation.OrientComponents, the step of MeshAutoRepair), then the whole (WindingContouring.OrientedCopy). A
         /// welded, consistently oriented input gets null, and so the unchanged behaviour
         /// </summary>
+        DMesh3 givenWelded, givenFor;
+        int givenStamp;
+
         internal static DMesh3 OrientedReference(DMesh3 input)
         {
             DMesh3 welded = WeldedOriented(input);
@@ -1431,19 +1448,22 @@ namespace gs
         /// ResultReason of an Apply() that is false because the input has outward shells inside others (ComponentsFlippedByNesting above 0) that the
         /// repair took for cavities, and the solid with them taken for cavities differs from the plain union of the input's shells by more than
         /// 1 - MinVolumeIoU: the input is ambiguous (an insert inside a housing, or a cavity modelled with the wrong orientation), and the repair
-        /// does not decide it silently. The result (the reading as cavities) stays in Mesh. Any earlier ResultReason follows after "; "
+        /// does not decide it silently. Only a result that follows the cavity reading is refused (a fallback can return the union); it stays in Mesh. Any earlier ResultReason follows after "; "
         /// </summary>
         public const string NestingAmbiguous = "nesting ambiguous: inner shells taken as cavities";
 
         // the solid of the input as the repair reads its nesting (reference) and as the plain union of its shells (a component outward by its own
         // volume is not reversed for lying inside another); count: the components that differ, 0 if the two are the same solid
-        static void nesting_references(DMesh3 given, out DMesh3 reading, out DMesh3 union, out int count)
+        internal static void nesting_references(DMesh3 given, DMesh3 welded, out DMesh3 reading, out DMesh3 union, out int count)
         {
             reading = union = null;
             count = 0;
             if (given.TriangleCount == 0)
                 return;
-            DMesh3 b = WeldedOriented(given) ?? given;
+            // (a shell can only be taken for a cavity inside another: no closed shell whose box lies in another's, no flip)
+            if (MeshPostRepairCleanup.MayHaveNestedShells(welded ?? given) == false)
+                return;
+            DMesh3 b = welded ?? given;
             var flagged = MeshPostRepairCleanup.FindInvertedComponents(b);
             if (flagged.Count == 0)
                 return;
