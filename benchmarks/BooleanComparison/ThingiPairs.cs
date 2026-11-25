@@ -43,7 +43,7 @@ static class ThingiPairs
         return 0;
     }
 
-    static void Normalize(DMesh3 m, Quaterniond rotation, Vector3d translation)
+    internal static void Normalize(DMesh3 m, Quaterniond rotation, Vector3d translation)
     {
         AxisAlignedBox3d bounds = m.CachedBounds;
         Vector3d c = bounds.Center;

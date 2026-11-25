@@ -8,7 +8,8 @@
 // every sign), a floating-point filter with the BigInteger fallback, and floating point only (the idealised floor: no
 // certified answer, only the time). The filter's error bound is a prototype bound, not a reviewed one.
 //
-// Usage: BooleanComparison certify [selftest | cost [reps] | scale [reps] | scale-c2a [reps] | removed]
+// Usage: BooleanComparison certify [selftest | cost [reps] | scale [reps] | scale-c2a [reps] | removed | thingi ...]
+// (certify thingi: the checker on Thingi10K cases, CertifyThingi.cs)
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -668,6 +669,7 @@ static class Certify
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
         CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
         string what = args.Length > 0 ? args[0] : "cost";
+        if (what == "thingi") return CertifyThingi.Run(args.Skip(1).ToArray());
         int reps = args.Length > 1 ? int.Parse(args[1], CultureInfo.InvariantCulture) : 5;
         switch (what) {
             case "selftest": return SelfTest();
