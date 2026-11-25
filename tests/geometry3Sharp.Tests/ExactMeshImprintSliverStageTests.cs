@@ -216,7 +216,7 @@ namespace geometry3Sharp.Tests
         // the curve and keeps the target's vertices
         internal static void AssertOneSliverLeftByTheLinkCondition(DMesh3 a, DMesh3 b, bool neutral)
         {
-            ExactMeshImprint now = Run(a, b, true, neutral);
+            ExactMeshImprint now = Run(a, b, true, neutral, joint: false);
             Assert.True(now.Rounding.FollowStageRan);
             Assert.False(now.RoundingClean);
             Assert.Equal(1, now.Rounding.RemainingDegenerate);
@@ -241,18 +241,19 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void KnownLimit_WithTheJointMove_TheSliverIsRepaired_NothingElseMoves()
+        public void LinkConditionLimit_WithTheJointMove_TheSliverIsRepaired_NothingElseMoves()
         {
-            // the same state as the known limit above, with the repair's last stage (#1465): the two free corners of the sliver move together
-            DMesh3 a = ExactMeshImprintSliverTests.Shape("cylinder"), b = ExactMeshImprintSliverTests.Shifted(a, 2, -1);
-            ExactMeshImprint limit = Run(b, a, true, joint: false), now = Run(b, a, true, joint: true);
+            // the same state as the limit of the box test above (neutral contractions off: the link condition leaves one sliver), with the
+            // repair's last stage (#1465): the two free corners of the sliver move together
+            DMesh3 a = Invariance.Transformed(ExactMeshImprintSliverTests.Shape("box"), Similarity.Utm), b = ExactMeshImprintSliverTests.Shifted(a, 2, 1);
+            ExactMeshImprint limit = Run(a, b, true, neutral: false, joint: false), now = Run(a, b, true, neutral: false, joint: true);
             Assert.Equal(1, limit.Rounding.RemainingDegenerate);
             Assert.True(now.RoundingClean);
             Assert.Equal(0, now.Rounding.RemainingDegenerate);
             Assert.Equal(1, now.Rounding.JointMoves);
             Assert.True(now.Result.IsClosed());
-            foreach (int v in b.VertexIndices())
-                Assert.Equal(b.GetVertex(v), now.Result.GetVertex(v));
+            foreach (int v in a.VertexIndices())
+                Assert.Equal(a.GetVertex(v), now.Result.GetVertex(v));
             Assert.Equal(limit.CurveEdges.Count, now.CurveEdges.Count);
             foreach (long k in now.CurveEdges)
                 Assert.True(now.Result.FindEdge((int)(k >> 32), (int)(k & 0xFFFFFFFF)) >= 0);
