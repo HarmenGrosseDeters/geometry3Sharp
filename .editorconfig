@@ -30,7 +30,7 @@ dotnet_diagnostic.CS1591.severity = none
 # TriangleTriangleFilter), the certified determinant of the patch bound (queries/CertifiedDet3.cs), the polyhedral envelope, the terrain slope design (TerrainSlope*: the oracle and the
 # envelope, docs/design/TERRAIN_1A_PLAN.md), and the snap rounding grid (SnapRounding2: SnapGrid's exact tests and their double
 # filters), and the exact tests of the contouring's topology certificate (ContouringTopologyCertificate)
-[{comp_geom/SnapRounding2.cs,queries/CertifiedDet3.cs,math/Exact*.cs,math/AdaptivePredicates.cs,math/FixedPoint3.cs,math/Generated/*.cs,mesh_ops/ExactMesh*.cs,mesh_ops/ExactTriangulation2.cs,mesh_ops/ExactPlanarSimplify.cs,mesh_ops/PolyhedralEnvelope.cs,intersection/ExactTriangleIntersection.cs,intersection/TriangleTriangleFilter.cs,intersection/ContinuousCollision.cs,mesh_ops/TerrainSlope*.cs,mesh_ops/ContouringTopologyCertificate.cs}]
+[{comp_geom/SnapRounding2.cs,queries/CertifiedDet3.cs,intersection/IntrExactBox3.cs,math/Exact*.cs,math/AdaptivePredicates.cs,math/FixedPoint3.cs,math/Generated/*.cs,mesh_ops/ExactMesh*.cs,mesh_ops/ExactTriangulation2.cs,mesh_ops/ExactPlanarSimplify.cs,mesh_ops/PolyhedralEnvelope.cs,intersection/ExactTriangleIntersection.cs,intersection/TriangleTriangleFilter.cs,intersection/ContinuousCollision.cs,mesh_ops/TerrainSlope*.cs,mesh_ops/ContouringTopologyCertificate.cs}]
 dotnet_diagnostic.RS0030.severity = error
 dotnet_diagnostic.G3E0001.severity = error
 dotnet_diagnostic.G3E0002.severity = error
@@ -49,7 +49,7 @@ dotnet_diagnostic.G3E0004.severity = error
 # member of another assembly that it uses is on the allow list DeterministicApis.txt with the reason why its result is
 # specified on every runtime, and the environment-dependent constructs (#if, double -> integer casts, [SkipLocalsInit],
 # restricted members) are registered there (G3D0001-9, tools/analyzers/G3ExactCodeAnalyzers/DeterminismAnalyzers.cs)
-[{math/ExactIntervals.cs,math/ExactPoint3.cs,math/ExactPredicates.cs,math/ExactRayTriangle.cs,math/ExactSlopeKernel.cs,math/ExactSlopePredicates.cs,math/AdaptivePredicates.cs,math/FixedPoint3.cs,math/ExactLimbSigns.cs,math/ExactLimbPrepared.cs,math/Generated/IndirectPredicates.cs,math/Generated/DoublePredicates.cs,intersection/ExactTriangleIntersection.cs,intersection/TriangleTriangleFilter.cs,mesh_ops/ExactTriangulation2.cs,mesh_ops/ExactPlanarSimplify.cs,comp_geom/SnapRounding2.cs,mesh_ops/ExactMeshArrangement.cs}]
+[{math/ExactIntervals.cs,math/ExactPoint3.cs,math/ExactPredicates.cs,math/ExactRayTriangle.cs,math/ExactSlopeKernel.cs,math/ExactSlopePredicates.cs,math/AdaptivePredicates.cs,math/FixedPoint3.cs,math/ExactLimbSigns.cs,math/ExactLimbPrepared.cs,math/Generated/IndirectPredicates.cs,math/Generated/DoublePredicates.cs,intersection/ExactTriangleIntersection.cs,intersection/TriangleTriangleFilter.cs,mesh_ops/ExactTriangulation2.cs,mesh_ops/ExactPlanarSimplify.cs,comp_geom/SnapRounding2.cs,mesh_ops/ExactMeshArrangement.cs,mesh_ops/ExactMeshBoolean.cs}]
 dotnet_diagnostic.G3D0001.severity = error
 dotnet_diagnostic.G3D0002.severity = error
 dotnet_diagnostic.G3D0005.severity = error

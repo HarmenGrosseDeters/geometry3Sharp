@@ -9,7 +9,7 @@
       "**/mesh_ops/ExactPlanarSimplify.cs",
       "**/mesh_ops/ExactTriangulation2.cs"
     ],
-    "test-case-filter": "FullyQualifiedName~ExactPlanarSimplifyTests|FullyQualifiedName~ExactPlanarSimplifyEarClipTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~ExactMeshBooleanTests.|FullyQualifiedName~ExactTriangulation2Tests",
+    "test-case-filter": "FullyQualifiedName~ExactPlanarSimplifyTests|FullyQualifiedName~ExactPlanarSimplifyEarClipTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~ExactMeshBooleanTests.|FullyQualifiedName~ExactTriangulation2Tests|FullyQualifiedName~ExactBooleanInputOrderTests",
     "ignore-methods": [
       "*PredicateStats.*"
     ],

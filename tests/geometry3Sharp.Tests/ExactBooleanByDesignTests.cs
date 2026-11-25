@@ -48,7 +48,7 @@ namespace geometry3Sharp.Tests
             Assert.False(open.IsClosed());
             DMesh3 bar = Box(0.25, -0.5, 0.5, 0.75, 0.5, 1.5);
             foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {
-                var boolean = new ExactMeshBoolean(open, bar, op);
+                var boolean = new ExactMeshBoolean(open, bar, op) { AllowOpenMeshes = true };
                 Assert.True(boolean.Compute(), boolean.Error);
                 Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, boolean.Status);
                 Assert.False(boolean.ExactWindingA);

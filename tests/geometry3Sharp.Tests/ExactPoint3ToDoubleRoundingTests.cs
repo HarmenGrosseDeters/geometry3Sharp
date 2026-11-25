@@ -6,7 +6,7 @@ using Xunit;
 namespace geometry3Sharp.Tests
 {
     /// <summary>
-    /// ExactPoint3.ToDoubleRounded: num / den * 2^scaleExp correctly rounded to nearest, ties to even, in one rounding also in the
+    /// ExactPoint3.ToDouble (and its internal twin ToDoubleRounded, which must give the same bits, issue #1410): num / den * 2^scaleExp correctly rounded to nearest, ties to even, in one rounding also in the
     /// subnormal range, compared with an exact rational check (the result is no farther from the value than either neighbouring double, and
     /// the even one of two equally near ones) that does not use the library's arithmetic.
     /// </summary>
@@ -43,6 +43,19 @@ namespace geometry3Sharp.Tests
 
         static readonly BigInteger MaxDouble = ((BigInteger.One << 53) - 1) << 971;                 // 2^1024 - 2^971
         static readonly BigInteger OverflowTie = (BigInteger.One << 1024) - (BigInteger.One << 970);  // max + half an ulp
+
+        // ToDouble delegates to ToDoubleRounded (den > 0), so comparing the two proves nothing (#1489): the result is checked against the oracle of this
+        // class (the exact rational, the two neighbouring doubles, ties to even; AssertCorrectlyRounded)
+        static double Conv(BigInteger num, BigInteger den, int scaleExp)
+        {
+            double a = ExactPoint3.ToDouble(num, den, scaleExp);
+            // (the oracle builds 2^scaleExp as an integer: not for the exponents near the int limits, which the assertions of their tests pin by hand)
+            if (Math.Abs((long)scaleExp) <= 6000)
+                AssertCorrectlyRounded(num, den, scaleExp, a, $"{num} / {den} * 2^{scaleExp}");
+            return a;
+        }
+
+        static long Next62(Random r) { return ((long)r.Next() << 31) ^ r.Next(); }
 
         static void AssertCorrectlyRounded(BigInteger num, BigInteger den, int scaleExp, double got, string what)
         {
@@ -97,7 +110,7 @@ namespace geometry3Sharp.Tests
                 BigInteger num = BigInteger.Abs(Random(r, r.Next(1, 300))) + 1, den = BigInteger.Abs(Random(r, r.Next(1, 300))) + 1;
                 if (r.Next(3) == 0) num = -num;
                 int sc = r.Next(-60, 60) + (r.Next(4) == 0 ? r.Next(-1100, 1100) : 0);
-                AssertCorrectlyRounded(num, den, sc, ExactPoint3.ToDoubleRounded(num, den, sc), $"case {i}");
+                AssertCorrectlyRounded(num, den, sc, Conv(num, den, sc), $"case {i}");
             }
         }
 
@@ -106,14 +119,14 @@ namespace geometry3Sharp.Tests
         {
             // a quotient just below 1 whose 64-bit truncation rounds toward zero in (double)q: 1 - 2^-60 rounds to 1 (nearest), not to 1 - 2^-53
             BigInteger one = BigInteger.One;
-            double got = ExactPoint3.ToDoubleRounded((one << 60) - 1, one << 60, 0);
+            double got = Conv((one << 60) - 1, one << 60, 0);
             Assert.Equal(1.0, got);
             // 3 / 7 (inexact): the correctly rounded double
-            Assert.Equal(3.0 / 7.0, ExactPoint3.ToDoubleRounded(3, 7, 0));
-            Assert.Equal(1.0 / 3.0, ExactPoint3.ToDoubleRounded(1, 3, 0));
-            Assert.Equal(2.0 / 3.0, ExactPoint3.ToDoubleRounded(2, 3, 0));
-            Assert.Equal(-10.0 / 7.0, ExactPoint3.ToDoubleRounded(-10, 7, 0));
-            Assert.Equal(0.1, ExactPoint3.ToDoubleRounded(1, 10, 0));
+            Assert.Equal(3.0 / 7.0, Conv(3, 7, 0));
+            Assert.Equal(1.0 / 3.0, Conv(1, 3, 0));
+            Assert.Equal(2.0 / 3.0, Conv(2, 3, 0));
+            Assert.Equal(-10.0 / 7.0, Conv(-10, 7, 0));
+            Assert.Equal(0.1, Conv(1, 10, 0));
         }
 
         [Fact]
@@ -122,14 +135,14 @@ namespace geometry3Sharp.Tests
             BigInteger one = BigInteger.One;
             BigInteger p53 = one << 53;
             // 2^53 + 1 is the middle of 2^53 and 2^53 + 2: ties to the even mantissa 2^53; 2^53 + 3 goes to 2^53 + 4
-            Assert.Equal(9007199254740992.0, ExactPoint3.ToDoubleRounded(p53 + 1, 1, 0));
-            Assert.Equal(9007199254740996.0, ExactPoint3.ToDoubleRounded(p53 + 3, 1, 0));
+            Assert.Equal(9007199254740992.0, Conv(p53 + 1, 1, 0));
+            Assert.Equal(9007199254740996.0, Conv(p53 + 3, 1, 0));
             // the same ties as quotients and with exponents
-            Assert.Equal(9007199254740992.0 * 1024, ExactPoint3.ToDoubleRounded((p53 + 1) * 5, 5, 10));
+            Assert.Equal(9007199254740992.0 * 1024, Conv((p53 + 1) * 5, 5, 10));
             // a tie plus a sticky bit goes up
-            Assert.Equal(9007199254740994.0, ExactPoint3.ToDoubleRounded(((p53 + 1) << 100) + 1, one << 100, 0));
+            Assert.Equal(9007199254740994.0, Conv(((p53 + 1) << 100) + 1, one << 100, 0));
             // and a tie minus a sticky bit goes down
-            Assert.Equal(9007199254740992.0, ExactPoint3.ToDoubleRounded(((p53 + 1) << 100) - 1, one << 100, 0));
+            Assert.Equal(9007199254740992.0, Conv(((p53 + 1) << 100) - 1, one << 100, 0));
         }
 
         [Fact]
@@ -137,23 +150,28 @@ namespace geometry3Sharp.Tests
         {
             BigInteger one = BigInteger.One;
             // the smallest subnormal 2^-1074 and its half: 2^-1075 is a tie to the even 0; just above it rounds up, just below to 0
-            Assert.Equal(double.Epsilon, ExactPoint3.ToDoubleRounded(one, 1, -1074));
-            Assert.Equal(0.0, ExactPoint3.ToDoubleRounded(one, 1, -1075));
-            Assert.Equal(double.Epsilon, ExactPoint3.ToDoubleRounded((one << 10) + 1, one << 10, -1075));
-            Assert.Equal(0.0, ExactPoint3.ToDoubleRounded((one << 10) - 1, one << 10, -1075));
-            Assert.Equal(-0.0, ExactPoint3.ToDoubleRounded(-one, 1, -1075));
-            Assert.Equal(long.MinValue, BitConverter.DoubleToInt64Bits(ExactPoint3.ToDoubleRounded(-one, 1, -1075)));
+            Assert.Equal(double.Epsilon, Conv(one, 1, -1074));
+            Assert.Equal(0.0, Conv(one, 1, -1075));
+            Assert.Equal(double.Epsilon, Conv((one << 10) + 1, one << 10, -1075));
+            Assert.Equal(0.0, Conv((one << 10) - 1, one << 10, -1075));
+            Assert.Equal(-0.0, Conv(-one, 1, -1075));
+            Assert.Equal(long.MinValue, BitConverter.DoubleToInt64Bits(Conv(-one, 1, -1075)));
             // 1.5 * 2^-1074 ties to even: 2 * 2^-1074
-            Assert.Equal(2 * double.Epsilon, ExactPoint3.ToDoubleRounded(3, 2, -1074));
+            Assert.Equal(2 * double.Epsilon, Conv(3, 2, -1074));
             // the boundary between the largest subnormal and the smallest normal: 2^-1022 - 2^-1075 is a tie between them
             BigInteger tie = (one << 53) - 1;      // (2^53 - 1) * 2^-1075 = 2^-1022 - 2^-1075
-            Assert.Equal(Math.Pow(2, -1022), ExactPoint3.ToDoubleRounded(tie, 1, -1075));       // the even one is the normal 2^-1022
-            Assert.Equal(Math.Pow(2, -1022) - double.Epsilon, ExactPoint3.ToDoubleRounded(tie - 1, 1, -1075));
-            // a value within the subnormals rounds at the grid, not first to 53 bits: (2^60 + 2^6 + 1) 2^-1130 is above the middle of two units
+            Assert.Equal(Math.Pow(2, -1022), Conv(tie, 1, -1075));       // the even one is the normal 2^-1022
+            Assert.Equal(Math.Pow(2, -1022) - double.Epsilon, Conv(tie - 1, 1, -1075));
+            // double rounding: (1 + 2^-60) 2^-1075 lies just above the tie between 0 and 2^-1074, so it is 2^-1074; rounding to 53 bits first
+            // (giving exactly 2^-1075) and then to the grid would give a tie to 0 (review of #1410)
+            Assert.Equal(double.Epsilon, Conv((one << 60) + 1, one << 60, -1075));
+            Assert.Equal(-double.Epsilon, Conv(-((one << 60) + 1), one << 60, -1075));
+            Assert.Equal(0.0, Conv((one << 60) - 1, one << 60, -1075));
+            // a value within the subnormals checked against the oracle: (2^60 + 2^6 + 1) 2^-1130 is 16 units plus a tiny amount
             BigInteger v = (one << 60) + (one << 6) + 1;
-            AssertCorrectlyRounded(v, 1, -1130, ExactPoint3.ToDoubleRounded(v, 1, -1130), "double rounding");
+            AssertCorrectlyRounded(v, 1, -1130, Conv(v, 1, -1130), "double rounding");
             for (int k = 0; k < 200; k++)
-                AssertCorrectlyRounded((one << 53) + k, 1, -1074 - 53 - 1 + (k % 5), ExactPoint3.ToDoubleRounded((one << 53) + k, 1, -1074 - 53 - 1 + (k % 5)), "subnormal " + k);
+                AssertCorrectlyRounded((one << 53) + k, 1, -1074 - 53 - 1 + (k % 5), Conv((one << 53) + k, 1, -1074 - 53 - 1 + (k % 5)), "subnormal " + k);
         }
 
         [Fact]
@@ -161,25 +179,25 @@ namespace geometry3Sharp.Tests
         {
             BigInteger one = BigInteger.One;
             double max = double.MaxValue;
-            Assert.Equal(max, ExactPoint3.ToDoubleRounded(MaxDouble, 1, 0));
+            Assert.Equal(max, Conv(MaxDouble, 1, 0));
             // the tie between the largest double and 2^1024 goes to the even 2^1024: an infinity; one below it is the largest double
-            Assert.Equal(double.PositiveInfinity, ExactPoint3.ToDoubleRounded(OverflowTie, 1, 0));
-            Assert.Equal(max, ExactPoint3.ToDoubleRounded(OverflowTie - 1, 1, 0));
-            Assert.Equal(double.NegativeInfinity, ExactPoint3.ToDoubleRounded(-OverflowTie, 1, 0));
-            Assert.Equal(max, ExactPoint3.ToDoubleRounded(OverflowTie * 3 - 3, 3, 0));
-            Assert.Equal(double.PositiveInfinity, ExactPoint3.ToDoubleRounded(1, 1, 5000));
-            Assert.Equal(0.0, ExactPoint3.ToDoubleRounded(1, 1, -5000));
-            Assert.Equal(0.0, ExactPoint3.ToDoubleRounded(1, 1, -1000000000));
-            Assert.Equal(double.PositiveInfinity, ExactPoint3.ToDoubleRounded(1, 1, 1000000000));
+            Assert.Equal(double.PositiveInfinity, Conv(OverflowTie, 1, 0));
+            Assert.Equal(max, Conv(OverflowTie - 1, 1, 0));
+            Assert.Equal(double.NegativeInfinity, Conv(-OverflowTie, 1, 0));
+            Assert.Equal(max, Conv(OverflowTie * 3 - 3, 3, 0));
+            Assert.Equal(double.PositiveInfinity, Conv(1, 1, 5000));
+            Assert.Equal(0.0, Conv(1, 1, -5000));
+            Assert.Equal(0.0, Conv(1, 1, -1000000000));
+            Assert.Equal(double.PositiveInfinity, Conv(1, 1, 1000000000));
             // an exponent near the int limits must not wrap around (num much larger than den makes the shift negative)
-            Assert.Equal(double.PositiveInfinity, ExactPoint3.ToDoubleRounded(one << 100, 1, int.MaxValue));
-            Assert.Equal(double.PositiveInfinity, ExactPoint3.ToDoubleRounded(one << 100, 1, int.MaxValue - 10));
-            Assert.Equal(double.NegativeInfinity, ExactPoint3.ToDoubleRounded(-(one << 100), 1, int.MaxValue - 1));
-            Assert.Equal(double.PositiveInfinity, ExactPoint3.ToDoubleRounded(one << 5000, 1, int.MaxValue - 4000));
-            Assert.Equal(0.0, ExactPoint3.ToDoubleRounded(one << 100, 1, int.MinValue + 60));
-            Assert.Equal(0.0, ExactPoint3.ToDoubleRounded(1, one << 5000, int.MinValue));
-            Assert.Equal(double.PositiveInfinity, ExactPoint3.ToDoubleRounded(1, 1, int.MaxValue));
-            Assert.Equal(Math.Pow(2, -100), ExactPoint3.ToDoubleRounded(one << 5000, one << 3000, -2100));      // 2^2000 * 2^-2100
+            Assert.Equal(double.PositiveInfinity, Conv(one << 100, 1, int.MaxValue));
+            Assert.Equal(double.PositiveInfinity, Conv(one << 100, 1, int.MaxValue - 10));
+            Assert.Equal(double.NegativeInfinity, Conv(-(one << 100), 1, int.MaxValue - 1));
+            Assert.Equal(double.PositiveInfinity, Conv(one << 5000, 1, int.MaxValue - 4000));
+            Assert.Equal(0.0, Conv(one << 100, 1, int.MinValue + 60));
+            Assert.Equal(0.0, Conv(1, one << 5000, int.MinValue));
+            Assert.Equal(double.PositiveInfinity, Conv(1, 1, int.MaxValue));
+            Assert.Equal(Math.Pow(2, -100), Conv(one << 5000, one << 3000, -2100));      // 2^2000 * 2^-2100
         }
 
         [Fact]
@@ -188,26 +206,162 @@ namespace geometry3Sharp.Tests
             var r = new Random(77);
             for (int i = 0; i < 500; i++) {
                 BigInteger num = BigInteger.Abs(Random(r, r.Next(1, 200))) + 1, den = BigInteger.Abs(Random(r, r.Next(1, 200))) + 1;
-                double basis = ExactPoint3.ToDoubleRounded(num, den, 0);
+                double basis = Conv(num, den, 0);
                 foreach (int k in new[] { -300, -37, 5, 100, 400 }) {
-                    double scaled = ExactPoint3.ToDoubleRounded(num, den, k);
+                    double scaled = Conv(num, den, k);
                     Assert.Equal(BitConverter.DoubleToInt64Bits(basis * Math.Pow(2, k)), BitConverter.DoubleToInt64Bits(scaled));
                 }
             }
         }
 
         [Fact]
-        public void ToDouble_IsWithinOneUlp_AsDocumented()
+        public void ToDouble_IsCorrectlyRounded_RandomIncludingNegativeDenominators()
         {
-            // the conversion of the exact pipeline is not correctly rounded by design: within 1 ulp of the correctly rounded value
             var r = new Random(1411);
-            for (int i = 0; i < 2000; i++) {
+            for (int i = 0; i < 3000; i++) {
                 BigInteger num = BigInteger.Abs(Random(r, r.Next(1, 200))) + 1, den = BigInteger.Abs(Random(r, r.Next(1, 200))) + 1;
-                int sc = r.Next(-300, 300);
-                double exact = ExactPoint3.ToDoubleRounded(num, den, sc), got = ExactPoint3.ToDouble(num, den, sc);
-                Assert.True(got == exact || got == Up(exact) || got == Down(exact), $"case {i}: {got:R} against {exact:R}");
+                if (r.Next(2) == 0) num = -num;
+                int sc = r.Next(-300, 300) + (r.Next(5) == 0 ? r.Next(-1100, 1100) : 0);
+                double got = ExactPoint3.ToDouble(num, den, sc);
+                AssertCorrectlyRounded(num, den, sc, got, $"case {i}");
+                // a negative denominator: the same value (num / den = (-num) / (-den))
+                Assert.Equal(BitConverter.DoubleToInt64Bits(got), BitConverter.DoubleToInt64Bits(ExactPoint3.ToDouble(-num, -den, sc)));
+            }
+            Assert.Equal(-1.0 / 3.0, ExactPoint3.ToDouble(1, -3, 0));
+            Assert.Equal(1.0 / 3.0, ExactPoint3.ToDouble(-1, -3, 0));
+            Assert.Equal(0.0, ExactPoint3.ToDouble(0, -3, 7));
+            Assert.Throws<DivideByZeroException>(() => ExactPoint3.ToDouble(1, 0, 0));
+            // den = 0 throws for every num and scaleExp, also where the value would underflow, overflow or be zero (stricter than the old code, which returned 0 for num = 0 and threw only for num != 0; no ExactPoint3 has W = 0)
+            Assert.Throws<DivideByZeroException>(() => ExactPoint3.ToDouble(1, 0, -5000));
+            Assert.Throws<DivideByZeroException>(() => ExactPoint3.ToDouble(1, 0, 5000));
+            Assert.Throws<DivideByZeroException>(() => ExactPoint3.ToDouble(0, 0, 0));
+            Assert.Throws<DivideByZeroException>(() => ExactPoint3.ToDouble(-5, 0, int.MinValue));
+        }
+
+        // a value that is exactly a double (any magnitude, subnormals included) comes back unchanged, however num / den and the exponent split it
+        [Fact]
+        public void ExactDoubles_AreReturnedUnchanged()
+        {
+            var r = new Random(1412);
+            for (int i = 0; i < 3000; i++) {
+                long bits;
+                switch (r.Next(3)) {
+                    case 0: bits = ((long)r.Next(0, 0x7FF) << 52) | (Next62(r) & 0xFFFFFFFFFFFFFL); break;     // any finite
+                    case 1: bits = Next62(r) & 0xFFFFFFFFFFFFFL; break;                                         // subnormal or zero
+                    default: bits = ((long)r.Next(900, 1150) << 52) | (Next62(r) & 0xFFFFFFFFFFFFFL); break;
+                }
+                if (r.Next(2) == 0) bits |= long.MinValue;
+                double x = BitConverter.Int64BitsToDouble(bits);
+                var (n, d) = FromDouble(x);
+                BigInteger k = BigInteger.Abs(Random(r, r.Next(1, 120))) + 1;
+                int sc = r.Next(-200, 200);
+                // x = (n k) / (d k): the exponent sc is moved into the fraction, x = (num / den) 2^sc
+                BigInteger num = n * k, den = d * k;
+                if (sc >= 0) den <<= sc; else num <<= -sc;
+                double got = Conv(num, den, sc);
+                if (x == 0) Assert.Equal(0.0, got);
+                else Assert.Equal(bits, BitConverter.DoubleToInt64Bits(got));
             }
         }
 
+        // the halfway values between neighbouring doubles (normal and subnormal), and values an epsilon above and below: the ones a missing
+        // sticky bit or a missing tie rule gets wrong
+        [Fact]
+        public void HalfwayAndNeighbours_OfRandomDoubles_AreRoundedByTheRules()
+        {
+            var r = new Random(1413);
+            for (int i = 0; i < 1500; i++) {
+                int e = r.Next(2) == 0 ? -1074 : r.Next(-1074, 960);                          // the unit of the lower double is 2^e (e = -1074: a subnormal)
+                long m = e == -1074 ? (Next62(r) & 0x1FFFFFFFFFFFFFL) : ((Next62(r) & 0xFFFFFFFFFFFFFL) | (1L << 52));
+                if (e > -1074 && r.Next(5) == 0) m = (1L << 52) | (r.Next(2) == 0 ? 0 : 0xFFFFFFFFFFFFFL);   // binade boundaries
+                // a halfway value is (2 m + 1) 2^(e - 1); as num / den 2^sc with den = k 2^p and num = (2 m + 1) k 2^p +- delta, a sticky bit far below
+                BigInteger k = BigInteger.Abs(Random(r, r.Next(1, 100))) + 1;
+                int p = r.Next(1, 150);
+                BigInteger den = k << p, tie = (new BigInteger(2 * m + 1) * k) << p;
+                int sc = e - 1;
+                double lo = ExactPoint3.ScaleB((double)m, e), hi = ExactPoint3.ScaleB((double)(m + 1), e);
+                foreach (int delta in new[] { -1, 0, 1 }) {
+                    double got = Conv(tie + delta, den, sc);
+                    AssertCorrectlyRounded(tie + delta, den, sc, got, $"case {i} delta {delta}");
+                    double want = delta < 0 ? lo : delta > 0 ? hi : (m % 2 == 0 ? lo : hi);
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(want), BitConverter.DoubleToInt64Bits(got));
+                    // the same with a negative value
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(-want), BitConverter.DoubleToInt64Bits(Conv(-(tie + delta), den, sc)));
+                }
+            }
+        }
+
+        // the reproducer of #1410: the crossing of a segment with a triangle plane, exact on integer coordinates (every double is a multiple of
+        // 2^-1074), converted per coordinate: z was 0.538797999888854, 1 ulp below the nearest double 0.5387979998888541
+        [Fact]
+        public void Issue1410_SegmentTriangleCrossing_IsTheNearestDouble()
+        {
+            double[] s = { 0.9796912223006092, 0.8392714871276503, 0.5432778380547081 }, t = { 0.1979652751227679, 0.038267011306372944, 0.5355382620056803 };
+            double[][] tri = {
+                new[] { 0.33469497591010056, 0.5815629843070931, 0.690371502279477 },
+                new[] { 0.6716304929794885, -0.046980683946507396, 0.2060040019946191 },
+                new[] { -0.10453685866880086, -0.03696404049962948, 0.1468926098416059 } };
+            BigInteger[] G(double[] v)
+            {
+                var g = new BigInteger[3];
+                for (int i = 0; i < 3; i++) { var (n, d) = FromDouble(v[i]); g[i] = n * (BigInteger.One << 1074) / d; }
+                return g;
+            }
+            BigInteger[] P = G(s), Q = G(t), A = G(tri[0]), B = G(tri[1]), C = G(tri[2]);
+            BigInteger[] Sub(BigInteger[] a, BigInteger[] b) => new[] { a[0] - b[0], a[1] - b[1], a[2] - b[2] };
+            BigInteger[] Cross(BigInteger[] a, BigInteger[] b) => new[] { a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0] };
+            BigInteger Dot(BigInteger[] a, BigInteger[] b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+            BigInteger[] nrm = Cross(Sub(B, A), Sub(C, A));
+            BigInteger dp = Dot(nrm, Sub(P, A)), dq = Dot(nrm, Sub(Q, A));
+            Assert.True(dp.Sign * dq.Sign < 0, "the segment crosses the plane");
+            BigInteger den = dp - dq;
+            double[] got = new double[3];
+            for (int k = 0; k < 3; k++) {
+                BigInteger num = dp * Q[k] - dq * P[k];
+                got[k] = ExactPoint3.ToDouble(num, den, -1074);
+                AssertCorrectlyRounded(num, den, -1074, got[k], "coordinate " + k);
+            }
+            Assert.Equal(0.5387979998888541, got[2]);
+        }
+
+
+        [Fact]
+        public void DefaultPoint_HasZeroW_AndTheConversionsThrow_ForAnEntryOfAnIdNotInUse()
+        {
+            // #1489 (owner decision 2026-11-24): ToDouble(0, 0, s) throws, kept on purpose; a caller recognises an entry that is not a point by W
+            ExactPoint3 none = default(ExactPoint3);
+            Assert.True(none.W.IsZero);
+            Assert.Throws<DivideByZeroException>(() => none.ToVector3d());
+            Assert.Throws<DivideByZeroException>(() => ExactPoint3.ToDouble(0, 0, 0));
+            Assert.Throws<DivideByZeroException>(() => ExactPoint3.ToDouble(0, 0, -7));
+            Assert.Throws<DivideByZeroException>(() => ExactPoint3.ToDouble(5, 0, 0));
+            Assert.True(ExactPoint3.FromInteger(1, 2, 3).W.Sign > 0);
+            // the imprint (ComputeExactVertices, taken before the repair): the entry of an id that is not in use is the default entry, an id that the repair
+            // removes keeps its point, and a new vertex may reuse a free id. The target has 39 free ids (isolated vertices appended and removed), more than the
+            // result has new vertices
+            DMesh3 a = Invariance.Transformed(ExactMeshImprintSliverTests.Shape("box"), Similarity.Utm);
+            var freed = new System.Collections.Generic.List<int>();
+            for (int k = 0; k < 40; ++k) freed.Add(a.AppendVertex(new Vector3d(k, 2, 3)));
+            for (int k = 0; k < 39; ++k) Assert.Equal(MeshResult.Ok, a.RemoveVertex(freed[k]));
+            DMesh3 b = ExactMeshImprintSliverTests.Shifted(a, 2, 1);
+            var imprint = new ExactMeshImprint() { Target = a, Cutter = b, ComputeExactVertices = true };
+            Assert.True(imprint.Compute(), imprint.Error);
+            ExactPoint3[] exact = imprint.ResultExactVertices;
+            Assert.Equal(imprint.Result.MaxVertexID, exact.Length);
+            int defaults = 0, removedByTheRepair = 0;
+            for (int id = 0; id < exact.Length; ++id) {
+                if (exact[id].W.IsZero) {
+                    defaults++;
+                    Assert.False(imprint.Result.IsVertex(id));
+                    Assert.Throws<DivideByZeroException>(() => exact[id].ToVector3d());
+                    continue;
+                }
+                Assert.True(exact[id].W.Sign > 0, "id " + id);
+                if (imprint.Result.IsVertex(id)) Assert.True(imprint.Result.GetVertex(id).Distance(exact[id].ToVector3d()) < 1e-4);
+                else removedByTheRepair++;
+            }
+            Assert.True(defaults > 0, "free ids that no new vertex took");
+            Assert.True(removedByTheRepair > 0, "the repair removed vertices in this case");
+        }
     }
 }

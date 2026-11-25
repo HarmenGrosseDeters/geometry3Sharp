@@ -22,8 +22,9 @@ namespace g3
     /// output once.
     ///
     /// The winding numbers are exact for meshes that are closed in the winding number sense (every edge used
-    /// equally often in both directions; non-manifold edges and self-intersections are allowed). For other
-    /// (open) meshes the generalized winding number is used (Jacobson et al. 2013, fast approximation), with the
+    /// equally often in both directions; non-manifold edges and self-intersections are allowed). Other (open) meshes
+    /// are refused by default (AllowOpenMeshes is false: Status OpenInput, unless the mesh has the role Sheet). With
+    /// AllowOpenMeshes for such meshes the generalized winding number is used (Jacobson et al. 2013, fast approximation), with the
     /// solid where it is above 0.5, evaluated at every output piece (it varies within a patch: see Performance of open
     /// inputs below); then the result is generally not closed, also along edges where an open boundary
     /// of an input meets other pieces and the kept pieces run the edge the same way (ConflictEdges). An inside-out mesh (winding
@@ -359,7 +360,10 @@ namespace g3
         /// component (the exact signed crossings of a ray from its centroid into its front side with the other triangles of the
         /// mesh) is odd and negative, so that the front of the surface is inside the solid it bounds (a consistently inverted cube:
         /// 1, and its solid is empty). Computed only with CountInsideOutCells (else 0), in every Orientation mode, also on success; 0 after Orientation = ByNesting of an
-        /// embedded input (the solid is then what the surface encloses). Exact, no tolerance; for an input that self-intersects
+        /// embedded input (the solid is then what the surface encloses). ByNesting does not change it for an input that is not
+        /// embedded (SelfIntersectingPairs of its own arrangement above 0): such an input keeps its given orientation, so a
+        /// consistently oriented, self-intersecting input with an inside-out part (eg a box with a face pushed through the opposite
+        /// one) is counted in every mode. Exact, no tolerance; for an input that self-intersects
         /// it reads the one triangle of each component, so a component that is inside-out only in part is not seen. An
         /// overlapping or nested shell with the right orientation for the winding number (eg a cavity wall given outward: its
         /// front is inside the solid, the winding number there is 1) is not counted: that is a union, not an inversion.
@@ -371,6 +375,12 @@ namespace g3
         /// known whether they are inside-out; not part of InsideOutCells. SolidBooleanPipeline refuses them like inside-out ones
         /// </summary>
         public int InsideOutUndecided;
+        // (internal, for the messages of SolidBooleanPipeline) per input of Compute(): its part of InsideOutCells (null without
+        // CountInsideOutCells), and with Orientation = ByNesting the SelfIntersectingPairs of its own one-mesh arrangement (0:
+        // embedded, so nesting oriented it; > 0: not embedded, the given orientation stayed; -1: not closed modulo 2, not tested);
+        // null in the other modes
+        internal int[] InsideOutCellsOfInput;
+        internal int[] NestingSelfIntersectingPairsOfInput;
         // tests: called with the input triangle of each component's ray before it is shot (it may throw InvalidOperationException,
         // as a ray that finds no direction does)
         internal Action<int> CountRayObserverForTests;
@@ -390,8 +400,13 @@ namespace g3
         public bool SimplifyFlatRegions = true;
         /// <summary> vertices removed by SimplifyFlatRegions </summary>
         public int RemovedVertices;
-        /// <summary> if false, Compute() fails for meshes that are not closed in the winding number sense </summary>
-        public bool AllowOpenMeshes = true;
+        /// <summary>
+        /// false (default): Compute() fails with Status OpenInput for a mesh that is not closed in the winding number sense and has no
+        /// role Sheet (Roles); Error names the meshes. true: such a mesh is classified by the generalized winding number, the solid
+        /// where it is above 1/2 (see the class comment); an open cutting surface then usually cuts nothing, silently
+        /// (OpenInputsWithoutEffect), which is why this is stated by the caller (#1211; the default was true before)
+        /// </summary>
+        public bool AllowOpenMeshes = false;
         /// <summary>
         /// after rounding the vertices to double, repair the self-intersections and degenerate triangles (area below
         /// 1e-12 of the squared diagonal; the diagonal of the result's largest connected component, here and below) the
@@ -414,6 +429,13 @@ namespace g3
         /// double.
         /// </summary>
         public bool SafeRounding = true;
+        /// <summary>
+        /// false (default): nothing beyond the result is kept. true: Compute() also keeps, per piece of the arrangement, what the
+        /// classification decided (kept, flipped, the coplanar stack and the winding numbers in front of the pieces with one), for
+        /// <see cref="BooleanVolumeGradient"/>. Recording only: it changes no decision and no result; it costs memory linear in the
+        /// pieces and is read after Compute() until the next one
+        /// </summary>
+        public bool RetainClassification = false;
 
         /// <summary> for tests (issue 789): ExactMeshArrangement.HashSalt and SingleShard of the arrangement </summary>
         internal int ArrangementHashSalt;
@@ -513,10 +535,13 @@ namespace g3
         /// either could be left out, not both). Decided with the integers of the classification, no tolerance. An open input that
         /// changes the result is not listed, also where the change is wrong (pieces kept where its generalized winding number
         /// crosses 1/2: the result is then usually not closed, which the list does not say): the list does not say that the
-        /// result is right. Empty with a WindingPredicate (not evaluated), when no input is open, when Compute() fails, and before it
+        /// result is right. Empty with a WindingPredicate (not evaluated), when no input is open (so always with the default
+        /// AllowOpenMeshes = false, which refuses such an input), when Compute() fails, and before it
         /// </summary>
         public IReadOnlyList<int> OpenInputsWithoutEffect { get { return openWithoutEffect; } }
         List<int> openWithoutEffect = new List<int>();
+        // the list of the classification of the running Compute(), until it succeeds
+        List<int> classifiedWithoutEffect = new List<int>();
         // for tests: use generalized winding numbers also for closed meshes
         internal bool ForceGeneralizedWinding = false;
         // open meshes with fewer boundary segments than this are classified by the Antipodal Method (an exact ray and a
@@ -657,8 +682,9 @@ namespace g3
         /// parallel over the bodies; a's input check and orientation are done once. Result i is null where that boolean
         /// fails (status[i], if given, says why; a null a fails every boolean with InvalidInput, as a separate boolean
         /// would). configure, if given, is applied to every boolean before it is computed (eg SafeRounding); it runs in
-        /// parallel and must not depend on the order. For a terrain or part against many small bodies most of a lies
-        /// outside each body and is left out of its arrangement (Counts["t3a_culled"]).
+        /// parallel and must not depend on the order. An open a or body is refused with the defaults (status OpenInput, a null
+        /// result; an open a fails every boolean): configure can set AllowOpenMeshes. For a closed terrain solid or part against many
+        /// small bodies most of a lies outside each body and is left out of its arrangement (Counts["t3a_culled"]).
         /// </summary>
         /// <exception cref="ArgumentNullException">bodies is null</exception>
         /// <exception cref="ArgumentException">status is shorter than bodies</exception>
@@ -750,14 +776,20 @@ namespace g3
             };
         }
 
-        /// <summary> union of any number of meshes in one arrangement; null if Compute() fails </summary>
+        /// <summary>
+        /// union of any number of meshes in one arrangement; null if Compute() fails, which with the defaults includes an open mesh
+        /// (AllowOpenMeshes is false; use the constructor to set it)
+        /// </summary>
         public static DMesh3 Union(IEnumerable<DMesh3> meshes)
         {
             var op = new ExactMeshBoolean(meshes, Operations.Union);
             return op.Compute() ? op.Result : null;
         }
 
-        /// <summary> intersection of any number of meshes in one arrangement; null if Compute() fails </summary>
+        /// <summary>
+        /// intersection of any number of meshes in one arrangement; null if Compute() fails, which with the defaults includes an open
+        /// mesh (AllowOpenMeshes is false; use the constructor to set it)
+        /// </summary>
         public static DMesh3 Intersection(IEnumerable<DMesh3> meshes)
         {
             var op = new ExactMeshBoolean(meshes, Operations.Intersection);
@@ -795,6 +827,8 @@ namespace g3
             IntersectingPairs = SelfIntersectingPairs = NonManifoldEdges = NonManifoldTriangles = SplitNonManifoldEdges = ConflictEdges = Patches = RemovedVertices = 0;
             SplitBowtieVertices = 0;
             ReorientedTriangles = Contacts = InsideOutCells = InsideOutUndecided = 0;
+            InsideOutCellsOfInput = null;
+            NestingSelfIntersectingPairsOfInput = null;
             ExactWindingA = ExactWindingB = false;
             ExactWinding = null;
             openWithoutEffect = new List<int>();
@@ -854,7 +888,7 @@ namespace g3
             }
             sheetRole = sheet;
             if (sheet != null) {
-                if (WindingPredicate != null)
+                if (WindingPredicate is not null)
                     return refuse_sheet(SheetRefusal.WithWindingPredicate, "a sheet cannot be used with a WindingPredicate");
                 if (Operation == Operations.Union)
                     return refuse_sheet(SheetRefusal.InUnion, "a sheet cannot be used in a Union");
@@ -879,6 +913,7 @@ namespace g3
                 }
             if (Orientation == OrientationModes.ByNesting) {
                 // (each input on its own: its nesting is that of its own triangles; the ray is exact, see nest_input)
+                NestingSelfIntersectingPairsOfInput = new int[inputs.Count];
                 for (int m = 0; m < inputs.Count; ++m) {
                     if (sheet != null && sheet[m])
                         continue;       // (a sheet is used as given: it is never oriented)
@@ -917,7 +952,7 @@ namespace g3
             // (the built-in Difference and Intersection only: a WindingPredicate may keep points outside the first mesh;
             // the first mesh closed, so that the exact ray decides inside and outside)
             // (Difference: inside the first mesh; Intersection: inside every mesh, so against each closed one, in mesh order)
-            if (CullOutsideA && WindingPredicate == null && (Operation == Operations.Difference || Operation == Operations.Intersection)
+            if (CullOutsideA && WindingPredicate is null && (Operation == Operations.Difference || Operation == Operations.Intersection)
                 && inputs.Count > 1) {
                 var against = new List<int>();
                 for (int m = 0; m < inputs.Count && (m == 0 || Operation == Operations.Intersection); ++m)
@@ -963,7 +998,7 @@ namespace g3
                 Result = null;
                 return fail(BooleanStatus.SheetRefused, SheetError);
             }
-            if (RecordCertificate) {
+            if (RecordCertificate || RetainClassification) {
                 CertificateKeep = (bool[])keep.Clone();
                 CertificateFlip = (bool[])flip.Clone();
             }
@@ -1043,20 +1078,15 @@ namespace g3
                 if (StrictRounding && Rounding.IsClean == false) {
                     Error = string.Format(System.Globalization.CultureInfo.InvariantCulture,
                         "rounding not clean within the bound {0:G3}: {1} intersecting pairs, {2} degenerate triangles, {7} contacts made by the rounding left, eg at {3:R} {4:R} {5:R}; the smallest edit rejected by the bound needed {6:G3}; {8} components kept that the bound took as thin (scale disparity); {10} components removed that their coordinates resolve (still defective, or changed by the repair){9}",
-                        Rounding.MaxLength, Rounding.RemainingIntersections, Rounding.RemainingDegenerate,
-                        Rounding.RemainingDefectAt.x, Rounding.RemainingDefectAt.y, Rounding.RemainingDefectAt.z, Rounding.SmallestRejectedDrift,
-                        Rounding.RemainingFalseContacts, Rounding.ScaleDisparity,
-                        (Rounding.ScaleNotFinite ? "; the scale is not finite (a diagonal overflows), every edit rejected" : "") + (Rounding.OutsideRange ? "; the coordinates are outside the supported range (2^-200 .. 2^200), the rounding did not run" : "")
-                        + (Rounding.EvaluationLimitReached ? "; the repair stopped at its effort limit: the smallest rejected edit is the smallest of those proposed before it" : ""),
-                        Rounding.RemovedResolvable);
+                        new object[] { Rounding.MaxLength, Rounding.RemainingIntersections, Rounding.RemainingDegenerate, Rounding.RemainingDefectAt.x, Rounding.RemainingDefectAt.y, Rounding.RemainingDefectAt.z, Rounding.SmallestRejectedDrift, Rounding.RemainingFalseContacts, Rounding.ScaleDisparity, (Rounding.ScaleNotFinite ? "; the scale is not finite (a diagonal overflows), every edit rejected" : "") + (Rounding.OutsideRange ? "; the coordinates are outside the supported range (2^-200 .. 2^200), the rounding did not run" : "") + (Rounding.EvaluationLimitReached ? "; the repair stopped at its effort limit: the smallest rejected edit is the smallest of those proposed before it" : ""), Rounding.RemovedResolvable });
                     Result = null;
                     Status = BooleanStatus.RoundingNotClean;
-                    openWithoutEffect = new List<int>();     // (as fail(): the list belongs to a result)
                     return false;
                 }
             }
             Contacts = count_contacts(Result);
             Counts["contacts"] = Contacts;
+            openWithoutEffect = classifiedWithoutEffect;        // (every path to here has run classify to its end)
             Status = BooleanStatus.Success;
             return true;
         }
@@ -1297,18 +1327,32 @@ namespace g3
         // That is safe: such a solid has no volume to speak of in the result, and a flat one has none at all. S is computed in
         // doubles too; its relative error (a few u) is far inside the margin of 2. The count n and S are for the component,
         // not for the mesh.
-        static bool negative_volume(DMesh3 mesh, List<int> component)
+        //
+        // The underflow term (#1347). The relative bound assumes no product underflows. Where the differences are near 2^-358
+        // the triple products are subnormal (and S = |x| |y| |z| rounds to 0, so the bound did too: every v6 < 0 was
+        // "certainly negative"). A subnormal product has an absolute rounding error of at most 2^-1075 (half the spacing eps =
+        // 2^-1074); the six products of the cross product err by at most 2^-1074 in each of its components, which the dot
+        // product multiplies by |x_i| (|x|_1 in all), and its three products add 3 * 2^-1075: at most eps (|x|_1 + 1.5) for
+        // one term (the sums of subnormals are exact, the differences of doubles too where subnormal). The term used is
+        // ExactPredicates.UnderflowUnit = 256 eps = 2^-1066 times (|x|_1 + 1) per triangle, as VolumeSumWithBound, which is at
+        // least eps (|x|_1 + 1.5) (256 (|x|_1 + 1) >= |x|_1 + 1.5 for every |x|_1 >= 0). It is also at least the relative
+        // bound where S underflows: S below 2^-1022 means (32 + n) u S < (32 + n) 2^-1075 <= 256 n 2^-1074. The two parts are
+        // added (two non-negative bounds of independent error sources) and the sum rounds once more, far inside the margin of
+        // 2 of the relative part. In the normal range (|x|_1 + 1) 2^-1066 is below u S unless S < about 2^-1010: nothing
+        // changes there. A component that small is not refused: its volume is zero within the rounding of its own size.
+        internal static bool negative_volume(DMesh3 mesh, List<int> component)
         {
             Vector3d o = mesh.GetVertex(mesh.GetTriangle(component[0]).a);
-            double v6 = 0, norms = 0;
+            double v6 = 0, norms = 0, under = 0;
             foreach (int t in component) {
                 Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
                 mesh.GetTriVertices(t, ref a, ref b, ref c);
                 Vector3d x = a - o, y = b - o, z = c - o;
                 v6 += x.Dot(y.Cross(z));
                 norms += x.Length * y.Length * z.Length;
+                under += Math.Abs(x.x) + Math.Abs(x.y) + Math.Abs(x.z) + 1;
             }
-            return v6 < -(32.0 + component.Count) * 1.1102230246251565e-16 * norms;
+            return v6 < -((32.0 + component.Count) * 1.1102230246251565e-16 * norms + ExactPredicates.UnderflowUnit * under);
         }
 
         // every coordinate of the mesh is finite (per coordinate: the sum of finite coordinates can overflow)
@@ -1371,6 +1415,8 @@ namespace g3
             PreparedInput p = prepare_input(mesh, nest, CountInsideOutCells);
             if (nest.Stopped)
                 return BooleanStatus.Cancelled;
+            if (NestingSelfIntersectingPairsOfInput != null)
+                NestingSelfIntersectingPairsOfInput[m] = nest.Tested ? nest.SelfIntersectingPairs : -1;
             if (nest.Inconsistent > 0) {
                 error = "input mesh " + m + " is closed modulo 2 but not embedded (" + nest.SelfIntersectingPairs + " pairs of its triangles meet beyond a common edge or vertex: " +
                     "self-intersections or coincident faces), and " + nest.Inconsistent + " of its triangles disagree with the orientation of the rest of their component: " +
@@ -1417,6 +1463,8 @@ namespace g3
             ExactMeshBoolean one;               // the instance whose arrangement is the one-mesh arrangement of mesh
             int[] triangleOf;                   // per triangle id of mesh: its index in that arrangement
             bool begun;
+            /// <summary> the one-mesh arrangement was computed (the mesh is closed modulo 2); Embedded and SelfIntersectingPairs are meaningful only then </summary>
+            public bool Tested => begun && !Stopped;
             /// <summary> the arrangement of the mesh has no pair of triangles that meet beyond a common edge or vertex </summary>
             public bool Embedded;
             /// <summary> cancelled while the arrangement was computed </summary>
@@ -1500,13 +1548,19 @@ namespace g3
             return front_crossings(-1, m, arr.Trees[m], rng, null, center, true, null, out far, 0, ti);
         }
 
-        // InsideOutCells: per component of each closed input (its first triangle with an area), the winding number of the input in
-        // front of it; the component is inside-out where that is odd and negative (see InsideOutCells). Before the box trees of the
-        // arrangement are released
+        // InsideOutCells: per component of each closed input, the winding number of the input in front of one of its triangles
+        // with an area; the component is inside-out where that is odd and negative (see InsideOutCells). Before the box trees of
+        // the arrangement are released.
+        // The triangle is chosen by its geometry (#1464): the one with the smallest corner by ComparePoints, of those the one
+        // whose next corners are smallest. In front of the triangles of a component that intersects itself the winding number
+        // need not be the same, and the first triangle by id, as before, made the count, and with it the status of
+        // SolidBooleanPipeline, depend on the order of the input's triangles
         [MethodImpl(JitHints.Optimize)]
         int count_inside_out(PreparedInput[] prepared)
         {
             int count = 0;
+            InsideOutCellsOfInput = new int[prepared.Length];
+            bool[] seen = null;
             for (int m = 0; m < prepared.Length; ++m) {
                 PreparedInput p = prepared[m];
                 if (p.ComponentStart == null)
@@ -1514,30 +1568,77 @@ namespace g3
                 var triangleOf = new int[p.Input.MaxTriangleID];
                 foreach (int ti in arr.MeshTriangles[m])
                     triangleOf[arr.Triangles[ti].Tid] = ti;
+                if (seen == null)
+                    seen = new bool[arr.PointCount];
                 for (int c = 0; c + 1 < p.ComponentStart.Length; ++c) {
                     if (Cancellation.IsCancellationRequested)
                         return count;
-                    for (int k = p.ComponentStart[c]; k < p.ComponentStart[c + 1]; ++k) {
-                        int ti = triangleOf[p.ComponentTriangles[k]];
-                        if (arr.Triangles[ti].Degenerate)
-                            continue;
-                        int chi;
-                        try {
-                            CountRayObserverForTests?.Invoke(ti);
-                            chi = front_of_triangle(m, ti);
-                        } catch (InvalidOperationException) {
-                            // (no ray found in 200 attempts: the report must not fail the boolean, but it must not hide the component
-                            // either; InsideOutUndecided)
-                            InsideOutUndecided++;
-                            break;
-                        }
-                        if (chi < 0 && (chi & 1) != 0)
-                            count++;
-                        break;
+                    int chosen = inside_out_triangle(p, c, triangleOf, seen);
+                    if (chosen < 0)
+                        continue;
+                    int chi;
+                    try {
+                        CountRayObserverForTests?.Invoke(chosen);
+                        chi = front_of_triangle(m, chosen);
+                    } catch (InvalidOperationException) {
+                        // (no ray found in 200 attempts: the report must not fail the boolean, but it must not hide the component
+                        // either; InsideOutUndecided)
+                        InsideOutUndecided++;
+                        continue;
+                    }
+                    if (chi < 0 && (chi & 1) != 0) {
+                        count++;
+                        InsideOutCellsOfInput[m]++;
                     }
                 }
             }
             return count;
+        }
+
+        // the triangle of component c of a prepared input that count_inside_out reads (an index into arr.Triangles), or -1 if
+        // every triangle of the component is degenerate: first the smallest corner of its triangles with an area (each point
+        // compared once: seen), then, of the triangles at that point, the one whose corners after it, in their order, are smallest
+        [MethodImpl(JitHints.Optimize)]
+        int inside_out_triangle(PreparedInput p, int c, int[] triangleOf, bool[] seen)
+        {
+            int least = -1;
+            for (int k = p.ComponentStart[c]; k < p.ComponentStart[c + 1]; ++k) {
+                ExactMeshArrangement.InputTriangle u = arr.Triangles[triangleOf[p.ComponentTriangles[k]]];
+                if (u.Degenerate)
+                    continue;
+                for (int j = 0; j < 3; ++j) {
+                    int q = arr.Canonical(u.Corners[j]);
+                    if (seen[q])
+                        continue;
+                    seen[q] = true;
+                    if (least < 0 || arr.ComparePoints(q, least) < 0)
+                        least = q;
+                }
+            }
+            int chosen = -1, second = -1, third = -1;
+            for (int k = p.ComponentStart[c]; k < p.ComponentStart[c + 1]; ++k) {
+                int ti = triangleOf[p.ComponentTriangles[k]];
+                ExactMeshArrangement.InputTriangle u = arr.Triangles[ti];
+                if (u.Degenerate)
+                    continue;
+                int a = arr.Canonical(u.Corners[0]), b = arr.Canonical(u.Corners[1]), d = arr.Canonical(u.Corners[2]);
+                // (the marks of this component are cleared for the next one)
+                seen[a] = seen[b] = seen[d] = false;
+                int s, t;
+                if (a == least) { s = b; t = d; }
+                else if (b == least) { s = d; t = a; }
+                else if (d == least) { s = a; t = b; }
+                else continue;
+                int cmp = chosen < 0 ? -1 : arr.ComparePoints(s, second);
+                if (cmp == 0)
+                    cmp = arr.ComparePoints(t, third);
+                if (cmp < 0) {
+                    chosen = ti;
+                    second = s;
+                    third = t;
+                }
+            }
+            return chosen;
         }
 
         // prepare_input of every mesh (the first one from PreparedFirst where given); the meshes are independent and only
@@ -1549,7 +1650,7 @@ namespace g3
             PreparedInput first = PreparedFirst;
             Action<int> observer = PrepareObserverForTests;
             gParallel.ForRange(inputs.Count, (m) => {
-                if (observer != null)
+                if (observer is not null)
                     observer(m);
                 // (a sheet is used as given, never oriented by nesting)
                 if (sheet != null && sheet[m]) {
@@ -1584,7 +1685,6 @@ namespace g3
         {
             Status = status;
             Error = error;
-            openWithoutEffect = new List<int>();     // (the list belongs to a result: also empty where the run fails after the classification)
             return false;
         }
 
@@ -1606,7 +1706,7 @@ namespace g3
             var open = new List<string>();
             for (int m = 0; m < ExactWinding.Length; ++m)
                 if (ExactWinding[m] == false && (sheetRole == null || sheetRole[m] == false))
-                    open.Add(m.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    open.Add(string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0}", new object[] { m }));
             return (open.Count == 1 ? "input mesh " : "input meshes ") + string.Join(", ", open) + (open.Count == 1 ? " is" : " are") +
                 " not closed (every edge used equally often in both directions). An open cutting surface used as the tool of a Difference: give it the role Sheet (Roles). " +
                 "A mesh that is meant as a solid: repair it, or set AllowOpenMeshes for the generalized winding number rule (the solid is where it is above 1/2; see OpenInputsWithoutEffect)";
@@ -1631,8 +1731,9 @@ namespace g3
 
         /// <summary>
         /// The boundary of the solid of a mesh (where its winding number is positive): self-intersections,
-        /// nested shells and duplicated faces are resolved exactly, the result with SafeRounding (the default).
-        /// Returns null if Compute() fails.
+        /// nested shells and duplicated faces are resolved exactly, the result with SafeRounding (the default). A repair of one
+        /// mesh: an open mesh is taken (AllowOpenMeshes is set here; its solid is where the generalized winding number is above 1/2,
+        /// and the result is then generally open). Returns null if Compute() fails.
         /// </summary>
         public static DMesh3 Resolve(DMesh3 mesh)
         {
@@ -1644,7 +1745,7 @@ namespace g3
         public static DMesh3 Resolve(DMesh3 mesh, bool safeRounding)
         {
             // (a repair of one mesh: an inconsistently oriented one is oriented by area, as before #1210)
-            var op = new ExactMeshBoolean(mesh, new DMesh3(), Operations.Union) { SafeRounding = safeRounding, Orientation = OrientationModes.AreaMajority };
+            var op = new ExactMeshBoolean(mesh, new DMesh3(), Operations.Union) { SafeRounding = safeRounding, Orientation = OrientationModes.AreaMajority, AllowOpenMeshes = true };
             return op.Compute() ? op.Result : null;
         }
 
@@ -1798,7 +1899,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         bool inside(int[] winding, List<int> touched)
         {
-            if (WindingPredicate != null)
+            if (WindingPredicate is not null)
                 return WindingPredicate(winding);
             int count = 0;
             foreach (int m in touched)
@@ -1809,6 +1910,19 @@ namespace g3
                 case Operations.Intersection: return count == winding.Length;
                 default: return winding[0] > 0 && count == 1;
             }
+        }
+
+        /// <summary>
+        /// the operation on a dense vector of winding numbers (one per mesh), as the classification decides it
+        /// (BooleanVolumeGradient: also for the vectors of the other orders of a coplanar stack, which a WindingPredicate is
+        /// then called with)
+        /// </summary>
+        internal bool InsideOf(int[] winding)
+        {
+            var all = new List<int>(winding.Length);
+            for (int m = 0; m < winding.Length; ++m)
+                all.Add(m);
+            return inside(winding, all);
         }
 
 
@@ -1827,7 +1941,7 @@ namespace g3
             bool[] representative = new bool[n];
             double[] coplanarBoxes = coplanar_boxes();
             gParallel.ForRange(n, (i) => representative[i] = coplanar_stack(output[i], coplanarBoxes, out stack[i]));
-            StacksPerPiece = RecordStacks ? stack : null;
+            StacksPerPiece = (RecordStacks || RetainClassification) ? stack : null;
             steps.LapMicroseconds("classification.stacks");
 
             // patches: pieces of one mesh connected across edges that are not on an intersection curve, with
@@ -1959,7 +2073,8 @@ namespace g3
             }
 
             int[] winding = new int[nm];
-            int[][] front = RecordCertificate ? new int[n][] : null;
+            // (RetainClassification: only the pieces with a coplanar stack, for the contact regions of BooleanVolumeGradient)
+            int[][] front = (RecordCertificate || RetainClassification) ? new int[n][] : null;
             bool[] isTouched = new bool[nm];
             var touched = new List<int>();
             Action<int, int> add = (m, d) => {
@@ -1974,7 +2089,7 @@ namespace g3
             // operations only read whether a winding number is positive, so a piece is evaluated again only where the
             // input's is; a WindingPredicate is not called with other vectors than the classification's
             var openInputs = new List<int>();
-            if (WindingPredicate == null)
+            if (WindingPredicate is null)
                 for (int m = 0; m < nm; ++m)
                     if (ExactWinding[m] == false && (sheetRole == null || sheetRole[m] == false))
                         openInputs.Add(m);
@@ -2004,7 +2119,7 @@ namespace g3
                     for (int m = 0; m < nm; ++m)
                         if (sheetFront[m] != null && sheetFront[m][i] != 0)
                             add(m, sheetFront[m][i]);
-                if (front != null)
+                if (front != null && (RecordCertificate || stack[i] != null))
                     front[i] = (int[])winding.Clone();
                 bool inFront = inside(winding, touched);
                 foreach (int m in openInputs) {
@@ -2055,9 +2170,11 @@ namespace g3
                 }
                 touched.Clear();
             }
+            // (published by Compute with Status Success only: a run that fails or throws after this leaves the list empty)
+            classifiedWithoutEffect = new List<int>();
             foreach (int m in openInputs)
                 if (matters[m] && effect[m] == false)
-                    openWithoutEffect.Add(m);
+                    classifiedWithoutEffect.Add(m);
             CertificateFront = front;
             steps.LapMicroseconds("classification.decisions");
         }
@@ -2225,34 +2342,30 @@ namespace g3
                         SheetWitnessPoint = arr.ToInputVector(arr.Exact(u));
                         SheetWitnessTriangle = (w.Mesh == s) ? arr.Triangles[w.Source].Tid : -1;
                         SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "a free edge of sheet {0} lies inside the workpiece, near ({1:R}, {2:R}, {3:R}); it does not separate", s,
-                            SheetWitnessPoint.x, SheetWitnessPoint.y, SheetWitnessPoint.z);
+                            "a free edge of sheet {0} lies inside the workpiece, near ({1:R}, {2:R}, {3:R}); it does not separate", new object[] { s, SheetWitnessPoint.x, SheetWitnessPoint.y, SheetWitnessPoint.z });
                         break;
                     }
                     case SheetRefusal.SidesInconsistent:
                         SheetWitnessTriangle = arr.Triangles[lab.MarkTriangle0].Tid;
                         SheetWitnessTriangle2 = arr.Triangles[lab.MarkTriangle1].Tid;
                         SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "{0} cell(s) of the workpiece are in front of one piece of sheet {1} and behind another, eg triangles {2} (in front of it) and {3} (behind it)",
-                            lab.ConflictingCells, s, SheetWitnessTriangle, SheetWitnessTriangle2);
+                            "{0} cell(s) of the workpiece are in front of one piece of sheet {1} and behind another, eg triangles {2} (in front of it) and {3} (behind it)", new object[] { lab.ConflictingCells, s, SheetWitnessTriangle, SheetWitnessTriangle2 });
                         break;
                     case SheetRefusal.FloatingComponent:
                         SheetWitnessTriangle = lab.MarkTriangle0 >= 0 ? arr.Triangles[lab.MarkTriangle0].Tid : arr.Triangles[lab.MarkTriangle1].Tid;
                         SheetConflictingCells = lab.FloatingCells;
                         SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "{0} part(s) of sheet {1} float inside the workpiece with no edge in common with its surface or with a part that has one, eg at triangle {2}: their side cannot be decided without the nesting of the shells",
-                            lab.FloatingCells, s, SheetWitnessTriangle);
+                            "{0} part(s) of sheet {1} float inside the workpiece with no edge in common with its surface or with a part that has one, eg at triangle {2}: their side cannot be decided without the nesting of the shells", new object[] { lab.FloatingCells, s, SheetWitnessTriangle });
                         break;
                     case SheetRefusal.UncutComponents when lab.MarkTriangle0 >= 0:
                         SheetWitnessTriangle = arr.Triangles[lab.MarkTriangle0].Tid;
                         SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "sheet {0} only touches the surface of the workpiece (no piece of it lies inside, eg triangle {1} on a face): it separates nothing, whatever UncutSide says", s, SheetWitnessTriangle);
+                            "sheet {0} only touches the surface of the workpiece (no piece of it lies inside, eg triangle {1} on a face): it separates nothing, whatever UncutSide says", new object[] { s, SheetWitnessTriangle });
                         break;
                     default:
                         SheetWitnessTriangle = (w.Mesh == 0) ? arr.Triangles[w.Source].Tid : -1;
                         SheetError = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "{0} cell(s) of the workpiece are not touched by sheet {1} (UncutSide: {2}, shells of the workpiece: {3}); a triangle of one: {4}",
-                            lab.UncutCells, s, SheetUncutSide, bestCells.ShellCount, SheetWitnessTriangle);
+                            "{0} cell(s) of the workpiece are not touched by sheet {1} (UncutSide: {2}, shells of the workpiece: {3}); a triangle of one: {4}", new object[] { lab.UncutCells, s, SheetUncutSide, bestCells.ShellCount, SheetWitnessTriangle });
                         break;
                 }
 
@@ -2350,9 +2463,9 @@ namespace g3
                 int id = k == 0 ? a : k == 1 ? b : c;
                 Vector3d v = arr.Approx(id);
                 double e = arr.ApproxError(id), lo, hi;
-                widened(v.x, e, out lo, out hi); x0 = Math.Min(x0, lo); x1 = Math.Max(x1, hi);
-                widened(v.y, e, out lo, out hi); y0 = Math.Min(y0, lo); y1 = Math.Max(y1, hi);
-                widened(v.z, e, out lo, out hi); z0 = Math.Min(z0, lo); z1 = Math.Max(z1, hi);
+                widened(v.x, e, out lo, out hi); x0 = MathUtil.MinExact(x0, lo); x1 = MathUtil.MaxExact(x1, hi);
+                widened(v.y, e, out lo, out hi); y0 = MathUtil.MinExact(y0, lo); y1 = MathUtil.MaxExact(y1, hi);
+                widened(v.z, e, out lo, out hi); z0 = MathUtil.MinExact(z0, lo); z1 = MathUtil.MaxExact(z1, hi);
             }
         }
 
@@ -2444,12 +2557,67 @@ namespace g3
 
         const int NotEvaluated = int.MinValue;
 
+        // ---- the rounding of the Biot-Savart bounds (#1350) ----
+        // Every bound below is a computed upper bound of a real number: each sum and product is followed by a factor
+        // 1 + (n + c) u, with n the roundings of the chain that can make the computed value too small and c the roundings
+        // of the factor itself (the product with it, 1 + k u): the derivations are at the factors. u = 2^-53, the unit
+        // roundoff; E = 2^-52 bounds the relative error of (double)BigInteger (a truncation or a rounding: below 2^-52).
+        const double U = 1.0 / 9007199254740992.0;
+        const double E = 2 * U;
+
+        /// <summary>
+        /// 1 + k u as a double for an even k below 2^52 (exact: k u = (k / 2) 2^-52 is a multiple of the ulp of 1; an odd k
+        /// would round, possibly down). A factor f multiplies a computed value x: fl(x f) &gt;= x f (1 - u), so a factor that
+        /// is to bound a chain of n roundings (1 - u)^-n &lt;= 1 + (n + 1) u (+ O(u^2), below the unit of the last place of
+        /// k) carries the extra u of its own product: k = n + 1 rounded up to even
+        /// </summary>
+        internal static double Factor(int k)
+        {
+            return 1 + k * U;
+        }
+
+        /// <summary> the most terms the sum lemma of SumTermsFactor covers </summary>
+        internal const int MaxSumTerms = 1 << 26;
+
+        /// <summary>
+        /// The factor of a Biot-Savart sum of at most m terms (#1350). Each term is far_term(l, c, d) = min(l / (4 pi d^2),
+        /// c / (2 pi d)) for a distance d that is at most the true one (the slack, below) and a length that is at least the
+        /// true one (Lengths), so the true term is at most the computed one times 1 / (1 - u)^3 (the first quotient: q =
+        /// ((4 pi) d) d rounds twice, fl(pi) &lt; pi only helps, l / q once; the second: (2 pi) d once, the quotient
+        /// once; the minimum of the two is below both) =: 1 + 3u + O(u^2). A left-to-right sum of m non-negative computed
+        /// values has at most m - 1 roundings, so S &lt;= S_c / (1 - u)^(m-1); for x = (m - 1) u / (1 - u) &lt;= 1 this is
+        /// at most exp(x) &lt;= 1 + x + x^2, with x &lt;= (m - 1) u (1 + 2u) and x^2 &lt;= 2^-27 (m - 1) u (x &lt;= 2^-27, so first order in u), so &lt;= 1 + (m - 1) u (1 + 2u + 2^-27) &lt;= 1 + (m - 0.5) u for
+        /// m &lt;= 2^26 (the lemma needs it: (m - 1) u / (1 - u) stays below 2^-27). With the terms: S_true &lt;= S_c (1 +
+        /// (m + 2.5001) u); the product S_c f rounds down by at most u more: f = 1 + (m + 3.5002) u, rounded up to the even
+        /// k = m + 4 + (m mod 2) (n = m + 3 roundings of the chain, c = 1 + 1 for the product and the odd-k case; the
+        /// 0.0002 u stands for the second-order terms, at most 3 m u^2 = 2^-27 u). The sums over the segments of one
+        /// boundary (the far part of a cluster and the near terms, or all terms, or the single Total term whose sum of
+        /// lengths has m - 1 roundings) have at most m = the segment count terms, so one factor covers all of them. For
+        /// m &gt; 2^26 the lemma does not hold: +infinity (every bound that uses it is then +infinity, the existing "not
+        /// crossed" value: the patch is evaluated piece by piece)
+        /// </summary>
+        internal static double SumTermsFactor(long m)
+        {
+            if (m > MaxSumTerms)
+                return double.PositiveInfinity;
+            long k = m + 4 + (m & 1);
+            return Factor((int)k);
+        }
+
+        // the sum bound g (raw: a sum of far terms) times the boundary's factor; +infinity (also for g = 0, where infinity * 0
+        // would be NaN) where the factor is
+        internal static double sum_bound(double g, BoundaryBound b)
+        {
+            // (a factor below 1, or NaN: not set by boundary_bound, never a bound; above double.MaxValue: infinite)
+            return b.SumFactor >= 1 && b.SumFactor <= double.MaxValue ? g * b.SumFactor : double.PositiveInfinity;
+        }
+
         // L1: the boundary of an Antipodal mesh for the bound (grid coordinates): segment boxes and lengths, their box,
-        // the total length and the coordinates' size
+        // the total length and the coordinates' size; SumFactor: the factor of the sums over its segments (SumTermsFactor)
         internal sealed class BoundaryBound
         {
             public double[] Boxes, Lengths, All;
-            public double Total, Size;
+            public double Total, Size, SumFactor;
         }
 
         /// <summary>
@@ -2580,6 +2748,9 @@ namespace g3
                     if (patch[q] != k)
                         continue;
                     double cq = piece_cost(q, b, ws.Cost);
+                    // (the sum of three non-negative values rounds twice, so the true sum is at most the computed one times
+                    // (1 + 2.0001u) = 1 + 2.2e-16; the factor 1 + 1e-12 is 4500 times that and is kept, not derived: it also
+                    // keeps the decisions as they were, #1350)
                     double aq = (a + cp + cq) * (1 + 1e-12);
                     if (!(aq < margin))
                         continue;
@@ -2607,13 +2778,13 @@ namespace g3
             Vector3d pa = arr.Approx(ot.A), pb = arr.Approx(ot.B), pc = arr.Approx(ot.C);
             double err = arr.ApproxError(ot.A) + arr.ApproxError(ot.B) + arr.ApproxError(ot.C);
             for (int q = 0; q < 3; ++q) {
-                box[q] = Math.Min(pa[q], Math.Min(pb[q], pc[q])) - err;
-                box[q + 3] = Math.Max(pa[q], Math.Max(pb[q], pc[q])) + err;
+                box[q] = MathUtil.MinExact(pa[q], MathUtil.MinExact(pb[q], pc[q])) - err;
+                box[q + 3] = MathUtil.MaxExact(pa[q], MathUtil.MaxExact(pb[q], pc[q])) + err;
             }
-            diam = (Math.Max(pa.Distance(pb), Math.Max(pb.Distance(pc), pc.Distance(pa))) + 2 * err) * (1 + 1e-12);
+            diam = piece_diameter(pa, pb, pc, err);
             double s = b.Size;
             for (int q = 0; q < 6; ++q)
-                s = Math.Max(s, 3 * Math.Abs(box[q]));
+                s = MathUtil.MaxExact(s, 3 * Math.Abs(box[q]));
             double near = 1e-3 * s, slack = 1e-12 * s;
             double d = box_distance(box, 0, b.All, 0) - slack;
             double g;
@@ -2627,9 +2798,26 @@ namespace g3
                     g = dt >= near ? g + far_term(b.Lengths[t], 1, dt) : double.PositiveInfinity;
                 }
             }
-            cost = g * (1 + 1e-12) * diam;
+            cost = sum_bound(g, b) * diam;
             cache[p] = cost;
             return cost;
+        }
+
+        /// <summary>
+        /// An upper bound of the diameter of a piece (piece_cost): its corners lie within e_i per coordinate of the
+        /// approximations pa, pb, pc (ApproxError), err = e_A + e_B + e_C. An edge of the true piece is at most its computed
+        /// length (1 + 4u) (Distance, as boundary_bound: n = 4) plus sqrt(3) (e_i + e_j) (the Euclidean norm of two
+        /// per-coordinate errors) &lt;= sqrt(3) err, since err &gt;= e_i + e_j (the two roundings of the sum leave err_c &gt;= (1 -
+        /// u)^2 err). So 2 err_c &gt;= sqrt(3) (e_i + e_j) 2 / sqrt(3) (1 - u)^2: the margin 2 / sqrt(3) = 1.1547 absorbs the
+        /// roundings of err and of the sum below. fl(M + 2 err_c) &gt;= (M + 2 err_c) (1 - u); the cost then takes a product
+        /// with G and one more rounding: (1 - u)^3 f &gt;= 1 + 4u needs f &gt;= 1 + 7.0001u, so k = 8 (n = 4, c = 4). The corners
+        /// of arr.Approx are not integers, and a subnormal product or difference is rounded by an absolute 0.5 eps: both are
+        /// absorbed by the 2e-6 of the margin (a piece is decided only more than 2e-6 from every half-integer). Before: (1 +
+        /// 1e-12)
+        /// </summary>
+        internal static double piece_diameter(Vector3d pa, Vector3d pb, Vector3d pc, double err)
+        {
+            return (MathUtil.MaxExact(pa.Distance(pb), MathUtil.MaxExact(pb.Distance(pc), pc.Distance(pa))) + 2 * err) * Factor(8);
         }
 
         internal static BoundaryBound boundary_bound(Vector3d[] g)
@@ -2640,15 +2828,30 @@ namespace g3
             for (int t = 0; t < ns; ++t) {
                 Vector3d x = g[2 * t], y = g[2 * t + 1];
                 for (int q = 0; q < 3; ++q) {
-                    b.Boxes[6 * t + q] = Math.Min(x[q], y[q]);
-                    b.Boxes[6 * t + q + 3] = Math.Max(x[q], y[q]);
-                    b.All[q] = Math.Min(b.All[q], b.Boxes[6 * t + q]);
-                    b.All[q + 3] = Math.Max(b.All[q + 3], b.Boxes[6 * t + q + 3]);
+                    b.Boxes[6 * t + q] = MathUtil.MinExact(x[q], y[q]);
+                    b.Boxes[6 * t + q + 3] = MathUtil.MaxExact(x[q], y[q]);
+                    b.All[q] = MathUtil.MinExact(b.All[q], b.Boxes[6 * t + q]);
+                    b.All[q + 3] = MathUtil.MaxExact(b.All[q + 3], b.Boxes[6 * t + q + 3]);
                 }
-                b.Lengths[t] = x.Distance(y) * (1 + 1e-15);
+                // The length of the true segment, between the exact grid points X, Y of which x, y are the doubles
+                // (antipodal_grid: (double)BigInteger, each coordinate off by less than 2^-52 relative, #1350):
+                //   |X - Y| <= |x - y| + |X - x| + |Y - y|,  |X - x| <= E (1 + 3u) |x|_1  (|X_i| <= |x_i| / (1 - E)).
+                // |x - y| from Distance: the grid values are integers, so a difference is 0 or at least 1 and its square does
+                // not underflow; an overflow gives +infinity (a bound of any length, the term is then limited by the count).
+                // The three differences, their squares and the two additions leave the computed square sum at least
+                // (1 - u)^5 of the true one, so |x - y| <= D (1 - u)^-3.5 <= D (1 + 4u) (n = 4: the square root halves
+                // the 5). R = |x|_1 + |y|_1 rounds 5 times (the deepest term 3): R_true <= R_c (1 + 4u); E R_c is exact
+                // (a power of two). The endpoint term E (1 + 3u) R_true <= E R_c (1 + 7.0001u) and D (1 + 4u) are both at most
+                // (D + E R_c) (1 + 7.0001u); the sum T = fl(D + E R_c) is at least (D + E R_c) (1 - u), so
+                // |X - Y| <= T (1 + 8.0002u), and the product T f rounds down by at most u more: f >= 1 + 9.0003u, the
+                // even k = 10 (n = 8, c = 2). Before: D (1 + 1e-15), without the endpoint term
+                double dist = x.Distance(y);
+                double r = (Math.Abs(x.x) + Math.Abs(x.y) + Math.Abs(x.z)) + (Math.Abs(y.x) + Math.Abs(y.y) + Math.Abs(y.z));
+                b.Lengths[t] = (dist + E * r) * Factor(10);
                 b.Total += b.Lengths[t];
-                b.Size = Math.Max(b.Size, Math.Max(Math.Abs(x.x) + Math.Abs(x.y) + Math.Abs(x.z), Math.Abs(y.x) + Math.Abs(y.y) + Math.Abs(y.z)));
+                b.Size = MathUtil.MaxExact(b.Size, MathUtil.MaxExact(Math.Abs(x.x) + Math.Abs(x.y) + Math.Abs(x.z), Math.Abs(y.x) + Math.Abs(y.y) + Math.Abs(y.z)));
             }
+            b.SumFactor = SumTermsFactor(ns);
             return b;
         }
 
@@ -2700,7 +2903,7 @@ namespace g3
         {
             double sum = 0;
             for (int q = 0; q < 3; ++q) {
-                double gap = Math.Max(0, Math.Max(x[a + q] - y[b + q + 3], y[b + q] - x[a + q + 3]));
+                double gap = MathUtil.MaxExact(0, MathUtil.MaxExact(x[a + q] - y[b + q + 3], y[b + q] - x[a + q + 3]));
                 sum += gap * gap;
             }
             // (#719: an overflowed sum of squares would give an infinite distance and far_term a zero bound: then the norm
@@ -2711,9 +2914,9 @@ namespace g3
         [MethodImpl(MethodImplOptions.NoInlining)]
         static double box_distance_scaled(double[] x, int a, double[] y, int b)
         {
-            double g0 = Math.Max(0, Math.Max(x[a] - y[b + 3], y[b] - x[a + 3]));
-            double g1 = Math.Max(0, Math.Max(x[a + 1] - y[b + 4], y[b + 1] - x[a + 4]));
-            double g2 = Math.Max(0, Math.Max(x[a + 2] - y[b + 5], y[b + 2] - x[a + 5]));
+            double g0 = MathUtil.MaxExact(0, MathUtil.MaxExact(x[a] - y[b + 3], y[b] - x[a + 3]));
+            double g1 = MathUtil.MaxExact(0, MathUtil.MaxExact(x[a + 1] - y[b + 4], y[b + 1] - x[a + 4]));
+            double g2 = MathUtil.MaxExact(0, MathUtil.MaxExact(x[a + 2] - y[b + 5], y[b + 2] - x[a + 5]));
             return scaled_norm(g0, g1, g2);
         }
 
@@ -2726,7 +2929,7 @@ namespace g3
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static double scaled_norm(double x, double y, double z)
         {
-            double m = Math.Max(Math.Abs(x), Math.Max(Math.Abs(y), Math.Abs(z)));
+            double m = MathUtil.MaxExact(Math.Abs(x), MathUtil.MaxExact(Math.Abs(y), Math.Abs(z)));
             if (m == 0 || double.IsNaN(m) || double.IsInfinity(m))
                 return m;           // (Math.Max propagates NaN on every target)
             int e = (int)((BitConverter.DoubleToInt64Bits(m) >> 52) & 0x7FF) - 1023;
@@ -2739,28 +2942,39 @@ namespace g3
         /// <summary>
         /// the Biot-Savart terms of L1 and L2's gradient bounds: min(length / (4 pi d^2), count / (2 pi d)) for a set of
         /// segments of that total length and count at distance at least d. Where 4 pi d^2 is a finite double the old
-        /// expression (bit-identical); where it overflowed (#719: the term became 0, an unsound bound of a gradient that is
+        /// expression (bit-identical, except a subnormal result, which gets 2 eps added, #1350); where it overflowed (#719: the term became 0, an unsound bound of a gradient that is
         /// not zero) the quotients one at a time, at least the smallest positive double where that underflows (the true
         /// term is below it but not 0), and +infinity where it is not a number (an infinite length or a NaN distance)
         /// </summary>
         internal static double far_term(double length, double count, double d)
         {
             double q = 4 * Math.PI * d * d;
-            if (q <= double.MaxValue)
-                return Math.Min(length / q, count / (2 * Math.PI * d));
+            if (q <= double.MaxValue) {
+                double r = MathUtil.MinExact(length / q, count / (2 * Math.PI * d));
+                // (#1350: a subnormal quotient is rounded to a multiple of 2^-1074, an absolute error of half of it per
+                // division, not the relative u of the SumTermsFactor: the division leaves at most 0.5 eps, the two roundings
+                // of q (relative u each, below 2^-1022: 2u 2^-1022 = 1 eps) at most 1 eps, and fl(pi) < pi takes back
+                // 0.35u 2^-1022 = 0.18 eps: at most 0.5 + 1 - 0.18 = about 1.33 eps below 2^-1022 (a result of 1.026 eps above the
+                // plain quotient is reached, so 1 eps would not do); 2 eps covers it, where the true term is positive, which
+                // a quotient that underflowed to 0 would lose: length > 0 and count > 0)
+                return r < 2.2250738585072014E-308 && length > 0 && count > 0 ? r + 2 * double.Epsilon : r;
+            }
             return far_term_overflow(length, count, d);
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         static double far_term_overflow(double length, double count, double d)
         {
-            double r = Math.Min(length / d / d / (4 * Math.PI), count / d / (2 * Math.PI));
+            double r = MathUtil.MinExact(length / d / d / (4 * Math.PI), count / d / (2 * Math.PI));
             if (double.IsNaN(r))
                 return double.PositiveInfinity;
             // (rounded up, so that it bounds the true term: the three roundings of each quotient, relative 2^-53 each in the
             // normal range, absolute half a subnormal ulp each below it; and positive where the true term is, which an
             // underflow to 0 would lose; review of #759)
-            return length > 0 || count > 0 ? r * (1 + 1e-15) + 4 * double.Epsilon : r;
+            // (the factor: the first quotient is three divisions, the second two, the minimum is below both, so the true term
+            // is at most r (1 - u)^-3 <= r (1 + 3.0001u); fl(r f) >= r f (1 - u) needs f >= 1 + 4.0002u: k = 6 (n = 3, c = 3;
+            // and 4 eps for the subnormal part, as above). Before: (1 + 1e-15))
+            return length > 0 || count > 0 ? r * Factor(6) + 4 * double.Epsilon : r;
         }
 
         // open_winding with L1: the open meshes decided for piece i's patch take the patch's value, the first piece of a
@@ -2969,8 +3183,8 @@ namespace g3
                     double diam = 0, dist = 0;
                     for (int k = 0; k < 3; ++k) {
                         Vector3d a = corner_double(tq.Corners[k]), c = corner_double(tq.Corners[(k + 1) % 3]);
-                        diam = Math.Max(diam, max_abs(a - c));
-                        dist = Math.Max(dist, max_abs(a - fp.Origin));
+                        diam = MathUtil.MaxExact(diam, max_abs(a - c));
+                        dist = MathUtil.MaxExact(dist, max_abs(a - fp.Origin));
                     }
                     if (dist <= 16 * diam)
                         frames[sq] = fp;
@@ -3038,8 +3252,8 @@ namespace g3
                             foreach (int i in pcs) {
                                 piece_box(i, boxes, hasBox, loc);
                                 for (int k = 0; k < 3; ++k) {
-                                    cbox[k] = Math.Min(cbox[k], boxes[6 * loc[i] + k]);
-                                    cbox[k + 3] = Math.Max(cbox[k + 3], boxes[6 * loc[i] + k + 3]);
+                                    cbox[k] = MathUtil.MinExact(cbox[k], boxes[6 * loc[i] + k]);
+                                    cbox[k + 3] = MathUtil.MaxExact(cbox[k + 3], boxes[6 * loc[i] + k + 3]);
                                 }
                             }
                             cbj = cluster_bound(cbox, bb[j]);
@@ -3266,17 +3480,34 @@ namespace g3
             piece_box(p, boxes, hasBox, loc);
             piece_box(q, boxes, hasBox, loc);
             for (int k = 0; k < 3; ++k) {
-                box[k] = Math.Min(boxes[6 * loc[p] + k], boxes[6 * loc[q] + k]);
-                box[k + 3] = Math.Max(boxes[6 * loc[p] + k + 3], boxes[6 * loc[q] + k + 3]);
+                box[k] = MathUtil.MinExact(boxes[6 * loc[p] + k], boxes[6 * loc[q] + k]);
+                box[k + 3] = MathUtil.MaxExact(boxes[6 * loc[p] + k + 3], boxes[6 * loc[q] + k + 3]);
             }
             // (the distance in the local frame: its errors are relative to the input triangle, not to the model)
             double ep, eq;
             Vector3d gp = cp.Local(out ep), gq = cq.Local(out eq);
-            double length = (gp.Distance(gq) + 1.7320508075688774 * (ep + eq)
-                + 1e-15 * (Math.Abs(gp.x) + Math.Abs(gp.y) + Math.Abs(gp.z) + Math.Abs(gq.x) + Math.Abs(gq.y) + Math.Abs(gq.z))) * (1 + 1e-12);
+            double length = carry_length(gp, gq, ep, eq);
             if (double.IsNaN(length))
                 return double.PositiveInfinity;
             return gradient_bound(box, b, cb) * length;
+        }
+
+        /// <summary>
+        /// An upper bound of the distance of the exact points whose approximations are gp and gq, off by at most ep and eq per
+        /// coordinate (carry_bound, #1350), times the product with G that the caller takes. Derivation: |c_p - c_q| <= |gp -
+        /// gq| + sqrt(3) (ep + eq), and the computed distance D_c has |gp - gq| <= D_c (1 + 4u) (n = 4, as in boundary_bound),
+        /// with D_c <= K (1 + 4u), K = |gp|_1 + |gq|_1, so D_c (1 + 4u) <= D_c + 4u K (1 + 4u); K_true <= K_c (1 + 4u) (5
+        /// roundings, the deepest term 3) and W = K_c 2^-51 is exact: 4u K (1 + 4u) <= W (1 + 8u). Q = fl(sqrt3_c fl(ep + eq))
+        /// with sqrt3_c = 1.7320508075688774 > sqrt(3): sqrt(3) (ep + eq) <= Q (1 + 3u). Together |c_p - c_q| <= (D_c + Q + W) (1
+        /// + 8u), the sum S = fl(fl(D_c + Q) + W) >= (D_c + Q + W) (1 - u)^2, so |c_p - c_q| <= S (1 + 10.0001u). The result
+        /// fl(S f) and then the caller's fl(G * result) round down by u each: f (1 - u)^2 >= 1 + 10.0001u needs f >= 1 +
+        /// 12.0002u, so k = 14 (n = 10, c = 4). Before: (D_c + sqrt3_c (ep + eq) + 1e-15 K_c) (1 + 1e-12). No underflow
+        /// is assumed (the centroids of pieces of input triangles are far from 2^-1000 of the model)
+        /// </summary>
+        internal static double carry_length(Vector3d gp, Vector3d gq, double ep, double eq)
+        {
+            double k = (Math.Abs(gp.x) + Math.Abs(gp.y) + Math.Abs(gp.z)) + (Math.Abs(gq.x) + Math.Abs(gq.y) + Math.Abs(gq.z));
+            return ((gp.Distance(gq) + 1.7320508075688774 * (ep + eq)) + k * (4 * U)) * Factor(14);
         }
 
         [ThreadStatic] static double[] carryBox;
@@ -3290,8 +3521,8 @@ namespace g3
             Vector3d pa = arr.Approx(ot.A), pb = arr.Approx(ot.B), pc = arr.Approx(ot.C);
             double err = arr.ApproxError(ot.A) + arr.ApproxError(ot.B) + arr.ApproxError(ot.C);
             for (int k = 0; k < 3; ++k) {
-                boxes[6 * loc[i] + k] = Math.Min(pa[k], Math.Min(pb[k], pc[k])) - err;
-                boxes[6 * loc[i] + k + 3] = Math.Max(pa[k], Math.Max(pb[k], pc[k])) + err;
+                boxes[6 * loc[i] + k] = MathUtil.MinExact(pa[k], MathUtil.MinExact(pb[k], pc[k])) - err;
+                boxes[6 * loc[i] + k + 3] = MathUtil.MaxExact(pa[k], MathUtil.MaxExact(pb[k], pc[k])) + err;
             }
             hasBox[loc[i]] = true;
         }
@@ -3303,7 +3534,7 @@ namespace g3
         {
             double s = b.Size;
             for (int q = 0; q < 6; ++q)
-                s = Math.Max(s, 3 * Math.Abs(box[q]));
+                s = MathUtil.MaxExact(s, 3 * Math.Abs(box[q]));
             double near = 1e-3 * s, slack = 1e-12 * s;
             double d = box_distance(box, 0, b.All, 0) - slack;
             double g;
@@ -3326,7 +3557,10 @@ namespace g3
                         break;
                 }
             }
-            return g * (1 + 1e-12);
+            // g is a sum of at most ns terms (all, the far part of the cluster and the near ones, or the single term of the
+            // total): the factor of SumTermsFactor covers its roundings and the terms' (it replaces (1 + 1e-12), which is
+            // below ns u from ns = 9007 on)
+            return sum_bound(g, b);
         }
 
         /// <summary>
@@ -3334,7 +3568,8 @@ namespace g3
         /// segment at distance at least C's near (1e-3 s_C) from C contributes its term at that distance, which bounds its term
         /// at any box inside C: the distance there is at least as large, and that box's s, near and slack are at most C's
         /// (s grows with the box's coordinates, which lie within C's). Those terms are summed once (Far); the others (Near)
-        /// per box, as in gradient_bound. The bound is larger than the per-segment sum, never smaller
+        /// per box, as in gradient_bound. The bound is larger than the per-segment sum, never smaller. Far is the raw sum
+        /// (without the factor of SumTermsFactor): gradient_bound multiplies the whole chain, Far plus the near terms, once
         /// </summary>
         internal sealed class ClusterBound
         {
@@ -3346,7 +3581,7 @@ namespace g3
         {
             double s = b.Size;
             for (int q = 0; q < 6; ++q)
-                s = Math.Max(s, 3 * Math.Abs(cbox[q]));
+                s = MathUtil.MaxExact(s, 3 * Math.Abs(cbox[q]));
             double near = 1e-3 * s, slack = 1e-12 * s;
             var c = new ClusterBound();
             var list = new List<int>();
@@ -3468,7 +3703,7 @@ namespace g3
                 double c = (double)arr.Center[k];
                 ip[k] = ExactPoint3.ScaleB(gp[k] + c, arr.ScaleExp);
                 iq[k] = ExactPoint3.ScaleB(gq[k] + c, arr.ScaleExp);
-                e = Math.Max(e, Math.Max(ep + 3.4e-16 * (Math.Abs(gp[k]) + Math.Abs(c)), eq + 3.4e-16 * (Math.Abs(gq[k]) + Math.Abs(c))));
+                e = MathUtil.MaxExact(e, MathUtil.MaxExact(ep + 3.4e-16 * (Math.Abs(gp[k]) + Math.Abs(c)), eq + 3.4e-16 * (Math.Abs(gq[k]) + Math.Abs(c))));
             }
             pad = 1.01 * ExactPoint3.ScaleB(e, arr.ScaleExp) + 1e-300;
             double all = ip.x + ip.y + ip.z + iq.x + iq.y + iq.z + pad;
@@ -3582,7 +3817,7 @@ namespace g3
                 var gl = new double[g.Length + 1];
                 for (int q = 0; q < g.Length; ++q) {
                     gl[q] = l1(g[q]);
-                    gl[g.Length] = Math.Max(gl[g.Length], gl[q]);
+                    gl[g.Length] = MathUtil.MaxExact(gl[g.Length], gl[q]);
                 }
                 return gl;
             }
@@ -3603,12 +3838,12 @@ namespace g3
                     double ax, ay, ae, bxx, byy, be;
                     bool va = Project(g[2 * s], out ax, out ay, out ae), vb = Project(g[2 * s + 1], out bxx, out byy, out be);
                     Valid = va && vb;
-                    box[4 * s] = Math.Min(ax - ae, bxx - be);
-                    box[4 * s + 1] = Math.Min(ay - ae, byy - be);
-                    box[4 * s + 2] = Math.Max(ax + ae, bxx + be);
-                    box[4 * s + 3] = Math.Max(ay + ae, byy + be);
-                    bx0 = Math.Min(bx0, box[4 * s]); by0 = Math.Min(by0, box[4 * s + 1]);
-                    bx1 = Math.Max(bx1, box[4 * s + 2]); by1 = Math.Max(by1, box[4 * s + 3]);
+                    box[4 * s] = MathUtil.MinExact(ax - ae, bxx - be);
+                    box[4 * s + 1] = MathUtil.MinExact(ay - ae, byy - be);
+                    box[4 * s + 2] = MathUtil.MaxExact(ax + ae, bxx + be);
+                    box[4 * s + 3] = MathUtil.MaxExact(ay + ae, byy + be);
+                    bx0 = MathUtil.MinExact(bx0, box[4 * s]); by0 = MathUtil.MinExact(by0, box[4 * s + 1]);
+                    bx1 = MathUtil.MaxExact(bx1, box[4 * s + 2]); by1 = MathUtil.MaxExact(by1, box[4 * s + 3]);
                 }
                 if (Valid == false || Count == 0) {
                     Valid = false;
@@ -3617,8 +3852,8 @@ namespace g3
                 int side = Math.Max(1, (int)Math.Sqrt(Count / 2.0));
                 nx = ny = side;
                 x0 = bx0; y0 = by0;
-                cw = Math.Max((bx1 - bx0) / nx, 1e-300);
-                ch = Math.Max((by1 - by0) / ny, 1e-300);
+                cw = MathUtil.MaxExact((bx1 - bx0) / nx, 1e-300);
+                ch = MathUtil.MaxExact((by1 - by0) / ny, 1e-300);
                 var counts = new int[nx * ny + 1];
                 for (int pass = 0; pass < 2; ++pass) {
                     if (pass == 1) {
@@ -3671,7 +3906,7 @@ namespace g3
                     pe = double.NaN;
                     return false;
                 }
-                pe = 1.01 * Math.Max((di + Math.Abs(px) * dd) / ad + u * Math.Abs(px), (dj + Math.Abs(py) * dd) / ad + u * Math.Abs(py)) + 1e-300;
+                pe = 1.01 * MathUtil.MaxExact((di + Math.Abs(px) * dd) / ad + u * Math.Abs(px), (dj + Math.Abs(py) * dd) / ad + u * Math.Abs(py)) + 1e-300;
                 return Math.Abs(d) > 2 * dd && double.IsNaN(pe + px + py) == false && double.IsInfinity(pe + px + py) == false;
             }
 
@@ -3687,8 +3922,8 @@ namespace g3
                     double px, py, pe;
                     if (Project(v[k], out px, out py, out pe) == false)
                         return null;
-                    ax = Math.Min(ax, px - pe); ay = Math.Min(ay, py - pe);
-                    bx = Math.Max(bx, px + pe); by = Math.Max(by, py + pe);
+                    ax = MathUtil.MinExact(ax, px - pe); ay = MathUtil.MinExact(ay, py - pe);
+                    bx = MathUtil.MaxExact(bx, px + pe); by = MathUtil.MaxExact(by, py + pe);
                 }
                 int cx0, cy0, cx1, cy1;
                 Cells(ax, ay, bx, by, out cx0, out cy0, out cx1, out cy1);
@@ -3750,7 +3985,7 @@ namespace g3
                 return subset;
             double size = gl[gl.Length - 1];
             foreach (Vector3d x in v)
-                size = Math.Max(size, l1(x));
+                size = MathUtil.MaxExact(size, l1(x));
             // (the tetrahedron's faces in their former order, so that n = 4 gives the same planes bit for bit; else every
             // triple, each a supporting plane where all other points are certified on one side of it)
             var faces = new List<int[]>();
@@ -3813,8 +4048,8 @@ namespace g3
         }
 
         static double l1(Vector3d x) { return Math.Abs(x.x) + Math.Abs(x.y) + Math.Abs(x.z); }
-        static double max_abs(Vector3d x) { return Math.Max(Math.Abs(x.x), Math.Max(Math.Abs(x.y), Math.Abs(x.z))); }
-        static double max_sum(Vector3d x, Vector3d y) { return Math.Max(Math.Abs(x.x) + Math.Abs(y.x), Math.Max(Math.Abs(x.y) + Math.Abs(y.y), Math.Abs(x.z) + Math.Abs(y.z))); }
+        static double max_abs(Vector3d x) { return MathUtil.MaxExact(Math.Abs(x.x), MathUtil.MaxExact(Math.Abs(x.y), Math.Abs(x.z))); }
+        static double max_sum(Vector3d x, Vector3d y) { return MathUtil.MaxExact(Math.Abs(x.x) + Math.Abs(y.x), MathUtil.MaxExact(Math.Abs(x.y) + Math.Abs(y.y), Math.Abs(x.z) + Math.Abs(y.z))); }
 
         /// <summary>
         /// L2: coordinates relative to an origin (an input triangle's first corner, an integer grid point), as doubles: each
@@ -3851,7 +4086,7 @@ namespace g3
                 odIsExact = FixedPoint3.DoubleOf(o, out oe) && oe.x == od.x && oe.y == od.y && oe.z == od.z;
                 odError = 0;
                 for (int k = 0; k < 3; ++k)
-                    odError = Math.Max(odError, 2.3e-16 * Math.Abs(od[k]));
+                    odError = MathUtil.MaxExact(odError, 2.3e-16 * Math.Abs(od[k]));
             }
 
             /// <summary>
@@ -3865,7 +4100,7 @@ namespace g3
                 Vector3d g = l + od;
                 double m = 0;
                 for (int k = 0; k < 3; ++k)
-                    m = Math.Max(m, Math.Abs(l[k]) + Math.Abs(od[k]));
+                    m = MathUtil.MaxExact(m, Math.Abs(l[k]) + Math.Abs(od[k]));
                 gridError = (error + odError) * (1 + 1e-15) + 1.2e-16 * m;
                 return g;
             }
@@ -3873,7 +4108,7 @@ namespace g3
             /// <summary> the error bound per coordinate of a point given by Point (each the exact value rounded once) </summary>
             public static double PointError(Vector3d l)
             {
-                return 2.3e-16 * Math.Max(Math.Abs(l.x), Math.Max(Math.Abs(l.y), Math.Abs(l.z)));
+                return 2.3e-16 * MathUtil.MaxExact(Math.Abs(l.x), MathUtil.MaxExact(Math.Abs(l.y), Math.Abs(l.z)));
             }
 
             public Vector3d Point(ExactPoint3 p)
@@ -4012,8 +4247,8 @@ namespace g3
                         continue;
                     double[] ub = corner_box(arr, U);
                     ids.Add(u);
-                    boxes.Add(Math.Max(ub[i], tb[i])); boxes.Add(Math.Max(ub[j], tb[j]));
-                    boxes.Add(Math.Min(ub[i + 3], tb[i + 3])); boxes.Add(Math.Min(ub[j + 3], tb[j + 3]));
+                    boxes.Add(MathUtil.MaxExact(ub[i], tb[i])); boxes.Add(MathUtil.MaxExact(ub[j], tb[j]));
+                    boxes.Add(MathUtil.MinExact(ub[i + 3], tb[i + 3])); boxes.Add(MathUtil.MinExact(ub[j + 3], tb[j + 3]));
                 }
                 tri = ids.ToArray();
                 box = boxes.ToArray();
@@ -4042,8 +4277,8 @@ namespace g3
                     Vector3d a = arr.Approx(t.Corners[k]);
                     double e = arr.ApproxError(t.Corners[k]) * (1 + 1e-15);
                     for (int q = 0; q < 3; ++q) {
-                        r[q] = Math.Min(r[q], a[q] - e);
-                        r[q + 3] = Math.Max(r[q + 3], a[q] + e);
+                        r[q] = MathUtil.MinExact(r[q], a[q] - e);
+                        r[q + 3] = MathUtil.MaxExact(r[q + 3], a[q] + e);
                     }
                 }
                 return r;
@@ -4063,7 +4298,7 @@ namespace g3
                 if (tri.Length == 0)
                     return;
                 double pad = error * (1 + 1e-12) + 1e-15 * (Math.Abs(p[i]) + Math.Abs(p[j]) + Math.Abs(q[i]) + Math.Abs(q[j])) + 1e-300;
-                double ax = Math.Min(p[i], q[i]) - pad, ay = Math.Min(p[j], q[j]) - pad, bx = Math.Max(p[i], q[i]) + pad, by = Math.Max(p[j], q[j]) + pad;
+                double ax = MathUtil.MinExact(p[i], q[i]) - pad, ay = MathUtil.MinExact(p[j], q[j]) - pad, bx = MathUtil.MaxExact(p[i], q[i]) + pad, by = MathUtil.MaxExact(p[j], q[j]) + pad;
                 ++query;
                 for (int cx = cell(ax, x0, cw, nx); cx <= cell(bx, x0, cw, nx); ++cx)
                     for (int cy = cell(ay, y0, ch, ny); cy <= cell(by, y0, ch, ny); ++cy) {
@@ -4214,7 +4449,7 @@ namespace g3
                 P = p, Q = q, Sides = sides
             };
             if (grid != null)
-                grid.Query(xp, xq, Math.Max(ap, aq), ref v);
+                grid.Query(xp, xq, MathUtil.MaxExact(ap, aq), ref v);
             else {
                 // (T5, a step between two input triangles: every triangle of M that meets the segment, from M's box tree in
                 // input coordinates; design note 4.1)
@@ -4666,7 +4901,7 @@ namespace g3
                     local = (a + b + c) / 3;
                     double m = 0;
                     for (int k = 0; k < 3; ++k)
-                        m = Math.Max(m, Math.Abs(a[k]) + Math.Abs(b[k]) + Math.Abs(c[k]));
+                        m = MathUtil.MaxExact(m, Math.Abs(a[k]) + Math.Abs(b[k]) + Math.Abs(c[k]));
                     localError = (LocalFrame.PointError(a) + LocalFrame.PointError(b) + LocalFrame.PointError(c)) / 3 * (1 + 1e-15) + 1.2e-16 * m;
                     hasLocal = true;
                 }
@@ -5270,8 +5505,8 @@ namespace g3
                 Vector3d va = Vector3d.Zero;
                 for (int q = a; q <= b; ++q) {
                     Vector3d v = q < b ? g[Seg[q]] : last, w = q + 1 < b ? g[Seg[q + 1]] : (q + 1 == b ? last : g[Seg[a]]);
-                    r = Math.Max(r, (v - c).Length);
-                    l1 = Math.Max(l1, Math.Abs(v.x) + Math.Abs(v.y) + Math.Abs(v.z));
+                    r = MathUtil.MaxExact(r, (v - c).Length);
+                    l1 = MathUtil.MaxExact(l1, Math.Abs(v.x) + Math.Abs(v.y) + Math.Abs(v.z));
                     length += (w - v).Length;
                     Vector3d cr = (v - c).Cross(w - c);
                     va += cr;
@@ -5418,7 +5653,7 @@ namespace g3
                             // (the full sum's terms of the node's segments: beta, the smallest angle between -x1 and a point
                             // of the cap, with the margin; hypot from below; |theta| of a term at most pi times its side's
                             // angle, at most its length over d - r)
-                            double gamma = libm_value(Math.Acos(Math.Min(1, minusX1U)), 1), alpha = libm_value(Math.Asin(Math.Min(1, rd)), 2);
+                            double gamma = libm_value(Math.Acos(MathUtil.MinExact(1, minusX1U)), 1), alpha = libm_value(Math.Asin(MathUtil.MinExact(1, rd)), 2);
                             double beta = gamma - alpha - 1e-9 - eps;
                             int nk = t.Hi[k] - t.Lo[k];
                             if (beta > 0) {
@@ -5843,6 +6078,8 @@ namespace g3
                 foreach (int vid in arr.Meshes[m].VertexIndices())
                     inputPoints[arr.Canonical(arr.VertexPoints[m][vid])] = true;
             steps.LapMicroseconds("assembly.gather");
+            order_pieces(tris, source, flipped);
+            steps.LapMicroseconds("assembly.order");
             if (SimplifyFlatRegions) {
                 // new points inside flat regions and on straight edges between them are not needed
                 var clock = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
@@ -6018,6 +6255,95 @@ namespace g3
             }
             steps.LapMicroseconds("assembly.rest");
             return result;
+        }
+
+        // The kept pieces in an order that only their geometry gives (#1464): each piece with its corners rotated to start
+        // at its smallest point, the pieces sorted by their three points; the points compared by
+        // ExactMeshArrangement.ComparePoints (exact, a total order of the points, whatever their ids). Everything after it
+        // follows the order of the pieces: the start of the holes and the flips of ExactPlanarSimplify, the numbers of
+        // the result's vertices (the classes of corner slots, numbered by their smallest slot) and triangles, the splits of
+        // edges where the result touches itself, and with them every choice MeshRoundingRepair makes by id. Before, the
+        // pieces came in the order of the input triangles, so the same triangles with other ids or in another order gave
+        // another mesh after the repair, and sometimes another verdict. Pieces with the same three points in the same
+        // direction (two triangles of the result on one another) keep their order.
+        // Why that order cannot change the output: nothing after this sort reads source and flipped apart from
+        // ExactPlanarSimplify.group_of, which sorts a piece into the group of its oriented plane (the plane of its source triangle
+        // with the orientation of its corners). Two pieces with the same three points in the same direction have the same
+        // oriented plane, so they are in the same group, whichever source triangle each has. The group takes the source triangle
+        // t and the sign (flipped) of the first piece met, and its decisions are groupSign * InCircle(t, ...): the exact
+        // determinant in the projection that drops t's axis (the largest normal component, a tie broken the same way for every
+        // triangle of one plane), times t.Sign, which undoes the mirroring of that projection, times the flipped sign. That is
+        // the in-circle sign with respect to the oriented normal of the group, whichever of its triangles supplies t; the
+        // filter, where it decides, returns the exact sign. Result() hands on the points only, not source or flipped.
+        [MethodImpl(JitHints.Optimize)]
+        void order_pieces(List<Index3i> tris, List<int> source, List<bool> flipped)
+        {
+            int n = tris.Count;
+            if (n < 2)
+                return;
+            // the points of the pieces, ranked
+            var rank = new int[arr.PointCount];
+            var points = new List<int>();
+            for (int i = 0; i < n; ++i) {
+                Index3i f = tris[i];
+                for (int k = 0; k < 3; ++k)
+                    if (rank[f[k]] == 0) {
+                        rank[f[k]] = 1;
+                        points.Add(f[k]);
+                    }
+            }
+            arr.SortPoints(points);
+            for (int i = 0; i < points.Count; ++i)
+                rank[points[i]] = i;
+            // by the first two points as one integer (a sort of integers), then the pieces that share them by the third
+            // point and their place in the list (in a manifold result no two pieces share a directed edge)
+            var third = new int[n];
+            var key = new long[n];
+            var order = new int[n];
+            for (int i = 0; i < n; ++i) {
+                Index3i f = tris[i];
+                int ra = rank[f.a], rb = rank[f.b], rc = rank[f.c];
+                if (rb < ra && rb < rc) {
+                    tris[i] = new Index3i(f.b, f.c, f.a);
+                    key[i] = ((long)rb << 32) | (uint)rc;
+                    third[i] = ra;
+                } else if (rc < ra && rc < rb) {
+                    tris[i] = new Index3i(f.c, f.a, f.b);
+                    key[i] = ((long)rc << 32) | (uint)ra;
+                    third[i] = rb;
+                } else {
+                    key[i] = ((long)ra << 32) | (uint)rb;
+                    third[i] = rc;
+                }
+                order[i] = i;
+            }
+            Array.Sort(key, order);
+            for (int i0 = 0, i1; i0 < n; i0 = i1) {
+                i1 = i0 + 1;
+                while (i1 < n && key[i1] == key[i0]) i1++;
+                // (an insertion sort of the run: Array.Sort left its pieces in an unspecified order)
+                for (int i = i0 + 1; i < i1; ++i) {
+                    int x = order[i], j = i;
+                    while (j > i0 && (third[order[j - 1]] > third[x] || (third[order[j - 1]] == third[x] && order[j - 1] > x))) {
+                        order[j] = order[j - 1];
+                        j--;
+                    }
+                    order[j] = x;
+                }
+            }
+            var t2 = new Index3i[n];
+            var s2 = new int[n];
+            var f2 = new bool[n];
+            for (int i = 0; i < n; ++i) {
+                t2[i] = tris[order[i]];
+                s2[i] = source[order[i]];
+                f2[i] = flipped[order[i]];
+            }
+            for (int i = 0; i < n; ++i) {
+                tris[i] = t2[i];
+                source[i] = s2[i];
+                flipped[i] = f2[i];
+            }
         }
 
         // Joins the corner slots of the kept pieces across the edges where they are neighbours (assemble). The edges with two

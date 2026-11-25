@@ -45,9 +45,14 @@ namespace g3
     ///     below 2.2e-16 is contoured, and 2^k scales give the same bits: tested for the values times 2^-100 .. 2^100
     ///     (IsoValue 0), the geometry times 2^-60 .. 2^200 with values of order 1, and both together times 2^-100 .. 2^200
     ///     (a smooth field: to 2^400). A factor that is not a power of two gives the same contour up to rounding. Limits:
-    ///     the grid stores the node values as float, so the bits are the same only while the values near the surface are
-    ///     normal floats (above 1.2e-38), a value below 1.4e-45 is 0 (an empty or partial contour, no status) and values
-    ///     above 1.7e38 are clamped; the degenerate-triangle rules of creased shapes need the fourth power of an edge to
+    ///     the grid stores the node values as float; a dense grid with a value that is not a normal float (nonzero below 2^-126 or
+    ///     above about 2^127, eg +inf outside the domain or a Gaussian's tail) is stored times a power of two taken from the values at the
+    ///     sign-changing edges, so the bits are the same for the values times any power of two, down to an iso value of 1e-100 and
+    ///     below. A grid of normal floats is not touched, and a field whose values at the surface are normal floats gives the output it
+    ///     gave before (pinned for a Gaussian tail); the output can differ from before only where values at the surface were
+    ///     subnormal or clamped. Cost: one more double per node in the slabs that hold such a value. The values of one surface that
+    ///     differ by more than 2^126 from each other still lose the smaller ones, far-away values that are not floats keep their sign;
+    ///     degenerate-triangle rules of creased shapes need the fourth power of an edge to
     ///     be finite (edges below about 2^250); sparse mode and local refinement are not covered (imposed signs use an
     ///     absolute value step). With ExactHermite = false every test is absolute as before 2026-11 (a node difference,
     ///     a gradient or a quad edge below 2.2e-16 gives the middle of the edge, no normal, or the first diagonal): that
@@ -889,7 +894,7 @@ namespace g3
         double node_value(Vector3i n)
         {
             if (sparse == false)
-                return values[n.x + NI * (n.y + NJ * n.z)];
+                return grid_value(n.x + NI * (n.y + NJ * n.z));
             long key = node_key(n);
             float value;
             if (sparseValues.TryGetValue(key, out value) == false) {
@@ -1199,10 +1204,10 @@ namespace g3
                     for (int j = 0; j < NJ; ++j) {
                         for (int i = 0; i < NI; ++i) {
                             int c = i + NI * (j + NJ * k);
-                            bool inside = is_inside(values[c]);
-                            if (i + 1 < NI && inside != is_inside(values[c + 1])) crossings.Add(new GridEdge(new Vector3i(i, j, k), 0, true));
-                            if (j + 1 < NJ && inside != is_inside(values[c + NI])) crossings.Add(new GridEdge(new Vector3i(i, j, k), 1, true));
-                            if (k + 1 < NK && inside != is_inside(values[c + NI * NJ])) crossings.Add(new GridEdge(new Vector3i(i, j, k), 2, true));
+                            bool inside = is_inside(grid_value(c));
+                            if (i + 1 < NI && inside != is_inside(grid_value(c + 1))) crossings.Add(new GridEdge(new Vector3i(i, j, k), 0, true));
+                            if (j + 1 < NJ && inside != is_inside(grid_value(c + NI))) crossings.Add(new GridEdge(new Vector3i(i, j, k), 1, true));
+                            if (k + 1 < NK && inside != is_inside(grid_value(c + NI * NJ))) crossings.Add(new GridEdge(new Vector3i(i, j, k), 2, true));
                         }
                     }
                 }
@@ -1469,24 +1474,92 @@ namespace g3
         }
 
 
+        // The grid stores float. A value that is not a normal float (nonzero below 2^-126, or above the clamp of about 2^127) is damaged.
+        const double FloatNormalMin = 1.1754943508222875e-38;      // 2^-126
+        const double FloatClamp = float.MaxValue / 2;
+
+        // dense mode: node value of grid index c, as stored times 2^valueShift (an exact scaling)
+        double grid_value(int c) { return valueShift == 0 ? values[c] : ExactPoint3.ScaleB(values[c], valueShift); }
+
+        // floor(log2 |x|) of a finite nonzero double
+        internal static int exponent_of(double x)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(Math.Abs(x));
+            int e = (int)((bits >> 52) & 0x7FF);
+            if (e == 0) {
+                bits = BitConverter.DoubleToInt64Bits(Math.Abs(x) * 18446744073709551616.0);
+                return (int)((bits >> 52) & 0x7FF) - 1023 - 64;
+            }
+            return e - 1023;
+        }
+
         void sample_grid()
         {
             values = new float[NI * NJ * NK];
+            valueShift = 0;
+            // the doubles of the slabs that hold a damaged value (null for the others): the only second copy, and no second evaluation
+            double[][] exactSlabs = new double[NK][];
             Action<int> sample_slab = (k) => {
+                double[] slab = new double[NI * NJ];
+                bool bad = false;
                 for (int j = 0; j < NJ; ++j) {
                     for (int i = 0; i < NI; ++i) {
                         Vector3d pos = origin + CellSize * new Vector3d(i, j, k);
                         double f = Implicit.Value(ref pos);
+                        double a = Math.Abs(f);
+                        if ((a < FloatNormalMin && a != 0) || a > FloatClamp) bad = true;
+                        slab[i + NI * j] = f;
                         // keep values finite, a float overflow would turn edge interpolation into NaN
-                        values[i + NI * (j + NJ * k)] = (float)MathUtil.Clamp(f, -float.MaxValue / 2, float.MaxValue / 2);
+                        values[i + NI * (j + NJ * k)] = (float)MathUtil.Clamp(f, -FloatClamp, FloatClamp);
                     }
                 }
+                if (bad && ExactHermite) exactSlabs[k] = slab;
             };
             if (ParallelCompute)
                 gParallel.ForEach(Interval1i.Range(NK), sample_slab);
             else
                 for (int k = 0; k < NK; ++k) sample_slab(k);
+            // ExactHermite: the size of the values is not part of the level set, so a grid that the float range damages is
+            // stored times a power of two (below). ExactHermite = false keeps the clamped floats, its output as before 2026-11.
+            if (Array.Exists(exactSlabs, x => x != null))
+                rescale_grid(exactSlabs);
         }
+
+        // The values at the ends of the sign-changing grid edges (the only ones the crossings and the Hermite data read) are
+        // brought into [1, 2) at their largest, by a power of two taken from that largest value: 2^k times a field gives
+        // k shifted by exactly that factor, so the stored floats (and the mesh) have the same bits. Values far from the surface that
+        // are still not floats (a Gaussian's tail) are 0 or clamped, as before: they have the sign they had, which is all
+        // that is read of them. Cost: one more double per node in the slabs that hold a damaged value (a Gaussian's tail
+        // damages most of them), and one pass over the grid; Implicit is not evaluated again, so an impure Implicit stays consistent.
+        void rescale_grid(double[][] exactSlabs)
+        {
+            // the value of node (i, j, k) as sampled: the double where the slab was kept, the stored float elsewhere (a normal float
+            // whose scaling is exact, so it rounds to the same float as the double would)
+            Func<int, int, int, double> at = (i, j, k) => exactSlabs[k] != null ? exactSlabs[k][i + NI * j] : values[i + NI * (j + NJ * k)];
+            double largest = 0;
+            for (int k = 0; k < NK; ++k)
+                for (int j = 0; j < NJ; ++j)
+                    for (int i = 0; i < NI; ++i) {
+                        double f = at(i, j, k);
+                        if (double.IsNaN(f) || double.IsInfinity(f)) continue;
+                        bool ins = is_inside(f);
+                        for (int a = 0; a < 3; ++a) {
+                            int ni = i + (a == 0 ? 1 : 0), nj = j + (a == 1 ? 1 : 0), nk = k + (a == 2 ? 1 : 0);
+                            if (ni >= NI || nj >= NJ || nk >= NK) continue;
+                            double g = at(ni, nj, nk);
+                            if (double.IsNaN(g) || double.IsInfinity(g) || is_inside(g) == ins) continue;
+                            largest = Math.Max(largest, Math.Max(Math.Abs(f), Math.Abs(g)));
+                        }
+                    }
+            if (largest == 0) return;       // no sign change (or only zeros): nothing is read of the values
+            int shift = exponent_of(largest);
+            for (int k = 0; k < NK; ++k)
+                for (int j = 0; j < NJ; ++j)
+                    for (int i = 0; i < NI; ++i)
+                        values[i + NI * (j + NJ * k)] = (float)MathUtil.Clamp(ExactPoint3.ScaleB(at(i, j, k), -shift), -FloatClamp, FloatClamp);
+            valueShift = shift;
+        }
+        int valueShift;
 
 
         // halvings of an edge: 2^-60 of its length, below double precision of any point on it

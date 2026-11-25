@@ -539,7 +539,7 @@ namespace g3cli
             c.Params.Add(new Param("op", ParamType.String, "operation") { Required = true, Enum = new[] { "union", "intersection", "difference", "at_least", "xor" } });
             c.Params.Add(new Param("more", ParamType.String, "further input mesh files, separated by ';' (all inputs in one operation, in the order a, b, these)"));
             c.Params.Add(new Param("k", ParamType.Integer, "for op at_least: the number of meshes a point must be inside (1 = union, number of inputs = intersection)"));
-            c.Params.Add(new Param("allow_open", ParamType.Boolean, "accept inputs that are not closed (winding number sense); false: fail with operation_failed") { Default = true });
+            c.Params.Add(new Param("allow_open", ParamType.Boolean, "accept inputs that are not closed (winding number sense) and classify them by the generalized winding number above 1/2 (an open cutting surface then usually cuts nothing); false (default, as ExactMeshBoolean.AllowOpenMeshes): fail with operation_failed (OpenInput)") { Default = false });
             c.Params.Add(new Param("orientation", ParamType.String, "a closed input with inconsistently oriented faces: refuse (fail with operation_failed, boolean_status inconsistent_orientation) or area_majority (orient each component by its larger part by area, as before) or by_nesting (an input that is closed modulo 2 and embedded is oriented by the parity of the crossings of one exact ray per component: the solid is what the surface encloses; fails with boolean_status self_intersecting_inconsistent if it self-intersects and is inconsistently oriented)") { Default = "refuse", Enum = new[] { "refuse", "area_majority", "by_nesting" } });
             c.Params.Add(new Param("count_inside_out", ParamType.Boolean, "count the closed components of the inputs that are inside-out (boolean.inside_out_cells; up to about 10 percent of a boolean of 800k-triangle inputs, off: free)") { Default = false });
             c.Params.Add(SafeRounding());
@@ -547,6 +547,7 @@ namespace g3cli
             c.Params.Add(SimplifyFlatRegions());
             c.Params.Add(SelfIntersections());
             c.Params.Add(Binary());
+            c.Params.Add(VolumeGradientParam());
             c.Run = args => {
                 MeshFiles.CheckWritable(args.String("output"));
                 string opName = args.String("op");
@@ -556,6 +557,9 @@ namespace g3cli
                     throw new CommandException(ResultCodes.InvalidArguments, "k is only used with op at_least");
                 if (args.Has("k") && args.Integer("k") < 1)
                     throw new CommandException(ResultCodes.InvalidArguments, "k must be at least 1");
+                // (off unless given: the boolean then runs as before, without RetainClassification)
+                string gradientPath = args.Has("volume_gradient") ? args.String("volume_gradient") : null;
+                string gradientFormat = gradientPath != null ? VolumeGradientFormat(gradientPath) : null;
                 var files = new List<string>() { args.String("a"), args.String("b") };
                 if (args.Has("more"))
                     files.AddRange(args.String("more").Split(';').Select(f => f.Trim()).Where(f => f.Length > 0));
@@ -585,9 +589,13 @@ namespace g3cli
                 op.SafeRounding = args.Bool("safe_rounding");
                 ApplyRoundingTolerances(op, args);
                 op.SimplifyFlatRegions = args.Bool("simplify_flat_regions");
+                op.RetainClassification = gradientPath != null;
                 if (op.Compute() == false)
                     throw new CommandException(ResultCodes.OperationFailed, "boolean failed (" + op.Status + "): " + op.Error, BooleanFailure(op));
-                MeshFiles.Write(args.String("output"), op.Result, args.Bool("binary"));
+                // (the gradient first, to a temporary file: if it, the mesh or the move fails, neither file is left)
+                string gradientTemp = null;
+                JsonObject gradient = gradientPath != null ? VolumeGradient(op, meshes, gradientPath, gradientFormat, out gradientTemp) : null;
+                WriteMeshAndGradient(args.String("output"), op.Result, args.Bool("binary"), gradientTemp, gradientPath);
                 var o = new JsonObject() { ["a"] = args.String("a"), ["b"] = args.String("b"), ["output"] = args.String("output"), ["op"] = opName };
                 o["inputs"] = new JsonArray(files.Select(f => (JsonNode)f).ToArray());
                 if (opName == "at_least")
@@ -598,6 +606,8 @@ namespace g3cli
                 o["boolean"] = BooleanInfo(op);
                 o["mesh"] = MeshReport.Metrics(op.Result, args.Bool("self_intersections"));
                 o["empty_result"] = op.Result.TriangleCount == 0;
+                if (gradient != null)
+                    o["volume_gradient"] = gradient;
                 o["warnings"] = Warnings(warnings);
                 return o;
             };
@@ -626,6 +636,7 @@ namespace g3cli
                 var op = new ExactMeshBoolean(mesh, new DMesh3(), ExactMeshBoolean.Operations.Union) {
                     SafeRounding = args.Bool("safe_rounding"), SimplifyFlatRegions = args.Bool("simplify_flat_regions"),
                     Orientation = ExactMeshBoolean.OrientationModes.AreaMajority,
+                    AllowOpenMeshes = true,     // (resolve repairs one mesh, open or not, as ExactMeshBoolean.Resolve)
                 };
                 ApplyRoundingTolerances(op, args);
                 if (op.Compute() == false)

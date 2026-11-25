@@ -176,6 +176,27 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void BooleanVolumeGradientExample_RealizedAndOtherOneSidedDerivative()
+        {
+            double[] r = g3.Examples.BooleanVolumeGradientExample.TouchingBoxes(out string error);
+            Assert.True(r != null, error);
+            Assert.Equal(1.25, r[0], 12);     // volume of the union
+            Assert.Equal(0.25, r[1], 12);     // the realized branch: the union merges the touching boxes
+            Assert.Equal(0.0, r[2], 12);      // the other branch: separated
+        }
+
+        [Fact]
+        public void BooleanVolumeOptimizerExample_GrowsTheUnionToTheTargetVolume()
+        {
+            // (the optimizer's convergence, invariance, determinism and failures: BooleanVolumeOptimizerTests)
+            var r = g3.Examples.BooleanVolumeOptimizerExample.GrowUnion();
+            Assert.True(r.Reason == g3.Examples.BooleanVolumeOptimizerExample.StopReason.Converged, r.Error);
+            Assert.Equal(1.3, r.Iterations[r.Iterations.Count - 1].Volume, 8);
+            Assert.True(r.Final.IsClosed());
+            Assert.Equal(1.3, Volume(r.Final), 6);
+        }
+
+        [Fact]
         public void ExactMeshBooleanExample_ExactVolumesAndClosedResults()
         {
             // cube 1, bar 0.5 x 0.5 x 2 of which 0.25 lies inside the cube
@@ -214,6 +235,31 @@ namespace geometry3Sharp.Tests
             Assert.True(result.IsClosed());
             // x in [0.5, 1.5] is inside two of the boxes
             Assert.Equal(1.0, Volume(result), 12);
+        }
+
+        [Fact]
+        public void UnionTreeExample_TreeAndOneCallAgreeInVolume()
+        {
+            List<DMesh3> balls = UnionTreeExample.MakeBalls();
+            DMesh3 one = UnionTreeExample.UnionOneCall(balls);
+            DMesh3 tree = UnionTreeExample.UnionTree(balls);
+            Assert.NotNull(one);
+            Assert.NotNull(tree);
+            foreach (DMesh3 m in new[] { one, tree }) {
+                Assert.True(m.IsClosed());
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
+            }
+            Assert.True(Volume(one) > Volume(balls[0]) && Volume(one) < 8 * Volume(balls[0]));
+            Assert.Equal(Volume(one), Volume(tree), 9);
+            // 8 balls: the boxes of all overlap all 7 others, but a ball overlaps only 6 (the opposite corner is 1.3 * sqrt(3) = 2.25 > 2
+            // away): the box degree over-counts
+            Assert.Equal(7.0, UnionTreeExample.MeanBoxOverlapDegree(balls), 12);
+            int ballPairs = 0;
+            for (int i = 0; i < balls.Count; ++i)
+                for (int j = i + 1; j < balls.Count; ++j)
+                    if (balls[i].GetBounds().Center.Distance(balls[j].GetBounds().Center) < 2.0)
+                        ++ballPairs;
+            Assert.Equal(6.0, 2.0 * ballPairs / balls.Count, 12);
         }
 
         [Fact]
@@ -265,6 +311,25 @@ namespace geometry3Sharp.Tests
             Assert.False(usedSolidify);
             Assert.Equal("self-intersections", reason);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(result));
+        }
+
+        // an unwelded box soup: a clean solid whichever stage ends the repair (here the repair welds it; the wrap path with the
+        // switches: VarifoldCreaseInputTests.RobustRepair_SharpFeaturesOnSoups_RunsTheVarifoldSource)
+        [Fact]
+        public void MeshRepairExample_RobustRepairKeepingCreases_GivesACleanSolid()
+        {
+            DMesh3 box = AlphaWrapFeaturePassTests.PolyCube(4, 3, 2, (x, y, z) => true);
+            var soup = new DMesh3();
+            foreach (int t in box.TriangleIndices()) {
+                Index3i v = box.GetTriangle(t);
+                int a = soup.AppendVertex(box.GetVertex(v.a)), b = soup.AppendVertex(box.GetVertex(v.b)), c = soup.AppendVertex(box.GetVertex(v.c));
+                soup.AppendTriangle(a, b, c);
+            }
+            DMesh3 result = MeshRepairExample.RobustRepairKeepingCreases(soup, out bool wrapped, 60);
+            Assert.NotNull(result);
+            Assert.False(wrapped);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(result));
+            Assert.InRange(Volume(result), 24 - 1e-9, 24 + 1e-9);
         }
 
         [Fact]
@@ -431,6 +496,34 @@ namespace geometry3Sharp.Tests
             Assert.True(op.Status == ExactMeshBoolean.BooleanStatus.Success, op.Status + " " + op.Error);
             Assert.Equal("", gs.MeshRobustRepair.NotCleanReason(op.Result));
             Assert.Equal(volume, Volume(op.Result), 9);
+        }
+
+        [Fact]
+        public void SheetExtensionExample_ShortRimIsContinued_DeepRimIsDiagnosedAndRefused()
+        {
+            // the cube [0,4]^3 and the sheet z = 2 (normals up), wider than the cube in y and ending 0.1 short of the face x = 4 (1.3 % of the diagonal)
+            SheetExtensionExample.Outcome shortRim = SheetExtensionExample.Run(SweptCutCube(), SweptCutSheet(-1, -1, 3.9, 5, 1, 5, 2));
+            Assert.Equal(ExactMeshBoolean.SheetRefusal.RimInsideWorkpiece, shortRim.PlainRefusal);
+            Assert.Equal(MeshSheetExtension.ExtensionStatus.Success, shortRim.Status);
+            Assert.Single(shortRim.Diagnosis.Runs);
+            Assert.Equal(4.0, shortRim.Diagnosis.InsideLength, 9);
+            Assert.InRange(shortRim.Diagnosis.MaxDepthRelative, 0.0129, 0.0135);
+            Assert.True(shortRim.ExtendedSheet.TriangleCount > 2);
+            Assert.NotNull(shortRim.Cut);
+            Assert.Equal("", gs.MeshRobustRepair.NotCleanReason(shortRim.Cut));
+            Assert.Equal(32, Volume(shortRim.Cut), 9);          // the upper half, as the sheet that crosses fully
+            // the same sheet ending in the middle of the cube is too deep (50 % of the diagonal): diagnosed, not extended, nothing cut
+            SheetExtensionExample.Outcome deep = SheetExtensionExample.Run(SweptCutCube(), SweptCutSheet(-1, -1, 2, 5, 1, 1, 2));
+            Assert.Equal(ExactMeshBoolean.SheetRefusal.RimInsideWorkpiece, deep.PlainRefusal);
+            Assert.True(deep.Diagnosis.Runs[0].NoExitWithinLimit);
+            Assert.True(deep.Diagnosis.MaxDepthRelative > 0.2);
+            Assert.Null(deep.ExtendedSheet);
+            Assert.Null(deep.Cut);
+            // a sheet that cuts as it is is cut as it is
+            SheetExtensionExample.Outcome plain = SheetExtensionExample.Run(SweptCutCube(), SweptCutSheet(-1, -1, 5, 5, 1, 1, 2));
+            Assert.Equal(ExactMeshBoolean.SheetRefusal.None, plain.PlainRefusal);
+            Assert.Null(plain.Diagnosis);
+            Assert.Equal(32, Volume(plain.Cut), 9);
         }
 
         [Fact]
@@ -733,6 +826,18 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void SolidBooleanPipelineExample_CutsWithAFlushSheetOnTheGrid()
+        {
+            SolidBooleanPipeline pipeline = SolidBooleanPipelineExample.CutWithAFlushSheetOnTheGrid();
+            Assert.True(pipeline.Status == SolidBooleanPipeline.PipelineStatus.Success, pipeline.Status + " " + pipeline.Error);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(pipeline.Result));
+            Assert.True(pipeline.Result.IsClosed());
+            Assert.Equal(0.5, MeshMeasurements.VolumeArea(pipeline.Result, pipeline.Result.TriangleIndices(), pipeline.Result.GetVertex).x, 12);
+            Assert.Equal(new[] { "SheetRole", "Grid", "SheetRole" }, pipeline.Report.Route.Select(s => s.Name).ToArray());
+            Assert.Equal(1.0 / (1L << 40), pipeline.Report.Route[1].Grid);
+        }
+
+        [Fact]
         public void SolidBooleanPipelineExample_UnionsAndImprintsCleanly()
         {
             SolidBooleanPipeline pipeline = SolidBooleanPipelineExample.UnionAndReduce();
@@ -987,6 +1092,13 @@ namespace geometry3Sharp.Tests
             Assert.NotNull(cv.FillVolume);
             Assert.Equal(0.0, cv.OutsideCutVolume, 9);
             Assert.Equal(0.0, cv.OutsideFillVolume, 9);
+
+            TerrainCellVolumes blocks = TerrainToolsExample.CellBlockVolumes();
+            Assert.Equal(2, blocks.BandCount);
+            Assert.Equal(50.0, blocks.BlockCutVolume.Take(4).Sum(), 9);          // band [8, 10]: all the cut
+            Assert.Equal(0.0, blocks.BlockFillVolume.Take(4).Sum(), 9);
+            Assert.Equal(50.0, blocks.BlockFillVolume.Skip(4).Sum(), 9);         // band [10, 12]: all the fill
+            Assert.Equal(0.0, blocks.BlockCutVolume.Skip(4).Sum(), 9);
 
             int groundCount;
             ClothSimulationFilter csf = TerrainToolsExample.ClassifyGround(out groundCount);

@@ -233,9 +233,17 @@ namespace geometry3Sharp.Tests
             DMesh3 s = Sphere(Vector3d.Zero, 1, 12), t = Sphere(new Vector3d(0.6, 0, 0), 1, 12);
             var lens = Run(s, t, Ops.Intersection);
             AssertCleanResult(lens, ResultChecks.Volume(Run(s, t, Ops.Intersection, false).Result), 1e-9, "lens");
-            var d = Run(s, lens.Result, Ops.Difference);
-            ResultChecks.AssertClean(d.Result, "difference");
+            var d = new ExactMeshBoolean(s, lens.Result, Ops.Difference) { ComputeExactVertices = true };
+            Assert.True(d.Compute(), d.Error);
+            // (the rounding is to the nearest double since #1410; the old truncation pulled every rounded point of a convex shape around
+            // the origin inward, which kept the chain A - (A n B) free of point contacts by accident. Now vertices of one exact point
+            // are duplicated in memory (contacts), which the pair test counts as self-intersections: RoundingClean and clean up to
+            // contacts is what the library promises)
             Assert.True(d.RoundingClean);
+            ResultChecks.AssertCleanExceptContacts(d.Result, "difference");
+            // the contacts are of the exact solid (#1489, measured with the exact vertices: 13 positions, each of them one exact point; the 53 contacts that
+            // the rounding itself made of different exact points were all separated by the repair): the solid touches itself where the lens meets the sphere
+            Assert.Equal(13, ResultChecks.AssertContactsAreOfTheExactSolid(d, "difference"));
             Assert.Equal(ResultChecks.Volume(s) - ResultChecks.Volume(lens.Result), ResultChecks.Volume(d.Result), 9);
             // and the difference computed directly is the same solid
             var direct = Run(s, t, Ops.Difference);

@@ -97,9 +97,9 @@ static class Cases
             new[]{a0,a0,a1}, new[]{a1,a0,a1}, new[]{a1, 4.700807672511442E-223, 4.700807672511442E-223}, new[]{3.944355863141785E-223, 4.8088722167071076E-223, 4.8088722167071076E-223} };
         int[][] t = { new[]{0,2,1}, new[]{0,3,2}, new[]{4,5,6}, new[]{4,6,7}, new[]{0,1,5}, new[]{0,5,4}, new[]{1,2,6}, new[]{1,6,5}, new[]{2,3,7}, new[]{2,7,6}, new[]{3,0,4}, new[]{3,4,7} };
         var c710 = new Program.Case { Issue = "#710", Name = "ExactMeshBoolean Difference of two cubes at 3.7e-223", Scales = Scales(700, 720, 740, 760), Syms = Syms().Take(6).ToArray(),
-            Run = x => { var a = x.Apply(Mesh(av, t)); var b = x.Apply(Mesh(bv, t)); var s = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Difference);
+            Run = x => { var a = x.Apply(Mesh(av, t)); var b = x.Apply(Mesh(bv, t)); var s = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Difference) { AllowOpenMeshes = true };
                 if (!s.Compute()) return "failed"; return s.Result.TriangleCount + ":" + Program.Sig(s.Result, x).GetHashCode(); } };
-        c710.Info.Add(("triangles per scale", () => string.Join(" ", new[] { 0, 700, 740, 760 }.Select(k => { var x = new Program.Xf { Scale = Math.Pow(2, k) }; try { var s = new ExactMeshBoolean(x.Apply(Mesh(av, t)), x.Apply(Mesh(bv, t)), ExactMeshBoolean.Operations.Difference); return "2^" + k + "=" + (s.Compute() ? s.Result.TriangleCount.ToString() : "failed"); } catch (Exception e) { return "2^" + k + "=throws"; } }))));
+        c710.Info.Add(("triangles per scale", () => string.Join(" ", new[] { 0, 700, 740, 760 }.Select(k => { var x = new Program.Xf { Scale = Math.Pow(2, k) }; try { var s = new ExactMeshBoolean(x.Apply(Mesh(av, t)), x.Apply(Mesh(bv, t)), ExactMeshBoolean.Operations.Difference) { AllowOpenMeshes = true }; return "2^" + k + "=" + (s.Compute() ? s.Result.TriangleCount.ToString() : "failed"); } catch (Exception e) { return "2^" + k + "=throws"; } }))));
         return c710;
     }
 }

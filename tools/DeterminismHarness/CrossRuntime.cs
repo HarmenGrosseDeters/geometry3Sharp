@@ -63,7 +63,7 @@ namespace DeterminismHarness
             DMesh3 b = Inputs.Sphere(new Vector3d(0.7, 0.35, 0.2), 0.45, 10);
             var t = new Trace();
             t.Add(a, "input-a"); t.Add(b, "input-b");
-            var boolean = new ExactMeshBoolean(a, b, Ops.Difference);
+            var boolean = new ExactMeshBoolean(a, b, Ops.Difference) { AllowOpenMeshes = true };
             // (internal: the winding number of every open piece, the value the libm-dependent bound guards)
             FieldInfo record = typeof(ExactMeshBoolean).GetField("RecordOpenWinding", BindingFlags.NonPublic | BindingFlags.Instance);
             FieldInfo perPiece = typeof(ExactMeshBoolean).GetField("OpenWindingPerPiece", BindingFlags.NonPublic | BindingFlags.Instance);

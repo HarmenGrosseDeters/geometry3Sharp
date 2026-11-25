@@ -44,7 +44,7 @@ g3cli repair scan.obj scan_fixed.stl --rounding-max-displacement 1e-6
 
 ```bash
 g3cli boolean part.stl tool.stl cut.3mf --op difference
-g3cli boolean --a a.obj --b b.obj --output ab.glb --op union --allow-open=false
+g3cli boolean --a a.obj --b open.obj --output ab.glb --op union --allow-open
 g3cli boolean a.stl b.stl all.stl --op union --more "c.stl;d.stl"
 g3cli boolean a.stl b.stl two.stl --op at_least --k 2 --more c.stl
 g3cli boolean a.stl b.stl odd.stl --op xor --more c.stl
@@ -53,6 +53,10 @@ g3cli resolve assembly.off solid.ply --simplify-flat-regions false
 g3cli resolve site_utm.stl solid.stl --strict-rounding
 g3cli resolve site_utm.stl solid.stl --rounding-ulp-factor 0 --rounding-absolute-tolerance 1e-3
 ```
+
+### Open Inputs (`--allow-open`)
+
+An input that is not closed (in the winding number sense: every edge used equally often in both directions) fails with `operation_failed` and `OpenInput` in the message, which names the inputs by index. This is the default since 2026-11-23 (before, open inputs were accepted), as for `ExactMeshBoolean.AllowOpenMeshes`. `--allow-open` accepts them and classifies them by the generalized winding number above 1/2: a deep open shell still encloses, a flat open cutting surface usually cuts nothing and the first input comes back unchanged. `resolve` repairs one mesh and takes open inputs as before.
 
 ### Orientation & SafeRounding Options
 
@@ -64,6 +68,33 @@ g3cli resolve site_utm.stl solid.stl --rounding-ulp-factor 0 --rounding-absolute
 - `boolean.status` (`success`, `open_input`, `invalid_input`, `rounding_not_clean`, `inconsistent_orientation`), `boolean.safe_rounding`, `boolean.rounding_clean`, `boolean.contacts`, `boolean.reoriented_triangles`, `boolean.counts` (`null` on early failure).
 - `boolean.rounding`: `initial_intersections`, `remaining_intersections`, `initial_false_contacts`, `remaining_false_contacts`, `vertex_removals`, `max_drift`, `max_length`, `smallest_rejected_drift`, `remaining_defect_at` (`[x, y, z]` or `null`), `scale_disparity`, `scale_not_finite`, `evaluation_limit_reached`.
 - On failure (`operation_failed`): `boolean_status`, `boolean_error`, and the `boolean` object.
+
+### Volume Gradient (`--volume-gradient`)
+
+`boolean ... --volume-gradient <out.csv|out.json>` also writes the gradient of the volume of the exact result (before
+rounding) with respect to every input vertex (`BooleanVolumeGradient`, [guide](../../../docs/guides/booleans-and-imprint.md#volume-gradient-booleanvolumegradient)).
+The option is off by default; without it the boolean runs as before. It turns on `ExactMeshBoolean.RetainClassification`,
+which does not change the result. Every input must be closed.
+
+```bash
+g3cli boolean part.stl tool.stl cut.stl --op difference --volume-gradient grad.csv
+g3cli boolean a.stl b.stl u.stl --op union --more c.stl --volume-gradient grad.json
+```
+
+- **`.csv`:** one row per input vertex, `mesh,vertex,x,y,z,gx,gy,gz,bx,by,bz`. `mesh` is the input index (0 for `a`, 1 for
+  `b`, then `--more` in order). `vertex` is the 0-based id in the mesh as read (for STL, of the welded vertices: match by `x y z`), `x y z` its position, `g*` the entry
+  dV/dx and `b*` its error bound per component (|exact - g| <= b). A vertex of no kept piece has the entry 0.
+- **`.json`:** `{volume, volume_bound, contacts, vertices: [{mesh, vertex, position, gradient, bound}, ...]}`.
+- **Result field `volume_gradient`:** `output`, `format`, `rows`, `volume`, `volume_bound`, `contacts`.
+- **`contacts`:** the flush regions where faces of several inputs overlap in one plane, where the volume has a kink. Each
+  has `meshes`, `sheets`, `area` and `alternatives`. The gradient is the branch the exact result realizes. Each
+  alternative is a sparse change `[{mesh, vertex, value, bound}, ...]`: added to the gradient, it gives another branch.
+- **Errors:** an open input (with `--allow-open`) fails with `operation_failed`, adds `volume_gradient_error` to the
+  result, and writes neither file. Another extension fails with `unknown_format`, and a missing directory or a path that
+  is a directory with `write_error`, all before the boolean runs. The gradient goes to a new temporary file next to it,
+  moved into place after the mesh is written: if the mesh write or the move fails (`write_error`), neither file is left.
+- **Smaller option than a new command:** it reuses the inputs, the operations (n-ary, `at_least`, `xor`), the orientation
+  and the rounding options of `boolean` (and of its MCP tool, `volume_gradient`), and needs no second arrangement.
 
 ---
 

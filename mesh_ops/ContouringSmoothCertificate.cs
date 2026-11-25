@@ -159,18 +159,27 @@ namespace g3
             // blocks of Block^3 cells, each with its own result; merged in block order
             int bx = (nx + Block - 1) / Block, by = (ny + Block - 1) / Block, bz = (nz + Block - 1) / Block;
             var results = new BlockResult[bx * by * bz];
-            Action<int> work = b => {
+            var cachedField = Field as IntervalImplicit3dCached;
+            Action<int, object> work = (b, cache) => {
                 var r = new BlockResult { Passed = new int[MaxTightening + 1] };
                 int i0 = (b % bx) * Block, j0 = (b / bx % by) * Block, k0 = (b / (bx * by)) * Block;
-                descend(i0, j0, k0, Block, r);
+                descend(i0, j0, k0, Block, r, cachedField, cache);
                 results[b] = r;
             };
             if (ParallelCompute) {
                 // an exception of the field (Enclose) surfaces as it does in the serial path
-                try { Parallel.For(0, results.Length, work); }
+                try {
+                    Parallel.For(0, results.Length,
+                        () => cachedField != null ? cachedField.NewEncloseCache() : null,
+                        (b, _, cache) => { work(b, cache); return cache; },
+                        _ => { });
+                }
                 catch (AggregateException e) when (e.InnerExceptions.Count > 0) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerExceptions[0]).Throw(); }
             }
-            else for (int b = 0; b < results.Length; ++b) work(b);
+            else {
+                object cache = cachedField != null ? cachedField.NewEncloseCache() : null;
+                for (int b = 0; b < results.Length; ++b) work(b, cache);
+            }
 
             bool outer = false;
             foreach (BlockResult r in results) {
@@ -278,9 +287,9 @@ namespace g3
             return new ExactInterval(a[i], a[i + cells]);
         }
 
-        IntervalEnclosure enclose(ExactInterval x, ExactInterval y, ExactInterval z)
+        IntervalEnclosure enclose(ExactInterval x, ExactInterval y, ExactInterval z, IntervalImplicit3dCached cachedField, object cache)
         {
-            IntervalEnclosure e = Field.Enclose(x, y, z);
+            IntervalEnclosure e = cache != null ? cachedField.Enclose(x, y, z, cache) : Field.Enclose(x, y, z);
             e.F = e.F - ExactInterval.Of(iso);
             return e;
         }
@@ -291,12 +300,12 @@ namespace g3
         // The certified sign of f - iso at a node by a point enclosure (0: not decided), computed once per node. Two threads
         // may compute the same node; both store the same value (the enclosure is a function of the node), so the result
         // does not depend on the schedule.
-        int pointSign(int i, int j, int k)
+        int pointSign(int i, int j, int k, IntervalImplicit3dCached cachedField, object cache)
         {
             int idx = i + (nx + 1) * (j + (ny + 1) * k);
             sbyte v = nodeSign[idx];
             if (v == 0) {
-                int s = CertifiedSign(enclose(ExactInterval.Of(X[i]), ExactInterval.Of(Y[j]), ExactInterval.Of(Z[k])).F);
+                int s = CertifiedSign(enclose(ExactInterval.Of(X[i]), ExactInterval.Of(Y[j]), ExactInterval.Of(Z[k]), cachedField, cache).F);
                 v = (sbyte)(s == 0 ? 2 : s);
                 nodeSign[idx] = v;
             }
@@ -316,11 +325,11 @@ namespace g3
         }
 
         // a box of cells [i, i + size) x ..., clipped to the grid: proven zero-free as a whole, or split down to cells
-        void descend(int i, int j, int k, int size, BlockResult r)
+        void descend(int i, int j, int k, int size, BlockResult r, IntervalImplicit3dCached cachedField, object cache)
         {
             if (i >= nx || j >= ny || k >= nz) return;
             int si = Math.Min(size, nx - i), sj = Math.Min(size, ny - j), sk = Math.Min(size, nz - k);
-            IntervalEnclosure e = enclose(span(0, i, si), span(1, j, sj), span(2, k, sk));
+            IntervalEnclosure e = enclose(span(0, i, si), span(1, j, sj), span(2, k, sk), cachedField, cache);
             int s = CertifiedSign(e.F);
             if (s != 0) {
                 // zero-free: every node of the box has this sign, and the contouring must have used it
@@ -333,10 +342,10 @@ namespace g3
             if (size > 1) {
                 int half = size / 2;
                 for (int c = 0; c < 8; ++c)
-                    descend(i + ((c & 1) != 0 ? half : 0), j + ((c & 2) != 0 ? half : 0), k + ((c & 4) != 0 ? half : 0), half, r);
+                    descend(i + ((c & 1) != 0 ? half : 0), j + ((c & 2) != 0 ? half : 0), k + ((c & 4) != 0 ? half : 0), half, r, cachedField, cache);
                 return;
             }
-            cell(i, j, k, e, r);
+            cell(i, j, k, e, r, cachedField, cache);
         }
 
         // a node of a zero-free box whose flag is not the box's sign: the cells of the box at that node are refused
@@ -353,7 +362,7 @@ namespace g3
                     }
         }
 
-        void cell(int i, int j, int k, IntervalEnclosure whole, BlockResult r)
+        void cell(int i, int j, int k, IntervalEnclosure whole, BlockResult r, IntervalImplicit3dCached cachedField, object cache)
         {
             // tighten: zero-free on all sub-boxes, or the gradient test on the hull of their gradient enclosures
             int passed = -1; bool zeroFree = false, smooth = true; int boxSign = 0;
@@ -368,7 +377,8 @@ namespace g3
                             IntervalEnclosure e = t == 0 ? whole : enclose(
                                 new ExactInterval(breakpoint(0, i, a, m), breakpoint(0, i, a + 1, m)),
                                 new ExactInterval(breakpoint(1, j, b, m), breakpoint(1, j, b + 1, m)),
-                                new ExactInterval(breakpoint(2, k, c, m), breakpoint(2, k, c + 1, m)));
+                                new ExactInterval(breakpoint(2, k, c, m), breakpoint(2, k, c + 1, m)),
+                                cachedField, cache);
                             int s = CertifiedSign(e.F);
                             if (s == 0) allFree = false;
                             else if (boxSign == 0) boxSign = s;
@@ -385,7 +395,7 @@ namespace g3
             int mask = 0; bool nodesOk = true;
             for (int c = 0; c < 8; ++c) {
                 int a = i + (c & 1), b = j + (c >> 1 & 1), d = k + (c >> 2 & 1);
-                int s = zeroFree ? boxSign : pointSign(a, b, d);
+                int s = zeroFree ? boxSign : pointSign(a, b, d, cachedField, cache);
                 if (s == 0 || s != flagSign(a, b, d)) nodesOk = false;
                 if (inside[a + (nx + 1) * (b + (ny + 1) * d)]) mask |= 1 << c;
             }

@@ -188,6 +188,7 @@ Ratings are ordinal estimates following [CROSS_FIELD_GEOMETRY.md](CROSS_FIELD_GE
 ## Part III — Chemistry & Materials Science
 
 ### 11. Pointwise Distance Distributions (PDD) and Crystal Isometry Space
+- **Probe (2026-11-24): stop.** Measured against the D2 histogram and PCA moments in [PDD_PROBE_2026-11.md](PDD_PROBE_2026-11.md): deterministic and fast, but clearly worse than D2 on near-duplicate discrimination and retrieval; the "reference Python code is MIT" claim below was not confirmed (the package shows CC BY-NC-SA 4.0).
 - **Field & sources:** Mathematical Crystallography / Materials Chemistry — Widdowson & Kurlin (*Resolving the Data Ambiguity for Periodic Crystals*, NeurIPS 2022; extended rigorous proofs for **finite and periodic** discrete sets in `[R30]`, SIAM 2025, arXiv:2108.04798v3).
 - **Classification:** Known and proven in crystallography; **transfer** to 3D point clouds, CAD retrieval, and geometry QA.
 - **Core mechanism:** For any finite or periodic point set $S \subset \mathbb{R}^d$ and integer $k$, record for each point $p \in S$ the sorted vector of distances to its $k$ nearest neighbors, collapse identical rows with multiplicity weights, and compare two distributions via the Earth Mover's Distance (or fast vector projections like Average Minimum Distance, AMD). Widdowson & Kurlin proved that PDD is:
@@ -207,6 +208,7 @@ Ratings are ordinal estimates following [CROSS_FIELD_GEOMETRY.md](CROSS_FIELD_GE
 - **General CG payoff:** A clean, deterministic, training-free, systematically improvable replacement for ad-hoc local 3D shape descriptors (FPFH, SHOT, Spin Images) across **point-cloud registration, local surface-patch matching, CAD feature recognition (fillets/chamfers/bosses), and lightweight linear regression on 3D geometry**.
 - **`geometry3Sharp` synergy:** Medium–High. Directly strengthens `MeshICP` (global/feature-based initial alignment before ICP), `PointCloudNormals` / `PointCloudSurface`, and feature classification without any neural-network runtime dependency. The Cartesian-monomial formulation `[R34]` (20 independent monomials up to rank 3) is especially simple and fast in pure C# without heavy special-function libraries.
 - **Why unused & catches:** Buried behind quantum-chemistry jargon (interatomic potentials, DFT force fields, Clebsch–Gordan couplings). Requires choosing a cutoff radius $r_c$ (scale-relative to local spacing or bounding box for scale invariance) and careful basis truncation to avoid combinatorial growth at very high body orders ($\nu > 4$).
+- **Follow-up (2026-11-24):** checked against our building blocks in [ACE_DESCRIPTOR_STUDY.md](ACE_DESCRIPTOR_STUDY.md): verdict park (the missing pieces are global registration and a feature grammar, not the descriptor).
 - **First falsification probe:** Implement low-order Cartesian ACE (ranks $l \le 3$, body orders $\nu \le 3$) on sampled 3D neighborhoods and benchmark rotational invariance, noise robustness, and correspondence recall on noisy/partial point-cloud registration vs. standard normal-histogram descriptors.
 
 ### 13. Persistent Topological and Hodge Laplacians

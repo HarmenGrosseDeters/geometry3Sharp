@@ -89,18 +89,49 @@ namespace Meshing2Acceptance
 
         public bool Bounds(out double lo, out double hi) => Bounds(N, D, out lo, out hi);
 
-        public static Q FromDouble(double v)
+        static int TrailingZeros64(ulong v)
+        {
+            int z = 0;
+            if ((v & 0xFFFFFFFFUL) == 0) { z += 32; v >>= 32; }
+            if ((v & 0xFFFFUL) == 0) { z += 16; v >>= 16; }
+            if ((v & 0xFFUL) == 0) { z += 8; v >>= 8; }
+            if ((v & 0xFUL) == 0) { z += 4; v >>= 4; }
+            if ((v & 0x3UL) == 0) { z += 2; v >>= 2; }
+            if ((v & 0x1UL) == 0) { z += 1; }
+            return z;
+        }
+
+        internal static void UnpackDouble(double v, out long mantissa, out int exponent)
         {
             if (double.IsNaN(v) || double.IsInfinity(v)) throw new ArgumentException("not finite: " + v);
             long bits = BitConverter.DoubleToInt64Bits(v);
             bool negative = bits < 0;
-            int exponent = (int)((bits >> 52) & 0x7ff);
-            long mantissa = bits & 0xfffffffffffffL;
-            if (exponent == 0) exponent = 1; else mantissa |= 1L << 52;
-            exponent -= 1075;
-            BigInteger num = mantissa;
-            if (negative) num = -num;
-            return exponent >= 0 ? new Q(num << exponent, 1) : new Q(num, BigInteger.One << -exponent);
+            int exp = (int)((bits >> 52) & 0x7ff);
+            long m = bits & 0xfffffffffffffL;
+            if (exp == 0) {
+                if (m == 0) { mantissa = 0; exponent = 0; return; }
+                exp = 1;
+            } else m |= 1L << 52;
+            exp -= 1075;
+            int tz = TrailingZeros64((ulong)m);
+            m >>= tz;
+            exp += tz;
+            mantissa = negative ? -m : m;
+            exponent = exp;
+        }
+
+        Q(BigInteger reducedNum, BigInteger reducedDen, bool alreadyReduced)
+        {
+            n = reducedNum; d = reducedDen;
+        }
+
+        public static Q FromDouble(double v)
+        {
+            UnpackDouble(v, out long m, out int exp);
+            if (m == 0) return Zero;
+            if (exp >= 0) return new Q((BigInteger)m << exp, BigInteger.One, true);
+            // m is odd and 2^(-exp) is a power of two, so gcd(|m|, 2^(-exp)) == 1 already.
+            return new Q((BigInteger)m, BigInteger.One << -exp, true);
         }
 
         public static Q operator +(Q a, Q b) => new Q(a.N * b.D + b.N * a.D, a.D * b.D);
@@ -157,7 +188,18 @@ namespace Meshing2Acceptance
             X = x.N * (W / x.D);
             Y = y.N * (W / y.D);
         }
-        public static Pt FromDoubles(double x, double y) => new Pt(Q.FromDouble(x), Q.FromDouble(y));
+        public static Pt FromDoubles(double x, double y)
+        {
+            Q.UnpackDouble(x, out long mx, out int ex);
+            Q.UnpackDouble(y, out long my, out int ey);
+            int negX = ex < 0 ? -ex : 0;
+            int negY = ey < 0 ? -ey : 0;
+            int wExp = negX >= negY ? negX : negY;
+            BigInteger bx = mx == 0 ? BigInteger.Zero : ((BigInteger)mx << (ex + wExp));
+            BigInteger by = my == 0 ? BigInteger.Zero : ((BigInteger)my << (ey + wExp));
+            BigInteger bw = wExp == 0 ? BigInteger.One : (BigInteger.One << wExp);
+            return new Pt(bx, by, bw);
+        }
 
         /// <summary>
         /// An interval of doubles that contains the exact x (or y): for floating-point filters in front of the exact tests. False

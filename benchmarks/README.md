@@ -17,18 +17,24 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | Benchmark | Focus |
 |---|---|
 | [BooleanComparison](BooleanComparison/README.md) | `ExactMeshBoolean` vs. external boolean engines (CGAL, Geogram, Manifold) across Thingi10K & ABC pairs |
+| [BooleanInputOrder](BooleanInputOrder/README.md) | `ExactMeshBoolean` and `SolidBooleanPipeline` under reorderings of the input triangles and vertex ids, stage by stage, on procedural near-coincident plates |
+| [BooleanVolumeGradient](BooleanVolumeGradient/README.md) | `BooleanVolumeGradient`: its cost against the boolean, `RetainClassification`, and the default path before / after the change |
 | [Boolean30Prestudy](Boolean30Prestudy/README.md) | Stage profiling and measurement probes for Exact Boolean 3.0 |
 | [ExactImprint](ExactImprint/README.md) | Cost of `ExactMeshImprint` compared to `ExactMeshBoolean` on procedural pairs |
+| [ImprintSliverSweep](ImprintSliverSweep/README.md) | Unclean runs of `ExactMeshImprint` on ulp-shifted near-duplicates, per shape, axis and frame (far from the origin) (#1489) |
 | [ExtremeBooleans](ExtremeBooleans/README.md) | Reproduction scripts and profiling for extreme-runtime boolean pairs |
 | [LevyClassification](LevyClassification/README.md) | Phase-1 propagation classification probe for `ExactMeshBoolean` |
 | [MeshMeshCutContactBenchmark](MeshMeshCutContactBenchmark/README.md) | Cost of exact contact detection in `MeshMeshCut.RefuseContact` |
 | [OpenCuttingSurface](OpenCuttingSurface/README.md) | Prototype of the candidate semantics for a Difference with an open cutting surface (#1211): existing parts, sheet role, winding rules, swept tool |
+| [SheetExtensionProbe](SheetExtensionProbe/README.md) | Spike of the sheet extension design: continues a sheet whose rim ends just short of the workpiece's surface to it (public API only), verifies it exactly, 35 procedural cases in 5 frames with a `selftest` exit code, mutation of the rules by hand, a mode for two mesh files |
 | [PredicateComparison](PredicateComparison/README.md) | Accuracy and speed of `orient2d`, `incircle`, and `orient3d` implementations vs. exact reference |
 | [SelfIntersectionBenchmark](SelfIntersectionBenchmark/README.md) | Cost of exact self-intersection checks and `Reducer.PreventSelfIntersections` |
 | [SelfIntersectionUntangle](SelfIntersectionUntangle/README.md) | Spike: a connectivity-preserving untangling prototype against `MeshRobustRepair`, the exact resolve, the solidify and the alpha wrap on procedural self-intersecting solids |
 | [SnapRoundingExperiment](SnapRoundingExperiment/README.md) | Snap-rounding prototypes and quality measurements for `SAFE_ROUNDING.md` |
 | [SolidBooleanAudit](SolidBooleanAudit/README.md) | Adversarial procedural corpus and an independent oracle (ray crossings, volumes) for an end-to-end audit of `SolidBooleanPipeline` |
 | [SolidBooleanBenchmark](SolidBooleanBenchmark/README.md) | `SolidBooleanPipeline` (exact boolean + guarded reduction + contact pairing) on procedural soups |
+| [NeuronSkeletonProbe](NeuronSkeletonProbe/README.md) | Research probe: SWC-style branching tubes (4° forks, 1e-6 branch gaps, loops, 45-segment trees) closed by multi-mesh and tree `ExactMeshBoolean`, `SolidBooleanPipeline`, convolution-field `MarchingCubes` and `MeshAlphaWrap`, with measured mesh clearances |
+| [ProceduralSphereUnionProbe](ProceduralSphereUnionProbe/README.md) | Research probe: unions of procedural ball sets (tangency, 1e-12 gaps, cavities, helices, 12–96-ball packings) by multi-mesh and tree `ExactMeshBoolean`, `SolidBooleanPipeline`, `MarchingCubes` and `MeshAlphaWrap` |
 
 ## Repair, Alpha Wrap, Remeshing & Simplification
 
@@ -38,10 +44,12 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [NotCleanBenchmark](NotCleanBenchmark/README.md) | Runtime of the checks behind `MeshRobustRepair.NotCleanReason` on large procedural meshes |
 | [OpenSoupWrapBenchmark](OpenSoupWrapBenchmark/README.md) | Alpha-wrap size estimation on open inputs and `WrapMaxEstimatedTriangles` budget |
 | [SmallInputWrapBenchmark](SmallInputWrapBenchmark/README.md) | Alpha-wrap fallback sizing on very small inputs (`SmallInputWrapTriangles`) |
+| [CertifiedMedialAxisProbe](CertifiedMedialAxisProbe/README.md) | Why a certified lower bound on local feature size cannot replace SafeRounding's thin-solid criteria (crease witnesses, thin slabs) |
 | [SharpFeatureProbe](SharpFeatureProbe/README.md) | Measure-first probe for sharp-feature recovery in `MeshAlphaWrap` |
 | [SolidifyBenchmark](SolidifyBenchmark/README.md) | Time and result hashes for `MeshWindingNumberSolidify` |
 | [ReducerBenchmark](ReducerBenchmark/README.md) | Cost of certified deviation bounds (`Reducer.MaxDeviation`, `TriangleDeviationBounds`) and fold-over checks |
 | [ReducerRemesherBaseline](ReducerRemesherBaseline/README.md) | Milestone baseline harness for `Reducer` and `Remesher` |
+| [ParallelTinyLoops](ParallelTinyLoops/README.md) | Crossover of `gParallel` loops against plain loops and the inline-first Small loops (#1502), alone and with a busy thread pool |
 | [RemeshBenchmark](RemeshBenchmark/README.md) | `Remesher` vs. `RemesherPro` under internal library caller settings |
 | [RemeshPreventBenchmark](RemeshPreventBenchmark/README.md) | Cost and result hashes of `Remesher.PreventSelfIntersections` |
 | [RemeshQualityBenchmark](RemeshQualityBenchmark/README.md) | Quality and timing impact of `Remesher.MinTriangleQuality` and `ApplySafePreset()` |
@@ -80,6 +88,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [ContouringSubgridProbe](ContouringSubgridProbe/README.md) | Upper bounds for sharp features from distance grids, walls thinner than a cell (subgrid marching tetrahedra) and a subdivision certificate |
 | [ContouringIsotopySubdivision](ContouringIsotopySubdivision/README.md) | A subdivision isotopy certificate (C0 / C1 cells, outward-rounded intervals) for `DualContouring` of implicit fields, against Theorem 5's cell test and the class P certificate |
 | [ContouringTopology](ContouringTopology/README.md) | Upper-bound study for contouring topology guarantees |
+| [BranchingTubeProbe](BranchingTubeProbe/README.md) | Research probe: genus of a tapered branching-tube fixture with a `1/8` or `1/128` tip gap under aligned and shifted `MarchingCubes`, strict `ExactMeshBoolean` and `MeshAlphaWrap`, with `NotCleanReason` per result |
 | [MeshOffsetBenchmark](MeshOffsetBenchmark/README.md) | `MeshOffset` certified band accuracy and timing vs. SDF Marching Cubes |
 | [ContourLoftBenchmark](ContourLoftBenchmark/README.md) | Scaling and quality of `ContourLoft` and `ContourLoftStack` |
 | [TpmsLattice](TpmsLattice/README.md) | Stage timings for `TpmsLattice` (gyroid, Schwarz P/D, Neovius, I-WP, Lidinoid) |
@@ -89,6 +98,8 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | Benchmark | Focus |
 |---|---|
 | [IntrinsicBenchmark](IntrinsicBenchmark/README.md) | `IntrinsicTriangulation`, `MeshGeodesicDistance`, and `VectorHeatMethod` timings and accuracy |
+| [IntrBox3Benchmark](IntrBox3Benchmark/README.md) | Ray, line and segment against box classes (exact decision) and the `DMeshAABBTree3` / `DCurve3BoxTree` ray queries that call them, before and after |
+| [ExactToDoubleBenchmark](ExactToDoubleBenchmark/README.md) | `ExactPoint3.ToDouble` (num / den * 2^e, correctly rounded since #1410) in isolation and `ExactPoint3.ToVector3d`, ns per call, before and after |
 | [IntrinsicIntegerCoordinates](IntrinsicIntegerCoordinates/README.md) | Research spike: integer (normal) coordinates against the traced common subdivision of `IntrinsicTriangulation` |
 | [GeodesicOracleBenchmark](GeodesicOracleBenchmark/README.md) | Window counts, interval width, and timing of `ExactMeshGeodesicDistance` and `PolyhedralGeodesicDistance` |
 | [ParameterizationBenchmark](ParameterizationBenchmark/README.md) | Timings and distortion metrics for LSCM, BFF, ARAP, SLIM, and Tutte parameterizations |
@@ -114,6 +125,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [SparseCholeskyBenchmark](SparseCholeskyBenchmark/README.md) | `SparseCholesky` AMD ordering, symbolic/numeric factorization, and solve timings |
 | [SparseSquareBenchmark](SparseSquareBenchmark/README.md) | `SymmetricSparseMatrix.Square` / `Multiply` timings and the product bits of repeated runs |
 | [MultiscaleCholeskyProbe](MultiscaleCholeskyProbe/README.md) | Research spike: multiscale incomplete Cholesky, FSAI and approximate elimination as PCG preconditioners against the direct `SparseCholesky` |
+| [PddProbe](PddProbe/README.md) | Research probe: Pointwise Distance Distributions (kNN rows, AMD, column W1, exact EMD) against D2 and PCA baselines for near-duplicates, retrieval and lattice periods (verdict: stop) |
 | [CoreMathBenchmark](CoreMathBenchmark/README.md) | Cost of correctly rounded `g3.CoreMathPort.CoreMath` elementary functions |
 | [BoxContainBenchmark](BoxContainBenchmark/README.md) | Throughput micro-benchmark for `AxisAlignedBox3d.Contain` |
 | [GridIndexerBenchmark](GridIndexerBenchmark/README.md) | Throughput probe for `ShiftGridIndexer3.ToGrid` |
@@ -128,4 +140,6 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [MetamorphicFalsification](MetamorphicFalsification/README.md) | Metamorphic relation falsification runs over core geometry operations |
 | [MetamorphicBugHunt](MetamorphicBugHunt/README.md) | Metamorphic relations and operation chains (Boolean, repair, remesh, tet, wrap, contouring, 2D mesher; second hunt: `PassageWrap`, feature pass, quad, `TpmsLattice`, `ContourLoft`, readers and writers, geodesics, intrinsic triangulation) on procedural inputs with independent checks of every Success |
 | [MagnitudeRobustness](MagnitudeRobustness/README.md) | Probes of the magnitude study: geodesic and intrinsic classes and `DualContouring` at 2^e, root-cause expressions, an exact prescaling wrapper and its cost |
+| [TopologyOwnershipProbe](TopologyOwnershipProbe/README.md) | Ordered winding landmarks vs. Betti numbers and shell volumes as a check of where a cavity ends up after a Boolean or forced repair |
+| [WrapAccuracyProbe](WrapAccuracyProbe/README.md) | Spike: snap back of the alpha wrap onto the input under exact checks and "wrap only the gaps" for solids with holes (procedural and Thingi10K, no mesh files committed) |
 | `Shared` | Shared evaluation helpers (`FidelityFields.cs`, `UvEvaluation.cs`) reused by benchmarks and tests |

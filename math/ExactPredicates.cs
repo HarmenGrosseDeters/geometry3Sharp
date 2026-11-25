@@ -57,16 +57,29 @@ namespace g3
         public static int Orient2d(Vector2d a, Vector2d b, Vector2d c)
         {
             PredicateStats.Call(PredicateStats.Kind.Orient2d);
-            double ux = b.x - a.x, uy = b.y - a.y, vx = c.x - a.x, vy = c.y - a.y;
+            int s = Orient2dFilter(b.x - a.x, b.y - a.y, c.x - a.x, c.y - a.y);
+            if (s != 0) return s;
+            PredicateStats.ExactStage(PredicateStats.Kind.Orient2d);
+            return orient2d_exact(a, b, c);
+        }
+
+        /// <summary>
+        /// The floating-point filter of Orient2d(a, b, c), given the differences u = b - a, v = c - a (each rounded once,
+        /// as Orient2d computes them): the sign of u x v where the error bound proves it, 0 where it does not decide
+        /// (then Orient2d(a, b, c) decides). The only implementation of the filter, so a caller that keeps u for many c
+        /// (TriangleTriangleFilter.ProjectedEdges, an edge against many points) gets Orient2d's decisions bit for bit.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static int Orient2dFilter(double ux, double uy, double vx, double vy)
+        {
             double l = ux * vy, r = uy * vx;
             double det = l - r;
             double sum = Math.Abs(l) + Math.Abs(r);
             double bound = Orient2dBound * sum;
-            // the relative error bound does not hold when products underflow (subnormal): exact then
+            // the relative error bound does not hold when products underflow (subnormal): undecided then
             if (det > bound && sum > UnderflowLimit) return 1;
             if (-det > bound && sum > UnderflowLimit) return -1;
-            PredicateStats.ExactStage(PredicateStats.Kind.Orient2d);
-            return orient2d_exact(a, b, c);
+            return 0;
         }
 
         /// <summary>

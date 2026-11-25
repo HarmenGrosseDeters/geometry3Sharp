@@ -60,6 +60,7 @@ printf '%s\n' \
 
 - **Inline geometry where supported:** `mesh2d` accepts inline `--geometry` JSON, `polygon2d` accepts `--subject-geojson` / `--pattern-geojson` / `--return-geojson`, `slope` accepts `--toes-geojson`, `dgm_tin` accepts `--breaklines-geojson`, and `query3d` accepts inline JSON arrays for rays and points—avoiding temporary files for small inputs.
 - **Always check `code` and `warnings`:** Commands such as `quad --pure-quads` (fallback to quad-dominant), `wrap` (`point_limit_reached`), and `slope` (`no_daylight`) return `code: "ok"` with diagnostic flags and warnings rather than failing.
+- **Volume gradient of a boolean:** the `boolean` tool takes `"volume_gradient": "grad.json"` (or `.csv`); the result's `volume_gradient` has the volume, its bound and the flush contacts, the file the gradient per input vertex ([Mesh Commands](mesh-commands.md#volume-gradient---volume-gradient)).
 - **Skip expensive exact self-intersection scans when not needed:** Pass `"self_intersections": false` (`--no-self-intersections`) on `measure` for quick topology checks on very large meshes.
 
 See the command references for full parameter and response details:

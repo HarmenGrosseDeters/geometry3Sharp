@@ -70,15 +70,15 @@ static class GuaranteeBound
         var sb = new StringBuilder();
         sb.Append("{\"case\":").Append(System.Text.Json.JsonSerializer.Serialize(name));
         // a first run takes the JIT, then one timed run without and one with the rounding
-        var warm = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op);
+        var warm = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true };
         if (!warm.Compute())
             return sb.Append(",\"ok\":false,\"error\":").Append(System.Text.Json.JsonSerializer.Serialize(warm.Error ?? "")).Append('}').ToString();
         var clock = Stopwatch.StartNew();
-        var plain = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { SafeRounding = false };
+        var plain = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true, SafeRounding = false };
         bool plainOk = plain.Compute();
         double msPlain = clock.Elapsed.TotalMilliseconds;
         clock.Restart();
-        var safe = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op);
+        var safe = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { AllowOpenMeshes = true };
         if (!safe.Compute() || !plainOk)
             return sb.Append(",\"ok\":false,\"error\":\"second run failed\"}").ToString();
         double msSafe = clock.Elapsed.TotalMilliseconds;

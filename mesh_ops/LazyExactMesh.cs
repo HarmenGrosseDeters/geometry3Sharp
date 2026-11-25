@@ -12,7 +12,7 @@ namespace g3
     /// the intermediate results are never rounded, so their faces stay exactly in the planes of the original triangles.
     /// A chain of ExactMeshBoolean calls instead rounds every intermediate result to doubles.
     ///
-    /// Opt-in and additive: nothing else in the library uses it, and ExactMeshBoolean's behaviour is unchanged. The
+    /// Opt-in and additive: nothing else in the library uses it, and ExactMeshBoolean's behaviour is not changed by it. The
     /// operations are regularized as in ExactMeshBoolean (a point is inside a source where its winding number is
     /// positive). Where the expression has the shape of a built-in operation, ToBoolean() and Round() use that operation
     /// (which keeps its cull of the parts outside the first operand):
@@ -30,7 +30,8 @@ namespace g3
     /// RoundingClean / NotCleanReason, and round an intermediate result explicitly where needed (FromDMesh(x.Round())).
     /// The booleans use ExactMeshBoolean's defaults, so a source mesh with inconsistently oriented faces makes Round() return
     /// null (InconsistentOrientation, #1210; ToBoolean() for the status), also for a leaf; ExactMeshBoolean.Resolve orients it
-    /// by area instead.
+    /// by area instead. The same holds for an open source mesh (OpenInput, AllowOpenMeshes is false by default): Round's configure
+    /// or the boolean of ToBoolean() can set AllowOpenMeshes.
     ///
     /// Immutable: a value can be used in several expressions and from several threads at once. The source meshes are
     /// copied by FromDMesh, so later changes to the caller's mesh do not change the expression; the copies are what

@@ -145,3 +145,52 @@ Before and after (16 clean cases, master 57623890, 4-core container; oriented8, 
 Time of a fresh pair (median): 5.3 s at sigma = 10 offsets, 1.5 s at 20, 0.5 s at 40 (the pipeline: 4.9 s); sigma = 20 separates
 as well as 10. The quadrature floor is 1e-6 (0.1 offsets of chamfer width); 2^k scales give the same value bit for bit, a
 rotation, a translation or a scale alone agree to 1e-8, all three together at coordinates of 6e6 to 6e-6.
+
+## Mode `soup`: creases and curvature without connectivity (2026-11-24)
+
+Study [docs/research/VARIFOLD_FEATURES_CURVATURE_2026-11.md](../../docs/research/VARIFOLD_FEATURES_CURVATURE_2026-11.md): the
+unoriented varifold of a broken soup (or a point cloud) for crease detection and curvature, against the welded dihedral,
+`MeshPrincipalCurvature` after a weld, a PCA surface variation and a 2-jet fit. Procedural shapes only (`SoupShapes.cs`: box,
+slot, vnotch, fillet, rbox), breakages in `SoupBreak.cs`, methods in `SoupFeatures.cs`, driver `SoupRun.cs`.
+
+```
+benchmarks/SharpFeatureProbe/run_soup.sh            # all runs (about 25 min on 4 cores), raw rows and tables in results/soup/
+SharpFeatureProbe soup crease <out.jsonl> [tris=50000] [shapes=...] [breaks=clean;soup;nonconf;...] [c=2] [tol=0.3]
+SharpFeatureProbe soup curv   <out.jsonl> [tris=50000] [shapes=fillet,rbox] [breaks=...] [eps=3,5]
+SharpFeatureProbe soup cloud  <out.jsonl> [tris=50000] [shapes=fillet,rbox] [noise=0,0.05,0.2] [eps=3,5]
+SharpFeatureProbe soup time   <out.jsonl> [sizes=10000,50000,100000,200000]
+SharpFeatureProbe soup check  <out.jsonl>          # threads 1 / 4, repeated runs, the Similarity.All() list
+python3 benchmarks/SharpFeatureProbe/soup_tables.py benchmarks/SharpFeatureProbe/results/soup
+```
+
+Result (median of box, slot, vnotch, fillet at 50k triangles; [results/soup/tables.md](results/soup/tables.md)): crease F1 of
+the varifold two-plane test 0.998-1.000 on every breakage up to `mix:0.5` (welded dihedral: 0.56 on T-junctions, 0.08 with 20 %
+flips, 0.03 at `mix:0.5`), 2.1 s at 143k triangles. Curvature: the varifold estimator beats weld + `MeshPrincipalCurvature` on
+broken soups, the 2-jet fit beats or ties it everywhere. Bit-identical across threads and runs and under 2^k scales.
+
+### `soup soupwrap`: the varifold crease input of the sharp-feature pass (2026-11-24, #1541)
+
+```
+SharpFeatureProbe soup soupwrap <out.jsonl> [tris=100000] [shapes=slot,vnotch,box,fillet] [breaks=...] [radius=3.5]
+SharpFeatureProbe soup wrapbound <out.jsonl> [tris=100000]     # the cost bound of the design (before the build)
+SharpFeatureProbe soup wrapbreak <out.jsonl> [tris=100000]     # the wrap's time per breakage (issue #1542)
+```
+
+For each case the wrap of the broken soup gets three passes:
+
+| row | input of the pass | creases from |
+|---|---|---|
+| before | the soup | the dihedral |
+| after | the soup | `VarifoldCreases` |
+| oracle | the clean copy | its exact creases |
+
+The ceiling is the clean copy wrapped. Metric: recall and precision of the result's sharp edges against the offset surface's
+creases of the broken input, moved with the gaps (`MiterMetric`).
+
+Result at 100k ([design/VARIFOLD_CREASE_INPUT.md](../../docs/design/VARIFOLD_CREASE_INPUT.md) section 9, raw rows
+`results/soup/soupwrap.jsonl`):
+
+- unwelded, T-junction, duplicated and flipped soups go from recall 0.84-0.98 to the ceiling (0.98-1.00);
+- jittered soups with the fitted vertex planes (section 10) reach the oracle;
+- the varifold costs 0.20-0.65 s, 7-21 % of the wrap;
+- every result is clean.

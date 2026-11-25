@@ -9,7 +9,7 @@
       "**/intersection/IntrTriangle3Triangle3.cs{12725..15527}",
       "**/intersection/IntrTriangle3Triangle3.cs{21895..24424}"
     ],
-    "test-case-filter": "FullyQualifiedName~IntrTriangle3Triangle3DoubleWordTests|FullyQualifiedName~IntrTriangle3Triangle3ExactDecisionTests|FullyQualifiedName~ExactPredicatesTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~PredicateDifferentialTests|FullyQualifiedName~ExactPoint3ConversionTests|FullyQualifiedName~ExactPoint3ToDoubleRoundingTests|FullyQualifiedName~ExactOrient3dKernelTests|FullyQualifiedName~GeneratedDoublePredicatesTests|FullyQualifiedName~ExactPredicatesBeyondRangeTests|FullyQualifiedName~ExactVolumeSignTests|FullyQualifiedName~FindInvertedComponentsExactTests",
+    "test-case-filter": "FullyQualifiedName~IntrTriangle3Triangle3DoubleWordTests|FullyQualifiedName~IntrTriangle3Triangle3ExactDecisionTests|FullyQualifiedName~ExactPredicatesTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~PredicateDifferentialTests|FullyQualifiedName~ExactPoint3ConversionTests|FullyQualifiedName~ExactPoint3ToDoubleRoundingTests|FullyQualifiedName~ExactOrient3dKernelTests|FullyQualifiedName~GeneratedDoublePredicatesTests|FullyQualifiedName~ExactPredicatesBeyondRangeTests|FullyQualifiedName~ExactVolumeSignTests|FullyQualifiedName~FindInvertedComponentsExactTests|FullyQualifiedName~ExactPoint3ShardBitsTests",
     "ignore-methods": [ "*PredicateStats.*" ],
     "coverage-analysis": "perTest",
     "configuration": "Release",

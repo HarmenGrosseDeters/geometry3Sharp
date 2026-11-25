@@ -181,5 +181,131 @@ namespace geometry3Sharp.Tests
                     Assert.True(Invariance.Difference(reference.Result, Invariance.MappedBack(b.Result, sim)) == "", sim.ToString());
             }
         }
+
+        // counts, then each output triangle by its source and the exact coordinates of its corners (X, Y, Z, W of the
+        // exact point: point ids are assigned in parallel, so they are not compared)
+        static string ArrangementPrint(ExactMeshArrangement arr)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append(arr.Triangles.Count).Append('/').Append(arr.Output.Count).Append('/').Append(arr.MergedPoints)
+              .Append('/').Append(arr.ConstraintEdges.Count).Append('/').Append(arr.IntersectingPairs).Append('/').Append(arr.SegmentCrossings)
+              .Append('/').Append(arr.PreDecidedPairs).Append('|');
+            foreach (var o in arr.Output) {
+                sb.Append(o.Mesh).Append(':').Append(o.Source);
+                foreach (int c in new[] { o.A, o.B, o.C }) {
+                    ExactPoint3 x = arr.Exact(arr.Canonical(c));
+                    sb.Append(':').Append(x.X).Append(',').Append(x.Y).Append(',').Append(x.Z).Append(',').Append(x.W);
+                }
+                sb.Append(';');
+            }
+            return sb.ToString();
+        }
+
+        static string Computed(List<DMesh3> meshes)
+        {
+            var arr = new ExactMeshArrangement(meshes) { SelfIntersections = true };
+            arr.Compute();
+            return ArrangementPrint(arr);
+        }
+
+        // issue 1512: a second Compute() on one instance threw "point coincides with a vertex" when the first run merged points
+        [Theory]
+        [InlineData(0)]
+        [InlineData(5)]
+        public void Arrangement_SecondComputeWithMerges_EqualsFirst(int seed)
+        {
+            List<DMesh3> meshes = CoincidentBoxes(seed);
+            var arr = new ExactMeshArrangement(meshes) { SelfIntersections = true };
+            arr.Compute();
+            Assert.True(arr.MergedPoints > 3, arr.MergedPoints.ToString());
+            string first = ArrangementPrint(arr);
+            arr.Compute();
+            Assert.Equal(first, ArrangementPrint(arr));
+            arr.Compute();
+            Assert.Equal(first, ArrangementPrint(arr));
+        }
+
+        // face-adjacent boxes: coplanar triangle pairs that meet only in a corner or an edge are decided before clipping
+        // (PreDecidedPairs), which a second run counts again from zero
+        [Fact]
+        public void Arrangement_SecondComputeWithPreDecidedPairs_EqualsFirst()
+        {
+            var meshes = new List<DMesh3>();
+            for (int i = 0; i < 3; ++i) {
+                DMesh3 m = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, 0.5 * Vector3d.One) }.Generate().MakeDMesh();
+                MeshTransforms.Translate(m, new Vector3d(i, 0, 0));
+                meshes.Add(m);
+            }
+            var arr = new ExactMeshArrangement(meshes) { SelfIntersections = true };
+            arr.Compute();
+            Assert.True(arr.PreDecidedPairs > 0, arr.PreDecidedPairs.ToString());
+            string first = ArrangementPrint(arr);
+            arr.Compute();
+            Assert.Equal(first, ArrangementPrint(arr));
+        }
+
+        // the 2^k scales give the same arrangement, a reused instance included (grid coordinates are those of the input
+        // divided by 2^ScaleExp); the others a reused one equal to their first run
+        [Fact]
+        public void Arrangement_Reuse_InvariantOverSimilarities()
+        {
+            List<DMesh3> meshes = CoincidentBoxes(0);
+            string reference = Computed(meshes);
+            foreach (Similarity sim in Similarity.All()) {
+                var b = new ExactMeshArrangement(meshes.Select(m => Invariance.Transformed(m, sim)).ToList()) { SelfIntersections = true };
+                b.Compute();
+                string once = ArrangementPrint(b);
+                b.Compute();
+                Assert.Equal(once, ArrangementPrint(b));
+                if (sim.IsExact)
+                    Assert.Equal(reference, once);
+            }
+        }
+
+        // Meshes changed between two runs: the second equals a new instance on the new meshes (also fewer meshes)
+        [Fact]
+        public void Arrangement_MeshesChangedBetweenRuns_EqualsFreshInstance()
+        {
+            List<DMesh3> a = CoincidentBoxes(0), b = CoincidentBoxes(5), c = a.Take(3).ToList();
+            var arr = new ExactMeshArrangement(a) { SelfIntersections = true };
+            arr.Compute();
+            foreach (List<DMesh3> next in new[] { b, c, a }) {
+                arr.Meshes = next;
+                arr.Compute();
+                Assert.Equal(Computed(next), ArrangementPrint(arr));
+            }
+        }
+
+        // points added after a Compute (the classification's centroids) in a reused instance: valid ids of the second run,
+        // whatever the first run left in the point indexes (integer, rational and beyond fixed width)
+        [Fact]
+        public void Arrangement_AddPointAfterReuse_IdsOfTheSecondRun()
+        {
+            List<DMesh3> a = CoincidentBoxes(0), b = CoincidentBoxes(5);
+            Func<int, ExactPoint3>[] points = {
+                (i) => ExactPoint3.Create(new System.Numerics.BigInteger(3 + i), 5, 7, 1),
+                (i) => ExactPoint3.Create(new System.Numerics.BigInteger(3 + i), 5, 7, 11),
+                (i) => ExactPoint3.Create(System.Numerics.BigInteger.Pow(2, 3000) + i, 5, 7, 13),
+            };
+            var arr = new ExactMeshArrangement(a) { SelfIntersections = true };
+            arr.Compute();
+            for (int i = 0; i < 40; ++i)
+                foreach (var f in points)
+                    arr.AddPoint(f(i));
+            arr.Meshes = b;
+            arr.Compute();
+            var fresh = new ExactMeshArrangement(b) { SelfIntersections = true };
+            fresh.Compute();
+            Assert.Equal(fresh.PointCount, arr.PointCount);
+            for (int i = 0; i < 40; ++i)
+                foreach (var f in points) {
+                    int id = arr.AddPoint(f(i));
+                    Assert.True(id >= 0 && id < arr.PointCount);
+                    Assert.True(id >= fresh.PointCount, "a new point, not an id of the first run");
+                    Assert.Equal(f(i), arr.Exact(id));
+                    Assert.Equal(id, arr.AddPoint(f(i)));
+                }
+            Assert.Equal(ArrangementPrint(fresh), ArrangementPrint(arr));
+        }
     }
 }
