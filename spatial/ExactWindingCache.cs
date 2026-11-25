@@ -1235,73 +1235,116 @@ namespace g3
         /// edge, the corner's wedge at a vertex). Where the sectors of a group cover every direction the same number m of times,
         /// counted with the orientation of the triangles (an edge or a vertex inside a flat face: m = 1), the group's sum is
         /// exactly m times the hemisphere value +-0.5 of the plane: seen from p_eps the group is, up to parts that vanish in
-        /// the limit, m copies of the whole plane. This is decided by exact predicates only (Orient3d for the planes, Orient2d
+        /// the limit, m copies of the whole plane. This is decided exactly (the exact direction of the normal for the planes, Orient2d
         /// in the projection along the plane's axis for the rays), so the value on a flat face is the same exact n + 0.5 on its
         /// inner edges and vertices as inside its triangles. Every other group (a crease, a corner, an open edge) takes the
         /// rounded sum of tri_on_boundary_value.
-        /// Cost: the grouping is one pass over the list per plane, so it is only done where the triangles through p lie in at
-        /// most MaxFlatPlanes planes (a flat face is one plane; a face that another body touches with a corner a few). Where
-        /// more planes meet (the apex of a cone: one plane per triangle) no group can matter in practice and every triangle
-        /// takes the rounded sum, so the work stays linear in the number of triangles through p. The rule depends on the
-        /// number of planes only, not on the order of the triangles.
+        /// Every triangle is taken with its corners rotated to start at its smallest vertex (by x, then y, then z), the triangles
+        /// in the order of their rotated corners, and the groups by the exact direction of their normal (all of them contain p,
+        /// so parallel normals mean one plane): the value does not depend on the order of the triangles or of their corners,
+        /// bit for bit, and the work is O(n log n) for n triangles through p (a cone apex: n planes of one triangle each).
         /// </summary>
         [MethodImpl(MethodImplOptions.NoInlining)]
         double resolve_pending_on_boundary(double px, double py, double pz, List<int> pending)
         {
             Vector3d p = new Vector3d(px, py, pz);
             int n = pending.Count;
-            double sum = 0.0;
+            var rot = new FlatTri[n];
+            var order = new int[n];
+            for (int j = 0; j < n; ++j) {
+                rot[j] = rotated_to_smallest(tris[pending[j]]);
+                order[j] = j;
+            }
+            Array.Sort(order, (u, v) => compare_rotated(rot[u], rot[v]));
 
-            // partition the list by plane: groupEnd[g] is the end of group g
-            int[] groupEnd = new int[MaxFlatPlanes];
-            int groups = 0;
-            int g0 = 0;
-            while (g0 < n && groups < MaxFlatPlanes) {
-                // gather the triangles in the plane of pending[g0] behind it
-                FlatTri r = tris[pending[g0]];
-                int g1 = g0 + 1;
-                for (int j = g1; j < n; ++j) {
-                    FlatTri t = tris[pending[j]];
-                    if (ExactPredicates.Orient3d(r.A, r.B, r.C, t.A) == 0 && ExactPredicates.Orient3d(r.A, r.B, r.C, t.B) == 0
-                        && ExactPredicates.Orient3d(r.A, r.B, r.C, t.C) == 0) {
-                        int tmp = pending[g1]; pending[g1] = pending[j]; pending[j] = tmp;
-                        ++g1;
-                    }
+            // groups by plane, in the order of their first triangle
+            var groupOf = new Dictionary<string, int>(StringComparer.Ordinal);
+            var groups = new List<List<int>>();
+            foreach (int j in order) {
+                string key = plane_key(rot[j]);
+                if (!groupOf.TryGetValue(key, out int g)) {
+                    g = groups.Count;
+                    groupOf[key] = g;
+                    groups.Add(new List<int>());
                 }
-                groupEnd[groups++] = g1;
-                g0 = g1;
+                groups[g].Add(j);
             }
 
-            if (g0 < n) {
-                // more than MaxFlatPlanes planes through p: the rounded sum for every triangle
-                for (int j = 0; j < n; ++j) {
-                    FlatTri t = tris[pending[j]];
-                    sum += tri_on_boundary_value(p, t.A, t.B, t.C);
-                }
-                pending.Clear();
-                return sum;
-            }
-
-            g0 = 0;
-            for (int g = 0; g < groups; ++g) {
-                int g1 = groupEnd[g];
+            double rounded = 0.0, exactPart = 0.0;
+            foreach (List<int> g in groups) {
                 double exact;
-                if (g1 - g0 >= 2 && flat_group_value(p, pending, g0, g1, out exact)) {
-                    sum += exact;
+                if (g.Count >= 2 && flat_group_value_of(p, rot, g, out exact)) {
+                    exactPart += exact;   // a multiple of 0.5 of small size: exact
                 } else {
-                    for (int j = g0; j < g1; ++j) {
-                        FlatTri t = tris[pending[j]];
-                        sum += tri_on_boundary_value(p, t.A, t.B, t.C);
-                    }
+                    foreach (int j in g)
+                        rounded += tri_on_boundary_value(p, rot[j].A, rot[j].B, rot[j].C);
                 }
-                g0 = g1;
             }
             pending.Clear();
-            return sum;
+            return rounded + exactPart;
         }
 
-        // The largest number of planes through p for which the triangles on whose edge or vertex p lies are grouped by plane.
-        internal const int MaxFlatPlanes = 8;
+        // the triangle with its corners rotated (orientation kept) to start at its smallest corner by x, then y, then z
+        static FlatTri rotated_to_smallest(FlatTri t)
+        {
+            int k = 0;
+            if (compare_point(t.B, t.A) < 0) k = 1;
+            if (compare_point(t.C, k == 0 ? t.A : t.B) < 0) k = 2;
+            if (k == 0) return t;
+            FlatTri r = t;
+            if (k == 1) { r.A = t.B; r.B = t.C; r.C = t.A; } else { r.A = t.C; r.B = t.A; r.C = t.B; }
+            return r;
+        }
+
+        static int compare_point(Vector3d u, Vector3d v)
+        {
+            int c = u.x.CompareTo(v.x); if (c != 0) return c;
+            c = u.y.CompareTo(v.y); if (c != 0) return c;
+            return u.z.CompareTo(v.z);
+        }
+
+        static int compare_rotated(FlatTri u, FlatTri v)
+        {
+            int c = compare_point(u.A, v.A); if (c != 0) return c;
+            c = compare_point(u.B, v.B); if (c != 0) return c;
+            return compare_point(u.C, v.C);
+        }
+
+        // The exact direction of the normal of the triangle, as a key: the cross product of the exact edge vectors (integers on
+        // a common grid), divided by the gcd of its components, with the first nonzero component positive. Two triangles that
+        // contain p lie in one plane iff their keys are equal.
+        static string plane_key(FlatTri t)
+        {
+            ExactDyadic[] d = {
+                ExactDyadic.Of(t.B.x) - ExactDyadic.Of(t.A.x), ExactDyadic.Of(t.B.y) - ExactDyadic.Of(t.A.y), ExactDyadic.Of(t.B.z) - ExactDyadic.Of(t.A.z),
+                ExactDyadic.Of(t.C.x) - ExactDyadic.Of(t.A.x), ExactDyadic.Of(t.C.y) - ExactDyadic.Of(t.A.y), ExactDyadic.Of(t.C.z) - ExactDyadic.Of(t.A.z) };
+            int e0 = int.MaxValue;
+            for (int i = 0; i < d.Length; ++i)
+                if (!d[i].M.IsZero && d[i].E < e0) e0 = d[i].E;
+            BigInteger[] g = new BigInteger[6];
+            for (int i = 0; i < 6; ++i)
+                g[i] = d[i].M.IsZero ? BigInteger.Zero : d[i].M << (d[i].E - e0);
+            BigInteger nx = g[1] * g[5] - g[2] * g[4], ny = g[2] * g[3] - g[0] * g[5], nz = g[0] * g[4] - g[1] * g[3];
+            BigInteger q = BigInteger.GreatestCommonDivisor(BigInteger.GreatestCommonDivisor(nx, ny), nz);
+            if (q.IsZero)
+                return "0";   // no area: not reached (such a triangle is never collected)
+            nx /= q; ny /= q; nz /= q;
+            int sign = nx.Sign != 0 ? nx.Sign : (ny.Sign != 0 ? ny.Sign : nz.Sign);
+            if (sign < 0) { nx = -nx; ny = -ny; nz = -nz; }
+            return nx.ToString() + "," + ny.ToString() + "," + nz.ToString();
+        }
+
+        // flat_group_value on the members of one group (indices into rot), in their order
+        bool flat_group_value_of(Vector3d p, FlatTri[] rot, List<int> group, out double value)
+        {
+            var saved = new FlatTri[group.Count];
+            var ids = new List<int>(group.Count);
+            for (int k = 0; k < group.Count; ++k)
+                ids.Add(k);
+            for (int k = 0; k < group.Count; ++k)
+                saved[k] = rot[group[k]];
+            return flat_group_value(p, saved, ids, 0, group.Count, out value);
+        }
 
         // The sector of the triangle (a, b, c) at p (p at a vertex or on an edge, not elsewhere), in the triangle's own
         // counter-clockwise order: from the ray through `from` to the ray through `to`. A half plane for p on an edge.
@@ -1366,10 +1409,10 @@ namespace g3
 
         // The exact sum of w_T(p_eps) over the coplanar triangles pending[g0 .. g1), if their sectors at p cover every direction
         // the same number of times (see resolve_pending_on_boundary); false otherwise.
-        bool flat_group_value(Vector3d p, List<int> pending, int g0, int g1, out double value)
+        bool flat_group_value(Vector3d p, FlatTri[] tri, List<int> pending, int g0, int g1, out double value)
         {
             value = 0.0;
-            FlatTri r = tris[pending[g0]];
+            FlatTri r = tri[pending[g0]];
             int rny = ExactPredicates.Orient2d(new Vector2d(r.A.z, r.A.x), new Vector2d(r.B.z, r.B.x), new Vector2d(r.C.z, r.C.x));
             int rnz = ExactPredicates.Orient2d(new Vector2d(r.A.x, r.A.y), new Vector2d(r.B.x, r.B.y), new Vector2d(r.C.x, r.C.y));
             int rnx = ExactPredicates.Orient2d(new Vector2d(r.A.y, r.A.z), new Vector2d(r.B.y, r.B.z), new Vector2d(r.C.y, r.C.z));
@@ -1383,7 +1426,7 @@ namespace g3
             bool[] half = new bool[m];
             int[] orient = new int[m];   // +1: oriented like the first triangle, -1: the other way
             for (int k = 0; k < m; ++k) {
-                FlatTri t = tris[pending[g0 + k]];
+                FlatTri t = tri[pending[g0 + k]];
                 if (!sector_at(p, t.A, t.B, t.C, axis, out from[k], out to[k], out half[k]))
                     return false;
                 int ts = ExactPredicates.Orient2d(project(t.A, axis), project(t.B, axis), project(t.C, axis));
