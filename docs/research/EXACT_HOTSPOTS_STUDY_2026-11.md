@@ -13,7 +13,7 @@ container with 4 cores (Xeon 2.1 GHz), .NET 10.0.115, master 25b5cc8. The owner 
 
 | Hot spot | What the time is | Upper bound of the proposed lever | Next candidate measured | Leaning |
 |---|---|---|---|---|
-| 1. The sign-bearing exact stage of `orient3d` (16-21 % on the slow cases) | It is called almost only from `MeshRoundingRepair`'s triangle-triangle tests on the rounded doubles. Every exact-stage call takes the fixed-width integer path `orient3d_int` (192-bit, no BigInteger); the expansions run on about 0.02 % of the recorded calls. Of the calls that reach the exact stage, **19.9 % are exactly 0 and 73.7 % lie below one ulp of the permanent** (r < 1). No floating-point filter can decide these | a tighter proven filter (Ozaki et al.-style, down to an ideal bound of 1 u · permanent) decides at most **6.3 %** of the exact-stage calls. The exact stage is 15.2 % of the workload, so the bound is **about 1 %** | the integer path itself: 40-150 ns per call against 9-15 ns for the filter. Even halving it bounds at about 7.6 % of the workload | stop |
+| 1. The sign-bearing exact stage of `orient3d` (16.6 % of the workload in place, 21 % on the slowest case; 12 % in the profile) | It is called almost only from `MeshRoundingRepair`'s triangle-triangle tests on the rounded doubles. Every exact-stage call takes the fixed-width integer path `orient3d_int` (192-bit, no BigInteger); the expansions run on about 0.02 % of the recorded calls. In the filter's own view, **94 % of the calls that reach the exact stage have |det_fp| below u · permanent** (r_fp < 1), where no floating-point filter can certify a sign | a tighter proven filter (Ozaki et al.-style, even at the invalid ideal θ = 1) has at most **5.7 %** of the exact-stage calls as candidates. The bound is **about 0.9 %** of the workload, and 2.1 % at the high-side estimate | the integer path itself: 32-267 ns per call against 9-28 ns for the filter. Halving it bounds at 6-8.5 % of the workload, and about 10.5 % on the worst case only | stop |
 | 2. `TriangleTriangleFilter.by_projection` (11.9 %) | It is a filter on doubles in front of the exact tri-tri test, using exact `Orient2d` and comparisons only. It constructs no point. 98 % of its time comes from `MeshRoundingRepair.improves`, and 73 % is its own arithmetic | indirect predicates (Attene 2020; Cherchi et al. 2020) help where implicit points are constructed. This path constructs none, so their bound here is **0**. The arrangement already uses them (`math/Generated/IndirectPredicates.cs`) | a cache of the repair's tri-tri results. They are tested **2.0 times per distinct pair** (2.2 on the slowest case), and the tests are 47.6 % of the Boolean, so the ideal bound was about 24 %. **The spike is 25 % slower** (identical results, 37 of 37), because a key of 18 doubles costs more than the filtered test it saves | stop. The real lever is fewer tests in the rounding repair (section 3) |
 
 **How others solve it, in one line each.**
@@ -36,7 +36,7 @@ container with 4 cores (Xeon 2.1 GHz), .NET 10.0.115, master 25b5cc8. The owner 
    - first the trivial equal-point zero;
    - then `orient3d_int`, a fixed-width 192-bit integer determinant, when the coordinate differences fit in 64 bits at the
      common exponent;
-   - otherwise Shewchuk's adaptive expansions (`AdaptivePredicates.Orient3d`), or the double-double fallback out of range.
+   - otherwise Shewchuk's adaptive expansions (`AdaptivePredicates.Orient3d`), or `DoublePredicates.Orient3d` when the coordinates are out of the expansions' range.
 3. The PredicateCompiler-generated predicates (`math/Generated/`): limb kernels after Ratschek-Rokne and Kulisch, and
    indirect predicates for implicit points.
 
@@ -56,35 +56,73 @@ The callers come from the dotnet-trace profile of PR #1563's degenerate stratum,
 
 ### 1.3 The stage histogram
 
-Mode `filter`, `results/filter.txt`, 37 cases. It records every call that reaches the exact stage (up to 200 000 per case;
-4.66 million calls in all).
-- **Path:** the integer path decides all the recorded calls except 228, on the Cluster and FoldedCluster cases (47, 81, 24, 55,
-  8 and 13; first run of the mode), which go to the expansions.
-- **Ratio:** r = |det| / (u · permanent), with u = 2^-53. The filter decides r > 7. A tighter proven bound θ u · permanent
-  would decide θ < r ≤ 7.
+Mode `filter`, `results/filter.txt`, 37 cases, 4.66 million calls that reach the exact stage.
+- **Sampling.** The library records them by reservoir sampling: up to 200 000 per case, uniform over each case's calls. The
+  shares are scaled to all calls.
+  - The two FoldedCluster k = 40 cases have 3.89 of the 4.66 million calls, so they dominate the totals.
+  - A first run recorded the first 200 000 calls per case instead. It gave the same picture, with 19.9 % exact zeros and
+    73.7 % at 0 < r < 1.
+- **Path:** the integer path decides all the recorded calls except 116, which go to the expansions. They are on the Cluster k = 20
+  (24, 55) and FoldedCluster cases (8, 13 at k = 20; 5, 11 at k = 40).
+- **Two ratios.**
+  - r = |det| / (u · permanent), with the exact determinant: how far the call is from degenerate.
+  - r_fp = |det_fp| / (u · permanent), with the floating-point determinant the filter computes. This is what a filter sees.
+  - The library's filter decides r_fp > 7 + O(u) (`Orient3dBound` = (7 + 56u) u, with an underflow term that is negligible at
+    these scales). A filter with a proven bound θ u · permanent could decide at most the calls with θ < r_fp ≤ 7.
+- **What the bins do not say.** The bins of the exact r are not what any filter tests. A valid θ = 1 filter is sure to decide
+  only calls with r above about 1 + 7, and it may decide some with r < 1 whose det_fp happens to be large. The cross table
+  shows that this mixing is small.
 
-| r | share of the exact-stage calls | decidable by |
+| r_fp (the filter's view) | share of the exact-stage calls | candidates of |
 |---|---|---|
-| 0 (exactly degenerate) | 19.9 % | the exact stage only |
-| 0 < r < 1 | 73.7 % | the exact stage only (below the rounding of the determinant itself) |
-| 1 ≤ r < 3 | 3.5 % | an ideal filter (θ about 1) |
-| 3 ≤ r ≤ 7 | 2.8 % | a filter about twice as tight (θ about 3, the order of the bounds of Ozaki et al. 2016 for 2D) |
-| r > 7 | 0.1 % | the underflow term of the current bound |
+| 0 (det_fp = 0, including a zero permanent) | 7.4 % | none |
+| 0 < r_fp < 1 | 86.8 % | none: below the rounding of the determinant |
+| 1 ≤ r_fp < 3 | 3.2 % | only a filter at the ideal θ about 1 |
+| 3 ≤ r_fp ≤ 7 | 2.5 % | a filter about twice as tight as today's (θ about 3, the order of the bounds of Ozaki et al. 2016 for 2D) |
+| r_fp > 7 | 0 % | (decided by today's filter) |
 
-- **Cost per call** (the recorded inputs, plain calls): `Orient3d` with the exact stage takes 37-148 ns (mean 87 ns), the
-  filter alone 8-19 ns.
-- **Share:** the exact stage is about 15 % of the workload (calls × (exact − filter)), and up to 19 % on single cases (FoldedCluster
-  k = 20 and 40). This matches the earlier Stopwatch count (16.2 %) and the profile (12 % of the busy time).
+The cross table of the exact r against r_fp, as shares of all exact-stage calls:
+
+| exact r \ r_fp | 0 | (0, 1) | [1, 3) | [3, 7] | > 7 |
+|---|---|---|---|---|---|
+| r = 0 | 7.33 % | 3.96 % | 0.02 % | 0 | 0 |
+| 0 < r < 1 | 0.11 % | 82.64 % | 0.45 % | 0 | 0 |
+| 1 ≤ r < 3 | 0 | 0.19 % | 2.65 % | 0.09 % | 0 |
+| 3 ≤ r ≤ 7 | 0 | 0 | 0.10 % | 2.43 % | 0 |
+| r > 7 | 0 | 0 | 0 | 0.03 % | 0 |
+
+The 0.02 % with r = 0 and r_fp ≥ 1 show that a filter at θ = 1 would not be valid. A provable θ lies above 1.
+
+**Cost per call.** On the recorded inputs, as plain calls, `Orient3d` with the exact stage takes 32-267 ns and the filter
+alone 9-28 ns. The highest values are on the FoldedCluster k = 40 cases (252-267 ns and 25-28 ns), where even the filter is
+slow.
+
+**Share of the exact stage in the workload.** The three measurements disagree:
+- in-place, with Stopwatch counters around every real call (PR #1563, `orient3d_zero.txt`): **16.6 %** (784 of 4732 ms),
+  21 % on FoldedCluster k = 40;
+- the dotnet-trace profile: **12 %** of the busy time;
+- this microbenchmark, as calls × (exact − filter): **36 %**, and 40-55 % on FoldedCluster k = 40.
+
+The microbenchmark times the sampled inputs out of their context (200 000 scattered records, so the data is cold) and is the
+high-side estimate. The in-place measures are used below, and the high side is checked.
 
 ### 1.4 The bound and the stop
 
-- A tighter filter saves at most the exact-stage time of its newly decided calls: 15.2 % × 6.3 % ≈ **1.0 %** of the workload
-  with an ideal θ = 1, or **0.4 %** with θ = 3. That is below the 10 % threshold. **Stop; no new error bound is proposed**,
-  so none needs a derivation.
-- The next candidate is the exact path itself (`orient3d_int`, about 80 ns over the filter). A 2× faster integer kernel bounds
-  at 15.2 % × 0.5 ≈ 7.6 % of the workload, and at about 9.5 % on the worst case. That is below the threshold; it was not
-  pursued.
-- The call count is the lever, and it lives in the rounding repair (section 3).
+- A tighter filter saves at most the exact-stage time of its candidates. With θ = 1 these are 5.7 % of the calls (r_fp ≥ 1),
+  with θ = 3 they are 2.5 %. The time per call is about the same across the bins.
+- The bound is therefore 16.6 % × 5.7 % ≈ **0.9 %** of the workload (θ = 1, not even valid) and 0.4 % (θ = 3). Even at the
+  microbenchmark's 36 % it is about 2.1 %. All of these are below the 10 % threshold. **Stop; no new error bound is
+  proposed**, so none needs a derivation.
+- Why the stop does not hinge on the exact bins: 94 % of the exact-stage calls have r_fp < 1. At or below the rounding of the
+  determinant no floating-point filter can certify a sign, whatever its constant.
+- The next candidate is the exact path itself (`orient3d_int`). A 2× faster integer kernel bounds at half the exact-stage
+  share:
+  - 6-8.5 % of the workload with the in-place measures, below the threshold;
+  - about 10.5 % on the worst single case (FoldedCluster k = 40, 21 % in place);
+  - 18 % at the microbenchmark's high side.
+  
+  It is borderline on the worst case only. It was not pursued, and it is listed for the coordinator.
+- The call count is the bigger lever, and it lives in the rounding repair (section 3).
 
 ### 1.5 Options (hot spot 1)
 
@@ -92,7 +130,7 @@ Mode `filter`, `results/filter.txt`, 37 cases. It records every call that reache
 |---|---|---|---|---|
 | 1a | a tighter semi-static or static filter for `orient3d` (a new error bound, with a derivation) | ≤ 1 % on the slow tail, less on normal inputs | M (a bound, its proof, a mutation gate) | low, but a new error bound for ≤ 1 % |
 | 1b | an interval (dynamic) stage between the filter and `orient3d_int` | ≤ 1 %, for the same reason: 94 % of the calls are at or below the rounding of the determinant | M | low |
-| 1c | a faster `orient3d_int` | ≤ 7.6 % | M | low |
+| 1c | a faster `orient3d_int` | ≤ 6-8.5 % on the stratum, about 10.5 % on the worst case, 18 % at the high-side estimate (for a 2x kernel) | M | low |
 | 1d | nothing | | | |
 
 **Leaning:** 1d.
@@ -136,7 +174,9 @@ In the profile, `by_projection` takes 2677 ms. Of that:
 Mode `pairs`, `results/pairs.txt`.
 - `MeshRoundingRepair` runs 3.41 million tri-tri tests on the workload, for 1.69 million distinct pairs (the 18 coordinates):
   **2.0 tests per distinct pair**, and 2.2 on FoldedCluster k = 40 against a shifted copy.
-- The tests (`MeshRoundingRepair.intersects`, inclusive) are 47.6 % of `ExactMeshBoolean.Compute` busy time in the profile.
+- The tests (`MeshRoundingRepair.intersects`, inclusive) are 47.6 % of `ExactMeshBoolean.Compute` busy time. This share is from
+  PR #1563's dotnet-trace profile of the same workload (5 repetitions). The 2.0 tests per distinct pair are from this
+  study's mode `pairs` (one run).
 - An ideal cache would have bounded at 47.6 % × (1 − 1/2.0) ≈ **24 %**, above the threshold. So a spike followed.
 
 ### 2.4 The spike: a cache of pair results
