@@ -389,7 +389,7 @@ In the normal double range (`NormalSqLo = 1e-290`, `NormalSqHi = 1e290`, `Normal
 static forward error bounds instead of `ExactInterval`, falling back to the `ExactInterval` implementations outside
 those guards (including subnormal scales, overflow, near-collinear slivers, out-of-range `lambda`, and `NaN` / infinities).
 
-- **Machine-verified bounds (`tools/ErrorBoundAudit/bounds.py`, entries `CTB-1`..`CTB-4`):**
+- **Hand-derived, anchored bounds (`tools/ErrorBoundAudit/bounds.py`, entries `CTB-1`..`CTB-4`, scalar inequalities checked in exact rational arithmetic against anchored source lines):**
   - `CTB-1` (`LengthUpper`): `Math.Sqrt(s) * (1 + 1e-15)` (3.20× margin over exact squared length; floor `1e-145 >> 2^-537`, slack `>> 2^-590`).
   - `CTB-2` (`PointTriangleUpper`, evaluated relative to `v0` as `(x - v0) - s(v1 - v0) - t(v2 - v0)` so rounding scales with triangle size rather than global coordinate offset): `Math.Sqrt(r2) * (1 + 1e-15) + 1.25e-16 * e` (norm margin 4.67×, forward-error margin 1.126×; absorbs `sqrt(3*ETA/(1-u))` underflow with floor `1.25e-156 >> 2^-537` and slack `1.4e-157 >> 2^-590`, preserving section 8 for scaled-down copies).
   - `CTB-3` (`CutRounding`): `d * (1 + 1e-15) + 1.25e-16 * e` (diff margin 2.67×, interpolation-error margin 1.126×, including subnormal `d`).

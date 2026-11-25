@@ -1270,13 +1270,14 @@ def ctb_point_triangle_upper(c, r):
     r.add('norm term', Verdict(r_lo_sq >= r_hi_sq, (r_lo_sq - 1) / (r_hi_sq - 1),
                                'norm factor has %.2fx margin over sqrt(r2) roundings + final add' % float((r_lo_sq - 1) / (r_hi_sq - 1))))
     # Forward-error part (v0-relative form (x - v0) - s*(v1 - v0) - t*(v2 - v0)):
-    # per component, |rx - ((x_k - v0_k) - s(v1_k - v0_k) - t(v2_k - v0_k))|
-    #   <= u|d0k| + (2u/(1-u))(|q1k|+|q2k|) + u(|d1k|+|rk|) + 2*ETA/(1-u) <= (u/(1-u)) * E_k + 2*ETA/(1-u).
-    # Across 3 components, |delta|_1 <= (u/(1-u)) * E_exact + 6*ETA/(1-u); add sqrt(3*ETA/(1-u)) < 2^-536 for r2 underflow.
+    # per component: |(x - v0) - d0| <= (u/(1-u))|d0|, |d1 - (d0 - q1)| <= (u/(1-u))|d1|, |rx - (d1 - q2)| <= (u/(1-u))|rx|,
+    # and |s(v1 - v0) - q1| <= (1/(1-u)^2 - 1)|q1| + ETA/(1-u)^2 <= (2u/(1-u)^2)|q1| + ETA/(1-u)^2 (same for q2).
+    # Since u/(1-u) < u/(1-u)^2, across 3 components |delta|_1 <= (u/(1-u)^2) * E_exact + 6*ETA/(1-u)^2;
+    # add sqrt(3*ETA/(1-u)) < 2^-536 for r2 underflow.
     # Computing e has addition depth <= 9 (so E_exact <= e / (1 - u)^10); multiplying by 1.25e-16 and adding loses (1 - u)^2.
     r2_uf_sqrt = Fraction(1, 2 ** 536)
     assert r2_uf_sqrt * r2_uf_sqrt > 3 * ETA / (1 - U)
-    need = U / (1 - U) / (1 - U) ** 10 + (6 * ETA / (1 - U) + r2_uf_sqrt) / CTB_LIN_LO
+    need = U / (1 - U) ** 2 / (1 - U) ** 10 + (6 * ETA / (1 - U) ** 2 + r2_uf_sqrt) / CTB_LIN_LO
     have = frac(1.25e-16) * (1 - U) ** 2
     r.add('forward error term', Verdict(have >= need, have / need,
                                         '1.25e-16 * e covers |delta|_1 + sqrt(3*ETA) with margin %.3fx' % float(have / need)))
@@ -1309,9 +1310,9 @@ def ctb_cut_rounding(c, r):
     d_have = frac(1.0 + 1e-15) * (1 - U) ** 2
     r.add('diff term', Verdict(d_have >= d_need, (d_have - 1) / (d_need - 1),
                                'd*(1+1e-15) covers |c-q|_1 with margin %.2fx' % float((d_have - 1) / (d_need - 1))))
-    # Exact |q - (a + lambda (b - a))|_1 <= (u / (1 - u)) * E_exact + 3 * ETA / (1 - u); E_exact <= e / (1 - u)^5.
+    # Exact |q - (a + lambda (b - a))|_1 <= (u / (1 - u)^2) * E_exact + 3 * ETA / (1 - u)^2; E_exact <= e / (1 - u)^5.
     # Add ETA for subnormal d rounding in the final addition.
-    e_need = U / (1 - U) / (1 - U) ** 5 + (3 * ETA / (1 - U) + ETA) / CTB_LIN_LO
+    e_need = U / (1 - U) ** 2 / (1 - U) ** 5 + (3 * ETA / (1 - U) ** 2 + ETA) / CTB_LIN_LO
     e_have = frac(1.25e-16) * (1 - U) ** 2
     r.add('interp error term', Verdict(e_have >= e_need, e_have / e_need,
                                        '1.25e-16 * e covers |q - exact|_1 (+ subnormal d) with margin %.3fx' % float(e_have / e_need)))
@@ -1337,19 +1338,18 @@ def ctb_cut_rounding(c, r):
        scope='internal static double CoveringUpper(')
 def ctb_covering_upper(c, r):
     # 1) Non-acute check: each exact q_ij differs from computed s_ij by at most ((1+u)^2/(1-u)^3 - 1) s_ij + 4*ETA.
-    # Computing fl(fl(s12 + s20) - s01) adds at most u (s12 + s20) + u |s12 + s20 - s01| <= 2 u (s12 + s20 + s01).
+    # Computing fl(fl(s12 + s20) - s01) adds at most (u/(1-u)) (s12 + s20) + (u/(1-u)) |s12 + s20 - s01| <= (2u/(1-u)) (s12 + s20 + s01).
     # Exact sum of s_ij is at most ssum / (1 - u)^2, and tol >= 2e-15 * ssum * (1 - u).
     sq_rel = (1 + U) ** 2 / (1 - U) ** 3 - 1
-    nonacute_need = (sq_rel + 2 * U) / (1 - U) ** 2 + 12 * ETA / CTB_SQ_LO
+    nonacute_need = (sq_rel + 2 * U / (1 - U)) / (1 - U) ** 2 + 12 * ETA / CTB_SQ_LO
     nonacute_have = frac(2e-15) * (1 - U)
     r.add('non-acute guard', Verdict(nonacute_have >= nonacute_need, nonacute_have / nonacute_need,
                                      '2e-15 * ssum covers squared-length & diff errors with margin %.2fx' % float(nonacute_have / nonacute_need)))
     # 2) Cross-product component lower bound: each edge diff has rel err <= u; product p1 = fl(ay*bz) has exact
-    # error <= ((1+u)^2/(1-u) - 1) |p1| + 2*ETA; subtraction nx = fl(p1 - p2) adds <= u |nx| <= u * mx;
-    # subtracting 1e-15 * mx in float adds <= u * |lnx| <= u * mx, and mx_exact <= mx / (1 - u).
-    # Any component whose square ln_k * ln_k > 0 in binary64 satisfies mx >= ln_k > 2^-537.5 > 2^-538 (smaller
-    # components square to 0 <= cross_k^2 and cannot inflate x2).
-    cross_need = (((1 + U) ** 2 / (1 - U) - 1) + 2 * U) / (1 - U) + 4 * ETA / Fraction(1, 2 ** 538)
+    # error <= (1/(1-u)^3 - 1) |p1| + ETA/(1-u)^2; subtraction nx = fl(p1 - p2) adds <= u |p1 - p2| <= u * mx_exact;
+    # subtracting 1e-15 * mx in float adds <= u |lnx| <= u * mx <= (u/(1-u)) * mx_exact (sum < (2u/(1-u)) * mx_exact),
+    # and mx_exact <= mx / (1 - u). Any component whose square ln_k * ln_k > 0 in binary64 satisfies mx >= ln_k > 2^-538.
+    cross_need = ((Fraction(1, 1) / (1 - U) ** 3 - 1) + 2 * U / (1 - U)) / (1 - U) + 2 * ETA / (1 - U) ** 2 / Fraction(1, 2 ** 538)
     cross_have = frac(1e-15) * (1 - U)
     r.add('cross lower bound', Verdict(cross_have >= cross_need, cross_have / cross_need,
                                        '1e-15 * mx covers cross-product rounding for all non-underflowing ln_k with margin %.2fx' % float(cross_have / cross_need)))
