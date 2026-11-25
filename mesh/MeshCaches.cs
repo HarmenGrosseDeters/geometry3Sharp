@@ -21,7 +21,7 @@ namespace g3
             Centroids = new DVector<Vector3d>(); Centroids.resize(NT);
             Normals = new DVector<Vector3d>(); Normals.resize(NT);
             Areas = new DVector<double>(); Areas.resize(NT);
-            gParallel.ForEach(mesh.TriangleIndices(), (tid) => {
+            gParallel.ForEachSmall(mesh.TriangleIndices(), (tid) => {
                 Vector3d c, n; double a;
                 mesh.GetTriInfo(tid, out n, out a, out c);
                 Centroids[tid] = c;
@@ -44,7 +44,7 @@ namespace g3
             Normals = new DVector<Vector3d>(); Normals.resize(NT);
             Areas = new DVector<double>(); Areas.resize(NT);
             double epsilon = scaleFree ? 0 : MathUtil.Epsilon;
-            gParallel.ForEach(mesh.TriangleIndices(), (tid) => {
+            gParallel.ForEachSmall(mesh.TriangleIndices(), (tid) => {
                 Vector3d v0 = Vector3d.Zero, v1 = Vector3d.Zero, v2 = Vector3d.Zero;
                 mesh.GetTriVertices(tid, ref v0, ref v1, ref v2);
                 // (DMesh3.GetTriInfo and MathUtil.FastNormalArea, with the epsilon of Normalize as a parameter)

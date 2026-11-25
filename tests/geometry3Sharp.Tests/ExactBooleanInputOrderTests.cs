@@ -717,6 +717,66 @@ namespace geometry3Sharp.Tests
             Assert.True(statuses.Count == 1, "statuses " + string.Join(", ", statuses));
         }
 
+        // A prism (height 1) over a square with a triangular hole whose corner touches the corner of the square: one closed component
+        // whose vertical edge at the touching point has four triangles, two of them in the same direction (a DMesh3 has no such edge:
+        // the square's corner and the hole's corner are two vertices of one position, which the boolean welds)
+        static DMesh3 PrismOverTouchingAnnulus()
+        {
+            var m = new DMesh3();
+            // the boundary of the region, the region on the left: the square counter-clockwise, then the hole clockwise
+            var outer = new[] { new Vector3d(0, 0, 0), new Vector3d(4, 0, 0), new Vector3d(4, 4, 0), new Vector3d(0, 4, 0) };
+            var hole = new[] { new Vector3d(0, 0, 0), new Vector3d(1, 3, 0), new Vector3d(3, 1, 0) };
+            var bottom = new List<int>(); var top = new List<int>();
+            foreach (Vector3d[] loop in new[] { outer, hole })
+                foreach (Vector3d q in loop) { bottom.Add(m.AppendVertex(q)); top.Add(m.AppendVertex(q + new Vector3d(0, 0, 1))); }
+            // (ids: square corner k at 0..3, hole corner k at 4..6)
+            int A = 0, B = 1, C = 2, D = 3, H0 = 4, H2 = 5, H1 = 6;
+            Action<int, int> wall = (u, v) => {
+                Assert.True(m.AppendTriangle(bottom[u], bottom[v], top[v]) >= 0);
+                Assert.True(m.AppendTriangle(bottom[u], top[v], top[u]) >= 0);
+            };
+            wall(A, B); wall(B, C); wall(C, D); wall(D, A); wall(H0, H2); wall(H2, H1); wall(H1, H0);
+            // the region, counter-clockwise: the diagonals A-H2 and H1-A are the hole's edges (welded with H0)
+            foreach (int[] tri in new[] { new[] { A, B, H1 }, new[] { B, C, H1 }, new[] { C, H2, H1 }, new[] { C, D, H2 }, new[] { D, A, H2 } }) {
+                Assert.True(m.AppendTriangle(top[tri[0]], top[tri[1]], top[tri[2]]) >= 0);
+                Assert.True(m.AppendTriangle(bottom[tri[0]], bottom[tri[2]], bottom[tri[1]]) >= 0);
+            }
+            return m;
+        }
+
+        /// <summary>
+        /// The triangle that the inside-out check reads is the one with the smallest corner, then the smallest next corner, then the
+        /// smallest third. Two triangles of one component that leave the smallest point towards the same next point (here the two
+        /// walls that meet at the touching point, going up) are told apart by their third corner.
+        /// </summary>
+        [Fact]
+        public void InsideOutCheck_TellsTwoTrianglesOfOneComponentApart_ByTheThirdCorner()
+        {
+            DMesh3 pinched = PrismOverTouchingAnnulus(), box = GridBox(1, 1, 1, new Vector3d(5, 0, 0));
+            Assert.True(ExactMeshBoolean.IsWindingClosed(pinched));
+            var chosen = new HashSet<string>();
+            foreach (int[] order in Orders) {
+                DMesh3 a = Reordered(pinched, order), b = Reordered(box, order);
+                var op = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { CountInsideOutCells = true };
+                var read = new List<int>();
+                op.CountRayObserverForTests = ti => read.Add(ti);
+                op.Compute();
+                Assert.Equal(0, op.InsideOutUndecided);
+                Assert.Equal(0, op.InsideOutCells);          // both inputs point outwards
+                Assert.Equal(2, read.Count);                 // one component each: the walls at the touching point are one component
+                // the triangle of the pinched input: from the smallest point (0, 0, 0), its next corner (0, 0, 1) and the smaller third corner
+                Index3i t = a.GetTriangle(read[0]);
+                var corners = new[] { a.GetVertex(t.a), a.GetVertex(t.b), a.GetVertex(t.c) };
+                int k = Array.FindIndex(corners, x => x == Vector3d.Zero);
+                Assert.True(k >= 0, "the chosen triangle has the smallest point");
+                Assert.Equal(new Vector3d(0, 0, 1), corners[(k + 1) % 3]);
+                chosen.Add(corners[(k + 2) % 3].ToString());
+            }
+            // the same triangle for every order of the input
+            // the two candidates leave (0, 0, 0) towards (0, 0, 1) with the third corners (0, 4, 0) and (3, 1, 0): the smaller one is read
+            Assert.Equal(new[] { new Vector3d(0, 4, 0).ToString() }, chosen.ToArray());
+        }
+
         // ---- the repair alone ----
 
         // the repair as ExactMeshBoolean configures it, without the exact point ids (no vertices of different exact points

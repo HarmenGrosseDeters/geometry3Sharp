@@ -38,8 +38,8 @@ namespace gs
                 exact_squared(mesh, tid, p, out BigInteger n, out BigInteger d, out int x);
                 if (less(n, d, x, bestNum, bestDen, bestExp)) { bestNum = n; bestDen = d; bestExp = x; }
             }
-            // d^2 = num / den * 2^exp; rounded down twice (ToDouble truncates the quotient and then rounds to nearest once, and once
-            // more in the subnormal range) unless the conversion is exact, and its root rounded down (sqrt rounds to nearest: one step
+            // d^2 = num / den * 2^exp; rounded down twice (ToDouble rounds to nearest, within half an ulp or half the grid unit of 2^-1074
+            // since #1410: one step down would do, two keep the older margin) unless the conversion is exact, and its root rounded down (sqrt rounds to nearest: one step
             // down is below the root) unless it is exact: exact values stay exact (eg 0.125 for two planes 0.125 apart; numerics review)
             if (bestNum.IsZero)
                 return 0;

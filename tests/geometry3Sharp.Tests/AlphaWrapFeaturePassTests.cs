@@ -61,7 +61,7 @@ namespace geometry3Sharp.Tests
 
         // share of points on the concave crease's miter line (x = y = 5 + offset, z in [0.5, 3.5], mapped by s) within one offset of a
         // sharp edge (dihedral above 60 degrees) of m
-        static double ConcaveCoverage(DMesh3 m, double offset, Similarity s)
+        internal static double ConcaveCoverage(DMesh3 m, double offset, Similarity s)
         {
             var sharp = new List<Segment3d>();
             foreach (int eid in m.EdgeIndices()) {
@@ -82,7 +82,7 @@ namespace geometry3Sharp.Tests
 
         // the wrap's guarantees on m: clean (closed, manifold, no self-intersections), no contact with the input (exact), every
         // vertex at least 0.9 offset (less the rounding) from the input, the input enclosed (winding number 1)
-        static void AssertGuarantees(DMesh3 m, DMesh3 input, double offset, string what)
+        internal static void AssertGuarantees(DMesh3 m, DMesh3 input, double offset, string what)
         {
             Assert.True(MeshRobustRepair.NotCleanReason(m) == "", what + ": " + MeshRobustRepair.NotCleanReason(m));
             var tree = new DMeshAABBTree3(input, true);

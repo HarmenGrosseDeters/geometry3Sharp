@@ -124,12 +124,14 @@ class Repository(unittest.TestCase):
         self.assertEqual(len(got["math/A.cs"]), 3)             # line 2 is from "head": no PR, its short hash
 
     def test_file_names_with_glob_characters_are_matched_literally(self):
-        self.write("math/[ab]*.cs", "x();\n")
-        self.write("math/a.cs", "y();\n")
+        # (a Windows file name cannot hold "*": there the name keeps the brackets, which a glob would match against b.cs; b, not a: A.cs exists and Windows names are case-insensitive)
+        name = "math/[ab].cs" if os.name == "nt" else "math/[ab]*.cs"
+        self.write(name, "x();\n")
+        self.write("math/b.cs", "y();\n")
         self.commit("glob names")
         _, changes = c.changed_lines(self.root, self.base, "HEAD")
-        self.assertEqual(changes["math/[ab]*.cs"], {1})
-        self.assertEqual(changes["math/a.cs"], {1})
+        self.assertEqual(changes[name], {1})
+        self.assertEqual(changes["math/b.cs"], {1})
 
     def test_main_with_attribute_names_the_pull_request(self):
         code, result = self.invoke("--attribute", "--summary", str(self.root / "summary.md"))
@@ -217,13 +219,15 @@ class Repository(unittest.TestCase):
         self.assertEqual(set(changes), {"math/A.cs"})
 
     def test_renames_new_files_deletions_and_unusual_paths(self):
-        self.run_git("mv", "math/A.cs", 'math/Ü name "quote".cs')
+        # (a Windows file name cannot hold a double quote: there only the non-ASCII character and the space are quoted by git)
+        moved = 'math/Ü name.cs' if os.name == "nt" else 'math/Ü name "quote".cs'
+        self.run_git("mv", "math/A.cs", moved)
         self.write("math/Added.cs", "first();\nsecond();\n")
         self.write("tools/g3cli/New.cs", "cli();\n")
         self.commit("rename and add")
         _, changes = c.changed_lines(self.root, self.base, "HEAD")
         self.assertNotIn("math/A.cs", changes)
-        self.assertEqual(changes['math/Ü name "quote".cs'], {1, 2, 3, 4, 5})
+        self.assertEqual(changes[moved], {1, 2, 3, 4, 5})
         self.assertEqual(changes["math/Added.cs"], {1, 2})
         self.assertEqual(changes["tools/g3cli/New.cs"], {1})
 

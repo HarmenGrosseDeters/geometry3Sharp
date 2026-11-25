@@ -47,9 +47,36 @@ var atLeast2 = new ExactMeshBoolean(meshes, ExactMeshBoolean.AtLeast(2));
 var xorOdd = new ExactMeshBoolean(meshes, w => w.Count(x => x > 0) % 2 == 1);
 ```
 
-Putting multiple operands into a single n-ary operation (`A − (B1 ∪ … ∪ Bn)`) runs one arrangement and rounds only once, which is both faster and produces fewer triangles than chaining binary booleans.
+`ExactMeshArrangement` (the arrangement under the booleans): the point ids in its `Output` and `ConstraintEdges` are labels of one run (ids of input vertices, all of `VertexPoints`, are deterministic; ids of new points depend on the thread schedule; the geometry is deterministic); compare or sort through `Exact(id)` or `Canonical(id)`, never by id.
+
+Putting multiple operands into a single n-ary operation (`A − (B1 ∪ … ∪ Bn)`) runs one arrangement and rounds only once. In the measured ball packings it never returned more triangles than chaining binary booleans (equal on a lattice, up to 21 % fewer on dense packings), and it is faster for sparse or chain-like inputs. For a union of many bodies that overlap each other densely it is slower than a tree of pairwise unions: see [Union of many overlapping bodies](#union-of-many-overlapping-bodies-one-call-or-a-tree).
 
 For closed first meshes, `Difference` and `Intersection` automatically cull operand triangles wholly outside the relevant solid (`Counts["t3a_culled"]`). Diagnostic counts (`IntersectingPairs`, `SelfIntersectingPairs`, `Patches`) describe the arrangement after culling; use `Union` or `MeshRobustRepair` to inspect self-intersections across an entire operand.
+
+### Union of many overlapping bodies: one call or a tree
+
+Two ways to unite many closed bodies: all of them in one `ExactMeshBoolean` (one arrangement), or a balanced binary tree of pairwise unions ([UnionTreeExample](../examples/UnionTreeExample.cs)). The tree must be built from eager calls, `new ExactMeshBoolean(a, b, Union)` and `Compute()` per pair, as the example does: the lazy `ExactMesh.Union` composition (see the table above) is evaluated as one n-ary arrangement again and gives no tree.
+
+Rule of thumb, measured on procedural ball packings with `StrictRounding = true`, net10.0 Release, on one Windows desktop with 12 logical cores that other sessions used only lightly (times +-20 %). The shape matters, not the absolute times:
+
+- Sparse or chain-like inputs (each body overlaps a few others: helices, lattices, branching tubes): one call. It was 2.9 to 3.8 times faster than the tree in the measured cases (lattice of 216 balls 443 ms against 1305 ms; helix of 192 balls 288 ms against 1088 ms) and grows about linearly with the body count.
+- Dense packings (a body overlaps many others): one call is measured to grow faster than linearly (about quadratically in the body count from 48 to 192 balls), and the tree is faster above a mean overlap degree (the number of other bodies a body overlaps) of about 12 to 14 on this machine.
+
+| Dense packing, balls | mean overlap degree | one call | tree |
+|---|---|---|---|
+| 48 | 14.3 | 263 ms | 245 ms |
+| 96 | 23.3 | 1124 ms | 545 ms |
+| 192 | 34.0 | 4606 ms | 1229 ms |
+
+The threshold is not a property of the input alone. It depends on the machine: the winding stage of one call is a parallel loop, the tree is many small calls, so core count and load change the ratio. A second and a third run of the same inputs (`scaling 3 dense104:24,48,96 helix:96`, counts and results identical) on a heavily loaded machine, and with `DOTNET_PROCESSOR_COUNT=4` on a moderately loaded one, moved the crossover towards one call: at 48 balls (degree 14.3) one call was faster than the tree (by 2.2x in the loaded reviewer's run, by 1.2x with 4 processors; 1.07x slower in the quiet run), and at 96 balls the time of one call over the tree was 1.0 (loaded reviewer run) and 1.6 (4 processors) against 2.1 in the quiet run (a 12-thread rerun under moderate load gave 0.84 and 2.1). So fewer free cores favoured one call in these runs. The cause was not established (a guess: the tree's many small parallel regions pay a fixed fork/join cost that a busy or small machine makes larger relative to the work), and the direction for more cores than 12 was not measured. Measure both on your own input and machine when it matters; the example shows how (time `UnionOneCall` and `UnionTree`).
+
+Why one call grows (derived, then measured): a body cut by `k` neighbours is a circle arrangement on a sphere with `O(k^2)` faces, so the patches per body grow like `k^2` (derived; measured 0.4 to 0.5 `k^2`), and the classification casts one exact ray per patch and overlapping body (candidates per patch about `0.55 k`, measured). That makes about `0.28 N k^3` rays, with `k` itself rising with `N` in a dense packing. The constant 0.28 is a fit: it reproduces the measured candidates (2.1 M at 192 balls, 340 k at 96 against 2.21 M and 359 k), and it hides that the cost goes with the sum of `k_i^3` over bodies, not the mean degree cubed (at 192 balls the maximum degree is 86 against the mean 34). So the work is measured to grow roughly like `N k^3`, not proven to. Most of the cut surface (95 % of the pieces at 192 balls) lies inside the union and is discarded at the end; the tree avoids that by removing interior surface after every pairwise union.
+
+The results differ. Checked with the probe's `scaling` mode on dense (two packings, seeds 104 and 103, 3 to 6 sizes of 12 to 192 balls), helix (24 to 192) and lattice (27 to 216) inputs, 17 sizes in all: both routes returned a closed mesh with an empty `MeshRobustRepair.NotCleanReason(mesh, checkSelfIntersections: true)`, and the volumes agreed to the 1e-9 the probe prints (rounded to 1e-9). The tree returns up to 21 % more triangles on dense packings and a different triangulation (the meshes are bit-identical only on the lattice), so choose by speed and do not expect the same mesh.
+
+To estimate the overlap degree of your own input, count for each body the other bodies whose bounding box intersects its box and take the mean (`UnionTreeExample.MeanBoxOverlapDegree`). The threshold above is for balls and their true overlaps; box overlaps over-count (the 8 balls of the example overlap 6 others each, their boxes 7), so the box figure at which to switch is somewhat higher. It was not measured for boxes.
+
+Basis: [NARY_UNION_DENSE_2026-11.md](../research/NARY_UNION_DENSE_2026-11.md), the probe [ProceduralSphereUnionProbe](../../benchmarks/ProceduralSphereUnionProbe/README.md), issue #1466. A winding propagation across patches (one ray per body) would remove the superlinear term and, as the windings would be the same integers, is expected to keep the output of one call; it is not implemented and not tested.
 
 ### Batch One-Against-Many (`IntersectEach` / `DifferenceEach`)
 
@@ -67,8 +94,19 @@ Each entry is bit-identical to running an independent boolean against `terrain` 
 
 - **Inconsistent orientation (`Orientation`):** Closed inputs with flipped triangles are refused by default (`Orientation = Refuse`, `Status = InconsistentOrientation`) because inside vs. outside is ambiguous. Set `Orientation = AreaMajority` to reorient each component by its larger area part (`ReorientedTriangles`). `ExactMeshBoolean.Resolve(mesh)` always reorients as a repair operation.
 - **Orientation by nesting (`Orientation = ByNesting`):** an input that is closed modulo 2 and embedded is oriented by the parity of the crossings of one exact ray per component (the solid is the odd-depth region: nested shells and consistently inside-out inputs come out right). An input that self-intersects and is inconsistently oriented is refused with `SelfIntersectingInconsistent`; in such a mesh a consistently oriented component that encloses a negative volume is refused with `InconsistentOrientation`.
-- **Inside-out inputs (`CountInsideOutCells`):** `InsideOutCells` counts the closed components that are inside-out (the solid is empty or reversed) when `CountInsideOutCells` is set (off by default and then free; on, up to about 10 percent on 800k-triangle inputs, within noise below 200k). `SolidBooleanPipeline` sets it and refuses such an input by default (`InsideOutInput`, `AllowInsideOutInputs`).
+- **Inside-out inputs (`CountInsideOutCells`):** `InsideOutCells` counts the closed components that are inside-out (the solid is empty or reversed) when `CountInsideOutCells` is set (off by default and then free; on, up to about 10 percent on 800k-triangle inputs, within noise below 200k). `SolidBooleanPipeline` sets it and refuses such an input by default (`InsideOutInput`, `AllowInsideOutInputs`). One exception: thin inside-out components are dropped, see [below](#thin-inside-out-components-droppedinsideoutcomponents). `Orientation = ByNesting` derives the enclosed solid only for an embedded input: a closed input that self-intersects keeps its given orientation, and the refusal then names its self-intersections instead of recommending `ByNesting`, and in every mode names an input that is a closed copy made by the input repair (`Report.RepairedInputs`). `MeshAutoRepair` closes an open, non-planar sheet with a fill of its boundary loop that the sheet crosses, so the copy self-intersects (and can be inside-out in part): the pipeline checks every `MeshAutoRepair` copy exactly and refuses one that self-intersects where the input did not (`OpenInput`; an open cutting surface is not a solid).
 - **Open inputs (`AllowOpenMeshes`):** Off by default (`false`, since 2026-11-23; `true` before): an open input without the role `Sheet` fails with `Status = OpenInput`, and the error names the inputs. Set `AllowOpenMeshes = true` to state the generalized winding number rule. Open inputs are then classified by generalized winding number (`> 0.5`; `ExactWinding[i]` is `false`), using the exact Antipodal Method below 20,000 boundary segments (hierarchical above 1,000 segments) and fast winding numbers above that cap. Where an open boundary meets other sheets along an edge with conflicting orientations, pieces are left unjoined (`ConflictEdges`, always `0` for closed inputs).
+
+### Thin Inside-Out Components (`DroppedInsideOutComponents`)
+
+Owner decision 2026-11-25 (#1555): `SolidBooleanPipeline` drops a thin inside-out component of a closed input before the boolean instead of refusing the run with `InsideOutInput`. Typical case: two nearly coincident sheets of the wrong orientation, a residue that the rounding cannot resolve.
+
+- **What is dropped:** a component (by edges) of a closed input that is not a sheet, closed and consistently oriented by its edges, with an exactly negative volume and a thickness `2|V|/A` below the rounding bound, where the rest of its input has a winding number of 0 or less at one of its vertices (exact; it lies outside the solid there). It is dropped from a copy (the caller's mesh is not changed) and listed in `Report.DroppedInsideOutComponents` (input, triangles, volume, area, thickness, bound, centre).
+- **The bound:** `1e-5` (the default `RoundingMaxDisplacement`) times the box diagonal of the largest component of the closed inputs; sheets and open inputs do not count. It is fixed (`ConfigureBoolean` does not change it), and the magnitude is compared in doubles, the sign decided exactly.
+- **What stays:** a cavity (every vertex inside the rest, also of a shell closed only by position, and also a thin one or one that touches the wall: vertices on the rest or within the touch distance of it are skipped); a component that is not thin (refused as before); every component of an input that has nothing else. Not with `AllowInsideOutInputs` or `Orientation = ByNesting`.
+- **Runs that succeeded can change:** a thin inside-out lens that crosses a face of the solid used to give `Success` with a sliver of the lens cut out of the solid; it is now dropped and the solid stays whole. A thin lens inside an empty cavity is outside the solid (the winding number there is 0) and is dropped too.
+- **Limits:** a thin component that crosses the rest with every vertex inside it stays and is handled as before. The bound follows the largest component of all closed inputs, so a small flipped part next to a much larger input can be thin by it and is dropped: check `Report.DroppedInsideOutComponents`, as `Status` and `Report.Clean` do not show a drop.
+- **Cost:** one pass over the connected components of every closed input on every default run (about 140 ms on a closed sphere of 1.6M triangles, against about 30 ms for `IsWindingClosed`); the exact work runs only for thin candidates.
 
 ### Open Inputs That Enclose Nothing (`OpenInputsWithoutEffect`)
 
@@ -111,7 +149,10 @@ Nearly coincident inputs can create exact vertices that round to colliding `doub
 - **Displacement bound:** Every untouched triangle is the exact rounded output. Repaired edits stay within `Rounding.MaxDrift <= RoundingMaxDisplacement * diagonal` (default `1e-5` of the largest connected component's diagonal, plus a few ULPs far from the origin controlled by `RoundingUlpFactor` or `RoundingAbsoluteTolerance`). Edits exceeding the bound are rejected.
 - **Effort budget:** Controlled by `RoundingMaxPairTests` (default 5M exact pair tests, scaling with initial defects via `RoundingPairTestsDefectScale` and `RoundingPairTestsMaxGrowth`).
 - **Strict mode:** Set `StrictRounding = true` so an unclean result fails with `Status = RoundingNotClean` (no `Result`) rather than returning remaining defects (`Rounding.RemainingIntersections`, `RemainingDegenerate`, `RemainingFalseContacts`, `ScaleDisparity`).
+- **`RoundingClean` is not `NotCleanReason(Result) == ""` where the exact solid touches itself:** `RoundingClean` exempts a position where the exact result touches itself (the duplicated vertices of one exact point, counted by `Contacts`) and requires that the rounding made none (vertices of different exact points at one position, `RemainingFalseContacts`) and that nothing else touches or crosses. `NotCleanReason` counts every touching pair, so it says `"self-intersections"` at such a position while `RoundingClean` is true (see "Touching solids" under "What `NotCleanReason(result)` covers"). Examples with exact coordinates: two unit boxes united along an edge (`Contacts == 2`) or at a corner (`Contacts == 1`), and the procedural plate case of #1431; both are pinned in `ExactBooleanInputContactsTests`.
 - **Speed / exact output:** Set `SafeRounding = false` for plain rounding (faster, or when consuming `ResultExactVertices` directly).
+- **`ResultExactVertices` entries that are not points:** `ExactMeshImprint.ResultExactVertices` has one entry per vertex id of `Result`, taken before the repair: a vertex that the repair removes keeps its point, and the entry of a free id (an id of the target that is not in use and that no new vertex took) is `default(ExactPoint3)`, whose `W` is 0; every point made by the library has `W > 0` (there is no other public test: `W` is a public field), so a caller recognises such an entry by `entry.W.IsZero` and must not convert it: `ExactPoint3.ToVector3d()` and `ExactPoint3.ToDouble` throw `DivideByZeroException` for it (since #1410; `ToDouble(0, 0, s)` gave 0 before, kept as an error on purpose: a zero from 0/0 would hide a caller's bug). `ExactMeshBoolean.ResultExactVertices` holds a point in every entry.
+- **Rounding is to nearest:** An exact vertex is converted to the nearest `double` (`ExactPoint3.ToDouble`, correct rounding since #1410; it used to truncate toward zero). The old conversion pulled every rounded vertex of a convex shape around the origin slightly inward, which kept chained operations on such shapes (eg `A - (A n B)` for a sphere) free of point contacts by accident; with correct rounding they show duplicated vertices of one exact point (`Contacts`) more often, while `RoundingClean` stays true. Data far from the origin never had that bias. The contacts that show in a chain such as `A - (A n B)` are contacts of the exact solid, not made by the rounding: measured with `ComputeExactVertices` on the three cases that the tests allow (`ExactBooleanIssueCasesTests` sphere minus lens: 13 positions, `ExactCoplanarPreDecisionTests` step 3 of the chain, rotated frame, difference: 3, `FindInvertedComponentsExactTests` chain sliver: 4), every position with duplicated vertices holds vertices of one exact point (the solid touches itself there; the old truncation moved such vertices apart by an accident of its direction, which was not the exact solid), and the contacts the rounding itself makes of different exact points (53, 6 and 24 in those cases) are all separated by the repair.
 
 ### Input Order: What the Result Depends On
 
@@ -165,6 +206,138 @@ if (!op.Compute())
 
 `MaxPieces` aborts early with `Status = BudgetExceeded` once exact intersection counts exceed the limit. Cancelled runs return `Status = Cancelled` and the instance can be reused.
 
+### Volume Gradient (`BooleanVolumeGradient`)
+
+`BooleanVolumeGradient` gives the derivative of the volume of the exact result (before the rounding) with respect to
+every input vertex position, for shape and topology optimization.
+
+First run the boolean with `RetainClassification = true`. The option is off by default. It keeps, for each piece of the
+arrangement, whether the piece was kept or flipped, its coplanar stack, and the winding numbers in front of the pieces
+that are stacked. The memory is linear in the number of pieces, and the result does not change. Then:
+
+```csharp
+var boolean = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { RetainClassification = true };
+boolean.Compute();
+var g = new BooleanVolumeGradient(boolean);
+if (g.Compute()) {
+    Vector3d dVdx = g.Gradient[1][vid];          // input 1 (MeshB), vertex vid
+    Vector3d err = g.GradientBound[1][vid];      // |exact - dVdx| <= err per component
+}
+```
+
+Example: [BooleanVolumeGradientExample](../examples/BooleanVolumeGradientExample.cs). An optimizer that moves the vertices
+of input 1 along the gradient until the result's volume hits a target (projected step `x += (Vtarget - V) g / |g|^2`,
+capped, the realized branch at a flush contact, each iteration's contacts reported):
+[BooleanVolumeOptimizerExample](../examples/BooleanVolumeOptimizerExample.cs). From the command line:
+`g3cli boolean ... --volume-gradient out.json` ([mesh commands](../../tools/g3cli/docs/mesh-commands.md#volume-gradient---volume-gradient)). Method and measurements:
+[EXACT_BOOLEAN_GRADIENTS_2026-11.md](../research/EXACT_BOOLEAN_GRADIENTS_2026-11.md).
+
+**Contract.**
+- `Compute()` returns false and sets `Error` in four cases:
+  - the boolean did not succeed;
+  - it was not run with `RetainClassification`;
+  - one of its inputs is not closed, so the result has no volume;
+  - a value or its bound is beyond the double range. The volume (size cubed) overflows from coordinates of about
+    2^341, the gradient (size squared) from about 2^512. The arrays are still filled in this case. At the small end
+    nothing fails: below coordinates of about 2^-341 for the volume (2^-511 for the gradient), the values are subnormal
+    and their bounds absolute, of about 2^-1074.
+- `Gradient[m]` has `MaxVertexID` entries for input `m`. The input index is 0 for `MeshA` and 1 for `MeshB`, or the index
+  in the list of an n-ary boolean. A vertex that belongs to no kept piece has the entry 0.
+- `Volume` is the volume of the exact result, and `VolumeBound` is its error bound.
+- The output is bit-identical on every run: the computation is serial and uses no FMA.
+- If the inputs are scaled by 2^k, the gradient and its bound scale by exactly 2^2k and the volume by exactly 2^3k, as
+  long as no result underflows or overflows. The evaluation itself uses local frames (proof, step 1), so it is the same
+  at every scale.
+- The bounds are relative to each entry's own magnitude, also when the inputs span many orders of magnitude (tested
+  with boxes of size 1 and 2^-400 in one boolean).
+- The cost is linear in the number of kept pieces, about 3-4 µs per piece. It measured 15-142 % of the boolean's own time
+  ([benchmarks/BooleanVolumeGradient](../../benchmarks/BooleanVolumeGradient/README.md)).
+
+**Formula.**
+A kept piece P of an input triangle T moves with T. So, by the Hadamard formula, the volume changes by the integral of
+the normal velocity over the surface:
+
+  dV/dx_i = Σ over the kept pieces P of a triangle T with corner i of s_P λ_i^T(centroid P) N_P
+
+Here N_P is the area vector of P, oriented like T. s_P is -1 for a piece that the result reverses, and +1 otherwise.
+λ^T are the barycentric coordinates in T.
+
+The intersection curves have no area, so they do not contribute. This means no intersection point has to be
+differentiated.
+
+**The error bound (proof).**
+1. *Corners, in a local frame per triangle.*
+   - The exact points are the arrangement's, in grid units: the input is 2^e times (grid point + center).
+   - Each term of input triangle T is evaluated in T's local frame. The coordinates are taken relative to T's first
+     corner and scaled by 2^-S_T, where 2^S_T bounds T's edge coordinates (from the bit lengths of the exact
+     differences), so T's edges have length at most about 1.
+   - Each difference (q − p) 2^-S_T of two exact points is formed exactly in integers, (X_q W_p − X_p W_q) / (W_p W_q),
+     and converted once with `ExactPoint3.ToDouble`, which is correctly rounded (by its documented method). The exact
+     value then lies within half a spacing of the result x, and therefore within [Down(x), Up(x)], the two neighbouring
+     doubles.
+   - The interval is the single point x only when den = 1 and x is an integer equal to num, which the code checks.
+   - The volume, V = Σ s_P N_P · p_0 / 3, uses the corner p_0 relative to the center, scaled by 2^-S, where 2^S bounds
+     every coordinate of the kept pieces. Its N_P comes from the local frame, scaled exactly by 2^(2(S_T − S)) (step 4).
+   - So no product is formed of quantities much larger or smaller than 1. The evaluation neither overflows nor loses a
+     small triangle far from the center, however far apart the magnitudes of the inputs are.
+2. *Terms and sums.*
+   - Every operation of `ExactInterval` (+, −, ×, ÷) rounds to nearest and then widens the result by one spacing on both
+     sides. So it encloses the exact result of the operation for all operand values in the operand intervals. The proof
+     is in `math/ExactIntervals.cs`. A divisor interval that contains 0 gives the whole line.
+   - Four exact identities are kept exact instead of widened: x + 0 = x, x · 0 = 0, x − x = 0 for a single point x,
+     and 0 / b = 0 for a b that excludes 0. Otherwise an exact zero, such as a component of the normal of an
+     axis-aligned face, would become ±2^-1074 and underflow when it is scaled.
+   - By induction over the evaluation, each per-vertex sum interval [Lo, Hi] contains the exact derivative. These sums
+     add the terms of the formula in piece order.
+   - The same holds for the volume, Σ s_P p_0·(p_1×p_2)/6, and for the alternatives of the contact regions. No new error
+     constant is involved.
+3. *Value and bound.*
+   - The value is m = fl(Lo/2 + Hi/2), and the bound is b = Up(fl(max(Hi − m, m − Lo))).
+   - For d ≥ 0, fl(d) ≥ d − ulp(d)/2. `Up` then adds one spacing of fl(d), which is at least ulp(d)/2. The spacing of
+     fl(d) is smaller than that only when fl(d) is a power of two 2^j and d is just above it. In that case the spacing of
+     2^j upwards equals ulp(d), which is enough. So b ≥ d.
+   - Every z in [Lo, Hi] therefore satisfies |z − m| ≤ max(Hi − m, m − Lo) ≤ b.
+   - For a single point, Lo = Hi, the bound is 0.
+   - A NaN or infinite end gives b = +∞.
+4. *Scaling to the input's units.*
+   - Each term interval is scaled by 2^(2(S_T + e)) into the input's units before it is added to its vertex. The volume
+     is scaled by 2^(3(S + e)) at the end.
+   - A scaling by a power of two is exact unless its result is subnormal or overflows. The code checks exactness by
+     scaling back.
+   - Where it is not exact, the interval's ends are widened by one spacing: ScaleB rounds once, by less than one spacing
+     of its result. An end that overflows to infinity is at least as far out as the exact value.
+   - For the volume's value and bound, the same check applies. If the result is subnormal, each of the two scalings
+     rounds once, by at most 2^-1075, and the bound becomes Up(b · 2^k + 2^-1074).
+   - An infinite bound means that the entry itself is beyond the double range: for the volume from coordinates of about
+     2^341, for the gradient from about 2^512. Then `Compute()` fails with `Error`. Small coordinates fail nothing:
+     subnormal results only make the bound absolute, at about 2^-1074.
+
+**Kinks (contacts of positive area).**
+- V is not differentiable only where faces of different inputs lie in one plane and overlap with positive area.
+- An edge or a vertex on a face, or two edges crossing, change the overlap by o(t). V is differentiable there.
+- At a contact, `Gradient` is the one-sided derivative of the branch that the exact result realizes:
+  - a union merges touching solids, so it gives the overlapping side;
+  - an intersection and a difference separate them, so they give the separated side;
+  - for flush faces (same orientation), the result keeps the face of the first input, by input order. So A ∪ B and B ∪ A
+    give the two different one-sided derivatives.
+- `Contacts` lists each contact region, in a fixed order. For each region it gives the inputs involved, the number of
+  stacked faces, the area, and `Alternatives`.
+- Each alternative is a sparse change to `Gradient`. It belongs to another order of the faces along the plane's normal,
+  and gives another one-sided derivative.
+- For two faces there is exactly one alternative. The realized gradient and the gradient plus the alternative are then
+  the two extremes of the Clarke generalized gradient.
+- `Alternatives` stays empty in two cases: more than 4 stacked faces, or two faces of one input with the same
+  orientation.
+- With a `WindingPredicate`, the predicate is also called with the winding vectors of the other face orders. These are
+  vectors that the classification itself does not produce, so the predicate must be defined for any vector of integers.
+
+The area of the result is not covered:
+- its gradient is not rational;
+- it grows like 1/sin θ at nearly tangential seams;
+- it also has kinks at edge-on-face contacts.
+
+See the research note for details.
+
 ### By-Design Behavior (Not Defects)
 
 - **Open inputs yield open results:** The region where generalized winding number `> 0.5` is generally not closed; boundary edges remain where pieces of the open input survive. Open inputs are refused by default; this applies with `AllowOpenMeshes = true`. Close inputs first (`MeshRobustRepair`, `MeshAlphaWrap`) if a closed solid is required.
@@ -177,7 +350,7 @@ if (!op.Compute())
 For workflows that feed boolean outputs into downstream solid tools, check results in this order:
 
 1. **Validate or repair inputs first:** Run `MeshRobustRepair` (or verify `MeshRobustRepair.NotCleanReason(mesh) == ""`) and keep the default `AllowOpenMeshes = false`, so open inputs fail explicitly (`OpenInput`).
-2. **Check status and rounding:** Require `Status == Success` and `RoundingClean == true` (or set `StrictRounding = true`).
+2. **Check status and rounding:** Require `Status == Success` and `RoundingClean == true` (or set `StrictRounding = true`). `RoundingClean` allows contacts of the exact solid (`Contacts`); `NotCleanReason` reports those as `"self-intersections"` (see the `SafeRounding` bullets above).
 3. **Check `Contacts` and `NonManifoldEdges` before position-welding formats:** Face contacts merge cleanly; edge/vertex contacts carry duplicated vertices. Use `MeshRobustRepair.SeparateTouchingVertices` when strictly manifold welded output is needed.
 4. **Negative-volume components are voids:** An inner cavity shell is oriented inward and has negative signed volume. Sum signed volumes across connected components rather than taking absolute volumes per component.
 5. **Thin slabs are valid pieces of the exact solid:** A thin solid that the rounding repair leaves as it was is kept, down to a few units in the last place of its coordinates. `SafeRounding` removes a closed component that is tiny or thinner than `RoundingMaxDisplacement` only if it was thinner than 4 ulps of its largest coordinate, keeps a defect, or had its volume changed by more than a factor 2 by the repair (`Rounding.RemovedComponents`, listed in `Rounding.RemovedComponentInfos` with volume, thickness and reason). A removal of a solid that did not survive the repair and was at least 256 ulps and 1e-3 of the rounding bound thick (about 1e-8 of the diagonal) sets `Rounding.RemovedResolvable` and `RoundingClean = false` (with `StrictRounding`: `RoundingNotClean`); thinner removals, such as the slivers between copies a few ulps apart or the residues of an earlier rounding in a chain of booleans, are listed and leave the result clean. Thin components holding real volume for their area are kept (`Rounding.ScaleDisparity`, `RoundingClean = false`). Filter thin pieces yourself if they are unwanted (`SolidBooleanPipeline.MinThickness`).
@@ -198,7 +371,7 @@ What it does **not** say:
 
 - **Nothing about the point set.** It looks at the result alone, not at the inputs. It does not say that the result is the union, intersection or difference of the inputs, nor that it lies within the rounding bound of the exact result. A solid that is missing (see the next point), moved, or wrongly selected still gives `""` if what is left is a clean mesh.
 - **A removed component is not reported by it.** `SafeRounding` removes closed components that are tiny or thin and that it could not leave as they were (point 5 above). `NotCleanReason` sees the result alone, so it says `""` for a result that misses such a part. `RoundingClean` does report it: it is false when a removed component was a solid of at least 256 ulps and 1e-8 of the diagonal that the repair could not keep (`Rounding.RemovedResolvable`), and `Rounding.RemovedComponentInfos` lists every removed component (the audit case: a cube of edge 2^-11 next to a box of edge 1024).
-- **Touching solids (edge or vertex contact) report "self-intersections".** The result stores the contact as manifold pairs of vertices that coincide in position (`Contacts`, `NonManifoldEdges`; see above), and the exact search counts those as intersections. A contact is not a defect of the boolean; compare with `Contacts` before you read it as one. Face contacts merge and do not show this.
+- **Touching solids (edge or vertex contact) report "self-intersections".** The result stores the contact as manifold pairs of vertices that coincide in position (`Contacts`, `NonManifoldEdges`; see above), and the exact search counts those as intersections. A contact is not a defect of the boolean; compare with `Contacts` before you read it as one. Face contacts merge and do not show this. `ExactMeshBoolean.RoundingClean` exempts these contacts (see the `SafeRounding` bullets above).
 - **Open inputs:** with `AllowOpenMeshes` the result is not a solid, and "closed" can fail by design.
 
 `NotCleanReason` is a check of the result, not a certificate of the boolean. A test-only checker that recomputes the claim from the inputs exists for the test suite (`tests/geometry3Sharp.Tests/Harness/BooleanCertificate.cs`, [QA 2.4a](../qa/testing-and-invariance.md)); it costs several times the boolean and is not part of the library. Measurements: [BOOLEAN_CERTIFIED_MODE_2026-11.md](../research/BOOLEAN_CERTIFIED_MODE_2026-11.md) sections 4.1-4.4.
@@ -248,7 +421,7 @@ if (pipeline.Compute()) {
 ### Key Options
 
 - **Open tool of a Difference (sheet route, the default):** an open input of a Difference that is not the first and has no entry in `InputRoles` is tried as a sheet first (the [sheet role](#open-cutting-surface-sheet-role)): the first input is cut along it exactly and nothing is repaired. If the sheet role refuses, the run is done again with the inputs as solids, so `InputRepair` decides as before; with `Refuse` the status is `OpenInput` and `Error` ends with the sheet's refusal. Details: [the route and its report](#the-route-of-an-open-input-reportroute).
-- **`InputRepair`:** Default `Refuse` fails with `OpenInput` if an input fails `ExactMeshBoolean.IsWindingClosed` and is not used as a sheet. Opt-in `AutoRepair` repairs small holes on a copy (use only for solids, not open cutting sheets); `AutoRepairThenRobust` adds `MeshRobustRepair` as fallback (`Report.RepairedInputs`).
+- **`InputRepair`:** Default `Refuse` fails with `OpenInput` if an input fails `ExactMeshBoolean.IsWindingClosed` and is not used as a sheet. Opt-in `AutoRepair` repairs small holes on a copy (use only for solids, not open cutting sheets); `AutoRepairThenRobust` adds `MeshRobustRepair` as fallback (`Report.RepairedInputs`). A `MeshAutoRepair` copy that self-intersects where the input as given does not (its fill crosses the input, eg the fill of an open sheet's rim) is refused with `OpenInput`, also with `AutoRepairThenRobust` (no fallback to `MeshRobustRepair`); an input that self-intersects as given is used as before.
 - **The volume the rounding moved (`Report.RoundingVolumeBefore`, `RoundingVolumeAfter`):** the signed volume of the boolean's result before and after its rounding repair (`MeshRoundingRepair.VolumeBefore`, `VolumeAfter`, also on `ExactMeshBoolean.Rounding`). Equal when the repair changed nothing; both 0 when no rounding repair ran. The repair bounds the distance the surface moves, not the volume: on a thin solid the difference can be of the order of 1 % while the run is a clean success, see [ROUNDING_THIN_VOLUME_2026-11.md](../research/ROUNDING_THIN_VOLUME_2026-11.md). Compare the difference with the volume that matters to you (the result's, or the thin part's).
 - **Reduction targets:** Set one of `TargetTriangleCount`, `TargetFraction`, `MinEdgeLength`, or `MaxQuadricError`. `Report.StopReason` and `StopDetail` explain why reduction stopped if the target was not reached.
 - **Contact-line pairing (`PairContacts` / `PairContactsMode`):** Touching solids limit reduction along contact lines. Opt-in `PairContacts = true` (`PairContactsMode.On`) collapses twin edges along contact lines together (`Reducer.PairCoincidentVertices`) while preserving all guards (`Report.PairedCollapses`; cannot combine with `MaxDeviationTwoSided`). `PairContactsMode.Auto` retries with pairing only when the first pass leaves contacts and is not clean (`Report.PairPassRan`, `PairPassKept`).
@@ -264,7 +437,7 @@ if (pipeline.Compute()) {
 | `Grid` | By default: the sheet role refused an open tool it had routed itself with `RimInsideWorkpiece`, or a run ended with `RoundingNotClean` (the failure is in `Reason`); with `AutomaticSteps = Grid` also a sheet stated in `InputRoles` that refused. | The inputs are snapped to the cell in `Grid` and the run is done again; see [the Grid step](#the-grid-step-automaticsteps). |
 | `Fallback` | The sheet role refused (`SheetReason`, the boolean's text in `Reason`), eg `RimInsideWorkpiece`, `NotSurface`, `OrientationInconsistent`, `SidesInconsistent`, `UncutComponents`, `FloatingComponent`, or `WorkpieceNotClosed` for an open first input. | The run is done again with the inputs as solids, as without the route. |
 | `InputRepair` | An open input was closed on a copy (`InputRepair` is `AutoRepair` or `AutoRepairThenRobust`). | The repair method and the triangle counts, as in `Report.RepairedInputs`. |
-| `Refused` | An open input is left: `InputRepair` is `Refuse`, or no allowed repair closed it. | No result, status `OpenInput`. |
+| `Refused` | An open input is left: `InputRepair` is `Refuse`, or no allowed repair closed it, or `MeshAutoRepair` closed it into a self-intersecting copy (the input as given has none). | No result, status `OpenInput`. |
 
 - **Stated roles are used as stated.** An entry in `InputRoles` (`Solid` or `Sheet`) switches the route off for that input: `Solid` gives the behaviour without the route (refused or repaired as an open input), `Sheet` gives the sheet role with its own refusal (`BooleanFailed`, `SheetReason`) and no fallback.
 - **Several open tools** are all tried as sheets; one refusal sends the run to the fallback for all of them.

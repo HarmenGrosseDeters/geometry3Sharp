@@ -139,6 +139,10 @@ def main(argv=None):
     ap.add_argument("--enforce", action="store_true", help="fail on a hit without the label (also GATE_ENFORCE=1)")
     ap.add_argument("--file-count", type=int, help="number of changed files of the PR (a count at the API limit counts as a hit)")
     args = ap.parse_args(argv)
+    # (the summary can hold U+FFFD for a control character of a file name: a Windows console or pipe with a legacy code page must not fail on it)
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     enforce = args.enforce or os.environ.get("GATE_ENFORCE") == "1"
     with open(args.gates, encoding="utf-8") as f:
         gates = parse_gates(f.read())

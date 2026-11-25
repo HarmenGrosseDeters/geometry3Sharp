@@ -104,6 +104,12 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
+- **Tiny `gParallel` loops starve on a busy thread pool (#1502, issue).** The slow-tests diagnosis ([note](../research/SLOW_TESTS_2026-11.md),
+  merged #1503) found loops whose work is smaller than the cost of the hand-off to the pool; a loop below a size threshold should run
+  serially. Benchmark first (an upper bound before any change); `MeshRobustRepair` with `SerialOnThisThread` also stays slow.
+- **`narrow_tests.py` duration lookup misses theory rows (#1517, issue).** The estimated saving of a narrowed filter is too
+  optimistic; the lookup of durations has to include the theory rows.
+
 - **.NET 11 (owner 2026-11-12: released, migrate later, not scheduled).** Today the library targets net10.0 (LTS) plus
   netstandard2.0, and the tests target net10.0 plus net48. .NET 11 is a standard-term release. Proposed scope when it is
   scheduled: build and test on the .NET 11 SDK in CI (a test matrix leg); add a net11.0 library target only if it brings

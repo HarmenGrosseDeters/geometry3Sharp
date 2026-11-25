@@ -201,6 +201,21 @@ namespace g3
         /// <summary> the final stage of RuleLocksFollow ran (the passes and the search left a defect) </summary>
         internal bool FollowStageRan;
         /// <summary>
+        /// in the final stage of RuleLocksFollow only: a contraction that keeps the counts (no more degenerate triangles, no more
+        /// intersecting pairs than before, and no fewer) is accepted as well. Some slivers can be removed only by two contractions,
+        /// of which the first changes no count (#1489: a valence-3 vertex inside a needle that blocks, by the link condition, the
+        /// contraction of its neighbour into the target vertex; alone, each is refused as "no gain"). Termination: a contraction removes
+        /// a vertex and an edit that is not a contraction improves the counts, so (defects, vertices) falls lexicographically with every
+        /// edit and the stage ends. Every other rule of the edit (drift bound, no triangle turned over, no new degenerate triangle or
+        /// intersection, locks, link condition) is unchanged. Where the stage does not run, the result is bit for bit the same.
+        /// Differs from the plateau variant of SNAP_ROUNDING_3D.md section 10 (no-go, owner 2026-11-15): contractions, not random position
+        /// steps; no rollback, since a neutral contraction is kept and never leaves the mesh worse by the counts; deterministic
+        /// </summary>
+        internal bool AcceptNeutralContractionsInStage = false;
+        /// <summary> the contractions of the stage that were accepted only because they keep the counts (AcceptNeutralContractionsInStage) </summary>
+        internal int NeutralContractions;
+        bool lastAcceptWasNeutral;
+        /// <summary>
         /// in that stage, the contractions that moved a lock of RuleLockedEdges to a kept vertex off its edge (the contracted edge is not
         /// one of the set: the chain of parts now passes through that vertex), by whether the kept vertex is fixed (a target vertex);
         /// counted per contraction (an edge rerouted twice counts twice)
@@ -241,6 +256,13 @@ namespace g3
         /// position search count like the edits of the passes
         /// </summary>
         public int MaxEvaluationsPerDefect = 50;
+        /// <summary>
+        /// the final stage of RuleLocksFollow only: the evaluations per defect that the whole run may use once the stage starts, if larger than
+        /// MaxEvaluationsPerDefect (the limit is then 10000 plus this value per initial defect; 0: no change). The position search of the stage
+        /// proposes 26 x 8 moves per corner, which used up the limit on clusters of 23 slivers (#1489). Raised when the stage starts, so a run
+        /// that does not reach the stage, or whose limit is reached before it, is as before; only a result that is not clean without the stage can differ
+        /// </summary>
+        internal int StageMaxEvaluationsPerDefect = 0;
         /// <summary>
         /// effort budget for hopeless inputs: no edit is evaluated once the exact triangle pair tests of the evaluations
         /// exceed it, grown with the initial defects by up to PairTestsMaxGrowth times (PairTestsDefectScale) (the last evaluation may pass it by its own tests; 0 stops once one pair test was made; see
@@ -778,6 +800,8 @@ namespace g3
             befores = null;
             LockedContractions = RuleLockedContractions = 0;
             FollowStageRan = followRuleLocks = false;
+            NeutralContractions = 0;
+            lastAcceptWasNeutral = false;
             RuleLocksReroutedThroughFixed = RuleLocksReroutedThroughOther = 0;
             PositionSearchMoves = 0;
             JointMoves = 0;
@@ -813,7 +837,7 @@ namespace g3
             EvaluationLimitReached = false;
             StoppedByPairTests = false;
             pairBudget = MaxPairTests;      // (until the defects are counted; also where Apply returns before)
-            evaluations = pairTests = 0;
+            evaluations = pairTests = maxEvaluations = 0;      // (maxEvaluations too: an early return below leaves no limit of an earlier Apply, #1489)
             if (SharedPositionsTouch == false)
                 atPosition = null;
             // the exact vertices: read once and cleared, also where this Apply returns early (the promise holds for the
@@ -892,6 +916,7 @@ namespace g3
                 InitialFalseContacts = false_contacts().Count;
             // (the contacts the rounding made are defects of their own: they count into the budget)
             maxEvaluations = 10000 + (long)MaxEvaluationsPerDefect * (pairs.Count + bad.Count + InitialFalseContacts);
+            long initialDefects = pairs.Count + bad.Count + InitialFalseContacts;
             pairBudget = pair_budget(MaxPairTests, PairTestsDefectScale, PairTestsMaxGrowth, pairs.Count + bad.Count + InitialFalseContacts);
             // (#1216) the closed components that may be removed as tiny or thin, measured before the first edit; only where an
             // edit can follow (a defect, or coarse coordinates: remove_contact_vertices)
@@ -929,6 +954,8 @@ namespace g3
             // result that is clean without it is the same as without it)
             if (RuleLocksFollow && RuleLockedEdges != null && MaxPasses > 0 && (bad.Count > 0 || pairs.Count > 0) && stopped == false) {
                 FollowStageRan = followRuleLocks = true;
+                if (StageMaxEvaluationsPerDefect > MaxEvaluationsPerDefect)
+                    maxEvaluations = 10000 + (long)StageMaxEvaluationsPerDefect * initialDefects;
                 repair_passes(ref pairs, ref bad);
                 for (int round = 0; round < MaxSearchRounds && (bad.Count > 0 || pairs.Count > 0) && stopped == false && position_search(bad, pairs) > 0; ++round) {
                     bad = degenerate_triangles();
@@ -1448,7 +1475,7 @@ namespace g3
             // and counted afterwards, so the threads share no counter)
             var found = new List<Index2i>[tris.Length];
             bool[] skippedAt = skip ? new bool[tris.Length] : null;
-            gParallel.ForRange(tris.Length, (k) => {
+            gParallel.ForRangeSmall(tris.Length, (k) => {
                 int ta = tris[k];
                 // (an exact triangle's pairs with the others are found from those)
                 if (skip && exact_triangle(ta)) {
@@ -1505,7 +1532,7 @@ namespace g3
             changedTris.Sort();
             int[] tris = treeTids.ToArray();
             var found = new List<Index2i>[changedTris.Count];
-            gParallel.ForRange(changedTris.Count, (k) => {
+            gParallel.ForRangeSmall(changedTris.Count, (k) => {
                 int ta = changedTris[k];
                 Index3i ia = Mesh.GetTriangle(ta);
                 Triangle3d A = triangle(ia);
@@ -1739,6 +1766,8 @@ namespace g3
             double bound = removed.Count > 0 ? maxLength_of(Mesh.GetTriangle(removed[0]).a) : double.NaN;
             if (within_bound(proposed_drift(step), bound) == false)
                 return false;
+            // (read by try_collapse after an accept only: every path that returns true below sets it or has just cleared it, the Script one included)
+            lastAcceptWasNeutral = false;
             if (Script != null)
                 return true;
             // (for tests: a proposal within the bound that arrives after the limit; none with the stop)
@@ -1832,7 +1861,10 @@ namespace g3
             cacheRemoved.Clear(); cacheRemoved.AddRange(removed);
             movedV = saveV; movedPos = savePos; movedV2 = saveV2; movedPos2 = savePos2;
             // (with as many degenerate triangles as before, it must remove an intersection)
-            if (newB == oldB && oldI == 0 && removesContact == false)
+            // (the final stage: a contraction that keeps the counts, AcceptNeutralContractionsInStage; the checks above and below already
+            // reject every edit with more degenerate triangles or more intersections than before)
+            bool neutral = AcceptNeutralContractionsInStage && followRuleLocks && vanishing >= 0;
+            if (newB == oldB && oldI == 0 && removesContact == false && neutral == false)
                 return false;
             for (int i = 0; i < added.Count; ++i) {
                 if (degen[i])
@@ -1854,7 +1886,9 @@ namespace g3
                         if (++newI > oldI) return false;
             }
             // (an edit that removes a contact may keep the counts)
-            return newI + newB < oldI + oldB || (removesContact && newI + newB <= oldI + oldB);
+            bool better = newI + newB < oldI + oldB;
+            lastAcceptWasNeutral = better == false && neutral && removesContact == false && newI + newB <= oldI + oldB;
+            return better || ((removesContact || neutral) && newI + newB <= oldI + oldB);
         }
 
         // the edits of Script (for tests), then the check of every bound in check mode
@@ -2255,6 +2289,8 @@ namespace g3
             touched.Add(b);
             commit_drift();
             Collapses++;
+            if (lastAcceptWasNeutral)
+                NeutralContractions++;
             return true;
         }
 
