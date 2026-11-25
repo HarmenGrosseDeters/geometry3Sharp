@@ -136,6 +136,69 @@ namespace g3
             return side != 0;
         }
 
+        /// <summary>
+        /// A triangle A projected along the dominant axis of its floating-point normal, with what Orient2d computes for
+        /// its edges kept, to cull the candidates of a self-intersection check that share no vertex with A: Separates(C)
+        /// is true if all three projected corners of C lie strictly outside one edge line of A, where the filter stage
+        /// of Orient2d proves the signs. A linear projection that separates two triangles separates them in 3D. It adds
+        /// no error bound: for an edge (e0, e1) and a corner c, ExactPredicates.Orient2dFilter gets the same doubles
+        /// Orient2d(e0, e1, c) computes (e1 - e0 kept from Of, c - e0 per call; the projection only drops a coordinate),
+        /// so a sign it returns is the sign of Orient2d. O is Orient2d of A's projected corners, exact; for O = 0 (A
+        /// degenerate in the projection, eg a degenerate A) nothing is culled. Everything Separates does not prove is left
+        /// to BeyondShared and the exact test (docs/research/TRI_TRI_CANDIDATE_PAIRS_2026-11.md, candidate (a)).
+        /// </summary>
+        internal struct ProjectedEdges
+        {
+            internal int Axis, O;
+            internal Vector2d P0, P1, P2;
+            internal double U0x, U0y, U1x, U1y, U2x, U2y;
+
+            [MethodImpl(JitHints.Optimize)]
+            internal static ProjectedEdges Of(ref Triangle3d A)
+            {
+                var e = new ProjectedEdges();
+                e.Axis = dominant_axis((A.V1 - A.V0).Cross(A.V2 - A.V0));
+                e.P0 = drop(A.V0, e.Axis); e.P1 = drop(A.V1, e.Axis); e.P2 = drop(A.V2, e.Axis);
+                e.O = ExactPredicates.Orient2d(e.P0, e.P1, e.P2);
+                e.U0x = e.P1.x - e.P0.x; e.U0y = e.P1.y - e.P0.y;
+                e.U1x = e.P2.x - e.P1.x; e.U1y = e.P2.y - e.P1.y;
+                e.U2x = e.P0.x - e.P2.x; e.U2y = e.P0.y - e.P2.y;
+                return e;
+            }
+
+            /// <summary> C is proven to lie strictly outside one edge line of A in the projection (then A and C are disjoint) </summary>
+            [MethodImpl(JitHints.Optimize)]
+            internal bool Separates(ref Triangle3d C)
+            {
+                if (O == 0)
+                    return false;
+                Vector2d c0 = drop(C.V0, Axis), c1 = drop(C.V1, Axis), c2 = drop(C.V2, Axis);
+                return outside(0, c0, c1, c2) || outside(1, c0, c1, c2) || outside(2, c0, c1, c2);
+            }
+
+            /// <summary>
+            /// the filter stage of Orient2d(e0, e1, c) for edge k (P0-P1, P1-P2, P2-P0) and the projected point c: its
+            /// sign where the filter proves it, else 0
+            /// </summary>
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal int EdgeSign(int k, Vector2d c)
+            {
+                return k == 0 ? ExactPredicates.Orient2dFilter(U0x, U0y, c.x - P0.x, c.y - P0.y)
+                    : k == 1 ? ExactPredicates.Orient2dFilter(U1x, U1y, c.x - P1.x, c.y - P1.y)
+                    : ExactPredicates.Orient2dFilter(U2x, U2y, c.x - P2.x, c.y - P2.y);
+            }
+
+            /// <summary> the projection of p along Axis (the coordinates of EdgeSign) </summary>
+            internal Vector2d Project(Vector3d p) => drop(p, Axis);
+
+            // the three corners proven strictly outside edge k (on the side away from A)
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            bool outside(int k, Vector2d c0, Vector2d c1, Vector2d c2)
+            {
+                return EdgeSign(k, c0) * O < 0 && EdgeSign(k, c1) * O < 0 && EdgeSign(k, c2) * O < 0;
+            }
+        }
+
         // vertex ids of two triangles without shared vertices: BeyondShared is then the closed intersection test
         static readonly Index3i SeparateA = new Index3i(0, 1, 2), SeparateB = new Index3i(3, 4, 5);
 
