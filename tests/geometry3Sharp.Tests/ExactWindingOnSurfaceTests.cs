@@ -13,7 +13,7 @@ namespace geometry3Sharp.Tests
     /// The exact winding number at a point that lies exactly on a triangle of the mesh is the principal value: the mean of the
     /// two sides on a flat face (n + 1/2 on a closed mesh, bit for bit, also on the inner edges and vertices of a flat face),
     /// the solid-angle fraction on a crease or a corner (0.25 on a cube edge, 0.125 at its corner), independent of the
-    /// triangle order and of the vertex order in the triangles (bit for bit on flat faces; on creases and corners within the rounding of the sum) and of the directions of the coordinate axes (design note
+    /// triangle order and of the vertex order in the triangles (bit for bit everywhere on the surface: the triangles through the point are summed in a canonical order, also on creases and corners) and of the directions of the coordinate axes (within the rounding; design note
     /// EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md, "A point exactly on a triangle"). Fixtures are procedural with dyadic
     /// coordinates (every frame below is exact in floating point), so a point is exactly on a triangle by construction.
     /// </summary>
@@ -521,6 +521,36 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Fact]
+        public void Soup_ClosedTetrahedronAmongLooseTriangles_VerticesEdgesAndFacesArethePrincipalValue()
+        {
+            // 71 loose triangles (their edges are boundary edges, so the direct sum is used) and a closed tetrahedron: p at a vertex, on
+            // an edge (the midpoint) and inside a face of it, where two or three of its triangles have p on their edge or corner. The
+            // triangles whose plane contains p count 0 (decided by the exact predicate); the rounded formula is at its branch cut there
+            Vector3d a, b, c;
+            DMesh3 tet = Tetra(out a, out b, out c);
+            var verts = new List<Vector3d>();
+            Vector3d u = Vector3d.Zero, v = Vector3d.Zero, w = Vector3d.Zero;
+            foreach (int t in tet.TriangleIndices()) { tet.GetTriVertices(t, ref u, ref v, ref w); verts.Add(u); verts.Add(v); verts.Add(w); }
+            for (int i = 0; i < 71; ++i) {
+                double ox = 10 + 2 * i;
+                verts.Add(new Vector3d(ox, 0, 0)); verts.Add(new Vector3d(ox + 1, 0, 0.5)); verts.Add(new Vector3d(ox, 1, 0.25));
+            }
+            DMesh3 soup = Soup(verts.ToArray());
+            Assert.True(new DMeshAABBTree3(soup, true).GetExactWindingCache().UseDirectSum);
+            Vector3d apex = tet.GetVertex(3);
+            var points = new List<Vector3d> { a, b, c, apex, 0.5 * (a + b), 0.5 * (b + apex), 0.5 * (a + apex), 0.5 * (a + c), 0.25 * (2 * a + b + c), 0.25 * (a + 2 * b + apex), 0.25 * (a + 2 * apex + c) };
+            foreach (var (name, f) in Frames()) {
+                DMesh3 m = Map(soup, f);
+                var tree = new DMeshAABBTree3(m, true);
+                foreach (Vector3d p0 in points) {
+                    Vector3d p = f(p0);
+                    double r = Principal(m, p), val = tree.WindingNumber(p);
+                    Assert.True(Math.Abs(val - r) <= 1e-12, $"{name}, {p0}: {val:R} vs {r:R}");
+                }
+            }
+        }
+
         // ---- all query paths agree ----
 
         [Fact]
@@ -590,40 +620,105 @@ namespace geometry3Sharp.Tests
 
         // ---- independence: order, corners, frames, determinism, reuse ----
 
-        [Fact]
-        public void IndependentOfTriangleOrderVertexOrderAndOfTheDirectionsOfTheAxes()
+        // a closed cone: the apex (0, 0, 1) of valence `rim`, the base fan centre (0, 0, 0), the rim on the unit circle (any doubles: the
+        // mesh is what it is)
+        static DMesh3 Cone(int rim)
         {
-            DMesh3 box = GridBox(new Vector3d(-3, -3, -3), 2, 3);
-            DMesh3 l = LPrism();
-            foreach (DMesh3 baseMesh in new[] { box, l }) {
-                var pts = new List<Vector3d>();
-                foreach (int v in baseMesh.VertexIndices()) pts.Add(baseMesh.GetVertex(v));
-                foreach (int e in baseMesh.EdgeIndices()) { Index2i ev = baseMesh.GetEdgeV(e); pts.Add(0.5 * (baseMesh.GetVertex(ev.a) + baseMesh.GetVertex(ev.b))); }
+            var m = new DMesh3();
+            int apex = m.AppendVertex(new Vector3d(0, 0, 1)), centre = m.AppendVertex(new Vector3d(0, 0, 0));
+            var r = new int[rim];
+            for (int k = 0; k < rim; ++k) r[k] = m.AppendVertex(new Vector3d(Math.Cos(2 * Math.PI * k / rim), Math.Sin(2 * Math.PI * k / rim), 0));
+            for (int k = 0; k < rim; ++k) {
+                m.AppendTriangle(apex, r[k], r[(k + 1) % rim]);
+                m.AppendTriangle(centre, r[(k + 1) % rim], r[k]);
+            }
+            return m;
+        }
+
+        // the vertices and the edge midpoints of a mesh
+        static List<Vector3d> VertexAndEdgePoints(DMesh3 mesh)
+        {
+            var pts = new List<Vector3d>();
+            foreach (int v in mesh.VertexIndices()) pts.Add(mesh.GetVertex(v));
+            foreach (int e in mesh.EdgeIndices()) { Index2i ev = mesh.GetEdgeV(e); pts.Add(0.5 * (mesh.GetVertex(ev.a) + mesh.GetVertex(ev.b))); }
+            return pts;
+        }
+
+        [Fact]
+        public void IndependentOfTriangleOrderAndCornerOrder_BitForBit_AlsoOnCreasesCornersAndConeApexes()
+        {
+            // the triangles through the point are rotated to start at their smallest corner and summed in the order of those corners,
+            // grouped by the exact direction of their normal: a crease, a corner, a cone apex and a sheared box corner give the same
+            // bits for every order of the triangles and every rotation of their corners (before: 3 or 4 bit patterns over 8 orders on
+            // a sheared box corner)
+            var meshes = new List<(string, DMesh3)> {
+                ("box", GridBox(new Vector3d(-3, -3, -3), 2, 3)), ("sheared box", Map(GridBox(new Vector3d(-2, -2, -2), 2, 2), Shear)),
+                ("L prism", LPrism()), ("cone 12", Cone(12)), ("cone 5", Cone(5)),
+            };
+            foreach (var (name, baseMesh) in meshes) {
+                List<Vector3d> pts = VertexAndEdgePoints(baseMesh);
                 var reference = new double[pts.Count];
                 var t0 = new DMeshAABBTree3(baseMesh, true);
                 for (int i = 0; i < pts.Count; ++i) reference[i] = t0.WindingNumber(pts[i]);
-                for (int seed = 1; seed <= 6; ++seed) {
-                    DMesh3 m = Reorder(baseMesh, seed, seed % 2 == 0);
+                for (int seed = 1; seed <= 24; ++seed) {
+                    DMesh3 m = Reorder(baseMesh, seed, seed % 3 != 0);
                     var t = new DMeshAABBTree3(m, true);
                     for (int i = 0; i < pts.Count; ++i) {
                         double w = t.WindingNumber(pts[i]);
-                        // a flat point (0.5 or the cap/wall values with a half) is bit for bit the same, a crease within the rounding of the sum
-                        if (reference[i] == 0.5) Assert.True(w == 0.5, $"order {seed}, {pts[i]}: {w:R}");
-                        else Assert.True(Math.Abs(w - reference[i]) <= 1e-13, $"order {seed}, {pts[i]}: {w:R} vs {reference[i]:R}");
+                        Assert.True(Bits(w) == Bits(reference[i]), $"{name}, order {seed}, {pts[i]}: {w:R} vs {reference[i]:R}");
                     }
                 }
-                // the 24 rotations by coordinate permutations and sign changes: the value on the surface is the same (it does not
-                // depend on the axes; the perturbed point would pick another side on a face)
+                // the 24 rotations by coordinate permutations and sign changes: the value on the surface is the same within the rounding
+                // (the canonical order follows the coordinates, which the rotation permutes; a flat point is exactly 0.5)
                 foreach (var rot in AxisRotations()) {
-                    DMesh3 m = Map(baseMesh, rot);
-                    var t = new DMeshAABBTree3(m, true);
+                    var t = new DMeshAABBTree3(Map(baseMesh, rot), true);
                     for (int i = 0; i < pts.Count; ++i) {
                         double w = t.WindingNumber(rot(pts[i]));
-                        if (reference[i] == 0.5) Assert.True(w == 0.5, $"rotation, {pts[i]}: {w:R}");
-                        else Assert.True(Math.Abs(w - reference[i]) <= 1e-13, $"rotation, {pts[i]}: {w:R} vs {reference[i]:R}");
+                        if (reference[i] == 0.5) Assert.True(w == 0.5, $"{name}, rotation, {pts[i]}: {w:R}");
+                        else Assert.True(Math.Abs(w - reference[i]) <= 1e-13, $"{name}, rotation, {pts[i]}: {w:R} vs {reference[i]:R}");
                     }
                 }
             }
+        }
+
+        [Fact]
+        public void CreasesAndCorners_ExtremeScales_BitEqualToScaleOne()
+        {
+            // the corner (2, -2, 2) of the box gave 0.125 at scale 1 and 0.12499999999999999 at 2^-1040 (the tree is built differently
+            // at a subnormal scale and the sum followed it); the value is the same bit for bit now, at every scale
+            DMesh3 box = GridBox(new Vector3d(-2, -2, -2), 2, 2);
+            var points = BoxPoints(box, -2, 4).Where(q => q.Item2 >= 2).Select(q => q.Item1).ToList();
+            Assert.Contains(points, q => q.x == 2 && q.y == -2 && q.z == 2);
+            var t0 = new DMeshAABBTree3(box, true);
+            var reference = points.Select(q => t0.WindingNumber(q)).ToArray();
+            Assert.Equal(0.125, reference[points.FindIndex(q => q.x == 2 && q.y == -2 && q.z == 2)]);
+            foreach (int e in new[] { -1040, -1000, -30, 300 }) {
+                double s = PowerOfTwo(e);
+                var t = new DMeshAABBTree3(Map(box, q => q * s), true);
+                for (int i = 0; i < points.Count; ++i) {
+                    double w = t.WindingNumber(points[i] * s);
+                    Assert.True(Bits(w) == Bits(reference[i]), $"2^{e}, {points[i]}: {w:R} vs {reference[i]:R}");
+                }
+            }
+            // and a sheared box, which has no symmetric corner values to hide behind
+            DMesh3 sheared = Map(box, Shear);
+            var ts = new DMeshAABBTree3(sheared, true);
+            var refS = points.Select(q => ts.WindingNumber(Shear(q))).ToArray();
+            foreach (int e in new[] { -1040, 300 }) {
+                double s = PowerOfTwo(e);
+                var t = new DMeshAABBTree3(Map(sheared, q => q * s), true);
+                for (int i = 0; i < points.Count; ++i) {
+                    double w = t.WindingNumber(Shear(points[i]) * s);
+                    Assert.True(Bits(w) == Bits(refS[i]), $"sheared 2^{e}, {points[i]}: {w:R} vs {refS[i]:R}");
+                }
+            }
+        }
+
+        // 2^e exactly, also below the normal range (no libm)
+        static double PowerOfTwo(int e)
+        {
+            if (e >= -1022) return BitConverter.Int64BitsToDouble((long)(e + 1023) << 52);
+            return BitConverter.Int64BitsToDouble(1L << (e + 1074));
         }
 
         [Fact]
@@ -700,19 +795,14 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
-        [Fact]
-        public void DrumWithAVertexOfValence20000_AtTheApexAndTheFanCentre_IsFast()
+        // A flat fan around (0, 0, 1) on top, a cone with the apex (0, 0, -1) below (one plane per triangle at the apex), the rim in the
+        // plane z = 1 on a rational parametrisation of the circle (no libm): 2 * half triangles on each side.
+        // (the apex and the fan centre are a copy of the vertex per triangle: DMesh3 finds the edge of a new triangle by a linear
+        // search at its vertices, so a welded vertex of valence 20000 costs 7 s to build; the cache keys the boundary edges by
+        // their coordinates, so the unwelded drum is closed for it, as an unwelded closed STL soup is, and every triangle still has
+        // p on its vertex)
+        static DMesh3 Drum(int half)
         {
-            // A flat fan of k triangles around (0, 0, 1) on top, a cone with the apex (0, 0, -1) below (one plane per triangle at
-            // the apex), the rim in the plane z = 1 on a rational parametrisation of the circle (no libm). The resolution of the
-            // triangles through the query point was quadratic in k (apex: 3.4 s for k = 20000, fan centre 158 ms); it is linear now
-            // (7 and 13 ms). The limit of 2 s for both queries protects against the quadratic code, which needs more than that
-            // for the apex alone on a fast machine.
-            // (the apex and the fan centre are a copy of the vertex per triangle: DMesh3 finds the edge of a new triangle by a linear
-            // search at its vertices, so a welded vertex of valence 20000 costs 7 s to build; the cache keys the boundary edges by
-            // their coordinates, so the unwelded drum is closed for it, as an unwelded closed STL soup is, and every triangle still has
-            // p on its vertex)
-            const int half = 10000;
             var m = new DMesh3();
             var rim = new List<int>();
             for (int j = 0; j < half; ++j) {          // the right half circle from (0, -1) up to (0, 1), the point (0, 1) excluded
@@ -728,24 +818,47 @@ namespace geometry3Sharp.Tests
                 m.AppendTriangle(m.AppendVertex(new Vector3d(0, 0, 1)), rim[i], rim[(i + 1) % k]);
                 m.AppendTriangle(m.AppendVertex(new Vector3d(0, 0, -1)), rim[(i + 1) % k], rim[i]);
             }
-            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
-            foreach (int t in m.TriangleIndices()) {         // the fan is flat: every corner of a top triangle is in the plane z = 1
-                m.GetTriVertices(t, ref a, ref b, ref c);
-                if (a.z != 1 || b.z != 1) continue;     // (a bottom triangle has the apex at z = -1)
-                Assert.True(ExactPredicates.Orient3d(new Vector3d(0, 0, 1), new Vector3d(1, 0, 1), new Vector3d(0, 1, 1), b) == 0 && b.z == 1 && c.z == 1);
+            return m;
+        }
+
+        // the best of three of the two queries (the fan centre and the apex) on a tree whose cache is built
+        static double BestSeconds(DMeshAABBTree3 tree, out double wCentre, out double wApex)
+        {
+            double best = double.MaxValue;
+            wCentre = wApex = 0;
+            for (int rep = 0; rep < 3; ++rep) {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                wCentre = tree.WindingNumber(new Vector3d(0, 0, 1));
+                wApex = tree.WindingNumber(new Vector3d(0, 0, -1));
+                sw.Stop();
+                best = Math.Min(best, sw.Elapsed.TotalSeconds);
             }
-            var tree = new DMeshAABBTree3(m, true);
-            Assert.True(tree.WindingNumber(new Vector3d(5, 5, 5)) == 0.0);       // (builds the cache)
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            double wCentre = tree.WindingNumber(new Vector3d(0, 0, 1));
-            double wApex = tree.WindingNumber(new Vector3d(0, 0, -1));
-            sw.Stop();
-            Assert.True(sw.Elapsed.TotalSeconds < 2.0, $"two queries took {sw.Elapsed.TotalSeconds:F2} s");
-            Assert.True(wCentre == 0.5, $"fan centre: {wCentre:R}");
-            double reference = Principal(m, new Vector3d(0, 0, -1));
-            // (the bound: 3 edge angles of 2e-13 / 2 pi for each of the 20000 triangles through the apex, 2e-9; the rounded sum is far closer)
-            Assert.True(Math.Abs(wApex - reference) <= 2e-9, $"apex: {wApex:R} vs {reference:R}");
-            Assert.True(wApex > 0.0 && wApex < 0.25);
+            return best;
+        }
+
+        [Fact]
+        public void DrumWithAVertexOfValence20000_AtTheApexAndTheFanCentre_GrowsLinearly()
+        {
+            // The resolution of the triangles through the query point was quadratic in k (apex: 3.4 s for k = 20000, fan centre
+            // 158 ms); it is O(k log k) now (67 ms for both queries at k = 20000). No work counter exists in the cache, so the test
+            // asserts the growth, not a time: the best of three of the two queries at k = 20,000 against k = 5,000. A linear or
+            // k log k code gives a ratio of 4 to 5, the quadratic one 16; the limit is 10 (the 5,000 time is taken as at least 1 ms
+            // against timer noise). Both values are checked as well.
+            double[] seconds = new double[2];
+            int idx = 0;
+            foreach (int half in new[] { 2500, 10000 }) {
+                DMesh3 m = Drum(half);
+                var tree = new DMeshAABBTree3(m, true);
+                Assert.True(tree.WindingNumber(new Vector3d(5, 5, 5)) == 0.0);       // (builds the cache)
+                seconds[idx++] = BestSeconds(tree, out double wCentre, out double wApex);
+                Assert.True(wCentre == 0.5, $"fan centre: {wCentre:R}");
+                double reference = Principal(m, new Vector3d(0, 0, -1));
+                // (the bound: 3 edge angles of 2e-13 / 2 pi for each of the 20000 triangles through the apex, 2e-9; the rounded sum is far closer)
+                Assert.True(Math.Abs(wApex - reference) <= 2e-9, $"apex: {wApex:R} vs {reference:R}");
+                Assert.True(wApex > 0.0 && wApex < 0.25);
+            }
+            Output.WriteLine($"k = 5,000: {seconds[0] * 1000:F1} ms, k = 20,000: {seconds[1] * 1000:F1} ms");
+            Assert.True(seconds[1] < 10.0 * Math.Max(seconds[0], 0.001), $"k = 5,000: {seconds[0] * 1000:F1} ms, k = 20,000: {seconds[1] * 1000:F1} ms");
         }
 
         // the box [-3, 3]^3 (3 x 3 quads per face) with count doubled or single flat fans through (1, 1, 3), each in another plane
@@ -758,31 +871,98 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
+        static bool SamePoint(Vector3d a, Vector3d b) => a.x == b.x && a.y == b.y && a.z == b.z;
+
+        // the number of planes through p of the triangles that have p as a corner (coplanarity by the exact predicate)
+        static int PlanesThrough(DMesh3 mesh, Vector3d p)
+        {
+            var reps = new List<Vector3d[]>();
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            foreach (int tid in mesh.TriangleIndices()) {
+                mesh.GetTriVertices(tid, ref a, ref b, ref c);
+                if (!SamePoint(a, p) && !SamePoint(b, p) && !SamePoint(c, p)) continue;
+                Vector3d ra = a, rb = b, rc = c;
+                if (reps.Any(r => ExactPredicates.Orient3d(r[0], r[1], r[2], ra) == 0 && ExactPredicates.Orient3d(r[0], r[1], r[2], rb) == 0
+                                  && ExactPredicates.Orient3d(r[0], r[1], r[2], rc) == 0))
+                    continue;
+                reps.Add(new[] { a, b, c });
+            }
+            return reps.Count;
+        }
+
+        // the value and the threshold query of the value 0.5 on a mesh in several triangle orders (the first one as given, the others
+        // shuffled, with rotated corners in every other one): the value is exactly 0.5 and EvaluateAbove(p, 0.5) is false in every one
+        static void AssertFlatFaceValueInEveryOrder(string name, DMesh3 mesh, Vector3d p, int orders)
+        {
+            for (int seed = 0; seed < orders; ++seed) {
+                DMesh3 m = seed == 0 ? mesh : Reorder(mesh, seed, seed % 2 == 0);
+                var tree = new DMeshAABBTree3(m, true);
+                double w = tree.WindingNumber(p);
+                Assert.True(w == 0.5, $"{name}, order {seed}: {w:R}");
+                Assert.False(tree.GetExactWindingCache().EvaluateAbove(p, 0.5), $"{name}, order {seed}: EvaluateAbove(0.5)");
+            }
+        }
+
+        // a closed tetrahedron with the apex (0, 0, 2) and the base b0 b1 b2, outward oriented, or the other way round if reversed
+        static DMesh3 ApexTetra(Vector3d b0, Vector3d b1, Vector3d b2, bool reversed)
+        {
+            Vector3d[] v = { new Vector3d(0, 0, 2), b0, b1, b2 };
+            var m = new DMesh3();
+            int[] id = v.Select(q => m.AppendVertex(q)).ToArray();
+            int[][] faces = { new[] { 1, 2, 3, 0 }, new[] { 0, 1, 2, 3 }, new[] { 0, 2, 3, 1 }, new[] { 0, 3, 1, 2 } };
+            foreach (int[] f in faces) {
+                bool towardsOpposite = (v[f[1]] - v[f[0]]).Cross(v[f[2]] - v[f[0]]).Dot(v[f[3]] - v[f[0]]) > 0;
+                bool flip = towardsOpposite != reversed;
+                if (flip) m.AppendTriangle(id[f[0]], id[f[2]], id[f[1]]); else m.AppendTriangle(id[f[0]], id[f[1]], id[f[2]]);
+            }
+            return m;
+        }
+
         [Fact]
-        public void PlaneCap_EightPlanesThroughThePoint_FlatFaceIsExact_NineTakeTheRoundedSum()
+        public void FlatFaceVertexWithTenPlanes_ThreeTetrahedraAndTheirReversedCopies_IsExactlyHalf_InEveryOrder()
+        {
+            // the review's reproducer: the box [-2, 2]^3 and 3 tetrahedra with the apex at the face vertex (0, 0, 2), each with a reversed
+            // copy (value 0 exactly): 10 planes pass through the point, the principal value is exactly 0.5. With the plane cap (8) the
+            // rounded sum gave 0.5000000000000001, 0.5, 0.4999999999999999 and 0.49999999999999994 over 8 triangle orders, and
+            // EvaluateAbove(p, 0.5) flipped
+            Vector3d[][] bases = {
+                new[] { new Vector3d(1, 0, 0.5), new Vector3d(-0.5, 1, 0.25), new Vector3d(-0.5, -1, 1) },
+                new[] { new Vector3d(0, 1.5, 0.75), new Vector3d(-1, -0.5, -0.5), new Vector3d(1, -1, 0.5) },
+                new[] { new Vector3d(1.5, 0.5, 1.25), new Vector3d(-1.5, 0.75, 0.5), new Vector3d(0.25, -1.5, 1.5) },
+            };
+            DMesh3 mesh = GridBox(new Vector3d(-2, -2, -2), 2, 2);
+            foreach (Vector3d[] b in bases)
+                foreach (bool reversed in new[] { false, true })
+                    MeshEditor.Append(mesh, ApexTetra(b[0], b[1], b[2], reversed));
+            Vector3d p = new Vector3d(0, 0, 2);
+            Assert.Equal(10, PlanesThrough(mesh, p));
+            foreach (var (name, f) in Frames().Where(q => q.Item1 == "identity" || q.Item1 == "shear" || q.Item1 == "2^-30" || q.Item1 == "rot 11"))
+                AssertFlatFaceValueInEveryOrder(name, Map(mesh, f), f(p), 12);
+        }
+
+        [Theory]
+        [InlineData(8, 9)]
+        [InlineData(11, 12)]
+        [InlineData(19, 20)]
+        public void FlatFacePointWithManyPlanes_DoubledFans_ValueIsExactlyHalf_InEveryOrder(int fans, int planes)
         {
             // p = (1, 1, 3) is an inner vertex of the flat top face of the box. The doubled fans through it have the value 0 exactly
-            // (cover 0), so with the box's plane and 7 more (8 planes = MaxFlatPlanes) every group is resolved exactly and the
-            // value is 0.5 bit for bit; with 8 more (9 planes) no group is formed and every triangle takes the rounded sum, which
-            // leaves noise in the last bits on this point (0.4999999999999998 in the identity frame, a platform-dependent
-            // rounding, so only the bound is asserted): the principal value within the bound of the edge angles.
-            foreach (var (name, f) in Frames().Where(q => q.Item1 == "identity" || q.Item1 == "shear")) {
+            // (cover 0): with the box's plane and `fans` more, 9, 12 and 20 planes, the value is 0.5 bit for bit (the rounded sum left
+            // noise in the last bits, 0.4999999999999998 with 9 planes, once the plane cap of 8 was exceeded)
+            foreach (var (name, f) in Frames().Where(q => q.Item1 == "identity" || q.Item1 == "shear" || q.Item1 == "far")) {
                 Vector3d p = f(new Vector3d(1, 1, 3));
-                DMesh3 eight = Map(BoxWithFans(7, true), f), nine = Map(BoxWithFans(8, true), f);
-                Assert.True(InPlaneOfATriangleAndBox(eight, p));
-                double w8 = new DMeshAABBTree3(eight, true).WindingNumber(p);
-                Assert.True(w8 == 0.5, $"{name}: 8 planes {w8:R}");
-                double w9 = new DMeshAABBTree3(nine, true).WindingNumber(p);
-                Assert.True(Math.Abs(w9 - 0.5) <= 1e-12, $"{name}: 9 planes {w9:R}");
+                DMesh3 m = Map(BoxWithFans(fans, true), f);
+                Assert.Equal(planes, PlanesThrough(m, p));
+                AssertFlatFaceValueInEveryOrder($"{name}, {planes} planes", m, p, 6);
             }
         }
 
         [Fact]
-        public void PlaneCap_SingleFansAndTheBoxFace_AreThePrincipalValue_NoneIsDropped()
+        public void FlatFacePointWithManyPlanes_OpenFans_ValueIsThePrincipalSum_NoneIsDropped_InEveryOrderTheSameBits()
         {
-            // 8, 9 and 10 planes through p, all but one of them single (open) flat fans whose group is a hemisphere each: with more
-            // than MaxFlatPlanes planes every triangle takes the rounded sum and none may be dropped (the value is the principal
-            // value, 0.5 from the box's face, 0 from each fan)
+            // 8, 9 and 10 planes through p, all but one of them single (open) flat fans whose group is a hemisphere each, so that no
+            // group is exact: the rounded sums, none dropped (the value is the principal value, 0.5 from the box's face, 0 from each
+            // fan), within the bound of the reference, and the same bits in every order of the triangles
             foreach (var (name, f) in Frames().Where(q => q.Item1 == "identity" || q.Item1 == "shear" || q.Item1 == "rot 11")) {
                 Vector3d p = f(new Vector3d(1, 1, 3));
                 foreach (int count in new[] { 7, 8, 9 }) {
@@ -790,6 +970,10 @@ namespace geometry3Sharp.Tests
                     double w = new DMeshAABBTree3(m, true).WindingNumber(p), r = Principal(m, p);
                     Assert.True(Math.Abs(w - r) <= 1e-11, $"{name}, {count} fans: {w:R} vs {r:R}");
                     Assert.True(Math.Abs(w - 0.5) <= 1e-11, $"{name}, {count} fans: {w:R}");
+                    for (int seed = 1; seed <= 6; ++seed) {
+                        double w2 = new DMeshAABBTree3(Reorder(m, seed, seed % 2 == 0), true).WindingNumber(p);
+                        Assert.True(Bits(w2) == Bits(w), $"{name}, {count} fans, order {seed}: {w2:R} vs {w:R}");
+                    }
                 }
             }
         }

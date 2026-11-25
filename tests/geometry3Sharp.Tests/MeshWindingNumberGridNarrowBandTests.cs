@@ -264,10 +264,10 @@ namespace geometry3Sharp.Tests
             Verdict v = Compare(Box(0), Cell / 4, iso, Path.RowCache);
             Assert.True(v.SideDiffs == 0 && v.RowViolations == 0, v.ToString());
             Assert.True(v.AtIso > 100, v.ToString());
-            // a flood would evaluate about every node. Measured: iso 1: 28,066 of 50,653; iso 0.5: 29,181 before the on-surface value was
-            // the principal value (606 nodes exactly at 0.5), 30,590 after it (#1546: every face node reads exactly 0.5, 5,766 nodes; the
-            // plateau on the faces is a surface and is followed, by design). The limit is well below a flood and above both.
-            Assert.True(v.Evaluations < v.FullEvaluations * 0.7, v.ToString());
+            // a flood would evaluate about every node. Measured: iso 1: 23,237 of 50,653 (ratio 0.459); iso 0.5: 29,181 before the on-surface value was
+            // the principal value (606 nodes exactly at 0.5), 30,596 after it, ratio 0.604 (#1546: every face node reads exactly 0.5, 5,766 nodes; the
+            // plateau on the faces is a surface and is followed, by design). The limit (0.65) is well below a flood and above both.
+            Assert.True(v.Evaluations < v.FullEvaluations * 0.65, v.ToString());
         }
 
         [Fact]
