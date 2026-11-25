@@ -41,6 +41,26 @@ class CompareOrient3dTests(unittest.TestCase):
             self.assertLess(r[mode]['bound_over_u_permanent'], 7)
             self.assertGreater(r[mode]['bound_over_u_permanent'], 5.9)
 
+    def test_symtaylor_result_is_of_the_current_probe_model(self):
+        # a change of PredicateModels.BuildOrient3dStageA without a new run (compare_orient3d.py --symbolic-taylor) leaves a stale result
+        stored = json.loads(c.SYMTAYLOR_FILE.read_text()).get('model_sha256')
+        self.assertEqual(c.probe_model_hash(), stored, 'stale result: re-run compare_orient3d.py --symbolic-taylor')
+
+    def test_probe_model_hash_follows_the_model_text(self):
+        h = c.probe_model_hash()
+        text = c.PROBE_MODELS.read_text(encoding='utf-8')
+        changed = text.replace('int t3 = g.Mul(wz, g.Sub(uxvy, uyvx));', 'int t3 = g.Mul(wz, g.Sub(uyvx, uxvy));', 1)
+        self.assertNotEqual(text, changed)
+        orig = c.PROBE_MODELS
+        import tempfile, pathlib
+        with tempfile.TemporaryDirectory() as d:
+            c.PROBE_MODELS = pathlib.Path(d) / 'PredicateModels.cs'
+            c.PROBE_MODELS.write_text(changed, encoding='utf-8')
+            try:
+                self.assertNotEqual(h, c.probe_model_hash())
+            finally:
+                c.PROBE_MODELS = orig
+
     def test_compare_symtaylor_rejects_a_bound_above_the_constant(self):
         lo = c.permanent_lower_bound()
         big = repr(float(c.K * lo * (1 + Fraction(1, 2**30))))

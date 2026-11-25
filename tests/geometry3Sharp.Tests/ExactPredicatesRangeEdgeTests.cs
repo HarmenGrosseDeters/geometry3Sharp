@@ -91,9 +91,15 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(ExactPredicates.orient3d_bigint(a, b, c, d), ExactPredicates.Orient3d(a, b, c, d));
                 Assert.Equal(ExactPredicates.incircle_bigint(a2, b2, c2, d2), ExactPredicates.InCircle(a2, b2, c2, d2));
             }
-            // the cases inside the range reach the expansions (the generator is meant to straddle the edges)
+            // every row asserts which path its inputs take (the generator is meant to straddle the edges, the counts are those of the fixed seed): inside the
+            // range all 400 reach the expansions of AdaptivePredicates, beyond it none does (the generated kernels decide), and the rows at the edges
+            // have both kinds
             if (scale >= -97 && scale <= 97)
                 Assert.Equal(400, inRange);
+            else if (scale <= -100 || scale >= 150)
+                Assert.Equal(0, inRange);
+            else
+                Assert.InRange(inRange, 1, 399);
         }
 
         // The corners of an axis-parallel rectangle are exactly cocircular, also after rounding (two x and two y values).

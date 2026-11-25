@@ -41,6 +41,29 @@ class RangeCallersTests(unittest.TestCase):
     def test_a_guard_of_the_other_branch_fails(self):
         self.assertEqual({'mesh_ops/C.cs': 1}, self.check(GUARDED.replace('== false)', '== true)')))
 
+    def test_a_call_over_two_lines_is_found_and_guarded(self):
+        text = GUARDED.replace('Orient2d(ax, ay, bx, by, cx, cy)', 'Orient2d(ax, ay,\n        bx, by, cx, cy)')
+        self.assertEqual({}, self.check(text))
+        self.assertEqual({'mesh_ops/C.cs': 1}, self.check(text.replace('InRange(ax, ay, bx, by, cx, cy)', 'InRange(ax, ay)')))
+
+    def test_a_call_with_a_nested_parenthesis_is_found(self):
+        text = GUARDED.replace('Orient2d(ax, ay,', 'Orient2d(Math.Abs(ax), ay,')
+        self.assertEqual({'mesh_ops/C.cs': 1}, self.check(text))                    # Math.Abs(ax) is not a guarded argument
+        guarded = text.replace('InRange(ax,', 'InRange(Math.Abs(ax),')
+        self.assertEqual({}, self.check(guarded))
+
+    def test_the_stage_d_entry_points_are_checked(self):
+        for name in ('Orient2dStageD', 'Orient3dStageD', 'InCircleStageD'):
+            self.assertEqual({}, self.check(GUARDED.replace('Orient2d(', name + '(')))
+            unguarded = GUARDED.replace('InRange(ax, ay, bx, by, cx, cy)', 'InRange(ax)').replace('Orient2d(', name + '(')
+            self.assertEqual({'mesh_ops/C.cs': 1}, self.check(unguarded))
+
+    def test_an_unknown_member_call_fails(self):
+        self.assertEqual({'mesh_ops/C.cs': 1}, self.check(GUARDED.replace('Orient2d(', 'NewStage(')))
+
+    def test_an_unclosed_call_fails(self):
+        self.assertEqual({'mesh_ops/C.cs': 1}, self.check(GUARDED.replace('cy); } }', 'cy; } }')))
+
 
 if __name__ == '__main__':
     unittest.main()

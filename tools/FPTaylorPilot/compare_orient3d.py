@@ -24,6 +24,7 @@ Orient3d's differences, so a code change cannot leave the model passing.
 """
 import argparse
 from fractions import Fraction
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -37,6 +38,7 @@ RESULT_FILE = HERE / 'orient3d_stagea_result.json'
 BOX_FILE = HERE / 'orient3d_stagea_box.json'
 SYMTAYLOR_FILE = HERE / 'orient3d_stagea_symtaylor_result.json'
 PROBE = ROOT / 'benchmarks/SymbolicTaylorBoundsProbe/SymbolicTaylorBoundsProbe.csproj'
+PROBE_MODELS = ROOT / 'benchmarks/SymbolicTaylorBoundsProbe/PredicateModels.cs'
 U = Fraction(1, 2**53)
 K = (7 + 56 * U) * U
 HALF_WIDTH = Fraction(1, 2**30)
@@ -165,6 +167,15 @@ def box():
     return dict(names=names, lo=lo, hi=hi)
 
 
+def probe_model_hash():
+    """SHA-256 of the text of PredicateModels.BuildOrient3dStageA (the model the C# probe bounds), line endings normalized: stored in the
+    checked-in probe result, so that a change of the model without a new run (a stale result) fails the unittest"""
+    text = PROBE_MODELS.read_text(encoding='utf-8').replace('\r\n', '\n')
+    start = text.index('public static ExprDag BuildOrient3dStageA()')
+    end = text.index('    public static ExprDag Build', start + 1)
+    return hashlib.sha256(text[start:end].strip().encode('utf-8')).hexdigest()
+
+
 def compare_symtaylor(result):
     """the C# Symbolic Taylor bound (benchmarks/SymbolicTaylorBoundsProbe, a box-max consistency check, not a proof of the
     pointwise invariant) against K * the smallest computed permanent over the box, and the code's 4 u against it"""
@@ -188,6 +199,7 @@ def run_symtaylor():
         print(run.stdout, run.stderr, file=sys.stderr)
         return 1
     result = json.loads(run.stdout.strip().splitlines()[-1])
+    result['model_sha256'] = probe_model_hash()
     SYMTAYLOR_FILE.write_text(json.dumps(result, indent=2) + '\n')
     print(json.dumps(dict(result=result, compare=compare_symtaylor(result)), indent=2))
     return 0

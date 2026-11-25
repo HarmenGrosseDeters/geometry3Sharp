@@ -35,19 +35,23 @@ namespace geometry3Sharp.Tests
         public void Diagnosis_OfASheetOf80000Triangles_GrowsLinearly()
         {
             // protects against the quadratic check of the sheet's edges (a Dictionary<long, int> keyed a << 32 | b hashes a ^ b: the ids of a grid collide, 3.3 s at 80,000 triangles).
-            // The limit is a ratio between two sizes of one run, no absolute time (that would fail on a loaded machine): 8 against 4 for linear and 16 for quadratic
+            // The limit is a ratio between two sizes of one run, no absolute time (that would fail on a loaded machine): 8 against 4 for linear and 16 for quadratic.
+            // Robust against a GC pause or a scheduler hiccup (issue #1600: one sample per size gave 8.17 once): the best of Rounds runs per size, each on a fresh
+            // operation, the two sizes interleaved so a slow phase of the machine hits both, and the floor of 20 ms for the small size
+            const int Rounds = 5;
             DMesh3 sphere = SheetGeometry.Sphere(Vector3d.Zero, 5, 14);
-            double[] ms = new double[2];
-            int k = 0;
-            foreach (int n in new[] { 100, 200 }) {
-                DMesh3 sheet = SheetGeometry.Grid(SheetGeometry.Lin(-8, 8, n), SheetGeometry.Lin(-8, 4.5, n), (x, y) => 0.5, true);
-                Assert.Equal(2 * n * n, sheet.TriangleCount);
-                var op = Make(sheet, sphere);
-                new MeshSheetExtension { Sheet = sheet, Workpiece = sphere }.Diagnose();       // warm-up
-                var sw = Stopwatch.StartNew();
-                Assert.True(op.Diagnose());
-                ms[k++] = sw.Elapsed.TotalMilliseconds;
-            }
+            int[] sizes = { 100, 200 };
+            DMesh3[] sheets = sizes.Select(n => SheetGeometry.Grid(SheetGeometry.Lin(-8, 8, n), SheetGeometry.Lin(-8, 4.5, n), (x, y) => 0.5, true)).ToArray();
+            for (int i = 0; i < 2; ++i) Assert.Equal(2 * sizes[i] * sizes[i], sheets[i].TriangleCount);
+            new MeshSheetExtension { Sheet = sheets[0], Workpiece = sphere }.Diagnose();       // warm-up
+            double[] ms = { double.MaxValue, double.MaxValue };
+            for (int r = 0; r < Rounds; ++r)
+                for (int i = 0; i < 2; ++i) {
+                    var op = Make(sheets[i], sphere);
+                    var sw = Stopwatch.StartNew();
+                    Assert.True(op.Diagnose());
+                    ms[i] = Math.Min(ms[i], sw.Elapsed.TotalMilliseconds);
+                }
             Assert.True(ms[1] < 8 * Math.Max(ms[0], 20), "20,000 triangles " + ms[0] + " ms, 80,000 triangles " + ms[1] + " ms: not linear");
         }
 

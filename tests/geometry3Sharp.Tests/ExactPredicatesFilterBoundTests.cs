@@ -11,7 +11,7 @@ namespace geometry3Sharp.Tests
     /// Orient3dFilter does and returns its bound). Sign tests cannot see a bound that is too small (Shewchuk's bound is
     /// several times the typical error): the hand mutant H5 of #1572, 7 u to 4 u, survived all 522 predicate tests
     /// (docs/qa/exact-bound-inventory.md, gap G6). The proof of the constant is EP-2 of tools/ErrorBoundAudit and
-    /// no Z3 lemma (docs/qa/exact-bound-inventory.md section 7); this test is the witness that a smaller constant is wrong.
+    /// no Z3 lemma (docs/qa/exact-bound-inventory.md section 7); this test is the witness that kills any constant below 4.3 u.
     /// It reaches Orient3dFilter through the shared constant only: a change of the bound expression inside Orient3dFilter
     /// alone is the ErrorBoundAudit anchors' to catch.
     /// </summary>
@@ -60,7 +60,7 @@ namespace geometry3Sharp.Tests
             BigInteger b = Scaled(bound, 3 * S);
             Assert.True(err <= b, $"|S_fp - S| = {(double)err / Math.Pow(2, 3 * S)} exceeds the bound {bound}");
 
-            // the input is a witness against a smaller constant: the error is 4.30 u (permanent + |det|), so with
+            // the input is a witness that kills any constant below 4.3 u: the error is 4.30 u (permanent + |det|), so with
             // Orient3dBound = 4 u (the bound is then about 4 u (permanent + |det|), with the recursive-sum term g |det|,
             // g ~ 4 u) the assertion above fails; checked by hand with 4 u and 4.25 u
             Assert.True(sum > 1.9 && sum < 1.92);
