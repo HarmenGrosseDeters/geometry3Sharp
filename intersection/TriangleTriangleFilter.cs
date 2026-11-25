@@ -47,6 +47,19 @@ namespace g3
         }
 
         /// <summary>
+        /// IntersectsBeyondShared (the same answer), with BeyondSharedNeighbours as the filter: for the Reducer's
+        /// self-intersection check
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static bool IntersectsBeyondSharedNeighbours(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
+        {
+            int r = BeyondSharedNeighbours(ia, ref A, ib, ref B);
+            if (r == Undecided)
+                return ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B);
+            return r == Intersecting;
+        }
+
+        /// <summary>
         /// ExactTriangleIntersection.Intersects for closed triangles (the same answer), with the filter first
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
@@ -58,6 +71,135 @@ namespace g3
             return r == Intersecting;
         }
 
+        /// <summary>
+        /// For neighbours of a mesh (one or two shared vertex ids, as in BeyondShared): Separate if the corners of one
+        /// triangle that are not shared lie strictly on one side of the other's plane, where the floating-point filter of
+        /// Orient3d proves the signs, and both triangles are proven non-degenerate (a corner proven off each plane); else
+        /// Undecided (also for pairs without shared vertices, and for degenerate triangles, whose answer is left to the
+        /// exact test, as before). Then that triangle meets
+        /// the plane, and so the other triangle, only in the shared vertex or edge. It adds no error bound: a sign it
+        /// uses is the sign ExactPredicates.Orient3d returns (Orient3dFilter is its filter stage, with the same
+        /// differences). For curved surfaces this decides most neighbour pairs in a few Orient3d filters, before the
+        /// projection of BeyondShared; it never decides coplanar ones (docs/research/TRI_TRI_CANDIDATE_PAIRS_2026-11.md).
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static int NeighbourPlaneSides(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
+        {
+            int nShared = 0;
+            for (int i = 0; i < 3; ++i)
+                for (int j = 0; j < 3; ++j)
+                    if (ia[i] == ib[j])
+                        nShared++;
+            return neighbour_plane_sides(nShared, ia, ref A, ib, ref B);
+        }
+
+        // NeighbourPlaneSides, given the number of shared corners (as by_projection counts them). (Not inlined: in
+        // by_projection it slows the pairs without shared corners, which do not use it)
+        [MethodImpl(JitHints.Optimize | MethodImplOptions.NoInlining)]
+        static int neighbour_plane_sides(int nShared, Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
+        {
+            if (nShared == 0 || nShared >= 3)
+                return Undecided;
+            // Both triangles must be non-degenerate (the exact test's precondition for shared vertices, so that the
+            // answer is the one it gives). The side test proves the plane it tests against (a degenerate triangle has
+            // Orient3d exactly 0 for every point, which the filter never proves otherwise); the other triangle is
+            // checked exactly (ExactTriangleIntersection.IsDegenerate, its floating-point prefilter first) only where
+            // the side test succeeds
+            if (beyond_plane(ref A, ia, ref B, ib))
+                // with a shared edge s0-s1, B's far corner off A's plane is off the line s0-s1 in it: B is not degenerate.
+                // With one shared vertex s, B can be (s, u, w collinear)
+                return (nShared == 2 || ExactTriangleIntersection.IsDegenerate(ref B) == false) ? Separate : Undecided;
+            if (nShared == 1 && beyond_plane(ref B, ib, ref A, ia))
+                return ExactTriangleIntersection.IsDegenerate(ref A) == false ? Separate : Undecided;
+            return Undecided;
+        }
+
+        // the corners of Q whose ids are not corners of P strictly on one side of P's plane, proven by the filter
+        // stage of Orient3d(P.V0, P.V1, P.V2, q) (0: not proven). A degenerate P has Orient3d exactly 0, which the
+        // filter never proves otherwise; non-finite input fails the comparisons of the filter
+        [MethodImpl(JitHints.Optimize)]
+        static bool beyond_plane(ref Triangle3d P, Index3i ip, ref Triangle3d Q, Index3i iq)
+        {
+            Vector3d a = P.V0, b = P.V1, c = P.V2;
+            double ux = b.x - a.x, uy = b.y - a.y, uz = b.z - a.z, vx = c.x - a.x, vy = c.y - a.y, vz = c.z - a.z;
+            int side = 0;
+            for (int k = 0; k < 3; ++k) {
+                int id = iq[k];
+                if (id == ip.a || id == ip.b || id == ip.c)
+                    continue;
+                Vector3d d = Q[k];
+                int o = ExactPredicates.Orient3dFilter(ux, uy, uz, vx, vy, vz, d.x - a.x, d.y - a.y, d.z - a.z);
+                if (o == 0 || (side != 0 && o != side))
+                    return false;
+                side = o;
+            }
+            return side != 0;
+        }
+
+        /// <summary>
+        /// A triangle A projected along the dominant axis of its floating-point normal, with what Orient2d computes for
+        /// its edges kept, to cull the candidates of a self-intersection check that share no vertex with A: Separates(C)
+        /// is true if all three projected corners of C lie strictly outside one edge line of A, where the filter stage
+        /// of Orient2d proves the signs. A linear projection that separates two triangles separates them in 3D. It adds
+        /// no error bound: for an edge (e0, e1) and a corner c, ExactPredicates.Orient2dFilter gets the same doubles
+        /// Orient2d(e0, e1, c) computes (e1 - e0 kept from Of, c - e0 per call; the projection only drops a coordinate),
+        /// so a sign it returns is the sign of Orient2d. O is Orient2d of A's projected corners, exact; for O = 0 (A
+        /// degenerate in the projection, eg a degenerate A) nothing is culled. Everything Separates does not prove is left
+        /// to BeyondShared and the exact test (docs/research/TRI_TRI_CANDIDATE_PAIRS_2026-11.md, candidate (a)). The caller
+        /// guarantees finite coordinates (the Reducer checks both triangles first).
+        /// </summary>
+        internal struct ProjectedEdges
+        {
+            internal int Axis, O;
+            internal Vector2d P0, P1, P2;
+            internal double U0x, U0y, U1x, U1y, U2x, U2y;
+
+            [MethodImpl(JitHints.Optimize)]
+            internal static ProjectedEdges Of(ref Triangle3d A)
+            {
+                var e = new ProjectedEdges();
+                e.Axis = dominant_axis((A.V1 - A.V0).Cross(A.V2 - A.V0));
+                e.P0 = drop(A.V0, e.Axis); e.P1 = drop(A.V1, e.Axis); e.P2 = drop(A.V2, e.Axis);
+                e.O = ExactPredicates.Orient2d(e.P0, e.P1, e.P2);
+                e.U0x = e.P1.x - e.P0.x; e.U0y = e.P1.y - e.P0.y;
+                e.U1x = e.P2.x - e.P1.x; e.U1y = e.P2.y - e.P1.y;
+                e.U2x = e.P0.x - e.P2.x; e.U2y = e.P0.y - e.P2.y;
+                return e;
+            }
+
+            /// <summary> C is proven to lie strictly outside one edge line of A in the projection (then A and C are disjoint) </summary>
+            [MethodImpl(JitHints.Optimize)]
+            internal bool Separates(ref Triangle3d C)
+            {
+                if (O == 0)
+                    return false;
+                Vector2d c0 = drop(C.V0, Axis), c1 = drop(C.V1, Axis), c2 = drop(C.V2, Axis);
+                return outside(0, c0, c1, c2) || outside(1, c0, c1, c2) || outside(2, c0, c1, c2);
+            }
+
+            /// <summary>
+            /// the filter stage of Orient2d(e0, e1, c) for edge k (P0-P1, P1-P2, P2-P0) and the projected point c: its
+            /// sign where the filter proves it, else 0
+            /// </summary>
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal int EdgeSign(int k, Vector2d c)
+            {
+                return k == 0 ? ExactPredicates.Orient2dFilter(U0x, U0y, c.x - P0.x, c.y - P0.y)
+                    : k == 1 ? ExactPredicates.Orient2dFilter(U1x, U1y, c.x - P1.x, c.y - P1.y)
+                    : ExactPredicates.Orient2dFilter(U2x, U2y, c.x - P2.x, c.y - P2.y);
+            }
+
+            /// <summary> the projection of p along Axis (the coordinates of EdgeSign) </summary>
+            internal Vector2d Project(Vector3d p) => drop(p, Axis);
+
+            // the three corners proven strictly outside edge k (on the side away from A)
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            bool outside(int k, Vector2d c0, Vector2d c1, Vector2d c2)
+            {
+                return EdgeSign(k, c0) * O < 0 && EdgeSign(k, c1) * O < 0 && EdgeSign(k, c2) * O < 0;
+            }
+        }
+
         // vertex ids of two triangles without shared vertices: BeyondShared is then the closed intersection test
         static readonly Index3i SeparateA = new Index3i(0, 1, 2), SeparateB = new Index3i(3, 4, 5);
 
@@ -66,12 +208,30 @@ namespace g3
         /// Separate if they certainly meet at most in their shared vertices or edge, Intersecting if they certainly
         /// intersect beyond them, else Undecided
         /// </summary>
-        [MethodImpl(JitHints.Optimize)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static int BeyondShared(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
+        {
+            return beyond_shared(ia, ref A, ib, ref B, false);
+        }
+
+        /// <summary>
+        /// BeyondShared (the same answer where it decides), with NeighbourPlaneSides first for neighbours: for the
+        /// self-intersection checks of the Reducer (IntersectsBeyondSharedNeighbours) and the Remesher, whose candidates on curved surfaces are mostly
+        /// neighbours with their other corners off each other's planes. (ExactMeshArrangement has made these plane tests
+        /// itself before it calls BeyondShared.)
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static int BeyondSharedNeighbours(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
+        {
+            return beyond_shared(ia, ref A, ib, ref B, true);
+        }
+
+        [MethodImpl(JitHints.Optimize)]
+        static int beyond_shared(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B, bool neighbourPlanes)
         {
             if (all_finite(ref A, ref B) == false)
                 return Undecided;
-            int r = by_projection(ia, ref A, ib, ref B);
+            int r = by_projection(ia, ref A, ib, ref B, neighbourPlanes);
             if (r != Undecided)
                 return r;
             r = in_axis_plane_of(ia, ref A, ib, ref B);
@@ -80,7 +240,7 @@ namespace g3
 
         // the projection along the common axis plane, or along the dominant axis of A's normal (finite input)
         [MethodImpl(JitHints.Optimize)]
-        static int by_projection(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
+        static int by_projection(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B, bool neighbourPlanes)
         {
             // shared corners: as in ExactTriangleIntersection.IntersectsBeyondShared
             int nShared = 0, sa0 = -1, sb0 = -1, sa1 = -1, sb1 = -1;
@@ -95,6 +255,9 @@ namespace g3
 
             int axis = common_axis_plane(ref A, ref B);
             bool planar = axis >= 0;     // both in the plane: the projection decides both ways
+            // neighbours off a common axis plane: the plane sides first (in a common axis plane every Orient3d is 0)
+            if (neighbourPlanes && planar == false && nShared > 0 && neighbour_plane_sides(nShared, ia, ref A, ib, ref B) == Separate)
+                return Separate;
             if (planar == false)
                 axis = dominant_axis((A.V1 - A.V0).Cross(A.V2 - A.V0));
 

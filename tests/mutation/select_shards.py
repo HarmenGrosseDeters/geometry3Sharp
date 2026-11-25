@@ -286,9 +286,12 @@ def test_class(term):
 
 
 def test_files(cls):
-    """the files of a test class: `C.cs` and/or `C.CsCheck.cs` (the property tests, which the csproj compiles on net10.0 only); `C.cs`
-    when neither exists (the existence test of the configs then reports it)"""
-    found = [TESTS + cls + suffix for suffix in (".cs", ".CsCheck.cs") if os.path.isfile(os.path.join(HERE, "..", "..", TESTS + cls + suffix))]
+    """the files of a test class: `C.cs` and/or `C.CsCheck.cs` (the property tests, which the csproj compiles on net10.0 only), in
+    the test project's root or in its `Meshing2/` folder; `C.cs` in the root when none exists (the existence test of the configs
+    then reports it)"""
+    root = os.path.join(HERE, "..", "..")
+    found = [folder + cls + suffix for folder in (TESTS, TESTS + "Meshing2/") for suffix in (".cs", ".CsCheck.cs")
+             if os.path.isfile(os.path.join(root, folder + cls + suffix))]
     return found or [TESTS + cls + ".cs"]
 
 
@@ -381,7 +384,6 @@ def exact_gated(path):
 # notice of `select_shards.py hint` ("no mutation shard": the review of CLAUDE.md is its only check). A new exact file goes into a
 # shard's config or onto this list (test_select_shards.py: every existing exact file is in exactly one of the two).
 NO_SHARD = {
-    "comp_geom/SnapRounding2.cs": "the snap rounding grid (its exact tests and double filters)",
     "intersection/ContinuousCollision.cs": "continuous collision (exact root isolation)",
     "intersection/ExactTriangleIntersection.cs": "exact triangle intersection (called by the boolean shards' code, not mutated by them)",
     "intersection/TriangleTriangleFilter.cs": "the triangle pair filter",

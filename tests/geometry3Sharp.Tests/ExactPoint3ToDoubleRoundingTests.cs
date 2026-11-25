@@ -44,11 +44,14 @@ namespace geometry3Sharp.Tests
         static readonly BigInteger MaxDouble = ((BigInteger.One << 53) - 1) << 971;                 // 2^1024 - 2^971
         static readonly BigInteger OverflowTie = (BigInteger.One << 1024) - (BigInteger.One << 970);  // max + half an ulp
 
-        // ToDouble and ToDoubleRounded (den > 0) are one function: every assertion below holds for both
+        // ToDouble delegates to ToDoubleRounded (den > 0), so comparing the two proves nothing (#1489): the result is checked against the oracle of this
+        // class (the exact rational, the two neighbouring doubles, ties to even; AssertCorrectlyRounded)
         static double Conv(BigInteger num, BigInteger den, int scaleExp)
         {
-            double a = ExactPoint3.ToDouble(num, den, scaleExp), b = ExactPoint3.ToDoubleRounded(num, den, scaleExp);
-            Assert.Equal(BitConverter.DoubleToInt64Bits(b), BitConverter.DoubleToInt64Bits(a));
+            double a = ExactPoint3.ToDouble(num, den, scaleExp);
+            // (the oracle builds 2^scaleExp as an integer: not for the exponents near the int limits, which the assertions of their tests pin by hand)
+            if (Math.Abs((long)scaleExp) <= 6000)
+                AssertCorrectlyRounded(num, den, scaleExp, a, $"{num} / {den} * 2^{scaleExp}");
             return a;
         }
 
@@ -321,5 +324,44 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0.5387979998888541, got[2]);
         }
 
+
+        [Fact]
+        public void DefaultPoint_HasZeroW_AndTheConversionsThrow_ForAnEntryOfAnIdNotInUse()
+        {
+            // #1489 (owner decision 2026-11-24): ToDouble(0, 0, s) throws, kept on purpose; a caller recognises an entry that is not a point by W
+            ExactPoint3 none = default(ExactPoint3);
+            Assert.True(none.W.IsZero);
+            Assert.Throws<DivideByZeroException>(() => none.ToVector3d());
+            Assert.Throws<DivideByZeroException>(() => ExactPoint3.ToDouble(0, 0, 0));
+            Assert.Throws<DivideByZeroException>(() => ExactPoint3.ToDouble(0, 0, -7));
+            Assert.Throws<DivideByZeroException>(() => ExactPoint3.ToDouble(5, 0, 0));
+            Assert.True(ExactPoint3.FromInteger(1, 2, 3).W.Sign > 0);
+            // the imprint (ComputeExactVertices, taken before the repair): the entry of an id that is not in use is the default entry, an id that the repair
+            // removes keeps its point, and a new vertex may reuse a free id. The target has 39 free ids (isolated vertices appended and removed), more than the
+            // result has new vertices
+            DMesh3 a = Invariance.Transformed(ExactMeshImprintSliverTests.Shape("box"), Similarity.Utm);
+            var freed = new System.Collections.Generic.List<int>();
+            for (int k = 0; k < 40; ++k) freed.Add(a.AppendVertex(new Vector3d(k, 2, 3)));
+            for (int k = 0; k < 39; ++k) Assert.Equal(MeshResult.Ok, a.RemoveVertex(freed[k]));
+            DMesh3 b = ExactMeshImprintSliverTests.Shifted(a, 2, 1);
+            var imprint = new ExactMeshImprint() { Target = a, Cutter = b, ComputeExactVertices = true };
+            Assert.True(imprint.Compute(), imprint.Error);
+            ExactPoint3[] exact = imprint.ResultExactVertices;
+            Assert.Equal(imprint.Result.MaxVertexID, exact.Length);
+            int defaults = 0, removedByTheRepair = 0;
+            for (int id = 0; id < exact.Length; ++id) {
+                if (exact[id].W.IsZero) {
+                    defaults++;
+                    Assert.False(imprint.Result.IsVertex(id));
+                    Assert.Throws<DivideByZeroException>(() => exact[id].ToVector3d());
+                    continue;
+                }
+                Assert.True(exact[id].W.Sign > 0, "id " + id);
+                if (imprint.Result.IsVertex(id)) Assert.True(imprint.Result.GetVertex(id).Distance(exact[id].ToVector3d()) < 1e-4);
+                else removedByTheRepair++;
+            }
+            Assert.True(defaults > 0, "free ids that no new vertex took");
+            Assert.True(removedByTheRepair > 0, "the repair removed vertices in this case");
+        }
     }
 }

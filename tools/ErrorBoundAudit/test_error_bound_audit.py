@@ -171,10 +171,25 @@ class BoundaryTreeModels(unittest.TestCase):
         sharp = [v for (k, l), v in by.items() if k == 'BT-5' and l.startswith('A1: the sharper')]
         self.assertTrue(sharp and 1.25 < sharp[0] < 1.35, sharp)         # 1.30: step 4 with 16 u S2 instead of 22 u S2
         self.assertTrue(1.01 < a1[0] < 1.02, a1)                         # 1.013: the proof's constants
-        # BT-6: the coefficient is 8.0e-15 / sin(theta / 2), 1.6e-14 / theta (not 8e-15 / theta)
+        # BT-6: the rounded angle kept by finish_edge_angle is within (pi / 2) 22.1 u / 0.0220 = 1.75e-13 (plus 2 pi u and 2 ulp), whatever the distance from the edge
         near = [e for k, e in es.items() if k == 'BT-6'][0]
         labels = [l for l, _ in audit.derive(near)]
-        self.assertTrue(any('8.02e-15 / sin(theta / 2), 1.60e-14 / theta' in l for l in labels), labels)
+        self.assertTrue(any(l.startswith('the error of a kept rounded angle is at most 1.752e-13') and l.endswith('below 2e-13') for l in labels), labels)
+        self.assertTrue(any(l.startswith('the sign of num is exact where |num| > 1e-12 S1 and S1 >= 2^-1000') for l in labels), labels)
+
+    def test_bt6_rejects_a_guard_or_a_ratio_that_does_not_prove_the_claim(self):
+        # the subnormal guard below 2^-1030 leaves products whose rounding (2^-1074) exceeds 1e-12 S1; a ratio 2^-6 gives hypot >= 0.011 (S1 + S2), error 3.5e-13
+        near = [e for e in bounds.ENTRIES if e.id.startswith('BT-6')][0]
+        saved = (bounds.SUBNORMAL_S1, bounds.FAST_ANGLE_RATIO)
+        try:
+            self.assertTrue(all(v.ok for _, v in audit.derive(near)))
+            bounds.SUBNORMAL_S1 = 2.0 ** -1040
+            self.assertFalse(all(v.ok for _, v in audit.derive(near)), 'a guard of 2^-1040 is not seen')
+            bounds.SUBNORMAL_S1 = saved[0]
+            bounds.FAST_ANGLE_RATIO = 2.0 ** -6
+            self.assertFalse(all(v.ok for _, v in audit.derive(near)), 'a ratio of 2^-6 is not seen')
+        finally:
+            bounds.SUBNORMAL_S1, bounds.FAST_ANGLE_RATIO = saved
 
     def test_a_two_pi_error_on_a_certified_edge_is_a_violation_but_not_on_an_uncertified_one(self):
         # the branch cut of the arctangent is never crossed for the edges of an accepted node (part of the proof of A1), so a 2 pi difference

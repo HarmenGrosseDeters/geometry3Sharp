@@ -51,6 +51,24 @@ namespace g3.Examples
             lostTriangles = repair.LostTriangleIds.Count;       // ids of input's triangles, to locate the loss
             maxDistance = repair.LostAreaMaxDistance;           // the largest distance of any sample of the input to the result
             return repair.LostAreaShare;                        // repair.LostArea is the area; both sides of a sheet count
+
+        /// Repair of a broken triangle soup that keeps its sharp edges if the repair ends in the alpha wrap: the sharp-feature
+        /// pass on the wrap, with the creases taken from the soup's varifold (no welded edges needed). wrapped says whether the
+        /// wrap was used (otherwise the switches change nothing). wrapRelativeAlpha: the wrap's alpha is the diagonal over it
+        /// (the offset a tenth of that), the repair's default 300; smaller is coarser and faster.
+        /// </summary>
+        public static DMesh3 RobustRepairKeepingCreases(DMesh3 soup, out bool wrapped, double wrapRelativeAlpha = 300)
+        {
+            var repair = new MeshRobustRepair(new DMesh3(soup)) {
+                WrapRelativeAlpha = wrapRelativeAlpha, WrapRelativeOffset = 10 * wrapRelativeAlpha,
+                AlphaWrapSharpFeatures = true,          // recover the input's creases on the raw wrap
+                AlphaWrapSharpFeaturesOnSoups = true    // ... also where the input has no edge with two triangles
+            };
+            wrapped = false;
+            if (!repair.Apply())
+                return null;
+            wrapped = repair.UsedAlphaWrap;               // repair.AlphaWrapSharpFeaturesApplied: the pass changed the wrap
+            return repair.Mesh;
         }
     }
 }

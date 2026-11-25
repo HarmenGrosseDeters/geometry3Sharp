@@ -1,0 +1,330 @@
+using System;
+using System.IO;
+using System.Linq;
+#if NETCOREAPP
+using System.Text.Json;
+#endif
+using g3;
+using g3.Examples;
+using Xunit;
+using Xunit.Abstractions;
+using Opt = g3.Examples.BooleanVolumeOptimizerExample;
+using Ops = g3.ExactMeshBoolean.Operations;
+
+namespace geometry3Sharp.Tests
+{
+    /// <summary>
+    /// The volume-fitting optimizer of docs/examples/BooleanVolumeOptimizerExample.cs (on BooleanVolumeGradient): it reaches the
+    /// target with every Compute succeeding and a closed result, scales exactly under 2^k, repeats bit for bit, handles a flush
+    /// contact on the realized branch, and stops on a failed Compute.
+    /// Not reached by a test: StopReason.ResultNotClosed (a converged exact volume whose rounded result is not closed; no
+    /// procedural input found that rounds open, SafeRounding being on).
+    /// </summary>
+    public class BooleanVolumeOptimizerTests
+    {
+        readonly ITestOutputHelper output;
+        public BooleanVolumeOptimizerTests(ITestOutputHelper output) { this.output = output; }
+
+        void Log(Opt.Result r)
+        {
+            output.WriteLine($"{r.Reason} {r.Error}");
+            for (int i = 0; i < r.Iterations.Count; ++i) {
+                var s = r.Iterations[i];
+                output.WriteLine($"{i}: V={s.Volume:R} bound={s.VolumeBound:E2} step={s.Step:E3}{(s.Capped ? " capped" : "")} contacts={s.Contacts}");
+            }
+        }
+
+        static void AssertConverged(Opt.Result r, double target, double tolerance = 1e-9)
+        {
+            Assert.True(r.Reason == Opt.StopReason.Converged, $"{r.Reason}: {r.Error}");
+            Assert.Null(r.Error);
+            var last = r.Iterations.Last();
+            Assert.True(Math.Abs(last.Volume - target) <= tolerance * target + last.VolumeBound, $"V = {last.Volume:R}");
+            Assert.True(last.VolumeBound < 1e-12 * target);
+            // the result itself: closed, valid, finite, and its (rounded) volume is the exact one up to the rounding
+            Assert.True(r.Final.IsClosed());
+            Assert.True(r.Final.CheckValidity(true, FailMode.ReturnOnly));
+            Assert.True(r.Moved.IsClosed());
+            foreach (Vector3d p in r.Final.Vertices())
+                Assert.True(p.IsFinite);
+            Assert.Equal(target, MeshMeasurements.VolumeArea(r.Final, r.Final.TriangleIndices(), r.Final.GetVertex).x, 6);
+            // every step but the last moved the vertices; the last evaluation takes none
+            Assert.Equal(0, last.Step);
+            Assert.All(r.Iterations.Take(r.Iterations.Count - 1), s => Assert.True(s.Step > 0));
+        }
+
+        [Fact]
+        public void GrowUnion_ReachesTheTarget_EveryComputeSucceeds_ResultClosed()
+        {
+            Opt.Result r = Opt.GrowUnion();
+            Log(r);
+            AssertConverged(r, 1.3);
+            Assert.True(r.Iterations[0].Volume < 1.2);                   // a real fit, not the start
+            Assert.Contains(r.Iterations, s => s.Capped);                  // the cap acts on the far start ...
+            Assert.False(r.Iterations[r.Iterations.Count - 2].Capped);     // ... and the projected step takes the last part
+            Assert.All(r.Iterations, s => Assert.Equal(0, s.Contacts));    // a sphere and a cube: no flush faces
+            Assert.True(r.Iterations.Count < 20);
+        }
+
+        [Fact]
+        public void Difference_ShrinksToTheTarget()
+        {
+            // the cube minus the sphere: moving the sphere's vertices along the gradient of V(a - b) cuts deeper
+            DMesh3 a = Opt.Cube(), b = Opt.Sphere();
+            Opt.Result r = Opt.FitVolume(a, b, Ops.Difference, 0.8);
+            Log(r);
+            AssertConverged(r, 0.8);
+            Assert.True(r.Iterations[0].Volume > 0.85);
+        }
+
+        [Fact]
+        public void FlushContact_UsesTheRealizedBranch_AndReportsTheContact()
+        {
+            // a box touching the cube's +x face: V of the union has a kink there (merged, 1/4 per unit of the face moving into
+            // the cube, or separated, 0); the optimizer follows the realized (merged) branch and reports the contact
+            Opt.Result r = Opt.FitVolume(Opt.Cube(), Opt.TouchingBox(), Ops.Union, 1.2);
+            Log(r);
+            AssertConverged(r, 1.2);
+            Assert.Equal(1.125, r.Iterations[0].Volume, 12);
+            Assert.Equal(1, r.Iterations[0].Contacts);
+            Assert.Equal(0.25, r.Iterations[0].ContactArea, 12);
+            Assert.Equal(1, r.Iterations[1].Contacts);                  // still flush after the first step ...
+
+            // ... because the merged branch has no x entry at the contact face (its pieces are inside the union), while the
+            // separated branch (Gradient plus the contact's alternative) moves that face: the step follows the realized one
+            DMesh3 box = Opt.TouchingBox();
+            var boolean = new ExactMeshBoolean(Opt.Cube(), box, Ops.Union) { RetainClassification = true };
+            Assert.True(boolean.Compute(), boolean.Error);
+            var g = new BooleanVolumeGradient(boolean);
+            Assert.True(g.Compute(), g.Error);
+            int[] face = box.VertexIndices().Where(v => box.GetVertex(v).x == 1).ToArray();
+            Assert.Equal(4, face.Length);
+            Assert.All(face, v => Assert.Equal(0, g.Gradient[1][v].x));
+            double separated = face.Sum(v => g.Gradient[1][v].x)
+                + g.Contacts[0].Alternatives[0].Where(t => t.Mesh == 1 && face.Contains(t.Vertex)).Sum(t => t.Value.x);
+            Assert.True(Math.Abs(separated) > 0.01, $"{separated}");
+            Opt.Result one = Opt.FitVolume(Opt.Cube(), box, Ops.Union, 1.2, new Opt.Options() { MaxIterations = 2 });
+            Assert.All(face, v => Assert.Equal(1.0, one.Moved.GetVertex(v).x));
+        }
+
+        [Fact]
+        public void ZeroGradient_Stops()
+        {
+            // the cube intersected with a disjoint box: V = 0 and no kept piece, so no step can reach the target
+            DMesh3 far = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(5, 0.5, 0.5), new Vector3d(0.5, 0.5, 0.5)) }.Generate().MakeDMesh();
+            Opt.Result r = Opt.FitVolume(Opt.Cube(), far, Ops.Intersection, 0.5);
+            Assert.Equal(Opt.StopReason.ZeroGradient, r.Reason);
+            Assert.Single(r.Iterations);
+            Assert.Equal(0, r.Iterations[0].Volume);
+            Assert.Equal(0, r.Iterations[0].Step);
+        }
+
+        [Fact]
+        public void ZeroTolerance_StopsWithinTheVolumeBound()
+        {
+            // the stop test also accepts a residual within VolumeBound: with Tolerance 0 that alone ends the iteration
+            Opt.Result r = Opt.FitVolume(Opt.Cube(), Opt.Sphere(), Ops.Union, 1.3, new Opt.Options() { Tolerance = 0 });
+            Log(r);
+            Assert.Equal(Opt.StopReason.Converged, r.Reason);
+            var last = r.Iterations.Last();
+            Assert.True(last.Volume != 1.3 && Math.Abs(last.Volume - 1.3) <= last.VolumeBound, $"V = {last.Volume:R}");
+        }
+
+        [Theory]
+        [InlineData(-280)]
+        [InlineData(280)]
+        public void FarScales_GiveTheSameIterations_BitForBit(int k)
+        {
+            // the gradient is about 2^2k here, |g|^2 about 2^4k: it would overflow (k = 280) or underflow (k = -280) without the
+            // normalization by the largest component
+            var s = new Similarity($"scale 2^{k}", Math.Pow(2, k), Matrix3d.Identity, Vector3d.Zero);
+            double s3 = s.Scale * s.Scale * s.Scale;
+            Opt.Result r = Opt.GrowUnion();
+            Opt.Result rs = Opt.FitVolume(Invariance.Transformed(Opt.Cube(), s), Invariance.Transformed(Opt.Sphere(), s), Ops.Union, 1.3 * s3);
+            Assert.True(rs.Reason == Opt.StopReason.Converged, $"{rs.Reason} {rs.Error}");
+            Assert.Equal(r.Iterations.Count, rs.Iterations.Count);
+            for (int i = 0; i < r.Iterations.Count; ++i) {
+                Assert.True(r.Iterations[i].Volume * s3 == rs.Iterations[i].Volume, $"{i}: {r.Iterations[i].Volume:R} {rs.Iterations[i].Volume:R}");
+                Assert.True(r.Iterations[i].Step * s.Scale == rs.Iterations[i].Step, $"{i} step");
+                Assert.Equal(r.Iterations[i].Capped, rs.Iterations[i].Capped);
+            }
+            foreach (int v in r.Moved.VertexIndices())
+                Assert.True(r.Moved.GetVertex(v) * s.Scale == rs.Moved.GetVertex(v), $"vertex {v}");
+        }
+
+        [Fact]
+        public void Step_IsTheLargestDisplacement_AndACappedStepIsTheCapExactly()
+        {
+            DMesh3 b = Opt.Sphere();
+            Opt.Result r = Opt.FitVolume(Opt.Cube(), b, Ops.Union, 1.3, new Opt.Options() { MaxIterations = 2 });
+            double moved = b.VertexIndices().Max(v => r.Moved.GetVertex(v).Distance(b.GetVertex(v)));
+            Assert.Equal(moved, r.Iterations[0].Step, 12);
+            // the first step of GrowUnion is capped: StepCap times the longest edge of b, exactly
+            Assert.True(r.Iterations[0].Capped);
+            double longest = b.EdgeIndices().Max(e => b.GetVertex(b.GetEdgeV(e).a).Distance(b.GetVertex(b.GetEdgeV(e).b)));
+            Assert.Equal(new Opt.Options().StepCap * longest, r.Iterations[0].Step);
+            // an uncapped step: below the cap
+            Opt.Result full = Opt.GrowUnion();
+            var last = full.Iterations[full.Iterations.Count - 2];
+            Assert.False(last.Capped);
+            Assert.True(last.Step > 0 && last.Step < new Opt.Options().StepCap * longest);
+        }
+
+        [Fact]
+        public void FailedComputeAfterASteps_SetsMovedBackToThePositionsOfFinal()
+        {
+            // the third Boolean is cancelled: Moved is set back to the input of the second, whose result is Final
+            Opt.Result two = Opt.FitVolume(Opt.Cube(), Opt.Sphere(), Ops.Union, 1.3, new Opt.Options() { MaxIterations = 2 });
+            Opt.Result r = Opt.FitVolume(Opt.Cube(), Opt.Sphere(), Ops.Union, 1.3, new Opt.Options() {
+                Configure = (it, boolean) => { if (it == 2) boolean.Cancellation = new System.Threading.CancellationToken(true); } });
+            Assert.Equal(Opt.StopReason.ComputeFailed, r.Reason);
+            Assert.StartsWith("boolean:", r.Error);
+            Assert.Equal(2, r.Iterations.Count);
+            Assert.True(r.Iterations[1].Step > 0);                    // (the step after the second evaluation was taken, then undone)
+            foreach (int v in two.Moved.VertexIndices())
+                Assert.Equal(two.Moved.GetVertex(v), r.Moved.GetVertex(v));
+            Assert.Equal(MeshMeasurements.VolumeArea(two.Final, two.Final.TriangleIndices(), two.Final.GetVertex).x,
+                MeshMeasurements.VolumeArea(r.Final, r.Final.TriangleIndices(), r.Final.GetVertex).x);
+        }
+
+        [Theory]
+        [InlineData(double.NaN, 0.25, 1e-9, "target")]
+        [InlineData(double.PositiveInfinity, 0.25, 1e-9, "target")]
+        [InlineData(1.3, 0.0, 1e-9, "StepCap")]
+        [InlineData(1.3, -0.25, 1e-9, "StepCap")]
+        [InlineData(1.3, double.NaN, 1e-9, "StepCap")]
+        [InlineData(1.3, double.PositiveInfinity, 1e-9, "StepCap")]
+        [InlineData(1.3, 0.25, -1e-9, "Tolerance")]
+        [InlineData(1.3, 0.25, double.NaN, "Tolerance")]
+        public void InvalidArguments_StopBeforeAnyBoolean(double target, double stepCap, double tolerance, string what)
+        {
+            Opt.Result r = Opt.FitVolume(Opt.Cube(), Opt.Sphere(), Ops.Union, target, new Opt.Options() { StepCap = stepCap, Tolerance = tolerance });
+            Assert.Equal(Opt.StopReason.InvalidArguments, r.Reason);
+            Assert.Contains(what, r.Error);
+            Assert.Empty(r.Iterations);
+            Assert.Null(r.Final);
+        }
+
+        [Fact]
+        public void IterationLimit_AndFailedCompute_Stop()
+        {
+            Opt.Result r = Opt.FitVolume(Opt.Cube(), Opt.Sphere(), Ops.Union, 1.3, new Opt.Options() { MaxIterations = 2 });
+            Assert.Equal(Opt.StopReason.MaxIterations, r.Reason);
+            Assert.Equal(2, r.Iterations.Count);
+            Assert.True(r.Iterations[0].Step > 0 && r.Iterations[1].Step == 0);
+
+            // an open input: the boolean refuses it (AllowOpenMeshes is off), the optimizer stops with its error
+            DMesh3 open = Opt.Sphere();
+            open.RemoveTriangle(open.TriangleIndices().First());
+            r = Opt.FitVolume(Opt.Cube(), open, Ops.Union, 1.3);
+            Assert.Equal(Opt.StopReason.ComputeFailed, r.Reason);
+            Assert.StartsWith("boolean:", r.Error);
+            Assert.Empty(r.Iterations);
+            Assert.Null(r.Final);
+        }
+
+        [Fact]
+        public void Gradient_WithoutRetainClassification_Fails()
+        {
+            var boolean = new ExactMeshBoolean(Opt.Cube(), Opt.Sphere(), Ops.Union);
+            Assert.True(boolean.Compute(), boolean.Error);
+            var g = new BooleanVolumeGradient(boolean);
+            Assert.False(g.Compute());
+            Assert.Contains("RetainClassification", g.Error);
+        }
+
+        static void AssertSame(Opt.Result a, Opt.Result b)
+        {
+            Assert.Equal(a.Reason, b.Reason);
+            Assert.Equal(a.Iterations.Count, b.Iterations.Count);
+            for (int i = 0; i < a.Iterations.Count; ++i) {
+                Assert.Equal(a.Iterations[i].Volume, b.Iterations[i].Volume);
+                Assert.Equal(a.Iterations[i].Step, b.Iterations[i].Step);
+                Assert.Equal(a.Iterations[i].Vertices, b.Iterations[i].Vertices);
+                Assert.Equal(a.Iterations[i].Triangles, b.Iterations[i].Triangles);
+            }
+        }
+
+        [Fact]
+        public void RepeatedRuns_AreBitIdentical()
+        {
+            Opt.Result first = Opt.GrowUnion(recordMeshes: true);
+            AssertSame(first, Opt.GrowUnion(recordMeshes: true));
+            AssertSame(first, Opt.GrowUnion(recordMeshes: true));
+        }
+
+        [Fact]
+        public void Similarities_GiveTheSameIterations_BitForBitUnderPowerOfTwoScales()
+        {
+            // (a tolerance above the coordinate resolution of the UTM case: there one coordinate's ulp, 2^-33 at 6e5, is 1e-7 of the
+            // input's size 1e-3, and a smaller residual needs steps that the rounding of the positions mostly eats)
+            var options = new Opt.Options() { Tolerance = 1e-7 };
+            DMesh3 a = Opt.Cube(), b = Opt.Sphere();
+            Opt.Result r = Opt.FitVolume(a, b, Ops.Union, 1.3, options);
+            AssertConverged(r, 1.3, options.Tolerance);
+            foreach (Similarity s in Similarity.All()) {
+                double s3 = s.Scale * s.Scale * s.Scale;
+                Opt.Result rs = Opt.FitVolume(Invariance.Transformed(a, s), Invariance.Transformed(b, s), Ops.Union, 1.3 * s3, options);
+                Assert.True(rs.Reason == Opt.StopReason.Converged, $"{s.Name}: {rs.Reason} {rs.Error}");
+                // (the same count bit for bit under 2^k; the others may end one step apart, at the tolerance's edge)
+                if (s.IsExact)
+                    Assert.Equal(r.Iterations.Count, rs.Iterations.Count);
+                else
+                    Assert.InRange(rs.Iterations.Count, r.Iterations.Count - 1, r.Iterations.Count + 1);
+                double worst = 0;
+                for (int i = 0; i < Math.Min(r.Iterations.Count, rs.Iterations.Count); ++i) {
+                    if (s.IsExact) {
+                        Assert.True(r.Iterations[i].Volume * s3 == rs.Iterations[i].Volume, $"{s.Name} {i}: {r.Iterations[i].Volume:R} {rs.Iterations[i].Volume:R}");
+                        Assert.True(r.Iterations[i].VolumeBound * s3 == rs.Iterations[i].VolumeBound, $"{s.Name} {i} bound");
+                        Assert.True(r.Iterations[i].Step * s.Scale == rs.Iterations[i].Step, $"{s.Name} {i} step");
+                    }
+                    worst = Math.Max(worst, Math.Abs(rs.Iterations[i].Volume / s3 - r.Iterations[i].Volume));
+                }
+                if (s.IsExact)
+                    foreach (int v in r.Moved.VertexIndices())
+                        Assert.True(r.Moved.GetVertex(v) * s.Scale == rs.Moved.GetVertex(v), $"{s.Name} vertex {v}");
+                else
+                    foreach (int v in r.Moved.VertexIndices())
+                        Assert.True(s.Inverse(rs.Moved.GetVertex(v)).Distance(r.Moved.GetVertex(v)) < Math.Max(1e-6, 100 * s.Resolution(2)), $"{s.Name} vertex {v}: {s.Inverse(rs.Moved.GetVertex(v))} {r.Moved.GetVertex(v)}");
+                output.WriteLine($"{s.Name}: exact={s.IsExact}, worst |V'/s^3 - V| = {worst:E3}");
+                Assert.True(worst < 1e-6, s.Name);
+            }
+        }
+
+        [Fact]
+        public void Trajectory_IsWrittenAsJsonArrays()
+        {
+            // the trajectory for a viewer: set G3_VOLUME_GRADIENT_TRAJECTORY to a file path to keep it
+            Opt.Result r = Opt.GrowUnion(recordMeshes: true);
+            var w = new StringWriter();
+            Opt.WriteTrajectory(r, w);
+            string keep = Environment.GetEnvironmentVariable("G3_VOLUME_GRADIENT_TRAJECTORY");
+            if (string.IsNullOrEmpty(keep) == false)
+                File.WriteAllText(keep, w.ToString());
+
+#if NETCOREAPP
+            // (System.Text.Json: not referenced by the net48 build)
+            using (JsonDocument doc = JsonDocument.Parse(w.ToString())) {
+                Assert.Equal("Converged", doc.RootElement.GetProperty("reason").GetString());
+                JsonElement its = doc.RootElement.GetProperty("iterations");
+                Assert.Equal(r.Iterations.Count, its.GetArrayLength());
+                for (int i = 0; i < r.Iterations.Count; ++i) {
+                    JsonElement e = its[i];
+                    Assert.Equal(r.Iterations[i].Volume, e.GetProperty("volume").GetDouble());
+                    double[] vs = e.GetProperty("vertices").EnumerateArray().Select(x => x.GetDouble()).ToArray();
+                    int[] ts = e.GetProperty("triangles").EnumerateArray().Select(x => x.GetInt32()).ToArray();
+                    Assert.Equal(r.Iterations[i].Vertices, vs);
+                    Assert.Equal(r.Iterations[i].Triangles, ts);
+                    Assert.True(ts.Length % 3 == 0 && vs.Length % 3 == 0 && ts.Length > 0);
+                    Assert.All(ts, t => Assert.InRange(t, 0, vs.Length / 3 - 1));
+                }
+            }
+#endif
+            // the last iteration's arrays are the final result mesh
+            Opt.ToArrays(r.Final, out double[] fv, out int[] ft);
+            Assert.Equal(fv, r.Iterations.Last().Vertices);
+            Assert.Equal(ft, r.Iterations.Last().Triangles);
+            Assert.Equal(r.Final.TriangleCount * 3, ft.Length);
+        }
+    }
+}

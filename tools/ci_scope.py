@@ -47,6 +47,7 @@ SHARED = (
     "tools/analyzers/",
     "tools/PredicateCompiler/Compiler.cs",
     "tools/PredicateCompiler/Monomials.cs",
+    "tools/PredicateCompiler/SymbolicTaylorVerify.cs",
     "tools/PredicateCompiler/predicates.spec",
     "tools/PredicateCompiler/indirect.spec",
     "tools/PredicateCompiler/doubles.spec",

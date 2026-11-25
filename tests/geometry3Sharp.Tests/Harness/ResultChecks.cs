@@ -62,6 +62,26 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        /// <summary>
+        /// every position that holds more than one vertex of a result computed with ComputeExactVertices holds vertices of ONE exact point: the
+        /// contact is a property of the exact solid (it touches itself there: the rounding does not make it, and no rounding could take it away
+        /// without changing the solid), not a contact the rounding made of different exact points (#1489). ResultExactVertices holds the coordinates from before the repair. Returns the number of such positions
+        /// </summary>
+        public static int AssertContactsAreOfTheExactSolid(ExactMeshBoolean boolean, string what = "result")
+        {
+            Assert.True(boolean.ComputeExactVertices, what + ": needs ComputeExactVertices");
+            DMesh3 mesh = boolean.Result;
+            ExactPoint3[] exact = boolean.ResultExactVertices;
+            int positions = 0;
+            foreach (var group in mesh.VertexIndices().GroupBy(v => mesh.GetVertex(v)).Where(g => g.Count() > 1)) {
+                positions++;
+                int first = group.First();
+                foreach (int v in group)
+                    Assert.True(v < exact.Length && first < exact.Length && exact[v].Equals(exact[first]), $"{what}: vertices {first} and {v} share a position but are different exact points");
+            }
+            return positions;
+        }
+
         public static double Volume(DMesh3 mesh) => MeshMeasurements.VolumeArea(mesh, mesh.TriangleIndices(), mesh.GetVertex).x;
     }
 }

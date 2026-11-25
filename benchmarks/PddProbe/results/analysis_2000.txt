@@ -1,0 +1,21 @@
+# benchmarks/PddProbe/results/disc_2000.txt: 144 cases, metrics AMD8 colW1_8 AMD32 colW1_32 AMD128 colW1_128 D2 PCA
+
+## scalable PDD (AMD/colW1, k<=128): AMD8, colW1_8, AMD32, colW1_32, AMD128, colW1_128 vs D2/PCA
+stratum                 PDD  BASE  tie  neither
+resample noise=0          2     7    2       13
+resample noise=0.001      2     7    2       13
+resample noise=0.01       0     6    3       15
+same noise=0              0     0   24        0
+same noise=0.001          0    18    6        0
+same noise=0.01           1    20    3        0
+total                     5    58   40       41
+
+## all PDD variants: AMD8, colW1_8, AMD32, colW1_32, AMD128, colW1_128 vs D2/PCA
+stratum                 PDD  BASE  tie  neither
+resample noise=0          2     7    2       13
+resample noise=0.001      2     7    2       13
+resample noise=0.01       0     6    3       15
+same noise=0              0     0   24        0
+same noise=0.001          0    18    6        0
+same noise=0.01           1    20    3        0
+total                     5    58   40       41

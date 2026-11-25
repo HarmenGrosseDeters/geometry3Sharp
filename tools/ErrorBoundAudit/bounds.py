@@ -1077,7 +1077,8 @@ def _exact_edge(p, a, b):
 
 
 def _fast_edge(p, a, b):
-    """the fast path of boundary_edge_angle_x on doubles, in the order of the source (no FMA): the angle and whether the exact zone fires"""
+    """the fast path of boundary_edge_angle_x on doubles, in the order of the source (no FMA): the rounded angle and whether finish_edge_angle
+    sends the edge to the accurate evaluation instead (the cancellation clause, or the branch cut clause with the subnormal guard)"""
     ax, ay, az = a[0] - p[0], a[1] - p[1], a[2] - p[2]
     bx, by, bz = b[0] - p[0], b[1] - p[1], b[2] - p[2]
     yzA2 = ay * ay + az * az
@@ -1089,9 +1090,11 @@ def _fast_edge(p, a, b):
     p1, p2 = ay * bz, az * by
     num = p2 - p1
     den = da * db + (ay * by + az * bz)
-    num_err = 1e-12 * (abs(p1) + abs(p2))
-    den_err = 1e-12 * (da * db + abs(ay * by) + abs(az * bz))
-    return math.atan2(num, den), (den <= den_err and abs(num) <= num_err)
+    s1 = abs(p1) + abs(p2)
+    s2 = da * db + abs(ay * by) + abs(az * bz)
+    an = abs(num)
+    accurate = an + abs(den) < FAST_ANGLE_RATIO * (s1 + s2) or (den <= 1e-12 * s2 and (an <= 1e-12 * s1 or s1 < SUBNORMAL_S1))
+    return math.atan2(num, den), accurate
 
 
 def _angle_error_bound(num, den, s1, s2):
@@ -1168,9 +1171,11 @@ def _sample_edges(c, r, certified):
         if (a[1] == p[1] and a[2] == p[2]) or (b[1] == p[1] and b[2] == p[2]):
             continue
         num, den, s1, s2 = _exact_edge(p, a, b)
-        got, zone = _fast_edge(p, a, b)
-        if not certified and zone:
-            continue                                        # (the exact zone: decided by the exact predicates, sign only)
+        got, accurate = _fast_edge(p, a, b)
+        if certified and accurate:
+            c.violations.append(('CERTIFIED EDGE LEAVES THE ROUNDED PATH', got, 0.0, 0.0))
+        if not certified and accurate:
+            continue                                        # (the accurate evaluation: integer arithmetic, not modelled here)
         exact = math.atan2(float(num), float(den))
         err = abs(got - exact)
         if not certified:
@@ -1179,7 +1184,7 @@ def _sample_edges(c, r, certified):
             # difference there is a real error of 2 pi and stays one: no reduction
             err = min(err, abs(err - 2 * math.pi))
         bound = _angle_error_bound(num, den, s1, s2) + slack
-        limit = min(bound, ONE_E14_D + slack) if certified else bound
+        limit = min(bound, ONE_E14_D + slack) if certified else min(bound, ROUNDED_ANGLE_BOUND)
         ratio = Decimal(err) / limit
         r.observed.append(float(ratio))
         if ratio > 1:
@@ -1187,25 +1192,198 @@ def _sample_edges(c, r, certified):
 
 
 ONE_E14_D = Decimal(1) / Decimal(10 ** 14)
+FAST_ANGLE_RATIO = 0.03125                  # 2^-5, `FastAngleRatio` of the source
+SUBNORMAL_S1 = 9.3326361850321888e-302      # 2^-1000, `SubnormalS1` of the source
+ROUNDED_ANGLE_BOUND = Decimal(2) / Decimal(10 ** 13)    # the 2e-13 the rounded evaluation is kept within
 
 
 @entry('BT-6 the edge angle error against the distance from the edge', WIND,
-       ['double den = da * db + dotYZ;', 'double dotYZ = ay * by + az * bz;', 'double numErr = 1e-12 * (Math.Abs(p1) + Math.Abs(p2));',
-        'if (den <= denErr && Math.Abs(num) <= numErr) {', 'return Math.Atan2(num, den);'],
-       'the computed angle of boundary_edge_angle_x (fast path) differs from the exact one by at most (pi / 2)(2 u S1 + 22 u S2) / hypot(num, den) + 2 pi u + 2 ulp, '
-       'hypot = |a||b| sqrt(2 (1 + U.V) x_u x_v), S1 <= 2 and S2 <= 4 times |a||b| sqrt(x_u x_v)',
-       'the fast path (normal products). UNBOUNDED as p approaches the edge (1 + U.V -> 0): at most 8e-15 / sin(theta / 2), about 1.6e-14 / theta, for the angular distance theta of p from the '
-       'edge, then at most pi; the exact zone (|num| <= numErr and den <= denErr) is a sign guard, not an accuracy guarantee. NOT the A1 of the tree (BT-5: under the certificate theta is bounded below). '
-       'Describes master: the branch fix/exact-winding-open-edge-angle replaces the fast formula where hypot is small, outside the domain the tree relies on',
-       '(pi / 2)(2 u S1 + 22 u S2) / hypot')
+       ['double den = da * db + dotYZ;', 'double dotYZ = ay * by + az * bz;', 'double s1 = Math.Abs(p1) + Math.Abs(p2);',
+        'if (an + Math.Abs(den) < FastAngleRatio * (s1 + s2) || (den <= 1e-12 * s2 && (an <= 1e-12 * s1 || s1 < SubnormalS1))) {',
+        'const double FastAngleRatio = 0.03125;', 'const double SubnormalS1 = 9.3326361850321888e-302;', 'return Math.Atan2(num, den);'],
+       'the rounded angle of finish_edge_angle differs from the exact one by at most (pi / 2)(4.01 u S1 + 22.1 u S2) / hypot(num, den) + 2 pi u + 2 ulp, '
+       'and the rounded path is kept only where |num| + |den| >= 2^-5 (S1 + S2), so hypot >= 0.0220 (S1 + S2)',
+       'the rounded path (normal products in S2; S2 >= 2^-602 on the fast path, S1 may be subnormal). Bounded by 1.8e-13 wherever it is kept: the evaluation near an open edge '
+       '(1 + U.V -> 0, where hypot is small against S1 + S2) goes to the accurate path (exact integers, within 2e-15: not modelled, the note derives it). The sign of the rounded num is the exact one where '
+       'it decides the branch cut (den <= 1e-12 S2): |num| > 1e-12 S1 with S1 >= 2^-1000, the absolute rounding of the products (2^-1074) being below 2^-74 S1; S1 < 2^-1000 goes to the accurate path. '
+       'NOT the A1 of the tree (BT-5: under the certificate the edge keeps the rounded path, margin 10 on the tested quantity)',
+       '(pi / 2)(4.01 u S1 + 22.1 u S2) / hypot')
 def edge_angle_domain(c, r):
-    # theta: the angular distance of p from the edge, so that U.V = -cos(theta) and hypot / (|a||b|) = sqrt(2 (1 - cos theta) x_u x_v) = 2 sin(theta / 2) sqrt(x_u x_v);
-    # (2 S1 + 22 S2) <= (2 * 2 + 22 * 4) |a||b| sqrt(x_u x_v), so error <= (pi / 2)(4 + 88) u / (2 sin(theta / 2)) = 23 pi u / sin(theta / 2) = 8.0e-15 / sin(theta / 2) ~ 1.6e-14 / theta (sin(theta / 2) ~ theta / 2)
-    k = PI_HI / 2 * (2 * 2 + 22 * 4) * U / 2
-    theta_1e12 = 2 * math.asin(float(k) / 1e-12)
-    r.add(*arith('the error is at most %.2e / sin(theta / 2), %.2e / theta' % (float(k), float(2 * k)), 7.9e-15 < float(k) < 8.1e-15 and 1.58e-14 < float(2 * k) < 1.62e-14,
-                 'the coefficient (pi / 2)(2 * 2 + 22 * 4) u / 2; measured in the issue draft: error about 1e-16 / theta (the bound is a worst case of the constants)'))
+    # the decision of finish_edge_angle: rounded where |num| + |den| >= 2^-5 (S1 + S2); hypot >= (|num| + |den|) / sqrt 2
+    hyp_lo = FAST_ANGLE_RATIO / math.sqrt(2)
+    r.add(*arith('the rounded path has hypot >= %.5f (S1 + S2)' % hyp_lo, hyp_lo >= 0.0220 and FAST_ANGLE_RATIO == 2.0 ** -5,
+                 'hypot(num, den) >= (|num| + |den|) / sqrt 2 >= 2^-5 / sqrt 2 (S1 + S2) = 0.022097 (S1 + S2) >= 0.0220 (S1 + S2)'))
+    # |Delta| <= 4.01 u S1 + 22.1 u S2 <= 22.1 u (S1 + S2) (the note's roundings: num 3u + u, da db and dotYZ 22.1u); asin(x) <= (pi / 2) x on [0, 1]
+    ratio = Fraction(221, 10) * U / Fraction(22, 1000)
+    k = float(PI_HI / 2 * ratio)
+    tot = k + float(2 * PI_HI * U) + 2.0 ** -50
+    r.add(*arith('the error of a kept rounded angle is at most %.3e (with 2 pi u + 2 ulp: %.3e), below 2e-13' % (k, tot), tot < 2e-13,
+                 '(pi / 2) 22.1 u (S1 + S2) / (0.0220 (S1 + S2)) = (pi / 2) 1005 u, no dependence on the distance from the edge: the cancellation is cut off by the clause'))
+    # the sign of num where it decides the branch cut: |Delta num| <= 4.01 u S1 + 2^-1074 <= (4.01 u + 2^-74) S1 for S1 >= 2^-1000, below 1e-12 S1 < |num|
+    sign_rel = 4.01 * float(U) + 2.0 ** -74
+    r.add(*arith('the sign of num is exact where |num| > 1e-12 S1 and S1 >= 2^-1000 (error %.3e S1)' % sign_rel,
+                 sign_rel < 1e-12 and 2.0 ** -1074 <= 2.0 ** -74 * SUBNORMAL_S1 and SUBNORMAL_S1 == 2.0 ** -1000,
+                 'the products round to the subnormal grid below 2^-1022 (absolute error 2^-1075 each, 2^-1074 for num); from S1 = 2^-1000 on that is 2^-74 S1; '
+                 'below S1 ~ 2^-1034 it exceeds 1e-12 S1, so the guard 2^-1000 sends S1 < 2^-1000 to the accurate path (the reviewer input of #1514: +pi against -pi)'))
+    # S2 of the fast path is far above the subnormal grid: |yz| >= 2^-100 |a|, 2^-100 <= |a|: da >= yz^2 / (2 |a|) >= 2^-201 |a| >= 2^-301
+    r.add(*arith('the subnormal products of num do not touch the angle bound (S2 >= 2^-602 on the fast path)',
+                 2.0 ** -1074 / 2.0 ** -602 < float(U) * 2.0 ** -100,
+                 'absolute error 2^-1074 of num against 22.1 u S2: 2^-472 relative to S2, below u 2^-100'))
     theta_cert = math.pi - 2 * math.asin(0.25)
-    r.add(*arith('an accepted node keeps theta >= %.2f rad, far above %.1e' % (theta_cert, theta_1e12), theta_cert > theta_1e12 * 100,
-                 'r < d / 4 puts the two unit vectors at most 2 asin(1/4) = 0.505 rad apart: p sees every edge of the node at theta >= pi - 0.505 (`ball_is_small`, r < d / 4, not the rest of `fast_path_certificate`); below theta = %.1e the formula is weaker than the 1e-12 per edge that nodeErr charges' % theta_1e12))
+    r.add(*arith('an accepted node keeps theta >= %.2f rad: |num| + |den| >= 0.32 (S1 + S2), above 2^-5 by the factor 10' % theta_cert, 0.32 / FAST_ANGLE_RATIO > 10,
+                 'r < d / 4 puts the two unit vectors at most 2 asin(1/4) = 0.505 rad apart (`ball_is_small`); the design note: hypot >= 1.93 la lb sqrt(x_u x_v), S1 + S2 <= 6 la lb sqrt(x_u x_v), '
+                 'so every edge of an accepted node keeps the rounded path, bit for bit (the concrete run counts a certified edge on the accurate path as a violation)'))
     _sample_edges(c, r, certified=False)
+
+
+# ------------------------------------------------------------------------------------------------- CertifiedTriangleBounds
+
+CTB = 'queries/CertifiedTriangleBounds.cs'
+CTB_SQ_LO = Fraction(10) ** -290
+CTB_LIN_LO = Fraction(10) ** -140
+
+
+@entry('CTB-1 CertifiedTriangleBounds.LengthUpper fast path', CTB,
+       ['~const double NormalSqLo = 1e-290;', '~const double NormalSqHi = 1e290;',
+        'double dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;',
+        'double s = dx * dx + dy * dy + dz * dz;',
+        'if (s > NormalSqLo && s < NormalSqHi)',
+        'return Math.Sqrt(s) * (1.0 + 1e-15);'],
+       'fast path >= exact |b - a|_2 and keeps section 8 floor (>= 2^-537) and slack (>= 2^-590)',
+       's in (1e-290, 1e290) (fallback to ExactInterval otherwise)',
+       'Math.Sqrt(s) * (1 + 1e-15)',
+       scope='internal static double LengthUpper(')
+def ctb_length_upper(c, r):
+    # Each dk = fl(bk - ak) has |bk - ak| <= (1 + u) |dk|; each square loses (1 - u) and at most ETA underflow;
+    # two additions lose (1 - u)^2: exact |b - a|^2 <= s * (1 + u)^2 / (1 - u)^3 + 3 * (1 + u)^2 * ETA / (1 - u).
+    # With s > 1e-290, the underflow ratio 3 * (1 + u)^2 * ETA / ((1 - u) * s) is below 2e-33 << u.
+    uf = 3 * (1 + U) ** 2 * ETA / ((1 - U) * CTB_SQ_LO)
+    rad_hi = (1 + U) ** 2 / (1 - U) ** 3 + uf
+    # Math.Sqrt(s) * (1 + 1e-15) >= sqrt(s) * (1 - u)^2 * (1 + 1e-15); square both sides for exact rational proof
+    out_lo_sq = (1 - U) ** 4 * frac(1.0 + 1e-15) ** 2
+    margin = (out_lo_sq - 1) / (rad_hi - 1)
+    r.add('rounded up', Verdict(out_lo_sq >= rad_hi, margin,
+                                'squared output floor %.16f vs exact upper %.16f (margin %.2fx)' % (float(out_lo_sq), float(rad_hi), float(margin))))
+    floor_val = Fraction(10) ** -145
+    slack_val = floor_val * (frac(1.0 + 1e-15) * (1 - U) ** 2 - (1 + U) / (1 - U) ** 2)
+    r.add('section 8 floor', Verdict(floor_val > Fraction(1, 2 ** 537) and slack_val > Fraction(1, 2 ** 590),
+                                     floor_val / Fraction(1, 2 ** 537),
+                                     'min value 1e-145 >> 2^-537 and slack %.2e >> 2^-590' % float(slack_val)))
+
+
+@entry('CTB-2 CertifiedTriangleBounds.PointTriangleUpper fast path', CTB,
+       ['~const double NormalLinLo = 1e-140;', '~const double NormalLinHi = 1e140;',
+        'double d0x = x.x - v0.x, q1x = s * (v1.x - v0.x), q2x = t * (v2.x - v0.x), d1x = d0x - q1x, rx = d1x - q2x;',
+        'double d0y = x.y - v0.y, q1y = s * (v1.y - v0.y), q2y = t * (v2.y - v0.y), d1y = d0y - q1y, ry = d1y - q2y;',
+        'double d0z = x.z - v0.z, q1z = s * (v1.z - v0.z), q2z = t * (v2.z - v0.z), d1z = d0z - q1z, rz = d1z - q2z;',
+        'double e = 2.0 * (Math.Abs(q1x) + Math.Abs(q2x) + Math.Abs(q1y) + Math.Abs(q2y) + Math.Abs(q1z) + Math.Abs(q2z))',
+        '+ (Math.Abs(d0x) + Math.Abs(d1x) + Math.Abs(rx) + Math.Abs(d0y) + Math.Abs(d1y) + Math.Abs(ry) + Math.Abs(d0z) + Math.Abs(d1z) + Math.Abs(rz));',
+        'double r2 = rx * rx + ry * ry + rz * rz;',
+        'if (e > NormalLinLo && e < NormalLinHi && r2 < NormalSqHi)',
+        'return Math.Sqrt(r2) * (1.0 + 1e-15) + 1.25e-16 * e;'],
+       'fast path >= exact |x - (v0 + s(v1 - v0) + t(v2 - v0))|_2 for s, t in [0, 1]',
+       'e in (1e-140, 1e140), r2 < 1e290',
+       'Math.Sqrt(r2) * (1 + 1e-15) + 1.25e-16 * e',
+       scope='internal static double PointTriangleUpper(')
+def ctb_point_triangle_upper(c, r):
+    # Norm part: for all r2 in [0, 1e290), exact |r|_2^2 <= r2 / (1 - u)^3 + 3 * ETA / (1 - u) (for subnormal r2,
+    # additions are exact so |r|_2^2 <= r2 + 3*ETA). By sqrt(a + b) <= sqrt(a) + sqrt(b),
+    # |r|_2 <= sqrt(r2) / (1 - u)^1.5 + sqrt(3 * ETA / (1 - u)). The additive sqrt(3 * ETA / (1 - u)) < 2^-536
+    # is absorbed into the forward-error term below. Output norm term after final addition is >= sqrt(r2)*(1-u)^3*(1+1e-15).
+    r_hi_sq = Fraction(1, 1) / (1 - U) ** 3
+    r_lo_sq = (1 - U) ** 6 * frac(1.0 + 1e-15) ** 2
+    r.add('norm term', Verdict(r_lo_sq >= r_hi_sq, (r_lo_sq - 1) / (r_hi_sq - 1),
+                               'norm factor has %.2fx margin over sqrt(r2) roundings + final add' % float((r_lo_sq - 1) / (r_hi_sq - 1))))
+    # Forward-error part (v0-relative form (x - v0) - s*(v1 - v0) - t*(v2 - v0)):
+    # per component: |(x - v0) - d0| <= (u/(1-u))|d0|, |d1 - (d0 - q1)| <= (u/(1-u))|d1|, |rx - (d1 - q2)| <= (u/(1-u))|rx|,
+    # and |s(v1 - v0) - q1| <= (1/(1-u)^2 - 1)|q1| + ETA/(1-u)^2 <= (2u/(1-u)^2)|q1| + ETA/(1-u)^2 (same for q2).
+    # Since u/(1-u) < u/(1-u)^2, across 3 components |delta|_1 <= (u/(1-u)^2) * E_exact + 6*ETA/(1-u)^2;
+    # add sqrt(3*ETA/(1-u)) < 2^-536 for r2 underflow.
+    # Computing e has addition depth <= 9 (so E_exact <= e / (1 - u)^10); multiplying by 1.25e-16 and adding loses (1 - u)^2.
+    r2_uf_sqrt = Fraction(1, 2 ** 536)
+    assert r2_uf_sqrt * r2_uf_sqrt > 3 * ETA / (1 - U)
+    need = U / (1 - U) ** 2 / (1 - U) ** 10 + (6 * ETA / (1 - U) ** 2 + r2_uf_sqrt) / CTB_LIN_LO
+    have = frac(1.25e-16) * (1 - U) ** 2
+    r.add('forward error term', Verdict(have >= need, have / need,
+                                        '1.25e-16 * e covers |delta|_1 + sqrt(3*ETA) with margin %.3fx' % float(have / need)))
+    # Section 8 floor: e > 1e-140 => output >= 1.25e-16 * 1e-140 * (1 - u)^2 >> 2^-537, slack >= (have - need) * 1e-140 >> 2^-590
+    sec8_val = have * CTB_LIN_LO
+    sec8_slack = (have - need) * CTB_LIN_LO
+    r.add('section 8 floor', Verdict(sec8_val > Fraction(1, 2 ** 537) and sec8_slack > Fraction(1, 2 ** 590),
+                                     sec8_slack / Fraction(1, 2 ** 590),
+                                     'min value %.2e >> 2^-537 and slack %.2e >> 2^-590' % (float(sec8_val), float(sec8_slack))))
+
+
+@entry('CTB-3 CertifiedTriangleBounds.CutRounding fast path', CTB,
+       ['if (lambda >= 0 && lambda <= 1) {',
+        'double px = lambda * (b.x - a.x), qx = a.x + px, dx = Math.Abs(c.x - qx);',
+        'double py = lambda * (b.y - a.y), qy = a.y + py, dy = Math.Abs(c.y - qy);',
+        'double pz = lambda * (b.z - a.z), qz = a.z + pz, dz = Math.Abs(c.z - qz);',
+        'double e = 2.0 * (Math.Abs(px) + Math.Abs(py) + Math.Abs(pz)) + (Math.Abs(qx) + Math.Abs(qy) + Math.Abs(qz));',
+        'double d = dx + dy + dz;',
+        'if (e > NormalLinLo && e < NormalLinHi && d < NormalLinHi)',
+        'return d * (1.0 + 1e-15) + 1.25e-16 * e;'],
+       'fast path >= exact |c - (a + lambda (b - a))|_1 for lambda in [0, 1]',
+       'lambda in [0, 1], e in (1e-140, 1e140), d < 1e140 (including subnormal d)',
+       'd * (1 + 1e-15) + 1.25e-16 * e',
+       scope='internal static double CutRounding(')
+def ctb_cut_rounding(c, r):
+    # Normal d: exact |c - q|_1 <= d / (1 - u)^3; output d term after mul and final add is >= d * (1 + 1e-15) * (1 - u)^2.
+    # Subnormal d (0 < d < 2^-1022): component diffs and additions are exact (|c - q|_1 == d), fl(d*(1+1e-15)) >= d by
+    # monotonicity, and the final addition loses at most ETA (covered by + ETA / CTB_LIN_LO in e_need below).
+    d_need = Fraction(1, 1) / (1 - U) ** 3
+    d_have = frac(1.0 + 1e-15) * (1 - U) ** 2
+    r.add('diff term', Verdict(d_have >= d_need, (d_have - 1) / (d_need - 1),
+                               'd*(1+1e-15) covers |c-q|_1 with margin %.2fx' % float((d_have - 1) / (d_need - 1))))
+    # Exact |q - (a + lambda (b - a))|_1 <= (u / (1 - u)^2) * E_exact + 3 * ETA / (1 - u)^2; E_exact <= e / (1 - u)^5.
+    # Add ETA for subnormal d rounding in the final addition.
+    e_need = U / (1 - U) ** 2 / (1 - U) ** 5 + (3 * ETA / (1 - U) ** 2 + ETA) / CTB_LIN_LO
+    e_have = frac(1.25e-16) * (1 - U) ** 2
+    r.add('interp error term', Verdict(e_have >= e_need, e_have / e_need,
+                                       '1.25e-16 * e covers |q - exact|_1 (+ subnormal d) with margin %.3fx' % float(e_have / e_need)))
+
+
+@entry('CTB-4 CertifiedTriangleBounds.CoveringUpper fast path', CTB,
+       ['double ssum = s01 + s12 + s20;',
+        'if (ssum > NormalSqLo && ssum < NormalSqHi && e01 >= 0 && e12 >= 0 && e20 >= 0) {',
+        'double tol = 2e-15 * ssum;',
+        'if (s12 + s20 - s01 <= -tol) return up(0.5 * e01);',
+        'if (s01 + s20 - s12 <= -tol) return up(0.5 * e12);',
+        'if (s01 + s12 - s20 <= -tol) return up(0.5 * e20);',
+        'double lnx = Math.Abs(nx) - 1e-15 * mx;',
+        'double lny = Math.Abs(ny) - 1e-15 * my;',
+        'double lnz = Math.Abs(nz) - 1e-15 * mz;',
+        'double x2 = (lnx > 0 ? lnx * lnx : 0) + (lny > 0 ? lny * lny : 0) + (lnz > 0 ? lnz * lnz : 0);',
+        'if (x2 > NormalSqLo && x2 < NormalSqHi) {',
+        'if (num > NormalSqLo && num < NormalSqHi) {',
+        'double r = num / (2.0 * Math.Sqrt(x2)) * (1.0 + 2e-15);'],
+       'non-acute fast check implies exact q_j + q_k - q_i <= 0; fast circumradius >= exact e01*e12*e20 / (2 |e1 x e2|)',
+       'ssum, x2, num in (1e-290, 1e290), and e01, e12, e20 >= exact edge lengths (ruling out underflow in e01*e12 and num/(2*sqrt(x2)))',
+       'tol = 2e-15 * ssum; lnx = |nx| - 1e-15 * mx; r = num / (2 * sqrt(x2)) * (1 + 2e-15)',
+       scope='internal static double CoveringUpper(')
+def ctb_covering_upper(c, r):
+    # 1) Non-acute check: each exact q_ij differs from computed s_ij by at most ((1+u)^2/(1-u)^3 - 1) s_ij + 4*ETA.
+    # Computing fl(fl(s12 + s20) - s01) adds at most (u/(1-u)) (s12 + s20) + (u/(1-u)) |s12 + s20 - s01| <= (2u/(1-u)) (s12 + s20 + s01).
+    # Exact sum of s_ij is at most ssum / (1 - u)^2, and tol >= 2e-15 * ssum * (1 - u).
+    sq_rel = (1 + U) ** 2 / (1 - U) ** 3 - 1
+    nonacute_need = (sq_rel + 2 * U / (1 - U)) / (1 - U) ** 2 + 12 * ETA / CTB_SQ_LO
+    nonacute_have = frac(2e-15) * (1 - U)
+    r.add('non-acute guard', Verdict(nonacute_have >= nonacute_need, nonacute_have / nonacute_need,
+                                     '2e-15 * ssum covers squared-length & diff errors with margin %.2fx' % float(nonacute_have / nonacute_need)))
+    # 2) Cross-product component lower bound: each edge diff has rel err <= u; product p1 = fl(ay*bz) has exact
+    # error <= (1/(1-u)^3 - 1) |p1| + ETA/(1-u)^2; subtraction nx = fl(p1 - p2) adds <= u |p1 - p2| <= u * mx_exact;
+    # subtracting 1e-15 * mx in float adds <= u |lnx| <= u * mx <= (u/(1-u)) * mx_exact (sum < (2u/(1-u)) * mx_exact),
+    # and mx_exact <= mx / (1 - u). Any component whose square ln_k * ln_k > 0 in binary64 satisfies mx >= ln_k > 2^-538.
+    cross_need = ((Fraction(1, 1) / (1 - U) ** 3 - 1) + 2 * U / (1 - U)) / (1 - U) + 2 * ETA / (1 - U) ** 2 / Fraction(1, 2 ** 538)
+    cross_have = frac(1e-15) * (1 - U)
+    r.add('cross lower bound', Verdict(cross_have >= cross_need, cross_have / cross_need,
+                                       '1e-15 * mx covers cross-product rounding for all non-underflowing ln_k with margin %.2fx' % float(cross_have / cross_need)))
+    # 3) Circumradius upper bound: exact num <= fl(e01*e12*e20) / (1 - u)^2 (e01*e12 >= |cross| > 0.99e-145, no underflow);
+    # exact |cross|^2 >= x2 * (1 - u)^3 - 3 * ETA (where each square rounds down by at most (1-u) and 2 sums lose (1-u)^2);
+    # Math.Sqrt loses (1 - u), 2*sqrt is exact, division and final mul by (1 + 2e-15) lose (1 - u)^2:
+    # squared total needed <= 1 / (1 - u)^13 plus negligible 3*ETA/x2 underflow term (<= 1.5e-33).
+    circ_need_sq = Fraction(1, 1) / (1 - U) ** 13 + 3 * (1 + U) ** 2 * ETA / CTB_SQ_LO
+    circ_have_sq = frac(1.0 + 2e-15) ** 2
+    r.add('circumradius factor', Verdict(circ_have_sq >= circ_need_sq, (circ_have_sq - 1) / (circ_need_sq - 1),
+                                         '(1 + 2e-15) covers num/den/sqrt/div roundings (needed 1/(1-u)^6.5) with margin %.2fx' % float((circ_have_sq - 1) / (circ_need_sq - 1))))
+
