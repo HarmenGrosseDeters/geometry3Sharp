@@ -329,6 +329,8 @@ Limits:
 The HTML report is uploaded as an artifact, and a summary appears in the job summary. Tests of the selection:
 `python3 tests/mutation/test_select_shards.py`.
 
+The Python tests of this directory also run on Windows (Git Bash, `python` instead of `python3`; run them from `tests/mutation`). The tests that start `run_stryker.sh` put a `python3` next to the fake `dotnet` (`shell_shims.py`, as the Store stub of that name fails), and write their files with LF; two signal tests of `test_run_stryker_restore.py` are skipped there (POSIX process groups). `test_exclude_other_sources.py` takes about 20 minutes on a Windows disk with a virus scanner (it applies and undoes the marker on 520 files for each of 70 configs); the rest of the directory takes a few minutes.
+
 To run it locally, from the repository root:
 
 ```

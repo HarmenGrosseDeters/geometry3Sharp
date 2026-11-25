@@ -95,6 +95,7 @@ here in the same PR; history, numbers and reasons stay in [roadmap/](roadmap/) a
 | Boolean: Thingi10K 42327 with its rotated copy, 18-26 s per operation | Dropped as a documented tail, owner 2026-11-19; issue open | Regression rule only | #1047 |
 | Boolean: runtime-watch tail above 20 s (eg 55928 at about 470 s) | Judged by the regression rule only | Runtime watch regression or an issue | [boolean](roadmap/exact-boolean.md#open-for-the-future-2026-11-15) |
 | Boolean: `SolidBooleanPipeline` contacts limit the reduction | About 12 m triangles per contact line; `PairContactsMode` Off | A caller that needs more | [boolean](roadmap/exact-boolean.md#other-open-items) |
+| Boolean: `SolidBooleanPipeline` with an open cutting surface (a sheet as Difference tool): `InputRepair` closes it into the wrong solid; a self-intersecting `MeshAutoRepair` copy is refused (`OpenInput`) | Documented limit (owner 2026-11-22: check + refuse); routing such inputs to the sheet role of #1223 instead of closing them is not built | Owner decision after #1223 | #1211, #1223 |
 | Boolean: imprint slivers at 1-ulp contact | Documented limit (#1034) | None | [boolean](roadmap/exact-boolean.md#open-for-the-future-2026-11-15) |
 | Rounding/repair: RC4b, the drift bound `MaxLength` | Documented limit, owner 2026-11-17 | None | [triage](research/BOOLEAN_TRIAGE_2026-11.md) |
 | Rounding/repair: Reducer quadrics below 1e-280 of the extent | Only on demand | A caller | [wrap](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15) |

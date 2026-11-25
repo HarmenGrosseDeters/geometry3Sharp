@@ -284,8 +284,11 @@ namespace g3
         /// For triangles of a mesh (ia, ib their vertex ids): do they intersect anywhere beyond the vertices or
         /// edge they share? Pairs without shared vertices: Intersects. A shared vertex: an edge opposite it
         /// meets the other triangle, or (coplanar) their corners overlap. A shared edge: coplanar with the far
-        /// corners on the same side (a fold lying flat). Exact. With shared vertices, the triangles must not be
-        /// degenerate (collinear corners, IsDegenerate): the callers skip those.
+        /// corners on the same side (a fold lying flat). Exact. A degenerate triangle (collinear corners, IsDegenerate) is
+        /// the segment hull of its corners: with a shared vertex s it meets the other triangle beyond s iff one of its
+        /// segments from s lies in the other's plane and leaves s into the other's closed corner (or, both degenerate,
+        /// lies on a ray of the other from s); with a shared edge iff both are degenerate and extend beyond the same end
+        /// of the edge (#1551).
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
         public static bool IntersectsBeyondShared(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
@@ -300,6 +303,11 @@ namespace g3
                     }
             if (nShared == 0)
                 return Intersects(ref A, ref B);
+            // degenerate triangles (collinear corners): segments from the shared part, not planes (#1551)
+            // (IsDegenerate: its floating-point prefilter first, so that the common non-degenerate pair pays no exact Orient2d)
+            bool degA = IsDegenerate(ref A), degB = IsDegenerate(ref B);
+            if (degA || degB)
+                return degenerate_beyond_shared(nShared, sa0, sb0, sa1, sb1, ref A, ref B, degA, degB);
             if (nShared >= 2) {
                 // shared edge: overlap only if coplanar with the far corners on the same side of the edge
                 Vector3d a = A[sa0], b = A[sa1], c = A[3 - sa0 - sa1], d = B[3 - sb0 - sb1];
@@ -325,8 +333,80 @@ namespace g3
                 || (same_ray(s2, p2, u2) && same_ray(s2, q2, w2));
         }
 
+        // IntersectsBeyondShared where A or B is degenerate (collinear corners: the triangle is the segment hull of its
+        // corners, the union of its edges). The part of A and B beyond the shared vertex s (or the shared edge a-b) is
+        // convex and contains s (the edge); it is not empty iff it contains points arbitrarily close to s (the edge):
+        // - one shared vertex s, A degenerate: A is the union of the segments s-p and s-q. A segment s-x meets the closed
+        //   triangle B beyond s iff it lies in B's plane and leaves s into B's closed corner at s (B not degenerate), or
+        //   (B degenerate, the union of s-u and s-w) iff x and u or w lie on one ray from s.
+        // - a shared edge a-b with a != b, A degenerate: A lies on the line a-b. A non-degenerate B meets that line
+        //   only in a-b, so the pair meets only in the edge; a degenerate B (on the line too) meets A beyond the edge iff
+        //   both extend beyond the same end. With a = b the edge is a point: as one shared vertex.
+        // Only exact predicates and coordinate comparisons.
+        [MethodImpl(JitHints.Optimize)]
+        static bool degenerate_beyond_shared(int nShared, int sa0, int sb0, int sa1, int sb1, ref Triangle3d A, ref Triangle3d B, bool degA, bool degB)
+        {
+            // all three ids shared: one triangle twice (as before #1551; the edge branch below would depend on the order
+            // of the corners)
+            if (nShared >= 3)
+                return false;
+            if (nShared >= 2) {
+                Vector3d a = A[sa0], b = A[sa1], c = A[3 - sa0 - sa1], d = B[3 - sb0 - sb1];
+                if (a == b)
+                    return beyond_vertex(a, A[(sa0 + 1) % 3], A[(sa0 + 2) % 3], ref A, degA, B[(sb0 + 1) % 3], B[(sb0 + 2) % 3], ref B, degB);
+                if (degA == false || degB == false)
+                    return false;
+                // both on the line a-b: the order along it is the order of a coordinate in which a and b differ
+                int k = a.x != b.x ? 0 : (a.y != b.y ? 1 : 2);
+                int dir = b[k].CompareTo(a[k]);
+                bool cb = c[k].CompareTo(b[k]) == dir, ca = a[k].CompareTo(c[k]) == dir;
+                bool db = d[k].CompareTo(b[k]) == dir, da = a[k].CompareTo(d[k]) == dir;
+                return (cb && db) || (ca && da);
+            }
+            Vector3d s = A[sa0];
+            return beyond_vertex(s, A[(sa0 + 1) % 3], A[(sa0 + 2) % 3], ref A, degA, B[(sb0 + 1) % 3], B[(sb0 + 2) % 3], ref B, degB);
+        }
+
+        // triangles (s, p, q) = A and (s, u, w) = B sharing s, at least one degenerate: do they meet beyond s?
+        static bool beyond_vertex(Vector3d s, Vector3d p, Vector3d q, ref Triangle3d A, bool degA, Vector3d u, Vector3d w, ref Triangle3d B, bool degB)
+        {
+            if (degA && degB)
+                return same_ray_3d(s, p, u) || same_ray_3d(s, p, w) || same_ray_3d(s, q, u) || same_ray_3d(s, q, w);
+            if (degB)
+                return segment_into_corner(s, u, ref A) || segment_into_corner(s, w, ref A);
+            return segment_into_corner(s, p, ref B) || segment_into_corner(s, q, ref B);
+        }
+
+        // does the segment s-x (x != s) meet the non-degenerate triangle T, of which s is a corner, beyond s? Iff x lies
+        // in T's plane and the direction s->x is in T's closed corner at s (T convex: then a piece of the segment at s is
+        // in T; otherwise the segment meets T only at s)
+        [MethodImpl(JitHints.Optimize)]
+        static bool segment_into_corner(Vector3d s, Vector3d x, ref Triangle3d T)
+        {
+            if (x == s || ExactPredicates.Orient3d(T.V0, T.V1, T.V2, x) != 0)
+                return false;
+            int i = T.V0 == s ? 0 : (T.V1 == s ? 1 : 2);
+            Vector3d u = T[(i + 1) % 3], w = T[(i + 2) % 3];
+            int axis = plane_axis(s, u, w);
+            Vector2d s2 = project(s, axis), u2 = project(u, axis), w2 = project(w, axis), x2 = project(x, axis);
+            if (ExactPredicates.Orient2d(s2, u2, w2) < 0) { var t = u2; u2 = w2; w2 = t; }
+            return ExactPredicates.Orient2d(s2, u2, x2) >= 0 && ExactPredicates.Orient2d(s2, x2, w2) >= 0;
+        }
+
+        // x != s, y != s, and x, y on one ray from s: collinear (in all three axis projections) and every coordinate
+        // difference with the same sign
+        static bool same_ray_3d(Vector3d s, Vector3d x, Vector3d y)
+        {
+            if (x == s || y == s)
+                return false;
+            for (int k = 0; k < 3; ++k)
+                if (ExactPredicates.Orient2d(project(s, k), project(x, k), project(y, k)) != 0)
+                    return false;
+            return x.x.CompareTo(s.x) == y.x.CompareTo(s.x) && x.y.CompareTo(s.y) == y.y.CompareTo(s.y) && x.z.CompareTo(s.z) == y.z.CompareTo(s.z);
+        }
+
         /// <summary>
-        /// IntersectsBeyondShared for two non-degenerate triangles whose corners are known to lie in one plane (the caller has the Orient3d of the far corners, all 0): the same result, without
+        /// IntersectsBeyondShared for two non-degenerate triangles whose corners are known to lie in one plane (the caller has the Orient3d of the far corners, all 0): the same result for such triangles (not for degenerate ones, which IntersectsBeyondShared decides by their segments since #1551), without
         /// the Orient3d calls that are then 0 (the coplanar branches of IntersectsBeyondShared and of
         /// SegmentIntersectsTriangle, in the same order, with the same projections). ExactMeshArrangement's pair
         /// search calls it for coplanar neighbours (docs/design/CHEAPER_CONSTRUCTIONS.md, section 4.1).
