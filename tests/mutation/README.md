@@ -56,7 +56,8 @@ master the scheduled runs). Then [run_stryker.sh](run_stryker.sh) with [incremen
    config is the config with `mutate` limited to them (character spans `File.cs{a..b}`, within the config's own span,
    so split shards stay split). The baseline is used only if its `g3-config` equals the config up to the spans of
    `mutate` and the `thresholds` (the same files in the same order, every other key equal; a threshold change voids no
-   baseline, the merged score is judged against the new break); else the shard runs in full. The baseline's
+   baseline, the merged score is judged against the new break; a PR that edits the thresholds still changes its config,
+   so its shard runs in full on master); else the shard runs in full. The baseline's
    spans are carried over the line diff: a part of the config's span that they do not cover (a resplit moved a
    boundary) runs too; a span boundary on a changed line moves to the start of that change, whose lines run anyway.
 2. Stryker runs that config with `--break-at 0`: it mutates only the changed lines.
