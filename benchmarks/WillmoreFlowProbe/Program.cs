@@ -47,7 +47,14 @@ static void CheckTorus(DMesh3 mesh)
         throw new InvalidOperationException($"Invalid torus: {defect}, genus {topology.Genus}.");
 }
 
-if (args.Length == 2 && args[0] == "--model") {
+// The guarded passes also set PreventNormalFlips (on by default; --no-normal-guard reproduces the earlier runs, guarded by
+// PreventSelfIntersections alone): without it the default valence flips after splits can fold triangles against the surface,
+// which the clean check does not see (the orientation stays consistent).
+bool normalGuard = Array.IndexOf(args, "--no-normal-guard") < 0;
+Guard.Normal = normalGuard;
+Console.WriteLine($"normal-guard {normalGuard}");
+
+if (args.Length >= 2 && args[0] == "--model") {
     CompareModel(StandardMeshReader.ReadMesh(args[1]) ?? throw new ArgumentException("Unreadable mesh."));
     return;
 }
@@ -55,7 +62,7 @@ if (args.Length == 2 && args[0] == "--model") {
 if (Array.IndexOf(args, "--acceptance") >= 0) {
     bool timings = Array.IndexOf(args, "--timings") >= 0;
     if (timings) CompareAcceptance(0.8, "budget", report: false);
-    Console.WriteLine("warp policy proposed-R accepted-R previous moved full smooth accepted energy min-quality");
+    Console.WriteLine("warp policy proposed-R accepted-R previous moved full smooth accepted energy min-quality full-inverted smooth-inverted");
     foreach (double warp in new[] { 0.0, 0.8 })
         foreach (string policy in new[] { "baseline", "strict", "budget", "smooth-only" }) {
             var clock = Stopwatch.StartNew();
@@ -76,7 +83,7 @@ foreach (int nv in new[] { 12, 24, 48 }) {
 
 // Descend the measured energy on the one-parameter structured family.
 // Apply each accepted change to a second mesh whose connectivity evolves.
-Console.WriteLine("motion guard step radius delta structured-energy before after vertices pairs rejected");
+Console.WriteLine("motion guard step radius delta structured-energy before after vertices pairs rejected inverted");
 foreach (bool motion in new[] { false, true })
     foreach (bool guard in new[] { false, true })
         RunPasses(motion, guard);
@@ -90,6 +97,7 @@ static void RunPasses(bool motion, bool guard)
     var surface = new RingSurface { Major = radius };
     var remesher = new Remesher(moving) { EnableParallelSmooth = false, EnableParallelProjection = false };
     remesher.PreventSelfIntersections = guard;
+    remesher.PreventNormalFlips = guard && Guard.Normal;
     remesher.SetProjectionTarget(surface);
     remesher.SetTargetEdgeLength(0.25);
     for (int step = 1; step <= (motion ? 4 : 1); ++step) {
@@ -115,7 +123,7 @@ static void RunPasses(bool motion, bool guard)
         remesher.BasicRemeshPass();
         int pairs = MeshRepairMetrics.SelfIntersections(moving);
         Console.WriteLine($"{motion} {guard} {step} {radius:G10} {delta:G10} {Structured(radius):G10} {before:G10} " +
-            $"{Energy(moving):G10} {moving.VertexCount} {pairs} {remesher.SelfIntersectionsRejected}");
+            $"{Energy(moving):G10} {moving.VertexCount} {pairs} {remesher.SelfIntersectionsRejected} {Guard.Inverted(moving, radius)}");
         if (pairs > 0 && !guard) break;
         CheckTorus(moving);
     }
@@ -137,6 +145,7 @@ static void CompareAcceptance(double warp, string policy, bool report = true)
         var selected = moved;
         double selectedEnergy = before, quality = WorstQuality(moved);
         double full = double.NaN, smooth = double.NaN;
+        int fullInverted = -1, smoothInverted = -1;
         string choice = "move";
         if (policy != "baseline") {
             foreach (bool connectivity in new[] { true, false }) {
@@ -144,7 +153,8 @@ static void CompareAcceptance(double warp, string policy, bool report = true)
                 // Each proposal starts from the same clean moved mesh; rejection is lossless.
                 var trial = new DMesh3(moved);
                 var remesher = new Remesher(trial) {
-                    PreventSelfIntersections = true, EnableParallelSmooth = false, EnableParallelProjection = false,
+                    PreventSelfIntersections = true, PreventNormalFlips = Guard.Normal,
+                    EnableParallelSmooth = false, EnableParallelProjection = false,
                     EnableFlips = connectivity, EnableSplits = connectivity, EnableCollapses = connectivity
                 };
                 remesher.SetProjectionTarget(new RingSurface { Major = next });
@@ -152,8 +162,9 @@ static void CompareAcceptance(double warp, string policy, bool report = true)
                 remesher.BasicRemeshPass();
                 CheckTorus(trial);
                 double energy = Energy(trial), trialQuality = WorstQuality(trial);
-                if (connectivity) full = energy;
-                else smooth = energy;
+                int inverted = Guard.Inverted(trial, next);
+                if (connectivity) { full = energy; fullInverted = inverted; }
+                else { smooth = energy; smoothInverted = inverted; }
                 double ceiling = policy == "strict" ? Math.Min(previous, before) : previous;
                 if (energy <= ceiling && trialQuality > quality) {
                     selected = trial;
@@ -174,7 +185,7 @@ static void CompareAcceptance(double warp, string policy, bool report = true)
         }
         current = selected;
         if (report) Console.WriteLine($"{warp:G2} {policy} {next:G10} {radius:G10} " +
-            $"{previous:G10} {before:G10} {full:G10} {smooth:G10} {choice} {selectedEnergy:G10} {quality:G9}");
+            $"{previous:G10} {before:G10} {full:G10} {smooth:G10} {choice} {selectedEnergy:G10} {quality:G9} {fullInverted} {smoothInverted}");
     }
 }
 
@@ -197,7 +208,8 @@ static void CompareModel(DMesh3 input)
             var candidate = new DMesh3(input);
             var pass = new Remesher(candidate) {
                 EnableFlips = full, EnableSplits = full, EnableCollapses = full,
-                PreventSelfIntersections = true, EnableParallelSmooth = false, EnableParallelProjection = false
+                PreventSelfIntersections = true, PreventNormalFlips = Guard.Normal,
+                EnableParallelSmooth = false, EnableParallelProjection = false
             };
             pass.SetTargetEdgeLength(h);
             pass.SetProjectionTarget(surface);
@@ -227,6 +239,24 @@ static double WorstQuality(DMesh3 mesh)
         minimum = Math.Min(minimum, q);
     }
     return minimum;
+}
+
+internal static class Guard
+{
+    public static bool Normal = true;
+
+    // Triangles whose normal points against the outward normal of the smooth ring torus (major radius R, unit tube) at their
+    // centroid: folds, which the clean check does not see.
+    public static int Inverted(DMesh3 mesh, double major)
+    {
+        int count = 0;
+        foreach (int t in mesh.TriangleIndices()) {
+            Vector3d c = mesh.GetTriCentroid(t);
+            Vector3d center = major * new Vector3d(c.x, c.y, 0).Normalized;
+            if (mesh.GetTriNormal(t).Dot(c - center) < 0) count++;
+        }
+        return count;
+    }
 }
 
 internal sealed class RingSurface : IProjectionTarget
