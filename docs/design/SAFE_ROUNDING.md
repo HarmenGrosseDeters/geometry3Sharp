@@ -1347,3 +1347,5 @@ A triangle with an edge of 1e-10 and two of 1e-7 cannot be lifted above the dege
 
 **What it repairs, measured** (`BooleanInputOrder search`, the near-coincident plates; counts in docs/research/ROUNDING_DEGENERATE_LEFT_2026-11.md section 10.3, which is the one place that states them): about half of the left-over degenerate triangles of the two searches, no new hit.
 What it does not: a triangle with two fixed corners (the apex alone changes the area), and the states where every lifting position makes an intersection (a fan of 1e-7 edges between two layers 3e-10 apart).
+
+**Acceptance on the cohort** (the job of #755, 2026-11-25: all 5,413 models of the D1 cohort, 16,239 operations; base master ca9b55291 against the branch): no operation newly unclean; 1 becomes clean (86593 intersection, one joint move); the 16,036 rounding clean operations keep their result hash; no operation with more defects; `MaxDrift` never above `MaxLength`; the joint stage ran once in all 16,239 operations; `EvaluationLimitReached` false everywhere; time sums +1.2 % (operations) and +3.0 % (rounding), noisy (4 workers on one VM).

@@ -440,7 +440,7 @@ the cluster `Cluster 36 3 8` that stayed unclean without the limit is now repair
 
 ### 10.5 Not verified
 
-Other families than these plates (`families` mode, the cohort of the D1 runs, Thingi10K) were not run; the cohort acceptance run (the comparable change #755 had one over 16 239 operations) and the private cases of the owner are still owed (done by the main session, results local only).
+The `families` mode was not run. The cohort acceptance run (the job of #755 on all 5,413 models of the Thingi10K target class, 16,239 operations, base master ca9b55291 against this branch, 2026-11-25): no operation newly unclean; 1 unclean operation becomes clean (Thingi10K 86593 intersection: 2 degenerate triangles left on master, 0 after one joint move); the 16,036 operations that are rounding clean on master keep their result hash; no operation with more defects; `MaxDrift` never above `MaxLength`, deciles unchanged; the joint stage ran in that one operation only; `EvaluationLimitReached` false everywhere in both builds; time sums +1.2 % (operations) and +3.0 % (rounding), noisy. Observed by the owner on private inputs: outcomes unchanged except one result that no longer needs the grid retry.
 The time on large meshes was not measured beyond the table of section 10.6; the remaining half (the dome fans, two fixed corners) needs another edit (section 6, options 2 and 3) and is not addressed.
 
 ### 10.6 Review of the joint move (2026-11-24) and the fixes
