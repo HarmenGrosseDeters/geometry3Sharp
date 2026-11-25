@@ -154,8 +154,9 @@ namespace geometry3Sharp.Tests
         {
             // from a pool thread and from a dedicated thread, every variant (chunks of 1 up to 4096 items)
             var hits = new int[n];
-            Assert.True(System.Threading.Tasks.Task.Run(() => AllVariants(n, hits)).Wait(30000));
-            Assert.True(OnDedicatedThread(() => AllVariants(n, hits), 30000));
+            // (generous for 100003 items, which take about 70 ms; a caller left waiting fails here, not after the 5 s of a test)
+            Assert.True(System.Threading.Tasks.Task.Run(() => AllVariants(n, hits)).Wait(4000));
+            Assert.True(OnDedicatedThread(() => AllVariants(n, hits), 4000));
             Assert.All(hits, h => Assert.Equal(2 * Variants, h));
         }
 
@@ -261,6 +262,46 @@ namespace geometry3Sharp.Tests
             public void Dispose() { }
             public IEnumerator<int> GetEnumerator() => this;
             System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => this;
+        }
+
+        [Fact]
+        public void Contention_ManySmallLoopsFromSeveralThreads_EveryLoopCompleteAtReturn()
+        {
+            // chunks of one item (the test hook) and loops of 2 to 64 items from 4 threads at once, for about a second: when a loop
+            // returns, each of its items ran exactly once (a lost update of the counter shows as an item run twice, an early wake-up
+            // of the caller as an item not yet run, or run later into the next loop's counts); a caller left waiting fails through
+            // the deadline, well under 5 s
+            const int threads = 4;
+            const long budgetMs = 1000, deadlineMs = 4000;
+            int bad = 0;
+            long loops = 0;
+            var workers = Enumerable.Range(0, threads).Select(t => new Thread(() => {
+                gParallel.ChunkForTestsOnThisThread = 1;
+                try {
+                    var rnd = new Random(t + 1);
+                    var hits = new int[64];
+                    Action<int> item = (i) => { Interlocked.Increment(ref hits[i]); Thread.SpinWait((i % 5) * 20); };
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    while (sw.ElapsedMilliseconds < budgetMs) {
+                        int n = 2 + rnd.Next(63);
+                        Array.Clear(hits, 0, hits.Length);
+                        switch (rnd.Next(3)) {
+                            case 0: gParallel.ForRange(n, item); break;
+                            case 1: gParallel.ForRange(n, () => 0, (i, l) => item(i)); break;
+                            default: gParallel.ForEach(Enumerable.Range(0, n).ToArray(), item); break;
+                        }
+                        for (int i = 0; i < hits.Length; ++i)
+                            if (Volatile.Read(ref hits[i]) != (i < n ? 1 : 0)) { Interlocked.Increment(ref bad); break; }
+                        Interlocked.Increment(ref loops);
+                    }
+                } finally { gParallel.ChunkForTestsOnThisThread = 0; }
+            }) { IsBackground = true }).ToList();
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            workers.ForEach(w => w.Start());
+            bool finished = workers.All(w => w.Join((int)Math.Max(0, deadlineMs - clock.ElapsedMilliseconds)));
+            Assert.True(finished, $"a loop did not return within {deadlineMs} ms ({Interlocked.Read(ref loops)} loops done)");
+            Assert.Equal(0, bad);
+            Assert.True(Interlocked.Read(ref loops) > 100, $"only {loops} loops ran");
         }
 
         [Fact]

@@ -432,10 +432,15 @@ namespace g3
         // the default pool whatever TaskScheduler.Current is (Parallel.For queued to TaskScheduler.Current; a ConcurrentExclusiveSchedulerPair
         // with a concurrency level of 2 did not limit its loops either: 4 items at once were measured on 4 cores).
 
+        /// <summary>
+        /// for tests (contention): every chunk of the loops started on this thread has this size (0: the guided chunks of production)
+        /// </summary>
+        [ThreadStatic] internal static int ChunkForTestsOnThisThread;
+
         // the state shared by the caller and the helpers of one loop
         class CallerFirstLoop
         {
-            public int Next, Count, MinChunk, Parts;
+            public int Next, Count, MinChunk, Parts, FixedChunk;
             public int Active, Closed, Queued, MaxHelpers;
             public volatile bool Stop;
             public List<Exception> Errors;
@@ -465,10 +470,9 @@ namespace g3
                 if (Volatile.Read(ref Next) < Count && Interlocked.Increment(ref Queued) <= MaxHelpers) {
                     try {
                         ThreadPool.QueueUserWorkItem(help);
-                    } catch {
-                        // (no helper is queued: this one leaves, so that the caller does not wait for it)
-                        Leave();
-                        throw;
+                    } catch (Exception) {
+                        // (no further helper: this one stays and works, the caller finishes the rest; an exception thrown on to the pool
+                        // thread would end the process)
                     }
                 }
                 return true;
@@ -488,6 +492,7 @@ namespace g3
                 Parts = MaxHelpers + 1;
                 // (the smallest chunk, 1/64 of a participant's share: the end of the loop balances unequal items)
                 MinChunk = Math.Max(1, Math.Min(4096, n / (64 * Parts)));
+                FixedChunk = ChunkForTestsOnThisThread;
                 if (MaxHelpers > 0) {
                     Queued = 1;
                     ThreadPool.QueueUserWorkItem(help);
@@ -505,7 +510,7 @@ namespace g3
                         return false;
                     }
                     int rest = Count - i0;
-                    i1 = i0 + Math.Min(rest, Math.Max(MinChunk, rest / (2 * Parts)));
+                    i1 = i0 + Math.Min(rest, (FixedChunk > 0) ? FixedChunk : Math.Max(MinChunk, rest / (2 * Parts)));
                     // (the chunk [i0, i1) is this caller's only if Next was still i0: the chunks of all participants are disjoint and cover
                     // [0, Count); Next never exceeds Count)
                     if (Interlocked.CompareExchange(ref Next, i1, i0) == i0)
@@ -591,9 +596,15 @@ namespace g3
         /// <summary> body(i) for every i in [from, to), caller first </summary>
         static void caller_first_range(int from, int to, Action<int> body)
         {
-            int n = to - from;
-            if (n <= 0)
+            long span = (long)to - from;
+            if (span <= 0)
                 return;
+            if (span > int.MaxValue) {
+                // (more indices than an int counts, only for a negative from: the loop of before)
+                Parallel.For(from, to, body);
+                return;
+            }
+            int n = (int)span;
             var loop = new CallerFirstRange() { From = from, Body = body };
             loop.HelpCallback = loop.Help;
             loop.Start(n, loop.HelpCallback);
@@ -604,9 +615,14 @@ namespace g3
         /// <summary> body(i, local) for every i in [from, to), caller first; local from localInit once per participant that takes a chunk </summary>
         static void caller_first_range<TLocal>(int from, int to, Func<TLocal> localInit, Action<int, TLocal> body)
         {
-            int n = to - from;
-            if (n <= 0)
+            long span = (long)to - from;
+            if (span <= 0)
                 return;
+            if (span > int.MaxValue) {
+                Parallel.For(from, to, localInit, (i, state, l) => { body(i, l); return l; }, (l) => { });
+                return;
+            }
+            int n = (int)span;
             var loop = new CallerFirstRange<TLocal>() { From = from, LocalInit = localInit, Body = body };
             loop.HelpCallback = loop.Help;
             loop.Start(n, loop.HelpCallback);
