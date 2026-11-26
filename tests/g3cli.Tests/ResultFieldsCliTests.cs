@@ -281,6 +281,64 @@ namespace g3cli.Tests
             Assert.Equal("lost_far_part", S(Commands.ReasonCode("x; " + MeshRobustRepair.LostFarPart)));
         }
 
+        // the outer cube (half size 1) with an inner cube of half size 0.5 in the same orientation: an outward inner shell (#1566), the nesting is ambiguous
+        static DMesh3 NestedOutward()
+        {
+            DMesh3 outer = new TrivialBox3Generator { Box = new Box3d(new Vector3d(1, 1, 1), new Vector3d(1, 1, 1)) }.Generate().MakeDMesh();
+            DMesh3 inner = new TrivialBox3Generator { Box = new Box3d(new Vector3d(1, 1, 1), new Vector3d(0.5, 0.5, 0.5)) }.Generate().MakeDMesh();
+            MeshEditor.Append(outer, inner);
+            return outer;
+        }
+
+        // an open bowl (a sphere cut at z = -0.2, #1575): the alpha wrap of it is a thin shell around the surface
+        static DMesh3 Bowl()
+        {
+            DMesh3 b = new Sphere3Generator_NormalizedCube() { Radius = 0.5, EdgeVertices = 8 }.Generate().MakeDMesh();
+            foreach (int tid in b.TriangleIndices().Where(t => b.GetTriCentroid(t).z > -0.2).ToList())
+                b.RemoveTriangle(tid, true);
+            return b;
+        }
+
+        string Write(string name, DMesh3 mesh)
+        {
+            string path = m.Path_(name);
+            Assert.Equal(IOCode.Ok, StandardMeshWriter.WriteMesh(path, mesh, WriteOptions.Defaults).code);
+            return path;
+        }
+
+        [Fact]
+        public void Repair_NestedOutwardShell_HasTheNestingAmbiguousCode()
+        {
+            string input = Write("nested_out.obj", NestedOutward()), output = m.Path_("nested_out_result.obj");
+            var (exit, r) = Run("repair", input, output, "--measure-result-iou", "true", "--compact");
+            Assert.Equal("nesting_ambiguous", S(r["result_code"]));
+            Assert.StartsWith(MeshRobustRepair.NestingAmbiguous, S(r["result_reason"]));
+        }
+
+        [Fact]
+        public void Repair_ThinShellWrap_HasTheThinShellWrapCode()
+        {
+            string input = Write("bowl.obj", Bowl()), output = m.Path_("bowl_result.obj");
+            var (exit, r) = Run("repair", input, output, "--wrap-relative-alpha", "50", "--wrap-relative-offset", "500", "--solidify-resolution", "80",
+                "--simplify-alpha-wrap", "false", "--compact");
+            Assert.Equal(ResultCodes.ExitCode("operation_failed"), exit);
+            Assert.Equal("thin_shell_wrap", S(r["result_code"]));
+            Assert.Equal(MeshRobustRepair.ThinShellWrap, S(r["result_reason"]));
+        }
+
+        [Fact]
+        public void Repair_EveryResultReasonOfMeshRobustRepair_HasACode()
+        {
+            // the next new reason constant must get a code in Commands.ReasonCode (the TargetLimit* texts are values of AlphaWrapTargetLimit, not of ResultReason)
+            var reasons = typeof(MeshRobustRepair).GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.DeclaredOnly)
+                .Where(f => f.IsLiteral && f.FieldType == typeof(string) && !f.Name.StartsWith("TargetLimit")).ToList();
+            Assert.True(reasons.Count >= 9, reasons.Count + " reason constants");
+            foreach (var f in reasons)
+                Assert.True(Commands.ReasonCode((string)f.GetRawConstantValue()) != null, "MeshRobustRepair." + f.Name + " has no code in Commands.ReasonCode");
+            Assert.Equal("nesting_ambiguous", S(Commands.ReasonCode(MeshRobustRepair.NestingAmbiguous)));
+            Assert.Equal("thin_shell_wrap", S(Commands.ReasonCode(MeshRobustRepair.ThinShellWrap)));
+        }
+
         [Fact]
         public void Repair_OutsideRange_HasItsCodeInTheErrorResult()
         {
