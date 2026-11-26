@@ -1427,3 +1427,36 @@ Headline (4 cores, the checker serial): certificate R 0.6-4.0 times the input me
 runs certify or are inconclusive by the documented limits (4 runs with sliver triangles not covered, 1 with removed parts); the checker as
 built 1.1-118 times the boolean on the fuzz runs (median 9.6), 2-2350 on the procedural cases, the outliers above 20 s in C2's in-plane
 straddle loop and in C5 on tori. Step B adds `certify file [reps] [seeds] [filter]` (certificate bytes against the output, write / read / stand-alone check times, verdict equal to the in-process one; `perf/certify_file_step_b.txt`). Step A (box filters in C2 and a double filter in C5, test code only) removed both: see section 8 of the note.
+
+### The checker on Thingi10K (`certify thingi`; 2026-11-25)
+
+For [CERTIFICATE_HARDENING_2026-11.md](../../docs/research/CERTIFICATE_HARDENING_2026-11.md). `CertifyThingi.cs` runs one case
+(all three operations) through `ExactMeshBoolean` with the certificate recorded and then `BooleanCertificate.Check`, and writes one
+JSON row per operation: model ids, sizes, status, verdict (certified, uncovered, removed parts, rejected with its clause, not
+applicable), times. No mesh or derived mesh is written. The driver `data/certify_thingi.py` plans the cases from the committed lists
+(self-unions of `clean_models.csv` in a SplitMix64 order with seed 20261125, the first pairs of `pairs.csv`, the first pairs per
+variant of `contact_pairs.csv`, each model at most `--max-tris` triangles), fetches the models at run time, and runs one process per
+case with a timeout:
+
+```
+python3 data/certify_thingi.py plan cases.jsonl --self 20 --pairs 20 --contact 3 --max-tris 20000
+python3 data/certify_thingi.py fetch <dir> cases.jsonl          # models -> <dir>/meshes (huggingface; outside the repository)
+python3 data/certify_thingi.py run cases.jsonl <dir> out.jsonl --timeout 900
+python3 data/certify_thingi.py summary out.jsonl
+# one case by hand; split=N sets SplitDepth, nocheck times the boolean alone, clauses times C0..C5 on stderr
+dotnet run -c Release -- certify thingi contact <a.stl> <b.stl> ulp-shift-few 0 1 0 ops=union clauses
+```
+
+The reusable entry point is `CertifyThingi.CertifyRow(a, b, op, split, noCheck, clauses)`: two meshes and an operation in, one
+verdict row out (the meshes are not changed, nothing is written). The row, one JSON object per operation (the command adds `kind`,
+`a`, `b` and `variant`, the driver `case` and `wall_s`):
+
+| Key | Meaning |
+|---|---|
+| `op` | `union`, `intersection` or `difference` |
+| `trisA`, `trisB`, `inputs_clean` | input triangles; both inputs clean by `MeshRobustRepair.NotCleanReason` |
+| `t_bool_ms`, `status`, `result_tris` | the boolean's time, `Status` and result triangles |
+| `t_check_ms`, `pieces`, `uncovered` | the checker's time (`Check()`), the arrangement's pieces, triangles C5 could not prove covered |
+| `verdict` | `certified`, `uncovered` (no violation, coverage not proven), `removed parts` (the rounding removed parts, listed), `rejected`, `not applicable`, `boolean failed`, `boolean exception`, `checker exception`, `boolean only` (`nocheck`), `error` (load or placement), `timeout` / `process failed` (driver) |
+| `clause`, `message` | the failing clause of a rejection (`C0`, `C1`, `C2`, `C3/C4`, `C5`), and `Check()`'s text (at most 400 characters) |
+| `split` | `SplitDepth`, where it was set |
