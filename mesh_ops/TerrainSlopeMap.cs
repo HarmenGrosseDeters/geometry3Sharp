@@ -1471,15 +1471,24 @@ namespace gs
                         continue;
                     }
                     if (strict && (orient < 0 || overlaps(mesh, a, b, c))) {
-                        if (is_sliver(pa, pb, pc, radius) == false) throw new NonManifoldRealization();
-                        dropped.Add(new Index3i(a, b, c));
-                        continue;
+                        if (is_sliver(pa, pb, pc, radius)) {
+                            dropped.Add(new Index3i(a, b, c));
+                            continue;
+                        }
+                        // (a real triangle lies over appended ones: those must be slivers, which go instead of it)
+                        if (orient < 0) throw new NonManifoldRealization();
+                        foreach (int over in overlapped(mesh, a, b, c)) {
+                            Index3i ov = mesh.GetTriangle(over);
+                            if (is_sliver(mesh.GetVertex(ov.a).xy, mesh.GetVertex(ov.b).xy, mesh.GetVertex(ov.c).xy, radius) == false) throw new NonManifoldRealization();
+                            dropped.Add(ov);
+                            mesh.RemoveTriangle(over, false, false);
+                        }
                     }
                     int tid = mesh.AppendTriangle(a, b, c, face.Key);
                     if (tid < 0) throw new NonManifoldRealization();
                 }
             }
-            stitch(mesh, dropped);
+            if (strict) zip_strips(mesh, dropped, radius); else stitch(mesh, dropped);
             return dropped.Count;
         }
 
@@ -1516,6 +1525,23 @@ namespace gs
             return same_direction(mesh, a, b) || same_direction(mesh, b, c) || same_direction(mesh, c, a);
         }
 
+        // the triangles of the mesh that run along an edge of (a, b, c) in the same direction
+        static List<int> overlapped(DMesh3 mesh, int a, int b, int c)
+        {
+            var result = new List<int>();
+            foreach (var uv in new[] { new Index2i(a, b), new Index2i(b, c), new Index2i(c, a) }) {
+                int e = mesh.FindEdge(uv.a, uv.b);
+                if (e < 0) continue;
+                Index2i et = mesh.GetEdgeT(e);
+                foreach (int t in new[] { et.a, et.b }) {
+                    if (t < 0 || result.Contains(t)) continue;
+                    Index3i tv = mesh.GetTriangle(t);
+                    if ((tv.a == uv.a && tv.b == uv.b) || (tv.b == uv.a && tv.c == uv.b) || (tv.c == uv.a && tv.a == uv.b)) result.Add(t);
+                }
+            }
+            return result;
+        }
+
         static bool same_direction(DMesh3 mesh, int u, int v)
         {
             int e = mesh.FindEdge(u, v);
@@ -1528,6 +1554,71 @@ namespace gs
             }
             return false;
         }
+
+        // The strict counterpart of stitch (#1539): the dropped slivers and the kept slivers that share an edge with them (also
+        // chained: a sliver sharing an edge with one of those) are removed, which leaves a cavity of no area along one line,
+        // bounded by the edges of real triangles of both sides. It is closed by the vertices of the removed slivers: each one that
+        // lies strictly inside a boundary edge, within the sliver bound of its line, splits the triangle of that edge there, until no
+        // vertex does. Then the two sides of the cavity have the same vertices in the same order, and their triangles share
+        // edges. stitch alone needs the long edge of each dropped sliver to be a boundary edge, and the edge from the split
+        // vertex to the apex not to exist: both fail where slivers of different faces lie one over another (the kept sliver
+        // of a face, whose diagonal is that very edge). A split that would turn a triangle over or doubles an edge throws
+        // NonManifoldRealization.
+        internal static void zip_strips(DMesh3 mesh, List<Index3i> dropped, double radius)
+        {
+            var strip = new HashSet<long>();
+            var vertices = new SortedSet<int>();
+            Action<int, int, int> addTriangle = (a, b, c) => {
+                strip.Add(edge_key(a, b)); strip.Add(edge_key(b, c)); strip.Add(edge_key(c, a));
+                vertices.Add(a); vertices.Add(b); vertices.Add(c);
+            };
+            foreach (Index3i d in dropped) addTriangle(d.a, d.b, d.c);
+            var removed = new List<int>();
+            for (bool again = true; again;) {
+                again = false;
+                foreach (int t in mesh.TriangleIndices()) {
+                    Index3i tv = mesh.GetTriangle(t);
+                    if (strip.Contains(edge_key(tv.a, tv.b)) == false && strip.Contains(edge_key(tv.b, tv.c)) == false && strip.Contains(edge_key(tv.c, tv.a)) == false)
+                        continue;
+                    if (is_sliver(mesh.GetVertex(tv.a).xy, mesh.GetVertex(tv.b).xy, mesh.GetVertex(tv.c).xy, radius) == false) continue;
+                    if (removed.Contains(t)) continue;
+                    removed.Add(t);
+                    addTriangle(tv.a, tv.b, tv.c);
+                    again = true;
+                }
+            }
+            foreach (int t in removed) mesh.RemoveTriangle(t, false, false);
+            for (bool again = vertices.Count > 0; again;) {
+                again = false;
+                foreach (int v in vertices) {
+                    Vector2d pv = mesh.GetVertex(v).xy;
+                    foreach (int e in mesh.BoundaryEdgeIndices().ToList()) {
+                        Index2i ev = mesh.GetEdgeV(e);
+                        int p = ev.a, q = ev.b;
+                        if (v == p || v == q) continue;
+                        Vector2d pp = mesh.GetVertex(p).xy, pq = mesh.GetVertex(q).xy;
+                        if ((pv - pp).Dot(pq - pp) <= 0 || (pv - pq).Dot(pp - pq) <= 0) continue;
+                        if (is_sliver(pp, pq, pv, radius) == false) continue;
+                        int t = mesh.GetEdgeT(e).a;
+                        Index3i tv = mesh.GetTriangle(t);
+                        if (tv.a == v || tv.b == v || tv.c == v) continue;
+                        int x = tv.a != p && tv.a != q ? tv.a : (tv.b != p && tv.b != q ? tv.b : tv.c);
+                        bool forward = (tv.a == p && tv.b == q) || (tv.b == p && tv.c == q) || (tv.c == p && tv.a == q);
+                        int g = mesh.GetTriangleGroup(t);
+                        if (mesh.FindEdge(v, x) >= 0) throw new NonManifoldRealization();
+                        Index3i first = forward ? new Index3i(p, v, x) : new Index3i(q, v, x), second = forward ? new Index3i(v, q, x) : new Index3i(v, p, x);
+                        foreach (Index3i n in new[] { first, second })
+                            if (ExactPredicates.Orient2d(mesh.GetVertex(n.a).xy, mesh.GetVertex(n.b).xy, mesh.GetVertex(n.c).xy) <= 0) throw new NonManifoldRealization();
+                        mesh.RemoveTriangle(t, false, false);
+                        if (mesh.AppendTriangle(first.a, first.b, first.c, g) < 0 || mesh.AppendTriangle(second.a, second.b, second.c, g) < 0)
+                            throw new NonManifoldRealization();
+                        again = true;
+                    }
+                }
+            }
+        }
+
+        static long edge_key(int a, int b) { return a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a; }
 
         // A dropped triangle (rounded corners exactly collinear) leaves its middle corner m on the long edge (e0, e1) of
         // the triangle on the other side: that triangle is split at m, which lies exactly on the edge, so the mesh stays

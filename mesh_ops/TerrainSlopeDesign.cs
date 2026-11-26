@@ -436,7 +436,7 @@ namespace gs
             Volume = PlanArea = SlopeArea = 0; CutVolume = FillVolume = CutArea = FillArea = 0;
             lastOverlay = null; lastPieces = null; TargetHeightLines = new List<TargetHeightLine>(); AutoCut = AutoFill = null;
             PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; Realizations = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
-            MergedPositions = 0; MergeLambdaRequired = 0; NeedleFlips = 0; LastRealized = null;
+            MergedPositions = 0; MergeLambdaRequired = 0; NeedleFlips = 0; LastRealized = null; strictRealization = false;
             MaxMergeDistance = 0; BandMerges = 0; RegionNeedles = RegionNeedleHits = 0; SkippedTerrainCopies = 0; CompositeBuilds = 0; UsedMergeRadius = UsedBandMergeRadius = 0; AttemptProblemAltitudes = new List<List<double>>();
             // (a cancelled or failed run can leave them set)
             reachedCap = capMayGrow = false;
@@ -1106,7 +1106,31 @@ namespace gs
 
         bool reachedCap, capMayGrow;
 
+        // the realization drops the slivers that the rounding turned over (SlopeMap strict), from the first realization on
+        bool strictRealization;
+
+        static bool turned_over(DMesh3 mesh, int t)
+        {
+            if (mesh.IsTriangle(t) == false) return false;
+            Index3i tv = mesh.GetTriangle(t);
+            return ExactPredicates.Orient2d(mesh.GetVertex(tv.a).xy, mesh.GetVertex(tv.b).xy, mesh.GetVertex(tv.c).xy) <= 0;
+        }
+
+        // (#1539: a triangle that the rounding turned over, left in the realization, fails every margin; the strict realization
+        // drops such slivers. Only where the attempts have failed with such a triangle: a design that passes, also after raising
+        // the margin, gives the result it always gave)
         Statuses attempts(List<InPiece> pieces, List<List<Vector3d>> toePts, double H, bool fill)
+        {
+            sawTurnedOver = false; strictRealization = false;
+            Statuses st = attempts_once(pieces, toePts, H, fill);
+            if (st != Statuses.SlopeViolation || sawTurnedOver == false) return st;
+            strictRealization = true;
+            try { return attempts_once(pieces, toePts, H, fill); } finally { strictRealization = false; }
+        }
+
+        bool sawTurnedOver;
+
+        Statuses attempts_once(List<InPiece> pieces, List<List<Vector3d>> toePts, double H, bool fill)
         {
             // margins (TERRAIN.md 5.4, plan "Departures" 1)
             // the check decides (5.4): a support failure (ii) raises the toe lowering λ to what the realized output
@@ -1158,6 +1182,7 @@ namespace gs
                 // (the altitudes on the mesh the ids are of: the realization, or the clipped region of the composite)
                 if (br.BadMesh != null)
                     AttemptProblemAltitudes.Add(br.Bad.Select(t => SlopeMap.TriangleAltitude(br.BadMesh, t)).ToList());
+                if (br.BadMesh != null && br.Bad.Any(t => turned_over(br.BadMesh, t))) sawTurnedOver = true;
                 if (br.RebuildLambda > 0) {
                     lambdaReq = br.RebuildLambda;
                     continue;
@@ -1602,8 +1627,10 @@ namespace gs
             // (#1539: where neither realization is manifold, the same two with strict rounding, which drops the slivers that
             // the rounding turned over or laid over a neighbour)
             var attempts = new List<KeyValuePair<bool, bool>>();      // (merge, strict)
-            if (mayMerge) attempts.Add(new KeyValuePair<bool, bool>(true, false));
-            attempts.Add(new KeyValuePair<bool, bool>(false, false));
+            if (strictRealization == false) {
+                if (mayMerge) attempts.Add(new KeyValuePair<bool, bool>(true, false));
+                attempts.Add(new KeyValuePair<bool, bool>(false, false));
+            }
             if (mayMerge) attempts.Add(new KeyValuePair<bool, bool>(true, true));
             attempts.Add(new KeyValuePair<bool, bool>(false, true));
             mesh = null;
