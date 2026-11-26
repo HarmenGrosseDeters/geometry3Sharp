@@ -1492,11 +1492,13 @@ namespace gs
         // apex inside the strip over it, so the edge's line moves by at most d there). The computed height is |cross| / L:
         // with u = 2^-53 and edge lengths at most L, the differences have relative error u, each product 3.1 u, the
         // subtraction u of its result, so the cross product is off by at most 5 u (|X Y| + |X' Y'|) <= 10 u L^2 (the components
-        // of two edges are at most L; no underflow: the differences of doubles are exact below the normal range), and L itself
-        // (a square root of a sum of squares) has relative error at most 3 u, so the computed height is off by at most
-        // 10 u L (1 + 3 u) + 3 u h <= 11 u L (h <= L). The bound is 2 d + 16 u L: a margin of 5 u L over that, for the sums
-        // 2 (ulp + radius) and 16 u L themselves (each at most u relative). So every triangle that rounding turned over or laid
-        // over a neighbour passes, and a triangle thicker than 2 d + 16 u L (about 2 ulp(M) + 16 u L) is no rounding artefact.
+        // of two edges are at most L; no underflow: the differences of doubles are exact below the normal range), so the cross
+        // product divided by the exact L is off by at most 10 u L. L itself (a square root of a sum of squares) has relative
+        // error at most 3 u, which changes the height h <= L by at most 3 u L, and the division adds u h <= u L: the computed
+        // height is off by at most 14 u L. The bound is 2 d + 16 u L: a margin of 2 u L over that, for the sums 2 (ulp + radius)
+        // and 16 u L themselves (each at most u relative, so at most 2 u L together at this size). So every triangle that
+        // rounding turned over or laid over a neighbour passes, and a triangle thicker than 2 d + 16 u L (about 2 ulp(M) + 16 u L)
+        // is no rounding artefact.
         internal static bool is_sliver(Vector2d a, Vector2d b, Vector2d c, double radius)
         {
             double m = Math.Max(Math.Max(Math.Max(Math.Abs(a.x), Math.Abs(a.y)), Math.Max(Math.Abs(b.x), Math.Abs(b.y))), Math.Max(Math.Abs(c.x), Math.Abs(c.y)));
