@@ -256,6 +256,29 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
+        /// The straddle test through the edge forms assumes that the piece is in the plane of its source; a piece that is not (a corner moved
+        /// off the plane) takes the direct test, and the two agree for every coplanar input triangle.
+        /// </summary>
+        [Fact]
+        public void APieceOutOfItsSourcePlane_TakesTheDirectStraddleTest()
+        {
+            var a = FineBox(Vector3d.Zero, 1, 4);
+            var b = FineBox(new Vector3d(2, 0.25, 0.125), 1, 5);
+            BooleanCertificate c = Run(a, b, Ops.Union);
+            Assert.Equal("", c.CheckPieces());
+            int tried = 0;
+            foreach (int k in Enumerable.Range(0, c.PieceCorners.Length).Where(i => c.CoplanarSources(c.PieceSource[i]).Length > 4).Where((_, i) => i % 40 == 0).Take(6)) {
+                ExactPoint3 p = c.PieceCorners[k][0];
+                c.PieceCorners[k][0] = ExactPoint3.Create(p.X + p.W * 3, p.Y + p.W, p.Z + p.W * 5, p.W);
+                tried++;
+            }
+            Assert.True(tried >= 4);
+            c.CheckPieces();
+            Assert.Equal("", c.AuditInPlaneForms(2000, out int s, out int t, out _));
+            Assert.True(t > 100, $"{t} straddle tests");
+        }
+
+        /// <summary>
         /// The scaling of #1632: 120 slices (480 input triangles each, 15878 classified pieces; C2 took 32 s before, 4.8 s after). Nightly: the
         /// boolean, C0 and C1 take a few seconds on their own, and the run is what is checked (the cost, not a verdict).
         /// </summary>

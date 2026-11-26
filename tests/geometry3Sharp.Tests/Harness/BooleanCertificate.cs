@@ -867,7 +867,7 @@ namespace geometry3Sharp.Tests
                     if (inside != InsideInPlane(u, cen)) return $"piece {i}, triangle {u}: the form's side of the centroid differs from the direct one";
                     if (inside == 0) return $"piece {i}: its centroid is on the edge of coplanar triangle {u}";
                     if (inside > 0) direct.Add(u);
-                    if (InSourcePlane(i) && IsZero(triNormal[u]) == false) {
+                    if (IsZero(triNormal[u]) == false) {
                         straddleTests++;
                         if (StraddlesInPlaneOfSource(i, u) != StraddlesInPlane(PieceCorners[i], triCorners[u])) return $"piece {i}, triangle {u}: the straddle test by the forms differs from the direct one";
                     }
