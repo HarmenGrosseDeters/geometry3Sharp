@@ -3565,7 +3565,8 @@ namespace g3
                 double lo = b[6 * i + k] - pad, hi = b[6 * i + 3 + k] + pad;
                 double d = q[k] - p[k];
                 if (Math.Abs(d) < 1e-300) {
-                    if (p[k] < lo || p[k] > hi) return false;
+                    // The axis coordinate is affine along the segment. A tiny nonzero step can still enter the slab.
+                    if ((p[k] < lo && q[k] < lo) || (p[k] > hi && q[k] > hi)) return false;
                     continue;
                 }
                 double ta = (lo - p[k]) / d, tb = (hi - p[k]) / d;
