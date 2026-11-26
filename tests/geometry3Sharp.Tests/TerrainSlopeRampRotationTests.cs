@@ -115,13 +115,13 @@ namespace geometry3Sharp.Tests
 
         // ---- append_faces on its own: a sliver the rounding laid over a neighbour ----
 
-        // vertices of the mesh: the long edge e0 e1 on y = 0, the apex x below it, m1 just below the edge (a sliver (e1, e0, m1)
+        // vertices of the mesh: the long edge e0 e1 on y = 0 (coordinates up to 4: ulp 8.9e-16, a sliver is up to 3.6e-15 high), the apex x below it, m1 just below the edge (a sliver (e1, e0, m1)
         // over x's triangle: counter-clockwise, running along e1 -> e0 as the triangle (e1, e0, x) does), m2 just above it
         static DMesh3 Setup(out int e0, out int e1, out int x, out int m1, out int m2)
         {
             var mesh = new DMesh3(false, false, false, true);
             e0 = mesh.AppendVertex(new Vector3d(0, 0, 0)); e1 = mesh.AppendVertex(new Vector3d(4, 0, 0)); x = mesh.AppendVertex(new Vector3d(2, -2, 0));
-            m1 = mesh.AppendVertex(new Vector3d(1, -1e-9, 0)); m2 = mesh.AppendVertex(new Vector3d(2.5, 1e-9, 0));
+            m1 = mesh.AppendVertex(new Vector3d(1, -1e-15, 0)); m2 = mesh.AppendVertex(new Vector3d(2.5, 1e-15, 0));
             return mesh;
         }
 
@@ -165,6 +165,36 @@ namespace geometry3Sharp.Tests
             var strict = Setup(out e0, out e1, out x, out m1, out m2);
             Assert.Equal(1, Append(strict, tris, true));
             Assert.Equal(0, strict.TriangleCount);
+        }
+
+        [Fact]
+        public void AppendFaces_Strict_DoesNotDropATriangleThatIsNotASliver()
+        {
+            int e0, e1, x, m1, m2;
+            var mesh = Setup(out e0, out e1, out x, out m1, out m2);
+            // m3 is 0.5 below the edge: (e1, e0, m3) lies over x's triangle and is no sliver, and (e0, e1, m3) is clockwise and no sliver
+            int m3 = mesh.AppendVertex(new Vector3d(1, -0.5, 0));
+            Assert.Throws<SlopeMap.NonManifoldRealization>(() => Append(mesh, new List<Index3i> { new Index3i(e1, e0, x), new Index3i(e1, e0, m3) }, true));
+            var mesh2 = Setup(out e0, out e1, out x, out m1, out m2);
+            m3 = mesh2.AppendVertex(new Vector3d(1, -0.5, 0));
+            Assert.Throws<SlopeMap.NonManifoldRealization>(() => Append(mesh2, new List<Index3i> { new Index3i(e0, e1, m3) }, true));
+            // the bound grows with the merge radius: 1e-3 of radius lets a 1e-4 sliver go
+            var mesh3 = Setup(out e0, out e1, out x, out m1, out m2);
+            int m4 = mesh3.AppendVertex(new Vector3d(1, -1e-4, 0));
+            Assert.Throws<SlopeMap.NonManifoldRealization>(() => Append(mesh3, new List<Index3i> { new Index3i(e0, e1, m4) }, true));
+            Assert.Equal(1, SlopeMap.append_faces(mesh3, new List<KeyValuePair<int, List<int>>> { new KeyValuePair<int, List<int>>(0, new List<int> { e0, e1, m4 }) },
+                (v) => new List<Index3i> { new Index3i(v[0], v[1], v[2]) }, (v) => v, true, 1e-3));
+        }
+
+        // the sliver bound decides at the drop: at 96 degrees the strict realization meets a triangle 0.073 high that turned over
+        // or lies over a neighbour, which is no rounding artefact (before: it was dropped, and the design failed in the checks after)
+        [Fact]
+        public void AroundCorner_96_FailsAtTheDropOfARealTriangle()
+        {
+            var d = Make(96);
+            Assert.False(d.Compute());
+            Assert.Equal(TerrainSlopeDesign.Statuses.Failed, d.Status);
+            Assert.Equal("SlopeMap: non-manifold realization", d.Message);
         }
 
         // ---- a sweep: the Nightly tier runs every degree; the ones that still fail are listed, so that a new one is a regression ----

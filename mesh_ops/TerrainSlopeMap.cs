@@ -1372,7 +1372,7 @@ namespace gs
             merge_close_positions(labelsAt, barrierPos, BarriersAt, mergeRadius, repOf);
             DroppedTriangles = append_faces(mesh,
                 faces.Select(f => new KeyValuePair<int, List<int>>(owner[fLabel[f]], cycle(f).Select(h => hOrig[h]).ToList())),
-                triangulate, outVertex, strict);
+                triangulate, outVertex, strict, mergeRadius);
             foreach (int v in mesh.VertexIndices()) OnBarrier.Add(barrierPos.Contains(mesh.GetVertex(v).xy));
             return mesh;
         }
@@ -1447,32 +1447,58 @@ namespace gs
         // no area once rounded: its triangles are dropped (kept, they would be vertical walls over their neighbours) and
         // the neighbours stitched, which leaves no gap. Returns the number dropped. (Static: tests feed it faces.)
         // Strict (#1539, the retry after a NonManifoldRealization): the same for a sliver that the rounding turned over
-        // (clockwise), that runs along an edge in the direction a triangle of the mesh does (it lies over that triangle),
-        // or that the mesh refuses (an edge with two triangles already): near-degenerate clusters, where slivers of
-        // different faces a few ulps wide lie along one line, round to such triangles. Not the default: a turned-over
-        // sliver that is not in the way is kept (later repairs remove it), and dropping it can leave a crack.
+        // (clockwise) or that runs along an edge in the direction a triangle of the mesh does (it lies over that triangle):
+        // near-degenerate clusters, where slivers of different faces a few ulps wide lie along one line, round to such
+        // triangles. Not the default: a turned-over sliver that is not in the way is kept (later repairs remove it), and
+        // dropping it can leave a crack. Only a sliver is dropped (is_sliver, radius = the merge radius of the realization);
+        // a thicker triangle that turns over or overlaps is a real defect: NonManifoldRealization. A triangle that the mesh
+        // refuses throws as well: in strict mode an edge never has two triangles in one direction (overlaps drops those), so
+        // two triangles on an edge run in opposite directions and a third one runs along one of them in the same direction,
+        // which overlaps catches first; the refusal cannot happen (and has no test), the throw is a guard.
         internal static int append_faces(DMesh3 mesh, IEnumerable<KeyValuePair<int, List<int>>> faces,
-                                         Func<List<int>, List<Index3i>> triangulate, Func<int, int> outVertex, bool strict = false)
+                                         Func<List<int>, List<Index3i>> triangulate, Func<int, int> outVertex, bool strict = false,
+                                         double radius = 0)
         {
             var dropped = new List<Index3i>();
             foreach (var face in faces) {
                 foreach (Index3i t in triangulate(face.Value)) {
                     int a = outVertex(t.a), b = outVertex(t.b), c = outVertex(t.c);
                     if (a == b || b == c || c == a) continue;
-                    int orient = ExactPredicates.Orient2d(mesh.GetVertex(a).xy, mesh.GetVertex(b).xy, mesh.GetVertex(c).xy);
-                    if (orient == 0 || (strict && (orient < 0 || overlaps(mesh, a, b, c)))) {
+                    Vector2d pa = mesh.GetVertex(a).xy, pb = mesh.GetVertex(b).xy, pc = mesh.GetVertex(c).xy;
+                    int orient = ExactPredicates.Orient2d(pa, pb, pc);
+                    if (orient == 0) {
+                        dropped.Add(new Index3i(a, b, c));
+                        continue;
+                    }
+                    if (strict && (orient < 0 || overlaps(mesh, a, b, c))) {
+                        if (is_sliver(pa, pb, pc, radius) == false) throw new NonManifoldRealization();
                         dropped.Add(new Index3i(a, b, c));
                         continue;
                     }
                     int tid = mesh.AppendTriangle(a, b, c, face.Key);
-                    if (tid < 0) {
-                        if (strict == false) throw new NonManifoldRealization();
-                        dropped.Add(new Index3i(a, b, c));
-                    }
+                    if (tid < 0) throw new NonManifoldRealization();
                 }
             }
             stitch(mesh, dropped);
             return dropped.Count;
+        }
+
+        // A triangle that the rounding can have turned over or laid over a neighbour: its height over its longest edge is at
+        // most 4 (ulp + radius) of the largest coordinate. Each corner is at most ulp(M) from the exact one (the rounding of a
+        // coordinate of magnitude at most M is at most half an ulp, so at most 0.71 ulp of the point) and at most radius
+        // further if merged (a merge takes a position to a representative within the radius, which is not merged itself). The
+        // exact triangle is counter-clockwise, so its apex is above the longest edge; moving the two ends of that edge and the
+        // apex by at most d = ulp + radius each puts the apex at most 2 d on the other side of the edge (the apex projects
+        // inside the longest edge, so the edge's line moves by at most d there), and the height measured on the rounded
+        // longest edge differs by rounding of this computation only: 4 d is twice that, a margin for the double evaluation.
+        static bool is_sliver(Vector2d a, Vector2d b, Vector2d c, double radius)
+        {
+            double m = Math.Max(Math.Max(Math.Max(Math.Abs(a.x), Math.Abs(a.y)), Math.Max(Math.Abs(b.x), Math.Abs(b.y))), Math.Max(Math.Abs(c.x), Math.Abs(c.y)));
+            double ulp = ExactInterval.Up(m) - m;
+            double l2 = Math.Max(a.DistanceSquared(b), Math.Max(b.DistanceSquared(c), c.DistanceSquared(a)));
+            if (!(l2 > 0)) return true;
+            double height = Math.Abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) / Math.Sqrt(l2);
+            return height <= 4 * (ulp + radius);
         }
 
         // an edge of (a, b, c) that a triangle of the mesh runs along in the same direction: the two overlap
