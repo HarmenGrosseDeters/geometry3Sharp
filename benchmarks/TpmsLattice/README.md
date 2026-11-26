@@ -118,7 +118,7 @@ Reading (this workload: a gyroid sheet, 4 periods, 8 and 16 cubes per period; ot
 platform `Math.Sin / Math.Cos`. A plain drop-in costs 7 to 73 % of `Compute()` (total +24 %: the field is 8 to 10 times slower, and marching cubes evaluates every
 node once for each of the up to eight cells around it). The result is the same bit for bit with a speed-up of the CoreMath variant: the grid nodes take their sines and cosines
 from per-axis tables (the field is a function of three separable phases; a point that is not exactly a node, such as an edge root, takes the direct path), and a graded lattice
-(`Grade` / `PhaseMap`: not separable) keeps the value of each node once (8 bytes a node, up to 2^24 nodes). Test: `TpmsAxisTableTests`.
+(`Grade` / `PhaseMap`: not separable) keeps the value of each node once (8 bytes a node, 32 MB at most: only up to 2^22 nodes per grid attempt, a larger grid evaluates directly; the benchmark rows are below the cap). Test: `TpmsAxisTableTests`.
 
 "compute" ms of `Compute()` with `VerifySelfIntersections = false`, `dotnet run --project benchmarks/TpmsLattice -c Release -f net10.0 -- 2,4,6 16`, a 4-core Linux
 container, master (804560de) and the candidate built from the same checkout and run alternately, the minimum of 4 runs each:

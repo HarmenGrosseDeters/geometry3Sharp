@@ -254,8 +254,11 @@ namespace g3
         /// <summary> Test hook: with true the grid nodes of Compute and the sampling tables use the direct Evaluate (the result is the same bit for bit; only slower). </summary>
         internal static bool DisableAxisTables;
         // Test hook: count the table lookups of the field and those that hit a node (a node-heavy contouring must hit almost always)
-        // A graded lattice (PhaseMap) has no per-axis tables; its node values are kept instead (8 bytes a node) up to this many nodes: a node is evaluated by up to eight cells
-        const double NodeValueCacheMaxNodes = 1 << 24;
+        // A graded lattice (PhaseMap) has no per-axis tables; its node values are kept instead (8 bytes a node, 32 MB at most, per grid attempt) up to this many nodes:
+        // a node is evaluated by up to eight cells. A larger grid evaluates every node of every cell directly (the same bits, slower).
+        const double NodeValueCacheMaxNodes = 1 << 22;
+        // Test hooks (global statics, not thread safe to toggle while another thread computes a lattice; production code never sets them). DisableAxisTables: no
+        // node tables and no node values (the direct CoreMath path); DisableNodeValues: no node values of a graded lattice; CountTableLookups: count the lookups below.
         internal static bool DisableNodeValues;
         internal static bool CountTableLookups;
         static long tableLookups, tableHits;
@@ -265,18 +268,18 @@ namespace g3
         // The sines and cosines at the nodes of a regular grid, per axis (the field is a function of three separable phases): node i of axis d is at
         // Min[d] + h * i, the coordinate that MarchingCubes computes. Find returns the entry only for a point that is exactly a node, so a point
         // anywhere else (an edge root, a user delegate) takes the direct path and the result never depends on the table.
-        sealed class GridTrig
+        internal sealed class GridTrig
         {
             readonly double[][] coord = new double[3][];
             readonly AxisTrig[][] trig = new AxisTrig[3][];
             readonly double min0, min1, min2, h;
             readonly int n0, n1, n2;
             // the value of the field at each node (Raw, before the sliver guard), computed on the first request. Threads may compute the same node at the same
-            // time: both store the same bits (the field is a pure function of p), and a double store is atomic. Empty: bits of a quiet NaN that the field never returns
+            // time: both store the same bits (the field is a pure function of p). Empty: bits of a quiet NaN that the field never returns
             const long Empty = 0x7FF8157700000001L;
-            double[] values;
+            long[] values;
 
-            public GridTrig(Vector3d min, double h, int nx, int ny, int nz, double k, bool two, bool withTrig, bool withValues)
+            internal GridTrig(Vector3d min, double h, int nx, int ny, int nz, double k, bool two, bool withTrig, bool withValues)
             {
                 this.h = h; min0 = min.x; min1 = min.y; min2 = min.z; n0 = nx; n1 = ny; n2 = nz;
                 int[] n = { nx, ny, nz };
@@ -289,9 +292,8 @@ namespace g3
                     }
                 }
                 if (withValues) {
-                    values = new double[(long)nx * ny * nz];
-                    double e = BitConverter.Int64BitsToDouble(Empty);
-                    for (long i = 0; i < values.Length; ++i) values[i] = e;
+                    values = new long[(long)nx * ny * nz];
+                    for (long i = 0; i < values.Length; ++i) values[i] = Empty;
                 }
             }
 
@@ -326,13 +328,15 @@ namespace g3
 
             public bool HasValues { get { return values != null; } }
 
+            // the bits are read and written as one long (atomic also on a 32-bit runtime, where a double store may not be)
             public bool TryGetValue(long node, out double v)
             {
-                v = values[node];
-                return BitConverter.DoubleToInt64Bits(v) != Empty;
+                long bits = System.Threading.Volatile.Read(ref values[node]);
+                v = BitConverter.Int64BitsToDouble(bits);
+                return bits != Empty;
             }
 
-            public void SetValue(long node, double v) { values[node] = v; }
+            public void SetValue(long node, double v) { System.Threading.Volatile.Write(ref values[node], BitConverter.DoubleToInt64Bits(v)); }
         }
 
         /// <summary> A proven bound of |grad f| in phase coordinates (triangle inequality on the closed forms; see the design note). </summary>
@@ -547,15 +551,21 @@ namespace g3
                 } else {
                     px = K * p.x; py = K * p.y; pz = K * p.z;
                 }
-                return Eval(Type, ref p, px, py, pz) * InvLipschitz;
+                AxisTrig tx, ty, tz;
+                bool hit = Lookup(ref p, out tx, out ty, out tz);
+                return Eval(Type, hit, tx, ty, tz, px, py, pz) * InvLipschitz;
             }
 
-            // f at the phases (px, py, pz) of the point p: from the node table when p is a grid node, else directly (the same bits)
-            double Eval(TpmsType type, ref Vector3d p, double px, double py, double pz)
+            // f at the phases (px, py, pz) of the point p: from the node table x, y, z when p is a grid node (hit), else directly (the same bits)
+            static double Eval(TpmsType type, bool hit, in AxisTrig x, in AxisTrig y, in AxisTrig z, double px, double py, double pz)
             {
-                AxisTrig x, y, z;
-                if (Grid != null && PhaseMap == null && Grid.Find(ref p, out x, out y, out z)) return EvaluateTrig(type, x, y, z);
-                return Evaluate(type, px, py, pz);
+                return hit ? EvaluateTrig(type, x, y, z) : Evaluate(type, px, py, pz);
+            }
+
+            bool Lookup(ref Vector3d p, out AxisTrig x, out AxisTrig y, out AxisTrig z)
+            {
+                x = y = z = default(AxisTrig);
+                return Grid != null && PhaseMap == null && Grid.Find(ref p, out x, out y, out z);
             }
 
             public double SheetHalfWidth(Vector3d p) { return (LevelAt != null ? LevelAt(p) : Level) * InvLipschitz; }
@@ -578,17 +588,19 @@ namespace g3
                 } else {
                     px = K * p.x; py = K * p.y; pz = K * p.z;
                 }
+                AxisTrig tx, ty, tz;
+                bool hit = Lookup(ref p, out tx, out ty, out tz);
                 double g;
                 if (Hybrid) {
                     // h = w (g_A - c_A) + (1 - w) (g_B - c_B), w clamped to [0, 1] (a clamp keeps the Lipschitz bound; NaN stays NaN)
                     double w0 = Weight(p);
                     if (double.IsNaN(w0)) WeightNaN = true;
                     double w = Math.Min(1.0, Math.Max(0.0, w0));
-                    double ga = StyleValue(Style, Eval(Type, ref p, px, py, pz)) - Level;
-                    double gb = StyleValue(Style, Eval(Type2, ref p, px, py, pz)) - Level2;
+                    double ga = StyleValue(Style, Eval(Type, hit, tx, ty, tz, px, py, pz)) - Level;
+                    double gb = StyleValue(Style, Eval(Type2, hit, tx, ty, tz, px, py, pz)) - Level2;
                     g = (w * ga + (1 - w) * gb) * InvLipschitz;
                 } else {
-                    double f = Eval(Type, ref p, px, py, pz);
+                    double f = Eval(Type, hit, tx, ty, tz, px, py, pz);
                     double c = LevelAt != null ? LevelAt(p) : Level;
                     if (double.IsNaN(c)) LevelNaN = true;
                     g = (StyleValue(Style, f) - c) * InvLipschitz;

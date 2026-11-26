@@ -171,5 +171,57 @@ namespace geometry3Sharp.Tests
             Assert.True(lookups > 1000, "lookups " + lookups);
             Assert.True(hits >= 0.9 * lookups, "hits " + hits + " of " + lookups);
         }
+
+        static double NextUp(double x) { return BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) + (x >= 0 ? 1 : -1)); }
+        static double NextDown(double x) { return BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) - (x >= 0 ? 1 : -1)); }
+
+        [Fact]
+        public void GridTrig_FindsExactlyTheNodes_AndNothingNearThem()
+        {
+            // the lookup is by exact equality with Min + h * i: a point one ulp off a node (or 1e-9 h, 1e-2 h, half a cube off) takes the direct path, never the table of
+            // the node (a tolerance there would give the value of the node at another point)
+            var min = new Vector3d(-1.3, 0.2, 5.0);
+            double h = 1.0 / 16, k = 2 * Math.PI;
+            var grid = new TpmsLattice.GridTrig(min, h, 6, 7, 8, k, true, true, true);
+            for (int i = 0; i < 6; ++i)
+                for (int j = 0; j < 7; ++j)
+                    for (int l = 0; l < 8; ++l) {
+                        var p = new Vector3d(min.x + h * i, min.y + h * j, min.z + h * l);
+                        TpmsLattice.AxisTrig tx, ty, tz;
+                        Assert.True(grid.Find(ref p, out tx, out ty, out tz), "node " + i + "," + j + "," + l);
+                        Assert.Equal(Bits(CoreMath.Sin(k * p.x)), Bits(tx.S)); Assert.Equal(Bits(CoreMath.Cos(k * p.y)), Bits(ty.C));
+                        Assert.Equal(Bits(CoreMath.Sin(2 * (k * p.z))), Bits(tz.S2)); Assert.Equal(Bits(CoreMath.Cos(2 * (k * p.x))), Bits(tx.C2));
+                        Assert.Equal(((long)i * 7 + j) * 8 + l, grid.Node(ref p));
+                        // off by one in one axis, the three axes in turn
+                        for (int axis = 0; axis < 3; ++axis)
+                            foreach (double off in new[] { double.NaN, 1e-9 * h, -1e-9 * h, 1e-2 * h, 0.5 * h })
+                                foreach (int ulp in new[] { 1, -1 }) {
+                                    var q = p;
+                                    q[axis] = double.IsNaN(off) ? (ulp > 0 ? NextUp(p[axis]) : NextDown(p[axis])) : p[axis] + ulp * off;
+                                    Assert.NotEqual(Bits(p[axis]), Bits(q[axis]));
+                                    Assert.False(grid.Find(ref q, out tx, out ty, out tz), "off by " + off + " in axis " + axis);
+                                    Assert.Equal(-1, grid.Node(ref q));
+                                }
+                    }
+            // outside the table
+            var outside = new Vector3d(min.x + h * 6, min.y, min.z);
+            TpmsLattice.AxisTrig a, b, c;
+            Assert.False(grid.Find(ref outside, out a, out b, out c));
+            Assert.Equal(-1, grid.Node(ref outside));
+        }
+
+        [Fact]
+        public void NodeValueCache_StoresTheBitsOfAnyDouble()
+        {
+            // the cache keeps the bits as one long: a NaN with a payload, -0 and the largest values survive; the empty marker is not a result
+            var grid = new TpmsLattice.GridTrig(Vector3d.Zero, 1, 2, 2, 2, 1, false, false, true);
+            double v;
+            Assert.False(grid.TryGetValue(3, out v));
+            foreach (double d in new[] { 0.0, -0.0, double.NaN, double.MaxValue, double.Epsilon, -1.5, BitConverter.Int64BitsToDouble(0x7FF8000000000123L) }) {
+                grid.SetValue(3, d);
+                Assert.True(grid.TryGetValue(3, out v));
+                Assert.Equal(Bits(d), Bits(v));
+            }
+        }
     }
 }
