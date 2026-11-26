@@ -16,8 +16,13 @@ namespace g3
     /// </summary>
     public enum TpmsStyle { Sheet, SkeletalLow, SkeletalHigh }
 
-    /// <summary> Outcome of <see cref="TpmsLattice.Compute"/>. Mesh is set only for Ok. </summary>
-    public enum TpmsStatus { Ok, InvalidOptions, InvalidDomain, TooLarge, ContouringFailed, NotClean, SelfIntersecting, Cancelled }
+    /// <summary>
+    /// Outcome of <see cref="TpmsLattice.Compute"/>. Mesh is set only for Ok. NotResolved (appended last; #1596): the grid is too coarse for the lattice
+    /// asked for and the mesh was dropped: an Enclosure that is the solid box (its volume at least <see cref="TpmsLattice.EnclosureRefusalFraction"/> of the box grown by the margin),
+    /// or a plain Sheet that realized less than <see cref="TpmsLattice.SheetRefusalRatio"/> of the requested volume fraction. RealizedVolumeFraction and
+    /// MeanWallThickness of the dropped result stay set, and Message says what to change.
+    /// </summary>
+    public enum TpmsStatus { Ok, InvalidOptions, InvalidDomain, TooLarge, ContouringFailed, NotClean, SelfIntersecting, Cancelled, NotResolved }
 
     /// <summary>
     /// A graded cell size with a library-derived bound of the Jacobian of its phase map (periods per length), from
@@ -132,6 +137,12 @@ namespace g3
         public bool VerifySelfIntersections = true;
         /// <summary> The solid contains {F &lt;= 0} of the exact lattice (box domain, constant fraction, dyadic grid only). </summary>
         public bool Enclosure = false;
+        /// <summary> Enclosure: a result whose volume is at least this part of the volume of the box grown by IsoValueUsed on every side (the extent the enclosure fills when it has no voids) is the solid box, not a lattice: Status NotResolved (#1596). Independent of the box size, unlike RealizedVolumeFraction. </summary>
+        public const double EnclosureRefusalFraction = 0.99;
+        /// <summary> A plain Sheet (marching cubes, constant fraction, no hybrid) that realizes less than this part of the requested volume fraction lost its wall: Status NotResolved (#1596). </summary>
+        public const double SheetRefusalRatio = 0.5;
+        /// <summary> <see cref="MinDivisionsForEnclosure"/> asks for an estimated enclosure fraction of at most this. </summary>
+        public const double EnclosureEstimateTarget = 0.9;
         /// <summary>
         /// Sheet style only, opt-in (default off: marching cubes as before). The two sides of the wall are contoured as the two levels
         /// f = +t and f = -t of the surface function with <see cref="TwoLevelMarchingTetrahedra"/> instead of one level of |f| - t with
@@ -149,7 +160,7 @@ namespace g3
 
         // ---- outputs ----
         public TpmsStatus Status;
-        /// <summary> Why the status is not Ok, or for Ok a warning that the result is not the lattice asked for (an Enclosure whose realized fraction is above 1; a Sheet that realized less than half of the requested fraction: a wall thinner than about two cubes, see TwoLevelSheet); empty otherwise. </summary>
+        /// <summary> Why the status is not Ok, or for NotResolved what to change (an Enclosure that fills at least <see cref="EnclosureRefusalFraction"/> of the box grown by the margin; a Sheet that realized less than <see cref="SheetRefusalRatio"/> of the requested fraction: a wall thinner than about two cubes, see TwoLevelSheet); empty otherwise. </summary>
         public string Message = "";
         /// <summary> The lattice mesh in world coordinates; null unless Status == Ok. </summary>
         public DMesh3 Mesh;
@@ -171,6 +182,8 @@ namespace g3
         public double IsoValueUsed;
         // the sliver guard of the field, in cubes (2^-8); 0 switches it off. Internal: for the tests that compare with and without it
         internal double SliverGuardCubeFraction = 1.0 / 256;
+        // test hook (#1596): return the mesh of a result that Compute refuses as NotResolved, for the tests of the exact enclosure proof that run at a coarse grid
+        internal bool AllowUnresolved;
         // test hooks: reject a grid attempt as if the contouring had failed; the lowest node of the grid last used
         internal Func<int, bool> RejectAttempt;
         internal Vector3d LastGridMin;
@@ -753,17 +766,86 @@ namespace g3
 
             RealizedVolumeFraction = vol.x / domainVolume;
             MeanWallThickness = vol.y > 0 ? 2 * vol.x / vol.y : 0;
+            // #1596: a result that is not the lattice asked for is refused (NotResolved, no mesh); the realized values stay set
+            string inv(double x) { return x.ToString("R", System.Globalization.CultureInfo.InvariantCulture); }
+            double grown = Enclosure ? (box.Width + 2 * isoValue) * (box.Height + 2 * isoValue) * (box.Depth + 2 * isoValue) : 0;
+            double filled = Enclosure ? vol.x / grown : 0;     // the part of the box grown by the margin that the enclosure fills (a box domain only)
+            if (!AllowUnresolved && Enclosure && filled >= EnclosureRefusalFraction) {
+                int need = MinDivisionsForEnclosure();
+                Fail(TpmsStatus.NotResolved, "Enclosure: the result fills " + inv(filled) + " of the box grown by the margin (at least " + inv(EnclosureRefusalFraction)
+                    + "; RealizedVolumeFraction " + inv(RealizedVolumeFraction) + "): the error margin of the enclosure is larger than the voids of the lattice, so the result is the solid box (enlarged by the margin), not a lattice; use a smaller CellSize / more Divisions"
+                    + (need > 0 ? " (MinDivisionsForEnclosure: " + need + ")" : ""));
+                return;
+            }
+            if (!AllowUnresolved && !Enclosure && !TwoLevelSheet && Style == TpmsStyle.Sheet && !hybrid && VolumeFractionAt == null
+                && fraction > 0 && RealizedVolumeFraction < SheetRefusalRatio * fraction) {
+                Fail(TpmsStatus.NotResolved, "Sheet: the realized volume fraction " + inv(RealizedVolumeFraction)
+                    + " is less than " + inv(SheetRefusalRatio) + " of the requested " + inv(fraction)
+                    + ": the wall is thinner than about two cubes (CellSize / Divisions) and marching cubes loses it; set TwoLevelSheet = true or raise Divisions");
+                return;
+            }
             Mesh = result;
             Status = TpmsStatus.Ok;
-            // #1596: Ok with a result that is not the lattice asked for gets a Message (the status is not changed)
-            if (Enclosure && RealizedVolumeFraction > 1)
-                Message = "Enclosure: the realized volume fraction is " + RealizedVolumeFraction.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
-                    + " (above 1): the error margin of the enclosure is larger than the voids of the lattice, so the result is the solid box (enlarged by the margin), not a lattice; use a smaller CellSize / more Divisions, or a lower margin";
-            else if (!Enclosure && !TwoLevelSheet && Style == TpmsStyle.Sheet && !hybrid && VolumeFractionAt == null
-                     && fraction > 0 && RealizedVolumeFraction < 0.5 * fraction)
-                Message = "Sheet: the realized volume fraction " + RealizedVolumeFraction.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
-                    + " is less than half of the requested " + fraction.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
-                    + ": the wall is thinner than about two cubes (CellSize / Divisions) and marching cubes loses it; set TwoLevelSheet = true or raise Divisions";
+        }
+
+        /// <summary>
+        /// An estimate, without contouring, of the part of the box grown by the margin that an Enclosure with the given Divisions fills: the fraction of the infinite lattice
+        /// below the enclosure level (the level of the volume fraction plus the margin sqrt(3) h / 2 + 2 Snap, times the Lipschitz bound). A result at or above
+        /// <see cref="EnclosureRefusalFraction"/> is refused (NotResolved); RealizedVolumeFraction is this times the growth of the box by the margin. Approximate (the table of the level has 1/1024
+        /// resolution, the float pad of the proof is left out, the box is cut from a periodic lattice); NaN where it does not apply (a hybrid, a graded cell
+        /// size, VolumeFractionAt, DomainMesh, or invalid options).
+        /// </summary>
+        public double EnclosureFractionEstimate(int divisions)
+        {
+            if (SecondType.HasValue || PhaseMap != null || Grade != null || VolumeFractionAt != null || DomainMesh != null)
+                return double.NaN;
+            if (!(CellSize > 0) || double.IsInfinity(CellSize) || divisions < 4 || divisions > 512 || !Enum.IsDefined(typeof(TpmsType), Type) || !Enum.IsDefined(typeof(TpmsStyle), Style))
+                return double.NaN;
+            double fraction = WallThickness > 0 ? AreaRatio(Type) * (WallThickness / CellSize) : VolumeFraction;
+            if (!(fraction > 0 && fraction < 1) || WallThickness > 0 && (Style != TpmsStyle.Sheet || fraction > 0.95))
+                return double.NaN;
+            AxisAlignedBox3d box = Box;
+            double ex = box.Max.x - box.Min.x, ey = box.Max.y - box.Min.y, ez = box.Max.z - box.Min.z;
+            if (!(ex > 0 && ey > 0 && ez > 0) || double.IsInfinity(ex) || double.IsInfinity(ey) || double.IsInfinity(ez))
+                return double.NaN;
+            double[] table = QuantileTable(Type, Style);
+            double level = LevelForFraction(table, fraction);
+            double lw = GradientBound(Type) * 2 * Math.PI / CellSize, h = CellSize / divisions;
+            // the enclosure needs a dyadic cube (a multiple of 2^-40 of the power of two above the largest coordinate): at least the mantissa of h has 12 trailing zero bits
+            if ((BitConverter.DoubleToInt64Bits(h) & 0xFFF) != 0)
+                return double.NaN;
+            double iso = Math.Sqrt(3.0) * h / 2 + 2 * h * SliverGuardCubeFraction * Math.Max(GradientRatio(Type), 1.0 / 16);
+            return FractionBelow(table, level + iso * lw);
+        }
+
+        /// <summary>
+        /// The smallest power of two Divisions (4 to 512; the enclosure needs a dyadic cube) whose <see cref="EnclosureFractionEstimate"/> is at most
+        /// <see cref="EnclosureEstimateTarget"/>, so that an Enclosure keeps the voids of the lattice; 0 when none does or the estimate does not apply.
+        /// An estimate, not a proof: a Divisions at or above it is not refused on the cases tested (see the guide), a lower one may still work.
+        /// </summary>
+        public int MinDivisionsForEnclosure()
+        {
+            for (int d = 4; d <= 512; d *= 2) {
+                double e = EnclosureFractionEstimate(d);
+                if (double.IsNaN(e)) return 0;
+                if (e <= EnclosureEstimateTarget) return d;
+            }
+            return 0;
+        }
+
+        // the fraction of the table's values (the quantile function of the style value over one period) at or below c
+        internal static double FractionBelow(double[] table, double c)
+        {
+            if (!(c > table[0])) return 0;
+            if (c >= table[TableKnots]) return 1;
+            int lo = 0, hi = TableKnots;
+            while (hi - lo > 1) {
+                int mid = (lo + hi) / 2;
+                if (table[mid] <= c) lo = mid; else hi = mid;
+            }
+            double span = table[hi] - table[lo];
+            double t = span > 0 ? (c - table[lo]) / span : 0;
+            return (lo + t) / TableKnots;
         }
 
         // the lattice frame to world coordinates, in place: Origin + Rotation * v (Origin + v for the identity rotation)

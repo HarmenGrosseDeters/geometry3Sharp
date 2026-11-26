@@ -128,16 +128,6 @@
     "approved_in": "#895"
   },
   {
-    "file": "tools/g3cli/TpmsCommand.cs",
-    "text": "throw new CommandException(ResultCodes.OperationFailed, \"tpms failed (\" + status + \"): \" + lattice.Message, failure);",
-    "after": [
-      "default:",
-      "throw new CommandException(ResultCodes.InvalidArguments, \"tpms: \" + lattice.Message, failure);"
-    ],
-    "reason": "the failure statuses ContouringFailed, NotClean, SelfIntersecting and Cancelled of TpmsLattice: the library retries shifted grids until the certificate passes and no input of the CLI cancels, so no cheap input reaches them (the library tests force them with the internal RejectAttempt hook, which the CLI cannot set); the branch only maps the status to operation_failed with tpms_status",
-    "approved_in": "#895"
-  },
-  {
     "file": "comp_geom/Delaunay3.cs",
     "text": "return -1;",
     "after": [

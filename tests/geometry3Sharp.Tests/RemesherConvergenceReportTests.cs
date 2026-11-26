@@ -10,14 +10,14 @@ namespace geometry3Sharp.Tests
 {
     /// <summary>
     /// Issue #1578 (findings 1 and 2): a remesh that is stopped after a fixed number of passes can still be refining. With
-    /// PreventNormalFlips it then holds triangles that face against the input surface (the splits of long input edges
-    /// next to pinned corners, the projection and smoothing moves are not guarded) and self-intersections; they go away
-    /// while the passes converge. Remesher.ModifiedEdgesLastPass (edges split, collapsed or flipped in the last pass)
+    /// PreventNormalFlips it then held triangles that face against the input surface (see RemesherPreventNormalFlipsTests for the cause and the
+    /// fix). Remesher.ModifiedEdgesLastPass (edges split, collapsed or flipped in the last pass)
     /// divided by the edge count is the convergence signal, and these tests pin that use of it, the loop of the remeshing
     /// guide: the pass loop of a box (12 triangles) refined to 4 % of its diagonal, the setup of the issue.
     /// Inverted = the normal of a triangle points against the normal of the nearest input triangle at its centroid.
-    /// Measured (this box, 4 % target, PreventNormalFlips, net10.0): passes 3 to 7 hold 1 to 11 inverted triangles and
-    /// self-intersections (modified edges 32 to 42 % of the edges), from pass 8 on none (34 % at pass 8, 14 % at pass 13).
+    /// Measured (this box, 4 % target, PreventNormalFlips, net10.0): none at any pass (before the guards of
+    /// RemesherPreventNormalFlipsTests: 1 to 11 inverted triangles and self-intersections at passes 3 to 7, modified edges 32 to 42 %
+    /// of the edges there), modified edges 34 % at pass 8, 14 % at pass 13.
     /// With ApplySafePreset the loop holds no inverted triangle at any pass and ends clean, but 8 to 10 triangles
     /// stay below the preset's MinTriangleQuality of 0.2 (it is not a floor: splits and projection moves are not guarded).
     /// </summary>
@@ -101,12 +101,11 @@ namespace geometry3Sharp.Tests
             List<PassRecord> rec = RunUntilConverged(mesh, input, r);
 
             // the refinement phase: a box of 12 triangles takes several passes to reach the target, with a large share of
-            // the edges modified in every pass, and the mesh holds inverted triangles on the way (the issue's 807 at 10 passes
-            // of a 1 % target)
-            Assert.Contains(rec, p => p.Inverted > 0);
+            // the edges modified in every pass; (before the guards of RemesherPreventNormalFlipsTests the mesh held up to 11
+            // inverted triangles on the way, the issue's 807 at 10 passes of a 1 % target: now none at any pass)
+            Assert.All(rec, p => Assert.Equal(0, p.Inverted));
             foreach (PassRecord p in rec.Take(5))
                 Assert.True(p.Fraction > 0.25, "pass " + p.Pass + " modified " + p.Fraction);
-            Assert.True(rec.Max(p => p.Inverted) > 0 && rec.First(p => p.Inverted > 0).Pass < rec.Last().Pass);
 
             // converged: the signal is below the limit within the pass cap, and nothing faces against the input
             PassRecord last = rec.Last();

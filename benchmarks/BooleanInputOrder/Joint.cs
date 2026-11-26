@@ -69,7 +69,8 @@ static partial class Program
         int sizes = 5;
         bool single = false;
         for (int i = 1; i < args.Length; ++i) {
-            if (args[i] == "--case") cases.Add(args[++i]);
+            if (args[i] == "--nojoint") JointNoJoint = true;
+            else if (args[i] == "--case") cases.Add(args[++i]);
             else if (args[i] == "--sizes") sizes = int.Parse(args[++i], CultureInfo.InvariantCulture);
             else if (args[i] == "--single") single = true;
             else { Console.WriteLine("unknown argument " + args[i]); return 2; }
@@ -79,8 +80,16 @@ static partial class Program
         return 0;
     }
 
+    // (--nojoint: the state without the joint stage, as the oracle's positive control; the best pair is printed with its bits)
+    static bool JointNoJoint;
+
     static void JointCase(string spec, int sizes, bool single)
     {
+        if (JointNoJoint) {
+            MeshRoundingRepair s0 = OracleState(spec, true);
+            JointOn(spec, s0, sizes, single);
+            return;
+        }
         string[] f = spec.Split(',');
         var (hn, h) = Surfaces.First(x => x.Item1 == f[0]);
         int n = int.Parse(f[1], CultureInfo.InvariantCulture), dn = int.Parse(f[2], CultureInfo.InvariantCulture);
@@ -92,7 +101,11 @@ static partial class Program
         DMesh3 a = diff ? coarse : fine, b = diff ? fine : coarse;
         var plain = new ExactMeshBoolean(a, b, D);
         plain.Compute();
-        MeshRoundingRepair r = plain.Rounding;
+        JointOn(spec, plain.Rounding, sizes, single);
+    }
+
+    static void JointOn(string spec, MeshRoundingRepair r, int sizes, bool single)
+    {
         Console.WriteLine($"CASE {spec}: left deg {r.RemainingDegenerate} intersections {r.RemainingIntersections} contacts {r.RemainingFalseContacts}");
         var P = new Probe(r);
         DMesh3 m = P.M;
@@ -229,6 +242,7 @@ static partial class Program
             for (int k = 0; k < vs.Length; ++k) m.SetVertex(vs[k], bestPos[k]);
             var all = (List<Index2i>)typeof(MeshRoundingRepair).GetMethod("intersecting_pairs_all", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(P.R, new object[] { false });
             Console.WriteLine($"    best candidate from scratch: bad {P.Bad().Count} intersecting pairs {all.Count}");
+            Console.WriteLine("    BEST {\"moves\": [" + string.Join(",", vs.Select((v, k) => $"{{\"v\": {v}, \"p\": {HexV(bestPos[k])}}}")) + "]}");
         }
         if (firstRej != null) {
             Console.WriteLine($"    first intersection-rejected candidate: pair of triangles {rejA} {rejB}: {string.Join(" | ", new[] { rejA, rejB }.Select(x => { Index3i q = m.GetTriangle(x); return $"t{x}({q.a},{q.b},{q.c})"; }))}");

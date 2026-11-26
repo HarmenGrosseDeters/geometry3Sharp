@@ -6,7 +6,7 @@ using Xunit;
 namespace geometry3Sharp.Tests
 {
     /// <summary>
-    /// #1596 / #1597: results that are Ok (or Empty) but not what was asked for. TpmsLattice reports it in Message without changing the status;
+    /// #1596 / #1597: results that are Ok (or Empty) but not what was asked for. TpmsLattice refuses it as NotResolved (no mesh) with the advice in Message (#1596);
     /// MeshOffset.Status.Empty is documented as "nothing resolved at this grid" (the repro below pins the behaviour the documentation describes).
     /// </summary>
     public class ThinPartDiagnosticsTests
@@ -22,13 +22,13 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void EnclosureOfAThinSheet_ReportsThatItIsTheSolidBox()
         {
-            // the #1596 repro: Ok, but the realized fraction is above 1 (the box enlarged by the margin)
+            // the #1596 repro: the realized fraction is above 1 (the box enlarged by the margin): refused
             var t = Sheet(0.3, enclosure: true);
             t.Compute();
-            Assert.Equal(TpmsStatus.Ok, t.Status);
+            Assert.Equal(TpmsStatus.NotResolved, t.Status);
+            Assert.Null(t.Mesh);
             Assert.True(t.RealizedVolumeFraction > 1, "fraction " + t.RealizedVolumeFraction);
             Assert.Contains("solid box", t.Message);
-            Assert.Equal("", MeshRobustRepair.NotCleanReasons(t.Mesh));
         }
 
         [Fact]
@@ -36,10 +36,10 @@ namespace geometry3Sharp.Tests
         {
             var thin = Sheet(0.1);
             thin.Compute();
-            Assert.Equal(TpmsStatus.Ok, thin.Status);
+            Assert.Equal(TpmsStatus.NotResolved, thin.Status);
+            Assert.Null(thin.Mesh);
             Assert.True(thin.RealizedVolumeFraction < 0.05, "fraction " + thin.RealizedVolumeFraction);
             Assert.Contains("TwoLevelSheet", thin.Message);
-            Assert.Equal("", MeshRobustRepair.NotCleanReasons(thin.Mesh));
 
             var two = Sheet(0.1, twoLevel: true);
             two.Compute();
@@ -85,7 +85,7 @@ namespace geometry3Sharp.Tests
                     Origin = s.Apply(Vector3d.Zero), Rotation = s.Rotation
                 };
                 t.Compute();
-                Assert.True(t.Status == TpmsStatus.Ok, s.Name + ": " + t.Status + ": " + t.Message);
+                Assert.True(t.Status == TpmsStatus.NotResolved, s.Name + ": " + t.Status + ": " + t.Message);
                 if (reference == null) { reference = t.Message; Assert.NotEqual("", reference); continue; }
                 if (s.IsExact) Assert.Equal(reference, t.Message);
                 else Assert.NotEqual("", t.Message);
@@ -97,9 +97,15 @@ namespace geometry3Sharp.Tests
         {
             // the #1597 repro: the box is 1 x 0.7 x 0.5, an inset by 0.235 leaves 0.03 x 0.23 x 0.47 > 0 (the inset is shallower than half the thickness)
             DMesh3 box = new TrivialBox3Generator { Box = new Box3d(Vector3d.Zero, new Vector3d(0.5, 0.35, 0.25)) }.Generate().MakeDMesh();
+            // #1597 fixed: at the default cell the nodes cannot exclude the part, so the cell is refined (MaxCellRefinements, default 2) and the part is found;
+            // without refinements the answer is NotResolved (it was Empty: "nothing resolved at this grid"), never Empty for a part that exists
             var coarse = new MeshOffset(box, -0.235) { RelativeCellSize = 0.25 };
             coarse.Compute();
-            Assert.Equal(MeshOffset.Status.Empty, coarse.ResultStatus);   // "nothing resolved at this grid" (the documented meaning)
+            Assert.Equal(MeshOffset.Status.Success, coarse.ResultStatus);
+            Assert.InRange(MeshMeasure(coarse.Result), 0.0036, 0.00372);
+            var first = new MeshOffset(box, -0.235) { RelativeCellSize = 0.25, MaxCellRefinements = 0 };
+            first.Compute();
+            Assert.Equal(MeshOffset.Status.NotResolved, first.ResultStatus);
 
             var fine = new MeshOffset(box, -0.235) { RelativeCellSize = 0.05 };
             fine.Compute();
