@@ -18,13 +18,16 @@ namespace geometry3Sharp.Tests
     {
         static readonly Dictionary<string, DMesh3> shapes = new Dictionary<string, DMesh3>();
 
-        static DMesh3 Shape(string name)
+        const int FixturePasses = 20;
+
+        static DMesh3 Shape(string name, int passes = FixturePasses)
         {
             lock (shapes) {
                 DMesh3 m;
-                if (!shapes.TryGetValue(name, out m)) {
-                    m = BuildShape(name);
-                    shapes[name] = m;
+                string key = name + "/" + passes;
+                if (!shapes.TryGetValue(key, out m)) {
+                    m = BuildShape(name, passes);
+                    shapes[key] = m;
                 }
                 return m;
             }
@@ -42,7 +45,7 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        static DMesh3 BuildShape(string name)
+        static DMesh3 BuildShape(string name, int passes = FixturePasses)
         {
             DMesh3 m;
             double h = 0.5 * TargetOf(name);
@@ -118,7 +121,7 @@ namespace geometry3Sharp.Tests
             r.SetProjectionTarget(MeshProjectionTarget.Auto(src));
             r.SetTargetEdgeLength(h);
             MeshConstraintUtil.PreserveBoundaryAndFeatures(r, 30);
-            for (int k = 0; k < 20; ++k) r.BasicRemeshPass();
+            for (int k = 0; k < passes; ++k) r.BasicRemeshPass();
             return new DMesh3(m, true);
         }
 
@@ -256,17 +259,43 @@ namespace geometry3Sharp.Tests
             MeasureFeatures(m, off.Result, s, 30, out double covOff, out _, out double hausOff);
             Assert.True(hausOff > 0.25 || covOff < 0.85, name + " baseline unexpectedly sharp: cov=" + covOff + " haus=" + hausOff);
 
-            // With PreserveCreases = true: meets all Stage 4 gates
+            AssertStage4Gates(m, name, s);
+        }
+
+        // PreserveCreases = true meets all Stage 4 gates
+        static void AssertStage4Gates(DMesh3 m, string name, double s)
+        {
             var on = new QuadRemesher(m) { TargetEdgeLength = s, PreserveCreases = true };
             Assert.Equal(QuadRemeshStatus.Success, on.Compute());
             PolyMeshMetrics metrics = CheckResult(on.Result, name + " PreserveCreases");
             Assert.True(metrics.QuadFraction >= 0.85, name + " quads " + metrics.QuadFraction);
             Assert.True(OneSidedHausdorff(on.Result, m) <= 0.5 * s, name + " surface Hausdorff");
+            // the input is closed: no hole where the extraction drops a face (the crease repair must not open one)
+            Assert.Equal(0, on.DroppedFaces);
+            Assert.Equal(0, metrics.BoundaryVertices);
 
             MeasureFeatures(m, on.Result, s, 30, out double covOn, out double ang95On, out double hausOn);
             Assert.True(covOn > 0.95, name + ": feature coverage " + (100 * covOn).ToString("F1") + "% <= 95%");
             Assert.True(ang95On <= 10.0, name + ": feature angle p95 " + ang95On.ToString("F1") + " deg > 10 deg");
             Assert.True(hausOn <= 0.1, name + ": feature Hausdorff " + hausOn.ToString("F3") + " s > 0.1 s");
+        }
+
+        // Issue #1452: the gates depended on the number of fixture remesh passes (the input triangulation of the same shape). On master these
+        // counts failed (cylinder: coverage 90 to 94 % or Hausdorff above 0.1 s from long quad edges on the rim; gear: a lattice link along a
+        // straight crease missing, or a corner cluster 0.14 s off its corner); the rim edges are now split at the crease, the crease
+        // vertices and corners moved onto it and the links along each crease joined in order (QuadRemesher.CreaseIndex).
+        [Theory]
+        [InlineData("sharp-cylinder", 24)]
+        [InlineData("sharp-cylinder", 27)]
+        [InlineData("sharp-cylinder", 29)]
+        [InlineData("sharp-cylinder", 40)]
+        [InlineData("gear", 16)]
+        [InlineData("gear", 28)]
+        [InlineData("gear", 29)]       // needs the corner snap: without it the gear misses the feature Hausdorff gate (0.166 s)
+        [InlineData("gear", 32)]
+        public void SharpCadShapes_MeetStage4FeatureGates_AtOtherFixturePassCounts(string name, int passes)
+        {
+            AssertStage4Gates(Shape(name, passes), name + "/" + passes, TargetOf(name));
         }
 
         [Fact]
@@ -649,6 +678,55 @@ namespace geometry3Sharp.Tests
                 Assert.True(ang95 <= 10.0, name + ": ang95 " + ang95);
                 Assert.True(haus <= 0.1, name + ": haus " + haus);
             }
+        }
+
+        // the crease repair of #1452 (rim edges split at the crease) on the cylinder whose fixture has 24 passes, a case that needed it: the
+        // same quads at every scale 2^k bit for bit, the gates under the other similarities
+        [Theory, MemberData(nameof(Names))]
+        public void PreserveCreases_CreaseRepair_IsInvariantUnderSimilarities(string name)
+        {
+            Similarity sim = Similarity.ByName(name);
+            DMesh3 baseMesh = Shape("sharp-cylinder", 24);
+            double s = TargetOf("sharp-cylinder");
+            var baseQr = new QuadRemesher(baseMesh) { TargetEdgeLength = s, PreserveCreases = true };
+            Assert.Equal(QuadRemeshStatus.Success, baseQr.Compute());
+            DMesh3 t = Invariance.Transformed(baseMesh, sim);
+            var qr = new QuadRemesher(t) { TargetEdgeLength = sim.Scale * s, PreserveCreases = true };
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            if (sim.IsExact) {
+                AssertSame(baseQr.Result, qr.Result, sim.Scale);
+            } else {
+                CheckResult(qr.Result, name);
+                MeasureFeatures(t, qr.Result, sim.Scale * s, 30, out double cov, out double ang95, out double haus);
+                Assert.True(cov > 0.95, name + ": cov " + cov);
+                Assert.True(ang95 <= 10.0, name + ": ang95 " + ang95);
+                Assert.True(haus <= 0.1, name + ": haus " + haus);
+            }
+        }
+
+        // the l-profile with 10 fixture passes: the repaired links merged two faces above MaxFaceSides, the extraction dropped one and the closed
+        // input got a hole of 6 vertices while Compute succeeded (master: closed, no dropped face). The result before the repair stays then.
+        [Fact]
+        public void PreserveCreases_CreaseRepair_DoesNotOpenAHoleInAClosedInput()
+        {
+            DMesh3 m = Shape("l-profile", 10);
+            var qr = new QuadRemesher(m) { TargetEdgeLength = TargetOf("l-profile"), PreserveCreases = true };
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.Equal(0, qr.DroppedFaces);
+            PolyMeshMetrics metrics = CheckResult(qr.Result, "l-profile/10");
+            Assert.Equal(0, metrics.BoundaryVertices);
+            Assert.Equal(2, metrics.EulerCharacteristic);
+        }
+
+        [Fact]
+        public void PreserveCreases_CreaseRepair_ReuseGivesTheSameResult()
+        {
+            DMesh3 m = Shape("sharp-cylinder", 24);
+            var qr = new QuadRemesher(m) { TargetEdgeLength = TargetOf("sharp-cylinder"), PreserveCreases = true };
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            DPolyMesh first = qr.Result;
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            AssertSame(first, qr.Result, 1);
         }
 
         [Fact]
