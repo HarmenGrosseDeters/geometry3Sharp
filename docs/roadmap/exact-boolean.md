@@ -34,7 +34,7 @@ result did not depend on the order, the rounding repair did (it works by ids), a
 Built in #1464: the kept pieces are ordered by their geometry before the vertices are numbered, the hole of a removed point
 starts at its smallest point, and the flips are decided exactly. Result and status are bit for bit the same for reordered
 triangles, vertex ids and corners; the ordering is about 1 % of the boolean's time; the ids of every result changed once and
-40 pinned tests moved. Merged as #1464 (2026-11-24). Open: the repair's own gap, #1465 (a degenerate triangle with edges of 1e-8 that no edit removes), and #1519 below (the output ids of `ExactMeshArrangement` depend on the thread schedule).
+40 pinned tests moved. Merged as #1464 (2026-11-24). Open: the repair's own gap, #1465 (a degenerate triangle with edges of 1e-8 that no edit removes; the joint stage now also moves fixed corners and tries two step sizes, `docs/design/SAFE_ROUNDING.md` section 9.1.1: 25 of the 28 states of the oracle sample clean), and #1519 below (the output ids of `ExactMeshArrangement` depend on the thread schedule).
 
 #### Board update 2026-11-24: open items of the exact Boolean and the solid pipeline
 
