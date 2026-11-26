@@ -235,7 +235,7 @@ namespace geometry3Sharp.Tests
         }
 
         // 3000 times the share (5.7e-6, still within the lambda bound): the lowering the flips need is at least the extra share, which dominates it
-        // (Slow: one design of 301)
+        // (Slow: one design of 301, 7 s alone)
         [Fact, Trait("Category", "Slow")]
         public void AroundCorner_301_LargeExtraShare_RaisesTheNeededLowering()
         {
@@ -247,8 +247,9 @@ namespace geometry3Sharp.Tests
         }
 
         // a rerun whose extra share leaves no room for the merge under the lambda bound (3e6 times the share: 5.7e-3, within Tolerance) runs
-        // without merges and flips: mayMerge counts the extra share (Slow: the first attempts, then one rerun)
-        [Fact, Trait("Category", "Slow")]
+        // without merges and flips: mayMerge counts the extra share (Nightly: the first attempts, then one rerun, 12 to 13 s alone, and no
+        // cheaper input triggers the rerun; the check is the run itself)
+        [Fact, Trait("Category", "Nightly")]
         public void AroundCorner_301_ExtraShareWithoutRoom_RunsWithoutFlips()
         {
             var d = TerrainSlopeRampRotationRegressionTests.Make(301);

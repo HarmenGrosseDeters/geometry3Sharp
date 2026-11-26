@@ -131,7 +131,6 @@ namespace geometry3Sharp.Tests
         public void AroundCorner_301_NeedleWithARefusedFlip_Succeeds()
         {
             var d = Reference301.Value;
-            TerrainSlopeRampTests.AssertRamps(d);       // (the surface within Tolerance of the references, below and above, every triangle exact)
             Assert.Equal(MeshRobustRepair.Defects.NotClosed | MeshRobustRepair.Defects.DegenerateTriangles, MeshRobustRepair.FindDefects(d.SlopeSurface));
             Assert.True(d.UsedToeLowering > 0 && d.UsedToeLowering <= d.Tolerance, "toe lowering " + d.UsedToeLowering);
             Assert.Equal("", d.Message);
@@ -140,19 +139,27 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Reference301Topology, TopologyHash(d.SlopeSurface));
         }
 
+        // the oracle of the ramps on 301 (the surface within Tolerance of the references, below and above, every triangle exact): the check is
+        // 2 s on top of the design of 8 s, so it runs nightly (the success test above keeps the design under 10 s)
+        [Fact, Trait("Category", "Nightly")]
+        public void AroundCorner_301_Oracle()
+        {
+            TerrainSlopeRampTests.AssertRamps(Reference301.Value);
+        }
+
         // the surface of 301 (the topology: no coordinates, so that it holds on every runtime), pinned for the frames below
         internal const int Reference301Vertices = 2475, Reference301Triangles = 4624;
         internal const string Reference301Topology = "bf9f78a6f7df6ccd";
 
         // 301 in the 2^k frames: the rerun's budgets and the flips scale with the frame, bit for bit (Nightly: the identity reference and each
-        // frame are 6-8 s; the first case of the run pays for the reference, 16 s)
+        // frame are 5-8 s alone; the first case of the run pays for the reference as well, 13 s)
         internal static readonly Lazy<TerrainSlopeDesign> Reference301 = new Lazy<TerrainSlopeDesign>(() => {
             var d = Make(301);
             Assert.True(d.Compute(), d.Status + " " + d.Message);
             return d;
         });
 
-        // two frames in the PR tier (Slow: one design of 301 each, 8 s alone): the surface has the topology of the identity frame, which is
+        // two frames in the PR tier (Slow: one design of 301 each, 7.7 to 8.5 s alone): the surface has the topology of the identity frame, which is
         // pinned above (the bit for bit comparison with the identity frame's coordinates is the Nightly test below)
         [Theory, Trait("Category", "Slow")]
         [InlineData("scale 2^-10")]
