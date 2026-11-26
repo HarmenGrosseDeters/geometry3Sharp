@@ -145,3 +145,23 @@ Same cases as `patch`. Container, 4 cores, median of 5 runs (the table is sectio
 | spheres6 vs 20 (300 / 4332) | 0.0247055 -> 0.024436 | 4512 -> 376 | 69 -> 22 | -68% |
 | bumpy5 -> bumpy6 (1452 / 588) | 0.0540244 -> 0.0540244 | 164 -> 17 | 5 -> 6 | +5% |
 | coplanar grids 16 -> 17 (jitter .3) (512 / 578) | 0.000141212 -> 1.16264E-15 | 3550 -> 105 | 65 -> 9 | -87% |
+
+## `CertifiedPointMeshDistance` (`cpm` mode, #1649)
+
+Certified hardware-double box (`CPM-1`) and supporting-plane (`CPM-2`) filters in `queries/CertifiedPointMeshDistance.cs`,
+64 seeded queries per case:
+
+    DOTNET_TieredPGO=0 dotnet run -c Release --project benchmarks/HausdorffBenchmark -- cpm 5
+
+Before (`master` `04391d3b`) vs after (`perf/certified-point-mesh-distance-filter`), `.NET 10.0.15`, X64, median of 5 runs
+after warm-up; all four 64-bit FNV-1a result digests are bit-for-bit identical:
+
+| case | `LowerBound` before → after (ms) | speedup | `AtLeast(0.5*lb)` before → after (ms) | speedup | `AtLeast(1.5*lb)` before → after (ms) | speedup | digest |
+|---|---:|---:|---:|---:|---:|---:|---|
+| sphere 12 (1,728 tris) | 61.32 → 66.89 | 0.92× | 932.19 → 7.17 | **130.0×** | 880.62 → 1.30 | **677.4×** | `59D6DA696B8AE504` |
+| sphere 24 (6,912 tris) | 213.89 → 104.05 | **2.06×** | 3999.85 → 30.83 | **129.7×** | 3874.50 → 3.38 | **1,146×** | `D19322B662AEB970` |
+| bumpy 20 (4,800 tris) | 134.33 → 64.31 | **2.09×** | 2674.71 → 19.53 | **137.0×** | 2639.62 → 2.62 | **1,007×** | `1F0D8F6086D7E632` |
+| utm sphere 12 (1,728 tris) | 58.79 → 39.23 | **1.50×** | 885.38 → 6.56 | **135.0×** | 905.11 → 1.40 | **646.5×** | `6EC0DB4DF5EF23F1` |
+
+*(On `LowerBound`, the four cases range from 0.92× on `sphere 12` to 1.50–2.09× on `utm sphere 12`, `sphere 24`, and `bumpy 20`. Most of the `AtLeastDistance` gain comes from pruning non-candidate triangles via `CPM-1`/`CPM-2` combined with the immediate early return once a qualifying triangle is found.)*
+

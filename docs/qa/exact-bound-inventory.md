@@ -81,6 +81,8 @@ rule; **S** speed or strategy only.
 | planes_approx, segment_point (quotients), segment_hits slack 1e-9, F | `ExactMeshArrangement.cs` | quotient error bounds | read only (division is outside `fpbound.py`) | not known |
 | Devillers-Guigue prefilter, D | `ExactMeshArrangement.cs` (apart_on_the_line) | apart iff the line segments are disjoint | Z3 `tritri_prefilter.py` (real arithmetic) | Z3 contract |
 | CertifiedDet3 (CD-1) | `queries/CertifiedDet3.cs:22` | certified determinant | EBA-derived | EBA |
+| CertifiedPointMeshDistance box lower bound (CPM-1) | `queries/CertifiedPointMeshDistance.cs:114` | certified AABB squared-distance lower bound (with `ExactInterval` fallback) | EBA-derived | EBA |
+| CertifiedPointMeshDistance plane filter (CPM-2) | `queries/CertifiedPointMeshDistance.cs:144` | certified supporting-plane squared-distance lower bound via `CertifiedDet3` | EBA-derived | EBA |
 
 ### 3.4 Snap rounding, rounding repair
 
@@ -123,7 +125,7 @@ rule; **S** speed or strategy only.
 | Slb `cos(2 theta)(1 - 1e-6)`, reach `1.01`, box `1.05 dMax`, GradientBound `(1 + 1e-9)`, D (cull) | `TerrainSlopeDesign.cs:1389-1426`, `:2193`, `TerrainSlopeRamps.cs:381-385`, `ExactSlopeKernel.cs:111` | lower bounds of the slope, upper bounds of the reach | design docs TERRAIN.md, TERRAIN_RAMPS.md; tests | not known |
 | Tolerance budget (ez, lambdaBound, facet 2^-49, MergeShare, FlipShare), D | `TerrainSlopeDesign.cs:1286-1373`, `:1933-1951`, `TerrainSlopeCatchLineBound.cs:38`, `:112-113` | the realised surface stays within the tolerance | design doc TERRAIN.md (departures); tests | not known |
 | TanLowerBound (48 Taylor terms, pi tail), D | `TerrainSlope.cs:121`, `:147-170` | a proven lower bound of tan | code comment (sign of the cut term) | tests `TerrainSlopeOracleTests` |
-| Loops: rounds 3, attempts 7, realization 7, k 8, tries 60, FanTolerance 400, FlipNeedles 64, onto_slope_side 64, T | `TerrainSlopeDesign.cs:453-475`, `:1118-1166`, `:1346`, `:1497`, `:2055`, `:2167`; `TerrainSlopeMap.cs:1559`; `TerrainSlopeComposite.cs:1702` | statuses or throws; FlipNeedles and onto_slope_side stop silently (an exact check follows) | tests | status; the two silent caps are followed by exact checks |
+| Loops: rounds 3, attempts 7, realization 7, k 8, tries 60, FanTolerance 400, FlipNeedles 64, flip-scale reruns 2 (F in 2^10..2^20), onto_slope_side 64, T | `TerrainSlopeDesign.cs:453-475`, `:1118-1166`, `:1346`, `:1497`, `:2055`, `:2167`; `TerrainSlopeMap.cs:1559`; `TerrainSlopeComposite.cs:1702` | statuses or throws; FlipNeedles and onto_slope_side stop silently (an exact check follows) | tests | status; the two silent caps are followed by exact checks |
 
 ### 3.8 Termination rules elsewhere
 

@@ -14,13 +14,20 @@ namespace geometry3Sharp.Tests
     /// that), and the next triangle on that edge is refused: "SlopeMap: non-manifold realization". After the two realizations
     /// of the design (with and without the merge) the strict one drops such slivers and stitches the neighbours.
     /// </summary>
+    [Collection("Terrain301")]       // (one design of 301 is shared by the tests of both classes; they must not run it at once)
     public class TerrainSlopeRampRotationRegressionTests
     {
         // AroundCorner mapped by 'rotation' (degrees about z through the origin) and then by 's' (the toe points, the path, the
         // height limit, the width, the tolerance; no LocalFrame)
         internal static TerrainSlopeDesign Make(double degrees, Similarity s = null)
         {
-            var rot = new Similarity("rot", 1, Matrix3d.AxisAngleD(Vector3d.AxisZ, degrees), Vector3d.Zero);
+            // (the rotation with correctly rounded sine and cosine: Math.Sin / Math.Cos differ by an ulp between platforms, #1660)
+            return MakeFrom(PortableMath.AxisAngleMatrixD(Vector3d.AxisZ, degrees), s);
+        }
+
+        internal static TerrainSlopeDesign MakeFrom(Matrix3d rotation, Similarity s = null)
+        {
+            var rot = new Similarity("rot", 1, rotation, Vector3d.Zero);
             s = s ?? Similarity.Identity;
             var d = TerrainSlopeRampTests.AroundCorner();
             foreach (var t in d.Toes) t.Points = t.Points.Select(p => s.Apply(rot.Apply(p))).ToList();
@@ -35,7 +42,7 @@ namespace geometry3Sharp.Tests
 
         // a frame about z only (the slope is defined against the vertical)
         static Similarity ZUp(Similarity s) =>
-            s.IsRotated ? new Similarity(s.Name + " (about z)", s.Scale, Matrix3d.AxisAngleD(Vector3d.AxisZ, 31), s.Translation) : s;
+            s.IsRotated ? new Similarity(s.Name + " (about z)", s.Scale, PortableMath.AxisAngleMatrixD(Vector3d.AxisZ, 31), s.Translation) : s;
 
         // success: the ramp's oracles, the surface (finite, manifold, counter-clockwise, no XY overlap), open only at the toe and the
         // height limit (NotClosed is the one defect of NotCleanReason that a slope surface has by design)
@@ -98,6 +105,53 @@ namespace geometry3Sharp.Tests
         // The surface of angles that succeed with the strict realization (the plain ones are refused, #1628) is pinned: counts and a hash of
         // the topology (triangle ids, vertices, groups; no coordinates, so that it holds on every runtime). The zip realization of #1647
         // runs only after strict throws, so these angles must keep the surface strict gives: a zip run in its place changes the triangles.
+        // #1660: the inputs are the same doubles on every platform. The rotation entries are the correctly rounded sine and cosine
+        // (Windows x64 Math.Sin / Math.Cos differ from them by an ulp for about 3 % of the arguments; glibc differs for 297 and 351 degrees:
+        // sin 297 and sin 351 are the correctly rounded -0.8910065241883679 and -0.1564344650402311, glibc gives the neighbour)
+        [Fact]
+        public void Make_RotationEntriesAreCorrectlyRounded_OnEveryPlatform()
+        {
+            Matrix3d m117 = PortableMath.AxisAngleMatrixD(Vector3d.AxisZ, 117);
+            Assert.Equal(-0.4539904997395467, m117.Row0.x);        // cos 117 (0.49 ulp from a tie: the platforms can differ here)
+            Assert.Equal(0.8910065241883679, m117.Row1.x);         // sin 117
+            Assert.Equal(-0.8910065241883679, PortableMath.AxisAngleMatrixD(Vector3d.AxisZ, 297).Row1.x);
+            Assert.Equal(-0.1564344650402311, PortableMath.AxisAngleMatrixD(Vector3d.AxisZ, 351).Row1.x);
+        }
+
+        static double Ulps(double v, int n) { long b = BitConverter.DoubleToInt64Bits(v); return BitConverter.Int64BitsToDouble(v > 0 ? b + n : b - n); }
+
+        // the neighbours of 117 degrees that another libm can give (cos and sin off by an ulp or two): a design that succeeds, with at most
+        // the needles that the sweep accepts (as for the angles of Needles below); 117 itself is clean and pinned by StrictAngles_KeepTheirSurface
+        [Theory]
+        [InlineData(-1, 0)]
+        [InlineData(0, -2)]
+        [InlineData(0, 1)]
+        [InlineData(1, 1)]
+        public void AroundCorner_117_OneUlpNeighbours_Succeed(int cosUlps, int sinUlps)
+        {
+            double angle = 117 * MathUtil.Deg2Rad;
+            double cs = Ulps(PortableMath.Cos(angle), cosUlps), sn = Ulps(PortableMath.Sin(angle), sinUlps), om = 1.0 - cs;
+            var d = MakeFrom(new Matrix3d(cs, 0 - sn, 0, 0 + sn, cs, 0, 0, 0, 1 * om + cs));
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            TerrainSlopeDesignTests.AssertSurface(d);
+            Assert.True(d.MaxSlopeRatio <= 1);
+            var defects = MeshRobustRepair.FindDefects(d.SlopeSurface);
+            Assert.True((defects & MeshRobustRepair.Defects.NotClosed) != 0 && (defects & ~(MeshRobustRepair.Defects.NotClosed | MeshRobustRepair.Defects.DegenerateTriangles)) == 0, defects.ToString());
+            if ((defects & MeshRobustRepair.Defects.DegenerateTriangles) != 0) AssertOnlyNeedles(d.SlopeSurface);
+        }
+
+        // FNV-1a of the triangle ids, vertices and groups
+        internal static string TopologyHash(DMesh3 m)
+        {
+            ulong h = 14695981039346656037UL;
+            Func<ulong, int, ulong> fnv = (acc, v) => { unchecked { for (int i = 0; i < 4; ++i) { acc ^= (ulong)((v >> (8 * i)) & 0xFF); acc *= 1099511628211UL; } } return acc; };
+            foreach (int t in m.TriangleIndices()) {
+                Index3i tv = m.GetTriangle(t);
+                h = fnv(fnv(fnv(fnv(fnv(h, t), tv.a), tv.b), tv.c), m.GetTriangleGroup(t));
+            }
+            return h.ToString("x16");
+        }
+
         [Theory]
         [InlineData(117, 452, 653, "54b45d240c450401")]
         [InlineData(127, 450, 651, "5b2e07889356bd85")]
@@ -106,15 +160,75 @@ namespace geometry3Sharp.Tests
             var d = Make(degrees);
             Assert.True(d.Compute(), d.Status + " " + d.Message);
             DMesh3 m = d.SlopeSurface;
-            ulong h = 14695981039346656037UL;
-            Func<ulong, int, ulong> fnv = (acc, v) => { unchecked { for (int i = 0; i < 4; ++i) { acc ^= (ulong)((v >> (8 * i)) & 0xFF); acc *= 1099511628211UL; } } return acc; };
-            foreach (int t in m.TriangleIndices()) {
-                Index3i tv = m.GetTriangle(t);
-                h = fnv(fnv(fnv(fnv(fnv(h, t), tv.a), tv.b), tv.c), m.GetTriangleGroup(t));
-            }
             Assert.Equal(vertexCount, m.VertexCount);
             Assert.Equal(triangleCount, m.TriangleCount);
-            Assert.Equal(topologyHash, h.ToString("x16"));
+            Assert.Equal(topologyHash, TopologyHash(m));
+        }
+
+        // #1539, angle 301: a needle of altitude 2e-15 at (-39.234, -0.0177) whose flip changes the surface by 1.4e-11, 7 times the reserved
+        // flip share: the plane of the needle fails every margin. The rerun with a scaled flip share (budgets counted) removes it
+        // (Slow: the first attempts fail, the rerun runs them again: 6 builds, one design, under 10 s alone)
+        [Fact, Trait("Category", "Slow")]
+        public void AroundCorner_301_NeedleWithARefusedFlip_Succeeds()
+        {
+            var d = Reference301.Value;
+            Assert.Equal(MeshRobustRepair.Defects.NotClosed | MeshRobustRepair.Defects.DegenerateTriangles, MeshRobustRepair.FindDefects(d.SlopeSurface));
+            Assert.True(d.UsedToeLowering > 0 && d.UsedToeLowering <= d.Tolerance, "toe lowering " + d.UsedToeLowering);
+            Assert.Equal("", d.Message);
+            Assert.Equal(Reference301Vertices, d.SlopeSurface.VertexCount);
+            Assert.Equal(Reference301Triangles, d.SlopeSurface.TriangleCount);
+            Assert.Equal(Reference301Topology, TopologyHash(d.SlopeSurface));
+        }
+
+        // the oracle of the ramps on 301 (the surface within Tolerance of the references, below and above, every triangle exact): the check is
+        // 2 s on top of the design of 8 s, so it runs nightly (the success test above keeps the design under 10 s)
+        [Fact, Trait("Category", "Nightly")]
+        public void AroundCorner_301_Oracle()
+        {
+            TerrainSlopeRampTests.AssertRamps(Reference301.Value);
+        }
+
+        // the surface of 301 (the topology: no coordinates, so that it holds on every runtime), pinned for the frames below
+        internal const int Reference301Vertices = 2475, Reference301Triangles = 4624;
+        internal const string Reference301Topology = "bf9f78a6f7df6ccd";
+
+        // 301 in the 2^k frames: the rerun's budgets and the flips scale with the frame, bit for bit (Nightly: the identity reference and each
+        // frame are 5-8 s alone; the first case of the run pays for the reference as well, 13 s)
+        internal static readonly Lazy<TerrainSlopeDesign> Reference301 = new Lazy<TerrainSlopeDesign>(() => {
+            var d = Make(301);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            return d;
+        });
+
+        // two frames in the PR tier (Slow: one design of 301 each, 7.7 to 8.5 s alone): the surface has the topology of the identity frame, which is
+        // pinned above (the bit for bit comparison with the identity frame's coordinates is the Nightly test below)
+        [Theory, Trait("Category", "Slow")]
+        [InlineData("scale 2^-10")]
+        [InlineData("scale 2^10")]
+        public void AroundCorner_301_Pow2Frames(string name)
+        {
+            Similarity s = ZUp(Similarity.ByName(name));
+            var d = Make(301, s);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            Assert.Equal(Reference301Vertices, d.SlopeSurface.VertexCount);
+            Assert.Equal(Reference301Triangles, d.SlopeSurface.TriangleCount);
+            Assert.Equal(Reference301Topology, TopologyHash(d.SlopeSurface));
+        }
+
+        [Theory]
+        [Trait("Category", "Nightly")]
+        [MemberData(nameof(Similarity.NamesExceptExtremeFrame), MemberType = typeof(Similarity))]
+        public void AroundCorner_301_Similarities(string name)
+        {
+            Similarity s = ZUp(Similarity.ByName(name));
+            var d = Make(301, s);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            TerrainSlopeDesignTests.AssertSurface(d);
+            Assert.True(d.MaxSlopeRatio <= 1);
+            // (the open boundary, and the needles only where the frame's rounding leaves them)
+            var defects = MeshRobustRepair.FindDefects(d.SlopeSurface);
+            Assert.True((defects & MeshRobustRepair.Defects.NotClosed) != 0 && (defects & ~(MeshRobustRepair.Defects.NotClosed | MeshRobustRepair.Defects.DegenerateTriangles)) == 0, defects.ToString());
+            if (s.IsExact) Assert.Equal("", Invariance.Difference(Reference301.Value.SlopeSurface, Invariance.MappedBack(d.SlopeSurface, s)));
         }
 
         // the 2^k frames give the result of the rotated design, scaled, bit for bit; every frame succeeds (the reference, 127 degrees, is
@@ -183,22 +297,17 @@ namespace geometry3Sharp.Tests
 
         // ---- a sweep: the Nightly tier runs every degree, and every angle ends in its exact outcome ----
 
-        // The outcome of each angle of the 1 degree sweep (measured with the fix of #1539's sliver strips; an angle in none of the lists succeeds
-        // with a surface whose only defect is NotClosed). A change of any angle's outcome fails the sweep, an improvement too:
-        // move the angle to its new list (or out of the lists).
+        // The outcome of each angle of the 1 degree sweep (measured with the fixes of #1539; an angle not in the list succeeds with a surface
+        // whose only defect is NotClosed). A change of any angle's outcome fails the sweep.
         // - Needles: Success, and MeshRobustRepair.FindDefects also reports DegenerateTriangles (area below 1e-12 diag^2, about
         //   1.5e-8): the map's slivers between creases a few ulps apart (long, height 1e-10 to 1e-9) and its tiny triangles at
         //   clusters of near-coincident vertices (heights up to 1e-4), all far below the tolerance of 1e-2. The library is right
         //   here: the slope and support checks accept every triangle and AssertRamps below checks the surface against the exact
         //   specification (heights, width, boundary); the generic defect check of MeshRobustRepair is an absolute area threshold.
         static readonly HashSet<int> Needles = new HashSet<int> { 25, 26, 28, 30, 31, 41, 46, 57, 66, 67, 69, 71, 72, 76, 82, 94, 99, 100, 102, 107, 118, 123, 128, 133, 136, 139, 143, 148, 150, 153, 166, 171, 173, 174, 176, 181, 184, 192, 196, 202, 208, 212, 217, 223, 227, 241, 273, 274, 280, 319 };
-        // - SlopeViolation 301 (the last open angle of #1539; removing it from this list is that issue's done-check): "a larger margin
-        //   does not fit into Tolerance". No turned-over triangle (the strict realization does not apply), two triangles of a needle
-        //   cluster at (-39.234, -0.0177) fail the exact check at every margin: a needle of altitude 2e-15 (steeper than the slope
-        //   after the rounding of its vertex heights) and a triangle of altitude 1.3e-4 whose vertices are 5.6e-7 above their support
-        //   plane (the toe lowering is 2.5e-9). Needles below MinFeatureSize that neither the flips nor the merges remove: a margin
-        //   matter of the needle handling (TERRAIN.md 5.4), not of the realization.
-        static readonly HashSet<int> SlopeViolation = new HashSet<int> { 301 };
+        // - 301 succeeds with needles since #1539's flip share rerun; its own Slow test above pins it (a design of 8 s does not belong in a shard of five).
+        //   Every angle of the sweep now succeeds: a failure is a regression.
+        const int Slow301 = 301;
 
         const int SweepShards = 72;
         public static IEnumerable<object[]> Shards() => Enumerable.Range(0, SweepShards).Select(i => new object[] { i });
@@ -212,10 +321,10 @@ namespace geometry3Sharp.Tests
         {
             var bad = new List<string>();
             for (int a = shard * 360 / SweepShards; a < (shard + 1) * 360 / SweepShards; ++a) {
+                if (a == Slow301) continue;
                 var d = Make(a);
                 bool ok = d.Compute();
-                string expected = SlopeViolation.Contains(a) ? "SlopeViolation"
-                                : Needles.Contains(a) ? "Success: not closed, degenerate triangles" : "Success: not closed";
+                string expected = Needles.Contains(a) ? "Success: not closed, degenerate triangles" : "Success: not closed";
                 string got;
                 if (ok) {
                     TerrainSlopeRampTests.AssertRamps(d);

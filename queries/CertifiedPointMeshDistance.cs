@@ -7,15 +7,22 @@ namespace gs
 {
     /// <summary>
     /// A certified lower bound of the distance from a point (a double vector, taken exactly) to a triangle mesh: never above the
-    /// exact distance, rounding included (#738). Every triangle is first bounded by the distance to its bounding box, evaluated with
-    /// outward rounding (ExactInterval), so no triangle is dropped by rounding; the triangles that may be the nearest are then
-    /// measured exactly, in integers (the coordinates of the point and the triangle scaled to a common power of two), with an
-    /// exact region test; the squared distance, converted to double, and its square root are rounded down where they are not exact.
-    /// Any finite coordinates (the exact parts have no range limit; a box bound whose square overflows does not prune). In
-    /// MeshHausdorffDistance the coordinates are at most about 2^90 (copies beyond), so the doubles stay finite.
+    /// exact distance, rounding included (#738). Every triangle is first bounded by the distance to its bounding box using a
+    /// range-guarded hardware-double fast path (CPM-1, falling back to outward-rounded ExactInterval outside (1e-290, 1e290)),
+    /// and candidate triangles whose boxes pass are further filtered by a certified supporting-plane lower bound built from
+    /// CertifiedDet3 and an upper-bounded cross product (CPM-2), so no triangle is dropped by rounding. Triangles that may still
+    /// be nearest are then measured exactly in integers (the coordinates of the point and the triangle scaled to a common power
+    /// of two), with an exact region test; the squared distance, converted to double, and its square root are rounded down where
+    /// they are not exact. Any finite coordinates (the exact parts have no range limit; an overflowing box or plane bound does
+    /// not prune). In MeshHausdorffDistance the coordinates are at most about 2^90 (copies beyond), so the doubles stay finite.
     /// </summary>
     internal static class CertifiedPointMeshDistance
     {
+        const double NormalSqLo = 1e-290;
+        const double NormalSqHi = 1e290;
+        const double NormalLinLo = 1e-140;
+        const double NormalLinHi = 1e140;
+
         /// <summary> a lower bound of the distance from p to the triangles of mesh (+infinity for no triangle) </summary>
         public static double LowerBound(DMesh3 mesh, Vector3d p)
         {
@@ -23,20 +30,29 @@ namespace gs
             // (any triangle's exact distance is an upper bound of the minimum)
             int first = -1; double firstBox = double.PositiveInfinity;
             foreach (int tid in mesh.TriangleIndices()) {
-                double lb = box_lower_squared(mesh, tid, p);
+                Index3i t = mesh.GetTriangle(tid);
+                double lb = box_lower_squared(mesh.GetVertex(t.a), mesh.GetVertex(t.b), mesh.GetVertex(t.c), p);
                 if (lb < firstBox) { firstBox = lb; first = tid; }
             }
             if (first < 0)
                 return double.PositiveInfinity;
             BigInteger bestNum, bestDen; int bestExp;
             exact_squared(mesh, first, p, out bestNum, out bestDen, out bestExp);
-            // pass 2: every triangle whose box may be nearer than the best so far is measured exactly
+            double bestUpper = upper_bound_double(bestNum, bestDen, bestExp);
+            // pass 2: every triangle whose box and supporting plane may be nearer than the best so far is measured exactly
             foreach (int tid in mesh.TriangleIndices()) {
                 if (tid == first) continue;
-                double lb = box_lower_squared(mesh, tid, p);
-                if (greater(lb, bestNum, bestDen, bestExp)) continue;     // (lb is a lower bound: the triangle is not nearer)
+                Index3i t = mesh.GetTriangle(tid);
+                Vector3d va = mesh.GetVertex(t.a), vb = mesh.GetVertex(t.b), vc = mesh.GetVertex(t.c);
+                double lb = box_lower_squared(va, vb, vc, p);
+                if (lb > bestUpper) continue;                               // (certified double prune: exact box d^2 >= lb > bestUpper >= best)
+                if (plane_lower_squared_exceeds(va, vb, vc, p, bestUpper)) continue; // (certified plane d^2 > bestUpper >= best)
+                if (greater(lb, bestNum, bestDen, bestExp)) continue;       // (exact fallback prune when bestUpper overflowed or a fast lb falls between best and bestUpper)
                 exact_squared(mesh, tid, p, out BigInteger n, out BigInteger d, out int x);
-                if (less(n, d, x, bestNum, bestDen, bestExp)) { bestNum = n; bestDen = d; bestExp = x; }
+                if (less(n, d, x, bestNum, bestDen, bestExp)) {
+                    bestNum = n; bestDen = d; bestExp = x;
+                    bestUpper = upper_bound_double(bestNum, bestDen, bestExp);
+                }
             }
             // d^2 = num / den * 2^exp; rounded down twice (ToDouble rounds to nearest, within half an ulp or half the grid unit of 2^-1074
             // since #1410: one step down would do, two keep the older margin) unless the conversion is exact, and its root rounded down (sqrt rounds to nearest: one step
@@ -56,30 +72,61 @@ namespace gs
 
         // (a test helper in the library: the tests compare certified upper bounds with the exact distance through it)
         /// <summary> (tests) is u at least the exact distance from p to the triangles of mesh? Exact, over all triangles (true for no
-        /// triangle only if u is +infinity) </summary>
+        /// triangle only if u is +infinity). Assumes finite mesh and query coordinates, matching LowerBound. </summary>
         internal static bool AtLeastDistance(DMesh3 mesh, Vector3d p, double u)
         {
             if (double.IsNaN(u)) return false;
             if (double.IsPositiveInfinity(u)) return true;
             if (u < 0) return false;
-            bool any = false; BigInteger bn = 0, bd = 1; int bx = 0;
-            foreach (int tid in mesh.TriangleIndices()) {
-                exact_squared(mesh, tid, p, out BigInteger n, out BigInteger d, out int x);
-                if (!any || less(n, d, x, bn, bd, bx)) { bn = n; bd = d; bx = x; any = true; }
+            // u^2 <= uSqHi unconditionally (ExactInterval.Up(0) = double.Epsilon >= u^2 when u^2 underflows; +infinity on overflow);
+            // dropping Up() is deliberately untested on normal u because CPM-1/CPM-2 margins (1e-15/2e-15) exceed one rounding
+            double uSqHi = (u == 0) ? 0 : ExactInterval.Up(u * u);
+            BigInteger mu2 = BigInteger.Zero; int e2 = 0;
+            if (u > 0) {
+                ExactPoint3.Decompose(u, out BigInteger mu, out int eu);
+                mu2 = mu * mu;
+                e2 = 2 * eu;
             }
-            if (!any) return false;
-            if (u == 0) return bn.IsZero;
-            // u^2 >= bn / bd 2^bx  <=>  m^2 bd 2^(2e - bx) >= bn
-            ExactPoint3.Decompose(u, out BigInteger m, out int e);
-            return compare(m * m * bd, 2 * e - bx, bn) >= 0;
+            foreach (int tid in mesh.TriangleIndices()) {
+                Index3i t = mesh.GetTriangle(tid);
+                Vector3d va = mesh.GetVertex(t.a), vb = mesh.GetVertex(t.b), vc = mesh.GetVertex(t.c);
+                if (box_lower_squared(va, vb, vc, p) > uSqHi) continue;
+                if (plane_lower_squared_exceeds(va, vb, vc, p, uSqHi)) continue;
+                exact_squared(mesh, tid, p, out BigInteger n, out BigInteger d, out int x);
+                if (u == 0 ? n.IsZero : compare(mu2 * d, e2 - x, n) >= 0)
+                    return true;
+            }
+            return false;
         }
 
-        // a lower bound of the squared distance from p to the bounding box of the triangle: per axis the gap below the box or above
-        // it, each difference and the sum of squares rounded down
-        static double box_lower_squared(DMesh3 mesh, int tid, Vector3d p)
+        // certified finite upper bound of num / den * 2^exp (+infinity on overflow or NaN);
+        // ToDouble rounds to nearest (within 0.5 ulp), so the second Up is redundant safety margin
+        static double upper_bound_double(BigInteger num, BigInteger den, int exp)
         {
-            Index3i t = mesh.GetTriangle(tid);
-            Vector3d a = mesh.GetVertex(t.a), b = mesh.GetVertex(t.b), c = mesh.GetVertex(t.c);
+            if (num.IsZero) return 0;
+            double d = ExactPoint3.ToDouble(num, den, exp);
+            if (double.IsNaN(d) || double.IsInfinity(d)) return double.PositiveInfinity;
+            return ExactInterval.Up(ExactInterval.Up(d));
+        }
+
+        // a certified lower bound of the squared distance from p to the bounding box of (a, b, c) (CPM-1 in bounds.py):
+        // range-guarded hardware-double fast path in (1e-290, 1e290), falling back to outward-rounded ExactInterval.Down outside
+        internal static double box_lower_squared(Vector3d a, Vector3d b, Vector3d c, Vector3d p)
+        {
+            double lox = Math.Min(a.x, Math.Min(b.x, c.x)), hix = Math.Max(a.x, Math.Max(b.x, c.x));
+            double gx = (p.x < lox) ? (lox - p.x) : ((p.x > hix) ? (p.x - hix) : 0);
+            double loy = Math.Min(a.y, Math.Min(b.y, c.y)), hiy = Math.Max(a.y, Math.Max(b.y, c.y));
+            double gy = (p.y < loy) ? (loy - p.y) : ((p.y > hiy) ? (p.y - hiy) : 0);
+            double loz = Math.Min(a.z, Math.Min(b.z, c.z)), hiz = Math.Max(a.z, Math.Max(b.z, c.z));
+            double gz = (p.z < loz) ? (loz - p.z) : ((p.z > hiz) ? (p.z - hiz) : 0);
+            double s = gx * gx + gy * gy + gz * gz;
+            if (s > NormalSqLo && s < NormalSqHi)
+                return s * (1.0 - 1e-15);
+            return box_lower_squared_interval(a, b, c, p);
+        }
+
+        static double box_lower_squared_interval(Vector3d a, Vector3d b, Vector3d c, Vector3d p)
+        {
             double sum = 0;
             for (int k = 0; k < 3; ++k) {
                 double lo = Math.Min(a[k], Math.Min(b[k], c[k])), hi = Math.Max(a[k], Math.Max(b[k], c[k]));
@@ -89,6 +136,33 @@ namespace gs
                 if (g > 0) sum = ExactInterval.Down(sum + ExactInterval.Down(g * g));
             }
             return (sum > 0) ? sum : 0;
+        }
+
+        // certified plane-distance lower bound filter (CPM-2 in bounds.py): returns true only if the exact squared distance
+        // from p to the supporting plane of (v0, v1, v2) strictly exceeds thresh (hence exact_squared(tri, p) > thresh).
+        // Uses CertifiedDet3 for the exact numerator lower bound |Delta| and a cross-product upper bound for |n|^2.
+        internal static bool plane_lower_squared_exceeds(Vector3d v0, Vector3d v1, Vector3d v2, Vector3d p, double thresh)
+        {
+            if (!(thresh < double.PositiveInfinity)) return false;
+            Vector3d e1 = v1 - v0, e2 = v2 - v0, d = p - v0;
+            CertifiedDet3 det = CertifiedDet3.Compute(d, e1, e2);
+            if (!(det.E < double.PositiveInfinity)) return false;
+            double detDiff = Math.Abs(det.Det) - det.E;
+            if (!(detDiff > 0)) return false;
+            double detLo = ExactInterval.Down(detDiff);
+            if (!(detLo > NormalLinLo && detLo < NormalLinHi)) return false;
+            double p1x = e1.y * e2.z, p2x = e1.z * e2.y, mx = Math.Abs(p1x) + Math.Abs(p2x);
+            double p1y = e1.z * e2.x, p2y = e1.x * e2.z, my = Math.Abs(p1y) + Math.Abs(p2y);
+            double p1z = e1.x * e2.y, p2z = e1.y * e2.x, mz = Math.Abs(p1z) + Math.Abs(p2z);
+            double unx = Math.Abs(p1x - p2x) + 1e-15 * mx;
+            double uny = Math.Abs(p1y - p2y) + 1e-15 * my;
+            double unz = Math.Abs(p1z - p2z) + 1e-15 * mz;
+            double n2 = unx * unx + uny * uny + unz * unz;
+            if (!(n2 > NormalSqLo && n2 < NormalSqHi)) return false;
+            double q = (detLo * detLo) / n2;
+            if (!(q > NormalSqLo && q < NormalSqHi)) return false;
+            double lb = q * (1.0 - 2e-15);
+            return lb > thresh;
         }
 
         // d (a finite double) == num / den * 2^exp, exactly
