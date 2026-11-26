@@ -183,6 +183,15 @@ namespace gs
         /// </summary>
         public int RescuePasses = 150;
         /// <summary>
+        /// stage 2: an opt-in stop for passes that do not converge (#1154: SliverDihedralDegrees 20 to 30 can run all ImprovePasses and RescuePasses,
+        /// 78 to 195 s on Thingi10K meshes, while the tets below the target shrink by well under 1 % per pass): end the main passes, and
+        /// separately the rescue passes, when this many passes in a row neither lowered the number of tets below SliverDihedralDegrees by 1 % nor
+        /// raised the worst smallest dihedral by 0.1 degrees. Counted, never wall-clock, so the result is deterministic and the same for every 2^k scale.
+        /// 0 or less: off (the default; the result is bit for bit as without the option). A time/quality trade: it leaves the tets below the target that
+        /// were still being worked off; The pass that judges is counted in Counts["improve_passes"] and does not run its operations; Counts["improve_stall_stop"] counts the phases it ended (only then the key exists).
+        /// </summary>
+        public int StallStopPasses = 0;
+        /// <summary>
         /// stage 2: an opt-in work cap over all improvement operations (TET_MESHING.md 17.16): at most this many visits of a bad tet (each tries edge
         /// and face removal, contraction, split, smoothing and boundary moves on it) per vertex of the stage-1 mesh, main and rescue passes together.
         /// Counted, never wall-clock, so the result is deterministic and the same for every 2^k scale. When spent the improvement ends (the worst tets are
@@ -509,6 +518,7 @@ namespace gs
                 }
                 imp.MaxPasses = ImprovePasses;
                 imp.RescuePasses = RescuePasses;
+                imp.StallStopPasses = StallStopPasses;
                 imp.Contraction = ContractEdges;
                 imp.Insertion = SplitEdges;
                 if (MaxImproveVisitsPerVertex > 0 && !double.IsInfinity(MaxImproveVisitsPerVertex))

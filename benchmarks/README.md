@@ -44,6 +44,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [MeshRepairBenchmark](MeshRepairBenchmark/README.md) | `MeshAutoRepair` and `MeshRobustRepair` evaluation on Thingi10K and procedural failure cases |
 | [NotCleanBenchmark](NotCleanBenchmark/README.md) | Runtime of the checks behind `MeshRobustRepair.NotCleanReason` on large procedural meshes |
 | [OpenSoupWrapBenchmark](OpenSoupWrapBenchmark/README.md) | Alpha-wrap size estimation on open inputs and `WrapMaxEstimatedTriangles` budget |
+| [AlphaWrapFixStarBenchmark](AlphaWrapFixStarBenchmark/README.md) | Alpha-wrap manifold step (`fix_star`) at large box-corner stars, `MaxSteinerPoints` sweep (issue #1607) |
 | [SmallInputWrapBenchmark](SmallInputWrapBenchmark/README.md) | Alpha-wrap fallback sizing on very small inputs (`SmallInputWrapTriangles`) |
 | [LostAreaBenchmark](LostAreaBenchmark/README.md) | Cost of the `MeshRobustRepair.MeasureLostArea` report against the repair on procedural inputs |
 | [CertifiedMedialAxisProbe](CertifiedMedialAxisProbe/README.md) | Why a certified lower bound on local feature size cannot replace SafeRounding's thin-solid criteria (crease witnesses, thin slabs) |
@@ -130,6 +131,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [MultiscaleCholeskyProbe](MultiscaleCholeskyProbe/README.md) | Research spike: multiscale incomplete Cholesky, FSAI and approximate elimination as PCG preconditioners against the direct `SparseCholesky` |
 | [PddProbe](PddProbe/README.md) | Research probe: Pointwise Distance Distributions (kNN rows, AMD, column W1, exact EMD) against D2 and PCA baselines for near-duplicates, retrieval and lattice periods (verdict: stop) |
 | [CoreMathBenchmark](CoreMathBenchmark/README.md) | Cost of correctly rounded `g3.CoreMathPort.CoreMath` elementary functions |
+| [FastWindingAtan2Benchmark](FastWindingAtan2Benchmark/README.md) | End-to-end cost of the correctly rounded `CoreMath.Atan2` in `TriSolidAngle` (repair, solidify, winding-number boolean) |
 | [BoxContainBenchmark](BoxContainBenchmark/README.md) | Throughput micro-benchmark for `AxisAlignedBox3d.Contain` |
 | [GridIndexerBenchmark](GridIndexerBenchmark/README.md) | Throughput probe for `ShiftGridIndexer3.ToGrid` |
 | [LongHashAudit](LongHashAudit/README.md) | Hash collision and distribution audit for `long`-keyed tables outside booleans |

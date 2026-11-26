@@ -30,7 +30,7 @@ g3cli repair scan.obj scan_fixed.stl --rounding-max-displacement 1e-6
 ### Additive Result Fields (`repair`)
 
 - `result_path`: winning stage (`PassThrough`, `Repair`, `ExactResolve`, `Solidify`, `AlphaWrap`).
-- `result_code` / `exact_resolve_code`: structured codes (`scale_not_finite`, `scale_disparity`, `outside_range`, `lost_far_part`, `lost_far_open_part`, `lost_separate_part`, `wrap_too_coarse`, or `null`).
+- `result_code` / `exact_resolve_code`: structured codes (`scale_not_finite`, `scale_disparity`, `outside_range`, `lost_far_part`, `lost_far_open_part`, `lost_separate_part`, `wrap_too_coarse`, `nesting_ambiguous` (an outward inner shell taken as a cavity: the plain union of the shells differs from the result by more than the volume check allows), `thin_shell_wrap` (the alpha wrap is a thin shell around an open surface, refused), or `null`).
 - `exact_resolve_rounding` and `separated_rounding`: SafeRounding counts for the two exact-stage rounding passes.
 - `genus_before` / `genus_after`: warns when exact resolve alters component genus.
 - `result_volume_iou` (with `--measure-result-iou`), `robust_options`, `exact_resolve_rounds_used`, `passed_through_triangles`, `used_alpha_wrap`, `alpha_wrap_simplified`, `wrap_reason`, `alpha_wrap_quality_improved`, `alpha_wrap_target` / `alpha_wrap_target_reached` / `alpha_wrap_target_limit`, `alpha_wrap_min_angle` / `alpha_wrap_max_angle` / `alpha_wrap_share_above_170`, `used_input`, `result_reason`, `phase_milliseconds`.

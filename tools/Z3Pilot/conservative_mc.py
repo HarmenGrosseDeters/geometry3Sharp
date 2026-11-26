@@ -82,7 +82,7 @@ def source_contracts():
 # Review tripwire, not a semantic check: these whole-file hashes only force a re-review when either file changes.
 # The link between find_iso and the FP model is a review obligation; updating the hashes after a change (eg one
 # that restores the endpoint nudge) keeps this pilot green. The semantic content is the table certificate.
-SOURCE_SHA = {'MarchingCubes': '8b1b66a60797dc7d82722c091801fda47642e84e288623267f24ec6ac4227b86', 'MarchingCubesPro': 'deef80df55548587a13d9e32c352c06c7abb6539344d2f31dc35f89fdbacda3a'}
+SOURCE_SHA = {'MarchingCubes': 'f67ab2db63a86be92860917e0a6395e0cea7c9567ce47eb15cf54a88b2e3feaa', 'MarchingCubesPro': 'deef80df55548587a13d9e32c352c06c7abb6539344d2f31dc35f89fdbacda3a'}
 METHOD_SHA = {'MarchingCubes': '46dc0c63f9101a7eb27d973c83e49f5678859f49dc80a42a37717aa95a534d50', 'MarchingCubesPro': '46dc0c63f9101a7eb27d973c83e49f5678859f49dc80a42a37717aa95a534d50'}  # Reviewed bodies.
 
 

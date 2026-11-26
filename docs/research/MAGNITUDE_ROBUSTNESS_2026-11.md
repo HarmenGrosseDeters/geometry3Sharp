@@ -422,3 +422,11 @@ prescaling: BLAS, LAPACK, Kahan; relative parameters: Crane et al.).
   limit.
 - The relative-normal change of `DualContouring` is prototyped as a patch file (section 6.4), without the float grid and
   without tests of its own.
+
+### Update 2026-11-25 (#1376 item 2)
+
+`DualContouring.degenerate` and the degenerate-cluster test of `AdaptiveDualContouring` compare the length of a cross product with a
+squared length through `DualContouring.cross_exceeds`: where the squared reference length is in 1e-100 .. 1e100 it is the unscaled
+comparison (same bits), otherwise the three vectors are scaled by one power of two (exact) first. A box at 2^300 and 2^-300 gives the mesh
+of the unit box (`DualContouringExtremeScaleTests`; the 2^-300 case with `Simplify` failed before). Still open on #1376: sparse mode and local
+refinement (imposed signs use an absolute value step).

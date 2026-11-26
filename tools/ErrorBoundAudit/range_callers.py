@@ -13,9 +13,7 @@ import re
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 # file -> number of unguarded calls; each an exception with an issue (docs/qa/exact-bound-inventory.md section 6)
-KNOWN_UNGUARDED = {
-    'mesh_generators/DualContouring.cs': 2,         # place_face_vertex, issue #1589
-}
+KNOWN_UNGUARDED = {}
 
 # every call of any member of AdaptivePredicates is found (a name not listed here fails as unguarded, so a new entry point cannot be missed)
 ANY_CALL = re.compile(r'AdaptivePredicates\.(\w+)\(')
