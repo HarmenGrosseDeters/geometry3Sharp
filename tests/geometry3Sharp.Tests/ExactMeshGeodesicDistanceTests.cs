@@ -1110,5 +1110,183 @@ namespace geometry3Sharp.Tests
             // the whole interval dominated: one piece at once
             Assert.Equal(new[] { (2.5, 4.0) }, Dominated(0, 4, 2.5, 4, 0).ToArray());
         }
+
+        static List<(double l, double r)> DominatedWithCalls(
+            double ax, double ay, double sigA, double bx, double by, double sigB, double l, double r, int depth, out long calls,
+            double? sigAHi = null, double? sigBHi = null)
+        {
+            var g = new ExactMeshGeodesicDistance(new DMesh3());
+            Type wt = typeof(ExactMeshGeodesicDistance).GetNestedType("Window", System.Reflection.BindingFlags.NonPublic);
+            Assert.NotNull(wt);
+            object a = Activator.CreateInstance(wt, true), b = Activator.CreateInstance(wt, true);
+            wt.GetField("SigLo").SetValue(a, sigA); wt.GetField("SigHi").SetValue(a, sigAHi ?? sigA);
+            wt.GetField("SigLo").SetValue(b, sigB); wt.GetField("SigHi").SetValue(b, sigBHi ?? sigB);
+            var sa = new ExactMeshGeodesicDistance.P2(I(ax), I(ay));
+            var sb = new ExactMeshGeodesicDistance.P2(I(bx), I(by));
+            var rem = new List<(double l, double r)>();
+            System.Reflection.MethodInfo dom = typeof(ExactMeshGeodesicDistance).GetMethod("Dominated",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.NotNull(dom);
+            dom.Invoke(g, new object[] { a, sa, b, sb, l, r, depth, rem });
+            calls = g.DominatedCalls;
+            return rem;
+        }
+
+        [Fact]
+        public void Slope_EnclosesExactDerivativeAndEdgeCases()
+        {
+            // Kinks & axis-aligned boundaries: u == 0 (via l = double.Epsilon so Down(l - 0) == 0), v == 0, both 0
+            ExactInterval sZeroPosV = ExactMeshGeodesicDistance.Slope(new ExactMeshGeodesicDistance.P2(I(0), I(-2)), double.Epsilon, -double.Epsilon);
+            Assert.Equal(0.0, sZeroPosV.Lo); Assert.Equal(0.0, sZeroPosV.Hi);
+            ExactInterval sZeroAtSame = ExactMeshGeodesicDistance.Slope(new ExactMeshGeodesicDistance.P2(I(1), I(-2)), 1, 1);
+            Assert.True(sZeroAtSame.Lo <= 0.0 && sZeroAtSame.Hi >= 0.0 && sZeroAtSame.Hi - sZeroAtSame.Lo < 1e-300);
+            ExactInterval sKink = ExactMeshGeodesicDistance.Slope(new ExactMeshGeodesicDistance.P2(I(0), I(0)), double.Epsilon, -double.Epsilon);
+            Assert.Equal(-1.0, sKink.Lo); Assert.Equal(1.0, sKink.Hi);
+            ExactInterval sPosZeroV = ExactMeshGeodesicDistance.Slope(new ExactMeshGeodesicDistance.P2(I(0), I(0)), 1, 2);
+            Assert.Equal(1.0, sPosZeroV.Lo); Assert.Equal(1.0, sPosZeroV.Hi);
+            ExactInterval sNegZeroV = ExactMeshGeodesicDistance.Slope(new ExactMeshGeodesicDistance.P2(I(3), I(0)), 1, 2);
+            Assert.Equal(-1.0, sNegZeroV.Lo); Assert.Equal(-1.0, sNegZeroV.Hi);
+
+            // Clamping at [-1, 1] when |u| >> v
+            ExactInterval sClampHi = ExactMeshGeodesicDistance.Slope(new ExactMeshGeodesicDistance.P2(I(0), I(-1e-10)), 1e6, 2e6);
+            Assert.True(sClampHi.Lo >= -1.0 && sClampHi.Hi <= 1.0 && sClampHi.Hi == 1.0);
+            ExactInterval sClampLo = ExactMeshGeodesicDistance.Slope(new ExactMeshGeodesicDistance.P2(I(0), I(-1e-10)), -2e6, -1e6);
+            Assert.True(sClampLo.Lo >= -1.0 && sClampLo.Hi <= 1.0 && sClampLo.Lo == -1.0);
+
+            // Underflow, overflow, and NaN remain sound enclosures within [-1, 1]
+            ExactInterval sUf = ExactMeshGeodesicDistance.Slope(new ExactMeshGeodesicDistance.P2(I(0), I(-1e-200)), 1e-200, 2e-200);
+            Assert.Equal(-1.0, sUf.Lo); Assert.Equal(1.0, sUf.Hi);
+            ExactInterval sOf = ExactMeshGeodesicDistance.Slope(new ExactMeshGeodesicDistance.P2(I(0), I(-1e200)), 1e200, 2e200);
+            Assert.True(sOf.Lo >= -1.0 && sOf.Lo <= 1.0 / Math.Sqrt(2.0) && sOf.Hi >= 2.0 / Math.Sqrt(5.0) && sOf.Hi <= 1.0);
+            ExactInterval sNan = ExactMeshGeodesicDistance.Slope(new ExactMeshGeodesicDistance.P2(I(double.NaN), I(-1)), 0, 1);
+            Assert.Equal(-1.0, sNan.Lo); Assert.Equal(1.0, sNan.Hi);
+
+            // Monotonicity in v for all 4 sign combinations (uLo > 0, uLo < 0, uHi < 0, uHi > 0) and tightness
+            var boxPos = new ExactMeshGeodesicDistance.P2(new ExactInterval(0, 0), new ExactInterval(-2, -1));
+            ExactInterval sp = ExactMeshGeodesicDistance.Slope(boxPos, 1, 2);
+            Assert.True(sp.Lo > 0.44 && sp.Lo <= 1.0 / Math.Sqrt(5.0) && sp.Hi >= 2.0 / Math.Sqrt(5.0) && sp.Hi < 0.90);
+            var boxNeg = new ExactMeshGeodesicDistance.P2(new ExactInterval(3, 3), new ExactInterval(-2, -1));
+            ExactInterval sn = ExactMeshGeodesicDistance.Slope(boxNeg, 1, 2);
+            Assert.True(sn.Lo > -0.90 && sn.Lo <= -2.0 / Math.Sqrt(5.0) && sn.Hi >= -1.0 / Math.Sqrt(5.0) && sn.Hi < -0.44);
+
+            // Boundary uLo == 0 and uHi == 0 when vLo == 0 < vHi must select vLo == 0 (subdifferential reaches +-1)
+            var boxTouchY0 = new ExactMeshGeodesicDistance.P2(I(0), new ExactInterval(-2, 0));
+            ExactInterval sTouchLo = ExactMeshGeodesicDistance.Slope(boxTouchY0, double.Epsilon, 1);
+            Assert.Equal(-1.0, sTouchLo.Lo);
+            ExactInterval sTouchHi = ExactMeshGeodesicDistance.Slope(boxTouchY0, -1, -double.Epsilon);
+            Assert.Equal(1.0, sTouchHi.Hi);
+
+            // Random box & sample soundness
+            var rnd = new Random(1652);
+            for (int it = 0; it < 200; ++it) {
+                double x0 = rnd.NextDouble() * 4 - 2, rx = rnd.NextDouble() * 0.2;
+                double y0 = -rnd.NextDouble() * 2, ry = rnd.NextDouble() * 0.2;
+                var box = new ExactMeshGeodesicDistance.P2(new ExactInterval(x0 - rx, x0 + rx), new ExactInterval(y0 - ry, Math.Min(0, y0 + ry)));
+                double l = rnd.NextDouble() * 4 - 2, r = l + 0.01 + rnd.NextDouble() * 2;
+                ExactInterval sl = ExactMeshGeodesicDistance.Slope(box, l, r);
+                Assert.True(sl.Lo >= -1.0 && sl.Hi <= 1.0 && sl.Lo <= sl.Hi);
+                for (int k = 0; k < 20; ++k) {
+                    double x = box.X.Lo + rnd.NextDouble() * (box.X.Hi - box.X.Lo);
+                    double y = box.Y.Lo + rnd.NextDouble() * (box.Y.Hi - box.Y.Lo);
+                    double t = l + rnd.NextDouble() * (r - l);
+                    double h = Math.Sqrt((t - x) * (t - x) + y * y);
+                    if (h == 0) continue;
+                    double d = (t - x) / h;
+                    Assert.True(sl.Lo <= d + 1e-15 && d - 1e-15 <= sl.Hi, $"it={it}: d={d:R} outside [{sl.Lo:R}, {sl.Hi:R}]");
+                }
+            }
+        }
+
+        [Fact]
+        public void Dominated_MonotoneAndMeanValue_SoundAndPrunesCalls()
+        {
+            // 1) Direct early-out (fa.Hi <= fb.Lo) with wide non-monotone dg (so MV alone would recurse): 1 call, empty result
+            Assert.Empty(DominatedWithCalls(0, -0.5, 0, 0, -2.0, 0.07, -2, 2, 6, out long cEarly));
+            Assert.Equal(1, cEarly);
+
+            // 2) Monotone increasing (dg.Lo >= 0): a at (0,-0.2) has slope in [0.98, 0.998] on [1,3]; b at (0,-4) has slope in [0.24, 0.60]
+            //  2a) All dominated via g(l) > 0 while direct interval check fa.Lo (4.52) <= fb.Hi (5.0) fails (1 call)
+            var mIncAll = DominatedWithCalls(0, -0.2, 3.5, 0, -4.0, 0, 1, 3, 6, out long cIncAll);
+            Assert.Equal(new[] { (1.0, 3.0) }, mIncAll.ToArray());
+            Assert.Equal(1, cIncAll);
+            //  2b) None dominated via g(r) <= 0 while direct early-out fa.Hi (4.51) > fb.Lo (4.12) fails (1 call)
+            Assert.Empty(DominatedWithCalls(0, -0.2, 1.5, 0, -4.0, 0, 1, 3, 6, out long cIncNone));
+            Assert.Equal(1, cIncNone);
+            //  2c) Crossing bisected in 1 call (O(depth) 1D bisection instead of 127-node tree) and depth == 0 returns empty
+            var mIncCross = DominatedWithCalls(-0.5, -1, 0, 4.5, -1, 0, 0, 4, 6, out long cIncCross);
+            Assert.Equal(new[] { (2.0625, 4.0) }, mIncCross.ToArray());
+            Assert.Equal(1, cIncCross);
+            Assert.Empty(DominatedWithCalls(-0.5, -1, 0, 4.5, -1, 0, 0, 4, 0, out long cIncCrossD0));
+            Assert.Equal(1, cIncCrossD0);
+
+            // 3) Monotone decreasing (dg.Hi <= 0): mirror of (2) on [-3, -1]
+            //  3a) All dominated via g(r) > 0 while direct interval check fails (1 call)
+            var mDecAll = DominatedWithCalls(0, -0.2, 3.5, 0, -4.0, 0, -3, -1, 6, out long cDecAll);
+            Assert.Equal(new[] { (-3.0, -1.0) }, mDecAll.ToArray());
+            Assert.Equal(1, cDecAll);
+            //  3b) None dominated via g(l) <= 0 while direct early-out fails (1 call)
+            Assert.Empty(DominatedWithCalls(0, -0.2, 1.5, 0, -4.0, 0, -3, -1, 6, out long cDecNone));
+            Assert.Equal(1, cDecNone);
+            //  3c) Crossing bisected in 1 call and depth == 0 returns empty
+            var mDecCross = DominatedWithCalls(4.5, -1, 0, -0.5, -1, 0, 0, 4, 6, out long cDecCross);
+            Assert.Equal(new[] { (0.0, 1.9375) }, mDecCross.ToArray());
+            Assert.Equal(1, cDecCross);
+            Assert.Empty(DominatedWithCalls(4.5, -1, 0, -0.5, -1, 0, 0, 4, 0, out long cDecCrossD0));
+            Assert.Equal(1, cDecCrossD0);
+
+            // 4) Non-monotone (dg straddles 0):
+            //  4a) Mean-Value certified all-dominated (mv.Lo > 0 while direct fa.Lo <= fb.Hi fails; 1 call)
+            var mvAll = DominatedWithCalls(0, -1, 0.5, 0, -1, 0, 0.5, 2.5, 6, out long cMvAll);
+            Assert.Equal(new[] { (0.5, 2.5) }, mvAll.ToArray());
+            Assert.Equal(1, cMvAll);
+            //  4b) Mean-Value certified non-dominated (mv.Hi <= 0 while direct fa.Hi > fb.Lo fails; 1 call)
+            Assert.Empty(DominatedWithCalls(0, -1, 0, 0, -1, 0.5, 0.5, 2.5, 6, out long cMvNone));
+            Assert.Equal(1, cMvNone);
+            //  4c) Genuine non-monotone double crossing (g(0) = -0.4 < 0, g(+-2) > 0): recurses and only removes dominated outer pieces
+            var mvSplit = DominatedWithCalls(0, -0.5, 1.1, 0, -2.0, 0, -2, 2, 6, out long cMvSplit);
+            Assert.True(mvSplit.Count >= 2 && cMvSplit > 1, $"count={mvSplit.Count} calls={cMvSplit}");
+            foreach (var (pl, pr) in mvSplit) {
+                for (int k = 0; k <= 8; ++k) {
+                    double t = pl + (pr - pl) * k / 8.0;
+                    double fa = Math.Sqrt(t * t + 0.25) + 1.1;
+                    double fb = Math.Sqrt(t * t + 4.0);
+                    Assert.True(fa > fb, $"removed non-dominated t={t:R}: fa={fa:R} <= fb={fb:R}");
+                }
+            }
+            //  4d) depth == 0 on non-monotone undecided interval returns empty in 1 call
+            Assert.Empty(DominatedWithCalls(0, -0.5, 1.1, 0, -2.0, 0, -2, 2, 0, out long cMvD0));
+            Assert.Equal(1, cMvD0);
+            //  4e) Kink at y = 0 inside [l, r]: f_a(t) = |t| + 1.5 vs f_b(t) = sqrt(t^2 + 4): g(0) = -0.5, g(+-2) = 3.5 - 2.828 > 0
+            var kink = DominatedWithCalls(0, 0, 1.5, 0, -2.0, 0, -2, 2, 6, out long cKink);
+            Assert.True(kink.Count >= 2 && cKink > 1);
+            foreach (var (pl, pr) in kink) {
+                for (int k = 0; k <= 8; ++k) {
+                    double t = pl + (pr - pl) * k / 8.0;
+                    Assert.True(Math.Abs(t) + 1.5 > Math.Sqrt(t * t + 4.0), $"kink t={t:R} not dominated");
+                }
+            }
+            //  4f) SigHi == +Inf on b cannot certify domination (returns empty), while SigHi == +Inf on a still certifies domination
+            Assert.Empty(DominatedWithCalls(0, -1, 5, 0, -1, 0, 0.5, 2.5, 6, out _, double.PositiveInfinity, double.PositiveInfinity));
+            var remAInf = DominatedWithCalls(0, -1, 5, 0, -1, 0, 0.5, 2.5, 6, out long cAInf, double.PositiveInfinity, 0);
+            Assert.Equal(new[] { (0.5, 2.5) }, remAInf.ToArray());
+            Assert.Equal(1, cAInf);
+
+            // 5) End-to-end saddle 21x21: DominatedCalls stays well below naive 127-node tree count and scales bit-for-bit under 2^k
+            DMesh3 m0 = Family("saddle", 0.3, 21);
+            int src = FamilySource("centre", 21);
+            var g0 = Run(m0, src);
+            Assert.True(g0.DominatedCalls > 0 && g0.DominatedCalls < 200_000, $"DominatedCalls={g0.DominatedCalls}");
+            foreach (double sc in new[] { Math.Pow(2, -10), Math.Pow(2, 10) }) {
+                DMesh3 ms = new DMesh3(m0);
+                MeshTransforms.Scale(ms, sc);
+                var gs = Run(ms, src);
+                Assert.Equal(g0.Windows, gs.Windows);
+                Assert.Equal(g0.DominatedCalls, gs.DominatedCalls);
+                foreach (int v in m0.VertexIndices()) {
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(g0.Lower[v] * sc), BitConverter.DoubleToInt64Bits(gs.Lower[v]));
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(g0.Upper[v] * sc), BitConverter.DoubleToInt64Bits(gs.Upper[v]));
+                }
+            }
+        }
     }
 }
