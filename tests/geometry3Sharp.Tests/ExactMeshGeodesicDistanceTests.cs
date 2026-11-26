@@ -1271,11 +1271,11 @@ namespace geometry3Sharp.Tests
             Assert.Equal(new[] { (0.5, 2.5) }, remAInf.ToArray());
             Assert.Equal(1, cAInf);
 
-            // 5) End-to-end saddle 21x21: DominatedCalls stays well below naive 127-node tree count and scales bit-for-bit under 2^k
+            // 5) End-to-end saddle 21x21: DominatedCalls pinned (125,108 vs ~1.5M naive 127-node tree) and scales bit-for-bit under 2^k
             DMesh3 m0 = Family("saddle", 0.3, 21);
             int src = FamilySource("centre", 21);
             var g0 = Run(m0, src);
-            Assert.True(g0.DominatedCalls > 0 && g0.DominatedCalls < 200_000, $"DominatedCalls={g0.DominatedCalls}");
+            Assert.Equal(125108, g0.DominatedCalls);
             foreach (double sc in new[] { Math.Pow(2, -10), Math.Pow(2, 10) }) {
                 DMesh3 ms = new DMesh3(m0);
                 MeshTransforms.Scale(ms, sc);
@@ -1287,6 +1287,68 @@ namespace geometry3Sharp.Tests
                     Assert.Equal(BitConverter.DoubleToInt64Bits(g0.Upper[v] * sc), BitConverter.DoubleToInt64Bits(gs.Upper[v]));
                 }
             }
+        }
+
+        [Fact]
+        public void Dominated_RandomBoxesAndKinks_NeverRemovesNonDominated()
+        {
+            var g = new ExactMeshGeodesicDistance(new DMesh3());
+            Type wt = typeof(ExactMeshGeodesicDistance).GetNestedType("Window", System.Reflection.BindingFlags.NonPublic);
+            Assert.NotNull(wt);
+            System.Reflection.MethodInfo dom = typeof(ExactMeshGeodesicDistance).GetMethod("Dominated",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.NotNull(dom);
+            System.Reflection.FieldInfo fSigLo = wt.GetField("SigLo"), fSigHi = wt.GetField("SigHi");
+
+            var rnd = new Random(1654);
+            int removedPieces = 0;
+            for (int it = 0; it < 3000; ++it) {
+                double l = rnd.NextDouble() * 4 - 2;
+                double r = l + 0.05 + rnd.NextDouble() * 3.0;
+                double ax = rnd.NextDouble() * 6 - 3, bx = rnd.NextDouble() * 6 - 3;
+                double ay = (it % 3 == 0) ? 0.0 : -rnd.NextDouble() * 2.5;
+                double by = (it % 5 == 0) ? 0.0 : -rnd.NextDouble() * 2.5;
+                double rxa = (it % 4 == 0) ? 0.0 : rnd.NextDouble() * 0.2;
+                double rya = (it % 4 == 0) ? 0.0 : rnd.NextDouble() * 0.2;
+                double rxb = (it % 4 == 1) ? 0.0 : rnd.NextDouble() * 0.2;
+                double ryb = (it % 4 == 1) ? 0.0 : rnd.NextDouble() * 0.2;
+                var sa = new ExactMeshGeodesicDistance.P2(
+                    new ExactInterval(ax - rxa, ax + rxa),
+                    new ExactInterval(ay - rya, Math.Min(0.0, ay + rya)));
+                var sb = new ExactMeshGeodesicDistance.P2(
+                    new ExactInterval(bx - rxb, bx + rxb),
+                    new ExactInterval(by - ryb, Math.Min(0.0, by + ryb)));
+
+                double sigLoA = rnd.NextDouble() * 3.0;
+                double sigHiA = (it % 19 == 0) ? double.PositiveInfinity : sigLoA + rnd.NextDouble() * 0.3;
+                double sigLoB = rnd.NextDouble() * 3.0;
+                double sigHiB = (it % 23 == 0) ? double.PositiveInfinity : sigLoB + rnd.NextDouble() * 0.3;
+                int depth = it % 7;
+
+                object a = Activator.CreateInstance(wt, true), b = Activator.CreateInstance(wt, true);
+                fSigLo.SetValue(a, sigLoA); fSigHi.SetValue(a, sigHiA);
+                fSigLo.SetValue(b, sigLoB); fSigHi.SetValue(b, sigHiB);
+
+                var rem = new List<(double l, double r)>();
+                dom.Invoke(g, new object[] { a, sa, b, sb, l, r, depth, rem });
+                foreach (var (pl, pr) in rem) {
+                    ++removedPieces;
+                    Assert.True(pl >= l && pr <= r && pr > pl, $"it={it}: invalid piece [{pl:R}, {pr:R}] in [{l:R}, {r:R}]");
+                    for (int k = 0; k <= 8; ++k) {
+                        double t = pl + (pr - pl) * k / 8.0;
+                        // Closed-form worst case over box_a and box_b: min distance from box_a must strictly exceed max distance from box_b
+                        double dxA = t < sa.X.Lo ? sa.X.Lo - t : (t > sa.X.Hi ? t - sa.X.Hi : 0.0);
+                        double dyA = -sa.Y.Hi;
+                        double minA = Math.Sqrt(dxA * dxA + dyA * dyA) + sigLoA;
+                        double dxB = Math.Max(Math.Abs(t - sb.X.Lo), Math.Abs(t - sb.X.Hi));
+                        double dyB = -sb.Y.Lo;
+                        double maxB = Math.Sqrt(dxB * dxB + dyB * dyB) + sigHiB;
+                        Assert.True(minA > maxB - 1e-13 * (1.0 + Math.Abs(maxB)),
+                            $"it={it} depth={depth} t={t:R}: unsound removal minA={minA:R} <= maxB={maxB:R}");
+                    }
+                }
+            }
+            Assert.True(removedPieces > 500, $"removedPieces={removedPieces}");
         }
     }
 }
