@@ -1460,3 +1460,27 @@ verdict row out (the meshes are not changed, nothing is written). The row, one J
 | `verdict` | `certified`, `uncovered` (no violation, coverage not proven), `removed parts` (the rounding removed parts, listed), `rejected`, `not applicable`, `boolean failed`, `boolean exception`, `checker exception`, `boolean only` (`nocheck`), `error` (load or placement), `timeout` / `process failed` (driver) |
 | `clause`, `message` | the failing clause of a rejection (`C0`, `C1`, `C2`, `C3/C4`, `C5`), and `Check()`'s text (at most 400 characters) |
 | `split` | `SplitDepth`, where it was set |
+
+## Nesting check of MeshWindingNumberBoolean (`nesting-cost`; #1609, #1661, 2026-11-26)
+
+`DOTNET_TieredCompilation=0 BooleanComparison nesting-cost [rounds]` times `Compute()` of a union with the nesting check off
+(`NestingCheck` false) and on, for an input of two shells that lie apart and for an input with an outward shell inside another
+(spheres of 12 x 12 x 6 and 24 x 24 x 6 faces plus a far sphere as B, `GridResolution` 48). A warm-up round per row, then the best of
+7 rounds (the default; tiered JIT left the first row at 80 to 100 ms in the runs with it, so it is switched off). `nesting phase` is
+`PhaseMilliseconds["nesting"]`, which is there only if the check found a nested outward shell (the reading and its volume IoU ran);
+the default `MinVolumeIoU` refuses this input, so its `Compute()` is the check alone.
+
+| shell triangles | input | check | Compute ms | nesting phase ms | refused |
+|---|---|---|---|---|---|
+| 2904 | two apart shells | off | 26 | - | no |
+| 2904 | two apart shells | on | 29 | - | no |
+| 2904 | nested outward shell | off | 34 | - | no |
+| 2904 | nested outward shell | on | 26 | 25 | yes |
+| 12696 | two apart shells | off | 53 | - | no |
+| 12696 | two apart shells | on | 55 | - | no |
+| 12696 | nested outward shell | off | 82 | - | no |
+| 12696 | nested outward shell | on | 62 | 60 | yes |
+
+Without a nested shell the check is the cheap box test (`MayHaveNestedShells`) and is within the noise of the run (about 3 ms).
+With one, the check costs about 25 ms at 2904 and 60 ms at 12696 triangles. In the refused case it is cheaper than the union it replaces
+(34 and 82 ms); where the IoU is above the threshold the check is paid on top of the union. Run to run the rows vary by 5 to 10 ms.

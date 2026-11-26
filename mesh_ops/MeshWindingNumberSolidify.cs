@@ -54,7 +54,8 @@ namespace gs
         /// solid of that reading differs in volume from the plain union of the input's shells (the nonzero winding number) by more than 1 - MinVolumeIoU,
         /// Compute() is false with ResultReason NestingAmbiguous (an insert in a housing, or a cavity modelled with the wrong orientation: the result
         /// would be hollow where the union is solid); below that difference it only reports the count. 0 or less: no refusal (the count is still
-        /// reported). Default 0.99, as MeshRobustRepair.MinVolumeIoU. An input without a nested outward shell is not affected
+        /// reported). Default 0.99, as MeshRobustRepair.MinVolumeIoU. An input without a nested outward shell is not affected. Above 1 every input with
+        /// a nested outward shell is refused (no two readings have an IoU above 1); NaN is taken as "0 or less": no refusal
         /// </summary>
         public double MinVolumeIoU = 0.99;
 
@@ -218,7 +219,7 @@ namespace gs
 
         /// <summary>
         /// milliseconds per phase of the last Compute(), eg "winding", "contour", "selfint" (the check for
-        /// StopIfSelfIntersecting), "cleanup", "reduce"
+        /// StopIfSelfIntersecting), "cleanup", "reduce"; "nesting" (#1609) only if the check found an outward shell inside another shell
         /// </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
 
@@ -343,7 +344,8 @@ namespace gs
                 int nested;
                 bool ambiguous = MeshRepairMetrics.NestingAmbiguous(Mesh, MinVolumeIoU, out nested, CancelF);
                 ComponentsFlippedByNesting = nested;
-                end_phase("nesting");
+                if (nested > 0)
+                    end_phase("nesting");
                 if (CancelF())
                     return false;
                 if (ambiguous) {

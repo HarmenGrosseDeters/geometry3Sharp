@@ -81,12 +81,16 @@ namespace gs
         /// outward shells inside others (ComponentsFlippedByNestingA / B above 0) and the solid of that reading differs in volume from the plain union of
         /// its shells (the nonzero winding number) by more than 1 - MinVolumeIoU, Compute() is false with ResultReason NestingAmbiguous; below that
         /// difference it only reports the counts. 0 or less: no refusal (the counts are still reported). Default 0.99, as MeshRobustRepair.MinVolumeIoU.
-        /// An input without a nested outward shell is not affected. An input that the operation does not read (the other one is empty) is not checked
+        /// An input without a nested outward shell is not affected. An input that the operation does not read (the other one is empty) is not checked.
+        /// Above 1 every input with a nested outward shell is refused (no two readings have an IoU above 1); NaN is taken as "0 or less": no refusal.
+        /// MeshA and MeshB the same instance: checked once
         /// </summary>
         public double MinVolumeIoU = 0.99;
 
         /// <summary> (tests) false: no nesting check at all (no counts, no refusal), what Compute() did before #1609 </summary>
         internal bool NestingCheck = true;
+        /// <summary> (tests) the number of nesting checks of inputs the last Compute() ran (2 for two inputs, 1 if MeshA and MeshB are the same instance) </summary>
+        internal int NestingChecksRun { get; private set; }
 
         /// <summary> the number of closed components of MeshA that its oriented copy reverses although they are outward by their own volume, in the last Compute(); see MinVolumeIoU </summary>
         public int ComponentsFlippedByNestingA { get; private set; }
@@ -119,6 +123,7 @@ namespace gs
         public double UsedCellSize;
         /// <summary> local refinement: number of cells (of CellSize) refined, and the refinement factor (CellSize / UsedCellSize) </summary>
         public int RefinedCells, RefineFactor = 1;
+        /// <summary> the milliseconds per phase of the last Compute(); "nesting" (#1609) only if the check found an outward shell inside another input shell </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
 
 
@@ -160,9 +165,12 @@ namespace gs
             if (CellSize > 0 && (!(scaledCell > 0) || double.IsInfinity(scaledCell))) {
                 return false;           // a cell size that does not exist in the scaled frame (as a cell too small for the octree)
             }
-            DMesh3 a = new DMesh3(MeshA), b = new DMesh3(MeshB);
+            // (the same instance as both inputs stays one instance in the scaled copies, so that its nesting is checked once)
+            bool same = ReferenceEquals(MeshA, MeshB);
+            DMesh3 a = new DMesh3(MeshA), b = same ? a : new DMesh3(MeshB);
             MeshRepairMetrics.ScaleVertices(a, s);
-            MeshRepairMetrics.ScaleVertices(b, s);
+            if (!same)
+                MeshRepairMetrics.ScaleVertices(b, s);
             var inner = new MeshWindingNumberBoolean(a, b, Operation) {
                 CellSize = scaledCell, GridResolution = GridResolution, CleanupResult = CleanupResult, ReduceTolerance = ReduceTolerance,
                 FastWindingBeta = FastWindingBeta, UseExactWinding = UseExactWinding, MaxRefineLevels = MaxRefineLevels,
@@ -170,6 +178,7 @@ namespace gs
             };
             bool ok = inner.compute_unit();
             ComponentsFlippedByNestingA = inner.ComponentsFlippedByNestingA; ComponentsFlippedByNestingB = inner.ComponentsFlippedByNestingB;
+            NestingChecksRun = inner.NestingChecksRun;
             ResultReason = inner.ResultReason;
             Result = inner.Result;
             if (Result != null)
@@ -232,6 +241,7 @@ namespace gs
             RefineFactor = 1;
             PhaseMilliseconds.Clear();
             ComponentsFlippedByNestingA = ComponentsFlippedByNestingB = 0;
+            NestingChecksRun = 0;
             ResultReason = "";
         }
 
@@ -273,16 +283,27 @@ namespace gs
                 }
             }
             // (#1609) outward shells inside others: the oriented copy of an input takes them for cavities
-            bool ambiguous = false;
+            bool ambiguous = false, nestedInput = false;
+            DMesh3 checkedInput = null;
+            int checkedNested = 0;
             foreach (DMesh3 input in NestingCheck ? inputs : new DMesh3[0]) {
                 int nested;
-                if (MeshRepairMetrics.NestingAmbiguous(input, MinVolumeIoU, out nested, CancelF))
-                    ambiguous = true;
+                if (input == checkedInput)
+                    nested = checkedNested;         // (the same instance as both inputs: its result is reused)
+                else {
+                    ++NestingChecksRun;
+                    if (MeshRepairMetrics.NestingAmbiguous(input, MinVolumeIoU, out nested, CancelF))
+                        ambiguous = true;
+                    checkedInput = input; checkedNested = nested;
+                }
+                if (nested > 0) nestedInput = true;
                 if (input == MeshA) ComponentsFlippedByNestingA = nested;
                 if (input == MeshB) ComponentsFlippedByNestingB = nested;
             }
-            if (NestingCheck)
+            if (nestedInput)
                 end_phase("nesting");
+            else
+                timer.Restart();        // (the check's time is not the next phase's: a real cavity runs the check with count 0)
             if (CancelF())
                 return false;
             if (ambiguous) {

@@ -412,7 +412,8 @@ namespace gs
                 return result;
             var openBodies = new OpenBodies(mesh, open);
 
-            Vector3d center = mesh.CachedBounds.Center;
+            // (GetBounds, not the cached CachedBounds: the mesh is the caller's input, which a read must not write to, #1661)
+            Vector3d center = mesh.GetBounds().Center;
             var volAreas = closed.Select(c => MeshMeasurements.VolumeArea(mesh, c, (vid) => mesh.GetVertex(vid) - center)).ToList();
             var vols = volAreas.Select(va => va.x).ToList();
             // the orientation from the exact sign of each volume (a filtered sum, exact where the floating-point sum

@@ -387,6 +387,14 @@ namespace geometry3Sharp.Tests
                 MeshWindingNumberBoolean id = Boolean(a, b);
                 MeshWindingNumberBoolean r = Boolean(Invariance.Transformed(a, sim), Invariance.Transformed(b, sim));
                 Assert.Equal(Get<int>(id, "ComponentsFlippedByNestingA"), Get<int>(r, "ComponentsFlippedByNestingA"));
+                // the IoU of the two readings (what the refusal compares with MinVolumeIoU): the same bits in the 2^k frames (#1661)
+                int nId, nR;
+                double iouId = Readings(a, out nId), iouR = Readings(Invariance.Transformed(a, sim), out nR);
+                Assert.Equal(nId, nR);
+                if (sim.IsExact)
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(iouId), BitConverter.DoubleToInt64Bits(iouR));
+                else
+                    Assert.Equal(iouId, iouR, 2);
                 Assert.Equal(Reason(id), Reason(r));
                 Assert.Equal(id.Result == null, r.Result == null);
                 if (sim.IsExact && id.Result != null)
