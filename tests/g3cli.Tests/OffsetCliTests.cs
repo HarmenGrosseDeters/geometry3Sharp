@@ -361,12 +361,12 @@ namespace g3cli.Tests
             var box = new TrivialBox3Generator { Box = new Box3d(Vector3d.Zero, new Vector3d(0.5, 0.35, 0.25)) }.Generate().MakeDMesh();
             StandardMeshWriter.WriteMesh(thin, box, WriteOptions.Defaults);
             string output = m.Path_("box_thin_out.obj");
-            var (exit, r) = Run("offset", thin, output, "--distance=-0.24", "--relative-cell-size", "0.25", "--method", "mesh_offset", "--compact");
+            var (exit, r) = Run("offset", thin, output, "--distance=-0.24", "--method", "mesh_offset", "--compact");
             Assert.Equal(0, exit);
             Assert.Equal("ok", S(r["offset_status"]));
             Assert.InRange(D(r["mesh"]["volume"]), 0.002288 * 0.9, 0.002288 * 1.1);
             // too few cells to refine: not resolved, with a suggested cell
-            var (e2, r2) = Run("offset", thin, m.Path_("box_thin_nr.obj"), "--distance=-0.24", "--relative-cell-size", "0.25", "--max-cells", "6000", "--method", "mesh_offset", "--compact");
+            var (e2, r2) = Run("offset", thin, m.Path_("box_thin_nr.obj"), "--distance=-0.24", "--max-cells", "6000", "--method", "mesh_offset", "--compact");
             AssertError(e2, r2, "operation_failed");
             Assert.Equal("not_resolved", S(r2["offset_status"]));
             Assert.Contains("try cell_size", S(r2["message"]));
