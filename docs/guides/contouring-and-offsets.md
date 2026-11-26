@@ -27,6 +27,13 @@ This guide covers implicit iso-surface extraction (`MarchingCubes`, `DualContour
 - **Example:** [OffsetSurfaceExample.cs](../examples/OffsetSurfaceExample.cs)
 - **Further reading:** [CONSERVATIVE_MC_AUDIT.md](../design/CONSERVATIVE_MC_AUDIT.md)
 
+### Slivers at grid corners (`SingleLerp`, `LerpSteps`, `Bisection`)
+
+A crossing within `1e-5` of the field change along an edge of a grid corner is pulled to `1e-6 * CubeSize` from that corner, so the vertices around a corner stay distinct and the mesh manifold (`find_iso`). Where the surface passes through or next to a grid corner (a sphere or a box on the grid) the triangles around it are slivers: edges of about `1e-6 * CubeSize`, area about `1e-12 * CubeSize^2`. That is below the degenerate area of `MeshRobustRepair.NotCleanReason` (`1e-12` of the squared bounds diagonal) when `CubeSize` is small against the bounds, so a plain sphere can report `degenerate triangles` although the mesh is closed and manifold (issue #1599).
+
+- The slivers are not welded: their vertices differ, so a weld would move the surface by up to `1e-6 * CubeSize`.
+- Check the result with `NotCleanReason` and repair it (`MeshRobustRepair`) if a clean mesh is required, or use `RootMode = LinearEdges` (below), which refuses such inputs instead of creating slivers.
+
 ### `RootMode = LinearEdges`
 
 Standard root modes (`SingleLerp`, `LerpSteps`, `Bisection`) snap near-zero values to grid corners. `RootMode = LinearEdges` performs a single unmodified linear interpolation per edge without nudges or skipped triangles:

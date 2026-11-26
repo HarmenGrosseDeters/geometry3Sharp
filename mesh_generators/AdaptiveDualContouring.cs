@@ -45,7 +45,7 @@ namespace g3
         public int MaxLevel = 6;
         /// <summary> QEF eigenvalues below this fraction of the largest are ignored (as DualContouring.QEFEigenTolerance) </summary>
         public double QEFEigenTolerance = new DualContouring().QEFEigenTolerance;
-        /// <summary> vertices of single cells stay this far (relative to the cell size) inside their cell, as DualContouring.QEFCellMargin </summary>
+        /// <summary> vertices of single cells stay this far (relative to the cell size) inside their cell, as DualContouring.QEFCellMargin; the vertex of a merged block stays this far (relative to one fine cell) inside the block </summary>
         public double QEFCellMargin = new DualContouring().QEFCellMargin;
         /// <summary> the uniform contour the last Generate merged (its counters; its mesh is the input of the merge) </summary>
         internal DualContouring BaseContour;
@@ -281,7 +281,7 @@ namespace g3
                 Vector3d bmin = origin + owner.CellSize * new Vector3d((c0.x >> l) << l, (c0.y >> l) << l, (c0.z >> l) << l);
                 double bsize = owner.CellSize * (1 << l);
                 Vector3d mass, pn; bool feat;
-                Vector3d x = dc.solve_qef(qefSolver, bmin, bsize, edges, dc.HermitePoints, dc.HermiteNormals, out mass, out pn, out feat);
+                Vector3d x = dc.solve_qef(qefSolver, bmin, bsize, edges, dc.HermitePoints, dc.HermiteNormals, out mass, out pn, out feat, owner.CellSize);
                 bool ok = !(double.IsNaN(x.x) || double.IsNaN(x.y) || double.IsNaN(x.z) || double.IsInfinity(x.x) || double.IsInfinity(x.y) || double.IsInfinity(x.z));
                 if (ok) {
                     foreach (int ci in edges) {
@@ -409,14 +409,20 @@ namespace g3
                 culprits = new List<Key>();
                 var bad = new HashSet<Key>();
                 // (degenerate area of NotCleanReason: relative to the bounds of the result)
-                double diag = outMesh.GetBounds().DiagonalLength, degenerateArea = 1e-12 * diag * diag;
+                AxisAlignedBox3d outBounds = outMesh.GetBounds();
+                double diag = outBounds.DiagonalLength, degenerateArea = 1e-12 * diag * diag;
+                Vector3d outExtent = outBounds.Max - outBounds.Min;
                 foreach (int t in M0.TriangleIndices()) {
                     Index3i it = M0.GetTriangle(t);
                     int a = map[it.a], b = map[it.b], c = map[it.c];
                     if (a == b || b == c || a == c) continue;
                     // (area below the degenerate area of MeshRobustRepair.NotCleanReason: three cluster vertices on one crease)
                     bool anyCluster = isCluster[it.a] || isCluster[it.b] || isCluster[it.c];
-                    if (anyCluster && 0.5 * (outMesh.GetVertex(b) - outMesh.GetVertex(a)).Cross(outMesh.GetVertex(c) - outMesh.GetVertex(a)).Length < degenerateArea) {
+                    // (the length of the cross product is a second power of the edges: DualContouring.cross_exceeds takes the comparison on
+                    // scaled vectors where diag^2 is not in 1e-100 .. 1e100, so it neither overflows nor underflows there)
+                    if (anyCluster && (diag * diag > 1e-100 && diag * diag < 1e100
+                            ? 0.5 * (outMesh.GetVertex(b) - outMesh.GetVertex(a)).Cross(outMesh.GetVertex(c) - outMesh.GetVertex(a)).Length < degenerateArea
+                            : !DualContouring.cross_exceeds(outMesh.GetVertex(b) - outMesh.GetVertex(a), outMesh.GetVertex(c) - outMesh.GetVertex(a), outExtent, 2e-12))) {
                         foreach (int v in new[] { it.a, it.b, it.c }) if (isCluster[v]) bad.Add(keyOfVertex[v]);
                         continue;
                     }
