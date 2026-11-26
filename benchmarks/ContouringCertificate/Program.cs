@@ -105,7 +105,7 @@ class Program
         foreach (int mode in new[] { 0, 1, 2, 3 }) {
             bool cert = mode > 0;
             var sw = Stopwatch.StartNew();
-            var s = new MeshWindingNumberSolidify(mesh) { Adaptive = true, CellSize = diag / res, CleanupResult = false, ReduceTolerance = 0, ComputeTopologyCertificate = cert,
+            var s = new MeshWindingNumberSolidify(mesh) { MinVolumeIoU = 0, Adaptive = true, CellSize = diag / res, CleanupResult = false, ReduceTolerance = 0, ComputeTopologyCertificate = cert,
                 CertificateBlocks = mode >= 2, CertificateGrowRounds = mode == 3 ? 2 : 0 };
             s.Compute();
             string p = mode == 0 ? "off_" : mode == 1 ? "on_" : mode == 2 ? "blocks_" : "grow_";
@@ -218,7 +218,7 @@ class Program
         var sw = Stopwatch.StartNew();
         // (CERT_SKIP_DC=1: the certificate only, for profiling)
         if (Environment.GetEnvironmentVariable("CERT_SKIP_DC") != "1") {
-        var solid = new MeshWindingNumberSolidify(mesh) { Adaptive = true, CellSize = diag / res, CleanupResult = false, ReduceTolerance = 0 };
+        var solid = new MeshWindingNumberSolidify(mesh) { MinVolumeIoU = 0, Adaptive = true, CellSize = diag / res, CleanupResult = false, ReduceTolerance = 0 };
         solid.Compute();
         r["dc_total_ms"] = sw.ElapsedMilliseconds;
         foreach (var kv in solid.PhaseMilliseconds) r["dc_" + kv.Key] = kv.Value;

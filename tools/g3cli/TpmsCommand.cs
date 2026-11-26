@@ -161,7 +161,8 @@ namespace g3cli
                     case TpmsStatus.InvalidOptions: case TpmsStatus.InvalidDomain: case TpmsStatus.TooLarge:
                         throw new CommandException(ResultCodes.InvalidArguments, "tpms: " + lattice.Message, failure);
                     default:
-                        throw new CommandException(ResultCodes.OperationFailed, "tpms failed (" + status + "): " + lattice.Message, failure);
+                        // the CLI has no TwoLevelSheet option: its advice for a thin sheet is Divisions
+                        throw new CommandException(ResultCodes.OperationFailed, "tpms failed (" + status + "): " + lattice.Message.Replace("set TwoLevelSheet = true or raise Divisions", "raise divisions"), failure);
                 }
                 MeshFiles.Write(args.String("output"), lattice.Mesh, args.Bool("binary"));
                 var o2 = new JsonObject() { ["output"] = args.String("output") };
@@ -182,7 +183,7 @@ namespace g3cli
                     o2["blend_gradient_bound"] = MeshReport.Num(lattice.Blend.GradientBound);
                 }
                 if (args.Has("grade")) o2["min_local_cell_size"] = MeshReport.Num(lattice.MinLocalCellSize);
-                if (!string.IsNullOrEmpty(lattice.Message)) warnings.Add("tpms: " + lattice.Message);      // Ok with a result that is not the lattice asked for (#1596)
+                if (!string.IsNullOrEmpty(lattice.Message)) warnings.Add("tpms: " + lattice.Message);      // defensive: TpmsLattice refuses a result that is not the lattice asked for as NotResolved (#1596), so Ok has no Message today
                 if (!lattice.VerifySelfIntersections) warnings.Add("verify_self_intersections is off: the mesh is closed and manifold, but was not checked for self-intersections");
                 o2["mesh"] = MeshReport.Metrics(lattice.Mesh, args.Bool("self_intersections"));
                 o2["warnings"] = Warnings(warnings);

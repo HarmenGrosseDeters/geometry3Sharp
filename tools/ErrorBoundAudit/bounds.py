@@ -910,17 +910,42 @@ def carry_length(c, r):
 
 
 @entry('RC-6 ExactInterval (one rule)', 'math/ExactIntervals.cs',
-       ['return new ExactInterval(Down(lo), Up(hi));', 'return BitConverter.Int64BitsToDouble(x > 0 ? b + 1 : b - 1);',
-        'return double.Epsilon;'],
+       ['return new ExactInterval(Down(lo), Up(hi));',
+        'const double Phi1 = 1.1102230246251568e-16;',
+        'const double RumpMin = 2.0041683600089728e-292;',
+        'if (ax >= RumpMin && x != double.NegativeInfinity) {',
+        'return x == -double.Epsilon ? -0.0 : x + double.Epsilon;'],
        'the exact result of an operation on any values of the operand intervals lies in the result',
-       'none (NaN gives the whole line)', 'one spacing on each side of the round-to-nearest result')
+       'IEEE 754 binary64 round-to-nearest, 53-bit significand (SSE2/NEON; 32-bit x87 extended precision and directed rounding not supported; NaN gives the whole line)',
+       'one spacing on each side of the round-to-nearest result (Rump et al. 2009, Thm 3.1)')
 def exact_interval(c, r):
     # round to nearest is within half the spacing on the side of the exact value; Up / Down move a whole spacing
-    # (also across 0 and into the subnormals: Up(0) = 2^-1074, Up(-2^-1074) = -0). Checked on doubles:
-    ok = True
-    for x in (0.0, 5e-324, -5e-324, 1.0, -1.0, 2.2250738585072014e-308, 1.7976931348623157e308, -1.7976931348623157e308):
-        ok = ok and math.nextafter(x, math.inf) > x
-    r.add(*arith('widening covers one rounding', ok, 'half a spacing against a whole one, on every binade and at 0'))
+    # (also across 0 and into the subnormals: Up(0) = 2^-1074, Up(-2^-1074) = -0.0). Verify Rump (2009) Thm 3.1
+    # phi1 = 2^-53 + 2^-105, RumpMin = 2^-969, MinNormal = 2^-1022 across boundaries and specials (including sign of 0):
+    phi1 = 1.1102230246251568e-16
+    rump_min = 2.0041683600089728e-292
+    min_normal = 2.2250738585072014e-308
+    eps = 5e-324
+    two_p54, two_m54 = 2.0 ** 54, 2.0 ** -54
+    def up_model(x):
+        ax = abs(x)
+        if ax >= rump_min and x != -math.inf:
+            return x + ax * phi1
+        if x == -math.inf:
+            return -1.7976931348623157e308
+        if ax <= min_normal:
+            return -0.0 if x == -eps else x + eps
+        s = x * two_p54
+        return (s + abs(s) * phi1) * two_m54
+    ok = (phi1 == math.nextafter(2.0 ** -53, math.inf)
+          and rump_min == 2.0 ** -969 and min_normal == 2.0 ** -1022)
+    for x in (0.0, -0.0, eps, -eps, min_normal, -min_normal, 2.0 ** -1000, -2.0 ** -1000,
+              2.0 ** -970, -2.0 ** -970, rump_min, -rump_min, 1.0, -1.0,
+              1.7976931348623157e308, -1.7976931348623157e308):
+        u = up_model(x)
+        ref = math.nextafter(x, math.inf)
+        ok = ok and u == ref and math.copysign(1.0, u) == math.copysign(1.0, ref) and u > x
+    r.add(*arith('widening covers one rounding', ok, 'Rump 2009 Thm 3.1 matches nextafter (including sign of zero) on every binade, boundary and at 0'))
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1387,4 +1412,75 @@ def ctb_covering_upper(c, r):
     circ_have_sq = frac(1.0 + 2e-15) ** 2
     r.add('circumradius factor', Verdict(circ_have_sq >= circ_need_sq, (circ_have_sq - 1) / (circ_need_sq - 1),
                                          '(1 + 2e-15) covers num/den/sqrt/div roundings (needed 1/(1-u)^6.5) with margin %.2fx' % float((circ_have_sq - 1) / (circ_need_sq - 1))))
+
+
+CPM = 'queries/CertifiedPointMeshDistance.cs'
+
+
+@entry('CPM-1 CertifiedPointMeshDistance.box_lower_squared fast path', CPM,
+       ['~const double NormalSqLo = 1e-290;', '~const double NormalSqHi = 1e290;',
+        'double s = gx * gx + gy * gy + gz * gz;',
+        'if (s > NormalSqLo && s < NormalSqHi)',
+        'return s * (1.0 - 1e-15);'],
+       'fast path <= exact squared distance from p to triangle AABB',
+       's in (1e-290, 1e290) (fallback to ExactInterval.Down otherwise)',
+       's * (1 - 1e-15)',
+       scope='internal static double box_lower_squared(')
+def cpm_box_lower_squared(c, r):
+    # Each gap gk = fl(lo - pk) satisfies gk <= (1 + u) * gk_exact; each square pk <= (1 + u) * gk^2 + ETA
+    # <= (1 + u)^3 * gk_exact^2 + ETA; two sums give s <= (1 + u)^5 * s_exact + 3 * (1 + u)^2 * ETA.
+    # Thus s_exact >= s * (1 / (1 + u)^5 - 3 * (1 + u)^2 * ETA / 1e-290).
+    # Returned fl(s * (1 - 1e-15)) <= s * (1 - 1e-15) * (1 + u).
+    exact_floor = Fraction(1, 1) / (1 + U) ** 5 - 3 * (1 + U) ** 2 * ETA / CTB_SQ_LO
+    out_hi = frac(1.0 - 1e-15) * (1 + U)
+    margin = (1 - out_hi) / (1 - exact_floor)
+    r.add('rounded down', Verdict(out_hi <= exact_floor, margin,
+                                  'output ceiling %.16f vs exact lower %.16f (margin %.2fx)' % (float(out_hi), float(exact_floor), float(margin))))
+
+
+@entry('CPM-2 CertifiedPointMeshDistance.plane_lower_squared_exceeds fast path', CPM,
+       ['~const double NormalSqLo = 1e-290;', '~const double NormalSqHi = 1e290;',
+        '~const double NormalLinLo = 1e-140;', '~const double NormalLinHi = 1e140;',
+        'CertifiedDet3 det = CertifiedDet3.Compute(d, e1, e2);',
+        'double detDiff = Math.Abs(det.Det) - det.E;',
+        'if (!(detDiff > 0)) return false;',
+        'double detLo = ExactInterval.Down(detDiff);',
+        'if (!(detLo > NormalLinLo && detLo < NormalLinHi)) return false;',
+        'double unx = Math.Abs(p1x - p2x) + 1e-15 * mx;',
+        'double uny = Math.Abs(p1y - p2y) + 1e-15 * my;',
+        'double unz = Math.Abs(p1z - p2z) + 1e-15 * mz;',
+        'double n2 = unx * unx + uny * uny + unz * unz;',
+        'if (!(n2 > NormalSqLo && n2 < NormalSqHi)) return false;',
+        'double q = (detLo * detLo) / n2;',
+        'if (!(q > NormalSqLo && q < NormalSqHi)) return false;',
+        'double lb = q * (1.0 - 2e-15);',
+        'return lb > thresh;'],
+       'lb <= exact |det(p-v0, v1-v0, v2-v0)|^2 / |(v1-v0) x (v2-v0)|^2 <= exact squared distance to triangle',
+       'detLo in (1e-140, 1e140), n2 in (1e-290, 1e290), q in (1e-290, 1e290), thresh finite (CertifiedDet3 proves |Delta| >= detLo)',
+       'un_k = |n_k| + 1e-15 * m_k; lb = q * (1 - 2e-15)',
+       scope='internal static bool plane_lower_squared_exceeds(')
+def cpm_plane_lower_squared(c, r):
+    # 1) Cross-product component upper bound: dual of CTB-4 cross lower bound.
+    # For any component with mx >= 2^-500, fl(|p1-p2| + fl(1e-15*mx)) >= |p1-p2|*(1-u) + 1e-15*mx*(1-u)^2;
+    # the gap between |n_k^*| and |p1-p2|*(1-u) is at most ((1/(1-u)^3 - 1 + u)/(1-u) + u) * mx + 2*ETA/(1-u)^2,
+    # so un_k >= |n_k^*| strictly. For mx in [2^-1022, 2^-500), 1e-15*mx still covers the error strictly; for
+    # subnormal mx < 2^-1022, input-diff + product underflow deficit is <= 4*ETA/(1-u)^2 < 2^-1072, whose squared
+    # contribution is < 2^-2093 << 2^-1570 << u * n2 (since n2 > 1e-290).
+    cross_need = ((Fraction(1, 1) / (1 - U) ** 3 - 1) + U) / (1 - U) + U + 2 * ETA / (1 - U) ** 2 / Fraction(1, 2 ** 500)
+    cross_have = frac(1e-15) * (1 - U) ** 2
+    r.add('cross upper bound', Verdict(cross_have >= cross_need, cross_have / cross_need,
+                                       '1e-15 * mx covers cross-product upper rounding for mx >= 2^-500 with margin %.2fx' % float(cross_have / cross_need)))
+    # 2) Plane distance squared lower bound:
+    # Exact |n^*|^2 <= n2 / (1 - u)^3 + 3*ETA/(1-u) + 3 * 2^-1570 (ratio <= 1/(1-u)^3 + 4e-33).
+    # Numerator fl(detLo * detLo) <= |Delta|^2 * (1 + u) (normal, no underflow since detLo > 1e-140).
+    # Quotient q in (1e-290, 1e290) and final mul by (1 - 2e-15) are both normal, inflating by at most (1 + u)^2:
+    # lb <= exact_plane_d2 * (1 + u)^3 / (1 - u)^3 * (1 + 4e-33) * (1 - 2e-15).
+    n2_uf = (3 * ETA / (1 - U) + Fraction(3, 2 ** 1570)) / CTB_SQ_LO
+    inflate = (1 + U) ** 3 / (1 - U) ** 3 * (1 + n2_uf)
+    factor = frac(1.0 - 2e-15)
+    prod = inflate * factor
+    margin = (1 - factor) / (inflate - 1)
+    r.add('plane d2 lower factor', Verdict(prod <= 1, margin,
+                                           '(1 - 2e-15) keeps lb <= exact plane d^2 with margin %.2fx' % float(margin)))
+
 

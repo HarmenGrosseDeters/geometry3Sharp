@@ -310,8 +310,8 @@ static class LostArea
             stage("auto", () => { var a = new MeshAutoRepair(new DMesh3(input, true)) { PostRepairCleanup = true }; a.Apply(); autoRes = a.Mesh; return a.Mesh; });
             stage("resolve_input", () => ExactMeshBoolean.Resolve(new DMesh3(input, true)));
             if (autoRes != null) stage("resolve_auto", () => ExactMeshBoolean.Resolve(new DMesh3(autoRes, true)));
-            stage("solidify_input", () => { var s = new MeshWindingNumberSolidify(new DMesh3(input, true)) { GridResolution = 128, Adaptive = true }; s.Compute(); return s.Result; });
-            if (autoRes != null) stage("solidify_auto", () => { var s = new MeshWindingNumberSolidify(new DMesh3(autoRes, true)) { GridResolution = 128, Adaptive = true }; s.Compute(); return s.Result; });
+            stage("solidify_input", () => { var s = new MeshWindingNumberSolidify(new DMesh3(input, true)) { MinVolumeIoU = 0, GridResolution = 128, Adaptive = true }; s.Compute(); return s.Result; });
+            if (autoRes != null) stage("solidify_auto", () => { var s = new MeshWindingNumberSolidify(new DMesh3(autoRes, true)) { MinVolumeIoU = 0, GridResolution = 128, Adaptive = true }; s.Compute(); return s.Result; });
             if (wrap) {
                 stage("wrap_robust_defaults", () => SpikeA.Wrap(new DMesh3(input, true), diag / 300, diag / 3000, 120, 1).Result);
                 stage("wrap_d100_1e-4", () => SpikeA.Wrap(new DMesh3(input, true), diag / 100, diag * 1e-4, 120, 1).Result);
