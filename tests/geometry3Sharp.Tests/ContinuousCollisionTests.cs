@@ -733,5 +733,285 @@ namespace geometry3Sharp.Tests
                 }
             }
         }
+
+        [Fact]
+        public void SeparatedAlong_CCD1_SoundAcrossScalesGuardsAndExactOracle()
+        {
+            ExactDyadic D(double x) => ExactDyadic.Of(x);
+            var solver = new CcdSolver();
+
+            // 1) Non-finite / zero normals never separate and leave [alphaLo, alphaHi] = [0, 1]
+            foreach (Vector3d badN in new[] { V(0, 0, 0), V(double.NaN, 1, 0), V(double.PositiveInfinity, 1, 0), V(1, double.NegativeInfinity, 0) }) {
+                Assert.False(solver.SeparatedAlongForTests(badN.x, badN.y, badN.z, V(5, 5, 5), V(5, 5, 5), 0, 0, 0, 0, out double aLo, out double aHi));
+                Assert.Equal(0.0, aLo);
+                Assert.Equal(1.0, aHi);
+            }
+
+            // 2) Fast-path exact pin & 2^k scale invariance:
+            //    n = (3, 4, 0) normalizes to (0.75, 1.0, 0), n1 = 1.75; f0 = (0, 2, 0), f1 = (0, -2, 0), e = 0, ms = 0.25
+            //    baseScale = 0.25 * 1.75 = 0.4375, ad = 2.0, margin = 0.4375*(1+2e-15) + 2e-15*2.0
+            {
+                double baseMargin = (0.25 * 1.75) * (1.0 + 2e-15);
+                double margin = baseMargin + 2e-15 * 2.0;
+                double dlo0 = 2.0 - margin, dlo1 = -2.0 - margin;
+                double dhi0 = 2.0 + margin, dhi1 = -2.0 + margin;
+                double expLo = 0.0, expHi = 1.0;
+                CcdSolver.UpdateTClip(dlo0, dhi0, dlo1, dhi1, 0.0, ref expLo, ref expHi);
+                Assert.False(solver.SeparatedAlongForTests(3, 4, 0, V(0, 2, 0), V(0, -2, 0), 0, 0, 0, 0.25, out double aLo, out double aHi));
+                Assert.Equal(BitConverter.DoubleToInt64Bits(expLo), BitConverter.DoubleToInt64Bits(aLo));
+                Assert.Equal(BitConverter.DoubleToInt64Bits(expHi), BitConverter.DoubleToInt64Bits(aHi));
+                Assert.True(aLo > 0.3 && aHi < 0.7, $"aLo={aLo:R} aHi={aHi:R}");
+                // 2^k scaling of both f, ms and n must produce bit-identical [aLo, aHi]
+                foreach (double sc in new[] { Math.Pow(2, -30), Math.Pow(2, 30) }) {
+                    Assert.False(solver.SeparatedAlongForTests(3 * sc * sc, 4 * sc * sc, 0, V(0, 2 * sc, 0), V(0, -2 * sc, 0), 0, 0, 0, 0.25 * sc, out double sLo, out double sHi));
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(aLo), BitConverter.DoubleToInt64Bits(sLo));
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(aHi), BitConverter.DoubleToInt64Bits(sHi));
+                }
+            }
+
+            // 3) Guard & margin tests:
+            //    a) Cancellation in d = nx*fx + ny*fy + nz*fz (kills dropping 2e-15 * ad):
+            //       exact n . f <= 0, but rounded d can be positive when terms cancel -> MUST NOT separate
+            {
+                var rndC = new Random(1660);
+                for (int i = 0; i < 400; ++i) {
+                    double u = 1.0 + rndC.NextDouble();
+                    double v = 1.0 + rndC.NextDouble();
+                    double c1 = 1.0 + rndC.NextDouble();
+                    // Choose f0 so exact u*f0.x + v*f0.y + 1.0*f0.z <= 0 while fl(u*f0.x + v*f0.y + f0.z) can round positive
+                    double fz = -(u * c1 + v * (1.0 + rndC.NextDouble()));
+                    double fy = (-(u * c1) - fz) / v;
+                    ExactDyadic ex = D(u) * D(c1) + D(v) * D(fy) + D(1.0) * D(fz);
+                    if (ex.Sign <= 0) {
+                        Assert.False(solver.SeparatedAlongForTests(u, v, 1.0, V(c1, fy, fz), V(c1, fy, fz), 0, 0, 0, 0, out _, out _),
+                            $"cancellation i={i}: falsely separated when exact dot <= 0");
+                    }
+                }
+                // Explicit base-enclosure rounding test (kills dropping (1 + 2e-15) on baseScale):
+                // eDot + lim can round DOWN by up to 4 ulp relative to exact |n|.e + ms|n|_1;
+                // placing f0 at exact dot == exact (|n|.e + ms|n|_1) must NEVER separate.
+                for (int i = 0; i < 400; ++i) {
+                    double n0 = 1.0 + rndC.NextDouble() * 0.5;
+                    double n1 = 1.0 + rndC.NextDouble() * 0.5;
+                    double n2 = 1.0 + rndC.NextDouble() * 0.5;
+                    double e0 = 1.0 + rndC.NextDouble();
+                    double e1 = 1.0 + rndC.NextDouble();
+                    double e2 = 1.0 + rndC.NextDouble();
+                    double m = 1.0 + rndC.NextDouble();
+                    ExactDyadic exactBase = D(n0) * (D(e0) + D(m)) + D(n1) * (D(e1) + D(m)) + D(n2) * (D(e2) + D(m));
+                    double fx = (n0 * (e0 + m) + n1 * (e1 + m) + n2 * (e2 + m)) / n0;
+                    while (ExactDyadic.Compare(D(n0) * D(fx), exactBase) > 0) fx = ExactInterval.Down(fx);
+                    Assert.True(ExactDyadic.Compare(D(n0) * D(fx), exactBase) <= 0);
+                    Assert.False(solver.SeparatedAlongForTests(n0, n1, n2, V(fx, 0, 0), V(fx, 0, 0), e0, e1, e2, m, out _, out _),
+                        $"baseMargin i={i}: falsely separated when exact n.f <= exact |n|.e + ms|n|_1");
+                }
+            }
+
+            //    b) NormalSqLo guard (subnormal scale ~ 2^-1073, kills scale > NormalSqLo -> scale > 0)
+            //       and NormalSqHi guard (huge scale >= 1e290, kills dropping scale < NormalSqHi)
+            {
+                double tiny = double.Epsilon;
+                // Subnormal exact dot == ms * |n|_1 -> must NOT separate; subnormal separated -> ExactInterval fallback still separates
+                Assert.False(solver.SeparatedAlongForTests(1, 0, 0, V(tiny, 0, 0), V(tiny, 0, 0), 0, 0, 0, tiny, out _, out _));
+                Assert.True(solver.SeparatedAlongForTests(1, 0, 0, V(16 * tiny, 0, 0), V(16 * tiny, 0, 0), 0, 0, 0, tiny, out _, out _));
+                // Subnormal double-rounding killer for scale > NormalSqLo -> scale > 0:
+                // n = (1.6, 1.6, 0), f = (tiny, tiny, 0), ms = tiny: exact dot = 3.2*tiny == ms*|n|_1,
+                // yet in subnormal float fl(1.6*tiny)+fl(1.6*tiny) = 4*tiny > fl(3.2*tiny) = 3*tiny!
+                Assert.False(solver.SeparatedAlongForTests(1.6, 1.6, 0, V(tiny, tiny, 0), V(tiny, tiny, 0), 0, 0, 0, tiny, out _, out _));
+                // Huge scale (1e295 >= NormalSqHi): fallback to ExactInterval still separates when strictly separated and never separates on tie
+                Assert.True(solver.SeparatedAlongForTests(1, 0, 0, V(2e295, 0, 0), V(2e295, 0, 0), 0, 0, 0, 1e295, out _, out _));
+                Assert.False(solver.SeparatedAlongForTests(1, 0, 0, V(1e295, 0, 0), V(1e295, 0, 0), 0, 0, 0, 1e295, out _, out _));
+                // Overflowing fast-path sum (1e308 + 1e308 = +Inf, kills dropping scale < NormalSqHi which turns d - margin into NaN -> false)
+                Assert.True(solver.SeparatedAlongForTests(1, 1, 0, V(1e308, 1e308, 0), V(1e308, 1e308, 0), 0, 0, 0, 0, out _, out _));
+                Assert.False(solver.SeparatedAlongForTests(1, 1, 1, V(1e308, 0, 0), V(1e308, 0, 0), 0, 0, 0, 1e308, out _, out _));
+            }
+
+            // 4) Randomized exact-dyadic soundness oracle across scales (including subnormal -1040, normal, UTM, huge 480)
+            var rnd = new Random(1661);
+            int separatedCount = 0, clippedCount = 0;
+            foreach (int exp in new[] { -1040, -537, -20, 0, 20, 480 }) {
+                double sc = Math.Pow(2, exp);
+                for (int i = 0; i < 200; ++i) {
+                    double nx = rnd.NextDouble() * 2 - 1, ny = rnd.NextDouble() * 2 - 1, nz = rnd.NextDouble() * 2 - 1;
+                    if (nx == 0 && ny == 0 && nz == 0) nx = 1;
+                    Vector3d f0 = V((rnd.NextDouble() * 2 - 1) * sc, (rnd.NextDouble() * 2 - 1) * sc, (rnd.NextDouble() * 2 - 1) * sc);
+                    Vector3d f1 = V((rnd.NextDouble() * 2 - 1) * sc, (rnd.NextDouble() * 2 - 1) * sc, (rnd.NextDouble() * 2 - 1) * sc);
+                    double e0 = rnd.NextDouble() * 0.05 * sc, e1 = rnd.NextDouble() * 0.05 * sc, e2 = rnd.NextDouble() * 0.05 * sc;
+                    double ms = (i % 3 == 0) ? 0.0 : rnd.NextDouble() * 0.2 * sc;
+                    bool sep = solver.SeparatedAlongForTests(nx, ny, nz, f0, f1, e0, e1, e2, ms, out double aLo, out double aHi);
+
+                    ExactDyadic exN0 = D(nx), exN1 = D(ny), exN2 = D(nz);
+                    ExactDyadic exBase = D(Math.Abs(nx)) * (D(e0) + D(ms)) + D(Math.Abs(ny)) * (D(e1) + D(ms)) + D(Math.Abs(nz)) * (D(e2) + D(ms));
+                    ExactDyadic d0 = exN0 * D(f0.x) + exN1 * D(f0.y) + exN2 * D(f0.z);
+                    ExactDyadic d1 = exN0 * D(f1.x) + exN1 * D(f1.y) + exN2 * D(f1.z);
+                    ExactDyadic g0Lo = d0 - exBase, g0Hi = d0 + exBase;
+                    ExactDyadic g1Lo = d1 - exBase, g1Hi = d1 + exBase;
+
+                    if (sep) {
+                        ++separatedCount;
+                        // Must be strictly separated for ALL alpha in [0, 1]: either both g_lo > 0 or both g_hi < 0
+                        bool allPos = g0Lo.Sign > 0 && g1Lo.Sign > 0;
+                        bool allNeg = g0Hi.Sign < 0 && g1Hi.Sign < 0;
+                        Assert.True(allPos || allNeg, $"exp={exp} i={i}: unsound separation g0=[{g0Lo.Sign},{g0Hi.Sign}] g1=[{g1Lo.Sign},{g1Hi.Sign}]");
+                    } else {
+                        Assert.True(aLo >= 0.0 && aHi <= 1.0 && aLo <= aHi);
+                        if (aLo > 0.0) {
+                            ++clippedCount;
+                            // At alpha = aLo, at least one side must still be >= 0 (lo) or <= 0 (hi) while the t=0 end was strictly outside
+                            ExactDyadic oneMinus = D(1.0) - D(aLo);
+                            bool leftAbove = g0Lo.Sign > 0 && (oneMinus * g0Lo + D(aLo) * g1Lo).Sign >= 0;
+                            bool leftBelow = g0Hi.Sign < 0 && (oneMinus * g0Hi + D(aLo) * g1Hi).Sign <= 0;
+                            Assert.True(leftAbove || leftBelow, $"exp={exp} i={i}: unsound left clip aLo={aLo:R}");
+                        }
+                        if (aHi < 1.0) {
+                            ++clippedCount;
+                            ExactDyadic oneMinus = D(1.0) - D(aHi);
+                            bool rightAbove = g1Lo.Sign > 0 && (oneMinus * g0Lo + D(aHi) * g1Lo).Sign >= 0;
+                            bool rightBelow = g1Hi.Sign < 0 && (oneMinus * g0Hi + D(aHi) * g1Hi).Sign <= 0;
+                            Assert.True(rightAbove || rightBelow, $"exp={exp} i={i}: unsound right clip aHi={aHi:R}");
+                        }
+                    }
+                }
+            }
+            Assert.True(separatedCount > 100 && clippedCount > 100, $"sep={separatedCount} clip={clippedCount}");
+        }
+
+        [Fact]
+        public void UpdateTClip_AllFourBranches_SoundAndExact()
+        {
+            ExactDyadic D(double x) => ExactDyadic.Of(x);
+
+            // 1) All four branches individually:
+            //    Branch 1: lo0 > thr && lo1 <= thr (left clip from above +thr): lo0=3, lo1=-1, thr=1 -> exact a = 2/4 = 0.5
+            {
+                double aLo = 0, aHi = 1;
+                CcdSolver.UpdateTClip(3, 5, -1, 1, 1, ref aLo, ref aHi);
+                Assert.True(aLo <= 0.5 && aLo > 0.499999999999, $"b1 aLo={aLo:R}");
+                Assert.Equal(1.0, aHi);
+            }
+            //    Branch 2: hi0 < -thr && hi1 >= -thr (left clip from below -thr): hi0=-3, hi1=1, thr=1 -> exact a = 2/4 = 0.5
+            {
+                double aLo = 0, aHi = 1;
+                CcdSolver.UpdateTClip(-5, -3, -1, 1, 1, ref aLo, ref aHi);
+                Assert.True(aLo <= 0.5 && aLo > 0.499999999999, $"b2 aLo={aLo:R}");
+                Assert.Equal(1.0, aHi);
+            }
+            //    Branch 3: lo1 > thr && lo0 <= thr (right clip from above +thr): lo0=-1, lo1=3, thr=1 -> exact a = 2/4 = 0.5
+            {
+                double aLo = 0, aHi = 1;
+                CcdSolver.UpdateTClip(-1, 1, 3, 5, 1, ref aLo, ref aHi);
+                Assert.Equal(0.0, aLo);
+                Assert.True(aHi >= 0.5 && aHi < 0.500000000001, $"b3 aHi={aHi:R}");
+            }
+            //    Branch 4: hi1 < -thr && hi0 >= -thr (right clip from below -thr): hi0=1, hi1=-3, thr=1 -> exact a = 2/4 = 0.5
+            {
+                double aLo = 0, aHi = 1;
+                CcdSolver.UpdateTClip(-1, 1, -5, -3, 1, ref aLo, ref aHi);
+                Assert.Equal(0.0, aLo);
+                Assert.True(aHi >= 0.5 && aHi < 0.500000000001, $"b4 aHi={aHi:R}");
+            }
+            //    Combined two-axis disjoint clips: axis 0 keeps [0.6, 1], axis 1 keeps [0, 0.4] -> aLo > aHi (empty!)
+            {
+                double aLo = 0, aHi = 1;
+                CcdSolver.UpdateTClip(3, 5, -2, 0, 0, ref aLo, ref aHi); // aLo ~ 0.6
+                CcdSolver.UpdateTClip(-2, 0, 3, 5, 0, ref aLo, ref aHi); // aHi ~ 0.4
+                Assert.True(aLo > aHi, $"expected empty clip, got [{aLo:R}, {aHi:R}]");
+            }
+            //    NaN / Inf inputs never narrow [0, 1] unsafely
+            {
+                double aLo = 0, aHi = 1;
+                CcdSolver.UpdateTClip(double.NaN, 1, -1, 1, 0, ref aLo, ref aHi);
+                CcdSolver.UpdateTClip(double.PositiveInfinity, double.PositiveInfinity, -1, 1, 0, ref aLo, ref aHi);
+                CcdSolver.UpdateTClip(-1, 1, double.NegativeInfinity, double.NegativeInfinity, 0, ref aLo, ref aHi);
+                CcdSolver.UpdateTClip(3, 5, -1, 1, double.PositiveInfinity, ref aLo, ref aHi);
+                Assert.Equal(0.0, aLo);
+                Assert.Equal(1.0, aHi);
+            }
+            //    Overflowing denominator difference (1e308 - (-1e308) -> [MaxValue, +Inf]) still encloses the true root 0.5 soundly
+            {
+                double aLo = 0, aHi = 1;
+                CcdSolver.UpdateTClip(1e308, 1e308, -1e308, -1e308, 0, ref aLo, ref aHi);
+                Assert.True(aLo >= 0.0 && aLo <= 0.5 && aHi >= 0.5 && aHi <= 1.0, $"overflow diff got [{aLo:R}, {aHi:R}]");
+            }
+
+            // 2) Randomized exact-dyadic soundness across 1,000 non-dyadic ratios (catches swapping .Lo/.Hi or flipping signs)
+            var rnd = new Random(1662);
+            for (int i = 0; i < 1000; ++i) {
+                double lo0 = rnd.NextDouble() * 4 - 2;
+                double hi0 = lo0 + rnd.NextDouble() * 2;
+                double lo1 = rnd.NextDouble() * 4 - 2;
+                double hi1 = lo1 + rnd.NextDouble() * 2;
+                double thr = (i % 4 == 0) ? 0.0 : rnd.NextDouble() * 0.5;
+                double aLo = 0.0, aHi = 1.0;
+                CcdSolver.UpdateTClip(lo0, hi0, lo1, hi1, thr, ref aLo, ref aHi);
+                Assert.True(aLo >= 0.0 && aHi <= 1.0);
+                if (aLo > 0.0) {
+                    ExactDyadic om = D(1.0) - D(aLo);
+                    bool okAbove = lo0 > thr && ExactDyadic.Compare(om * D(lo0) + D(aLo) * D(lo1), D(thr)) >= 0;
+                    bool okBelow = hi0 < -thr && ExactDyadic.Compare(om * D(hi0) + D(aLo) * D(hi1), D(-thr)) <= 0;
+                    Assert.True(okAbove || okBelow, $"i={i}: unsound aLo={aLo:R}");
+                }
+                if (aHi < 1.0) {
+                    ExactDyadic om = D(1.0) - D(aHi);
+                    bool okAbove = lo1 > thr && ExactDyadic.Compare(om * D(lo0) + D(aHi) * D(lo1), D(thr)) >= 0;
+                    bool okBelow = hi1 < -thr && ExactDyadic.Compare(om * D(hi0) + D(aHi) * D(hi1), D(-thr)) <= 0;
+                    Assert.True(okAbove || okBelow, $"i={i}: unsound aHi={aHi:R}");
+                }
+            }
+        }
+
+        [Fact]
+        public void LinearBezierTClip_SoundDeterministicReusableAndCutsIterations()
+        {
+            // Verify: (a) substantial iteration reduction on near-contact VF/EE queries (kills disabling t-clipping),
+            // (b) solver reuse matches fresh solver bit-for-bit, (c) determinism across repeated runs,
+            // (d) G2/G3 soundness via TimeOfImpact <= NearContactTime and AssertNearBox.
+            var rnd = new Random(1663);
+            var reused = new CcdSolver();
+            var o = new CcdOptions();
+            long totalIters = 0;
+            int collisions = 0;
+            const int n = 200;
+            for (int i = 0; i < n; ++i) {
+                bool vf = (i & 1) == 0;
+                Query q = new Query { VF = vf };
+                for (int k = 0; k < 4; ++k) {
+                    q.S[k] = V(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
+                    q.E[k] = V(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
+                }
+                // Force near-contact around a random t in [0.1, 0.9]
+                double tStar = 0.1 + 0.8 * rnd.NextDouble();
+                double u = 0.1 + 0.35 * rnd.NextDouble(), v = 0.1 + 0.35 * rnd.NextDouble();
+                if (vf) {
+                    Vector3d p1 = (1 - tStar) * q.S[1] + tStar * q.E[1];
+                    Vector3d p2 = (1 - tStar) * q.S[2] + tStar * q.E[2];
+                    Vector3d p3 = (1 - tStar) * q.S[3] + tStar * q.E[3];
+                    Vector3d hit = p1 + u * (p2 - p1) + v * (p3 - p1) + V((rnd.NextDouble() - 0.5) * 0.01, (rnd.NextDouble() - 0.5) * 0.01, (rnd.NextDouble() - 0.5) * 0.01);
+                    Vector3d vel = V((rnd.NextDouble() - 0.5) * 0.5, (rnd.NextDouble() - 0.5) * 0.5, (rnd.NextDouble() - 0.5) * 0.5);
+                    q.S[0] = hit - tStar * vel;
+                    q.E[0] = hit + (1 - tStar) * vel;
+                } else {
+                    Vector3d p2 = (1 - tStar) * q.S[2] + tStar * q.E[2];
+                    Vector3d p3 = (1 - tStar) * q.S[3] + tStar * q.E[3];
+                    Vector3d hit = p2 + v * (p3 - p2) + V((rnd.NextDouble() - 0.5) * 0.01, (rnd.NextDouble() - 0.5) * 0.01, (rnd.NextDouble() - 0.5) * 0.01);
+                    Vector3d p0 = (1 - tStar) * (q.S[0] + u * (q.S[1] - q.S[0])) + tStar * (q.E[0] + u * (q.E[1] - q.E[0]));
+                    Vector3d shift = hit - p0;
+                    q.S[0] += shift; q.S[1] += shift; q.E[0] += shift; q.E[1] += shift;
+                }
+                CcdResult rReused = Run(q, o, reused);
+                CcdResult rFresh = Run(q, o, new CcdSolver());
+                sameResult(rReused, rFresh, $"reuse q={i}");
+                if (rReused.Status == CcdStatus.Collision) {
+                    ++collisions;
+                    Assert.True(rReused.TimeOfImpact <= rReused.NearContactTime, $"q={i}: toi > near");
+                    AssertNearBox(q, reused.LastBox, o.MinSeparation + 2 * rReused.ErrorBound + rReused.ToleranceReached);
+                }
+                totalIters += rReused.Iterations;
+            }
+            Assert.True(collisions > 40, $"collisions={collisions}");
+            double meanIters = totalIters / (double)n;
+            // Without linear Bezier t-clipping, these near-contact queries average ~200+ boxes; with clipping, ~126.5
+            Assert.True(meanIters < 150.0, $"meanIters={meanIters:F1} (expected < 150 with t-clipping)");
+        }
     }
 }

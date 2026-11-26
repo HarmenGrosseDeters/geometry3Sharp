@@ -1413,3 +1413,46 @@ def ctb_covering_upper(c, r):
     r.add('circumradius factor', Verdict(circ_have_sq >= circ_need_sq, (circ_have_sq - 1) / (circ_need_sq - 1),
                                          '(1 + 2e-15) covers num/den/sqrt/div roundings (needed 1/(1-u)^6.5) with margin %.2fx' % float((circ_have_sq - 1) / (circ_need_sq - 1))))
 
+
+CCD = 'intersection/ContinuousCollision.cs'
+CCD_SQ_LO = frac(1e-290)
+
+
+@entry('CCD-1 CcdSolver.separated_along fast path', CCD,
+       ['~const double NormalSqLo = 1e-290;', '~const double NormalSqHi = 1e290;',
+        'if (pow2_normalize(ref nx, ref ny, ref nz) == false)',
+        'double n1 = anx + any + anz;',
+        'double eDot = anx * errors[0] + any * errors[1] + anz * errors[2];',
+        'double lim = ms * n1;',
+        'double baseScale = eDot + lim;',
+        'double baseMargin = baseScale * (1.0 + 2e-15);',
+        'double d = nx * fx + ny * fy + nz * fz;',
+        'double ad = anx * Math.Abs(fx) + any * Math.Abs(fy) + anz * Math.Abs(fz);',
+        'double scale = baseScale + ad;',
+        'if (!(scale > NormalSqLo && scale < NormalSqHi)) { ok = false; break; }',
+        'double margin = baseMargin + 2e-15 * ad;',
+        'double dlo = d - margin, dhi = d + margin;'],
+       'dlo <= min_{F* in [f-e, f+e]} (n . F*) - ms |n|_1 and dhi >= max_{F* in [f-e, f+e]} (n . F*) + ms |n|_1',
+       'pow2_normalize puts max(|n|) in [1, 2) so |n|_1 in [1, 6); scale = baseScale + ad in (1e-290, 1e290) (ExactInterval fallback outside)',
+       'baseMargin = (eDot + lim) * (1 + 2e-15); margin = baseMargin + 2e-15 * ad; dlo = d - margin; dhi = d + margin',
+       scope='bool separated_along(')
+def ccd_separated_along(c, r):
+    # After pow2_normalize, n is exact with |n|_1 in [1, 6): n1 >= (1 - u)^2 |n|_1*, lim >= (1 - u)^3 ms |n|_1* - ETA,
+    # eDot >= (1 - u)^3 (|n| . e)* - 3*ETA, so baseScale >= (1 - u)^4 B* - 4*ETA where B* = (|n|.e)* + (ms|n|_1)*.
+    # baseMargin = fl(baseScale * (1 + 2e-15)) loses (1 - u) - ETA; margin = fl(baseMargin + fl(2e-15 * ad)) loses (1 - u) - ETA;
+    # finally dlo = fl(d - margin) <= d + u*|d| - (1 - u)*margin + ETA (and symmetrically dhi >= d - u*|d| + (1 - u)*margin - ETA).
+    # 1) Base enclosure term B*: (1 - u)*margin contributes at least (1 - u)^7 * (1 + 2e-15) * B* (minus <= 16*ETA paid by scale > 1e-290).
+    base_have = (1 - U) ** 7 * frac(1.0 + 2e-15)
+    base_underflow = 16 * ETA / CCD_SQ_LO
+    base_need = Fraction(1, 1) + base_underflow
+    margin_base = (base_have - 1) / (Fraction(1, 1) / (1 - U) ** 7 - 1 + base_underflow)
+    r.add('base enclosure (eDot + ms|n|_1)', Verdict(base_have >= base_need, margin_base,
+                                                     '(1 + 2e-15) covers 7 roundings on eDot + ms|n|_1 + d+-margin with margin %.2fx' % float(margin_base)))
+    # 2) Dot-product error + outer u*|d| term: |d - (n.f)*| <= ((1+u)^3 - 1)*ad* + 3*(1+u)^2*ETA and |d| <= (1+u)^3*ad* + 3*(1+u)^2*ETA,
+    # while ad >= (1 - u)^3*ad* - 3*ETA and (1 - u)*margin gets (1 - u)^3 * 2e-15 * ad >= (1 - u)^6 * 2e-15 * ad* - 3*ETA.
+    dot_need = ((1 + U) ** 3 - 1 + U * (1 + U) ** 3) + 16 * (1 + U) ** 2 * ETA / CCD_SQ_LO
+    dot_have = (1 - U) ** 6 * frac(2e-15)
+    r.add('dot forward error + outer rounding', Verdict(dot_have >= dot_need, dot_have / dot_need,
+                                                        '2e-15 * ad covers 3-op dot error + u*|d| + margin roundings with margin %.2fx' % float(dot_have / dot_need)))
+
+

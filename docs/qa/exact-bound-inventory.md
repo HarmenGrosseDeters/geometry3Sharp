@@ -102,8 +102,9 @@ rule; **S** speed or strategy only.
 | ExactDoubleWord Eps2 = 2^-100, ErrUp, ErrFloor, D | `ExactDoubleWord.cs:31`, `:45-48`, `:104-165` | certified double-word error (6.4x margin) | Design doc TRI3TRI3_DOUBLE_WORD.md; tests `ErrorBound_HoldsAtTheOperandErrorExtremes_*` | tests at the extremes |
 | SecondPoint exponent (F2 of EBA), D | `ExactRayTriangle.cs:49-75` | the scaled point defines the same ray | read; #1348 open (range not enforced) | - |
 | TriangleTriangleFilter | `intersection/TriangleTriangleFilter.cs` | exact predicates only, no float constant | - | - |
-| ContinuousCollision filter `e = Up(M 2^-47 + 16 * 2^-1074)`, D | `ContinuousCollision.cs:669-694`, `:420`, `:564-588` | covers 62 M u + 21 eta (no exact fallback: a box is discarded) | Design doc CCD.md (hand table); tests `ContinuousCollisionTests` | not known |
-| ContinuousCollision caps (MaxIterations, MaxTighteningIterations, AbandonAfter), T | `ContinuousCollision.cs:48`, `:66`, `:282`, `:376` | IterationLimit / Abandoned statuses; tightening stops silently with a valid bound | tests | status |
+| ContinuousCollision filter `e = Up(M 2^-47 + 16 * 2^-1074)`, D | `ContinuousCollision.cs:806-837`, `:473`, `:898-922` | covers 62 M u + 21 eta (no exact fallback: a box is discarded) | Design doc CCD.md (hand table); tests `ContinuousCollisionTests` | not known |
+| ContinuousCollision `separated_along` fast path (CCD-1), F | `ContinuousCollision.cs:405-406`, `:636-680` | `baseScale * (1 + 2e-15) + 2e-15 * ad` over `(NormalSqLo, NormalSqHi)` encloses `n . F +/- (eDot + ms \|n\|_1)` and dot roundings (margins 1.57x, 4.50x), `ExactInterval` fallback outside range | EBA-derived (`bounds.py` `CCD-1`); design doc `CCD.md` 10.13; tests `ContinuousCollisionTests.SeparatedAlong_CCD1_*` | EBA anchor and derivation; 12/12 hand mutants killed (`baseFactor`, `adFactor`, `NormalSqLo`, `NormalSqHi`, 4 `UpdateTClip` branches, `t`-clip disable, 3 `Solve` post-clip guards) |
+| ContinuousCollision caps (MaxIterations, MaxTighteningIterations, AbandonAfter), T | `ContinuousCollision.cs:48`, `:66`, `:282`, `:377` | IterationLimit / Abandoned statuses; tightening stops silently with a valid bound | tests | status |
 
 ### 3.6 Envelope, geodesics, contouring certificate
 
