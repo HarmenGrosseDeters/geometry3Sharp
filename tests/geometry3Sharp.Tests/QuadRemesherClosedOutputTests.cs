@@ -110,6 +110,38 @@ namespace geometry3Sharp.Tests
             AssertClosed(qr, name + "/" + passes);
         }
 
+        static ulong Hash(DPolyMesh r)
+        {
+            ulong h = 14695981039346656037UL;
+            Action<ulong> add = x => { h ^= x; h *= 1099511628211UL; };
+            add((ulong)r.VertexCount); add((ulong)r.FaceCount);
+            foreach (int o in r.FaceOffsets) add((ulong)o);
+            foreach (int i in r.FaceIndices) add((ulong)i);
+            for (int v = 0; v < r.VertexCount; ++v) {
+                Vector3d p = r.GetVertex(v);
+                add((ulong)BitConverter.DoubleToInt64Bits(p.x)); add((ulong)BitConverter.DoubleToInt64Bits(p.y)); add((ulong)BitConverter.DoubleToInt64Bits(p.z));
+            }
+            return h;
+        }
+
+        // a PreserveCreases output that drops no face is what it was before the repair of the crossing edges, bit for bit (gear/50: the graph has
+        // a crossing that the repair would remove, and nothing is dropped; the others have none)
+        [Theory]
+        [InlineData("sharp-box", 20, 8977766501779236071UL)]
+        [InlineData("sharp-cylinder", 20, 16018759166025473961UL)]
+        [InlineData("gear", 20, 15266646667066191006UL)]
+        [InlineData("gear", 50, 11341578008197146238UL)]
+        public void PreserveCreasesOutputWithoutADroppedFace_IsPinnedBitForBit(string name, int passes, ulong expected)
+        {
+            QuadRemesher qr = Run(Shape(name, passes), TargetOf(name));
+            AssertClosed(qr, name + "/" + passes);
+            ulong h = Hash(qr.Result);
+            bool pinnedPlatform = System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Linux)
+                && !System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription.StartsWith(".NET Framework");
+            if (pinnedPlatform) Assert.True(expected == h, name + "/" + passes + " hash " + h + "UL");
+            else Assert.Equal(h, Hash(Run(Shape(name, passes), TargetOf(name)).Result));
+        }
+
         [Fact]
         public void ClosedInput_IsReusableAndSerialEqualsParallel()
         {

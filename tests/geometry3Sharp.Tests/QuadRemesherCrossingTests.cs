@@ -150,6 +150,7 @@ namespace geometry3Sharp.Tests
         [Theory]
         [InlineData("sharp-box", 20)]
         [InlineData("sharp-box", 40)]
+        [InlineData("gear", 50)]            // a crossing is there and removed by the repair if it is tried, nothing is dropped: it is not tried
         [InlineData("sharp-cylinder", 16)]
         [InlineData("sharp-cylinder", 30)]
         [InlineData("sharp-cylinder", 40)]
@@ -172,6 +173,21 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(0, with.DroppedFaces);
                 Assert.True(without.Result.FaceCount != with.Result.FaceCount || PolyMeshMetrics.Compute(without.Result).BoundaryVertices > 0);
                 Assert.Equal(0, PolyMeshMetrics.Compute(with.Result).BoundaryVertices);
+            }
+        }
+
+        [Fact]
+        public void ACrossingIsFound_WhereverTheCellsOfTheSearchLie()
+        {
+            // two edges whose crossing points are 0.38 apart (within 0.2 of the shorter one, 2 long): the search must not depend on the
+            // position against the cells of its hash (a probe at dz = -0.1 missed it when the boxes of the edges were not padded)
+            for (int k = -40; k <= 40; ++k) {
+                double dz = 0.1 * k + 0.013;
+                var g = Graph(new[] { new Vector3d(0, 0, dz), new Vector3d(2, 0, dz), new Vector3d(1, -1, dz + 0.38), new Vector3d(1, 1, dz + 0.38) }, new[] { new[] { 0, 1 }, new[] { 2, 3 } });
+                Assert.Equal(1, QuadRemesher.RemoveCrossings(g));
+                // the same shifted along the other axes
+                var h = Graph(new[] { new Vector3d(dz, 0, 0), new Vector3d(dz, 2, 0), new Vector3d(dz + 0.38, 1, -1), new Vector3d(dz + 0.38, 1, 1) }, new[] { new[] { 0, 1 }, new[] { 2, 3 } }, Vector3d.AxisX);
+                Assert.Equal(1, QuadRemesher.RemoveCrossings(h));
             }
         }
 

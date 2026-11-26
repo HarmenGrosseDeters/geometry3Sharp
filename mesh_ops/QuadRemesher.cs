@@ -437,26 +437,26 @@ namespace gs
             creases.Snap(g);
             creases.RepairLinks(g);
             int droppedRepaired, droppedPlain;
-            PolyGraph repairedGraph = CopyGraph(g);          // (BuildFaces prunes the graph it gets, and the splits change it)
             DPolyMesh repaired = BuildFaces(g, maxSides, out droppedRepaired);
-            PolyGraph plainCopy = CopyGraph(plainGraph);
             DPolyMesh plain = BuildFaces(plainGraph, maxSides, out droppedPlain);
             DPolyMesh result; PolyGraph resultGraph;
-            if (droppedRepaired > droppedPlain) { droppedFaces = droppedPlain; result = plain; resultGraph = plainCopy; }
+            // (the graphs the faces were built from, for the repair of crossing edges below: BuildFaces only prunes dangling edges from them; the repaired graph is copied before the splits change it, if it dropped a face)
+            PolyGraph repairedGraph = null;
+            if (droppedRepaired > droppedPlain) { droppedFaces = droppedPlain; result = plain; resultGraph = plainGraph; }
             else {
-                droppedFaces = droppedRepaired; result = repaired; resultGraph = repairedGraph;
+                droppedFaces = droppedRepaired; result = repaired; resultGraph = repairedGraph = droppedRepaired > 0 && planarize ? CopyGraph(g) : g;
                 if (creases.SplitLongEdges(g, (int)(splitBudget * repaired.FaceCount))) {
-                    PolyGraph refinedGraph = CopyGraph(g);
                     int droppedRefined;
                     DPolyMesh refined = BuildFaces(g, maxSides, out droppedRefined);
-                    if (droppedRefined <= droppedRepaired) { droppedFaces = droppedRefined; result = refined; resultGraph = refinedGraph; }
+                    if (droppedRefined <= droppedRepaired) { droppedFaces = droppedRefined; result = refined; resultGraph = g; }
                 }
             }
             // an input without a hole must not get one: edges that cross each other make the faces of the extraction fold (issue #1674)
             if (planarize && droppedFaces > 0) {
                 result = TryPlanarize(resultGraph, maxSides, result, ref droppedFaces);
-                if (droppedFaces > 0) result = TryPlanarize(repairedGraph, maxSides, result, ref droppedFaces);
-                if (droppedFaces > 0) result = TryPlanarize(plainCopy, maxSides, result, ref droppedFaces);
+                // the graphs of the other results, if they are not the one tried (the splits changed g after the repaired result was built)
+                if (droppedFaces > 0 && repairedGraph != null && repairedGraph != resultGraph && repairedGraph != g) result = TryPlanarize(repairedGraph, maxSides, result, ref droppedFaces);
+                if (droppedFaces > 0 && plainGraph != resultGraph) result = TryPlanarize(plainGraph, maxSides, result, ref droppedFaces);
             }
             return result;
         }
@@ -498,9 +498,10 @@ namespace gs
             var cells = new Dictionary<long, List<int>>();
             for (int e = 0; e < ne; ++e) {
                 Vector3d p = g.Pos[ea[e]], q = g.Pos[eb[e]];
-                long x0 = (long)Math.Floor(Math.Min(p.x, q.x) / cell), x1 = (long)Math.Floor(Math.Max(p.x, q.x) / cell);
-                long y0 = (long)Math.Floor(Math.Min(p.y, q.y) / cell), y1 = (long)Math.Floor(Math.Max(p.y, q.y) / cell);
-                long z0 = (long)Math.Floor(Math.Min(p.z, q.z) / cell), z1 = (long)Math.Floor(Math.Max(p.z, q.z) / cell);
+                double pad = CrossingDistance * (p - q).Length;       // the other edge's crossing point can be that far from this one (EdgesCross), in any direction
+                long x0 = (long)Math.Floor((Math.Min(p.x, q.x) - pad) / cell), x1 = (long)Math.Floor((Math.Max(p.x, q.x) + pad) / cell);
+                long y0 = (long)Math.Floor((Math.Min(p.y, q.y) - pad) / cell), y1 = (long)Math.Floor((Math.Max(p.y, q.y) + pad) / cell);
+                long z0 = (long)Math.Floor((Math.Min(p.z, q.z) - pad) / cell), z1 = (long)Math.Floor((Math.Max(p.z, q.z) + pad) / cell);
                 if ((x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1) > 4096) continue;       // an edge that long is no lattice edge
                 for (long x = x0; x <= x1; ++x) for (long y = y0; y <= y1; ++y) for (long z = z0; z <= z1; ++z) {
                     long key = (x & 0x1FFFFF) | ((y & 0x1FFFFF) << 21) | ((z & 0x1FFFFF) << 42);
@@ -510,7 +511,7 @@ namespace gs
             }
             var remove = new HashSet<int>();
             var tested = new HashSet<long>();
-            foreach (var kv in cells.OrderBy(k => k.Key)) {
+            foreach (var kv in cells) {
                 List<int> l = kv.Value;
                 for (int i = 0; i < l.Count; ++i)
                     for (int j = i + 1; j < l.Count; ++j) {
@@ -538,6 +539,9 @@ namespace gs
             return le > lf ? e : lf > le ? f : Math.Min(e, f);
         }
 
+        /// <summary> two edges cross only if their crossing points are no farther apart than this part of the shorter edge </summary>
+        const double CrossingDistance = 0.2;
+
         static bool EdgesCross(PolyGraph g, int a, int b, int c, int d)
         {
             Vector3d n = g.Nrm[a] + g.Nrm[b] + g.Nrm[c] + g.Nrm[d];
@@ -547,11 +551,11 @@ namespace gs
             Vector3d pa = g.Pos[a], pb = g.Pos[b], pc = g.Pos[c], pd = g.Pos[d];
             Vector3d ab = pb - pa, cd = pd - pc;
             double o1 = n.Dot(ab.Cross(pc - pa)), o2 = n.Dot(ab.Cross(pd - pa)), o3 = n.Dot(cd.Cross(pa - pc)), o4 = n.Dot(cd.Cross(pb - pc));
-            if (!(o1 * o2 < 0 && o3 * o4 < 0)) return false;
+            if (!((o1 > 0 && o2 < 0 || o1 < 0 && o2 > 0) && (o3 > 0 && o4 < 0 || o3 < 0 && o4 > 0))) return false;      // (signs, not products: no underflow)
             // the point of the crossing on each, along the segment: their distance in the direction of the normal
             double u = o1 / (o1 - o2);        // on (c, d)
             Vector3d x = pa + (o3 / (o3 - o4)) * ab, y = pc + u * cd;
-            double near = 0.2 * Math.Min(ab.Length, cd.Length);
+            double near = CrossingDistance * Math.Min(ab.Length, cd.Length);
             return (x - y).Length <= near;
         }
 
