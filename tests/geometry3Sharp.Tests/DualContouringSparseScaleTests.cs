@@ -37,6 +37,12 @@ namespace geometry3Sharp.Tests
         static readonly Vector3d SmallBall = new Vector3d(0.6875, 0, 0);
         static double Balls(Vector3d p) => Math.Min(p.Length - 0.4, (p - SmallBall).Length - 0.05);
 
+        // the same edge from coarse node (6, 4, 4) along x with fine nodes 0..4 at x = 0.5, 0.5625, 0.625, 0.6875, 0.75: the end 0 is outside, the end 4
+        // inside, and the fine values run out, in, out, in, in (a ball of 0.03 around node 1, a ball of 0.15 around (0.8, 0, 0)): three sign changes where
+        // the coarse edge has one, so the refinement imposes node 2 (outside by its value) to be inside, and the fine edges from node 2 to its outside
+        // neighbours in the refined cell are crossings that end at the imposed node: their points are interpolated between its value and the neighbour's
+        static double ThreeChanges(Vector3d p) => Math.Min((p - new Vector3d(0.5625, 0, 0)).Length - 0.03, (p - new Vector3d(0.8, 0, 0)).Length - 0.15);
+
         static string Digest(DMesh3 m)
         {
             ulong h = 1469598103934665603UL;
@@ -47,7 +53,7 @@ namespace geometry3Sharp.Tests
         }
 
         // geometry scaled by 2^geo (the cells with it), values by 2^k: sparse mode over all cells of the box, no refinement
-        static DualContouring Sparse(Func<Vector3d, double> unit, double half, int cells, int k, int geo = 0, bool exactHermite = true)
+        static DualContouring Sparse(Func<Vector3d, double> unit, double half, int cells, int k, int geo = 0, bool exactHermite = true, bool parallel = false)
         {
             double s = Pow2(geo), c = Pow2(k), h = 2 * half / cells * s;
             Vector3d origin = new Vector3d(-half, -half, -half) * s;
@@ -55,7 +61,7 @@ namespace geometry3Sharp.Tests
             var all = new List<Vector3i>();
             for (int z = 0; z < cells; ++z) for (int y = 0; y < cells; ++y) for (int x = 0; x < cells; ++x) all.Add(new Vector3i(x, y, z));
             var dc = new DualContouring {
-                Implicit = new Field { F = f, Box = new AxisAlignedBox3d(origin, origin + cells * h * Vector3d.One) }, InsideIsLess = true, CellSize = h, ParallelCompute = false,
+                Implicit = new Field { F = f, Box = new AxisAlignedBox3d(origin, origin + cells * h * Vector3d.One) }, InsideIsLess = true, CellSize = h, ParallelCompute = parallel,
                 Bounds = new AxisAlignedBox3d(origin, origin + cells * h * Vector3d.One), ExactHermite = exactHermite,
                 CandidateCells = all, NodeValueF = v => f(origin + h * new Vector3d(v.x, v.y, v.z))
             };
@@ -64,12 +70,13 @@ namespace geometry3Sharp.Tests
         }
 
         // the same with the cells around the small ball refined by 4
-        static DualContouring Refined(int k, int geo = 0)
+        static DualContouring Refined(int k, int geo = 0, Func<Vector3d, double> unit = null, bool linear = false, bool parallel = false)
         {
+            if (unit == null) unit = Balls;
             double s = Pow2(geo), c = Pow2(k), h = 0.25 * s;
             const int cells = 8, factor = 4;
             Vector3d origin = new Vector3d(-1, -1, -1) * s;
-            Func<Vector3d, double> f = p => c * Balls(p / s);
+            Func<Vector3d, double> f = p => c * unit(p / s);
             var all = new List<Vector3i>();
             for (int z = 0; z < cells; ++z) for (int y = 0; y < cells; ++y) for (int x = 0; x < cells; ++x) all.Add(new Vector3i(x, y, z));
             // one of the four coarse cells around the edge from node (6, 4, 4) along x (so the edge is between a refined and an unrefined cell)
@@ -81,10 +88,18 @@ namespace geometry3Sharp.Tests
                 for (int a = 0; a < factor; ++a) for (int b = 0; b < factor; ++b) for (int d = 0; d < factor; ++d) fine.Add(factor * cc + new Vector3i(a, b, d));
             }
             var dc = new DualContouring {
-                Implicit = new Field { F = f, Box = new AxisAlignedBox3d(origin, origin + cells * h * Vector3d.One) }, InsideIsLess = true, CellSize = h, ParallelCompute = false,
+                Implicit = new Field { F = f, Box = new AxisAlignedBox3d(origin, origin + cells * h * Vector3d.One) }, InsideIsLess = true, CellSize = h, ParallelCompute = parallel,
                 Bounds = new AxisAlignedBox3d(origin, origin + cells * h * Vector3d.One), ExactHermite = true,
                 CandidateCells = all, NodeValueF = v => f(origin + h * new Vector3d(v.x, v.y, v.z))
             };
+            // linear: the Hermite point is the interpolated crossing itself (HermiteF gets it as `crossing`), the normal the analytic one of the two balls
+            if (linear)
+                dc.HermiteF = (DualContouring.HermiteFunc)((Vector3d a, Vector3d b, Vector3d crossing, out Vector3d point, out Vector3d normal) => {
+                    Vector3d q = crossing / s, c1 = new Vector3d(0.5625, 0, 0), c2 = new Vector3d(0.8, 0, 0);
+                    normal = ((q - c1).Length - 0.03 < (q - c2).Length - 0.15 ? q - c1 : q - c2).Normalized;
+                    point = crossing;
+                    return true;
+                });
             dc.SetRefinement(factor, refined, fine, v => f(origin + h / factor * new Vector3d(v.x, v.y, v.z)));
             dc.Generate();
             return dc;
@@ -135,6 +150,39 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Digest(unit.Mesh), Digest(scaled.Mesh));
         }
 
+        // the linear interpolation path (HermiteF returns the interpolated crossing it is given as the Hermite point; ExactHermite = false is absolute
+        // by design): crossings that end at an imposed node go through its value iso -+ step, so the step is in the output. The unit field has imposed signs (asserted); a field times 2^k gives the
+        // bits of the unit one only if the step follows the values (an absolute 1e-3 puts the crossing at the end of the edge or at its middle)
+        [Theory]
+        [InlineData(-60)]
+        [InlineData(-300)]
+        [InlineData(20)]
+        [InlineData(140)]
+        public void Refined_LinearInterpolation_ImposedValuesFollowTheScale(int k)
+        {
+            DualContouring unit = Refined(0, 0, ThreeChanges, true);
+            Assert.True(unit.ImposedEdges > 0, "the case must impose an edge");
+            AssertSolid(unit, "unit");
+            DualContouring scaled = Refined(k, 0, ThreeChanges, true);
+            AssertSolid(scaled, "2^" + k);
+            Assert.Equal(unit.ImposedEdges, scaled.ImposedEdges);
+            Assert.Equal(Digest(unit.Mesh), Digest(scaled.Mesh));
+        }
+
+        // sparse mode computes the Hermite data and the node values in parallel: the same mesh as serially, repeated
+        [Fact]
+        public void Sparse_ParallelEqualsSerial_AndRepeats()
+        {
+            string serial = Digest(Sparse(Sphere, 1.2, 12, -140).Mesh);
+            for (int i = 0; i < 3; ++i) {
+                DualContouring p = Sparse(Sphere, 1.2, 12, -140, 0, true, true);
+                Assert.Equal(serial, Digest(p.Mesh));
+            }
+            string refinedSerial = Digest(Refined(-140).Mesh);
+            Assert.Equal(refinedSerial, Digest(Refined(-140, 0, null, false, true).Mesh));
+            Assert.Equal(refinedSerial, Digest(Refined(-140, 0, null, false, true).Mesh));
+        }
+
         // a creased shape in sparse mode at both ends of the geometry's range: the degenerate-triangle rules take the fourth power of an edge
         [Theory]
         [InlineData(300, 0)]
@@ -172,8 +220,9 @@ namespace geometry3Sharp.Tests
             Assert.Equal(first, Digest(dc.Mesh));
         }
 
-        // invariance over Similarity.All(): the field c f(S^-1 p) on the grid of the frame (cells of the frame's size, the box transformed): a closed
-        // sphere of the right volume in every frame, the same bits scaled back in the 2^k frames
+        // invariance over Similarity.All(), but only the frames of scale and translation are compared: a rotated field on the world-axis grid of a
+        // sparse run is another sampling and is skipped (the dense tests cover it). The field c f(S^-1 p) on the grid of the frame (cells of the
+        // frame's size, the box transformed): a closed sphere of the right volume in every compared frame, the same bits scaled back in the 2^k frames
         [Fact]
         public void Sparse_Invariance_OverSimilarities()
         {

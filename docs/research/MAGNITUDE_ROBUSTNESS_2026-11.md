@@ -436,9 +436,9 @@ refinement (imposed signs use an absolute value step).
 Sparse node values (`CandidateCells` / `NodeValueF`, `SetRefinement`) were kept as floats: a value below 2^-126 was subnormal or 0 (the contour of
 2^-140 f was empty or partial, no status), above 2^127 it was clamped, and an imposed sign was a value 1e-3 from the iso value, whatever the scale of
 the field. They are now doubles (`DualContouring.store_value`): a value a float holds is the float as before (the output of an ordinary field is
-unchanged; no pin of the DualContouring, Contouring, Terrain, Refinement, Octree and Certificate tests moved), a finite value outside the normal
+unchanged except for imposed values; no pin of the DualContouring, Contouring, Terrain, Refinement, Octree and Certificate tests moved), a finite value outside the normal
 floats has the same 24 bit mantissa at its own exponent, so the value of 2^k f is 2^k times that of f; infinite and NaN values are clamped as
-before. An imposed value is 1e-3 of the largest distance from the iso value in its edge or face (`impose_step`). `DualContouringSparseScaleTests`:
+before. An imposed value is 1e-3 of the largest distance from the iso value in its edge or face (`impose_step`). Only the imposed value differs from before for an ordinary field (it was the float of iso -+ 1e-3): the output differs where a crossing goes through an imposed node (the interpolated point moves, the signs do not); none of the pinned tests has one. `DualContouringSparseScaleTests`:
 values times 2^-300 .. 2^300, sparse and refined (with imposed signs), and a creased box with geometry times 2^+-300 in sparse mode give the bits of the unit
 field (master: the contour of 2^-140 and below was wrong). Item 2 (the fourth power of an edge) was fixed with #1625.
 

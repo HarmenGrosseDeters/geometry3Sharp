@@ -56,9 +56,11 @@ namespace g3
     ///     vectors scaled by a power of two where the fourth power of an edge would overflow or underflow (tested for a box at
     ///     2^-300 and 2^300). Sparse mode (CandidateCells, NodeValueF) and local refinement (SetRefinement) hold the same: a node
     ///     value is kept as a double with the 24 bit mantissa of a float (what a float holds is unchanged: the output of an ordinary
-    ///     field keeps its bits) at its own exponent, so a value below 2^-126 or above 2^127 is neither lost nor clamped (infinite
+    ///     field keeps its bits, apart from the imposed values below) at its own exponent, so a value below 2^-126 or above 2^127 is neither lost nor clamped (infinite
     ///     and NaN values are clamped to a float as before), and the value of an imposed sign is 1e-3 of the largest distance from
-    ///     the iso value in its edge or face, not an absolute 1e-3 (tested for the values times 2^-300 .. 2^300, issue #1376). With ExactHermite = false every test is absolute as before 2026-11 (a node difference,
+    ///     the iso value in its edge or face, not an absolute 1e-3 (tested for the values times 2^-300 .. 2^300, issue #1376). Before, an
+    ///     imposed value was the float of iso -+ 1e-3: the output differs where a crossing goes through an imposed node (the interpolated point
+    ///     moves; the signs, and so the topology, do not), for ordinary fields as well. With ExactHermite = false every test is absolute as before 2026-11 (a node difference,
     ///     a gradient or a quad edge below 2.2e-16 gives the middle of the edge, no normal, or the first diagonal): that
     ///     mode keeps its output bit for bit and is for fields and geometry of ordinary size.
     ///   - an ambiguous face between two single-patch cells (where the dual quads would share a non-manifold
@@ -1056,13 +1058,26 @@ namespace g3
                 imposedCells[node_key(c)] = c;
         }
 
-        void set_sign(double[] values, bool[] inside, int i, bool sign, double step)
+        internal void set_sign(double[] values, bool[] inside, int i, bool sign, double step)
         {
             if (inside[i] == sign)
                 return;
             inside[i] = sign;
             // a value just on the requested side (only used for interpolating the crossing point)
-            values[i] = (sign != InsideIsLess) ? IsoValue + step : IsoValue - step;
+            bool below = sign == InsideIsLess;
+            double v = below ? IsoValue - step : IsoValue + step;
+            // (a step below the spacing of the iso value, or 0 for subnormal values, gives the iso value itself, which is on neither side)
+            if (below ? !(v < IsoValue) : !(v > IsoValue))
+                v = next_double(IsoValue, !below);
+            values[i] = v;
+        }
+
+        // the next double above (up) or below x, for finite x
+        static double next_double(double x, bool up)
+        {
+            if (x == 0) return up ? double.Epsilon : -double.Epsilon;
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            return BitConverter.Int64BitsToDouble((x > 0) == up ? bits + 1 : bits - 1);
         }
 
         // The distance from the iso value of an imposed value: 1e-3 of the size of the values the decision has, the largest distance of a

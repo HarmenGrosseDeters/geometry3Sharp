@@ -61,5 +61,27 @@ namespace geometry3Sharp.Tests
             Assert.Equal((double)(float.MaxValue / 2), DualContouring.store_value(double.PositiveInfinity));
             Assert.Equal(-(double)(float.MaxValue / 2), DualContouring.store_value(double.NegativeInfinity));
         }
+
+        // a step that underflows or is below the spacing of the iso value still gives a value on the requested side of it (not the iso value itself)
+        [Theory]
+        [InlineData(0.0, true)]
+        [InlineData(0.0, false)]
+        [InlineData(1e10, true)]
+        [InlineData(1e10, false)]
+        [InlineData(-3.0, true)]
+        public void ImposedValue_OnTheRequestedSide_EvenForATinyStep(double iso, bool insideIsLess)
+        {
+            var dc = new DualContouring { IsoValue = iso, InsideIsLess = insideIsLess };
+            foreach (double m in new[] { double.Epsilon, 1e-300, 1e-12 }) {
+                double step = dc.impose_step(new[] { iso + m });
+                foreach (bool sign in new[] { true, false }) {
+                    var values = new double[] { 0 };
+                    var inside = new[] { !sign };
+                    dc.set_sign(values, inside, 0, sign, step);
+                    Assert.Equal(sign, insideIsLess ? values[0] < iso : values[0] > iso);
+                    Assert.Equal(sign, inside[0]);
+                }
+            }
+        }
     }
 }
