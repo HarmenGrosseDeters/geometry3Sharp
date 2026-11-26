@@ -32,7 +32,7 @@ namespace g3
             return pow2 ? e : e + 1;
         }
 
-        /// <summary> CeilLog2 with the saturating conversion of the old Math.Ceiling(Math.Log(x, 2)) at the edges: NaN gives 0, +infinity int.MaxValue, x &lt;= 0 int.MinValue. </summary>
+        /// <summary> CeilLog2 with the saturating conversion of the old Math.Ceiling(Math.Log(x, 2)) at the edges: NaN gives 0, +infinity gives int.MaxValue, and zero, a negative x and -infinity give int.MinValue. </summary>
         internal static int CeilLog2Saturating(double x)
         {
             if (double.IsNaN(x)) return 0;
