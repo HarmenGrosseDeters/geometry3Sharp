@@ -1368,3 +1368,15 @@ when this many passes in a row made no progress, judged at the start of each pas
 fell by at least 1 % (`StallMinDrop`), or the worst quality rose by more than 0.1 degrees (`StallMinWorstGain`). Counted, never wall-clock, so the result is deterministic and the same for every 2^k scale
 (tests). The pass that judges is counted in `Counts["passes"]` and does not run its operations. `Counts["improve_stall_stop"]` counts the phases it ended (the key exists only then). It is a **time/quality trade**: tets that were still being worked off stay below the target.
 Measured on the Thingi meshes (`tieorder <mesh> 40 600 <floor> 0`, order 0, one process at a time, 4 cores; `G3_TIE_STALL`): [benchmarks/TetMeshBenchmark/README.md](../../benchmarks/TetMeshBenchmark/README.md), section "Stall stop and the scan cache".
+
+
+**The split attempts, a bound on a cheaper rejection (2026-11-26, Thingi 40011, floor 20, `refine 40011.stl 40 600`, 4 cores, 37.5 s, counters in a local patch that is not kept).**
+The early rejection of `try_split` (the comment in `TetMeshImprover.try_split`, benchmarks/TetMeshBenchmark/README.md "Early rejection of split attempts") is already in: of 474,962 split attempts, 386,151 (81 %) end there, 88,811 go on to the apply / smooth / edge-removal stage, 4,566 of them succeed (5.1 %)
+and 84,245 fail the final `now > old` test; none fails earlier (orientation and boundary faces: 0). The pre-work of an attempt (ring, neighbourhood, `old`, `untouched`) takes 5.8 s (15 %, 12 us per attempt),
+the real attempts 12.4 s (33 %, 140 us each): smoothing of the new vertex 7.5 s (433,745 calls, 5.5 per attempt, the vertex moves in 89 % of the attempts), boundary faces 1.5 s, edge removal 1.7 s (it changes tets in 10 %),
+the final `nbmin` 1.1 s, apply and undo 0.5 s. **Upper bound:** an oracle that rejected every failing attempt for free saves 11.8 s (31 %): 37.5 s becomes 25.7 s, so no rejection test alone brings the default run below 20 s.
+**The best candidate** rests on the two halves (a,v,c,d) and (v,b,c,d) of a ring tet sharing the edge cd: their dihedral angles at cd add up to the original angle theta_cd for every position of v, so after the split and
+any smoothing of v the quality is at most min(theta_i) / 2 over the ring tets. It would reject 51,285 of the 88,811 real attempts (58 %, about 17-19 % of the run), 51,284 of them fail anyway, **but one succeeds**: edge removal of (v,c) re-triangulates the four tets
+around vc and may choose the diagonal (a,b), which restores the original ring tets and merges the two wedges at cd (ring of 4, old 19.9360, min theta_i 36.75, now 19.9501). The test is not bit for bit, and no exact bound of the
+edge-removal retriangulations was found. Not built: (b) the wedge test as an opt-in flag (about 31 s on 40011, not bit for bit); (c) a bit-identical cheaper pre-work (at most 7 %) and a cheaper smoothing of the new vertex (at most 10 % for a
+2x faster smooth). Decision of 2026-11-26: not built; the runs at floor 20 / 30 stay above 20 s by default, `StallStopPasses` is the opt-in trade.
