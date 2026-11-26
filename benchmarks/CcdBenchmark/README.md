@@ -192,3 +192,43 @@ Where the puffer-ball time goes (serial, instrumented runs of the same code, tim
   survivors (1.1M pairs) about 5 s.
 The serial sweep of the 1M-triangle frame stays above 20 s (23.5-24.9 s): #866 and #940 stay open.
 
+## Fast separating-plane filter (`CCD-1`) and linear Bézier `t`-clipping (2026-11-26, CCD.md 10.13)
+
+Command (same build flags, single-threaded except the `parallel` column of the sphere sweeps):
+
+```
+DOTNET_TieredPGO=0 dotnet run -c Release --no-build --project benchmarks/CcdBenchmark -- synthetic
+```
+
+Machine: Intel Xeon @ 2.30 GHz (2 CPUs), .NET 10.0.115. Before: `origin/master` (`f90503ba`); after: `CCD-1` range-guarded
+hardware-double separating-plane filter (`separated_along`) plus 3-pass Sederberg-Nishita (1990) linear Bézier `t`-clipping
+(`UpdateTClip` in `evaluate`).
+
+Synthetic queries (`n = 20 000` per row, filter path; collision counts identical in every row):
+
+| kind | offset | class | before (µs / query, boxes) | after (µs / query, boxes) | speedup | collisions |
+|---|---|---|---|---|---|---|
+| VF | 0 | near | 131.32 µs, 155.7 | 46.16 µs, 55.6 | 2.84x | 10420 |
+| VF | 632117.25 | near | 129.62 µs, 155.3 | 39.54 µs, 53.4 | 3.28x | 10432 |
+| EE | 0 | near | 67.47 µs, 73.4 | 32.15 µs, 39.4 | 2.10x | 8190 |
+| EE | 632117.25 | near | 74.27 µs, 73.4 | 30.46 µs, 38.4 | 2.44x | 8156 |
+| VF | 0 | random | 2.00 µs, 2.9 | 0.81 µs, 1.6 | 2.47x | 94 |
+| VF | 632117.25 | random | 2.24 µs, 2.9 | 0.79 µs, 1.5 | 2.84x | 90 |
+| EE | 0 | random | 3.09 µs, 3.6 | 1.90 µs, 2.6 | 1.63x | 264 |
+| EE | 632117.25 | random | 3.12 µs, 3.5 | 1.91 µs, 2.5 | 1.63x | 258 |
+
+Sphere sweeps (`MaxTighteningIterations = 1024`, default; 2 cores for `parallel`):
+
+| triangles each | ms | candidates | serial before → after | parallel before → after | mean boxes before → after |
+|---|---|---|---|---|---|
+| 588 | 0 | 1525 | 96.1 → 48.2 ms (1.99x) | 51.0 → 29.8 ms (1.71x) | 65.7 → 33.0 |
+| 588 | 0.01 | 1959 | 544.6 → 314.7 ms (1.73x) | 286.2 → 160.5 ms (1.78x) | 302.8 → 161.7 |
+| 2700 | 0 | 6397 | 443.3 → 210.4 ms (2.11x) | 237.0 → 112.3 ms (2.11x) | 70.9 → 34.8 |
+| 2700 | 0.01 | 9816 | 3251.7 → 1927.8 ms (1.69x) | 1703.1 → 996.5 ms (1.71x) | 369.7 → 205.0 |
+| 11532 | 0 | 27854 | 1852.8 → 831.3 ms (2.23x) | 968.5 → 453.4 ms (2.14x) | 68.7 → 32.4 |
+| 11532 | 0.01 | 50408 | 17765.9 → 10780.5 ms (1.65x) | 9315.3 → 5652.1 ms (1.65x) | 405.0 → 231.3 |
+
+At `MaxTighteningIterations = 4096` (11 532 triangles, `ms = 0.01`), serial time drops from `29 475.7 ms` to `12 657.8 ms`
+(2.33x) and the `earliest_near - earliest_toi` gap closes from `1.03e-4` to `0`. Because `t`-clipping narrows box time
+intervals continuously rather than strictly at binary midpoints, `TimeOfImpact`, `NearContactTime`, and `Iterations` are not
+bit-identical to master, while G1/G2/G3 guarantees, `NoCollision` verdicts, and `2^k` scale invariance hold identically.

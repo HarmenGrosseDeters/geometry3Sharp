@@ -291,15 +291,33 @@ namespace g3
                 double width;
                 if (evaluate(ref b, out width))
                     continue;
+                if (haveNear == false && b.t0 > o.TimeLimit)
+                    continue;
+                if (haveNear == false && b.t0 > AbandonAfter && (count == 0 || heap[0].t0 > AbandonAfter))
+                    return abandon(ref r);
                 if (width <= delta) {
-                    // the earliest box of the queue: tight
-                    near = b; nearWidth = width; haveNear = true;
-                    return finish(ref r, near.t0, ref near, nearWidth);
+                    if (haveNear == false || b.t0 < near.t0) {
+                        if (haveNear == false) nearAt = iterations;
+                        near = b; nearWidth = width; haveNear = true;
+                    }
+                    if (count == 0 || near.t0 <= heap[0].t0)
+                        return finish(ref r, near.t0, ref near, nearWidth);
+                    continue;
+                }
+                if (haveNear && b.t0 >= near.t0 - o.TimeTolerance) {
+                    push(b);
+                    continue;
                 }
                 int split = choose_split(ref b, haveNear ? near.t0 - o.TimeTolerance : double.NaN);
                 if (split < 0) {
                     // no parameter can be split further (2^-52): the box counts as near, honestly with its width
-                    return finish(ref r, b.t0, ref b, width);
+                    if (haveNear == false || b.t0 < near.t0) {
+                        if (haveNear == false) nearAt = iterations;
+                        near = b; nearWidth = width; haveNear = true;
+                    }
+                    if (count == 0 || near.t0 <= heap[0].t0)
+                        return finish(ref r, near.t0, ref near, nearWidth);
+                    continue;
                 }
                 Box c1, c2;
                 halves(ref b, split, out c1, out c2);
@@ -384,8 +402,37 @@ namespace g3
             else { double m = 0.5 * (b.v0 + b.v1); c1.v1 = m; c2.v0 = m; }
         }
 
-        // true if the box is discarded: outside the vertex-triangle domain, or on some axis every corner value is
-        // beyond the minimum separation; else width is an upper bound of the largest per-axis width of the corner values
+        const double NormalSqLo = 1e-290;
+        const double NormalSqHi = 1e290;
+
+        double clipAlphaLo, clipAlphaHi;
+
+        // Sederberg-Nishita (1990) linear Bezier t-clipping: given an affine scalar g(t) = (1 - a) g0 + a g1
+        // with lo0 <= g0 <= hi0 and lo1 <= g1 <= hi1 on the clipped (u, v) polygon at t0 and t1, narrow
+        // [alphaLo, alphaHi] using outward-rounded ExactInterval ratios so every discarded t strictly satisfies |g(t)| > thr.
+        internal static void UpdateTClip(double lo0, double hi0, double lo1, double hi1, double thr, ref double alphaLo, ref double alphaHi)
+        {
+            if (lo0 > thr && lo1 <= thr && !double.IsInfinity(lo0) && !double.IsInfinity(lo1)) {
+                double a = ((ExactInterval.Of(lo0) - ExactInterval.Of(thr)) / (ExactInterval.Of(lo0) - ExactInterval.Of(lo1))).Lo;
+                if (a > alphaLo) alphaLo = a;
+            }
+            if (hi0 < -thr && hi1 >= -thr && !double.IsInfinity(hi0) && !double.IsInfinity(hi1)) {
+                double a = ((ExactInterval.Of(-thr) - ExactInterval.Of(hi0)) / (ExactInterval.Of(hi1) - ExactInterval.Of(hi0))).Lo;
+                if (a > alphaLo) alphaLo = a;
+            }
+            if (lo1 > thr && lo0 <= thr && !double.IsInfinity(lo0) && !double.IsInfinity(lo1)) {
+                double a = ((ExactInterval.Of(thr) - ExactInterval.Of(lo0)) / (ExactInterval.Of(lo1) - ExactInterval.Of(lo0))).Hi;
+                if (a < alphaHi) alphaHi = a;
+            }
+            if (hi1 < -thr && hi0 >= -thr && !double.IsInfinity(hi0) && !double.IsInfinity(hi1)) {
+                double a = ((ExactInterval.Of(hi0) + ExactInterval.Of(thr)) / (ExactInterval.Of(hi0) - ExactInterval.Of(hi1))).Hi;
+                if (a < alphaHi) alphaHi = a;
+            }
+        }
+
+        // true if the box is discarded: outside the vertex-triangle domain, or on some axis/normal every corner value is
+        // beyond the minimum separation (or linear t-clipping leaves an empty t-interval); else width is an upper bound
+        // of the largest per-axis width of the corner values (and b.t0..b.t1 may have been narrowed conservatively)
         [MethodImpl(JitHints.Optimize)]
         bool evaluate(ref Box b, out double width)
         {
@@ -393,36 +440,66 @@ namespace g3
             // the vertex-triangle domain u + v <= 1: 1 - v0 is exact (v0 a multiple of 2^-53 in [0, 1])
             if (vf && b.u0 > 1 - b.v0)
                 return true;
-            ++iterations;
             clip(ref b);
-            for (int axis = 0; axis < 3; ++axis) {
-                double threshold;
-                if (useFilter) {
-                    corners_filter(axis, ref b);
-                    threshold = thresholds[axis];
-                } else {
-                    corners_interval(vf, axis, ref b);
-                    threshold = ms;
-                }
-                double lo = double.PositiveInfinity, hi = double.NegativeInfinity;
-                for (int k = 0; k < 8; ++k)
-                    if ((insideMask & (1 << (k >> 1))) != 0) {
-                        lo = Math.Min(lo, cornerLo[8 * axis + k]);
-                        hi = Math.Max(hi, cornerHi[8 * axis + k]);
+            for (int clipPass = 0; clipPass < 3; ++clipPass) {
+                ++iterations;
+                width = 0;
+                clipAlphaLo = 0.0; clipAlphaHi = 1.0;
+                for (int axis = 0; axis < 3; ++axis) {
+                    double threshold;
+                    if (useFilter) {
+                        corners_filter(axis, ref b);
+                        threshold = thresholds[axis];
+                    } else {
+                        corners_interval(vf, axis, ref b);
+                        threshold = ms;
                     }
-                for (int j = 0; j < 2 * extraCount; ++j) {
-                    lo = Math.Min(lo, extraLo[4 * axis + j]);
-                    hi = Math.Max(hi, extraHi[4 * axis + j]);
+                    double lo0 = double.PositiveInfinity, hi0 = double.NegativeInfinity;
+                    double lo1 = double.PositiveInfinity, hi1 = double.NegativeInfinity;
+                    for (int k = 0; k < 8; ++k)
+                        if ((insideMask & (1 << (k >> 1))) != 0) {
+                            double clo = cornerLo[8 * axis + k], chi = cornerHi[8 * axis + k];
+                            if ((k & 1) == 0) { lo0 = Math.Min(lo0, clo); hi0 = Math.Max(hi0, chi); }
+                            else { lo1 = Math.Min(lo1, clo); hi1 = Math.Max(hi1, chi); }
+                        }
+                    for (int j = 0; j < 2 * extraCount; ++j) {
+                        double elo = extraLo[4 * axis + j], ehi = extraHi[4 * axis + j];
+                        if (j < extraCount) { lo0 = Math.Min(lo0, elo); hi0 = Math.Max(hi0, ehi); }
+                        else { lo1 = Math.Min(lo1, elo); hi1 = Math.Max(hi1, ehi); }
+                    }
+                    // every exact corner value lies in [lo - e, hi + e] (filter; threshold >= ms + e) or in [lo, hi]
+                    // (intervals; threshold = ms); NaN bounds never discard: the comparisons are false
+                    double lo = Math.Min(lo0, lo1), hi = Math.Max(hi0, hi1);
+                    if (lo > threshold || hi < -threshold)
+                        return true;
+                    UpdateTClip(lo0, hi0, lo1, hi1, threshold, ref clipAlphaLo, ref clipAlphaHi);
+                    if (clipAlphaLo > clipAlphaHi)
+                        return true;
+                    // (hi - lo is exact when 0, so a constant image has width 0 and meets a tolerance of 0)
+                    double w = hi - lo;
+                    width = Math.Max(width, w == 0 ? 0 : ExactInterval.Up(w));
                 }
-                // every exact corner value lies in [lo - e, hi + e] (filter; threshold >= ms + e) or in [lo, hi]
-                // (intervals; threshold = ms); NaN bounds never discard: the comparisons are false
-                if (lo > threshold || hi < -threshold)
+                if (separated_by_normals(ref b))
                     return true;
-                // (hi - lo is exact when 0, so a constant image has width 0 and meets a tolerance of 0)
-                double w = hi - lo;
-                width = Math.Max(width, w == 0 ? 0 : ExactInterval.Up(w));
+                if (clipAlphaLo > clipAlphaHi)
+                    return true;
+                if (width <= delta || b.t1 - b.t0 <= MinSplitWidth || limit_reached())
+                    return false;
+                if (clipPass < 2 && (clipAlphaLo > 0.15 || clipAlphaHi < 0.85)) {
+                    ExactInterval dt = ExactInterval.Of(b.t1) - ExactInterval.Of(b.t0);
+                    double c0 = (ExactInterval.Of(b.t0) + ExactInterval.Of(clipAlphaLo) * dt).Lo;
+                    double nt0 = (clipAlphaLo > 0.0 && c0 > b.t0) ? c0 : b.t0;
+                    double c1 = (ExactInterval.Of(b.t0) + ExactInterval.Of(clipAlphaHi) * dt).Hi;
+                    double nt1 = (clipAlphaHi < 1.0 && c1 < b.t1) ? c1 : b.t1;
+                    if (nt0 > nt1) return true;
+                    if (nt1 - nt0 < 0.85 * (b.t1 - b.t0)) {
+                        b.t0 = nt0; b.t1 = nt1;
+                        continue;
+                    }
+                }
+                return false;
             }
-            return separated_by_normals(ref b);
+            return false;
         }
 
         // The axes separate the hull of the corner values from the cube [-ms, ms]^3 only when one coordinate does; an
@@ -430,9 +507,8 @@ namespace g3
         // classical separating directions: the triangle's normal (b - a) x (c - a) (vertex-triangle) or the edges'
         // cross product (b - a) x (d - c) (edge-edge), at t0 and at t1. For any vector n, n . y <= ms |n|_1 on the
         // cube, and n . y is linear, so if n . F > ms |n|_1 at every vertex of the hull (or < -ms |n|_1 at every
-        // one), the hull misses the cube. n needs no accuracy (any vector is valid): the dot products are evaluated in
-        // outward-rounded intervals over the corner values' enclosures ([F - e, F + e] on the filter path, the
-        // intervals on the interval path), so the test needs no further error bound.
+        // one), the hull misses the cube. n needs no accuracy (any vector is valid): separated_along uses the
+        // range-guarded CCD-1 double filter on the filter path (bounds.py) and ExactInterval outside normal range.
         bool separated_by_normals(ref Box b)
         {
             for (int kt = 0; kt < 2; ++kt) {
@@ -555,11 +631,53 @@ namespace g3
         }
 
         // true if n . F > ms |n|_1 at every vertex of the hull (or < -ms |n|_1 at every one): then the hull misses the
-        // cube [-ms, ms]^3, for any n (dot products and the bound in outward-rounded intervals)
+        // cube [-ms, ms]^3, for any n. Uses the range-guarded hardware-double fast path (CCD-1 in bounds.py) on the filter
+        // path and also narrows [clipAlphaLo, clipAlphaHi] along n; falls back to outward-rounded intervals outside normal range.
         bool separated_along(double nx, double ny, double nz)
         {
-            if (nx == 0 && ny == 0 && nz == 0 || double.IsNaN(nx + ny + nz) || double.IsInfinity(nx + ny + nz))
+            if (pow2_normalize(ref nx, ref ny, ref nz) == false)
                 return false;
+            if (useFilter) {
+                double anx = Math.Abs(nx), any = Math.Abs(ny), anz = Math.Abs(nz);
+                double n1 = anx + any + anz;
+                double eDot = anx * errors[0] + any * errors[1] + anz * errors[2];
+                double lim = ms * n1;
+                double baseScale = eDot + lim;
+                double baseMargin = baseScale * (1.0 + 2e-15);
+                double lo0 = double.PositiveInfinity, hi0 = double.NegativeInfinity;
+                double lo1 = double.PositiveInfinity, hi1 = double.NegativeInfinity;
+                bool ok = true;
+                for (int k = 0; k < 8 + 2 * extraCount; ++k) {
+                    double fx, fy, fz;
+                    bool isT0;
+                    if (k < 8) {
+                        if ((insideMask & (1 << (k >> 1))) == 0)
+                            continue;
+                        fx = cornerLo[k]; fy = cornerLo[8 + k]; fz = cornerLo[16 + k];
+                        isT0 = (k & 1) == 0;
+                    } else {
+                        int j = k - 8;
+                        fx = extraLo[j]; fy = extraLo[4 + j]; fz = extraLo[8 + j];
+                        isT0 = j < extraCount;
+                    }
+                    double d = nx * fx + ny * fy + nz * fz;
+                    double ad = anx * Math.Abs(fx) + any * Math.Abs(fy) + anz * Math.Abs(fz);
+                    double scale = baseScale + ad;
+                    if (!(scale > NormalSqLo && scale < NormalSqHi)) { ok = false; break; }
+                    double margin = baseMargin + 2e-15 * ad;
+                    double dlo = d - margin, dhi = d + margin;
+                    if (isT0) { lo0 = Math.Min(lo0, dlo); hi0 = Math.Max(hi0, dhi); }
+                    else { lo1 = Math.Min(lo1, dlo); hi1 = Math.Max(hi1, dhi); }
+                }
+                if (ok) {
+                    if (Math.Min(lo0, lo1) > 0 || Math.Max(hi0, hi1) < 0)
+                        return true;
+                    UpdateTClip(lo0, hi0, lo1, hi1, 0.0, ref clipAlphaLo, ref clipAlphaHi);
+                    if (clipAlphaLo > clipAlphaHi)
+                        return true;
+                    return false;
+                }
+            }
             // ms |n|_1, rounded up
             ExactInterval bound = ExactInterval.Of(ms) * (ExactInterval.Of(Math.Abs(nx)) + ExactInterval.Of(Math.Abs(ny)) + ExactInterval.Of(Math.Abs(nz)));
             double limit = bound.Hi;
@@ -576,6 +694,25 @@ namespace g3
                 if ((d.Hi < -limit) == false) allBelow = false;
             }
             return allAbove || allBelow;
+        }
+
+        // tests: invoke separated_along on an explicit pair of t0/t1 corner enclosures and expose the resulting t-clip window
+        internal bool SeparatedAlongForTests(double nx, double ny, double nz,
+            Vector3d f0, Vector3d f1, double e0, double e1, double e2, double minSep,
+            out double alphaLo, out double alphaHi)
+        {
+            useFilter = true;
+            ms = minSep;
+            errors[0] = e0; errors[1] = e1; errors[2] = e2;
+            insideMask = 1;
+            extraCount = 0;
+            cornerLo[0] = cornerHi[0] = f0.x; cornerLo[1] = cornerHi[1] = f1.x;
+            cornerLo[8] = cornerHi[8] = f0.y; cornerLo[9] = cornerHi[9] = f1.y;
+            cornerLo[16] = cornerHi[16] = f0.z; cornerLo[17] = cornerHi[17] = f1.z;
+            clipAlphaLo = 0.0; clipAlphaHi = 1.0;
+            bool sep = separated_along(nx, ny, nz);
+            alphaLo = clipAlphaLo; alphaHi = clipAlphaHi;
+            return sep;
         }
 
         // the exact n . F at a corner (or crossing point) lies in the result

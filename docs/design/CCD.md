@@ -815,3 +815,52 @@ Tests:
   of the near time, the skipped pairs not counted as candidates, the pre-filter with CollectAll, the bound with CollectAll. Survived
   as equivalent: abandoning also after a near box is known (the final time of impact is then above L as well, so the property holds;
   the code keeps the narrower condition), the bound from `IterationLimit` results (their near time is infinite).
+
+### 10.13 Fast separating-plane filter (`CCD-1`) and linear Bézier `t`-clipping (2026-11-26)
+
+Two narrow-phase accelerations in `intersection/ContinuousCollision.cs` preserve all three guarantees G1-G3 and `2^k` scale
+invariance while reducing near-contact box counts by 1.9-2.9x and query wall time by 1.6-3.3x:
+
+1. **Range-guarded separating-plane filter (`CCD-1`, `CcdSolver.separated_along`).** Previously, every separating-direction dot
+   product `n . F` evaluated 3 interval multiplications and additions in `ExactInterval` at each of the up to 12 hull corners.
+   On the filter path (`useFilter`), `separated_along` now normalizes `n` exactly by a power of two (`pow2_normalize`, placing
+   `max(|n|) in [1, 2)` and `|n|_1 in [1, 6)` so `2^k` scales stay bit-identical) and computes for each hull vertex `f`:
+   - `baseScale = eDot + ms * |n|_1`, `baseMargin = baseScale * (1 + 2e-15)`,
+   - `d = nx * fx + ny * fy + nz * fz`, `ad = |nx| |fx| + |ny| |fy| + |nz| |fz|`, `scale = baseScale + ad`,
+   - if `scale <= NormalSqLo (1e-290)` or `scale >= NormalSqHi (1e290)` (or non-finite), fall back immediately to the existing
+     `ExactInterval` dot-product loop;
+   - otherwise `margin = baseMargin + 2e-15 * ad`, `dlo = d - margin`, `dhi = d + margin`.
+   `tools/ErrorBoundAudit/bounds.py` (`CCD-1`) proves in exact rationals that `[dlo, dhi]` encloses `n . F* +/- (|n| . e + ms |n|_1)`
+   over all `F* in [f - e, f + e]` with margins **1.57x** on `baseScale` and **4.50x** on the dot-product forward error and outer
+   rounding (including subnormal product error paid by `scale > 1e-290`).
+
+2. **Linear Bézier `t`-clipping (`CcdSolver.UpdateTClip`, `evaluate`, `Solve`).** For fixed `(u, v)`, `F(t, u, v)` is affine in `t`,
+   so any scalar enclosure `g(t) in [lo0, hi0]` at `t0` and `[lo1, hi1]` at `t1` satisfies the linear convex-hull strip of
+   Sederberg & Nishita (1990): wherever the linear lower bound stays strictly above `+thr` or the upper bound stays strictly below
+   `-thr`, no contact can exist. `UpdateTClip` narrows `[clipAlphaLo, clipAlphaHi] subseteq [0, 1]` using outward-rounded
+   `ExactInterval` ratios (`.Lo` for `alphaLo`, `.Hi` for `alphaHi`, guarded against infinite inputs) across all three coordinate
+   axes and every `CCD-1` separating normal. Inside `evaluate`, up to 3 clipping passes tighten `[b.t0, b.t1]` outward via
+   `ExactInterval` whenever the width shrinks below 85 % (and `b.t1 - b.t0 > MinSplitWidth`, `!limit_reached()`).
+   - **Heap, `TimeLimit`, `AbandonAfter`, and `halves` invariants:** Because `evaluate(ref b, out width)` can advance `b.t0`
+     past `heap[0].t0`, `Solve` checks `b.t0 > o.TimeLimit` and `b.t0 > AbandonAfter && (count == 0 || heap[0].t0 > AbandonAfter)`
+     after `evaluate`, only finishes on a near box when `count == 0 || near.t0 <= heap[0].t0`, and re-queues `b` if
+     `haveNear && b.t0 >= near.t0 - o.TimeTolerance` (safe from looping because `near.t0` is monotone non-increasing and the main
+     loop exits when `heap[0].t0 >= near.t0 - o.TimeTolerance`). Every clipped `b.t0, b.t1 in [0, 1]` is an exact IEEE-754 double
+     (so B1 holds verbatim), and for `b.t1 - b.t0 >= MinSplitWidth = 2^-52`, `m = 0.5 * (b.t0 + b.t1)` strictly satisfies
+     `b.t0 < m < b.t1` with gapless partition `[b.t0, m] U [m, b.t1]`.
+   - **Non-bit-identical search trajectory:** Because `t`-clipping narrows time intervals continuously rather than only at binary
+     midpoints, `Iterations`, `TimeOfImpact`, and `NearContactTime` are not bit-identical to master; G1/G2/G3, `NoCollision`
+     verdicts, solver reuse, determinism, and `2^k` scale bit-equality (`Similarity.All()`) all hold.
+
+Measured (`benchmarks/CcdBenchmark/README.md`, `DOTNET_TieredPGO=0`, 2-core Xeon @ 2.30 GHz): synthetic near-contact queries
+speed up 2.84-3.28x (VF) and 2.10-2.44x (EE) with 1.86-2.91x fewer boxes and identical collision counts; random queries speed up
+1.63-2.84x; sphere sweeps (`MaxTighteningIterations = 1024`) speed up 1.65-2.23x serial and 1.65-2.14x parallel.
+
+Tests and hand-mutant gate: `SeparatedAlong_CCD1_SoundAcrossScalesGuardsAndExactOracle` (1 200-case exact-dyadic oracle across
+exponents `-1040..480`, cancellation and `baseMargin` ties, subnormal `NormalSqLo` and overflow `NormalSqHi` guard tests, `2^k`
+bit-equality), `UpdateTClip_AllFourBranches_SoundAndExact` (all 4 branches, disjoint clips, NaN/Inf, 1 000 random exact-dyadic
+checks), and `LinearBezierTClip_SoundDeterministicReusableAndCutsIterations` (200 near-contact VF/EE queries, reuse, determinism,
+`AssertNearBox` G3 check, iteration ceiling). All 12/12 hand mutants killed (`baseFactor`, `adFactor`, `scale > 0`, drop
+`NormalSqHi`, each of the 4 `UpdateTClip` `.Lo`/`.Hi` rounding directions, disabling `t`-clipping, and the three `Solve`
+post-clip guards for `TimeLimit`, `heap[0].t0`, and re-queue `push(b)`).
+
