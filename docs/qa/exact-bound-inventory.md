@@ -102,7 +102,7 @@ rule; **S** speed or strategy only.
 |---|---|---|---|---|
 | IntrExactBox3 RayAabb `3U(|tn|+|tf|) + AbsErr`, TErr, Prep `6U S`, Kind, Away, D (filter) | `IntrExactBox3.cs:25-27`, `:260-265`, `:317-321`, `:361-449`, `:502-512` | certified ray/box decisions and t enclosures | Design doc BOX3_EXACT_FILTER.md; tests `IntrBox3FilterEdgeTests` (adversarial edges) | tests (not measured) |
 | ExactDoubleWord Eps2 = 2^-100, ErrUp, ErrFloor, D | `ExactDoubleWord.cs:31`, `:45-48`, `:104-165` | certified double-word error (6.4x margin) | Design doc TRI3TRI3_DOUBLE_WORD.md; tests `ErrorBound_HoldsAtTheOperandErrorExtremes_*` | tests at the extremes |
-| SecondPoint exponent (F2 of EBA), D | `ExactRayTriangle.cs:49-75` | the scaled point defines the same ray | read; #1348 open (range not enforced) | - |
+| SecondPoint exponent (F2 of EBA), D | `ExactRayTriangle.cs` `SecondPoint` | the scaled point defines the same ray | read; #1348 open (range not enforced); not a premise of the ray queries since #1672 (`LineDirection`: an exact multiple of the direction, checked by scaling back) | - |
 | TriangleTriangleFilter | `intersection/TriangleTriangleFilter.cs` | exact predicates only, no float constant | - | - |
 | ContinuousCollision filter `e = Up(M 2^-47 + 16 * 2^-1074)`, D | `ContinuousCollision.cs:669-694`, `:420`, `:564-588` | covers 62 M u + 21 eta (no exact fallback: a box is discarded) | Design doc CCD.md (hand table); tests `ContinuousCollisionTests` | not known |
 | ContinuousCollision caps (MaxIterations, MaxTighteningIterations, AbandonAfter), T | `ContinuousCollision.cs:48`, `:66`, `:282`, `:376` | IterationLimit / Abandoned statuses; tightening stops silently with a valid bound | tests | status |
