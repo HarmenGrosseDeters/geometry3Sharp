@@ -104,6 +104,7 @@ namespace geometry3Sharp.Tests
             AxisAlignedBox3d bb = s1.CachedBounds;
             list.Add(new Pair("sphere touching", s1, Moved(s1, new Vector3d(bb.Width, 0, 0)), false));
             list.Add(new Pair("sphere near coincident", s1, Moved(s1, new Vector3d(1e-6, 0, 0)), false));
+            list.Add(new Pair("sphere asymmetric", s1, Sphere(0.6, new Vector3d(0.9, 0.05, 0.02)), true));
             list.Add(new Pair("sphere same radius shifted", s1, Moved(s1, new Vector3d(0.3, 0.1, 0.0)), true));
             DMesh3 box = Box(new Vector3d(-1, -1, -1), new Vector3d(1, 1, 1));
             DMesh3 box2 = Rotated(Moved(Box(new Vector3d(-1, -1, -1), new Vector3d(1, 1, 1)), new Vector3d(0.5, 0.2, 0.1)), new Vector3d(1, 2, 3), 30, Vector3d.Zero);
