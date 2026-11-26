@@ -1122,17 +1122,74 @@ namespace geometry3Sharp.Tests
                     Assert.False(gs.CertifiedPointMeshDistance.AtLeastDistance(sphere, p, ExactInterval.Down(lb)), $"i={i}: Down(lb) >= exact");
             }
 
-            // Exact 2^k scale invariance on LowerBound and AtLeastDistance
-            foreach (double sc in new[] { Math.Pow(2, -10), Math.Pow(2, 10) }) {
-                DMesh3 scaled = new DMesh3(sphere);
-                MeshTransforms.Scale(scaled, sc);
-                Vector3d p = new Vector3d(1.37, -0.82, 0.55);
-                double lb0 = gs.CertifiedPointMeshDistance.LowerBound(sphere, p);
-                double lbs = gs.CertifiedPointMeshDistance.LowerBound(scaled, sc * p);
-                Assert.Equal(BitConverter.DoubleToInt64Bits(sc * lb0), BitConverter.DoubleToInt64Bits(lbs));
-                Assert.Equal(
-                    gs.CertifiedPointMeshDistance.AtLeastDistance(sphere, p, ExactInterval.Up(ExactInterval.Up(lb0))),
-                    gs.CertifiedPointMeshDistance.AtLeastDistance(scaled, sc * p, sc * ExactInterval.Up(ExactInterval.Up(lb0))));
+            // Invariance across Similarity.All() (bit-exact on IsExact 2^k scales; resolution-bounded & still certified on rotated/UTM/decimal scales)
+            Vector3d pInv = new Vector3d(1.37, -0.82, 0.55);
+            double lb0 = gs.CertifiedPointMeshDistance.LowerBound(sphere, pInv);
+            foreach (Similarity s in Similarity.All()) {
+                DMesh3 transformed = new DMesh3(sphere);
+                foreach (int vid in transformed.VertexIndices())
+                    transformed.SetVertex(vid, s.Apply(transformed.GetVertex(vid)));
+                Vector3d ps = s.Apply(pInv);
+                double lbs = gs.CertifiedPointMeshDistance.LowerBound(transformed, ps);
+                Assert.True(lbs > 0 && !double.IsInfinity(lbs), $"{s.Name}: lbs={lbs:R}");
+                if (s.IsExact) {
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(s.ApplyLength(lb0)), BitConverter.DoubleToInt64Bits(lbs));
+                    double u0 = ExactInterval.Up(ExactInterval.Up(lb0));
+                    Assert.Equal(
+                        gs.CertifiedPointMeshDistance.AtLeastDistance(sphere, pInv, u0),
+                        gs.CertifiedPointMeshDistance.AtLeastDistance(transformed, ps, s.ApplyLength(u0)));
+                } else {
+                    double tol = 64.0 * s.Resolution(2.0);
+                    Assert.True(Math.Abs(lbs / s.Scale - lb0) <= tol, $"{s.Name}: |{lbs / s.Scale:R} - {lb0:R}| > {tol:R}");
+                }
+                Assert.False(gs.CertifiedPointMeshDistance.AtLeastDistance(transformed, ps, ExactInterval.Down(lbs)), $"{s.Name}: Down(lbs) >= exact");
+                Assert.True(gs.CertifiedPointMeshDistance.AtLeastDistance(transformed, ps, ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(lbs)))),
+                    $"{s.Name}: 3*Up(lbs) < exact");
+            }
+
+            // Randomized multi-scale oracle against unpruned exact per-triangle minimum (covers slivers, degenerates, ties, AABB-containing planes)
+            var rndMulti = new Random(1649);
+            foreach (var cfg in new[] { (exp: -400, off: 0.0), (exp: -100, off: 0.0), (exp: 0, off: 0.0), (exp: 0, off: 5.7e6), (exp: 100, off: 0.0), (exp: 400, off: 0.0) }) {
+                double sc = Math.Pow(2, cfg.exp);
+                for (int trial = 0; trial < 8; ++trial) {
+                    var mesh = new DMesh3();
+                    var triList = new List<(Vector3d a, Vector3d b, Vector3d c)>();
+                    Vector3d center = new Vector3d(cfg.off, cfg.off, cfg.off);
+                    for (int t = 0; t < 16; ++t) {
+                        Vector3d a = center + sc * new Vector3d(rndMulti.NextDouble() * 4 - 2, rndMulti.NextDouble() * 4 - 2, rndMulti.NextDouble() * 4 - 2);
+                        Vector3d b = a + sc * new Vector3d(rndMulti.NextDouble() * 2 - 1, rndMulti.NextDouble() * 2 - 1, rndMulti.NextDouble() * 2 - 1);
+                        Vector3d c = (t == 0)
+                            ? a + 0.5 * (b - a) // collinear/degenerate triangle
+                            : (t == 1)
+                                ? b + sc * 1e-11 * new Vector3d(rndMulti.NextDouble(), rndMulti.NextDouble(), rndMulti.NextDouble()) // sliver
+                                : (t == 2 && triList.Count > 0)
+                                    ? triList[0].c // shared vertex / near-tie
+                                    : a + sc * new Vector3d(rndMulti.NextDouble() * 2 - 1, rndMulti.NextDouble() * 2 - 1, rndMulti.NextDouble() * 2 - 1);
+                        if (t == 3) {
+                            // large tilted triangle whose AABB surrounds the query region
+                            a = center + sc * new Vector3d(-6, -6, 14);
+                            b = center + sc * new Vector3d(6, 2, -6);
+                            c = center + sc * new Vector3d(-6, 14, -6);
+                        }
+                        triList.Add((a, b, c));
+                        mesh.AppendTriangle(mesh.AppendVertex(a), mesh.AppendVertex(b), mesh.AppendVertex(c));
+                    }
+                    // Duplicate triangle (exact tie)
+                    var dup = triList[4];
+                    triList.Add(dup);
+                    mesh.AppendTriangle(mesh.AppendVertex(dup.a), mesh.AppendVertex(dup.b), mesh.AppendVertex(dup.c));
+
+                    Vector3d q = center + sc * new Vector3d(rndMulti.NextDouble() * 2 - 1, rndMulti.NextDouble() * 2 - 1, rndMulti.NextDouble() * 2 - 1);
+                    double unpruned = double.PositiveInfinity;
+                    foreach (var tri in triList)
+                        unpruned = Math.Min(unpruned, gs.CertifiedPointMeshDistance.LowerBound(Tri(tri.a, tri.b, tri.c), q));
+                    double got = gs.CertifiedPointMeshDistance.LowerBound(mesh, q);
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(unpruned), BitConverter.DoubleToInt64Bits(got));
+                    if (got > 0)
+                        Assert.False(gs.CertifiedPointMeshDistance.AtLeastDistance(mesh, q, ExactInterval.Down(got)), $"exp={cfg.exp} off={cfg.off} trial={trial}");
+                    Assert.True(gs.CertifiedPointMeshDistance.AtLeastDistance(mesh, q, ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(got)))),
+                        $"exp={cfg.exp} off={cfg.off} trial={trial}");
+                }
             }
         }
 

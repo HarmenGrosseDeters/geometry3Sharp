@@ -47,7 +47,7 @@ namespace gs
                 double lb = box_lower_squared(va, vb, vc, p);
                 if (lb > bestUpper) continue;                               // (certified double prune: exact box d^2 >= lb > bestUpper >= best)
                 if (plane_lower_squared_exceeds(va, vb, vc, p, bestUpper)) continue; // (certified plane d^2 > bestUpper >= best)
-                if (greater(lb, bestNum, bestDen, bestExp)) continue;       // (exact fallback prune when bestUpper overflowed or is within 2 ulp)
+                if (greater(lb, bestNum, bestDen, bestExp)) continue;       // (exact fallback prune when bestUpper overflowed or a fast lb falls between best and bestUpper)
                 exact_squared(mesh, tid, p, out BigInteger n, out BigInteger d, out int x);
                 if (less(n, d, x, bestNum, bestDen, bestExp)) {
                     bestNum = n; bestDen = d; bestExp = x;
@@ -72,13 +72,14 @@ namespace gs
 
         // (a test helper in the library: the tests compare certified upper bounds with the exact distance through it)
         /// <summary> (tests) is u at least the exact distance from p to the triangles of mesh? Exact, over all triangles (true for no
-        /// triangle only if u is +infinity) </summary>
+        /// triangle only if u is +infinity). Assumes finite mesh and query coordinates, matching LowerBound. </summary>
         internal static bool AtLeastDistance(DMesh3 mesh, Vector3d p, double u)
         {
             if (double.IsNaN(u)) return false;
             if (double.IsPositiveInfinity(u)) return true;
             if (u < 0) return false;
-            // u^2 <= uSqHi unconditionally (ExactInterval.Up(0) = double.Epsilon >= u^2 when u^2 underflows; +infinity on overflow)
+            // u^2 <= uSqHi unconditionally (ExactInterval.Up(0) = double.Epsilon >= u^2 when u^2 underflows; +infinity on overflow);
+            // dropping Up() is deliberately untested on normal u because CPM-1/CPM-2 margins (1e-15/2e-15) exceed one rounding
             double uSqHi = (u == 0) ? 0 : ExactInterval.Up(u * u);
             BigInteger mu2 = BigInteger.Zero; int e2 = 0;
             if (u > 0) {
