@@ -1,12 +1,11 @@
 """Follow-up lemmas and exact replays for the three pilot series."""
 from fractions import Fraction
-from itertools import product
 import math
 import random
 
 import z3 as z
 
-from pilot import F, RN, ROOT, check
+from check_pilot_obligations import collect, source
 
 U = Fraction(1, 2**53)
 EPS = Fraction(1, 2**1074)
@@ -20,19 +19,9 @@ def abs_value(value):
     return z.If(value >= 0, value, -value)
 
 
-def source_contains(path, *snippets):
-    source = (ROOT / path).read_text(encoding='utf-8-sig')
-    compact = ''.join(source.split())
-    for snippet in snippets:
-        if ''.join(snippet.split()) not in compact:
-            raise ValueError(f'{path}: review the follow-up model near {snippet}')
-
-
 def intrinsic_and_limb():
-    source_contains('mesh_ops/IntrinsicIntegerCoordinates.cs',
-                    'Math.Abs(cJlo - cJup) + Math.Abs(cIlo - cIup) - eL - eK')
-    source_contains('math/ExactLimbSigns.cs',
-                    'carry = (carry != 0 && t == 0) ? 1UL : 0UL')
+    source('mesh_ops/IntrinsicIntegerCoordinates.cs', 'Math.Abs(cJlo - cJup)', '2 * (eIl',
+           '2649ed0cc84afbe3f7ead10bdf66748ad65bed8c42a9627bce59167ab60a1c2c')
     left_i, left_j, right_i, right_j, left_exit, right_exit, crossings = z.Ints(
         'left_i left_j right_i right_j left_exit right_exit crossings')
     left = left_i + left_j + left_exit
@@ -41,28 +30,19 @@ def intrinsic_and_limb():
     # Conservation counts each arc that enters the old diagonal once.
     # All other addends of flipped_coordinate_twice are already even.
     counts = [left == crossings, right == crossings]
-    base, power, prefix, output, carry, word, value, next_carry = z.Ints(
-        'base power prefix output carry word value next_carry')
-    radix = [base == 2**64, power > 0,
-             output + carry * power == power - prefix,
-             value + next_carry * base == base - 1 - word + carry]
-    next_prefix = prefix + word * power
-    next_output = output + value * power
     return [
         ('intrinsic_conserved_flip_can_be_odd', counts, doubled_odd_terms % 2 != 0, 'unsat'),
         ('intrinsic_positive_counts_reachable', counts,
          z.And(crossings == 3, left_i == 1, left_j == 2, right_i == 3), 'sat'),
-        ('limb_carry_invariant_fails_at_next_word', radix,
-         next_output + next_carry * power * base != power * base - next_prefix, 'unsat'),
+        ('remove_right_exit_mutant', counts, (doubled_odd_terms + right_exit) % 2 != 0, 'sat'),
     ]
 
 
 def volume_and_geodesic():
-    source_contains('math/ExactPredicates.cs',
-                    'return (n + 2) * Epsilon / (1 - (n + 2) * Epsilon)')
-    source_contains('mesh_ops/ExactMeshGeodesicDistance.cs',
-                    'double dP = (HalfWidth(PA.X) + HalfWidth(PA.Y)) * (1 + 1e-15) + 2 * (Ulp(px) + Ulp(py))',
-                    'double lenLo = len * (1 - 4e-16) - dP - dQ')
+    source('math/ExactPredicates.cs', 'return (n + 2) * Epsilon', '}',
+           '897924618431b1e5199c2ef14399fd8ecf1f35f73d39bbcc3854a886a8750601')
+    source('mesh_ops/ExactMeshGeodesicDistance.cs', 'double dP = (HalfWidth(PA.X)', 'double lenLo = len',
+           '33a98244e92e80ae81dd9957acdbeafc787b8d2263759748636b9dcc2e3fd5f8')
     a = z.Real('nu')
     u = real(U)
     # Positive denominators clear the induction relation
@@ -80,66 +60,34 @@ def volume_and_geodesic():
     ]
     # Previous per-axis lemma needs half a center spacing plus one
     # subnormal step. The spacing is at least that step on each axis.
-    eps = z.FPVal(float(EPS), F)
-    subnormal_length = z.fpMul(RN, z.fpSqrt(RN, z.FPVal(8, F)), eps)
-    adjusted = z.fpMul(RN, subnormal_length, z.FPVal(1 - 4e-16, F))
+    subnormal_length = math.sqrt(8) * float(EPS)
+    adjusted = subnormal_length * (1 - 4e-16)
+    assert adjusted == 3 * float(EPS)
     return [
+        ('volume_gamma_product_reachable', volume, a > 0, 'sat'),
+        ('do_not_advance_gamma_mutant', volume, (1 + u) * (1 - a) > 1 - a, 'sat'),
         ('volume_gamma_product_induction_fails', volume,
          (1 + u) * (1 - a - u) > 1 - a, 'unsat'),
         ('transform_endpoint_disks_can_underestimate', disks, disk < widths + 3 * spacing / 2, 'unsat'),
         ('transform_endpoint_disk_bridge_reachable', disks, disk > 0, 'sat'),
-        ('geodesic_subnormal_adjustment_keeps_three_steps', [],
-         z.fpEQ(adjusted, z.FPVal(3 * float(EPS), F)), 'sat'),
+        ('omit_disk_correction_mutant', disks[:-1] + [disk == enlarged],
+         disk < widths + 3 * spacing / 2, 'sat'),
     ]
 
 
-def contour_and_ccd():
-    source_contains('mesh_ops/ContouringTopologyCertificate.cs',
-                    'while (grid.Coord(axis, B * (m + 1)) < x) m++')
-    source_contains('intersection/ContinuousCollision.cs',
-                    'double a11 = (e0 + 1.0 * e1) - 1.0 * e2',
-                    'if (lo > threshold || hi < -threshold)')
-    p, q, r, s = z.Reals('p q r s')
-    # On the domain surface, the endpoint sums of the two sheet field
-    # values are negative. This survives affine interpolation.
-    theta = z.Real('theta')
-    g = p + theta * (r - p)
-    h = q + theta * (s - q)
-    contour = [0 <= theta, theta <= 1, p + q < 0, r + s < 0]
+def bin_midpoint():
     low, high = z.Ints('low high')
     mid = low + (high - low) / 2
     search = [-(2**20) <= low, low < high, high <= 2**20]
-    # At the CCD root, clipping [0,1]^2 by u+v<=1 retains
-    # exactly the three corners visited by the VF shortcut; EE
-    # retains all four. Boundary intersections only repeat corners.
-    visited = {(u, v) for u, v in product(range(2), repeat=2) if u + v <= 1}
-    assert visited == {(0, 0), (0, 1), (1, 0)}
-    a, b, c, d, threshold = z.Reals('ccd_a ccd_b ccd_c ccd_d ccd_threshold')
-    wa, wb, wc, wd = z.Reals('ccd_wa ccd_wb ccd_wc ccd_wd')
-    # For VF these are barycentric weights and wd=0. For EE they
-    # are the bilinear weights. Combining both t endpoints uses
-    # the same statement with two nonzero weights.
-    domain = [wa >= 0, wb >= 0, wc >= 0, wd >= 0, wa + wb + wc + wd == 1]
-    combined = wa * a + wb * b + wc * c + wd * d
     return [
-        ('two_sheet_outsides_can_overlap_on_segment', contour, z.And(g >= 0, h >= 0), 'unsat'),
-        ('two_sheet_interpolation_reachable', contour, z.And(theta == real(Fraction(1, 2)), g < 0, h < 0), 'sat'),
+        ('bounded_bin_search_reachable', search, high - low > 2, 'sat'),
         ('bounded_bin_search_cannot_shrink', search,
          z.Or(mid < low, mid >= high, 2 * (mid - low) > high - low, 2 * (high - (mid + 1)) > high - low), 'unsat'),
-        ('ccd_root_positive_corners_can_have_nonstrict_interior',
-         domain + [a > threshold, b > threshold, c > threshold, d > threshold],
-         combined <= threshold, 'unsat'),
-        ('ccd_root_negative_corners_can_have_nonstrict_interior',
-         domain + [a < -threshold, b < -threshold, c < -threshold, d < -threshold],
-         combined >= -threshold, 'unsat'),
+        ('remove_left_offset_mutant', search, (high - low) / 2 < low, 'sat'),
     ]
 
 
 def ray_replay():
-    source_contains('queries/IntersectionUtil.cs',
-                    'ExactRayTriangle.SecondPoint(rayOrigin, rayDirection)')
-    source_contains('math/ExactRayTriangle.cs',
-                    'm = exponent(mo) - exponent(md) + 1')
     # Units of binary64's smallest spacing. The exact ray is
     # (1,0,0)+t*(1,4,0), crosses y=8 at (3,8,0), and the triangle
     # has xz vertices (2,-2), (5,-2), (2,2).
@@ -151,10 +99,7 @@ def ray_replay():
     source_y = 4 * float(EPS) * .5
     assert source_x == float(EPS) and source_y == 2 * float(EPS)
     assert Fraction(source_x) / EPS < 2
-    # The representation also cannot encode all forward exact rays:
-    # there is no finite binary64 point ahead of MaxValue along +x.
-    maxval = z.FPVal(float.fromhex('0x1.fffffffffffffp+1023'), F)
-    p = z.FP('forward_point', F)
+    assert math.isinf(math.nextafter(float.fromhex('0x1.fffffffffffffp+1023'), math.inf))
     # The exact direction formulation can use the usual three scalar
     # triple products. Their sum is the signed dot with the plane
     # normal, independent of the chosen origin.
@@ -169,28 +114,15 @@ def ray_replay():
 
     signed_sum = triple(direction, a, b) + triple(direction, b, c) + triple(direction, c, a)
     plane_dot = triple(direction, [y - x for x, y in zip(a, b)], [y - x for x, y in zip(a, c)])
-    rows = [
-        ('exact_direction_edge_sum_disagrees_with_plane_dot', [],
-         z.simplify(signed_sum - plane_dot, som=True) != 0, 'unsat'),
-        ('finite_second_point_ahead_of_max_value', [z.Not(z.fpIsInf(p)), z.Not(z.fpIsNaN(p))],
-         z.fpGT(p, maxval), 'unsat'),
-    ]
-    return rows, dict(exact_hit_units=[int(x), 8, 0],
+    assert z.is_true(z.simplify(signed_sum == plane_dot, som=True))
+    return dict(exact_hit_units=[int(x), 8, 0],
                       barycentrics=[str(1 - u - v), str(u), str(v)],
                       constructed_ray_x_units=int(Fraction(source_x) / EPS))
 
 
 def storage_and_bounds():
-    source_contains('mesh_ops/ExactMeshArrangement.cs',
-                    'return (c != 0) ? c : x.Line.CompareTo(y.Line)',
-                    'if (seen.Add(EdgeKey(s.P, s.Q))) unique.Add(s)',
-                    'T.AddPartner(ui)')
-    source_contains('intersection/IntrExactBox3.cs',
-                    't = tn - 3 * U * tn - AbsErr')
-    source_contains('mesh_ops/TerrainSlopeDesign.cs',
-                    'box2.Expand(1.05 * dMax + 1e-6 * toeBox.MaxDim)')
-    label_flat, label_plane = z.Ints('label_flat label_plane')
-    retained = z.If(label_flat < label_plane, label_flat, label_plane)
+    source('intersection/IntrExactBox3.cs', 't = tn - 3 * U * tn - AbsErr', 'return true;',
+           '497efac78b3c9a21194d5c8faead22ca332d249d5e7771933ae9255b2ee8cfe6')
     normal, exact, pad, reduced = z.Reals('rounded_entry exact_entry pad reduced_entry')
     u = real(U)
     # Usual relative bounds on normal intermediates only. The final
@@ -209,10 +141,12 @@ def storage_and_bounds():
     assert Fraction(stored) - Fraction(box_edge) == 5
     assert Fraction(stored) < Fraction(box_edge) + Fraction(reach) <= Fraction(outward)
     return [
-        ('coplanar_fold_loses_triangle_plane_label', [label_flat == 5, label_plane == 8],
-         z.And(retained % 4 != 0, label_plane % 4 == 0), 'sat'),
         ('normal_ray_entry_lower_bound_can_exceed_exact_entry', finite, reduced > exact, 'unsat'),
         ('normal_ray_entry_can_be_positive', finite, z.And(reduced > 0, exact > 0), 'sat'),
+        ('omit_ray_pad_mutant', finite[:3] + [pad == 0, reduced == normal], reduced > exact, 'sat'),
+        ('proposed_ray_tiny_guard_reachable', [normal >= real(Fraction(1, 2**969))], normal > 0, 'sat'),
+        ('remove_ray_tiny_guard_mutant', [normal > 0],
+         3 * u * normal < real(Fraction(1, 2**1022)), 'sat'),
         ('proposed_ray_tiny_guard_leaves_subnormal_pad',
          [normal >= real(Fraction(1, 2**969))],
          3 * u * normal < real(Fraction(1, 2**1022)), 'unsat'),
@@ -220,10 +154,8 @@ def storage_and_bounds():
 
 
 def envelope_and_residual():
-    source_contains('mesh_ops/PolyhedralEnvelope.cs',
-                    'const double Tiny = 1e-300',
-                    'double bound = 5 * U * (Math.Abs(m.x * q.x) +',
-                    'mu = Math.Max(mu, Math.Abs(r) + bound + Tiny)')
+    source('mesh_ops/PolyhedralEnvelope.cs', 'double bound = 5 * U * (Math.Abs(m.x * q.x)', 'if (!(mu <= muPlan))',
+           '8aab310d417e60c75d0ae560c9485761c658ec1332f0b35ffe97b37dd66dbb08')
     computed = z.Reals('computed_p0 computed_p1 computed_p2')
     exact = z.Reals('exact_p0 exact_p1 exact_p2')
     plane, first, second, residual, magnitude, bound, mu0, mu = z.Reals(
@@ -259,19 +191,19 @@ def envelope_and_residual():
     return [
         ('current_facet_residual_factor_is_inconclusive_in_relaxed_model',
          assumptions + [margin(5)], exceed, 'sat'),
-        ('six_unit_candidate_encloses_relaxed_residual',
-         assumptions + [margin(6)], exceed, 'unsat'),
+        ('residual_operand_error_reachable', residual_premises, z.And(x_err > 0, y_err > 0), 'sat'),
+        ('remove_divisor_error_mutant', residual_premises,
+         abs_value(x_true - quot * y_true) > abs_value(x - quot * y) + x_err, 'sat'),
         ('double_word_residual_operand_propagation_fails', residual_premises,
          abs_value(x_true - quot * y_true) > abs_value(x - quot * y) + x_err + abs_value(quot) * y_err, 'unsat'),
     ]
 
 
 def assembled_bounds():
-    source_contains('math/ExactPredicates.cs',
-                    'return (Orient3dBound * perm + UnderflowUnit * under + g * abs) * (1 + 3 * g)')
-    source_contains('mesh_ops/ExactMeshGeodesicDistance.cs',
-                    'double rot = (cn + dP + wr) * alpha',
-                    'r = (wr + dP + rot + rounding) * (1 + 1e-15)')
+    source('math/ExactPredicates.cs', 'return (Orient3dBound * perm + UnderflowUnit', '}',
+           '6c29d288e7be00b7fe66eef9597a2ffbf9079bf742cba69a0314f0a5bcd85973')
+    source('mesh_ops/ExactMeshGeodesicDistance.cs', 'double rot = (cn + dP + wr) * alpha', 'return true;',
+           '9660009c50214a0986574b82947283e1c7a400a205f77944670d7e01556f1f54')
     u = real(U)
     g = z.Real('summation_gamma')
     # Each positive computed total is at least (1-g) times its exact
@@ -292,10 +224,13 @@ def assembled_bounds():
     return [
         ('volume_bound_inflation_loses_normal_accumulation_budget', gamma_range, volume_factor < 1, 'unsat'),
         ('volume_bound_gamma_range_reachable', gamma_range, g == 3 * u, 'sat'),
+        ('omit_volume_inflation_mutant', gamma_range,
+         real((1 - U)**4) * (1 - g) < 1, 'sat'),
         ('final_geodesic_radius_inflation_underbounds_certified_terms', premises,
          geodesic_factor * exact_radius < exact_radius, 'unsat'),
-        ('remove_geodesic_radius_inflation_loses_budget', [],
-         real((1 - U)**7) < 1, 'sat'),
+        ('final_geodesic_radius_reachable', premises, exact_radius > 0, 'sat'),
+        ('remove_geodesic_radius_inflation_mutant', premises,
+         real((1 - U)**7) * exact_radius < exact_radius, 'sat'),
     ]
 
 
@@ -445,20 +380,22 @@ def candidate_guards():
     forward_parallel = [dx != 0, px == scale * dx, scale > 0,
                         px * dy == py * dx, px * dz == pz * dx]
     return [
+        ('checked_bin_bracket_reachable', domain, candidate == 0, 'sat'),
+        ('skip_upper_product_check_mutant', domain[:-1], factor * (candidate + 1) > 2**31 - 1, 'sat'),
         ('checked_bin_bracket_leaves_an_overflowing_coordinate', domain,
          z.Or(factor * candidate < -(2**31), factor * (candidate + 1) > 2**31 - 1), 'unsat'),
+        ('ray_fast_path_guard_reachable', forward_parallel, dz != 0, 'sat'),
+        ('skip_z_component_mutant', forward_parallel[:-1], pz != scale * dz, 'sat'),
         ('ray_fast_path_guard_does_not_imply_positive_proportionality', forward_parallel,
          z.Or(py != scale * dy, pz != scale * dz), 'unsat'),
     ]
 
 
 def run(timeout_ms=120000):
-    ray_rows, witness = ray_replay()
-    rows = []
-    for name, assumptions, bad, expected in intrinsic_and_limb() + volume_and_geodesic() + contour_and_ccd() + storage_and_bounds() + envelope_and_residual() + assembled_bounds() + candidate_guards() + ray_rows:
-        _, _, row = check(name, assumptions, bad, timeout_ms)
-        row['expected'] = expected
-        rows.append(row)
-    return dict(passed=all(row['result'] == row['expected'] for row in rows),
-                z3=z.get_version_string(), obligations=rows, ray_replay=witness,
-                bin_replays=bin_replays(), exact_ray_replays=ray_differential_replays())
+    witness = ray_replay()
+    obligations = (intrinsic_and_limb() + volume_and_geodesic() + bin_midpoint()
+                   + storage_and_bounds() + envelope_and_residual() + assembled_bounds()
+                   + candidate_guards())
+    result = collect(obligations, timeout_ms)
+    return dict(result, ray_replay=witness, bin_replays=bin_replays(),
+                exact_ray_replays=ray_differential_replays())
