@@ -515,7 +515,8 @@ namespace gs
             }
             if (count == 0)
                 return;
-            reading = WindingContouring.OrientedCopy(b);
+            // (from the flagged components already found; a mesh with unused triangle ids has other ids in its compacted copy)
+            reading = b.TriangleCount == b.MaxTriangleID ? WindingContouring.OrientedCopy(b, flagged) : WindingContouring.OrientedCopy(b);
             Vector3d c = plain.CachedBounds.Center;
             if (MeshMeasurements.VolumeArea(plain, plain.TriangleIndices(), (vid) => plain.GetVertex(vid) - c).x < 0)
                 plain.ReverseOrientation(false);

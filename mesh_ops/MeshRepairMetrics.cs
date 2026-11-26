@@ -240,7 +240,8 @@ namespace gs
             if (cancel != null && cancel())
                 return false;
             double iou;
-            return VolumeIoUAtLeast(new SolidReference(reading), SolidReference.Unoriented(union), minIoU, out iou) == false;
+            // (the reading is oriented already)
+            return VolumeIoUAtLeast(SolidReference.Unoriented(reading), SolidReference.Unoriented(union), minIoU, out iou) == false;
         }
 
         /// <summary>

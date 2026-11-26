@@ -131,6 +131,22 @@ namespace gs
             return oriented_copy(m, true, out flippedByNesting);
         }
 
+        /// <summary>
+        /// OrientedCopy(m) from the components FindInvertedComponents(m) already returned (m must have no unused triangle ids: its triangle ids are those of
+        /// its compacted copy), so that FindInvertedComponents does not run again. The same mesh as OrientedCopy(m), bit for bit
+        /// </summary>
+        internal static DMesh3 OrientedCopy(DMesh3 m, List<int[]> flagged)
+        {
+            DMesh3 copy = new DMesh3(m, true);
+            foreach (int[] comp in flagged)
+                foreach (int tid in comp)
+                    copy.ReverseTriOrientation(tid);
+            Vector3d c = copy.CachedBounds.Center;
+            if (MeshMeasurements.VolumeArea(copy, copy.TriangleIndices(), (vid) => copy.GetVertex(vid) - c).x < 0)
+                copy.ReverseOrientation(false);
+            return copy;
+        }
+
         static DMesh3 oriented_copy(DMesh3 m, bool count, out int flippedByNesting)
         {
             flippedByNesting = 0;

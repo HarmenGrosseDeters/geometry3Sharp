@@ -500,6 +500,86 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, Get<int>(new MeshWallThickness(m), "ComponentsFlippedByNesting"));
         }
 
+        // the reading the check judges is the same mesh as OrientedCopy(input), bit for bit (it is built from the components already found)
+        [Theory]
+        [InlineData(0.2, false)]
+        [InlineData(0.5, false)]
+        [InlineData(0.8, true)]
+        public void NestingReadings_ReadingIsTheOrientedCopy_AlsoWithUnusedTriangleIds(double inner, bool withGaps)
+        {
+            DMesh3 input = Nested(inner, false);
+            if (withGaps) {
+                // a third cube appended and removed again: unused triangle ids at the end
+                int before = input.MaxTriangleID;
+                MeshEditor.Append(input, Box(new Vector3d(9, 1, 1), 0.5));
+                for (int tid = before; tid < input.MaxTriangleID; ++tid)
+                    input.RemoveTriangle(tid, true);
+                Assert.True(input.TriangleCount < input.MaxTriangleID);
+            }
+            MethodInfo m = typeof(MeshPostRepairCleanup).GetMethod("NestingReadings", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+            Assert.True(m != null, "MeshPostRepairCleanup.NestingReadings does not exist");
+            object[] args = { input, null, null, 0 };
+            m.Invoke(null, args);
+            Assert.Equal(1, (int)args[3]);
+            var reading = (DMesh3)args[1];
+            Assert.Equal("", Invariance.Difference(WindingContouring.OrientedCopy(input), reading));
+            Assert.Equal(8 - Math.Pow(2 * inner, 3), Invariance.Volume(reading), 9);
+        }
+
+        // Compute() twice on one instance with a mesh inside the unit band (no normalizing scale: compute_unit runs on the instance itself): the
+        // reason and the count of the first, ambiguous input must not stay for the second, clean one
+        static DMesh3 InBand(bool nested, bool inward)
+        {
+            DMesh3 m = Box(new Vector3d(0.75, 0.75, 0.75), 0.75);
+            if (nested) {
+                DMesh3 n = Box(new Vector3d(0.75, 0.75, 0.75), 0.375);
+                if (inward) n.ReverseOrientation(false);
+                MeshEditor.Append(m, n);
+            }
+            return m;
+        }
+
+        [Fact]
+        public void Solidify_ReuseInTheUnitBand_ResetsReasonAndCount()
+        {
+            var s = new MeshWindingNumberSolidify(InBand(true, false)) { GridResolution = 24, Adaptive = true };
+            Assert.False(s.Compute());
+            Assert.Equal(1.0, (double)typeof(MeshWindingNumberSolidify).GetProperty("NormalizationScale", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public).GetValue(s));
+            Assert.Equal(AmbiguousText(typeof(MeshWindingNumberSolidify)), Reason(s));
+            Assert.Equal(1, Get<int>(s, "ComponentsFlippedByNesting"));
+            s.Mesh = InBand(false, false);
+            Assert.True(s.Compute());
+            Assert.Equal("", Reason(s));
+            Assert.Equal(0, Get<int>(s, "ComponentsFlippedByNesting"));
+            // an empty input after an ambiguous one: false, and nothing stays from the earlier run
+            s.Mesh = InBand(true, false);
+            Assert.False(s.Compute());
+            s.Mesh = new DMesh3();
+            Assert.False(s.Compute());
+            Assert.Equal("", Reason(s));
+            Assert.Equal(0, Get<int>(s, "ComponentsFlippedByNesting"));
+            // and a real cavity after an ambiguous input
+            s.Mesh = InBand(true, false);
+            Assert.False(s.Compute());
+            s.Mesh = InBand(true, true);
+            Assert.True(s.Compute());
+            Assert.Equal("", Reason(s));
+            Assert.Equal(0, Get<int>(s, "ComponentsFlippedByNesting"));
+        }
+
+        [Fact]
+        public void Boolean_ReuseInTheUnitBand_ResetsReasonAndCounts()
+        {
+            var s = new MeshWindingNumberBoolean(InBand(true, false), Box(new Vector3d(3, 0.75, 0.75), 0.5), MeshWindingNumberBoolean.Operations.Union) { GridResolution = 24 };
+            Assert.False(s.Compute());
+            Assert.Equal(AmbiguousText(typeof(MeshWindingNumberBoolean)), Reason(s));
+            Assert.Equal(1, Get<int>(s, "ComponentsFlippedByNestingA"));
+            s.MeshA = InBand(false, false);
+            Assert.True(s.Compute());
+            Assert.Equal("", Reason(s));
+            Assert.Equal(0, Get<int>(s, "ComponentsFlippedByNestingA"));
+        }
+
         // ---- MeshWallThickness ----
 
         [Fact]

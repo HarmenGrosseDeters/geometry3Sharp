@@ -22,7 +22,8 @@ namespace gs
     ///
     /// Each input is read as its oriented copy (WindingContouring.OrientedCopy), which takes the nesting of closed shells by parity: a shell inside an
     /// odd number of others is a cavity, so an outward shell inside another (an insert in a housing) is reversed and hollow. ComponentsFlippedByNestingA
-    /// and B count them per input; MinVolumeIoU refuses an input where that reading and the plain union of its shells differ (#1609).
+    /// and B count them per input; MinVolumeIoU refuses an input where that reading and the plain union of its shells differ (#1609). The judgement is per
+    /// input (an input whose own two readings differ), not per result: the combined result of the operation is not compared with anything.
     /// The mirrored case is a limit of the parity reading: an insert in a housing with both shells inside-out (inward) is not seen, because only the housing is flagged by FindInvertedComponents (the count is 0, the reading is the hollow one and nothing is refused; the same limit as MeshRobustRepair, #1566).
     /// </summary>
     public class MeshWindingNumberBoolean

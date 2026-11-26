@@ -253,8 +253,6 @@ namespace gs
             // exception is a mesh that cannot be scaled exactly (a tiny extent far from the origin, subnormal coordinates): it runs as it is
             double s = MeshRepairMetrics.unit_scale_for_mesh(Mesh, true, 0, 0);
             finishScale = 1;
-            ComponentsFlippedByNesting = 0;
-            ResultReason = "";
             if (s == 1 || Mesh.TriangleCount == 0 || MathUtil.IsFinite(CellSize) == false)
                 return compute_unit();
             finishScale = s;
