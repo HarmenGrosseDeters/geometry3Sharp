@@ -115,7 +115,7 @@ def interval_successor(timeout_ms):
 
 
 def segment_box(timeout_ms):
-    pin('mesh_ops/ExactMeshArrangement.cs', 'static bool segment_hits(', 'void morton_order(', '6586871762521ffa64ae29321df65a45bc53e9a13c6ae50968fa389294a676e7')
+    pin('mesh_ops/ExactMeshArrangement.cs', 'static bool segment_hits(', 'void morton_order(', '79e202891b094e8c7323a3034403402467f27316132b22c1132bb25771692ad3')
     p, other, lo, hi, t = z.Reals('slab_p slab_q slab_lo slab_hi slab_t')
     point = (1 - t) * p + t * other
     intersecting = [lo <= hi, t >= 0, t <= 1, lo <= point, point <= hi]
@@ -161,8 +161,11 @@ def segment_box(timeout_ms):
         ('omit_slack_from_endpoints_mutant', quotient, z.Or(a > parameter, b < parameter), 'sat'),
     ]
     report = collect(obligations, timeout_ms)
+    # The witness culled the segment until #1673; the source now applies the endpoint rule proved above
+    # (near_parallel_endpoint_rule_can_cull_intersection), and the start-only rule is the mutant.
     report['witness'] = dict(p_x=0.0, q_x=2e-310, slab_lo=1e-310, slab_hi=1.0,
-                             box_contains_q=True, source_small_branch_rejects=True)
+                             box_contains_q=True, source_small_branch_rejects=False,
+                             rejected_before='#1673')
     return report
 
 

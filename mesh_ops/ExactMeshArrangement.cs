@@ -3556,7 +3556,11 @@ namespace g3
             segmentStack = stack;
         }
 
-        // slab test of segment p-q against the box b[6 i ..] expanded by pad (conservative: pad covers the rounding)
+        // slab test of segment p-q against the box b[6 i ..] expanded by pad (conservative: pad covers the rounding).
+        // A near-parallel slab (|q - p| < 1e-300 along k, where the quotients could overflow) rejects only if both
+        // ends lie strictly outside on the same side: the segment's projection is [min, max] of the ends, so that is
+        // exact, and it leaves t unrestricted (#1673: testing p alone missed a segment whose end q is in the box;
+        // tools/Z3Pilot/interval_segment_pilots.py, segment_box, proves the rule sound)
         [MethodImpl(JitHints.Optimize)]
         static bool segment_hits(double[] b, int i, Vector3d p, Vector3d q, double pad)
         {
@@ -3565,7 +3569,7 @@ namespace g3
                 double lo = b[6 * i + k] - pad, hi = b[6 * i + 3 + k] + pad;
                 double d = q[k] - p[k];
                 if (Math.Abs(d) < 1e-300) {
-                    if (p[k] < lo || p[k] > hi) return false;
+                    if ((p[k] < lo && q[k] < lo) || (p[k] > hi && q[k] > hi)) return false;
                     continue;
                 }
                 double ta = (lo - p[k]) / d, tb = (hi - p[k]) / d;
