@@ -1413,3 +1413,74 @@ def ctb_covering_upper(c, r):
     r.add('circumradius factor', Verdict(circ_have_sq >= circ_need_sq, (circ_have_sq - 1) / (circ_need_sq - 1),
                                          '(1 + 2e-15) covers num/den/sqrt/div roundings (needed 1/(1-u)^6.5) with margin %.2fx' % float((circ_have_sq - 1) / (circ_need_sq - 1))))
 
+
+CPM = 'queries/CertifiedPointMeshDistance.cs'
+
+
+@entry('CPM-1 CertifiedPointMeshDistance.box_lower_squared fast path', CPM,
+       ['~const double NormalSqLo = 1e-290;', '~const double NormalSqHi = 1e290;',
+        'double s = gx * gx + gy * gy + gz * gz;',
+        'if (s > NormalSqLo && s < NormalSqHi)',
+        'return s * (1.0 - 1e-15);'],
+       'fast path <= exact squared distance from p to triangle AABB',
+       's in (1e-290, 1e290) (fallback to ExactInterval.Down otherwise)',
+       's * (1 - 1e-15)',
+       scope='internal static double box_lower_squared(')
+def cpm_box_lower_squared(c, r):
+    # Each gap gk = fl(lo - pk) satisfies gk <= (1 + u) * gk_exact; each square pk <= (1 + u) * gk^2 + ETA
+    # <= (1 + u)^3 * gk_exact^2 + ETA; two sums give s <= (1 + u)^5 * s_exact + 3 * (1 + u)^2 * ETA.
+    # Thus s_exact >= s * (1 / (1 + u)^5 - 3 * (1 + u)^2 * ETA / 1e-290).
+    # Returned fl(s * (1 - 1e-15)) <= s * (1 - 1e-15) * (1 + u).
+    exact_floor = Fraction(1, 1) / (1 + U) ** 5 - 3 * (1 + U) ** 2 * ETA / CTB_SQ_LO
+    out_hi = frac(1.0 - 1e-15) * (1 + U)
+    margin = (1 - out_hi) / (1 - exact_floor)
+    r.add('rounded down', Verdict(out_hi <= exact_floor, margin,
+                                  'output ceiling %.16f vs exact lower %.16f (margin %.2fx)' % (float(out_hi), float(exact_floor), float(margin))))
+
+
+@entry('CPM-2 CertifiedPointMeshDistance.plane_lower_squared_exceeds fast path', CPM,
+       ['~const double NormalSqLo = 1e-290;', '~const double NormalSqHi = 1e290;',
+        '~const double NormalLinLo = 1e-140;', '~const double NormalLinHi = 1e140;',
+        'CertifiedDet3 det = CertifiedDet3.Compute(d, e1, e2);',
+        'double detDiff = Math.Abs(det.Det) - det.E;',
+        'if (!(detDiff > 0)) return false;',
+        'double detLo = ExactInterval.Down(detDiff);',
+        'if (!(detLo > NormalLinLo && detLo < NormalLinHi)) return false;',
+        'double unx = Math.Abs(p1x - p2x) + 1e-15 * mx;',
+        'double uny = Math.Abs(p1y - p2y) + 1e-15 * my;',
+        'double unz = Math.Abs(p1z - p2z) + 1e-15 * mz;',
+        'double n2 = unx * unx + uny * uny + unz * unz;',
+        'if (!(n2 > NormalSqLo && n2 < NormalSqHi)) return false;',
+        'double q = (detLo * detLo) / n2;',
+        'if (!(q > NormalSqLo && q < NormalSqHi)) return false;',
+        'double lb = q * (1.0 - 2e-15);',
+        'return lb > thresh;'],
+       'lb <= exact |det(p-v0, v1-v0, v2-v0)|^2 / |(v1-v0) x (v2-v0)|^2 <= exact squared distance to triangle',
+       'detLo in (1e-140, 1e140), n2 in (1e-290, 1e290), q in (1e-290, 1e290), thresh finite (CertifiedDet3 proves |Delta| >= detLo)',
+       'un_k = |n_k| + 1e-15 * m_k; lb = q * (1 - 2e-15)',
+       scope='internal static bool plane_lower_squared_exceeds(')
+def cpm_plane_lower_squared(c, r):
+    # 1) Cross-product component upper bound: dual of CTB-4 cross lower bound.
+    # For any component with mx >= 2^-500, fl(|p1-p2| + fl(1e-15*mx)) >= |p1-p2|*(1-u) + 1e-15*mx*(1-u)^2;
+    # the gap between |n_k^*| and |p1-p2|*(1-u) is at most ((1/(1-u)^3 - 1 + u)/(1-u) + u) * mx + 2*ETA/(1-u)^2,
+    # so un_k >= |n_k^*| strictly. For mx in [2^-1022, 2^-500), 1e-15*mx still covers the error strictly; for
+    # subnormal mx < 2^-1022, input-diff + product underflow deficit is <= 4*ETA/(1-u)^2 < 2^-1072, whose squared
+    # contribution is < 2^-2093 << 2^-1570 << u * n2 (since n2 > 1e-290).
+    cross_need = ((Fraction(1, 1) / (1 - U) ** 3 - 1) + U) / (1 - U) + U + 2 * ETA / (1 - U) ** 2 / Fraction(1, 2 ** 500)
+    cross_have = frac(1e-15) * (1 - U) ** 2
+    r.add('cross upper bound', Verdict(cross_have >= cross_need, cross_have / cross_need,
+                                       '1e-15 * mx covers cross-product upper rounding for mx >= 2^-500 with margin %.2fx' % float(cross_have / cross_need)))
+    # 2) Plane distance squared lower bound:
+    # Exact |n^*|^2 <= n2 / (1 - u)^3 + 3*ETA/(1-u) + 3 * 2^-1570 (ratio <= 1/(1-u)^3 + 4e-33).
+    # Numerator fl(detLo * detLo) <= |Delta|^2 * (1 + u) (normal, no underflow since detLo > 1e-140).
+    # Quotient q in (1e-290, 1e290) and final mul by (1 - 2e-15) are both normal, inflating by at most (1 + u)^2:
+    # lb <= exact_plane_d2 * (1 + u)^3 / (1 - u)^3 * (1 + 4e-33) * (1 - 2e-15).
+    n2_uf = (3 * ETA / (1 - U) + Fraction(3, 2 ** 1570)) / CTB_SQ_LO
+    inflate = (1 + U) ** 3 / (1 - U) ** 3 * (1 + n2_uf)
+    factor = frac(1.0 - 2e-15)
+    prod = inflate * factor
+    margin = (1 - factor) / (inflate - 1)
+    r.add('plane d2 lower factor', Verdict(prod <= 1, margin,
+                                           '(1 - 2e-15) keeps lb <= exact plane d^2 with margin %.2fx' % float(margin)))
+
+
