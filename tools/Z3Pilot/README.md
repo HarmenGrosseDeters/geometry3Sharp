@@ -830,6 +830,73 @@ python3 tools/Z3Pilot/clipper_frame.py --out /tmp/clipper-frame.json
 python3 -m unittest discover -s tools/Z3Pilot -p 'test_clipper_frame.py' -v
 ```
 
+## Continuous collision: corner error and axis discard
+
+`continuous_collision.py` checks the B1 bound in [CCD §10.2](../../docs/design/CCD.md#102-bound-b1-as-derived-for-the-review)
+for one axis of `ContinuousCollision`. It propagates exact rational error bounds through the source evaluation order
+and uses Z3 linear real arithmetic to check that the bound covers the corner error and that a discard
+places every exact corner on the indicated side of the separation threshold. The two strict discard
+comparisons each have satisfiable assumptions. The model assumes binary64 round-to-nearest with separate
+multiplication and addition. Outward rounding and extension from the corners to the box are mathematical
+arguments described in CCD. The SHA-256 pins include the strict axis discard at both call sites.
+The enclosure uses `ExactInterval.Up` and the convex-combination bridge in the CCD design.
+
+Removing the absolute term gives a subnormal regression case. With edge-edge inputs and all parameters
+equal to 1/2, the float corner is zero and the exact corner is −3/2 subnormal spacings. The weakened bound
+would allow one spacing. The pilot replays the fixed witness in binary64 and exact rationals, and
+`ContinuousCollisionTests.Filter_SubnormalHalfwayProductsNeedAbsoluteErrorTerm` exercises the same case
+through the C# implementation.
+
+```sh
+python3 tools/Z3Pilot/continuous_collision.py --out /tmp/z3-continuous-collision-report.json
+python3 -m unittest discover -s tools/Z3Pilot -p test_continuous_collision.py -v
+```
+
+## Ray/AABB culling
+
+The pilot checks the two-rounding envelope for finite slab times and the final miss comparison. Infinity propagation in the final comparison has separate controls. The reference uses the same rounded expanded faces as the exact C# routine. The reported entry-time lower bound is outside this check.
+
+```sh
+python3 tools/Z3Pilot/ray_aabb_may.py --out /tmp/z3-ray-aabb-may-report.json
+```
+
+## Terrain domain box expansion
+
+The pilot checks the padding conditional on the supplied reach and finite arithmetic.
+The original replay advances the padded edge by 4 for reach 4.2, width 20000
+and edge 2^52. A .NET 10 straight-toe run also reaches this class of rounding
+with slope 1, endpoints (2^52-20000,0,0) and (2^52,0,0), HeightLimit 5/8,
+and Tolerance 500. Compute returned Success with one triangle, margin 1e-6
+and 16 facets. Reconstructing dMax from those choices gives about 5.05613,
+while the padded domain edge advances by 5. This is a reachable arithmetic
+case; it did not demonstrate a missing mesh face.
+
+Proper outward rounding of the final face encloses the reference in the
+model. Round-to-nearest also suffices when dMax is at least 11 times the
+local spacing used to bound the sum's error. The pilot checks both of
+these conditions and replays using one successor step for the upper face.
+The analogous lower-face result follows by reflecting the coordinate.
+
+```sh
+python3 tools/Z3Pilot/terrain_box_expansion.py --out /tmp/z3-terrain-box-expansion-report.json
+```
+
+## Saturating floor conversions
+
+The pilot compares the guarded and .NET 9 definitions for 32- and 64-bit results using the specified cast semantics. It also checks the grid neighbor guard and reproduces the old unchecked-wrap condition at int.MaxValue.
+
+```sh
+python3 tools/Z3Pilot/saturating_conversions.py --out /tmp/z3-saturating-conversions-report.json
+```
+
+## Intrinsic flip counts
+
+The pilot checks the long intermediate range for stored edge counts and the forward/reverse identity for the local formula under exact corner divisions and a representable new count. It checks a concrete input-edge round trip in integer arithmetic. Parity for arbitrary realizable neighborhoods, geometric flip eligibility and roundabout restoration remain outside the proof. The reverse formula uses the edge relocation documented in FlipEdge.
+
+```sh
+python3 tools/Z3Pilot/intrinsic_flip.py --out /tmp/z3-intrinsic-flip-report.json
+```
+
 ## Exact-bound inventory lemmas (2026-11-25, `docs/qa/exact-bound-inventory.md`)
 
 Three lemmas for the top gaps of the inventory. Each obligation is an UNSAT counterexample query with its assumptions SAT;
