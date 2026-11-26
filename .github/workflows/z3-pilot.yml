@@ -118,6 +118,7 @@ jobs:
           Z3_SPLIT_TERMINATION_REPORT: z3-split-termination-report.json
           Z3_PILOT_FOLLOWUPS_REPORT: z3-pilot-followups-report.json
           Z3_SEPARATING_AXIS_REPORT: z3-separating-axis-report.json
+          Z3_INTERVAL_SEGMENT_REPORT: z3-interval-segment-report.json
           Z3_PLATEAU_SEARCH_REPORT: z3-plateau-search-report.json
           Z3_ADAPTIVE_RANGE_REPORT: z3-adaptive-range-report.json
           Z3_RAY_AABB_MAY_REPORT: z3-ray-aabb-may-report.json
@@ -148,6 +149,7 @@ jobs:
             z3-split-termination-report.json
             z3-pilot-followups-report.json
             z3-separating-axis-report.json
+            z3-interval-segment-report.json
             z3-plateau-search-report.json
             z3-adaptive-range-report.json
             z3-ray-aabb-may-report.json
