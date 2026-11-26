@@ -63,6 +63,60 @@ namespace geometry3Sharp.Tests
             AssertGood(d);
         }
 
+        // #1539: the angles whose realization ended in "non-manifold realization" (96, 100, 119, 120, 132, 159, 177), in "left a crack"
+        // (234, 236, 238, 244, 278) or in SlopeViolation by a turned-over sliver (291): slivers of different faces a few ulps wide
+        // along one line. 100 has tiny triangles under the degenerate area of NotCleanReason besides, the others are clean.
+        [Theory]
+        [InlineData(100, true)]
+        [InlineData(119, false)]
+        [InlineData(120, false)]
+        [InlineData(132, false)]
+        [InlineData(159, false)]
+        [InlineData(177, false)]
+        [InlineData(234, false)]
+        [InlineData(238, false)]
+        [InlineData(278, false)]
+        public void AroundCorner_RotatedWithSliverStrips_Succeeds(int degrees, bool tinyTriangles) { SliverStripsSucceed(degrees, tinyTriangles); }
+
+        // (Slow: these four run three or four realizations each, 2.5-4.5 s alone, 5-8 s on a loaded runner; under 10 s)
+        [Theory, Trait("Category", "Slow")]
+        [InlineData(96, false)]
+        [InlineData(236, false)]
+        [InlineData(244, false)]
+        [InlineData(291, false)]
+        public void AroundCorner_RotatedWithSliverStrips_SlowSucceeds(int degrees, bool tinyTriangles) { SliverStripsSucceed(degrees, tinyTriangles); }
+
+        static void SliverStripsSucceed(int degrees, bool tinyTriangles)
+        {
+            var d = Make(degrees);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            TerrainSlopeRampTests.AssertRamps(d);
+            Assert.Equal(tinyTriangles ? MeshRobustRepair.Defects.NotClosed | MeshRobustRepair.Defects.DegenerateTriangles : MeshRobustRepair.Defects.NotClosed,
+                         MeshRobustRepair.FindDefects(d.SlopeSurface));
+        }
+
+        // The surface of angles that succeed with the strict realization (the plain ones are refused, #1628) is pinned: counts and a hash of
+        // the topology (triangle ids, vertices, groups; no coordinates, so that it holds on every runtime). The zip realization of #1647
+        // runs only after strict throws, so these angles must keep the surface strict gives: a zip run in its place changes the triangles.
+        [Theory]
+        [InlineData(117, 452, 653, "54b45d240c450401")]
+        [InlineData(127, 450, 651, "5b2e07889356bd85")]
+        public void StrictAngles_KeepTheirSurface(int degrees, int vertexCount, int triangleCount, string topologyHash)
+        {
+            var d = Make(degrees);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            DMesh3 m = d.SlopeSurface;
+            ulong h = 14695981039346656037UL;
+            Func<ulong, int, ulong> fnv = (acc, v) => { unchecked { for (int i = 0; i < 4; ++i) { acc ^= (ulong)((v >> (8 * i)) & 0xFF); acc *= 1099511628211UL; } } return acc; };
+            foreach (int t in m.TriangleIndices()) {
+                Index3i tv = m.GetTriangle(t);
+                h = fnv(fnv(fnv(fnv(fnv(h, t), tv.a), tv.b), tv.c), m.GetTriangleGroup(t));
+            }
+            Assert.Equal(vertexCount, m.VertexCount);
+            Assert.Equal(triangleCount, m.TriangleCount);
+            Assert.Equal(topologyHash, h.ToString("x16"));
+        }
+
         // the 2^k frames give the result of the rotated design, scaled, bit for bit; every frame succeeds (the reference, 127 degrees, is
         // the one that failed in the identity frame before)
         [Theory]
@@ -82,6 +136,20 @@ namespace geometry3Sharp.Tests
                 AssertGood(r);
                 Assert.Equal("", Invariance.Difference(r.SlopeSurface, Invariance.MappedBack(d.SlopeSurface, s)));
             }
+        }
+
+        // the strict realization with its sliver bound and strips (119 degrees): the 2^k frames give the identity's result, scaled, bit for bit
+        [Theory]
+        [MemberData(nameof(Similarity.NamesExceptExtremeFrame), MemberType = typeof(Similarity))]
+        public void SliverStrips_Similarities(string name)
+        {
+            Similarity s = ZUp(Similarity.ByName(name));
+            if (s.IsExact == false) return;       // (only the 2^k frames repeat the identity's result bit for bit; the others are covered by the identity frame's tests above)
+            var d = Make(119, s);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            var r = Make(119);
+            Assert.True(r.Compute(), r.Message);
+            Assert.Equal("", Invariance.Difference(r.SlopeSurface, Invariance.MappedBack(d.SlopeSurface, s)));
         }
 
         static readonly Lazy<TerrainSlopeDesign> Reference = new Lazy<TerrainSlopeDesign>(() => {
@@ -115,7 +183,7 @@ namespace geometry3Sharp.Tests
 
         // ---- a sweep: the Nightly tier runs every degree, and every angle ends in its exact outcome ----
 
-        // The outcome of each angle of the 1 degree sweep (measured on the library of #1628; an angle in none of the lists succeeds
+        // The outcome of each angle of the 1 degree sweep (measured with the fix of #1539's sliver strips; an angle in none of the lists succeeds
         // with a surface whose only defect is NotClosed). A change of any angle's outcome fails the sweep, an improvement too:
         // move the angle to its new list (or out of the lists).
         // - Needles: Success, and MeshRobustRepair.FindDefects also reports DegenerateTriangles (area below 1e-12 diag^2, about
@@ -123,21 +191,20 @@ namespace geometry3Sharp.Tests
         //   clusters of near-coincident vertices (heights up to 1e-4), all far below the tolerance of 1e-2. The library is right
         //   here: the slope and support checks accept every triangle and AssertRamps below checks the surface against the exact
         //   specification (heights, width, boundary); the generic defect check of MeshRobustRepair is an absolute area threshold.
-        static readonly HashSet<int> Needles = new HashSet<int> { 25, 26, 28, 30, 31, 41, 46, 57, 66, 67, 69, 71, 72, 76, 82, 94, 99, 102, 107, 118, 123, 128, 133, 136, 139, 143, 148, 150, 153, 166, 171, 173, 174, 176, 181, 184, 192, 196, 202, 208, 212, 217, 223, 227, 241, 273, 274, 280, 319 };
-        // - #1539 (open; removing an angle from these three lists is that issue's done-check):
-        //   non-manifold realization: the same family of slivers, whose neighbour cannot be stitched (the edge m x of the split
-        //   exists already, or the sliver's long edge is no boundary edge)
-        static readonly HashSet<int> NonManifold = new HashSet<int> { 96, 100, 119, 120, 132, 159, 177 };
-        //   "left a crack": the same, the dropped triangles leave a crack
-        static readonly HashSet<int> Crack = new HashSet<int> { 234, 236, 238, 244, 278 };
-        //   SlopeViolation: "a larger margin does not fit into Tolerance" (a margin matter, not a realization failure)
-        static readonly HashSet<int> SlopeViolation = new HashSet<int> { 291, 301 };
+        static readonly HashSet<int> Needles = new HashSet<int> { 25, 26, 28, 30, 31, 41, 46, 57, 66, 67, 69, 71, 72, 76, 82, 94, 99, 100, 102, 107, 118, 123, 128, 133, 136, 139, 143, 148, 150, 153, 166, 171, 173, 174, 176, 181, 184, 192, 196, 202, 208, 212, 217, 223, 227, 241, 273, 274, 280, 319 };
+        // - SlopeViolation 301 (the last open angle of #1539; removing it from this list is that issue's done-check): "a larger margin
+        //   does not fit into Tolerance". No turned-over triangle (the strict realization does not apply), two triangles of a needle
+        //   cluster at (-39.234, -0.0177) fail the exact check at every margin: a needle of altitude 2e-15 (steeper than the slope
+        //   after the rounding of its vertex heights) and a triangle of altitude 1.3e-4 whose vertices are 5.6e-7 above their support
+        //   plane (the toe lowering is 2.5e-9). Needles below MinFeatureSize that neither the flips nor the merges remove: a margin
+        //   matter of the needle handling (TERRAIN.md 5.4), not of the realization.
+        static readonly HashSet<int> SlopeViolation = new HashSet<int> { 301 };
 
-        const int SweepShards = 36;
+        const int SweepShards = 72;
         public static IEnumerable<object[]> Shards() => Enumerable.Range(0, SweepShards).Select(i => new object[] { i });
 
-        // Nightly: the run is the check (360 designs at about 0.7 s: 250 s), more than the 10 s of the PR tier; in 36 shards of 10
-        // angles (each test about 7 s alone, under 15 s with four running at once)
+        // Nightly: the run is the check (360 designs at about 0.7 s: 250 s), more than the 10 s of the PR tier; in 72 shards of 5
+        // angles (each test about 4 s alone, 13 s at most with four running at once; the angles with a strict rerun take 2-4 s each)
         [Theory]
         [MemberData(nameof(Shards))]
         [Trait("Category", "Nightly")]
@@ -147,9 +214,7 @@ namespace geometry3Sharp.Tests
             for (int a = shard * 360 / SweepShards; a < (shard + 1) * 360 / SweepShards; ++a) {
                 var d = Make(a);
                 bool ok = d.Compute();
-                string expected = NonManifold.Contains(a) ? "Failed: SlopeMap: non-manifold realization"
-                                : Crack.Contains(a) ? "Failed: the realization left a crack (dropped triangles of a face narrower than the rounding)"
-                                : SlopeViolation.Contains(a) ? "SlopeViolation"
+                string expected = SlopeViolation.Contains(a) ? "SlopeViolation"
                                 : Needles.Contains(a) ? "Success: not closed, degenerate triangles" : "Success: not closed";
                 string got;
                 if (ok) {
