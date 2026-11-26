@@ -205,6 +205,32 @@ namespace g3
         /// Finds the sign-changing grid edges (and in sparse mode the hidden gap / wall edges), the first part
         /// of Generate. Can be called again after SetRefinement.
         /// </summary>
+        // Sparse mode (with or without refinement): the nodes the cells can reach must be finite, as those of a dense grid (see below).
+        // Node indices are in units of h = CellSize / F: a coarse candidate cell c has the nodes F c .. F (c + 1), a fine one c .. c + 1,
+        // and the cells around a crossing add one cell (at most F nodes) on each side. The position is monotonic in the index, so the
+        // extremes of each axis decide.
+        void check_sparse_nodes_finite()
+        {
+            double[] lo = { double.MaxValue, double.MaxValue, double.MaxValue }, hi = { double.MinValue, double.MinValue, double.MinValue };
+            void Extend(Vector3i c, double scale, double pad)
+            {
+                for (int a = 0; a < 3; ++a) {
+                    lo[a] = Math.Min(lo[a], scale * c[a] - pad);
+                    hi[a] = Math.Max(hi[a], scale * (c[a] + 1) + pad);
+                }
+            }
+            if (CandidateCells != null)
+                foreach (Vector3i c in CandidateCells) Extend(c, F, F);
+            if (F > 1 && fineCandidates != null)
+                foreach (Vector3i c in fineCandidates) Extend(c, 1, F);
+            for (int a = 0; a < 3; ++a) {
+                if (lo[a] > hi[a]) continue;      // no cells
+                double first = origin[a] + h * lo[a], last = origin[a] + h * hi[a];
+                if (double.IsNaN(first) || double.IsInfinity(first) || double.IsNaN(last) || double.IsInfinity(last))
+                    throw new ArgumentException("DualContouring: the cells reach a node that is not a finite number (Bounds, CellSize and the cell indices near the largest double)");
+            }
+        }
+
         static bool IsFiniteNode(double origin, double h, double n) { double last = origin + h * (n - 1); return !(double.IsNaN(last) || double.IsInfinity(last)); }
 
         public void FindCrossings()
@@ -222,6 +248,7 @@ namespace g3
                 faceDecisions = new ConcurrentDictionary<EdgeKey, FaceDecision>();
                 ImposedEdges = ImposedFaces = 0;
                 imposedCells = new ConcurrentDictionary<long, Vector3i>(EdgeKeyComparer.Instance);
+                check_sparse_nodes_finite();
             } else {
                 Vector3d size = Bounds.Diagonal;
                 double ni = Math.Ceiling(size.x / CellSize) + 1, nj = Math.Ceiling(size.y / CellSize) + 1, nk = Math.Ceiling(size.z / CellSize) + 1;
