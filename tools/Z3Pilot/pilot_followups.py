@@ -1,0 +1,401 @@
+"""Follow-up lemmas and exact replays for the three pilot series."""
+from fractions import Fraction
+import math
+import random
+
+import z3 as z
+
+from check_pilot_obligations import collect, source
+
+U = Fraction(1, 2**53)
+EPS = Fraction(1, 2**1074)
+
+
+def real(value):
+    return z.RealVal(str(Fraction(value)))
+
+
+def abs_value(value):
+    return z.If(value >= 0, value, -value)
+
+
+def intrinsic_and_limb():
+    source('mesh_ops/IntrinsicIntegerCoordinates.cs', 'Math.Abs(cJlo - cJup)', '2 * (eIl',
+           '2649ed0cc84afbe3f7ead10bdf66748ad65bed8c42a9627bce59167ab60a1c2c')
+    left_i, left_j, right_i, right_j, left_exit, right_exit, crossings = z.Ints(
+        'left_i left_j right_i right_j left_exit right_exit crossings')
+    left = left_i + left_j + left_exit
+    right = right_i + right_j + right_exit
+    doubled_odd_terms = abs_value(right_i - left_i) + abs_value(right_j - left_j) - left_exit - right_exit
+    # Conservation counts each arc that enters the old diagonal once.
+    # All other addends of flipped_coordinate_twice are already even.
+    counts = [left == crossings, right == crossings]
+    return [
+        ('intrinsic_conserved_flip_can_be_odd', counts, doubled_odd_terms % 2 != 0, 'unsat'),
+        ('intrinsic_positive_counts_reachable', counts,
+         z.And(crossings == 3, left_i == 1, left_j == 2, right_i == 3), 'sat'),
+        ('remove_right_exit_mutant', counts, (doubled_odd_terms + right_exit) % 2 != 0, 'sat'),
+    ]
+
+
+def volume_and_geodesic():
+    source('math/ExactPredicates.cs', 'return (n + 2) * Epsilon', '}',
+           '897924618431b1e5199c2ef14399fd8ecf1f35f73d39bbcc3854a886a8750601')
+    source('mesh_ops/ExactMeshGeodesicDistance.cs', 'double dP = (HalfWidth(PA.X)', 'double lenLo = len',
+           '33a98244e92e80ae81dd9957acdbeafc787b8d2263759748636b9dcc2e3fd5f8')
+    a = z.Real('nu')
+    u = real(U)
+    # Positive denominators clear the induction relation
+    # [(1+gamma_n)(1+u)] <= [1+gamma_(n+1)].
+    volume = [a >= 0, a + u < 1]
+    widths, spacing, sum_widths, enlarged, correction, disk = z.Reals(
+        'widths spacing sum_widths enlarged correction disk')
+    expansion = real(1 + 1e-15)
+    disks = [
+        widths >= 0, spacing >= real(2 * EPS),
+        sum_widths >= (1 - u) * widths,
+        enlarged >= (1 - u) * expansion * sum_widths,
+        correction >= 2 * (1 - u) * spacing,
+        disk >= (1 - u) * (enlarged + correction),
+    ]
+    # Previous per-axis lemma needs half a center spacing plus one
+    # subnormal step. The spacing is at least that step on each axis.
+    subnormal_length = math.sqrt(8) * float(EPS)
+    adjusted = subnormal_length * (1 - 4e-16)
+    assert adjusted == 3 * float(EPS)
+    return [
+        ('volume_gamma_product_reachable', volume, a > 0, 'sat'),
+        ('do_not_advance_gamma_mutant', volume, (1 + u) * (1 - a) > 1 - a, 'sat'),
+        ('volume_gamma_product_induction_fails', volume,
+         (1 + u) * (1 - a - u) > 1 - a, 'unsat'),
+        ('transform_endpoint_disks_can_underestimate', disks, disk < widths + 3 * spacing / 2, 'unsat'),
+        ('transform_endpoint_disk_bridge_reachable', disks, disk > 0, 'sat'),
+        ('omit_disk_correction_mutant', disks[:-1] + [disk == enlarged],
+         disk < widths + 3 * spacing / 2, 'sat'),
+    ]
+
+
+def bin_midpoint():
+    low, high = z.Ints('low high')
+    mid = low + (high - low) / 2
+    search = [-(2**20) <= low, low < high, high <= 2**20]
+    return [
+        ('bounded_bin_search_reachable', search, high - low > 2, 'sat'),
+        ('bounded_bin_search_cannot_shrink', search,
+         z.Or(mid < low, mid >= high, 2 * (mid - low) > high - low, 2 * (high - (mid + 1)) > high - low), 'unsat'),
+        ('remove_left_offset_mutant', search, (high - low) / 2 < low, 'sat'),
+    ]
+
+
+def ray_replay():
+    # Units of binary64's smallest spacing. The exact ray is
+    # (1,0,0)+t*(1,4,0), crosses y=8 at (3,8,0), and the triangle
+    # has xz vertices (2,-2), (5,-2), (2,2).
+    t = Fraction(8, 4)
+    x = 1 + t
+    u, v = (x - 2) / 3, Fraction(1, 2)
+    assert u > 0 and v > 0 and u + v < 1
+    source_x = float(EPS) + float(EPS) * .5
+    source_y = 4 * float(EPS) * .5
+    assert source_x == float(EPS) and source_y == 2 * float(EPS)
+    assert Fraction(source_x) / EPS < 2
+    assert math.isinf(math.nextafter(float.fromhex('0x1.fffffffffffffp+1023'), math.inf))
+    # The exact direction formulation can use the usual three scalar
+    # triple products. Their sum is the signed dot with the plane
+    # normal, independent of the chosen origin.
+    direction = z.Reals('ray_dx ray_dy ray_dz')
+    a = z.Reals('ray_ax ray_ay ray_az')
+    b = z.Reals('ray_bx ray_by ray_bz')
+    c = z.Reals('ray_cx ray_cy ray_cz')
+
+    def triple(x, y, w):
+        return sum(x[i] * (y[(i + 1) % 3] * w[(i + 2) % 3]
+                           - y[(i + 2) % 3] * w[(i + 1) % 3]) for i in range(3))
+
+    signed_sum = triple(direction, a, b) + triple(direction, b, c) + triple(direction, c, a)
+    plane_dot = triple(direction, [y - x for x, y in zip(a, b)], [y - x for x, y in zip(a, c)])
+    assert z.is_true(z.simplify(signed_sum == plane_dot, som=True))
+    return dict(exact_hit_units=[int(x), 8, 0],
+                      barycentrics=[str(1 - u - v), str(u), str(v)],
+                      constructed_ray_x_units=int(Fraction(source_x) / EPS))
+
+
+def storage_and_bounds():
+    source('intersection/IntrExactBox3.cs', 't = tn - 3 * U * tn - AbsErr', 'return true;',
+           '497efac78b3c9a21194d5c8faead22ca332d249d5e7771933ae9255b2ee8cfe6')
+    normal, exact, pad, reduced = z.Reals('rounded_entry exact_entry pad reduced_entry')
+    u = real(U)
+    # Usual relative bounds on normal intermediates only. The final
+    # AbsErr subtraction and clamping to zero cannot raise the bound
+    # above a nonnegative exact entry.
+    finite = [
+        exact >= 0, normal >= 0,
+        normal <= real((1 + U)**2) * exact,
+        pad >= 3 * u * (1 - u) * normal, pad <= normal,
+        reduced <= (1 + u) * (normal - pad),
+    ]
+    reach = 5.056130373333055
+    box_edge = float(2**52)
+    stored = box_edge + (1.05 * reach + 1e-6 * 20_000)
+    outward = float.fromhex('0x1.0000000000006p+52')
+    assert Fraction(stored) - Fraction(box_edge) == 5
+    assert Fraction(stored) < Fraction(box_edge) + Fraction(reach) <= Fraction(outward)
+    return [
+        ('normal_ray_entry_lower_bound_can_exceed_exact_entry', finite, reduced > exact, 'unsat'),
+        ('normal_ray_entry_can_be_positive', finite, z.And(reduced > 0, exact > 0), 'sat'),
+        ('omit_ray_pad_mutant', finite[:3] + [pad == 0, reduced == normal], reduced > exact, 'sat'),
+        ('proposed_ray_tiny_guard_reachable', [normal >= real(Fraction(1, 2**969))], normal > 0, 'sat'),
+        ('remove_ray_tiny_guard_mutant', [normal > 0],
+         3 * u * normal < real(Fraction(1, 2**1022)), 'sat'),
+        ('proposed_ray_tiny_guard_leaves_subnormal_pad',
+         [normal >= real(Fraction(1, 2**969))],
+         3 * u * normal < real(Fraction(1, 2**1022)), 'unsat'),
+    ]
+
+
+def envelope_and_residual():
+    source('mesh_ops/PolyhedralEnvelope.cs', 'double bound = 5 * U * (Math.Abs(m.x * q.x)', 'if (!(mu <= muPlan))',
+           '8aab310d417e60c75d0ae560c9485761c658ec1332f0b35ffe97b37dd66dbb08')
+    computed = z.Reals('computed_p0 computed_p1 computed_p2')
+    exact = z.Reals('exact_p0 exact_p1 exact_p2')
+    plane, first, second, residual, magnitude, bound, mu0, mu = z.Reals(
+        'plane first second residual magnitude bound mu0 mu')
+    u = real(U)
+
+    def rounded(got, target):
+        return abs_value(got - target) <= u * abs_value(target)
+
+    scale = sum(abs_value(term) for term in computed) + abs_value(plane)
+    assumptions = [
+        abs_value(a - b) <= real(U / (1 - U)) * abs_value(a) + real(EPS / (2 * (1 - U)))
+        for a, b in zip(computed, exact)
+    ]
+    assumptions += [
+        rounded(first, computed[0] + computed[1]),
+        rounded(second, first + computed[2]),
+        rounded(residual, second - plane),
+        magnitude >= real((1 - U)**3) * scale, bound >= 0,
+        mu0 >= (1 - u) * (abs_value(residual) + bound),
+        mu >= (1 - u) * (mu0 + real(1e-300)), mu >= mu0,
+    ]
+    # Independent rounding errors overapproximate actual binary64.
+    # SAT for the current factor is a limit of this proof, not a
+    # reachable false envelope certificate.
+    def margin(factor):
+        return bound >= real(factor * U * (1 - U)) * magnitude - real(EPS / 2)
+
+    exceed = abs_value(sum(exact) - plane) > mu
+    x, y, x_true, y_true, quot, x_err, y_err = z.Reals('x y xp yp quot x_err y_err')
+    residual_premises = [abs_value(x - x_true) <= x_err, abs_value(y - y_true) <= y_err,
+                         x_err >= 0, y_err >= 0]
+    return [
+        ('current_facet_residual_factor_is_inconclusive_in_relaxed_model',
+         assumptions + [margin(5)], exceed, 'sat'),
+        ('residual_operand_error_reachable', residual_premises, z.And(x_err > 0, y_err > 0), 'sat'),
+        ('remove_divisor_error_mutant', residual_premises,
+         abs_value(x_true - quot * y_true) > abs_value(x - quot * y) + x_err, 'sat'),
+        ('double_word_residual_operand_propagation_fails', residual_premises,
+         abs_value(x_true - quot * y_true) > abs_value(x - quot * y) + x_err + abs_value(quot) * y_err, 'unsat'),
+    ]
+
+
+def assembled_bounds():
+    source('math/ExactPredicates.cs', 'return (Orient3dBound * perm + UnderflowUnit', '}',
+           '6c29d288e7be00b7fe66eef9597a2ffbf9079bf742cba69a0314f0a5bcd85973')
+    source('mesh_ops/ExactMeshGeodesicDistance.cs', 'double rot = (cn + dP + wr) * alpha', 'return true;',
+           '9660009c50214a0986574b82947283e1c7a400a205f77944670d7e01556f1f54')
+    u = real(U)
+    g = z.Real('summation_gamma')
+    # Each positive computed total is at least (1-g) times its exact
+    # reference. Each path through the three products, two additions
+    # and final multiply has at most four rounding factors. Formation
+    # of 1+3*g adds one factor and can round 3*g down before that.
+    volume_factor = real((1 - U)**5) * (1 + 3 * g * (1 - u)) * (1 - g)
+    gamma_range = [g >= 3 * u, g < real(Fraction(1, 4))]
+    # A normal-case path through the final radius has at most seven
+    # positive roundings, including the final inflation multiply.
+    # The quantities here are certified inputs to the radius assembly.
+    r, displacement, cn, alpha, center_error = z.Reals(
+        'window_radius endpoint_displacement center_norm angle_bound center_error')
+    exact_radius = r + displacement + (cn + displacement + r) * alpha + center_error
+    inflate = real(1 + 1e-15)
+    geodesic_factor = inflate * real((1 - U)**7)
+    premises = [value >= 0 for value in (r, displacement, cn, alpha, center_error)]
+    return [
+        ('volume_bound_inflation_loses_normal_accumulation_budget', gamma_range, volume_factor < 1, 'unsat'),
+        ('volume_bound_gamma_range_reachable', gamma_range, g == 3 * u, 'sat'),
+        ('omit_volume_inflation_mutant', gamma_range,
+         real((1 - U)**4) * (1 - g) < 1, 'sat'),
+        ('final_geodesic_radius_inflation_underbounds_certified_terms', premises,
+         geodesic_factor * exact_radius < exact_radius, 'unsat'),
+        ('final_geodesic_radius_reachable', premises, exact_radius > 0, 'sat'),
+        ('remove_geodesic_radius_inflation_mutant', premises,
+         real((1 - U)**7) * exact_radius < exact_radius, 'sat'),
+    ]
+
+
+def checked_bin_range(factor):
+    """Candidates whose two fine-coordinate products fit Int32."""
+    if not 0 < factor <= 2**31 - 1:
+        raise ValueError('bin size must be a positive Int32')
+    return max(-(2**20), -(2**31 // factor)), min(2**20, (2**31 - 1) // factor)
+
+
+def bracketed_bins(coord, value, factor):
+    """Reference fallback for a monotone grid, or None when uncertifiable."""
+    low, high = checked_bin_range(factor)
+    a, b = coord(low * factor), coord(high * factor)
+    if not (math.isfinite(a) and math.isfinite(b) and a < value < b):
+        return None
+    # First edge >= value, and first edge > value, respectively.
+    edges = []
+    for accept in (lambda x: x >= value, lambda x: x > value):
+        left, right = low, high
+        while left < right:
+            mid = left + (right - left) // 2
+            if accept(coord(mid * factor)):
+                right = mid
+            else:
+                left = mid + 1
+        edges.append(left)
+    return edges[0] - 1, edges[1] - 1
+
+
+def subtract(left, right):
+    return tuple(a - b for a, b in zip(left, right))
+
+
+def cross(left, right):
+    return tuple(left[(i + 1) % 3] * right[(i + 2) % 3]
+                 - left[(i + 2) % 3] * right[(i + 1) % 3] for i in range(3))
+
+
+def dot(left, right):
+    return sum(a * b for a, b in zip(left, right))
+
+
+def direction_hit(origin, direction, triangle):
+    """Exact integer/Fraction prototype of the determinant decision."""
+    a, b, c = [subtract(point, origin) for point in triangle]
+    edges = [dot(direction, cross(p, q)) for p, q in ((a, b), (b, c), (c, a))]
+    if min(edges) < 0 < max(edges):
+        return False
+    denominator = sum(edges)
+    if denominator == 0:
+        return False
+    numerator = dot(a, cross(subtract(b, a), subtract(c, a)))
+    return numerator == 0 or (numerator > 0) == (denominator > 0)
+
+
+def plane_hit(origin, direction, triangle):
+    """Independent exact reference using an explicit hit and Gram coordinates."""
+    a, b, c = triangle
+    ab, ac = subtract(b, a), subtract(c, a)
+    normal = cross(ab, ac)
+    denominator = dot(normal, direction)
+    if denominator == 0:
+        return False
+    t = Fraction(dot(normal, subtract(a, origin)), denominator)
+    if t < 0:
+        return False
+    displacement = subtract(tuple(p + t * d for p, d in zip(origin, direction)), a)
+    aa, bb, cc = dot(ab, ab), dot(ab, ac), dot(ac, ac)
+    u, v = dot(displacement, ab), dot(displacement, ac)
+    det = aa * cc - bb * bb
+    p, q = u * cc - v * bb, v * aa - u * bb
+    return p >= 0 and q >= 0 and p + q <= det
+
+
+def ray_differential_replays():
+    triangle = ((2, 8, -2), (5, 8, -2), (2, 8, 2))
+    assert direction_hit((1, 0, 0), (1, 4, 0), triangle)
+    assert plane_hit((1, 0, 0), (1, 4, 0), triangle)
+    assert not direction_hit((1, 0, 0), (0, 2, 0), triangle)
+    face = ((0, 0, 0), (4, 0, 0), (0, 4, 0))
+    fixtures = [
+        ('edge', (1, 0, 1), (0, 0, -1), True),
+        ('vertex', (0, 0, 1), (0, 0, -1), True),
+        ('at_origin', (1, 1, 0), (0, 0, 1), True),
+        ('coplanar', (1, 1, 0), (1, 0, 0), False),
+        ('behind', (1, 1, 1), (0, 0, 1), False),
+    ]
+    for name, origin, direction, expected in fixtures:
+        for scale in (Fraction(1, 2**1074), Fraction(1), Fraction(2**1020)):
+            scaled_origin = tuple(value * scale for value in origin)
+            scaled_face = tuple(tuple(value * scale for value in point) for point in face)
+            assert all(Fraction(float(value)) == value
+                       for point in (scaled_origin, *scaled_face) for value in point), name
+            assert direction_hit(scaled_origin, direction, scaled_face) == expected, name
+            assert plane_hit(scaled_origin, direction, scaled_face) == expected, name
+    rng = random.Random(10654)
+    hits = 0
+    for _ in range(4096):
+        origin, direction, a, b, c = [tuple(rng.randint(-4, 4) for _ in range(3)) for _ in range(5)]
+        candidate = direction_hit(origin, direction, (a, b, c))
+        assert candidate == plane_hit(origin, direction, (a, b, c))
+        hits += candidate
+    assert 0 < hits < 4096
+    return dict(cases=4096, exact_hits=hits, scaled_boundary_cases=3 * len(fixtures),
+                missed_hit_prototype_corrected=True)
+
+
+def bin_replays():
+    # A plateau exactly at x includes both outside-adjacent bins
+    # as well as the zero-width bins whose edges coincide with x.
+    plateau = lambda i: min(i + 2, 0) + max(i - 2, 0)
+    assert bracketed_bins(plateau, 0, 1) == (-3, 2)
+    assert bracketed_bins(float, 4, 4) == (0, 1)
+    # A monotone but flat representable grid cannot provide the
+    # strict outer bracket. It returns immediately instead of scanning.
+    edge = math.nextafter(1.0, math.inf)
+    tiny_grid = lambda i: 1.0 + math.ulp(0.0) * i
+    assert bracketed_bins(tiny_grid, edge, 4) is None
+    factors = (1, 4, 1024, 2**30, 2**31 - 1)
+    for factor in factors:
+        low, high = checked_bin_range(factor)
+        assert -(2**31) <= low * factor < high * factor <= 2**31 - 1
+    checked = 0
+    for width in range(5):
+        for factor in (1, 2, 4):
+            coord = lambda i: min(i + width, 0) + max(i - width, 0)
+            for x in range(-10, 11):
+                expected = [i for i in range(-20, 20) if coord(factor * i) <= x <= coord(factor * (i + 1))]
+                assert bracketed_bins(coord, x, factor) == (expected[0], expected[-1])
+                checked += 1
+    return dict(plateau_bins=[-3, 2], flat_grid_rejected=True, checked_factors=list(factors),
+                differential_cases=checked)
+
+
+def candidate_guards():
+    # L and H are the outer fine-grid edges chosen by checked_bin_range.
+    # The quotients are mathematical before any Int32 coordinate query.
+    factor, lower, upper, candidate = z.Reals('bin_factor lower_bin upper_bin candidate_bin')
+    domain = [factor > 0, lower <= candidate, candidate + 1 <= upper,
+              factor * lower >= -(2**31), factor * upper <= 2**31 - 1]
+
+    # A pivot with nonzero direction gives a unique proportional
+    # displacement. The positive scale must be checked explicitly.
+    # Fix one nonzero pivot x; the other pivots are coordinate permutations.
+    dx, dy, dz, px, py, pz, scale = z.Reals('guard_dx guard_dy guard_dz guard_px guard_py guard_pz guard_scale')
+    forward_parallel = [dx != 0, px == scale * dx, scale > 0,
+                        px * dy == py * dx, px * dz == pz * dx]
+    return [
+        ('checked_bin_bracket_reachable', domain, candidate == 0, 'sat'),
+        ('skip_upper_product_check_mutant', domain[:-1], factor * (candidate + 1) > 2**31 - 1, 'sat'),
+        ('checked_bin_bracket_leaves_an_overflowing_coordinate', domain,
+         z.Or(factor * candidate < -(2**31), factor * (candidate + 1) > 2**31 - 1), 'unsat'),
+        ('ray_fast_path_guard_reachable', forward_parallel, dz != 0, 'sat'),
+        ('skip_z_component_mutant', forward_parallel[:-1], pz != scale * dz, 'sat'),
+        ('ray_fast_path_guard_does_not_imply_positive_proportionality', forward_parallel,
+         z.Or(py != scale * dy, pz != scale * dz), 'unsat'),
+    ]
+
+
+def run(timeout_ms=120000):
+    witness = ray_replay()
+    obligations = (intrinsic_and_limb() + volume_and_geodesic() + bin_midpoint()
+                   + storage_and_bounds() + envelope_and_residual() + assembled_bounds()
+                   + candidate_guards())
+    result = collect(obligations, timeout_ms)
+    return dict(result, ray_replay=witness, bin_replays=bin_replays(),
+                exact_ray_replays=ray_differential_replays())

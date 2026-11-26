@@ -21,8 +21,9 @@ namespace gs
     ///     Status still Success;
     ///   - the band (one side, proven): every point x of the result has |sd(x) - Distance| &lt;= BandDeviation. The bound comes from
     ///     the band certificate (CertifyBand): sd is 1-Lipschitz, so on a triangle within r of a point c it is within r of sd(c),
-    ///     and sd(c) is enclosed by interval arithmetic (ExactInterval) on the input's doubles; triangles whose bound exceeds the
-    ///     tolerance are split for the check (the result is not changed). BandCertified says BandDeviation &lt;= BandTolerance.
+    ///     and sd(c) is enclosed by range-guarded hardware-double certified bounds (MO-1..MO-4, CTB-1/CTB-2) falling back to
+    ///     interval arithmetic (ExactInterval) outside the normal double range; triangles whose bound exceeds the tolerance are
+    ///     split for the check (the result is not changed). BandCertified says BandDeviation &lt;= BandTolerance.
     ///     The other side (every point of the offset surface near the result) and the topology are measured, not proven, in this
     ///     stage (stage A2: the topology certificate);
     ///   - scale-free: the input is processed as a copy scaled by a power of two to an extent in [1, 2); grid and tolerances are
@@ -415,8 +416,8 @@ namespace gs
         /// (positive outside; input closed, outward, without self-intersections, as for MeshOffset). Triangles whose bound
         /// exceeds tolerance are split into 4 for the check, up to maxDepth times. Returns false for invalid arguments
         /// (deviation infinite); otherwise deviation is B and the result says whether B &lt;= tolerance. Not scale-normalized:
-        /// the bound is exact arithmetic on the given doubles (intervals), so it is valid at any scale, but its value depends
-        /// on the rounding there.
+        /// the bound uses range-guarded hardware-double certified bounds (MO-1..MO-4, CTB-1/CTB-2) falling back to outward-rounded
+        /// intervals outside the normal double range, so it is valid at any scale, while its value depends on the rounding there.
         /// </summary>
         public static bool CertifyBand(DMesh3 input, DMesh3 surface, double distance, double tolerance, out double deviation,
             out int uncertifiedTriangles, int maxDepth = 6, bool parallel = true)
@@ -430,21 +431,69 @@ namespace gs
             return deviation <= tolerance;
         }
 
+        // Range guards for the hardware-double certified fast paths in CertifyBand (MO-1..MO-4 in bounds.py)
+        const double NormalSqLo = 1e-290;
+        const double NormalSqHi = 1e290;
+        const double NormalLinLo = 1e-140;
+        const double NormalLinHi = 1e140;
+
+        // Per-thread reusable traversal state for signed_distance_bounds (zero heap allocations per query; completely reset per call)
+        sealed class BandQueryState
+        {
+            public readonly DMesh3 Mesh;
+            public Vector3d C;
+            public double ULo, ULoSq;
+            public readonly DMeshAABBTree3.TreeTraversal Trav;
+
+            public BandQueryState(DMesh3 mesh)
+            {
+                Mesh = mesh;
+                Trav = new DMeshAABBTree3.TreeTraversal {
+                    NextBoxDF = (box, depth) => box_lower_sq(box, C) <= ULoSq,
+                    NextTriangleF = (t) => {
+                        double lo = triangle_lower_pruned(Mesh, t, C, ULoSq);
+                        if (lo < ULo) { ULo = lo; ULoSq = ExactInterval.Up(lo * lo); }
+                    }
+                };
+            }
+        }
+
+        // Mesh-free ball witness (C, ULo, Sign) for ball-connected sign propagation in triangle_deviation:
+        // when Sign != 0 and ULo < +Inf, the open ball B(C, ULo) is disjoint from the closed input mesh,
+        // so every point q with LengthUpper(q, C) < ULo has IsInside(q) == (Sign < 0).
+        // Bundled as one struct so (C, ULo, Sign) cannot be mismatched across recursive splits.
+        struct SignWitness
+        {
+            public readonly Vector3d C;
+            public readonly double ULo;
+            public readonly int Sign;
+            public SignWitness(Vector3d c, double uLo, int sign) { C = c; ULo = uLo; Sign = sign; }
+            public int KnownSignAt(Vector3d q)
+            {
+                return (Sign != 0 && ULo < double.PositiveInfinity && CertifiedTriangleBounds.LengthUpper(q, C) < ULo) ? Sign : 0;
+            }
+        }
+
         static double band_deviation(DMesh3 input, DMeshAABBTree3 tree, DMesh3 surface, double d, double tol, int maxDepth, bool parallel,
             out int uncertified)
         {
             int[] tris = surface.TriangleIndices().ToArray();
             double[] dev = new double[tris.Length];
             bool[] bad = new bool[tris.Length];
-            Action<int> one = (ti) => {
+            Action<int, BandQueryState> one = (ti, st) => {
                 Index3i t = surface.GetTriangle(tris[ti]);
                 Vector3d v0 = surface.GetVertex(t.a), v1 = surface.GetVertex(t.b), v2 = surface.GetVertex(t.c);
                 bool ok;
-                dev[ti] = triangle_deviation(input, tree, v0, v1, v2, new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), new Vector3d(0, 0, 1), d, tol, maxDepth, out ok);
+                dev[ti] = triangle_deviation(st, tree, v0, v1, v2, new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), new Vector3d(0, 0, 1),
+                    d, tol, maxDepth, default(SignWitness), out ok);
                 bad[ti] = !ok;
             };
-            if (parallel) gParallel.ForEach(Interval1i.Range(tris.Length), one);
-            else for (int i = 0; i < tris.Length; ++i) one(i);
+            if (parallel) {
+                gParallel.ForRange(tris.Length, () => new BandQueryState(input), one);
+            } else {
+                var st = new BandQueryState(input);
+                for (int i = 0; i < tris.Length; ++i) one(i, st);
+            }
             double m = 0;
             uncertified = 0;
             bool nan = false;
@@ -473,24 +522,58 @@ namespace gs
             return sqrt_up(sq.Hi);
         }
 
+        // certified upper bound of |c - (l.x v0 + l.y v1 + l.z v2)| (MO-3 in bounds.py):
+        // uses CTB-1 (LengthUpper) at exact corners, range-guarded hardware-double fast path inside (NormalLinLo, NormalLinHi),
+        // and falls back to outward-rounded box_of + box_radius outside
+        internal static double bary_radius_upper(Vector3d c, Vector3d v0, Vector3d v1, Vector3d v2, Vector3d l)
+        {
+            if (l.x == 1.0 && l.y == 0.0 && l.z == 0.0) return CertifiedTriangleBounds.LengthUpper(c, v0);
+            if (l.x == 0.0 && l.y == 1.0 && l.z == 0.0) return CertifiedTriangleBounds.LengthUpper(c, v1);
+            if (l.x == 0.0 && l.y == 0.0 && l.z == 1.0) return CertifiedTriangleBounds.LengthUpper(c, v2);
+            double a0x = l.x * v0.x, a1x = l.y * v1.x, a2x = l.z * v2.x, qx = a0x + a1x + a2x;
+            double a0y = l.x * v0.y, a1y = l.y * v1.y, a2y = l.z * v2.y, qy = a0y + a1y + a2y;
+            double a0z = l.x * v0.z, a1z = l.y * v1.z, a2z = l.z * v2.z, qz = a0z + a1z + a2z;
+            double e = (Math.Abs(a0x) + Math.Abs(a1x) + Math.Abs(a2x))
+                     + (Math.Abs(a0y) + Math.Abs(a1y) + Math.Abs(a2y))
+                     + (Math.Abs(a0z) + Math.Abs(a1z) + Math.Abs(a2z));
+            double rx = c.x - qx, ry = c.y - qy, rz = c.z - qz;
+            double r2 = rx * rx + ry * ry + rz * rz;
+            if (e > NormalLinLo && e < NormalLinHi && r2 < NormalSqHi)
+                return Math.Sqrt(r2) * (1.0 + 1e-15) + 5e-16 * e;
+            ExactInterval bx, by, bz;
+            box_of(v0, v1, v2, l, out bx, out by, out bz);
+            return box_radius(c, bx, by, bz);
+        }
+
         static double sqrt_up(double x) { return (x <= 0) ? 0 : ExactInterval.Up(Math.Sqrt(x)); }
 
-        // bound of |sd - d| on the sub-triangle with barycentric corners l0, l1, l2 of (v0, v1, v2); ok if it is <= tol
-        static double triangle_deviation(DMesh3 input, DMeshAABBTree3 tree, Vector3d v0, Vector3d v1, Vector3d v2,
-            Vector3d l0, Vector3d l1, Vector3d l2, double d, double tol, int depth, out bool ok)
+        // bound of |sd - d| on the sub-triangle with barycentric corners l0, l1, l2 of (v0, v1, v2); ok if it is <= tol.
+        // parent: mesh-free ball witness B(parent.C, parent.ULo) disjoint from input, allowing sign reuse when LengthUpper(c, parent.C) < parent.ULo.
+        static double triangle_deviation(BandQueryState st, DMeshAABBTree3 tree, Vector3d v0, Vector3d v1, Vector3d v2,
+            Vector3d l0, Vector3d l1, Vector3d l2, double d, double tol, int depth, SignWitness parent, out bool ok)
         {
-            ExactInterval ax, ay, az, bx, by, bz, cx, cy, cz;
-            box_of(v0, v1, v2, l0, out ax, out ay, out az);
-            box_of(v0, v1, v2, l1, out bx, out by, out bz);
-            box_of(v0, v1, v2, l2, out cx, out cy, out cz);
-            // any point serves as the centre: the midpoints of the corner boxes, averaged
-            Vector3d c = (1.0 / 3.0) * new Vector3d(0.5 * (ax.Lo + ax.Hi) + 0.5 * (bx.Lo + bx.Hi) + 0.5 * (cx.Lo + cx.Hi),
-                0.5 * (ay.Lo + ay.Hi) + 0.5 * (by.Lo + by.Hi) + 0.5 * (cy.Lo + cy.Hi),
-                0.5 * (az.Lo + az.Hi) + 0.5 * (bz.Lo + bz.Hi) + 0.5 * (cz.Lo + cz.Hi));
-            // every point of the sub-triangle is a convex combination of its exact corners, each inside its box: within r of c
-            double r = Math.Max(box_radius(c, ax, ay, az), Math.Max(box_radius(c, bx, by, bz), box_radius(c, cx, cy, cz)));
-            double sLo, sHi;
-            signed_distance_bounds(input, tree, c, out sLo, out sHi);
+            // any finite point serves as the centre: the rounded barycentric centroid (falling back to box_of midpoints if non-finite)
+            Vector3d p0 = l0.x * v0 + l0.y * v1 + l0.z * v2;
+            Vector3d p1 = l1.x * v0 + l1.y * v1 + l1.z * v2;
+            Vector3d p2 = l2.x * v0 + l2.y * v1 + l2.z * v2;
+            Vector3d c = (1.0 / 3.0) * (p0 + p1 + p2);
+            if (!MathUtil.IsFinite(c.x) || !MathUtil.IsFinite(c.y) || !MathUtil.IsFinite(c.z)) {
+                ExactInterval ax, ay, az, bx, by, bz, cx, cy, cz;
+                box_of(v0, v1, v2, l0, out ax, out ay, out az);
+                box_of(v0, v1, v2, l1, out bx, out by, out bz);
+                box_of(v0, v1, v2, l2, out cx, out cy, out cz);
+                c = (1.0 / 3.0) * new Vector3d(0.5 * (ax.Lo + ax.Hi) + 0.5 * (bx.Lo + bx.Hi) + 0.5 * (cx.Lo + cx.Hi),
+                    0.5 * (ay.Lo + ay.Hi) + 0.5 * (by.Lo + by.Hi) + 0.5 * (cy.Lo + cy.Hi),
+                    0.5 * (az.Lo + az.Hi) + 0.5 * (bz.Lo + bz.Hi) + 0.5 * (cz.Lo + cz.Hi));
+            }
+            // every point of the sub-triangle is a convex combination of its exact corners: within r of c
+            double r = Math.Max(bary_radius_upper(c, v0, v1, v2, l0),
+                       Math.Max(bary_radius_upper(c, v0, v1, v2, l1),
+                                bary_radius_upper(c, v0, v1, v2, l2)));
+            int knownSign = parent.KnownSignAt(c);
+            double sLo, sHi, uLoOut;
+            int signOut;
+            signed_distance_bounds(st, tree, c, knownSign, out sLo, out sHi, out uLoOut, out signOut);
             // sd is 1-Lipschitz: sd(x) in [sLo - r, sHi + r] on the sub-triangle
             ExactInterval R = ExactInterval.Of(r), D = ExactInterval.Of(d);
             double dev = Math.Max((ExactInterval.Of(sHi) + R - D).Hi, (D - ExactInterval.Of(sLo) + R).Hi);
@@ -503,11 +586,12 @@ namespace gs
                 return dev;
             }
             Vector3d m01 = 0.5 * (l0 + l1), m12 = 0.5 * (l1 + l2), m20 = 0.5 * (l2 + l0);   // exact: halves of dyadic numbers
+            SignWitness next = (signOut != 0) ? new SignWitness(c, uLoOut, signOut) : parent;
             bool o0, o1, o2, o3;
-            double e0 = triangle_deviation(input, tree, v0, v1, v2, l0, m01, m20, d, tol, depth - 1, out o0);
-            double e1 = triangle_deviation(input, tree, v0, v1, v2, m01, l1, m12, d, tol, depth - 1, out o1);
-            double e2 = triangle_deviation(input, tree, v0, v1, v2, m20, m12, l2, d, tol, depth - 1, out o2);
-            double e3 = triangle_deviation(input, tree, v0, v1, v2, m01, m12, m20, d, tol, depth - 1, out o3);
+            double e0 = triangle_deviation(st, tree, v0, v1, v2, l0, m01, m20, d, tol, depth - 1, next, out o0);
+            double e1 = triangle_deviation(st, tree, v0, v1, v2, m01, l1, m12, d, tol, depth - 1, next, out o1);
+            double e2 = triangle_deviation(st, tree, v0, v1, v2, m20, m12, l2, d, tol, depth - 1, next, out o2);
+            double e3 = triangle_deviation(st, tree, v0, v1, v2, m01, m12, m20, d, tol, depth - 1, next, out o3);
             ok = o0 && o1 && o2 && o3;
             return Math.Max(Math.Max(e0, e1), Math.Max(e2, e3));
         }
@@ -520,30 +604,68 @@ namespace gs
         /// </summary>
         internal static void signed_distance_bounds(DMesh3 mesh, DMeshAABBTree3 tree, Vector3d c, out double sLo, out double sHi)
         {
+            var st = new BandQueryState(mesh);
+            signed_distance_bounds(st, tree, c, 0, out sLo, out sHi, out _, out _);
+        }
+
+        static void signed_distance_bounds(BandQueryState st, DMeshAABBTree3 tree, Vector3d c, int knownSign,
+            out double sLo, out double sHi, out double uLoOut, out int signOut)
+        {
             double dsq;
             int tid = tree.FindNearestTriangle(c, out dsq);
-            if (tid == DMesh3.InvalidID) { sLo = double.NegativeInfinity; sHi = double.PositiveInfinity; return; }
-            double uHi = triangle_upper(mesh, tid, c);
-            double uHiSq = ExactInterval.Up(uHi * uHi);
-            double uLo = uHi;
-            var trav = new DMeshAABBTree3.TreeTraversal() {
-                NextBoxDF = (box, depth) => box_lower_sq(box, c) <= uHiSq,
-                NextTriangleF = (t) => { double lo = triangle_lower(mesh, t, c); if (lo < uLo) uLo = lo; }
-            };
-            tree.DoTraversal(trav);
-            if (!(uLo > 0)) { sLo = -uHi; sHi = uHi; return; }
-            if (tree.IsInside(c)) { sLo = -uHi; sHi = -uLo; }
+            if (tid == DMesh3.InvalidID) { sLo = double.NegativeInfinity; sHi = double.PositiveInfinity; uLoOut = 0; signOut = 0; return; }
+            double uHi = triangle_upper(st.Mesh, tid, c);
+            st.C = c;
+            st.ULo = uHi;
+            st.ULoSq = ExactInterval.Up(uHi * uHi);
+            tree.DoTraversal(st.Trav);
+            double uLo = st.ULo;
+            uLoOut = uLo;
+            if (!(uLo > 0)) { sLo = -uHi; sHi = uHi; signOut = 0; return; }
+            bool inside = (knownSign != 0) ? (knownSign < 0) : tree.IsInside(c);
+            signOut = inside ? -1 : 1;
+            if (inside) { sLo = -uHi; sHi = -uLo; }
             else { sLo = uLo; sHi = uHi; }
         }
 
-        // lower bound of the squared distance from c to the box
+        // lower bound of the squared distance from c to the box (MO-1 in bounds.py):
+        // range-guarded hardware-double fast path with 3e-15*mag slack (>= 8 ulp(mag) + diff/sub roundings),
+        // falling back to ExactInterval outside (NormalSqLo, NormalSqHi)
         internal static double box_lower_sq(AxisAlignedBox3d box, Vector3d c)
+        {
+            double magx = Math.Max(Math.Abs(c.x), Math.Max(Math.Abs(box.Min.x), Math.Abs(box.Max.x)));
+            double gx = (c.x < box.Min.x) ? (box.Min.x - c.x) : ((c.x > box.Max.x) ? (c.x - box.Max.x) : 0);
+            gx -= 3e-15 * magx;
+            if (!(gx > 0)) gx = 0;
+
+            double magy = Math.Max(Math.Abs(c.y), Math.Max(Math.Abs(box.Min.y), Math.Abs(box.Max.y)));
+            double gy = (c.y < box.Min.y) ? (box.Min.y - c.y) : ((c.y > box.Max.y) ? (c.y - box.Max.y) : 0);
+            gy -= 3e-15 * magy;
+            if (!(gy > 0)) gy = 0;
+
+            double magz = Math.Max(Math.Abs(c.z), Math.Max(Math.Abs(box.Min.z), Math.Abs(box.Max.z)));
+            double gz = (c.z < box.Min.z) ? (box.Min.z - c.z) : ((c.z > box.Max.z) ? (c.z - box.Max.z) : 0);
+            gz -= 3e-15 * magz;
+            if (!(gz > 0)) gz = 0;
+
+            if (magx < double.PositiveInfinity && magy < double.PositiveInfinity && magz < double.PositiveInfinity) {
+                double s = gx * gx + gy * gy + gz * gz;
+                if (s > NormalSqLo && s < NormalSqHi)
+                    return s * (1.0 - 1e-15);
+                if (s == 0)
+                    return 0;
+            }
+            return box_lower_sq_interval(box, c);
+        }
+
+        static double box_lower_sq_interval(AxisAlignedBox3d box, Vector3d c)
         {
             // the tree's boxes are padded by 2^-40 of the root's magnitude against the rounding of their centre / extent form;
             // a further slack of 8 units in the last place of the coordinates covers that form here as well
             double s = 0;
             for (int a = 0; a < 3; ++a) {
                 double mag = Math.Max(Math.Abs(c[a]), Math.Max(Math.Abs(box.Min[a]), Math.Abs(box.Max[a])));
+                if (!(mag < double.PositiveInfinity)) return 0;
                 double slack = 8 * (ExactInterval.Up(mag) - mag);
                 double lo = Math.Max(0, Math.Max((ExactInterval.Of(box.Min[a]) - ExactInterval.Of(c[a])).Lo, (ExactInterval.Of(c[a]) - ExactInterval.Of(box.Max[a])).Lo));
                 lo = Math.Max(0, ExactInterval.Down(lo - slack));
@@ -552,37 +674,80 @@ namespace gs
             return Math.Max(0, s);
         }
 
-        // upper bound of the distance from c to the triangle: to the exact point v0 + b1 (v1 - v0) + b2 (v2 - v0) with
-        // b1, b2 >= 0 and b1 <= 1 - b2 exactly, from the barycentric coordinates of the computed nearest point
+        // upper bound of the distance from c to the triangle: delegates to CertifiedTriangleBounds.PointTriangleUpper (CTB-2)
         internal static double triangle_upper(DMesh3 mesh, int tid, Vector3d c)
         {
             Triangle3d tri = new Triangle3d();
             mesh.GetTriVertices(tid, ref tri.V0, ref tri.V1, ref tri.V2);
             Vector3d q, bary;
             DistPoint3Triangle3.DistanceSqr(ref c, ref tri, out q, out bary);
-            double b1 = MathUtil.Clamp(bary.y, 0, 1), b2 = MathUtil.Clamp(bary.z, 0, 1);
-            if (double.IsNaN(b1) || double.IsNaN(b2)) { b1 = 0; b2 = 0; }
-            b1 = Math.Max(0, Math.Min(b1, ExactInterval.Down(1 - b2)));
-            ExactInterval B1 = ExactInterval.Of(b1), B2 = ExactInterval.Of(b2);
-            double sq = 0;
-            ExactInterval acc = ExactInterval.Of(0);
-            for (int a = 0; a < 3; ++a) {
-                ExactInterval p0 = ExactInterval.Of(tri.V0[a]);
-                ExactInterval qa = p0 + B1 * (ExactInterval.Of(tri.V1[a]) - p0) + B2 * (ExactInterval.Of(tri.V2[a]) - p0);
-                acc = acc + ExactInterval.Square(ExactInterval.Of(c[a]) - qa);
-            }
-            sq = acc.Hi;
-            return sqrt_up(sq);
+            return CertifiedTriangleBounds.PointTriangleUpper(c, tri.V0, tri.V1, tri.V2, bary.y, bary.z);
         }
 
-        // lower bound of the distance from c to the triangle: min over its corners x of w . (c - x), divided by |w|
+        // certified lower bound of squared distance from p to the AABB of (a, b, c) (MO-4 in bounds.py; returns 0 outside normal range or on NaN)
+        internal static double tri_aabb_lower_sq(Vector3d a, Vector3d b, Vector3d c, Vector3d p)
+        {
+            double lox = Math.Min(a.x, Math.Min(b.x, c.x)), hix = Math.Max(a.x, Math.Max(b.x, c.x));
+            double gx = (p.x < lox) ? (lox - p.x) : ((p.x > hix) ? (p.x - hix) : 0);
+            double loy = Math.Min(a.y, Math.Min(b.y, c.y)), hiy = Math.Max(a.y, Math.Max(b.y, c.y));
+            double gy = (p.y < loy) ? (loy - p.y) : ((p.y > hiy) ? (p.y - hiy) : 0);
+            double loz = Math.Min(a.z, Math.Min(b.z, c.z)), hiz = Math.Max(a.z, Math.Max(b.z, c.z));
+            double gz = (p.z < loz) ? (loz - p.z) : ((p.z > hiz) ? (p.z - hiz) : 0);
+            double s = gx * gx + gy * gy + gz * gz;
+            if (s > NormalSqLo && s < NormalSqHi
+                && !double.IsNaN(lox) && !double.IsNaN(loy) && !double.IsNaN(loz)
+                && !double.IsNaN(p.x) && !double.IsNaN(p.y) && !double.IsNaN(p.z))
+                return s * (1.0 - 1e-15);
+            return 0;
+        }
+
+        static double triangle_lower_pruned(DMesh3 mesh, int tid, Vector3d c, double uLoSq)
+        {
+            Triangle3d tri = new Triangle3d();
+            mesh.GetTriVertices(tid, ref tri.V0, ref tri.V1, ref tri.V2);
+            if (tri_aabb_lower_sq(tri.V0, tri.V1, tri.V2, c) >= uLoSq)
+                return double.PositiveInfinity;
+            return triangle_lower_tri(ref tri, c);
+        }
+
+        // lower bound of the distance from c to the triangle: min over its corners x of w . (c - x), divided by |w| (MO-2 in bounds.py)
         internal static double triangle_lower(DMesh3 mesh, int tid, Vector3d c)
         {
             Triangle3d tri = new Triangle3d();
             mesh.GetTriVertices(tid, ref tri.V0, ref tri.V1, ref tri.V2);
+            return triangle_lower_tri(ref tri, c);
+        }
+
+        static double triangle_lower_tri(ref Triangle3d tri, Vector3d c)
+        {
             Vector3d q, bary;
             DistPoint3Triangle3.DistanceSqr(ref c, ref tri, out q, out bary);
-            Vector3d w = c - q;
+            double wx = c.x - q.x, wy = c.y - q.y, wz = c.z - q.z;
+            double w2 = wx * wx + wy * wy + wz * wz;
+            if (w2 > NormalSqLo && w2 < NormalSqHi) {
+                double awx = Math.Abs(wx), awy = Math.Abs(wy), awz = Math.Abs(wz);
+                double minNum = double.PositiveInfinity;
+                for (int i = 0; i < 3; ++i) {
+                    Vector3d x = tri[i];
+                    double dx = c.x - x.x, dy = c.y - x.y, dz = c.z - x.z;
+                    double dot = wx * dx + wy * dy + wz * dz;
+                    double absDot = awx * Math.Abs(dx) + awy * Math.Abs(dy) + awz * Math.Abs(dz);
+                    double lo = dot - 1e-15 * absDot;
+                    // Also routes legitimately negative/zero support dots to the interval path (rare for nearest/near triangles), which clamps to 0.
+                    if (!(lo > NormalSqLo && lo < NormalSqHi)) { minNum = 0; break; }
+                    if (lo < minNum) minNum = lo;
+                }
+                if (minNum > NormalSqLo && minNum < NormalSqHi) {
+                    double d = minNum / Math.Sqrt(w2);
+                    if (d > NormalSqLo && d < NormalSqHi)
+                        return d * (1.0 - 1e-15);
+                }
+            }
+            return triangle_lower_interval(ref tri, c, new Vector3d(wx, wy, wz));
+        }
+
+        static double triangle_lower_interval(ref Triangle3d tri, Vector3d c, Vector3d w)
+        {
             if (!(w.LengthSquared > 0)) return 0;
             ExactInterval wx = ExactInterval.Of(w.x), wy = ExactInterval.Of(w.y), wz = ExactInterval.Of(w.z);
             double num = double.PositiveInfinity;

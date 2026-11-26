@@ -1484,3 +1484,123 @@ def cpm_plane_lower_squared(c, r):
                                            '(1 - 2e-15) keeps lb <= exact plane d^2 with margin %.2fx' % float(margin)))
 
 
+MO = 'mesh_ops/MeshOffset.cs'
+
+
+@entry('MO-1 MeshOffset.box_lower_sq fast path', MO,
+       ['~const double NormalSqLo = 1e-290;', '~const double NormalSqHi = 1e290;',
+        'gx -= 3e-15 * magx;',
+        'gy -= 3e-15 * magy;',
+        'gz -= 3e-15 * magz;',
+        'if (magx < double.PositiveInfinity && magy < double.PositiveInfinity && magz < double.PositiveInfinity) {',
+        'double s = gx * gx + gy * gy + gz * gz;',
+        'if (s > NormalSqLo && s < NormalSqHi)',
+        'return s * (1.0 - 1e-15);'],
+       'fast path <= exact squared distance to box widened by 8 ulp(mag) per axis',
+       'magx, magy, magz finite; s in (1e-290, 1e290) (fallback to ExactInterval outside)',
+       'g_a = max(0, gap_a - 3e-15 * mag_a); s * (1 - 1e-15)',
+       scope='internal static double box_lower_sq(')
+def mo_box_lower_sq(c, r):
+    # 1) Per-axis slack: 8 * ulp(mag) <= 16 u * mag. The raw difference g = fl(lo - c) (or fl(c - hi)) satisfies
+    # g <= g_exact + u * g_exact <= g_exact + 2 u * mag (subnormal diff is exact).
+    # Computing fl(g - fl(3e-15 * mag)) adds at most u * g <= 2 u * (1 + u) * mag upward rounding when positive,
+    # while fl(3e-15 * mag) >= 3e-15 * mag * (1 - u) for any axis with g_adj^2 > 0 (since g_adj >= 2^-538 => mag >= 2^-539).
+    slack_need = 16 * U + 2 * U + 2 * U * (1 + U) + ETA / Fraction(1, 2 ** 539)
+    slack_have = frac(3e-15) * (1 - U)
+    r.add('per-axis slack', Verdict(slack_have >= slack_need, slack_have / slack_need,
+                                    '3e-15 * mag covers 8 ulp(mag) + diff/sub roundings with margin %.2fx' % float(slack_have / slack_need)))
+    # 2) Sum of squares rounded down: each positive g_a <= g_target_a already, so 1 square + 2 sums give
+    # s <= (1 + u)^3 * s_target + 3 * (1 + u)^2 * ETA; output fl(s * (1 - 1e-15)) <= s * (1 - 1e-15) * (1 + u).
+    exact_floor = Fraction(1, 1) / (1 + U) ** 3 - 3 * (1 + U) ** 2 * ETA / CTB_SQ_LO
+    out_hi = frac(1.0 - 1e-15) * (1 + U)
+    margin = (1 - out_hi) / (1 - exact_floor)
+    r.add('rounded down', Verdict(out_hi <= exact_floor, margin,
+                                  'output ceiling %.16f vs exact lower %.16f (margin %.2fx)' % (float(out_hi), float(exact_floor), float(margin))))
+
+
+@entry('MO-2 MeshOffset.triangle_lower fast path', MO,
+       ['~const double NormalSqLo = 1e-290;', '~const double NormalSqHi = 1e290;',
+        'double w2 = wx * wx + wy * wy + wz * wz;',
+        'if (w2 > NormalSqLo && w2 < NormalSqHi) {',
+        'double dot = wx * dx + wy * dy + wz * dz;',
+        'double absDot = awx * Math.Abs(dx) + awy * Math.Abs(dy) + awz * Math.Abs(dz);',
+        'double lo = dot - 1e-15 * absDot;',
+        'if (!(lo > NormalSqLo && lo < NormalSqHi)) { minNum = 0; break; }',
+        'double d = minNum / Math.Sqrt(w2);',
+        'if (d > NormalSqLo && d < NormalSqHi)',
+        'return d * (1.0 - 1e-15);'],
+       'fast path <= min_i w . (c - x_i) / |w| <= exact distance from c to triangle',
+       'w2, lo, minNum, d in (1e-290, 1e290) (w is treated as an exact double vector; fallback to ExactInterval outside)',
+       'lo = dot - 1e-15 * absDot; (minNum / sqrt(w2)) * (1 - 1e-15)',
+       scope='static double triangle_lower_tri(')
+def mo_triangle_lower(c, r):
+    # 1) Support dot-product lower bound: w is exact, each dx = fl(c_k - x_k) has rel err <= u (subnormal diff exact),
+    # product wx*dx adds (1+u) + ETA, two sums add (1+u)^2: |dot - dot*| <= ((1+u)^4 - 1) * absDot* + 3*(1+u)^2*ETA.
+    # Also absDot* <= (absDot + 3*ETA) / (1 - u)^4. Outer subtraction fl(dot - fl(1e-15*absDot)) when positive satisfies
+    # lo <= (dot - 1e-15*absDot*(1-u)) * (1+u), adding <= u * dot <= u * (1+u)^2 * absDot* <= u*(1+u)^2/(1-u)^4 * absDot.
+    # Since lo > 1e-290 implies absDot >= lo > 1e-290, underflow 3*(1+u)^2*ETA/1e-290 < 2e-33.
+    dot_need = ((1 + U) ** 4 - 1 + U * (1 + U) ** 2) / (1 - U) ** 4 + 6 * (1 + U) ** 2 * ETA / CTB_SQ_LO
+    dot_have = frac(1e-15) * (1 - U)
+    r.add('dot lower bound', Verdict(dot_have >= dot_need, dot_have / dot_need,
+                                     '1e-15 * absDot covers 4-rounding dot error + sub with margin %.2fx' % float(dot_have / dot_need)))
+    # 2) Quotient & norm factor: exact |w|^2 <= w2 / (1 - u)^3 + 3*ETA/(1-u)^3 => Math.Sqrt(w2) >= |w| * (1-u)^2.5 * (1 - 2e-33).
+    # Quotient d = fl(minNum / Math.Sqrt(w2)) and final mul by (1 - 1e-15) are normal (d in (1e-290, 1e290)), inflating by (1+u)^2:
+    # squared ceiling <= (1+u)^4 / (1-u)^5 * (1 + 4e-33) * (1 - 1e-15)^2.
+    w2_uf = 3 * ETA / (1 - U) ** 3 / CTB_SQ_LO
+    inflate_sq = (1 + U) ** 4 / (1 - U) ** 5 * (1 + w2_uf)
+    factor_sq = frac(1.0 - 1e-15) ** 2
+    margin = (1 - factor_sq) / (inflate_sq - 1)
+    r.add('norm and quotient factor', Verdict(inflate_sq * factor_sq <= 1, margin,
+                                              '(1 - 1e-15) covers sqrt(w2), div, and mul roundings with margin %.2fx' % float(margin)))
+
+
+@entry('MO-3 MeshOffset.bary_radius_upper fast path', MO,
+       ['~const double NormalLinLo = 1e-140;', '~const double NormalLinHi = 1e140;',
+        '~const double NormalSqHi = 1e290;',
+        'double a0x = l.x * v0.x, a1x = l.y * v1.x, a2x = l.z * v2.x, qx = a0x + a1x + a2x;',
+        'double e = (Math.Abs(a0x) + Math.Abs(a1x) + Math.Abs(a2x))',
+        'double r2 = rx * rx + ry * ry + rz * rz;',
+        'if (e > NormalLinLo && e < NormalLinHi && r2 < NormalSqHi)',
+        'return Math.Sqrt(r2) * (1.0 + 1e-15) + 5e-16 * e;'],
+       'fast path >= exact |c - (l.x v0 + l.y v1 + l.z v2)|',
+       'e in (1e-140, 1e140) and r2 < 1e290 (fallback to box_of + box_radius outside)',
+       'sqrt(r2) * (1 + 1e-15) + 5e-16 * e',
+       scope='internal static double bary_radius_upper(')
+def mo_bary_radius_upper(c, r):
+    # 1) Distance |c - q|_2 <= sqrt(r2_exact) where each rx = fl(c_k - q_k) has rel err <= u, sq + 2 sums lose (1-u)^3 + 3*ETA:
+    # sqrt(r2_exact) <= sqrt(r2) / (1 - u)^2.5 + sqrt(3*ETA)/(1-u)^1.5.
+    # Math.Sqrt loses (1-u), mul by (1+1e-15) loses (1-u), outer add loses (1-u): need (1+1e-15)*(1-u)^3 >= 1/(1-u)^2.5.
+    need_sq = Fraction(1, 1) / (1 - U) ** 11
+    have_sq = frac(1.0 + 1e-15) ** 2
+    r.add('norm term', Verdict(have_sq >= need_sq, (have_sq - 1) / (need_sq - 1),
+                               'norm factor (1 + 1e-15) covers r2, sqrt, mul, add with margin %.2fx' % float((have_sq - 1) / (need_sq - 1))))
+    # 2) Forward error |q - q*|_2 <= |q - q*|_1: per axis 1 mul + 2 adds give <= ((1+u)^3 - 1) * e_axis* + 3*ETA,
+    # summed over 3 axes <= ((1+u)^3 - 1) / (1-u)^5 * e + 9*ETA / (1-u)^2; adding sqrt(3*ETA)/(1-u)^1.5 from r2 underflow
+    # (<= 3.85e-162, divided by e > 1e-140 is <= 3.9e-22). Outer mul & add lose (1-u)^2 on 5e-16 * e.
+    sqrt_3eta = Fraction(386, 10 ** 164)  # > sqrt(3 * 2^-1075) / (1 - u)^1.5 = 3.850e-162
+    err_need = ((1 + U) ** 3 - 1) / (1 - U) ** 5 + (9 * ETA / (1 - U) ** 2 + sqrt_3eta) / CTB_LIN_LO
+    err_have = frac(5e-16) * (1 - U) ** 2
+    r.add('forward error term', Verdict(err_have >= err_need, err_have / err_need,
+                                        '5e-16 * e covers |q - q*|_1 + sqrt(3*ETA) with margin %.2fx' % float(err_have / err_need)))
+
+
+@entry('MO-4 MeshOffset.tri_aabb_lower_sq fast path', MO,
+       ['~const double NormalSqLo = 1e-290;', '~const double NormalSqHi = 1e290;',
+        'double s = gx * gx + gy * gy + gz * gz;',
+        'if (s > NormalSqLo && s < NormalSqHi',
+        'return s * (1.0 - 1e-15);'],
+       'fast path <= exact squared distance from p to triangle AABB (0 outside normal range or on NaN)',
+       'all coordinates non-NaN and s in (1e-290, 1e290)',
+       's * (1 - 1e-15)',
+       scope='internal static double tri_aabb_lower_sq(')
+def mo_tri_aabb_lower_sq(c, r):
+    # Each gap gk = fl(lo - pk) satisfies gk <= (1 + u) * gk_exact (subnormal diff exact);
+    # each square <= (1 + u)^3 * gk_exact^2 + ETA; two sums give s <= (1 + u)^5 * s_exact + 3*(1 + u)^2*ETA.
+    # Returned fl(s * (1 - 1e-15)) <= s * (1 - 1e-15) * (1 + u).
+    exact_floor = Fraction(1, 1) / (1 + U) ** 5 - 3 * (1 + U) ** 2 * ETA / CTB_SQ_LO
+    out_hi = frac(1.0 - 1e-15) * (1 + U)
+    margin = (1 - out_hi) / (1 - exact_floor)
+    r.add('rounded down', Verdict(out_hi <= exact_floor, margin,
+                                  'output ceiling %.16f vs exact lower %.16f (margin %.2fx)' % (float(out_hi), float(exact_floor), float(margin))))
+
+
