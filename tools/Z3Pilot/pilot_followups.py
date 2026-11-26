@@ -431,10 +431,31 @@ def bin_replays():
                 differential_cases=checked)
 
 
+def candidate_guards():
+    # L and H are the outer fine-grid edges chosen by checked_bin_range.
+    # The quotients are mathematical before any Int32 coordinate query.
+    factor, lower, upper, candidate = z.Reals('bin_factor lower_bin upper_bin candidate_bin')
+    domain = [factor > 0, lower <= candidate, candidate + 1 <= upper,
+              factor * lower >= -(2**31), factor * upper <= 2**31 - 1]
+
+    # A pivot with nonzero direction gives a unique proportional
+    # displacement. The positive scale must be checked explicitly.
+    # Fix one nonzero pivot x; the other pivots are coordinate permutations.
+    dx, dy, dz, px, py, pz, scale = z.Reals('guard_dx guard_dy guard_dz guard_px guard_py guard_pz guard_scale')
+    forward_parallel = [dx != 0, px == scale * dx, scale > 0,
+                        px * dy == py * dx, px * dz == pz * dx]
+    return [
+        ('checked_bin_bracket_leaves_an_overflowing_coordinate', domain,
+         z.Or(factor * candidate < -(2**31), factor * (candidate + 1) > 2**31 - 1), 'unsat'),
+        ('ray_fast_path_guard_does_not_imply_positive_proportionality', forward_parallel,
+         z.Or(py != scale * dy, pz != scale * dz), 'unsat'),
+    ]
+
+
 def run(timeout_ms=120000):
     ray_rows, witness = ray_replay()
     rows = []
-    for name, assumptions, bad, expected in intrinsic_and_limb() + volume_and_geodesic() + contour_and_ccd() + storage_and_bounds() + envelope_and_residual() + assembled_bounds() + ray_rows:
+    for name, assumptions, bad, expected in intrinsic_and_limb() + volume_and_geodesic() + contour_and_ccd() + storage_and_bounds() + envelope_and_residual() + assembled_bounds() + candidate_guards() + ray_rows:
         _, _, row = check(name, assumptions, bad, timeout_ms)
         row['expected'] = expected
         rows.append(row)

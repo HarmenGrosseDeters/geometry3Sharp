@@ -915,7 +915,7 @@ python3 -m unittest discover -s tools/Z3Pilot -p test_pilot_followups.py -v
 | Polyhedral envelope | The local delta and search box checks remain valid. The independent-rounding model is inconclusive for the current residual factor 5 and proves the enclosure at factor 6. This establishes a candidate margin and no production counterexample. Actual facet displacement and direction-error constants remain open. |
 | Geodesic window | The midpoint disk proof now covers the differently rounded endpoint radii used by `TransformDisk`. The original subnormal length witness is rejected by the full guard. The final radius inflation covers its own normal rounding when the constituent bounds are valid. Certification of the rotation and center terms, and the global length-lower-bound, remain open. |
 | Double-word division | The divisor and error-inflation checks in #1658 use a certified residual as a premise. The operand-error propagation inequality is checked. The remaining bridge is the source-level error of the residual arithmetic across its supported ranges. |
-| Contouring bins | A checked bounded-search alternative halves the remaining integer interval and matches an inclusive scan on 315 plateau and boundary cases. It refuses an unbracketed flat grid and checks coarse-to-fine index products before querying the grid. The existing adjustment loops still require an estimate and a target in range, and a bracketed monotone grid. There is no end-to-end proof of those premises through the contour builder. |
+| Contouring bins | A checked bounded-search alternative halves the remaining integer interval and matches an inclusive scan on 315 plateau and boundary cases. It refuses an unbracketed flat grid and checks coarse-to-fine index products before querying the grid. The solver proves that every interior pair of fine indices fits Int32 once the two bracket endpoints fit. The existing adjustment loops still require an estimate and a target in range, and a bracketed monotone grid. There is no end-to-end proof of those premises through the contour builder. |
 
 ### Production replays
 
@@ -954,7 +954,7 @@ behind the origin, with a separate exact zero check for an origin hit.
 
 Reuse the existing dyadic representation for the exact fallback. A fast
 path that continues using a constructed second point must certify that
-its displacement is a positive multiple of the supplied direction.
+its displacement is a positive multiple of the supplied direction. Two exact cross-component equalities against a nonzero pivot and a positive pivot scale suffice, as the follow-up check establishes.
 If a hit parameter is needed on the exact route, round the dyadic
 plane-offset quotient once using the existing exact quotient conversion.
 The symbolic perturbation used by winding queries needs independent
