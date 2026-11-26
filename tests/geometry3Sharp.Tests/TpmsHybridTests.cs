@@ -49,7 +49,7 @@ namespace geometry3Sharp.Tests
 
         static TpmsLattice Make(TpmsType a, TpmsType b, TpmsStyle style, double fraction, double offset, double width, int divisions = 14, double sx = 4, double sy = 2)
         {
-            return new TpmsLattice { AllowUnresolved = true,
+            return new TpmsLattice {
                 Type = a, SecondType = b, Blend = TpmsLattice.SigmoidBlend(0, offset, width), Style = style, CellSize = L, Divisions = divisions,
                 VolumeFraction = fraction, Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(sx, sy, sy))
             };
@@ -180,7 +180,7 @@ namespace geometry3Sharp.Tests
         {
             // a steep weight makes the weight term of the bound matter (width 0.1: Wmax 10); dyadic grid, offsets and widths
             foreach (TpmsStyle style in new[] { TpmsStyle.Sheet, TpmsStyle.SkeletalLow }) {
-                var lattice = Make(TpmsType.Gyroid, TpmsType.IWP, style, 0.3, 2.0, 0.125, 16);
+                var lattice = Make(TpmsType.Gyroid, TpmsType.IWP, style, 0.3, 2.0, 0.125, 16); lattice.AllowUnresolved = true;
                 lattice.Enclosure = true;
                 lattice.Compute();
                 AssertOk(lattice);
@@ -197,7 +197,7 @@ namespace geometry3Sharp.Tests
                     Assert.True(tree.IsInside(q), "a point " + q + " of the exact hybrid is outside the enclosure (g " + g + ")");
                 }
                 Assert.True(tested >= 750, "only " + tested + " near-surface points");
-                var plain = Make(TpmsType.Gyroid, TpmsType.IWP, style, 0.3, 2.0, 0.125, 16);
+                var plain = Make(TpmsType.Gyroid, TpmsType.IWP, style, 0.3, 2.0, 0.125, 16); plain.AllowUnresolved = true;
                 plain.Compute();
                 Assert.True(lattice.RealizedVolumeFraction > plain.RealizedVolumeFraction, "the enclosure is larger than the target");
             }
@@ -211,7 +211,7 @@ namespace geometry3Sharp.Tests
             double ratio = Math.Max(TpmsLattice.GradientRatio(TpmsType.Gyroid), TpmsLattice.GradientRatio(TpmsType.IWP));
             Assert.NotEqual(TpmsLattice.GradientRatio(TpmsType.Gyroid), TpmsLattice.GradientRatio(TpmsType.IWP));
             foreach (var (a, b) in new[] { (TpmsType.Gyroid, TpmsType.IWP), (TpmsType.IWP, TpmsType.Gyroid) }) {
-                var lattice = Make(a, b, TpmsStyle.SkeletalLow, 0.3, 1.0, 0.5, 16, 2, 2);
+                var lattice = Make(a, b, TpmsStyle.SkeletalLow, 0.3, 1.0, 0.5, 16, 2, 2); lattice.AllowUnresolved = true;
                 lattice.Enclosure = true;
                 lattice.Compute();
                 AssertOk(lattice);
@@ -228,7 +228,7 @@ namespace geometry3Sharp.Tests
             // IsoValueUsed = sqrt(3) h / 2 + 2 Snap + s (2^-26 + 4 eNorm) recomputed from the derivation for a steep weight (width 1/128: Wmax 128), where the hybrid error term
             // differs from the single type one (a mutant that calls EnclosureError(Type, ...) instead moves the level by more than 1e-15)
             const double h = 1.0 / 16, width = 1.0 / 128, s = 4;   // box 2 x 2 x 2 with 16 cubes per period: the grid reaches 37 h < 4
-            var lattice = Make(TpmsType.Gyroid, TpmsType.IWP, TpmsStyle.SkeletalLow, 0.3, 1.0, width, 16, 2, 2);
+            var lattice = Make(TpmsType.Gyroid, TpmsType.IWP, TpmsStyle.SkeletalLow, 0.3, 1.0, width, 16, 2, 2); lattice.AllowUnresolved = true;
             lattice.Enclosure = true;
             lattice.Compute();
             AssertOk(lattice);
@@ -267,7 +267,7 @@ namespace geometry3Sharp.Tests
             double radius = rho * (1 - b / (b - a));   // w* = b / (a + b) with a < 0 here (a is g_A - c_A), so b - a = a_abs + b
             Assert.InRange(radius, h / 4000, h / 500);
             foreach (var (bound, expectInside) in new[] { (1 / rho, true), (0.0, false) }) {
-                var lattice = Make(TpmsType.Gyroid, TpmsType.IWP, TpmsStyle.SkeletalLow, 0.3, 0, 1, 16, 2, 2);
+                var lattice = Make(TpmsType.Gyroid, TpmsType.IWP, TpmsStyle.SkeletalLow, 0.3, 0, 1, 16, 2, 2); lattice.AllowUnresolved = true;
                 lattice.Blend = new TpmsBlendWeight(cone, bound);
                 lattice.Enclosure = true;
                 lattice.Compute();
@@ -308,7 +308,7 @@ namespace geometry3Sharp.Tests
             foreach (Similarity s in Similarity.All()) {
                 double lg = Math.Log(s.Scale, 2);
                 if (enclosure && Math.Abs(lg - Math.Round(lg)) > 1e-12) continue;
-                var lattice = Make(TpmsType.Gyroid, TpmsType.IWP, style, 0.3, 0.75, 0.5, enclosure ? 16 : 12, 1.5, 1.5);   // 16: a dyadic cube for Enclosure
+                var lattice = Make(TpmsType.Gyroid, TpmsType.IWP, style, 0.3, 0.75, 0.5, enclosure ? 16 : 12, 1.5, 1.5); lattice.AllowUnresolved = true;   // 16: a dyadic cube for Enclosure
                 lattice.CellSize = s.Scale * L;
                 lattice.Blend = TpmsLattice.SigmoidBlend(0, 0.75 * s.Scale, 0.5 * s.Scale);
                 lattice.Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1.5 * s.Scale, 1.5 * s.Scale, 1.5 * s.Scale));
@@ -516,11 +516,11 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Enclosure_ContainsTheExactHybrid_ForSkeletalHighAndAGrade()
         {
-            var high = Make(TpmsType.Gyroid, TpmsType.IWP, TpmsStyle.SkeletalHigh, 0.3, 2.0, 0.125, 16);
+            var high = Make(TpmsType.Gyroid, TpmsType.IWP, TpmsStyle.SkeletalHigh, 0.3, 2.0, 0.125, 16); high.AllowUnresolved = true;
             high.Enclosure = true;
             high.Compute();
             AssertOk(high);
-            var graded = Make(TpmsType.IWP, TpmsType.Gyroid, TpmsStyle.SkeletalLow, 0.35, 0.0, 0.5, 16, 2, 2);
+            var graded = Make(TpmsType.IWP, TpmsType.Gyroid, TpmsStyle.SkeletalLow, 0.35, 0.0, 0.5, 16, 2, 2); graded.AllowUnresolved = true;
             graded.Box = new AxisAlignedBox3d(new Vector3d(-1, -1, 0), new Vector3d(1, 1, 2));
             graded.Grade = TpmsLattice.LinearGrade(2, 0, 1, 2, 1.25, 1.5);
             graded.Blend = TpmsLattice.SigmoidBlend(2, 1.0, 0.25);

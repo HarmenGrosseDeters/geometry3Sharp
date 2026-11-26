@@ -50,7 +50,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void SkeletalEnclosureThatIsTheBox_IsRefused()
         {
-            var t = Lattice(TpmsStyle.SkeletalLow, 0.5, 16, enclosure: true);   // realized 1.055
+            var t = Lattice(TpmsStyle.SkeletalLow, 0.6, 16, enclosure: true);   // realized 1.167
             t.Compute();
             AssertRefused(t);
         }
@@ -68,21 +68,40 @@ namespace geometry3Sharp.Tests
             Assert.True(t.RealizedVolumeFraction < 0.5 * fraction, "realized " + t.RealizedVolumeFraction);
         }
 
-        [Fact]
-        public void ResolvedLattices_StayOk()
+        public static System.Collections.Generic.IEnumerable<object[]> ResolvedCases()
         {
-            foreach (var t in new[] {
-                Lattice(TpmsStyle.Sheet, 0.3, 16),                          // wall about 4.5 cubes
-                Lattice(TpmsStyle.Sheet, 0.1, 16, twoLevel: true),          // the thin wall with the option made for it
-                Lattice(TpmsStyle.SkeletalLow, 0.3, 16),
-                Lattice(TpmsStyle.SkeletalLow, 0.3, 16, enclosure: true),   // realized 0.80: the voids stay
-                Lattice(TpmsStyle.Sheet, 0.3, 32, enclosure: true),         // realized 0.76
-            }) {
-                t.Compute();
-                AssertCleanResult(t);
-                Assert.Equal("", t.Message);
-                Assert.InRange(t.RealizedVolumeFraction, 0.05, 1.0);
-            }
+            yield return new object[] { TpmsStyle.Sheet, 0.3, 16, false, false };           // wall about 4.5 cubes
+            yield return new object[] { TpmsStyle.Sheet, 0.1, 16, false, true };            // the thin wall with the option made for it
+            yield return new object[] { TpmsStyle.SkeletalLow, 0.3, 16, false, false };
+            yield return new object[] { TpmsStyle.SkeletalLow, 0.3, 16, true, false };      // enclosure filling 0.80 of the grown box: the voids stay
+            yield return new object[] { TpmsStyle.Sheet, 0.3, 32, true, false };            // 0.70
+        }
+
+        [Theory]
+        [MemberData(nameof(ResolvedCases))]
+        public void ResolvedLattices_StayOk(TpmsStyle style, double fraction, int divisions, bool enclosure, bool twoLevel)
+        {
+            var t = Lattice(style, fraction, divisions, enclosure, twoLevel);
+            t.Compute();
+            AssertCleanResult(t);
+            Assert.Equal("", t.Message);
+            Assert.InRange(t.RealizedVolumeFraction, 0.05, 1.0);
+        }
+
+        [Fact]
+        public void ThinHybridSheet_AndGradedSheet_AreNotRefused()
+        {
+            // the sheet refusal is for the plain constant-fraction sheet only: a hybrid and a graded fraction have no single requested fraction to compare with
+            var hybrid = Lattice(TpmsStyle.Sheet, 0.1, 12);
+            hybrid.SecondType = TpmsType.IWP; hybrid.Blend = TpmsLattice.SigmoidBlend(0, 1, 0.5);
+            hybrid.Compute();
+            AssertCleanResult(hybrid);
+            Assert.True(hybrid.RealizedVolumeFraction < 0.05, "realized " + hybrid.RealizedVolumeFraction);   // as thin as a refused plain sheet
+            var graded = Lattice(TpmsStyle.Sheet, 0.5, 12);
+            graded.VolumeFractionAt = p => 0.1;
+            graded.Compute();
+            AssertCleanResult(graded);
+            Assert.True(graded.RealizedVolumeFraction < 0.05, "realized " + graded.RealizedVolumeFraction);
         }
 
         [Fact]
@@ -137,21 +156,28 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        [Fact]
-        public void EnclosureRefusal_AndSuccess_UnderTheExactScalings()
+        static readonly Lazy<DMesh3> EnclosureReference = new Lazy<DMesh3>(() => {
+            var ok = Lattice(TpmsStyle.SkeletalLow, 0.3, 16, enclosure: true);
+            ok.Compute();
+            return ok.Mesh;
+        });
+
+        public static System.Collections.Generic.IEnumerable<object[]> ExactScalingNames()
+            => Similarity.All().Where(x => x.IsExact).Select(x => new object[] { x.Name });
+
+        [Theory]
+        [MemberData(nameof(ExactScalingNames))]
+        public void EnclosureRefusal_AndSuccess_UnderTheExactScalings(string name)
         {
-            DMesh3 reference = null;
-            foreach (Similarity s in Similarity.All().Where(x => x.IsExact)) {
-                var refused = Lattice(TpmsStyle.Sheet, 0.3, 16, enclosure: true, scale: s.Scale);
-                refused.Compute();
-                AssertRefused(refused);
-                var ok = Lattice(TpmsStyle.SkeletalLow, 0.3, 16, enclosure: true, scale: s.Scale);
-                ok.Compute();
-                AssertCleanResult(ok);
-                DMesh3 back = Invariance.MappedBack(ok.Mesh, s);
-                if (reference == null) reference = back;
-                else Assert.Equal("", Invariance.Difference(reference, back));   // the 2^k scalings are exact: the same mesh bit for bit
-            }
+            Similarity s = Similarity.ByName(name);
+            var refused = Lattice(TpmsStyle.Sheet, 0.3, 16, enclosure: true, scale: s.Scale);
+            refused.Compute();
+            AssertRefused(refused);
+            var ok = Lattice(TpmsStyle.SkeletalLow, 0.3, 16, enclosure: true, scale: s.Scale);
+            ok.Compute();
+            AssertCleanResult(ok);
+            // the 2^k scalings are exact: the same mesh bit for bit
+            Assert.Equal("", Invariance.Difference(EnclosureReference.Value, Invariance.MappedBack(ok.Mesh, s)));
         }
     }
 }

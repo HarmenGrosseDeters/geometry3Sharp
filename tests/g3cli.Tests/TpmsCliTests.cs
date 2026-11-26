@@ -30,7 +30,9 @@ namespace g3cli.Tests
             File.Delete(output);
             var (exit, r) = Run("tpms", output, "--wall-thickness", "0.04", "--divisions", "12", "--compact");
             AssertError(exit, r, "operation_failed", "not_resolved");
-            Assert.Contains("TwoLevelSheet", S(r["message"]));
+            Assert.Contains("thinner than about two cubes", S(r["message"]));
+            Assert.Contains("raise divisions", S(r["message"]));
+            Assert.DoesNotContain("TwoLevelSheet", S(r["message"]));   // the CLI has no such option
             Assert.False(File.Exists(output));
         }
 

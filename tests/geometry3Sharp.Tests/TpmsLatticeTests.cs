@@ -48,7 +48,7 @@ namespace geometry3Sharp.Tests
 
         static TpmsLattice Make(TpmsType type, TpmsStyle style, double fraction = 0.3, int divisions = 16, double size = 2)
         {
-            return new TpmsLattice { AllowUnresolved = true,
+            return new TpmsLattice {
                 Type = type, Style = style, CellSize = L, Divisions = divisions, VolumeFraction = fraction,
                 Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(size, size, size))
             };
@@ -245,7 +245,7 @@ namespace geometry3Sharp.Tests
         public void Enclosure_ContainsTheExactLidinoid()
         {
             foreach (TpmsStyle style in new[] { TpmsStyle.Sheet, TpmsStyle.SkeletalLow }) {
-                var lattice = Make(TpmsType.Lidinoid, style, 0.3, 16, 2);
+                var lattice = Make(TpmsType.Lidinoid, style, 0.3, 16, 2); lattice.AllowUnresolved = true;
                 lattice.Enclosure = true;
                 lattice.Compute();
                 Assert.True(lattice.Status == TpmsStatus.Ok, style + " " + lattice.Status + ": " + lattice.Message);
@@ -525,7 +525,7 @@ namespace geometry3Sharp.Tests
 
         static TpmsLattice MakeGraded(TpmsType type, TpmsStyle style, double fraction = 0.3, int divisions = 16)
         {
-            var lattice = new TpmsLattice { AllowUnresolved = true,
+            var lattice = new TpmsLattice {
                 Type = type, Style = style, CellSize = L, Divisions = divisions, VolumeFraction = fraction,
                 Box = new AxisAlignedBox3d(new Vector3d(-1, -1, 0), new Vector3d(1, 1, 3))
             };
@@ -772,7 +772,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Graded_EnclosureUsesTheDerivedBoundAndContainsTheExactLattice()
         {
-            var lattice = MakeGraded(TpmsType.Gyroid, TpmsStyle.SkeletalLow, 0.3, 16);
+            var lattice = MakeGraded(TpmsType.Gyroid, TpmsStyle.SkeletalLow, 0.3, 16); lattice.AllowUnresolved = true;
             lattice.Box = new AxisAlignedBox3d(new Vector3d(-1, -1, 0), new Vector3d(1, 1, 2));
             lattice.Grade = TpmsLattice.LinearGrade(2, 0, 1, 3, 2, 1.5);
             double bound = lattice.Grade.JacobianBound;
