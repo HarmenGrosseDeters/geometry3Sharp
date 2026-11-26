@@ -178,10 +178,12 @@ namespace geometry3Sharp.Tests
             MeasureFeatures(input, result, s, creaseAngle, out coverage, out angleP95, out featHausOverS, out int skipped, measuredCrease);
         }
 
-        // Fin edges (#1452): the edges of a triangle whose three edges are all creases and that is folded back onto a neighbour (its normal dot
-        // the neighbour's below -0.9) or a collinear sliver (altitude below 1e-3 of its longest edge). The fixture's own remeshing leaves them;
-        // the diagonal edge of such a fin is a "crease" 0.17 s from any quad edge, although the surface has no crease there. Only these edges
-        // are skipped by MeasureFeatures; every other crease edge counts
+        // Fin edges (#1452): the edges of a triangle whose three edges are all creases and that is folded back onto a neighbour (its normal dot a
+        // neighbour's below -0.9). The fixture's own remeshing leaves them; the diagonal edge of such a fin is a "crease" 0.11 to 0.17 s from any quad
+        // edge, although the surface has no crease there (the flap lies on its neighbour). Only these edges are skipped by MeasureFeatures; every other
+        // crease edge counts. Collinear slivers are NOT skipped: each lies on a real crease whose stretch (0.65 to 1.25 s) only its edges represent (the
+        // gate review of the first version: dropping the quads near such a sliver passed the gate). Valid only for fixtures without sharp wedges: a knife
+        // edge (interior dihedral below about 26 degrees, three crease edges) would count as a fin
         internal static HashSet<int> FinEdges(DMesh3 m, HashSet<int> creases)
         {
             var fins = new HashSet<int>();
@@ -195,11 +197,7 @@ namespace geometry3Sharp.Tests
                     int other = et.a == t ? et.b : et.a;
                     if (other >= 0 && other != t && n.Dot(m.GetTriNormal(other)) < -0.9) foldedBack = true;
                 }
-                Index3i tv = m.GetTriangle(t);
-                Vector3d a = m.GetVertex(tv.a), b = m.GetVertex(tv.b), c = m.GetVertex(tv.c);
-                double longest = Math.Max(a.Distance(b), Math.Max(b.Distance(c), c.Distance(a)));
-                bool sliver = longest > 0 && (b - a).Cross(c - a).Length / longest < 1e-3 * longest;
-                if (foldedBack || sliver) { fins.Add(te.a); fins.Add(te.b); fins.Add(te.c); }
+                if (foldedBack) { fins.Add(te.a); fins.Add(te.b); fins.Add(te.c); }
             }
             return fins;
         }
@@ -229,6 +227,8 @@ namespace geometry3Sharp.Tests
             var angles = new List<double>();
             HashSet<int> fins = skipFins ? FinEdges(input, topo.CreaseEdges) : new HashSet<int>();
             skippedFins = fins.Count;
+            // (the gate's own cap, for every caller: a handful of fin triangles; a count above it means the rule skips real creases)
+            Assert.True(fins.Count <= 9 && fins.Count <= 0.05 * topo.CreaseEdges.Count, "fin edges skipped: " + fins.Count + " of " + topo.CreaseEdges.Count + " crease edges");
             foreach (int eid in topo.CreaseEdges) {
                 if (fins.Contains(eid)) continue;
                 Index2i ev = input.GetEdgeV(eid);
@@ -338,9 +338,9 @@ namespace geometry3Sharp.Tests
             Assert.Equal(3, FinEdges(m, creases).Count);
         }
 
-        // a collinear sliver whose three edges are creases: three flaps rise from its edges; only the sliver's own edges are fins
+        // a collinear sliver whose three edges are creases: three flaps rise from its edges. It lies on a real crease, so it is NOT a fin (#1452 gate review)
         [Fact]
-        public void FinEdges_ACollinearSliver_IsAFin_AndItsNeighboursAreNot()
+        public void FinEdges_ACollinearSliver_IsNotAFin()
         {
             var m = new DMesh3(false, false, false, false);
             int p0 = m.AppendVertex(new Vector3d(0, 0, 0)), p1 = m.AppendVertex(new Vector3d(1, 0, 0)), p2 = m.AppendVertex(new Vector3d(0.5, 1e-6, 0));
@@ -352,8 +352,36 @@ namespace geometry3Sharp.Tests
             HashSet<int> creases = Creases(m);
             Index3i se = m.GetTriEdges(sliver);
             Assert.True(creases.Contains(se.a) && creases.Contains(se.b) && creases.Contains(se.c));
-            HashSet<int> fins = FinEdges(m, creases);
-            Assert.Equal(new[] { se.a, se.b, se.c }.OrderBy(x => x).ToArray(), fins.OrderBy(x => x).ToArray());
+            Assert.Empty(FinEdges(m, creases));
+        }
+
+        // a triangle with three flaps leaning over it at 46 degrees: every edge is a crease, the neighbours' normal dots are about -0.69 (between -0.9 and -0.5):
+        // a spike tip, not a fold-back, so no fin (kills a fold threshold of -0.5)
+        [Fact]
+        public void FinEdges_AShallowFold_IsNotAFin()
+        {
+            var m = new DMesh3(false, false, false, false);
+            Vector3d[] p = { new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0.5, Math.Sqrt(3) / 2, 0) };
+            int[] v = { m.AppendVertex(p[0]), m.AppendVertex(p[1]), m.AppendVertex(p[2]) };
+            Vector3d g = (p[0] + p[1] + p[2]) / 3;
+            double theta = 46 * Math.PI / 180;
+            int tri = m.AppendTriangle(v[0], v[1], v[2]);
+            for (int i = 0; i < 3; ++i) {
+                int j = (i + 1) % 3;
+                Vector3d mid = 0.5 * (p[i] + p[j]), u = (g - mid).Normalized;
+                int q = m.AppendVertex(mid + 0.5 * (Math.Cos(theta) * u + Math.Sin(theta) * Vector3d.AxisZ));
+                m.AppendTriangle(v[j], v[i], q);
+            }
+            Vector3d n = m.GetTriNormal(tri);
+            foreach (int t in m.TriangleIndices()) {
+                if (t == tri) continue;
+                double dot = n.Dot(m.GetTriNormal(t));
+                Assert.InRange(dot, -0.8, -0.6);
+            }
+            HashSet<int> creases = Creases(m);
+            Index3i te = m.GetTriEdges(tri);
+            Assert.True(creases.Contains(te.a) && creases.Contains(te.b) && creases.Contains(te.c));
+            Assert.Empty(FinEdges(m, creases));
         }
 
         // an octahedron: every edge is a crease and so is every triangle's set of edges, but no triangle is folded back or a sliver: no fin
@@ -374,6 +402,26 @@ namespace geometry3Sharp.Tests
             Assert.Empty(FinEdges(m, creases));
         }
 
+        // the gate's own cap holds for every caller: more than 9 skipped edges, or more than 5 % of the crease edges, fails the measure itself
+        [Theory]
+        [InlineData(4, 0)]          // four folded pairs: 12 edges, all of the crease edges
+        [InlineData(1, 3)]          // one folded pair (3 edges) beside a small box: over 5 % of its crease edges
+        [InlineData(4, 30)]         // four folded pairs (12 edges, over 9) beside a fine box (348 crease edges, 3.4 %): only the absolute cap refuses
+        public void MeasureFeatures_RefusesToSkipTooMuch(int pairs, int boxVertices)
+        {
+            DMesh3 m = boxVertices > 0 ? new GridBox3Generator { Box = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1)), EdgeVertices = boxVertices }.Generate().MakeDMesh() : new DMesh3(false, false, false, false);
+            for (int k = 0; k < pairs; ++k) {
+                Vector3d o = new Vector3d(5 + 3 * k, 0, 0);
+                int a = m.AppendVertex(o), b = m.AppendVertex(o + new Vector3d(1, 0, 0)), c = m.AppendVertex(o + new Vector3d(0, 1, 0));
+                m.AppendTriangle(a, b, c);
+                m.AppendTriangle(a, c, b);
+            }
+            var quad = new DPolyMesh();
+            int[] v = { quad.AppendVertex(0, 0, 0), quad.AppendVertex(1, 0, 0), quad.AppendVertex(1, 1, 0), quad.AppendVertex(0, 1, 0) };
+            quad.AppendQuad(v[0], v[1], v[2], v[3]);
+            Assert.Throws<Xunit.Sdk.TrueException>(() => MeasureFeatures(m, quad, 1.0, 30, out _, out _, out _, out _));
+        }
+
         // the fixtures' fins are few: the gate reports the number of skipped edges, and a fixture skips at most 3 fin triangles (9 edges)
         // and under 5 % of its crease edges (the default fixtures none or 3 edges)
         [Theory]
@@ -382,7 +430,8 @@ namespace geometry3Sharp.Tests
         [InlineData("l-profile", 20, 0, 0)]
         [InlineData("gear", 20, 3, 3)]
         [InlineData("gear", 50, 6, 6)]       // two fin triangles
-        [InlineData("l-profile", 22, 9, 9)]  // three: a folded one and two slivers
+        [InlineData("l-profile", 22, 3, 3)]  // one folded fin (and two collinear slivers, which are not skipped)
+        [InlineData("sharp-box", 10, 0, 0)]  // a collinear sliver only: nothing skipped
         public void SkippedFins_AreFewOnTheFixtures(string name, int passes, int minSkipped, int maxSkipped)
         {
             DMesh3 m = Shape(name, passes);
@@ -416,8 +465,7 @@ namespace geometry3Sharp.Tests
             Assert.True(cov > 0.95 && ang <= 10.0 && haus <= 0.1, name + "/" + passes + ": cov " + cov + " ang " + ang + " haus " + haus);
         }
 
-        // a real lost crease still fails the gate: the baseline without PreserveCreases bevels the crease of the same fixture that has a fin (gear, 20 passes:
-        // 3 fin edges skipped), and the skip does not hide it
+        // a real lost crease still fails the gate: the baseline without PreserveCreases bevels every crease of a fixture that has a fin
         [Theory]
         [InlineData("gear", 20)]
         [InlineData("gear", 50)]
@@ -431,6 +479,72 @@ namespace geometry3Sharp.Tests
             MeasureFeatures(m, off.Result, s, 30, out double cov, out double ang, out double haus, out int skipped);
             Assert.True(skipped > 0, "the fixture has a fin");
             Assert.False(cov > 0.95 && ang <= 10.0 && haus <= 0.1, name + "/" + passes + ": the lost crease passed: cov " + cov + " ang " + ang + " haus " + haus);
+        }
+
+        // triangles with three crease edges that are collinear slivers (altitude below 1e-3 of the longest edge) or folded back, as (centroid, folded)
+        static List<(Vector3d centre, bool folded)> AllCreaseTriangles(DMesh3 m)
+        {
+            HashSet<int> creases = Creases(m);
+            var found = new List<(Vector3d, bool)>();
+            foreach (int t in m.TriangleIndices()) {
+                Index3i te = m.GetTriEdges(t);
+                if (!(creases.Contains(te.a) && creases.Contains(te.b) && creases.Contains(te.c))) continue;
+                Vector3d n = m.GetTriNormal(t);
+                bool folded = false;
+                for (int k = 0; k < 3; ++k) {
+                    Index2i et = m.GetEdgeT(te[k]);
+                    int other = et.a == t ? et.b : et.a;
+                    if (other >= 0 && other != t && n.Dot(m.GetTriNormal(other)) < -0.9) folded = true;
+                }
+                Index3i tv = m.GetTriangle(t);
+                Vector3d a = m.GetVertex(tv.a), b = m.GetVertex(tv.b), c = m.GetVertex(tv.c);
+                double longest = Math.Max(a.Distance(b), Math.Max(b.Distance(c), c.Distance(a)));
+                bool sliver = longest > 0 && (b - a).Cross(c - a).Length / longest < 1e-3 * longest;
+                if (folded || sliver) found.Add(((a + b + c) / 3, folded));
+            }
+            return found;
+        }
+
+        // the quad mesh without the faces that have an edge within radius of c (a real local crease loss at c)
+        static DPolyMesh WithoutFacesNear(DPolyMesh r, Vector3d c, double radius)
+        {
+            var cut = new DPolyMesh();
+            for (int v = 0; v < r.VertexCount; ++v) cut.AppendVertex(r.GetVertex(v));
+            for (int f = 0; f < r.FaceCount; ++f) {
+                int[] fv = r.GetFace(f);
+                bool near = false;
+                for (int k = 0; k < fv.Length; ++k)
+                    if (PointSegmentDist(c, r.GetVertex(fv[k]), r.GetVertex(fv[(k + 1) % fv.Length])) <= radius) near = true;
+                if (!near) cut.AppendFace(fv);
+            }
+            return cut;
+        }
+
+        // a real local crease loss at a fin still fails the gate: the quad faces within 0.1 s of the fin (folded back or a collinear sliver; a sliver lies on a
+        // real crease, which the gate must keep measuring) are dropped from a result that passes. Before the sliver clause was removed, l-profile/22 and
+        // sharp-box/10 and /24 passed with this cut
+        [Theory]
+        [InlineData("l-profile", 22, false)]
+        [InlineData("l-profile", 22, true)]
+        [InlineData("sharp-box", 10, false)]
+        [InlineData("sharp-box", 24, false)]
+        [InlineData("gear", 20, true)]
+        public void LocalCreaseLossAtAFin_StillFailsTheGate(string name, int passes, bool atAFoldedFin)
+        {
+            DMesh3 m = Shape(name, passes);
+            double s = TargetOf(name);
+            var on = new QuadRemesher(m) { TargetEdgeLength = s, PreserveCreases = true };
+            Assert.Equal(QuadRemeshStatus.Success, on.Compute());
+            MeasureFeatures(m, on.Result, s, 30, out double cov0, out double ang0, out double haus0, out _);
+            Assert.True(cov0 > 0.95 && ang0 <= 10.0 && haus0 <= 0.1, "the result passes before the cut");
+            var fins = AllCreaseTriangles(m).Where(f => f.folded == atAFoldedFin).ToList();
+            Assert.NotEmpty(fins);
+            foreach (var fin in fins) {
+                DPolyMesh cut = WithoutFacesNear(on.Result, fin.centre, 0.1 * s);
+                Assert.True(cut.FaceCount < on.Result.FaceCount, "the cut removed faces");
+                MeasureFeatures(m, cut, s, 30, out double cov, out double ang, out double haus, out _);
+                Assert.False(cov > 0.95 && ang <= 10.0 && haus <= 0.1, name + "/" + passes + ": the cut at " + fin.centre + " passed: cov " + cov + " ang " + ang + " haus " + haus);
+            }
         }
 
         // Issue #1452: the gates depended on the number of fixture remesh passes (the input triangulation of the same shape). On master these
