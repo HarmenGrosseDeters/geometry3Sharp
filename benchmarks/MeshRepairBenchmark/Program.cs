@@ -418,9 +418,9 @@ class Program
 
         var sw = Stopwatch.StartNew();
         Func<DMesh3, DMesh3> solid = (m) => {
-            var s = new MeshWindingNumberSolidify(m) { CellSize = cellSize, Adaptive = true };
+            var s = new MeshWindingNumberSolidify(m) { MinVolumeIoU = 0, CellSize = cellSize, Adaptive = true };
             s.Compute();
-            return s.Result;
+            return s.Result ?? new DMesh3();
         };
         double vA = Vol(solid(a)), vB = Vol(solid(b));
         var results = new System.Collections.Generic.Dictionary<string, DMesh3>();
@@ -428,7 +428,7 @@ class Program
         ta.FastWindingNumber(Vector3d.Zero); tb.FastWindingNumber(Vector3d.Zero);
         foreach (var op in new[] { MeshWindingNumberBoolean.Operations.Union, MeshWindingNumberBoolean.Operations.Intersection,
                                    MeshWindingNumberBoolean.Operations.Difference }) {
-            var boolean = new MeshWindingNumberBoolean(a, b, op) { CellSize = cellSize };
+            var boolean = new MeshWindingNumberBoolean(a, b, op) { MinVolumeIoU = 0, CellSize = cellSize };
             boolean.Compute();
             DMesh3 m = boolean.Result ?? new DMesh3();
             string key = op.ToString().ToLower();
@@ -726,7 +726,7 @@ class Program
     {
         int res = int.Parse(Environment.GetEnvironmentVariable("BENCH_SOLID_RES") ?? "128");
         var sw = Stopwatch.StartNew();
-        var solid = new MeshWindingNumberSolidify(input) { GridResolution = res, Method = method, Adaptive = adaptive };
+        var solid = new MeshWindingNumberSolidify(input) { MinVolumeIoU = 0, GridResolution = res, Method = method, Adaptive = adaptive };
         string red = Environment.GetEnvironmentVariable("BENCH_SOLID_REDUCE");
         if (red != null) solid.ReduceTolerance = double.Parse(red, System.Globalization.CultureInfo.InvariantCulture);
         string clean = Environment.GetEnvironmentVariable("BENCH_SOLID_CLEANUP");

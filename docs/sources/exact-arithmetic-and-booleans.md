@@ -235,3 +235,11 @@ Cited, not implemented. Papers read as stated per row; no code of either project
 |---|---|
 | Per-face solid / shell labels by a binary winding number energy with user hint points (prior art for "sheet or shell is intent", not implemented) | S. Wang, J. Meny, I. Grguric, M. Rahimzadeh, D. Zorin, D. Panozzo, H.-T. D. Liu, *Solid-Shell Labeling for Discrete Surfaces*, SIGGRAPH Asia 2025 Conference Papers, DOI 10.1145/3757377.3763847 (read in full). Code github.com/rachael-wang/SolidShellLabeling, MIT (licence and README read, source not read) |
 | Integer-grid arrangement with five contact types, radial order from the input planes, majority votes over topological units, declared sheets as operands (prior art compared, not implemented) | Z. Sajovic, D. Knez, *trueform: fast and robust mesh CSG via topological aggregation*, arXiv 2607.15905, 2026 (read in full); Z. Sajovic, D. Knez, *trueForm: Real-Time Mesh Booleans that Commute with Mesh Idealization*, TechRxiv 2025, DOI 10.36227/techrxiv.174667714.42575478/v1 (abstract only, full text not reachable). Code github.com/polydera/trueform under PolyForm Noncommercial 1.0.0 or a commercial licence: not a permitted source, never read or ported (only its licence files and README were read) |
+
+## Interval successor / predecessor (`math/ExactIntervals.cs`)
+
+Implemented from the published paper; no external code copied.
+
+| Part | Source |
+|---|---|
+| Pure floating-point successor / predecessor (`ExactInterval.Up`, `ExactInterval.Down`, `phi1 = 2^-53 + 2^-105`) | S. M. Rump, P. Zimmermann, S. Boldo, G. Melquiond, *Computing predecessor and successor in rounding to nearest*, BIT Numerical Mathematics 49(2), 419–431, 2009 (Theorem 3.1) |

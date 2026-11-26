@@ -50,8 +50,12 @@ static partial class Program
         }
         FieldInfo off = typeof(MeshRoundingRepair).GetField("NoJointSearchOnThisThread", BindingFlags.NonPublic | BindingFlags.Static);
         PropertyInfo evals = typeof(MeshRoundingRepair).GetProperty("Evaluations", BindingFlags.NonPublic | BindingFlags.Instance);
+        FieldInfo noExt = typeof(MeshRoundingRepair).GetField("SkipJointRoundsOnThisThread", BindingFlags.NonPublic | BindingFlags.Static);
+        // (the stage off, the free pairs of before the extension, the extension)
         foreach (var (name, make) in specs)
-            foreach (bool joint in new[] { false, true }) {
+            foreach (int mode in new[] { 0, 1, 2 }) {
+                bool joint = mode > 0;
+                noExt.SetValue(null, mode == 1 ? 6 : 0);
                 var times = new List<double>();
                 string last = "";
                 for (int r = 0; r < repeats + 1; ++r) {
@@ -64,10 +68,10 @@ static partial class Program
                     off.SetValue(null, false);
                     if (r > 0) times.Add(sw.Elapsed.TotalMilliseconds);
                     MeshRoundingRepair rr = bo.Rounding;
-                    last = rr == null ? "no repair" : $"degenerate {rr.RemainingDegenerate} intersections {rr.RemainingIntersections} limit {rr.EvaluationLimitReached} jointMoves {rr.JointMoves} evaluations {evals.GetValue(rr)} proposals {typeof(MeshRoundingRepair).GetField("JointSearchProposals", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(rr)}";
+                    last = rr == null ? "no repair" : $"degenerate {rr.RemainingDegenerate} intersections {rr.RemainingIntersections} limit {rr.EvaluationLimitReached} jointMoves {rr.JointMoves} withFixed {rr.JointMovesWithFixedCorner} evaluations {evals.GetValue(rr)} proposals {typeof(MeshRoundingRepair).GetField("JointSearchProposals", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(rr)}";
                 }
                 times.Sort();
-                Console.WriteLine(string.Format(CultureInfo.InvariantCulture, "{0} | joint {1} | median {2:F0} ms | {3}", name, joint ? "on " : "off", times[times.Count / 2], last));
+                Console.WriteLine(string.Format(CultureInfo.InvariantCulture, "{0} | joint {1} | median {2:F0} ms | {3}", name, mode == 0 ? "off" : mode == 1 ? "free" : "ext ", times[times.Count / 2], last));
             }
         return 0;
     }

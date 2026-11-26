@@ -1109,7 +1109,8 @@ namespace gs
             // post-processing (which rarely removes them), finish it only if the wrap fails
             bool wrapOnSelfIntersections = CheckSelfIntersections && AlphaWrapFallback;
             Solidify = new MeshWindingNumberSolidify(solidifyFrom) {
-                GridResolution = SolidifyResolution, Adaptive = true, CancelF = CancelF, StopIfSelfIntersecting = wrapOnSelfIntersections
+                GridResolution = SolidifyResolution, Adaptive = true, CancelF = CancelF, StopIfSelfIntersecting = wrapOnSelfIntersections,
+                NestingCheck = false        // (the repair judges the nesting itself, ComponentsFlippedByNesting)
             };
             bool solidified = Solidify.Compute() && Solidify.Result != null && Solidify.Result.TriangleCount > 0;
             end_phase("solidify");
@@ -1476,34 +1477,7 @@ namespace gs
         // volume is not reversed for lying inside another); count: the components that differ, 0 if the two are the same solid
         internal static void nesting_references(DMesh3 given, DMesh3 welded, out DMesh3 reading, out DMesh3 union, out int count)
         {
-            reading = union = null;
-            count = 0;
-            if (given.TriangleCount == 0)
-                return;
-            // (a shell can only be taken for a cavity inside another: no closed shell whose box lies in another's, no flip)
-            if (MeshPostRepairCleanup.MayHaveNestedShells(welded ?? given) == false)
-                return;
-            DMesh3 b = welded ?? given;
-            var flagged = MeshPostRepairCleanup.FindInvertedComponents(b);
-            if (flagged.Count == 0)
-                return;
-            DMesh3 plain = new DMesh3(b, true);
-            foreach (int[] comp in flagged) {
-                bool outward = MeshPostRepairCleanup.volume_sign(b, comp) > 0;
-                if (outward)
-                    ++count;
-                foreach (int tid in comp) {
-                    if (outward == false)
-                        plain.ReverseTriOrientation(tid);
-                }
-            }
-            if (count == 0)
-                return;
-            reading = WindingContouring.OrientedCopy(b);
-            Vector3d c = plain.CachedBounds.Center;
-            if (MeshMeasurements.VolumeArea(plain, plain.TriangleIndices(), (vid) => plain.GetVertex(vid) - c).x < 0)
-                plain.ReverseOrientation(false);
-            union = plain;
+            MeshPostRepairCleanup.NestingReadings(welded ?? given, out reading, out union, out count);
         }
 
         // an unclean repair result can have lost parts of the input as well (eg erosion of an open region, which the

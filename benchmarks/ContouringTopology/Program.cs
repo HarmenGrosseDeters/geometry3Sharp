@@ -90,7 +90,7 @@ class Program
         for (int pass = 0; pass < 2; ++pass) {
             string p = pass == 0 ? "final_" : "raw_";
             var sw = Stopwatch.StartNew();
-            var s = new MeshWindingNumberSolidify(mesh) { Adaptive = true, CellSize = cell };
+            var s = new MeshWindingNumberSolidify(mesh) { MinVolumeIoU = 0, Adaptive = true, CellSize = cell };
             if (pass == 1) { s.CleanupResult = false; s.ReduceTolerance = 0; }
             bool ok = s.Compute();
             r[p + "ms"] = sw.ElapsedMilliseconds;
