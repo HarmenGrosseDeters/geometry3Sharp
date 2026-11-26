@@ -18,10 +18,13 @@ on:
       - 'math/Vector3d.cs'
       # pilot 6: the frame of the Clipper2 adapter (clipper_frame.py, its source contract)
       - 'addons/geometry3Sharp.Clipper2/ClipperFrame.cs'
+      - 'core/RefCountVector.cs'
       # pilot 3: the Devillers-Guigue prefilter of the arrangement (tritri_prefilter.py, its source contract)
       - 'mesh_ops/ExactMeshArrangement.cs'
       # pilot 4: the termination of the midpoint split of the AABB tree build (split_termination.py, its source contract)
       - 'spatial/DMeshAABBTree.cs'
+      - 'mesh/DMesh3_edge_operators.cs'
+      - 'spatial/MeshBatchQueries.cs'
       # pilot 7: the separating-axis prefilter prototype (separating_axis.py, its source contract)
       - 'benchmarks/SnapRoundingExperiment/CandidateCulling.cs'
       # pilot 8: the plateau variant of the position search, a design (plateau_search.py, its source contract on the probe)
@@ -71,6 +74,7 @@ jobs:
           Z3_CLIPPER_FRAME_REPORT: z3-clipper-frame-report.json
           Z3_DRIFT_REFERENCE_REPORT: z3-drift-reference-report.json
           Z3_STEP_LOOPS_REPORT: z3-step-loops-report.json
+          Z3_TOPOLOGY_WINDING_BATCH_FOLLOWUPS_REPORT: z3-topology-winding-batch-followups-report.json
           Z3_TRITRI_REPORT: z3-tritri-report.json
           Z3_SPLIT_TERMINATION_REPORT: z3-split-termination-report.json
           Z3_SEPARATING_AXIS_REPORT: z3-separating-axis-report.json
@@ -91,6 +95,7 @@ jobs:
             z3-clipper-frame-report.json
             z3-drift-reference-report.json
             z3-step-loops-report.json
+            z3-topology-winding-batch-followups-report.json
             z3-tritri-report.json
             z3-split-termination-report.json
             z3-separating-axis-report.json

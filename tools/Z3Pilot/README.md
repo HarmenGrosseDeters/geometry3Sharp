@@ -870,6 +870,43 @@ python3 tools/Z3Pilot/slope_approx.py [--fp]
 python3 -m unittest discover -s tools/Z3Pilot -p 'test_adaptive_range.py' -v
 ```
 
+## Edge capacity, winding culling and cancellation follow-up
+
+`topology_winding_batch_followups.py` extends the obligations in PR #1668.
+It works on the current library source independently of that PR.
+
+* **Flip refcount capacity.** In a Release .NET replay, a valid open fan
+  of 32,766 faces has a center reference count of 32,767. Flipping
+  an outer fan edge shared with one extra triangle returns `Ok`. The
+  center count becomes −32,768 and `IsVertex` returns false. The solver
+  checks that the capacity boundary is exactly the point at which
+  either of the two increments goes wrong. A candidate preflight
+  can return the existing `Failed_HitValenceLimit` before changing
+  topology if either receiving vertex has count `short.MaxValue`.
+  The proof PR leaves the production change open.
+* **Winding culling geometry.** The finite closed-box implications
+  now have solver checks. Any point of a triangle lies in its vertex
+  AABB, a separated slab excludes the triangle from the query, and
+  an enclosing tree node cannot hide an overlapping child. Touching
+  must remain an overlap. The union-find model checks rank decrease
+  and root preservation for path halving. The geometric bridge uses
+  local constancy of winding off the closed operand surface: paths
+  inside a free triangle and through a shared vertex stay off that
+  surface. The exact winding at the chosen representative remains
+  the premise of the final classification.
+* **Cancellation and original result slots.** Check that only admitted
+  blocks write and that a skipped block's slots cannot be written by
+  other blocks under the index-permutation contract. A serial .NET
+  replay uses reverse sort keys and cancels from the first callback.
+  With 1,024 queries it returns `Ok` after all 1,024 writes, since no
+  block observes cancellation. With 1,025 it returns `Cancelled` and
+  writes only slots 1 through 1,024. Final status records an observed
+  cancellation and blocks already admitted run to completion.
+
+```sh
+python3 -m unittest discover -s tools/Z3Pilot -p test_topology_winding_batch_followups.py -v
+```
+
 ## The rounding oracle (`rounding_oracle.py`, #1465, 2026-11-25)
 
 A research spike, not a gate: can the degenerate triangles that `MeshRoundingRepair` leaves be removed by moving up to k
