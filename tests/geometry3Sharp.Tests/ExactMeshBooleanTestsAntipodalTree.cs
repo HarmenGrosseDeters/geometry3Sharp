@@ -163,9 +163,11 @@ namespace geometry3Sharp.Tests
                 Vector3d a = segs[s], b = segs[s + 1], mid = (a + b) * 0.5, dir = (b - a).Normalized;
                 Vector3d nrm = dir.Cross(RandomUnit(rand)).Normalized;
                 double l = (b - a).Length, pmEst = Math.Abs(mid.x) + Math.Abs(mid.y) + Math.Abs(mid.z);
-                // (today's tol at mid, and the distance h where 1 + a.b, about 8 (h / l)^2, meets it, times 0.5 .. 2)
+                // (today's tol at mid; half the queries at the distance h where 1 + a.b, about 8 (h / l)^2, meets it (the
+                // tree's own test, 1 + a.b <= 2 tol at a displaced point, refuses below it), the other half where the full
+                // sum's segment test |a + b|, about 4 h / l, meets it (#1587: linear in the angle), times 0.5 .. 2)
                 double tol = 16 * (2 * 2.3e-16 * (pmEst + Math.Abs(a.x) + Math.Abs(a.y) + Math.Abs(a.z) + Math.Abs(b.x) + Math.Abs(b.y) + Math.Abs(b.z)) / l * 2 + 1e-15);
-                double h = l * Math.Sqrt(tol / 8) * Math.Pow(2, 2 * rand.NextDouble() - 1);
+                double h = (q % 2 == 0 ? l * Math.Sqrt(tol / 8) : l * tol / 4) * Math.Pow(2, 2 * rand.NextDouble() - 1);
                 Vector3d p = mid + nrm * h;
                 // (the approximation 1 to 3 ulps off in one coordinate, pointError that distance: the rounding parts of
                 // tol then exceed pointError's, where the margin of the old test can be negative)

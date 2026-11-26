@@ -37,6 +37,8 @@ on:
       - 'math/ExactSlopeKernel.cs'
       - 'mesh_ops/TerrainSlopeMap.cs'
       - 'tools/ErrorBoundAudit/range_callers.py'
+      # pilot 9: the segment test and the wide bound of the Antipodal sum (antipodal_segment.py, its source contract)
+      - 'mesh_ops/ExactMeshBoolean.cs'
       - '.github/workflows/z3-pilot.yml'
   workflow_dispatch:
 permissions:
@@ -76,6 +78,7 @@ jobs:
           Z3_ADAPTIVE_RANGE_REPORT: z3-adaptive-range-report.json
           Z3_MAY_MEET_BOX_REPORT: z3-may-meet-box-report.json
           Z3_SLOPE_APPROX_REPORT: z3-slope-approx-report.json
+          Z3_ANTIPODAL_SEGMENT_REPORT: z3-antipodal-segment-report.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -95,3 +98,4 @@ jobs:
             z3-adaptive-range-report.json
             z3-may-meet-box-report.json
             z3-slope-approx-report.json
+            z3-antipodal-segment-report.json

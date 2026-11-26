@@ -6,7 +6,7 @@
     ],
     "target-framework": "net10.0",
     "mutate": [
-      "**/mesh_ops/ExactMeshBoolean.cs{367870..1000000}"
+      "**/mesh_ops/ExactMeshBoolean.cs{376351..1000000}"
     ],
     "test-case-filter": "FullyQualifiedName=geometry3Sharp.Tests.ExactBooleanFilterTests.Orient3dFiltered_DecidesForSeparatedPoints_AndNotForTinyOnes|FullyQualifiedName=geometry3Sharp.Tests.ExactBooleanIssueCasesTests.KnownLimitation_TwoTriangularPrisms_RotatedInexactly_KeepATinyVoid|FullyQualifiedName=geometry3Sharp.Tests.ExactBooleanOpenInputTests.OpenBoundaryOnEdge_ConsistentResult|FullyQualifiedName=geometry3Sharp.Tests.ExactBooleanOrientationTests.Resolve_SoupWithNegativeZeroAndDegenerateTriangle_IsOrientedBox|FullyQualifiedName=geometry3Sharp.Tests.ExactBooleanSurvivorTests.ExactVertices_SplitEdge_VertexAtTheExactMidpoint|FullyQualifiedName=geometry3Sharp.Tests.ExactMeshBooleanTestsCarriedFilters.Near_ExactlyCoplanar_Undecided|FullyQualifiedName=geometry3Sharp.Tests.ExactMeshBooleanTestsLocalFilter.LocalPoints_WithinTheirBound_OfTheExactDifferences|FullyQualifiedName~ExactBooleanParallelAssemblyTests|FullyQualifiedName~ExactBooleanInputOrderTests",
     "ignore-methods": [
