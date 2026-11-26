@@ -24,21 +24,47 @@ namespace g3
 
         static readonly ExactInterval whole = new ExactInterval(double.NegativeInfinity, double.PositiveInfinity);
 
+        // Rump, Zimmermann, Boldo & Melquiond (2009), "Computing predecessor and successor in rounding to nearest",
+        // BIT Numerical Mathematics 49(2), 419-431, Theorem 3.1 (implemented from the paper):
+        // with phi1 = 2^-53 + 2^-105, for every double x with |x| >= 2^-969 and x != -infinity, fl(x + fl(|x| * phi1))
+        // is bit-for-bit equal to the next double above x (including +-MaxValue and +infinity).
+        // For |x| <= 2^-1022 (zero, subnormals, +-MinNormal) the upward spacing is exactly 2^-1074 = double.Epsilon;
+        // for 2^-1022 < |x| < 2^-969, exact power-of-two scaling by 2^54 enters the normal Rump range and 2^-54 scales back.
+        const double Phi1 = 1.1102230246251568e-16;       // 2^-53 + 2^-105 (0x3CA0000000000001)
+        const double RumpMin = 2.0041683600089728e-292;   // 2^-969         (0x0360000000000000)
+        const double MinNormal = 2.2250738585072014e-308; // 2^-1022        (0x0010000000000000)
+        const double TwoP54 = 18014398509481984.0;        // 2^54
+        const double TwoM54 = 5.5511151231257827e-17;     // 2^-54
+
         /// <summary> the next double above x (x for +infinity and NaN) </summary>
         [MethodImpl(JitHints.Optimize)]
         public static double Up(double x)
         {
-            if (double.IsNaN(x) || x == double.PositiveInfinity)
-                return x;
-            if (x == 0)
-                return double.Epsilon;
-            long b = BitConverter.DoubleToInt64Bits(x);
-            return BitConverter.Int64BitsToDouble(x > 0 ? b + 1 : b - 1);
+            double ax = Math.Abs(x);
+            if (ax >= RumpMin && x != double.NegativeInfinity) {
+                double e = ax * Phi1;
+                return x + e;
+            }
+            return up_small(x);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static double up_small(double x)
+        {
+            if (x == double.NegativeInfinity)
+                return -double.MaxValue;
+            if (Math.Abs(x) <= MinNormal)
+                return x + double.Epsilon;
+            double s = x * TwoP54;
+            double es = Math.Abs(s) * Phi1;
+            return (s + es) * TwoM54;
         }
 
         /// <summary> the next double below x </summary>
+        [MethodImpl(JitHints.Optimize)]
         public static double Down(double x) { return -Up(-x); }
 
+        [MethodImpl(JitHints.Optimize)]
         static ExactInterval make(double lo, double hi)
         {
             if (double.IsNaN(lo) || double.IsNaN(hi))

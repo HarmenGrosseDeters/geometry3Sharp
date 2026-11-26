@@ -357,5 +357,115 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0L, BitConverter.DoubleToInt64Bits(z));     // (+0, not -0)
             Assert.Equal(0.0, ExactDyadic.Quotient(ExactDyadic.Zero, ExactDyadic.Of(-3)));
         }
+
+        // Independent bit-manipulation oracle for nextafter(x, +infinity) / nextafter(x, -infinity)
+        static double RefUp(double x)
+        {
+            if (double.IsNaN(x) || x == double.PositiveInfinity) return x;
+            if (x == 0) return double.Epsilon;
+            long b = BitConverter.DoubleToInt64Bits(x);
+            return BitConverter.Int64BitsToDouble(x > 0 ? b + 1 : b - 1);
+        }
+
+        static double RefDown(double x) => -RefUp(-x);
+
+        static void AssertSameDouble(double expected, double actual, double input)
+        {
+            if (double.IsNaN(expected)) { Assert.True(double.IsNaN(actual), $"input={input:R}"); return; }
+            if (expected == 0.0 && actual == 0.0) return; // +0.0 and -0.0 are equal real zero
+            Assert.Equal(BitConverter.DoubleToInt64Bits(expected), BitConverter.DoubleToInt64Bits(actual));
+        }
+
+        [Fact]
+        public void UpAndDown_MatchBitExactReferenceAcrossAllExponentsAndSpecials()
+        {
+            // Explicit specials and critical Rump (2009) boundary values:
+            // +-MinNormal (2^-1022), +-2^-1000 (tiny normal scaled by 2^54), +-2^-970, +-2^-969 (RumpMin), +-1e300, +-MaxValue, +-Inf, NaN
+            double minNormal = BitConverter.Int64BitsToDouble(0x0010000000000000L);
+            double tinyNormal = BitConverter.Int64BitsToDouble(0x0170000000000000L); // 2^-1000
+            double belowRump = BitConverter.Int64BitsToDouble(0x0350000000000000L);  // 2^-970
+            double atRump = BitConverter.Int64BitsToDouble(0x0360000000000000L);     // 2^-969
+            double[] specialsExact = {
+                0.0, -0.0, double.Epsilon, -double.Epsilon, 2 * double.Epsilon, -2 * double.Epsilon,
+                minNormal, -minNormal, tinyNormal, -tinyNormal, belowRump, -belowRump, atRump, -atRump,
+                1e-300, -1e-300, 1.0, -1.0, 1e300, -1e300, double.MaxValue, -double.MaxValue,
+                double.PositiveInfinity, double.NegativeInfinity, double.NaN
+            };
+            foreach (double v in specialsExact) {
+                AssertSameDouble(RefUp(v), ExactInterval.Up(v), v);
+                AssertSameDouble(RefDown(v), ExactInterval.Down(v), v);
+            }
+            Assert.Equal(-double.MaxValue, ExactInterval.Up(double.NegativeInfinity));
+            Assert.Equal(double.MaxValue, ExactInterval.Down(double.PositiveInfinity));
+            Assert.True(ExactInterval.Up(1e300) < double.PositiveInfinity);
+            Assert.True(ExactInterval.Down(-1e300) > double.NegativeInfinity);
+
+            // Every binary64 exponent from 2^-1074 to 2^1023, both signs, and +-0..3 ulps around each power of two
+            for (int exp = -1074; exp <= 1023; ++exp) {
+                long bits = exp < -1022 ? (1L << (exp + 1074)) : ((long)(exp + 1023) << 52);
+                foreach (long signBit in new[] { 0L, unchecked((long)0x8000000000000000UL) }) {
+                    double baseVal = BitConverter.Int64BitsToDouble(bits | signBit);
+                    double v = baseVal;
+                    for (int s = 0; s <= 3; ++s) {
+                        AssertSameDouble(RefUp(v), ExactInterval.Up(v), v);
+                        AssertSameDouble(RefDown(v), ExactInterval.Down(v), v);
+                        v = RefUp(v);
+                    }
+                    v = baseVal;
+                    for (int s = 1; s <= 3; ++s) {
+                        v = RefDown(v);
+                        AssertSameDouble(RefUp(v), ExactInterval.Up(v), v);
+                        AssertSameDouble(RefDown(v), ExactInterval.Down(v), v);
+                    }
+                }
+            }
+
+            // 20,000 random finite doubles across the full IEEE 754 bit range
+            var rnd = new Random(2009);
+            for (int i = 0; i < 20000; ++i) {
+                double v = Rand(rnd);
+                AssertSameDouble(RefUp(v), ExactInterval.Up(v), v);
+                AssertSameDouble(RefDown(v), ExactInterval.Down(v), v);
+            }
+        }
+
+        [Theory]
+        [InlineData(-980)]
+        [InlineData(-500)]
+        [InlineData(-10)]
+        [InlineData(10)]
+        [InlineData(500)]
+        public void ExactInterval_PowerOfTwoScaleInvariance(int k)
+        {
+            double s = Math.Pow(2, k);
+            double s2 = s * s;
+            var a = new ExactInterval(-1.3, 2.7);
+            var b = new ExactInterval(0.4, 3.1);
+            var sa = new ExactInterval(a.Lo * s, a.Hi * s);
+            var sb = new ExactInterval(b.Lo * s, b.Hi * s);
+
+            Assert.Equal(BitConverter.DoubleToInt64Bits(ExactInterval.Up(a.Hi) * s), BitConverter.DoubleToInt64Bits(ExactInterval.Up(sa.Hi)));
+            Assert.Equal(BitConverter.DoubleToInt64Bits(ExactInterval.Down(a.Lo) * s), BitConverter.DoubleToInt64Bits(ExactInterval.Down(sa.Lo)));
+
+            ExactInterval sum = a + b, ssum = sa + sb;
+            Assert.Equal(BitConverter.DoubleToInt64Bits(sum.Lo * s), BitConverter.DoubleToInt64Bits(ssum.Lo));
+            Assert.Equal(BitConverter.DoubleToInt64Bits(sum.Hi * s), BitConverter.DoubleToInt64Bits(ssum.Hi));
+
+            ExactInterval diff = a - b, sdiff = sa - sb;
+            Assert.Equal(BitConverter.DoubleToInt64Bits(diff.Lo * s), BitConverter.DoubleToInt64Bits(sdiff.Lo));
+            Assert.Equal(BitConverter.DoubleToInt64Bits(diff.Hi * s), BitConverter.DoubleToInt64Bits(sdiff.Hi));
+
+            if (Math.Abs(k) <= 200) {
+                ExactInterval prod = a * b, sprod = sa * sb;
+                Assert.Equal(BitConverter.DoubleToInt64Bits(prod.Lo * s2), BitConverter.DoubleToInt64Bits(sprod.Lo));
+                Assert.Equal(BitConverter.DoubleToInt64Bits(prod.Hi * s2), BitConverter.DoubleToInt64Bits(sprod.Hi));
+                ExactInterval sq = ExactInterval.Square(a), ssq = ExactInterval.Square(sa);
+                Assert.Equal(BitConverter.DoubleToInt64Bits(sq.Lo * s2), BitConverter.DoubleToInt64Bits(ssq.Lo));
+                Assert.Equal(BitConverter.DoubleToInt64Bits(sq.Hi * s2), BitConverter.DoubleToInt64Bits(ssq.Hi));
+            }
+            ExactInterval quot = a / b, squot = sa / sb;
+            Assert.Equal(BitConverter.DoubleToInt64Bits(quot.Lo), BitConverter.DoubleToInt64Bits(squot.Lo));
+            Assert.Equal(BitConverter.DoubleToInt64Bits(quot.Hi), BitConverter.DoubleToInt64Bits(squot.Hi));
+        }
     }
 }
