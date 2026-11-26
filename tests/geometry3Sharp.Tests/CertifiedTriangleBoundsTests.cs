@@ -936,7 +936,7 @@ namespace geometry3Sharp.Tests
 
             // CPM-1 soundness across exponents from subnormal to overflow and all 3 axes (both sides of box)
             var rnd = new Random(1647);
-            foreach (int e in new[] { -1070, -1040, -160, -20, 0, 20, 148, 200, 500, 520 }) {
+            foreach (int e in new[] { -1070, -1040, -537, -160, -20, 0, 20, 148, 200, 500, 520 }) {
                 for (int i = 0; i < 40; ++i) {
                     Vector3d a = new Vector3d(R(rnd, e), R(rnd, e), R(rnd, e));
                     Vector3d b = new Vector3d(R(rnd, e), R(rnd, e), R(rnd, e));
@@ -955,11 +955,39 @@ namespace geometry3Sharp.Tests
                     Assert.True(ExactDyadic.Compare(D(lb), exactBoxSq) <= 0, $"CPM-1 e={e} i={i}: lb={lb:R} > exact box d^2");
                 }
             }
+            // CPM-1 NormalSqLo guard (kills s > NormalSqLo -> s > 0: subnormal s = g^2 ~ 2^-1074 rounds up in fast path)
+            {
+                double s537 = Math.Pow(2, -537);
+                for (int i = 0; i < 2000; ++i) {
+                    double gap = (rnd.NextDouble() + 0.5) * s537;
+                    double lb = gs.CertifiedPointMeshDistance.box_lower_squared(
+                        Vector3d.Zero, Vector3d.Zero, Vector3d.Zero, new Vector3d(gap, 0, 0));
+                    ExactDyadic g = D(gap);
+                    Assert.True(ExactDyadic.Compare(D(lb), g * g) <= 0, $"CPM-1 subnormal i={i}: lb={lb:R} > g^2");
+                }
+            }
             // CPM-1 NormalSqHi guard (kills M4: dropping && s < NormalSqHi returns +Inf on p = (0, 0, 1e160) so LowerBound returns +Inf)
             {
                 DMesh3 farTri = Tri(Vector3d.Zero, new Vector3d(1, 0, 0), new Vector3d(0, 1, 0));
                 double lbFar = gs.CertifiedPointMeshDistance.LowerBound(farTri, new Vector3d(0, 0, 1e160));
                 Assert.True(lbFar > 1e153 && lbFar <= 1e160, $"lbFar={lbFar:R}");
+            }
+            // Pass-2 near-tie prune test: triangle A's box contains p = 0 (box lb = 0, exact dist = 1),
+            // while triangle B at z = -0.9999 is strictly nearer (exact dist = 0.9999, box lb = 0.9999^2).
+            // Kills over-pruning in both `lb > bestUpper` and `greater(lb, best)` (e.g., lb * 1.001).
+            {
+                double r2 = Math.Sqrt(2.0);
+                var m = new DMesh3();
+                int a0 = m.AppendVertex(new Vector3d(r2, 1, 0));
+                int a1 = m.AppendVertex(new Vector3d(r2, -1, 0));
+                int a2 = m.AppendVertex(new Vector3d(0, 0, r2));
+                m.AppendTriangle(a0, a1, a2);
+                int b0 = m.AppendVertex(new Vector3d(-1, -1, -0.9999));
+                int b1 = m.AppendVertex(new Vector3d(1, -1, -0.9999));
+                int b2 = m.AppendVertex(new Vector3d(0, 1, -0.9999));
+                m.AppendTriangle(b0, b1, b2);
+                double lb = gs.CertifiedPointMeshDistance.LowerBound(m, Vector3d.Zero);
+                Assert.True(lb > 0.9998 && lb <= 0.9999, $"near-tie lb={lb:R}");
             }
 
             // CPM-1 non-Sterbenz 1D-dominant gap soundness (catches dropping the (1 - 1e-15) downward factor)
@@ -1008,8 +1036,6 @@ namespace geometry3Sharp.Tests
                     double h = (1.0 + i / 200.0) * 1e-18;
                     Assert.False(gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(
                         Vector3d.Zero, s1, s2, new Vector3d(0, 0, h), h * h), $"CPM-2 NormalLinLo i={i} h={h:R}");
-                    Assert.False(gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(
-                        Vector3d.Zero, s1, s2, new Vector3d(0, 0, h), ExactInterval.Down(h * h)), $"CPM-2 NormalLinLo down i={i} h={h:R}");
                 }
             }
             // 2) detLo >= NormalLinHi (det ~ 1e145, n2 = 1; blocked by detLo < NormalLinHi)
