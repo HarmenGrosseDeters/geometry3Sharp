@@ -25,9 +25,20 @@ python3 -m venv /tmp/g3-z3
 dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter 'FullyQualifiedName~SnapGridPixelFilterTests|FullyQualifiedName~Meshing2OracleZoneFilterTests'
 ```
 
+## CI time budgets
+
+The pull-request workflow runs the fast test modules with a 10-second limit
+per module and a 10-minute job limit. Use **Run workflow** in GitHub Actions
+to select one extended suite. The same suites can run locally with
+`python3 -m unittest discover -s tools/Z3Pilot -p 'test_<suite>.py' -v`.
+Extended runs keep the pinned dependency versions and allow a longer solver
+timeout. Selecting an extended suite runs all its tests, including source drift
+and mutant controls. New verification work should start in the fast gate and put longer
+searches in an on-demand suite.
+
 ## What is proved, and what is assumed
 
-The default gate checks six quantifier-free **binary64** counterexample queries,
+The on-demand Pixel suite checks six quantifier-free **binary64** counterexample queries,
 with roundNearestTiesToEven for each floating operation and roundTowardNegative
 for Math.Floor. Each must return UNSAT; SAT and UNKNOWN both fail. Every obligation also checks
 that its assumptions are SAT, so an impossible guard cannot produce vacuous success. A separate
@@ -890,3 +901,27 @@ moves whose per-box linear relaxations (rigorously padded floats, exact Dyadic o
 arithmetic with booleans. The test checks the encoding on a sliver in a square tube: one move repairs it (SAT, clean exactly
 and after the rounding to doubles), a narrow tube makes it impossible (UNSAT by the wall constraints, SAT without them), a
 small bound makes it impossible (UNSAT by the area); and the pair encoding on crossing, apart and touching triangles.
+
+## Local arithmetic and topology obligations
+
+* `limb_negation.py` checks the 64-bit complement-and-add step of `ExactLimbSigns.load`
+  against a 65-bit reference and proves composition for two limbs. Ignoring the
+  incoming carry or dropping its propagation to the upper limb admits a witness.
+  The scratch allocation formulas have separate reviewed width arguments in
+  the library comments.
+* `tetrahedra_shared_faces.py` reads the even and odd tetrahedron tables from
+  `TwoLevelMarchingTetrahedra.cs`. It checks sign patterns on adjacent cubes
+  and the three-node part of the face key. Reusing one parity on both sides
+  can produce a mismatch. The checks assume shared corner classifications.
+  The two-level clipping loop and label completeness are open geometric
+  premises.
+* `ray_second_point.py` checks the exponent range and encoding for `ExactRayTriangle.SecondPoint`.
+  It also replays the two scaling branches at binary64 boundaries against `ldexp`.
+  For origin `(eps,0,0)` and direction `(eps,4*eps,0)`, where `eps = 2^-1074`,
+  the chosen shift is −1. Separate rounding gives an x coordinate of `eps`;
+  retaining the product through the sum gives `2*eps`. This reproduces a local ray
+  direction difference in the rounding model. It is not an end-to-end hit or runtime test.
+
+```sh
+python3 -m unittest discover -s tools/Z3Pilot -p test_local_arithmetic_and_topology.py -v
+```
