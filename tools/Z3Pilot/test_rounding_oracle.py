@@ -16,7 +16,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
-    import numpy  # noqa: F401  (the oracle's float relaxation; not in requirements.txt, so the Z3 pilot job skips this test)
+    import numpy  # noqa: F401  (the oracle's float relaxation; in requirements.txt, so the Z3 pilot job runs this test)
     import rounding_oracle as ro  # noqa: E402
 except ImportError:  # pragma: no cover
     ro = None
