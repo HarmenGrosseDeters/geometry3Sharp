@@ -44,9 +44,11 @@ namespace gs
     /// the guarantees above, but MeshRobustRepair.NotCleanReason reports them.
     ///
     /// Features of the offset surface narrower than about a cell (RelativeCellSize * |Distance|) can be lost or merged, as in any
-    /// grid contouring; an inset deeper than half the thickness of a part removes it. Status Empty means that nothing is left at this grid: it is also
-    /// returned for a part thinner than about half a cell (RelativeCellSize * |Distance|) after the inset, which still exists (a finer grid, ie a smaller
-    /// RelativeCellSize, finds it; #1597), so Empty does not prove that the part is gone.
+    /// grid contouring; an inset deeper than half the thickness of a part removes it. Status Empty means that nothing is left: it is proven
+    /// from the distances at the grid nodes (an inset removes the part if no node of the input is as far from its surface as the inset less
+    /// 0.866 cells). If a part thinner than about a cell may be left between the nodes (#1597) and nothing was found, the cell is
+    /// halved up to MaxCellRefinements times (default 2, within MaxGridNodes: the case returned Empty before, and nothing else runs more than
+    /// the first grid), and if it is still not decided the status is NotResolved with a SuggestedCellSize, which does not prove that the part is gone.
     /// Usage: set the fields, call Compute(), read Result and the reports. Compute() can be called again after changes.
     /// </summary>
     public class MeshOffset
@@ -65,12 +67,14 @@ namespace gs
             InvalidParameters,
             /// <summary> the grid would have more than MaxGridNodes nodes </summary>
             GridTooLarge,
-            /// <summary> nothing resolved at this grid: the inset is beyond the thickness of the part, or the part left is thinner than about half a cell and a smaller RelativeCellSize can still find it </summary>
+            /// <summary> nothing is left: the inset is beyond the thickness of the part (proven from the distances at the grid nodes, see NotResolved for the case that is not) </summary>
             Empty,
             /// <summary> the contour is not closed and manifold (left-out polygons, NonManifoldTriangles) or not finite; Result kept for diagnostics </summary>
             Failed,
             /// <summary> CancelF returned true </summary>
-            Cancelled
+            Cancelled,
+            /// <summary> not resolved at this grid: the inset may have left a part thinner than the grid between the nodes (the distances at the nodes cannot exclude it) and MaxCellRefinements halvings of the cell did not find it (or the grid would be too large): try SuggestedCellSize. Empty, in contrast, means that nothing is left (proven from the distances at the nodes) </summary>
+            NotResolved
         }
 
         /// <summary> the input: closed, outward, free of self-intersections (see the class comment) </summary>
@@ -91,6 +95,12 @@ namespace gs
         /// array limit of net48 without gcAllowVeryLargeObjects) or above 2^31 nodes along an axis are always refused.
         /// </summary>
         public long MaxGridNodes = 64000000;
+        /// <summary>
+        /// How often the cell is halved (8 times the nodes each) when nothing was found at the grid but the distances at the nodes cannot exclude a part thinner
+        /// than the grid between them (an inset leaving a part thinner than about a cell, #1597): the first grid is the same for every input, and only
+        /// that case runs further, while the grid stays within MaxGridNodes. 0 switches it off (NotResolved at once). UsedCellSize is the final cell.
+        /// </summary>
+        public int MaxCellRefinements = 2;
         public bool UseParallel = true;
         public Func<bool> CancelF = () => false;
 
@@ -107,6 +117,8 @@ namespace gs
         public int UncertifiedTriangles;
         /// <summary> the cell size used, in mesh units </summary>
         public double UsedCellSize;
+        /// <summary> with Status.NotResolved: a cell size (a quarter of the last one) at which to try again, 0 otherwise; a part thinner than it can still be missed </summary>
+        public double SuggestedCellSize;
         /// <summary> polygons the contouring left out (Result then has holes and the status is Failed) </summary>
         public int NonManifoldTriangles;
         /// <summary> ms per phase of the last Compute() </summary>
@@ -124,7 +136,7 @@ namespace gs
         {
             ResultStatus = Status.Failed;   // until a check below says otherwise (also if a call throws)
             Result = null; SelfIntersectionFree = false; BandCertified = false; BandDeviation = double.PositiveInfinity;
-            UncertifiedTriangles = 0; UsedCellSize = 0; NonManifoldTriangles = 0; PhaseMilliseconds = new Dictionary<string, long>();
+            UncertifiedTriangles = 0; UsedCellSize = 0; SuggestedCellSize = 0; NonManifoldTriangles = 0; PhaseMilliseconds = new Dictionary<string, long>();
             var timer = System.Diagnostics.Stopwatch.StartNew();
             Action<string> phase = (name) => { PhaseMilliseconds[name] = timer.ElapsedMilliseconds; timer.Restart(); };
 
@@ -177,105 +189,136 @@ namespace gs
             phase("setup");
             if (CancelF()) return fail(Status.Cancelled);
 
-            // the grid: the box of the input, the offset and two cells, shifted by an odd fraction of a cell
-            AxisAlignedBox3d box = new AxisAlignedBox3d(s * box0.Min, s * box0.Max);   // exact: a power of two
-            double margin = Math.Max(d, 0) + 2 * h;
-            Vector3d origin = box.Min - margin * Vector3d.One - h * GridShift;
-            Vector3d far = box.Max + margin * Vector3d.One;
-            double nxd = Math.Ceiling((far.x - origin.x) / h) + 1, nyd = Math.Ceiling((far.y - origin.y) / h) + 1, nzd = Math.Ceiling((far.z - origin.z) / h) + 1;
-            if (!(nxd * nyd * nzd <= MaxGridNodes) || !(nxd * nyd * nzd <= (1 << 28)) || !(Math.Max(nxd, Math.Max(nyd, nzd)) <= int.MaxValue))
-                return fail(Status.GridTooLarge);
-            int nx = (int)nxd, ny = (int)nyd, nz = (int)nzd;
-            long nodeCount = (long)nx * ny * nz;
-            Func<int, int, int, long> idx = (i, j, l) => i + (long)nx * (j + (long)ny * l);
-            Func<int, int, int, Vector3d> nodePos = (i, j, l) => new Vector3d(origin.x + h * i, origin.y + h * j, origin.z + h * l);
+            // the grid is built again at half the cell while nothing is found and a part may still be left between the nodes (see below)
+            int refinements = 0, nonManifold = 0;
+            bool retry, selfFree = false;
+            DMesh3 result = null;
+            do {
+                retry = false;
+                // the grid: the box of the input, the offset and two cells, shifted by an odd fraction of a cell
+                AxisAlignedBox3d box = new AxisAlignedBox3d(s * box0.Min, s * box0.Max);   // exact: a power of two
+                double margin = Math.Max(d, 0) + 2 * h;
+                Vector3d origin = box.Min - margin * Vector3d.One - h * GridShift;
+                Vector3d far = box.Max + margin * Vector3d.One;
+                double nxd = Math.Ceiling((far.x - origin.x) / h) + 1, nyd = Math.Ceiling((far.y - origin.y) / h) + 1, nzd = Math.Ceiling((far.z - origin.z) / h) + 1;
+                if (!(nxd * nyd * nzd <= MaxGridNodes) || !(nxd * nyd * nzd <= (1 << 28)) || !(Math.Max(nxd, Math.Max(nyd, nzd)) <= int.MaxValue))
+                    return fail(Status.GridTooLarge);
+                int nx = (int)nxd, ny = (int)nyd, nz = (int)nzd;
+                long nodeCount = (long)nx * ny * nz;
+                Func<int, int, int, long> idx = (i, j, l) => i + (long)nx * (j + (long)ny * l);
+                Func<int, int, int, Vector3d> nodePos = (i, j, l) => new Vector3d(origin.x + h * i, origin.y + h * j, origin.z + h * l);
 
-            // unsigned distance at the nodes, up to |d| + 2h (farther nodes keep that value: only their sign matters)
-            double cap = ad + 2 * h;
-            double[] u = new double[nodeCount];
-            Action<int> slice = (l) => {
-                for (int j = 0; j < ny; ++j)
-                    for (int i = 0; i < nx; ++i) {
-                        double dsq;
-                        int t = tree.FindNearestTriangle(nodePos(i, j, l), out dsq, cap);
-                        u[idx(i, j, l)] = (t == DMesh3.InvalidID) ? cap : Math.Min(Math.Sqrt(dsq), cap);
-                    }
-            };
-            if (UseParallel) gParallel.ForEach(Interval1i.Range(nz), slice);
-            else for (int l = 0; l < nz; ++l) slice(l);
-            phase("distance");
-            if (CancelF()) return fail(Status.Cancelled);
+                // unsigned distance at the nodes, up to |d| + 2h (farther nodes keep that value: only their sign matters)
+                double cap = ad + 2 * h;
+                double[] u = new double[nodeCount];
+                Action<int> slice = (l) => {
+                    for (int j = 0; j < ny; ++j)
+                        for (int i = 0; i < nx; ++i) {
+                            double dsq;
+                            int t = tree.FindNearestTriangle(nodePos(i, j, l), out dsq, cap);
+                            u[idx(i, j, l)] = (t == DMesh3.InvalidID) ? cap : Math.Min(Math.Sqrt(dsq), cap);
+                        }
+                };
+                if (UseParallel) gParallel.ForEach(Interval1i.Range(nz), slice);
+                else for (int l = 0; l < nz; ++l) slice(l);
+                phase("distance");
+                if (CancelF()) return fail(Status.Cancelled);
 
-            // signs: a node farther than 1.5 h from the input shares the side of the input with its neighbours (the grid edge to
-            // them stays off the input), so one exact inside test per connected set of such nodes; nodes within 1.5 h < |d| of
-            // the input do not need a sign (F = d - sd has the sign of d for any sign of sd there)
-            sbyte[] side = new sbyte[nodeCount];
-            double reach = 1.5 * h;
-            var queue = new Queue<long>();
-            for (long n0 = 0; n0 < nodeCount; ++n0) {
-                if (side[n0] != 0 || !(u[n0] > reach)) continue;
-                int i0 = (int)(n0 % nx), j0 = (int)((n0 / nx) % ny), l0 = (int)(n0 / ((long)nx * ny));
-                side[n0] = tree.IsInside(nodePos(i0, j0, l0)) ? (sbyte)-1 : (sbyte)1;
-                queue.Enqueue(n0);
-                while (queue.Count > 0) {
-                    long n = queue.Dequeue();
-                    int i = (int)(n % nx), j = (int)((n / nx) % ny), l = (int)(n / ((long)nx * ny));
-                    for (int q = 0; q < 6; ++q) {
-                        int a = i + (q == 0 ? 1 : q == 1 ? -1 : 0), b = j + (q == 2 ? 1 : q == 3 ? -1 : 0), c = l + (q == 4 ? 1 : q == 5 ? -1 : 0);
-                        if (a < 0 || b < 0 || c < 0 || a >= nx || b >= ny || c >= nz) continue;
-                        long m = idx(a, b, c);
-                        if (side[m] != 0) continue;
-                        side[m] = side[n];
-                        if (u[m] > reach) queue.Enqueue(m);
+                // signs: a node farther than 1.5 h from the input shares the side of the input with its neighbours (the grid edge to
+                // them stays off the input), so one exact inside test per connected set of such nodes; nodes within 1.5 h < |d| of
+                // the input do not need a sign (F = d - sd has the sign of d for any sign of sd there)
+                sbyte[] side = new sbyte[nodeCount];
+                double reach = 1.5 * h;
+                var queue = new Queue<long>();
+                for (long n0 = 0; n0 < nodeCount; ++n0) {
+                    if (side[n0] != 0 || !(u[n0] > reach)) continue;
+                    int i0 = (int)(n0 % nx), j0 = (int)((n0 / nx) % ny), l0 = (int)(n0 / ((long)nx * ny));
+                    side[n0] = tree.IsInside(nodePos(i0, j0, l0)) ? (sbyte)-1 : (sbyte)1;
+                    queue.Enqueue(n0);
+                    while (queue.Count > 0) {
+                        long n = queue.Dequeue();
+                        int i = (int)(n % nx), j = (int)((n / nx) % ny), l = (int)(n / ((long)nx * ny));
+                        for (int q = 0; q < 6; ++q) {
+                            int a = i + (q == 0 ? 1 : q == 1 ? -1 : 0), b = j + (q == 2 ? 1 : q == 3 ? -1 : 0), c = l + (q == 4 ? 1 : q == 5 ? -1 : 0);
+                            if (a < 0 || b < 0 || c < 0 || a >= nx || b >= ny || c >= nz) continue;
+                            long m = idx(a, b, c);
+                            if (side[m] != 0) continue;
+                            side[m] = side[n];
+                            if (u[m] > reach) queue.Enqueue(m);
+                        }
                     }
                 }
-            }
-            // F = d - sd, inside (of the offset solid) where F > 0
-            double[] f = new double[nodeCount];
-            for (long n = 0; n < nodeCount; ++n)
-                f[n] = d - (side[n] < 0 ? -u[n] : u[n]);
-            u = null; side = null;
-            phase("signs");
-            if (CancelF()) return fail(Status.Cancelled);
+                // F = d - sd, inside (of the offset solid) where F > 0
+                double[] f = new double[nodeCount];
+                for (long n = 0; n < nodeCount; ++n)
+                    f[n] = d - (side[n] < 0 ? -u[n] : u[n]);
+                // the largest distance from the input among the nodes that may be inside it (those not known to be outside): the part left by an
+                // inset exists only if some node is within sqrt(3) / 2 h of it (u is 1-Lipschitz, and the ball of radius |d| around a point of it is
+                // inside the input), so below ad - 0.8661 h nothing can be left between the nodes
+                double maxU = 0;
+                for (long n = 0; n < nodeCount; ++n)
+                    if (side[n] <= 0 && u[n] > maxU) maxU = u[n];
+                u = null; side = null;
+                phase("signs");
+                if (CancelF()) return fail(Status.Cancelled);
 
-            // candidate cells: a sign change among the corners
-            var cells = new List<Vector3i>();
-            for (int l = 0; l + 1 < nz; ++l)
-                for (int j = 0; j + 1 < ny; ++j)
-                    for (int i = 0; i + 1 < nx; ++i) {
-                        bool any = false, all = true;
-                        for (int q = 0; q < 8; ++q) {
-                            bool ins = f[idx(i + (q & 1), j + ((q >> 1) & 1), l + ((q >> 2) & 1))] > 0;
-                            any |= ins; all &= ins;
+                // candidate cells: a sign change among the corners
+                var cells = new List<Vector3i>();
+                for (int l = 0; l + 1 < nz; ++l)
+                    for (int j = 0; j + 1 < ny; ++j)
+                        for (int i = 0; i + 1 < nx; ++i) {
+                            bool any = false, all = true;
+                            for (int q = 0; q < 8; ++q) {
+                                bool ins = f[idx(i + (q & 1), j + ((q >> 1) & 1), l + ((q >> 2) & 1))] > 0;
+                                any |= ins; all &= ins;
+                            }
+                            if (any && !all) cells.Add(new Vector3i(i, j, l));
                         }
-                        if (any && !all) cells.Add(new Vector3i(i, j, l));
-                    }
-            if (cells.Count == 0)
-                return fail(Status.Empty);
-            phase("cells");
+                phase("cells");
 
-            // the side of the input along a sign-changing grid edge: every point of it is within h < |d| / 2 of a node whose
-            // field is beyond the offset, so the edge stays off the input: outside it for an offset, inside for an inset
-            double edgeSide = d > 0 ? 1 : -1;
-            var dc = new DualContouring() {
-                Implicit = new FieldImplicit() { Owner = this, Tree = tree, D = d },
-                IsoValue = 0, CellSize = h, CancelF = CancelF, ParallelCompute = UseParallel,
-                QEFEigenTolerance = DualContouring.LegacyQEFEigenTolerance,   // pinned: the default changed with ExactHermite, this caller has its own HermiteF
-                Simplify = false,   // pinned: uniform output
-                Bounds = new AxisAlignedBox3d(origin, origin + new Vector3d((nx - 1) * h, (ny - 1) * h, (nz - 1) * h)),
-                CandidateCells = cells,
-                NodeValueF = (Vector3i n) => (n.x < 0 || n.y < 0 || n.z < 0 || n.x >= nx || n.y >= ny || n.z >= nz) ? -cap : f[idx(n.x, n.y, n.z)]
-            };
-            dc.HermiteF = (Vector3d a, Vector3d b, Vector3d p, out Vector3d point, out Vector3d normal) =>
-                hermite(tree, d, edgeSide, a, b, out point, out normal);
-            dc.Generate();
-            phase("contour");
-            if (CancelF()) return fail(Status.Cancelled);
-            DMesh3 result = dc.Mesh;
-            if (result == null || result.TriangleCount == 0)
-                return fail(Status.Empty);
-            NonManifoldTriangles = dc.NonManifoldTriangles;
-            SelfIntersectionFree = dc.SelfIntersectionFree;
+                DMesh3 resultOfRound = null;
+                if (cells.Count > 0) {
+                // the side of the input along a sign-changing grid edge: every point of it is within h < |d| / 2 of a node whose
+                // field is beyond the offset, so the edge stays off the input: outside it for an offset, inside for an inset
+                double edgeSide = d > 0 ? 1 : -1;
+                var dc = new DualContouring() {
+                    Implicit = new FieldImplicit() { Owner = this, Tree = tree, D = d },
+                    IsoValue = 0, CellSize = h, CancelF = CancelF, ParallelCompute = UseParallel,
+                    QEFEigenTolerance = DualContouring.LegacyQEFEigenTolerance,   // pinned: the default changed with ExactHermite, this caller has its own HermiteF
+                    Simplify = false,   // pinned: uniform output
+                    Bounds = new AxisAlignedBox3d(origin, origin + new Vector3d((nx - 1) * h, (ny - 1) * h, (nz - 1) * h)),
+                    CandidateCells = cells,
+                    NodeValueF = (Vector3i n) => (n.x < 0 || n.y < 0 || n.z < 0 || n.x >= nx || n.y >= ny || n.z >= nz) ? -cap : f[idx(n.x, n.y, n.z)]
+                };
+                dc.HermiteF = (Vector3d a, Vector3d b, Vector3d p, out Vector3d point, out Vector3d normal) =>
+                    hermite(tree, d, edgeSide, a, b, out point, out normal);
+                dc.Generate();
+                phase("contour");
+                if (CancelF()) return fail(Status.Cancelled);
+                resultOfRound = dc.Mesh;
+                nonManifold = dc.NonManifoldTriangles; selfFree = dc.SelfIntersectionFree;
+                }
+                result = resultOfRound;
+                if (cells.Count == 0 || result == null || result.TriangleCount == 0) {
+                    // nothing at this grid: provably nothing if the inset is deeper than the nodes can see, otherwise a part thinner than the grid
+                    // may be left between the nodes (#1597): refine, or report that it is not resolved
+                    if (!(d < 0 && maxU >= ad - 0.8661 * h))
+                        return fail(Status.Empty);
+                    if (refinements < MaxCellRefinements && nodeCount * 8 <= MaxGridNodes && nodeCount * 8 <= (1 << 28)) {
+                        ++refinements;
+                        h *= 0.5;
+                        UsedCellSize = h * sInv;
+                        if (CancelF()) return fail(Status.Cancelled);
+                        retry = true;
+                        continue;
+                    }
+                    SuggestedCellSize = 0.25 * h * sInv;
+                    return fail(Status.NotResolved);
+                }
+                NonManifoldTriangles = nonManifold;
+                SelfIntersectionFree = selfFree;
+            } while (retry);
+            tol = (BandTolerance > 0) ? BandTolerance * s : 0.5 * h;
 
             // the band certificate, on the scaled copy
             int unc;
