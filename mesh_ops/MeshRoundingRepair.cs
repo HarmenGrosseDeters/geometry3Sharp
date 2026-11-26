@@ -95,7 +95,8 @@ namespace g3
     /// inside out. Where the rounds of the free pairs make no move and a degenerate triangle is left, the extension of the stage (JointExtension,
     /// JointMovesWithFixedCorner; docs/design/SAFE_ROUNDING.md section 9.1.1) goes on: the pairs that include a corner that FixedVertexF marks
     /// (a preference; never one that FixedHard keeps), then the free pairs with two levels j that differ (by at most 3), each round with
-    /// a budget of its own; a corner that FixedVertexF marks can be moved by it, within the bound like every other.
+    /// a budget of its own; a corner that FixedVertexF marks can be moved by it, within the bound like every other. The work of its searches
+    /// that make no move is capped for the stage (JointExtensionWastedProposals, JointExtensionWastedProbes: about 32 triangles it cannot repair).
     ///
     /// Usage: construct with the mesh (modified in place), optionally set FixedVertexF to the vertices whose
     /// position should be kept where possible (eg input vertices), call Apply(). Apply() returns IsClean:
@@ -317,14 +318,16 @@ namespace g3
         /// <summary> the joint moves of two vertices (search_pairs, the last resort for a degenerate triangle that no other edit removes); also counted in Moves, not in PositionSearchMoves </summary>
         public int JointMoves;
         /// <summary>
-        /// of the JointMoves: those that moved a corner that FixedVertexF marks (a preference, FixedHard false; never a hard-fixed one), after the free
-        /// corners found no pair (the extension of the joint stage, see class comment). Reset by every Apply
+        /// of the JointMoves: those that moved a corner that the repair holds fixed (FixedVertexF, where it applies: not in a coarse component with
+        /// FixedWhereCoarse false; a preference, FixedHard false; never a hard-fixed one), after the free corners found no pair (the extension of the joint stage, see class comment). Reset by every Apply
         /// </summary>
         public int JointMovesWithFixedCorner;
         // for tests: the moves the position search proposed in the last Apply
         internal long PositionSearchProposals;
         // for tests: the joint moves proposed (to improves) in the last Apply
         internal long JointSearchProposals;
+        // for tests: the cheap probes (pair_removes_bad) of the joint stage in the last Apply
+        internal long JointProbes;
         // for tests: the passes are left out, so that the position search is the only repair
         internal bool SearchWithoutPasses;
         // for tests: the rounds of search and passes at most (to show what the later rounds repair)
@@ -872,6 +875,7 @@ namespace g3
             JointMoves = 0;
             JointMovesWithFixedCorner = 0;
             JointSearchProposals = 0;
+            JointProbes = 0;
             PositionSearchProposals = 0;
             MaxDrift = 0;
             refAnchor = new Vector3d[3 * Mesh.MaxTriangleID];
@@ -3391,6 +3395,24 @@ namespace g3
         // them, the repairs of the sample took at most 3 100 (docs/design/SAFE_ROUNDING.md section 9.1.1)
         internal int JointExtensionEvaluationsPerDefect = 4096;
 
+        // the work of the searches that make no move once the extension has been reached (its own rounds, and the rounds 0 after one of its moves,
+        // which have its budget) is capped for the whole stage, in proposals that reach improves and in cheap probes: when it is spent, the stage
+        // ends. The budget per triangle above is linear in the number of triangles, and so is the cost of the ones the stage cannot repair (about
+        // 4 100 proposals and 27 000 probes, 35 to 85 ms each), which a mesh with a few hundred of them would turn into many seconds; with the cap it
+        // is the work of about 32 of them. A search that makes a move does not count, so the repairs of any number of triangles go on
+        // (docs/design/SAFE_ROUNDING.md section 9.1.1)
+        internal const long JointExtensionWastedProposals = 32 * 4096;
+        internal const long JointExtensionWastedProbes = 1 << 20;
+        // for tests: smaller caps on this thread (0: the constants; the repair of a Boolean is made inside it)
+        [ThreadStatic] internal static long WastedProposalsCapOnThisThread, WastedProbesCapOnThisThread;
+        long wastedProposals, wastedProbes;
+
+        bool extension_exhausted()
+        {
+            return wastedProposals >= (WastedProposalsCapOnThisThread > 0 ? WastedProposalsCapOnThisThread : JointExtensionWastedProposals)
+                || wastedProbes >= (WastedProbesCapOnThisThread > 0 ? WastedProbesCapOnThisThread : JointExtensionWastedProbes);
+        }
+
         // the largest difference of the two levels (j) of a pair of free corners in the last round of the joint stage (the difference of 3 is
         // the largest an accepted move of the sample of the exact oracle needed); the pairs with a fixed corner have the same level for both
         internal const int JointLevelSpread = 3;
@@ -3411,6 +3433,7 @@ namespace g3
             // (its own budget, and not past the repair's: no evaluation of the stage sets EvaluationLimitReached)
             jointEvaluationsEnd = Math.Min(maxEvaluations, evaluations + (long)JointStageEvaluationsPerDefect * bad.Count);
             jointPairTestsEnd = pairBudget - (pairBudget >> 4);
+            wastedProposals = wastedProbes = 0;
             for (int i = 0; i < pairFailed.Length; ++i)
                 pairFailed[i].Clear();
             var insideOut = new Dictionary<int, bool>();
@@ -3436,8 +3459,16 @@ namespace g3
                 foreach (int t in bad) {
                     if (stopped || joint_stage_over())
                         break;
-                    if (Mesh.IsTriangle(t) && is_bad(t) && in_inside_out_component(t, insideOut) == false)
-                        search_pairs(t, round);
+                    if (extended && extension_exhausted())
+                        break;
+                    if (Mesh.IsTriangle(t) && is_bad(t) && in_inside_out_component(t, insideOut) == false) {
+                        long proposals = JointSearchProposals, probes = JointProbes;
+                        if (search_pairs(t, round) == false && extended) {
+                            // (the work of a search that made no move, once the extension has been reached; a round 0 after a move included)
+                            wastedProposals += JointSearchProposals - proposals;
+                            wastedProbes += JointProbes - probes;
+                        }
+                    }
                 }
                 if (JointMoves == before) {
                     do
@@ -3498,11 +3529,11 @@ namespace g3
         // changes the stars of a vertex of the pair
         // (one set per round of the joint stage: the pairs of a round are other proposals than those of another)
         const int JointRounds = 3;
-        readonly HashSet<long>[] pairFailed = { new HashSet<long>(), new HashSet<long>(), new HashSet<long>(), new HashSet<long>(), new HashSet<long>(), new HashSet<long>() };
+        internal readonly HashSet<long>[] pairFailed = { new HashSet<long>(), new HashSet<long>(), new HashSet<long>(), new HashSet<long>(), new HashSet<long>(), new HashSet<long>() };
 
         /// <summary>
         /// whether the joint stage goes on, where the free pairs with one level for both found no move, first with pairs that include a
-        /// corner that FixedVertexF marks (JointMovesWithFixedCorner; never a hard-fixed one), then with pairs of free corners with two levels.
+        /// corner that is_fixed marks (FixedVertexF, where it applies: JointMovesWithFixedCorner; never a hard-fixed one), then with pairs of free corners with two levels.
         /// True by default; false is the stage of before: the result of an input that has no degenerate triangle left without the
         /// extension is the same with it, bit for bit
         /// </summary>
@@ -3510,7 +3541,7 @@ namespace g3
 
         // after a joint move of u and w: the pairs that failed and have a vertex of the stars of u or w (whose triangles and positions the
         // move changed) are searched again. A pair elsewhere whose proposals now meet the moved triangles is not (it only loses a repair)
-        void forget_failed_pairs(int u, int w)
+        internal void forget_failed_pairs(int u, int w)
         {
             bool any = false;
             foreach (HashSet<long> failed in pairFailed)
@@ -3570,9 +3601,12 @@ namespace g3
                 int v = tv[k];
                 if (Mesh.IsBoundaryVertex(v) || Mesh.IsBowtieVertex(v))
                     continue;
+                // (a hard-fixed corner is in no pair: try_move_pair refuses it; with FixedWhereCoarse false it is not is_fixed in a coarse component)
+                if (hard_fixed(v))
+                    continue;
                 if (is_fixed(v) == false)
                     free.Add(v);
-                else if (hard_fixed(v) == false)
+                else
                     soft.Add(v);
             }
             Comparison<int> byPosition = (a, b) => {
@@ -3640,6 +3674,7 @@ namespace g3
                                 Vector3d pu = cu + su * du;
                                 foreach (Vector3d dw in SearchDirections) {
                                     Vector3d pw = cw + sw * dw;
+                                    JointProbes++;
                                     if (pair_removes_bad(u, pu, w, pw, star, need, atLeast) == false)
                                         continue;
                                     if (joint_stage_over())
