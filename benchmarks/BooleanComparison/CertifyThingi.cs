@@ -32,7 +32,7 @@ static class CertifyThingi
         CultureInfo.DefaultThreadCurrentCulture = ci;
         CultureInfo.CurrentCulture = ci;
         var ops = new List<Ops> { Ops.Union, Ops.Intersection, Ops.Difference };
-        var opArg = args.FirstOrDefault(a => a.StartsWith("ops="));
+        var opArg = args.FirstOrDefault(s => s.StartsWith("ops="));
         if (opArg != null) {
             ops = new List<Ops>();
             foreach (string o in opArg.Substring(4).Split(',')) {
@@ -41,13 +41,13 @@ static class CertifyThingi
                 else if (o == "difference") ops.Add(Ops.Difference);
                 else { Console.Error.WriteLine($"certify thingi: unknown operation '{o}' in {opArg} (union, intersection, difference)"); return 1; }
             }
-            args = args.Where(a => a != opArg).ToArray();
+            args = args.Where(s => s != opArg).ToArray();
         }
         int split = -1;
-        var splitArg = args.FirstOrDefault(a => a.StartsWith("split="));
-        if (splitArg != null) { split = int.Parse(splitArg.Substring(6), ci); args = args.Where(a => a != splitArg).ToArray(); }
+        var splitArg = args.FirstOrDefault(s => s.StartsWith("split="));
+        if (splitArg != null) { split = int.Parse(splitArg.Substring(6), ci); args = args.Where(s => s != splitArg).ToArray(); }
         bool noCheck = args.Contains("nocheck"), clauses = args.Contains("clauses");
-        args = args.Where(a => a != "nocheck" && a != "clauses").ToArray();
+        args = args.Where(s => s != "nocheck" && s != "clauses").ToArray();
         string kind = args[0];
         DMesh3 a = Program.Load(args[1]), b = kind == "self" ? null : Program.Load(args[2]);
         var row = new Dictionary<string, object> { ["kind"] = kind, ["a"] = Path.GetFileNameWithoutExtension(args[1]),
