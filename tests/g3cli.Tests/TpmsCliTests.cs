@@ -23,6 +23,34 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void ThinSheet_OnOk_ReportsTheLatticeMessageAsAWarning()
+        {
+            // a wall far thinner than two cubes: marching cubes loses most of it, TpmsLattice stays Ok with a Message (#1596), the CLI passes it on
+            var (exit, r) = Run("tpms", m.Path_("tpms_thin.obj"), "--wall-thickness", "0.04", "--divisions", "12", "--compact");
+            Assert.Equal(0, exit);
+            Assert.Equal("ok", S(r["tpms_status"]));
+            string[] w = r["warnings"].AsArray().Select(x => S(x)).ToArray();
+            Assert.Contains(w, x => x.StartsWith("tpms: Sheet: the realized volume fraction") && x.Contains("TwoLevelSheet"));
+        }
+
+        [Fact]
+        public void EnclosureAboveFractionOne_OnOk_ReportsTheLatticeMessageAsAWarning()
+        {
+            var (exit, r) = Run("tpms", m.Path_("tpms_enc1.obj"), "--enclosure", "true", "--divisions", "4", "--volume-fraction", "0.9", "--compact");
+            Assert.Equal(0, exit);
+            string[] w = r["warnings"].AsArray().Select(x => S(x)).ToArray();
+            Assert.Contains(w, x => x.StartsWith("tpms: Enclosure: the realized volume fraction") && x.Contains("above 1"));
+        }
+
+        [Fact]
+        public void OrdinaryLattice_HasNoLatticeMessageWarning()
+        {
+            var (exit, r) = Run("tpms", m.Path_("tpms_nomsg.obj"), "--divisions", "12", "--compact");
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain(r["warnings"].AsArray().Select(x => S(x)), x => x.StartsWith("tpms:"));
+        }
+
+        [Fact]
         public void Default_IsAGyroidSheetInTwoPeriods()
         {
             string output = m.Path_("tpms_default.obj");

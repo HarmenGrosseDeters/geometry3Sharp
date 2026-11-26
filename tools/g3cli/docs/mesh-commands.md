@@ -144,7 +144,7 @@ g3cli offset part.stl part_offset.stl --distance 0.5 --method mesh_offset
 ```
 
 - **`--method sdf_mc` (default):** `--cell-size` / `--relative-cell-size` (default `0.01` of diagonal), `--max-cells`, `--root-mode` (`single_lerp`, `lerp_steps`, `bisection`, `linear_edges`). `linear_edges` fails with `offset_status: "linear_edges_precondition"` without writing on precondition violations. Always reports `enclosure_claim: "none"`.
-- **`--method mesh_offset`:** Dual-contours the exact distance field (default cell `|distance| / 4`, max `|distance| / 2`; `--max-cells` up to `2^28`; refuses `--root-mode`/`--root-steps`). Reports `enclosure_claim: "band"`, `band_deviation`, `band_certified`, `uncertified_triangles`, and exact `self_intersection_free`.
+- **`--method mesh_offset`:** Dual-contours the exact distance field (default cell `|distance| / 4`, max `|distance| / 2`; `--max-cells` up to `2^28`; refuses `--root-mode`/`--root-steps`). Reports `enclosure_claim: "band"`, `band_deviation`, `band_certified`, `uncertified_triangles`, and exact `self_intersection_free`. `offset_status: "empty"` (`operation_failed`, nothing written) means that nothing was resolved at this grid, not that the surface is empty: a part thinner than about half a cell can still exist, so try a smaller `--cell-size` / `--relative-cell-size`.
 
 ---
 
