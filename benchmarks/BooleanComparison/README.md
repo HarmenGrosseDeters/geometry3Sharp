@@ -1460,3 +1460,26 @@ verdict row out (the meshes are not changed, nothing is written). The row, one J
 | `verdict` | `certified`, `uncovered` (no violation, coverage not proven), `removed parts` (the rounding removed parts, listed), `rejected`, `not applicable`, `boolean failed`, `boolean exception`, `checker exception`, `boolean only` (`nocheck`), `error` (load or placement), `timeout` / `process failed` (driver) |
 | `clause`, `message` | the failing clause of a rejection (`C0`, `C1`, `C2`, `C3/C4`, `C5`), and `Check()`'s text (at most 400 characters) |
 | `split` | `SplitDepth`, where it was set |
+
+## Nesting check of MeshWindingNumberBoolean (`nesting-cost`; #1609, #1661, 2026-11-26)
+
+`BooleanComparison nesting-cost [rounds]` times `Compute()` of a union with the nesting check off (`NestingCheck` false) and on, for
+an input of two shells that lie apart and for an input with an outward shell inside another (spheres of 12 x 12 x 6 and 24 x 24 x 6
+faces plus a far sphere as B, `GridResolution` 48). The best of 7 rounds; `nesting phase` is `PhaseMilliseconds["nesting"]`, which is
+there only if an input has a nested outward shell (the reading and its volume IoU ran; the default `MinVolumeIoU` refuses this input,
+so its `Compute()` is the check alone).
+
+| shell triangles | input | check | Compute ms | nesting phase ms | refused |
+|---|---|---|---|---|---|
+| 2904 | two apart shells | off | 100 | - | no |
+| 2904 | two apart shells | on | 54 | - | no |
+| 2904 | nested outward shell | off | 47 | - | no |
+| 2904 | nested outward shell | on | 58 | 57 | yes |
+| 12696 | two apart shells | off | 54 | - | no |
+| 12696 | two apart shells | on | 50 | - | no |
+| 12696 | nested outward shell | off | 63 | - | no |
+| 12696 | nested outward shell | on | 55 | 54 | yes |
+
+Without a nested shell the check is the cheap box test (`MayHaveNestedShells`) and is within the noise of the run (the first row's
+100 ms is the JIT of the first round). With one, the check costs about 55 ms at both sizes: the volume IoU of the two readings
+is sampled, so its cost does not grow with the triangle count at these sizes.
