@@ -436,7 +436,7 @@ namespace gs
             Volume = PlanArea = SlopeArea = 0; CutVolume = FillVolume = CutArea = FillArea = 0;
             lastOverlay = null; lastPieces = null; TargetHeightLines = new List<TargetHeightLine>(); AutoCut = AutoFill = null;
             PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; Realizations = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
-            MergedPositions = 0; MergeLambdaRequired = 0; NeedleFlips = 0; LastRealized = null; strictRealization = false;
+            MergedPositions = 0; MergeLambdaRequired = 0; NeedleFlips = 0; LastRealized = null; realizationMode = 0; crackAfterStrict = false;
             MaxMergeDistance = 0; BandMerges = 0; RegionNeedles = RegionNeedleHits = 0; SkippedTerrainCopies = 0; CompositeBuilds = 0; UsedMergeRadius = UsedBandMergeRadius = 0; AttemptProblemAltitudes = new List<List<double>>();
             // (a cancelled or failed run can leave them set)
             reachedCap = capMayGrow = false;
@@ -1106,8 +1106,12 @@ namespace gs
 
         bool reachedCap, capMayGrow;
 
-        // the realization drops the slivers that the rounding turned over (SlopeMap strict), from the first realization on
-        bool strictRealization;
+        // how far the realizations of this run go (#1539): 0 the plain ones, then strict ones (SlopeMap strict: slivers that the
+        // rounding turned over or laid over a neighbour are dropped and stitched), then zip ones (zip_strips) after a
+        // NonManifoldRealization; 1 and 2 start there, for the reruns of attempts()
+        int realizationMode;
+        // set by a realization with strict (not zip) rounding that left a crack
+        bool crackAfterStrict;
 
         static bool turned_over(DMesh3 mesh, int t)
         {
@@ -1116,18 +1120,28 @@ namespace gs
             return ExactPredicates.Orient2d(mesh.GetVertex(tv.a).xy, mesh.GetVertex(tv.b).xy, mesh.GetVertex(tv.c).xy) <= 0;
         }
 
-        // (#1539: a triangle that the rounding turned over, left in the realization, fails every margin; the strict realization
-        // drops such slivers. Only where the attempts have failed with such a triangle: a design that passes, also after raising
-        // the margin, gives the result it always gave)
+        // (#1539: where the plain attempts end in SlopeViolation with a triangle that the rounding turned over, left in the realization
+        // (it fails every margin), the attempts run again from the strict realization on; where a strict realization left a crack,
+        // from the zip one on. Only after such a failure: a design that passes, also after raising the margin, gives the result it
+        // always gave. The counters of the run (Attempts, Realizations, PredicateCalls, ...) add up over the reruns: they count
+        // the work done; the problem lists (ProblemTriangles, AttemptProblemAltitudes) hold the last run's)
         Statuses attempts(List<InPiece> pieces, List<List<Vector3d>> toePts, double H, bool fill)
         {
-            sawTurnedOver = false; strictRealization = false;
-            Statuses st = attempts_once(pieces, toePts, H, fill);
-            if (st != Statuses.SlopeViolation || sawTurnedOver == false) return st;
-            strictRealization = true;
-            try { return attempts_once(pieces, toePts, H, fill); } finally { strictRealization = false; }
+            Statuses st;
+            try {
+                realizationMode = 0;
+                for (; ; ) {
+                    sawTurnedOver = false; crackAfterStrict = false;
+                    st = attempts_once(pieces, toePts, H, fill);
+                    if (st != Statuses.SlopeViolation && st != Statuses.Failed) return st;
+                    if (realizationMode <= 1 && crackAfterStrict) { realizationMode = 2; AttemptProblemAltitudes = new List<List<double>>(); continue; }
+                    if (realizationMode == 0 && st == Statuses.SlopeViolation && sawTurnedOver) { realizationMode = 1; AttemptProblemAltitudes = new List<List<double>>(); continue; }
+                    return st;
+                }
+            } finally { realizationMode = 0; }
         }
 
+        // (a triangle with Orient2d <= 0 counts: a collinear one as well as a clockwise one)
         bool sawTurnedOver;
 
         Statuses attempts_once(List<InPiece> pieces, List<List<Vector3d>> toePts, double H, bool fill)
@@ -1622,22 +1636,27 @@ namespace gs
             // mesh non-manifold, the realization runs without it and the check decides)
             // (the merge and the needle flips each move the surface off S̃ by at most 2 sMax (r + e_xy) upwards, which the
             // lowering must cover, see RepairLambda: both only where both together fit under λ's bound)
-            bool mayMerge = repairLambda(2) <= lambdaBound;
+            bool mayMerge = repairLambda(2) <= lambdaBound, strictOnly = false;
             bool mergedWithin = mayMerge;
             // (#1539: where neither realization is manifold, the same two with strict rounding, which drops the slivers that
             // the rounding turned over or laid over a neighbour)
-            var attempts = new List<KeyValuePair<bool, bool>>();      // (merge, strict)
-            if (strictRealization == false) {
-                if (mayMerge) attempts.Add(new KeyValuePair<bool, bool>(true, false));
-                attempts.Add(new KeyValuePair<bool, bool>(false, false));
+            var attempts = new List<int[]>();      // (merge, strict, zip)
+            if (realizationMode == 0) {
+                if (mayMerge) attempts.Add(new[] { 1, 0, 0 });
+                attempts.Add(new[] { 0, 0, 0 });
             }
-            if (mayMerge) attempts.Add(new KeyValuePair<bool, bool>(true, true));
-            attempts.Add(new KeyValuePair<bool, bool>(false, true));
+            if (realizationMode <= 1) {
+                if (mayMerge) attempts.Add(new[] { 1, 1, 0 });
+                attempts.Add(new[] { 0, 1, 0 });
+            }
+            if (mayMerge) attempts.Add(new[] { 1, 1, 1 });
+            attempts.Add(new[] { 0, 1, 1 });
             mesh = null;
             for (int attempt = 0; mesh == null; ++attempt) {
-                bool merge = attempts[attempt].Key, strict = attempts[attempt].Value;
+                bool merge = attempts[attempt][0] == 1, strict = attempts[attempt][1] == 1, zip = attempts[attempt][2] == 1;
+                strictOnly = strict && zip == false;
                 try {
-                    mesh = map.Realize(cap, fill, merge ? mergeRadius : 0, lambda, strict);
+                    mesh = map.Realize(cap, fill, merge ? mergeRadius : 0, lambda, strict, zip);
                 } catch (SlopeMap.NonManifoldRealization) when (attempt + 1 < attempts.Count) {
                     continue;
                 }
@@ -1677,8 +1696,10 @@ namespace gs
                 if (BandMerges > 0) bandLength = ExactInterval.Up(bandLength);
             }
             int flips = mayMerge ? SlopeMap.FlipNeedles(mesh, mergeRadius, flipShare) : 0;
-            if (map.DroppedTriangles > 0 && boundary_is_toe_limit_or_cap(mesh, map, cap) == false)
+            if (map.DroppedTriangles > 0 && boundary_is_toe_limit_or_cap(mesh, map, cap) == false) {
+                if (strictOnly) crackAfterStrict = true;
                 return fail(Statuses.Failed, "the realization left a crack (dropped triangles of a face narrower than the rounding)");
+            }
             int repairs = (map.MergedCount > 0 || BandMerges > 0 ? 1 : 0) + (flips > 0 ? 1 : 0);
             MergedPositions = map.MergedCount; NeedleFlips = flips; MaxMergeDistance = bandLength;
             // (the lowering the repairs need: a merge within r as today; band merges by the largest move of an original

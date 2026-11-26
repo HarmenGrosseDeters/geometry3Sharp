@@ -1323,7 +1323,7 @@ namespace gs
         /// 'lower' (rounded to nearest from the exact value), faces triangulated at their exact corners; group id = piece;
         /// z negated for fill
         /// </summary>
-        public DMesh3 Realize(int cap, bool fill, double mergeRadius = 0, double lower = 0, bool strict = false)
+        public DMesh3 Realize(int cap, bool fill, double mergeRadius = 0, double lower = 0, bool strict = false, bool zip = false)
         {
             var mesh = new DMesh3(false, false, false, true);
             // the planes incident to each rounded position (all domain faces, the cap too)
@@ -1372,7 +1372,7 @@ namespace gs
             merge_close_positions(labelsAt, barrierPos, BarriersAt, mergeRadius, repOf);
             DroppedTriangles = append_faces(mesh,
                 faces.Select(f => new KeyValuePair<int, List<int>>(owner[fLabel[f]], cycle(f).Select(h => hOrig[h]).ToList())),
-                triangulate, outVertex, strict, mergeRadius);
+                triangulate, outVertex, strict, mergeRadius, zip);
             foreach (int v in mesh.VertexIndices()) OnBarrier.Add(barrierPos.Contains(mesh.GetVertex(v).xy));
             return mesh;
         }
@@ -1451,13 +1451,14 @@ namespace gs
         // near-degenerate clusters, where slivers of different faces a few ulps wide lie along one line, round to such
         // triangles. Not the default: a turned-over sliver that is not in the way is kept (later repairs remove it), and
         // dropping it can leave a crack. Only a sliver is dropped (is_sliver, radius = the merge radius of the realization);
-        // a thicker triangle that turns over or overlaps is a real defect: NonManifoldRealization. A triangle that the mesh
+        // a thicker triangle that turns over or overlaps is a real defect: NonManifoldRealization. Zip (#1539, the retry after strict
+        // failed): a real triangle over appended slivers removes them, and zip_strips replaces stitch. A triangle that the mesh
         // refuses throws as well: in strict mode an edge never has two triangles in one direction (overlaps drops those), so
         // two triangles on an edge run in opposite directions and a third one runs along one of them in the same direction,
         // which overlaps catches first; the refusal cannot happen (and has no test), the throw is a guard.
         internal static int append_faces(DMesh3 mesh, IEnumerable<KeyValuePair<int, List<int>>> faces,
                                          Func<List<int>, List<Index3i>> triangulate, Func<int, int> outVertex, bool strict = false,
-                                         double radius = 0)
+                                         double radius = 0, bool zip = false)
         {
             var dropped = new List<Index3i>();
             foreach (var face in faces) {
@@ -1475,8 +1476,9 @@ namespace gs
                             dropped.Add(new Index3i(a, b, c));
                             continue;
                         }
-                        // (a real triangle lies over appended ones: those must be slivers, which go instead of it)
-                        if (orient < 0) throw new NonManifoldRealization();
+                        // (zip: a real triangle lies over appended ones: those must be slivers, which go instead of it. Without it, a
+                        // real triangle that turned over or lies over another is a defect)
+                        if (zip == false || orient < 0) throw new NonManifoldRealization();
                         foreach (int over in overlapped(mesh, a, b, c)) {
                             Index3i ov = mesh.GetTriangle(over);
                             if (is_sliver(mesh.GetVertex(ov.a).xy, mesh.GetVertex(ov.b).xy, mesh.GetVertex(ov.c).xy, radius) == false) throw new NonManifoldRealization();
@@ -1488,7 +1490,7 @@ namespace gs
                     if (tid < 0) throw new NonManifoldRealization();
                 }
             }
-            if (strict) zip_strips(mesh, dropped, radius); else stitch(mesh, dropped);
+            if (strict && zip) zip_strips(mesh, dropped, radius); else stitch(mesh, dropped);
             return dropped.Count;
         }
 
@@ -1567,55 +1569,69 @@ namespace gs
         internal static void zip_strips(DMesh3 mesh, List<Index3i> dropped, double radius)
         {
             var strip = new HashSet<long>();
-            var vertices = new SortedSet<int>();
+            var vertices = new HashSet<int>();
             Action<int, int, int> addTriangle = (a, b, c) => {
                 strip.Add(edge_key(a, b)); strip.Add(edge_key(b, c)); strip.Add(edge_key(c, a));
                 vertices.Add(a); vertices.Add(b); vertices.Add(c);
             };
             foreach (Index3i d in dropped) addTriangle(d.a, d.b, d.c);
-            var removed = new List<int>();
+            // the kept slivers chained to the dropped ones by shared edges: only triangles at the strip's vertices are looked at
+            var removed = new HashSet<int>();
             for (bool again = true; again;) {
                 again = false;
-                foreach (int t in mesh.TriangleIndices()) {
-                    Index3i tv = mesh.GetTriangle(t);
-                    if (strip.Contains(edge_key(tv.a, tv.b)) == false && strip.Contains(edge_key(tv.b, tv.c)) == false && strip.Contains(edge_key(tv.c, tv.a)) == false)
-                        continue;
-                    if (is_sliver(mesh.GetVertex(tv.a).xy, mesh.GetVertex(tv.b).xy, mesh.GetVertex(tv.c).xy, radius) == false) continue;
-                    if (removed.Contains(t)) continue;
-                    removed.Add(t);
-                    addTriangle(tv.a, tv.b, tv.c);
-                    again = true;
-                }
-            }
-            foreach (int t in removed) mesh.RemoveTriangle(t, false, false);
-            for (bool again = vertices.Count > 0; again;) {
-                again = false;
-                foreach (int v in vertices) {
-                    Vector2d pv = mesh.GetVertex(v).xy;
-                    foreach (int e in mesh.BoundaryEdgeIndices().ToList()) {
-                        Index2i ev = mesh.GetEdgeV(e);
-                        int p = ev.a, q = ev.b;
-                        if (v == p || v == q) continue;
-                        Vector2d pp = mesh.GetVertex(p).xy, pq = mesh.GetVertex(q).xy;
-                        if ((pv - pp).Dot(pq - pp) <= 0 || (pv - pq).Dot(pp - pq) <= 0) continue;
-                        if (is_sliver(pp, pq, pv, radius) == false) continue;
-                        int t = mesh.GetEdgeT(e).a;
+                foreach (int v in vertices.OrderBy(i => i).ToList())
+                    foreach (int t in mesh.VtxTrianglesItr(v).ToList()) {
+                        if (removed.Contains(t)) continue;
                         Index3i tv = mesh.GetTriangle(t);
-                        if (tv.a == v || tv.b == v || tv.c == v) continue;
-                        int x = tv.a != p && tv.a != q ? tv.a : (tv.b != p && tv.b != q ? tv.b : tv.c);
-                        bool forward = (tv.a == p && tv.b == q) || (tv.b == p && tv.c == q) || (tv.c == p && tv.a == q);
-                        int g = mesh.GetTriangleGroup(t);
-                        if (mesh.FindEdge(v, x) >= 0) throw new NonManifoldRealization();
-                        Index3i first = forward ? new Index3i(p, v, x) : new Index3i(q, v, x), second = forward ? new Index3i(v, q, x) : new Index3i(v, p, x);
-                        foreach (Index3i n in new[] { first, second })
-                            if (ExactPredicates.Orient2d(mesh.GetVertex(n.a).xy, mesh.GetVertex(n.b).xy, mesh.GetVertex(n.c).xy) <= 0) throw new NonManifoldRealization();
-                        mesh.RemoveTriangle(t, false, false);
-                        if (mesh.AppendTriangle(first.a, first.b, first.c, g) < 0 || mesh.AppendTriangle(second.a, second.b, second.c, g) < 0)
-                            throw new NonManifoldRealization();
+                        if (strip.Contains(edge_key(tv.a, tv.b)) == false && strip.Contains(edge_key(tv.b, tv.c)) == false && strip.Contains(edge_key(tv.c, tv.a)) == false)
+                            continue;
+                        if (is_sliver(mesh.GetVertex(tv.a).xy, mesh.GetVertex(tv.b).xy, mesh.GetVertex(tv.c).xy, radius) == false) continue;
+                        removed.Add(t);
+                        addTriangle(tv.a, tv.b, tv.c);
                         again = true;
                     }
-                }
             }
+            foreach (int t in removed.OrderBy(i => i)) mesh.RemoveTriangle(t, false, false);
+            // the splits, one at a time (a split changes the boundary: the candidates are collected again after each)
+            while (split_boundary_edge(mesh, vertices, radius)) { }
+        }
+
+        // one split of zip_strips: a boundary edge with both ends in the strip's vertices (an outer toe or cap edge only where the strip
+        // reaches its ends), and a strip vertex strictly inside it within the sliver bound of its line: the triangle of the edge
+        // is split there
+        static bool split_boundary_edge(DMesh3 mesh, HashSet<int> vertices, double radius)
+        {
+            var edges = new List<Index2i>();
+            foreach (int u in vertices.OrderBy(i => i))
+                foreach (int e in mesh.VtxEdgesItr(u).ToList()) {
+                    if (mesh.IsBoundaryEdge(e) == false) continue;
+                    Index2i ev = mesh.GetEdgeV(e);
+                    int w = ev.a == u ? ev.b : ev.a;
+                    if (u < w && vertices.Contains(w)) edges.Add(new Index2i(u, w));
+                }
+            foreach (Index2i uw in edges)
+                foreach (int v in vertices.OrderBy(i => i)) {
+                    int p = uw.a, q = uw.b;
+                    if (v == p || v == q) continue;
+                    Vector2d pv = mesh.GetVertex(v).xy, pp = mesh.GetVertex(p).xy, pq = mesh.GetVertex(q).xy;
+                    if ((pv - pp).Dot(pq - pp) <= 0 || (pv - pq).Dot(pp - pq) <= 0) continue;
+                    if (is_sliver(pp, pq, pv, radius) == false) continue;
+                    int t = mesh.GetEdgeT(mesh.FindEdge(p, q)).a;
+                    Index3i tv = mesh.GetTriangle(t);
+                    if (tv.a == v || tv.b == v || tv.c == v) continue;
+                    int x = tv.a != p && tv.a != q ? tv.a : (tv.b != p && tv.b != q ? tv.b : tv.c);
+                    bool forward = (tv.a == p && tv.b == q) || (tv.b == p && tv.c == q) || (tv.c == p && tv.a == q);
+                    int g = mesh.GetTriangleGroup(t);
+                    if (mesh.FindEdge(v, x) >= 0) throw new NonManifoldRealization();
+                    Index3i first = forward ? new Index3i(p, v, x) : new Index3i(q, v, x), second = forward ? new Index3i(v, q, x) : new Index3i(v, p, x);
+                    foreach (Index3i n in new[] { first, second })
+                        if (ExactPredicates.Orient2d(mesh.GetVertex(n.a).xy, mesh.GetVertex(n.b).xy, mesh.GetVertex(n.c).xy) <= 0) throw new NonManifoldRealization();
+                    mesh.RemoveTriangle(t, false, false);
+                    if (mesh.AppendTriangle(first.a, first.b, first.c, g) < 0 || mesh.AppendTriangle(second.a, second.b, second.c, g) < 0)
+                        throw new NonManifoldRealization();
+                    return true;
+                }
+            return false;
         }
 
         static long edge_key(int a, int b) { return a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a; }

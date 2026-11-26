@@ -28,11 +28,11 @@ namespace geometry3Sharp.Tests
             return mesh;
         }
 
-        static int Append(DMesh3 mesh, List<Index3i> tris, bool strict)
+        static int Append(DMesh3 mesh, List<Index3i> tris, bool strict, bool zip = false)
         {
             // (a face per triangle, its corners the mesh's vertex ids)
             var faces = tris.Select((t, i) => new KeyValuePair<int, List<int>>(i, new List<int> { t.a, t.b, t.c })).ToList();
-            return SlopeMap.append_faces(mesh, faces, (v) => new List<Index3i> { new Index3i(v[0], v[1], v[2]) }, (v) => v, strict);
+            return SlopeMap.append_faces(mesh, faces, (v) => new List<Index3i> { new Index3i(v[0], v[1], v[2]) }, (v) => v, strict, 0, zip);
         }
 
         [Fact]
@@ -47,7 +47,7 @@ namespace geometry3Sharp.Tests
             Assert.Throws<SlopeMap.NonManifoldRealization>(() => Append(plain, tris, false));
             // strict: the sliver is dropped (the other side of the edge keeps its triangle), every triangle counter-clockwise, manifold
             Assert.Equal(1, Append(mesh, tris, true));
-            Assert.Equal(3, mesh.TriangleCount);       // x's triangle, and the other side's, split at the dropped sliver's corner m1 (it lies within the bound of its edge m2 e0)
+            Assert.Equal(2, mesh.TriangleCount);
             Assert.True(mesh.CheckValidity(true, FailMode.ReturnOnly));
             Assert.Equal(0, MeshRepairMetrics.InconsistentlyOrientedEdges(mesh));
             foreach (int t in mesh.TriangleIndices()) {
@@ -138,8 +138,8 @@ namespace geometry3Sharp.Tests
             var plain = new DMesh3(mesh);
             Assert.Throws<SlopeMap.NonManifoldRealization>(() => Append(plain, tris, false));
             var strict = new DMesh3(mesh);
-            SlopeMap.append_faces(strict, tris.Select((t, i) => new KeyValuePair<int, List<int>>(i, new List<int> { t.a, t.b, t.c })).ToList(),
-                (v) => new List<Index3i> { new Index3i(v[0], v[1], v[2]) }, (v) => v, true, 0);
+            Assert.Throws<SlopeMap.NonManifoldRealization>(() => Append(new DMesh3(mesh), tris, true));      // the strict stitch does not meet it either
+            Append(strict, tris, true, true);
             Assert.True(fine(strict));
             // closed along the line: the only boundary is the outer one (the 4 edges of the quadrilateral e0 x e1 y)
             var boundary = strict.EdgeIndices().Where(strict.IsBoundaryEdge).Select(e => ordered(strict.GetEdgeV(e).a, strict.GetEdgeV(e).b)).ToList();
@@ -163,8 +163,9 @@ namespace geometry3Sharp.Tests
             var plain = new DMesh3(mesh);
             Append(plain, tris, false);
             Assert.True(MeshRepairMetrics.InconsistentlyOrientedEdges(plain) > 0);              // as before: both stay, one over the other
+            Assert.Throws<SlopeMap.NonManifoldRealization>(() => Append(new DMesh3(mesh), tris, true));       // strict alone: a real triangle over a sliver is a defect
             var strict = new DMesh3(mesh);
-            Assert.Equal(1, Append(strict, tris, true));
+            Assert.Equal(1, Append(strict, tris, true, true));
             Assert.Equal(2, strict.TriangleCount);                                              // the real triangle, split at q
             Assert.Equal(0, MeshRepairMetrics.InconsistentlyOrientedEdges(strict));
             Assert.True(strict.FindEdge(q, p) >= 0);

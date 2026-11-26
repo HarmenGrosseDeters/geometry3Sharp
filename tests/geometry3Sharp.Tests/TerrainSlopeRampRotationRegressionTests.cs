@@ -67,7 +67,6 @@ namespace geometry3Sharp.Tests
         // (234, 236, 238, 244, 278) or in SlopeViolation by a turned-over sliver (291): slivers of different faces a few ulps wide
         // along one line. 100 has tiny triangles under the degenerate area of NotCleanReason besides, the others are clean.
         [Theory]
-        [InlineData(96, false)]
         [InlineData(100, true)]
         [InlineData(119, false)]
         [InlineData(120, false)]
@@ -75,12 +74,19 @@ namespace geometry3Sharp.Tests
         [InlineData(159, false)]
         [InlineData(177, false)]
         [InlineData(234, false)]
-        [InlineData(236, false)]
         [InlineData(238, false)]
-        [InlineData(244, false)]
         [InlineData(278, false)]
+        public void AroundCorner_RotatedWithSliverStrips_Succeeds(int degrees, bool tinyTriangles) { SliverStripsSucceed(degrees, tinyTriangles); }
+
+        // (Slow: these four run three or four realizations each, 2.5-4.5 s alone, 5-8 s on a loaded runner; under 10 s)
+        [Theory, Trait("Category", "Slow")]
+        [InlineData(96, false)]
+        [InlineData(236, false)]
+        [InlineData(244, false)]
         [InlineData(291, false)]
-        public void AroundCorner_RotatedWithSliverStrips_Succeeds(int degrees, bool tinyTriangles)
+        public void AroundCorner_RotatedWithSliverStrips_SlowSucceeds(int degrees, bool tinyTriangles) { SliverStripsSucceed(degrees, tinyTriangles); }
+
+        static void SliverStripsSucceed(int degrees, bool tinyTriangles)
         {
             var d = Make(degrees);
             Assert.True(d.Compute(), d.Status + " " + d.Message);
@@ -116,7 +122,7 @@ namespace geometry3Sharp.Tests
         public void SliverStrips_Similarities(string name)
         {
             Similarity s = ZUp(Similarity.ByName(name));
-            if (s.IsExact == false) return;       // (the other frames: the sweep's outcome table runs 119 in the identity frame; the exact ones decide here)
+            if (s.IsExact == false) return;       // (only the 2^k frames repeat the identity's result bit for bit; the others are covered by the identity frame's tests above)
             var d = Make(119, s);
             Assert.True(d.Compute(), d.Status + " " + d.Message);
             var r = Make(119);
