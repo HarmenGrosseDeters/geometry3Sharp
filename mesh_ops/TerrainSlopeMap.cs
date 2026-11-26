@@ -1483,22 +1483,29 @@ namespace gs
             return dropped.Count;
         }
 
-        // A triangle that the rounding can have turned over or laid over a neighbour: its height over its longest edge is at
-        // most 4 (ulp + radius) of the largest coordinate. Each corner is at most ulp(M) from the exact one (the rounding of a
-        // coordinate of magnitude at most M is at most half an ulp, so at most 0.71 ulp of the point) and at most radius
-        // further if merged (a merge takes a position to a representative within the radius, which is not merged itself). The
-        // exact triangle is counter-clockwise, so its apex is above the longest edge; moving the two ends of that edge and the
-        // apex by at most d = ulp + radius each puts the apex at most 2 d on the other side of the edge (the apex projects
-        // inside the longest edge, so the edge's line moves by at most d there), and the height measured on the rounded
-        // longest edge differs by rounding of this computation only: 4 d is twice that, a margin for the double evaluation.
-        static bool is_sliver(Vector2d a, Vector2d b, Vector2d c, double radius)
+        // A triangle that the rounding can have turned over or laid over a neighbour. With M the largest coordinate and
+        // d = ulp(M) + radius: a corner is at most ulp(M) from the exact one (a coordinate is rounded by at most half an ulp of
+        // M, so the point moves by at most 0.71 ulp) and at most radius further if merged (a merge takes a position to a
+        // representative within the radius, which is not merged itself), so at most d. The exact triangle is counter-clockwise,
+        // so its apex is above its longest edge; moving the two ends of that edge and the apex by at most d each puts the apex
+        // at most 2 d on the other side of the edge (it projects inside the longest edge, whose acute base angles put the
+        // apex inside the strip over it, so the edge's line moves by at most d there). The computed height is |cross| / L:
+        // with u = 2^-53 and edge lengths at most L, the differences have relative error u, each product 3.1 u, the
+        // subtraction u of its result, so the cross product is off by at most 5 u (|X Y| + |X' Y'|) <= 10 u L^2 (the components
+        // of two edges are at most L; no underflow: the differences of doubles are exact below the normal range), and L itself
+        // (a square root of a sum of squares) has relative error at most 3 u, so the computed height is off by at most
+        // 10 u L (1 + 3 u) + 3 u h <= 11 u L (h <= L). The bound is 2 d + 16 u L: a margin of 5 u L over that, for the sums
+        // 2 (ulp + radius) and 16 u L themselves (each at most u relative). So every triangle that rounding turned over or laid
+        // over a neighbour passes, and a triangle thicker than 2 d + 16 u L (about 2 ulp(M) + 16 u L) is no rounding artefact.
+        internal static bool is_sliver(Vector2d a, Vector2d b, Vector2d c, double radius)
         {
             double m = Math.Max(Math.Max(Math.Max(Math.Abs(a.x), Math.Abs(a.y)), Math.Max(Math.Abs(b.x), Math.Abs(b.y))), Math.Max(Math.Abs(c.x), Math.Abs(c.y)));
             double ulp = ExactInterval.Up(m) - m;
             double l2 = Math.Max(a.DistanceSquared(b), Math.Max(b.DistanceSquared(c), c.DistanceSquared(a)));
             if (!(l2 > 0)) return true;
-            double height = Math.Abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) / Math.Sqrt(l2);
-            return height <= 4 * (ulp + radius);
+            double l = Math.Sqrt(l2);
+            double height = Math.Abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) / l;
+            return height <= 2 * (ulp + radius) + 16 * 1.1102230246251565E-16 * l;
         }
 
         // an edge of (a, b, c) that a triangle of the mesh runs along in the same direction: the two overlap

@@ -186,6 +186,27 @@ namespace geometry3Sharp.Tests
                 (v) => new List<Index3i> { new Index3i(v[0], v[1], v[2]) }, (v) => v, true, 1e-3));
         }
 
+        // the bound 2 (ulp(M) + radius) + 16 u L (u = 2^-53) of is_sliver, with the true height just below and just above it
+        [Fact]
+        public void IsSliver_DecidesAtItsBound()
+        {
+            double big = Math.Pow(2, 22), h = Math.Pow(2, -29);       // M = 2^22 + 4: ulp 2^-30, 2 ulp = 2^-29; 16 u L = 2^-47
+            Func<double, double, double, double, bool> sliver = (x0, y0, hh, r) =>
+                SlopeMap.is_sliver(new Vector2d(x0, y0), new Vector2d(x0 + 4, y0), new Vector2d(x0 + 2, y0 - hh), r);
+            Assert.True(sliver(big, 0, h, 0));
+            Assert.True(sliver(big, 0, h + Math.Pow(2, -50), 0));      // inside the margin for the evaluation
+            Assert.False(sliver(big, 0, h + Math.Pow(2, -40), 0));
+            Assert.False(sliver(big, 0, 2 * h, 0));
+            // M = 4, ulp 2^-50 (2 ulp = 2^-49), 16 u L = 2^-47: the bound is 1.25 * 2^-47
+            Assert.True(sliver(0, 0, Math.Pow(2, -47), 0));
+            Assert.False(sliver(0, 0, Math.Pow(2, -45), 0));
+            // with a merge radius: 2 radius + 2 ulp + 2^-47
+            Assert.True(sliver(0, 0, 1.9e-6, 1e-6));
+            Assert.False(sliver(0, 0, 2.1e-6, 1e-6));
+            // a point is a sliver
+            Assert.True(SlopeMap.is_sliver(new Vector2d(1, 1), new Vector2d(1, 1), new Vector2d(1, 1), 0));
+        }
+
         // the sliver bound decides at the drop: at 96 degrees the strict realization meets a triangle 0.073 high that turned over
         // or lies over a neighbour, which is no rounding artefact (before: it was dropped, and the design failed in the checks after)
         [Fact]
