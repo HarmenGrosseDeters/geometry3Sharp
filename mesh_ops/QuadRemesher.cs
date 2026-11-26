@@ -107,8 +107,10 @@ namespace gs
         /// so a "successful" pure-quad result would silently lose the creases). After the extraction the crease vertices are moved onto the
         /// creases of the input and the corner vertices onto its corners (if within 0.25 and 0.35 edge lengths), the links along each crease
         /// join consecutive vertices only, and an edge along a curved crease whose middle is more than 0.08 edge lengths from the crease is
-        /// split at the crease (at most 3 % of the faces, so the two faces at it become pentagons): the feature Hausdorff distance of the
-        /// stage 4 gate no longer depends on the lattice spacing along a rim (issue #1452). Not covered: a crease edge across a corner
+        /// split at the crease (at most 3 % of the faces; each split turns the two faces at it into pentagons, so up to 6 % of the faces and a
+        /// result with 90 % quads keeps 84 %): the feature Hausdorff distance of the stage 4 gate depends less on the lattice spacing along a
+        /// rim (issue #1452). Each step is kept only if it drops no more faces than the result before it. On a shape thinner than 0.25 edge
+        /// lengths a vertex can snap to the crease of the other side. Not covered: a crease edge across a corner
         /// (a mesh triangle with all three edges creases, as the remesher can leave at a rim) is followed only by chance.
         /// </summary>
         public bool PreserveCreases = false;
@@ -408,20 +410,7 @@ namespace gs
                 // them, the links along each crease are made to join consecutive vertices only, and an edge along a curved crease that
                 // is too long for the curve is split at the crease
                 var creases = new CreaseIndex(Mesh, CreaseAngleDegrees, CornerAngleDegrees, pf.TargetEdgeLength);
-                if (creases.Count > 0) {
-                    creases.Snap(g);
-                    creases.RepairLinks(g);
-                    DPolyMesh baseline = BuildFaces(g, MaxFaceSides, out dropped);
-                    int droppedBase = dropped;
-                    // each split turns the two faces at the edge into pentagons (quads): at most 3 % of the faces are split, the farthest edges first,
-                    // so a result with 90 % quads keeps 85 % and more
-                    if (creases.SplitLongEdges(g, (int)(0.03 * baseline.FaceCount))) {
-                        DPolyMesh refined = BuildFaces(g, MaxFaceSides, out dropped);
-                        if (dropped <= droppedBase) { DroppedFaces = dropped; return refined; }   // else a face grew above MaxFaceSides: keep the plain result
-                    }
-                    DroppedFaces = droppedBase;
-                    return baseline;
-                }
+                if (creases.Count > 0) return BuildWithCreaseRepair(g, creases, MaxFaceSides, out DroppedFaces);
             }
             DPolyMesh poly = BuildFaces(g, MaxFaceSides, out dropped);
             DroppedFaces = dropped;
@@ -429,6 +418,41 @@ namespace gs
         }
 
         // ---- creases (PreserveCreases, issue #1452)
+
+        /// <summary> the fraction of the faces that the crease repair may split at most (each split turns two quads into pentagons) </summary>
+        internal const double CreaseSplitBudget = 0.03;
+
+        /// <summary>
+        /// BuildFaces after the crease repair of CreaseIndex (snap, links, splits). The repair can merge two faces above maxSides (a removed
+        /// chord) or a split can grow one above it; each step is kept only if it drops no more faces than the result before it (the plain graph
+        /// first), else the result before it stays. At most CreaseSplitBudget of the faces are split, the farthest edges first, so a result with
+        /// 90 % quads keeps 84 % and more (up to 6 % of the faces become pentagons).
+        /// </summary>
+        internal static DPolyMesh BuildWithCreaseRepair(PolyGraph g, CreaseIndex creases, int maxSides, out int droppedFaces, double splitBudget = CreaseSplitBudget)
+        {
+            PolyGraph plainGraph = CopyGraph(g);
+            creases.Snap(g);
+            creases.RepairLinks(g);
+            int droppedRepaired, droppedPlain;
+            DPolyMesh repaired = BuildFaces(g, maxSides, out droppedRepaired);
+            DPolyMesh plain = BuildFaces(plainGraph, maxSides, out droppedPlain);
+            if (droppedRepaired > droppedPlain) { droppedFaces = droppedPlain; return plain; }
+            if (creases.SplitLongEdges(g, (int)(splitBudget * repaired.FaceCount))) {
+                int droppedRefined;
+                DPolyMesh refined = BuildFaces(g, maxSides, out droppedRefined);
+                if (droppedRefined <= droppedRepaired) { droppedFaces = droppedRefined; return refined; }
+            }
+            droppedFaces = droppedRepaired;
+            return repaired;
+        }
+
+        static PolyGraph CopyGraph(PolyGraph g)
+        {
+            var c = new PolyGraph();
+            for (int i = 0; i < g.Pos.Count; ++i) { c.Add(g.Pos[i], g.Nrm[i], g.Kind[i]); c.Spc[i] = g.Spc[i]; }
+            for (int i = 0; i < g.Pos.Count; ++i) foreach (int j in g.Adj[i]) if (i < j) c.Link(i, j);
+            return c;
+        }
 
         /// <summary>
         /// The creases of the input (MeshTopology with CreaseAngleDegrees) as chains of segments: each chain runs between two vertices where
@@ -484,13 +508,29 @@ namespace gs
                 foreach (var kv in nb) {
                     foreach (int e in kv.Value) if (!used.Contains(e)) Walk(mesh, nb, used, kv.Key, e, true);
                 }
-                for (int i = 0; i < A.Count; ++i) {
-                    var lo = Cell(new Vector3d(Math.Min(A[i].x, B[i].x), Math.Min(A[i].y, B[i].y), Math.Min(A[i].z, B[i].z))); var hi = Cell(new Vector3d(Math.Max(A[i].x, B[i].x), Math.Max(A[i].y, B[i].y), Math.Max(A[i].z, B[i].z)));
-                    for (long x = lo.Item1; x <= hi.Item1; ++x) for (long y = lo.Item2; y <= hi.Item2; ++y) for (long z = lo.Item3; z <= hi.Item3; ++z) {
-                        List<int> l; long k = Key(x, y, z);
-                        if (!cells.TryGetValue(k, out l)) { l = new List<int>(); cells[k] = l; }
-                        l.Add(i);
-                    }
+                for (int i = 0; i < A.Count; ++i) InsertSegment(i);
+            }
+
+            // the cells the segment passes through (a grid traversal), so a long segment costs its length and not the volume of its box
+            void InsertSegment(int i)
+            {
+                Vector3d a = A[i], d = B[i] - A[i];
+                var c = new long[3]; var e = new long[3]; var step = new int[3]; var tMax = new double[3]; var tDelta = new double[3];
+                long total = 1;
+                for (int k = 0; k < 3; ++k) {
+                    c[k] = (long)Math.Floor(a[k] / cell); e[k] = (long)Math.Floor(B[i][k] / cell);
+                    total += Math.Abs(e[k] - c[k]);
+                    if (d[k] > 0) { step[k] = 1; tMax[k] = ((c[k] + 1) * cell - a[k]) / d[k]; tDelta[k] = cell / d[k]; }
+                    else if (d[k] < 0) { step[k] = -1; tMax[k] = (c[k] * cell - a[k]) / d[k]; tDelta[k] = -cell / d[k]; }
+                    else { tMax[k] = tDelta[k] = double.PositiveInfinity; }
+                }
+                for (long n = 0; n < total; ++n) {
+                    List<int> l; long key = Key(c[0], c[1], c[2]);
+                    if (!cells.TryGetValue(key, out l)) { l = new List<int>(); cells[key] = l; }
+                    l.Add(i);
+                    int m = tMax[0] <= tMax[1] ? (tMax[0] <= tMax[2] ? 0 : 2) : (tMax[1] <= tMax[2] ? 1 : 2);
+                    if (c[m] == e[m]) { m = -1; for (int k = 0; k < 3; ++k) if (c[k] != e[k] && (m < 0 || tMax[k] < tMax[m])) m = k; if (m < 0) break; }
+                    c[m] += step[m]; tMax[m] += tDelta[m];
                 }
             }
 
@@ -560,8 +600,6 @@ namespace gs
                 return moved;
             }
 
-            static int chainOfList(List<List<KeyValuePair<double, int>>> lists, List<KeyValuePair<double, int>> l) { return lists.IndexOf(l); }
-
             // the graph vertices of kind 1 and 2 on each chain (within 0.05 s of it), by arc length
             List<List<KeyValuePair<double, int>>> VerticesByChain(PolyGraph g)
             {
@@ -598,7 +636,7 @@ namespace gs
                             int j;
                             if (!pos.TryGetValue(w, out j) || j <= i) continue;
                             int gap = j - i; if (closed) gap = Math.Min(gap, n - gap);
-                            if (gap > 1 && l[j].Key - l[i].Key > 1e-12 && (g.Pos[u] - g.Pos[w]).Length > 0) { g.Unlink(u, w); changes++; }
+                            if (gap > 1 && l[j].Key - l[i].Key > 1e-9 * s && (g.Pos[u] - g.Pos[w]).Length > 0) { g.Unlink(u, w); changes++; }
                         }
                     }
                     int pairs = closed ? n : n - 1;
@@ -606,7 +644,7 @@ namespace gs
                         int u = l[i].Value, w = l[(i + 1) % n].Value;
                         if (u == w || g.Has(u, w)) continue;
                         double gapLen = (i + 1 < n) ? l[i + 1].Key - l[i].Key : chainLength[c] - l[i].Key + l[0].Key;
-                        if (gapLen > 1e-12 && gapLen <= 2.5 * s) { g.Link(u, w); changes++; }
+                        if (gapLen > 1e-9 * s && gapLen <= 2.5 * s) { g.Link(u, w); changes++; }
                     }
                 }
                 return changes;
@@ -628,12 +666,13 @@ namespace gs
                     // the candidates of this round, the farthest from the crease first (ties by the vertex ids), as many as the budget allows
                     var cand = new List<(double d, int a, int b, int seg, double t)>();
                     var lists = VerticesByChain(g);
-                    foreach (var l in lists) {
-                        int n = l.Count, pairs = chainClosed[chainOfList(lists, l)] ? n : n - 1;
+                    for (int ci = 0; ci < lists.Count; ++ci) {
+                        var l = lists[ci];
+                        int n = l.Count, pairs = chainClosed[ci] ? n : n - 1;
                         for (int i = 0; i < pairs && n > 1; ++i) {
                             int a = l[i].Value, b = l[(i + 1) % n].Value;
                             if (a == b || !g.Has(a, b)) continue;
-                            double gap = i + 1 < n ? l[i + 1].Key - l[i].Key : chainLength[chainOfList(lists, l)] - l[i].Key + l[0].Key;
+                            double gap = i + 1 < n ? l[i + 1].Key - l[i].Key : chainLength[ci] - l[i].Key + l[0].Key;
                             // the point of the chord farthest from the crease, of the quarter points and the middle (the chord is off most near the middle)
                             int seg = -1; double t = 0, d = 0;
                             foreach (double f in new[] { 0.25, 0.5, 0.75 }) {
@@ -642,7 +681,7 @@ namespace gs
                             }
                             if (seg < 0 || d <= SplitTolerance * s) continue;
                             double rel = ArcAt(seg, t) - l[i].Key;
-                            if (rel < 0) rel += chainLength[chainOfList(lists, l)];
+                            if (rel < 0 && chainClosed[ci]) rel += chainLength[ci];
                             if (!(rel > 0.2 * gap && rel < 0.8 * gap)) continue;
                             cand.Add((d, a, b, seg, t));
                         }
