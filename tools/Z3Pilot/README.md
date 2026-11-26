@@ -787,6 +787,7 @@ workflow (its report is uploaded; the paths filter includes `DMeshAABBTree.cs` a
 ```sh
 python3 tools/Z3Pilot/split_termination.py --out /tmp/split-termination.json
 python3 -m unittest discover -s tools/Z3Pilot -p 'test_split_termination.py' -v
+```
 
 ## Step loops (pilot 5, `step_loops.py`, QA 2.0 T14, 2026-11-12)
 
@@ -803,6 +804,7 @@ of drift is detected. Runs in under a second; part of the `Z3 pilot` workflow (i
 ```sh
 python3 tools/Z3Pilot/step_loops.py --out /tmp/step-loops.json
 python3 -m unittest discover -s tools/Z3Pilot -p 'test_step_loops.py' -v
+```
 
 ## Interval successors and finite segment slabs
 
@@ -822,7 +824,8 @@ python3 -m unittest discover -s tools/Z3Pilot -p 'test_step_loops.py' -v
   [error-bound audit](../../docs/research/ERROR_BOUND_AUDIT_2026-11.md). The branch
   that treats a small direction as parallel rejects an actual intersection. With one box `[1e-310,1] × [0,1]²`, the endpoints
   `(0,0.5,0.5)` and `(2e-310,0.5,0.5)`, and zero padding, a .NET 10 run returned zero
-  candidates even though the second endpoint is in the box. A candidate replacement
+  candidates even though the second endpoint is in the box (#1673). Scaling all coordinates
+  by 2^600 gives one candidate. A candidate replacement
   rejects a near-parallel slab only if both endpoints lie strictly outside the same side;
   Z3 proves that rejection sound. A separate proof covers the existing finite quotient
   and slack calculation relative to the rounded box faces. Overflow cases and the effect

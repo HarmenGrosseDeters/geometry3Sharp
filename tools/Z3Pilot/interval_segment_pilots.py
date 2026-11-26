@@ -1,26 +1,16 @@
 """Local SMT pilots for binary64 interval successors and segment slabs."""
-import hashlib
 import math
-import re
 import struct
 from fractions import Fraction
 
 import z3 as z
 
-from pilot import F, RN, ROOT, check
+from check_pilot_obligations import collect, source as pin
+from pilot import F, RN
 
 U = Fraction(1, 2**53)
 EPS = Fraction(1, 2**1074)
 MANTISSA = 2**52
-
-
-def pin(path, start, end, expected):
-    text = (ROOT / path).read_text(encoding='utf-8-sig')
-    start = text.index(start)
-    end = text.index(end, start + 1)
-    code = re.sub(r'\s+', '', re.sub(r'//[^\n]*', '', text[start:end]))
-    if hashlib.sha256(code.encode()).hexdigest() != expected:
-        raise ValueError(f'{path}: review the SMT transcription near {text[start:start + 60]}')
 
 
 def q(value):
@@ -29,16 +19,6 @@ def q(value):
 
 def abs_value(value):
     return z.If(value >= 0, value, -value)
-
-
-def collect(obligations, timeout_ms):
-    rows = []
-    for name, assumptions, bad, expected in obligations:
-        _, _, row = check(name, assumptions, bad, timeout_ms)
-        row['expected'] = expected
-        rows.append(row)
-    return dict(z3=z.get_version_string(), obligations=rows,
-                passed=all(row['result'] == row['expected'] for row in rows))
 
 
 def binary64(bits):
@@ -83,31 +63,31 @@ def interval_successor(timeout_ms):
     m = z.Int('significand')
     mantissa_range = [MANTISSA <= m, m < 2 * MANTISSA]
     delta = q(Fraction(MANTISSA + 1, 2 * MANTISSA**2)) * m
-    exponent = z.Int('middle_exponent')
-    middle = [exponent >= -1022, exponent <= -970]
-    middle_negative = z.Bool('middle_negative')
-    neighbor_exponent = exponent + z.If(z.And(middle_negative, m == MANTISSA), -1,
-                                        z.If(z.And(z.Not(middle_negative), m == 2 * MANTISSA - 1), 1, 0))
-    above_min_normal = z.Or(exponent > -1022, m > MANTISSA)
     power_correction = Fraction(1, 2) + Fraction(1, 2 * MANTISSA)
-    # At a negative exact power of two the successor is a half-step
-    # towards zero. The exact correction for M=2^52 is representable
-    # and below that step's next midpoint at 3/4.
+    assert Fraction(1, 4) < power_correction < Fraction(3, 4)
+    for exponent in range(-1022, -969):
+        assert -969 <= exponent + 54 <= 1023
+        for sign_change in (-1, 0, 1):
+            if exponent == -1022 and sign_change == -1:
+                continue  # -MinNormal is handled by the smaller branch.
+            assert -1022 <= exponent + sign_change <= 1023
+
     obligations = [
         ('small_positive_bits_differ', small + [z.Not(sign)], implemented != expected, 'unsat'),
         ('small_negative_bits_differ', small + [sign], implemented != expected, 'unsat'),
+        ('small_positive_branch_reachable', small + [z.Not(sign)], magnitude > 0, 'sat'),
+        ('small_negative_branch_reachable', small + [sign], magnitude > 0, 'sat'),
+        ('skip_positive_step_mutant', small + [z.Not(sign)], bits != expected, 'sat'),
         ('negative_zero_special_case_matters', small + [negative_epsilon], ordinary != expected, 'sat'),
         ('correction_can_round_to_half_step', mantissa_range,
          delta <= q(Fraction(1, 2) + Fraction(1, 4 * MANTISSA)), 'unsat'),
         ('correction_can_round_above_one_step', mantissa_range,
          delta >= q(1 + Fraction(1, 2 * MANTISSA)), 'unsat'),
-        ('negative_power_correction_can_leave_half_step_cell', [m == MANTISSA],
-         z.Or(delta != q(power_correction), delta <= q(Fraction(1, 4)), delta >= q(Fraction(3, 4))), 'unsat'),
-        ('middle_rescaling_can_miss_normal_rump_range', middle,
-         z.Or(exponent + 54 < -969, exponent + 54 > 1023), 'unsat'),
-        ('middle_successor_rescaling_can_leave_normal_range',
-         middle + mantissa_range + [above_min_normal],
-         z.Or(neighbor_exponent < -1022, neighbor_exponent > 1023), 'unsat'),
+        ('correction_input_reachable', mantissa_range, m == MANTISSA + 1, 'sat'),
+        ('phi1_rounded_down_mutant', mantissa_range,
+         m * q(Fraction(1, 2 * MANTISSA)) <= q(Fraction(1, 2) + Fraction(1, 4 * MANTISSA)), 'sat'),
+        ('phi1_doubled_mutant', mantissa_range,
+         2 * delta >= q(1 + Fraction(1, 2 * MANTISSA)), 'sat'),
     ]
     report = collect(obligations, timeout_ms)
 
@@ -164,18 +144,21 @@ def segment_box(timeout_ms):
         abs_value(parameter - before_round) <= q(2 * U / (1 - U)) * abs_value(before_round),
         abs_value(computed - before_round) <= q(U) * abs_value(before_round) + q(EPS / 2),
     ]
-    fp_p, fp_q, fp_lo = (z.FPVal(v, F) for v in (0.0, 2e-310, 1e-310))
-    displacement = z.fpSub(RN, fp_q, fp_p)
+    p_x, q_x, slab_lo = 0.0, 2e-310, 1e-310
+    assert abs(q_x - p_x) < 1e-300 and p_x < slab_lo <= q_x
     obligations = [
         ('near_parallel_endpoint_rule_can_cull_intersection', intersecting, endpoints_outside, 'unsat'),
-        ('original_near_parallel_branch_drops_intersection', [],
-         z.And(z.fpLT(z.fpAbs(displacement), z.FPVal(1e-300, F)),
-               z.fpLT(fp_p, fp_lo), z.fpLEQ(fp_lo, fp_q)), 'sat'),
+        ('near_parallel_intersection_reachable', intersecting, z.And(p < lo, lo <= other), 'sat'),
+        ('start_only_cull_mutant', intersecting, z.Or(p < lo, p > hi), 'sat'),
         ('finite_division_error_exceeds_admitted_interval', quotient_rounding,
          abs_value(parameter - computed) > q(4 * U) * abs_value(computed) + q(2 * EPS), 'unsat'),
+        ('finite_division_reachable', quotient_rounding, computed > 0, 'sat'),
+        ('ignore_subnormal_division_error_mutant', quotient_rounding,
+         abs_value(parameter - computed) > q(4 * U) * abs_value(computed), 'sat'),
         ('finite_slack_fails_to_enclose_exact_parameter', quotient,
          z.Or(low > parameter, high < parameter), 'unsat'),
         ('finite_parameter_enclosure_reachable', quotient, parameter == q(Fraction(1, 2)), 'sat'),
+        ('omit_slack_from_endpoints_mutant', quotient, z.Or(a > parameter, b < parameter), 'sat'),
     ]
     report = collect(obligations, timeout_ms)
     report['witness'] = dict(p_x=0.0, q_x=2e-310, slab_lo=1e-310, slab_hi=1.0,
