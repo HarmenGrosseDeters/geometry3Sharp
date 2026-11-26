@@ -1301,17 +1301,23 @@ namespace geometry3Sharp.Tests
             System.Reflection.FieldInfo fSigLo = wt.GetField("SigLo"), fSigHi = wt.GetField("SigHi");
 
             var rnd = new Random(1654);
+            double[] nearDeltas = { -1e-10, 0.0, 1e-10, 5e-10, 1e-8, 1e-5, 1e-4, 5e-4 };
             int removedPieces = 0;
             for (int it = 0; it < 3000; ++it) {
+                bool nearTie = (it % 2 == 0);
+                bool tightSpan = nearTie && (it % 10 == 0);
                 double l = rnd.NextDouble() * 4 - 2;
-                double r = l + 0.05 + rnd.NextDouble() * 3.0;
+                double span = tightSpan ? (1e-11 + rnd.NextDouble() * 1e-10)
+                    : (nearTie && (it % 6 == 0) ? (1e-4 + rnd.NextDouble() * 0.05) : (0.05 + rnd.NextDouble() * 3.0));
+                double r = l + span;
                 double ax = rnd.NextDouble() * 6 - 3, bx = rnd.NextDouble() * 6 - 3;
                 double ay = (it % 3 == 0) ? 0.0 : -rnd.NextDouble() * 2.5;
                 double by = (it % 5 == 0) ? 0.0 : -rnd.NextDouble() * 2.5;
-                double rxa = (it % 4 == 0) ? 0.0 : rnd.NextDouble() * 0.2;
-                double rya = (it % 4 == 0) ? 0.0 : rnd.NextDouble() * 0.2;
-                double rxb = (it % 4 == 1) ? 0.0 : rnd.NextDouble() * 0.2;
-                double ryb = (it % 4 == 1) ? 0.0 : rnd.NextDouble() * 0.2;
+                bool pointBoxes = tightSpan || (nearTie && (it % 4 == 0));
+                double rxa = (pointBoxes || it % 4 == 0) ? 0.0 : rnd.NextDouble() * 0.2;
+                double rya = (pointBoxes || it % 4 == 0) ? 0.0 : rnd.NextDouble() * 0.2;
+                double rxb = (pointBoxes || it % 4 == 1) ? 0.0 : rnd.NextDouble() * 0.2;
+                double ryb = (pointBoxes || it % 4 == 1) ? 0.0 : rnd.NextDouble() * 0.2;
                 var sa = new ExactMeshGeodesicDistance.P2(
                     new ExactInterval(ax - rxa, ax + rxa),
                     new ExactInterval(ay - rya, Math.Min(0.0, ay + rya)));
@@ -1321,8 +1327,28 @@ namespace geometry3Sharp.Tests
 
                 double sigLoA = rnd.NextDouble() * 3.0;
                 double sigHiA = (it % 19 == 0) ? double.PositiveInfinity : sigLoA + rnd.NextDouble() * 0.3;
-                double sigLoB = rnd.NextDouble() * 3.0;
-                double sigHiB = (it % 23 == 0) ? double.PositiveInfinity : sigLoB + rnd.NextDouble() * 0.3;
+                double sigLoB, sigHiB;
+                if (nearTie) {
+                    // Place a crossing or near-tie of f_a and f_b at t0 in [l, r] so tight margins (1e-9, 1e-3) are exercised
+                    double t0 = l + rnd.NextDouble() * (r - l);
+                    double dxA0 = t0 < sa.X.Lo ? sa.X.Lo - t0 : (t0 > sa.X.Hi ? t0 - sa.X.Hi : 0.0);
+                    double dA0 = Math.Sqrt(dxA0 * dxA0 + sa.Y.Hi * sa.Y.Hi);
+                    double dxB0 = Math.Max(Math.Abs(t0 - sb.X.Lo), Math.Abs(t0 - sb.X.Hi));
+                    double dB0 = Math.Sqrt(dxB0 * dxB0 + sb.Y.Lo * sb.Y.Lo);
+                    double delta = nearDeltas[(it / 2) % nearDeltas.Length];
+                    double targetSigHiB = sigLoA + dA0 - dB0 + delta;
+                    if (targetSigHiB < 0.0) {
+                        double shift = -targetSigHiB + 0.5;
+                        sigLoA += shift;
+                        if (!double.IsPositiveInfinity(sigHiA)) sigHiA += shift;
+                        targetSigHiB += shift;
+                    }
+                    sigHiB = targetSigHiB;
+                    sigLoB = Math.Max(0.0, sigHiB - (pointBoxes ? 0.0 : rnd.NextDouble() * 0.1));
+                } else {
+                    sigLoB = rnd.NextDouble() * 3.0;
+                    sigHiB = (it % 23 == 0) ? double.PositiveInfinity : sigLoB + rnd.NextDouble() * 0.3;
+                }
                 int depth = it % 7;
 
                 object a = Activator.CreateInstance(wt, true), b = Activator.CreateInstance(wt, true);
@@ -1335,16 +1361,23 @@ namespace geometry3Sharp.Tests
                     ++removedPieces;
                     Assert.True(pl >= l && pr <= r && pr > pl, $"it={it}: invalid piece [{pl:R}, {pr:R}] in [{l:R}, {r:R}]");
                     for (int k = 0; k <= 8; ++k) {
-                        double t = pl + (pr - pl) * k / 8.0;
-                        // Closed-form worst case over box_a and box_b: min distance from box_a must strictly exceed max distance from box_b
-                        double dxA = t < sa.X.Lo ? sa.X.Lo - t : (t > sa.X.Hi ? t - sa.X.Hi : 0.0);
-                        double dyA = -sa.Y.Hi;
-                        double minA = Math.Sqrt(dxA * dxA + dyA * dyA) + sigLoA;
-                        double dxB = Math.Max(Math.Abs(t - sb.X.Lo), Math.Abs(t - sb.X.Hi));
-                        double dyB = -sb.Y.Lo;
-                        double maxB = Math.Sqrt(dxB * dxB + dyB * dyB) + sigHiB;
-                        Assert.True(minA > maxB - 1e-13 * (1.0 + Math.Abs(maxB)),
-                            $"it={it} depth={depth} t={t:R}: unsound removal minA={minA:R} <= maxB={maxB:R}");
+                        double t = (k == 0) ? pl : ((k == 8) ? pr : pl + (pr - pl) * k / 8.0);
+                        // Outward-rounded ExactInterval oracle (zero slack):
+                        // minAHi >= exact min_{p in sa} |t - p| + sigLoA, and maxBLo <= exact max_{q in sb} |t - q| + sigHiB.
+                        // Therefore minAHi < maxBLo proves an unsound removal (true minA < maxB) with zero false positives.
+                        ExactInterval T = ExactInterval.Of(t);
+                        ExactInterval dxA = (t < sa.X.Lo) ? (ExactInterval.Of(sa.X.Lo) - T)
+                            : ((t > sa.X.Hi) ? (T - ExactInterval.Of(sa.X.Hi)) : ExactInterval.Of(0));
+                        ExactInterval dyA = ExactInterval.Of(-sa.Y.Hi);
+                        double minAHi = (ExactInterval.Sqrt(ExactInterval.Square(dxA) + ExactInterval.Square(dyA)) + ExactInterval.Of(sigLoA)).Hi;
+
+                        double bxFar = (Math.Abs(t - sb.X.Lo) >= Math.Abs(t - sb.X.Hi)) ? sb.X.Lo : sb.X.Hi;
+                        ExactInterval dxB = ExactInterval.Of(bxFar) - T;
+                        ExactInterval dyB = ExactInterval.Of(sb.Y.Lo);
+                        double maxBLo = (ExactInterval.Sqrt(ExactInterval.Square(dxB) + ExactInterval.Square(dyB)) + ExactInterval.Of(sigHiB)).Lo;
+
+                        Assert.False(minAHi < maxBLo,
+                            $"it={it} depth={depth} t={t:R}: unsound removal minAHi={minAHi:R} < maxBLo={maxBLo:R}");
                     }
                 }
             }

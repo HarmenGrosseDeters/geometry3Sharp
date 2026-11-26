@@ -22,8 +22,8 @@ namespace g3
     ///    shortest path through it is straight and the ordinary windows carry the straight continuation (A7', Appendix A.6;
     ///    the continuation windows of A7 would duplicate them).
     /// Reach (measured, net10 Release, benchmarks/GeodesicOracleBenchmark, docs/design/GEODESICS.md 6d): terrains of 41 x 41
-    /// vertices in about 0.46 s and of 101 x 101 in about 3.0 s; exactly flat input (planes, developable ridges) of 101 x 101 in
-    /// 4.5-5.2 s since A7'; a saddle of 101 x 101 (no flat vertices) reaches the 300k window limit in about 10.6 s (down from 26 s).
+    /// vertices in about 0.46 s and of 101 x 101 in about 3.0 s; plane 101 x 101 in 4.5 s while the aligned ridge 101 x 101
+    /// reaches the 300k window limit in 5.2 s since A7'; a saddle of 101 x 101 (no flat vertices) reaches the 300k window limit in about 10.6 s (down from 26 s).
     /// Width (measured, #1058): (Upper - Lower) / Lower is at most about 2e-8 on planes, on domes and saddles from exactly
     /// flat to curved (k (x^2 +- y^2), k from 1e-8 to 0.3), on terrains and on the aligned ridge, from a centre, edge or corner
     /// source; it comes from Lower's re-emission margins (1e-9 per emission, A5; 1e-12 where no vertex emits), and Upper is as
