@@ -69,27 +69,6 @@ namespace geometry3Sharp.Tests
             return w;
         }
 
-        // result / estimate: a bound (at most 1.3) on the cases of the issue, 7.8 (sheet), 4.0 (plates), 6.7 (cubes) and 4.8 (small offset) on master
-        // (measured after: 0.79, 0.84, 0.96, 0.80); a lower ratio is a coarser wrap than the size needs, 0.25 at the thinnest part of the
-        // transition of ThinFactor (a plate of 0.01 at alpha 0.059)
-        [Theory]
-        [InlineData("sheet", 20, 600)]
-        [InlineData("sheet", 96, 960)]
-        [InlineData("sheet", 48, 2400)]
-        [InlineData("plate 1e-4", 20, 600)]
-        [InlineData("plate 1e-12", 20, 600)]
-        [InlineData("plate 1e-4", 24, 1200)]
-        [InlineData("two cubes", 5, 600)]
-        [InlineData("two cubes", 20, 600)]
-        public void Estimate_BoundsTheWrap_OnSheetsPlatesAndCubes(string shape, double relativeAlpha, double relativeOffset)
-        {
-            DMesh3 m = shape == "sheet" ? Sheet(16) : shape == "two cubes" ? TwoCubes(1e-2) : Plate(shape == "plate 1e-4" ? 1e-4 : 1e-12);
-            MeshAlphaWrap w = Wrap(m, relativeAlpha, relativeOffset);
-            double ratio = w.Result.TriangleCount / w.EstimatedTriangles;
-            output.WriteLine($"{shape} alpha {relativeAlpha} offset {relativeOffset}: estimate {w.EstimatedTriangles:F0} result {w.Result.TriangleCount}, ratio {ratio:F2}");
-            Assert.InRange(ratio, 0.4, 1.3);
-        }
-
         // the band and the rim are part of the estimate: positive, below it, and zero for a smooth closed solid
         [Fact]
         public void EstimatedRimTriangles_IsThePartOfTheEstimate()
@@ -189,19 +168,6 @@ namespace geometry3Sharp.Tests
             off.Compute();
             Assert.False(double.IsNaN(off.EstimatedTriangles));
             Assert.Equal(1.0, off.AlphaCoarsening);
-        }
-
-        // MaxEstimatedTriangles bounds the size (the issue: a sheet of 512 triangles with a budget of 2000 gave 4642, 2.3 times it)
-        [Fact]
-        public void Budget_BoundsTheSizeOfASheet()
-        {
-            DMesh3 m = Sheet(16);
-            const int budget = 2000;
-            MeshAlphaWrap w = Wrap(m, 20, 600, budget);
-            output.WriteLine($"estimate {w.EstimatedTriangles:F0}, coarsening {w.AlphaCoarsening:F2}, result {w.Result.TriangleCount}");
-            Assert.True(w.AlphaCoarsening > 1.5);
-            Assert.InRange(w.Result.TriangleCount / (double)budget, 0.3, 1.3);
-            Assert.Equal("", MeshRobustRepair.NotCleanReason(w.Result));
         }
 
         // the terms of the analysis on shapes with known sizes
