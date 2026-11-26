@@ -200,6 +200,15 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void MayMerge_CountsTheExtraShare()
+        {
+            Assert.True(TerrainSlopeDesign.MayMerge(1.0, 0, 1.0));
+            Assert.False(TerrainSlopeDesign.MayMerge(1.0, 0, 0.999));
+            Assert.False(TerrainSlopeDesign.MayMerge(1.0, 0.5, 1.4));       // 1 + 0.5 > 1.4: no room for merges and flips
+            Assert.True(TerrainSlopeDesign.MayMerge(1.0, 0.5, 1.6));
+        }
+
+        [Fact]
         public void FlipExtraBudgets_AddTheExtraOnlyInARerun()
         {
             Assert.Equal(3.0, TerrainSlopeDesign.WithFlipExtra(3.0, 0));

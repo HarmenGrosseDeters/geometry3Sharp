@@ -1200,6 +1200,8 @@ namespace gs
         }
         // the repair lowering of a build with a scaled flip share: the F - 1 further shares on top (0 extra: the lowering itself)
         internal static double WithFlipExtra(double lowering, double flipExtra) { return flipExtra > 0 ? ExactInterval.Up(lowering + flipExtra) : lowering; }
+        // whether a build with a scaled flip share may merge and flip: both repairs and the F - 1 further shares fit under lambdaBound
+        internal static bool MayMerge(double repairLambda2, double flipExtra, double lambdaBound) { return WithFlipExtra(repairLambda2, flipExtra) <= lambdaBound; }
         // the room of the band merges under lambdaBound with a scaled flip share
         internal static double BandRoom(double lambdaBound, double flipExtra) { return flipExtra > 0 ? ExactInterval.Down(lambdaBound - flipExtra) : lambdaBound; }
 
@@ -1736,7 +1738,7 @@ namespace gs
             // mesh non-manifold, the realization runs without it and the check decides)
             // (the merge and the needle flips each move the surface off S̃ by at most 2 sMax (r + e_xy) upwards, which the
             // lowering must cover, see RepairLambda: both only where both together fit under λ's bound)
-            bool mayMerge = WithFlipExtra(repairLambda(2), flipExtra) <= lambdaBound, strictOnly = false;
+            bool mayMerge = MayMerge(repairLambda(2), flipExtra, lambdaBound), strictOnly = false;
             bool mergedWithin = mayMerge;
             // (#1539: where neither realization is manifold, the same two with strict rounding, which drops the slivers that
             // the rounding turned over or laid over a neighbour)
