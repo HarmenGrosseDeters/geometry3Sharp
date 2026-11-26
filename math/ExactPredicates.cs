@@ -471,8 +471,10 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         internal static int VolumeSign(double[] xyz, int[] corners)
         {
+            if (corners == null)
+                return 0;
             // Stryker disable once Equality: one triangle (3 corners): its first corner is o, so u = 0 and S = 0 exactly; the sign is 0 whether this returns or the filter and the exact sum run
-            if (corners == null || corners.Length < 3)
+            if (corners.Length < 3)
                 return 0;
             for (int k = 0; k < xyz.Length; ++k)
                 if (double.IsNaN(xyz[k]) || double.IsInfinity(xyz[k]))

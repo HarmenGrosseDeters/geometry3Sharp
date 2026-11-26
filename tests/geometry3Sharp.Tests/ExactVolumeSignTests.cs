@@ -82,6 +82,9 @@ namespace geometry3Sharp.Tests
             // no corners, fewer than three corners, and a null list: no solid, no sign (even for coordinates that would give one)
             double[] xyz = { 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1 };
             Assert.Equal(0, ExactPredicates.VolumeSignExact(xyz, null));
+            Assert.Equal(0, ExactPredicates.VolumeSign(xyz, null));
+            Assert.Equal(0, ExactPredicates.VolumeSign(xyz, new int[0]));
+            Assert.Equal(0, ExactPredicates.VolumeSign(xyz, new[] { 0, 1 }));
             Assert.Equal(0, ExactPredicates.VolumeSignExact(xyz, new int[0]));
             Assert.Equal(0, ExactPredicates.VolumeSignExact(xyz, new[] { 0, 1 }));
             // a closed tetrahedron has a sign, so the zero above comes from the guard
@@ -724,7 +727,9 @@ namespace geometry3Sharp.Tests
             Assert.False(usable);
             Assert.True(double.IsInfinity(bound));
             Assert.True(sum < -1e306 && !double.IsInfinity(sum));
-            Assert.False(ExactPredicates.TryCompareAbsVolume6(xyz, corners, 1, out int s) && s != 1 && s != -1 && s != 0);
+            // (the filter is unusable, so the exact stage compares: |S| of about 1e307 is far above 3 t = 3)
+            Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz, corners, 1, out int s));
+            Assert.Equal(1, s);
             Assert.Equal(0, ExactPredicates.VolumeSignFilter(xyz, corners));       // (undecided: the exact stage decides)
             Assert.Equal(-1, ExactPredicates.VolumeSign(xyz, corners));
         }
