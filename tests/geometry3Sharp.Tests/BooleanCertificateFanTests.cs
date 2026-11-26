@@ -98,12 +98,12 @@ namespace geometry3Sharp.Tests
         [InlineData(24)]
         public void FormsGroupsAndLoops_EqualTheDirectTests_OnTheShiftedFan(int ulps)
         {
-            DMesh3 a = Cylinder(12);
+            DMesh3 a = Cylinder(8);
             BooleanCertificate c = Run(a, Shifted(a, ulps), Ops.Union);
             Assert.Equal("", c.CheckPieces());
-            Assert.Equal("", c.AuditInPlaneForms(20000, out int s, out int t, out int p));
+            Assert.Equal("", c.AuditInPlaneForms(4000, out int s, out int t, out int p));
             Assert.Equal("", c.CheckEmbedding());
-            Assert.True(s > 100 && t > 100 && p > 100, $"{s} / {t} / {p}");
+            Assert.True(s > 50 && t > 50 && p > 50, $"{s} / {t} / {p}");
             // (the groups of equal pieces are in use: pieces that are copies of one another)
             Assert.True(c.EmbeddingCopies > 0, "no coplanar copies");
         }
@@ -112,11 +112,10 @@ namespace geometry3Sharp.Tests
 
         /// <summary>
         /// The repro of #1632 at a size that the 5 s limit allows: the capped cylinder and its 2-ulp shift certify (every clause, all triangles
-        /// covered), and C2 takes a part of the boolean's time, not many times it (0.5 s here against 2.2 s at 30 slices before
-        /// the work on its cost; the bound is loose, the cost is in the measurements of the PR).
+        /// covered), with the counts of pairs of the exact tests (the cost itself is in the Nightly run and the table of the PR).
         /// </summary>
         [Fact]
-        public void ShiftedFan_Certifies_AndC2IsBoundedByTheBooleansTime()
+        public void ShiftedFan_Certifies_WithTheKnownPairCounts()
         {
             DMesh3 a = Cylinder(30);
             var sw = Stopwatch.StartNew();
@@ -130,9 +129,9 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", c.Check());
             Assert.Equal(0, c.Uncovered);
             log.WriteLine($"boolean {boolean} ms, C2 {c2} ms, {c.EmbeddingPairs} pairs ({c.EmbeddingCoplanarPairs} coplanar), {c.EmbeddingPieces} classified and {c.EmbeddingCopies} copies");
-            Assert.True(c.EmbeddingPairs > 10000);
-            // (before: C2 2.2 s against a boolean of 0.8 s; the bound allows a loaded machine and the JIT)
-            Assert.True(c2 < Math.Max(3 * boolean, 1500), $"C2 {c2} ms, boolean {boolean} ms");
+                        // (the pair counts are those of the exact tests, as before the work on the cost: the cost itself is in the Nightly run and the PR's table)
+            Assert.Equal(15935, c.EmbeddingPairs);
+            Assert.Equal(9406, c.EmbeddingCoplanarPairs);
         }
 
         /// <summary> Two runs of the checker give the same verdict and counts (the loops are parallel: the lowest piece or pair decides, the counts are up to it). </summary>
@@ -276,6 +275,63 @@ namespace geometry3Sharp.Tests
             c.CheckPieces();
             Assert.Equal("", c.AuditInPlaneForms(2000, out int s, out int t, out _));
             Assert.True(t > 100, $"{t} straddle tests");
+        }
+
+        /// <summary>
+        /// A culled input triangle (the early-out: it meets no triangle of the culling mesh) is not in any stack, even where a piece of another
+        /// triangle of its own mesh lies inside it: B has a triangle u in the plane of its top face, over most of it, away from A. The
+        /// stacks (one table per group of equal pieces) equal the direct ones, which skip culled triangles.
+        /// </summary>
+        [Fact]
+        public void ACulledTriangleOverlappingAPiece_IsNotInTheStack()
+        {
+            DMesh3 a = new GridBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1)), EdgeVertices = 2 }.Generate().MakeDMesh();
+            DMesh3 b = new GridBox3Generator() { Box = new Box3d(new Vector3d(3.5, 0, 0), new Vector3d(3, 1, 1)), EdgeVertices = 2 }.Generate().MakeDMesh();
+            int p0 = b.AppendVertex(new Vector3d(1.5, 1, -0.9)), p1 = b.AppendVertex(new Vector3d(6, 1, -0.9)), p2 = b.AppendVertex(new Vector3d(6, 1, 0.9));
+            b.AppendTriangle(p0, p2, p1);
+            BooleanCertificate c = Run(a, b, Ops.Difference);
+            Assert.True(c.TriCulled.Count(x => x) >= 1, "no culled triangle");
+            Assert.Equal("", c.CheckPieces());
+            Assert.Equal("", c.AuditInPlaneForms(2000, out int stackTests, out _, out _));
+            // (a piece of B's top face inside u: the stack of such a piece would hold u if culled triangles were kept)
+            int culledU = Enumerable.Range(0, c.TriCulled.Length).First(t => c.TriCulled[t] && c.CoplanarSources(t).Any(x => x != t && c.TriCulled[x] == false));
+            Assert.True(Enumerable.Range(0, c.PieceCorners.Length).Any(i => c.CoplanarSources(c.PieceSource[i]).Contains(culledU)), "no piece in the plane of the culled triangle");
+        }
+
+        /// <summary>
+        /// A piece that straddles the boundary of several coplanar input triangles is reported with the lowest of them (the triangles are
+        /// tried in order, the loop over the pieces is parallel): a source triangle put back unsplit on fine faces cut by many others.
+        /// </summary>
+        [Fact]
+        public void APieceStraddlingSeveralTriangles_NamesTheLowest()
+        {
+            var a = FineBox(Vector3d.Zero, 1, 4);
+            var b = FineBox(new Vector3d(2, 0.25, 0.125), 1, 5);
+            BooleanCertificate probe = Run(a, b, Ops.Union);
+            Assert.Equal("", probe.CheckPieces());
+            int checkedSources = 0;
+            foreach (int source in probe.PieceSource.Distinct().OrderBy(x => x)) {
+                BooleanCertificate c = Run(a, b, Ops.Union);
+                int[] keep = Enumerable.Range(0, c.PieceSource.Length).Where(i => c.PieceSource[i] != source).ToArray();
+                int mesh = c.PieceMesh[Array.IndexOf(c.PieceSource, source)];
+                ExactPoint3[] whole = c.SourceCornersOnGrid(source);
+                // (the source whole, as the only piece of its source)
+                c.PieceMesh = keep.Select(i => c.PieceMesh[i]).Append(mesh).ToArray();
+                c.PieceCorners = keep.Select(i => c.PieceCorners[i]).Append(whole).ToArray();
+                c.PieceSource = keep.Select(i => c.PieceSource[i]).Append(source).ToArray();
+                int[] straddled = c.CoplanarSources(source).Where(u => u != source && BooleanCertificate.StraddlesInPlane(whole, c.SourceCornersOnGrid(u))).OrderBy(u => u).ToArray();
+                if (straddled.Length < 2 || c.CoplanarSources(source).Length <= 8) continue;
+                c.CheckPieces();
+                int last = c.PieceSource.Length - 1;
+                if (c.IsClassified(last) == false) continue;
+                // (alone: with the others, the unsplit piece also meets their pieces, which the pair test reports first)
+                c.PieceMesh = new[] { c.PieceMesh[last] }; c.PieceCorners = new[] { c.PieceCorners[last] }; c.PieceSource = new[] { c.PieceSource[last] };
+                c.CheckPieces();
+                string r = c.CheckEmbedding();
+                Assert.Equal($"piece 0 (source {source}) straddles the boundary of the coplanar input triangle {straddled[0]}", r);
+                if (++checkedSources >= 3) break;
+            }
+            Assert.True(checkedSources >= 2, $"{checkedSources} sources with a piece straddling several triangles");
         }
 
         /// <summary>

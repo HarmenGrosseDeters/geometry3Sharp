@@ -87,6 +87,9 @@ M=[
 ("stacks: failure of the highest piece", "            for (int i = 0; i < n; ++i)\n                if (failure[i] != null) throw new CertificateException(failure[i]);", "            for (int i = n - 1; i >= 0; --i)\n                if (failure[i] != null) throw new CertificateException(failure[i]);"),
 ("pairs: verdict of the highest pair", "for (int idx = 0; idx < pairs.Count; ++idx) {\n                if (coplanarPair[idx]) coplanarCount++;", "for (int idx = pairs.Count - 1; idx >= 0; --idx) {\n                if (coplanarPair[idx]) coplanarCount++;"),
 ("straddle: verdict of the highest piece", "            foreach (string r in straddle)\n                if (r != null) return r;", "            foreach (string r in straddle.Reverse())\n                if (r != null) return r;"),
+("straddle: the lowest triangle is not the one named", "straddles the boundary of the coplanar input triangle {u}\";\n                        return;", "straddles the boundary of the coplanar input triangle {u}\";"),
+("pairs: coplanar pairs not counted", "if (coplanarPair[idx]) coplanarCount++;", ";"),
+("stacks: culled triangles kept in the table", "if (TriCulled[u]) continue;\n                    h.Add(u); side.Add", "h.Add(u); side.Add"),
 ("straddle: a piece out of its source's plane takes the forms", "if (InSourcePlane(i) == false) return StraddlesInPlane(PieceCorners[i], triCorners[u]);", ";"),
 ("removed parts not reported", "if (RemovedParts.Count > 0)", "if (false)"),
 # --- the floating-point filters of 2026-11-24 (box filters of C2 / C3, the double filters of C5, the floor; added 2026-11-25)

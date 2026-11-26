@@ -423,7 +423,6 @@ namespace geometry3Sharp.Tests
 
         // the edge forms of an input triangle (its own normal: positive inside) and of a piece (its own normal), built where first needed
         EdgeForm[][] triForms, pieceForms;
-        BigInteger[][] pieceNormal;
 
         EdgeForm[] TriForms(int t)
         {
@@ -439,7 +438,6 @@ namespace geometry3Sharp.Tests
             if (f != null) return f;
             ExactPoint3[] c = PieceCorners[i];
             BigInteger[] n = Normal(c[0], c[1], c[2]);
-            pieceNormal[i] = n;
             return pieceForms[i] = new[] { new EdgeForm(c[0], c[1], n), new EdgeForm(c[1], c[2], n), new EdgeForm(c[2], c[0], n) };
         }
 
@@ -650,7 +648,7 @@ namespace geometry3Sharp.Tests
         void PreparePieces()
         {
             if (pieceV != null) return;
-            pieceForms = new EdgeForm[PieceCorners.Length][]; pieceNormal = new BigInteger[PieceCorners.Length][]; pieceKeys = new string[PieceCorners.Length];
+            pieceForms = new EdgeForm[PieceCorners.Length][]; pieceKeys = new string[PieceCorners.Length];
             pointIds = new Dictionary<ExactPoint3, int>();
             pieceV = new int[PieceCorners.Length][];
             for (int i = 0; i < PieceCorners.Length; ++i)
@@ -807,17 +805,17 @@ namespace geometry3Sharp.Tests
             EmbeddingPairs = pairs.Count;
             // (the keys and forms of the pieces, then the pairs in parallel, each test object to a thread; the verdict is the lowest pair's that
             // meets, and the count of coplanar pairs is up to it, as the sequential loop left them)
-            Parallel.For(0, n, k => { int i = part[k]; PieceKey(i); PieceForms(i); });
+            ParFor(0, n, k => { int i = part[k]; PieceKey(i); PieceForms(i); });
             var meets = new bool[pairs.Count];
             var coplanarPair = new bool[pairs.Count];
-            Parallel.For(0, pairs.Count, () => new EmbeddingPairTest(x), (idx, state, test) => {
+            Unwrapped(() => Parallel.For(0, pairs.Count, () => new EmbeddingPairTest(x), (idx, state, test) => {
                 int i = part[pairs[idx].Item1], j = part[pairs[idx].Item2];
                 long before = test.Coplanar;
                 if (InSamePlane(i, j)) meets[idx] = test.MeetBeyondSharedInPlane(pieceV[i], pieceV[j], PieceForms(i), PieceForms(j));
                 else meets[idx] = test.MeetBeyondShared(pieceV[i], pieceV[j]);
                 coplanarPair[idx] = test.Coplanar != before;
                 return test;
-            }, test => { });
+            }, test => { }));
             int coplanarCount = 0;
             for (int idx = 0; idx < pairs.Count; ++idx) {
                 if (coplanarPair[idx]) coplanarCount++;
@@ -831,7 +829,7 @@ namespace geometry3Sharp.Tests
             // the stacks of C3 take a coplanar input triangle u for a piece by the piece's centroid, which assumes that no
             // classified piece straddles u's boundary: it lies in u, or its interior is disjoint from u's
             var straddle = new string[n];
-            Parallel.For(0, n, k => {
+            ParFor(0, n, k => {
                 int i = part[k], src = PieceSource[i];
                 foreach (int u in CoplanarNear(src, PieceCorners[i]))
                     if (u != src && TriCulled[u] == false && IsZero(triNormal[u]) == false && StraddlesInPlaneOfSource(i, u)) {
@@ -1285,6 +1283,16 @@ namespace geometry3Sharp.Tests
         List<int>[] stacks;
         bool[] classified;
 
+        // Parallel.For with the exception of the body as it is (the loops throw CertificateException and DivideByZeroException, which the callers
+        // catch by type): an AggregateException is unwrapped to its first inner exception
+        static void ParFor(int from, int to, Action<int> body) => Unwrapped(() => Parallel.For(from, to, body));
+
+        static void Unwrapped(Action loop)
+        {
+            try { loop(); }
+            catch (AggregateException e) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.Flatten().InnerExceptions[0]).Throw(); }
+        }
+
         void PrepareStacks()
         {
             PrepareInputs();
@@ -1294,7 +1302,7 @@ namespace geometry3Sharp.Tests
             classified = new bool[n];
             // (what the pieces share, built before the loop: the plane boxes and the edge forms of the input triangles)
             foreach (string plane in planeGroups.Keys) BoxesOfPlane(plane);
-            Parallel.For(0, triNormal.Length, t => { if (IsZero(triNormal[t]) == false) TriForms(t); });
+            ParFor(0, triNormal.Length, t => { if (IsZero(triNormal[t]) == false) TriForms(t); });
             // Pieces with the same three corners (the coplanar copies of one region, one per source) have the same centroid, so the same
             // coplanar triangles contain it: one group per (plane of the source, corners), its table of "inside" computed once, and
             // each piece's stack from the table with its own source (which is in it without a test, as before). A piece of its own is a group of one.
@@ -1310,7 +1318,7 @@ namespace geometry3Sharp.Tests
             }
             var hits = new int[firstOf.Count][];
             var inside = new sbyte[firstOf.Count][];
-            Parallel.For(0, firstOf.Count, g => {
+            ParFor(0, firstOf.Count, g => {
                 int i = firstOf[g], src = PieceSource[i];
                 ExactPoint3 cen = Centroid(PieceCorners[i]);
                 List<int> near = BoxHits(triPlane[src], PieceCorners[i]);
@@ -1324,7 +1332,7 @@ namespace geometry3Sharp.Tests
             });
             // the pieces are independent: a failure is reported for the lowest piece, as the sequential loop did
             var failure = new string[n];
-            Parallel.For(0, n, i => {
+            ParFor(0, n, i => {
                 int src = PieceSource[i], g = groupOf[i];
                 var s = new List<int>();
                 bool srcAdded = false;
