@@ -62,7 +62,14 @@ namespace geometry3Sharp.Tests
                 foreach (double x in edges) {
                     double got = CoreMath.Atan2(y, x), want = CoreMathReference.Atan2(y, x);
                     Assert.True(BitConverter.DoubleToInt64Bits(got) == BitConverter.DoubleToInt64Bits(want) || (double.IsNaN(got) && double.IsNaN(want)), "atan2(" + y + ", " + x + ") = " + got + " expected " + want);
-                    // (the special values are the same as the platform's: nothing a caller of the sign of zero or an infinity could see changes)
+                    // (the special values of C99 / IEEE 754 Annex F: the platform's Math.Atan2 agrees on every runtime except for two infinities,
+                    // where .NET Framework returns NaN and .NET Core and CoreMath the IEEE value +-pi/4 or +-3pi/4: a change for infinite input on
+                    // .NET Framework only, listed in docs/UPSTREAM_CHANGES.md)
+                    if (double.IsInfinity(y) && double.IsInfinity(x)) {
+                        double quarter = (x > 0 ? 1.0 : 3.0) * (Math.PI / 4) * (y > 0 ? 1 : -1);
+                        Assert.InRange(Math.Abs(got - quarter), 0, 1e-15);   // (the bits are pinned by the reference above)
+                        continue;
+                    }
                     double libm = Math.Atan2(y, x);
                     Assert.True(BitConverter.DoubleToInt64Bits(got) == BitConverter.DoubleToInt64Bits(libm) || (double.IsNaN(got) && double.IsNaN(libm)), "special value atan2(" + y + ", " + x + ")");
                 }
