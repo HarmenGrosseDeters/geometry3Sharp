@@ -19,6 +19,12 @@ namespace gs
     /// The result is a new mesh (the input triangulation and attributes are not kept), and features smaller
     /// than CellSize (thin walls, narrow gaps) are lost. For exact booleans that keep the input geometry,
     /// use ExactMeshBoolean (mesh arrangement) instead. The inputs are not modified.
+    ///
+    /// Each input is read as its oriented copy (WindingContouring.OrientedCopy), which takes the nesting of closed shells by parity: a shell inside an
+    /// odd number of others is a cavity, so an outward shell inside another (an insert in a housing) is reversed and hollow. ComponentsFlippedByNestingA
+    /// and B count them per input; MinVolumeIoU refuses an input where that reading and the plain union of its shells differ (#1609). The judgement is per
+    /// input (an input whose own two readings differ), not per result: the combined result of the operation is not compared with anything.
+    /// The mirrored case is a limit of the parity reading: an insert in a housing with both shells inside-out (inward) is not seen, because only the housing is flagged by FindInvertedComponents (the count is 0, the reading is the hollow one and nothing is refused; the same limit as MeshRobustRepair, #1566).
     /// </summary>
     public class MeshWindingNumberBoolean
     {
@@ -70,6 +76,29 @@ namespace gs
         /// </summary>
         public bool LocalRefinement = true;
 
+        /// <summary>
+        /// Each input is its oriented copy (WindingContouring.OrientedCopy), which reads the nesting of closed shells by parity (#1609). If an input has
+        /// outward shells inside others (ComponentsFlippedByNestingA / B above 0) and the solid of that reading differs in volume from the plain union of
+        /// its shells (the nonzero winding number) by more than 1 - MinVolumeIoU, Compute() is false with ResultReason NestingAmbiguous; below that
+        /// difference it only reports the counts. 0 or less: no refusal (the counts are still reported). Default 0.99, as MeshRobustRepair.MinVolumeIoU.
+        /// An input without a nested outward shell is not affected. An input that the operation does not read (the other one is empty) is not checked
+        /// </summary>
+        public double MinVolumeIoU = 0.99;
+
+        /// <summary> (tests) false: no nesting check at all (no counts, no refusal), what Compute() did before #1609 </summary>
+        internal bool NestingCheck = true;
+
+        /// <summary> the number of closed components of MeshA that its oriented copy reverses although they are outward by their own volume, in the last Compute(); see MinVolumeIoU </summary>
+        public int ComponentsFlippedByNestingA { get; private set; }
+        /// <summary> the same for MeshB </summary>
+        public int ComponentsFlippedByNestingB { get; private set; }
+
+        /// <summary> ResultReason of a Compute() that is false because an input has outward shells inside others that its oriented copy takes for cavities (see MinVolumeIoU) </summary>
+        public const string NestingAmbiguous = "nesting ambiguous: inner shells taken as cavities";
+
+        /// <summary> "" or NestingAmbiguous after the last Compute(); the other failures (see Compute()) leave it empty </summary>
+        public string ResultReason { get; private set; } = "";
+
         /// <summary> return true to cancel; Compute() then returns false </summary>
         public Func<bool> CancelF = () => { return false; };
 
@@ -106,7 +135,7 @@ namespace gs
         /// </summary>
         /// <returns>
         /// false if both inputs are empty, CellSize is NaN or infinite, the cell size is not positive or too small
-        /// for the octree, the extent is outside the band and the scale is not exact (a used coordinate that would be subnormal after it,
+        /// for the octree, the nesting of an input is ambiguous (MinVolumeIoU, ResultReason NestingAmbiguous), the extent is outside the band and the scale is not exact (a used coordinate that would be subnormal after it,
         /// or above 1e300, or an extent that cannot be brought into the band, or a CellSize that does not exist in the scaled frame), or the
         /// computation was cancelled, with Result null (also after an earlier success);
         /// true otherwise (Result may be an empty mesh, eg an intersection with an empty input).
@@ -137,9 +166,11 @@ namespace gs
             var inner = new MeshWindingNumberBoolean(a, b, Operation) {
                 CellSize = scaledCell, GridResolution = GridResolution, CleanupResult = CleanupResult, ReduceTolerance = ReduceTolerance,
                 FastWindingBeta = FastWindingBeta, UseExactWinding = UseExactWinding, MaxRefineLevels = MaxRefineLevels,
-                MinRefineEdges = MinRefineEdges, LocalRefinement = LocalRefinement, CancelF = CancelF
+                MinRefineEdges = MinRefineEdges, LocalRefinement = LocalRefinement, CancelF = CancelF, MinVolumeIoU = MinVolumeIoU, NestingCheck = NestingCheck
             };
             bool ok = inner.compute_unit();
+            ComponentsFlippedByNestingA = inner.ComponentsFlippedByNestingA; ComponentsFlippedByNestingB = inner.ComponentsFlippedByNestingB;
+            ResultReason = inner.ResultReason;
             Result = inner.Result;
             if (Result != null)
                 MeshRepairMetrics.ScaleVertices(Result, 1 / s);
@@ -200,6 +231,8 @@ namespace gs
             RefinedCells = 0;
             RefineFactor = 1;
             PhaseMilliseconds.Clear();
+            ComponentsFlippedByNestingA = ComponentsFlippedByNestingB = 0;
+            ResultReason = "";
         }
 
         /// <summary> (tests) the power of two the last Compute() scaled the inputs by (1: it ran on them as they are; 0: it reported that the scale is not possible) </summary>
@@ -238,6 +271,23 @@ namespace gs
                     UsedCellSize = cellSize;
                     return true;
                 }
+            }
+            // (#1609) outward shells inside others: the oriented copy of an input takes them for cavities
+            bool ambiguous = false;
+            foreach (DMesh3 input in NestingCheck ? inputs : new DMesh3[0]) {
+                int nested;
+                if (MeshRepairMetrics.NestingAmbiguous(input, MinVolumeIoU, out nested, CancelF))
+                    ambiguous = true;
+                if (input == MeshA) ComponentsFlippedByNestingA = nested;
+                if (input == MeshB) ComponentsFlippedByNestingB = nested;
+            }
+            if (NestingCheck)
+                end_phase("nesting");
+            if (CancelF())
+                return false;
+            if (ambiguous) {
+                ResultReason = NestingAmbiguous;
+                return false;
             }
             WindingContouring wc = new WindingContouring(inputs, combine, FastWindingBeta, UseExactWinding) {
                 CancelF = CancelF, LocalRefinement = LocalRefinement

@@ -533,7 +533,7 @@ and `HausdorffCertifiedUpperTests` (one build and test run per mutant; the rows 
 6. The fast path of 10.1.
 7. The one-sided candidate rules: each exclusion needs a certified strict sign.
 
-Known limits (review of the first push): (a) only `CertifiedDet3.cs` is in the exact-code list of `.editorconfig`; the one-`Up`-per-operation
+Known limits (review of the first push): (a) in `queries/`, only `CertifiedDet3.cs` and `CertifiedPointMeshDistance.cs` are in the exact-code list of `.editorconfig`; the one-`Up`-per-operation
 arithmetic of `gapV`, `gapC` and the (Q) value lives in `TriangleDeviationBounds.cs`, where the FMA and `float` bans do not apply:
 sound because the JIT does not contract, guarded by review only. (b) The derivation counts one rounding per operation; on net48 x86
 (x87) extended precision only improves that except for double rounding of subnormals, which the five-rounding count and the factor 4

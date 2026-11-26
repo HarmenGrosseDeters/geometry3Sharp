@@ -353,7 +353,15 @@ namespace geometry3Sharp.Tests
                 Assert.False(ok, name + ": an empty input is documented to fail");
                 return;
             }
-            // documented: false only for an empty input, a bad cell size, a too large grid or a cancel
+            // (#1609: an outward shell inside another is read as a cavity by the oriented copy: "nested and tiny" is such an input; Compute() is then
+            // false with ResultReason NestingAmbiguous, the solid would be hollow where the union of the shells is solid)
+            if (name == "nested and tiny") {
+                Assert.False(ok, name + ": Compute should refuse the ambiguous nesting");
+                Assert.Equal(MeshWindingNumberSolidify.NestingAmbiguous, s.ResultReason);
+                Assert.True(s.ComponentsFlippedByNesting > 0);
+                return;
+            }
+            // documented: false only for an empty input, a bad cell size, a too large grid, an ambiguous nesting (MinVolumeIoU) or a cancel
             Assert.True(ok, name + ": Compute failed");
             AssertValid(s.Result, name);
             // documented: closed, without self-intersections (empty where the input has no solid: open sheet, flat,
