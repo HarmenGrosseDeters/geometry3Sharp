@@ -80,10 +80,8 @@ M=[
 ("edge form: sign of the offset", "- d * p.W).Sign;", "+ d * p.W).Sign;"),
 ("edge form: normal and edge crossed the wrong way", "BigInteger[] m = Cross(n, Sub(b, a));", "BigInteger[] m = Cross(Sub(b, a), n);"),
 ("edge form: offset of the wrong point", "d = m[0] * a.X + m[1] * a.Y + m[2] * a.Z;", "d = m[0] * a.X + m[1] * a.Y + m[2] * a.W;"),
-("pair forms: sign of the normals ignored", "sideOfP[3 * e + k] = p[k] == q[e] || p[k] == q[(e + 1) % 3] ? 0 : s * fq[e].Side(X[p[k]]);", "sideOfP[3 * e + k] = p[k] == q[e] || p[k] == q[(e + 1) % 3] ? 0 : fq[e].Side(X[p[k]]);"),
 ("pair forms: shared plane not by the key", "return pieceKeys[i].Length > 0 && pieceKeys[i] == pieceKeys[j];", "return pieceKeys[i].Length > 0;"),
 ("stacks: groups ignore the third corner", "ids[0] + \",\" + ids[1] + \",\" + ids[2];", "ids[0] + \",\" + ids[1];"),
-("stacks: groups ignore the plane of the source", "string key = triPlane[PieceSource[i]] + \"|\" + ids[0]", "string key = \"|\" + ids[0]"),
 ("stacks: source of the piece not skipped in the table", "if (u == src) { s.Add(u); srcAdded = true; continue; }", "if (u == src) { srcAdded = true; }"),
 ("stacks: a centroid on an edge is not reported", "if (inside[g][k] == 0) { failure[i] =", "if (false) { failure[i] ="),
 ("stacks: failure of the highest piece", "            for (int i = 0; i < n; ++i)\n                if (failure[i] != null) throw new CertificateException(failure[i]);", "            for (int i = n - 1; i >= 0; --i)\n                if (failure[i] != null) throw new CertificateException(failure[i]);"),
@@ -125,6 +123,8 @@ M=[
 
 # Equivalent mutants (not run by default; `--equivalent` runs them, and each must survive). Each changes no verdict:
 EQUIVALENT = [
+("stacks: groups ignore the plane of the source", "string key = triPlane[PieceSource[i]] + \"|\" + ids[0]", "string key = \"|\" + ids[0]",
+ "pieces with the same three corner ids are the same triangle, so in the same plane; the plane of the source only differs for a piece outside its source's plane, which C1 rejects before C2 and C3 run (Check)"),
 ("C5 accept: weights not clamped", "v = Math.Min(1, Math.Max(0, v)); w = Math.Min(1 - v, Math.Max(0, w));", ";",
  "not proved, equivalent in practice: the clamp is a belt; in face, edge and vertex regions the weights are in [0, 1] up to rounding, and no input of the thin-triangle test, of 4 million random thin triangles (step A) and of 1.2 million targeted near-collinear cases (2026-11-25, double routine against an exact Fraction reference) took them outside by more than an ulp of v + w, which moves the point by an ulp of the triangle, far below the margin 3 eps"),
 ("C5 filter bound without the extent", "Math.Max((maxAbs + extent) / (double)(1L << 40),", "Math.Max((maxAbs) / (double)(1L << 40),",

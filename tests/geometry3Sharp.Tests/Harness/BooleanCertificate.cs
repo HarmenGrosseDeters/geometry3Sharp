@@ -813,7 +813,7 @@ namespace geometry3Sharp.Tests
             Parallel.For(0, pairs.Count, () => new EmbeddingPairTest(x), (idx, state, test) => {
                 int i = part[pairs[idx].Item1], j = part[pairs[idx].Item2];
                 long before = test.Coplanar;
-                if (InSamePlane(i, j)) meets[idx] = test.MeetBeyondSharedInPlane(pieceV[i], pieceV[j], PieceForms(i), PieceForms(j), Dot(pieceNormal[i], pieceNormal[j]).Sign);
+                if (InSamePlane(i, j)) meets[idx] = test.MeetBeyondSharedInPlane(pieceV[i], pieceV[j], PieceForms(i), PieceForms(j));
                 else meets[idx] = test.MeetBeyondShared(pieceV[i], pieceV[j]);
                 coplanarPair[idx] = test.Coplanar != before;
                 return test;
@@ -877,15 +877,22 @@ namespace geometry3Sharp.Tests
             ExactPoint3[] x = new ExactPoint3[pointIds.Count];
             foreach (var kv in pointIds) x[kv.Value] = kv.Key;
             var test = new EmbeddingPairTest(x);
-            int[] part = Enumerable.Range(0, PieceCorners.Length).Where(i => classified[i]).ToArray();
-            foreach (int i in part)
-                foreach (int j in part) {
-                    if (j <= i || InSamePlane(i, j) == false) continue;
-                    if (pairTests++ >= maxPairs) return "";
-                    bool forms = test.MeetBeyondSharedInPlane(pieceV[i], pieceV[j], PieceForms(i), PieceForms(j), Dot(pieceNormal[i], pieceNormal[j]).Sign);
-                    bool direct = test.MeetBeyondShared(pieceV[i], pieceV[j]);
-                    if (forms != direct) return $"pieces {i} and {j}: the pair test by the forms ({forms}) differs from the direct one ({direct})";
+            // (all pieces, the coplanar copies of opposite orientation among them)
+            var byPlane = new Dictionary<string, List<int>>();
+            for (int i = 0; i < PieceCorners.Length; ++i)
+                if (PieceKey(i).Length > 0) {
+                    if (byPlane.TryGetValue(pieceKeys[i], out List<int> l) == false) byPlane[pieceKeys[i]] = l = new List<int>();
+                    l.Add(i);
                 }
+            foreach (List<int> group in byPlane.Values)
+                for (int a = 0; a < group.Count; ++a)
+                    for (int b = a + 1; b < group.Count && b < a + 40; ++b) {
+                        int i = group[a], j = group[b];
+                        if (pairTests++ >= maxPairs) return "";
+                        bool forms = test.MeetBeyondSharedInPlane(pieceV[i], pieceV[j], PieceForms(i), PieceForms(j));
+                        bool direct = test.MeetBeyondShared(pieceV[i], pieceV[j]);
+                        if (forms != direct) return $"pieces {i} and {j}: the pair test by the forms ({forms}) differs from the direct one ({direct})";
+                    }
             return "";
         }
 
@@ -1047,19 +1054,20 @@ namespace geometry3Sharp.Tests
 
             /// <summary>
             /// the same for two triangles in one exact plane, from the edge forms of both (each with its own normal) and the sign
-            /// of the product of the normals: no sign is computed for the corners against the plane (they are on it), and the
+            /// of the normals ignored (not needed): no sign is computed for the corners against the plane (they are on it), and the
             /// in-plane signs are the forms' (the same as CoplanarMeet's, which the test of the forms compares)
             /// </summary>
-            public bool MeetBeyondSharedInPlane(int[] p, int[] q, EdgeForm[] fp, EdgeForm[] fq, int normalsSign)
+            public bool MeetBeyondSharedInPlane(int[] p, int[] q, EdgeForm[] fp, EdgeForm[] fq)
             {
                 Coplanar++;
-                return CoplanarMeetForms(p, q, fp, fq, normalsSign);
+                return CoplanarMeetForms(p, q, fp, fq);
             }
 
-            bool CoplanarMeetForms(int[] p, int[] q, EdgeForm[] fp, EdgeForm[] fq, int s)
+            bool CoplanarMeetForms(int[] p, int[] q, EdgeForm[] fp, EdgeForm[] fq)
             {
-                // the side of the corner k of one triangle against the edge e of the other, by the normal of p (the forms of q have q's:
-                // times s), each found where first needed and none for a corner that is an end of the edge (0 by the ids)
+                // the side of the corner k of one triangle against the edge e of the other (the forms of q are by q's normal, of p's by p's: the
+                // signs of q's are those by p's normal or all reversed, and every use of them is invariant under that: a test that all three
+                // are not of both signs, a product of two), each found where first needed and none for a corner that is an end of the edge (0 by the ids)
                 int[] sideOfQ = new int[9], sideOfP = new int[9];      // [3 e + k]: q's corner k against p's edge e, p's corner k against q's edge e
                 for (int k = 0; k < 9; ++k) sideOfQ[k] = sideOfP[k] = 2;
                 int Sp(int e, int k)    // the corner k of q against the edge e of p
@@ -1069,7 +1077,7 @@ namespace geometry3Sharp.Tests
                 }
                 int Sq(int e, int k)    // the corner k of p against the edge e of q
                 {
-                    if (sideOfP[3 * e + k] == 2) sideOfP[3 * e + k] = p[k] == q[e] || p[k] == q[(e + 1) % 3] ? 0 : s * fq[e].Side(X[p[k]]);
+                    if (sideOfP[3 * e + k] == 2) sideOfP[3 * e + k] = p[k] == q[e] || p[k] == q[(e + 1) % 3] ? 0 : fq[e].Side(X[p[k]]);
                     return sideOfP[3 * e + k];
                 }
                 int Index(int[] t, int id) => t[0] == id ? 0 : t[1] == id ? 1 : 2;
