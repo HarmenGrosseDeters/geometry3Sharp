@@ -1079,12 +1079,16 @@ def source_contract():
             touched.Add(w);
             commit_drift();""") not in pair or text.count('try_move_pair(') != 3:
         raise ValueError('try_move_pair: the joint move changed, or is called elsewhere; review drift_reference.py')
-    # its candidates (search_pairs): each vertex by its own room over 2^j, the same j for both, along the 26 directions; every
-    # candidate goes through try_move_pair (the room decides sizes only)
+    # its candidates (search_pairs): each vertex by its own room over 2^j (j = 0 .. SearchSizes - 1, the levels of the two vertices
+    # in the rounds of the joint stage: equal, or differing; which pairs of corners, fixed or free, only chooses the vertices: a
+    # displacement edit like any other), along the 26 directions; every candidate goes through try_move_pair (the room decides sizes
+    # only; the sizes are the room over a power of two, never more than the room)
     pairs = norm(_method(text, 'bool search_pairs('))
     if (norm('double ru = room_at(u), rw = room_at(w);') not in pairs
-            or norm('double su = ru / (1 << (SearchSizes - 1)), sw = rw / (1 << (SearchSizes - 1));') not in pairs
-            or norm('for (int level = 0; level < SearchSizes; ++level, su *= 2, sw *= 2)') not in pairs
+            or norm('double su = ru / (1 << (SearchSizes - 1 - lu)), sw = rw / (1 << (SearchSizes - 1 - lw));') not in pairs
+            or norm('for (int sum = 0; sum <= 2 * (SearchSizes - 1); ++sum)') not in pairs
+            or norm('for (int lu = Math.Max(0, sum - (SearchSizes - 1)); lu <= Math.Min(SearchSizes - 1, sum); ++lu) {') not in pairs
+            or norm('int lw = sum - lu;') not in pairs
             or norm('Vector3d pu = cu + su * du;') not in pairs or norm('Vector3d pw = cw + sw * dw;') not in pairs
             or norm('if (try_move_pair(u, pu, w, pw)) {') not in pairs or 'set_vertex' in pairs or 'improves' in pairs
             or 'Mesh.SetVertex' in pairs):
