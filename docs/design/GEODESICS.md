@@ -473,11 +473,18 @@ sources, the ridge's source as in the tests; largest (Upper - Lower) / Lower ove
 | aligned ridge 31 x 31 | 961 | 2.8 s, 77247, 8.0e-2 | 1.5 s, 39852, 1.4e-8 |
 | aligned ridge 41 x 41 | 1681 | 13.9 s, 286137, 3.8e-2 | 5.7 s, 97650, 1.9e-8 |
 
-So the oracle reaches about 10^4 vertices on terrain-like input, but only about 2 x 10^3 on exactly flat or exactly
-aligned input: **short of the 10^4-vertex target of the plan** on those. Beyond, `Compute` returns `WindowLimit` with NaN
-arrays (the clean way out; a test pins it on the aligned 41 x 41 ridge with a limit of 60000). The default `MaxWindows`
-is 300000, which keeps a `Compute` below about 20 s (the plane 101 x 101 took 116 s to reach the former limit of 2
-million).
+After #1654 (precomputed edge frames + Hansen–Walster interval monotonicity, 1D bisection, and Clarke Mean-Value Form in
+`Dominated`; `benchmarks/GeodesicOracleBenchmark reach`, medians of 3 runs, `DOTNET_TieredPGO=0`), distances stay
+bit-identical to `master` while window counts drop by 4.5–12.1 % on curved/saddle grids and curved wall times drop by
+1.83–2.45× (`terrain 41 x 41`: 0.84 → 0.46 s, 18835 → 17918 windows; `saddle 41 x 41`: 4.26 → 1.84 s, 63649 → 55968
+windows; `terrain 101 x 101`: 5.54 → 2.98 s, 125155 → 119464 windows; `saddle 101 x 101` to the 300k window limit:
+25.99 → 10.59 s; flat planes/ridges unchanged in window count and 1.00–1.11× faster).
+
+So the oracle reaches about 10^4 vertices on terrain-like input and flat planes (after A7', plane 101 x 101 finishes in
+4.45 s), while the aligned 101 x 101 ridge still hits the 300k window limit in 5.2 s (**short of the 10^4-vertex target**
+on aligned ridges). Beyond, `Compute` returns `WindowLimit` with NaN arrays (the clean way out; a test pins it on the
+aligned 41 x 41 ridge with a limit of 60000). The default `MaxWindows` is 300000, which keeps a `Compute` below about
+20 s (the plane 101 x 101 took 116 s to reach the former limit of 2 million).
 **Width:** see section 6c: (Upper - Lower) / Lower is at most about 2e-8 on every procedural surface class measured
 (Lower within about 1e-8 relative of the distance: the re-emission margins of A5 add up along chains of flat
 pseudo-sources), so Upper is as tight. Before #1058 Upper was up to 8.2% above the distance on flat and nearly flat
