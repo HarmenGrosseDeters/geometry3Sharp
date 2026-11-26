@@ -81,6 +81,8 @@ rule; **S** speed or strategy only.
 | planes_approx, segment_point (quotients), segment_hits slack 1e-9, F | `ExactMeshArrangement.cs` | quotient error bounds | read only (division is outside `fpbound.py`) | not known |
 | Devillers-Guigue prefilter, D | `ExactMeshArrangement.cs` (apart_on_the_line) | apart iff the line segments are disjoint | Z3 `tritri_prefilter.py` (real arithmetic) | Z3 contract |
 | CertifiedDet3 (CD-1) | `queries/CertifiedDet3.cs:22` | certified determinant | EBA-derived | EBA |
+| CertifiedPointMeshDistance box lower bound (CPM-1) | `queries/CertifiedPointMeshDistance.cs:114` | certified AABB squared-distance lower bound (with `ExactInterval` fallback) | EBA-derived | EBA |
+| CertifiedPointMeshDistance plane filter (CPM-2) | `queries/CertifiedPointMeshDistance.cs:144` | certified supporting-plane squared-distance lower bound via `CertifiedDet3` | EBA-derived | EBA |
 
 ### 3.4 Snap rounding, rounding repair
 
