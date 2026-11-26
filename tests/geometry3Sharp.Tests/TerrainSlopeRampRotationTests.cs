@@ -14,6 +14,7 @@ namespace geometry3Sharp.Tests
     /// that), and the next triangle on that edge is refused: "SlopeMap: non-manifold realization". After the two realizations
     /// of the design (with and without the merge) the strict one drops such slivers and stitches the neighbours.
     /// </summary>
+    [Collection("Terrain301")]       // (shares the design of 301 with TerrainSlopeRampRotationRegressionTests)
     public class TerrainSlopeRampRotationTests
     {
         // ---- append_faces on its own: a sliver the rounding laid over a neighbour ----
@@ -164,6 +165,140 @@ namespace geometry3Sharp.Tests
             Append(stitched, tris, true);                                                       // strict (stitch): v is pinched, no refusal
             Assert.True(stitched.VtxEdgesItr(v).Count(stitched.IsBoundaryEdge) > 2);
             Assert.Throws<SlopeMap.NonManifoldRealization>(() => Append(new DMesh3(mesh), tris, true, true));
+        }
+
+        // ---- the flip share rerun (#1539, angle 301) ----
+
+        [Fact]
+        public void FlipExtra_IsZeroAtScaleOne_AndScalesWithTheFrame()
+        {
+            double exy = 5.684341886080802e-14, s = 1.0;
+            Assert.Equal(0.0, TerrainSlopeDesign.FlipExtra(exy, s, 1));
+            // the F - 1 further shares, rounded up: at least (F - 1) FlipShare, and 2^k exy gives 2^k times as much, bit for bit
+            foreach (double f in new[] { 1024.0, 2048.0, 1048576.0 }) {
+                double e = TerrainSlopeDesign.FlipExtra(exy, s, f);
+                Assert.True(e >= (f - 1) * TerrainSlopeDesign.FlipShare(exy, s));
+                Assert.Equal(1024 * e, TerrainSlopeDesign.FlipExtra(1024 * exy, s, f));
+                Assert.Equal(e / 4096, TerrainSlopeDesign.FlipExtra(exy / 4096, s, f));
+            }
+        }
+
+        [Fact]
+        public void FlipScaleFor_IsAPowerOfTwoAboveTwiceTheRatio_WithinTheRange()
+        {
+            double lo = Math.Pow(2, TerrainSlopeDesign.MinFlipScaleLog2), hi = Math.Pow(2, TerrainSlopeDesign.MaxFlipScaleLog2);
+            Assert.Equal(lo, TerrainSlopeDesign.FlipScaleFor(7.4, 1));            // 301: 7.4 shares, the minimum
+            Assert.Equal(lo, TerrainSlopeDesign.FlipScaleFor(lo / 2, 1));         // 2 ratio = lo: not above it
+            Assert.Equal(2 * lo, TerrainSlopeDesign.FlipScaleFor(lo / 2 + 1, 1));
+            Assert.Equal(8192.0, TerrainSlopeDesign.FlipScaleFor(Math.Pow(2, 12), 1));
+            Assert.Equal(16384.0, TerrainSlopeDesign.FlipScaleFor(Math.Pow(2, 12) + 1, 1));
+            Assert.Equal(hi, TerrainSlopeDesign.FlipScaleFor(1e30, 1));           // capped
+            Assert.Equal(hi, TerrainSlopeDesign.FlipScaleFor(hi, 1));
+            Assert.Equal(2 * lo, TerrainSlopeDesign.FlipScaleFor(7.4, lo));       // above the last scale
+            Assert.Equal(hi, TerrainSlopeDesign.FlipScaleFor(7.4, hi));           // (the cap stays: the caller stops there)
+            Assert.Equal(lo, TerrainSlopeDesign.FlipScaleFor(double.NaN, 1));
+        }
+
+        [Fact]
+        public void MayMerge_CountsTheExtraShare()
+        {
+            Assert.True(TerrainSlopeDesign.MayMerge(1.0, 0, 1.0));
+            Assert.False(TerrainSlopeDesign.MayMerge(1.0, 0, 0.999));
+            Assert.False(TerrainSlopeDesign.MayMerge(1.0, 0.5, 1.4));       // 1 + 0.5 > 1.4: no room for merges and flips
+            Assert.True(TerrainSlopeDesign.MayMerge(1.0, 0.5, 1.6));
+        }
+
+        [Fact]
+        public void FlipExtraBudgets_AddTheExtraOnlyInARerun()
+        {
+            Assert.Equal(3.0, TerrainSlopeDesign.WithFlipExtra(3.0, 0));
+            Assert.True(TerrainSlopeDesign.WithFlipExtra(3.0, 0.5) >= 3.5);
+            Assert.True(TerrainSlopeDesign.WithFlipExtra(3.0, 0.5) < 3.5000001);
+            Assert.Equal(3.0, TerrainSlopeDesign.BandRoom(3.0, 0));
+            Assert.True(TerrainSlopeDesign.BandRoom(3.0, 0.5) <= 2.5);
+            Assert.True(TerrainSlopeDesign.BandRoom(3.0, 0.5) > 2.4999999);
+        }
+
+        // the band radius with the room that a scaled flip share leaves under the lambda bound is smaller (the call site in build passes BandRoom)
+        [Fact]
+        public void BandMergeRadius_ShrinksWithTheRoomOfAScaledFlipShare()
+        {
+            double exy = 1e-13, ez = 1e-12, sMax = 1, minFeature = 1e-6, slack = 1, bound = 1e-6, extra = 5e-7;
+            double full = TerrainSlopeDesign.BandMergeRadius(exy, ez, sMax, minFeature, slack, TerrainSlopeDesign.BandRoom(bound, 0));
+            double less = TerrainSlopeDesign.BandMergeRadius(exy, ez, sMax, minFeature, slack, TerrainSlopeDesign.BandRoom(bound, extra));
+            Assert.True(full > 4e-7 && full <= 5e-7, "full " + full);
+            Assert.True(less < full / 1.9 && less > 0, "less " + less);
+        }
+
+        // 301: the plain attempts fail with a refused flip, the rerun at F = 2^10 passes (the shared design, see the regression tests)
+        [Fact, Trait("Category", "Slow")]
+        public void AroundCorner_301_RerunsWithAScaledFlipShare()
+        {
+            var d = TerrainSlopeRampRotationRegressionTests.Reference301.Value;
+            Assert.Equal(Math.Pow(2, TerrainSlopeDesign.MinFlipScaleLog2), d.UsedFlipScale);
+            Assert.True(d.NeedleFlips > 0);
+            Assert.True(d.UsedToeLowering <= d.Tolerance);
+            Assert.True(d.UsedToeLowering >= d.MergeLambdaRequired);
+            // the lowering the flips need counts the F - 1 further shares (4.39e-9 = 2.50e-9 + 1.89e-9 at 301)
+            Assert.True(d.MergeLambdaRequired >= (d.UsedFlipScale - 1) * d.BaseFlipShare, "need " + d.MergeLambdaRequired);
+        }
+
+        // 3000 times the share (5.7e-6, still within the lambda bound): the lowering the flips need is at least the extra share, which dominates it
+        // (Slow: one design of 301, 7 s alone)
+        [Fact, Trait("Category", "Slow")]
+        public void AroundCorner_301_LargeExtraShare_RaisesTheNeededLowering()
+        {
+            var d = TerrainSlopeRampRotationRegressionTests.Make(301);
+            d.FlipScaleTestFactor = 3000;
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            Assert.True(d.NeedleFlips > 0);
+            Assert.True(d.MergeLambdaRequired >= (3000 * d.UsedFlipScale - 1) * d.BaseFlipShare, "need " + d.MergeLambdaRequired);
+        }
+
+        // a rerun whose extra share leaves no room for the merge under the lambda bound (3e6 times the share: 5.7e-3, within Tolerance) runs
+        // without merges and flips: mayMerge counts the extra share (Nightly: the first attempts, then one rerun, 12 to 13 s alone, and no
+        // cheaper input triggers the rerun; the check is the run itself)
+        [Fact, Trait("Category", "Nightly")]
+        public void AroundCorner_301_ExtraShareWithoutRoom_RunsWithoutFlips()
+        {
+            var d = TerrainSlopeRampRotationRegressionTests.Make(301);
+            d.FlipScaleTestFactor = 3e6;
+            d.Compute();
+            Assert.Equal(1024.0, d.UsedFlipScale);
+            Assert.Equal(0, d.NeedleFlips);
+        }
+
+        // where the scaled share would not fit Tolerance, the rerun is refused by the budget and the design keeps its SlopeViolation with the
+        // diagnostics of the plain run (Slow: the first attempts, the refused rerun, then the same instance again without the rerun: the
+        // reuse of an instance after a rerun, and the plain run to compare with). The ratio is scaled so that F reaches the cap 2^20,
+        // and the budget refuses it there
+        [Fact, Trait("Category", "Slow")]
+        public void AroundCorner_301_RerunRefusedByTheBudget_KeepsTheSlopeViolation_AndReuses()
+        {
+            var d = TerrainSlopeRampRotationRegressionTests.Make(301);
+            d.FlipRatioTestFactor = 1e12;
+            d.FlipScaleTestFactor = 1e12;       // F x 1e12 shares of 1.8e-12: more than Tolerance 1e-2 at every F
+            Assert.False(d.Compute());
+            Assert.Equal(TerrainSlopeDesign.Statuses.SlopeViolation, d.Status);
+            Assert.Contains("triangles failed the exact check", d.Message);
+            Assert.Equal(1048576.0, d.UsedFlipScale);      // tried once, at the cap, refused
+            Assert.NotEmpty(d.ProblemTriangles);
+            string message = d.Message;
+            var problems = d.ProblemTriangles.ToList();
+            var altitudes = d.AttemptProblemAltitudes.Select(l => l.ToList()).ToList();
+            double[] numbers = { d.MergeLambdaRequired, d.NeedleFlips, d.MergedPositions, d.MaxSlopeRatio, d.UsedSlopeMargin, d.UsedToeLowering, d.UsedMinFeatureSize, d.FacetAngle, d.FanTolerance, d.UsedRampShare, d.UsedMergeRadius, d.UsedBandMergeRadius };
+            Assert.True(d.UsedSlopeMargin > 0 && d.UsedMinFeatureSize > 0);
+
+            // the same instance again, without the rerun: the plain run's diagnostics, which the refused rerun restored
+            d.DisableFlipRerun = true;
+            Assert.False(d.Compute());
+            Assert.Equal(1.0, d.UsedFlipScale);
+            Assert.Equal(message, d.Message);
+            Assert.Equal(problems, d.ProblemTriangles);
+            Assert.Equal(altitudes.Count, d.AttemptProblemAltitudes.Count);
+            for (int i = 0; i < altitudes.Count; ++i) Assert.Equal(altitudes[i], d.AttemptProblemAltitudes[i]);
+            double[] again = { d.MergeLambdaRequired, d.NeedleFlips, d.MergedPositions, d.MaxSlopeRatio, d.UsedSlopeMargin, d.UsedToeLowering, d.UsedMinFeatureSize, d.FacetAngle, d.FanTolerance, d.UsedRampShare, d.UsedMergeRadius, d.UsedBandMergeRadius };
+            Assert.Equal(numbers, again);
         }
 
         static Index2i ordered(int a, int b) { return a < b ? new Index2i(a, b) : new Index2i(b, a); }
