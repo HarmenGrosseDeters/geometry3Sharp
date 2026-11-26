@@ -126,6 +126,71 @@ namespace geometry3Sharp.Tests
             Assert.InRange(w.Result.TriangleCount / w.EstimatedTriangles, 0.5, 1.3);
         }
 
+        // EstimatedRimTriangles is exactly the band plus the rim of the terms (the formula written out here from AlphaWrapEstimate.Terms), and
+        // EstimatedTriangles the bulk plus it: a dropped term of either fails the equality
+        [Theory]
+        [InlineData("sheet", 20, 600)]
+        [InlineData("sheet", 96, 960)]
+        [InlineData("plate", 20, 600)]
+        [InlineData("two cubes", 5, 600)]
+        [InlineData("cube", 20, 600)]
+        public void EstimatedRimTriangles_IsTheBandPlusTheRimOfTheTerms(string shape, double relativeAlpha, double relativeOffset)
+        {
+            DMesh3 m = shape == "sheet" ? Sheet(16) : shape == "plate" ? Plate(1e-4) : shape == "cube" ? Box(Vector3d.Zero, new Vector3d(0.5, 0.5, 0.5), 6) : TwoCubes(1e-2);
+            MeshAlphaWrap w = Wrap(m, relativeAlpha, relativeOffset);
+            AlphaWrapEstimate.EstimateTerms t = AlphaWrapEstimate.Terms(Corners(m), w.UsedAlpha);
+            double alpha = w.UsedAlpha, ratio = Math.Min(alpha / w.UsedOffset, MeshAlphaWrap.MaxOffsetRatio);
+            double sheet = t.OpenArea + 0.5 * t.ThinArea;
+            double band = MeshAlphaWrap.SheetOffsetDensity * sheet * Math.Max(0.0, ratio - MeshAlphaWrap.SheetOffsetRatio) / alpha / alpha;
+            double rim = (MeshAlphaWrap.RimDensity * (t.OpenBoundary + t.ThinRim) + MeshAlphaWrap.SharpDensity * t.ThickSharp) * ratio / alpha;
+            Assert.True(band + rim > 0);
+            Assert.True(Math.Abs(w.EstimatedRimTriangles - (band + rim)) <= 1e-12 * (band + rim), $"{w.EstimatedRimTriangles} vs {band + rim}");
+            double bulk = MeshAlphaWrap.EstimateDensity * (Invariance.Area(m) + t.OpenArea) / alpha / alpha;
+            Assert.True(Math.Abs(w.EstimatedTriangles - (bulk + band + rim)) <= 1e-12 * w.EstimatedTriangles, $"{w.EstimatedTriangles} vs {bulk + band + rim}");
+            // (the part that each term contributes: band for sheets, rim for all with edges)
+            Assert.Equal(sheet > 0, band > 0);
+            Assert.Equal(t.OpenBoundary + t.ThinRim + t.ThickSharp > 0, rim > 0);
+        }
+
+        // a surface whose triangles are not consistently oriented (every second one reversed): the sharp test is on the angle between the planes and
+        // the thin test needs a volume, so neither sees a sheet or an edge in a smooth sphere: the estimate is the sphere's, and a budget just below
+        // it coarsens by a hair, not 17 times (the volume of such a surface is about 0, and every edge looked like a 180 degree fold)
+        [Fact]
+        public void MixedOrientation_SmoothSphere_KeepsTheEstimate_AndTheBudget()
+        {
+            DMesh3 m = Sphere(8);
+            foreach (int t in m.TriangleIndices().ToList())
+                if (t % 2 == 1) m.ReverseTriOrientation(t);
+            MeshAlphaWrap w = Wrap(m, 20, 600);
+            Assert.Equal(0.0, w.EstimatedRimTriangles);
+            Assert.Equal(MeshAlphaWrap.EstimateDensity * Invariance.Area(m) / w.UsedAlpha / w.UsedAlpha, w.EstimatedTriangles);
+            AlphaWrapEstimate.EstimateTerms terms = AlphaWrapEstimate.Terms(Corners(m), w.UsedAlpha);
+            Assert.Equal(0.0, terms.ThinArea);
+            Assert.Equal(0.0, terms.ThickSharp);
+            MeshAlphaWrap budget = Wrap(m, 20, 600, (int)w.EstimatedTriangles - 1);
+            Assert.InRange(budget.AlphaCoarsening, 1.0, 1.01);
+        }
+
+        // a tiny (here subnormal) offset: the ratio alpha / offset is capped, the band of an input with no sheet is 0 (not 0 times infinity), and
+        // the budget still applies (a NaN estimate compares false and silently switched it off)
+        [Theory]
+        [InlineData("sphere")]
+        [InlineData("sheet")]
+        public void TinyOffset_NoNaN_BudgetStillApplies(string shape)
+        {
+            DMesh3 m = shape == "sphere" ? Sphere(8) : Sheet(8);
+            var w = new MeshAlphaWrap(m) { RelativeAlpha = 20, Offset = 1e-320, MaxEstimatedTriangles = 300, MaxSteinerPoints = 1 };
+            w.Compute();       // (the estimate and the coarsening are set before the carving)
+            Assert.False(double.IsNaN(w.EstimatedTriangles));
+            Assert.False(double.IsNaN(w.EstimatedRimTriangles));
+            Assert.True(w.EstimatedTriangles > 300);
+            Assert.True(w.AlphaCoarsening > 1.0, $"coarsening {w.AlphaCoarsening}");
+            var off = new MeshAlphaWrap(m) { RelativeAlpha = 20, Offset = 1e-320, MaxSteinerPoints = 1 };
+            off.Compute();
+            Assert.False(double.IsNaN(off.EstimatedTriangles));
+            Assert.Equal(1.0, off.AlphaCoarsening);
+        }
+
         // MaxEstimatedTriangles bounds the size (the issue: a sheet of 512 triangles with a budget of 2000 gave 4642, 2.3 times it)
         [Fact]
         public void Budget_BoundsTheSizeOfASheet()
@@ -205,12 +270,16 @@ namespace geometry3Sharp.Tests
             Assert.Equal(tris, w.Result.TriangleCount);
         }
 
-        // invariance over Similarity.All() at a fixed alpha and offset (scaled with the frame): the estimate and its band bit for bit in the 2^k
-        // frames and within 1e-6 in the others (the weld grid and the thickness test follow the frame's rounding), the sum of the terms the same
-        [Fact]
-        public void Estimate_Invariance()
+        // invariance over Similarity.All() at a fixed alpha and offset (scaled with the frame), on the sheet, the thin plate and the two cubes: the
+        // estimate and its band bit for bit in the 2^k frames and within 1e-5 in the others (the weld grid and the thickness test follow the
+        // frame's rounding), the same open / thin / sharp terms
+        [Theory]
+        [InlineData("sheet")]
+        [InlineData("plate")]
+        [InlineData("two cubes")]
+        public void Estimate_Invariance(string shape)
         {
-            DMesh3 input = Sheet(8);
+            DMesh3 input = shape == "sheet" ? Sheet(8) : shape == "plate" ? Plate(1e-4) : TwoCubes(1e-2);
             double diag = input.CachedBounds.DiagonalLength, alpha = diag / 40, offset = alpha / 30;
             double e0 = 0, rim0 = 0;
             foreach (Similarity s in Similarity.All()) {
@@ -218,13 +287,14 @@ namespace geometry3Sharp.Tests
                 var w = new MeshAlphaWrap(m) { Alpha = alpha * s.Scale, Offset = offset * s.Scale, MaxSteinerPoints = 1 };
                 w.Compute();      // (stops at once: the estimate is set before the carving)
                 if (s.Name == Similarity.Identity.Name) { e0 = w.EstimatedTriangles; rim0 = w.EstimatedRimTriangles; }
-                Assert.True(e0 > 0 && rim0 > 0);
+                Assert.True(e0 > 0 && rim0 > 0, shape);
                 if (s.IsExact) {
                     Assert.Equal(e0, w.EstimatedTriangles);
                     Assert.Equal(rim0, w.EstimatedRimTriangles);
                 } else {
-                    Assert.True(Math.Abs(w.EstimatedTriangles - e0) <= 1e-6 * e0, $"{s.Name}: {w.EstimatedTriangles} vs {e0}");
-                    Assert.True(Math.Abs(w.EstimatedRimTriangles - rim0) <= 1e-6 * rim0, $"{s.Name}: {w.EstimatedRimTriangles} vs {rim0}");
+                    // (1e-5: the coordinates of the rotated millimetre UTM frame are rounded to 1e-10 of their size, 1.1e-6 measured on the cubes)
+                    Assert.True(Math.Abs(w.EstimatedTriangles - e0) <= 1e-5 * e0, $"{shape} {s.Name}: {w.EstimatedTriangles} vs {e0}");
+                    Assert.True(Math.Abs(w.EstimatedRimTriangles - rim0) <= 1e-5 * rim0, $"{shape} {s.Name}: {w.EstimatedRimTriangles} vs {rim0}");
                 }
             }
         }

@@ -133,7 +133,8 @@ namespace gs
         /// Alpha has. Measured at the defaults: result / EstimatedTriangles 0.79 for an open curved sheet (7.8 before the band), 0.84 for a plate
         /// 1 x 1 x 1e-4 (4.0), 0.96 for two cubes with a gap of 1e-2 at relative alpha 5 (6.7), 0.82 at alpha / offset = 50 (4.8 at 25); closed
         /// solids 0.5 to 1.3. Alpha and Offset are coarsened together until the estimate with the band is the budget. A closed solid without sharp
-        /// edges, at the size of its Alpha, has no band and the estimate it had.
+        /// edges, at the size of its Alpha, has no band and the estimate it had. A part thin in two directions (a rod, a wire) counts as a plate
+        /// (the estimate is then too high, a coarser wrap than needed, never too low); the thin test needs a consistently oriented surface.
         /// </summary>
         public int MaxEstimatedTriangles = 0;
         /// <summary>
@@ -157,22 +158,24 @@ namespace gs
         /// plate) at the radius of the offset, with triangles of the offset's size. Measured on a curved sheet at alpha 0.012 to 0.12 and
         /// alpha / offset 4 to 50: 0.7 to 1.0 (the fit result = a / alpha^2 + b / alpha, b = 1.0 L / offset at ratio 50); 1.2 is above it.
         /// </summary>
-        public const double RimDensity = 1.2;
+        public static readonly double RimDensity = 1.2;
         /// <summary>
         /// Triangles per unit of sharp edge length / Offset of a closed solid (dihedral turn above 45 degrees): the empty ball touches a
         /// convex edge from outside. Measured: two cubes with a gap of 1e-2 at alpha 0.28 and offset 1.2e-3: 986 triangles, 12 of edge length, 0.14; cubes
         /// at smaller alpha (alpha / offset up to 50) show no rim term at all (result about 0.5 of the bulk estimate), so this only covers the first case.
         /// </summary>
-        public const double SharpDensity = 0.15;
+        public static readonly double SharpDensity = 0.15;
         /// <summary>
         /// A sheet (open component, or half the area of a thin closed one) needs, beyond the bulk, SheetOffsetDensity * area / alpha^2 *
         /// (alpha / offset - SheetOffsetRatio) triangles: the wrap at the distance of the offset from a flat sheet follows it with triangles of
         /// about alpha * offset size. Measured on the curved sheet (area 1.04; 512 and 2048 triangles give the same): the sheet part of the
         /// result is (1.3 + 0.51 alpha / offset) * area / alpha^2 at alpha / offset 4 to 50, the bulk estimate (both sides) 6 area / alpha^2.
         /// </summary>
-        public const double SheetOffsetDensity = 0.6;
+        public static readonly double SheetOffsetDensity = 0.6;
         /// <summary> see SheetOffsetDensity </summary>
-        public const double SheetOffsetRatio = 8.0;
+        public static readonly double SheetOffsetRatio = 8.0;
+        /// <summary> the ratio Alpha / Offset the estimate's offset band is computed with at most (a tiny offset would make the band infinite or, for an input with no sheet, 0 times infinite) </summary>
+        public static readonly double MaxOffsetRatio = 1e6;
         /// <summary>
         /// Refine at the non-manifold spots of the carved surface before the manifold step (default true): the outside
         /// cells that the manifold step would move inside get a Steiner point on the offset surface, and the refinement
@@ -606,10 +609,12 @@ namespace gs
             AlphaWrapEstimate.EstimateTerms terms = alpha > 0 ? AlphaWrapEstimate.Terms(tris, alpha) : new AlphaWrapEstimate.EstimateTerms();
             double effectiveArea = area + terms.OpenArea;
             double sheetArea = terms.OpenArea + 0.5 * terms.ThinArea;
-            // (the ratio alpha / offset, which MaxEstimatedTriangles keeps; a rim term needs a positive offset)
-            double bandArea = offset > 0 && alpha > 0 ? sheetArea * Math.Max(0.0, alpha / offset - SheetOffsetRatio) * SheetOffsetDensity : 0;
-            double rimLength = offset > 0 ? RimDensity * (terms.OpenBoundary + terms.ThinRim) + SharpDensity * terms.ThickSharp : 0;
-            double rim = rimLength > 0 ? rimLength / offset : 0;
+            // (the ratio alpha / offset, which MaxEstimatedTriangles keeps, at most MaxOffsetRatio: a tiny or subnormal offset makes it infinite, and
+            // 0 * infinity is NaN, which silently switches the budget off; a rim and a band need a positive offset)
+            double ratio = offset > 0 && alpha > 0 ? Math.Min(alpha / offset, MaxOffsetRatio) : 0;
+            double bandArea = sheetArea > 0 ? sheetArea * Math.Max(0.0, ratio - SheetOffsetRatio) * SheetOffsetDensity : 0;
+            double rimLength = ratio > 0 ? RimDensity * (terms.OpenBoundary + terms.ThinRim) + SharpDensity * terms.ThickSharp : 0;
+            double rim = rimLength > 0 ? rimLength * ratio / alpha : 0;
             EstimatedTriangles = alpha > 0 ? EstimateDensity * effectiveArea / alpha / alpha + bandArea / alpha / alpha + rim : 0;
             EstimatedRimTriangles = alpha > 0 ? bandArea / alpha / alpha + rim : 0;
             if (MaxEstimatedTriangles > 0 && EstimatedTriangles > MaxEstimatedTriangles) {
@@ -619,7 +624,7 @@ namespace gs
                 double coarse;
                 if (EstimatedRimTriangles > 0) {
                     // (c = alpha * k: c^2 budget - rim alpha c - (density area + band) = 0, without a division by alpha^2)
-                    double budget = MaxEstimatedTriangles, rimAlpha = rimLength * (alpha / offset), bulkArea = EstimateDensity * effectiveArea + bandArea;
+                    double budget = MaxEstimatedTriangles, rimAlpha = rimLength * ratio, bulkArea = EstimateDensity * effectiveArea + bandArea;
                     coarse = (rimAlpha + Math.Sqrt(rimAlpha * rimAlpha + 4 * budget * bulkArea)) / (2 * budget);
                 } else {
                     coarse = Math.Sqrt(EstimateDensity * effectiveArea / MaxEstimatedTriangles);

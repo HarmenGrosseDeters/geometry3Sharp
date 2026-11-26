@@ -72,14 +72,15 @@ namespace g3
         }
 
         /// <summary> a component is thin (a plate) if its thickness 2 |V| / A, in alpha, is below this: measured (plates of thickness 1e-4 to 0.4 at alpha 0.059): 1e-2 and below 4 to 18 times the one-sided density, 0.02 and above (0.34 alpha) 2.4 to 3.8, like a cube </summary>
-        public const double ThinFactor = 0.2;
+        public static readonly double ThinFactor = 0.2;
         /// <summary> the cosine of the dihedral turn from which an edge is sharp (45 degrees) </summary>
-        public const double SharpCos = 0.7071067811865476;
+        public static readonly double SharpCos = 0.7071067811865476;
 
         /// <summary>
         /// The terms of the estimate's offset band, from the welded components of Analyze: the area and boundary length of the open
         /// components, the area and sharp edges of the thin closed ones (volume by the divergence theorem about a vertex of the
-        /// component, an oriented closed surface: an unoriented soup has a volume near zero and counts as thin), the sharp edges of the rest.
+        /// component; only for a consistently oriented component: where two triangles share an edge in the same direction the volume is not one and
+        /// the component is not thin, and the sharp test is on |dot| of the normals so that it does not depend on the orientation either), the sharp edges of the rest.
         /// An estimate: folds, non-manifold edges and inverted parts are counted as they come.
         /// </summary>
         public static EstimateTerms Terms(List<Vector3d> tris, double alpha)
@@ -97,7 +98,8 @@ namespace g3
             var hasReference = new bool[nv];
             var reference = new Vector3d[nv];
             var sharp = new double[nv];
-            var firstNormal = new Dictionary<(int, int), Vector3d>();
+            var firstUse = new Dictionary<(int, int), (Vector3d normal, bool forward)>();
+            var inconsistent = new bool[nv];
             for (int t = 0; t < n; ++t) {
                 int root = Find(comp, corner[3 * t]);
                 Vector3d a = tris[3 * t], b = tris[3 * t + 1], c = tris[3 * t + 2];
@@ -114,13 +116,16 @@ namespace g3
                     if (u == v) continue;
                     var key = u < v ? (u, v) : (v, u);
                     if (edgeUse.TryGetValue(key, out int uses) && uses == 2) {
-                        if (firstNormal.TryGetValue(key, out Vector3d other)) {
-                            if (other.Dot(normal) < SharpCos) {
+                        bool forward = u < v;
+                        if (firstUse.TryGetValue(key, out var first)) {
+                            // a consistently oriented surface traverses a shared edge in opposite directions; the sharp test is on the angle
+                            // between the planes (|dot|), whatever the orientation of the two triangles
+                            if (first.forward == forward) inconsistent[root] = true;
+                            if (Math.Abs(first.normal.Dot(normal)) < SharpCos)
                                 sharp[root] += (pos[u] - pos[v]).Length;
-                            }
-                            firstNormal.Remove(key);
+                            firstUse.Remove(key);
                         } else {
-                            firstNormal[key] = normal;
+                            firstUse[key] = (normal, forward);
                         }
                     }
                 }
@@ -135,7 +140,7 @@ namespace g3
                 if (!hasReference[root]) continue;
                 if (opening[root] > width) {
                     terms.OpenArea += area[root];
-                } else if (area[root] > 0 && 2 * Math.Abs(volume[root]) / area[root] < ThinFactor * alpha) {
+                } else if (!inconsistent[root] && area[root] > 0 && 2 * Math.Abs(volume[root]) / area[root] < ThinFactor * alpha) {
                     terms.ThinArea += area[root];
                     terms.ThinRim += Math.Max(0.5 * sharp[root], 2 * Math.Sqrt(Math.PI * 0.5 * area[root]));
                 } else {
