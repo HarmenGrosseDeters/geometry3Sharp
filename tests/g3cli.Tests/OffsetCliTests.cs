@@ -45,6 +45,14 @@ namespace g3cli.Tests
             Assert.Equal(I(r["mesh"]["triangles"]), StandardMeshReader.ReadMesh(output).TriangleCount);
         }
 
+        // #1597: Empty means that nothing is left (proven from the distances at the nodes); a part that may be left between the nodes is NotResolved
+        static void AssertEmptyWording(JsonObject r)
+        {
+            string msg = S(r["message"]);
+            Assert.DoesNotContain("surface is empty", msg);
+            Assert.Contains("nothing is left", msg);
+        }
+
         [Fact]
         public void Inward_IsTheSmallerCube_AndTooDeepIsEmpty()
         {
@@ -305,6 +313,7 @@ namespace g3cli.Tests
             var (e3, r3) = Run("offset", m.Cube, never, "--distance=-1.5", "--cell-size", "0.25", "--method", "mesh_offset", "--compact");
             AssertError(e3, r3, "operation_failed");
             Assert.Equal("empty", S(r3["offset_status"]));
+            AssertEmptyWording(r3);
             Assert.False(File.Exists(never));
         }
 
@@ -341,6 +350,27 @@ namespace g3cli.Tests
             Assert.Equal("none", S(r2["enclosure_claim"]));
             var (e3, r3) = Run("offset", m.Cube, m.Path_("sm_bad.obj"), "--distance", "0.5", "--method", "exact", "--compact");
             AssertError(e3, r3, "invalid_arguments");
+        }
+
+        // #1597: an inset that leaves a part thinner than a cell is not "empty": at the default cell it is refined (MaxCellRefinements), with
+        // --cell-size given the same; the status of a part that cannot be found within max_cells is not_resolved with a suggested cell size
+        [Fact]
+        public void MeshOffset_ThinPartLeft_IsFoundOrNotResolved_NotEmpty()
+        {
+            string thin = m.Path_("box_thin.obj");
+            var box = new TrivialBox3Generator { Box = new Box3d(Vector3d.Zero, new Vector3d(0.5, 0.35, 0.25)) }.Generate().MakeDMesh();
+            StandardMeshWriter.WriteMesh(thin, box, WriteOptions.Defaults);
+            string output = m.Path_("box_thin_out.obj");
+            var (exit, r) = Run("offset", thin, output, "--distance=-0.24", "--method", "mesh_offset", "--compact");
+            Assert.Equal(0, exit);
+            Assert.Equal("ok", S(r["offset_status"]));
+            Assert.InRange(D(r["mesh"]["volume"]), 0.002288 * 0.9, 0.002288 * 1.1);
+            // too few cells to refine: not resolved, with a suggested cell
+            var (e2, r2) = Run("offset", thin, m.Path_("box_thin_nr.obj"), "--distance=-0.24", "--max-cells", "6000", "--method", "mesh_offset", "--compact");
+            AssertError(e2, r2, "operation_failed");
+            Assert.Equal("not_resolved", S(r2["offset_status"]));
+            Assert.Contains("try cell_size", S(r2["message"]));
+            Assert.Contains("raise max_cells", S(r2["message"]));   // the grid limit stopped the refinement, not the count
         }
     }
 }

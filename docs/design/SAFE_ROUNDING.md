@@ -1349,4 +1349,49 @@ A triangle with an edge of 1e-10 and two of 1e-7 cannot be lifted above the dege
 **What it repairs, measured** (`BooleanInputOrder search`, the near-coincident plates; counts in docs/research/ROUNDING_DEGENERATE_LEFT_2026-11.md section 10.3, which is the one place that states them): about half of the left-over degenerate triangles of the two searches, no new hit.
 What it does not: a triangle with two fixed corners (the apex alone changes the area), and the states where every lifting position makes an intersection (a fan of 1e-7 edges between two layers 3e-10 apart).
 
+**The extension** (pairs with a fixed corner, free pairs with two levels; #1465, 2026-11-26): section 9.1.1.
+
 **Acceptance on the cohort** (the job of #755, 2026-11-25: all 5,413 models of the D1 cohort, 16,239 operations; base master ca9b55291 against the branch): no operation newly unclean; 1 becomes clean (86593 intersection, one joint move); the 16,036 rounding clean operations keep their result hash; no operation with more defects; `MaxDrift` never above `MaxLength`; the joint stage ran once in all 16,239 operations; `EvaluationLimitReached` false everywhere; time sums +1.2 % (operations) and +3.0 % (rounding), noisy (4 workers on one VM).
+
+### 9.1.1 The extension: pairs with a fixed corner, free pairs with two levels (#1465, 2026-11-26)
+
+The joint stage of section 9.1 pairs free corners only. An exact oracle on the states it leaves (docs/research/ROUNDING_Z3_ORACLE_2026-11.md: 44 degenerate triangles in 29 states) found for 41 of them a move of two
+corners that `try_move_pair` itself accepts, 40 with a corner that `FixedVertexF` marks. In `ExactMeshBoolean` that mark is a preference (`FixedHard` is false: the single-vertex search moves such corners in its second pass), so the stage now
+goes on where the free pairs found nothing.
+
+**The rounds.** `joint_stage` runs `search_pairs(t, round)` over the degenerate triangles in rounds; a round that makes no move goes to the next, a move starts again at round 0, and the stage ends when the last round makes none:
+
+| round | pairs | levels j (the room over 2^j, j = 7 .. 0 for the corner) |
+|---|---|---|
+| 0 | the free corners of the triangle (section 9.1) | the same j for both, the smallest first (unchanged, bit for bit) |
+| 1 | a free corner with a fixed one, then two fixed ones (`is_fixed`, never `hard_fixed`: a corner that `FixedHard` keeps is not moved, nor is a pair proposed with it; no boundary vertex, no bowtie) | the same j for both |
+| 2 | the free corners (as round 0) | two levels, the difference at most 3 (`JointLevelSpread`), in the order of their sum, never the same level |
+
+The pairs of one round are in the order of their positions (x, then y, then z). In rounds 1 and 2 each pair is gone over twice: first for the proposals that leave **no** degenerate triangle at the two stars where they have two or more
+(a move that removes one of two triangles that share a corner can make the other unrepairable: with the first tier the state `wave,2,2,0.02,5.76e-7` is cleaned by one move that removes both triangles, without the first tier a move that removes one is made and
+the other is left), then for those that leave fewer. A result whose degenerate triangles all go in round 0 is the same bit for bit (the extension is not reached; `JointExtension = false`, or `MeshRoundingRepair.SkipJointRoundsOnThisThread = 6` in the tests, is the stage of 9.1).
+
+**Budget.** The extension has an evaluation budget of its own, `JointExtensionEvaluationsPerDefect` (4 096) times the number of degenerate triangles left where it is first reached (the one of 9.1, 1 024 per triangle, is spent by then or the
+rounds of 0 made no move); like the stage's, it ends at the repair's own limit if that is nearer and never sets `EvaluationLimitReached`. The cheap probes are outside it: 26 * 26 * 8 = 5 408 per pair and tier in rounds 0 and 1, 26 * 26 * 36 = 24 336 in round 2 (36 pairs of levels that differ by 1 to 3: 14 + 12 + 10); per triangle at most about 76 000 with one fixed corner and two free ones, about 162 000 with three free corners, against about 16 000 for the free pairs alone. The second tier leaves out the proposals that leave no degenerate triangle: the first tier evaluated them and `improves` refused them.
+`JointMovesWithFixedCorner` counts the accepted pairs that moved a corner with `is_fixed` (also counted in `JointMoves` and `Moves`); every `Apply` resets it.
+
+**Measured** (`BooleanInputOrder cost --plate <spec>` on the 28 distinct specs of the oracle's states; the benchmark's own plates, the stage with the extension against the free rounds only, 5 repeats):
+
+| | degenerate triangles left in the 28 states | states clean | joint moves | proposals to `improves` | time, all states |
+|---|---|---|---|---|---|
+| stage off | 49 | 0 | 0 | 0 | 650 ms |
+| free rounds only (9.1) | 41 | 0 | 8 | 38 436 | 1 455 ms |
+| with the extension | 3 | **25** | 36, of them 28 with a fixed corner | 57 828 | 1 708 ms |
+
+Three states stay as they were, one degenerate triangle each (the oracle's open ones: a fixed corner and two free ones, no pair found with either sizes within the budget; all rounds ran to their end, 5 000 to 6 300 proposals).
+The oracle needed three moved vertices for four states; the stage cleans two of them that this sample has (s3_15, s3_18) by two sequential moves of fixed corners. Cost of a triangle the stage cannot repair: about 4 100 more evaluations, 35 ms on the plates (`DegenerateFamilies.Cluster` k36 with 13 such triangles: the repair 770 ms with the free rounds only, 1 210 ms with the extension).
+
+**Why two levels only in round 2.** The accepted moves of the sample are of the same level for both corners (the corner of an input vertex by its whole room, j = 7, the free one too). Two levels for the pairs of round 1 as well (all 64 level
+pairs, or those that differ by at most 1 to 4) cleaned 23 to 26 of the 29 specs against 26 with one level, with 55 000 to 100 000 proposals against 55 000: the early moves of an unequal pair use a state that a later triangle needs. Round 2 is
+what the oracle's 41st triangle needs (the state `wave,2,2,0.002,2.44e-9`, triangle 203: its free corners move by 1 and 1/8 of their rooms); in the sample it makes a move only where the fixed pairs are skipped
+(`MeshRoundingRepairTestsJointMove.FixedCorner_TwoLevels_...`), the fixed pairs of round 1 repair that state by another move.
+
+**Guarantees.** As in 9.1: the pair is one edit for `improves`, the drift is the bound of the triangles and ghosts at both corners (a fixed corner moves within it like any other: the lemma of
+`tools/Z3Pilot/drift_reference.py` does not depend on which corners move; `FixedVertexF` only orders the proposals), termination by the number of defects, no randomness, the directions constants and the sizes room times powers of two (2^k scales: the same
+result bit for bit). `FixedHard` keeps its meaning: `try_move_pair` refuses a pair with a hard-fixed corner, and `search_pairs` does not propose it. Results change where a fixed corner now moves: an input vertex of a Boolean can be moved by at most the
+displacement bound (`RoundingMaxDisplacement`) where no other edit repaired a degenerate triangle (before: the result stayed unclean, `RoundingNotClean` with `StrictRounding`).

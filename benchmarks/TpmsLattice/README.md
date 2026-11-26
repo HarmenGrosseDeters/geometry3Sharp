@@ -89,9 +89,9 @@ a 4-core Linux container, net10.0, 2026-11-22.
 | 16 | 2 | two-level | Ok | 3 | 760 828 | 1.02 | 2369 |
 | 16 | 1 | marching cubes | Ok | 1 | 368 292 | 0.67 | 800 |
 | 16 | 1 | two-level | Ok | 2 | 815 552 | 1.01 | 2552 |
-| 16 | 0.5 | marching cubes | Ok | 9 216 | 147 456 | 0.33 | 304 |
+| 16 | 0.5 | marching cubes | NotResolved (refused, #1596: 0.8 % of the volume asked) | - | - | - | 304 |
 | 16 | 0.5 | two-level | Ok | 1 | 780 420 | 0.99 | 1657 |
-| 16 | 0.25 | marching cubes | Ok | 6 144 | 49 152 | 0.20 | 114 |
+| 16 | 0.25 | marching cubes | NotResolved (refused, #1596: 0.03 % of the volume asked) | - | - | - | 114 |
 | 16 | 0.25 | two-level | Ok | 1 | 774 276 | 1.01 | 1653 |
 | 16 | 0.1 | marching cubes | ContouringFailed (empty) | - | - | - | 29 |
 | 16 | 0.1 | two-level | Ok | 1 | 761 220 | 1.09 | 1573 |
@@ -101,7 +101,8 @@ a 4-core Linux container, net10.0, 2026-11-22.
 Reading (this workload: a gyroid sheet, 4 periods, 8 and 16 cubes per period; other types and domains are covered by tests, not here):
 
 - From a wall of one cube down, marching cubes loses the wall: at one cube the mean wall is 0.58 to 0.67 of the one asked for, at half a
-  cube and below the result is thousands of fragments reported as `Ok` (16 divisions) or empty. The two-level result keeps the wall asked
+  cube and below the result is empty, or thousands of fragments (before #1596 reported as `Ok`, now refused as `NotResolved`: the
+  volume realized is under half of the one asked, here 0.8 % and 0.03 %). The two-level result keeps the wall asked
   for (0.99 to 1.09) down to a tenth of a cube, in one or two components, and passes the same certificate.
 - Where both resolve the wall (2 and 3 cubes at 16 divisions) they agree: the same number of components and the mean wall within 2 %.
 - Cost: 2.5 to 2.7 times the triangles of marching cubes (five tetrahedra per cube) and 2.5 times the time of `Compute` at 16

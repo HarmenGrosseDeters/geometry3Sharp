@@ -119,14 +119,37 @@ that caveat.
   So the bound stays below the exact distance of the original meshes.
 
 ## 3. `CertifiedPointMeshDistance` (exact point-to-mesh distance, lower bound)
-**Pass 1.** For every triangle, a lower bound of the squared distance to its bounding box. Per axis, the gap below the box
-or above it, each difference `Down`-rounded, each square `Down`-rounded, the sum `Down`-rounded (outward rounding,
-`ExactInterval`). Any triangle with the smallest such bound is measured exactly; its exact squared distance D is an upper
-bound of the minimum.
+Guard constants: `NormalSqLo = 1e-290`, `NormalSqHi = 1e290`, `NormalLinLo = 1e-140`, `NormalLinHi = 1e140`
+(mechanized rational proofs in `tools/ErrorBoundAudit/bounds.py`, entries `CPM-1` and `CPM-2`, with $u = 2^{-53}$ and
+subnormal half-ulp $\eta = 2^{-1075}$).
 
-**Pass 2.** Every other triangle whose box bound is ≤ D, compared exactly (the double is decomposed into m·2^e), is
-measured exactly. A box bound is a valid lower bound of that triangle's squared distance, so no nearer triangle is
-skipped.
+**Pass 1.** For every triangle, a certified lower bound of the squared distance to its bounding box (`CPM-1`):
+in the hardware-double fast path (`NormalSqLo < s < NormalSqHi`), each axis gap satisfies $g_k \le (1 + u)\,g_k^*$
+(subnormal differences are exact), so $s = \mathrm{fl}(g_x^2 + g_y^2 + g_z^2) \le (1 + u)^5 s^* + 3(1 + u)^2\eta$;
+since $s > 10^{-290}$ makes $3(1 + u)^2\eta / s < 10^{-33}$ negligible, $\mathrm{fl}(s \cdot (1 - 10^{-15})) \le s^*$
+with margin 1.60×. Outside `(NormalSqLo, NormalSqHi)` (including subnormals, overflow, and non-finite inputs), it falls
+back to the outward-rounded `ExactInterval.Down` per-axis sum. Any triangle with the smallest box bound is measured
+exactly; its exact squared distance D is an upper bound of the minimum, and `bestUpper = Up(Up(ToDouble(D)))` (or
+`+infinity` on overflow) gives a certified double upper bound of D.
+
+**Pass 2.** Every other triangle is filtered in three certified stages before exact evaluation:
+1. **Box double filter (`CPM-1`):** skip if `lb > bestUpper` (since exact box $d^2 \ge \text{lb} > \text{bestUpper} \ge D$).
+2. **Supporting-plane filter (`CPM-2`):** compute `det = CertifiedDet3.Compute(p - v0, v1 - v0, v2 - v0)` and
+   `detLo = Down(|det.Det| - det.E)` (guarded by `NormalLinLo < detLo < NormalLinHi`, which keeps $\mathrm{detLo}^2 \ge 10^{-280}$
+   strictly normal with zero underflow). Each edge cross-product component uses two edge differences, two products, and one
+   subtraction, bounded by `un_k = |p1 - p2| + 1e-15 * m_k` (margin 1.80× over $(1 + u)^4 - 1$ plus $2\eta$; `NormalSqLo < n2 < NormalSqHi`).
+   Then $q = \mathrm{fl}(\mathrm{detLo}^2 / n_2)$ (guarded by `NormalSqLo < q < NormalSqHi`) inflates the true plane $d^2$
+   by at most $(1 + u)^2 / (1 - u)^4$ plus negligible $\eta / 10^{-290}$, so $\mathrm{fl}(q \cdot (1 - 2\cdot 10^{-15})) \le d_{\text{plane}}^2$
+   with margin 3.00×; skip if it exceeds `bestUpper` (degenerate and non-finite inputs return false).
+3. **Exact box fallback:** skip if `greater(lb, D)` (exact `Decompose` comparison, covering `bestUpper` overflow or fast
+   bounds between D and `bestUpper`).
+
+Every surviving triangle is measured exactly; any nearer triangle updates both D and `bestUpper`.
+
+**`AtLeastDistance(mesh, p, u)` (test oracle).** Certifies whether $u$ is at least the exact distance from $p$ to `mesh`.
+Uses `uSqHi = (u == 0) ? 0 : Up(u * u) >= u^2` to prune triangles with `box_lower_squared > uSqHi` (`CPM-1`) or
+`plane_lower_squared_exceeds(..., uSqHi)` (`CPM-2`), evaluates surviving triangles exactly, and returns `true` immediately
+on the first triangle with exact $d^2 \le u^2$.
 
 **Exact squared distance.** All 12 coordinates are written as integers times 2^e0, e0 the smallest exponent; this is exact
 (Decompose). With e1 = V1 − V0, e2 = V2 − V0, d = V0 − P:

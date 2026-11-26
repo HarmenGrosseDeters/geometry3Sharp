@@ -182,6 +182,8 @@ g3cli tpms lattice.stl --type gyroid --style sheet --volume-fraction 0.3 --box-m
 g3cli tpms hybrid.stl --type gyroid --second-type iwp --blend 0,2,0.5 --box-max 4,2,2 --divisions 16
 ```
 
-The check runs on the written coordinates, after `--origin` is applied (very far origins, where an ulp approaches the cube, give `tpms_status` `not_clean` or `self_intersecting` rather than a defective mesh; no file is written then).
+The check runs on the written coordinates, after `--origin` is applied (very far origins, where an ulp approaches the cube, give `tpms_status` `not_clean` or `self_intersecting` rather than a defective mesh; no file is written then). A lattice the grid cannot resolve (a sheet that realized under half the requested volume fraction, an `--enclosure` that is the solid box) gives `tpms_status` `not_resolved` and no file (#1596): raise `--divisions`.
 
 Supports `--wall-thickness`, `--cell-size`, `--origin`, `--grade`, `--second-type` + `--blend 'axis,offset,width'`, `--enclosure` (dyadic grid), and `--verify-self-intersections false` (warns with `self_intersection_verified: false`).
+
+A result that is Ok but not the lattice asked for carries the library's message in `warnings` (prefix `tpms: `): an `--enclosure` result with a realized volume fraction above 1 (the margin is larger than the voids: the solid box), and a sheet whose realized fraction is below half of the requested one (a wall thinner than about two cubes). `tpms_status` stays `ok`.

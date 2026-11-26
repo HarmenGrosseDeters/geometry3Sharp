@@ -42,7 +42,7 @@ Literature (sources go to `docs/SOURCES.md`; formulas are public mathematics, no
 ```cs
 public enum TpmsType   { Gyroid, SchwarzP, SchwarzD, Neovius, IWP, Lidinoid }   // the Lidinoid was added after the first version
 public enum TpmsStyle  { Sheet, SkeletalLow, SkeletalHigh }                 // |f|<=t ; f<=c ; f>=-c
-public enum TpmsStatus { Ok, InvalidOptions, InvalidDomain, TooLarge, ContouringFailed, NotClean, SelfIntersecting, Cancelled }
+public enum TpmsStatus { Ok, InvalidOptions, InvalidDomain, TooLarge, ContouringFailed, NotClean, SelfIntersecting, Cancelled, NotResolved }
 
 public class TpmsLattice
 {

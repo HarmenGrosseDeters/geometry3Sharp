@@ -91,9 +91,10 @@ namespace geometry3Sharp.Tests
 
         static double OneSided(DMesh3 m, MeshAlphaWrap w) => MeshAlphaWrap.EstimateDensity * Invariance.Area(m) / (w.UsedAlpha * w.UsedAlpha);
 
-        // open input (the reproducer of #1113, a sheet, a sphere with a big hole, a mixed input): the estimate is within 0.75 to 1.3 of the
-        // raw wrap (measured 0.94, 0.89, 1.03 and 1.02 of it for the reproducer, the sheet, the big hole and the mixed input; the one-sided
-        // estimate was 0.5 of it on the first three: below 0.75)
+        // open input (the reproducer of #1113, a sheet, a sphere with a big hole, a mixed input): the estimate counts both sides and, since #1593,
+        // the offset band and the rim (EstimatedRimTriangles): the raw wrap is 0.6 to 1.05 of it at alpha / offset 10 (measured 0.66, 0.70, ... of it
+        // for the reproducer and the mixed input; before the band and the rim 0.94 to 1.03, and 3.2 to 7.8 times the one-sided estimate for a sheet at
+        // the default ratio of 30 and more, see EstimateBand_OpenSheetAndPlate...); the one-sided estimate was 0.5 of it on the first three
         [Theory]
         [InlineData("two open spheres")]
         [InlineData("open sheet")]
@@ -105,8 +106,8 @@ namespace geometry3Sharp.Tests
             MeshAlphaWrap w = Wrap(m, RelAlpha);
             double ratio = w.Result.TriangleCount / w.EstimatedTriangles;
             output.WriteLine($"{name}: estimate {w.EstimatedTriangles:F0} (one-sided {OneSided(m, w):F0}) actual {w.Result.TriangleCount} ratio {ratio:F2}");
-            Assert.InRange(ratio, 0.75, 1.3);
-            Assert.InRange(w.EstimatedTriangles / OneSided(m, w), 1.2, 2.0 + 1e-9);   // (counts more than one side)
+            Assert.InRange(ratio, 0.4, 1.3);
+            Assert.InRange((w.EstimatedTriangles - w.EstimatedRimTriangles) / OneSided(m, w), 1.2, 2.0 + 1e-9);   // (the bulk counts more than one side)
         }
 
         // closed input and a hole below the opening width: the estimate is the one-sided one, bit for bit (the wrap is on the outside only)
@@ -137,7 +138,7 @@ namespace geometry3Sharp.Tests
                 }
                 MeshAlphaWrap w = Wrap(m, RelAlpha);
                 Assert.InRange(AlphaWrapEstimate.LargestOpening(Corners(m), w.UsedAlpha) / w.UsedAlpha, chain - 0.5, chain + 0.5);
-                Assert.Equal(factor, w.EstimatedTriangles / OneSided(m, w), 9);
+                Assert.Equal(factor, (w.EstimatedTriangles - w.EstimatedRimTriangles) / OneSided(m, w), 9);
                 Assert.InRange(w.Result.TriangleCount / OneSided(m, w), ratioOfActual - 0.1, ratioOfActual + 0.1);
             }
         }
@@ -206,9 +207,11 @@ namespace geometry3Sharp.Tests
             foreach (int budget in new[] { 1500, 3000 }) {
                 var w = new MeshAlphaWrap(sheet) { RelativeAlpha = 100, RelativeOffset = 1000, MaxEstimatedTriangles = budget };
                 Assert.True(w.Compute(), w.Error);
-                Assert.Equal(Math.Sqrt(MeshAlphaWrap.EstimateDensity * 2 * area / budget), w.UsedAlpha, 12);
+                // (the bulk alone: sqrt(density * 2 area / budget); the band and the rim of the sheet make the alpha larger, and the result smaller)
+                double bulkAlpha = Math.Sqrt(MeshAlphaWrap.EstimateDensity * 2 * area / budget);
+                Assert.InRange(w.UsedAlpha / bulkAlpha, 1.0, 1.5);
                 Assert.Equal("", MeshRobustRepair.NotCleanReason(w.Result));
-                Assert.InRange(w.Result.TriangleCount / (double)budget, 0.75, 1.3);
+                Assert.InRange(w.Result.TriangleCount / (double)budget, 0.5, 1.3);
             }
         }
 
@@ -229,20 +232,21 @@ namespace geometry3Sharp.Tests
             Assert.Equal("7CC5E7C3C3ACC639", AlphaWrapManifoldStepTests.Hash(closed.Result));
         }
 
-        // without a budget the estimate is the one-sided one (the open area is not computed) on open input
-        // too, with a budget that does not bind it counts the open components twice, and the wrap is bit for bit the same in both
+        // the estimate does not depend on the budget (issue #1593: without a budget it was the one-sided one on open input, 4 to 8 times below
+        // the wrap): it counts the open components twice, with and without one, and the wrap is bit for bit the same in both
         [Theory]
         [InlineData("two open spheres")]
         [InlineData("open sheet")]
         [InlineData("big hole")]
         [InlineData("mixed")]
-        public void NoBudget_EstimateIsOneSided_WrapUnchanged(string name)
+        public void NoBudget_EstimateIsTheSame_WrapUnchanged(string name)
         {
             DMesh3 m = Build(name);
             MeshAlphaWrap off = Wrap(m, RelAlpha, 0);
             MeshAlphaWrap on = Wrap(m, RelAlpha);
-            Assert.Equal(OneSided(m, off), off.EstimatedTriangles, 12);
-            Assert.True(on.EstimatedTriangles > 1.2 * off.EstimatedTriangles, $"{on.EstimatedTriangles} vs {off.EstimatedTriangles}");
+            Assert.Equal(on.EstimatedTriangles, off.EstimatedTriangles);
+            Assert.Equal(on.EstimatedRimTriangles, off.EstimatedRimTriangles);
+            Assert.True(off.EstimatedTriangles > 1.2 * OneSided(m, off), $"{off.EstimatedTriangles} vs {OneSided(m, off)}");
             Assert.Equal(1.0, on.AlphaCoarsening);
             Assert.Equal(off.UsedAlpha, on.UsedAlpha);
             Assert.Equal(AlphaWrapManifoldStepTests.Hash(off.Result), AlphaWrapManifoldStepTests.Hash(on.Result));
@@ -293,13 +297,14 @@ namespace geometry3Sharp.Tests
             w.Mesh = Build("closed soup sphere");
             Assert.True(w.Compute(), w.Error);
             Assert.Equal(OneSided(w.Mesh, w), w.EstimatedTriangles, 12);
+            Assert.Equal(0.0, w.EstimatedRimTriangles);
             w.Mesh = Build("open sheet");
             Assert.True(w.Compute(), w.Error);
             Assert.Equal(e, w.EstimatedTriangles);
             // the budget switched on and off on the instance: the estimate follows it, the wrap does not
             w.MaxEstimatedTriangles = 0;
             Assert.True(w.Compute(), w.Error);
-            Assert.Equal(OneSided(w.Mesh, w), w.EstimatedTriangles, 12);
+            Assert.Equal(e, w.EstimatedTriangles);
             Assert.Equal(h, AlphaWrapManifoldStepTests.Hash(w.Result));
         }
     }

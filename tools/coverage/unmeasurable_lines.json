@@ -53,10 +53,10 @@
     "file": "mesh_ops/ExactMeshBoolean.cs",
     "text": "throw new InvalidOperationException(\"ExactMeshBoolean: no fast-winding tree was built for open mesh \" + mesh);",
     "after": [
-      "if (windingTrees.TryGetValue(mesh, out tree) == false)",
-      "DMeshAABBTree3 tree;"
+      "if (tree == null)",
+      "}"
     ],
-    "reason": "invariant guard, unreachable through the public API: classify builds a fast-winding tree for every open mesh off the Antipodal path before its loops, and since #882 patch_winding takes only closed meshes from its box query; it replaces the lazy build that raced there",
+    "reason": "invariant guard, unreachable through the public API: classify builds a fast-winding tree for every open mesh off the Antipodal path before its loops (and, since #1587, a slot for the tree of every Antipodal mesh, built on first use by the rim's branch), and since #882 patch_winding takes only closed meshes from its box query; it replaces the lazy build that raced there",
     "approved_in": "#883"
   },
   {
@@ -125,16 +125,6 @@
       "catch (OutOfMemoryException) {"
     ],
     "reason": "the out-of-memory handler of the node grid (8 bytes per node, max_cells up to 400 million): reaching it needs an allocation of several GB, which no test or coverage run can do reliably; the handler only turns the exception into a clean operation_failed result",
-    "approved_in": "#895"
-  },
-  {
-    "file": "tools/g3cli/TpmsCommand.cs",
-    "text": "throw new CommandException(ResultCodes.OperationFailed, \"tpms failed (\" + status + \"): \" + lattice.Message, failure);",
-    "after": [
-      "default:",
-      "throw new CommandException(ResultCodes.InvalidArguments, \"tpms: \" + lattice.Message, failure);"
-    ],
-    "reason": "the failure statuses ContouringFailed, NotClean, SelfIntersecting and Cancelled of TpmsLattice: the library retries shifted grids until the certificate passes and no input of the CLI cancels, so no cheap input reaches them (the library tests force them with the internal RejectAttempt hook, which the CLI cannot set); the branch only maps the status to operation_failed with tpms_status",
     "approved_in": "#895"
   },
   {

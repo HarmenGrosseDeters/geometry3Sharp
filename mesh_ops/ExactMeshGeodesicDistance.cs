@@ -22,8 +22,8 @@ namespace g3
     ///    shortest path through it is straight and the ordinary windows carry the straight continuation (A7', Appendix A.6;
     ///    the continuation windows of A7 would duplicate them).
     /// Reach (measured, net10 Release, benchmarks/GeodesicOracleBenchmark, docs/design/GEODESICS.md 6d): terrains of 41 x 41
-    /// vertices in half a second and of 101 x 101 in about 3 s; exactly flat input (planes, developable ridges) of 101 x 101 in
-    /// 3-6 s since A7' (it reached the window limit before); a saddle of 101 x 101 (no flat vertices) still needs about 75 s.
+    /// vertices in about 0.46 s and of 101 x 101 in about 3.0 s; plane 101 x 101 in 4.5 s while the aligned ridge 101 x 101
+    /// reaches the 300k window limit in 5.2 s since A7'; a saddle of 101 x 101 (no flat vertices) reaches the 300k window limit in about 10.6 s (down from 26 s).
     /// Width (measured, #1058): (Upper - Lower) / Lower is at most about 2e-8 on planes, on domes and saddles from exactly
     /// flat to curved (k (x^2 +- y^2), k from 1e-8 to 0.3), on terrains and on the aligned ridge, from a centre, edge or corner
     /// source; it comes from Lower's re-emission margins (1e-9 per emission, A5; 1e-12 where no vertex emits), and Upper is as
@@ -103,9 +103,11 @@ namespace g3
 
         List<Window> windows;
         Dictionary<int, List<int>> bySide;
-        internal long Emissions, Merges, Iterations;
+        internal long Emissions, Merges, Iterations, DominatedCalls;
         Heap queue;
         double[] lo, up, emitted;
+        ExactInterval[] edgeLen;
+        P2[] sidePlace;
         byte[] kind;                // 0 needs no emission (certainly convex, or exactly flat: A7'), 1 pseudo-source
         bool failed;
         double scale;               // a length scale of the mesh (its largest coordinate extent): scales exactly with 2^k
@@ -346,7 +348,7 @@ namespace g3
             int n = Mesh.MaxVertexID;
             windows = new List<Window>(); bySide = new Dictionary<int, List<int>>(); queue = new Heap();
             lo = new double[n]; up = new double[n]; emitted = new double[n]; kind = new byte[n]; failed = false; Windows = 0; Compactions = 0;
-            Emissions = Merges = Iterations = 0;
+            Emissions = Merges = Iterations = DominatedCalls = 0;
             for (int v = 0; v < n; ++v) { lo[v] = up[v] = emitted[v] = double.PositiveInfinity; }
             var src = new List<int>();
             if (sources != null) foreach (int s in sources) if (s >= 0 && s < n && Mesh.IsVertex(s) && !src.Contains(s)) src.Add(s);
@@ -358,6 +360,16 @@ namespace g3
                 ExactInterval ux = I(b.x) - I(a.x), uy = I(b.y) - I(a.y), uz = I(b.z) - I(a.z), wx = I(c.x) - I(a.x), wy = I(c.y) - I(a.y), wz = I(c.z) - I(a.z);
                 ExactInterval area2 = Sq(uy * wz - uz * wy) + Sq(uz * wx - ux * wz) + Sq(ux * wy - uy * wx);
                 if (!(area2.Lo > 0)) return Result.DegenerateTriangles;
+            }
+            int ne = Mesh.MaxEdgeID;
+            edgeLen = new ExactInterval[ne];
+            sidePlace = new P2[2 * ne];
+            foreach (int e in Mesh.EdgeIndices()) {
+                Index2i ev = Mesh.GetEdgeV(e), et = Mesh.GetEdgeT(e);
+                ExactInterval el = Len(ev.a, ev.b);
+                edgeLen[e] = el;
+                sidePlace[2 * e] = Place(ev.a, ev.b, Third(et.a, ev.a, ev.b), el);
+                if (et.b != DMesh3.InvalidID) sidePlace[2 * e + 1] = Place(ev.a, ev.b, Third(et.b, ev.a, ev.b), el);
             }
             AxisAlignedBox3d bounds = Mesh.CachedBounds;
             scale = Math.Max(bounds.Max.x - bounds.Min.x, Math.Max(bounds.Max.y - bounds.Min.y, bounds.Max.z - bounds.Min.z));
@@ -405,8 +417,8 @@ namespace g3
                 int a = -1, b = -1; for (int k = 0; k < 3; ++k) if (tri[k] != v) { if (a < 0) a = tri[k]; else b = tri[k]; }
                 int e = Mesh.FindEdge(a, b); int f2 = Other(e, t);
                 if (f2 < 0) continue;               // the opposite edge is a boundary edge: its ends are neighbours of v (recorded above)
-                Index2i ev = Mesh.GetEdgeV(e); ExactInterval L = Len(ev.a, ev.b);
-                P2 V = Place(ev.a, ev.b, v, L);
+                ExactInterval L = edgeLen[e];
+                P2 V = sidePlace[Side(e, t)];
                 double r0 = DiskOfBox(V, out double vx, out double vy);
                 Add(new Window { E = e, F = f2, Origin = v, SigLo = sl, SigHi = up[v], Cx = vx, Cy = -vy, R = r0, O0 = 0, O1 = L.Hi, I0 = 0, I1 = L.Lo });
             }
@@ -446,13 +458,65 @@ namespace g3
             }
         }
 
-        // the parts of [l, r] (inside b's inner interval) where a is certainly worse than b, to the given depth
+        // outward-rounded enclosure of phi(u, v) = u / sqrt(u^2 + v^2) (v >= 0): monotone increasing in u;
+        // decreasing in v for u > 0, increasing in v for u < 0; ExactInterval division maps underflow/NaN to [-Inf, +Inf], clamped to [-1, 1]
+        static double SlopeBound(double u, double v, bool isLo)
+        {
+            if (u == 0) return v > 0 ? 0 : (isLo ? -1 : 1);
+            if (v == 0) return u > 0 ? 1 : -1;
+            ExactInterval q = I(u) / Sqrt(Sq(I(u)) + Sq(I(v)));
+            return Math.Max(-1, Math.Min(1, isLo ? q.Lo : q.Hi));
+        }
+
+        /// <summary> outward-rounded enclosure of d/dt sqrt((t - x)^2 + y^2) over t in [l, r], (x, y) in s (s.Y.Hi &lt;= 0) </summary>
+        internal static ExactInterval Slope(P2 s, double l, double r)
+        {
+            double vLo = -s.Y.Hi, vHi = -s.Y.Lo;
+            double uLo = (I(l) - s.X).Lo, uHi = (I(r) - s.X).Hi;
+            double slo = SlopeBound(uLo, uLo > 0 ? vHi : vLo, true);
+            double shi = SlopeBound(uHi, uHi < 0 ? vHi : vLo, false);
+            return new ExactInterval(slo, shi);
+        }
+
+        // the parts of [l, r] (inside b's inner interval) where a is certainly worse than b, to resolution (r - l) / 2^depth
+        // (Hansen-Walster monotonicity + depth-step 1D bisection and Clarke Mean-Value Form in ExactInterval)
         void Dominated(Window a, P2 sa, Window b, P2 sb, double l, double r, int depth, List<(double l, double r)> rem)
         {
             if (!(r > l)) return;
-            if (Fn(a, sa, l, r).Lo > Fn(b, sb, l, r).Hi) { rem.Add((l, r)); return; }
-            if (depth == 0) return;
+            ++DominatedCalls;
+            ExactInterval fa = Fn(a, sa, l, r), fb = Fn(b, sb, l, r);
+            if (fa.Lo > fb.Hi) { rem.Add((l, r)); return; }
+            if (fa.Hi <= fb.Lo) return;
+            ExactInterval dg = Slope(sa, l, r) - Slope(sb, l, r);
+            if (dg.Lo >= 0) {
+                if (Fn(a, sa, l, l).Lo > Fn(b, sb, l, l).Hi) { rem.Add((l, r)); return; }
+                if (Fn(a, sa, r, r).Lo > Fn(b, sb, r, r).Hi) {
+                    double lo = l, hi = r;
+                    for (int it = 0; it < depth; ++it) {
+                        double mid = 0.5 * lo + 0.5 * hi;
+                        if (Fn(a, sa, mid, mid).Lo > Fn(b, sb, mid, mid).Hi) hi = mid; else lo = mid;
+                    }
+                    if (r > hi) rem.Add((hi, r));
+                }
+                return;
+            }
+            if (dg.Hi <= 0) {
+                if (Fn(a, sa, r, r).Lo > Fn(b, sb, r, r).Hi) { rem.Add((l, r)); return; }
+                if (Fn(a, sa, l, l).Lo > Fn(b, sb, l, l).Hi) {
+                    double lo = l, hi = r;
+                    for (int it = 0; it < depth; ++it) {
+                        double mid = 0.5 * lo + 0.5 * hi;
+                        if (Fn(a, sa, mid, mid).Lo > Fn(b, sb, mid, mid).Hi) lo = mid; else hi = mid;
+                    }
+                    if (lo > l) rem.Add((l, lo));
+                }
+                return;
+            }
             double m = 0.5 * l + 0.5 * r;
+            ExactInterval mv = (Fn(a, sa, m, m) - Fn(b, sb, m, m)) + dg * (new ExactInterval(l, r) - I(m));
+            if (mv.Lo > 0) { rem.Add((l, r)); return; }
+            if (mv.Hi <= 0) return;
+            if (depth == 0) return;
             Dominated(a, sa, b, sb, l, m, depth - 1, rem); Dominated(a, sa, b, sb, m, r, depth - 1, rem);
         }
 
@@ -483,13 +547,12 @@ namespace g3
 
         void Add(Window w)
         {
-            Index2i ev = Mesh.GetEdgeV(w.E); ExactInterval L = Len(ev.a, ev.b); P2 s = Box(w);
+            Index2i ev = Mesh.GetEdgeV(w.E); ExactInterval L = edgeLen[w.E]; P2 s = Box(w);
             double tol = 1e-12 * L.Hi;
             var segs = new List<(double l, double r)> { (w.O0, w.O1) };
-            int z = Third(w.F, ev.a, ev.b); P2 Z = Place(ev.a, ev.b, z, L);
+            int z = Third(w.F, ev.a, ev.b); int side = Side(w.E, w.F); P2 Z = sidePlace[side];
             TrimByVertex(w, s, I(0), I(0), ev.a, segs); TrimByVertex(w, s, L, I(0), ev.b, segs); TrimByVertex(w, s, Z.X, Z.Y, z, segs);
             segs.RemoveAll(t => !(t.r > t.l)); if (segs.Count == 0) return;      // only empty pieces: a short piece is no certified drop
-            int side = Side(w.E, w.F);
             if (!bySide.TryGetValue(side, out var list)) { list = new List<int>(); bySide[side] = list; }
             int dead = 0; foreach (int oi in list) if (!(windows[oi].O1 > windows[oi].O0)) ++dead;
             if (dead > 0 && (ForceCompaction || dead > 8 && 2 * dead > list.Count)) {
@@ -583,8 +646,8 @@ namespace g3
 
         void Propagate(Window w)
         {
-            Index2i ev = Mesh.GetEdgeV(w.E); ExactInterval L = Len(ev.a, ev.b);
-            int c = Third(w.F, ev.a, ev.b); P2 C = Place(ev.a, ev.b, c, L); P2 s = Box(w);
+            Index2i ev = Mesh.GetEdgeV(w.E); ExactInterval L = edgeLen[w.E];
+            int c = Third(w.F, ev.a, ev.b); P2 C = sidePlace[Side(w.E, w.F)]; P2 s = Box(w);
             P2 A = new P2(I(0), I(0)), B = new P2(L, I(0));
             ExactInterval sig = new ExactInterval(w.SigLo, w.SigHi);
             // the ray through C: x where the line from the source through C meets the edge
@@ -668,7 +731,7 @@ namespace g3
         void Child(Window w, P2 s, int p, int q, P2 P, P2 Q, double t0, double t1, double ti0, double ti1)
         {
             int e = Mesh.FindEdge(p, q); int f2 = Other(e, w.F);
-            Index2i ev = Mesh.GetEdgeV(e); ExactInterval L2 = Len(ev.a, ev.b);
+            Index2i ev = Mesh.GetEdgeV(e); ExactInterval L2 = edgeLen[e];
             double u0, u1, v0 = 1, v1 = 0;      // outer and inner parameters from p (inner empty if v0 > v1)
             ExactInterval m0 = Mu(s, t0, P, Q), m1 = Mu(s, t1, P, Q);
             // Mu(s, t) is a ratio of two functions affine in t, so for a fixed s it is monotone in t wherever its

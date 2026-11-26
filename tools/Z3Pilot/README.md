@@ -672,6 +672,26 @@ and not recommended for building (the note, 5.3); `test_separating_axis.py` hold
 `benchmarks/SnapRoundingExperiment/CandidateCulling.cs`. 14 queries, about 3.5 s; result of 2026-11-12:
 `results/separating_axis_2026-11-12.json`.
 
+## Pilot 9: the segment test and the wide bound of the Antipodal sum (#1587, library code)
+
+`antipodal_segment.py` checks the two changes of #1587 in `ExactMeshBoolean.antipodal_sum` (an exact-code file). The
+segment test "the point on or next to the segment" is now `|a + b| <= tol`, linear in the angle between `-a` and `b`; the
+old `1 + a.b <= tol` was quadratic in it against a linear `tol`, so it fired up to about `sqrt(2 tol)` away and the piece
+was undecided, read as outside. N1 (the rounded norm of the rounded `a + b`, within `4u`; as N1a-c, one rounding step
+each, and their linear composition), N2 (a normalized vector has `|a|^2` within `10u` of 1; N2a per coordinate, then the
+composition), D1 (the rounded dot product), S1 (a point on the segment gives status 1), S2 (status 1 gives
+`|A + B| <= 1.2 tol` for the exact unit vectors) and S3 (the new status 1 implies the old one, so every value that was
+decided keeps its bits) are UNSAT with satisfiable assumptions. T1 bounds a term of the wide evaluation of an undecided
+value (`maxBound` 0.25): with `tol <= 0.4 hypot` per term the sum's `4 tol / hypot` still bounds twice the angle of the
+term's error: T1 proves `cos(phi) >= 1 - 2 t^2 + (2/3) t^4`, which is at least `cos(2 t)`, so `phi <= 2 t` (review of
+#1624: the earlier `1 - 2 t^2`, the lower bound of `cos(2 t)`, gave only `phi <= 2 asin t`). Bridges by review (the docstring, B1-B4): the error of the unit vectors from the rounding of the point and
+the ends (the sum's own model, with its 16 times margin), the triangle inequality and Cauchy-Schwarz, `cos x <= 1 - x^2/2 + x^4/24`,
+and the invariance of T1 under scale and rotation. Eight mutants are SAT: the old quadratic test (S2), `tol` without its
+factor 16 (S1), without its `1e-15` (S3), the condition `0.8 hypot` and the angle bound `tol / hypot` (T1), a dot bound of
+`2u`, a norm bound of `3u` (N1), a normalization bound of `6u` (N2). `test_antipodal_segment.py` holds the source contract on `mesh_ops/ExactMeshBoolean.cs` and `math/Vector3d.cs`.
+30 queries in about 0.6 s in all, the slowest (D1) about 0.5 s (0.45 to 0.53 s measured; one query of the whole norm took up to the 120 s timeout,
+review of #1624, hence the split); the report records each query's time; result of 2026-11-25: `results/antipodal_segment_2026-11-25.json`.
+
 ## Pilot 8: the plateau variant of the position search (a design, not library code)
 
 `plateau_search.py` checks the argument of docs/design/SNAP_ROUNDING_3D.md section 10 for a position search that also
@@ -849,3 +869,24 @@ python3 tools/Z3Pilot/may_meet_box.py
 python3 tools/Z3Pilot/slope_approx.py [--fp]
 python3 -m unittest discover -s tools/Z3Pilot -p 'test_adaptive_range.py' -v
 ```
+
+## The rounding oracle (`rounding_oracle.py`, #1465, 2026-11-25)
+
+A research spike, not a gate: can the degenerate triangles that `MeshRoundingRepair` leaves be removed by moving up to k
+vertices within their drift bounds, or is that provably impossible? Note: `docs/research/ROUNDING_Z3_ORACLE_2026-11.md`.
+
+```sh
+dotnet run --project benchmarks/BooleanInputOrder -c Release -- oracle dump --case <spec> --out state.json [--nojoint]
+python tools/Z3Pilot/rounding_oracle.py state.json [...] --timeout 120 --out report.json
+dotnet run --project benchmarks/BooleanInputOrder -c Release -- oracle verify --case <spec> --witness w.json
+python -m unittest discover -s tools/Z3Pilot -p 'test_rounding_oracle.py'
+```
+
+The model is a relaxation of the repair's own acceptance (drift balls of every triangle and ghost at a moved vertex, the
+area test of `is_bad`, `IntersectsBeyondShared` as weak separation along the nonzero separating axes), so UNSAT is a proof
+and SAT a candidate that the library checks. Z3's nonlinear arithmetic did not decide the state's polynomials with their long
+dyadic coefficients (even the drift and one area in 30 s), so the decision procedure is a branch and bound over boxes of the
+moves whose per-box linear relaxations (rigorously padded floats, exact Dyadic on small boxes) z3 decides as linear real
+arithmetic with booleans. The test checks the encoding on a sliver in a square tube: one move repairs it (SAT, clean exactly
+and after the rounding to doubles), a narrow tube makes it impossible (UNSAT by the wall constraints, SAT without them), a
+small bound makes it impossible (UNSAT by the area); and the pair encoding on crossing, apart and touching triangles.
