@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using gs;
+using g3.CoreMathPort;
 
 namespace g3
 {
@@ -208,23 +209,130 @@ namespace g3
 
         // ================= the nodal approximations =================
 
-        /// <summary> f(p) for the phase p = 2 pi x / L (radians). </summary>
+        /// <summary>
+        /// f(p) for the phase p = 2 pi x / L (radians). The same bits on every runtime (#1577): the sines and cosines are the correctly rounded
+        /// CoreMath ones, not the platform libm (Math.Sin / Math.Cos give other last bits in WebAssembly and on Windows, #1590), and the rest is
+        /// + - * of doubles in a fixed order.
+        /// </summary>
         public static double Evaluate(TpmsType type, double px, double py, double pz)
         {
-            double sx = Math.Sin(px), cx = Math.Cos(px), sy = Math.Sin(py), cy = Math.Cos(py), sz = Math.Sin(pz), cz = Math.Cos(pz);
+            bool two = NeedsDoubleAngle(type);
+            return EvaluateTrig(type, MakeTrig(px, two), MakeTrig(py, two), MakeTrig(pz, two));
+        }
+
+        // sin and cos of one phase, and of twice the phase for the types that use it
+        internal struct AxisTrig { public double S, C, S2, C2; }
+
+        static bool NeedsDoubleAngle(TpmsType type) { return type == TpmsType.IWP || type == TpmsType.Lidinoid; }
+
+        static AxisTrig MakeTrig(double p, bool two)
+        {
+            var t = new AxisTrig { S = CoreMath.Sin(p), C = CoreMath.Cos(p) };
+            if (two) { double p2 = 2 * p; t.S2 = CoreMath.Sin(p2); t.C2 = CoreMath.Cos(p2); }
+            return t;
+        }
+
+        // f from the sines and cosines of the three phases: the same arithmetic as Evaluate, so a table of AxisTrig gives its bits
+        static double EvaluateTrig(TpmsType type, in AxisTrig X, in AxisTrig Y, in AxisTrig Z)
+        {
+            double sx = X.S, cx = X.C, sy = Y.S, cy = Y.C, sz = Z.S, cz = Z.C;
             switch (type) {
                 case TpmsType.Gyroid: return sx * cy + sy * cz + sz * cx;
                 case TpmsType.SchwarzP: return cx + cy + cz;
                 case TpmsType.SchwarzD: return sx * sy * sz + sx * cy * cz + cx * sy * cz + cx * cy * sz;
                 case TpmsType.Neovius: return 3 * (cx + cy + cz) + 4 * cx * cy * cz;
                 case TpmsType.IWP:
-                    return 2 * (cx * cy + cy * cz + cz * cx) - (Math.Cos(2 * px) + Math.Cos(2 * py) + Math.Cos(2 * pz));
+                    return 2 * (cx * cy + cy * cz + cz * cx) - (X.C2 + Y.C2 + Z.C2);
                 case TpmsType.Lidinoid:
-                    return 0.5 * (Math.Sin(2 * px) * cy * sz + Math.Sin(2 * py) * cz * sx + Math.Sin(2 * pz) * cx * sy)
-                         - 0.5 * (Math.Cos(2 * px) * Math.Cos(2 * py) + Math.Cos(2 * py) * Math.Cos(2 * pz) + Math.Cos(2 * pz) * Math.Cos(2 * px))
+                    return 0.5 * (X.S2 * cy * sz + Y.S2 * cz * sx + Z.S2 * cx * sy)
+                         - 0.5 * (X.C2 * Y.C2 + Y.C2 * Z.C2 + Z.C2 * X.C2)
                          + 0.15;
                 default: throw new ArgumentOutOfRangeException(nameof(type));
             }
+        }
+
+        /// <summary> Test hook: with true the grid nodes of Compute and the sampling tables use the direct Evaluate (the result is the same bit for bit; only slower). </summary>
+        internal static bool DisableAxisTables;
+        // Test hook: count the table lookups of the field and those that hit a node (a node-heavy contouring must hit almost always)
+        // A graded lattice (PhaseMap) has no per-axis tables; its node values are kept instead (8 bytes a node) up to this many nodes: a node is evaluated by up to eight cells
+        const double NodeValueCacheMaxNodes = 1 << 24;
+        internal static bool DisableNodeValues;
+        internal static bool CountTableLookups;
+        static long tableLookups, tableHits;
+        internal static long TableLookups { get { return System.Threading.Interlocked.Read(ref tableLookups); } }
+        internal static long TableHits { get { return System.Threading.Interlocked.Read(ref tableHits); } }
+
+        // The sines and cosines at the nodes of a regular grid, per axis (the field is a function of three separable phases): node i of axis d is at
+        // Min[d] + h * i, the coordinate that MarchingCubes computes. Find returns the entry only for a point that is exactly a node, so a point
+        // anywhere else (an edge root, a user delegate) takes the direct path and the result never depends on the table.
+        sealed class GridTrig
+        {
+            readonly double[][] coord = new double[3][];
+            readonly AxisTrig[][] trig = new AxisTrig[3][];
+            readonly double min0, min1, min2, h;
+            readonly int n0, n1, n2;
+            // the value of the field at each node (Raw, before the sliver guard), computed on the first request. Threads may compute the same node at the same
+            // time: both store the same bits (the field is a pure function of p), and a double store is atomic. Empty: bits of a quiet NaN that the field never returns
+            const long Empty = 0x7FF8157700000001L;
+            double[] values;
+
+            public GridTrig(Vector3d min, double h, int nx, int ny, int nz, double k, bool two, bool withTrig, bool withValues)
+            {
+                this.h = h; min0 = min.x; min1 = min.y; min2 = min.z; n0 = nx; n1 = ny; n2 = nz;
+                int[] n = { nx, ny, nz };
+                for (int d = 0; d < 3; ++d) {
+                    coord[d] = new double[n[d]];
+                    if (withTrig) trig[d] = new AxisTrig[n[d]];
+                    for (int i = 0; i < n[d]; ++i) {
+                        coord[d][i] = min[d] + h * i;
+                        if (withTrig) trig[d][i] = MakeTrig(k * coord[d][i], two);
+                    }
+                }
+                if (withValues) {
+                    values = new double[(long)nx * ny * nz];
+                    double e = BitConverter.Int64BitsToDouble(Empty);
+                    for (long i = 0; i < values.Length; ++i) values[i] = e;
+                }
+            }
+
+            int find(int d, double min, double x)
+            {
+                double q = (x - min) / h + 0.5;
+                if (q >= 0 && q < coord[d].Length) {
+                    int i = (int)q;
+                    if (coord[d][i] == x) return i;
+                }
+                return -1;
+            }
+
+            public bool Find(ref Vector3d p, out AxisTrig x, out AxisTrig y, out AxisTrig z)
+            {
+                x = y = z = default(AxisTrig);
+                int i = find(0, min0, p.x), j = i >= 0 ? find(1, min1, p.y) : -1, k = j >= 0 ? find(2, min2, p.z) : -1;
+                bool hit = k >= 0;
+                if (hit) { x = trig[0][i]; y = trig[1][j]; z = trig[2][k]; }
+                if (CountTableLookups) { System.Threading.Interlocked.Increment(ref tableLookups); if (hit) System.Threading.Interlocked.Increment(ref tableHits); }
+                return hit;
+            }
+
+            // the node index of p, or -1
+            public long Node(ref Vector3d p)
+            {
+                int i = find(0, min0, p.x); if (i < 0) return -1;
+                int j = find(1, min1, p.y); if (j < 0) return -1;
+                int k = find(2, min2, p.z); if (k < 0) return -1;
+                return ((long)i * n1 + j) * n2 + k;
+            }
+
+            public bool HasValues { get { return values != null; } }
+
+            public bool TryGetValue(long node, out double v)
+            {
+                v = values[node];
+                return BitConverter.DoubleToInt64Bits(v) != Empty;
+            }
+
+            public void SetValue(long node, double v) { values[node] = v; }
         }
 
         /// <summary> A proven bound of |grad f| in phase coordinates (triangle inequality on the closed forms; see the design note). </summary>
@@ -251,13 +359,23 @@ namespace g3
             return gradientRatios.GetOrAdd(type, t => {
                 const int n = 24;
                 double e = 1e-5, max = 0, step = 2 * Math.PI / n;
+                bool two = NeedsDoubleAngle(t);
+                // the phases of one axis: x, x + e and x - e for the 24 samples (the same on the three axes up to the offset of the sample)
+                AxisTrig[][] c0 = new AxisTrig[3][], cp = new AxisTrig[3][], cm = new AxisTrig[3][];
+                double[] off = { 0.37, 0.61, 0.23 };
+                for (int d = 0; d < 3; ++d) {
+                    c0[d] = new AxisTrig[n]; cp[d] = new AxisTrig[n]; cm[d] = new AxisTrig[n];
+                    for (int i = 0; i < n; ++i) {
+                        double x = (i + off[d]) * step;
+                        c0[d][i] = MakeTrig(x, two); cp[d][i] = MakeTrig(x + e, two); cm[d][i] = MakeTrig(x - e, two);
+                    }
+                }
                 for (int i = 0; i < n; ++i)
                     for (int j = 0; j < n; ++j)
                         for (int l = 0; l < n; ++l) {
-                            double x = (i + 0.37) * step, y = (j + 0.61) * step, z = (l + 0.23) * step;
-                            double gx = (Evaluate(t, x + e, y, z) - Evaluate(t, x - e, y, z)) / (2 * e);
-                            double gy = (Evaluate(t, x, y + e, z) - Evaluate(t, x, y - e, z)) / (2 * e);
-                            double gz = (Evaluate(t, x, y, z + e) - Evaluate(t, x, y, z - e)) / (2 * e);
+                            double gx = (EvaluateTrig(t, cp[0][i], c0[1][j], c0[2][l]) - EvaluateTrig(t, cm[0][i], c0[1][j], c0[2][l])) / (2 * e);
+                            double gy = (EvaluateTrig(t, c0[0][i], cp[1][j], c0[2][l]) - EvaluateTrig(t, c0[0][i], cm[1][j], c0[2][l])) / (2 * e);
+                            double gz = (EvaluateTrig(t, c0[0][i], c0[1][j], cp[2][l]) - EvaluateTrig(t, c0[0][i], c0[1][j], cm[2][l])) / (2 * e);
                             max = Math.Max(max, Math.Sqrt(gx * gx + gy * gy + gz * gz));
                         }
                 return Math.Min(1, 1.05 * max / GradientBound(t));
@@ -304,10 +422,20 @@ namespace g3
             var values = new double[total];
             double step = 2 * Math.PI / n;
             int idx = 0;
-            for (int i = 0; i < n; ++i)
-                for (int j = 0; j < n; ++j)
-                    for (int k = 0; k < n; ++k)
-                        values[idx++] = StyleValue(style, Evaluate(type, (i + 0.5) * step, (j + 0.5) * step, (k + 0.5) * step));
+            if (DisableAxisTables) {
+                for (int i = 0; i < n; ++i)
+                    for (int j = 0; j < n; ++j)
+                        for (int k = 0; k < n; ++k)
+                            values[idx++] = StyleValue(style, Evaluate(type, (i + 0.5) * step, (j + 0.5) * step, (k + 0.5) * step));
+            } else {
+                bool two = NeedsDoubleAngle(type);
+                var axis = new AxisTrig[n];
+                for (int i = 0; i < n; ++i) axis[i] = MakeTrig((i + 0.5) * step, two);
+                for (int i = 0; i < n; ++i)
+                    for (int j = 0; j < n; ++j)
+                        for (int k = 0; k < n; ++k)
+                            values[idx++] = StyleValue(style, EvaluateTrig(type, axis[i], axis[j], axis[k]));
+            }
             Array.Sort(values);
             var table = new double[TableKnots + 1];
             for (int m = 0; m <= TableKnots; ++m) {
@@ -337,10 +465,17 @@ namespace g3
         /// </summary>
         internal static double AreaRatio(TpmsType type)
         {
-            return areaRatios.GetOrAdd(type, t => {
+            return areaRatios.GetOrAdd(type, t => ComputeAreaRatio(t));
+        }
+
+        // not cached: internal for the test that compares it with and without the node tables
+        internal static double ComputeAreaRatio(TpmsType t)
+        {
+            {
                 const int n = 48;
                 double h = 1.0 / n;
                 var field = new FieldFunction { Type = t, Style = TpmsStyle.SkeletalLow, K = 2 * Math.PI, Level = 0, InvLipschitz = 1, UseBox = false };
+                if (!DisableAxisTables) field.Grid = new GridTrig(new Vector3d(-2 * h, -2 * h, -2 * h), h, n + 8, n + 8, n + 8, field.K, NeedsDoubleAngle(t), true, false);
                 var mc = new MarchingCubes { Implicit = field, Bounds = new AxisAlignedBox3d(new Vector3d(-2 * h, -2 * h, -2 * h), new Vector3d(1 + 2.5 * h, 1 + 2.5 * h, 1 + 2.5 * h)),
                     CubeSize = h, IsoValue = 1e-9, ParallelCompute = false };
                 mc.Generate();
@@ -353,7 +488,7 @@ namespace g3
                         area += 0.5 * (b - a).Cross(c - a).Length;
                 }
                 return area;
-            });
+            }
         }
 
         // The sliver guard of the field (see FieldFunction.Value): a value within snap of the level iso counts as inside. Only ever down:
@@ -380,10 +515,19 @@ namespace g3
             public volatile bool LevelNaN;     // VolumeFractionAt returned NaN somewhere (a NaN node counts as outside and would go unseen)
             public bool Hybrid; public TpmsType Type2; public double Level2; public Func<Vector3d, double> Weight;   // two-type hybrid (section 9)
             public DMeshAABBTree3 DomainTree; public AxisAlignedBox3d DomainBounds;
+            public GridTrig Grid;             // the sines and cosines at the nodes of the current grid (PhaseMap == null): see GridTrig
 
             public double Value(ref Vector3d p)
             {
-                double v = Raw(ref p);
+                double v;
+                if (Grid != null && Grid.HasValues) {
+                    // a node is evaluated by up to eight cells: the value of the field there is computed once (the same bits as every time)
+                    long node = Grid.Node(ref p);
+                    if (node >= 0) {
+                        if (!Grid.TryGetValue(node, out v)) { v = Raw(ref p); Grid.SetValue(node, v); }
+                    } else v = Raw(ref p);
+                } else
+                    v = Raw(ref p);
                 // Sliver guard: a node whose value is within rounding of the level makes a crossing at a cube corner and so degenerate
                 // triangles (found: large lattices with a position dependent level or a graded cell size). Values within Snap of the
                 // level count as inside, with Snap = ratio * 2^-8 cube (ratio: see Compute): where F is 1-Lipschitz in length every crossing is
@@ -403,7 +547,15 @@ namespace g3
                 } else {
                     px = K * p.x; py = K * p.y; pz = K * p.z;
                 }
-                return Evaluate(Type, px, py, pz) * InvLipschitz;
+                return Eval(Type, ref p, px, py, pz) * InvLipschitz;
+            }
+
+            // f at the phases (px, py, pz) of the point p: from the node table when p is a grid node, else directly (the same bits)
+            double Eval(TpmsType type, ref Vector3d p, double px, double py, double pz)
+            {
+                AxisTrig x, y, z;
+                if (Grid != null && PhaseMap == null && Grid.Find(ref p, out x, out y, out z)) return EvaluateTrig(type, x, y, z);
+                return Evaluate(type, px, py, pz);
             }
 
             public double SheetHalfWidth(Vector3d p) { return (LevelAt != null ? LevelAt(p) : Level) * InvLipschitz; }
@@ -432,11 +584,11 @@ namespace g3
                     double w0 = Weight(p);
                     if (double.IsNaN(w0)) WeightNaN = true;
                     double w = Math.Min(1.0, Math.Max(0.0, w0));
-                    double ga = StyleValue(Style, Evaluate(Type, px, py, pz)) - Level;
-                    double gb = StyleValue(Style, Evaluate(Type2, px, py, pz)) - Level2;
+                    double ga = StyleValue(Style, Eval(Type, ref p, px, py, pz)) - Level;
+                    double gb = StyleValue(Style, Eval(Type2, ref p, px, py, pz)) - Level2;
                     g = (w * ga + (1 - w) * gb) * InvLipschitz;
                 } else {
-                    double f = Evaluate(Type, px, py, pz);
+                    double f = Eval(Type, ref p, px, py, pz);
                     double c = LevelAt != null ? LevelAt(p) : Level;
                     if (double.IsNaN(c)) LevelNaN = true;
                     g = (StyleValue(Style, f) - c) * InvLipschitz;
@@ -709,6 +861,10 @@ namespace g3
                 // (int)((Max - Min) / h) + 1 = cells, independent of rounding: Max is half a cube above the last full cube
                 if (RejectAttempt != null && RejectAttempt(attempt)) { last = "attempt rejected"; result = null; continue; }
                 LastGridMin = min;
+                // the sines and cosines at the nodes of this grid (cells + 1 nodes per axis, a few more for the rounding of the count)
+                field.Grid = DisableAxisTables ? null
+                    : new GridTrig(min, h, cells[0] + 4, cells[1] + 4, cells[2] + 4, field.K, NeedsDoubleAngle(Type) || (hybrid && NeedsDoubleAngle(SecondType.Value)),
+                                   map == null, map != null && !DisableNodeValues && (cells[0] + 4.0) * (cells[1] + 4.0) * (cells[2] + 4.0) <= NodeValueCacheMaxNodes);
                 var max = new Vector3d(min.x + h * (cells[0] - 0.5), min.y + h * (cells[1] - 0.5), min.z + h * (cells[2] - 0.5));
                 try {
                     if (TwoLevelSheet) {
