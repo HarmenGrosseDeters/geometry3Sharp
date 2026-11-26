@@ -852,7 +852,20 @@ python3 tools/Z3Pilot/ray_aabb_may.py --out /tmp/ray-aabb-may-report.json
 
 ## Terrain domain box expansion
 
-The pilot checks the padding conditional on the supplied reach and finite arithmetic. It proves enclosure when each checked boundary magnitude is at most 2^40 times the reach. At edge 2^52 with reach 4.2 and width 20000, binary64 advances the padded edge by 4. The replay checks the local expression. Reachability in a complete terrain design depends on upstream reach and resolution constraints.
+The pilot checks the padding conditional on the supplied reach and finite arithmetic.
+The original replay advances the padded edge by 4 for reach 4.2, width 20000
+and edge 2^52. A .NET 10 straight-toe run also reaches this class of rounding
+with slope 1, endpoints (2^52-20000,0,0) and (2^52,0,0), HeightLimit 5/8,
+and Tolerance 500. Compute returned Success with one triangle, margin 1e-6
+and 16 facets. Reconstructing dMax from those choices gives about 5.05613,
+while the padded domain edge advances by 5. This is a reachable arithmetic
+case; it did not demonstrate a missing mesh face.
+
+Proper outward rounding of the final face encloses the reference in the
+model. Round-to-nearest also suffices when dMax is at least 11 times the
+local spacing used to bound the sum's error. The pilot checks both of
+these conditions and replays using one successor step for the upper face.
+The analogous lower-face result follows by reflecting the coordinate.
 
 ```sh
 python3 tools/Z3Pilot/terrain_box_expansion.py --out /tmp/terrain-box-expansion-report.json
