@@ -82,6 +82,9 @@ namespace geometry3Sharp.Tests
             // no corners, fewer than three corners, and a null list: no solid, no sign (even for coordinates that would give one)
             double[] xyz = { 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1 };
             Assert.Equal(0, ExactPredicates.VolumeSignExact(xyz, null));
+            Assert.Equal(0, ExactPredicates.VolumeSign(xyz, null));
+            Assert.Equal(0, ExactPredicates.VolumeSign(xyz, new int[0]));
+            Assert.Equal(0, ExactPredicates.VolumeSign(xyz, new[] { 0, 1 }));
             Assert.Equal(0, ExactPredicates.VolumeSignExact(xyz, new int[0]));
             Assert.Equal(0, ExactPredicates.VolumeSignExact(xyz, new[] { 0, 1 }));
             // a closed tetrahedron has a sign, so the zero above comes from the guard
@@ -534,6 +537,387 @@ namespace geometry3Sharp.Tests
             Assert.True(total.IsZero);
             Assert.False(ExactPredicates.TryVolumeSum6Exact(xyz, new[] { 0, 1 }, out total, out exponent));
             Assert.False(ExactPredicates.TryVolumeSum6Exact(xyz, null, out total, out exponent));
+        }
+
+        // ---- #1435: the filter code of VolumeSign and TryCompareAbsVolume6, value by value (the survivors of the mutation shard)
+
+        static (double[] xyz, int[] corners) FatSolid(bool insideOut)
+        {
+            DMesh3 sphere = new Sphere3Generator_NormalizedCube { Radius = 1, EdgeVertices = 6 }.Generate().MakeDMesh();
+            MeshTransforms.Translate(sphere, new Vector3d(1e6, 2e6, -3e6));
+            if (insideOut) sphere.ReverseOrientation();
+            return Arrays(sphere, sphere.TriangleIndices());
+        }
+
+        /// <summary> a vertex that no triangle uses is still checked: a coordinate that is not finite anywhere gives no sign, whichever the filter says </summary>
+        [Theory]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        [InlineData(double.NegativeInfinity)]
+        public void NonFiniteCoordinate_OfAnUnusedVertex_GivesNoSign_AndNoComparison(double bad)
+        {
+            var (xyz, corners) = FatSolid(false);
+            Assert.Equal(1, ExactPredicates.VolumeSign(xyz, corners));            // (the control: the filter decides this solid)
+            Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz, corners, 1, out int control));
+            Assert.Equal(1, control);
+            // (the bad coordinate in each of the three places of the unused vertex, and as the first and last array element)
+            for (int place = 0; place < 3; ++place) {
+                double[] x2 = new double[xyz.Length + 3];
+                Array.Copy(xyz, x2, xyz.Length);
+                x2[xyz.Length + place] = bad;
+                Assert.Equal(0, ExactPredicates.VolumeSign(x2, corners));
+                Assert.Equal(0, ExactPredicates.VolumeSignExact(x2, corners));
+                Assert.False(ExactPredicates.TryCompareAbsVolume6(x2, corners, 1, out int s));
+            }
+            // (the first array element, which no triangle of this list uses: the guard must start at 0)
+            double[] x3 = new double[xyz.Length + 3];
+            Array.Copy(xyz, 0, x3, 3, xyz.Length);
+            int[] shifted = corners.Select(c => c + 1).ToArray();
+            x3[0] = bad;
+            Assert.Equal(0, ExactPredicates.VolumeSign(x3, shifted));
+            Assert.False(ExactPredicates.TryCompareAbsVolume6(x3, shifted, 1, out int s2));
+        }
+
+        /// <summary> the filter's sign of a solid turned inside out is -1 (the second test of SignOfBoundedSum), and VolumeSign agrees </summary>
+        [Fact]
+        public void Filter_DecidesAnInsideOutSolid_AsNegative()
+        {
+            var (xyz, corners) = FatSolid(true);
+            Assert.Equal(-1, ExactPredicates.VolumeSignFilter(xyz, corners));
+            Assert.Equal(-1, ExactPredicates.VolumeSign(xyz, corners));
+            Assert.Equal(-1, ExactPredicates.VolumeSignExact(xyz, corners));
+        }
+
+        [Fact]
+        public void SignOfBoundedSum_IsStrictOnBothSides()
+        {
+            Assert.Equal(1, ExactPredicates.SignOfBoundedSum(10, 5));
+            Assert.Equal(-1, ExactPredicates.SignOfBoundedSum(-10, 5));
+            Assert.Equal(0, ExactPredicates.SignOfBoundedSum(5, 5));
+            Assert.Equal(0, ExactPredicates.SignOfBoundedSum(-5, 5));
+            Assert.Equal(0, ExactPredicates.SignOfBoundedSum(0, 0));
+            Assert.Equal(1, ExactPredicates.SignOfBoundedSum(Next(5, 1), 5));
+            Assert.Equal(-1, ExactPredicates.SignOfBoundedSum(-Next(5, 1), 5));
+            Assert.Equal(0, ExactPredicates.SignOfBoundedSum(Next(5, -1), 5));
+            Assert.Equal(0, ExactPredicates.SignOfBoundedSum(-Next(5, -1), 5));
+        }
+
+#if NET
+        /// <summary>
+        /// what the filter decides costs no allocation, what it does not decide goes to the integers (BigInteger arrays): the filtered
+        /// sign of a fat solid, and the comparison of its |S| with a far threshold on both sides, allocate nothing (the
+        /// bypass of the filter would give the same sign, only slower)
+        /// </summary>
+        [Fact]
+        public void FilterDecisions_AllocateNothing_TheExactStageDoes()
+        {
+            var (xyz, corners) = FatSolid(false);
+            // (the sum S of this solid is about 6 times its volume of 4 / 3 pi: 25; thresholds far below and above)
+            for (int warm = 0; warm < 3; ++warm) {
+                ExactPredicates.VolumeSign(xyz, corners);
+                ExactPredicates.TryCompareAbsVolume6(xyz, corners, 1, out _);
+                ExactPredicates.TryCompareAbsVolume6(xyz, corners, 100, out _);
+                ExactPredicates.VolumeSign(xyz, corners.Take(3).ToArray());
+            }
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            int sign = ExactPredicates.VolumeSign(xyz, corners);
+            bool decided1 = ExactPredicates.TryCompareAbsVolume6(xyz, corners, 1, out int s1);
+            bool decided2 = ExactPredicates.TryCompareAbsVolume6(xyz, corners, 100, out int s2);
+            long after = GC.GetAllocatedBytesForCurrentThread();
+            Assert.Equal(1, sign);
+            Assert.True(decided1 && decided2);
+            Assert.Equal(1, s1);
+            Assert.Equal(-1, s2);
+            Assert.Equal(0, after - before);
+            // (the exact stage allocates: a threshold at |S| / 3 cannot be decided by the filter)
+            var (tx, tc) = Tetra(0, 0, 0);
+            long b2 = GC.GetAllocatedBytesForCurrentThread();
+            ExactPredicates.TryCompareAbsVolume6(tx, tc, 9, out _);
+            Assert.True(GC.GetAllocatedBytesForCurrentThread() - b2 > 0);
+        }
+#endif
+
+        // ---- the bound of VolumeSumWithBound
+
+        static (BigInteger m, int e) Dyadic(double x)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int exp = (int)((bits >> 52) & 0x7FF);
+            long frac = bits & 0xFFFFFFFFFFFFFL;
+            BigInteger m = exp == 0 ? frac : frac | (1L << 52);
+            int e = exp == 0 ? -1074 : exp - 1075;
+            return (bits < 0 ? -m : m, e);
+        }
+        static (BigInteger m, int e) Mul((BigInteger m, int e) a, (BigInteger m, int e) b) => (a.m * b.m, a.e + b.e);
+        static (BigInteger m, int e) Add((BigInteger m, int e) a, (BigInteger m, int e) b)
+        {
+            int e = Math.Min(a.e, b.e);
+            return ((a.m << (a.e - e)) + (b.m << (b.e - e)), e);
+        }
+        static int Compare((BigInteger m, int e) a, (BigInteger m, int e) b)
+        {
+            int e = Math.Min(a.e, b.e);
+            return (a.m << (a.e - e)).CompareTo(b.m << (b.e - e));
+        }
+        // |x - exact| / exact as a double (exact positive)
+        static double RelativeError(double x, (BigInteger m, int e) exact)
+        {
+            var d = Add(Dyadic(x), (-exact.m, exact.e));
+            return (double)((BigInteger.Abs(d.m) << 200) / BigInteger.Abs(exact.m)) * Math.Pow(2, d.e - exact.e - 200);
+        }
+
+        /// <summary> g = gamma_(n+2) = k u / (1 - k u), k = n + 2, rounded once: within half a unit in the last place of the exact value </summary>
+        [Theory]
+        [InlineData(1)]
+        [InlineData(2)]
+        [InlineData(5)]
+        [InlineData(100)]
+        [InlineData(1000000)]
+        public void VolumeBoundG_IsTheRoundedGamma(int n)
+        {
+            BigInteger k = n + 2;
+            BigInteger two53 = BigInteger.One << 53;
+            double g = ExactPredicates.VolumeBoundG(n);
+            // exact: k / (2^53 - k); |g - exact| <= 2^-53 exact (one rounding of the quotient; k u and 1 - k u are exact)
+            double exactApprox = (double)((k << 200) / (two53 - k)) * Math.Pow(2, -200);
+            Assert.True(Math.Abs(g - exactApprox) <= 1.0e-16 * exactApprox + 1e-300, n + ": " + g + " vs " + exactApprox);
+        }
+
+        /// <summary> E = (Orient3dBound perm + UnderflowUnit under + g abs) (1 + 3 g), up to the few roundings of its evaluation (2^-51 relative); g large enough to show the factor </summary>
+        [Theory]
+        [InlineData(0.75, 0.0, 1.25, 1.0 / (1 << 30))]
+        [InlineData(1.0, 0.0, 0.0, 1.0 / (1 << 20))]
+        [InlineData(0.0, 0.0, 1.0, 1.0 / (1 << 30))]
+        [InlineData(1e10, 3.0, 2.5e9, 1.0 / (1 << 25))]
+        public void VolumeBound_IsTheDocumentedExpression(double perm, double under, double abs, double g)
+        {
+            double bound = ExactPredicates.VolumeBound(perm, under, abs, g);
+            var sum = Add(Add(Mul(Dyadic(ExactPredicates.Orient3dBound), Dyadic(perm)), Mul(Dyadic(ExactPredicates.UnderflowUnit), Dyadic(under))),
+                          Mul(Dyadic(g), Dyadic(abs)));
+            var factor = Add(Dyadic(1.0), Mul(Dyadic(3.0), Dyadic(g)));
+            var exact = Mul(sum, factor);
+            Assert.True(RelativeError(bound, exact) <= Math.Pow(2, -51), "relative error " + RelativeError(bound, exact));
+        }
+
+        [Fact]
+        public void VolumeBoundUsable_NeedsFiniteSumAndBound_AndSmallG()
+        {
+            Assert.True(ExactPredicates.VolumeBoundUsable(1, 2, 0.1));
+            Assert.True(ExactPredicates.VolumeBoundUsable(-1, 2, 0.1));
+            Assert.True(ExactPredicates.VolumeBoundUsable(1, 2, Next(0.25, -1)));
+            Assert.False(ExactPredicates.VolumeBoundUsable(1, 2, 0.25));
+            Assert.False(ExactPredicates.VolumeBoundUsable(1, 2, 0.5));
+            // each of the four values that are not finite, with the others fine (the sum's own tests are a second guard of the bound's)
+            Assert.False(ExactPredicates.VolumeBoundUsable(double.NaN, 2, 0.1));
+            Assert.False(ExactPredicates.VolumeBoundUsable(double.PositiveInfinity, 2, 0.1));
+            Assert.False(ExactPredicates.VolumeBoundUsable(double.NegativeInfinity, 2, 0.1));
+            Assert.False(ExactPredicates.VolumeBoundUsable(1, double.NaN, 0.1));
+            Assert.False(ExactPredicates.VolumeBoundUsable(1, double.PositiveInfinity, 0.1));
+        }
+
+        /// <summary> perm (a sum of absolute products) can overflow where det does not: the sum is finite, the bound is not, and the filter must not be used </summary>
+        [Fact]
+        public void VolumeSumWithBound_FiniteSumWithOverflowingBound_IsNotUsable()
+        {
+            // the second triangle has u = (0, 1e154, 1.1e154), v = (0, 1.1e154, 1e154), w = (0.5, 0, 0): uyvz = 1e308, uzvy = 1.21e308, so
+            // |uyvz| + |uzvy| overflows (perm = infinity) and det = 0.5 (uyvz - uzvy) = -1e307 does not
+            double[] xyz = { 0, 0, 0,   0, 1e154, 1.1e154,   0, 1.1e154, 1e154,   0.5, 0, 0 };
+            int[] corners = { 0, 0, 0, 1, 2, 3 };
+            bool usable = ExactPredicates.VolumeSumWithBound(xyz, corners, out double sum, out double bound);
+            Assert.False(usable);
+            Assert.True(double.IsInfinity(bound));
+            Assert.True(sum < -1e306 && !double.IsInfinity(sum));
+            // (the filter is unusable, so the exact stage compares: |S| of about 1e307 is far above 3 t = 3)
+            Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz, corners, 1, out int s));
+            Assert.Equal(1, s);
+            Assert.Equal(0, ExactPredicates.VolumeSignFilter(xyz, corners));       // (undecided: the exact stage decides)
+            Assert.Equal(-1, ExactPredicates.VolumeSign(xyz, corners));
+        }
+
+        // ---- the comparison filter of TryCompareAbsVolume6
+
+        static bool Less((BigInteger m, int e) a, (BigInteger m, int e) b) => Compare(a, b) < 0;
+
+        /// <summary>
+        /// soundness and completeness of VolumeCompareFilter against exact arithmetic: sum = a, bound = E, 3 t at a x E (1 + j u)
+        /// around the thresholds a - E and a + E, j from -24 to 24 (u = 2^-53). Decided +1 only where the exact a - E exceeds 3 t, -1 only where
+        /// the exact a + E is below 3 t (the filter is never wrong); decided wherever the exact margin is more than 16 u of 3 t (not too
+        /// timid: the slack is 4 u per side and the roundings about 3 u)
+        /// </summary>
+        [Fact]
+        public void VolumeCompareFilter_IsSound_AndDecidesBeyondTheSlack()
+        {
+            var rnd = new Random(1435);
+            double u = ExactPredicates.Epsilon;
+            int decidedPlus = 0, decidedMinus = 0, undecided = 0;
+            for (int trial = 0; trial < 400; ++trial) {
+                double a = (0.5 + rnd.NextDouble()) * Math.Pow(2, rnd.Next(-200, 200));
+                double bound = a * Math.Pow(2, -rnd.Next(2, 60)) * (0.5 + rnd.NextDouble());
+                for (int j = -24; j <= 24; ++j) {
+                    foreach (bool plus in new[] { true, false }) {
+                        double edge = plus ? a - bound : a + bound;
+                        double t3target = edge * (1 + j * u);
+                        double t = t3target / 3;
+                        if (!(t >= ExactPredicates.MinNormal)) continue;
+                        bool decided = ExactPredicates.VolumeCompareFilter(a, bound, t, out int sign);
+                        var exactT3 = Mul(Dyadic(t), Dyadic(3.0));
+                        var exactMinus = Add(Dyadic(a), Dyadic(-bound));      // a - E
+                        var exactPlus = Add(Dyadic(a), Dyadic(bound));        // a + E
+                        if (decided) {
+                            if (sign == 1) { Assert.True(Less(exactT3, exactMinus), "unsound +1 at j=" + j); decidedPlus++; }
+                            else { Assert.Equal(-1, sign); Assert.True(Less(exactPlus, exactT3), "unsound -1 at j=" + j); decidedMinus++; }
+                        } else { Assert.Equal(0, sign); undecided++; }
+                        // completeness: beyond 16 u of 3 t the filter decides
+                        var margin = Mul(exactT3, Add(Dyadic(1.0), Dyadic(16 * u)));
+                        if (Less(margin, exactMinus)) Assert.True(decided && sign == 1, "not decided +1 at j=" + j);
+                        var lowMargin = Mul(exactT3, Add(Dyadic(1.0), Dyadic(-16 * u)));
+                        if (Less(exactPlus, lowMargin)) Assert.True(decided && sign == -1, "not decided -1 at j=" + j);
+                    }
+                }
+            }
+            Assert.True(decidedPlus > 1000 && decidedMinus > 1000 && undecided > 1000, decidedPlus + " " + decidedMinus + " " + undecided);
+        }
+
+        /// <summary> where the slack-adjusted values are equal the filter decides nothing (strict comparisons), on both sides </summary>
+        [Fact]
+        public void VolumeCompareFilter_AtEquality_DecidesNothing()
+        {
+            double u = ExactPredicates.Epsilon;
+            int foundPlus = 0, foundMinus = 0;
+            var rnd = new Random(7);
+            for (int trial = 0; trial < 2000 && (foundPlus < 5 || foundMinus < 5); ++trial) {
+                double a = (0.5 + rnd.NextDouble()) * 64, bound = a * 0.125 * (0.5 + rnd.NextDouble());
+                double x = (a - bound) * (1 - 4 * u);
+                double y = (a + bound) * (1 + 4 * u);
+                double t0 = x / (1 + 4 * u) / 3, t1 = y / (1 - 4 * u) / 3;
+                for (int k = -6; k <= 6; ++k) {
+                    double t = Next(t0, k);
+                    if (3 * t * (1 + 4 * u) == x) { foundPlus++; Assert.False(ExactPredicates.VolumeCompareFilter(a, bound, t, out int s)); Assert.Equal(0, s); }
+                    t = Next(t1, k);
+                    if (3 * t * (1 - 4 * u) == y) { foundMinus++; Assert.False(ExactPredicates.VolumeCompareFilter(a, bound, t, out int s)); Assert.Equal(0, s); }
+                }
+            }
+            Assert.True(foundPlus >= 5 && foundMinus >= 5, foundPlus + " " + foundMinus);
+        }
+
+        [Fact]
+        public void VolumeCompareFilter_ThresholdThatOverflows_DecidesNothing_AndNormalOnesDecide()
+        {
+            Assert.False(ExactPredicates.VolumeCompareFilter(1, 0.5, double.MaxValue, out int s));       // 3 t overflows
+            Assert.False(ExactPredicates.VolumeCompareFilter(1e300, 1, 1e308, out s));
+            Assert.Equal(0, s);
+            Assert.True(ExactPredicates.VolumeCompareFilter(1000, 1, 10, out s));
+            Assert.Equal(1, s);
+            Assert.True(ExactPredicates.VolumeCompareFilter(-1000, 1, 10, out s));       // (the sign of the sum does not matter: |S|)
+            Assert.Equal(1, s);
+            Assert.True(ExactPredicates.VolumeCompareFilter(10, 1, 1000, out s));
+            Assert.Equal(-1, s);
+            Assert.True(ExactPredicates.VolumeCompareFilter(0, 0.5, 1000, out s));
+            Assert.Equal(-1, s);
+        }
+
+        // S = the exact sum of the determinants of VolumeSign, in exact dyadic arithmetic of the test (not the library's integers)
+        static (BigInteger m, int e) ExactSum(double[] xyz, int[] corners)
+        {
+            (BigInteger m, int e) total = (BigInteger.Zero, 0);
+            Func<int, int, (BigInteger m, int e)> d = (i, j) => Add(Dyadic(xyz[3 * i + j]), Dyadic(-xyz[3 * corners[0] + j]));
+            for (int t = 0; t < corners.Length / 3; ++t) {
+                int a = corners[3 * t], b = corners[3 * t + 1], c = corners[3 * t + 2];
+                var (ux, uy, uz) = (d(a, 0), d(a, 1), d(a, 2));
+                var (vx, vy, vz) = (d(b, 0), d(b, 1), d(b, 2));
+                var (wx, wy, wz) = (d(c, 0), d(c, 1), d(c, 2));
+                Func<(BigInteger m, int e), (BigInteger m, int e)> neg = x => (-x.m, x.e);
+                var det = Add(Add(Mul(wx, Add(Mul(uy, vz), neg(Mul(uz, vy)))), Mul(wy, Add(Mul(uz, vx), neg(Mul(ux, vz))))),
+                              Mul(wz, Add(Mul(ux, vy), neg(Mul(uy, vx)))));
+                total = Add(total, det);
+            }
+            return total;
+        }
+
+        /// <summary>
+        /// a sliver of the size of a few units in the last place at coordinates near 1: |S| is a few units of 2^(3 emin), about 2^-156 and
+        /// below t's own unit 2^-210 only where 3 emin lies above the exponent of t, so the exact comparison shifts |S| to the left (the
+        /// direction that Compare_AgreesWithTheOracle_OnOpenSoups does not reach), t from 2 below to 2 above |S| / 3 (the filter cannot decide)
+        /// </summary>
+        [Fact]
+        public void Compare_ExactStage_ShiftsTheSumLeft_ForASliverOfUlpSize()
+        {
+            var rnd = new Random(1435);
+            double ulp = Math.Pow(2, -52);
+            int checkedCases = 0;
+            for (int trial = 0; trial < 60; ++trial) {
+                double[] xyz = new double[12];
+                for (int i = 0; i < 3; ++i) xyz[i] = 1.0;                       // o = (1, 1, 1)
+                for (int v = 1; v < 4; ++v)
+                    for (int c = 0; c < 3; ++c)
+                        xyz[3 * v + c] = 1.0 + (rnd.Next(-3, 8)) * ulp * (c == v - 1 ? 1 : 0.0) + rnd.Next(0, 2) * ulp * (c == (v % 3) ? 1 : 0.0);
+                int[] corners = (trial % 2 == 0) ? new[] { 0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3 } : new[] { 0, 1, 2, 0, 3, 1, 0, 2, 3, 1, 3, 2 };
+                var s = ExactSum(xyz, corners);
+                if (s.m.IsZero) continue;
+                var abs = (BigInteger.Abs(s.m), s.e);
+                double t0 = Math.Abs((double)s.m * Math.Pow(2, s.e)) / 3;     // (s.m small: both factors exact)
+                for (int k = -2; k <= 2; ++k) {
+                    double t = Next(t0, k);
+                    int expected = Compare(abs, Mul(Dyadic(3.0), Dyadic(t)));
+                    Assert.True(ExactPredicates.TryCompareAbsVolume6(xyz, corners, t, out int sign), "trial " + trial + " k " + k);
+                    Assert.Equal(Math.Sign(expected), sign);
+                    checkedCases++;
+                }
+            }
+            Assert.True(checkedCases > 100, checkedCases.ToString());
+        }
+
+        /// <summary>
+        /// the bound of VolumeSumWithBound term by term, on soups of small integer coordinates (the determinants and products are exact in doubles):
+        /// perm = sum of |wx| (|uyvz| + |uzvy|) + |wy| (|uzvx| + |uxvz|) + |wz| (|uxvy| + |uyvx|), under = sum of |w|_1 + 1, abs = sum of |det|,
+        /// bound = VolumeBound of them with g = VolumeBoundG(n), and the sum itself, all in exact arithmetic of the test
+        /// </summary>
+        [Fact]
+        public void VolumeSumWithBound_IsTheDocumentedExpression_TermByTerm()
+        {
+            var rnd = new Random(1435);
+            int cases = 0;
+            for (int trial = 0; trial < 200; ++trial) {
+                int nv = 4 + rnd.Next(4), n = 1 + rnd.Next(4);
+                double[] xyz = new double[3 * nv];
+                for (int i = 0; i < xyz.Length; ++i) xyz[i] = rnd.Next(-9, 10);
+                int[] corners = new int[3 * n];
+                for (int i = 0; i < corners.Length; ++i) corners[i] = rnd.Next(nv);
+                (BigInteger m, int e) sumX = (BigInteger.Zero, 0), perm = (BigInteger.Zero, 0), under = (BigInteger.Zero, 0), abs = (BigInteger.Zero, 0);
+                Func<(BigInteger m, int e), (BigInteger m, int e)> mag = x => (BigInteger.Abs(x.m), x.e);
+                Func<int, int, (BigInteger m, int e)> d = (i, j) => Add(Dyadic(xyz[3 * i + j]), Dyadic(-xyz[3 * corners[0] + j]));
+                for (int t = 0; t < n; ++t) {
+                    int a = corners[3 * t], b = corners[3 * t + 1], c = corners[3 * t + 2];
+                    var (ux, uy, uz) = (d(a, 0), d(a, 1), d(a, 2));
+                    var (vx, vy, vz) = (d(b, 0), d(b, 1), d(b, 2));
+                    var (wx, wy, wz) = (d(c, 0), d(c, 1), d(c, 2));
+                    Func<(BigInteger m, int e), (BigInteger m, int e)> neg = x => (-x.m, x.e);
+                    var det = Add(Add(Mul(wx, Add(Mul(uy, vz), neg(Mul(uz, vy)))), Mul(wy, Add(Mul(uz, vx), neg(Mul(ux, vz))))),
+                                  Mul(wz, Add(Mul(ux, vy), neg(Mul(uy, vx)))));
+                    sumX = Add(sumX, det);
+                    abs = Add(abs, mag(det));
+                    perm = Add(perm, Add(Add(Mul(mag(wx), Add(mag(Mul(uy, vz)), mag(Mul(uz, vy)))), Mul(mag(wy), Add(mag(Mul(uz, vx)), mag(Mul(ux, vz))))),
+                                         Mul(mag(wz), Add(mag(Mul(ux, vy)), mag(Mul(uy, vx))))));
+                    under = Add(under, Add(Add(mag(wx), Add(mag(wy), mag(wz))), Dyadic(1.0)));
+                }
+                Assert.True(ExactPredicates.VolumeSumWithBound(xyz, corners, out double sum, out double bound));
+                Assert.Equal(0, Compare(Dyadic(sum), sumX));                  // (exact: small integers)
+                // g exact: k / (2^53 - k)
+                BigInteger k = n + 2;
+                var gDen = (BigInteger.One << 53) - k;
+                // bound = (Orient3dBound perm + UnderflowUnit under + g abs) (1 + 3 g), g = k / gDen: compare with the exact value, relative 2^-50
+                var inner = Add(Add(Mul(Dyadic(ExactPredicates.Orient3dBound), perm), Mul(Dyadic(ExactPredicates.UnderflowUnit), under)), (BigInteger.Zero, 0));
+                // (g abs and (1 + 3 g) as exact fractions: multiply through by gDen)
+                var num = Add(Mul(inner, (gDen, 0)), Mul((k, 0), abs));                    // (inner + g abs) gDen
+                var exactNum = Mul(num, (gDen + 3 * k, 0));                                 // (1 + 3 g) gDen = gDen + 3 k
+                if (exactNum.m.IsZero) { Assert.Equal(0.0, bound); continue; }
+                if (bound < 1e-290) continue;       // (only the underflow term: subnormal, rounded far coarser than 2^-50)
+                var diff = Add(Mul(Dyadic(bound), (gDen * gDen, 0)), (-exactNum.m, exactNum.e));
+                double rel = (double)((BigInteger.Abs(diff.m) << 200) / BigInteger.Abs(exactNum.m)) * Math.Pow(2, diff.e - exactNum.e - 200);
+                Assert.True(rel <= Math.Pow(2, -50), "n=" + n + " bound " + bound + " relative error " + rel);
+                cases++;
+            }
+            Assert.True(cases > 100, cases.ToString());
         }
     }
 }
