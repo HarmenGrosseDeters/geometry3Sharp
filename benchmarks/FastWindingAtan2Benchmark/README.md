@@ -38,3 +38,5 @@ the scalar netstandard2.0 build, measured separately). An exact-winding query on
 little else, so there it is +37 %; inside a Solidify the query is a small part of the work and the operation does not change. The one repair line that changes
 the output (14,712 -> 14,754 triangles: a term moved by one ulp moves the contour; 5 of the 37 demo repair cases are that sensitive) also does a different amount of
 work.
+
+The plain `DMeshAABBTree3.WindingNumber` query on an open mesh is the one standalone cost above 15 % (+37.4 %: 193 -> 265 ms over 100k queries); no operation that uses it shows it (Solidify with `UseExactWinding`: -2.8 %). The box repair result changes from 14,712 to 14,754 triangles because the angles differ by 1 ulp in the last bit (about 0.3 % of the terms), not because a behaviour changed.
