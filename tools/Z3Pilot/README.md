@@ -832,18 +832,20 @@ the largest projection by monotone rounding, tmin below every point's projection
 term (SAT, models replayed in exact rationals). The smallest integer factor the lemma admits is 3 (16 u M is not enough in the
 model): the code's 24 u M has no spare factor, as the comment's 22 u M derivation says.
 
-**`slope_approx.py` (G1, the corner error of the terrain prefilter).** `TerrainSlopeMap.prefilter_skips` assumes the corners
-from `ExactSlopeKernel.Approx` are within e = 4e-12 (|x| + |y|) + 2^-1074; Approx accepts if err <= 1e-12 (|x| + |y|). FINDING (issue #1586):
-at the subnormal edge the claim fails (SAT, the Z3 model replayed, and an IEEE replay of the C# expressions: X = [2^-1074,
-2^-1074], Y = [0, 0], W = [-8, 4] gives x = y = -0 accepted, while the exact vertex for W* = 2^-1000 is x* = 2^-74). The
-acceptance compares with 1e-12 * 0 there and no longer bounds W. Not shown: that real line data produces such intervals. The test pins the finding
-as SAT while the code is unchanged. Proved: away from the edge (|x| + |y| > 0, no underflow) acceptance
-gives W* the sign of w (a narrow W; both signs of w queried); mutant: err without its W term. Undecided (not counted): the corner bound itself in the
-normal range; nlsat returns unknown after 300 s, also after symmetry reductions.
+**`slope_approx.py` (G1, the corner error of the terrain prefilter; issue #1586, fixed by #1619).** `TerrainSlopeMap.prefilter_skips`
+assumes the corners from `ExactSlopeKernel.Approx` are within e = 4e-12 (|x| + |y|) + 2^-1074. Approx used to accept if
+err <= 1e-12 (|x| + |y|); at the subnormal edge that failed (the finding, kept as the IEEE replay `issue_1586`: X = [2^-1074,
+2^-1074], Y = [0, 0], W = [-8, 4] gave x = y = -0 accepted, while the exact vertex for W* = 2^-1000 is x* = 2^-74). The fix
+(`approx_position`) also needs 2^-1022 <= |x| + |y| <= double.MaxValue and a narrow W ((W.Hi - W.Lo) 5e11 <= |w|); each of the
+two halves alone fails (replays `width_only`, `guard_only`), and so does an overflowed |x| + |y| (`overflow`). Proved: four
+lemmas, one per step (width of W, width of X and Y, one coordinate, the claim), linear except the coordinate step (nlsat),
+under two seconds; the midpoint in its interval by monotone rounding, or with Z3's binary64 theory (`--fp`, 89 s here, 253 s on another machine). Mutants
+(SAT): the claim without the guard, with twice the width, with a consumer of 3e-12 (the last two show the 2x slack of the proof, which uses |W* - w| <= dW where the midpoint gives dW / 2, not wrong code; a width condition of 1e11 is wrong, killed by a .NET test). Run it as a plain script or from the module directory, not with `python3 -I` (it imports `pilot` from its own directory). Kept from the first version (its scope:
+no underflow): acceptance gives W* the sign of w (both signs); mutant: err without its W term.
 
 ```sh
 python3 tools/Z3Pilot/adaptive_range.py --out /tmp/adaptive-range.json
 python3 tools/Z3Pilot/may_meet_box.py
-python3 tools/Z3Pilot/slope_approx.py
+python3 tools/Z3Pilot/slope_approx.py [--fp]
 python3 -m unittest discover -s tools/Z3Pilot -p 'test_adaptive_range.py' -v
 ```
