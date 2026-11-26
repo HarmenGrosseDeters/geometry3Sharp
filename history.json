@@ -156,6 +156,19 @@
      1.273
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 1.578,
+    "ok": true,
+    "runs_s": [
+     1.6,
+     1.574,
+     1.578
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "alphawrap-knot-dense-wrap": [
@@ -314,6 +327,19 @@
      1.433
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 1.751,
+    "ok": true,
+    "runs_s": [
+     1.751,
+     1.773,
+     1.714
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "alphawrap-thingi-111959-wrappipe": [
@@ -476,6 +502,19 @@
      18.416
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 21.522,
+    "ok": true,
+    "runs_s": [
+     21.522,
+     21.414,
+     21.679
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "alphawrap-thingi-1514905-wrappipe": [
@@ -634,6 +673,19 @@
      11.489
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 14.756,
+    "ok": true,
+    "runs_s": [
+     14.736,
+     14.756,
+     14.816
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "alphawrap-thingi-222687-wrappipe": [
@@ -796,6 +848,19 @@
      24.172
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 28.357,
+    "ok": true,
+    "runs_s": [
+     28.857,
+     28.357,
+     27.899
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "alphawrap-thingi-222695-wrappipe": [
@@ -958,6 +1023,19 @@
      24.891
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 29.805,
+    "ok": true,
+    "runs_s": [
+     29.805,
+     30.14,
+     29.447
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "alphawrap-thingi-224108-wrappipe": [
@@ -1120,6 +1198,19 @@
      17.029
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 20.102,
+    "ok": true,
+    "runs_s": [
+     20.102,
+     20.136,
+     20.012
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "alphawrap-thingi-39368-wrappipe": [
@@ -1280,6 +1371,19 @@
      14.678
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 16.969,
+    "ok": true,
+    "runs_s": [
+     17.07,
+     16.957,
+     16.969
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "alphawrap-thingi-40118-wrappipe": [
@@ -1428,6 +1532,17 @@
      57.88
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 70.676,
+    "ok": true,
+    "runs_s": [
+     70.676
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "alphawrap-thingi-49901-wrappipe": [
@@ -1590,6 +1705,19 @@
      18.537
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 21.824,
+    "ok": true,
+    "runs_s": [
+     21.587,
+     21.824,
+     22.056
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "alphawrap-thingi-49998-wrappipe": [
@@ -1752,6 +1880,19 @@
      15.981
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 18.072,
+    "ok": true,
+    "runs_s": [
+     18.072,
+     18.047,
+     18.896
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "alphawrap-thingi-500097-wrappipe": [
@@ -1914,6 +2055,19 @@
      23.617
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 28.46,
+    "ok": true,
+    "runs_s": [
+     29.124,
+     27.937,
+     28.46
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "alphawrap-thingi-500099-wrappipe": [
@@ -2076,6 +2230,19 @@
      19.74
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 23.102,
+    "ok": true,
+    "runs_s": [
+     23.102,
+     22.903,
+     23.213
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "alphawrap-thingi-500115-wrappipe": [
@@ -2238,6 +2405,19 @@
      21.551
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 26.142,
+    "ok": true,
+    "runs_s": [
+     26.155,
+     25.422,
+     26.142
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "alphawrap-thingi-520646-wrappipe": [
@@ -2400,6 +2580,19 @@
      25.509
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 29.877,
+    "ok": true,
+    "runs_s": [
+     30.536,
+     29.877,
+     29.662
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "alphawrap-thingi-535629-wrappipe": [
@@ -2562,6 +2755,19 @@
      25.593
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 30.062,
+    "ok": true,
+    "runs_s": [
+     30.45,
+     30.062,
+     29.807
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "alphawrap-thingi-679615-wrappipe": [
@@ -2724,6 +2930,19 @@
      20.502
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 24.609,
+    "ok": true,
+    "runs_s": [
+     24.609,
+     24.933,
+     24.353
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "alphawrap-thingi-69261-wrappipe": [
@@ -2886,6 +3105,19 @@
      25.218
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 31.954,
+    "ok": true,
+    "runs_s": [
+     31.516,
+     31.954,
+     32.116
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "alphawrap-thingi-78968-wrappipe": [
@@ -3048,6 +3280,19 @@
      32.479
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 38.38,
+    "ok": true,
+    "runs_s": [
+     38.534,
+     38.38,
+     37.708
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "alphawrap-thingi-84042-wrappipe": [
@@ -3208,6 +3453,19 @@
      14.359
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 16.957,
+    "ok": true,
+    "runs_s": [
+     16.721,
+     17.187,
+     16.957
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "alphawrap-thingi-860049-wrappipe": [
@@ -3370,6 +3628,19 @@
      37.729
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 45.104,
+    "ok": true,
+    "runs_s": [
+     45.104,
+     44.146,
+     45.504
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "boolean-knot-default-union": [
@@ -3528,6 +3799,19 @@
      1.862
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 2.182,
+    "ok": true,
+    "runs_s": [
+     2.6,
+     2.145,
+     2.182
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "boolean-knot-dense-union": [
@@ -3686,6 +3970,19 @@
      4.631
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 5.076,
+    "ok": true,
+    "runs_s": [
+     5.076,
+     5.25,
+     5.068
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "boolean-thingi-1005586-union": [
@@ -3848,6 +4145,19 @@
      32.107
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 39.709,
+    "ok": true,
+    "runs_s": [
+     39.709,
+     40.371,
+     39.635
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "boolean-thingi-107554-union": [
@@ -4010,6 +4320,19 @@
      16.923
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 19.951,
+    "ok": true,
+    "runs_s": [
+     19.888,
+     19.951,
+     19.963
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "boolean-thingi-1087141-union": [
@@ -4172,6 +4495,21 @@
      27.088
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [
+     "regression"
+    ],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 40.827,
+    "ok": true,
+    "runs_s": [
+     40.91,
+     40.59,
+     40.827
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "boolean-thingi-112798-union": [
@@ -4334,6 +4672,19 @@
      32.925
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 41.782,
+    "ok": true,
+    "runs_s": [
+     41.767,
+     41.782,
+     41.978
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "boolean-thingi-113906-union": [
@@ -4496,6 +4847,19 @@
      0.125
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 0.118,
+    "ok": true,
+    "runs_s": [
+     0.118,
+     0.12,
+     0.116
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "boolean-thingi-117959-union": [
@@ -4658,6 +5022,19 @@
      29.113
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 36.304,
+    "ok": true,
+    "runs_s": [
+     36.304,
+     36.095,
+     36.349
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "boolean-thingi-1368057-union": [
@@ -4820,6 +5197,19 @@
      20.762
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 28.372,
+    "ok": true,
+    "runs_s": [
+     28.372,
+     28.122,
+     28.627
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "boolean-thingi-42327-union": [
@@ -4982,6 +5372,19 @@
      21.864
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 26.696,
+    "ok": true,
+    "runs_s": [
+     26.642,
+     26.696,
+     27.02
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "boolean-thingi-498458-union": [
@@ -5140,6 +5543,19 @@
      11.538
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 13.114,
+    "ok": true,
+    "runs_s": [
+     12.856,
+     13.114,
+     13.355
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "boolean-thingi-519511-union": [
@@ -5298,6 +5714,19 @@
      13.306
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 16.294,
+    "ok": true,
+    "runs_s": [
+     16.146,
+     16.294,
+     16.295
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "boolean-thingi-55928-difference": [
@@ -5436,6 +5865,17 @@
      311.393
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 456.21,
+    "ok": true,
+    "runs_s": [
+     456.21
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ],
   "boolean-thingi-55928-union": [
@@ -5574,6 +6014,19 @@
      333.659
     ],
     "sha": "a886891478c514fc5f7fd6abf96ef6e48fd98a07"
+   },
+   {
+    "date": "2026-11-26T09:34:46Z",
+    "flags": [
+     "regression"
+    ],
+    "machine": "AMD EPYC 7763 64-Core Processor",
+    "median_s": 485.401,
+    "ok": true,
+    "runs_s": [
+     485.401
+    ],
+    "sha": "14631f9e03838afaea4c977f4f5e6cbfdae12b3c"
    }
   ]
  },
