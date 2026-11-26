@@ -696,7 +696,9 @@ two old triangles.
      assumes a deviation of the order of the merge radius. A needle whose plane is ill-conditioned (altitude 2e-15 at 14 m: the rounding of
      its vertex heights tilts the plane by about 1) can have a flip deviation of 1.4e-11, seven times the share: the flip is refused
      (`FlipNeedles` counts the refusals) and the needle fails every margin. Only after the attempts end in `SlopeViolation` with such
-     a refusal, they run again with the flip share scaled by F = 2^10, 2^11, … up to 2^20 (`MaxFlipScaleLog2`), until the design passes.
+     a refusal in the last build (`FlipNeedles` also returns the largest refused bound B), they run again with the flip share scaled by F, the power of two
+     with F ≥ 2·B / FlipShare, within [2^10, 2^20] (`FlipScaleFor`, `MaxFlipScaleLog2`); at most two reruns (the second, with a larger F, only if a flip is
+     still refused), the plain run's diagnostics (`Message`, `ProblemTriangles`, …) are restored where no rerun passes.
      The budgets count the F − 1 further shares, X = (F − 1)·FlipShare (`FlipExtra`, rounded up; 0 at F = 1, so every other design is
      unchanged bit for bit):
      - the below share of the tolerance budget: mergeShare + X. The build requires facetShare = Tolerance − (λ bound + δ·sMax·1.1·D0
