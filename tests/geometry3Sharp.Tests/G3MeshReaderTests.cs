@@ -300,13 +300,11 @@ namespace geometry3Sharp.Tests
 #endif
         }
 
-        [Fact]
-        public void HighValenceVertex_ReadsInLinearTime()
+        // a fan of n triangles around one vertex (n - 1 triangles)
+        static DMesh3 Fan(int n)
         {
-            // a fan of 30000 triangles around one vertex: the duplicate-edge check must not be quadratic in the valence
             var mesh = new DMesh3();
             int center = mesh.AppendVertex(Vector3d.Zero);
-            int n = 30000;
             int first = mesh.AppendVertex(new Vector3d(1, 0, 0)), prev = first;
             for (int k = 1; k < n; ++k) {
                 double a = 2 * Math.PI * k / n;
@@ -314,14 +312,31 @@ namespace geometry3Sharp.Tests
                 mesh.AppendTriangle(center, prev, v);
                 prev = v;
             }
-            byte[] data = Store(mesh);
-            var timer = System.Diagnostics.Stopwatch.StartNew();
-            DMesh3Builder builder;
-            IOReadResult r = Read(data, out builder);
-            Assert.True(r.code == IOCode.Ok, r.message);
-            Assert.Equal(n - 1, builder.Meshes.Single().TriangleCount);
-            // (quadratic: several seconds; linear: tens of milliseconds)
-            Assert.True(timer.ElapsedMilliseconds < 2000, timer.ElapsedMilliseconds + " ms");
+            return mesh;
+        }
+
+        [Fact]
+        public void HighValenceVertex_ReadsInLinearTime()
+        {
+            // the duplicate-edge check must not be quadratic in the valence. No bound on the runner's speed (#1623: 3.5 s against 2 s on a loaded net48 runner, a
+            // linear read of 30000 triangles takes about 10 ms): the read of 4 times the valence takes at most 10 times as long as the read of the smaller fan
+            // (linear: 4, quadratic: 16), each the best of 5 reads taken alternately, with a floor of 5 ms for the smaller one
+            const int nSmall = 7500, nLarge = 30000;
+            byte[] small = Store(Fan(nSmall)), large = Store(Fan(nLarge));
+            double bestSmall = double.MaxValue, bestLarge = double.MaxValue;
+            for (int rep = 0; rep < 6; ++rep) {          // (the first round is the warm-up: JIT)
+                foreach (var (data, n) in new[] { (small, nSmall), (large, nLarge) }) {
+                    var timer = System.Diagnostics.Stopwatch.StartNew();
+                    DMesh3Builder builder;
+                    IOReadResult r = Read(data, out builder);
+                    double ms = timer.Elapsed.TotalMilliseconds;
+                    Assert.True(r.code == IOCode.Ok, r.message);
+                    Assert.Equal(n - 1, builder.Meshes.Single().TriangleCount);
+                    if (rep == 0) continue;
+                    if (n == nSmall) bestSmall = Math.Min(bestSmall, ms); else bestLarge = Math.Min(bestLarge, ms);
+                }
+            }
+            Assert.True(bestLarge < 10 * Math.Max(bestSmall, 5), nSmall + " triangles " + bestSmall + " ms, " + nLarge + " triangles " + bestLarge + " ms: not linear");
         }
 
         [Theory]
