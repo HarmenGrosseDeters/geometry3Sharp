@@ -13,8 +13,11 @@ namespace geometry3Sharp.Tests
     /// internal ReferenceHillClimb loop that computes every quality again), and the opt-in StallStopPasses ends a phase whose passes make no progress.
     /// Procedural inputs, stage 1 at alpha / 20 and a floor of 30 degrees (the tail of creeping passes is there), passes capped to keep a test short.
     /// </summary>
-    public class TetImproverScanAndStallTests
+    public class TetImproverScanAndStallTests : IClassFixture<TetImproverScanAndStallTests.Runs>
     {
+        readonly Runs runs;
+        public TetImproverScanAndStallTests(Runs runs) { this.runs = runs; }
+
         public static IEnumerable<object[]> Names() => new[] { "cylinder", "box" }.Select(n => new object[] { n });
 
         static DMesh3 Scaled(DMesh3 m, double s)
@@ -53,17 +56,32 @@ namespace geometry3Sharp.Tests
             return imp;
         }
 
-        // the runs the tests share (an improver run is the cost of a test; Result() is built once per run)
-        static readonly Dictionary<(string, double, int, bool), (TetMeshImprover imp, TetMesh3 result)> runs = new Dictionary<(string, double, int, bool), (TetMeshImprover, TetMesh3)>();
-        static (TetMeshImprover imp, TetMesh3 result) Shared(string name, double scale, int stall, bool reference)
+        /// <summary>
+        /// the improver runs that the tests share, computed once when the class fixture is built (its construction is in no test's duration, so a test is judged on its own
+        /// work whatever the order): (input, scale, StallStopPasses, ReferenceHillClimb) -> the improver and its result (Result() builds the mesh each call)
+        /// </summary>
+        public sealed class Runs
         {
-            lock (runs) {
-                if (!runs.TryGetValue((name, scale, stall, reference), out var hit)) {
-                    TetMeshImprover imp = Run(name, scale, i => { i.StallStopPasses = stall; i.ReferenceHillClimb = reference; });
-                    runs[(name, scale, stall, reference)] = hit = (imp, imp.Result());
+            readonly Dictionary<(string, double, int, bool), (TetMeshImprover imp, TetMesh3 result)> all = new Dictionary<(string, double, int, bool), (TetMeshImprover, TetMesh3)>();
+            public readonly MeshTetrahedralization Pipeline;        // StallStopPasses 2 through MeshTetrahedralization.Compute, once
+            public Runs()
+            {
+                foreach (string name in new[] { "cylinder", "box" }) {
+                    Add(name, 1, 0, true); Add(name, 1, 0, false); Add(name, 1, 2, false); Add(name, 1, 3, false);
                 }
-                return hit;
+                Add("cylinder", 1.0 / 1024, 2, false); Add("cylinder", 1024.0, 2, false);
+                Pipeline = new MeshTetrahedralization(TetMeshingStage2Tests.Input("cylinder")) {
+                    RelativeAlpha = 20, RelativeOffset = 600, SliverDihedralDegrees = 30, ImprovePasses = 20, RescuePasses = 10, StallStopPasses = 2 };
+                Pipeline.Compute();
+                PipelineFirst = Pipeline.Result;
             }
+            public TetMesh3 PipelineFirst;
+            void Add(string name, double scale, int stall, bool reference)
+            {
+                TetMeshImprover imp = Run(name, scale, i => { i.StallStopPasses = stall; i.ReferenceHillClimb = reference; });
+                all[(name, scale, stall, reference)] = (imp, imp.Result());
+            }
+            internal (TetMeshImprover imp, TetMesh3 result) Get(string name, double scale, int stall, bool reference) { return all[(name, scale, stall, reference)]; }
         }
 
         static void AssertSame(TetMesh3 a, TetMesh3 b)
@@ -77,8 +95,8 @@ namespace geometry3Sharp.Tests
         [MemberData(nameof(Names))]
         public void ScanCache_GivesTheReferenceLoopsOutputAndCounts_WithAFractionOfTheQualityEvaluations(string name)
         {
-            var (reference, refResult) = Shared(name, 1, 0, true);
-            var (cached, cachedResult) = Shared(name, 1, 0, false);
+            var (reference, refResult) = runs.Get(name, 1, 0, true);
+            var (cached, cachedResult) = runs.Get(name, 1, 0, false);
             AssertSame(refResult, cachedResult);
             Assert.Equal(reference.Counts.OrderBy(kv => kv.Key).ToList(), cached.Counts.OrderBy(kv => kv.Key).ToList());
             Assert.Null(TetMeshQuality.NotValidReason(cachedResult));
@@ -99,7 +117,7 @@ namespace geometry3Sharp.Tests
         [InlineData("box", 3, 26, 1)]
         public void StallStop_ExactPassAndStopCounts(string name, int n, int passes, int stops)
         {
-            var (imp, result) = Shared(name, 1, n, false);
+            var (imp, result) = runs.Get(name, 1, n, false);
             Assert.Equal(passes, imp.Counts["passes"]);
             Assert.Equal(stops, imp.Counts.TryGetValue("stall_stop", out long ss) ? ss : 0);
             Assert.Null(TetMeshQuality.NotValidReason(result));
@@ -149,8 +167,8 @@ namespace geometry3Sharp.Tests
         [InlineData("box")]
         public void StallStop_EndsThePhasesEarly_AndKeepsAValidMesh(string name)
         {
-            var (plain, _) = Shared(name, 1, 0, false);
-            var (stalled, result) = Shared(name, 1, 2, false);
+            var (plain, _) = runs.Get(name, 1, 0, false);
+            var (stalled, result) = runs.Get(name, 1, 2, false);
             Assert.True(stalled.Counts["passes"] < plain.Counts["passes"], name + ": " + stalled.Counts["passes"] + " vs " + plain.Counts["passes"]);
             Assert.Null(TetMeshQuality.NotValidReason(result));
         }
@@ -158,7 +176,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void StallStop_RepeatedRuns_GiveTheSameResult()
         {
-            AssertSame(Shared("cylinder", 1, 2, false).result, Run("cylinder", 1, i => i.StallStopPasses = 2).Result());      // a fresh run against the shared one
+            AssertSame(runs.Get("cylinder", 1, 2, false).result, Run("cylinder", 1, i => i.StallStopPasses = 2).Result());      // a fresh run against the shared one
         }
 
         [Theory]
@@ -166,8 +184,8 @@ namespace geometry3Sharp.Tests
         [InlineData(1024.0)]
         public void StallStop_SameResultUnderPow2Scales(double s)
         {
-            var (a, ra) = Shared("cylinder", 1, 2, false);
-            var (b, rb) = Shared("cylinder", s, 2, false);
+            var (a, ra) = runs.Get("cylinder", 1, 2, false);
+            var (b, rb) = runs.Get("cylinder", s, 2, false);
             Assert.Equal(ra.Tets, rb.Tets);
             Assert.Equal(a.Counts.OrderBy(kv => kv.Key).ToList(), b.Counts.OrderBy(kv => kv.Key).ToList());
             for (int v = 0; v < ra.Vertices.Count; ++v) Assert.Equal(ra.Vertices[v] * s, rb.Vertices[v]);
@@ -177,15 +195,13 @@ namespace geometry3Sharp.Tests
         public void MeshTetrahedralization_StallStopPasses_IsOffByDefault_PassedOn_AndReusable()
         {
             Assert.Equal(0, new MeshTetrahedralization(TetMeshingStage2Tests.Input("cylinder")).StallStopPasses);
-            var tm = new MeshTetrahedralization(TetMeshingStage2Tests.Input("cylinder")) {
-                RelativeAlpha = 20, RelativeOffset = 600, SliverDihedralDegrees = 30, ImprovePasses = 20, RescuePasses = 10, StallStopPasses = 2 };
-            tm.Compute(); Assert.NotNull(tm.Result);
+            MeshTetrahedralization tm = runs.Pipeline;      // computed once in the fixture, with StallStopPasses = 2
+            Assert.NotNull(runs.PipelineFirst);
             Assert.True(tm.Counts["improve_stall_stop"] >= 1);
             Assert.True(tm.Counts["improve_passes"] < 30, "the stop ended the phases before the caps (20 + 10 passes): " + tm.Counts["improve_passes"]);
-            Assert.Null(TetMeshQuality.NotValidReason(tm.Result));
-            TetMesh3 first = tm.Result;
+            Assert.Null(TetMeshQuality.NotValidReason(runs.PipelineFirst));
             tm.Compute(); Assert.NotNull(tm.Result);        // reuse: the same instance again
-            AssertSame(first, tm.Result);
+            AssertSame(runs.PipelineFirst, tm.Result);
         }
     }
 }
