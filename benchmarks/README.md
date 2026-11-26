@@ -131,6 +131,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [MultiscaleCholeskyProbe](MultiscaleCholeskyProbe/README.md) | Research spike: multiscale incomplete Cholesky, FSAI and approximate elimination as PCG preconditioners against the direct `SparseCholesky` |
 | [PddProbe](PddProbe/README.md) | Research probe: Pointwise Distance Distributions (kNN rows, AMD, column W1, exact EMD) against D2 and PCA baselines for near-duplicates, retrieval and lattice periods (verdict: stop) |
 | [CoreMathBenchmark](CoreMathBenchmark/README.md) | Cost of correctly rounded `g3.CoreMathPort.CoreMath` elementary functions |
+| [FastWindingAtan2Benchmark](FastWindingAtan2Benchmark/README.md) | End-to-end cost of the correctly rounded `CoreMath.Atan2` in `TriSolidAngle` (repair, solidify, winding-number boolean) |
 | [BoxContainBenchmark](BoxContainBenchmark/README.md) | Throughput micro-benchmark for `AxisAlignedBox3d.Contain` |
 | [GridIndexerBenchmark](GridIndexerBenchmark/README.md) | Throughput probe for `ShiftGridIndexer3.ToGrid` |
 | [LongHashAudit](LongHashAudit/README.md) | Hash collision and distribution audit for `long`-keyed tables outside booleans |

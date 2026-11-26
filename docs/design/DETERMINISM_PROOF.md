@@ -526,8 +526,12 @@ only the phase dictionaries; reviewed, no flow rule), `DMeshAABBTree3.FastWindin
   generator, `mix(ulong)` exists) changes the rays and so the output for open inputs once. Owner decision 2026-11-22: a follow-up PR switches open
   meshes to an own SplitMix64 generator, after measuring the golden-master and pinned-counter impact; this PR only registers the obligation.
 - **O-ATAN2, the floating-point winding number reaches the exact result of open meshes**: `FastWindingNumber` and `TriSolidAngle` end in
-  `Math.Atan2`; `front_generalized_winding` sums them and thresholds `ceil(w - 0.5)`. Tier 2 behaviour (F4 of the research note); only the
-  Antipodal path avoids it.
+  an atan2; `front_generalized_winding` sums them and thresholds `ceil(w - 0.5)`. Tier 2 behaviour (F4 of the research note); only the
+  Antipodal path avoids the sum, not the angle: its boundary-edge angles (`ExactWindingCache`) end in an atan2 too. #1577 (WebAssembly): the platform `Math.Atan2` differs in the last bit between runtimes (on glibc in 1087 of
+  400000 random solid-angle terms from the correctly rounded value), and moving the term by one ulp changes the mesh of 5 of 37 demo repair
+  cases of `MeshRobustRepair` (Solidify path), so the browser gave other meshes than native. Since #1577 every atan2 of the winding number (`TriSolidAngle`, the leaf kernel, and the seven of `ExactWindingCache`) is the correctly
+  rounded `CoreMath.Atan2`: the term is the same double on every runtime. What remains platform dependent is only what the sum does after it
+  (the order of a sum is fixed, so nothing), so the obligation is now the floating-point winding number's own tier-2 status, not libm.
 - **O-IDS, P5.** The premise "ids are used for equality and lookup only; every ordered use ends in a total order" is by reading, per site. The
   attack is `OrderAdversaryTests` and the harness `adversary` (the loops run backwards and in seeded permutations, which changes the order
   in which `new_id` hands out ids; `boolean.*`, `stage1.*` and `stage2.*` give identical traces). No hook permutes the ids themselves: `new_id`

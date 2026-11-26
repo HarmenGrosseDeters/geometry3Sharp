@@ -1200,13 +1200,14 @@ ROUNDED_ANGLE_BOUND = Decimal(2) / Decimal(10 ** 13)    # the 2e-13 the rounded 
 @entry('BT-6 the edge angle error against the distance from the edge', WIND,
        ['double den = da * db + dotYZ;', 'double dotYZ = ay * by + az * bz;', 'double s1 = Math.Abs(p1) + Math.Abs(p2);',
         'if (an + Math.Abs(den) < FastAngleRatio * (s1 + s2) || (den <= 1e-12 * s2 && (an <= 1e-12 * s1 || s1 < SubnormalS1))) {',
-        'const double FastAngleRatio = 0.03125;', 'const double SubnormalS1 = 9.3326361850321888e-302;', 'return Math.Atan2(num, den);'],
+        'const double FastAngleRatio = 0.03125;', 'const double SubnormalS1 = 9.3326361850321888e-302;', 'return g3.CoreMathPort.CoreMath.Atan2(num, den);'],
        'the rounded angle of finish_edge_angle differs from the exact one by at most (pi / 2)(4.01 u S1 + 22.1 u S2) / hypot(num, den) + 2 pi u + 2 ulp, '
        'and the rounded path is kept only where |num| + |den| >= 2^-5 (S1 + S2), so hypot >= 0.0220 (S1 + S2)',
        'the rounded path (normal products in S2; S2 >= 2^-602 on the fast path, S1 may be subnormal). Bounded by 1.8e-13 wherever it is kept: the evaluation near an open edge '
        '(1 + U.V -> 0, where hypot is small against S1 + S2) goes to the accurate path (exact integers, within 2e-15: not modelled, the note derives it). The sign of the rounded num is the exact one where '
        'it decides the branch cut (den <= 1e-12 S2): |num| > 1e-12 S1 with S1 >= 2^-1000, the absolute rounding of the products (2^-1074) being below 2^-74 S1; S1 < 2^-1000 goes to the accurate path. '
-       'NOT the A1 of the tree (BT-5: under the certificate the edge keeps the rounded path, margin 10 on the tested quantity)',
+       'NOT the A1 of the tree (BT-5: under the certificate the edge keeps the rounded path, margin 10 on the tested quantity). '
+       'Since #1627 the atan2 is the correctly rounded CoreMath.Atan2 (at most 0.5 ulp); the "+ 2 ulp" term was written for the platform atan2 and covers it with margin: no constant of the bound changed',
        '(pi / 2)(4.01 u S1 + 22.1 u S2) / hypot')
 def edge_angle_domain(c, r):
     # the decision of finish_edge_angle: rounded where |num| + |den| >= 2^-5 (S1 + S2); hypot >= (|num| + |den|) / sqrt 2
