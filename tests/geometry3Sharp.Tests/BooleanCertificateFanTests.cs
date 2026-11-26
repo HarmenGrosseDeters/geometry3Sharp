@@ -269,7 +269,7 @@ namespace geometry3Sharp.Tests
             int tried = 0;
             foreach (int k in Enumerable.Range(0, c.PieceCorners.Length).Where(i => c.CoplanarSources(c.PieceSource[i]).Length > 4).Where((_, i) => i % 40 == 0).Take(6)) {
                 ExactPoint3 p = c.PieceCorners[k][0];
-                c.PieceCorners[k][0] = ExactPoint3.Create(p.X + p.W * 3, p.Y + p.W, p.Z + p.W * 5, p.W);
+                c.PieceCorners[k][0] = ExactPoint3.Create(p.X * 2 + p.W * 3, p.Y * 3 + p.W, p.Z * 5 + p.W * 5, p.W);       // (far off the plane, the piece tilted)
                 tried++;
             }
             Assert.True(tried >= 4);
