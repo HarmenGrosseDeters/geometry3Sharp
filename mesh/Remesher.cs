@@ -47,8 +47,15 @@ namespace g3 {
         /// <summary>
         /// Reject collapses and flips that would flip a triangle normal (see EdgeFlipTolerance), and collapses and
         /// valence flips that turn a triangle more than 70 degrees away from the triangles around the edge (see
-        /// MinTriangleQuality, which includes both). The
-        /// smoothing and projection moves are not checked by this option. Default false
+        /// MinTriangleQuality, which includes both). Also refuses a collapse that leaves a flat triangle (quality below 1e-6: its
+        /// normal is rounding noise and passes a test of a triangle against itself), and a smoothing or projection move that turns an
+        /// incident triangle (not flat) inside out: in the buffered passes the moves are reverted per triangle in triangle order (so the
+        /// result does not depend on the thread timing), a projection takes the largest of the half, quarter and eighth of its step that
+        /// flips nothing, in place (EnableSmoothInPlace) a move is checked as it is made, and RemesherPro's tracked projection pass
+        /// is guarded alike (issue #1578: a box of 12 triangles refined to 1 % of its diagonal held 944 triangles facing against the
+        /// input after 11 passes, none now). Not guarded: the projection of a new vertex of a split, and the flips of a triangle that
+        /// is flat before. On curved coarse inputs (a sphere of 96 triangles, a cylinder) a few triangles can still face against the
+        /// input during the refinement (up to 25 of some thousand triangles in the sphere and cylinder cases measured). Default false
         /// </summary>
         public bool PreventNormalFlips = false;
 
@@ -731,7 +738,7 @@ namespace g3 {
 
                 // a collapse must not create a flat triangle (eg two vertices of a straight feature curve joined
                 // over a third one on it)
-                if (MinTriangleQuality > 0 && collapse_creates_flat(a, b, ref vNewPos, t0, t1))
+                if ((PreventNormalFlips || MinTriangleQuality > 0) && collapse_creates_flat(a, b, ref vNewPos, t0, t1))
                     goto abort_collapse;
 
                 // if new position would flip normal of one of the existing triangles
@@ -1638,7 +1645,7 @@ namespace g3 {
                     int self = tid;
                     // MinTriangleQuality: revert_flipping_moves checked all moves together; with some of them reverted
                     // the mix around a reverted vertex was not checked (a triangle with one move kept and one reverted)
-                    if (aMoved && MinTriangleQuality > 0 && flipped_against_before(tid, oldPos)) {
+                    if (aMoved && (PreventNormalFlips || MinTriangleQuality > 0) && flipped_against_before(tid, oldPos)) {
                         revert_moved_of(self);
                         continue;
                     }
@@ -1979,7 +1986,7 @@ namespace g3 {
 
         protected virtual void ApplyVertexBuffer(bool bParallel)
         {
-            if (MinTriangleQuality > 0)
+            if (PreventNormalFlips || MinTriangleQuality > 0)
                 revert_flipping_moves();
             if (PreventSelfIntersections) {
                 apply_moves_without_intersections(bParallel);
@@ -2048,7 +2055,7 @@ namespace g3 {
                     vSmoothed = target.Project(vSmoothed, vID);
             }
 
-            if (MinTriangleQuality > 0 && move_degrades(vID, vSmoothed)) {
+            if ((MinTriangleQuality > 0 && move_degrades(vID, vSmoothed)) || (PreventNormalFlips && move_degrades(vID, vSmoothed, true))) {
                 OnVertexMoveRejected(vID);
                 return Mesh.GetVertex(vID);
             }
@@ -2064,7 +2071,7 @@ namespace g3 {
         // We can do projection in parallel if we have .net 
         protected virtual void FullProjectionPass()
         {
-            if (MinTriangleQuality > 0 || PreventSelfIntersections) {
+            if (PreventNormalFlips || MinTriangleQuality > 0 || PreventSelfIntersections) {
                 // each move is checked against the positions before the pass: buffered, so the result does not
                 // depend on the order (or thread timing) in which the vertices are projected
                 InitializeVertexBufferForPass();
@@ -2075,7 +2082,7 @@ namespace g3 {
                         return;
                     Vector3d cur = mesh.GetVertex(vID);
                     Vector3d projected = target.Project(cur, vID);
-                    if (MinTriangleQuality > 0)
+                    if (PreventNormalFlips || MinTriangleQuality > 0)
                         projected = guarded_projection(vID, cur, projected);
                     if (projected == cur)
                         return;

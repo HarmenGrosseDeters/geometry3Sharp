@@ -575,7 +575,7 @@ namespace gs
                     bModified = false;
                 // MinTriangleQuality: no moves that flip an incident triangle (against the positions before the pass,
                 // which is buffered); a shorter step if the full one would
-                if (bModified && MinTriangleQuality > 0) {
+                if (bModified && (PreventNormalFlips || MinTriangleQuality > 0)) {
                     vProjected = guarded_projection(vID, vCur, vProjected);
                     bModified = vProjected != vCur;
                 }
