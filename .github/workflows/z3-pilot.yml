@@ -4,6 +4,11 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'tools/Z3Pilot/**'
+      - 'mesh_ops/PolyhedralEnvelope.cs'
+      - 'mesh_ops/ExactMeshGeodesicDistance.cs'
+      - 'math/ExactDoubleWord.cs'
+      - 'math/ExactIntervals.cs'
+      - 'math/AxisAlignedBox3d.cs'
       - 'comp_geom/SnapRounding2.cs'
       - 'mesh_generators/MarchingCubes.cs'
       - 'mesh_generators/MarchingCubesPro.cs'
@@ -65,6 +70,7 @@ jobs:
         env:
           Z3_PILOT_TIMEOUT_MS: '120000'
           Z3_PILOT_REPORT: z3-report.json
+          Z3_NUMERICAL_CERTIFICATE_REPORT: z3-numerical-certificates-report.json
           Z3_FILTER_RULES_REPORT: z3-filter-rules-report.json
           Z3_CONSERVATIVE_MC_REPORT: z3-conservative-mc-report.json
           Z3_DRIFT_APEX_REPORT: z3-drift-apex-report.json
@@ -85,6 +91,7 @@ jobs:
           name: z3-pilot
           path: |
             z3-report.json
+            z3-numerical-certificates-report.json
             z3-filter-rules-report.json
             z3-conservative-mc-report.json
             z3-drift-apex-report.json
