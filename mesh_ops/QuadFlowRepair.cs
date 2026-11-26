@@ -1180,7 +1180,7 @@ namespace gs
         {
             double m = Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
             if (!(m > 0) || double.IsInfinity(m)) return v;
-            int e = (int)Math.Floor(Math.Log(m, 2));
+            int e = MathUtil.FloorLog2(m);
             return new Vector3d(ExactPoint3.ScaleB(v.x, -e), ExactPoint3.ScaleB(v.y, -e), ExactPoint3.ScaleB(v.z, -e));
         }
 

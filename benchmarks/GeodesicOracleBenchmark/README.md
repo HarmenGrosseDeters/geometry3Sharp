@@ -36,6 +36,25 @@ and nearly flat ones and the same windows on the curved ones. Before, the dome w
 sources) ran 23-35 s into the window limit; after, 0.2-0.4 s.
 Single runs on a shared container: read the windows and the ratios, not the milliseconds.
 
+Results of 2026-11-26 (`DOTNET_TieredPGO=0`, Linux X64, .NET 10, medians of 3 runs), before (`master` `04391d3b`) and after
+#1654 (precomputed edge frames + Hansen–Walster interval monotonicity, 1D bisection, and Clarke Mean-Value Form in
+`Dominated`). Distances (`Lower`, `Upper`) are bit-identical to `master` while window counts drop by 4.5–12.1 % on curved
+and saddle meshes (unchanged on flat meshes):
+
+| mesh | vertices | before: seconds, windows, width | after: seconds, windows, width | speedup |
+|---|---:|---|---|---:|
+| plane 41 x 41, centre | 1681 | 0.66 s, 17655, 1.64e-12 | 0.66 s, 17655, 1.64e-12 | 1.00× |
+| terrain 41 x 41, centre | 1681 | 0.84 s, 18835, 5.90e-9 | 0.46 s, 17918, 5.90e-9 | 1.83× |
+| saddle 0.3 (x^2 - y^2) 41 x 41, centre | 1681 | 4.26 s, 63649, 9.50e-9 | 1.84 s, 55968, 9.50e-9 | 2.32× |
+| plane 101 x 101, centre | 10201 | 4.96 s, 260274, 3.86e-12 | 4.45 s, 260274, 3.86e-12 | 1.11× |
+| terrain 101 x 101, centre | 10201 | 5.54 s, 125155, 1.40e-8 | 2.98 s, 119464, 1.40e-8 | 1.86× |
+| saddle 0.3 (x^2 - y^2) 101 x 101, centre | 10201 | window limit (25.99 s) | window limit (10.59 s) | 2.45× |
+| aligned ridge 21 x 21 | 441 | 0.08 s, 3126, 1.42e-12 | 0.08 s, 3126, 1.42e-12 | 1.00× |
+| aligned ridge 31 x 31 | 961 | 0.28 s, 14193, 2.39e-12 | 0.28 s, 14193, 2.39e-12 | 1.00× |
+| aligned ridge 41 x 41 | 1681 | 0.61 s, 32110, 3.04e-12 | 0.58 s, 32110, 3.04e-12 | 1.05× |
+| aligned ridge, slope 4, 41 x 41 | 1681 | 0.65 s, 32069, 4.25e-12 | 0.66 s, 32069, 4.25e-12 | 0.98× |
+| aligned ridge, slope 4, 101 x 101 | 10201 | window limit (5.48 s) | window limit (5.23 s) | 1.05× |
+
 ## PolyhedralGeodesicDistance (mode `poly`)
 
 The public plain-double class of GEODESICS.md 6e (A.7): one `Compute` from the centre vertex (the ridges: the vertex 3 columns

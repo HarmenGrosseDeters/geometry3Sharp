@@ -15,6 +15,7 @@ taken over (Kirsanov's `geodesic`, geometry-central, CGAL were not read).
 | The practical form: windows on an edge cut against each other, a priority queue by window distance, which vertices a shortest path can pass through (boundary, saddle, parabolic) | V. Surazhsky, T. Surazhsky, D. Kirsanov, S. J. Gortler, H. Hoppe, *Fast exact and approximate geodesics on meshes*, ACM TOG 24(3), 553-560, 2005 (read 2026-11-13) |
 | Certified enclosure: outer and inner intervals, one-sided pruning certified over whole pieces, terminal windows, disks under rigid frame changes, subsumption, merging, re-emission with a margin | own (GEODESICS.md Appendix A, claims A1-A6, reviewed 2026-11-13) |
 | Interval arithmetic with one-spacing widening (division and square root added) | R. E. Moore, *Interval Analysis*, Prentice-Hall 1966; IEEE 754 correct rounding of +, -, *, / and sqrt |
+| Window domination pruning (`Dominated`): derivative monotonicity test with 1D bisection and Mean-Value Form on the distance difference | E. R. Hansen, G. W. Walster, *Global Optimization Using Interval Analysis*, 2nd ed., Marcel Dekker, 2004 (Ch. 2–3: Mean-Value Form and Monotonicity Test), evaluated in `ExactInterval` |
 | Corner angles by the correctly rounded atan2 | CORE-MATH (CoreMathSharp port), see "Correctly rounded sin, cos, tan, atan2, acos, exp, log" below |
 
 ## Polyhedral geodesic distance in plain doubles (`PolyhedralGeodesicDistance`, public, uncertified)

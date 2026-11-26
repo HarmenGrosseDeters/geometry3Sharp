@@ -703,7 +703,7 @@ namespace gs
             GapEdgesPerLevel.Add(HiddenGapEdges + HiddenWallEdges);
             int used = 0;
             while (contour != null && FixableEdges >= Math.Max(1, minEdges) && used < maxLevels) {
-                int need = MathUtil.ToIntSaturating(Math.Ceiling(Math.Log(2 * cellSize / MinFixableFound, 2)));
+                int need = MathUtil.CeilLog2Saturating(2 * cellSize / MinFixableFound);
                 int k = Math.Max(1, Math.Min(need, maxLevels - used));
                 double next = cellSize / Math.Pow(2, k);
                 if (WindingNumberOctree.RequiredDepth(WindingNumberOctree.Bounds(Meshes), next) > WindingNumberOctree.MaxSupportedDepth)
@@ -744,7 +744,7 @@ namespace gs
                 if (fixableList.Count >= Math.Max(1, minEdges) && used < maxLevels) {
                     // refine (further) around the fixable hidden edges, as far as the narrowest one needs
                     double cur = coarse / (1 << log2F);
-                    int need = MathUtil.ToIntSaturating(Math.Ceiling(Math.Log(2 * cur / MinFixableFound, 2)));
+                    int need = MathUtil.CeilLog2Saturating(2 * cur / MinFixableFound);
                     int k = Math.Max(1, Math.Min(need, maxLevels - used));
                     if (octree.MaxDepth + log2F + k > WindingNumberOctree.MaxSupportedDepth)
                         break;
