@@ -16,7 +16,7 @@ namespace geometry3Sharp.Tests
     {
         static readonly Dictionary<string, DMesh3> shapes = new Dictionary<string, DMesh3>();
 
-        internal static double TargetOf(string name) { return name == "sharp-box" ? 0.2 : name == "sharp-cylinder" ? 0.15 : 0.08; }
+        internal static double TargetOf(string name) { return name == "sharp-box" ? 0.2 : name == "sharp-cylinder" ? 0.15 : name == "l-profile" ? 0.12 : 0.08; }
 
         internal static DMesh3 Shape(string name, int passes)
         {
@@ -40,6 +40,13 @@ namespace geometry3Sharp.Tests
                 var g = new CappedCylinderGenerator { BaseRadius = 0.6f, TopRadius = 0.6f, Height = 1.6f, Slices = 40, NoSharedVertices = false };
                 g.Generate();
                 m = g.MakeDMesh();
+            } else if (name == "l-profile") {
+                var gen = new TriangulatedPolygonGenerator { Polygon = new GeneralPolygon2d(new Polygon2d(new[] { new Vector2d(0, 0), new Vector2d(1.2, 0), new Vector2d(1.2, 0.4), new Vector2d(0.4, 0.4), new Vector2d(0.4, 1.2), new Vector2d(0, 1.2) })), Subdivisions = 2 };
+                gen.Generate();
+                m = gen.MakeDMesh();
+                var ext = new MeshExtrudeMesh(m) { ExtrudedPositionF = (v, n, id) => v + new Vector3d(0, 0, 0.6), IsPositiveOffset = true };
+                ext.Extrude();
+                m = new DMesh3(m, true);
             } else {
                 int teeth = 8;
                 double r0 = 0.6, r1 = 0.85;
@@ -140,6 +147,34 @@ namespace geometry3Sharp.Tests
                 && !System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription.StartsWith(".NET Framework");
             if (pinnedPlatform) Assert.True(expected == h, name + "/" + passes + " hash " + h + "UL");
             else Assert.Equal(h, Hash(Run(Shape(name, passes), TargetOf(name)).Result));
+        }
+
+        // the default path (no PreserveCreases) had the same crossing edges: the torus of QuadRemesherDefaultOutputTests had a hole (a dropped face, 6 boundary vertices)
+        [Fact]
+        public void DefaultPath_Torus_IsClosed()
+        {
+            DMesh3 m = CrossFieldShapes.TorusMesh();
+            var cf = new CrossField(m);
+            Assert.Equal(CrossFieldStatus.Success, cf.Compute());
+            var qr = new QuadRemesher(m) { Field = cf, TargetEdgeLength = 0.2 };
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.Equal(0, qr.DroppedFaces);
+            PolyMeshMetrics pm = PolyMeshMetrics.Compute(qr.Result);
+            Assert.True(pm.IsManifold);
+            Assert.Equal(0, pm.BoundaryVertices);
+            Assert.Equal(0, pm.EulerCharacteristic);        // genus 1
+        }
+
+        [Fact]
+        public void DefaultPath_OpenPatchWithTheOldCollapseLength_HasNoExtraHole()
+        {
+            DMesh3 m = CrossFieldShapes.OpenPatch(50);
+            var cf = new CrossField(m);
+            Assert.Equal(CrossFieldStatus.Success, cf.Compute());
+            var qr = new QuadRemesher(m) { Field = cf, TargetEdgeLength = 0.03, CollapseLength = 0.4 };
+            Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            Assert.Equal(0, qr.DroppedFaces);               // an open mesh drops its outer loop only when it is traced as a face: here it is not
+            Assert.Equal(135, PolyMeshMetrics.Compute(qr.Result).BoundaryVertices);
         }
 
         [Fact]

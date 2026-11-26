@@ -191,6 +191,36 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // the default path (no PreserveCreases) over the 72 fixture configurations (4 shapes, 18 pass counts): the repair never makes a result worse
+        // (dropped faces, irregular vertices, quad fraction) and changes none that dropped no face; it runs about 30 s, so nightly
+        [Trait("Category", "Nightly")]
+        [Fact]
+        public void DefaultPath_RepairNeverMakesAResultWorse_AndLeavesTheOthersAlone()
+        {
+            var worse = new List<string>();
+            int changed = 0, closedNow = 0;
+            foreach (string name in new[] { "sharp-box", "sharp-cylinder", "gear", "l-profile" })
+                foreach (int passes in new[] { 10, 12, 14, 16, 18, 20, 22, 24, 26, 27, 28, 29, 30, 32, 35, 40, 50, 60 }) {
+                    double s = QuadRemesherClosedOutputTests.TargetOf(name);
+                    var before = new QuadRemesher(QuadRemesherClosedOutputTests.Shape(name, passes)) { TargetEdgeLength = s, SkipCrossingRepair = true };
+                    var after = new QuadRemesher(QuadRemesherClosedOutputTests.Shape(name, passes)) { TargetEdgeLength = s };
+                    Assert.Equal(QuadRemeshStatus.Success, before.Compute());
+                    Assert.Equal(QuadRemeshStatus.Success, after.Compute());
+                    PolyMeshMetrics mb = PolyMeshMetrics.Compute(before.Result), ma = PolyMeshMetrics.Compute(after.Result);
+                    string id = name + "/" + passes;
+                    bool same = before.Result.VertexCount == after.Result.VertexCount && before.Result.FaceIndices.SequenceEqual(after.Result.FaceIndices);
+                    if (before.DroppedFaces == 0 && !same) worse.Add(id + " changed without a dropped face");
+                    if (!same) changed++;
+                    if (after.DroppedFaces > before.DroppedFaces || ma.BoundaryVertices > mb.BoundaryVertices) worse.Add(id + " more dropped faces / boundary vertices");
+                    if (!ma.IsManifold) worse.Add(id + " not manifold");
+                    if (ma.IrregularVertices > mb.IrregularVertices) worse.Add(id + " irregular " + mb.IrregularVertices + " -> " + ma.IrregularVertices);
+                    if (ma.QuadFraction < mb.QuadFraction - 0.005) worse.Add(id + " quads " + mb.QuadFraction.ToString("F4") + " -> " + ma.QuadFraction.ToString("F4"));
+                    if (ma.BoundaryVertices == 0) closedNow++;
+                }
+            Assert.True(worse.Count == 0, string.Join("; ", worse));
+            Assert.Equal(12, changed);       // the measured number of configurations the repair changes
+        }
+
         [Fact]
         public void RemovingTwiceChangesNothing()
         {

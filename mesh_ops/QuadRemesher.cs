@@ -413,6 +413,7 @@ namespace gs
                 if (creases.Count > 0) return BuildWithCreaseRepair(g, creases, MaxFaceSides, out DroppedFaces, planarize: !SkipCrossingRepair);
             }
             DPolyMesh poly = BuildFaces(g, MaxFaceSides, out dropped);
+            if (dropped > 0 && !SkipCrossingRepair) poly = TryPlanarize(g, MaxFaceSides, poly, ref dropped);     // (g is pruned by BuildFaces: the same edges)
             DroppedFaces = dropped;
             return poly;
         }
@@ -453,19 +454,30 @@ namespace gs
             }
             // an input without a hole must not get one: edges that cross each other make the faces of the extraction fold (issue #1674)
             if (planarize && droppedFaces > 0) {
-                result = TryPlanarize(resultGraph, maxSides, result, ref droppedFaces);
-                // the graphs of the other results, if they are not the one tried (the splits changed g after the repaired result was built)
-                if (droppedFaces > 0 && repairedGraph != null && repairedGraph != resultGraph && repairedGraph != g) result = TryPlanarize(repairedGraph, maxSides, result, ref droppedFaces);
-                if (droppedFaces > 0 && plainGraph != resultGraph) result = TryPlanarize(plainGraph, maxSides, result, ref droppedFaces);
+                // the chosen graph first, then the graphs of the other results, if they are not the one tried (the splits changed g after the repaired result was built)
+                var graphs = new List<PolyGraph> { resultGraph };
+                if (repairedGraph != null && repairedGraph != resultGraph && repairedGraph != g) graphs.Add(repairedGraph);
+                if (plainGraph != resultGraph) graphs.Add(plainGraph);
+                result = TryPlanarize(graphs, maxSides, result, ref droppedFaces);
             }
             return result;
+        }
+
+        /// <summary> TryPlanarize of each graph in turn until no face is dropped (each improvement is the result the next is compared with) </summary>
+        internal static DPolyMesh TryPlanarize(IList<PolyGraph> graphs, int maxSides, DPolyMesh current, ref int dropped)
+        {
+            foreach (PolyGraph graph in graphs) {
+                if (dropped == 0) break;
+                current = TryPlanarize(graph, maxSides, current, ref dropped);
+            }
+            return current;
         }
 
         /// <summary>
         /// The faces of a copy of the graph without its crossing edges (RemoveCrossings), kept only if fewer faces are dropped than in the
         /// result so far (current, with dropped faces); else current.
         /// </summary>
-        static DPolyMesh TryPlanarize(PolyGraph graph, int maxSides, DPolyMesh current, ref int dropped)
+        internal static DPolyMesh TryPlanarize(PolyGraph graph, int maxSides, DPolyMesh current, ref int dropped)
         {
             PolyGraph c = CopyGraph(graph);
             if (RemoveCrossings(c) == 0) return current;
