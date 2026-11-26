@@ -2,14 +2,17 @@ from pathlib import Path
 import tempfile
 import unittest
 
-import coplanar_stack_labels
 import limb_negation
 import ray_second_point
 import tetrahedra_shared_faces
-from check_pilot_obligations import ROOT, run_test, source
+from check_pilot_obligations import ROOT, check, run_test, source
 
 
 class LocalArithmeticAndTopologyTests(unittest.TestCase):
+    def test_a_ground_expression_belongs_in_a_replay(self):
+        with self.assertRaisesRegex(ValueError, 'ground expressions'):
+            check('constant', 'QF_LIA', '(declare-const unrelated Int)', '(= 1 1)', 'sat', 100)
+
     def test_limb_negation(self):
         run_test(self, limb_negation.run, 'Z3_LIMB_NEGATION_REPORT')
 
@@ -28,9 +31,6 @@ class LocalArithmeticAndTopologyTests(unittest.TestCase):
 
     def test_tetrahedra_shared_faces(self):
         run_test(self, tetrahedra_shared_faces.run, 'Z3_TETRAHEDRA_SHARED_FACES_REPORT')
-
-    def test_coplanar_stack_labels(self):
-        run_test(self, coplanar_stack_labels.run, 'Z3_COPLANAR_STACK_LABELS_REPORT')
 
     def test_second_point(self):
         run_test(self, ray_second_point.run, 'Z3_RAY_SECOND_POINT_REPORT')

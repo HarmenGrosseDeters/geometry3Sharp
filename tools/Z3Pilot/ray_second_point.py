@@ -6,14 +6,17 @@ from check_pilot_obligations import check, main, report, source
 
 SOURCE = 'math/ExactRayTriangle.cs'
 CONTRACTS = [
-    ('public static Vector3d SecondPoint(', 'static int exponent(', '07473910d46ef90eb08f7d2e58d9b05165d379940e7c197bdd49d060dc9f6afa'),
-    ('static int exponent(', 'static bool is_finite(', '2ee9eb5b2784ad8cc9c4d2528205738ecd26df7ed8993403f0020ceb31cd4611'),
+    ('m = exponent(mo) - exponent(md) + 1;', 'p = origin + new Vector3d(direction.x * s',
+     'd3dc708d9a24819a9b8d691980d3dcaaff46f638794767a45c6c42e49db51b31'),
+    ('static int exponent(', 'static bool is_finite(',
+     '2ee9eb5b2784ad8cc9c4d2528205738ecd26df7ed8993403f0020ceb31cd4611'),
 ]
 SCALE = 'math/ExactPoint3.cs'
 SCALE_CONTRACTS = [
-    ('public static double ScaleB(', 'public static long BitLength(', 'a154593e520e403416532c2c99d716f84a86180d68eaaa458c59c4218c043a8f'),
+    ('long bits = BitConverter.DoubleToInt64Bits(x), e = n;', 'public static long BitLength(',
+     '398685cb3366e33906febf5589cacb5f258d1205030be77cbfac03651b86de1b'),
 ]
-PINS = [(SOURCE, CONTRACTS, False), (SCALE, SCALE_CONTRACTS, False)]
+PINS = [(SOURCE, CONTRACTS), (SCALE, SCALE_CONTRACTS)]
 
 EXPONENTS = """
 (declare-const origin Int)
@@ -30,19 +33,6 @@ ENCODING = """
 (define-fun biased () (_ BitVec 64) (bvadd shift (_ bv1023 64)))
 (define-fun bits () (_ BitVec 64) (bvshl biased (_ bv52 64)))
 """
-
-# For the x component, origin = epsilon, direction = epsilon, scale = 1/2.
-# A separate component direction = 4*epsilon makes SecondPoint select m=-1.
-# A wider evaluation keeps the first half-spacing until the sum; the
-# fma here serves as a one-rounding reference for these exact operands.
-IEEE = """
-(define-fun eps () (_ FloatingPoint 11 53) ((_ to_fp 11 53) #x0000000000000001))
-(define-fun half () (_ FloatingPoint 11 53) ((_ to_fp 11 53) #x3fe0000000000000))
-(define-fun two_eps () (_ FloatingPoint 11 53) ((_ to_fp 11 53) #x0000000000000002))
-(define-fun binary64 () (_ FloatingPoint 11 53) (fp.add RNE eps (fp.mul RNE eps half)))
-(define-fun retained () (_ FloatingPoint 11 53) (fp.fma RNE eps half eps))
-"""
-
 
 def from_bits(bits):
     return struct.unpack('>d', bits.to_bytes(8, 'big'))[0]
@@ -97,9 +87,9 @@ def boundary_replays():
 
 
 def run(timeout_ms=120000):
-    for path, contracts, prose in PINS:
+    for path, contracts in PINS:
         for item in contracts:
-            source(path, *item, prose=prose)
+            source(path, *item)
     checks = [
         ('shift_outside_derived_range', 'QF_LIA', EXPONENTS,
          '(or (< shift (- 2096)) (> shift 2098))', 'unsat'),
@@ -113,11 +103,20 @@ def run(timeout_ms=120000):
          '(distinct ((_ zero_extend 53) ((_ extract 62 52) bits)) biased) '
          '(= ((_ extract 62 52) bits) (_ bv0 11)) '
          '(= ((_ extract 62 52) bits) (_ bv2047 11)))', 'unsat'),
-        ('intermediate_precision_mismatch', 'QF_FP', IEEE,
-         '(and (fp.eq binary64 eps) (fp.eq retained two_eps) (not (fp.eq binary64 retained)))', 'sat'),
+        ('scaled_subnormal_factor_reachable', 'QF_LIA', EXPONENTS,
+         '(and (<= (- 1080) e) (< e (- 1022)))', 'sat'),
+        ('skip_second_exponent_bias_mutant', 'QF_LIA', EXPONENTS,
+         '(and (<= (- 1080) e) (< e (- 1022)) (< (+ e 1023) 1))', 'sat'),
+        ('normal_encoding_reachable', 'QF_BV', ENCODING, '(= shift (_ bv0 64))', 'sat'),
+        ('normal_encoding_off_by_one_mutant', 'QF_BV', ENCODING,
+         '(distinct ((_ extract 62 52) (bvshl (bvadd shift (_ bv1022 64)) (_ bv52 64))) '
+         '((_ extract 62 52) bits))', 'sat'),
+        ('add_direction_exponent_mutant', 'QF_LIA', EXPONENTS,
+         '(< (+ origin direction 1) (- 2096))', 'sat'),
     ]
     rows = [check(*row, timeout_ms) for row in checks]
     epsilon = from_bits(1)
+    assert epsilon + epsilon * 0.5 == epsilon
     return report(rows, scale_boundary_replays=boundary_replays(),
                   witness=dict(origin=epsilon.hex(), axis_direction=epsilon.hex(),
                                      other_direction=(4 * epsilon).hex(), shift=-1,

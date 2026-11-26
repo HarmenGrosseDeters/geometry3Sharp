@@ -11,27 +11,67 @@ import z3
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def source(path, start, end, digest, root=ROOT, prose=False):
-    text = (root / path).read_text(encoding='utf-8')
-    section = text[text.index(start):]
-    section = section[:section.index(end, len(start))]
-    if not prose:
-        section = re.sub(r'//[^\n]*', '', section)
-    actual = hashlib.sha256(re.sub(r'\s+', '', section).encode()).hexdigest()
-    if actual != digest:
+def normalize(text):
+    return re.sub(r'\s+|//[^\n]*', '', text)
+
+
+def source(path, start, end, digest, root=ROOT):
+    """Check the SHA-256 of a span, ignoring whitespace and line comments."""
+    text = (root / path).read_text(encoding='utf-8-sig')
+    # Normalize after selecting the span so a comment can be an end marker.
+    left = text.index(start)
+    right = text.index(end, left + len(start))
+    section = text[left:right]
+    if hashlib.sha256(normalize(section).encode()).hexdigest() != digest:
         raise ValueError(f'{path}: review the solver transcription at {start}')
     return section
 
 
-def check(name, logic, assertions, counterexample, expected, timeout_ms):
-    solver = z3.SolverFor(logic)
-    solver.set(timeout=timeout_ms)
-    solver.from_string(assertions + f'\n(assert {counterexample})')
+def source_contract(path, anchors, root=ROOT):
+    for anchor in anchors:
+        source(path, *anchor, root=root)
+
+
+def has_free_constant(goal):
+    # SMT-LIB define-fun expansions share ASTs. Visit each node once.
+    pending = [goal]
+    seen = set()
+    while pending:
+        term = pending.pop()
+        if term.get_id() in seen:
+            continue
+        seen.add(term.get_id())
+        if z3.is_const(term) and term.decl().kind() == z3.Z3_OP_UNINTERPRETED:
+            return True
+        pending.extend(term.children())
+    return False
+
+
+def check_expr(name, premises, goal, expected, timeout_ms, logic=None):
+    if not has_free_constant(goal):
+        raise ValueError(f'{name}: ground expressions belong in a replay')
+    solver = z3.SolverFor(logic) if logic else z3.Solver()
+    solver.set(timeout=timeout_ms, random_seed=0)
+    solver.add(*premises, goal)
     result = solver.check()
     row = dict(name=name, result=str(result), expected=expected)
-    if str(result) == 'unknown':
+    if result == z3.unknown:
         row['reason'] = solver.reason_unknown()
     return row
+
+
+def check(name, logic, assertions, goal, expected, timeout_ms):
+    parsed = list(z3.parse_smt2_string(f'{assertions}\n(assert {goal})'))
+    return check_expr(name, parsed[:-1], parsed[-1], expected, timeout_ms, logic)
+
+
+def collect(obligations, timeout_ms):
+    return report([check_expr(*item, timeout_ms) for item in obligations])
+
+
+def verify(logic, model, obligations, timeout_ms):
+    return report([check(name, logic, model, goal, expected, timeout_ms)
+                   for name, goal, expected in obligations])
 
 
 def report(rows, **details):
