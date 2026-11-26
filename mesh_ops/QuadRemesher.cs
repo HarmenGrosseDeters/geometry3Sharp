@@ -434,16 +434,113 @@ namespace gs
             creases.Snap(g);
             creases.RepairLinks(g);
             int droppedRepaired, droppedPlain;
+            PolyGraph repairedGraph = CopyGraph(g);          // (BuildFaces prunes the graph it gets, and the splits change it)
             DPolyMesh repaired = BuildFaces(g, maxSides, out droppedRepaired);
+            PolyGraph plainCopy = CopyGraph(plainGraph);
             DPolyMesh plain = BuildFaces(plainGraph, maxSides, out droppedPlain);
-            if (droppedRepaired > droppedPlain) { droppedFaces = droppedPlain; return plain; }
-            if (creases.SplitLongEdges(g, (int)(splitBudget * repaired.FaceCount))) {
-                int droppedRefined;
-                DPolyMesh refined = BuildFaces(g, maxSides, out droppedRefined);
-                if (droppedRefined <= droppedRepaired) { droppedFaces = droppedRefined; return refined; }
+            DPolyMesh result; PolyGraph resultGraph;
+            if (droppedRepaired > droppedPlain) { droppedFaces = droppedPlain; result = plain; resultGraph = plainCopy; }
+            else {
+                droppedFaces = droppedRepaired; result = repaired; resultGraph = repairedGraph;
+                if (creases.SplitLongEdges(g, (int)(splitBudget * repaired.FaceCount))) {
+                    PolyGraph refinedGraph = CopyGraph(g);
+                    int droppedRefined;
+                    DPolyMesh refined = BuildFaces(g, maxSides, out droppedRefined);
+                    if (droppedRefined <= droppedRepaired) { droppedFaces = droppedRefined; result = refined; resultGraph = refinedGraph; }
+                }
             }
-            droppedFaces = droppedRepaired;
-            return repaired;
+            // an input without a hole must not get one: edges that cross each other make the faces of the extraction fold (issue #1674)
+            if (droppedFaces > 0) {
+                result = TryPlanarize(resultGraph, maxSides, result, ref droppedFaces);
+                if (droppedFaces > 0) result = TryPlanarize(repairedGraph, maxSides, result, ref droppedFaces);
+                if (droppedFaces > 0) result = TryPlanarize(plainCopy, maxSides, result, ref droppedFaces);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// The faces of a copy of the graph without its crossing edges (RemoveCrossings), kept only if fewer faces are dropped than in the
+        /// result so far (current, with dropped faces); else current.
+        /// </summary>
+        static DPolyMesh TryPlanarize(PolyGraph graph, int maxSides, DPolyMesh current, ref int dropped)
+        {
+            PolyGraph c = CopyGraph(graph);
+            if (RemoveCrossings(c) == 0) return current;
+            int d;
+            DPolyMesh r = BuildFaces(c, maxSides, out d);
+            if (d >= dropped) return current;
+            dropped = d;
+            return r;
+        }
+
+        /// <summary>
+        /// Unlinks the longer edge of every pair of graph edges that cross each other (no common vertex, the segments cross properly in the plane of
+        /// the mean normal of their ends, and are no farther apart than a fifth of the shorter one): the lattice extraction can link two
+        /// vertices over a valence-3 vertex of another patch that lies on or next to the link, whose own third link then crosses it. The
+        /// faces are traced from the order of the neighbours around each vertex, which such a crossing breaks (a loop that visits vertices twice
+        /// is dropped and the surface opens). The edges of a pair are compared by length, then by their vertex numbers, and all are
+        /// removed at the end, so the result does not depend on the order of the search. Returns the number of edges removed.
+        /// </summary>
+        internal static int RemoveCrossings(PolyGraph g)
+        {
+            int nv = g.Pos.Count;
+            var ea = new List<int>(); var eb = new List<int>();
+            double sumLen = 0;
+            for (int i = 0; i < nv; ++i) foreach (int j in g.Adj[i]) if (i < j) { ea.Add(i); eb.Add(j); sumLen += (g.Pos[i] - g.Pos[j]).Length; }
+            int ne = ea.Count;
+            if (ne < 2 || !(sumLen > 0)) return 0;
+            double cell = 2 * sumLen / ne;
+            var cells = new Dictionary<long, List<int>>();
+            for (int e = 0; e < ne; ++e) {
+                Vector3d p = g.Pos[ea[e]], q = g.Pos[eb[e]];
+                long x0 = (long)Math.Floor(Math.Min(p.x, q.x) / cell), x1 = (long)Math.Floor(Math.Max(p.x, q.x) / cell);
+                long y0 = (long)Math.Floor(Math.Min(p.y, q.y) / cell), y1 = (long)Math.Floor(Math.Max(p.y, q.y) / cell);
+                long z0 = (long)Math.Floor(Math.Min(p.z, q.z) / cell), z1 = (long)Math.Floor(Math.Max(p.z, q.z) / cell);
+                if ((x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1) > 4096) continue;       // an edge that long is no lattice edge
+                for (long x = x0; x <= x1; ++x) for (long y = y0; y <= y1; ++y) for (long z = z0; z <= z1; ++z) {
+                    long key = (x & 0x1FFFFF) | ((y & 0x1FFFFF) << 21) | ((z & 0x1FFFFF) << 42);
+                    List<int> l; if (!cells.TryGetValue(key, out l)) { l = new List<int>(); cells[key] = l; }
+                    l.Add(e);
+                }
+            }
+            var remove = new HashSet<int>();
+            var tested = new HashSet<long>();
+            foreach (var kv in cells.OrderBy(k => k.Key)) {
+                List<int> l = kv.Value;
+                for (int i = 0; i < l.Count; ++i)
+                    for (int j = i + 1; j < l.Count; ++j) {
+                        int e = Math.Min(l[i], l[j]), f = Math.Max(l[i], l[j]);
+                        if (!tested.Add((long)e * ne + f)) continue;
+                        int a = ea[e], b = eb[e], c = ea[f], d = eb[f];
+                        if (a == c || a == d || b == c || b == d) continue;
+                        if (EdgesCross(g, a, b, c, d)) remove.Add(LongerEdge(g, ea, eb, e, f));
+                    }
+            }
+            foreach (int e in remove.OrderBy(x => x)) g.Unlink(ea[e], eb[e]);
+            return remove.Count;
+        }
+
+        static int LongerEdge(PolyGraph g, List<int> ea, List<int> eb, int e, int f)
+        {
+            double le = (g.Pos[ea[e]] - g.Pos[eb[e]]).LengthSquared, lf = (g.Pos[ea[f]] - g.Pos[eb[f]]).LengthSquared;
+            return le > lf ? e : lf > le ? f : Math.Min(e, f);
+        }
+
+        static bool EdgesCross(PolyGraph g, int a, int b, int c, int d)
+        {
+            Vector3d n = g.Nrm[a] + g.Nrm[b] + g.Nrm[c] + g.Nrm[d];
+            double nl = n.Length;
+            if (!(nl > 1.0)) return false;           // the normals of the ends do not agree (a sharp edge or two sheets): no plane to project on
+            n /= nl;
+            Vector3d pa = g.Pos[a], pb = g.Pos[b], pc = g.Pos[c], pd = g.Pos[d];
+            Vector3d ab = pb - pa, cd = pd - pc;
+            double o1 = n.Dot(ab.Cross(pc - pa)), o2 = n.Dot(ab.Cross(pd - pa)), o3 = n.Dot(cd.Cross(pa - pc)), o4 = n.Dot(cd.Cross(pb - pc));
+            if (!(o1 * o2 < 0 && o3 * o4 < 0)) return false;
+            // the point of the crossing on each, along the segment: their distance in the direction of the normal
+            double u = o1 / (o1 - o2);        // on (c, d)
+            Vector3d x = pa + (o3 / (o3 - o4)) * ab, y = pc + u * cd;
+            double near = 0.2 * Math.Min(ab.Length, cd.Length);
+            return (x - y).Length <= near;
         }
 
         static PolyGraph CopyGraph(PolyGraph g)
