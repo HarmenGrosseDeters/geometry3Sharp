@@ -150,6 +150,22 @@ namespace geometry3Sharp.Tests
             Assert.Equal(4, strict.TriangleCount);
         }
 
+        // a vertex of the strip that is a corner of a real triangle elsewhere: splitting the edge there would pinch the mesh at it (two
+        // boundary loops through one vertex): the zip refuses (the plain stitch splits, and leaves the bowtie)
+        [Fact]
+        public void AppendFaces_Zip_RefusesASplitThatPinchesTheMesh()
+        {
+            var mesh = new DMesh3(false, false, false, true);
+            int p = mesh.AppendVertex(new Vector3d(0, 0, 0)), q = mesh.AppendVertex(new Vector3d(10, 0, 0));
+            int x = mesh.AppendVertex(new Vector3d(5, -5, 0)), v = mesh.AppendVertex(new Vector3d(5, 0, 0));
+            int a = mesh.AppendVertex(new Vector3d(6, 2, 0)), b = mesh.AppendVertex(new Vector3d(4, 2, 0));
+            var tris = new List<Index3i> { new Index3i(q, p, x), new Index3i(q, v, p), new Index3i(v, a, b) };    // below the line; dropped (collinear); touches v from above
+            var stitched = new DMesh3(mesh);
+            Append(stitched, tris, true);                                                       // strict (stitch): v is pinched, no refusal
+            Assert.True(stitched.VtxEdgesItr(v).Count(stitched.IsBoundaryEdge) > 2);
+            Assert.Throws<SlopeMap.NonManifoldRealization>(() => Append(new DMesh3(mesh), tris, true, true));
+        }
+
         static Index2i ordered(int a, int b) { return a < b ? new Index2i(a, b) : new Index2i(b, a); }
 
         // 96 degrees: a real triangle above the edge a b over a sliver that was appended first, which runs along a -> b as well

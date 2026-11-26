@@ -95,6 +95,28 @@ namespace geometry3Sharp.Tests
                          MeshRobustRepair.FindDefects(d.SlopeSurface));
         }
 
+        // The surface of angles that succeed with the strict realization (the plain ones are refused, #1628) is pinned: counts and a hash of
+        // the topology (triangle ids, vertices, groups; no coordinates, so that it holds on every runtime). The zip realization of #1647
+        // runs only after strict throws, so these angles must keep the surface strict gives: a zip run in its place changes the triangles.
+        [Theory]
+        [InlineData(117, 452, 653, "54b45d240c450401")]
+        [InlineData(127, 450, 651, "5b2e07889356bd85")]
+        public void StrictAngles_KeepTheirSurface(int degrees, int vertexCount, int triangleCount, string topologyHash)
+        {
+            var d = Make(degrees);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            DMesh3 m = d.SlopeSurface;
+            ulong h = 14695981039346656037UL;
+            Func<ulong, int, ulong> fnv = (acc, v) => { unchecked { for (int i = 0; i < 4; ++i) { acc ^= (ulong)((v >> (8 * i)) & 0xFF); acc *= 1099511628211UL; } } return acc; };
+            foreach (int t in m.TriangleIndices()) {
+                Index3i tv = m.GetTriangle(t);
+                h = fnv(fnv(fnv(fnv(fnv(h, t), tv.a), tv.b), tv.c), m.GetTriangleGroup(t));
+            }
+            Assert.Equal(vertexCount, m.VertexCount);
+            Assert.Equal(triangleCount, m.TriangleCount);
+            Assert.Equal(topologyHash, h.ToString("x16"));
+        }
+
         // the 2^k frames give the result of the rotated design, scaled, bit for bit; every frame succeeds (the reference, 127 degrees, is
         // the one that failed in the identity frame before)
         [Theory]

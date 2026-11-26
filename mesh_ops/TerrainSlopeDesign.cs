@@ -1134,8 +1134,8 @@ namespace gs
                     sawTurnedOver = false; crackAfterStrict = false;
                     st = attempts_once(pieces, toePts, H, fill);
                     if (st != Statuses.SlopeViolation && st != Statuses.Failed) return st;
-                    if (realizationMode <= 1 && crackAfterStrict) { realizationMode = 2; AttemptProblemAltitudes = new List<List<double>>(); continue; }
-                    if (realizationMode == 0 && st == Statuses.SlopeViolation && sawTurnedOver) { realizationMode = 1; AttemptProblemAltitudes = new List<List<double>>(); continue; }
+                    if (realizationMode <= 1 && crackAfterStrict) { realizationMode = 2; AttemptProblemAltitudes = new List<List<double>>(); ProblemTriangles = new List<int>(); continue; }
+                    if (realizationMode == 0 && st == Statuses.SlopeViolation && sawTurnedOver) { realizationMode = 1; AttemptProblemAltitudes = new List<List<double>>(); ProblemTriangles = new List<int>(); continue; }
                     return st;
                 }
             } finally { realizationMode = 0; }

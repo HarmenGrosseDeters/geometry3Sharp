@@ -1594,6 +1594,10 @@ namespace gs
             foreach (int t in removed.OrderBy(i => i)) mesh.RemoveTriangle(t, false, false);
             // the splits, one at a time (a split changes the boundary: the candidates are collected again after each)
             while (split_boundary_edge(mesh, vertices, radius)) { }
+            // a split can join two boundary loops at the vertex it inserts (a vertex that is a corner of a triangle elsewhere, in the
+            // line of the edge: the mesh pinches there); a vertex of the strip with more than two boundary edges is such a bowtie
+            foreach (int v in vertices)
+                if (mesh.IsVertex(v) && mesh.VtxEdgesItr(v).Count(mesh.IsBoundaryEdge) > 2) throw new NonManifoldRealization();
         }
 
         // one split of zip_strips: a boundary edge with both ends in the strip's vertices (an outer toe or cap edge only where the strip
@@ -1601,8 +1605,9 @@ namespace gs
         // is split there
         static bool split_boundary_edge(DMesh3 mesh, HashSet<int> vertices, double radius)
         {
+            var sorted = vertices.OrderBy(i => i).ToList();
             var edges = new List<Index2i>();
-            foreach (int u in vertices.OrderBy(i => i))
+            foreach (int u in sorted)
                 foreach (int e in mesh.VtxEdgesItr(u).ToList()) {
                     if (mesh.IsBoundaryEdge(e) == false) continue;
                     Index2i ev = mesh.GetEdgeV(e);
@@ -1610,7 +1615,7 @@ namespace gs
                     if (u < w && vertices.Contains(w)) edges.Add(new Index2i(u, w));
                 }
             foreach (Index2i uw in edges)
-                foreach (int v in vertices.OrderBy(i => i)) {
+                foreach (int v in sorted) {
                     int p = uw.a, q = uw.b;
                     if (v == p || v == q) continue;
                     Vector2d pv = mesh.GetVertex(v).xy, pp = mesh.GetVertex(p).xy, pq = mesh.GetVertex(q).xy;
