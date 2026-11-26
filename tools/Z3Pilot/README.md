@@ -718,6 +718,40 @@ check. Not modelled: the candidates and their seeded order (any sequence termina
 note, 10.5). 28 queries and P2, under a second; result of 2026-11-15: `results/plateau_search_2026-11-15.json`.
 `test_plateau_search.py` also checks that no state but the end is stuck, and holds a source contract on the probe.
 
+## Mesh topology, winding decisions and batch ordering
+
+`topology_winding_morton.py` adds three source-coupled pilots.
+
+* **Successful DMesh3 edge flip.** In an already valid oriented two-triangle
+  neighborhood with no pre-existing replacement diagonal, verify the
+  ordered edge slots, reciprocal triangle owners, outside-face owners,
+  diagonal vertex lists, reference count changes and boundary orientation.
+  The outer edges can be boundary edges or have symbolic adjacent faces.
+  Swapping outer slots or omitting an owner update gives a counterexample.
+  Geometric flip suitability, rejected operations and capacity of the
+  underlying reference counters are outside this model.
+* **Sparse winding decisions.** Check the per-index first-touch and reset
+  invariants and the equality of sparse and dense positive contributions.
+  A five-operand instantiation checks the complete built-in union,
+  intersection and difference decisions. Duplicate and omitted touches
+  give counterexamples. For any operand count, a known-outside operand
+  rules out intersection, and a known-outside first operand rules out
+  difference. Outside subtractors and unknown custom predicates need the
+  source's respective guards. The geometry that establishes an outside
+  winding is a separate premise.
+* **Batch Morton keys and result slots.** Verify both spread masks and
+  the complete six-axis key against direct bit placement, with a
+  deliberately dropped bit as a witness. Separately verify clamping, the
+  ten-bit bucket range and the integer partition of every legal query
+  count into blocks. An already permuted order remains injective and the
+  callbacks write to the original index. A swapped two-element order
+  exposes writing to the loop index. Completeness assumes completed
+  execution and the permutation contract of `Array.Sort`.
+
+```sh
+python3 -m unittest discover -s tools/Z3Pilot -p test_topology_winding_morton.py -v
+```
+
 ## Mesher checks (pilot 3, `mesher_checks.py`, 2026-11-08)
 
 Z3 checks for the 2D mesher `QualityMesh2` (owner 2026-11-08): the error bound of the exact-corner filter `ShortestEdgeCorner` (#437) and
