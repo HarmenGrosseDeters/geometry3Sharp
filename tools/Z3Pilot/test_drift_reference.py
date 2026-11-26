@@ -194,8 +194,10 @@ class DriftReferenceTests(unittest.TestCase):
             ('MeshRoundingRepair.cs', 'return (v == movedV) ? movedPos : (v == movedV2) ? movedPos2 : Mesh.GetVertex(v);',
              'return (v == movedV) ? movedPos : Mesh.GetVertex(v);'),
             ('MeshRoundingRepair.cs', 'double ru = room_at(u), rw = room_at(w);', 'double ru = room_at(u), rw = 2 * room_at(w);'),
-            ('MeshRoundingRepair.cs', 'double su = ru / (1 << (SearchSizes - 1)), sw = rw / (1 << (SearchSizes - 1));',
-             'double su = ru / (1 << (SearchSizes - 1)), sw = rw / (1 << (SearchSizes - 2));'),
+            ('MeshRoundingRepair.cs', 'double su = ru / (1 << (SearchSizes - 1 - lu)), sw = rw / (1 << (SearchSizes - 1 - lw));',
+             'double su = ru / (1 << (SearchSizes - 1 - lu)), sw = rw / (1 << (SearchSizes - 2 - lw));'),
+            # the levels: a second vertex that moves by more than the room of the largest level, a level out of the range
+            ('MeshRoundingRepair.cs', 'int lw = sum - lu;', 'int lw = sum - lu + 1;'),
             ('MeshRoundingRepair.cs', 'if (try_move_pair(u, pu, w, pw)) {', 'if (sw < rw && try_move_pair(u, pu, w, pw)) {'),
             ('MeshRoundingRepair.cs', 'foreach (int t in Mesh.VtxTrianglesItr(w)) {\n                // (a triangle at both: once)',
              'foreach (int t in new int[0]) {\n                // (a triangle at both: once)'),

@@ -295,7 +295,7 @@ namespace geometry3Sharp.Tests
 
         // (surface, grid n, extra cells dn, thickness t, turn e, ratio of the second turn, shift of both inputs, which one is cut)
         static ExactMeshBoolean RunPlates(Func<double, double, double> h, int n, int dn, double t, double e, double ratio, double shift, bool coarseMinusFine,
-            Similarity s = null, bool joint = true, bool check = false, bool serial = false)
+            Similarity s = null, bool joint = true, bool check = false, bool serial = false, int skipRounds = 0)
         {
             Func<Vector3d, Vector3d> sh = p => p + new Vector3d(shift, shift * 0.5, -shift * 0.25);
             DMesh3 coarse = Plate(n, t, sh, h), fine = Plate(n + dn, t, p => sh(Rotated(p, e, ratio * e)), h);
@@ -306,12 +306,14 @@ namespace geometry3Sharp.Tests
             }
             var op = new ExactMeshBoolean(a, b, Difference);
             MeshRoundingRepair.NoJointSearchOnThisThread = joint == false;
+            MeshRoundingRepair.SkipJointRoundsOnThisThread = skipRounds;
             MeshRoundingRepair.CheckOnThisThread = check;
             gParallel.SerialOnThisThread = serial;
             try {
                 op.Compute();
             } finally {
                 MeshRoundingRepair.NoJointSearchOnThisThread = false;
+                MeshRoundingRepair.SkipJointRoundsOnThisThread = 0;
                 MeshRoundingRepair.CheckOnThisThread = false;
                 gParallel.SerialOnThisThread = false;
             }
@@ -326,11 +328,13 @@ namespace geometry3Sharp.Tests
             // (name, n, dn, t, e, ratio, shift, coarse minus fine, frame, joint moves, degenerate triangles left)
             yield return new object[] { "bowl", 3, 3, 0.2, 7.1566755079057365E-09, 0.3, 0.0, false, "", 3, 0 };
             yield return new object[] { "dome", 3, 3, 0.02, 8.039487869620447E-09, 0.3, 0.0, false, "", 2, 0 };
-            yield return new object[] { "dome", 3, 3, 0.02, 1.4941511698034265E-08, 0.3, 100.0, false, "", 2, 1 };
+            // (with the extension the third triangle is repaired by a fixed corner: 3 moves, none left; FixedCorner_... pins that)
+            yield return new object[] { "dome", 3, 3, 0.02, 1.4941511698034265E-08, 0.3, 100.0, false, "", 3, 0 };
             yield return new object[] { "dome", 3, 3, 0.02, 8.039487869620447E-09, 0.3, 0.0, false, "utm", -1, -1 };
         }
 
-        static Func<double, double, double> Surface(string name) { return name == "bowl" ? (Func<double, double, double>)Bowl : Dome; }
+        static Func<double, double, double> Surface(string name) { return name == "bowl" ? (Func<double, double, double>)Bowl : name == "wave" ? Wave : Dome; }
+
 
         [Theory]
         [MemberData(nameof(SeveralJointMoves))]
@@ -351,15 +355,17 @@ namespace geometry3Sharp.Tests
 
         // ---- the cost of the stage: its own budget, and the repair's effort limit is not reached by it ----
 
-        static ExactMeshBoolean RunCluster(int k, bool joint, long pairTests = 5000000)
+        static ExactMeshBoolean RunCluster(int k, bool joint, long pairTests = 5000000, int skipRounds = 0)
         {
             DMesh3 m = DegenerateFamilies.Make(DegenerateFamilies.Family.Cluster, k, 1, 8);
             var op = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) { RoundingMaxPairTests = pairTests };
             MeshRoundingRepair.NoJointSearchOnThisThread = joint == false;
+            MeshRoundingRepair.SkipJointRoundsOnThisThread = skipRounds;
             try {
                 op.Compute();
             } finally {
                 MeshRoundingRepair.NoJointSearchOnThisThread = false;
+                MeshRoundingRepair.SkipJointRoundsOnThisThread = 0;
             }
             return op;
         }
@@ -369,12 +375,20 @@ namespace geometry3Sharp.Tests
         {
             // (cluster k30, 8 poked triangles, seed 1: 2 degenerate triangles that no pair repairs; without a budget 5 pairs of 5 408 proposals
             // reached improves, 27 040 evaluations; the budget is 1 024 evaluations per triangle the stage starts with)
-            ExactMeshBoolean off = RunCluster(30, false), on = RunCluster(30, true);
-            MeshRoundingRepair r = on.Rounding;
+            ExactMeshBoolean off = RunCluster(30, false), first = RunCluster(30, true, skipRounds: SkipExtension), on = RunCluster(30, true);
+            MeshRoundingRepair r = first.Rounding;
             Assert.Equal(2, r.RemainingDegenerate);
             Assert.Equal(off.Rounding.RemainingDegenerate, r.RemainingDegenerate);
             Assert.Equal(0, r.JointMoves);
             Assert.Equal(2 * 1024, r.JointSearchProposals);
+            Assert.False(r.EvaluationLimitReached);
+            Assert.Equal("", Invariance.Difference(off.Result, first.Result));
+            // with the extension: the rounds of the pairs with a fixed corner and of two levels have a budget of their own (4 096 evaluations
+            // per triangle the stage starts with, after the 1 024 of the first rounds), which these triangles use up; no move either
+            r = on.Rounding;
+            Assert.Equal(2, r.RemainingDegenerate);
+            Assert.Equal(0, r.JointMoves);
+            Assert.Equal(2 * (1024 + 4096), r.JointSearchProposals);
             Assert.False(r.EvaluationLimitReached);
             Assert.Equal("", Invariance.Difference(off.Result, on.Result));
         }
@@ -390,7 +404,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal(off.Rounding.RemainingDegenerate, on.Rounding.RemainingDegenerate);
             Assert.Equal(off.Rounding.RemainingIntersections, on.Rounding.RemainingIntersections);
             Assert.Equal(0, on.Rounding.JointMoves);
-            Assert.InRange(on.Rounding.JointSearchProposals, 1, 14 * 1024);
+            Assert.InRange(on.Rounding.JointSearchProposals, 1, 14 * (1024 + 4096));
+            Assert.InRange(RunCluster(36, true, skipRounds: SkipExtension).Rounding.JointSearchProposals, 1, 14 * 1024);
         }
 
         [Fact]
@@ -427,7 +442,7 @@ namespace geometry3Sharp.Tests
             // fails in the first round and stays failed in the next ones, where the moves changed no star of its vertices: the proposals are
             // those of the moves and of one search of the failing pair (a stage that cleared the failed pairs every round proposed them
             // again, once per round: more than 2 149)
-            ExactMeshBoolean op = RunPlates(Dome, 3, 3, 0.02, 1.4941511698034265E-08, 0.3, 100.0, false);
+            ExactMeshBoolean op = RunPlates(Dome, 3, 3, 0.02, 1.4941511698034265E-08, 0.3, 100.0, false, skipRounds: SkipExtension);
             MeshRoundingRepair r = op.Rounding;
             Assert.Equal(2, r.JointMoves);
             Assert.Equal(1, r.RemainingDegenerate);
@@ -656,6 +671,292 @@ namespace geometry3Sharp.Tests
             }, 0.05);
             Assert.Equal(new[] { false, false, false, false }, r.ScriptAccepted);
             Assert.Equal("", Invariance.Difference(start, m));
+        }
+
+        // ---- the extension of the stage (#1465): pairs with a corner that FixedVertexF marks, free pairs with two levels ----
+        // The states are inputs of the search (benchmarks/BooleanInputOrder search --count 1500 --seed 2, --count 4000 --seed 3 --tiny) that the stage
+        // of free pairs leaves with degenerate triangles, each with a corner of an input vertex (FixedVertexF, a preference in the boolean). Skipping
+        // the rounds 1 and 2 (6) is the stage of before.
+
+        const int SkipExtension = 6, SkipFixedPairs = 2, SkipFreeLevels = 4;
+
+        // (name, n, dn, t, e, ratio, shift, coarse minus fine, degenerate triangles left without the extension, joint moves with it in all, of them with a fixed corner)
+        public static IEnumerable<object[]> FixedCornerStates()
+        {
+            // s3_16: two triangles at one fixed corner, one pair removes both
+            yield return new object[] { "wave", 2, 2, 0.02, 1.4895744956295086E-09, -1.1, 0.0, false, 2, 1, 1 };
+            // s3_?: one triangle, the fixed corner moves with a free one
+            yield return new object[] { "wave", 3, 3, 0.002, 1.1612562144082896E-09, -1.1, 0.0, false, 1, 1, 1 };
+            // s3_17
+            yield return new object[] { "wave", 2, 2, 0.02, 5.758742836765129E-07, 0.3, 100.0, false, 2, 1, 1 };
+            // s3_18: three triangles, two moves of fixed corners (the oracle needed three vertices for the three at once)
+            yield return new object[] { "wave", 2, 2, 0.002, 2.4351079875960173E-09, 0.3, 10000.0, true, 3, 2, 2 };
+            // search case 152 of seed 2: two free pairs of the first round, then a fixed corner for the third triangle
+            yield return new object[] { "dome", 3, 3, 0.02, 1.4941511698034265E-08, 0.3, 100.0, false, 1, 3, 1 };
+        }
+
+        static ExactMeshBoolean StrictBoolean(string name, int n, int dn, double t, double e, double ratio, double shift, bool diff, Similarity s)
+        {
+            Func<Vector3d, Vector3d> sh = p => p + new Vector3d(shift, shift * 0.5, -shift * 0.25);
+            Func<double, double, double> h = Surface(name);
+            DMesh3 coarse = Plate(n, t, sh, h), fine = Plate(n + dn, t, p => sh(Rotated(p, e, ratio * e)), h);
+            DMesh3 a = diff ? coarse : fine, b = diff ? fine : coarse;
+            if (s != null) {
+                a = Invariance.Transformed(a, s);
+                b = Invariance.Transformed(b, s);
+            }
+            return new ExactMeshBoolean(a, b, Difference) { StrictRounding = true };
+        }
+
+        static ExactMeshBoolean RunPlatesStrict(string name, int n, int dn, double t, double e, double ratio, double shift, bool diff, int skipRounds, Similarity s = null, bool serial = false)
+        {
+            ExactMeshBoolean op = StrictBoolean(name, n, dn, t, e, ratio, shift, diff, s);
+            MeshRoundingRepair.SkipJointRoundsOnThisThread = skipRounds;
+            gParallel.SerialOnThisThread = serial;
+            try {
+                op.Compute();
+            } finally {
+                MeshRoundingRepair.SkipJointRoundsOnThisThread = 0;
+                gParallel.SerialOnThisThread = false;
+            }
+            return op;
+        }
+
+        [Theory]
+        [MemberData(nameof(FixedCornerStates))]
+        public void FixedCorner_StateLeftByTheFreePairs_IsCleanWithThePairsWithAFixedCorner(string name, int n, int dn, double t, double e, double ratio, double shift, bool diff, int left, int moves, int withFixed)
+        {
+            // without the extension (the stage of before): degenerate triangles left, the status of a strict run is RoundingNotClean
+            ExactMeshBoolean old = RunPlatesStrict(name, n, dn, t, e, ratio, shift, diff, SkipExtension);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, old.Status);
+            Assert.Equal(left, old.Rounding.RemainingDegenerate);
+            Assert.Equal(0, old.Rounding.JointMovesWithFixedCorner);
+            // with it: clean, within the bound, closed and manifold; the moves of fixed corners are counted
+            ExactMeshBoolean op = RunPlatesStrict(name, n, dn, t, e, ratio, shift, diff, 0);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, op.Status);
+            MeshRoundingRepair r = op.Rounding;
+            Assert.True(r.IsClean);
+            Assert.Equal(0, r.RemainingDegenerate);
+            Assert.Equal(0, r.RemainingIntersections);
+            Assert.Equal(moves, r.JointMoves);
+            Assert.Equal(withFixed, r.JointMovesWithFixedCorner);
+            Assert.True(r.MaxDrift <= r.MaxLength, $"{r.MaxDrift:R} {r.MaxLength:R}");
+            DMesh3 m = op.Result;
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(m, false));
+            Assert.True(m.IsClosed());
+            Assert.True(m.CheckValidity(eFailMode: FailMode.ReturnOnly));
+            Assert.True(Invariance.AllFinite(m));
+            // the same mesh as without the extension but for the corners of the moves: the same triangles, and a fixed corner is among the moved vertices
+            ExactMeshBoolean lenient = RunPlates(Surface(name), n, dn, t, e, ratio, shift, diff, skipRounds: SkipExtension);
+            DMesh3 y = lenient.Result;
+            Assert.Equal(y.TriangleCount, m.TriangleCount);
+            Func<int, bool> isFixed = lenient.Rounding.FixedVertexF;
+            List<int> moved = y.VertexIndices().Where(v => y.GetVertex(v) != m.GetVertex(v)).ToList();
+            Assert.True(moved.Count >= 2);
+            Assert.Equal(withFixed > 0, moved.Any(v => isFixed(v)));
+            foreach (int v in moved)
+                Assert.True(y.GetVertex(v).Distance(m.GetVertex(v)) <= r.MaxLength);
+        }
+
+        [Fact]
+        public void FixedCorner_Reproducer_FreePairsFirst_BitIdenticalWhereTheFreePairsSucceed()
+        {
+            // the reproducer of #1465 (a free pair moves, the triangle's third corner is fixed): the extension never runs, the rounds
+            // of the free pairs make the same move as without it (a stage that tried the fixed corner first moved another pair)
+            ExactMeshBoolean with = Run(joint: true), without = RunWithoutExtension();
+            Assert.Equal(1, with.Rounding.JointMoves);
+            Assert.Equal(0, with.Rounding.JointMovesWithFixedCorner);
+            Assert.Equal(without.Rounding.JointSearchProposals, with.Rounding.JointSearchProposals);
+            Assert.Equal(without.Rounding.MaxDrift, with.Rounding.MaxDrift);
+            Assert.Equal("", Invariance.Difference(without.Result, with.Result));
+        }
+
+        static ExactMeshBoolean RunWithoutExtension()
+        {
+            MeshRoundingRepair.SkipJointRoundsOnThisThread = SkipExtension;
+            try {
+                return Run(joint: true);
+            } finally {
+                MeshRoundingRepair.SkipJointRoundsOnThisThread = 0;
+            }
+        }
+
+        // (name, n, dn, t, e, ratio, shift, coarse minus fine, joint moves, degenerate left): states that the free pairs repair (or leave) as they are
+        public static IEnumerable<object[]> FreePairStates()
+        {
+            yield return new object[] { "bowl", 3, 3, 0.2, 7.1566755079057365E-09, 0.3, 0.0, false, 3, 0 };
+            yield return new object[] { "dome", 3, 3, 0.02, 8.039487869620447E-09, 0.3, 0.0, false, 2, 0 };
+        }
+
+        [Theory]
+        [MemberData(nameof(FreePairStates))]
+        public void FixedCorner_FreePairsRepairEverything_SameResultAsWithoutTheExtension(string name, int n, int dn, double t, double e, double ratio, double shift, bool diff, int moves, int left)
+        {
+            ExactMeshBoolean with = RunPlates(Surface(name), n, dn, t, e, ratio, shift, diff), without = RunPlates(Surface(name), n, dn, t, e, ratio, shift, diff, skipRounds: SkipExtension);
+            Assert.Equal(moves, with.Rounding.JointMoves);
+            Assert.Equal(left, with.Rounding.RemainingDegenerate);
+            Assert.Equal(0, with.Rounding.JointMovesWithFixedCorner);
+            Assert.Equal(without.Rounding.JointSearchProposals, with.Rounding.JointSearchProposals);
+            Assert.Equal(without.Rounding.MaxDrift, with.Rounding.MaxDrift);
+            Assert.Equal("", Invariance.Difference(without.Result, with.Result));
+        }
+
+        [Fact]
+        public void FixedCorner_JointExtensionOff_ByTheProperty_TheStageOfBefore()
+        {
+            // the state the repair leaves without the stage, as a mesh for a repair of its own with the fixed corners of the boolean
+            DMesh3 left = StateWithoutTheStage(out Func<int, bool> isFixed, 3, 0.002, 1.1612562144082896E-09, -1.1, 0.0, false);
+            var on = Repair(new DMesh3(left), isFixed, hard: false, extension: true);
+            on.Apply();
+            Assert.True(on.IsClean);
+            Assert.Equal(1, on.JointMovesWithFixedCorner);
+            var off = Repair(new DMesh3(left), isFixed, hard: false, extension: false);
+            off.Apply();
+            Assert.False(off.IsClean);
+            Assert.Equal(1, off.RemainingDegenerate);
+            Assert.Equal(0, off.JointMoves);
+        }
+
+        static DMesh3 StateWithoutTheStage(out Func<int, bool> isFixed, int n, double t, double e, double ratio, double shift, bool diff)
+        {
+            ExactMeshBoolean op = RunPlates(Wave, n, n, t, e, ratio, shift, diff, joint: false);
+            isFixed = op.Rounding.FixedVertexF;
+            return new DMesh3(op.Result);
+        }
+
+        static MeshRoundingRepair Repair(DMesh3 m, Func<int, bool> isFixed, bool hard, bool extension)
+        {
+            return new MeshRoundingRepair(m) {
+                SharedPositionsTouch = true, FixedVertexF = isFixed, FixedWhereCoarse = false, ExactVertexF = isFixed, UlpFactor = 0, FixedHard = hard, JointExtension = extension
+            };
+        }
+
+        [Fact]
+        public void FixedCorner_HardFixed_NeverMoved_TheDefectIsLeft()
+        {
+            DMesh3 left = StateWithoutTheStage(out Func<int, bool> isFixed, 3, 0.002, 1.1612562144082896E-09, -1.1, 0.0, false);
+            // (soft: the extension moves a fixed corner and repairs the triangle)
+            DMesh3 soft = new DMesh3(left);
+            var s = Repair(soft, isFixed, hard: false, extension: true);
+            s.Apply();
+            Assert.True(s.IsClean);
+            Assert.Equal(1, s.JointMovesWithFixedCorner);
+            Assert.Contains(left.VertexIndices(), v => isFixed(v) && left.GetVertex(v) != soft.GetVertex(v));
+            // (hard: every fixed vertex keeps its position bit for bit, the triangle stays degenerate, as without the extension)
+            DMesh3 hardM = new DMesh3(left);
+            var h = Repair(hardM, isFixed, hard: true, extension: true);
+            h.Apply();
+            Assert.False(h.IsClean);
+            Assert.Equal(1, h.RemainingDegenerate);
+            Assert.Equal(0, h.JointMovesWithFixedCorner);
+            foreach (int v in left.VertexIndices().Where(isFixed))
+                Assert.Equal(left.GetVertex(v), hardM.GetVertex(v));
+            DMesh3 base0 = new DMesh3(left);
+            var b = Repair(base0, isFixed, hard: true, extension: false);
+            b.Apply();
+            Assert.Equal("", Invariance.Difference(base0, hardM));
+            // (no pair with a hard-fixed corner is proposed either: the proposals are those of the free pairs)
+            Assert.Equal(b.JointSearchProposals, h.JointSearchProposals);
+        }
+
+        [Fact]
+        public void FixedCorner_TwoLevels_FreePairWithDifferentSizes_RepairsATriangleTheSameLevelsDoNot()
+        {
+            // s3_18 without the round of the fixed corners: the free pair (128, 130) of the third triangle moves by 1 and 1/8 of the rooms of
+            // its corners (the oracle's witness; one level for both has no move). The two other triangles stay
+            ExactMeshBoolean before = RunPlates(Wave, 2, 2, 0.002, 2.4351079875960173E-09, 0.3, 10000.0, true, skipRounds: SkipExtension);
+            ExactMeshBoolean op = RunPlates(Wave, 2, 2, 0.002, 2.4351079875960173E-09, 0.3, 10000.0, true, skipRounds: SkipFixedPairs);
+            Assert.Equal(3, before.Rounding.RemainingDegenerate);
+            Assert.Equal(0, before.Rounding.JointMoves);
+            Assert.Equal(2, op.Rounding.RemainingDegenerate);
+            Assert.Equal(1, op.Rounding.JointMoves);
+            Assert.Equal(0, op.Rounding.JointMovesWithFixedCorner);
+            DMesh3 x = before.Result, y = op.Result;
+            List<int> moved = x.VertexIndices().Where(v => x.GetVertex(v) != y.GetVertex(v)).ToList();
+            Assert.Equal(2, moved.Count);
+            double[] steps = moved.Select(v => x.GetVertex(v).Distance(y.GetVertex(v)) / before.Rounding.room_at(v)).ToArray();
+            // (the room over 2^j: two exact powers of two that differ, by at most 2^3)
+            foreach (double step in steps)
+                Assert.Equal(Math.Round(Math.Log(step, 2)), Math.Log(step, 2), 4);
+            double ratioOfSteps = Math.Abs(Math.Log(steps[0] / steps[1], 2));
+            Assert.InRange(Math.Round(ratioOfSteps), 1, 3);
+            Assert.Equal(Math.Round(ratioOfSteps), ratioOfSteps, 4);
+            Assert.True(op.Rounding.MaxDrift <= op.Rounding.MaxLength);
+        }
+
+        [Fact]
+        public void FixedCorner_ReusedInstance_CountersAreThoseOfTheLastApply()
+        {
+            DMesh3 left = StateWithoutTheStage(out Func<int, bool> isFixed, 3, 0.002, 1.1612562144082896E-09, -1.1, 0.0, false);
+            var r = Repair(new DMesh3(left), isFixed, hard: false, extension: true);
+            r.Apply();
+            Assert.Equal(1, r.JointMoves);
+            Assert.Equal(1, r.JointMovesWithFixedCorner);
+            // (the mesh is clean now: a second Apply makes no move and resets the counters)
+            r.Apply();
+            Assert.Equal(0, r.JointMoves);
+            Assert.Equal(0, r.JointMovesWithFixedCorner);
+            Assert.True(r.IsClean);
+            // (a fresh instance on the same mesh as the first one had gives the same counts as the first)
+            var again = Repair(new DMesh3(left), isFixed, hard: false, extension: true);
+            again.Apply();
+            Assert.Equal(1, again.JointMovesWithFixedCorner);
+        }
+
+        [Fact]
+        public void FixedCorner_ReusedBoolean_SameAsFresh()
+        {
+            ExactMeshBoolean fresh = RunPlatesStrict("wave", 2, 2, 0.002, 2.4351079875960173E-09, 0.3, 10000.0, true, 0);
+            ExactMeshBoolean op = StrictBoolean("wave", 2, 2, 0.002, 2.4351079875960173E-09, 0.3, 10000.0, true, null);
+            Assert.True(op.Compute());
+            DMesh3 first = new DMesh3(op.Result);
+            Assert.True(op.Compute());
+            Assert.Equal(2, op.Rounding.JointMovesWithFixedCorner);
+            Assert.Equal(fresh.Rounding.JointSearchProposals, op.Rounding.JointSearchProposals);
+            Assert.Equal("", Invariance.Difference(first, op.Result));
+            Assert.Equal("", Invariance.Difference(fresh.Result, op.Result));
+        }
+
+        public static IEnumerable<object[]> FixedCornerFrames() { return Similarity.Names(); }
+
+        [Theory]
+        [MemberData(nameof(FixedCornerFrames))]
+        public void FixedCorner_IsInvariantUnderSimilarities(string frame)
+        {
+            Similarity s = Similarity.ByName(frame);
+            ExactMeshBoolean reference = RunPlatesStrict("wave", 2, 2, 0.002, 2.4351079875960173E-09, 0.3, 10000.0, true, 0);
+            ExactMeshBoolean op = RunPlatesStrict("wave", 2, 2, 0.002, 2.4351079875960173E-09, 0.3, 10000.0, true, 0, s);
+            Assert.NotNull(reference.Result);
+            if (s.IsExact) {
+                // a power-of-two scale: rooms and steps scale, the same edits and the same mesh, bit for bit
+                Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, op.Status);
+                Assert.Equal(2, op.Rounding.JointMoves);
+                Assert.Equal(2, op.Rounding.JointMovesWithFixedCorner);
+                Assert.Equal(reference.Rounding.JointSearchProposals, op.Rounding.JointSearchProposals);
+                Assert.Equal(reference.Rounding.MaxDrift * s.Scale, op.Rounding.MaxDrift);
+                Assert.Equal("", Invariance.Difference(reference.Result, Invariance.MappedBack(op.Result, s)));
+                return;
+            }
+            // another frame rounds the plates differently: not this state. A result that is claimed is clean
+            Assert.True(op.Status == ExactMeshBoolean.BooleanStatus.Success || op.Status == ExactMeshBoolean.BooleanStatus.RoundingNotClean, s.Name);
+            if (op.Status == ExactMeshBoolean.BooleanStatus.Success) {
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(op.Result, false));
+                Assert.True(op.Rounding.MaxDrift <= op.Rounding.MaxLength, s.Name);
+            }
+        }
+
+        [Fact]
+        public void FixedCorner_SerialEqualsParallel_Repeated()
+        {
+            ExactMeshBoolean serial = RunPlatesStrict("wave", 2, 2, 0.002, 2.4351079875960173E-09, 0.3, 10000.0, true, 0, serial: true);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, serial.Status);
+            for (int i = 0; i < 3; ++i) {
+                ExactMeshBoolean parallel = RunPlatesStrict("wave", 2, 2, 0.002, 2.4351079875960173E-09, 0.3, 10000.0, true, 0);
+                Assert.Equal("", Invariance.Difference(serial.Result, parallel.Result));
+                Assert.Equal(serial.Rounding.JointSearchProposals, parallel.Rounding.JointSearchProposals);
+                Assert.Equal(serial.Rounding.JointMovesWithFixedCorner, parallel.Rounding.JointMovesWithFixedCorner);
+                Assert.Equal(serial.Rounding.MaxDrift, parallel.Rounding.MaxDrift);
+            }
         }
     }
 }
