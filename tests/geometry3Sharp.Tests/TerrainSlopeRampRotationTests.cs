@@ -166,6 +166,47 @@ namespace geometry3Sharp.Tests
             Assert.Throws<SlopeMap.NonManifoldRealization>(() => Append(new DMesh3(mesh), tris, true, true));
         }
 
+        // ---- the flip share rerun (#1539, angle 301) ----
+
+        [Fact]
+        public void FlipExtra_IsZeroAtScaleOne_AndScalesWithTheFrame()
+        {
+            double exy = 5.684341886080802e-14, s = 1.0;
+            Assert.Equal(0.0, TerrainSlopeDesign.FlipExtra(exy, s, 1));
+            // the F - 1 further shares, rounded up: at least (F - 1) FlipShare, and 2^k exy gives 2^k times as much, bit for bit
+            foreach (double f in new[] { 1024.0, 2048.0, 1048576.0 }) {
+                double e = TerrainSlopeDesign.FlipExtra(exy, s, f);
+                Assert.True(e >= (f - 1) * TerrainSlopeDesign.FlipShare(exy, s));
+                Assert.Equal(1024 * e, TerrainSlopeDesign.FlipExtra(1024 * exy, s, f));
+                Assert.Equal(e / 4096, TerrainSlopeDesign.FlipExtra(exy / 4096, s, f));
+            }
+        }
+
+        // 301: the plain attempts fail with a refused flip, the rerun at F = 2^10 passes (Slow: 6 builds)
+        [Fact, Trait("Category", "Slow")]
+        public void AroundCorner_301_RerunsWithAScaledFlipShare()
+        {
+            var d = TerrainSlopeRampRotationRegressionTests.Make(301);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            Assert.Equal(Math.Pow(2, TerrainSlopeDesign.MinFlipScaleLog2), d.UsedFlipScale);
+            Assert.True(d.NeedleFlips > 0);
+            Assert.True(d.UsedToeLowering <= d.Tolerance);
+        }
+
+        // where the scaled share would not fit Tolerance, the rerun is refused by the budget and the design keeps its SlopeViolation
+        // (Slow: the first attempts fail as for the rerun test, 3 builds, then the refused rerun)
+        [Fact, Trait("Category", "Slow")]
+        public void AroundCorner_301_RerunRefusedByTheBudget_KeepsTheSlopeViolation()
+        {
+            var d = TerrainSlopeRampRotationRegressionTests.Make(301);
+            d.FlipScaleTestFactor = 1e12;       // F x 1e12 shares of 1.8e-12: more than Tolerance 1e-2 at every F
+            Assert.False(d.Compute());
+            Assert.Equal(TerrainSlopeDesign.Statuses.SlopeViolation, d.Status);
+            Assert.Contains("triangles failed the exact check", d.Message);
+            Assert.Equal(Math.Pow(2, TerrainSlopeDesign.MinFlipScaleLog2), d.UsedFlipScale);      // tried once, refused
+            Assert.NotEmpty(d.ProblemTriangles);
+        }
+
         static Index2i ordered(int a, int b) { return a < b ? new Index2i(a, b) : new Index2i(b, a); }
 
         // 96 degrees: a real triangle above the edge a b over a sliver that was appended first, which runs along a -> b as well

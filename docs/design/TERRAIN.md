@@ -692,6 +692,19 @@ two old triangles.
    - Its exact checks (i) and (ii) decide. If they fail, the attempt fails as today (a larger δ, or
      `SlopeViolation`).
    - So one attempt has at most two realizations for its repairs, and no loop between λ and the repairs.
+   - **The flip share rerun (#1539, `TerrainSlopeDesign.attempts`).** The share a flip may use, `FlipShare` = 2·sMax·(r + e_xy),
+     assumes a deviation of the order of the merge radius. A needle whose plane is ill-conditioned (altitude 2e-15 at 14 m: the rounding of
+     its vertex heights tilts the plane by about 1) can have a flip deviation of 1.4e-11, seven times the share: the flip is refused
+     (`FlipNeedles` counts the refusals) and the needle fails every margin. Only after the attempts end in `SlopeViolation` with such
+     a refusal, they run again with the flip share scaled by F = 2^10, 2^11, … up to 2^20 (`MaxFlipScaleLog2`), until the design passes.
+     The budgets count the F − 1 further shares, X = (F − 1)·FlipShare (`FlipExtra`, rounded up; 0 at F = 1, so every other design is
+     unchanged bit for bit):
+     - the below share of the tolerance budget: mergeShare + X. The build requires facetShare = Tolerance − (λ bound + δ·sMax·1.1·D0
+       + mergeShare + X + snap + ramps) > 0, so the sum of all shares, X included, stays within Tolerance at every F; where it would
+       not, the build refuses (`InvalidInput`) and the original `SlopeViolation` stays; `fan_directions_at` counts the same X;
+     - the lowering the flips need, d_max, is at most F·FlipShare: need + X when flips were made, and `mayMerge` tests
+       RepairLambda(2) + X ≤ λ bound; the band merges' room is (λ bound − X);
+     - `FlipNeedles` gets maxDeviation F·FlipShare. The measured lowering of 301 is 2.2e-6 (Tolerance 1e-2).
    - **The first λ and the composite's clipped region.** The first realization takes λ = 4·e_z, with
      e_z = 2·sMax·e_xy + e_eval. The composite's clipped slope triangles have their vertices on S̃, rounded in z
      (½ ulp of |z|), and the support check of such a triangle extends its plane to the toe line, tens of metres

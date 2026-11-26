@@ -1728,6 +1728,14 @@ namespace gs
         /// </summary>
         public static int FlipNeedles(DMesh3 mesh, double minAltitude, double maxDeviation)
         {
+            int refused;
+            return FlipNeedles(mesh, minAltitude, maxDeviation, out refused);
+        }
+
+        /// <summary> FlipNeedles; refusedForBound counts the flips refused because their deviation bound exceeds maxDeviation (#1539) </summary>
+        public static int FlipNeedles(DMesh3 mesh, double minAltitude, double maxDeviation, out int refusedForBound)
+        {
+            refusedForBound = 0;
             int count = 0;
             var dev = new Dictionary<int, double>();
             Func<int, double> devOf = (x) => { double v; return dev.TryGetValue(x, out v) ? v : 0; };
@@ -1761,7 +1769,7 @@ namespace gs
                     if (!(after > before)) continue;
                     double change = diagonal_change(mesh.GetVertex(ev.a), mesh.GetVertex(ev.b), mesh.GetVertex(ov.a), mesh.GetVertex(ov.b));
                     double bound = ExactInterval.Up(Math.Max(devOf(t), devOf(t2)) + change);    // (rounded up: an upper bound)
-                    if (!(bound <= maxDeviation)) continue;
+                    if (!(bound <= maxDeviation)) { refusedForBound++; continue; }
                     int group = tri_altitude(mesh, t) >= tri_altitude(mesh, t2) ? mesh.GetTriangleGroup(t) : mesh.GetTriangleGroup(t2);
                     DMesh3.EdgeFlipInfo info;
                     if (mesh.FlipEdge(e, out info) != MeshResult.Ok) continue;

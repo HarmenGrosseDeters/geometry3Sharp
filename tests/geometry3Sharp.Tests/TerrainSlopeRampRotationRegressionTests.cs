@@ -117,6 +117,40 @@ namespace geometry3Sharp.Tests
             Assert.Equal(topologyHash, h.ToString("x16"));
         }
 
+        // #1539, angle 301: a needle of altitude 2e-15 at (-39.234, -0.0177) whose flip changes the surface by 1.4e-11, 7 times the reserved
+        // flip share: the plane of the needle fails every margin. The rerun with a scaled flip share (budgets counted) removes it
+        // (Slow: the first attempts fail, the rerun runs them again: 6 builds, about 6 s alone; under 10 s)
+        [Fact, Trait("Category", "Slow")]
+        public void AroundCorner_301_NeedleWithARefusedFlip_Succeeds()
+        {
+            var d = Make(301);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            TerrainSlopeRampTests.AssertRamps(d);       // (the surface within Tolerance of the references, below and above, every triangle exact)
+            Assert.Equal(MeshRobustRepair.Defects.NotClosed | MeshRobustRepair.Defects.DegenerateTriangles, MeshRobustRepair.FindDefects(d.SlopeSurface));
+            Assert.True(d.UsedToeLowering > 0 && d.UsedToeLowering <= d.Tolerance, "toe lowering " + d.UsedToeLowering);
+            Assert.Equal("", d.Message);
+        }
+
+        // 301 in the 2^k frames: the rerun's budgets and the flips scale with the frame, bit for bit (Nightly: the identity reference and each
+        // frame are 6-8 s; the first case of the run pays for the reference, 16 s)
+        static readonly Lazy<TerrainSlopeDesign> Reference301 = new Lazy<TerrainSlopeDesign>(() => {
+            var d = Make(301);
+            Assert.True(d.Compute(), d.Message);
+            return d;
+        });
+
+        [Theory]
+        [Trait("Category", "Nightly")]
+        [MemberData(nameof(Similarity.NamesExceptExtremeFrame), MemberType = typeof(Similarity))]
+        public void AroundCorner_301_Similarities(string name)
+        {
+            Similarity s = ZUp(Similarity.ByName(name));
+            if (s.IsExact == false) return;
+            var d = Make(301, s);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            Assert.Equal("", Invariance.Difference(Reference301.Value.SlopeSurface, Invariance.MappedBack(d.SlopeSurface, s)));
+        }
+
         // the 2^k frames give the result of the rotated design, scaled, bit for bit; every frame succeeds (the reference, 127 degrees, is
         // the one that failed in the identity frame before)
         [Theory]
@@ -183,22 +217,17 @@ namespace geometry3Sharp.Tests
 
         // ---- a sweep: the Nightly tier runs every degree, and every angle ends in its exact outcome ----
 
-        // The outcome of each angle of the 1 degree sweep (measured with the fix of #1539's sliver strips; an angle in none of the lists succeeds
-        // with a surface whose only defect is NotClosed). A change of any angle's outcome fails the sweep, an improvement too:
-        // move the angle to its new list (or out of the lists).
+        // The outcome of each angle of the 1 degree sweep (measured with the fixes of #1539; an angle not in the list succeeds with a surface
+        // whose only defect is NotClosed). A change of any angle's outcome fails the sweep.
         // - Needles: Success, and MeshRobustRepair.FindDefects also reports DegenerateTriangles (area below 1e-12 diag^2, about
         //   1.5e-8): the map's slivers between creases a few ulps apart (long, height 1e-10 to 1e-9) and its tiny triangles at
         //   clusters of near-coincident vertices (heights up to 1e-4), all far below the tolerance of 1e-2. The library is right
         //   here: the slope and support checks accept every triangle and AssertRamps below checks the surface against the exact
         //   specification (heights, width, boundary); the generic defect check of MeshRobustRepair is an absolute area threshold.
-        static readonly HashSet<int> Needles = new HashSet<int> { 25, 26, 28, 30, 31, 41, 46, 57, 66, 67, 69, 71, 72, 76, 82, 94, 99, 100, 102, 107, 118, 123, 128, 133, 136, 139, 143, 148, 150, 153, 166, 171, 173, 174, 176, 181, 184, 192, 196, 202, 208, 212, 217, 223, 227, 241, 273, 274, 280, 319 };
-        // - SlopeViolation 301 (the last open angle of #1539; removing it from this list is that issue's done-check): "a larger margin
-        //   does not fit into Tolerance". No turned-over triangle (the strict realization does not apply), two triangles of a needle
-        //   cluster at (-39.234, -0.0177) fail the exact check at every margin: a needle of altitude 2e-15 (steeper than the slope
-        //   after the rounding of its vertex heights) and a triangle of altitude 1.3e-4 whose vertices are 5.6e-7 above their support
-        //   plane (the toe lowering is 2.5e-9). Needles below MinFeatureSize that neither the flips nor the merges remove: a margin
-        //   matter of the needle handling (TERRAIN.md 5.4), not of the realization.
-        static readonly HashSet<int> SlopeViolation = new HashSet<int> { 301 };
+        static readonly HashSet<int> Needles = new HashSet<int> { 25, 26, 28, 30, 31, 41, 46, 57, 66, 67, 69, 71, 72, 76, 82, 94, 99, 100, 102, 107, 118, 123, 128, 133, 136, 139, 143, 148, 150, 153, 166, 171, 173, 174, 176, 181, 184, 192, 196, 202, 208, 212, 217, 223, 227, 241, 273, 274, 280, 301, 319 };
+        // - 301 succeeds with needles since #1539's flip share rerun; its own Slow test above pins it (a design of 8 s does not belong in a shard of five).
+        //   Every angle of the sweep now succeeds: a failure is a regression.
+        const int Slow301 = 301;
 
         const int SweepShards = 72;
         public static IEnumerable<object[]> Shards() => Enumerable.Range(0, SweepShards).Select(i => new object[] { i });
@@ -212,10 +241,10 @@ namespace geometry3Sharp.Tests
         {
             var bad = new List<string>();
             for (int a = shard * 360 / SweepShards; a < (shard + 1) * 360 / SweepShards; ++a) {
+                if (a == Slow301) continue;
                 var d = Make(a);
                 bool ok = d.Compute();
-                string expected = SlopeViolation.Contains(a) ? "SlopeViolation"
-                                : Needles.Contains(a) ? "Success: not closed, degenerate triangles" : "Success: not closed";
+                string expected = Needles.Contains(a) ? "Success: not closed, degenerate triangles" : "Success: not closed";
                 string got;
                 if (ok) {
                     TerrainSlopeRampTests.AssertRamps(d);
