@@ -89,11 +89,23 @@ What the proof must establish:
 2. Membership. Take two pieces p and q that share an edge e not contained in the boundary of u. By (A), the interiors of p and q
    and the relative interior of e do not meet the boundary of u. Their union is connected, and both centroids lie in it, so the
    centroids are both in the closed u or both outside it.
+3. Winding labels (review of #1635). Every triangle v that is not coplanar with src, and whose intersection with src's plane is
+   a segment inside src (its relative interior meeting the interior of src), leaves a label with `(line & 3) == 0` on every
+   output edge of src along that segment. This must also hold where the pair is decided without clipping, in the touch-only and
+   pre-decided paths, because those are exactly where a missing label would let a winding region run across a surface. Two
+   cases matter:
+   - **fold:** a neighbour of a coplanar triangle u that folds out of the plane at their shared edge, which lies inside src;
+   - **fin:** a triangle that stands on src with one edge in src's interior and the rest on one side of the plane.
+   Prove it from the pair loop (the non-coplanar branch and its early returns) before building. Where a path adds the segment
+   with only a coplanar label, or with none, the walk must not rely on labels for the winding: either the path is changed to
+   add the triangle-plane label, or e counts as an intersection edge whenever a `Partners` triangle of src contains it
+   (an exact test per such edge).
 
 How it is checked:
 - **In tests:** the reference switch (section 6) compares every stack on the whole coplanar test set.
 - **At run time, optional:** a debug count of re-tests whose result differs from the seed's propagation where D(e) is empty.
-  It must be 0. It costs nothing when off.
+  It must be 0. It costs nothing when off. The same switch for obligation 3: where a winding region continues across e, shoot
+  today's ray at q as well and count disagreements, which must be 0.
 
 ## 4. D(e): the line labels first, exact line keys as the independent check
 
@@ -161,6 +173,13 @@ lists, which the identity test checks for C = 0, C = infinity and the chosen val
   - the representative flags equal;
   - `CertificateKeep` and `CertificateFlip` (`RecordCertificate`) equal;
   - the result's vertices (doubles, bit for bit) and triangles equal.
+- **Fold and fin (obligation 3).** Procedural cases in which a winding region must stop at an edge without crossing triangles:
+  - a fold: a box whose top face lies in the plane of a larger plate's top face, inside it, so that the box's side faces fold
+    down out of the plane at the edges of its top face (with the box above, below and straddling the plate);
+  - a fin: a thin wedge standing on the plate with its bottom edge in the plate's interior, as a separate mesh and as part of
+    the plate's mesh;
+  - each with union, intersection and difference, the walk forced; the same bit-identity assertions as above, and the winding
+    regions must split at the fold and fin edges (a test count of the regions).
 - **Growth.** `Counts["coplanar_tests"]` must grow by at most 4.5x per doubling on slices 30, 60 and 120. Today's code fails
   this: 7.2 and 7.6. Add a new count for the winding rays, which must grow by at most 4.5x as well.
 - **The rules of CLAUDE.md:**
