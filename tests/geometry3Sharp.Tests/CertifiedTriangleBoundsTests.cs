@@ -936,7 +936,7 @@ namespace geometry3Sharp.Tests
 
             // CPM-1 soundness across exponents from subnormal to overflow and all 3 axes (both sides of box)
             var rnd = new Random(1647);
-            foreach (int e in new[] { -1070, -1040, -160, -20, 0, 20, 148, 200 }) {
+            foreach (int e in new[] { -1070, -1040, -160, -20, 0, 20, 148, 200, 500, 520 }) {
                 for (int i = 0; i < 40; ++i) {
                     Vector3d a = new Vector3d(R(rnd, e), R(rnd, e), R(rnd, e));
                     Vector3d b = new Vector3d(R(rnd, e), R(rnd, e), R(rnd, e));
@@ -954,6 +954,12 @@ namespace geometry3Sharp.Tests
                     }
                     Assert.True(ExactDyadic.Compare(D(lb), exactBoxSq) <= 0, $"CPM-1 e={e} i={i}: lb={lb:R} > exact box d^2");
                 }
+            }
+            // CPM-1 NormalSqHi guard (kills M4: dropping && s < NormalSqHi returns +Inf on p = (0, 0, 1e160) so LowerBound returns +Inf)
+            {
+                DMesh3 farTri = Tri(Vector3d.Zero, new Vector3d(1, 0, 0), new Vector3d(0, 1, 0));
+                double lbFar = gs.CertifiedPointMeshDistance.LowerBound(farTri, new Vector3d(0, 0, 1e160));
+                Assert.True(lbFar > 1e153 && lbFar <= 1e160, $"lbFar={lbFar:R}");
             }
 
             // CPM-1 non-Sterbenz 1D-dominant gap soundness (catches dropping the (1 - 1e-15) downward factor)
@@ -993,10 +999,19 @@ namespace geometry3Sharp.Tests
             Assert.False(gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(t0, t1, t2, new Vector3d(0.5, 0.5, 3.0), double.NaN));
             // Degenerate (collinear) triangle must never prune
             Assert.False(gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(t0, t1, new Vector3d(4, 0, 0), new Vector3d(1, 5, 0), 0.0));
-            // Range-guard boundary checks (each hits exactly one guard with thresh = 0.0 or double.MaxValue so deleting that guard fails):
-            // 1) detLo <= NormalLinLo (det ~ 1e-145, n2 = 1 -> q would be 1e-290; blocked by detLo > NormalLinLo)
-            Assert.False(gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(
-                Vector3d.Zero, new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), new Vector3d(0, 0, 1e-145), 0.0));
+            // Range-guard boundary checks (each hits exactly one guard so deleting that guard fails):
+            // 1) detLo <= NormalLinLo with n2 = 1e-280 > NormalSqLo and q = h^2 ~ 1e-36 in (NormalSqLo, NormalSqHi):
+            //    detLo ~ 1e-158 underflows detLo^2 to subnormal; kills M12 (NormalLinLo = 0) which falsely prunes at thresh = h^2
+            {
+                Vector3d s1 = new Vector3d(1e-70, 0, 0), s2 = new Vector3d(0, 1e-70, 0);
+                for (int i = 0; i < 200; ++i) {
+                    double h = (1.0 + i / 200.0) * 1e-18;
+                    Assert.False(gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(
+                        Vector3d.Zero, s1, s2, new Vector3d(0, 0, h), h * h), $"CPM-2 NormalLinLo i={i} h={h:R}");
+                    Assert.False(gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(
+                        Vector3d.Zero, s1, s2, new Vector3d(0, 0, h), ExactInterval.Down(h * h)), $"CPM-2 NormalLinLo down i={i} h={h:R}");
+                }
+            }
             // 2) detLo >= NormalLinHi (det ~ 1e145, n2 = 1; blocked by detLo < NormalLinHi)
             Assert.False(gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(
                 Vector3d.Zero, new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), new Vector3d(0, 0, 1e145), 0.0));

@@ -163,3 +163,5 @@ after warm-up; all four 64-bit FNV-1a result digests are bit-for-bit identical:
 | bumpy 20 (4,800 tris) | 134.33 → 64.31 | **2.09×** | 2674.71 → 19.53 | **137.0×** | 2639.62 → 2.62 | **1,007×** | `1F0D8F6086D7E632` |
 | utm sphere 12 (1,728 tris) | 58.79 → 39.23 | **1.50×** | 885.38 → 6.56 | **135.0×** | 905.11 → 1.40 | **646.5×** | `6EC0DB4DF5EF23F1` |
 
+*(On the small `sphere 12` mesh, `LowerBound` is dominated by a few exact evaluations so `61.3 → 66.9 ms` reflects run-to-run noise; on larger meshes `LowerBound` speeds up 1.50–2.09×. Most of the `AtLeastDistance` gain comes from pruning non-candidate triangles via `CPM-1`/`CPM-2` combined with the immediate early return once a qualifying triangle is found.)*
+

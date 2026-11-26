@@ -119,14 +119,28 @@ that caveat.
   So the bound stays below the exact distance of the original meshes.
 
 ## 3. `CertifiedPointMeshDistance` (exact point-to-mesh distance, lower bound)
-**Pass 1.** For every triangle, a lower bound of the squared distance to its bounding box. Per axis, the gap below the box
-or above it, each difference `Down`-rounded, each square `Down`-rounded, the sum `Down`-rounded (outward rounding,
-`ExactInterval`). Any triangle with the smallest such bound is measured exactly; its exact squared distance D is an upper
-bound of the minimum.
+**Pass 1.** For every triangle, a certified lower bound of the squared distance to its bounding box (`CPM-1` in
+`tools/ErrorBoundAudit/bounds.py`): in the range-guarded hardware-double fast path (`1e-290 < s < 1e290`), `s * (1 - 1e-15)`
+with `s = gx^2 + gy^2 + gz^2` strictly underestimates the exact box squared distance (margin 1.60×); outside that range
+(including subnormals, overflow, and non-finite inputs), it falls back to the outward-rounded `ExactInterval.Down` per-axis
+sum. Any triangle with the smallest box bound is measured exactly; its exact squared distance D is an upper bound of the
+minimum, and `bestUpper = Up(Up(ToDouble(D)))` (or `+infinity` on overflow) gives a certified double upper bound of D.
 
-**Pass 2.** Every other triangle whose box bound is ≤ D, compared exactly (the double is decomposed into m·2^e), is
-measured exactly. A box bound is a valid lower bound of that triangle's squared distance, so no nearer triangle is
-skipped.
+**Pass 2.** Every other triangle is filtered in three certified stages before exact evaluation:
+1. **Box double filter (`CPM-1`):** skip if `lb > bestUpper` (since exact box $d^2 \ge \text{lb} > \text{bestUpper} \ge D$).
+2. **Supporting-plane filter (`CPM-2`):** compute `det = CertifiedDet3.Compute(p - v0, v1 - v0, v2 - v0)`, lower bound
+   `detLo = Down(|det.Det| - det.E)` (guarded by `NormalLinLo < detLo < NormalLinHi`), upper-bound each cross-product
+   component by `|p1 - p2| + 1e-15 * m_k` (`NormalSqLo < n2 < NormalSqHi`), and skip if `((detLo^2) / n2) * (1 - 2e-15) > bestUpper`
+   (guarded by `NormalSqLo < q < NormalSqHi`; margin 3.00×; degenerate and non-finite inputs return false).
+3. **Exact box fallback:** skip if `greater(lb, D)` (exact `Decompose` comparison, covering `bestUpper` overflow or fast
+   bounds between D and `bestUpper`).
+
+Every surviving triangle is measured exactly; any nearer triangle updates both D and `bestUpper`.
+
+**`AtLeastDistance(mesh, p, u)` (test oracle).** Certifies whether $u$ is at least the exact distance from $p$ to `mesh`.
+Uses `uSqHi = (u == 0) ? 0 : Up(u * u) >= u^2` to prune triangles with `box_lower_squared > uSqHi` (`CPM-1`) or
+`plane_lower_squared_exceeds(..., uSqHi)` (`CPM-2`), evaluates surviving triangles exactly, and returns `true` immediately
+on the first triangle with exact $d^2 \le u^2$.
 
 **Exact squared distance.** All 12 coordinates are written as integers times 2^e0, e0 the smallest exponent; this is exact
 (Decompose). With e1 = V1 − V0, e2 = V2 − V0, d = V0 − P:

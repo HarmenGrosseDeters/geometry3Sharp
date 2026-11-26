@@ -99,7 +99,8 @@ namespace gs
             return false;
         }
 
-        // certified finite upper bound of num / den * 2^exp (+infinity on overflow or NaN)
+        // certified finite upper bound of num / den * 2^exp (+infinity on overflow or NaN);
+        // ToDouble rounds to nearest (within 0.5 ulp), so the second Up is redundant safety margin
         static double upper_bound_double(BigInteger num, BigInteger den, int exp)
         {
             if (num.IsZero) return 0;
