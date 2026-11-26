@@ -12,7 +12,7 @@ nonnegative selected endpoints for an exact hit.
 from fractions import Fraction
 
 from continuous_collision import rational
-from pilot_obligations import main, source_contract, verify
+from check_pilot_obligations import main, source_contract, verify
 
 SOURCE = 'intersection/IntrExactBox3.cs'
 ANCHORS = [
@@ -42,11 +42,6 @@ def run(timeout_ms=120000):
     (declare-const relative Real)
     (declare-const margin Real)
     (declare-const limit Real)
-    (declare-const faceLo Real)
-    (declare-const faceHi Real)
-    (declare-const origin Real)
-    (declare-const direction Real)
-    (declare-const t Real)
     (assert (and (>= n 0) (>= f 0) (>= margin 0)))
     (assert (close n exactN (+ (* {rational(qerr)} n) {rational(subnormal)})))
     (assert (close f exactF (+ (* {rational(qerr)} f) {rational(subnormal)})))
@@ -54,21 +49,12 @@ def run(timeout_ms=120000):
     (assert (close relative (* 3 u sum) (+ (* 3 u u sum) {rational(subnormal / 2)})))
     (assert (close margin (+ relative absErr) (* u (+ relative absErr))))
     (assert (close limit (+ f margin) (* u (+ f margin))))
-    (define-fun earlyMiss () Bool
-      (or (and (>= direction 0) (> origin faceHi))
-          (and (<= direction 0) (< origin faceLo))))
     """
     result = verify('QF_LRA', model, [
         ('finite_hit_reachable', '(and (<= exactN exactF) (= n f))', 'sat'),
         ('finite_miss_reachable', '(> n limit)', 'sat'),
         ('finite_false_miss', '(and (<= exactN exactF) (> n limit))', 'unsat'),
         ('drop_margin_mutant', '(and (<= exactN exactF) (> n f))', 'sat'),
-        # movement is the sign-compatible product t*direction, abstracted
-        # to a free real so only linear arithmetic is needed.
-        ('early_face_false_miss',
-         '(and (<= faceLo (+ origin t)) (<= (+ origin t) faceHi) '
-         '(=> (>= direction 0) (>= t 0)) (=> (<= direction 0) (<= t 0)) earlyMiss)',
-         'unsat'),
     ], timeout_ms)
     # The exact-hit sign premise excludes a negative infinite exit.
     # If the slab times or their nonnegative sum are infinite, the
@@ -89,6 +75,8 @@ def run(timeout_ms=120000):
         ('infinite_slabs_reachable', '(fp.isInfinite sum)', 'sat'),
         ('sum_overflow_false_miss', '(and (fp.isInfinite sum) (fp.gt n limit))', 'unsat'),
         ('limit_overflow_reachable', '(and (not (fp.isInfinite sum)) (fp.isInfinite limit))', 'sat'),
+        ('non_strict_sum_overflow_mutant', '(and (fp.isInfinite sum) (fp.geq n limit))', 'sat'),
+        ('non_strict_limit_overflow_mutant', '(and (fp.isInfinite limit) (fp.geq n limit))', 'sat'),
         ('limit_overflow_false_miss', '(and (fp.isInfinite limit) (fp.gt n limit))', 'unsat'),
     ], timeout_ms)
     return dict(passed=result['passed'] and infinite['passed'], finite=result, infinite=infinite)

@@ -4,7 +4,7 @@ Model floor by f <= x < f + 1 with an integer f. In the unguarded
 interior, the legacy cast is used only on representable integers.
 The .NET 9 semantics (including NaN and infinities) are a premise.
 """
-from pilot_obligations import main, source_contract, verify
+from check_pilot_obligations import main, source_contract, verify
 
 SOURCE = 'math/MathUtil.cs'
 ANCHORS = [
@@ -41,19 +41,26 @@ def run(timeout_ms=120000):
         """
         reports[str(bits)] = verify('QF_LIRA', model, [
             ('legacy_cast_out_of_range', f'(and (= kind 0) (< lo x) (< x {upper_guard}) (or (< f lo) (> f hi)))', 'unsat'),
+            ('drop_upper_guard_cast_out_of_range',
+             '(and (= kind 0) (> x lo) (> f hi))', 'sat'),
+            ('zero_nan_branch_mutant',
+             '(and (= kind 1) (distinct modern hi))', 'sat'),
             ('branches_differ', '(not (= modern legacy))', 'unsat'),
             ('negative_fraction_reachable', '(and (= kind 0) (< x 0) (> x (- 1)) (= f (- 1)))', 'sat'),
             ('nan_zero_reachable', '(and (= kind 1) (= modern 0) (= legacy 0))', 'sat'),
         ], timeout_ms)
     grid = """
-    (declare-const x Int)
-    (declare-const n Int)
-    (assert (and (<= 0 x) (<= x 2147483647) (<= 1 n) (<= n 2147483647)))
-    (define-fun oldNext () Int (ite (= x 2147483647) (- 2147483648) (+ x 1)))
+    (declare-const x (_ BitVec 32))
+    (declare-const n (_ BitVec 32))
+    (assert (and (bvsge x (_ bv0 32)) (bvsgt n (_ bv0 32))))
+    (define-fun next () (_ BitVec 32) (bvadd x (_ bv1 32)))
+    (define-fun valid () Bool (bvslt x (bvsub n (_ bv1 32))))
+    (define-fun outOfRange () Bool (or (bvslt next (_ bv0 32)) (bvsge next n)))
     """
-    reports['grid'] = verify('QF_LIA', grid, [
-        ('accepted_neighbor_out_of_bounds', '(and (< x (- n 1)) (>= (+ x 1) n))', 'unsat'),
-        ('wrapped_neighbor_mutant', '(and (= x 2147483647) (< oldNext n) (>= (+ x 1) n))', 'sat'),
+    reports['grid'] = verify('QF_BV', grid, [
+        ('current_neighbor_guard_reachable', 'valid', 'sat'),
+        ('current_guard_allows_wrapped_or_past_end_neighbor', '(and valid outOfRange)', 'unsat'),
+        ('wrapped_neighbor_mutant', '(and (bvslt next n) outOfRange)', 'sat'),
     ], timeout_ms)
     return dict(passed=all(r['passed'] for r in reports.values()), checks=reports)
 

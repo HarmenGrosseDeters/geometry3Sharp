@@ -1,7 +1,8 @@
 from intrinsic_flip import run
-from pilot_obligations import PilotTest
+from check_pilot_obligations import run_test
+from unittest import TestCase
 
 
-class IntrinsicFlipTests(PilotTest):
+class IntrinsicFlipTests(TestCase):
     def test_integer_arithmetic(self):
-        self.check_pilot(run, 'Z3_INTRINSIC_FLIP_REPORT')
+        run_test(self, run, 'Z3_INTRINSIC_FLIP_REPORT')

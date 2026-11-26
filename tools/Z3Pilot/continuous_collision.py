@@ -11,62 +11,35 @@ expressions. This pilot checks the axis discard. Extending corner
 separation to the search box uses the affine-in-space, linear-in-time
 convex hull argument in CCD.md. Normal-direction culling is separate.
 """
-import argparse
 from fractions import Fraction
-import hashlib
-import json
-from pathlib import Path
-import re
 
-import z3
+from check_pilot_obligations import ROOT, main, source as pin, verify
 
-ROOT = Path(__file__).resolve().parents[2]
-SOURCE = Path('intersection/ContinuousCollision.cs')
+SOURCE = 'intersection/ContinuousCollision.cs'
 U = Fraction(1, 2**53)
 ETA = Fraction(1, 2**1075)
-# Whitespace and line comments are ignored. A change to rounding order,
-# range gating, corner selection or the comparisons requires review.
-METHODS = {
-    'void prepare_filter()': 'e2a6097338ed3f6fa9f5a2cce62b80bc3afd69bef9b0a5a6a2de37ee67b60a37',
-    'void corners_filter(int axis, ref Box b)': '446b0afd1a66372c6e74c987f72e157c412e3c77b30149fea03f55f229285bd4',
-    'void clip(ref Box b)': 'c2c8e4e5304cc6006bad5048691bb41911acb3463c575e1a0e601151a0315e98',
-    'bool evaluate(ref Box b, out double width)': 'dba4e27af6bdc9a48ed561b42afbc3011b844cf28a2e218cbe110e92d28452d6',
-}
+SPANS = [
+    ('internal const double FilterRelative', 'public static readonly double InputRange',
+     '81253cd3d1ad48e6cd62912f4322a1e825e3815b36e07c8bbee2ee01406a0086'),
+    ('void prepare_filter()', 'bool root_discarded()',
+     '568666e7f8194be5c66dd60464953b08a743762e62ee75b491ab0202914e0edf'),
+    ('double threshold = thresholds[axis];', 'void clip(ref Box b)',
+     '4decdbdf207e777245a58f41ce6f3b06098bbebb7b0ee02b2141914c5716df8c'),
+    ('void corners_filter(int axis, ref Box b)', 'internal double[] FilterCornersForTests',
+     '446b0afd1a66372c6e74c987f72e157c412e3c77b30149fea03f55f229285bd4'),
+    ('if (lo > threshold || hi < -threshold)', 'double w = hi - lo;',
+     'ceb0dc3acd65b636e1d83b05157accff24061c5708a36d422e754b2654a7bf9f'),
+]
 
 
 def source_contract(root=ROOT):
-    text = (root / SOURCE).read_text(encoding='utf-8')
-    code = re.sub(r'\s+|//[^\n]*', '', text)
-    for signature, expected in METHODS.items():
-        start = code.index(re.sub(r'\s+', '', signature) + '{')
-        end = code.index('{', start)
-        depth = 1
-        while depth:
-            end += 1
-            depth += (code[end] == '{') - (code[end] == '}')
-        actual = hashlib.sha256(code[start:end + 1].encode()).hexdigest()
-        if actual != expected:
-            raise ValueError(f'{SOURCE}: review the Z3 model after changes to {signature}')
-    match = re.search(
-        r'internalconstdoubleFilterRelative=1\.0/\(1L<<(\d+)\);'
-        r'internalconstdoubleFilterAbsolute=(\d+)\*double\.Epsilon;', code)
-    if match is None or 'FilterRange=BitConverter.Int64BitsToDouble((1023L+500)<<52);' not in code:
-        raise ValueError(f'{SOURCE}: filter constants or range changed shape')
-    return tuple(map(int, match.groups()))
+    for span in SPANS:
+        pin(SOURCE, *span, root=root)
 
 
 def rational(value):
     value = Fraction(value)
     return f'(/ {value.numerator} {value.denominator})' if value >= 0 else f'(- {rational(-value)})'
-
-
-def query(assumptions, violation, names, timeout_ms):
-    declarations = [f'(declare-const {name} Real)' for name in names]
-    assertions = [f'(assert {formula})' for formula in (*assumptions, violation)]
-    solver = z3.SolverFor('QF_LRA')
-    solver.set(timeout=timeout_ms)
-    solver.from_string('\n'.join(declarations + assertions))
-    return str(solver.check())
 
 
 def corner_error():
@@ -108,7 +81,8 @@ def replay_mutant():
 
 
 def run(timeout_ms=120000):
-    shift, spacings = source_contract()
+    source_contract()
+    shift, spacings = 47, 16
     relative, absolute = corner_error()
     bound = f'(+ (* {rational(relative)} M) {rational(absolute)})'
     # e = Up(fl(fl(M * 2^-shift) + spacings*epsilon)). The product
@@ -122,33 +96,33 @@ def run(timeout_ms=120000):
     names = ['M', 'delta', 'e', 'ms', 'threshold', 'exact', 'computed']
     cull += ['(= computed (+ exact delta))']
     actual, exact = replay_mutant()
-    witness = [f'(= computed {rational(actual)})', f'(= exact {rational(exact)})']
-    results = {
-        'corner_error': query(interval, '(or (> delta e) (< delta (- e)))', names, timeout_ms),
-        'above_reachable': query(interval + cull, '(> computed threshold)', names, timeout_ms),
-        'below_reachable': query(interval + cull, '(< computed (- threshold))', names, timeout_ms),
-        'discard_above': query(interval + cull, '(and (> computed threshold) (<= exact ms))', names, timeout_ms),
-        'discard_below': query(interval + cull, ' (and (< computed (- threshold)) (>= exact (- ms)))', names, timeout_ms),
-        'no_absolute_term': query(witness, '(or (> (- computed exact) 1) (> (- exact computed) 1))', names, timeout_ms),
-    }
-    passed = results == {
-        'corner_error': 'unsat', 'above_reachable': 'sat', 'below_reachable': 'sat',
-        'discard_above': 'unsat', 'discard_below': 'unsat', 'no_absolute_term': 'sat',
-    }
-    return dict(z3=z3.get_version_string(), passed=passed, results=results,
-                filter_relative_shift=shift, filter_absolute_spacings=spacings,
-                mutant=dict(computed=str(actual), exact=str(exact), bound='1', unit='2^-1074'))
+    model = '\n'.join(f'(declare-const {name} Real)' for name in names)
+    bound_violation = '(or (> delta e) (< delta (- e)))'
+    above = '(and (> computed threshold) (<= exact ms))'
+    below = '(and (< computed (- threshold)) (>= exact (- ms)))'
+
+    def with_premises(premises, goal):
+        return '(and ' + ' '.join((*premises, goal)) + ')'
+
+    weakened = [x for x in interval if x != f'(>= e {lower})'] + ['(= e 0)', '(= M 0)']
+    cull_without_error = [x for x in cull if x != '(>= threshold (+ ms e))'] + ['(= threshold ms)']
+    cases = [
+        ('corner_error_reachable', interval, '(distinct delta 0)', 'sat'),
+        ('corner_error', interval, bound_violation, 'unsat'),
+        ('no_absolute_term', weakened, bound_violation, 'sat'),
+        ('above_reachable', interval + cull, '(> computed threshold)', 'sat'),
+        ('below_reachable', interval + cull, '(< computed (- threshold))', 'sat'),
+        ('discard_above', interval + cull, above, 'unsat'),
+        ('discard_below', interval + cull, below, 'unsat'),
+        ('discard_above_without_error', interval + cull_without_error, above, 'sat'),
+        ('discard_below_without_error', interval + cull_without_error, below, 'sat'),
+    ]
+    result = verify('QF_LRA', model, [(name, with_premises(premises, goal), expected)
+                                     for name, premises, goal, expected in cases], timeout_ms)
+    assert abs(actual - exact) > 1
+    return dict(result, filter_relative_shift=shift, filter_absolute_spacings=spacings,
+                mutant_replay=dict(computed=str(actual), exact=str(exact), bound='1', unit='2^-1074'))
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--out', type=Path)
-    parser.add_argument('--timeout-ms', type=int, default=120000)
-    args = parser.parse_args()
-    report = run(args.timeout_ms)
-    output = json.dumps(report, indent=2) + '\n'
-    if args.out:
-        args.out.write_text(output, encoding='utf-8')
-    else:
-        print(output, end='')
-    raise SystemExit(0 if report['passed'] else 1)
+    raise SystemExit(main(run))

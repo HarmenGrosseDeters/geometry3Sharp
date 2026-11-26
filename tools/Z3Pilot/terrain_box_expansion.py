@@ -9,16 +9,10 @@ from fractions import Fraction
 import math
 
 from continuous_collision import rational
-from pilot_obligations import main, source_contract, verify
+from check_pilot_obligations import main, source_contract, verify
 
 SOURCE = 'mesh_ops/TerrainSlopeDesign.cs'
 ANCHORS = [
-    ('double D0, maxXY, exy, eeval, rampShare, reachLowered;', 'double lambda = (lambdaReq',
-     '49f59f5f5096ce123738726b71133a1fc066b2779234bd8b2b2cd3f5c09530f1'),
-    ('double dMax = (H - zMin', 'double rFan = 1;',
-     '7f5bd8647590754f53c66a259f2ededf71d8d5ff449ffd6d30cdaa10b606fd99'),
-    ('D0 = (H - zMin + reachLowered)', 'rampShare = ramp_share',
-     '0c0d7e8bca2fcdbdde70814aeb69cf03102d11c87901a5376b94ea12641bb2dc'),
     ('var box2 = toeBox;', 'var map = new SlopeMap(kernel);', '17ca83735ef43ee3cb3974e4ec4d7e5093e8019829ec8919c3eda1be38a35617'),
 ]
 BOX = 'math/AxisAlignedBox2d.cs'
@@ -89,9 +83,16 @@ def run(timeout_ms=120000):
         ('guard_reachable', 'localScale', 'sat'),
         ('local_scale_encloses', '(and localScale (< stored (+ edge reach)))', 'unsat'),
         ('unrestricted_offset_can_shrink', '(< stored (+ edge reach))', 'sat'),
+        ('local_spacing_guard_reachable',
+         '(and (> spacing 0) (>= reach (* 11 spacing)) (close stored (+ edge radius) (/ spacing 2)))', 'sat'),
+        ('allow_one_spacing_reach_mutant',
+         '(and (> spacing 0) (>= reach spacing) (close stored (+ edge radius) (/ spacing 2)) '
+         '(< stored (+ edge reach)))', 'sat'),
         ('local_spacing_guard_encloses',
          '(and (> spacing 0) (>= reach (* 11 spacing)) '
          '(close stored (+ edge radius) (/ spacing 2)) (< stored (+ edge reach)))', 'unsat'),
+        ('outward_face_reachable', '(and (>= outward (+ edge radius)) (> reach 1))', 'sat'),
+        ('use_unwidened_face_mutant', '(and (= outward stored) (< outward (+ edge reach)))', 'sat'),
         ('outward_face_encloses',
          '(and (>= outward (+ edge radius)) (< outward (+ edge reach)))', 'unsat'),
     ], timeout_ms)

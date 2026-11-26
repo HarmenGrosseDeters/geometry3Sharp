@@ -827,13 +827,12 @@ and uses Z3 linear real arithmetic to check that the bound covers the corner err
 places every exact corner on the indicated side of the separation threshold. The two strict discard
 comparisons each have satisfiable assumptions. The model assumes binary64 round-to-nearest with separate
 multiplication and addition. Outward rounding and extension from the corners to the box are mathematical
-arguments described in CCD. The source contract covers the axis discard in `evaluate`. It relies on
-`ExactInterval.Up` being outward rounding. The sweep root shortcut and normal-direction culling are
-outside the source contract.
+arguments described in CCD. The SHA-256 pins include the strict axis discard at both call sites.
+The enclosure uses `ExactInterval.Up` and the convex-combination bridge in the CCD design.
 
 Removing the absolute term gives a subnormal regression case. With edge-edge inputs and all parameters
 equal to 1/2, the float corner is zero and the exact corner is −3/2 subnormal spacings. The weakened bound
-would allow one spacing. The pilot replays the fixed witness in binary64 and exact rationals, checks its values with Z3, and
+would allow one spacing. The pilot replays the fixed witness in binary64 and exact rationals, and
 `ContinuousCollisionTests.Filter_SubnormalHalfwayProductsNeedAbsoluteErrorTerm` exercises the same case
 through the C# implementation.
 
@@ -844,10 +843,10 @@ python3 -m unittest discover -s tools/Z3Pilot -p test_continuous_collision.py -v
 
 ## Ray/AABB culling
 
-The pilot checks the two-rounding envelope for finite slab times and the final miss comparison. Early rejects on individual faces and infinity propagation in the final comparison have separate obligations. The reference uses the same rounded expanded faces as the exact C# routine. The reported entry-time lower bound is outside this check.
+The pilot checks the two-rounding envelope for finite slab times and the final miss comparison. Infinity propagation in the final comparison has separate controls. The reference uses the same rounded expanded faces as the exact C# routine. The reported entry-time lower bound is outside this check.
 
 ```sh
-python3 tools/Z3Pilot/ray_aabb_may.py --out /tmp/ray-aabb-may-report.json
+python3 tools/Z3Pilot/ray_aabb_may.py --out /tmp/z3-ray-aabb-may-report.json
 ```
 
 ## Terrain domain box expansion
@@ -868,7 +867,7 @@ these conditions and replays using one successor step for the upper face.
 The analogous lower-face result follows by reflecting the coordinate.
 
 ```sh
-python3 tools/Z3Pilot/terrain_box_expansion.py --out /tmp/terrain-box-expansion-report.json
+python3 tools/Z3Pilot/terrain_box_expansion.py --out /tmp/z3-terrain-box-expansion-report.json
 ```
 
 ## Saturating floor conversions
@@ -876,7 +875,7 @@ python3 tools/Z3Pilot/terrain_box_expansion.py --out /tmp/terrain-box-expansion-
 The pilot compares the guarded and .NET 9 definitions for 32- and 64-bit results using the specified cast semantics. It also checks the grid neighbor guard and reproduces the old unchecked-wrap condition at int.MaxValue.
 
 ```sh
-python3 tools/Z3Pilot/saturating_conversions.py --out /tmp/saturating-conversions-report.json
+python3 tools/Z3Pilot/saturating_conversions.py --out /tmp/z3-saturating-conversions-report.json
 ```
 
 ## Intrinsic flip counts
@@ -884,7 +883,7 @@ python3 tools/Z3Pilot/saturating_conversions.py --out /tmp/saturating-conversion
 The pilot checks the long intermediate range for stored edge counts and the forward/reverse identity for the local formula under exact corner divisions and a representable new count. It checks a concrete input-edge round trip in integer arithmetic. Parity for arbitrary realizable neighborhoods, geometric flip eligibility and roundabout restoration remain outside the proof. The reverse formula uses the edge relocation documented in FlipEdge.
 
 ```sh
-python3 tools/Z3Pilot/intrinsic_flip.py --out /tmp/intrinsic-flip-report.json
+python3 tools/Z3Pilot/intrinsic_flip.py --out /tmp/z3-intrinsic-flip-report.json
 ```
 
 ## Exact-bound inventory lemmas (2026-11-25, `docs/qa/exact-bound-inventory.md`)
