@@ -23,7 +23,9 @@ static class NestingCost
 
     public static int Run(string[] args)
     {
-        int rounds = args.Length > 0 ? int.Parse(args[0]) : 3;
+        int rounds = args.Length > 0 ? int.Parse(args[0]) : 7;
+        for (int w = 0; w < 3; ++w)       // (a warm-up of everything the rows use: JIT and first allocations are not in the first row)
+            new MeshWindingNumberBoolean(Sphere(Vector3d.Zero, 1, 24), Sphere(new Vector3d(6, 0, 0), 0.5, 24), MeshWindingNumberBoolean.Operations.Union) { GridResolution = 48 }.Compute();
         Console.WriteLine("shell tris  case                 check  Compute ms (best)  nesting phase ms (best)  nested  IoU refusal");
         foreach (int n in new[] { 12, 24 }) {
             foreach (bool nested in new[] { false, true }) {
@@ -32,18 +34,20 @@ static class NestingCost
                 else MeshEditor.Append(a, Sphere(new Vector3d(3, 0, 0), 0.5, n));      // (two apart shells: no nesting)
                 DMesh3 b = Sphere(new Vector3d(6, 0, 0), 0.5, n);
                 foreach (bool check in new[] { false, true }) {
-                    double best = double.MaxValue, phase = long.MaxValue;
+                    double best = double.MaxValue, phase = double.MaxValue;
                     int count = 0; string reason = "";
-                    for (int r = 0; r < rounds; ++r) {
+                    for (int r = -1; r < rounds; ++r) {         // (round -1 is the warm-up: JIT, not counted)
                         var op = new MeshWindingNumberBoolean(a, b, MeshWindingNumberBoolean.Operations.Union) { GridResolution = 48 };
                         typeof(MeshWindingNumberBoolean).GetField("NestingCheck", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).SetValue(op, check);
                         var sw = Stopwatch.StartNew();
                         op.Compute();
-                        best = Math.Min(best, sw.Elapsed.TotalMilliseconds);
-                        phase = Math.Min(phase, op.PhaseMilliseconds.TryGetValue("nesting", out long ms) ? ms : -1);
+                        if (r >= 0) {
+                            best = Math.Min(best, sw.Elapsed.TotalMilliseconds);
+                            phase = Math.Min(phase, op.PhaseMilliseconds.TryGetValue("nesting", out long ms) ? ms : -1);
+                        }
                         count = op.ComponentsFlippedByNestingA; reason = op.ResultReason;
                     }
-                    Console.WriteLine($"{a.TriangleCount,10}  {(nested ? "nested outward shell" : "two apart shells  "),-20} {(check ? "on " : "off"),5}  {best,17:F0}  {(phase < 0 ? "-" : phase.ToString()),16}  {count,6}  {(reason == "" ? "no" : "yes")}");
+                    Console.WriteLine($"{a.TriangleCount,10}  {(nested ? "nested outward shell" : "two apart shells  "),-20} {(check ? "on " : "off"),5}  {best,17:F0}  {(phase < 0 ? "-" : ((long)phase).ToString()),16}  {count,6}  {(reason == "" ? "no" : "yes")}");
                 }
             }
         }

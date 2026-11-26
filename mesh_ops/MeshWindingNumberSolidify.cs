@@ -219,9 +219,8 @@ namespace gs
 
         /// <summary>
         /// milliseconds per phase of the last Compute(), eg "winding", "contour", "selfint" (the check for
-        /// StopIfSelfIntersecting), "cleanup", "reduce"
+        /// StopIfSelfIntersecting), "cleanup", "reduce"; "nesting" (#1609) only if the check found an outward shell inside another shell
         /// </summary>
-        /// <summary> the milliseconds per phase of the last Compute(); "nesting" (#1609) only if the input has an outward shell inside another (the reading and its IoU ran) </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
 
         Stopwatch phase_timer = new Stopwatch();

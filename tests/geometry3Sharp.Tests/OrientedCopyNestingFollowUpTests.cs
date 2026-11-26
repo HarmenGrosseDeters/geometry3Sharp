@@ -33,6 +33,14 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
+        // the same with an extent of 1.4: in [1, 2), where Solidify runs on the caller's mesh as it is (outside it works on a scaled copy)
+        static DMesh3 NestedUnitExtent()
+        {
+            DMesh3 m = Box(new Vector3d(1, 1, 1), 0.7);
+            MeshEditor.Append(m, Box(new Vector3d(1, 1, 1), 0.35));
+            return m;
+        }
+
         static DMesh3 Far() { return Box(new Vector3d(5, 1, 1), 0.5); }
         static DMesh3 TwoDisjoint() { DMesh3 m = Box(new Vector3d(1, 1, 1), 1.0); MeshEditor.Append(m, Box(new Vector3d(5, 1, 1), 0.5)); return m; }
 
@@ -72,9 +80,9 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void Solidify_TwoConcurrentComputes_LeaveTheSharedInputAsItWas()
+        public void Solidify_TwoConcurrentComputes_LeaveTheSharedInputAsItWas()   // (extent in [1, 2): the caller's mesh reaches the check)
         {
-            DMesh3 input = Nested();
+            DMesh3 input = NestedUnitExtent();
             Assert.False(BoundsCached(input));
             var x = new MeshWindingNumberSolidify(input) { GridResolution = 24, Adaptive = true };
             var y = new MeshWindingNumberSolidify(input) { GridResolution = 24, Adaptive = true };

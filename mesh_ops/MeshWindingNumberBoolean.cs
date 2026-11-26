@@ -81,7 +81,9 @@ namespace gs
         /// outward shells inside others (ComponentsFlippedByNestingA / B above 0) and the solid of that reading differs in volume from the plain union of
         /// its shells (the nonzero winding number) by more than 1 - MinVolumeIoU, Compute() is false with ResultReason NestingAmbiguous; below that
         /// difference it only reports the counts. 0 or less: no refusal (the counts are still reported). Default 0.99, as MeshRobustRepair.MinVolumeIoU.
-        /// An input without a nested outward shell is not affected. An input that the operation does not read (the other one is empty) is not checked
+        /// An input without a nested outward shell is not affected. An input that the operation does not read (the other one is empty) is not checked.
+        /// Above 1 every input with a nested outward shell is refused (no two readings have an IoU above 1); NaN is taken as "0 or less": no refusal.
+        /// MeshA and MeshB the same instance: checked once
         /// </summary>
         public double MinVolumeIoU = 0.99;
 
@@ -121,7 +123,7 @@ namespace gs
         public double UsedCellSize;
         /// <summary> local refinement: number of cells (of CellSize) refined, and the refinement factor (CellSize / UsedCellSize) </summary>
         public int RefinedCells, RefineFactor = 1;
-        /// <summary> the milliseconds per phase of the last Compute(); "nesting" (#1609) only if an input has an outward shell inside another (the reading and its IoU ran) </summary>
+        /// <summary> the milliseconds per phase of the last Compute(); "nesting" (#1609) only if the check found an outward shell inside another input shell </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
 
 
@@ -300,6 +302,8 @@ namespace gs
             }
             if (nestedInput)
                 end_phase("nesting");
+            else
+                timer.Restart();        // (the check's time is not the next phase's: a real cavity runs the check with count 0)
             if (CancelF())
                 return false;
             if (ambiguous) {
