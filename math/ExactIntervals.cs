@@ -12,6 +12,8 @@ namespace g3
     /// spacing to the next double on the side of the exact value, and the widening moves by a whole spacing. This holds
     /// for subnormal results too (the spacing there is 2^-1074). A NaN (eg infinity minus infinity) gives the whole line.
     /// So a sign decided by Sign() is a proof, without a hand-derived error constant.
+    /// Requires IEEE 754 binary64 round-to-nearest with a 53-bit significand (SSE2 / ARM64); directed rounding modes
+    /// and 32-bit x87 with 64-bit extended precision are not supported.
     /// </summary>
     internal struct ExactInterval
     {
@@ -24,21 +26,48 @@ namespace g3
 
         static readonly ExactInterval whole = new ExactInterval(double.NegativeInfinity, double.PositiveInfinity);
 
+        // Rump, Zimmermann, Boldo & Melquiond (2009), "Computing predecessor and successor in rounding to nearest",
+        // BIT Numerical Mathematics 49(2), 419-431, Theorem 3.1 (implemented from the paper):
+        // in binary64 round-to-nearest (53-bit significand), with phi1 = 2^-53 + 2^-105, for every double x with
+        // |x| >= 2^-969 and x != -infinity, fl(x + fl(|x| * phi1)) is bit-for-bit equal to the next double above x
+        // (including +-MaxValue and +infinity). For |x| <= 2^-1022 (zero, subnormals, +-MinNormal) the upward spacing
+        // is 2^-1074 = double.Epsilon (with Up(-double.Epsilon) = -0.0 to match IEEE nextUp / bit-exact Down(+Epsilon) = +0.0);
+        // for 2^-1022 < |x| < 2^-969, exact power-of-two scaling by 2^54 enters the normal Rump range and 2^-54 scales back.
+        const double Phi1 = 1.1102230246251568e-16;       // 2^-53 + 2^-105 (0x3CA0000000000001)
+        const double RumpMin = 2.0041683600089728e-292;   // 2^-969         (0x0360000000000000)
+        const double MinNormal = 2.2250738585072014e-308; // 2^-1022        (0x0010000000000000)
+        const double TwoP54 = 18014398509481984.0;        // 2^54
+        const double TwoM54 = 5.5511151231257827e-17;     // 2^-54
+
         /// <summary> the next double above x (x for +infinity and NaN) </summary>
         [MethodImpl(JitHints.Optimize)]
         public static double Up(double x)
         {
-            if (double.IsNaN(x) || x == double.PositiveInfinity)
-                return x;
-            if (x == 0)
-                return double.Epsilon;
-            long b = BitConverter.DoubleToInt64Bits(x);
-            return BitConverter.Int64BitsToDouble(x > 0 ? b + 1 : b - 1);
+            double ax = Math.Abs(x);
+            if (ax >= RumpMin && x != double.NegativeInfinity) {
+                double e = ax * Phi1;
+                return x + e;
+            }
+            return up_small(x);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static double up_small(double x)
+        {
+            if (x == double.NegativeInfinity)
+                return -double.MaxValue;
+            if (Math.Abs(x) <= MinNormal)
+                return x == -double.Epsilon ? -0.0 : x + double.Epsilon;
+            double s = x * TwoP54;
+            double es = Math.Abs(s) * Phi1;
+            return (s + es) * TwoM54;
         }
 
         /// <summary> the next double below x </summary>
+        [MethodImpl(JitHints.Optimize)]
         public static double Down(double x) { return -Up(-x); }
 
+        [MethodImpl(JitHints.Optimize)]
         static ExactInterval make(double lo, double hi)
         {
             if (double.IsNaN(lo) || double.IsNaN(hi))
@@ -64,13 +93,12 @@ namespace g3
         }
 
         /// <summary>
-        /// a / b; the whole line if b contains 0. Division is correctly rounded in IEEE 754 binary64 on every target
-        /// (net10.0, netstandard2.0, net48 64-bit with SSE2), so a quotient is within half a spacing of the exact value
-        /// and the one-spacing widening of make() encloses it, also for subnormal and overflowing quotients (an
-        /// overflow to infinity widens to [MaxValue, infinity], and the exact quotient is at least MaxValue). Not tested:
-        /// the x87 unit of 32-bit net48 (no 32-bit test run). There the quotient would be rounded to 64 bits and then to
-        /// 53, by the usual double-rounding argument within half a spacing plus 2^-11 of it, below the one-spacing
-        /// widening; extended exponent range and subnormals are not covered by that argument.
+        /// a / b; the whole line if b contains 0. Division is correctly rounded in IEEE 754 binary64 on every supported
+        /// target (net10.0, netstandard2.0, 64-bit net48 with SSE2, round-to-nearest with 53-bit significand), so a
+        /// quotient is within half a spacing of the exact value and the one-spacing widening of make() encloses it, also
+        /// for subnormal and overflowing quotients (an overflow to infinity widens to [MaxValue, infinity], and the exact
+        /// quotient is at least MaxValue). 32-bit x87 with 64-bit extended precision is not supported (both division
+        /// double-rounding and Rump's Up/Down require 53-bit binary64 round-to-nearest).
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
         public static ExactInterval operator /(ExactInterval a, ExactInterval b)
