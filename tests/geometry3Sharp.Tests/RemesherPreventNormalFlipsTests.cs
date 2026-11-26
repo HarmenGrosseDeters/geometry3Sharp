@@ -101,7 +101,8 @@ namespace geometry3Sharp.Tests
         }
 
         // the case of the issue: 1 % of the diagonal, 10 passes (807 inverted triangles of 103946 and self-intersections before)
-        // PreventSelfIntersections moves the vertices in rounds with its own revert logic: the flip check of the moves is part of it
+        // PreventSelfIntersections moves the vertices in rounds with its own revert logic, a different code path that runs the flip
+        // checks of the moves too (this 4 % box passes on master as well: it pins that the path stays free; the failing case is the 1 % one above)
         [Fact]
         public void NoPass_HoldsAnInvertedTriangle_WithPreventSelfIntersections()
         {
@@ -142,7 +143,7 @@ namespace geometry3Sharp.Tests
             Assert.True(Invariance.AllFinite(mesh));
         }
 
-        // the guard decides by the signs of exact-scaled cross products (flip_edge_scale): a 2^k scaled box gives the same mesh bit for bit
+        // scaling by 2^k is exact, so every decision of the guards (signs of cross products, comparisons) and every position scales with it: the mesh mapped back is the same bit for bit
         [Fact]
         public void Result_IsTheSameBitForBit_AtScales2ToTheK()
         {
@@ -274,6 +275,76 @@ namespace geometry3Sharp.Tests
             r.BasicRemeshPass();
             Assert.True(mesh.GetVertex(0).EpsilonEqual(new Vector3d(0.25, 0.1, 0), 1e-12));
             Assert.Equal(0, FlippedTriangles(mesh));
+        }
+
+        sealed class MovesTarget : IProjectionTarget
+        {
+            public Dictionary<int, Vector3d> To = new Dictionary<int, Vector3d>();
+            public Vector3d Project(Vector3d p, int id = -1) => To.TryGetValue(id, out Vector3d q) ? q : p;
+        }
+
+        /// <summary>
+        /// PreventSelfIntersections applies the moves of a pass in rounds and reverts a vertex whose new triangles hit another triangle.
+        /// Reverts by an intersection leave no triangle turned over. Each move is checked against the old positions of its neighbours, and
+        /// all together; once some vertices are reverted, flipped_against_before checks the mix around them.
+        /// Random patches (a 5 x 5 grid in the plane z = 0): a vertex and most of its neighbours move along one vector, and a vertical
+        /// triangle stands across the middle of an edge from a moved vertex to a neighbour (at the new positions), so that the moves of the
+        /// triangles at that edge are reverted. No triangle of the patch may face down afterwards.
+        /// Limit: the mix check fires in about 2 of 4000 trials, and no trial found (80000 tried) turns a triangle over without it, so
+        /// this test does not kill the mutation that drops that check for PreventNormalFlips alone.
+        /// </summary>
+        [Fact]
+        public void IntersectionReverts_LeaveNoTriangleTurnedOver()
+        {
+            var rnd = new Random(1578);
+            int trials = 0, reverted = 0;
+            for (int trial = 0; trial < 1500; ++trial) {
+                var mesh = new DMesh3();
+                int n = 5;
+                for (int j = 0; j < n; ++j) for (int i = 0; i < n; ++i) mesh.AppendVertex(new Vector3d(i, j, 0));
+                for (int j = 0; j + 1 < n; ++j)
+                    for (int i = 0; i + 1 < n; ++i) {
+                        int a = j * n + i, b = a + 1, c = a + n, d = c + 1;
+                        mesh.AppendTriangle(a, b, d); mesh.AppendTriangle(a, d, c);
+                    }
+                int patchTriangles = mesh.TriangleCount;
+                var target = new MovesTarget();
+                var moved = new HashSet<int>();
+                // a cluster (a vertex and its neighbours) moves along one random vector, so that the triangles inside it keep their shape
+                int centre = 1 + rnd.Next(n - 2) + n * (1 + rnd.Next(n - 2));
+                moved.Add(centre);
+                foreach (int nb in mesh.VtxVerticesItr(centre)) if (rnd.Next(4) > 0) moved.Add(nb);
+                {
+                    double a = rnd.NextDouble() * 2 * Math.PI, r = 0.3 + 1.7 * rnd.NextDouble();
+                    Vector3d shift = new Vector3d(r * Math.Cos(a), r * Math.Sin(a), 0);
+                    foreach (int v in moved) {
+                        double b = rnd.NextDouble() * 2 * Math.PI, q = 0.25 * rnd.NextDouble();
+                        target.To[v] = mesh.GetVertex(v) + shift + new Vector3d(q * Math.Cos(b), q * Math.Sin(b), 0);
+                    }
+                }
+                // a vertical triangle across the middle of an edge from a moved vertex to a neighbour (at the new position of both)
+                int hit = moved.ElementAt(rnd.Next(moved.Count));
+                int[] nbrs = mesh.VtxVerticesItr(hit).ToArray();
+                int w = nbrs[rnd.Next(nbrs.Length)];
+                Vector3d pv = target.To[hit], pw = target.To.TryGetValue(w, out Vector3d tw) ? tw : mesh.GetVertex(w);
+                Vector3d mid = 0.5 * (pv + pw), dir = (pw - pv).Normalized, side = new Vector3d(-dir.y, dir.x, 0);
+                int o0 = mesh.AppendVertex(mid - 0.4 * side + new Vector3d(0, 0, -0.5)), o1 = mesh.AppendVertex(mid + 0.4 * side + new Vector3d(0, 0, -0.5)), o2 = mesh.AppendVertex(mid + new Vector3d(0, 0, 0.5));
+                mesh.AppendTriangle(o0, o1, o2);
+                Remesher r2 = new Remesher(mesh);
+                r2.EnableCollapses = r2.EnableFlips = r2.EnableSplits = false; r2.EnableSmoothing = false;
+                r2.MinEdgeLength = 1e-6; r2.MaxEdgeLength = 100;
+                r2.PreventNormalFlips = true; r2.PreventSelfIntersections = true;
+                r2.EnableParallelProjection = false;
+                r2.VertexControlF = id => moved.Contains(id) ? Remesher.VertexControl.AllowAll : (Remesher.VertexControl.NoSmooth | Remesher.VertexControl.NoProject);
+                r2.SetProjectionTarget(target);
+                r2.BasicRemeshPass();
+                if (r2.SelfIntersectionsRejected > 0) reverted++;
+                int flipped = 0;
+                for (int t = 0; t < patchTriangles; ++t) if (mesh.GetTriNormal(t).z < 0.5) flipped++;
+                Assert.True(flipped == 0, "trial " + trial + ": " + flipped + " triangles turned over");
+                trials++;
+            }
+            Assert.True(reverted > 100, "moves reverted by an intersection in only " + reverted + " of " + trials + " trials");
         }
     }
 }
