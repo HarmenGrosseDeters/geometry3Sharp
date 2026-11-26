@@ -214,6 +214,47 @@ namespace geometry3Sharp.Tests
             Assert.Equal(three.Select(t => t.Item2).OrderBy(Key).First(), both);
         }
 
+
+        // the point k0 a0 + k1 a1 + k2 a2 (the k's in eighths, summing to 8) of three exact points
+        static ExactPoint3 Combination(ExactPoint3[] a, int k0, int k1, int k2)
+        {
+            BigInteger w = a[0].W * a[1].W * a[2].W;
+            BigInteger[] k = { k0, k1, k2 };
+            BigInteger x = 0, y = 0, z = 0;
+            for (int i = 0; i < 3; ++i) {
+                BigInteger f = k[i] * (w / a[i].W);
+                x += f * a[i].X; y += f * a[i].Y; z += f * a[i].Z;
+            }
+            return ExactPoint3.Create(x, y, z, 8 * w);
+        }
+
+        /// <summary>
+        /// A piece whose centroid is on the edge of a coplanar input triangle cannot be told inside or outside it: the stacks refuse it, and
+        /// name the piece and the triangle (the lowest piece, the lowest triangle, whatever the order the parallel loops finish in).
+        /// </summary>
+        [Fact]
+        public void ACentroidOnTheEdgeOfACoplanarTriangle_IsRefused()
+        {
+            var a = FineBox(Vector3d.Zero, 1, 4);
+            var b = FineBox(new Vector3d(2, 0.25, 0.125), 1, 5);
+            BooleanCertificate c = Run(a, b, Ops.Union);
+            Assert.Equal("", c.CheckPieces());
+            var candidates = Enumerable.Range(0, c.PieceCorners.Length).Where(i => c.CoplanarSources(c.PieceSource[i]).Any(u => u != c.PieceSource[i])).ToArray();
+            int piece = candidates[0], second = candidates[candidates.Length / 2];
+            Assert.NotEqual(piece, second);
+            foreach (int k in new[] { second, piece }) {
+                int src = c.PieceSource[k];
+                int u = c.CoplanarSources(src).First(x => x != src);
+                ExactPoint3[] g = c.SourceCornersOnGrid(u);
+                // corners with the centroid (a0 + a1) / 2 on u's edge a0 a1, the piece not degenerate
+                c.PieceCorners[k] = new[] { Combination(g, 2, 6, 0), Combination(g, 4, 2, 2), Combination(g, 6, 4, -2) };
+            }
+            c.CheckPieces();
+            string r = c.CheckEmbedding();
+            Assert.Contains("its centroid is on the edge of coplanar triangle", r);
+            Assert.StartsWith($"piece {piece}: ", r);
+        }
+
         /// <summary>
         /// The scaling of #1632: 120 slices (480 input triangles each, 15878 classified pieces; C2 took 32 s before, 4.8 s after). Nightly: the
         /// boolean, C0 and C1 take a few seconds on their own, and the run is what is checked (the cost, not a verdict).
