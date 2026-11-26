@@ -3403,14 +3403,15 @@ namespace g3
         // (docs/design/SAFE_ROUNDING.md section 9.1.1)
         internal const long JointExtensionWastedProposals = 32 * 4096;
         internal const long JointExtensionWastedProbes = 1 << 20;
-        // for tests: smaller caps on this thread (0: the constants; the repair of a Boolean is made inside it)
-        [ThreadStatic] internal static long WastedProposalsCapOnThisThread, WastedProbesCapOnThisThread;
+        // for tests: the caps of this thread are the constants divided by these (0 or 1: the constants; at least 1 remains), so that a test with a
+        // divisor reaches the constants themselves (the repair of a Boolean is made inside the thread)
+        [ThreadStatic] internal static long WastedProposalsDivisorOnThisThread, WastedProbesDivisorOnThisThread;
         long wastedProposals, wastedProbes;
 
         bool extension_exhausted()
         {
-            return wastedProposals >= (WastedProposalsCapOnThisThread > 0 ? WastedProposalsCapOnThisThread : JointExtensionWastedProposals)
-                || wastedProbes >= (WastedProbesCapOnThisThread > 0 ? WastedProbesCapOnThisThread : JointExtensionWastedProbes);
+            return wastedProposals >= Math.Max(1, JointExtensionWastedProposals / Math.Max(1, WastedProposalsDivisorOnThisThread))
+                || wastedProbes >= Math.Max(1, JointExtensionWastedProbes / Math.Max(1, WastedProbesDivisorOnThisThread));
         }
 
         // the largest difference of the two levels (j) of a pair of free corners in the last round of the joint stage (the difference of 3 is
