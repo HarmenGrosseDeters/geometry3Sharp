@@ -44,6 +44,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [MeshRepairBenchmark](MeshRepairBenchmark/README.md) | `MeshAutoRepair` and `MeshRobustRepair` evaluation on Thingi10K and procedural failure cases |
 | [NotCleanBenchmark](NotCleanBenchmark/README.md) | Runtime of the checks behind `MeshRobustRepair.NotCleanReason` on large procedural meshes |
 | [OpenSoupWrapBenchmark](OpenSoupWrapBenchmark/README.md) | Alpha-wrap size estimation on open inputs and `WrapMaxEstimatedTriangles` budget |
+| [AlphaWrapFixStarBenchmark](AlphaWrapFixStarBenchmark/README.md) | Alpha-wrap manifold step (`fix_star`) at large box-corner stars, `MaxSteinerPoints` sweep (issue #1607) |
 | [SmallInputWrapBenchmark](SmallInputWrapBenchmark/README.md) | Alpha-wrap fallback sizing on very small inputs (`SmallInputWrapTriangles`) |
 | [LostAreaBenchmark](LostAreaBenchmark/README.md) | Cost of the `MeshRobustRepair.MeasureLostArea` report against the repair on procedural inputs |
 | [CertifiedMedialAxisProbe](CertifiedMedialAxisProbe/README.md) | Why a certified lower bound on local feature size cannot replace SafeRounding's thin-solid criteria (crease witnesses, thin slabs) |

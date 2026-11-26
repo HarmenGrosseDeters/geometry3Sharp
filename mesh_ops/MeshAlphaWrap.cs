@@ -404,7 +404,7 @@ namespace gs
             Result = null;
             Error = null;
             PhaseMilliseconds.Clear();
-            Counts.Clear();
+            Counts.Clear(); manifoldWork = 0;
             CornerPinchPoints = 0;
             phaseTimer.Restart();
             Status = setup();
@@ -2205,6 +2205,7 @@ namespace gs
                 }
             }
             Counts["manifold_flips"] = flips;
+            Counts["manifold_star_work"] = manifoldWork;
             Counts["manifold_vertex_checks"] = processed;
             return WrapStatus.Success;
         }
@@ -2408,6 +2409,17 @@ namespace gs
                 // several inside components, one outside: move one outside cell inside, preferring one that
                 // joins inside components, then small cells and cells without a box corner (which would put
                 // the corner on the result)
+                int outsideComps = 0;
+                bool allExterior = true;
+                for (int k = 0; k < compLabel.Count; ++k)
+                    if (compLabel[k] == Outside) { outsideComps++; if (!compExterior[k]) allExterior = false; }
+                manifoldWork += n;
+                if (nIn > 1 && !ReferenceFixStar && (outsideComps == 1 || allExterior)) {
+                    // the same moves, one cell at a time, without recomputing the components of the star for each (issue #1607)
+                    int r = join_inside_components(v, w, nIn, allExterior, ref flipped);
+                    if (r >= 0) return flipped;
+                    continue;       // the outside may have split: the general step again, on the labels as they are
+                }
                 int best = -1;
                 bool bestCorner = false, bestJoins = false;
                 double bestVolume = 0;
@@ -2439,6 +2451,363 @@ namespace gs
                 flipped++;
             }
             return flipped;
+        }
+
+        // scratch of join_inside_components
+        readonly List<int> ufParent = new List<int>();
+        readonly List<JoinCandidate> joinHeap = new List<JoinCandidate>();
+        int[] joinVersion = new int[0], visStamp = new int[0], visOwner = new int[0];
+        int visStampValue;
+        readonly List<int> bfsQueue = new List<int>();
+
+        internal struct JoinCandidate
+        {
+            public bool Corner, Joins;
+            public double Volume;
+            public int K, Version;
+        }
+
+        // a before b in the order of preferred_flip, the local index breaking ties (the first cell wins, as in a scan in local order)
+        internal static bool before(in JoinCandidate a, in JoinCandidate b)
+        {
+            if (a.Corner != b.Corner) return !a.Corner;
+            if (a.Joins != b.Joins) return a.Joins;
+            if (a.Volume != b.Volume) return a.Volume < b.Volume;
+            return a.K < b.K;
+        }
+
+        void heap_push(JoinCandidate c)
+        {
+            var h = joinHeap;
+            h.Add(c);
+            int i = h.Count - 1;
+            while (i > 0) {
+                int parent = (i - 1) / 2;
+                if (!before(h[i], h[parent])) break;
+                (h[i], h[parent]) = (h[parent], h[i]);
+                i = parent;
+            }
+        }
+
+        JoinCandidate heap_pop()
+        {
+            var h = joinHeap;
+            JoinCandidate top = h[0];
+            int last = h.Count - 1;
+            h[0] = h[last];
+            h.RemoveAt(last);
+            int i = 0;
+            while (true) {
+                int l = 2 * i + 1, r = l + 1, m = i;
+                if (l < h.Count && before(h[l], h[m])) m = l;
+                if (r < h.Count && before(h[r], h[m])) m = r;
+                if (m == i) break;
+                (h[i], h[m]) = (h[m], h[i]);
+                i = m;
+            }
+            return top;
+        }
+
+        int uf_find(int a)
+        {
+            while (ufParent[a] != a) { ufParent[a] = ufParent[ufParent[a]]; a = ufParent[a]; }
+            return a;
+        }
+
+        // the key of the outside cell local[k] as a candidate to move inside (the loop of fix_star scanned all cells for it); false if it has
+        // no inside neighbour in the star. The inside components are the union-find sets of comp[]
+        bool join_candidate(int k, int v, int w, out JoinCandidate cand)
+        {
+            int c = local[k];
+            int firstIn = -1, joins = 0, touches = 0;
+            for (int i = 0; i < 4; ++i) {
+                int cvx = dt.CellVertex(c, i);
+                if (cvx == v || cvx == w) continue;
+                int m = dt.Neighbour(c, i);
+                if (m < 0 || label[m] != Inside || !local_index(m, out int mk)) continue;
+                touches = 1;
+                int root = uf_find(comp[mk]);
+                if (firstIn < 0) firstIn = root;
+                else if (root != firstIn) joins = 1;
+            }
+            cand = new JoinCandidate { K = k };
+            if (touches == 0) return false;
+            cand.Corner = has_corner(c);
+            cand.Joins = joins == 1;
+            cand.Volume = dt.CellVolume(c);
+            return true;
+        }
+
+        /// <summary>
+        /// The branch of fix_star for several inside components and one outside component, in one pass: moves the outside cell that
+        /// preferred_flip picks inside, again and again, until the inside is one component. The same moves in the same order as
+        /// recomputing star_components and scanning every cell after each move (which made the step quadratic in the size of the star,
+        /// issue #1607), by a union-find over the inside components and a heap of the candidates. Keys only get worse by a merge of
+        /// inside components (joins goes from true to false), so a popped entry is checked against its current key and pushed again
+        /// if it changed; the keys of the neighbours of a moved cell are renewed. After every move the outside must still be one
+        /// component (a search from the moved cell's outside neighbours), otherwise it returns -1 and fix_star continues with the
+        /// general step on the labels. Returns 0 when done (the step of fix_star returns).
+        /// </summary>
+        int join_inside_components(int v, int w, int nIn, bool allExterior, ref int flipped)
+        {
+            int n = local.Count;
+            manifoldWork += n;
+            ufParent.Clear();
+            for (int k = 0; k < compLabel.Count; ++k) ufParent.Add(k);
+            if (joinVersion.Length < n) { joinVersion = new int[Math.Max(n, 2 * joinVersion.Length)]; visStamp = new int[joinVersion.Length]; visOwner = new int[joinVersion.Length]; visStampValue = 0; }
+            Array.Clear(joinVersion, 0, n);
+            joinHeap.Clear();
+            int outsideCount = 0;
+            for (int k = 0; k < n; ++k) {
+                if (label[local[k]] != Outside) continue;
+                outsideCount++;
+                if (join_candidate(k, v, w, out JoinCandidate cand)) heap_push(cand);
+            }
+            var nbrs = new int[3];
+            if (allExterior) build_outside_tree(v, w);
+            while (true) {
+                int best = -1;
+                while (joinHeap.Count > 0) {
+                    JoinCandidate top = heap_pop();
+                    if (top.Version != joinVersion[top.K] || label[local[top.K]] != Outside) continue;
+                    if (!join_candidate(top.K, v, w, out JoinCandidate now)) continue;
+                    if (now.Corner != top.Corner || now.Joins != top.Joins) { now.Version = top.Version; heap_push(now); continue; }
+                    best = top.K;
+                    break;
+                }
+                if (best < 0)
+                    return 0;
+                int nn = join_flip(best, v, w, ref nIn, nbrs, ref flipped);
+                outsideCount--;
+                joinVersion[best]++;
+                if (outsideCount == 0)
+                    return 0;
+                if (allExterior) {
+                    // the outside components all touch the box boundary and count as one; a piece cut off from it by the move would be
+                    // a component of its own, and fix_star would move all of it inside (the other outside components stay). The pieces in
+                    // the order of the local cells, as that step moves them
+                    deadCells.Clear();
+                    outside_pieces_cut_off(best, v, w, deadCells);
+                    if (deadCells.Count > 0) {
+                        if (deadCells.Count == outsideCount)
+                            return -1;      // no outside component left that touches the boundary: the general step
+                        deadCells.Sort();
+                        var none = new int[3];
+                        foreach (int dk in deadCells) {
+                            join_flip(dk, v, w, ref nIn, none, ref flipped);
+                            joinVersion[dk]++;
+                            outsideCount--;
+                        }
+                    }
+                } else if (!outside_stays_connected(v, w, nbrs, nn))
+                    return -1;
+                if (nIn == 1)
+                    return 0;
+                // the keys of the outside neighbours changed (a new inside neighbour)
+                for (int j = 0; j < nn; ++j) {
+                    int k = nbrs[j];
+                    if (label[local[k]] != Outside) continue;
+                    joinVersion[k]++;
+                    if (join_candidate(k, v, w, out JoinCandidate cand)) { cand.Version = joinVersion[k]; heap_push(cand); }
+                }
+            }
+        }
+
+        readonly List<int> deadCells = new List<int>();
+
+        // moves the outside cell local[k] inside: its inside neighbours' components and it become one component (nIn is updated), its
+        // outside neighbours (local indices) are returned in nbrs, their number as the result
+        int join_flip(int k, int v, int w, ref int nIn, int[] nbrs, ref int flipped)
+        {
+            int c = local[k];
+            label[c] = Inside;
+            flippedCells.Add(c);
+            flipped++;
+            int distinct = 0, rootIn = -1, nn = 0;
+            for (int i = 0; i < 4; ++i) {
+                int cvx = dt.CellVertex(c, i);
+                if (cvx == v || cvx == w) continue;
+                int m = dt.Neighbour(c, i);
+                if (m < 0 || !local_index(m, out int mk)) continue;
+                if (label[m] == Inside) {
+                    int root = uf_find(comp[mk]);
+                    if (rootIn < 0) { rootIn = root; distinct = 1; }
+                    else if (root != rootIn) { ufParent[root] = rootIn; distinct++; }
+                } else if (nn < nbrs.Length) {
+                    nbrs[nn++] = mk;
+                }
+            }
+            if (rootIn < 0) { rootIn = ufParent.Count; ufParent.Add(rootIn); }
+            comp[k] = rootIn;
+            nIn = nIn + 1 - distinct;
+            return nn;
+        }
+
+        // a spanning forest of the outside cells of the star, rooted at the cells with a facet on the box boundary (treeParent[k] is -1 for such a
+        // root, else the local index of the neighbour towards a root): while it exists, every outside cell is in a component that touches the boundary
+        int[] treeParent = new int[0], treeMark = new int[0];
+        int treeMarkValue;
+
+        void build_outside_tree(int v, int w)
+        {
+            int n = local.Count;
+            if (treeParent.Length < n) { treeParent = new int[Math.Max(n, 2 * treeParent.Length)]; treeMark = new int[treeParent.Length]; treeMarkValue = 0; }
+            if (++treeMarkValue >= int.MaxValue - 2) { Array.Clear(treeMark, 0, treeMark.Length); treeMarkValue = 1; }
+            var q = bfsQueue;
+            q.Clear();
+            for (int k = 0; k < n; ++k) {
+                int c = local[k];
+                if (label[c] != Outside) continue;
+                for (int i = 0; i < 4; ++i) {
+                    int cvx = dt.CellVertex(c, i);
+                    if (cvx == v || cvx == w) continue;
+                    if (dt.Neighbour(c, i) < 0) { treeParent[k] = -1; treeMark[k] = treeMarkValue; q.Add(k); break; }
+                }
+            }
+            for (int h = 0; h < q.Count; ++h) {
+                int u = q[h], c = local[u];
+                for (int i = 0; i < 4; ++i) {
+                    int cvx = dt.CellVertex(c, i);
+                    if (cvx == v || cvx == w) continue;
+                    int m = dt.Neighbour(c, i);
+                    if (m < 0 || label[m] != Outside || !local_index(m, out int mk) || treeMark[mk] == treeMarkValue) continue;
+                    treeMark[mk] = treeMarkValue; treeParent[mk] = u;
+                    q.Add(mk);
+                }
+            }
+            manifoldWork += q.Count;
+        }
+
+        /// <summary>
+        /// Test hook: fix_star moves the cells of the one-outside-component case one at a time with a full recomputation of the star's
+        /// components each (the step before issue #1607) instead of join_inside_components; the result is the same
+        /// </summary>
+        internal bool ReferenceFixStar;
+        // the cells visited by fix_star: the components of its stars, and in join_inside_components its set up, the forest's construction, the
+        // re-attachment after a move and the searches that decide whether the outside stays connected: Counts["manifold_star_work"].
+        // There is no bound that is linear in the moves for every input: a move cuts a subtree of the forest (or, with one non-exterior
+        // outside component, searches until the pieces meet or run out), and a fallback to the general step recomputes the star. Measured:
+        // 4.7, 7.5 and 9.5 cells per move on the point-limit sphere at 20000, 40000 and 80000 points (3.2 at 5000, 20 at 160000 with few moves), 20 to 85 on small stars of random soups, 4 to 13
+        // times less than the old step's visits on those
+        long manifoldWork;
+
+        readonly List<int> detached = new List<int>(), reattach = new List<int>();
+
+        // the outside cell local[xk] was moved inside: the cells whose way to the boundary led through it (its subtree of the forest) look
+        // for another one, from the cells next to the rest of the forest outward; those without one are the pieces that the move cut
+        // off from the boundary (all the cells of such a component were in the subtree), added to dead (local indices)
+        void outside_pieces_cut_off(int xk, int v, int w, List<int> dead)
+        {
+            var det = detached;
+            det.Clear();
+            int cx = local[xk];
+            for (int i = 0; i < 4; ++i) {
+                int cvx = dt.CellVertex(cx, i);
+                if (cvx == v || cvx == w) continue;
+                int m = dt.Neighbour(cx, i);
+                if (m < 0 || label[m] != Outside || !local_index(m, out int mk)) continue;
+                if (treeParent[mk] == xk) det.Add(mk);
+            }
+            if (det.Count == 0) return;
+            manifoldWork += det.Count;
+            for (int h = 0; h < det.Count; ++h) {
+                int u = det[h], c = local[u];
+                for (int i = 0; i < 4; ++i) {
+                    int cvx = dt.CellVertex(c, i);
+                    if (cvx == v || cvx == w) continue;
+                    int m = dt.Neighbour(c, i);
+                    if (m < 0 || label[m] != Outside || !local_index(m, out int mk)) continue;
+                    if (treeParent[mk] == u) det.Add(mk);
+                }
+            }
+            // (mark the detached cells with treeMarkValue + 1, those attached again with + 2)
+            int detMark = treeMarkValue + 1, attMark = treeMarkValue + 2;
+            foreach (int u in det) treeMark[u] = detMark;
+            var q = reattach;
+            q.Clear();
+            foreach (int u in det) {
+                int c = local[u];
+                for (int i = 0; i < 4; ++i) {
+                    int cvx = dt.CellVertex(c, i);
+                    if (cvx == v || cvx == w) continue;
+                    int m = dt.Neighbour(c, i);
+                    if (m < 0 || label[m] != Outside || !local_index(m, out int mk)) continue;
+                    if (treeMark[mk] == detMark || treeMark[mk] == attMark) continue;
+                    treeParent[u] = mk; treeMark[u] = attMark; q.Add(u);
+                    break;
+                }
+            }
+            for (int h = 0; h < q.Count; ++h) {
+                int u = q[h], c = local[u];
+                for (int i = 0; i < 4; ++i) {
+                    int cvx = dt.CellVertex(c, i);
+                    if (cvx == v || cvx == w) continue;
+                    int m = dt.Neighbour(c, i);
+                    if (m < 0 || label[m] != Outside || !local_index(m, out int mk)) continue;
+                    if (treeMark[mk] != detMark) continue;
+                    treeParent[mk] = u; treeMark[mk] = attMark; q.Add(mk);
+                }
+            }
+            manifoldWork += q.Count;
+            foreach (int u in det)
+                if (treeMark[u] == detMark) dead.Add(u);
+            // (back to the value of the forest's cells: the marks above are values above it)
+            foreach (int u in det) treeMark[u] = treeMarkValue;
+        }
+
+        // after the move of a cell: are its outside neighbours nbrs[0..nn) in one component of the outside cells of the star (which was
+        // one component with the cell)? Searches from each of them in turn (one cell per search and round); if the search of a group of
+        // them is exhausted while another group is not reached, it is no longer one component
+        bool outside_stays_connected(int v, int w, int[] nbrs, int nn)
+        {
+            if (nn == 1) return true;
+            if (nn == 0) return false;
+            if (++visStampValue == int.MaxValue) { Array.Clear(visStamp, 0, visStamp.Length); visStampValue = 1; }
+            var queues = new List<int>[nn];
+            var heads = new int[nn];
+            var group = new int[nn];
+            for (int j = 0; j < nn; ++j) {
+                queues[j] = new List<int> { nbrs[j] };
+                group[j] = j;
+                visStamp[nbrs[j]] = visStampValue; visOwner[nbrs[j]] = j;
+            }
+            Func<int, int> find = null;
+            find = (a) => group[a] == a ? a : (group[a] = find(group[a]));
+            int groups = nn;
+            while (groups > 1) {
+                bool progressed = false;
+                for (int j = 0; j < nn && groups > 1; ++j) {
+                    if (heads[j] >= queues[j].Count) continue;
+                    progressed = true;
+                    int kk = queues[j][heads[j]++];
+                    int c = local[kk];
+                    for (int i = 0; i < 4; ++i) {
+                        int cvx = dt.CellVertex(c, i);
+                        if (cvx == v || cvx == w) continue;
+                        int m = dt.Neighbour(c, i);
+                        if (m < 0 || label[m] != Outside || !local_index(m, out int mk)) continue;
+                        if (visStamp[mk] == visStampValue) {
+                            int a = find(visOwner[mk]), b = find(j);
+                            if (a != b) { group[a] = b; groups--; }
+                        } else {
+                            visStamp[mk] = visStampValue; visOwner[mk] = j;
+                            queues[j].Add(mk);
+                        }
+                    }
+                }
+                if (groups == 1) break;
+                if (!progressed) { for (int j = 0; j < nn; ++j) manifoldWork += queues[j].Count; return false; }
+                // a group with all its searches exhausted while another exists: split
+                for (int g = 0; g < nn; ++g) {
+                    if (find(g) != g) continue;
+                    bool alive = false;
+                    for (int j = 0; j < nn && !alive; ++j)
+                        if (find(j) == g && heads[j] < queues[j].Count) alive = true;
+                    if (!alive) { for (int j = 0; j < nn; ++j) manifoldWork += queues[j].Count; return false; }
+                }
+            }
+            for (int j = 0; j < nn; ++j) manifoldWork += queues[j].Count;
+            return true;
         }
 
         /// <summary>
