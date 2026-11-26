@@ -424,7 +424,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void CertifyBand_FastBounds_MO1_MO2_MO3_MO4_SoundAndTakeFastPath()
+        public void CertifyBand_MO1_BoxLowerSq_SoundAndFastPath()
         {
             ExactDyadic D(double x) => ExactDyadic.Of(x);
             var rnd = new Random(1650);
@@ -473,6 +473,12 @@ namespace geometry3Sharp.Tests
                     Assert.True(ExactDyadic.Compare(D(lb), exactWidenedSq) <= 0, $"MO-1 exp={exp} i={i}: lb={lb:R} > exact widened box d^2");
                 }
             }
+        }
+
+        [Fact]
+        public void CertifyBand_MO2_TriangleLower_SoundAndFastPath()
+        {
+            var rnd = new Random(1651);
 
             // MO-2 fast path taken & exact-oracle soundness across normal, UTM, subnormal, overflow, NaN, and degenerate cases
             {
@@ -514,6 +520,13 @@ namespace geometry3Sharp.Tests
                         Assert.False(CertifiedPointMeshDistance.AtLeastDistance(m, p, lo), $"MO-2 off={off} i={i}: lo={lo:R} >= exact");
                 }
             }
+        }
+
+        [Fact]
+        public void CertifyBand_MO3_BaryRadiusUpper_SoundAndFastPath()
+        {
+            ExactDyadic D(double x) => ExactDyadic.Of(x);
+            var rnd = new Random(1652);
 
             // MO-3 bary_radius_upper fast path taken, all 3 corner shortcuts, NaN/high-r2 fallback, and exact-dyadic soundness
             {
@@ -562,31 +575,95 @@ namespace geometry3Sharp.Tests
                     Assert.True(ExactDyadic.Compare(D(r) * D(r), exactSq) >= 0, $"MO-3 exp={exp} i={i}: r={r:R} < exact |c - q*|");
                 }
             }
+        }
+
+        [Fact]
+        public void CertifyBand_MO4_TriAabbLowerSq_SoundAndFastPath()
+        {
+            ExactDyadic D(double x) => ExactDyadic.Of(x);
+            var rnd = new Random(1653);
 
             // MO-4 tri_aabb_lower_sq fast path taken, NaN safety on individual axes, and exact-dyadic soundness
+            Vector3d a = Vector3d.Zero, b = new Vector3d(1, 0, 0), c = new Vector3d(0, 1, 0);
+            double expected = 25.0 * (1.0 - 1e-15);
+            Assert.Equal(
+                BitConverter.DoubleToInt64Bits(expected),
+                BitConverter.DoubleToInt64Bits(MeshOffset.tri_aabb_lower_sq(a, b, c, new Vector3d(-3, 5, 0))));
+            // NaN on any axis must return 0 (never swallow NaN and return nonzero from remaining axes)
+            Assert.Equal(0.0, MeshOffset.tri_aabb_lower_sq(new Vector3d(double.NaN, 0, 0), b, c, new Vector3d(0, 5, 0)));
+            Assert.Equal(0.0, MeshOffset.tri_aabb_lower_sq(a, b, c, new Vector3d(double.NaN, 5, 0)));
+            Assert.Equal(0.0, MeshOffset.tri_aabb_lower_sq(a, b, c, new Vector3d(0, 5, double.NaN)));
+            // Out-of-range scales return 0
+            Assert.Equal(0.0, MeshOffset.tri_aabb_lower_sq(Vector3d.Zero, Vector3d.Zero, Vector3d.Zero, new Vector3d(1e200, 0, 0)));
+            // 1D opposite-sign non-Sterbenz exact-dyadic soundness (catches dropping (1 - 1e-15))
+            for (int i = 0; i < 200; ++i) {
+                double lo = 1.0 + rnd.NextDouble(), px = -(0.5 + rnd.NextDouble() * 0.5);
+                double lb = MeshOffset.tri_aabb_lower_sq(new Vector3d(lo, 0, 0), new Vector3d(lo + 1, 1, 0), new Vector3d(lo + 1, 0, 1), new Vector3d(px, 0.25, 0.25));
+                ExactDyadic g = D(lo) - D(px);
+                Assert.True(ExactDyadic.Compare(D(lb), g * g) <= 0, $"MO-4 1D i={i}: lb={lb:R} > exact gap^2");
+            }
+        }
+
+        [Fact]
+        public void CertifyBand_SignedDistanceBounds_MatchesExactOracleAndSign()
+        {
+            // Direct oracle check of signed_distance_bounds (dynamic BVH ULoSq tightening + MO-4 triangle prefilter):
+            // catches unsound box or triangle pruning on random points near a sphere and a box, at origin and UTM offsets.
+            var rnd = new Random(1654);
+            var utm = new Vector3d(632117.25, 5712043.5, 113.75);
+
+            void CheckMesh(string label, DMesh3 mesh, int samples)
             {
-                Vector3d a = Vector3d.Zero, b = new Vector3d(1, 0, 0), c = new Vector3d(0, 1, 0);
-                double expected = 25.0 * (1.0 - 1e-15);
-                Assert.Equal(
-                    BitConverter.DoubleToInt64Bits(expected),
-                    BitConverter.DoubleToInt64Bits(MeshOffset.tri_aabb_lower_sq(a, b, c, new Vector3d(-3, 5, 0))));
-                // NaN on any axis must return 0 (never swallow NaN and return nonzero from remaining axes)
-                Assert.Equal(0.0, MeshOffset.tri_aabb_lower_sq(new Vector3d(double.NaN, 0, 0), b, c, new Vector3d(0, 5, 0)));
-                Assert.Equal(0.0, MeshOffset.tri_aabb_lower_sq(a, b, c, new Vector3d(double.NaN, 5, 0)));
-                Assert.Equal(0.0, MeshOffset.tri_aabb_lower_sq(a, b, c, new Vector3d(0, 5, double.NaN)));
-                // Out-of-range scales return 0
-                Assert.Equal(0.0, MeshOffset.tri_aabb_lower_sq(Vector3d.Zero, Vector3d.Zero, Vector3d.Zero, new Vector3d(1e200, 0, 0)));
-                // 1D opposite-sign non-Sterbenz exact-dyadic soundness (catches dropping (1 - 1e-15))
-                for (int i = 0; i < 200; ++i) {
-                    double lo = 1.0 + rnd.NextDouble(), px = -(0.5 + rnd.NextDouble() * 0.5);
-                    double lb = MeshOffset.tri_aabb_lower_sq(new Vector3d(lo, 0, 0), new Vector3d(lo + 1, 1, 0), new Vector3d(lo + 1, 0, 1), new Vector3d(px, 0.25, 0.25));
-                    ExactDyadic g = D(lo) - D(px);
-                    Assert.True(ExactDyadic.Compare(D(lb), g * g) <= 0, $"MO-4 1D i={i}: lb={lb:R} > exact gap^2");
+                var tree = new DMeshAABBTree3(mesh, true);
+                AxisAlignedBox3d bounds = mesh.CachedBounds;
+                Vector3d center = bounds.Center;
+                double extent = bounds.Extents.Max;
+                for (int i = 0; i < samples; ++i) {
+                    Vector3d p = center + new Vector3d(
+                        (rnd.NextDouble() * 3.0 - 1.5) * extent,
+                        (rnd.NextDouble() * 3.0 - 1.5) * extent,
+                        (rnd.NextDouble() * 3.0 - 1.5) * extent);
+                    MeshOffset.signed_distance_bounds(mesh, tree, p, out double sLo, out double sHi);
+                    Assert.True(MathUtil.IsFinite(sLo) && MathUtil.IsFinite(sHi) && sLo <= sHi,
+                        $"{label} i={i}: invalid bounds [{sLo:R}, {sHi:R}]");
+                    double uHi = Math.Max(Math.Abs(sLo), Math.Abs(sHi));
+                    Assert.True(CertifiedPointMeshDistance.AtLeastDistance(mesh, p, uHi),
+                        $"{label} i={i}: uHi={uHi:R} < exact distance");
+                    if (sLo > 0) {
+                        Assert.False(tree.IsInside(p), $"{label} i={i}: sLo={sLo:R} > 0 but point is inside");
+                        Assert.False(CertifiedPointMeshDistance.AtLeastDistance(mesh, p, ExactInterval.Down(sLo)),
+                            $"{label} i={i}: sLo={sLo:R} > exact distance (unsound prune)");
+                    } else if (sHi < 0) {
+                        double uLo = -sHi;
+                        Assert.True(tree.IsInside(p), $"{label} i={i}: sHi={sHi:R} < 0 but point is outside");
+                        Assert.False(CertifiedPointMeshDistance.AtLeastDistance(mesh, p, ExactInterval.Down(uLo)),
+                            $"{label} i={i}: |sHi|={uLo:R} > exact distance (unsound prune)");
+                    } else {
+                        Assert.Equal(-sHi, sLo);
+                    }
                 }
             }
 
+            DMesh3 sphere = new Sphere3Generator_NormalizedCube { Radius = 1.0, EdgeVertices = 7 }.Generate().MakeDMesh();
+            CheckMesh("sphere", sphere, 60);
+
+            DMesh3 sphereUtm = new DMesh3(sphere);
+            MeshTransforms.Translate(sphereUtm, utm);
+            CheckMesh("sphere-utm", sphereUtm, 40);
+
+            DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
+            CheckMesh("box", box, 60);
+
+            DMesh3 boxUtm = new DMesh3(box);
+            MeshTransforms.Translate(boxUtm, utm);
+            CheckMesh("box-utm", boxUtm, 40);
+        }
+
+        [Fact]
+        public void CertifyBand_SignReuseAndScaleInvariance()
+        {
             // Ball-connected sign reuse MUST NOT misclassify a triangle crossing the mesh surface:
-            // large triangle straddling x = 1 face of unit box [0,1]^3 (one corner inside at x=0.5, two outside at x=1.5)
+            // 1) large triangle straddling x = 1 face of unit box [0,1]^3 (one corner inside at x=0.5, two outside at x=1.5)
             {
                 DMesh3 input = Box(Vector3d.Zero, Vector3d.One);
                 var straddle = new DMesh3();
@@ -604,7 +681,22 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(unc, uncPar);
             }
 
-            // 2^k scale invariance of CertifyBand (serial == parallel, exact bit scaling)
+            // 2) Surface-node SignWitness inheritance: depth-0 centroid c0 = (1.5, 0.5, 0.5) is outside (uLo = 0.5, sign = +1);
+            //    depth-1 child-0 centroid c1 = (1.0, 0.5, 0.5) lies directly on the x = 1 face (uLo = 0, signOut = 0);
+            //    depth-2 sub-child centroid c2 = (0.75, 0.5, 0.5) is inside (sd = -0.25, |c2 - c1| = 0.25 < 0.5 = parentULo).
+            //    Decoupling (c1, parentULo, +1) would falsely reuse +1 at c2..c4 and certify at d = 0.5, tol = 0.6.
+            {
+                DMesh3 input = Box(Vector3d.Zero, Vector3d.One);
+                var surfaceChild = new DMesh3();
+                surfaceChild.AppendTriangle(
+                    surfaceChild.AppendVertex(new Vector3d(0.5, 0.5, 0.5)),
+                    surfaceChild.AppendVertex(new Vector3d(2.0, 0.25, 0.5)),
+                    surfaceChild.AppendVertex(new Vector3d(2.0, 0.75, 0.5)));
+                Assert.False(MeshOffset.CertifyBand(input, surfaceChild, 0.5, 0.6, out double dev, out int unc, maxDepth: 4, parallel: false));
+                Assert.True(dev >= 0.75 - 1e-12 && unc == 1, $"surfaceChild dev={dev:R} unc={unc}");
+            }
+
+            // 3) 2^k scale invariance of CertifyBand (serial == parallel, exact bit scaling)
             {
                 DMesh3 input = Box(Vector3d.Zero, Vector3d.One);
                 MeshOffset op = Run(input, 0.1, x => { x.RelativeCellSize = 0.5; x.UseParallel = false; });

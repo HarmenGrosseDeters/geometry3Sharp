@@ -403,6 +403,22 @@ namespace gs
             }
         }
 
+        // Mesh-free ball witness (C, ULo, Sign) for ball-connected sign propagation in triangle_deviation:
+        // when Sign != 0 and ULo < +Inf, the open ball B(C, ULo) is disjoint from the closed input mesh,
+        // so every point q with LengthUpper(q, C) < ULo has IsInside(q) == (Sign < 0).
+        // Bundled as one struct so (C, ULo, Sign) cannot be mismatched across recursive splits.
+        struct SignWitness
+        {
+            public readonly Vector3d C;
+            public readonly double ULo;
+            public readonly int Sign;
+            public SignWitness(Vector3d c, double uLo, int sign) { C = c; ULo = uLo; Sign = sign; }
+            public int KnownSignAt(Vector3d q)
+            {
+                return (Sign != 0 && ULo < double.PositiveInfinity && CertifiedTriangleBounds.LengthUpper(q, C) < ULo) ? Sign : 0;
+            }
+        }
+
         static double band_deviation(DMesh3 input, DMeshAABBTree3 tree, DMesh3 surface, double d, double tol, int maxDepth, bool parallel,
             out int uncertified)
         {
@@ -414,7 +430,7 @@ namespace gs
                 Vector3d v0 = surface.GetVertex(t.a), v1 = surface.GetVertex(t.b), v2 = surface.GetVertex(t.c);
                 bool ok;
                 dev[ti] = triangle_deviation(st, tree, v0, v1, v2, new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), new Vector3d(0, 0, 1),
-                    d, tol, maxDepth, Vector3d.Zero, 0, 0, out ok);
+                    d, tol, maxDepth, default(SignWitness), out ok);
                 bad[ti] = !ok;
             };
             if (parallel) {
@@ -477,11 +493,9 @@ namespace gs
         static double sqrt_up(double x) { return (x <= 0) ? 0 : ExactInterval.Up(Math.Sqrt(x)); }
 
         // bound of |sd - d| on the sub-triangle with barycentric corners l0, l1, l2 of (v0, v1, v2); ok if it is <= tol.
-        // parentC / parentULo / parentSign: when parentSign != 0 and LengthUpper(c, parentC) < parentULo, the closed segment
-        // [parentC, c] lies inside the open ball B(parentC, parentULo) disjoint from input, so IsInside(c) == (parentSign < 0).
+        // parent: mesh-free ball witness B(parent.C, parent.ULo) disjoint from input, allowing sign reuse when LengthUpper(c, parent.C) < parent.ULo.
         static double triangle_deviation(BandQueryState st, DMeshAABBTree3 tree, Vector3d v0, Vector3d v1, Vector3d v2,
-            Vector3d l0, Vector3d l1, Vector3d l2, double d, double tol, int depth,
-            Vector3d parentC, double parentULo, int parentSign, out bool ok)
+            Vector3d l0, Vector3d l1, Vector3d l2, double d, double tol, int depth, SignWitness parent, out bool ok)
         {
             // any finite point serves as the centre: the rounded barycentric centroid (falling back to box_of midpoints if non-finite)
             Vector3d p0 = l0.x * v0 + l0.y * v1 + l0.z * v2;
@@ -501,7 +515,7 @@ namespace gs
             double r = Math.Max(bary_radius_upper(c, v0, v1, v2, l0),
                        Math.Max(bary_radius_upper(c, v0, v1, v2, l1),
                                 bary_radius_upper(c, v0, v1, v2, l2)));
-            int knownSign = (parentSign != 0 && parentULo < double.PositiveInfinity && CertifiedTriangleBounds.LengthUpper(c, parentC) < parentULo) ? parentSign : 0;
+            int knownSign = parent.KnownSignAt(c);
             double sLo, sHi, uLoOut;
             int signOut;
             signed_distance_bounds(st, tree, c, knownSign, out sLo, out sHi, out uLoOut, out signOut);
@@ -517,14 +531,12 @@ namespace gs
                 return dev;
             }
             Vector3d m01 = 0.5 * (l0 + l1), m12 = 0.5 * (l1 + l2), m20 = 0.5 * (l2 + l0);   // exact: halves of dyadic numbers
-            Vector3d nextC = signOut != 0 ? c : parentC;
-            double nextULo = signOut != 0 ? uLoOut : parentULo;
-            int nextSign = signOut != 0 ? signOut : parentSign;
+            SignWitness next = (signOut != 0) ? new SignWitness(c, uLoOut, signOut) : parent;
             bool o0, o1, o2, o3;
-            double e0 = triangle_deviation(st, tree, v0, v1, v2, l0, m01, m20, d, tol, depth - 1, nextC, nextULo, nextSign, out o0);
-            double e1 = triangle_deviation(st, tree, v0, v1, v2, m01, l1, m12, d, tol, depth - 1, nextC, nextULo, nextSign, out o1);
-            double e2 = triangle_deviation(st, tree, v0, v1, v2, m20, m12, l2, d, tol, depth - 1, nextC, nextULo, nextSign, out o2);
-            double e3 = triangle_deviation(st, tree, v0, v1, v2, m01, m12, m20, d, tol, depth - 1, nextC, nextULo, nextSign, out o3);
+            double e0 = triangle_deviation(st, tree, v0, v1, v2, l0, m01, m20, d, tol, depth - 1, next, out o0);
+            double e1 = triangle_deviation(st, tree, v0, v1, v2, m01, l1, m12, d, tol, depth - 1, next, out o1);
+            double e2 = triangle_deviation(st, tree, v0, v1, v2, m20, m12, l2, d, tol, depth - 1, next, out o2);
+            double e3 = triangle_deviation(st, tree, v0, v1, v2, m01, m12, m20, d, tol, depth - 1, next, out o3);
             ok = o0 && o1 && o2 && o3;
             return Math.Max(Math.Max(e0, e1), Math.Max(e2, e3));
         }
@@ -604,7 +616,7 @@ namespace gs
                 lo = Math.Max(0, ExactInterval.Down(lo - slack));
                 s = ExactInterval.Down(s + ExactInterval.Down(lo * lo));
             }
-            return (s > 0) ? s : 0;
+            return Math.Max(0, s);
         }
 
         // upper bound of the distance from c to the triangle: delegates to CertifiedTriangleBounds.PointTriangleUpper (CTB-2)
@@ -666,6 +678,7 @@ namespace gs
                     double dot = wx * dx + wy * dy + wz * dz;
                     double absDot = awx * Math.Abs(dx) + awy * Math.Abs(dy) + awz * Math.Abs(dz);
                     double lo = dot - 1e-15 * absDot;
+                    // Also routes legitimately negative/zero support dots to the interval path (rare for nearest/near triangles), which clamps to 0.
                     if (!(lo > NormalSqLo && lo < NormalSqHi)) { minNum = 0; break; }
                     if (lo < minNum) minNum = lo;
                 }
