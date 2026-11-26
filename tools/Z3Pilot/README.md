@@ -150,8 +150,7 @@ Prior art / building-block check:
 
 * **Volume comparison.** Given an enclosure of the exact volume, rounding
   monotonicity proves both strict comparisons in `VolumeCompareFilter`,
-  including ties and cancellation. It also proves the isolated comparison
-  with zero margin. The actual margin is retained. Reversed margins admit a
+  including ties and cancellation. Reversed margins admit a
   false decision at equality. Overflow of `3*t` takes the undecided path;
   an overflowing upper endpoint cannot make a below-threshold claim.
 * **Polyhedral envelope.** A rational certificate compares the rounded
@@ -160,7 +159,17 @@ Prior art / building-block check:
   model checks that the expanded search box encloses the epsilon-expanded
   triangle box. The full facet construction and inside test remain separate.
 * **Geodesic windows.** A one-norm bound checks `DiskOfBox`, including halves
-  that round in the subnormal range. Without midpoint padding the model
+  that round in the subnormal range. The **successor bridge** uses the
+  current `Up` after #1646. For finite rounded `r` the exact result is
+  below its next larger representable value by monotonic RNE, including
+  ties. Up's tiny branch steps by one subnormal spacing, with explicit
+  negative zero at `-double.Epsilon`. In the middle branch multiplication
+  by 2^54 is exact. The successor in that normal frame rescales exactly
+  because the original value is above the minimum normal magnitude.
+  The large branch uses the corrected half-ulp factor and overflows
+  outward at the largest positive double. The geodesic model assumes
+  finite inputs to Up and uses this bridge for rounded differences and
+  sums. Without midpoint padding the model
   replay excludes one end of an actual binary64 interval. The short-edge
   guard rules out overlapping endpoint disks given a certified midpoint
   length lower bound and valid endpoint disks. A subnormal length replay
@@ -168,14 +177,14 @@ Prior art / building-block check:
   for `len * (1 - 4e-16)`. The final `TransformDisk` radius is outside the
   proof.
 * **Double-word division.** Independent checks cover the two rounded
-  denominator subtractions, the positive divisor bound, the residual
-  identity and normal-case error inflation. The subnormal floor is checked
+  denominator subtractions, the positive divisor bound and normal-case
+  error inflation. The subnormal floor is checked
   as a separate condition. The pilot takes the residual enclosure and
   normalized operand ranges as premises. Omitting inflation admits a
   rounded-down residual quotient.
 * **Contouring bins.** For a monotone grid with a bracketed target, the two
-  source predicates reach the chosen inclusive bin and a strict distance
-  ranking proves progress. The integer range proof assumes the estimate
+  source predicates move toward the chosen inclusive bin. The equality
+  mutants change which neighboring bin owns an exact grid boundary. The integer range proof assumes the estimate
   and target fit the packed bin domain and the bin size is at most 1024.
   The estimate's standalone cap allows an overflowing product in the
   arithmetic model. Reachability through a complete contour build remains
