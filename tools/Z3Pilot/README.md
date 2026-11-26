@@ -996,6 +996,80 @@ python3 tools/Z3Pilot/slope_approx.py [--fp]
 python3 -m unittest discover -s tools/Z3Pilot -p 'test_adaptive_range.py' -v
 ```
 
+## Follow-up on PRs #1656, #1657 and #1658
+
+`pilot_followups.py` checks additional obligations, with the original
+pilot assumptions kept explicit. Run the follow-up with the pinned solver.
+
+```sh
+python3 -m unittest discover -s tools/Z3Pilot -p test_pilot_followups.py -v
+```
+
+| Pilot | Follow-up result and remaining obligation |
+| --- | --- |
+| Continuous collision | The axis-only root shortcut visits the vertex-triangle simplex or edge-edge square corners at both times. The convex-combination argument uses the original corner bound as a premise. Normal-direction culling needs its own interval proof. |
+| Ray/AABB | The entry lower bound follows from the two normal-rounded slab operations and the normal subtraction model. The final absolute subtraction and zero clamp preserve it. Entry bounds through subnormal intermediates remain open in the current code. The proposed conservative alternative uses zero below 2^-969 for the rounded entry, which ensures that the correction product is normal on the other path. |
+| Terrain box | A straight-toe build reaches the offset case from #1657. Outward rounding encloses the reference reach in the model. The straight-toe build succeeded, and no missing face was demonstrated. A full implication from the domain edge to output coverage remains open. |
+| Saturating conversions | The 32/64-bit floor and grid neighbor obligations in #1657 close the stated arithmetic checks. Runtime casts remain tied to the documented .NET semantics. |
+| Intrinsic flip | Conservation of crossing arcs on the shared edge makes the doubled flip count even. This supplies the parity step for realizable inputs satisfying that conservation law. The roundabout update and common subdivision extraction still need separate arguments. |
+| Limb negation | The two-word check covers the carry propagation step used repeatedly by the loop. The arena sizing proof still uses the reviewed width bounds for each arithmetic operation. |
+| Tetrahedron stitching | A strictly negative sum of the two affine fields at both ends is a premise for nonoverlap between them. The rounding and coincident-zero cases still need separate coverage. |
+| Coplanar propagation | The fold replay below disproves triangle-plane label completeness for the retained segment labels. Since `Partners` retains the noncoplanar incident triangle, a traversal can force a new winding seed where that partner contains the edge. The `Partners` guard and coplanar label preservation through splitting need verification in the propagation implementation. |
+| SecondPoint | The subnormal rounding case becomes a missed hit in `IntersectionUtil.Intersects`. A finite second point cannot represent a forward ray from `double.MaxValue` along +x. The candidate direction-based predicate below needs a separate exact-code review. |
+| Volume filters | The normal-rounding product induction for a general summation length is machine-checked. The normal-case final inflation also covers the evaluation once the accumulated component bounds satisfy the stated gamma premise. The per-determinant enclosure and the additive underflow budget still need to be linked end to end. |
+| Polyhedral envelope | The local delta and search box checks remain valid. The independent-rounding model is inconclusive for the current residual factor 5. The alternative factor 6 search exceeds the fast-gate budget. Actual facet displacement and direction-error constants remain open. |
+| Geodesic window | The midpoint disk proof now covers the differently rounded endpoint radii used by `TransformDisk`. The original subnormal length witness is rejected by the full guard. The final radius inflation covers its own normal rounding when the constituent bounds are valid. Certification of the rotation and center terms, and the global length-lower-bound, remain open. |
+| Double-word division | The divisor and error-inflation checks in #1658 use a certified residual as a premise. The operand-error propagation inequality is checked. The remaining bridge is the source-level error of the residual arithmetic across its supported ranges. |
+| Contouring bins | A checked bounded-search alternative halves the remaining integer interval and matches an inclusive scan on 315 plateau and boundary cases. It refuses an unbracketed flat grid and checks coarse-to-fine index products before querying the grid. The solver proves that every interior pair of fine indices fits Int32 once the two bracket endpoints fit. The existing adjustment loops still require an estimate and a target in range, and a bracketed monotone grid. There is no end-to-end proof of those premises through the contour builder. |
+
+### .NET 10 probes
+
+* Let `e = double.Epsilon`. `IntersectionUtil.Intersects` returns false for
+  origin `(e,0,0)`, direction `(e,4e,0)`, and triangle vertices
+  `(2e,8e,-2e)`, `(5e,8e,-2e)`, `(2e,8e,2e)`. The supplied ray crosses at
+  `(3e,8e,0)` (#1672), with barycentric coordinates `(1/6,1/3,1/2)`. The rounded
+  second-point ray has x coordinate `e`. The same replay with a normally
+  scaled unit direction returned true through both ray APIs. An exact hit
+  predicate can use three determinants with the supplied direction and the
+  triangle vertices relative to the origin. Polynomial expansion checks that their sum equals the signed direction dot normal. A closed-hit implementation
+  still needs exact dyadic fallback, compatible treatment of boundary hits,
+  and review of the separate symbolically perturbed winding path.
+* `ExactMeshArrangement` was run with a source triangle
+  `(0,0,0),(8,0,0),(0,8,0)` and a fin with vertices
+  `(3,1,0),(1,1,0),(1,1,2)` in another mesh. The source retained line
+  label 4 and partner 1. Adding coplanar triangle
+  `(1,1,0),(3,1,0),(1,3,0)` to the second mesh makes a fold. The retained
+  source line labels were 7, 5 and 6, all coplanar. Partner 2 was preserved.
+  Sorting coincident segment labels and keeping the first explains the loss. The label consumer is still a design.
+* `TransformDisk` returns false for point boxes at `(0,0)` and
+  `(2e,2e)`. The adjusted length is three subnormal steps, above the exact
+  length, and the endpoint error padding makes this particular guard fail.
+
+### Exact-direction hit predicate under review
+
+Keep the public ray signatures and the existing closed-hit semantics.
+For a finite origin and supplied nonzero direction, compute the three
+edge determinants of the direction and the triangle corners translated
+by the origin. Opposite nonzero signs reject the line. The determinant
+sum is the signed direction dot normal; a zero sum rejects the parallel
+or degenerate case. With an accepted line crossing, the signed
+origin-to-plane relation distinguishes a forward crossing from one
+behind the origin, with a separate exact zero check for an origin hit.
+
+Reuse the existing dyadic representation for the exact fallback. A fast
+path that continues using a constructed second point must certify that
+its displacement is a positive multiple of the supplied direction. Two exact cross-component equalities against a nonzero pivot and a positive pivot scale suffice, as the follow-up check establishes.
+If a hit parameter is needed on the exact route, round the dyadic
+plane-offset quotient once using the existing exact quotient conversion.
+The symbolic perturbation used by winding queries needs independent
+review before sharing the direction path.
+
+Acceptance should cover the strict-interior replay above, normalized and
+unnormalized directions, shared-edge hits, parallel and origin hits,
+power-of-two scale invariance, and agreement between the AABB-tree and
+linear query routes. Compare ordinary-case ray batches against the
+existing path before choosing a fast-path certification strategy. The exact determinant prototype agrees with an independent rational plane-hit and Gram-coordinate oracle on 4096 seeded cases and hits the subnormal replay triangle. Explicit edge, vertex, origin, coplanar and behind-origin cases also agree at three exact dyadic scales.
+
 ## The rounding oracle (`rounding_oracle.py`, #1465, 2026-11-25)
 
 A research spike, not a gate: can the degenerate triangles that `MeshRoundingRepair` leaves be removed by moving up to k

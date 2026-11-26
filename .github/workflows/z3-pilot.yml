@@ -116,6 +116,7 @@ jobs:
           Z3_STEP_LOOPS_REPORT: z3-step-loops-report.json
           Z3_TRITRI_REPORT: z3-tritri-report.json
           Z3_SPLIT_TERMINATION_REPORT: z3-split-termination-report.json
+          Z3_PILOT_FOLLOWUPS_REPORT: z3-pilot-followups-report.json
           Z3_SEPARATING_AXIS_REPORT: z3-separating-axis-report.json
           Z3_PLATEAU_SEARCH_REPORT: z3-plateau-search-report.json
           Z3_ADAPTIVE_RANGE_REPORT: z3-adaptive-range-report.json
@@ -145,6 +146,7 @@ jobs:
             z3-step-loops-report.json
             z3-tritri-report.json
             z3-split-termination-report.json
+            z3-pilot-followups-report.json
             z3-separating-axis-report.json
             z3-plateau-search-report.json
             z3-adaptive-range-report.json
