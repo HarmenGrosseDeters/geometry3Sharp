@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using g3;
 using gs;
 
@@ -51,6 +52,7 @@ static double Best(Func<string> run, int repeats, out string note)
 }
 
 int repeats = args.Length > 0 ? int.Parse(args[0]) : 5;
+string only = args.Length > 1 ? args[1] : "";      // a part of the name of the operations to run (empty: all)
 var cases = new List<(string, Func<string>)>();
 DMesh3 s1 = Soup(Sphere(10), 1e-3, 0, 0, 0, 1);
 DMesh3 s2 = Soup(Sphere(10), 0, 3, 11, 7, 2);
@@ -63,8 +65,41 @@ DMesh3 sa = Sphere(24, 0.5), sb = Sphere(24, 0.5); MeshTransforms.Translate(sb, 
 foreach (var (n, op) in new[] { ("MeshWindingNumberBoolean union, two overlapping spheres", MeshWindingNumberBoolean.Operations.Union), ("MeshWindingNumberBoolean intersection, two overlapping spheres", MeshWindingNumberBoolean.Operations.Intersection) })
     cases.Add((n, () => { var b = new MeshWindingNumberBoolean(new DMesh3(sa), new DMesh3(sb), op) { GridResolution = 64 }; b.Compute(); return (b.Result?.TriangleCount ?? 0) + " tris"; }));
 
+// open welded mesh (a few triangles removed): the exact winding number uses the Atan2 of the boundary edges (ExactWindingCache)
+DMesh3 open = Sphere(65, 1.0);
+{
+    int k = 0;
+    foreach (int t in open.TriangleIndices().ToArray()) { if (++k % 4000 == 0) open.RemoveTriangle(t); }
+}
+var openTree = new DMeshAABBTree3(open, true);
+var openPoints = new Vector3d[100000];
+{
+    var rnd = new Random(7);
+    for (int i = 0; i < openPoints.Length; ++i) {
+        var d = new Vector3d(rnd.NextDouble() - .5, rnd.NextDouble() - .5, rnd.NextDouble() - .5).Normalized;
+        openPoints[i] = d * (i % 2 == 0 ? 0.97 + 0.06 * rnd.NextDouble() : 0.3 + 2.0 * rnd.NextDouble());
+    }
+}
+cases.Add(("DMeshAABBTree3.WindingNumber, open sphere (" + open.TriangleCount + " tris, 100k queries)", () => { double sum = 0; foreach (var p in openPoints) sum += openTree.WindingNumber(p); return "sum " + sum.ToString("R"); }));
+cases.Add(("MeshWindingNumberSolidify UseExactWinding, open sphere", () => { var s = new MeshWindingNumberSolidify(new DMesh3(open)) { Adaptive = true, GridResolution = 64, UseExactWinding = true }; s.Compute(); return (s.Result?.TriangleCount ?? 0) + " tris"; }));
+
+// FastWindingNumber alone on a closed 49k-triangle sphere: queries within 2 % of the surface (near field: exact leaf terms) and far away (expansions)
+var closedTree = new DMeshAABBTree3(Sphere(65, 1.0), true);
+closedTree.FastWindingNumber(Vector3d.Zero);
+Vector3d[] near = new Vector3d[100000], far = new Vector3d[100000];
+{
+    var rnd = new Random(3);
+    for (int i = 0; i < near.Length; ++i) {
+        var d = new Vector3d(rnd.NextDouble() - .5, rnd.NextDouble() - .5, rnd.NextDouble() - .5).Normalized;
+        near[i] = d * (0.98 + 0.04 * rnd.NextDouble()); far[i] = d * (1.5 + 3 * rnd.NextDouble());
+    }
+}
+cases.Add(("FastWindingNumber alone, near field (100k queries, closed 49k sphere)", () => { double sum = 0; foreach (var p in near) sum += closedTree.FastWindingNumber(p); return "sum " + sum.ToString("R"); }));
+cases.Add(("FastWindingNumber alone, far field (100k queries, closed 49k sphere)", () => { double sum = 0; foreach (var p in far) sum += closedTree.FastWindingNumber(p); return "sum " + sum.ToString("R"); }));
+
 Console.WriteLine("best of " + repeats + " (ms)");
 foreach (var (name, run) in cases) {
+    if (only.Length > 0 && name.Contains(only) == false) continue;
     run();   // warm up
     double ms = Best(run, repeats, out string note);
     Console.WriteLine($"{name,-70} {ms,9:F1}  {note}");

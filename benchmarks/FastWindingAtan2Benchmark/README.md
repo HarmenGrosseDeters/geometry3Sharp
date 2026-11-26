@@ -1,28 +1,40 @@
 # FastWindingAtan2Benchmark
 
-End-to-end cost of the correctly rounded `CoreMath.Atan2` in `MathUtil.TriSolidAngle` and `FastWindingLeafKernel` (#1577; before, the platform
-`Math.Atan2`), on the operations that use the floating-point winding number: `MeshRobustRepair` (Solidify path) on three procedural broken inputs,
-`MeshWindingNumberSolidify` on a 49,152-triangle soup, and `MeshWindingNumberBoolean` (union, intersection) of two overlapping spheres.
+End-to-end cost of the correctly rounded `CoreMath.Atan2` in the winding-number terms (#1577; before, the platform `Math.Atan2`): `MathUtil.TriSolidAngle`,
+`FastWindingLeafKernel` and the boundary-edge angles of `ExactWindingCache` (the open-mesh part of `DMeshAABBTree3.WindingNumber`). The operations: `MeshRobustRepair`
+(Solidify path) on three procedural broken inputs, `MeshWindingNumberSolidify` on a 49,152-triangle soup and, with `UseExactWinding`, on an open sphere,
+`MeshWindingNumberBoolean` of two overlapping spheres, and the two queries alone (`FastWindingNumber` near and far field on a closed sphere,
+`WindingNumber` on an open one).
 
 ```sh
-dotnet run -c Release --project benchmarks/FastWindingAtan2Benchmark -- 5      # best of 5 per operation, in ms
+dotnet run -c Release --project benchmarks/FastWindingAtan2Benchmark -- 5            # best of 5 per operation, in ms
+dotnet run -c Release --project benchmarks/FastWindingAtan2Benchmark -- 9 "box flip"  # only the operations whose name contains the text
 ```
 
-Baseline and candidate run the same program: build it in a `git worktree` of the base commit and in the candidate and compare. The last
-column of a line is the result (path and triangle count), so a change of the output shows up.
+Baseline and candidate run the same program: build it in a `git worktree` of the base commit and in the candidate, and alternate the two (the machine drifts by
+up to 14 % between runs). The last column of a line is the result (path and triangle count, or the sum of the queries), so a change of the output shows up.
+The program references the library without a target framework, so it runs the net10.0 build: the vector leaf kernel (`FastWindingLeafKernel`, 256-bit lanes) is
+in use; the netstandard2.0 build (the browser, net48) takes the scalar path, where a term is dearer.
 
-## Result (2026-11-25, linux x64, net10.0 Release, library netstandard2.0; best of 5, minimum of two program runs)
+## Result (2026-11-25, linux x64, net10.0 Release; best of 5, minimum of two runs of the full program; lines marked * best of 9, three alternating runs each)
 
 | operation | base (ms) | CoreMath.Atan2 (ms) | change |
 |---|---:|---:|---:|
-| MeshRobustRepair, sphere soup jitter 1e-3 | 582.5 | 598.3 | +2.7 % |
-| MeshRobustRepair, sphere flip / holes / dups | 779.2 | 830.5 | +6.6 % |
-| MeshRobustRepair, box flip / holes / dups | 1042.1 | 1061.6 | +1.9 % |
-| MeshWindingNumberSolidify, 49,152-triangle soup | 237.5 | 224.0 | -5.7 % |
-| MeshWindingNumberBoolean union, two overlapping spheres | 152.0 | 158.8 | +4.5 % |
-| MeshWindingNumberBoolean intersection, two overlapping spheres | 130.5 | 123.7 | -5.2 % |
+| MeshRobustRepair, sphere soup jitter 1e-3 | 594.7 | 617.5 | +3.8 % |
+| MeshRobustRepair, sphere flip / holes / dups | 760.0 | 794.3 | +4.5 % |
+| MeshRobustRepair, box flip / holes / dups * (result: 14,712 -> 14,754 triangles) | 972.1 | 1098.7 | +13.0 % |
+| MeshWindingNumberSolidify, 49,152-triangle soup | 244.6 | 222.1 | -9.2 % |
+| MeshWindingNumberSolidify, `UseExactWinding`, open sphere * | 191.5 | 186.2 | -2.8 % |
+| MeshWindingNumberBoolean union, two overlapping spheres * | 143.2 | 141.4 | -1.3 % |
+| MeshWindingNumberBoolean intersection, two overlapping spheres | 105.1 | 108.8 | +3.5 % |
+| `FastWindingNumber` alone, near field (100k queries within 2 % of a closed 49k sphere) | 1014.9 | 1107.7 | +9.1 % |
+| `FastWindingNumber` alone, far field (100k queries, 1.5 to 4.5 away) | 17.4 | 17.7 | +1.7 % |
+| `DMeshAABBTree3.WindingNumber` alone, open sphere (100k queries) * | 192.9 | 265.0 | +37.4 % |
 
-The two base runs differ by up to 8 % per line, so every change is inside the noise. Worst case of the kernel alone, 200,000 queries within 2 % of
-the surface of a 199,692-triangle sphere: 3.5-3.7 s against 4.8-5.0 s (+30 to +36 %); far-field queries (1.5 to 4.5 away): 41 against 36 ms.
-The sums are bit-identical in both cases. The result of one line differs: the box case gives 14,712 triangles on the base and 14,754 with the
-correctly rounded term (a 1 ulp difference of a term moves the contour; 5 of the 37 demo repair cases are that sensitive).
+The sums of the queries are bit-identical between base and candidate. Where the change comes from: in the leaf kernel the four lanes of a vector do the square
+roots, dot products and the triple product, and `Atan2` is then one scalar call per triangle; `CoreMath.Atan2` costs about 34 ns more than the platform's
+(54 -> 88 ns for a whole `TriSolidAngle` in a scalar micro-benchmark), so a query that is all leaf terms pays most (+9 % on the vector kernel; +30 to +36 % on
+the scalar netstandard2.0 build, measured separately). An exact-winding query on an open mesh evaluates the `Atan2` of every boundary edge of the cache and
+little else, so there it is +37 %; inside a Solidify the query is a small part of the work and the operation does not change. The one repair line that changes
+the output (14,712 -> 14,754 triangles: a term moved by one ulp moves the contour; 5 of the 37 demo repair cases are that sensitive) also does a different amount of
+work.

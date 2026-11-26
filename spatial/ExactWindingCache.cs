@@ -1313,14 +1313,14 @@ namespace g3
                     if (b.z == p.z && b.y > p.y)
                         return -Math.PI;
                     rescale_diff_2d(b.y, p.y, b.z, p.z, out double by2, out double bz2, out _);
-                    return Math.Atan2(bz2, -by2);
+                    return g3.CoreMathPort.CoreMath.Atan2(bz2, -by2);
                 } else {
                     if (b.x < p.x)
                         return 0.0;
                     if (a.z == p.z && a.y > p.y)
                         return Math.PI;
                     rescale_diff_2d(a.y, p.y, a.z, p.z, out double ay2, out double az2, out _);
-                    return Math.Atan2(-az2, -ay2);
+                    return g3.CoreMathPort.CoreMath.Atan2(-az2, -ay2);
                 }
             }
 
@@ -1414,7 +1414,7 @@ namespace g3
                                 double zSign = other.z > p.z ? sign : -sign;
                                 return unx < 0.0 ? zSign * Math.PI : 0.0;
                             }
-                            return Math.Atan2(sign * uz, unx);
+                            return g3.CoreMathPort.CoreMath.Atan2(sign * uz, unx);
                         }
                         rx = 0.0;
                     } else {
@@ -1433,7 +1433,7 @@ namespace g3
                 if (den0 > 0.0) return 0.0;
                 return zSign * Math.PI * 0.5;
             }
-            return Math.Atan2(sign * rz, den0);
+            return g3.CoreMathPort.CoreMath.Atan2(sign * rz, den0);
         }
 
         // Exponent-tracked 2D-rescaled evaluation for extreme scales or mixed exponents (|yz| << |x|).
@@ -1488,7 +1488,7 @@ namespace g3
                     return edge_angle_on_yz_line_x(p, a, b, collinear_yz_dot_is_nonnegative(p, a, b));
                 return accurate_edge_angle_x(p, a, b);
             }
-            return Math.Atan2(num, den);
+            return g3.CoreMathPort.CoreMath.Atan2(num, den);
         }
 
         // sign of (a - p).yz . (b - p).yz >= 0 when the yz parts of a - p and b - p are collinear (b - p = lambda (a - p), or one is 0):
@@ -1567,7 +1567,7 @@ namespace g3
             double dd = denK.IsZero ? 0.0 : ExactDyadic.Quotient(new ExactDyadic(denK, -sh), one);
             if (nd == 0.0)
                 nd = num.Sign > 0 ? double.Epsilon : -double.Epsilon;   // underflow against a huge den: keep the sign of num
-            return Math.Atan2(nd, dd);
+            return g3.CoreMathPort.CoreMath.Atan2(nd, dd);
         }
 
         // floor(sqrt(n)) for n >= 0, Newton's iteration from above.
@@ -1630,7 +1630,7 @@ namespace g3
                 if (den > 0.0) return 0.0;
                 return b.z > a.z ? Math.PI * 0.5 : -Math.PI * 0.5;
             }
-            return Math.Atan2(uz, -ux * uy);
+            return g3.CoreMathPort.CoreMath.Atan2(uz, -ux * uy);
         }
 
         // Rescale nonzero 2D difference (u1 - v1, u2 - v2) by exact 2^shift so max(|r1|, |r2|) lies in [1, 2).

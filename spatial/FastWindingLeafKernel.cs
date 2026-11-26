@@ -9,7 +9,7 @@ namespace g3
     /// <summary>
     /// The exact terms of DMeshAABBTree3.FastWindingNumber (the triangles of a leaf, summed one by one) for up to four
     /// triangles at once: the square roots, dot products and the triple product of MathUtil.TriSolidAngle in the four
-    /// lanes of a Vector256, then Math.Atan2 per triangle.
+    /// lanes of a Vector256, then the correctly rounded CoreMath.Atan2 per triangle (#1577: the platform Math.Atan2 can differ in the last bit between runtimes).
     ///
     /// Every term is, bit for bit, what MathUtil.TriSolidAngle(a, b, c, ref p) / MathUtil.FourPI returns: the same
     /// operations in the same order (separate multiplies and adds, no fused multiply-add and no reassociation; square root
