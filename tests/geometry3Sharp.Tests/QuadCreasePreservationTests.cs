@@ -178,10 +178,10 @@ namespace geometry3Sharp.Tests
             MeasureFeatures(input, result, s, creaseAngle, out coverage, out angleP95, out featHausOverS, out int skipped, measuredCrease);
         }
 
-        // Fin edges (#1452): the edges of a triangle whose three edges are all creases and that is folded back onto a neighbour (its normal dot a
-        // neighbour's below -0.9). The fixture's own remeshing leaves them; the diagonal edge of such a fin is a "crease" 0.11 to 0.17 s from any quad
-        // edge, although the surface has no crease there (the flap lies on its neighbour). Only these edges are skipped by MeasureFeatures; every other
-        // crease edge counts. Collinear slivers are NOT skipped: each lies on a real crease whose stretch (0.65 to 1.25 s) only its edges represent (the
+        // Fin edges (#1452): the fold edges of a triangle whose three edges are all creases: an edge whose two triangles are folded back onto each other
+        // (normals dot below -0.9). The fixture's own remeshing leaves them; such an edge is a "crease" 0.11 to 0.17 s from any quad edge, although the
+        // surface has no crease there (the flap lies on its neighbour). Only these edges are skipped by MeasureFeatures; every other crease edge counts,
+        // also the other edges of the fin triangle (real 90 degree creases). Collinear slivers are NOT skipped: each lies on a real crease whose stretch (0.65 to 1.25 s) only its edges represent (the
         // gate review of the first version: dropping the quads near such a sliver passed the gate). Valid only for fixtures without sharp wedges: a knife
         // edge (interior dihedral below about 26 degrees, three crease edges) would count as a fin
         internal static HashSet<int> FinEdges(DMesh3 m, HashSet<int> creases)
@@ -191,16 +191,22 @@ namespace geometry3Sharp.Tests
                 Index3i te = m.GetTriEdges(t);
                 if (!(creases.Contains(te.a) && creases.Contains(te.b) && creases.Contains(te.c))) continue;
                 Vector3d n = m.GetTriNormal(t);
-                bool foldedBack = false;
                 for (int k = 0; k < 3; ++k) {
                     Index2i et = m.GetEdgeT(te[k]);
                     int other = et.a == t ? et.b : et.a;
-                    if (other >= 0 && other != t && n.Dot(m.GetTriNormal(other)) < -0.9) foldedBack = true;
+                    // (only the edge whose own dihedral is a fold: the fin's other edges are real creases, 90 degrees, and stay counted)
+                    if (other >= 0 && other != t && n.Dot(m.GetTriNormal(other)) < -0.9) fins.Add(te[k]);
                 }
-                if (foldedBack) { fins.Add(te.a); fins.Add(te.b); fins.Add(te.c); }
             }
             return fins;
         }
+
+        // the cap of the skip: the largest count on the fixtures of the pass-count sweep of #1452 (l-profile/10: 4 fold edges), and 5 % of the crease edges
+        const int MaxSkippedFins = 4;
+        const double MaxSkippedShare = 0.05;
+        [ThreadStatic] static int lastSkippedFins;
+        // " [n fin edges skipped]" for the gate failure messages (the count of this thread's last MeasureFeatures)
+        static string FinNote() { return lastSkippedFins > 0 ? " [" + lastSkippedFins + " fin edges skipped]" : ""; }
 
         // skippedFins: the number of crease edges that skipFins left out of the measure (the gate reports it; tests cap it)
         static void MeasureFeatures(DMesh3 input, DPolyMesh result, double s, double creaseAngle, out double coverage, out double angleP95, out double featHausOverS,
@@ -226,9 +232,10 @@ namespace geometry3Sharp.Tests
             double totalLen = 0, coveredLen = 0, maxDist = 0;
             var angles = new List<double>();
             HashSet<int> fins = skipFins ? FinEdges(input, topo.CreaseEdges) : new HashSet<int>();
-            skippedFins = fins.Count;
-            // (the gate's own cap, for every caller: a handful of fin triangles; a count above it means the rule skips real creases)
-            Assert.True(fins.Count <= 9 && fins.Count <= 0.05 * topo.CreaseEdges.Count, "fin edges skipped: " + fins.Count + " of " + topo.CreaseEdges.Count + " crease edges");
+            skippedFins = lastSkippedFins = fins.Count;
+            // (the gate's own cap, for every caller: the fixtures skip at most MaxSkippedFins fold edges; a count above it means the rule skips real creases)
+            Assert.True(fins.Count <= MaxSkippedFins && fins.Count <= MaxSkippedShare * topo.CreaseEdges.Count,
+                "fin edges skipped: " + fins.Count + " of " + topo.CreaseEdges.Count + " crease edges (cap " + MaxSkippedFins + " and " + 100 * MaxSkippedShare + " %)");
             foreach (int eid in topo.CreaseEdges) {
                 if (fins.Contains(eid)) continue;
                 Index2i ev = input.GetEdgeV(eid);
@@ -293,7 +300,7 @@ namespace geometry3Sharp.Tests
             Assert.False(off.PreserveCreases);
             Assert.Equal(QuadRemeshStatus.Success, off.Compute());
             MeasureFeatures(m, off.Result, s, 30, out double covOff, out _, out double hausOff);
-            Assert.True(hausOff > 0.25 || covOff < 0.85, name + " baseline unexpectedly sharp: cov=" + covOff + " haus=" + hausOff);
+            Assert.True(hausOff > 0.25 || covOff < 0.85, name + " baseline unexpectedly sharp: cov=" + covOff + " haus=" + hausOff + FinNote());
 
             AssertStage4Gates(m, name, s);
         }
@@ -311,12 +318,12 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, metrics.BoundaryVertices);
 
             MeasureFeatures(m, on.Result, s, 30, out double covOn, out double ang95On, out double hausOn);
-            Assert.True(covOn > 0.95, name + ": feature coverage " + (100 * covOn).ToString("F1") + "% <= 95%");
-            Assert.True(ang95On <= 10.0, name + ": feature angle p95 " + ang95On.ToString("F1") + " deg > 10 deg");
-            Assert.True(hausOn <= 0.1, name + ": feature Hausdorff " + hausOn.ToString("F3") + " s > 0.1 s");
+            Assert.True(covOn > 0.95, name + ": feature coverage " + (100 * covOn).ToString("F1") + "% <= 95%" + FinNote());
+            Assert.True(ang95On <= 10.0, name + ": feature angle p95 " + ang95On.ToString("F1") + " deg > 10 deg" + FinNote());
+            Assert.True(hausOn <= 0.1, name + ": feature Hausdorff " + hausOn.ToString("F3") + " s > 0.1 s" + FinNote());
         }
 
-        // ---- fin edges (#1452): the measure skips only the edges of a triangle whose three edges are all creases and that is folded back or a collinear sliver ----
+        // ---- fin edges (#1452): the measure skips only the fold edges of a triangle whose three edges are all creases ----
 
         static HashSet<int> Creases(DMesh3 m)
         {
@@ -402,35 +409,70 @@ namespace geometry3Sharp.Tests
             Assert.Empty(FinEdges(m, creases));
         }
 
-        // the gate's own cap holds for every caller: more than 9 skipped edges, or more than 5 % of the crease edges, fails the measure itself
-        [Theory]
-        [InlineData(4, 0)]          // four folded pairs: 12 edges, all of the crease edges
-        [InlineData(1, 3)]          // one folded pair (3 edges) beside a small box: over 5 % of its crease edges
-        [InlineData(4, 30)]         // four folded pairs (12 edges, over 9) beside a fine box (348 crease edges, 3.4 %): only the absolute cap refuses
-        public void MeasureFeatures_RefusesToSkipTooMuch(int pairs, int boxVertices)
+        // a fin triangle with exactly one fold edge: T = (a, b, c) with a neighbour (b, a, d) across ab lying on T (folded back by foldDegrees from flat)
+        // and walls of 90 degrees over bc and ca; ab is the only fold edge, bc and ca are real creases. Returns the edge ab's triangle pair's T
+        static int AddFoldFin(DMesh3 m, Vector3d o, double foldDegrees)
         {
-            DMesh3 m = boxVertices > 0 ? new GridBox3Generator { Box = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1)), EdgeVertices = boxVertices }.Generate().MakeDMesh() : new DMesh3(false, false, false, false);
-            for (int k = 0; k < pairs; ++k) {
-                Vector3d o = new Vector3d(5 + 3 * k, 0, 0);
-                int a = m.AppendVertex(o), b = m.AppendVertex(o + new Vector3d(1, 0, 0)), c = m.AppendVertex(o + new Vector3d(0, 1, 0));
-                m.AppendTriangle(a, b, c);
-                m.AppendTriangle(a, c, b);
-            }
+            int a = m.AppendVertex(o), b = m.AppendVertex(o + new Vector3d(1, 0, 0)), c = m.AppendVertex(o + new Vector3d(0, 1, 0));
+            double phi = foldDegrees * Math.PI / 180;
+            int d = m.AppendVertex(o + new Vector3d(0.5, 0, 0) + 0.3 * new Vector3d(0, Math.Cos(phi), Math.Sin(phi)));
+            int e = m.AppendVertex(o + new Vector3d(0.5, 0.5, 0.5)), f = m.AppendVertex(o + new Vector3d(0, 0.5, 0.5));
+            int t = m.AppendTriangle(a, b, c);
+            m.AppendTriangle(b, a, d);
+            m.AppendTriangle(c, b, e);
+            m.AppendTriangle(a, c, f);
+            return t;
+        }
+
+        // a fold edge at a normal dot of about -0.95 is a fin edge (pins the threshold -0.9 from above), and only that edge: the fin's other two edges are
+        // real 90 degree creases and stay counted
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(18.2)]
+        public void FinEdges_OnlyTheFoldEdge_OfAFinTriangle(double foldDegrees)
+        {
+            var m = new DMesh3(false, false, false, false);
+            int t = AddFoldFin(m, Vector3d.Zero, foldDegrees);
+            HashSet<int> creases = Creases(m);
+            Index3i te = m.GetTriEdges(t);
+            Assert.True(creases.Contains(te.a) && creases.Contains(te.b) && creases.Contains(te.c), "all three edges of the fin triangle are creases");
+            HashSet<int> fins = FinEdges(m, creases);
+            Assert.Single(fins);
+            Index2i ev = m.GetEdgeV(fins.First());
+            Assert.True((m.GetVertex(ev.a).y == 0 && m.GetVertex(ev.b).y == 0), "the fold edge is ab (y = 0)");
+        }
+
+        // the gate's own cap holds for every caller (MaxSkippedFins edges and 5 % of the crease edges), at the cap and one above it, and between 5 % and 10 %
+        [Theory]
+        [InlineData(4, 30, false)]      // exactly the cap, 4 of 360 crease edges: measured
+        [InlineData(5, 30, true)]       // cap + 1 (1.4 %): only the absolute cap refuses
+        [InlineData(1, 30, false)]      // 1 of 351 (0.3 %): measured
+        [InlineData(4, 4, true)]        // 4 of 48 crease edges (8.3 %, between 5 % and 10 %): only the relative cap refuses
+        public void MeasureFeatures_CapOfSkippedFins(int units, int boxVertices, bool refused)
+        {
+            DMesh3 m = new GridBox3Generator { Box = new Box3d(Vector3d.Zero, new Vector3d(1, 1, 1)), EdgeVertices = boxVertices }.Generate().MakeDMesh();
+            for (int k = 0; k < units; ++k) AddFoldFin(m, new Vector3d(5 + 3 * k, 0, 0), 0);
             var quad = new DPolyMesh();
             int[] v = { quad.AppendVertex(0, 0, 0), quad.AppendVertex(1, 0, 0), quad.AppendVertex(1, 1, 0), quad.AppendVertex(0, 1, 0) };
             quad.AppendQuad(v[0], v[1], v[2], v[3]);
-            Assert.Throws<Xunit.Sdk.TrueException>(() => MeasureFeatures(m, quad, 1.0, 30, out _, out _, out _, out _));
+            if (refused)
+                Assert.Throws<Xunit.Sdk.TrueException>(() => MeasureFeatures(m, quad, 1.0, 30, out _, out _, out _, out _));
+            else {
+                MeasureFeatures(m, quad, 1.0, 30, out _, out _, out _, out int skipped);
+                Assert.Equal(units, skipped);
+            }
         }
 
-        // the fixtures' fins are few: the gate reports the number of skipped edges, and a fixture skips at most 3 fin triangles (9 edges)
-        // and under 5 % of its crease edges (the default fixtures none or 3 edges)
+        // the fixtures' fins are few: the gate reports the number of skipped edges, and a fixture skips at most MaxSkippedFins fold edges
+        // and under 5 % of its crease edges (the fixtures of the sweep: none, 1, 2 or 4 edges)
         [Theory]
         [InlineData("sharp-box", 20, 0, 0)]
         [InlineData("sharp-cylinder", 20, 0, 0)]
         [InlineData("l-profile", 20, 0, 0)]
-        [InlineData("gear", 20, 3, 3)]
-        [InlineData("gear", 50, 6, 6)]       // two fin triangles
-        [InlineData("l-profile", 22, 3, 3)]  // one folded fin (and two collinear slivers, which are not skipped)
+        [InlineData("gear", 20, 2, 2)]
+        [InlineData("gear", 50, 2, 2)]       // two fin triangles, one fold edge each
+        [InlineData("l-profile", 22, 2, 2)]  // a folded fin (and two collinear slivers, which are not skipped)
+        [InlineData("l-profile", 10, 4, 4)]  // the sweep maximum (the gate fails there for another reason)
         [InlineData("sharp-box", 10, 0, 0)]  // a collinear sliver only: nothing skipped
         public void SkippedFins_AreFewOnTheFixtures(string name, int passes, int minSkipped, int maxSkipped)
         {
@@ -439,7 +481,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(QuadRemeshStatus.Success, on.Compute());
             MeasureFeatures(m, on.Result, TargetOf(name), 30, out _, out _, out _, out int skipped);
             Assert.InRange(skipped, minSkipped, maxSkipped);
-            Assert.True(skipped <= 9 && skipped <= 0.05 * Creases(m).Count, name + "/" + passes + ": " + skipped + " fin edges skipped");
+            Assert.True(skipped <= MaxSkippedFins && skipped <= MaxSkippedShare * Creases(m).Count, name + "/" + passes + ": " + skipped + " fin edges skipped");
         }
 
         // the counts of #1452 where the feature gate failed because of a fin: the crease edge of the fin is 0.11 to 0.17 s from every quad edge (before: the gate
@@ -461,7 +503,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, skipped0);
             Assert.True(haus0 > 0.1, name + "/" + passes + ": without skipping, the fin fails the gate (Hausdorff " + haus0 + ")");
             MeasureFeatures(m, on.Result, s, 30, out double cov, out double ang, out double haus, out int skipped);
-            Assert.True(skipped > 0 && skipped <= 9, "skipped " + skipped);
+            Assert.True(skipped > 0 && skipped <= MaxSkippedFins, "skipped " + skipped);
             Assert.True(cov > 0.95 && ang <= 10.0 && haus <= 0.1, name + "/" + passes + ": cov " + cov + " ang " + ang + " haus " + haus);
         }
 
@@ -625,9 +667,9 @@ namespace geometry3Sharp.Tests
             // these runs. Without PreserveCreases the ridges end with coverage 0.10 to 0.21, angle p95 40 to 42 degrees and
             // Hausdorff 0.47 to 0.48 s, so these gates still fail on a change that stops following a ridge.
             MeasureFeatures(prism, qr.Result, s, 30, out double cov, out double ang95, out double haus, dir => Math.Abs(dir.z) > 0.99);
-            Assert.True(cov > 0.95, "prism ridge coverage " + cov);
-            Assert.True(ang95 <= 10.0, "prism ridge angle p95 " + ang95);
-            Assert.True(haus <= 0.1, "prism ridge Hausdorff " + haus);
+            Assert.True(cov > 0.95, "prism ridge coverage " + cov + FinNote());
+            Assert.True(ang95 <= 10.0, "prism ridge angle p95 " + ang95 + FinNote());
+            Assert.True(haus <= 0.1, "prism ridge Hausdorff " + haus + FinNote());
         }
 
         [Fact]
@@ -640,9 +682,9 @@ namespace geometry3Sharp.Tests
             PolyMeshMetrics metrics = CheckResult(qr.Result, "open-bent");
             Assert.True(metrics.QuadFraction >= 0.90, "quads " + metrics.QuadFraction);
             MeasureFeatures(m, qr.Result, s, 30, out double cov, out double ang95, out double haus);
-            Assert.True(cov > 0.95, "open-bent coverage " + cov);
-            Assert.True(ang95 <= 10.0, "open-bent angle p95 " + ang95);
-            Assert.True(haus <= 0.1, "open-bent feature Hausdorff " + haus);
+            Assert.True(cov > 0.95, "open-bent coverage " + cov + FinNote());
+            Assert.True(ang95 <= 10.0, "open-bent angle p95 " + ang95 + FinNote());
+            Assert.True(haus <= 0.1, "open-bent feature Hausdorff " + haus + FinNote());
 
             // Both junctions where the 90-degree crease meets the open boundary are exact output vertices
             foreach (var junction in new[] { new Vector3d(0.5, 0.0, 0.0), new Vector3d(0.5, 0.8, 0.0) }) {
@@ -814,9 +856,9 @@ namespace geometry3Sharp.Tests
             Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
             CheckResult(qr.Result, "explicit Field + PreserveCreases");
             MeasureFeatures(box, qr.Result, s, 30, out double cov, out double ang95, out double haus);
-            Assert.True(cov > 0.95, "cov " + cov);
-            Assert.True(ang95 <= 10.0, "ang95 " + ang95);
-            Assert.True(haus <= 0.1, "haus " + haus);
+            Assert.True(cov > 0.95, "cov " + cov + FinNote());
+            Assert.True(ang95 <= 10.0, "ang95 " + ang95 + FinNote());
+            Assert.True(haus <= 0.1, "haus " + haus + FinNote());
             foreach (int v in box.VertexIndices())
                 Assert.Equal(dirBefore[v], cf.VertexDirection(v, 0));
         }
@@ -885,9 +927,9 @@ namespace geometry3Sharp.Tests
             PolyMeshMetrics metrics = CheckResult(qr.Result, "capped-dome " + mode + " + PreserveCreases");
             Assert.True(metrics.QuadFraction >= 0.85, "quads " + metrics.QuadFraction);
             MeasureFeatures(dome, qr.Result, s, 30, out double cov, out double ang95, out double haus);
-            Assert.True(cov > 0.90, mode + " coverage " + cov);
-            Assert.True(ang95 <= 10.0, mode + " angle p95 " + ang95);
-            Assert.True(haus <= 0.1, mode + " feature Hausdorff " + haus);
+            Assert.True(cov > 0.90, mode + " coverage " + cov + FinNote());
+            Assert.True(ang95 <= 10.0, mode + " angle p95 " + ang95 + FinNote());
+            Assert.True(haus <= 0.1, mode + " feature Hausdorff " + haus + FinNote());
         }
 
         [Fact]
@@ -941,9 +983,9 @@ namespace geometry3Sharp.Tests
                 PolyMeshMetrics a = CheckResult(baseQr.Result, "base"), b = CheckResult(qr.Result, name);
                 Assert.InRange(b.Faces, 0.9 * a.Faces, 1.1 * a.Faces);
                 MeasureFeatures(t, qr.Result, sim.Scale * s, 30, out double cov, out double ang95, out double haus);
-                Assert.True(cov > 0.95, name + ": cov " + cov);
-                Assert.True(ang95 <= 10.0, name + ": ang95 " + ang95);
-                Assert.True(haus <= 0.1, name + ": haus " + haus);
+                Assert.True(cov > 0.95, name + ": cov " + cov + FinNote());
+                Assert.True(ang95 <= 10.0, name + ": ang95 " + ang95 + FinNote());
+                Assert.True(haus <= 0.1, name + ": haus " + haus + FinNote());
             }
         }
 
@@ -965,9 +1007,9 @@ namespace geometry3Sharp.Tests
             } else {
                 CheckResult(qr.Result, name);
                 MeasureFeatures(t, qr.Result, sim.Scale * s, 30, out double cov, out double ang95, out double haus);
-                Assert.True(cov > 0.95, name + ": cov " + cov);
-                Assert.True(ang95 <= 10.0, name + ": ang95 " + ang95);
-                Assert.True(haus <= 0.1, name + ": haus " + haus);
+                Assert.True(cov > 0.95, name + ": cov " + cov + FinNote());
+                Assert.True(ang95 <= 10.0, name + ": ang95 " + ang95 + FinNote());
+                Assert.True(haus <= 0.1, name + ": haus " + haus + FinNote());
             }
         }
 
