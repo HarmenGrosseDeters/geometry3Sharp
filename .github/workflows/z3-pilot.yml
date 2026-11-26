@@ -27,6 +27,13 @@ on:
       # pilot 8: the plateau variant of the position search, a design (plateau_search.py, its source contract on the probe)
       - 'benchmarks/SnapRoundingExperiment/LatticeProbe.cs'
       - 'math/Interval1d.cs'
+      - 'intersection/ContinuousCollision.cs'
+      - 'intersection/IntrExactBox3.cs'
+      - 'mesh_ops/TerrainSlopeDesign.cs'
+      - 'math/AxisAlignedBox2d.cs'
+      - 'math/MathUtil.cs'
+      - 'implicit/CachingGridImplicit3d.cs'
+      - 'mesh_ops/IntrinsicIntegerCoordinates.cs'
       # the exact-bound inventory (docs/qa/exact-bound-inventory.md): the expansion range (adaptive_range.py, its source
       # contract also scans the library for unguarded calls of AdaptivePredicates), may_meet_box (may_meet_box.py) and the
       # corner error of the terrain prefilter (slope_approx.py)
@@ -76,6 +83,11 @@ jobs:
           Z3_SEPARATING_AXIS_REPORT: z3-separating-axis-report.json
           Z3_PLATEAU_SEARCH_REPORT: z3-plateau-search-report.json
           Z3_ADAPTIVE_RANGE_REPORT: z3-adaptive-range-report.json
+          Z3_RAY_AABB_MAY_REPORT: ray-aabb-may-report.json
+          Z3_TERRAIN_BOX_REPORT: terrain-box-expansion-report.json
+          Z3_SATURATING_CONVERSIONS_REPORT: saturating-conversions-report.json
+          Z3_INTRINSIC_FLIP_REPORT: intrinsic-flip-report.json
+          Z3_CONTINUOUS_COLLISION_REPORT: z3-continuous-collision-report.json
           Z3_MAY_MEET_BOX_REPORT: z3-may-meet-box-report.json
           Z3_SLOPE_APPROX_REPORT: z3-slope-approx-report.json
           Z3_ANTIPODAL_SEGMENT_REPORT: z3-antipodal-segment-report.json
@@ -96,6 +108,11 @@ jobs:
             z3-separating-axis-report.json
             z3-plateau-search-report.json
             z3-adaptive-range-report.json
+            ray-aabb-may-report.json
+            terrain-box-expansion-report.json
+            saturating-conversions-report.json
+            intrinsic-flip-report.json
+            z3-continuous-collision-report.json
             z3-may-meet-box-report.json
             z3-slope-approx-report.json
             z3-antipodal-segment-report.json
