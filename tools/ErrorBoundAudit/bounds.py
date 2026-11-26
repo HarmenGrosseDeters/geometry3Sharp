@@ -239,8 +239,8 @@ def volume_model(n):
 
 
 VOLUME = dict(file='math/ExactPredicates.cs',
-              anchors=['double g = (n + 2) * Epsilon / (1 - (n + 2) * Epsilon);',
-                       'bound = (Orient3dBound * perm + UnderflowUnit * under + g * abs) * (1 + 3 * g);',
+              anchors=['return (n + 2) * Epsilon / (1 - (n + 2) * Epsilon);',
+                       'return (Orient3dBound * perm + UnderflowUnit * under + g * abs) * (1 + 3 * g);',
                        'under += Math.Abs(wx) + Math.Abs(wy) + Math.Abs(wz) + 1;', 'return finite && g < 0.25;',
                        'double det = wx * (uyvz - uzvy) + wy * (uzvx - uxvz) + wz * (uxvy - uyvx);', 'sum += det;',
                        'abs += Math.Abs(det);', 'perm += Math.Abs(wx) * (Math.Abs(uyvz) + Math.Abs(uzvy)) + Math.Abs(wy) * (Math.Abs(uzvx) + Math.Abs(uxvz))'],
