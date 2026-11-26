@@ -129,7 +129,11 @@ namespace g3
             Vector3d normal = edge1.Cross(ref edge2);
             // (the direction likewise, by its own power of two 2^dirExp, if its largest component is outside [2^-100,
             // 2^100]: a subnormal direction made 1 / |D . N| infinite and t NaN, #1672. t is scaled back by 2^dirExp,
-            // the barycentrics are ratios of terms linear in D; a direction within that range keeps its bits)
+            // the barycentrics are ratios of terms linear in D; a direction within that range keeps its bits. The
+            // scaling is exact unless a component falls into the subnormal range or to 0 (a direction whose components
+            // span more than about 1000 binades, eg (2^150, 2^-930, 0)): then that component is rounded, which changes t
+            // and the barycentrics by its rounding only, as any double computation of them; the hit decision does not
+            // use it)
             Vector3d dir = ray.Direction;
             int dirExp = ScaleExponent(ref dir, ref dir, ref dir);
             if (dirExp != 0)
@@ -148,8 +152,11 @@ namespace g3
                     // D . N rounded to 0 (a ray within about 1e-16 of the plane): the projection of the centroid
                     Vector3d c = (V0 + V1 + V2) / 3.0;
                     rayT = Math.Max(0, (c - ray.Origin).Dot(dir) / dir.LengthSquared);
-                    if (dirExp != 0)
+                    if (dirExp != 0) {
                         rayT = ExactPoint3.ScaleB(rayT, dirExp);
+                        if (double.IsInfinity(rayT))
+                            rayT = double.MaxValue;      // (farther than the doubles reach)
+                    }
                 } else if (scaleExp != 0 || dirExp != 0) {
                     rayT = dirExp == 0 ? ScaledBy(rayT, -scaleExp) : ExactPoint3.ScaleB(rayT, dirExp - scaleExp);
                     if (double.IsInfinity(rayT))

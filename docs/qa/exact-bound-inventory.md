@@ -59,6 +59,7 @@ rule; **S** speed or strategy only.
 | Merge order of `sum` and `scale`, D | `AdaptivePredicates.cs:284-297` | non-overlapping, sorted output (Shewchuk's theorems) | Tests only (stage D against BigInteger) | open in the mutation README (item 6); test-gap audit P4 |
 | Coincidence shortcuts, F | `ExactPredicates.cs:194-247` | repeated points give 0 | Tests | equivalent (the exact path gives 0); non-finite input: test-gap audit P3, decided 2026-11-25 |
 | orient3d_int widths (EP-7) | `ExactPredicates.cs:257` | integer widths fit | EBA-checked | EBA anchor |
+| Orient3dDirection (#1672), F | `ExactPredicates.cs` `Orient3dDirection`, `orient3d_direction_int` | no bound of its own: the filter is `Orient3dFilter` (EP-2) with u = d exact (a rounding of 0, inside EP-2's premise of differences rounded once); the integer stage has the nine inputs of `orient3d_int` (u = d - 0) and so its widths (EP-7) | reuses EP-2 and EP-7; tests `ExactPredicatesTests.Orient3dDirection_*` against BigInteger, every stage | predicates-2 shard (incremental) |
 
 ### 3.2 Generated predicates (`math/Generated/*.cs`, `tools/PredicateCompiler`)
 

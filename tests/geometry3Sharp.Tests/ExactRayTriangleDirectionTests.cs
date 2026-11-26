@@ -354,6 +354,37 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void IntrRay3Triangle3_CentroidFallback_ScalesTheParameterBackAndClampsAnOverflow()
+        {
+            // a ray that hits (exactly) but whose rounded D . N is 0 (found by a seeded search: the direction is a rounded
+            // cross product with the normal): t is the projection of the centroid. With the direction scaled by 2^j
+            // (IntrRay3Triangle3.hit scales it back into [1, 2) by a power of two) t is that projection times 2^-j,
+            // exactly; beyond the double range it is double.MaxValue (not +infinity)
+            var V0 = new Vector3d(BitConverter.Int64BitsToDouble(unchecked((long)0xC08BB88EFD01F11E)), BitConverter.Int64BitsToDouble(unchecked((long)0x4062B2485F636492)), BitConverter.Int64BitsToDouble(unchecked((long)0xBFCECEF2A73D9DE4)));
+            var V1 = new Vector3d(BitConverter.Int64BitsToDouble(unchecked((long)0x4080D65D578D2CBA)), BitConverter.Int64BitsToDouble(unchecked((long)0x40836BEC0F1D57D9)), BitConverter.Int64BitsToDouble(unchecked((long)0xBFDB2CFBFDB659F8)));
+            var V2 = new Vector3d(BitConverter.Int64BitsToDouble(unchecked((long)0x405711B15E822367)), BitConverter.Int64BitsToDouble(unchecked((long)0x4084CE3503891C6A)), BitConverter.Int64BitsToDouble(unchecked((long)0x3FED4798377A8F30)));
+            var o = new Vector3d(BitConverter.Int64BitsToDouble(unchecked((long)0x40F27ADA6F64BBBC)), BitConverter.Int64BitsToDouble(unchecked((long)0xC0EE41107EBFCC03)), BitConverter.Int64BitsToDouble(unchecked((long)0xC0828EE5FBD9EA6A)));
+            var d = new Vector3d(BitConverter.Int64BitsToDouble(unchecked((long)0xC0F2802FC1B5D411)), BitConverter.Int64BitsToDouble(unchecked((long)0x40EE7CEEC2F875C0)), BitConverter.Int64BitsToDouble(unchecked((long)0x40828F906E507BBF)));
+            Vector3d e1 = V1 - V0, e2 = V2 - V0;
+            Assert.Equal(0.0, d.Dot(e1.Cross(e2)));
+            var tri = new Triangle3d(V0, V1, V2);
+            var r0 = new IntrRay3Triangle3(new Ray3d(o, d, true), tri);
+            Assert.True(r0.Find());
+            Vector3d c = (V0 + V1 + V2) / 3.0;
+            double t0 = Math.Max(0, (c - o).Dot(d) / d.LengthSquared);
+            Assert.Equal(t0, r0.RayParameter);
+            Assert.True(t0 > 0.5);
+            foreach (int j in new[] { 200, 101, -150, -300, -900 }) {
+                var r = new IntrRay3Triangle3(new Ray3d(o, Scaled(d, j), true), tri);
+                Assert.True(r.Find(), $"2^{j}");
+                Assert.Equal(t0, ExactPoint3.ScaleB(r.RayParameter, j));
+            }
+            var far = new IntrRay3Triangle3(new Ray3d(o, Scaled(d, -1030), true), tri);
+            Assert.True(far.Find());
+            Assert.Equal(double.MaxValue, far.RayParameter);
+        }
+
+        [Fact]
         public void IssueRepro_SameVerdictOverTheWholeRangeOfScales()
         {
             // #1672: every 2^k copy of the subnormal repro hits, and the tree / linear-search route agrees on a mesh

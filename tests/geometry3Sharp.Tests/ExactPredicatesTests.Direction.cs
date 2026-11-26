@@ -34,5 +34,20 @@ namespace geometry3Sharp.Tests
             }
             Assert.True(intStage > 300 && n > 2500, $"{intStage} of {n}");
         }
+
+        [Theory]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        [InlineData(double.NegativeInfinity)]
+        public void Orient3dDirection_AndCross2Direction_ThrowOnANonFiniteCoordinate(double bad)
+        {
+            // as Orient3d: the exact stage refuses non-finite coordinates (the ray callers reject them before)
+            var p = new Vector3d(1, 2, 3);
+            Assert.Throws<System.ArgumentException>(() => ExactPredicates.Orient3dDirection(new Vector3d(bad, 0, 0), p, Vector3d.AxisX, Vector3d.AxisY));
+            Assert.Throws<System.ArgumentException>(() => ExactPredicates.Orient3dDirection(Vector3d.Zero, new Vector3d(1, bad, 0), Vector3d.AxisX, Vector3d.AxisY));
+            Assert.Throws<System.ArgumentException>(() => ExactPredicates.Orient3dDirection(Vector3d.Zero, p, new Vector3d(0, 0, bad), Vector3d.AxisY));
+            Assert.Throws<System.ArgumentException>(() => ExactPredicates.Cross2Direction(bad, 0, 1, 2, 3, 4));
+            Assert.Throws<System.ArgumentException>(() => ExactPredicates.Cross2Direction(0, 1, 2, 3, 4, bad));
+        }
     }
 }
