@@ -14,6 +14,7 @@ namespace geometry3Sharp.Tests
     /// that), and the next triangle on that edge is refused: "SlopeMap: non-manifold realization". After the two realizations
     /// of the design (with and without the merge) the strict one drops such slivers and stitches the neighbours.
     /// </summary>
+    [Collection("Terrain301")]       // (one design of 301 is shared by the tests of both classes; they must not run it at once)
     public class TerrainSlopeRampRotationRegressionTests
     {
         // AroundCorner mapped by 'rotation' (degrees about z through the origin) and then by 's' (the toe points, the path, the
@@ -123,8 +124,7 @@ namespace geometry3Sharp.Tests
         [Fact, Trait("Category", "Slow")]
         public void AroundCorner_301_NeedleWithARefusedFlip_Succeeds()
         {
-            var d = Make(301);
-            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            var d = Reference301.Value;
             TerrainSlopeRampTests.AssertRamps(d);       // (the surface within Tolerance of the references, below and above, every triangle exact)
             Assert.Equal(MeshRobustRepair.Defects.NotClosed | MeshRobustRepair.Defects.DegenerateTriangles, MeshRobustRepair.FindDefects(d.SlopeSurface));
             Assert.True(d.UsedToeLowering > 0 && d.UsedToeLowering <= d.Tolerance, "toe lowering " + d.UsedToeLowering);
@@ -133,11 +133,33 @@ namespace geometry3Sharp.Tests
 
         // 301 in the 2^k frames: the rerun's budgets and the flips scale with the frame, bit for bit (Nightly: the identity reference and each
         // frame are 6-8 s; the first case of the run pays for the reference, 16 s)
-        static readonly Lazy<TerrainSlopeDesign> Reference301 = new Lazy<TerrainSlopeDesign>(() => {
+        internal static readonly Lazy<TerrainSlopeDesign> Reference301 = new Lazy<TerrainSlopeDesign>(() => {
             var d = Make(301);
-            Assert.True(d.Compute(), d.Message);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
             return d;
         });
+
+        // (two frames in the PR tier, Slow: each is one design of 301, about 8 s; the reference is shared with the tests of this file)
+        [Theory, Trait("Category", "Slow")]
+        [InlineData("scale 2^-10")]
+        [InlineData("scale 2^10")]
+        public void AroundCorner_301_Pow2Frames(string name)
+        {
+            Similarity s = ZUp(Similarity.ByName(name));
+            var d = Make(301, s);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            Assert.Equal("", Invariance.Difference(Reference301.Value.SlopeSurface, Invariance.MappedBack(d.SlopeSurface, s)));
+        }
+
+        // a second Compute() on the design that ran the rerun gives the same surface bit for bit (Slow: one more design of 301)
+        [Fact, Trait("Category", "Slow")]
+        public void AroundCorner_301_Reuse_GivesTheSameSurface()
+        {
+            var d = Reference301.Value;
+            var before = new DMesh3(d.SlopeSurface);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            Assert.Equal("", Invariance.Difference(before, d.SlopeSurface));
+        }
 
         [Theory]
         [Trait("Category", "Nightly")]
@@ -224,7 +246,7 @@ namespace geometry3Sharp.Tests
         //   clusters of near-coincident vertices (heights up to 1e-4), all far below the tolerance of 1e-2. The library is right
         //   here: the slope and support checks accept every triangle and AssertRamps below checks the surface against the exact
         //   specification (heights, width, boundary); the generic defect check of MeshRobustRepair is an absolute area threshold.
-        static readonly HashSet<int> Needles = new HashSet<int> { 25, 26, 28, 30, 31, 41, 46, 57, 66, 67, 69, 71, 72, 76, 82, 94, 99, 100, 102, 107, 118, 123, 128, 133, 136, 139, 143, 148, 150, 153, 166, 171, 173, 174, 176, 181, 184, 192, 196, 202, 208, 212, 217, 223, 227, 241, 273, 274, 280, 301, 319 };
+        static readonly HashSet<int> Needles = new HashSet<int> { 25, 26, 28, 30, 31, 41, 46, 57, 66, 67, 69, 71, 72, 76, 82, 94, 99, 100, 102, 107, 118, 123, 128, 133, 136, 139, 143, 148, 150, 153, 166, 171, 173, 174, 176, 181, 184, 192, 196, 202, 208, 212, 217, 223, 227, 241, 273, 274, 280, 319 };
         // - 301 succeeds with needles since #1539's flip share rerun; its own Slow test above pins it (a design of 8 s does not belong in a shard of five).
         //   Every angle of the sweep now succeeds: a failure is a regression.
         const int Slow301 = 301;
