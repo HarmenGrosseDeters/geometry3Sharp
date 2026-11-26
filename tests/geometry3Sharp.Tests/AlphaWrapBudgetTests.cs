@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using g3;
 using gs;
@@ -21,6 +22,22 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
+        // the alpha at which the estimate is the budget, from the terms of the input (the oracle of the coarsening, written out here: the bulk
+        // and the band go with 1 / alpha^2 and the rim with 1 / alpha, alpha and offset scaled together, ratio alpha / offset = ratio):
+        // c^2 budget - rim alpha c - (density area + band) = 0 with c the coarsened alpha
+        static double CoarseAlpha(DMesh3 m, double relativeAlpha, double ratio, double budget)
+        {
+            var corners = new List<Vector3d>();
+            foreach (int t in m.TriangleIndices()) { Index3i tr = m.GetTriangle(t); corners.Add(m.GetVertex(tr.a)); corners.Add(m.GetVertex(tr.b)); corners.Add(m.GetVertex(tr.c)); }
+            double alpha = m.GetBounds().DiagonalLength / relativeAlpha;
+            AlphaWrapEstimate.EstimateTerms terms = AlphaWrapEstimate.Terms(corners, alpha);
+            double sheet = terms.OpenArea + 0.5 * terms.ThinArea;
+            double band = MeshAlphaWrap.SheetOffsetDensity * sheet * Math.Max(0.0, ratio - MeshAlphaWrap.SheetOffsetRatio);
+            double rimAlpha = (MeshAlphaWrap.RimDensity * (terms.OpenBoundary + terms.ThinRim) + MeshAlphaWrap.SharpDensity * terms.ThickSharp) * ratio;
+            double bulk = MeshAlphaWrap.EstimateDensity * (Invariance.Area(m) + terms.OpenArea) + band;
+            return (rimAlpha + Math.Sqrt(rimAlpha * rimAlpha + 4 * budget * bulk)) / (2 * budget);
+        }
+
         static MeshAlphaWrap Wrap(DMesh3 m, double relativeAlpha, int budget, double cap = 0)
         {
             var w = new MeshAlphaWrap(m) { RelativeAlpha = relativeAlpha, RelativeOffset = 10 * relativeAlpha, MaxEstimatedTriangles = budget, MaxAlphaCoarsening = cap };
@@ -28,23 +45,25 @@ namespace geometry3Sharp.Tests
             return w;
         }
 
-        // the estimate is EstimateDensity * area / alpha^2, computed also with the budget off; off, or a budget above the estimate,
-        // changes nothing
+        // the estimate is EstimateDensity * area / alpha^2 plus the offset band (EstimatedRimTriangles, issue #1593: the flattened sphere is a
+        // plate of zero thickness, a sheet with a rim), computed also with the budget off; off, or a budget above the estimate, changes nothing
         [Fact]
         public void Estimate_IsTheAreaOverAlphaSquared_ABudgetAboveItChangesNothing()
         {
             DMesh3 flat = Flat();
             double diag = flat.CachedBounds.DiagonalLength, alpha = diag / 50;
             MeshAlphaWrap off = Wrap(flat, 50, 0);
-            double expected = MeshAlphaWrap.EstimateDensity * Invariance.Area(flat) / (alpha * alpha);
+            double expected = MeshAlphaWrap.EstimateDensity * Invariance.Area(flat) / (alpha * alpha) + off.EstimatedRimTriangles;
+            Assert.True(off.EstimatedRimTriangles > 0);
             Assert.True(Math.Abs(off.EstimatedTriangles - expected) <= 1e-12 * expected, $"{off.EstimatedTriangles} vs {expected}");
             Assert.Equal(1.0, off.AlphaCoarsening);
             Assert.Equal(alpha, off.UsedAlpha);
             MeshAlphaWrap above = Wrap(flat, 50, (int)Math.Ceiling(expected));
             Assert.Equal(1.0, above.AlphaCoarsening);
             Assert.Equal(AlphaWrapManifoldStepTests.Hash(off.Result), AlphaWrapManifoldStepTests.Hash(above.Result));
-            // (the estimate against the measured size of this input: 3.0 to 3.3 times area / alpha^2, EstimateDensity's comment)
-            Assert.InRange(off.Result.TriangleCount / expected, 0.8, 1.3);
+            // (the estimate against the measured size of this input: the bulk 3.0 to 3.3 times area / alpha^2, EstimateDensity's comment, and
+            // the band and rim of the sheet-like input on top: 0.76 of it at alpha / offset 10)
+            Assert.InRange(off.Result.TriangleCount / expected, 0.6, 1.3);
         }
 
         // the default (budget off) is bit for bit the wrap of master df429d6f, before the budget (hash computed there with the same
@@ -71,7 +90,7 @@ namespace geometry3Sharp.Tests
             double diag = flat.CachedBounds.DiagonalLength;
             const int budget = 6000;
             MeshAlphaWrap w = Wrap(flat, 100, budget);
-            double factor = Math.Sqrt(w.EstimatedTriangles / budget);
+            double coarse = CoarseAlpha(flat, 100, 10, budget), factor = coarse / (diag / 100);
             Assert.True(factor > 1.5, $"factor {factor}");
             Assert.True(Math.Abs(w.AlphaCoarsening - factor) <= 1e-12 * factor, $"{w.AlphaCoarsening} vs {factor}");
             Assert.Equal(w.AlphaCoarsening, w.UsedAlpha / (diag / 100));
@@ -96,8 +115,9 @@ namespace geometry3Sharp.Tests
             Assert.True(w.Compute(), w.Error);
             Assert.True(double.IsPositiveInfinity(w.EstimatedTriangles), $"estimate {w.EstimatedTriangles}");
             double expected = Math.Sqrt(MeshAlphaWrap.EstimateDensity * Invariance.Area(flat) / budget);
-            Assert.True(Math.Abs(w.UsedAlpha - expected) <= 1e-12 * expected, $"{w.UsedAlpha} vs {expected}");
-            Assert.True(Math.Abs(w.UsedOffset - 0.1 * expected) <= 1e-12 * expected, $"{w.UsedOffset}");
+            // (the band and the rim of the flat sheet make it coarser than the bulk alone: alpha / offset is 10 here, band 0.6 * (10 - 8) of the sheet)
+            Assert.InRange(w.UsedAlpha / expected, 1.0, 1.4);
+            Assert.True(Math.Abs(w.UsedOffset - 0.1 * w.UsedAlpha) <= 1e-12 * w.UsedAlpha, $"{w.UsedOffset}");
             Assert.Equal(MeshAlphaWrap.WrapStatus.Success, w.Status);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(w.Result));
             Assert.InRange(w.Result.TriangleCount, budget / 2, budget * 2);
@@ -143,7 +163,7 @@ namespace geometry3Sharp.Tests
                 // (the relative alpha follows the axis-aligned box, which a rotation changes; the coarsened alpha does not depend on it:
                 // alpha * sqrt(density * area / (alpha^2 * budget)) = sqrt(density * area / budget); 1e-6: the input's coordinates rounded
                 // in the frame, 2.5e-8 measured in the rotated millimetre UTM frame)
-                double expected = Math.Sqrt(MeshAlphaWrap.EstimateDensity * Invariance.Area(input) / 1500);
+                double expected = CoarseAlpha(input, 50, 10, 1500);
                 Assert.True(Math.Abs(w.UsedAlpha / s.Scale - expected) <= 1e-6 * expected, $"{s.Name}: {w.UsedAlpha / s.Scale} vs {expected}");
                 if (s.IsExact) {
                     Assert.Equal(w0.EstimatedTriangles, w.EstimatedTriangles);

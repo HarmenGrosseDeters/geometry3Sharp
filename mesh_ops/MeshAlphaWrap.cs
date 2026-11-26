@@ -128,11 +128,12 @@ namespace gs
         /// coarser than the budget needs. Input points and segments have no area: an input of only points or segments is not coarsened.
         /// A budget far below the input's detail gives an alpha up to the size of the input (MaxEstimatedTriangles = 1: about the
         /// bounding box diagonal), a wrap of a few triangles around it; there is no lower bound.
-        /// The result can be well above the estimate, and so above the budget, for open sheets, thin plates and small offsets (issue #1593,
-        /// measured at the defaults): result / EstimatedTriangles 7.4 to 7.8 for an open curved sheet (3.7 to 3.9 with the budget, which counts
-        /// the open component twice), about 4 for a plate 1 x 1 x 1e-4, about 6.7 for two cubes with a gap of 1e-2, about 4.4 for alpha / offset = 25;
-        /// the estimate has no offset term, and the band around a rim or edge needs triangles of about the offset's size. Compare
-        /// Result.TriangleCount with EstimatedTriangles after Compute() and set the budget lower by that factor.
+        /// The estimate has an offset band (issue #1593; EstimatedRimTriangles, RimDensity, SharpDensity, SheetOffsetDensity): the rim of an open
+        /// sheet or thin plate, the sharp edges of a solid and a sheet at a small Offset need triangles of the offset's size, which no density of
+        /// Alpha has. Measured at the defaults: result / EstimatedTriangles 0.79 for an open curved sheet (7.8 before the band), 0.84 for a plate
+        /// 1 x 1 x 1e-4 (4.0), 0.96 for two cubes with a gap of 1e-2 at relative alpha 5 (6.7), 0.82 at alpha / offset = 50 (4.8 at 25); closed
+        /// solids 0.5 to 1.3. Alpha and Offset are coarsened together until the estimate with the band is the budget. A closed solid without sharp
+        /// edges, at the size of its Alpha, has no band and the estimate it had.
         /// </summary>
         public int MaxEstimatedTriangles = 0;
         /// <summary>
@@ -144,13 +145,34 @@ namespace gs
         /// </summary>
         public double MaxAlphaCoarsening = 0;
         /// <summary>
-        /// Density of the size estimate: EstimatedTriangles = EstimateDensity * (area of the input triangles, open components twice, with MaxEstimatedTriangles > 0 only) / Alpha^2. Measured (issue #694;
+        /// Density of the size estimate: EstimatedTriangles = EstimateDensity * (area of the input triangles, open components twice) / Alpha^2 + EstimatedRimTriangles. Measured (issue #694;
         /// relative alpha 50 to 200): closed solids (sphere, boxes, a plate of 1/100 thickness) 1.35 to 1.7 triangles per area / Alpha^2, so
         /// the estimate is about twice their size; a closed surface of zero volume (a sphere flattened onto a plane: the wrap covers both
         /// sheets, at the double density of zero thickness, see TraverseByEmptyBall) 3.0 to 3.3, about the estimate; an open sheet (a disc:
-        /// the wrap covers its two sides, twice its area) 6.0 to 6.6, which EstimatedTriangles counts for open components (twice the area) when MaxEstimatedTriangles > 0.
+        /// the wrap covers its two sides, twice its area) 6.0 to 6.6, which EstimatedTriangles counts for open components (twice the area).
         /// </summary>
         public const double EstimateDensity = 3.0;
+        /// <summary>
+        /// Triangles per unit of rim length / Offset (issue #1593): the wrap goes around the boundary of an open sheet (and the rim of a thin
+        /// plate) at the radius of the offset, with triangles of the offset's size. Measured on a curved sheet at alpha 0.012 to 0.12 and
+        /// alpha / offset 4 to 50: 0.7 to 1.0 (the fit result = a / alpha^2 + b / alpha, b = 1.0 L / offset at ratio 50); 1.2 is above it.
+        /// </summary>
+        public const double RimDensity = 1.2;
+        /// <summary>
+        /// Triangles per unit of sharp edge length / Offset of a closed solid (dihedral turn above 45 degrees): the empty ball touches a
+        /// convex edge from outside. Measured: two cubes with a gap of 1e-2 at alpha 0.28 and offset 1.2e-3: 986 triangles, 12 of edge length, 0.14; cubes
+        /// at smaller alpha (alpha / offset up to 50) show no rim term at all (result about 0.5 of the bulk estimate), so this only covers the first case.
+        /// </summary>
+        public const double SharpDensity = 0.15;
+        /// <summary>
+        /// A sheet (open component, or half the area of a thin closed one) needs, beyond the bulk, SheetOffsetDensity * area / alpha^2 *
+        /// (alpha / offset - SheetOffsetRatio) triangles: the wrap at the distance of the offset from a flat sheet follows it with triangles of
+        /// about alpha * offset size. Measured on the curved sheet (area 1.04; 512 and 2048 triangles give the same): the sheet part of the
+        /// result is (1.3 + 0.51 alpha / offset) * area / alpha^2 at alpha / offset 4 to 50, the bulk estimate (both sides) 6 area / alpha^2.
+        /// </summary>
+        public const double SheetOffsetDensity = 0.6;
+        /// <summary> see SheetOffsetDensity </summary>
+        public const double SheetOffsetRatio = 8.0;
         /// <summary>
         /// Refine at the non-manifold spots of the carved surface before the manifold step (default true): the outside
         /// cells that the manifold step would move inside get a Steiner point on the offset surface, and the refinement
@@ -265,13 +287,18 @@ namespace gs
         /// <summary> the alpha and offset used (absolute) </summary>
         public double UsedAlpha, UsedOffset;
         /// <summary>
-        /// the estimated size of the result at the requested alpha, set by Compute() whether or not MaxEstimatedTriangles is on; 0 before,
-        /// and for an input Compute() rejects before the alpha is known. With MaxEstimatedTriangles &gt; 0 it is EstimateDensity * area of the
-        /// input triangles, open components counted twice / alpha^2; without a budget it is the one-sided estimate
-        /// EstimateDensity * area / alpha^2 (the open components are not looked for, which costs time in proportion to the input's triangle count, benchmarks/OpenSoupWrapBenchmark:
-        /// an open input's wrap is then about twice as large as this). Input segments and points are not counted. It is not an upper bound: for open sheets, thin plates and small offsets the result is 4 to 8 times it (see MaxEstimatedTriangles)
+        /// the estimated size of the result at the requested alpha, set by Compute() whether or not MaxEstimatedTriangles is on (since #1593 it
+        /// does not depend on it); 0 before, and for an input Compute() rejects before the alpha is known. It is EstimateDensity * area of the input
+        /// triangles, open components counted twice / alpha^2, plus EstimatedRimTriangles. The open components are looked for always, which costs
+        /// time in proportion to the input's triangle count (benchmarks/OpenSoupWrapBenchmark). Input segments and points are not counted. An upper
+        /// bound on the procedural sheets, plates and cubes of issue #1593 (result / estimate 0.5 to 1.3 on closed solids, 0.4 to 1.0 on those), see MaxEstimatedTriangles
         /// </summary>
         public double EstimatedTriangles;
+        /// <summary>
+        /// the part of EstimatedTriangles that is the offset band (issue #1593): the sheets close to the input and the rims and sharp edges, set
+        /// by Compute() together with it; 0 for a closed solid without sharp edges and for a thick one at a small alpha / Offset
+        /// </summary>
+        public double EstimatedRimTriangles;
         /// <summary> the factor by which MaxEstimatedTriangles scaled alpha and offset (1: not coarsened) </summary>
         public double AlphaCoarsening = 1;
         /// <summary> time per phase, for diagnostics </summary>
@@ -522,7 +549,7 @@ namespace gs
 
         WrapStatus setup()
         {
-            EstimatedTriangles = 0;
+            EstimatedTriangles = 0; EstimatedRimTriangles = 0;
             AlphaCoarsening = 1;
             var tris = new List<Vector3d>();
             var pts = new List<Vector3d>();
@@ -566,16 +593,37 @@ namespace gs
             double area = 0;
             for (int i = 0; i + 2 < tris.Count; i += 3)
                 area += 0.5 * (tris[i + 1] - tris[i]).Cross(tris[i + 2] - tris[i]).Length;
+            // an open input is wrapped on both sides (issue #1113): the area of its open components counts twice. The offset band (issue
+            // #1593): where the wrap goes around a rim or a sharp edge at the radius of the offset, and over a sheet at a distance of the
+            // offset, it needs triangles of the offset's size, which no density of alpha has. EstimatedTriangles is
+            //   EstimateDensity * (area + open area) / alpha^2                                                        (the bulk)
+            // + SheetOffsetDensity * sheet area * max(0, alpha / offset - SheetOffsetRatio) / alpha^2                  (flat sheets close to the input)
+            // + (RimDensity * (open boundary + rim of the thin components) + SharpDensity * other sharp edges) / offset      (the rims)
+            // with the sheet area the open area and half the area of the thin closed components (plates). The analysis costs time in proportion to the
+            // input's triangle count (benchmarks/OpenSoupWrapBenchmark), so the wrap itself does not depend on it. A closed solid without sharp edges
+            // adds 0.0 for each term: bit for bit the estimate of before.
             // (divided twice: alpha^2 underflows below about 1e-162, and an infinite estimate must still be coarsened)
-            // an open input is wrapped on both sides (issue #1113): the area of its open components counts twice, so that a budget means
-            // the same on open and closed input (a closed input adds 0.0 to the area: bit for bit the estimate of before). The open
-            // area costs time in proportion to the input's triangle count (benchmarks/OpenSoupWrapBenchmark), so it is computed only for the budget; without one EstimatedTriangles
-            // is the one-sided estimate (the wrap itself does not depend on it)
-            double effectiveArea = MaxEstimatedTriangles > 0 ? area + AlphaWrapEstimate.OpenArea(tris, alpha) : area;
-            EstimatedTriangles = alpha > 0 ? EstimateDensity * effectiveArea / alpha / alpha : 0;
+            AlphaWrapEstimate.EstimateTerms terms = alpha > 0 ? AlphaWrapEstimate.Terms(tris, alpha) : new AlphaWrapEstimate.EstimateTerms();
+            double effectiveArea = area + terms.OpenArea;
+            double sheetArea = terms.OpenArea + 0.5 * terms.ThinArea;
+            // (the ratio alpha / offset, which MaxEstimatedTriangles keeps; a rim term needs a positive offset)
+            double bandArea = offset > 0 && alpha > 0 ? sheetArea * Math.Max(0.0, alpha / offset - SheetOffsetRatio) * SheetOffsetDensity : 0;
+            double rimLength = offset > 0 ? RimDensity * (terms.OpenBoundary + terms.ThinRim) + SharpDensity * terms.ThickSharp : 0;
+            double rim = rimLength > 0 ? rimLength / offset : 0;
+            EstimatedTriangles = alpha > 0 ? EstimateDensity * effectiveArea / alpha / alpha + bandArea / alpha / alpha + rim : 0;
+            EstimatedRimTriangles = alpha > 0 ? bandArea / alpha / alpha + rim : 0;
             if (MaxEstimatedTriangles > 0 && EstimatedTriangles > MaxEstimatedTriangles) {
-                // the alpha whose estimate is the budget, sqrt(density * area / budget): it does not depend on the requested alpha
-                double coarse = Math.Sqrt(EstimateDensity * effectiveArea / MaxEstimatedTriangles);
+                // the alpha whose estimate is the budget: the bulk and the band go with 1 / alpha^2 and the rims with 1 / alpha (alpha
+                // and offset are scaled together), P / k^2 + R / k = budget for the factor k on the requested alpha; without a rim
+                // or band term the old sqrt(density * area / budget), bit for bit
+                double coarse;
+                if (EstimatedRimTriangles > 0) {
+                    // (c = alpha * k: c^2 budget - rim alpha c - (density area + band) = 0, without a division by alpha^2)
+                    double budget = MaxEstimatedTriangles, rimAlpha = rimLength * (alpha / offset), bulkArea = EstimateDensity * effectiveArea + bandArea;
+                    coarse = (rimAlpha + Math.Sqrt(rimAlpha * rimAlpha + 4 * budget * bulkArea)) / (2 * budget);
+                } else {
+                    coarse = Math.Sqrt(EstimateDensity * effectiveArea / MaxEstimatedTriangles);
+                }
                 double cap = MaxAlphaCoarsening > 0 ? Math.Max(1.0, MaxAlphaCoarsening) : double.PositiveInfinity;
                 if (coarse / alpha > cap) {
                     // (limited: the requested alpha times the cap, so the result follows the requested alpha, not only the area)
