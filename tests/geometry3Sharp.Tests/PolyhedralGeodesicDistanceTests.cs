@@ -279,7 +279,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void WindowLimit_EndsBeforeMemoryGrowsPastTheBound()
         {
-            // the bound of the class docs: at most 120 bytes x (MaxWindows + 2 x the largest valence) + 89 bytes per vertex (+ the result arrays)
+            // the bound of the class docs: at most 120 bytes x (MaxWindows + 2 x the largest valence) + 89 bytes per vertex (+ result arrays + 80 transient bytes/edge for precomputed side frames, released on return)
             int n = 41; var m = Grid(1, n, (x, y) => 0); int c = (n / 2) * n + n / 2;
             long limit = 2000; var g = new PolyhedralGeodesicDistance(m) { MaxWindows = limit };
             int valence = m.VertexIndices().Max(v => m.GetVtxEdgeCount(v));
@@ -290,7 +290,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(PolyhedralGeodesicStatus.WindowLimit, st);
             Assert.True(g.Distance.All(double.IsNaN) && g.NearestSource.All(x => x == -1));
             Assert.True(g.Windows <= limit + 2 * valence, $"windows {g.Windows}");
-            long bound = 120L * (limit + 2 * valence) + 89L * m.MaxVertexID + 40L * m.MaxVertexID + 8L * m.MaxEdgeID * 8 + (4L << 20);
+            long bound = 120L * (limit + 2 * valence) + 89L * m.MaxVertexID + 40L * m.MaxVertexID + 96L * m.MaxEdgeID + (4L << 20);
             Assert.True(used <= bound, $"allocated {used} bytes, bound {bound}");
         }
 
@@ -636,6 +636,195 @@ namespace geometry3Sharp.Tests
             foreach (int v in m.VertexIndices()) {
                 double tol = Tol(orc.Upper[v], ext);
                 Assert.True(g.Distance[v] >= orc.Lower[v] - tol && g.Distance[v] <= orc.Upper[v] + tol, $"{f} vertex {v}");
+            }
+        }
+
+        // ------------------------------------------------------------------ PGD-1 fast angle-sum classification & precomputed side frames
+
+        [Fact]
+        public void FastCornerAngle_PGD1_GuardsAndExactOracle()
+        {
+            // 1) Length-squared range guards (AngleLenSqLo = 1e-100, AngleLenSqHi = 1e100)
+            Assert.False(PolyhedralGeodesicDistance.TryFastCornerAngle(1e-55, 0, 0, 0, 1, 0, out _));
+            Assert.False(PolyhedralGeodesicDistance.TryFastCornerAngle(1, 0, 0, 0, 1e-55, 0, out _));
+            Assert.True(PolyhedralGeodesicDistance.TryFastCornerAngle(1e-49, 0, 0, 0, 1e-49, 0, out double aSmall));
+            Assert.True(Math.Abs(aSmall - 0.5 * Math.PI) < 1e-14);
+
+            Assert.False(PolyhedralGeodesicDistance.TryFastCornerAngle(1e55, 0, 0, 0, 1, 0, out _));
+            Assert.False(PolyhedralGeodesicDistance.TryFastCornerAngle(1, 0, 0, 0, 1e55, 0, out _));
+            Assert.False(PolyhedralGeodesicDistance.TryFastCornerAngle(1e200, 0, 0, 0, 1e200, 0, out _));
+            Assert.True(PolyhedralGeodesicDistance.TryFastCornerAngle(1e49, 0, 0, 0, 1e49, 0, out double aBig));
+            Assert.True(Math.Abs(aBig - 0.5 * Math.PI) < 1e-14);
+
+            // 2) Sliver, collinear, zero, NaN, and Inf guards (AngleSliverRelSq = 1e-20)
+            Assert.False(PolyhedralGeodesicDistance.TryFastCornerAngle(1, 0, 0, 1, 1e-11, 0, out _));
+            Assert.False(PolyhedralGeodesicDistance.TryFastCornerAngle(1, 0, 0, -1, 1e-11, 0, out _));
+            Assert.True(PolyhedralGeodesicDistance.TryFastCornerAngle(1, 0, 0, 1, 1e-9, 0, out double aThin));
+            Assert.True(Math.Abs(aThin - 1e-9) < 1e-14);
+            Assert.False(PolyhedralGeodesicDistance.TryFastCornerAngle(0, 0, 0, 1, 0, 0, out _));
+            Assert.False(PolyhedralGeodesicDistance.TryFastCornerAngle(double.NaN, 1, 0, 0, 1, 0, out _));
+            Assert.False(PolyhedralGeodesicDistance.TryFastCornerAngle(double.PositiveInfinity, 1, 0, 0, 1, 0, out _));
+
+            // 3) Randomized oracle against ExactMeshGeodesicDistance.CornerAngle across 1,000 non-sliver corners and scales
+            var rnd = new Random(1663);
+            double[] scales = { 1e-30, 1e-10, 1.0, 1e10, 1e30 };
+            int tested = 0;
+            for (int i = 0; i < 1000; ++i) {
+                double sc = scales[i % scales.Length];
+                Vector3d u = new Vector3d(rnd.NextDouble() * 2 - 1, rnd.NextDouble() * 2 - 1, rnd.NextDouble() * 2 - 1) * sc;
+                Vector3d w = new Vector3d(rnd.NextDouble() * 2 - 1, rnd.NextDouble() * 2 - 1, rnd.NextDouble() * 2 - 1) * sc;
+                if (!PolyhedralGeodesicDistance.TryFastCornerAngle(u.x, u.y, u.z, w.x, w.y, w.z, out double ang))
+                    continue;
+                ++tested;
+                ExactInterval iv = ExactMeshGeodesicDistance.CornerAngle(Vector3d.Zero, u, w);
+                Assert.True(ang >= iv.Lo - 1e-14 && ang <= iv.Hi + 1e-14,
+                    $"i={i} sc={sc}: ang={ang:R} outside [{iv.Lo:R}, {iv.Hi:R}]");
+            }
+            Assert.True(tested > 990, $"expected >990 non-sliver corners tested, got {tested}");
+        }
+
+        static DMesh3 StarFan(int k, double centerZ, double wobbleZ = 0.0, bool flipFirst = false)
+        {
+            var m = new DMesh3();
+            m.AppendVertex(new Vector3d(0, 0, centerZ));
+            for (int i = 0; i < k; ++i) {
+                double th = 2.0 * Math.PI * i / k;
+                double z = (i & 1) == 0 ? wobbleZ : -wobbleZ;
+                m.AppendVertex(new Vector3d(Math.Cos(th), Math.Sin(th), z));
+            }
+            for (int i = 0; i < k; ++i) {
+                int a = 1 + i, b = 1 + (i + 1) % k;
+                if (flipFirst && i == 0) m.AppendTriangle(0, b, a);
+                else m.AppendTriangle(0, a, b);
+            }
+            return m;
+        }
+
+        [Fact]
+        public void FastVertexClassification_MatchesOracleAcrossCurvaturesSliversAndScales()
+        {
+            // 1) Near-2*pi boundary: inside AngleBand (1e-6) must fall back to oracle; outside takes fast path and agrees with oracle.
+            //    For a regular 6-gon cone of radius 1 and apex height h, angle sum = 2*pi - 2*sqrt(3)*h^2 + O(h^4).
+            //    h = 4e-4 => defect ~ 5.54e-7 (< 1e-6: fallback); h = 3e-3 => defect ~ 3.12e-5 (> 1e-6: fast convex, kind 0).
+            {
+                DMesh3 nearConvex = StarFan(6, 4e-4);
+                var gNear = Run(nearConvex, 1);
+                Assert.Equal(0, gNear.FastClassifiedCount);
+                AssertAgreesWithOracle(nearConvex, gNear, 1);
+
+                DMesh3 clearConvex = StarFan(6, 3e-3);
+                var gClear = Run(clearConvex, 1);
+                Assert.Equal(1, gClear.FastClassifiedCount);
+                Assert.True(gClear.TryFastAngleSumKind(0, 6, out byte kConv));
+                Assert.Equal((byte)0, kConv);
+                AssertAgreesWithOracle(clearConvex, gClear, 1);
+
+                // Saddle fan: alternating rim heights +-w => angle sum = 2*pi + 6*sqrt(3)*w^2 + O(w^4) > 2*pi.
+                // w = 2e-4 => excess ~ 4.16e-7 (< 1e-6: fallback); w = 3e-3 => excess ~ 9.35e-5 (> 1e-6: fast saddle, kind 1).
+                DMesh3 nearSaddle = StarFan(6, 0.0, 2e-4);
+                var gNearS = Run(nearSaddle, 1);
+                Assert.Equal(0, gNearS.FastClassifiedCount);
+                AssertAgreesWithOracle(nearSaddle, gNearS, 1);
+
+                DMesh3 clearSaddle = StarFan(6, 0.0, 3e-3);
+                var gClearS = Run(clearSaddle, 1);
+                Assert.Equal(1, gClearS.FastClassifiedCount);
+                Assert.True(gClearS.TryFastAngleSumKind(0, 6, out byte kSad));
+                Assert.Equal((byte)1, kSad);
+                AssertAgreesWithOracle(clearSaddle, gClearS, 1);
+
+                // Inconsistently wound interior fan: TryFastAngleSumKind is symmetric in triangle orientation
+                DMesh3 nonOrient = StarFan(6, 0.3, 0.0, flipFirst: true);
+                var gNo = Run(nonOrient, 1);
+                Assert.Equal(1, gNo.FastClassifiedCount);
+                Assert.True(gNo.TryFastAngleSumKind(0, 6, out byte kNo));
+                Assert.Equal((byte)0, kNo);
+                AssertAgreesWithOracle(nonOrient, gNo, 1);
+            }
+
+            // 2) Interior sliver fallback: one incident triangle has cross^2 <= 1e-20 * u^2 * w^2 => must fall back to oracle
+            {
+                var sliverFan = new DMesh3();
+                sliverFan.AppendVertex(new Vector3d(0, 0, 0.3));
+                sliverFan.AppendVertex(new Vector3d(1, 0, 0));
+                sliverFan.AppendVertex(new Vector3d(1, 1e-11, 0));   // tiny angle ~ 1e-11 rad -> c2 / (u2*w2) ~ 1e-22 <= 1e-20
+                sliverFan.AppendVertex(new Vector3d(0, 1, 0));
+                sliverFan.AppendVertex(new Vector3d(-1, 0, 0));
+                sliverFan.AppendVertex(new Vector3d(0, -1, 0));
+                for (int i = 0; i < 5; ++i)
+                    sliverFan.AppendTriangle(0, 1 + i, 1 + (i + 1) % 5);
+                var gSliv = Run(sliverFan, 1);
+                Assert.Equal(0, gSliv.FastClassifiedCount);
+                AssertAgreesWithOracle(sliverFan, gSliv, 1);
+            }
+
+            // 3) High-valence boundary: tc == AngleMaxValence (1024) takes fast path; tc == 1025 falls back (kills > vs >=)
+            {
+                DMesh3 atCap = StarFan(1024, 0.5);
+                var gAt = Run(atCap, 1);
+                Assert.Equal(1, gAt.FastClassifiedCount);
+                Assert.Equal(PolyhedralGeodesicStatus.Ok, gAt.Status);
+
+                DMesh3 aboveCap = StarFan(1025, 0.5);
+                var gHv = Run(aboveCap, 1);
+                Assert.Equal(0, gHv.FastClassifiedCount);
+                Assert.Equal(PolyhedralGeodesicStatus.Ok, gHv.Status);
+                AssertAboveStraight(aboveCap, gHv, 1);
+            }
+
+            // 4) Curved vs flat meshes (including ridge 4 straight-fold flat-first fallback) & reuse after failure/WindowLimit
+            {
+                var (terrain, tSrc) = Family("terrain", 21);
+                var gT = Run(terrain, tSrc);
+                Assert.True(gT.FastClassifiedCount > 300, $"expected fast path on terrain interior, got {gT.FastClassifiedCount}");
+                AssertAgreesWithOracle(terrain, gT, tSrc);
+
+                var (plane, pSrc) = Family("plane centre", 21);
+                var gP = Run(plane, pSrc);
+                Assert.Equal(0, gP.FastClassifiedCount);
+                AssertAgreesWithOracle(plane, gP, pSrc);
+
+                var (ridge, rSrc) = Family("ridge 4", 21);
+                var gR = Run(ridge, rSrc);
+                Assert.Equal(0, gR.FastClassifiedCount);
+                AssertAgreesWithOracle(ridge, gR, rSrc);
+
+                // Reuse across Ok, NoSource, WindowLimit, and back to Ok resets FastClassifiedCount and matches fresh instance bit-for-bit
+                var gReuse = new PolyhedralGeodesicDistance(terrain);
+                Assert.Equal(PolyhedralGeodesicStatus.Ok, gReuse.Compute(tSrc));
+                int fc1 = gReuse.FastClassifiedCount;
+                double[] d1 = (double[])gReuse.Distance.Clone();
+                Assert.Equal(PolyhedralGeodesicStatus.NoSource, gReuse.Compute(Array.Empty<int>()));
+                Assert.Equal(0, gReuse.FastClassifiedCount);
+                gReuse.MaxWindows = 50;
+                Assert.Equal(PolyhedralGeodesicStatus.WindowLimit, gReuse.Compute(tSrc));
+                gReuse.MaxWindows = 0;
+                Assert.Equal(PolyhedralGeodesicStatus.Ok, gReuse.Compute(tSrc));
+                Assert.Equal(fc1, gReuse.FastClassifiedCount);
+                Assert.Equal(d1, gReuse.Distance);
+                Assert.Equal(gT.Distance, gReuse.Distance);
+                Assert.Equal(gT.Windows, gReuse.Windows);
+            }
+
+            // 5) UTM shift & extreme 2^k scaling: bit-identical across 2^-60 and 2^60, agrees with oracle at UTM coordinates
+            {
+                var (dome, src) = Family("dome 0.3", 15);
+                var g0 = Run(dome, src);
+                foreach (double sc in new[] { Math.Pow(2, -60), Math.Pow(2, 60) }) {
+                    DMesh3 scaled = new DMesh3(dome);
+                    MeshTransforms.Scale(scaled, sc);
+                    var gs = Run(scaled, src);
+                    Assert.Equal(g0.FastClassifiedCount, gs.FastClassifiedCount);
+                    Assert.Equal(g0.Windows, gs.Windows);
+                    foreach (int v in dome.VertexIndices())
+                        Assert.Equal(g0.Distance[v] * sc, gs.Distance[v]);
+                }
+
+                DMesh3 utm = new DMesh3(dome);
+                MeshTransforms.Translate(utm, new Vector3d(632117.25, 5712043.5, 113.75));
+                var gUtm = Run(utm, src);
+                Assert.True(gUtm.FastClassifiedCount > 100);
+                AssertAgreesWithOracle(utm, gUtm, src);
             }
         }
     }

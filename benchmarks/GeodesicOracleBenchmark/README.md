@@ -115,3 +115,38 @@ saddle (default budget, WindowLimit) 14.2 s / 13.8 s; peak working set plane 261
 | plane 317 x 317 | 100489 | 6.16 | 2010 | 0.115 | 57 | 469 | 6.0e-15 |
 
 A trace costs 10 to 60 microseconds, a thousandth of the Compute. The deviation grows with the number of triangles crossed (plane: about 1e-17 per crossing).
+
+**Fast angle-sum vertex classification (`PGD-1`) and precomputed side frames (2026-11-26, GEODESICS.md A.9).** Command:
+
+```
+DOTNET_TieredPGO=0 dotnet run -c Release --no-build --project benchmarks/GeodesicOracleBenchmark -- poly 101,201,317
+```
+
+Machine: Intel Xeon @ 2.30 GHz (2 CPUs, serial), .NET 10.0.115. Before: `origin/master` (`f90503ba`); after: range-guarded
+`CoreMath.Atan2` angle-sum vertex classification (`PGD-1` in `tools/ErrorBoundAudit/bounds.py`) with flat-first oracle fallback
+(`oracle.IsFlatVertex` before `oracle.VertexKind`), plus precomputed per-edge endpoints and per-side 2D frames and child
+edge/side indices. All 15 64-bit `Digest` hashes (`Distance`, `NearestSource`, `Windows`) match `origin/master` bit for bit:
+
+| mesh | vertices | status | before: seconds, alloc MB, peak MB | after: seconds, alloc MB, peak MB | speedup | digest equal |
+|---|---|---|---|---|---|---|
+| terrain 101 x 101 | 10201 | Ok | 0.81, 28, 54 | 0.59, 17, 46 | 1.37x | yes (`3D62D8C8229DCFC5`) |
+| plane 101 x 101 | 10201 | Ok | 1.09, 28, 71 | 0.30, 22, 59 | 3.63x | yes (`5327AEA8A28C45B4`) |
+| ridge4 101 x 101 | 10201 | Ok | 0.90, 24, 76 | 0.23, 18, 69 | 3.91x | yes (`27137C04AAB0763B`) |
+| ridge75 101 x 101 | 10201 | Ok | 0.89, 24, 77 | 0.22, 18, 77 | 4.05x | yes (`4C0C02C0B676DFAE`) |
+| saddle 101 x 101 | 10201 | WindowLimit | 1.76, 60, 100 | 1.57, 54, 104 | 1.12x | yes (`60D751B48FC90A73`) |
+| terrain 201 x 201 | 40401 | Ok | 1.88, 105, 148 | 1.50, 70, 108 | 1.25x | yes (`01C43F6D012CA4EC`) |
+| plane 201 x 201 | 40401 | Ok | 3.89, 101, 155 | 1.20, 76, 148 | 3.24x | yes (`1F8D4C088EDBC14E`) |
+| ridge4 201 x 201 | 40401 | Ok | 3.72, 97, 155 | 1.05, 72, 157 | 3.54x | yes (`606C9DBD5661FEFD`) |
+| ridge75 201 x 201 | 40401 | Ok | 3.73, 97, 155 | 1.06, 72, 170 | 3.52x | yes (`BFED66BB73F9BA88`) |
+| saddle 201 x 201 | 40401 | WindowLimit | 8.13, 237, 257 | 7.44, 212, 263 | 1.09x | yes (`D95D251DEE9DCBD3`) |
+| terrain 317 x 317 | 100489 | Ok | 5.21, 254, 369 | 3.98, 166, 296 | 1.31x | yes (`418D028CA6113BBB`) |
+| plane 317 x 317 | 100489 | Ok | 10.24, 256, 395 | 3.46, 193, 330 | 2.96x | yes (`4F88F2F868102844`) |
+| ridge4 317 x 317 | 100489 | Ok | 10.01, 243, 404 | 3.29, 179, 332 | 3.04x | yes (`054BBD378F141328`) |
+| ridge75 317 x 317 | 100489 | Ok | 10.03, 243, 411 | 3.48, 179, 332 | 2.88x | yes (`BC89AFB69B232738`) |
+| saddle 317 x 317 | 100489 | WindowLimit | 24.67, 585, 554 | 23.86, 521, 564 | 1.03x | yes (`7E72A44EA61CFEB3`) |
+
+`allocated MB` is current-thread allocation (`GC.GetAllocatedBytesForCurrentThread`); skipping the interval `Fan`/`CornerAngle`
+allocations drops total allocations by 21-39 % (25-35 % at 201-317) on `terrain`, `plane`, and `ridge` meshes and lowers peak
+working set by 65-79 MB at 317 x 317 (the transient 80 B/edge side tables add 4-10 MB to `saddle` peak working set during
+`Compute` and are released before `Compute` returns).
+

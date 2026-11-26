@@ -696,7 +696,7 @@ platform and 2^k scalings give the same bits away from overflow and the subnorma
   small `MaxWindows` allocates a small chunk. The bound stated in the class docs: at most **120 bytes** x (`MaxWindows` + 2 x the
   largest valence) (64 + 4 + 2 x 24) plus about **89 bytes per vertex** (33 for the per-vertex data: `Distance`, the estimate
   U and the error xi_u of the vertex test, the kind, the root; 32 for the record of `TracePath` (A.8); and 24 for the heads of the edge side lists, an array by edge
-  id, no `Dictionary`). A window's state (pending, propagated, dead) is the sign bit of its side index. The test runs
+  id, no `Dictionary`), plus **80 transient bytes per edge** for precomputed side frames during `Compute` that are released before it returns (A.9). A window's state (pending, propagated, dead) is the sign bit of its side index. The test runs
   single-threaded: it allocates a mesh with a small `MaxWindows`, checks `WindowLimit` and NaN arrays,
   `Windows <= MaxWindows + 2 x max valence` (one step creates at most two children or one emission), and the allocated bytes
   (`GC.GetAllocatedBytesForCurrentThread` before and after) against the bound. The default of 64 windows per vertex (770 MB
@@ -1416,3 +1416,42 @@ snapping of Q at the shared vertex dropped, the hop without a face, the window t
 the edge's own end vertices A and B (needed only for an along-the-edge window whose record wins a vertex: not reached by the tested families, which get such vertices from hops or from windows with S at the third corner), the clamp
 Sy <= 0 of the stored image (rounding of Propagate; unreached), and the budget check inside `Walk` (a chain of hops alone: each leg has its own check); the local vertex tolerance (a global 1e-9 extent passes the tests at g = 1e-8: no input found that needs the local one, kept because the global one is wrong by construction for small triangles);
 the `Source` taken from the walk instead of the root (equal on every tested mesh; they can differ at a near tie); and the use of `Distance` instead of `dist` for the corner candidates of a face point (equivalent after the `MaxDistance` check of the best value).
+
+### A.9 Fast angle-sum vertex classification (`PGD-1`) and precomputed side frames (2026-11-26)
+
+Two bit-preserving accelerations in `mesh_ops/PolyhedralGeodesicDistance.cs` speed up `Compute` by **2.88-4.05x** on flat/ridge
+meshes and **1.25-1.37x** on terrains while cutting current-thread allocations by **21-39 % (25-35 % at 201-317)** and keeping
+all 15 benchmark 64-bit result digests (`Distance`, `NearestSource`, `Windows`) bit-for-bit identical:
+
+1. **Range-guarded `CoreMath.Atan2` angle-sum vertex classifier (`PGD-1`, `TryFastCornerAngle`, `TryFastAngleSumKind`) + flat-first
+   fallback.** Previously, every interior vertex ran `oracle.VertexKind(v)` (`ExactInterval` `CornerAngle` with four `CoreMath.Atan2`
+   calls per incident triangle plus `Fan` list allocations), followed by a second `oracle.IsFlatVertex(v)` call whenever `kind == 0`.
+   Now, for each non-boundary, non-bowtie interior vertex with valence `tc <= AngleMaxValence (1024)`:
+   - Each incident triangle corner computes `u2 = |u|^2`, `w2 = |w|^2`, `c2 = |u x w|^2`, `y = sqrt(c2)`, `x = u . w`, and
+     `CoreMath.Atan2(y, x)` on the unit-scaled coordinates `vx, vy, vz` (so `2^k` scales stay bit-identical and `fl(a - p)` has
+     relative error `<= u` regardless of UTM coordinate offsets). At extreme scales (`2^+/-600`) where the unscaled oracle's
+     `CornerAngle` would underflow/overflow `y.Lo` to `kind = 1`, the unit-scaled fast path keeps the true convex `kind = 0` and
+     preserves exact `2^k` scale invariance.
+   - Guards `u2, w2 in (AngleLenSqLo = 1e-100, AngleLenSqHi = 1e100)` and `c2 > AngleSliverRelSq (1e-20) * (u2 * w2)` exclude
+     overflow, subnormal loss, and ultra-thin slivers where `ExactInterval`'s `y.Lo` could hit 0.
+   - `tools/ErrorBoundAudit/bounds.py` (`PGD-1`) proves in exact rationals (under the same `CoreMath.Atan2` correct-rounding
+     assumption as `ExactMeshGeodesicDistance.CornerAngle`, charging `u * pi` to cover half-ulp `2 u` on `[2, pi]`) that
+     `AngleBand = 1e-6 rad` exceeds the worst-case 1024-corner `Atan2` plus recursive sum error (`1.85e-10 rad`) by a margin of
+     **5 403x**, and that the non-sliver floor keeps `|C*| / R > 9.9e-11` against cross-product error `6.28e-16` (**1.57e5x** margin).
+   - When `angSum < 2*pi - AngleBand` (`kind = 0, flat = false`) or `angSum > 2*pi + AngleBand` (`kind = 1, flat = false`), the
+     oracle is skipped completely. Near `2*pi` (or when any guard trips), `oracle.IsFlatVertex(v)` runs first (exact predicates only,
+     skipping `ExactInterval` `CornerAngle` on flat planes and ridges); only non-flat vertices inside the band call `oracle.VertexKind(v)`.
+
+2. **Precomputed per-edge endpoints and per-side 2D frames.** One linear pass over `Mesh.EdgeIndices()` populates `edgeA`, `edgeB`,
+   `sideOpp`, `sideCx`, `sideCy` (computed by the same `Place` call once per side), and `sideLeftE`, `sideRightE`, `sideLeftS`,
+   `sideRightS` (80 transient bytes per edge during `Compute`, released in `Compute`'s `finally` block so post-`Compute` retained
+   memory is unchanged), removing repeated `Place`, `Third`, `FaceOfSide`, `Mesh.FindEdge`, `Other`, `SideOf`, and `Mesh.GetEdgeV`
+   calls from `Emit`, `Add`, `RecordEnds`, `Propagate`, and `MakeChild` with bit-identical floating-point operations.
+
+Measured (`benchmarks/GeodesicOracleBenchmark/README.md`, `DOTNET_TieredPGO=0`, 2-core Xeon @ 2.30 GHz): at 317 x 317 vertices,
+`plane` drops from `10.24 s` to `3.46 s` (2.96x), `ridge4` from `10.01 s` to `3.29 s` (3.04x), `ridge75` from `10.03 s` to `3.48 s`
+(2.88x), and `terrain` from `5.21 s` to `3.98 s` (1.31x), with 15/15 identical 64-bit digests, 65-79 MB lower peak working set on
+`terrain`/`plane`/`ridge` (and +4-10 MB on `saddle` from the transient side tables).
+Tests: `FastCornerAngle_PGD1_GuardsAndExactOracle` and `FastVertexClassification_MatchesOracleAcrossCurvaturesSliversAndScales` in
+`PolyhedralGeodesicDistanceTests.cs`.
+
