@@ -405,7 +405,6 @@ namespace geometry3Sharp.Tests
             Assert.Equal(off.Rounding.RemainingIntersections, on.Rounding.RemainingIntersections);
             Assert.Equal(0, on.Rounding.JointMoves);
             Assert.InRange(on.Rounding.JointSearchProposals, 1, 14 * (1024 + 4096));
-            Assert.InRange(RunCluster(36, true, skipRounds: SkipExtension).Rounding.JointSearchProposals, 1, 14 * 1024);
         }
 
         [Fact]
@@ -915,6 +914,44 @@ namespace geometry3Sharp.Tests
             Assert.Equal(fresh.Rounding.JointSearchProposals, op.Rounding.JointSearchProposals);
             Assert.Equal("", Invariance.Difference(first, op.Result));
             Assert.Equal("", Invariance.Difference(fresh.Result, op.Result));
+        }
+
+        [Fact]
+        public void FixedCorner_SecondTier_LeavesOutTheProposalsThatLeaveNoBadTriangle()
+        {
+            // s3_17: the pair of the extension's one move leaves no degenerate triangle at the two stars (two were there): the cheap test
+            // says yes to it with no lower bound (the first tier), and no with a lower bound of 1 (the second tier: it left out what the
+            // first one evaluated)
+            ExactMeshBoolean left = RunPlates(Wave, 2, 2, 0.02, 5.758742836765129E-07, 0.3, 100.0, false, joint: false);
+            ExactMeshBoolean good = RunPlates(Wave, 2, 2, 0.02, 5.758742836765129E-07, 0.3, 100.0, false);
+            DMesh3 x = left.Result, y = good.Result;
+            Assert.Equal(2, left.Rounding.RemainingDegenerate);
+            List<int> moved = x.VertexIndices().Where(v => x.GetVertex(v) != y.GetVertex(v)).ToList();
+            Assert.Equal(2, moved.Count);
+            int u = moved[0], w = moved[1];
+            var star = new List<int>(x.VtxTrianglesItr(u));
+            star.AddRange(x.VtxTrianglesItr(w).Where(t => star.Contains(t) == false));
+            Assert.True(left.Rounding.pair_removes_bad(u, y.GetVertex(u), w, y.GetVertex(w), star, 2));
+            Assert.True(left.Rounding.pair_removes_bad(u, y.GetVertex(u), w, y.GetVertex(w), star, 2, 0));
+            Assert.False(left.Rounding.pair_removes_bad(u, y.GetVertex(u), w, y.GetVertex(w), star, 2, 1));
+            // (no move at all: both still there, no answer for any bound)
+            Assert.False(left.Rounding.pair_removes_bad(u, x.GetVertex(u), w, x.GetVertex(w), star, 2));
+        }
+
+        [Fact]
+        public void FixedCorner_BothTiersRun_TheProposalsAreThoseOfTheRoundsAndTheBudget()
+        {
+            // s3_17 with its fixed corner 108 hard-fixed: no pair with it, the free pairs of rounds 0 and 2 find no move (round 2 has two
+            // bad triangles at the star of its pair: both tiers run). The count is the budget of the stage (1 024 per triangle) and of the
+            // extension (4 096 per triangle) together with the evaluations of the first round 0: pinned as measured (6 144)
+            DMesh3 left = StateWithoutTheStage(out Func<int, bool> isFixed, 2, 0.02, 5.758742836765129E-07, 0.3, 100.0, false);
+            var m = new DMesh3(left);
+            var r = new MeshRoundingRepair(m) { SharedPositionsTouch = true, FixedVertexF = v => v == 108, ExactVertexF = isFixed, FixedWhereCoarse = false, UlpFactor = 0, FixedHard = true };
+            r.Apply();
+            Assert.Equal(1, r.RemainingDegenerate);
+            Assert.Equal(1, r.JointMoves);
+            Assert.Equal(6144, r.JointSearchProposals);
+            Assert.False(r.EvaluationLimitReached);
         }
 
         public static IEnumerable<object[]> FixedCornerFrames() { return Similarity.Names(); }

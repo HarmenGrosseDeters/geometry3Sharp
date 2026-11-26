@@ -3425,7 +3425,12 @@ namespace g3
             while (bad.Count > 0 && stopped == false) {
                 if (round > 0 && extended == false) {
                     extended = true;
-                    jointEvaluationsEnd = Math.Min(maxEvaluations, evaluations + (long)JointExtensionEvaluationsPerDefect * bad.Count);
+                    // (per triangle the stage works on: not those of a closed component that is inside out)
+                    int working = 0;
+                    foreach (int t in bad)
+                        if (Mesh.IsTriangle(t) && in_inside_out_component(t, insideOut) == false)
+                            working++;
+                    jointEvaluationsEnd = Math.Min(maxEvaluations, evaluations + (long)JointExtensionEvaluationsPerDefect * working);
                 }
                 int before = JointMoves;
                 foreach (int t in bad) {
@@ -3442,6 +3447,9 @@ namespace g3
                         break;
                     continue;
                 }
+                // (back to round 0 after a move of any round: round 2 leaves out the pairs of one level, so a free pair of one level whose star a
+                // move of the extension changed would never be tried again without it. No test covers the restart: in the 29 states of the
+                // oracle sample and in 5 500 search cases (seeds 2 and 3) the result is the same without it)
                 round = 0;
                 // (also where the budget ended the round: the lists are those of the mesh as the moves left it)
                 bad = degenerate_triangles();
@@ -3493,8 +3501,8 @@ namespace g3
         readonly HashSet<long>[] pairFailed = { new HashSet<long>(), new HashSet<long>(), new HashSet<long>(), new HashSet<long>(), new HashSet<long>(), new HashSet<long>() };
 
         /// <summary>
-        /// whether the joint stage goes on, where the free pairs with one level for both found no move, with pairs of free corners with
-        /// two levels, then with pairs that include a corner that FixedVertexF marks (JointMovesWithFixedCorner; never a hard-fixed one).
+        /// whether the joint stage goes on, where the free pairs with one level for both found no move, first with pairs that include a
+        /// corner that FixedVertexF marks (JointMovesWithFixedCorner; never a hard-fixed one), then with pairs of free corners with two levels.
         /// True by default; false is the stage of before: the result of an input that has no degenerate triangle left without the
         /// extension is the same with it, bit for bit
         /// </summary>
@@ -3520,8 +3528,9 @@ namespace g3
         }
 
         // are there fewer bad triangles at the stars of u and w with u at pu and w at pw than oldBad: the cheap test that
-        // improves would apply first (it does not count as an evaluation)
-        bool pair_removes_bad(int u, Vector3d pu, int w, Vector3d pw, List<int> star, int oldBad)
+        // improves would apply first (it does not count as an evaluation); with atLeast, also not fewer than that many (the second tier of
+        // search_pairs leaves out the proposals that leave none: the first tier had them, and improves refused them)
+        internal bool pair_removes_bad(int u, Vector3d pu, int w, Vector3d pw, List<int> star, int oldBad, int atLeast = 0)
         {
             movedV = u; movedPos = pu; movedV2 = w; movedPos2 = pw;
             int n = 0;
@@ -3530,7 +3539,7 @@ namespace g3
                 if (is_bad(Mesh.GetTriangle(t)) && ++n >= oldBad)
                     break;
             movedV = movedV2 = -1;
-            return n < oldBad;
+            return n < oldBad && n >= atLeast;
         }
 
         // the last resort for degenerate triangle t, where no single corner can move (search_corners found nothing): two of its
@@ -3543,9 +3552,12 @@ namespace g3
         //            two fixed ones), the same j for both
         //   round 2: the pairs of free corners with two levels that differ by at most JointLevelSpread (j in the order of their sum)
         // The rounds 1 and 2 go twice over the pairs: first for the proposals that leave no degenerate triangle at the two stars where
-        // they have several, then for those that leave fewer (a move that removes one of two triangles that share a corner can make the
-        // other one unrepairable). At most 26 * 26 * SearchSizes proposals are probed per pair and tier (the cheap test, no evaluation:
-        // with pairFailed once per pair, round and tier until a move changes its stars), three pairs per triangle at most; the proposals
+        // they have several, then for those that leave fewer but not none (a move that removes one of two triangles that share a corner can
+        // make the other one unrepairable; the proposals that leave none were evaluated in the first tier). Proposals probed per pair and tier
+        // (the cheap test, no evaluation: with pairFailed once per pair, round and tier until a move changes its stars): 26 * 26 * 8 = 5 408 in
+        // rounds 0 and 1, 26 * 26 * 36 = 24 336 in round 2 (the 36 pairs of levels that differ by 1 to 3: 14 + 12 + 10). Per triangle, at most
+        // 76 000 with one fixed corner (one free pair, two pairs of round 1, one of round 2, two tiers each in the rounds 1 and 2), 162 000 with three
+        // free corners (three pairs, round 2 twice each), against 16 000 for the free pairs alone; the proposals
         // that reach improves are evaluations, bounded by the stage's own budget (JointStageEvaluationsPerDefect, in the rounds after the
         // first JointExtensionEvaluationsPerDefect)
         [MethodImpl(JitHints.Optimize)]
@@ -3609,6 +3621,9 @@ namespace g3
                     if (tier == 0 && oldBad < 2)
                         continue;
                     int need = tier == 0 ? 1 : oldBad;
+                    // (the first tier ran for this pair, where it had two or more bad triangles: a proposal that leaves none is the same edit,
+                    // which improves refused there)
+                    int atLeast = tier == 1 && round > 0 && oldBad >= 2 ? 1 : 0;
                     Vector3d cu = Mesh.GetVertex(u), cw = Mesh.GetVertex(w);
                     double rejected = SmallestRejectedDrift;
                     // (the levels in the order of their sum: for the same level the smallest first, 2 * level; the size is the room over
@@ -3625,7 +3640,7 @@ namespace g3
                                 Vector3d pu = cu + su * du;
                                 foreach (Vector3d dw in SearchDirections) {
                                     Vector3d pw = cw + sw * dw;
-                                    if (pair_removes_bad(u, pu, w, pw, star, need) == false)
+                                    if (pair_removes_bad(u, pu, w, pw, star, need, atLeast) == false)
                                         continue;
                                     if (joint_stage_over())
                                         return false;
