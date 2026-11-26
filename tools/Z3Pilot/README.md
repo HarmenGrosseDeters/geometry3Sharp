@@ -157,6 +157,54 @@ Prior art / building-block check:
 - [Z3 source/license](https://github.com/Z3Prover/z3): MIT; only public API and
   package metadata are used. No external geometry implementation was read.
 
+## Local checks for numerical certificates
+
+* **Volume comparison.** Given an enclosure of the exact volume, rounding
+  monotonicity proves both strict comparisons in `VolumeCompareFilter`,
+  including ties and cancellation. Reversed margins admit a
+  false decision at equality. Overflow of `3*t` takes the undecided path;
+  an overflowing upper endpoint cannot make a below-threshold claim.
+* **Polyhedral envelope.** A rational certificate compares the rounded
+  `delta` factor to `1/sqrt(3)` without rounding that reference. Omitting the
+  contraction fails at a concrete binary64 epsilon. A separate one-axis
+  model checks that the expanded search box encloses the epsilon-expanded
+  triangle box. The full facet construction and inside test remain separate.
+* **Geodesic windows.** A one-norm bound checks `DiskOfBox`, including halves
+  that round in the subnormal range. The **successor bridge** uses the
+  current `Up` after #1646. For finite rounded `r` the exact result is
+  below its next larger representable value by monotonic RNE, including
+  ties. Up's tiny branch steps by one subnormal spacing, with explicit
+  negative zero at `-double.Epsilon`. In the middle branch multiplication
+  by 2^54 is exact. The successor in that normal frame rescales exactly
+  because the original value is above the minimum normal magnitude.
+  The large branch uses the corrected half-ulp factor and overflows
+  outward at the largest positive double. The geodesic model assumes
+  finite inputs to Up and uses this bridge for rounded differences and
+  sums. Without midpoint padding the model
+  replay excludes one end of an actual binary64 interval. The short-edge
+  guard rules out overlapping endpoint disks given a certified midpoint
+  length lower bound and valid endpoint disks. A subnormal length replay
+  shows why that lower-bound premise cannot be assumed unconditionally
+  for `len * (1 - 4e-16)`. The final `TransformDisk` radius is outside the
+  proof.
+* **Double-word division.** Independent checks cover the two rounded
+  denominator subtractions, the positive divisor bound and normal-case
+  error inflation. The subnormal floor is checked
+  as a separate condition. The pilot takes the residual enclosure and
+  normalized operand ranges as premises. Omitting inflation admits a
+  rounded-down residual quotient.
+* **Contouring bins.** For a monotone grid with a bracketed target, the two
+  source predicates move toward the chosen inclusive bin. The equality
+  mutants change which neighboring bin owns an exact grid boundary. The integer range proof assumes the estimate
+  and target fit the packed bin domain and the bin size is at most 1024.
+  The estimate's standalone cap allows an overflowing product in the
+  arithmetic model. Reachability through a complete contour build remains
+  open.
+
+```sh
+python3 -m unittest discover -s tools/Z3Pilot -p test_numerical_certificate_pilots.py -v
+```
+
 ## Pilot 2: the error-bound rules of the predicate generator
 
 Step (2) of pilot 2 (docs/roadmap/research.md, "SMT checks with Z3"): the rules from which
