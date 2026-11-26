@@ -21,7 +21,13 @@ namespace geometry3Sharp.Tests
         // height limit, the width, the tolerance; no LocalFrame)
         internal static TerrainSlopeDesign Make(double degrees, Similarity s = null)
         {
-            var rot = new Similarity("rot", 1, Matrix3d.AxisAngleD(Vector3d.AxisZ, degrees), Vector3d.Zero);
+            // (the rotation with correctly rounded sine and cosine: Math.Sin / Math.Cos differ by an ulp between platforms, #1660)
+            return MakeFrom(PortableMath.AxisAngleMatrixD(Vector3d.AxisZ, degrees), s);
+        }
+
+        internal static TerrainSlopeDesign MakeFrom(Matrix3d rotation, Similarity s = null)
+        {
+            var rot = new Similarity("rot", 1, rotation, Vector3d.Zero);
             s = s ?? Similarity.Identity;
             var d = TerrainSlopeRampTests.AroundCorner();
             foreach (var t in d.Toes) t.Points = t.Points.Select(p => s.Apply(rot.Apply(p))).ToList();
@@ -36,7 +42,7 @@ namespace geometry3Sharp.Tests
 
         // a frame about z only (the slope is defined against the vertical)
         static Similarity ZUp(Similarity s) =>
-            s.IsRotated ? new Similarity(s.Name + " (about z)", s.Scale, Matrix3d.AxisAngleD(Vector3d.AxisZ, 31), s.Translation) : s;
+            s.IsRotated ? new Similarity(s.Name + " (about z)", s.Scale, PortableMath.AxisAngleMatrixD(Vector3d.AxisZ, 31), s.Translation) : s;
 
         // success: the ramp's oracles, the surface (finite, manifold, counter-clockwise, no XY overlap), open only at the toe and the
         // height limit (NotClosed is the one defect of NotCleanReason that a slope surface has by design)
@@ -99,6 +105,41 @@ namespace geometry3Sharp.Tests
         // The surface of angles that succeed with the strict realization (the plain ones are refused, #1628) is pinned: counts and a hash of
         // the topology (triangle ids, vertices, groups; no coordinates, so that it holds on every runtime). The zip realization of #1647
         // runs only after strict throws, so these angles must keep the surface strict gives: a zip run in its place changes the triangles.
+        // #1660: the inputs are the same doubles on every platform. The rotation entries are the correctly rounded sine and cosine
+        // (Windows x64 Math.Sin / Math.Cos differ from them by an ulp for about 3 % of the arguments; glibc differs for 297 and 351 degrees:
+        // sin 297 and sin 351 are the correctly rounded -0.8910065241883679 and -0.1564344650402311, glibc gives the neighbour)
+        [Fact]
+        public void Make_RotationEntriesAreCorrectlyRounded_OnEveryPlatform()
+        {
+            Matrix3d m117 = PortableMath.AxisAngleMatrixD(Vector3d.AxisZ, 117);
+            Assert.Equal(-0.4539904997395467, m117.Row0.x);        // cos 117 (0.49 ulp from a tie: the platforms can differ here)
+            Assert.Equal(0.8910065241883679, m117.Row1.x);         // sin 117
+            Assert.Equal(-0.8910065241883679, PortableMath.AxisAngleMatrixD(Vector3d.AxisZ, 297).Row1.x);
+            Assert.Equal(-0.1564344650402311, PortableMath.AxisAngleMatrixD(Vector3d.AxisZ, 351).Row1.x);
+        }
+
+        static double Ulps(double v, int n) { long b = BitConverter.DoubleToInt64Bits(v); return BitConverter.Int64BitsToDouble(v > 0 ? b + n : b - n); }
+
+        // the neighbours of 117 degrees that another libm can give (cos and sin off by an ulp or two): a design that succeeds, with at most
+        // the needles that the sweep accepts (as for the angles of Needles below); 117 itself is clean and pinned by StrictAngles_KeepTheirSurface
+        [Theory]
+        [InlineData(-1, 0)]
+        [InlineData(0, -2)]
+        [InlineData(0, 1)]
+        [InlineData(1, 1)]
+        public void AroundCorner_117_OneUlpNeighbours_Succeed(int cosUlps, int sinUlps)
+        {
+            double angle = 117 * MathUtil.Deg2Rad;
+            double cs = Ulps(PortableMath.Cos(angle), cosUlps), sn = Ulps(PortableMath.Sin(angle), sinUlps), om = 1.0 - cs;
+            var d = MakeFrom(new Matrix3d(cs, 0 - sn, 0, 0 + sn, cs, 0, 0, 0, 1 * om + cs));
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            TerrainSlopeDesignTests.AssertSurface(d);
+            Assert.True(d.MaxSlopeRatio <= 1);
+            var defects = MeshRobustRepair.FindDefects(d.SlopeSurface);
+            Assert.True((defects & MeshRobustRepair.Defects.NotClosed) != 0 && (defects & ~(MeshRobustRepair.Defects.NotClosed | MeshRobustRepair.Defects.DegenerateTriangles)) == 0, defects.ToString());
+            if ((defects & MeshRobustRepair.Defects.DegenerateTriangles) != 0) AssertOnlyNeedles(d.SlopeSurface);
+        }
+
         // FNV-1a of the triangle ids, vertices and groups
         internal static string TopologyHash(DMesh3 m)
         {
