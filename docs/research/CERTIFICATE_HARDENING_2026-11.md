@@ -11,7 +11,7 @@ meshes (Thingi10K). It covers test code and a benchmark mode only; no library co
 `tools/certificate_hand_mutants.py` had 50 mutants from 2026-11-22, none for the filters of 2026-11-24: the box filter in front
 of the in-plane loops of C2 and C3 (`ApproxBox`, `CoplanarNear` with its linear scan and its tree query), the double filters
 of C5 (a reject by the triangle's box, an accept by a point inside the triangle, with the slack `FilterEps` and its floor
-2^-480). The script now has 71 mutants and a list of 16 equivalent ones; `--equivalent` runs those, and each must pass.
+2^-480). The script now has 72 mutants and a list of 15 equivalent ones; `--equivalent` runs those, and each must pass.
 
 The new mutants (24 in the first round, 19 of them kept as mutants, and 2 of the equivalent list that the tests kill): each makes a filter decide wrongly or too early.
 
@@ -43,9 +43,14 @@ Equivalent (each with its reason in the script):
 - **C5 margins:** loosened by a factor 4; the slack taken without the extent (extent <= 2 maxAbs); the
   floor at 2^-440 or 2^-520. A larger slack only hands more cases to the exact test. A floor of 2^-520 is still sound: the
   only underflow-sensitive step is the final length of p - q, which loses about 2^-1075 / d absolute, and an accept needs
-  delta >= 3 floor; the floor has to stay above about 2^-539.
-- **C5 approximation:** the size guard alone, or the finiteness check alone. Each covers what the other would catch;
-  removing both is a killed mutant.
+  delta >= 3 floor; the floor has to stay above about 2^-539. This argument depends on the clamp of the weights: below
+  about 2^-255 their products are subnormal noise, and only the clamp keeps q in the triangle. So it stands or falls with
+  "weights not clamped" below; `..._OnThinTriangles` now also runs at the scales 2^-250 to 2^-280 (review of #1604).
+- **C5 approximation:** the finiteness check alone. Behind the 1000-bit guard both parts convert to finite doubles, the
+  denominator at least 1, so the quotient is finite. The size guard alone is **not** equivalent (review of #1604, first
+  listed here as "each covers what the other would catch", which is wrong): a numerator below 2^1024 over a denominator above
+  it converts to finite / infinity = 0, a finite value, and the accept filter then takes a point at x of about 1/4 as lying in
+  the plane x = 0. `..._AtDistanceDeltaWithRoundedCoordinates` now has that case, and the mutant moved to the killed list.
 - **C5 NaN weights:** a NaN weight gives a NaN distance through `Math.Min` / `Math.Max`, and no accept takes it.
 
 One survivor that is **not proved equivalent**: removing the clamp of the closest-point weights to [0, 1] ("weights not
@@ -59,7 +64,13 @@ Run (2026-11-25, 4 cores, about 2 hours for both lists): **all 69 mutants killed
 passed and 2 were killed, so they are not equivalent and moved to the mutants: "the source not added" (a faulty piece outside
 its source triangle, as in `InjectedCrossingSheet_AndFoldedCopies_AreCaught`, has no box hit, and the check throws instead of
 rejecting) and "the slack loosened 2^-40 to 2^-30" (`CoverageTest_UsesTheSlackOfItsCoordinates` bounds the slack from above).
-Both are killed in the mutant list as well (checked alone), so the script has 71 mutants, all killed, and 16 equivalent. The script now first runs the tests on the unmutated checker and stops if they fail (a failing baseline
+Both are killed in the mutant list as well (checked alone), so the script had 71 mutants, all killed, and 16 equivalent.
+The review of #1604 found a third, "size guard off" (above); with its test it is killed, so the script has **72 mutants, all
+killed, and 15 equivalent**.
+
+White-box kills: "no slack in Cover" and "the slack loosened to 2^-30" are killed only by `CoverageTest_UsesTheSlackOfItsCoordinates`,
+which reads `CoverageSlack`, not by a wrong verdict. A verdict-level kill needs a result triangle whose distance to the exact
+result lies between delta - 3 eps and delta + 3 eps at coordinates where eps is above the rounding; no such input is in the tests. The script now first runs the tests on the unmutated checker and stops if they fail (a failing baseline
 would count every mutant as killed; it happened once during this work, when a test's threshold was not adjusted to fewer
 iterations).
 
@@ -144,9 +155,17 @@ Two quadratic terms:
   over the plane's input triangles would do).
 - **Boolean (for the coordinator):** two fans shifted within their plane overlay into Θ(n²) pieces (x 3.4 to 3.8 per doubling
   of the slices), and the boolean grows by about x 5 per doubling: 9.5 s at 960 triangles, so above 20 s at about 1,400.
-  This is the size of the exact overlay, which an exact arrangement has to build. I lean to "outside the supported range,
-  a documented limit" ([docs/QA.md](../QA.md) 2.5a: scale disparity in one plane). Still, the 20 s rule makes it a
-  potential defect that needs a decision.
+  First read as the size of the exact overlay. The measurement for #1630 shows otherwise: the time grows faster than the
+  overlay (pieces x 3.9 per doubling, `classification.stacks` and `classification.winding` x 8), and the union takes 55 s at
+  1920 + 1920 triangles (without the certificate). So it is a defect (#1630, with the diagnosis in its comment), not a
+  documented limit; design: `docs/design/COPLANAR_PROPAGATION.md` in draft PR #1635.
+
+Attribution of the two slow cases (review of #1604):
+- **The C2 run of more than 45 minutes** on the Thingi10K model is the checker's `PrepareStacks` cost above, #1632: the same
+  O(pieces x coplanar triangles) shape as the library's coplanar stacks of #1630, in the checker's own code.
+- **The boolean above 20 s at about 1,400 triangles** (projected) is #1630 itself. Measured since: 10.2 s at 960 + 960
+  triangles and 55 s at 1920 + 1920. The 12 s boolean of the Thingi10K model (a 2-ulp shift that moves faces within their planes)
+  has the same mechanism, coplanar copies, but was not profiled separately; no separate cause is known, so no further issue.
 
 ### 2.4 Cost against size
 
@@ -172,13 +191,13 @@ coplanar pairs dominate.
 ## 3. Summary for the coordinator
 
 - **Mutants:** 19 new mutants of the filters; the 8 that survived the old tests are killed by 3 new tests and a wider
-  existing one. Full re-run: 71 of 71 killed (2 moved from the equivalent list, which the tests kill); 16 equivalent mutants
-  with reasons, all pass; one belt (the clamp
+  existing one. Full re-run: 71 of 71 killed (2 moved from the equivalent list, which the tests kill); the review of #1604
+  moved a third ("size guard off") with a new test: 72 killed, 15 equivalent mutants with reasons, all pass; one belt (the clamp
   of the weights) not proved equivalent.
 - **Thingi10K:**
   - 156 operations, 146 certified, 0 rejected (no false alarm), 0 not applicable.
   - 6 with removed parts: documented.
   - 4 uncovered: the C5 incompleteness, with a procedural repro and a proposal.
   - 1 timeout: the checker's quadratic stacks, with a procedural repro.
-- **Library:** no defect shown by a rejection. One potential defect by the 20 s rule: an output-quadratic boolean on
-  coplanar fans shifted by ulps (repro in 2.3), which needs a decision.
+- **Library:** no defect shown by a rejection. One potential defect by the 20 s rule, now #1630 (repro in 2.3): the boolean
+  on coplanar fans shifted by ulps is worse than its output, by two cubic stages (coplanar stacks and winding).

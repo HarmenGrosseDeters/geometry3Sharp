@@ -43,7 +43,16 @@ def plan(out, n_self, n_pairs, n_contact, max_tris):
         f.write("".join(json.dumps(c) + "\n" for c in cases))
     print(len(cases), "cases,", len({i for c in cases for i in c["ids"]}), "models, at most", max_tris, "triangles per model")
 
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))     # the repository root
+
+def outside_repository(d):
+    """the download directory must not be inside the repository: models are not committed (CLAUDE.md, no mesh files)"""
+    d, r = os.path.realpath(d), os.path.realpath(ROOT)
+    return os.path.commonpath([d, r]) != r
+
 def fetch(d, cases):
+    if outside_repository(d) == False:
+        sys.exit(f"fetch: {d} is inside the repository {ROOT}; use a directory outside it (models are never committed)")
     os.makedirs(d, exist_ok=True)
     files = tp.file_list(d)
     ids = sorted({i for c in load_cases(cases) for i in c["ids"]}, key=int)

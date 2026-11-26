@@ -34,7 +34,13 @@ static class CertifyThingi
         var ops = new List<Ops> { Ops.Union, Ops.Intersection, Ops.Difference };
         var opArg = args.FirstOrDefault(a => a.StartsWith("ops="));
         if (opArg != null) {
-            ops = opArg.Substring(4).Split(',').Select(o => o == "union" ? Ops.Union : o == "intersection" ? Ops.Intersection : Ops.Difference).ToList();
+            ops = new List<Ops>();
+            foreach (string o in opArg.Substring(4).Split(',')) {
+                if (o == "union") ops.Add(Ops.Union);
+                else if (o == "intersection") ops.Add(Ops.Intersection);
+                else if (o == "difference") ops.Add(Ops.Difference);
+                else { Console.Error.WriteLine($"certify thingi: unknown operation '{o}' in {opArg} (union, intersection, difference)"); return 1; }
+            }
             args = args.Where(a => a != opArg).ToArray();
         }
         int split = -1;

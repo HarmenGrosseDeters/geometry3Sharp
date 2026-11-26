@@ -98,6 +98,9 @@ M=[
 # needs src in the list, or the check throws instead of rejecting; CoverageTest_UsesTheSlackOfItsCoordinates bounds the slack above)
 ("box filter: source not added", "if (r.Contains(src) == false) r.Add(src);", ";"),
 ("C5 filter bound loosened 2^-40 to 2^-30", "Math.Max((maxAbs + extent) / (double)(1L << 40),", "Math.Max((maxAbs + extent) / (double)(1L << 30),"),
+# (first listed as equivalent; not: a numerator below 2^1024 over a denominator above it converts to finite / infinity = 0, which the
+# finiteness check passes; CoverageFilters_AgreeWithTheExactTest_AtDistanceDeltaWithRoundedCoordinates, review of #1604)
+("C5 approximation: size guard off", "if (ExactPoint3.BitLength(q.N) > 1000 || ExactPoint3.BitLength(q.D) > 1000) return false;", ";"),
 ]
 
 # Equivalent mutants (not run by default; `--equivalent` runs them, and each must survive). Each changes no verdict:
@@ -106,8 +109,6 @@ EQUIVALENT = [
  "not proved, equivalent in practice: the clamp is a belt; in face, edge and vertex regions the weights are in [0, 1] up to rounding, and no input of the thin-triangle test, of 4 million random thin triangles (step A) and of 1.2 million targeted near-collinear cases (2026-11-25, double routine against an exact Fraction reference) took them outside by more than an ulp of v + w, which moves the point by an ulp of the triangle, far below the margin 3 eps"),
 ("C5 filter bound without the extent", "Math.Max((maxAbs + extent) / (double)(1L << 40),", "Math.Max((maxAbs) / (double)(1L << 40),",
  "the extent is at most twice the largest coordinate, so the slack falls by at most a factor 3, still about 2^-41.6 of the coordinates against a rounding of a few 2^-52"),
-("C5 approximation: size guard off", "if (ExactPoint3.BitLength(q.N) > 1000 || ExactPoint3.BitLength(q.D) > 1000) return false;", ";",
- "a numerator or denominator beyond the 1000-bit guard converts to a finite double up to 2^1024 (quotient finite, relative error as before) and to an infinity above it (the quotient is infinite or NaN, which the finiteness check refuses)"),
 ("box filter: tree leaf drops touching boxes", "if (lo[x] <= qhi[0] && qlo[0] <= hi[x] && lo[x + 1] <= qhi[1]", "if (lo[x] < qhi[0] && qlo[0] < hi[x] && lo[x + 1] <= qhi[1]",
  "as above, in the tree's leaves"),
 ("box filter: scan drops touching boxes", "if (pb.Lo[x] <= qhi[0] && qlo[0] <= pb.Hi[x] &&", "if (pb.Lo[x] < qhi[0] && qlo[0] < pb.Hi[x] &&",
@@ -132,7 +133,10 @@ EQUIVALENT = [
 ("C5 floor 2^-480 to 2^-520", "Math.Pow(2, -480));", "Math.Pow(2, -520));",
  "still sound: the only underflow-sensitive step is the final length of p - q (the clamp keeps q a point of the triangle "
  "whatever d1..d6 lost); an accept needs delta >= 3 floor, and at distances d >= 2^-519 the squares of the length lose at most "
- "2^-1075 / d absolute, about 2^-556, far below the margin 3 * 2^-520 (the floor must stay above about 2^-539)"),
+ "2^-1075 / d absolute, about 2^-556, far below the margin 3 * 2^-520 (the floor must stay above about 2^-539). The argument "
+ "depends on the clamp: below about 2^-255 the products of the weights are subnormal noise and only the clamp keeps q in the "
+ "triangle, so it stands or falls with 'weights not clamped' (CoverageFilters_AgreeWithTheExactDistanceTest_OnThinTriangles "
+ "covers the scales 2^-250 to 2^-280)"),
 ("C5 approximation: finiteness check off", "return double.IsInfinity(v) == false && double.IsNaN(v) == false;", "return true;",
  "behind the 1000-bit guard numerator and denominator convert to finite doubles, the denominator at least 1, so the quotient is finite"),
 ("C5 accept: NaN weights not returned", "if (double.IsNaN(v) || double.IsNaN(w)) return double.NaN;", ";",
@@ -178,10 +182,12 @@ def main(selected):
                 f.write(text)
             run = run_tests()
             killed = "Failed!" in run.stdout
+            passed = "Passed!" in run.stdout and not killed
             if equivalent:
                 # an equivalent mutant must build and pass
-                survived += 0 if "Passed!" in run.stdout and not killed else 1
-                print(f"{name}: {'KILLED (not equivalent)' if killed else 'SURVIVED (equivalent: ' + entry[-1] + ')'}", flush=True)
+                survived += 0 if passed else 1
+                verdict = 'SURVIVED (equivalent: ' + entry[-1] + ')' if passed else 'KILLED (not equivalent)' if killed else 'NO TEST RUN (the build or the run failed)'
+                print(f"{name}: {verdict}", flush=True)
             else:
                 survived += 0 if killed else 1
                 print(f"{name}: {'KILLED' if killed else 'SURVIVED'}", flush=True)

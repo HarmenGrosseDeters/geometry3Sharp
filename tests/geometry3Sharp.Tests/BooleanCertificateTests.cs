@@ -1075,11 +1075,15 @@ namespace geometry3Sharp.Tests
         {
             var rng = new Random(77);
             int near = 0, far = 0, checkedDistances = 0;
-            for (int it = 0; it < 12000; ++it) {
+            // (the last 1500 at the scales 2^-250 to 2^-280, review of #1604: there the products of the weights are subnormal
+            // noise and only the clamp keeps the closest point in the triangle, which the floor's argument relies on)
+            for (int it = 0; it < 13500; ++it) {
                 long R(int m) => rng.Next(-m, m + 1);
+                int scaleExp = it < 12000 ? 0 : 250 + it % 31;
+                double scale = Math.Pow(2, -scaleExp);
                 // (denominators 3, 7 and 11: the corners are not doubles, so their approximations carry rounding noise and the
                 // cross products of the closest point routine are noise where the corners are nearly collinear)
-                long den = new long[] { 3, 7, 11, 1 }[it % 4];
+                BigInteger den = new BigInteger(new long[] { 3, 7, 11, 1 }[it % 4]) << scaleExp;
                 ExactPoint3 Pt(long x, long y, long z) => ExactPoint3.Create(x, y, z, den);
                 long ax = R(4), ay = R(4), az = R(4), dx = R(3), dy = R(3), dz = R(3);
                 if (dx == 0 && dy == 0 && dz == 0) dx = 1;
@@ -1093,12 +1097,13 @@ namespace geometry3Sharp.Tests
                 // margin is the rounding of the routine's arithmetic, far above what it can lose)
                 double d = BooleanCertificate.ApproxDistanceToTriangle(p, t);
                 if (double.IsNaN(d) == false && double.IsInfinity(d) == false) {
-                    Assert.True(BooleanCertificate.PointNearTriangle(p, t, d + 1e-9 * (d + 1)), $"it {it}: the closest point routine's distance {d} is below the true one");
+                    Assert.True(BooleanCertificate.PointNearTriangle(p, t, d + 1e-9 * (d + scale)), $"it {it}: the closest point routine's distance {d} is below the true one");
                     checkedDistances++;
                 }
-                foreach (double delta in new[] { 0.5, 3.0, 12.0 }) {
+                foreach (double delta0 in new[] { 0.5, 3.0, 12.0 }) {
+                    double delta = delta0 * scale;
                     bool exact = BooleanCertificate.PointNearTriangle(p, t, delta);
-                    Assert.True(exact == BooleanCertificate.PointNearTriangleFiltered(p, t, delta, 20000.0), $"it {it} delta {delta}: exact {exact}");
+                    Assert.True(exact == BooleanCertificate.PointNearTriangleFiltered(p, t, delta, 20000.0 * scale), $"it {it} 2^-{scaleExp} delta {delta}: exact {exact}");
                     if (exact) near++; else far++;
                 }
             }
@@ -1195,6 +1200,13 @@ namespace geometry3Sharp.Tests
             var hugeP = ExactPoint3.Create((BigInteger.One << 1100) + 1, (BigInteger.One << 998) * d, (BigInteger.One << 998) * d, d);
             Assert.True(BooleanCertificate.PointNearTriangle(hugeP, hugeT, Math.Pow(2, 950)));
             Assert.True(BooleanCertificate.PointNearTriangleFiltered(hugeP, hugeT, Math.Pow(2, 950), Math.Pow(2, 1001)));
+            // a coordinate of about 1/4 whose numerator is below 2^1024 and whose denominator is above it (review of #1604): as
+            // doubles finite / infinity = 0, a finite value, so without the size guard the approximation puts the point into the
+            // triangle's plane x = 0 and the accept filter takes a point at distance 1/4 > delta
+            var unitT = new[] { ExactPoint3.Create(0, 0, 0, 1), ExactPoint3.Create(0, 1, 0, 1), ExactPoint3.Create(0, 0, 1, 1) };
+            var quarterP = ExactPoint3.Create((BigInteger.One << 1023) + 1, 0, 0, BigInteger.One << 1025);
+            Assert.False(BooleanCertificate.PointNearTriangle(quarterP, unitT, 0.1));
+            Assert.False(BooleanCertificate.PointNearTriangleFiltered(quarterP, unitT, 0.1, 1.0));
         }
 
         /// <summary>
