@@ -1361,10 +1361,10 @@ triangle in nearby cells of the static grid (`refused_self`), which can be sever
 dihedral angles each (about 8 ms per pass at 25,000 tets). It now reuses the quality of a tet whose four vertices and their versions (bumped by every tet change and move at a vertex) and
 the objective's settings are unchanged. `TetMeshImprover.ReferenceHillClimb` (internal) runs the old loop; the tests compare the positions, the tets and all `Counts` of both on the
 procedural inputs, and the number of quality evaluations (more than 4 times fewer). It saves 15 to 20 % on the procedural meshes (box 4.6 to 3.9 s, thin torus 3.0 to 2.5 s) and 1 to 3 % on the Thingi meshes below,
-where the visits dominate.
+where the visits dominate. The cache takes about 64 bytes per tet id and does not shrink within a run (the ids of removed tets are reused).
 
 **`StallStopPasses`** (opt-in, default 0 = off, bit for bit as before; public on `MeshTetrahedralization`, internal on `TetMeshImprover`): ends a phase of passes (the main passes, and separately the rescue passes)
 when this many passes in a row made no progress, judged at the start of each pass against the previous one. Progress is either of two criteria: the number of tets below the target
 fell by at least 1 % (`StallMinDrop`), or the worst quality rose by more than 0.1 degrees (`StallMinWorstGain`). Counted, never wall-clock, so the result is deterministic and the same for every 2^k scale
-(tests). `Counts["improve_stall_stop"]` counts the phases it ended (the key exists only then). It is a **time/quality trade**: tets that were still being worked off stay below the target.
+(tests). The pass that judges is counted in `Counts["passes"]` and does not run its operations. `Counts["improve_stall_stop"]` counts the phases it ended (the key exists only then). It is a **time/quality trade**: tets that were still being worked off stay below the target.
 Measured on the Thingi meshes (`tieorder <mesh> 40 600 <floor> 0`, order 0, one process at a time, 4 cores; `G3_TIE_STALL`): [benchmarks/TetMeshBenchmark/README.md](../../benchmarks/TetMeshBenchmark/README.md), section "Stall stop and the scan cache".

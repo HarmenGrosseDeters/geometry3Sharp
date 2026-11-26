@@ -53,6 +53,19 @@ namespace geometry3Sharp.Tests
             return imp;
         }
 
+        // the runs the tests share (an improver run is the cost of a test; Result() is built once per run)
+        static readonly Dictionary<(string, double, int, bool), (TetMeshImprover imp, TetMesh3 result)> runs = new Dictionary<(string, double, int, bool), (TetMeshImprover, TetMesh3)>();
+        static (TetMeshImprover imp, TetMesh3 result) Shared(string name, double scale, int stall, bool reference)
+        {
+            lock (runs) {
+                if (!runs.TryGetValue((name, scale, stall, reference), out var hit)) {
+                    TetMeshImprover imp = Run(name, scale, i => { i.StallStopPasses = stall; i.ReferenceHillClimb = reference; });
+                    runs[(name, scale, stall, reference)] = hit = (imp, imp.Result());
+                }
+                return hit;
+            }
+        }
+
         static void AssertSame(TetMesh3 a, TetMesh3 b)
         {
             Assert.Equal(a.Vertices.Count, b.Vertices.Count);
@@ -64,34 +77,88 @@ namespace geometry3Sharp.Tests
         [MemberData(nameof(Names))]
         public void ScanCache_GivesTheReferenceLoopsOutputAndCounts_WithAFractionOfTheQualityEvaluations(string name)
         {
-            TetMeshImprover reference = Run(name, 1, i => i.ReferenceHillClimb = true);
-            TetMeshImprover cached = Run(name, 1, i => { });
-            AssertSame(reference.Result(), cached.Result());
+            var (reference, refResult) = Shared(name, 1, 0, true);
+            var (cached, cachedResult) = Shared(name, 1, 0, false);
+            AssertSame(refResult, cachedResult);
             Assert.Equal(reference.Counts.OrderBy(kv => kv.Key).ToList(), cached.Counts.OrderBy(kv => kv.Key).ToList());
-            Assert.Null(TetMeshQuality.NotValidReason(cached.Result()));
+            Assert.Null(TetMeshQuality.NotValidReason(cachedResult));
             // the premise: a tail of passes, each of which scanned every tet in the reference loop
             Assert.True(reference.Counts["passes"] >= 15, name + ": " + reference.Counts["passes"] + " passes");
             Assert.True(cached.ScanQualityComputed * 4 < reference.ScanQualityComputed, name + ": " + cached.ScanQualityComputed + " vs " + reference.ScanQualityComputed);
             Assert.Equal(reference.ScanQualityComputed, cached.ScanQualityComputed + cached.ScanQualityCached);
         }
 
+        // the exact pass counts of the procedural runs (floor 30, alpha / 20, MaxPasses 20, RescuePasses 10): the off run (the caps, 30) and N = 2, 3. The pass that judges is counted.
+        // (a counter that is not reset on progress, or a stop one pass later, or a missed criterion changes them)
+        [Theory]
+        [InlineData("cylinder", 0, 30, 0)]
+        [InlineData("cylinder", 2, 26, 2)]
+        [InlineData("cylinder", 3, 27, 1)]
+        [InlineData("box", 0, 30, 0)]
+        [InlineData("box", 2, 25, 1)]
+        [InlineData("box", 3, 26, 1)]
+        public void StallStop_ExactPassAndStopCounts(string name, int n, int passes, int stops)
+        {
+            var (imp, result) = Shared(name, 1, n, false);
+            Assert.Equal(passes, imp.Counts["passes"]);
+            Assert.Equal(stops, imp.Counts.TryGetValue("stall_stop", out long ss) ? ss : 0);
+            Assert.Null(TetMeshQuality.NotValidReason(result));
+            if (n == 0) Assert.False(imp.Counts.ContainsKey("stall_stop"));            // off: no key, the run as before
+        }
+
+        [Fact]
+        public void StallRule_ScriptedSequences_JudgeEachCriterion()
+        {
+            Func<int, TetMeshImprover.StallRule> rule = n => new TetMeshImprover.StallRule(n, 0.01, 0.1);
+            // the first observation only records; N passes in a row without progress stop (>=, not >)
+            var r = rule(2);
+            Assert.False(r.Observe(100, 5.0));
+            Assert.False(r.Observe(100, 5.0));              // 1 stalled
+            Assert.True(r.Observe(100, 5.0));               // 2 stalled
+            r = rule(1);
+            Assert.False(r.Observe(100, 5.0));
+            Assert.True(r.Observe(100, 5.0));
+            // the count criterion: a drop of more than 1 % is progress, 0.9 % is not
+            r = rule(1);
+            Assert.False(r.Observe(1000, 5.0));
+            Assert.False(r.Observe(989, 5.0));              // 1.1 %: progress
+            Assert.True(r.Observe(981, 5.0));               // 0.8 % of 989: none
+            // the worst criterion: more than 0.1 degrees is progress, exactly 0.1 is not
+            r = rule(1);
+            Assert.False(r.Observe(100, 5.0));
+            Assert.False(r.Observe(100, 5.0 + 0.2));
+            Assert.True(r.Observe(100, 5.0 + 0.2 + 0.1));   // the same expression as the rule's: not more than 0.1
+            r = rule(1);
+            Assert.False(r.Observe(100, 5.0));
+            Assert.True(r.Observe(100, 5.05));
+            // progress resets the run: stalled, progress, stalled does not stop at N = 2, the next stalled pass does
+            r = rule(2);
+            Assert.False(r.Observe(100, 5.0));
+            Assert.False(r.Observe(100, 5.0));              // 1 stalled
+            Assert.False(r.Observe(90, 5.0));               // progress: run 0
+            Assert.False(r.Observe(90, 5.0));               // 1 stalled
+            Assert.True(r.Observe(90, 5.0));                // 2 stalled
+            // no bad tets at all (worst = MaxValue): a drop to 0 is progress (the climb ends there anyway: a pass that changes nothing)
+            r = rule(1);
+            Assert.False(r.Observe(0, double.MaxValue));
+            Assert.False(r.Observe(0, double.MaxValue));
+        }
+
         [Theory]
         [InlineData("cylinder")]
         [InlineData("box")]
-        public void StallStop_EndsThePhasesEarly_AndKeepsAValidMesh_WhileOffIsTheDefault(string name)
+        public void StallStop_EndsThePhasesEarly_AndKeepsAValidMesh(string name)
         {
-            TetMeshImprover plain = Run(name, 1, i => { });
-            Assert.False(plain.Counts.ContainsKey("stall_stop"));                    // off: no key, the run as before
-            TetMeshImprover stalled = Run(name, 1, i => i.StallStopPasses = 2);
-            Assert.True(stalled.Counts.ContainsKey("stall_stop") && stalled.Counts["stall_stop"] >= 1);
+            var (plain, _) = Shared(name, 1, 0, false);
+            var (stalled, result) = Shared(name, 1, 2, false);
             Assert.True(stalled.Counts["passes"] < plain.Counts["passes"], name + ": " + stalled.Counts["passes"] + " vs " + plain.Counts["passes"]);
-            Assert.Null(TetMeshQuality.NotValidReason(stalled.Result()));
+            Assert.Null(TetMeshQuality.NotValidReason(result));
         }
 
         [Fact]
         public void StallStop_RepeatedRuns_GiveTheSameResult()
         {
-            AssertSame(Run("cylinder", 1, i => i.StallStopPasses = 2).Result(), Run("cylinder", 1, i => i.StallStopPasses = 2).Result());
+            AssertSame(Shared("cylinder", 1, 2, false).result, Run("cylinder", 1, i => i.StallStopPasses = 2).Result());      // a fresh run against the shared one
         }
 
         [Theory]
@@ -99,8 +166,8 @@ namespace geometry3Sharp.Tests
         [InlineData(1024.0)]
         public void StallStop_SameResultUnderPow2Scales(double s)
         {
-            TetMeshImprover a = Run("cylinder", 1, i => i.StallStopPasses = 2), b = Run("cylinder", s, i => i.StallStopPasses = 2);
-            TetMesh3 ra = a.Result(), rb = b.Result();          // (Result() builds the mesh each call)
+            var (a, ra) = Shared("cylinder", 1, 2, false);
+            var (b, rb) = Shared("cylinder", s, 2, false);
             Assert.Equal(ra.Tets, rb.Tets);
             Assert.Equal(a.Counts.OrderBy(kv => kv.Key).ToList(), b.Counts.OrderBy(kv => kv.Key).ToList());
             for (int v = 0; v < ra.Vertices.Count; ++v) Assert.Equal(ra.Vertices[v] * s, rb.Vertices[v]);
@@ -110,19 +177,15 @@ namespace geometry3Sharp.Tests
         public void MeshTetrahedralization_StallStopPasses_IsOffByDefault_PassedOn_AndReusable()
         {
             Assert.Equal(0, new MeshTetrahedralization(TetMeshingStage2Tests.Input("cylinder")).StallStopPasses);
-            Func<int, MeshTetrahedralization> make = stall => new MeshTetrahedralization(TetMeshingStage2Tests.Input("cylinder")) {
-                RelativeAlpha = 20, RelativeOffset = 600, SliverDihedralDegrees = 30, ImprovePasses = 20, RescuePasses = 10, StallStopPasses = stall };
-            MeshTetrahedralization off = make(0);
-            off.Compute(); Assert.NotNull(off.Result);
-            Assert.False(off.Counts.ContainsKey("improve_stall_stop"));
-            MeshTetrahedralization on = make(2);
-            on.Compute(); Assert.NotNull(on.Result);
-            Assert.True(on.Counts["improve_stall_stop"] >= 1);
-            Assert.True(on.Counts["improve_passes"] < off.Counts["improve_passes"]);
-            Assert.Null(TetMeshQuality.NotValidReason(on.Result));
-            TetMesh3 first = on.Result;
-            on.Compute(); Assert.NotNull(on.Result);        // reuse: the same instance again
-            AssertSame(first, on.Result);
+            var tm = new MeshTetrahedralization(TetMeshingStage2Tests.Input("cylinder")) {
+                RelativeAlpha = 20, RelativeOffset = 600, SliverDihedralDegrees = 30, ImprovePasses = 20, RescuePasses = 10, StallStopPasses = 2 };
+            tm.Compute(); Assert.NotNull(tm.Result);
+            Assert.True(tm.Counts["improve_stall_stop"] >= 1);
+            Assert.True(tm.Counts["improve_passes"] < 30, "the stop ended the phases before the caps (20 + 10 passes): " + tm.Counts["improve_passes"]);
+            Assert.Null(TetMeshQuality.NotValidReason(tm.Result));
+            TetMesh3 first = tm.Result;
+            tm.Compute(); Assert.NotNull(tm.Result);        // reuse: the same instance again
+            AssertSame(first, tm.Result);
         }
     }
 }

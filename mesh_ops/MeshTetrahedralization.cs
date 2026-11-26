@@ -188,7 +188,7 @@ namespace gs
         /// separately the rescue passes, when this many passes in a row neither lowered the number of tets below SliverDihedralDegrees by 1 % nor
         /// raised the worst smallest dihedral by 0.1 degrees. Counted, never wall-clock, so the result is deterministic and the same for every 2^k scale.
         /// 0 or less: off (the default; the result is bit for bit as without the option). A time/quality trade: it leaves the tets below the target that
-        /// were still being worked off; Counts["improve_stall_stop"] counts the phases it ended (only then the key exists).
+        /// were still being worked off; The pass that judges is counted in Counts["improve_passes"] and does not run its operations; Counts["improve_stall_stop"] counts the phases it ended (only then the key exists).
         /// </summary>
         public int StallStopPasses = 0;
         /// <summary>
