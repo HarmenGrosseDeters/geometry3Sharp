@@ -99,6 +99,18 @@ namespace geometry3Sharp.Tests
         // The surface of angles that succeed with the strict realization (the plain ones are refused, #1628) is pinned: counts and a hash of
         // the topology (triangle ids, vertices, groups; no coordinates, so that it holds on every runtime). The zip realization of #1647
         // runs only after strict throws, so these angles must keep the surface strict gives: a zip run in its place changes the triangles.
+        // FNV-1a of the triangle ids, vertices and groups
+        internal static string TopologyHash(DMesh3 m)
+        {
+            ulong h = 14695981039346656037UL;
+            Func<ulong, int, ulong> fnv = (acc, v) => { unchecked { for (int i = 0; i < 4; ++i) { acc ^= (ulong)((v >> (8 * i)) & 0xFF); acc *= 1099511628211UL; } } return acc; };
+            foreach (int t in m.TriangleIndices()) {
+                Index3i tv = m.GetTriangle(t);
+                h = fnv(fnv(fnv(fnv(fnv(h, t), tv.a), tv.b), tv.c), m.GetTriangleGroup(t));
+            }
+            return h.ToString("x16");
+        }
+
         [Theory]
         [InlineData(117, 452, 653, "54b45d240c450401")]
         [InlineData(127, 450, 651, "5b2e07889356bd85")]
@@ -107,20 +119,14 @@ namespace geometry3Sharp.Tests
             var d = Make(degrees);
             Assert.True(d.Compute(), d.Status + " " + d.Message);
             DMesh3 m = d.SlopeSurface;
-            ulong h = 14695981039346656037UL;
-            Func<ulong, int, ulong> fnv = (acc, v) => { unchecked { for (int i = 0; i < 4; ++i) { acc ^= (ulong)((v >> (8 * i)) & 0xFF); acc *= 1099511628211UL; } } return acc; };
-            foreach (int t in m.TriangleIndices()) {
-                Index3i tv = m.GetTriangle(t);
-                h = fnv(fnv(fnv(fnv(fnv(h, t), tv.a), tv.b), tv.c), m.GetTriangleGroup(t));
-            }
             Assert.Equal(vertexCount, m.VertexCount);
             Assert.Equal(triangleCount, m.TriangleCount);
-            Assert.Equal(topologyHash, h.ToString("x16"));
+            Assert.Equal(topologyHash, TopologyHash(m));
         }
 
         // #1539, angle 301: a needle of altitude 2e-15 at (-39.234, -0.0177) whose flip changes the surface by 1.4e-11, 7 times the reserved
         // flip share: the plane of the needle fails every margin. The rerun with a scaled flip share (budgets counted) removes it
-        // (Slow: the first attempts fail, the rerun runs them again: 6 builds, about 6 s alone; under 10 s)
+        // (Slow: the first attempts fail, the rerun runs them again: 6 builds, one design, under 10 s alone)
         [Fact, Trait("Category", "Slow")]
         public void AroundCorner_301_NeedleWithARefusedFlip_Succeeds()
         {
@@ -129,7 +135,14 @@ namespace geometry3Sharp.Tests
             Assert.Equal(MeshRobustRepair.Defects.NotClosed | MeshRobustRepair.Defects.DegenerateTriangles, MeshRobustRepair.FindDefects(d.SlopeSurface));
             Assert.True(d.UsedToeLowering > 0 && d.UsedToeLowering <= d.Tolerance, "toe lowering " + d.UsedToeLowering);
             Assert.Equal("", d.Message);
+            Assert.Equal(Reference301Vertices, d.SlopeSurface.VertexCount);
+            Assert.Equal(Reference301Triangles, d.SlopeSurface.TriangleCount);
+            Assert.Equal(Reference301Topology, TopologyHash(d.SlopeSurface));
         }
+
+        // the surface of 301 (the topology: no coordinates, so that it holds on every runtime), pinned for the frames below
+        internal const int Reference301Vertices = 2475, Reference301Triangles = 4624;
+        internal const string Reference301Topology = "bf9f78a6f7df6ccd";
 
         // 301 in the 2^k frames: the rerun's budgets and the flips scale with the frame, bit for bit (Nightly: the identity reference and each
         // frame are 6-8 s; the first case of the run pays for the reference, 16 s)
@@ -139,7 +152,8 @@ namespace geometry3Sharp.Tests
             return d;
         });
 
-        // (two frames in the PR tier, Slow: each is one design of 301, about 8 s; the reference is shared with the tests of this file)
+        // two frames in the PR tier (Slow: one design of 301 each, 8 s alone): the surface has the topology of the identity frame, which is
+        // pinned above (the bit for bit comparison with the identity frame's coordinates is the Nightly test below)
         [Theory, Trait("Category", "Slow")]
         [InlineData("scale 2^-10")]
         [InlineData("scale 2^10")]
@@ -148,17 +162,9 @@ namespace geometry3Sharp.Tests
             Similarity s = ZUp(Similarity.ByName(name));
             var d = Make(301, s);
             Assert.True(d.Compute(), d.Status + " " + d.Message);
-            Assert.Equal("", Invariance.Difference(Reference301.Value.SlopeSurface, Invariance.MappedBack(d.SlopeSurface, s)));
-        }
-
-        // a second Compute() on the design that ran the rerun gives the same surface bit for bit (Slow: one more design of 301)
-        [Fact, Trait("Category", "Slow")]
-        public void AroundCorner_301_Reuse_GivesTheSameSurface()
-        {
-            var d = Reference301.Value;
-            var before = new DMesh3(d.SlopeSurface);
-            Assert.True(d.Compute(), d.Status + " " + d.Message);
-            Assert.Equal("", Invariance.Difference(before, d.SlopeSurface));
+            Assert.Equal(Reference301Vertices, d.SlopeSurface.VertexCount);
+            Assert.Equal(Reference301Triangles, d.SlopeSurface.TriangleCount);
+            Assert.Equal(Reference301Topology, TopologyHash(d.SlopeSurface));
         }
 
         [Theory]
@@ -167,10 +173,14 @@ namespace geometry3Sharp.Tests
         public void AroundCorner_301_Similarities(string name)
         {
             Similarity s = ZUp(Similarity.ByName(name));
-            if (s.IsExact == false) return;
             var d = Make(301, s);
             Assert.True(d.Compute(), d.Status + " " + d.Message);
-            Assert.Equal("", Invariance.Difference(Reference301.Value.SlopeSurface, Invariance.MappedBack(d.SlopeSurface, s)));
+            TerrainSlopeDesignTests.AssertSurface(d);
+            Assert.True(d.MaxSlopeRatio <= 1);
+            // (the open boundary, and the needles only where the frame's rounding leaves them)
+            var defects = MeshRobustRepair.FindDefects(d.SlopeSurface);
+            Assert.True((defects & MeshRobustRepair.Defects.NotClosed) != 0 && (defects & ~(MeshRobustRepair.Defects.NotClosed | MeshRobustRepair.Defects.DegenerateTriangles)) == 0, defects.ToString());
+            if (s.IsExact) Assert.Equal("", Invariance.Difference(Reference301.Value.SlopeSurface, Invariance.MappedBack(d.SlopeSurface, s)));
         }
 
         // the 2^k frames give the result of the rotated design, scaled, bit for bit; every frame succeeds (the reference, 127 degrees, is

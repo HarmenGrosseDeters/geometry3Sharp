@@ -1124,7 +1124,7 @@ namespace gs
         // (it fails every margin), the attempts run again from the strict realization on; where a strict realization left a crack,
         // from the zip one on. Only after such a failure: a design that passes, also after raising the margin, gives the result it
         // always gave. The counters of the run (Attempts, Realizations, PredicateCalls, ...) add up over the reruns: they count
-        // the work done; the problem lists (ProblemTriangles, AttemptProblemAltitudes) hold the last run's)
+        // the work done; the problem lists (ProblemTriangles, AttemptProblemAltitudes) hold the last run's; a refused rerun leaves the plain run's diagnostics)
         Statuses attempts(List<InPiece> pieces, List<List<Vector3d>> toePts, double H, bool fill)
         {
             flipScale = 1; UsedFlipScale = 1; lastRefusedBound = 0;
@@ -1145,8 +1145,10 @@ namespace gs
                     if (rerun > 0 && !(next > flipScale)) break;
                     flipScale = next;
                     UsedFlipScale = flipScale;
+                    // (B, the largest refused bound, and the share are of the last realization and the last build; if that build
+                    // refused before it realized, they come from different builds, which the factor 2 of FlipScaleFor covers)
                     lastRefusedBound = 0;
-                    Message = "";
+                    Message = ""; ProblemTriangles = new List<int>(); AttemptProblemAltitudes = new List<List<double>>();
                     Statuses again = attempts_modes(pieces, toePts, H, fill);
                     if (again != Statuses.SlopeViolation && again != Statuses.Failed && again != Statuses.InvalidInput) return again;
                     if (again != Statuses.SlopeViolation || lastRefusedBound <= 0 || flipScale >= MaxFlipScale) break;
@@ -1161,6 +1163,7 @@ namespace gs
         {
             readonly string message; readonly List<int> problems; readonly List<List<double>> altitudes;
             readonly double mergeLambdaRequired, maxMergeDistance, usedMergeRadius, usedBandMergeRadius;
+            readonly double maxSlopeRatio, slopeMargin, toeLowering, minFeature, facetAngle, fanTolerance, rampShare;
             readonly int merged, flips, bandMerges;
             public string Message { get { return message; } }
             public Diagnostics(TerrainSlopeDesign d)
@@ -1170,6 +1173,8 @@ namespace gs
                 altitudes = d.AttemptProblemAltitudes.Select(l => new List<double>(l)).ToList();
                 mergeLambdaRequired = d.MergeLambdaRequired; maxMergeDistance = d.MaxMergeDistance;
                 usedMergeRadius = d.UsedMergeRadius; usedBandMergeRadius = d.UsedBandMergeRadius;
+                maxSlopeRatio = d.MaxSlopeRatio; slopeMargin = d.UsedSlopeMargin; toeLowering = d.UsedToeLowering; minFeature = d.UsedMinFeatureSize;
+                facetAngle = d.FacetAngle; fanTolerance = d.FanTolerance; rampShare = d.UsedRampShare;
                 merged = d.MergedPositions; flips = d.NeedleFlips; bandMerges = d.BandMerges;
             }
             public void Restore(TerrainSlopeDesign d)
@@ -1177,6 +1182,8 @@ namespace gs
                 d.ProblemTriangles = problems; d.AttemptProblemAltitudes = altitudes;
                 d.MergeLambdaRequired = mergeLambdaRequired; d.MaxMergeDistance = maxMergeDistance;
                 d.UsedMergeRadius = usedMergeRadius; d.UsedBandMergeRadius = usedBandMergeRadius;
+                d.MaxSlopeRatio = maxSlopeRatio; d.UsedSlopeMargin = slopeMargin; d.UsedToeLowering = toeLowering; d.UsedMinFeatureSize = minFeature;
+                d.FacetAngle = facetAngle; d.FanTolerance = fanTolerance; d.UsedRampShare = rampShare;
                 d.MergedPositions = merged; d.NeedleFlips = flips; d.BandMerges = bandMerges;
             }
         }
@@ -1199,6 +1206,8 @@ namespace gs
         // the scale F of the flip share in a rerun of attempts() (1: the share of the realization), the largest bound of a flip that
         // the last build refused for exceeding the share (0: none), and the base share FlipShare of that build
         double flipScale = 1, lastRefusedBound, lastBaseFlipShare = 1;
+        /// <summary> tests: the flip share FlipShare of the last build (the unit of the scale) </summary>
+        internal double BaseFlipShare { get { return lastBaseFlipShare; } }
         /// <summary> tests: the last flip share scale a rerun of attempts() tried (1: no rerun) </summary>
         internal double UsedFlipScale = 1;
         /// <summary> tests: multiplies the scale of a rerun in the budgets (not in its name), to make the budget refuse it </summary>
@@ -2089,7 +2098,6 @@ namespace gs
         // most at the crossing of the quad's diagonals; FlipNeedles adds these changes per triangle and refuses a flip
         // beyond the share)
         internal static double MergeShare(double exy, double sMax) { return 4 * sMax * (MergeRadius(exy) + exy) + FlipShare(exy, sMax); }
-        // the largest change of the surface by needle flips, which FlipNeedles enforces (above and below)
         // the F - 1 further flip shares of a rerun with the flip share scaled by F (0 for F = 1: every budget is today's, bit for bit),
         // rounded up: the budget of the below share, the lowering of the flips and the room of the band merges count them. The
         // sum of the shares stays within Tolerance at every F because the build refuses (the cone facets need a positive share of
@@ -2098,6 +2106,7 @@ namespace gs
         {
             return scale > 1 ? ExactInterval.Up((scale - 1) * FlipShare(exy, sMax)) : 0;
         }
+        // the largest change of the surface by needle flips, which FlipNeedles enforces (above and below)
         internal static double FlipShare(double exy, double sMax) { return 2 * sMax * (MergeRadius(exy) + exy); }
         // the lowering a realization with k kinds of repair needs (merge, flips): the rounding of a vertex and
         // 2 sMax (r + e_xy) above S̃ for each
