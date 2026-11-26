@@ -27,6 +27,13 @@ This guide covers implicit iso-surface extraction (`MarchingCubes`, `DualContour
 - **Example:** [OffsetSurfaceExample.cs](../examples/OffsetSurfaceExample.cs)
 - **Further reading:** [CONSERVATIVE_MC_AUDIT.md](../design/CONSERVATIVE_MC_AUDIT.md)
 
+### Slivers at grid corners (`SingleLerp`, `LerpSteps`, `Bisection`)
+
+A crossing within `1e-5` of the field change along an edge of a grid corner is pulled to `1e-6 * CubeSize` from that corner, so the vertices around a corner stay distinct and the mesh manifold (`find_iso`). Where the surface passes through or next to a grid corner (a sphere or a box on the grid) the triangles around it are slivers: edges of about `1e-6 * CubeSize`, area about `1e-12 * CubeSize^2`. That is below the degenerate area of `MeshRobustRepair.NotCleanReason` (`1e-12` of the squared bounds diagonal) when `CubeSize` is small against the bounds, so a plain sphere can report `degenerate triangles` although the mesh is closed and manifold (issue #1599).
+
+- The slivers are not welded: their vertices differ, so a weld would move the surface by up to `1e-6 * CubeSize`.
+- Check the result with `NotCleanReason` and repair it (`MeshRobustRepair`) if a clean mesh is required, or use `RootMode = LinearEdges` (below), which refuses such inputs instead of creating slivers.
+
 ### `RootMode = LinearEdges`
 
 Standard root modes (`SingleLerp`, `LerpSteps`, `Bisection`) snap near-zero values to grid corners. `RootMode = LinearEdges` performs a single unmodified linear interpolation per edge without nudges or skipped triangles:
@@ -59,6 +66,7 @@ Standard root modes (`SingleLerp`, `LerpSteps`, `Bisection`) snap near-zero valu
   - Closed, manifold, and scale-free (bit-identical under power-of-two scaling).
   - Exact self-intersection decision reported in `SelfIntersectionFree`.
   - Certified one-sided band: every output point is proven within `BandDeviation` of signed distance `Distance`, checked against `BandTolerance` (default half a cell) in `BandCertified`.
+  - `Status.Empty` means nothing resolved at this grid, not that the part is gone: a part left thinner than about half a cell (`RelativeCellSize * |Distance|`) can return `Empty` while a smaller `RelativeCellSize` finds it.
   - `MeshOffset.CertifyBand` can certify the distance band of *any* offset mesh (such as a `MarchingCubes` or `MeshAlphaWrap` result).
   - For open or broken inputs, repair first (`MeshRobustRepair`) or use `MeshAlphaWrap` (outward only).
 - **Example:** [DualContouringAndOffsetExample.cs](../examples/DualContouringAndOffsetExample.cs)
@@ -94,7 +102,8 @@ Standard root modes (`SingleLerp`, `LerpSteps`, `Bisection`) snap near-zero valu
 - **Capabilities:** Supports gyroid, Schwarz P, Schwarz D, Neovius, I-WP, and Lidinoid surfaces as sheet or skeletal solids, sized by volume fraction or sheet wall thickness. Supports linear period grading, hybrid blending of two lattice types across a plane with a sigmoid transition, and dyadic enclosure grids.
 - **Guarantees:** Returns `Ok` only when the generated mesh is closed, manifold, and passes the exact self-intersection check (unless self-intersection verification is explicitly disabled).
 - **Certificate on the returned coordinates:** the check runs after the transform to world coordinates (`Origin + Rotation * v`), on the mesh that is returned. Its rounding moves a vertex by up to about an ulp of its world coordinates; far from the origin, where that ulp approaches the cube (`CellSize / Divisions`), triangles collapse or cross and the result is `NotClean` or `SelfIntersecting` instead of `Ok` (#1569: `Origin` near `1e13` with 32 cubes per unit period). No a-priori bound replaces the check: it would need the smallest separation of non-adjacent triangles, which the exact check does not compute. The certificate runs once per grid attempt, as before, with no extra pass, so a run whose first grid is clean costs nothing extra. Because the returned mesh is what is certified, the grid-shift retry on degenerate triangles can now also fire on degeneracy that the rounding causes (a far origin then tries every shift before `NotClean`), and a lattice-frame sliver that the rounding makes non-degenerate is accepted without a retry; volume and wall thickness are measured in the lattice frame, before the transform.
-- **Thin sheet walls:** marching cubes needs a wall of about two cubes. `TwoLevelSheet = true` (Sheet style, opt-in, default off) contours the two sides of the wall as two levels of the surface function with `TwoLevelMarchingTetrahedra` (below): walls down to a small fraction of a cube stay connected. Not with `Enclosure` or a hybrid.
+- **Thin sheet walls:** marching cubes needs a wall of about two cubes. `TwoLevelSheet = true` (Sheet style, opt-in, default off) contours the two sides of the wall as two levels of the surface function with `TwoLevelMarchingTetrahedra` (below): walls down to a small fraction of a cube stay connected. Not with `Enclosure` or a hybrid. Without it a thin Sheet silently loses material (a realized fraction of 1-10 % of the request at wall under a cube); `Status` stays `Ok` and `Message` says so when less than half of the requested fraction is realized.
+- **Enclosure margin:** when the error margin of `Enclosure` exceeds the voids (`RealizedVolumeFraction` above 1) the result is the solid box, not a lattice; `Status` stays `Ok` and `Message` says so.
 - **Example:** [TpmsLatticeExample.cs](../examples/TpmsLatticeExample.cs)
 - **Further reading:** [TPMS_LATTICE.md](../design/TPMS_LATTICE.md), [TPMS_GRADED_CELL.md](../design/TPMS_GRADED_CELL.md)
 

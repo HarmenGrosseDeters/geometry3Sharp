@@ -10,12 +10,27 @@ findings are in [docs/research/DOGFOODING_DEMOS_2026-11.md](../../docs/research/
 | Exact Boolean | `SolidBooleanPipeline` (default) or `ExactMeshBoolean` | operation, box or sphere operand, overlap, fine gap or overlap `10^-k`, rotation, near-coplanar tilt `10^-k` rad, scale `2^k`, pipeline `TargetFraction` | status and error, `Report` (clean, contacts, rounding volume, route, stage times), result checks, analytic volume (axis-aligned boxes), inclusion-exclusion over the three operations, bit-identity under `2^k` |
 | Robust repair | `MeshRobustRepair` (defaults) | sphere, box or torus; unwelded soup, every k-th triangle flipped, holes, jitter, duplicate faces, an overlapping second shell, crossing fins | before and after: result checks, boundary edges in red, `ResultPath` and reasons, volume IoU, the volume against the known volume |
 | Remeshing | `Remesher` with `PreventNormalFlips`, `ApplySafePreset()`, `PreserveBoundaryAndFeatures`, `PinSharpVertices`, `MeshProjectionTarget.Auto` | input (coarse box, twisted bar, sphere, coarse torus), target edge length, passes, each guard on or off, scale `2^k` | result checks, inverted triangles (normal against the nearest input triangle), minimum quality, slivers, distance to the input, guard counters, time per pass |
+| Alpha wrap | `MeshAlphaWrap`, `PassageWrap` (bored block) | sphere with single-triangle holes, open curved sheet, point cloud on a torus (noise), thin plate and two cubes with a gap (down to `10^-12`), bore and pin radius; relative alpha and offset, size budget, `MaxAlphaCoarsening`, `PullPinchPoints`, scale `2^k` | status, used alpha and offset, coarsening, estimated against actual triangles, result checks, every input point inside, distance of the wrap to the input against the offset, shells and nested shells, certified pin clearance |
+| Contouring & TPMS | `TpmsLattice`, `MeshOffset`, `DualContouring`, `MarchingCubes` | TPMS type, style, periods, divisions, volume fraction, `Enclosure`; offset or inset distance, cell size and rotation of a box; cell size and grid shift of a box SDF and a sphere; scale `2^k` | status and message, requested / realized / measured volume fraction, wall thickness, band certificate, the analytic volume (offset box, inset box, box SDF, sphere), result checks |
 
 Result checks (`Demos/Core.cs`, `MeshCheck`): closed (boundary edges and `ExactMeshBoolean.IsWindingClosed`), manifold
 vertices, finite coordinates, components, `MeshRobustRepair.NotCleanReasons`, volume and area. A failure or refusal is
 shown with its status and error, never hidden; a success whose result does not pass the checks is shown in red.
 
-All inputs are procedural. No mesh files are loaded or committed.
+All inputs are procedural. No mesh files are loaded or committed. Circles and curves use exact arithmetic only
+(`Shapes.Circle`, a rational parametrization), not `Math.Sin` / `Math.Cos`, whose bits differ between native .NET and the
+browser: native and browser runs get the same input bits.
+
+## Published demo
+
+https://harmengrossedeters.github.io/geometry3Sharp/ (GitHub Pages, owner OK 2026-11-25). `.github/workflows/pages.yml`
+publishes it on every master change of the demos (or of the workflow), once a day (03:17 UTC, so library changes reach the
+page within a day without an AOT build per library merge), and on demand:
+
+- an AOT publish (`-p:RunAOTCompilation=true`, the `wasm-tools` workload): about 4 minutes, 39 MB in 56 files (12 MB
+  gzipped), against 17 MB interpreted; the operations run about 2x native instead of about 10x;
+- the browser check below on the published files, before the upload (the job fails on a console error);
+- the base path set to `/<repository>/`, a `404.html` copy of the page (any deep link opens the app) and `.nojekyll`.
 
 ## Build and run
 

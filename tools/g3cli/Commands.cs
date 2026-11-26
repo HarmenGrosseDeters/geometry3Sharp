@@ -393,7 +393,7 @@ namespace g3cli
             };
         }
 
-        /// <summary> the short machine code of MeshRobustRepair's ScaleNotFinite, ScaleDisparity, OutsideRange, LostFarPart, LostFarOpenPart, LostSeparatePart and WrapTooCoarse reasons, else null </summary>
+        /// <summary> the short machine code of MeshRobustRepair's ScaleNotFinite, ScaleDisparity, OutsideRange, LostFarPart, LostFarOpenPart, LostSeparatePart, WrapTooCoarse, NestingAmbiguous and ThinShellWrap reasons, else null (a test checks that every reason constant has one) </summary>
         internal static JsonNode ReasonCode(string reason)
         {
             // (MeshRobustRepair appends text to a reason: the code is set where the constant's text is part of it)
@@ -405,6 +405,8 @@ namespace g3cli
             if (reason.Contains(MeshRobustRepair.LostFarOpenPart)) return "lost_far_open_part";
             if (reason.Contains(MeshRobustRepair.LostSeparatePart)) return "lost_separate_part";
             if (reason.Contains(MeshRobustRepair.WrapTooCoarse)) return "wrap_too_coarse";
+            if (reason.Contains(MeshRobustRepair.NestingAmbiguous)) return "nesting_ambiguous";
+            if (reason.Contains(MeshRobustRepair.ThinShellWrap)) return "thin_shell_wrap";
             return null;
         }
 

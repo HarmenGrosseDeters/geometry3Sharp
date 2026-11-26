@@ -45,6 +45,15 @@ namespace g3cli.Tests
             Assert.Equal(I(r["mesh"]["triangles"]), StandardMeshReader.ReadMesh(output).TriangleCount);
         }
 
+        // #1597: Empty means nothing resolved at this grid, not that the surface is empty: a part thinner than about half a cell can still exist
+        static void AssertEmptyWording(JsonObject r)
+        {
+            string msg = S(r["message"]);
+            Assert.DoesNotContain("surface is empty", msg);
+            Assert.Contains("nothing was resolved at this grid", msg);
+            Assert.Contains("smaller cell_size or relative_cell_size", msg);
+        }
+
         [Fact]
         public void Inward_IsTheSmallerCube_AndTooDeepIsEmpty()
         {
@@ -305,6 +314,7 @@ namespace g3cli.Tests
             var (e3, r3) = Run("offset", m.Cube, never, "--distance=-1.5", "--cell-size", "0.25", "--method", "mesh_offset", "--compact");
             AssertError(e3, r3, "operation_failed");
             Assert.Equal("empty", S(r3["offset_status"]));
+            AssertEmptyWording(r3);
             Assert.False(File.Exists(never));
         }
 

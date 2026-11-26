@@ -176,7 +176,7 @@ namespace g3cli
                     throw new CommandException(ResultCodes.InvalidArguments, $"the grid would have more than {maxNodes} nodes (max_cells{(maxNodes < maxCells ? ", capped at MeshOffset's limit of 2^28" : "")}): use a larger cell_size or relative_cell_size",
                         new JsonObject() { ["offset_status"] = "grid_too_large", ["enclosure_claim"] = "none" });
                 case gs.MeshOffset.Status.Empty:
-                    throw new CommandException(ResultCodes.OperationFailed, "the offset surface is empty (a negative distance beyond the inner half thickness, or a cell larger than the shape)",
+                    throw new CommandException(ResultCodes.OperationFailed, "nothing was resolved at this grid: a part thinner than about half a cell can still exist (a negative distance beyond the inner half thickness also leaves nothing); try a smaller cell_size or relative_cell_size",
                         new JsonObject() { ["offset_status"] = "empty", ["enclosure_claim"] = "none" });
                 case gs.MeshOffset.Status.InvalidParameters:
                 case gs.MeshOffset.Status.InvalidInput:

@@ -1323,7 +1323,7 @@ namespace gs
         /// 'lower' (rounded to nearest from the exact value), faces triangulated at their exact corners; group id = piece;
         /// z negated for fill
         /// </summary>
-        public DMesh3 Realize(int cap, bool fill, double mergeRadius = 0, double lower = 0)
+        public DMesh3 Realize(int cap, bool fill, double mergeRadius = 0, double lower = 0, bool strict = false)
         {
             var mesh = new DMesh3(false, false, false, true);
             // the planes incident to each rounded position (all domain faces, the cap too)
@@ -1372,7 +1372,7 @@ namespace gs
             merge_close_positions(labelsAt, barrierPos, BarriersAt, mergeRadius, repOf);
             DroppedTriangles = append_faces(mesh,
                 faces.Select(f => new KeyValuePair<int, List<int>>(owner[fLabel[f]], cycle(f).Select(h => hOrig[h]).ToList())),
-                triangulate, outVertex);
+                triangulate, outVertex, strict, mergeRadius);
             foreach (int v in mesh.VertexIndices()) OnBarrier.Add(barrierPos.Contains(mesh.GetVertex(v).xy));
             return mesh;
         }
@@ -1446,15 +1446,32 @@ namespace gs
         // rounded vertices (outVertex). A face narrower than the rounding, eg between two creases a few ulps apart, has
         // no area once rounded: its triangles are dropped (kept, they would be vertical walls over their neighbours) and
         // the neighbours stitched, which leaves no gap. Returns the number dropped. (Static: tests feed it faces.)
+        // Strict (#1539, the retry after a NonManifoldRealization): the same for a sliver that the rounding turned over
+        // (clockwise) or that runs along an edge in the direction a triangle of the mesh does (it lies over that triangle):
+        // near-degenerate clusters, where slivers of different faces a few ulps wide lie along one line, round to such
+        // triangles. Not the default: a turned-over sliver that is not in the way is kept (later repairs remove it), and
+        // dropping it can leave a crack. Only a sliver is dropped (is_sliver, radius = the merge radius of the realization);
+        // a thicker triangle that turns over or overlaps is a real defect: NonManifoldRealization. A triangle that the mesh
+        // refuses throws as well: in strict mode an edge never has two triangles in one direction (overlaps drops those), so
+        // two triangles on an edge run in opposite directions and a third one runs along one of them in the same direction,
+        // which overlaps catches first; the refusal cannot happen (and has no test), the throw is a guard.
         internal static int append_faces(DMesh3 mesh, IEnumerable<KeyValuePair<int, List<int>>> faces,
-                                         Func<List<int>, List<Index3i>> triangulate, Func<int, int> outVertex)
+                                         Func<List<int>, List<Index3i>> triangulate, Func<int, int> outVertex, bool strict = false,
+                                         double radius = 0)
         {
             var dropped = new List<Index3i>();
             foreach (var face in faces) {
                 foreach (Index3i t in triangulate(face.Value)) {
                     int a = outVertex(t.a), b = outVertex(t.b), c = outVertex(t.c);
                     if (a == b || b == c || c == a) continue;
-                    if (ExactPredicates.Orient2d(mesh.GetVertex(a).xy, mesh.GetVertex(b).xy, mesh.GetVertex(c).xy) == 0) {
+                    Vector2d pa = mesh.GetVertex(a).xy, pb = mesh.GetVertex(b).xy, pc = mesh.GetVertex(c).xy;
+                    int orient = ExactPredicates.Orient2d(pa, pb, pc);
+                    if (orient == 0) {
+                        dropped.Add(new Index3i(a, b, c));
+                        continue;
+                    }
+                    if (strict && (orient < 0 || overlaps(mesh, a, b, c))) {
+                        if (is_sliver(pa, pb, pc, radius) == false) throw new NonManifoldRealization();
                         dropped.Add(new Index3i(a, b, c));
                         continue;
                     }
@@ -1464,6 +1481,52 @@ namespace gs
             }
             stitch(mesh, dropped);
             return dropped.Count;
+        }
+
+        // A triangle that the rounding can have turned over or laid over a neighbour. With M the largest coordinate and
+        // d = ulp(M) + radius: a corner is at most ulp(M) from the exact one (a coordinate is rounded by at most half an ulp of
+        // M, so the point moves by at most 0.71 ulp) and at most radius further if merged (a merge takes a position to a
+        // representative within the radius, which is not merged itself), so at most d. The exact triangle is counter-clockwise,
+        // so its apex is above its longest edge; moving the two ends of that edge and the apex by at most d each puts the apex
+        // at most 2 d on the other side of the edge (it projects inside the longest edge, whose acute base angles put the
+        // apex inside the strip over it, so the edge's line moves by at most d there). The computed height is |cross| / L:
+        // with u = 2^-53 and edge lengths at most L, the differences have relative error u, each product 3.1 u, the
+        // subtraction u of its result, so the cross product is off by at most 5 u (|X Y| + |X' Y'|) <= 10 u L^2 (the components
+        // of two edges are at most L; no underflow: the differences of doubles are exact below the normal range), so the cross
+        // product divided by the exact L is off by at most 10 u L. L itself (a square root of a sum of squares) has relative
+        // error at most 3 u, which changes the height h <= L by at most 3 u L, and the division adds u h <= u L: the computed
+        // height is off by at most 14 u L. The bound is 2 d + 16 u L: a margin of 2 u L over that, for the sums 2 (ulp + radius)
+        // and 16 u L themselves (each at most u relative, so at most 2 u L together at this size). So every triangle that
+        // rounding turned over or laid over a neighbour passes, and a triangle thicker than 2 d + 16 u L (about 2 ulp(M) + 16 u L)
+        // is no rounding artefact.
+        internal static bool is_sliver(Vector2d a, Vector2d b, Vector2d c, double radius)
+        {
+            double m = Math.Max(Math.Max(Math.Max(Math.Abs(a.x), Math.Abs(a.y)), Math.Max(Math.Abs(b.x), Math.Abs(b.y))), Math.Max(Math.Abs(c.x), Math.Abs(c.y)));
+            double ulp = ExactInterval.Up(m) - m;
+            double l2 = Math.Max(a.DistanceSquared(b), Math.Max(b.DistanceSquared(c), c.DistanceSquared(a)));
+            if (!(l2 > 0)) return true;
+            double l = Math.Sqrt(l2);
+            double height = Math.Abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) / l;
+            return height <= 2 * (ulp + radius) + 16 * 1.1102230246251565E-16 * l;
+        }
+
+        // an edge of (a, b, c) that a triangle of the mesh runs along in the same direction: the two overlap
+        static bool overlaps(DMesh3 mesh, int a, int b, int c)
+        {
+            return same_direction(mesh, a, b) || same_direction(mesh, b, c) || same_direction(mesh, c, a);
+        }
+
+        static bool same_direction(DMesh3 mesh, int u, int v)
+        {
+            int e = mesh.FindEdge(u, v);
+            if (e < 0) return false;
+            Index2i et = mesh.GetEdgeT(e);
+            foreach (int t in new[] { et.a, et.b }) {
+                if (t < 0) continue;
+                Index3i tv = mesh.GetTriangle(t);
+                if ((tv.a == u && tv.b == v) || (tv.b == u && tv.c == v) || (tv.c == u && tv.a == v)) return true;
+            }
+            return false;
         }
 
         // A dropped triangle (rounded corners exactly collinear) leaves its middle corner m on the long edge (e0, e1) of

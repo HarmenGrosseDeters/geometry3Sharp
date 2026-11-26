@@ -30,7 +30,7 @@ g3cli repair scan.obj scan_fixed.stl --rounding-max-displacement 1e-6
 ### Additive Result Fields (`repair`)
 
 - `result_path`: winning stage (`PassThrough`, `Repair`, `ExactResolve`, `Solidify`, `AlphaWrap`).
-- `result_code` / `exact_resolve_code`: structured codes (`scale_not_finite`, `scale_disparity`, `outside_range`, `lost_far_part`, `lost_far_open_part`, `lost_separate_part`, `wrap_too_coarse`, or `null`).
+- `result_code` / `exact_resolve_code`: structured codes (`scale_not_finite`, `scale_disparity`, `outside_range`, `lost_far_part`, `lost_far_open_part`, `lost_separate_part`, `wrap_too_coarse`, `nesting_ambiguous` (an outward inner shell taken as a cavity: the plain union of the shells differs from the result by more than the volume check allows), `thin_shell_wrap` (the alpha wrap is a thin shell around an open surface, refused), or `null`).
 - `exact_resolve_rounding` and `separated_rounding`: SafeRounding counts for the two exact-stage rounding passes.
 - `genus_before` / `genus_after`: warns when exact resolve alters component genus.
 - `result_volume_iou` (with `--measure-result-iou`), `robust_options`, `exact_resolve_rounds_used`, `passed_through_triangles`, `used_alpha_wrap`, `alpha_wrap_simplified`, `wrap_reason`, `alpha_wrap_quality_improved`, `alpha_wrap_target` / `alpha_wrap_target_reached` / `alpha_wrap_target_limit`, `alpha_wrap_min_angle` / `alpha_wrap_max_angle` / `alpha_wrap_share_above_170`, `used_input`, `result_reason`, `phase_milliseconds`.
@@ -144,7 +144,7 @@ g3cli offset part.stl part_offset.stl --distance 0.5 --method mesh_offset
 ```
 
 - **`--method sdf_mc` (default):** `--cell-size` / `--relative-cell-size` (default `0.01` of diagonal), `--max-cells`, `--root-mode` (`single_lerp`, `lerp_steps`, `bisection`, `linear_edges`). `linear_edges` fails with `offset_status: "linear_edges_precondition"` without writing on precondition violations. Always reports `enclosure_claim: "none"`.
-- **`--method mesh_offset`:** Dual-contours the exact distance field (default cell `|distance| / 4`, max `|distance| / 2`; `--max-cells` up to `2^28`; refuses `--root-mode`/`--root-steps`). Reports `enclosure_claim: "band"`, `band_deviation`, `band_certified`, `uncertified_triangles`, and exact `self_intersection_free`.
+- **`--method mesh_offset`:** Dual-contours the exact distance field (default cell `|distance| / 4`, max `|distance| / 2`; `--max-cells` up to `2^28`; refuses `--root-mode`/`--root-steps`). Reports `enclosure_claim: "band"`, `band_deviation`, `band_certified`, `uncertified_triangles`, and exact `self_intersection_free`. `offset_status: "empty"` (`operation_failed`, nothing written) means that nothing was resolved at this grid, not that the surface is empty: a part thinner than about half a cell can still exist, so try a smaller `--cell-size` / `--relative-cell-size`.
 
 ---
 

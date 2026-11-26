@@ -1353,5 +1353,1084 @@
    "Shape": "box",
    "Project": false
   }
+ },
+ {
+  "name": "wrap/sphere-holes0",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 0
+  }
+ },
+ {
+  "name": "wrap/sphere-holes1",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 1
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6
+  }
+ },
+ {
+  "name": "wrap/sphere-holes20",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 20
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-alpha10",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "RelativeAlpha": 10
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-alpha40",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "RelativeAlpha": 40
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-res16",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "Resolution": 16
+  }
+ },
+ {
+  "name": "wrap/sheet",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sheet"
+  }
+ },
+ {
+  "name": "wrap/sheet-alpha60",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sheet",
+   "RelativeAlpha": 60
+  }
+ },
+ {
+  "name": "wrap/sheet-offset100",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sheet",
+   "RelativeOffset": 100
+  }
+ },
+ {
+  "name": "wrap/points200",
+  "demo": "wrap",
+  "p": {
+   "Shape": "points",
+   "Points": 200
+  }
+ },
+ {
+  "name": "wrap/points2000",
+  "demo": "wrap",
+  "p": {
+   "Shape": "points",
+   "Points": 2000
+  }
+ },
+ {
+  "name": "wrap/points10000",
+  "demo": "wrap",
+  "p": {
+   "Shape": "points",
+   "Points": 10000
+  }
+ },
+ {
+  "name": "wrap/points2000-noise2",
+  "demo": "wrap",
+  "p": {
+   "Shape": "points",
+   "Points": 2000,
+   "NoiseExp": 2
+  }
+ },
+ {
+  "name": "wrap/points50",
+  "demo": "wrap",
+  "p": {
+   "Shape": "points",
+   "Points": 50
+  }
+ },
+ {
+  "name": "wrap/thin-plate1e-2",
+  "demo": "wrap",
+  "p": {
+   "Shape": "thin-plate",
+   "ThinExp": 2
+  }
+ },
+ {
+  "name": "wrap/thin-plate1e-4",
+  "demo": "wrap",
+  "p": {
+   "Shape": "thin-plate",
+   "ThinExp": 4
+  }
+ },
+ {
+  "name": "wrap/thin-plate1e-6",
+  "demo": "wrap",
+  "p": {
+   "Shape": "thin-plate",
+   "ThinExp": 6
+  }
+ },
+ {
+  "name": "wrap/thin-plate1e-9",
+  "demo": "wrap",
+  "p": {
+   "Shape": "thin-plate",
+   "ThinExp": 9
+  }
+ },
+ {
+  "name": "wrap/thin-plate1e-12",
+  "demo": "wrap",
+  "p": {
+   "Shape": "thin-plate",
+   "ThinExp": 12
+  }
+ },
+ {
+  "name": "wrap/two-boxes-gap1e-1",
+  "demo": "wrap",
+  "p": {
+   "Shape": "two-boxes",
+   "ThinExp": 1
+  }
+ },
+ {
+  "name": "wrap/two-boxes-gap1e-2",
+  "demo": "wrap",
+  "p": {
+   "Shape": "two-boxes",
+   "ThinExp": 2
+  }
+ },
+ {
+  "name": "wrap/two-boxes-gap1e-3",
+  "demo": "wrap",
+  "p": {
+   "Shape": "two-boxes",
+   "ThinExp": 3
+  }
+ },
+ {
+  "name": "wrap/two-boxes-gap1e-6",
+  "demo": "wrap",
+  "p": {
+   "Shape": "two-boxes",
+   "ThinExp": 6
+  }
+ },
+ {
+  "name": "wrap/two-boxes-gap1e-12",
+  "demo": "wrap",
+  "p": {
+   "Shape": "two-boxes",
+   "ThinExp": 12
+  }
+ },
+ {
+  "name": "wrap/two-boxes-gap1e-2-alpha5",
+  "demo": "wrap",
+  "p": {
+   "Shape": "two-boxes",
+   "ThinExp": 2,
+   "RelativeAlpha": 5
+  }
+ },
+ {
+  "name": "wrap/bored0.3-pin0.2",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "BoreRadius": 0.3,
+   "PinRadius": 0.2
+  }
+ },
+ {
+  "name": "wrap/bored0.3-pin0.29",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "BoreRadius": 0.3,
+   "PinRadius": 0.29
+  }
+ },
+ {
+  "name": "wrap/bored0.3-pin0.31",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "BoreRadius": 0.3,
+   "PinRadius": 0.31
+  }
+ },
+ {
+  "name": "wrap/bored0.15-pin0.1",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "BoreRadius": 0.15,
+   "PinRadius": 0.1
+  }
+ },
+ {
+  "name": "wrap/bored0.6-pin0.5",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "BoreRadius": 0.6,
+   "PinRadius": 0.5
+  }
+ },
+ {
+  "name": "wrap/bored0.3-pin0.05",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "BoreRadius": 0.3,
+   "PinRadius": 0.05
+  }
+ },
+ {
+  "name": "wrap/bored0.3-pin0.2-budget2000",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "BoreRadius": 0.3,
+   "PinRadius": 0.2,
+   "Budget": 2000
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-budget4000",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "Budget": 4000
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-budget4000-cap1.5",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "Budget": 4000,
+   "MaxCoarsening": 1.5
+  }
+ },
+ {
+  "name": "wrap/sheet-budget2000",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sheet",
+   "Budget": 2000
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-pinch",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "PullPinchPoints": true
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-scale2^-20",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "ScaleExp": -20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "wrap/points2000-scale2^-20",
+  "demo": "wrap",
+  "p": {
+   "Shape": "points",
+   "Points": 2000,
+   "ScaleExp": -20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "wrap/bored-scale2^-20",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "ScaleExp": -20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-scale2^20",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "ScaleExp": 20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "wrap/points2000-scale2^20",
+  "demo": "wrap",
+  "p": {
+   "Shape": "points",
+   "Points": 2000,
+   "ScaleExp": 20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "wrap/bored-scale2^20",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "ScaleExp": 20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-alpha200",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "RelativeAlpha": 200
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-alpha200-offset5000",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "RelativeAlpha": 200,
+   "RelativeOffset": 5000
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "Gyroid",
+   "Style": "Sheet"
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/SkeletalLow",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "Gyroid",
+   "Style": "SkeletalLow"
+  }
+ },
+ {
+  "name": "contour/tpms/SchwarzP/Sheet",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "SchwarzP",
+   "Style": "Sheet"
+  }
+ },
+ {
+  "name": "contour/tpms/SchwarzP/SkeletalLow",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "SchwarzP",
+   "Style": "SkeletalLow"
+  }
+ },
+ {
+  "name": "contour/tpms/SchwarzD/Sheet",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "SchwarzD",
+   "Style": "Sheet"
+  }
+ },
+ {
+  "name": "contour/tpms/SchwarzD/SkeletalLow",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "SchwarzD",
+   "Style": "SkeletalLow"
+  }
+ },
+ {
+  "name": "contour/tpms/Neovius/Sheet",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "Neovius",
+   "Style": "Sheet"
+  }
+ },
+ {
+  "name": "contour/tpms/Neovius/SkeletalLow",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "Neovius",
+   "Style": "SkeletalLow"
+  }
+ },
+ {
+  "name": "contour/tpms/IWP/Sheet",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "IWP",
+   "Style": "Sheet"
+  }
+ },
+ {
+  "name": "contour/tpms/IWP/SkeletalLow",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "IWP",
+   "Style": "SkeletalLow"
+  }
+ },
+ {
+  "name": "contour/tpms/Lidinoid/Sheet",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "Lidinoid",
+   "Style": "Sheet"
+  }
+ },
+ {
+  "name": "contour/tpms/Lidinoid/SkeletalLow",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "Lidinoid",
+   "Style": "SkeletalLow"
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet/vf0.02",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "VolumeFraction": 0.02
+  }
+ },
+ {
+  "name": "contour/tpms/SchwarzP/SkeletalHigh/vf0.02",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "SchwarzP",
+   "Style": "SkeletalHigh",
+   "VolumeFraction": 0.02
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet/vf0.1",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "VolumeFraction": 0.1
+  }
+ },
+ {
+  "name": "contour/tpms/SchwarzP/SkeletalHigh/vf0.1",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "SchwarzP",
+   "Style": "SkeletalHigh",
+   "VolumeFraction": 0.1
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet/vf0.5",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "VolumeFraction": 0.5
+  }
+ },
+ {
+  "name": "contour/tpms/SchwarzP/SkeletalHigh/vf0.5",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "SchwarzP",
+   "Style": "SkeletalHigh",
+   "VolumeFraction": 0.5
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet/vf0.9",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "VolumeFraction": 0.9
+  }
+ },
+ {
+  "name": "contour/tpms/SchwarzP/SkeletalHigh/vf0.9",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "SchwarzP",
+   "Style": "SkeletalHigh",
+   "VolumeFraction": 0.9
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet/vf0.98",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "VolumeFraction": 0.98
+  }
+ },
+ {
+  "name": "contour/tpms/SchwarzP/SkeletalHigh/vf0.98",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "SchwarzP",
+   "Style": "SkeletalHigh",
+   "VolumeFraction": 0.98
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet/div4",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Divisions": 4
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet/vf0.05-div6",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "VolumeFraction": 0.05,
+   "Divisions": 6
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet/cells5",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Cells": 5
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet/enclosure",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Enclosure": true
+  }
+ },
+ {
+  "name": "contour/tpms/SchwarzP/SkeletalLow/enclosure",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "SchwarzP",
+   "Style": "SkeletalLow",
+   "Enclosure": true
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet/scale2^-20",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "ScaleExp": -20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet/scale2^20",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "ScaleExp": 20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "contour/offset/d0.001",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": 0.001
+  }
+ },
+ {
+  "name": "contour/offset/d0.05",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": 0.05
+  }
+ },
+ {
+  "name": "contour/offset/d0.1",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": 0.1
+  }
+ },
+ {
+  "name": "contour/offset/d0.3",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": 0.3
+  }
+ },
+ {
+  "name": "contour/offset/d-0.05",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": -0.05
+  }
+ },
+ {
+  "name": "contour/offset/d-0.2",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": -0.2
+  }
+ },
+ {
+  "name": "contour/offset/d-0.24",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": -0.24
+  }
+ },
+ {
+  "name": "contour/offset/d-0.26",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": -0.26
+  }
+ },
+ {
+  "name": "contour/offset/d0.1-rot30",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": 0.1,
+   "RotateDeg": 30
+  }
+ },
+ {
+  "name": "contour/offset/d-0.1-rot30",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": -0.1,
+   "RotateDeg": 30
+  }
+ },
+ {
+  "name": "contour/offset/d0.1-cell0.05",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": 0.1,
+   "RelativeCellSize": 0.05
+  }
+ },
+ {
+  "name": "contour/offset/d0.1-cell0.5",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": 0.1,
+   "RelativeCellSize": 0.5
+  }
+ },
+ {
+  "name": "contour/offset/d0.1-scale2^-20",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": 0.1,
+   "ScaleExp": -20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "contour/offset/d-0.1-scale2^-20",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": -0.1,
+   "ScaleExp": -20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "contour/offset/d0.1-scale2^20",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": 0.1,
+   "ScaleExp": 20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "contour/offset/d-0.1-scale2^20",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": -0.1,
+   "ScaleExp": 20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "contour/dc-box/cell0.2",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-box",
+   "CellSize": 0.2
+  }
+ },
+ {
+  "name": "contour/dc-box/cell0.1",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-box",
+   "CellSize": 0.1
+  }
+ },
+ {
+  "name": "contour/dc-box/cell0.05",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-box",
+   "CellSize": 0.05
+  }
+ },
+ {
+  "name": "contour/dc-box/cell0.02",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-box",
+   "CellSize": 0.02
+  }
+ },
+ {
+  "name": "contour/dc-box/cell0.1-shift1e-3",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-box",
+   "CellSize": 0.1,
+   "ShiftExp": 3
+  }
+ },
+ {
+  "name": "contour/dc-box/cell0.1-shift1e-6",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-box",
+   "CellSize": 0.1,
+   "ShiftExp": 6
+  }
+ },
+ {
+  "name": "contour/dc-box/cell0.1-shift1e-9",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-box",
+   "CellSize": 0.1,
+   "ShiftExp": 9
+  }
+ },
+ {
+  "name": "contour/dc-box/cell0.1-shift1e-12",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-box",
+   "CellSize": 0.1,
+   "ShiftExp": 12
+  }
+ },
+ {
+  "name": "contour/dc-box/cell0.1-shift1e-15",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-box",
+   "CellSize": 0.1,
+   "ShiftExp": 15
+  }
+ },
+ {
+  "name": "contour/dc-box/scale2^-20",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-box",
+   "CellSize": 0.1,
+   "ScaleExp": -20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "contour/dc-box/scale2^20",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-box",
+   "CellSize": 0.1,
+   "ScaleExp": 20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "contour/dc-sphere/cell0.2",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-sphere",
+   "CellSize": 0.2
+  }
+ },
+ {
+  "name": "contour/dc-sphere/cell0.1",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-sphere",
+   "CellSize": 0.1
+  }
+ },
+ {
+  "name": "contour/dc-sphere/cell0.05",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-sphere",
+   "CellSize": 0.05
+  }
+ },
+ {
+  "name": "contour/dc-sphere/cell0.02",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-sphere",
+   "CellSize": 0.02
+  }
+ },
+ {
+  "name": "contour/dc-sphere/cell0.1-shift1e-3",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-sphere",
+   "CellSize": 0.1,
+   "ShiftExp": 3
+  }
+ },
+ {
+  "name": "contour/dc-sphere/cell0.1-shift1e-6",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-sphere",
+   "CellSize": 0.1,
+   "ShiftExp": 6
+  }
+ },
+ {
+  "name": "contour/dc-sphere/cell0.1-shift1e-9",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-sphere",
+   "CellSize": 0.1,
+   "ShiftExp": 9
+  }
+ },
+ {
+  "name": "contour/dc-sphere/cell0.1-shift1e-12",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-sphere",
+   "CellSize": 0.1,
+   "ShiftExp": 12
+  }
+ },
+ {
+  "name": "contour/dc-sphere/cell0.1-shift1e-15",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-sphere",
+   "CellSize": 0.1,
+   "ShiftExp": 15
+  }
+ },
+ {
+  "name": "contour/dc-sphere/scale2^-20",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-sphere",
+   "CellSize": 0.1,
+   "ScaleExp": -20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "contour/dc-sphere/scale2^20",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-sphere",
+   "CellSize": 0.1,
+   "ScaleExp": 20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "contour/mc-sphere/cell0.2",
+  "demo": "contour",
+  "p": {
+   "Mode": "mc-sphere",
+   "CellSize": 0.2
+  }
+ },
+ {
+  "name": "contour/mc-sphere/cell0.1",
+  "demo": "contour",
+  "p": {
+   "Mode": "mc-sphere",
+   "CellSize": 0.1
+  }
+ },
+ {
+  "name": "contour/mc-sphere/cell0.05",
+  "demo": "contour",
+  "p": {
+   "Mode": "mc-sphere",
+   "CellSize": 0.05
+  }
+ },
+ {
+  "name": "contour/mc-sphere/cell0.02",
+  "demo": "contour",
+  "p": {
+   "Mode": "mc-sphere",
+   "CellSize": 0.02
+  }
+ },
+ {
+  "name": "contour/mc-sphere/cell0.1-shift1e-3",
+  "demo": "contour",
+  "p": {
+   "Mode": "mc-sphere",
+   "CellSize": 0.1,
+   "ShiftExp": 3
+  }
+ },
+ {
+  "name": "contour/mc-sphere/cell0.1-shift1e-6",
+  "demo": "contour",
+  "p": {
+   "Mode": "mc-sphere",
+   "CellSize": 0.1,
+   "ShiftExp": 6
+  }
+ },
+ {
+  "name": "contour/mc-sphere/cell0.1-shift1e-9",
+  "demo": "contour",
+  "p": {
+   "Mode": "mc-sphere",
+   "CellSize": 0.1,
+   "ShiftExp": 9
+  }
+ },
+ {
+  "name": "contour/mc-sphere/cell0.1-shift1e-12",
+  "demo": "contour",
+  "p": {
+   "Mode": "mc-sphere",
+   "CellSize": 0.1,
+   "ShiftExp": 12
+  }
+ },
+ {
+  "name": "contour/mc-sphere/cell0.1-shift1e-15",
+  "demo": "contour",
+  "p": {
+   "Mode": "mc-sphere",
+   "CellSize": 0.1,
+   "ShiftExp": 15
+  }
+ },
+ {
+  "name": "contour/mc-sphere/scale2^-20",
+  "demo": "contour",
+  "p": {
+   "Mode": "mc-sphere",
+   "CellSize": 0.1,
+   "ScaleExp": -20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "contour/mc-sphere/scale2^20",
+  "demo": "contour",
+  "p": {
+   "Mode": "mc-sphere",
+   "CellSize": 0.1,
+   "ScaleExp": 20,
+   "CheckScaleInvariance": true
+  }
  }
 ]

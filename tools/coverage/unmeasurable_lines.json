@@ -53,10 +53,10 @@
     "file": "mesh_ops/ExactMeshBoolean.cs",
     "text": "throw new InvalidOperationException(\"ExactMeshBoolean: no fast-winding tree was built for open mesh \" + mesh);",
     "after": [
-      "if (windingTrees.TryGetValue(mesh, out tree) == false)",
-      "DMeshAABBTree3 tree;"
+      "if (tree == null)",
+      "}"
     ],
-    "reason": "invariant guard, unreachable through the public API: classify builds a fast-winding tree for every open mesh off the Antipodal path before its loops, and since #882 patch_winding takes only closed meshes from its box query; it replaces the lazy build that raced there",
+    "reason": "invariant guard, unreachable through the public API: classify builds a fast-winding tree for every open mesh off the Antipodal path before its loops (and, since #1587, a slot for the tree of every Antipodal mesh, built on first use by the rim's branch), and since #882 patch_winding takes only closed meshes from its box query; it replaces the lazy build that raced there",
     "approved_in": "#883"
   },
   {

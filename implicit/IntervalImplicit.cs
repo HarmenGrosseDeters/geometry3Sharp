@@ -90,7 +90,7 @@ namespace g3
 
         /// <summary>
         /// Upper bounds of a^15 / 15! (sin) and a^14 / 14! (cos) for a >= 0: the Lagrange remainders of the two
-        /// polynomials for |r| <= a. Every step is an interval operation, and the result is the upper end.
+        /// polynomials for |r| &lt;= a. Every step is an interval operation, and the result is the upper end.
         /// </summary>
         internal static void RemainderBounds(double a, out double sinBound, out double cosBound)
         {

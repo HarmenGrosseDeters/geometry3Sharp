@@ -471,7 +471,10 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         internal static int VolumeSign(double[] xyz, int[] corners)
         {
-            if (corners == null || corners.Length < 3)
+            if (corners == null)
+                return 0;
+            // Stryker disable once Equality: one triangle (3 corners): its first corner is o, so u = 0 and S = 0 exactly; the sign is 0 whether this returns or the filter and the exact sum run
+            if (corners.Length < 3)
                 return 0;
             for (int k = 0; k < xyz.Length; ++k)
                 if (double.IsNaN(xyz[k]) || double.IsInfinity(xyz[k]))
@@ -487,10 +490,15 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         internal static int VolumeSignFilter(double[] xyz, int[] corners)
         {
-            if (VolumeSumWithBound(xyz, corners, out double sum, out double bound)) {
-                if (sum > bound) return 1;
-                if (-sum > bound) return -1;
-            }
+            return VolumeSumWithBound(xyz, corners, out double sum, out double bound) ? SignOfBoundedSum(sum, bound) : 0;
+        }
+
+        /// <summary> +1 where sum > bound, -1 where -sum > bound, else 0 (the exact sum S has |S_fp - S| &lt;= bound, so then it has the sign of S_fp) </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static int SignOfBoundedSum(double sum, double bound)
+        {
+            if (sum > bound) return 1;
+            if (-sum > bound) return -1;
             return 0;
         }
 
@@ -521,10 +529,54 @@ namespace g3
                     + Math.Abs(wz) * (Math.Abs(uxvy) + Math.Abs(uyvx));
                 under += Math.Abs(wx) + Math.Abs(wy) + Math.Abs(wz) + 1;
             }
-            double g = (n + 2) * Epsilon / (1 - (n + 2) * Epsilon);
-            bound = (Orient3dBound * perm + UnderflowUnit * under + g * abs) * (1 + 3 * g);
+            double g = VolumeBoundG(n);
+            bound = VolumeBound(perm, under, abs, g);
+            return VolumeBoundUsable(sum, bound, g);
+        }
+
+        /// <summary> g = gamma_(n+2) = (n + 2) u / (1 - (n + 2) u) of the bound of VolumeSumWithBound, n the number of triangles </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static double VolumeBoundG(int n)
+        {
+            return (n + 2) * Epsilon / (1 - (n + 2) * Epsilon);
+        }
+
+        /// <summary> the bound E of VolumeSumWithBound from the sums perm, under, abs of its terms: (Orient3dBound perm + UnderflowUnit under + g abs) (1 + 3 g) </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static double VolumeBound(double perm, double under, double abs, double g)
+        {
+            return (Orient3dBound * perm + UnderflowUnit * under + g * abs) * (1 + 3 * g);
+        }
+
+        /// <summary>
+        /// whether sum and bound of VolumeSumWithBound are usable: both finite and g &lt; 1/4 (the proof of the bound needs it). A sum
+        /// that is not finite has a bound that is not finite (abs, the sum of the |det_t|, is at least |sum|, and a NaN det makes both NaN),
+        /// so the tests of the sum are a second guard; a finite sum with a bound that overflows (perm, the sum of the |w| (|uyvz| + |uzvy|)
+        /// terms, can overflow where det does not) is the case that only the test of the bound catches
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static bool VolumeBoundUsable(double sum, double bound, double g)
+        {
             bool finite = !(double.IsNaN(sum) || double.IsInfinity(sum) || double.IsNaN(bound) || double.IsInfinity(bound));
             return finite && g < 0.25;
+        }
+
+        /// <summary>
+        /// the filter of TryCompareAbsVolume6: from sum = S_fp and bound = E of VolumeSumWithBound, +1 where |S| > 3 t is proven, -1 where |S| &lt; 3 t,
+        /// else false (sign 0, undecided); false too where 3 t overflows
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static bool VolumeCompareFilter(double sum, double bound, double t, out int sign)
+        {
+            sign = 0;
+            double t3 = 3 * t;
+            if (!double.IsInfinity(t3)) {
+                double a = Math.Abs(sum);
+                // (the exact S has |S| in [a - E, a + E]; the slack 4 u per side)
+                if ((a - bound) * (1 - 4 * Epsilon) > t3 * (1 + 4 * Epsilon)) { sign = 1; return true; }
+                if ((a + bound) * (1 + 4 * Epsilon) < t3 * (1 - 4 * Epsilon)) { sign = -1; return true; }
+            }
+            return false;
         }
 
         /// <summary>
@@ -548,13 +600,8 @@ namespace g3
                 if (double.IsNaN(xyz[k]) || double.IsInfinity(xyz[k]))
                     return false;
             if (VolumeSumWithBound(xyz, corners, out double sum, out double bound)) {
-                double t3 = 3 * t;
-                if (!double.IsInfinity(t3)) {
-                    double a = Math.Abs(sum);
-                    // (the exact S has |S| in [a - E, a + E]; the slack 4 u per side)
-                    if ((a - bound) * (1 - 4 * Epsilon) > t3 * (1 + 4 * Epsilon)) { sign = 1; return true; }
-                    if ((a + bound) * (1 + 4 * Epsilon) < t3 * (1 - 4 * Epsilon)) { sign = -1; return true; }
-                }
+                if (VolumeCompareFilter(sum, bound, t, out sign))
+                    return true;
             } else if (double.IsNaN(sum) || double.IsInfinity(sum))
                 return false;
             BigInteger[] q = to_integers(xyz, out int emin);
@@ -565,6 +612,7 @@ namespace g3
                 BigInteger ux = q[ia] - q[io], uy = q[ia + 1] - q[io + 1], uz = q[ia + 2] - q[io + 2];
                 BigInteger vx = q[ib] - q[io], vy = q[ib + 1] - q[io + 1], vz = q[ib + 2] - q[io + 2];
                 BigInteger wx = q[ic] - q[io], wy = q[ic + 1] - q[io + 1], wz = q[ic + 2] - q[io + 2];
+                // Stryker disable once Assignment: only |total| is used below
                 total += wx * (uy * vz - uz * vy) + wy * (uz * vx - ux * vz) + wz * (ux * vy - uy * vx);
             }
             decompose(t, out long mt, out int et);

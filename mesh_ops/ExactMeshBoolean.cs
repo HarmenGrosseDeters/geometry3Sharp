@@ -845,6 +845,7 @@ namespace g3
             arr = null;
             bounds.Clear();
             windingTrees.Clear();
+            antipodalWindingTrees.Clear();
             antipodalSegments.Clear();
             antipodalFar.Clear();
             segmentProjections.Clear();
@@ -854,6 +855,9 @@ namespace g3
             CertificateKeep = CertificateFlip = null;
             CertificateAssembled = null;
             antipodalUndecided = 0;
+            antipodalWide = 0;
+            antipodalUnresolved = 0;
+            antipodalFastWinding = 0;
             antipodalSnapped = 0;
             hierUsed = hierFallbacks = 0;
             perPatchDecided = perPatchSaved = 0;
@@ -998,6 +1002,20 @@ namespace g3
                 Result = null;
                 return fail(BooleanStatus.SheetRefused, SheetError);
             }
+            // (#1587: before the certificate takes the classification, so a failed run keeps none)
+            if (Cancellation.IsCancellationRequested == false) {
+                Counts["antipodal_undecided"] = antipodalUndecided;
+                Counts["antipodal_wide"] = antipodalWide;
+                Counts["antipodal_unresolved"] = antipodalUnresolved;
+                Counts["antipodal_fast_winding"] = antipodalFastWinding;
+                if (antipodalUnresolved > antipodalFastWinding) {
+                    // (only with UnresolvedByFastWinding false: a piece whose generalized winding number nothing decided is
+                    // not read as outside, silently)
+                    Result = null;
+                    arr.Trees = null;
+                    return fail(BooleanStatus.OpenInput, unresolved_error());
+                }
+            }
             if (RecordCertificate || RetainClassification) {
                 CertificateKeep = (bool[])keep.Clone();
                 CertificateFlip = (bool[])flip.Clone();
@@ -1015,7 +1033,6 @@ namespace g3
             Counts["winding_plane_sides"] = windingSides;
             Counts["winding_plane_sides_exact"] = windingExactSides;
             Counts["antipodal_meshes"] = antipodalSegments.Count;
-            Counts["antipodal_undecided"] = antipodalUndecided;
             Counts["l1_patch_decided"] = perPatchDecided;
             Counts["l1_evaluations_saved"] = perPatchSaved;
             Counts["l2_traced"] = tracedCount;
@@ -1701,6 +1718,13 @@ namespace g3
         }
 
         // the text of Status OpenInput: the open inputs by index, and the ways to state what an open input is
+        // #1587: the Error of Status OpenInput where an open mesh's generalized winding number is undecided (antipodalUnresolved)
+        string unresolved_error()
+        {
+            const string text = "ExactMeshBoolean: the generalized winding number of an open input is undecided at {0} evaluations (Counts[\"antipodal_unresolved\"]): the piece's centroid lies within the rounding error of a boundary edge of the open mesh, or no ray gave a value whose error bound decides the threshold 1/2. Such a piece is not classified as outside; close the open mesh, or keep the other meshes away from its boundary edges";
+            return string.Format(System.Globalization.CultureInfo.InvariantCulture, text, new object[] { antipodalUnresolved });
+        }
+
         string open_input_error()
         {
             var open = new List<string>();
@@ -1999,6 +2023,9 @@ namespace g3
                     antipodalFar[m].Segments = antipodalFar[m].Shift > 0 ? antipodal_grid(segments, antipodalFar[m].Shift) : antipodalSegments[m];
                     if (AntipodalHierarchical && segments.Length / 2 >= AntipodalTreeMinSegments)
                         antipodalFar[m].Tree = AntipodalTree.Build(antipodalFar[m].Segments);
+                    // (#1587: the fast-winding tree of the rim's branch, built on first use; the dictionary is filled here,
+                    // serially, and only read by the parallel evaluation)
+                    antipodalWindingTrees[m] = new TreeSlot();
                 }
             }
             // the fast-winding trees of the other open meshes, concurrently (each is independent, built from its own
@@ -3390,14 +3417,14 @@ namespace g3
                                         x1 = -(farM.Scaled[f] - g).Normalized;
                                         status = antipodal_value(g, pm, x1, chi[loc[q]], segs, out w, out bound);
                                     }
-                                    if (status == 0 || status == 1) {
-                                        double value = status == 1 ? 0.5 : snap_half(w, bound);
-                                        if (status == 1)
-                                            System.Threading.Interlocked.Increment(ref antipodalUndecided);
-                                        else if (value != w)
+                                    // (#1587: status 1, the exact centroid next to a segment, goes to the piece's own
+                                    // evaluation below, which does not read it as outside)
+                                    if (status == 0) {
+                                        double value = snap_half(w, bound);
+                                        if (value != w)
                                             System.Threading.Interlocked.Increment(ref antipodalSnapped);
                                         thr[loc[q]] = threshold_generalized(value);
-                                        rem[loc[q]] = (status == 0 && value == w) ? Math.Abs(w - (Math.Floor(w) + 0.5)) - bound - 2e-6 : -1;
+                                        rem[loc[q]] = value == w ? Math.Abs(w - (Math.Floor(w) + 0.5)) - bound - 2e-6 : -1;
                                         tr.Value[j][q] = thr[loc[q]];
                                         tr.Has[j][q] = true;
                                         System.Threading.Interlocked.Increment(ref traced);
@@ -3494,12 +3521,12 @@ namespace g3
 
         /// <summary>
         /// An upper bound of the distance of the exact points whose approximations are gp and gq, off by at most ep and eq per
-        /// coordinate (carry_bound, #1350), times the product with G that the caller takes. Derivation: |c_p - c_q| <= |gp -
-        /// gq| + sqrt(3) (ep + eq), and the computed distance D_c has |gp - gq| <= D_c (1 + 4u) (n = 4, as in boundary_bound),
-        /// with D_c <= K (1 + 4u), K = |gp|_1 + |gq|_1, so D_c (1 + 4u) <= D_c + 4u K (1 + 4u); K_true <= K_c (1 + 4u) (5
-        /// roundings, the deepest term 3) and W = K_c 2^-51 is exact: 4u K (1 + 4u) <= W (1 + 8u). Q = fl(sqrt3_c fl(ep + eq))
-        /// with sqrt3_c = 1.7320508075688774 > sqrt(3): sqrt(3) (ep + eq) <= Q (1 + 3u). Together |c_p - c_q| <= (D_c + Q + W) (1
-        /// + 8u), the sum S = fl(fl(D_c + Q) + W) >= (D_c + Q + W) (1 - u)^2, so |c_p - c_q| <= S (1 + 10.0001u). The result
+        /// coordinate (carry_bound, #1350), times the product with G that the caller takes. Derivation: |c_p - c_q| &lt;= |gp -
+        /// gq| + sqrt(3) (ep + eq), and the computed distance D_c has |gp - gq| &lt;= D_c (1 + 4u) (n = 4, as in boundary_bound),
+        /// with D_c &lt;= K (1 + 4u), K = |gp|_1 + |gq|_1, so D_c (1 + 4u) &lt;= D_c + 4u K (1 + 4u); K_true &lt;= K_c (1 + 4u) (5
+        /// roundings, the deepest term 3) and W = K_c 2^-51 is exact: 4u K (1 + 4u) &lt;= W (1 + 8u). Q = fl(sqrt3_c fl(ep + eq))
+        /// with sqrt3_c = 1.7320508075688774 > sqrt(3): sqrt(3) (ep + eq) &lt;= Q (1 + 3u). Together |c_p - c_q| &lt;= (D_c + Q + W) (1
+        /// + 8u), the sum S = fl(fl(D_c + Q) + W) >= (D_c + Q + W) (1 - u)^2, so |c_p - c_q| &lt;= S (1 + 10.0001u). The result
         /// fl(S f) and then the caller's fl(G * result) round down by u each: f (1 - u)^2 >= 1 + 10.0001u needs f >= 1 +
         /// 12.0002u, so k = 14 (n = 10, c = 4). Before: (D_c + sqrt3_c (ep + eq) + 1e-15 K_c) (1 + 1e-12). No underflow
         /// is assumed (the centroids of pieces of input triangles are far from 2^-1000 of the model)
@@ -5071,6 +5098,9 @@ namespace g3
         }
 
         readonly Dictionary<int, DMeshAABBTree3> windingTrees = new Dictionary<int, DMeshAABBTree3>();
+        // #1587: per Antipodal mesh, its fast-winding tree for the rim's branch of antipodal_front_winding, built on first use
+        readonly Dictionary<int, TreeSlot> antipodalWindingTrees = new Dictionary<int, TreeSlot>();
+        sealed class TreeSlot { public DMeshAABBTree3 Tree; }
 
         // the tree of an open mesh for its fast winding numbers: classify builds one for every open mesh off the Antipodal
         // path before its parallel loops, which only read here (#882: a lazy build inside them raced on the dictionary).
@@ -5079,7 +5109,18 @@ namespace g3
         DMeshAABBTree3 winding_tree(int mesh)
         {
             DMeshAABBTree3 tree;
-            if (windingTrees.TryGetValue(mesh, out tree) == false)
+            TreeSlot slot;
+            // (#1587: an Antipodal mesh's tree, for the rim's branch: built on first use; two threads that ask at once may
+            // both build it, from the mesh only, so the same tree, and the first one published is used by all)
+            if (windingTrees.TryGetValue(mesh, out tree) == false && antipodalWindingTrees.TryGetValue(mesh, out slot)) {
+                tree = System.Threading.Volatile.Read(ref slot.Tree);
+                if (tree == null) {
+                    System.Threading.Interlocked.CompareExchange(ref slot.Tree, new_winding_tree(mesh), null);
+                    tree = System.Threading.Volatile.Read(ref slot.Tree);
+                }
+                return tree;
+            }
+            if (tree == null)
                 throw new InvalidOperationException("ExactMeshBoolean: no fast-winding tree was built for open mesh " + mesh);
             return tree;
         }
@@ -5148,7 +5189,9 @@ namespace g3
         /// bound of k + 1/2 but not equal to it is read as k + 1/2 too (the threshold gives k): the one place where the
         /// result is not exact; the bound is about 1e-13 per boundary segment (1e-10 at 1000 segments), more for a
         /// centroid next to a segment, at most 1e-6 in all (a ray with a larger bound, or with an ill-conditioned term, is
-        /// replaced; on or next to a segment the centroid is undecided anyway). The bound depends on the ray: an exact tie is snapped with every
+        /// replaced). #1587: a value that no ray decides so is evaluated once more with the wide bound (WideBound), taken
+        /// only where it decides the threshold, and a centroid that this does not decide either (within the rounding of a
+        /// segment) gets the fast winding number (the rim's branch, counted). The bound depends on the ray: an exact tie is snapped with every
         /// ray, a value within the bound of a tie but not on it can be snapped with one ray and not with another (one Seed
         /// gives one result). The sum uses portable_atan2, so the value is the same bits on CoreCLR and .NET Framework.
         /// </summary>
@@ -5184,6 +5227,10 @@ namespace g3
             double pm = Math.Abs(p.x) + Math.Abs(p.y) + Math.Abs(p.z);
             if (far.Shift > 0)
                 segments = far.Segments;
+            // (#1587: the rays whose bound was too large, for the wide bound below)
+            int[] rays = null;
+            int tried = 0;
+            bool onSegment = false;
             for (int attempt = 0; attempt < 20; ++attempt) {
                 int j;
                 // (attempts continue the hash sequence of front_crossings: a new far point each time)
@@ -5205,12 +5252,19 @@ namespace g3
                 }
                 int status = antipodal_value(p, pm, x1, chi, segments, out w, out bound);
                 if (status == 1) {
-                    // (the centroid on or next to a segment: undecided whatever the ray)
-                    System.Threading.Interlocked.Increment(ref antipodalUndecided);
-                    return 0.5;
+                    // (the centroid on or next to a segment: undecided whatever the ray; #1587: within about 1.2 tol of
+                    // the angle, no ray and no wider bound decides it: straight to the rim's branch below)
+                    onSegment = true;
+                    break;
                 }
-                if (status == 2)
+                if (status == 2) {
+                    if (rays == null)
+                        rays = new int[40];
+                    rays[2 * tried] = chi;
+                    rays[2 * tried + 1] = j;
+                    tried++;
                     continue;
+                }
                 // a value within the error of a half-integer is that half-integer: just in front of a flat part of an
                 // open sheet the winding number is exactly k + 1/2, and the rounding of the sum must not decide the
                 // threshold (ceil(w - 1/2) reads k + 1/2 as k, whatever the ray)
@@ -5223,10 +5277,48 @@ namespace g3
                 usedFar = j;
                 return snapped;
             }
-            // (no usable ray: undecided, which the threshold reads as outside)
+            // (no usable ray: undecided. #1587: not read as outside. The same rays once more with the wide bound, taken
+            // only where it decides the threshold: the value farther than its bound from every half-integer, so no snap;
+            // a bound above 1e-6 is no more a guess there, it is a bound, and the threshold of the exact value is that of
+            // w. Not used for the per-patch or traced margins (usedBound stays -1))
             System.Threading.Interlocked.Increment(ref antipodalUndecided);
+            for (int k = 0; k < (onSegment ? 0 : tried); ++k) {
+                int chi = rays[2 * k], j = rays[2 * k + 1];
+                Vector3d x1 = -(far.Scaled[j] - p).Normalized;
+                double w, bound, roundingBound;
+                int status = antipodal_value(p, pm, x1, chi, segments, out w, out bound, out roundingBound, 0, 0, WideBound);
+                if (status == 1)
+                    break;
+                if (status == 0 && Math.Abs(w - (Math.Floor(w) + 0.5)) > bound) {
+                    System.Threading.Interlocked.Increment(ref antipodalWide);
+                    return w;
+                }
+            }
+            // (#1587, the rim's branch: nothing above decides it, the centroid is within the rounding error of a boundary
+            // segment (or no ray's bound decides), where the winding number takes every value between its two sides.
+            // Owner decision 2026-11-25: the fast winding number of the piece (front_generalized_winding, the route of an
+            // open mesh above the cap of segments: no error bound, a value read as it is), counted in
+            // Counts["antipodal_fast_winding"]; with UnresolvedByFastWinding false Compute() fails with Status OpenInput
+            // instead. Never 0.5 read as outside. The fast value is deterministic on one runtime (its tree is built once,
+            // from the mesh only, and read concurrently), but it uses Math.Atan2 (MathUtil.TriSolidAngle), whose last bit
+            // may differ between runtimes, as on the fast-winding route)
+            System.Threading.Interlocked.Increment(ref antipodalUnresolved);
+            if (UnresolvedByFastWinding) {
+                System.Threading.Interlocked.Increment(ref antipodalFastWinding);
+                return front_generalized_winding(i, mesh, stack);
+            }
             return 0.5;
         }
+
+        // #1587: the rim's branch of antipodal_front_winding: true (owner decision 2026-11-25) takes the fast winding number
+        // where nothing else decides, false makes Compute() fail with Status OpenInput (tests)
+        internal bool UnresolvedByFastWinding = true;
+
+        // #1587: the limit of the error bound of an undecided Antipodal value evaluated once more (antipodal_front_winding):
+        // below 1/2, so a value farther than its bound from every half-integer is possible; each term then needs
+        // tol <= 0.4 hypot (antipodal_sum)
+        internal const double WideBound = 0.25;
+
 
         /// <summary>
         /// The Antipodal value chi + (the boundary sum) / (4 pi) at the point p (grid doubles, pm its L1 size) for the ray
@@ -5309,8 +5401,18 @@ namespace g3
                     return 1;
                 a /= la;
                 b /= lb;
-                // (a and b opposite: the point on or next to the segment)
-                if (1 + a.Dot(b) <= tol)
+                // (a and b opposite: the point on or next to the segment. #1587: |a + b|, linear in the angle between -a and
+                // b, against tol: the computed norm is within 2.01 (ea + eb) + 10u of the exact |A + B| of the exact unit
+                // vectors, so a point on the segment (A + B = 0) always gives 1, a point that gives 1 has |A + B| at most
+                // 1.2 tol, an angle of about 1.2 tol (a distance of about 1.2 tol la lb / (la + lb) from the segment), and
+                // whatever gives 1 here also gave 1 to the test before it, 1 + a.b <= tol, so a value that was decided is
+                // the same bits (tools/Z3Pilot/antipodal_segment.py, S1-S3; its relative-error model fails where an
+                // operation's result is subnormal, eg the square of one tiny coordinate of a + b or a tiny product in a.b:
+                // that error is absolute, at most a few times 2^-1075, and the margins of the lemmas absorb it). The old
+                // test was quadratic in the angle against
+                // a linear tol: it fired up to about tol^(1/2) away, u^(1/3) of the segment's length for a far point)
+                Vector3d ab = a + b;
+                if (ab.Length <= tol)
                     return 1;
                 double num = a.Dot(b.Cross(x1)), den = 1 + a.Dot(b) + a.Dot(x1) + b.Dot(x1);
                 // the branch cut of 2 atan2(num, den) is num = 0, den < 0 (the ray passes through the segment, where the
@@ -5325,7 +5427,12 @@ namespace g3
                 // twice the angle stays below 4 tol / hypot (the limit maxBound, at most 1e-4, on the whole sum keeps every
                 // tol / hypot below pi 1e-4); num and den both small, the ray nearly through an end of the segment, makes
                 // the term ill-conditioned and the bound large, so another ray is taken there
+                // (#1587, the wide bound of an undecided value, maxBound above 1e-4: there the sum's limit does not keep
+                // the ratio small, so each term needs tol <= 0.4 hypot; 4 tol / hypot then still bounds twice the angle,
+                // which is at most 2 arcsin(sqrt 2 tol / hypot): T1 of tools/Z3Pilot/antipodal_segment.py)
                 double hypot = Math.Sqrt(num * num + den * den);
+                if (maxBound > 1e-4 && !(tol <= 0.4 * hypot))
+                    return 2;
                 double termError = 4 * tol / hypot;
                 errRounding += 4 * tolRounding / hypot + 2 * PortableAtan2Error;
                 double theta = 2 * portable_atan2(num, den);
@@ -5402,8 +5509,9 @@ namespace g3
             return front_crossings(-1, m, arr.Trees[m], rng, null, center, true, null, out farIndex) <= 0;
         }
 
-        // pieces whose Antipodal value could not be decided (the centroid on or next to a boundary segment, or no usable ray)
-        long antipodalUndecided;
+        // pieces whose Antipodal value could not be decided (the centroid on or next to a boundary segment, or no usable ray);
+        // #1587: of them, those decided by the wide bound, and those that nothing decided (Compute() fails)
+        long antipodalUndecided, antipodalWide, antipodalUnresolved, antipodalFastWinding;
         // L1: the (patch, open mesh) pairs decided per patch, and the per-piece evaluations they saved
         long perPatchDecided, perPatchSaved;
         // L2: the evaluations by a carried ray, and the direct ones of the traced input triangles (references and fallbacks)
@@ -5742,8 +5850,10 @@ namespace g3
             a /= la;
             b /= lb;
             // (at a displaced point, L2's approximated centroid, the full sum at the exact one must not take its status-1
-            // test 1 + a.b <= tol there either: 1 + a.b moves by at most about tol between the two, so twice tol; review
-            // of #813)
+            // test there either: 1 + a.b moves by at most about tol between the two, so twice tol; review of #813. Since
+            // #1587 the full sum's test is |a + b| <= tol, which implies 1 + a.b <= tol (S3 of
+            // tools/Z3Pilot/antipodal_segment.py), so this test, kept as it was (the tree's values keep their bits), still
+            // refuses wherever the full sum's test fires)
             if (1 + a.Dot(b) <= ((pointError > 0 || directionError > 0) ? 2 * tol : tol))
                 return 3;
             double num = a.Dot(b.Cross(x1)), den = 1 + a.Dot(b) + a.Dot(x1) + b.Dot(x1);

@@ -118,7 +118,7 @@ rule; **S** speed or strategy only.
 
 | Bound | file:line | Claim | Coverage | Mutant killed by |
 |---|---|---|---|---|
-| Approx acceptance `err <= 1e-12 (|x|+|y|)` and the corner error `e = 4e-12 (|x|+|y|) + eps` that consumes it, D (cull) | `ExactSlopeKernel.cs:328-337`, `TerrainSlopeMap.cs:476-482` | the corners are within e of the exact ones | Code comment; tests `TerrainSlopeDesignTests` (prefilter_skips); Z3 `slope_approx.py` (this PR): **finding** #1586 at the subnormal edge (section 6) | tests (they found a scale-dependent skip once) |
+| Approx acceptance `err <= 1e-12 (|x|+|y|)` and the corner error `e = 4e-12 (|x|+|y|) + eps` that consumes it, D (cull) | `ExactSlopeKernel.cs` (`approx_position`), `TerrainSlopeMap.cs:476-482` | the corners are within e of the exact ones | Code comment; tests `TerrainSlopeDesignTests` (prefilter_skips); Z3 `slope_approx.py`: **finding** #1586 at the subnormal edge (section 6), fixed by #1619 (`approx_position`) and proved (L1-L4) | tests (they found a scale-dependent skip once) |
 | Prefilter slacks `1e-9 (...)`, near `1e-11`, trim_ray eps, D (cull) | `TerrainSlopeMap.cs:450`, `:487`, `:538-553`, `:609`, `:355-359` | no face that the exact test keeps is skipped | Code comments; EBA section 7 names them the first next derivation; tests | not known |
 | Slb `cos(2 theta)(1 - 1e-6)`, reach `1.01`, box `1.05 dMax`, GradientBound `(1 + 1e-9)`, D (cull) | `TerrainSlopeDesign.cs:1389-1426`, `:2193`, `TerrainSlopeRamps.cs:381-385`, `ExactSlopeKernel.cs:111` | lower bounds of the slope, upper bounds of the reach | design docs TERRAIN.md, TERRAIN_RAMPS.md; tests | not known |
 | Tolerance budget (ez, lambdaBound, facet 2^-49, MergeShare, FlipShare), D | `TerrainSlopeDesign.cs:1286-1373`, `:1933-1951`, `TerrainSlopeCatchLineBound.cs:38`, `:112-113` | the realised surface stays within the tolerance | design doc TERRAIN.md (departures); tests | not known |
@@ -175,7 +175,7 @@ speed-up) times how likely a future edit is to break it (actively tuned code, ma
 |---|---|---|
 | `tools/Z3Pilot/adaptive_range.py` | G2 | Proved: input grid, grid closure, no underflow (d (m + 52) <= 1022) and no overflow for degrees 2-4, m and M read from the source; `AdaptivePredicates.cs` pinned by hash (the reviewed degrees). Admits 2^-203 .. 2^246 for the expansions' intermediates (not the stage B/C filter products). Mutants SAT and replayed |
 | `tools/Z3Pilot/may_meet_box.py` | G3 | Proved: the separation test is sound under the half-ulp rounding model (both directions, linear real arithmetic). Mutants: factor 1, no eta term (SAT, replayed). The code's factor 3 is the smallest integer factor the lemma admits |
-| `tools/Z3Pilot/slope_approx.py` | G1 (Approx coupling) | **Finding #1586** (SAT, IEEE replay; not shown that real line data produces such intervals): at the subnormal edge Approx accepts x = y = 0 with a W that contains 0, and the exact vertex can be anywhere (2^-74 in the replay against e = 2^-1074). Proved: away from the edge acceptance gives W* the sign of w (both signs queried). Undecided: the normal-range bound (nlsat unknown) |
+| `tools/Z3Pilot/slope_approx.py` | G1 (Approx coupling) | **Finding #1586, fixed by #1619**: at the subnormal edge Approx accepted x = y = 0 with a W that contains 0 (the replay `issue_1586`). The fix (`approx_position`: 2^-1022 <= \|x\| + \|y\| <= MaxValue and (W.Hi - W.Lo) 5e11 <= \|w\|) is proved: four lemmas, one per step, UNSAT; replays of the finding, of each half of the fix and of an overflowed size are rejected. Also proved: away from the edge acceptance gives W* the sign of w |
 | `ExactPredicatesRangeEdgeTests` | G2 | Kills H6: InCircle +1 for exactly cocircular rectangles at 2^-220 (the BigInteger result is 0), plus the closed edges of `InRange`. 27 cases, 0.2 s |
 | `ExactPredicatesFilterBoundTests` | G6 | Kills H5 (and 4.25 u): an input whose evaluated error is 4.30 u (permanent + \|det\|), checked against `VolumeSumWithBound`'s bound in BigInteger. Under 0.01 s |
 
@@ -188,12 +188,13 @@ test `1 + a.b <= tol` compares a quantity quadratic in the distance with a toler
 u^(1/3) of the segment length. The 20-attempt path is reachable too (tol NaN, or a ray-independent bound above 1e-6), not in this repro.
 No fix here.
 
-**Lead outside the ranking (issue #1589).** `mesh_generators/DualContouring.cs:2484-2485` (place_face_vertex) calls `AdaptivePredicates.Orient2d`
-without `Expansion.InRange`, against the class's stated precondition. For degree 2 the expansions are exact for coordinates
-down to about 2^-459 and up to about 2^494, so only geometry far beyond the tested 2^-60 .. 2^200 or with subnormal coordinates is
-affected. `tools/ErrorBoundAudit/range_callers.py` lists the two calls as the known exception; its test (`test_range_callers.py`,
-the `linux` job of `ci.yml`, every library change) fails on a new call without `if (Expansion.InRange(<all its arguments>) == false)`
-in the three lines before.
+**Closed lead (issue #1589).** `mesh_generators/DualContouring.cs` (`place_face_vertex`) called `AdaptivePredicates.Orient2d` without
+`Expansion.InRange`, against the class's stated precondition. For degree 2 the expansions are exact for coordinates down to about
+2^-459 and up to about 2^494, so only geometry far beyond the tested 2^-60 .. 2^200 or with subnormal coordinates was affected. It now
+calls `ExactPredicates.Orient2d`, which enforces the range [2^-100, 2^100] (or 0) for the adaptive stages and falls back to the exact
+integer kernels (`DoublePredicates`) outside it, so the sign is exact for every finite coordinate. `range_callers.KNOWN_UNGUARDED` is
+empty; `tools/ErrorBoundAudit/range_callers.py` (test: `test_range_callers.py`, the `linux` job of `ci.yml`, every library change) fails
+on a new call without `if (Expansion.InRange(<all its arguments>) == false)` in the three lines before.
 
 ### 6.1 FPTaylor (owner 2026-11-25)
 

@@ -1139,13 +1139,21 @@ def source_contract():
         {
             Vector3d centre = gs.MeshRepairMetrics.TriangleBounds(Mesh).Center;
             VolumeBefore = signed_volume(centre);
+            ComponentsBefore = null;
+            ComponentOfVertexBefore = null;
+            if (RecordComponents)
+                record_components();
             try {
                 return apply();
             } finally {
                 VolumeAfter = signed_volume(centre);
             }
         }""") or text.count('apply()') != 2:
-        raise ValueError('Apply: more than the two volumes around apply, or apply is called elsewhere; review drift_reference.py')
+        raise ValueError('Apply: more than the two volumes and the component records around apply, or apply is called elsewhere; review drift_reference.py')
+    # the component records of SolidBooleanPipeline (RecordComponents, #1488) only read the mesh
+    if re.search(r'\bMesh\s*=[^=]|\bMesh\.(Set|Append|Remove|Insert|Split|Collapse|Flip|Compact|Reverse|Merge|Clear)',
+                 _method(text, 'void record_components(')):
+        raise ValueError('record_components writes to the mesh before the records start; review drift_reference.py')
     if norm(_method(text, 'double signed_volume(')) != norm("""double signed_volume(Vector3d c)
         {
             return MeshMeasurements.VolumeArea(Mesh, Mesh.TriangleIndices(), (v) => Mesh.GetVertex(v) - c).x;
