@@ -23,6 +23,7 @@ namespace gs
     /// Each input is read as its oriented copy (WindingContouring.OrientedCopy), which takes the nesting of closed shells by parity: a shell inside an
     /// odd number of others is a cavity, so an outward shell inside another (an insert in a housing) is reversed and hollow. ComponentsFlippedByNestingA
     /// and B count them per input; MinVolumeIoU refuses an input where that reading and the plain union of its shells differ (#1609).
+    /// The mirrored case is a limit of the parity reading: an insert in a housing with both shells inside-out (inward) is not seen, because only the housing is flagged by FindInvertedComponents (the count is 0, the reading is the hollow one and nothing is refused; the same limit as MeshRobustRepair, #1566).
     /// </summary>
     public class MeshWindingNumberBoolean
     {
@@ -82,6 +83,9 @@ namespace gs
         /// An input without a nested outward shell is not affected. An input that the operation does not read (the other one is empty) is not checked
         /// </summary>
         public double MinVolumeIoU = 0.99;
+
+        /// <summary> (tests) false: no nesting check at all (no counts, no refusal), what Compute() did before #1609 </summary>
+        internal bool NestingCheck = true;
 
         /// <summary> the number of closed components of MeshA that its oriented copy reverses although they are outward by their own volume, in the last Compute(); see MinVolumeIoU </summary>
         public int ComponentsFlippedByNestingA { get; private set; }
@@ -161,7 +165,7 @@ namespace gs
             var inner = new MeshWindingNumberBoolean(a, b, Operation) {
                 CellSize = scaledCell, GridResolution = GridResolution, CleanupResult = CleanupResult, ReduceTolerance = ReduceTolerance,
                 FastWindingBeta = FastWindingBeta, UseExactWinding = UseExactWinding, MaxRefineLevels = MaxRefineLevels,
-                MinRefineEdges = MinRefineEdges, LocalRefinement = LocalRefinement, CancelF = CancelF, MinVolumeIoU = MinVolumeIoU
+                MinRefineEdges = MinRefineEdges, LocalRefinement = LocalRefinement, CancelF = CancelF, MinVolumeIoU = MinVolumeIoU, NestingCheck = NestingCheck
             };
             bool ok = inner.compute_unit();
             ComponentsFlippedByNestingA = inner.ComponentsFlippedByNestingA; ComponentsFlippedByNestingB = inner.ComponentsFlippedByNestingB;
@@ -269,13 +273,17 @@ namespace gs
             }
             // (#1609) outward shells inside others: the oriented copy of an input takes them for cavities
             bool ambiguous = false;
-            foreach (DMesh3 input in inputs) {
+            foreach (DMesh3 input in NestingCheck ? inputs : new DMesh3[0]) {
                 int nested;
-                if (MeshRepairMetrics.NestingAmbiguous(input, MinVolumeIoU, out nested))
+                if (MeshRepairMetrics.NestingAmbiguous(input, MinVolumeIoU, out nested, CancelF))
                     ambiguous = true;
                 if (input == MeshA) ComponentsFlippedByNestingA = nested;
                 if (input == MeshB) ComponentsFlippedByNestingB = nested;
             }
+            if (NestingCheck)
+                end_phase("nesting");
+            if (CancelF())
+                return false;
             if (ambiguous) {
                 ResultReason = NestingAmbiguous;
                 return false;

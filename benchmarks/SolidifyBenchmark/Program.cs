@@ -63,13 +63,13 @@ static class Program
         DMesh3 plates = ThinPlates(6), plates3 = ThinPlates(3);
         DMesh3 sphere = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 12 }.Generate().MakeDMesh();
         var cases = new List<KeyValuePair<string, Func<MeshWindingNumberSolidify>>> {
-            new("thin plates, res 64", () => new MeshWindingNumberSolidify(plates) { Adaptive = true, GridResolution = 64 }),
-            new("thin plates, res 64, no reduce", () => new MeshWindingNumberSolidify(plates) { Adaptive = true, GridResolution = 64, ReduceTolerance = 0 }),
-            new("thin plates, res 64, stop on self-int.", () => new MeshWindingNumberSolidify(plates) { Adaptive = true, GridResolution = 64, StopIfSelfIntersecting = true }),
-            new("thin plates (seed 3), res 48", () => new MeshWindingNumberSolidify(plates3) { Adaptive = true, GridResolution = 48 }),
-            new("gap 0.3 cells, 3 levels", () => new MeshWindingNumberSolidify(BoxesWithGap(0.3 * 0.25, 0)) { CellSize = 0.25, Adaptive = true, ReduceTolerance = 0, MaxRefineLevels = 3 }),
-            new("gap 0.45 cells, tilted 0.5 deg", () => new MeshWindingNumberSolidify(BoxesWithGap(0.45 * 0.25, 0.5)) { CellSize = 0.25, Adaptive = true, ReduceTolerance = 0, MaxRefineLevels = 3 }),
-            new("sphere, res 40", () => new MeshWindingNumberSolidify(sphere) { Adaptive = true, GridResolution = 40 }),
+            new("thin plates, res 64", () => new MeshWindingNumberSolidify(plates) { MinVolumeIoU = 0, Adaptive = true, GridResolution = 64 }),
+            new("thin plates, res 64, no reduce", () => new MeshWindingNumberSolidify(plates) { MinVolumeIoU = 0, Adaptive = true, GridResolution = 64, ReduceTolerance = 0 }),
+            new("thin plates, res 64, stop on self-int.", () => new MeshWindingNumberSolidify(plates) { MinVolumeIoU = 0, Adaptive = true, GridResolution = 64, StopIfSelfIntersecting = true }),
+            new("thin plates (seed 3), res 48", () => new MeshWindingNumberSolidify(plates3) { MinVolumeIoU = 0, Adaptive = true, GridResolution = 48 }),
+            new("gap 0.3 cells, 3 levels", () => new MeshWindingNumberSolidify(BoxesWithGap(0.3 * 0.25, 0)) { MinVolumeIoU = 0, CellSize = 0.25, Adaptive = true, ReduceTolerance = 0, MaxRefineLevels = 3 }),
+            new("gap 0.45 cells, tilted 0.5 deg", () => new MeshWindingNumberSolidify(BoxesWithGap(0.45 * 0.25, 0.5)) { MinVolumeIoU = 0, CellSize = 0.25, Adaptive = true, ReduceTolerance = 0, MaxRefineLevels = 3 }),
+            new("sphere, res 40", () => new MeshWindingNumberSolidify(sphere) { MinVolumeIoU = 0, Adaptive = true, GridResolution = 40 }),
         };
         Console.WriteLine("| case | result triangles | result hash | cold ms | median warm ms | octree.fine ms (median) |");
         Console.WriteLine("|---|---|---|---|---|---|");

@@ -39,7 +39,8 @@ namespace gs
     /// which also do not count as walls. Closed components that are inside out for their nesting, and a mesh that is inside out as
     /// a whole, are taken with flipped normals (OrientInvertedParts; the mesh is not changed). The nesting is read by parity (a closed shell inside an odd
     /// number of others is a cavity), so an outward shell inside another, eg an insert in a housing, is taken as a cavity too, with the wall normals
-    /// of its surface reversed; that and a real cavity are both legitimate readings of such a mesh. ComponentsFlippedByNesting counts those shells (#1609).
+    /// of its surface reversed; that and a real cavity are both legitimate readings of such a mesh. A limit of the reading: an insert in a housing with both shells
+    /// inside-out is not seen (only the housing is flagged: count 0, the hollow reading, as MeshRobustRepair, #1566). ComponentsFlippedByNesting counts those shells (#1609).
     /// </summary>
     public class MeshWallThickness
     {

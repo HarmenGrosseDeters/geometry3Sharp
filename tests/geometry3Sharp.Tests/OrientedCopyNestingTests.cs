@@ -108,6 +108,14 @@ namespace geometry3Sharp.Tests
             return s;
         }
 
+        // the nesting check switched off (internal NestingCheck): what the operation computed before #1609
+        static void NoCheck(object o)
+        {
+            FieldInfo f = o.GetType().GetField("NestingCheck", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            Assert.True(f != null, o.GetType().Name + ".NestingCheck does not exist");
+            f.SetValue(o, false);
+        }
+
         static string Reason(object o) { return Get<string>(o, "ResultReason"); }
 
         // ---- OrientedCopy ----
@@ -213,21 +221,29 @@ namespace geometry3Sharp.Tests
             Assert.NotNull(s.Result);
             Assert.Equal(0, Get<int>(s, "ComponentsFlippedByNesting"));
             Assert.Equal("", Reason(s));
-            Assert.Equal(8 - Math.Pow(2 * inner, 3), Invariance.Volume(s.Result), 1);
+            // (the contouring error of this grid: 0.0020 measured for all three sizes, a quarter of a percent of the volume)
+            Assert.InRange(Math.Abs(Invariance.Volume(s.Result) - (8 - Math.Pow(2 * inner, 3))), 0, 0.003);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(s.Result));
+            // the same bit for bit as without the check
+            var b = new MeshWindingNumberSolidify(Nested(inner, true)) { GridResolution = 24, Adaptive = true };
+            NoCheck(b);
+            b.Compute();
+            Assert.Equal("", Invariance.Difference(b.Result, s.Result));
         }
 
         [Fact]
         public void Solidify_WithoutNesting_IsBitIdenticalToTheUncheckedRun()
         {
-            DMesh3 input = TwoDisjoint();
-            MeshWindingNumberSolidify a = Solidify(input);
-            // (the nesting check off: what the operation computed before #1609)
-            var b = new MeshWindingNumberSolidify(new DMesh3(input)) { GridResolution = 24, Adaptive = true };
-            typeof(MeshWindingNumberSolidify).GetField("NestingCheck", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)?.SetValue(b, false);
-            b.Compute();
-            Assert.Equal(0, Get<int>(a, "ComponentsFlippedByNesting"));
-            Assert.Equal("", Invariance.Difference(b.Result, a.Result));
+            // (TwoDisjoint exits at MayHaveNestedShells; the real cavity passes it and has count 0)
+            foreach (DMesh3 input in new[] { TwoDisjoint(), Nested(0.5, true) }) {
+                MeshWindingNumberSolidify a = Solidify(input);
+                var b = new MeshWindingNumberSolidify(new DMesh3(input)) { GridResolution = 24, Adaptive = true };
+                NoCheck(b);
+                b.Compute();
+                Assert.Equal(0, Get<int>(a, "ComponentsFlippedByNesting"));
+                Assert.NotNull(a.Result);
+                Assert.Equal("", Invariance.Difference(b.Result, a.Result));
+            }
         }
 
         [Fact]
@@ -332,11 +348,17 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Boolean_WithoutNesting_IsBitIdenticalWithAndWithoutTheGate()
         {
-            MeshWindingNumberBoolean a = Boolean(TwoDisjoint(), Box(new Vector3d(1.5, 1, 1), 1.0));
-            MeshWindingNumberBoolean b = Boolean(TwoDisjoint(), Box(new Vector3d(1.5, 1, 1), 1.0), MeshWindingNumberBoolean.Operations.Union, 0);
-            Assert.NotNull(a.Result);
-            Assert.Equal(0, Get<int>(a, "ComponentsFlippedByNestingA") + Get<int>(a, "ComponentsFlippedByNestingB"));
-            Assert.Equal("", Invariance.Difference(b.Result, a.Result));
+            // (the reference run bypasses the check entirely; the real cavity passes MayHaveNestedShells and has count 0)
+            foreach (DMesh3 first in new[] { TwoDisjoint(), Nested(0.5, true) }) {
+                DMesh3 second = Box(new Vector3d(1.5, 1, 1), 1.0);
+                MeshWindingNumberBoolean a = Boolean(first, second);
+                var b = new MeshWindingNumberBoolean(new DMesh3(first), new DMesh3(second), MeshWindingNumberBoolean.Operations.Union) { GridResolution = 24 };
+                NoCheck(b);
+                b.Compute();
+                Assert.NotNull(a.Result);
+                Assert.Equal(0, Get<int>(a, "ComponentsFlippedByNestingA") + Get<int>(a, "ComponentsFlippedByNestingB"));
+                Assert.Equal("", Invariance.Difference(b.Result, a.Result));
+            }
         }
 
         [Fact]
@@ -430,6 +452,54 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Fact]
+        public void NestingReadingsIoU_UsesTheSamples()
+        {
+            DMesh3 input = Nested(0.5, false);
+            int c;
+            double fine = Readings(input, out c);
+            MethodInfo m = typeof(MeshRepairMetrics).GetMethod("NestingReadingsIoU");
+            object[] args = { input, 0, 2000, 1 };
+            double coarse = (double)m.Invoke(null, args);
+            Assert.NotEqual(BitConverter.DoubleToInt64Bits(fine), BitConverter.DoubleToInt64Bits(coarse));
+            Assert.InRange(coarse, 0.8, 0.95);
+        }
+
+        [Fact]
+        public void NestingCheckOff_OnTheRepro_CountsNothingAndReturnsTheHollowSolid()
+        {
+            var s = new MeshWindingNumberSolidify(Nested(0.5, false)) { GridResolution = 24, Adaptive = true };
+            NoCheck(s);
+            Assert.True(s.Compute());
+            Assert.Equal(0, Get<int>(s, "ComponentsFlippedByNesting"));
+            var b = new MeshWindingNumberBoolean(Nested(0.5, false), Far(), MeshWindingNumberBoolean.Operations.Union) { GridResolution = 24 };
+            NoCheck(b);
+            Assert.True(b.Compute());
+            Assert.Equal(0, Get<int>(b, "ComponentsFlippedByNestingA"));
+            Assert.Equal("", Reason(b));
+        }
+
+        // the mirrored case, a limit of the parity reading (as MeshRobustRepair, #1566): an insert in a housing with both shells inside-out. Only the
+        // housing is flagged (it is inside out by itself), the insert is a cavity in the housing's parity: count 0, the hollow reading, no refusal
+        [Fact]
+        public void BothShellsInsideOut_IsNotSeen_CountZero_NoRefusal()
+        {
+            DMesh3 m = Box(new Vector3d(1, 1, 1), 1.0);
+            m.ReverseOrientation(false);
+            DMesh3 n = Box(new Vector3d(1, 1, 1), 0.5);
+            n.ReverseOrientation(false);
+            MeshEditor.Append(m, n);
+            Assert.Equal(0, StaticInt(typeof(MeshRepairMetrics), "ComponentsFlippedByNesting", m));
+            object[] args = { m, 0 };
+            typeof(WindingContouring).GetMethod("OrientedCopy", new[] { typeof(DMesh3), typeof(int).MakeByRefType() }).Invoke(null, args);
+            Assert.Equal(0, (int)args[1]);
+            MeshWindingNumberSolidify s = Solidify(m);
+            Assert.Equal(0, Get<int>(s, "ComponentsFlippedByNesting"));
+            Assert.Equal("", Reason(s));
+            Assert.NotNull(s.Result);
+            Assert.Equal(0, Get<int>(new MeshWallThickness(m), "ComponentsFlippedByNesting"));
+        }
+
         // ---- MeshWallThickness ----
 
         [Fact]
@@ -460,7 +530,10 @@ namespace geometry3Sharp.Tests
             var w = new MeshWallThickness(Nested(0.5, false)) { Method = MeshWallThickness.Methods.Ray, ComputeVertices = true };
             w.Compute();
             Assert.Equal(1, Get<int>(w, "ComponentsFlippedByNesting"));
-            Assert.True(w.TriangleThickness != null || w.VertexThickness != null);
+            Assert.NotNull(w.TriangleThickness);
+            // every triangle of both cubes sees the other cube's face 0.5 away (the inner cube is taken as a cavity: its normals point into it)
+            foreach (int tid in w.Mesh.TriangleIndices())
+                Assert.Equal(0.5, w.TriangleThickness[tid], 9);
         }
     }
 }

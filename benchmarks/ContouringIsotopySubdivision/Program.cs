@@ -118,7 +118,7 @@ static class Program
             if (m.TriangleCount == 0 || !m.IsClosed() || (c.Truth != null && Sig(m) != c.Truth)) row.ClassP = "no-input";
             else {
                 sw.Restart();
-                var sol = new MeshWindingNumberSolidify(m) { Adaptive = true, CellSize = h, CleanupResult = false, ReduceTolerance = 0, ComputeTopologyCertificate = true };       // blocks and growth (2 rounds) are its defaults
+                var sol = new MeshWindingNumberSolidify(m) { MinVolumeIoU = 0, Adaptive = true, CellSize = h, CleanupResult = false, ReduceTolerance = 0, ComputeTopologyCertificate = true };       // blocks and growth (2 rounds) are its defaults
                 sol.Compute();
                 row.ClassPMs = sw.Elapsed.TotalMilliseconds;
                 row.ClassP = sol.TopologyCertified ? "yes" : "no";

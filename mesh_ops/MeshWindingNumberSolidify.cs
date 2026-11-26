@@ -24,7 +24,8 @@ namespace gs
     /// Behaviour: the input mesh is not modified (an oriented copy is used, with inside-out parts flipped so
     /// inverted inputs still give their solid; WindingContouring.OrientedCopy reads the nesting of closed shells by parity: a shell inside an
     /// odd number of others is a cavity, so an outward shell inside another, eg an insert in a housing, is reversed too and hollow in the result;
-    /// ComponentsFlippedByNesting counts them and MinVolumeIoU refuses an input where the two readings differ, #1609). Compute() writes a new mesh to Result; the input triangulation
+    /// ComponentsFlippedByNesting counts them and MinVolumeIoU refuses an input where the two readings differ, #1609).
+    /// The mirrored case is a limit of the parity reading: an insert in a housing with both shells inside-out (inward) is not seen, because only the housing is flagged by FindInvertedComponents (the count is 0, the reading is the hollow one and nothing is refused; the same limit as MeshRobustRepair, #1566). Compute() writes a new mesh to Result; the input triangulation
     /// and attributes are not kept. Cost grows with the resolution: a full grid for Adaptive = false, about
     /// the surface area in cells for Adaptive = true (much cheaper at fine resolutions).
     ///
@@ -340,9 +341,13 @@ namespace gs
 
             // (#1609) outward shells inside others: the oriented copy takes them for cavities
             if (NestingCheck && Mesh.TriangleCount > 0) {
+                phase_timer.Restart();
                 int nested;
-                bool ambiguous = MeshRepairMetrics.NestingAmbiguous(Mesh, MinVolumeIoU, out nested);
+                bool ambiguous = MeshRepairMetrics.NestingAmbiguous(Mesh, MinVolumeIoU, out nested, CancelF);
                 ComponentsFlippedByNesting = nested;
+                end_phase("nesting");
+                if (CancelF())
+                    return false;
                 if (ambiguous) {
                     ResultReason = NestingAmbiguous;
                     return false;

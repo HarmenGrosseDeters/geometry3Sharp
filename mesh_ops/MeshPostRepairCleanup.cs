@@ -471,6 +471,21 @@ namespace gs
         }
 
         /// <summary>
+        /// The count of NestingReadings without the copies of the two readings: the flagged components of FindInvertedComponents that are outward by
+        /// their own volume. 0 without a possible nesting (MayHaveNestedShells)
+        /// </summary>
+        internal static int CountFlippedByNesting(DMesh3 b)
+        {
+            if (b.TriangleCount == 0 || MayHaveNestedShells(b) == false)
+                return 0;
+            int count = 0;
+            foreach (int[] comp in FindInvertedComponents(b))
+                if (volume_sign(b, comp) > 0)
+                    ++count;
+            return count;
+        }
+
+        /// <summary>
         /// The two readings of the nesting of mesh (#1566, #1609): reading is WindingContouring.OrientedCopy(mesh) (a closed shell inside an odd number of
         /// others counts as a cavity and is reversed, FindInvertedComponents), union the plain union of the shells (a component that is outward by its own
         /// volume is not reversed for lying inside another; the nonzero winding number), count the components that differ (flagged although outward by their
