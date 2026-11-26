@@ -1,6 +1,8 @@
 """Follow-up lemmas and exact replays for the three pilot series."""
 from fractions import Fraction
 from itertools import product
+import math
+import random
 
 import z3 as z
 
@@ -211,6 +213,9 @@ def storage_and_bounds():
          z.And(retained % 4 != 0, label_plane % 4 == 0), 'sat'),
         ('normal_ray_entry_lower_bound_can_exceed_exact_entry', finite, reduced > exact, 'unsat'),
         ('normal_ray_entry_can_be_positive', finite, z.And(reduced > 0, exact > 0), 'sat'),
+        ('proposed_ray_tiny_guard_leaves_subnormal_pad',
+         [normal >= real(Fraction(1, 2**969))],
+         3 * u * normal < real(Fraction(1, 2**1022)), 'unsat'),
     ]
 
 
@@ -261,12 +266,178 @@ def envelope_and_residual():
     ]
 
 
+def assembled_bounds():
+    source_contains('math/ExactPredicates.cs',
+                    'return (Orient3dBound * perm + UnderflowUnit * under + g * abs) * (1 + 3 * g)')
+    source_contains('mesh_ops/ExactMeshGeodesicDistance.cs',
+                    'double rot = (cn + dP + wr) * alpha',
+                    'r = (wr + dP + rot + rounding) * (1 + 1e-15)')
+    u = real(U)
+    g = z.Real('summation_gamma')
+    # Each positive computed total is at least (1-g) times its exact
+    # reference. Each path through the three products, two additions
+    # and final multiply has at most four rounding factors. Formation
+    # of 1+3*g adds one factor and can round 3*g down before that.
+    volume_factor = real((1 - U)**5) * (1 + 3 * g * (1 - u)) * (1 - g)
+    gamma_range = [g >= 3 * u, g < real(Fraction(1, 4))]
+    # A normal-case path through the final radius has at most seven
+    # positive roundings, including the final inflation multiply.
+    # The quantities here are certified inputs to the radius assembly.
+    r, displacement, cn, alpha, center_error = z.Reals(
+        'window_radius endpoint_displacement center_norm angle_bound center_error')
+    exact_radius = r + displacement + (cn + displacement + r) * alpha + center_error
+    inflate = real(1 + 1e-15)
+    geodesic_factor = inflate * real((1 - U)**7)
+    premises = [value >= 0 for value in (r, displacement, cn, alpha, center_error)]
+    return [
+        ('volume_bound_inflation_loses_normal_accumulation_budget', gamma_range, volume_factor < 1, 'unsat'),
+        ('volume_bound_gamma_range_reachable', gamma_range, g == 3 * u, 'sat'),
+        ('final_geodesic_radius_inflation_underbounds_certified_terms', premises,
+         geodesic_factor * exact_radius < exact_radius, 'unsat'),
+        ('remove_geodesic_radius_inflation_loses_budget', [],
+         real((1 - U)**7) < 1, 'sat'),
+    ]
+
+
+def checked_bin_range(factor):
+    """Candidates whose two fine-coordinate products fit Int32."""
+    if not 0 < factor <= 2**31 - 1:
+        raise ValueError('bin size must be a positive Int32')
+    return max(-(2**20), -(2**31 // factor)), min(2**20, (2**31 - 1) // factor)
+
+
+def bracketed_bins(coord, value, factor):
+    """Reference fallback for a monotone grid, or None when uncertifiable."""
+    low, high = checked_bin_range(factor)
+    a, b = coord(low * factor), coord(high * factor)
+    if not (math.isfinite(a) and math.isfinite(b) and a < value < b):
+        return None
+    # First edge >= value, and first edge > value, respectively.
+    edges = []
+    for accept in (lambda x: x >= value, lambda x: x > value):
+        left, right = low, high
+        while left < right:
+            mid = left + (right - left) // 2
+            if accept(coord(mid * factor)):
+                right = mid
+            else:
+                left = mid + 1
+        edges.append(left)
+    return edges[0] - 1, edges[1] - 1
+
+
+def subtract(left, right):
+    return tuple(a - b for a, b in zip(left, right))
+
+
+def cross(left, right):
+    return tuple(left[(i + 1) % 3] * right[(i + 2) % 3]
+                 - left[(i + 2) % 3] * right[(i + 1) % 3] for i in range(3))
+
+
+def dot(left, right):
+    return sum(a * b for a, b in zip(left, right))
+
+
+def direction_hit(origin, direction, triangle):
+    """Exact integer/Fraction prototype of the determinant decision."""
+    a, b, c = [subtract(point, origin) for point in triangle]
+    edges = [dot(direction, cross(p, q)) for p, q in ((a, b), (b, c), (c, a))]
+    if min(edges) < 0 < max(edges):
+        return False
+    denominator = sum(edges)
+    if denominator == 0:
+        return False
+    numerator = dot(a, cross(subtract(b, a), subtract(c, a)))
+    return numerator == 0 or (numerator > 0) == (denominator > 0)
+
+
+def plane_hit(origin, direction, triangle):
+    """Independent exact reference using an explicit hit and Gram coordinates."""
+    a, b, c = triangle
+    ab, ac = subtract(b, a), subtract(c, a)
+    normal = cross(ab, ac)
+    denominator = dot(normal, direction)
+    if denominator == 0:
+        return False
+    t = Fraction(dot(normal, subtract(a, origin)), denominator)
+    if t < 0:
+        return False
+    displacement = subtract(tuple(p + t * d for p, d in zip(origin, direction)), a)
+    aa, bb, cc = dot(ab, ab), dot(ab, ac), dot(ac, ac)
+    u, v = dot(displacement, ab), dot(displacement, ac)
+    det = aa * cc - bb * bb
+    p, q = u * cc - v * bb, v * aa - u * bb
+    return p >= 0 and q >= 0 and p + q <= det
+
+
+def ray_differential_replays():
+    triangle = ((2, 8, -2), (5, 8, -2), (2, 8, 2))
+    assert direction_hit((1, 0, 0), (1, 4, 0), triangle)
+    assert plane_hit((1, 0, 0), (1, 4, 0), triangle)
+    assert not direction_hit((1, 0, 0), (0, 2, 0), triangle)
+    face = ((0, 0, 0), (4, 0, 0), (0, 4, 0))
+    fixtures = [
+        ('edge', (1, 0, 1), (0, 0, -1), True),
+        ('vertex', (0, 0, 1), (0, 0, -1), True),
+        ('at_origin', (1, 1, 0), (0, 0, 1), True),
+        ('coplanar', (1, 1, 0), (1, 0, 0), False),
+        ('behind', (1, 1, 1), (0, 0, 1), False),
+    ]
+    for name, origin, direction, expected in fixtures:
+        for scale in (Fraction(1, 2**1074), Fraction(1), Fraction(2**1020)):
+            scaled_origin = tuple(value * scale for value in origin)
+            scaled_face = tuple(tuple(value * scale for value in point) for point in face)
+            assert all(Fraction(float(value)) == value
+                       for point in (scaled_origin, *scaled_face) for value in point), name
+            assert direction_hit(scaled_origin, direction, scaled_face) == expected, name
+            assert plane_hit(scaled_origin, direction, scaled_face) == expected, name
+    rng = random.Random(10654)
+    hits = 0
+    for _ in range(4096):
+        origin, direction, a, b, c = [tuple(rng.randint(-4, 4) for _ in range(3)) for _ in range(5)]
+        candidate = direction_hit(origin, direction, (a, b, c))
+        assert candidate == plane_hit(origin, direction, (a, b, c))
+        hits += candidate
+    assert 0 < hits < 4096
+    return dict(cases=4096, exact_hits=hits, scaled_boundary_cases=3 * len(fixtures),
+                missed_hit_prototype_corrected=True)
+
+
+def bin_replays():
+    # A plateau exactly at x includes both outside-adjacent bins
+    # as well as the zero-width bins whose edges coincide with x.
+    plateau = lambda i: min(i + 2, 0) + max(i - 2, 0)
+    assert bracketed_bins(plateau, 0, 1) == (-3, 2)
+    assert bracketed_bins(float, 4, 4) == (0, 1)
+    # A monotone but flat representable grid cannot provide the
+    # strict outer bracket. It returns immediately instead of scanning.
+    edge = math.nextafter(1.0, math.inf)
+    tiny_grid = lambda i: 1.0 + math.ulp(0.0) * i
+    assert bracketed_bins(tiny_grid, edge, 4) is None
+    factors = (1, 4, 1024, 2**30, 2**31 - 1)
+    for factor in factors:
+        low, high = checked_bin_range(factor)
+        assert -(2**31) <= low * factor < high * factor <= 2**31 - 1
+    checked = 0
+    for width in range(5):
+        for factor in (1, 2, 4):
+            coord = lambda i: min(i + width, 0) + max(i - width, 0)
+            for x in range(-10, 11):
+                expected = [i for i in range(-20, 20) if coord(factor * i) <= x <= coord(factor * (i + 1))]
+                assert bracketed_bins(coord, x, factor) == (expected[0], expected[-1])
+                checked += 1
+    return dict(plateau_bins=[-3, 2], flat_grid_rejected=True, checked_factors=list(factors),
+                differential_cases=checked)
+
+
 def run(timeout_ms=120000):
     ray_rows, witness = ray_replay()
     rows = []
-    for name, assumptions, bad, expected in intrinsic_and_limb() + volume_and_geodesic() + contour_and_ccd() + storage_and_bounds() + envelope_and_residual() + ray_rows:
+    for name, assumptions, bad, expected in intrinsic_and_limb() + volume_and_geodesic() + contour_and_ccd() + storage_and_bounds() + envelope_and_residual() + assembled_bounds() + ray_rows:
         _, _, row = check(name, assumptions, bad, timeout_ms)
         row['expected'] = expected
         rows.append(row)
     return dict(passed=all(row['result'] == row['expected'] for row in rows),
-                z3=z.get_version_string(), obligations=rows, ray_replay=witness)
+                z3=z.get_version_string(), obligations=rows, ray_replay=witness,
+                bin_replays=bin_replays(), exact_ray_replays=ray_differential_replays())
