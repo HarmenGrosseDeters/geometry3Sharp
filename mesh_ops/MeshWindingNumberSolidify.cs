@@ -22,7 +22,10 @@ namespace gs
     /// Features smaller than CellSize are lost in both cases.
     ///
     /// Behaviour: the input mesh is not modified (an oriented copy is used, with inside-out parts flipped so
-    /// inverted inputs still give their solid). Compute() writes a new mesh to Result; the input triangulation
+    /// inverted inputs still give their solid; WindingContouring.OrientedCopy reads the nesting of closed shells by parity: a shell inside an
+    /// odd number of others is a cavity, so an outward shell inside another, eg an insert in a housing, is reversed too and hollow in the result;
+    /// ComponentsFlippedByNesting counts them and MinVolumeIoU refuses an input where the two readings differ, #1609).
+    /// The mirrored case is a limit of the parity reading: an insert in a housing with both shells inside-out (inward) is not seen, because only the housing is flagged by FindInvertedComponents (the count is 0, the reading is the hollow one and nothing is refused; the same limit as MeshRobustRepair, #1566). Compute() writes a new mesh to Result; the input triangulation
     /// and attributes are not kept. Cost grows with the resolution: a full grid for Adaptive = false, about
     /// the surface area in cells for Adaptive = true (much cheaper at fine resolutions).
     ///
@@ -44,6 +47,36 @@ namespace gs
         public double CellSize = 0;
         /// <summary> number of cells along the bounding box diagonal, used if CellSize is zero </summary>
         public int GridResolution = 128;
+
+        /// <summary>
+        /// The input's solid is its oriented copy (WindingContouring.OrientedCopy), which reads the nesting of closed shells by parity: a shell inside an odd
+        /// number of others is a cavity and is reversed (#1609). If the input has outward shells inside others (ComponentsFlippedByNesting above 0) and the
+        /// solid of that reading differs in volume from the plain union of the input's shells (the nonzero winding number) by more than 1 - MinVolumeIoU,
+        /// Compute() is false with ResultReason NestingAmbiguous (an insert in a housing, or a cavity modelled with the wrong orientation: the result
+        /// would be hollow where the union is solid); below that difference it only reports the count. 0 or less: no refusal (the count is still
+        /// reported). Default 0.99, as MeshRobustRepair.MinVolumeIoU. An input without a nested outward shell is not affected
+        /// </summary>
+        public double MinVolumeIoU = 0.99;
+
+        /// <summary> (internal callers that judge the nesting themselves, MeshRobustRepair) false: no nesting check at all (no count, no refusal) </summary>
+        internal bool NestingCheck = true;
+
+        /// <summary>
+        /// the number of closed components of the input that the oriented copy reverses although they are outward by their own volume (#1609, see
+        /// MinVolumeIoU and MeshRobustRepair.ComponentsFlippedByNesting) in the last Compute(): 0 for an input without a shell inside another, and for a real cavity
+        /// </summary>
+        public int ComponentsFlippedByNesting { get; private set; }
+
+        /// <summary>
+        /// ResultReason of a Compute() that is false because the input has outward shells inside others (ComponentsFlippedByNesting above 0) that the
+        /// oriented copy takes for cavities, and its solid differs from the plain union of the input's shells by more than 1 - MinVolumeIoU
+        /// </summary>
+        public const string NestingAmbiguous = "nesting ambiguous: inner shells taken as cavities";
+
+        /// <summary>
+        /// "" or NestingAmbiguous after the last Compute(): the reason of a refusal because of the nesting of the input; the other failures (see Compute()) leave it empty
+        /// </summary>
+        public string ResultReason { get; private set; } = "";
 
         /// <summary> winding number iso-value of the surface: points with a winding number above it are inside </summary>
         public double WindingIso = 0.5;
@@ -206,7 +239,8 @@ namespace gs
         /// </summary>
         /// <returns>
         /// false if the input is empty, CellSize is NaN or infinite, the cell size is not positive, the grid (or
-        /// octree depth) would be too large for the cell size, or the computation was cancelled, with Result null
+        /// octree depth) would be too large for the cell size, the nesting of the input is ambiguous (MinVolumeIoU, ResultReason
+        /// NestingAmbiguous), or the computation was cancelled, with Result null
         /// (also after an earlier success); true otherwise.
         /// </returns>
         public bool Compute()
@@ -232,9 +266,11 @@ namespace gs
                 StopIfSelfIntersecting = StopIfSelfIntersecting, CancelF = CancelF, KeepRawContour = KeepRawContour,
                 ComputeTopologyCertificate = ComputeTopologyCertificate, CertificateParallel = CertificateParallel,
                 CertificateMinChunk = CertificateMinChunk, CertificateBlocks = CertificateBlocks,
-                CertificateGrowRounds = CertificateGrowRounds
+                CertificateGrowRounds = CertificateGrowRounds, MinVolumeIoU = MinVolumeIoU, NestingCheck = NestingCheck
             };
             bool ok = inner.compute_unit();
+            ComponentsFlippedByNesting = inner.ComponentsFlippedByNesting;
+            ResultReason = inner.ResultReason;
             CertificateBlocksTried = inner.CertificateBlocksTried; CertificateBlocksCertified = inner.CertificateBlocksCertified;
             CertificateBlockCells = inner.CertificateBlockCells; CertificateBlockLeft = inner.CertificateBlockLeft;
             CertificateBlocksGrown = inner.CertificateBlocksGrown; CertificateGrownCells = inner.CertificateGrownCells;
@@ -282,6 +318,8 @@ namespace gs
             CertificateBlocksGrown = CertificateGrownCells = CertificateClustersTakenIn = CertificateBlocksTakenIn = 0; CertificateBlockLeft = new int[5];
             TopologyCertificateStatus = ComputeTopologyCertificate ? ContouringCertificateStatus.NotSupported : ContouringCertificateStatus.NotComputed;
             UncertifiedCells = new List<ContouringUncertifiedCell>();
+            ComponentsFlippedByNesting = 0;
+            ResultReason = "";
             // (checked here: a NaN would pass as "automatic" below, +infinity as a valid size)
             if (MathUtil.IsFinite(CellSize) == false)
                 return false;
@@ -299,6 +337,20 @@ namespace gs
                     return false;
             }
 
+            // (#1609) outward shells inside others: the oriented copy takes them for cavities
+            if (NestingCheck && Mesh.TriangleCount > 0) {
+                phase_timer.Restart();
+                int nested;
+                bool ambiguous = MeshRepairMetrics.NestingAmbiguous(Mesh, MinVolumeIoU, out nested, CancelF);
+                ComponentsFlippedByNesting = nested;
+                end_phase("nesting");
+                if (CancelF())
+                    return false;
+                if (ambiguous) {
+                    ResultReason = NestingAmbiguous;
+                    return false;
+                }
+            }
             phase_timer.Restart();
             bool knownFree = false;
             DMesh3 contour;

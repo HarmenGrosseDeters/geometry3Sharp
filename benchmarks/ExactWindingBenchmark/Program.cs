@@ -426,7 +426,7 @@ static class Program
         var exactMs = new double[rounds];
         var sw = new Stopwatch();
         for (int r = -1; r < rounds; ++r) {
-            var sFwn = new MeshWindingNumberSolidify(mesh) {
+            var sFwn = new MeshWindingNumberSolidify(mesh) { MinVolumeIoU = 0,
                 Adaptive = adaptive, GridResolution = resolution, UseExactWinding = false,
                 CleanupResult = false, ReduceTolerance = 0
             };
@@ -435,7 +435,7 @@ static class Program
             sw.Stop();
             if (r >= 0) fwnMs[r] = sw.Elapsed.TotalMilliseconds;
 
-            var sExact = new MeshWindingNumberSolidify(mesh) {
+            var sExact = new MeshWindingNumberSolidify(mesh) { MinVolumeIoU = 0,
                 Adaptive = adaptive, GridResolution = resolution, UseExactWinding = true,
                 CleanupResult = false, ReduceTolerance = 0
             };

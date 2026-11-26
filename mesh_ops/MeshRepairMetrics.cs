@@ -142,7 +142,8 @@ namespace gs
         /// <summary>
         /// Intersection over union of the solids of input and result, from samples (deterministic): a point is
         /// inside the input where the generalized winding number of its oriented copy (WindingContouring.OrientedCopy:
-        /// inside-out parts flipped, as the solidify fallback does) is > 0.5, inside the result likewise. 1 = same
+        /// inside-out parts flipped, as the solidify fallback does; the nesting of closed shells is read by parity, so an outward shell inside
+        /// another is flipped too: ComponentsFlippedByNesting, NestingReadingsIoU, #1609) is > 0.5, inside the result likewise. 1 = same
         /// solid. Also returns the parts of the input solid missing in the result (eg lost thin walls) and the result
         /// solid not in the input (eg filled cavities), relative to the input solid. NaN if the input encloses no
         /// volume (eg a single open sheet), 0 if the input has no triangles, and 0 (missing and extra NaN) if the
@@ -192,6 +193,55 @@ namespace gs
         public static bool VolumeIoUAtLeast(DMesh3 input, DMesh3 result, double minIoU, out double iou, int samples = 100000, int seed = 1, double z = 4)
         {
             return VolumeIoUAtLeast(new SolidReference(input), SolidReference.Unoriented(result), minIoU, out iou, samples, seed, z);
+        }
+
+        /// <summary>
+        /// The number of closed components of input that the reference of VolumeIoU (WindingContouring.OrientedCopy) reverses although they are outward
+        /// by their own volume (#1609, as MeshRobustRepair.ComponentsFlippedByNesting): a closed shell inside an odd number of others counts as a cavity
+        /// (by parity), so an outward shell inside another (an insert in a housing, a part modelled twice) is reversed and the reference is hollow there
+        /// where the plain union of the shells (the nonzero winding number) is solid. 0 for an input without such a shell, and for a real cavity (inward
+        /// inside outward). VolumeIoU and the other metrics keep reading the nesting by parity; the IoU of the two readings is NestingReadingsIoU
+        /// </summary>
+        public static int ComponentsFlippedByNesting(DMesh3 input)
+        {
+            return MeshPostRepairCleanup.CountFlippedByNesting(input);
+        }
+
+        /// <summary>
+        /// The volume IoU of the two readings of the nesting of input (#1609): its oriented copy (WindingContouring.OrientedCopy, nesting by parity: a shell
+        /// inside an odd number of others is a cavity) and the plain union of its shells (the nonzero winding number). 1 if they are the same solid, in
+        /// particular for an input with no outward shell inside another (count 0, no sampling); otherwise the VolumeIoU of the two readings with samples
+        /// samples (an estimate, repeatable, the same for 2^k scales). The VolumeIoU of a result against input follows the first reading: a result
+        /// that is the union of the shells has an IoU below this one there. count is ComponentsFlippedByNesting(input)
+        /// </summary>
+        public static double NestingReadingsIoU(DMesh3 input, out int count, int samples = 100000, int seed = 1)
+        {
+            DMesh3 reading, union;
+            MeshPostRepairCleanup.NestingReadings(input, out reading, out union, out count);
+            if (count == 0)
+                return 1;
+            double missing, extra;
+            return VolumeIoU(reading, union, out missing, out extra, samples, seed);
+        }
+
+        // is the nesting of mesh ambiguous (#1609): an outward shell inside another (count) and the volume IoU of the parity reading and the plain
+        // union below minIoU? For the operations that read their input by WindingContouring.OrientedCopy; minIoU 0 only counts
+        internal static bool NestingAmbiguous(DMesh3 mesh, double minIoU, out int count, Func<bool> cancel = null)
+        {
+            if (!(minIoU > 0)) {
+                count = MeshPostRepairCleanup.CountFlippedByNesting(mesh);
+                return false;
+            }
+            DMesh3 reading, union;
+            MeshPostRepairCleanup.NestingReadings(mesh, out reading, out union, out count);
+            if (count == 0)
+                return false;
+            // (a cancel before the sampling: the caller sees it and stops)
+            if (cancel != null && cancel())
+                return false;
+            double iou;
+            // (the reading is oriented already)
+            return VolumeIoUAtLeast(SolidReference.Unoriented(reading), SolidReference.Unoriented(union), minIoU, out iou) == false;
         }
 
         /// <summary>
