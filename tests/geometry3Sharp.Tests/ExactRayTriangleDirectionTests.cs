@@ -287,8 +287,8 @@ namespace geometry3Sharp.Tests
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void RayHits_AllSimilarities_SameVerdict(string name)
         {
-            // the seeded cases transformed: under 2^k (IsExact) every verdict (closed and perturbed, the public
-            // Intersects and IntrRay3Triangle3) is the same bit for bit, and so it is at far 2^k scales where the
+            // the seeded cases transformed: under 2^k (IsExact) every verdict (closed and perturbed, and the public
+            // IntersectionUtil.Intersects) is the same bit for bit, and so it is at far 2^k scales where the
             // scaled values stay exact; under the others the clear hits (the hit point well inside: barycentrics
             // above 1/8) and the clear misses (well outside) stay
             Similarity sim = Similarity.ByName(name);
@@ -331,6 +331,26 @@ namespace geometry3Sharp.Tests
                 compared++;
             }
             Assert.True(compared > 300, $"{name}: {compared}");
+        }
+
+        [Fact]
+        public void IntrRay3Triangle3_FarDirectionLengths_SameParameterScaledAndBarycentrics()
+        {
+            // t of the ray o + t d scales by 2^-j with the direction 2^j d (IntrRay3Triangle3.hit scales a direction
+            // outside [2^-100, 2^100] by a power of two and t back); the barycentrics stay (direction 1 is the reference)
+            var o = new Vector3d(0.25, 0.375, 3);
+            var d = new Vector3d(0.125, -0.0625, -1);
+            var tri = new Triangle3d(new Vector3d(-1, -1, 0), new Vector3d(2, -1, 0.5), new Vector3d(0, 2, -0.25));
+            var r0 = new IntrRay3Triangle3(new Ray3d(o, d, true), tri);
+            Assert.True(r0.Find());
+            foreach (int j in new[] { -1000, -300, -101, 101, 200, 900 }) {
+                var r = new IntrRay3Triangle3(new Ray3d(o, Scaled(d, j), true), tri);
+                Assert.True(r.Find(), $"2^{j}");
+                double t = ExactPoint3.ScaleB(r.RayParameter, j);
+                Assert.True(Math.Abs(t - r0.RayParameter) <= 1e-14 * r0.RayParameter, $"2^{j}: t {r.RayParameter:R}, {t:R} vs {r0.RayParameter:R}");
+                Assert.True((r.TriangleBaryCoords - r0.TriangleBaryCoords).MaxAbs <= 1e-14, $"2^{j}: {r.TriangleBaryCoords}");
+                Assert.Equal(r0.RayParameter, t);
+            }
         }
 
         [Fact]

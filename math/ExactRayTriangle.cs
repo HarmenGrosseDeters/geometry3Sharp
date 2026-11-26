@@ -101,8 +101,8 @@ namespace g3
 
         /// <summary>
         /// The exact direction of the ray's line for the *Direction methods: direction scaled by the 2^m of
-        /// SecondPoint (so that the filters see the differences of the second point where SecondPoint is exact, and
-        /// decide the same), if that scaling is exact in every coordinate, else direction itself: always an exact
+        /// SecondPoint (the magnitude of the second point's differences, which keeps the filters' products in range as
+        /// before), if that scaling is exact in every coordinate, else direction itself: always an exact
         /// positive multiple of direction, so the line o + t d is the ray's line for every finite input. The zero
         /// vector if direction is 0 or a value is not finite (no hits then).
         /// </summary>

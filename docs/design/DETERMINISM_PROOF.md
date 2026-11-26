@@ -371,7 +371,9 @@ Conclusions:
    bits there, so in the normal range it rounds as SSE2 does. Intermediate overflow and gradual underflow behave differently.
    - Inside the kernel this reaches only values whose role is approximate: a filter's decision to defer, and the ray's second point.
    - Results that take such a value as their *input* can differ for subnormal or near-overflow coordinates on net48 x86. These are the
-     winding ray of the Boolean, and the public ray queries that define their ray by `SecondPoint` (`DMeshAABBTree3`, `IntrRay3Triangle3`).
+     winding ray of the Boolean. The public ray queries (`DMeshAABBTree3`, `IntrRay3Triangle3`, `IntersectionUtil.Intersects`) defined
+     their ray by `SecondPoint` until #1672; they now decide on `ExactRayTriangle.LineDirection`, which returns only exact multiples of
+     the direction (the same value on every runtime), so their verdicts no longer depend on it.
    - The stage 1 and 2 obligations of these consumers have to show that the result does not depend on the ray chosen, or state the input
      range. Owner decision C4 keeps 32-bit outside the claim for float code; whether it also stays outside for subnormal and
      near-overflow coordinates is an owner decision.

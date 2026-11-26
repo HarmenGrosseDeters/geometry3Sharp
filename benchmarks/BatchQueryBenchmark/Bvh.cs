@@ -86,7 +86,8 @@ sealed class Bvh
     }
 }
 
-// The ray's second point, the same as the library's (internal) ExactRayTriangle.SecondPoint
+// The ray's second point, after the library's (internal) ExactRayTriangle.SecondPoint (a clamped copy; the library's ray
+// queries decide on the exact direction since #1672)
 static class Second
 {
     public static Vector3d Point(Vector3d origin, Vector3d direction)
