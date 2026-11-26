@@ -97,9 +97,15 @@ namespace geometry3Sharp.Tests
         {
             // the #1597 repro: the box is 1 x 0.7 x 0.5, an inset by 0.235 leaves 0.03 x 0.23 x 0.47 > 0 (the inset is shallower than half the thickness)
             DMesh3 box = new TrivialBox3Generator { Box = new Box3d(Vector3d.Zero, new Vector3d(0.5, 0.35, 0.25)) }.Generate().MakeDMesh();
+            // #1597 fixed: at the default cell the nodes cannot exclude the part, so the cell is refined (MaxCellRefinements, default 2) and the part is found;
+            // without refinements the answer is NotResolved (it was Empty: "nothing resolved at this grid"), never Empty for a part that exists
             var coarse = new MeshOffset(box, -0.235) { RelativeCellSize = 0.25 };
             coarse.Compute();
-            Assert.Equal(MeshOffset.Status.Empty, coarse.ResultStatus);   // "nothing resolved at this grid" (the documented meaning)
+            Assert.Equal(MeshOffset.Status.Success, coarse.ResultStatus);
+            Assert.InRange(MeshMeasure(coarse.Result), 0.0036, 0.00372);
+            var first = new MeshOffset(box, -0.235) { RelativeCellSize = 0.25, MaxCellRefinements = 0 };
+            first.Compute();
+            Assert.Equal(MeshOffset.Status.NotResolved, first.ResultStatus);
 
             var fine = new MeshOffset(box, -0.235) { RelativeCellSize = 0.05 };
             fine.Compute();

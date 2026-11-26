@@ -176,8 +176,13 @@ namespace g3cli
                     throw new CommandException(ResultCodes.InvalidArguments, $"the grid would have more than {maxNodes} nodes (max_cells{(maxNodes < maxCells ? ", capped at MeshOffset's limit of 2^28" : "")}): use a larger cell_size or relative_cell_size",
                         new JsonObject() { ["offset_status"] = "grid_too_large", ["enclosure_claim"] = "none" });
                 case gs.MeshOffset.Status.Empty:
-                    throw new CommandException(ResultCodes.OperationFailed, "nothing was resolved at this grid: a part thinner than about half a cell can still exist (a negative distance beyond the inner half thickness also leaves nothing); try a smaller cell_size or relative_cell_size",
+                    throw new CommandException(ResultCodes.OperationFailed, "nothing is left: a negative distance beyond the inner half thickness of every part removes it",
                         new JsonObject() { ["offset_status"] = "empty", ["enclosure_claim"] = "none" });
+                case gs.MeshOffset.Status.NotResolved:
+                    throw new CommandException(ResultCodes.OperationFailed, (o.RefinementLimited
+                        ? $"not resolved at this grid: a part thinner than about a cell may be left, and the refinement was stopped by the grid limits (max_cells or the refinement budget of {o.MaxRefinementNodes} nodes), not by the count of refinements: raise max_cells, or try cell_size {o.SuggestedCellSize.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} (it may need a larger max_cells)"
+                        : $"not resolved at this grid: a part thinner than about a cell may be left and was not found after {o.MaxCellRefinements} refinements; try cell_size {o.SuggestedCellSize.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} or smaller"),
+                        new JsonObject() { ["offset_status"] = "not_resolved", ["enclosure_claim"] = "none" });
                 case gs.MeshOffset.Status.InvalidParameters:
                 case gs.MeshOffset.Status.InvalidInput:
                 case gs.MeshOffset.Status.NotClosed:
