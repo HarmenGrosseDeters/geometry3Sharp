@@ -471,7 +471,7 @@ namespace gs
                 double mx = Math.Max(Math.Max(Math.Abs(e1.x), Math.Abs(e1.y)), Math.Max(Math.Max(Math.Abs(e1.z), Math.Abs(e2.x)), Math.Max(Math.Abs(e2.y), Math.Abs(e2.z))));
                 if (!(mx > 0))
                     return Vector3d.Zero;
-                double sc = Math.Pow(2, -Math.Floor(Math.Log(mx, 2)));
+                double sc = g3.CoreMathPort.CoreMath.Ldexp(1.0, -MathUtil.FloorLog2(mx));
                 Vector3d n = (e1 * sc).Cross(e2 * sc);
                 double l = n.Length;
                 return l > 0 ? n / l : Vector3d.Zero;

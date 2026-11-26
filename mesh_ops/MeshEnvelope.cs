@@ -149,7 +149,7 @@ namespace gs
         {
             double m = Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
             if (!(m > 0) || double.IsInfinity(m)) return m;
-            int e = (int)Math.Floor(Math.Log(m, 2));
+            int e = MathUtil.FloorLog2(m);
             Vector3d w = new Vector3d(ExactPoint3.ScaleB(v.x, -e), ExactPoint3.ScaleB(v.y, -e), ExactPoint3.ScaleB(v.z, -e));
             return ExactPoint3.ScaleB(w.Length, e);
         }
@@ -161,7 +161,7 @@ namespace gs
             u = Vector3d.Zero;
             double m = Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
             if (!(m > 0) || double.IsInfinity(m)) return false;
-            int e = (int)Math.Floor(Math.Log(m, 2));
+            int e = MathUtil.FloorLog2(m);
             Vector3d w = new Vector3d(ExactPoint3.ScaleB(v.x, -e), ExactPoint3.ScaleB(v.y, -e), ExactPoint3.ScaleB(v.z, -e));
             double l = w.Length;
             if (!(l > 0) || double.IsInfinity(l)) return false;
