@@ -1568,7 +1568,7 @@ namespace gs
         // NonManifoldRealization.
         internal static void zip_strips(DMesh3 mesh, List<Index3i> dropped, double radius)
         {
-            var strip = new HashSet<long>();
+            var strip = new HashSet<long>(EdgeKeyComparer.Instance);
             var vertices = new HashSet<int>();
             Action<int, int, int> addTriangle = (a, b, c) => {
                 strip.Add(edge_key(a, b)); strip.Add(edge_key(b, c)); strip.Add(edge_key(c, a));
