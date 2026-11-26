@@ -432,10 +432,12 @@ static partial class Program
         int only = -1;
         string oneCase = null;
         int forcedN = 0;
-        bool pipeline = false, verify = false;
+        bool pipeline = false, verify = false, perCase = false;
         int controls = 0;
         for (int i = 1; i < args.Length; ++i) {
             if (args[i] == "--pipeline") pipeline = true;
+            else if (args[i] == "--cases") perCase = true;
+            else if (args[i] == "--noext") typeof(MeshRoundingRepair).GetField("SkipJointRoundsOnThisThread", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static).SetValue(null, 6);
             else if (args[i] == "--verify") { verify = true; pipeline = true; }
             else if (args[i] == "--controls") controls = int.Parse(args[++i], CultureInfo.InvariantCulture);
             else if (args[i] == "--count") count = int.Parse(args[++i], CultureInfo.InvariantCulture);
@@ -556,6 +558,11 @@ static partial class Program
                 bool ok = strict.Compute();
                 Console.WriteLine($"StrictRounding: {(ok ? "Success" : strict.Status.ToString())} {strict.Error}");
             }
+            if (perCase)
+                Console.WriteLine("CASE #{0} {1} | hash {2} | moves {3} | proposals {4}", c, cls,
+                    plain.Result == null ? "none" : Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(TriangleSet(plain.Result))))[..16],
+                    plain.Rounding == null ? -1 : plain.Rounding.JointMoves,
+                    plain.Rounding == null ? -1L : (long)typeof(MeshRoundingRepair).GetField("JointSearchProposals", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(plain.Rounding));
             Add(classes, cls);
         }
         Console.WriteLine($"search: cases {count}, seed {seed}, tiny {tiny}");

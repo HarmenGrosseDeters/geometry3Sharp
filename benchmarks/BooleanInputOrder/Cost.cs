@@ -17,12 +17,17 @@ static partial class Program
         var specs = new List<(string, Func<(DMesh3, DMesh3, ExactMeshBoolean.Operations)>)>();
         int repeats = 5;
         string family = null, frame = "identity";
-        int k = 30, count = 8, seed = 1;
+        int k = 30, count = 8, seed = 1, sphere = 6;
+        long pairTests = 5000000;
+        int onlyMode = -1;
         for (int i = 1; i < args.Length; ++i) {
             if (args[i] == "--family") family = args[++i];
             else if (args[i] == "--k") k = int.Parse(args[++i], CultureInfo.InvariantCulture);
             else if (args[i] == "--count") count = int.Parse(args[++i], CultureInfo.InvariantCulture);
             else if (args[i] == "--seed") seed = int.Parse(args[++i], CultureInfo.InvariantCulture);
+            else if (args[i] == "--mode") onlyMode = int.Parse(args[++i], CultureInfo.InvariantCulture);
+            else if (args[i] == "--sphere") sphere = int.Parse(args[++i], CultureInfo.InvariantCulture);
+            else if (args[i] == "--pairtests") pairTests = long.Parse(args[++i], CultureInfo.InvariantCulture);
             else if (args[i] == "--frame") frame = args[++i];
             else if (args[i] == "--repeats") repeats = int.Parse(args[++i], CultureInfo.InvariantCulture);
             else if (args[i] == "--plate") {
@@ -43,8 +48,8 @@ static partial class Program
         }
         if (family != null) {
             var fam = (geometry3Sharp.Tests.DegenerateFamilies.Family)Enum.Parse(typeof(geometry3Sharp.Tests.DegenerateFamilies.Family), family);
-            specs.Add(($"{family} k{k} count{count} seed{seed} {frame}", () => {
-                DMesh3 mesh = geometry3Sharp.Tests.Invariance.Transformed(geometry3Sharp.Tests.DegenerateFamilies.Make(fam, k, seed, count), geometry3Sharp.Tests.Similarity.ByName(frame));
+            specs.Add(($"{family} k{k} count{count} seed{seed} sphere{sphere} {frame}", () => {
+                DMesh3 mesh = geometry3Sharp.Tests.Invariance.Transformed(geometry3Sharp.Tests.DegenerateFamilies.Make(fam, k, seed, count, sphere), geometry3Sharp.Tests.Similarity.ByName(frame));
                 return (mesh, new DMesh3(), ExactMeshBoolean.Operations.Union);
             }));
         }
@@ -54,6 +59,8 @@ static partial class Program
         // (the stage off, the free pairs of before the extension, the extension)
         foreach (var (name, make) in specs)
             foreach (int mode in new[] { 0, 1, 2 }) {
+                if (onlyMode >= 0 && mode != onlyMode)
+                    continue;
                 bool joint = mode > 0;
                 noExt.SetValue(null, mode == 1 ? 6 : 0);
                 var times = new List<double>();
@@ -62,7 +69,7 @@ static partial class Program
                     var (a, b, op) = make();
                     off.SetValue(null, joint == false);
                     var sw = Stopwatch.StartNew();
-                    var bo = new ExactMeshBoolean(a, b, op);
+                    var bo = new ExactMeshBoolean(a, b, op) { RoundingMaxPairTests = pairTests };
                     bool ok = bo.Compute();
                     sw.Stop();
                     off.SetValue(null, false);
