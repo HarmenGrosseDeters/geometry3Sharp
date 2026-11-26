@@ -914,14 +914,14 @@ def carry_length(c, r):
         'const double Phi1 = 1.1102230246251568e-16;',
         'const double RumpMin = 2.0041683600089728e-292;',
         'if (ax >= RumpMin && x != double.NegativeInfinity) {',
-        'return x + double.Epsilon;'],
+        'return x == -double.Epsilon ? -0.0 : x + double.Epsilon;'],
        'the exact result of an operation on any values of the operand intervals lies in the result',
-       'IEEE 754 binary64 single rounding (SSE2/NEON; NaN gives the whole line)',
+       'IEEE 754 binary64 round-to-nearest, 53-bit significand (SSE2/NEON; 32-bit x87 extended precision and directed rounding not supported; NaN gives the whole line)',
        'one spacing on each side of the round-to-nearest result (Rump et al. 2009, Thm 3.1)')
 def exact_interval(c, r):
     # round to nearest is within half the spacing on the side of the exact value; Up / Down move a whole spacing
-    # (also across 0 and into the subnormals: Up(0) = 2^-1074, Up(-2^-1074) = +0.0). Verify Rump (2009) Thm 3.1
-    # phi1 = 2^-53 + 2^-105, RumpMin = 2^-969, MinNormal = 2^-1022 across boundaries and specials:
+    # (also across 0 and into the subnormals: Up(0) = 2^-1074, Up(-2^-1074) = -0.0). Verify Rump (2009) Thm 3.1
+    # phi1 = 2^-53 + 2^-105, RumpMin = 2^-969, MinNormal = 2^-1022 across boundaries and specials (including sign of 0):
     phi1 = 1.1102230246251568e-16
     rump_min = 2.0041683600089728e-292
     min_normal = 2.2250738585072014e-308
@@ -934,17 +934,18 @@ def exact_interval(c, r):
         if x == -math.inf:
             return -1.7976931348623157e308
         if ax <= min_normal:
-            return x + eps
+            return -0.0 if x == -eps else x + eps
         s = x * two_p54
         return (s + abs(s) * phi1) * two_m54
     ok = (phi1 == math.nextafter(2.0 ** -53, math.inf)
           and rump_min == 2.0 ** -969 and min_normal == 2.0 ** -1022)
-    for x in (0.0, eps, -eps, min_normal, -min_normal, 2.0 ** -1000, -2.0 ** -1000,
+    for x in (0.0, -0.0, eps, -eps, min_normal, -min_normal, 2.0 ** -1000, -2.0 ** -1000,
               2.0 ** -970, -2.0 ** -970, rump_min, -rump_min, 1.0, -1.0,
               1.7976931348623157e308, -1.7976931348623157e308):
         u = up_model(x)
-        ok = ok and u == math.nextafter(x, math.inf) and u > x
-    r.add(*arith('widening covers one rounding', ok, 'Rump 2009 Thm 3.1 matches nextafter on every binade, boundary and at 0'))
+        ref = math.nextafter(x, math.inf)
+        ok = ok and u == ref and math.copysign(1.0, u) == math.copysign(1.0, ref) and u > x
+    r.add(*arith('widening covers one rounding', ok, 'Rump 2009 Thm 3.1 matches nextafter (including sign of zero) on every binade, boundary and at 0'))
 
 
 # ---------------------------------------------------------------------------------------------------------------------

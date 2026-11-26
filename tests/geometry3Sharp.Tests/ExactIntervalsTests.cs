@@ -372,7 +372,6 @@ namespace geometry3Sharp.Tests
         static void AssertSameDouble(double expected, double actual, double input)
         {
             if (double.IsNaN(expected)) { Assert.True(double.IsNaN(actual), $"input={input:R}"); return; }
-            if (expected == 0.0 && actual == 0.0) return; // +0.0 and -0.0 are equal real zero
             Assert.Equal(BitConverter.DoubleToInt64Bits(expected), BitConverter.DoubleToInt64Bits(actual));
         }
 
@@ -395,6 +394,8 @@ namespace geometry3Sharp.Tests
                 AssertSameDouble(RefUp(v), ExactInterval.Up(v), v);
                 AssertSameDouble(RefDown(v), ExactInterval.Down(v), v);
             }
+            Assert.Equal(unchecked((long)0x8000000000000000UL), BitConverter.DoubleToInt64Bits(ExactInterval.Up(-double.Epsilon)));
+            Assert.Equal(0L, BitConverter.DoubleToInt64Bits(ExactInterval.Down(double.Epsilon)));
             Assert.Equal(-double.MaxValue, ExactInterval.Up(double.NegativeInfinity));
             Assert.Equal(double.MaxValue, ExactInterval.Down(double.PositiveInfinity));
             Assert.True(ExactInterval.Up(1e300) < double.PositiveInfinity);
