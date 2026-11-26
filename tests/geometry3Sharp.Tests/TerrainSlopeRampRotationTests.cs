@@ -28,11 +28,11 @@ namespace geometry3Sharp.Tests
             return mesh;
         }
 
-        static int Append(DMesh3 mesh, List<Index3i> tris, bool strict)
+        static int Append(DMesh3 mesh, List<Index3i> tris, bool strict, bool zip = false)
         {
             // (a face per triangle, its corners the mesh's vertex ids)
             var faces = tris.Select((t, i) => new KeyValuePair<int, List<int>>(i, new List<int> { t.a, t.b, t.c })).ToList();
-            return SlopeMap.append_faces(mesh, faces, (v) => new List<Index3i> { new Index3i(v[0], v[1], v[2]) }, (v) => v, strict);
+            return SlopeMap.append_faces(mesh, faces, (v) => new List<Index3i> { new Index3i(v[0], v[1], v[2]) }, (v) => v, strict, 0, zip);
         }
 
         [Fact]
@@ -110,15 +110,85 @@ namespace geometry3Sharp.Tests
             Assert.True(SlopeMap.is_sliver(new Vector2d(1, 1), new Vector2d(1, 1), new Vector2d(1, 1), 0));
         }
 
-        // the sliver bound decides at the drop: at 96 degrees the strict realization meets a triangle 0.073 high that turned over
-        // or lies over a neighbour, which is no rounding artefact (before: it was dropped, and the design failed in the checks after)
+        // a strip of slivers of different faces along one line (#1539, 119 degrees: the kept sliver of a face whose diagonal is the long
+        // edge of the dropped slivers of another): the long edge E0 E1 of the dropped (E1, M1, E0) and (M1, M2, E0) is the edge of
+        // the triangle N below it, and the kept sliver (E0, M2, M1) of the face above has the diagonal E0 M1 with the triangle (E0, M1, Y),
+        // so splitting N at M1 meets a third triangle on E0 M1. Strict mode removes the kept sliver too and splits the triangles of
+        // both sides at the vertices of the strip.
         [Fact]
-        public void AroundCorner_96_FailsAtTheDropOfARealTriangle()
+        public void AppendFaces_Strict_ZipsAStripOfSliversOfTwoFaces()
         {
-            var d = TerrainSlopeRampRotationRegressionTests.Make(96);
-            Assert.False(d.Compute());
-            Assert.Equal(TerrainSlopeDesign.Statuses.Failed, d.Status);
-            Assert.Equal("SlopeMap: non-manifold realization", d.Message);
+            var mesh = new DMesh3(false, false, false, true);
+            int e0 = mesh.AppendVertex(new Vector3d(0, 0, 0)), e1 = mesh.AppendVertex(new Vector3d(10, 0, 0));
+            int x = mesh.AppendVertex(new Vector3d(5, -5, 0)), y = mesh.AppendVertex(new Vector3d(5, 5, 0));
+            int m1 = mesh.AppendVertex(new Vector3d(7, 0, 0)), m2 = mesh.AppendVertex(new Vector3d(4, -1e-15, 0));
+            var tris = new List<Index3i> {
+                new Index3i(e1, e0, x),      // N, below the line
+                new Index3i(e1, m1, e0),     // dropped: exactly collinear
+                new Index3i(e0, m2, m1),     // the kept sliver, below the diagonal e0 m1
+                new Index3i(e0, m1, y),      // above the diagonal
+                new Index3i(m1, e1, y) };
+            Func<DMesh3, bool> fine = (mm) => {
+                foreach (int t in mm.TriangleIndices()) {
+                    Index3i tv = mm.GetTriangle(t);
+                    if (ExactPredicates.Orient2d(mm.GetVertex(tv.a).xy, mm.GetVertex(tv.b).xy, mm.GetVertex(tv.c).xy) <= 0) return false;
+                }
+                return mm.CheckValidity(true, FailMode.ReturnOnly) && MeshRepairMetrics.InconsistentlyOrientedEdges(mm) == 0;
+            };
+            var plain = new DMesh3(mesh);
+            Assert.Throws<SlopeMap.NonManifoldRealization>(() => Append(plain, tris, false));
+            var strict = new DMesh3(mesh);
+            Assert.Throws<SlopeMap.NonManifoldRealization>(() => Append(new DMesh3(mesh), tris, true));      // the strict stitch does not meet it either
+            Append(strict, tris, true, true);
+            Assert.True(fine(strict));
+            // closed along the line: the only boundary is the outer one (the 4 edges of the quadrilateral e0 x e1 y)
+            var boundary = strict.EdgeIndices().Where(strict.IsBoundaryEdge).Select(e => ordered(strict.GetEdgeV(e).a, strict.GetEdgeV(e).b)).ToList();
+            Assert.Equal(4, boundary.Count);       // the outer ring: e0 x, x e1, e1 y, y e0
+            Assert.False(boundary.Contains(ordered(e0, e1)));
+            // (N is split at m1; m2 lost its triangles and is left out, no T-junction)
+            Assert.True(strict.FindEdge(m1, x) >= 0);
+            Assert.Equal(4, strict.TriangleCount);
+        }
+
+        // a vertex of the strip that is a corner of a real triangle elsewhere: splitting the edge there would pinch the mesh at it (two
+        // boundary loops through one vertex): the zip refuses (the plain stitch splits, and leaves the bowtie)
+        [Fact]
+        public void AppendFaces_Zip_RefusesASplitThatPinchesTheMesh()
+        {
+            var mesh = new DMesh3(false, false, false, true);
+            int p = mesh.AppendVertex(new Vector3d(0, 0, 0)), q = mesh.AppendVertex(new Vector3d(10, 0, 0));
+            int x = mesh.AppendVertex(new Vector3d(5, -5, 0)), v = mesh.AppendVertex(new Vector3d(5, 0, 0));
+            int a = mesh.AppendVertex(new Vector3d(6, 2, 0)), b = mesh.AppendVertex(new Vector3d(4, 2, 0));
+            var tris = new List<Index3i> { new Index3i(q, p, x), new Index3i(q, v, p), new Index3i(v, a, b) };    // below the line; dropped (collinear); touches v from above
+            var stitched = new DMesh3(mesh);
+            Append(stitched, tris, true);                                                       // strict (stitch): v is pinched, no refusal
+            Assert.True(stitched.VtxEdgesItr(v).Count(stitched.IsBoundaryEdge) > 2);
+            Assert.Throws<SlopeMap.NonManifoldRealization>(() => Append(new DMesh3(mesh), tris, true, true));
+        }
+
+        static Index2i ordered(int a, int b) { return a < b ? new Index2i(a, b) : new Index2i(b, a); }
+
+        // 96 degrees: a real triangle above the edge a b over a sliver that was appended first, which runs along a -> b as well
+        [Fact]
+        public void AppendFaces_Strict_RemovesTheSliverUnderARealTriangle()
+        {
+            var mesh = new DMesh3(false, false, false, true);
+            int a = mesh.AppendVertex(new Vector3d(0, 0, 0)), b = mesh.AppendVertex(new Vector3d(6.4, 0, 0));
+            int q = mesh.AppendVertex(new Vector3d(3, 1e-15, 0)), p = mesh.AppendVertex(new Vector3d(2, 3, 0));
+            var tris = new List<Index3i> { new Index3i(a, b, q), new Index3i(a, b, p) };       // the sliver first, then the real triangle
+            var plain = new DMesh3(mesh);
+            Append(plain, tris, false);
+            Assert.True(MeshRepairMetrics.InconsistentlyOrientedEdges(plain) > 0);              // as before: both stay, one over the other
+            Assert.Throws<SlopeMap.NonManifoldRealization>(() => Append(new DMesh3(mesh), tris, true));       // strict alone: a real triangle over a sliver is a defect
+            var strict = new DMesh3(mesh);
+            Assert.Equal(1, Append(strict, tris, true, true));
+            Assert.Equal(2, strict.TriangleCount);                                              // the real triangle, split at q
+            Assert.Equal(0, MeshRepairMetrics.InconsistentlyOrientedEdges(strict));
+            Assert.True(strict.FindEdge(q, p) >= 0);
+            foreach (int t in strict.TriangleIndices()) {
+                Index3i tv = strict.GetTriangle(t);
+                Assert.Equal(1, ExactPredicates.Orient2d(strict.GetVertex(tv.a).xy, strict.GetVertex(tv.b).xy, strict.GetVertex(tv.c).xy));
+            }
         }
     }
 }
