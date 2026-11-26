@@ -122,6 +122,60 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ALinkOfACreaseChain_IsKept_AndTheOtherEdgeGoes()
+        {
+            // the chord a-b joins two crease vertices (a link of a chain): the crossing edge v-c goes instead
+            var g = Graph(Chord, ChordEdges);
+            g.Kind[0] = 1; g.Kind[1] = 1;
+            Assert.Equal(1, QuadRemesher.RemoveCrossings(g));
+            Assert.Equal(new[] { "0-1", "0-2", "1-2" }.OrderBy(x => x), Edges(g).OrderBy(x => x));
+            // both are links of chains (v and c are crease vertices too): neither goes
+            var both = Graph(Chord, ChordEdges);
+            both.Kind[0] = 1; both.Kind[1] = 1; both.Kind[2] = 1; both.Kind[3] = 1;
+            Assert.Equal(0, QuadRemesher.RemoveCrossings(both));
+            Assert.Equal(4, Edges(both).Count);
+            // only one end of the chord is a crease vertex: no link, the chord goes
+            var one = Graph(Chord, ChordEdges);
+            one.Kind[0] = 1;
+            Assert.Equal(1, QuadRemesher.RemoveCrossings(one));
+            Assert.False(Edges(one).Contains("0-1"));
+            // the shorter one is the link, the longer is not: the longer goes as before
+            var other = Graph(Chord, ChordEdges);
+            other.Kind[2] = 1; other.Kind[3] = 1;
+            Assert.Equal(1, QuadRemesher.RemoveCrossings(other));
+            Assert.False(Edges(other).Contains("0-1"));
+        }
+
+        // no defect, no change: where the extraction drops no face, the repair of the crossing edges is never tried and the output is the same bit for bit
+        [Theory]
+        [InlineData("sharp-box", 20)]
+        [InlineData("sharp-box", 40)]
+        [InlineData("sharp-cylinder", 16)]
+        [InlineData("sharp-cylinder", 30)]
+        [InlineData("sharp-cylinder", 40)]
+        [InlineData("gear", 16)]
+        [InlineData("gear", 20)]
+        [InlineData("gear", 32)]
+        [InlineData("sharp-box", 26)]       // the repair acts: the output differs from the one without it, and has no dropped face
+        [InlineData("gear", 18)]
+        public void RepairOfCrossings_ChangesOnlyOutputsThatDropAFace(string name, int passes)
+        {
+            bool defect = (name == "sharp-box" && passes == 26) || (name == "gear" && passes == 18);
+            DMesh3 m = QuadRemesherClosedOutputTests.Shape(name, passes);
+            double s = QuadRemesherClosedOutputTests.TargetOf(name);
+            var without = new QuadRemesher(m) { TargetEdgeLength = s, PreserveCreases = true, SkipCrossingRepair = true };
+            Assert.Equal(QuadRemeshStatus.Success, without.Compute());
+            QuadRemesher with = QuadRemesherClosedOutputTests.Run(QuadRemesherClosedOutputTests.Shape(name, passes), s);
+            Assert.Equal(defect, without.DroppedFaces > 0);       // the switch of the repair works
+            if (without.DroppedFaces == 0) QuadRemesherClosedOutputTests.AssertSame(without.Result, with.Result);
+            else {
+                Assert.Equal(0, with.DroppedFaces);
+                Assert.True(without.Result.FaceCount != with.Result.FaceCount || PolyMeshMetrics.Compute(without.Result).BoundaryVertices > 0);
+                Assert.Equal(0, PolyMeshMetrics.Compute(with.Result).BoundaryVertices);
+            }
+        }
+
+        [Fact]
         public void RemovingTwiceChangesNothing()
         {
             var g = Graph(Chord, ChordEdges);

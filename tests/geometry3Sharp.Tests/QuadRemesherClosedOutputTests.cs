@@ -16,9 +16,9 @@ namespace geometry3Sharp.Tests
     {
         static readonly Dictionary<string, DMesh3> shapes = new Dictionary<string, DMesh3>();
 
-        static double TargetOf(string name) { return name == "sharp-box" ? 0.2 : name == "sharp-cylinder" ? 0.15 : 0.08; }
+        internal static double TargetOf(string name) { return name == "sharp-box" ? 0.2 : name == "sharp-cylinder" ? 0.15 : 0.08; }
 
-        static DMesh3 Shape(string name, int passes)
+        internal static DMesh3 Shape(string name, int passes)
         {
             lock (shapes) {
                 DMesh3 m;
@@ -67,7 +67,7 @@ namespace geometry3Sharp.Tests
             return new DMesh3(m, true);
         }
 
-        static QuadRemesher Run(DMesh3 mesh, double s, bool parallel = true)
+        internal static QuadRemesher Run(DMesh3 mesh, double s, bool parallel = true)
         {
             var qr = new QuadRemesher(mesh) { TargetEdgeLength = s, PreserveCreases = true, Parallel = parallel };
             Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
@@ -126,7 +126,7 @@ namespace geometry3Sharp.Tests
             AssertSame(first, serial.Result);
         }
 
-        static void AssertSame(DPolyMesh a, DPolyMesh b, double scale = 1)
+        internal static void AssertSame(DPolyMesh a, DPolyMesh b, double scale = 1)
         {
             Assert.Equal(a.VertexCount, b.VertexCount);
             Assert.Equal(a.FaceCount, b.FaceCount);

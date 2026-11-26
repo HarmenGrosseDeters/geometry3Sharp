@@ -410,7 +410,7 @@ namespace gs
                 // them, the links along each crease are made to join consecutive vertices only, and an edge along a curved crease that
                 // is too long for the curve is split at the crease
                 var creases = new CreaseIndex(Mesh, CreaseAngleDegrees, CornerAngleDegrees, pf.TargetEdgeLength);
-                if (creases.Count > 0) return BuildWithCreaseRepair(g, creases, MaxFaceSides, out DroppedFaces);
+                if (creases.Count > 0) return BuildWithCreaseRepair(g, creases, MaxFaceSides, out DroppedFaces, planarize: !SkipCrossingRepair);
             }
             DPolyMesh poly = BuildFaces(g, MaxFaceSides, out dropped);
             DroppedFaces = dropped;
@@ -428,7 +428,10 @@ namespace gs
         /// first), else the result before it stays. At most CreaseSplitBudget of the faces are split, the farthest edges first, so a result with
         /// 90 % quads keeps 84 % and more (up to 6 % of the faces become pentagons).
         /// </summary>
-        internal static DPolyMesh BuildWithCreaseRepair(PolyGraph g, CreaseIndex creases, int maxSides, out int droppedFaces, double splitBudget = CreaseSplitBudget)
+        /// <summary> (tests) off: the crossing edges of the graph are not repaired (#1674) </summary>
+        internal bool SkipCrossingRepair;
+
+        internal static DPolyMesh BuildWithCreaseRepair(PolyGraph g, CreaseIndex creases, int maxSides, out int droppedFaces, double splitBudget = CreaseSplitBudget, bool planarize = true)
         {
             PolyGraph plainGraph = CopyGraph(g);
             creases.Snap(g);
@@ -450,7 +453,7 @@ namespace gs
                 }
             }
             // an input without a hole must not get one: edges that cross each other make the faces of the extraction fold (issue #1674)
-            if (droppedFaces > 0) {
+            if (planarize && droppedFaces > 0) {
                 result = TryPlanarize(resultGraph, maxSides, result, ref droppedFaces);
                 if (droppedFaces > 0) result = TryPlanarize(repairedGraph, maxSides, result, ref droppedFaces);
                 if (droppedFaces > 0) result = TryPlanarize(plainCopy, maxSides, result, ref droppedFaces);
@@ -479,7 +482,9 @@ namespace gs
         /// vertices over a valence-3 vertex of another patch that lies on or next to the link, whose own third link then crosses it. The
         /// faces are traced from the order of the neighbours around each vertex, which such a crossing breaks (a loop that visits vertices twice
         /// is dropped and the surface opens). The edges of a pair are compared by length, then by their vertex numbers, and all are
-        /// removed at the end, so the result does not depend on the order of the search. Returns the number of edges removed.
+        /// removed at the end, so the result does not depend on the order of the search. An edge between two crease or boundary vertices (Kind above 0)
+        /// is a link of a chain: if that is the longer one, the other goes instead, and if both are, neither (the chain stays connected).
+        /// Returns the number of edges removed.
         /// </summary>
         internal static int RemoveCrossings(PolyGraph g)
         {
@@ -513,12 +518,19 @@ namespace gs
                         if (!tested.Add((long)e * ne + f)) continue;
                         int a = ea[e], b = eb[e], c = ea[f], d = eb[f];
                         if (a == c || a == d || b == c || b == d) continue;
-                        if (EdgesCross(g, a, b, c, d)) remove.Add(LongerEdge(g, ea, eb, e, f));
+                        if (EdgesCross(g, a, b, c, d)) {
+                            int drop = LongerEdge(g, ea, eb, e, f), keep = drop == e ? f : e;
+                            // a link between two boundary / crease vertices is part of a chain: the other edge goes (neither if both are links)
+                            if (IsChainLink(g, ea[drop], eb[drop])) { if (IsChainLink(g, ea[keep], eb[keep])) continue; drop = keep; }
+                            remove.Add(drop);
+                        }
                     }
             }
             foreach (int e in remove.OrderBy(x => x)) g.Unlink(ea[e], eb[e]);
             return remove.Count;
         }
+
+        static bool IsChainLink(PolyGraph g, int a, int b) { return g.Kind[a] >= 1 && g.Kind[b] >= 1; }
 
         static int LongerEdge(PolyGraph g, List<int> ea, List<int> eb, int e, int f)
         {
