@@ -578,6 +578,8 @@ static partial class Program
             return Search(args);
         if (args.Length > 0 && args[0] == "cost")
             return Cost(args);
+        if (args.Length > 0 && args[0] == "oracle")
+            return Oracle(args);
         if (args.Length > 0 && args[0] == "joint")
             return Joint(args);
         if (args.Length > 0 && args[0] == "timing")
