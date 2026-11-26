@@ -39,6 +39,11 @@ on:
       - 'tools/ErrorBoundAudit/range_callers.py'
       # pilot 9: the segment test and the wide bound of the Antipodal sum (antipodal_segment.py, its source contract)
       - 'mesh_ops/ExactMeshBoolean.cs'
+      - 'math/ExactLimbSigns.cs'
+      - 'mesh_generators/TwoLevelMarchingTetrahedra.cs'
+      - 'docs/design/COPLANAR_PROPAGATION.md'
+      - 'math/ExactRayTriangle.cs'
+      - 'math/ExactPoint3.cs'
       - '.github/workflows/z3-pilot.yml'
   workflow_dispatch:
 permissions:
@@ -78,6 +83,10 @@ jobs:
           Z3_ADAPTIVE_RANGE_REPORT: z3-adaptive-range-report.json
           Z3_MAY_MEET_BOX_REPORT: z3-may-meet-box-report.json
           Z3_SLOPE_APPROX_REPORT: z3-slope-approx-report.json
+          Z3_LIMB_NEGATION_REPORT: z3-limb-negation-report.json
+          Z3_TETRAHEDRA_SHARED_FACES_REPORT: z3-tetrahedra-shared-faces-report.json
+          Z3_COPLANAR_STACK_LABELS_REPORT: z3-coplanar-stack-labels-report.json
+          Z3_RAY_SECOND_POINT_REPORT: z3-ray-second-point-report.json
           Z3_ANTIPODAL_SEGMENT_REPORT: z3-antipodal-segment-report.json
       - uses: actions/upload-artifact@v4
         if: always()
@@ -98,4 +107,8 @@ jobs:
             z3-adaptive-range-report.json
             z3-may-meet-box-report.json
             z3-slope-approx-report.json
+            z3-limb-negation-report.json
+            z3-tetrahedra-shared-faces-report.json
+            z3-coplanar-stack-labels-report.json
+            z3-ray-second-point-report.json
             z3-antipodal-segment-report.json

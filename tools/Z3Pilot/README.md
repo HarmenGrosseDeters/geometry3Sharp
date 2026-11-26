@@ -890,3 +890,33 @@ moves whose per-box linear relaxations (rigorously padded floats, exact Dyadic o
 arithmetic with booleans. The test checks the encoding on a sliver in a square tube: one move repairs it (SAT, clean exactly
 and after the rounding to doubles), a narrow tube makes it impossible (UNSAT by the wall constraints, SAT without them), a
 small bound makes it impossible (UNSAT by the area); and the pair encoding on crossing, apart and touching triangles.
+
+## Local arithmetic and topology obligations
+
+* `limb_negation.py` checks the 64-bit complement-and-add step of `ExactLimbSigns.load`
+  against a 65-bit reference and proves composition for two limbs. Ignoring the
+  incoming carry admits a witness. Separate exact
+  integer obligations check the `SideScratch` and `DeterminantScratch` budgets under their
+  stack gates, using the reviewed width bounds for arithmetic operations.
+* `tetrahedra_shared_faces.py` reads the even and odd tetrahedron tables from
+  `TwoLevelMarchingTetrahedra.cs`. It checks all sign patterns on adjacent cubes along
+  each axis for both parities. Reusing one parity on both sides admits a mismatch.
+  Separate obligations check reversal of the two-level clipping segment and canonical
+  face vertex keys. Geometric positions, coincident zeros and full mesh watertightness
+  are outside these checks.
+* `coplanar_stack_labels.py` checks the proposed propagation in
+  [COPLANAR_PROPAGATION.md](../../docs/design/COPLANAR_PROPAGATION.md). Complete labels
+  suffice for the local membership and winding transitions. The packing formulas
+  are coupled to the arrangement code. Losing one label can
+  change the representative or reuse a stale winding number. The arrangement and
+  its triangulator still have to establish label completeness, including folds and fins.
+* `ray_second_point.py` checks the exponent range and encoding for `ExactRayTriangle.SecondPoint`.
+  It also replays the two scaling branches at binary64 boundaries against `ldexp`.
+  For origin `(eps,0,0)` and direction `(eps,4*eps,0)`, where `eps = 2^-1074`,
+  the chosen shift is −1. Separate rounding gives an x coordinate of `eps`;
+  retaining the product through the sum gives `2*eps`. This reproduces a local ray
+  direction difference in the rounding model. It is not an end-to-end hit or runtime test.
+
+```sh
+python3 -m unittest discover -s tools/Z3Pilot -p test_local_arithmetic_and_topology.py -v
+```
