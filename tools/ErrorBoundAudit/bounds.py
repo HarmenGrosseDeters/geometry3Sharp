@@ -1413,3 +1413,62 @@ def ctb_covering_upper(c, r):
     r.add('circumradius factor', Verdict(circ_have_sq >= circ_need_sq, (circ_have_sq - 1) / (circ_need_sq - 1),
                                          '(1 + 2e-15) covers num/den/sqrt/div roundings (needed 1/(1-u)^6.5) with margin %.2fx' % float((circ_have_sq - 1) / (circ_need_sq - 1))))
 
+
+PGD = 'mesh_ops/PolyhedralGeodesicDistance.cs'
+PGD_LEN_SQ_LO = frac(1e-100)
+PGD_SLIVER_SQ = frac(1e-20)
+PGD_BAND = frac(1e-6)
+PGD_MAX_VALENCE = 1024
+
+
+@entry('PGD-1 PolyhedralGeodesicDistance fast angle-sum vertex classification', PGD,
+       ['~internal const double AngleLenSqLo = 1e-100;',
+        '~internal const double AngleLenSqHi = 1e100;',
+        '~internal const double AngleSliverRelSq = 1e-20;',
+        '~internal const double AngleBand = 1e-6;',
+        '~internal const int AngleMaxValence = 1024;',
+        'double u2 = ux * ux + uy * uy + uz * uz;',
+        'double w2 = wx * wx + wy * wy + wz * wz;',
+        'if (!(u2 > AngleLenSqLo && u2 < AngleLenSqHi && w2 > AngleLenSqLo && w2 < AngleLenSqHi))',
+        'double cx = uy * wz - uz * wy, cy = uz * wx - ux * wz, cz = ux * wy - uy * wx;',
+        'double c2 = cx * cx + cy * cy + cz * cz;',
+        'if (!(c2 > AngleSliverRelSq * (u2 * w2)))',
+        'double y = Math.Sqrt(c2);',
+        'double x = ux * wx + uy * wy + uz * wz;',
+        'angle = g3.CoreMathPort.CoreMath.Atan2(y, x);',
+        '~if (tc > AngleMaxValence) return false;',
+        '~if (angSum < twoPi - AngleBand) { vKind = 0; return true; }',
+        '~if (angSum > twoPi + AngleBand) { vKind = 1; return true; }'],
+       'angSum < 2*pi - AngleBand implies exact angle sum < 2*pi (strictly convex); angSum > 2*pi + AngleBand implies exact angle sum > 2*pi (strictly saddle)',
+       'u2, w2 in (1e-100, 1e100), c2 > 1e-20 * (u2 * w2), tc <= 1024, CoreMath.Atan2 correctly rounded (<= u * pi, covering half-ulp 2 u on [2, pi]), exact-oracle fallback outside',
+       'AngleBand = 1e-6 rad vs worst-case tc * 18 u + recursive sum error over tc <= 1024 corners',
+       scope='internal static bool TryFastCornerAngle(')
+def pgd_fast_angle_sum(c, r):
+    # On unit-scaled coordinates, Down (ExactPoint3.ScaleB) adds at most 2*ETA if a tiny coordinate underflows to subnormal
+    # (<= 2*sqrt(3)*ETA / 0.99e-50 < 1e-272 relative, negligible vs u); edge vectors u = fl(a - p), w = fl(b - p) satisfy
+    # |u_i - U_i| <= u |U_i| (exact when subnormal). Guard u2, w2 in (1e-100, 1e100) puts R = |U||W| in (0.98e-100, 1.02e100),
+    # eliminating overflow and keeping subnormal sqrt(3*ETA)/R < 1e-61.
+    # 1) Per-corner perturbation |(x - X*, y - Y*)|_2 / R:
+    #    |x - X*| <= ((1+u)^5 - 1) R + 3*(1+u)^2*ETA; ||c - C*||_2 <= sqrt(2) * ((1+u)^4 - 1) R + 2*sqrt(3)*(1+u)*ETA;
+    #    y = fl(sqrt(fl(fl(cx^2 + cy^2) + cz^2))) adds <= ((1+u)^4 - 1) |c|_2 + sqrt(3*ETA) (using 4 > 3.5 for rational bound).
+    ex_rel = ((1 + U) ** 5 - 1) + 3 * (1 + U) ** 2 * ETA / (Fraction(98, 100) * PGD_LEN_SQ_LO)
+    ec_rel = Fraction(1415, 1000) * ((1 + U) ** 4 - 1) + 4 * (1 + U) * ETA / (Fraction(98, 100) * PGD_LEN_SQ_LO)
+    ey_rel = ec_rel + ((1 + U) ** 4 - 1) * (1 + ec_rel) + Fraction(1, 10 ** 60)
+    # Rational upper bound on sqrt(ex_rel^2 + ey_rel^2): <= ex_rel + ey_rel (~14.7 u) and arcsin(z) <= 1.0001 * z for z < 1e-12.
+    # Plus u * pi (which covers the half-ulp 2 u of correctly rounded CoreMath.Atan2 on [2, pi]).
+    vec_rel = ex_rel + ey_rel
+    pi_hi = Fraction(31416, 10000)
+    corner_err = vec_rel * Fraction(10001, 10000) + pi_hi * U
+    # 2) Sum of tc <= 1024 angles (each <= pi): recursive sum error <= sum_{k=2}^{tc} u * (k * pi) < 0.5 * tc * (tc + 1) * pi * u.
+    #    Plus 2*pi_true - fl(2*Math.PI) <= 2*pi*u and final subtraction fl(twoPi +- AngleBand) <= 2*pi*u.
+    sum_err = PGD_MAX_VALENCE * corner_err + Fraction(PGD_MAX_VALENCE * (PGD_MAX_VALENCE + 1), 2) * pi_hi * U + 4 * pi_hi * U
+    r.add('angle-sum band (tc <= 1024)', Verdict(PGD_BAND >= sum_err, PGD_BAND / sum_err,
+                                                 'AngleBand = 1e-6 rad covers worst-case 1024-corner Atan2 + sum error %.3e with margin %.0fx' % (float(sum_err), float(PGD_BAND / sum_err))))
+    # 3) Non-sliver guard c2 > PGD_SLIVER_SQ * (u2 * w2): guarantees (|C*|/R)^2 > 0.98 * PGD_SLIVER_SQ >> (100 * ec_rel)^2,
+    #    which ensures both Y* > 0 (no atan2 branch-cut crossing at y = 0, x < 0) and ExactInterval y.Lo > 0 (matches oracle).
+    c_floor_sq = Fraction(98, 100) * PGD_SLIVER_SQ
+    margin_sliver = (float(c_floor_sq) ** 0.5) / float(ec_rel)
+    r.add('non-sliver cross floor', Verdict(c_floor_sq > (100 * ec_rel) ** 2, Fraction(int(margin_sliver)),
+                                            'c2 > 1e-20 * u2 * w2 keeps |C*|/R > 9.9e-11 vs cross error %.3e (margin %.2e)' % (float(ec_rel), margin_sliver)))
+
+

@@ -33,7 +33,8 @@ namespace g3
     /// <para><b>Paths.</b> <see cref="TracePath(int)"/> returns the shortest path from the nearest source to a vertex (or, with a barycentric point, to a point in a triangle) as a polyline on the
     /// surface, by backtracing through the unfolded origin images (GEODESICS.md A.8); its length equals the distance of the run to 1e-14 relative on the tested families (measured at most 6.0e-15, growing with the number of triangles crossed).</para>
     /// <para>Memory: a window is a 64-byte struct; a run holds at most about 120 bytes x (MaxWindows + 2 x the largest vertex
-    /// valence) plus about 89 bytes per vertex (see the design note; 32 of them are the record of how a vertex's distance arose, for <see cref="TracePath(int)"/>). Serial (one Compute at a time per instance) and deterministic: every operation is IEEE
+    /// valence) plus about 89 bytes per vertex (see the design note; 32 of them are the record of how a vertex's distance arose, for <see cref="TracePath(int)"/>)
+    /// plus 80 transient bytes per edge for precomputed side frames that are released before <see cref="Compute"/> returns. Serial (one Compute at a time per instance) and deterministic: every operation is IEEE
     /// double without FMA, and 2^k scalings of the input give the same bits (away from overflow and the subnormal range).</para>
     /// </summary>
     public sealed partial class PolyhedralGeodesicDistance
@@ -60,6 +61,8 @@ namespace g3
         public int UnreachedVertices { get; private set; }
         /// <summary> merges of windows in the last Compute (diagnostics) </summary>
         internal long Merges { get; private set; }
+        /// <summary> vertices classified on the fast double angle-sum path in the last Compute (diagnostics/tests) </summary>
+        internal int FastClassifiedCount { get; private set; }
 
         public PolyhedralGeodesicDistance(DMesh3 mesh) { Mesh = mesh ?? throw new ArgumentNullException(nameof(mesh)); Status = PolyhedralGeodesicStatus.NotComputed; }
 
@@ -87,6 +90,9 @@ namespace g3
         ref Window W(int i) => ref wchunks[i >> ChunkBits][i & (ChunkSize - 1)];
 
         int[] head;                     // per edge side: first window
+        int[] edgeA, edgeB;             // per edge: canonical endpoints ev.a, ev.b
+        int[] sideOpp, sideLeftE, sideRightE, sideLeftS, sideRightS;    // per edge side: opposite vertex, child edges & target sides
+        double[] sideCx, sideCy;        // per edge side: opposite vertex in the edge's local 2D frame
         // heap (indexed): item >= 0 is a window, item < 0 is the emission event of vertex ~item
         int[] hid = new int[64]; double[] hkey = new double[64]; int hn;
         int[] vpos;
@@ -109,6 +115,11 @@ namespace g3
         int maxValence;
 
         const double Eps = 1.1102230246251565E-16;        // 2^-53
+        internal const double AngleLenSqLo = 1e-100;
+        internal const double AngleLenSqHi = 1e100;
+        internal const double AngleSliverRelSq = 1e-20;
+        internal const double AngleBand = 1e-6;
+        internal const int AngleMaxValence = 1024;
 
         // ------------------------------------------------------------------ compute
 
@@ -119,8 +130,13 @@ namespace g3
             Status = PolyhedralGeodesicStatus.NotComputed;
             Distance = new double[n]; NearestSource = new int[n];
             for (int v = 0; v < n; ++v) { Distance[v] = double.NaN; NearestSource[v] = -1; }
-            Windows = 0; Merges = 0; UnreachedVertices = 0;
-            Status = Run(sourceVertices);
+            Windows = 0; Merges = 0; UnreachedVertices = 0; FastClassifiedCount = 0;
+            try {
+                Status = Run(sourceVertices);
+            } finally {
+                edgeA = edgeB = sideOpp = sideLeftE = sideRightE = sideLeftS = sideRightS = null;
+                sideCx = sideCy = null;
+            }
             return Status;
         }
 
@@ -157,8 +173,41 @@ namespace g3
             for (int v = 0; v < n; ++v) { dist[v] = emitted[v] = double.PositiveInfinity; root[v] = -1; vpos[v] = -1; }
             var oracle = new ExactMeshGeodesicDistance(Mesh);
             flat = new bool[n];
-            foreach (int v in Mesh.VertexIndices()) { kind[v] = Mesh.GetVtxTriangleCount(v) == 0 ? (byte)0 : (byte)oracle.VertexKind(v); flat[v] = kind[v] == 0 && oracle.IsFlatVertex(v); }
+            foreach (int v in Mesh.VertexIndices()) {
+                int tc = Mesh.GetVtxTriangleCount(v);
+                if (tc == 0) { kind[v] = 0; flat[v] = false; continue; }
+                if (Mesh.IsBoundaryVertex(v)) { kind[v] = 1; flat[v] = false; continue; }
+                if (TryFastAngleSumKind(v, tc, out byte fk)) {
+                    kind[v] = fk; flat[v] = false; ++FastClassifiedCount;
+                } else if (oracle.IsFlatVertex(v)) {
+                    kind[v] = 0; flat[v] = true;
+                } else {
+                    kind[v] = (byte)oracle.VertexKind(v); flat[v] = false;
+                }
+            }
             head = new int[2 * me]; for (int i = 0; i < head.Length; ++i) head[i] = -1;
+            edgeA = new int[me]; edgeB = new int[me];
+            sideOpp = new int[2 * me]; sideLeftE = new int[2 * me]; sideRightE = new int[2 * me];
+            sideLeftS = new int[2 * me]; sideRightS = new int[2 * me];
+            sideCx = new double[2 * me]; sideCy = new double[2 * me];
+            foreach (int e in Mesh.EdgeIndices()) {
+                Index2i ev = Mesh.GetEdgeV(e), et = Mesh.GetEdgeT(e);
+                edgeA[e] = ev.a; edgeB[e] = ev.b;
+                double L = elen[e];
+                for (int k = 0; k < 2; ++k) {
+                    int f = k == 0 ? et.a : et.b;
+                    if (f < 0) continue;
+                    int s = 2 * e + k;
+                    int c = Third(f, ev.a, ev.b);
+                    sideOpp[s] = c;
+                    Place(ev.a, ev.b, c, L, out sideCx[s], out sideCy[s]);
+                    int le = Mesh.FindEdge(ev.a, c), re = Mesh.FindEdge(c, ev.b);
+                    sideLeftE[s] = le; sideRightE[s] = re;
+                    int lf2 = Other(le, f), rf2 = Other(re, f);
+                    sideLeftS[s] = lf2 < 0 ? -1 : SideOf(le, lf2);
+                    sideRightS[s] = rf2 < 0 ? -1 : SideOf(re, rf2);
+                }
+            }
             int firstChunk = (int)Math.Min(ChunkSize, maxWindows + 2L * maxValence + 2);
             wchunks = new Window[1][] { new Window[firstChunk] }; nchunks = new int[1][] { new int[firstChunk] }; pchunks = new int[1][] { new int[firstChunk] };
             wcount = 0; hn = 0;
@@ -206,6 +255,50 @@ namespace g3
             x = dot / L; y = Math.Sqrt(cx * cx + cy * cy + cz * cz) / L;
         }
 
+        // PGD-1 (tools/ErrorBoundAudit/bounds.py): fast range-guarded corner angle via CoreMath.Atan2(|u x w|, u . w).
+        // Returns false outside normal / well-conditioned range so caller falls back to ExactMeshGeodesicDistance.
+        internal static bool TryFastCornerAngle(double ux, double uy, double uz, double wx, double wy, double wz, out double angle)
+        {
+            angle = 0;
+            double u2 = ux * ux + uy * uy + uz * uz;
+            double w2 = wx * wx + wy * wy + wz * wz;
+            if (!(u2 > AngleLenSqLo && u2 < AngleLenSqHi && w2 > AngleLenSqLo && w2 < AngleLenSqHi))
+                return false;
+            double cx = uy * wz - uz * wy, cy = uz * wx - ux * wz, cz = ux * wy - uy * wx;
+            double c2 = cx * cx + cy * cy + cz * cz;
+            if (!(c2 > AngleSliverRelSq * (u2 * w2)))
+                return false;
+            double y = Math.Sqrt(c2);
+            double x = ux * wx + uy * wy + uz * wz;
+            angle = g3.CoreMathPort.CoreMath.Atan2(y, x);
+            return true;
+        }
+
+        // Fast angle-sum classification for a non-boundary, non-bowtie interior vertex with valence tc <= AngleMaxValence.
+        // Returns true only when the total angle sum is separated from 2*pi by more than AngleBand (1e-6 rad, >5000x the
+        // proved worst-case rounding error); near 2*pi or on extreme scales/slivers returns false for the exact oracle.
+        internal bool TryFastAngleSumKind(int v, int tc, out byte vKind)
+        {
+            vKind = 0;
+            if (tc > AngleMaxValence) return false;
+            double px = vx[v], py = vy[v], pz = vz[v];
+            double angSum = 0;
+            foreach (int t in Mesh.VtxTrianglesItr(v)) {
+                Index3i tri = Mesh.GetTriangle(t);
+                int a, b;
+                if (tri.a == v) { a = tri.b; b = tri.c; }
+                else if (tri.b == v) { a = tri.c; b = tri.a; }
+                else { a = tri.a; b = tri.b; }
+                if (!TryFastCornerAngle(vx[a] - px, vy[a] - py, vz[a] - pz, vx[b] - px, vy[b] - py, vz[b] - pz, out double ang))
+                    return false;
+                angSum += ang;
+            }
+            double twoPi = 2.0 * Math.PI;
+            if (angSum < twoPi - AngleBand) { vKind = 0; return true; }
+            if (angSum > twoPi + AngleBand) { vKind = 1; return true; }
+            return false;
+        }
+
         int Third(int f, int a, int b) { Index3i t = Mesh.GetTriangle(f); for (int k = 0; k < 3; ++k) if (t[k] != a && t[k] != b) return t[k]; return -1; }
         int Other(int e, int f) { Index2i et = Mesh.GetEdgeT(e); return et.a == f ? et.b : et.a; }
         int SideOf(int e, int f) => 2 * e + (Mesh.GetEdgeT(e).a == f ? 0 : 1);
@@ -249,9 +342,9 @@ namespace g3
                 int a = -1, b = -1; for (int k = 0; k < 3; ++k) if (tri[k] != v) { if (a < 0) a = tri[k]; else b = tri[k]; }
                 int e = Mesh.FindEdge(a, b); int f2 = Other(e, t);
                 if (f2 < 0) continue;
-                Index2i ev = Mesh.GetEdgeV(e); double L = elen[e];
-                Place(ev.a, ev.b, v, L, out double x, out double y);
-                var w = new Window { Side = SideOf(e, f2), Origin = v, B0 = 0, B1 = L, Sx = x, Sy = -y, Sigma = sl, Xi = xiV[v] + cEps, E = 8 * Eps };
+                int sIn = SideOf(e, t);
+                double L = elen[e];
+                var w = new Window { Side = sIn ^ 1, Origin = v, B0 = 0, B1 = L, Sx = sideCx[sIn], Sy = -sideCy[sIn], Sigma = sl, Xi = xiV[v] + cEps, E = 8 * Eps };
                 Add(ref w);
             }
         }
@@ -324,11 +417,9 @@ namespace g3
             var segs = segA; segs.Clear(); segs.Add((l0, r0));
             // the vertex test (A.7): a piece that costs more than reaching a vertex of the entered face and walking from it is dropped
             {
-                Index2i ev = Mesh.GetEdgeV(e); int f = FaceOfSide(side); int c = Third(f, ev.a, ev.b);
-                Place(ev.a, ev.b, c, L, out double cx, out double cy);
-                TrimByVertex(in win, segs, 0, 0, ev.a, margin);
-                TrimByVertex(in win, segs, L, 0, ev.b, margin);
-                TrimByVertex(in win, segs, cx, cy, c, margin);
+                TrimByVertex(in win, segs, 0, 0, edgeA[e], margin);
+                TrimByVertex(in win, segs, L, 0, edgeB[e], margin);
+                TrimByVertex(in win, segs, sideCx[side], sideCy[side], sideOpp[side], margin);
                 segs.RemoveAll(t => !(t.r > t.l)); if (segs.Count == 0) return;
             }
             int prev = -1, cur = head[side];
@@ -478,10 +569,10 @@ namespace g3
         // the distance a window gives the end vertices of its edge when its interval reaches them
         void RecordEnds(ref Window w, int e, int side)
         {
-            Index2i ev = Mesh.GetEdgeV(e); double L = elen[e];
+            int va = edgeA[e], vb = edgeB[e]; double L = elen[e];
             int r = root[w.Origin];
-            if (w.B0 <= EP(w, 0, L)) SetDist(ev.a, FAt(w, 0), r, w.Xi, 3, e, side, w.Origin, w.Sx, w.Sy);
-            if (w.B1 >= L - EP(w, L, L)) SetDist(ev.b, FAt(w, L), r, w.Xi, 3, e, side, w.Origin, w.Sx, w.Sy);
+            if (w.B0 <= EP(w, 0, L)) SetDist(va, FAt(w, 0), r, w.Xi, 3, e, side, w.Origin, w.Sx, w.Sy);
+            if (w.B1 >= L - EP(w, L, L)) SetDist(vb, FAt(w, L), r, w.Xi, 3, e, side, w.Origin, w.Sx, w.Sy);
         }
 
         // ------------------------------------------------------------------ propagation
@@ -489,10 +580,10 @@ namespace g3
         void Propagate(int id, int side)
         {
             Window w = W(id);
-            int e = side >> 1, f = FaceOfSide(side);
-            Index2i ev = Mesh.GetEdgeV(e); double L = elen[e];
-            int c = Third(f, ev.a, ev.b);
-            Place(ev.a, ev.b, c, L, out double cx, out double cy);
+            int e = side >> 1;
+            double L = elen[e];
+            int va = edgeA[e], c = sideOpp[side];
+            double cx = sideCx[side], cy = sideCy[side];
             double sx = w.Sx, sy = Math.Min(w.Sy, 0);
             double xc = sx + (cx - sx) * (-sy) / (cy - sy);
             double E = EP(w, xc, L);
@@ -500,16 +591,14 @@ namespace g3
             if (xc >= w.B0 - E && xc <= w.B1 + E) SetDist(c, w.Sigma + Hyp(cx - sx, cy - sy), r, w.Xi, 3, e, side, w.Origin, w.Sx, w.Sy);
             // at a flat vertex the clips are closed (they carry the ray through it, A.6); elsewhere they are the plain clips
             double Es = flat[c] ? E : 0;
-            if (flat[c] ? w.B0 <= xc + Es : w.B0 < xc) MakeChild(in w, f, ev.a, c, 0, 0, cx, cy, xc, true, Es);
-            if (flat[c] ? w.B1 >= xc - Es : w.B1 > xc) MakeChild(in w, f, c, ev.b, cx, cy, L, 0, xc, false, Es);
+            if (flat[c] ? w.B0 <= xc + Es : w.B0 < xc) MakeChild(in w, L, sideLeftE[side], sideLeftS[side], va, 0, 0, cx, cy, xc, true, Es);
+            if (flat[c] ? w.B1 >= xc - Es : w.B1 > xc) MakeChild(in w, L, sideRightE[side], sideRightS[side], c, cx, cy, L, 0, xc, false, Es);
         }
 
-        // the child on the edge (pv, qv) of the face f, p to q as met in the frame of the parent edge (coordinates Px.. in that frame);
+        // the child on the edge e2 (target side s2, or -1 for a boundary edge) starting at vertex pv, p to q as met in the frame of the parent edge;
         // left: the clip is [B0, xc] and its end at xc maps to q = c exactly (snapping); right: the clip is [xc, B1], xc maps to p = c
-        void MakeChild(in Window w, int f, int pv, int qv, double Px, double Py, double Qx, double Qy, double xc, bool left, double Es)
+        void MakeChild(in Window w, double L, int e2, int s2, int pv, double Px, double Py, double Qx, double Qy, double xc, bool left, double Es)
         {
-            double L = 0; { int pe = w.Side < 0 ? (~w.Side) >> 1 : w.Side >> 1; L = elen[pe]; }
-            int e2 = Mesh.FindEdge(pv, qv); int f2 = Other(e2, f);
             double len = Hyp(Qx - Px, Qy - Py);
             double sx = w.Sx, sy = Math.Min(w.Sy, 0);
             double t0, t1; bool snap0 = false, snap1 = false;
@@ -518,8 +607,7 @@ namespace g3
             double ex = Qx - Px, ey = Qy - Py;
             double dx = sx - Px, dy = sy - Py;
             // the child's frame: canonical a at the origin
-            Index2i ev2 = Mesh.GetEdgeV(e2);
-            bool aIsP = ev2.a == pv;
+            bool aIsP = edgeA[e2] == pv;
             double Ax = aIsP ? Px : Qx, Ay = aIsP ? Py : Qy, Bx = aIsP ? Qx : Px, By = aIsP ? Qy : Py;
             double ux = (Bx - Ax) / len, uy = (By - Ay) / len;
             double rx = sx - Ax, ry = sy - Ay;
@@ -535,10 +623,10 @@ namespace g3
                 if (!(xq >= t0 - Eq && xq <= t1 + Eq)) return;
                 double qxp = atP ? Px : Qx, qyp = atP ? Py : Qy;
                 bool qIsA = atP == aIsP;
-                var cw = new Window { Side = f2 < 0 ? 0 : SideOf(e2, f2), Origin = w.Origin, Sx = qIsA ? 0 : len, Sy = 0, Sigma = w.Sigma + Hyp(sx - qxp, sy - qyp), Xi = w.Xi + 8 * cEps, E = w.E + 16 * Eps };
+                var cw = new Window { Side = s2 < 0 ? 0 : s2, Origin = w.Origin, Sx = qIsA ? 0 : len, Sy = 0, Sigma = w.Sigma + Hyp(sx - qxp, sy - qyp), Xi = w.Xi + 8 * cEps, E = w.E + 16 * Eps };
                 double ww = Math.Min(len, Math.Max(8 * cEps, Math.Min(tolS, 1e-9 * extent)));
                 if (qIsA) { cw.B0 = len - ww; cw.B1 = len; } else { cw.B0 = 0; cw.B1 = ww; }
-                Finish(ref cw, e2, f2);
+                Finish(ref cw, e2, s2);
                 return;
             }
             // hull of the crossing parameters of the two clip ends with the line of (P, Q): raw values (not clamped to the edge: a ray
@@ -579,13 +667,13 @@ namespace g3
             if (!(u1 > u0)) return;
             double o0, o1;
             if (aIsP) { o0 = u0; o1 = u1; } else { o0 = len - u1; o1 = len - u0; }
-            var cw2 = new Window { Side = f2 < 0 ? 0 : SideOf(e2, f2), Origin = w.Origin, B0 = o0, B1 = o1, Sx = csx, Sy = csy, Sigma = w.Sigma, Xi = w.Xi + 2 * errU + cEps, E = Ec };
-            Finish(ref cw2, e2, f2);
+            var cw2 = new Window { Side = s2 < 0 ? 0 : s2, Origin = w.Origin, B0 = o0, B1 = o1, Sx = csx, Sy = csy, Sigma = w.Sigma, Xi = w.Xi + 2 * errU + cEps, E = Ec };
+            Finish(ref cw2, e2, s2);
         }
 
-        void Finish(ref Window cw, int e2, int f2)
+        void Finish(ref Window cw, int e2, int s2)
         {
-            if (f2 < 0) {                                   // a boundary edge: terminal, only the end vertices get a distance
+            if (s2 < 0) {                                   // a boundary edge: terminal, only the end vertices get a distance
                 if (cw.B1 > cw.B0) RecordEnds(ref cw, e2, -1);
                 return;
             }
