@@ -111,3 +111,35 @@ Reading (this workload: a gyroid sheet, 4 periods, 8 and 16 cubes per period; ot
   same grid; not investigated).
 - The component counts differ in places (8 divisions, 2 cubes: 3 against 1; 1 cube: 1 against 2). At thick walls the extra components are
   small pieces that the box cuts off; this benchmark does not check the counts against a reference.
+
+## #1577: correctly rounded sin / cos (CoreMath) with per-axis node tables
+
+`TpmsLattice.Evaluate` uses `g3.CoreMathPort.CoreMath.Sin / Cos` (correctly rounded, the same bits on every runtime, WebAssembly included) instead of the
+platform `Math.Sin / Math.Cos`. A plain drop-in costs 7 to 73 % of `Compute()` (total +24 %: the field is 8 to 10 times slower, and marching cubes evaluates every
+node once for each of the up to eight cells around it). The result is the same bit for bit with a speed-up of the CoreMath variant: the grid nodes take their sines and cosines
+from per-axis tables (the field is a function of three separable phases; a point that is not exactly a node, such as an edge root, takes the direct path), and a graded lattice
+(`Grade` / `PhaseMap`: not separable) keeps the value of each node once (8 bytes a node, 32 MB at most: only up to 2^22 nodes per grid attempt, a larger grid evaluates directly; the benchmark rows are below the cap). Test: `TpmsAxisTableTests`.
+
+"compute" ms of `Compute()` with `VerifySelfIntersections = false`, `dotnet run --project benchmarks/TpmsLattice -c Release -f net10.0 -- 2,4,6 16`, a 4-core Linux
+container, master (804560de) and the candidate built from the same checkout and run alternately, the minimum of 4 runs each:
+
+| row | master ms | candidate ms | change |
+|---|---|---|---|
+| Gyroid/Sheet, 2 periods | 140.4 | 140.0 | -0.3 % |
+| Gyroid/Sheet, 4 periods | 488.2 | 446.5 | -8.5 % |
+| Gyroid/Sheet, 6 periods | 1137.7 | 1036.7 | -8.9 % |
+| SchwarzP/SkeletalLow, 2 periods | 54.5 | 32.6 | -40.2 % |
+| SchwarzP/SkeletalLow, 4 periods | 121.6 | 92.3 | -24.1 % |
+| SchwarzP/SkeletalLow, 6 periods | 373.5 | 328.7 | -12.0 % |
+| Neovius/Sheet, 2 periods | 203.2 | 186.5 | -8.2 % |
+| Neovius/Sheet, 4 periods | 381.3 | 381.3 | +0.0 % |
+| Neovius/Sheet, 6 periods | 1120.6 | 1075.5 | -4.0 % |
+| Gyroid(graded)/Sheet, 2 periods | 40.3 | 35.4 | -12.2 % |
+| Gyroid(graded)/Sheet, 4 periods | 248.8 | 219.9 | -11.6 % |
+| Gyroid(graded)/Sheet, 6 periods | 807.9 | 813.8 | +0.7 % |
+| Gyroid(+IWP)/Sheet, 2 periods | 78.4 | 51.7 | -34.1 % |
+| Gyroid(+IWP)/Sheet, 4 periods | 370.5 | 305.9 | -17.4 % |
+| Gyroid(+IWP)/Sheet, 6 periods | 1277.0 | 1087.2 | -14.9 % |
+| total | 6843.9 | 6234.0 | -8.9 % |
+
+The "field" column (bare `Evaluate` at every node, serial, direct CoreMath) is 8 to 10 times slower than before (for example Gyroid 4 periods 14.6 ms to 140 ms); it is not what `Compute()` pays.
