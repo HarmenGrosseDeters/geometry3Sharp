@@ -28,6 +28,12 @@ namespace geometry3Sharp.Tests
         public const double Factor = 2;
         public const double TimeFactor = 20;
         public static readonly TimeSpan TimeSlack = TimeSpan.FromMilliseconds(50);
+        /// <summary>
+        /// The absolute floor of the time limit (owner 2026-11-25): for an operation of a few ms the factor bound is almost only the
+        /// slack, and load on a busy machine alone exceeds it (MeshICP: 7 ms vs 254 ms). A frame-dependent slowdown of a long
+        /// operation is still bounded by the factor.
+        /// </summary>
+        public static readonly TimeSpan TimeFloor = TimeSpan.FromMilliseconds(500);
 
         /// <summary>
         /// "" if the cost of the transformed run is within the bound of the original's: equal if exact, else at most a factor of 2 more.
@@ -41,10 +47,11 @@ namespace geometry3Sharp.Tests
             return transformed <= hi ? "" : $"{what}: {original} vs {transformed} (more than a factor of {Factor})";
         }
 
-        /// <summary> "" if the time of the transformed run is at most TimeFactor times the original's plus the slack </summary>
+        /// <summary> "" if the time of the transformed run is at most TimeFactor times the original's plus the slack, or at most TimeFloor </summary>
         public static string TimeBound(string what, TimeSpan original, TimeSpan transformed)
         {
             TimeSpan limit = TimeSpan.FromTicks((long)(original.Ticks * TimeFactor)) + TimeSlack;
+            if (limit < TimeFloor) limit = TimeFloor;
             return transformed <= limit ? "" : $"{what}: {original.TotalMilliseconds:F0} ms vs {transformed.TotalMilliseconds:F0} ms (limit {limit.TotalMilliseconds:F0} ms)";
         }
 
@@ -66,6 +73,9 @@ namespace geometry3Sharp.Tests
         public void TimeBound_AcceptsNoise_AndRejectsAnExplosion()
         {
             Assert.Equal("", TimeBound("t", TimeSpan.FromMilliseconds(1), TimeSpan.FromMilliseconds(60)));
+            Assert.Equal("", TimeBound("t", TimeSpan.FromMilliseconds(7), TimeSpan.FromMilliseconds(254)));   // the floor: load on a short op
+            Assert.Equal("", TimeBound("t", TimeSpan.FromMilliseconds(7), TimeSpan.FromMilliseconds(500)));
+            Assert.NotEqual("", TimeBound("t", TimeSpan.FromMilliseconds(7), TimeSpan.FromMilliseconds(501)));
             Assert.Equal("", TimeBound("t", TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(2000)));
             Assert.NotEqual("", TimeBound("t", TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(2100)));
             Assert.NotEqual("", TimeBound("t", TimeSpan.FromMilliseconds(5), TimeSpan.FromSeconds(5)));
@@ -145,23 +155,35 @@ namespace geometry3Sharp.Tests
         public static IEnumerable<object[]> TimeCases() =>
             RobustnessSweepTests.Ops.Where(o => !SymmetryInvarianceTests.Excluded.ContainsKey(o.Name)).Select(o => new object[] { o.Name });
 
-        /// <summary> the best of several runs of run on a fresh input; only run is timed, not the construction or the transformation of the input </summary>
-        static TimeSpan Fastest(Func<DMesh3> input, Func<DMesh3, RobustnessSweepTests.Sig> run, int repeats)
+        /// <summary>
+        /// The best of several runs of the original (a) and of the copy (b), interleaved (a, b, a, b, ...) so that load which starts
+        /// during the measurement hits both alike; each run gets a fresh input, and only the run is timed, not the construction or the
+        /// transformation of the input.
+        /// </summary>
+        static (TimeSpan a, TimeSpan b) FastestInterleaved(Func<DMesh3> inputA, Func<DMesh3, RobustnessSweepTests.Sig> runA,
+                                                           Func<DMesh3> inputB, Func<DMesh3, RobustnessSweepTests.Sig> runB, int repeats)
         {
-            TimeSpan best = TimeSpan.MaxValue;
+            TimeSpan bestA = TimeSpan.MaxValue, bestB = TimeSpan.MaxValue;
             for (int i = 0; i < repeats; ++i) {
-                DMesh3 m = input();
-                var watch = Stopwatch.StartNew();
-                run(m);
-                if (watch.Elapsed < best) best = watch.Elapsed;
+                bestA = Min(bestA, Time(inputA(), runA));
+                bestB = Min(bestB, Time(inputB(), runB));
             }
-            return best;
+            return (bestA, bestB);
         }
+
+        static TimeSpan Time(DMesh3 m, Func<DMesh3, RobustnessSweepTests.Sig> run)
+        {
+            var watch = Stopwatch.StartNew();
+            run(m);
+            return watch.Elapsed;
+        }
+
+        static TimeSpan Min(TimeSpan x, TimeSpan y) => x < y ? x : y;
 
         /// <summary>
         /// The time of an operation on a copy under every similarity of the sweep (and two extreme power-of-two scales) against the
-        /// original's: the best of 3 runs each, after a warm-up; at most 20 times and 50 ms more. Nightly only: it is a wall-clock check,
-        /// so it is loose and runs where a busy machine does not decide a PR.
+        /// original's: the best of 3 runs each, interleaved with the original's, after a warm-up; at most 20 times and 50 ms more, or
+        /// 0.5 s (TimeFloor). Nightly only: it is a wall-clock check, so it is loose and runs where a busy machine does not decide a PR.
         /// </summary>
         [Theory, MemberData(nameof(TimeCases)), Trait("Category", "Nightly")]
         public void SweepOperation_Time_DoesNotDependOnTheFrame(string opName)
@@ -169,13 +191,13 @@ namespace geometry3Sharp.Tests
             Op op = RobustnessSweepTests.Ops.First(o => o.Name == opName);
             Similarity identity = Similarity.Identity;
             op.Run(op.Input(), identity, op.Param);   // warm-up (JIT)
-            TimeSpan baseline = Fastest(() => op.Input(), x => op.Run(x, identity, op.Param), 3);
             var failures = new List<string>();
             foreach (Similarity s in RobustnessSweepTests.Similarities().Where(x => x.Name != "identity")) {
                 if (RobustnessSweepTests.KnownFailures.ContainsKey(opName + "|" + s.Name)) continue;   // a documented defect of the sweep (R..)
                 if (op.PlanarInput && (s.Translation.z != 0 || s.IsRotated)) continue;
                 double param = double.IsNaN(op.Param) ? double.NaN : s.ApplyLength(op.Param);
-                TimeSpan t = Fastest(() => Invariance.Transformed(op.Input(), s), x => op.Run(x, s, param), 3);
+                (TimeSpan baseline, TimeSpan t) = FastestInterleaved(() => op.Input(), x => op.Run(x, identity, op.Param),
+                                                                     () => Invariance.Transformed(op.Input(), s), x => op.Run(x, s, param), 3);
                 string r = TimeBound($"{opName} under {s.Name}", baseline, t);
                 if (r != "") failures.Add(r);
             }

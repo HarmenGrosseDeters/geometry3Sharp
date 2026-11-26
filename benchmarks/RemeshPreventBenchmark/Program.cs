@@ -46,6 +46,24 @@ static class Program
             return BitConverter.ToString(sha.ComputeHash(ms.ToArray())).Replace("-", "").Substring(0, 16);
     }
 
+    // #1611: a unit box of 12 triangles remeshed to 1 % of its diagonal with ApplySafePreset (30 passes, ~49k triangles)
+    static DMesh3 SafePresetBox(int passes)
+    {
+        var gen = new TrivialBox3Generator(); gen.Generate();
+        DMesh3 input = gen.MakeDMesh();
+        DMesh3 mesh = new DMesh3(input);
+        Remesher r = new Remesher(mesh);
+        r.ApplySafePreset();
+        r.SmoothSpeedT = 0.5;
+        r.EnableParallelSmooth = r.EnableParallelProjection = true;
+        r.SetProjectionTarget(MeshProjectionTarget.Auto(input));
+        MeshConstraintUtil.PreserveBoundaryAndFeatures(r, 30);
+        r.SetTargetEdgeLength(0.01 * input.GetBounds().DiagonalLength);
+        for (int k = 0; k < passes; ++k)
+            r.BasicRemeshPass();
+        return mesh;
+    }
+
     static DMesh3 Remesh(DMesh3 input, double target, Func<Vector3d, double> field, bool prevent)
     {
         DMesh3 mesh = new DMesh3(input);
@@ -70,6 +88,7 @@ static class Program
             new("thin tube (wall 0.1), uniform target 0.2", () => Remesh(thin, 0.2, null, true)),
             new("thick tube (wall 0.5), uniform target 0.3", () => Remesh(fat, 0.3, null, true)),
             new("thick tube (wall 0.5), uniform target 1.5 (coarsening)", () => Remesh(fat, 1.5, null, true)),
+            new("unit box, safe preset, 1 % of the diagonal, 30 passes (#1611)", () => SafePresetBox(30)),
             new("thin tube, uniform target 0.2, check off", () => Remesh(thin, 0.2, null, false)),
         };
         Console.WriteLine("| case | result triangles | result hash | cold ms | median warm ms |");

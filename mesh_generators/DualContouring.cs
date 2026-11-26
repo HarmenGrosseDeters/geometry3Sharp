@@ -52,8 +52,9 @@ namespace g3
     ///     gave before (pinned for a Gaussian tail); the output can differ from before only where values at the surface were
     ///     subnormal or clamped. Cost: one more double per node in the slabs that hold such a value. The values of one surface that
     ///     differ by more than 2^126 from each other still lose the smaller ones, far-away values that are not floats keep their sign;
-    ///     degenerate-triangle rules of creased shapes need the fourth power of an edge to
-    ///     be finite (edges below about 2^250); sparse mode and local refinement are not covered (imposed signs use an
+    ///     the degenerate-triangle rules of creased shapes (quad splitting, the cluster test of the simplification) compare on
+    ///     vectors scaled by a power of two where the fourth power of an edge would overflow or underflow (tested for a box at
+    ///     2^-300 and 2^300); sparse mode and local refinement are not covered (imposed signs use an
     ///     absolute value step). With ExactHermite = false every test is absolute as before 2026-11 (a node difference,
     ///     a gradient or a quad edge below 2.2e-16 gives the middle of the edge, no normal, or the first diagonal): that
     ///     mode keeps its output bit for bit and is for fields and geometry of ordinary size.
@@ -106,7 +107,7 @@ namespace g3
         /// </summary>
         public double QEFEigenTolerance = 0.02;
         internal const double LegacyQEFEigenTolerance = 0.1;
-        /// <summary> vertices stay this far (relative to the cell size) inside their cell </summary>
+        /// <summary> vertices stay this far (relative to the cell size) inside their cell; the vertex of a block of cells merged by Simplify stays this far (relative to the size of ONE cell) inside the block, so that a feature on the block's boundary (a box face on a grid plane) keeps its place within 1 % of a cell </summary>
         public double QEFCellMargin = 0.01;
 
         /// <summary> sparse mode: cells to contour, in grid cell coordinates (see class comment) </summary>
@@ -204,6 +205,8 @@ namespace g3
         /// Finds the sign-changing grid edges (and in sparse mode the hidden gap / wall edges), the first part
         /// of Generate. Can be called again after SetRefinement.
         /// </summary>
+        static bool IsFiniteNode(double origin, double h, double n) { double last = origin + h * (n - 1); return !(double.IsNaN(last) || double.IsInfinity(last)); }
+
         public void FindCrossings()
         {
             CertificateRun = null;
@@ -224,6 +227,10 @@ namespace g3
                 double ni = Math.Ceiling(size.x / CellSize) + 1, nj = Math.Ceiling(size.y / CellSize) + 1, nk = Math.Ceiling(size.z / CellSize) + 1;
                 if (!(ni * nj * nk <= MaxGridNodes) || ni < 1 || nj < 1 || nk < 1)
                     throw new ArgumentException("DualContouring: grid of " + ni + " x " + nj + " x " + nk + " nodes is too large (or invalid)");
+                // the last node of each axis (origin + h (N - 1), up to one cell beyond Bounds.Max) must be finite: a grid whose corner
+                // overflows has no exact predicates (ExactPredicates.Orient2d of the face vertices throws on a non-finite corner)
+                if (!IsFiniteNode(origin.x, h, ni) || !IsFiniteNode(origin.y, h, nj) || !IsFiniteNode(origin.z, h, nk))
+                    throw new ArgumentException("DualContouring: the grid has a node that is not a finite number (Bounds and CellSize near the largest double)");
                 NI = (int)ni; NJ = (int)nj; NK = (int)nk;
                 CornerDimensions = new Vector3i(NI, NJ, NK);
                 sample_grid();
@@ -1745,8 +1752,11 @@ namespace g3
         internal Vector3i VertexCellMin(int vid) { return genCell[vid].Min; }
 
         /// <summary> solve the QEF of one cell with the eigen solver of the caller (a 3x3 solver with 64 iterations, used by one thread at a time; Solve resets it, so it can serve any number of calls) </summary>
-        internal Vector3d solve_qef(SymmetricEigenSolver solver, Vector3d cellMin, double cellSize, List<int> edges, Vector3d[] points, Vector3d[] normals, out Vector3d massPoint, out Vector3d planeNormal, out bool isFeature)
+        internal Vector3d solve_qef(SymmetricEigenSolver solver, Vector3d cellMin, double cellSize, List<int> edges, Vector3d[] points, Vector3d[] normals, out Vector3d massPoint, out Vector3d planeNormal, out bool isFeature, double marginSize = -1)
         {
+            // marginSize: the length QEFCellMargin is relative to (default the cell size). A block of merged cells passes the size of one
+            // cell, so a feature on the block's boundary (a box face on a grid plane) is not pushed 1 % of the block inside (#1598).
+            double marginBase = marginSize >= 0 ? marginSize : cellSize;
             Vector3d mass = Vector3d.Zero;
             foreach (int ci in edges)
                 mass += points[ci];
@@ -1780,7 +1790,7 @@ namespace g3
                 double[] ev0 = solver.GetEigenvector(0);
                 Vector3d e0 = new Vector3d(ev0[0], ev0[1], ev0[2]);
                 Vector3d x1 = (evals[0] > MathUtil.Epsilon) ? (e0.Dot(b) / evals[0]) * e0 : Vector3d.Zero;
-                Vector3d cmin = cellMin + QEFCellMargin * cellSize * Vector3d.One, cmax = cellMin + (1 - QEFCellMargin) * cellSize * Vector3d.One;
+                Vector3d cmin = cellMin + QEFCellMargin * marginBase * Vector3d.One, cmax = marginSize >= 0 ? cellMin + cellSize * Vector3d.One - QEFCellMargin * marginBase * Vector3d.One : cellMin + (1 - QEFCellMargin) * cellSize * Vector3d.One;
                 massPoint = mass + x1;
                 planeNormal = (evals[0] > MathUtil.Epsilon) ? e0.Normalized : Vector3d.Zero;
                 for (int c = 0; c < 3; ++c)
@@ -1797,7 +1807,7 @@ namespace g3
             // the minimum is the best feasible one of the unconstrained solution and the solutions with
             // 1, 2 or 3 coordinates fixed at the cell bounds (faces, edges, corners of the cell).
             // (slightly inside: vertices of neighbouring cells on their common face would coincide)
-            double margin = QEFCellMargin * cellSize;
+            double margin = QEFCellMargin * marginBase;
             Vector3d lo = cellMin - mass + margin * Vector3d.One, hi = lo + (cellSize - 2 * margin) * Vector3d.One;
             double eps = 1e-9 * cellSize;
             if (inside(x, lo, hi, eps))
@@ -2481,8 +2491,11 @@ namespace g3
                 if (!(x[a1] > c[0][a1] && x[a1] < c[2][a1] && x[a2] > c[0][a2] && x[a2] < c[2][a2])) return false;
                 if (!ambiguous) return true;
                 Vector3d b = c[(seg + 1) % 4], d = c[(seg + 3) % 4];
-                int sx = AdaptivePredicates.Orient2d(b[a1], b[a2], d[a1], d[a2], x[a1], x[a2]);
-                int sc = AdaptivePredicates.Orient2d(b[a1], b[a2], d[a1], d[a2], c[seg][a1], c[seg][a2]);
+                // ExactPredicates checks the range of AdaptivePredicates (Expansion.InRange) and falls back to the exact
+                // integer kernels outside it, so the sign is right for every finite coordinate (issue #1589)
+                Vector2d vb = new Vector2d(b[a1], b[a2]), vd = new Vector2d(d[a1], d[a2]);
+                int sx = ExactPredicates.Orient2d(vb, vd, new Vector2d(x[a1], x[a2]));
+                int sc = ExactPredicates.Orient2d(vb, vd, new Vector2d(c[seg][a1], c[seg][a2]));
                 return sx != 0 && sx == sc;
             };
             // the segment's edges: around the corner seg (ambiguous), else the two edges with a sign change
@@ -2663,11 +2676,33 @@ namespace g3
         }
         // area below 1e-12 times the squared longest edge (relative, so scale-free; the threshold of NotCleanReason, which is
         // relative to the bounding box, is coarser for every triangle smaller than the box)
-        static bool degenerate(Vector3d a, Vector3d b, Vector3d c)
+        internal static bool degenerate(Vector3d a, Vector3d b, Vector3d c)
         {
             Vector3d ab = b - a, bc = c - b, ca = a - c;
-            double l2 = Math.Max(ab.LengthSquared, Math.Max(bc.LengthSquared, ca.LengthSquared));
-            return !(ab.Cross(-ca).Length > 2e-12 * l2);
+            double lab = ab.LengthSquared, lbc = bc.LengthSquared, lca = ca.LengthSquared;
+            Vector3d longest = lab >= lbc && lab >= lca ? ab : lbc >= lca ? bc : ca;
+            return !cross_exceeds(ab, -ca, longest, 2e-12);
+        }
+
+        // |u x v| > factor * |r|^2, for vectors of any magnitude. The length of a cross product is a second power of the vectors, and the
+        // comparison with |r|^2 a fourth power of their scale: it overflows to infinity above about 2^256 and underflows to zero below
+        // about 2^-256 (a triangle of such edges was then never or always degenerate). Where |r|^2 is in 1e-100 .. 1e100 the squares
+        // are the ones the unscaled test always took (same bits); otherwise the three vectors are scaled by the same power of two, which
+        // is exact, and the comparison is the same one on numbers of order 1.
+        internal static bool cross_exceeds(Vector3d u, Vector3d v, Vector3d r, double factor)
+        {
+            double r2 = r.LengthSquared;
+            if (r2 > 1e-100 && r2 < 1e100)
+                return u.Cross(v).Length > factor * r2;
+            double m = Math.Max(Math.Max(Math.Abs(r.x), Math.Max(Math.Abs(r.y), Math.Abs(r.z))),
+                Math.Max(Math.Max(Math.Abs(u.x), Math.Max(Math.Abs(u.y), Math.Abs(u.z))), Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)))));
+            if (!(m > 0) || double.IsInfinity(m))
+                return u.Cross(v).Length > factor * r2;
+            int k = -exponent_of(m);
+            Vector3d us = new Vector3d(ExactPoint3.ScaleB(u.x, k), ExactPoint3.ScaleB(u.y, k), ExactPoint3.ScaleB(u.z, k));
+            Vector3d vs = new Vector3d(ExactPoint3.ScaleB(v.x, k), ExactPoint3.ScaleB(v.y, k), ExactPoint3.ScaleB(v.z, k));
+            Vector3d rs = new Vector3d(ExactPoint3.ScaleB(r.x, k), ExactPoint3.ScaleB(r.y, k), ExactPoint3.ScaleB(r.z, k));
+            return us.Cross(vs).Length > factor * rs.LengthSquared;
         }
 
         bool try_split(int a, int b, int c, int d)

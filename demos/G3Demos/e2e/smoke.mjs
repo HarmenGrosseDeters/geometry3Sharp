@@ -63,7 +63,7 @@ async function waitDone(label) {
 
 await page.goto(`http://localhost:${port}/`);
 await waitDone('boolean (initial)');
-for (const tab of ['boolean', 'repair', 'remesh']) {
+for (const tab of ['boolean', 'repair', 'remesh', 'wrap', 'contour']) {
     if (tab !== 'boolean') {
         await page.click(`#tab-${tab}`);
         await waitDone(tab);

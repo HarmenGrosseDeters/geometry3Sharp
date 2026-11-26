@@ -70,21 +70,45 @@ namespace geometry3Sharp.Tests
         static readonly Lazy<TpmsLattice> AtZero = new Lazy<TpmsLattice>(() => { var t = Make(0, false); t.Compute(); return t; });
 
         [Theory]
-        [InlineData(0.0, false, "8C30D2FDE0546C41")]
-        [InlineData(1e12, false, "4D7A850805D34742")]
-        [InlineData(1e12, true, "AD1105F4E23E5C15")]
-        public void NearerOrigins_ResultUnchanged(double origin, bool rotated, string pin)
+        [InlineData(0.0, false)]
+        [InlineData(1e12, false)]
+        [InlineData(1e12, true)]
+        public void NearerOrigins_ResultUnchanged(double origin, bool rotated)
         {
-            // where the world mesh is clean the result is bit for bit the one before the fix (pins taken on master b5ab94d)
+            // #1590 (the libm cause is inferred from the Linux-pass / Windows-fail pattern, not confirmed on Windows): the test used to pin SHA-256 hashes of the vertex bits. Math.Sin / Math.Cos (TpmsLattice.Evaluate) call the platform
+            // libm, whose last bit differs between Linux (glibc) and Windows (CRT), so a pinned hash is a property of the platform and
+            // failed on Windows even at origin 0. What the test names is platform-independent: where the world mesh is clean, it is the
+            // lattice-frame mesh of the origin-0 run mapped by Origin + Rotation * v, bit for bit on the same platform (same
+            // arithmetic as TpmsLattice.ToWorld), with the same triangles.
             TpmsLattice atZero = AtZero.Value;
             TpmsLattice t = origin == 0 && !rotated ? atZero : Make(origin, rotated);
             if (t != atZero) t.Compute();
             Assert.True(t.Status == TpmsStatus.Ok, t.Status + ": " + t.Message);
             Assert.Equal("", MeshRobustRepair.NotCleanReasons(t.Mesh));
-            Assert.Equal(pin, Hash(t.Mesh));
+            Assert.Equal(atZero.GridShiftsUsed, t.GridShiftsUsed);
+            Assert.Equal(atZero.Mesh.VertexCount, t.Mesh.VertexCount);
+            Assert.Equal(atZero.Mesh.TriangleCount, t.Mesh.TriangleCount);
+            Vector3d o = Make(origin, rotated).Origin;
+            bool identity = !rotated;
+            foreach (int vid in atZero.Mesh.VertexIndices()) {
+                Vector3d v = atZero.Mesh.GetVertex(vid);
+                Vector3d expected = identity ? o + v : o + Rot * v;
+                Assert.Equal(expected, t.Mesh.GetVertex(vid));
+            }
+            foreach (int tid in atZero.Mesh.TriangleIndices())
+                Assert.Equal(atZero.Mesh.GetTriangle(tid), t.Mesh.GetTriangle(tid));
             // the volume is measured in the lattice frame (before the transform): the same as at the origin, bit for bit
             Assert.Equal(atZero.RealizedVolumeFraction, t.RealizedVolumeFraction);
             Assert.Equal(atZero.MeanWallThickness, t.MeanWallThickness);
+        }
+
+        [Fact]
+        public void Hash_IsStableOnOneRun()
+        {
+            // the hash helper stays as a same-process check: a second compute of the same lattice gives the same bits
+            var a = Make(0, false); a.Compute();
+            var b = Make(0, false); b.Compute();
+            Assert.Equal(Hash(a.Mesh), Hash(b.Mesh));
         }
 
         [Fact]

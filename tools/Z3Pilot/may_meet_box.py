@@ -83,7 +83,10 @@ class Model:
         self.v = {}
         R = lambda n: self.v.setdefault(n, z.Real(n))
         self.c = []
-        rnd_prod = lambda P, p: self.c.append(_abs(P - p) <= u * _abs(P) + eta)
+        def rnd_prod(P, p):
+            """adds the constraint that P is p rounded (relative error u, absolute error eta); returns its index in self.c"""
+            self.c.append(_abs(P - p) <= u * _abs(P) + eta)
+            return len(self.c) - 1
         rnd_sum = lambda S, x: self.c.append(_abs(S - x) <= u * _abs(S))
         M = R('M')
         sums = {}
@@ -98,9 +101,9 @@ class Model:
             rnd_sum(S3, S2 + P[2])
             sums[side] = (S3, p[0] + p[1] + p[2])
         E1, err = R('E1'), R('err')
-        rnd_prod(E1, 12 * u * M)                        # 4 * Epsilon * 3 = 12 u exactly, then times M
+        e1_rounding = rnd_prod(E1, 12 * u * M)                        # 4 * Epsilon * 3 = 12 u exactly, then times M
         if factor != 3:
-            self.c[-1] = _abs(E1 - 4 * factor * u * M) <= u * _abs(E1) + eta
+            self.c[e1_rounding] = _abs(E1 - 4 * factor * u * M) <= u * _abs(E1) + eta
         rnd_sum(err, E1 + eta_units * 2 * eta)          # double.Epsilon = 2^-1074 = 2 eta
         X, Y = R('X'), R('Y')
         (Bc, Bx), (Tc, Tx) = sums['b'], sums['t']

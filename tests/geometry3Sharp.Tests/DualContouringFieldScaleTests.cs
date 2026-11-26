@@ -298,7 +298,7 @@ namespace geometry3Sharp.Tests
             double Tail(Vector3d p) => p.x > 2.4 ? double.PositiveInfinity : Gauss(p);
             DMesh3 m = Contour(Tail, BigBox, 0.125, "default", -1e-10);
             AssertSolid(m, "tail");
-            Assert.Equal("276 3E363445554399FC", Digest(m));
+            Assert.Equal("276 C54DC6B64DEBFA83", Digest(m));
         }
 
         // not a power of two: the same contour up to rounding
@@ -383,6 +383,8 @@ namespace geometry3Sharp.Tests
         }
 
         // ---------------------------------------------------------------- what must not change
+        // (#1598: the "default" digests (Simplify on) changed on 2026-11-25 where a merged block's vertex was clamped: the margin of a block
+        // is QEFCellMargin times one cell, not times the block. Triangle counts and the Simplify off / ExactHermite off digests are unchanged.)
 
         static readonly (string name, Func<Vector3d, double> f, double cell)[] Ordinary = {
             ("sphere", Sdf, 0.125),
@@ -396,25 +398,25 @@ namespace geometry3Sharp.Tests
 
         // the output of master before the fix (e7210143), from sqrt, products and sums only: the same bits on every runtime
         [Theory]
-        [InlineData("sphere", "default", "504 7159768185B9FF6D")]
+        [InlineData("sphere", "default", "504 27285500ADF12192")]
         [InlineData("sphere", "Simplify off", "2408 ECC4F7ED561218E4")]
         [InlineData("sphere", "ExactHermite off", "2408 CC5446C9FDBD364F")]
-        [InlineData("1000 x sphere", "default", "504 F30C0927EC1819C0")]
+        [InlineData("1000 x sphere", "default", "504 292294374071E583")]
         [InlineData("1000 x sphere", "Simplify off", "2408 23304848A19D9EA0")]
         [InlineData("1000 x sphere", "ExactHermite off", "2408 58FD20FD593BFB80")]
         [InlineData("box", "default", "12 B8D0D2C8FB93B8F5")]
         [InlineData("box", "Simplify off", "2428 A9475736E0083267")]
         [InlineData("box", "ExactHermite off", "2428 A53DE2C8D781C69B")]
-        [InlineData("torus", "default", "2160 4B54C3C060600EEE")]
+        [InlineData("torus", "default", "2160 AFCB2611B6B0A6CF")]
         [InlineData("torus", "Simplify off", "9040 D32BD18E21097B97")]
         [InlineData("torus", "ExactHermite off", "9040 EC8D54915EBA880C")]
-        [InlineData("quartic", "default", "444 575A30944372DB8A")]
+        [InlineData("quartic", "default", "444 D5F5A8CD7ACB2402")]
         [InlineData("quartic", "Simplify off", "2652 6B24ADD11FB93F45")]
         [InlineData("quartic", "ExactHermite off", "2652 196BFEB6A6D0D70A")]
-        [InlineData("two spheres", "default", "396 AE84D73A319F8AED")]
+        [InlineData("two spheres", "default", "396 C0C0F580767162C7")]
         [InlineData("two spheres", "Simplify off", "1760 8FEBC9E56E54DB6A")]
         [InlineData("two spheres", "ExactHermite off", "1760 8D1AA6D7306DDE9E")]
-        [InlineData("clipped sphere", "default", "504 7159768185B9FF6D")]
+        [InlineData("clipped sphere", "default", "504 27285500ADF12192")]
         [InlineData("clipped sphere", "Simplify off", "2408 ECC4F7ED561218E4")]
         [InlineData("clipped sphere", "ExactHermite off", "2408 CC5446C9FDBD364F")]
         public void OrdinaryFields_KeepTheirOutput(string field, string config, string digest)

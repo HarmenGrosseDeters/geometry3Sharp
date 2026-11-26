@@ -217,8 +217,11 @@ class DriftReferenceTests(unittest.TestCase):
             ('MeshRoundingRepair.cs', 'int end = Math.Min(mesh.MaxTriangleID, (b + 1) * TriangleBlock);\n                for (int tid = b * TriangleBlock; tid < end; ++tid)\n                    if (mesh.IsTriangle(tid))',
              'int end = Math.Min(mesh.MaxTriangleID, (b + 1) * TriangleBlock - 1);\n                for (int tid = b * TriangleBlock; tid < end; ++tid)\n                    if (mesh.IsTriangle(tid))'),
             # the wrapper of the repair: a write before the records start, a volume that writes, a second entry
-            ('MeshRoundingRepair.cs', 'VolumeBefore = signed_volume(centre);\n            try {',
-             'VolumeBefore = signed_volume(centre); Mesh.SetVertex(0, centre);\n            try {'),
+            ('MeshRoundingRepair.cs', 'VolumeBefore = signed_volume(centre);\n            ComponentsBefore = null;',
+             'VolumeBefore = signed_volume(centre); Mesh.SetVertex(0, centre);\n            ComponentsBefore = null;'),
+            # the component records (#1488): a write among them
+            ('MeshRoundingRepair.cs', '                r.Volume = v6 / 6; r.Area = a2 / 2; r.Diagonal = box.DiagonalLength;',
+             '                r.Volume = v6 / 6; r.Area = a2 / 2; r.Diagonal = box.DiagonalLength; Mesh.SetVertex(0, o);'),
             ('MeshRoundingRepair.cs', 'return MeshMeasurements.VolumeArea(Mesh, Mesh.TriangleIndices(), (v) => Mesh.GetVertex(v) - c).x;',
              'Mesh.SetVertex(0, c); return MeshMeasurements.VolumeArea(Mesh, Mesh.TriangleIndices(), (v) => Mesh.GetVertex(v) - c).x;'),
             ('MeshRoundingRepair.cs', '                VolumeAfter = signed_volume(centre);', '                apply(); VolumeAfter = signed_volume(centre);'),

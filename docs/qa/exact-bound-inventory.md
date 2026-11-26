@@ -188,12 +188,13 @@ test `1 + a.b <= tol` compares a quantity quadratic in the distance with a toler
 u^(1/3) of the segment length. The 20-attempt path is reachable too (tol NaN, or a ray-independent bound above 1e-6), not in this repro.
 No fix here.
 
-**Lead outside the ranking (issue #1589).** `mesh_generators/DualContouring.cs:2484-2485` (place_face_vertex) calls `AdaptivePredicates.Orient2d`
-without `Expansion.InRange`, against the class's stated precondition. For degree 2 the expansions are exact for coordinates
-down to about 2^-459 and up to about 2^494, so only geometry far beyond the tested 2^-60 .. 2^200 or with subnormal coordinates is
-affected. `tools/ErrorBoundAudit/range_callers.py` lists the two calls as the known exception; its test (`test_range_callers.py`,
-the `linux` job of `ci.yml`, every library change) fails on a new call without `if (Expansion.InRange(<all its arguments>) == false)`
-in the three lines before.
+**Closed lead (issue #1589).** `mesh_generators/DualContouring.cs` (`place_face_vertex`) called `AdaptivePredicates.Orient2d` without
+`Expansion.InRange`, against the class's stated precondition. For degree 2 the expansions are exact for coordinates down to about
+2^-459 and up to about 2^494, so only geometry far beyond the tested 2^-60 .. 2^200 or with subnormal coordinates was affected. It now
+calls `ExactPredicates.Orient2d`, which enforces the range [2^-100, 2^100] (or 0) for the adaptive stages and falls back to the exact
+integer kernels (`DoublePredicates`) outside it, so the sign is exact for every finite coordinate. `range_callers.KNOWN_UNGUARDED` is
+empty; `tools/ErrorBoundAudit/range_callers.py` (test: `test_range_callers.py`, the `linux` job of `ci.yml`, every library change) fails
+on a new call without `if (Expansion.InRange(<all its arguments>) == false)` in the three lines before.
 
 ### 6.1 FPTaylor (owner 2026-11-25)
 

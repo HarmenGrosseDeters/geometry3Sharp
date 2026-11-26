@@ -128,6 +128,11 @@ namespace gs
         /// coarser than the budget needs. Input points and segments have no area: an input of only points or segments is not coarsened.
         /// A budget far below the input's detail gives an alpha up to the size of the input (MaxEstimatedTriangles = 1: about the
         /// bounding box diagonal), a wrap of a few triangles around it; there is no lower bound.
+        /// The result can be well above the estimate, and so above the budget, for open sheets, thin plates and small offsets (issue #1593,
+        /// measured at the defaults): result / EstimatedTriangles 7.4 to 7.8 for an open curved sheet (3.7 to 3.9 with the budget, which counts
+        /// the open component twice), about 4 for a plate 1 x 1 x 1e-4, about 6.7 for two cubes with a gap of 1e-2, about 4.4 for alpha / offset = 25;
+        /// the estimate has no offset term, and the band around a rim or edge needs triangles of about the offset's size. Compare
+        /// Result.TriangleCount with EstimatedTriangles after Compute() and set the budget lower by that factor.
         /// </summary>
         public int MaxEstimatedTriangles = 0;
         /// <summary>
@@ -264,7 +269,7 @@ namespace gs
         /// and for an input Compute() rejects before the alpha is known. With MaxEstimatedTriangles &gt; 0 it is EstimateDensity * area of the
         /// input triangles, open components counted twice / alpha^2; without a budget it is the one-sided estimate
         /// EstimateDensity * area / alpha^2 (the open components are not looked for, which costs time in proportion to the input's triangle count, benchmarks/OpenSoupWrapBenchmark:
-        /// an open input's wrap is then about twice as large as this). Input segments and points are not counted
+        /// an open input's wrap is then about twice as large as this). Input segments and points are not counted. It is not an upper bound: for open sheets, thin plates and small offsets the result is 4 to 8 times it (see MaxEstimatedTriangles)
         /// </summary>
         public double EstimatedTriangles;
         /// <summary> the factor by which MaxEstimatedTriangles scaled alpha and offset (1: not coarsened) </summary>
