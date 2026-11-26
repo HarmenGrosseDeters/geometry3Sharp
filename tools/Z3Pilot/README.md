@@ -869,3 +869,24 @@ python3 tools/Z3Pilot/may_meet_box.py
 python3 tools/Z3Pilot/slope_approx.py [--fp]
 python3 -m unittest discover -s tools/Z3Pilot -p 'test_adaptive_range.py' -v
 ```
+
+## The rounding oracle (`rounding_oracle.py`, #1465, 2026-11-25)
+
+A research spike, not a gate: can the degenerate triangles that `MeshRoundingRepair` leaves be removed by moving up to k
+vertices within their drift bounds, or is that provably impossible? Note: `docs/research/ROUNDING_Z3_ORACLE_2026-11.md`.
+
+```sh
+dotnet run --project benchmarks/BooleanInputOrder -c Release -- oracle dump --case <spec> --out state.json [--nojoint]
+python tools/Z3Pilot/rounding_oracle.py state.json [...] --timeout 120 --out report.json
+dotnet run --project benchmarks/BooleanInputOrder -c Release -- oracle verify --case <spec> --witness w.json
+python -m unittest discover -s tools/Z3Pilot -p 'test_rounding_oracle.py'
+```
+
+The model is a relaxation of the repair's own acceptance (drift balls of every triangle and ghost at a moved vertex, the
+area test of `is_bad`, `IntersectsBeyondShared` as weak separation along the nonzero separating axes), so UNSAT is a proof
+and SAT a candidate that the library checks. Z3's nonlinear arithmetic did not decide the state's polynomials with their long
+dyadic coefficients (even the drift and one area in 30 s), so the decision procedure is a branch and bound over boxes of the
+moves whose per-box linear relaxations (rigorously padded floats, exact Dyadic on small boxes) z3 decides as linear real
+arithmetic with booleans. The test checks the encoding on a sliver in a square tube: one move repairs it (SAT, clean exactly
+and after the rounding to doubles), a narrow tube makes it impossible (UNSAT by the wall constraints, SAT without them), a
+small bound makes it impossible (UNSAT by the area); and the pair encoding on crossing, apart and touching triangles.
