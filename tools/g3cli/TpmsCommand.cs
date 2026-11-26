@@ -182,7 +182,7 @@ namespace g3cli
                     o2["blend_gradient_bound"] = MeshReport.Num(lattice.Blend.GradientBound);
                 }
                 if (args.Has("grade")) o2["min_local_cell_size"] = MeshReport.Num(lattice.MinLocalCellSize);
-                if (!string.IsNullOrEmpty(lattice.Message)) warnings.Add("tpms: " + lattice.Message);      // Ok with a result that is not the lattice asked for (#1596)
+                if (!string.IsNullOrEmpty(lattice.Message)) warnings.Add("tpms: " + lattice.Message);      // defensive: TpmsLattice refuses a result that is not the lattice asked for as NotResolved (#1596), so Ok has no Message today
                 if (!lattice.VerifySelfIntersections) warnings.Add("verify_self_intersections is off: the mesh is closed and manifold, but was not checked for self-intersections");
                 o2["mesh"] = MeshReport.Metrics(lattice.Mesh, args.Bool("self_intersections"));
                 o2["warnings"] = Warnings(warnings);

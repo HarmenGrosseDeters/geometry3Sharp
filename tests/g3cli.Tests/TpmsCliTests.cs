@@ -23,23 +23,26 @@ namespace g3cli.Tests
         }
 
         [Fact]
-        public void ThinSheet_OnOk_ReportsTheLatticeMessageAsAWarning()
+        public void ThinSheet_IsRefusedAsNotResolved_AndWritesNothing()
         {
-            // a wall far thinner than two cubes: marching cubes loses most of it, TpmsLattice stays Ok with a Message (#1596), the CLI passes it on
-            var (exit, r) = Run("tpms", m.Path_("tpms_thin.obj"), "--wall-thickness", "0.04", "--divisions", "12", "--compact");
-            Assert.Equal(0, exit);
-            Assert.Equal("ok", S(r["tpms_status"]));
-            string[] w = r["warnings"].AsArray().Select(x => S(x)).ToArray();
-            Assert.Contains(w, x => x.StartsWith("tpms: Sheet: the realized volume fraction") && x.Contains("TwoLevelSheet"));
+            // a wall far thinner than two cubes: marching cubes loses most of it, TpmsLattice returns NotResolved (#1596), the CLI reports it and writes no file
+            string output = m.Path_("tpms_thin.obj");
+            File.Delete(output);
+            var (exit, r) = Run("tpms", output, "--wall-thickness", "0.04", "--divisions", "12", "--compact");
+            AssertError(exit, r, "operation_failed", "not_resolved");
+            Assert.Contains("TwoLevelSheet", S(r["message"]));
+            Assert.False(File.Exists(output));
         }
 
         [Fact]
-        public void EnclosureAboveFractionOne_OnOk_ReportsTheLatticeMessageAsAWarning()
+        public void EnclosureAboveFractionOne_IsRefusedAsNotResolved_AndWritesNothing()
         {
-            var (exit, r) = Run("tpms", m.Path_("tpms_enc1.obj"), "--enclosure", "true", "--divisions", "4", "--volume-fraction", "0.9", "--compact");
-            Assert.Equal(0, exit);
-            string[] w = r["warnings"].AsArray().Select(x => S(x)).ToArray();
-            Assert.Contains(w, x => x.StartsWith("tpms: Enclosure: the realized volume fraction") && x.Contains("above 1"));
+            string output = m.Path_("tpms_enc1.obj");
+            File.Delete(output);
+            var (exit, r) = Run("tpms", output, "--enclosure", "true", "--divisions", "4", "--volume-fraction", "0.9", "--compact");
+            AssertError(exit, r, "operation_failed", "not_resolved");
+            Assert.Contains("solid box", S(r["message"]));
+            Assert.False(File.Exists(output));
         }
 
         [Fact]
@@ -216,11 +219,11 @@ namespace g3cli.Tests
         [Fact]
         public void Hybrid_WorksWithEnclosureOnADyadicGrid()
         {
-            var (exit, r) = Run("tpms", m.Path_("tpms_hybrid_enc.obj"), "--second-type", "iwp", "--blend", "0,1,0.5", "--enclosure", "true", "--divisions", "16", "--compact");
+            var (exit, r) = Run("tpms", m.Path_("tpms_hybrid_enc.obj"), "--second-type", "iwp", "--blend", "0,1,0.5", "--style", "skeletal_low", "--enclosure", "true", "--divisions", "32", "--compact");
             Assert.Equal(0, exit);
             Assert.True(B(r["enclosure"]));
             Assert.True(B(r["mesh"]["clean"]));
-            var direct = new TpmsLattice { Type = TpmsType.Gyroid, SecondType = TpmsType.IWP, Blend = TpmsLattice.SigmoidBlend(0, 1, 0.5), CellSize = 1, Divisions = 16,
+            var direct = new TpmsLattice { Type = TpmsType.Gyroid, Style = TpmsStyle.SkeletalLow, SecondType = TpmsType.IWP, Blend = TpmsLattice.SigmoidBlend(0, 1, 0.5), CellSize = 1, Divisions = 32,
                 Enclosure = true, Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(2, 2, 2)) };
             direct.Compute();
             Assert.Equal(TpmsStatus.Ok, direct.Status);
@@ -307,10 +310,10 @@ namespace g3cli.Tests
         [Fact]
         public void Enclosure_NeedsADyadicGrid()
         {
-            var (exit, r) = Run("tpms", m.Path_("tpms_enclosure.obj"), "--enclosure", "true", "--divisions", "16", "--compact");
+            var (exit, r) = Run("tpms", m.Path_("tpms_enclosure.obj"), "--enclosure", "true", "--divisions", "32", "--compact");
             Assert.Equal(0, exit);
             Assert.True(B(r["enclosure"]));
-            Assert.True(D(r["iso_value_used"]) > Math.Sqrt(3) * (1.0 / 16) / 2);
+            Assert.True(D(r["iso_value_used"]) > Math.Sqrt(3) * (1.0 / 32) / 2);
             string rejected = m.Path_("tpms_enclosure_bad.obj");
             File.Delete(rejected);
             (exit, r) = Run("tpms", rejected, "--enclosure", "true", "--cell-size", "0.3", "--compact");

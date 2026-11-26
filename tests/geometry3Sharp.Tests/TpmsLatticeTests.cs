@@ -48,7 +48,7 @@ namespace geometry3Sharp.Tests
 
         static TpmsLattice Make(TpmsType type, TpmsStyle style, double fraction = 0.3, int divisions = 16, double size = 2)
         {
-            return new TpmsLattice {
+            return new TpmsLattice { AllowUnresolved = true,
                 Type = type, Style = style, CellSize = L, Divisions = divisions, VolumeFraction = fraction,
                 Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(size, size, size))
             };
@@ -525,7 +525,7 @@ namespace geometry3Sharp.Tests
 
         static TpmsLattice MakeGraded(TpmsType type, TpmsStyle style, double fraction = 0.3, int divisions = 16)
         {
-            var lattice = new TpmsLattice {
+            var lattice = new TpmsLattice { AllowUnresolved = true,
                 Type = type, Style = style, CellSize = L, Divisions = divisions, VolumeFraction = fraction,
                 Box = new AxisAlignedBox3d(new Vector3d(-1, -1, 0), new Vector3d(1, 1, 3))
             };

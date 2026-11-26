@@ -49,7 +49,7 @@ namespace geometry3Sharp.Tests
 
         static TpmsLattice Make(TpmsType a, TpmsType b, TpmsStyle style, double fraction, double offset, double width, int divisions = 14, double sx = 4, double sy = 2)
         {
-            return new TpmsLattice {
+            return new TpmsLattice { AllowUnresolved = true,
                 Type = a, SecondType = b, Blend = TpmsLattice.SigmoidBlend(0, offset, width), Style = style, CellSize = L, Divisions = divisions,
                 VolumeFraction = fraction, Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(sx, sy, sy))
             };
