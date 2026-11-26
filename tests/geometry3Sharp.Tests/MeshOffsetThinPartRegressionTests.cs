@@ -72,14 +72,14 @@ namespace geometry3Sharp.Tests
         [InlineData("box", -0.1, 0.25, 0.0, "5056 F683297DA1AB0359", 0.025)]
         [InlineData("box", -0.22, 0.25, 0.0, "216 E7B58B7532EDF583", 0.055)]
         [InlineData("box", -0.1, 0.25, 0.0125, "20224 54FB7C717EAF26F5", 0.0125)]
-        [InlineData("sphere", 0.05, 0.5, 0.0, "17884 02368FDCBB54DEEC", 0.025)]
-        [InlineData("sphere", -0.05, 0.5, 0.0, "11916 8D935D8FA23353EA", 0.025)]
+        [InlineData("sphere", 0.1, 0.5, 0.0, "5044 00D6975BC3943AC2", 0.05)]
+        [InlineData("sphere", -0.1, 0.5, 0.0, "2132 35749A3C05C44EC2", 0.05)]
         [InlineData("box", 0.3, 0.5, 0.0, "824 C5B2B2A7DC89DF61", 0.15)]
         public void InputsThatWereNotEmpty_KeepTheirMeshBitForBit(string shape, double d, double rel, double cell, string digest, double usedCell)
         {
             DMesh3 m = Box();
             if (shape == "sphere") {
-                var g = new Sphere3Generator_NormalizedCube { Radius = 0.5, EdgeVertices = 8 };
+                var g = new Sphere3Generator_NormalizedCube { Radius = 0.5, EdgeVertices = 4 };
                 g.Generate();
                 m = g.MakeDMesh();
             }

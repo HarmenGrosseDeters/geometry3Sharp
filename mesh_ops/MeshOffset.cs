@@ -47,8 +47,8 @@ namespace gs
     /// grid contouring; an inset deeper than half the thickness of a part removes it. Status Empty means that nothing is left: it is proven
     /// from the distances at the grid nodes (an inset removes the part if no node of the input is as far from its surface as the inset less
     /// 0.866 cells). If a part thinner than about a cell may be left between the nodes (#1597) and nothing was found, the cell is
-    /// halved up to MaxCellRefinements times (default 2, within MaxGridNodes: the case returned Empty before, and nothing else runs more than
-    /// the first grid), and if it is still not decided the status is NotResolved with a SuggestedCellSize, which does not prove that the part is gone.
+    /// halved up to MaxCellRefinements times (default 2, within MaxGridNodes and MaxRefinementNodes, which bound the work: the case returned Empty before, and nothing else runs more than
+    /// the first grid; only the all-empty case is refined: a thin part lost next to a thick one found stays Success), and if it is still not decided the status is NotResolved with a SuggestedCellSize, which does not prove that the part is gone.
     /// Usage: set the fields, call Compute(), read Result and the reports. Compute() can be called again after changes.
     /// </summary>
     public class MeshOffset
@@ -73,7 +73,7 @@ namespace gs
             Failed,
             /// <summary> CancelF returned true </summary>
             Cancelled,
-            /// <summary> not resolved at this grid: the inset may have left a part thinner than the grid between the nodes (the distances at the nodes cannot exclude it) and MaxCellRefinements halvings of the cell did not find it (or the grid would be too large): try SuggestedCellSize. Empty, in contrast, means that nothing is left (proven from the distances at the nodes) </summary>
+            /// <summary> not resolved at this grid: the inset may have left a part thinner than the grid between the nodes (the distances at the nodes cannot exclude it) and MaxCellRefinements halvings of the cell did not find it, or the refinement would exceed MaxGridNodes or MaxRefinementNodes (RefinementLimited): try SuggestedCellSize. Empty, in contrast, means that nothing is left (proven from the distances at the nodes) </summary>
             NotResolved
         }
 
@@ -98,9 +98,19 @@ namespace gs
         /// <summary>
         /// How often the cell is halved (8 times the nodes each) when nothing was found at the grid but the distances at the nodes cannot exclude a part thinner
         /// than the grid between them (an inset leaving a part thinner than about a cell, #1597): the first grid is the same for every input, and only
-        /// that case runs further, while the grid stays within MaxGridNodes. 0 switches it off (NotResolved at once). UsedCellSize is the final cell.
+        /// that case runs further, while the grid stays within MaxGridNodes and MaxRefinementNodes. 0 (or less) switches it off (NotResolved at once). UsedCellSize is the final cell.
         /// </summary>
         public int MaxCellRefinements = 2;
+        /// <summary>
+        /// The largest grid (nodes) a refinement may run on (default 4 million: 8 times the nodes of the grid before it, so a first grid of up to 500000 nodes
+        /// is refined once; the repro of #1597 needs about 130000 nodes and takes 0.1 to 0.3 s). A refinement above it is not run: NotResolved with
+        /// SuggestedCellSize and RefinementLimited. It bounds the cost of an inset that is really empty but looks like a thin part: without it the work is
+        /// 1 + 8 + 64 first grids (12.9 s for a first grid of 0.4 million nodes). Worst case with the default: a first grid of 500000 nodes, then
+        /// one of 4 million. A negative MaxCellRefinements acts as 0. Independent of MaxGridNodes, which caps every grid.
+        /// </summary>
+        public long MaxRefinementNodes = 4000000;
+        /// <summary> with Status.NotResolved: the refinement stopped at MaxGridNodes or MaxRefinementNodes, not at MaxCellRefinements (SuggestedCellSize may then give GridTooLarge: raise the limit, or accept the coarser cell) </summary>
+        public bool RefinementLimited;
         public bool UseParallel = true;
         public Func<bool> CancelF = () => false;
 
@@ -136,9 +146,9 @@ namespace gs
         {
             ResultStatus = Status.Failed;   // until a check below says otherwise (also if a call throws)
             Result = null; SelfIntersectionFree = false; BandCertified = false; BandDeviation = double.PositiveInfinity;
-            UncertifiedTriangles = 0; UsedCellSize = 0; SuggestedCellSize = 0; NonManifoldTriangles = 0; PhaseMilliseconds = new Dictionary<string, long>();
+            UncertifiedTriangles = 0; UsedCellSize = 0; SuggestedCellSize = 0; RefinementLimited = false; NonManifoldTriangles = 0; PhaseMilliseconds = new Dictionary<string, long>();
             var timer = System.Diagnostics.Stopwatch.StartNew();
-            Action<string> phase = (name) => { PhaseMilliseconds[name] = timer.ElapsedMilliseconds; timer.Restart(); };
+            Action<string> phase = (name) => { long before; PhaseMilliseconds.TryGetValue(name, out before); PhaseMilliseconds[name] = before + timer.ElapsedMilliseconds; timer.Restart(); };
 
             if (Mesh == null || Mesh.TriangleCount == 0)
                 return fail(Status.InvalidInput);
@@ -278,25 +288,25 @@ namespace gs
 
                 DMesh3 resultOfRound = null;
                 if (cells.Count > 0) {
-                // the side of the input along a sign-changing grid edge: every point of it is within h < |d| / 2 of a node whose
-                // field is beyond the offset, so the edge stays off the input: outside it for an offset, inside for an inset
-                double edgeSide = d > 0 ? 1 : -1;
-                var dc = new DualContouring() {
-                    Implicit = new FieldImplicit() { Owner = this, Tree = tree, D = d },
-                    IsoValue = 0, CellSize = h, CancelF = CancelF, ParallelCompute = UseParallel,
-                    QEFEigenTolerance = DualContouring.LegacyQEFEigenTolerance,   // pinned: the default changed with ExactHermite, this caller has its own HermiteF
-                    Simplify = false,   // pinned: uniform output
-                    Bounds = new AxisAlignedBox3d(origin, origin + new Vector3d((nx - 1) * h, (ny - 1) * h, (nz - 1) * h)),
-                    CandidateCells = cells,
-                    NodeValueF = (Vector3i n) => (n.x < 0 || n.y < 0 || n.z < 0 || n.x >= nx || n.y >= ny || n.z >= nz) ? -cap : f[idx(n.x, n.y, n.z)]
-                };
-                dc.HermiteF = (Vector3d a, Vector3d b, Vector3d p, out Vector3d point, out Vector3d normal) =>
-                    hermite(tree, d, edgeSide, a, b, out point, out normal);
-                dc.Generate();
-                phase("contour");
-                if (CancelF()) return fail(Status.Cancelled);
-                resultOfRound = dc.Mesh;
-                nonManifold = dc.NonManifoldTriangles; selfFree = dc.SelfIntersectionFree;
+                    // the side of the input along a sign-changing grid edge: every point of it is within h < |d| / 2 of a node whose
+                    // field is beyond the offset, so the edge stays off the input: outside it for an offset, inside for an inset
+                    double edgeSide = d > 0 ? 1 : -1;
+                    var dc = new DualContouring() {
+                        Implicit = new FieldImplicit() { Owner = this, Tree = tree, D = d },
+                        IsoValue = 0, CellSize = h, CancelF = CancelF, ParallelCompute = UseParallel,
+                        QEFEigenTolerance = DualContouring.LegacyQEFEigenTolerance,   // pinned: the default changed with ExactHermite, this caller has its own HermiteF
+                        Simplify = false,   // pinned: uniform output
+                        Bounds = new AxisAlignedBox3d(origin, origin + new Vector3d((nx - 1) * h, (ny - 1) * h, (nz - 1) * h)),
+                        CandidateCells = cells,
+                        NodeValueF = (Vector3i n) => (n.x < 0 || n.y < 0 || n.z < 0 || n.x >= nx || n.y >= ny || n.z >= nz) ? -cap : f[idx(n.x, n.y, n.z)]
+                    };
+                    dc.HermiteF = (Vector3d a, Vector3d b, Vector3d p, out Vector3d point, out Vector3d normal) =>
+                        hermite(tree, d, edgeSide, a, b, out point, out normal);
+                    dc.Generate();
+                    phase("contour");
+                    if (CancelF()) return fail(Status.Cancelled);
+                    resultOfRound = dc.Mesh;
+                    nonManifold = dc.NonManifoldTriangles; selfFree = dc.SelfIntersectionFree;
                 }
                 result = resultOfRound;
                 if (cells.Count == 0 || result == null || result.TriangleCount == 0) {
@@ -304,7 +314,8 @@ namespace gs
                     // may be left between the nodes (#1597): refine, or report that it is not resolved
                     if (!(d < 0 && maxU >= ad - 0.8661 * h))
                         return fail(Status.Empty);
-                    if (refinements < MaxCellRefinements && nodeCount * 8 <= MaxGridNodes && nodeCount * 8 <= (1 << 28)) {
+                    bool withinLimits = nodeCount * 8 <= MaxGridNodes && nodeCount * 8 <= (1 << 28) && nodeCount * 8 <= MaxRefinementNodes;
+                    if (refinements < MaxCellRefinements && withinLimits) {
                         ++refinements;
                         h *= 0.5;
                         UsedCellSize = h * sInv;
@@ -312,6 +323,7 @@ namespace gs
                         retry = true;
                         continue;
                     }
+                    RefinementLimited = refinements < MaxCellRefinements && !withinLimits;
                     SuggestedCellSize = 0.25 * h * sInv;
                     return fail(Status.NotResolved);
                 }

@@ -74,6 +74,72 @@ namespace geometry3Sharp.Tests
             Assert.Equal(MeshOffset.Status.NotResolved, op.ResultStatus);
             Assert.Equal(0.06, op.UsedCellSize, 12);
             Assert.Equal(0.015, op.SuggestedCellSize, 12);
+            Assert.True(op.RefinementLimited);
+        }
+
+        // the work budget (#1597 review): a refinement whose grid has more than MaxRefinementNodes nodes is not run, and RefinementLimited says that it
+        // was the budget, not MaxCellRefinements, that stopped (the part of -0.245 needs two halvings: 5.8k, 46k, 370k nodes)
+        [Fact]
+        public void RefinementNodeBudget_StopsTheRefinement_AndIsReported()
+        {
+            double d = -0.245, first = 0.25 * Math.Abs(d);
+            var op = new MeshOffset(Box(), d) { MaxRefinementNodes = 100000 };
+            Assert.False(op.Compute());
+            Assert.Equal(MeshOffset.Status.NotResolved, op.ResultStatus);
+            Assert.True(op.RefinementLimited);
+            Assert.Equal(first / 2, op.UsedCellSize, 12);                 // one halving ran (46k nodes), the second (370k) did not
+            Assert.Equal(first / 8, op.SuggestedCellSize, 12);
+            var plain = new MeshOffset(Box(), d) { MaxCellRefinements = 1 };
+            Assert.False(plain.Compute());
+            Assert.False(plain.RefinementLimited);                         // stopped by MaxCellRefinements
+            var fine = new MeshOffset(Box(), d);                           // the default budget (4 million) runs it
+            Assert.True(fine.Compute());
+            Assert.False(fine.RefinementLimited);
+        }
+
+        // the near-limit case that is really empty (the inset 0.002 beyond the part, a cell of 0.0397 |d|; first grid 0.4 million nodes) costs the first
+        // grid and one refinement, not 1 + 8 + 64 grids (12.9 s before the budget): a result of NotResolved, limited by the budget
+        [Fact]
+        public void NearLimitEmpty_CostsAtMostOneRefinement()
+        {
+            var op = new MeshOffset(Box(), -0.252) { RelativeCellSize = 0.0397 };
+            Assert.False(op.Compute());
+            Assert.Equal(MeshOffset.Status.NotResolved, op.ResultStatus);
+            Assert.True(op.RefinementLimited);
+            Assert.Equal(0.5 * 0.0397 * 0.252, op.UsedCellSize, 9);
+        }
+
+        // a refined success is certified like any other: the band bound holds at the final cell (the tolerance is half of it)
+        [Theory]
+        [InlineData(-0.235)]
+        [InlineData(-0.245)]
+        public void RefinedSuccess_IsBandCertified_AtTheFinalCell(double d)
+        {
+            var op = new MeshOffset(Box(), d);
+            Assert.True(op.Compute(), op.ResultStatus.ToString());
+            Assert.True(op.UsedCellSize < 0.25 * Math.Abs(d));             // it was refined
+            Assert.True(op.BandCertified);
+            Assert.True(op.BandDeviation <= 0.5 * op.UsedCellSize, "deviation " + op.BandDeviation + " cell " + op.UsedCellSize);
+        }
+
+        // nodes whose side is not known (no node farther than 1.5 cells from the input floods the part) count in the bound: a ball left at the middle of
+        // a cell of a polyhedral sphere (the cell is half of the inset, the farthest a node can be from it) is not Empty (every node is within 1.5 cells
+        // of the input here, so a bound over the nodes known to be inside would be 0)
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(0.05)]
+        [InlineData(0.1)]
+        [InlineData(0.15)]
+        [InlineData(0.2)]
+        public void BallBetweenTheNodes_UnknownSideNodes_AreNotEmpty(double shift)
+        {
+            var g = new Sphere3Generator_NormalizedCube { Radius = 0.5, EdgeVertices = 8 };
+            g.Generate();
+            DMesh3 m = g.MakeDMesh();
+            MeshTransforms.Translate(m, new Vector3d(shift, 0.7 * shift, 0.4 * shift));
+            var op = new MeshOffset(m, -0.48) { RelativeCellSize = 0.5, MaxCellRefinements = 0 };
+            Assert.False(op.Compute());
+            Assert.Equal(MeshOffset.Status.NotResolved, op.ResultStatus);
         }
 
         // near the limit (the inset 0.01 beyond the part) the nodes cannot exclude a part: refined twice, still not decided; with four halvings it is

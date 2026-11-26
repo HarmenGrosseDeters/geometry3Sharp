@@ -179,7 +179,9 @@ namespace g3cli
                     throw new CommandException(ResultCodes.OperationFailed, "nothing is left: a negative distance beyond the inner half thickness of every part removes it",
                         new JsonObject() { ["offset_status"] = "empty", ["enclosure_claim"] = "none" });
                 case gs.MeshOffset.Status.NotResolved:
-                    throw new CommandException(ResultCodes.OperationFailed, $"not resolved at this grid: a part thinner than about a cell may be left (and was not found after {o.MaxCellRefinements} refinements or within max_cells); try cell_size {o.SuggestedCellSize.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} or smaller",
+                    throw new CommandException(ResultCodes.OperationFailed, (o.RefinementLimited
+                        ? $"not resolved at this grid: a part thinner than about a cell may be left, and the refinement was stopped by the grid limits (max_cells or the refinement budget of {o.MaxRefinementNodes} nodes), not by the count of refinements: raise max_cells, or try cell_size {o.SuggestedCellSize.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} (it may need a larger max_cells)"
+                        : $"not resolved at this grid: a part thinner than about a cell may be left and was not found after {o.MaxCellRefinements} refinements; try cell_size {o.SuggestedCellSize.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} or smaller"),
                         new JsonObject() { ["offset_status"] = "not_resolved", ["enclosure_claim"] = "none" });
                 case gs.MeshOffset.Status.InvalidParameters:
                 case gs.MeshOffset.Status.InvalidInput:

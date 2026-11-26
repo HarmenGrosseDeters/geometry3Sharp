@@ -370,6 +370,7 @@ namespace g3cli.Tests
             AssertError(e2, r2, "operation_failed");
             Assert.Equal("not_resolved", S(r2["offset_status"]));
             Assert.Contains("try cell_size", S(r2["message"]));
+            Assert.Contains("raise max_cells", S(r2["message"]));   // the grid limit stopped the refinement, not the count
         }
     }
 }
