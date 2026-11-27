@@ -32,16 +32,16 @@ FEATURE_SOURCE = 'mesh_ops/AlphaWrapFeaturePass.cs'
 QUALITY_SOURCE = 'mesh_ops/AlphaWrapQualityPass.cs'
 
 FEATURE_ANCHORS = [
-    ('void build_miters()', 'static bool traverses(', 'effe8bb411a933f9a6f10c6ec6696d4bc88b0fe8bf30aa888505fcead2be48a9'),
+    ('void build_miters()', 'static bool traverses(', 'd3a908ad1137abc61cc164b37fb00d96d55fe0340c936217e2717d0ed4059cd6'),
     ('static bool crease_point(Label a, Label b, Vector3d p, out Vector3d x)', 'bool crossing(', '2ed7c48e23b0519a600cdbad60c08cea5c52402f608f7367693d5b8f611b7929'),
-    ('static bool unit_normal(Triangle3d t, out Vector3d n)', 'static double min_angle(', '64c7f7d2acccf4040c5499c7a596e7535c98d305b5409a7f499fcc30cd58ca77'),
+    ('static bool unit_normal(Triangle3d t, out Vector3d n)', 'static void tri_edges(', '64c7f7d2acccf4040c5499c7a596e7535c98d305b5409a7f499fcc30cd58ca77'),
     ('sealed class SegmentGrid', 'static bool SegmentWithin(', 'f7a9ecb7f6c64eb9c0da9baee6c228898a0441819acb374950b91bd651324853'),
     ('static bool SegmentWithin(Segment3d seg, Vector3d p, double r)', 'if (!cells.TryGetValue(new Vector3i(x, y, z), out l))', 'aa50038eca510999bbf4fea4de509d024bc573afc4ca4a189b70c38bb39aaa4d'),
 ]
 
 QUALITY_ANCHORS = [
     ('void build_protected()', 'static bool SegmentTriangleWithin(', 'dbc1d8465a367c5ad6bd19e7e5e499259b35682b419299077b53aec5b85193bc'),
-    ('static bool SegmentTriangleWithin(Segment3d sg, Triangle3d t, double r)', 'TriangleHashGrid build_grid()', 'ac28f2ac6c11e2698802d288c78855a60f0a7a87af8bf696ba8cfba3c4f3f2f3'),
+    ('static bool SegmentTriangleWithin(Segment3d sg, Triangle3d t, double r)', 'TriangleHashGrid build_grid()', '6246b142e9c6df170a9645ba9ae584fce7d44d6c1a4d8f501f903fb065c47226'),
     ('static double angle(Vector3d u, Vector3d v)', 'double normal_deviation(', 'dd3ffa85caaff3563ac0ec8636aa77cff0749b11c9f6893d0991339b1b9f77fa'),
 ]
 
@@ -78,6 +78,7 @@ def miter_and_crease_obligations():
     # Dimensionless cap: |dir|^2 = dl^2, k = M / dl (k * dl == M), s_c = (k * offset) * dir -> |s_c|^2 = (M * offset)^2
     dl, k = z3.Reals('dl k')
     cap_prem = [dl > 0, M > 0, offset > 0, dl > M, k * dl == M]
+    rows.append(('miter_cap_assumptions_sat', cap_prem, M == 4, 'sat', 'QF_NRA'))
     rows.append((
         'miter_capped_norm_exact',
         cap_prem,
@@ -102,6 +103,7 @@ def miter_and_crease_obligations():
         det * c1 == r1 - c * r2,
         det * c2 == r2 - c * r1,
     ]
+    rows.append(('crease_assumptions_sat', crease_prem, c != 0, 'sat', 'QF_NRA'))
     # n1 . (x - p) = c1 + c * c2 == r1, n2 . (x - p) = c * c1 + c2 == r2
     rows.append((
         'crease_point_on_both_planes',
@@ -113,9 +115,11 @@ def miter_and_crease_obligations():
     # Orthogonality: for any displacement v with n1 . v = v1 = 0 and n2 . v = v2 = 0,
     # (x - p) . v = c1 * v1 + c2 * v2 = 0
     v1, v2 = z3.Reals('v1 v2')
+    ortho_prem = [v1 == 0, v2 == 0]
+    rows.append(('ortho_assumptions_sat', ortho_prem, c1 + c2 != 0, 'sat', 'QF_NRA'))
     rows.append((
         'crease_point_nearest_orthogonality',
-        [v1 == 0, v2 == 0],
+        ortho_prem,
         c1 * v1 + c2 * v2 != 0,
         'unsat',
         'QF_NRA',
@@ -185,9 +189,11 @@ def scale_invariance_obligations():
     dot = su * sv * dot_p
     lu = su * lu_p
     lv = sv * lv_p
+    ang_prem = [su > 0, sv > 0, lu_p > 0, lv_p > 0]
+    rows.append(('angle_scale_assumptions_sat', ang_prem, su != sv, 'sat', 'QF_NRA'))
     rows.append((
         'angle_independent_scale_invariance',
-        [su > 0, sv > 0, lu_p > 0, lv_p > 0],
+        ang_prem,
         dot * (lu_p * lv_p) != dot_p * (lu * lv),
         'unsat',
         'QF_NRA',
@@ -198,11 +204,21 @@ def scale_invariance_obligations():
     thr = z3.Q(1, 10**12)
     area2 = s * s * area2_p
     L = s * s * L_p
+    un_prem = [s > 0]
+    rows.append(('unit_normal_scale_assumptions_sat', un_prem, area2_p > thr * L_p, 'sat', 'QF_NRA'))
     rows.append((
         'unit_normal_threshold_scale_invariance',
-        [s > 0],
+        un_prem,
         z3.Xor(area2_p > thr * L_p, area2 > thr * L),
         'unsat',
+        'QF_NRA',
+    ))
+    # Negative control: forgetting to scale L with s^2 breaks threshold invariance
+    rows.append((
+        'unit_normal_unscaled_threshold_negative_control',
+        [s > 0, area2_p > 0, L_p > 0],
+        z3.Xor(area2_p > thr * L_p, area2 > thr * L_p),
+        'sat',
         'QF_NRA',
     ))
     return rows

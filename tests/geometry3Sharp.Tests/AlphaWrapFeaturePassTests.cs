@@ -609,8 +609,12 @@ namespace geometry3Sharp.Tests
         {
             MethodInfo angleMi = typeof(AlphaWrapFeaturePass).GetMethod("angle", BindingFlags.Static | BindingFlags.NonPublic);
             MethodInfo heightMi = typeof(AlphaWrapFeaturePass).GetMethod("height", BindingFlags.Static | BindingFlags.NonPublic);
+            MethodInfo minAngleMi = typeof(AlphaWrapFeaturePass).GetMethod("min_angle", BindingFlags.Static | BindingFlags.NonPublic);
+            MethodInfo maxAngleMi = typeof(AlphaWrapFeaturePass).GetMethod("max_angle", BindingFlags.Static | BindingFlags.NonPublic);
             Assert.NotNull(angleMi);
             Assert.NotNull(heightMi);
+            Assert.NotNull(minAngleMi);
+            Assert.NotNull(maxAngleMi);
 
             double[] scales = { 1.0, ExactPoint3.ScaleB(1.0, 600), ExactPoint3.ScaleB(1.0, -600) };
             Vector3d refNormal;
@@ -638,6 +642,13 @@ namespace geometry3Sharp.Tests
                 new Vector3d(0, ExactPoint3.ScaleB(1.0, -600), 0)
             });
             Assert.True(Math.Abs(mixed - 90.0) <= 1e-12, $"mixed-scale angle {mixed}");
+
+            // opposite-sign coordinates near double.MaxValue whose raw edge differences overflow
+            var hugeTri = new Triangle3d(new Vector3d(-1e308, -1e308, 0), new Vector3d(1e308, -1e308, 0), new Vector3d(0, 1e308, 0));
+            double minA = (double)minAngleMi.Invoke(null, new object[] { hugeTri });
+            double maxA = (double)maxAngleMi.Invoke(null, new object[] { hugeTri });
+            Assert.InRange(minA, 53.0, 53.3);
+            Assert.InRange(maxA, 63.3, 63.6);
         }
 
         [Fact]
@@ -686,6 +697,23 @@ namespace geometry3Sharp.Tests
             Vector3d smallP0 = runScale(ExactPoint3.ScaleB(1.0, -600));
             Assert.Equal(ExactPoint3.ScaleB(refP0.x, 600), bigP0.x);
             Assert.Equal(ExactPoint3.ScaleB(refP0.x, -600), smallP0.x);
+
+            // Box whose diagonal exceeds double.MaxValue (~1.9e308) and miter edge length > double.MaxValue (but Extent < double.MaxValue)
+            var huge = new DMesh3();
+            int hv0 = huge.AppendVertex(new Vector3d(0, 0, 0));
+            int hv1 = huge.AppendVertex(new Vector3d(1.3e308, 1.3e308, 0));
+            int hv2 = huge.AppendVertex(new Vector3d(0, 0, 1e308));
+            int hv3 = huge.AppendVertex(new Vector3d(1.3e308, 0, 0));
+            huge.AppendTriangle(hv0, hv1, hv2);
+            huge.AppendTriangle(hv1, hv0, hv3);
+            var hugePass = new AlphaWrapFeaturePass(new DMesh3(huge), huge, 1e306, 1e305);
+            cosCreaseFi.SetValue(hugePass, Math.Cos(30.0 * MathUtil.Deg2Rad));
+            buildMitersMi.Invoke(hugePass, null);
+            object hugeMiters = mitersFi.GetValue(hugePass);
+            Assert.True(hugeMiters != null, "diagonal > double.MaxValue must still build miters");
+            var hugeSegs = (List<Segment3d>)segsFi.GetValue(hugeMiters);
+            Assert.Equal(2, hugeSegs.Count);
+            Assert.True(hugeSegs[0].Extent > 9e307 && !double.IsInfinity(hugeSegs[0].Extent), $"unexpected miter extent {hugeSegs[0].Extent}");
         }
 
         [Fact]

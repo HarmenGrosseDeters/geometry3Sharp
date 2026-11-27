@@ -139,6 +139,7 @@ namespace gs
         const double MinNormal = 2.2250738585072014e-308; // 2^-1022
         const double FastScaleMin = 7.888609052210118e-31; // 2^-100
         const double FastScaleMax = 1.2676506002282294e30; // 2^100
+        const double DistFastMin = 9.094947017729282e-13;  // 2^-40 (safely above Segment3d/MathUtil.Epsilon = 2^-52)
 
         static int Pow2Exp(double v)
         {
@@ -187,23 +188,22 @@ namespace gs
             if (s >= FastScaleMin && s <= FastScaleMax && p0.MaxAbs <= FastScaleMax && p1.MaxAbs <= FastScaleMax)
                 return new Segment3d(p0, p1);
             Vector3d center = 0.5 * p0 + 0.5 * p1;
+            int pre = 0;
             if (!d.IsFinite) {
                 d = 0.5 * p1 - 0.5 * p0;
-                double halfLen = SafeLength(d);
-                if (!(halfLen > 0) || double.IsInfinity(halfLen))
-                    return new Segment3d(center, Vector3d.AxisX, 0);
-                int hexp = Pow2Exp(d.MaxAbs);
-                Vector3d hds = ScaleVec(d, -hexp);
-                return new Segment3d(center, hds / Math.Sqrt(hds.LengthSquared), halfLen);
+                s = d.MaxAbs;
+                pre = 1;
             }
-            double len = SafeLength(d);
-            if (!(len > 0) || double.IsInfinity(len))
+            if (!(s > 0) || double.IsInfinity(s))
                 return new Segment3d(center, Vector3d.AxisX, 0);
             int exp = Pow2Exp(s);
             Vector3d ds = ScaleVec(d, -exp);
-            return new Segment3d(center, ds / Math.Sqrt(ds.LengthSquared), 0.5 * len);
+            double dsLen = Math.Sqrt(ds.LengthSquared);
+            double extent = ExactPoint3.ScaleB(dsLen, exp + pre - 1);
+            return new Segment3d(center, ds / dsLen, extent);
         }
 
+        // keeps exact DMesh3.GetTriNormal bits on ordinary meshes; rescales via unit_normal outside that range
         static Vector3d tri_normal(DMesh3 m, int tid)
         {
             Vector3d n = m.GetTriNormal(tid);
@@ -278,7 +278,10 @@ namespace gs
             if (double.IsInfinity(r)) return true;
             Vector3d sp0 = p0 - t.V0, sp1 = p1 - t.V0, e1 = t.V1 - t.V0, e2 = t.V2 - t.V0;
             double maxShift = Math.Max(Math.Max(sp0.MaxAbs, sp1.MaxAbs), Math.Max(e1.MaxAbs, e2.MaxAbs));
-            if (r >= FastScaleMin && r <= FastScaleMax && maxShift <= FastScaleMax && (maxShift == 0 || maxShift >= FastScaleMin)) {
+            if (!(maxShift > 0)) return true;
+            if (r >= DistFastMin && r <= FastScaleMax
+                && maxShift >= DistFastMin && maxShift <= FastScaleMax
+                && t.V0.MaxAbs <= FastScaleMax && p0.MaxAbs <= FastScaleMax && p1.MaxAbs <= FastScaleMax) {
                 double r2 = r * r;
                 return new DistSegment3Triangle3(sg, t).GetSquared() <= r2;
             }
@@ -298,8 +301,11 @@ namespace gs
             double sr = ExactPoint3.ScaleB(r, -(exp + pre));
             Segment3d ss = SafeSegment(q0, q1);
             Triangle3d st = new Triangle3d(Vector3d.Zero, v1, v2);
-            double d2 = new DistSegment3Triangle3(ss, st).GetSquared();
-            return Math.Sqrt(Math.Max(0, d2)) <= sr;
+            var query = new DistSegment3Triangle3(ss, st);
+            double d2 = query.GetSquared();
+            if (d2 >= 4 * MinNormal)
+                return Math.Sqrt(d2) <= sr;
+            return SafeLength(query.SegmentClosest - query.TriangleClosest) <= sr;
         }
 
         // is triangle tid of Mesh within ProtectedDistance of a protected segment?
@@ -327,11 +333,21 @@ namespace gs
             double sum = 0; int n = 0;
             foreach (int eid in Mesh.EdgeIndices()) {
                 Index2i ev = Mesh.GetEdgeV(eid);
-                Vector3d d = Mesh.GetVertex(ev.a) - Mesh.GetVertex(ev.b);
-                sum += d.IsFinite ? SafeLength(d) : 2.0 * SafeLength(0.5 * Mesh.GetVertex(ev.a) - 0.5 * Mesh.GetVertex(ev.b));
+                sum += SafeLength(Mesh.GetVertex(ev.a) - Mesh.GetVertex(ev.b));
                 n++;
             }
-            var g = new TriangleHashGrid(Mesh.CachedBounds.Min, Math.Max(1.5 * sum / Math.Max(1, n), MinNormal));
+            double cell = 1.5 * sum / Math.Max(1, n);
+            if (!(cell > 0) || double.IsInfinity(cell)) {
+                double meanQ = 0; int nq = 0;
+                foreach (int eid in Mesh.EdgeIndices()) {
+                    Index2i ev = Mesh.GetEdgeV(eid);
+                    double qLen = SafeLength(0.25 * Mesh.GetVertex(ev.a) - 0.25 * Mesh.GetVertex(ev.b));
+                    if (!double.IsNaN(qLen) && !double.IsInfinity(qLen))
+                        meanQ += (qLen - meanQ) / (++nq);
+                }
+                cell = Math.Min(double.MaxValue * 0.25, ExactPoint3.ScaleB(1.5 * meanQ, 2));
+            }
+            var g = new TriangleHashGrid(Mesh.CachedBounds.Min, Math.Max(cell, MinNormal));
             foreach (int tid in Mesh.TriangleIndices())
                 g.Insert(tid, box(Mesh.GetVertex(Mesh.GetTriangle(tid).a), Mesh.GetVertex(Mesh.GetTriangle(tid).b), Mesh.GetVertex(Mesh.GetTriangle(tid).c)));
             return g;
@@ -343,9 +359,20 @@ namespace gs
             return bx;
         }
 
+        static void tri_edges(Vector3d a, Vector3d b, Vector3d c, out Vector3d ab, out Vector3d ac, out Vector3d bc)
+        {
+            ab = b - a; ac = c - a; bc = c - b;
+            if (!ab.IsFinite || !ac.IsFinite || !bc.IsFinite) {
+                ab = 0.5 * b - 0.5 * a;
+                ac = 0.5 * c - 0.5 * a;
+                bc = 0.5 * c - 0.5 * b;
+            }
+        }
+
         static double min_angle(Vector3d a, Vector3d b, Vector3d c)
         {
-            double A = angle(b - a, c - a), B = angle(a - b, c - b), C = angle(a - c, b - c);
+            tri_edges(a, b, c, out Vector3d ab, out Vector3d ac, out Vector3d bc);
+            double A = angle(ab, ac), B = angle(-ab, bc), C = angle(-ac, -bc);
             return Math.Min(A, Math.Min(B, C));
         }
 
@@ -710,7 +737,8 @@ namespace gs
 
         static double max_angle(Vector3d a, Vector3d b, Vector3d c)
         {
-            return Math.Max(angle(b - a, c - a), Math.Max(angle(a - b, c - b), angle(a - c, b - c)));
+            tri_edges(a, b, c, out Vector3d ab, out Vector3d ac, out Vector3d bc);
+            return Math.Max(angle(ab, ac), Math.Max(angle(-ab, bc), angle(-ac, -bc)));
         }
 
         // caps (largest angle above SplitCapsAboveDegrees), largest angle first: their longest edge split at the foot
