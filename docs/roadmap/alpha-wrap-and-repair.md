@@ -627,6 +627,11 @@ of 9 configurations, 3 of them `RemesherPro` on two procedural inputs of up to a
    of 19k triangles (164 -> 187 ms), 24 % on one of 1.4k (139 -> 172 ms), 18 % on the exact resolve of two spheres (76 -> 90 ms),
    within noise on a wrap (3.4 s, the wrap dominates). Always on would be cheap in absolute terms and would not change a result, but
    measurable on the fast paths: not the default.
+   **Lost-area report** (#1479, owner decision: built as the first step): `MeasureLostArea` (opt-in, default off; 40 % of the repair's time on a 99k-triangle
+   sphere with a hole, `benchmarks/LostAreaBenchmark`) sets `LostArea`, `LostAreaShare`, `LostTriangleIds` and `LostAreaMaxDistance`: the input's surface (sampled, both sides of a sheet) farther than a tolerance
+   from the result (twice the solidify cell, twice the wrap offset, else `RoundingMaxDisplacement` times the diagonal; `LostAreaTolerance` overrides). It reports and does not
+   judge: an interior wall removed by design and a damaged result read the same (guide `repair-and-wrapping.md`, "Lost-area report"). Open: the share of lost area outside the
+   result's solid of the diagnosis note (it separates the by-design cases from the damaged one), the acceptance option O2 (an owner decision), the reference guard O3.
    *#1096, is the wrap or the reference wrong? Neither: the two solids differ, for two reasons the IoU cannot tell apart.* Procedural
    reproducers of open, not winding-closed, self-intersecting inputs that end in the wrap (default `MeshRobustRepair`; the exact resolve
    fails with "not closed (winding number)", the solidify with self-intersections), each with the IoU against the input
@@ -654,7 +659,7 @@ of 9 configurations, 3 of them `RemesherPro` on two procedural inputs of up to a
    defaults (wrap 543k triangles before the simplification): above the 20 s line of CLAUDE.md for one input; filed as #1113 (no test reproduces it; closed 2026-11-18).
 5. ~~Remesher `RejectInvertingPasses` snapshot~~: closed 2026-11-17, see the "Done and removed" line above (plan #1273).
 6. Reducer scale-safe quadrics below about 1e-280 of the extent (#618, FINDINGS item 6): only on demand.
-7. Remove `external/cgal_wrap.cpp` once no comparison needs it (plan #1260).
+7. Remove `external/cgal_wrap.cpp` once no comparison needs it ([plan #1260](../plans/alphawrap-remove-cgal-wrap-and-second-ref.md)).
 8. Local self-intersection untangling before the wrap (SIGGRAPH 2025 / 2026): spike done 2026-11-22
    ([research/SELF_INTERSECTION_UNTANGLING_2026-11.md](../research/SELF_INTERSECTION_UNTANGLING_2026-11.md)), no-go for
    untangling the input: the repair ends in the exact resolve on 84 of 84 procedural runs, and a prototype (40 of 42 clean)

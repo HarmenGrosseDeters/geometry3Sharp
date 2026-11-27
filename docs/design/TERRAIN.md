@@ -692,6 +692,21 @@ two old triangles.
    - Its exact checks (i) and (ii) decide. If they fail, the attempt fails as today (a larger δ, or
      `SlopeViolation`).
    - So one attempt has at most two realizations for its repairs, and no loop between λ and the repairs.
+   - **The flip share rerun (#1539, `TerrainSlopeDesign.attempts`).** The share a flip may use, `FlipShare` = 2·sMax·(r + e_xy),
+     assumes a deviation of the order of the merge radius. A needle whose plane is ill-conditioned (altitude 2e-15 at 14 m: the rounding of
+     its vertex heights tilts the plane by about 1) can have a flip deviation of 1.4e-11, seven times the share: the flip is refused
+     (`FlipNeedles` counts the refusals) and the needle fails every margin. Only after the attempts end in `SlopeViolation` with such
+     a refusal in the last build (`FlipNeedles` also returns the largest refused bound B), they run again with the flip share scaled by F, the power of two
+     with F ≥ 2·B / FlipShare, within [2^10, 2^20] (`FlipScaleFor`, `MaxFlipScaleLog2`); at most two reruns (the second, with a larger F, only if a flip is
+     still refused), the plain run's diagnostics (`Message`, `ProblemTriangles`, …) are restored where no rerun passes.
+     The budgets count the F − 1 further shares, X = (F − 1)·FlipShare (`FlipExtra`, rounded up; 0 at F = 1, so every other design is
+     unchanged bit for bit):
+     - the below share of the tolerance budget: mergeShare + X. The build requires facetShare = Tolerance − (λ bound + δ·sMax·1.1·D0
+       + mergeShare + X + snap + ramps) > 0, so the sum of all shares, X included, stays within Tolerance at every F; where it would
+       not, the build refuses (`InvalidInput`) and the original `SlopeViolation` stays; `fan_directions_at` counts the same X;
+     - the lowering the flips need, d_max, is at most F·FlipShare: need + X when flips were made, and `mayMerge` tests
+       RepairLambda(2) + X ≤ λ bound; the band merges' room is (λ bound − X);
+     - `FlipNeedles` gets maxDeviation F·FlipShare. The measured lowering of 301 is 2.2e-6 (Tolerance 1e-2).
    - **The first λ and the composite's clipped region.** The first realization takes λ = 4·e_z, with
      e_z = 2·sMax·e_xy + e_eval. The composite's clipped slope triangles have their vertices on S̃, rounded in z
      (½ ulp of |z|), and the support check of such a triangle extends its plane to the toe line, tens of metres
@@ -1456,7 +1471,14 @@ Use case: cut / fill per block-model cell or per grid cell, for reserves and sch
   in `TerrainVolumeDifference`.
 - **3D blocks (z-extent):** per column, integrate the clamp of [lower, upper] surface to [z0, z1]. This is
   piecewise linear after splitting the polygons at the lines where either surface crosses z0 or z1, so it is
-  exact again in 2D.
+  exact again in 2D. **Built (2026-11-24):** `TerrainCellVolumes.BandBoundaries` (strictly increasing boundaries, the ends may be infinite) adds
+  `BlockCutVolume` / `BlockFillVolume` per (band, cell). The thickness of the column part in the band is `clamp(zAfter) - clamp(zBefore)` (clamp to
+  [z0, z1]), positive for fill and negative for cut. Each (polygon, cell) piece is split at the four lines zBefore = z0, zBefore = z1,
+  zAfter = z0, zAfter = z1, where the clamped difference is linear, and each part goes through the 2D split at the zero and "area times the value at
+  the centroid" (`integrate_diff`), relative to the same local origin (bands shifted by its z). Without bands the 2D code path is unchanged (bit for
+  bit). Tests: one band over all heights and the sum over any bands equal the 2D cell result (relative 1e-12), a plane through a band boundary
+  is split exactly, swapping the surfaces swaps cut and fill per block, 2^k scaling gives the blocks scaled bit for bit (a z translation moves
+  the bands with the surfaces), reuse, serial equals parallel.
 - **r3d** (Powell & Abel 2015, *An exact general remeshing scheme applied to physically conservative
   voxelization*, J. Comput. Phys. 297) does general polyhedron clipping and voxelization with moments. License
   checked at github.com/devonmpowell/r3d (October 2026): the current r2d / r3d / rNd files carry a LANL / DOE

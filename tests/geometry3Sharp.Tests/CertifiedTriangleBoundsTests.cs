@@ -605,6 +605,635 @@ namespace geometry3Sharp.Tests
             Assert.True(mi >= 1.25 && mi < 1.25 + 1e-12, mi.ToString("R"));
         }
 
+        /// <summary>
+        /// Range guards, axis sensitivity, Section 8 floor (&gt;= 2^-537), true r2 == 0 underflow residual (1e-165),
+        /// UTM v0-relative tightness (fails if PointTriangleUpper reverts to absolute-coordinate ExactInterval),
+        /// out-of-range lambda, NaN/Inf edge cases, and obtuse/acute/sliver/extreme-scale CoveringUpper checks
+        /// for the hardware-double fast paths of CertifiedTriangleBounds (CTB-1..CTB-4 in tools/ErrorBoundAudit/bounds.py).
+        /// </summary>
+        [Fact]
+        public void FastPaths_BoundaryGuardsAndAllAxes_AlwaysSound()
+        {
+            double sec8Floor = Math.Pow(2, -537);
+
+            // LengthUpper (CTB-1): exact zero (Section 8 floor via fallback), tiny subnormal, huge fallback, and each axis
+            Assert.True(CertifiedTriangleBounds.LengthUpper(Vector3d.Zero, Vector3d.Zero) >= sec8Floor);
+            Assert.True(CertifiedTriangleBounds.LengthUpper(Vector3d.Zero, new Vector3d(1e-160, 0, 0)) >= 1e-160);
+            Assert.True(CertifiedTriangleBounds.LengthUpper(Vector3d.Zero, new Vector3d(0, 1e-160, 0)) >= 1e-160);
+            Assert.True(CertifiedTriangleBounds.LengthUpper(Vector3d.Zero, new Vector3d(0, 0, 1e-160)) >= 1e-160);
+            double hugeLen = CertifiedTriangleBounds.LengthUpper(Vector3d.Zero, new Vector3d(1e148, 0, 0));
+            Assert.True(hugeLen >= 1e148 && !double.IsInfinity(hugeLen));
+            Assert.True(double.IsPositiveInfinity(CertifiedTriangleBounds.LengthUpper(Vector3d.Zero, new Vector3d(1e200, 0, 0))));
+            var rnd = new Random(71);
+            for (int i = 0; i < 400; ++i) {
+                Vector3d a = new Vector3d(rnd.NextDouble() * 10 - 5, rnd.NextDouble() * 10 - 5, rnd.NextDouble() * 10 - 5);
+                Vector3d b = new Vector3d(rnd.NextDouble() * 10 - 5, rnd.NextDouble() * 10 - 5, rnd.NextDouble() * 10 - 5);
+                double len = CertifiedTriangleBounds.LengthUpper(a, b);
+                Assert.True(ExactDyadic.Compare(D(len) * D(len), sq(a, b)) >= 0);
+                // Tight: within 1e-14 relative of float distance
+                Assert.True(len <= a.Distance(b) * (1.0 + 1e-14) + 1e-15);
+            }
+            foreach (Vector3d axis in new[] { Vector3d.AxisX, Vector3d.AxisY, Vector3d.AxisZ }) {
+                double lu = CertifiedTriangleBounds.LengthUpper(Vector3d.Zero, axis);
+                Assert.True(lu >= 1.0 && lu <= 1.0 + 2e-15);
+            }
+
+            // PointTriangleUpper (CTB-2): zero triangle (Section 8 floor), huge fallback, exact hit,
+            // true r2 == 0 underflow residual (1e-165), NaN/Inf with zero barycentric weight, and UTM v0-relative tightness
+            Assert.True(CertifiedTriangleBounds.PointTriangleUpper(Vector3d.Zero, Vector3d.Zero, Vector3d.Zero, Vector3d.Zero, 0, 0) >= sec8Floor);
+            double hugePt = CertifiedTriangleBounds.PointTriangleUpper(new Vector3d(1e148, 0, 0), Vector3d.Zero, new Vector3d(0, 1, 0), new Vector3d(0, 0, 1), 0, 0);
+            Assert.True(hugePt >= 1e148 && !double.IsInfinity(hugePt));
+            double exactHit = CertifiedTriangleBounds.PointTriangleUpper(new Vector3d(1.25, 2.25, 3), new Vector3d(1, 2, 3), new Vector3d(2, 2, 3), new Vector3d(1, 3, 3), 0.25, 0.25);
+            Assert.True(exactHit >= sec8Floor && exactHit < 1e-14);
+            // True r2 == 0 underflow (1e-165^2 == 0 in binary64) while e > NormalLinLo: absorbed by 1.25e-16 * e
+            Vector3d v0 = new Vector3d(0, 1, 0), v1 = new Vector3d(0, 2, 0), v2 = new Vector3d(0, 1, 1);
+            Assert.True(CertifiedTriangleBounds.PointTriangleUpper(new Vector3d(1e-165, 1.5, 0), v0, v1, v2, 0.5, 0) >= 1e-165);
+            Vector3d w0 = new Vector3d(1, 0, 0), w1 = new Vector3d(2, 0, 0), w2 = new Vector3d(1, 0, 1);
+            Assert.True(CertifiedTriangleBounds.PointTriangleUpper(new Vector3d(1.5, 1e-165, 0), w0, w1, w2, 0.5, 0) >= 1e-165);
+            Vector3d u0 = new Vector3d(1, 0, 0), u1 = new Vector3d(2, 0, 0), u2 = new Vector3d(1, 1, 0);
+            Assert.True(CertifiedTriangleBounds.PointTriangleUpper(new Vector3d(1.5, 0, 1e-165), u0, u1, u2, 0.5, 0) >= 1e-165);
+            // NaN / Inf vertex with zero barycentric weight must still yield +Infinity (0 * Inf = NaN -> fallback)
+            Vector3d infV = new Vector3d(double.PositiveInfinity, 0, 0), nanV = new Vector3d(double.NaN, 0, 0);
+            Assert.Equal(double.PositiveInfinity, CertifiedTriangleBounds.PointTriangleUpper(v0, v0, infV, v2, 0, 0.5));
+            Assert.Equal(double.PositiveInfinity, CertifiedTriangleBounds.PointTriangleUpper(v0, v0, v1, nanV, 0.5, 0));
+            // UTM near-surface tightness: v0-relative fast path achieves O(1e-15) excess vs ~1e-9 for absolute-coordinate ExactInterval
+            Vector3d utm = new Vector3d(632117.25, 5712043.5, 113.75);
+            Vector3d ut0 = utm, ut1 = utm + new Vector3d(1, 0, 0), ut2 = utm + new Vector3d(0, 1, 0);
+            Vector3d ux = utm + new Vector3d(0.25, 0.25, 1e-12);
+            double utmBound = CertifiedTriangleBounds.PointTriangleUpper(ux, ut0, ut1, ut2, 0.25, 0.25);
+            Assert.True(gs.CertifiedPointMeshDistance.AtLeastDistance(Tri(ut0, ut1, ut2), ux, utmBound));
+            Assert.True(utmBound < 1e-11, $"UTM bound {utmBound:R} should stay O(1e-12), not O(1e-9)");
+
+            // CutRounding (CTB-3): out-of-range lambda (< 0, > 1, NaN), zero/huge inputs, NaN/Inf endpoints, and non-zero d shift
+            Vector3d ca = new Vector3d(1.2, -3.4, 5.6), cb = new Vector3d(-2.3, 4.5, -1.7);
+            foreach (double badLam in new[] { -0.5, 1.5 }) {
+                Vector3d cc = ca + badLam * (cb - ca);
+                double rho = CertifiedTriangleBounds.CutRounding(ca, cb, badLam, cc);
+                ExactDyadic sum = D(0);
+                for (int k = 0; k < 3; ++k) {
+                    ExactDyadic err = D(cc[k]) - (D(ca[k]) + D(badLam) * (D(cb[k]) - D(ca[k])));
+                    sum = sum + (err.Sign < 0 ? -err : err);
+                }
+                Assert.True(ExactDyadic.Compare(sum, D(rho)) <= 0);
+            }
+            Assert.Equal(double.PositiveInfinity, CertifiedTriangleBounds.CutRounding(ca, cb, double.NaN, ca));
+            Assert.Equal(double.PositiveInfinity, CertifiedTriangleBounds.CutRounding(ca, infV, 0.0, ca));
+            Assert.Equal(double.PositiveInfinity, CertifiedTriangleBounds.CutRounding(ca, cb, 0.5, nanV));
+            Assert.True(CertifiedTriangleBounds.CutRounding(Vector3d.Zero, Vector3d.Zero, 0.5, Vector3d.Zero) >= 0);
+            double shiftedCut = CertifiedTriangleBounds.CutRounding(ca, cb, 0.3, ca + 0.3 * (cb - ca) + new Vector3d(0.25, -0.5, 0.75));
+            Assert.True(shiftedCut >= 1.5 && shiftedCut < 1.5 + 1e-12);
+            double hugeShiftCut = CertifiedTriangleBounds.CutRounding(ca, cb, 0.3, new Vector3d(1e200, 0, 0));
+            Assert.True(hugeShiftCut >= 1e200 && !double.IsInfinity(hugeShiftCut));
+
+            // CoveringUpper (CTB-4): obtuse corners, acute circumradius strictly below l*K on XY/YZ/ZX planes,
+            // near-collinear slivers, tiny/huge scales, and NaN/Inf/zero edge bounds
+            Vector3d[] triXY = { new Vector3d(0, 0, 0), new Vector3d(2, 0, 0), new Vector3d(1, 1.8, 0) };
+            Vector3d[] triYZ = { new Vector3d(0, 0, 0), new Vector3d(0, 2, 0), new Vector3d(0, 1, 1.8) };
+            Vector3d[] triZX = { new Vector3d(0, 0, 0), new Vector3d(0, 0, 2), new Vector3d(1.8, 0, 1) };
+            foreach (Vector3d[] tri in new[] { triXY, triYZ, triZX }) {
+                double e01 = CertifiedTriangleBounds.LengthUpper(tri[0], tri[1]);
+                double e12 = CertifiedTriangleBounds.LengthUpper(tri[1], tri[2]);
+                double e20 = CertifiedTriangleBounds.LengthUpper(tri[2], tri[0]);
+                double cov = CertifiedTriangleBounds.CoveringUpper(tri[0], tri[1], tri[2], e01, e12, e20);
+                double lMax = Math.Max(e01, Math.Max(e12, e20));
+                Assert.True(cov < lMax * CertifiedTriangleBounds.K);
+                ExactDyadic q01 = sq(tri[0], tri[1]), q12 = sq(tri[1], tri[2]), q20 = sq(tri[2], tri[0]);
+                Assert.True(ExactDyadic.Compare(D(4) * cross2(tri[0], tri[1], tri[2]) * D(cov) * D(cov), q01 * q12 * q20) >= 0);
+            }
+            Vector3d[][] obtuseCases = {
+                new[] { new Vector3d(0, 0, 0), new Vector3d(3, 0, 0), new Vector3d(1.5, 0.5, 0) }, // obtuse at p2 (opp e01)
+                new[] { new Vector3d(1.5, 0.5, 0), new Vector3d(0, 0, 0), new Vector3d(3, 0, 0) }, // obtuse at p0 (opp e12)
+                new[] { new Vector3d(3, 0, 0), new Vector3d(1.5, 0.5, 0), new Vector3d(0, 0, 0) }  // obtuse at p1 (opp e20)
+            };
+            foreach (Vector3d[] tri in obtuseCases) {
+                double e01 = CertifiedTriangleBounds.LengthUpper(tri[0], tri[1]);
+                double e12 = CertifiedTriangleBounds.LengthUpper(tri[1], tri[2]);
+                double e20 = CertifiedTriangleBounds.LengthUpper(tri[2], tri[0]);
+                double cov = CertifiedTriangleBounds.CoveringUpper(tri[0], tri[1], tri[2], e01, e12, e20);
+                Assert.True(cov >= 1.5 && cov < 1.5 + 1e-12);
+            }
+            // Sliver (nearly collinear) falls back cleanly and stays >= l/2
+            Vector3d sp0 = new Vector3d(0, 0, 0), sp1 = new Vector3d(1, 0, 0), sp2 = new Vector3d(0.5, 1e-16, 0);
+            double se01 = CertifiedTriangleBounds.LengthUpper(sp0, sp1), se12 = CertifiedTriangleBounds.LengthUpper(sp1, sp2), se20 = CertifiedTriangleBounds.LengthUpper(sp2, sp0);
+            Assert.True(CertifiedTriangleBounds.CoveringUpper(sp0, sp1, sp2, se01, se12, se20) >= 0.5);
+            // Tiny (1e-160) and huge (1e148) scales fall back cleanly
+            foreach (double sc in new[] { 1e-160, 1e148 }) {
+                Vector3d a0 = Vector3d.Zero, a1 = new Vector3d(2 * sc, 0, 0), a2 = new Vector3d(sc, 1.8 * sc, 0);
+                double ce01 = CertifiedTriangleBounds.LengthUpper(a0, a1), ce12 = CertifiedTriangleBounds.LengthUpper(a1, a2), ce20 = CertifiedTriangleBounds.LengthUpper(a2, a0);
+                double ccov = CertifiedTriangleBounds.CoveringUpper(a0, a1, a2, ce01, ce12, ce20);
+                Assert.True(ccov >= sc && !double.IsNaN(ccov));
+            }
+            // NaN, +Infinity, and 0 edge bounds trigger fallback cleanly
+            Assert.Equal(double.PositiveInfinity, CertifiedTriangleBounds.CoveringUpper(triXY[0], triXY[1], triXY[2], double.NaN, 2, 2));
+            Assert.Equal(double.PositiveInfinity, CertifiedTriangleBounds.CoveringUpper(triXY[0], triXY[1], triXY[2], 2, double.NaN, 2));
+            Assert.Equal(double.PositiveInfinity, CertifiedTriangleBounds.CoveringUpper(triXY[0], triXY[1], triXY[2], 2, 2, double.NaN));
+            Assert.Equal(double.PositiveInfinity, CertifiedTriangleBounds.CoveringUpper(obtuseCases[0][0], obtuseCases[0][1], obtuseCases[0][2], double.NaN, 2, 2));
+            Assert.Equal(double.PositiveInfinity, CertifiedTriangleBounds.CoveringUpper(triXY[0], triXY[1], triXY[2], double.PositiveInfinity, 2, 2));
+            Assert.Equal(double.PositiveInfinity, CertifiedTriangleBounds.CoveringUpper(infV, triXY[1], triXY[2],
+                CertifiedTriangleBounds.LengthUpper(infV, triXY[1]), 2, CertifiedTriangleBounds.LengthUpper(triXY[2], infV)));
+            Assert.True(CertifiedTriangleBounds.CoveringUpper(triXY[0], triXY[1], triXY[2], 0, 2, 2) >= 0);
+        }
+
+        /// <summary>
+        /// Thin acute isosceles triangles p0 = L*dir, p1 = w*perp, p2 = -w*perp (w/L = 2^-10..2^-40) in 3D and in each
+        /// coordinate plane (XY, YZ, ZX): kills setting any of CTB-4's three cross-product slack terms (-1e-15 * mx/my/mz)
+        /// to 0. Also tests CoveringUpper directly with exact-dyadic edge bounds (unmasked by LengthUpper's 1e-15 slack).
+        /// </summary>
+        [Fact]
+        public void CoveringUpper_ThinAcuteIsoscelesAndExactDyadicEdges_PinsCrossSlack()
+        {
+            var rnd = new Random(1543);
+            int checkedSlivers = 0;
+            for (int plane = 0; plane < 4; ++plane) {
+                for (int exp = 10; exp <= 40; exp += 2) {
+                    double w = Math.Pow(2, -exp);
+                    for (int rep = 0; rep < 20; ++rep) {
+                        double a = rnd.NextDouble() * 2 * Math.PI;
+                        Vector3d dir, perp;
+                        if (plane == 0) {
+                            // YZ plane -> pure X cross product (pins -1e-15 * mx)
+                            dir = new Vector3d(0, Math.Cos(a), Math.Sin(a));
+                            perp = new Vector3d(0, -Math.Sin(a), Math.Cos(a));
+                        } else if (plane == 1) {
+                            // ZX plane -> pure Y cross product (pins -1e-15 * my)
+                            dir = new Vector3d(Math.Sin(a), 0, Math.Cos(a));
+                            perp = new Vector3d(Math.Cos(a), 0, -Math.Sin(a));
+                        } else if (plane == 2) {
+                            // XY plane -> pure Z cross product (pins -1e-15 * mz)
+                            dir = new Vector3d(Math.Cos(a), Math.Sin(a), 0);
+                            perp = new Vector3d(-Math.Sin(a), Math.Cos(a), 0);
+                        } else {
+                            // General 3D orthogonal frame
+                            double z = 2 * rnd.NextDouble() - 1;
+                            double r = Math.Sqrt(Math.Max(0, 1 - z * z));
+                            dir = new Vector3d(r * Math.Cos(a), r * Math.Sin(a), z);
+                            Vector3d aux = Math.Abs(dir.x) < 0.9 ? Vector3d.AxisX : Vector3d.AxisY;
+                            perp = dir.Cross(aux).Normalized;
+                        }
+                        double L = 1.0 + rnd.NextDouble();
+                        Vector3d p0 = L * dir, p1 = w * perp, p2 = -w * perp;
+                        double e01 = CertifiedTriangleBounds.LengthUpper(p0, p1);
+                        double e12 = CertifiedTriangleBounds.LengthUpper(p1, p2);
+                        double e20 = CertifiedTriangleBounds.LengthUpper(p2, p0);
+                        double cov = CertifiedTriangleBounds.CoveringUpper(p0, p1, p2, e01, e12, e20);
+                        Assert.True(cov >= 0);
+                        ExactDyadic q01 = sq(p0, p1), q12 = sq(p1, p2), q20 = sq(p2, p0);
+                        // Acute check: if exact triangle is acute, covering radius == circumradius so 4 * |cross|^2 * cov^2 >= q01*q12*q20
+                        bool nonAcute = ExactDyadic.Compare(q12 + q20, q01) <= 0
+                            || ExactDyadic.Compare(q01 + q20, q12) <= 0
+                            || ExactDyadic.Compare(q01 + q12, q20) <= 0;
+                        if (nonAcute) {
+                            ExactDyadic maxQ = ExactDyadic.Compare(q01, q12) >= 0 ? q01 : q12;
+                            if (ExactDyadic.Compare(q20, maxQ) > 0) maxQ = q20;
+                            Assert.True(ExactDyadic.Compare(D(4) * D(cov) * D(cov), maxQ) >= 0);
+                        } else {
+                            Assert.True(ExactDyadic.Compare(D(4) * cross2(p0, p1, p2) * D(cov) * D(cov), q01 * q12 * q20) >= 0,
+                                $"plane {plane} exp {exp} rep {rep}: cov={cov:R} below exact circumradius");
+                            checkedSlivers++;
+                        }
+                    }
+                }
+            }
+            Assert.True(checkedSlivers > 1000);
+
+            // Direct CoveringUpper with exact-dyadic edge bounds (no LengthUpper 1e-15 slack; note CTB-4's (1+2e-15)
+            // factor is still masked here by lnz's -1e-15*mz slack and is pinned directly by FastPaths_AreTakenOnNormalInputs).
+            var exactTris = new[] {
+                (new Vector3d(0, 0, 0), new Vector3d(10, 0, 0), new Vector3d(5, 12, 0), 10.0, 13.0, 13.0),
+                (new Vector3d(0, 0, 0), new Vector3d(14, 0, 0), new Vector3d(7, 24, 0), 14.0, 25.0, 25.0),
+                (new Vector3d(0, 0, 0), new Vector3d(18, 0, 0), new Vector3d(9, 40, 0), 18.0, 41.0, 41.0),
+                (new Vector3d(0, 0, 0), new Vector3d(22, 0, 0), new Vector3d(11, 60, 0), 22.0, 61.0, 61.0),
+            };
+            foreach (var (p0, p1, p2, e01, e12, e20) in exactTris) {
+                double cov = CertifiedTriangleBounds.CoveringUpper(p0, p1, p2, e01, e12, e20);
+                Assert.True(cov >= 0);
+                ExactDyadic q01 = sq(p0, p1), q12 = sq(p1, p2), q20 = sq(p2, p0);
+                Assert.True(ExactDyadic.Compare(D(4) * cross2(p0, p1, p2) * D(cov) * D(cov), q01 * q12 * q20) >= 0);
+            }
+        }
+
+        /// <summary>
+        /// Point x at the computed barycentric point v0 + w1*(v1 - v0) + w2*(v2 - v0) shifted by ±3 ulps, with offsets
+        /// from 0 up to 2^50 (plus 1D non-Sterbenz opposite-sign triangles where v1 - v0, v2 - v0, and x - v0 all round
+        /// inexactly and r == 0): verifies both exact B1 point distance and triangle distance, decisively killing
+        /// CTB-2's forward-error constant mutant (1.25e-16 -> 2e-17) via the exact oracle alone.
+        /// </summary>
+        [Fact]
+        public void PointTriangleUpper_ShiftedBarycentricAndLargeOffsets_PinsForwardErrorConstant()
+        {
+            var rnd = new Random(1544);
+            int checkedCases = 0;
+
+            // Part 1: 1D-dominant non-Sterbenz opposite-sign cases (v0 > 0, v1, v2 < 0 on one axis, x = v0 + (q1 + q2) so r == 0)
+            // — avoids Sterbenz exactness and 1/sqrt(3) dilution so |delta|_2 / e reaches ~4e-17..6e-17, killing 1.25e-16 -> 2e-17.
+            for (int i = 0; i < 400; ++i) {
+                double a0 = 0.5 + rnd.NextDouble();
+                double a1 = -(0.5 + rnd.NextDouble());
+                double a2 = -(0.5 + rnd.NextDouble());
+                Vector3d v0 = new Vector3d(a0, 0, 0);
+                Vector3d v1 = new Vector3d(a1, 1e-12, 0);
+                Vector3d v2 = new Vector3d(a2, 0, 1e-12);
+                double w1 = 0.1 + 0.35 * rnd.NextDouble();
+                double w2 = 0.1 + 0.35 * rnd.NextDouble();
+                CertifiedTriangleBounds.Clamp(w1, w2, out double s, out double t);
+                double q1x = s * (v1.x - v0.x), q2x = t * (v2.x - v0.x);
+                Vector3d x = new Vector3d(v0.x + (q1x + q2x), s * v1.y, t * v2.z);
+                double u = CertifiedTriangleBounds.PointTriangleUpper(x, v0, v1, v2, w1, w2);
+                Assert.True(u >= 0);
+                ExactDyadic d2 = D(0);
+                for (int k = 0; k < 3; ++k) {
+                    ExactDyadic diff = D(x[k]) - (D(v0[k]) + D(s) * (D(v1[k]) - D(v0[k])) + D(t) * (D(v2[k]) - D(v0[k])));
+                    d2 = d2 + diff * diff;
+                }
+                Assert.True(ExactDyadic.Compare(d2, D(u) * D(u)) <= 0, $"non-Sterbenz i={i}: u={u:R} below exact B1 point distance");
+                checkedCases++;
+            }
+
+            // Part 2: 3D triangles shifted by ±3 ulps at offsets from 0 up to 2^50
+            foreach (int exp in new[] { 0, 10, 20, 30, 40, 50 }) {
+                double off = exp == 0 ? 0.0 : Math.Pow(2, exp);
+                for (int i = 0; i < 80; ++i) {
+                    Vector3d v0 = new Vector3d(off + (rnd.NextDouble() * 2 - 1), off + (rnd.NextDouble() * 2 - 1), off + (rnd.NextDouble() * 2 - 1));
+                    Vector3d v1 = v0 + new Vector3d(rnd.NextDouble() * 2 - 1, rnd.NextDouble() * 2 - 1, rnd.NextDouble() * 2 - 1);
+                    Vector3d v2 = v0 + new Vector3d(rnd.NextDouble() * 2 - 1, rnd.NextDouble() * 2 - 1, rnd.NextDouble() * 2 - 1);
+                    if (v1 == v0 || v2 == v0) continue;
+                    double w1 = 0.05 + 0.4 * rnd.NextDouble();
+                    double w2 = 0.05 + 0.4 * rnd.NextDouble();
+                    CertifiedTriangleBounds.Clamp(w1, w2, out double s, out double t);
+                    Vector3d p = v0 + w1 * (v1 - v0) + w2 * (v2 - v0);
+                    foreach (int shift in new[] { -3, -1, 0, 1, 3 }) {
+                        Vector3d x = p;
+                        for (int k = 0; k < 3; ++k) {
+                            double v = p[k];
+                            for (int sh = 0; sh < Math.Abs(shift); ++sh)
+                                v = shift > 0 ? ExactInterval.Up(v) : ExactInterval.Down(v);
+                            x[k] = v;
+                        }
+                        double u = CertifiedTriangleBounds.PointTriangleUpper(x, v0, v1, v2, w1, w2);
+                        Assert.True(u >= 0);
+                        ExactDyadic d2 = D(0);
+                        for (int k = 0; k < 3; ++k) {
+                            ExactDyadic diff = D(x[k]) - (D(v0[k]) + D(s) * (D(v1[k]) - D(v0[k])) + D(t) * (D(v2[k]) - D(v0[k])));
+                            d2 = d2 + diff * diff;
+                        }
+                        Assert.True(ExactDyadic.Compare(d2, D(u) * D(u)) <= 0,
+                            $"exp={exp} shift={shift} i={i}: u={u:R} below exact B1 point distance");
+                        if (i < 10)
+                            Assert.True(gs.CertifiedPointMeshDistance.AtLeastDistance(Tri(v0, v1, v2), x, u),
+                                $"exp={exp} shift={shift} i={i}: u={u:R} below triangle distance");
+                        checkedCases++;
+                    }
+                }
+            }
+            Assert.True(checkedCases >= 2400);
+        }
+
+        /// <summary>
+        /// Verifies that all four range-guarded fast paths (LengthUpper, PointTriangleUpper, CutRounding, CoveringUpper)
+        /// actually take their hardware-double fast path on ordinary in-range inputs rather than falling back to ExactInterval.
+        /// </summary>
+        [Fact]
+        public void FastPaths_AreTakenOnNormalInputs()
+        {
+            // CTB-1 LengthUpper: fast path returns Math.Sqrt(25) * (1 + 1e-15) (5 + 6 ulp); ExactInterval fallback returns 5 + 4 ulp
+            double lu = CertifiedTriangleBounds.LengthUpper(Vector3d.Zero, new Vector3d(3, 4, 0));
+            double luFast = Math.Sqrt(25.0) * (1.0 + 1e-15);
+            Assert.Equal(BitConverter.DoubleToInt64Bits(luFast), BitConverter.DoubleToInt64Bits(lu));
+
+            // CTB-2 PointTriangleUpper: exact barycentric hit has r2 == 0, e = 2*(0.25+0.25) + (0.25+0.25+0.25) = 1.75;
+            // fast path returns exact 1.25e-16 * 1.75 (~2.19e-16), whereas ExactInterval fallback returns ~1.33e-15
+            double ptu = CertifiedTriangleBounds.PointTriangleUpper(
+                new Vector3d(1.25, 2.25, 3), new Vector3d(1, 2, 3), new Vector3d(2, 2, 3), new Vector3d(1, 3, 3), 0.25, 0.25);
+            Assert.Equal(BitConverter.DoubleToInt64Bits(1.25e-16 * 1.75), BitConverter.DoubleToInt64Bits(ptu));
+
+            // CTB-3 CutRounding: exact cut point has d == 0, e = 2*(1+1+1) + (2+3+4) = 15;
+            // fast path returns exact 1.25e-16 * 15 (~1.88e-15), whereas ExactInterval fallback returns ~2.66e-15
+            double cr = CertifiedTriangleBounds.CutRounding(
+                new Vector3d(1, 2, 3), new Vector3d(5, 6, 7), 0.25, new Vector3d(2, 3, 4));
+            Assert.Equal(BitConverter.DoubleToInt64Bits(1.25e-16 * 15.0), BitConverter.DoubleToInt64Bits(cr));
+
+            // CTB-4 CoveringUpper: acute triangle (0,0,0),(6,0,0),(3,4,0) with exact edges 6,5,5 has |cross| = 24,
+            // fast path returns 150 / (2 * Math.Sqrt(x2)) * (1 + 2e-15), 11 ulps distinct from ExactInterval fallback
+            double lnz = 24.0 - 1e-15 * 24.0;
+            double cuFast = (6.0 * 5.0 * 5.0) / (2.0 * Math.Sqrt(lnz * lnz)) * (1.0 + 2e-15);
+            double cu = CertifiedTriangleBounds.CoveringUpper(
+                new Vector3d(0, 0, 0), new Vector3d(6, 0, 0), new Vector3d(3, 4, 0), 6, 5, 5);
+            Assert.Equal(BitConverter.DoubleToInt64Bits(cuFast), BitConverter.DoubleToInt64Bits(cu));
+        }
+
+        /// <summary>
+        /// Verifies CPM-1 (box_lower_squared) and CPM-2 (plane_lower_squared_exceeds) fast filters in CertifiedPointMeshDistance:
+        /// never exceed the exact box / plane / triangle squared distance across normal, UTM, subnormal, overflow, sliver,
+        /// and NaN/Inf edge cases, and take their fast paths on ordinary in-range inputs.
+        /// </summary>
+        [Fact]
+        public void CertifiedPointMeshDistance_BoxAndPlaneFastFilters_SoundAndExact()
+        {
+            // CPM-1 fast path taken: exact gap (3, 4, 0) -> s = 25, fast path returns 25.0 * (1 - 1e-15)
+            double boxFast = gs.CertifiedPointMeshDistance.box_lower_squared(
+                Vector3d.Zero, new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), new Vector3d(-3, 5, 0));
+            Assert.Equal(BitConverter.DoubleToInt64Bits(25.0 * (1.0 - 1e-15)), BitConverter.DoubleToInt64Bits(boxFast));
+
+            // CPM-1 soundness across exponents from subnormal to overflow and all 3 axes (both sides of box)
+            var rnd = new Random(1647);
+            foreach (int e in new[] { -1070, -1040, -537, -160, -20, 0, 20, 148, 200, 500, 520 }) {
+                for (int i = 0; i < 40; ++i) {
+                    Vector3d a = new Vector3d(R(rnd, e), R(rnd, e), R(rnd, e));
+                    Vector3d b = new Vector3d(R(rnd, e), R(rnd, e), R(rnd, e));
+                    Vector3d c = new Vector3d(R(rnd, e), R(rnd, e), R(rnd, e));
+                    Vector3d p = new Vector3d(R(rnd, e), R(rnd, e), R(rnd, e));
+                    double lb = gs.CertifiedPointMeshDistance.box_lower_squared(a, b, c, p);
+                    Assert.True(lb >= 0);
+                    Assert.False(double.IsInfinity(lb));
+                    // Exact squared distance from p to AABB(a, b, c)
+                    ExactDyadic exactBoxSq = D(0);
+                    for (int k = 0; k < 3; ++k) {
+                        double lo = Math.Min(a[k], Math.Min(b[k], c[k])), hi = Math.Max(a[k], Math.Max(b[k], c[k]));
+                        if (p[k] < lo) { ExactDyadic g = D(lo) - D(p[k]); exactBoxSq = exactBoxSq + g * g; }
+                        else if (p[k] > hi) { ExactDyadic g = D(p[k]) - D(hi); exactBoxSq = exactBoxSq + g * g; }
+                    }
+                    Assert.True(ExactDyadic.Compare(D(lb), exactBoxSq) <= 0, $"CPM-1 e={e} i={i}: lb={lb:R} > exact box d^2");
+                }
+            }
+            // CPM-1 NormalSqLo guard (kills s > NormalSqLo -> s > 0: subnormal s = g^2 ~ 2^-1074 rounds up in fast path)
+            {
+                double s537 = Math.Pow(2, -537);
+                for (int i = 0; i < 2000; ++i) {
+                    double gap = (rnd.NextDouble() + 0.5) * s537;
+                    double lb = gs.CertifiedPointMeshDistance.box_lower_squared(
+                        Vector3d.Zero, Vector3d.Zero, Vector3d.Zero, new Vector3d(gap, 0, 0));
+                    ExactDyadic g = D(gap);
+                    Assert.True(ExactDyadic.Compare(D(lb), g * g) <= 0, $"CPM-1 subnormal i={i}: lb={lb:R} > g^2");
+                }
+            }
+            // CPM-1 NormalSqHi guard (kills M4: dropping && s < NormalSqHi returns +Inf on p = (0, 0, 1e160) so LowerBound returns +Inf)
+            {
+                DMesh3 farTri = Tri(Vector3d.Zero, new Vector3d(1, 0, 0), new Vector3d(0, 1, 0));
+                double lbFar = gs.CertifiedPointMeshDistance.LowerBound(farTri, new Vector3d(0, 0, 1e160));
+                Assert.True(lbFar > 1e153 && lbFar <= 1e160, $"lbFar={lbFar:R}");
+            }
+            // Pass-2 near-tie prune test: triangle A's box contains p = 0 (box lb = 0, exact dist = 1),
+            // while triangle B at z = -0.9999 is strictly nearer (exact dist = 0.9999, box lb = 0.9999^2).
+            // Kills over-pruning in both `lb > bestUpper` and `greater(lb, best)` (e.g., lb * 1.001).
+            {
+                double r2 = Math.Sqrt(2.0);
+                var m = new DMesh3();
+                int a0 = m.AppendVertex(new Vector3d(r2, 1, 0));
+                int a1 = m.AppendVertex(new Vector3d(r2, -1, 0));
+                int a2 = m.AppendVertex(new Vector3d(0, 0, r2));
+                m.AppendTriangle(a0, a1, a2);
+                int b0 = m.AppendVertex(new Vector3d(-1, -1, -0.9999));
+                int b1 = m.AppendVertex(new Vector3d(1, -1, -0.9999));
+                int b2 = m.AppendVertex(new Vector3d(0, 1, -0.9999));
+                m.AppendTriangle(b0, b1, b2);
+                double lb = gs.CertifiedPointMeshDistance.LowerBound(m, Vector3d.Zero);
+                Assert.True(lb > 0.9998 && lb <= 0.9999, $"near-tie lb={lb:R}");
+            }
+
+            // CPM-1 non-Sterbenz 1D-dominant gap soundness (catches dropping the (1 - 1e-15) downward factor)
+            for (int i = 0; i < 400; ++i) {
+                double lo = 1.0 + rnd.NextDouble();
+                double px = -(0.5 + rnd.NextDouble() * 0.5); // opposite sign -> fl(lo - px) can round up by 0.5 ulp
+                Vector3d a = new Vector3d(lo, 0, 0), b = new Vector3d(lo + 1, 1, 0), c = new Vector3d(lo + 1, 0, 1);
+                Vector3d p = new Vector3d(px, 0.25, 0.25);
+                double lb = gs.CertifiedPointMeshDistance.box_lower_squared(a, b, c, p);
+                ExactDyadic g = D(lo) - D(px);
+                Assert.True(ExactDyadic.Compare(D(lb), g * g) <= 0, $"CPM-1 1D i={i}: lb={lb:R} > exact gap^2");
+            }
+
+            // CPM-2 fast path taken on clearly separated triangle & conservative on Inf/NaN/degenerate/range-guard boundaries
+            Vector3d t0 = new Vector3d(0, 0, 0), t1 = new Vector3d(2, 0, 0), t2 = new Vector3d(0, 2, 0);
+            Assert.True(gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(t0, t1, t2, new Vector3d(0.5, 0.5, 3.0), 8.9));
+            Assert.False(gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(t0, t1, t2, new Vector3d(0.5, 0.5, 3.0), 9.0));
+            // Pin exact CPM-2 threshold across all 3 axes (kills dropping + 1e-15*m_x/y/z, dropping (1 - 2e-15), or lb >= thresh)
+            {
+                CertifiedDet3 dRef = CertifiedDet3.Compute(new Vector3d(0.5, 0.5, 3.0), new Vector3d(2, 0, 0), new Vector3d(0, 2, 0));
+                double detLoRef = ExactInterval.Down(Math.Abs(dRef.Det) - dRef.E);
+                double unRef = 4.0 + 1e-15 * 4.0;
+                double expectedLb = ((detLoRef * detLoRef) / (unRef * unRef)) * (1.0 - 2e-15);
+                Vector3d[,] axisCases = {
+                    { new Vector3d(2, 0, 0), new Vector3d(0, 2, 0), new Vector3d(0.5, 0.5, 3.0) }, // z-normal (mz)
+                    { new Vector3d(0, 2, 0), new Vector3d(0, 0, 2), new Vector3d(3.0, 0.5, 0.5) }, // x-normal (mx)
+                    { new Vector3d(0, 0, 2), new Vector3d(2, 0, 0), new Vector3d(0.5, 3.0, 0.5) }, // y-normal (my)
+                };
+                for (int ax = 0; ax < 3; ++ax) {
+                    Assert.True(gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(
+                        Vector3d.Zero, axisCases[ax, 0], axisCases[ax, 1], axisCases[ax, 2], ExactInterval.Down(expectedLb)));
+                    Assert.False(gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(
+                        Vector3d.Zero, axisCases[ax, 0], axisCases[ax, 1], axisCases[ax, 2], expectedLb));
+                }
+            }
+            Assert.False(gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(t0, t1, t2, new Vector3d(0.5, 0.5, 3.0), double.PositiveInfinity));
+            Assert.False(gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(t0, t1, t2, new Vector3d(0.5, 0.5, 3.0), double.NaN));
+            // Degenerate (collinear) triangle must never prune
+            Assert.False(gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(t0, t1, new Vector3d(4, 0, 0), new Vector3d(1, 5, 0), 0.0));
+            // Range-guard boundary checks (each hits exactly one guard so deleting that guard fails):
+            // 1) detLo <= NormalLinLo with n2 = 1e-280 > NormalSqLo and q = h^2 ~ 1e-36 in (NormalSqLo, NormalSqHi):
+            //    detLo ~ 1e-158 underflows detLo^2 to subnormal; kills M12 (NormalLinLo = 0) which falsely prunes at thresh = h^2
+            {
+                Vector3d s1 = new Vector3d(1e-70, 0, 0), s2 = new Vector3d(0, 1e-70, 0);
+                for (int i = 0; i < 200; ++i) {
+                    double h = (1.0 + i / 200.0) * 1e-18;
+                    Assert.False(gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(
+                        Vector3d.Zero, s1, s2, new Vector3d(0, 0, h), h * h), $"CPM-2 NormalLinLo i={i} h={h:R}");
+                }
+            }
+            // 2) detLo >= NormalLinHi (det ~ 1e145, n2 = 1; blocked by detLo < NormalLinHi)
+            Assert.False(gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(
+                Vector3d.Zero, new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), new Vector3d(0, 0, 1e145), 0.0));
+            // 3) n2 <= NormalSqLo (det ~ 1e-130 in range, n2 ~ 1e-292 <= 1e-290; blocked by n2 > NormalSqLo)
+            Assert.False(gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(
+                Vector3d.Zero, new Vector3d(1e-73, 0, 0), new Vector3d(0, 1e-73, 0), new Vector3d(0, 0, 1e16), 0.0));
+            // 4) n2 >= NormalSqHi (det ~ 1e130 in range, n2 ~ 1e292 >= 1e290; blocked by n2 < NormalSqHi)
+            Assert.False(gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(
+                Vector3d.Zero, new Vector3d(1e73, 0, 0), new Vector3d(0, 1e73, 0), new Vector3d(0, 0, 1e-16), 0.0));
+            // 5) q <= NormalSqLo (subnormal quotient q ~ 1.56 * double.Epsilon; detLo and n2 in range; blocked by q > NormalSqLo)
+            double p2_74 = Math.Pow(2, 74), p2_m537 = Math.Pow(2, -537);
+            Assert.False(gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(
+                Vector3d.Zero, new Vector3d(p2_74, 0, 0), new Vector3d(0, p2_74, 0), new Vector3d(0, 0, 1.25 * p2_m537), 0.0));
+            // 6) q >= NormalSqHi (finite q ~ 1e301 with thresh = 0.0, and overflowing q = +Inf with thresh = double.MaxValue; blocked by q < NormalSqHi)
+            double p2_m74 = Math.Pow(2, -74), p2_500 = Math.Pow(2, 500), p2_520 = Math.Pow(2, 520);
+            Assert.False(gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(
+                Vector3d.Zero, new Vector3d(p2_m74, 0, 0), new Vector3d(0, p2_m74, 0), new Vector3d(0, 0, p2_500), 0.0));
+            Assert.False(gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(
+                Vector3d.Zero, new Vector3d(p2_m74, 0, 0), new Vector3d(0, p2_m74, 0), new Vector3d(0, 0, p2_520), double.MaxValue));
+
+            // CPM-2 soundness on random 3D triangles (ordinary, UTM, thin slivers):
+            // whenever plane_lower_squared_exceeds returns true for thresh, exact plane d^2 > thresh MUST hold
+            int prunedCount = 0;
+            foreach (double off in new[] { 0.0, 1.0, 5.7e6 }) {
+                for (int i = 0; i < 300; ++i) {
+                    Vector3d v0 = new Vector3d(off + rnd.NextDouble(), off + rnd.NextDouble(), off + rnd.NextDouble());
+                    Vector3d v1 = v0 + new Vector3d(rnd.NextDouble() * 2 - 1, rnd.NextDouble() * 2 - 1, rnd.NextDouble() * 2 - 1);
+                    Vector3d v2 = (i < 100)
+                        // thin acute sliver with massive cancellation in (v1-v0) x (v2-v0) to test the 1e-15*m_k upper guard
+                        ? v1 + new Vector3d(1e-11 * (rnd.NextDouble() * 2 - 1), 1e-11 * (rnd.NextDouble() * 2 - 1), 1e-11 * (rnd.NextDouble() * 2 - 1))
+                        : v0 + new Vector3d(rnd.NextDouble() * 2 - 1, rnd.NextDouble() * 2 - 1, rnd.NextDouble() * 2 - 1);
+                    Vector3d p = v0 + new Vector3d(rnd.NextDouble() * 4 - 2, rnd.NextDouble() * 4 - 2, rnd.NextDouble() * 4 - 2);
+                    ExactDyadic c2 = cross2(v0, v1, v2);
+                    if (c2.Sign == 0) continue;
+                    // Exact det(p - v0, v1 - v0, v2 - v0)
+                    ExactDyadic dx = D(p.x) - D(v0.x), dy = D(p.y) - D(v0.y), dz = D(p.z) - D(v0.z);
+                    ExactDyadic ax = D(v1.x) - D(v0.x), ay = D(v1.y) - D(v0.y), az = D(v1.z) - D(v0.z);
+                    ExactDyadic bx = D(v2.x) - D(v0.x), by = D(v2.y) - D(v0.y), bz = D(v2.z) - D(v0.z);
+                    ExactDyadic det = dx * (ay * bz - az * by) + dy * (az * bx - ax * bz) + dz * (ax * by - ay * bx);
+                    // Probe at exact plane d^2 (must NEVER prune!) and at 0.5 * plane d^2 (should prune)
+                    double planeApprox = Math.Pow((p - v0).Dot((v1 - v0).Cross(v2 - v0)), 2) / Math.Max(1e-300, (v1 - v0).Cross(v2 - v0).LengthSquared);
+                    foreach (double thresh in new[] { planeApprox, ExactInterval.Up(planeApprox), 0.5 * planeApprox }) {
+                        if (gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(v0, v1, v2, p, thresh)) {
+                            Assert.True(ExactDyadic.Compare(det * det, D(thresh) * c2) > 0,
+                                $"CPM-2 falsely pruned off={off} i={i} thresh={thresh:R}");
+                            prunedCount++;
+                        }
+                    }
+                }
+            }
+            Assert.True(prunedCount > 500);
+        }
+
+        /// <summary>
+        /// End-to-end LowerBound and AtLeastDistance verification: empty mesh, special u values (0, -1, NaN, +Inf,
+        /// subnormal, huge), decoupled unpruned per-triangle oracle (covering AABB-containing plane pruning and 1-ulp ties),
+        /// agreement between LowerBound and AtLeastDistance on multi-triangle meshes, and exact 2^k scale invariance.
+        /// </summary>
+        [Fact]
+        public void CertifiedPointMeshDistance_LowerBoundAndAtLeast_ExactAndScaleInvariant()
+        {
+            var empty = new DMesh3();
+            Assert.Equal(double.PositiveInfinity, gs.CertifiedPointMeshDistance.LowerBound(empty, Vector3d.Zero));
+            Assert.True(gs.CertifiedPointMeshDistance.AtLeastDistance(empty, Vector3d.Zero, double.PositiveInfinity));
+            Assert.False(gs.CertifiedPointMeshDistance.AtLeastDistance(empty, Vector3d.Zero, 1.0));
+            Assert.False(gs.CertifiedPointMeshDistance.AtLeastDistance(empty, Vector3d.Zero, 0.0));
+            Assert.False(gs.CertifiedPointMeshDistance.AtLeastDistance(empty, Vector3d.Zero, double.NaN));
+
+            // Decoupled unpruned oracle: multi-triangle mesh where:
+            //  - tri 0 is tilted with AABB [-10,10]^3 containing p = (0,0,0) (box_lower_squared == 0), plane distance = 2/sqrt(3) > 1
+            //  - tri 1 is at exact distance 1.0 + 2 ulp
+            //  - tri 2 is at exact distance 1.0 (nearest, within 2 ulp of tri 1 -> exercises upper_bound_double and exact fallback)
+            var decoupled = new DMesh3();
+            Vector3d[,] tris = {
+                { new Vector3d(-10, -10, 22), new Vector3d(10, 2, -10), new Vector3d(-10, 22, -10) }, // plane x+y+z=2, d=2/sqrt(3) ~ 1.1547, AABB contains 0
+                { new Vector3d(-1, -1, ExactInterval.Up(ExactInterval.Up(1.0))), new Vector3d(1, -1, ExactInterval.Up(ExactInterval.Up(1.0))), new Vector3d(0, 1, ExactInterval.Up(ExactInterval.Up(1.0))) },
+                { new Vector3d(-1, -1, 1.0), new Vector3d(1, -1, 1.0), new Vector3d(0, 1, 1.0) },
+            };
+            for (int t = 0; t < 3; ++t)
+                decoupled.AppendTriangle(
+                    decoupled.AppendVertex(tris[t, 0]),
+                    decoupled.AppendVertex(tris[t, 1]),
+                    decoupled.AppendVertex(tris[t, 2]));
+            // Unpruned per-triangle reference (each 1-triangle mesh has zero cross-triangle pruning)
+            double unprunedMin = double.PositiveInfinity;
+            for (int t = 0; t < 3; ++t)
+                unprunedMin = Math.Min(unprunedMin, gs.CertifiedPointMeshDistance.LowerBound(Tri(tris[t, 0], tris[t, 1], tris[t, 2]), Vector3d.Zero));
+            Assert.Equal(1.0, unprunedMin);
+            Assert.Equal(0.0, gs.CertifiedPointMeshDistance.box_lower_squared(tris[0, 0], tris[0, 1], tris[0, 2], Vector3d.Zero));
+            Assert.True(gs.CertifiedPointMeshDistance.plane_lower_squared_exceeds(tris[0, 0], tris[0, 1], tris[0, 2], Vector3d.Zero, 1.01));
+            Assert.Equal(unprunedMin, gs.CertifiedPointMeshDistance.LowerBound(decoupled, Vector3d.Zero));
+            Assert.True(gs.CertifiedPointMeshDistance.AtLeastDistance(decoupled, Vector3d.Zero, 1.0));
+            Assert.False(gs.CertifiedPointMeshDistance.AtLeastDistance(decoupled, Vector3d.Zero, ExactInterval.Down(1.0)));
+
+            var gen = new Sphere3Generator_NormalizedCube { Radius = 1.0, EdgeVertices = 6 };
+            DMesh3 sphere = gen.Generate().MakeDMesh();
+            Vector3d v0 = sphere.GetVertex(0);
+            Assert.Equal(0.0, gs.CertifiedPointMeshDistance.LowerBound(sphere, v0));
+            Assert.True(gs.CertifiedPointMeshDistance.AtLeastDistance(sphere, v0, 0.0));
+            Assert.True(gs.CertifiedPointMeshDistance.AtLeastDistance(sphere, v0, double.Epsilon));
+            Assert.True(gs.CertifiedPointMeshDistance.AtLeastDistance(sphere, v0, 1e200));
+            Assert.True(gs.CertifiedPointMeshDistance.AtLeastDistance(sphere, v0, double.MaxValue));
+            Assert.False(gs.CertifiedPointMeshDistance.AtLeastDistance(sphere, v0, -1e-16));
+            Assert.False(gs.CertifiedPointMeshDistance.AtLeastDistance(sphere, v0, double.NaN));
+            Assert.True(gs.CertifiedPointMeshDistance.AtLeastDistance(sphere, v0, double.PositiveInfinity));
+            // Subnormal u on a point at exact distance double.Epsilon from a triangle at the origin:
+            // u*u underflows to 0, ExactInterval.Up(0) = double.Epsilon >= u^2 keeps the triangle unpruned
+            DMesh3 originTri = Tri(Vector3d.Zero, new Vector3d(1, 0, 0), new Vector3d(0, 1, 0));
+            Assert.True(gs.CertifiedPointMeshDistance.AtLeastDistance(originTri, new Vector3d(0, 0, double.Epsilon), double.Epsilon));
+            Assert.False(gs.CertifiedPointMeshDistance.AtLeastDistance(originTri, new Vector3d(0, 0, double.Epsilon), 0.0));
+            Assert.False(gs.CertifiedPointMeshDistance.AtLeastDistance(originTri, new Vector3d(0, 0, 2 * double.Epsilon), double.Epsilon));
+
+            var rnd = new Random(1648);
+            for (int i = 0; i < 40; ++i) {
+                Vector3d p = new Vector3d(rnd.NextDouble() * 4 - 2, rnd.NextDouble() * 4 - 2, rnd.NextDouble() * 4 - 2);
+                double lb = gs.CertifiedPointMeshDistance.LowerBound(sphere, p);
+                Assert.True(lb >= 0 && !double.IsInfinity(lb));
+                // LowerBound is never above exact distance: AtLeastDistance(lb) can be false only if lb < exact;
+                // bumping lb by a few ulps (3*Up) must exceed exact distance unless exact == lb
+                double above = ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(lb)));
+                Assert.True(gs.CertifiedPointMeshDistance.AtLeastDistance(sphere, p, above), $"i={i}: above={above:R} < exact");
+                if (lb > 0)
+                    Assert.False(gs.CertifiedPointMeshDistance.AtLeastDistance(sphere, p, ExactInterval.Down(lb)), $"i={i}: Down(lb) >= exact");
+            }
+
+            // Invariance across Similarity.All() (bit-exact on IsExact 2^k scales; resolution-bounded & still certified on rotated/UTM/decimal scales)
+            Vector3d pInv = new Vector3d(1.37, -0.82, 0.55);
+            double lb0 = gs.CertifiedPointMeshDistance.LowerBound(sphere, pInv);
+            foreach (Similarity s in Similarity.All()) {
+                DMesh3 transformed = new DMesh3(sphere);
+                foreach (int vid in transformed.VertexIndices())
+                    transformed.SetVertex(vid, s.Apply(transformed.GetVertex(vid)));
+                Vector3d ps = s.Apply(pInv);
+                double lbs = gs.CertifiedPointMeshDistance.LowerBound(transformed, ps);
+                Assert.True(lbs > 0 && !double.IsInfinity(lbs), $"{s.Name}: lbs={lbs:R}");
+                if (s.IsExact) {
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(s.ApplyLength(lb0)), BitConverter.DoubleToInt64Bits(lbs));
+                    double u0 = ExactInterval.Up(ExactInterval.Up(lb0));
+                    Assert.Equal(
+                        gs.CertifiedPointMeshDistance.AtLeastDistance(sphere, pInv, u0),
+                        gs.CertifiedPointMeshDistance.AtLeastDistance(transformed, ps, s.ApplyLength(u0)));
+                } else {
+                    double tol = 64.0 * s.Resolution(2.0);
+                    Assert.True(Math.Abs(lbs / s.Scale - lb0) <= tol, $"{s.Name}: |{lbs / s.Scale:R} - {lb0:R}| > {tol:R}");
+                }
+                Assert.False(gs.CertifiedPointMeshDistance.AtLeastDistance(transformed, ps, ExactInterval.Down(lbs)), $"{s.Name}: Down(lbs) >= exact");
+                Assert.True(gs.CertifiedPointMeshDistance.AtLeastDistance(transformed, ps, ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(lbs)))),
+                    $"{s.Name}: 3*Up(lbs) < exact");
+            }
+
+            // Randomized multi-scale oracle against unpruned exact per-triangle minimum (covers slivers, degenerates, ties, AABB-containing planes)
+            var rndMulti = new Random(1649);
+            foreach (var cfg in new[] { (exp: -400, off: 0.0), (exp: -100, off: 0.0), (exp: 0, off: 0.0), (exp: 0, off: 5.7e6), (exp: 100, off: 0.0), (exp: 400, off: 0.0) }) {
+                double sc = Math.Pow(2, cfg.exp);
+                for (int trial = 0; trial < 8; ++trial) {
+                    var mesh = new DMesh3();
+                    var triList = new List<(Vector3d a, Vector3d b, Vector3d c)>();
+                    Vector3d center = new Vector3d(cfg.off, cfg.off, cfg.off);
+                    for (int t = 0; t < 16; ++t) {
+                        Vector3d a = center + sc * new Vector3d(rndMulti.NextDouble() * 4 - 2, rndMulti.NextDouble() * 4 - 2, rndMulti.NextDouble() * 4 - 2);
+                        Vector3d b = a + sc * new Vector3d(rndMulti.NextDouble() * 2 - 1, rndMulti.NextDouble() * 2 - 1, rndMulti.NextDouble() * 2 - 1);
+                        Vector3d c = (t == 0)
+                            ? a + 0.5 * (b - a) // collinear/degenerate triangle
+                            : (t == 1)
+                                ? b + sc * 1e-11 * new Vector3d(rndMulti.NextDouble(), rndMulti.NextDouble(), rndMulti.NextDouble()) // sliver
+                                : (t == 2 && triList.Count > 0)
+                                    ? triList[0].c // shared vertex / near-tie
+                                    : a + sc * new Vector3d(rndMulti.NextDouble() * 2 - 1, rndMulti.NextDouble() * 2 - 1, rndMulti.NextDouble() * 2 - 1);
+                        if (t == 3) {
+                            // large tilted triangle whose AABB surrounds the query region
+                            a = center + sc * new Vector3d(-6, -6, 14);
+                            b = center + sc * new Vector3d(6, 2, -6);
+                            c = center + sc * new Vector3d(-6, 14, -6);
+                        }
+                        triList.Add((a, b, c));
+                        mesh.AppendTriangle(mesh.AppendVertex(a), mesh.AppendVertex(b), mesh.AppendVertex(c));
+                    }
+                    // Duplicate triangle (exact tie)
+                    var dup = triList[4];
+                    triList.Add(dup);
+                    mesh.AppendTriangle(mesh.AppendVertex(dup.a), mesh.AppendVertex(dup.b), mesh.AppendVertex(dup.c));
+
+                    Vector3d q = center + sc * new Vector3d(rndMulti.NextDouble() * 2 - 1, rndMulti.NextDouble() * 2 - 1, rndMulti.NextDouble() * 2 - 1);
+                    double unpruned = double.PositiveInfinity;
+                    foreach (var tri in triList)
+                        unpruned = Math.Min(unpruned, gs.CertifiedPointMeshDistance.LowerBound(Tri(tri.a, tri.b, tri.c), q));
+                    double got = gs.CertifiedPointMeshDistance.LowerBound(mesh, q);
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(unpruned), BitConverter.DoubleToInt64Bits(got));
+                    if (got > 0)
+                        Assert.False(gs.CertifiedPointMeshDistance.AtLeastDistance(mesh, q, ExactInterval.Down(got)), $"exp={cfg.exp} off={cfg.off} trial={trial}");
+                    Assert.True(gs.CertifiedPointMeshDistance.AtLeastDistance(mesh, q, ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(got)))),
+                        $"exp={cfg.exp} off={cfg.off} trial={trial}");
+                }
+            }
+        }
+
         static ExactDyadic sq(Vector3d a, Vector3d b)
         {
             ExactDyadic s = D(0);

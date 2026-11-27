@@ -116,7 +116,11 @@ namespace geometry3Sharp.Tests
                 Assert.False(ok, name + ": an empty input is documented to fail");
                 return;
             }
-            Assert.True(ok, $"{name}: Apply failed ({r.ResultReason})");
+            // (#1566: an outward sphere inside another is read as a cavity by the repair; the result is then in Mesh, but Apply() is false with the
+            // reason that says so: "nested and tiny" is such an input)
+            bool nesting = ok == false && r.ResultReason.StartsWith("nesting ambiguous");
+            Assert.True(ok || nesting, $"{name}: Apply failed ({r.ResultReason})");
+            Assert.True(nesting == (name == "nested and tiny"), $"{name}: nesting ambiguous: {nesting}");
             AssertValid(r.Mesh, name);
             // ResultReason "" claims a clean result: check it independently
             if (r.ResultReason == "")
@@ -349,7 +353,15 @@ namespace geometry3Sharp.Tests
                 Assert.False(ok, name + ": an empty input is documented to fail");
                 return;
             }
-            // documented: false only for an empty input, a bad cell size, a too large grid or a cancel
+            // (#1609: an outward shell inside another is read as a cavity by the oriented copy: "nested and tiny" is such an input; Compute() is then
+            // false with ResultReason NestingAmbiguous, the solid would be hollow where the union of the shells is solid)
+            if (name == "nested and tiny") {
+                Assert.False(ok, name + ": Compute should refuse the ambiguous nesting");
+                Assert.Equal(MeshWindingNumberSolidify.NestingAmbiguous, s.ResultReason);
+                Assert.True(s.ComponentsFlippedByNesting > 0);
+                return;
+            }
+            // documented: false only for an empty input, a bad cell size, a too large grid, an ambiguous nesting (MinVolumeIoU) or a cancel
             Assert.True(ok, name + ": Compute failed");
             AssertValid(s.Result, name);
             // documented: closed, without self-intersections (empty where the input has no solid: open sheet, flat,

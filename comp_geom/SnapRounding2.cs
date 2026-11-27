@@ -43,7 +43,9 @@ namespace g3
         public SnapGrid Grid;
         /// <summary> the input segments each output chain edge comes from (by the edge's end coordinates, either order), for O12 splits;
         /// several when the chains of several input segments share the edge </summary>
-        public readonly Dictionary<(Vector2d, Vector2d), List<(Vector2d a, Vector2d b)>> Origin = new Dictionary<(Vector2d, Vector2d), List<(Vector2d, Vector2d)>>();
+        // (private: a Dictionary has no specified enumeration order, so nothing outside this class may enumerate it; the members below only
+        // look entries up, and Build adds them in chain order. DeterminismStage1ObligationTests.SnapRounding2_Origin_IsNotVisible)
+        readonly Dictionary<(Vector2d, Vector2d), List<(Vector2d a, Vector2d b)>> Origin = new Dictionary<(Vector2d, Vector2d), List<(Vector2d, Vector2d)>>();
 
         /// <summary> the first input segment an output chain edge comes from, or false (a hull edge, or an edge the mesher made) </summary>
         public bool TryOrigin(Vector2d p, Vector2d q, out (Vector2d a, Vector2d b) origin)
@@ -54,8 +56,8 @@ namespace g3
             return true;
         }
 
-        /// <summary> all input segments an output chain edge comes from (empty if none) </summary>
-        public List<(Vector2d a, Vector2d b)> Origins(Vector2d p, Vector2d q) => Origin.TryGetValue(Ordered(p, q), out var list) ? list : new List<(Vector2d, Vector2d)>();
+        /// <summary> all input segments an output chain edge comes from (empty if none), in chain order; read only: it is the stored list </summary>
+        public IReadOnlyList<(Vector2d a, Vector2d b)> Origins(Vector2d p, Vector2d q) => Origin.TryGetValue(Ordered(p, q), out var list) ? (IReadOnlyList<(Vector2d a, Vector2d b)>)list : new List<(Vector2d, Vector2d)>();
 
         static (Vector2d, Vector2d) Ordered(Vector2d p, Vector2d q) => p.x < q.x || (p.x == q.x && p.y <= q.y) ? (p, q) : (q, p);
         public readonly List<string> Diagnostics = new List<string>();
@@ -75,7 +77,6 @@ namespace g3
         readonly Dictionary<(int, int), int> routedIndex = new Dictionary<(int, int), int>();
         readonly HashSet<(long, long)> hot = new HashSet<(long, long)>();
         readonly long bucket;                // side of the spatial buckets, in pixels
-        Dictionary<(long, long), List<(long, long)>> hotByBucket;
         List<List<(long, long)>> chains;
 
         SnapRounding2(ConstrainedMesh2Input input, double tolerance, System.Threading.CancellationToken cancel)
@@ -157,6 +158,32 @@ namespace g3
         static int Orient(BigInteger px, BigInteger py, BigInteger qx, BigInteger qy, BigInteger cx, BigInteger cy)
             => ((qx - px) * (cy - py) - (qy - py) * (cx - px)).Sign;
 
+        // flat 2D k-d tree (BVH) over sorted hot pixels, rebuilt each round at the hot pixels' own density
+        struct HotNode
+        {
+            public long MinX, MaxX, MinY, MaxY;
+            public int Start, Count, Left, Right;
+        }
+
+        (long x, long y)[] hotPts;
+        HotNode[] hotNodes;
+        int hotNodeCount;
+        // Shared scratch buffers for QueryHot and Restore/Free; neither method may be called re-entrantly.
+        readonly List<(long, long)> queryHits = new List<(long, long)>();
+        readonly int[] queryStack = new int[128];
+
+        struct EdgeBox
+        {
+            public long AX, AY, BX, BY;
+            public long MinX, MaxX, MinY, MaxY;
+        }
+
+        struct EdgeNode
+        {
+            public long MinX, MaxX, MinY, MaxY;
+            public int Start, Count, Left, Right;
+        }
+
         /// <summary> segment pq against the pixel: its open interior (interior), or Hobby's half-open square (contact) </summary>
         bool Meets(BigInteger px, BigInteger py, BigInteger qx, BigInteger qy, (long, long) k, bool interior)
         {
@@ -165,11 +192,17 @@ namespace g3
             if (hx < x0 || lx > x1 || hy < y0 || ly > y1) return false;
             int pos = 0, neg = 0;
             bool point = px == qx && py == qy;
-            if (!point)
-                foreach (var (cx, cy) in new[] { (x0, y0), (x1, y0), (x1, y1), (x0, y1) }) {
-                    int o = Orient(px, py, qx, qy, cx, cy);
-                    if (o > 0) ++pos; else if (o < 0) ++neg;
-                }
+            if (!point) {
+                BigInteger dx = qx - px, dy = qy - py;
+                int o0 = (dx * (y0 - py) - dy * (x0 - px)).Sign;
+                if (o0 > 0) ++pos; else if (o0 < 0) ++neg;
+                int o1 = (dx * (y0 - py) - dy * (x1 - px)).Sign;
+                if (o1 > 0) ++pos; else if (o1 < 0) ++neg;
+                int o2 = (dx * (y1 - py) - dy * (x1 - px)).Sign;
+                if (o2 > 0) ++pos; else if (o2 < 0) ++neg;
+                int o3 = (dx * (y1 - py) - dy * (x0 - px)).Sign;
+                if (o3 > 0) ++pos; else if (o3 < 0) ++neg;
+            }
             bool open = point ? (px > x0 && px < x1 && py > y0 && py < y1) : (hx > x0 && lx < x1 && hy > y0 && ly < y1 && pos > 0 && neg > 0);
             if (open) return true;
             if (interior) return false;
@@ -178,10 +211,74 @@ namespace g3
             // bottom-right corners
             if (py == qy && (py == y0 || py == y1)) return py == y0 && hx >= x0 && lx < x1;
             if (px == qx && (px == x0 || px == x1)) return px == x0 && hy >= y0 && ly < y1;
-            foreach (var (ex, ey) in new[] { (px, py), (qx, qy) })
-                if (ex >= x0 && ex <= x1 && ey >= y0 && ey <= y1) return ex < x1 && ey < y1;
+            if (px >= x0 && px <= x1 && py >= y0 && py <= y1) return px < x1 && py < y1;
+            if (qx >= x0 && qx <= x1 && qy >= y0 && qy <= y1) return qx < x1 && qy < y1;
             // through a corner: only the bottom-left one belongs to the pixel
             return Orient(px, py, qx, qy, x0, y0) == 0 && lx <= x0 && x0 <= hx && ly <= y0 && y0 <= hy;
+        }
+
+        /// <summary>
+        /// Exact test whether the segment between pixel centres p and q crosses the open interior of pixel k:
+        /// equivalent to Meets(Cx(p), Cy(p), Cx(q), Cy(q), k, true), with the common factor W &gt; 0 divided out.
+        /// Uses exact 64-bit integer arithmetic when |dx|, |dy| &lt;= 2^29 (|det| &lt;= 2^61 + 2^31 &lt; 2^63), else BigInteger.
+        /// </summary>
+        internal static bool MeetsPixelCentreInterior((long, long) p, (long, long) q, (long, long) k)
+        {
+            long px = p.Item1, py = p.Item2, qx = q.Item1, qy = q.Item2, kx = k.Item1, ky = k.Item2;
+            long lx = px < qx ? px : qx, hx = px > qx ? px : qx;
+            long ly = py < qy ? py : qy, hy = py > qy ? py : qy;
+            if (hx < kx || lx > kx || hy < ky || ly > ky) return false;
+            if (px == qx && py == qy) return px == kx && py == ky;
+            long dpx = qx - px, dpy = qy - py;
+            const long SafeSpan = 1L << 29;
+            if (Math.Abs(dpx) <= SafeSpan && Math.Abs(dpy) <= SafeSpan) {
+                long dx = 2 * dpx, dy = 2 * dpy;
+                long ux0 = 2 * (kx - px) - 1, ux1 = ux0 + 2;
+                long uy0 = 2 * (ky - py) - 1, uy1 = uy0 + 2;
+                int pos = 0, neg = 0;
+                long o0 = dx * uy0 - dy * ux0; if (o0 > 0) ++pos; else if (o0 < 0) ++neg;
+                long o1 = dx * uy0 - dy * ux1; if (o1 > 0) ++pos; else if (o1 < 0) ++neg;
+                long o2 = dx * uy1 - dy * ux1; if (o2 > 0) ++pos; else if (o2 < 0) ++neg;
+                long o3 = dx * uy1 - dy * ux0; if (o3 > 0) ++pos; else if (o3 < 0) ++neg;
+                return pos > 0 && neg > 0;
+            }
+            BigInteger bdx = (BigInteger)dpx * 2, bdy = (BigInteger)dpy * 2;
+            BigInteger bux0 = (BigInteger)(kx - px) * 2 - 1, bux1 = bux0 + 2;
+            BigInteger buy0 = (BigInteger)(ky - py) * 2 - 1, buy1 = buy0 + 2;
+            int bpos = 0, bneg = 0;
+            int bo0 = (bdx * buy0 - bdy * bux0).Sign; if (bo0 > 0) ++bpos; else if (bo0 < 0) ++bneg;
+            int bo1 = (bdx * buy0 - bdy * bux1).Sign; if (bo1 > 0) ++bpos; else if (bo1 < 0) ++bneg;
+            int bo2 = (bdx * buy1 - bdy * bux1).Sign; if (bo2 > 0) ++bpos; else if (bo2 < 0) ++bneg;
+            int bo3 = (bdx * buy1 - bdy * bux0).Sign; if (bo3 > 0) ++bpos; else if (bo3 < 0) ++bneg;
+            return bpos > 0 && bneg > 0;
+        }
+
+        /// <summary>
+        /// Exact test of segment pq against Hobby's half-open pixel k (contact) when all coordinates and 2*W fit safely in
+        /// 64-bit signed integers (|dx| * (|dy| + 2*W + 4) &lt; 2^60). Equivalent to Meets(px, py, qx, qy, k, false).
+        /// </summary>
+        static bool MeetsContactLong(long px, long py, long qx, long qy, long dx, long dy, long lx, long hx, long ly, long hy, long wL, (long, long) k)
+        {
+            long x0 = (2 * k.Item1 - 1) * wL, x1 = (2 * k.Item1 + 1) * wL;
+            if (hx < x0 || lx > x1) return false;
+            long y0 = (2 * k.Item2 - 1) * wL, y1 = (2 * k.Item2 + 1) * wL;
+            if (hy < y0 || ly > y1) return false;
+            int pos = 0, neg = 0;
+            bool point = px == qx && py == qy;
+            if (!point) {
+                long o0 = dx * (y0 - py) - dy * (x0 - px); if (o0 > 0) ++pos; else if (o0 < 0) ++neg;
+                long o1 = dx * (y0 - py) - dy * (x1 - px); if (o1 > 0) ++pos; else if (o1 < 0) ++neg;
+                long o2 = dx * (y1 - py) - dy * (x1 - px); if (o2 > 0) ++pos; else if (o2 < 0) ++neg;
+                long o3 = dx * (y1 - py) - dy * (x0 - px); if (o3 > 0) ++pos; else if (o3 < 0) ++neg;
+            }
+            bool open = point ? (px > x0 && px < x1 && py > y0 && py < y1) : (hx > x0 && lx < x1 && hy > y0 && ly < y1 && pos > 0 && neg > 0);
+            if (open) return true;
+            if (!point && (pos == 4 || neg == 4)) return false;
+            if (py == qy && (py == y0 || py == y1)) return py == y0 && hx >= x0 && lx < x1;
+            if (px == qx && (px == x0 || px == x1)) return px == x0 && hy >= y0 && ly < y1;
+            if (px >= x0 && px <= x1 && py >= y0 && py <= y1) return px < x1 && py < y1;
+            if (qx >= x0 && qx <= x1 && qy >= y0 && qy <= y1) return qx < x1 && qy < y1;
+            return dx * (y0 - py) - dy * (x0 - px) == 0 && lx <= x0 && x0 <= hx && ly <= y0 && y0 <= hy;
         }
 
         /// <summary>
@@ -189,20 +286,22 @@ namespace g3
         /// entry, then by exit, so that a pixel the segment only touches where it starts comes before the one it then runs through
         /// (a segment starting on the side two pixels share; found by the fuzz test)
         /// </summary>
-        ((BigInteger num, BigInteger den) entry, (BigInteger num, BigInteger den) exit) Span(BigInteger px, BigInteger py, BigInteger qx, BigInteger qy, (long, long) k)
+        ((BigInteger num, BigInteger den) entry, (BigInteger num, BigInteger den) exit) Span(
+            BigInteger px, BigInteger py, BigInteger dx, BigInteger dy, BigInteger absDx, BigInteger absDy, (long, long) k)
         {
             BigInteger x0 = (2 * k.Item1 - 1) * W, x1 = (2 * k.Item1 + 1) * W, y0 = (2 * k.Item2 - 1) * W, y1 = (2 * k.Item2 + 1) * W;
             (BigInteger, BigInteger) enter = (BigInteger.Zero, BigInteger.One), leave = (BigInteger.One, BigInteger.One);
-            void Slab(BigInteger p, BigInteger d, BigInteger lo, BigInteger hi)
+            void Slab(BigInteger p, BigInteger d, BigInteger den, BigInteger lo, BigInteger hi)
             {
                 if (d.IsZero) return;
-                BigInteger nIn = d.Sign > 0 ? lo - p : hi - p, nOut = d.Sign > 0 ? hi - p : lo - p, den = d;
-                if (den.Sign < 0) { nIn = -nIn; nOut = -nOut; den = -den; }
+                BigInteger nIn, nOut;
+                if (d.Sign > 0) { nIn = lo - p; nOut = hi - p; }
+                else { nIn = p - hi; nOut = p - lo; }
                 if (nIn * enter.Item2 > enter.Item1 * den) enter = (nIn, den);
                 if (nOut * leave.Item2 < leave.Item1 * den) leave = (nOut, den);
             }
-            Slab(px, qx - px, x0, x1);
-            Slab(py, qy - py, y0, y1);
+            Slab(px, dx, absDx, x0, x1);
+            Slab(py, dy, absDy, y0, y1);
             return (enter, leave);
         }
 
@@ -239,11 +338,105 @@ namespace g3
             Build();
         }
 
+        /// <summary>
+        /// Conservative double orientation filter (returns 0 when uncertain, so caller falls back to exact BigInteger Orient).
+        /// Margin 1e-12 * detsum is > 3000x Shewchuk's (3 + 16*eps)*eps bound; detsum > 1e-290 excludes subnormal underflow.
+        /// </summary>
+        static int OrientFilter(Vector2d a, Vector2d b, Vector2d c)
+        {
+            double dl = (b.x - a.x) * (c.y - a.y);
+            double dr = (b.y - a.y) * (c.x - a.x);
+            double det = dl - dr;
+            double sum = Math.Abs(dl) + Math.Abs(dr);
+            if (sum > 1e-290 && !double.IsInfinity(sum) && !double.IsNaN(det) && Math.Abs(det) > 1e-12 * sum)
+                return det > 0 ? 1 : -1;
+            return 0;
+        }
+
+        static void MergeSortSegsByMinX(int[] order, int[] tmp, double[] minX, int lo, int hi)
+        {
+            int len = hi - lo;
+            if (len <= 16) {
+                for (int i = lo + 1; i < hi; ++i) {
+                    int key = order[i];
+                    double kx = minX[key];
+                    int j = i - 1;
+                    while (j >= lo && (minX[order[j]] > kx || (minX[order[j]] == kx && order[j] > key))) { order[j + 1] = order[j]; --j; }
+                    order[j + 1] = key;
+                }
+                return;
+            }
+            int mid = lo + (len >> 1);
+            MergeSortSegsByMinX(order, tmp, minX, lo, mid);
+            MergeSortSegsByMinX(order, tmp, minX, mid, hi);
+            int p = lo, q = mid, dst = lo;
+            while (p < mid && q < hi) {
+                int ip = order[p], iq = order[q];
+                if (minX[ip] > minX[iq] || (minX[ip] == minX[iq] && ip > iq)) tmp[dst++] = order[q++];
+                else tmp[dst++] = order[p++];
+            }
+            while (p < mid) tmp[dst++] = order[p++];
+            while (q < hi) tmp[dst++] = order[q++];
+            for (int i = lo; i < hi; ++i) order[i] = tmp[i];
+        }
+
+        void TestCrossingPair(int i, int j)
+        {
+            var (a, b) = routed[i]; var (c, d) = routed[j];
+            var pa = input.Points[a]; var pb = input.Points[b]; var pc = input.Points[c]; var pd = input.Points[d];
+            int o1 = OrientFilter(pa, pb, pc); if (o1 == 0) o1 = Orient(X[a], Y[a], X[b], Y[b], X[c], Y[c]);
+            int o2 = OrientFilter(pa, pb, pd); if (o2 == 0) o2 = Orient(X[a], Y[a], X[b], Y[b], X[d], Y[d]);
+            if (o1 * o2 >= 0) return;
+            int o3 = OrientFilter(pc, pd, pa); if (o3 == 0) o3 = Orient(X[c], Y[c], X[d], Y[d], X[a], Y[a]);
+            int o4 = OrientFilter(pc, pd, pb); if (o4 == 0) o4 = Orient(X[c], Y[c], X[d], Y[d], X[b], Y[b]);
+            if (o3 * o4 >= 0) return;
+            // a + t (b - a), t = cross(c - a, d - c) / cross(b - a, d - c)
+            BigInteger den = (X[b] - X[a]) * (Y[d] - Y[c]) - (Y[b] - Y[a]) * (X[d] - X[c]);
+            BigInteger num = (X[c] - X[a]) * (Y[d] - Y[c]) - (Y[c] - Y[a]) * (X[d] - X[c]);
+            if (den.Sign < 0) { den = -den; num = -num; }
+            hot.Add((PixelOf(X[a] * den + num * (X[b] - X[a]), den), PixelOf(Y[a] * den + num * (Y[b] - Y[a]), den)));
+            ++Crossings;
+        }
+
         /// <summary> the pixels of the proper crossings of the input constraints (touching ends are input points, already hot) </summary>
         void AddCrossings()
         {
+            int m = routed.Count;
+            if (m > 64) {
+                // Sweep along the axis with shorter typical segment span (Y for mostly horizontal bundles, X otherwise).
+                var minX = new double[m]; var maxX = new double[m]; var minY = new double[m]; var maxY = new double[m];
+                var order = new int[m];
+                int moreHorizontal = 0;
+                for (int i = 0; i < m; ++i) {
+                    var (a, b) = routed[i];
+                    var pa = input.Points[a]; var pb = input.Points[b];
+                    double lx = Math.Min(pa.x, pb.x), hx = Math.Max(pa.x, pb.x);
+                    double ly = Math.Min(pa.y, pb.y), hy = Math.Max(pa.y, pb.y);
+                    minX[i] = lx; maxX[i] = hx; minY[i] = ly; maxY[i] = hy;
+                    if (hx - lx > hy - ly) ++moreHorizontal;
+                    order[i] = i;
+                }
+                bool sweepY = moreHorizontal > (m >> 1);
+                var sweepLo = sweepY ? minY : minX;
+                var sweepHi = sweepY ? maxY : maxX;
+                var otherLo = sweepY ? minX : minY;
+                var otherHi = sweepY ? maxX : maxY;
+                MergeSortSegsByMinX(order, new int[m], sweepLo, 0, m);
+                for (int u = 0; u < m; ++u) {
+                    if ((u & 63) == 0) cancel.ThrowIfCancellationRequested();
+                    int i = order[u];
+                    double hiS = sweepHi[i], loO = otherLo[i], hiO = otherHi[i];
+                    for (int v = u + 1; v < m; ++v) {
+                        int j = order[v];
+                        if (sweepLo[j] > hiS) break;
+                        if (otherHi[j] < loO || otherLo[j] > hiO) continue;
+                        TestCrossingPair(i, j);
+                    }
+                }
+                return;
+            }
             var byBucket = new Dictionary<(long, long), List<int>>();
-            for (int i = 0; i < routed.Count; ++i)
+            for (int i = 0; i < m; ++i)
                 foreach (var key in Buckets((KX[routed[i].a], KY[routed[i].a]), (KX[routed[i].b], KY[routed[i].b]))) {
                     if (!byBucket.TryGetValue(key, out var list)) byBucket[key] = list = new List<int>();
                     list.Add(i);
@@ -261,44 +454,167 @@ namespace g3
                         var pa = input.Points[a]; var pb = input.Points[b]; var pc = input.Points[c]; var pd = input.Points[d];
                         if (Math.Max(pa.x, pb.x) < Math.Min(pc.x, pd.x) || Math.Max(pc.x, pd.x) < Math.Min(pa.x, pb.x)
                             || Math.Max(pa.y, pb.y) < Math.Min(pc.y, pd.y) || Math.Max(pc.y, pd.y) < Math.Min(pa.y, pb.y)) continue;
-                        int o1 = Orient(X[a], Y[a], X[b], Y[b], X[c], Y[c]), o2 = Orient(X[a], Y[a], X[b], Y[b], X[d], Y[d]);
-                        int o3 = Orient(X[c], Y[c], X[d], Y[d], X[a], Y[a]), o4 = Orient(X[c], Y[c], X[d], Y[d], X[b], Y[b]);
-                        if (o1 * o2 >= 0 || o3 * o4 >= 0) continue;
-                        // a + t (b - a), t = cross(c - a, d - c) / cross(b - a, d - c)
-                        BigInteger den = (X[b] - X[a]) * (Y[d] - Y[c]) - (Y[b] - Y[a]) * (X[d] - X[c]);
-                        BigInteger num = (X[c] - X[a]) * (Y[d] - Y[c]) - (Y[c] - Y[a]) * (X[d] - X[c]);
-                        if (den.Sign < 0) { den = -den; num = -num; }
-                        hot.Add((PixelOf(X[a] * den + num * (X[b] - X[a]), den), PixelOf(Y[a] * den + num * (Y[b] - Y[a]), den)));
-                        ++Crossings;
+                        TestCrossingPair(i, j);
                     }
             }
         }
 
-        /// <summary> snap rounding: every constraint becomes the chain through the centres of the hot pixels it touches, in order </summary>
+        // deterministic merge sort of pixel slice [lo, hi) by axis (0: (x, y), 1: (y, x)), pure integer comparisons
+        static void MergeSortPixels((long x, long y)[] arr, (long x, long y)[] tmp, int lo, int hi, int axis)
+        {
+            int len = hi - lo;
+            if (len <= 16) {
+                for (int i = lo + 1; i < hi; ++i) {
+                    var key = arr[i];
+                    int j = i - 1;
+                    while (j >= lo && PixelGreater(arr[j], key, axis)) { arr[j + 1] = arr[j]; --j; }
+                    arr[j + 1] = key;
+                }
+                return;
+            }
+            int mid = lo + (len >> 1);
+            MergeSortPixels(arr, tmp, lo, mid, axis);
+            MergeSortPixels(arr, tmp, mid, hi, axis);
+            int p = lo, q = mid, dst = lo;
+            while (p < mid && q < hi) {
+                if (PixelGreater(arr[p], arr[q], axis)) tmp[dst++] = arr[q++];
+                else tmp[dst++] = arr[p++];
+            }
+            while (p < mid) tmp[dst++] = arr[p++];
+            while (q < hi) tmp[dst++] = arr[q++];
+            for (int i = lo; i < hi; ++i) arr[i] = tmp[i];
+        }
+
+        static bool PixelGreater((long x, long y) a, (long x, long y) b, int axis)
+            => axis == 0 ? (a.x > b.x || (a.x == b.x && a.y > b.y)) : (a.y > b.y || (a.y == b.y && a.x > b.x));
+
+        /// <summary> snap rounding: builds a flat balanced 2D k-d tree over the hot pixels at their own density </summary>
         void IndexHot()
         {
-            hotByBucket = new Dictionary<(long, long), List<(long, long)>>();
-            foreach (var p in hot.OrderBy(p => p.Item1).ThenBy(p => p.Item2)) {
-                var key = (BucketOf(p.Item1), BucketOf(p.Item2));
-                if (!hotByBucket.TryGetValue(key, out var list)) hotByBucket[key] = list = new List<(long, long)>();
-                list.Add(p);
+            int count = hot.Count;
+            hotPts = new (long, long)[count];
+            int idx = 0;
+            foreach (var p in hot.OrderBy(p => p.Item1).ThenBy(p => p.Item2)) hotPts[idx++] = p;
+            if (count == 0) { hotNodes = new HotNode[0]; hotNodeCount = 0; return; }
+            hotNodes = new HotNode[Math.Max(1, 2 * count)];
+            hotNodeCount = 0;
+            var tmp = new (long, long)[count];
+            BuildHotNode(tmp, 0, count);
+        }
+
+        int BuildHotNode((long, long)[] tmp, int lo, int hi)
+        {
+            int id = hotNodeCount++;
+            long minX = hotPts[lo].x, maxX = minX, minY = hotPts[lo].y, maxY = minY;
+            for (int i = lo + 1; i < hi; ++i) {
+                long x = hotPts[i].x, y = hotPts[i].y;
+                if (x < minX) minX = x; else if (x > maxX) maxX = x;
+                if (y < minY) minY = y; else if (y > maxY) maxY = y;
             }
+            int len = hi - lo;
+            if (len <= 16) {
+                hotNodes[id] = new HotNode { MinX = minX, MaxX = maxX, MinY = minY, MaxY = maxY, Start = lo, Count = len, Left = -1, Right = -1 };
+                return id;
+            }
+            int axis = (maxX - minX) >= (maxY - minY) ? 0 : 1;
+            MergeSortPixels(hotPts, tmp, lo, hi, axis);
+            int mid = lo + (len >> 1);
+            int left = BuildHotNode(tmp, lo, mid);
+            int right = BuildHotNode(tmp, mid, hi);
+            hotNodes[id] = new HotNode { MinX = minX, MaxX = maxX, MinY = minY, MaxY = maxY, Start = lo, Count = 0, Left = left, Right = right };
+            return id;
+        }
+
+        /// <summary>
+        /// Returns all hot pixels in [lx, hx] x [ly, hy] that pass a conservative separating-axis corridor test around
+        /// segment (ax, ay)-(bx, by) in pixel coordinates (1.5-pixel half-width + 1e-9 relative margin).
+        /// </summary>
+        IEnumerable<(long, long)> QueryHot(double ax, double ay, double bx, double by, long lx, long hx, long ly, long hy)
+        {
+            queryHits.Clear();
+            if (hotNodeCount == 0) return queryHits;
+            double dx = bx - ax, dy = by - ay;
+            double adx = Math.Abs(dx), ady = Math.Abs(dy);
+            bool useFilter = !double.IsNaN(dx) && !double.IsNaN(dy) && !double.IsInfinity(dx) && !double.IsInfinity(dy)
+                && Math.Abs(ax) <= 1e13 && Math.Abs(ay) <= 1e13 && Math.Abs(bx) <= 1e13 && Math.Abs(by) <= 1e13;
+            int top = 0;
+            queryStack[top++] = 0;
+            while (top > 0) {
+                var node = hotNodes[queryStack[--top]];
+                if (node.MaxX < lx || node.MinX > hx || node.MaxY < ly || node.MinY > hy) continue;
+                if (useFilter) {
+                    double cx = 0.5 * ((double)node.MinX + (double)node.MaxX);
+                    double cy = 0.5 * ((double)node.MinY + (double)node.MaxY);
+                    double halfX = 0.5 * ((double)node.MaxX - (double)node.MinX) + 1.5;
+                    double halfY = 0.5 * ((double)node.MaxY - (double)node.MinY) + 1.5;
+                    double rx = cx - ax, ry = cy - ay;
+                    double val = dx * ry - dy * rx;
+                    double rad = adx * halfY + ady * halfX;
+                    double err = 1e-9 * (adx * (Math.Abs(ry) + halfY) + ady * (Math.Abs(rx) + halfX) + adx + ady + 1.0);
+                    double lim = rad + err;
+                    if (!double.IsNaN(val) && !double.IsInfinity(val) && !double.IsNaN(lim) && !double.IsInfinity(lim) && Math.Abs(val) > lim)
+                        continue;
+                }
+                if (node.Count > 0) {
+                    int end = node.Start + node.Count;
+                    for (int i = node.Start; i < end; ++i) {
+                        var p = hotPts[i];
+                        if (p.x < lx || p.x > hx || p.y < ly || p.y > hy) continue;
+                        if (useFilter) {
+                            double rx = p.x - ax, ry = p.y - ay;
+                            double val = dx * ry - dy * rx;
+                            double lim = (adx + ady) * 1.5 + 1e-9 * (adx * (Math.Abs(ry) + 1.5) + ady * (Math.Abs(rx) + 1.5) + adx + ady + 1.0);
+                            if (!double.IsNaN(val) && !double.IsInfinity(val) && !double.IsNaN(lim) && !double.IsInfinity(lim) && Math.Abs(val) > lim)
+                                continue;
+                        }
+                        queryHits.Add((p.x, p.y));
+                    }
+                } else {
+                    queryStack[top++] = node.Right;
+                    queryStack[top++] = node.Left;
+                }
+            }
+            return queryHits;
         }
 
         void RouteAll()
         {
             IndexHot();
             chains = new List<List<(long, long)>>(routed.Count);
+            bool wFits = W <= (BigInteger)(1L << 40);
+            long wL = wFits ? (long)W : 0;
             foreach (var (a, b) in routed) {
                 cancel.ThrowIfCancellationRequested();
                 long lx = Math.Min(KX[a], KX[b]) - 1, hx = Math.Max(KX[a], KX[b]) + 1, ly = Math.Min(KY[a], KY[b]) - 1, hy = Math.Max(KY[a], KY[b]) + 1;
+                var pa = input.Points[a]; var pb = input.Points[b];
+                BigInteger pxB = X[a], pyB = Y[a], qxB = X[b], qyB = Y[b];
+                BigInteger dxB = qxB - pxB, dyB = qyB - pyB;
+                BigInteger absDxB = BigInteger.Abs(dxB), absDyB = BigInteger.Abs(dyB);
+                // fast exact 64-bit long contact test when all segment & pixel coordinates and cross products stay strictly below 2^60
+                bool useLong = false;
+                long pxL = 0, pyL = 0, qxL = 0, qyL = 0, dxL = 0, dyL = 0, lxL = 0, hxL = 0, lyL = 0, hyL = 0;
+                if (wFits) {
+                    long maxAbsK = Math.Max(Math.Max(Math.Abs(lx), Math.Abs(hx)), Math.Max(Math.Abs(ly), Math.Abs(hy))) + 2;
+                    if ((double)maxAbsK * (2.0 * wL) < 1e18 && BigInteger.Abs(pxB) <= (BigInteger)1000000000000000000L
+                        && BigInteger.Abs(pyB) <= (BigInteger)1000000000000000000L
+                        && BigInteger.Abs(qxB) <= (BigInteger)1000000000000000000L
+                        && BigInteger.Abs(qyB) <= (BigInteger)1000000000000000000L) {
+                        pxL = (long)pxB; pyL = (long)pyB; qxL = (long)qxB; qyL = (long)qyB;
+                        dxL = qxL - pxL; dyL = qyL - pyL;
+                        lxL = pxL < qxL ? pxL : qxL; hxL = pxL > qxL ? pxL : qxL;
+                        lyL = pyL < qyL ? pyL : qyL; hyL = pyL > qyL ? pyL : qyL;
+                        double adx = Math.Abs((double)dxL), ady = Math.Abs((double)dyL);
+                        double pad = 2.0 * wL + 4.0;
+                        if (adx * (ady + pad) < 1e18 && ady * (adx + pad) < 1e18) useLong = true;
+                    }
+                }
                 var met = new List<(((BigInteger num, BigInteger den) entry, (BigInteger num, BigInteger den) exit) t, (long, long) p)>();
-                var seen = new HashSet<(long, long)>();
-                foreach (var key in Buckets((KX[a], KY[a]), (KX[b], KY[b])))
-                    if (hotByBucket.TryGetValue(key, out var list))
-                        foreach (var p in list)
-                            if (p.Item1 >= lx && p.Item1 <= hx && p.Item2 >= ly && p.Item2 <= hy && seen.Add(p) && Meets(X[a], Y[a], X[b], Y[b], p, false))
-                                met.Add((Span(X[a], Y[a], X[b], Y[b], p), p));
+                foreach (var p in QueryHot(pa.x / w, pa.y / w, pb.x / w, pb.y / w, lx, hx, ly, hy)) {
+                    bool hit = useLong
+                        ? MeetsContactLong(pxL, pyL, qxL, qyL, dxL, dyL, lxL, hxL, lyL, hyL, wL, p)
+                        : Meets(pxB, pyB, qxB, qyB, p, false);
+                    if (hit) met.Add((Span(pxB, pyB, dxB, dyB, absDxB, absDyB, p), p));
+                }
                 met.Sort(CompareMet);
                 var chain = new List<(long, long)>();
                 foreach (var m in met) if (chain.Count == 0 || !chain[chain.Count - 1].Equals(m.p)) chain.Add(m.p);
@@ -314,32 +630,122 @@ namespace g3
         internal static int CompareMet((((BigInteger num, BigInteger den) entry, (BigInteger num, BigInteger den) exit) t, (long, long) p) u,
             (((BigInteger num, BigInteger den) entry, (BigInteger num, BigInteger den) exit) t, (long, long) p) v)
         {
-            int c = (u.t.entry.num * v.t.entry.den).CompareTo(v.t.entry.num * u.t.entry.den);
+            int c = u.t.entry.den == v.t.entry.den
+                ? u.t.entry.num.CompareTo(v.t.entry.num)
+                : (u.t.entry.num * v.t.entry.den).CompareTo(v.t.entry.num * u.t.entry.den);
             if (c != 0) return c;
-            c = (u.t.exit.num * v.t.exit.den).CompareTo(v.t.exit.num * u.t.exit.den);
+            c = u.t.exit.den == v.t.exit.den
+                ? u.t.exit.num.CompareTo(v.t.exit.num)
+                : (u.t.exit.num * v.t.exit.den).CompareTo(v.t.exit.num * u.t.exit.den);
             if (c != 0) return c;
             c = u.p.Item1.CompareTo(v.p.Item1);
             return c != 0 ? c : u.p.Item2.CompareTo(v.p.Item2);
         }
 
+        static ((long, long), (long, long)) OrderedPixel((long, long) p, (long, long) q)
+            => p.Item1 < q.Item1 || (p.Item1 == q.Item1 && p.Item2 <= q.Item2) ? (p, q) : (q, p);
+
         /// <summary> critical pixels: a hot pixel whose interior an output edge crosses, the edge's ends outside it </summary>
         List<((long, long) cp, int chain, int edge)> Critical()
         {
             var list = new List<((long, long), int, int)>();
+            // cache critical pixels per unique undirected chain edge (lookup-only: never enumerated)
+            var edgeCache = new Dictionary<((long, long), (long, long)), List<(long, long)>>();
             for (int c = 0; c < chains.Count; ++c) {
                 var ch = chains[c];
                 if ((c & 255) == 0) cancel.ThrowIfCancellationRequested();
                 for (int e = 0; e + 1 < ch.Count; ++e) {
                     var p = ch[e]; var q = ch[e + 1];
-                    long lx = Math.Min(p.Item1, q.Item1), hx = Math.Max(p.Item1, q.Item1), ly = Math.Min(p.Item2, q.Item2), hy = Math.Max(p.Item2, q.Item2);
-                    foreach (var key in Buckets(p, q))
-                        if (hotByBucket.TryGetValue(key, out var pixels))
-                            foreach (var h in pixels)
-                                if (h.Item1 >= lx && h.Item1 <= hx && h.Item2 >= ly && h.Item2 <= hy && !h.Equals(p) && !h.Equals(q) && Meets(Cx(p), Cy(p), Cx(q), Cy(q), h, true))
-                                    list.Add((h, c, e));
+                    var key = OrderedPixel(p, q);
+                    if (!edgeCache.TryGetValue(key, out var hits)) {
+                        hits = null;
+                        long lx = Math.Min(p.Item1, q.Item1), hx = Math.Max(p.Item1, q.Item1), ly = Math.Min(p.Item2, q.Item2), hy = Math.Max(p.Item2, q.Item2);
+                        foreach (var h in QueryHot(p.Item1, p.Item2, q.Item1, q.Item2, lx, hx, ly, hy)) {
+                            if (!h.Equals(p) && !h.Equals(q) && MeetsPixelCentreInterior(p, q, h)) {
+                                if (hits == null) hits = new List<(long, long)>();
+                                hits.Add(h);
+                            }
+                        }
+                        if (hits != null && hits.Count > 1) {
+                            // deterministic total order by (x, y)
+                            for (int i = 1; i < hits.Count; ++i) {
+                                var cur = hits[i];
+                                int j = i - 1;
+                                while (j >= 0 && (hits[j].Item1 > cur.Item1 || (hits[j].Item1 == cur.Item1 && hits[j].Item2 > cur.Item2))) {
+                                    hits[j + 1] = hits[j];
+                                    --j;
+                                }
+                                hits[j + 1] = cur;
+                            }
+                        }
+                        edgeCache.Add(key, hits);
+                    }
+                    if (hits != null) {
+                        for (int i = 0; i < hits.Count; ++i) list.Add((hits[i], c, e));
+                    }
                 }
             }
             return list;
+        }
+
+        static void MergeSortEdges(EdgeBox[] arr, EdgeBox[] tmp, int lo, int hi, int axis)
+        {
+            int len = hi - lo;
+            if (len <= 16) {
+                for (int i = lo + 1; i < hi; ++i) {
+                    var key = arr[i];
+                    int j = i - 1;
+                    while (j >= lo && EdgeGreater(arr[j], key, axis)) { arr[j + 1] = arr[j]; --j; }
+                    arr[j + 1] = key;
+                }
+                return;
+            }
+            int mid = lo + (len >> 1);
+            MergeSortEdges(arr, tmp, lo, mid, axis);
+            MergeSortEdges(arr, tmp, mid, hi, axis);
+            int p = lo, q = mid, dst = lo;
+            while (p < mid && q < hi) {
+                if (EdgeGreater(arr[p], arr[q], axis)) tmp[dst++] = arr[q++];
+                else tmp[dst++] = arr[p++];
+            }
+            while (p < mid) tmp[dst++] = arr[p++];
+            while (q < hi) tmp[dst++] = arr[q++];
+            for (int i = lo; i < hi; ++i) arr[i] = tmp[i];
+        }
+
+        static bool EdgeGreater(EdgeBox a, EdgeBox b, int axis)
+        {
+            long ka = axis == 0 ? a.MinX + a.MaxX : a.MinY + a.MaxY;
+            long kb = axis == 0 ? b.MinX + b.MaxX : b.MinY + b.MaxY;
+            if (ka != kb) return ka > kb;
+            if (a.AX != b.AX) return a.AX > b.AX;
+            if (a.AY != b.AY) return a.AY > b.AY;
+            if (a.BX != b.BX) return a.BX > b.BX;
+            return a.BY > b.BY;
+        }
+
+        static int BuildEdgeNode(EdgeBox[] edges, EdgeBox[] tmp, EdgeNode[] nodes, ref int nodeCount, int lo, int hi)
+        {
+            int id = nodeCount++;
+            long minX = edges[lo].MinX, maxX = edges[lo].MaxX, minY = edges[lo].MinY, maxY = edges[lo].MaxY;
+            for (int i = lo + 1; i < hi; ++i) {
+                if (edges[i].MinX < minX) minX = edges[i].MinX;
+                if (edges[i].MaxX > maxX) maxX = edges[i].MaxX;
+                if (edges[i].MinY < minY) minY = edges[i].MinY;
+                if (edges[i].MaxY > maxY) maxY = edges[i].MaxY;
+            }
+            int len = hi - lo;
+            if (len <= 16) {
+                nodes[id] = new EdgeNode { MinX = minX, MaxX = maxX, MinY = minY, MaxY = maxY, Start = lo, Count = len, Left = -1, Right = -1 };
+                return id;
+            }
+            int axis = (maxX - minX) >= (maxY - minY) ? 0 : 1;
+            MergeSortEdges(edges, tmp, lo, hi, axis);
+            int mid = lo + (len >> 1);
+            int left = BuildEdgeNode(edges, tmp, nodes, ref nodeCount, lo, mid);
+            int right = BuildEdgeNode(edges, tmp, nodes, ref nodeCount, mid, hi);
+            nodes[id] = new EdgeNode { MinX = minX, MaxX = maxX, MinY = minY, MaxY = maxY, Start = lo, Count = 0, Left = left, Right = right };
+            return id;
         }
 
         /// <summary>
@@ -352,21 +758,56 @@ namespace g3
         /// </summary>
         void Restore(List<((long, long) cp, int chain, int edge)> critical)
         {
-            var edgesByBucket = new Dictionary<(long, long), List<(int, int)>>();
-            for (int c = 0; c < chains.Count; ++c)
-                for (int e = 0; e + 1 < chains[c].Count; ++e)
-                    foreach (var key in Buckets(chains[c][e], chains[c][e + 1])) {
-                        if (!edgesByBucket.TryGetValue(key, out var list)) edgesByBucket[key] = list = new List<(int, int)>();
-                        list.Add((c, e));
-                    }
+            // index unique undirected chain edges in a flat 2D BVH (lookup-only HashSet, never enumerated)
+            var seenEdges = new HashSet<((long, long), (long, long))>();
+            var edgeList = new List<EdgeBox>();
+            for (int c = 0; c < chains.Count; ++c) {
+                var ch = chains[c];
+                for (int e = 0; e + 1 < ch.Count; ++e) {
+                    var key = OrderedPixel(ch[e], ch[e + 1]);
+                    if (!seenEdges.Add(key)) continue;
+                    var a = key.Item1; var b = key.Item2;
+                    edgeList.Add(new EdgeBox {
+                        AX = a.Item1, AY = a.Item2, BX = b.Item1, BY = b.Item2,
+                        MinX = a.Item1 < b.Item1 ? a.Item1 : b.Item1,
+                        MaxX = a.Item1 > b.Item1 ? a.Item1 : b.Item1,
+                        MinY = a.Item2 < b.Item2 ? a.Item2 : b.Item2,
+                        MaxY = a.Item2 > b.Item2 ? a.Item2 : b.Item2
+                    });
+                }
+            }
+            var edgeArr = edgeList.ToArray();
+            var edgeNodes = new EdgeNode[Math.Max(1, 2 * edgeArr.Length)];
+            int edgeNodeCount = 0;
+            if (edgeArr.Length > 0) BuildEdgeNode(edgeArr, new EdgeBox[edgeArr.Length], edgeNodes, ref edgeNodeCount, 0, edgeArr.Length);
+
+            var freeCache = new Dictionary<(long, long), bool>();
             bool Free((long, long) p)
             {
-                if (!edgesByBucket.TryGetValue((BucketOf(p.Item1), BucketOf(p.Item2)), out var list)) return true;
-                foreach (var (c, e) in list) {
-                    var a = chains[c][e]; var b = chains[c][e + 1];
-                    if (Meets(Cx(a), Cy(a), Cx(b), Cy(b), p, true)) return false;
+                if (freeCache.TryGetValue(p, out bool cached)) return cached;
+                bool result = true;
+                if (edgeNodeCount > 0) {
+                    long px = p.Item1, py = p.Item2;
+                    int top = 0;
+                    queryStack[top++] = 0;
+                    while (top > 0) {
+                        var node = edgeNodes[queryStack[--top]];
+                        if (px < node.MinX || px > node.MaxX || py < node.MinY || py > node.MaxY) continue;
+                        if (node.Count > 0) {
+                            int end = node.Start + node.Count;
+                            for (int i = node.Start; i < end; ++i) {
+                                var eb = edgeArr[i];
+                                if (px < eb.MinX || px > eb.MaxX || py < eb.MinY || py > eb.MaxY) continue;
+                                if (MeetsPixelCentreInterior((eb.AX, eb.AY), (eb.BX, eb.BY), p)) { result = false; top = 0; break; }
+                            }
+                        } else {
+                            queryStack[top++] = node.Right;
+                            queryStack[top++] = node.Left;
+                        }
+                    }
                 }
-                return true;
+                freeCache.Add(p, result);
+                return result;
             }
             var added = new List<(long, long)>();
             foreach (var (cp, c, e) in critical) {
@@ -378,7 +819,7 @@ namespace g3
                     if (dx == 0 && dy == 0) continue;
                     var p = (cp.Item1 + dx, cp.Item2 + dy);
                     if (hot.Contains(p) || !Meets(X[sa], Y[sa], X[sb], Y[sb], p, true)) continue;
-                    if (Meets(Cx(a), Cy(a), Cx(p), Cy(p), cp, true) || Meets(Cx(p), Cy(p), Cx(b), Cy(b), cp, true)) continue;
+                    if (MeetsPixelCentreInterior(a, p, cp) || MeetsPixelCentreInterior(p, b, cp)) continue;
                     useful.Add(p);
                 }
                 var free = useful.Where(Free).ToList();
@@ -399,7 +840,7 @@ namespace g3
                 }
                 added.Add(chosen);
             }
-            foreach (var p in added) hot.Add(p);
+            foreach (var p in (IEnumerable<(long, long)>)added) hot.Add(p);
         }
 
         /// <summary> does pixel p's centre project onto segment s strictly between the centres of a and b (in the order of s) </summary>

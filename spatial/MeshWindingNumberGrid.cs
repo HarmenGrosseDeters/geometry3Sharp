@@ -18,6 +18,21 @@ namespace gs
     /// Usage: <c>var g = new MeshWindingNumberGrid(mesh, new DMeshAABBTree3(mesh, true), cellSize); g.Compute();</c>
     /// The spatial tree must be built. Sample (i,j,k) is located at GridOriginD + (float)CellSize*(i,j,k) (the spacing of the inner MeshSignedDistanceGrid).
     /// 
+    /// What NarrowBand computes and guarantees (WindingIsoValue = iso, 0 &lt; iso, a node is computed when it has a winding number, otherwise filled):
+    /// the winding number is computed at the nodes closer than one cell to the mesh, then a front grows from them: of the 26 neighbours of a front
+    /// node, all are computed, and a neighbour joins the front when the pair is a crossing, ie not strictly on one side of iso (so a node exactly
+    /// at iso is a crossing with a neighbour on either side, and, for an iso that is not an integer, with another node exactly at iso: a plateau of
+    /// exact values, as on the plane of the opening of a symmetric open box, is followed to its end; for an integer iso the field is exactly iso over
+    /// whole regions (0 outside and 1 inside a closed mesh), which are not followed). Every other node is filled along its x row with the last
+    /// computed value, or 0 if that is below iso. So every cell that contains a front node has all its corners computed, and every pair of
+    /// 26-neighbours that is a crossing and is connected to the first band by crossings is computed. Against ComputeModes.FullGrid this gives, for
+    /// every node, the same side of iso (below, exactly at, above) and, where a node is computed, the same bits; along an x row, both nodes of any
+    /// consecutive pair that is not strictly on one side of iso are computed. It does not give: the value of a filled node (0 or the last computed
+    /// value: only its side of iso is meaningful), a contour that is not connected by crossings to the band (a closed component of the iso surface
+    /// far from the mesh that no front node touches is missed, as in the upstream algorithm), or an iso that is not positive (outside is filled with 0).
+    /// The number of winding evaluations in WindingEvaluations can differ by a few between runs (two threads may evaluate one neighbour); the grid and
+    /// the set of computed nodes do not depend on the schedule.
+    /// 
     /// TODO: 
     ///   - I think we are over-exploring the grid most of the time. eg along an x-ray that
     ///     intersects the surface, we only need at most 2 cells, but we are computing at least 3,
@@ -52,7 +67,7 @@ namespace gs
 
         /// <summary>
         /// In narrow-band mode, if mesh is not closed, we will explore space around
-        /// this MWN iso-value
+        /// this MWN iso-value (a positive one: outside is filled with 0). Nodes exactly at it count as crossings, see the class comment.
         /// </summary>
         public float WindingIsoValue = 0.5f;
 
@@ -304,6 +319,12 @@ namespace gs
             HashSet<Vector3i> queue = new HashSet<Vector3i>();
             SpinLock queue_lock = new SpinLock();
 
+            // Two nodes both exactly at the iso value are followed (a plateau of exact values), except for an integer iso
+            // value: the winding number of a closed mesh is exactly 0 outside and 1 inside over whole regions, and following
+            // those would compute the whole grid (a fractional value is exact only on surfaces: it is harmonic away from the
+            // mesh, so constant over a volume only if constant everywhere).
+            bool follow_plateaus = WindingIsoValue != Math.Floor(WindingIsoValue);
+
             while (true) {
                 if (CancelF())
                     return;
@@ -332,9 +353,17 @@ namespace gs
                         }
                         if (bits[nijk] == false) {
                             // this is a 'new' voxel this round.
-                            // If we have a MWN-iso-crossing, add it to the front next round
-                            bool crossing = (val < WindingIsoValue && val2 > WindingIsoValue) ||
-                                            (val > WindingIsoValue && val2 < WindingIsoValue);
+                            // If we have a MWN-iso-crossing, add it to the front next round. A crossing is every pair that is
+                            // not strictly on one side of the iso value: a node exactly at the iso value is a crossing with a
+                            // neighbour on either side and, unless the iso value is an integer (follow_plateaus), with another
+                            // node exactly at it, so a plateau of exact values (the plane of a hole in a symmetric mesh) is
+                            // followed to its end. (Upstream tested strictly: the front stopped at such a node although the
+                            // contour went on, and fill_spans filled the rows beyond it with values on the wrong side.)
+                            // A NaN is no crossing.
+                            bool crossing = (val <= WindingIsoValue && val2 >= WindingIsoValue) ||
+                                            (val >= WindingIsoValue && val2 <= WindingIsoValue);
+                            if (crossing && !follow_plateaus && val == val2)
+                                crossing = false;
                             if (crossing) {
                                 bool taken = false;
                                 queue_lock.Enter(ref taken);

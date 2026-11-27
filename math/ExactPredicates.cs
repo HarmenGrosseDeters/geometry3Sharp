@@ -57,16 +57,29 @@ namespace g3
         public static int Orient2d(Vector2d a, Vector2d b, Vector2d c)
         {
             PredicateStats.Call(PredicateStats.Kind.Orient2d);
-            double ux = b.x - a.x, uy = b.y - a.y, vx = c.x - a.x, vy = c.y - a.y;
+            int s = Orient2dFilter(b.x - a.x, b.y - a.y, c.x - a.x, c.y - a.y);
+            if (s != 0) return s;
+            PredicateStats.ExactStage(PredicateStats.Kind.Orient2d);
+            return orient2d_exact(a, b, c);
+        }
+
+        /// <summary>
+        /// The floating-point filter of Orient2d(a, b, c), given the differences u = b - a, v = c - a (each rounded once,
+        /// as Orient2d computes them): the sign of u x v where the error bound proves it, 0 where it does not decide
+        /// (then Orient2d(a, b, c) decides). The only implementation of the filter, so a caller that keeps u for many c
+        /// (TriangleTriangleFilter.ProjectedEdges, an edge against many points) gets Orient2d's decisions bit for bit.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static int Orient2dFilter(double ux, double uy, double vx, double vy)
+        {
             double l = ux * vy, r = uy * vx;
             double det = l - r;
             double sum = Math.Abs(l) + Math.Abs(r);
             double bound = Orient2dBound * sum;
-            // the relative error bound does not hold when products underflow (subnormal): exact then
+            // the relative error bound does not hold when products underflow (subnormal): undecided then
             if (det > bound && sum > UnderflowLimit) return 1;
             if (-det > bound && sum > UnderflowLimit) return -1;
-            PredicateStats.ExactStage(PredicateStats.Kind.Orient2d);
-            return orient2d_exact(a, b, c);
+            return 0;
         }
 
         /// <summary>
@@ -436,6 +449,90 @@ namespace g3
             return (wx * (uy * vz - uz * vy) + wy * (uz * vx - ux * vz) + wz * (ux * vy - uy * vx)).Sign;
         }
 
+        // ---- predicates of a line given by a point and an exact direction (ExactRayTriangle: a ray's line is
+        // o + t d with the supplied d, not through a rounded second point, #1672) ----
+
+        /// <summary>
+        /// The sign of (d x (a - o)) . (b - o) = det[d, a - o, b - o], exactly: Orient3d(o, o + d, a, b) for the exact
+        /// point o + d (which need not be a double). The filter is Orient3dFilter with u = d: its error bound holds for
+        /// u, v, w each rounded once, and d is exact (a rounding of zero); the exact stages are those of Orient3d with
+        /// the first difference replaced by d itself (d - 0, exact): 64-bit integers where the differences admit it
+        /// (the bounds of orient3d_int: the same nine integer inputs below 2^62), else BigInteger.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static int Orient3dDirection(Vector3d o, Vector3d d, Vector3d a, Vector3d b)
+        {
+            PredicateStats.Call(PredicateStats.Kind.Orient3d);
+            int s = Orient3dFilter(d.x, d.y, d.z, a.x - o.x, a.y - o.y, a.z - o.z, b.x - o.x, b.y - o.y, b.z - o.z);
+            if (s != 0) return s;
+            PredicateStats.ExactStage(PredicateStats.Kind.Orient3d);
+            return Orient3dDirectionExact(o, d, a, b);
+        }
+
+        /// <summary> the exact stage of Orient3dDirection (no filter) </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static int Orient3dDirectionExact(Vector3d o, Vector3d d, Vector3d a, Vector3d b)
+        {
+            int sign;
+            if (orient3d_direction_int(o, d, a, b, out sign))
+                return sign;
+            return orient3d_direction_bigint(o, d, a, b);
+        }
+
+        /// <summary> the sign of det[d, a - o, b - o] by 64-bit integer arithmetic (as orient3d_int, u = d - 0);
+        /// false if the differences are not admitted </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static bool orient3d_direction_int(Vector3d o, Vector3d d, Vector3d a, Vector3d b, out int sign)
+        {
+            sign = 0;
+            int e = Math.Min(Math.Min(Math.Min(low_exp(o.x), low_exp(o.y)), Math.Min(low_exp(o.z), low_exp(d.x))),
+                Math.Min(Math.Min(low_exp(d.y), low_exp(d.z)), Math.Min(low_exp(a.x), low_exp(a.y))));
+            e = Math.Min(e, Math.Min(Math.Min(low_exp(a.z), low_exp(b.x)), Math.Min(low_exp(b.y), low_exp(b.z))));
+            // 2^-e must be a normal double (e = int.MaxValue: all coordinates zero, then BigInteger gives 0)
+            if (e < -1022 || e > 1022)
+                return false;
+            double scale = BitConverter.Int64BitsToDouble((long)(1023 - e) << 52);
+            long ux, uy, uz, vx, vy, vz, wx, wy, wz;
+            if (diff(d.x, 0, scale, out ux) == false || diff(d.y, 0, scale, out uy) == false || diff(d.z, 0, scale, out uz) == false
+                || diff(a.x, o.x, scale, out vx) == false || diff(a.y, o.y, scale, out vy) == false || diff(a.z, o.z, scale, out vz) == false
+                || diff(b.x, o.x, scale, out wx) == false || diff(b.y, o.y, scale, out wy) == false || diff(b.z, o.z, scale, out wz) == false)
+                return false;
+            ulong m1h, m1l, m2h, m2l, m3h, m3l;
+            minor(uy, vz, uz, vy, out m1h, out m1l);
+            minor(uz, vx, ux, vz, out m2h, out m2l);
+            minor(ux, vy, uy, vx, out m3h, out m3l);
+            ulong s0, s1, s2, t0, t1, t2;
+            term(m1h, m1l, wx, out s2, out s1, out s0);
+            term(m2h, m2l, wy, out t2, out t1, out t0);
+            add192(ref s2, ref s1, ref s0, t2, t1, t0);
+            term(m3h, m3l, wz, out t2, out t1, out t0);
+            add192(ref s2, ref s1, ref s0, t2, t1, t0);
+            sign = ((long)s2 < 0) ? -1 : ((s2 | s1 | s0) == 0) ? 0 : 1;
+            return true;
+        }
+
+        [MethodImpl(JitHints.Optimize)]
+        internal static int orient3d_direction_bigint(Vector3d o, Vector3d d, Vector3d a, Vector3d b)
+        {
+            BigInteger[] p = to_integers(o.x, o.y, o.z, d.x, d.y, d.z, a.x, a.y, a.z, b.x, b.y, b.z);
+            BigInteger ux = p[3], uy = p[4], uz = p[5];
+            BigInteger vx = p[6] - p[0], vy = p[7] - p[1], vz = p[8] - p[2];
+            BigInteger wx = p[9] - p[0], wy = p[10] - p[1], wz = p[11] - p[2];
+            return (wx * (uy * vz - uz * vy) + wy * (uz * vx - ux * vz) + wz * (ux * vy - uy * vx)).Sign;
+        }
+
+        /// <summary>
+        /// The sign of (a1 - b1) d2 - (a2 - b2) d1, exactly: the 2D cross product of the difference a - b with the
+        /// direction d (ExactRayTriangle's perturbation of a ray's origin). Rare (an origin on the line of a triangle
+        /// edge), so BigInteger only.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static int Cross2Direction(double a1, double a2, double b1, double b2, double d1, double d2)
+        {
+            BigInteger[] v = to_integers(a1, a2, b1, b2, d1, d2);
+            return ((v[0] - v[2]) * v[5] - (v[1] - v[3]) * v[4]).Sign;
+        }
+
         /// <summary>
         /// The sign of a signed volume, exactly: six times it is the sum over the triangles t of det(p_a - o, p_b - o,
         /// p_c - o), where the triangles are the triples corners[3 t .. 3 t + 2] of indices of the points xyz[3 i .. 3 i + 2]
@@ -458,7 +555,10 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         internal static int VolumeSign(double[] xyz, int[] corners)
         {
-            if (corners == null || corners.Length < 3)
+            if (corners == null)
+                return 0;
+            // Stryker disable once Equality: one triangle (3 corners): its first corner is o, so u = 0 and S = 0 exactly; the sign is 0 whether this returns or the filter and the exact sum run
+            if (corners.Length < 3)
                 return 0;
             for (int k = 0; k < xyz.Length; ++k)
                 if (double.IsNaN(xyz[k]) || double.IsInfinity(xyz[k]))
@@ -474,10 +574,15 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         internal static int VolumeSignFilter(double[] xyz, int[] corners)
         {
-            if (VolumeSumWithBound(xyz, corners, out double sum, out double bound)) {
-                if (sum > bound) return 1;
-                if (-sum > bound) return -1;
-            }
+            return VolumeSumWithBound(xyz, corners, out double sum, out double bound) ? SignOfBoundedSum(sum, bound) : 0;
+        }
+
+        /// <summary> +1 where sum > bound, -1 where -sum > bound, else 0 (the exact sum S has |S_fp - S| &lt;= bound, so then it has the sign of S_fp) </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static int SignOfBoundedSum(double sum, double bound)
+        {
+            if (sum > bound) return 1;
+            if (-sum > bound) return -1;
             return 0;
         }
 
@@ -508,10 +613,54 @@ namespace g3
                     + Math.Abs(wz) * (Math.Abs(uxvy) + Math.Abs(uyvx));
                 under += Math.Abs(wx) + Math.Abs(wy) + Math.Abs(wz) + 1;
             }
-            double g = (n + 2) * Epsilon / (1 - (n + 2) * Epsilon);
-            bound = (Orient3dBound * perm + UnderflowUnit * under + g * abs) * (1 + 3 * g);
+            double g = VolumeBoundG(n);
+            bound = VolumeBound(perm, under, abs, g);
+            return VolumeBoundUsable(sum, bound, g);
+        }
+
+        /// <summary> g = gamma_(n+2) = (n + 2) u / (1 - (n + 2) u) of the bound of VolumeSumWithBound, n the number of triangles </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static double VolumeBoundG(int n)
+        {
+            return (n + 2) * Epsilon / (1 - (n + 2) * Epsilon);
+        }
+
+        /// <summary> the bound E of VolumeSumWithBound from the sums perm, under, abs of its terms: (Orient3dBound perm + UnderflowUnit under + g abs) (1 + 3 g) </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static double VolumeBound(double perm, double under, double abs, double g)
+        {
+            return (Orient3dBound * perm + UnderflowUnit * under + g * abs) * (1 + 3 * g);
+        }
+
+        /// <summary>
+        /// whether sum and bound of VolumeSumWithBound are usable: both finite and g &lt; 1/4 (the proof of the bound needs it). A sum
+        /// that is not finite has a bound that is not finite (abs, the sum of the |det_t|, is at least |sum|, and a NaN det makes both NaN),
+        /// so the tests of the sum are a second guard; a finite sum with a bound that overflows (perm, the sum of the |w| (|uyvz| + |uzvy|)
+        /// terms, can overflow where det does not) is the case that only the test of the bound catches
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static bool VolumeBoundUsable(double sum, double bound, double g)
+        {
             bool finite = !(double.IsNaN(sum) || double.IsInfinity(sum) || double.IsNaN(bound) || double.IsInfinity(bound));
             return finite && g < 0.25;
+        }
+
+        /// <summary>
+        /// the filter of TryCompareAbsVolume6: from sum = S_fp and bound = E of VolumeSumWithBound, +1 where |S| > 3 t is proven, -1 where |S| &lt; 3 t,
+        /// else false (sign 0, undecided); false too where 3 t overflows
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static bool VolumeCompareFilter(double sum, double bound, double t, out int sign)
+        {
+            sign = 0;
+            double t3 = 3 * t;
+            if (!double.IsInfinity(t3)) {
+                double a = Math.Abs(sum);
+                // (the exact S has |S| in [a - E, a + E]; the slack 4 u per side)
+                if ((a - bound) * (1 - 4 * Epsilon) > t3 * (1 + 4 * Epsilon)) { sign = 1; return true; }
+                if ((a + bound) * (1 + 4 * Epsilon) < t3 * (1 - 4 * Epsilon)) { sign = -1; return true; }
+            }
+            return false;
         }
 
         /// <summary>
@@ -535,13 +684,8 @@ namespace g3
                 if (double.IsNaN(xyz[k]) || double.IsInfinity(xyz[k]))
                     return false;
             if (VolumeSumWithBound(xyz, corners, out double sum, out double bound)) {
-                double t3 = 3 * t;
-                if (!double.IsInfinity(t3)) {
-                    double a = Math.Abs(sum);
-                    // (the exact S has |S| in [a - E, a + E]; the slack 4 u per side)
-                    if ((a - bound) * (1 - 4 * Epsilon) > t3 * (1 + 4 * Epsilon)) { sign = 1; return true; }
-                    if ((a + bound) * (1 + 4 * Epsilon) < t3 * (1 - 4 * Epsilon)) { sign = -1; return true; }
-                }
+                if (VolumeCompareFilter(sum, bound, t, out sign))
+                    return true;
             } else if (double.IsNaN(sum) || double.IsInfinity(sum))
                 return false;
             BigInteger[] q = to_integers(xyz, out int emin);
@@ -552,6 +696,7 @@ namespace g3
                 BigInteger ux = q[ia] - q[io], uy = q[ia + 1] - q[io + 1], uz = q[ia + 2] - q[io + 2];
                 BigInteger vx = q[ib] - q[io], vy = q[ib + 1] - q[io + 1], vz = q[ib + 2] - q[io + 2];
                 BigInteger wx = q[ic] - q[io], wy = q[ic + 1] - q[io + 1], wz = q[ic + 2] - q[io + 2];
+                // Stryker disable once Assignment: only |total| is used below
                 total += wx * (uy * vz - uz * vy) + wy * (uz * vx - ux * vz) + wz * (ux * vy - uy * vx);
             }
             decompose(t, out long mt, out int et);

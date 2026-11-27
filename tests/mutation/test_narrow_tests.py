@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import unittest
 
+import shell_shims
 import narrow_tests as nt
 
 ROOT = "/ci/work/repo"
@@ -56,23 +57,23 @@ class Dir(unittest.TestCase):
     def write(self, path, text):
         full = os.path.join(self.repo, path)
         os.makedirs(os.path.dirname(full), exist_ok=True)
-        with open(full, "w", newline="") as f:
+        with open(full, "w", encoding="utf-8", newline="") as f:
             f.write(text)
 
     def make(self, mutants, **kw):
         rp = os.path.join(self.tmp.name, "r.json")
-        json.dump(report(mutants, TESTS), open(rp, "w"))
+        json.dump(report(mutants, TESTS), open(rp, "w", encoding="utf-8", newline="\n"))
         return nt.make(rp, self.config, **kw)
 
     def apply(self, flt, config=None):
         fp = os.path.join(self.tmp.name, "f.json")
         out = os.path.join(self.tmp.name, "out.json")
         if flt is not None:
-            json.dump(flt, open(fp, "w"))
+            json.dump(flt, open(fp, "w", encoding="utf-8", newline="\n"))
         cfg = self.config
         if config is not None:
             cfg = os.path.join(self.tmp.name, "cfg.json")
-            json.dump(config, open(cfg, "w"))
+            json.dump(config, open(cfg, "w", encoding="utf-8", newline="\n"))
         msg = nt.apply(cfg, fp, self.repo, out)
         return msg, json.load(open(out))["stryker-config"]
 
@@ -118,7 +119,7 @@ class Make(Dir):
     def test_theory_rows_become_their_method_once(self):
         tests = dict(TESTS, b=(TESTF, 'N.ATests.Row(x: 1, s: "a|b")'), e=(TESTF, 'N.ATests.Row(x: 2, s: "c")'))
         rp = os.path.join(self.tmp.name, "r.json")
-        json.dump(report(Make.BIG + [mutant(20, "Killed", "be", "abe")], tests), open(rp, "w"))
+        json.dump(report(Make.BIG + [mutant(20, "Killed", "be", "abe")], tests), open(rp, "w", encoding="utf-8", newline="\n"))
         flt, _ = nt.make(rp, self.config)
         self.assertEqual(flt["kept"], ["N.ATests.One", "N.ATests.Row"])
 
@@ -127,7 +128,7 @@ class Make(Dir):
             rep_ = report(Make.BIG, TESTS)
             rep_[group] = {"/elsewhere/" + k.rsplit("/", 1)[1]: v for k, v in rep_[group].items()}
             rp = os.path.join(self.tmp.name, "r.json")
-            json.dump(rep_, open(rp, "w"))
+            json.dump(rep_, open(rp, "w", encoding="utf-8", newline="\n"))
             flt, msg = nt.make(rp, self.config)
             self.assertIsNone(flt, group)
             self.assertIn("test file outside" if group == "testFiles" else "mutated file outside", msg)
@@ -136,7 +137,7 @@ class Make(Dir):
         rp = os.path.join(self.tmp.name, "r.json")
         rep_ = report(Make.BIG, TESTS)
         rep_["projectRoot"] = ROOT + "/sub"
-        json.dump(rep_, open(rp, "w"))
+        json.dump(rep_, open(rp, "w", encoding="utf-8", newline="\n"))
         flt, msg = nt.make(rp, self.config)
         self.assertIsNone(flt)
         self.assertIn("outside the project root", msg)
@@ -181,13 +182,45 @@ class Make(Dir):
         rows = "".join('<UnitTestResult testName="%s(x: %d)" duration="00:00:%s" />' % (n, i, d)
                        for n, i, d in [("N.BTests.Three", 1, "00.5"), ("N.BTests.Three", 2, "00.5"),
                                        ("N.BTests.Four", 1, "09.0"), ("N.ATests.One", 1, "01.0")])
-        open(trx, "w").write('<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">'
+        open(trx, "w", encoding="utf-8", newline="\n").write('<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">'
                              "<Results>%s</Results></TestRun>" % rows)
         self.assertEqual(nt.durations_of(trx), {"N.BTests.Three": 1.0, "N.BTests.Four": 9.0, "N.ATests.One": 1.0})
         ms = self.BIG + [mutant(20, "Killed", "cd", "abcd")]
         flt, _ = self.make(ms, trx=trx)
         self.assertEqual(flt["kept"], ["N.ATests.One", "N.BTests.Three"])
         self.assertTrue(flt["weighted_by_duration"])
+
+    def theory_make(self, row_name):
+        """a theory method Row of 3 rows (2 s each) and a plain test One (1 s); 10 mutants killed by One, covered by all"""
+        trx = os.path.join(self.tmp.name, "t.trx")
+        rows = "".join('<UnitTestResult testName="N.ATests.Row(x: %d)" duration="00:00:02.0" />' % i for i in (1, 2, 3))
+        rows += '<UnitTestResult testName="N.ATests.One" duration="00:00:01.0" />'
+        open(trx, "w", encoding="utf-8", newline="\n").write('<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">'
+                             "<Results>%s</Results></TestRun>" % rows)
+        tests = {"a": (TESTF, "N.ATests.One")}
+        tests.update({t: (TESTF, row_name(i)) for t, i in (("r", 1), ("s", 2), ("u", 3))})
+        rp = os.path.join(self.tmp.name, "r.json")
+        json.dump(report([mutant(i, "Killed", "a", "arsu") for i in range(10)], tests), open(rp, "w", encoding="utf-8", newline="\n"))
+        return nt.make(rp, self.config, trx=trx)
+
+    def test_theory_rows_are_costed_as_their_method_with_or_without_arguments_in_the_name(self):
+        # the dropped Row costs its 3 rows (6 s) per mutant, One 1 s is kept: 1 - 1/7 whatever the form of the names
+        for form in (lambda i: "N.ATests.Row(x: %d)" % i, lambda i: "N.ATests.Row"):
+            flt, msg = self.theory_make(form)
+            self.assertEqual(flt["estimated_saving"], round(6 / 7, 3), msg)
+            self.assertEqual(flt["kept"], ["N.ATests.One"])
+            self.assertEqual(flt["tests_in_report"], 2)  # methods, not rows
+
+    def test_a_kept_theory_method_is_charged_for_all_its_rows(self):
+        tests = {"a": (TESTF, "N.ATests.One")}
+        tests.update({t: (TESTF, "N.ATests.Row(x: %d)" % i) for t, i in (("r", 1), ("s", 2), ("u", 3))})
+        rp = os.path.join(self.tmp.name, "r.json")
+        # Row is the only killer of mutant 20 (kept); every mutant is covered by all four ids
+        ms = [mutant(i, "Killed", "a", "arsu") for i in range(10)] + [mutant(20, "Killed", "r", "arsu")]
+        json.dump(report(ms, tests), open(rp, "w", encoding="utf-8", newline="\n"))
+        flt, _ = nt.make(rp, self.config, min_saving=0.0)
+        self.assertEqual(flt["kept"], ["N.ATests.One", "N.ATests.Row"])
+        self.assertEqual(flt["estimated_saving"], 0.0)  # both methods kept: nothing is saved (1 row of 3 was not kept)
 
     def test_the_filter_records_what_it_was_made_from(self):
         flt, _ = self.make(self.BIG)
@@ -282,7 +315,7 @@ class Apply(Dir):
         flt = self.current()
         for text in ["{broken", "[]", "null", json.dumps(dict(flt, kept=[1, 2])), json.dumps(dict(flt, mutated_files=[1])),
                      json.dumps(dict(flt, test_files="x"))]:
-            open(fp, "w").write(text)
+            open(fp, "w", encoding="utf-8", newline="\n").write(text)
             msg = nt.apply(self.config, fp, self.repo, out)
             self.assertTrue(msg.startswith("full: "), (text, msg))
             self.assertEqual(json.load(open(out))["stryker-config"]["test-case-filter"],
@@ -303,7 +336,7 @@ class Apply(Dir):
         rp = os.path.join(self.tmp.name, "r.json")
         fp = os.path.join(self.tmp.name, "f.json")
         out = os.path.join(self.tmp.name, "o.json")
-        json.dump(report(Make.BIG, TESTS), open(rp, "w"))
+        json.dump(report(Make.BIG, TESTS), open(rp, "w", encoding="utf-8", newline="\n"))
         self.assertEqual(nt.main(["make", "--report", rp, "--config", self.config, "-o", fp]), 0)
         self.assertEqual(json.load(open(fp))["kept"], ["N.ATests.One"])
         self.assertEqual(json.load(open(fp))["timeouts"], "one")
@@ -313,7 +346,7 @@ class Apply(Dir):
     def test_make_writes_nothing_below_the_minimum_saving(self):
         rp = os.path.join(self.tmp.name, "r.json")
         fp = os.path.join(self.tmp.name, "f.json")
-        json.dump(report([mutant(0, "Killed", "a", "a")], TESTS), open(rp, "w"))
+        json.dump(report([mutant(0, "Killed", "a", "a")], TESTS), open(rp, "w", encoding="utf-8", newline="\n"))
         nt.main(["make", "--report", rp, "--config", self.config, "-o", fp])
         self.assertFalse(os.path.exists(fp))
 
@@ -330,15 +363,16 @@ class RunStryker(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         t = self.tmp.name
         os.makedirs(os.path.join(t, "bin"))
+        shell_shims.add_python3(os.path.join(t, "bin"))
         os.makedirs(os.path.join(t, "filters"))
         stub = os.path.join(t, "bin", "dotnet")
-        open(stub, "w").write('#!/bin/sh\nfor a in "$@"; do last=$a; done\ncp "$last" "$G3_STUB_OUT"\n')
+        open(stub, "w", encoding="utf-8", newline="\n").write('#!/bin/sh\nfor a in "$@"; do last=$a; done\ncp "$last" "$G3_STUB_OUT"\n')
         os.chmod(stub, os.stat(stub).st_mode | stat.S_IEXEC)
         term = "Zz" + "NoSuchClass"  # not spelled out: this file is a test file that the guard scans
         self.config = {"stryker-config": {"mutate": ["x"], "test-case-filter": "FullyQualifiedName~" + term,
                                           "test-projects": [os.path.join(REPO, "tests/geometry3Sharp.Tests/x.csproj")]}}
         self.cfg_path = os.path.join(t, "stryker-test.json")
-        json.dump(self.config, open(self.cfg_path, "w"))
+        json.dump(self.config, open(self.cfg_path, "w", encoding="utf-8", newline="\n"))
         src = os.path.join(HERE, "narrow_tests.py")
         self.flt = {"format": nt.FORMAT, "config": nt.config_hash(self.config["stryker-config"]), "terms": [term], "kept": ["N.C.M"], "tests_in_report": 3,
                     "mutated_files": {"tests/mutation/narrow_tests.py": nt.digest(nt.read_text(src))}, "test_files": {}}
@@ -357,12 +391,12 @@ class RunStryker(unittest.TestCase):
         return self.config["stryker-config"]["test-case-filter"]
 
     def test_a_current_filter_file_narrows_the_full_run(self):
-        json.dump(self.flt, open(self.flt_path, "w"))
+        json.dump(self.flt, open(self.flt_path, "w", encoding="utf-8", newline="\n"))
         self.assertEqual(self.run_script(), "FullyQualifiedName=N.C.M")
         self.assertIn("narrowed: 1 of 3 tests", open(os.path.join(self.tmp.name, "summary.md")).read())
 
     def test_the_scheduled_run_of_a_sunday_is_unfiltered_the_other_days_are_not(self):
-        json.dump(self.flt, open(self.flt_path, "w"))
+        json.dump(self.flt, open(self.flt_path, "w", encoding="utf-8", newline="\n"))
         self.assertEqual(self.run_script(GITHUB_EVENT_NAME="schedule", G3_WEEKDAY="7"), self.full_filter())
         self.assertEqual(self.run_script(GITHUB_EVENT_NAME="schedule", G3_WEEKDAY="3"), "FullyQualifiedName=N.C.M")
         self.assertEqual(self.run_script(GITHUB_EVENT_NAME="workflow_dispatch", G3_WEEKDAY="7"), "FullyQualifiedName=N.C.M")
@@ -370,10 +404,10 @@ class RunStryker(unittest.TestCase):
     def test_no_filter_file_a_stale_one_and_G3_FULL_TESTS_run_the_config_as_it_is(self):
         self.assertEqual(self.run_script(), self.full_filter())
         self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "summary.md")))  # no filter file: nothing to say
-        json.dump(dict(self.flt, config="stale"), open(self.flt_path, "w"))
+        json.dump(dict(self.flt, config="stale"), open(self.flt_path, "w", encoding="utf-8", newline="\n"))
         self.assertEqual(self.run_script(), self.full_filter())
         self.assertIn("full: the config changed", open(os.path.join(self.tmp.name, "summary.md")).read())
-        json.dump(self.flt, open(self.flt_path, "w"))
+        json.dump(self.flt, open(self.flt_path, "w", encoding="utf-8", newline="\n"))
         self.assertEqual(self.run_script(G3_FULL_TESTS="1"), self.full_filter())
 
 

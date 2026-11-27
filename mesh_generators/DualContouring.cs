@@ -52,9 +52,15 @@ namespace g3
     ///     gave before (pinned for a Gaussian tail); the output can differ from before only where values at the surface were
     ///     subnormal or clamped. Cost: one more double per node in the slabs that hold such a value. The values of one surface that
     ///     differ by more than 2^126 from each other still lose the smaller ones, far-away values that are not floats keep their sign;
-    ///     degenerate-triangle rules of creased shapes need the fourth power of an edge to
-    ///     be finite (edges below about 2^250); sparse mode and local refinement are not covered (imposed signs use an
-    ///     absolute value step). With ExactHermite = false every test is absolute as before 2026-11 (a node difference,
+    ///     the degenerate-triangle rules of creased shapes (quad splitting, the cluster test of the simplification) compare on
+    ///     vectors scaled by a power of two where the fourth power of an edge would overflow or underflow (tested for a box at
+    ///     2^-300 and 2^300). Sparse mode (CandidateCells, NodeValueF) and local refinement (SetRefinement) hold the same: a node
+    ///     value is kept as a double with the 24 bit mantissa of a float (what a float holds is unchanged: the output of an ordinary
+    ///     field keeps its bits, apart from the imposed values below) at its own exponent, so a value below 2^-126 or above 2^127 is neither lost nor clamped (infinite
+    ///     and NaN values are clamped to a float as before), and the value of an imposed sign is 1e-3 of the largest distance from
+    ///     the iso value in its edge or face, not an absolute 1e-3 (tested for the values times 2^-300 .. 2^300, issue #1376). Before, an
+    ///     imposed value was the float of iso -+ 1e-3: the output differs where a crossing goes through an imposed node (the interpolated point
+    ///     moves; the signs, and so the topology, do not), for ordinary fields as well. With ExactHermite = false every test is absolute as before 2026-11 (a node difference,
     ///     a gradient or a quad edge below 2.2e-16 gives the middle of the edge, no normal, or the first diagonal): that
     ///     mode keeps its output bit for bit and is for fields and geometry of ordinary size.
     ///   - an ambiguous face between two single-patch cells (where the dual quads would share a non-manifold
@@ -106,7 +112,7 @@ namespace g3
         /// </summary>
         public double QEFEigenTolerance = 0.02;
         internal const double LegacyQEFEigenTolerance = 0.1;
-        /// <summary> vertices stay this far (relative to the cell size) inside their cell </summary>
+        /// <summary> vertices stay this far (relative to the cell size) inside their cell; the vertex of a block of cells merged by Simplify stays this far (relative to the size of ONE cell) inside the block, so that a feature on the block's boundary (a box face on a grid plane) keeps its place within 1 % of a cell </summary>
         public double QEFCellMargin = 0.01;
 
         /// <summary> sparse mode: cells to contour, in grid cell coordinates (see class comment) </summary>
@@ -204,6 +210,34 @@ namespace g3
         /// Finds the sign-changing grid edges (and in sparse mode the hidden gap / wall edges), the first part
         /// of Generate. Can be called again after SetRefinement.
         /// </summary>
+        // Sparse mode (with or without refinement): the nodes the cells can reach must be finite, as those of a dense grid (see below).
+        // Node indices are in units of h = CellSize / F: a coarse candidate cell c has the nodes F c .. F (c + 1), a fine one c .. c + 1,
+        // and the cells around a crossing add one cell (at most F nodes) on each side. The position is monotonic in the index, so the
+        // extremes of each axis decide.
+        void check_sparse_nodes_finite()
+        {
+            double[] lo = { double.MaxValue, double.MaxValue, double.MaxValue }, hi = { double.MinValue, double.MinValue, double.MinValue };
+            void Extend(Vector3i c, double scale, double pad)
+            {
+                for (int a = 0; a < 3; ++a) {
+                    lo[a] = Math.Min(lo[a], scale * c[a] - pad);
+                    hi[a] = Math.Max(hi[a], scale * (c[a] + 1) + pad);
+                }
+            }
+            if (CandidateCells != null)
+                foreach (Vector3i c in CandidateCells) Extend(c, F, F);
+            if (F > 1 && fineCandidates != null)
+                foreach (Vector3i c in fineCandidates) Extend(c, 1, F);
+            for (int a = 0; a < 3; ++a) {
+                if (lo[a] > hi[a]) continue;      // no cells
+                double first = origin[a] + h * lo[a], last = origin[a] + h * hi[a];
+                if (double.IsNaN(first) || double.IsInfinity(first) || double.IsNaN(last) || double.IsInfinity(last))
+                    throw new ArgumentException("DualContouring: the cells reach a node that is not a finite number (Bounds, CellSize and the cell indices near the largest double)");
+            }
+        }
+
+        static bool IsFiniteNode(double origin, double h, double n) { double last = origin + h * (n - 1); return !(double.IsNaN(last) || double.IsInfinity(last)); }
+
         public void FindCrossings()
         {
             CertificateRun = null;
@@ -214,16 +248,21 @@ namespace g3
             if (sparse) {
                 if (NodeValueF == null)
                     throw new Exception("DualContouring: sparse mode requires NodeValueF");
-                sparseValues = new ConcurrentDictionary<long, float>(EdgeKeyComparer.Instance);
+                sparseValues = new ConcurrentDictionary<long, double>(EdgeKeyComparer.Instance);
                 edgeDecisions = new ConcurrentDictionary<EdgeKey, EdgeDecision>();
                 faceDecisions = new ConcurrentDictionary<EdgeKey, FaceDecision>();
                 ImposedEdges = ImposedFaces = 0;
                 imposedCells = new ConcurrentDictionary<long, Vector3i>(EdgeKeyComparer.Instance);
+                check_sparse_nodes_finite();
             } else {
                 Vector3d size = Bounds.Diagonal;
                 double ni = Math.Ceiling(size.x / CellSize) + 1, nj = Math.Ceiling(size.y / CellSize) + 1, nk = Math.Ceiling(size.z / CellSize) + 1;
                 if (!(ni * nj * nk <= MaxGridNodes) || ni < 1 || nj < 1 || nk < 1)
                     throw new ArgumentException("DualContouring: grid of " + ni + " x " + nj + " x " + nk + " nodes is too large (or invalid)");
+                // the last node of each axis (origin + h (N - 1), up to one cell beyond Bounds.Max) must be finite: a grid whose corner
+                // overflows has no exact predicates (ExactPredicates.Orient2d of the face vertices throws on a non-finite corner)
+                if (!IsFiniteNode(origin.x, h, ni) || !IsFiniteNode(origin.y, h, nj) || !IsFiniteNode(origin.z, h, nk))
+                    throw new ArgumentException("DualContouring: the grid has a node that is not a finite number (Bounds and CellSize near the largest double)");
                 NI = (int)ni; NJ = (int)nj; NK = (int)nk;
                 CornerDimensions = new Vector3i(NI, NJ, NK);
                 sample_grid();
@@ -818,7 +857,7 @@ namespace g3
         int NI, NJ, NK;
         float[] values;
         bool sparse;
-        ConcurrentDictionary<long, float> sparseValues;
+        ConcurrentDictionary<long, double> sparseValues;
         List<GridEdge> crossings;
         ConcurrentDictionary<EdgeKey, HiddenEdge?> hiddenResults = new ConcurrentDictionary<EdgeKey, HiddenEdge?>();
 
@@ -896,25 +935,42 @@ namespace g3
             if (sparse == false)
                 return grid_value(n.x + NI * (n.y + NJ * n.z));
             long key = node_key(n);
-            float value;
+            double value;
             if (sparseValues.TryGetValue(key, out value) == false) {
-                value = (F == 1) ? clamp_value(NodeValueF(n)) : mixed_node_value(n);
+                value = (F == 1) ? store_value(NodeValueF(n)) : mixed_node_value(n);
                 sparseValues[key] = value;
             }
             return value;
         }
-        static float clamp_value(double f) { return (float)MathUtil.Clamp(f, -float.MaxValue / 2, float.MaxValue / 2); }
+
+        // The value of a sparse node as it is kept. What a float holds, as before (the value rounded to a float: the output of an ordinary
+        // field does not change by a bit); a finite value outside the normal floats (below 2^-126, or above 2^127, where it was a subnormal
+        // float or clamped to 1.7e38: the surface of c f for c = 2^-100 gone, or its values merged) is rounded to the same 24 bit mantissa at
+        // its own exponent, so that the value of 2^k f is 2^k times the value of f for every k. An infinite or NaN value is clamped to
+        // the largest float / 2 as before (far away, outside the domain: only its sign counts).
+        internal static double store_value(double f)
+        {
+            if (double.IsNaN(f) || double.IsInfinity(f))
+                return (float)MathUtil.Clamp(f, -float.MaxValue / 2, float.MaxValue / 2);
+            double a = Math.Abs(f);
+            if (a >= 1.1754943508222875E-38 && a < 1.7014118346046923E+38)
+                return (float)f;
+            if (a == 0)
+                return (float)f;
+            int e = exponent_of(f);
+            return ExactPoint3.ScaleB((float)ExactPoint3.ScaleB(f, -e), e);
+        }
 
         // with refinement: coarse nodes from NodeValueF; fine nodes on faces / edges between refined and
         // unrefined cells from the edge / face decisions; all others from FineNodeValueF
-        float mixed_node_value(Vector3i n)
+        double mixed_node_value(Vector3i n)
         {
             int nDiv = 0, freeAxis = -1, divAxis = -1;
             for (int a = 0; a < 3; ++a) {
                 if (fmod(n[a], F) == 0) { nDiv++; divAxis = a; } else freeAxis = a;
             }
             if (nDiv == 3)
-                return clamp_value(NodeValueF(n / F));
+                return store_value(NodeValueF(n / F));
             if (nDiv == 2) {
                 // on the coarse edge along freeAxis
                 Vector3i E = fdiv(n, F);
@@ -931,7 +987,7 @@ namespace g3
             }
             return real_fine_value(n);
         }
-        float real_fine_value(Vector3i n) { return clamp_value(FineNodeValueF(n)); }
+        double real_fine_value(Vector3i n) { return store_value(FineNodeValueF(n)); }
 
         // the 4 coarse cells around the coarse edge from coarse node E along axis
         bool is_interface_edge(Vector3i E, int axis)
@@ -960,7 +1016,7 @@ namespace g3
         // does (0 or 1 times), otherwise one change at the first real one.
         class EdgeDecision
         {
-            public float[] Values;
+            public double[] Values;
             public bool[] Inside;
         }
         ConcurrentDictionary<EdgeKey, EdgeDecision> edgeDecisions;
@@ -971,11 +1027,11 @@ namespace g3
             EdgeDecision d;
             if (edgeDecisions.TryGetValue(key, out d))
                 return d;
-            d = new EdgeDecision() { Values = new float[F + 1], Inside = new bool[F + 1] };
+            d = new EdgeDecision() { Values = new double[F + 1], Inside = new bool[F + 1] };
             Vector3i n0 = F * E;
             for (int i = 0; i <= F; ++i) {
                 Vector3i n = n0 + axis_vec(axis, i);
-                d.Values[i] = (i == 0 || i == F) ? (float)node_value(n) : real_fine_value(n);
+                d.Values[i] = (i == 0 || i == F) ? node_value(n) : real_fine_value(n);
                 d.Inside[i] = is_inside(d.Values[i]);
             }
             bool s0 = d.Inside[0], sF = d.Inside[F];
@@ -985,8 +1041,9 @@ namespace g3
                 if (first < 0 && d.Inside[i] != s0) first = i;
             }
             if (changes != (s0 != sF ? 1 : 0)) {
+                double step = impose_step(d.Values);
                 for (int i = 1; i < F; ++i)
-                    set_sign(d.Values, d.Inside, i, (s0 == sF || i < first) ? s0 : sF);
+                    set_sign(d.Values, d.Inside, i, (s0 == sF || i < first) ? s0 : sF, step);
                 System.Threading.Interlocked.Increment(ref ImposedEdges);
                 for (int q = 0; q < 4; ++q)
                     add_imposed_cell(coarse_edge_cell(E, axis, q));
@@ -1001,14 +1058,39 @@ namespace g3
                 imposedCells[node_key(c)] = c;
         }
 
-        void set_sign(float[] values, bool[] inside, int i, bool sign)
+        internal void set_sign(double[] values, bool[] inside, int i, bool sign, double step)
         {
             if (inside[i] == sign)
                 return;
             inside[i] = sign;
             // a value just on the requested side (only used for interpolating the crossing point)
-            double eps = 1e-3;
-            values[i] = (float)((sign != InsideIsLess) ? IsoValue + eps : IsoValue - eps);
+            bool below = sign == InsideIsLess;
+            double v = below ? IsoValue - step : IsoValue + step;
+            // (a step below the spacing of the iso value, or 0 for subnormal values, gives the iso value itself, which is on neither side)
+            if (below ? !(v < IsoValue) : !(v > IsoValue))
+                v = next_double(IsoValue, !below);
+            values[i] = v;
+        }
+
+        // the next double above (up) or below x, for finite x
+        static double next_double(double x, bool up)
+        {
+            if (x == 0) return up ? double.Epsilon : -double.Epsilon;
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            return BitConverter.Int64BitsToDouble((x > 0) == up ? bits + 1 : bits - 1);
+        }
+
+        // The distance from the iso value of an imposed value: 1e-3 of the size of the values the decision has, the largest distance of a
+        // finite one (an absolute 1e-3 was larger than every value of c f for c below 1e-3, and smaller than the field's steps above 1e3: the
+        // crossing of an imposed edge went to its end or to its middle depending on the scale of the field)
+        internal double impose_step(double[] values)
+        {
+            double m = 0;
+            foreach (double v in values) {
+                double d = Math.Abs(v - IsoValue);
+                if (d > m && !double.IsInfinity(d)) m = d;
+            }
+            return 1e-3 * (m > 0 ? m : 1.0);
         }
 
 
@@ -1023,7 +1105,7 @@ namespace g3
         // (cu + 2 cv) in the fine component of each node.
         class FaceDecision
         {
-            public float[] Values;
+            public double[] Values;
             public bool[] Inside;
             public int[] Corner;
         }
@@ -1036,7 +1118,7 @@ namespace g3
             if (faceDecisions.TryGetValue(key, out d))
                 return d;
             int fu = (axis + 1) % 3, fv = (axis + 2) % 3, N = F + 1;
-            d = new FaceDecision() { Values = new float[N * N], Inside = new bool[N * N], Corner = new int[N * N] };
+            d = new FaceDecision() { Values = new double[N * N], Inside = new bool[N * N], Corner = new int[N * N] };
             EdgeDecision e0 = edge_decision(P, fu), e1 = edge_decision(P + axis_vec(fv, 1), fu);
             EdgeDecision e2 = edge_decision(P, fv), e3 = edge_decision(P + axis_vec(fu, 1), fv);
             for (int i = 0; i <= F; ++i) {
@@ -1079,9 +1161,10 @@ namespace g3
                 // interior nodes outside, unless the whole coarse face is inside: the inside components are
                 // then the runs along the border around the inside corners, the outside one component
                 bool allInside = cs[0] && cs[1] && cs[2] && cs[3];
+                double step = impose_step(d.Values);
                 for (int j = 1; j < F; ++j)
                     for (int i = 1; i < F; ++i)
-                        set_sign(d.Values, d.Inside, i + N * j, allInside);
+                        set_sign(d.Values, d.Inside, i + N * j, allInside, step);
                 parent = label_face(d.Inside, N);
                 System.Threading.Interlocked.Increment(ref ImposedFaces);
                 Vector3i below = P; below[axis] -= 1;
@@ -1482,7 +1565,7 @@ namespace g3
         double grid_value(int c) { return valueShift == 0 ? values[c] : ExactPoint3.ScaleB(values[c], valueShift); }
 
         // floor(log2 |x|) of a finite nonzero double
-        static int exponent_of(double x)
+        internal static int exponent_of(double x)
         {
             long bits = BitConverter.DoubleToInt64Bits(Math.Abs(x));
             int e = (int)((bits >> 52) & 0x7FF);
@@ -1745,8 +1828,11 @@ namespace g3
         internal Vector3i VertexCellMin(int vid) { return genCell[vid].Min; }
 
         /// <summary> solve the QEF of one cell with the eigen solver of the caller (a 3x3 solver with 64 iterations, used by one thread at a time; Solve resets it, so it can serve any number of calls) </summary>
-        internal Vector3d solve_qef(SymmetricEigenSolver solver, Vector3d cellMin, double cellSize, List<int> edges, Vector3d[] points, Vector3d[] normals, out Vector3d massPoint, out Vector3d planeNormal, out bool isFeature)
+        internal Vector3d solve_qef(SymmetricEigenSolver solver, Vector3d cellMin, double cellSize, List<int> edges, Vector3d[] points, Vector3d[] normals, out Vector3d massPoint, out Vector3d planeNormal, out bool isFeature, double marginSize = -1)
         {
+            // marginSize: the length QEFCellMargin is relative to (default the cell size). A block of merged cells passes the size of one
+            // cell, so a feature on the block's boundary (a box face on a grid plane) is not pushed 1 % of the block inside (#1598).
+            double marginBase = marginSize >= 0 ? marginSize : cellSize;
             Vector3d mass = Vector3d.Zero;
             foreach (int ci in edges)
                 mass += points[ci];
@@ -1780,7 +1866,7 @@ namespace g3
                 double[] ev0 = solver.GetEigenvector(0);
                 Vector3d e0 = new Vector3d(ev0[0], ev0[1], ev0[2]);
                 Vector3d x1 = (evals[0] > MathUtil.Epsilon) ? (e0.Dot(b) / evals[0]) * e0 : Vector3d.Zero;
-                Vector3d cmin = cellMin + QEFCellMargin * cellSize * Vector3d.One, cmax = cellMin + (1 - QEFCellMargin) * cellSize * Vector3d.One;
+                Vector3d cmin = cellMin + QEFCellMargin * marginBase * Vector3d.One, cmax = marginSize >= 0 ? cellMin + cellSize * Vector3d.One - QEFCellMargin * marginBase * Vector3d.One : cellMin + (1 - QEFCellMargin) * cellSize * Vector3d.One;
                 massPoint = mass + x1;
                 planeNormal = (evals[0] > MathUtil.Epsilon) ? e0.Normalized : Vector3d.Zero;
                 for (int c = 0; c < 3; ++c)
@@ -1797,7 +1883,7 @@ namespace g3
             // the minimum is the best feasible one of the unconstrained solution and the solutions with
             // 1, 2 or 3 coordinates fixed at the cell bounds (faces, edges, corners of the cell).
             // (slightly inside: vertices of neighbouring cells on their common face would coincide)
-            double margin = QEFCellMargin * cellSize;
+            double margin = QEFCellMargin * marginBase;
             Vector3d lo = cellMin - mass + margin * Vector3d.One, hi = lo + (cellSize - 2 * margin) * Vector3d.One;
             double eps = 1e-9 * cellSize;
             if (inside(x, lo, hi, eps))
@@ -2481,8 +2567,11 @@ namespace g3
                 if (!(x[a1] > c[0][a1] && x[a1] < c[2][a1] && x[a2] > c[0][a2] && x[a2] < c[2][a2])) return false;
                 if (!ambiguous) return true;
                 Vector3d b = c[(seg + 1) % 4], d = c[(seg + 3) % 4];
-                int sx = AdaptivePredicates.Orient2d(b[a1], b[a2], d[a1], d[a2], x[a1], x[a2]);
-                int sc = AdaptivePredicates.Orient2d(b[a1], b[a2], d[a1], d[a2], c[seg][a1], c[seg][a2]);
+                // ExactPredicates checks the range of AdaptivePredicates (Expansion.InRange) and falls back to the exact
+                // integer kernels outside it, so the sign is right for every finite coordinate (issue #1589)
+                Vector2d vb = new Vector2d(b[a1], b[a2]), vd = new Vector2d(d[a1], d[a2]);
+                int sx = ExactPredicates.Orient2d(vb, vd, new Vector2d(x[a1], x[a2]));
+                int sc = ExactPredicates.Orient2d(vb, vd, new Vector2d(c[seg][a1], c[seg][a2]));
                 return sx != 0 && sx == sc;
             };
             // the segment's edges: around the corner seg (ambiguous), else the two edges with a sign change
@@ -2663,11 +2752,33 @@ namespace g3
         }
         // area below 1e-12 times the squared longest edge (relative, so scale-free; the threshold of NotCleanReason, which is
         // relative to the bounding box, is coarser for every triangle smaller than the box)
-        static bool degenerate(Vector3d a, Vector3d b, Vector3d c)
+        internal static bool degenerate(Vector3d a, Vector3d b, Vector3d c)
         {
             Vector3d ab = b - a, bc = c - b, ca = a - c;
-            double l2 = Math.Max(ab.LengthSquared, Math.Max(bc.LengthSquared, ca.LengthSquared));
-            return !(ab.Cross(-ca).Length > 2e-12 * l2);
+            double lab = ab.LengthSquared, lbc = bc.LengthSquared, lca = ca.LengthSquared;
+            Vector3d longest = lab >= lbc && lab >= lca ? ab : lbc >= lca ? bc : ca;
+            return !cross_exceeds(ab, -ca, longest, 2e-12);
+        }
+
+        // |u x v| > factor * |r|^2, for vectors of any magnitude. The length of a cross product is a second power of the vectors, and the
+        // comparison with |r|^2 a fourth power of their scale: it overflows to infinity above about 2^256 and underflows to zero below
+        // about 2^-256 (a triangle of such edges was then never or always degenerate). Where |r|^2 is in 1e-100 .. 1e100 the squares
+        // are the ones the unscaled test always took (same bits); otherwise the three vectors are scaled by the same power of two, which
+        // is exact, and the comparison is the same one on numbers of order 1.
+        internal static bool cross_exceeds(Vector3d u, Vector3d v, Vector3d r, double factor)
+        {
+            double r2 = r.LengthSquared;
+            if (r2 > 1e-100 && r2 < 1e100)
+                return u.Cross(v).Length > factor * r2;
+            double m = Math.Max(Math.Max(Math.Abs(r.x), Math.Max(Math.Abs(r.y), Math.Abs(r.z))),
+                Math.Max(Math.Max(Math.Abs(u.x), Math.Max(Math.Abs(u.y), Math.Abs(u.z))), Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)))));
+            if (!(m > 0) || double.IsInfinity(m))
+                return u.Cross(v).Length > factor * r2;
+            int k = -exponent_of(m);
+            Vector3d us = new Vector3d(ExactPoint3.ScaleB(u.x, k), ExactPoint3.ScaleB(u.y, k), ExactPoint3.ScaleB(u.z, k));
+            Vector3d vs = new Vector3d(ExactPoint3.ScaleB(v.x, k), ExactPoint3.ScaleB(v.y, k), ExactPoint3.ScaleB(v.z, k));
+            Vector3d rs = new Vector3d(ExactPoint3.ScaleB(r.x, k), ExactPoint3.ScaleB(r.y, k), ExactPoint3.ScaleB(r.z, k));
+            return us.Cross(vs).Length > factor * rs.LengthSquared;
         }
 
         bool try_split(int a, int b, int c, int d)

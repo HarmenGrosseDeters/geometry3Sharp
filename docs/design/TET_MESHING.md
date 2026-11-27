@@ -1343,3 +1343,40 @@ time, costs at most 1.94 degrees of worst angle (1 mesh above 0.5 degrees) and l
 it is a plain trade: 10 visits per vertex saves 42 % and leaves 59 of 118 meshes above 20 s, 5 saves 59 % and 12 meshes above 20 s with up to 8.8 degrees lost on a mesh
 (82 meshes lose more than 0.5 degrees); only 2 brings it to 0, at the price of 293 meshes losing more than 0.5 degrees. A cap on the split attempts alone was measured and
 dropped (the slow meshes keep 50 to 60 % of their time in the other operations). No default change.
+
+### 17.17 Where the 200 passes go, the scan cache and `StallStopPasses` (opt-in, #1154, 2026-11-26)
+
+Diagnosis of the improver runs of 78 to 195 s (floor 20 / 30, alpha / 40): they are not a stall. On Thingi 40011 at the floor 20 the number of tets below the floor falls
+from about 1100 to 500 over 100,000 visits (about 0.5 to 1 % per pass) while the worst angle stays at 16.02 degrees (a tet nothing fixes); every pass retries all operations on the
+remaining bad tets, and a single accepted boundary move per pass keeps the "a pass that changes nothing ends the climb" test from ever firing, so the run uses both caps
+(`ImprovePasses` 50 plus `RescuePasses` 150: 200 passes, 150 of them rescue). Profile of the 44 s run (counters around each operation): split attempts 21 s (47 %; 143,839 calls,
+61,415 hits of the memo of failed splits, 82,424 real attempts at 0.24 ms), boundary moves 7.1 s (16 %), edge removal 4.0 s, contraction 1.6 s, smoothing 0.7 s, the rest (the scan
+of all tets in every pass and the bookkeeping) about 10 s. On the procedural box (floor 30, alpha / 40; 25,000 tets) the tail from pass 61 on is 18 % of the 4.6 s.
+
+**Memoising refused visits was not done.** A refused boundary move is not a function of the tet's neighbourhood: `boundary_move_ok` tests the moved fan against every boundary
+triangle in nearby cells of the static grid (`refused_self`), which can be several rings away, and the counters (`Counts`) change with every retried refusal. Splits already have such a memo
+(`splitFailed`), and what is left of them is real work after a real change. Boundary moves are 150 ms of the box's 4 s.
+
+**Scan cache** (always on, bit for bit the same output): the per-pass scan for the bad tets (and `any_bad`) took the quality of every alive tet again, an exact `Orient3d` and six
+dihedral angles each (about 8 ms per pass at 25,000 tets). It now reuses the quality of a tet whose four vertices and their versions (bumped by every tet change and move at a vertex) and
+the objective's settings are unchanged. `TetMeshImprover.ReferenceHillClimb` (internal) runs the old loop; the tests compare the positions, the tets and all `Counts` of both on the
+procedural inputs, and the number of quality evaluations (more than 4 times fewer). It saves 15 to 20 % on the procedural meshes (box 4.6 to 3.9 s, thin torus 3.0 to 2.5 s) and 1 to 3 % on the Thingi meshes below,
+where the visits dominate. The cache takes about 64 bytes per tet id and does not shrink within a run (the ids of removed tets are reused).
+
+**`StallStopPasses`** (opt-in, default 0 = off, bit for bit as before; public on `MeshTetrahedralization`, internal on `TetMeshImprover`): ends a phase of passes (the main passes, and separately the rescue passes)
+when this many passes in a row made no progress, judged at the start of each pass against the previous one. Progress is either of two criteria: the number of tets below the target
+fell by at least 1 % (`StallMinDrop`), or the worst quality rose by more than 0.1 degrees (`StallMinWorstGain`). Counted, never wall-clock, so the result is deterministic and the same for every 2^k scale
+(tests). The pass that judges is counted in `Counts["passes"]` and does not run its operations. `Counts["improve_stall_stop"]` counts the phases it ended (the key exists only then). It is a **time/quality trade**: tets that were still being worked off stay below the target.
+Measured on the Thingi meshes (`tieorder <mesh> 40 600 <floor> 0`, order 0, one process at a time, 4 cores; `G3_TIE_STALL`): [benchmarks/TetMeshBenchmark/README.md](../../benchmarks/TetMeshBenchmark/README.md), section "Stall stop and the scan cache".
+
+
+**The split attempts, a bound on a cheaper rejection (2026-11-26, Thingi 40011, floor 20, `refine 40011.stl 40 600`, 4 cores, 37.5 s, counters in a local patch that is not kept).**
+The early rejection of `try_split` (the comment in `TetMeshImprover.try_split`, benchmarks/TetMeshBenchmark/README.md "Early rejection of split attempts") is already in: of 474,962 split attempts, 386,151 (81 %) end there, 88,811 go on to the apply / smooth / edge-removal stage, 4,566 of them succeed (5.1 %)
+and 84,245 fail the final `now > old` test; none fails earlier (orientation and boundary faces: 0). The pre-work of an attempt (ring, neighbourhood, `old`, `untouched`) takes 5.8 s (15 %, 12 us per attempt),
+the real attempts 12.4 s (33 %, 140 us each): smoothing of the new vertex 7.5 s (433,745 calls, 5.5 per attempt, the vertex moves in 89 % of the attempts), boundary faces 1.5 s, edge removal 1.7 s (it changes tets in 10 %),
+the final `nbmin` 1.1 s, apply and undo 0.5 s. **Upper bound:** an oracle that rejected every failing attempt for free saves 11.8 s (31 %): 37.5 s becomes 25.7 s, so no rejection test alone brings the default run below 20 s.
+**The best candidate** rests on the two halves (a,v,c,d) and (v,b,c,d) of a ring tet sharing the edge cd: their dihedral angles at cd add up to the original angle theta_cd for every position of v, so after the split and
+any smoothing of v the quality is at most min(theta_i) / 2 over the ring tets. It would reject 51,285 of the 88,811 real attempts (58 %, about 17-19 % of the run), 51,284 of them fail anyway, **but one succeeds**: edge removal of (v,c) re-triangulates the four tets
+around vc and may choose the diagonal (a,b), which restores the original ring tets and merges the two wedges at cd (ring of 4, old 19.9360, min theta_i 36.75, now 19.9501). The test is not bit for bit, and no exact bound of the
+edge-removal retriangulations was found. Not built: (b) the wedge test as an opt-in flag (about 31 s on 40011, not bit for bit); (c) a bit-identical cheaper pre-work (at most 7 %) and a cheaper smoothing of the new vertex (at most 10 % for a
+2x faster smooth). Decision of 2026-11-26: not built; the runs at floor 20 / 30 stay above 20 s by default, `StallStopPasses` is the opt-in trade.

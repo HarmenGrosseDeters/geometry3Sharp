@@ -1,0 +1,17 @@
+{
+  "sign_filter": {
+    "refined_bound": "1.43317942976553E-14",
+    "first_order": "1.433179429765529E-14",
+    "second_order": "6.370172336256643E-30",
+    "sampled_lower": "1.433179423305219E-14",
+    "boxes": "1"
+  },
+  "with_final_rounding": {
+    "refined_bound": "1.4544947481935656E-14",
+    "first_order": "1.4544947481935643E-14",
+    "second_order": "8.089525172550456E-30",
+    "sampled_lower": "1.4544947396510508E-14",
+    "boxes": "1"
+  },
+  "model_sha256": "136622ce47cb090a4f2bdc45de1b725b32885f7dc49cbf379bb5ff70d33afffa"
+}

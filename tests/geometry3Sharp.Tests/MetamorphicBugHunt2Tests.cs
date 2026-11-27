@@ -357,7 +357,7 @@ namespace geometry3Sharp.Tests
         public void TpmsLattice_Solid_FrameEquivariance_Scale_Reuse(TpmsType type, TpmsStyle style)
         {
             var box = new AxisAlignedBox3d(new Vector3d(-1, -0.75, -0.5), new Vector3d(1, 0.75, 1));
-            TpmsLattice Make(double s) => new TpmsLattice { Type = type, Style = style, CellSize = s, Divisions = 8, Box = new AxisAlignedBox3d(box.Min * s, box.Max * s) };
+            TpmsLattice Make(double s) => new TpmsLattice { AllowUnresolved = true, Type = type, Style = style, CellSize = s, Divisions = 8, Box = new AxisAlignedBox3d(box.Min * s, box.Max * s) };
             TpmsLattice l = Make(1);
             l.Compute();
             Assert.True(l.Status == TpmsStatus.Ok, l.Status + " " + l.Message);

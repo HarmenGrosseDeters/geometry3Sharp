@@ -211,10 +211,13 @@ namespace geometry3Sharp.Tests
             DMesh3 input = MeshRepairIssueCasesTests.Sphere(Vector3d.Zero, 1, 6);
             Expect(nameof(TooSmallAlpha_StopsAtThePointLimit), () => {
                 var sw = Stopwatch.StartNew();
-                var w = new MeshAlphaWrap(input) { RelativeAlpha = 1e5, RelativeOffset = 1e6, MaxSteinerPoints = 20000 };
+                var w = new MeshAlphaWrap(input) { RelativeAlpha = 1e5, RelativeOffset = 1e6, MaxSteinerPoints = 2000 };
                 w.Compute();
                 Assert.Equal(MeshAlphaWrap.WrapStatus.PointLimitReached, w.Status);
-                Assert.True(sw.Elapsed.TotalSeconds < 60, $"{sw.Elapsed.TotalSeconds} s");
+                Assert.Equal(2000, w.Counts["steiner_points"]);
+                // (a small limit: the work to the limit grows faster than linearly, 20000 points took 67 s on net48 in CI, issue #1601;
+                // without the limit this input runs for hours, so a run that ends here is the proof of the limit)
+                Assert.True(sw.Elapsed.TotalSeconds < 20, $"{sw.Elapsed.TotalSeconds} s");
                 // (with the limit reached, box corners can be vertices: no distance bound, only the topology and enclosure)
                 ResultChecks.AssertClosed(w.Result);
                 Assert.Equal(0, MeshRepairMetrics.SelfIntersections(w.Result));

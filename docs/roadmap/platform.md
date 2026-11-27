@@ -104,6 +104,12 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
+- **Tiny `gParallel` loops starve on a busy thread pool (#1502, issue).** The slow-tests diagnosis ([note](../research/SLOW_TESTS_2026-11.md),
+  merged #1503) found loops whose work is smaller than the cost of the hand-off to the pool; a loop below a size threshold should run
+  serially. Benchmark first (an upper bound before any change); `MeshRobustRepair` with `SerialOnThisThread` also stays slow.
+- **`narrow_tests.py` duration lookup misses theory rows (#1517, issue).** The estimated saving of a narrowed filter is too
+  optimistic; the lookup of durations has to include the theory rows.
+
 - **.NET 11 (owner 2026-11-12: released, migrate later, not scheduled).** Today the library targets net10.0 (LTS) plus
   netstandard2.0, and the tests target net10.0 plus net48. .NET 11 is a standard-term release. Proposed scope when it is
   scheduled: build and test on the .NET 11 SDK in CI (a test matrix leg); add a net11.0 library target only if it brings
@@ -469,14 +475,14 @@ Done and removed from this list: #824 (closed 2026-11-16), #858 (closed 2026-11-
 #696 (closed, owner 2026-11-15: extreme frame in Nightly), #952 (no automatic CI on drafts), #954 (faster suite).
 
 1. Coverage gate (`coverage.yml`): red in every scheduled and dispatched run 2026-11-12 to 2026-11-15 (uncovered lines of #774 and #867), green on 2026-11-16 after #959, red again on 2026-11-17 in the step "Changed-line coverage" (dispatch and cron run; last 4 runs through 2026-11-21 green — plan #1239).
-2. Scheduled mutation runs: diagnosed 2026-11-17 ([QA.md 2.12](../QA.md)): one run with two job timeouts on since-split shards (11-02), two cancels from coordinator sessions (11-09 most likely, 11-17 approved, to free the runners for the 3.0 gate), and an old concurrency group (`mutation-${{ github.ref }}`, cancel-in-progress) that let late cron runs cancel dispatch runs, fixed in 8f0c5c8e; no current workflow or guard defect. The late-cron proposal is closed: late cron runs stay as they are (owner 2026-11-17). Narrowed mutation filters in CI: plan #1242.
+2. Scheduled mutation runs: diagnosed 2026-11-17 ([QA.md 2.12](../QA.md)): one run with two job timeouts on since-split shards (11-02), two cancels from coordinator sessions (11-09 most likely, 11-17 approved, to free the runners for the 3.0 gate), and an old concurrency group (`mutation-${{ github.ref }}`, cancel-in-progress) that let late cron runs cancel dispatch runs, fixed in 8f0c5c8e; no current workflow or guard defect. The late-cron proposal is closed: late cron runs stay as they are (owner 2026-11-17). Narrowed mutation filters in CI: [plan #1242](../plans/platform-narrowed-mutation-filters.md).
 3. Runtime watch rule (#888, owner 2026-11-15; #888 closed 2026-11-16): the 20 s hard limit is for tests; tail cases are judged by the
    regression rule only, once a baseline exists ([QA.md 3.3](../QA.md#33-runtime-watch-extreme-cases-nightly)).
 4. Done: #913 and the rest of #615 (#958) are merged.
-5. Tests and CI: #698 (full-run starvation; open; plan #1243), #947 (slow fuzz units: the oracle, not the library; measured and partly fixed, closed 2026-11-16, [meshing2d.md](meshing2d.md)). A third net48 shard only if the queue wait is
-   short and shard b stays the critical path (check 2026-11-16; plan #1272).
+5. Tests and CI: #698 (full-run starvation; open; [plan #1243](../plans/platform-tests-above-20s.md)), #947 (slow fuzz units: the oracle, not the library; measured and partly fixed, closed 2026-11-16, [meshing2d.md](meshing2d.md)). A third net48 shard only if the queue wait is
+   short and shard b stays the critical path (check 2026-11-16; [plan #1272](../plans/platform-third-net48-shard.md)).
 6. Determinism: #804 audited and converted (2026-11-16, [CAST_AUDIT_804.md](../design/CAST_AUDIT_804.md)); #804 closed; the sizes that are still too large after saturation are a documented limit (owner 2026-11-16; the same on every runtime).
 7. net48 vs net10 comparison #929 (open): the owner's local run (2026-11-15/16). Thread scaling #858 is closed (2026-11-17).
 8. Clipper2: #955 (remaining failures after #949) is closed with #1059 (merged 2026-11-17): 73 grid-rounding losses (oracle allowance), 1 resolution-dependent engine error, 8 zero-area rings at the 40-bit default; all 82 reproduced and pinned. No engine port or frame change.
 9. Thingi10K full corpus: the draft PR #385 was closed unmerged on 2026-11-16 (its final results, 10 000 models per mode, are in its description).
-10. .NET 11 migration (not scheduled; plan #1271).
+10. .NET 11 migration (not scheduled; [plan #1271](../plans/platform-dotnet-11-migration.md)).

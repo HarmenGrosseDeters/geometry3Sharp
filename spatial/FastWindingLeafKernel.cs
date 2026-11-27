@@ -9,7 +9,7 @@ namespace g3
     /// <summary>
     /// The exact terms of DMeshAABBTree3.FastWindingNumber (the triangles of a leaf, summed one by one) for up to four
     /// triangles at once: the square roots, dot products and the triple product of MathUtil.TriSolidAngle in the four
-    /// lanes of a Vector256, then Math.Atan2 per triangle.
+    /// lanes of a Vector256, then the correctly rounded CoreMath.Atan2 per triangle (#1577: the platform Math.Atan2 can differ in the last bit between runtimes).
     ///
     /// Every term is, bit for bit, what MathUtil.TriSolidAngle(a, b, c, ref p) / MathUtil.FourPI returns: the same
     /// operations in the same order (separate multiplies and adds, no fused multiply-add and no reassociation; square root
@@ -78,10 +78,10 @@ namespace g3
             Vector256<double> bottom = (la * lb * lc) + dab * lc + dbc * la + dca * lb;
             Vector256<double> top = ax * (by * cz - cy * bz) - ay * (bx * cz - cx * bz) + az * (bx * cy - cx * by);
             // (2 atan2 / 4 pi per lane: the product and the quotient are correctly rounded in a vector as in a scalar)
-            Vector256<double> at = Vector256.Create(Math.Atan2(top.GetElement(0), bottom.GetElement(0)),
-                n > 1 ? Math.Atan2(top.GetElement(1), bottom.GetElement(1)) : 0,
-                n > 2 ? Math.Atan2(top.GetElement(2), bottom.GetElement(2)) : 0,
-                n > 3 ? Math.Atan2(top.GetElement(3), bottom.GetElement(3)) : 0);
+            Vector256<double> at = Vector256.Create(g3.CoreMathPort.CoreMath.Atan2(top.GetElement(0), bottom.GetElement(0)),
+                n > 1 ? g3.CoreMathPort.CoreMath.Atan2(top.GetElement(1), bottom.GetElement(1)) : 0,
+                n > 2 ? g3.CoreMathPort.CoreMath.Atan2(top.GetElement(2), bottom.GetElement(2)) : 0,
+                n > 3 ? g3.CoreMathPort.CoreMath.Atan2(top.GetElement(3), bottom.GetElement(3)) : 0);
             Vector256<double> term = Vector256.Create(2.0) * at / Vector256.Create(MathUtil.FourPI);
             sum += term.GetElement(0);
             if (n > 1) sum += term.GetElement(1);

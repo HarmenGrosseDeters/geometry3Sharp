@@ -393,7 +393,7 @@ namespace g3cli
             };
         }
 
-        /// <summary> the short machine code of MeshRobustRepair's ScaleNotFinite, ScaleDisparity, OutsideRange, LostFarPart, LostFarOpenPart, LostSeparatePart and WrapTooCoarse reasons, else null </summary>
+        /// <summary> the short machine code of MeshRobustRepair's ScaleNotFinite, ScaleDisparity, OutsideRange, LostFarPart, LostFarOpenPart, LostSeparatePart, WrapTooCoarse, NestingAmbiguous and ThinShellWrap reasons, else null (a test checks that every reason constant has one) </summary>
         internal static JsonNode ReasonCode(string reason)
         {
             // (MeshRobustRepair appends text to a reason: the code is set where the constant's text is part of it)
@@ -405,6 +405,8 @@ namespace g3cli
             if (reason.Contains(MeshRobustRepair.LostFarOpenPart)) return "lost_far_open_part";
             if (reason.Contains(MeshRobustRepair.LostSeparatePart)) return "lost_separate_part";
             if (reason.Contains(MeshRobustRepair.WrapTooCoarse)) return "wrap_too_coarse";
+            if (reason.Contains(MeshRobustRepair.NestingAmbiguous)) return "nesting_ambiguous";
+            if (reason.Contains(MeshRobustRepair.ThinShellWrap)) return "thin_shell_wrap";
             return null;
         }
 
@@ -547,6 +549,7 @@ namespace g3cli
             c.Params.Add(SimplifyFlatRegions());
             c.Params.Add(SelfIntersections());
             c.Params.Add(Binary());
+            c.Params.Add(VolumeGradientParam());
             c.Run = args => {
                 MeshFiles.CheckWritable(args.String("output"));
                 string opName = args.String("op");
@@ -556,6 +559,9 @@ namespace g3cli
                     throw new CommandException(ResultCodes.InvalidArguments, "k is only used with op at_least");
                 if (args.Has("k") && args.Integer("k") < 1)
                     throw new CommandException(ResultCodes.InvalidArguments, "k must be at least 1");
+                // (off unless given: the boolean then runs as before, without RetainClassification)
+                string gradientPath = args.Has("volume_gradient") ? args.String("volume_gradient") : null;
+                string gradientFormat = gradientPath != null ? VolumeGradientFormat(gradientPath) : null;
                 var files = new List<string>() { args.String("a"), args.String("b") };
                 if (args.Has("more"))
                     files.AddRange(args.String("more").Split(';').Select(f => f.Trim()).Where(f => f.Length > 0));
@@ -585,9 +591,13 @@ namespace g3cli
                 op.SafeRounding = args.Bool("safe_rounding");
                 ApplyRoundingTolerances(op, args);
                 op.SimplifyFlatRegions = args.Bool("simplify_flat_regions");
+                op.RetainClassification = gradientPath != null;
                 if (op.Compute() == false)
                     throw new CommandException(ResultCodes.OperationFailed, "boolean failed (" + op.Status + "): " + op.Error, BooleanFailure(op));
-                MeshFiles.Write(args.String("output"), op.Result, args.Bool("binary"));
+                // (the gradient first, to a temporary file: if it, the mesh or the move fails, neither file is left)
+                string gradientTemp = null;
+                JsonObject gradient = gradientPath != null ? VolumeGradient(op, meshes, gradientPath, gradientFormat, out gradientTemp) : null;
+                WriteMeshAndGradient(args.String("output"), op.Result, args.Bool("binary"), gradientTemp, gradientPath);
                 var o = new JsonObject() { ["a"] = args.String("a"), ["b"] = args.String("b"), ["output"] = args.String("output"), ["op"] = opName };
                 o["inputs"] = new JsonArray(files.Select(f => (JsonNode)f).ToArray());
                 if (opName == "at_least")
@@ -598,6 +608,8 @@ namespace g3cli
                 o["boolean"] = BooleanInfo(op);
                 o["mesh"] = MeshReport.Metrics(op.Result, args.Bool("self_intersections"));
                 o["empty_result"] = op.Result.TriangleCount == 0;
+                if (gradient != null)
+                    o["volume_gradient"] = gradient;
                 o["warnings"] = Warnings(warnings);
                 return o;
             };

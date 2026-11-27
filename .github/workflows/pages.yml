@@ -1,0 +1,86 @@
+name: Pages (browser demos)
+
+# Publishes the browser demos (demos/G3Demos, Blazor WebAssembly, AOT-compiled) to GitHub Pages (owner OK 2026-11-25).
+# Runs on master when the demos or this workflow change, once a day (so library changes reach the page within a day without
+# an AOT build per library merge; runner load, coordinator 2026-11-25), and on demand. The browser check
+# (demos/G3Demos/e2e/smoke.mjs) runs on the published files before the upload; three.js comes from `npm pack three@0.170.0`
+# (the npm registry), nothing of it is committed. Pages source: GitHub Actions (set by the owner).
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'demos/**'
+      - '.github/workflows/pages.yml'
+  schedule:
+    - cron: '17 3 * * *'     # daily: picks up the library changes of the day
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # per ref: a dispatched check of another branch never replaces a pending master run (which would then not deploy)
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Pin the .NET 10 SDK (the runner image also has a newer SDK, whose workload set does not fit net10.0)
+        run: |
+          v=$(dotnet --list-sdks | awk '/^10\./ {print $1}' | tail -1)
+          test -n "$v"
+          dotnet new globaljson --sdk-version "$v" --roll-forward latestPatch --force
+          [[ "$(dotnet --version)" == 10.* ]]
+      - name: Install the WebAssembly build tools (AOT)
+        working-directory: demos/G3Demos
+        run: dotnet workload install wasm-tools
+      - name: Publish the demos (AOT)
+        run: dotnet publish demos/G3Demos -c Release -p:RunAOTCompilation=true -o out
+      - name: Browser check (headless Chromium, no console errors, one operation per demo)
+        run: |
+          mkdir -p "$RUNNER_TEMP/three" "$RUNNER_TEMP/pw"
+          (cd "$RUNNER_TEMP/three" && npm pack three@0.170.0 && tar xzf three-0.170.0.tgz)
+          npm install --no-save --prefix "$RUNNER_TEMP/pw" playwright@1.63.0
+          (cd "$RUNNER_TEMP/pw" && npx playwright install --with-deps chromium)
+          NODE_PATH="$RUNNER_TEMP/pw/node_modules" node demos/G3Demos/e2e/smoke.mjs out/wwwroot "$RUNNER_TEMP/three/package" "$RUNNER_TEMP/shots"
+      - name: Prepare the site (base path, 404 page, no Jekyll)
+        run: |
+          # the page uses <base href="./"> (works from any folder, as the browser check served it); Pages serves it under
+          # /<repository>/, and the 404 page (a copy of the app) is served at any path, so both get the absolute base
+          base="/${{ github.event.repository.name }}/"
+          sed -i "s|<base href=\"./\" />|<base href=\"$base\" />|" out/wwwroot/index.html
+          grep -q "<base href=\"$base\" />" out/wwwroot/index.html
+          cp out/wwwroot/index.html out/wwwroot/404.html
+          touch out/wwwroot/.nojekyll
+          du -sh out/wwwroot
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: demo-screenshots
+          path: ${{ runner.temp }}/shots
+          if-no-files-found: ignore
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: out/wwwroot
+
+  deploy:
+    needs: build
+    # a run on another branch (workflow_dispatch to check the build) builds and checks but does not publish
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

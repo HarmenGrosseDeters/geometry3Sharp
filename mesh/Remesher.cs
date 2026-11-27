@@ -47,9 +47,20 @@ namespace g3 {
         /// <summary>
         /// Reject collapses and flips that would flip a triangle normal (see EdgeFlipTolerance), and collapses and
         /// valence flips that turn a triangle more than 70 degrees away from the triangles around the edge (see
-        /// MinTriangleQuality, which includes both). The
-        /// smoothing and projection moves are not checked by this option. Default false
+        /// MinTriangleQuality, which includes both). Also refuses a collapse that leaves a flat triangle, and a smoothing or
+        /// projection move that turns a triangle inside out (issue #1578). Default false
         /// </summary>
+        /// <remarks>
+        /// A flat triangle (quality below 1e-6) has a normal that is rounding noise: it passes a test of a triangle against itself. A
+        /// smoothing or projection move is checked against the positions of its neighbours: in the buffered passes the moves are
+        /// reverted per triangle in triangle order (so the result does not depend on the thread timing), a projection takes the largest
+        /// of the half, quarter and eighth of its step that flips nothing, in place (EnableSmoothInPlace) a move is checked as it is
+        /// made, and RemesherPro's tracked projection pass is guarded alike. A box of 12 triangles refined to 1 % of its diagonal held
+        /// 944 triangles facing against the input after 11 passes (and self-intersections), none now.
+        /// Not guarded: the projection of a new vertex of a split, and the flips of a triangle that is flat before. On curved coarse
+        /// inputs (a sphere of 96 triangles, a cylinder) a few triangles can still face against the input during the refinement (up to
+        /// 25 of some thousand triangles in the cases measured).
+        /// </remarks>
         public bool PreventNormalFlips = false;
 
 		/// <summary> edges shorter than this are collapsed. Usually set with SetTargetEdgeLength() </summary>
@@ -731,7 +742,7 @@ namespace g3 {
 
                 // a collapse must not create a flat triangle (eg two vertices of a straight feature curve joined
                 // over a third one on it)
-                if (MinTriangleQuality > 0 && collapse_creates_flat(a, b, ref vNewPos, t0, t1))
+                if ((PreventNormalFlips || MinTriangleQuality > 0) && collapse_creates_flat(a, b, ref vNewPos, t0, t1))
                     goto abort_collapse;
 
                 // if new position would flip normal of one of the existing triangles
@@ -1436,14 +1447,16 @@ namespace g3 {
             return found;
         }
 
-        // ExactTriangleIntersection.IntersectsBeyondShared (the same answer). First TriangleTriangleFilter, which decides
+        // ExactTriangleIntersection.IntersectsBeyondShared (the same answer). First TriangleTriangleFilter (with the plane
+        // sides of neighbours in Orient3d's filter, BeyondSharedNeighbours, which decide most neighbours on curved surfaces), which decides
         // the pairs a projection onto an axis plane settles (nearly coplanar neighbours, triangles in one axis plane)
         // with Orient2d alone; then an exact shortcut for the common case of neighbours that share one vertex s: if the
         // other two corners of one triangle lie strictly on the same side of the other's plane, it meets that plane only
         // at s, so the pair meets only at s
         internal static bool pair_intersects(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
         {
-            int filtered = TriangleTriangleFilter.BeyondShared(ia, ref A, ib, ref B);
+            // (neighbours on a curved surface: the plane sides in Orient3d's filter decide most of them first)
+            int filtered = TriangleTriangleFilter.BeyondSharedNeighbours(ia, ref A, ib, ref B);
             if (filtered != TriangleTriangleFilter.Undecided)
                 return filtered == TriangleTriangleFilter.Intersecting;
             int nShared = 0, sa = -1, sb = -1;
@@ -1634,9 +1647,9 @@ namespace g3 {
                         continue;
                     bool aMoved = is_moved(t.a) || is_moved(t.b) || is_moved(t.c);
                     int self = tid;
-                    // MinTriangleQuality: revert_flipping_moves checked all moves together; with some of them reverted
-                    // the mix around a reverted vertex was not checked (a triangle with one move kept and one reverted)
-                    if (aMoved && MinTriangleQuality > 0 && flipped_against_before(tid, oldPos)) {
+                    // PreventNormalFlips / MinTriangleQuality: revert_flipping_moves checked all moves together; with some of
+                    // them reverted the mix around a reverted vertex was not checked (a triangle with one move kept and one reverted)
+                    if (aMoved && (PreventNormalFlips || MinTriangleQuality > 0) && flipped_against_before(tid, oldPos)) {
                         revert_moved_of(self);
                         continue;
                     }
@@ -1873,7 +1886,7 @@ namespace g3 {
             };
 
             if (bParallel) {
-                gParallel.ForEach<int>(smooth_vertices(), smooth);
+                gParallel.ForEachSmall<int>(smooth_vertices(), smooth);
             } else {
                 foreach ( int vID in smooth_vertices() )
                     smooth(vID);
@@ -1907,7 +1920,7 @@ namespace g3 {
             };
 
             if (bParallel) {
-                gParallel.ForEach<int>(smooth_vertices(), smooth);
+                gParallel.ForEachSmall<int>(smooth_vertices(), smooth);
             } else {
                 foreach (int vID in smooth_vertices())
                     smooth(vID);
@@ -1977,7 +1990,7 @@ namespace g3 {
 
         protected virtual void ApplyVertexBuffer(bool bParallel)
         {
-            if (MinTriangleQuality > 0)
+            if (PreventNormalFlips || MinTriangleQuality > 0)
                 revert_flipping_moves();
             if (PreventSelfIntersections) {
                 apply_moves_without_intersections(bParallel);
@@ -1985,7 +1998,7 @@ namespace g3 {
             }
             // [TODO] can probably use block-parallel here...
             if (bParallel) {
-                gParallel.BlockStartEnd(0, mesh.MaxVertexID-1, (a,b) => {
+                gParallel.BlockStartEndSmall(0, mesh.MaxVertexID-1, (a,b) => {
                     for (int vid = a; vid <= b; vid++) {
                         if (vModifiedV[vid])
                             Mesh.SetVertex(vid, vBufferV[vid]);
@@ -2046,7 +2059,8 @@ namespace g3 {
                     vSmoothed = target.Project(vSmoothed, vID);
             }
 
-            if (MinTriangleQuality > 0 && move_degrades(vID, vSmoothed)) {
+            // (MinTriangleQuality: flips and quality; PreventNormalFlips alone: flips only)
+            if ((MinTriangleQuality > 0 || PreventNormalFlips) && move_degrades(vID, vSmoothed, flipsOnly: !(MinTriangleQuality > 0))) {
                 OnVertexMoveRejected(vID);
                 return Mesh.GetVertex(vID);
             }
@@ -2062,7 +2076,7 @@ namespace g3 {
         // We can do projection in parallel if we have .net 
         protected virtual void FullProjectionPass()
         {
-            if (MinTriangleQuality > 0 || PreventSelfIntersections) {
+            if (PreventNormalFlips || MinTriangleQuality > 0 || PreventSelfIntersections) {
                 // each move is checked against the positions before the pass: buffered, so the result does not
                 // depend on the order (or thread timing) in which the vertices are projected
                 InitializeVertexBufferForPass();
@@ -2073,7 +2087,7 @@ namespace g3 {
                         return;
                     Vector3d cur = mesh.GetVertex(vID);
                     Vector3d projected = target.Project(cur, vID);
-                    if (MinTriangleQuality > 0)
+                    if (PreventNormalFlips || MinTriangleQuality > 0)
                         projected = guarded_projection(vID, cur, projected);
                     if (projected == cur)
                         return;
@@ -2081,7 +2095,7 @@ namespace g3 {
                     vBufferV[vID] = projected;
                 };
                 if (EnableParallelProjection)
-                    gParallel.ForEach<int>(project_vertices(), projectBuffered);
+                    gParallel.ForEachSmall<int>(project_vertices(), projectBuffered);
                 else
                     foreach (int vid in project_vertices())
                         projectBuffered(vid);
@@ -2099,7 +2113,7 @@ namespace g3 {
             };
 
             if (EnableParallelProjection) {
-                gParallel.ForEach<int>(project_vertices(), project);
+                gParallel.ForEachSmall<int>(project_vertices(), project);
             } else {
                 foreach (int vid in project_vertices())
                     project(vid);

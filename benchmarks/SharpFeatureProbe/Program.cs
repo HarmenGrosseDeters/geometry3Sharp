@@ -33,6 +33,7 @@ class Program
     {
         if (args.Length >= 2 && args[0] == "bound") return Bound.Run(args);
         if (args.Length >= 2 && args[0] == "varifold") return Varifold.Run(args);
+        if (args.Length >= 2 && args[0] == "soup") return SoupRun.Run(args);
         if (args.Length < 2) { Console.Error.WriteLine("usage: SharpFeatureProbe <out.jsonl> <input>... [-- variants]"); return 2; }
         string outFile = args[0];
         var inputs = new List<string>();
@@ -186,7 +187,7 @@ class Program
         long search = 0;
         for (int it = 0; it < 4; ++it) {
             var sw = Stopwatch.StartNew();
-            var s = new MeshWindingNumberSolidify(input) { Adaptive = true, CellSize = h };
+            var s = new MeshWindingNumberSolidify(input) { MinVolumeIoU = 0, Adaptive = true, CellSize = h };
             bool ok = s.Compute();
             long t = sw.ElapsedMilliseconds;
             search += t;

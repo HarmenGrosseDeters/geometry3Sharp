@@ -217,8 +217,11 @@ jobs:
         run: |
           dotnet build tools/MeshFuzzPilot -c Release
           MESH_FUZZ_DLL="$PWD/tools/MeshFuzzPilot/bin/Release/net10.0/MeshFuzzPilot.dll" DOTNET_HOST_PATH="$(command -v dotnet)" python3 -m unittest discover -s tools/MeshFuzzPilot -p 'test_*.py' -v
-      - name: Build the benchmarks, the predicate compiler and the adversarial run of the error bound audit
-        run: for p in benchmarks/*/*.csproj tools/PredicateCompiler/*.csproj tools/ErrorBoundAudit/Adversarial/*.csproj; do dotnet build "$p" -c Release -f net10.0 || exit 1; done
+      - name: Build the benchmarks, the predicate compiler, the adversarial run of the error bound audit and the browser demos
+        run: |
+          for p in benchmarks/*/*.csproj tools/PredicateCompiler/*.csproj tools/ErrorBoundAudit/Adversarial/*.csproj; do dotnet build "$p" -c Release -f net10.0 || exit 1; done
+          # the Blazor WebAssembly demos (demos/G3Demos) reference the library's netstandard2.0 build: an API change that breaks them shows here
+          dotnet build demos/G3Demos -c Release
       - name: Error bound audit (the derivations with their source anchors; the library's filters against ExactDyadic)
         run: |
           python3 -m unittest discover -s tools/ErrorBoundAudit -p 'test_*.py' -v

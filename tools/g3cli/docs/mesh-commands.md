@@ -30,7 +30,7 @@ g3cli repair scan.obj scan_fixed.stl --rounding-max-displacement 1e-6
 ### Additive Result Fields (`repair`)
 
 - `result_path`: winning stage (`PassThrough`, `Repair`, `ExactResolve`, `Solidify`, `AlphaWrap`).
-- `result_code` / `exact_resolve_code`: structured codes (`scale_not_finite`, `scale_disparity`, `outside_range`, `lost_far_part`, `lost_far_open_part`, `lost_separate_part`, `wrap_too_coarse`, or `null`).
+- `result_code` / `exact_resolve_code`: structured codes (`scale_not_finite`, `scale_disparity`, `outside_range`, `lost_far_part`, `lost_far_open_part`, `lost_separate_part`, `wrap_too_coarse`, `nesting_ambiguous` (an outward inner shell taken as a cavity: the plain union of the shells differs from the result by more than the volume check allows), `thin_shell_wrap` (the alpha wrap is a thin shell around an open surface, refused), or `null`).
 - `exact_resolve_rounding` and `separated_rounding`: SafeRounding counts for the two exact-stage rounding passes.
 - `genus_before` / `genus_after`: warns when exact resolve alters component genus.
 - `result_volume_iou` (with `--measure-result-iou`), `robust_options`, `exact_resolve_rounds_used`, `passed_through_triangles`, `used_alpha_wrap`, `alpha_wrap_simplified`, `wrap_reason`, `alpha_wrap_quality_improved`, `alpha_wrap_target` / `alpha_wrap_target_reached` / `alpha_wrap_target_limit`, `alpha_wrap_min_angle` / `alpha_wrap_max_angle` / `alpha_wrap_share_above_170`, `used_input`, `result_reason`, `phase_milliseconds`.
@@ -68,6 +68,33 @@ An input that is not closed (in the winding number sense: every edge used equall
 - `boolean.status` (`success`, `open_input`, `invalid_input`, `rounding_not_clean`, `inconsistent_orientation`), `boolean.safe_rounding`, `boolean.rounding_clean`, `boolean.contacts`, `boolean.reoriented_triangles`, `boolean.counts` (`null` on early failure).
 - `boolean.rounding`: `initial_intersections`, `remaining_intersections`, `initial_false_contacts`, `remaining_false_contacts`, `vertex_removals`, `max_drift`, `max_length`, `smallest_rejected_drift`, `remaining_defect_at` (`[x, y, z]` or `null`), `scale_disparity`, `scale_not_finite`, `evaluation_limit_reached`.
 - On failure (`operation_failed`): `boolean_status`, `boolean_error`, and the `boolean` object.
+
+### Volume Gradient (`--volume-gradient`)
+
+`boolean ... --volume-gradient <out.csv|out.json>` also writes the gradient of the volume of the exact result (before
+rounding) with respect to every input vertex (`BooleanVolumeGradient`, [guide](../../../docs/guides/booleans-and-imprint.md#volume-gradient-booleanvolumegradient)).
+The option is off by default; without it the boolean runs as before. It turns on `ExactMeshBoolean.RetainClassification`,
+which does not change the result. Every input must be closed.
+
+```bash
+g3cli boolean part.stl tool.stl cut.stl --op difference --volume-gradient grad.csv
+g3cli boolean a.stl b.stl u.stl --op union --more c.stl --volume-gradient grad.json
+```
+
+- **`.csv`:** one row per input vertex, `mesh,vertex,x,y,z,gx,gy,gz,bx,by,bz`. `mesh` is the input index (0 for `a`, 1 for
+  `b`, then `--more` in order). `vertex` is the 0-based id in the mesh as read (for STL, of the welded vertices: match by `x y z`), `x y z` its position, `g*` the entry
+  dV/dx and `b*` its error bound per component (|exact - g| <= b). A vertex of no kept piece has the entry 0.
+- **`.json`:** `{volume, volume_bound, contacts, vertices: [{mesh, vertex, position, gradient, bound}, ...]}`.
+- **Result field `volume_gradient`:** `output`, `format`, `rows`, `volume`, `volume_bound`, `contacts`.
+- **`contacts`:** the flush regions where faces of several inputs overlap in one plane, where the volume has a kink. Each
+  has `meshes`, `sheets`, `area` and `alternatives`. The gradient is the branch the exact result realizes. Each
+  alternative is a sparse change `[{mesh, vertex, value, bound}, ...]`: added to the gradient, it gives another branch.
+- **Errors:** an open input (with `--allow-open`) fails with `operation_failed`, adds `volume_gradient_error` to the
+  result, and writes neither file. Another extension fails with `unknown_format`, and a missing directory or a path that
+  is a directory with `write_error`, all before the boolean runs. The gradient goes to a new temporary file next to it,
+  moved into place after the mesh is written: if the mesh write or the move fails (`write_error`), neither file is left.
+- **Smaller option than a new command:** it reuses the inputs, the operations (n-ary, `at_least`, `xor`), the orientation
+  and the rounding options of `boolean` (and of its MCP tool, `volume_gradient`), and needs no second arrangement.
 
 ---
 
@@ -117,7 +144,7 @@ g3cli offset part.stl part_offset.stl --distance 0.5 --method mesh_offset
 ```
 
 - **`--method sdf_mc` (default):** `--cell-size` / `--relative-cell-size` (default `0.01` of diagonal), `--max-cells`, `--root-mode` (`single_lerp`, `lerp_steps`, `bisection`, `linear_edges`). `linear_edges` fails with `offset_status: "linear_edges_precondition"` without writing on precondition violations. Always reports `enclosure_claim: "none"`.
-- **`--method mesh_offset`:** Dual-contours the exact distance field (default cell `|distance| / 4`, max `|distance| / 2`; `--max-cells` up to `2^28`; refuses `--root-mode`/`--root-steps`). Reports `enclosure_claim: "band"`, `band_deviation`, `band_certified`, `uncertified_triangles`, and exact `self_intersection_free`.
+- **`--method mesh_offset`:** Dual-contours the exact distance field (default cell `|distance| / 4`, max `|distance| / 2`; `--max-cells` up to `2^28`; refuses `--root-mode`/`--root-steps`). Reports `enclosure_claim: "band"`, `band_deviation`, `band_certified`, `uncertified_triangles`, and exact `self_intersection_free`. `offset_status: "empty"` (`operation_failed`, nothing written) means that nothing is left (proven from the distances at the grid nodes). An inset that may have left a part thinner than about a cell between the nodes first refines the cell (twice, within `--max-cells` and a refinement budget of 4 million nodes); if the part is still not found the status is `not_resolved` (`operation_failed`) and the message gives a `cell_size` to try, and says so when `--max-cells` or the budget stopped the refinement (raise `--max-cells`) (#1597).
 
 ---
 

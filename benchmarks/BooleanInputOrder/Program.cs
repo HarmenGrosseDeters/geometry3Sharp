@@ -9,7 +9,7 @@ using System.Reflection;
 using g3;
 using gs;
 
-static class Program
+static partial class Program
 {
     const ExactMeshBoolean.Operations D = ExactMeshBoolean.Operations.Difference, I = ExactMeshBoolean.Operations.Intersection;
 
@@ -198,9 +198,9 @@ static class Program
     static string Edits(MeshRoundingRepair r)
     {
         return r == null ? "-" : string.Format(CultureInfo.InvariantCulture,
-            "defects {0}/{1}/{2} left {3}/{4}/{5} collapses {6} flips {7} moves {8} zips {9} strips {10} search {11} removed {12} resolvable {13} limit {14} {15}",
+            "defects {0}/{1}/{2} left {3}/{4}/{5} collapses {6} flips {7} moves {8} zips {9} strips {10} search {11} joint {16} proposals {17} removed {12} resolvable {13} limit {14} {15}",
             r.InitialIntersections, r.InitialDegenerate, r.InitialFalseContacts, r.RemainingIntersections, r.RemainingDegenerate, r.RemainingFalseContacts,
-            r.Collapses, r.Flips, r.Moves, r.Zips, r.StripZips, r.PositionSearchMoves, r.RemovedComponents, r.RemovedResolvable, r.EvaluationLimitReached, r.IsClean ? "clean" : "NOT CLEAN");
+            r.Collapses, r.Flips, r.Moves, r.Zips, r.StripZips, r.PositionSearchMoves, r.RemovedComponents, r.RemovedResolvable, r.EvaluationLimitReached, r.IsClean ? "clean" : "NOT CLEAN", r.JointMoves, typeof(MeshRoundingRepair).GetField("JointSearchProposals", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(r));
     }
 
     // ---- the repair on the exact result numbered by its geometry (the upper bound of option A) ----
@@ -420,14 +420,179 @@ static class Program
 
     static void Add(SortedDictionary<string, int> d, string key) { d[key] = d.TryGetValue(key, out int n) ? n + 1 : 1; }
 
+
+    // ---- search: a seeded sample of a wide procedural space for results that leave only degenerate triangles ----
+
+    // the space: surface, grid n, grid offset, thickness, rotation e (1e-5 .. 1e-9) and its axis ratio, a shift of both inputs
+    // away from the origin, the operation; per case the state of the repair of the default mode (ExactMeshBoolean, SafeRounding)
+    static int Search(string[] args)
+    {
+        int count = 2000, seed = 1;
+        bool tiny = false;
+        int only = -1;
+        string oneCase = null;
+        int forcedN = 0;
+        bool pipeline = false, verify = false, perCase = false;
+        int controls = 0;
+        for (int i = 1; i < args.Length; ++i) {
+            if (args[i] == "--pipeline") pipeline = true;
+            else if (args[i] == "--cases") perCase = true;
+            else if (args[i] == "--noext") typeof(MeshRoundingRepair).GetField("SkipJointRoundsOnThisThread", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static).SetValue(null, 6);
+            else if (args[i] == "--verify") { verify = true; pipeline = true; }
+            else if (args[i] == "--controls") controls = int.Parse(args[++i], CultureInfo.InvariantCulture);
+            else if (args[i] == "--count") count = int.Parse(args[++i], CultureInfo.InvariantCulture);
+            else if (args[i] == "--seed") seed = int.Parse(args[++i], CultureInfo.InvariantCulture);
+            else if (args[i] == "--tiny") tiny = true;
+            else if (args[i] == "--nojoint") typeof(MeshRoundingRepair).GetField("NoJointSearchOnThisThread", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static).SetValue(null, true);
+            else if (args[i] == "--case") oneCase = args[++i];
+            else if (args[i] == "--n") forcedN = int.Parse(args[++i], CultureInfo.InvariantCulture);
+            else if (args[i] == "--only") only = int.Parse(args[++i], CultureInfo.InvariantCulture);
+            else { Console.WriteLine("unknown argument " + args[i]); return 2; }
+        }
+        var rnd = new Random(seed);
+        var classes = new SortedDictionary<string, int>();
+        int smallest = int.MaxValue;
+        var pipeTally = new SortedDictionary<string, int>();
+        double[] maxVolDiff = { 0, 0 };
+        for (int c = 0; c < count; ++c) {
+            var (hn, h) = Surfaces[rnd.Next(Surfaces.Length)];
+            int n = tiny ? rnd.Next(1, 4) : rnd.Next(3, 9), dn = rnd.Next(1, 4);
+            double t = new[] { 0.02, 0.002, 0.2 }[rnd.Next(3)];
+            double e = Math.Pow(10, -5 - 4 * rnd.NextDouble());
+            double ratio = new[] { 0.7, 0.3, 1.9, -1.1 }[rnd.Next(4)];
+            double shift = new[] { 0.0, 0.0, 100.0, 1e4 }[rnd.Next(4)];
+            bool diff = rnd.Next(2) == 0;
+            if (forcedN > 0) n = forcedN;
+            if (oneCase != null) {
+                // "surface,n,dn,t,e,ratio,shift,D|Drev"
+                string[] f = oneCase.Split(',');
+                (hn, h) = Surfaces.First(x => x.Item1 == f[0]);
+                n = int.Parse(f[1], CultureInfo.InvariantCulture); dn = int.Parse(f[2], CultureInfo.InvariantCulture);
+                t = double.Parse(f[3], CultureInfo.InvariantCulture); e = double.Parse(f[4], CultureInfo.InvariantCulture);
+                ratio = double.Parse(f[5], CultureInfo.InvariantCulture); shift = double.Parse(f[6], CultureInfo.InvariantCulture);
+                diff = f[7] == "D";
+                if (c > 0) break;
+            }
+            Func<Vector3d, Vector3d> sh = p => p + new Vector3d(shift, shift * 0.5, -shift * 0.25);
+            Func<DMesh3> coarse = () => Plate(n, t, h, sh), fine = () => Plate(n + dn, t, h, p => sh(Rot(p, e, ratio * e)));
+            DMesh3 a = diff ? coarse() : fine(), b = diff ? fine() : coarse();
+            string name = string.Format(CultureInfo.InvariantCulture, "{0} n{1} grid+{2} t{3:G2} rot {4:G3} ratio {5} shift {6} {7} --case {0},{1},{2},{3:R},{4:R},{5:R},{6:R},{7}", hn, n, dn, t, e, ratio, shift, diff ? "D" : "Drev");
+            if (only >= 0 && only != c) continue;
+            var plain = new ExactMeshBoolean(a, b, D);
+            string cls;
+            try {
+                plain.Compute();
+                MeshRoundingRepair r = plain.Rounding;
+                if (r != null && r.JointMoves >= 2)
+                    Console.WriteLine($"JOINT {r.JointMoves} moves #{c} {name} left deg {r.RemainingDegenerate}");
+                if (r == null) cls = "no repair";
+                else if (r.IsClean) cls = "clean";
+                else {
+                    var parts = new List<string>();
+                    if (r.RemainingDegenerate > 0) parts.Add("degenerate");
+                    if (r.RemainingIntersections > 0) parts.Add("intersections");
+                    if (r.RemainingFalseContacts > 0) parts.Add("contacts");
+                    if (r.RemovedResolvable > 0) parts.Add("removed-resolvable");
+                    if (r.EvaluationLimitReached) parts.Add("limit");
+                    cls = parts.Count == 0 ? "other" : string.Join("+", parts);
+                    if (cls == "degenerate") {
+                        int tris = a.TriangleCount + b.TriangleCount;
+                        if (tris < smallest) smallest = tris;
+                        // (the same input in other orders: the state does not depend on them since #1464)
+                        int same = 0;
+                        foreach (var (to, vo) in new[] { (-1, 0), (0, -1), (-1, -1), (101, 102), (103, 104) }) {
+                            var other = new ExactMeshBoolean(Reordered(a, to, vo), Reordered(b, to, vo), D);
+                            other.Compute();
+                            if (other.Rounding != null && other.Rounding.RemainingDegenerate == r.RemainingDegenerate && TriangleSet(other.Result) == TriangleSet(plain.Result)) same++;
+                        }
+                        Add(classes, "  hit in 5 other orders: same result " + same);
+                        Console.WriteLine($"HIT #{c} {name} tris {a.TriangleCount}+{b.TriangleCount} left deg {r.RemainingDegenerate} rejected drift {r.SmallestRejectedDrift:G3} | {Edits(r)}");
+                    }
+                }
+            } catch (Exception ex) { cls = "exception " + ex.GetType().Name; }
+            if (pipeline && (cls.Contains("degenerate") || cls == "removed-resolvable")) {
+                // the pipeline on the same inputs: without the automatic steps, and with the default
+                string group = cls.Contains("degenerate") ? "degenerate" : "removed-resolvable";
+                double vPlain = Volume(plain.Result), vInput = Math.Abs(Volume(a));
+                foreach (bool dflt in new[] { false, true }) {
+                    var pipe = new SolidBooleanPipeline(a, b, D);
+                    if (!dflt) pipe.AutomaticSteps = SolidBooleanPipeline.AutomaticStepModes.None;
+                    pipe.Compute();
+                    var rep = pipe.Report;
+                    string routeText = string.Join(">", rep.Route.Select(x => x.Name));
+                    SolidBooleanRouteStep grid = rep.Route.FirstOrDefault(x => x.Name == "Grid");
+                    string outcome;
+                    string reason = pipe.Result != null ? MeshRobustRepair.NotCleanReason(pipe.Result) : "no result";
+                    double relDiff = double.NaN;
+                    if (pipe.Status == SolidBooleanPipeline.PipelineStatus.Success) {
+                        relDiff = Math.Abs(Volume(pipe.Result) - vPlain) / Math.Max(Math.Abs(vPlain), 1e-300);
+                        outcome = (grid != null ? "success via Grid" : "success without Grid") + (rep.Clean ? ", clean" : rep.OnlyContacts ? ", only contacts" : ", not clean");
+                        if (grid != null) maxVolDiff[1] = Math.Max(maxVolDiff[1], relDiff);
+                        else if (dflt) maxVolDiff[0] = Math.Max(maxVolDiff[0], relDiff);
+                    }
+                    else if (grid != null && grid.Change != null && grid.Change.Contains("1/64")) outcome = "stopped by the size guard";
+                    else if (grid != null && grid.Change != null && grid.Change.Contains("already")) outcome = "no retry: inputs on the cell";
+                    else if (grid != null && grid.Change != null && grid.Change.Contains("it failed too")) outcome = "retry failed too";
+                    else if (grid != null && grid.Change != null && grid.Change.Contains("its result is empty")) outcome = "retry result empty, rejected";
+                    else if (grid != null) outcome = "grid step, other (" + pipe.Status + "/" + pipe.BooleanStatus + ")";
+                    else outcome = pipe.Status + "/" + pipe.BooleanStatus;
+                    Add(pipeTally, group + " | " + (dflt ? "default" : "None") + " | " + outcome);
+                    Console.WriteLine(string.Format(CultureInfo.InvariantCulture,
+                        "PIPE #{0} {1} | {2} {3}/{4} | route {5} | grid {6} | clean {7} onlyContacts {8} | reason '{9}' | rel volume diff {10:G3} | volume diff of input 0 {12:G3} (non-strict result {13:G3}) | {11}",
+                        c, group, dflt ? "default" : "None", pipe.Status, pipe.BooleanStatus, routeText, grid != null ? grid.Grid.ToString("R", CultureInfo.InvariantCulture) : "-",
+                        pipe.Result != null && rep.Clean, rep.OnlyContacts, reason, relDiff, grid != null ? grid.Change : "",
+                        pipe.Result != null ? Math.Abs(Volume(pipe.Result) - vPlain) / vInput : double.NaN, vPlain));
+                }
+            }
+            if (verify && (cls.Contains("degenerate") || cls == "removed-resolvable"))
+                VerifyCase(c, name, cls.Contains("degenerate") ? "degenerate" : "removed", a, b, D);
+            else if (verify && cls == "clean" && controls > 0) {
+                controls--;
+                VerifyCase(c, name, "control", a, b, D);
+            }
+            if (oneCase != null) {
+                Console.WriteLine("EDITS " + Edits(plain.Rounding));
+                Console.WriteLine("REASON '" + (plain.Result == null ? "no result" : MeshRobustRepair.NotCleanReason(plain.Result)) + "' contacts " + plain.Contacts + " triangles " + (plain.Result == null ? 0 : plain.Result.TriangleCount));
+                // the error text of StrictRounding (what SolidBooleanPipeline reports as RoundingNotClean)
+                var strict = new ExactMeshBoolean(a, b, D) { StrictRounding = true };
+                bool ok = strict.Compute();
+                Console.WriteLine($"StrictRounding: {(ok ? "Success" : strict.Status.ToString())} {strict.Error}");
+            }
+            if (perCase)
+                Console.WriteLine("CASE #{0} {1} | hash {2} | moves {3} | proposals {4}", c, cls,
+                    plain.Result == null ? "none" : Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(TriangleSet(plain.Result))))[..16],
+                    plain.Rounding == null ? -1 : plain.Rounding.JointMoves,
+                    plain.Rounding == null ? -1L : (long)typeof(MeshRoundingRepair).GetField("JointSearchProposals", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(plain.Rounding));
+            Add(classes, cls);
+        }
+        Console.WriteLine($"search: cases {count}, seed {seed}, tiny {tiny}");
+        foreach (var k in classes) Console.WriteLine($"   {k.Key}: {k.Value}");
+        if (pipeline) {
+            Console.WriteLine("pipeline (group | mode | outcome):");
+            foreach (var k in pipeTally) Console.WriteLine($"   {k.Key}: {k.Value}");
+            Console.WriteLine(string.Format(CultureInfo.InvariantCulture, "   largest relative volume difference of a default success via Grid: {0:G3}; of a default success without Grid: {1:G3}", maxVolDiff[1], maxVolDiff[0]));
+        }
+        return 0;
+    }
+
     static int Main(string[] args)
     {
         if (args.Length > 0 && args[0] == "corpus")
             return Corpus();
+        if (args.Length > 0 && args[0] == "families")
+            return Families();
+        if (args.Length > 0 && args[0] == "search")
+            return Search(args);
+        if (args.Length > 0 && args[0] == "cost")
+            return Cost(args);
+        if (args.Length > 0 && args[0] == "oracle")
+            return Oracle(args);
+        if (args.Length > 0 && args[0] == "joint")
+            return Joint(args);
         if (args.Length > 0 && args[0] == "timing")
             return Timing(args.Length > 1 ? int.Parse(args[1], CultureInfo.InvariantCulture) : 5);
         if (args.Length == 0 || (args[0] != "plates" && args[0] != "tessellations")) {
-            Console.WriteLine("usage: BooleanInputOrder plates|tessellations [--orders N] [--filter text] [--stages] [--numbered]\n       BooleanInputOrder timing [repeats]\n       BooleanInputOrder corpus");
+            Console.WriteLine("usage: BooleanInputOrder search [--count N] [--seed S] [--tiny] [--n N] [--only I] [--case spec] [--pipeline]\n       BooleanInputOrder plates|tessellations [--orders N] [--filter text] [--stages] [--numbered]\n       BooleanInputOrder timing [repeats]\n       BooleanInputOrder corpus");
             return 2;
         }
         int nOrders = 8;

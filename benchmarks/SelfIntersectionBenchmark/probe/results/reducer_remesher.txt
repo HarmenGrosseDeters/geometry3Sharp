@@ -1,0 +1,146 @@
+| case | triangles in | out | rejected | time ms (min of 1) | all runs ms | fingerprint |
+|---|---:|---:|---:|---:|---|---|
+| reducer_harness_plate50_jitter0.5 | 5000 | 500 |  | 7923 | 7923 | a9687daf920c8ba9 |
+|   reducer_harness_plate50_jitter0.5 predicates (last run) | orient2d 191058999 calls, 404336 exact (0.2 %); orient3d 0 calls, 0 exact (0.0 %) | | | | | |
+#### reducer_harness_plate50_jitter0.5: caller 7923 ms, probe overhead 2869 ms (32955442 timed calls x 87.1 ns), net 5054 ms
+| site | calls | ms (net) | share of caller |
+|---|---:|---:|---:|
+| TriangleTriangleFilter.BeyondShared | 32955442 | 2025.4 | 40.08 % |
+ceiling, self-intersection callers (BeyondShared + direct Intersects free): 0.00 % of the caller
+| reducer_harness_tilt_plate50_jitter0.5 | 5000 | 500 |  | 4630 | 4630 | 7062e82002229584 |
+|   reducer_harness_tilt_plate50_jitter0.5 predicates (last run) | orient2d 104049420 calls, 208288 exact (0.2 %); orient3d 0 calls, 0 exact (0.0 %) | | | | | |
+#### reducer_harness_tilt_plate50_jitter0.5: caller 4630 ms, probe overhead 1252 ms (14381171 timed calls x 87.1 ns), net 3378 ms
+| site | calls | ms (net) | share of caller |
+|---|---:|---:|---:|
+| TriangleTriangleFilter.BeyondShared | 14381171 | 1100.2 | 32.57 % |
+ceiling, self-intersection callers (BeyondShared + direct Intersects free): 0.00 % of the caller
+| reducer_harness_tilt_plate50 | 5000 | 499 |  | 5987 | 5987 | 32ec32f24a527154 |
+|   reducer_harness_tilt_plate50 predicates (last run) | orient2d 140671932 calls, 207221 exact (0.1 %); orient3d 2219 calls, 1179 exact (53.1 %) | | | | | |
+#### reducer_harness_tilt_plate50: caller 5987 ms, probe overhead 1774 ms (20374321 timed calls x 87.1 ns), net 4213 ms
+| site | calls | ms (net) | share of caller |
+|---|---:|---:|---:|
+| IntersectsBeyondShared | 464 | 13.5 | 0.32 % |
+| Intersects (in BeyondShared) | 27 | 3.0 | 0.07 % |
+| TriangleTriangleFilter.BeyondShared | 20373830 | 1371.1 | 32.55 % |
+ceiling, self-intersection callers (BeyondShared + direct Intersects free): 0.32 % of the caller
+reducer_harness_tilt_plate50 Intersects pairs: 27 pairs; Orient3d 162 calls, 91 exact (56.17 %); per pair: 6 Orient3d 292.8 ns, ideal 2 cross + 6 dots 21.9 ns, full Intersects 337.8 ns; ideal plane filter saves <= 0.0 ms = 0.00 % of the caller (chk 0)
+| reducer_harness_plate100 | 20000 | 1999 |  | 576 | 576 | 7c04f56dd8592df2 |
+|   reducer_harness_plate100 predicates (last run) | orient2d 9018474 calls, 212851 exact (2.4 %); orient3d 0 calls, 0 exact (0.0 %) | | | | | |
+#### reducer_harness_plate100: caller 576 ms, probe overhead 116 ms (1331341 timed calls x 87.1 ns), net 460 ms
+| site | calls | ms (net) | share of caller |
+|---|---:|---:|---:|
+| TriangleTriangleFilter.BeyondShared | 1331341 | 126.3 | 27.46 % |
+ceiling, self-intersection callers (BeyondShared + direct Intersects free): 0.00 % of the caller
+| reducer_jitter_plate_z0 | 5000 | 499 |  | 178 | 178 | 9e28a32d230a1a32 |
+|   reducer_jitter_plate_z0 predicates (last run) | orient2d 1793433 calls, 1220 exact (0.1 %); orient3d 0 calls, 0 exact (0.0 %) | | | | | |
+#### reducer_jitter_plate_z0: caller 178 ms, probe overhead 24 ms (271885 timed calls x 87.1 ns), net 155 ms
+| site | calls | ms (net) | share of caller |
+|---|---:|---:|---:|
+| TriangleTriangleFilter.BeyondShared | 271885 | 42.4 | 27.39 % |
+ceiling, self-intersection callers (BeyondShared + direct Intersects free): 0.00 % of the caller
+| reducer_jitter_plate_z0_to50 | 5000 | 50 |  | 147 | 147 | edaff28e032f93bd |
+|   reducer_jitter_plate_z0_to50 predicates (last run) | orient2d 1940360 calls, 1585 exact (0.1 %); orient3d 0 calls, 0 exact (0.0 %) | | | | | |
+#### reducer_jitter_plate_z0_to50: caller 147 ms, probe overhead 26 ms (294109 timed calls x 87.1 ns), net 122 ms
+| site | calls | ms (net) | share of caller |
+|---|---:|---:|---:|
+| TriangleTriangleFilter.BeyondShared | 294109 | 29.1 | 23.90 % |
+ceiling, self-intersection callers (BeyondShared + direct Intersects free): 0.00 % of the caller
+| reducer_jitter_plate_tilted_to50 | 5000 | 50 |  | 5543 | 5543 | e7ecddd60a105d2c |
+|   reducer_jitter_plate_tilted_to50 predicates (last run) | orient2d 135022557 calls, 143907 exact (0.1 %); orient3d 20 calls, 20 exact (100.0 %) | | | | | |
+#### reducer_jitter_plate_tilted_to50: caller 5543 ms, probe overhead 1696 ms (19476958 timed calls x 87.1 ns), net 3847 ms
+| site | calls | ms (net) | share of caller |
+|---|---:|---:|---:|
+| IntersectsBeyondShared | 2 | 0.0 | 0.00 % |
+| TriangleTriangleFilter.BeyondShared | 19476956 | 1341.9 | 34.88 % |
+ceiling, self-intersection callers (BeyondShared + direct Intersects free): 0.00 % of the caller
+| reducer_jitter_plate_tilted | 5000 | 500 |  | 5929 | 5929 | 0a0c420ae0b2b56f |
+|   reducer_jitter_plate_tilted predicates (last run) | orient2d 134354693 calls, 143306 exact (0.1 %); orient3d 10 calls, 10 exact (100.0 %) | | | | | |
+#### reducer_jitter_plate_tilted: caller 5929 ms, probe overhead 1687 ms (19380773 timed calls x 87.1 ns), net 4242 ms
+| site | calls | ms (net) | share of caller |
+|---|---:|---:|---:|
+| IntersectsBeyondShared | 1 | 0.0 | 0.00 % |
+| TriangleTriangleFilter.BeyondShared | 19380772 | 1540.6 | 36.32 % |
+ceiling, self-intersection callers (BeyondShared + direct Intersects free): 0.00 % of the caller
+| reducer_integer_plate | 20000 | 1999 |  | 621 | 621 | 7c04f56dd8592df2 |
+|   reducer_integer_plate predicates (last run) | orient2d 9018474 calls, 212851 exact (2.4 %); orient3d 0 calls, 0 exact (0.0 %) | | | | | |
+#### reducer_integer_plate: caller 621 ms, probe overhead 116 ms (1331341 timed calls x 87.1 ns), net 505 ms
+| site | calls | ms (net) | share of caller |
+|---|---:|---:|---:|
+| TriangleTriangleFilter.BeyondShared | 1331341 | 136.6 | 27.06 % |
+ceiling, self-intersection callers (BeyondShared + direct Intersects free): 0.00 % of the caller
+| reducer_bumpy_sphere | 18252 | 1000 |  | 379 | 379 | e3b1418407bea187 |
+|   reducer_bumpy_sphere predicates (last run) | orient2d 4010161 calls, 230 exact (0.0 %); orient3d 0 calls, 0 exact (0.0 %) | | | | | |
+#### reducer_bumpy_sphere: caller 379 ms, probe overhead 55 ms (637174 timed calls x 87.1 ns), net 324 ms
+| site | calls | ms (net) | share of caller |
+|---|---:|---:|---:|
+| TriangleTriangleFilter.BeyondShared | 637174 | 65.5 | 20.23 % |
+ceiling, self-intersection callers (BeyondShared + direct Intersects free): 0.00 % of the caller
+| reducer_box_grid | 10092 | 600 |  | 3437 | 3437 | e9ee2d533f79b2f0 |
+|   reducer_box_grid predicates (last run) | orient2d 51149587 calls, 3955095 exact (7.7 %); orient3d 6203039 calls, 22680 exact (0.4 %) | | | | | |
+#### reducer_box_grid: caller 3437 ms, probe overhead 788 ms (9050390 timed calls x 87.1 ns), net 2649 ms
+| site | calls | ms (net) | share of caller |
+|---|---:|---:|---:|
+| IntersectsBeyondShared | 1190828 | 140.3 | 5.30 % |
+| Intersects (in BeyondShared) | 6243 | 2.0 | 0.08 % |
+| TriangleTriangleFilter.BeyondShared | 7853319 | 765.1 | 28.88 % |
+ceiling, self-intersection callers (BeyondShared + direct Intersects free): 5.30 % of the caller
+reducer_box_grid Intersects pairs: 6243 pairs; Orient3d 33096 calls, 2978 exact (9.00 %); per pair: 6 Orient3d 101.0 ns, ideal 2 cross + 6 dots 21.8 ns, full Intersects 174.2 ns; ideal plane filter saves <= 0.5 ms = 0.02 % of the caller (chk 1)
+| remesher_bumpy_sphere | 18252 | 18190 | 0 | 286 | 286 | 6ca25fe754084ad1 |
+|   remesher_bumpy_sphere predicates (last run) | orient2d 0 calls, 0 exact (0.0 %); orient3d 0 calls, 0 exact (0.0 %) | | | | | |
+#### remesher_bumpy_sphere: caller 286 ms, probe overhead 0 ms (0 timed calls x 87.1 ns), net 286 ms
+| site | calls | ms (net) | share of caller |
+|---|---:|---:|---:|
+ceiling, self-intersection callers (BeyondShared + direct Intersects free): 0.00 % of the caller
+| remesher_jitter_plate_z0 | 3200 | 3066 | 0 | 57 | 57 | c3282b70c3860705 |
+|   remesher_jitter_plate_z0 predicates (last run) | orient2d 0 calls, 0 exact (0.0 %); orient3d 0 calls, 0 exact (0.0 %) | | | | | |
+#### remesher_jitter_plate_z0: caller 57 ms, probe overhead 0 ms (0 timed calls x 87.1 ns), net 57 ms
+| site | calls | ms (net) | share of caller |
+|---|---:|---:|---:|
+ceiling, self-intersection callers (BeyondShared + direct Intersects free): 0.00 % of the caller
+| remesher_jitter_plate_tilted | 3200 | 3066 | 0 | 37 | 37 | 3a792e63405f5d0b |
+|   remesher_jitter_plate_tilted predicates (last run) | orient2d 0 calls, 0 exact (0.0 %); orient3d 0 calls, 0 exact (0.0 %) | | | | | |
+#### remesher_jitter_plate_tilted: caller 37 ms, probe overhead 0 ms (0 timed calls x 87.1 ns), net 37 ms
+| site | calls | ms (net) | share of caller |
+|---|---:|---:|---:|
+ceiling, self-intersection callers (BeyondShared + direct Intersects free): 0.00 % of the caller
+| remesher_box_grid | 10092 | 10100 | 0 | 98 | 98 | 7e45693ccb810cb4 |
+|   remesher_box_grid predicates (last run) | orient2d 0 calls, 0 exact (0.0 %); orient3d 0 calls, 0 exact (0.0 %) | | | | | |
+#### remesher_box_grid: caller 98 ms, probe overhead 0 ms (0 timed calls x 87.1 ns), net 98 ms
+| site | calls | ms (net) | share of caller |
+|---|---:|---:|---:|
+ceiling, self-intersection callers (BeyondShared + direct Intersects free): 0.00 % of the caller
+| remesher_bumpy_sphere_si | 18252 | 18190 | 6 | 1913 | 1913 | 6ca25fe754084ad1 |
+|   remesher_bumpy_sphere_si predicates (last run) | orient2d 24409280 calls, 4222 exact (0.0 %); orient3d 985 calls, 13 exact (1.3 %) | | | | | |
+#### remesher_bumpy_sphere_si: caller 1913 ms, probe overhead 346 ms (3977799 timed calls x 87.1 ns), net 1566 ms
+| site | calls | ms (net) | share of caller |
+|---|---:|---:|---:|
+| IntersectsBeyondShared | 226 | 0.1 | 0.01 % |
+| Intersects (in BeyondShared) | 75 | 0.0 | 0.00 % |
+| TriangleTriangleFilter.BeyondShared | 3977498 | 2238.2 | 142.89 % |
+ceiling, self-intersection callers (BeyondShared + direct Intersects free): 0.01 % of the caller
+remesher_bumpy_sphere_si Intersects pairs: 75 pairs; Orient3d 357 calls, 2 exact (0.56 %); per pair: 6 Orient3d 68.7 ns, ideal 2 cross + 6 dots 18.5 ns, full Intersects 108.1 ns; ideal plane filter saves <= 0.0 ms = 0.00 % of the caller (chk 0)
+| remesher_jitter_plate_z0_si | 3200 | 3035 | 32 | 381 | 381 | b10ac1575d0e298f |
+|   remesher_jitter_plate_z0_si predicates (last run) | orient2d 4789894 calls, 4687 exact (0.1 %); orient3d 17 calls, 17 exact (100.0 %) | | | | | |
+#### remesher_jitter_plate_z0_si: caller 381 ms, probe overhead 68 ms (778827 timed calls x 87.1 ns), net 313 ms
+| site | calls | ms (net) | share of caller |
+|---|---:|---:|---:|
+| IntersectsBeyondShared | 17 | 0.0 | 0.00 % |
+| TriangleTriangleFilter.BeyondShared | 778810 | 239.8 | 76.61 % |
+ceiling, self-intersection callers (BeyondShared + direct Intersects free): 0.00 % of the caller
+| remesher_jitter_plate_tilted_si | 3200 | 3016 | 18 | 358 | 358 | 82b6c9c4b6e53e4d |
+|   remesher_jitter_plate_tilted_si predicates (last run) | orient2d 4770005 calls, 2329 exact (0.0 %); orient3d 1293 calls, 619 exact (47.9 %) | | | | | |
+#### remesher_jitter_plate_tilted_si: caller 358 ms, probe overhead 68 ms (775466 timed calls x 87.1 ns), net 291 ms
+| site | calls | ms (net) | share of caller |
+|---|---:|---:|---:|
+| IntersectsBeyondShared | 286 | 0.2 | 0.05 % |
+| Intersects (in BeyondShared) | 101 | 0.1 | 0.03 % |
+| TriangleTriangleFilter.BeyondShared | 775079 | 248.1 | 85.26 % |
+ceiling, self-intersection callers (BeyondShared + direct Intersects free): 0.05 % of the caller
+remesher_jitter_plate_tilted_si Intersects pairs: 101 pairs; Orient3d 489 calls, 263 exact (53.78 %); per pair: 6 Orient3d 232.4 ns, ideal 2 cross + 6 dots 19.0 ns, full Intersects 295.3 ns; ideal plane filter saves <= 0.0 ms = 0.01 % of the caller (chk 0)
+| remesher_box_grid_si | 10092 | 10100 | 0 | 848 | 848 | 7e45693ccb810cb4 |
+|   remesher_box_grid_si predicates (last run) | orient2d 12373195 calls, 774785 exact (6.3 %); orient3d 0 calls, 0 exact (0.0 %) | | | | | |
+#### remesher_box_grid_si: caller 848 ms, probe overhead 170 ms (1954947 timed calls x 87.1 ns), net 678 ms
+| site | calls | ms (net) | share of caller |
+|---|---:|---:|---:|
+| TriangleTriangleFilter.BeyondShared | 1954947 | 1333.7 | 196.81 % |
+ceiling, self-intersection callers (BeyondShared + direct Intersects free): 0.00 % of the caller

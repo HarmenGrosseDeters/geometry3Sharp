@@ -115,10 +115,48 @@ namespace gs
         /// </summary>
         public static DMesh3 OrientedCopy(DMesh3 m)
         {
+            int flipped;
+            return oriented_copy(m, false, out flipped);
+        }
+
+        /// <summary>
+        /// OrientedCopy(m), and the number of closed components it reversed although they are outward by their own volume (#1609, as
+        /// MeshRobustRepair.ComponentsFlippedByNesting counts them): a closed shell inside an odd number of others counts as a cavity
+        /// (MeshPostRepairCleanup.FindInvertedComponents, by parity), so an outward shell inside another (an insert in a housing, a part modelled
+        /// twice) is reversed and the copy is hollow where the plain union of the shells (the nonzero winding number) is solid. 0 for an input without
+        /// such a shell, and so for a real cavity (inward inside outward). Costs one exact volume sign per reversed component more than OrientedCopy(m)
+        /// </summary>
+        public static DMesh3 OrientedCopy(DMesh3 m, out int flippedByNesting)
+        {
+            return oriented_copy(m, true, out flippedByNesting);
+        }
+
+        /// <summary>
+        /// OrientedCopy(m) from the components FindInvertedComponents(m) already returned (m must have no unused triangle ids: its triangle ids are those of
+        /// its compacted copy), so that FindInvertedComponents does not run again. The same mesh as OrientedCopy(m), bit for bit
+        /// </summary>
+        internal static DMesh3 OrientedCopy(DMesh3 m, List<int[]> flagged)
+        {
             DMesh3 copy = new DMesh3(m, true);
-            foreach (int[] comp in MeshPostRepairCleanup.FindInvertedComponents(copy))
+            foreach (int[] comp in flagged)
                 foreach (int tid in comp)
                     copy.ReverseTriOrientation(tid);
+            Vector3d c = copy.CachedBounds.Center;
+            if (MeshMeasurements.VolumeArea(copy, copy.TriangleIndices(), (vid) => copy.GetVertex(vid) - c).x < 0)
+                copy.ReverseOrientation(false);
+            return copy;
+        }
+
+        static DMesh3 oriented_copy(DMesh3 m, bool count, out int flippedByNesting)
+        {
+            flippedByNesting = 0;
+            DMesh3 copy = new DMesh3(m, true);
+            foreach (int[] comp in MeshPostRepairCleanup.FindInvertedComponents(copy)) {
+                if (count && MeshPostRepairCleanup.volume_sign(copy, comp) > 0)
+                    ++flippedByNesting;
+                foreach (int tid in comp)
+                    copy.ReverseTriOrientation(tid);
+            }
             Vector3d c = copy.CachedBounds.Center;
             if (MeshMeasurements.VolumeArea(copy, copy.TriangleIndices(), (vid) => copy.GetVertex(vid) - c).x < 0)
                 copy.ReverseOrientation(false);
@@ -665,7 +703,7 @@ namespace gs
             GapEdgesPerLevel.Add(HiddenGapEdges + HiddenWallEdges);
             int used = 0;
             while (contour != null && FixableEdges >= Math.Max(1, minEdges) && used < maxLevels) {
-                int need = MathUtil.ToIntSaturating(Math.Ceiling(Math.Log(2 * cellSize / MinFixableFound, 2)));
+                int need = MathUtil.CeilLog2Saturating(2 * cellSize / MinFixableFound);
                 int k = Math.Max(1, Math.Min(need, maxLevels - used));
                 double next = cellSize / Math.Pow(2, k);
                 if (WindingNumberOctree.RequiredDepth(WindingNumberOctree.Bounds(Meshes), next) > WindingNumberOctree.MaxSupportedDepth)
@@ -706,7 +744,7 @@ namespace gs
                 if (fixableList.Count >= Math.Max(1, minEdges) && used < maxLevels) {
                     // refine (further) around the fixable hidden edges, as far as the narrowest one needs
                     double cur = coarse / (1 << log2F);
-                    int need = MathUtil.ToIntSaturating(Math.Ceiling(Math.Log(2 * cur / MinFixableFound, 2)));
+                    int need = MathUtil.CeilLog2Saturating(2 * cur / MinFixableFound);
                     int k = Math.Max(1, Math.Min(need, maxLevels - used));
                     if (octree.MaxDepth + log2F + k > WindingNumberOctree.MaxSupportedDepth)
                         break;

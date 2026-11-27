@@ -18,12 +18,16 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 |---|---|
 | [BooleanComparison](BooleanComparison/README.md) | `ExactMeshBoolean` vs. external boolean engines (CGAL, Geogram, Manifold) across Thingi10K & ABC pairs |
 | [BooleanInputOrder](BooleanInputOrder/README.md) | `ExactMeshBoolean` and `SolidBooleanPipeline` under reorderings of the input triangles and vertex ids, stage by stage, on procedural near-coincident plates |
+| [BooleanVolumeGradient](BooleanVolumeGradient/README.md) | `BooleanVolumeGradient`: its cost against the boolean, `RetainClassification`, and the default path before / after the change |
 | [Boolean30Prestudy](Boolean30Prestudy/README.md) | Stage profiling and measurement probes for Exact Boolean 3.0 |
+| [ExactHotspotsStudy](ExactHotspotsStudy/README.md) | Research probes of docs/research/EXACT_HOTSPOTS_STUDY_2026-11.md: the exact `orient3d` stage histogram, the repetition of the rounding repair's tri-tri tests, and a pair-cache spike (temporary library patch, not committed) |
 | [ExactImprint](ExactImprint/README.md) | Cost of `ExactMeshImprint` compared to `ExactMeshBoolean` on procedural pairs |
+| [ImprintSliverSweep](ImprintSliverSweep/README.md) | Unclean runs of `ExactMeshImprint` on ulp-shifted near-duplicates, per shape, axis and frame (far from the origin) (#1489) |
 | [ExtremeBooleans](ExtremeBooleans/README.md) | Reproduction scripts and profiling for extreme-runtime boolean pairs |
 | [LevyClassification](LevyClassification/README.md) | Phase-1 propagation classification probe for `ExactMeshBoolean` |
 | [MeshMeshCutContactBenchmark](MeshMeshCutContactBenchmark/README.md) | Cost of exact contact detection in `MeshMeshCut.RefuseContact` |
 | [OpenCuttingSurface](OpenCuttingSurface/README.md) | Prototype of the candidate semantics for a Difference with an open cutting surface (#1211): existing parts, sheet role, winding rules, swept tool |
+| [SheetExtensionProbe](SheetExtensionProbe/README.md) | Spike of the sheet extension design: continues a sheet whose rim ends just short of the workpiece's surface to it (public API only), verifies it exactly, 35 procedural cases in 5 frames with a `selftest` exit code, mutation of the rules by hand, a mode for two mesh files |
 | [PredicateComparison](PredicateComparison/README.md) | Accuracy and speed of `orient2d`, `incircle`, and `orient3d` implementations vs. exact reference |
 | [SelfIntersectionBenchmark](SelfIntersectionBenchmark/README.md) | Cost of exact self-intersection checks and `Reducer.PreventSelfIntersections` |
 | [SelfIntersectionUntangle](SelfIntersectionUntangle/README.md) | Spike: a connectivity-preserving untangling prototype against `MeshRobustRepair`, the exact resolve, the solidify and the alpha wrap on procedural self-intersecting solids |
@@ -40,12 +44,15 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [MeshRepairBenchmark](MeshRepairBenchmark/README.md) | `MeshAutoRepair` and `MeshRobustRepair` evaluation on Thingi10K and procedural failure cases |
 | [NotCleanBenchmark](NotCleanBenchmark/README.md) | Runtime of the checks behind `MeshRobustRepair.NotCleanReason` on large procedural meshes |
 | [OpenSoupWrapBenchmark](OpenSoupWrapBenchmark/README.md) | Alpha-wrap size estimation on open inputs and `WrapMaxEstimatedTriangles` budget |
+| [AlphaWrapFixStarBenchmark](AlphaWrapFixStarBenchmark/README.md) | Alpha-wrap manifold step (`fix_star`) at large box-corner stars, `MaxSteinerPoints` sweep (issue #1607) |
 | [SmallInputWrapBenchmark](SmallInputWrapBenchmark/README.md) | Alpha-wrap fallback sizing on very small inputs (`SmallInputWrapTriangles`) |
+| [LostAreaBenchmark](LostAreaBenchmark/README.md) | Cost of the `MeshRobustRepair.MeasureLostArea` report against the repair on procedural inputs |
 | [CertifiedMedialAxisProbe](CertifiedMedialAxisProbe/README.md) | Why a certified lower bound on local feature size cannot replace SafeRounding's thin-solid criteria (crease witnesses, thin slabs) |
 | [SharpFeatureProbe](SharpFeatureProbe/README.md) | Measure-first probe for sharp-feature recovery in `MeshAlphaWrap` |
 | [SolidifyBenchmark](SolidifyBenchmark/README.md) | Time and result hashes for `MeshWindingNumberSolidify` |
 | [ReducerBenchmark](ReducerBenchmark/README.md) | Cost of certified deviation bounds (`Reducer.MaxDeviation`, `TriangleDeviationBounds`) and fold-over checks |
 | [ReducerRemesherBaseline](ReducerRemesherBaseline/README.md) | Milestone baseline harness for `Reducer` and `Remesher` |
+| [ParallelTinyLoops](ParallelTinyLoops/README.md) | Crossover of `gParallel` loops against plain loops and the inline-first Small loops (#1502), alone and with a busy thread pool |
 | [RemeshBenchmark](RemeshBenchmark/README.md) | `Remesher` vs. `RemesherPro` under internal library caller settings |
 | [RemeshPreventBenchmark](RemeshPreventBenchmark/README.md) | Cost and result hashes of `Remesher.PreventSelfIntersections` |
 | [RemeshQualityBenchmark](RemeshQualityBenchmark/README.md) | Quality and timing impact of `Remesher.MinTriangleQuality` and `ApplySafePreset()` |
@@ -58,6 +65,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 |---|---|
 | [Meshing2Benchmark](Meshing2Benchmark/README.md) | Acceptance gates, golden rows, and ALKIS/Herne corpora for `DelaunayMesh2` / `ConstrainedDelaunayMesh2` / `QualityMesh2` |
 | [OracleIndexPilot](OracleIndexPilot/README.md) | Certified STRtree spatial index performance for the independent 2D meshing oracle |
+| [HigherMathStudy](HigherMathStudy/README.md) | Research probes of docs/research/HIGHER_MATH_STUDY_2026-11.md: valuation identity on exact Boolean results, the BigInteger profile workload, triangle-soup orientation (Z2 synchronization vs the library) |
 | [Meshing2HardProblems](Meshing2HardProblems/README.md) | Research spike prototypes: reference small-angle refinement rules (HP 6) and a certifying checker against the 2D meshing oracle (HP 7) |
 | [OracleSourcePilot](OracleSourcePilot/README.md) | Constrained-edge source coverage diagnostics for the 2D meshing oracle |
 | [TetMeshBenchmark](TetMeshBenchmark/README.md) | `MeshTetrahedralization` insertion rates, dihedral quality, size control, and crease recovery |
@@ -121,7 +129,9 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [SparseCholeskyBenchmark](SparseCholeskyBenchmark/README.md) | `SparseCholesky` AMD ordering, symbolic/numeric factorization, and solve timings |
 | [SparseSquareBenchmark](SparseSquareBenchmark/README.md) | `SymmetricSparseMatrix.Square` / `Multiply` timings and the product bits of repeated runs |
 | [MultiscaleCholeskyProbe](MultiscaleCholeskyProbe/README.md) | Research spike: multiscale incomplete Cholesky, FSAI and approximate elimination as PCG preconditioners against the direct `SparseCholesky` |
+| [PddProbe](PddProbe/README.md) | Research probe: Pointwise Distance Distributions (kNN rows, AMD, column W1, exact EMD) against D2 and PCA baselines for near-duplicates, retrieval and lattice periods (verdict: stop) |
 | [CoreMathBenchmark](CoreMathBenchmark/README.md) | Cost of correctly rounded `g3.CoreMathPort.CoreMath` elementary functions |
+| [FastWindingAtan2Benchmark](FastWindingAtan2Benchmark/README.md) | End-to-end cost of the correctly rounded `CoreMath.Atan2` in `TriSolidAngle` (repair, solidify, winding-number boolean) |
 | [BoxContainBenchmark](BoxContainBenchmark/README.md) | Throughput micro-benchmark for `AxisAlignedBox3d.Contain` |
 | [GridIndexerBenchmark](GridIndexerBenchmark/README.md) | Throughput probe for `ShiftGridIndexer3.ToGrid` |
 | [LongHashAudit](LongHashAudit/README.md) | Hash collision and distribution audit for `long`-keyed tables outside booleans |
@@ -136,4 +146,5 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [MetamorphicBugHunt](MetamorphicBugHunt/README.md) | Metamorphic relations and operation chains (Boolean, repair, remesh, tet, wrap, contouring, 2D mesher; second hunt: `PassageWrap`, feature pass, quad, `TpmsLattice`, `ContourLoft`, readers and writers, geodesics, intrinsic triangulation) on procedural inputs with independent checks of every Success |
 | [MagnitudeRobustness](MagnitudeRobustness/README.md) | Probes of the magnitude study: geodesic and intrinsic classes and `DualContouring` at 2^e, root-cause expressions, an exact prescaling wrapper and its cost |
 | [TopologyOwnershipProbe](TopologyOwnershipProbe/README.md) | Ordered winding landmarks vs. Betti numbers and shell volumes as a check of where a cavity ends up after a Boolean or forced repair |
+| [WrapAccuracyProbe](WrapAccuracyProbe/README.md) | Spike: snap back of the alpha wrap onto the input under exact checks and "wrap only the gaps" for solids with holes (procedural and Thingi10K, no mesh files committed) |
 | `Shared` | Shared evaluation helpers (`FidelityFields.cs`, `UvEvaluation.cs`) reused by benchmarks and tests |

@@ -203,7 +203,7 @@ namespace g3
         static double PowerScale(double extent)
         {
             if (extent == 0) return 1;
-            return Math.Pow(2, Math.Max(-1074, Math.Min(1023, Math.Floor(Math.Log(extent, 2)))));
+            return g3.CoreMathPort.CoreMath.Ldexp(1.0, MathUtil.FloorLog2(extent));   // #1612: exact (Math.Log(x, 2) is off by one at powers of two)
         }
 
         static bool PrepareMesh(DMesh3 mesh, out ParamMesh pm, out string error)

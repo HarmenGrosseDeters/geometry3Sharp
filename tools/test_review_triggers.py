@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Tests of review_triggers.py: the parser of the checklist's trigger lines and the matching of a diff."""
 import os
+import subprocess
+import sys
 import unittest
 
 import review_triggers as r
@@ -151,6 +153,19 @@ class RealChecklist(unittest.TestCase):
 
     def test_reader_matches_untrusted_input(self):
         self.assertIn("8", self.hits(diff("io/FooReader.cs", "x")))
+
+
+class Console(unittest.TestCase):
+    def test_non_ascii_paths_and_invalid_bytes_do_not_stop_the_run_on_a_legacy_code_page(self):
+        # (Windows: stdout and stdin use the ANSI code page, which cannot show every character of a path, and a diff of a UTF-8 file
+        # holds bytes that code page does not decode)
+        path = "tools/caf" + chr(0xe9) + chr(0x2260) + ".py"
+        raw = ("diff --git a/%s b/%s" + '\n' + "--- a/%s" + '\n' + "+++ b/%s" + '\n' + "@@ -1 +1 @@" + '\n' + "+x = 1" + '\n') % ((path,) * 4)
+        raw = raw.encode("utf-8") + b"+y = 2 # " + bytes([0x81, 0x8d]) + '\n'.encode()
+        env = dict(os.environ, PYTHONIOENCODING="ascii", PYTHONUTF8="0")
+        p = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "review_triggers.py"), "-"], input=raw, capture_output=True, env=env)
+        self.assertEqual(0, p.returncode, p.stderr)
+        self.assertIn(path, p.stdout.decode("utf-8"))
 
 
 if __name__ == "__main__":
