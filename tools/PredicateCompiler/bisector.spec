@@ -143,7 +143,8 @@ ipredicate DetSitesNormal(o, p, q, t0, t1, t2) bound 64 inputs xyz
     sign mx * nx + my * ny + mz * nz
 
 # R2 and the surface Delaunay ball (CERTIFIED_REMESHING.md rule R2, Theorem D): the sign of |x - a|^2 - r^2 for the
-# three kinds of points, with r = r.x (a length; r.y, r.z are not read). > 0: x is farther than r from a.
+# three kinds of points, with r = r.x (a length). r.y, r.z are not in the formula but the
+# entry reads them (finiteness, the filter range, the exponent alignment): callers pass 0. > 0: x is farther than r from a.
 # At a mesh vertex (degree 2)
 ipredicate DistanceAbove1(v, a, r) bound 64 inputs xyz
     # the exact stage on FixedArith follows the filter (an expansion stage is not generated)
@@ -222,7 +223,8 @@ ipredicate DistanceAbove3(a, b, c, t0, t1, t2, r) bound 64 inputs xyz
     sign Nx * Nx + Ny * Ny + Nz * Nz - rd2 * rd2, dd
 
 # R3: the radius-edge test of the Delaunay triangle a b c against its edge p q (CERTIFIED_REMESHING.md Theorem E):
-# the sign of k.y |b - a|^2 |c - b|^2 |a - c|^2 - 4 k.x |q - p|^2 |n|^2, n = (b - a) x (c - a), with k = (rho^2, 1, -):
+# the sign of k.y |b - a|^2 |c - b|^2 |a - c|^2 - 4 k.x |q - p|^2 |n|^2, n = (b - a) x (c - a), with k = (rho^2, 1, 0)
+# (k.z is not in the formula but the entry reads it, as r.y, r.z above: callers pass 0):
 # > 0 iff the circumradius R = |b - a| |c - b| |a - c| / (2 |n|) exceeds rho |q - p| (degree 7 as written; k.x, k.y
 # are dimensionless, so the sign is homogeneous of degree 6 in the points)
 ipredicate RadiusEdgeAbove(a, b, c, p, q, k) bound 64 inputs xyz

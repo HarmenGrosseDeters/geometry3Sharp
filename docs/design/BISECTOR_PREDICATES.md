@@ -33,7 +33,8 @@ CERTIFIED_REMESHING.md section 14.4, by kind. Everything the certificate needs f
 counted on their keys:
 
 - the restricted Delaunay facets are the kind-3 vertices (the dual Voronoi edge meets S);
-- (E') is the number of kind-3 vertices per site triple;
+- (E') is the number of distinct kind-3 keys (t, {a, b, c}) per site triple (the same vertex appears in the polygons of
+  a, b and c and is counted once);
 - (F') is the bisector arcs per site pair, glued at their ends;
 - (C') is the parts and the Euler characteristic of each cell's pieces (Lemma 1);
 - R2 is the distance of every polygon vertex from its site (Theorem D).

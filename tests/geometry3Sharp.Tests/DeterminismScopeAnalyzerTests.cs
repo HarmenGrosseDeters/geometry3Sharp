@@ -812,7 +812,7 @@ namespace geometry3Sharp.Tests
         public static readonly string[] Kernel = {
             "math/ExactIntervals.cs", "math/ExactPoint3.cs", "math/ExactPredicates.cs", "math/ExactRayTriangle.cs", "math/ExactSlopeKernel.cs",
             "math/ExactSlopePredicates.cs", "math/AdaptivePredicates.cs", "math/FixedPoint3.cs", "math/ExactLimbSigns.cs", "math/ExactLimbPrepared.cs", "math/Generated/IndirectPredicates.cs",
-            "math/Generated/DoublePredicates.cs",
+            "math/Generated/DoublePredicates.cs", "math/Generated/BisectorPredicates.cs", "math/ExactBisectorSoS.cs",
             "intersection/ExactTriangleIntersection.cs", "intersection/TriangleTriangleFilter.cs" };
 
         /// <summary> the files of stages 1 and 2 (the exact building blocks, then the arrangement and the Boolean as a whole) </summary>

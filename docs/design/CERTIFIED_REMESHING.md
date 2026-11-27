@@ -415,7 +415,8 @@ doubles; the statements below then hold for the perturbed configuration).
 **Lemma 1 (the checks are exact counts).** Under (G), (E') holds for e exactly if at most one triangle of S meets e
 (P1 and P2); (F') holds for F exactly if the triangles meeting F and the mesh edges crossing F form one part with
 |T| - |M| = 1; (C') holds for V(p) exactly if the triangles, mesh edges and mesh vertices meeting it form one part
-with |T| - |M| + |V| = 1. Every membership in these counts is decided by P1-P4 of 14.4.
+with |T| - |M| + |V| = 1. Every membership in these counts is decided by P1-P4 of 14.4 (stage 1b: by P1, P3 and P4 in
+the clipping; P2 is no longer used, see the deviation note in 14.4).
 
 *Proof.* Under (G), S meets a facet in a compact 1-manifold with boundary on the facet's edges and a cell in a compact
 2-manifold with boundary on its boundary (the argument of CONTOURING_TOPOLOGY.md 7.4, which uses only convexity of
@@ -572,7 +573,7 @@ h_t = n_t·(t0 - a) (degree 3). Degrees are total degrees in the input coordinat
 | P5 Orient3dCircumcentre(a, b, c, e; t) | circumcentre of tetrahedron abce: N = \|b'\|^2 (c' x e') + \|c'\|^2 (e' x b') + \|e'\|^2 (b' x c') (4), d = 2 det(b', c', e') (3); sign of n_t·N - h_t d, times sign(d) (for (G2)) | 6 |
 | sign(d) of BTPI, LPI, circumcentre | the denominators | 4, 2, 3 |
 
-**Claim (degree bound).** Every exact decision of the restricted bookkeeping, the TBP checks of Lemma 1 and (G) is one
+**Claim (degree bound; for stage 1b superseded by the deviation note below: the maximum degree is 10).** Every exact decision of the restricted bookkeeping, the TBP checks of Lemma 1 and (G) is one
 of P1-P5, the existing `Orient3d` / `InSphere` of `Delaunay3`, or a comparison of input coordinates, so the maximum
 degree is 6. *Proof*: by the expansion above (each entry is a sum of products whose degrees add as listed; the
 largest is a degree-1 or degree-2 factor times a degree-5 or degree-4 one). ∎ For comparison, `Orient3dTPI` in
@@ -623,6 +624,7 @@ Check that the stage-0 statements use only the decisions now computed:
   t ∩ V(p) has a BTPI vertex (t, {p, q, r}). Under (G) that is the point of the Voronoi line of p, q, r in the plane of t,
   inside t and inside V(p). The clipping tests it with P1 against every Delaunay neighbour of p, not only the two apexes
   of 14.1. This gives the same set: the Voronoi edge is the part of the line inside V(p).
+  (E') counts each key (t, {p, q, r}) once per site triple, although the vertex appears in the polygons of p, q and r.
 - **Theorems A and B** use only Lemma 1's sets, (G) and (TBP).
 - **Theorem C** uses the separation of `Delaunay3.Insert` (floating point, as stated there) and no predicate.
 - **Theorem D** tests the farthest point of each cell at the polygon vertices of the three kinds (`DistanceAbove1-3`), and
@@ -678,7 +680,8 @@ exemptions of Theorem E, do not matter here). Then every point of D is within r_
 r_max of D. *Proof*: section 5.2; the farthest point of a restricted region S ∩ V(p) from p is a vertex of one of the convex
 polygons t ∩ V(p) (the squared distance is convex), which are mesh vertices in V(p), crossings of mesh edges with
 facets (P4's point) or crossings of Voronoi edges with triangles (BTPI points): finitely many, tested by R2
-(conservatively: refined whenever the float test cannot certify the distance <= r_max, so the bound is exactly r_max).
+(conservatively: refined whenever the float test cannot certify the distance <= r_max, so the bound is exactly r_max;
+stage 1b: superseded by the exact `DistanceAbove1-3`, see the deviation note in 14.4 and 14.8).
 Each restricted facet has exactly one surface Delaunay ball by (E'); every sample with a nonempty restricted region is a
 vertex of D (Theorem A). ∎
 
@@ -714,46 +717,94 @@ Status: written in PR A of stage 1b (2026-11-27), **for an independent proof rev
 in [BISECTOR_PREDICATES.md](BISECTOR_PREDICATES.md) section 3.
 
 Every site s has an id and an infinitesimal weight w_s, with w_i / w_j infinite for i < j. P_ε is the set of sites with
-the weights w_i = ε^(2^i). V_ε(p) is the power cell of p. `Delaunay3` and the clipping make their decisions with the
-perturbed predicates of `ExactBisectorSoS`.
+the weights w_i = ε^(2^i); any strictly increasing exponents would do, since every perturbed value is linear in the weights
+and only their order matters. V_ε(p) is the power cell of p. `Delaunay3` and the clipping make their decisions with the
+perturbed predicates of `ExactBisectorSoS`, under the same ids (the `Delaunay3` vertex ids, the box corners 0-7 included).
+
+Conventions: `Orient3d(a, b, c, d)` is the sign of ((b − a) × (c − a))·(d − a); `InSphere(a, b, c, d, e)` is +1 when e is
+inside the sphere of a, b, c, d given with `Orient3d(a, b, c, d) > 0`, and reverses with the orientation (it is the sign
+of an antisymmetric determinant). An insertion that `Delaunay3` refuses (outside, too close) adds no vertex and changes
+no cell: the in-sphere decisions it made under the id it would have used leave nothing behind, and the next accepted
+point gets that id.
+
+General position for the power test (used in (b) and (c)): no five sites have a common power point (a point of equal
+power distance to all five), and no four coplanar sites have a common power line.
 
 **Lemma P1 (one configuration for all small ε).** For a finite input there is ε0 > 0 such that for every 0 < ε < ε0:
 
 - (a) every decision made equals the sign of the same polynomial at P_ε;
-- (b) (G) holds for P_ε and S;
+- (b) (G), and general position for the power test, hold for P_ε and S;
 - (c) the triangulation built by `Delaunay3` with `SymbolicPerturbation` is the regular triangulation of P_ε, and the power
   cells are V_ε(p) = the intersection of the half-spaces of p's neighbours in it;
-- (d) every site p is in the interior of V_ε(p).
+- (d) every site p is in the interior of V_ε(p), and for every prefix of the insertion order every site of the prefix is
+  in the interior of its power cell of the prefix.
 
 *Proof.*
 
-(a) Each decision is the sign of a polynomial in ε that is not identically zero (Lemma S1, and for `InSphere` the cascade
-stops at w_e for a cell of positive volume). Such a polynomial has its leading sign on an interval (0, ε_k). Take the
-minimum over the finitely many polynomials of the input; they are fixed by the input points and ids, whatever is
-decided. This is Lemma S2.
+(a) The run does not depend on ε: every decision is symbolic (a sign of the cascade), so the sequence of decisions, the
+inserted points and the predicates evaluated are determined by the input and the ids alone. The run is finite (Theorem C),
+so it evaluates a finite set of polynomials in ε. Each is not identically zero:
 
-(b) Each clause of (G) is the non-vanishing of polynomials of the same kinds, over the finitely many site and mesh-element
-tuples:
+- `Side2` and `Side3` are called only where their point exists, d ≠ 0 or det ≠ 0 (the clipping constructs a kind-2 or
+  kind-3 point only between ends of strictly opposite signs; BISECTOR_PREDICATES.md section 3), and there Lemma S1 applies;
+- `Side1` always ends at ±1;
+- `InSphere` is called only on cells of positive volume (the box's initial cells and the cells `Insert` creates, positive
+  by (c)), where the cascade ends at the Orient3d of the cell.
 
-- (G1): a fifth site on the orthosphere of a Delaunay cell is a perturbed `InSphere` zero, which does not occur. Four sites
-  whose power bisectors share a line need dependent normals; the right-hand sides must then satisfy a linear relation
-  λ δ_b + μ δ_c + ν δ_d = const with (λ, μ, ν) ≠ 0, a nonzero polynomial in ε.
-- (G2): a power vertex on plane(t) is a zero of perturbed P1 (det ≠ 0); det = 0 is (G3).
-- (G3): a power edge through a mesh vertex is a P3 zero; through a mesh edge it is a P4 zero (d ≠ 0) or both P3 at the
-  ends (d = 0). A power line in plane(t) with n = λ b' + μ c' requires λ δ_b + μ δ_c to be constant, which is nonzero in
-  ε, as above.
-- (G4): P3 at a vertex, and P3 at both ends of an edge.
+A polynomial that is not identically zero has its leading sign on an interval (0, ε_k). ε0 is the minimum of these ε_k and
+of those of (b) on the final P. By induction along the run, the run at any ε < ε0 makes the same decisions, which is (a)
+(Lemma S2).
 
-Each is a nonzero polynomial in ε (the coefficient of the tested weight is ±1, ±d, ±det, or (λ, μ) ≠ 0), so each holds
-below some ε_k.
+(b) Each clause is the non-vanishing of polynomials of the same kinds, over the finitely many site and mesh-element tuples
+of the final P and S:
 
-(c) With an in-sphere test that is never 0 and equals the power test of P_ε, Bowyer-Watson keeps the empty-orthosphere
-property of every cell, starting from the box's six tetrahedra, which are regular for the weighted corners
-(BISECTOR_PREDICATES.md section 3). The regular triangulation of points in general position (for the power test) is
-unique and dual to the power diagram. So every power facet of V_ε(p) is the bisector of a Delaunay neighbour, and the
-cell is the intersection of those half-spaces.
+- **Power test, five sites.** Take any five sites with a common power point. If four of them are not coplanar, the
+  perturbed power test of the fifth against them is a cascade that ends at the Orient3d of the four, so it is nonzero, and
+  the five have no common power point. Otherwise all five are coplanar, which is the line case below.
+- **(G1), and the line case.** Four sites whose power bisectors share a line need dependent normals. The right-hand sides
+  must then satisfy a linear relation λ δ_b + μ δ_c + ν δ_d = const with (λ, μ, ν) ≠ 0, a nonzero polynomial in ε. So
+  every power vertex is in exactly four cells and every power edge in three.
+- **(G2).** Let v be a power vertex of four non-coplanar sites. The directions of its four power edges span R³ (they are
+  the normals of the facets of the dual tetrahedron), so some edge triple (a, b, c) has a line not parallel to plane(t),
+  det ≠ 0. v ∈ plane(t) would be a zero of the perturbed P1 of that triple against the fourth site, which is nonzero. A
+  triple whose line lies in plane(t) is (G3).
+- **(G3).** A power edge through a mesh vertex is a P3 zero. Through a mesh edge it is a P4 zero (d ≠ 0), or both ends are
+  P3 zeros (d = 0). A power line in plane(t) with n = λ b' + μ c' requires λ δ_b + μ δ_c to be constant, which is a
+  nonzero polynomial in ε, as above.
+- **(G4).** P3 at a vertex, and P3 at both ends of an edge.
 
-(d) π_p(p) = −w_p < |p − q|² − w_q = π_q(p) for small ε, since distinct sites have |p − q| > 0. ∎
+Each is a nonzero polynomial in ε (the coefficient of the tested weight is ±1, ±d, ±det or an Orient3d of non-coplanar
+sites, or (λ, μ, ν) ≠ 0), so each holds below some ε_k.
+
+(d) π_p(p) = −w_p < |p − q|² − w_q = π_q(p) for small ε, since distinct sites have |p − q| > 0 (the accepted points are
+h-separated, Theorem C, and a point equal to a vertex is refused). The same holds in every prefix, with its finitely many
+pairs.
+
+(c) Induction over the accepted insertions. T_0 is the box's six tetrahedra around the diagonal 0-7, the regular
+triangulation of the weighted corners (BISECTOR_PREDICATES.md section 3, checked by `Delaunay3_InitialCellsAreRegular`).
+Let T_k be the regular triangulation of the first k sites, and insert p. In the lifting p ↦ p^ = (p, |p|² − w_p), the
+cells of T_k are the lower facets of the convex hull of the lifted sites, and a cell is in conflict with p (perturbed
+`InSphere` > 0) iff p^ lies below the hyperplane of its facet. Three facts:
+
+- (i) **No site is redundant.** By (d) for the prefix with p, p and every earlier site are interior to their power cells,
+  so the regular triangulation of the new prefix keeps every old vertex and adds p. The cavity never has to remove a
+  vertex, which Bowyer-Watson cannot do; `Insert`'s `Failed` path is not reached.
+- (ii) **The conflict region is not empty.** `Locate` returns a closed cell c0 that contains p, and p is not a vertex of
+  c0 (an equal vertex is refused as `TooClose`). A point of a closed tetrahedron other than its vertices lies strictly
+  inside the circumsphere, so the unperturbed sign is already > 0, and the perturbed one equals it.
+- (iii) **The conflict region is connected.** It is the set of lower-hull facets visible from below by p^, the visible
+  region of a point outside a convex polytope. Through the projection onto the box it is a connected set of facets,
+  adjacent across their common facets. So `Insert`'s growth from c0 across facets with `InSphere` > 0 finds all of it.
+
+The boundary facets of the conflict region then see p strictly: if p lay in the plane of a boundary facet, the power
+functions of the orthospheres of its two cells would differ by an affine function that vanishes on that plane, so both
+cells or neither would be in conflict (BISECTOR_PREDICATES.md section 3). So the star-shape growth adds nothing, and the
+cones from p over the boundary facets have positive volume. This is the beneath-beyond update of the lower hull, so
+T_{k+1} is the regular triangulation of the new prefix.
+
+The regular triangulation of sites in general position for the power test (b) is unique and dual to the power diagram. So
+every power facet of V_ε(p) is the bisector of a Delaunay neighbour, and the cell is the intersection of those half-spaces.
+∎
 
 **Lemma 1, Theorems A and B, perturbed.** For 0 < ε < ε0, Lemma 1 and Theorems A and B hold for P_ε, the power cells
 V_ε(p) and S, as written in 14.1-14.3.
@@ -771,10 +822,15 @@ Nowhere do they use that a cell is the unweighted Voronoi cell. ∎
 **Consequence: D itself does not depend on ε.** D is a set of triangles of the `Delaunay3` triangulation, whose vertices
 are the sites (doubles). The weights move the power cells, not the sites. So the embedded mesh D that Theorem A speaks of
 is exactly the output: closed, 2-manifold, homeomorphic to S, two triangles meeting only in a common edge or vertex (the
-cells of `Delaunay3` have positive volume, exactly). No limit is taken. Theorem B's surface S2 does depend on ε (its
-vertices x_e lie on the power edges); stage 1b claims no isotopy (decision 2 of section 13), so this does not matter here.
+cells of `Delaunay3` have positive volume, exactly). No limit is taken.
 
-**Theorem D, perturbed (band ≤ r_max).** Assume (TBP) at the end, decided as above, and no refused R2 insertion. Then
+Theorem B, perturbed, is a statement about S2_ε. Its vertices x_e lie on the power edges and are the centres of spheres
+orthogonal to the weighted spheres of p, q and r, not of surface Delaunay balls through p, q and r. S2_ε depends on ε, and
+route (a) (the moves from S2 to D) does not transfer: its tetrahedra would depend on ε. Stage 1b claims no isotopy
+(decision 2 of section 13), consistent with this.
+
+**Theorem D, perturbed (band ≤ r_max).** Assume (TBP) and (R0) at the end, decided as above, no refused R2 insertion,
+and distinct sites (the h_min separation of Theorem C). Then
 every point of D is within r_max of S, and every point of S within r_max of D.
 
 *Proof.*
@@ -797,14 +853,21 @@ continuous in ε:
 
 Its limit v_0 is the unweighted point that `DistanceAbove1-3` evaluated and accepted: |v_0 − p| ≤ r_max. So
 |x − p| ≤ |v_{ε_k} − p| → |v_0 − p| ≤ r_max. By Theorem A (perturbed), p is a vertex of D (its restricted cell is a
-nonempty disk). ∎
+nonempty disk); p is not a box corner, by (R0). ∎
 
 **Theorem E** is unchanged: R3 is decided on the triangle pqr itself, with no weight involved.
 
 **Theorem C** is unchanged: the separation test does not use the predicates.
 
-**What the review should check.** The finiteness argument of Lemma P1 (a, b). The claim of (c) that Bowyer-Watson with
-the never-zero perturbed test, started from the regular initial cells, yields the regular triangulation (the conflict
-region of a regular triangulation is star-shaped; BISECTOR_PREDICATES.md section 3 argues that `Insert`'s star-shape
-growth adds nothing). The continuity of the vertex kinds in (ii).
+**Review (independent proof review on #1741, 2026-11-27): sound with fixes, worked in.**
 
+- **G1 (must-fix).** (c) is now an induction with the facts (i) to (iii), (d) is stated for every prefix, and the
+  boundary-facet argument is applied.
+- **I1.** The quantifier of (a): the run does not depend on ε, is finite, and calls `Side2` / `Side3` / `InSphere` only
+  where their points or cells exist.
+- **I2.** (G1) over every five-tuple of sites, and the definition of general position for the power test.
+- **I3.** (G2) by an edge triple with det ≠ 0.
+- **I4.** Theorem D needs (R0) and distinct sites.
+- **I5.** Theorem B, perturbed: orthogonal spheres, and route (a) does not transfer.
+- **N1-N4.** The stale statements of 14.1, 14.4 and 14.6 are marked; the (E') count is per site triple (14.4 note); the
+  conventions are stated; any increasing exponents of ε do.

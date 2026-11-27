@@ -300,6 +300,9 @@ namespace geometry3Sharp.Tests
                 var P = Norm3.OrderBy(_ => rand.Next()).Take(5).Select(d => x + d).ToArray();
                 if (k % 3 == 0) P[rand.Next(5)] += SmallDir(rand, 1);
                 if (ExactPredicates.Orient3d(P[0], P[1], P[2], P[3]) == 0) continue;
+                // distinct points (a duplicate position under another id zeroes two coefficients; Delaunay3 never asks that,
+                // it refuses an equal vertex as TooClose)
+                if (P.Distinct().Count() < 5) continue;
                 int[] id = Ids(rand, 5);
                 int s = ExactBisectorSoS.InSphere(P[0], id[0], P[1], id[1], P[2], id[2], P[3], id[3], P[4], id[4]);
                 Assert.Equal(OInSphere(P, id), s);
@@ -312,9 +315,9 @@ namespace geometry3Sharp.Tests
                 }
             }
             Assert.True(ties > 1000);
-            // a coplanar quadruple on the sphere zeroes the leading coefficient, so the cascade takes its second step; two zero
-            // coefficients would need two coplanar quadruples of five cospherical points, which share three points and so one
-            // plane: the cell would be flat (never in a Delaunay3 cell), so the cascade never goes deeper
+            // a coplanar quadruple on the sphere zeroes the leading coefficient, so the cascade takes its second step; for five
+            // distinct cospherical points, two zero coefficients would need two coplanar quadruples, which share three points
+            // (not collinear on a sphere) and so one plane: the cell would be flat (never a Delaunay3 cell); no deeper step
             Assert.True(depth[0] > 0 && depth[1] > 0 && depth.Skip(2).All(n => n == 0), "InSphere depths " + string.Join(" ", depth));
         }
 

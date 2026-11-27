@@ -227,64 +227,154 @@ namespace geometry3Sharp.Tests
             return !D.IsZero;
         }
 
-        static int O_Side1(Vector3d v, Vector3d a, Vector3d e)
+        static int O_Side1(Vector3d v, Vector3d a, Vector3d e) => O_Side1(Ints(v, a, e));
+        static int O_Side1(BigInteger[][] P)
         {
-            var P = Ints(v, a, e);
             return (N2(Sub(P[0], P[1])) - N2(Sub(P[0], P[2]))).Sign;
         }
 
-        static int O_Side2(Vector3d q0, Vector3d q1, Vector3d a, Vector3d b, Vector3d c)
+        static int O_Side2(Vector3d q0, Vector3d q1, Vector3d a, Vector3d b, Vector3d c) => O_Side2(Ints(q0, q1, a, b, c));
+        static int O_Side2(BigInteger[][] P)
         {
-            var P = Ints(q0, q1, a, b, c);
             return Crossing(P[0], P[1], P[2], P[3], out var X, out var D) ? SideAt(X, D, P[2], P[4]) : 0;
         }
 
-        static int O_Side3(Vector3d a, Vector3d b, Vector3d c, Vector3d t0, Vector3d t1, Vector3d t2, Vector3d e)
+        static int O_Side3(Vector3d a, Vector3d b, Vector3d c, Vector3d t0, Vector3d t1, Vector3d t2, Vector3d e) => O_Side3(Ints(a, b, c, t0, t1, t2, e));
+        static int O_Side3(BigInteger[][] P)
         {
-            var P = Ints(a, b, c, t0, t1, t2, e);
             return Btpi(P[0], P[1], P[2], P[3], P[4], P[5], out var X, out var D) ? SideAt(X, D, P[0], P[6]) : 0;
         }
 
-        static int O_DotSites(Vector3d o, Vector3d p, Vector3d q0, Vector3d q1)
+        static int O_DotSites(Vector3d o, Vector3d p, Vector3d q0, Vector3d q1) => O_DotSites(Ints(o, p, q0, q1));
+        static int O_DotSites(BigInteger[][] P)
         {
-            var P = Ints(o, p, q0, q1);
             return Dot(Sub(P[1], P[0]), Sub(P[3], P[2])).Sign;
         }
 
-        static int O_DetSitesNormal(Vector3d o, Vector3d p, Vector3d q, Vector3d t0, Vector3d t1, Vector3d t2)
+        static int O_DetSitesNormal(Vector3d o, Vector3d p, Vector3d q, Vector3d t0, Vector3d t1, Vector3d t2) => O_DetSitesNormal(Ints(o, p, q, t0, t1, t2));
+        static int O_DetSitesNormal(BigInteger[][] P)
         {
-            var P = Ints(o, p, q, t0, t1, t2);
             return Det(Sub(P[1], P[0]), Sub(P[2], P[0]), Cross(Sub(P[4], P[3]), Sub(P[5], P[3]))).Sign;
         }
 
-        static int O_Dist1(Vector3d v, Vector3d a, double r)
+        static int O_Dist1(Vector3d v, Vector3d a, double r) => O_Dist1(Ints(v, a, new Vector3d(r, 0, 0)));
+        static int O_Dist1(BigInteger[][] P)
         {
-            var P = Ints(v, a, new Vector3d(r, 0, 0));
             return (N2(Sub(P[0], P[1])) - P[2][0] * P[2][0]).Sign;
         }
 
         static int O_DistAt(BigInteger[] X, BigInteger D, BigInteger[] a, BigInteger r) => (N2(Sub(X, Mul(a, D))) - r * r * D * D).Sign;
 
-        static int O_Dist2(Vector3d q0, Vector3d q1, Vector3d a, Vector3d b, double r)
+        static int O_Dist2(Vector3d q0, Vector3d q1, Vector3d a, Vector3d b, double r) => O_Dist2(Ints(q0, q1, a, b, new Vector3d(r, 0, 0)));
+        static int O_Dist2(BigInteger[][] P)
         {
-            var P = Ints(q0, q1, a, b, new Vector3d(r, 0, 0));
             return Crossing(P[0], P[1], P[2], P[3], out var X, out var D) ? O_DistAt(X, D, P[2], P[4][0]) : 0;
         }
 
-        static int O_Dist3(Vector3d a, Vector3d b, Vector3d c, Vector3d t0, Vector3d t1, Vector3d t2, double r)
+        static int O_Dist3(Vector3d a, Vector3d b, Vector3d c, Vector3d t0, Vector3d t1, Vector3d t2, double r) => O_Dist3(Ints(a, b, c, t0, t1, t2, new Vector3d(r, 0, 0)));
+        static int O_Dist3(BigInteger[][] P)
         {
-            var P = Ints(a, b, c, t0, t1, t2, new Vector3d(r, 0, 0));
             return Btpi(P[0], P[1], P[2], P[3], P[4], P[5], out var X, out var D) ? O_DistAt(X, D, P[0], P[6][0]) : 0;
         }
 
         // circumradius above rho |q - p|: R^2 = |ab|^2 |bc|^2 |ca|^2 / (4 |n|^2) against rho^2 |pq|^2 (k = (rho^2, 1, 0))
-        static int O_RadiusEdge(Vector3d a, Vector3d b, Vector3d c, Vector3d p, Vector3d q, Vector3d k)
+        static int O_RadiusEdge(Vector3d a, Vector3d b, Vector3d c, Vector3d p, Vector3d q, Vector3d k) => O_RadiusEdge(Ints(a, b, c, p, q, k));
+        static int O_RadiusEdge(BigInteger[][] P)
         {
-            var P = Ints(a, b, c, p, q, k);
             var n = Cross(Sub(P[1], P[0]), Sub(P[2], P[0]));
             BigInteger lhs = N2(Sub(P[1], P[0])) * N2(Sub(P[2], P[1])) * N2(Sub(P[0], P[2])) * P[5][1];
             BigInteger rhs = 4 * P[5][0] * N2(Sub(P[4], P[3])) * N2(n);
             return (lhs - rhs).Sign;
+        }
+
+
+        // ---- the integer entry (FixedPoint3: FixedArith within the bound 2^64 - 1, BigInteger beyond) ----
+
+        static readonly BigInteger M64 = (BigInteger.One << 64) - 1;
+
+        static BigInteger RandomInt(Random rand, int bits)
+        {
+            if (bits <= 0) return 0;
+            var bytes = new byte[bits / 8 + 2];
+            rand.NextBytes(bytes);
+            bytes[bytes.Length - 1] = 0;
+            var v = new BigInteger(bytes) & ((BigInteger.One << bits) - 1);
+            return rand.Next(2) == 0 ? v : -v;
+        }
+
+        // a component at the bound, just below it, beyond it (the BigInteger path), or random up to the given bits
+        static BigInteger Component(Random rand, int bits, int kind)
+        {
+            Func<BigInteger, BigInteger> sg = v => rand.Next(2) == 0 ? v : -v;
+            switch (kind) {
+                case 0: return sg(M64);
+                case 1: return sg(M64 - BigInteger.Abs(RandomInt(rand, 8)));
+                case 2: return sg((BigInteger.One << 64) + BigInteger.Abs(RandomInt(rand, 36)));
+                default: return RandomInt(rand, bits);
+            }
+        }
+
+        static FixedPoint3 Fixed(ExactPoint3 p)
+        {
+            Assert.True(FixedPoint3.TryCreate(p, out var f));
+            return f;
+        }
+
+        static bool FitsBound(ExactPoint3[] P) => P.All(p => BigInteger.Abs(p.X) <= M64 && BigInteger.Abs(p.Y) <= M64 && BigInteger.Abs(p.Z) <= M64);
+
+        /// <summary>
+        /// the FixedPoint3 entries equal the BigInteger form and the oracle at the bound, just below it, beyond it and on random
+        /// integers; within the bound they allocate nothing (the FixedArith path), beyond it they do (BigInteger)
+        /// </summary>
+        [Fact]
+        public void IntegerEntries_MatchTheOracle_FixedAndBigPaths()
+        {
+            var rand = new Random(9);
+            int fixedPath = 0, bigPath = 0;
+            for (int k = 0; k < 400; ++k) {
+                int bits = new[] { 4, 20, 40, 64 }[k % 4];
+                int kind = k % 9 == 0 ? 0 : k % 9 == 1 ? 1 : k % 13 == 2 ? 2 : 3;
+                var E = Enumerable.Range(0, 7).Select(_ => ExactPoint3.FromInteger(Component(rand, bits, kind), Component(rand, bits, kind), Component(rand, bits, kind))).ToArray();
+                if (k % 5 == 4) {       // exact zeros: a repeated site (e = a for Side3 / Dist3, a = e for Side1)
+                    E[6] = E[0];
+                    E[2] = E[1];
+                }
+                var B = E.Select(p => new[] { p.X, p.Y, p.Z }).ToArray();
+                var f = E.Select(Fixed).ToArray();
+                bool fits = FitsBound(E);
+                if (fits) fixedPath++; else bigPath++;
+                Func<Func<int>, int> path = call => {
+                    int r = call();
+#if NET
+                    long before = GC.GetAllocatedBytesForCurrentThread();
+                    int again = call();
+                    long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+                    Assert.Equal(r, again);
+                    Assert.True(fits ? bytes == 0 : bytes > 0, $"fits {fits}, {bytes} bytes");
+#endif
+                    return r;
+                };
+                Func<int[], BigInteger[][]> sel = ix => ix.Select(i => B[i]).ToArray();
+                Assert.Equal(O_Side1(sel(new[] { 0, 1, 2 })), path(() => BisectorPredicates.BisectorSide1(ref f[0], ref f[1], ref f[2])));
+                Assert.Equal(O_Side1(sel(new[] { 0, 1, 2 })), BisectorPredicates.BisectorSide1Big(E[0], E[1], E[2]));
+                Assert.Equal(O_Side2(sel(new[] { 0, 1, 2, 3, 4 })), path(() => BisectorPredicates.BisectorSide2(ref f[0], ref f[1], ref f[2], ref f[3], ref f[4])));
+                Assert.Equal(O_Side2(sel(new[] { 0, 1, 2, 3, 4 })), BisectorPredicates.BisectorSide2Big(E[0], E[1], E[2], E[3], E[4]));
+                Assert.Equal(O_Side3(sel(new[] { 0, 1, 2, 3, 4, 5, 6 })), path(() => BisectorPredicates.BisectorSide3(ref f[0], ref f[1], ref f[2], ref f[3], ref f[4], ref f[5], ref f[6])));
+                Assert.Equal(O_Side3(sel(new[] { 0, 1, 2, 3, 4, 5, 6 })), BisectorPredicates.BisectorSide3Big(E[0], E[1], E[2], E[3], E[4], E[5], E[6]));
+                Assert.Equal(O_DotSites(sel(new[] { 0, 1, 2, 3 })), path(() => BisectorPredicates.DotSites(ref f[0], ref f[1], ref f[2], ref f[3])));
+                Assert.Equal(O_DotSites(sel(new[] { 0, 1, 2, 3 })), BisectorPredicates.DotSitesBig(E[0], E[1], E[2], E[3]));
+                Assert.Equal(O_DetSitesNormal(sel(new[] { 0, 1, 2, 3, 4, 5 })), path(() => BisectorPredicates.DetSitesNormal(ref f[0], ref f[1], ref f[2], ref f[3], ref f[4], ref f[5])));
+                Assert.Equal(O_DetSitesNormal(sel(new[] { 0, 1, 2, 3, 4, 5 })), BisectorPredicates.DetSitesNormalBig(E[0], E[1], E[2], E[3], E[4], E[5]));
+                Assert.Equal(O_Dist1(sel(new[] { 0, 1, 6 })), path(() => BisectorPredicates.DistanceAbove1(ref f[0], ref f[1], ref f[6])));
+                Assert.Equal(O_Dist1(sel(new[] { 0, 1, 6 })), BisectorPredicates.DistanceAbove1Big(E[0], E[1], E[6]));
+                Assert.Equal(O_Dist2(sel(new[] { 0, 1, 2, 3, 6 })), path(() => BisectorPredicates.DistanceAbove2(ref f[0], ref f[1], ref f[2], ref f[3], ref f[6])));
+                Assert.Equal(O_Dist2(sel(new[] { 0, 1, 2, 3, 6 })), BisectorPredicates.DistanceAbove2Big(E[0], E[1], E[2], E[3], E[6]));
+                Assert.Equal(O_Dist3(sel(new[] { 0, 1, 2, 3, 4, 5, 6 })), path(() => BisectorPredicates.DistanceAbove3(ref f[0], ref f[1], ref f[2], ref f[3], ref f[4], ref f[5], ref f[6])));
+                Assert.Equal(O_Dist3(sel(new[] { 0, 1, 2, 3, 4, 5, 6 })), BisectorPredicates.DistanceAbove3Big(E[0], E[1], E[2], E[3], E[4], E[5], E[6]));
+                Assert.Equal(O_RadiusEdge(sel(new[] { 0, 1, 2, 3, 4, 5 })), path(() => BisectorPredicates.RadiusEdgeAbove(ref f[0], ref f[1], ref f[2], ref f[3], ref f[4], ref f[5])));
+                Assert.Equal(O_RadiusEdge(sel(new[] { 0, 1, 2, 3, 4, 5 })), BisectorPredicates.RadiusEdgeAboveBig(E[0], E[1], E[2], E[3], E[4], E[5]));
+            }
+            Assert.True(fixedPath > 100 && bigPath > 20, $"fixed {fixedPath}, big {bigPath}");
         }
 
         // ---- the calls: the entry, its filter (never wrong where it decides) and its exact stage ----

@@ -90,7 +90,27 @@ namespace geometry3Sharp.Tests
         static readonly Member[] Members = {
             Orient, InCircle, ComparePoints, CompareAlong, TrianglePlanes, LPI, TPI, LPIExact, TPIExact,
             DoubleOrient2d, DoubleOrient3d, DoubleInCircle,
-            LimbPreparedPlaneSide, LimbPlaneSide, LimbPlaneSide1, LimbDot, LimbDet4, LimbOrient2, LimbInCircle };
+            LimbPreparedPlaneSide, LimbPlaneSide, LimbPlaneSide1, LimbDot, LimbDet4, LimbOrient2, LimbInCircle,
+            // the generated bisector predicates (math/Generated/BisectorPredicates.cs): the FixedPoint3 entries on integer
+            // inputs and the exact stages from doubles, one delegate each (a delegate call is not inlined)
+            (x, t) => { var f = x.F; if (Integer(f, 3)) t.Add(BisectorPredicates.BisectorSide1(ref f[0], ref f[1], ref f[2])); },
+            (x, t) => { var f = x.F; if (Integer(f, 5)) t.Add(BisectorPredicates.BisectorSide2(ref f[0], ref f[1], ref f[2], ref f[3], ref f[4])); },
+            (x, t) => { var f = x.F; if (Integer(f, 7)) t.Add(BisectorPredicates.BisectorSide3(ref f[0], ref f[1], ref f[2], ref f[3], ref f[4], ref f[5], ref f[6])); },
+            (x, t) => { var f = x.F; if (Integer(f, 4)) t.Add(BisectorPredicates.DotSites(ref f[0], ref f[1], ref f[2], ref f[3])); },
+            (x, t) => { var f = x.F; if (Integer(f, 6)) t.Add(BisectorPredicates.DetSitesNormal(ref f[0], ref f[1], ref f[2], ref f[3], ref f[4], ref f[5])); },
+            (x, t) => { var f = x.F; if (Integer(f, 3)) t.Add(BisectorPredicates.DistanceAbove1(ref f[0], ref f[1], ref f[2])); },
+            (x, t) => { var f = x.F; if (Integer(f, 5)) t.Add(BisectorPredicates.DistanceAbove2(ref f[0], ref f[1], ref f[2], ref f[3], ref f[4])); },
+            (x, t) => { var f = x.F; if (Integer(f, 7)) t.Add(BisectorPredicates.DistanceAbove3(ref f[0], ref f[1], ref f[2], ref f[3], ref f[4], ref f[5], ref f[6])); },
+            (x, t) => { var f = x.F; if (Integer(f, 6)) t.Add(BisectorPredicates.RadiusEdgeAbove(ref f[0], ref f[1], ref f[2], ref f[3], ref f[4], ref f[5])); },
+            (x, t) => { var d = x.D; t.Add(BisectorPredicates.BisectorSide1Exact(d[0], d[1], d[2])); },
+            (x, t) => { var d = x.D; t.Add(BisectorPredicates.BisectorSide2Exact(d[0], d[1], d[2], d[3], d[4])); },
+            (x, t) => { var d = x.D; t.Add(BisectorPredicates.BisectorSide3Exact(d[0], d[1], d[2], d[3], d[4], d[5], d[6])); },
+            (x, t) => { var d = x.D; t.Add(BisectorPredicates.DotSitesExact(d[0], d[1], d[2], d[3])); },
+            (x, t) => { var d = x.D; t.Add(BisectorPredicates.DetSitesNormalExact(d[0], d[1], d[2], d[3], d[4], d[5])); },
+            (x, t) => { var d = x.D; t.Add(BisectorPredicates.DistanceAbove1Exact(d[0], d[1], d[2])); },
+            (x, t) => { var d = x.D; t.Add(BisectorPredicates.DistanceAbove2Exact(d[0], d[1], d[2], d[3], d[4])); },
+            (x, t) => { var d = x.D; t.Add(BisectorPredicates.DistanceAbove3Exact(d[0], d[1], d[2], d[3], d[4], d[5], d[6])); },
+            (x, t) => { var d = x.D; t.Add(BisectorPredicates.RadiusEdgeAboveExact(d[0], d[1], d[2], d[3], d[4], d[5])); } };
 
         // ExactLimbSigns: BigInteger operands loaded into stack limbs (the coordinates of the inputs' exact points)
         static ExactPoint3 E(Input x, int k) { return x.F[k].ToExact(); }
