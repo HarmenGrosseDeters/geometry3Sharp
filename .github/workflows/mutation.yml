@@ -87,9 +87,9 @@ on:
       - '.github/workflows/mutation.yml'
   schedule:
     # master, in the evening (UTC; Exact Boolean 3.0, tests/mutation/README.md "3.0 process"): the big shards of the exact boolean
-    # pipeline (boolean-*, arrangement-*, rounding-*: 24 of the 48 configs) Monday to Saturday, everything else (envelope, imprint,
+    # pipeline (boolean-*, arrangement-*, rounding-*: 28 of the 59 configs) Monday to Saturday, everything else (envelope, imprint,
     # geodesic, hausdorff, terrain, planar, fixed, generated, solid-pipeline, exact-winding, separating-axes, arithmetic) on Sunday (select_shards.py --only nightly / weekly).
-    # Estimate, not measured: a shard takes 1 to 6 hours (README) and 6 run at a time (max-parallel), so the 24 nightly shards need
+    # Estimate, not measured: a shard takes 1 to 6 hours (README) and 6 run at a time (max-parallel), so the 28 nightly shards need
     # about 12 to 16 hours, ending between 07:00 and 11:00 UTC. The baselines of the incremental PR runs come from these runs.
     # These cron lines are the fallback of the daily dispatch (docs/QA.md 2.12): the schedule guard skips them on a day that a
     # plain dispatch (`shards=all`) already ran.

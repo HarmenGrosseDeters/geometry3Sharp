@@ -36,6 +36,64 @@ namespace geometry3Sharp.Tests
         /// <summary> of those, the ones where polygons were left over by the regions and covered by single triangles </summary>
         public int UnionLeftoverCovered;
 
+        /// <summary> for the tests and the mutants: false takes the union cover without the cache of the candidates' charts and without the box prefilter (the state before the cost work of #1631) </summary>
+        public bool FastUnionCover = true;
+        /// <summary> candidates the union cover took to the exact clips of their chart, and the ones the box prefilter rejected before (the last coverage test) </summary>
+        public int UnionCandidatesClipped, UnionCandidatesFiltered;
+
+        // the charts of the exact triangles of the other mesh per (index, axis): they do not depend on the triangle being covered
+        sealed class CandChart
+        {
+            public bool Collapsed;                       // the chart collapses (the triangle is parallel to the axis)
+            public List<Q[]> Poly;                       // counterclockwise
+            public Affine Height;                        // the coordinate along the axis over the chart
+            public bool BoxOk; public double Lo0, Lo1, Hi0, Hi1;   // the box of the chart in doubles (not widened)
+        }
+        List<Q[][]> chartCacheOf; Dictionary<(int, int), CandChart> chartCache;
+
+        CandChart ChartOf(List<Q[][]> to, int j, int a)
+        {
+            if (ReferenceEquals(chartCacheOf, to) == false) { chartCacheOf = to; chartCache = new Dictionary<(int, int), CandChart>(); }
+            var key = (j, a);
+            if (chartCache.TryGetValue(key, out CandChart c)) return c;
+            Q[][] g = to[j];
+            Q[] gn = NormalOfQ(g);
+            c = new CandChart();
+            if (gn[a].Sign == 0) c.Collapsed = true;
+            else {
+                c.Poly = new List<Q[]> { Chart(g[0], a), Chart(g[1], a), Chart(g[2], a) };
+                if (Area2(c.Poly).Sign < 0) c.Poly.Reverse();
+                c.Height = HeightOver(g, a, gn);
+                c.BoxOk = ChartBox(c.Poly, out c.Lo0, out c.Lo1, out c.Hi0, out c.Hi1);
+            }
+            chartCache[key] = c;
+            return c;
+        }
+
+        // the box of a chart polygon from the approximations of its corners (each within a relative 2^-50 of the exact coordinate); false where one has none
+        static bool ChartBox(List<Q[]> poly, out double lo0, out double lo1, out double hi0, out double hi1)
+        {
+            lo0 = lo1 = double.MaxValue; hi0 = hi1 = double.MinValue;
+            foreach (Q[] p in poly) {
+                if (ApproxQ(p[0], out double x) == false || ApproxQ(p[1], out double y) == false) return false;
+                lo0 = Math.Min(lo0, x); hi0 = Math.Max(hi0, x); lo1 = Math.Min(lo1, y); hi1 = Math.Max(hi1, y);
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// whether two boxes (lo0, lo1, hi0, hi1: the box of a chart from the approximations of its corners) are farther apart than the margin along a
+        /// chart axis: the margin is FilterEps of the largest coordinate and the extent (2^-40 of them, never below 2^-480), far above the
+        /// error of the approximations (a relative 2^-50 per coordinate); only then are the exact charts certainly disjoint
+        /// </summary>
+        public static bool ChartBoxesFarApart(double tl0, double tl1, double th0, double th1, double gl0, double gl1, double gh0, double gh1)
+        {
+            double ext = Math.Max(Math.Max(th0, gh0) - Math.Min(tl0, gl0), Math.Max(th1, gh1) - Math.Min(tl1, gl1));
+            double big = Math.Max(Math.Max(Math.Abs(tl0), Math.Abs(th0)), Math.Max(Math.Max(Math.Abs(tl1), Math.Abs(th1)), Math.Max(Math.Max(Math.Abs(gl0), Math.Abs(gh0)), Math.Max(Math.Abs(gl1), Math.Abs(gh1)))));
+            double tol = FilterEps(big, ext);
+            return th0 + tol < gl0 || gh0 + tol < tl0 || th1 + tol < gl1 || gh1 + tol < tl1;
+        }
+
         // the cap on the polygons left over by the difference: more is given up (the splitting goes on), the cost stays bounded
         const int MaxLeftover = 64;
 
@@ -157,18 +215,39 @@ namespace geometry3Sharp.Tests
             var poly = new List<Q[]> { Chart(t[0], a), Chart(t[1], a), Chart(t[2], a) };
             if (Area2(poly).Sign < 0) poly.Reverse();
             Affine tz = HeightOver(t, a, tn);
+            // (The box prefilter. The region of a candidate G is contained in the chart of G, so it is empty where the chart of t and the
+            // chart of G are disjoint, and the exact clips of the chart by G's three edges would then leave nothing (fewer than 3 corners or an
+            // area that is not positive). The boxes of both charts come from the approximations of their corners, each within a relative
+            // 2^-50 of the exact coordinate, so the exact chart lies inside its box widened by 2^-50 of the largest coordinate; the margin
+            // below is 2^-40 of the largest coordinate and the extents, far above that. A candidate is rejected only if its box is
+            // farther than the margin from the box of t's chart along one chart axis: then the exact charts are disjoint, which is
+            // what the clips would find. Where an approximation is missing, nothing is rejected. A rejected candidate gives the
+            // same `continue` as before, so the list of regions and its order are those of the exact path.)
+            double tl0 = 0, tl1 = 0, th0 = 0, th1 = 0;
+            bool tBox = FastUnionCover && ChartBox(poly, out tl0, out tl1, out th0, out th1);
             // the region of each triangle: its chart over the chart of t, within delta along a
             var regions = new List<List<Q[]>>();
             foreach (int j in cand) {
                 Q[][] g = to[j];
-                Q[] gn = NormalOfQ(g);
-                if (gn[a].Sign == 0) continue;              // a chart that collapses (G parallel to the axis a)
-                var gc = new List<Q[]> { Chart(g[0], a), Chart(g[1], a), Chart(g[2], a) };
-                if (Area2(gc).Sign < 0) gc.Reverse();
+                List<Q[]> gc; Affine gh;
+                if (FastUnionCover) {
+                    CandChart cc = ChartOf(to, j, a);
+                    if (cc.Collapsed) continue;              // a chart that collapses (G parallel to the axis a)
+                    if (tBox && cc.BoxOk && ChartBoxesFarApart(tl0, tl1, th0, th1, cc.Lo0, cc.Lo1, cc.Hi0, cc.Hi1)) { UnionCandidatesFiltered++; continue; }
+                    gc = cc.Poly; gh = cc.Height;
+                }
+                else {
+                    Q[] gn0 = NormalOfQ(g);
+                    if (gn0[a].Sign == 0) continue;
+                    gc = new List<Q[]> { Chart(g[0], a), Chart(g[1], a), Chart(g[2], a) };
+                    if (Area2(gc).Sign < 0) gc.Reverse();
+                    gh = HeightOver(g, a, gn0);
+                }
+                UnionCandidatesClipped++;
                 List<Q[]> region = poly;
                 for (int e = 0; e < 3 && region.Count > 0; ++e) region = ClipLeft(region, gc[e], gc[(e + 1) % 3]);
                 if (region.Count < 3 || Area2(region).Sign <= 0) continue;
-                Affine gap = tz - HeightOver(g, a, gn);
+                Affine gap = tz - gh;
                 region = Clip(region, x => (delta - gap.Eval(x)).Reduce());
                 region = Clip(region, x => (delta + gap.Eval(x)).Reduce());
                 if (region.Count < 3 || Area2(region).Sign <= 0) continue;

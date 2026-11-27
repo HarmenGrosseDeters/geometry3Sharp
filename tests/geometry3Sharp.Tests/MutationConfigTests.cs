@@ -18,7 +18,7 @@ namespace geometry3Sharp.Tests
             ["mesh_ops/ExactMeshArrangement.cs"] = new[] { "void build_triangles(", "int candidates(", "void triangulate_touched(" },
             ["mesh_ops/ExactMeshBoolean.cs"] = new[] { "public static EdgeTable Build(", "internal static double far_term(", "void verify_traced(",
                 "static double[] corner_box(", "internal static int plane_side_abs(", "internal static double snap_half(", "internal static bool tree_decides(", "internal static int orient3d_filtered(" },
-            ["mesh_ops/MeshRoundingRepair.cs"] = new[] { "public bool Apply(", "Vector3d pos(", "void position_add(", "void rebuild_tree(", "List<int> degenerate_triangles(", "void ghost_add(", "static double segments_distance(", "bool try_zip(", "List<int> strip_around(", "static double ulp(", "void set_vertex(", "void fix_intersection(" },
+            ["mesh_ops/MeshRoundingRepair.cs"] = new[] { "public bool Apply(", "Vector3d pos(", "void position_add(", "void rebuild_tree(", "List<int> degenerate_triangles(", "void ghost_add(", "static double segments_distance(", "bool try_zip(", "List<int> strip_around(", "static double ulp(", "void set_vertex(", "int position_search(", "internal void forget_failed_pairs(", "void fix_intersection(" },
             ["mesh_ops/PolyhedralEnvelope.cs"] = new[] { "void add(", "static long bit_length(", "public bool ContainsTriangle(" },
             ["mesh_ops/ExactMeshGeodesicDistance.cs"] = new[] { "void Add(" },
             ["math/ExactPredicates.cs"] = new[] { "static void negate128(" },
@@ -202,6 +202,12 @@ namespace geometry3Sharp.Tests
             // AcceptNeutralContractionsInStage: improves() in part 3, try_collapse in part 5, Apply's resets in part 10, the fields in part 1; derived from the changed lines of the PR against
             // the span of each part, part 4 holds none)
             const string stageLimit = "FullyQualifiedName~ExactMeshImprintSliverTests.StageEvaluationLimit";
+            var searchTests = new[] {
+                "FullyQualifiedName~RoundingExactPairsTests.SkippingSearch_SameAsFull_AndSkips&DisplayName!~FoldedCluster",
+                "FullyQualifiedName~RoundingExactPairsTests.WithoutSharedPositionsTouch_NoSkip",
+                "FullyQualifiedName~MeshRoundingRepairTestsPositionSearch",
+                // (fix_degenerate: a cap is flipped before a contraction is tried; under a second)
+                "FullyQualifiedName~RoundingCapFirstTests" };
             var extras = new Dictionary<string, string[]>() {
                 // (the range check and for_triangles; Apply's finite check and anchors in rounding-10; the tree's boxes in
                 // rounding-12)
@@ -244,13 +250,12 @@ namespace geometry3Sharp.Tests
                 ["stryker-mesh-rounding-3"] = new[] { serialWork + "NoPasses_OneBlock", serialWork + "NoPasses_TinyDegenerate", serialWork + "Field_Clean",
                     // (pair_budget, RC4a)
                     "FullyQualifiedName~SafeRoundingBudgetTests", sliverStage },
-                // (set_vertex to fix_intersection: the exact flag a position write clears, the position search)
-                ["stryker-mesh-rounding-8"] = new[] {
-                    "FullyQualifiedName~RoundingExactPairsTests.SkippingSearch_SameAsFull_AndSkips&DisplayName!~FoldedCluster",
-                    "FullyQualifiedName~RoundingExactPairsTests.WithoutSharedPositionsTouch_NoSkip",
-                    "FullyQualifiedName~MeshRoundingRepairTestsPositionSearch",
-                    // (fix_degenerate: a cap is flipped before a contraction is tried; under a second)
-                    "FullyQualifiedName~RoundingCapFirstTests" },
+                // (set_vertex to fix_intersection: the exact flag a position write clears, the position search; since #1716 in three parts, rounding-8
+                // (set_vertex to the position search), rounding-14 (the position search to forget_failed_pairs) and rounding-15 (forget_failed_pairs to
+                // fix_intersection: pair_removes_bad, search_pairs, search_corners), each with these tests: the old part did not finish in 350 minutes)
+                ["stryker-mesh-rounding-8"] = searchTests,
+                ["stryker-mesh-rounding-14"] = searchTests,
+                ["stryker-mesh-rounding-15"] = searchTests,
                 // (fix_intersection to the end: the tolerances of the largest component and the ScaleDisparity guard of
                 // remove_tiny_components, and its component walk)
                 ["stryker-mesh-rounding-9"] = new[] {
@@ -262,7 +267,7 @@ namespace geometry3Sharp.Tests
                     // (the numerically-zero-volume removal in remove_tiny_components, #1067, and its margin)
                     "FullyQualifiedName~SafeRoundingZeroVolumeSheetTests", "FullyQualifiedName~SafeRoundingZeroVolumeMarginTests" },
             };
-            for (int i = 1; i <= 13; ++i) {
+            for (int i = 1; i <= 15; ++i) {
                 string part = "stryker-mesh-rounding-" + i;
                 var want = shared.Concat(extras.TryGetValue(part, out var e) ? e : new string[0]).OrderBy(x => x, StringComparer.Ordinal);
                 Assert.Equal(want, Alternatives(filters[part]).OrderBy(x => x, StringComparer.Ordinal));

@@ -50,6 +50,8 @@ M=[
 ("culled ray off", "if (w[CullMesh] > 0) return", "if (false) return"),
 ("culled meet off", "if (ExactTriangleIntersection.Intersects(ref u, ref v)) return", "if (false) return"),
 ("area check off", "if (en * sd != sn * ed)", "if (false)"),
+("area skip in every plane", "if (kv.Value.Mixed == false && ForceExactAreas == false) continue;", "if (true) continue;"),
+("area plane never mixed", "if (ar.Mixed == false && Dot(n, ar.RefNormal).Sign <= 0) ar.Mixed = true;", ";"),
 ("area sum drops a term", "return (an * bd + bn * ad, ad * bd);", "return (an * bd, ad * bd);"),
 ("degenerate near off", "if (n[0].Sign == 0 && n[1].Sign == 0 && n[2].Sign == 0) {", "if (false) {"),
 ("segment clamp", "if (Q.Compare(t, l2) >= 0) { Q[] bp", "if (false) { Q[] bp"),
@@ -145,6 +147,10 @@ M=[
 # (first listed as equivalent; not: a numerator below 2^1024 over a denominator above it converts to finite / infinity = 0, which the
 # finiteness check passes; CoverageFilters_AgreeWithTheExactTest_AtDistanceDeltaWithRoundedCoordinates, review of #1604)
 ("C5 approximation: size guard off", "if (ExactPoint3.BitLength(q.N) > 1000 || ExactPoint3.BitLength(q.D) > 1000) return false;", ";"),
+("union prefilter without margin", "double tol = FilterEps(big, ext);", "double tol = 0;"),
+("union prefilter ignores one side", "|| gh1 + tol < tl1;", "|| false;"),
+("union chart cache without the axis", "var key = (j, a);", "var key = (j, 0);"),
+("union chart cache never reset", "if (ReferenceEquals(chartCacheOf, to) == false) {", "if (false) {"),
 ]
 
 # Equivalent mutants (not run by default; `--equivalent` runs them, and each must survive). Each changes no verdict:
