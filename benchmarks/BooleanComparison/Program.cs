@@ -96,7 +96,9 @@ static class Program
             case "nary": return Nary.Run(args.Skip(1).ToArray());
             case "certify": return Certify.Run(args.Skip(1).ToArray());
             case "coplanar-clip": return CoplanarClip.Run(args.Skip(1).ToArray());
+#if !NETFRAMEWORK
             case "pipeline-cert": return PipelineCertBench.Run(args.Skip(1).ToArray());
+#endif
             case "profile": return Profile.Run(args.Skip(1).ToArray());
             case "seam-levers": return SeamLevers.Run(args.Skip(1).ToArray());
             case "indirect": return IndirectBench.Run(args.Skip(1).ToArray());
