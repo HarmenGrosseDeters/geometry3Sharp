@@ -102,17 +102,21 @@ namespace geometry3Sharp.Tests
         public void EmptyBallRadius_ExtremeScales_ScalesBitForBit(int exp)
         {
             Func<Vector3d, Vector3d> sc = p => new Vector3d(ExactPoint3.ScaleB(p.x, exp), ExactPoint3.ScaleB(p.y, exp), ExactPoint3.ScaleB(p.z, exp));
-            // Include non-power-of-two edges (4, 6) and non-dyadic normal offset (3) so SafeLength/SafeHypot bit-identity is exercised.
-            foreach (var (b0, d0, fc0, tNear, tFar) in new[] {
-                (new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), new Vector3d(0.5, 0.5, 0), 1.0, 2.0),
-                (new Vector3d(4, 0, 0), new Vector3d(0, 6, 0), new Vector3d(2.0, 3.0, 0), 3.0, 5.0),
+            // Include non-power-of-two edges (4, 6) and a general non-axis-aligned triangle (3,2,1)/(1,5,2) so both SafeLength/SafeHypot and add-before-divide bit-identity are exercised.
+            foreach (var (b0, d0, tNear, tFar) in new[] {
+                (new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), 1.0, 2.0),
+                (new Vector3d(4, 0, 0), new Vector3d(0, 6, 0), 3.0, 5.0),
+                (new Vector3d(3, 2, 1), new Vector3d(1, 5, 2), 2.5, 4.5),
             }) {
                 Vector3d a0 = Vector3d.Zero;
-                double refCross = MeshAlphaWrap.EmptyBallRadius(a0, b0, d0, fc0 + new Vector3d(0, 0, -tNear), fc0 + new Vector3d(0, 0, tFar));
-                double refSide = MeshAlphaWrap.EmptyBallRadius(a0, b0, d0, fc0 + new Vector3d(0, 0, tNear), fc0 + new Vector3d(0, 0, tFar));
+                Vector3d w0 = b0.Cross(d0);
+                Vector3d n0 = w0.Normalized;
+                Vector3d fc0 = (b0.LengthSquared * d0.Cross(w0) + d0.LengthSquared * w0.Cross(b0)) / (2 * w0.LengthSquared);
+                double refCross = MeshAlphaWrap.EmptyBallRadius(a0, b0, d0, fc0 - tNear * n0, fc0 + tFar * n0);
+                double refSide = MeshAlphaWrap.EmptyBallRadius(a0, b0, d0, fc0 + tNear * n0, fc0 + tFar * n0);
 
-                double phiCross = MeshAlphaWrap.EmptyBallRadius(sc(a0), sc(b0), sc(d0), sc(fc0 + new Vector3d(0, 0, -tNear)), sc(fc0 + new Vector3d(0, 0, tFar)));
-                double phiSide = MeshAlphaWrap.EmptyBallRadius(sc(a0), sc(b0), sc(d0), sc(fc0 + new Vector3d(0, 0, tNear)), sc(fc0 + new Vector3d(0, 0, tFar)));
+                double phiCross = MeshAlphaWrap.EmptyBallRadius(sc(a0), sc(b0), sc(d0), sc(fc0 - tNear * n0), sc(fc0 + tFar * n0));
+                double phiSide = MeshAlphaWrap.EmptyBallRadius(sc(a0), sc(b0), sc(d0), sc(fc0 + tNear * n0), sc(fc0 + tFar * n0));
                 Assert.Equal(ExactPoint3.ScaleB(refCross, exp), phiCross);
                 Assert.Equal(ExactPoint3.ScaleB(refSide, exp), phiSide);
             }
@@ -143,6 +147,13 @@ namespace geometry3Sharp.Tests
                 Vector3d.Zero, new Vector3d(uWide, 0, 0), new Vector3d(0, vWide, 0),
                 new Vector3d(0.5 * uWide, 0.5 * vWide, -1), new Vector3d(0.5 * uWide, 0.5 * vWide, 1));
             Assert.True(Math.Abs(phiWide - 0.5 * uWide) <= 1e-12 * (0.5 * uWide), $"phiWide={phiWide} vs {0.5 * uWide}");
+
+            // Huge nearly-collinear sliver with |eu - ev| > 60 and shift > 1023 must return +Infinity, not (-Inf) + (+Inf) = NaN.
+            double phiInf = MeshAlphaWrap.EmptyBallRadius(
+                Vector3d.Zero, new Vector3d(ExactPoint3.ScaleB(1.0, 500), 0, 0),
+                new Vector3d(ExactPoint3.ScaleB(1.0, 430), ExactPoint3.ScaleB(1.0, -170), 0),
+                new Vector3d(0, 0, -1), new Vector3d(0, 0, 1));
+            Assert.True(double.IsPositiveInfinity(phiInf), $"phiInf={phiInf}");
         }
 
         [Fact]

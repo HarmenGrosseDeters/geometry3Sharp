@@ -1301,7 +1301,7 @@ namespace gs
         const double MinNormal = 2.2250738585072014e-308; // 2^-1022
         const double FastFacetMin = 7.888609052210118e-31; // 2^-100: s^5 >= 2^-500 >> MinNormal
         const double FastFacetMax = 1.2676506002282294e30; // 2^100:  s^5 <= 2^500 << MaxValue
-        const double FastW2Min = 1.1833923015014174e-271;  // 2^-900: FastFacetMin * FastW2Min = 2^-1000 >> MinNormal
+        const double FastW2Min = 1.1830521861667747e-271;  // 2^-900: FastFacetMin * FastW2Min = 2^-1000 >> MinNormal
 
         static int Pow2Exp(double v)
         {
@@ -1397,15 +1397,15 @@ namespace gs
             Vector3d wn = ScaleVec(ws, -wExp);
             double wn2 = wn.LengthSquared;
             double denom = 2 * wn2;
-            Vector3d t1 = (us.LengthSquared * vs.Cross(wn)) / denom;
-            Vector3d t2 = (vs.LengthSquared * wn.Cross(us)) / denom;
+            Vector3d n1 = us.LengthSquared * vs.Cross(wn);
+            Vector3d n2 = vs.LengthSquared * wn.Cross(us);
             int shift1 = eu + preShift - wExp, shift2 = ev + preShift - wExp;
-            if (Math.Abs(eu - ev) > 60) {
-                x = ScaleVec(t1, shift1) + ScaleVec(t2, shift2);
+            if (Math.Abs(eu - ev) > 60 && Math.Max(shift1, shift2) <= 1000) {
+                x = ScaleVec(n1 / denom, shift1) + ScaleVec(n2 / denom, shift2);
             } else if (eu >= ev) {
-                x = ScaleVec(t1 + ScaleVec(t2, ev - eu), shift1);
+                x = ScaleVec((n1 + ScaleVec(n2, ev - eu)) / denom, shift1);
             } else {
-                x = ScaleVec(ScaleVec(t1, eu - ev) + t2, shift2);
+                x = ScaleVec((ScaleVec(n1, eu - ev) + n2) / denom, shift2);
             }
             nrm = wn / Math.Sqrt(wn2);
             return true;

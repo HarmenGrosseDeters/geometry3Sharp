@@ -25,14 +25,14 @@ WRAP_SOURCE = 'mesh_ops/MeshAlphaWrap.cs'
 WRAP_ANCHORS = [
     ('bool round_marked(int c)', '// body(k) for k in [0, count):',
      '6592a9d5d3054eb4a199e2d2428e615e3a2c7e06ef31e6fc28d8790a5352b0fb'),
-    ('if (!dt.IsCell(c) || dt.CellStamp(c) != stampC || label[c] != Inside)', 'if (roundGates.Count == 0)',
-     'e307e8132a28d16b305e93333f3d1808b692cf6a9673a989c140352fd9a29a09'),
+    ('for (int k = 0; k < window && gates.Count > 0; ++k)', 'if (roundGates.Count == 0)',
+     'f7da262b4cd49426b985eb201756c93c7f4a87cdf895ab10127760dcb7ba34a7'),
     ('bool clash = round_marked(g.C) || round_marked(g.N);', "// (the evaluation's wall time,",
      '787305b7cafdc2a3e569ee51edbc326accdcf4835591da46eb0d43880fa091da'),
     ('void apply_gate(RoundGate g)', '// the gates the serial loop pushes',
      'dc031b18b52838b20f7608e2a96f6e4023d32534b2b07b49d5c509e7d9dda94e'),
     ('const double MinNormal', 'Vector3d clamp_center(',
-     '236662ee7e2c1598d7f9d8695555eb618e09b9a34f3a17e218445d729584eab2'),
+     '6909922c74481829cfbcc2284501909f004a42793e17a0976877eb87db74fe3a'),
 ]
 DELAUNAY_SOURCE = 'comp_geom/Delaunay3.cs'
 DELAUNAY_ANCHORS = [
