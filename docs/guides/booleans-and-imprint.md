@@ -449,12 +449,50 @@ var pipeline = new SolidBooleanPipeline(new[] { soupA, soupB }, ExactMeshBoolean
     TargetFraction = 0.25
 };
 if (pipeline.Compute()) {
-    DMesh3 solid = pipeline.Result;
     SolidBooleanReport report = pipeline.Report;   // stage timings, NotCleanReason, StopReason
+    switch (report.ResultKind) {
+        case SolidBooleanResultKind.Solid:                // non-empty and clean
+        case SolidBooleanResultKind.SolidWithContacts:    // the solids touch: valid, with duplicated vertices (report.OnlyContacts)
+            DMesh3 solid = pipeline.Result;
+            break;
+        case SolidBooleanResultKind.SolidNotClean:        // another defect: report.NotCleanReason says which
+            break;
+        case SolidBooleanResultKind.EmptyExact:           // the exact result is empty: the solids do not overlap
+            break;
+        case SolidBooleanResultKind.EmptyAfterRounding:   // they overlap, but too thinly to keep: report.RoundingRemoved lists what was removed
+            foreach (var removed in report.RoundingRemoved)
+                Console.WriteLine($"removed {removed.Volume} of volume, thickness {removed.Thickness}");
+            break;
+    }
+    if (report.InputsWithWindingOutsideZeroOne.Count > 0)
+        Console.WriteLine("an input overlaps itself or is inside out: " + string.Join(", ", report.InputsWithWindingOutsideZeroOne));
 } else {
-    Console.WriteLine($"{pipeline.Status}: {pipeline.Error}");
+    Console.WriteLine($"{pipeline.Status}: {pipeline.Error}");   // report.ResultKind is None
 }
 ```
+
+Do not read `Compute() && Report.Clean` as "the answer is right": an empty result and a result with contacts are `Success` with `Clean` false, and both can be correct. Read `Report.ResultKind` first. A compiled version of this check: `SolidBooleanPipelineExample.ReadTheResultKind`.
+
+### The Kind of the Result (`Report.ResultKind`)
+
+`SolidBooleanReport.ResultKind` (#1576) says what the last `Compute()` returned, as a fact next to `Status`. It judges nothing: `Status`, `Report.Clean`, `NotCleanReason` and `OnlyContacts` keep their meaning, and the kind is derived from them and from what the run removed.
+
+| `ResultKind` | Meaning |
+|---|---|
+| `None` | no result: `Compute()` is false (`Status` says why), or it has not run |
+| `Solid` | non-empty and clean (`Report.Clean`). A clean result from which the rounding removed some parts stays `Solid`: `Report.RoundingRemoved` (`Rounding.RemovedComponents`) lists them |
+| `SolidWithContacts` | non-empty, and the only defects are contacts of the exact solid (`Report.OnlyContacts`; `NotCleanReason` says "self-intersections" at the touching points) |
+| `SolidNotClean` | non-empty with another defect: `NotCleanReason` says which, and with "self-intersections" `OnlyContacts` is false (a real crossing) |
+| `EmptyExact` | empty, and nothing was removed: the exact result is empty (disjoint solids, or two boxes that touch in a plane, whose intersection has no volume). `NotCleanReason` is "empty" as for any empty mesh |
+| `EmptyAfterRounding` | empty, but the exact result had volume and the pipeline removed all of it: the rounding repair removed a component that its coordinates cannot resolve (`RoundingRemoved`: eg a 1e-12 thick overlap at coordinates of 0.5), or `MinThickness` removed it (`RemovedThinSolids`), or `ThinInputs = TreatAsEmpty` left out an input (`ThinInputs`) |
+
+Per route: the kind is read from the result that `Compute()` returns and from the report of that run. The Grid step (a retry that is the result), the fallback of the sheet role and an input repair give the kind of their own final result; a retry that was rejected leaves the first failure (`None`). An empty result of a Difference with a sheet is `EmptyExact` (nothing was removed). The rounding repair lists every closed component it removed (`RoundingRemoved`); an inside-out residue (`RemovalReasons.InsideOutResidue`, not a solid) does not make an empty result `EmptyAfterRounding`. With `ThinInputs = TreatAsEmpty` the exact stage never sees an input that is left out, so it cannot tell whether the result would have been empty: an empty result there is `EmptyAfterRounding` (the pipeline removed an input).
+
+### Inputs With a Winding Number Outside {0, 1} (`Report.InputsWithWindingOutsideZeroOne`)
+
+`Report.InputsWithWindingOutsideZeroOne` (#1576) lists the indices, as passed and ascending, of the closed inputs whose winding number is outside {0, 1} on some side of a piece of the exact arrangement: 2 or more where the input overlaps itself (two overlapping copies of a box in one input, a cavity wall given outward: the winding number inside the cavity is 2), -1 where it is inside out. It is read from the winding numbers that the classification computes anyway, so it costs nothing, and it is empty if none, for an open input or a sheet, if the exact stage did not run, and for pieces that the early-out of an Intersection or a Difference culled (outside the first input, or outside an input of an Intersection). It is set also for a run that is refused as `InsideOutInput`.
+
+It flags self-overlapping or inside-out inputs, **not wrong results**: the result is the exact result for the inputs as given, in winding number semantics, and a flagged input is one whose meaning may differ from what the caller meant (an outward cavity wall is a union, not a cavity). Two overlapping boxes given on purpose in one input are flagged too. In the certification spike (research note `PIPELINE_CERTIFICATE_SPIKE_2026-11`, branch `research/pipeline-certificate-spike`) the same signal flagged all 20 silently wrong runs of its procedural corpus (a cavity wall given outward, a self-overlapping operand with a cavity given outward) and 31 correct ones, a precision of 39 %. `Status`, `Clean`, `NotCleanReason` and `OnlyContacts` are not changed by it.
 
 ### Key Options
 

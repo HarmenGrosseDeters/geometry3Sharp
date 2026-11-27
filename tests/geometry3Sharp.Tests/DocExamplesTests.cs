@@ -865,6 +865,28 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void SolidBooleanPipelineExample_ReadsTheResultKind()
+        {
+            DMesh3 a = new GridBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(0.5, 0.5, 0.5)), EdgeVertices = 6 }.Generate().MakeDMesh();
+            Func<double, DMesh3> b = into => new GridBox3Generator() { Box = new Box3d(new Vector3d(0.85 - into, 0.1, 0.2), new Vector3d(0.35, 0.3, 0.3)), EdgeVertices = 6 }.Generate().MakeDMesh();
+            var I = ExactMeshBoolean.Operations.Intersection;
+            Assert.Equal("empty: the exact result is empty", SolidBooleanPipelineExample.ReadTheResultKind(new SolidBooleanPipeline(a, b(0), I)));
+            string removed = SolidBooleanPipelineExample.ReadTheResultKind(new SolidBooleanPipeline(a, b(1e-12), I));
+            Assert.StartsWith("empty after the rounding removed 1 component(s) of volume ", removed);
+            // a union of a box with a second input that overlaps itself: a clean solid, and the input is named
+            DMesh3 twice = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(0.5, 0, 0), new Vector3d(0.5, 0.5, 0.5)) }.Generate().MakeDMesh();
+            MeshEditor.Append(twice, new TrivialBox3Generator() { Box = new Box3d(new Vector3d(0.8, 0, 0), new Vector3d(0.5, 0.5, 0.5)) }.Generate().MakeDMesh());
+            Assert.Equal("a clean solid; input(s) 1 overlap themselves or are inside out",
+                SolidBooleanPipelineExample.ReadTheResultKind(new SolidBooleanPipeline(new DMesh3(a), twice, ExactMeshBoolean.Operations.Union)));
+            // a failed run says why and has no kind
+            DMesh3 open = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(0.5, 0, 0), new Vector3d(0.5, 0.5, 0.5)) }.Generate().MakeDMesh();
+            open.RemoveTriangle(0);
+            var failing = new SolidBooleanPipeline(a, open, ExactMeshBoolean.Operations.Union);
+            Assert.StartsWith("OpenInput: ", SolidBooleanPipelineExample.ReadTheResultKind(failing));
+            Assert.Equal(SolidBooleanResultKind.None, failing.Report.ResultKind);
+        }
+
+        [Fact]
         public void SolidBooleanPipelineExample_UnionsAndImprintsCleanly()
         {
             SolidBooleanPipeline pipeline = SolidBooleanPipelineExample.UnionAndReduce();

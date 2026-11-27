@@ -278,6 +278,52 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // ---- the decision on synthetic reports (cases that a run does not reach easily) ----
+
+        static MeshRoundingRepair.RemovedComponentInfo Removed(MeshRoundingRepair.RemovalReasons reason) { return new MeshRoundingRepair.RemovedComponentInfo { Reason = reason, Volume = 1e-13 }; }
+
+        static SolidBooleanReport ReportOf(string notClean, bool onlyContacts = false, params MeshRoundingRepair.RemovedComponentInfo[] removed)
+        {
+            var r = new SolidBooleanReport { NotCleanReason = notClean, OnlyContacts = onlyContacts };
+            r.RoundingRemoved.AddRange(removed);
+            return r;
+        }
+
+        [Fact]
+        public void KindOf_ReadsStatusResultAndReport()
+        {
+            const SolidBooleanPipeline.PipelineStatus ok = SolidBooleanPipeline.PipelineStatus.Success;
+            var keep = SolidBooleanPipeline.ThinInputModes.Keep;
+            DMesh3 solid = Box(0, 0, 0, 1), empty = new DMesh3();
+            // no result: a failed status, or no mesh
+            Assert.Equal(SolidBooleanResultKind.None, SolidBooleanPipeline.KindOf(SolidBooleanPipeline.PipelineStatus.BooleanFailed, solid, ReportOf(""), keep));
+            Assert.Equal(SolidBooleanResultKind.None, SolidBooleanPipeline.KindOf(SolidBooleanPipeline.PipelineStatus.NotComputed, solid, ReportOf(""), keep));
+            Assert.Equal(SolidBooleanResultKind.None, SolidBooleanPipeline.KindOf(ok, null, ReportOf(""), keep));
+            // a non-empty result: by Clean, then OnlyContacts
+            Assert.Equal(SolidBooleanResultKind.Solid, SolidBooleanPipeline.KindOf(ok, solid, ReportOf(""), keep));
+            Assert.Equal(SolidBooleanResultKind.Solid, SolidBooleanPipeline.KindOf(ok, solid, ReportOf("", false, Removed(MeshRoundingRepair.RemovalReasons.VolumeChanged)), keep));
+            Assert.Equal(SolidBooleanResultKind.SolidWithContacts, SolidBooleanPipeline.KindOf(ok, solid, ReportOf("self-intersections", true), keep));
+            Assert.Equal(SolidBooleanResultKind.SolidNotClean, SolidBooleanPipeline.KindOf(ok, solid, ReportOf("self-intersections", false), keep));
+            Assert.Equal(SolidBooleanResultKind.SolidNotClean, SolidBooleanPipeline.KindOf(ok, solid, ReportOf("degenerate triangles", false), keep));
+            // an empty result: removed or not; an inside-out residue is not a solid that was removed, every other reason is
+            Assert.Equal(SolidBooleanResultKind.EmptyExact, SolidBooleanPipeline.KindOf(ok, empty, ReportOf("empty"), keep));
+            Assert.Equal(SolidBooleanResultKind.EmptyExact, SolidBooleanPipeline.KindOf(ok, empty, ReportOf("empty", false, Removed(MeshRoundingRepair.RemovalReasons.InsideOutResidue)), keep));
+            foreach (MeshRoundingRepair.RemovalReasons reason in Enum.GetValues(typeof(MeshRoundingRepair.RemovalReasons)))
+                if (reason != MeshRoundingRepair.RemovalReasons.InsideOutResidue)
+                    Assert.Equal(SolidBooleanResultKind.EmptyAfterRounding, SolidBooleanPipeline.KindOf(ok, empty, ReportOf("empty", false, Removed(reason)), keep));
+            Assert.Equal(SolidBooleanResultKind.EmptyAfterRounding, SolidBooleanPipeline.KindOf(ok, empty,
+                ReportOf("empty", false, Removed(MeshRoundingRepair.RemovalReasons.InsideOutResidue), Removed(MeshRoundingRepair.RemovalReasons.BelowResolution)), keep));
+            var thin = ReportOf("empty");
+            thin.RemovedThinSolids.Add(new SolidBooleanThinSolid());
+            Assert.Equal(SolidBooleanResultKind.EmptyAfterRounding, SolidBooleanPipeline.KindOf(ok, empty, thin, keep));
+            // an input that MinThickness found thin removes the result only if it was treated as empty
+            var thinInput = ReportOf("empty");
+            thinInput.ThinInputs.Add(new SolidBooleanThinInput());
+            Assert.Equal(SolidBooleanResultKind.EmptyExact, SolidBooleanPipeline.KindOf(ok, empty, thinInput, keep));
+            Assert.Equal(SolidBooleanResultKind.EmptyAfterRounding, SolidBooleanPipeline.KindOf(ok, empty, thinInput, SolidBooleanPipeline.ThinInputModes.TreatAsEmpty));
+            Assert.Equal(SolidBooleanResultKind.EmptyExact, SolidBooleanPipeline.KindOf(ok, empty, ReportOf("empty"), SolidBooleanPipeline.ThinInputModes.TreatAsEmpty));
+        }
+
         // ---- InputsWithWindingOutsideZeroOne ----
 
         static int[] Flags(DMesh3 a, DMesh3 b, ExactMeshBoolean.Operations op = U)

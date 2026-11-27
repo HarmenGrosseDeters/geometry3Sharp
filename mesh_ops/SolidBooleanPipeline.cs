@@ -812,30 +812,30 @@ namespace gs
             bool done = computeRoute(total);
             if (done && Verification != VerificationModes.None)
                 done = verify(total);
-            Report.ResultKind = done ? KindOfResult() : SolidBooleanResultKind.None;
+            Report.ResultKind = KindOf(Status, Result, Report, ThinInputs);
             return done;
         }
 
-        // the kind of the result that Compute returns (Status Success, Result set)
-        SolidBooleanResultKind KindOfResult()
+        // the kind of the result that a run returned (None without one)
+        internal static SolidBooleanResultKind KindOf(PipelineStatus status, DMesh3 result, SolidBooleanReport report, ThinInputModes thinInputs)
         {
-            if (Status != PipelineStatus.Success || Result == null)
+            if (status != PipelineStatus.Success || result == null)
                 return SolidBooleanResultKind.None;
-            if (Result.TriangleCount == 0)
-                return RemovedSomething() ? SolidBooleanResultKind.EmptyAfterRounding : SolidBooleanResultKind.EmptyExact;
-            if (Report.Clean)
+            if (result.TriangleCount == 0)
+                return RemovedSomething(report, thinInputs) ? SolidBooleanResultKind.EmptyAfterRounding : SolidBooleanResultKind.EmptyExact;
+            if (report.Clean)
                 return SolidBooleanResultKind.Solid;
-            return Report.OnlyContacts ? SolidBooleanResultKind.SolidWithContacts : SolidBooleanResultKind.SolidNotClean;
+            return report.OnlyContacts ? SolidBooleanResultKind.SolidWithContacts : SolidBooleanResultKind.SolidNotClean;
         }
 
         // the empty result of this run is not the exact result: the pipeline removed what the exact stage had (a component that the rounding repair
         // removed and that is not a residue, a solid that MinThickness removed, an input treated as empty)
-        bool RemovedSomething()
+        internal static bool RemovedSomething(SolidBooleanReport report, ThinInputModes thinInputs)
         {
-            foreach (MeshRoundingRepair.RemovedComponentInfo c in Report.RoundingRemoved)
+            foreach (MeshRoundingRepair.RemovedComponentInfo c in report.RoundingRemoved)
                 if (c.Reason != MeshRoundingRepair.RemovalReasons.InsideOutResidue)
                     return true;
-            return Report.RemovedThinSolids.Count > 0 || (ThinInputs == ThinInputModes.TreatAsEmpty && Report.ThinInputs.Count > 0);
+            return report.RemovedThinSolids.Count > 0 || (thinInputs == ThinInputModes.TreatAsEmpty && report.ThinInputs.Count > 0);
         }
 
         // the run with its steps (sheet route, Grid step, fallback); the result is checked by Compute (Verification)
