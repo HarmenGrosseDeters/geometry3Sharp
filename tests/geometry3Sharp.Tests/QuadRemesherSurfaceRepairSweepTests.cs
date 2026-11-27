@@ -35,10 +35,10 @@ namespace geometry3Sharp.Tests
         [InlineData("sharp-cylinder", 7, "")]
         [InlineData("sharp-cylinder", 8, "")]
         [InlineData("gear", 0, "")]
-        [InlineData("gear", 1, "14:1 16:1")]
+        [InlineData("gear", 1, "")]
         [InlineData("gear", 2, "")]
-        [InlineData("gear", 3, "22:1")]
-        [InlineData("gear", 4, "27:1")]
+        [InlineData("gear", 3, "")]
+        [InlineData("gear", 4, "")]
         [InlineData("gear", 5, "")]
         [InlineData("gear", 6, "")]
         [InlineData("gear", 7, "")]
@@ -50,8 +50,8 @@ namespace geometry3Sharp.Tests
         [InlineData("l-profile", 4, "")]
         [InlineData("l-profile", 5, "")]
         [InlineData("l-profile", 6, "")]
-        [InlineData("l-profile", 7, "35:1")]
-        [InlineData("l-profile", 8, "60:1")]
+        [InlineData("l-profile", 7, "")]
+        [InlineData("l-profile", 8, "")]
         public void DefaultPath_NeverWorse_UnchangedWhenNothingDrops_AndTheRemainingDropsArePinned(string name, int part, string remaining)
         {
             var worse = new List<string>(); var still = new List<string>();
@@ -69,7 +69,7 @@ namespace geometry3Sharp.Tests
                 if (!after.Result.Validate().IsValid) worse.Add(id + " invalid");
                 if (!same && !QuadRemesher.HasNoRepeatedVertex(after.Result)) worse.Add(id + " a face with a repeated vertex");
                 if (QuadRemesher.BoundaryEdgeCount(after.Result) > QuadRemesher.BoundaryEdgeCount(before.Result)) worse.Add(id + " more boundary edges");
-                // a closed result differs from one with a hole by its faces: the quad fraction of the 9 changed configurations is within 0.005 (measured: 0.0046)
+                // a closed result differs from one with a hole by its faces: the quad fraction of the 18 changed configurations is within 0.005 (measured: 0.0048, l-profile/35; an exact ratio of face counts, no noise)
                 if (after.DroppedFaces > before.DroppedFaces || ma.BoundaryVertices > mb.BoundaryVertices) worse.Add(id + " more dropped faces / boundary vertices");
                 if (!ma.IsManifold) worse.Add(id + " not manifold");
                 if (ma.QuadFraction < mb.QuadFraction - 0.005) worse.Add(id + " quads " + mb.QuadFraction.ToString("F4") + " -> " + ma.QuadFraction.ToString("F4"));

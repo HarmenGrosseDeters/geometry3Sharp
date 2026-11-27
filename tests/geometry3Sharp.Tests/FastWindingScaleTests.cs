@@ -81,9 +81,17 @@ namespace geometry3Sharp.Tests
             DMesh3 t = Invariance.Transformed(m, s);
             var tree = new DMeshAABBTree3(t, true);
             Vector3d[] points = Points(200, 9);
+            int onSurface = 0;
             foreach (Vector3d p0 in points) {
                 Vector3d p = scale * p0, q = s.Apply(p);
                 double expected = reference.FastWindingNumber(p), fast = tree.FastWindingNumber(q);
+                // (a sample that lies exactly on a triangle has the principal value n + 1/2 or a corner fraction, not an integer, on
+                // this closed mesh; the approximate winding number has no meaning there: a point on a face is a tie of fast > 0.5)
+                double exactAtQ = tree.WindingNumber(q);
+                if (Math.Abs(exactAtQ - Math.Round(exactAtQ)) > 1e-6 && s.IsExact == false) {
+                    ++onSurface;
+                    continue;
+                }
                 if (s.IsExact)
                     Assert.True(BitConverter.DoubleToInt64Bits(fast) == BitConverter.DoubleToInt64Bits(expected), $"{name}, at {p0}: {fast:R} vs {expected:R}");
                 else
@@ -91,6 +99,7 @@ namespace geometry3Sharp.Tests
                     // of the transformed mesh, whose coordinates at UTM round the spheres of size 4e-8 to 1e-10)
                     Assert.True(Math.Abs(fast - tree.WindingNumber(q)) < 0.1, $"{name}, at {p0}: fast {fast} vs exact {tree.WindingNumber(q)}");
             }
+            Assert.True(onSurface * 20 <= points.Length, $"{name}: {onSurface} of {points.Length} samples skipped as on the surface");
         }
 
         [Theory]

@@ -64,9 +64,11 @@ namespace gs
         /// </summary>
         EmptyExact = 4,
         /// <summary>
-        /// an empty result although the exact result had volume: the pipeline removed all of it, the rounding as a component thinner than its
-        /// bound can resolve (Report.RoundingRemoved lists them: a real slab of 1e-12 at coordinates of 0.5), or MinThickness
-        /// (Report.RemovedThinSolids, Report.ThinInputs). Not an answer that "the solids do not overlap"
+        /// an empty result that the pipeline made empty, although the exact result had volume (rounding, MinThickness) or possibly had volume
+        /// (ThinInputs = TreatAsEmpty): the rounding removed all of it as a component thinner than its bound can resolve (Report.RoundingRemoved
+        /// lists them: a real slab of 1e-12 at coordinates of 0.5), or MinThickness removed the solids (Report.RemovedThinSolids), or an input
+        /// that MinThickness found thin was treated as empty (Report.ThinInputs; the exact stage never saw it, so the exact result may have been
+        /// empty too). Not an answer that "the solids do not overlap"
         /// </summary>
         EmptyAfterRounding = 5
     }
@@ -122,7 +124,7 @@ namespace gs
     }
 
     /// <summary>
-    /// one closed component of a closed input that was inside-out and thinner than its bound (1e-5 of its own box diagonal), and that the pipeline
+    /// one closed component of a closed input that was inside-out and thinner than its bound (1e-5 of its own extent), and that the pipeline
     /// dropped (from a copy) before the boolean instead of refusing the run (SolidBooleanReport.DroppedInsideOutComponents, #1555)
     /// </summary>
     public sealed class SolidBooleanDroppedComponent
@@ -135,10 +137,10 @@ namespace gs
         public double Volume, Area;
         /// <summary> 2 |Volume| / Area, below Bound </summary>
         public double Thickness;
-        /// <summary> the bound it was compared with: 1e-5 (the default ExactMeshBoolean.RoundingMaxDisplacement) times Diagonal (#1567; until then the box diagonal of the largest component of all closed inputs) </summary>
+        /// <summary> the bound it was compared with: 1e-5 (the default ExactMeshBoolean.RoundingMaxDisplacement) times Extent (#1567; until then the box diagonal of the largest component of all closed inputs) </summary>
         public double Bound;
-        /// <summary> the diagonal of the bounding box of the component itself, the size that Bound is relative to (#1567) </summary>
-        public double Diagonal;
+        /// <summary> the extent of the component itself, the size that Bound is relative to (#1567): the largest distance from its first vertex to its other vertices, between half its diameter and its diameter, the same in every orientation up to rounding </summary>
+        public double Extent;
         /// <summary> the centre of its bounding box </summary>
         public Vector3d Center;
     }
@@ -176,7 +178,7 @@ namespace gs
         /// culled outside the first input (or of all inputs for an Intersection). The inputs of the run that is the result (after a Grid
         /// step or a fallback). It is a signal about the inputs, not a judgement of the result: the result is exact for the inputs as given, in
         /// winding number semantics, so a flagged input is one whose meaning may differ from what the caller meant. Status, Clean, NotCleanReason and
-        /// OnlyContacts keep their meaning. Also set for a run that fails after the exact stage (InsideOutInput, Cancelled, a Verification refusal), where ResultKind is None. It is computed on the pieces the exact stage classified, with the early-out cull on
+        /// OnlyContacts keep their meaning. Also set for a run that fails after the classification: InsideOutInput, a Verification refusal, a Cancelled after the boolean (ResultKind is None). Empty for a failure of the boolean itself: RoundingNotClean, OpenInput, BudgetExceeded, Cancelled during the boolean. It is computed on the pieces the exact stage classified, with the early-out cull on
         /// </summary>
         public List<int> InputsWithWindingOutsideZeroOne = new List<int>();
         /// <summary> triangles per input as given (before any repair) </summary>
@@ -239,7 +241,7 @@ namespace gs
         /// <summary> the solids of the boolean result that MinThickness removed (empty without it) </summary>
         public List<SolidBooleanThinSolid> RemovedThinSolids = new List<SolidBooleanThinSolid>();
         /// <summary>
-        /// the inside-out components of the closed inputs that were thinner than 1e-5 of their own box diagonal and were dropped before the
+        /// the inside-out components of the closed inputs that were thinner than 1e-5 of their own extent and were dropped before the
         /// boolean (see SolidBooleanPipeline.AllowInsideOutInputs); empty otherwise
         /// </summary>
         public List<SolidBooleanDroppedComponent> DroppedInsideOutComponents = new List<SolidBooleanDroppedComponent>();
@@ -480,9 +482,8 @@ namespace gs
         /// the input repair produced (Report.RepairedInputs).
         /// One exception (owner 2026-11-25, #1555): with AllowInsideOutInputs false and Orientation not ByNesting, a closed component
         /// of a closed input (closed and consistently oriented by its edges) whose exact volume is negative, whose thickness 2 |Volume| / Area is below the
-        /// bound (1e-5, the default ExactMeshBoolean.RoundingMaxDisplacement, times the box diagonal of the component itself:
-        /// two nearly coincident sheets, thin by their own extent, and so thinner than 1e-5 of the largest component of their
-        /// input too; fixed, ConfigureBoolean does not change it; #1567) and that lies outside the rest of its input
+        /// bound (1e-5, the default ExactMeshBoolean.RoundingMaxDisplacement, times the extent of the component itself (SolidBooleanDroppedComponent.Extent):
+        /// two nearly coincident sheets, thin by their own extent; fixed, ConfigureBoolean does not change it; #1567) and that lies outside the rest of its input
         /// at a vertex (exact winding number; a cavity, every vertex inside, stays, a thin one too) is
         /// dropped from a copy of the input before the boolean and listed in Report.DroppedInsideOutComponents: two nearly
         /// coincident sheets of the wrong orientation, a residue that the rounding cannot resolve; the run is not refused for it.
@@ -1604,19 +1605,39 @@ namespace gs
         }
 
         /// <summary>
-        /// the bound of DropThinInsideOut, relative to the box diagonal of the component: the default ExactMeshBoolean.RoundingMaxDisplacement
+        /// the bound of DropThinInsideOut, relative to the extent of the component: the default ExactMeshBoolean.RoundingMaxDisplacement
         /// (fixed: a RoundingMaxDisplacement set in ConfigureBoolean does not change it)
         /// </summary>
         internal const double InsideOutThinBound = 1e-5;
 
         /// <summary>
+        /// the extent of a component (#1567): the largest distance from its first vertex (the lowest vertex index among its
+        /// triangles) to its other vertices, between half its diameter and its diameter. Unlike the box diagonal it does not depend on
+        /// the orientation: it scales exactly with 2^k and moves only by rounding under a rotation or a translation
+        /// </summary>
+        static double ComponentExtent(DMesh3 mesh, int[] ct)
+        {
+            int first = int.MaxValue;
+            foreach (int t in ct) {
+                Index3i tv = mesh.GetTriangle(t);
+                first = Math.Min(first, Math.Min(tv.a, Math.Min(tv.b, tv.c)));
+            }
+            Vector3d o = mesh.GetVertex(first);
+            double d2 = 0;
+            foreach (int t in ct) {
+                Index3i tv = mesh.GetTriangle(t);
+                d2 = Math.Max(d2, Math.Max((mesh.GetVertex(tv.a) - o).LengthSquared, Math.Max((mesh.GetVertex(tv.b) - o).LengthSquared, (mesh.GetVertex(tv.c) - o).LengthSquared)));
+            }
+            return Math.Sqrt(d2);
+        }
+
+        /// <summary>
         /// The inputs (given) with the thin inside-out components of the solid ones dropped (#1555), each listed in dropped. A
         /// candidate is a component (by edges) of a solid input that has no boundary edge, is consistently oriented (the two
         /// triangles of every edge run along it in opposite directions), has an exactly negative volume (ExactPredicates.VolumeSign)
-        /// and 2 |Volume| / Area below InsideOutThinBound times the box diagonal of the component itself (the magnitude in doubles,
-        /// first; the sign exact; #1567). The own diagonal is never above that of the largest component of the same input or of
-        /// all inputs, so the rule is the shape of a residue (two nearly coincident sheets, thin by their own extent) and depends on
-        /// no other component or input: a plate 10 x 10 x 0.01 (1e-3 of its diagonal) is not one wherever it lies. It is dropped where the rest of its input (every triangle that is no candidate: the input is winding-closed,
+        /// and 2 |Volume| / Area below InsideOutThinBound times the extent of the component itself (the magnitude in doubles,
+        /// first; the sign exact; #1567). The rule is the shape of a residue (two nearly coincident sheets, thin by their own
+        /// extent) and depends on no other component or input: a plate 10 x 10 x 0.01 (1e-3 of its extent) is not one wherever it lies. It is dropped where the rest of its input (every triangle that is no candidate: the input is winding-closed,
         /// so this is also exact for shells closed only by position, or split into several components) has a winding number of
         /// 0 or less at one of its vertices (exact, ShellIndex.ExactWinding; a vertex on or within the touch distance of the rest
         /// is skipped): it lies outside the solid there. A cavity (every vertex inside the rest) stays, and so does a candidate
@@ -1632,7 +1653,7 @@ namespace gs
             var vol = new double[n][];
             var area = new double[n][];
             var boxes = new AxisAlignedBox3d[n][];
-            var diagonals = new double[n][];
+            var extents = new double[n][];
             for (int i = 0; i < n; ++i) {
                 if (!solid[i] || given[i].TriangleCount == 0)
                     continue;
@@ -1644,7 +1665,7 @@ namespace gs
                 vol[i] = new double[m];
                 area[i] = new double[m];
                 boxes[i] = new AxisAlignedBox3d[m];
-                diagonals[i] = new double[m];
+                extents[i] = new double[m];
                 for (int c = 0; c < m; ++c) {
                     int[] ct = cc.Components[c].Indices;
                     tris[i][c] = ct;
@@ -1661,7 +1682,7 @@ namespace gs
                     vol[i][c] = v6 / 6;
                     area[i][c] = a2 / 2;
                     boxes[i][c] = box;
-                    diagonals[i][c] = box.Diagonal.Length;
+                    extents[i][c] = ComponentExtent(mesh, ct);
                 }
             }
             List<DMesh3> result = given;
@@ -1675,7 +1696,7 @@ namespace gs
                 for (int c = 0; c < m; ++c) {
                     // (the cheap test first, thin by the doubles; then, for the few that pass, closed and consistent by the edges and the
                     // exact sign of the volume: the sign is decided exactly, the doubles only bound the magnitude)
-                    if (!(2 * Math.Abs(vol[i][c]) < InsideOutThinBound * diagonals[i][c] * area[i][c]))
+                    if (!(2 * Math.Abs(vol[i][c]) < InsideOutThinBound * extents[i][c] * area[i][c]))
                         continue;
                     if (!closed_and_consistent(mesh, tris[i][c]) || MeshPostRepairCleanup.volume_sign(mesh, tris[i][c]) >= 0)
                         continue;
@@ -1710,7 +1731,7 @@ namespace gs
                         copy.RemoveTriangle(t, true, false);
                     dropped.Add(new SolidBooleanDroppedComponent {
                         Input = i, Triangles = tris[i][c].Length, Volume = vol[i][c], Area = area[i][c],
-                        Thickness = 2 * Math.Abs(vol[i][c]) / area[i][c], Bound = InsideOutThinBound * diagonals[i][c], Diagonal = diagonals[i][c], Center = boxes[i][c].Center
+                        Thickness = 2 * Math.Abs(vol[i][c]) / area[i][c], Bound = InsideOutThinBound * extents[i][c], Extent = extents[i][c], Center = boxes[i][c].Center
                     });
                 }
                 if (result == given)
@@ -2740,15 +2761,15 @@ namespace gs
             return true;
         }
 
+        /// <summary> the most intersecting triangle pairs (raw ids, contacts included) for which the final check counts the crossing triangles; above it SelfIntersectingTriangles is -1 </summary>
+        internal const int FinalCheckPairCap = 20000;
+
         /// <summary>
         /// the final check of a result into the report: ContactsResult, NotCleanReason, and for "self-intersections" the exact
         /// SelfIntersectingTriangles (CrossingTriangles over all vertices) and OnlyContacts; the three others are reset.
         /// countCrossings false: the two are left at 0 / false without the (more expensive) count of the crossing pairs, which
         /// is the full enumeration of the intersecting pairs (no cap, no cancellation check: its cost grows with their number)
         /// </summary>
-        /// <summary> the most intersecting triangle pairs (raw ids, contacts included) for which the final check counts the crossing triangles; above it SelfIntersectingTriangles is -1 </summary>
-        internal const int FinalCheckPairCap = 20000;
-
         internal static void FinalCheck(DMesh3 mesh, SolidBooleanReport report, bool countCrossings = true, int pairCap = FinalCheckPairCap)
         {
             report.ContactsResult = countContacts(mesh, null);

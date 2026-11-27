@@ -205,8 +205,11 @@ namespace g3
         /// edges >= triangles and more than 64 triangles, the floating-point solid-angle sum; for an open mesh the boundary
         /// edges contribute angles within 2e-13 of their exact values, so the decision is exact except where the winding
         /// number is within about 2e-13 times the number of boundary edges divided by 2 pi of 0.5; a point exactly on a triangle of the
-        /// mesh is outside this guarantee: its own-triangle term is evaluated in floating point at the branch cut of the solid angle,
-        /// so neither the value nor the side is guaranteed there, a known open point), Invalid for a point that is not
+        /// mesh has the principal value, the mean of the two sides, independent of the coordinate axes: exactly 0.5 on a flat face of a
+        /// closed mesh, so a face point is Outside (w > 0.5 is false, deterministically), 0.25 on a cube edge and 0.125 at its corner
+        /// (Outside), above one half on a reflex edge or corner (Inside), however many planes of other bodies pass through the face point; on creases, corners and open meshes the value is the rounded sum, within the bound above plus
+        /// 3 edge angles of 2e-13 / 2 pi for each triangle through the point, and independent of the order of the triangles and of their corners bit for bit, except on a disconnected triangle soup (boundary edges >= triangles), where the solid-angle sum runs in the tree's triangle order:
+        /// outside a soup, the same input gives the same decision in every order), Invalid for a point that is not
         /// finite. options.MaxDistance does not apply (it is still checked to be >= 0). An empty mesh has no inside.
         /// The winding number cache is built once before the parallel part.
         /// </summary>

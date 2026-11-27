@@ -11,7 +11,8 @@ namespace geometry3Sharp.Tests
     /// <summary>
     /// #1567: whether a closed inside-out component is dropped as a rounding residue (#1555) depends on the component itself (thin
     /// by 1e-5 of its own box diagonal: two nearly coincident sheets), not on the size of the other components or inputs. A
-    /// real 10 x 10 x 0.01 plate is refused (InsideOutInput) next to a large input as next to a small one.
+    /// real 10 x 10 x 0.01 plate is refused (InsideOutInput) next to a large input as next to a small one. Only the API of master
+    /// is used here (the tests of the new field are in SolidBooleanPipelineInsideOutExtentTests), so these tests run against master.
     /// </summary>
     public class SolidBooleanPipelineInsideOutPerInputTests
     {
@@ -91,7 +92,8 @@ namespace geometry3Sharp.Tests
             Assert.True(p.Report.Clean, p.Report.NotCleanReason);
             SolidBooleanDroppedComponent d = Assert.Single(p.Report.DroppedInsideOutComponents);
             Assert.Equal(1, d.Input);
-            Assert.Equal(1e-5 * d.Diagonal, d.Bound);
+            // the bound is that of the residue (0.7 across), not 1.7e-2 of the large input
+            Assert.True(d.Bound < 1e-5, d.Bound.ToString("R"));
             Assert.Equal(8 * half * half * half + 1, Invariance.Volume(p.Result), 6);
             Assert.True(p.Result.IsClosed());
         }
@@ -106,14 +108,17 @@ namespace geometry3Sharp.Tests
             MeshEditor.Append(b, lens);
             var p = Run(Unit(), b);
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.Success, p.Status);
+            Assert.True(p.Report.Clean, p.Report.NotCleanReason);
             Assert.Single(p.Report.DroppedInsideOutComponents);
+            Assert.True(p.Result.IsClosed());
+            Assert.True(Invariance.AllFinite(p.Result));
             Assert.Equal(1e9 + 1, Invariance.Volume(p.Result), 3);
         }
 
         [Fact]
-        public void TheThreshold_IsOneE5OfTheOwnDiagonal()
+        public void TheThreshold_IsOneE5OfTheOwnExtent()
         {
-            // the plate 10 x 10 x t: thickness 2 V / A = t / (1 + 0.2 t), diagonal sqrt(200 + t^2): the bound is 1.414e-4
+            // the plate 10 x 10 x t: thickness 2 V / A = t / (1 + 0.2 t), extent sqrt(200 + t^2): the bound is 1.414e-4
             foreach (Similarity s in Similarity.All().Where(x => x.IsExact)) {
                 foreach (double t in new[] { 1.2e-4, 1.4e-4 }) {
                     var p = Run(Invariance.Transformed(Unit(), s), Invariance.Transformed(BoxAndPlate(3, t), s));
@@ -141,7 +146,6 @@ namespace geometry3Sharp.Tests
                     SolidBooleanDroppedComponent d0 = plain.Report.DroppedInsideOutComponents[0];
                     double k = s.Scale;
                     Assert.Equal(d0.Bound * k, d.Bound);
-                    Assert.Equal(d0.Diagonal * k, d.Diagonal);
                     Assert.Equal(d0.Thickness * k, d.Thickness);
                     Assert.Equal("", Invariance.GeometricDifference(Invariance.MappedBack(p.Result, s), plain.Result));
                 }
@@ -187,6 +191,9 @@ namespace geometry3Sharp.Tests
             Assert.True(dropped.Compute(), dropped.Error);
             Assert.Equal(v, Invariance.Volume(dropped.Result));
             Assert.Single(dropped.Report.DroppedInsideOutComponents);
+            Assert.True(dropped.Report.Clean, dropped.Report.NotCleanReason);
+            Assert.True(dropped.Result.IsClosed());
+            Assert.True(Invariance.AllFinite(dropped.Result));
         }
     }
 }

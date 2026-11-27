@@ -32,11 +32,13 @@ namespace geometry3Sharp.Tests
 
         public static IEnumerable<object[]> Cases()
         {
-            yield return new object[] { "sphere", 16793278504409630334UL };
+            // re-pinned for #1713 (the quad pipeline calls the correctly rounded CoreMath instead of the platform libm; glibc differs from it in about
+            // 0.1 % of arguments, which moves the last bits of every output; the faces are the same)
+            yield return new object[] { "sphere", 3226977341593129212UL };
             // torus: re-pinned for #1674 (the default path repairs crossing edges of the lattice graph): the old output had a hole (a dropped face, 6 boundary vertices, Euler characteristic -1), the new one is the closed torus (Euler 0)
-            yield return new object[] { "torus", 10803936435748404927UL };
-            yield return new object[] { "box", 7670787724669005053UL };
-            yield return new object[] { "cap", 13153883559173992252UL };
+            yield return new object[] { "torus", 7487437414483952639UL };
+            yield return new object[] { "box", 15654720142026979559UL };
+            yield return new object[] { "cap", 17432291986201703759UL };
             yield return new object[] { "patch", 2834938008614960167UL };
         }
 

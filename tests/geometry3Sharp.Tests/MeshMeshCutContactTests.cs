@@ -223,12 +223,18 @@ namespace geometry3Sharp.Tests
         }
 
         // ---- RefuseContact = false and MeshBoolean keep the behaviour of before (numbers measured on master) ----
+        // "coplanar faces overlap" (31 vertices, 48 triangles before) and "inner cube on the faces" (15, 20 before) moved when the
+        // winding number on the surface became the principal value: RemoveContained reads `> 0.9` at the centroid of a Target
+        // triangle, and a centroid in a face of the cut mesh used to read 0 or 1 by the rounding of the own-triangle term; it is
+        // 0.5 now, so such a triangle is not "contained" and stays. Both results are still open (as before: 14 and 8 boundary
+        // edges before, 12 and 6 now) and equally off the exact union (volume 1.5 and 0.75 before, 1.75 and 1.25 now, against
+        // 1.625 and 1.0). "shared face" and "overlap" are unchanged.
 
         [Theory]
         [InlineData("shared face", 0, 0, 0, 1, 1, 0, 0, 1, true, 16, 24)]
         [InlineData("overlap", 0, 0, 0, 1, 0.5, 0.5, 0.5, 1, true, 23, 42)]
-        [InlineData("coplanar faces overlap", 0, 0, 0, 1, 0.5, 0.25, 0, 1, false, 31, 48)]
-        [InlineData("inner cube on the faces", 0, 0, 0, 1, 0.5, 0.5, 0.5, 0.5, false, 15, 20)]
+        [InlineData("coplanar faces overlap", 0, 0, 0, 1, 0.5, 0.25, 0, 1, false, 36, 60)]
+        [InlineData("inner cube on the faces", 0, 0, 0, 1, 0.5, 0.5, 0.5, 0.5, false, 24, 36)]
         public void MeshBoolean_OnTouchingCubes_KeepsItsBehaviour(string name, double ax, double ay, double az, double asz, double bx, double by, double bz, double bsz,
             bool closed, int vertices, int triangles)
         {
