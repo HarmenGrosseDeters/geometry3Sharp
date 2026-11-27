@@ -42,6 +42,8 @@ on:
       - 'math/ExactLimbSigns.cs'
       - 'math/ExactLimbPrepared.cs'
       - 'math/Generated/*.cs'
+      # the bisector predicates' symbolic perturbation (tests/mutation/stryker-mesh-bisector.json; math/Generated/*.cs above covers the generated part)
+      - 'math/ExactBisectorSoS.cs'
       - 'mesh_ops/ExactMesh*.cs'
       - 'mesh_ops/ExactPlanarSimplify.cs'
       - 'mesh_ops/ExactTriangulation2.cs'

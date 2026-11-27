@@ -55,6 +55,7 @@ SHARED = (
     "tools/PredicateCompiler/predicates.spec",
     "tools/PredicateCompiler/indirect.spec",
     "tools/PredicateCompiler/doubles.spec",
+    "tools/PredicateCompiler/bisector.spec",   # GeneratedPredicatesBisectorTests
     "tools/g3cli/TrianglePolyFormat.cs",
     "tools/ReaderFuzzPilot/FuzzTarget.cs",        # ReaderFuzzReplayTests
     "tools/ReaderFuzzPilot/ReaderTargets.cs",
@@ -66,6 +67,7 @@ SHARED = (
     "docs/design/FIXED_WIDTH_EXACT_POINTS.md",
     "docs/design/DETERMINISM_PROOF.md",       # DeterminismScopeAnalyzerTests (the stage 0 ledger)
     "docs/design/INDIRECT_PREDICATES.md",
+    "docs/design/BISECTOR_PREDICATES.md",     # GeneratedPredicatesBisectorTests (the bound table)
     "docs/design/MESHING2D_GOLDEN_FORMAT.md",
     "docs/design/MESHING2D_CATALOGUE.md",
 )

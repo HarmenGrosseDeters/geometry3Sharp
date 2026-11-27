@@ -138,7 +138,7 @@ shards cost a 6 hour runner slot each and were cancelled at the limit (#539) wit
   baseline. The test files of the shards are no longer trigger paths of the workflow (`test_select_shards.py` checks that the
   paths cover every mutated source and config, and hold no test file).
 - **Scheduled full runs on master** (19:17 UTC): `nightly` (Monday to Saturday: `boolean-*`, `arrangement-*`, `rounding-*`, 24
-  of the 47 mesh configs) and `weekly` (Sunday: envelope, geodesic, hausdorff, terrain, planar, fixed, generated, uv, imprint, solid-pipeline, exact-winding, separating-axes, arithmetic: 24
+  of the 47 mesh configs) and `weekly` (Sunday: envelope, geodesic, hausdorff, terrain, planar, fixed, generated, uv, imprint, solid-pipeline, exact-winding, separating-axes, bisector, arithmetic: 24
   mesh configs and the arithmetic job), chosen by `select_shards.py --only nightly|weekly` from the cron line that started the run. They seed and refresh
   the baselines of the incremental PR runs; survivors are tasks of the area's next PR. Every shard runs at least once a week
   (`test_select_shards.py`). Timing is an **estimate, not a measurement**: a shard takes 1 to 6 hours and 6 run at a time
