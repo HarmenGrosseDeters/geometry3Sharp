@@ -67,7 +67,7 @@ Already tracked, not re-filed: #1548 (volume reference of an unoriented soup, cl
 | Claim | Check | Reference | Tolerance | Class | Probe |
 |---|---|---|---|---|---|
 | `Status` Success, `Report.Clean` | `NotCleanReason` of the returned mesh | the result itself | exact | (c) | as 3.1 |
-| inside-out input refused | `InsideOutInput`, except thin inside-out components dropped (#1555) | thickness 2V/A | 1e-5 of the largest component of ALL closed inputs | (b), documented | **reproduced** (#1567) |
+| inside-out input refused | `InsideOutInput`, except thin inside-out components dropped (#1555) | thickness 2V/A | 1e-5 of the component's own box diagonal (since #1567; was the largest component of ALL closed inputs) | (b), documented | **reproduced**, fixed (#1567) |
 | grid retry after `RoundingNotClean` (default on) | result checked like any other; guards on cell size vs thickness (1/64) | snapped inputs, not the given ones | one cell (2^12 ulp of the largest coordinate) | (e)/(b), documented | unprobed: the result is the boolean of the snapped inputs; Route reports the size change |
 | verification of the reduction | see PR #1488 (pooled rounding allowance) | | | (b) | tracked in PR #1488 |
 

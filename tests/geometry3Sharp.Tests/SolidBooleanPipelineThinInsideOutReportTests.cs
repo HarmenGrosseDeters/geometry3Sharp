@@ -31,8 +31,9 @@ namespace geometry3Sharp.Tests
             Assert.True(Math.Abs(d.Volume + 0.25 * T.ThinLift / 3) <= 1e-9 * 0.25 * T.ThinLift / 3, d.Volume.ToString("R"));
             Assert.True(d.Area > 0.5 && d.Area < 0.5 + 1e-9);
             Assert.Equal(2 * -d.Volume / d.Area, d.Thickness);
-            // the bound: 1e-5 of the diagonal of the largest component, the other box
-            Assert.Equal(1e-5 * T.Other().GetBounds().Diagonal.Length, d.Bound);
+            // the bound (#1567): 1e-5 of the box diagonal of the lens itself, not of the larger components around it
+            Assert.Equal(new Vector3d(0.5, 0.5, T.ThinLift).Length, d.Diagonal);
+            Assert.Equal(1e-5 * d.Diagonal, d.Bound);
             Assert.True(d.Thickness < d.Bound);
             Assert.Equal(new Vector3d(x0 + 0.25, 0.5, 0.5 + T.ThinLift / 2), d.Center);
             // (the input as given is not changed: the lens is dropped from a copy)
@@ -89,19 +90,20 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(d0.Area * k * k, d.Area);
                 Assert.Equal(d0.Thickness * k, d.Thickness);
                 Assert.Equal(d0.Bound * k, d.Bound);
+                Assert.Equal(d0.Diagonal * k, d.Diagonal);
                 Assert.Equal(d0.Center * k, d.Center);
             }
         }
 
         [Fact]
-        public void TheBound_IsThatOfTheLargestComponent_InEveryOrderOfTheInputs()
+        public void TheBound_IsThatOfTheComponentItself_InEveryOrderOfTheInputs()
         {
-            // the lens's input last: its last component is the lens, the bound still that of the largest (the other box)
+            // the lens's input last: its last component is the lens, the bound still that of the lens itself
             var p = new SolidBooleanPipeline(new List<DMesh3> { T.Other(), T.BoxWithLens(T.Across, T.ThinLift) }, I);
             Assert.True(p.Compute(), p.Error);
             SolidBooleanDroppedComponent d = Assert.Single(p.Report.DroppedInsideOutComponents);
             Assert.Equal(1, d.Input);
-            Assert.Equal(1e-5 * T.Other().GetBounds().Diagonal.Length, d.Bound);
+            Assert.Equal(1e-5 * new Vector3d(0.5, 0.5, T.ThinLift).Length, d.Bound);
             Assert.Equal(0.5, Invariance.Volume(p.Result), 14);
         }
 
@@ -164,8 +166,8 @@ namespace geometry3Sharp.Tests
         public void ALargeSheet_DoesNotRaiseTheBound()
         {
             // a Difference with a stated sheet of 100 x 100 (diagonal 141) that cuts the box at z = 0.25: were the sheet counted,
-            // the bound would be 1.4e-3 and the lens of NotThinLift (thickness 8.1e-5) would be dropped; it is not thin by the
-            // closed inputs (bound 1.7e-5 by the box with the lens) and is refused as before
+            // the bound would be 1.4e-3 and the lens of NotThinLift (thickness 8.1e-5) would be dropped; it is not thin by its
+            // own size (bound 7.1e-6) and is refused as before
             DMesh3 a = T.BoxWithLens(T.Outside, T.NotThinLift);
             var sheet = new DMesh3();
             int v0 = sheet.AppendVertex(new Vector3d(-50, -50, 0.25)), v1 = sheet.AppendVertex(new Vector3d(50, -50, 0.25));
@@ -177,22 +179,15 @@ namespace geometry3Sharp.Tests
             Assert.False(p.Compute());
             Assert.Empty(p.Report.DroppedInsideOutComponents);
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.InsideOutInput, p.Status);
-            // the same with the thin lens: dropped, and the bound is that of the closed input
+            // the same with the thin lens: dropped, and the bound is that of the lens
             DMesh3 b = T.BoxWithLens(T.Outside, T.ThinLift);
             var q = new SolidBooleanPipeline(new List<DMesh3> { b, sheet }, ExactMeshBoolean.Operations.Difference) {
                 InputRoles = new List<ExactMeshBoolean.InputRole> { ExactMeshBoolean.InputRole.Solid, ExactMeshBoolean.InputRole.Sheet }
             };
             Assert.True(q.Compute(), q.Error);
             SolidBooleanDroppedComponent d = Assert.Single(q.Report.DroppedInsideOutComponents);
-            double diagonal = 0;
-            var cc = new MeshConnectedComponents(b);
-            cc.FindConnectedT();
-            foreach (var c in cc.Components) {
-                var box = AxisAlignedBox3d.Empty;
-                foreach (int t in c.Indices) { var tv = b.GetTriangle(t); box.Contain(b.GetVertex(tv.a)); box.Contain(b.GetVertex(tv.b)); box.Contain(b.GetVertex(tv.c)); }
-                diagonal = Math.Max(diagonal, box.Diagonal.Length);
-            }
-            Assert.Equal(1e-5 * diagonal, d.Bound);
+            Assert.Equal(new Vector3d(0.5, 0.5, T.ThinLift).Length, d.Diagonal);
+            Assert.Equal(1e-5 * d.Diagonal, d.Bound);
             Assert.True(q.Result.IsClosed());
         }
     }
