@@ -24,7 +24,7 @@ M=[
 ("wedge compare off", "if (va[m] != vb[m]) return", "if (false && va[m] != vb[m]) return"),
 ("anchors off", "if ((Care(v, m) || Care(truth, m)) && v[m] != truth[m])", "if (false)"),
 ("jump sign", "b[TriMesh[u]] += Dot(triNormal[u], ns).Sign > 0 ? 1 : -1;", "b[TriMesh[u]] += Dot(triNormal[u], ns).Sign > 0 ? -1 : 1;"),
-("stack ignores others", "if (inside > 0) s.Add(u);", "if (false) s.Add(u);"),
+("stack ignores others", "if (inside[g][k] > 0) s.Add(u);", "if (false) s.Add(u);"),
 ("C4 keep rule", "if (Keep[i] != (inF != inB)) return", "if (false) return"),
 ("C4 flip rule", "if (Keep[i] && Flip[i] != inF) return", "if (false) return"),
 ("C4 copies", "if (Keep[i]) return $\"piece {i}: a coplanar copy is kept\";", ";"),
@@ -60,16 +60,37 @@ M=[
 ("C2 coplanar pairs skipped", "if (pos == 0 && neg == 0) { Coplanar++; return CoplanarMeet(p, q); }", "if (pos == 0 && neg == 0) { Coplanar++; return false; }"),
 ("C2 crossing of a plane off", "if (Mixed(O3(a, b, q[0], q[1]), O3(a, b, q[1], q[2]), O3(a, b, q[2], q[0])) == false) return true;", "if (false) return true;"),
 ("C2 end on the plane off", "if (Has(q, a) == false && InTriangle(a, q, b)) return true;", "if (false) return true;"),
-("C2 fold off", "if (O2(a, b, p[(i + 2) % 3]) * O2(a, b, qc) > 0) return true;", "if (false) return true;"),
-("C2 coplanar proper crossing off", "if (o[j] * o[(j + 1) % 3] < 0 && o2(c, d, a) * o2(c, d, b) < 0) return true;", "if (false) return true;"),
+("C2 fold off", [("if (O2(a, b, p[(i + 2) % 3]) * O2(a, b, qc) > 0) return true;", "if (false) return true;"),
+                ("if (fp[i].Side(X[p[(i + 2) % 3]]) * Sp(i, Index(q, qc)) > 0) return true;", "if (false) return true;")]),
+("C2 coplanar proper crossing off", [("if (o[j] * o[(j + 1) % 3] < 0 && o2(c, d, a) * o2(c, d, b) < 0) return true;", "if (false) return true;"),
+                                    ("if (o[j] * o[(j + 1) % 3] < 0 && sb(j, i) * sb(j, ea) < 0) return true;", "if (false) return true;")]),
 ("C2 q's edges against p off", "return EdgesMeet(p, sp, q) || EdgesMeet(q, sq, p);", "return EdgesMeet(p, sp, q);"),
-("C2 pairs not tested", "if (test.MeetBeyondShared(pieceV[i], pieceV[j])) {", "if (false) {"),
+("C2 pairs not tested", [("if (InSamePlane(i, j)) meets[idx] = test.MeetBeyondSharedInPlane(", "if (InSamePlane(i, j)) meets[idx] = false && test.MeetBeyondSharedInPlane("),
+                        ("else meets[idx] = test.MeetBeyondShared(pieceV[i], pieceV[j]);", "else meets[idx] = false;")]),
 ("C2 copies are paired", "int[] part = Enumerable.Range(0, PieceCorners.Length).Where(i => classified[i]).ToArray();", "int[] part = Enumerable.Range(0, PieceCorners.Length).ToArray();"),
 ("C2 not in Check", "r = embedding ? CheckEmbedding() : \"\";", "r = \"\";"),
 ("C2 long determinant sign", "return Math.Sign(bx * (cy * dz - cz * dy) - by * (cx * dz - cz * dx) + bz * (cx * dy - cy * dx));", "return -Math.Sign(bx * (cy * dz - cz * dy) - by * (cx * dz - cz * dx) + bz * (cx * dy - cy * dx));"),
-("C2 straddle off", "&& StraddlesInPlane(PieceCorners[i], triCorners[u]))", "&& false)"),
-("C2 straddle: inside rule", "if (inside) return false;", "if (inside) return true;"),
-("C2 straddle: separation rule", "if (pOut || uOut) return false;", "if (pOut) return false;"),
+("C2 straddle off", "&& StraddlesInPlaneOfSource(i, u)) {", "&& false) {"),
+("C2 straddle: inside rule", [("            if (inside) return false;\n            for (int e = 0; e < 3; ++e) {\n                bool pOut = true, uOut = true;\n                for (int k = 0; k < 3; ++k) {", "            if (inside) return true;\n            for (int e = 0; e < 3; ++e) {\n                bool pOut = true, uOut = true;\n                for (int k = 0; k < 3; ++k) {")]),
+("C2 straddle (forms): inside rule", [("            if (inside) return false;\n            for (int e = 0; e < 3; ++e) {\n                bool pOut = true, uOut = true;\n                for (int k = 0; k < 3 && pOut; ++k)", "            if (inside) return true;\n            for (int e = 0; e < 3; ++e) {\n                bool pOut = true, uOut = true;\n                for (int k = 0; k < 3 && pOut; ++k)")]),
+("C2 straddle (forms): piece side of the separation off", "if (pOut || uOut) return false;\n            }\n            return true;\n        }\n\n        /// <summary>\n        /// Coplanar triangles p and u (both non-degenerate): p is neither inside", "if (uOut) return false;\n            }\n            return true;\n        }\n\n        /// <summary>\n        /// Coplanar triangles p and u (both non-degenerate): p is neither inside"),
+("C2 straddle (forms): triangle side of the separation off", "if (pOut || uOut) return false;\n            }\n            return true;\n        }\n\n        /// <summary>\n        /// Coplanar triangles p and u (both non-degenerate): p is neither inside", "if (pOut) return false;\n            }\n            return true;\n        }\n\n        /// <summary>\n        /// Coplanar triangles p and u (both non-degenerate): p is neither inside"),
+("C2 straddle: separation rule", "if (pOut || uOut) return false;\n            }\n            return true;\n        }\n\n        /// <summary>\n        /// Do the triangles p and q", "if (pOut) return false;\n            }\n            return true;\n        }\n\n        /// <summary>\n        /// Do the triangles p and q"),
+# --- the cost work of C2 and its stacks (#1632): the edge forms, the groups of equal pieces, the parallel loops
+("edge form: sign of the offset", "- d * p.W).Sign;", "+ d * p.W).Sign;"),
+("edge form: normal and edge crossed the wrong way", "BigInteger[] m = Cross(n, Sub(b, a));", "BigInteger[] m = Cross(Sub(b, a), n);"),
+("edge form: offset of the wrong point", "d = m[0] * a.X + m[1] * a.Y + m[2] * a.Z;", "d = m[0] * a.X + m[1] * a.Y + m[2] * a.W;"),
+("pair forms: shared plane not by the key", "return pieceKeys[i].Length > 0 && pieceKeys[i] == pieceKeys[j];", "return pieceKeys[i].Length > 0;"),
+("stacks: groups ignore the third corner", "ids[0] + \",\" + ids[1] + \",\" + ids[2];", "ids[0] + \",\" + ids[1];"),
+("stacks: source of the piece not skipped in the table", "if (u == src) { s.Add(u); srcAdded = true; continue; }", "if (u == src) { srcAdded = true; }"),
+("stacks: a centroid on an edge is not reported", "if (inside[g][k] == 0) { failure[i] =", "if (false) { failure[i] ="),
+("stacks: failure of the highest piece", "            for (int i = 0; i < n; ++i)\n                if (failure[i] != null) throw new CertificateException(failure[i]);", "            for (int i = n - 1; i >= 0; --i)\n                if (failure[i] != null) throw new CertificateException(failure[i]);"),
+("pairs: verdict of the highest pair", "for (int idx = 0; idx < pairs.Count; ++idx) {\n                if (coplanarPair[idx]) coplanarCount++;", "for (int idx = pairs.Count - 1; idx >= 0; --idx) {\n                if (coplanarPair[idx]) coplanarCount++;"),
+("straddle: verdict of the highest piece", "            foreach (string r in straddle)\n                if (r != null) return r;", "            foreach (string r in straddle.Reverse())\n                if (r != null) return r;"),
+("straddle: the lowest triangle is not the one named", "straddles the boundary of the coplanar input triangle {u}\";\n                        return;", "straddles the boundary of the coplanar input triangle {u}\";"),
+("pairs: coplanar pairs not counted", "if (coplanarPair[idx]) coplanarCount++;", ";"),
+("stacks: culled triangles kept in the table", "if (TriCulled[u]) continue;\n                    h.Add(u); side.Add", "h.Add(u); side.Add"),
+("straddle: a piece out of its source's plane takes the forms", "if (InSourcePlane(i) == false) return StraddlesInPlane(PieceCorners[i], triCorners[u]);", ";"),
 ("removed parts not reported", "if (RemovedParts.Count > 0)", "if (false)"),
 # --- the floating-point filters of 2026-11-24 (box filters of C2 / C3, the double filters of C5, the floor; added 2026-11-25)
 ("box filter: neither side widened", [("lo[k] = l - Math.Abs(l) * (1.0 / (1L << 49)) - double.Epsilon;", "lo[k] = l;"),
@@ -105,6 +126,8 @@ M=[
 
 # Equivalent mutants (not run by default; `--equivalent` runs them, and each must survive). Each changes no verdict:
 EQUIVALENT = [
+("stacks: groups ignore the plane of the source", "string key = triPlane[PieceSource[i]] + \"|\" + ids[0]", "string key = \"|\" + ids[0]",
+ "pieces with the same three corner ids are the same triangle, so in the same plane; the plane of the source only differs for a piece outside its source's plane, which C1 rejects before C2 and C3 run (Check)"),
 ("C5 accept: weights not clamped", "v = Math.Min(1, Math.Max(0, v)); w = Math.Min(1 - v, Math.Max(0, w));", ";",
  "not proved, equivalent in practice: the clamp is a belt; in face, edge and vertex regions the weights are in [0, 1] up to rounding, and no input of the thin-triangle test, of 4 million random thin triangles (step A) and of 1.2 million targeted near-collinear cases (2026-11-25, double routine against an exact Fraction reference) took them outside by more than an ulp of v + w, which moves the point by an ulp of the triangle, far below the margin 3 eps"),
 ("C5 filter bound without the extent", "Math.Max((maxAbs + extent) / (double)(1L << 40),", "Math.Max((maxAbs) / (double)(1L << 40),",
@@ -146,7 +169,7 @@ EQUIVALENT = [
 
 def run_tests():
     return subprocess.run(["dotnet", "test", os.path.join(ROOT, "tests", "geometry3Sharp.Tests"), "-c", "Release",
-                           "-f", "net10.0", "--filter", "FullyQualifiedName~BooleanCertificateTests&Category!=Nightly"],
+                           "-f", "net10.0", "--filter", "(FullyQualifiedName~BooleanCertificateTests|FullyQualifiedName~BooleanCertificateFanTests)&Category!=Nightly"],
                           capture_output=True, text=True)
 
 

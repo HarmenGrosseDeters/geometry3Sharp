@@ -160,6 +160,26 @@ Two quadratic terms:
   1920 + 1920 triangles (without the certificate). So it is a defect (#1630, with the diagnosis in its comment), not a
   documented limit; design: `docs/design/COPLANAR_PROPAGATION.md` in draft PR #1635.
 
+**Result of #1632 (2026-11-26).** The profile at 240 slices showed three quadratic terms, not one (4 cores, C2 only, milliseconds): the
+stacks (`PrepareStacks`) 5.4 s, the pair test of the classified pieces 8.6 s (931,251 pairs) and the straddle test 13.7 s. A double filter in
+front of the exact signs decided only 20 % of them: the 2-ulp overlay puts its Θ(n²) pieces in a blob of about 1e-14 of the fan's size around its
+centre, below the enclosure of the approximations (2^-49 relative), and many corners lie exactly on the lines. So the fix keeps every sign exact and makes it
+cheaper and parallel: an edge form per edge (5 products instead of 21, the same integer as the direct computation), one table per group of
+equal pieces (the coplanar copies of one region: the same three corners), no sign for corners of the other triangle that are ends of the edge, the
+sides of a pair found once, and the pieces, the pairs and the straddle tests in parallel (the verdict is picked in order afterwards: the lowest piece or pair). Measured on 4 cores
+(before from the table above, after on an idle machine):
+
+| Slices | Classified pieces | Pairs | Boolean (recording) | C2 before | C2 after |
+|---:|---:|---:|---:|---:|---:|
+| 30 | 1298 | 15,935 | 0.07 s | 2.2 s | 0.20 s |
+| 60 | 4358 | 54,911 | 0.4 s | 5.5 s | 0.6 s |
+| 120 | 15,878 | 219,491 | 1.7 s | 32-34 s | 2.8 s |
+| 240 | 60,518 | 931,251 | 12 s | 210 s | 17.7 s |
+
+The cost is still quadratic per plane (all boxes of a fan overlap); only the constant fell (12x at 240), so C2 is now 1.5 times the boolean at 240 slices
+instead of 18 times. A near-linear C2 needs an exact point location per plane. C5 of the same repro grows faster than C2 now (69 s at 120 slices, 5 s at 60): not
+part of #1632, noted here for the coordinator.
+
 Attribution of the two slow cases (review of #1604):
 - **The C2 run of more than 45 minutes** on the Thingi10K model is the checker's `PrepareStacks` cost above, #1632: the same
   O(pieces x coplanar triangles) shape as the library's coplanar stacks of #1630, in the checker's own code.
