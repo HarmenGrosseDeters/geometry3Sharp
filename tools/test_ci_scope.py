@@ -110,7 +110,7 @@ class TwoStageWorkflow(unittest.TestCase):
         return self.job(name).split("steps:")[0]
 
     def test_full_stage_jobs_need_the_full_output(self):
-        for name in ("linux", "isolated", "time-rule", "netstandard", "tier-rule"):
+        for name in ("linux", "isolated", "time-rule", "netstandard", "windows-net10", "tier-rule"):
             self.assertIn("needs.scope.outputs.full == 'true'", self.header(name), name)
         # (the tier rule is a merge-gate check: in ci.yml, so the status covers it; tier-rule.yml has no pull_request trigger; the
         # Markdown it reads, docs/OPERATIONS.md and docs/guides, is in the paths of ci.yml: DocsOnly)
@@ -145,7 +145,7 @@ class TwoStageWorkflow(unittest.TestCase):
 
     def test_the_status_is_the_merge_gate(self):
         h = self.header("full-ci-status")
-        self.assertIn("needs: [scope, linux, isolated, time-rule, netstandard, tier-rule, new-tests-on-base, determinism]", h)
+        self.assertIn("needs: [scope, linux, isolated, time-rule, netstandard, windows-net10, tier-rule, new-tests-on-base, determinism]", h)
         # (review: a cancelled run posts nothing, so it cannot race the newer run's status)
         self.assertIn("if: ${{ !cancelled() && ", h)
         self.assertNotIn("always()", h)
@@ -155,8 +155,25 @@ class TwoStageWorkflow(unittest.TestCase):
         self.assertIn('SHA: ${{ github.event.pull_request.head.sha }}', body)
         # pending without the label; success only from linux and netstandard passed
         self.assertIn('if [ "$FULL" != true ]; then\n            state=pending', body)
-        self.assertIn('[ "$LINUX" = success ] && [ "$NETSTANDARD" = success ] && [ "$TIER_RULE" = success ] && [ "$NEW_TESTS" = success ]', body)
+        self.assertIn('[ "$LINUX" = success ] && [ "$NETSTANDARD" = success ] && [ "$WINDOWS_NET10" = success ] && [ "$TIER_RULE" = success ] && [ "$NEW_TESTS" = success ]', body)
+        self.assertIn("WINDOWS_NET10: ${{ needs.windows-net10.result }}", h)
         self.assertIn('ok "$DETERMINISM"', body)
+
+    def test_the_windows_net10_leg(self):
+        # (owner 2026-11-27, #1713) a full-stage job on Windows like netstandard (not on a draft), steps only with library tests in
+        # scope, the selection of tools/ci_scope.py --platform (the quick selection plus the fixed set), without Slow and Nightly
+        h = self.header("windows-net10")
+        self.assertIn("runs-on: windows-latest", h)
+        self.assertRegex(h, r"\n    if: needs\.scope\.outputs\.full == 'true' && \(github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.draft == false\)\n")
+        self.assertIn("timeout-minutes: 30", h)
+        body = self.job("windows-net10")
+        for step in body.split("\n      - ")[1:]:
+            if "upload-artifact" not in step:
+                self.assertIn("if: needs.scope.outputs.library == 'true'", step, step[:60])
+        self.assertIn("dotnet build tests/geometry3Sharp.Tests -c Release -f net10.0", body)
+        self.assertIn("tools/ci_scope.py --platform", body)
+        self.assertIn("dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-build", body)
+        self.assertIn('--filter "$(cat filter.txt)"', body)
 
     def test_new_tests_on_base_and_determinism_are_jobs_of_the_full_stage(self):
         # (review of #1469: they were in the merge rule but not in the status; reusable workflows in the PR's context now)
@@ -332,6 +349,17 @@ class Quick(unittest.TestCase):
                          "&Category!=Slow&Category!=Nightly", f)
         # (a class of the global namespace has the FullyQualifiedName `C.M`)
         self.assertEqual("(FullyQualifiedName~GTests.)&Category!=Slow&Category!=Nightly", c.quick_filter(["GTests"], ["GTests"]))
+
+    def test_the_platform_filter(self):
+        # the fixed set always, as class-name prefixes, plus the quick classes; never empty; without Slow and Nightly
+        fixed = "FullyQualifiedName~.Quad|FullyQualifiedName~.CrossField|FullyQualifiedName~.PureQuad|" \
+                "FullyQualifiedName~.QuadFixtureInput|FullyQualifiedName~.CoreMath"
+        self.assertEqual("(" + fixed + ")&Category!=Slow&Category!=Nightly", c.platform_filter())
+        self.assertEqual("(" + fixed + "|FullyQualifiedName~.ATests.|FullyQualifiedName~+ATests.)&Category!=Slow&Category!=Nightly", c.platform_filter(["ATests"]))
+        # each prefix names existing test classes (a renamed class would silently drop out of the leg)
+        names = {t for f in c.test_files(ROOT) for t in c.test_classes_of(c._read(ROOT, f))}
+        for p in c.PLATFORM_PREFIXES:
+            self.assertTrue(any(n.startswith(p) for n in names), p)
 
     def test_a_class_without_a_namespace_is_marked_global(self):
         self.write(c.TEST_DIR + "Spatial/GTests.cs", "using Xunit;\npublic class GTests {\n [Fact] public void A() {}\n}\n")
