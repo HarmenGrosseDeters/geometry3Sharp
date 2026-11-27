@@ -362,16 +362,62 @@ namespace geometry3Sharp.Tests
             Assert.True(double.IsPositiveInfinity(QuadRemesher.SurfaceFaceDeviation(g, m, tree, new[] { 0, 1, 0, 2 })));
         }
 
-        [Fact]
-        public void TheOuterLoopOfAnOpenPatch_IsNotBad_ButAFigureOfEightIs()
+        // a grid of n x n vertices (normals up) without the vertices (i, j) with lo <= i, j <= hi (a hole) if lo <= hi; the vertices next to the hole and on the border are boundary vertices (Kind 1)
+        static QuadRemesher.PolyGraph Grid(int n, int lo = 1, int hi = 0)
         {
-            // a flat grid of 4 x 4 vertices: its outer loop has 12 vertices and the other orientation of the faces, and is left out
-            var g = new QuadRemesher.PolyGraph();
-            for (int j = 0; j < 4; ++j) for (int i = 0; i < 4; ++i) g.Add(new Vector3d(i, j, 0), Vector3d.AxisZ, 0);
-            for (int j = 0; j < 4; ++j) for (int i = 0; i < 4; ++i) { if (i < 3) g.Link(j * 4 + i, j * 4 + i + 1); if (j < 3) g.Link(j * 4 + i, (j + 1) * 4 + i); }
-            Assert.Empty(QuadRemesher.BadLoopVertices(QuadRemesher.CopyGraph(g), 6, null, 32));
-            // the K4 on the roof with the tangent plane orders: its two loops are dropped
-            Assert.NotEmpty(QuadRemesher.BadLoopVertices(RoofK4(), 6, null, 32));
+            var g = new QuadRemesher.PolyGraph(); var id = new int[n, n];
+            Func<int, int, bool> removed = (i, j) => i >= lo && i <= hi && j >= lo && j <= hi;
+            for (int j = 0; j < n; ++j) for (int i = 0; i < n; ++i) {
+                id[i, j] = -1; if (removed(i, j)) continue;
+                bool border = i == 0 || j == 0 || i == n - 1 || j == n - 1 || removed(i - 1, j) || removed(i + 1, j) || removed(i, j - 1) || removed(i, j + 1) || removed(i - 1, j - 1) || removed(i + 1, j - 1) || removed(i - 1, j + 1) || removed(i + 1, j + 1);
+                id[i, j] = g.Add(new Vector3d(i, j, 0), Vector3d.AxisZ, (byte)(border ? 1 : 0));
+            }
+            for (int j = 0; j < n; ++j) for (int i = 0; i < n; ++i) {
+                if (id[i, j] < 0) continue;
+                if (i + 1 < n && id[i + 1, j] >= 0) g.Link(id[i, j], id[i + 1, j]);
+                if (j + 1 < n && id[i, j + 1] >= 0) g.Link(id[i, j], id[i, j + 1]);
+            }
+            return g;
+        }
+
+        [Fact]
+        public void TheBoundaryLoopsOfAnOpenInput_AreNotBad_OuterLoopAndHole()
+        {
+            Assert.Empty(QuadRemesher.BadLoopVertices(Grid(4), 6, null, 32));                 // the outer loop of 12 vertices
+            Assert.Empty(QuadRemesher.BadLoopVertices(Grid(7, 2, 4), 6, null, 32));           // a 3 x 3 hole (16 vertices around it) and the outer loop of 24
+            // the outer loop of 12 vertices of a patch whose vertices are not boundary vertices is bad (no sign of an area decides)
+            var inner = Grid(4); for (int i = 0; i < inner.Kind.Count; ++i) inner.Kind[i] = 0;
+            Assert.Equal(12, QuadRemesher.BadLoopVertices(inner, 6, null, 32).Count);
+            var one = Grid(4); one.Kind[0] = 0;                                                  // one vertex of the loop is no boundary vertex: not a boundary loop
+            Assert.Equal(12, QuadRemesher.BadLoopVertices(one, 6, null, 32).Count);
+        }
+
+        [Fact]
+        public void TheBoundaryRingsOfAnOpenTube_AreNotBad_WhateverTheSignOfTheirVectorArea()
+        {
+            // an open cylinder: rings of 12 vertices with radial normals; the vector area of a ring along the axis is orthogonal to its normals (a dot product of noise)
+            var g = new QuadRemesher.PolyGraph(); int rings = 4, per = 12;
+            for (int r = 0; r < rings; ++r)
+                for (int i = 0; i < per; ++i) {
+                    double t = 2 * Math.PI * i / per;
+                    g.Add(new Vector3d(Math.Cos(t), Math.Sin(t), r * 0.5), new Vector3d(Math.Cos(t), Math.Sin(t), 0), (byte)(r == 0 || r == rings - 1 ? 1 : 0));
+                }
+            for (int r = 0; r < rings; ++r) for (int i = 0; i < per; ++i) { g.Link(r * per + i, r * per + (i + 1) % per); if (r + 1 < rings) g.Link(r * per + i, (r + 1) * per + i); }
+            Assert.Empty(QuadRemesher.BadLoopVertices(g, 6, null, 32));
+        }
+
+        [Fact]
+        public void ALongFigureOfEight_IsBad_EvenWhenItsInvertedLobeIsTheLargerAndItsVerticesAreBoundaryVertices()
+        {
+            // two squares that share a corner: the loop around both visits it twice and has 8 vertices, and is traced the other way round than the squares
+            Func<byte, QuadRemesher.PolyGraph> build = kind => {
+                var g = new QuadRemesher.PolyGraph();
+                foreach (var p in new[] { new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(1, 1, 0), new Vector3d(0, 1, 0), new Vector3d(-1, 0, 0), new Vector3d(-1, -1, 0), new Vector3d(0, -1, 0) }) g.Add(p, Vector3d.AxisZ, kind);
+                g.Link(0, 1); g.Link(1, 2); g.Link(2, 3); g.Link(3, 0); g.Link(0, 4); g.Link(4, 5); g.Link(5, 6); g.Link(6, 0);
+                return g;
+            };
+            Assert.Equal(7, QuadRemesher.BadLoopVertices(build(0), 6, null, 32).Count);
+            Assert.Equal(7, QuadRemesher.BadLoopVertices(build(1), 6, null, 32).Count);      // (boundary vertices: still a figure of eight)
         }
 
         [Fact]
@@ -451,11 +497,12 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 m = Roof(); var tree = new DMeshAABBTree3(m, true);
             // K (0-1, a link of a chain) crosses I (2-3), and J (4-5) crosses I but not K; I is the shortest, J longer than I, K the longest
-            var g = LeftFaceGraph(new[] { -3.0, -1 }, new[] { -0.5, 2 }, new[] { -1.5, -1 }, new[] { -2.5, 0.5 }, new[] { -0.5, 0.5 }, new[] { -2.0, -1 });
-            g.Kind[0] = 1; g.Kind[1] = 1;
+            // the links in the order J, I, K by their numbers: without the sort by length the pair (J, I) would come first and take J
+            var g = LeftFaceGraph(new[] { -0.5, 0.5 }, new[] { -2.0, -1 }, new[] { -1.5, -1 }, new[] { -2.5, 0.5 }, new[] { -3.0, -1 }, new[] { -0.5, 2 });
+            g.Kind[4] = 1; g.Kind[5] = 1;
             g.Link(0, 1); g.Link(2, 3); g.Link(4, 5);
             var found = QuadRemesher.SurfaceCrossings(g, m, tree, Enumerable.Range(0, 6));
-            // K is the longer of (K, I) but a chain link: I goes. J crosses only I, which is gone: J stays
+            // K (4-5) is the longer of (K, I) but a chain link: I (2-3) goes. J (0-1) crosses only I, which is gone: J stays
             Assert.Equal(new[] { Tuple.Create(2, 3) }, found.ToArray());
         }
 

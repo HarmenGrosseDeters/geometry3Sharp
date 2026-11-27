@@ -663,8 +663,9 @@ namespace gs
         /// <summary>
         /// How far the loop is from a face of the surface: the interior angles on its left (the side of a face of the traced loops), each from the surface directions to its
         /// previous and next vertex, add up to (k - 2) pi for a face and to (k + 2) pi for the same loop traced the other way round (the outer loop of a patch, an inverted face);
-        /// this is the difference to (k - 2) pi (the turning number of the loop: it does not tell an embedded loop from one that winds twice). The loop is also required to be embedded:
-        /// no vertex twice, no two of its sides crossing in the chart (<see cref="IsSimpleInChart"/>) and no other link of a corner vertex inside the wedge of its interior angle.
+        /// this is the difference to (k - 2) pi (the turning number of the loop: it does not tell an embedded loop from one that winds twice). Two checks of the embedding come with it:
+        /// no vertex twice and no two sides that cross properly in the chart (<see cref="IsSimpleInChart"/>: touching sides or a vertex on a side are not looked at), and no other link of a
+        /// corner vertex strictly inside the wedge of its interior angle (a link of another vertex into the face is not looked at).
         /// Infinity if it is not, or if a direction cannot be found.
         /// </summary>
         internal static double SurfaceFaceDeviation(PolyGraph g, DMesh3 mesh, DMeshAABBTree3 tree, int[] loop)
@@ -740,8 +741,9 @@ namespace gs
 
         /// <summary>
         /// The vertices of the loops that BuildFaces drops for their length (more than maxSides, up to maxLoop) or because they visit a vertex twice, traced with the neighbour
-        /// orders of the tangent planes (those of rot instead, where it has an entry). A long loop that is traced the other way round than most (the outer loop of an open input,
-        /// a hole) is not a figure of eight and is left out: the repair of an open input does not run for its boundary.
+        /// orders of the tangent planes (those of rot instead, where it has an entry). A long loop without a repeated vertex whose
+        /// vertices all lie on the boundary of the input (Kind above 0: the outer loop of an open input, a hole) is no figure of eight and is left out, so the repair of an open input does not
+        /// run for its boundary; a loop with a repeated vertex is a figure of eight wherever it is.
         /// </summary>
         internal static HashSet<int> BadLoopVertices(PolyGraph g, int maxSides, Dictionary<int, int[]> rot, int maxLoop = int.MaxValue)
         {
@@ -757,30 +759,18 @@ namespace gs
                 Array.Sort(keys, ids); order[k] = ids;
             }
             if (rot != null) foreach (var kv in rot) if (kv.Key < nv && kv.Value.Length == order[kv.Key].Length) order[kv.Key] = kv.Value;
-            var loops = new List<int[]>(); var areas = new List<double>();
+            var res = new HashSet<int>();
             var used = new bool[nv][]; for (int k = 0; k < nv; ++k) used[k] = new bool[order[k].Length];
             for (int u = 0; u < nv; ++u)
                 for (int s0 = 0; s0 < order[u].Length; ++s0) {
                     if (used[u][s0]) continue;
                     var face = new List<int>(); int a = u, sa = s0;
                     while (!used[a][sa]) { used[a][sa] = true; face.Add(a); int bb = order[a][sa]; int r = Array.IndexOf(order[bb], a); int sb = (r - 1 + order[bb].Length) % order[bb].Length; a = bb; sa = sb; if (face.Count > 4 * maxSides + 64) break; }
-                    if (a != u || sa != s0) continue;
-                    Vector3d nw = Vector3d.Zero, nsum = Vector3d.Zero; Vector3d p0 = g.Pos[face[0]];
-                    for (int k = 1; k + 1 < face.Count; ++k) nw += (g.Pos[face[k]] - p0).Cross(g.Pos[face[k + 1]] - p0);
-                    foreach (int v in face) nsum += g.Nrm[v];
-                    loops.Add(face.ToArray()); areas.Add(nw.Dot(nsum));
+                    if (a != u || sa != s0 || face.Count > maxLoop) continue;
+                    bool repeated = new HashSet<int>(face).Count < face.Count, longLoop = face.Count > maxSides;
+                    if (longLoop && !repeated && face.All(v => g.Kind[v] >= 1)) continue;       // (the outer loop of an open input, a hole)
+                    if (longLoop || repeated) foreach (int v in face) res.Add(v);
                 }
-            double agree = 0; foreach (double ar in areas) agree += Math.Sign(ar);
-            bool flip = agree < 0;
-            var res = new HashSet<int>();
-            for (int f = 0; f < loops.Count; ++f) {
-                int[] face = loops[f];
-                if (face.Length > maxLoop) continue;
-                double area = flip ? -areas[f] : areas[f];
-                bool longLoop = face.Length > maxSides;
-                if (longLoop && !(area > 0)) continue;       // (the outer loop of an open input, a hole)
-                if (longLoop || new HashSet<int>(face).Count < face.Length) foreach (int v in face) res.Add(v);
-            }
             return res;
         }
 
