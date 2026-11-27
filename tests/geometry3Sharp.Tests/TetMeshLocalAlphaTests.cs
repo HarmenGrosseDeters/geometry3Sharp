@@ -428,18 +428,22 @@ namespace geometry3Sharp.Tests
         {
             // x / (alphaMin / 2) = +-2^63 overflows long on the old code, dropping the second sample and breaking At()
             double x = sign * ExactPoint3.ScaleB(1.0, 58);
-            var pos = new[] { new Vector3d(x, 0, 0), new Vector3d(x + 128, 0, 0) };
+            var pos = new[] { new Vector3d(x, 0, 0), new Vector3d(x + sign * 128, 0, 0) };
             var aj = new[] { 0.0625, 0.0625 };
             var f = new AlphaSizeField(pos, aj, 1.0, 0.0625, 0.25);
             Assert.Equal(2, f.FineSamples);
             Assert.Equal(0.0625, f.At(pos[0]));
             Assert.Equal(0.0625, f.At(pos[1]));
-            Assert.Equal(1.0, f.At(new Vector3d(x + 64, 0, 0)));
-            // Signed zero on an unsaturated axis welds with +0.0 even when x is wide.
+            Assert.Equal(1.0, f.At(new Vector3d(x + sign * 64, 0, 0)));
+            Assert.Equal(1.0, f.At(new Vector3d(double.NaN, 0, 0)));
+            // Signed zero on a wide/non-finite-index axis (h = double.Epsilon / 2 == 0) welds with +0.0 via WideThinKey.
             double negZero = BitConverter.Int64BitsToDouble(long.MinValue);
-            var posNeg = new[] { new Vector3d(x, 0, 0), new Vector3d(x, negZero, 0) };
-            var fNeg = new AlphaSizeField(posNeg, aj, 1.0, 0.0625, 0.25);
+            var posNeg = new[] { new Vector3d(0, 0, 0), new Vector3d(negZero, 0, 0) };
+            var fNeg = new AlphaSizeField(posNeg, new[] { double.Epsilon, double.Epsilon }, 1.0, double.Epsilon, 0.25);
             Assert.Equal(1, fNeg.FineSamples);
+            // A NaN-coordinate sample in wideItems must never pretend to be at distance 0 from a finite query.
+            var fNan = new AlphaSizeField(new[] { new Vector3d(x, 0, 0), new Vector3d(double.NaN, 0, 0) }, aj, 1.0, 0.0625, 0.25);
+            Assert.Equal(1.0, fNan.At(new Vector3d(x + sign * 64, 0, 0)));
         }
 
         [Fact]
@@ -466,6 +470,24 @@ namespace geometry3Sharp.Tests
             Vector3d q = new Vector3d(0.5 * r, 0, 0);
             Assert.Equal(1.5, f.At(q), 12);
             Assert.Equal(2.0, f.At(new Vector3d(2 * r, 0, 0)));
+        }
+
+        [Fact]
+        public void SizeField_RadiusUnderflowAndGridClampFallback_ReturnsExactHits()
+        {
+            // Reach underflows to 0.0, yet a query exactly on the sample has distance 0 and must see alphaMin.
+            var fUnder = new AlphaSizeField(new[] { Vector3d.Zero }, new[] { 1e-300 }, 2e-300, 1e-300, 1e20);
+            Assert.Equal(1, fUnder.FineSamples);
+            Assert.Equal(1e-300, fUnder.At(Vector3d.Zero));
+            Assert.Equal(2e-300, fUnder.At(new Vector3d(1e-300, 0, 0)));
+
+            // Huge finite radius (1.5 * 2^1023) + overflow in (x.x - radius = -Inf) clamps x0 to -lim and hits the >16-cell full-scan fallback.
+            double slope = ExactPoint3.ScaleB(1.0, -1023);
+            var fFallback = new AlphaSizeField(new[] { Vector3d.Zero }, new[] { 1.0 }, 2.5, 1.0, slope);
+            Vector3d q = new Vector3d(-ExactPoint3.ScaleB(1.0, 1023), 0, 0);
+            Assert.True(double.IsNegativeInfinity(q.x - 1.5 * ExactPoint3.ScaleB(1.0, 1023)));
+            Assert.Equal(2.0, fFallback.At(q, out int visited), 12);
+            Assert.Equal(1, visited);
         }
 
         [Fact]

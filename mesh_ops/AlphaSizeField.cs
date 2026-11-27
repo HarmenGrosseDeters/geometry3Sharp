@@ -24,6 +24,7 @@ namespace gs
         readonly Vector3d[] points;
         readonly double[] alphas;
         readonly double alpha0, slope, radius, cell;
+        readonly bool hasReach;
         readonly int[] wideItems;
         readonly double wideMinAlpha;
         readonly Vector3d wideMin, wideMax;
@@ -46,7 +47,8 @@ namespace gs
         public AlphaSizeField(Vector3d[] pos, double[] alphaJ, double alpha0, double alphaMin, double slope)
         {
             this.alpha0 = alpha0; this.slope = slope;
-            radius = (alpha0 > alphaMin && slope > 0) ? (alpha0 - alphaMin) / slope : 0;
+            hasReach = alpha0 > alphaMin && slope > 0;
+            radius = hasReach ? (alpha0 - alphaMin) / slope : 0;
             cell = radius / 2;
             double h = alphaMin / 2;
             Dictionary<(long, long, long), int> best = null;
@@ -141,7 +143,9 @@ namespace gs
             if (d2 >= MinNormal && !double.IsInfinity(d2))
                 return Math.Sqrt(d2);
             double m = Math.Max(Math.Abs(d.x), Math.Max(Math.Abs(d.y), Math.Abs(d.z)));
-            if (!(m > 0))
+            if (double.IsNaN(m))
+                return double.NaN;
+            if (m == 0)
                 return 0;
             if (double.IsInfinity(m))
                 return double.PositiveInfinity;
@@ -165,7 +169,8 @@ namespace gs
         public double At(Vector3d x, out int visited)
         {
             visited = 0;
-            if (points.Length == 0 || !(radius > 0)) return alpha0;
+            if (points.Length == 0 || !hasReach || double.IsNaN(x.x) || double.IsNaN(x.y) || double.IsNaN(x.z))
+                return alpha0;
             double best = alpha0, r2 = radius * radius;
             bool normalR2 = r2 >= MinNormal && !double.IsInfinity(r2);
             if (cells.Count > 0 && cell > 0 && !double.IsInfinity(cell)) {
@@ -217,11 +222,11 @@ namespace gs
             double dist;
             if (normalR2) {
                 double d2 = diff.LengthSquared;
-                if (d2 > r2) return;
+                if (!(d2 <= r2)) return;
                 dist = d2 >= MinNormal ? Math.Sqrt(d2) : SafeDistance(diff);
             } else {
                 dist = SafeDistance(diff);
-                if (dist > radius) return;
+                if (!(dist <= radius)) return;
             }
             double v = alphas[m] + slope * dist;
             if (v < best) best = v;

@@ -13,8 +13,12 @@ class AlphaSizeFieldTests(TestCase):
 
     def test_source_drift_invalidates_the_model(self):
         for before, after in (
-            ('radius = (alpha0 > alphaMin && slope > 0) ? (alpha0 - alphaMin) / slope : 0;',
+            ('const double MinNormal = 2.2250738585072014e-308;',
+             'const double MinNormal = 0;'),
+            ('radius = hasReach ? (alpha0 - alphaMin) / slope : 0;',
              'radius = (alpha0 - alphaMin) / slope;'),
+            ('if (alphas[k] < minAlpha) minAlpha = alphas[k];',
+             'if (alphas[k] > minAlpha) minAlpha = alphas[k];'),
             ('return coordinate == 0 ? 0 : BitConverter.DoubleToInt64Bits(coordinate);',
              'return BitConverter.DoubleToInt64Bits(coordinate);'),
             ('if (d2 >= MinNormal && !double.IsInfinity(d2))',

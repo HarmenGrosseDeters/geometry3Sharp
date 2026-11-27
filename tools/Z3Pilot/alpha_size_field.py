@@ -5,6 +5,7 @@ perturbation bound, wide-axis thinning index separation, and binary64
 witnesses for wide-index overflow, subnormal r^2 false-skips, and huge-radius
 distance-squared overflow.
 """
+from fractions import Fraction
 import math
 
 import z3
@@ -13,14 +14,16 @@ from check_pilot_obligations import check_expr, main, report, source_contract
 
 SOURCE = 'mesh_ops/AlphaSizeField.cs'
 ANCHORS = [
-    ('public AlphaSizeField(', 'void BuildBounds(',
-     '2b8bef47c694d2996f842f56499ecb6d1cdaf9b76bb9f5c084adfb7967876749'),
+    ('const double MinNormal', 'readonly Vector3d[] points;',
+     '2d736a82fe21972b138b6594397a90e751dedd37f5596c5831a739c97fdc45fe'),
+    ('public AlphaSizeField(', 'static bool FitsIndex(',
+     '857c3bd076ee9dcd047cb1afda868bd1b678ba399098b73a4c6a2c3361df234c'),
     ('static bool FitsIndex(', 'static double SafeDistance(',
      'ebc553bd25d232a30a77c9feab6c1aae8585c03cfc0d6b5335b7894979cfc19e'),
     ('static double SafeDistance(', 'public double At(Vector3d x)',
-     'b7876d644efc650733332499f98ca62f30488d90131abbfe18bf1acb477e192e'),
+     '811c28051212840c7fc81301108f61d47d3d92119f20afa483acdfa608a4864d'),
     ('public double At(Vector3d x, out int visited)', 'public static Vector3d[] Samples(',
-     '769af0b62dbbd3f3a1225d6a12a4e0bf5ce2098a313b502c3b7ee8490b437905'),
+     '39c1e6a5c4da6a72c00ef0b288255724be6e4ccd0d2184645d1a8cd0b38e57dd'),
 ]
 
 
@@ -80,14 +83,17 @@ def thinning_obligations(timeout_ms):
         djk * djk <= 3 * h * h,
         dk <= dj + djk,
     ]
+    delta = (a_k + slope * dk) - (a_j + slope * dj)
     # Wide thinning index separation (|coord| >= 2^62 * h => binary64 neighbor gap > h).
     mag, gap = z3.Reals('coord_mag neighbor_gap')
     wide_premises = [h > 0, mag >= 2**62 * h, 2**53 * gap >= mag]
     return [
         check_expr('thinning_bound_premises_reachable', thin_premises,
-                   a_k + slope * dk > a_j + slope * dj, 'sat', timeout_ms, 'QF_NRA'),
+                   delta > 0, 'sat', timeout_ms, 'QF_NRA'),
         check_expr('thinning_can_exceed_cube_diagonal_perturbation', thin_premises,
-                   (a_k + slope * dk) - (a_j + slope * dj) > slope * djk, 'unsat', timeout_ms, 'QF_NRA'),
+                   delta > slope * djk, 'unsat', timeout_ms, 'QF_NRA'),
+        check_expr('thinning_can_exceed_sqrt3_h_slope_bound', thin_premises,
+                   z3.And(delta > 0, delta * delta > 3 * slope * slope * h * h), 'unsat', timeout_ms, 'QF_NRA'),
         check_expr('wide_thin_index_premises_reachable', wide_premises, gap > h, 'sat', timeout_ms, 'QF_LRA'),
         check_expr('wide_thin_index_can_share_cube', wide_premises, gap <= h, 'unsat', timeout_ms, 'QF_LRA'),
         check_expr('narrow_thin_index_can_share_cube',
@@ -124,7 +130,7 @@ def replay_fp():
         'subnormal_radius_squared_falsely_skips_inside_sample_while_safe_distance_keeps_it':
             same(r_sub2, 2.0**-1074) and same(sum_d2, 2.0 * 2.0**-1074)
             and z3.is_true(z3.simplify(z3.fpGT(sum_d2, r_sub2)))
-            and d_xy * math.sqrt(2.0) < r_sub,
+            and 2 * Fraction(d_xy) ** 2 < Fraction(r_sub) ** 2,
         'huge_radius_overflows_distance_squared_while_safe_distance_is_exact':
             same(r_huge2, math.inf) and same(d_huge2, math.inf) and d_huge < r_huge,
     }
