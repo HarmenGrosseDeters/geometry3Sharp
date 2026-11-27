@@ -294,6 +294,10 @@ namespace geometry3Sharp.Tests
         }
 
 #if NET
+        // the measured calls that may allocate for the runtime (tier-up, call counting) on a loaded runner; a path that
+        // allocates itself does so in every call (more than 50 of them here)
+        const int MaxRuntimeAllocations = 3;
+
         [Fact]
         public void TheReplacedPaths_AllocateNothing()
         {
@@ -306,14 +310,15 @@ namespace geometry3Sharp.Tests
             var tree = new TriangleBoxTree(boxes);
             var v = new CountOnly();
             tree.QuerySegment(Vector3d.Zero, Vector3d.One, 0.01, ref v);
-            // (each query on its own: the runtime's tier-up may allocate on this thread between them)
-            long most = 0;
+            // (each query on its own, and counted: the runtime's tier-up may allocate on this thread during a few of them,
+            // more often under the load of the parallel test run, while an allocation of the query itself shows in every one)
+            int allocating = 0;
             for (int q = 0; q < 100; ++q) {
                 long b0 = GC.GetAllocatedBytesForCurrentThread();
                 tree.QuerySegment(new Vector3d(0, 0.01 * q, 0), Vector3d.One, 0.01, ref v);
-                most = Math.Max(most, GC.GetAllocatedBytesForCurrentThread() - b0);
+                if (GC.GetAllocatedBytesForCurrentThread() != b0) allocating++;
             }
-            Assert.Equal(0, most);
+            Assert.True(allocating <= MaxRuntimeAllocations, $"{allocating} of 100 queries allocated");
             Assert.True(v.N > 100);
 
             (DMesh3 a, DMesh3 b) = ExactMeshBooleanTestsLocalFilter.NearCopy(16, 1e-12);
@@ -335,13 +340,13 @@ namespace geometry3Sharp.Tests
             Assert.True(ids.Count > 50, $"{ids.Count} ids on the fast path");
             frame.corner_point(ids[0]);
             double sum = 0;
-            most = 0;
+            allocating = 0;
             foreach (int id in ids) {
                 long b0 = GC.GetAllocatedBytesForCurrentThread();
                 sum += frame.corner_point(id).x;
-                most = Math.Max(most, GC.GetAllocatedBytesForCurrentThread() - b0);
+                if (GC.GetAllocatedBytesForCurrentThread() != b0) allocating++;
             }
-            Assert.Equal(0, most);
+            Assert.True(allocating <= MaxRuntimeAllocations, $"{allocating} of {ids.Count} corners allocated");
             Assert.False(double.IsNaN(sum));
         }
 
