@@ -387,7 +387,6 @@ NO_SHARD = {
     "intersection/ContinuousCollision.cs": "continuous collision (exact root isolation)",
     "intersection/ExactTriangleIntersection.cs": "exact triangle intersection (called by the boolean shards' code, not mutated by them)",
     "intersection/TriangleTriangleFilter.cs": "the triangle pair filter",
-    "math/ExactRayTriangle.cs": "the exact ray-triangle test",
     "mesh_ops/ContouringTopologyCertificate.cs": "the contouring's topology certificate",
     "mesh_ops/ExactMeshEdgeGroups.cs": "edge groups of the exact boolean result",
     "mesh_ops/ExactMeshResultBuilder.cs": "the result builder of the exact boolean",

@@ -19,7 +19,7 @@ BO = ["boolean-%d" % i for i in range(1, 10)]
 ALL_MESH = set(RO) | set(BO) | {"arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
                                                 "imprint", "terrain-arith", "terrain-kernel", "terrain-overlay", "hausdorff", "geodesic-1", "geodesic-2",
                                                 "uv-atlas", "uv-charts", "uv-pack", "uv-cones", "uv-slim", "uv-foldover", "uv-core", "solid-pipeline", "exact-winding", "cells",
-                                                "predicates-1", "predicates-2", "adaptive", "box3", "snaprounding"}
+                                                "predicates-1", "predicates-2", "adaptive", "box3", "ray-triangle", "snaprounding"}
 
 
 def run(*changed):
@@ -54,6 +54,8 @@ class SelectShards(unittest.TestCase):
         self.assertTrue(eligible(configs["mesh-adaptive"], ["math/AdaptivePredicates.cs"]))
         self.assertTrue(eligible(configs["mesh-box3"], ["intersection/IntrExactBox3.cs"]))
         self.assertFalse(eligible(configs["mesh-box3"], ["intersection/IntrRay3Box3.cs"]))        # (not an exact-code file: its decision is the shared one)
+        self.assertTrue(eligible(configs["mesh-ray-triangle"], ["math/ExactRayTriangle.cs"]))
+        self.assertFalse(eligible(configs["mesh-ray-triangle"], ["intersection/IntrRay3Triangle3.cs"]))        # (not an exact-code file: a caller of the exact decision)
         self.assertFalse(eligible(configs["config"], ["math/ExactPredicates.cs"]))        # (moved to the predicates shards)
         self.assertTrue(eligible(configs["mesh-fixed"], ["math/FixedPoint3.cs"]))
         self.assertTrue(eligible(configs["mesh-generated"], ["math/Generated/IndirectPredicates.cs"]))
@@ -953,11 +955,14 @@ class PullRequestSelection(unittest.TestCase):
 
     def test_unsharded_exact_files_get_a_notice(self):
         from select_shards import unsharded
-        self.assertEqual(["math/ExactRayTriangle.cs"], unsharded(["math/ExactRayTriangle.cs", "math/ExactPoint3.cs", "comp_geom/SnapRounding2.cs", "docs/x.md"]))
-        notice = self.run_cli("hint", stdin="math/ExactRayTriangle.cs\n")
-        self.assertTrue(notice and notice[0].startswith("::notice::math/ExactRayTriangle.cs"))
-        self.assertIn("without a mutation shard", "\n".join(self.run_cli("hint", "--summary", stdin="math/ExactRayTriangle.cs\n")))
+        self.assertEqual(["intersection/TriangleTriangleFilter.cs"], unsharded(["intersection/TriangleTriangleFilter.cs", "math/ExactPoint3.cs", "comp_geom/SnapRounding2.cs", "docs/x.md"]))
+        notice = self.run_cli("hint", stdin="intersection/TriangleTriangleFilter.cs\n")
+        self.assertTrue(notice and notice[0].startswith("::notice::intersection/TriangleTriangleFilter.cs"))
+        self.assertIn("without a mutation shard", "\n".join(self.run_cli("hint", "--summary", stdin="intersection/TriangleTriangleFilter.cs\n")))
         self.assertEqual([], self.run_cli("hint", stdin="math/FixedPoint3.cs\n"))
+        # (since #1685 the ray-triangle test has its shard: no notice)
+        self.assertEqual([], unsharded(["math/ExactRayTriangle.cs"]))
+        self.assertEqual([], self.run_cli("hint", stdin="math/ExactRayTriangle.cs\n"))
 
     def test_error_bound_hint(self):
         from select_shards import audit_files, error_bound_hint
