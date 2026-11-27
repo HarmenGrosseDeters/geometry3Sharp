@@ -287,6 +287,16 @@ namespace geometry3Sharp.Tests
                             Assert.Equal(ExactRayTriangle.Miss, hit(v));
                         }
             }
+            // the point forms with a fixed finite p and an origin that is not finite (p = o + d above is not finite then)
+            var pf = new Vector3d(0.25, 0.25, 0);
+            foreach (double bad in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity })
+                for (int k = 0; k < 3; ++k) {
+                    var ob = o; ob[k] = bad;
+                    Assert.Equal(ExactRayTriangle.Miss, ExactRayTriangle.RayHitClosed(ob, pf, a, b, c));
+                    Assert.Equal(ExactRayTriangle.Miss, ExactRayTriangle.RayHitPerturbed(ob, pf, a, b, c));
+                }
+            Assert.Equal(ExactRayTriangle.Ahead, ExactRayTriangle.RayHitClosed(o, pf, a, b, c));
+            Assert.Equal(ExactRayTriangle.Ahead, ExactRayTriangle.RayHitPerturbed(o, pf, a, b, c));
             // the point forms with p == o, the direction forms with d == 0: no ray
             Assert.Equal(ExactRayTriangle.Miss, ExactRayTriangle.RayHitClosed(o, o, a, b, c));
             Assert.Equal(ExactRayTriangle.Miss, ExactRayTriangle.RayHitPerturbed(o, o, a, b, c));

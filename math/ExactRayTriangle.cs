@@ -297,7 +297,7 @@ namespace g3
         /// Does the ray from o through p hit the closed triangle (a, b, c): Miss, Ahead (at t &gt; 0) or AtOrigin (o lies
         /// on the triangle: a ray that starts on the surface hits it at t = 0, as upstream). The side of o is exact:
         /// the crossing is ahead iff Orient3d(a, b, c, o) is opposite to the crossing sign; a crossing implies
-        /// (p - o) . N != 0, so with o in the plane the crossing is o itself.
+        /// (p - o) . N != 0, so with o in the plane the crossing is o itself. Miss for p == o or a value that is not finite.
         /// </summary>
         public static int RayHitClosed(Vector3d o, Vector3d p, Vector3d a, Vector3d b, Vector3d c)
         {
@@ -337,7 +337,7 @@ namespace g3
         /// triangle's plane: if p is in it too (the line lies in the plane), the perturbed line crosses the plane
         /// behind o' (both (o' - a) . N and (p' - o') . N lead with the first nonzero coordinate of N, so t' &lt; 0): Miss,
         /// as the perturbation decides, and as upstream ("parallel: no intersection"). Otherwise the crossing is at o
-        /// itself, on the closed triangle: AtOrigin.
+        /// itself, on the closed triangle: AtOrigin. Miss for p == o or a value that is not finite.
         /// </summary>
         public static int RayHitPerturbed(Vector3d o, Vector3d p, Vector3d a, Vector3d b, Vector3d c)
         {
