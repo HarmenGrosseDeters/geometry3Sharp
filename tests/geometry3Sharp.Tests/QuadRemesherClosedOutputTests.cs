@@ -28,10 +28,6 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        internal static readonly Dictionary<string, string> InputHashes = new Dictionary<string, string> {
-            { "sharp-box", "89E4378B303389FF" }, { "sharp-cylinder", "ED035019366524F9" }, { "l-profile", "52390C384A8C36B6" }, { "gear", "A1310834CD2DAAE4" }
-        };
-
         static DMesh3 BuildShape(string name, int passes)
         {
             DMesh3 m;
@@ -70,7 +66,7 @@ namespace geometry3Sharp.Tests
             // the input before the remesh passes, pinned: the gear outline and the cylinder rings are built with correctly rounded sin / cos
             // (PortableMath; with Math.Sin / Cos the Windows CRT moves some of the 64 outline values by an ulp, and one such ulp decides
             // whether the extraction of gear/18 drops a face: 7 of the 128 single 1-ulp changes do)
-            PortableMath.Pinned("QuadRemesherClosedOutputTests " + name, m, InputHashes[name]);
+            PortableMath.Pinned("QuadRemesherClosedOutputTests " + name, m, QuadFixtureInputTests.ShapeInputHashes[name]);
             DMesh3 src = new DMesh3(m);
             var r = new Remesher(m) { SmoothSpeedT = 0.5 };
             r.SetProjectionTarget(MeshProjectionTarget.Auto(src));

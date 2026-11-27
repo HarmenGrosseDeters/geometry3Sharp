@@ -45,10 +45,6 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        internal static readonly Dictionary<string, string> InputHashes = new Dictionary<string, string> {
-            { "sharp-box", "89E4378B303389FF" }, { "sharp-cylinder", "ED035019366524F9" }, { "l-profile", "52390C384A8C36B6" }, { "gear", "A1310834CD2DAAE4" }
-        };
-
         static DMesh3 BuildShape(string name, int passes = FixturePasses)
         {
             DMesh3 m;
@@ -111,7 +107,7 @@ namespace geometry3Sharp.Tests
                 default:
                     throw new ArgumentException(name);
             }
-            PortableMath.Pinned("QuadCreasePreservationTests " + name, m, InputHashes[name]);     // (the input before the passes: see QuadRemesherClosedOutputTests)
+            PortableMath.Pinned("QuadCreasePreservationTests " + name, m, QuadFixtureInputTests.ShapeInputHashes[name]);     // (the input before the passes: see QuadRemesherClosedOutputTests)
             DMesh3 src = new DMesh3(m);
             // The input triangulation is pinned: the remesher without PreventNormalFlips and MinTriangleQuality (their
             // results changed with issue #1441, the results without them are pinned bit for bit by

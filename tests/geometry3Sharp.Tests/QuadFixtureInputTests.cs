@@ -13,6 +13,12 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class QuadFixtureInputTests
     {
+        // the pinned inputs (before the remesh passes) of the shapes of QuadRemesherClosedOutputTests and QuadCreasePreservationTests: both build the
+        // same triangulations, and their builders check against this one table
+        internal static readonly System.Collections.Generic.Dictionary<string, string> ShapeInputHashes = new System.Collections.Generic.Dictionary<string, string> {
+            { "sharp-box", "89E4378B303389FF" }, { "sharp-cylinder", "ED035019366524F9" }, { "l-profile", "52390C384A8C36B6" }, { "gear", "A1310834CD2DAAE4" }
+        };
+
         [Theory]
         [InlineData("sharp-box")]
         [InlineData("sharp-cylinder")]
@@ -20,7 +26,7 @@ namespace geometry3Sharp.Tests
         [InlineData("gear")]
         public void ClosedOutputShapes_ArePinned(string name)
         {
-            // BuildShape checks the input before the passes against QuadRemesherClosedOutputTests.InputHashes
+            // BuildShape checks the input before the passes against ShapeInputHashes
             DMesh3 m = QuadRemesherClosedOutputTests.Shape(name, 18);
             Assert.True(m.TriangleCount > 0);
         }

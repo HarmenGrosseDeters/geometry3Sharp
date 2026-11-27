@@ -76,7 +76,8 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
-        /// <summary> a hash of the vertex bits (in id order) and the triangles of a mesh: the identity of a test input </summary>
+        /// <summary> a hash of the vertex bits (in id order) and the triangles of a mesh: the identity of a test input. Normals, colours, uvs and groups
+        /// are left out (the quad pipeline recomputes its normals from the positions), so two meshes that differ only there have the same hash </summary>
         internal static string Hash(DMesh3 m)
         {
             var bytes = new System.Collections.Generic.List<byte>();
