@@ -1,6 +1,6 @@
 # Coplanar propagation: stacks and winding numbers in one pass over the coplanar cells
 
-Status: design, nothing built (2026-11-25). Refs #1630. Measurements: the issue and its upper-bound comment; re-measurement, per-stage counts, upper bound and the choice of options: [COPLANAR_FAN_DIAGNOSIS.md](COPLANAR_FAN_DIAGNOSIS.md) (2026-11-27).
+Status: the stack walk (option A of COPLANAR_FAN_DIAGNOSIS.md) is built (2026-11-27, section 9); the winding regions (option B) are not. Design of 2026-11-25. Refs #1630. Measurements: the issue and its upper-bound comment; re-measurement, per-stage counts, upper bound and the choice of options: [COPLANAR_FAN_DIAGNOSIS.md](COPLANAR_FAN_DIAGNOSIS.md) (2026-11-27).
 
 ## 1. Problem
 
@@ -222,3 +222,60 @@ Papers only; no code read (docs/sources/exact-arithmetic-and-booleans.md):
   across the cells of an arrangement.
 - Pluecker line coordinates: a standard construction (for example J. Stolfi, *Oriented Projective Geometry*, Academic Press,
   1991).
+
+## 9. As built: the stack walk (option A, 2026-11-27)
+
+Built: the stacks only; the winding stays per patch. `ExactMeshBoolean.CoplanarWalk` (internal, default true) switches the walk on for the
+sources with at least `CoplanarWalkMinCoplanar` = 16 coplanar triangles and `CoplanarWalkMinPieces` = 8 pieces; false runs the scan of
+every piece as before (the reference of the tests); 0 and 0 walk every source with a coplanar triangle.
+
+**Edge labels (section 4, the labels variant).** With `RecordEdgeLines` the arrangement keeps, for each input triangle with at least
+`EdgeLinesMinCoplanar` coplanar triangles, a dictionary `EdgeLinesOf(ti)`: for the key of an output edge (`EdgeKey` of its point ids), the
+coplanar triangles whose edge plane carries a constraint segment through that edge (ascending, without duplicates). Where it is filled:
+- `prepare_touched` drops a segment whose ends equal those of a kept one (the common edge of two adjacent fan wedges, for example, comes
+  with two lines). The dropped lines are kept per edge key (`Touch.Aliases`), so the union of the lines is not lost (the point
+  section 4 asks for).
+- `triangulate_touched` splits every segment at the points on it and inserts the parts as constraints. For each part it adds the segment's
+  line and its aliases to the part's key. Only edge planes (`line & 3 != 0`) count: a line `4 * u` is the plane of a triangle that is not
+  coplanar and is the winding's business (option B).
+No new arithmetic: keys are integers, lists are built by insertion in a fixed order (the determinism proof scope allows no enumeration of a
+dictionary and no library sort: `DeterministicApis.txt` has one new site line, `Interlocked.Add` of the test counter, and the ledger line
+of DETERMINISM_PROOF.md 5.4 is regenerated).
+
+**The walk (`coplanar_walk`).** The pieces of a source are consecutive in `Output`. The first one gets today's scan (`coplanar_stack`, with
+the box filter), so its list is the scan's. The others are reached breadth first across the edges the pieces share (two pieces per edge
+of one triangulation). From piece p across edge e to q:
+- no recorded plane on e: the list of q is a copy of the list of p (and so its representative flag);
+- else the exact centroid of q is built and each recorded triangle u (in `src.Coplanar`) is tested again with `inside_coplanar`; u is
+  inserted into or removed from the ascending member list as the test says. The list is `[source, members...]` or null, as the scan builds
+  it, and the flag is "no member below the source".
+The walk runs per source inside a new `gParallel.ForRange` of `classify` (that member is on the allow list of G3E0002: each source writes its
+own slice of `stack` and `representative`, the only shared value is the `Interlocked` counter of the exact tests).
+
+**Completeness: why no stack member is missed.** Claim: for pieces p and q that share the edge e, and a coplanar triangle u of the source T that
+has no recorded plane on e, the centroids of p and q are both in the closed u or both outside it.
+1. A coplanar pair that `meets_only_at_shared` decides (`PreDecideCoplanar`) meets T only in shared corners or a shared edge: no piece
+   centroid, which lies in T's interior, is in u, and the first piece's scan says so; u is never tested again and never recorded.
+2. Every other pair is clipped (`intersect_coplanar`): each edge of u is clipped to T (`clip_into`) into a point or a segment of its
+   edge plane; so the part of the boundary of u inside the closed T is a union of such points and segments.
+3. Every segment is split at all points on it (the points whose boxes meet the segment's, tested exactly for collinearity: a point on the
+   segment has its box meeting the segment's box, so none is missed) and each part is inserted as a constraint; constraints stay edges of
+   the constrained triangulation; so each part is an edge of a piece, and the walk recorded the plane of u for that edge's key, from the
+   segment's line or from an alias (item above) of a segment with the same ends. A recorded point (a tangential touch) is a vertex of the
+   triangulation.
+4. Suppose a point x in the relative interior of e is on the boundary of u. Then x is on a clipped segment (a point is a vertex, never in
+   the relative interior of an edge); that segment is a chain of edges of the triangulation; the edge of the chain through x meets e in a point
+   that is not a vertex, so it is e (two edges of one triangulation meet only in a common end). So u is recorded on e: contradiction.
+   The interiors of p and q contain no point of an edge, so they do not meet the boundary of u either.
+5. The set interior(p), relative interior(e), interior(q) is connected and does not meet the boundary of u; it lies in the interior of u or
+   in its exterior as a whole. The centroids are in it: the same answer for both.
+The dual graph of a triangulation of a triangle is connected across shared edges, so the breadth first order reaches every piece, and by
+induction along the tree every list equals the scan's: the same membership, in the same ascending order, the same flag. The scan's box
+filter is conservative (it skips only triangles that cannot contain the centroid), so it changes no scan result either. What can break
+the argument is a label lost in 3 (a duplicate segment, or a part of a collinear overlap that is not split at the other segment's ends): the
+test `ExactMeshBooleanCoplanarWalkTests` compares pieces, stacks, decisions and result of the walk (forced for every source) with the scan on
+fans (a cylinder and its 2-ulp, 0.25 and 1e-9 shifts), on boxes with coplanar tops, under every similarity, for union, intersection and
+difference. The optional run-time check of section 3 is not built.
+
+**Measured** (scratch repro of COPLANAR_FAN_DIAGNOSIS.md; the counts are exact, the times noisy): see the PR.
+
