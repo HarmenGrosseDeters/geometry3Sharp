@@ -101,6 +101,22 @@ difference empty both ways) do not. That is the owner's decision.
 6. **Exact proof tools.** No new arithmetic: exact planes, `Orient`, the existing predicates; one exact-code review and the
    incremental mutation run (exact shards), as for option A.
 
+### Proofs to write before stage 2 is built (each goes into this note as a section, then to the review)
+
+- **P1, membership.** For a region R of mesh B and a piece p of a triangle T of mesh A: the centroid of p is in the closed R iff it is in one triangle
+  of R; and two pieces that share an edge e are on the same side of the boundary of R unless e carries a label of a boundary edge of R. From the
+  clipped boundary edges being constraint chains (as COPLANAR_PROPAGATION.md section 9, steps 2 to 5), with "boundary of R" for "boundary of u".
+- **P2, one entry per region.** The triangles of one region have disjoint interiors (a surface in one plane, one orientation), so a stack has at most one
+  entry per region; a piece on a flat edge of R is in two triangles of R and one entry.
+- **P3, the partition of an overlap.** For regions RA and RB that overlap, exactly one of the two supplies each point of RA intersect RB as output, the
+  rank being the region's lowest triangle index; the pieces of the winning region's triangles are a partition of the overlap, because the pieces of
+  one triangle are a partition of it and the triangles of a region partition it.
+- **P4, equal surface.** The set covered by the output pieces with the rule E' equals the set covered today: both are the same decision per point
+  of the plane (the stack is the same set of meshes and orientations at every point, only its members' granularity differs); the exact test is the
+  difference of the two results being empty both ways, run on the cases of stage 2.
+- **P5, no new bound.** Every decision is an exact orientation of input points or of arrangement points with the existing predicates; the proof lists
+  the new call sites and confirms that no filter and no error bound is added; if a filter is added later it needs its own bound.
+
 ## 7. What it replaces and what it keeps
 
 Keeps: the stack walk, the edge-plane labels and their aliases (now fewer: only boundary edges), the pair loop, the arrangement,
