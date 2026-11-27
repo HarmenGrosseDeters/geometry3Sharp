@@ -39,7 +39,7 @@ static class PipelineCertBench
         public double BoolMs, CertMs, C2Ms, FilteredC2aMs, OtherMs, C0Ms, C1Ms, C3Ms, C5Ms;
         public int FilteredViolations;
         public List<string> Caveats = new List<string>();
-        public string Key => Kind == PipelineVerdictKind.Certified ? (Caveats.Any(c => c.StartsWith("rounding removed")) ? "Certified, rounding removed parts" : Caveats.Any(c => c.StartsWith("contacts")) ? "Certified, with contacts" : Caveats.Any(c => c.StartsWith("input ") && c.Contains("winding number")) ? "Certified, input winding outside 0..1" : "Certified") : Kind == PipelineVerdictKind.NotCertifiable ? $"NotCertifiable({Clause})" : $"Rejected({Clause})";
+        public string Key => Kind.IsCertified() ? (Caveats.Any(c => c.StartsWith("rounding removed")) ? "Certified, rounding removed parts" : Caveats.Any(c => c.StartsWith("contacts")) ? "Certified, with contacts" : Caveats.Any(c => c.StartsWith("input ") && c.Contains("winding number")) ? "Certified, input winding outside 0..1" : "Certified") : Kind == PipelineVerdictKind.NotCertifiable ? $"NotCertifiable({Clause})" : $"Rejected({Clause})";
     }
 
     sealed class Captured : IExactStageRun
@@ -85,7 +85,7 @@ static class PipelineCertBench
             }
             PipelineVerdict v = PipelineCertificate.Certify(run);
             Fill(r, v, plain);
-            if (v.Kind == PipelineVerdictKind.Certified) FilteredC2a(r, run.Boolean);
+            if (v.Kind.IsCertified()) FilteredC2a(r, run.Boolean);
             if (oracle != null) r.Oracle = oracle(run.Boolean.Result);
         } catch (Exception e) {
             r.Kind = PipelineVerdictKind.NotCertifiable; r.Clause = "exception"; r.Detail = e.GetType().Name + ": " + e.Message.Replace('\n', ' ');
@@ -241,13 +241,14 @@ static class PipelineCertBench
                     PipelineVerdict v = PipelineCertificate.Certify(cap);
                     Fill(r, v, r.BoolMs);
                     r.Route = route;
-                    if (v.Kind == PipelineVerdictKind.Certified) FilteredC2a(r, last);
+                    if (v.Kind.IsCertified()) FilteredC2a(r, last);
                     r.Oracle = Judge(c, f, prep, pipe.Result);
                     // (what the pipeline's own report says about the run today: the baseline the certificate has to beat)
                     r.Today = $"{pipe.Status}, Clean={pipe.Report.Clean}, RoundingRemoved={pipe.Report.RoundingRemoved.Count}, DroppedInsideOut={pipe.Report.DroppedInsideOutComponents.Count}, RoundingClean={last.RoundingClean}";
                     // (what the pipeline does after the exact stage: the certificate is about the exact stage's output)
-                    if (pipe.Result != null && last.Result != null && pipe.Result.TriangleCount != last.Result.TriangleCount)
-                        r.Detail += $" [post-exact-stage change: {last.Result.TriangleCount} -> {pipe.Result.TriangleCount} triangles]";
+                    // (by the triangles' coordinates and orientation, not by their count only)
+                    if (pipe.Result != null && last.Result != null && PipelineCertificate.InputsFedReason(new[] { last.Result }, new[] { pipe.Result }, out bool sameResult) != "")
+                        r.Detail += $" [post-exact-stage change: {last.Result.TriangleCount} -> {pipe.Result.TriangleCount} triangles, not the same triangles]";
                 } catch (Exception e) {
                     r.Kind = PipelineVerdictKind.NotCertifiable; r.Clause = "exception"; r.Detail = e.GetType().Name + ": " + e.Message.Replace('\n', ' ');
                 }
@@ -363,7 +364,7 @@ static class PipelineCertBench
                 foreach (var g in all.Where(r => r.Oracle == "WRONG").GroupBy(r => (r.Key, r.Today)).OrderBy(g => g.Key.Key))
                     Console.WriteLine($"    {g.Key.Key} | today: {g.Key.Today}: {g.Count()}");
             }
-            var cert = all.Where(r => r.Kind == PipelineVerdictKind.Certified && r.BoolMs > 0).ToList();
+            var cert = all.Where(r => r.Kind.IsCertified() && r.BoolMs > 0).ToList();
             if (cert.Count > 0) {
                 var big = cert.Where(r => r.BoolMs >= 20).ToList();
                 foreach (var (label, set) in new[] { ("all certified", cert), ("boolean >= 20 ms", big) }) {

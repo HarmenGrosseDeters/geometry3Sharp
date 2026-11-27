@@ -63,11 +63,13 @@ namespace geometry3Sharp.Tests
             DMesh3 open = Sphere(0.5, new Vector3d(0.2, 0, 0));
             open.RemoveTriangle(open.TriangleIndices().First());
             DirectRun sheet = DirectRun.Compute(new[] { Sphere(1, Vector3d.Zero), open }, Ops.Difference, configure: b => b.AllowOpenMeshes = true);
+            Assert.True(sheet.Succeeded, sheet.Failure);
             sheet.Route = PipelineRoute.SheetRole;
             v = PipelineCertificate.Certify(sheet);
             log.WriteLine(v.ToString());
             Assert.Equal(PipelineVerdictKind.NotCertifiable, v.Kind);
             Assert.Equal(PipelineRoute.SheetRole, v.Route);
+            Assert.Equal("n/a", v.Clause);   // (not "no-result": the sheet run has a result, the certificate does not apply to it)
 
             // a route without an exact arrangement, and a run that failed
             var wrap = new DirectRun();
@@ -145,6 +147,38 @@ namespace geometry3Sharp.Tests
                 AppendTetrahedron(e.Certificate.Result, new Vector3d(0.1, 0.1, 0.1));
             }, "C5");
 
+            // C0 through Judge: on the repair route (on Direct, InputsFed would see it first) the copy the exact stage got is the passed one, but the
+            // boolean's own inputs are reversed: the orientation the exact stage took is not the inputs' (Certificate.Inputs and OriginalInputs mutated together)
+            Seeded("an input of the certificate reversed (C0, repair route)", e => {
+                var reversed = e.Certificate.Inputs.Select(m => { DMesh3 r = Copy(m); r.ReverseOrientation(false); return r; }).ToList();
+                e.Route = PipelineRoute.InputRepair;
+                e.Certificate.Inputs = reversed;
+                e.FedInputs = reversed;
+                e.OriginalInputs = reversed;
+            }, "C0");
+            // C2 through Judge: a split source triangle left unsplit (the missed intersection); some source of the run shows it
+            {
+                bool seen = false;
+                BooleanCertificate probe = BooleanCertificate.From((sharedRun ?? (sharedRun = Spheres())).Boolean);
+                var split = probe.PieceSource.GroupBy(x => x).Where(g => g.Count() > 1).Select(g => g.Key).OrderBy(x => x).ToList();
+                for (int k = 0; k < Math.Min(12, split.Count) && !seen; ++k) {
+                    int source = split[k * split.Count / Math.Min(12, split.Count)];
+                    PipelineEvidence e = PipelineEvidence.From(sharedRun);
+                    BooleanCertificate c = e.Certificate;
+                    int[] keep = Enumerable.Range(0, c.PieceSource.Length).Where(i => c.PieceSource[i] != source).ToArray();
+                    int mesh = c.PieceMesh[Array.IndexOf(c.PieceSource, source)];
+                    c.PieceMesh = keep.Select(i => c.PieceMesh[i]).Append(mesh).ToArray();
+                    c.PieceCorners = keep.Select(i => c.PieceCorners[i]).Append(c.SourceCornersOnGrid(source)).ToArray();
+                    c.PieceSource = keep.Select(i => c.PieceSource[i]).Append(source).ToArray();
+                    if (!c.IsClassified(c.PieceSource.Length - 1)) continue;
+                    PipelineVerdict v = PipelineCertificate.Judge(e);
+                    log.WriteLine("a split source left unsplit: " + v);
+                    Assert.True(v.Kind == PipelineVerdictKind.Rejected && v.Clause == "C2", "a split source left unsplit: " + v);
+                    seen = true;
+                }
+                Assert.True(seen, "no split source gave a classified unsplit piece");
+            }
+
             // the inputs the exact stage got are not the inputs passed: a plate dropped from B (issue #1567's mechanism)
             {
                 DMesh3 b = Box(new Vector3d(5, 0, 0), new Vector3d(0.5, 0.5, 0.5));
@@ -195,20 +229,29 @@ namespace geometry3Sharp.Tests
             Assert.Equal(PipelineVerdictKind.Certified, verdict.Kind);
         }
 
-        [Fact]
-        public void Verdict_IsInvariantUnderPowerOfTwoScales_AndRepeatable()
+        static DMesh3 Moved(DMesh3 m, Similarity sim)
         {
-            var shapes = new[] { Sphere(1, Vector3d.Zero), Sphere(1, new Vector3d(1.2, 0.1, 0.05)) };
-            PipelineVerdictKind first = PipelineVerdictKind.Rejected;
-            foreach (int k in new[] { 0, -20 }) {
-                var scaled = shapes.Select(m => { DMesh3 c = Copy(m); MeshTransforms.Scale(c, Math.Pow(2, k)); return c; }).ToArray();
-                DirectRun run = DirectRun.Compute(scaled, Ops.Difference);
-                PipelineEvidence ev = PipelineEvidence.From(run);
-                PipelineVerdict v1 = PipelineCertificate.Judge(ev), v2 = PipelineCertificate.Judge(PipelineEvidence.From(run));
+            DMesh3 c = Copy(m);
+            foreach (int vid in c.VertexIndices()) c.SetVertex(vid, sim.Apply(c.GetVertex(vid)));
+            return c;
+        }
+
+        // (small spheres: nine similarities, each a boolean and its certificate; Slow-free)
+        [Fact]
+        public void Verdict_IsInvariantUnderSimilarities_AndRepeatable()
+        {
+            var shapes = new[] { Sphere(1, Vector3d.Zero, 3), Sphere(1, new Vector3d(1.2, 0.1, 0.05), 3) };
+            PipelineVerdict reference = null;
+            foreach (Similarity sim in Similarity.All()) {
+                DirectRun run = DirectRun.Compute(shapes.Select(m => Moved(m, sim)).ToArray(), Ops.Difference);
+                Assert.True(run.Succeeded, sim + ": " + run.Failure);
+                PipelineVerdict v1 = PipelineCertificate.Judge(PipelineEvidence.From(run)), v2 = PipelineCertificate.Judge(PipelineEvidence.From(run));
                 Assert.Equal(PipelineVerdictKind.Certified, v1.Kind);
-                Assert.Equal(v1.ToString(), v2.ToString());
-                if (k == 0) first = v1.Kind;
-                Assert.Equal(first, v1.Kind);
+                Assert.Equal(v1.ToString(), v2.ToString());   // repeatable on one run
+                if (reference == null) reference = v1;
+                // (the verdict, the clause and the caveats do not depend on the frame; the numbers of a Rejected verdict are not compared across frames)
+                Assert.True(v1.Kind == reference.Kind && v1.Clause == reference.Clause && v1.Caveats.SequenceEqual(reference.Caveats), sim + ": " + v1);
+                if (sim.IsExact) Assert.Equal(reference.ToString(), v1.ToString());   // the 2^k scales: the same text, bit for bit
             }
         }
 
@@ -260,8 +303,63 @@ namespace geometry3Sharp.Tests
             Assert.True(thin.Boolean.Rounding.RemovedComponents > 0, "the rounding removed nothing: the case no longer shows the caveat");
             v = PipelineCertificate.Certify(thin);
             log.WriteLine(v.ToString() + ": " + string.Join(" | ", v.Caveats));
-            Assert.Equal(PipelineVerdictKind.Certified, v.Kind);
+            Assert.Equal(PipelineVerdictKind.CertifiedWithRemovals, v.Kind);
+            Assert.False(v.Kind == PipelineVerdictKind.Certified);
             Assert.Contains(v.Caveats, c => c.StartsWith("rounding removed"));
+
+            // two thin plates, both removed: CertifiedWithRemovals; the checker's exemption (every thin component of the exact result) is
+            // matched against the removals, so a defect that loses one more thin part than the rounding removed cannot hide behind it
+            DirectRun two = DirectRun.Compute(new[] { frame(Box(new Vector3d(1, 1, 1), new Vector3d(1, 1, 1))), frame(Box(new Vector3d(4, 1, h / 2), new Vector3d(1, 1, h / 2))), frame(Box(new Vector3d(7, 1, h / 2), new Vector3d(1, 1, h / 2))) }, Ops.Union);
+            Assert.True(two.Succeeded, two.Failure);
+            Assert.True(two.Boolean.Rounding.RemovedComponents == 2, "the rounding removed " + two.Boolean.Rounding.RemovedComponents + " parts, 2 expected");
+            Assert.Equal(PipelineVerdictKind.CertifiedWithRemovals, PipelineCertificate.Certify(two).Kind);
+            PipelineEvidence ev = PipelineEvidence.From(two);
+            ev.Certificate.RemovedComponents = 1; ev.RemovedComponentInfoCount = 1;   // (one removal reported, two thin components exempt)
+            v = PipelineCertificate.Judge(ev);
+            log.WriteLine(v.ToString());
+            Assert.True(v.Kind == PipelineVerdictKind.NotCertifiable && v.Clause == "removals-unmatched", v.ToString());
+            ev = PipelineEvidence.From(two);
+            ev.RemovedComponentInfoCount = 0;   // (the listed removals do not match the count)
+            Assert.Equal("removals-unmatched", PipelineCertificate.Judge(ev).Clause);
+        }
+
+        [Fact]
+        public void InputsFed_LostSurfaceOnARouteThatAltersInputs_IsNotCertifiable()
+        {
+            DMesh3 a = Box(Vector3d.Zero, new Vector3d(1, 1, 1)), other = Box(new Vector3d(0.5, 0.5, 0.5), new Vector3d(1, 1, 1));
+            DirectRun run = DirectRun.Compute(new[] { a, other }, Ops.Union);
+            Assert.True(run.Succeeded, run.Failure);
+            // (input B passed with a 2 x 2 plate more, which the route dropped: issue #1567's mechanism, on the repair route)
+            DMesh3 passed = Copy(other); MeshEditor.Append(passed, Box(new Vector3d(9, 0, 0), new Vector3d(1, 1, 0.001)));
+            PipelineEvidence e = PipelineEvidence.From(run);
+            e.Route = PipelineRoute.InputRepair;
+            e.OriginalInputs = new[] { a, passed };
+            PipelineVerdict v = PipelineCertificate.Judge(e);
+            log.WriteLine(v.ToString());
+            Assert.True(v.Kind == PipelineVerdictKind.NotCertifiable && v.Clause == "inputs-altered", v.ToString());
+            // the drop is explained by the route (the 12 triangles of the plate): then the rest decides
+            e.ExplainedDroppedTriangles = 12;
+            Assert.Equal(PipelineVerdictKind.Certified, PipelineCertificate.Judge(e).Kind);
+            // added triangles alone stay a caveat (NoInventedSurface covers them): the exact stage got more than was passed
+            e = PipelineEvidence.From(run);
+            e.Route = PipelineRoute.InputRepair;
+            DMesh3 fedMore = Copy(a); MeshEditor.Append(fedMore, Box(new Vector3d(0, 0, 9), new Vector3d(1, 1, 1)));
+            PipelineCertificate.InputsFedReason(new[] { a }, new[] { fedMore }, out bool identical, out int missing, out int extra, 0);
+            Assert.False(identical);
+            Assert.Equal(0, missing);
+            Assert.Equal(12, extra);
+            // GridRetry: the fed inputs moved by at most the displacement are the inputs passed; moved by more they are not
+            DMesh3 snapped = Copy(a);
+            foreach (int vid in snapped.VertexIndices()) snapped.SetVertex(vid, snapped.GetVertex(vid) + new Vector3d(0.001, -0.001, 0));
+            Assert.Equal("", PipelineCertificate.InputsFedReason(new[] { a }, new[] { snapped }, out identical, out missing, out extra, 0.0011));
+            Assert.Equal(0, missing + extra);
+            string far = PipelineCertificate.InputsFedReason(new[] { a }, new[] { snapped }, out identical, out missing, out extra, 0.0005);
+            Assert.NotEqual("", far);
+            Assert.Equal(12, missing);
+            // no record of the inputs is a reason, not "identical"
+            Assert.NotEqual("", PipelineCertificate.InputsFedReason(null, new[] { a }, out identical));
+            Assert.False(identical);
+            Assert.NotEqual("", PipelineCertificate.InputsFedReason(new[] { a }, null, out identical));
         }
 
         // the audit's generic rotation (axis (1, 2, 3), angle 0.7), with the UTM offset if asked

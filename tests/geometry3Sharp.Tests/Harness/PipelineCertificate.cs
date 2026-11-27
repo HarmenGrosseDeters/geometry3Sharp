@@ -26,7 +26,18 @@ namespace geometry3Sharp.Tests
         Wrap
     }
 
-    internal enum PipelineVerdictKind { Certified, NotCertifiable, Rejected }
+    /// <summary>
+    /// Certified: every clause holds. CertifiedWithRemovals: every clause holds, but the rounding removed closed parts of the exact result
+    /// (listed in Caveats; BooleanCertificate.Check calls that "not clean"): not a plain Certified. NotCertifiable: the certificate does not
+    /// apply or cannot decide. Rejected: a clause failed.
+    /// </summary>
+    internal enum PipelineVerdictKind { Certified, CertifiedWithRemovals, NotCertifiable, Rejected }
+
+    internal static class PipelineVerdictKindExtensions
+    {
+        /// <summary> Certified or CertifiedWithRemovals: no clause failed and the certificate applies </summary>
+        public static bool IsCertified(this PipelineVerdictKind k) => k == PipelineVerdictKind.Certified || k == PipelineVerdictKind.CertifiedWithRemovals;
+    }
 
     /// <summary>
     /// What the exact stage of one pipeline run hands to the certificate. This is the abstraction that phase 2's hook in
@@ -114,6 +125,10 @@ namespace geometry3Sharp.Tests
         /// <summary> the inputs the exact stage got (ExactMeshBoolean.Meshes) </summary>
         public IReadOnlyList<DMesh3> FedInputs;
         public double InputDisplacement;
+        /// <summary> the triangles of the inputs as passed that the route reports as dropped on purpose (an explained drop); any other missing triangle on a route other than Direct is NotCertifiable </summary>
+        public int ExplainedDroppedTriangles;
+        /// <summary> the number of closed components the rounding repair listed as removed (Rounding.RemovedComponentInfos.Count) </summary>
+        public int RemovedComponentInfoCount;
         public double RoundingVolumeBefore, RoundingVolumeAfter;
         public bool RoundingRan;
         /// <summary> the bound MeshRoundingRepair applied (Rounding.MaxLength), 0 when no rounding ran </summary>
@@ -131,6 +146,7 @@ namespace geometry3Sharp.Tests
             if (b.Rounding != null) {
                 e.RoundingRan = true;
                 e.RoundingBound = b.Rounding.MaxLength;
+                e.RemovedComponentInfoCount = b.Rounding.RemovedComponentInfos.Count;
                 e.RoundingVolumeBefore = b.Rounding.VolumeBefore;
                 e.RoundingVolumeAfter = b.Rounding.VolumeAfter;
             }
@@ -159,9 +175,12 @@ namespace geometry3Sharp.Tests
 
             // the inputs the exact stage got against the inputs as passed
             var sw = Stopwatch.StartNew();
-            string fed = InputsFedReason(e.OriginalInputs, e.FedInputs, out bool identical);
+            string fed = InputsFedReason(e.OriginalInputs, e.FedInputs, out bool identical, out int missing, out int extra, e.Route == PipelineRoute.GridRetry ? e.InputDisplacement : 0);
             v.FedMs = sw.Elapsed.TotalMilliseconds;
             if (fed != "" && e.Route == PipelineRoute.Direct) return Reject(v, "InputsFed", fed);
+            // (a route that changes the inputs may add surface, which NoInventedSurface sees; it must not lose surface that nothing explains:
+            // lost surface of an input is invisible to every later clause)
+            if (missing > e.ExplainedDroppedTriangles) return NotCertifiable(v, "inputs-altered", $"the route lost input surface: {fed}");
             if (!identical) v.Caveats.Add($"the exact stage's inputs differ from the inputs as passed ({fed}): the certificate is about the inputs it got");
 
             // the exact stage, clause by clause in the order of BooleanCertificate.Check (timed)
@@ -184,8 +203,12 @@ namespace geometry3Sharp.Tests
             // "winding number > 0" and the certificate is about that; whether it is what the caller meant is not checkable, so it is a caveat)
             string winding = WindingOutsideZeroOne(c);
             if (winding != "") v.Caveats.Add(winding);
-            // (the solids the rounding removed: listed by the checker, never silently exempt; a caveat of the verdict, see the note's statement)
+            // (the solids the rounding removed: listed by the checker, never silently exempt. CheckResult skips every thin or tiny component of the
+            // exact result once the rounding removed any, so the skipped components must be no more than the removed ones, else a second thin part
+            // lost by a defect would hide behind the first removal)
             foreach (string part in c.RemovedParts) v.Caveats.Add("rounding removed: " + part);
+            if (c.RemovedParts.Count > 0 && (c.ExemptComponents > c.RemovedComponents || c.RemovedComponents != e.RemovedComponentInfoCount))
+                return NotCertifiable(v, "removals-unmatched", $"{c.ExemptComponents} thin or tiny components of the exact result are left out of the coverage, the rounding removed {c.RemovedComponents} ({e.RemovedComponentInfoCount} listed)");
 
             sw.Restart();
             string notClean = MeshRobustRepair.NotCleanReason(c.Result);
@@ -214,7 +237,7 @@ namespace geometry3Sharp.Tests
                         vol.Before, vol.After, vol.Change, vol.Limit, vol.Floor);
                 }
             } finally { v.RoundingChecksMs = sw.Elapsed.TotalMilliseconds; }
-            v.Kind = PipelineVerdictKind.Certified;
+            v.Kind = c.RemovedParts.Count > 0 ? PipelineVerdictKind.CertifiedWithRemovals : PipelineVerdictKind.Certified;
             return v;
         }
 
@@ -257,19 +280,24 @@ namespace geometry3Sharp.Tests
         }
         static bool Less(Vector3d p, Vector3d q) => p.x != q.x ? p.x < q.x : p.y != q.y ? p.y < q.y : p.z < q.z;
 
+        public static string InputsFedReason(IReadOnlyList<DMesh3> original, IReadOnlyList<DMesh3> fed, out bool identical) =>
+            InputsFedReason(original, fed, out identical, out _, out _, 0);
+
         /// <summary>
         /// "" if every mesh of fed has the triangles (by coordinates, orientation included) of the mesh of original at its index and
-        /// no other, else how many are missing and extra. identical: the same mesh objects, or the same triangles. The
-        /// pipeline's input repair, grid snap and drop of components all show here; the direct route has none of them.
+        /// no other, else how many are missing and extra. identical: the same mesh objects, or the same triangles. tolerance above 0
+        /// (GridRetry): a triangle matches one whose corners are all within the tolerance of its corners, in the same orientation.
+        /// The pipeline's input repair, grid snap and drop of components all show here; the direct route has none of them. A missing
+        /// list (null) is no evidence that the inputs were fed: it is a reason, and counts as one missing triangle.
         /// </summary>
-        public static string InputsFedReason(IReadOnlyList<DMesh3> original, IReadOnlyList<DMesh3> fed, out bool identical)
+        public static string InputsFedReason(IReadOnlyList<DMesh3> original, IReadOnlyList<DMesh3> fed, out bool identical, out int missing, out int extra, double tolerance)
         {
-            identical = true;
-            if (original == null || fed == null) return "";
-            if (original.Count != fed.Count) { identical = false; return $"{original.Count} inputs passed, {fed.Count} fed"; }
-            int missing = 0, extra = 0;
+            identical = true; missing = 0; extra = 0;
+            if (original == null || fed == null) { identical = false; missing = 1; return "the inputs as passed or the inputs fed are not recorded"; }
+            if (original.Count != fed.Count) { identical = false; missing = 1; return $"{original.Count} inputs passed, {fed.Count} fed"; }
             for (int i = 0; i < original.Count; ++i) {
                 if (ReferenceEquals(original[i], fed[i])) continue;
+                if (tolerance > 0) { MatchWithin(original[i], fed[i], tolerance, ref missing, ref extra); continue; }
                 var count = new Dictionary<(double, double, double, double, double, double, double, double, double), int>();
                 foreach (int t in original[i].TriangleIndices()) { var k = Key(original[i], t); count[k] = count.TryGetValue(k, out int n) ? n + 1 : 1; }
                 foreach (int t in fed[i].TriangleIndices()) {
@@ -280,6 +308,43 @@ namespace geometry3Sharp.Tests
             }
             identical = missing == 0 && extra == 0;
             return identical ? "" : $"{missing} triangles of the inputs as passed are not fed, {extra} fed triangles are not in them";
+        }
+
+        // the triangles of a and b matched one to one, a corner of a within tol (per coordinate) of the corner of b at the same place of a rotation of b; a spatial hash of the centroids of b
+        static void MatchWithin(DMesh3 a, DMesh3 b, double tol, ref int missing, ref int extra)
+        {
+            double cell = Math.Max(4 * tol, double.Epsilon);
+            Func<Vector3d, (long, long, long)> cellOf = p => ((long)Math.Floor(p.x / cell), (long)Math.Floor(p.y / cell), (long)Math.Floor(p.z / cell));
+            var grid = new Dictionary<(long, long, long), List<int>>();
+            var used = new HashSet<int>();
+            foreach (int t in b.TriangleIndices()) {
+                Index3i tri = b.GetTriangle(t);
+                var key = cellOf((b.GetVertex(tri.a) + b.GetVertex(tri.b) + b.GetVertex(tri.c)) / 3);
+                if (!grid.TryGetValue(key, out var list)) grid[key] = list = new List<int>();
+                list.Add(t);
+            }
+            Func<Vector3d, Vector3d, bool> near = (p, q) => Math.Abs(p.x - q.x) <= tol && Math.Abs(p.y - q.y) <= tol && Math.Abs(p.z - q.z) <= tol;
+            foreach (int t in a.TriangleIndices()) {
+                Index3i ta = a.GetTriangle(t);
+                Vector3d[] pa = { a.GetVertex(ta.a), a.GetVertex(ta.b), a.GetVertex(ta.c) };
+                var (cx, cy, cz) = cellOf((pa[0] + pa[1] + pa[2]) / 3);
+                bool found = false;
+                for (long dx = -1; dx <= 1 && !found; ++dx)
+                    for (long dy = -1; dy <= 1 && !found; ++dy)
+                        for (long dz = -1; dz <= 1 && !found; ++dz) {
+                            if (!grid.TryGetValue((cx + dx, cy + dy, cz + dz), out var list)) continue;
+                            foreach (int u in list) {
+                                if (used.Contains(u)) continue;
+                                Index3i tb = b.GetTriangle(u);
+                                Vector3d[] pb = { b.GetVertex(tb.a), b.GetVertex(tb.b), b.GetVertex(tb.c) };
+                                for (int k = 0; k < 3 && !found; ++k)
+                                    if (near(pa[0], pb[k]) && near(pa[1], pb[(k + 1) % 3]) && near(pa[2], pb[(k + 2) % 3])) { found = true; used.Add(u); }
+                                if (found) break;
+                            }
+                        }
+                if (!found) missing++;
+            }
+            extra += b.TriangleCount - used.Count;
         }
 
         // ------------------------------------------------------------------ the rounding checks of #1488 (PROVISIONAL: reimplemented from the PR text, not its code)
@@ -310,7 +375,7 @@ namespace geometry3Sharp.Tests
         /// #1488 NoInventedSurface: every triangle of the result is sampled at its 3 vertices, centroid and 3 edge midpoints; it is
         /// invented when a sample is farther than the tolerance from every input as passed. Tolerance = 3 (max(the rounding's bound,
         /// 256 ulp of the largest used coordinate of the result and the inputs) + the displacement of the route's input snap).
-        /// A sample that the tree shows within the tolerance (by its exact distance) is decided there; every other one by the
+        /// A sample that the tree shows within the tolerance (by the floating-point distance of its closest point, MeshQueries.TriangleDistance) is decided there; every other one by the
         /// nearest-by-closest-point search over all inputs (the AABB tree's ranking is noise next to a big face).
         /// </summary>
         public static InventedSurface NoInventedSurface(DMesh3 result, IReadOnlyList<DMesh3> inputs, double roundingBound, double inputDisplacement)
@@ -341,7 +406,7 @@ namespace geometry3Sharp.Tests
 
         static double NearestInput(List<DMeshAABBTree3> trees, Vector3d p, double tol, ref int exact)
         {
-            // fast path: some tree has a triangle within the tolerance by the exact distance of its closest point
+            // fast path: some tree has a triangle within the tolerance by the (floating-point) distance of its closest point
             foreach (DMeshAABBTree3 tree in trees) {
                 int t = tree.FindNearestTriangle(p, tol * 1.0000001 + double.Epsilon);
                 if (t != DMesh3.InvalidID) {
