@@ -742,7 +742,7 @@ namespace gs
         /// <summary>
         /// The vertices of the loops that BuildFaces drops for their length (more than maxSides, up to maxLoop) or because they visit a vertex twice, traced with the neighbour
         /// orders of the tangent planes (those of rot instead, where it has an entry). A long loop without a repeated vertex whose
-        /// vertices all lie on the boundary of the input (Kind above 0: the outer loop of an open input, a hole) is no figure of eight and is left out, so the repair of an open input does not
+        /// vertices all lie on the boundary of the input or on a crease (Kind above 0: the outer loop of an open input, a hole) is no figure of eight and is left out, so the repair of an open input does not
         /// run for its boundary; a loop with a repeated vertex is a figure of eight wherever it is.
         /// </summary>
         internal static HashSet<int> BadLoopVertices(PolyGraph g, int maxSides, Dictionary<int, int[]> rot, int maxLoop = int.MaxValue)
