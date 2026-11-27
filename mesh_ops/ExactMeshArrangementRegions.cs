@@ -46,10 +46,12 @@ namespace g3
         // constraint segment, whatever the number of coplanar layers). Crossings with other ghosts are not needed: neither is a constraint.
         void ghost_points(InputTriangle t, int ti, Segment g, BoxGrid2 grid, List<Segment> real)
         {
+            // (a triangle of a region that is not embedded takes every side as a side to keep points on: its flat neighbours may be culled, and the fallback is the old rule)
+            int flat = regionClipped[RegionOf[ti]] ? flatMask[ti] : 0;
             for (int e = 0; e < 2; ++e) {
                 int y = e == 0 ? g.P : g.Q;
                 for (int k = 0; k < 3; ++k)
-                    if ((flatMask[ti] & (1 << k)) == 0 && Orient(t, t.Corners[k], t.Corners[(k + 1) % 3], y) == 0) {
+                    if ((flat & (1 << k)) == 0 && Orient(t, t.Corners[k], t.Corners[(k + 1) % 3], y) == 0) {
                         t.Points.Add(y);
                         break;
                     }
@@ -121,6 +123,12 @@ namespace g3
             if (RegionClipping) {
                 regionClipped = new bool[parent.Length];
                 for (int i = 0; i < parent.Length; ++i) regionClipped[i] = true;
+                // a region with a culled triangle is not embedded for this purpose: its boundary edges on culled triangles are never paired, so a piece of another
+                // triangle could cross its real boundary (the early-out of CullOutsideA, the default)
+                if (Culled != null)
+                    for (int i = 0; i < parent.Length; ++i)
+                        if (Culled[i])
+                            regionClipped[parent[i]] = false;
             }
         }
 

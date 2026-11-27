@@ -191,10 +191,15 @@ Internal switch `ExactMeshBoolean.RegionClipping` (off by default; `ExactMeshArr
    edge of C crossed a boundary edge f of B, B's triangle got the point on its side f, but the triangle of A that carries f as a constraint did not (review of #1725, 6
    inputs reproduced, now tests). Points on a flat side of the region are not added (both triangles of the region skip them alike; adding every end gave back the old
    29,808 pieces at ring 121). Crossings of two ghosts are not needed (neither is a constraint).
-   **Embedded regions only.** The pair loop marks both regions of two triangles of one mesh in one plane that meet and are not neighbours (`any` is true, and the pairs
-   that share three corners): such a region overlaps itself or another region of its mesh (a self-overlapping prism: winding number 2 in the overlap). It is not
-   embedded: its flat edges are clipped as before (no ghosts) and its triangles are counted one by one in the stacks (`RegionKey` is the triangle). P1 and P2 below are for
-   embedded regions; the others keep the old rule, so a `WindingPredicate` that reads exact winding numbers gives the same result as before (test).
+   **Embedded regions only.** A region is embedded, and its flat edges are ghosts, unless (a) two triangles of one mesh in one plane meet and are not neighbours: the pair
+   loop marks both regions (`any` is true), and the pairs that share three corners; such a region overlaps itself or another region of its mesh (a self-overlapping prism:
+   winding number 2 in the overlap). "Not neighbours" is the pair that `meets_only_at_shared` does not pre-decide, so it assumes `PreDecideCoplanar` (the default): with it
+   off every pair of triangles that meet is clipped, and every region is marked not embedded (the old rule, as it should be). (b) The region contains a **culled**
+   triangle (`CullOutsideA`, the default of Difference and Intersection): the boundary edges on a culled triangle are never paired, so a piece of another triangle could
+   cross the region's real boundary and P1 would fail (found by the second review: certificate C2 on a Difference of three fine boxes). A region that is not embedded
+   is clipped as before (no ghosts), counted per triangle in the stacks (`RegionKey` is the triangle), and its triangles keep points on every side (rule (c) above takes
+   all sides of such a triangle, since its flat neighbour may be culled or marked alike). P1 and P2 below are for embedded regions; the others keep the old rule, so
+   a `WindingPredicate` that reads exact winding numbers gives the same result as before (test).
 2. **Stacks.** `coplanar_stack` is unchanged: it lists every triangle of another mesh that contains the piece's centroid, ascending, and the piece is output from
    the first. The members are triangles of other meshes, and all triangles of a mesh come before those of the next, so the region of the lowest rank is the
    lowest mesh's: the old rule and the rank by region are the same (a region is inside one mesh), and the code keeps the old one.
@@ -204,7 +209,7 @@ Internal switch `ExactMeshBoolean.RegionClipping` (off by default; `ExactMeshArr
 
 Proofs (P1 to P5 of section 6; "region" is as in section 4):
 
-- **P1, membership.** (Embedded regions; others are clipped as before.) Let R be a region of mesh B and p a piece of a triangle T of mesh A (coplanar). Every boundary edge of R meeting T is clipped into T (the
+- **P1, membership.** (Embedded regions, none of whose triangles is culled; others are clipped as before.) Let R be a region of mesh B and p a piece of a triangle T of mesh A (coplanar). Every boundary edge of R meeting T is clipped into T (the
   pair of T with the triangle that carries the edge is a candidate pair, `any` is true when the clip is not empty, and the segment is added since the edge is
   not flat). So the interior of p, which is a face of the arrangement of T, meets no boundary edge of R; as it is connected, it is inside R or disjoint from the
   interior of R. The centroid is interior to p, hence in the closed R iff p is, and then it is in at least one triangle of R, which `coplanar_stack` finds
@@ -226,7 +231,7 @@ Proofs (P1 to P5 of section 6; "region" is as in section 4):
   `same_plane`; `on_boundary` is `Orient` of an arrangement point against input corners (the existing predicate, the same call as `clip_into` makes). No filter and no
   error bound is added.
 
-Mutant of the one-crossing rule in `label_sheets` (the second dedupe site): equivalent, since `wf` and `wb` there are only compared with 0 and the extra crossing changes only the magnitude of a non-positive number; the first site is killed by a test with a predicate that reads the exact winding.
+Mutant of the one-crossing rule in `label_sheets` (the second dedupe site): equivalent because the site cannot be reached with two triangles of one region in a stack: a representative's source is the lowest stack entry and the stack holds no other triangle of its region (same-mesh coplanar entries exist only for regions that are not embedded, which are keyed per triangle). The first site is killed by a test with a predicate that reads the exact winding.
 
 Checker: the certifying checker (`BooleanCertificate`) is extended for `RegionClipping`: its own regions (not embedded ones as singletons, found by an exact overlap test of the triangles of one mesh in a plane) (flat edge = two triangles of one mesh in one exact plane
 with their third corners on opposite sides), the stack by region (a centroid on flat edges only is inside, on a boundary edge of a region is an error as before), and

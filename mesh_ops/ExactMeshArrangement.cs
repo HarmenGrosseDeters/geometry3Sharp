@@ -2840,8 +2840,17 @@ namespace g3
                     else
                         reals.Add(s);
                 }
-                if (ghosts != null)
+                if (ghosts != null) {
                     t.Segments = reals;
+                    // (the order of the pair loop is not the same on every run: the ghosts in the order of their ends, as the segments below)
+                    if (ghosts.Count > 1) ghosts.Sort((x, y) => {
+                        int xa = (ComparePoints(x.P, x.Q) <= 0) ? x.P : x.Q, xb = (xa == x.P) ? x.Q : x.P;
+                        int ya = (ComparePoints(y.P, y.Q) <= 0) ? y.P : y.Q, yb = (ya == y.P) ? y.Q : y.P;
+                        int c = ComparePoints(xa, ya);
+                        if (c == 0) c = ComparePoints(xb, yb);
+                        return (c != 0) ? c : x.Line.CompareTo(y.Line);
+                    });
+                }
             }
             for (int k = 0; k < t.Segments.Count; ++k) {
                 Segment s = t.Segments[k];

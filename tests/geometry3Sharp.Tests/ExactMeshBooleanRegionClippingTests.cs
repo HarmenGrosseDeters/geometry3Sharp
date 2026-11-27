@@ -186,6 +186,47 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Fact]
+        public void ARegionWithACulledTriangle_IsClippedAsBefore_UnderTheDefaultCulling()
+        {
+            // (review of #1725) the early-out of the Difference culls triangles of the first mesh: their boundary edges are never paired
+            var m = new List<DMesh3> { FineBox(1, 1, 0.2, 2.5, 2.25, 1, 3), FineBox(1, 0.5, 0.2, 1.5, 1, 1, 5), FineBox(1, 0.5, 1, 2.5, 1.5, 1.5, 3) };
+            var old = new ExactMeshBoolean(m, Ops.Difference);
+            var neu = new ExactMeshBoolean(m, Ops.Difference) { RegionClipping = true, RecordCertificate = true, ComputeExactVertices = true };
+            Assert.True(old.Compute(), old.Error);
+            Assert.True(neu.Compute(), neu.Error);
+            Assert.True(neu.Arrangement.CulledCount > 0, "the case must cull");
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(neu.Result) ?? "");
+            BooleanCertificate c = BooleanCertificate.From(neu);
+            Assert.Equal("", c.Check());
+            Assert.Equal(0, c.Uncovered);
+            foreach (var pair in new[] { new[] { old.Result, neu.Result }, new[] { neu.Result, old.Result } }) {
+                var d = new ExactMeshBoolean(new List<DMesh3> { new DMesh3(pair[0]), new DMesh3(pair[1]) }, Ops.Difference);
+                Assert.True(d.Compute(), d.Error);
+                Assert.Equal(0, d.Result.TriangleCount);
+            }
+        }
+
+        [Fact]
+        public void AFlatEdgeEndingOnAConstraint_GivesTheTriangleThatPoint()
+        {
+            // (review of #1725, rule (b) of the ghosts) the end of a flat clip on the interior of a constraint segment of another layer
+            var m = new List<DMesh3> { Box(0, 0, 0, 3, 3, 1), Box(0, 0, 0.5, 2, 2, 1), FineBox(1, 0, 0.2, 3, 2, 1, 3) };
+            var old = new ExactMeshBoolean(m, Ops.Intersection) { CullOutsideA = false };
+            var neu = new ExactMeshBoolean(m, Ops.Intersection) { CullOutsideA = false, RegionClipping = true, RecordCertificate = true, ComputeExactVertices = true };
+            Assert.True(old.Compute(), old.Error);
+            Assert.True(neu.Compute(), neu.Error);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(neu.Result) ?? "");
+            BooleanCertificate c = BooleanCertificate.From(neu);
+            Assert.Equal("", c.Check());
+            Assert.Equal(0, c.Uncovered);
+            foreach (var pair in new[] { new[] { old.Result, neu.Result }, new[] { neu.Result, old.Result } }) {
+                var d = new ExactMeshBoolean(new List<DMesh3> { new DMesh3(pair[0]), new DMesh3(pair[1]) }, Ops.Difference);
+                Assert.True(d.Compute(), d.Error);
+                Assert.Equal(0, d.Result.TriangleCount);
+            }
+        }
+
         // ---- the pieces grow linearly
 
         static int PiecesOf(int K, double dx, bool regions)
