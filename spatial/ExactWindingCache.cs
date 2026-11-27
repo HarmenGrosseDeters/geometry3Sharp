@@ -340,7 +340,9 @@ namespace g3
         /// Exact threshold query matching Evaluate(p) &gt; iso.
         /// For open meshes with large boundaries (|∂M| >= BoundaryTreeMinThreshold), uses a certified
         /// hierarchical dipole sum over boundary chains (EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md §3) and
-        /// falls back to the exact full boundary sum whenever |w_h - iso| &lt;= B_h + 1e-9 or p lies on the mesh.
+        /// falls back to the exact full boundary sum whenever |w_h - iso| &lt;= B_h + 1e-9 or the on-surface correction of p
+        /// is not 0. (A point on the mesh whose correction is exactly 0, eg on a sheet doubled with the opposite orientation,
+        /// takes the tree as well: the tree approximates the same boundary sum, and Evaluate subtracts 0 there.)
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
         internal bool EvaluateAbove(Vector3d p, double iso)
@@ -370,7 +372,7 @@ namespace g3
 
         /// <summary>
         /// The decision margin of a threshold query from the tree: the tree value wH = chi + bSum decides only when it is
-        /// farther from iso than this, so that |wH - W| <= margin where W is the value of the full sum (Evaluate), all in winding
+        /// farther from iso than this, so that |wH - W| &lt;= margin where W is the value of the full sum (Evaluate), all in winding
         /// units (divided by 2 pi). Derivation in docs/design/EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md ("Which tree", the decision
         /// margin): bErr covers the summation order, the nodes' approximation and the evaluation error of the replaced edges;
         /// 4e-15 (|chi| + |bSum|) covers the roundings of the division by 2 pi and of chi + bSum (u relative each, about 18
@@ -861,8 +863,11 @@ namespace g3
         {
             double sum = 0.0;
             FlatTri[] t = tris;
-            for (int i = 0; i < t.Length; ++i)
+            for (int i = 0; i < t.Length; ++i) {
+                if (in_plane_within_box(p, t[i].A, t[i].B, t[i].C))
+                    continue;   // p in the plane of the triangle: its solid angle is exactly 0 (and the rounded formula is at its branch cut)
                 sum += safe_tri_solid_angle(t[i].A, t[i].B, t[i].C, p);
+            }
             return sum / MathUtil.FourPI;
         }
 
@@ -1010,6 +1015,9 @@ namespace g3
         double row_surface_correction(double px, double py, double pz, List<int> rowLeaves)
         {
             double sc = 0.0;
+            List<int> pending = pendingOnBoundary;
+            if (pending != null && pending.Count > 0)
+                pending.Clear();   // left by an evaluation that threw
             int count = rowLeaves.Count;
             for (int r = 0; r < count; ++r) {
                 ref FlatBox box = ref boxes[rowLeaves[r]];
@@ -1019,9 +1027,16 @@ namespace g3
                 int end = start - (box.Child2 + 2);
                 for (int i = start; i < end; ++i) {
                     ref FlatTri t = ref tris[i];
-                    sc += tri_on_surface_correction(px, py, pz, t.A, t.B, t.C);
+                    int cls = tri_on_surface_class(px, py, pz, t.A, t.B, t.C, out double half);
+                    if (cls == 2)
+                        sc += half;
+                    else if (cls == 1)
+                        add_pending_on_boundary(i);
                 }
             }
+            pending = pendingOnBoundary;
+            if (pending != null && pending.Count > 0)
+                sc += resolve_pending_on_boundary(px, py, pz, pending);
             return sc;
         }
 
@@ -1053,8 +1068,22 @@ namespace g3
 
         // ---- Exact +x BVH traversals ----
 
+        // chi(p_eps) and the on-surface correction: the sum of w_T(p_eps) over the triangles T that contain p
         [MethodImpl(JitHints.Optimize)]
         int signed_crossings_x(int iBox, double px, double py, double pz, ref double surfaceCorrection)
+        {
+            List<int> pending = pendingOnBoundary;
+            if (pending != null && pending.Count > 0)
+                pending.Clear();   // left by an evaluation that threw
+            int chi = signed_crossings_x_rec(iBox, px, py, pz, ref surfaceCorrection);
+            pending = pendingOnBoundary;
+            if (pending != null && pending.Count > 0)
+                surfaceCorrection += resolve_pending_on_boundary(px, py, pz, pending);
+            return chi;
+        }
+
+        [MethodImpl(JitHints.Optimize)]
+        int signed_crossings_x_rec(int iBox, double px, double py, double pz, ref double surfaceCorrection)
         {
             ref FlatBox box = ref boxes[iBox];
             if (py < box.MinY || py > box.MaxY || pz < box.MinZ || pz > box.MaxZ || px > box.MaxX)
@@ -1070,15 +1099,20 @@ namespace g3
                     int s = line_crossing_x(py, pz, t.A, t.B, t.C);
                     if (s != 0 && is_ahead_x(px, py, pz, t.A, t.B, t.C, s))
                         sum += s;
-                    if (mayContainP)
-                        surfaceCorrection += tri_on_surface_correction(px, py, pz, t.A, t.B, t.C);
+                    if (mayContainP) {
+                        int cls = tri_on_surface_class(px, py, pz, t.A, t.B, t.C, out double half);
+                        if (cls == 2)
+                            surfaceCorrection += half;
+                        else if (cls == 1)
+                            add_pending_on_boundary(i);
+                    }
                 }
                 return sum;
             }
 
-            int total = signed_crossings_x(box.Child1, px, py, pz, ref surfaceCorrection);
+            int total = signed_crossings_x_rec(box.Child1, px, py, pz, ref surfaceCorrection);
             if (box.Child2 >= 0)
-                total += signed_crossings_x(box.Child2, px, py, pz, ref surfaceCorrection);
+                total += signed_crossings_x_rec(box.Child2, px, py, pz, ref surfaceCorrection);
             return total;
         }
 
@@ -1111,25 +1145,56 @@ namespace g3
         }
 
         // ---- Exact on-surface correction ----
-        // For any point p lying in a closed non-degenerate triangle T (vertex, edge, or face interior), the perturbed
-        // ray-plus-boundary evaluation computes w_M(p_eps), which includes w_T(p_eps). Replacing w_T(p_eps) with
-        // safe_tri_solid_angle(a, b, c, p) / 4pi matches the DMesh3.WindingNumber / FastWindingNumber solid-angle-sum
-        // convention on vertices (e.g. 0.125 on cube corners), edges, and coplanar faces while keeping off-surface
-        // queries decided purely by exact predicates.
+        // The value at a point p ON the mesh is the principal value of the winding number: the sum of the solid angles in which
+        // every triangle whose plane contains p counts 0 (its solid angle from a point of its own plane is exactly 0). That is
+        // the solid-angle fraction the surface subtends at p: n + 0.5 on a flat face of a closed mesh, 0.25 on an edge of a
+        // cube, 0.125 at its corner, and it does not depend on the directions of the coordinate axes.
+        // The perturbed ray-plus-boundary evaluation computes w_M(p_eps), which includes w_T(p_eps) for every triangle T that
+        // contains p (vertex, edge or face interior, decided by exact predicates). The correction subtracts w_T(p_eps): exactly
+        // +-0.5 for p strictly inside T (the side of p_eps is exact), and chi_T(p_eps) plus the three edge angles of T for p on
+        // an edge or a vertex of T (each angle within the bound of boundary_edge_angle_x; its limits at a vertex and on the
+        // open edge are defined exactly and evaluated within that bound). Nothing is added back: the rounded solid angle of T at a point of its own plane is at the
+        // branch cut of the formula (+-2 pi or noise instead of 0), which is why an earlier version that added it returned
+        // values off by 0.5 on faces and on edges in general position.
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static double tri_on_surface_correction(double px, double py, double pz, Vector3d a, Vector3d b, Vector3d c)
+        // The triangles that contain p on an edge or at a vertex, collected during one evaluation (indices into tris) and
+        // resolved together by resolve_pending_on_boundary: where they are coplanar and cover the directions around p evenly
+        // (an edge or a vertex inside a flat face) their sum is an exact multiple of 0.5.
+        [ThreadStatic] static List<int> pendingOnBoundary;
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static void add_pending_on_boundary(int triIndex)
         {
-            if (px < a.x && px < b.x && px < c.x) return 0.0;
-            if (px > a.x && px > b.x && px > c.x) return 0.0;
-            if (py < a.y && py < b.y && py < c.y) return 0.0;
-            if (py > a.y && py > b.y && py > c.y) return 0.0;
-            if (pz < a.z && pz < b.z && pz < c.z) return 0.0;
-            if (pz > a.z && pz > b.z && pz > c.z) return 0.0;
+            if (pendingOnBoundary == null)
+                pendingOnBoundary = new List<int>();
+            pendingOnBoundary.Add(triIndex);
+        }
 
+        /// <summary>
+        /// Where p lies relative to the closed triangle (a, b, c), by exact predicates: 0 = not on it (or the triangle has no
+        /// area), 1 = on an edge or at a vertex, 2 = strictly inside. For 2, half is w_T(p_eps): p_eps lies infinitesimally on
+        /// one side of the plane, so T subtends an exact hemisphere (+0.5 on the -N side, -0.5 on the +N side).
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static int tri_on_surface_class(double px, double py, double pz, Vector3d a, Vector3d b, Vector3d c, out double half)
+        {
+            half = 0.0;
+            if (px < a.x && px < b.x && px < c.x) return 0;
+            if (px > a.x && px > b.x && px > c.x) return 0;
+            if (py < a.y && py < b.y && py < c.y) return 0;
+            if (py > a.y && py > b.y && py > c.y) return 0;
+            if (pz < a.z && pz < b.z && pz < c.z) return 0;
+            if (pz > a.z && pz > b.z && pz > c.z) return 0;
+            return tri_on_surface_class_in_box(px, py, pz, a, b, c, out half);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static int tri_on_surface_class_in_box(double px, double py, double pz, Vector3d a, Vector3d b, Vector3d c, out double half)
+        {
+            half = 0.0;
             Vector3d p = new Vector3d(px, py, pz);
             if (ExactPredicates.Orient3d(a, b, c, p) != 0)
-                return 0.0;
+                return 0;
 
             int ny = ExactPredicates.Orient2d(new Vector2d(a.z, a.x), new Vector2d(b.z, b.x), new Vector2d(c.z, c.x));
             int nz = ExactPredicates.Orient2d(new Vector2d(a.x, a.y), new Vector2d(b.x, b.y), new Vector2d(c.x, c.y));
@@ -1143,26 +1208,273 @@ namespace g3
             else if (nz != 0)
                 cls = classify_point_in_tri_2d(px, py, a.x, a.y, b.x, b.y, c.x, c.y, nz);
             else
-                return 0.0; // degenerate collinear triangle
+                return 0; // degenerate collinear triangle
 
-            if (cls == 0)
-                return 0.0;
-
-            double own = safe_tri_solid_angle(a, b, c, p) / MathUtil.FourPI;
             if (cls == 2) {
-                // Strictly inside triangle: p_eps lies infinitesimally on one side of the plane,
-                // so T subtends an exact hemisphere (+0.5 on -N side, -0.5 on +N side).
                 int side = ny != 0 ? ny : (nz != 0 ? nz : nx);
-                return (side < 0 ? 0.5 : -0.5) - own;
+                half = side < 0 ? 0.5 : -0.5;
             }
+            return cls;
+        }
 
-            // On an edge or vertex of T: exact perturbed winding of T at p_eps.
-            int s = line_crossing_x(py, pz, a, b, c);
-            int chiT = (s != 0 && is_ahead_x(px, py, pz, a, b, c, s)) ? s : 0;
+        // w_T(p_eps) for p on an edge or at a vertex of T: the crossing of T and its three edge angles (each within the bound
+        // of boundary_edge_angle_x; the limits at a vertex and on the open edge are defined exactly and evaluated within that bound).
+        static double tri_on_boundary_value(Vector3d p, Vector3d a, Vector3d b, Vector3d c)
+        {
+            int s = line_crossing_x(p.y, p.z, a, b, c);
+            int chiT = (s != 0 && is_ahead_x(p.x, p.y, p.z, a, b, c, s)) ? s : 0;
             double bsum = boundary_edge_angle_x(p, a, b)
                         + boundary_edge_angle_x(p, b, c)
                         + boundary_edge_angle_x(p, c, a);
-            return ((double)chiT + bsum / MathUtil.TwoPI) - own;
+            return (double)chiT + bsum / MathUtil.TwoPI;
+        }
+
+        /// <summary>
+        /// The sum of w_T(p_eps) over the collected triangles (p on an edge or at a vertex of each), and clears the list.
+        /// The triangles are grouped by plane. Around p each triangle covers a sector of its plane (a half plane for p on an
+        /// edge, the corner's wedge at a vertex). Where the sectors of a group cover every direction the same number m of times,
+        /// counted with the orientation of the triangles (an edge or a vertex inside a flat face: m = 1), the group's sum is
+        /// exactly m times the hemisphere value +-0.5 of the plane: seen from p_eps the group is, up to parts that vanish in
+        /// the limit, m copies of the whole plane. This is decided exactly (the exact direction of the normal for the planes, Orient2d
+        /// in the projection along the plane's axis for the rays), so the value on a flat face is the same exact n + 0.5 on its
+        /// inner edges and vertices as inside its triangles. Every other group (a crease, a corner, an open edge) takes the
+        /// rounded sum of tri_on_boundary_value.
+        /// Every triangle is taken with its corners rotated to start at its smallest vertex (by x, then y, then z), the triangles
+        /// in the order of their rotated corners, and the groups by the exact direction of their normal (all of them contain p,
+        /// so parallel normals mean one plane): the value does not depend on the order of the triangles or of their corners,
+        /// bit for bit, and the work is O(n log n) for n triangles through p (a cone apex: n planes of one triangle each).
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        double resolve_pending_on_boundary(double px, double py, double pz, List<int> pending)
+        {
+            Vector3d p = new Vector3d(px, py, pz);
+            int n = pending.Count;
+            var rot = new FlatTri[n];
+            var order = new int[n];
+            for (int j = 0; j < n; ++j) {
+                rot[j] = rotated_to_smallest(tris[pending[j]]);
+                order[j] = j;
+            }
+            Array.Sort(order, (u, v) => compare_rotated(rot[u], rot[v]));
+
+            // groups by plane, in the order of their first triangle
+            var groupOf = new Dictionary<string, int>(StringComparer.Ordinal);
+            var groups = new List<List<int>>();
+            foreach (int j in order) {
+                string key = plane_key(rot[j]);
+                if (!groupOf.TryGetValue(key, out int g)) {
+                    g = groups.Count;
+                    groupOf[key] = g;
+                    groups.Add(new List<int>());
+                }
+                groups[g].Add(j);
+            }
+
+            double rounded = 0.0, exactPart = 0.0;
+            foreach (List<int> g in groups) {
+                double exact;
+                if (g.Count >= 2 && flat_group_value_of(p, rot, g, out exact)) {
+                    exactPart += exact;   // a multiple of 0.5 of small size: exact
+                } else {
+                    foreach (int j in g)
+                        rounded += tri_on_boundary_value(p, rot[j].A, rot[j].B, rot[j].C);
+                }
+            }
+            pending.Clear();
+            return rounded + exactPart;
+        }
+
+        // the triangle with its corners rotated (orientation kept) to start at its smallest corner by x, then y, then z
+        static FlatTri rotated_to_smallest(FlatTri t)
+        {
+            int k = 0;
+            if (compare_point(t.B, t.A) < 0) k = 1;
+            if (compare_point(t.C, k == 0 ? t.A : t.B) < 0) k = 2;
+            if (k == 0) return t;
+            FlatTri r = t;
+            if (k == 1) { r.A = t.B; r.B = t.C; r.C = t.A; } else { r.A = t.C; r.B = t.A; r.C = t.B; }
+            return r;
+        }
+
+        static int compare_point(Vector3d u, Vector3d v)
+        {
+            int c = u.x.CompareTo(v.x); if (c != 0) return c;
+            c = u.y.CompareTo(v.y); if (c != 0) return c;
+            return u.z.CompareTo(v.z);
+        }
+
+        static int compare_rotated(FlatTri u, FlatTri v)
+        {
+            int c = compare_point(u.A, v.A); if (c != 0) return c;
+            c = compare_point(u.B, v.B); if (c != 0) return c;
+            return compare_point(u.C, v.C);
+        }
+
+        // The exact direction of the normal of the triangle, as a key: the cross product of the exact edge vectors (integers on
+        // a common grid), divided by the gcd of its components, with the first nonzero component positive. Two triangles that
+        // contain p lie in one plane iff their keys are equal.
+        static string plane_key(FlatTri t)
+        {
+            ExactDyadic[] d = {
+                ExactDyadic.Of(t.B.x) - ExactDyadic.Of(t.A.x), ExactDyadic.Of(t.B.y) - ExactDyadic.Of(t.A.y), ExactDyadic.Of(t.B.z) - ExactDyadic.Of(t.A.z),
+                ExactDyadic.Of(t.C.x) - ExactDyadic.Of(t.A.x), ExactDyadic.Of(t.C.y) - ExactDyadic.Of(t.A.y), ExactDyadic.Of(t.C.z) - ExactDyadic.Of(t.A.z) };
+            int e0 = int.MaxValue;
+            for (int i = 0; i < d.Length; ++i)
+                if (!d[i].M.IsZero && d[i].E < e0) e0 = d[i].E;
+            BigInteger[] g = new BigInteger[6];
+            for (int i = 0; i < 6; ++i)
+                g[i] = d[i].M.IsZero ? BigInteger.Zero : d[i].M << (d[i].E - e0);
+            BigInteger nx = g[1] * g[5] - g[2] * g[4], ny = g[2] * g[3] - g[0] * g[5], nz = g[0] * g[4] - g[1] * g[3];
+            BigInteger q = BigInteger.GreatestCommonDivisor(BigInteger.GreatestCommonDivisor(nx, ny), nz);
+            if (q.IsZero)
+                return "0";   // no area: not reached (such a triangle is never collected)
+            nx /= q; ny /= q; nz /= q;
+            int sign = nx.Sign != 0 ? nx.Sign : (ny.Sign != 0 ? ny.Sign : nz.Sign);
+            if (sign < 0) { nx = -nx; ny = -ny; nz = -nz; }
+            return nx.ToString() + "," + ny.ToString() + "," + nz.ToString();
+        }
+
+        // flat_group_value on the members of one group (indices into rot), in their order
+        bool flat_group_value_of(Vector3d p, FlatTri[] rot, List<int> group, out double value)
+        {
+            var saved = new FlatTri[group.Count];
+            var ids = new List<int>(group.Count);
+            for (int k = 0; k < group.Count; ++k)
+                ids.Add(k);
+            for (int k = 0; k < group.Count; ++k)
+                saved[k] = rot[group[k]];
+            return flat_group_value(p, saved, ids, 0, group.Count, out value);
+        }
+
+        // The sector of the triangle (a, b, c) at p (p at a vertex or on an edge, not elsewhere), in the triangle's own
+        // counter-clockwise order: from the ray through `from` to the ray through `to`. A half plane for p on an edge.
+        static bool sector_at(Vector3d p, Vector3d a, Vector3d b, Vector3d c, int axis, out Vector2d from, out Vector2d to, out bool halfPlane)
+        {
+            Vector2d P = project(p, axis), A = project(a, axis), B = project(b, axis), C = project(c, axis);
+            halfPlane = false;
+            if (p.x == a.x && p.y == a.y && p.z == a.z) { from = B; to = C; return true; }
+            if (p.x == b.x && p.y == b.y && p.z == b.z) { from = C; to = A; return true; }
+            if (p.x == c.x && p.y == c.y && p.z == c.z) { from = A; to = B; return true; }
+            halfPlane = true;
+            if (ExactPredicates.Orient2d(A, B, P) == 0) { from = B; to = A; return true; }
+            if (ExactPredicates.Orient2d(B, C, P) == 0) { from = C; to = B; return true; }
+            if (ExactPredicates.Orient2d(C, A, P) == 0) { from = A; to = C; return true; }
+            from = to = P;
+            return false;
+        }
+
+        // the projection along the coordinate axis (0 = x, 1 = y, 2 = z), with the orientation of Orient2d as in nx, ny, nz
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static Vector2d project(Vector3d v, int axis)
+        {
+            return axis == 0 ? new Vector2d(v.y, v.z) : (axis == 1 ? new Vector2d(v.z, v.x) : new Vector2d(v.x, v.y));
+        }
+
+        // The rays from P through U and through V are the same ray (U, V different from P).
+        static bool same_ray(Vector2d P, Vector2d U, Vector2d V)
+        {
+            if (ExactPredicates.Orient2d(P, U, V) != 0)
+                return false;
+            // collinear: the same side of P iff the differences have the same sign in a coordinate where one is not 0
+            int ux = U.x.CompareTo(P.x), uy = U.y.CompareTo(P.y);
+            if (ux != 0)
+                return Math.Sign(V.x.CompareTo(P.x)) == Math.Sign(ux);
+            return Math.Sign(V.y.CompareTo(P.y)) == Math.Sign(uy);
+        }
+
+        // The exact order of the rays from P through U and through V by angle (counter-clockwise from the +u axis of the
+        // projection, in [0, 2 pi)): negative if U comes first, 0 for the same ray. The half plane of a ray is decided by
+        // comparisons (angle in [0, pi): above P, or level with it on the +u side); inside one half plane the order is the sign
+        // of Orient2d, and collinear rays of one half plane are the same ray.
+        static int compare_rays(Vector2d P, Vector2d U, Vector2d V)
+        {
+            int hu = (U.y > P.y || (U.y == P.y && U.x > P.x)) ? 0 : 1;
+            int hv = (V.y > P.y || (V.y == P.y && V.x > P.x)) ? 0 : 1;
+            if (hu != hv)
+                return hu - hv;
+            int o = ExactPredicates.Orient2d(P, U, V);
+            return o > 0 ? -1 : (o < 0 ? 1 : 0);
+        }
+
+        // Is the ray through R inside the sector that runs counter-clockwise (in the projection) from the ray through lo to the
+        // ray through hi, lo included and hi excluded? The sector is a half plane or smaller.
+        static bool ray_in_sector(Vector2d P, Vector2d lo, Vector2d hi, bool halfPlane, Vector2d R)
+        {
+            if (same_ray(P, lo, R))
+                return true;
+            if (ExactPredicates.Orient2d(P, lo, R) <= 0)
+                return false;
+            return halfPlane || ExactPredicates.Orient2d(P, R, hi) > 0;
+        }
+
+        // The exact sum of w_T(p_eps) over the coplanar triangles pending[g0 .. g1), if their sectors at p cover every direction
+        // the same number of times (see resolve_pending_on_boundary); false otherwise.
+        bool flat_group_value(Vector3d p, FlatTri[] tri, List<int> pending, int g0, int g1, out double value)
+        {
+            value = 0.0;
+            FlatTri r = tri[pending[g0]];
+            int rny = ExactPredicates.Orient2d(new Vector2d(r.A.z, r.A.x), new Vector2d(r.B.z, r.B.x), new Vector2d(r.C.z, r.C.x));
+            int rnz = ExactPredicates.Orient2d(new Vector2d(r.A.x, r.A.y), new Vector2d(r.B.x, r.B.y), new Vector2d(r.C.x, r.C.y));
+            int rnx = ExactPredicates.Orient2d(new Vector2d(r.A.y, r.A.z), new Vector2d(r.B.y, r.B.z), new Vector2d(r.C.y, r.C.z));
+            // the axis of the perturbation's side (y, then z, then x): its normal component is not 0 for every triangle of the plane
+            int axis = rny != 0 ? 1 : (rnz != 0 ? 2 : 0);
+            int rs = rny != 0 ? rny : (rnz != 0 ? rnz : rnx);
+            Vector2d P = project(p, axis);
+
+            int m = g1 - g0;
+            Vector2d[] from = new Vector2d[m], to = new Vector2d[m];
+            bool[] half = new bool[m];
+            int[] orient = new int[m];   // +1: oriented like the first triangle, -1: the other way
+            for (int k = 0; k < m; ++k) {
+                FlatTri t = tri[pending[g0 + k]];
+                if (!sector_at(p, t.A, t.B, t.C, axis, out from[k], out to[k], out half[k]))
+                    return false;
+                int ts = ExactPredicates.Orient2d(project(t.A, axis), project(t.B, axis), project(t.C, axis));
+                if (ts == 0)
+                    return false;
+                orient[k] = ts == rs ? 1 : -1;
+            }
+
+            // Going around p, the number of covering sectors (each counted with its orientation) changes by +1 at the ray where a
+            // triangle's own sector starts and by -1 where it ends, whatever the orientation. It is constant iff the start rays
+            // and the end rays are the same rays with the same multiplicities.
+            // Both lists are sorted by the exact angle of the ray (compare_rays) and compared entry by entry.
+            Vector2d[] starts = (Vector2d[])from.Clone(), ends = (Vector2d[])to.Clone();
+            Comparison<Vector2d> byAngle = (u, v) => compare_rays(P, u, v);
+            Array.Sort(starts, byAngle);
+            Array.Sort(ends, byAngle);
+            for (int k = 0; k < m; ++k) {
+                if (compare_rays(P, starts[k], ends[k]) != 0)
+                    return false;
+            }
+
+            // the constant: the signed number of sectors that contain the start ray of the first triangle (counter-clockwise in
+            // the projection, the lower ray included: a triangle's own order is counter-clockwise there iff its projected
+            // orientation is positive)
+            int cover = 0;
+            Vector2d R = from[0];
+            for (int k = 0; k < m; ++k) {
+                bool ccw = (orient[k] > 0) == (rs > 0);
+                Vector2d lo = ccw ? from[k] : to[k], hi = ccw ? to[k] : from[k];
+                if (ray_in_sector(P, lo, hi, half[k], R))
+                    cover += orient[k];
+            }
+            // w of the whole plane oriented like the first triangle at p_eps: +0.5 on the -N side, -0.5 on the +N side
+            value = cover * (rs < 0 ? 0.5 : -0.5);
+            return true;
+        }
+
+        // p inside the bounding box of the triangle and exactly in its plane (every point of the closed triangle is)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static bool in_plane_within_box(Vector3d p, Vector3d a, Vector3d b, Vector3d c)
+        {
+            if (p.x < a.x && p.x < b.x && p.x < c.x) return false;
+            if (p.x > a.x && p.x > b.x && p.x > c.x) return false;
+            if (p.y < a.y && p.y < b.y && p.y < c.y) return false;
+            if (p.y > a.y && p.y > b.y && p.y > c.y) return false;
+            if (p.z < a.z && p.z < b.z && p.z < c.z) return false;
+            if (p.z > a.z && p.z > b.z && p.z > c.z) return false;
+            return ExactPredicates.Orient3d(a, b, c, p) == 0;
         }
 
         // Overflow-safe wrapper around MathUtil.TriSolidAngle: halves all four points by exact 0.5 when a
@@ -1277,14 +1589,16 @@ namespace g3
         /// EdgeSignX(p.y, p.z, a, b) at the branch cut (num = 0, den &lt;= 0) and exact limits at p_eps when p lies
         /// on vertex a, vertex b, the open segment (a, b), or behind a vertex along +x.
         /// Bi-homogeneous of degree (1, 1) in (A, B); handles extreme scales and mixed exponents across the full
-        /// double range without overflow or underflow, and is bit-for-bit invariant under positive 2^k scaling.
+        /// double range without overflow or underflow, and is bit-for-bit invariant under positive 2^k scaling (except for a scaling that moves S1 across 2^-1000, see below).
         /// Accuracy: for every p, a, b the result differs from the exact atan2(num, den) of the exact differences by at most
-        /// 2e-13, and the sign of num is exact where it decides the branch cut, den &lt;= 1e-12 S2 (design note
-        /// EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md, "The accuracy of the edge angle"). The rounded evaluation is used where
-        /// |num| + |den| >= 2^-5 (S1 + S2), which implies hypot(num, den) >= 0.0221 (S1 + S2). Where den cancels, that is where
-        /// a - p and b - p are nearly antiparallel in 3D (p near the open segment (a, b)), and where the sign of num is uncertain
-        /// at the branch cut (p near the yz line of the edge, den &lt;= 1e-12 S2), accurate_edge_angle_x is used. The limit
-        /// cases (p at a vertex, on the open edge, on the yz line of the edge) are as defined above and below.
+        /// 2e-13, and it is on the right side of the branch cut, den &lt;= 1e-12 S2: there the rounded num has the exact sign when
+        /// |num| > 1e-12 S1 and S1 = |ay bz| + |az by| >= 2^-1000 (SubnormalS1), and accurate_edge_angle_x decides otherwise (below
+        /// 2^-1000 the products carry an absolute rounding error of up to 2^-1075, which no longer is below 1e-12 S1; design note
+        /// EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md, "The accuracy of the edge angle"). The rounded
+        /// evaluation is used where |num| + |den| >= 2^-5 (S1 + S2), which implies hypot(num, den) >= 0.0220 (S1 + S2). Where den
+        /// cancels, that is where a - p and b - p are nearly antiparallel in 3D (p near the open segment (a, b)), and where the sign
+        /// of num is uncertain at the branch cut (p near the yz line of the edge, den &lt;= 1e-12 S2), accurate_edge_angle_x is
+        /// used. The limit cases (p at a vertex, on the open edge, on the yz line of the edge) are as defined above and below.
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
         internal static double boundary_edge_angle_x(Vector3d p, Vector3d a, Vector3d b)
@@ -1311,14 +1625,14 @@ namespace g3
                     if (b.z == p.z && b.y > p.y)
                         return -Math.PI;
                     rescale_diff_2d(b.y, p.y, b.z, p.z, out double by2, out double bz2, out _);
-                    return Math.Atan2(bz2, -by2);
+                    return g3.CoreMathPort.CoreMath.Atan2(bz2, -by2);
                 } else {
                     if (b.x < p.x)
                         return 0.0;
                     if (a.z == p.z && a.y > p.y)
                         return Math.PI;
                     rescale_diff_2d(a.y, p.y, a.z, p.z, out double ay2, out double az2, out _);
-                    return Math.Atan2(-az2, -ay2);
+                    return g3.CoreMathPort.CoreMath.Atan2(-az2, -ay2);
                 }
             }
 
@@ -1346,13 +1660,11 @@ namespace g3
                 double num = p2 - p1;
                 double dotYZ = ay * by + az * bz;
                 double den = da * db + dotYZ;
-                // Error bounds. The rounded products are monotone in their exact values, so sign(num) is never wrong, only
-                // num == 0 can be spurious; the bound decides when num / den count as 0 and the exact predicates decide (the
-                // rounded differences ay, az, by, bz are the noise). 1e-12 is far above the 1e-15 relative error of the terms
-                // while they are normal numbers. Range: it is not a bound when a product is below about 2^-1074 * 1e12
-                // (5e-312), where the rounding to the subnormal grid (absolute error up to 2^-1075) exceeds 1e-12 relative.
-                // The fast path (|yz| >= 2^-200) reaches that with, eg, |ay| about 2^-200 and |bz| below 2^-822; an edge
-                // like that is decided by atan2 of the rounded num and den where they are within that grid of 0.
+                // Error bounds: finish_edge_angle decides. While the products are normal numbers (S1 >= 2^-1000; the fast path
+                // has |yz| >= 2^-200) they have a relative error of 3u and the sign of num is certain where |num| > 1e-12 S1.
+                // Where S1 < 2^-1000 the rounding to the subnormal grid (absolute error up to 2^-1075 per product, more than
+                // 1e-12 S1) can flip the sign of a tiny num, and finish_edge_angle then lets the exact path decide wherever
+                // den <= 1e-12 S2 (the branch cut).
                 // Sizes of the terms of num and den (S1, S2 of the design note, "The accuracy of the edge angle").
                 double s1 = Math.Abs(p1) + Math.Abs(p2);
                 double s2 = da * db + Math.Abs(ay * by) + Math.Abs(az * bz);
@@ -1414,7 +1726,7 @@ namespace g3
                                 double zSign = other.z > p.z ? sign : -sign;
                                 return unx < 0.0 ? zSign * Math.PI : 0.0;
                             }
-                            return Math.Atan2(sign * uz, unx);
+                            return g3.CoreMathPort.CoreMath.Atan2(sign * uz, unx);
                         }
                         rx = 0.0;
                     } else {
@@ -1433,7 +1745,7 @@ namespace g3
                 if (den0 > 0.0) return 0.0;
                 return zSign * Math.PI * 0.5;
             }
-            return Math.Atan2(sign * rz, den0);
+            return g3.CoreMathPort.CoreMath.Atan2(sign * rz, den0);
         }
 
         // Exponent-tracked 2D-rescaled evaluation for extreme scales or mixed exponents (|yz| << |x|).
@@ -1469,17 +1781,18 @@ namespace g3
 
         /// <summary>
         /// Decides between the rounded evaluation Atan2(num, den) and accurate_edge_angle_x. The rounded evaluation is kept
-        /// when (1) |num| + |den| >= 2^-5 (S1 + S2), which makes hypot(num, den) >= 0.0221 (S1 + S2), and (2) the sign of
-        /// num is certain or den is clearly positive (outside the zone of the branch cut: den &lt;= 1e-12 S2 and
-        /// |num| &lt;= 1e-12 S1). Then the angle is within 1.2e-13 of the exact one (design note, "The accuracy of the edge
-        /// angle"); everywhere else it is computed from exact num and den. S1 = |p1| + |p2| and S2 = da db + |ay by| +
+        /// when (1) |num| + |den| >= 2^-5 (S1 + S2), which makes hypot(num, den) >= 0.0220 (S1 + S2), and (2) the sign of
+        /// num is certain or den is clearly positive (outside the zone of the branch cut: den &lt;= 1e-12 S2 and either
+        /// |num| &lt;= 1e-12 S1 or S1 &lt; 2^-1000, where the products are subnormal and the sign of a tiny num is not certain).
+        /// Then the angle is within 1.2e-13 of the exact one (design note, "The accuracy of the edge angle"); everywhere else
+        /// it is computed from exact num and den. S1 = |p1| + |p2| and S2 = da db + |ay by| +
         /// |az bz| are the sizes of the terms of num and den. The comparisons are false for NaN, which stays on the rounded path.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         static double finish_edge_angle(Vector3d p, Vector3d a, Vector3d b, double num, double den, double s1, double s2)
         {
             double an = Math.Abs(num);
-            if (an + Math.Abs(den) < FastAngleRatio * (s1 + s2) || (den <= 1e-12 * s2 && an <= 1e-12 * s1)) {
+            if (an + Math.Abs(den) < FastAngleRatio * (s1 + s2) || (den <= 1e-12 * s2 && (an <= 1e-12 * s1 || s1 < SubnormalS1))) {
                 // p exactly on the yz line of the edge (exact num == 0): a defined limit, no integer arithmetic needed. The sign of
                 // dotYZ is exact from the signs of the differences: the yz parts of a - p and b - p are collinear (exact Orient2d), so
                 // ay by and az bz both have the sign of the same factor (or are 0), and the sign of a difference is that of the comparison.
@@ -1487,7 +1800,7 @@ namespace g3
                     return edge_angle_on_yz_line_x(p, a, b, collinear_yz_dot_is_nonnegative(p, a, b));
                 return accurate_edge_angle_x(p, a, b);
             }
-            return Math.Atan2(num, den);
+            return g3.CoreMathPort.CoreMath.Atan2(num, den);
         }
 
         // sign of (a - p).yz . (b - p).yz >= 0 when the yz parts of a - p and b - p are collinear (b - p = lambda (a - p), or one is 0):
@@ -1500,8 +1813,16 @@ namespace g3
         }
 
         // 2^-5. With it the rounded num and den (errors at most 4.01 u S1 and 22.1 u S2, u = 2^-53) give an angle within
-        // asin(22.1 u / 0.0221) <= 1.12e-13 of the exact one.
+        // asin(22.1 u / 0.0220) <= 1.12e-13 of the exact one.
         const double FastAngleRatio = 0.03125;
+
+        // 2^-1000. Below it the products of num carry an absolute rounding error of up to 2^-1075 each (the subnormal grid), which is
+        // no longer below 1e-12 S1; from it up, 2^-1074 <= 2^-74 S1, so the sign of num is certain where |num| > 1e-12 S1.
+        const double SubnormalS1 = 9.3326361850321888e-302;
+
+        [ThreadStatic] static int accurateEdgeAngleCalls;
+        // the calls of accurate_edge_angle_x on this thread (tests: the inputs with exact num == 0 must not reach it)
+        internal static int AccurateEdgeAngleCalls { get { return accurateEdgeAngleCalls; } }
 
         /// <summary>
         /// The edge angle atan2(num, den) from exact num and den, for the inputs the rounded evaluation cannot serve (p near the
@@ -1512,10 +1833,6 @@ namespace g3
         /// exact one, plus the roundings of the two doubles (1.1e-16 each) and of Atan2. When num is exactly 0 (p on the yz
         /// line of the edge) the branch cut and the open-edge limit are decided by exact predicates as before.
         /// </summary>
-        [ThreadStatic] static int accurateEdgeAngleCalls;
-        // the calls of accurate_edge_angle_x on this thread (tests: the inputs with exact num == 0 must not reach it)
-        internal static int AccurateEdgeAngleCalls { get { return accurateEdgeAngleCalls; } }
-
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static double accurate_edge_angle_x(Vector3d p, Vector3d a, Vector3d b)
         {
@@ -1541,9 +1858,9 @@ namespace g3
             // bit length of floor(sqrt(n)) is (bit length of n + 1) / 2
             long lenBits = Math.Max((ExactPoint3.BitLength(aa) + 1) / 2, (ExactPoint3.BitLength(bb) + 1) / 2);
             // Precision: with L = max(|A|, |B|) < 2^lenBits, da, db <= 2 L, so daK + dbK <= 4 L 2^k + 4 and the error of denK
-            // (2 (daK + dbK) + 4) is at most 8 L 2^k + 16 < 2^(lenBits + 3 + k) + 16. |num| >= 2^(bits(num) - 1) and
+            // (2 (daK + dbK) + 4, below) is at most 8 L 2^k + 12 < 2^(lenBits + 3 + k) + 12. |num| >= 2^(bits(num) - 1) and
             // k >= 70 + lenBits + 2 - bits(num), so |numK| 2^-62 = |num| 2^(2k - 62) >= 2^(k + lenBits + 9), at least 2^6 times the
-            // error (the 16 is below 2^(k + 6)): the absolute error of den is at most 2^-62 |num|, whatever the ratio of num to den.
+            // error (the 12 is below 2^(k + 6)): the absolute error of den is at most 2^-62 |num|, whatever the ratio of num to den.
             // (An earlier version checked this in a loop that raised k by 32 and never ran.)
             long k = 70 + Math.Max(0L, lenBits + 2 - ExactPoint3.BitLength(BigInteger.Abs(num)));
             int kk = (int)k;
@@ -1553,7 +1870,7 @@ namespace g3
             BigInteger numK = num << (2 * kk);
             BigInteger denK = daK * dbK + (dot << (2 * kk));
             // |error of denK| <= 2 (daK + dbK) + 4: daK, dbK are within 2 of da 2^k, db 2^k
-            Debug.Assert((((daK + dbK) * 2 + 8) << 62) <= BigInteger.Abs(numK));
+            Debug.Assert((((daK + dbK) * 2 + 4) << 62) <= BigInteger.Abs(numK));
 
             long bl = Math.Max(ExactPoint3.BitLength(BigInteger.Abs(numK)), ExactPoint3.BitLength(BigInteger.Abs(denK)));
             int sh = (int)(bl - 1000);
@@ -1562,7 +1879,7 @@ namespace g3
             double dd = denK.IsZero ? 0.0 : ExactDyadic.Quotient(new ExactDyadic(denK, -sh), one);
             if (nd == 0.0)
                 nd = num.Sign > 0 ? double.Epsilon : -double.Epsilon;   // underflow against a huge den: keep the sign of num
-            return Math.Atan2(nd, dd);
+            return g3.CoreMathPort.CoreMath.Atan2(nd, dd);
         }
 
         // floor(sqrt(n)) for n >= 0, Newton's iteration from above.
@@ -1625,7 +1942,7 @@ namespace g3
                 if (den > 0.0) return 0.0;
                 return b.z > a.z ? Math.PI * 0.5 : -Math.PI * 0.5;
             }
-            return Math.Atan2(uz, -ux * uy);
+            return g3.CoreMathPort.CoreMath.Atan2(uz, -ux * uy);
         }
 
         // Rescale nonzero 2D difference (u1 - v1, u2 - v2) by exact 2^shift so max(|r1|, |r2|) lies in [1, 2).

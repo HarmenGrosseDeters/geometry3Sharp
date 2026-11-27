@@ -14,7 +14,7 @@ the next ones) and `exact-mesh` (the exact mesh pipeline, [below](#exact-mesh-pi
 - `math/ExactPoint3.cs`
 - `math/ExactDoubleWord.cs` and the arithmetic of the exact route of `intersection/IntrTriangle3Triangle3.cs` (two spans: `plane_normal` to `crossing_exact`, `grid` to `lerp`; move them when the file changes; the routing `find_transversal` and `odd_vertex` are guards behind which `find_exact` decides)
 
-The predicates are shards of the `exact-mesh` job since 23 November 2026 (before, with the three files above in one `stryker-config.json` shard of 1782 mutants, whose full run projected 160 to 210 minutes at CI speed against the job's 150): `predicates-1` and `predicates-2` (`math/ExactPredicates.cs`, split at `negate128`: 1034 mutants, 459 and 456 in the suggestion of `suggest_split.py` from a full local run of 44 minutes for the old two files; estimated 23 + 22 minutes on 4 cores with the 8 minutes of build and coverage pass, about 57 minutes at the CI speed of 2.5 times; not yet measured) and `adaptive` (`math/AdaptivePredicates.cs`, 471 mutants, an estimated 22 minutes locally). The four configs share the test filter and the thresholds of the old shard (break 86, low 87) until each has its own full run.
+The predicates are shards of the `exact-mesh` job since 23 November 2026 (before, with the three files above in one `stryker-config.json` shard of 1782 mutants, whose full run projected 160 to 210 minutes at CI speed against the job's 150): `predicates-1` and `predicates-2` (`math/ExactPredicates.cs`, split at `negate128`: 1034 mutants, 459 and 456 in the suggestion of `suggest_split.py` from a full local run of 44 minutes for the old two files; measured 24 and 21 minutes of job time on the runner) and `adaptive` (`math/AdaptivePredicates.cs`, 471 mutants, 28 minutes of job time on the runner). The four configs share the test filter; their first full run on master (mutation run 45135032781, commit 0929d288, 23 November 2026) gave arithmetic 87.61 % in 18 minutes, predicates-1 88.89 % in 24, predicates-2 90.32 % in 21 and adaptive 89.16 % in 28 (job times on the runner, far under the 75 minute target), so the thresholds are break = score rounded down less 2, low = break + 2: arithmetic 85 / 87, predicates-1 86 / 88, predicates-2 88 / 90, adaptive 87 / 89.
 
 The tests that run against the mutants are `ExactPredicatesTests`, `ExactImplicitPointTests`,
 `ExactBooleanBuildingBlockTests`, `PredicateDifferentialTests`, `ExactPoint3ConversionTests` and `ExactOrient3dKernelTests`. A new test
@@ -55,7 +55,9 @@ master the scheduled runs). Then [run_stryker.sh](run_stryker.sh) with [incremen
 1. `plan`: a line diff of each mutated file against its source in the baseline report gives the changed lines; the run
    config is the config with `mutate` limited to them (character spans `File.cs{a..b}`, within the config's own span,
    so split shards stay split). The baseline is used only if its `g3-config` equals the config up to the spans of
-   `mutate` (the same files in the same order, every other key equal); else the shard runs in full. The baseline's
+   `mutate` and the `thresholds` (the same files in the same order, every other key equal; a threshold change voids no
+   baseline, the merged score is judged against the new break; a PR that edits the thresholds still changes its config,
+   so its shard runs in full on master); else the shard runs in full. The baseline's
    spans are carried over the line diff: a part of the config's span that they do not cover (a resplit moved a
    boundary) runs too; a span boundary on a changed line moves to the start of that change, whose lines run anyway.
 2. Stryker runs that config with `--break-at 0`: it mutates only the changed lines.
@@ -124,7 +126,7 @@ shards cost a 6 hour runner slot each and were cancelled at the limit (#539) wit
   master (its own config changed, or no baseline fits) is a `::warning::` with "GATE ON MASTER", in the `changes` job or in the
   shard's job: the coordinator dispatches that shard's full run on master after the merge. Such a job is green, but its
   threshold was not checked: read the warning, not the colour.
-- **Exact code without a shard** (`NO_SHARD` in `select_shards.py`: the snap rounding grid, the continuous collision, the exact
+- **Exact code without a shard** (`NO_SHARD` in `select_shards.py`: the continuous collision, the exact
   triangle intersection and its filter, the exact ray test, the contouring certificate, two helpers of the exact boolean, the
   terrain slope files outside the terrain shards): a PR that changes one gets no mutation run, only the notice "exact code without
   a mutation shard" in the `changes` job (`select_shards.py hint`); the review is its check. The workflow's trigger paths hold
@@ -291,7 +293,7 @@ mutant that a dropped test still kills). Measured on the stored reports of 2026-
 full run of 2026-11-13, so the numbers are a proxy): see [docs/roadmap/platform.md](../../docs/roadmap/platform.md).
 **Checked-in filters** (`test-filters/`, made 2026-11-15 from the newest full master reports with `--durations` of the master
 full run of 2026-11-13, `--timeouts one`): envelope-1 (9 of 21 tests, estimated saving of the mutant runs 93 %), envelope-2
-(9 of 21, 85 %), envelope-3 (10 of 21, 52 %), terrain-arith (18 of 47, 57 %). Not made, and why: envelope-4 (8 %) and
+(9 of 21, 85 %), envelope-3 (10 of 21, 52 %), terrain-arith (18 of 47, 57 %). geodesic-1 (9 of 103 tests, 64 %) and geodesic-2 (4 of 103, 61 %) were made on 2026-11-24 from the reports of the weekly full run 45088174041 (2026-11-23) with `--durations` of the master full run 45457969552 (linux net10.0, 2026-11-24); both shards are dominated by timeouts (172 and 225 against 190 and 130 kills), which `--timeouts one` keeps with one covering test each, so the next weekly (unfiltered) run is the check that the filtered run loses no timeout. Not made, and why: envelope-4 (7 % weighted by the same durations, 31 % unweighted; the kept set holds the expensive `ContainsTriangle` oracle tests) and
 terrain-overlay (19 %) are below 20 %; terrain-kernel (85 %) is already stale (new test file `TerrainSlopeLocalFrameTests.cs`
 names its classes); rounding-1..8 (76-100 %) are stale (`MeshRoundingRepair.cs` changed since the reports of 2026-11-11);
 arrangement, planar and boolean have no full master report (boolean is another session's, see its shard PRs). A filter is
@@ -329,6 +331,8 @@ Limits:
 The HTML report is uploaded as an artifact, and a summary appears in the job summary. Tests of the selection:
 `python3 tests/mutation/test_select_shards.py`.
 
+The Python tests of this directory also run on Windows (Git Bash, `python` instead of `python3`; run them from `tests/mutation`). The tests that start `run_stryker.sh` put a `python3` next to the fake `dotnet` (`shell_shims.py`, as the Store stub of that name fails), and write their files with LF; two signal tests of `test_run_stryker_restore.py` are skipped there (POSIX process groups). `test_exclude_other_sources.py` takes about 20 minutes on a Windows disk with a virus scanner (it applies and undoes the marker on 520 files for each of 70 configs); the rest of the directory takes a few minutes.
+
 To run it locally, from the repository root:
 
 ```
@@ -354,8 +358,11 @@ covered.
 **Current (October 2026, with `PredicateDifferentialTests` and `ExactPoint3ConversionTests`): 87.05 %**
 (GitHub runner, 37 minutes).
 
-The `break` threshold is 86: the measured score rounded down, less one point, because timeouts (which count as
-killed) vary between runners. Raise it as tests kill more mutants; never lower it to get a run green.
+The `break` threshold of that combined shard was 86: the measured score rounded down, less one point, because timeouts
+(which count as killed) vary between runners. Since the split of 23 November 2026 (`predicates-1`, `predicates-2` and
+`adaptive` have their own configs) `stryker-config.json` mutates fewer files, and its thresholds come from the first full
+run of the split shards (run 45135032781: 87.61 %, break 85, low 87, set by the owner; see the table of the shards). Raise
+them as tests kill more mutants; never lower them to get a run green.
 
 Many survivors are **equivalent**. A mutant that only makes a filter decide less often (`>` against `>=`,
 `onlyD` forced to `true`, a larger bound, `permanent >= UnderflowLimit`) leaves the result unchanged, because
@@ -437,9 +444,11 @@ each). Each shard runs the unit tests of its file (the `test-case-filter` of its
 | `cells` | `mesh_ops/ExactMeshCells.cs` (layer B of the sheet role: the local cells of the arrangement's pieces joined around the edges by the exact radial order, and the labelling of them from the sheet's marks; since 20 November 2026; one small file, the weekly group; the labelling in `ExactMeshBoolean.label_sheets` is mutated by the boolean shards, whose coverage-based sets (`coverage_select.py`) have to be refreshed to include `ExactBooleanSheetTests`; first full run (workflow_dispatch on the PR branch, run 44998443431, head edde8202, 22 November 2026): 81.05 % (365 killed, 7 timeouts, 82 survived, 8 without coverage; 454 mutants tested), so `break` 79 and `low` 81: the score rounded down, less two points; the survivors that remain are classified in the PR of the sheet role) | `ExactBooleanSheetTests`, `ExactMeshCellsTests`, `ExactBooleanRadialOrderTests` |
 | `fixed` | `math/FixedPoint3.cs` (the arrangement's fixed-width exact points and their arithmetic; a shard of its own, so that its score does not mix with the threshold of `stryker-config.json`) and `math/ExactLimbSigns.cs` (the classification's sign stages and the arrangement's last Orient and InCircle stages on stack limbs, built on that arithmetic; docs/design/EXACT_LIMB_SIGNS.md) | `ExactPoint3FixedWidthTests`, `ExactLimbSignsTests`, `ExactLimbSignsTestsPlanar`, `ExactBooleanBuildingBlockTests`, `ExactPlanesFixedWidthTests` |
 | `generated` | `math/Generated/IndirectPredicates.cs` (the generated indirect predicates, docs/design/INDIRECT_PREDICATES.md; with the filter (#250) 94.94 %, 826 of 870 killed; the survivors: 26 that only shrink the filter's bound (its magnitude path; no input reaches the slack, the derivation and the constant tests guard it), exception texts, comparisons at equality that cannot occur, the always-exact path; break 92), and `math/Generated/DoublePredicates.cs` (the generated monomial kernels of the exact predicates on doubles, docs/design/EXACT_FALLBACK_MONOMIALS.md; that file alone, local run 2026-11-13: 518 mutants, 506 killed, 12 timeouts, none survived; 52 are marked in the generated code with their reason: 29 that change no result (`>>` against `>>>` on unsigned operands, comparisons at an equality that cannot occur, `|=` against `^=` on a clear bit, a carry only tested against 0, more limbs than needed), and 23 real ones of the same mutator on the same statements (19 shift directions, 2 `|=` to `&=`, 2 comparison directions); a run without the marks killed those, and they are pinned as hand mutants at the generator (27 in all, each applied, the kernels regenerated, `GeneratedDoublePredicatesTests` must fail: all killed; the script and its output are on the branch `runs/exact-numbers`, `pr1/hand_mutants.sh`)) | `GeneratedPredicatesIndirectTests`, `GeneratedDoublePredicatesTests` |
-| `predicates-1`, `predicates-2` | `math/ExactPredicates.cs`, split at `negate128` (459 and 456 mutants by the suggestion; since 23 November 2026, before part of `stryker-config.json`; thresholds of the old shard, break 86, low 87, until the first full run of each part) | `ExactPredicatesTests`, `ExactImplicitPointTests`, `ExactBooleanBuildingBlockTests`, `PredicateDifferentialTests`, `ExactPoint3ConversionTests`, `ExactOrient3dKernelTests` and the others of the filter of `stryker-config.json`, the same filter in all four configs |
-| `adaptive` | `math/AdaptivePredicates.cs` (471 mutants; since 23 November 2026, before part of `stryker-config.json`; break 86, low 87 until its first full run) | the same filter |
+| `predicates-1`, `predicates-2` | `math/ExactPredicates.cs`, split at `negate128` (459 and 456 mutants by the suggestion; since 23 November 2026, before part of `stryker-config.json`; break 86, low 88 (`predicates-1`) and break 88, low 90 (`predicates-2`) from run 45135032781) | `ExactPredicatesTests`, `ExactImplicitPointTests`, `ExactBooleanBuildingBlockTests`, `PredicateDifferentialTests`, `ExactPoint3ConversionTests`, `ExactOrient3dKernelTests` and the others of the filter of `stryker-config.json`, the same filter in all four configs |
+| `adaptive` | `math/AdaptivePredicates.cs` (471 mutants; since 23 November 2026, before part of `stryker-config.json`; break 87, low 89 from run 45135032781) | the same filter |
 | `box3` | `intersection/IntrExactBox3.cs` (the exact box decisions of the line, ray and segment classes with the oriented and the axis-aligned box, and the culling form of `DMeshAABBTree3`; an exact-code file of `.editorconfig`, so it is gated). Local full runs on 23 and 24 November 2026 (959 mutants, about 40 to 55 minutes): 57.56 % with the first tests of #1432, 66.12 % after the review rounds, 73.94 % with the edge tests of `IntrBox3FilterEdgeTests`, **76.83 %** (788 killed, 8 timeouts, 234 survived, 6 without coverage) with the corner-aimed rays and the `Prep`, ray-branch and non-solid tests; so break 74, low 76, high 90 until the CI run on master. The remaining survivors by direction: about 61 flip a strictness at a tie of computed values (same value, only the index of the winner differs, or the bound is certified either way), 7 are the loop bound `i <= 3` (the index 3 reads the same data), 19 are the finiteness sum, `Away` and the origin-inside test (a changed sign makes more cases take the longer route, or tests the same finite values), 55 are in `RayAabb` and `RayAabbMay` (comparison ties and the equivalent guards), and about 96 are in the exact route and the routing (a mutant that sends a case to the exact route gives the same answer). Mutants that shrink an error bound or a margin were the target of the edge tests: `Kind`, `TErr`, `Away`, `Verdict`, `Prep`'s exact-zero test of `eQ`, the margin `3 u (|tn| + |tf|)` (killed by rays aimed at corners and edges), the errors with only `eP` or only `eQ` non-zero; left: `eQ` of an axis-aligned box in a segment (only the internal `Find` takes a segment with an axis-aligned box: no public path), and the ties of the exact route. | `IntrBox3ExactTests`, `IntrBox3PublicApiTests`, `IntrBox3FilterEdgeTests` |
+| `ray-triangle` | `math/ExactRayTriangle.cs` (the exact ray-triangle decisions of `IntrRay3Triangle3`, `IntersectionUtil.Intersects`, every ray query of `DMeshAABBTree3`, `IsInside`'s crossing count and the exact winding of `VolumeSampleCells`: the point and direction forms, the symbolic perturbation, `LineDirection`, `SecondPoint`; an exact-code file of `.editorconfig`, so it is gated; #1685). Local full runs on 27 November 2026 (283 mutants, about 13 minutes each): 83.46 % with the tests of #1680 (212 killed, 42 survived of 254 tested; the other 29 compile errors or ignored), **93.85 %** (244 killed, 16 survived of 260 tested; the other 23 compile errors or ignored) after the tests of the non-finite guards, the in-plane rule of the perturbed ray and `LineDirection`'s exponent; so break 91, low 93, high 95 until the CI run on master. The survivors: 3 in the comparisons after an inequality test of the perturbation (`>` for `>=` after `!=`: equivalent), 1 the removal of the filter's early return (the exact stage gives the same sign), 3 in `LineDirection`'s finiteness guard (a boundary that gives the same exact multiple), and 9 in the spans of `SecondPoint` and `exponent` that the Z3 pilot `ray_second_point.py` pins (the range guard, the ScaleB boundary and the exponent's bit masks, which the point form's callers, tools and tests only, do not reach). | `ExactRayTriangleTests`, `ExactRayTriangleDirectionTests`, `RayTriangleExactDirectionRegressionTests`, `RayQueryScaleTests`, `RayQueryWatertightTests`, `SpatialQueryIssueCasesTests` |
+| `snaprounding` | `comp_geom/SnapRounding2.cs` (the snap rounding grid `SnapGrid` and `SnapRounding2.Apply`: exact tests and their double filters; an exact-code file of `.editorconfig`, so it is gated; weekly group; since 24 November 2026. First full run on master (run 45596292484, 25 November 2026): 68.35 %, 650 survived, 81 no coverage; thresholds break 66, low 68, high 75, set by the owner on 25 November 2026 (placeholder before: break 86, low 87, high 90); the survivors are tasks of the area's next PR) | `SnapRounding2Tests`, `SnapRounding2IndexTests`, `SnapGridPixelFilterTests`, `Meshing2SnapGateTests`, `QualityMesh2SnapDegenerateTests`, `Meshing2OracleSnapMarkerTests`, `QualityMesh2OracleRestoreTests`, `QualityMesh2ToleranceLimitTests`, `QualityMesh2PairKeyHashTests`, `QualityMesh2CollapsedRingDomainLibraryTests`, `ConstrainedDelaunayMesh2Tests`, `SnapRounding2MeetsGuardTests` (the only test that kills the 2^29 guard mutant), `ConstrainedDelaunayMesh2BundleTests`, `...CavityTests`, `...NodingCapTests`, `...OverlapTests`, `Meshing2OracleReportedProvenanceTests`, `QualityMesh2DroppedPartDiagnosticTests`; not `QualityMesh2GradingLibraryTests` (10 s for its calls of the snap) |
 | `envelope-1` .. `envelope-4` | `mesh_ops/PolyhedralEnvelope.cs`, split at `Builder.add`, `bit_length` and `ContainsTriangle` (since 8 November 2026 four shards: the whole file had 687 mutants, each running all 15 tests (`coverage-analysis` all) with a 30 s additional timeout, and the job was cancelled after 350 minutes; the polyhedral envelope, docs/design/ENVELOPE.md 4.4). First CI measurement (run 42474504758, 8 November 2026): `envelope-1` 82.18 % (138 killed, 5 timeouts, 30 survived, 1 no coverage), `envelope-2` 76.30 % (121 / 11 / 34 / 7), `envelope-3` 87.61 % (94 / 5 / 13 / 1), `envelope-4` 77.69 % (187 / 1 / 48 / 6); break 80, 74, 85 and 75 (the score rounded down, less two points), low = break + 2. Killed without timeouts: 540 of 702, 76.9 %. The earlier break of 90 came from a provisional local score of an older file and older tests (#263, before `ContainsTriangle`: 385 killed and 96 timeouts of 494, 97.37 %, of which 19.4 points were timeouts; the killed share then was 77.9 %, the same as now). Stryker's timeout per run is 1.5 times the initial run plus the additional timeout; the oracle test `ContainsTriangle_MatchesOracle` (141 s of the suite's 183 s) widened that window from about 75 s to about 305 s, so mutants that only slow the BigInteger paths (filters, helpers, margins) now finish and survive instead of timing out as "killed". The survivors are mostly such performance or bound-slack mutants (as the filter bounds below); a few look like real gaps (the cube axis choice, `Math.Abs(d.y) < Math.Abs(d.z)`, `f > nf`, the `Orient3d > 0` of the output check) and are open. Each part runs 2 to 4 hours on a runner, the coverage pass 20 to 37 minutes of it) | `PolyhedralEnvelopeTests` |
 | `terrain-arith` | `math/ExactIntervals.cs`, `math/ExactSlopePredicates.cs`, `mesh_ops/TerrainSlope.cs` (terrain slope design, phase 1a: exact intervals and slope predicates; local run 88.65 % at #267; break 85) | `ExactIntervalsTests`, `TerrainSlopeOracleTests` |
 | `terrain-kernel` | `math/ExactSlopeKernel.cs` (the exact slope kernel of phase 1a; local run 89.08 % at #283; break 85) | `ExactSlopeKernelTests` and the fast `TerrainSlopeDesignTests` cases named in the filter |
@@ -611,6 +620,80 @@ mutants"; the artifacts are not reachable from the cloud sessions):
   `boolean-2` 75 % (before 78 % and 65 %): the uncovered paths of open input are now killed, and the slower open-input
   tests turn more mutants into timeouts, whose number varies between runs. The thresholds follow the rule above (the
   score rounded down, less two points, less half the share of timeouts): `rounding` 59, `boolean-1` 79, `boolean-2` 79.
+- **Bounds and boxes of the exact Boolean (#1423; `ExactBooleanBoundValueTests`, `ExactBooleanBoundValueFrameTests`,
+  `ExactBooleanBoundValueProjectionTests`, in the filters of `boolean-2`, `boolean-4` and, for the grid of
+  `CrossingGrid`, `boolean-5`).** A wrong box padding, scale, cell size or box index changes how many candidates a
+  query visits or when a guarded fallback is taken, not the Boolean's result, so result tests cannot kill it. The value
+  tests call `boundary_bound`, `box_distance`, `scaled_norm`, `sum_bound`, `gradient_bound`, `cluster_bound`, `piece_box`,
+  `piece_cost`, `carry_bound`, `search`, `patch_winding`, `input_segment`, `LocalFrame.ToGrid`, `exact_difference`,
+  `InPlane`, `SegmentProjection` (boxes, cells, `Project`, `Query`), `pierce_prefilter` and `CrossingGrid` (private ones by
+  reflection, on the pieces of a computed union of two tilted boxes) and compare each value with an independent
+  computation (the documented formula re-coded in the test, exact BigInteger arithmetic for the boxes and projections, a
+  brute-force query, exact ties found by search). The mutants of those lines that still survive (counted from the
+  Stryker runs of the PR; the master run 45299876025 had 302 survivors on them) are equivalent or harmless:
+  - Ties of a `>=` against `>` (`d >= near` is killed by constructed exact equality; the remaining ones are `pe` tie
+    `Math.Abs(d) > 2 dd`, the `Abs(side) > threshold` of `usable` and of the final test in `pierce_prefilter`, the
+    cell index `t >= n - 1`, `t < 0` of `clamp`): a double that equals the threshold bit for bit, where both branches
+    give a valid bound.
+  - Terms below the resolution of a value test: `7e-16 * n1` in `slope` (1e-9 of it in the regimes where the slope decides),
+    `margin ... + 1e-300`, `pad ... + 1e-300` of the patch query (only where the sum is 0): a change of at most 1e-9
+    relative, under the factor 1.01 each bound carries; likewise the `(1 + 1e-12)` on the error in the `Query` pad of
+    `CrossingGrid`. (The rest of that pad is pinned at 0.5 and 1.5 of it, the error term and the 1e-15 coordinate term
+    each, by `CrossingGrid_Query_FindsACandidateAtHalfThePad_AndNotAtOneAndAHalfPads`; the `(1 + 1e-15)` of `corner_box` by
+    `CrossingGrid_CornerBox_WidensTheErrorOfACornerCoordinateAtTheCentre`, on two octahedra about the origin, where a
+    corner coordinate is 0 and `a - e` shows the margin.) (`m2 - e2` and `m1 - e1` in `dn` are not in this list, they are
+    killed: they drop the product term 4 e1 e2 of `dn`, a relative 4 e1 e2 / dn of the slope, which is about 4e-10 for the
+    smallest usable faces (`PiercePrefilter_KeepsTheSegmentsBetweenTheSlope...`: a dense scan of the doubles between the
+    slope's threshold and the one without that term, run on a usable face of e / m = 4e-10) and about 6 % for a needle whose
+    base face has e / m of a few percent (`PiercePrefilter_ANeedle...`: probes at 0.9 .. 0.99 of the threshold). In between
+    the shift is a smooth, increasing function of e / m, so the probes that see it at 6 % see it at larger e / m too. For
+    e / m above about 3 the mutants and the code agree: a face is usable only where its side values n . (v - a) exceed
+    slope (|v|_1 + |a|_1) + margin, and n . (v - a) <= n1 D with D <= |v|_1 + |a|_1, so a usable face has slope < n1 <=
+    6 m1 m2; slope >= 2.02 (e1 m2 + m1 e2) (the mutants' value too) then gives e / m < 3, and beyond it neither the code nor
+    a mutant uses the face. `PiercePrefilter_AFaceFarFromTheOriginWith...` pins the e / m ~ 1 case on a tetrahedron far from the
+    origin: no usable face, nothing dropped.)
+  - `pad / Vector3d.One` in `patch_winding`: division by 1.0 is exact.
+  - Guards whose fall-through gives the same value: `scaled_norm` (`m == 0 || NaN || infinite`: `ScaleB` and the square
+    root of 0, NaN and infinity return the same; `>> 52` against `>>> 52`: the mask removes the sign; `e == -1023`: both
+    scalings leave the same final rounding), `box_distance` (`sum <= 1e300`: the scaled norm equals the plain one where the
+    squares do not under- or overflow; below, the plain norm underflows to a smaller distance, which only weakens the
+    bound), `pe + px + py` against `pe + px - py` in `Project` (`|d| > 2 dd` bounds |px|, |py| below about 2.2e15 in exact
+    arithmetic: |n_i| <= |x_i| + |r_i| and dd >= 2.3e-16 (max|x| + max|r|); the quotient can still be infinite if the difference
+    n_i overflows, and then pe is infinite as well. So either the three are finite, and a sum of finite values with |px|, |py| <
+    2.2e15 cannot overflow (pe + 2.2e15 rounds to pe unless pe is within 1e292 of the maximum, and then it still rounds to
+    pe), or one is infinite or NaN, and then `pe + px + py` and `pe + px - py` are both infinite or NaN: both guards give
+    the same answer),
+    the early returns of `search` and the `Clear` calls of its `Heap` and `HeapKey` (a search ends only when the heap is empty,
+    and the early returns come before the first push; verified by removing either call: no test fails, no input can), `old <= aq`
+    ties, `carryBox ??` and the cached `return` of `piece_box` (allocation and recomputation of the same
+    value), `if (sign > 0)` and `side >= 0` in `pierce_prefilter` (`side == 0` makes the face unusable anyway), the loop bounds
+    `i <= v.Length`, `j <= v.Length` and `j - 1` (empty loops or duplicates of a face), `pass <= 2` and `return` in
+    `SegmentProjection` (a third counting pass, the grid of an invalid projection, neither is read), the fast path
+    `odIsExact` of `LocalFrame` (the same values, lever 4), `k <= 3` over a three-component vector (the indexer maps 3 to z),
+    `cw >= 0`, `ch >= 0` in `CrossingGrid` (a zero width needs a degenerate triangle: its candidates are skipped).
+  - **Not proven, listed as unproven (not as equivalent)**: `(a - av) - (bv - b)` for `(a - av) + (bv - b)` in
+    `exact_difference`. With x = a - av and y = bv - b the exact error of the difference is x + y (TwoSum), and the mutant
+    differs from the code only where x = y != 0 (the code then says "inexact", the mutant "exact"; x = -y != 0 cannot happen:
+    an error of 0 makes bv = b and so y = 0). The claim that x = y != 0 never occurs has no proof here: 80 million random pairs
+    over exponent differences of -60 .. 60 (31 000 with both parts nonzero, so the earlier "at most one part is nonzero" is
+    wrong) and all pairs of the 3-bit and 4-bit formats of a 20-exponent window (sampled for 5 and 6 bits) gave no case with x = y
+    != 0, so no pair where the two zero tests differ. `ExactDifference_*` tests the code against exact arithmetic on
+    4 000 pairs and on grids of near-cancelling ones. Policy constants, accepted: the slack `1e-12 s` of the gradient bound
+    (a sound change of it moves only the exact ties, which the tie tests build for the literal 1e-12) and the factor, the near limit
+    and the winding pad are pinned by contract tests at 0.99 / 1.01 (0.999 / 1.001 for the pad) of the constant, not bit for bit.
+  - **Killed, not harmless: `ws.Cost.Clear()` in `search`.** `PatchSearch` is one per worker and is reused across the patches
+    and across the open meshes j, each with its own boundary `bb[j]`, while `piece_cost` caches by the piece index only. Without
+    the clear, the second open mesh reuses the costs of the first boundary; with a nearer boundary they are too small, and
+    pieces are decided on an accumulated variation that is too small (unsound).
+    `Search_OnAWorkSpaceThatServedAFarBoundary_UsesTheCostsOfTheNearerBoundaryOfTheNextOpenMesh` fails without it (verified
+    by removing the call: 0 expected, 3 decided). `ws.Acc.Clear()` is killed too (a stale entry with the same accumulated cost
+    skips a piece's push, `Search_DecidesAPieceWhere...` fails without it); `Heap` and `HeapKey` are the harmless ones, above.
+  - **Mirrors and properties.** Hand-derived bounds are tested twice: a bit-for-bit mirror of the derived formula (a change
+    detector: such a bound changes only together with its derivation) and, where exact arithmetic allows it, a property that
+    fails for an unsound bound (the exact corners in the box of `piece_box` and `corner_box`, the exact segment in the pad of
+    `input_segment`, the exact length of the grid points in `boundary_bound`'s `Lengths`, the exact projection in `Project`,
+    exact differences). The containment of `piece_box` cannot see a smaller `err` (the derivation is far more pessimistic than
+    the actual rounding), so there the mirror is the detector. Each class says at its top which tests are mirrors.
 
 Set `break` from a measured score as above and only raise it.
 

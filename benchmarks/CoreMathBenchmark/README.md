@@ -12,3 +12,23 @@ No arguments; it prints the runtime and a Markdown table. The net48 target build
 committed here: the determinism workflow (`.github/workflows/determinism.yml`, see
 [tools/DeterminismHarness](../../tools/DeterminismHarness/README.md)) runs it on each of its runners and prints the
 table in the job log.
+
+## ExactInterval (`interval` mode, #1646)
+
+Microbenchmarks of `ExactInterval.Up` / `Down` and an interval arithmetic kernel, plus end-to-end
+`ExactMeshGeodesicDistance` runs (the heaviest `ExactInterval` caller in the library):
+
+```sh
+DOTNET_TieredPGO=0 dotnet run -c Release -f net10.0 --project benchmarks/CoreMathBenchmark -- interval
+```
+
+Measured on Linux X64 (Intel Xeon 2.30 GHz, 2 vCPU), `.NET 10.0.15`, before (`master` `04391d3b`, `BitConverter` `Up`/`Down`) vs after (`perf/exact-interval-rump-succ-pred`, Rump et al. 2009 Theorem 3.1), medians of 7 (microbenchmarks) / 5 (`plane`, `terrain`) / 3 (`saddle`). Note that the isolated `Up` loop accumulates into a single dependent scalar (`s +=`), so it is latency-bound and noisy across machines (independent re-review measured 1.03–1.09× on a loaded host); the mixed `Up + Down`, interval kernel, and end-to-end `ExactMeshGeodesicDistance` rows reflect real call-site behavior (re-review reproduced 1.3–1.6× on saddle, 1.3–1.4× on terrain, 1.0–1.2× on plane):
+
+| benchmark | before median (ms) | after median (ms) | speedup | before ns/op | after ns/op |
+|---|---:|---:|---:|---:|---:|
+| `ExactInterval.Up` (normal, latency chain, 4096 × 20k) | 401.2 | 306.5 | 1.31× *(latency-bound)* | 4.90 | 3.74 |
+| `ExactInterval.Up + Down` (mixed, 4096 × 20k) | 826.6 | 527.4 | **1.57×** | 5.05 | 3.22 |
+| `ExactInterval` kernel `sqrt((a-b)^2+b^2)/b` (4096 × 4k) | 1858.1 | 1525.2 | **1.22×** | 113.41 | 93.09 |
+| `ExactMeshGeodesicDistance` plane 41×41 (end-to-end) | 446.1 | 348.7 | **1.28×** | - | - |
+| `ExactMeshGeodesicDistance` terrain 41×41 (end-to-end) | 939.8 | 662.8 | **1.42×** | - | - |
+| `ExactMeshGeodesicDistance` saddle 41×41 (end-to-end) | 4879.8 | 3377.9 | **1.44×** | - | - |

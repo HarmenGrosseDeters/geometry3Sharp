@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Numerics;
 using System.Text;
+using System.Threading.Tasks;
 using g3;
 using Ops = g3.ExactMeshBoolean.Operations;
 
@@ -41,7 +42,9 @@ namespace geometry3Sharp.Tests
     ///   (every directed edge once, with its reverse once), and R and E_s lie within delta of each other (Delta: the
     ///   rounding's bound MaxLength plus a few ulps of the coordinates): a triangle is within delta of a convex triangle
     ///   iff its corners are (the distance to a convex set is convex), checked with exact squared distances, the
-    ///   triangle split into four up to SplitDepth times where no single triangle covers it. A corner farther than delta
+    ///   triangle first tried against the union of the triangles near it (the union cover, BooleanCertificate.Coverage.cs: exact regions
+    ///   of the chart where a triangle is within delta along an axis, #1631), then split into four up to SplitDepth times where neither a single
+    ///   triangle nor the union covers it. A corner farther than delta
     ///   from all of the other mesh is a violation; a triangle not covered after the splits is only counted (Uncovered).
     ///
     /// Class (the note's section 3.3): closed inputs (exact winding numbers) only; open inputs are NotApplicable. The
@@ -54,13 +57,16 @@ namespace geometry3Sharp.Tests
     /// that meets a non-coplanar triangle at the centroid reports it.
     ///
     /// Cost: linear in the pieces for C1, C3 and C4 (hash maps of edges and points, a sort per edge), plus one ray per
-    /// anchor (linear in the input triangles each), the coplanar stacks quadratic per plane (fine for the procedural test
-    /// meshes; a large flat region of many triangles would want a 2D grid), the culled triangles against the culling
+    /// anchor (linear in the input triangles each), the coplanar stacks and C2's in-plane tests (per piece against the coplanar
+    /// input triangles whose box meets it: in a fan all boxes overlap near the centre, so that is still quadratic per plane, #1632;
+    /// the tests are cheap, though: an edge form per edge, 5 products instead of 21, the coplanar copies of one region share one
+    /// table, and the pieces, the pairs and the straddle tests run in parallel with the verdict picked in order afterwards: the
+    /// capped cylinder and its 2-ulp shift at 240 slices, 118128 pieces, C2 in 17 s instead of 210 s), the culled triangles against the culling
     /// mesh's (with a box test; quadratic in the worst case), and C5 near-linear by a uniform grid. All signs are decided
     /// with BigInteger arithmetic on the exact points (the culled triangles by the library's exact ExactTriangleIntersection
     /// on the input doubles), so it costs several times the boolean: a test oracle, not a mode for users.
     /// </summary>
-    internal sealed class BooleanCertificate
+    internal sealed partial class BooleanCertificate
     {
         // ------------------------------------------------------------------ the data checked (copies: tests mutate them)
 
@@ -96,6 +102,48 @@ namespace geometry3Sharp.Tests
         /// <summary> components the rounding removed (tiny or thin): the coverage of the result before rounding by the result is skipped then </summary>
         public int RemovedComponents;
 
+        /// <summary> the built-in operation of the result (null: a custom winding predicate, which has no file format) </summary>
+        public Ops? Operation;
+        /// <summary> the rounding settings the bound is derived from (the boolean's RoundingMaxDisplacement, RoundingUlpFactor, RoundingAbsoluteTolerance, StrictRounding) </summary>
+        public double SettingMaxDisplacement = 1e-5, SettingUlpFactor = 256, SettingAbsoluteTolerance;
+        public bool SettingStrict;
+        /// <summary> whether the result was rounded (MaxLength and the bound below are 0 otherwise) </summary>
+        public bool Rounded;
+
+        /// <summary>
+        /// Delta, MaxLength's documented bound and the rest of the rounding's numbers from the settings and the two meshes: the
+        /// bound is derived here from the output and the settings, never read from a file
+        /// </summary>
+        public void SetRounding(bool rounded, double maxLength, int removedComponents)
+        {
+            double maxAbs = 0;
+            var box = AxisAlignedBox3d.Empty;
+            // (only the vertices that a triangle uses: a vertex nothing refers to must not widen the bound)
+            foreach (DMesh3 m in new[] { Result, Assembled })
+                if (m != null)
+                    foreach (int t in m.TriangleIndices()) {
+                        Index3i tri = m.GetTriangle(t);
+                        for (int k = 0; k < 3; ++k) {
+                            Vector3d v = m.GetVertex(tri[k]);
+                            maxAbs = Math.Max(maxAbs, Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z))));
+                            box.Contain(v);
+                        }
+                    }
+            // (the rounding's bound, plus the rounding of the exact vertices to the nearest double: at most an ulp of maxAbs
+            // per coordinate; 4 ulps leave room for the split vertices, whose coordinates are midpoints of rounded ends)
+            double ulp = Ulp(maxAbs);
+            Rounded = rounded;
+            MaxLength = rounded ? maxLength : 0;
+            Delta = MaxLength + 4 * ulp;
+            // the documented bound (MeshRoundingRepair: max(MaxDisplacement times the largest component's diagonal,
+            // UlpFactor ulps of its largest coordinate, AbsoluteTolerance); StrictRounding without the last two), from the
+            // settings: the diagonal of all vertices is at least the largest component's, maxAbs at least its coordinates
+            MaxLengthBound = rounded ? Math.Max(SettingMaxDisplacement * (box.DiagonalLength * (1 + 1e-12)),
+                SettingStrict ? 0 : Math.Max(SettingUlpFactor * ulp, SettingAbsoluteTolerance)) : 0;
+            RemovedComponents = rounded ? removedComponents : 0;
+            MaxDisplacement = SettingMaxDisplacement;
+        }
+
         /// <summary> sub-triangle splits tried where no single triangle covers one (C5) </summary>
         public int SplitDepth = 3;
 
@@ -112,91 +160,6 @@ namespace geometry3Sharp.Tests
         public List<string> RemovedParts = new List<string>();
         /// <summary> the rounding's relative bound (for the thin and tiny components it may remove) </summary>
         public double MaxDisplacement = 1e-5;
-
-        /// <summary>
-        /// Runs a boolean with the recording on (and exact vertices) and returns it with its certificate data. configure
-        /// may set more fields (SafeRounding, CullOutsideA, ...).
-        /// </summary>
-        public static BooleanCertificate Run(DMesh3 a, DMesh3 b, Ops op, out ExactMeshBoolean boolean, Action<ExactMeshBoolean> configure = null)
-        {
-            boolean = new ExactMeshBoolean(a, b, op) { AllowOpenMeshes = true, RecordCertificate = true, ComputeExactVertices = true };
-            configure?.Invoke(boolean);
-            if (boolean.Compute() == false)
-                throw new InvalidOperationException("boolean failed: " + boolean.Error);
-            return From(boolean);
-        }
-
-        /// <summary>
-        /// The oracle for the property campaigns: runs a op b with the recording (Intersection without the early-out,
-        /// see the class comment) and returns "" if the certificate holds and covers every triangle, else the reason.
-        /// </summary>
-        public static string CheckBoolean(DMesh3 a, DMesh3 b, Ops op)
-        {
-            BooleanCertificate c = Run(a, b, op, out _, x => { if (op == Ops.Intersection) x.CullOutsideA = false; });
-            string r = c.Check();
-            if (r != "") return "certificate " + op + ": " + r;
-            return c.Uncovered == 0 ? "" : $"certificate {op}: {c.Uncovered} triangles not covered within Delta";
-        }
-
-        public static BooleanCertificate From(ExactMeshBoolean b)
-        {
-            ExactMeshArrangement arr = b.Arrangement;
-            var c = new BooleanCertificate {
-                Meshes = arr.Meshes, ScaleExp = arr.ScaleExp, Center = (BigInteger[])arr.Center.Clone(),
-                Front = b.CertificateFront?.Select(f => f == null ? null : (int[])f.Clone()).ToArray(),
-                Keep = (bool[])b.CertificateKeep?.Clone(), Flip = (bool[])b.CertificateFlip?.Clone(),
-                Assembled = b.CertificateAssembled, Result = b.Result, AssembledExact = b.ResultExactVertices
-            };
-            int n = arr.Output.Count;
-            c.PieceMesh = new int[n]; c.PieceSource = new int[n]; c.PieceCorners = new ExactPoint3[n][];
-            for (int i = 0; i < n; ++i) {
-                var ot = arr.Output[i];
-                c.PieceMesh[i] = ot.Mesh; c.PieceSource[i] = ot.Source;
-                c.PieceCorners[i] = new[] { arr.Exact(ot.A), arr.Exact(ot.B), arr.Exact(ot.C) };
-            }
-            int nt = arr.Triangles.Count;
-            c.TriMesh = new int[nt]; c.TriTid = new int[nt]; c.TriCulled = new bool[nt];
-            for (int t = 0; t < nt; ++t) {
-                c.TriMesh[t] = arr.Triangles[t].Mesh; c.TriTid[t] = arr.Triangles[t].Tid;
-                c.TriCulled[t] = arr.Culled != null && arr.Culled[t];
-            }
-            if (b.WindingPredicate != null) c.Predicate = b.WindingPredicate;
-            else c.Predicate = OperationPredicate(b.Operation);
-            if (b.ExactWinding == null || Array.IndexOf(b.ExactWinding, false) >= 0)
-                c.NotApplicableReason = "an input is open (generalized winding numbers)";
-            if (arr.CulledCount > 0) {
-                if (arr.CullOutsideOf == null || arr.CullOutsideOf.Length != 1)
-                    c.NotApplicableReason = c.NotApplicableReason ?? "triangles culled against several meshes (set CullOutsideA = false)";
-                else if (b.WindingPredicate != null || (b.Operation != Ops.Difference && b.Operation != Ops.Intersection))
-                    c.NotApplicableReason = c.NotApplicableReason ?? "culling with a predicate that is not false outside the culling mesh";
-                else
-                    c.CullMesh = arr.CullOutsideOf[0];
-            }
-            c.ReorientedTriangles = b.ReorientedTriangles;
-            double maxAbs = 0;
-            var box = AxisAlignedBox3d.Empty;
-            foreach (DMesh3 m in new[] { b.Result, b.CertificateAssembled })
-                if (m != null)
-                    foreach (Vector3d v in m.Vertices()) {
-                        maxAbs = Math.Max(maxAbs, Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z))));
-                        box.Contain(v);
-                    }
-            // (the rounding's bound, plus the rounding of the exact vertices to the nearest double: at most an ulp of maxAbs
-            // per coordinate; 4 ulps leave room for the split vertices, whose coordinates are midpoints of rounded ends)
-            double ulp = Ulp(maxAbs);
-            c.MaxLength = b.Rounding != null ? b.Rounding.MaxLength : 0;
-            c.Delta = c.MaxLength + 4 * ulp;
-            // the documented bound (MeshRoundingRepair: max(MaxDisplacement times the largest component's diagonal,
-            // UlpFactor ulps of its largest coordinate, AbsoluteTolerance); StrictRounding without the last two), from the
-            // settings: the diagonal of all vertices is at least the largest component's, maxAbs at least its coordinates
-            bool strict = b.StrictRounding;
-            c.MaxLengthBound = b.Rounding == null ? 0 : Math.Max(b.RoundingMaxDisplacement * (box.DiagonalLength * (1 + 1e-12)),
-                strict ? 0 : Math.Max(b.RoundingUlpFactor * ulp, b.RoundingAbsoluteTolerance));
-            c.RemovedComponents = b.Rounding != null ? b.Rounding.RemovedComponents : 0;
-            c.MaxDisplacement = b.RoundingMaxDisplacement;
-            c.Inputs = new List<DMesh3>(b.Meshes ?? new List<DMesh3> { b.MeshA, b.MeshB });
-            return c;
-        }
 
         // the distance between x and the next double away from 0 (2^-1074 at 0)
         static double Ulp(double x)
@@ -336,6 +299,7 @@ namespace geometry3Sharp.Tests
             int nt = TriMesh.Length;
             triCorners = new ExactPoint3[nt][];
             triNormal = new BigInteger[nt][];
+            triForms = new EdgeForm[nt][];
             triPlane = new string[nt];
             planeGroups = new Dictionary<string, List<int>>();
             for (int t = 0; t < nt; ++t) {
@@ -351,8 +315,149 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // A conservative box of exact corners, from their approximations (each within 2 ulp), widened by a relative 2^-49 and the
+        // smallest double: a pair of triangles whose boxes are disjoint is disjoint, so a test that only decides pairs that meet
+        // may skip it. The filter of the two in-plane loops (the stacks, the straddle test of C2); never a decision by itself.
+        static void ApproxBox(ExactPoint3[] c, double[] lo, double[] hi)
+        {
+            var a = new[] { c[0].ApproxVector3d(), c[1].ApproxVector3d(), c[2].ApproxVector3d() };
+            for (int k = 0; k < 3; ++k) {
+                double l = Math.Min(a[0][k], Math.Min(a[1][k], a[2][k])), h = Math.Max(a[0][k], Math.Max(a[1][k], a[2][k]));
+                // (no finite approximation: the box is everything, so that the pair is kept for the exact test)
+                if (double.IsNaN(l) || double.IsNaN(h) || double.IsInfinity(l) || double.IsInfinity(h)) { lo[k] = double.NegativeInfinity; hi[k] = double.PositiveInfinity; continue; }
+                lo[k] = l - Math.Abs(l) * (1.0 / (1L << 49)) - double.Epsilon;
+                hi[k] = h + Math.Abs(h) * (1.0 / (1L << 49)) + double.Epsilon;
+            }
+        }
+
+        /// <summary>
+        /// for tests: whether the conservative boxes of the box filter (ApproxBox) of two triangles meet; they must whenever the
+        /// exact closed boxes do
+        /// </summary>
+        public static bool ApproxBoxesMeet(ExactPoint3[] p, ExactPoint3[] q)
+        {
+            double[] pl = new double[3], ph = new double[3], ql = new double[3], qh = new double[3];
+            ApproxBox(p, pl, ph); ApproxBox(q, ql, qh);
+            // (the closed-box test of the scan and the tree: a NaN bound meets nothing)
+            for (int k = 0; k < 3; ++k) if ((pl[k] <= qh[k] && ql[k] <= ph[k]) == false) return false;
+            return true;
+        }
+
+        // the boxes of the input triangles of one plane (the coplanar ones: planeGroups), with a tree where there are many
+        sealed class PlaneBoxes
+        {
+            public int[] Members; public double[] Lo, Hi; public EmbeddingBoxTree Tree;
+        }
+        Dictionary<string, PlaneBoxes> planeBoxes;
+        const int PlaneTreeMin = 8;
+
+        PlaneBoxes BoxesOfPlane(string plane)
+        {
+            if (planeBoxes == null) planeBoxes = new Dictionary<string, PlaneBoxes>();
+            if (planeBoxes.TryGetValue(plane, out PlaneBoxes pb)) return pb;
+            int[] m = planeGroups[plane].ToArray();
+            pb = new PlaneBoxes { Members = m, Lo = new double[3 * m.Length], Hi = new double[3 * m.Length] };
+            double[] l = new double[3], h = new double[3];
+            for (int i = 0; i < m.Length; ++i) {
+                ApproxBox(triCorners[m[i]], l, h);
+                for (int k = 0; k < 3; ++k) { pb.Lo[3 * i + k] = l[k]; pb.Hi[3 * i + k] = h[k]; }
+            }
+            if (m.Length > PlaneTreeMin) pb.Tree = new EmbeddingBoxTree(pb.Lo, pb.Hi, m.Length);
+            planeBoxes[plane] = pb;
+            return pb;
+        }
+
+        /// <summary>
+        /// the input triangles u of the plane of source src, in the order of planeGroups (ascending), whose box meets the box of the
+        /// piece (and src itself); every coplanar triangle that meets the piece is among them
+        /// </summary>
+        List<int> CoplanarNear(int src, ExactPoint3[] piece)
+        {
+            List<int> r = BoxHits(triPlane[src], piece);
+            if (r.Contains(src) == false) r.Add(src);
+            r.Sort();
+            return r;
+        }
+
+        // the input triangles of the plane whose box meets the box of the piece (ascending, src not added)
+        List<int> BoxHits(string plane, ExactPoint3[] piece)
+        {
+            PlaneBoxes pb = BoxesOfPlane(plane);
+            double[] qlo = new double[3], qhi = new double[3];
+            ApproxBox(piece, qlo, qhi);
+            var hit = new List<int>();
+            if (pb.Tree != null) pb.Tree.Query(qlo, qhi, hit);
+            else
+                for (int i = 0; i < pb.Members.Length; ++i) {
+                    int x = 3 * i;
+                    if (pb.Lo[x] <= qhi[0] && qlo[0] <= pb.Hi[x] && pb.Lo[x + 1] <= qhi[1] && qlo[1] <= pb.Hi[x + 1] && pb.Lo[x + 2] <= qhi[2] && qlo[2] <= pb.Hi[x + 2])
+                        hit.Add(i);
+                }
+            var r = new List<int>(hit.Count + 1);
+            foreach (int i in hit) r.Add(pb.Members[i]);
+            r.Sort();
+            return r;
+        }
+
+        /// <summary>
+        /// The side of a point against the line of the directed edge a -> b in a plane of normal n, as an affine form that is
+        /// precomputed per edge: Dot(Cross(b - a, p - a), n) = Dot(m, p - a) with m = n x (b - a) (the scalar triple product), and
+        /// with the homogeneous points (Sub's scaling by the W of both, as before) Dot(m, p - a) = a.W Dot(m, P) - Dot(m, A) p.W for
+        /// P and A the numerators. The value is the one of the direct computation (the same integer, not only the sign), in 5 products
+        /// instead of 21 and without allocations: the exact tests of C2 and its stacks run it against many points per edge (#1632).
+        /// </summary>
+        internal sealed class EdgeForm
+        {
+            readonly BigInteger mx, my, mz, aw, d;
+            public EdgeForm(ExactPoint3 a, ExactPoint3 b, BigInteger[] n)
+            {
+                BigInteger[] m = Cross(n, Sub(b, a));
+                mx = m[0]; my = m[1]; mz = m[2]; aw = a.W;
+                d = m[0] * a.X + m[1] * a.Y + m[2] * a.Z;
+            }
+            public int Side(ExactPoint3 p) => (aw * (mx * p.X + my * p.Y + mz * p.Z) - d * p.W).Sign;
+        }
+
+        /// <summary> for tests: the side of p against the directed edge a -> b under the normal n, by the direct computation (the one an EdgeForm replaces) </summary>
+        internal static int DirectSide(ExactPoint3 a, ExactPoint3 b, ExactPoint3 p, BigInteger[] n) => Dot(Cross(Sub(b, a), Sub(p, a)), n).Sign;
+        /// <summary> for tests: the normal of a triangle (positively scaled) </summary>
+        internal static BigInteger[] NormalOf(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c) => Normal(a, b, c);
+
+        // the edge forms of an input triangle (its own normal: positive inside) and of a piece (its own normal), built where first needed
+        EdgeForm[][] triForms, pieceForms;
+
+        EdgeForm[] TriForms(int t)
+        {
+            EdgeForm[] f = triForms[t];
+            if (f != null) return f;
+            ExactPoint3[] c = triCorners[t];
+            return triForms[t] = new[] { new EdgeForm(c[0], c[1], triNormal[t]), new EdgeForm(c[1], c[2], triNormal[t]), new EdgeForm(c[2], c[0], triNormal[t]) };
+        }
+
+        EdgeForm[] PieceForms(int i)
+        {
+            EdgeForm[] f = pieceForms[i];
+            if (f != null) return f;
+            ExactPoint3[] c = PieceCorners[i];
+            BigInteger[] n = Normal(c[0], c[1], c[2]);
+            return pieceForms[i] = new[] { new EdgeForm(c[0], c[1], n), new EdgeForm(c[1], c[2], n), new EdgeForm(c[2], c[0], n) };
+        }
+
         // sign of point p against the triangle t's edges in its plane: +1 strictly inside, 0 on the boundary, -1 outside
         int InsideInPlane(int t, ExactPoint3 p)
+        {
+            EdgeForm[] f = TriForms(t);
+            bool zero = false;
+            for (int k = 0; k < 3; ++k) {
+                int s = f[k].Side(p);
+                if (s < 0) return -1;
+                if (s == 0) zero = true;
+            }
+            return zero ? 0 : 1;
+        }
+
+        // the same by the direct computation (the reference of the tests of the forms)
+        internal int InsideInPlaneDirect(int t, ExactPoint3 p)
         {
             ExactPoint3[] c = triCorners[t];
             bool zero = false;
@@ -545,6 +650,7 @@ namespace geometry3Sharp.Tests
         void PreparePieces()
         {
             if (pieceV != null) return;
+            pieceForms = new EdgeForm[PieceCorners.Length][]; pieceKeys = new string[PieceCorners.Length];
             pointIds = new Dictionary<ExactPoint3, int>();
             pieceV = new int[PieceCorners.Length][];
             for (int i = 0; i < PieceCorners.Length; ++i)
@@ -698,25 +804,173 @@ namespace geometry3Sharp.Tests
             var pairs = new List<(int, int)>();
             new EmbeddingBoxTree(lo, hi, n).SelfJoin(part.Select(i => PieceSource[i]).ToArray(), pairs);
             pairs.Sort();
-            var test = new EmbeddingPairTest(x);
             EmbeddingPairs = pairs.Count;
-            foreach ((int k, int l) in pairs) {
-                int i = part[k], j = part[l];
-                if (test.MeetBeyondShared(pieceV[i], pieceV[j])) {
-                    EmbeddingCoplanarPairs = (int)test.Coplanar;
+            // (the keys and forms of the pieces, then the pairs in parallel, each test object to a thread; the verdict is the lowest pair's that
+            // meets, and the count of coplanar pairs is up to it, as the sequential loop left them)
+            ParFor(0, n, k => { int i = part[k]; PieceKey(i); PieceForms(i); });
+            var meets = new bool[pairs.Count];
+            var coplanarPair = new bool[pairs.Count];
+            Unwrapped(() => Parallel.For(0, pairs.Count, () => new EmbeddingPairTest(x), (idx, state, test) => {
+                int i = part[pairs[idx].Item1], j = part[pairs[idx].Item2];
+                long before = test.Coplanar;
+                if (InSamePlane(i, j)) meets[idx] = test.MeetBeyondSharedInPlane(pieceV[i], pieceV[j], PieceForms(i), PieceForms(j));
+                else meets[idx] = test.MeetBeyondShared(pieceV[i], pieceV[j]);
+                coplanarPair[idx] = test.Coplanar != before;
+                return test;
+            }, test => { }));
+            int coplanarCount = 0;
+            for (int idx = 0; idx < pairs.Count; ++idx) {
+                if (coplanarPair[idx]) coplanarCount++;
+                if (meets[idx]) {
+                    int i = part[pairs[idx].Item1], j = part[pairs[idx].Item2];
+                    EmbeddingCoplanarPairs = coplanarCount;
                     return $"pieces {i} (source {PieceSource[i]}) and {j} (source {PieceSource[j]}) meet beyond the corners and edges they share";
                 }
             }
-            EmbeddingCoplanarPairs = (int)test.Coplanar;
+            EmbeddingCoplanarPairs = coplanarCount;
             // the stacks of C3 take a coplanar input triangle u for a piece by the piece's centroid, which assumes that no
             // classified piece straddles u's boundary: it lies in u, or its interior is disjoint from u's
-            foreach (int i in part) {
+            var straddle = new string[n];
+            ParFor(0, n, k => {
+                int i = part[k], src = PieceSource[i];
+                foreach (int u in CoplanarNear(src, PieceCorners[i]))
+                    if (u != src && TriCulled[u] == false && IsZero(triNormal[u]) == false && StraddlesInPlaneOfSource(i, u)) {
+                        straddle[k] = $"piece {i} (source {src}) straddles the boundary of the coplanar input triangle {u}";
+                        return;
+                    }
+            });
+            foreach (string r in straddle)
+                if (r != null) return r;
+            return "";
+        }
+
+        /// <summary>
+        /// for tests (#1632): the edge forms, the groups of equal pieces and the parallel loops against the direct computations they
+        /// replace. For every piece: the stack (the centroid against each input triangle of the plane by the direct test, in order),
+        /// the "inside" and the straddle test for every coplanar input triangle; for the pairs of classified pieces in one plane that
+        /// are within the first maxPairs: the pair test by the forms against the one by the exact orientation of ids.
+        /// "" or the first difference.
+        /// </summary>
+        public string AuditInPlaneForms(int maxPairs, out int stackTests, out int straddleTests, out int pairTests)
+        {
+            stackTests = straddleTests = pairTests = 0;
+            PrepareStacks();
+            for (int i = 0; i < PieceCorners.Length; ++i) {
                 int src = PieceSource[i];
-                foreach (int u in planeGroups[triPlane[src]])
-                    if (u != src && TriCulled[u] == false && IsZero(triNormal[u]) == false && StraddlesInPlane(PieceCorners[i], triCorners[u]))
-                        return $"piece {i} (source {src}) straddles the boundary of the coplanar input triangle {u}";
+                ExactPoint3 cen = Centroid(PieceCorners[i]);
+                var direct = new List<int>();
+                foreach (int u in CoplanarNear(src, PieceCorners[i])) {
+                    if (u == src) { direct.Add(u); continue; }
+                    if (TriCulled[u]) continue;
+                    int inside = InsideInPlaneDirect(u, cen);
+                    stackTests++;
+                    if (inside != InsideInPlane(u, cen)) return $"piece {i}, triangle {u}: the form's side of the centroid differs from the direct one";
+                    if (inside == 0) return $"piece {i}: its centroid is on the edge of coplanar triangle {u}";
+                    if (inside > 0) direct.Add(u);
+                    if (IsZero(triNormal[u]) == false) {
+                        straddleTests++;
+                        if (StraddlesInPlaneOfSource(i, u) != StraddlesInPlane(PieceCorners[i], triCorners[u])) return $"piece {i}, triangle {u}: the straddle test by the forms differs from the direct one";
+                    }
+                }
+                if (direct.SequenceEqual(stacks[i]) == false) return $"piece {i}: the stack {string.Join(",", stacks[i])} differs from the direct one {string.Join(",", direct)}";
+            }
+            ExactPoint3[] x = new ExactPoint3[pointIds.Count];
+            foreach (var kv in pointIds) x[kv.Value] = kv.Key;
+            var test = new EmbeddingPairTest(x);
+            // (all pieces, the coplanar copies of opposite orientation among them)
+            var byPlane = new Dictionary<string, List<int>>();
+            for (int i = 0; i < PieceCorners.Length; ++i)
+                if (PieceKey(i).Length > 0) {
+                    if (byPlane.TryGetValue(pieceKeys[i], out List<int> l) == false) byPlane[pieceKeys[i]] = l = new List<int>();
+                    l.Add(i);
+                }
+            foreach (List<int> group in byPlane.Values)
+                for (int a = 0; a < group.Count; ++a)
+                    for (int b = a + 1; b < group.Count && b < a + 40; ++b) {
+                        int i = group[a], j = group[b];
+                        if (pairTests++ >= maxPairs) return "";
+                        bool forms = test.MeetBeyondSharedInPlane(pieceV[i], pieceV[j], PieceForms(i), PieceForms(j));
+                        bool direct = test.MeetBeyondShared(pieceV[i], pieceV[j]);
+                        if (forms != direct) return $"pieces {i} and {j}: the pair test by the forms ({forms}) differs from the direct one ({direct})";
+                    }
+            return "";
+        }
+
+        /// <summary>
+        /// for tests: the box filter of the two in-plane loops (the stacks of C3, the straddle test of C2) against the exact
+        /// tests it stands in front of: every coplanar input triangle that contains a piece's centroid or touches it (is not
+        /// "interior disjoint") must be among CoplanarNear's. "" or the first piece and triangle that the filter lost.
+        /// </summary>
+        public string AuditCoplanarFilter(out int tested, out int exactHits)
+        {
+            tested = exactHits = 0;
+            PrepareStacks();
+            for (int i = 0; i < PieceCorners.Length; ++i) {
+                int src = PieceSource[i];
+                var near = new HashSet<int>(CoplanarNear(src, PieceCorners[i]));
+                ExactPoint3 cen = Centroid(PieceCorners[i]);
+                foreach (int u in planeGroups[triPlane[src]]) {
+                    if (u == src || TriCulled[u] || IsZero(triNormal[u])) continue;
+                    tested++;
+                    bool hit = InsideInPlane(u, cen) >= 0 || StraddlesInPlane(PieceCorners[i], triCorners[u]);
+                    if (hit) exactHits++;
+                    if (hit && near.Contains(u) == false) return $"piece {i} (source {src}) and coplanar triangle {u}: the box filter dropped a pair that meets";
+                }
             }
             return "";
+        }
+
+        string[] pieceKeys;
+
+        // pieces i and j (not degenerate) in one exact plane: the keys of their own planes are equal
+        bool InSamePlane(int i, int j)
+        {
+            PieceKey(i); PieceKey(j);
+            return pieceKeys[i].Length > 0 && pieceKeys[i] == pieceKeys[j];
+        }
+
+        string PieceKey(int i)
+        {
+            if (pieceKeys[i] == null) {
+                ExactPoint3[] c = PieceCorners[i];
+                pieceKeys[i] = IsZero(Normal(c[0], c[1], c[2])) ? "" : PlaneKeyOf(c[0], c[1], c[2]);
+            }
+            return pieceKeys[i];
+        }
+
+        // whether piece i lies in the plane of its source (exact: the key of its own plane is the source's); false for a degenerate piece
+        bool InSourcePlane(int i)
+        {
+            return PieceKey(i) == triPlane[PieceSource[i]];
+        }
+
+        /// <summary>
+        /// StraddlesInPlane(PieceCorners[i], triCorners[u]) for an input triangle u of the plane of the piece's source, through the
+        /// edge forms (the same signs; the equal planes make the normals parallel, so u's own forms give the signs of the
+        /// reordered u). A piece that is not in its source's plane takes the direct test.
+        /// </summary>
+        bool StraddlesInPlaneOfSource(int i, int u)
+        {
+            if (InSourcePlane(i) == false) return StraddlesInPlane(PieceCorners[i], triCorners[u]);
+            ExactPoint3[] p = PieceCorners[i], uc = triCorners[u];
+            EdgeForm[] g = TriForms(u), h = PieceForms(i);
+            // the side of the corner k of the piece against the edge e of u, found where first needed (2: not yet)
+            int[] side = { 2, 2, 2, 2, 2, 2, 2, 2, 2 };
+            int Side(int e, int k) => side[3 * e + k] != 2 ? side[3 * e + k] : (side[3 * e + k] = g[e].Side(p[k]));
+            bool inside = true;
+            for (int e = 0; e < 3 && inside; ++e)
+                for (int k = 0; k < 3; ++k)
+                    if (Side(e, k) < 0) { inside = false; break; }
+            if (inside) return false;
+            for (int e = 0; e < 3; ++e) {
+                bool pOut = true, uOut = true;
+                for (int k = 0; k < 3 && pOut; ++k)
+                    if (Side(e, k) > 0) pOut = false;
+                for (int k = 0; k < 3 && uOut; ++k)
+                    if (h[e].Side(uc[k]) > 0) uOut = false;
+                if (pOut || uOut) return false;
+            }
+            return true;
         }
 
         /// <summary>
@@ -796,6 +1050,61 @@ namespace geometry3Sharp.Tests
                     return Math.Sign(bx * (cy * dz - cz * dy) - by * (cx * dz - cz * dx) + bz * (cx * dy - cy * dx));
                 }
                 return Dot(Diff(b, a), Cross(Diff(c, a), Diff(d, a))).Sign;
+            }
+
+            /// <summary>
+            /// the same for two triangles in one exact plane, from the edge forms of both (each with its own normal) and the sign
+            /// of the normals ignored (not needed): no sign is computed for the corners against the plane (they are on it), and the
+            /// in-plane signs are the forms' (the same as CoplanarMeet's, which the test of the forms compares)
+            /// </summary>
+            public bool MeetBeyondSharedInPlane(int[] p, int[] q, EdgeForm[] fp, EdgeForm[] fq)
+            {
+                Coplanar++;
+                return CoplanarMeetForms(p, q, fp, fq);
+            }
+
+            bool CoplanarMeetForms(int[] p, int[] q, EdgeForm[] fp, EdgeForm[] fq)
+            {
+                // the side of the corner k of one triangle against the edge e of the other (the forms of q are by q's normal, of p's by p's: the
+                // signs of q's are those by p's normal or all reversed, and every use of them is invariant under that: a test that all three
+                // are not of both signs, a product of two), each found where first needed and none for a corner that is an end of the edge (0 by the ids)
+                int[] sideOfQ = new int[9], sideOfP = new int[9];      // [3 e + k]: q's corner k against p's edge e, p's corner k against q's edge e
+                for (int k = 0; k < 9; ++k) sideOfQ[k] = sideOfP[k] = 2;
+                int Sp(int e, int k)    // the corner k of q against the edge e of p
+                {
+                    if (sideOfQ[3 * e + k] == 2) sideOfQ[3 * e + k] = q[k] == p[e] || q[k] == p[(e + 1) % 3] ? 0 : fp[e].Side(X[q[k]]);
+                    return sideOfQ[3 * e + k];
+                }
+                int Sq(int e, int k)    // the corner k of p against the edge e of q
+                {
+                    if (sideOfP[3 * e + k] == 2) sideOfP[3 * e + k] = p[k] == q[e] || p[k] == q[(e + 1) % 3] ? 0 : fq[e].Side(X[p[k]]);
+                    return sideOfP[3 * e + k];
+                }
+                int Index(int[] t, int id) => t[0] == id ? 0 : t[1] == id ? 1 : 2;
+                for (int i = 0; i < 3; ++i) {
+                    int a = p[i], b = p[(i + 1) % 3];
+                    if (Has(q, a) && Has(q, b)) {
+                        // a shared edge: the third corners on the same side fold onto each other
+                        int qc = q[0] != a && q[0] != b ? q[0] : q[1] != a && q[1] != b ? q[1] : q[2];
+                        if (fp[i].Side(X[p[(i + 2) % 3]]) * Sp(i, Index(q, qc)) > 0) return true;
+                    }
+                }
+                return EdgesMeetInPlaneForms(p, q, Sp, Sq) || EdgesMeetInPlaneForms(q, p, Sq, Sp);
+            }
+
+            // EdgesMeetInPlane with the side of the corner k of the other triangle against the edge e of a (sa(e, k)), and of a's corner k against the edges of b (sb(e, k))
+            static bool EdgesMeetInPlaneForms(int[] a, int[] b, Func<int, int, int> sa, Func<int, int, int> sb)
+            {
+                for (int i = 0; i < 3; ++i) {
+                    int ea = (i + 1) % 3;
+                    // (the corner ea of a, which is not a corner of b, in the closed triangle b)
+                    if (Has(b, a[ea]) == false && Mixed(sb(0, ea), sb(1, ea), sb(2, ea)) == false) return true;
+                    int o0 = sa(i, 0), o1 = sa(i, 1), o2 = sa(i, 2);
+                    int[] o = { o0, o1, o2 };
+                    for (int j = 0; j < 3; ++j)
+                        if (o[j] * o[(j + 1) % 3] < 0 && sb(j, i) * sb(j, ea) < 0) return true;
+                }
+                return false;
             }
 
             public bool MeetBeyondShared(int[] p, int[] q)
@@ -931,6 +1240,25 @@ namespace geometry3Sharp.Tests
                 return lo[x] <= hi[y] && lo[y] <= hi[x] && lo[x + 1] <= hi[y + 1] && lo[y + 1] <= hi[x + 1] && lo[x + 2] <= hi[y + 2] && lo[y + 2] <= hi[x + 2];
             }
 
+            /// <summary> every item whose box meets the box [qlo, qhi] (closed boxes, as in SelfJoin), appended to result </summary>
+            public void Query(double[] qlo, double[] qhi, List<int> result)
+            {
+                if (items.Length == 0) return;
+                var stack = new Stack<int>();
+                stack.Push(0);
+                while (stack.Count > 0) {
+                    int node = stack.Pop(), o = 6 * node;
+                    if (nodeBox[o] > qhi[0] || qlo[0] > nodeBox[o + 3] || nodeBox[o + 1] > qhi[1] || qlo[1] > nodeBox[o + 4]
+                        || nodeBox[o + 2] > qhi[2] || qlo[2] > nodeBox[o + 5]) continue;
+                    if (nodeLeft[node] >= 0) { stack.Push(nodeLeft[node]); stack.Push(nodeRight[node]); continue; }
+                    for (int i = nodeStart[node]; i < nodeEnd[node]; ++i) {
+                        int x = 3 * items[i];
+                        if (lo[x] <= qhi[0] && qlo[0] <= hi[x] && lo[x + 1] <= qhi[1] && qlo[1] <= hi[x + 1] && lo[x + 2] <= qhi[2] && qlo[2] <= hi[x + 2])
+                            result.Add(items[i]);
+                    }
+                }
+            }
+
             /// <summary> every unordered pair of items of different groups whose boxes meet, once (smaller item first) </summary>
             public void SelfJoin(int[] group, List<(int, int)> pairs) { if (items.Length > 0) Join(0, 0, group, pairs); }
 
@@ -957,6 +1285,16 @@ namespace geometry3Sharp.Tests
         List<int>[] stacks;
         bool[] classified;
 
+        // Parallel.For with the exception of the body as it is (the loops throw CertificateException and DivideByZeroException, which the callers
+        // catch by type): an AggregateException is unwrapped to its first inner exception
+        static void ParFor(int from, int to, Action<int> body) => Unwrapped(() => Parallel.For(from, to, body));
+
+        static void Unwrapped(Action loop)
+        {
+            try { loop(); }
+            catch (AggregateException e) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.Flatten().InnerExceptions[0]).Throw(); }
+        }
+
         void PrepareStacks()
         {
             PrepareInputs();
@@ -964,20 +1302,55 @@ namespace geometry3Sharp.Tests
             int n = PieceCorners.Length;
             stacks = new List<int>[n];
             classified = new bool[n];
+            // (what the pieces share, built before the loop: the plane boxes and the edge forms of the input triangles)
+            foreach (string plane in planeGroups.Keys) BoxesOfPlane(plane);
+            ParFor(0, triNormal.Length, t => { if (IsZero(triNormal[t]) == false) TriForms(t); });
+            // Pieces with the same three corners (the coplanar copies of one region, one per source) have the same centroid, so the same
+            // coplanar triangles contain it: one group per (plane of the source, corners), its table of "inside" computed once, and
+            // each piece's stack from the table with its own source (which is in it without a test, as before). A piece of its own is a group of one.
+            var groupOf = new int[n];
+            var groups = new Dictionary<string, int>();
+            var firstOf = new List<int>();
             for (int i = 0; i < n; ++i) {
-                int src = PieceSource[i];
+                int[] ids = (int[])pieceV[i].Clone();
+                Array.Sort(ids);
+                string key = triPlane[PieceSource[i]] + "|" + ids[0] + "," + ids[1] + "," + ids[2];
+                if (groups.TryGetValue(key, out int g) == false) { groups[key] = g = firstOf.Count; firstOf.Add(i); }
+                groupOf[i] = g;
+            }
+            var hits = new int[firstOf.Count][];
+            var inside = new sbyte[firstOf.Count][];
+            ParFor(0, firstOf.Count, g => {
+                int i = firstOf[g], src = PieceSource[i];
                 ExactPoint3 cen = Centroid(PieceCorners[i]);
-                var s = new List<int>();
-                foreach (int u in planeGroups[triPlane[src]]) {
-                    if (u == src) { s.Add(u); continue; }
+                List<int> near = BoxHits(triPlane[src], PieceCorners[i]);
+                var h = new List<int>(near.Count);
+                var side = new List<sbyte>(near.Count);
+                foreach (int u in near) {
                     if (TriCulled[u]) continue;
-                    int inside = InsideInPlane(u, cen);
-                    if (inside == 0) throw new CertificateException($"piece {i}: its centroid is on the edge of coplanar triangle {u}");
-                    if (inside > 0) s.Add(u);
+                    h.Add(u); side.Add((sbyte)InsideInPlane(u, cen));
                 }
+                hits[g] = h.ToArray(); inside[g] = side.ToArray();
+            });
+            // the pieces are independent: a failure is reported for the lowest piece, as the sequential loop did
+            var failure = new string[n];
+            ParFor(0, n, i => {
+                int src = PieceSource[i], g = groupOf[i];
+                var s = new List<int>();
+                bool srcAdded = false;
+                for (int k = 0; k < hits[g].Length; ++k) {
+                    int u = hits[g][k];
+                    if (u > src && srcAdded == false) { s.Add(src); srcAdded = true; }
+                    if (u == src) { s.Add(u); srcAdded = true; continue; }
+                    if (inside[g][k] == 0) { failure[i] = $"piece {i}: its centroid is on the edge of coplanar triangle {u}"; return; }
+                    if (inside[g][k] > 0) s.Add(u);
+                }
+                if (srcAdded == false) { s.Add(src); s.Sort(); }
                 stacks[i] = s;
                 classified[i] = s.Min() == src;
-            }
+            });
+            for (int i = 0; i < n; ++i)
+                if (failure[i] != null) throw new CertificateException(failure[i]);
         }
 
         /// <summary> the winding numbers behind classified piece i, from its front and its stack </summary>
@@ -1250,7 +1623,9 @@ namespace geometry3Sharp.Tests
             // (plane, line) -> events (position along the line, weight)
             var lines = new Dictionary<string, List<(ExactPoint3 p, BigInteger[] dir, int w, bool start)>>();
             // per plane: the unsigned projected area of each side (num, den), on the axis of the normal's largest component
-            var areas = new Dictionary<string, (BigInteger en, BigInteger ed, BigInteger sn, BigInteger sd)>();
+            // (the terms are summed at the end by a balanced tree: a running sum of fractions with unreduced denominators grows with
+            // every term, which made C5 quadratic per plane, 97 % of its time on the sliced-cylinder repro of #1683)
+            var areas = new Dictionary<string, (List<(BigInteger n, BigInteger d)> e, List<(BigInteger n, BigInteger d)> s)>();
             bool AddTriangle(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, int w)
             {
                 BigInteger[] n = Normal(a, b, c);
@@ -1259,10 +1634,9 @@ namespace geometry3Sharp.Tests
                 int axis = BigInteger.Abs(n[0]) >= BigInteger.Abs(n[1]) && BigInteger.Abs(n[0]) >= BigInteger.Abs(n[2]) ? 0 : BigInteger.Abs(n[1]) >= BigInteger.Abs(n[2]) ? 1 : 2;
                 // (the normal numerator is scaled by (a.W b.W)(a.W c.W) > 0)
                 BigInteger an = BigInteger.Abs(n[axis]), ad = a.W * b.W * a.W * c.W;
-                var ar = areas.TryGetValue(plane, out var v) ? v : (BigInteger.Zero, BigInteger.One, BigInteger.Zero, BigInteger.One);
-                if (w > 0) ar = (ar.Item1 * ad + an * ar.Item2, ar.Item2 * ad, ar.Item3, ar.Item4);
-                else ar = (ar.Item1, ar.Item2, ar.Item3 * ad + an * ar.Item4, ar.Item4 * ad);
-                areas[plane] = ar;
+                if (areas.TryGetValue(plane, out var ar) == false) areas[plane] = ar = (new List<(BigInteger, BigInteger)>(), new List<(BigInteger, BigInteger)>());
+                // (w > 0: the kept pieces, w < 0: the result before rounding)
+                (w > 0 ? ar.e : ar.s).Add((an, ad));
                 var t = new[] { a, b, c };
                 for (int k = 0; k < 3; ++k) {
                     ExactPoint3 p = t[k], q = t[(k + 1) % 3];
@@ -1312,10 +1686,25 @@ namespace geometry3Sharp.Tests
             }
             // (equal chains, and E of density at most 1 (copies are never kept): an unsigned area of E_s above E's is a
             // pair of opposite coincident triangles, which the chain cancels)
-            foreach (var kv in areas)
-                if (kv.Value.Item1 * kv.Value.Item4 != kv.Value.Item3 * kv.Value.Item2)
+            foreach (var kv in areas) {
+                var (en, ed) = SumFractions(kv.Value.e, 0, kv.Value.e.Count);
+                var (sn, sd) = SumFractions(kv.Value.s, 0, kv.Value.s.Count);
+                if (en * sd != sn * ed)
                     return "the result before rounding has another area than the kept pieces in a plane (coincident opposite triangles)";
+            }
             return "";
+        }
+
+        // the exact sum of the fractions t[from..to) (positive denominators) by halving: the operands of the top sums are as large as the
+        // result, the rest small, so it costs O(M(N) log k) for k terms of N bits in all (0 for none)
+        public static (BigInteger n, BigInteger d) SumFractions(List<(BigInteger n, BigInteger d)> t, int from, int to)
+        {
+            if (to - from == 0) return (BigInteger.Zero, BigInteger.One);
+            if (to - from == 1) return t[from];
+            int mid = from + (to - from) / 2;
+            var (an, ad) = SumFractions(t, from, mid);
+            var (bn, bd) = SumFractions(t, mid, to);
+            return (an * bd + bn * ad, ad * bd);
         }
 
         // ------------------------------------------------------------------ C5: coverage within Delta
@@ -1413,9 +1802,12 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        /// <summary> for tests: C5's coverage test alone (CheckResult first checks that the result before rounding is the kept pieces) </summary>
+        public string CheckCoverageOnly() => CheckCoverage();
+
         string CheckCoverage()
         {
-            CoverageTests = Uncovered = 0;
+            CoverageTests = Uncovered = UnionCovered = UnionLeftoverCovered = 0;
             var rTris = Result.TriangleIndices().Select(t => {
                 Index3i i = Result.GetTriangle(t);
                 return new[] { Vec(FromDouble(Result.GetVertex(i.a))), Vec(FromDouble(Result.GetVertex(i.b))), Vec(FromDouble(Result.GetVertex(i.c))) };
@@ -1496,6 +1888,98 @@ namespace geometry3Sharp.Tests
             return result;
         }
 
+        // ---- the double filters of C5. They only decide in one direction, with a margin far above the rounding: a point whose
+        // approximation is farther than Delta from the box of a triangle's approximated corners is farther than Delta from the
+        // triangle (reject), and one whose distance to a point computed inside the triangle (a convex combination of the
+        // approximated corners, whatever the rounding made of the weights) is below Delta by the margin is within Delta
+        // (accept). Everything between is decided by the exact test (Near).
+
+        sealed class TriApprox
+        {
+            public bool Ok; public Vector3d A, B, C; public double[] Lo = new double[3], Hi = new double[3];
+        }
+
+        // q as a double (relative error below 2^-50), false where it is not finite or too large for the conversion
+        static bool ApproxQ(Q q, out double v)
+        {
+            v = 0;
+            if (q.N.IsZero) return true;
+            if (ExactPoint3.BitLength(q.N) > 1000 || ExactPoint3.BitLength(q.D) > 1000) return false;
+            v = (double)q.N / (double)q.D;
+            return double.IsInfinity(v) == false && double.IsNaN(v) == false;
+        }
+
+        static bool ApproxPoint(Q[] p, out Vector3d v)
+        {
+            v = Vector3d.Zero;
+            if (ApproxQ(p[0], out double x) && ApproxQ(p[1], out double y) && ApproxQ(p[2], out double z)) { v = new Vector3d(x, y, z); return true; }
+            return false;
+        }
+
+        static TriApprox ApproxTri(Q[][] t)
+        {
+            var r = new TriApprox();
+            if (ApproxPoint(t[0], out r.A) && ApproxPoint(t[1], out r.B) && ApproxPoint(t[2], out r.C)) {
+                r.Ok = true;
+                for (int k = 0; k < 3; ++k) {
+                    r.Lo[k] = Math.Min(r.A[k], Math.Min(r.B[k], r.C[k]));
+                    r.Hi[k] = Math.Max(r.A[k], Math.Max(r.B[k], r.C[k]));
+                }
+            }
+            return r;
+        }
+
+        // the distance from p to a point of the triangle abc that is inside it up to rounding (Ericson 5.1.5; the weights are
+        // clamped to a convex combination, so a wrong region only gives a larger distance); NaN where it cannot be computed
+        static double DistanceToTriangleApprox(Vector3d p, Vector3d a, Vector3d b, Vector3d c)
+        {
+            Vector3d ab = b - a, ac = c - a, ap = p - a;
+            double d1 = ab.Dot(ap), d2 = ac.Dot(ap);
+            double v, w;
+            if (d1 <= 0 && d2 <= 0) { v = 0; w = 0; }
+            else {
+                Vector3d bp = p - b;
+                double d3 = ab.Dot(bp), d4 = ac.Dot(bp);
+                Vector3d cp = p - c;
+                double d5 = ab.Dot(cp), d6 = ac.Dot(cp);
+                double vc = d1 * d4 - d3 * d2, vb = d5 * d2 - d1 * d6, va = d3 * d6 - d5 * d4;
+                if (d3 >= 0 && d4 <= d3) { v = 1; w = 0; }
+                else if (vc <= 0 && d1 >= 0 && d3 <= 0) { v = d1 / (d1 - d3); w = 0; }
+                else if (d6 >= 0 && d5 <= d6) { v = 0; w = 1; }
+                else if (vb <= 0 && d2 >= 0 && d6 <= 0) { v = 0; w = d2 / (d2 - d6); }
+                else if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) { v = 1 - (d4 - d3) / ((d4 - d3) + (d5 - d6)); w = 1 - v; }
+                else { double den = 1 / (va + vb + vc); v = vb * den; w = vc * den; }
+            }
+            if (double.IsNaN(v) || double.IsNaN(w)) return double.NaN;
+            // (a belt: the region tests keep v and w in [0, 1] up to rounding, and an infinite weight from a vanishing denominator
+            // gives an infinite or NaN distance, which no accept takes; 4 million random thin triangles never differed with and without)
+            v = Math.Min(1, Math.Max(0, v)); w = Math.Min(1 - v, Math.Max(0, w));
+            Vector3d q = a + v * ab + w * ac;
+            return (p - q).Length;
+        }
+
+        // The absolute slack of the double filters: 2^-40 of the largest coordinate plus the extent, and never below 2^-480, so that
+        // the squares of a distance (down to 2^-960 times a few) neither underflow below the margin nor reach the subnormals
+        // (found by the review of #1520: at 2^-560 the accept was unsound with a floor of 1e-300)
+        static double FilterEps(double maxAbs, double extent) => Math.Max((maxAbs + extent) / (double)(1L << 40), Math.Pow(2, -480));
+
+        double covDelta, covEps;       // Delta, and the absolute slack of the double filters (set by Cover)
+        Q covDeltaQ;                   // Delta as a rational (set by Cover)
+        /// <summary> for tests: the slack of the double filters of C5 in the last coverage test (0 before one ran) </summary>
+        public double CoverageSlack => covEps;
+
+        // Near with the double filters first (pa, ta: the approximations of p and t; ok = they exist)
+        static bool NearFiltered(Q[] p, bool pOk, Vector3d pa, Q[][] t, TriApprox ta, Q delta2, double covDelta, double covEps)
+        {
+            if (pOk && ta.Ok) {
+                double tol = covDelta + 3 * covEps;
+                if (pa.x < ta.Lo[0] - tol || pa.x > ta.Hi[0] + tol || pa.y < ta.Lo[1] - tol || pa.y > ta.Hi[1] + tol
+                    || pa.z < ta.Lo[2] - tol || pa.z > ta.Hi[2] + tol) return false;
+                if (DistanceToTriangleApprox(pa, ta.A, ta.B, ta.C) + 3 * covEps <= covDelta) return true;
+            }
+            return Near(p, t, delta2);
+        }
+
         string Cover(List<Q[][]> from, List<AxisAlignedBox3d> fromBoxes, List<Q[][]> to, List<AxisAlignedBox3d> toBoxes, string fromName, string toName)
         {
             if (from.Count == 0) return "";
@@ -1515,17 +1999,24 @@ namespace geometry3Sharp.Tests
                 var b = toBoxes[j]; b.Expand(pad); grid.Add(j, b);
             }
             Q delta2 = DeltaSquared();
+            covDelta = Delta;
+            covEps = FilterEps(Math.Max(Math.Abs(all.Min.x), Math.Max(Math.Abs(all.Min.y), Math.Max(Math.Abs(all.Min.z),
+                Math.Max(Math.Abs(all.Max.x), Math.Max(Math.Abs(all.Max.y), Math.Abs(all.Max.z)))))), all.MaxDim);
+            var toApprox = new TriApprox[to.Count];
+            for (int j = 0; j < to.Count; ++j) toApprox[j] = ApproxTri(to[j]);
+            covDeltaQ = DeltaQ();
             for (int i = 0; i < from.Count; ++i) {
                 var box = fromBoxes[i]; box.Expand(pad);
                 List<int> cand = grid.Query(box).OrderBy(x => x == i ? -1 : x).ToList();
-                if (Covered(from[i], cand, to, delta2, SplitDepth)) continue;
+                if (Covered(from[i], cand, to, toApprox, delta2, SplitDepth)) continue;
                 Uncovered++;
                 // not certified: is a corner farther than Delta from every triangle (a definite violation)?
                 foreach (Q[] corner in from[i]) {
                     bool near = false;
+                    bool cOk = ApproxPoint(corner, out Vector3d ca);
                     foreach (int j in cand) {
                         CoverageTests++;
-                        if (Near(corner, to[j], delta2)) { near = true; break; }
+                        if (NearFiltered(corner, cOk, ca, to[j], toApprox[j], delta2, covDelta, covEps)) { near = true; break; }
                     }
                     if (near == false) return $"a corner of the {fromName} is farther than {Delta:R} from the {toName}";
                 }
@@ -1560,6 +2051,28 @@ namespace geometry3Sharp.Tests
             return Near(Vec(p), t.Select(Vec).ToArray(), (q * q).Reduce());
         }
 
+        /// <summary>
+        /// for tests: PointNearTriangle through the double filters of C5 (reject by box, accept by a point inside the triangle),
+        /// with the slack the checker derives from the largest coordinate it sees (scale); must give the exact answer
+        /// </summary>
+        public static bool PointNearTriangleFiltered(ExactPoint3 p, ExactPoint3[] t, double delta, double scale)
+        {
+            ExactPoint3 d = FromDouble(new Vector3d(delta, 0, 0));
+            Q q = new Q(d.X, d.W);
+            Q[][] tq = t.Select(Vec).ToArray();
+            Q[] pq = Vec(p);
+            bool pOk = ApproxPoint(pq, out Vector3d pa);
+            return NearFiltered(pq, pOk, pa, tq, ApproxTri(tq), (q * q).Reduce(), delta, FilterEps(scale, scale));
+        }
+
+        /// <summary> for tests: the distance the accept filter computes from p to a point it takes for one of the triangle (NaN: none) </summary>
+        public static double ApproxDistanceToTriangle(ExactPoint3 p, ExactPoint3[] t)
+        {
+            Q[][] tq = t.Select(Vec).ToArray();
+            TriApprox ta = ApproxTri(tq);
+            return ApproxPoint(Vec(p), out Vector3d pa) && ta.Ok ? DistanceToTriangleApprox(pa, ta.A, ta.B, ta.C) : double.NaN;
+        }
+
         static Q SegmentSquaredDistance(Q[] p, Q[] a, Q[] b)
         {
             Q[] ab = VSub(b, a), ap = VSub(p, a);
@@ -1571,21 +2084,37 @@ namespace geometry3Sharp.Tests
             return PointOnSegment(p, a, ab, (t / l2).Reduce());
         }
 
-        bool Covered(Q[][] t, List<int> cand, List<Q[][]> to, Q delta2, int depth)
+        bool Covered(Q[][] t, List<int> cand, List<Q[][]> to, TriApprox[] toApprox, Q delta2, int depth)
         {
+            var cOk = new bool[3]; var pv = new Vector3d[3];
+            for (int k = 0; k < 3; ++k) cOk[k] = ApproxPoint(t[k], out pv[k]);
             foreach (int j in cand) {
                 bool all = true;
-                foreach (Q[] corner in t) {
+                for (int k = 0; k < 3; ++k) {
                     CoverageTests++;
-                    if (Near(corner, to[j], delta2) == false) { all = false; break; }
+                    if (NearFiltered(t[k], cOk[k], pv[k], to[j], toApprox[j], delta2, covDelta, covEps) == false) { all = false; break; }
                 }
                 if (all) return true;
             }
+            // (a corner that no triangle is within Delta of: t is not covered and the union cannot change that, so it is not tried)
+            bool cornersNear = UnionCover;
+            for (int k = 0; k < 3 && cornersNear; ++k) {
+                cornersNear = false;
+                foreach (int j in cand)
+                    if (NearFiltered(t[k], cOk[k], pv[k], to[j], toApprox[j], delta2, covDelta, covEps)) { cornersNear = true; break; }
+            }
+            if (cornersNear && CoveredByUnion(t, cand, to, covDeltaQ, delta2)) return true;
             if (depth == 0) return false;
             Q[] Mid(Q[] a, Q[] b) => new[] { ((a[0] + b[0]) * new Q(1, 2)).Reduce(), ((a[1] + b[1]) * new Q(1, 2)).Reduce(), ((a[2] + b[2]) * new Q(1, 2)).Reduce() };
             Q[] ab = Mid(t[0], t[1]), bc = Mid(t[1], t[2]), ca = Mid(t[2], t[0]);
-            return Covered(new[] { t[0], ab, ca }, cand, to, delta2, depth - 1) && Covered(new[] { ab, t[1], bc }, cand, to, delta2, depth - 1)
-                && Covered(new[] { ca, bc, t[2] }, cand, to, delta2, depth - 1) && Covered(new[] { ab, bc, ca }, cand, to, delta2, depth - 1);
+            return Covered(new[] { t[0], ab, ca }, cand, to, toApprox, delta2, depth - 1) && Covered(new[] { ab, t[1], bc }, cand, to, toApprox, delta2, depth - 1)
+                && Covered(new[] { ca, bc, t[2] }, cand, to, toApprox, delta2, depth - 1) && Covered(new[] { ab, bc, ca }, cand, to, toApprox, delta2, depth - 1);
+        }
+
+        Q DeltaQ()
+        {
+            ExactPoint3 d = FromDouble(new Vector3d(Delta, 0, 0));
+            return new Q(d.X, d.W);
         }
 
         Q DeltaSquared()

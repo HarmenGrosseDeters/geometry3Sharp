@@ -153,7 +153,7 @@ static class Program
                 }));
                 rows.Add(Timed("exact resolve", () => new Row { Mesh = ExactMeshBoolean.Resolve(new DMesh3(given, false, MeshComponents.None)), Status = "" }));
                 rows.Add(Timed("solidify", () => {
-                    var s = new MeshWindingNumberSolidify(new DMesh3(given, false, MeshComponents.None)) { GridResolution = 128 };
+                    var s = new MeshWindingNumberSolidify(new DMesh3(given, false, MeshComponents.None)) { MinVolumeIoU = 0, GridResolution = 128 };
                     return s.Compute() ? new Row { Mesh = s.Result } : new Row { Status = "failed" };
                 }));
                 rows.Add(Timed("alpha wrap", () => {
@@ -265,7 +265,7 @@ static class Program
             foreach (bool rot in new[] { false, true })
                 foreach (int res in new[] { 24, 48, 96 }) {
                     DMesh3 g = rot ? Map(inp.make(), Corpus.Rotate) : inp.make();
-                    var s = new MeshWindingNumberSolidify(new DMesh3(g, false, MeshComponents.None)) { GridResolution = res };
+                    var s = new MeshWindingNumberSolidify(new DMesh3(g, false, MeshComponents.None)) { MinVolumeIoU = 0, GridResolution = res };
                     runs++;
                     if (!s.Compute() || s.Result == null || s.Result.TriangleCount == 0) { Console.WriteLine(inp.name + " | " + (rot ? "rot" : "id") + " | " + res + " | failed"); continue; }
                     var d = MeshRobustRepair.FindDefects(s.Result);

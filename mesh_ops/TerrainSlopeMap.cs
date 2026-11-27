@@ -46,6 +46,8 @@ namespace gs
             foreach (int p in planes) MaxGradient = Math.Max(MaxGradient, K.GradientBound(p));
         }
         public int FaceCount { get { return fEdge.Count; } }
+        /// <summary> tests and benchmarks: the calls of split_face so far </summary>
+        internal long SplitCalls;
 
         // ---------------------------------------------------------------- structure
 
@@ -118,6 +120,7 @@ namespace gs
         bool split_face(int f, int line, out int neg, out int pos, out int chord)
         {
             neg = -1; pos = -1; chord = -1;
+            SplitCalls++;
             // (most calls do not cut: the signs first, into reused buffers, the same predicates as before)
             List<int> c = splitCycle;
             c.Clear();
@@ -444,7 +447,7 @@ namespace gs
                     double dminB = box_segment_distance(bb, A.xy, B.xy);
                     double lowerB = zmin + slb * dminB;
                     double sizeB = bb.Diagonal.Length;
-                    if (lowerB > upperB + 1e-9 * (Math.Abs(upperB) + Math.Abs(lowerB) + slb * (sizeB + dminB)))
+                    if (NoPrefilters == false && lowerB > upperB + 1e-9 * (Math.Abs(upperB) + Math.Abs(lowerB) + slb * (sizeB + dminB)))
                         continue;
                 }
                 var pos = prefilterPos;
@@ -453,12 +456,13 @@ namespace gs
                 // prefilter (conservative): F_k over the face is at least zmin + slb * dmin, with the corners' error
                 double upper = double.MinValue;
                 foreach (var q in pos) upper = Math.Max(upper, K.ApproxHeight(label, q.x, q.y));
-                if (prefilter_skips(pos, upper, zmin, slb, A.xy, B.xy, MaxGradient))
+                if (NoPrefilters == false && prefilter_skips(pos, upper, zmin, slb, A.xy, B.xy, MaxGradient))
                     continue;
                 relevant.Clear();
                 relevant.AddRange(strip);
                 add_sector(relevant, fanB, angB, B.xy, pos, theta);
                 add_sector(relevant, fanA, angA, A.xy, pos, theta);
+                set_sectors(strip, theta, fanB, angB, B.xy, fanA, angA, A.xy);
                 insert_into(f, label, relevant);
             }
         }
@@ -531,12 +535,12 @@ namespace gs
                 double dy = Math.Max(Math.Max(polyBox.Min.y - bb.Max.y, bb.Min.y - polyBox.Max.y), 0);
                 double dminB = Math.Sqrt(dx * dx + dy * dy);
                 double lowerB = zmin + slb * dminB;
-                if (lowerB > upperB + 1e-9 * (Math.Abs(upperB) + Math.Abs(lowerB) + slb * (bb.Diagonal.Length + polyBox.Diagonal.Length + dminB)))
+                if (NoPrefilters == false && lowerB > upperB + 1e-9 * (Math.Abs(upperB) + Math.Abs(lowerB) + slb * (bb.Diagonal.Length + polyBox.Diagonal.Length + dminB)))
                     continue;
                 var pos = prefilterPos;
                 pos.Clear(); prefilterVerts.Clear();
                 { int h0 = fEdge[f], h = h0; do { pos.Add(K.Approx(hOrig[h])); prefilterVerts.Add(hOrig[h]); h = hNext[h]; } while (h != h0); }
-                if (polygon != null) {
+                if (polygon != null && NoPrefilters == false) {
                     // the prefilter on the face's approximate corners (as InsertPiece's): the distance of the face to the
                     // polygon taken e shorter, the label's heights at the corners off by at most MaxGradient e
                     double upper = double.MinValue, e = 0;
@@ -553,6 +557,10 @@ namespace gs
                 relevant.Add(roadPlane);
                 relevant.AddRange(walls);
                 for (int i = 0; i < apexes.Count; ++i) add_sector(relevant, fans[i], angles[i], apexes[i], pos, theta);
+                sectorFixed.Clear(); sectorFixed.Add(roadPlane); sectorFixed.AddRange(walls);
+                sectorFans.Clear();
+                for (int i = 0; i < apexes.Count; ++i) sectorFans.Add((fans[i], angles[i], apexes[i]));
+                sectorTheta = theta;
                 insert_into(f, label, relevant);
             }
         }
@@ -586,9 +594,10 @@ namespace gs
         readonly List<Vector2d> prefilterPos = new List<Vector2d>();
         readonly List<int> prefilterVerts = new List<int>();
 
-        void add_sector(List<int> relevant, List<int> fan, List<double> ang, Vector2d apex, List<Vector2d> pos, double theta)
+        internal void add_sector(List<int> relevant, List<int> fan, List<double> ang, Vector2d apex, List<Vector2d> pos, double theta)
         {
             if (fan.Count == 0) return;
+            if (NoPrefilters) { relevant.AddRange(fan); return; }
             double refAngle = double.NaN, lo = 0, hi = 0;
             for (int i = 0; i < pos.Count; ++i) {
                 Vector2d q = pos[i];
@@ -608,9 +617,24 @@ namespace gs
             if (hi - lo > Math.PI - 4 * theta) { relevant.AddRange(fan); return; }
             // centred on the sector, so that the window never wraps (its half width is below pi / 2 + 2 theta)
             double mid = refAngle + 0.5 * (lo + hi), half = 0.5 * (hi - lo) + 2 * theta;
-            for (int i = 0; i < fan.Count; ++i)
-                if (Math.Abs(wrap(ang[i] - mid)) <= half) relevant.Add(fan[i]);
+            // (and the first plane beyond each end of the window: the fan's planes are tangent planes of one cone at the apex, so
+            // in a direction the highest is the nearest in angle on either side. Where the fan has a gap wider than the margin
+            // (the design side between its end planes, or directions left out next to a wall), the nearest one lies outside the
+            // window, and leaving it out lowered the piece there: #1530)
+            int below = -1, above = -1;
+            double dBelow = double.MaxValue, dAbove = double.MaxValue;
+            for (int i = 0; i < fan.Count; ++i) {
+                double w = wrap(ang[i] - mid);
+                if (Math.Abs(w) <= half) { relevant.Add(fan[i]); continue; }
+                // (beyond the upper end: w - half > 0 going up from mid; beyond the lower end: going down)
+                double up = w > half ? w - half : w + 2 * Math.PI - half, down = w < -half ? -half - w : 2 * Math.PI - half - w;
+                if (up < dAbove) { dAbove = up; above = i; }
+                if (down < dBelow) { dBelow = down; below = i; }
+            }
+            if (above >= 0) relevant.Add(fan[above]);
+            if (below >= 0 && below != above) relevant.Add(fan[below]);
         }
+
 
         static double wrap(double a)
         {
@@ -668,6 +692,42 @@ namespace gs
             return o1 * o2 <= 0 && o3 * o4 <= 0;
         }
 
+        // the sector context of the piece being inserted (InsertPiece, InsertPolygonPiece): the planes every part takes, the fans
+        readonly List<int> sectorFixed = new List<int>();
+        readonly List<(List<int> fan, List<double> ang, Vector2d apex)> sectorFans = new List<(List<int>, List<double>, Vector2d)>();
+        double sectorTheta;
+        /// <summary> tests: filter the planes per part of a face by its sector (default); false: every part takes every plane of the face </summary>
+        internal bool PartSectors = true;
+        /// <summary> tests: no prefilter and no fan sectors in the insertion (every face the reach box meets is clipped exactly with every plane: the reference labels) </summary>
+        internal bool NoPrefilters;
+
+        void set_sectors(List<int> strip, double theta, List<int> fanB, List<double> angB, Vector2d b, List<int> fanA, List<double> angA, Vector2d a)
+        {
+            sectorFixed.Clear(); sectorFixed.AddRange(strip);
+            sectorFans.Clear();
+            sectorFans.Add((fanB, angB, b)); sectorFans.Add((fanA, angA, a));
+            sectorTheta = theta;
+        }
+
+        readonly List<int> partPlanes = new List<int>();
+
+        bool part_allows(Dictionary<int, HashSet<int>> allowed, int g, int p)
+        {
+            if (PartSectors == false) return true;
+            HashSet<int> set;
+            if (allowed.TryGetValue(g, out set) == false) {
+                var pos = prefilterPos;
+                pos.Clear(); prefilterVerts.Clear();
+                { int h0 = fEdge[g], h = h0; do { pos.Add(K.Approx(hOrig[h])); prefilterVerts.Add(hOrig[h]); h = hNext[h]; } while (h != h0); }
+                partPlanes.Clear();
+                partPlanes.AddRange(sectorFixed);
+                foreach (var fa in sectorFans) add_sector(partPlanes, fa.fan, fa.ang, fa.apex, pos, sectorTheta);
+                set = new HashSet<int>(partPlanes);
+                allowed[g] = set;
+            }
+            return set.Contains(p);
+        }
+
         void insert_into(int f, int label, List<int> planes)
         {
             // W = f ∩ {P_j < label for all j}, clipped virtually first, so that f is only split if W is not empty
@@ -704,12 +764,18 @@ namespace gs
             // W gets the maximum of the planes (incremental: the parts where the next plane is higher)
             var parts = new List<int>() { cur };
             fLabel[cur] = planes[0];
+            // (each part takes only the planes that can be the piece's maximum on it: the fixed ones and the fan planes of its own
+            // sector, add_sector on the part's corners. A part lies in the face, so its window lies in the face's, and a fan plane
+            // outside the part's window is below one inside it there: the maximum, and so every label, is the same as with all
+            // planes; only the splits by planes that lose at once are left out)
+            var allowed = new Dictionary<int, HashSet<int>>();
             for (int i = 1; i < planes.Count; ++i) {
                 int p = planes[i];
                 var next = new List<int>();
                 foreach (int g in parts) {
+                    if (part_allows(allowed, g, p) == false) { next.Add(g); continue; }
                     int neg, pos, chord;
-                    split_face(g, K.PlaneLine(p, fLabel[g]), out neg, out pos, out chord);
+                    if (split_face(g, K.PlaneLine(p, fLabel[g]), out neg, out pos, out chord)) allowed.Remove(g);
                     if (neg >= 0) next.Add(neg);
                     if (pos >= 0) {
                         // all zero: the same plane, the lower id
@@ -722,6 +788,7 @@ namespace gs
                 }
                 parts = next;
             }
+            if (Compacting) touched.AddRange(parts);
         }
 
         bool all_positive(int f, int line)
@@ -766,6 +833,100 @@ namespace gs
             }
             verts = nv; elines = nl;
             return 1;
+        }
+
+        // ---------------------------------------------------------------- merging during insertion (an alternative construction)
+
+        /// <summary>
+        /// merge neighbouring domain faces of one label across non-barrier edges while the union stays convex, starting from the
+        /// faces labelled since the last call (an alternative construction: fewer live faces during insertion; after Simplify the
+        /// same partition). Returns the number of merges.
+        /// </summary>
+        public int Compact()
+        {
+            ordered = null;
+            // (only the faces that the pieces inserted since the last call labelled: the rest was compact already)
+            touched.Sort();
+            int merges = 0, last = -1;
+            foreach (int f in touched) {
+                if (f == last || in_domain(f) == false) continue;
+                last = f;
+                for (bool again = true; again;) {
+                    again = false;
+                    int h0 = fEdge[f], h = h0;
+                    do {
+                        int t = hTwin[h], g = t >= 0 ? hFace[t] : -1;
+                        if (g >= 0 && g != f && hBar[h] < 0 && in_domain(g) && fLabel[g] == fLabel[f] && try_merge(f, g, h)) { again = true; ++merges; break; }
+                        h = hNext[h];
+                    } while (h != h0);
+                }
+            }
+            touched.Clear();
+            return merges;
+        }
+
+        // the faces insert_into labelled since the last Compact (while Compacting)
+        readonly List<int> touched = new List<int>();
+        /// <summary> record the faces for Compact </summary>
+        internal bool Compacting;
+
+        // merge face g into f across the run of their shared edges that contains h (f's half-edge with g behind it), if the
+        // union is convex (exact: Orient, or the corner's two edges on one kernel line)
+        bool try_merge(int f, int g, int h)
+        {
+            int s = h, guard = 0;
+            while (hFace[hTwin[hPrev[s]]] == g && hPrev[s] != h) { s = hPrev[s]; if (++guard > 100000) return false; }
+            int e = s, m = 1;
+            while (hFace[hTwin[hNext[e]]] == g && hNext[e] != s) { e = hNext[e]; ++m; if (m > 100000) return false; }
+            int shared = 0, nf = 0, ng = 0;
+            { int x = fEdge[f]; do { ++nf; if (hFace[hTwin[x]] == g) ++shared; x = hNext[x]; } while (x != fEdge[f]); }
+            { int x = fEdge[g]; do { ++ng; x = hNext[x]; } while (x != fEdge[g]); }
+            if (shared != m || m >= nf || m >= ng) return false;
+            for (int x = s, i = 0; i < m; x = hNext[x], ++i)
+                if (hBar[x] >= 0 || hBar[hTwin[x]] >= 0) return false;
+            int ts = hTwin[s], te = hTwin[e];
+            // (the inner vertices of the run: degree 2, nothing else meets them)
+            for (int x = s, i = 0; i + 1 < m; x = hNext[x], ++i)
+                if (hNext[hTwin[hNext[x]]] != hTwin[x]) return false;
+            int a = hPrev[s], b = hNext[e], c = hPrev[te], d = hNext[ts];
+            // the corners of the union at the ends of the run: a then d at the origin of s, c then b at the end of e
+            if (on_one_line(a, d) == false && K.Orient(hOrig[a], hOrig[s], hOrig[hTwin[d]]) < 0) return false;
+            if (on_one_line(c, b) == false && K.Orient(hOrig[c], hOrig[te], hOrig[hTwin[b]]) < 0) return false;
+            for (int x = s, i = 0; i < m; x = hNext[x], ++i) { hAlive[x] = false; hAlive[hTwin[x]] = false; }
+            hNext[a] = d; hPrev[d] = a; hNext[c] = b; hPrev[b] = c;
+            fEdge[f] = a;
+            int y = a;
+            do { hFace[y] = f; y = hNext[y]; } while (y != a);
+            fAlive[g] = false;
+            if (fQt[g] >= 0) { qt.Remove(fQt[g]); fQt[g] = -1; }
+            qt_update(f);
+            return true;
+        }
+
+        /// <summary>
+        /// tests: the live half-edges on a barrier with domain faces on both sides. BuildDomain gives the two sides of a barrier
+        /// opposite verdicts, so there are none; this makes the barrier checks of Compact redundant with in_domain
+        /// </summary>
+        internal int BarriersWithDomainOnBothSides()
+        {
+            int n = 0;
+            for (int h = 0; h < hOrig.Count; ++h) {
+                if (hAlive[h] == false || hBar[h] < 0) continue;
+                if (in_domain(hFace[h]) && in_domain(hFace[hTwin[h]])) ++n;
+            }
+            return n;
+        }
+
+        /// <summary> tests: the partition after Simplify as text (per face in OrderedFaces: label, then the rounded corners) </summary>
+        internal string PartitionText()
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (int f in OrderedFaces()) {
+                sb.Append(fLabel[f]);
+                foreach (int h in cycle(f)) { Vector2d r = K.Rounded(hOrig[h]); sb.Append(FormattableString.Invariant($" {r.x:R},{r.y:R}")); }
+                sb.Append('\n');
+            }
+            return sb.ToString();
         }
 
         // ---------------------------------------------------------------- simplification
@@ -1162,7 +1323,7 @@ namespace gs
         /// 'lower' (rounded to nearest from the exact value), faces triangulated at their exact corners; group id = piece;
         /// z negated for fill
         /// </summary>
-        public DMesh3 Realize(int cap, bool fill, double mergeRadius = 0, double lower = 0)
+        public DMesh3 Realize(int cap, bool fill, double mergeRadius = 0, double lower = 0, bool strict = false, bool zip = false)
         {
             var mesh = new DMesh3(false, false, false, true);
             // the planes incident to each rounded position (all domain faces, the cap too)
@@ -1211,7 +1372,7 @@ namespace gs
             merge_close_positions(labelsAt, barrierPos, BarriersAt, mergeRadius, repOf);
             DroppedTriangles = append_faces(mesh,
                 faces.Select(f => new KeyValuePair<int, List<int>>(owner[fLabel[f]], cycle(f).Select(h => hOrig[h]).ToList())),
-                triangulate, outVertex);
+                triangulate, outVertex, strict, mergeRadius, zip);
             foreach (int v in mesh.VertexIndices()) OnBarrier.Add(barrierPos.Contains(mesh.GetVertex(v).xy));
             return mesh;
         }
@@ -1285,25 +1446,200 @@ namespace gs
         // rounded vertices (outVertex). A face narrower than the rounding, eg between two creases a few ulps apart, has
         // no area once rounded: its triangles are dropped (kept, they would be vertical walls over their neighbours) and
         // the neighbours stitched, which leaves no gap. Returns the number dropped. (Static: tests feed it faces.)
+        // Strict (#1539, the retry after a NonManifoldRealization): the same for a sliver that the rounding turned over
+        // (clockwise) or that runs along an edge in the direction a triangle of the mesh does (it lies over that triangle):
+        // near-degenerate clusters, where slivers of different faces a few ulps wide lie along one line, round to such
+        // triangles. Not the default: a turned-over sliver that is not in the way is kept (later repairs remove it), and
+        // dropping it can leave a crack. Only a sliver is dropped (is_sliver, radius = the merge radius of the realization);
+        // a thicker triangle that turns over or overlaps is a real defect: NonManifoldRealization. Zip (#1539, the retry after strict
+        // failed): a real triangle over appended slivers removes them, and zip_strips replaces stitch. A triangle that the mesh
+        // refuses throws as well: in strict mode an edge never has two triangles in one direction (overlaps drops those), so
+        // two triangles on an edge run in opposite directions and a third one runs along one of them in the same direction,
+        // which overlaps catches first; the refusal cannot happen (and has no test), the throw is a guard.
         internal static int append_faces(DMesh3 mesh, IEnumerable<KeyValuePair<int, List<int>>> faces,
-                                         Func<List<int>, List<Index3i>> triangulate, Func<int, int> outVertex)
+                                         Func<List<int>, List<Index3i>> triangulate, Func<int, int> outVertex, bool strict = false,
+                                         double radius = 0, bool zip = false)
         {
             var dropped = new List<Index3i>();
             foreach (var face in faces) {
                 foreach (Index3i t in triangulate(face.Value)) {
                     int a = outVertex(t.a), b = outVertex(t.b), c = outVertex(t.c);
                     if (a == b || b == c || c == a) continue;
-                    if (ExactPredicates.Orient2d(mesh.GetVertex(a).xy, mesh.GetVertex(b).xy, mesh.GetVertex(c).xy) == 0) {
+                    Vector2d pa = mesh.GetVertex(a).xy, pb = mesh.GetVertex(b).xy, pc = mesh.GetVertex(c).xy;
+                    int orient = ExactPredicates.Orient2d(pa, pb, pc);
+                    if (orient == 0) {
                         dropped.Add(new Index3i(a, b, c));
                         continue;
+                    }
+                    if (strict && (orient < 0 || overlaps(mesh, a, b, c))) {
+                        if (is_sliver(pa, pb, pc, radius)) {
+                            dropped.Add(new Index3i(a, b, c));
+                            continue;
+                        }
+                        // (zip: a real triangle lies over appended ones: those must be slivers, which go instead of it. Without it, a
+                        // real triangle that turned over or lies over another is a defect)
+                        if (zip == false || orient < 0) throw new NonManifoldRealization();
+                        foreach (int over in overlapped(mesh, a, b, c)) {
+                            Index3i ov = mesh.GetTriangle(over);
+                            if (is_sliver(mesh.GetVertex(ov.a).xy, mesh.GetVertex(ov.b).xy, mesh.GetVertex(ov.c).xy, radius) == false) throw new NonManifoldRealization();
+                            dropped.Add(ov);
+                            mesh.RemoveTriangle(over, false, false);
+                        }
                     }
                     int tid = mesh.AppendTriangle(a, b, c, face.Key);
                     if (tid < 0) throw new NonManifoldRealization();
                 }
             }
-            stitch(mesh, dropped);
+            if (strict && zip) zip_strips(mesh, dropped, radius); else stitch(mesh, dropped);
             return dropped.Count;
         }
+
+        // A triangle that the rounding can have turned over or laid over a neighbour. With M the largest coordinate and
+        // d = ulp(M) + radius: a corner is at most ulp(M) from the exact one (a coordinate is rounded by at most half an ulp of
+        // M, so the point moves by at most 0.71 ulp) and at most radius further if merged (a merge takes a position to a
+        // representative within the radius, which is not merged itself), so at most d. The exact triangle is counter-clockwise,
+        // so its apex is above its longest edge; moving the two ends of that edge and the apex by at most d each puts the apex
+        // at most 2 d on the other side of the edge (it projects inside the longest edge, whose acute base angles put the
+        // apex inside the strip over it, so the edge's line moves by at most d there). The computed height is |cross| / L:
+        // with u = 2^-53 and edge lengths at most L, the differences have relative error u, each product 3.1 u, the
+        // subtraction u of its result, so the cross product is off by at most 5 u (|X Y| + |X' Y'|) <= 10 u L^2 (the components
+        // of two edges are at most L; no underflow: the differences of doubles are exact below the normal range), so the cross
+        // product divided by the exact L is off by at most 10 u L. L itself (a square root of a sum of squares) has relative
+        // error at most 3 u, which changes the height h <= L by at most 3 u L, and the division adds u h <= u L: the computed
+        // height is off by at most 14 u L. The bound is 2 d + 16 u L: a margin of 2 u L over that, for the sums 2 (ulp + radius)
+        // and 16 u L themselves (each at most u relative, so at most 2 u L together at this size). So every triangle that
+        // rounding turned over or laid over a neighbour passes, and a triangle thicker than 2 d + 16 u L (about 2 ulp(M) + 16 u L)
+        // is no rounding artefact.
+        internal static bool is_sliver(Vector2d a, Vector2d b, Vector2d c, double radius)
+        {
+            double m = Math.Max(Math.Max(Math.Max(Math.Abs(a.x), Math.Abs(a.y)), Math.Max(Math.Abs(b.x), Math.Abs(b.y))), Math.Max(Math.Abs(c.x), Math.Abs(c.y)));
+            double ulp = ExactInterval.Up(m) - m;
+            double l2 = Math.Max(a.DistanceSquared(b), Math.Max(b.DistanceSquared(c), c.DistanceSquared(a)));
+            if (!(l2 > 0)) return true;
+            double l = Math.Sqrt(l2);
+            double height = Math.Abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) / l;
+            return height <= 2 * (ulp + radius) + 16 * 1.1102230246251565E-16 * l;
+        }
+
+        // an edge of (a, b, c) that a triangle of the mesh runs along in the same direction: the two overlap
+        static bool overlaps(DMesh3 mesh, int a, int b, int c)
+        {
+            return same_direction(mesh, a, b) || same_direction(mesh, b, c) || same_direction(mesh, c, a);
+        }
+
+        // the triangles of the mesh that run along an edge of (a, b, c) in the same direction
+        static List<int> overlapped(DMesh3 mesh, int a, int b, int c)
+        {
+            var result = new List<int>();
+            foreach (var uv in new[] { new Index2i(a, b), new Index2i(b, c), new Index2i(c, a) }) {
+                int e = mesh.FindEdge(uv.a, uv.b);
+                if (e < 0) continue;
+                Index2i et = mesh.GetEdgeT(e);
+                foreach (int t in new[] { et.a, et.b }) {
+                    if (t < 0 || result.Contains(t)) continue;
+                    Index3i tv = mesh.GetTriangle(t);
+                    if ((tv.a == uv.a && tv.b == uv.b) || (tv.b == uv.a && tv.c == uv.b) || (tv.c == uv.a && tv.a == uv.b)) result.Add(t);
+                }
+            }
+            return result;
+        }
+
+        static bool same_direction(DMesh3 mesh, int u, int v)
+        {
+            int e = mesh.FindEdge(u, v);
+            if (e < 0) return false;
+            Index2i et = mesh.GetEdgeT(e);
+            foreach (int t in new[] { et.a, et.b }) {
+                if (t < 0) continue;
+                Index3i tv = mesh.GetTriangle(t);
+                if ((tv.a == u && tv.b == v) || (tv.b == u && tv.c == v) || (tv.c == u && tv.a == v)) return true;
+            }
+            return false;
+        }
+
+        // The strict counterpart of stitch (#1539): the dropped slivers and the kept slivers that share an edge with them (also
+        // chained: a sliver sharing an edge with one of those) are removed, which leaves a cavity of no area along one line,
+        // bounded by the edges of real triangles of both sides. It is closed by the vertices of the removed slivers: each one that
+        // lies strictly inside a boundary edge, within the sliver bound of its line, splits the triangle of that edge there, until no
+        // vertex does. Then the two sides of the cavity have the same vertices in the same order, and their triangles share
+        // edges. stitch alone needs the long edge of each dropped sliver to be a boundary edge, and the edge from the split
+        // vertex to the apex not to exist: both fail where slivers of different faces lie one over another (the kept sliver
+        // of a face, whose diagonal is that very edge). A split that would turn a triangle over or doubles an edge throws
+        // NonManifoldRealization.
+        internal static void zip_strips(DMesh3 mesh, List<Index3i> dropped, double radius)
+        {
+            var strip = new HashSet<long>(EdgeKeyComparer.Instance);
+            var vertices = new HashSet<int>();
+            Action<int, int, int> addTriangle = (a, b, c) => {
+                strip.Add(edge_key(a, b)); strip.Add(edge_key(b, c)); strip.Add(edge_key(c, a));
+                vertices.Add(a); vertices.Add(b); vertices.Add(c);
+            };
+            foreach (Index3i d in dropped) addTriangle(d.a, d.b, d.c);
+            // the kept slivers chained to the dropped ones by shared edges: only triangles at the strip's vertices are looked at
+            var removed = new HashSet<int>();
+            for (bool again = true; again;) {
+                again = false;
+                foreach (int v in vertices.OrderBy(i => i).ToList())
+                    foreach (int t in mesh.VtxTrianglesItr(v).ToList()) {
+                        if (removed.Contains(t)) continue;
+                        Index3i tv = mesh.GetTriangle(t);
+                        if (strip.Contains(edge_key(tv.a, tv.b)) == false && strip.Contains(edge_key(tv.b, tv.c)) == false && strip.Contains(edge_key(tv.c, tv.a)) == false)
+                            continue;
+                        if (is_sliver(mesh.GetVertex(tv.a).xy, mesh.GetVertex(tv.b).xy, mesh.GetVertex(tv.c).xy, radius) == false) continue;
+                        removed.Add(t);
+                        addTriangle(tv.a, tv.b, tv.c);
+                        again = true;
+                    }
+            }
+            foreach (int t in removed.OrderBy(i => i)) mesh.RemoveTriangle(t, false, false);
+            // the splits, one at a time (a split changes the boundary: the candidates are collected again after each)
+            while (split_boundary_edge(mesh, vertices, radius)) { }
+            // a split can join two boundary loops at the vertex it inserts (a vertex that is a corner of a triangle elsewhere, in the
+            // line of the edge: the mesh pinches there); a vertex of the strip with more than two boundary edges is such a bowtie
+            foreach (int v in vertices)
+                if (mesh.IsVertex(v) && mesh.VtxEdgesItr(v).Count(mesh.IsBoundaryEdge) > 2) throw new NonManifoldRealization();
+        }
+
+        // one split of zip_strips: a boundary edge with both ends in the strip's vertices (an outer toe or cap edge only where the strip
+        // reaches its ends), and a strip vertex strictly inside it within the sliver bound of its line: the triangle of the edge
+        // is split there
+        static bool split_boundary_edge(DMesh3 mesh, HashSet<int> vertices, double radius)
+        {
+            var sorted = vertices.OrderBy(i => i).ToList();
+            var edges = new List<Index2i>();
+            foreach (int u in sorted)
+                foreach (int e in mesh.VtxEdgesItr(u).ToList()) {
+                    if (mesh.IsBoundaryEdge(e) == false) continue;
+                    Index2i ev = mesh.GetEdgeV(e);
+                    int w = ev.a == u ? ev.b : ev.a;
+                    if (u < w && vertices.Contains(w)) edges.Add(new Index2i(u, w));
+                }
+            foreach (Index2i uw in edges)
+                foreach (int v in sorted) {
+                    int p = uw.a, q = uw.b;
+                    if (v == p || v == q) continue;
+                    Vector2d pv = mesh.GetVertex(v).xy, pp = mesh.GetVertex(p).xy, pq = mesh.GetVertex(q).xy;
+                    if ((pv - pp).Dot(pq - pp) <= 0 || (pv - pq).Dot(pp - pq) <= 0) continue;
+                    if (is_sliver(pp, pq, pv, radius) == false) continue;
+                    int t = mesh.GetEdgeT(mesh.FindEdge(p, q)).a;
+                    Index3i tv = mesh.GetTriangle(t);
+                    if (tv.a == v || tv.b == v || tv.c == v) continue;
+                    int x = tv.a != p && tv.a != q ? tv.a : (tv.b != p && tv.b != q ? tv.b : tv.c);
+                    bool forward = (tv.a == p && tv.b == q) || (tv.b == p && tv.c == q) || (tv.c == p && tv.a == q);
+                    int g = mesh.GetTriangleGroup(t);
+                    if (mesh.FindEdge(v, x) >= 0) throw new NonManifoldRealization();
+                    Index3i first = forward ? new Index3i(p, v, x) : new Index3i(q, v, x), second = forward ? new Index3i(v, q, x) : new Index3i(v, p, x);
+                    foreach (Index3i n in new[] { first, second })
+                        if (ExactPredicates.Orient2d(mesh.GetVertex(n.a).xy, mesh.GetVertex(n.b).xy, mesh.GetVertex(n.c).xy) <= 0) throw new NonManifoldRealization();
+                    mesh.RemoveTriangle(t, false, false);
+                    if (mesh.AppendTriangle(first.a, first.b, first.c, g) < 0 || mesh.AppendTriangle(second.a, second.b, second.c, g) < 0)
+                        throw new NonManifoldRealization();
+                    return true;
+                }
+            return false;
+        }
+
+        static long edge_key(int a, int b) { return a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a; }
 
         // A dropped triangle (rounded corners exactly collinear) leaves its middle corner m on the long edge (e0, e1) of
         // the triangle on the other side: that triangle is split at m, which lies exactly on the edge, so the mesh stays
@@ -1392,6 +1728,18 @@ namespace gs
         /// </summary>
         public static int FlipNeedles(DMesh3 mesh, double minAltitude, double maxDeviation)
         {
+            int refused;
+            double largest;
+            return FlipNeedles(mesh, minAltitude, maxDeviation, out refused, out largest);
+        }
+
+        /// <summary>
+        /// FlipNeedles; refusedForBound counts the flips refused because their deviation bound exceeds maxDeviation, and
+        /// largestRefusedBound is the largest of those bounds (0 if none; #1539)
+        /// </summary>
+        internal static int FlipNeedles(DMesh3 mesh, double minAltitude, double maxDeviation, out int refusedForBound, out double largestRefusedBound)
+        {
+            refusedForBound = 0; largestRefusedBound = 0;
             int count = 0;
             var dev = new Dictionary<int, double>();
             Func<int, double> devOf = (x) => { double v; return dev.TryGetValue(x, out v) ? v : 0; };
@@ -1425,7 +1773,7 @@ namespace gs
                     if (!(after > before)) continue;
                     double change = diagonal_change(mesh.GetVertex(ev.a), mesh.GetVertex(ev.b), mesh.GetVertex(ov.a), mesh.GetVertex(ov.b));
                     double bound = ExactInterval.Up(Math.Max(devOf(t), devOf(t2)) + change);    // (rounded up: an upper bound)
-                    if (!(bound <= maxDeviation)) continue;
+                    if (!(bound <= maxDeviation)) { refusedForBound++; if (bound > largestRefusedBound) largestRefusedBound = bound; continue; }
                     int group = tri_altitude(mesh, t) >= tri_altitude(mesh, t2) ? mesh.GetTriangleGroup(t) : mesh.GetTriangleGroup(t2);
                     DMesh3.EdgeFlipInfo info;
                     if (mesh.FlipEdge(e, out info) != MeshResult.Ok) continue;
@@ -1675,7 +2023,9 @@ namespace gs
             }
             if (n > 64)
                 return triangulate_ears(v);
-            var pos = v.Select(K.Approx).ToList();
+            // (the rounded positions, a function of the exact corners: Approx depends on the lines that define a vertex and on
+            // whether it was rounded before, so the choice would depend on the construction's history)
+            var pos = v.Select(K.Rounded).ToList();
             // best[i, j]: the best smallest quality of the sub-polygon i..j (j > i + 1), -1 if none
             var best = new double[n, n];
             var choice = new int[n, n];
@@ -1747,7 +2097,7 @@ namespace gs
         // smallest angle (approximate), for choosing ears
         double quality(int a, int b, int c)
         {
-            Vector2d p = K.Approx(a), q = K.Approx(b), r = K.Approx(c);
+            Vector2d p = K.Rounded(a), q = K.Rounded(b), r = K.Rounded(c);
             Func<Vector2d, Vector2d, Vector2d, double> angle = (x, y, z) => {
                 Vector2d u = y - x, w = z - x;
                 return Math.Abs(CoreMath.Atan2(u.x * w.y - u.y * w.x, u.Dot(w)));

@@ -1,0 +1,40 @@
+| case | stratum | status | ms (per run) |
+|---|---|---|---|
+| spheres general | normal | Success | 731 |
+| coplanar boxes | degenerate | Success | 38 |
+| Collinear k=20 vs shifted copy | degenerate | Success | 81 |
+| Collinear k=20 vs itself | degenerate | Success | 75 |
+| Collinear k=40 vs shifted copy | degenerate | Success | 24 |
+| Collinear k=40 vs itself | degenerate | Success | 38 |
+| Sliver k=20 vs shifted copy | degenerate | Success | 13 |
+| Sliver k=20 vs itself | degenerate | Success | 38 |
+| Sliver k=40 vs shifted copy | degenerate | Success | 20 |
+| Sliver k=40 vs itself | degenerate | Success | 36 |
+| ShortEdge k=20 vs shifted copy | degenerate | Success | 16 |
+| ShortEdge k=20 vs itself | degenerate | Success | 40 |
+| ShortEdge k=40 vs shifted copy | degenerate | Success | 31 |
+| ShortEdge k=40 vs itself | degenerate | Success | 45 |
+| Coincident k=20 vs shifted copy | degenerate | Success | 13 |
+| Coincident k=20 vs itself | degenerate | Success | 40 |
+| Coincident k=40 vs shifted copy | degenerate | Success | 24 |
+| Coincident k=40 vs itself | degenerate | Success | 31 |
+| Unwelded k=20 vs shifted copy | degenerate | Success | 15 |
+| Unwelded k=20 vs itself | degenerate | Success | 23 |
+| Unwelded k=40 vs shifted copy | degenerate | Success | 13 |
+| Unwelded k=40 vs itself | degenerate | Success | 21 |
+| VertexOnFace k=20 vs shifted copy | degenerate | Success | 7 |
+| VertexOnFace k=20 vs itself | degenerate | Success | 2 |
+| VertexOnFace k=40 vs shifted copy | degenerate | Success | 3 |
+| VertexOnFace k=40 vs itself | degenerate | Success | 2 |
+| SharedFace k=20 vs shifted copy | degenerate | Success | 5 |
+| SharedFace k=20 vs itself | degenerate | Success | 3 |
+| SharedFace k=40 vs shifted copy | degenerate | Success | 5 |
+| SharedFace k=40 vs itself | degenerate | Success | 2 |
+| Cluster k=20 vs shifted copy | degenerate | Success | 145 |
+| Cluster k=20 vs itself | degenerate | Success | 119 |
+| Cluster k=40 vs shifted copy | degenerate | Success | 165 |
+| Cluster k=40 vs itself | degenerate | Success | 195 |
+| FoldedCluster k=20 vs shifted copy | degenerate | Success | 50 |
+| FoldedCluster k=20 vs itself | degenerate | Success | 75 |
+| FoldedCluster k=40 vs shifted copy | degenerate | Success | 1690 |
+| FoldedCluster k=40 vs itself | degenerate | Success | 1119 |

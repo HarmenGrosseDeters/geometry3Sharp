@@ -546,7 +546,7 @@ namespace gs
 
 
             if (bParallel) {
-                gParallel.ForEach<int>(smooth_vertices(), smooth);
+                gParallel.ForEachSmall<int>(smooth_vertices(), smooth);
             } else {
                 foreach (int vID in smooth_vertices())
                     smooth(vID);
@@ -575,7 +575,7 @@ namespace gs
                     bModified = false;
                 // MinTriangleQuality: no moves that flip an incident triangle (against the positions before the pass,
                 // which is buffered); a shorter step if the full one would
-                if (bModified && MinTriangleQuality > 0) {
+                if (bModified && (PreventNormalFlips || MinTriangleQuality > 0)) {
                     vProjected = guarded_projection(vID, vCur, vProjected);
                     bModified = vProjected != vCur;
                 }
@@ -599,7 +599,7 @@ namespace gs
 
 
             if (bParallel) {
-                gParallel.ForEach<int>(project_vertices(), project);
+                gParallel.ForEachSmall<int>(project_vertices(), project);
             } else {
                 foreach (int vID in project_vertices())
                     project(vID);
@@ -714,8 +714,8 @@ namespace gs
             };
             
             // compute face-aligned vertex positions
-            gParallel.ForEach(mesh.TriangleIndices(), process_triangle);
-            gParallel.ForEach(mesh.VertexIndices(), (vID) => {
+            gParallel.ForEachSmall(mesh.TriangleIndices(), process_triangle);
+            gParallel.ForEachSmall(mesh.VertexIndices(), (vID) => {
                 Vector3d sum = Vector3d.Zero; double wsum = 0;
                 foreach (int tid in mesh.VtxTrianglesItr(vID)) {
                     Index3i tv = mesh.GetTriangle(tid);
@@ -731,7 +731,7 @@ namespace gs
             // ok now we filter out all the positions we can't change, as well as vertices that
             // did not actually move. We also queue any edges that moved far enough to fall
             // under min/max edge length thresholds
-            gParallel.ForEach(mesh.VertexIndices(), (vID) => {
+            gParallel.ForEachSmall(mesh.VertexIndices(), (vID) => {
                 vModifiedV[vID] = false;
                 if (!(vBufferVWeights[vID] > 0))     // (weights are areas: no absolute threshold)
                     return;

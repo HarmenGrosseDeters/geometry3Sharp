@@ -1,0 +1,15 @@
+| case | tris A+B | union ms | intersection ms | exact volumes ms | V identity | chi U + chi I vs chi A + chi B |
+|---|---|---|---|---|---|---|
+| spheres n=24 | 12696 | 624 | 111 | 485 | exact 0 | 2 + 2 vs 2 + 2 |
+| spheres n=64 | 95256 | 672 | 543 | 1194 | exact 0 | 2 + 2 vs 2 + 2 |
+| box x rotated box | 24 | 20 | 6 | 5 | exact 0 | 2 + 2 vs 2 + 2 |
+| coplanar boxes (shared faces) | 24 | 43 | 1 | 0 | exact 0 | 2 + 2 vs 2 + 2 |
+| two spheres + box, one sphere swallowed | 5412 | 36 | 50 | 43 | exact 0 | 2 + 4 vs 4 + 2 |
+
+| case | drop 1 | reverse 1 | move 1 U->I | vertex 2^-40 | vertex in flat fan | rounded | component U<->I |
+|---|---|---|---|---|---|---|---|
+| spheres n=24 | caught | caught | missed | caught | n/a (no flat fan) | drift -4.32E-019 | n/a (one component) |
+| spheres n=64 | caught | caught | missed | caught | n/a (no flat fan) | drift 2.29E-019 | n/a (one component) |
+| box x rotated box | caught | caught | missed | caught | n/a (no flat fan) | drift -3.27E-017 | n/a (one component) |
+| coplanar boxes (shared faces) | caught | caught | missed | caught | missed | exact 0 | n/a (one component) |
+| two spheres + box, one sphere swallowed | caught | caught | missed | caught | n/a (no flat fan) | drift -2.18E-019 | missed (closed too) |

@@ -97,6 +97,25 @@ namespace gs
         /// wrap's surface) + GradingFactor * d (a scale-free rule: 0.5 roughly doubles the size every 2 boundary spacings away from the surface); 0, a negative value or NaN = off
         /// </summary>
         public double GradingFactor = 0;
+        /// <summary>
+        /// size control, opt-in (docs/research/TET_RADIUS_EDGE_AT_SURFACE_2026-11.md, option B): the wrap's surface follows the size options
+        /// TargetEdgeLength and SizeFunction, so that the fixed boundary is not coarser than the wanted interior size next to it. The surface is
+        /// never split by the refinement, so a boundary coarser than the size leaves tets above MaxRadiusEdgeRatio at it (unrefined_bad_tets;
+        /// measured with benchmarks/TetMeshBenchmark surfprobe: 419 of 76k tets on a sphere at h = diagonal / 40 and the default alpha, 2 of 79k with this option). With the option the wrap is
+        /// made once more with a local alpha (MeshAlphaWrap.AlphaField, the field of MaxSurfaceDeviation): BoundaryAlphaPerSize * h at
+        /// area-weighted input samples (h the size at the sample), graded with a slope of 0.25, never above the uniform alpha and never below
+        /// max(alpha / 4, 3 offsets), so sizes below about 0.4 alpha are not followed. Costs one more wrap and more boundary triangles (measured on
+        /// four procedural shapes at h = diagonal / 40 and / 60: 1.1-2.2x the time, 1.03-1.14x the tets). Counts["boundary_size_fine_samples"] says how many samples got a finer alpha;
+        /// Counts["boundary_size_wrap_failed"] = 1 if that wrap failed (the uniform wrap is then meshed, and MaxSurfaceDeviation starts from it as without
+        /// this option). The wrap keeps the surface angle refinement (SurfaceMinAngleDegrees; without it the boundary triangles get worse and with them the
+        /// tets on them). If the result misses the dihedral target, Compute() runs once more with half the gradation, as for MaxSurfaceDeviation
+        /// (Counts["local_alpha_retry"]). Combines with MaxSurfaceDeviation: its passes start from these alphas (the smaller alpha wins), and
+        /// Counts["local_alpha_fine_samples"] then counts only the samples it refined beyond them. Off (the default) or without TargetEdgeLength / SizeFunction (GradingFactor already starts at the
+        /// wrap's own spacing) or without input triangles: the output as before, bit for bit.
+        /// </summary>
+        public bool BoundaryFollowsSize = false;
+        /// <summary> the wrap's local alpha per unit of wanted size h with BoundaryFollowsSize (calibrated on the four procedural shapes of the research note) </summary>
+        internal const double BoundaryAlphaPerSize = 0.6;
         /// <summary> size control: sizes below this many alpha (UsedAlpha) are clamped and counted (a cost guard, 17.12); 0, a negative value or NaN = 0.25 </summary>
         public double MinSizeFactor = 0.25;
         /// <summary> size control: the tets of the refinement (before stage 2) at whose centroid SizeFunction gave an invalid value (NaN, not positive or infinite): the function applied no size there (other size options still do). 0 if no size option is set; reset by Compute() </summary>
@@ -163,6 +182,15 @@ namespace gs
         /// is not changed by it. 0: none
         /// </summary>
         public int RescuePasses = 150;
+        /// <summary>
+        /// stage 2: an opt-in stop for passes that do not converge (#1154: SliverDihedralDegrees 20 to 30 can run all ImprovePasses and RescuePasses,
+        /// 78 to 195 s on Thingi10K meshes, while the tets below the target shrink by well under 1 % per pass): end the main passes, and
+        /// separately the rescue passes, when this many passes in a row neither lowered the number of tets below SliverDihedralDegrees by 1 % nor
+        /// raised the worst smallest dihedral by 0.1 degrees. Counted, never wall-clock, so the result is deterministic and the same for every 2^k scale.
+        /// 0 or less: off (the default; the result is bit for bit as without the option). A time/quality trade: it leaves the tets below the target that
+        /// were still being worked off; The pass that judges is counted in Counts["improve_passes"] and does not run its operations; Counts["improve_stall_stop"] counts the phases it ended (only then the key exists).
+        /// </summary>
+        public int StallStopPasses = 0;
         /// <summary>
         /// stage 2: an opt-in work cap over all improvement operations (TET_MESHING.md 17.16): at most this many visits of a bad tet (each tries edge
         /// and face removal, contraction, split, smoothing and boundary moves on it) per vertex of the stage-1 mesh, main and rescue passes together.
@@ -260,15 +288,29 @@ namespace gs
             if (pos.Length == 0 || !(aMin > 0) || !(aMin < a0))
                 return true;
             var aj = new double[pos.Length];
-            for (int i = 0; i < aj.Length; ++i) aj[i] = a0;
+            // BoundaryFollowsSize: start from its alphas (the wrap measured first is the size's); then only samples refined beyond them count, and a
+            // pass that refines none does not wrap again (its field would be the one already wrapped)
+            bool seeded = sizeAlphas != null && sizeAlphas.Length == aj.Length;
+            for (int i = 0; i < aj.Length; ++i) aj[i] = seeded ? Math.Min(a0, Math.Max(aMin, sizeAlphas[i])) : a0;
             AlphaSizeField field = null;
             int executed = 0;
+            long refined = 0;
             for (int pass = 0; pass < passes; ++pass) {
                 var tree = new DMeshAABBTree3(wrap.Result, true);
+                long changed = 0;
                 for (int i = 0; i < pos.Length; ++i) {
                     if ((i & 255) == 0 && CancelF()) { localCancelled = true; return false; }
                     tree.FindNearestTriangle(pos[i], out double d2);
-                    aj[i] = NextAlpha(aj[i], Math.Sqrt(d2), tol, aMin);
+                    double next0 = NextAlpha(aj[i], Math.Sqrt(d2), tol, aMin);
+                    if (next0 < aj[i]) changed++;
+                    aj[i] = next0;
+                }
+                if (seeded) {
+                    if (changed == 0) break;
+                    // the samples refined beyond the size alphas, thinned as AlphaSizeField.FineSamples (the unit of the count without the size)
+                    var beyond = new double[aj.Length];
+                    for (int i = 0; i < aj.Length; ++i) beyond[i] = aj[i] < Math.Min(a0, Math.Max(aMin, sizeAlphas[i])) ? aj[i] : a0;
+                    refined = new AlphaSizeField(pos, beyond, a0, aMin, gradation).FineSamples;
                 }
                 field = new AlphaSizeField(pos, aj, a0, aMin, gradation);
                 if (field.FineSamples == 0)
@@ -286,9 +328,55 @@ namespace gs
                 wrap = next;
                 executed++;
             }
-            localAlphaPasses = executed; localFineSamples = field == null ? 0 : field.FineSamples;
+            localAlphaPasses = executed; localFineSamples = seeded ? refined : field == null ? 0 : field.FineSamples;
             return true;
         }
+        // BoundaryFollowsSize: the alphas of the input samples (BoundaryAlphaPerSize * size, clamped), also the start of RefineAlpha; null = none
+        double[] sizeAlphas;
+        long sizeFineSamples;
+        bool sizeWrapFailed, sizeRan;
+
+        /// <summary>
+        /// BoundaryFollowsSize: the wrap once more with a local alpha of BoundaryAlphaPerSize times the wanted size at the input samples (the
+        /// samples of MaxSurfaceDeviation, the field AlphaSizeField). The size is TargetEdgeLength and SizeFunction (the smaller; an invalid
+        /// function value gives none), as the refinement uses them. false: cancelled (wrap is then that wrap); a failed wrap keeps the uniform one.
+        /// </summary>
+        bool FollowSize(ref MeshAlphaWrap wrap, double surfaceAngle)
+        {
+            double a0 = wrap.UsedAlpha;
+            double aMin = Math.Max(a0 / LocalAlphaMaxRefinement, MeshAlphaWrap.AlphaFieldFloorOffsets * wrap.UsedOffset);
+            if (!(aMin > 0) || !(aMin < a0)) return true;
+            Vector3d[] pos = AlphaSizeField.Samples(Mesh, DeviationSamples);
+            if (pos.Length == 0) return true;
+            double h = TargetEdgeLength > 0 && !double.IsInfinity(TargetEdgeLength) ? TargetEdgeLength : double.PositiveInfinity;
+            var aj = new double[pos.Length];
+            for (int i = 0; i < pos.Length; ++i) {
+                if ((i & 255) == 0 && CancelF()) return false;
+                double s = h;
+                if (SizeFunction != null) {
+                    double u = SizeFunction(pos[i]);
+                    if (u > 0 && !double.IsInfinity(u)) s = Math.Min(s, u);     // NaN, not positive, infinite: no size from the function here
+                }
+                double a = BoundaryAlphaPerSize * s;                             // infinity (no size) stays infinity: a0 below
+                aj[i] = a < a0 ? Math.Max(aMin, a) : a0;
+            }
+            sizeAlphas = aj;
+            var field = new AlphaSizeField(pos, aj, a0, aMin, gradation);
+            sizeFineSamples = field.FineSamples;
+            if (field.FineSamples == 0) return true;
+            // (with the surface angle refinement, unlike MaxSurfaceDeviation: without it the boundary triangles of the box and the twisted bar of the
+            // research note reach a radius-edge of 4 and the tets above the bound rise 4-5x; the field is constant on the surface for a uniform size,
+            // and a dihedral miss from the steps of a graded one gets the retry of Compute())
+            MeshAlphaWrap next = MakeWrap(field.At, surfaceAngle);
+            int cap = SizeWrapMaxSteinerPoints > 0 ? SizeWrapMaxSteinerPoints : LocalWrapMaxSteinerPoints;
+            if (cap > 0) next.MaxSteinerPoints = cap;
+            bool ok = next.Compute();
+            if (next.Status == MeshAlphaWrap.WrapStatus.Cancelled) { wrap = next; return false; }
+            if (!ok || next.Status != MeshAlphaWrap.WrapStatus.Success) { sizeWrapFailed = true; sizeAlphas = null; return true; }   // the uniform wrap, also for MaxSurfaceDeviation
+            wrap = next;
+            return true;
+        }
+
         /// <summary>
         /// the alpha of a sample after a pass (tests): unchanged if the wrap is within the tolerance of it, else alphaJ * tol / d (the alpha it was wrapped with, scaled
         /// by how far the distance is above the tolerance; alphaJ is alpha at the first pass), at least aMin, and never above the old alphaJ, so a later pass never
@@ -301,14 +389,17 @@ namespace gs
         long localAlphaPasses, localFineSamples;
         bool localRan;
         long localWrapFailedStatus;
-        /// <summary> (tests) a point limit for the refined wraps of the local alpha, to force their failure; 0 = the wrap's default </summary>
+        /// <summary> (tests) a point limit for every refined wrap (the passes of MaxSurfaceDeviation and the wrap of BoundaryFollowsSize), to force their
+        /// failure; 0 = the wrap's default. SizeWrapMaxSteinerPoints, if above 0, replaces it for the BoundaryFollowsSize wrap alone </summary>
         internal int LocalWrapMaxSteinerPoints;
+        /// <summary> (tests) a point limit for the BoundaryFollowsSize wrap alone (0 = LocalWrapMaxSteinerPoints) </summary>
+        internal int SizeWrapMaxSteinerPoints;
         /// <summary> (tests) the gradation slope of the first run and of the retry (0 if there was none) </summary>
         internal double GradationFirst, GradationRetry;
         bool localCancelled;
 
         /// <summary>
-        /// Runs the pipeline. With MaxSurfaceDeviation, if the result misses the dihedral target (Targets.MinDihedralMet is false: the size jumps of
+        /// Runs the pipeline. With a local alpha (MaxSurfaceDeviation, or BoundaryFollowsSize when its wrap was refined), if the result misses the dihedral target (Targets.MinDihedralMet is false: the size jumps of
         /// the local alpha can cost the floor on a few meshes, 17.13), (and Improve is on: the target is about the improved mesh) it runs once more with half the gradation slope (0.125, a smoother field) and keeps
         /// the result that meets the target, else the one with the larger smallest dihedral angle (Counts["local_alpha_retry"] = 1, and "local_alpha_retry_kept" = 1 if the
         /// second was kept); the target is checked on the output as ever, so a miss is reported in Targets, never silent.
@@ -318,7 +409,8 @@ namespace gs
             gradation = LocalAlphaGradation;
             RetryFirstWorstMinDihedral = double.NaN; GradationFirst = gradation; GradationRetry = 0;
             bool ok = ComputeOnce();
-            if (!(MaxSurfaceDeviation > 0) || !Improve || Result == null || Targets == null || Targets.MinDihedralMet || localFineSamples == 0)
+            bool graded = (localRan && localFineSamples > 0) || (sizeRan && sizeFineSamples > 0 && !sizeWrapFailed);
+            if (!graded || !Improve || Result == null || Targets == null || Targets.MinDihedralMet)
                 return ok;
             // keep the first run, try the smoother field
             var first = (Result, Targets, Counts, Status, WrapStatus, Wrap, UsedAlpha, UsedOffset, UsedFloor, InvalidSizeSamples, DiagnosticLines, localAlphaPasses, localFineSamples, localRan, ok);
@@ -360,6 +452,16 @@ namespace gs
                 Status = wrap.Status == MeshAlphaWrap.WrapStatus.Cancelled ? TetStatus.Cancelled : TetStatus.WrapFailed;
                 return false;
             }
+            sizeAlphas = null; sizeFineSamples = 0; sizeWrapFailed = false; sizeRan = false;
+            if (BoundaryFollowsSize && Mesh != null && Mesh.TriangleCount > 0 && ((TargetEdgeLength > 0 && !double.IsInfinity(TargetEdgeLength)) || SizeFunction != null)) {
+                sizeRan = true;
+                if (!FollowSize(ref wrap, surfaceAngle)) {
+                    Wrap = wrap;
+                    WrapStatus = wrap.Status;
+                    Status = TetStatus.Cancelled;
+                    return false;
+                }
+            }
             localRan = local;
             if (local && !RefineAlpha(ref wrap, surfaceAngle)) {
                 Wrap = wrap;
@@ -400,6 +502,7 @@ namespace gs
             }
             Result = r.Extract();
             Counts["unrefined_bad_tets"] = r.CountBadInside();
+            if (sizeRan) { Counts["boundary_size_fine_samples"] = sizeFineSamples; if (sizeWrapFailed) Counts["boundary_size_wrap_failed"] = 1; }   // only with the option
             if (localRan) { Counts["local_alpha_passes"] = localAlphaPasses; Counts["local_alpha_fine_samples"] = localFineSamples; if (localWrapFailedStatus != 0) { Counts["local_alpha_wrap_failed"] = 1; Counts["local_alpha_wrap_failed_status"] = localWrapFailedStatus; } }   // only then: the default counts do not change
             if (r.SizeAt != null) { r.CountClamped(); InvalidSizeSamples = r.InvalidTets; }
             foreach (var kv in r.Counts) Counts[kv.Key] = kv.Value;
@@ -415,6 +518,7 @@ namespace gs
                 }
                 imp.MaxPasses = ImprovePasses;
                 imp.RescuePasses = RescuePasses;
+                imp.StallStopPasses = StallStopPasses;
                 imp.Contraction = ContractEdges;
                 imp.Insertion = SplitEdges;
                 if (MaxImproveVisitsPerVertex > 0 && !double.IsInfinity(MaxImproveVisitsPerVertex))

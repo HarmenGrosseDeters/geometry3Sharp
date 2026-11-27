@@ -1270,9 +1270,15 @@ box-shaped blocks (owner decision 2026-11-22, a proof step of its own: section 7
 proved margin, Lemma 7.1).
 
 **The implementation** (internal, report only, no public API): `ContouringSmoothCertificate` (`mesh_ops/`), on the
-interface `IntervalImplicit3d` with `IntervalMath` and `IntervalTpms` (`implicit/IntervalImplicit.cs`). Non-exact files;
-every decision is the sign of a bound of an `ExactInterval` (round to nearest, widened by one unit in the last place per
-operation) or an exact comparison of doubles.
+interface `IntervalImplicit3d` (and optional `IntervalImplicit3dCached` for per-thread phase caching) with
+`IntervalMath`, `IntervalTpms` (`implicit/IntervalImplicit.cs`), and first-order Taylor models `Affine1` / `Affine3`
+(`implicit/Affine3.cs`). Non-exact files; every decision is the sign of a bound of an `ExactInterval` (round to
+nearest, widened by one unit in the last place per operation) or an exact comparison of doubles. On dependent TPMS
+fields (`Gyroid`, `SchwarzD`, `Neovius`, `IWP`, `Lidinoid`) for non-point boxes with phase half-width up to 0.6 rad,
+`IntervalTpms` intersects an outwardly rounded `Affine3` enclosure (per-operation error `2^-52 |v| + 2^-1073` folded
+into `Rad` with upward-rounded safety factors `SafeSum4`/`8`/`16`, and Chebyshev-shifted 2nd-order trig enclosures in
+`ExactInterval`) with the plain `ExactInterval` enclosure so linear dependencies cancel to O(h^2) while coarse boxes
+never widen beyond plain intervals.
 
 | Hypothesis | Test | Refusal |
 |---|---|---|
@@ -1290,27 +1296,33 @@ operation) or an exact comparison of doubles.
   cos r = 1 - r^2/2! + ... + r^12/12! are evaluated in `ExactInterval` arithmetic with the Lagrange remainders
   |r|^15 / 15! and |r|^14 / 14! added (at most 2.7e-14 and 5.1e-13 for |r| <= 0.8; beyond 0.8 the result is [-1, 1]).
   The degrees are chosen so that every term and both remainders are visible to the exact tests. Over an interval: the
-  hull of the two ends, widened to +-1 wherever a multiple test cannot exclude an extremum.
-- **Rounding range.** Sound over the whole double range: a subnormal result is widened by one spacing, an overflow
-  gives a true (infinite or largest) bound, a NaN the whole line, which fails every test. No dependency on FMA (every
-  operation is rounded and widened on its own) or on a rounding mode; flush-to-zero must be off (the .NET default).
-- **Deterministic.** The parallel path works on blocks of 8^3 cells and merges their results in block order; it equals
-  the serial path. Under a scaling of the whole problem by a power of two the result is the same bit for bit. Sub-boxes
-  are cut between the grid's own node coordinates (non-decreasing breakpoints), so they cover a cell exactly whatever
-  the rounding.
-- **Tests** (`ContouringSmoothCertificateTests`): the sin / cos enclosures against an exact integer Taylor reference;
-  the six `IntervalTpms` functions against `TpmsLattice.Evaluate` and difference quotients; the gradient test, the
-  spacing test and the configuration guard on their own (the guard is 9 of 14 by enumeration); a cell-level oracle (in
-  every cell that is not listed, sampled values keep their sign, or sampled gradients are pairwise acute with one
-  component of constant sign); wrong contours and every refusal reason; invariance over `Similarity.All()`, reuse,
-  parallel equals serial.
+  hull of the two ends, widened to +-1 wherever a multiple test cannot exclude an extremum; `Affine1.SinCos` additionally
+  builds a correlated linear form from one centre evaluation with a Chebyshev-shifted 2nd-order Taylor remainder
+  (exact in `ExactInterval`).
+- **Rounding range.** Sound over the whole double range: a subnormal result is widened by one spacing (`ExactInterval`)
+  or covered by `2^-1073` (`Affine3`), an overflow gives a true (infinite or largest) bound, a NaN the whole line,
+  which fails every test. No dependency on FMA (every operation is rounded and widened on its own) or on a rounding
+  mode; flush-to-zero must be off (the .NET default).
+- **Deterministic.** The parallel path works on blocks of 8^3 cells with a fresh per-thread `IntervalImplicit3dCached`
+  cache (keyed by exact endpoint bits, bit-identical to uncached evaluation) and merges results in block order; it
+  equals the serial path. Under a scaling of the whole problem by a power of two the result is the same bit for bit.
+  Sub-boxes are cut between the grid's own node coordinates (non-decreasing breakpoints), so they cover a cell exactly
+  whatever the rounding.
+- **Tests** (`ContouringSmoothCertificateTests`, `Affine3Tests`): the sin / cos enclosures against an exact integer
+  Taylor reference; `Affine1` / `Affine3` soundness against `ExactDyadic` (including subnormal underflow, inexact
+  multiplications, `MidRad` upward rounding, and `SafeSum` bounds); non-widening vs plain interval on coarse and fine
+  boxes; the six `IntervalTpms` functions against `TpmsLattice.Evaluate` and difference quotients; the gradient test,
+  the spacing test and the configuration guard on their own (the guard is 9 of 14 by enumeration); a cell-level oracle
+  (in every cell that is not listed, sampled values keep their sign, or sampled gradients are pairwise acute with one
+  component of constant sign); wrong contours and every refusal reason; invariance over `Similarity.All()` on both a
+  sphere and a capped TPMS field, reuse, parallel equals serial.
 
 Measured ([benchmarks/ContouringSmoothCertificate](../../benchmarks/ContouringSmoothCertificate/README.md), the six
 nodal functions of `TpmsLattice` at level 0 with a smooth cap, 24 runs): certified in full are the gyroid and Schwarz P
-at 32 cells per period, I-WP at 16 and 32, Schwarz D at 64; not the gyroid and Schwarz P at 16 (2.7 and 5.8 % of the
-cells fail), and not Neovius and the Lidinoid at 16 or 32 (loose gradient enclosures). The serial certificate takes 1.1
-to 11 times a contouring that evaluates the field in plain doubles on the certified runs, the parallel one 0.4 to 2.9
-times.
+at 32 cells per period, I-WP at 16 and 32 (all cells at t = 0 with `Affine3` intersection), Schwarz D at 64; uncertified
+counts drop by 21 to 88 % on the dependent TPMS runs (`SchwarzD` 2p/64: 26 → 3, `Neovius` 2p/64: 1157 → 510, `Lidinoid`
+2p/64: 1816 → 1090), and serial certificate times across the 18 non-empty-contour runs are 2.3 to 19.1 times faster than
+before #1536.
 
 ### 7.14 Theorem 8 and Lemma 7.1: box-shaped blocks for class S, and the cell shape (2026-11-22)
 

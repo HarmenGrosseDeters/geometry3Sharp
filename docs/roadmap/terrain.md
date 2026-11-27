@@ -6,7 +6,7 @@ Part of the [roadmap](../ROADMAP.md).
   catch line, volumes, failure kinds, accuracy reporting, LocalFrame, RoundToGrid; the 2D quadtree it waits for;
   honest terrain metrics. Terrain / GIS is a showcase domain (Phase 4).
 - **Status (2026-11-17):** the terrain topic is closed out (owner 2026-11-09: finish the terrain topic). **Terrain plan parked
-  (owner 2026-11-17): further terrain work (slope envelope, 3D blocks, berms, GeoTIFF reader, showcase) later, no use case now.** Done: slope construction
+  (owner 2026-11-17): further terrain work (slope envelope, berms, GeoTIFF reader, showcase) later, no use case now; 3D blocks built on request 2026-11-24.** Done: slope construction
   phase 1 (#357), the DGM reader and writer, the grid TIN with a guaranteed surface error and breaklines (`gs.TerrainGridTin`,
   #491 with the gaps closed in #504: survey heights, world-coordinate margin), the `g3cli` commands `dgm`, `dgm_tin` (#506) and
   `cell_volumes`, volume per cell (`gs.TerrainCellVolumes`, #507) and the terrain kernel mutation score (#508). Close-out
@@ -22,6 +22,11 @@ Part of the [roadmap](../ROADMAP.md).
   [QUADTREE2D_SPEC.md](../design/QUADTREE2D_SPEC.md).
 
 ### Open
+
+- **Slope envelope: canonical output, planes per part and local merge during insertion (#1515, draft PR; owner decision (b) of
+  2026-11-24).** Stage 1: one canonical rule for the output (after `Simplify` only exact predicates or `K.Rounded`; no output
+  changes). Stage 2: faster insertion with the same output (`PartSectors`, `Compact`). The near-degenerate difference of 2026-11-10 was
+  the prefilter bug #805, fixed in #806, not a vertex-history leak. Open: review and CI.
 
 - **`TerrainGreedyTIN` bugfixes: done (merged 2026-11-15).** `MaxError = 0` never ended (#855, memory for a height of -2.87e-223
   at the default `MaxVertices`; fixed by #889); the `RemoveVertices` ear choice used an absolute 1e-12 and was not invariant under 2^k
@@ -77,29 +82,29 @@ berms and the GeoTIFF reader are later (owner 2026-11-17, plan parked). The item
   realization on the L shape and the wavy 48-gon after (b). A positions-only copy for LocalFrame was looked at and dropped: the
   in-place translation with a bitwise restore (#355) costs no copy, and only a caller that shares the terrain concurrently
   would gain.
-- **Slope envelope construction (slow tests, class F). Later (owner 2026-11-17), not scheduled.** The 48-gon designs take 3-5 s
-  (`WavyToe_130mHigh` 3.6 s; `TerrainBenchmark slope toe=wavy n=48 r=150 h=130 ratio=1.5 tol=0.05`, 85-90 % in `SlopeMap.InsertPiece`).
-  Profile (2026-11-10): the incremental map builds about 134k faces (1.6M `split_face` calls) for 48 pieces and simplifies them to 762;
-  the order of insertion changes the time 2.5x (id order 8.9 s, fixed shuffle 3.4 s) but never the result. Constant factors are done
-  (about 1.1x). Merging equal-label neighbours during insertion shrinks the live faces 20x but is not bit-identical in near-degenerate
-  designs (`Merge_RaisesTheToeLowering`: 80 instead of 81 triangles, `MergedPositions` 0 instead of 3): the ghost vertices of planes that
-  later lost are seen by Simplify's close-position merge, so the output is not a pure function of the labels there; and it gained only
-  1.05-1.4x because the split count, not the face count, drives the time. The lever left is a different construction, for example the
-  lower envelope of a fan per sector, or divide and conquer over the pieces. It changes the vertex history and so the near-degenerate
-  outputs: when the work resumes, the question to settle is whether that is acceptable (or whether the near-degenerate cases get a canonical rule first).
+- **Slope envelope construction (slow tests, class F).** The 48-gon designs take 3-5 s (`WavyToe_130mHigh` 3.6 s;
+  `TerrainBenchmark slope toe=wavy n=48 r=150 h=130 ratio=1.5 tol=0.05`, 85-90 % in `SlopeMap.InsertPiece`). Profile (2026-11-10): about
+  134k faces (1.6M `split_face` calls) for 48 pieces, simplified to 762; the insertion order changes the time 2.5x but never the result.
+  **Canonical output (2026-11-24, [design/SLOPE_ENVELOPE_CANONICAL.md](../design/SLOPE_ENVELOPE_CANONICAL.md)):** the output is a pure
+  function of the labelled envelope. The near-degenerate difference recorded on 2026-11-10 (`Merge_RaisesTheToeLowering`, 80 instead of
+  81 triangles) was the prefilter bug #805 (fixed in #806), not vertex history. Since then merging during insertion and planes per part
+  by sector are the default (same output bit for bit); the benchmark design gains about 1.15x (insert 2.8 → 2.4 s). The upper bound
+  (every piece into the final map: 0.12 s) leaves room of about 20x; the split calls come from the maximum of each piece's planes over
+  its temporarily winning region. Divide and conquer (section 4 of the note) is the next candidate, not started.
 - **RoundToGrid:** parked (owner decision 2026-11-03, R1: docs and measurement tools only, face 2 stays pinned). The local
   re-triangulation of the clipped region under the slope constraint is an open research item
   ([research.md](research.md#open-research-questions), snap rounding).
 - **GeoTIFF reader:** later (owner 2026-11-17), not scheduled. When it comes: own implementation, or LibTiff.Net (BSD) in an
   optional package, the owner decides; XYZ ASCII and ESRI ASCII Grid are in.
-- **3D blocks** (volume per block with a z-extent, TERRAIN.md §9.3): the 2D columns are done, the z-extent waits for a use case.
+- **3D blocks** (volume per block with a z-extent, TERRAIN.md §9.3): done (owner approved 2026-11-24): `TerrainCellVolumes.BandBoundaries`
+  gives `BlockCutVolume` / `BlockFillVolume` per cell and elevation band, CLI `cell_volumes --bands`. The 2D results are unchanged.
 - **Biomedical / orthotics** showcase: no work recorded; showcase work is later (owner 2026-11-17).
 
 ### Closed in the close-out (2026-11-09 / 10)
 
 - **DGM to TIN:** `gs.TerrainGridTin`, B2 of [design/TERRAIN_DGM_TO_TIN.md](../design/TERRAIN_DGM_TO_TIN.md) (§11, §11.1 for the gaps).
 - **DGM reader:** `HeightGrid`, `HeightGridReader`, `HeightGridWriter`, `HeightGrid.BuildMesh` (`io/`); CLI / MCP `dgm`, `dgm_tin`.
-- **Volume per cell:** `gs.TerrainCellVolumes`, CLI / MCP `cell_volumes` (TERRAIN.md §9.3).
+- **Volume per cell:** `gs.TerrainCellVolumes`, CLI / MCP `cell_volumes` (TERRAIN.md §9.3); 3D blocks (elevation bands) added 2026-11-24.
 - **Terrain mutation shards:** `terrain-kernel` 83.64 → 87.36 % (threshold 85); the shards were waiting for the restart (#302).
 - **Honest terrain metrics** (task 5, C2(A), benchmark only): done in #399 (2026-11-08), see [below](#task-5-honest-terrain-metrics).
 
@@ -192,11 +197,11 @@ Terrain plan parked (owner 2026-11-17): further terrain work (berms, GeoTIFF, sh
 #855 (#889), #854 (#890), #861 (#878), #808 (#850), #696 (closed, owner 2026-11-15: the extreme frame runs in Nightly; its cost
 is correct behaviour), terrain mutation survivors (#908), the `Acos` of `TerrainSlopeDesign` (#1066, 2026-11-17).
 
-1. Sector polygons E1, the exterior distance, S1 and R2: **parked (owner 2026-11-16)**, see [TERRAIN_SECTORS.md](../design/TERRAIN_SECTORS.md#status-2026-11-16-parked-owner) (plan #1268).
-2. Later (owner 2026-11-17): the slope envelope construction (also the lever for the extreme-frame cost of #696), 3D blocks,
-   berms and inter-ramp checks and the GeoTIFF reader (plan #1267).
-3. Parked until a real case: the §11 performance follow-ups, RoundToGrid (research, snap rounding; plan #1269).
-4. Internal quadtree uses, identified not measured (owner 2026-11-17: not now, waits until terrain resumes; plan #1269): (1) `TerrainSafety`'s
+1. Sector polygons E1, the exterior distance, S1 and R2: **parked (owner 2026-11-16)**, see [TERRAIN_SECTORS.md](../design/TERRAIN_SECTORS.md#status-2026-11-16-parked-owner) ([plan #1268](../plans/terrain-sector-polygons.md)).
+2. Later (owner 2026-11-17): the slope envelope construction (also the lever for the extreme-frame cost of #696),
+   berms and inter-ramp checks and the GeoTIFF reader ([plan #1267](../plans/terrain-slope-blocks-berms-geotiff-showcase.md)).
+3. Parked until a real case: the §11 performance follow-ups, RoundToGrid (research, snap rounding; [plan #1269](../plans/terrain-perf-roundtogrid-quadtree-uses.md)).
+4. Internal quadtree uses, identified not measured (owner 2026-11-17: not now, waits until terrain resumes; [plan #1269](../plans/terrain-perf-roundtogrid-quadtree-uses.md)): (1) `TerrainSafety`'s
    segment midpoint grid (`PointHashGrid2d`, query radius widened by half the longest segment) to `SegmentQuadtree2d`; (2)
    `TerrainVolumeDifference`'s height check (`DMeshAABBTree3`) to `TriangleQuadtree2d`. First step when terrain resumes: an
    upper-bound measurement on procedural inputs, including a long-segment worst case; a PR only above the 10 % bar. Not now:

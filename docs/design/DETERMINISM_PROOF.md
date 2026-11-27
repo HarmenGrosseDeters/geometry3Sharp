@@ -246,7 +246,7 @@ What the adversary is worth, by mutation: of six normalizing sorts removed from 
 order adversary detects two, the same two that the existing repeated-run tests detect; it does so in one serial process
 instead of by parallel repeats, and not more often. The four others (`ExactMeshArrangement.cs` 987, 2509, 2516,
 `ExactMeshBoolean.cs` 4363) survive every determinism test and the harness: redundant on the inputs, or not reached by
-them. They belong to the stage 2 ledger.
+them. They belong to the stage 2 ledger (their obligation O-SORTS is closed in 5.5).
 
 ### 5.2 Stage 0: the exact kernel as a closed world (#859)
 
@@ -371,7 +371,9 @@ Conclusions:
    bits there, so in the normal range it rounds as SSE2 does. Intermediate overflow and gradual underflow behave differently.
    - Inside the kernel this reaches only values whose role is approximate: a filter's decision to defer, and the ray's second point.
    - Results that take such a value as their *input* can differ for subnormal or near-overflow coordinates on net48 x86. These are the
-     winding ray of the Boolean, and the public ray queries that define their ray by `SecondPoint` (`DMeshAABBTree3`, `IntrRay3Triangle3`).
+     winding ray of the Boolean. The public ray queries (`DMeshAABBTree3`, `IntrRay3Triangle3`, `IntersectionUtil.Intersects`) defined
+     their ray by `SecondPoint` until #1672; they now decide on `ExactRayTriangle.LineDirection`, which returns only exact multiples of
+     the direction (the same value on every runtime), so their verdicts no longer depend on it.
    - The stage 1 and 2 obligations of these consumers have to show that the result does not depend on the ray chosen, or state the input
      range. Owner decision C4 keeps 32-bit outside the claim for float code; whether it also stays outside for subnormal and
      near-overflow coordinates is an owner decision.
@@ -419,7 +421,9 @@ rest of this table is what the registrations argue):
 | P4 delegates and interface calls | `ExactTriangulation2` calls the `orient` and `incircle` callbacks of its caller (16 calls); the box tree calls the visitors of its callers, as delegates (`ActionVisitor`, `FuncVisitor`, `Query`) and through the struct visitors of its generic methods (`IIndexVisitor`, `IPairVisitor`: a call of a member of an interface declared in this assembly is a counted `construct:interface-invocation`, since its implementations, eg `ExactMeshBoolean.CrossVisit`, lie outside the scope) | `P4` lines: the triangulation is a function of the signs; `ExactTriangulation2_EquivalentCallbacks_GiveTheSameTriangulation` gives other formulas, delayed callbacks and a second instance. What a caller's callback computes is that caller's obligation (S2-2, S2-3, S2-6) |
 
 
-**Ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`; stages 0 and 1): 439 external members (194 of them geometry3Sharp members declared outside the scope: 95 pinned, 96 assumed as obligations of stage 2; 12 only on the `#if NET` side), 69 restricted to registered sites (252 sites, 149 of them with an argument form and its tests), 1 restricted to `GetHashCode` implementations; 41 conditional-compilation blocks in 33 members; 15 `double` to integer conversions in 13 member(s); 19 `[SkipLocalsInit]` members; 82 delegate calls in 24 members and 66 string concatenations in 10 members, registered; 0 file restricted to a named type.
+**The scheduler of `gParallel.ForRange`** (#1502, 2026-11-25): the pinned `ForRange` runs its items caller first (`caller_first_range` and the members of `CallerFirstLoop` / `CallerFirstRange` and the test hook `ChunkForTestsOnThisThread`, 25 pinned entries) instead of `Parallel.For`, which waited for queued worker tasks that had not started (a busy pool, a caller outside the pool). The contract that the site lines rely on is unchanged: every index runs exactly once (disjoint chunks taken by compare-and-swap of one counter, `Take`), on any thread in any order, and the call returns after every item (the caller waits for each participant that joined, `Close`); a failure throws as before. So every `site gParallel.ForRange` line keeps its form and its tests; `GParallelCallerFirstTests` checks the contract (every index once, exceptions, late helpers, nested loops, serial = parallel).
+
+**Ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`; stages 0 and 1): 466 external members (221 of them geometry3Sharp members declared outside the scope: 120 pinned, 97 assumed as obligations of stage 2; 12 only on the `#if NET` side), 69 restricted to registered sites (255 sites, 151 of them with an argument form and its tests), 1 restricted to `GetHashCode` implementations; 41 conditional-compilation blocks in 33 members; 15 `double` to integer conversions in 13 member(s); 19 `[SkipLocalsInit]` members; 82 delegate calls in 24 members and 66 string concatenations in 10 members, registered; 0 file restricted to a named type.
 
 **Claim.** On every runtime that satisfies T1 to T5, `ExactTriangulation2`, `ExactPlanarSimplify`, `SnapRounding2` and `TriangleBoxTree`
 compute functions of their arguments (and, for the first two, of the values of the callbacks and of the stage 2 members listed
@@ -524,15 +528,27 @@ only the phase dictionaries; reviewed, no flow rule), `DMeshAABBTree3.FastWindin
   generator, `mix(ulong)` exists) changes the rays and so the output for open inputs once. Owner decision 2026-11-22: a follow-up PR switches open
   meshes to an own SplitMix64 generator, after measuring the golden-master and pinned-counter impact; this PR only registers the obligation.
 - **O-ATAN2, the floating-point winding number reaches the exact result of open meshes**: `FastWindingNumber` and `TriSolidAngle` end in
-  `Math.Atan2`; `front_generalized_winding` sums them and thresholds `ceil(w - 0.5)`. Tier 2 behaviour (F4 of the research note); only the
-  Antipodal path avoids it.
+  an atan2; `front_generalized_winding` sums them and thresholds `ceil(w - 0.5)`. Tier 2 behaviour (F4 of the research note); only the
+  Antipodal path avoids the sum, not the angle: its boundary-edge angles (`ExactWindingCache`) end in an atan2 too, and its rim's branch
+  (#1587) takes the sum itself: a piece that neither the Antipodal sum nor its wide-bound re-evaluation decides (a centroid within the
+  rounding distance of a boundary segment) takes `front_generalized_winding`, counted in `Counts["antipodal_fast_winding"]`; on one runtime
+  it is the same in every run, serial or parallel (`ExactMeshBooleanTestsIssue1587.RimBranch_SerialEqualsParallel_Repeated_Reused`). #1577 (WebAssembly): the platform `Math.Atan2` differs in the last bit between runtimes (on glibc in 1087 of
+  400000 random solid-angle terms from the correctly rounded value), and moving the term by one ulp changes the mesh of 5 of 37 demo repair
+  cases of `MeshRobustRepair` (Solidify path), so the browser gave other meshes than native. Since #1577 every atan2 of the winding number (`TriSolidAngle`, the leaf kernel, and the seven of `ExactWindingCache`) is the correctly
+  rounded `CoreMath.Atan2`: the term is the same double on every runtime. What remains platform dependent is only what the sum does after it
+  (the order of a sum is fixed, so nothing), so the obligation is now the floating-point winding number's own tier-2 status, not libm.
 - **O-IDS, P5.** The premise "ids are used for equality and lookup only; every ordered use ends in a total order" is by reading, per site. The
   attack is `OrderAdversaryTests` and the harness `adversary` (the loops run backwards and in seeded permutations, which changes the order
   in which `new_id` hands out ids; `boolean.*`, `stage1.*` and `stage2.*` give identical traces). No hook permutes the ids themselves: `new_id`
   is a counter over dense slot arrays, so a permutation needs an indirection (a design change).
-- **O-SORTS.** The tie order of equal `lo` in `merge_points` (`Array.Sort(sortLo, order)`) and the normalizing sorts `Segments.Sort`, `fan.Sort`
-  (and the sort of `merge_sorted`, which is not redundant) are argued, but no test fails when they are removed (5.1: four mutants that survive).
-  Test sketches: a hook that re-permutes runs of equal `lo`; a bowtie whose fan triangles are appended in descending order.
+- **O-SORTS-NM (the part of O-SORTS that stays open).** The two sorts of `ExactMeshBoolean.assemble` at the non-manifold edges, the sort of the
+  pairs of an edge (`nonManifold[i].Value.Sort`) and the sort of the edges (`nmOrder.Sort`), are argued (site line of `assemble`: the keys are
+  total) but no test fails when either is removed: the 33 related tests (`ExactBooleanDeterminismTests.TouchingAlongEdge_*`,
+  `OrderAdversaryTests.ExactBoolean_TouchingAlongEdges_*`, `ExactBooleanEdgeOrderTests`, ...) stay green, and a scan of 72 variants of that scenario
+  (random input orders, with and without simplification) gave the same result with `nonManifold[i].Value.Sort` removed. A killing test needs an
+  edge with at least two pairs whose angular order around the edge (the order `pair_around_edge` returns) differs from the order of their smallest
+  triangle ids, and a result that is split at the edge (`SplitNonManifoldEdges > 0`: the surface must connect around both ends); a ring of
+  prisms around one edge (alternate wedges, no connection around the ends) gave no split edge. Not claimed.
 - **O-PERPATCH.** `open_winding_per_patch` (the L1 loop, `TracedOpenWinding = false`) is tested serial against parallel in the given order
   only; the order adversary runs the default configuration.
 - **O-DIAG.** "Reaches only diagnostics" (`PhaseClock`, the `Counts`, `PreDecidedPairs` and similar counters) is a review argument; there is no
@@ -546,10 +562,40 @@ only the phase dictionaries; reviewed, no flow rule), `DMeshAABBTree3.FastWindin
   runs by `ExactBooleanSheetTests.Determinism_*`; no order adversary runs the sheet role.
 - **F2** is registered as P4 with the perturbation tests of the libm calls (`ExactMeshBooleanTestsAntipodalLibmPerturbation`).
 
+**Closed obligations.**
+
+- **O-SORTS (closed 2026-11-24 except O-SORTS-NM above).** The order of equal `lo` in `merge_points` (`Array.Sort(sortLo, order)`) and the normalizing sorts `Segments.Sort`
+  (`prepare_touched`), `fan.Sort` (`split_bowties`) and the sort of `merge_sorted` are each attacked by a test in
+  `ExactArrangementSortTieTests`. The tests feed the unsorted lists in hostile orders (the loops of the arrangement backwards and in seeded
+  permutations, as in `OrderAdversaryTests`; a fan whose triangles are listed in descending order; runs of equal `lo` reversed and permuted by
+  the internal hook `TieOrderSeed`, which changes no result when it is 0). Hand mutants (one at a time, then restored; the analyzer forbids
+  removing a registered call, so the call stays behind `if (false)`-like guards):
+
+  | mutant | killed by |
+  |---|---|
+  | the sort in `merge_points` removed | `MergePoints_OrderOfEqualLowerEnds_DoesNotChangeTheResult` (all 12 cases), `MergeSorted_SortsTheClusterByPoint_BeforeItReadsRunsOfEqualPoints`, `PrepareTouched_SortsSegments_WhateverTheOrderThePairsWereFound` (existing tests too) |
+  | a reader of the tie order: `merge_cluster` takes the first of a group instead of the point with the smallest key | `MergePoints_OrderOfEqualLowerEnds_DoesNotChangeTheResult` (`maxHashed` 64), `MergeSorted_*`, `PrepareTouched_*` (the first survives every earlier test) |
+  | `Segments.Sort` removed | `PrepareTouched_SortsSegments_WhateverTheOrderThePairsWereFound` and `MergeSorted_*` (deterministic: serial reversed and permuted loop orders; the older `CoplanarTriangles_ShareConstructions_SameOutput` kills it only on some schedules) |
+  | the sort of `merge_sorted` removed | `MergePoints_OrderOfEqualLowerEnds_DoesNotChangeTheResult` (`maxHashed` -1) and `MergeSorted_*` |
+  | `fan.Sort` removed | `SplitBowties_FanListedDescending_IsRedirectedInTriangleIdOrder` (the edge ids and adjacency that `SetTriangle` hands out depend on the order of its calls; pinned for a fan listed as 5, 4, 3) |
+
+  Survivors of 5.1 by method: `Segments.Sort` and `Coplanar.Sort` in `prepare_touched`, `fan.Sort` in `split_bowties`, and the sorts of
+  `assemble` at the non-manifold edges. Closed by a test: `Segments.Sort`, `fan.Sort`, and the two added here (`merge_points`, `merge_sorted`).
+  `Coplanar.Sort` in `prepare_touched` is redundant (an equivalent mutant): `prepare_triangle` sorts the same list before it calls
+  `prepare_touched`, and nothing appends to it in between, so the second sort sees a sorted list; removing it leaves every test green and
+  can change no result. It stays as a guard. The `assemble` sorts stay open as O-SORTS-NM. The hook counts the runs it permutes
+  (`TiedRuns`), and the tie test asserts it is above 0, so the test cannot pass without ties.
+
+  Remaining, stated: in `merge_cluster` the two point case (`best = a` instead of the smaller key) is not killed: no scenario tried (coplanar
+  grids of 2x2 and 3x3 boxes with a rotated box, copies of boxes) has a two point cluster of coincident points with exactly equal `lo`; the equal
+  `lo` runs occur in clusters of three or more, or between distinct points with the same order key (`ComparePoints` separates them, the case
+  returns 0). The case reads its two points symmetrically by inspection. A change of the comparer of `fan.Sort` or `Segments.Sort` is a
+  build error (G3D0002, the site line names the overload).
+
 **Claim.** On every runtime that satisfies T1 to T5, `ExactMeshArrangement` and `ExactMeshBoolean` compute, for the exact result (and not for the
 assumed members above), functions of their arguments, up to the open obligations: no result depends on the schedule, the process, a hash
 seed, the order of a hash container, the order of equal keys in a sort, the sign of a zero in a minimum or maximum, the clock or the BCL
-version, except through the open obligations above (O-RANDOM, O-ATAN2, O-IDS, O-SORTS, O-PERPATCH, O-DIAG, O-EXC, O-SHEET) and the assumed members.
+version, except through the open obligations above (O-RANDOM, O-ATAN2, O-IDS, O-SORTS-NM, O-PERPATCH, O-DIAG, O-EXC, O-SHEET) and the assumed members.
 Checked: the allow list, the registered sites, constructs, casts and `#if` blocks, and that the named tests exist. Attacked by test: P1 to P5 per
 site by the tests named in the site lines, the harness cases and the loop-order adversary.
 

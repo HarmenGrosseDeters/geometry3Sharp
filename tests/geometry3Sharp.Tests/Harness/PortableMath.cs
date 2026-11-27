@@ -17,6 +17,21 @@ namespace geometry3Sharp.Tests
         internal static double Sin(double x) { return CoreMath.Sin(x); }
         internal static double Cos(double x) { return CoreMath.Cos(x); }
 
+        /// <summary> Matrix3d.AxisAngleD with correctly rounded sine and cosine (the same steps; #1660) </summary>
+        internal static Matrix3d AxisAngleMatrixD(Vector3d axis, double angleDeg)
+        {
+            double angle = angleDeg * MathUtil.Deg2Rad;
+            double cs = Cos(angle), sn = Sin(angle);
+            double oneMinusCos = 1.0 - cs;
+            double x2 = axis[0] * axis[0], y2 = axis[1] * axis[1], z2 = axis[2] * axis[2];
+            double xym = axis[0] * axis[1] * oneMinusCos, xzm = axis[0] * axis[2] * oneMinusCos, yzm = axis[1] * axis[2] * oneMinusCos;
+            double xSin = axis[0] * sn, ySin = axis[1] * sn, zSin = axis[2] * sn;
+            return new Matrix3d(
+                x2 * oneMinusCos + cs, xym - zSin, xzm + ySin,
+                xym + zSin, y2 * oneMinusCos + cs, yzm - xSin,
+                xzm - ySin, yzm + xSin, z2 * oneMinusCos + cs);
+        }
+
         /// <summary> Quaterniond.AxisAngleD with correctly rounded sine and cosine (the same steps as SetAxisAngleD) </summary>
         internal static Quaterniond AxisAngleD(Vector3d axis, double angleDeg)
         {

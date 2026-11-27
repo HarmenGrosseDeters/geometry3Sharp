@@ -436,7 +436,7 @@ namespace gs
             Volume = PlanArea = SlopeArea = 0; CutVolume = FillVolume = CutArea = FillArea = 0;
             lastOverlay = null; lastPieces = null; TargetHeightLines = new List<TargetHeightLine>(); AutoCut = AutoFill = null;
             PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; Realizations = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
-            MergedPositions = 0; MergeLambdaRequired = 0; NeedleFlips = 0; LastRealized = null;
+            MergedPositions = 0; MergeLambdaRequired = 0; NeedleFlips = 0; LastRealized = null; realizationMode = 0; crackAfterStrict = false;
             MaxMergeDistance = 0; BandMerges = 0; RegionNeedles = RegionNeedleHits = 0; SkippedTerrainCopies = 0; CompositeBuilds = 0; UsedMergeRadius = UsedBandMergeRadius = 0; AttemptProblemAltitudes = new List<List<double>>();
             // (a cancelled or failed run can leave them set)
             reachedCap = capMayGrow = false;
@@ -638,6 +638,7 @@ namespace gs
                 // (each run checks its own clipped region; the mixed composite is built and checked here)
                 BuildComposite = BuildComposite, CompositeKind = CompositeKinds.Replacement,
                 InsertionOrder = InsertionOrder, InsertionSeed = InsertionSeed, CheckCanonical = CheckCanonical,
+                CompactDuringInsert = CompactDuringInsert, PartSectors = PartSectors, NoPrefilters = NoPrefilters, AfterSimplify = AfterSimplify,
                 CapEstimateRounds = CapEstimateRounds, RebuildForEachLowering = RebuildForEachLowering
             };
         }
@@ -1105,7 +1106,142 @@ namespace gs
 
         bool reachedCap, capMayGrow;
 
+        // how far the realizations of this run go (#1539): 0 the plain ones, then strict ones (SlopeMap strict: slivers that the
+        // rounding turned over or laid over a neighbour are dropped and stitched), then zip ones (zip_strips) after a
+        // NonManifoldRealization; 1 and 2 start there, for the reruns of attempts()
+        int realizationMode;
+        // set by a realization with strict (not zip) rounding that left a crack
+        bool crackAfterStrict;
+
+        static bool turned_over(DMesh3 mesh, int t)
+        {
+            if (mesh.IsTriangle(t) == false) return false;
+            Index3i tv = mesh.GetTriangle(t);
+            return ExactPredicates.Orient2d(mesh.GetVertex(tv.a).xy, mesh.GetVertex(tv.b).xy, mesh.GetVertex(tv.c).xy) <= 0;
+        }
+
+        // (#1539: where the plain attempts end in SlopeViolation with a triangle that the rounding turned over, left in the realization
+        // (it fails every margin), the attempts run again from the strict realization on; where a strict realization left a crack,
+        // from the zip one on. Only after such a failure: a design that passes, also after raising the margin, gives the result it
+        // always gave. The counters of the run (Attempts, Realizations, PredicateCalls, ...) add up over the reruns: they count
+        // the work done; the problem lists (ProblemTriangles, AttemptProblemAltitudes) hold the last run's; a refused rerun leaves the plain run's diagnostics)
         Statuses attempts(List<InPiece> pieces, List<List<Vector3d>> toePts, double H, bool fill)
+        {
+            flipScale = 1; UsedFlipScale = 1; lastRefusedBound = 0;
+            try {
+                Statuses st = attempts_modes(pieces, toePts, H, fill);
+                // (#1539, angle 301: a needle whose flip changes the surface by more than the reserved flip share, 2 sMax (r + e_xy),
+                // cannot be removed, and its plane fails every margin. Only after a final SlopeViolation whose last build refused such
+                // a flip, the attempts run again with the flip share scaled by F (FlipScaleFor: the power of two above 2 times the
+                // largest refused bound over the share, at least 2^10, at most 2^20 = MaxFlipScaleLog2), the budgets counting the
+                // scaled share (FlipExtra: mergeShare, fan directions, the lowering the flips need, the room of the band merges).
+                // At most MaxFlipReruns reruns (the second only if a flip is still refused, with a larger F). Where the scaled
+                // budgets no longer fit Tolerance (build: InvalidInput) or no flip is refused any more, the original SlopeViolation
+                // and its diagnostics stay. Every other design: unchanged)
+                if (st != Statuses.SlopeViolation || lastRefusedBound <= 0 || DisableFlipRerun) return st;
+                var kept = new Diagnostics(this);
+                for (int rerun = 0; rerun < MaxFlipReruns; ++rerun) {
+                    double next = FlipScaleFor(FlipRatioTestFactor * lastRefusedBound / lastBaseFlipShare, flipScale);
+                    if (rerun > 0 && !(next > flipScale)) break;
+                    flipScale = next;
+                    UsedFlipScale = flipScale;
+                    // (B, the largest refused bound, and the share are of the last realization and the last build; if that build
+                    // refused before it realized, they come from different builds, which the factor 2 of FlipScaleFor covers)
+                    lastRefusedBound = 0;
+                    Message = ""; ProblemTriangles = new List<int>(); AttemptProblemAltitudes = new List<List<double>>();
+                    Statuses again = attempts_modes(pieces, toePts, H, fill);
+                    if (again != Statuses.SlopeViolation && again != Statuses.Failed && again != Statuses.InvalidInput) return again;
+                    if (again != Statuses.SlopeViolation || lastRefusedBound <= 0 || flipScale >= MaxFlipScale) break;
+                }
+                kept.Restore(this);
+                return fail(Statuses.SlopeViolation, kept.Message);
+            } finally { flipScale = 1; }
+        }
+
+        // the diagnostics of a run that a rerun of attempts() overwrites, copied (the lists are rebuilt per run, never shared)
+        sealed class Diagnostics
+        {
+            readonly string message; readonly List<int> problems; readonly List<List<double>> altitudes;
+            readonly double mergeLambdaRequired, maxMergeDistance, usedMergeRadius, usedBandMergeRadius;
+            readonly double maxSlopeRatio, slopeMargin, toeLowering, minFeature, facetAngle, fanTolerance, rampShare;
+            readonly int merged, flips, bandMerges;
+            public string Message { get { return message; } }
+            public Diagnostics(TerrainSlopeDesign d)
+            {
+                message = d.Message;
+                problems = new List<int>(d.ProblemTriangles);
+                altitudes = d.AttemptProblemAltitudes.Select(l => new List<double>(l)).ToList();
+                mergeLambdaRequired = d.MergeLambdaRequired; maxMergeDistance = d.MaxMergeDistance;
+                usedMergeRadius = d.UsedMergeRadius; usedBandMergeRadius = d.UsedBandMergeRadius;
+                maxSlopeRatio = d.MaxSlopeRatio; slopeMargin = d.UsedSlopeMargin; toeLowering = d.UsedToeLowering; minFeature = d.UsedMinFeatureSize;
+                facetAngle = d.FacetAngle; fanTolerance = d.FanTolerance; rampShare = d.UsedRampShare;
+                merged = d.MergedPositions; flips = d.NeedleFlips; bandMerges = d.BandMerges;
+            }
+            public void Restore(TerrainSlopeDesign d)
+            {
+                d.ProblemTriangles = problems; d.AttemptProblemAltitudes = altitudes;
+                d.MergeLambdaRequired = mergeLambdaRequired; d.MaxMergeDistance = maxMergeDistance;
+                d.UsedMergeRadius = usedMergeRadius; d.UsedBandMergeRadius = usedBandMergeRadius;
+                d.MaxSlopeRatio = maxSlopeRatio; d.UsedSlopeMargin = slopeMargin; d.UsedToeLowering = toeLowering; d.UsedMinFeatureSize = minFeature;
+                d.FacetAngle = facetAngle; d.FanTolerance = fanTolerance; d.UsedRampShare = rampShare;
+                d.MergedPositions = merged; d.NeedleFlips = flips; d.BandMerges = bandMerges;
+            }
+        }
+
+        // the scale F of a rerun: a power of two with F >= 2 ratio (ratio: the largest refused bound over the base flip share, so the
+        // scaled share F * share covers it with room for the bound's growth in the rerun), above the last scale, within [2^10, 2^20]
+        internal static double FlipScaleFor(double ratio, double last)
+        {
+            int k = MinFlipScaleLog2;
+            while (k < MaxFlipScaleLog2 && CoreMath.Ldexp(1, k) < 2 * ratio) ++k;
+            double f = CoreMath.Ldexp(1, k);
+            while (f <= last && f < MaxFlipScale) f *= 2;
+            return f;
+        }
+        // the repair lowering of a build with a scaled flip share: the F - 1 further shares on top (0 extra: the lowering itself)
+        internal static double WithFlipExtra(double lowering, double flipExtra) { return flipExtra > 0 ? ExactInterval.Up(lowering + flipExtra) : lowering; }
+        // whether a build with a scaled flip share may merge and flip: both repairs and the F - 1 further shares fit under lambdaBound
+        internal static bool MayMerge(double repairLambda2, double flipExtra, double lambdaBound) { return WithFlipExtra(repairLambda2, flipExtra) <= lambdaBound; }
+        // the room of the band merges under lambdaBound with a scaled flip share
+        internal static double BandRoom(double lambdaBound, double flipExtra) { return flipExtra > 0 ? ExactInterval.Down(lambdaBound - flipExtra) : lambdaBound; }
+
+        // the scale F of the flip share in a rerun of attempts() (1: the share of the realization), the largest bound of a flip that
+        // the last build refused for exceeding the share (0: none), and the base share FlipShare of that build
+        double flipScale = 1, lastRefusedBound, lastBaseFlipShare = 1;
+        /// <summary> tests: the flip share FlipShare of the last build (the unit of the scale) </summary>
+        internal double BaseFlipShare { get { return lastBaseFlipShare; } }
+        /// <summary> tests: the last flip share scale a rerun of attempts() tried (1: no rerun) </summary>
+        internal double UsedFlipScale = 1;
+        /// <summary> tests: multiplies the scale of a rerun in the budgets (not in its name), to make the budget refuse it </summary>
+        internal double FlipScaleTestFactor = 1;
+        /// <summary> tests: multiplies the refused bound over the share that sets the scale of a rerun (to reach the cap) </summary>
+        internal double FlipRatioTestFactor = 1;
+        /// <summary> tests: no rerun with a scaled flip share (the behaviour before #1539 for angle 301) </summary>
+        internal bool DisableFlipRerun;
+        internal const int MinFlipScaleLog2 = 10, MaxFlipScaleLog2 = 20, MaxFlipReruns = 2;
+        internal static readonly double MaxFlipScale = CoreMath.Ldexp(1, MaxFlipScaleLog2);
+
+        // the plain, strict and zip realizations (see realizationMode)
+        Statuses attempts_modes(List<InPiece> pieces, List<List<Vector3d>> toePts, double H, bool fill)
+        {
+            Statuses st;
+            try {
+                realizationMode = 0;
+                for (; ; ) {
+                    sawTurnedOver = false; crackAfterStrict = false;
+                    st = attempts_once(pieces, toePts, H, fill);
+                    if (st != Statuses.SlopeViolation && st != Statuses.Failed) return st;
+                    if (realizationMode <= 1 && crackAfterStrict) { realizationMode = 2; AttemptProblemAltitudes = new List<List<double>>(); ProblemTriangles = new List<int>(); continue; }
+                    if (realizationMode == 0 && st == Statuses.SlopeViolation && sawTurnedOver) { realizationMode = 1; AttemptProblemAltitudes = new List<List<double>>(); ProblemTriangles = new List<int>(); continue; }
+                    return st;
+                }
+            } finally { realizationMode = 0; }
+        }
+
+        // (a triangle with Orient2d <= 0 counts: a collinear one as well as a clockwise one)
+        bool sawTurnedOver;
+
+        Statuses attempts_once(List<InPiece> pieces, List<List<Vector3d>> toePts, double H, bool fill)
         {
             // margins (TERRAIN.md 5.4, plan "Departures" 1)
             // the check decides (5.4): a support failure (ii) raises the toe lowering λ to what the realized output
@@ -1157,6 +1293,7 @@ namespace gs
                 // (the altitudes on the mesh the ids are of: the realization, or the clipped region of the composite)
                 if (br.BadMesh != null)
                     AttemptProblemAltitudes.Add(br.Bad.Select(t => SlopeMap.TriangleAltitude(br.BadMesh, t)).ToList());
+                if (br.BadMesh != null && br.Bad.Any(t => turned_over(br.BadMesh, t))) sawTurnedOver = true;
                 if (br.RebuildLambda > 0) {
                     lambdaReq = br.RebuildLambda;
                     continue;
@@ -1304,7 +1441,11 @@ namespace gs
             // - (S̃(x) - S̃(y)), and |S̃(x) - S̃(y)| <= sMax w r; below, z_q - l_f(p) >= -3 sMax r - O(e_xy), above,
             // z_q <= S̃(q) + O(e_xy) (TERRAIN_1B_PLAN.md, reviews))
             double mergeRadius = MergeRadius(exy);
-            double mergeShare = MergeShare(exy, sMax);
+            // (a rerun with the flip share scaled by F, #1539: the budget counts the F - 1 further shares: the same sum as the check below
+            // that the cone facets keep a positive share of Tolerance, so the total stays within Tolerance at every F, or the build refuses)
+            double flipExtra = FlipExtra(exy, sMax, flipScale > 1 ? flipScale * FlipScaleTestFactor : 1);
+            double mergeShare = WithFlipExtra(MergeShare(exy, sMax), flipExtra);
+            lastBaseFlipShare = FlipShare(exy, sMax);
             // (on a terrain, Tolerance / 4 is reserved for the move of the composite's catch points, which its certificate
             // checks (TERRAIN.md 5.4); also without a composite, so the slope surface does not depend on BuildComposite)
             double snapShare = Terrain != null ? Tolerance / 4 : 0;
@@ -1375,7 +1516,7 @@ namespace gs
                 snapBase = ExactInterval.Up(snapBaseWithoutRamps + rampShare);
                 snapSMax = sMax; snapExy = exy; snapMergeRadius = mergeRadius;
             }
-            double bandRadius = BandMergeRadius(exy, ez, sMax, minFeature, facetSlack, lambdaBound);
+            double bandRadius = BandMergeRadius(exy, ez, sMax, minFeature, facetSlack, BandRoom(lambdaBound, flipExtra));
             UsedMergeRadius = mergeRadius; UsedBandMergeRadius = bandRadius;
             // (the reach does not depend on λ: the map is built once per margin δ)
             double dMax = (H - zMin + reachLowered + lambdaBound) / (sMin * (1 - delta) * CoreMath.Cos(theta)) * 1.01;
@@ -1432,6 +1573,9 @@ namespace gs
             }
             int cap = kernel.AddHorizontalPlane(H);
             map.LabelDomain(cap);
+            map.Compacting = CompactDuringInsert;
+            map.PartSectors = PartSectors;
+            map.NoPrefilters = NoPrefilters;
 
             phase("domain");
             // insert the pieces, in a random order (the expected work of an incremental envelope; the result does not
@@ -1443,16 +1587,35 @@ namespace gs
                 if (pieces[k].Kind == 1) {
                     RampUnit u = pieces[k].Unit;
                     map.InsertPolygonPiece(k, k + 1, u.RoadPlane, u.Walls, u.Apexes, u.Fans, u.Angles, u.Box, u.ZMin, u.Slb, u.Reach, theta, u.Apexes);
+                    if (CompactDuringInsert) map.Compact();
+                    if (AfterInsert != null) AfterInsert(map);
                     continue;
                 }
                 map.InsertPiece(k, pieces[k].Strip, pieces[k].FanA, pieces[k].AngA, pieces[k].FanB, pieces[k].AngB,
                     pieces[k].A1, pieces[k].B1, Math.Min(pieces[k].A1.z, pieces[k].B1.z), pieces[k].Slb, pieces[k].Reach, theta);
+                if (CompactDuringInsert) map.Compact();
+                if (AfterInsert != null) AfterInsert(map);
             }
 
+            InsertSplits = map.SplitCalls;
             phase("insert");
             map.Simplify();
             RayCount = Math.Max(RayCount, map.RayCount);
             if (CheckCanonical && CanonicalProblem == "") CanonicalProblem = map.CanonicalProblem();
+            if (AfterSimplify != null) AfterSimplify(map);
+            if (ReinsertAfterSimplify) {
+                // (the upper-bound probe of SLOPE_ENVELOPE_CANONICAL.md section 4: every piece again into the final map, the least
+                // work an incremental construction can do; the labels do not change)
+                long s0 = map.SplitCalls;
+                var reSw = System.Diagnostics.Stopwatch.StartNew();
+                foreach (int k in order) {
+                    if (pieces[k].Kind != 0) continue;
+                    map.InsertPiece(k, pieces[k].Strip, pieces[k].FanA, pieces[k].AngA, pieces[k].FanB, pieces[k].AngB,
+                        pieces[k].A1, pieces[k].B1, Math.Min(pieces[k].A1.z, pieces[k].B1.z), pieces[k].Slb, pieces[k].Reach, theta);
+                }
+                ReinsertSeconds = reSw.Elapsed.TotalSeconds; ReinsertSplits = map.SplitCalls - s0;
+                map.Simplify();
+            }
             phase("simplify");
 
             // toe undercut: a face on a toe segment labelled by another piece, lower than the toe by more than Tolerance
@@ -1474,8 +1637,8 @@ namespace gs
             for (int realization = 0; ; ++realization) {
                 br = new BuildResult() { Lambda = lambda, LambdaBound = lambdaBound };
                 UsedToeLowering = lambda;
-                Statuses st = realize_and_check(map, kernel, cap, pieces, fill, lambda, lambdaBound, k => RepairLambda(ez, exy, sMax, k), FlipShare(exy, sMax), minFeature, mergeRadius, bandRadius,
-                                                (l, k) => BandRepairLambda(ez, exy, sMax, l, k), br, phase, collapsesMade);
+                Statuses st = realize_and_check(map, kernel, cap, pieces, fill, lambda, lambdaBound, k => RepairLambda(ez, exy, sMax, k), WithFlipExtra(FlipShare(exy, sMax), flipExtra), minFeature, mergeRadius, bandRadius,
+                                                (l, k) => BandRepairLambda(ez, exy, sMax, l, k), br, phase, collapsesMade, flipExtra);
                 Realizations++;
                 if (st != Statuses.SlopeViolation)
                     return st;
@@ -1513,6 +1676,21 @@ namespace gs
         /// <summary> tests: the order in which the pieces are inserted (a permutation of 0 .. n-1), instead of the seeded shuffle </summary>
         internal Func<int, int[]> InsertionOrder;
         internal ulong InsertionSeed = 0x5EED5EEDUL;
+        /// <summary>
+        /// tests: merge the faces of one label during insertion (SlopeMap.Compact after each piece; default), and filter the planes of
+        /// each part of a face by its sector (SlopeMap.PartSectors; default). False: the earlier construction, which gives the same
+        /// output (docs/design/SLOPE_ENVELOPE_CANONICAL.md)
+        /// </summary>
+        internal bool CompactDuringInsert = true;
+        internal bool PartSectors = true;
+        /// <summary> tests: SlopeMap.NoPrefilters (the reference labels) </summary>
+        internal bool NoPrefilters;
+        /// <summary> tests: called with each build's map after Simplify, and after each piece's insertion </summary>
+        internal Action<SlopeMap> AfterSimplify, AfterInsert;
+        /// <summary> tests: insert every piece again after Simplify (timed, ReinsertSeconds / ReinsertSplits), then Simplify again </summary>
+        internal bool ReinsertAfterSimplify;
+        internal double ReinsertSeconds;
+        internal long ReinsertSplits, InsertSplits;
         /// <summary> tests: the most rays a build's Simplify cut (reflex corners of the label components) </summary>
         internal int RayCount;
         /// <summary> tests: check each build's map after Simplify (SlopeMap.CanonicalProblem; the first problem, "" if none) </summary>
@@ -1543,9 +1721,10 @@ namespace gs
         Statuses realize_and_check(SlopeMap map, ExactSlopeKernel kernel, int cap, List<InPiece> pieces, bool fill, double lambda,
                                    double lambdaBound, Func<int, double> repairLambda, double flipShare, double minFeature, double mergeRadius,
                                    double bandRadius, Func<double, int, double> bandRepairLambda, BuildResult br, Action<string> phase,
-                                   CollapseRecord collapsesMade)
+                                   CollapseRecord collapsesMade, double flipExtra)
         {
             checkCancel();
+            lastRefusedBound = 0;
             DMesh3 mesh;
             List<int> bad = br.Bad;
             long p0 = kernel.PredicateCalls, x0 = kernel.ExactPredicates, c0 = kernel.ExactConstructions;
@@ -1559,14 +1738,31 @@ namespace gs
             // mesh non-manifold, the realization runs without it and the check decides)
             // (the merge and the needle flips each move the surface off S̃ by at most 2 sMax (r + e_xy) upwards, which the
             // lowering must cover, see RepairLambda: both only where both together fit under λ's bound)
-            bool mayMerge = repairLambda(2) <= lambdaBound;
+            bool mayMerge = MayMerge(repairLambda(2), flipExtra, lambdaBound), strictOnly = false;
             bool mergedWithin = mayMerge;
-            try {
-                mesh = map.Realize(cap, fill, mayMerge ? mergeRadius : 0, lambda);
-            } catch (SlopeMap.NonManifoldRealization) when (mayMerge) {
-                mesh = map.Realize(cap, fill, 0, lambda);
-                map.MergedCount = 0;
-                mergedWithin = false;
+            // (#1539: where neither realization is manifold, the same two with strict rounding, which drops the slivers that
+            // the rounding turned over or laid over a neighbour)
+            var attempts = new List<int[]>();      // (merge, strict, zip)
+            if (realizationMode == 0) {
+                if (mayMerge) attempts.Add(new[] { 1, 0, 0 });
+                attempts.Add(new[] { 0, 0, 0 });
+            }
+            if (realizationMode <= 1) {
+                if (mayMerge) attempts.Add(new[] { 1, 1, 0 });
+                attempts.Add(new[] { 0, 1, 0 });
+            }
+            if (mayMerge) attempts.Add(new[] { 1, 1, 1 });
+            attempts.Add(new[] { 0, 1, 1 });
+            mesh = null;
+            for (int attempt = 0; mesh == null; ++attempt) {
+                bool merge = attempts[attempt][0] == 1, strict = attempts[attempt][1] == 1, zip = attempts[attempt][2] == 1;
+                strictOnly = strict && zip == false;
+                try {
+                    mesh = map.Realize(cap, fill, merge ? mergeRadius : 0, lambda, strict, zip);
+                } catch (SlopeMap.NonManifoldRealization) when (attempt + 1 < attempts.Count) {
+                    continue;
+                }
+                if (merge == false && mayMerge) { map.MergedCount = 0; mergedWithin = false; }
             }
             // (the collapses decided on the build's first realization, made again on the later ones: TERRAIN.md 5.4)
             if (collapsesMade.Made == null) {
@@ -1601,9 +1797,14 @@ namespace gs
                 // (the length rounded up: a bound of the move)
                 if (BandMerges > 0) bandLength = ExactInterval.Up(bandLength);
             }
-            int flips = mayMerge ? SlopeMap.FlipNeedles(mesh, mergeRadius, flipShare) : 0;
-            if (map.DroppedTriangles > 0 && boundary_is_toe_limit_or_cap(mesh, map, cap) == false)
+            int refusedForBound = 0;
+            double largestRefused = 0;
+            int flips = mayMerge ? SlopeMap.FlipNeedles(mesh, mergeRadius, flipShare, out refusedForBound, out largestRefused) : 0;
+            lastRefusedBound = refusedForBound > 0 ? largestRefused : 0;       // (of the last realization: the failing one decides)
+            if (map.DroppedTriangles > 0 && boundary_is_toe_limit_or_cap(mesh, map, cap) == false) {
+                if (strictOnly) crackAfterStrict = true;
                 return fail(Statuses.Failed, "the realization left a crack (dropped triangles of a face narrower than the rounding)");
+            }
             int repairs = (map.MergedCount > 0 || BandMerges > 0 ? 1 : 0) + (flips > 0 ? 1 : 0);
             MergedPositions = map.MergedCount; NeedleFlips = flips; MaxMergeDistance = bandLength;
             // (the lowering the repairs need: a merge within r as today; band merges by the largest move of an original
@@ -1615,6 +1816,8 @@ namespace gs
                 need = repairs > 0 ? repairLambda(repairs) : 0;     // (today's, bit for bit)
             else
                 need = bandRepairLambda(ExactInterval.Up((map.MergedCount > 0 ? mergeRadius : 0) + bandLength), flips > 0 ? 1 : 0);
+            // (a rerun with a scaled flip share: the flips' own part of the lowering grows by the same F - 1 shares)
+            if (flips > 0) need = WithFlipExtra(need, flipExtra);
             MergeLambdaRequired = need;
             if (repairs > 0 && lambda < need) {
                 br.MergeLambda = need;
@@ -1897,6 +2100,14 @@ namespace gs
         // most at the crossing of the quad's diagonals; FlipNeedles adds these changes per triangle and refuses a flip
         // beyond the share)
         internal static double MergeShare(double exy, double sMax) { return 4 * sMax * (MergeRadius(exy) + exy) + FlipShare(exy, sMax); }
+        // the F - 1 further flip shares of a rerun with the flip share scaled by F (0 for F = 1: every budget is today's, bit for bit),
+        // rounded up: the budget of the below share, the lowering of the flips and the room of the band merges count them. The
+        // sum of the shares stays within Tolerance at every F because the build refuses (the cone facets need a positive share of
+        // Tolerance: facetShare = Tolerance - lambdaBound - delta term - mergeShare - snap - ramps > 0) where it would not
+        internal static double FlipExtra(double exy, double sMax, double scale)
+        {
+            return scale > 1 ? ExactInterval.Up((scale - 1) * FlipShare(exy, sMax)) : 0;
+        }
         // the largest change of the surface by needle flips, which FlipNeedles enforces (above and below)
         internal static double FlipShare(double exy, double sMax) { return 2 * sMax * (MergeRadius(exy) + exy); }
         // the lowering a realization with k kinds of repair needs (merge, flips): the rounding of a vertex and
@@ -1989,7 +2200,8 @@ namespace gs
             double ez = 2 * sMax * exy + eeval;
             if (MathUtil.IsFinite(D0) == false || MathUtil.IsFinite(maxXY + 4 * D0) == false) return -1;
             double lambdaBound = 2 * ez * (1 + 4 * 1.1 * D0 / minFeature);
-            double mergeShare = MergeShare(exy, sMax);
+            double flipExtra = FlipExtra(exy, sMax, flipScale > 1 ? flipScale * FlipScaleTestFactor : 1);
+            double mergeShare = WithFlipExtra(MergeShare(exy, sMax), flipExtra);
             double snapShare = Terrain != null ? t / 4 : 0;
             double withoutRamps = lambdaBound + delta * sMax * 1.1 * D0 + mergeShare + snapShare;
             double facetShare = t - withoutRamps - rampShare;

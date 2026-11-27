@@ -108,7 +108,9 @@ namespace geometry3Sharp.Tests
             Assert.True(d.HasFlag(MeshRobustRepair.Defects.NotClosed));
         }
 
-        // runs f with Parallel.For limited to n concurrent tasks (Parallel.For uses the current TaskScheduler)
+        // runs f as a task of a scheduler with n concurrent tasks; the gParallel loops of f do not follow that limit (their helpers
+        // run on the default pool, #1502, and Parallel.For was not limited by it either), so the variants run the same parallel path
+        // from another kind of caller thread
         static T WithThreads<T>(int n, Func<T> f)
         {
             var scheduler = new ConcurrentExclusiveSchedulerPair(TaskScheduler.Default, n).ConcurrentScheduler;

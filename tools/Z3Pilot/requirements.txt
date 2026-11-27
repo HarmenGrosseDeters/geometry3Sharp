@@ -9,3 +9,18 @@ z3-solver==4.15.4.0 \
     --hash=sha256:00e35b02632ed085ea8199fb230f6015e6fc40554a6680c097bd5f060e827431 \
     --hash=sha256:be3bc916545c96ffbf89e00d07104ff14f78336e55db069177a1bfbcc01b269d \
     --hash=sha256:928c29b58c4eb62106da51c1914f6a4a55d0441f8f48a81b9da07950434a8946
+# numpy 2.5.5 (BSD-3-Clause): only the research rounding oracle (rounding_oracle.py, its float relaxation) uses it; hashes from the PyPI JSON
+# API for the CPython 3.12 wheels (the Z3 pilot job's Python) and the sdist; numpy 2.5 needs Python >= 3.12.
+numpy==2.5.5 \
+    --hash=sha256:7da9a248f149cfbb220c6da964a59c8d051d516704f7758acfb81eb382a05d97 \
+    --hash=sha256:b96e9ee49ccbdb5676359f852a4497f7a9c5df6c377d8877f5330d6fd3ff42e4 \
+    --hash=sha256:a3856a97e48ed8371c680fb04120b99fbcc29f2076ebe6dc3deb34f77947c5ca \
+    --hash=sha256:f5e8603f0892d1b848e12124863b5b29af72383ee9b25ddc6fe4967d4c1ee6ef \
+    --hash=sha256:a0750f2156d53446caca85663d0b65d67214e1664b9050454a731ea1418d176a \
+    --hash=sha256:704d819265e5d1064d932968e9ee85fff2103ccc78c05b878c06943ba27b8507 \
+    --hash=sha256:86868185bf4b6c4e5a8628ac42cfa165cd9530266c731f7dd1d11b4ad7e7cd1c \
+    --hash=sha256:7fb87c4bcc73850ef433a0c42f096b010d3d3d284e9d00028bb030b43df3d078 \
+    --hash=sha256:263b2aa236d752b18f90c5107137d24b2e3856d7db37725609f0ab5bcdb58881 \
+    --hash=sha256:919eb420662b0b4ba34889df503f3d5329775b0c1d5f7e5f5af4fba8315b1e30 \
+    --hash=sha256:f6622e32cb46c60bee3b2c7dd7f5c22bdc86fcb8630336b4822ec81c3986111a \
+    --hash=sha256:5cddc243c75114ba845f01b1f87aca1572dbf7b6c2d88636ed3e1d2bccd7f1bf

@@ -67,6 +67,31 @@ Reading:
   about ten times a double evaluation, and a cell that needs tightening costs 9 or 73 enclosures instead of one: the
   Lidinoid runs take 16 to 72 times the contouring in the serial path.
 
+### Before and after #1536 (`Affine3` intersection + `IntervalImplicit3dCached` in `ContouringSmoothCertificate`)
+
+Command: `LC_ALL=C dotnet run --project benchmarks/ContouringSmoothCertificate -c Release` (same machine, medians of 3, `origin/master` `ac284bb` vs `Affine3` intersected with plain `ExactInterval` on boxes with phase half-width <= 0.6 plus per-thread `IntervalImplicit3dCached` in `ContouringSmoothCertificate`; the 18 non-empty-contour runs are shown, omitting the 6 empty-contour 1-period runs for `SchwarzP`, `Neovius` and `IWP`):
+
+| Field | Periods | n | Uncertified (before → after) | Serial ms (before → after) | Speedup | Parallel ms (before → after) |
+|---|---:|---:|---:|---:|---:|---:|
+| Gyroid | 1 | 32 | 0 → 0 | 205 → 37 | 5.5× | 69 → 25 |
+| Gyroid | 1 | 64 | 0 → 0 | 444 → 194 | 2.3× | 196 → 83 |
+| Gyroid | 2 | 32 | 71 → 56 (-21%) | 200 → 51 | 3.9× | 177 → 40 |
+| Gyroid | 2 | 64 | 0 → 0 | 691 → 82 | 8.4× | 403 → 46 |
+| SchwarzP | 2 | 32 | 219 → 219 | 534 → 28 | 19.1× | 355 → 24 |
+| SchwarzP | 2 | 64 | 0 → 0 | 715 → 57 | 12.5× | 476 → 33 |
+| SchwarzD | 1 | 32 | 29 → 8 (-72%) | 242 → 29 | 8.3× | 153 → 18 |
+| SchwarzD | 1 | 64 | 0 → 0 | 345 → 81 | 4.3× | 224 → 46 |
+| SchwarzD | 2 | 32 | 300 → 196 (-35%) | 862 → 118 | 7.3× | 516 → 65 |
+| SchwarzD | 2 | 64 | 26 → 3 (-88%) | 777 → 144 | 5.4× | 371 → 100 |
+| Neovius | 2 | 32 | 833 → 570 (-32%) | 1072 → 165 | 6.5× | 813 → 90 |
+| Neovius | 2 | 64 | 1157 → 510 (-56%) | 2221 → 235 | 9.5× | 1193 → 128 |
+| IWP | 2 | 32 | 0 → 0 (all t=0) | 535 → 35 | 15.3× | 227 → 24 |
+| IWP | 2 | 64 | 0 → 0 | 1831 → 158 | 11.6× | 745 → 83 |
+| Lidinoid | 1 | 32 | 254 → 197 (-22%) | 803 → 133 | 6.0× | 522 → 90 |
+| Lidinoid | 1 | 64 | 288 → 199 (-31%) | 1270 → 221 | 5.7× | 605 → 189 |
+| Lidinoid | 2 | 32 | 1430 → 1093 (-24%) | 2663 → 847 | 3.1× | 1365 → 438 |
+| Lidinoid | 2 | 64 | 1816 → 1090 (-40%) | 4393 → 706 | 6.2× | 2284 → 406 |
+
 ## The certificate record of `TwoLevelMarchingTetrahedra` (mode `record`)
 
 ```

@@ -180,8 +180,10 @@ vertex moved, a two-sided sheet, a moved exact vertex): all caught. C2 has its o
 cases put back unsplit (the arrangement's classic fault, a missed intersection: C1 still holds, only C2 sees it), a sheet
 through the middle of a result, and a folded coplanar piece. No false alarm: every case above, the campaigns and the
 Nightly corpus certify. The checker itself is a test file, so Stryker does
-not mutate it; `tools/certificate_hand_mutants.py` switches off or reverses each condition and sign of the checker (50
-mutants, about 45 minutes), and `BooleanCertificateTests` kills every one. Cost (warm, two spheres, 696 pieces): the boolean 4 ms, C1 19 ms, C3 + C4 10 ms,
+not mutate it; `tools/certificate_hand_mutants.py` switches off or reverses each condition and sign of the checker and makes each
+floating-point filter decide wrongly or too early (72 mutants, 2026-11-25, about 75 minutes), and `BooleanCertificateTests` kills
+every one (the script holds 106 mutants since 2026-11-27: those for the cost work of C2, #1632, the edge forms, the groups of equal pieces, the order of the parallel loops, and 17 for the union cover of C5, #1631, the gap bounds, the clipping, the difference, the leftover polygons; a mutant that hangs or aborts the test host counts as killed); 21 equivalent mutants are listed with their reasons (`--equivalent` checks that they pass;
+[CERTIFICATE_HARDENING_2026-11.md](../research/CERTIFICATE_HARDENING_2026-11.md)). Cost (warm, two spheres, 696 pieces): the boolean 4 ms, C1 19 ms, C3 + C4 10 ms,
 C5 65 ms, C2 about 40 ms (the prototype of the research note measured 9 us per pair with BigInteger): several times the
 boolean, as BigInteger decides every sign (an oracle for tests, not a mode for users).
 
@@ -322,6 +324,22 @@ not depend on the implementer's own tests. Order of priority:
     symmetries in the PR tier, all 48 in the nightly job (`Category=Nightly`). `CostInvarianceTests`: the output size on a
     transformed copy is equal under the 2^k scales and at most twice as large otherwise (#664 as a rule, the 2D mesher and
     `ExactMeshBoolean`), and the wall time of every sweep operation at most 20 times and 50 ms more (nightly).
+    Curved solids (session S2, 2026-11-25): `BooleanMetamorphicCurvedTests` runs `ExactMeshBoolean` and `SolidBooleanPipeline`
+    on 13 procedural pairs (spheres, a torus, rotated boxes; overlapping, nested, disjoint, touching, near-coincident, identical;
+    `Harness/CurvedSolids.cs`; non-dyadic coordinates, so volumes are compared within the measured rounding drift, itself checked
+    against the documented 1e-5 bound): commutativity (same solid, same status and clean state; the same mesh is not promised),
+    inclusion-exclusion, A u A = A, A - A empty, refinement by midpoint splits of one or both operands, and an inverted operand
+    (refused, or the Boolean with that operand empty; `ByNesting` gives the result of the outward input). `OperationMetamorphicTests`:
+    `MeshOffset` (offset(d) contains offset(d') for d > d', insets nested in the input) and `Remesher` with a projection target
+    (volume and area within 5 %, clean with `PreventSelfIntersections`). All held on master (a sweep of 81 further generated pairs, shifts 1e-14 to 1,
+    found no violation); the slowest test takes 2.5 s. `MeshRobustRepair` / `MeshAutoRepair` under a permutation of vertex and triangle order
+    (measurement only, not asserted): 11 broken inputs x 19 orders gave the same result in every order (same triangles by position, same status).
+    Round 2 (`MetamorphicRound2Tests`, tolerances derived in each test): `MeshWindingNumberBoolean` and `MeshWindingNumberSolidify` against
+    `SolidBooleanPipeline`: result samples within sqrt(3) cell sizes of the exact surface and back (except the thin tips of two differences, documented as lost
+    features), volume within 0.1 cell size times area (measured at most 0.032); `MeshAlphaWrap` contains the input (winding number of the input vertices and
+    centroids), reports the requested Alpha and Offset, and its vertices and triangle centroids lie between Offset and 1.1 (Offset + Alpha) from it; `Reducer`
+    with a two-sided `MaxDeviation` stays inside its band on both sides and keeps the volume within deviation times area, and a thin spike separates it from the
+    one-sided option; `TpmsLattice`: Origin translates the mesh, and a box moved by whole periods gives the same volume and area (six types, three styles). All held on master.
 11. **Cross-platform determinism**: the bit-identity hashes weekly on Windows and arm64, and the net48 tests (not only
     the build) on a Windows runner.
 12. **Tool-checked error bounds**: new floating-point filter bounds also derived with FPTaylor (MIT) and compared in

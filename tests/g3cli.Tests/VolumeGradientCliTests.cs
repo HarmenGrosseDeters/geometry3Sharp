@@ -1,0 +1,253 @@
+using System;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Text.Json.Nodes;
+using Xunit;
+using g3;
+using g3cli;
+using static g3cli.Tests.TestMeshes;
+
+namespace g3cli.Tests
+{
+    /// <summary> boolean --volume-gradient (BooleanVolumeGradient): the .csv and .json formats, the contacts, the defaults unchanged, the errors, MCP. </summary>
+    public class VolumeGradientCliTests : IClassFixture<TestMeshes>
+    {
+        readonly TestMeshes m;
+        public VolumeGradientCliTests(TestMeshes meshes) { m = meshes; }
+
+        static double P(string s) => double.Parse(s, CultureInfo.InvariantCulture);
+
+        /// <summary> the cube [-1,1]^3 moved by +2 in x: it touches the cube's +x face (a flush contact of area 4) </summary>
+        string Touching()
+        {
+            string path = m.Path_("touching.obj");
+            if (File.Exists(path) == false)
+                Assert.Equal(IOCode.Ok, StandardMeshWriter.WriteMesh(path, CubeMesh(new Vector3d(2, 0, 0)), WriteOptions.Defaults).code);
+            return path;
+        }
+
+        [Fact]
+        public void Csv_OneRowPerInputVertex_SumsAreTheRigidMotionDerivatives()
+        {
+            // union of the cube and the cube shifted by +1 in x: V = 8 + 8 - 4; moving the shifted cube by +x grows V by its
+            // cross-section 4 (the sum of the x entries of its vertices), moving the cube by +x shrinks it by 4
+            string grad = m.Path_("union_gradient.csv");
+            var (exit, r) = Run("boolean", m.Cube, m.Shifted, m.Path_("union_g.stl"), "--op", "union", "--volume-gradient", grad, "--compact");
+            Assert.Equal(0, exit);
+            JsonNode vg = r["volume_gradient"];
+            Assert.Equal(grad, S(vg["output"]));
+            Assert.Equal("csv", S(vg["format"]));
+            Assert.Equal(12.0, D(vg["volume"]), 12);
+            Assert.InRange(D(vg["volume_bound"]), 0, 1e-12);
+            Assert.Equal(4, vg["contacts"].AsArray().Count);         // the side faces y = +-1, z = +-1 overlap flush in 0 <= x <= 1
+
+            string[] lines = File.ReadAllLines(grad);
+            Assert.Equal("mesh,vertex,x,y,z,gx,gy,gz,bx,by,bz", lines[0]);
+            string[][] rows = lines.Skip(1).Select(l => l.Split(',')).ToArray();
+            Assert.Equal(16, rows.Length);
+            Assert.Equal(16, I(vg["rows"]));
+            Assert.All(rows, row => Assert.Equal(11, row.Length));
+            Assert.Equal(new[] { 0, 1 }, rows.Select(row => int.Parse(row[0])).Distinct().ToArray());
+            double sumA = rows.Where(row => row[0] == "0").Sum(row => P(row[5])), sumB = rows.Where(row => row[0] == "1").Sum(row => P(row[5]));
+            Assert.Equal(-4.0, sumA, 12);
+            Assert.Equal(4.0, sumB, 12);
+            Assert.Equal(0.0, rows.Sum(row => P(row[6])), 12);       // no y motion changes V
+            // the positions are those of the mesh as read, and every bound is a small nonnegative number
+            DMesh3 b = StandardMeshReader.ReadMesh(m.Shifted);
+            foreach (string[] row in rows.Where(row => row[0] == "1")) {
+                Vector3d p = b.GetVertex(int.Parse(row[1]));
+                Assert.Equal(p, new Vector3d(P(row[2]), P(row[3]), P(row[4])));
+            }
+            Assert.All(rows, row => Assert.All(row.Skip(8), x => Assert.InRange(P(x), 0, 1e-12)));
+        }
+
+        [Fact]
+        public void Json_HasVerticesVolumeAndContactsWithAlternatives()
+        {
+            // the touching cubes: their union has a kink at the common face; the gradient is the realized (merged) branch, the
+            // alternative the change to the separated one
+            string grad = m.Path_("touching_gradient.json");
+            var (exit, r) = Run("boolean", m.Cube, Touching(), m.Path_("touching_union.stl"), "--op", "union", "--volume-gradient", grad, "--compact");
+            Assert.Equal(0, exit);
+            JsonNode file = JsonNode.Parse(File.ReadAllText(grad));
+            Assert.Equal(16, I(r["volume_gradient"]["rows"]));
+            Assert.Equal("json", S(r["volume_gradient"]["format"]));
+            Assert.Equal(16.0, D(file["volume"]), 12);
+            Assert.Equal(D(r["volume_gradient"]["volume"]), D(file["volume"]));
+            Assert.Equal(D(r["volume_gradient"]["volume_bound"]), D(file["volume_bound"]));
+            Assert.Equal(r["volume_gradient"]["contacts"].ToJsonString(), file["contacts"].ToJsonString());
+            JsonArray contacts = file["contacts"].AsArray();
+            Assert.Single(contacts);
+            Assert.Equal(new[] { 0, 1 }, contacts[0]["meshes"].AsArray().Select(I).ToArray());
+            Assert.Equal(2, I(contacts[0]["sheets"]));
+            Assert.Equal(4.0, D(contacts[0]["area"]), 12);
+            JsonArray alternatives = contacts[0]["alternatives"].AsArray();
+            Assert.NotEmpty(alternatives);
+            foreach (JsonNode t in alternatives[0].AsArray()) {
+                Assert.InRange(I(t["mesh"]), 0, 1);
+                Assert.Equal(3, t["value"].AsArray().Count);
+                Assert.Equal(3, t["bound"].AsArray().Count);
+            }
+
+            JsonArray vertices = file["vertices"].AsArray();
+            Assert.Equal(16, vertices.Count);
+            // dV/dt for the touching cube moving along x: the realized (merged) branch only moves its far face, +4 (the derivative
+            // when it moves into the cube); the other branch, the gradient plus the alternative, is that of the separated cubes, 0
+            double realized = vertices.Where(v => I(v["mesh"]) == 1).Sum(v => D(v["gradient"][0]));
+            double other = realized + alternatives[0].AsArray().Where(t => I(t["mesh"]) == 1).Sum(t => D(t["value"][0]));
+            Assert.Equal(4.0, realized, 12);
+            Assert.Equal(0.0, other, 12);
+            foreach (JsonNode v in vertices) {
+                Assert.Equal(3, v["position"].AsArray().Count);
+                Assert.Equal(3, v["gradient"].AsArray().Count);
+                Assert.All(v["bound"].AsArray(), x => Assert.InRange(D(x), 0, 1e-12));
+            }
+        }
+
+        [Fact]
+        public void NAry_AtLeastTwo_RowsPerInputInOrder()
+        {
+            // inside at least 2 of cube, shifted and far: the overlap of the first two, V = 4; moving the shifted cube by +x
+            // shrinks it by 4, moving the cube by +x grows it by 4, the far cube (disjoint) changes nothing
+            string grad = m.Path_("at_least_gradient.csv");
+            var (exit, r) = Run("boolean", m.Cube, m.Shifted, m.Path_("at_least.stl"), "--op", "at_least", "--k", "2", "--more", m.Far,
+                "--orientation", "area_majority", "--volume-gradient", grad, "--compact");
+            Assert.Equal(0, exit);
+            Assert.Equal(4.0, D(r["volume_gradient"]["volume"]), 12);
+            string[][] rows = File.ReadAllLines(grad).Skip(1).Select(l => l.Split(',')).ToArray();
+            Assert.Equal(24, rows.Length);
+            Assert.Equal(new[] { 0, 1, 2 }, rows.Select(row => int.Parse(row[0])).Distinct().ToArray());
+            double Sum(string mesh) => rows.Where(row => row[0] == mesh).Sum(row => P(row[5]));
+            Assert.Equal(4.0, Sum("0"), 12);
+            Assert.Equal(-4.0, Sum("1"), 12);
+            Assert.Equal(0.0, Sum("2"), 12);
+            DMesh3 far = StandardMeshReader.ReadMesh(m.Far);
+            foreach (string[] row in rows.Where(row => row[0] == "2"))
+                Assert.Equal(far.GetVertex(int.Parse(row[1])), new Vector3d(P(row[2]), P(row[3]), P(row[4])));
+        }
+
+        [Fact]
+        public void FailedMeshWrite_LeavesNoGradientFile()
+        {
+            // the output path is a directory: the mesh cannot be written, so the gradient is not either
+            string output = m.Path_("is_a_directory.stl"), grad = m.Path_("dir_gradient.csv");
+            Directory.CreateDirectory(output);
+            var (exit, r) = Run("boolean", m.Cube, m.Shifted, output, "--op", "union", "--volume-gradient", grad, "--compact");
+            Assert.NotEqual(0, exit);
+            Assert.Equal("error", S(r["status"]));
+            Assert.False(File.Exists(grad));
+            Assert.Empty(Directory.GetFiles(m.Dir, "*.g3tmp"));
+        }
+
+        [Fact]
+        public void DirectoryAsGradientPath_FailsBeforeTheBoolean()
+        {
+            string grad = m.Path_("grad_dir.csv"), output = m.Path_("grad_dir_union.stl");
+            Directory.CreateDirectory(grad);
+            var (exit, r) = Run("boolean", m.Cube, m.Shifted, output, "--op", "union", "--volume-gradient", grad, "--compact");
+            Assert.Equal(ResultCodes.WriteError, S(r["code"]));
+            Assert.Equal(ResultCodes.ExitCode(ResultCodes.WriteError), exit);
+            Assert.Contains("it is a directory", S(r["message"]));      // (the check up front, not a failed move after the boolean)
+            Assert.False(File.Exists(output));
+            Assert.Null(r["boolean"]);                          // (rejected before the boolean ran)
+        }
+
+        [Fact]
+        public void FailedGradientMove_RemovesTheMesh()
+        {
+            // the move of the written gradient fails after the mesh was written (here: the target became a directory): neither
+            // file is left, and the error says so
+            string output = m.Path_("move_fail.stl"), grad = m.Path_("move_fail_dir.json"), temp = m.Path_(".move_fail.tmp.g3tmp");
+            Directory.CreateDirectory(grad);
+            File.WriteAllText(temp, "{}");
+            var e = Assert.Throws<CommandException>(() => Commands.WriteMeshAndGradient(output, CubeMesh(Vector3d.Zero), true, temp, grad));
+            Assert.Equal(ResultCodes.WriteError, e.Code);
+            Assert.Contains("was removed", e.Message);
+            Assert.False(File.Exists(output));
+            Assert.False(File.Exists(temp));
+            Assert.True(Directory.Exists(grad));
+
+            // and the plain path: both written, the temporary file gone
+            string ok = m.Path_("move_ok.json");
+            File.WriteAllText(temp, "{}");
+            Commands.WriteMeshAndGradient(output, CubeMesh(Vector3d.Zero), true, temp, ok);
+            Assert.True(File.Exists(output));
+            Assert.Equal("{}", File.ReadAllText(ok));
+            Assert.False(File.Exists(temp));
+        }
+
+        [Fact]
+        public void ExistingTempLikeFile_IsNotTouched()
+        {
+            // the temporary file has a name of its own: a file named like the old path + ".g3tmp" survives
+            string grad = m.Path_("keep.csv"), other = grad + ".g3tmp";
+            File.WriteAllText(other, "mine");
+            var (exit, _) = Run("boolean", m.Cube, m.Shifted, m.Path_("keep.stl"), "--op", "union", "--volume-gradient", grad, "--compact");
+            Assert.Equal(0, exit);
+            Assert.Equal("mine", File.ReadAllText(other));
+            Assert.True(File.Exists(grad));
+            File.Delete(other);
+        }
+
+        [Fact]
+        public void WithoutTheOption_TheResultIsUnchanged()
+        {
+            string plain = m.Path_("plain_union.stl"), withGradient = m.Path_("gradient_union.stl");
+            var (e0, r0) = Run("boolean", m.Cube, m.Shifted, plain, "--op", "union", "--compact");
+            var (e1, r1) = Run("boolean", m.Cube, m.Shifted, withGradient, "--op", "union", "--volume-gradient", m.Path_("g.json"), "--compact");
+            Assert.Equal(0, e0);
+            Assert.Equal(0, e1);
+            Assert.Null(r0["volume_gradient"]);
+            Assert.NotNull(r1["volume_gradient"]);
+            Assert.Equal(File.ReadAllBytes(plain), File.ReadAllBytes(withGradient));     // RetainClassification does not change the result
+            Assert.Equal(r0["mesh"].ToJsonString(), r1["mesh"].ToJsonString());
+            Assert.Equal(r0["boolean"].ToJsonString(), r1["boolean"].ToJsonString());
+        }
+
+        [Fact]
+        public void OpenInput_FailsAndWritesNothing()
+        {
+            // --allow-open lets the boolean run; the volume of an open result is not defined, so the gradient fails
+            string grad = m.Path_("open_gradient.csv"), output = m.Path_("open_union.stl");
+            var (exit, r) = Run("boolean", m.Cube, m.Open, output, "--op", "union", "--allow-open", "--volume-gradient", grad, "--compact");
+            Assert.Equal(ResultCodes.ExitCode(ResultCodes.OperationFailed), exit);
+            Assert.Equal(ResultCodes.OperationFailed, S(r["code"]));
+            Assert.Contains("not closed", S(r["message"]));
+            Assert.Contains("not closed", S(r["volume_gradient_error"]));
+            Assert.False(File.Exists(grad));
+            Assert.False(File.Exists(output));
+            Assert.Empty(Directory.GetFiles(m.Dir, "*.g3tmp"));
+        }
+
+        [Fact]
+        public void UnknownFormatAndMissingDirectory_FailBeforeTheBoolean()
+        {
+            var (exit, r) = Run("boolean", m.Cube, m.Shifted, m.Path_("x.stl"), "--op", "union", "--volume-gradient", m.Path_("g.txt"), "--compact");
+            Assert.Equal(ResultCodes.UnknownFormat, S(r["code"]));
+            Assert.Equal(ResultCodes.ExitCode(ResultCodes.UnknownFormat), exit);
+            (exit, r) = Run("boolean", m.Cube, m.Shifted, m.Path_("x.stl"), "--op", "union", "--volume-gradient", Path.Combine(m.Dir, "missing", "g.csv"), "--compact");
+            Assert.Equal(ResultCodes.WriteError, S(r["code"]));
+            Assert.False(File.Exists(m.Path_("x.stl")));
+        }
+
+        [Fact]
+        public void Mcp_BooleanTakesVolumeGradient()
+        {
+            var server = new McpServer(TextReader.Null, TextWriter.Null);
+            JsonNode list = server.Handle("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}");
+            JsonNode boolean = list["result"]["tools"].AsArray().First(t => S(t["name"]) == "boolean");
+            Assert.Equal("string", S(boolean["inputSchema"]["properties"]["volume_gradient"]["type"]));
+            Assert.DoesNotContain("volume_gradient", boolean["inputSchema"]["required"].AsArray().Select(S));
+
+            string grad = m.Path_("mcp_gradient.json");
+            var call = new JsonObject() { ["jsonrpc"] = "2.0", ["id"] = 2, ["method"] = "tools/call", ["params"] = new JsonObject() {
+                ["name"] = "boolean", ["arguments"] = new JsonObject() { ["a"] = m.Cube, ["b"] = m.Shifted, ["output"] = m.Path_("mcp_union.stl"),
+                    ["op"] = "union", ["volume_gradient"] = grad } } };
+            JsonNode res = server.Handle(call.ToJsonString());
+            Assert.False(B(res["result"]["isError"]));
+            Assert.Equal(12.0, D(res["result"]["structuredContent"]["volume_gradient"]["volume"]), 12);
+            Assert.Equal(16, JsonNode.Parse(File.ReadAllText(grad))["vertices"].AsArray().Count);
+        }
+    }
+}

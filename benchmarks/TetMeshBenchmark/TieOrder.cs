@@ -89,6 +89,8 @@ static class TieOrder
             imp.TangentOnly = tm.BoundaryMovesTangentOnly;
         }
         imp.MaxPasses = tm.ImprovePasses; imp.RescuePasses = tm.RescuePasses;
+        imp.StallStopPasses = int.Parse(Environment.GetEnvironmentVariable("G3_TIE_STALL") ?? "0", Inv);     // #1154: the opt-in stall stop (0 = off)
+        imp.ReferenceHillClimb = Environment.GetEnvironmentVariable("G3_TIE_REFERENCE") == "1";           // #1154: the loop without the scan cache (the same output)
         imp.Contraction = tm.ContractEdges; imp.Insertion = tm.SplitEdges;
         long step = Math.Max(1, start.Vertices.Count / 32), next = 0;
         imp.CancelF = () => {

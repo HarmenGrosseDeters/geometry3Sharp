@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFrameworks>net10.0</TargetFrameworks>
@@ -94,6 +94,7 @@
   <ItemGroup Condition="'$(UseNuGetG3)' != 'true' And '$(TargetFramework)' == 'net10.0'">
     <Compile Include="..\..\tools\PredicateCompiler\Compiler.cs" Link="PredicateCompiler\Compiler.cs" />
     <Compile Include="..\..\tools\PredicateCompiler\Monomials.cs" Link="PredicateCompiler\Monomials.cs" />
+    <Compile Include="..\..\tools\PredicateCompiler\SymbolicTaylorVerify.cs" Link="PredicateCompiler\SymbolicTaylorVerify.cs" />
     <None Include="..\..\tools\PredicateCompiler\doubles.spec" Link="PredicateCompiler\doubles.spec" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\docs\design\EXACT_FALLBACK_MONOMIALS.md" Link="PredicateCompiler\EXACT_FALLBACK_MONOMIALS.md" CopyToOutputDirectory="PreserveNewest" />
     <!-- (the condition: tools/new_tests_on_base.py builds these tests against the base's library, which has no such file) -->

@@ -178,6 +178,8 @@ static class Program
         var fastTimes = new double[rounds];
         float[] legacyRef = null;
         float[] exactOut = null;
+        MeshWindingNumberGrid exactKept = null;
+        DMeshAABBTree3 exactTreeKept = null;
 
         for (int r = -1; r < rounds; ++r) {
             var tLegacy = new DMeshAABBTree3(mesh, true);
@@ -201,7 +203,7 @@ static class Program
             gExact.Compute();
             sw.Stop();
             if (r >= 0) exactTimes[r] = sw.Elapsed.TotalMilliseconds;
-            if (r == 0) exactOut = (float[])gExact.Grid.Buffer.Clone();
+            if (r == 0) { exactOut = (float[])gExact.Grid.Buffer.Clone(); exactKept = gExact; exactTreeKept = tExact; }
 
             var tFast = new DMeshAABBTree3(mesh, true);
             var gFast = new MeshWindingNumberGrid(mesh, tFast, cellSize) {
@@ -218,8 +220,28 @@ static class Program
         for (int i = 0; i < legacyRef.Length; ++i)
             maxDiff = Math.Max(maxDiff, Math.Abs(exactOut[i] - legacyRef[i]));
 
+        // The value of a node exactly on the mesh is the principal value (0.5 on a flat face of a closed mesh); the legacy cache
+        // gives the rounded own-triangle term there (1.0 on the closed sphere), so the difference on such a node is 0.5. The second
+        // number leaves out the nodes within 1e-8 of the mesh.
+        double maxOff = 0.0;
+        int onSurface = 0;
+        double worstDist = 0.0;
+        Vector3d origin = exactKept.GridOriginD;
+        double dx = (float)cellSize;
+        Vector3i dims = exactKept.Dimensions;
+        for (int i = 0; i < dims.x; ++i)
+            for (int j = 0; j < dims.y; ++j)
+                for (int k = 0; k < dims.z; ++k) {
+                    Vector3d p = origin + new Vector3d(i * dx, j * dx, k * dx);
+                    int tid = exactTreeKept.FindNearestTriangle(p);
+                    double d2 = tid != DMesh3.InvalidID ? MeshQueries.TriDistanceSqr(mesh, tid, p) : double.MaxValue;
+                    bool near = d2 < 1e-16;     // (a squared distance carries 1e-17 .. 1e-19 of cancellation noise: a node exactly on the mesh shows 3e-10)
+                    float diff = Math.Abs(exactKept[i, j, k] - legacyRef[i + dims.x * (j + dims.y * k)]);
+                    if (near) ++onSurface; else if (diff >= maxOff) { maxOff = diff; worstDist = Math.Sqrt(d2); }
+                }
+
         double lt = Median(legacyTimes), et = Median(exactTimes), ft = Median(fastTimes);
-        Console.WriteLine($"| {name} | {mode} | {resolution}^3 | {lt:F1} | {et:F1} ({lt / Math.Max(et, 1e-6):F1}x) | {ft:F1} | {maxDiff:E2} |");
+        Console.WriteLine($"| {name} | {mode} | {resolution}^3 | {lt:F1} | {et:F1} ({lt / Math.Max(et, 1e-6):F1}x) | {ft:F1} | {maxDiff:E2} | {maxOff:E2} ({onSurface} nodes within 1e-8 of the mesh left out; the largest difference is at distance {worstDist:E1} from the mesh) |");
     }
 
     // Points at 10^-3 .. 10^-14 from the boundary edges of an open mesh (the edge angle is ill-conditioned there).
@@ -318,6 +340,16 @@ static class Program
         Warmup();
         Console.WriteLine($"ExactWindingBenchmark (rounds={rounds}, processors={Environment.ProcessorCount})");
         Console.WriteLine();
+        bool gridOnly = args.Length > 1 && args[1] == "grid";
+        if (gridOnly) {
+            Console.WriteLine("| case | mode | grid | legacy ms | exact row-ray ms | FWN ms | max |exact-legacy| | max |exact-legacy|, off-surface nodes |");
+            Console.WriteLine("|---|---|---|---|---|---|---|---|");
+            BenchGrid("closed sphere 20k", Sphere(42), MeshWindingNumberGrid.ComputeModes.FullGrid, 64, rounds);
+            BenchGrid("open sphere 20k", OpenSphere(42), MeshWindingNumberGrid.ComputeModes.FullGrid, 64, rounds);
+            BenchGrid("closed sphere 20k", Sphere(42), MeshWindingNumberGrid.ComputeModes.NarrowBand, 64, rounds);
+            BenchGrid("open sphere 20k", OpenSphere(42), MeshWindingNumberGrid.ComputeModes.NarrowBand, 64, rounds);
+            return 0;
+        }
         bool nearOnly = args.Length > 1 && args[1] == "near-edge";
         if (nearOnly) {
             DMesh3 c20k = Sphere(42), o20k = OpenSphere(42);
@@ -359,8 +391,8 @@ static class Program
         BenchNearEdge("open box, query grid in the plane of the rim", OpenBox(), RimPlaneGrid(), rounds);
         Console.WriteLine();
         Console.WriteLine("### Grid evaluation (`MeshWindingNumberGrid`, including cache build)");
-        Console.WriteLine("| case | mode | grid | legacy ms | exact row-ray ms | FWN ms | max |exact-legacy| |");
-        Console.WriteLine("|---|---|---|---|---|---|---|");
+        Console.WriteLine("| case | mode | grid | legacy ms | exact row-ray ms | FWN ms | max |exact-legacy| | max |exact-legacy|, off-surface nodes |");
+        Console.WriteLine("|---|---|---|---|---|---|---|---|");
 
         BenchGrid("closed sphere 20k", s20k, MeshWindingNumberGrid.ComputeModes.FullGrid, 64, rounds);
         BenchGrid("open sphere 20k", open20k, MeshWindingNumberGrid.ComputeModes.FullGrid, 64, rounds);
@@ -426,7 +458,7 @@ static class Program
         var exactMs = new double[rounds];
         var sw = new Stopwatch();
         for (int r = -1; r < rounds; ++r) {
-            var sFwn = new MeshWindingNumberSolidify(mesh) {
+            var sFwn = new MeshWindingNumberSolidify(mesh) { MinVolumeIoU = 0,
                 Adaptive = adaptive, GridResolution = resolution, UseExactWinding = false,
                 CleanupResult = false, ReduceTolerance = 0
             };
@@ -435,7 +467,7 @@ static class Program
             sw.Stop();
             if (r >= 0) fwnMs[r] = sw.Elapsed.TotalMilliseconds;
 
-            var sExact = new MeshWindingNumberSolidify(mesh) {
+            var sExact = new MeshWindingNumberSolidify(mesh) { MinVolumeIoU = 0,
                 Adaptive = adaptive, GridResolution = resolution, UseExactWinding = true,
                 CleanupResult = false, ReduceTolerance = 0
             };

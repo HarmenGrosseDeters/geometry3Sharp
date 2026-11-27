@@ -269,7 +269,7 @@ namespace gs
         internal int RescuePasses = 0;
         /// <summary> smoothing of interior vertices also along the active-set direction (Freitag, Jones, Plassmann 1995) </summary>
         internal bool ActiveSet = false;
-        bool any_bad() { for (int id = 0; id < tets.Count; ++id) if (alive[id] && quality(id) < TargetDegrees) return true; return false; }
+        bool any_bad() { for (int id = 0; id < tets.Count; ++id) if (alive[id] && scan_quality(id) < TargetDegrees) return true; return false; }
 
         /// <summary>
         /// the steepest ascent direction of the smallest dihedral angle of v's star (Freitag, Jones, Plassmann 1995): the point of
@@ -348,8 +348,72 @@ namespace gs
         /// <summary> the visits made so far </summary>
         internal long Visits { get { return visits; } }
 
+        /// <summary>
+        /// (tests, reference) true: the loop as before the scan cache of #1154, every pass computes the quality of every alive tet again. False (the default):
+        /// the scans of a pass (the list of bad tets, any_bad) reuse the quality of a tet whose four vertices and their versions are unchanged since
+        /// it was computed (the quality is a function of the four positions and of the objective's settings, which the entry records too;
+        /// every change of a position or of a tet bumps the versions of its vertices), so a pass costs the operations on the bad tets and an
+        /// integer comparison per other tet. The output is the same bit for bit. The cache takes about 64 bytes per tet id and does not shrink
+        /// within a run (the ids of removed tets are reused).
+        /// </summary>
+        internal bool ReferenceHillClimb = false;
+        /// <summary> (diagnosis) qualities the scans computed / took from the cache </summary>
+        internal long ScanQualityComputed, ScanQualityCached;
+        struct QualityEntry { public bool Valid; public Index4i Tet, Vers; public double Q, Target, MaxDih; }
+        QualityEntry[] qualityCache = new QualityEntry[0];
+        // only for the scans (guardFloor is off there: the guard changes the value)
+        double scan_quality(int id)
+        {
+            if (ReferenceHillClimb) { ScanQualityComputed++; return quality(id); }
+            Index4i t = tets[id];
+            var vers = new Index4i(ver_of(t.a), ver_of(t.b), ver_of(t.c), ver_of(t.d));
+            if (id >= qualityCache.Length) Array.Resize(ref qualityCache, Math.Max(tets.Count, Math.Max(id + 1, 2 * qualityCache.Length)));
+            ref QualityEntry e = ref qualityCache[id];
+            if (e.Valid && e.Tet == t && e.Vers == vers && e.Target == TargetDegrees && e.MaxDih.Equals(MaxDihedralDegrees)) { ScanQualityCached++; return e.Q; }
+            ScanQualityComputed++;
+            double q = quality(id);
+            e = new QualityEntry { Valid = true, Tet = t, Vers = vers, Q = q, Target = TargetDegrees, MaxDih = MaxDihedralDegrees };
+            return q;
+        }
+
+        /// <summary>
+        /// opt-in (default 0 = off, the run is bit for bit as without it): end a phase of passes (the main passes, and separately the rescue passes) when this many passes
+        /// in a row made no progress, judged at the start of each pass against the previous one: progress is a lower number of tets below
+        /// the target by at least StallMinDrop of it, or a worst quality that rose by more than StallMinWorstGain degrees. A run whose bad tets
+        /// are left with slow creeping steps (#1154: 200 passes at SliverDihedralDegrees 20 to 30) ends early, with the tets below the target
+        /// that it still had; the pass that judges is counted in Counts["passes"] and does not run its operations; Counts["stall_stop"] counts the phases it ended (the key exists only then).
+        /// </summary>
+        internal int StallStopPasses = 0;
+        /// <summary> (StallStopPasses) the fraction of the tets below the target that a pass must remove to count as progress </summary>
+        internal double StallMinDrop = 0.01;
+        /// <summary> (StallStopPasses) the rise of the worst quality, in degrees, that counts as progress </summary>
+        internal double StallMinWorstGain = 0.1;
+
+        /// <summary>
+        /// (StallStopPasses) the rule as a function of the sequence of passes: Observe is called at the start of every pass with the number of tets below the target and the worst
+        /// quality; it returns true when StallStopPasses passes in a row made no progress against the previous one. The first call only records.
+        /// </summary>
+        internal sealed class StallRule
+        {
+            readonly int passes; readonly double minDrop, minWorstGain;
+            int prevBad = -1, run; double prevWorst;
+            internal StallRule(int passes, double minDrop, double minWorstGain) { this.passes = passes; this.minDrop = minDrop; this.minWorstGain = minWorstGain; }
+            internal bool Observe(int bad, double worst)
+            {
+                bool stop = false;
+                if (prevBad >= 0) {
+                    bool progress = bad <= prevBad * (1 - minDrop) || worst > prevWorst + minWorstGain;
+                    run = progress ? 0 : run + 1;
+                    stop = run >= passes;
+                }
+                prevBad = bad; prevWorst = worst;
+                return stop;
+            }
+        }
+
         void hill_climb(int maxPasses)
         {
+            StallRule stall = StallStopPasses > 0 ? new StallRule(StallStopPasses, StallMinDrop, StallMinWorstGain) : null;
             for (int pass = 0; pass < maxPasses && !CancelF(); ++pass) {
                 Counts["passes"]++;
                 long before = Counts["edge_removals"] + Counts["face_removals"] + Counts["smooth_moves"] + Counts["boundary_moves"] + ins_count();
@@ -357,8 +421,12 @@ namespace gs
                 var bad = new List<(double q, int id)>();
                 int nAlive = 0;
                 for (int id = 0; id < tets.Count; ++id)
-                    if (alive[id]) { nAlive++; double q = quality(id); if (q < TargetDegrees) bad.Add((q, id)); }
+                    if (alive[id]) { nAlive++; double q = scan_quality(id); if (q < TargetDegrees) bad.Add((q, id)); }
                 bad.Sort();
+                if (stall != null && stall.Observe(bad.Count, bad.Count > 0 ? bad[0].q : double.MaxValue)) {
+                    Counts["stall_stop"] = (Counts.TryGetValue("stall_stop", out long ss) ? ss : 0) + 1;
+                    break;          // (the pass that judges is counted in Counts["passes"], and does not run its operations)
+                }
                 if (objective_on() && MaxDihedralStallPasses > 0 && bad.Count * MaxDihedralStallFraction > nAlive) {
                     double worst = bad[0].q;
                     if (stallInit) { stallInit = false; stallBestBad = bad.Count; stallBestWorst = worst; stallCount = 0; }
@@ -629,7 +697,7 @@ namespace gs
         }
 
         /// <summary> (tests) moves vertex v to p without any check (to build up displaced states for BoundaryMoveAllowed) </summary>
-        internal void SetPosition(int v, Vector3d p) { pos[v] = p; }
+        internal void SetPosition(int v, Vector3d p) { pos[v] = p; bump(v); }
 
         /// <summary> (tests) would moving boundary vertex v to p pass the exact checks (input and self-intersection)? </summary>
         internal bool BoundaryMoveAllowed(int v, Vector3d p)

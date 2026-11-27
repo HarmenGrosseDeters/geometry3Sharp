@@ -106,7 +106,7 @@ class Program
         r["in_tris"] = mesh.TriangleCount;
         double cell = input == "mesh:rotbox" ? 0.25 : mesh.CachedBounds.DiagonalLength / res;
         var sw = Stopwatch.StartNew();
-        var s = new MeshWindingNumberSolidify(mesh) { Adaptive = true, CellSize = cell };
+        var s = new MeshWindingNumberSolidify(mesh) { MinVolumeIoU = 0, Adaptive = true, CellSize = cell };
         bool ok = s.Compute();
         r["ms"] = sw.ElapsedMilliseconds;
         r["status"] = ok ? "ok" : "failed";
@@ -129,11 +129,11 @@ class Program
         }
         if (s.Result != null && (int)r["final_si"] > 0) {
             // which stage: the contour itself (hole fills included), after the cleanup, after the reduction
-            var raw = new MeshWindingNumberSolidify(mesh) { Adaptive = true, CellSize = cell, CleanupResult = false, ReduceTolerance = 0 };
+            var raw = new MeshWindingNumberSolidify(mesh) { MinVolumeIoU = 0, Adaptive = true, CellSize = cell, CleanupResult = false, ReduceTolerance = 0 };
             raw.Compute();
             r["stage_si_contour"] = raw.Result == null ? -1 : MeshRepairMetrics.SelfIntersections(raw.Result);
             r["stage_nonmanifold_tris"] = raw.NonManifoldTriangles;
-            var cl = new MeshWindingNumberSolidify(mesh) { Adaptive = true, CellSize = cell, CleanupResult = true, ReduceTolerance = 0 };
+            var cl = new MeshWindingNumberSolidify(mesh) { MinVolumeIoU = 0, Adaptive = true, CellSize = cell, CleanupResult = true, ReduceTolerance = 0 };
             cl.Compute();
             r["stage_si_cleanup"] = cl.Result == null ? -1 : MeshRepairMetrics.SelfIntersections(cl.Result);
         }

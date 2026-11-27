@@ -8,8 +8,24 @@ column compares like with like: a proven upper bound of |sd(x) - d| over the res
 
 ```
 dotnet build benchmarks/MeshOffsetBenchmark -c Release
-dotnet run -c Release --no-build --project benchmarks/MeshOffsetBenchmark -- 3        # repetitions; add "serial" for one thread
+dotnet run -c Release --no-build --project benchmarks/MeshOffsetBenchmark -- 3            # repetitions; add "serial" for one thread
+DOTNET_TieredPGO=0 dotnet run -c Release --no-build --project benchmarks/MeshOffsetBenchmark -- certify 3   # isolated CertifyBand + full Compute; add "serial" for one thread
 ```
+
+## CertifyBand fast bounds (2026-11-26, PR #1651; Intel Xeon @ 2.30 GHz, 2 threads, .NET 10.0.115, `DOTNET_TieredPGO=0`, median of 3)
+
+Comparing `mesh_ops/MeshOffset.cs` on base `04391d3b` (**Before**) against PR #1651 (**After**, `MO-1..MO-4`, `CTB-1/CTB-2`, dynamic `ULoSq` tightening, `BandQueryState`, and `SignWitness` ball-connected sign propagation):
+
+| input | d / diag | cell / abs(d) | tris | `CertifyBand` Before (ms) | `CertifyBand` After (ms) | `CertifyBand` Speedup | `Compute` Before (ms) | `Compute` After (ms) | `Compute` Speedup | band / abs(d) | certified |
+|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| sphere | 0.05 | 0.125 | 110316 | 4588.9 | 1393.6 | 3.29x | 7102.5 | 3857.2 | 1.84x | 0.0625 | True |
+| sphere | -0.05 | 0.125 | 54596 | 3142.2 | 998.6 | 3.15x | 4658.6 | 2615.6 | 1.78x | 0.0625 | True |
+| box | 0.05 | 0.125 | 118928 | 2885.0 | 723.7 | 3.99x | 4439.9 | 2577.1 | 1.72x | 0.0625 | True |
+| box | -0.05 | 0.125 | 53224 | 1962.3 | 521.0 | 3.77x | 2750.3 | 1396.6 | 1.97x | 0.0623 | True |
+| lshape | 0.05 | 0.125 | 108696 | 2721.3 | 758.9 | 3.59x | 4222.4 | 2218.0 | 1.90x | 0.0625 | True |
+| hollow | 0.05 | 0.125 | 150232 | 5694.3 | 1494.6 | 3.81x | 8435.8 | 4847.0 | 1.74x | 0.0625 | True |
+
+Full 32-case check (`dotnet run -c Release --no-build --project benchmarks/MeshOffsetBenchmark -- 1`): all 32/32 `MeshOffset` cases stay clean, self-intersection free, and band-certified (`15/32` for `SDF+MC`), with every `band / abs(d)` column matching the raw table below to all 4 printed decimals. Note that raw `BandDeviation` values are not bit-identical to `master` (they differ in the lowest significant digits because the hardware-double fast bounds have slightly different rounding margins than `ExactInterval`); only the output mesh, status, and certification result are unchanged.
 
 ## Result (2026-11-13, after #800, on master 22df4488 + #853; cloud container, 4 threads, median of 3)
 
