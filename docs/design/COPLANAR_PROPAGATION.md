@@ -255,7 +255,9 @@ own slice of `stack` and `representative`, the only shared value is the `Interlo
 **Completeness: why no stack member is missed.** Claim: for pieces p and q that share the edge e, and a coplanar triangle u of the source T that
 has no recorded plane on e, the centroids of p and q are both in the closed u or both outside it.
 1. A coplanar pair that `meets_only_at_shared` decides (`PreDecideCoplanar`) meets T only in shared corners or a shared edge: no piece
-   centroid, which lies in T's interior, is in u, and the first piece's scan says so; u is never tested again and never recorded.
+   centroid, which lies in T's interior, is in u, and the first piece's scan says so; u is never tested again and never recorded. The
+   same function also returns true for three shared corners, a triangle u identical to T: every centroid is in u, the first piece's scan says
+   inside and the copies keep it (nothing is recorded, so nothing changes it).
 2. Every other pair is clipped (`intersect_coplanar`): each edge of u is clipped to T (`clip_into`) into a point or a segment of its
    edge plane; so the part of the boundary of u inside the closed T is a union of such points and segments.
 3. Every segment is split at all points on it (the points whose boxes meet the segment's, tested exactly for collinearity: a point on the
@@ -292,3 +294,7 @@ piece fall with the ring (the seed scans, one per source, are about 4 n^2 over t
 at ring 480 is the winding (5.1 s: the patches, option B), simplify (8.5 s) and the stages of section 7 that stay; the union is still above the 20 s rule
 at 1,920 triangles (27.5 s), as the diagnosis predicted (about 25 s).
 
+**Known limit.** The walk is serial inside a source (the breadth first order is a chain of dependencies), and the sources run in parallel. One huge walked source with few
+others runs on one thread, where the scan it replaces parallelised per piece: it does far less work in all, but a source with a million pieces and nothing else could be slower in
+wall time than the scan on many cores. At ring 480 the cap sources are many, so there is no loss. The edge planes and the aliases are released after the triangulation and
+the stacks.

@@ -142,6 +142,35 @@ namespace geometry3Sharp.Tests
             AssertWalkEqualsScan(PlateAndBoxes(), op, "plate and boxes " + op);
         }
 
+        [Theory]
+        [InlineData(ExactMeshBoolean.Operations.Union)]
+        [InlineData(ExactMeshBoolean.Operations.Intersection)]
+        [InlineData(ExactMeshBoolean.Operations.Difference)]
+        public void TheWalk_GivesTheScansStacks_ForIdenticalMeshes(ExactMeshBoolean.Operations op)
+        {
+            // every triangle of one mesh has an identical triangle in the other (three shared corners: meets_only_at_shared decides the pair, nothing is recorded)
+            DMesh3 a = Cylinder(6);
+            AssertWalkEqualsScan(new[] { a, new DMesh3(a) }, op, "identical cylinders " + op);
+            DMesh3 plate = Box(0, 0, 0, 4, 4, 1);
+            AssertWalkEqualsScan(new[] { plate, new DMesh3(plate) }, op, "identical boxes " + op);
+        }
+
+        [Theory]
+        [InlineData(ExactMeshBoolean.Operations.Union)]
+        [InlineData(ExactMeshBoolean.Operations.Intersection)]
+        [InlineData(ExactMeshBoolean.Operations.Difference)]
+        public void TheWalk_GivesTheScansStacks_WhereABoxCrossesThePlateTop(ExactMeshBoolean.Operations op)
+        {
+            // the plate's top has coplanar boxes on it (their tops and edges give coplanar edge planes) and a box that crosses it: its side faces meet the top in segments
+            // that lie on the edge lines of the coplanar triangles
+            var meshes = PlateAndBoxes();
+            meshes.Add(Box(0.7, 0.9, 0.4, 1.9, 2.2, 1.5));
+            meshes.Add(Box(2.0, 0.6, 0.8, 3.2, 1.7, 1.3));
+            AssertWalkEqualsScan(meshes, op, "plate, boxes and crossing boxes " + op);
+            // a crossing box alone with the plate: the crossing segments on the plate top without coplanar neighbours
+            AssertWalkEqualsScan(new[] { Box(0, 0, 0, 4, 4, 1), Box(1, 1, 0.5, 2.5, 2.5, 1.5) }, op, "plate and one crossing box " + op);
+        }
+
         [Fact]
         public void TheWalk_ChangesNothing_ForTheStacksOfTheFansAtTheRingsOfTheIssue()
         {

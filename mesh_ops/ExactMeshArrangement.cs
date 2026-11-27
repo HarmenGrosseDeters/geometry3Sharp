@@ -283,6 +283,8 @@ namespace g3
         /// those triangles in ascending order (null for a triangle that has none recorded, or if RecordEdgeLines was off or the triangle has fewer coplanar triangles)
         /// </summary>
         internal Dictionary<long, int[]> EdgeLinesOf(int ti) { return edgeLines != null ? edgeLines[ti] : null; }
+        /// <summary> (#1630) forget the edge planes once the stacks are built (memory on large overlays) </summary>
+        internal void ReleaseEdgeLines() { edgeLines = null; }
         /// <summary>
         /// Per mesh: vertex id to point id. Written only in the serial build_points phase (input vertices at the same
         /// double position share one id), so every id here is an input-point id and deterministic: the same input gives the
@@ -2916,6 +2918,7 @@ namespace g3
                 grid.Add(p, p);
             var candidates = new List<int>();
             Dictionary<long, List<int>> aliasLines = t.Aliases;
+            t.Aliases = null;       // (read once, here: released with the triangulation)
             Dictionary<long, List<int>> edgePlanes = (RecordEdgeLines && t.Coplanar.Count >= EdgeLinesMinCoplanar) ? new Dictionary<long, List<int>>(EdgeKeyComparer.Instance) : null;
             List<long> edgeKeys = edgePlanes != null ? new List<long>() : null;
             foreach (Segment s in t.Segments) {

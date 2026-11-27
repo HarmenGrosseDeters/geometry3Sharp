@@ -1993,6 +1993,7 @@ namespace g3
             gParallel.ForRange(n, (i) => { if (walked == null || walked[i] == false) representative[i] = coplanar_stack(output[i], coplanarBoxes, out stack[i]); });
             if (walked != null)
                 gParallel.ForRange(walks.Count / 2, (w) => coplanar_walk(output, walks[2 * w], walks[2 * w + 1], coplanarBoxes, representative, stack));
+            arr.ReleaseEdgeLines();       // (#1630: the edge planes are read by the walk only)
             StacksPerPiece = (RecordStacks || RetainClassification) ? stack : null;
             steps.LapMicroseconds("classification.stacks");
 
