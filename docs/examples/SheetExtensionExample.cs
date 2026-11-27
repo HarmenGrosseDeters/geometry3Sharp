@@ -60,6 +60,20 @@ namespace g3.Examples
             return outcome;
         }
 
+        /// <summary>
+        /// The same cut through the pipeline: the sheet is stated as a sheet, and SheetExtension = StatedSheets lets the pipeline continue a short rim itself (after the direct cut and the grid
+        /// retry), cut again, and report what it added (Report.SheetExtensions, the route step "SheetExtension"). A refused extension leaves the run as without the option.
+        /// </summary>
+        public static SolidBooleanPipeline RunInPipeline(DMesh3 workpiece, DMesh3 sheet)
+        {
+            var pipeline = new SolidBooleanPipeline(new List<DMesh3> { workpiece, sheet }, ExactMeshBoolean.Operations.Difference) {
+                InputRoles = new List<ExactMeshBoolean.InputRole> { ExactMeshBoolean.InputRole.Solid, ExactMeshBoolean.InputRole.Sheet },
+                SheetExtension = SolidBooleanPipeline.SheetExtensionModes.StatedSheets
+            };
+            pipeline.Compute();
+            return pipeline;
+        }
+
         static DMesh3 Difference(DMesh3 workpiece, DMesh3 sheet, out ExactMeshBoolean.SheetRefusal refusal)
         {
             var op = new ExactMeshBoolean(new List<DMesh3> { workpiece, sheet }, ExactMeshBoolean.Operations.Difference) {

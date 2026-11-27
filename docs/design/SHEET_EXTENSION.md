@@ -1,6 +1,6 @@
 # Sheet extension: a cutting sheet that ends just short of the workpiece's surface
 
-Status: design, third version (2026-11-24); the helper (deliverable B) and the diagnosis (deliverable A, as `Diagnose()` of the same class) are built (`gs.MeshSheetExtension`, [guide](../guides/booleans-and-imprint.md#a-sheet-that-ends-short-of-the-surface), PR of branch `feature/sheet-extension-helper`); the pipeline option (C) is next and not built. The first version (a fixed-length strip
+Status: design, third version (2026-11-24); the helper (deliverable B) and the diagnosis (deliverable A, as `Diagnose()` of the same class) are built (`gs.MeshSheetExtension`, [guide](../guides/booleans-and-imprint.md#a-sheet-that-ends-short-of-the-surface), PR of branch `feature/sheet-extension-helper`); the pipeline option (C) is built (`SolidBooleanPipeline.SheetExtension`, branch `feature/pipeline-sheet-extension-mode`, 2026-11-27; section 9 lists the decisions). The first version (a fixed-length strip
 with a four-part check of the cut) was withdrawn after an independent review built a counterexample; section 11 keeps
 what was learned. In the review the construction of section 4 was run with the public API on five cases of section 8 (the slot and the
 fin, the free pin, the chord, the rectangle short on four sides, a vertex on the surface); they end as listed there. Section 9 lists what is decided and what is open; section 10 is the plan. User-facing behaviour today:
@@ -202,16 +202,37 @@ grid, and nothing without the option. The spike reports the cost of the imprint 
 Decided by the owner: opt-in; a limit of 5 % of the sheet's diagonal (2026-11-23); no convention for bodies with a
 missing face and for sheets with non-manifold edges.
 
+Decided for the pipeline option C (owner, 2026-11-27; built as `SolidBooleanPipeline.SheetExtension`,
+[guide](../guides/booleans-and-imprint.md#a-short-sheet-in-the-pipeline-sheetextension)):
+
+- Opt-in, an enum `SheetExtensionModes` on the pipeline: `Off` (default: bit for bit the run without the option),
+  `StatedSheets` (only a sheet the caller stated in `InputRoles`), `AlsoAutoRoutedTools` (also an open tool that the
+  pipeline routed to the sheet role itself). This answers open point 2: stated sheets are the proposal of section 6; auto-routed
+  tools are a second, explicit step, because such a tool may be a body with a missing face (section 7).
+- The limit is the helper's default, 5 % of the sheet's diagonal; the option adds no limit of its own.
+- The order is that of section 6: the direct cut, the grid retry, the extension (on the inputs as given), then the
+  fallback. Several sheets: one refused sheet at a time, each at most once.
+- A refused extension, or a run with the extended sheet that fails, does not block the hole-fill fallback: the run goes on
+  exactly as without the option (open point 5, first half). A failed run with an extended sheet is dropped as a whole,
+  also where an earlier sheet of it was extended well.
+- The strip is a reference surface of `NoInventedSurface`, and what it adds is reported (`Report.SheetExtensions`: input,
+  the helper's status and reason, depth, added area inside the workpiece; the route step `SheetExtension`) (open point 5,
+  second half).
+- Built beyond section 6: another sheet that is refused itself (its rim inside the workpiece) is left out of the helper's
+  tools for the extension of the first, because the helper's last check, the sheet role's cut, would refuse that other rim
+  and so the first extension. It is extended in its turn, with the first strip among its tools; the strip of the first is
+  then not checked against the unextended other sheet, only the final run of all extended sheets is. The frame
+  dependence near the depth limit is documented in the guide, not removed.
+
 Open:
 
-1. Is the diagnosis (A) plus the helper (B) enough, or is the pipeline option (C) wanted? Proposed: A now, B after the
-   spike, C only if the spike's numbers on the owner's inputs justify it.
-2. The extension only for stated sheets (proposed), or also for auto-routed open tools.
+1. Is the diagnosis (A) plus the helper (B) enough, or is the pipeline option (C) wanted? Decided: C is built, opt-in.
+2. The extension only for stated sheets (proposed), or also for auto-routed open tools. Decided: both, as two modes.
 3. The limits: the depth (5 % decided), `delta_min`, the margin on the exit angle, the overshoot cap and the limit on
    `U` relative to the smaller part; after the spike.
 4. A bowtie rim vertex: per-wedge points or a refusal.
 5. For C: does a failed extension block the hole-fill fallback for that tool; and the strip as a reference surface of
-   the verification.
+   the verification. Decided: no block; the strip is a reference surface.
 
 ## 10. Plan
 
@@ -231,7 +252,7 @@ Open:
    cut. Whether the share of continued cases is worth the helper and the option is the owner's decision on the reported
    numbers.
 3. **Helper PR (B), built (2026-11-24):** `gs.MeshSheetExtension` (`mesh_ops/MeshSheetExtension.cs`): the spike's construction ported unchanged, with the diagnosis as `Diagnose()` (the rim's depth, length inside, "no exit within the limit" and U per run, without the strip), witnesses with the free edge and the rim vertex, and the refusals of the input (`WorkpieceNotClosed`, `SheetNotSurface`) named. The spike's cases give the same outcomes and volumes through the library (`benchmarks/SheetExtensionProbe` runs the library; 111 rows, 128 invariance runs). Tests: `MeshSheetExtension*Tests`. Bowtie rim vertex: refused (`BowtieVertex`), as in the spike. The measure of the sheet's size stays the box's diagonal (item 2 of the spike's section 5; documented). Open from the build: a rib on the slot wall is refused in the identity frame (`InvertedQuad`); in a rotated frame it was continued, with the right cut (the strip's subdivision found a way round), until the ray queries decided on the exact ray (#1672): since then it is refused there too, with `OuterEdgeInside` at the same rim edge. No accepted cut was wrong. The mutation shard of the file is a follow-up (`tests/mutation`).
-4. **The pipeline option (C)**, if decided, after the grid retry default and the verification option are on master; it calls the helper for a refused sheet. Open points of section 9 (stated sheets only, whether a failed extension blocks the hole-fill fallback, the strip as a reference surface of the verification) are decided there.
+4. **The pipeline option (C), built (2026-11-27):** `SolidBooleanPipeline.SheetExtension` (`mesh_ops/SolidBooleanPipeline.cs`), after the grid retry default and the verification option; it calls the helper for a refused sheet. The open points of section 9 (stated sheets only or also routed tools, whether a failed extension blocks the hole-fill fallback, the strip as a reference surface of the verification) are decided there. Tests: `SolidBooleanPipelineSheetExtension*Tests`.
 
 ## 11. What the first version got wrong
 
