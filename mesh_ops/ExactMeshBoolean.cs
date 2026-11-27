@@ -334,9 +334,15 @@ namespace g3
         /// <summary>
         /// triangles that could not be added to the result mesh and got copies of some of their vertices: at an edge with
         /// more than two triangles that could not be split, or at an edge they would run the same way as the triangle
-        /// there (see ConflictEdges); expected to be 0 for closed inputs
+        /// there (see ConflictEdges); or at a vertex that already has 32,766 triangles (a DMesh3 vertex count is a short, #1693: the triangle takes a copy of
+        /// that vertex, one copy for the following ones that fit it). Expected to be 0 for closed inputs whose result has no vertex that large
         /// </summary>
         public int NonManifoldTriangles;
+        /// <summary>
+        /// triangles that could not be added to the result at all, not even with copies of all their vertices (a degenerate piece that no copy can make a triangle of):
+        /// they are missing from Result. Expected to be 0
+        /// </summary>
+        public int DroppedTriangles;
         /// <summary>
         /// edges where the kept pieces cannot all be joined as neighbours that run the edge in opposite directions (two
         /// that run it the same way, or pieces left without such a neighbour around the edge), so that the result is open
@@ -496,7 +502,8 @@ namespace g3
         /// <summary>
         /// positions in Result where two or more vertices lie: where the solid touches itself (at a point, or along an edge
         /// split into manifold pairs, see the class comment), plus contacts the rounding made and SafeRounding left
-        /// (Rounding.RemainingFalseContacts). Result is manifold with its duplicated vertices; welded by position (eg
+        /// (Rounding.RemainingFalseContacts), plus the copies of a vertex that has more than 32,766 triangles in the result (a DMesh3 vertex count is a short, #1693;
+        /// the copy is a seam: NonManifoldTriangles counts its triangles). Result is manifold with its duplicated vertices; welded by position (eg
         /// written to STL and read back) it is not manifold there. 0 for a result without contacts
         /// </summary>
         public int Contacts;
@@ -824,7 +831,8 @@ namespace g3
             Rounding = null;
             ResultExactVertices = null;
             // (the meshes or the operation may have changed since the last call)
-            IntersectingPairs = SelfIntersectingPairs = NonManifoldEdges = NonManifoldTriangles = SplitNonManifoldEdges = ConflictEdges = Patches = RemovedVertices = 0;
+            IntersectingPairs = SelfIntersectingPairs = NonManifoldEdges = NonManifoldTriangles = DroppedTriangles = SplitNonManifoldEdges = ConflictEdges = Patches = RemovedVertices = 0;
+            fullVertexCopies = null;
             SplitBowtieVertices = 0;
             ReorientedTriangles = Contacts = InsideOutCells = InsideOutUndecided = 0;
             InsideOutCellsOfInput = null;
@@ -6668,7 +6676,7 @@ namespace g3
         int[] resultPointId;
 
         [MethodImpl(JitHints.Optimize)]
-        void append_triangle(DMesh3 result, int a, int b, int c, List<int> vertexPoint)
+        internal void append_triangle(DMesh3 result, int a, int b, int c, List<int> vertexPoint)
         {
             // (a triangle that would run an edge of the mesh the same way as the triangle there is not added there
             // either: the pieces' corners can be joined around both ends of an edge where they are not neighbours)
@@ -6684,8 +6692,14 @@ namespace g3
                 bool ok = true;
                 for (int k = 0; k < 3 && ok; ++k) {
                     int k1 = (k + 1) % 3;
-                    if ((mask & (1 << k)) == 0 && (mask & (1 << k1)) == 0)
-                        ok = can_add_edge(result, f[k], f[k1]);
+                    if ((mask & (1 << k)) == 0 && (mask & (1 << k1)) == 0) {
+                        // (two corners that are the same vertex and both keep it: AppendTriangle refuses the triangle, so a mask that copies the third one only would lose it)
+                        ok = f[k] != f[k1] && can_add_edge(result, f[k], f[k1]);
+                    }
+                    // (a vertex that keeps its place gets one more triangle: not past the 32,766 of a short count, #1693; AppendTriangle would refuse the triangle
+                    // and it would be lost. The vertex that is full gets a copy, like those at an edge that cannot be added; the mask 7 copies all three)
+                    if (ok && (mask & (1 << k)) == 0)
+                        ok = result.vertex_refs_fit(f[k], 1);
                 }
                 if (ok == false)
                     continue;
@@ -6693,14 +6707,35 @@ namespace g3
                 for (int k = 0; k < 3; ++k) {
                     g[k] = f[k];
                     if ((mask & (1 << k)) != 0) {
+                        // (a vertex that is full: the triangles after this one that cannot stay at it go to the same copy while it has room, so that they share one seam,
+                        // not one flap each; any other vertex gets a copy of its own for each triangle, as before)
+                        bool full = result.vertex_refs_fit(f[k], 1) == false;
+                        int copy;
+                        if (full && fullVertexCopies != null && fullVertexCopiesOf == result && fullVertexCopies.TryGetValue(f[k], out copy) && result.vertex_refs_fit(copy, 1)) {
+                            g[k] = copy;
+                            continue;
+                        }
                         g[k] = result.AppendVertex(result.GetVertex(f[k]));
                         vertexPoint.Add(vertexPoint[f[k]]);
+                        if (full) {
+                            if (fullVertexCopies == null || fullVertexCopiesOf != result) {
+                                fullVertexCopies = new Dictionary<int, int>();
+                                fullVertexCopiesOf = result;
+                            }
+                            fullVertexCopies[f[k]] = g[k];
+                        }
                     }
                 }
-                result.AppendTriangle(g[0], g[1], g[2]);
+                if (result.AppendTriangle(g[0], g[1], g[2]) < 0)
+                    DroppedTriangles++;       // (no known input: the copies are new vertices, so it cannot be refused for a count; counted, not hidden)
                 return;
             }
+            DroppedTriangles++;
         }
+
+        // (append_triangle) the copy that takes the triangles of a full vertex of the result being built, per vertex; reset by Compute
+        Dictionary<int, int> fullVertexCopies;
+        DMesh3 fullVertexCopiesOf;
 
         // a triangle can run a -> b: no edge (a, b) yet, or one with one triangle that runs it b -> a
         [MethodImpl(JitHints.Optimize)]
