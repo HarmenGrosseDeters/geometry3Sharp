@@ -6668,7 +6668,7 @@ namespace g3
         int[] resultPointId;
 
         [MethodImpl(JitHints.Optimize)]
-        void append_triangle(DMesh3 result, int a, int b, int c, List<int> vertexPoint)
+        internal void append_triangle(DMesh3 result, int a, int b, int c, List<int> vertexPoint)
         {
             // (a triangle that would run an edge of the mesh the same way as the triangle there is not added there
             // either: the pieces' corners can be joined around both ends of an edge where they are not neighbours)
@@ -6686,6 +6686,10 @@ namespace g3
                     int k1 = (k + 1) % 3;
                     if ((mask & (1 << k)) == 0 && (mask & (1 << k1)) == 0)
                         ok = can_add_edge(result, f[k], f[k1]);
+                    // (a vertex that keeps its place gets one more triangle: not past the 32,766 of a short count, #1693; AppendTriangle would refuse the triangle
+                    // and it would be lost. The vertex that is full gets a copy, like those at an edge that cannot be added; the mask 7 copies all three)
+                    if (ok && (mask & (1 << k)) == 0)
+                        ok = has_room_for_triangle(result, f[k]);
                 }
                 if (ok == false)
                     continue;
@@ -6700,6 +6704,18 @@ namespace g3
                 result.AppendTriangle(g[0], g[1], g[2]);
                 return;
             }
+        }
+
+        // the vertex has fewer than 32,766 triangles, so that one more fits (a vertex count of DMesh3 is a short, #1693). Counted with the triangle iterator, which
+        // the proof scope already lists, and only on the path of a triangle that could not be added
+        [MethodImpl(JitHints.Optimize)]
+        static bool has_room_for_triangle(DMesh3 mesh, int v)
+        {
+            int n = 0;
+            foreach (int t in mesh.VtxTrianglesItr(v))
+                if (++n >= 32766)
+                    return false;
+            return true;
         }
 
         // a triangle can run a -> b: no edge (a, b) yet, or one with one triangle that runs it b -> a
