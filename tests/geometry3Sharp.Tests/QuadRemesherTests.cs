@@ -147,7 +147,7 @@ namespace geometry3Sharp.Tests
             DPolyMesh r = qr.Result;
             // the four corners of the patch are vertices of the result (a corner is a lattice point)
             foreach (var (x, y) in new[] { (0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0) }) {
-                Vector3d c = new Vector3d(x, y, 0.15 * Math.Sin(3 * x) * Math.Cos(2 * y));
+                Vector3d c = new Vector3d(x, y, 0.15 * PortableMath.Sin(3 * x) * PortableMath.Cos(2 * y));     // (CrossFieldShapes.OpenPatch)
                 double best = double.MaxValue;
                 for (int v = 0; v < r.VertexCount; ++v) best = Math.Min(best, (r.GetVertex(v) - c).Length);
                 Assert.True(best < 1e-9, "corner " + x + "," + y + ": distance " + best);
@@ -204,13 +204,13 @@ namespace geometry3Sharp.Tests
         }
 
         // a long strip 1 x (ny / 48): the boundary vertices of the two long sides face each other across interior edges
-        static DMesh3 Strip(int ny)
+        internal static DMesh3 Strip(int ny)
         {
             var m = new DMesh3();
             int nx = 48;
             int[,] ids = new int[nx + 1, ny + 1];
             for (int j = 0; j <= ny; ++j)
-                for (int i = 0; i <= nx; ++i) ids[i, j] = m.AppendVertex(new Vector3d((double)i / nx, (double)j / nx, 0.1 * Math.Sin(2 * i / (double)nx)));
+                for (int i = 0; i <= nx; ++i) ids[i, j] = m.AppendVertex(new Vector3d((double)i / nx, (double)j / nx, 0.1 * PortableMath.Sin(2 * i / (double)nx)));
             for (int j = 0; j < ny; ++j)
                 for (int i = 0; i < nx; ++i) {
                     m.AppendTriangle(ids[i, j], ids[i + 1, j], ids[i + 1, j + 1]);

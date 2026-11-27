@@ -1,5 +1,6 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
+using g3.CoreMathPort;
 using System.Collections.Generic;
 using g3;
 
@@ -162,12 +163,13 @@ namespace gs
             }
             int m = tri.Count;
             TrianglesUsed = m;
+            var ef = new EdgeFactors(tri);
             var used = new bool[n]; int nUsed = 0; int nUsedBnd = 0;
             foreach (int[] c in tri) foreach (int i in c) if (!used[i]) { used[i] = true; nUsed++; if (bnd[i]) nUsedBnd++; }
             if (m == 0) return Fail(IntegrableFramesStatus.NoSolution, "no triangle without a singularity of the field");
 
             var sig = new double[n]; var phi = new double[n];
-            double maxPhi = MaxRotationDegrees * Math.PI / 180, maxSig = Math.Log(MaxSpacingRatio);
+            double maxPhi = MaxRotationDegrees * Math.PI / 180, maxSig = CoreMath.Log(MaxSpacingRatio);
             bool useRot = UseRotation && maxPhi > 0;
 
             double[] targetSig = null; bool[] hasTarget = null;
@@ -177,7 +179,7 @@ namespace gs
                 for (int i = 0; i < n; ++i) {
                     double h = SizeFunction(V[i]);
                     if (h > 0 && !double.IsInfinity(h)) {
-                        double lg = Math.Log(h / s);
+                        double lg = CoreMath.Log(h / s);
                         if (lg > maxSig || lg < -maxSig) ClampedSizeSamples++;
                         targetSig[i] = Math.Max(-maxSig, Math.Min(maxSig, lg));
                         hasTarget[i] = true;
@@ -191,12 +193,12 @@ namespace gs
             double wb = nUsedBnd > 0 ? BoundarySpacingWeight : 0;
 
             // CurlBefore is always the curl of the uniform lattice at TargetEdgeLength (ws = 0 here so large SizeWeight cannot overflow before sig = targetSig)
-            double cost = Cost(tri, edgeVec, sig, phi, used, bnd, wb, hasTarget, targetSig, 0, useRot, out CurlBefore);
+            double cost = Cost(tri, edgeVec, ef, sig, phi, used, bnd, wb, hasTarget, targetSig, 0, useRot, out CurlBefore);
             CurlAfter = CurlBefore;
             if (double.IsNaN(cost) || double.IsInfinity(cost)) { Spacing = null; Rotation = null; return Fail(IntegrableFramesStatus.NoSolution, "the edge vectors are not finite in units of TargetEdgeLength"); }
             if (ws > 0) {
                 for (int i = 0; i < n; ++i) if (hasTarget[i]) sig[i] = targetSig[i];
-                cost = Cost(tri, edgeVec, sig, phi, used, bnd, wb, hasTarget, targetSig, ws, useRot, out CurlAfter);
+                cost = Cost(tri, edgeVec, ef, sig, phi, used, bnd, wb, hasTarget, targetSig, ws, useRot, out CurlAfter);
                 if (double.IsNaN(cost) || double.IsInfinity(cost)) { Spacing = null; Rotation = null; return Fail(IntegrableFramesStatus.NoSolution, "the sized edge vectors are not finite in units of TargetEdgeLength"); }
             }
             // unknowns per vertex: sigma, and phi only if the rotation is solved for (a scale-only solve has no use for phi: half the unknowns)
@@ -206,7 +208,7 @@ namespace gs
             double[] gaugeVec = null; double gaugeDenom = 0;
             var w = new Vector2d[m]; var B = new double[m][];
             for (int step = 0; step < Iterations && cost > 0; ++step) {
-                Linearize(tri, edgeVec, sig, phi, bnd, useRot, w, B);
+                Linearize(tri, edgeVec, ef, sig, phi, bnd, useRot, w, B);
                 var rhs = new double[u * n];
                 for (int t = 0; t < m; ++t)
                     for (int k = 0; k < 3; ++k) {
@@ -287,7 +289,7 @@ namespace gs
                         sig2[i] = Math.Max(-maxSig, Math.Min(maxSig, sig[i] + alpha * d[u * i]));
                         phi2[i] = (bnd[i] || !useRot || u != 2) ? 0 : Math.Max(-maxPhi, Math.Min(maxPhi, phi[i] + alpha * d[2 * i + 1]));
                     }
-                    newCost = Cost(tri, edgeVec, sig2, phi2, used, bnd, wb, hasTarget, targetSig, ws, useRot, out newCurl);
+                    newCost = Cost(tri, edgeVec, ef, sig2, phi2, used, bnd, wb, hasTarget, targetSig, ws, useRot, out newCurl);
                     if (newCost < cost) { accepted = true; break; }
                     alpha *= 0.5;
                 }
@@ -307,12 +309,12 @@ namespace gs
             if (ws == 0) {
                 double mean = 0; for (int i = 0; i < n; ++i) if (used[i]) mean += sig[i]; mean /= nUsed;
                 for (int i = 0; i < n; ++i) if (used[i]) sig[i] -= mean;
-                Cost(tri, edgeVec, sig, phi, used, bnd, wb, hasTarget, targetSig, ws, useRot, out CurlAfter);
+                Cost(tri, edgeVec, ef, sig, phi, used, bnd, wb, hasTarget, targetSig, ws, useRot, out CurlAfter);
             }
             double smin = double.MaxValue, smax = double.MinValue, pmax = 0;
             for (int i = 0; i < n; ++i) {
                 int v = toVertex[i];
-                Spacing[v] = Math.Exp(sig[i]); Rotation[v] = phi[i];
+                Spacing[v] = CoreMath.Exp(sig[i]); Rotation[v] = phi[i];
                 smin = Math.Min(smin, Spacing[v]); smax = Math.Max(smax, Spacing[v]); pmax = Math.Max(pmax, Math.Abs(phi[i]));
                 if (!(Spacing[v] > 0) || double.IsInfinity(Spacing[v]) || double.IsNaN(Rotation[v])) { Spacing = null; Rotation = null; return Fail(IntegrableFramesStatus.NoSolution, "the solver left the finite range"); }
             }
@@ -322,12 +324,13 @@ namespace gs
         }
 
         // the cost 1/2 sum |w|^2 (+ 1/2 ws sum_{target} (sig - target)^2 + 1/2 wb sum_{unconstrained bnd} sig^2) and the pure curl sum |w|
-        static double Cost(List<int[]> tri, List<Vector2d[]> a, double[] sig, double[] phi, bool[] used, bool[] bnd, double wb, bool[] hasTarget, double[] targetSig, double ws, bool useRot, out double curl)
+        static double Cost(List<int[]> tri, List<Vector2d[]> a, EdgeFactors ef, double[] sig, double[] phi, bool[] used, bool[] bnd, double wb, bool[] hasTarget, double[] targetSig, double ws, bool useRot, out double curl)
         {
             double cost = 0; curl = 0;
+            ef.Fill(sig, phi, useRot);
             for (int t = 0; t < tri.Count; ++t) {
-                int[] c = tri[t]; Vector2d ws0 = Vector2d.Zero;
-                for (int e = 0; e < 3; ++e) ws0 += EdgeTerm(a[t][e], sig, phi, c[e], c[(e + 1) % 3], useRot);
+                Vector2d ws0 = Vector2d.Zero;
+                for (int e = 0; e < 3; ++e) ws0 += ef.Term(a[t][e], 3 * t + e, useRot);
                 cost += 0.5 * ws0.LengthSquared; curl += ws0.Length;
             }
             if (ws > 0)
@@ -339,21 +342,59 @@ namespace gs
             return cost;
         }
 
-        static Vector2d EdgeTerm(Vector2d a, double[] sig, double[] phi, int i, int j, bool useRot)
+        // The factors of the edge terms, once per undirected edge and evaluation of (sig, phi): g = exp(-(sig_i + sig_j) / 2) and the cosine and
+        // sine of (phi_i + phi_j) / 2. An interior edge is in two triangles, which evaluated them twice (the exp and the sin / cos are the cost of
+        // the solver since the correctly rounded CoreMath, #1713). The same bits: the factors are symmetric in i and j, and IEEE addition is commutative.
+        // Local to one Compute (built from its triangles), so a second Compute builds its own.
+        internal sealed class EdgeFactors
         {
-            double g = Math.Exp(-0.5 * (sig[i] + sig[j]));
-            if (!useRot) return new Vector2d(g * a.x, g * a.y);
-            double pe = 0.5 * (phi[i] + phi[j]), cs = Math.Cos(pe), sn = Math.Sin(pe);
-            return new Vector2d(g * (cs * a.x + sn * a.y), g * (-sn * a.x + cs * a.y));      // the axes turn by +phi (PositionField.RotationAngles): the coordinates by -phi
+            readonly int[] slotEdge;           // triangle slot 3 t + e -> undirected edge
+            readonly int[] ei, ej;             // the ends of each edge (as first met)
+            readonly double[] g, cs, sn;
+
+            internal EdgeFactors(List<int[]> tri)
+            {
+                slotEdge = new int[3 * tri.Count];
+                var index = new Dictionary<long, int>();
+                var a = new List<int>(); var b = new List<int>();
+                for (int t = 0; t < tri.Count; ++t)
+                    for (int e = 0; e < 3; ++e) {
+                        int i = tri[t][e], j = tri[t][(e + 1) % 3];
+                        long key = ((long)Math.Min(i, j) << 32) | (uint)Math.Max(i, j);
+                        if (!index.TryGetValue(key, out int id)) { id = a.Count; index[key] = id; a.Add(i); b.Add(j); }
+                        slotEdge[3 * t + e] = id;
+                    }
+                ei = a.ToArray(); ej = b.ToArray();
+                g = new double[ei.Length]; cs = new double[ei.Length]; sn = new double[ei.Length];
+            }
+
+            internal void Fill(double[] sig, double[] phi, bool useRot)
+            {
+                for (int k = 0; k < ei.Length; ++k) {
+                    int i = ei[k], j = ej[k];
+                    g[k] = CoreMath.Exp(-0.5 * (sig[i] + sig[j]));
+                    if (useRot) { double pe = 0.5 * (phi[i] + phi[j]); cs[k] = CoreMath.Cos(pe); sn[k] = CoreMath.Sin(pe); }
+                }
+            }
+
+            internal Vector2d Term(Vector2d a, int slot, bool useRot)
+            {
+                int k = slotEdge[slot];
+                double gk = g[k];
+                if (!useRot) return new Vector2d(gk * a.x, gk * a.y);
+                double c = cs[k], s = sn[k];
+                return new Vector2d(gk * (c * a.x + s * a.y), gk * (-s * a.x + c * a.y));      // the axes turn by +phi (PositionField.RotationAngles): the coordinates by -phi
+            }
         }
 
         // the residual w per triangle and the 2 x 2 blocks of the Jacobian per vertex slot: [dwx/dsigma, dwx/dphi, dwy/dsigma, dwy/dphi]
         // boundary vertices keep phi = 0, so their phi Jacobian columns are zeroed out and decoupled in the normal equations
-        static void Linearize(List<int[]> tri, List<Vector2d[]> a, double[] sig, double[] phi, bool[] bnd, bool useRot, Vector2d[] w, double[][] B)
+        static void Linearize(List<int[]> tri, List<Vector2d[]> a, EdgeFactors ef, double[] sig, double[] phi, bool[] bnd, bool useRot, Vector2d[] w, double[][] B)
         {
+            ef.Fill(sig, phi, useRot);
             for (int t = 0; t < tri.Count; ++t) {
                 int[] c = tri[t]; var ce = new Vector2d[3]; Vector2d ws = Vector2d.Zero;
-                for (int e = 0; e < 3; ++e) { ce[e] = EdgeTerm(a[t][e], sig, phi, c[e], c[(e + 1) % 3], useRot); ws += ce[e]; }
+                for (int e = 0; e < 3; ++e) { ce[e] = ef.Term(a[t][e], 3 * t + e, useRot); ws += ce[e]; }
                 w[t] = ws;
                 var b = new double[12];
                 for (int k = 0; k < 3; ++k) {

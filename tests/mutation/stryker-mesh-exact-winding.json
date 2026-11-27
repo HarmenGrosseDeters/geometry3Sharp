@@ -8,7 +8,7 @@
     "mutate": [
       "**/spatial/ExactWindingCache.cs"
     ],
-    "test-case-filter": "FullyQualifiedName~ExactWindingNumberTests|FullyQualifiedName~ExactWindingCacheInternalTests|FullyQualifiedName~FastWindingExpansionUsedTests|FullyQualifiedName~WindingNumberTests|FullyQualifiedName~WindingEdgeCaseTests&FullyQualifiedName!~Boolean_IdenticalInputs",
+    "test-case-filter": "FullyQualifiedName~ExactWindingNumberTests|FullyQualifiedName~ExactWindingCacheInternalTests|FullyQualifiedName~ExactWindingOnSurfaceTests|FullyQualifiedName~FastWindingExpansionUsedTests|FullyQualifiedName~WindingNumberTests|FullyQualifiedName~WindingEdgeCaseTests&FullyQualifiedName!~Boolean_IdenticalInputs",
     "ignore-methods": [],
     "coverage-analysis": "perTest",
     "configuration": "Release",
