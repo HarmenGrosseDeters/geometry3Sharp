@@ -85,3 +85,57 @@ open sheet at a coarse alpha, no budget (now also runs the analysis) against a b
 (before 0.31 / 0.38), 500,000 0.97 / 0.99 (0.88 / 0.95), 980,000 2.00 / 2.10 (1.89 / 1.92): about 0.1 s per million triangles more than without
 the analysis (inside the noise at the two smaller sizes); `AlphaWrapEstimate.Terms` alone takes 0.6-0.8 s on a sphere of 805k triangles
 (`OpenArea` 0.3-0.4 s).
+
+## Coarsening budget on a narrow gap
+
+`--gap-budget` generates the W04-gap-2 geometry from [PR #1711](https://github.com/HarmenGrosseDeters/geometry3Sharp/pull/1711): two unit boxes with a gap of `1/32`. It starts at alpha = gap / 4 and offset = gap / 40. It reports `Compute()` time, the estimate at the request, the coarsening actually applied, cleanliness, component count and whether the gap midpoint is inside the result. Validation runs outside the timed interval.
+
+```sh
+dotnet build benchmarks/OpenSoupWrapBenchmark -c Release
+for run in 1 2 3 4 5; do
+  dotnet benchmarks/OpenSoupWrapBenchmark/bin/Release/net10.0/OpenSoupWrapBenchmark.dll --gap-budget
+done
+```
+
+Library revision `4d2c8b1c56b3888b553ea00f58fff448b59c44ef`, Linux x64, .NET 10 Release, one wrap thread. Times are the median of five runs in separate processes. Every run returned a clean mesh with the same triangle and component counts for its settings. [Raw timings and geometry checks](results/w04-gap-budget.csv)
+
+| Estimated budget | Coarsening cap | Applied scale | Result triangles | Components | Gap midpoint inside | Median Compute |
+|---:|---:|---:|---:|---:|:---:|---:|
+| Off | None | 1.000 | 266,120 | 2 | No | 4.352 s |
+| 50,000 | None | 3.481 | 19,286 | 1 | Yes | 0.201 s |
+| 50,000 | 1.5 | 1.500 | 120,048 | 2 | No | 1.807 s |
+
+The uncapped budget bridged the gap. With the `1.5` cap the components stayed separate, and the result exceeded the 50,000-triangle estimate budget. See the [Z3 pilot](../../tools/Z3Pilot/README.md#alpha-wrap-budget-and-coordinate-range) for the estimate's local algebra and IEEE-754 witnesses.
+
+### Range and public API replay
+
+`dotnet run --project benchmarks/OpenSoupWrapBenchmark -c Release -- --budget-range` builds the same two boxes and runs the public API with a 50,000 estimate budget. The unit, `2^-126` and `2^126` inputs use the same relative parameters and each produces a clean 19,136-triangle mesh. At unit size, an explicit `alpha = 2^-550` and `offset = alpha/8` produce an infinite estimate at the request. Coarsening still computes finite parameters and the wrap returns clean.
+
+With both explicit parameters set to the smallest positive binary64 number, the scale factor overflows. Before the offset fix, the adjusted offset also overflowed and the API returned `InvalidParameters`. The fallback recovered the finite offset and produced a clean 19,684-triangle wrap, the same count as the explicit replay with equal finite alpha and offset. `AlphaCoarsening` reports positive infinity. The other five CSV rows were identical in this first comparison. The CLI enforces a separate lower bound on the request.
+
+[Before](results/w04-budget-range.csv) · [After the offset fix](results/w04-budget-range-after.csv) · [After the weld-cell fix](results/w04-budget-range-after-weld.csv) · [Z3 boundary replays](../../tools/Z3Pilot/results/alpha_wrap_budget_2026-11-27.json)
+
+### Weld-cell range
+
+`dotnet run --project benchmarks/OpenSoupWrapBenchmark -c Release -- --weld-range` runs the two-box case at the origin and after an exactly representable UTM-like translation. The requests exercise a zero weld-cell width and a positive subnormal width. Previously the estimator merged unrelated corners when their cell indices saturated. With the weld-cell fix all four runs choose the same alpha and offset (about 0.026869) under the 50,000 estimate budget. All four meshes are clean. The carving yields 19,684 triangles at the origin and 19,630 in the translated frame.
+
+In `--budget-range`, the unit and squared-alpha-underflow cases now use identical effective parameters and both produce 19,136 triangles. The extreme factor-overflow case still matches its explicit replay at 19,684 triangles. The three ordinary input-scale controls have identical CSV rows before and after the weld-cell change.
+
+[Before the weld-cell fix](results/w04-weld-range-before.csv) · [After the weld-cell fix](results/w04-weld-range-after.csv)
+
+### Carving under translation
+
+`dotnet run --project benchmarks/OpenSoupWrapBenchmark -c Release -- --frame-audit` repeats the same two boxes with fixed alpha and offset and no budget. At the origin and in the UTM frame, disabling pinch and quality refinement reproduces the full runs' respective triangle counts of 19,684 and 19,630 and their carving counters. The `carve` rows retain the manifold step and extraction. All results in the audit pass the clean-mesh check, have one connected component, and contain both box centers and the gap center.
+
+The initial box for the ordinary parameters differs by up to `1.52e-10` per axis after mapping back. The dyadic control chooses an exactly representable box margin of `1/8` in both frames. Its triangle counts still differ (15,164 at the origin and 15,136 in UTM). A separate public call capped at one Steiner point exposes the first inserted point. In the dyadic control, its mapped-back z changes from `-0.02634638046891702` to `-0.026346380468922348`. Binary64 addition of the UTM offset and subtraction back reproduce that change in the Z3 replay.
+
+For the centered control, moving the translated input back to the origin before wrapping reproduces the origin mesh bit for bit in the local frame. Restoring the output to UTM passes the clean-mesh check. Mapping those stored output coordinates back changes each coordinate by at most `4.66e-10`. The `vertex_sample_distance` column estimates the symmetric Hausdorff distance by sampling all vertices in both directions and evaluating distances to the other surface in binary64.
+
+[Frame audit results](results/w04-frame-audit.csv) · [Z3 replays](../../tools/Z3Pilot/results/alpha_wrap_budget_2026-11-27.json)
+
+To check for drift after building the benchmark in Release mode, run:
+
+```sh
+dotnet run --project benchmarks/OpenSoupWrapBenchmark -c Release --no-build -- --frame-audit > /tmp/w04-frame-audit.csv
+diff -u benchmarks/OpenSoupWrapBenchmark/results/w04-frame-audit.csv /tmp/w04-frame-audit.csv
+```

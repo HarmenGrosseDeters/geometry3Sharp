@@ -1,0 +1,9 @@
+seed,phases,frame,alpha,initial_box_roundtrip_max_axis,first_steiner_x,first_steiner_y,first_steiner_z,rule1,rule2,carved_cells,pinch_points,quality_points,box_retries,triangles,status,clean,components,cube_centers_inside,gap_center_inside,vertex_sample_distance,identical_local_mesh,centered_output_roundtrip_max_axis,restored_output_clean
+ordinary,full,origin,0.026868839879520764,0,1.015625,0.4999999999999995,-0.021858497923700426,9617,227,59572,0,0,0,19684,Success,True,1,True,True,0,True,,
+ordinary,full,utm,0.026868839879520764,1.5145089349299923E-10,1.015625,0.5,-0.02185849792350325,9586,231,59470,0,0,0,19630,Success,True,1,True,True,0.01184969491980178,False,,
+ordinary,full,utm_centered,0.026868839879520764,0,1.015625,0.4999999999999995,-0.021858497923700426,9617,227,59572,0,0,0,19684,Success,True,1,True,True,0,True,4.6566089872968064E-10,True
+ordinary,carve,origin,0.026868839879520764,0,1.015625,0.4999999999999995,-0.021858497923700426,9617,227,59572,0,0,0,19684,Success,True,1,True,True,0,True,,
+ordinary,carve,utm,0.026868839879520764,1.5145089349299923E-10,1.015625,0.5,-0.02185849792350325,9586,231,59470,0,0,0,19630,Success,True,1,True,True,0.01184969491980178,False,,
+ordinary,carve,utm_centered,0.026868839879520764,0,1.015625,0.4999999999999995,-0.021858497923700426,9617,227,59572,0,0,0,19684,Success,True,1,True,True,0,True,4.6566089872968064E-10,True
+dyadic_margin,carve,origin,0.030631232244572933,0,1.015625,0.5,-0.02634638046891702,7359,225,46227,0,0,0,15164,Success,True,1,True,True,0,True,,
+dyadic_margin,carve,utm,0.030631232244572933,0,1.015625,0.5,-0.026346380468922348,7343,227,46294,0,0,0,15136,Success,True,1,True,True,0.014705852175591363,False,,

@@ -1,0 +1,130 @@
+{
+  "z3": "4.15.4",
+  "passed": true,
+  "obligations": [
+    {
+      "name": "positive_mixed_terms_and_order_reachable",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "mixed_quadratic_branch_reachable",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "mixed_quadratic_branch_can_miss_exact_budget",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "estimate_can_fail_to_decrease",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "smaller_scale_can_meet_budget_when_cap_cannot",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "larger_scale_can_violate_budget_after_root",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "omitting_rims_can_choose_an_insufficient_scale",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "range_envelopes_are_reachable",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "supported_term_envelopes_allow_large_bulk",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "supported_term_envelopes_allow_large_rim",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "bounded_quadratic_terms_allow_large_discriminant",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "wide_index_can_have_distinct_coordinates_in_one_cell",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "ratio_cap_can_leave_nonfinite_or_out_of_range_value",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "omitting_ratio_cap_can_leave_infinity",
+      "result": "sat",
+      "expected": "sat"
+    }
+  ],
+  "replays": {
+    "ordinary_seed_box_y_loses_translation_bits": true,
+    "dyadic_seed_box_y_translates_exactly": true,
+    "dyadic_first_steiner_z_roundtrip_matches_utm_run": true,
+    "legacy_weld_cell_clamp_collapses_two_distinct_corners": true,
+    "smallest_alpha_underflows_weld_cell_width": true,
+    "factor_overflows_but_same_ratio_coarsened_offset_is_finite": true,
+    "reordering_as_offset_over_alpha_can_also_overflow": true,
+    "rounded_bulk_root_slightly_exceeds_exact_budget": true,
+    "rounded_ratio_hides_exact_cap_crossing": true,
+    "square_first_underflows_but_sequential_division_keeps_a_finite_estimate": true,
+    "mixed_discriminant_overflows_while_root_is_representable": true
+  },
+  "witnesses": {
+    "bulk_root": {
+      "P": 3,
+      "B": 1,
+      "coarse": 1.7320508075688772
+    },
+    "cap": {
+      "alpha": 3.0,
+      "cap": 1.2,
+      "coarse": 3.6
+    },
+    "underflow": {
+      "alpha": 2.7133285516175262e-166,
+      "P": 5e-324
+    },
+    "overflow": {
+      "bulk_area": 4.49423283715579e+307,
+      "rim_alpha": 1,
+      "budget": 1
+    },
+    "factor_overflow": {
+      "requested_alpha": 5e-324,
+      "requested_offset": 5e-324,
+      "coarsened_alpha": 0.026845005997786553,
+      "rounded_offset": 0.026845005997786553
+    },
+    "offset_ratio_overflow": {
+      "requested_alpha": 5e-324,
+      "requested_offset": 1.7763568394002505e-15,
+      "coarsened_alpha": 0.026845005997786553,
+      "rounded_offset": 9.651816597511716e+306
+    },
+    "wrap_frame": {
+      "ordinary_alpha": 0.026868839879520764,
+      "dyadic_alpha": 0.030631232244572933,
+      "shift_y": 5712043.5,
+      "shift_z": 113.75,
+      "local_steiner_z": -0.02634638046891702,
+      "utm_steiner_z_mapped_back": -0.026346380468922348
+    }
+  }
+}

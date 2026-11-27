@@ -123,6 +123,106 @@ namespace geometry3Sharp.Tests
             Assert.InRange(w.Result.TriangleCount, budget / 2, budget * 2);
         }
 
+        [Theory]
+        [InlineData(1, 1)]
+        [InlineData(1, 3)]
+        [InlineData(3, 1)]
+        public void Budget_OverflowingFactor_KeepsFiniteOffset(int alphaMultiple, int offsetMultiple)
+        {
+            DMesh3 box = DegenerateFamilies.Box(Vector3d.Zero, Vector3d.One);
+            var w = new MeshAlphaWrap(box) {
+                Alpha = alphaMultiple * double.Epsilon, Offset = offsetMultiple * double.Epsilon,
+                MaxEstimatedTriangles = 2000, MaxSteinerPoints = 100000, MaxThreads = 1
+            };
+            Assert.True(w.Compute(), w.Error);
+            Assert.True(double.IsPositiveInfinity(w.AlphaCoarsening));
+            Assert.Equal(offsetMultiple * w.UsedAlpha / alphaMultiple, w.UsedOffset);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(w.Result));
+            string hash = AlphaWrapManifoldStepTests.Hash(w.Result);
+
+            var replay = new MeshAlphaWrap(box) { Alpha = w.UsedAlpha, Offset = w.UsedOffset };
+            Assert.True(replay.Compute(), replay.Error);
+            Assert.Equal(hash, AlphaWrapManifoldStepTests.Hash(replay.Result));
+            w.MaxThreads = 2;
+            Assert.True(w.Compute(), w.Error);
+            Assert.Equal(hash, AlphaWrapManifoldStepTests.Hash(w.Result));
+        }
+
+        [Fact]
+        public void Budget_OverflowingFactor_RejectsUnrepresentableOffset()
+        {
+            DMesh3 box = DegenerateFamilies.Box(Vector3d.Zero, Vector3d.One);
+            var w = new MeshAlphaWrap(box) {
+                Alpha = double.Epsilon, Offset = double.MaxValue, MaxEstimatedTriangles = 2000
+            };
+            Assert.False(w.Compute());
+            Assert.True(double.IsPositiveInfinity(w.AlphaCoarsening));
+            Assert.True(double.IsPositiveInfinity(w.UsedOffset));
+            Assert.Equal(MeshAlphaWrap.WrapStatus.InvalidParameters, w.Status);
+        }
+
+        [Fact]
+        public void Budget_OverflowingFactorAndRatio_KeepsFiniteOffset()
+        {
+            DMesh3 box = DegenerateFamilies.Box(Vector3d.Zero, Vector3d.One);
+            var w = new MeshAlphaWrap(box) {
+                Alpha = double.Epsilon, Offset = ExactPoint3.ScaleB(1.0, -47), MaxEstimatedTriangles = 2000
+            };
+            // Both ratios overflow. Only the later expansion of the box exceeds the coordinate range.
+            Assert.True(double.IsPositiveInfinity(w.Offset / w.Alpha));
+            Assert.False(w.Compute());
+            Assert.True(double.IsPositiveInfinity(w.AlphaCoarsening));
+            Assert.True(MathUtil.IsFinite(w.UsedOffset));
+            Assert.Equal(ExactPoint3.ScaleB(w.UsedAlpha, 1027), w.UsedOffset);
+            Assert.Equal(MeshAlphaWrap.WrapStatus.InvalidInput, w.Status);
+        }
+
+        [Fact]
+        public void Budget_OverflowingFactor_UsesFiniteCap()
+        {
+            DMesh3 box = DegenerateFamilies.Box(Vector3d.Zero, Vector3d.One);
+            var w = new MeshAlphaWrap(box) {
+                Alpha = double.Epsilon, Offset = 2, MaxEstimatedTriangles = 2000, MaxAlphaCoarsening = double.MaxValue
+            };
+            Assert.False(w.Compute());
+            Assert.Equal(double.MaxValue, w.AlphaCoarsening);
+            Assert.Equal(double.Epsilon * double.MaxValue, w.UsedAlpha);
+            Assert.True(double.IsPositiveInfinity(w.UsedOffset));
+            Assert.Equal(MeshAlphaWrap.WrapStatus.InvalidParameters, w.Status);
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void Budget_OverflowingFactor_Invariance(string frame)
+        {
+            DMesh3 box = DegenerateFamilies.Box(Vector3d.Zero, Vector3d.One);
+            double tiny = ExactPoint3.ScaleB(1.0, -1058);
+            Similarity s = Similarity.ByName(frame);
+            DMesh3 input = Invariance.Transformed(box, s);
+            var transformed = new MeshAlphaWrap(input) {
+                Alpha = tiny * s.Scale, Offset = tiny * s.Scale, MaxEstimatedTriangles = 2000
+            };
+            Assert.True(transformed.Compute(), transformed.Error);
+            Assert.True(double.IsPositiveInfinity(transformed.AlphaCoarsening));
+            Assert.Equal(transformed.UsedAlpha, transformed.UsedOffset);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(transformed.Result));
+            if (s.IsExact) {
+                var w = new MeshAlphaWrap(box) { Alpha = tiny, Offset = tiny, MaxEstimatedTriangles = 2000 };
+                Assert.True(w.Compute(), w.Error);
+                Assert.Equal(s.Scale * w.UsedAlpha, transformed.UsedAlpha);
+                Assert.Equal("", Invariance.Difference(Invariance.Transformed(w.Result, s), transformed.Result));
+            } else {
+                if (s == Similarity.Utm) {
+                    var origin = new MeshAlphaWrap(box) { Alpha = tiny, Offset = tiny, MaxEstimatedTriangles = 2000 };
+                    Assert.True(origin.Compute(), origin.Error);
+                    Assert.Equal(origin.UsedAlpha, transformed.UsedAlpha);
+                }
+                var replay = new MeshAlphaWrap(input) { Alpha = transformed.UsedAlpha, Offset = transformed.UsedAlpha };
+                Assert.True(replay.Compute(), replay.Error);
+                Assert.Equal("", Invariance.Difference(replay.Result, transformed.Result));
+            }
+        }
+
         // reuse: Compute() twice on one instance gives the same result; the outputs are recomputed (budget off again: not coarsened;
         // an empty input: no estimate)
         [Fact]

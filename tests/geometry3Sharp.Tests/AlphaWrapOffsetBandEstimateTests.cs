@@ -20,6 +20,47 @@ namespace geometry3Sharp.Tests
         readonly ITestOutputHelper output;
         public AlphaWrapOffsetBandEstimateTests(ITestOutputHelper output) { this.output = output; }
 
+        [Theory]
+        [InlineData(1)]
+        [InlineData(-1)]
+        public void WeldCells_KeepOpenTriangleAtSubnormalAlpha(int sign)
+        {
+            double x = sign * ExactPoint3.ScaleB(1, 57);
+            var corners = new List<Vector3d> { new Vector3d(x, 0, 0), new Vector3d(x + 64, 0, 0), new Vector3d(x, 1, 0) };
+            Assert.Equal(32.0, AlphaWrapEstimate.OpenArea(corners, double.Epsilon));
+            Assert.Equal(Math.Sqrt(4097), AlphaWrapEstimate.LargestOpening(corners, double.Epsilon));
+            double negativeZero = BitConverter.Int64BitsToDouble(long.MinValue);
+            for (int i = 2; i >= 0; --i)
+                corners.Add(new Vector3d(corners[i].x, corners[i].y, negativeZero));
+            Assert.Equal(0.0, AlphaWrapEstimate.LargestOpening(corners, double.Epsilon));
+        }
+
+        [Theory]
+        [InlineData(1)]
+        [InlineData(-1)]
+        public void WeldCells_WideAxisPreservesGridWeldingOnOtherAxes(int sign)
+        {
+            double x = sign * ExactPoint3.ScaleB(1, 57);
+            double delta = 1.0 / 1024;
+            var corners = new List<Vector3d> {
+                new Vector3d(x, 0, 0), new Vector3d(x + 64, 0, 0), new Vector3d(x, 1, 0)
+            };
+            const double alpha = 1.0 / 16;
+            Assert.Equal(32.0, AlphaWrapEstimate.OpenArea(corners, alpha));
+            corners.AddRange(new[] { corners[2] + delta * Vector3d.AxisY, corners[1] + delta * Vector3d.AxisY, corners[0] + delta * Vector3d.AxisY });
+            Assert.Equal(0.0, AlphaWrapEstimate.LargestOpening(corners, alpha));
+        }
+
+        [Fact]
+        public void WeldCells_DistinguishRawCoordinateBitsFromGridIndex()
+        {
+            const double alpha = 1.0 / 16;
+            double p = ExactPoint3.ScaleB(1, 57);
+            double q = (double)BitConverter.DoubleToInt64Bits(p) * (alpha / AlphaWrapEstimate.WeldCells);
+            var corners = new List<Vector3d> { new Vector3d(p, 0, p), new Vector3d(q, 0, p), new Vector3d(p, 1, p) };
+            Assert.Equal(0.5 * (p - q), AlphaWrapEstimate.OpenArea(corners, alpha));
+        }
+
         static DMesh3 Box(Vector3d center, Vector3d half, int n)
         {
             var g = new GridBox3Generator { Box = new Box3d(center, half), EdgeVertices = n };
