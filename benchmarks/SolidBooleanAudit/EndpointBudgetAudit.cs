@@ -111,7 +111,8 @@ static class EndpointBudgetAudit
     }
 
     static (EndpointEvidence.Snapshot Evidence, double SnapshotMs, double InspectionMs) InspectSnapshot(
-        string label, List<DMesh3> inputs, ExactMeshBoolean.Operations operation, bool allowOpen)
+        string label, List<DMesh3> inputs, ExactMeshBoolean.Operations operation, bool allowOpen,
+        List<EndpointEvidence.SourceCounts> sourceCounts = null)
     {
         var sample = Measure(inputs, operation, 1, true, allowOpen);
         var run = sample.Boolean;
@@ -119,8 +120,57 @@ static class EndpointBudgetAudit
             !run.Counts.ContainsKey("piece_lower_bound") || run.PhaseMilliseconds.ContainsKey("merge.crossings"))
             throw new InvalidOperationException($"Expected the first-merge snapshot for {label}: {run.Status} {run.Error}");
         var timer = Stopwatch.StartNew();
-        var evidence = EndpointEvidence.Read(run);
+        var evidence = EndpointEvidence.Read(run, sourceCounts);
         return (evidence, sample.Milliseconds, timer.Elapsed.TotalMilliseconds);
+    }
+
+    public static int Prefix(string label, ExactMeshBoolean.Operations operation, long[] caps, string[] sources)
+    {
+        if (caps.Any(cap => cap <= 0))
+            throw new ArgumentOutOfRangeException(nameof(caps));
+        var (inputs, allowOpen, files, hashes) = LoadInputs(sources);
+        var counts = new List<EndpointEvidence.SourceCounts>();
+        var (evidence, _, _) = InspectSnapshot(label, inputs, operation, allowOpen, counts);
+        long points = evidence.Boundary + evidence.Interior;
+        long fullClassificationPredicates = counts.Sum(source => source.ClassificationPredicates);
+        foreach (long cap in caps) {
+            bool rawSkips = cap >= evidence.ActiveSources &&
+                evidence.RawReferenceCeiling - evidence.ActiveSources <= (cap - evidence.ActiveSources) / 2;
+            long onePassSources = 0, onePassOrient = 0, onePassInterior = 0, onePassPredicates = 0;
+            foreach (var source in counts) {
+                if (rawSkips)
+                    break;
+                onePassSources++;
+                onePassOrient += source.Boundary + source.Interior;
+                onePassInterior += source.Interior;
+                onePassPredicates += source.ClassificationPredicates;
+                if (onePassSources + onePassOrient + onePassInterior > cap)
+                    break;
+            }
+            long twoPassOrient = 0, twoPassInterior = 0, twoPassPredicates = 0;
+            long requiredInterior = cap - evidence.EndpointBound + 1;
+            foreach (var source in counts) {
+                if (rawSkips || twoPassInterior >= requiredInterior ||
+                    twoPassInterior + points - twoPassOrient < requiredInterior)
+                    break;
+                twoPassOrient += source.Boundary + source.Interior;
+                twoPassInterior += source.Interior;
+                twoPassPredicates += source.ClassificationPredicates;
+            }
+            bool certifies = evidence.WeightedBound > cap;
+            if (certifies != (onePassSources + onePassOrient + onePassInterior > cap) ||
+                certifies != (twoPassInterior >= requiredInterior))
+                throw new InvalidOperationException($"The prefix count does not agree with the complete weighted bound for {label}.");
+            Console.WriteLine(JsonSerializer.Serialize(new {
+                label, operation = operation.ToString(), cap, sourceFiles = files, hashes, evidence,
+                certifies, unweightedCertifies = evidence.EndpointBound > cap, rawSkips,
+                onePassSources, onePassClassifiedPoints = onePassOrient, twoPassClassifiedPoints = twoPassOrient,
+                fullClassificationPredicates, onePassPredicates, twoPassPredicates,
+                requiredInterior = Math.Max(0, requiredInterior),
+                twoPassCountedSources = rawSkips ? 0 : counts.Count
+            }, EvidenceJson));
+        }
+        return 0;
     }
 
     static (List<DMesh3> Inputs, bool AllowOpen, string[] Files, string[] Hashes) LoadInputs(string[] sources)

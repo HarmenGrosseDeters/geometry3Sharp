@@ -12,7 +12,9 @@ static class EndpointEvidence
     internal sealed record Snapshot(long ActiveSources, long TouchedSources, long Boundary, long Interior,
         long RawReferenceCeiling, long EndpointBound, long WeightedBound);
 
-    public static Snapshot Read(ExactMeshBoolean boolean)
+    internal readonly record struct SourceCounts(int Boundary, int Interior, long ClassificationPredicates);
+
+    public static Snapshot Read(ExactMeshBoolean boolean, List<SourceCounts> sourceCounts = null)
     {
         object arrangement = typeof(ExactMeshBoolean).GetField("arr", Members).GetValue(boolean);
         Type type = arrangement.GetType();
@@ -43,8 +45,10 @@ static class EndpointEvidence
             var ids = (HashSet<int>)points.GetValue(triangle);
             var edges = (ICollection)segments.GetValue(triangle);
             raw = checked(raw + ids.Count + 2L * edges.Count);
-            if (ids.Count == 0 && edges.Count == 0)
+            if (ids.Count == 0 && edges.Count == 0) {
+                sourceCounts?.Add(default);
                 continue;
+            }
             touchedSources++;
             var known = new HashSet<int>();
             foreach (int id in ids)
@@ -57,6 +61,8 @@ static class EndpointEvidence
             for (int k = 0; k < 3; ++k)
                 known.Remove(canonical(corner[k]));
             args[0] = triangle;
+            int sourceBoundary = 0;
+            long classificationPredicates = 0;
             foreach (int id in known) {
                 args[3] = id;
                 bool onBoundary = false;
@@ -66,10 +72,18 @@ static class EndpointEvidence
                     int sign = (int)orient.Invoke(arrangement, args);
                     if (sign < 0)
                         throw new InvalidOperationException($"An endpoint projects outside its source triangle {ti}.");
+                    // The predictor stops at the first zero. The audit still checks all sides for membership.
+                    if (sourceCounts != null && !onBoundary)
+                        classificationPredicates++;
                     onBoundary |= sign == 0;
                 }
-                if (onBoundary) boundary++; else interior++;
+                if (onBoundary)
+                    sourceBoundary++;
             }
+            int sourceInterior = known.Count - sourceBoundary;
+            boundary += sourceBoundary;
+            interior += sourceInterior;
+            sourceCounts?.Add(new SourceCounts(sourceBoundary, sourceInterior, classificationPredicates));
         }
         long endpointBound = activeSources + boundary + interior;
         if (endpointBound < boolean.Counts["piece_lower_bound"])

@@ -608,6 +608,14 @@ static class Program
     static int Main(string[] args)
     {
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
+        if (args.Length > 0 && args[0] == "endpoint-prefix") {
+            if (args.Length < 5) {
+                Console.Error.WriteLine("Usage: endpoint-prefix <label> <operation> <cap[,cap...]> <cube-count|mesh [mesh ...]> [--allow-open]");
+                return 2;
+            }
+            return EndpointBudgetAudit.Prefix(args[1], Enum.Parse<ExactMeshBoolean.Operations>(args[2], true),
+                args[3].Split(',').Select(long.Parse).ToArray(), args.Skip(4).ToArray());
+        }
         if (args.Length > 0 && args[0] == "endpoint-weighted") {
             if (args.Length < 5) {
                 Console.Error.WriteLine("Usage: endpoint-weighted <label> <operation> <positive-cap> <cube-count|mesh [mesh ...]> [--allow-open]");

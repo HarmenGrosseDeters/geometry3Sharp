@@ -1,5 +1,7 @@
 # Early endpoint piece budget
 
+For the paired follow-up runs, phase cost analysis, and weighted scan comparison, see the [endpoint budget cost study](ENDPOINT_COST_STUDY.md).
+
 The `endpoint-budget` mode compares the public `ExactMeshBoolean.Compute` with `EnableEarlyPieceBudgetCheck` off and on. It warms both modes, alternates their run order, and measures complete calls, including input validation and output construction when they occur. File loading, hashing, and result checks are outside the timer. Each refused call must agree with the baseline status and, when certified early, expose a lower bound above the budget and at most the exact baseline prediction. Each accepted call must produce the same indexed mesh.
 
 The budget argument accepts a number, `tight` (half the exact prediction), `near` (one below the exact prediction), or `exact`. The three derived modes use a separate reference call to get that prediction before timing. Caps derived from the prediction are stress controls. They do not describe the budget distribution of a production workload.
