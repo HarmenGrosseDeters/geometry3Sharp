@@ -1184,6 +1184,18 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// A vertex count is a short (the count of RefCountVector, part of the 1.0.324 API: 1 for the vertex and 1 for each triangle at it), so a vertex has
+        /// at most 32,766 triangles. True if the count of vertex vid can take add more without passing short.MaxValue (it would wrap, and the vertex
+        /// would no longer be one: #1684). The operations that add triangles to a vertex check it before they change anything and refuse (MeshResult
+        /// Failed_HitValenceLimit, InvalidID from AppendTriangle).
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal bool vertex_refs_fit(int vid, int add)
+        {
+            return vertices_refcount.rawRefCount(vid) + add <= short.MaxValue;
+        }
+
         public virtual void BeginUnsafeVerticesInsert() {
             // do nothing...
         }
@@ -1202,7 +1214,7 @@ namespace g3
         /// <summary>
         /// Append triangle tv (vertex IDs, counter-clockwise when seen from the front) with optional group ID gid
         /// (stored only if triangle groups are enabled). Returns the new triangle ID, or an error code instead of
-        /// throwing: InvalidID if a vertex does not exist or two vertices are equal, NonManifoldID if an edge
+        /// throwing: InvalidID if a vertex does not exist, two vertices are equal or a vertex already has 32,766 triangles (a vertex count is a short), NonManifoldID if an edge
         /// of the triangle already has two triangles. Check the result (tid &gt;= 0).
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
@@ -1215,6 +1227,10 @@ namespace g3
                 Util.gDevAssert(false);
                 return InvalidID;
             }
+
+            // a vertex count is a short: refuse a triangle that would take a vertex past its limit, with the mesh as it is
+            if (vertex_refs_fit(tv[0], 1) == false || vertex_refs_fit(tv[1], 1) == false || vertex_refs_fit(tv[2], 1) == false)
+                return InvalidID;
 
             // look up edges. if any already have two triangles, this would 
             // create non-manifold geometry and so we do not allow it
@@ -1282,6 +1298,10 @@ namespace g3
                 Util.gDevAssert(false);
                 return MeshResult.Failed_InvalidNeighbourhood;
             }
+
+            // a vertex count is a short: refuse a triangle that would take a vertex past its limit, with the mesh as it is
+            if (vertex_refs_fit(tv[0], 1) == false || vertex_refs_fit(tv[1], 1) == false || vertex_refs_fit(tv[2], 1) == false)
+                return MeshResult.Failed_HitValenceLimit;
 
             // look up edges. if any already have two triangles, this would 
             // create non-manifold geometry and so we do not allow it
@@ -2359,6 +2379,8 @@ namespace g3
                 if (triangles_refcount.isValid(tid) == false)
                     continue;
                 int a = triangles[3 * tid], b = triangles[3 * tid + 1], c = triangles[3 * tid + 2];
+                if (vertex_refs_fit(a, 1) == false || vertex_refs_fit(b, 1) == false || vertex_refs_fit(c, 1) == false)
+                    throw new InvalidOperationException("DMesh3.RebuildFromEdgeRefcounts: a vertex has more than " + (short.MaxValue - 1) + " triangles (its count is a short); the mesh is not rebuilt");
                 vertices_refcount.increment(a);
                 vertices_refcount.increment(b);
                 vertices_refcount.increment(c);

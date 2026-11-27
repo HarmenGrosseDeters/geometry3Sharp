@@ -202,6 +202,11 @@ namespace g3
             }
 
 
+            // a vertex count is a short: a vertex that gets a corner must still fit (conservative: a corner that moves within the triangle is refused at the limit too)
+            for (int j = 0; j < 3; ++j)
+                if (newv[j] != tv[j] && vertex_refs_fit(newv[j], 1) == false)
+                    return MeshResult.Failed_HitValenceLimit;
+
             // [TODO] check that we are not going to create invalid stuff...
 
             // Remove triangle from its edges. if edge has no triangles left, then it is removed.
@@ -482,6 +487,10 @@ namespace g3
 			if ( flipped != InvalidID )
 				return MeshResult.Failed_FlippedEdgeExists;
 
+			// the flip gives c and d one more triangle each (a count is a short, #1684)
+			if ( vertex_refs_fit(c, 1) == false || vertex_refs_fit(d, 1) == false )
+				return MeshResult.Failed_HitValenceLimit;
+
 			// find edges bc, ca, ad, db
 			int ebc = find_tri_neighbour_edge(t0, b, c);
 			int eca = find_tri_neighbour_edge(t0, c, a);
@@ -659,6 +668,10 @@ namespace g3
 			//  pick up eac/bc/ad/bd as we go? somehow?
 			if ( bIsBoundaryEdge == false && IsBoundaryVertex(a) && IsBoundaryVertex(b) )
 				return MeshResult.Failed_InvalidNeighbourhood;
+
+			// b takes over the triangles of a other than t0 and t1 before it loses them (a count is a short, #1684: refuse at the peak)
+			if ( vertex_refs_fit(b, vertices_refcount.rawRefCount(a) - 1 - (bIsBoundaryEdge ? 1 : 2)) == false )
+				return MeshResult.Failed_HitValenceLimit;
 
 
 			// 1) remove edge ab from vtx b
@@ -881,6 +894,12 @@ namespace g3
             }
             
 
+            // a takes the triangles of c, and b those of d (a count is a short, #1684)
+            if (a != c && vertex_refs_fit(a, vertices_refcount.rawRefCount(c) - 1) == false)
+                return MeshResult.Failed_HitValenceLimit;
+            if (b != d && vertex_refs_fit(b, vertices_refcount.rawRefCount(d) - 1) == false)
+                return MeshResult.Failed_HitValenceLimit;
+
             // [TODO] this acts on each interior tri twice. could avoid using vtx-tri iterator?
             if (a != c) {
 				// replace c w/ a in edges and tris connected to c, and move edges to a
@@ -1026,6 +1045,10 @@ namespace g3
 
             Index3i tv = GetTriangle(tid);
             Index3i te = GetTriEdges(tid);
+
+            // each corner gets one more triangle (a count is a short, #1684)
+            if (vertex_refs_fit(tv.a, 1) == false || vertex_refs_fit(tv.b, 1) == false || vertex_refs_fit(tv.c, 1) == false)
+                return MeshResult.Failed_HitValenceLimit;
 
             // create new vertex with interpolated vertex attribs
             NewVertexInfo vinfo;

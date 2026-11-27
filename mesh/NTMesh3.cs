@@ -543,6 +543,12 @@ namespace g3
         }
         
 
+        // a vertex count is a short (see DMesh3.vertex_refs_fit, #1684)
+        bool vertex_refs_fit(int vid, int add)
+        {
+            return vertices_refcount.rawRefCount(vid) + add <= short.MaxValue;
+        }
+
         public int AppendTriangle(int v0, int v1, int v2, int gid = -1) {
             return AppendTriangle(new Index3i(v0, v1, v2), gid);
         }
@@ -555,6 +561,10 @@ namespace g3
                 Util.gDevAssert(false);
                 return InvalidID;
             }
+
+            // a vertex count is a short (#1684): refuse a triangle that would take a vertex past its limit, with the mesh as it is
+            if (vertex_refs_fit(tv[0], 1) == false || vertex_refs_fit(tv[1], 1) == false || vertex_refs_fit(tv[2], 1) == false)
+                return InvalidID;
 
             // look up edges. 
             int e0 = find_edge(tv[0], tv[1]);
