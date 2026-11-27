@@ -108,7 +108,7 @@ namespace geometry3Sharp.Tests
         public override string ToString()
         {
             string s = Kind == PipelineVerdictKind.NotCertifiable ? $"NotCertifiable({Route}: {Clause})"
-                : Kind == PipelineVerdictKind.Rejected ? $"Rejected({Clause}: {string.Join(", ", Numbers.Select(n => n.ToString("G4", CultureInfo.InvariantCulture)))})" : "Certified";
+                : Kind == PipelineVerdictKind.Rejected ? $"Rejected({Clause}: {string.Join(", ", Numbers.Select(n => n.ToString("G4", CultureInfo.InvariantCulture)))})" : Kind.ToString();
             return Detail == "" ? s : s + " " + Detail;
         }
     }
@@ -181,7 +181,9 @@ namespace geometry3Sharp.Tests
             // (a route that changes the inputs may add surface, which NoInventedSurface sees; it must not lose surface that nothing explains:
             // lost surface of an input is invisible to every later clause)
             if (missing > e.ExplainedDroppedTriangles) return NotCertifiable(v, "inputs-altered", $"the route lost input surface: {fed}");
-            if (!identical) v.Caveats.Add($"the exact stage's inputs differ from the inputs as passed ({fed}): the certificate is about the inputs it got");
+            // (a GridRetry whose triangles all match within the displacement is `identical`, yet the exact stage got snapped meshes: the caveat stays)
+            bool snapped = e.Route == PipelineRoute.GridRetry && !SameMeshes(e.OriginalInputs, e.FedInputs);
+            if (!identical || snapped) v.Caveats.Add($"the exact stage's inputs differ from the inputs as passed ({(fed != "" ? fed : "moved by at most " + e.InputDisplacement.ToString("G4", CultureInfo.InvariantCulture))}): the certificate is about the inputs it got");
 
             // the exact stage, clause by clause in the order of BooleanCertificate.Check (timed)
             string r;
@@ -267,6 +269,13 @@ namespace geometry3Sharp.Tests
         }
 
         // ------------------------------------------------------------------ the inputs as passed against the inputs the exact stage got
+
+        static bool SameMeshes(IReadOnlyList<DMesh3> a, IReadOnlyList<DMesh3> b)
+        {
+            if (a == null || b == null || a.Count != b.Count) return false;
+            for (int i = 0; i < a.Count; ++i) if (!ReferenceEquals(a[i], b[i])) return false;
+            return true;
+        }
 
         // the triangle as a key: its corners as doubles, rotated so that the smallest corner is first (the orientation is kept)
         static (double, double, double, double, double, double, double, double, double) Key(DMesh3 m, int t)

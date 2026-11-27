@@ -305,6 +305,7 @@ namespace geometry3Sharp.Tests
             log.WriteLine(v.ToString() + ": " + string.Join(" | ", v.Caveats));
             Assert.Equal(PipelineVerdictKind.CertifiedWithRemovals, v.Kind);
             Assert.False(v.Kind == PipelineVerdictKind.Certified);
+            Assert.StartsWith("CertifiedWithRemovals", v.ToString());
             Assert.Contains(v.Caveats, c => c.StartsWith("rounding removed"));
 
             // two thin plates, both removed: CertifiedWithRemovals; the checker's exemption (every thin component of the exact result) is
@@ -360,6 +361,54 @@ namespace geometry3Sharp.Tests
             Assert.NotEqual("", PipelineCertificate.InputsFedReason(null, new[] { a }, out identical));
             Assert.False(identical);
             Assert.NotEqual("", PipelineCertificate.InputsFedReason(new[] { a }, null, out identical));
+        }
+
+        [Fact]
+        public void InputsFed_Boundaries_GridRetryTolerance_OneLostTriangle_AndMissingLists()
+        {
+            DMesh3 a = Box(Vector3d.Zero, new Vector3d(1, 1, 1)), other = Box(new Vector3d(0.5, 0.5, 0.5), new Vector3d(1, 1, 1));
+            DirectRun run = DirectRun.Compute(new[] { a, other }, Ops.Union);
+            Assert.True(run.Succeeded, run.Failure);
+
+            // GridRetry through Judge: the fed meshes are the inputs moved by less than the displacement: no "inputs-altered", and the caveat stays
+            DMesh3 snapped = Copy(a);
+            foreach (int vid in snapped.VertexIndices()) snapped.SetVertex(vid, snapped.GetVertex(vid) + new Vector3d(0.001, -0.001, 0));
+            PipelineEvidence e = PipelineEvidence.From(run);
+            e.Route = PipelineRoute.GridRetry;
+            e.OriginalInputs = new[] { a, other };
+            e.FedInputs = new[] { snapped, other };
+            e.InputDisplacement = 0.0011;
+            PipelineVerdict v = PipelineCertificate.Judge(e);
+            log.WriteLine(v.ToString() + ": " + string.Join(" | ", v.Caveats));
+            Assert.False(v.Kind == PipelineVerdictKind.NotCertifiable && v.Clause == "inputs-altered", v.ToString());
+            Assert.Contains(v.Caveats, c => c.StartsWith("the exact stage's inputs differ"));
+            // ... and with a displacement of zero the same evidence loses the surface
+            e.InputDisplacement = 0;
+            Assert.Equal("inputs-altered", PipelineCertificate.Judge(e).Clause);
+
+            // exactly one lost triangle: not explained by 0 drops, explained by 1
+            DMesh3 passed = Copy(other);
+            int p0 = passed.AppendVertex(new Vector3d(9, 0, 0)), p1 = passed.AppendVertex(new Vector3d(10, 0, 0)), p2 = passed.AppendVertex(new Vector3d(9, 1, 0));
+            passed.AppendTriangle(p0, p1, p2);
+            e = PipelineEvidence.From(run);
+            e.Route = PipelineRoute.InputRepair;
+            e.OriginalInputs = new[] { a, passed };
+            v = PipelineCertificate.Judge(e);
+            Assert.True(v.Kind == PipelineVerdictKind.NotCertifiable && v.Clause == "inputs-altered", v.ToString());
+            e.ExplainedDroppedTriangles = 1;
+            Assert.Equal(PipelineVerdictKind.Certified, PipelineCertificate.Judge(e).Kind);
+
+            // no record of the inputs on a route that alters them: not certifiable (never a pass)
+            e = PipelineEvidence.From(run);
+            e.Route = PipelineRoute.InputRepair;
+            e.OriginalInputs = null;
+            v = PipelineCertificate.Judge(e);
+            Assert.True(v.Kind == PipelineVerdictKind.NotCertifiable && v.Clause == "inputs-altered", v.ToString());
+            e = PipelineEvidence.From(run);
+            e.Route = PipelineRoute.InputRepair;
+            e.FedInputs = null;
+            v = PipelineCertificate.Judge(e);
+            Assert.True(v.Kind == PipelineVerdictKind.NotCertifiable && v.Clause == "inputs-altered", v.ToString());
         }
 
         // the audit's generic rotation (axis (1, 2, 3), angle 0.7), with the UTM offset if asked
@@ -428,9 +477,13 @@ namespace geometry3Sharp.Tests
             // triangle covers even after the splits (the checker's limit, section 4.7 of the note); the sampled distance between the two is tiny
             DirectRun run = DirectRun.Compute(new[] { Turn(AuditBox(0, 0, 0, 2, 2, 2), false), Turn(AuditBox(1, 0, 0, 2, 2, 2), false) }, Ops.Difference);
             Assert.True(run.Succeeded, run.Failure);
-            PipelineVerdict v = PipelineCertificate.Certify(run);
+            // (the checker's union cover of sub-triangles by chart regions, #1631, decides this case now: switched off, the checker is the one of the note's measurements)
+            PipelineEvidence ev = PipelineEvidence.From(run);
+            ev.Certificate.UnionCover = false;
+            PipelineVerdict v = PipelineCertificate.Judge(ev);
             log.WriteLine(v.ToString());
             Assert.True(v.Kind == PipelineVerdictKind.NotCertifiable && v.Clause == "coverage-undecided", v.ToString());
+            Assert.Equal(PipelineVerdictKind.Certified, PipelineCertificate.Certify(run).Kind);
         }
 
         static void AppendTetrahedron(DMesh3 m, Vector3d at)
