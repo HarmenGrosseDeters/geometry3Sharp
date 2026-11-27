@@ -1519,6 +1519,45 @@ verdict row out (the meshes are not changed, nothing is written). The row, one J
 | `clause`, `message` | the failing clause of a rejection (`C0`, `C1`, `C2`, `C3/C4`, `C5`), and `Check()`'s text (at most 400 characters) |
 | `split` | `SplitDepth`, where it was set |
 
+## Region clipping corpus gate (`region-compare`; E' stage 4, #1630, 2026-11-27)
+
+The gate before `ExactMeshBoolean.RegionClipping` becomes the default ([design/COPLANAR_REGION_CLIPPING.md](../../docs/design/COPLANAR_REGION_CLIPPING.md)): each
+operation with and without the switch, one JSON row per operation (`tests/geometry3Sharp.Tests/Harness/RegionClippingCompare.cs`, no mesh in a row). Gate per row: the same
+Status, the same `NotCleanReason`, the exact difference of the two results empty both ways (where both are clean and not empty), the certifying checker on the result with the
+switch on (where it applies), and the time with and without (reported, not gated). Verdict `same`, or the first thing that differs.
+
+```
+BooleanComparison region-compare fuzz <family|all> <from> <count>   the BooleanFuzzCases families (closed families and the open one), seeds [from, from + count)
+BooleanComparison region-compare audit [class]                      the procedural audit corpus (benchmarks/SolidBooleanAudit/Corpus.cs), the operands as given
+BooleanComparison region-compare thingi self|pair|contact ...       as `certify thingi` (the cases of data/certify_thingi.py plan)
+python3 data/certify_thingi.py run <cases> <dir> <out> --command region-compare    one process per case, a timeout per case
+python3 data/certify_thingi.py summary --region <rows>...           the counts by verdict, the differences, the time with and without by size
+```
+
+The run is `.github/workflows/region-clipping-corpus.yml` (workflow_dispatch; the Thingi10K models are fetched at run time on GitHub-hosted runners, nothing is committed;
+the rows go to the artifacts and the job summary; `run` and `summary --region` exit non-zero on any verdict other than `same` and `not compared (not clean)`, so a difference, a
+timeout or an error makes the job red). The procedural corpora are also a test, `RegionClippingCorpusTests` (6 seeds per family in the PR tier, 300 per family in the Nightly tier).
+
+Rows and verdicts. Per fuzz case: the three operations, and for closed inputs three predicates that read the exact winding numbers (`pred-only-first`, `pred-only-second`,
+`pred-both-once`): a crossing counted twice changes only the magnitude of a winding number, which the thresholds of the three operations never see, so only these rows kill a
+mutant of the one-crossing rule (the family `flatedge` puts centroids on flat diagonals). Verdict `same`; `not compared (not clean)` when the status and the reason agree but the
+results are not clean (open inputs, self-intersections): the surfaces are not compared, and the summary counts these apart; otherwise the first difference. The certificate is
+checked on a third run (the checker's class: Intersection without the early-out, the certificate recorded), not on the timed runs; the summary tallies its outcomes.
+
+Local run (2026-11-27, 4 cores, no network, so no Thingi10K): all 8 fuzz families (the seven closed ones, `open`, `flatedge`), seeds 0..119, 6,120 rows: 5,822 `same`, 297 `not compared
+(not clean)`, **1 `surface differs`**: `fuzz-slab-52` with `pred-only-second`; the audit corpus, 60 rows: 53 `same`, 7 `not compared`. Time 5.6 s without the switch, 4.7 s with.
+The difference (a known open difference pending the owner's decision, not an accepted one): `slab #52` is a slab of thickness 2^-42 on the top face of a box, and the predicate "inside the slab and
+outside the box" selects exactly it. Both results are clean, and the certificate of the result with the switch on covers it, but the rounded results differ (6 and 4 triangles; the exact
+difference has 6). The informational column `exact` says why: the two UNROUNDED results are `equal` (same faces, another triangulation: the 12 triangles of each differ, their face
+outlines per oriented plane do not). The slab is 500 times above the rounding resolution of the coordinates (2.3e-13 against 4.4e-16) and about twice the displacement the rounding
+repair may use (RoundingUlpFactor 256 ulps, 1.1e-13), so the repair collapses it, differently for the two triangulations. The nightly test keeps it as a documented exception
+(`RoundingSensitive`); the dispatch run does not.
+
+The column `exact` (rows that differ only): `equal` or `differs`, from the two unrounded results of both runs (the assembled mesh with the exact vertices, as sets of exact oriented
+triangles; if the triangles differ, the outlines of the faces per oriented plane: another triangulation of the same faces is `equal`, with `exact_note`). The verdict and the exit code
+are those of the rounded results (the owner's gate); `exact` is information. The row also carries `min_edge` (the smallest edge of the unrounded result), `round_res` (the rounding
+resolution of its coordinates) and `repair_tol` (the displacement the rounding repair may use); the summary tallies `exact` over the differing rows and prints the three numbers per row.
+
 ## Nesting check of MeshWindingNumberBoolean (`nesting-cost`; #1609, #1661, 2026-11-26)
 
 `DOTNET_TieredCompilation=0 BooleanComparison nesting-cost [rounds]` times `Compute()` of a union with the nesting check off

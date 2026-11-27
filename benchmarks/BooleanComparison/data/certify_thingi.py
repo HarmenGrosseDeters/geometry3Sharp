@@ -9,6 +9,8 @@
 #   python3 data/certify_thingi.py run <cases.jsonl> <dir> <out.jsonl> [--timeout S] [--tool BooleanComparison.dll]
 #           one process per case (all three operations), a timeout per case; resumes (cases in out.jsonl are skipped)
 #   python3 data/certify_thingi.py summary <out.jsonl>...        the counts by verdict and clause, the cost against the size
+#   run ... --command region-compare   the gate of E' stage 4 (#1630): each operation with and without RegionClipping (RegionClippingCompare.cs); summary then
+#           counts "same" and the differences and gives the time with and without (python3 data/certify_thingi.py summary --region <out.jsonl>...)
 import argparse, csv, json, os, subprocess, sys, time, statistics as st
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))     # (also under python3 -I)
 import thingi_pairs as tp
@@ -71,7 +73,7 @@ def mesh_path(d, k):
             return os.path.join(m, n)
     raise FileNotFoundError(k)
 
-def run(cases, d, out, timeout, tool):
+def run(cases, d, out, timeout, tool, command="certify"):
     done = set()
     if os.path.exists(out):
         for r in load_rows([out]):
@@ -85,7 +87,7 @@ def run(cases, d, out, timeout, tool):
             args[i] = mesh_path(d, args[i])
         t0 = time.time()
         try:
-            p = subprocess.run(["dotnet", tool, "certify", "thingi"] + args, capture_output=True, text=True, timeout=timeout)
+            p = subprocess.run(["dotnet", tool] + (["region-compare", "thingi"] if command == "region-compare" else ["certify", "thingi"]) + args, capture_output=True, text=True, timeout=timeout)
             lines = [l for l in p.stdout.splitlines() if l.startswith("{")]
             got = [json.loads(l) for l in lines]
             if p.returncode != 0 or not got:
@@ -99,6 +101,13 @@ def run(cases, d, out, timeout, tool):
                 r["wall_s"] = round(time.time() - t0, 1)
                 f.write(json.dumps(r) + "\n")
         print(c["case"], " ".join(f"{r.get('op', '-')}:{r['verdict']}" for r in got), flush=True)
+    # the gate of the region comparison: any row that is not "same" (a difference, a timeout, an error) makes the run, and so the job, fail
+    if command == "region-compare":
+        bad = [r for r in load_rows([out]) if r["verdict"] not in OK_VERDICTS]
+        if bad:
+            print(len(bad), "rows are not 'same'", file=sys.stderr)
+            return 1
+    return 0
 
 def load_rows(paths):
     out = []
@@ -136,19 +145,58 @@ def summary(paths):
                 print(f"| {lo}-{hi if hi < 1 << 40 else ''} | {len(sel)} | {st.median(r['t_bool_ms'] for r in sel):.0f} | {st.median(r['t_check_ms'] for r in sel):.0f} | "
                       f"{max(r['t_check_ms'] for r in sel):.0f} | {st.median(r['t_check_ms'] / max(r['t_bool_ms'], 1e-3) for r in sel):.1f} |")
 
+OK_VERDICTS = ("same", "not compared (not clean)")     # (the second is counted apart: the results are not clean, so their surfaces are not compared)
+
+def summary_region(paths):
+    rs = load_rows(paths)
+    verdicts = ["same", "not compared (not clean)", "failed differently", "status differs", "reason differs", "surface differs", "difference failed", "certificate rejected", "certificate run failed",
+                "certificate exception", "exception off", "exception on", "error", "timeout", "process failed"]
+    cls = lambda r: r["case"].split("-")[0] + ("-" + r["case"].split("-", 2)[2] if r["case"].startswith("contact") else "")
+    print("| class | operations | " + " | ".join(verdicts) + " |")
+    print("|---|---:|" + "---:|" * len(verdicts))
+    for c in sorted({cls(r) for r in rs}) + ["all"]:
+        sel = [r for r in rs if c == "all" or cls(r) == c]
+        print(f"| {c} | {len(sel)} | " + " | ".join(str(sum(1 for r in sel if r["verdict"] == v)) for v in verdicts) + " |")
+    certs = {}
+    for r in rs:
+        if "cert" in r: certs[r["cert"]] = certs.get(r["cert"], 0) + 1
+    print("\ncertificate on the result with the switch on (a third run): " + (", ".join(f"{k} {v}" for k, v in sorted(certs.items())) or "none"))
+    bad = [r for r in rs if r["verdict"] not in OK_VERDICTS]
+    ex = {}
+    for r in bad:
+        if "exact" in r: ex[r["exact"]] = ex.get(r["exact"], 0) + 1
+    if bad:
+        print("\nexact column of the differing rows (the two unrounded results, informational; the verdict is that of the rounded results): " + (", ".join(f"{k} {v}" for k, v in sorted(ex.items())) or "none"))
+    if bad:
+        print("\ndifferences (case, op, verdict, message):\n")
+        for r in bad:
+            print(f"- {r['case']} {r.get('op', '-')} {r['verdict']}: {r.get('message', '')[:300]}" + (f" [exact {r['exact']}, {r.get('exact_tris', '')}; min edge {r['min_edge']:.3g}, rounding resolution {r['round_res']:.3g}, repair tolerance {r.get('repair_tol', 0):.3g}]" if "exact" in r and "min_edge" in r else (f" [exact {r['exact']}]" if "exact" in r else "")))
+    tim = [r for r in rs if "t_off_ms" in r and "t_on_ms" in r]
+    if tim:
+        print(f"\ntime over {len(tim)} operations: without {sum(r['t_off_ms'] for r in tim) / 1000:.1f} s, with {sum(r['t_on_ms'] for r in tim) / 1000:.1f} s")
+        print("\n| input triangles | operations | median ms without | median ms with | max ms without | max ms with | slowest with / without |")
+        print("|---|---:|---:|---:|---:|---:|---:|")
+        for lo, hi in ((0, 5000), (5000, 20000), (20000, 100000), (100000, 1 << 40)):
+            sel = [r for r in tim if lo <= r.get("tris", r.get("trisA", 0) + r.get("trisB", 0)) < hi]
+            if sel:
+                print(f"| {lo}-{hi if hi < 1 << 40 else ''} | {len(sel)} | {st.median(r['t_off_ms'] for r in sel):.0f} | {st.median(r['t_on_ms'] for r in sel):.0f} | "
+                      f"{max(r['t_off_ms'] for r in sel):.0f} | {max(r['t_on_ms'] for r in sel):.0f} | {max(r['t_on_ms'] / max(r['t_off_ms'], 1e-3) for r in sel):.1f} |")
+    return 1 if bad or not rs else 0        # a timeout, an error or a difference makes the job red
+
 def main():
     ap = argparse.ArgumentParser()
     sp = ap.add_subparsers(dest="cmd", required=True)
     p = sp.add_parser("plan"); p.add_argument("out"); p.add_argument("--self", type=int, default=20); p.add_argument("--pairs", type=int, default=20)
     p.add_argument("--contact", type=int, default=3); p.add_argument("--max-tris", type=int, default=20000)
     p = sp.add_parser("fetch"); p.add_argument("dir"); p.add_argument("cases")
-    p = sp.add_parser("run"); p.add_argument("cases"); p.add_argument("dir"); p.add_argument("out"); p.add_argument("--timeout", type=int, default=600)
+    p = sp.add_parser("run"); p.add_argument("cases"); p.add_argument("dir"); p.add_argument("out"); p.add_argument("--timeout", type=int, default=600); p.add_argument("--command", choices=["certify", "region-compare"], default="certify")
     p.add_argument("--tool", default=os.path.join(os.path.dirname(HERE), "bin", "Release", "net10.0", "BooleanComparison.dll"))
-    p = sp.add_parser("summary"); p.add_argument("paths", nargs="+")
+    p = sp.add_parser("summary"); p.add_argument("paths", nargs="+"); p.add_argument("--region", action="store_true")
     a = ap.parse_args()
     if a.cmd == "plan": plan(a.out, a.self, a.pairs, a.contact, a.max_tris)
     elif a.cmd == "fetch": fetch(a.dir, a.cases)
-    elif a.cmd == "run": run(a.cases, a.dir, a.out, a.timeout, a.tool)
+    elif a.cmd == "run": sys.exit(run(a.cases, a.dir, a.out, a.timeout, a.tool, a.command))
+    elif a.region: sys.exit(summary_region(a.paths))
     else: summary(a.paths)
 
 if __name__ == "__main__":
