@@ -199,6 +199,97 @@ namespace geometry3Sharp.Tests
             Assert.False(ContactTransforms.ExactSum(0.1, 0.2, out _));
         }
 
+        // ---- the snap of the region-clipping corpus gate (Build(..., snapOnInexact: true), #1630): a placement that is not exact for the coordinates is made exact by a snap to 2^-46
+
+        static DMesh3 Bx(double x0, double y0, double z0, double x1, double y1, double z1) =>
+            new TrivialBox3Generator { Box = new Box3d(new AxisAlignedBox3d(new Vector3d(x0, y0, z0), new Vector3d(x1, y1, z1))) }.Generate().MakeDMesh();
+
+        // (the embedded B is moved by a fraction 2^-depth of its extent, a multiple of the grid divided by 2^depth: its grid is finer by that factor)
+        static void AssertOnTheGrid(DMesh3 m, double fraction = 1)
+        {
+            double g = ContactTransforms.SnapGrid * fraction;
+            foreach (Vector3d v in Verts(m))
+                Assert.True(ContactTransforms.RoundToGrid(v.x, g) == v.x && ContactTransforms.RoundToGrid(v.y, g) == v.y && ContactTransforms.RoundToGrid(v.z, g) == v.z);
+        }
+
+        // the faces touch: the extreme face of A along the contact axis and the near face of B are the same plane, bit for bit
+        static void AssertFaceContact(ContactResult r)
+        {
+            int ax = (int)r.Info["contact_axis"], sg = (int)r.Info["contact_sign"];
+            double pa = sg > 0 ? Max(r.A, ax) : Min(r.A, ax), pb = sg > 0 ? Min(r.B, ax) : Max(r.B, ax);
+            Assert.Equal(pa, pb);
+            Assert.Equal(pa, (double)r.Info["plane"]);
+        }
+
+        [Fact]
+        public void ContactShiftNotExact_IsPlacedAfterTheSnap_WithTheContactKept()
+        {
+            // arbitrary doubles on every axis: the difference of two planes needs more than 53 bits in every direction
+            DMesh3 a = Bx(0.15, 0.65, 0.2, 0.3, 0.85, 0.7), b = Bx(0.35, 0.1, 0.2, 0.9, 0.65, 0.45);
+            ContactResult first = ContactTransforms.Build(a, b, ContactVariant.FaceContact, 2, 1, 0);
+            Assert.StartsWith("contact shift not exact", first.Error);
+            Assert.Null(first.B);
+            ContactResult r = ContactTransforms.Build(a, b, ContactVariant.FaceContact, 2, 1, 0, true);
+            Assert.Null(r.Error);
+            Assert.Equal(ContactTransforms.SnapGrid, (double)r.Info["snapped"]);
+            Assert.StartsWith("contact shift not exact", (string)r.Info["inexact_before"]);
+            Assert.Equal("face", r.Info["kind"]);
+            AssertFaceContact(r);
+            AssertOnTheGrid(r.A); AssertOnTheGrid(r.B);
+            Assert.True(r.B.IsClosed() && ContactTransforms.Volume(r.B) > 0);
+        }
+
+        [Fact]
+        public void TranslationNotExact_IsPlacedAfterTheSnap_WithTheContactKept()
+        {
+            // dyadic boxes, but a vertex of B at 1e-30: no shift of order 1 is exact for it
+            DMesh3 a = Bx(-0.375, -0.25, -0.25, 0.375, 0.25, 0.25), b = Bx(-0.25, -0.375, -0.3125, 0.25, 0.375, 0.3125);
+            b.SetVertex(b.VertexIndices().First(), new Vector3d(1e-30, 1e-30, 1e-30));
+            ContactResult first = ContactTransforms.Build(a, b, ContactVariant.FaceContact, 2, 1, 0);
+            Assert.StartsWith("translation not exact", first.Error);
+            ContactResult r = ContactTransforms.Build(a, b, ContactVariant.FaceContact, 2, 1, 0, true);
+            Assert.Null(r.Error);
+            Assert.Equal("translation not exact", r.Info["inexact_before"]);
+            Assert.Equal("face", r.Info["kind"]);
+            AssertFaceContact(r);
+            AssertOnTheGrid(r.A); AssertOnTheGrid(r.B);
+        }
+
+        [Fact]
+        public void EmbeddingDepthNotExact_IsPlacedAfterTheSnap_WithTheDepthKept()
+        {
+            DMesh3 a = Bx(0.2, 0.65, 0.3, 0.7, 0.85, 0.85), b = Bx(0.45, 0.3, 0.1, 0.7, 0.45, 0.7);
+            ContactResult first = ContactTransforms.Build(a, b, ContactVariant.PartialOverlap, 2, 1, 1);
+            Assert.StartsWith("embedding depth not exact", first.Error);
+            ContactResult r = ContactTransforms.Build(a, b, ContactVariant.PartialOverlap, 2, 1, 1, true);
+            Assert.Null(r.Error);
+            Assert.StartsWith("embedding depth not exact", (string)r.Info["inexact_before"]);
+            Assert.Equal("embedded", r.Info["kind"]);
+            Assert.Equal(1, r.Info["depth"]);
+            // B is embedded by half of its extent along the axis: its near face is at the plane of A's face minus the depth, bit for bit
+            int ax = (int)r.Info["contact_axis"], sg = (int)r.Info["contact_sign"];
+            double h = Max(r.B, ax) - Min(r.B, ax), pA = (double)r.Info["plane_a"], plane = (double)r.Info["plane"];
+            Assert.Equal(pA - sg * 0.5 * h, plane);
+            Assert.Equal(plane, sg > 0 ? Min(r.B, ax) : Max(r.B, ax));
+            AssertOnTheGrid(r.A); AssertOnTheGrid(r.B, 0.5);
+        }
+
+        [Fact]
+        public void TheSnapIsOptInAndLeavesExactPlacementsAlone()
+        {
+            // exact placements are the same with and without the option (no snap, no key), and without the option an inexact one stays an error
+            ContactResult plain = ContactTransforms.Build(A(), B(), ContactVariant.FaceContact, 2, 1, 0);
+            ContactResult withSnap = ContactTransforms.Build(A(), B(), ContactVariant.FaceContact, 2, 1, 0, true);
+            Assert.Null(withSnap.Error);
+            Assert.False(withSnap.Info.ContainsKey("snapped"));
+            Assert.True(BitEqual(plain.A, withSnap.A) && BitEqual(plain.B, withSnap.B));
+            DMesh3 tiny = B();
+            tiny.SetVertex(tiny.VertexIndices().First(), new Vector3d(1e-30, 1e-30, 1e-30));
+            Assert.NotNull(ContactTransforms.Build(A(), tiny, ContactVariant.FaceContact, 2, 1, 0).Error);
+            // (only the face contacts: the other variants are never snapped)
+            Assert.Equal(ContactTransforms.Build(A(), B(), ContactVariant.UlpShift, 2, 1, 0).Error, ContactTransforms.Build(A(), B(), ContactVariant.UlpShift, 2, 1, 0, true).Error);
+        }
+
         [Fact]
         public void AnIsolatedVertexIsNotPartOfTheSolid()
         {
