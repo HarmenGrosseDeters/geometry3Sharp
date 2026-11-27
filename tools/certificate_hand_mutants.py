@@ -50,7 +50,7 @@ M=[
 ("culled ray off", "if (w[CullMesh] > 0) return", "if (false) return"),
 ("culled meet off", "if (ExactTriangleIntersection.Intersects(ref u, ref v)) return", "if (false) return"),
 ("area check off", "if (en * sd != sn * ed)", "if (false)"),
-("area skip in every plane", "if (kv.Value.Mixed == false && ForceExactAreas == false) {", "if (true) {"),
+("area skip in every plane", "if (kv.Value.Mixed == false && ForceExactAreas == false) continue;", "if (true) continue;"),
 ("area plane never mixed", "if (ar.Mixed == false && Dot(n, ar.RefNormal).Sign <= 0) ar.Mixed = true;", ";"),
 ("area sum drops a term", "return (an * bd + bn * ad, ad * bd);", "return (an * bd, ad * bd);"),
 ("degenerate near off", "if (n[0].Sign == 0 && n[1].Sign == 0 && n[2].Sign == 0) {", "if (false) {"),

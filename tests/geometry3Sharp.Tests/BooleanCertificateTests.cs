@@ -205,11 +205,16 @@ namespace geometry3Sharp.Tests
         public void AreaSkip_GivesTheVerdictOfTheExactSums_UnderEverySimilarity()
         {
             var (a0, b0) = Solids["spheres overlapping"]();
-            foreach (Similarity s in Similarity.All()) {
+            int idExact = -1, idSkipped = -1;
+            foreach (Similarity s in Similarity.All().OrderBy(x => x == Similarity.Identity ? 0 : 1)) {
                 DMesh3 Map(DMesh3 m) { var r = new DMesh3(m); foreach (int v in r.VertexIndices()) r.SetVertex(v, s.Apply(r.GetVertex(v))); return r; }
                 var (rs, re, cs, ce) = BothAreaPaths(Map(a0), Map(b0), Ops.Union);
                 Assert.True(rs == re, $"{s.Name}: '{rs}' against '{re}'");
                 Assert.Equal(ce.AreaPlanesExact, cs.AreaPlanesExact + cs.AreaPlanesSkipped);
+                // (the planes of a similar copy are the planes of the original: the same counts under every similarity)
+                if (idExact < 0) { idExact = cs.AreaPlanesExact; idSkipped = cs.AreaPlanesSkipped; Assert.True(idSkipped > 0); }
+                Assert.True(cs.AreaPlanesExact == idExact && cs.AreaPlanesSkipped == idSkipped,
+                    $"{s.Name}: {cs.AreaPlanesExact} exact / {cs.AreaPlanesSkipped} skipped against {idExact} / {idSkipped}");
             }
         }
 

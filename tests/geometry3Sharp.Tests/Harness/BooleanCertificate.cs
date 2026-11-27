@@ -1620,6 +1620,7 @@ namespace geometry3Sharp.Tests
         // per plane, the boundary of (kept pieces) - (result before rounding) is zero
         string CheckSameChain()
         {
+            AreaPlanesExact = AreaPlanesSkipped = 0;
             // (plane, line) -> events (position along the line, weight)
             var lines = new Dictionary<string, List<(ExactPoint3 p, BigInteger[] dir, int w, bool start)>>();
             // per plane: the unsigned projected area of each side (num, den), on the axis of the normal's largest component
@@ -1696,10 +1697,12 @@ namespace geometry3Sharp.Tests
             // orientation o_t = o for all triangles of the plane, that is sum_S 1_t = sum_E 1_t: the unsigned areas are equal, which the
             // exact comparison would find too. A mixed plane (coincident opposite triangles may hide there: the unsigned areas differ
             // although the chains are equal) keeps the exact comparison.)
-            AreaPlanesExact = AreaPlanesSkipped = 0;
+            // (the counts are taken for all planes before the first exact sum, so that they do not depend on the visit order when one fails)
             foreach (var kv in areas) {
-                if (kv.Value.Mixed == false && ForceExactAreas == false) { AreaPlanesSkipped++; continue; }
-                AreaPlanesExact++;
+                if (kv.Value.Mixed == false && ForceExactAreas == false) AreaPlanesSkipped++; else AreaPlanesExact++;
+            }
+            foreach (var kv in areas) {
+                if (kv.Value.Mixed == false && ForceExactAreas == false) continue;
                 var (en, ed) = SumFractions(kv.Value.E, 0, kv.Value.E.Count);
                 var (sn, sd) = SumFractions(kv.Value.S, 0, kv.Value.S.Count);
                 if (en * sd != sn * ed)
@@ -1716,7 +1719,7 @@ namespace geometry3Sharp.Tests
 
         /// <summary> for tests: take the exact sums of the plane areas in every plane (the path before the skip of single-orientation planes, #1683 follow-up) </summary>
         public bool ForceExactAreas;
-        /// <summary> the planes of the last C5 whose areas needed the exact sums (both orientations, or forced) and those that did not </summary>
+        /// <summary> the planes of the last C5 whose areas needed the exact sums (both orientations, or forced) and those that did not (0 and 0 where an earlier check of C5 failed: counted once the boundary check passed) </summary>
         public int AreaPlanesExact, AreaPlanesSkipped;
 
         // the exact sum of the fractions t[from..to) (positive denominators) by halving: the operands of the top sums are as large as the
