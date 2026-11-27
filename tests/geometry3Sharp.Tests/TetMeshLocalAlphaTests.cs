@@ -442,8 +442,9 @@ namespace geometry3Sharp.Tests
             var fNeg = new AlphaSizeField(posNeg, new[] { double.Epsilon, double.Epsilon }, 1.0, double.Epsilon, 0.25);
             Assert.Equal(1, fNeg.FineSamples);
             // A NaN-coordinate sample in wideItems must never pretend to be at distance 0 from a finite query.
-            var fNan = new AlphaSizeField(new[] { new Vector3d(x, 0, 0), new Vector3d(double.NaN, 0, 0) }, aj, 1.0, 0.0625, 0.25);
-            Assert.Equal(1.0, fNan.At(new Vector3d(x + sign * 64, 0, 0)));
+            var fNan = new AlphaSizeField(new[] { new Vector3d(x, 0, 0), new Vector3d(double.NaN, 0, 0) }, new[] { 0.75, 0.0625 }, 1.0, 0.0625, 0.25);
+            Assert.Equal(1.0, fNan.At(new Vector3d(x, 2, 0), out int nanVisited));
+            Assert.Equal(2, nanVisited);
         }
 
         [Fact]
