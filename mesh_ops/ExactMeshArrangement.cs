@@ -3572,7 +3572,18 @@ namespace g3
                     if ((p[k] < lo && q[k] < lo) || (p[k] > hi && q[k] > hi)) return false;
                     continue;
                 }
-                double ta = (lo - p[k]) / d, tb = (hi - p[k]) / d;
+                double ta, tb;
+                if (double.IsInfinity(d)) {
+                    // q - p overflowed for finite ends (about 2e308 apart): the same quotients from halves, which are
+                    // exact for these magnitudes (an end near 0 that halves into the subnormal range moves by at most
+                    // 2^-1075, far below the slack); an infinite d made both 0 and culled every such segment
+                    double h = q[k] * 0.5 - p[k] * 0.5;
+                    ta = (lo * 0.5 - p[k] * 0.5) / h;
+                    tb = (hi * 0.5 - p[k] * 0.5) / h;
+                } else {
+                    ta = (lo - p[k]) / d;
+                    tb = (hi - p[k]) / d;
+                }
                 if (ta > tb) { double tmp = ta; ta = tb; tb = tmp; }
                 // widen the interval a little against rounding of the divisions
                 double slack = 1e-9 * (Math.Abs(ta) + Math.Abs(tb)) + 1e-12;

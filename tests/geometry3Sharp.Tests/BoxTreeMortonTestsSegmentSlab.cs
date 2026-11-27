@@ -147,6 +147,43 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void QuerySegment_EndsAboutTwoTimesMaxValueApart_AreNotCulled()
+        {
+            // q - p overflows to infinity for finite ends: both quotients were 0 and the slab t in [0, 1e-12], so a
+            // segment through the box was culled (review of #1673: p = (-1e308, -1, 0), q = (1e308, 1, 0) meets the box
+            // [-1, 1] x [-0.1, 0.1] x [-1, 1] at t = 0.5)
+            var lo = new Vector3d(-1, -0.1, -1); var hi = new Vector3d(1, 0.1, 1);
+            var p = new Vector3d(-1e308, -1, 0); var q = new Vector3d(1e308, 1, 0);
+            Assert.True(double.IsInfinity(q.x - p.x));
+            Assert.True(Meets(p, q, lo, hi));
+            Assert.True(Reported(lo, hi, p, q));
+            Assert.True(Reported(lo, hi, q, p));
+            // and still culled where it misses: x meets the slab near t = 0.5, y only for t in [0.3, 0.4]
+            var lo2 = new Vector3d(-1, -0.4, -1); var hi2 = new Vector3d(1, -0.2, 1);
+            Assert.False(Meets(p, q, lo2, hi2));
+            Assert.False(Reported(lo2, hi2, p, q));
+            Assert.False(Reported(lo2, hi2, q, p));
+            // seeded: ends near both ends of the double range on one or more axes, against the oracle; a box well off the
+            // segment's line is still culled
+            var r = new Random(5);
+            int hits = 0, culled = 0;
+            for (int it = 0; it < 3000; ++it) {
+                Func<double> big = () => (r.Next(2) == 0 ? 1 : -1) * double.MaxValue * (0.5 + 0.5 * r.NextDouble());
+                var a = new Vector3d(r.NextDouble() * 8 - 4, r.NextDouble() * 8 - 4, r.NextDouble() * 8 - 4);
+                var b = a + new Vector3d(r.NextDouble() * 4, r.NextDouble() * 4, r.NextDouble() * 4);
+                var pp = new Vector3d(big(), r.Next(3) == 0 ? big() : r.NextDouble() * 8 - 4, r.NextDouble() * 8 - 4);
+                var qq = new Vector3d(-Math.Sign(pp.x) * Math.Abs(big()), r.Next(3) == 0 ? -pp.y : r.NextDouble() * 8 - 4, r.NextDouble() * 8 - 4);
+                bool m = Meets(pp, qq, a, b);
+                if (m) {
+                    hits++;
+                    Assert.True(Reported(a, b, pp, qq), $"{it}: box {a:R} - {b:R}, segment {pp:R} - {qq:R}");
+                } else if (Reported(a, b, pp, qq) == false)
+                    culled++;
+            }
+            Assert.True(hits > 100 && culled > 100, $"{hits} hits, {culled} misses culled");
+        }
+
+        [Fact]
         public void QuerySegment_ManyBoxes_ReportsEveryBoxTheSegmentMeets()
         {
             // one tree of 300 boxes (node boxes too), near-parallel segments along x through tiny faces
