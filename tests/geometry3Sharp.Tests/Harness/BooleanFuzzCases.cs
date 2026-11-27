@@ -154,6 +154,12 @@ namespace geometry3Sharp.Tests
     {
         public static readonly string[] ClosedFamilies = { "coplanar", "shared", "ulp", "slab", "shells", "generic", "rotated" };
         public const string OpenFamily = "open";
+        /// <summary>
+        /// (not among ClosedFamilies: the other campaigns keep their seeds) a box on a box whose faces are two triangles with a flat diagonal each, placed so that the pieces' centroids lie
+        /// on the other's flat diagonal (E' region clipping, #1630): the small box is a square centred on the diagonal x = y of the base's top face, with its own diagonal along it
+        /// or across it (a quarter turn), on the top or sunk with its top flush, sometimes moved off the diagonal, and the two meshes in either order.
+        /// </summary>
+        public const string FlatEdgeFamily = "flatedge";
 
         public static FuzzCase Make(string family, int seed)
         {
@@ -177,6 +183,7 @@ namespace geometry3Sharp.Tests
                 case "generic": return Generic(r);
                 case "rotated": return Rotated(r);
                 case "open": return OpenCase(r);
+                case FlatEdgeFamily: return FlatEdge(r);
                 default: throw new ArgumentException("unknown family " + family);
             }
         }
@@ -184,6 +191,26 @@ namespace geometry3Sharp.Tests
         static string F(double x) => x.ToString("R", CultureInfo.InvariantCulture);
         static T Pick<T>(Random r, params T[] options) => options[r.Next(options.Length)];
         static Vector3d GridPoint(Random r, int range) => new Vector3d(r.Next(range + 1), r.Next(range + 1), r.Next(range + 1));
+
+        // ------------------------------------------------------------------ centroids on flat edges (E' region clipping)
+
+        static FuzzCase FlatEdge(Random r)
+        {
+            double size = Pick(r, 2.0, 3.0, 4.0), h = Pick(r, 0.25, 0.5, 0.75);
+            double c = r.Next(1, 4) * 0.5 * size / 2 + h;           // (the square [c - h, c + h]^2 stays inside [0, size]^2 for the sizes and offsets above)
+            if (c + h > size) c = size - h;
+            double depth = Pick(r, 0.25, 0.5, 1.0);
+            bool sunk = r.Next(2) == 0, turn = r.Next(2) == 0;
+            double dx = r.Next(3) == 0 ? Pick(r, 0.125, 0.25, -0.125) : 0, dy = r.Next(4) == 0 ? Pick(r, 0.125, -0.25) : 0;
+            DMesh3 bigBox = BooleanFuzzShapes.Box(new Vector3d(0, 0, 0), new Vector3d(size, size, 1));
+            double z0 = sunk ? 1 - depth : 1, z1 = sunk ? 1 : 1 + depth;
+            DMesh3 small = BooleanFuzzShapes.Box(new Vector3d(c - h + dx, c - h + dy, z0), new Vector3d(c + h + dx, c + h + dy, z1));
+            if (turn)
+                small = BooleanFuzzShapes.Map(small, p => new Vector3d(2 * c - p.y + dx + dy, p.x - dx + dy, p.z));      // (a quarter turn about the middle of its square, exact on dyadic values)
+            string note = $"base {size}, square {F(c)} +- {F(h)}, z {F(z0)}..{F(z1)}{(turn ? ", turned" : "")}, moved {F(dx)} {F(dy)}";
+            bool swap = r.Next(2) == 0;
+            return new FuzzCase { A = swap ? small : bigBox, B = swap ? bigBox : small, Description = note };
+        }
 
         // ------------------------------------------------------------------ coplanar faces
 

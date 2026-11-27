@@ -101,6 +101,13 @@ def run(cases, d, out, timeout, tool, command="certify"):
                 r["wall_s"] = round(time.time() - t0, 1)
                 f.write(json.dumps(r) + "\n")
         print(c["case"], " ".join(f"{r.get('op', '-')}:{r['verdict']}" for r in got), flush=True)
+    # the gate of the region comparison: any row that is not "same" (a difference, a timeout, an error) makes the run, and so the job, fail
+    if command == "region-compare":
+        bad = [r for r in load_rows([out]) if r["verdict"] not in OK_VERDICTS]
+        if bad:
+            print(len(bad), "rows are not 'same'", file=sys.stderr)
+            return 1
+    return 0
 
 def load_rows(paths):
     out = []
@@ -138,9 +145,11 @@ def summary(paths):
                 print(f"| {lo}-{hi if hi < 1 << 40 else ''} | {len(sel)} | {st.median(r['t_bool_ms'] for r in sel):.0f} | {st.median(r['t_check_ms'] for r in sel):.0f} | "
                       f"{max(r['t_check_ms'] for r in sel):.0f} | {st.median(r['t_check_ms'] / max(r['t_bool_ms'], 1e-3) for r in sel):.1f} |")
 
+OK_VERDICTS = ("same", "not compared (not clean)")     # (the second is counted apart: the results are not clean, so their surfaces are not compared)
+
 def summary_region(paths):
     rs = load_rows(paths)
-    verdicts = ["same", "failed differently", "status differs", "reason differs", "surface differs", "difference failed", "certificate rejected", "certificate run failed",
+    verdicts = ["same", "not compared (not clean)", "failed differently", "status differs", "reason differs", "surface differs", "difference failed", "certificate rejected", "certificate run failed",
                 "certificate exception", "exception off", "exception on", "error", "timeout", "process failed"]
     cls = lambda r: r["case"].split("-")[0] + ("-" + r["case"].split("-", 2)[2] if r["case"].startswith("contact") else "")
     print("| class | operations | " + " | ".join(verdicts) + " |")
@@ -148,7 +157,11 @@ def summary_region(paths):
     for c in sorted({cls(r) for r in rs}) + ["all"]:
         sel = [r for r in rs if c == "all" or cls(r) == c]
         print(f"| {c} | {len(sel)} | " + " | ".join(str(sum(1 for r in sel if r["verdict"] == v)) for v in verdicts) + " |")
-    bad = [r for r in rs if r["verdict"] != "same"]
+    certs = {}
+    for r in rs:
+        if "cert" in r: certs[r["cert"]] = certs.get(r["cert"], 0) + 1
+    print("\ncertificate on the result with the switch on (a third run): " + (", ".join(f"{k} {v}" for k, v in sorted(certs.items())) or "none"))
+    bad = [r for r in rs if r["verdict"] not in OK_VERDICTS]
     if bad:
         print("\ndifferences (case, op, verdict, message):\n")
         for r in bad:
@@ -163,6 +176,7 @@ def summary_region(paths):
             if sel:
                 print(f"| {lo}-{hi if hi < 1 << 40 else ''} | {len(sel)} | {st.median(r['t_off_ms'] for r in sel):.0f} | {st.median(r['t_on_ms'] for r in sel):.0f} | "
                       f"{max(r['t_off_ms'] for r in sel):.0f} | {max(r['t_on_ms'] for r in sel):.0f} | {max(r['t_on_ms'] / max(r['t_off_ms'], 1e-3) for r in sel):.1f} |")
+    return 1 if bad or not rs else 0        # a timeout, an error or a difference makes the job red
 
 def main():
     ap = argparse.ArgumentParser()
@@ -176,8 +190,8 @@ def main():
     a = ap.parse_args()
     if a.cmd == "plan": plan(a.out, a.self, a.pairs, a.contact, a.max_tris)
     elif a.cmd == "fetch": fetch(a.dir, a.cases)
-    elif a.cmd == "run": run(a.cases, a.dir, a.out, a.timeout, a.tool, a.command)
-    elif a.region: summary_region(a.paths)
+    elif a.cmd == "run": sys.exit(run(a.cases, a.dir, a.out, a.timeout, a.tool, a.command))
+    elif a.region: sys.exit(summary_region(a.paths))
     else: summary(a.paths)
 
 if __name__ == "__main__":

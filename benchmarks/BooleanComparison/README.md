@@ -1535,9 +1535,20 @@ python3 data/certify_thingi.py summary --region <rows>...           the counts b
 ```
 
 The run is `.github/workflows/region-clipping-corpus.yml` (workflow_dispatch; the Thingi10K models are fetched at run time on GitHub-hosted runners, nothing is committed;
-the rows go to the artifacts and the job summary). The procedural corpora are also a test, `RegionClippingCorpusTests` (a few seeds per family in the PR tier, 300 per
-family in the Nightly tier). Local run before the workflow (2026-11-27, 4 cores): the fuzz families, seeds 4..153 (3,600 rows) and seeds 0..3, and the audit corpus (60 rows):
-all `same`; 3,066 certified, 450 not applicable (open inputs), 84 where the rounding removed a part (as without the switch); time 3.8 s without, 3.1 s with.
+the rows go to the artifacts and the job summary; `run` and `summary --region` exit non-zero on any verdict other than `same` and `not compared (not clean)`, so a difference, a
+timeout or an error makes the job red). The procedural corpora are also a test, `RegionClippingCorpusTests` (6 seeds per family in the PR tier, 300 per family in the Nightly tier).
+
+Rows and verdicts. Per fuzz case: the three operations, and for closed inputs three predicates that read the exact winding numbers (`pred-only-first`, `pred-only-second`,
+`pred-both-once`): a crossing counted twice changes only the magnitude of a winding number, which the thresholds of the three operations never see, so only these rows kill a
+mutant of the one-crossing rule (the family `flatedge` puts centroids on flat diagonals). Verdict `same`; `not compared (not clean)` when the status and the reason agree but the
+results are not clean (open inputs, self-intersections): the surfaces are not compared, and the summary counts these apart; otherwise the first difference. The certificate is
+checked on a third run (the checker's class: Intersection without the early-out, the certificate recorded), not on the timed runs; the summary tallies its outcomes.
+
+Local run (2026-11-27, 4 cores, no network, so no Thingi10K): all 8 fuzz families (the seven closed ones, `open`, `flatedge`), seeds 0..119, 6,120 rows: 5,822 `same`, 297 `not compared
+(not clean)`, **1 `surface differs`**: `fuzz-slab-52` with `pred-only-second`; the audit corpus, 60 rows: 53 `same`, 7 `not compared`. Time 5.6 s without the switch, 4.7 s with.
+The difference: `slab #52` is a slab of thickness 2^-42 on the top face of a box, and the predicate "inside the slab and outside the box" selects exactly it: both results are
+clean and certified, but the thin slab collapses under the rounding of the result (its triangles have repeated vertices at 9 digits), and the two triangulations round to
+different 6 and 4 triangle meshes. The exact surface before the rounding is the same (the certificate of the result with the switch on covers it); the rounded results differ.
 
 ## Nesting check of MeshWindingNumberBoolean (`nesting-cost`; #1609, #1661, 2026-11-26)
 

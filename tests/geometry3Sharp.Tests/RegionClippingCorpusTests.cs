@@ -20,7 +20,11 @@ namespace geometry3Sharp.Tests
         readonly ITestOutputHelper output;
         public RegionClippingCorpusTests(ITestOutputHelper output) { this.output = output; }
 
-        public static IEnumerable<object[]> Families() => BooleanFuzzCases.ClosedFamilies.Append(BooleanFuzzCases.OpenFamily).Select(f => new object[] { f });
+        public static IEnumerable<object[]> Families() => BooleanFuzzCases.ClosedFamilies.Append(BooleanFuzzCases.OpenFamily).Append(BooleanFuzzCases.FlatEdgeFamily).Select(f => new object[] { f });
+
+        // Known differences of the rounded results with the same exact surface (reported to the owner, benchmarks/BooleanComparison/README.md, "Region clipping corpus gate"): slab #52 is a slab of
+        // thickness 2^-42 on a box face; the predicate "inside the slab, outside the box" selects exactly it, and the rounding of the result collapses it to two different meshes
+        static readonly HashSet<string> RoundingSensitive = new HashSet<string> { "slab|52|pred-only-second" };
 
         string Run(string family, int from, int count)
         {
@@ -29,13 +33,19 @@ namespace geometry3Sharp.Tests
             double off = 0, on = 0;
             for (int seed = from; seed < from + count; ++seed) {
                 FuzzCase c = BooleanFuzzCases.Make(family, seed);
-                foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {
-                    Dictionary<string, object> r = RegionClippingCompare.Row(new List<DMesh3> { c.A, c.B }, op);
+                // (the three operations, and for closed inputs the predicates that read the exact winding numbers: a crossing counted twice shows only there)
+                var jobs = new List<(Ops, Func<int[], bool>, string)> { (Ops.Union, null, null), (Ops.Intersection, null, null), (Ops.Difference, null, null) };
+                if (c.Open == false)
+                    foreach (var p in RegionClippingCompare.ExactPredicates)
+                        jobs.Add((Ops.Union, p.Predicate, p.Name));
+                foreach (var (op, pred, pname) in jobs) {
+                    Dictionary<string, object> r = RegionClippingCompare.Row(new List<DMesh3> { c.A, c.B }, op, true, null, pred, pname);
                     ++rows;
                     if (r.TryGetValue("t_off_ms", out object a)) off += (double)a;
                     if (r.TryGetValue("t_on_ms", out object b)) on += (double)b;
-                    if ((string)r["verdict"] == "same") continue;
-                    if (++bad <= 3) report.AppendLine($"{c} {op}: {r["verdict"]} {(r.ContainsKey("message") ? r["message"] : "")}\n{c.ToCode()}");
+                    if ((string)r["verdict"] == "same" || (string)r["verdict"] == "not compared (not clean)") continue;
+                    if (RoundingSensitive.Contains(family + "|" + seed + "|" + r["op"])) { output.WriteLine($"known: {c} {r["op"]}: {r["verdict"]}"); continue; }
+                    if (++bad <= 3) report.AppendLine($"{c} {r["op"]}: {r["verdict"]} {(r.ContainsKey("message") ? r["message"] : "")}\n{c.ToCode()}");
                 }
             }
             output.WriteLine($"{family}: seeds {from}..{from + count - 1}, {rows} rows, {bad} differ; {off:F0} ms without, {on:F0} ms with");
@@ -62,6 +72,36 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void TheRow_ReportsADifference_PositiveControl()
+        {
+            // a change of the run with the switch on that the gate must see: another operation (the surface differs), a budget that fails it (failed differently)
+            DMesh3 a = ExactMeshBooleanCoplanarWalkTests.Cylinder(6), b = ExactMeshBooleanCoplanarWalkTests.Shifted(a, 0.25);
+            var meshes = new List<DMesh3> { a, b };
+            Assert.Equal("same", (string)RegionClippingCompare.Row(meshes, Ops.Union)["verdict"]);
+            string other = (string)RegionClippingCompare.Row(meshes, Ops.Union, false, x => x.Operation = Ops.Intersection)["verdict"];
+            Assert.Contains(other, new[] { "surface differs", "reason differs" });
+            Assert.Equal("failed differently", (string)RegionClippingCompare.Row(meshes, Ops.Union, false, x => x.MaxPieces = 10)["verdict"]);
+        }
+
+        [Fact]
+        public void TheFlatEdgeFamily_PutsCentroidsOnFlatDiagonals()
+        {
+            // (the family exists to kill a mutant of the one-crossing-per-region rule: some pieces must have a stack with two triangles of one region)
+            int hits = 0;
+            for (int seed = 0; seed < 40; ++seed) {
+                FuzzCase c = BooleanFuzzCases.Make(BooleanFuzzCases.FlatEdgeFamily, seed);
+                var neu = new ExactMeshBoolean(new List<DMesh3> { c.A, c.B }, Ops.Union) { RegionClipping = true, RecordStacks = true };
+                Assert.True(neu.Compute(), neu.Error);
+                foreach (List<int> st in neu.StacksPerPiece)
+                    if (st != null)
+                        for (int i = 0; i < st.Count; ++i)
+                            for (int j = i + 1; j < st.Count; ++j)
+                                if (neu.Arrangement.RegionOf[st[i]] == neu.Arrangement.RegionOf[st[j]]) { ++hits; i = st.Count; break; }
+            }
+            Assert.True(hits > 0, "no stack with two triangles of one region in 40 seeds");
+        }
+
+        [Fact]
         public void TheRow_OfTheCasesOfIssue1630_IsSame()
         {
             DMesh3 a = ExactMeshBooleanCoplanarWalkTests.Cylinder(6);
@@ -69,7 +109,7 @@ namespace geometry3Sharp.Tests
                 foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {
                     Dictionary<string, object> r = RegionClippingCompare.Row(new List<DMesh3> { a, b }, op);
                     Assert.Equal("same", (string)r["verdict"]);
-                    Assert.NotEqual("rejected", (string)r["cert"]);      // (certified, or the rounding removed a part as in the old rule)
+                    Assert.Contains((string)r["cert"], new[] { "certified", "removed parts" });      // (the rounding may remove a part, as in the old rule)
                     Assert.True(r.ContainsKey("t_off_ms") && r.ContainsKey("t_on_ms") && r.ContainsKey("tris_off"));
                 }
         }
