@@ -1316,7 +1316,7 @@ namespace g3
             nextPoint = 0;
             canonical = null;
             triangleCount = 0;
-            triMesh = null; triTid = null; triCorners = null; triDegenerate = null; triPlanes = null; triTouch = null;
+            triMesh = null; triTid = null; triCorners = null; triDegenerate = null; triPlanes = null; triTouch = null; RegionOf = null; flatMask = null;
             touchedPoints = null;
             planeRep = null;
             Culled = null;
@@ -2233,9 +2233,18 @@ namespace g3
         internal bool SpikeFlatSkip;
         internal int SpikeSkipped;
         byte[] flatMask;
+        /// <summary>
+        /// per input triangle, its region (stage 1 of docs/design/COPLANAR_REGION_CLIPPING.md): the lowest triangle index of the set of triangles of one mesh
+        /// that lie in one exact plane and are joined through flat edges (an edge of exactly two triangles of the mesh that traverse it in opposite
+        /// directions, with their third corners strictly on opposite sides of it). A triangle with no flat edge is a region of its own. Null before
+        /// the pair stage, or when SpikeFlatSkip is off. Serial and a function of the triangles alone.
+        /// </summary>
+        internal int[] RegionOf { get; private set; }
         void build_flat_mask()
         {
             flatMask = new byte[Triangles.Count];
+            var parent = new int[Triangles.Count];
+            for (int i = 0; i < parent.Length; ++i) parent[i] = i;
             for (int mi = 0; mi < Meshes.Count; ++mi) {
                 var edges = new Dictionary<long, (int, int)>(EdgeKeyComparer.Instance);
                 var bad = new HashSet<long>(EdgeKeyComparer.Instance);
@@ -2269,10 +2278,22 @@ namespace g3
                         for (int j = 0; j < 3; ++j) if (O.Corners[j] == b && O.Corners[(j + 1) % 3] == a) opposite = true;
                         if (opposite == false) continue;
                         if (Orient(T, a, b, c) * Orient(T, a, b, d) < 0)
+                        {
                             flatMask[ti] |= (byte)(1 << k);
+                            int ra = ti, rb = oi;
+                            while (parent[ra] != ra) ra = parent[ra] = parent[parent[ra]];
+                            while (parent[rb] != rb) rb = parent[rb] = parent[parent[rb]];
+                            if (ra < rb) parent[rb] = ra; else if (rb < ra) parent[ra] = rb;
+                        }
                     }
                 }
             }
+            for (int i = 0; i < parent.Length; ++i) {
+                int r = i;
+                while (parent[r] != r) r = parent[r];
+                parent[i] = r;
+            }
+            RegionOf = parent;
         }
 
         // per triangle: a triangle in the same plane that stands for its plane (after find_intersections; null before:

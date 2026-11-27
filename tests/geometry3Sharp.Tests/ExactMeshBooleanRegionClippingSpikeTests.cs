@@ -69,5 +69,92 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1, Skipped(Pair(false)));      // (only the triangle above the line meets the small one)
             Assert.Equal(0, Skipped(Pair(true)));
         }
+
+        // ---- stage 1: the regions
+
+        static int[] Regions(params DMesh3[] meshes)
+        {
+            var arr = new ExactMeshArrangement(new List<DMesh3>(meshes)) { SelfIntersections = true, SpikeFlatSkip = true };
+            arr.Compute();
+            return arr.RegionOf;
+        }
+
+        static DMesh3 Far() { var m = new DMesh3(); m.AppendVertex(new Vector3d(100, 100, 100)); m.AppendVertex(new Vector3d(101, 100, 100)); m.AppendVertex(new Vector3d(100, 101, 100)); m.AppendTriangle(0, 1, 2); return m; }
+
+        static int Count(int[] r, int from, int to)
+        {
+            var roots = new HashSet<int>();
+            for (int i = from; i < to; ++i) roots.Add(r[i]);
+            return roots.Count;
+        }
+
+        static DMesh3 Grid(int n, double z = 0, double bendFrom = double.MaxValue)
+        {
+            var m = new DMesh3();
+            for (int j = 0; j <= n; ++j) for (int i = 0; i <= n; ++i) m.AppendVertex(new Vector3d(i, j, i >= bendFrom ? z + (i - bendFrom) : z));
+            for (int j = 0; j < n; ++j) for (int i = 0; i < n; ++i) {
+                int a = j * (n + 1) + i, b = a + 1, c = a + n + 1, d = c + 1;
+                m.AppendTriangle(a, b, d); m.AppendTriangle(a, d, c);
+            }
+            return m;
+        }
+
+        [Fact]
+        public void AGridInOnePlane_IsOneRegion_AndABentGridTwo()
+        {
+            int[] r = Regions(Grid(4), Far());
+            Assert.Equal(1, Count(r, 0, 32));
+            Assert.Equal(0, r[31]);
+            Assert.Equal(32, r[32]);        // the far triangle: a region of its own
+            Assert.Equal(2, Count(Regions(Grid(4, 0, 2), Far()), 0, 32));
+        }
+
+        [Fact]
+        public void ABox_HasSixRegionsOfTwoTriangles_AndTwoMeshesNeverShareOne()
+        {
+            var box = new TrivialBox3Generator() { Box = new Box3d(new AxisAlignedBox3d(new Vector3d(0, 0, 0), new Vector3d(1, 1, 1))) }.Generate().MakeDMesh();
+            int[] r = Regions(box, Far());
+            Assert.Equal(6, Count(r, 0, 12));
+            foreach (int root in new HashSet<int>(r[0..12])) Assert.Equal(2, System.Linq.Enumerable.Count(r[0..12], x => x == root));
+            int[] two = Regions(Grid(2), Grid(2));
+            Assert.Equal(1, Count(two, 0, 8));
+            Assert.Equal(1, Count(two, 8, 16));
+            Assert.Equal(8, two[8]);
+        }
+
+        [Fact]
+        public void AFlippedNeighbour_IsNotFlat()
+        {
+            var flipped = new DMesh3();
+            flipped.AppendVertex(new Vector3d(0, 0, 0)); flipped.AppendVertex(new Vector3d(1, 0, 0)); flipped.AppendVertex(new Vector3d(0, 1, 0)); flipped.AppendVertex(new Vector3d(1, 1, 0));
+            flipped.AppendTriangle(0, 1, 2);
+            flipped.AppendTriangle(1, 3, 2);                      // 1->2 in the first, 2->1 in the second: consistent
+            int[] ok = Regions(flipped, Far());
+            Assert.Equal(1, Count(ok, 0, 2));                   // consistent: one region
+            var bad = new DMesh3();
+            bad.AppendVertex(new Vector3d(0, 0, 0)); bad.AppendVertex(new Vector3d(1, 0, 0)); bad.AppendVertex(new Vector3d(0, 1, 0)); bad.AppendVertex(new Vector3d(1, 1, 0));
+            bad.AppendTriangle(0, 1, 2);
+            bad.AppendTriangle(1, 2, 3);                          // 1->2 in both: a flipped neighbour
+            Assert.Equal(2, Count(Regions(bad, Far()), 0, 2));
+        }
+
+        [Fact]
+        public void ACylinder_HasTwoCapsAndOneRegionPerSideQuad()
+        {
+            DMesh3 c = ExactMeshBooleanCoplanarWalkTests.Cylinder(8);
+            int n = (c.VertexCount - 2) / 2;
+            int[] r = Regions(c, Far());
+            Assert.Equal(2 + n, Count(r, 0, c.TriangleCount));
+            // the regions are a function of the mesh alone: again, and with the other order of the meshes' triangles
+            Assert.Equal(r, Regions(c, Far()));
+        }
+
+        [Fact]
+        public void TheRegions_AreNullWithTheSwitchOff()
+        {
+            var arr = new ExactMeshArrangement(new List<DMesh3> { Grid(2), Far() }) { SelfIntersections = true };
+            arr.Compute();
+            Assert.Null(arr.RegionOf);
+        }
     }
 }

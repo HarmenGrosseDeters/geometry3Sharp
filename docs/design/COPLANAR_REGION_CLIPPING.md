@@ -1,6 +1,6 @@
 # Coplanar region clipping (option E'): O(n) pieces for overlaid coplanar fans, #1630
 
-Status: approved by the owner on 2026-11-27; stage 0 (spike behind the internal switch `SpikeFlatSkip`) is under way, measured (section 9). Refs #1630. It changes the output
+Status: approved by the owner on 2026-11-27; stage 0 measured and stage 1 (region identification) built, behind the internal switch `SpikeFlatSkip` (section 8). Refs #1630. It changes the output
 triangulation of every boolean whose inputs have coplanar clusters (section 5). The stack walk of
 [COPLANAR_PROPAGATION.md](COPLANAR_PROPAGATION.md) (option A) is built and is the base of this design.
 [COPLANAR_FAN_DIAGNOSIS.md](COPLANAR_FAN_DIAGNOSIS.md) has the earlier measurements.
@@ -52,8 +52,8 @@ Today a triangle T of mesh A is cut by the clipped edges of every coplanar trian
 `clip_into`): also by the edges that U shares with another triangle of B in the same plane, which are not a boundary of anything.
 
 - **Region.** A maximal set of triangles of one mesh in one plane, connected through *flat edges*: an edge shared by exactly two
-  triangles of that mesh that lie in the same exact plane with the same orientation of the normal. The plane test is the exact
-  integer plane that `ExactPlanarSimplify` and `CanonicalPlane` already compare. An edge with an opposite orientation (a fin), with
+  triangles of that mesh that lie in the same exact plane and traverse the edge in opposite directions (consistent orientation; not "opposite normals"). The plane test is the exact
+  integer plane that `ExactPlanarSimplify` and `CanonicalPlane` already compare. An edge whose two triangles traverse it in the same direction (a fin), with
   three or more triangles, or with one triangle is a boundary edge.
 - **Rule.** Clip an edge of U into T only if the edge is a boundary edge of U's region. The flat edges of the other mesh no longer
   cut T. The edges of the triangles of T itself stay what they are: they are the pieces' units.
@@ -147,6 +147,34 @@ Stages 0 and 3 are measurements in a scratch run and in `benchmarks/`; each stag
 obligation-3 proof of COPLANAR_PROPAGATION.md; the parallel simplify needs a bit-identical batch order and a review for the
 allow-list.
 
+### Stage 0 measured (2026-11-27, scratch spike, `SpikeFlatSkip`)
+
+The spike skips the constraint of every clip of a flat edge (two triangles of one mesh in the same exact plane, the edge traversed in opposite directions by the two
+(consistent orientation, not an opposite normal), third corners strictly on opposite sides by the exact in-plane `Orient`); the pair is still clipped, so the coplanar relation is recorded. Stacks are not region aware
+yet, so only pieces and time are meaningful. Union of a capped cylinder and a copy shifted by dx:
+
+| case | ring | pieces before | pieces with the switch | Compute ms before / with |
+| --- | --- | --- | --- | --- |
+| S (2 ulps) | 121 | 29,808 | 2,184 | 930 / 771 |
+| S | 241 | 117,168 | 4,344 (x1.99) | 6,185 / 555 |
+| S | 481 | (27.5 s run) | 8,664 (x1.99) | 27,529 / 2,614 |
+| R (0.25) | 61 | 6,064 | 1,128 | 204 / 165 |
+| R | 121 | 22,480 | 2,232 (x1.98) | 948 / 319 |
+| R | 241 | | 4,448 (x1.99) | / 847 |
+| R | 481 | | 8,880 (x2.0) | / 2,236 |
+| plate and 9 boxes | | 1,092 | 852 | 18 / 7 |
+
+Gate (pieces at most x2.3 per doubling, ring 481 at most 3 s): met. The flat-edge test adds no predicate (exact `Orient` of input points as in
+`meets_only_at_shared`). `SpikeFlatSkip` is internal, off by default, and the output of every operation is unchanged with it off.
+
+### Stage 1 built (2026-11-27): region identification
+
+`ExactMeshArrangement.RegionOf` (internal, filled only with `SpikeFlatSkip` on, null otherwise): per input triangle the lowest triangle index of its
+region, by a serial union-find over the flat edges, a function of the triangles alone. Unit tests: a grid in one plane is one region and a bent grid two,
+a box has six regions of two triangles, two meshes never share a region, a neighbour that traverses the edge the same way (a flipped one) is not flat, a
+cylinder has two caps and one region per side quad. (A non-manifold edge cannot occur: `DMesh3` does not hold one; the code treats an edge with three
+triangles as a boundary edge anyway.) With the switch off no output changes.
+
 ## 9. Prior art (papers only; no code read)
 
 - G. Bernstein, D. Fussell, *Fast, Exact, Linear Booleans*, Computer Graphics Forum 28(5), 1269-1278, 2009 (Eurographics SGP): exact BSP
@@ -164,23 +192,3 @@ allow-list.
 The statement that polygon- or plane-based pipelines keep coplanar faces together while triangle-based arrangements (this library,
 and the arrangement papers above) split triangle by triangle is the author's reading of the designs, not a claim of these papers
 about coplanar fans; the numbers of sections 1 to 3 are this library's.
-
-## 9. Stage 0 measured (2026-11-27)
-
-The spike skips the constraint of every clip of a flat edge (two triangles of one mesh, same exact plane, consistent orientation, third corners
-strictly on opposite sides by the exact in-plane `Orient`); the pair is still clipped, so the coplanar relation is recorded. Stacks are not region aware
-yet, so only pieces and time are meaningful. Union of a capped cylinder and a copy shifted by dx:
-
-| case | ring | pieces before | pieces with the switch | Compute ms before / with |
-| --- | --- | --- | --- | --- |
-| S (2 ulps) | 121 | 29,808 | 2,184 | 930 / 771 |
-| S | 241 | 117,168 | 4,344 (x1.99) | 6,185 / 555 |
-| S | 481 | (27.5 s run) | 8,664 (x1.99) | 27,529 / 2,614 |
-| R (0.25) | 61 | 6,064 | 1,128 | 204 / 165 |
-| R | 121 | 22,480 | 2,232 (x1.98) | 948 / 319 |
-| R | 241 | | 4,448 (x1.99) | / 847 |
-| R | 481 | | 8,880 (x2.0) | / 2,236 |
-| plate and 9 boxes | | 1,092 | 852 | 18 / 7 |
-
-Gate (pieces at most x2.3 per doubling, ring 481 at most 3 s): met. The flat-edge test adds no predicate (exact `Orient` of input points as in
-`meets_only_at_shared`). `SpikeFlatSkip` is internal, off by default, and the output of every operation is unchanged with it off.
