@@ -12,9 +12,9 @@ namespace g3
     /// upstream), and a ray that starts on the triangle hits it at t = 0. No tolerance: upstream rejected rays within
     /// about 1e-8 of the plane as parallel and rounded edge tests on and near edges either way. RayParameter and TriangleBaryCoords are computed in doubles (the barycentrics clamped into the triangle),
     /// as upstream (with the direction and the edges scaled by powers of two into [1, 2), which leaves them the same doubles where no product
-    /// underflows or overflows, and the same for every 2^k scaling of the input); where that D . N has no reliable relative accuracy (a ray within
-    /// about 1e-8 of the triangle's plane, a sliver, |D . N| below 2^-900, a scaled component in the subnormal range) or a quotient is not finite,
-    /// they are the exact quotients, each rounded once (#1686).
+    /// underflows or overflows, and the same for every 2^k scaling of the input); where that |D . N| is below 2^-900 (a shallow ray or a sliver,
+    /// where the products can be subnormal and 1 / (D . N) can overflow), a scaled component is in the subnormal range, or a quotient is not
+    /// finite, they are the exact quotients, each rounded once (#1686).
     /// </summary>
     public class IntrRay3Triangle3
     {
@@ -147,20 +147,14 @@ namespace g3
             double DdN = Math.Abs(dir.Dot(ref normal));
             double inv = (1) / DdN;
             // The exact quotients instead of the double ones (#1686; the hit implies D . N != 0 exactly, so they exist):
-            // - a shallow ray or a sliver: the rounded D . N has an error of at most about 5 u S, S = sum |d_i| (|e1_j e2_k| +
-            //   |e1_k e2_j|) (the rounding of N and of the dot product), so where D . N < 2^-26 S it has a relative error above
-            //   about 2^-24 (cancellation: a ray within about 1e-8 of the plane, the rays upstream rejected as parallel); on
-            //   the double route D . N has a relative error of at most about 4e-8, and t's numerator rounds by about
-            //   u |Q| |N|, so the hit point lies within about 2^-24 |Q| of the exact one along the ray;
             // - |D . N| below 2^-900: the products can be subnormal, without relative accuracy, and 1 / DdN can overflow;
             // - a scaled component in the subnormal range (an input whose components span more than about 1000 binades:
             //   the scaling rounded it);
             // - a double quotient that is not finite (below).
             // Everything is computed from the scaled doubles, the same for every 2^k scaling of the input, so is the route.
-            double S = Math.Abs(dir.x) * (Math.Abs(edge1.y * edge2.z) + Math.Abs(edge1.z * edge2.y))
-                + Math.Abs(dir.y) * (Math.Abs(edge1.z * edge2.x) + Math.Abs(edge1.x * edge2.z))
-                + Math.Abs(dir.z) * (Math.Abs(edge1.x * edge2.y) + Math.Abs(edge1.y * edge2.x));
-            if (!(DdN >= ReliableDdN) || !(DdN >= ShallowRatio * S) || has_subnormal(ref dir) || has_subnormal(ref edge1)
+            // (Not covered: a D . N that cancels for a ray within about 1e-16 of a tilted plane is noise far above 2^-900;
+            // a separate issue, since a relative filter changes MeshSheetExtension's grazing walls)
+            if (!(DdN >= ReliableDdN) || has_subnormal(ref dir) || has_subnormal(ref edge1)
                 || has_subnormal(ref edge2) || has_subnormal(ref diff)) {
                 exact_parameters(ref ray, ref V0, ref V1, ref V2, h == ExactRayTriangle.AtOrigin, bary, out rayT, out b1, out b2);
                 return true;
@@ -203,8 +197,6 @@ namespace g3
         // 2^-900: a |D . N| (direction and edges in [1, 2)) at or above it is a normal double whose partial products lose at
         // most 2^-1075 each (a relative 2^-175), and 1 / DdN is finite
         const double ReliableDdN = 1.1830521861667747e-271;      // 2^-900
-        // 2^-26: D . N at least this fraction of S (above), so its rounding error (at most about 5 u S) is a relative 2^-24 at most
-        const double ShallowRatio = 1.4901161193847656e-08;      // 2^-26
         const double MinNormal = 2.2250738585072014e-308;        // 2^-1022
 
         static bool has_subnormal(ref Vector3d v)

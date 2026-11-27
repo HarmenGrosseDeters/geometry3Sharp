@@ -40,25 +40,6 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void ShallowRay_OnATiltedPlane_CancellationInDdotN_ParameterIsTheHit()
-        {
-            // a ray within about 1e-16 of a tilted triangle's plane (review of #1702): D . N cancels, its rounding is noise
-            // (1.1e-16 against terms of 0.79), and the double quotients gave t = 3 and barycentrics (0.25, 0) for the exact
-            // hit at t = 0.0043038, barycentrics (0.26529, 0.45417)
-            var tri = new Triangle3d(new Vector3d(0.1, 0.2, 0.3), new Vector3d(1.3, 0.7, 0.9), new Vector3d(0.4, 1.6, 1.1));
-            var o = new Vector3d(0.5555242140606036, 0.9701310428816298, 0.8236162533557757);
-            var d = new Vector3d(-0.2153209081718545, -0.38334886138368773, -0.2573551055391454);
-            var q = new IntrRay3Triangle3(new Ray3d(o, d, true), tri);
-            Assert.True(q.Find());
-            Assert.True(Math.Abs(q.RayParameter - 0.0043038) < 1e-6, q.RayParameter.ToString("R"));
-            Assert.True(Math.Abs(q.TriangleBaryCoords.y - 0.26529) < 1e-5 && Math.Abs(q.TriangleBaryCoords.z - 0.45417) < 1e-5, q.TriangleBaryCoords.ToString());
-            // the hit point is on the triangle: within rounding of the point of its barycentrics
-            Vector3d p = new Ray3d(o, d, true).PointAt(q.RayParameter);
-            Vector3d w = q.TriangleBaryCoords;
-            Assert.True((p - (w.x * tri.V0 + w.y * tri.V1 + w.z * tri.V2)).MaxAbs < 1e-12);
-        }
-
-        [Fact]
         public void ShallowRay_ThroughTheTreeAndMeshQueries_HitsAtTheRightParameter()
         {
             double h = double.Epsilon;
