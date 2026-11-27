@@ -53,14 +53,29 @@
       "expected": "unsat"
     },
     {
+      "name": "bounded_quadratic_terms_are_reachable",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
       "name": "bounded_quadratic_terms_allow_large_discriminant",
       "result": "unsat",
       "expected": "unsat"
     },
     {
+      "name": "wide_index_premises_are_reachable",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
       "name": "wide_index_can_have_distinct_coordinates_in_one_cell",
       "result": "unsat",
       "expected": "unsat"
+    },
+    {
+      "name": "narrow_index_can_have_distinct_coordinates_in_one_cell",
+      "result": "sat",
+      "expected": "sat"
     },
     {
       "name": "ratio_cap_can_leave_nonfinite_or_out_of_range_value",
@@ -109,14 +124,14 @@
     "factor_overflow": {
       "requested_alpha": 5e-324,
       "requested_offset": 5e-324,
-      "coarsened_alpha": 0.026845005997786553,
-      "rounded_offset": 0.026845005997786553
+      "coarsened_alpha": 0.026868839879520764,
+      "rounded_offset": 0.026868839879520764
     },
     "offset_ratio_overflow": {
       "requested_alpha": 5e-324,
       "requested_offset": 1.7763568394002505e-15,
-      "coarsened_alpha": 0.026845005997786553,
-      "rounded_offset": 9.651816597511716e+306
+      "coarsened_alpha": 0.026868839879520764,
+      "rounded_offset": 9.660385798625858e+306
     },
     "wrap_frame": {
       "ordinary_alpha": 0.026868839879520764,
