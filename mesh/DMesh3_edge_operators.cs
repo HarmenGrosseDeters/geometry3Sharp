@@ -163,6 +163,10 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Replace the vertices of triangle tID. Failed_HitValenceLimit if a vertex would get more than 32,766 triangles (its count is a short, #1684): the mesh is then unchanged.
+        /// (Conservative at the limit: a vertex that only moves to another corner of the triangle is refused as well when its count is full.)
+        /// </summary>
         public virtual MeshResult SetTriangle(int tID, Index3i newv, bool bRemoveIsolatedVertices = true)
         {
             if (!triangles_refcount.isValid(tID)) {
@@ -201,6 +205,11 @@ namespace g3
                 }
             }
 
+
+            // a vertex count is a short: a vertex that gets a corner must still fit (conservative: a corner that moves within the triangle is refused at the limit too)
+            for (int j = 0; j < 3; ++j)
+                if (newv[j] != tv[j] && vertex_refs_fit(newv[j], 1) == false)
+                    return MeshResult.Failed_HitValenceLimit;
 
             // [TODO] check that we are not going to create invalid stuff...
 
@@ -458,6 +467,9 @@ namespace g3
 			}
 			return FlipEdge(eid, out flip);
 		}
+		/// <summary>
+		/// Flip the edge: the two opposite vertices get one more triangle each. Returns Failed_HitValenceLimit if a vertex would get more than 32,766 triangles (its count is a short, #1684): the mesh is then unchanged.
+		/// </summary>
 		public MeshResult FlipEdge(int eab, out EdgeFlipInfo flip) 
 		{
 			flip = new EdgeFlipInfo();
@@ -481,6 +493,10 @@ namespace g3
 			int flipped = find_edge(c,d);
 			if ( flipped != InvalidID )
 				return MeshResult.Failed_FlippedEdgeExists;
+
+			// the flip gives c and d one more triangle each (a count is a short, #1684)
+			if ( vertex_refs_fit(c, 1) == false || vertex_refs_fit(d, 1) == false )
+				return MeshResult.Failed_HitValenceLimit;
 
 			// find edges bc, ca, ad, db
 			int ebc = find_tri_neighbour_edge(t0, b, c);
@@ -566,6 +582,11 @@ namespace g3
             public int eRemoved0, eRemoved1;    // edges we removed (second may be invalid)
             public int eKept0, eKept1;          // edges we kept (second may be invalid)
 		}
+		/// <summary>
+		/// Collapse the edge, keeping vKeep. Returns Failed_HitValenceLimit if a vertex would get more than 32,766 triangles (its count is a short, #1684): the mesh is then unchanged.
+		/// The kept vertex takes over the triangles of the removed one before it loses the removed ones, so the check is made at that peak: a collapse whose
+		/// final count would fit can still be refused when the count of the kept vertex is within a few of the limit.
+		/// </summary>
 		public MeshResult CollapseEdge(int vKeep, int vRemove, out EdgeCollapseInfo collapse)
 		{
 			collapse = new EdgeCollapseInfo();
@@ -659,6 +680,10 @@ namespace g3
 			//  pick up eac/bc/ad/bd as we go? somehow?
 			if ( bIsBoundaryEdge == false && IsBoundaryVertex(a) && IsBoundaryVertex(b) )
 				return MeshResult.Failed_InvalidNeighbourhood;
+
+			// b takes over the triangles of a other than t0 and t1 before it loses them (a count is a short, #1684: refuse at the peak)
+			if ( vertex_refs_fit(b, vertices_refcount.rawRefCount(a) - 1 - (bIsBoundaryEdge ? 1 : 2)) == false )
+				return MeshResult.Failed_HitValenceLimit;
 
 
 			// 1) remove edge ab from vtx b
@@ -806,6 +831,9 @@ namespace g3
 			public Vector2i eRemovedExtra;      // bonus collapsed edge, or InvalidID
 			public Vector2i eKeptExtra;			// edge paired w/ eRemovedExtra
 		}
+		/// <summary>
+		/// Merge two boundary edges. Returns Failed_HitValenceLimit if a vertex would get more than 32,766 triangles (its count is a short, #1684): the mesh is then unchanged.
+		/// </summary>
 		public MeshResult MergeEdges(int eKeep, int eDiscard, out MergeEdgesInfo merge_info) 
 		{
 			merge_info = new MergeEdgesInfo();
@@ -880,6 +908,12 @@ namespace g3
                 }
             }
             
+
+            // a takes the triangles of c, and b those of d (a count is a short, #1684)
+            if (a != c && vertex_refs_fit(a, vertices_refcount.rawRefCount(c) - 1) == false)
+                return MeshResult.Failed_HitValenceLimit;
+            if (b != d && vertex_refs_fit(b, vertices_refcount.rawRefCount(d) - 1) == false)
+                return MeshResult.Failed_HitValenceLimit;
 
             // [TODO] this acts on each interior tri twice. could avoid using vtx-tri iterator?
             if (a != c) {
@@ -1017,6 +1051,9 @@ namespace g3
         {
             return PokeTriangle(tid, Vector3d.One / 3.0, out result);
         }
+        /// <summary>
+        /// Insert a vertex in triangle tid at the barycentric coordinates and connect it to the corners. Returns Failed_HitValenceLimit if a vertex would get more than 32,766 triangles (its count is a short, #1684): the mesh is then unchanged.
+        /// </summary>
         public virtual MeshResult PokeTriangle(int tid, Vector3d baryCoordinates, out PokeTriangleInfo result)
         {
             result = new PokeTriangleInfo();
@@ -1026,6 +1063,10 @@ namespace g3
 
             Index3i tv = GetTriangle(tid);
             Index3i te = GetTriEdges(tid);
+
+            // each corner gets one more triangle (a count is a short, #1684)
+            if (vertex_refs_fit(tv.a, 1) == false || vertex_refs_fit(tv.b, 1) == false || vertex_refs_fit(tv.c, 1) == false)
+                return MeshResult.Failed_HitValenceLimit;
 
             // create new vertex with interpolated vertex attribs
             NewVertexInfo vinfo;
