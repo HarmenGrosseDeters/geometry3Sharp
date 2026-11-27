@@ -386,6 +386,10 @@ namespace g3
         // embedded, so nesting oriented it; > 0: not embedded, the given orientation stayed; -1: not closed modulo 2, not tested);
         // null in the other modes
         internal int[] InsideOutCellsOfInput;
+        // (internal, for SolidBooleanReport.InputsWithWindingOutsideZeroOne) per input of Compute(): the winding number of the closed (not sheet) input
+        // is outside {0, 1} on a side of some classified piece (it overlaps itself: 2 or more, or it is inside out: -1); null before the classification
+        // ran (also after a failure before it)
+        internal bool[] WindingOutsideZeroOneOfInput;
         internal int[] NestingSelfIntersectingPairsOfInput;
         // tests: called with the input triangle of each component's ray before it is shot (it may throw InvalidOperationException,
         // as a ray that finds no direction does)
@@ -836,6 +840,7 @@ namespace g3
             SplitBowtieVertices = 0;
             ReorientedTriangles = Contacts = InsideOutCells = InsideOutUndecided = 0;
             InsideOutCellsOfInput = null;
+            WindingOutsideZeroOneOfInput = null;
             NestingSelfIntersectingPairsOfInput = null;
             ExactWindingA = ExactWindingB = false;
             ExactWinding = null;
@@ -2108,6 +2113,8 @@ namespace g3
             }
 
             int[] winding = new int[nm];
+            // (the closed inputs whose winding number leaves {0, 1} on a side of a piece, read from the numbers the classification has anyway)
+            bool[] outsideZeroOne = new bool[nm];
             // (RetainClassification: only the pieces with a coplanar stack, for the contact regions of BooleanVolumeGradient)
             int[][] front = (RecordCertificate || RetainClassification) ? new int[n][] : null;
             bool[] isTouched = new bool[nm];
@@ -2156,6 +2163,9 @@ namespace g3
                             add(m, sheetFront[m][i]);
                 if (front != null && (RecordCertificate || stack[i] != null))
                     front[i] = (int[])winding.Clone();
+                foreach (int m in touched)
+                    if (ExactWinding[m] && (winding[m] < 0 || winding[m] > 1))
+                        outsideZeroOne[m] = true;
                 bool inFront = inside(winding, touched);
                 foreach (int m in openInputs) {
                     mine[m] = ot.Mesh == m;
@@ -2186,6 +2196,9 @@ namespace g3
                     for (int m = 0; m < nm; ++m)
                         if (sheetFront[m] != null && sheetFront[m][i] != sheetBack[m][i])
                             add(m, sheetBack[m][i] - sheetFront[m][i]);
+                foreach (int m in touched)
+                    if (ExactWinding[m] && (winding[m] < 0 || winding[m] > 1))
+                        outsideZeroOne[m] = true;
                 bool inBack = inside(winding, touched);
                 keep[i] = inFront != inBack;
                 flip[i] = inFront;
@@ -2211,6 +2224,7 @@ namespace g3
                 if (matters[m] && effect[m] == false)
                     classifiedWithoutEffect.Add(m);
             CertificateFront = front;
+            WindingOutsideZeroOneOfInput = outsideZeroOne;
             steps.LapMicroseconds("classification.decisions");
         }
 

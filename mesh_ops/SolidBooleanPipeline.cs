@@ -37,6 +37,38 @@ namespace gs
         Exhausted = 8
     }
 
+    /// <summary>
+    /// What a SolidBooleanPipeline run returned, as a fact next to its Status (SolidBooleanReport.ResultKind): it tells the results a caller
+    /// treats differently apart, which Status (Success) and Clean do not: a clean solid, a solid with contacts, a solid with another defect, an
+    /// empty result that is exact, and an empty result that the pipeline made empty. It judges nothing: Clean, NotCleanReason and OnlyContacts
+    /// keep their meaning.
+    /// </summary>
+    public enum SolidBooleanResultKind
+    {
+        /// <summary> no result: Compute() failed (Status says why), was cancelled, was refused by Verification, or has not run </summary>
+        None = 0,
+        /// <summary> a non-empty result that is clean (Report.Clean). A result from which the rounding removed some parts, and that is clean, is a Solid too: Report.RoundingRemoved lists them </summary>
+        Solid = 1,
+        /// <summary>
+        /// a non-empty result whose only defects are contacts of the exact solid (Report.OnlyContacts: the solids touch at points or along
+        /// edges; NotCleanReason says "self-intersections" there). It is the exact result, valid, with duplicated vertices at the contacts
+        /// </summary>
+        SolidWithContacts = 2,
+        /// <summary> a non-empty result with another defect: Report.NotCleanReason says which (and with "self-intersections", Report.OnlyContacts is false: a real crossing) </summary>
+        SolidNotClean = 3,
+        /// <summary>
+        /// an empty result and the exact result is empty (eg the intersection of two boxes that touch in a plane, or of disjoint solids): the
+        /// answer is right. Report.NotCleanReason is "empty" then, as for any empty mesh
+        /// </summary>
+        EmptyExact = 4,
+        /// <summary>
+        /// an empty result although the exact result had volume: the pipeline removed all of it, the rounding as a component thinner than its
+        /// bound can resolve (Report.RoundingRemoved lists them: a real slab of 1e-12 at coordinates of 0.5), or MinThickness
+        /// (Report.RemovedThinSolids, Report.ThinInputs). Not an answer that "the solids do not overlap"
+        /// </summary>
+        EmptyAfterRounding = 5
+    }
+
     /// <summary> one input that was not closed in the winding number sense and was repaired before the boolean </summary>
     public sealed class SolidBooleanInputRepair
     {
@@ -127,6 +159,24 @@ namespace gs
     /// </summary>
     public sealed class SolidBooleanReport
     {
+        /// <summary>
+        /// what the run returned, as a fact next to Status (see SolidBooleanResultKind): None without a result; Solid, SolidWithContacts or
+        /// SolidNotClean for a non-empty result by Clean, OnlyContacts and NotCleanReason; EmptyExact or EmptyAfterRounding for an empty one.
+        /// Set by Compute() for the result it returns (also after the Grid step, the sheet route's fallback or an input repair: the final
+        /// result decides, and the removals it lists), None for a failed run
+        /// </summary>
+        public SolidBooleanResultKind ResultKind = SolidBooleanResultKind.None;
+        /// <summary>
+        /// the indices (as passed to the pipeline, ascending) of the closed inputs whose winding number is outside {0, 1} somewhere: 2 or more
+        /// where the input overlaps itself (eg two overlapping copies of a box in one input, a cavity wall given outward), -1 where it is inside out.
+        /// Read from the exact stage's winding numbers on both sides of the pieces of the arrangement, at no extra cost; empty if none, if the
+        /// exact stage did not run, for an open input and a sheet, and for the pieces that the early-out of an Intersection or a Difference
+        /// culled outside the first input (or of all inputs for an Intersection). The inputs of the run that is the result (after a Grid
+        /// step or a fallback). It is a signal about the inputs, not a judgement of the result: the result is exact for the inputs as given, in
+        /// winding number semantics, so a flagged input is one whose meaning may differ from what the caller meant. Status, Clean, NotCleanReason and
+        /// OnlyContacts keep their meaning. Also set for a run that is refused as InsideOutInput
+        /// </summary>
+        public List<int> InputsWithWindingOutsideZeroOne = new List<int>();
         /// <summary> triangles per input as given (before any repair) </summary>
         public int[] InputTriangles = new int[0];
         /// <summary> per input: ExactMeshBoolean.IsWindingClosed of the input as given (with InputGrid: of its snapped copy) </summary>
@@ -762,7 +812,30 @@ namespace gs
             bool done = computeRoute(total);
             if (done && Verification != VerificationModes.None)
                 done = verify(total);
+            Report.ResultKind = done ? KindOfResult() : SolidBooleanResultKind.None;
             return done;
+        }
+
+        // the kind of the result that Compute returns (Status Success, Result set)
+        SolidBooleanResultKind KindOfResult()
+        {
+            if (Status != PipelineStatus.Success || Result == null)
+                return SolidBooleanResultKind.None;
+            if (Result.TriangleCount == 0)
+                return RemovedSomething() ? SolidBooleanResultKind.EmptyAfterRounding : SolidBooleanResultKind.EmptyExact;
+            if (Report.Clean)
+                return SolidBooleanResultKind.Solid;
+            return Report.OnlyContacts ? SolidBooleanResultKind.SolidWithContacts : SolidBooleanResultKind.SolidNotClean;
+        }
+
+        // the empty result of this run is not the exact result: the pipeline removed what the exact stage had (a component that the rounding repair
+        // removed and that is not a residue, a solid that MinThickness removed, an input treated as empty)
+        bool RemovedSomething()
+        {
+            foreach (MeshRoundingRepair.RemovedComponentInfo c in Report.RoundingRemoved)
+                if (c.Reason != MeshRoundingRepair.RemovalReasons.InsideOutResidue)
+                    return true;
+            return Report.RemovedThinSolids.Count > 0 || (ThinInputs == ThinInputModes.TreatAsEmpty && Report.ThinInputs.Count > 0);
         }
 
         // the run with its steps (sheet route, Grid step, fallback); the result is checked by Compute (Verification)
@@ -1261,6 +1334,10 @@ namespace gs
             }
             Report.InsideOutCells = op.InsideOutCells;
             Report.InsideOutUndecided = op.InsideOutUndecided;
+            if (op.WindingOutsideZeroOneOfInput != null)
+                for (int k = 0; k < op.WindingOutsideZeroOneOfInput.Length && k < active.Count; ++k)
+                    if (op.WindingOutsideZeroOneOfInput[k])
+                        Report.InputsWithWindingOutsideZeroOne.Add(active[k]);
             if (op.InsideOutUndecided > 0 && !AllowInsideOutInputs)
                 return fail(PipelineStatus.InsideOutInput, op.InsideOutUndecided + " component(s) of the closed inputs could not be tested for being inside-out (no ray found); set AllowInsideOutInputs to use them as they are", total);
             if (op.InsideOutCells > 0 && !AllowInsideOutInputs)
