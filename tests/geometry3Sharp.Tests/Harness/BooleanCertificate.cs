@@ -42,7 +42,9 @@ namespace geometry3Sharp.Tests
     ///   (every directed edge once, with its reverse once), and R and E_s lie within delta of each other (Delta: the
     ///   rounding's bound MaxLength plus a few ulps of the coordinates): a triangle is within delta of a convex triangle
     ///   iff its corners are (the distance to a convex set is convex), checked with exact squared distances, the
-    ///   triangle split into four up to SplitDepth times where no single triangle covers it. A corner farther than delta
+    ///   triangle first tried against the union of the triangles near it (the union cover, BooleanCertificate.Coverage.cs: exact regions
+    ///   of the chart where a triangle is within delta along an axis, #1631), then split into four up to SplitDepth times where neither a single
+    ///   triangle nor the union covers it. A corner farther than delta
     ///   from all of the other mesh is a violation; a triangle not covered after the splits is only counted (Uncovered).
     ///
     /// Class (the note's section 3.3): closed inputs (exact winding numbers) only; open inputs are NotApplicable. The
@@ -1784,9 +1786,12 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        /// <summary> for tests: C5's coverage test alone (CheckResult first checks that the result before rounding is the kept pieces) </summary>
+        public string CheckCoverageOnly() => CheckCoverage();
+
         string CheckCoverage()
         {
-            CoverageTests = Uncovered = 0;
+            CoverageTests = Uncovered = UnionCovered = UnionLeftoverCovered = 0;
             var rTris = Result.TriangleIndices().Select(t => {
                 Index3i i = Result.GetTriangle(t);
                 return new[] { Vec(FromDouble(Result.GetVertex(i.a))), Vec(FromDouble(Result.GetVertex(i.b))), Vec(FromDouble(Result.GetVertex(i.c))) };
@@ -1943,6 +1948,7 @@ namespace geometry3Sharp.Tests
         static double FilterEps(double maxAbs, double extent) => Math.Max((maxAbs + extent) / (double)(1L << 40), Math.Pow(2, -480));
 
         double covDelta, covEps;       // Delta, and the absolute slack of the double filters (set by Cover)
+        Q covDeltaQ;                   // Delta as a rational (set by Cover)
         /// <summary> for tests: the slack of the double filters of C5 in the last coverage test (0 before one ran) </summary>
         public double CoverageSlack => covEps;
 
@@ -1982,6 +1988,7 @@ namespace geometry3Sharp.Tests
                 Math.Max(Math.Abs(all.Max.x), Math.Max(Math.Abs(all.Max.y), Math.Abs(all.Max.z)))))), all.MaxDim);
             var toApprox = new TriApprox[to.Count];
             for (int j = 0; j < to.Count; ++j) toApprox[j] = ApproxTri(to[j]);
+            covDeltaQ = DeltaQ();
             for (int i = 0; i < from.Count; ++i) {
                 var box = fromBoxes[i]; box.Expand(pad);
                 List<int> cand = grid.Query(box).OrderBy(x => x == i ? -1 : x).ToList();
@@ -2073,11 +2080,25 @@ namespace geometry3Sharp.Tests
                 }
                 if (all) return true;
             }
+            // (a corner that no triangle is within Delta of: t is not covered and the union cannot change that, so it is not tried)
+            bool cornersNear = UnionCover;
+            for (int k = 0; k < 3 && cornersNear; ++k) {
+                cornersNear = false;
+                foreach (int j in cand)
+                    if (NearFiltered(t[k], cOk[k], pv[k], to[j], toApprox[j], delta2, covDelta, covEps)) { cornersNear = true; break; }
+            }
+            if (cornersNear && CoveredByUnion(t, cand, to, covDeltaQ, delta2)) return true;
             if (depth == 0) return false;
             Q[] Mid(Q[] a, Q[] b) => new[] { ((a[0] + b[0]) * new Q(1, 2)).Reduce(), ((a[1] + b[1]) * new Q(1, 2)).Reduce(), ((a[2] + b[2]) * new Q(1, 2)).Reduce() };
             Q[] ab = Mid(t[0], t[1]), bc = Mid(t[1], t[2]), ca = Mid(t[2], t[0]);
             return Covered(new[] { t[0], ab, ca }, cand, to, toApprox, delta2, depth - 1) && Covered(new[] { ab, t[1], bc }, cand, to, toApprox, delta2, depth - 1)
                 && Covered(new[] { ca, bc, t[2] }, cand, to, toApprox, delta2, depth - 1) && Covered(new[] { ab, bc, ca }, cand, to, toApprox, delta2, depth - 1);
+        }
+
+        Q DeltaQ()
+        {
+            ExactPoint3 d = FromDouble(new Vector3d(Delta, 0, 0));
+            return new Q(d.X, d.W);
         }
 
         Q DeltaSquared()
