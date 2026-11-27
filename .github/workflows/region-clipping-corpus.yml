@@ -5,7 +5,8 @@ name: Region clipping corpus
 # variants). Per case and operation (tests/geometry3Sharp.Tests/Harness/RegionClippingCompare.cs): the same Status, the same NotCleanReason, an exact difference of the
 # two results that is empty both ways, the certifying checker on the result with the switch on, and the time with and without. Manual only (workflow_dispatch, no
 # schedule): the Thingi jobs fetch the models from huggingface at run time, which a PR-tier test never does; no model is committed and the rows hold no mesh. GitHub-hosted
-# runners only. The library and the tool come from library_ref (it must contain the region-compare command), the scripts from the ref the workflow runs on.
+# runners only. The report (the summary and every row that is not `same`, with the exact / exact_tris / min_edge / round_res / repair_tol fields and the stderr tail of a failing case) goes to
+# the job log as well as the step summary; the procedural job and the Thingi kinds / contact variants can be switched off to make a re-run cheaper. The library and the tool come from library_ref (it must contain the region-compare command), the scripts from the ref the workflow runs on.
 on:
   workflow_dispatch:
     inputs:
@@ -30,6 +31,16 @@ on:
       timeout_s:
         description: 'Timeout per case in seconds (all three operations, both settings and the certificate)'
         default: '900'
+      procedural:
+        description: 'Run the procedural job (the fuzz families and the audit corpus)'
+        type: boolean
+        default: true
+      thingi_kinds:
+        description: 'The Thingi10K jobs to run: a comma list of self, pairs, contact (empty: none)'
+        default: 'self,pairs,contact'
+      contact_variants:
+        description: 'The contact variants to run (a comma list of face-contact, partial-overlap, ulp-shift, ulp-shift-few, mirror; empty: all five)'
+        default: ''
 
 permissions:
   contents: read
@@ -40,7 +51,7 @@ env:
 
 jobs:
   procedural:
-    if: github.repository == 'harmengrossedeters/geometry3Sharp'
+    if: github.repository == 'harmengrossedeters/geometry3Sharp' && inputs.procedural
     runs-on: ubuntu-latest   # GitHub-hosted only, never self-hosted
     timeout-minutes: 120
     steps:
@@ -72,7 +83,7 @@ jobs:
         if: always()
         run: |
           set -o pipefail
-          python3 scripts/benchmarks/BooleanComparison/data/certify_thingi.py summary --region rows-procedural.jsonl | tee report-procedural.md >> "$GITHUB_STEP_SUMMARY"
+          python3 scripts/benchmarks/BooleanComparison/data/certify_thingi.py summary --region rows-procedural.jsonl | tee report-procedural.md | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -83,7 +94,7 @@ jobs:
             lib_sha.txt
 
   thingi:
-    if: github.repository == 'harmengrossedeters/geometry3Sharp'
+    if: github.repository == 'harmengrossedeters/geometry3Sharp' && contains(format(',{0},', inputs.thingi_kinds), format(',{0},', matrix.kind))
     runs-on: ubuntu-latest   # GitHub-hosted only, never self-hosted
     timeout-minutes: 340
     strategy:
@@ -116,12 +127,13 @@ jobs:
           SELF: ${{ inputs.self_count }}
           PAIRS: ${{ inputs.pairs_count }}
           CONTACT: ${{ inputs.contact_count }}
+          VARIANTS: ${{ inputs.contact_variants }}
           MAX_TRIS: ${{ inputs.max_tris }}
         run: |
           S=scripts/benchmarks/BooleanComparison/data/certify_thingi.py
           n_self=0; n_pairs=0; n_contact=0
           case "$KIND" in self) n_self=$SELF ;; pairs) n_pairs=$PAIRS ;; contact) n_contact=$CONTACT ;; esac
-          python3 $S plan cases.jsonl --self "$n_self" --pairs "$n_pairs" --contact "$n_contact" --max-tris "$MAX_TRIS"
+          python3 $S plan cases.jsonl --self "$n_self" --pairs "$n_pairs" --contact "$n_contact" --max-tris "$MAX_TRIS" --variants "$VARIANTS"
           python3 $S fetch data cases.jsonl
       - name: Run each case with and without RegionClipping
         env:
@@ -132,7 +144,7 @@ jobs:
         if: always()
         run: |
           set -o pipefail
-          python3 scripts/benchmarks/BooleanComparison/data/certify_thingi.py summary --region "rows-${{ matrix.kind }}.jsonl" | tee "report-${{ matrix.kind }}.md" >> "$GITHUB_STEP_SUMMARY"
+          python3 scripts/benchmarks/BooleanComparison/data/certify_thingi.py summary --region "rows-${{ matrix.kind }}.jsonl" | tee "report-${{ matrix.kind }}.md" | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
