@@ -28,7 +28,7 @@ namespace g3
         /// <summary>
         /// tris: the pieces as point ids; vids: the vertex of each corner slot (3 t + k); vertexPoint: the point of each vertex;
         /// coords[usedIndex[point]]: its position; edgeKeys, edgeTri: GroupEdges of tris. Null if an edge has more than two pieces,
-        /// two pieces that do not run it opposite ways or end at different vertices, or a piece has a vertex twice.
+        /// two pieces that do not run it opposite ways or end at different vertices, a piece has a vertex twice, or a vertex would get more than 32,766 triangles (its count is a short, #1693).
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
         internal static DMesh3 TryBuild(List<Index3i> tris, int[] vids, List<int> vertexPoint, Vector3d[] coords, int[] usedIndex, long[] edgeKeys, int[] edgeTri)
@@ -85,8 +85,10 @@ namespace g3
                     positions[3 * v + 2] = p.z;
                 }
             });
-            System.Threading.Interlocked.Increment(ref Built);
-            return DMesh3.FromEdgeStructure(positions, vids, edges, triEdges, begin, vertexEdges);
+            DMesh3 built = DMesh3.FromEdgeStructure(positions, vids, edges, triEdges, begin, vertexEdges);
+            if (built != null)       // (null: a vertex with more than 32,766 triangles, #1693)
+                System.Threading.Interlocked.Increment(ref Built);
+            return built;
         }
 
         // the corner of f (0, 1, 2: the edge from that corner to the next) that has the edge key, -1 if none

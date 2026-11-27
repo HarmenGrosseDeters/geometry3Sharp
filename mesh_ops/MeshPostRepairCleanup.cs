@@ -412,7 +412,8 @@ namespace gs
                 return result;
             var openBodies = new OpenBodies(mesh, open);
 
-            Vector3d center = mesh.CachedBounds.Center;
+            // (GetBounds, not the cached CachedBounds: the mesh is the caller's input, which a read must not write to, #1661)
+            Vector3d center = mesh.GetBounds().Center;
             var volAreas = closed.Select(c => MeshMeasurements.VolumeArea(mesh, c, (vid) => mesh.GetVertex(vid) - center)).ToList();
             var vols = volAreas.Select(va => va.x).ToList();
             // the orientation from the exact sign of each volume (a filtered sum, exact where the floating-point sum
@@ -468,6 +469,114 @@ namespace gs
                 result.Add(closed[i]);
             }
             return result;
+        }
+
+        /// <summary>
+        /// The count of NestingReadings without the copies of the two readings: the flagged components of FindInvertedComponents that are outward by
+        /// their own volume. 0 without a possible nesting (MayHaveNestedShells)
+        /// </summary>
+        internal static int CountFlippedByNesting(DMesh3 b)
+        {
+            if (b.TriangleCount == 0 || MayHaveNestedShells(b) == false)
+                return 0;
+            int count = 0;
+            foreach (int[] comp in FindInvertedComponents(b))
+                if (volume_sign(b, comp) > 0)
+                    ++count;
+            return count;
+        }
+
+        /// <summary>
+        /// The two readings of the nesting of mesh (#1566, #1609): reading is WindingContouring.OrientedCopy(mesh) (a closed shell inside an odd number of
+        /// others counts as a cavity and is reversed, FindInvertedComponents), union the plain union of the shells (a component that is outward by its own
+        /// volume is not reversed for lying inside another; the nonzero winding number), count the components that differ (flagged although outward by their
+        /// own volume). Both null and 0 if there is none (no shell can lie inside another, MayHaveNestedShells, or no flagged component is outward)
+        /// </summary>
+        internal static void NestingReadings(DMesh3 b, out DMesh3 reading, out DMesh3 union, out int count)
+        {
+            reading = union = null;
+            count = 0;
+            if (b.TriangleCount == 0)
+                return;
+            // (a shell can only be taken for a cavity inside another: no closed shell whose box lies in another's, no flip)
+            if (MayHaveNestedShells(b) == false)
+                return;
+            var flagged = FindInvertedComponents(b);
+            if (flagged.Count == 0)
+                return;
+            DMesh3 plain = new DMesh3(b, true);
+            foreach (int[] comp in flagged) {
+                bool outward = volume_sign(b, comp) > 0;
+                if (outward)
+                    ++count;
+                foreach (int tid in comp) {
+                    if (outward == false)
+                        plain.ReverseTriOrientation(tid);
+                }
+            }
+            if (count == 0)
+                return;
+            // (from the flagged components already found; a mesh with unused triangle ids has other ids in its compacted copy)
+            reading = b.TriangleCount == b.MaxTriangleID ? WindingContouring.OrientedCopy(b, flagged) : WindingContouring.OrientedCopy(b);
+            Vector3d c = plain.CachedBounds.Center;
+            if (MeshMeasurements.VolumeArea(plain, plain.TriangleIndices(), (vid) => plain.GetVertex(vid) - c).x < 0)
+                plain.ReverseOrientation(false);
+            union = plain;
+        }
+
+        /// <summary>
+        /// false if no closed component has its box inside the box of another closed component: then no shell lies inside another, and
+        /// FindInvertedComponents flags only the components that are inside out by their own volume. Cheap (components, boxes, a sweep), no exact volume
+        /// </summary>
+        internal static bool MayHaveNestedShells(DMesh3 mesh)
+        {
+            var comp = new int[mesh.MaxTriangleID];      // (component id + 1, 0: not reached)
+            var stack = new Stack<int>();
+            var closedOf = new List<bool>();
+            foreach (int start in mesh.TriangleIndices()) {
+                if (comp[start] != 0)
+                    continue;
+                int id = closedOf.Count + 1;
+                bool closed = true;
+                comp[start] = id;
+                stack.Push(start);
+                while (stack.Count > 0) {
+                    int t = stack.Pop();
+                    Index3i te = mesh.GetTriEdges(t);
+                    for (int k = 0; k < 3; ++k) {
+                        Index2i et = mesh.GetEdgeT(te[k]);
+                        if (et.b == DMesh3.InvalidID) {
+                            closed = false;
+                            continue;
+                        }
+                        int o = et.a == t ? et.b : et.a;
+                        if (comp[o] == 0) {
+                            comp[o] = id;
+                            stack.Push(o);
+                        }
+                    }
+                }
+                closedOf.Add(closed);
+                // (a mesh of one component, the common case, is done after this flood: no boxes)
+                if (closedOf.Count == 1 && stack.Count == 0 && mesh.TriangleIndices().All(t => comp[t] != 0))
+                    return false;
+            }
+            var boxes = new AxisAlignedBox3d[closedOf.Count];
+            for (int i = 0; i < boxes.Length; ++i)
+                boxes[i] = AxisAlignedBox3d.Empty;
+            foreach (int t in mesh.TriangleIndices())
+                if (closedOf[comp[t] - 1])
+                    boxes[comp[t] - 1].Contain(mesh.GetTriBounds(t));
+            var closedBoxes = new List<AxisAlignedBox3d>();
+            for (int i = 0; i < boxes.Length; ++i)
+                if (closedOf[i])
+                    closedBoxes.Add(boxes[i]);
+            if (closedBoxes.Count < 2)
+                return false;
+            foreach (var l in enclosing_boxes(closedBoxes))
+                if (l.Count > 0)
+                    return true;
+            return false;
         }
 
         // the exact sign of the signed volume of the triangles tris (ExactPredicates.VolumeSign, relative to a vertex of

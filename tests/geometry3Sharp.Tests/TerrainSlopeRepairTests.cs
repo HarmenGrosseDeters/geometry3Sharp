@@ -14,7 +14,7 @@ namespace geometry3Sharp.Tests
     public class TerrainSlopeRepairTests
     {
         // a needle (a, b, c), 1e-9 thin, on the long edge ab of a fat triangle (b, a, d); c is 'zc' above the line ab
-        static DMesh3 Needle(double zc)
+        internal static DMesh3 Needle(double zc)
         {
             var m = new DMesh3(false, false, false, true);
             int a = m.AppendVertex(new Vector3d(0, 0, 0)), b = m.AppendVertex(new Vector3d(10, 0, 0));
@@ -36,7 +36,15 @@ namespace geometry3Sharp.Tests
                 Assert.True(ExactPredicates.Orient2d(m.GetVertex(tv.a).xy, m.GetVertex(tv.b).xy, m.GetVertex(tv.c).xy) > 0);
             }
             var m2 = Needle(1e-3);
-            Assert.Equal(0, SlopeMap.FlipNeedles(m2, 1e-6, 5e-4));
+            int refused; double largest;
+            Assert.Equal(0, SlopeMap.FlipNeedles(m2, 1e-6, 5e-4, out refused, out largest));
+            // (refused for its bound: counted, with the bound, which is at least the change zc / 2 ... and above the share)
+            Assert.Equal(1, refused);
+            Assert.True(largest > 5e-4 && largest < 1, "largest refused bound " + largest);
+            int none; double zero;
+            Assert.Equal(1, SlopeMap.FlipNeedles(Needle(1e-3), 1e-6, 2e-3, out none, out zero));
+            Assert.Equal(0, none);
+            Assert.Equal(0.0, zero);
             // and not a fat triangle
             var m3 = Needle(1e-3);
             Assert.Equal(0, SlopeMap.FlipNeedles(m3, 1e-12, 1));

@@ -543,9 +543,19 @@ namespace g3
         }
         
 
+        // a vertex count is a short (see DMesh3.vertex_refs_fit, #1684)
+        bool vertex_refs_fit(int vid, int add)
+        {
+            return vertices_refcount.rawRefCount(vid) + add <= short.MaxValue;
+        }
+
         public int AppendTriangle(int v0, int v1, int v2, int gid = -1) {
             return AppendTriangle(new Index3i(v0, v1, v2), gid);
         }
+        /// <summary>
+        /// Append triangle tv with optional group ID gid. Returns the new triangle ID, or InvalidID if a vertex does not exist, two vertices are equal or a vertex
+        /// already has 32,766 triangles (its count is a short, #1684).
+        /// </summary>
         public int AppendTriangle(Index3i tv, int gid = -1) {
             if (IsVertex(tv[0]) == false || IsVertex(tv[1]) == false || IsVertex(tv[2]) == false) {
                 Util.gDevAssert(false);
@@ -555,6 +565,10 @@ namespace g3
                 Util.gDevAssert(false);
                 return InvalidID;
             }
+
+            // a vertex count is a short (#1684): refuse a triangle that would take a vertex past its limit, with the mesh as it is
+            if (vertex_refs_fit(tv[0], 1) == false || vertex_refs_fit(tv[1], 1) == false || vertex_refs_fit(tv[2], 1) == false)
+                return InvalidID;
 
             // look up edges. 
             int e0 = find_edge(tv[0], tv[1]);
@@ -1294,6 +1308,10 @@ namespace g3
             }
             return SplitEdge(eid, out split);
         }
+        /// <summary>
+        /// Split the edge (and every triangle on it) at its midpoint. Returns Failed_HitValenceLimit, with the mesh unchanged, if the new vertex or an opposite vertex
+        /// would get more than 32,766 triangles (its count is a short, #1684: a non-manifold edge with more than 16,383 triangles cannot be split).
+        /// </summary>
         public MeshResult SplitEdge(int eab, out EdgeSplitInfo split)
         {
             split = new EdgeSplitInfo();
@@ -1307,6 +1325,27 @@ namespace g3
             List<int> triangles = new List<int>(edge_triangles.ValueItr(eab));
             if ( triangles.Count < 1 )
                 return MeshResult.Failed_BrokenTopology;
+
+            // a vertex count is a short (#1684), before anything changes: the new vertex gets 1 + 2 N (N triangles on the edge: unbounded on a non-manifold edge) and
+            // each opposite vertex k one more for each triangle with that k
+            if (triangles.Count > (short.MaxValue - 1) / 2)
+                return MeshResult.Failed_HitValenceLimit;
+            {
+                Dictionary<int, int> perOpposite = triangles.Count > 2 ? new Dictionary<int, int>() : null;
+                for (int i = 0; i < triangles.Count; ++i) {
+                    int k = IndexUtil.find_tri_other_vtx(a, b, GetTriangle(triangles[i]));
+                    int times = 1;
+                    if (perOpposite != null) {
+                        perOpposite.TryGetValue(k, out times);
+                        perOpposite[k] = ++times;
+                    } else {
+                        for (int j = 0; j < i; ++j)
+                            if (IndexUtil.find_tri_other_vtx(a, b, GetTriangle(triangles[j])) == k) ++times;
+                    }
+                    if (vertex_refs_fit(k, times) == false)
+                        return MeshResult.Failed_HitValenceLimit;
+                }
+            }
                 
             // create new vertex
             Vector3d vNew = 0.5 * (GetVertex(a) + GetVertex(b));
@@ -1415,6 +1454,10 @@ namespace g3
         {
             return PokeTriangle(tid, Vector3d.One / 3.0, out result);
         }
+        /// <summary>
+        /// Insert a vertex in triangle tid at the barycentric coordinates and connect it to the corners. Returns Failed_HitValenceLimit, with the mesh unchanged, if a corner
+        /// already has 32,766 triangles (its count is a short, #1684).
+        /// </summary>
         public virtual MeshResult PokeTriangle(int tid, Vector3d baryCoordinates, out PokeTriangleInfo result)
         {
             result = new PokeTriangleInfo();
@@ -1424,6 +1467,10 @@ namespace g3
 
             Index3i tv = GetTriangle(tid);
             Index3i te = GetTriEdges(tid);
+
+            // each corner gets one more triangle (a count is a short, #1684)
+            if (vertex_refs_fit(tv.a, 1) == false || vertex_refs_fit(tv.b, 1) == false || vertex_refs_fit(tv.c, 1) == false)
+                return MeshResult.Failed_HitValenceLimit;
 
             // create new vertex at the barycentric point, with interpolated vertex attribs
             NewVertexInfo va = GetVertexAll(tv.a), vb = GetVertexAll(tv.b), vc = GetVertexAll(tv.c);

@@ -218,6 +218,24 @@ internal static class PredicateModels
         return g;
     }
 
+    // ExactPredicates.Orient3d(o, a, b, c) -> Orient3dFilter: u = a - o, v = b - o, w = c - o, det = w . (u x v) in the
+    // order of the source (tools/FPTaylorPilot/compare_orient3d.py pins that code text)
+    public static ExprDag BuildOrient3dStageA()
+    {
+        var g = new ExprDag("Orient3d stage A");
+        var o = Pt3(g, "o"); var a = Pt3(g, "a"); var b = Pt3(g, "b"); var c = Pt3(g, "c");
+        int ux = g.Sub(a.x, o.x), uy = g.Sub(a.y, o.y), uz = g.Sub(a.z, o.z);
+        int vx = g.Sub(b.x, o.x), vy = g.Sub(b.y, o.y), vz = g.Sub(b.z, o.z);
+        int wx = g.Sub(c.x, o.x), wy = g.Sub(c.y, o.y), wz = g.Sub(c.z, o.z);
+        int uyvz = g.Mul(uy, vz), uzvy = g.Mul(uz, vy), uzvx = g.Mul(uz, vx);
+        int uxvz = g.Mul(ux, vz), uxvy = g.Mul(ux, vy), uyvx = g.Mul(uy, vx);
+        int t1 = g.Mul(wx, g.Sub(uyvz, uzvy));
+        int t2 = g.Mul(wy, g.Sub(uzvx, uxvz));
+        int t3 = g.Mul(wz, g.Sub(uxvy, uyvx));
+        g.FinalizeRoot(g.Add(g.Add(t1, t2), t3, "det"));
+        return g;
+    }
+
     public static ExprDag BuildInCircle()
     {
         var g = new ExprDag("InCircle");

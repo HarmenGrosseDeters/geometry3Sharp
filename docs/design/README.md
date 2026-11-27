@@ -23,6 +23,7 @@ Architecture specifications, algorithm design notes, error-bound derivations, an
 | [EXACT_VOLUME_SIGN.md](EXACT_VOLUME_SIGN.md) | Exact sign of signed mesh volume for zero-volume sheet removal |
 | [CHEAPER_CONSTRUCTIONS.md](CHEAPER_CONSTRUCTIONS.md) / [`cheaper_constructions.spec`](cheaper_constructions.spec) | Cheaper exact constructions, pair tests, and predicate spec in the arrangement |
 | [PAIR_SEARCH.md](PAIR_SEARCH.md) | Candidate triangle pair search in the exact arrangement |
+| [COPLANAR_PROPAGATION.md](COPLANAR_PROPAGATION.md) | Coplanar stacks and front winding numbers propagated in one walk per source triangle (design, #1630) |
 | [TRI3TRI3_DOUBLE_WORD.md](TRI3TRI3_DOUBLE_WORD.md) | Certified double-word arithmetic: correctly rounded end points of a triangle crossing (derived error bounds, certificate, fallback) |
 | [TRITRI_PREFILTER.md](TRITRI_PREFILTER.md) | Devillers-Guigue sign-based triangle-triangle prefilter |
 | [EXACT_BOOLEAN_30_PRESTUDY.md](EXACT_BOOLEAN_30_PRESTUDY.md) | Exact Boolean 3.0 pre-study (measurements, upper bounds, targets) |
@@ -45,6 +46,7 @@ Architecture specifications, algorithm design notes, error-bound derivations, an
 | [SNAP_ROUNDING_3D.md](SNAP_ROUNDING_3D.md) | Practical 3D snap-rounding leads, falsification runs, and recommendation |
 | [BOOLEAN_PROPERTY_TESTS.md](BOOLEAN_PROPERTY_TESTS.md) | Metamorphic and property-based tests (CsCheck) for booleans |
 | [PIPELINE_GRID_STEP.md](PIPELINE_GRID_STEP.md) | The opt-in Grid step of `SolidBooleanPipeline`: the snapping cell derived from the data (2^12 ulp of the largest coordinate), its limits and prior art |
+| [SHEET_EXTENSION.md](SHEET_EXTENSION.md) | Continuing a cutting sheet that ends just short of the workpiece's surface, per rim edge up to the first exit, verified exactly; diagnosis and helper built (`gs.MeshSheetExtension`), pipeline option (not built) |
 
 ---
 

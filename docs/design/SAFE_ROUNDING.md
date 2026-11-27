@@ -1310,3 +1310,93 @@ same verdict: `summary_cut3000.md`).
   241 against 242 operations above 0.9). 11 search moves in 6 operations; one of them in a component that is then
   removed as tiny (the same result as on master).
 - Time on single cores, in the sum: operations 5438 s against 5444 s, rounding 1091 s against 1104 s.
+
+### 9.1 The joint move: the last resort for a degenerate triangle (#1465, 2026-11-24)
+
+A triangle with an edge of 1e-10 and two of 1e-7 cannot be lifted above the degenerate area (1e-12 of the squared diagonal) by one corner within the bound: the area gained is the edge times the move,
+5e-16 at the bound 1.4e-5 against 2e-12 needed. Two corners moved together gain the product of their moves, 4e-12 at a quarter of the bound each
+(docs/research/ROUNDING_DEGENERATE_LEFT_2026-11.md sections 4 and 10). `MeshRoundingRepair` has this as its last edit (`search_pairs`, `try_move_pair`, `JointSearch`, `JointMoves`).
+
+**The rule.**
+- *When:* in `Apply`, at the very end, after the position search, the passes and the removal of tiny components, for each degenerate triangle that is left; rounds until one makes no move. Not with
+  `MaxPasses` 0. A result without a degenerate triangle is not touched (bit for bit the same). Not in a component that is closed and inside out (negative volume): a move there makes no
+  result better (it is reported not clean, "inside-out components"), and the stage would only spend its budget on it.
+- *Which pairs:* the free corners of the triangle (not kept by `FixedVertexF`, no boundary vertex, no bowtie): none or one: no joint move; two or three: the pairs in the order of the corners' coordinates (x, then y, then z), not of their ids.
+- *Candidates:* p = pos(v) + s d for both vertices; the 26 directions of the position search, the sizes s = room / 2^j with the same j for both, j = 7 up to 0 (the smaller step first); the room is each vertex's own `room_at`. Of the
+  26 * 26 * 8 proposals of a pair only those that leave fewer degenerate triangles at the two stars go to `improves` (its own first test, a probe: it is not an evaluation, at most 5 408 probes per pair, and a pair that failed is
+  probed once until a move changes the stars of one of its vertices), the first that `improves` accepts is made. No random numbers.
+- *Accepted:* `improves` with two moved vertices: the triangles of both stars (once for a triangle at both) are removed and added again with their corners in the order they have; the counts of both stars together: no more
+  degenerate triangles or intersecting pairs, fewer in all; two vertices onto one position, or onto another vertex's position (`SharedPositionsTouch`), are refused. The orientation rule is that of every edit, with the
+  displacement of each triangle taken from its own moved corners (not the larger of the two moves): a triangle turns over only if its normal area is below twice `OrientedArea` times the degenerate area (a sliver) or its height is at most
+  the displacement of its own corners; a larger triangle is refused if its normal turns (dot product with the old one not positive). "No triangle turned over" is therefore not the rule: triangles about as high as the move may turn
+  over (tiny folds), and the exact intersection checks, not the orientation, keep the result free of self-intersections.
+- *Cost:* each proposal that reaches `improves` is an evaluation. The stage has its own budget, `JointStageEvaluationsPerDefect` (1 024) times the number of degenerate triangles it starts with (a pair that succeeded took at most 301 evaluations
+  in the samples of the research note section 10, a failing pair took 1 872 here: a measurement, not a bound). It ends at that budget, or at the repair's own limit if that is nearer (`MaxEvaluationsPerDefect`, and 15/16 of the pair test budget `MaxPairTests`),
+  **without setting `EvaluationLimitReached`**: the stage can end at the repair's effort limit and the result then says it is not clean for the defect it left, not that the repair was out of effort. If the limit was reached before the stage,
+  the stage does not run. The probes of the cheap test are outside the budget.
+- `JointMoves` counts the accepted pairs; they are also counted in `Moves` (not in `PositionSearchMoves`).
+
+**Guarantees.**
+- *Drift:* a displacement edit of the reference rule with two moved vertices. `proposed_drift` takes the largest bound of the triangles of both stars at their new positions and of the ghosts at both vertices
+  (a ghost with a corner at each is evaluated with both at their new positions). `room_at` counts all triangles and ghosts of a vertex, so a move of at most the room cannot exceed the bound, and `proposed_drift` computes and checks it anyway. The lemma covers it: the joint move is modelled in `tools/Z3Pilot/drift_reference.py` (`Chain.move_pair`, every script with a joint move on chains of 3 to 5 vertices, and its
+  reduction to the two single moves), and its source contract pins `try_move_pair`, `search_pairs`, `pos` and the bound methods. The
+  check mode (`check_bounds`, `check_ghosts` for both vertices) and the scripted `MovePair` of `MeshRoundingRepairTestsDriftReference` cover the bookkeeping.
+- *Termination:* each accepted pair lowers the number of defects by at least one; no edit raises it; a round without a move ends the stage.
+- *Invariance:* the directions are constants, the sizes room times powers of two (2^k scales: the same result bit for bit; `MeshRoundingRepairTestsJointMove`); the order of the pair depends on coordinates, not ids.
+- *Determinism:* serial, no randomness.
+- *Not a plateau step* (docs/design/SNAP_ROUNDING_3D.md section 10, no-go 2026-11-15): every accepted pair removes a defect, as every other edit; nothing is journalled or rolled back, and a proposal that is not accepted changes nothing.
+
+**What it repairs, measured** (`BooleanInputOrder search`, the near-coincident plates; counts in docs/research/ROUNDING_DEGENERATE_LEFT_2026-11.md section 10.3, which is the one place that states them): about half of the left-over degenerate triangles of the two searches, no new hit.
+What it does not: a triangle with two fixed corners (the apex alone changes the area), and the states where every lifting position makes an intersection (a fan of 1e-7 edges between two layers 3e-10 apart).
+
+**The extension** (pairs with a fixed corner, free pairs with two levels; #1465, 2026-11-26): section 9.1.1.
+
+**Acceptance on the cohort** (the job of #755, 2026-11-25: all 5,413 models of the D1 cohort, 16,239 operations; base master ca9b55291 against the branch): no operation newly unclean; 1 becomes clean (86593 intersection, one joint move); the 16,036 rounding clean operations keep their result hash; no operation with more defects; `MaxDrift` never above `MaxLength`; the joint stage ran once in all 16,239 operations; `EvaluationLimitReached` false everywhere; time sums +1.2 % (operations) and +3.0 % (rounding), noisy (4 workers on one VM).
+
+### 9.1.1 The extension: pairs with a fixed corner, free pairs with two levels (#1465, 2026-11-26)
+
+The joint stage of section 9.1 pairs free corners only. An exact oracle on the states it leaves (docs/research/ROUNDING_Z3_ORACLE_2026-11.md: 44 degenerate triangles in 29 states) found for 41 of them a move of two
+corners that `try_move_pair` itself accepts, 40 with a corner that `FixedVertexF` marks. In `ExactMeshBoolean` that mark is a preference (`FixedHard` is false: the single-vertex search moves such corners in its second pass), so the stage now
+goes on where the free pairs found nothing.
+
+**The rounds.** `joint_stage` runs `search_pairs(t, round)` over the degenerate triangles in rounds; a round that makes no move goes to the next, a move starts again at round 0, and the stage ends when the last round makes none:
+
+| round | pairs | levels j (the room over 2^j, j = 7 .. 0 for the corner) |
+|---|---|---|
+| 0 | the free corners of the triangle (section 9.1) | the same j for both, the smallest first (unchanged, bit for bit) |
+| 1 | a free corner with a fixed one, then two fixed ones (`is_fixed`, never `hard_fixed`: a corner that `FixedHard` keeps is not moved, nor is a pair proposed with it; no boundary vertex, no bowtie) | the same j for both |
+| 2 | the free corners (as round 0) | two levels, the difference at most 3 (`JointLevelSpread`), in the order of their sum, never the same level |
+
+The pairs of one round are in the order of their positions (x, then y, then z). In rounds 1 and 2 each pair is gone over twice: first for the proposals that leave **no** degenerate triangle at the two stars where they have two or more
+(a move that removes one of two triangles that share a corner can make the other unrepairable: with the first tier the state `wave,2,2,0.02,5.76e-7` is cleaned by one move that removes both triangles, without the first tier a move that removes one is made and
+the other is left), then for those that leave fewer. A result whose degenerate triangles all go in round 0 is the same bit for bit (the extension is not reached; `JointExtension = false`, or `MeshRoundingRepair.SkipJointRoundsOnThisThread = 6` in the tests, is the stage of 9.1).
+
+**Budget.** The extension has an evaluation budget of its own, `JointExtensionEvaluationsPerDefect` (4 096) times the number of degenerate triangles left where it is first reached (the one of 9.1, 1 024 per triangle, is spent by then or the
+rounds of 0 made no move); like the stage's, it ends at the repair's own limit if that is nearer and never sets `EvaluationLimitReached`. The cheap probes are outside this budget: 26 * 26 * 8 = 5 408 per pair and tier in rounds 0 and 1, 26 * 26 * 36 = 24 336 in round 2 (36 pairs of levels that differ by 1 to 3: 14 + 12 + 10); per triangle at most about 76 000 with one fixed corner and two free ones, about 162 000 with three free corners, against about 16 000 for the free pairs alone. The second tier leaves out the proposals that leave no degenerate triangle: the first tier evaluated them and `improves` refused them.
+
+**Cap on the work that makes no move** (follow-up of #1659). The budgets above are per triangle, so the cost of the triangles the stage cannot repair grows with their number: about 4 100 proposals and 27 000 probes each, 35 to 45 ms on the plates and up to about 85 ms in a larger mesh (cluster k36, `Sphere(24)`: 23 such triangles, 5.6 to 6.3 s with the extension against 3.8 to 4.3 s with the free rounds only and 3.5 to 3.9 s with the stage off, two runs of the median of 3, the machine not quiet; with `Sphere(40)`: 73 of them, 5.3 s more than the free rounds alone), so a few hundred would add many seconds. Once the extension has been reached, the stage counts the proposals (`JointSearchProposals`) and the probes (`JointProbes`) of every `search_pairs` call that makes no move, in its own rounds and in the rounds 0 that follow one of its moves (they have its budget, and were the larger part of the cost of the 73 triangles), and ends when the proposals reach `JointExtensionWastedProposals` (32 * 4 096 = 131 072) or the probes `JointExtensionWastedProbes` (2^20), that is the work of about 32 triangles it cannot repair. A search that makes a move is not counted, so repairs go on after any number of failures; the cap is checked before each search, so one search can exceed it by the work of one triangle, which can be about the size of the cap itself (round 2: up to 3 pairs * 2 tiers * 24 336 probes, about 146 000, and 4 096 proposals per evaluation budget): the worst-case waste is about twice the cap, about 5 s at the measured cost of 20 to 30 microseconds per proposal. The rounds 0 before the extension is reached are untouched. Choice of the numbers: the largest waste of the 30 states of the oracle's specs and of 18 000 search cases (tiny plates, seeds 11 to 18 and 2) was 9 282 proposals and 35 152 probes (the three states the extension leaves, 5 000 to 6 300 proposals each); on the 73-triangle cluster the moves are 4 without a cap, 3 with the work of 32 triangles and 1 with 16, so 32 was chosen. A cluster of stuck triangles that comes before repairable ones in the order of the stage can use the cap up before them: the cost of that is repairs not made, not time. The tests pin the waste of the rounds 0 after an extension move on a small mesh (a plate state and a stuck triangle in one mesh with a small budget of the first rounds, `Cap_RoundZeroAfterAnExtensionMove_...`).
+
+**Measured with the cap** (`BooleanInputOrder cost --family Cluster --k 36 --count 8 --seed 1 --sphere N --pairtests 100000000`, mode 2): `Sphere(24)`, 23 triangles left, unchanged by the cap (120 204 proposals, 5.8 s); `Sphere(40)`, 73 triangles: 387 526 proposals, 21.3 s and 4 moves without the cap, 223 035 proposals, 18.4 s and 3 moves with it (the repair without the stage: 15.1 s, with the free rounds only 16.0 s). The 30 oracle states: the same 27 clean and 3 left, the same proposals (the cap is not reached). `search`, 12 seeds of 3 000 plate pairs (36 000 cases): no result differs from the branch without the cap; against the stage of 9.1 (`--noext`) the 30 632 clean results are identical bit for bit, 150 not clean ones become clean, none the other way.
+
+`JointMovesWithFixedCorner` counts the accepted pairs that moved a corner with `is_fixed` (also counted in `JointMoves` and `Moves`); every `Apply` resets it.
+
+**Measured** (`BooleanInputOrder cost --plate <spec>` on the 28 distinct specs of the oracle's states; the benchmark's own plates, the stage with the extension against the free rounds only, 5 repeats):
+
+| | degenerate triangles left in the 28 states | states clean | joint moves | proposals to `improves` | time, all states |
+|---|---|---|---|---|---|
+| stage off | 49 | 0 | 0 | 0 | 650 ms |
+| free rounds only (9.1) | 41 | 0 | 8 | 38 436 | 1 455 ms |
+| with the extension | 3 | **25** | 36, of them 28 with a fixed corner | 57 828 | 1 708 ms |
+
+Three states stay as they were, one degenerate triangle each (the oracle's open ones: a fixed corner and two free ones, no pair found with either sizes within the budget; all rounds ran to their end, 5 000 to 6 300 proposals).
+The oracle needed three moved vertices for four states; the stage cleans two of them that this sample has (s3_15, s3_18) by two sequential moves of fixed corners. Cost of a triangle the stage cannot repair: about 4 100 more evaluations, 35 ms on the plates (`DegenerateFamilies.Cluster` k36 with 13 such triangles: the repair 770 ms with the free rounds only, 1 210 ms with the extension).
+
+**Why two levels only in round 2.** The accepted moves of the sample are of the same level for both corners (the corner of an input vertex by its whole room, j = 7, the free one too). Two levels for the pairs of round 1 as well (all 64 level
+pairs, or those that differ by at most 1 to 4) cleaned 23 to 26 of the 29 specs against 26 with one level, with 55 000 to 100 000 proposals against 55 000: the early moves of an unequal pair use a state that a later triangle needs. Round 2 is
+what the oracle's 41st triangle needs (the state `wave,2,2,0.002,2.44e-9`, triangle 203: its free corners move by 1 and 1/8 of their rooms); in the sample it makes a move only where the fixed pairs are skipped
+(`MeshRoundingRepairTestsJointMove.FixedCorner_TwoLevels_...`), the fixed pairs of round 1 repair that state by another move.
+
+**Guarantees.** As in 9.1: the pair is one edit for `improves`, the drift is the bound of the triangles and ghosts at both corners (a fixed corner moves within it like any other: the lemma of
+`tools/Z3Pilot/drift_reference.py` does not depend on which corners move; `FixedVertexF` only orders the proposals), termination by the number of defects, no randomness, the directions constants and the sizes room times powers of two (2^k scales: the same
+result bit for bit). `FixedHard` keeps its meaning: `try_move_pair` refuses a pair with a hard-fixed corner, and `search_pairs` does not propose it. Results change where a fixed corner now moves: an input vertex of a Boolean can be moved by at most the
+displacement bound (`RoundingMaxDisplacement`) where no other edit repaired a degenerate triangle (before: the result stayed unclean, `RoundingNotClean` with `StrictRounding`).

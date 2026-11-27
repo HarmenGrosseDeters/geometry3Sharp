@@ -91,7 +91,7 @@ L = `maxLength` of the component.
 
       B(t) = c_t + max over the corners k of |pos(v_k) - α_t[k]|
 
-**Displacement edit** (`try_move`, `try_slide`, `try_collapse`: the same triangles, a vertex moved, or a vertex
+**Displacement edit** (`try_move`, `try_slide`, `try_collapse`, and the joint move `try_move_pair` with two vertices moved: the same triangles, a vertex moved, or a vertex
 renamed to the kept one): no anchor and no `c` changes. A triangle that collapses (it holds both ends of the
 contracted edge) becomes a ghost; the ghosts of the vanishing vertex become ghosts of the kept one. Accepted if
 `B <= L` for every triangle and ghost with a corner at a moved or renamed vertex, evaluated at the new positions.
@@ -171,8 +171,8 @@ Results still depend on the order of the edits, and more edits pass, so single o
 
 ### 3.4 Assumptions about the code (true today; A1 and the form of the edits are held by `source_contract()`)
 
-- A1: positions are written in one place (`set_vertex`), and only `try_move` and `try_collapse` propose a moved
-  vertex; they list every triangle of a moved vertex (a contraction with `p == pos(b)` moves nothing but `a`).
+- A1: positions are written in one place (`set_vertex`), and only `try_move`, `try_collapse` and the joint move `try_move_pair` propose a moved
+  vertex (the last two vertices, each at its own position); they list every triangle of a moved vertex (a contraction with `p == pos(b)` moves nothing but `a`).
 - A2: after a contraction of a-b the edges b-x of the two collapsed triangles are edges of the mesh
   (`DMesh3.CollapseEdge` refuses the cases where they are not; the implementation asserts it in check mode).
 - A3: a vertex or edge that is gone after a generic edit was a face of a removed triangle.

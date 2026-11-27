@@ -1,0 +1,2436 @@
+[
+ {
+  "name": "bool/pipeline/base-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline"
+  }
+ },
+ {
+  "name": "bool/pipeline/contact-Union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "Operation": "Union",
+   "Overlap": 0
+  }
+ },
+ {
+  "name": "bool/pipeline/contact-Intersection",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "Operation": "Intersection",
+   "Overlap": 0
+  }
+ },
+ {
+  "name": "bool/pipeline/contact-Difference",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "Operation": "Difference",
+   "Overlap": 0
+  }
+ },
+ {
+  "name": "bool/pipeline/gap1e-6-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "Overlap": 0,
+   "GapSign": 1,
+   "GapExp": 6
+  }
+ },
+ {
+  "name": "bool/pipeline/overlap1e-6-intersection",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "Operation": "Intersection",
+   "Overlap": 0,
+   "GapSign": -1,
+   "GapExp": 6
+  }
+ },
+ {
+  "name": "bool/pipeline/overlap1e-6-difference",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "Operation": "Difference",
+   "Overlap": 0,
+   "GapSign": -1,
+   "GapExp": 6
+  }
+ },
+ {
+  "name": "bool/pipeline/gap1e-9-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "Overlap": 0,
+   "GapSign": 1,
+   "GapExp": 9
+  }
+ },
+ {
+  "name": "bool/pipeline/overlap1e-9-intersection",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "Operation": "Intersection",
+   "Overlap": 0,
+   "GapSign": -1,
+   "GapExp": 9
+  }
+ },
+ {
+  "name": "bool/pipeline/overlap1e-9-difference",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "Operation": "Difference",
+   "Overlap": 0,
+   "GapSign": -1,
+   "GapExp": 9
+  }
+ },
+ {
+  "name": "bool/pipeline/gap1e-12-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "Overlap": 0,
+   "GapSign": 1,
+   "GapExp": 12
+  }
+ },
+ {
+  "name": "bool/pipeline/overlap1e-12-intersection",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "Operation": "Intersection",
+   "Overlap": 0,
+   "GapSign": -1,
+   "GapExp": 12
+  }
+ },
+ {
+  "name": "bool/pipeline/overlap1e-12-difference",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "Operation": "Difference",
+   "Overlap": 0,
+   "GapSign": -1,
+   "GapExp": 12
+  }
+ },
+ {
+  "name": "bool/pipeline/rot30-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "RotZDeg": 30
+  }
+ },
+ {
+  "name": "bool/pipeline/tilt1e-3-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "TiltExp": 3
+  }
+ },
+ {
+  "name": "bool/pipeline/tilt1e-3-difference",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "Operation": "Difference",
+   "TiltExp": 3
+  }
+ },
+ {
+  "name": "bool/pipeline/tilt1e-6-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "TiltExp": 6
+  }
+ },
+ {
+  "name": "bool/pipeline/tilt1e-6-difference",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "Operation": "Difference",
+   "TiltExp": 6
+  }
+ },
+ {
+  "name": "bool/pipeline/tilt1e-9-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "TiltExp": 9
+  }
+ },
+ {
+  "name": "bool/pipeline/tilt1e-9-difference",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "Operation": "Difference",
+   "TiltExp": 9
+  }
+ },
+ {
+  "name": "bool/pipeline/tilt1e-12-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "TiltExp": 12
+  }
+ },
+ {
+  "name": "bool/pipeline/tilt1e-12-difference",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "Operation": "Difference",
+   "TiltExp": 12
+  }
+ },
+ {
+  "name": "bool/pipeline/tilt1e-15-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "TiltExp": 15
+  }
+ },
+ {
+  "name": "bool/pipeline/tilt1e-15-difference",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "Operation": "Difference",
+   "TiltExp": 15
+  }
+ },
+ {
+  "name": "bool/pipeline/scale2^-20-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "ScaleExp": -20,
+   "RotZDeg": 30
+  }
+ },
+ {
+  "name": "bool/pipeline/scale2^20-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "ScaleExp": 20,
+   "RotZDeg": 30
+  }
+ },
+ {
+  "name": "bool/pipeline/scale2^30-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "ScaleExp": 30,
+   "RotZDeg": 30
+  }
+ },
+ {
+  "name": "bool/pipeline/sphere-contact-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "ShapeB": "sphere",
+   "Overlap": 0,
+   "Resolution": 7
+  }
+ },
+ {
+  "name": "bool/pipeline/sphere-gap1e-12-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "ShapeB": "sphere",
+   "Overlap": 0,
+   "GapSign": 1,
+   "GapExp": 12,
+   "Resolution": 7
+  }
+ },
+ {
+  "name": "bool/pipeline/sphere-overlap1e-12-intersection",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "Operation": "Intersection",
+   "ShapeB": "sphere",
+   "Overlap": 0,
+   "GapSign": -1,
+   "GapExp": 12,
+   "Resolution": 7
+  }
+ },
+ {
+  "name": "bool/pipeline/res24-rot10-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "pipeline",
+   "Resolution": 24,
+   "RotZDeg": 10
+  }
+ },
+ {
+  "name": "bool/exact/base-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact"
+  }
+ },
+ {
+  "name": "bool/exact/contact-Union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "Operation": "Union",
+   "Overlap": 0
+  }
+ },
+ {
+  "name": "bool/exact/contact-Intersection",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "Operation": "Intersection",
+   "Overlap": 0
+  }
+ },
+ {
+  "name": "bool/exact/contact-Difference",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "Operation": "Difference",
+   "Overlap": 0
+  }
+ },
+ {
+  "name": "bool/exact/gap1e-6-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "Overlap": 0,
+   "GapSign": 1,
+   "GapExp": 6
+  }
+ },
+ {
+  "name": "bool/exact/overlap1e-6-intersection",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "Operation": "Intersection",
+   "Overlap": 0,
+   "GapSign": -1,
+   "GapExp": 6
+  }
+ },
+ {
+  "name": "bool/exact/overlap1e-6-difference",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "Operation": "Difference",
+   "Overlap": 0,
+   "GapSign": -1,
+   "GapExp": 6
+  }
+ },
+ {
+  "name": "bool/exact/gap1e-9-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "Overlap": 0,
+   "GapSign": 1,
+   "GapExp": 9
+  }
+ },
+ {
+  "name": "bool/exact/overlap1e-9-intersection",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "Operation": "Intersection",
+   "Overlap": 0,
+   "GapSign": -1,
+   "GapExp": 9
+  }
+ },
+ {
+  "name": "bool/exact/overlap1e-9-difference",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "Operation": "Difference",
+   "Overlap": 0,
+   "GapSign": -1,
+   "GapExp": 9
+  }
+ },
+ {
+  "name": "bool/exact/gap1e-12-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "Overlap": 0,
+   "GapSign": 1,
+   "GapExp": 12
+  }
+ },
+ {
+  "name": "bool/exact/overlap1e-12-intersection",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "Operation": "Intersection",
+   "Overlap": 0,
+   "GapSign": -1,
+   "GapExp": 12
+  }
+ },
+ {
+  "name": "bool/exact/overlap1e-12-difference",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "Operation": "Difference",
+   "Overlap": 0,
+   "GapSign": -1,
+   "GapExp": 12
+  }
+ },
+ {
+  "name": "bool/exact/rot30-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "RotZDeg": 30
+  }
+ },
+ {
+  "name": "bool/exact/tilt1e-3-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "TiltExp": 3
+  }
+ },
+ {
+  "name": "bool/exact/tilt1e-3-difference",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "Operation": "Difference",
+   "TiltExp": 3
+  }
+ },
+ {
+  "name": "bool/exact/tilt1e-6-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "TiltExp": 6
+  }
+ },
+ {
+  "name": "bool/exact/tilt1e-6-difference",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "Operation": "Difference",
+   "TiltExp": 6
+  }
+ },
+ {
+  "name": "bool/exact/tilt1e-9-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "TiltExp": 9
+  }
+ },
+ {
+  "name": "bool/exact/tilt1e-9-difference",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "Operation": "Difference",
+   "TiltExp": 9
+  }
+ },
+ {
+  "name": "bool/exact/tilt1e-12-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "TiltExp": 12
+  }
+ },
+ {
+  "name": "bool/exact/tilt1e-12-difference",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "Operation": "Difference",
+   "TiltExp": 12
+  }
+ },
+ {
+  "name": "bool/exact/tilt1e-15-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "TiltExp": 15
+  }
+ },
+ {
+  "name": "bool/exact/tilt1e-15-difference",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "Operation": "Difference",
+   "TiltExp": 15
+  }
+ },
+ {
+  "name": "bool/exact/scale2^-20-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "ScaleExp": -20,
+   "RotZDeg": 30
+  }
+ },
+ {
+  "name": "bool/exact/scale2^20-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "ScaleExp": 20,
+   "RotZDeg": 30
+  }
+ },
+ {
+  "name": "bool/exact/scale2^30-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "ScaleExp": 30,
+   "RotZDeg": 30
+  }
+ },
+ {
+  "name": "bool/exact/sphere-contact-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "ShapeB": "sphere",
+   "Overlap": 0,
+   "Resolution": 7
+  }
+ },
+ {
+  "name": "bool/exact/sphere-gap1e-12-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "ShapeB": "sphere",
+   "Overlap": 0,
+   "GapSign": 1,
+   "GapExp": 12,
+   "Resolution": 7
+  }
+ },
+ {
+  "name": "bool/exact/sphere-overlap1e-12-intersection",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "Operation": "Intersection",
+   "ShapeB": "sphere",
+   "Overlap": 0,
+   "GapSign": -1,
+   "GapExp": 12,
+   "Resolution": 7
+  }
+ },
+ {
+  "name": "bool/exact/res24-rot10-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "Engine": "exact",
+   "Resolution": 24,
+   "RotZDeg": 10
+  }
+ },
+ {
+  "name": "bool/pipeline/reduce0.25-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "TargetFraction": 0.25
+  }
+ },
+ {
+  "name": "bool/pipeline/reduce0.25-contact-union",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "TargetFraction": 0.25,
+   "Overlap": 0
+  }
+ },
+ {
+  "name": "bool/pipeline/reduce0.1-sphere",
+  "demo": "boolean",
+  "p": {
+   "CheckInclusionExclusion": true,
+   "CheckScaleInvariance": true,
+   "ShowInputs": false,
+   "TargetFraction": 0.1,
+   "ShapeB": "sphere",
+   "Resolution": 12
+  }
+ },
+ {
+  "name": "repair/sphere/soup",
+  "demo": "repair",
+  "p": {
+   "Shape": "sphere"
+  }
+ },
+ {
+  "name": "repair/sphere/welded-flip3",
+  "demo": "repair",
+  "p": {
+   "Shape": "sphere",
+   "Unweld": false,
+   "FlipEvery": 3
+  }
+ },
+ {
+  "name": "repair/sphere/soup-flip2",
+  "demo": "repair",
+  "p": {
+   "Shape": "sphere",
+   "FlipEvery": 2
+  }
+ },
+ {
+  "name": "repair/sphere/holes10",
+  "demo": "repair",
+  "p": {
+   "Shape": "sphere",
+   "Unweld": false,
+   "Holes": 10
+  }
+ },
+ {
+  "name": "repair/sphere/soup-holes10",
+  "demo": "repair",
+  "p": {
+   "Shape": "sphere",
+   "Holes": 10
+  }
+ },
+ {
+  "name": "repair/sphere/soup-jitter1e-3",
+  "demo": "repair",
+  "p": {
+   "Shape": "sphere",
+   "JitterExp": 3
+  }
+ },
+ {
+  "name": "repair/sphere/soup-jitter1e-6",
+  "demo": "repair",
+  "p": {
+   "Shape": "sphere",
+   "JitterExp": 6
+  }
+ },
+ {
+  "name": "repair/sphere/soup-jitter1e-10",
+  "demo": "repair",
+  "p": {
+   "Shape": "sphere",
+   "JitterExp": 10
+  }
+ },
+ {
+  "name": "repair/sphere/dup30",
+  "demo": "repair",
+  "p": {
+   "Shape": "sphere",
+   "Unweld": false,
+   "DuplicatePercent": 30
+  }
+ },
+ {
+  "name": "repair/sphere/overlap-shell",
+  "demo": "repair",
+  "p": {
+   "Shape": "sphere",
+   "Unweld": false,
+   "OverlappingShell": true
+  }
+ },
+ {
+  "name": "repair/sphere/fins5",
+  "demo": "repair",
+  "p": {
+   "Shape": "sphere",
+   "Unweld": false,
+   "Fins": 5
+  }
+ },
+ {
+  "name": "repair/sphere/everything",
+  "demo": "repair",
+  "p": {
+   "Shape": "sphere",
+   "FlipEvery": 4,
+   "Holes": 8,
+   "JitterExp": 7,
+   "DuplicatePercent": 10,
+   "OverlappingShell": true,
+   "Fins": 3
+  }
+ },
+ {
+  "name": "repair/box/soup",
+  "demo": "repair",
+  "p": {
+   "Shape": "box"
+  }
+ },
+ {
+  "name": "repair/box/welded-flip3",
+  "demo": "repair",
+  "p": {
+   "Shape": "box",
+   "Unweld": false,
+   "FlipEvery": 3
+  }
+ },
+ {
+  "name": "repair/box/soup-flip2",
+  "demo": "repair",
+  "p": {
+   "Shape": "box",
+   "FlipEvery": 2
+  }
+ },
+ {
+  "name": "repair/box/holes10",
+  "demo": "repair",
+  "p": {
+   "Shape": "box",
+   "Unweld": false,
+   "Holes": 10
+  }
+ },
+ {
+  "name": "repair/box/soup-holes10",
+  "demo": "repair",
+  "p": {
+   "Shape": "box",
+   "Holes": 10
+  }
+ },
+ {
+  "name": "repair/box/soup-jitter1e-3",
+  "demo": "repair",
+  "p": {
+   "Shape": "box",
+   "JitterExp": 3
+  }
+ },
+ {
+  "name": "repair/box/soup-jitter1e-6",
+  "demo": "repair",
+  "p": {
+   "Shape": "box",
+   "JitterExp": 6
+  }
+ },
+ {
+  "name": "repair/box/soup-jitter1e-10",
+  "demo": "repair",
+  "p": {
+   "Shape": "box",
+   "JitterExp": 10
+  }
+ },
+ {
+  "name": "repair/box/dup30",
+  "demo": "repair",
+  "p": {
+   "Shape": "box",
+   "Unweld": false,
+   "DuplicatePercent": 30
+  }
+ },
+ {
+  "name": "repair/box/overlap-shell",
+  "demo": "repair",
+  "p": {
+   "Shape": "box",
+   "Unweld": false,
+   "OverlappingShell": true
+  }
+ },
+ {
+  "name": "repair/box/fins5",
+  "demo": "repair",
+  "p": {
+   "Shape": "box",
+   "Unweld": false,
+   "Fins": 5
+  }
+ },
+ {
+  "name": "repair/box/everything",
+  "demo": "repair",
+  "p": {
+   "Shape": "box",
+   "FlipEvery": 4,
+   "Holes": 8,
+   "JitterExp": 7,
+   "DuplicatePercent": 10,
+   "OverlappingShell": true,
+   "Fins": 3
+  }
+ },
+ {
+  "name": "repair/torus/soup",
+  "demo": "repair",
+  "p": {
+   "Shape": "torus"
+  }
+ },
+ {
+  "name": "repair/torus/welded-flip3",
+  "demo": "repair",
+  "p": {
+   "Shape": "torus",
+   "Unweld": false,
+   "FlipEvery": 3
+  }
+ },
+ {
+  "name": "repair/torus/soup-flip2",
+  "demo": "repair",
+  "p": {
+   "Shape": "torus",
+   "FlipEvery": 2
+  }
+ },
+ {
+  "name": "repair/torus/holes10",
+  "demo": "repair",
+  "p": {
+   "Shape": "torus",
+   "Unweld": false,
+   "Holes": 10
+  }
+ },
+ {
+  "name": "repair/torus/soup-holes10",
+  "demo": "repair",
+  "p": {
+   "Shape": "torus",
+   "Holes": 10
+  }
+ },
+ {
+  "name": "repair/torus/soup-jitter1e-3",
+  "demo": "repair",
+  "p": {
+   "Shape": "torus",
+   "JitterExp": 3
+  }
+ },
+ {
+  "name": "repair/torus/soup-jitter1e-6",
+  "demo": "repair",
+  "p": {
+   "Shape": "torus",
+   "JitterExp": 6
+  }
+ },
+ {
+  "name": "repair/torus/soup-jitter1e-10",
+  "demo": "repair",
+  "p": {
+   "Shape": "torus",
+   "JitterExp": 10
+  }
+ },
+ {
+  "name": "repair/torus/dup30",
+  "demo": "repair",
+  "p": {
+   "Shape": "torus",
+   "Unweld": false,
+   "DuplicatePercent": 30
+  }
+ },
+ {
+  "name": "repair/torus/overlap-shell",
+  "demo": "repair",
+  "p": {
+   "Shape": "torus",
+   "Unweld": false,
+   "OverlappingShell": true
+  }
+ },
+ {
+  "name": "repair/torus/fins5",
+  "demo": "repair",
+  "p": {
+   "Shape": "torus",
+   "Unweld": false,
+   "Fins": 5
+  }
+ },
+ {
+  "name": "repair/torus/everything",
+  "demo": "repair",
+  "p": {
+   "Shape": "torus",
+   "FlipEvery": 4,
+   "Holes": 8,
+   "JitterExp": 7,
+   "DuplicatePercent": 10,
+   "OverlappingShell": true,
+   "Fins": 3
+  }
+ },
+ {
+  "name": "repair/sphere/res24-everything",
+  "demo": "repair",
+  "p": {
+   "Shape": "sphere",
+   "Resolution": 24,
+   "FlipEvery": 4,
+   "Holes": 8,
+   "JitterExp": 7,
+   "DuplicatePercent": 10,
+   "OverlappingShell": true,
+   "Fins": 3
+  }
+ },
+ {
+  "name": "remesh/box/safe",
+  "demo": "remesh",
+  "p": {
+   "Shape": "box"
+  }
+ },
+ {
+  "name": "remesh/box/flips-only",
+  "demo": "remesh",
+  "p": {
+   "Shape": "box",
+   "SafePreset": false
+  }
+ },
+ {
+  "name": "remesh/box/unguarded",
+  "demo": "remesh",
+  "p": {
+   "Shape": "box",
+   "SafePreset": false,
+   "PreventNormalFlips": false
+  }
+ },
+ {
+  "name": "remesh/box/no-features-unguarded",
+  "demo": "remesh",
+  "p": {
+   "Shape": "box",
+   "SafePreset": false,
+   "PreventNormalFlips": false,
+   "PreserveFeatures": false
+  }
+ },
+ {
+  "name": "remesh/box/coarse0.15-flips",
+  "demo": "remesh",
+  "p": {
+   "Shape": "box",
+   "SafePreset": false,
+   "RelativeEdge": 0.15
+  }
+ },
+ {
+  "name": "remesh/twisted/safe",
+  "demo": "remesh",
+  "p": {
+   "Shape": "twisted"
+  }
+ },
+ {
+  "name": "remesh/twisted/flips-only",
+  "demo": "remesh",
+  "p": {
+   "Shape": "twisted",
+   "SafePreset": false
+  }
+ },
+ {
+  "name": "remesh/twisted/unguarded",
+  "demo": "remesh",
+  "p": {
+   "Shape": "twisted",
+   "SafePreset": false,
+   "PreventNormalFlips": false
+  }
+ },
+ {
+  "name": "remesh/twisted/no-features-unguarded",
+  "demo": "remesh",
+  "p": {
+   "Shape": "twisted",
+   "SafePreset": false,
+   "PreventNormalFlips": false,
+   "PreserveFeatures": false
+  }
+ },
+ {
+  "name": "remesh/twisted/coarse0.15-flips",
+  "demo": "remesh",
+  "p": {
+   "Shape": "twisted",
+   "SafePreset": false,
+   "RelativeEdge": 0.15
+  }
+ },
+ {
+  "name": "remesh/sphere/safe",
+  "demo": "remesh",
+  "p": {
+   "Shape": "sphere"
+  }
+ },
+ {
+  "name": "remesh/sphere/flips-only",
+  "demo": "remesh",
+  "p": {
+   "Shape": "sphere",
+   "SafePreset": false
+  }
+ },
+ {
+  "name": "remesh/sphere/unguarded",
+  "demo": "remesh",
+  "p": {
+   "Shape": "sphere",
+   "SafePreset": false,
+   "PreventNormalFlips": false
+  }
+ },
+ {
+  "name": "remesh/sphere/no-features-unguarded",
+  "demo": "remesh",
+  "p": {
+   "Shape": "sphere",
+   "SafePreset": false,
+   "PreventNormalFlips": false,
+   "PreserveFeatures": false
+  }
+ },
+ {
+  "name": "remesh/sphere/coarse0.15-flips",
+  "demo": "remesh",
+  "p": {
+   "Shape": "sphere",
+   "SafePreset": false,
+   "RelativeEdge": 0.15
+  }
+ },
+ {
+  "name": "remesh/torus/safe",
+  "demo": "remesh",
+  "p": {
+   "Shape": "torus"
+  }
+ },
+ {
+  "name": "remesh/torus/flips-only",
+  "demo": "remesh",
+  "p": {
+   "Shape": "torus",
+   "SafePreset": false
+  }
+ },
+ {
+  "name": "remesh/torus/unguarded",
+  "demo": "remesh",
+  "p": {
+   "Shape": "torus",
+   "SafePreset": false,
+   "PreventNormalFlips": false
+  }
+ },
+ {
+  "name": "remesh/torus/no-features-unguarded",
+  "demo": "remesh",
+  "p": {
+   "Shape": "torus",
+   "SafePreset": false,
+   "PreventNormalFlips": false,
+   "PreserveFeatures": false
+  }
+ },
+ {
+  "name": "remesh/torus/coarse0.15-flips",
+  "demo": "remesh",
+  "p": {
+   "Shape": "torus",
+   "SafePreset": false,
+   "RelativeEdge": 0.15
+  }
+ },
+ {
+  "name": "remesh/box/fine0.01-safe",
+  "demo": "remesh",
+  "p": {
+   "Shape": "box",
+   "RelativeEdge": 0.01,
+   "Passes": 10
+  }
+ },
+ {
+  "name": "remesh/box/fine0.01-flips",
+  "demo": "remesh",
+  "p": {
+   "Shape": "box",
+   "RelativeEdge": 0.01,
+   "Passes": 10,
+   "SafePreset": false
+  }
+ },
+ {
+  "name": "remesh/twisted/scale2^20-invariance",
+  "demo": "remesh",
+  "p": {
+   "Shape": "twisted",
+   "ScaleExp": 20,
+   "CheckScaleInvariance": true,
+   "Passes": 10
+  }
+ },
+ {
+  "name": "remesh/sphere/scale2^-20-invariance",
+  "demo": "remesh",
+  "p": {
+   "Shape": "sphere",
+   "ScaleExp": -20,
+   "CheckScaleInvariance": true,
+   "Passes": 10
+  }
+ },
+ {
+  "name": "remesh/box/no-projection",
+  "demo": "remesh",
+  "p": {
+   "Shape": "box",
+   "Project": false
+  }
+ },
+ {
+  "name": "wrap/sphere-holes0",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 0
+  }
+ },
+ {
+  "name": "wrap/sphere-holes1",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 1
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6
+  }
+ },
+ {
+  "name": "wrap/sphere-holes20",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 20
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-alpha10",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "RelativeAlpha": 10
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-alpha40",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "RelativeAlpha": 40
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-res16",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "Resolution": 16
+  }
+ },
+ {
+  "name": "wrap/sheet",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sheet"
+  }
+ },
+ {
+  "name": "wrap/sheet-alpha60",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sheet",
+   "RelativeAlpha": 60
+  }
+ },
+ {
+  "name": "wrap/sheet-offset100",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sheet",
+   "RelativeOffset": 100
+  }
+ },
+ {
+  "name": "wrap/points200",
+  "demo": "wrap",
+  "p": {
+   "Shape": "points",
+   "Points": 200
+  }
+ },
+ {
+  "name": "wrap/points2000",
+  "demo": "wrap",
+  "p": {
+   "Shape": "points",
+   "Points": 2000
+  }
+ },
+ {
+  "name": "wrap/points10000",
+  "demo": "wrap",
+  "p": {
+   "Shape": "points",
+   "Points": 10000
+  }
+ },
+ {
+  "name": "wrap/points2000-noise2",
+  "demo": "wrap",
+  "p": {
+   "Shape": "points",
+   "Points": 2000,
+   "NoiseExp": 2
+  }
+ },
+ {
+  "name": "wrap/points50",
+  "demo": "wrap",
+  "p": {
+   "Shape": "points",
+   "Points": 50
+  }
+ },
+ {
+  "name": "wrap/thin-plate1e-2",
+  "demo": "wrap",
+  "p": {
+   "Shape": "thin-plate",
+   "ThinExp": 2
+  }
+ },
+ {
+  "name": "wrap/thin-plate1e-4",
+  "demo": "wrap",
+  "p": {
+   "Shape": "thin-plate",
+   "ThinExp": 4
+  }
+ },
+ {
+  "name": "wrap/thin-plate1e-6",
+  "demo": "wrap",
+  "p": {
+   "Shape": "thin-plate",
+   "ThinExp": 6
+  }
+ },
+ {
+  "name": "wrap/thin-plate1e-9",
+  "demo": "wrap",
+  "p": {
+   "Shape": "thin-plate",
+   "ThinExp": 9
+  }
+ },
+ {
+  "name": "wrap/thin-plate1e-12",
+  "demo": "wrap",
+  "p": {
+   "Shape": "thin-plate",
+   "ThinExp": 12
+  }
+ },
+ {
+  "name": "wrap/two-boxes-gap1e-1",
+  "demo": "wrap",
+  "p": {
+   "Shape": "two-boxes",
+   "ThinExp": 1
+  }
+ },
+ {
+  "name": "wrap/two-boxes-gap1e-2",
+  "demo": "wrap",
+  "p": {
+   "Shape": "two-boxes",
+   "ThinExp": 2
+  }
+ },
+ {
+  "name": "wrap/two-boxes-gap1e-3",
+  "demo": "wrap",
+  "p": {
+   "Shape": "two-boxes",
+   "ThinExp": 3
+  }
+ },
+ {
+  "name": "wrap/two-boxes-gap1e-6",
+  "demo": "wrap",
+  "p": {
+   "Shape": "two-boxes",
+   "ThinExp": 6
+  }
+ },
+ {
+  "name": "wrap/two-boxes-gap1e-12",
+  "demo": "wrap",
+  "p": {
+   "Shape": "two-boxes",
+   "ThinExp": 12
+  }
+ },
+ {
+  "name": "wrap/two-boxes-gap1e-2-alpha5",
+  "demo": "wrap",
+  "p": {
+   "Shape": "two-boxes",
+   "ThinExp": 2,
+   "RelativeAlpha": 5
+  }
+ },
+ {
+  "name": "wrap/bored0.3-pin0.2",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "BoreRadius": 0.3,
+   "PinRadius": 0.2
+  }
+ },
+ {
+  "name": "wrap/bored0.3-pin0.29",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "BoreRadius": 0.3,
+   "PinRadius": 0.29
+  }
+ },
+ {
+  "name": "wrap/bored0.3-pin0.31",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "BoreRadius": 0.3,
+   "PinRadius": 0.31
+  }
+ },
+ {
+  "name": "wrap/bored0.15-pin0.1",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "BoreRadius": 0.15,
+   "PinRadius": 0.1
+  }
+ },
+ {
+  "name": "wrap/bored0.6-pin0.5",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "BoreRadius": 0.6,
+   "PinRadius": 0.5
+  }
+ },
+ {
+  "name": "wrap/bored0.3-pin0.05",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "BoreRadius": 0.3,
+   "PinRadius": 0.05
+  }
+ },
+ {
+  "name": "wrap/bored0.3-pin0.2-budget2000",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "BoreRadius": 0.3,
+   "PinRadius": 0.2,
+   "Budget": 2000
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-budget4000",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "Budget": 4000
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-budget4000-cap1.5",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "Budget": 4000,
+   "MaxCoarsening": 1.5
+  }
+ },
+ {
+  "name": "wrap/sheet-budget2000",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sheet",
+   "Budget": 2000
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-pinch",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "PullPinchPoints": true
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-scale2^-20",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "ScaleExp": -20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "wrap/points2000-scale2^-20",
+  "demo": "wrap",
+  "p": {
+   "Shape": "points",
+   "Points": 2000,
+   "ScaleExp": -20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "wrap/bored-scale2^-20",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "ScaleExp": -20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-scale2^20",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "ScaleExp": 20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "wrap/points2000-scale2^20",
+  "demo": "wrap",
+  "p": {
+   "Shape": "points",
+   "Points": 2000,
+   "ScaleExp": 20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "wrap/bored-scale2^20",
+  "demo": "wrap",
+  "p": {
+   "Shape": "bored-block",
+   "ScaleExp": 20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-alpha200",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "RelativeAlpha": 200
+  }
+ },
+ {
+  "name": "wrap/sphere-holes6-alpha200-offset5000",
+  "demo": "wrap",
+  "p": {
+   "Shape": "sphere-holes",
+   "Holes": 6,
+   "RelativeAlpha": 200,
+   "RelativeOffset": 5000
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "Gyroid",
+   "Style": "Sheet"
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/SkeletalLow",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "Gyroid",
+   "Style": "SkeletalLow"
+  }
+ },
+ {
+  "name": "contour/tpms/SchwarzP/Sheet",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "SchwarzP",
+   "Style": "Sheet"
+  }
+ },
+ {
+  "name": "contour/tpms/SchwarzP/SkeletalLow",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "SchwarzP",
+   "Style": "SkeletalLow"
+  }
+ },
+ {
+  "name": "contour/tpms/SchwarzD/Sheet",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "SchwarzD",
+   "Style": "Sheet"
+  }
+ },
+ {
+  "name": "contour/tpms/SchwarzD/SkeletalLow",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "SchwarzD",
+   "Style": "SkeletalLow"
+  }
+ },
+ {
+  "name": "contour/tpms/Neovius/Sheet",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "Neovius",
+   "Style": "Sheet"
+  }
+ },
+ {
+  "name": "contour/tpms/Neovius/SkeletalLow",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "Neovius",
+   "Style": "SkeletalLow"
+  }
+ },
+ {
+  "name": "contour/tpms/IWP/Sheet",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "IWP",
+   "Style": "Sheet"
+  }
+ },
+ {
+  "name": "contour/tpms/IWP/SkeletalLow",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "IWP",
+   "Style": "SkeletalLow"
+  }
+ },
+ {
+  "name": "contour/tpms/Lidinoid/Sheet",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "Lidinoid",
+   "Style": "Sheet"
+  }
+ },
+ {
+  "name": "contour/tpms/Lidinoid/SkeletalLow",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "Lidinoid",
+   "Style": "SkeletalLow"
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet/vf0.02",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "VolumeFraction": 0.02
+  }
+ },
+ {
+  "name": "contour/tpms/SchwarzP/SkeletalHigh/vf0.02",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "SchwarzP",
+   "Style": "SkeletalHigh",
+   "VolumeFraction": 0.02
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet/vf0.1",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "VolumeFraction": 0.1
+  }
+ },
+ {
+  "name": "contour/tpms/SchwarzP/SkeletalHigh/vf0.1",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "SchwarzP",
+   "Style": "SkeletalHigh",
+   "VolumeFraction": 0.1
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet/vf0.5",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "VolumeFraction": 0.5
+  }
+ },
+ {
+  "name": "contour/tpms/SchwarzP/SkeletalHigh/vf0.5",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "SchwarzP",
+   "Style": "SkeletalHigh",
+   "VolumeFraction": 0.5
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet/vf0.9",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "VolumeFraction": 0.9
+  }
+ },
+ {
+  "name": "contour/tpms/SchwarzP/SkeletalHigh/vf0.9",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "SchwarzP",
+   "Style": "SkeletalHigh",
+   "VolumeFraction": 0.9
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet/vf0.98",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "VolumeFraction": 0.98
+  }
+ },
+ {
+  "name": "contour/tpms/SchwarzP/SkeletalHigh/vf0.98",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "SchwarzP",
+   "Style": "SkeletalHigh",
+   "VolumeFraction": 0.98
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet/div4",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Divisions": 4
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet/vf0.05-div6",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "VolumeFraction": 0.05,
+   "Divisions": 6
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet/cells5",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Cells": 5
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet/enclosure",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Enclosure": true
+  }
+ },
+ {
+  "name": "contour/tpms/SchwarzP/SkeletalLow/enclosure",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "Type": "SchwarzP",
+   "Style": "SkeletalLow",
+   "Enclosure": true
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet/scale2^-20",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "ScaleExp": -20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "contour/tpms/Gyroid/Sheet/scale2^20",
+  "demo": "contour",
+  "p": {
+   "Mode": "tpms",
+   "ScaleExp": 20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "contour/offset/d0.001",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": 0.001
+  }
+ },
+ {
+  "name": "contour/offset/d0.05",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": 0.05
+  }
+ },
+ {
+  "name": "contour/offset/d0.1",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": 0.1
+  }
+ },
+ {
+  "name": "contour/offset/d0.3",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": 0.3
+  }
+ },
+ {
+  "name": "contour/offset/d-0.05",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": -0.05
+  }
+ },
+ {
+  "name": "contour/offset/d-0.2",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": -0.2
+  }
+ },
+ {
+  "name": "contour/offset/d-0.24",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": -0.24
+  }
+ },
+ {
+  "name": "contour/offset/d-0.26",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": -0.26
+  }
+ },
+ {
+  "name": "contour/offset/d0.1-rot30",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": 0.1,
+   "RotateDeg": 30
+  }
+ },
+ {
+  "name": "contour/offset/d-0.1-rot30",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": -0.1,
+   "RotateDeg": 30
+  }
+ },
+ {
+  "name": "contour/offset/d0.1-cell0.05",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": 0.1,
+   "RelativeCellSize": 0.05
+  }
+ },
+ {
+  "name": "contour/offset/d0.1-cell0.5",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": 0.1,
+   "RelativeCellSize": 0.5
+  }
+ },
+ {
+  "name": "contour/offset/d0.1-scale2^-20",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": 0.1,
+   "ScaleExp": -20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "contour/offset/d-0.1-scale2^-20",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": -0.1,
+   "ScaleExp": -20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "contour/offset/d0.1-scale2^20",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": 0.1,
+   "ScaleExp": 20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "contour/offset/d-0.1-scale2^20",
+  "demo": "contour",
+  "p": {
+   "Mode": "offset",
+   "Distance": -0.1,
+   "ScaleExp": 20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "contour/dc-box/cell0.2",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-box",
+   "CellSize": 0.2
+  }
+ },
+ {
+  "name": "contour/dc-box/cell0.1",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-box",
+   "CellSize": 0.1
+  }
+ },
+ {
+  "name": "contour/dc-box/cell0.05",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-box",
+   "CellSize": 0.05
+  }
+ },
+ {
+  "name": "contour/dc-box/cell0.02",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-box",
+   "CellSize": 0.02
+  }
+ },
+ {
+  "name": "contour/dc-box/cell0.1-shift1e-3",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-box",
+   "CellSize": 0.1,
+   "ShiftExp": 3
+  }
+ },
+ {
+  "name": "contour/dc-box/cell0.1-shift1e-6",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-box",
+   "CellSize": 0.1,
+   "ShiftExp": 6
+  }
+ },
+ {
+  "name": "contour/dc-box/cell0.1-shift1e-9",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-box",
+   "CellSize": 0.1,
+   "ShiftExp": 9
+  }
+ },
+ {
+  "name": "contour/dc-box/cell0.1-shift1e-12",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-box",
+   "CellSize": 0.1,
+   "ShiftExp": 12
+  }
+ },
+ {
+  "name": "contour/dc-box/cell0.1-shift1e-15",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-box",
+   "CellSize": 0.1,
+   "ShiftExp": 15
+  }
+ },
+ {
+  "name": "contour/dc-box/scale2^-20",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-box",
+   "CellSize": 0.1,
+   "ScaleExp": -20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "contour/dc-box/scale2^20",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-box",
+   "CellSize": 0.1,
+   "ScaleExp": 20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "contour/dc-sphere/cell0.2",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-sphere",
+   "CellSize": 0.2
+  }
+ },
+ {
+  "name": "contour/dc-sphere/cell0.1",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-sphere",
+   "CellSize": 0.1
+  }
+ },
+ {
+  "name": "contour/dc-sphere/cell0.05",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-sphere",
+   "CellSize": 0.05
+  }
+ },
+ {
+  "name": "contour/dc-sphere/cell0.02",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-sphere",
+   "CellSize": 0.02
+  }
+ },
+ {
+  "name": "contour/dc-sphere/cell0.1-shift1e-3",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-sphere",
+   "CellSize": 0.1,
+   "ShiftExp": 3
+  }
+ },
+ {
+  "name": "contour/dc-sphere/cell0.1-shift1e-6",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-sphere",
+   "CellSize": 0.1,
+   "ShiftExp": 6
+  }
+ },
+ {
+  "name": "contour/dc-sphere/cell0.1-shift1e-9",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-sphere",
+   "CellSize": 0.1,
+   "ShiftExp": 9
+  }
+ },
+ {
+  "name": "contour/dc-sphere/cell0.1-shift1e-12",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-sphere",
+   "CellSize": 0.1,
+   "ShiftExp": 12
+  }
+ },
+ {
+  "name": "contour/dc-sphere/cell0.1-shift1e-15",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-sphere",
+   "CellSize": 0.1,
+   "ShiftExp": 15
+  }
+ },
+ {
+  "name": "contour/dc-sphere/scale2^-20",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-sphere",
+   "CellSize": 0.1,
+   "ScaleExp": -20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "contour/dc-sphere/scale2^20",
+  "demo": "contour",
+  "p": {
+   "Mode": "dc-sphere",
+   "CellSize": 0.1,
+   "ScaleExp": 20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "contour/mc-sphere/cell0.2",
+  "demo": "contour",
+  "p": {
+   "Mode": "mc-sphere",
+   "CellSize": 0.2
+  }
+ },
+ {
+  "name": "contour/mc-sphere/cell0.1",
+  "demo": "contour",
+  "p": {
+   "Mode": "mc-sphere",
+   "CellSize": 0.1
+  }
+ },
+ {
+  "name": "contour/mc-sphere/cell0.05",
+  "demo": "contour",
+  "p": {
+   "Mode": "mc-sphere",
+   "CellSize": 0.05
+  }
+ },
+ {
+  "name": "contour/mc-sphere/cell0.02",
+  "demo": "contour",
+  "p": {
+   "Mode": "mc-sphere",
+   "CellSize": 0.02
+  }
+ },
+ {
+  "name": "contour/mc-sphere/cell0.1-shift1e-3",
+  "demo": "contour",
+  "p": {
+   "Mode": "mc-sphere",
+   "CellSize": 0.1,
+   "ShiftExp": 3
+  }
+ },
+ {
+  "name": "contour/mc-sphere/cell0.1-shift1e-6",
+  "demo": "contour",
+  "p": {
+   "Mode": "mc-sphere",
+   "CellSize": 0.1,
+   "ShiftExp": 6
+  }
+ },
+ {
+  "name": "contour/mc-sphere/cell0.1-shift1e-9",
+  "demo": "contour",
+  "p": {
+   "Mode": "mc-sphere",
+   "CellSize": 0.1,
+   "ShiftExp": 9
+  }
+ },
+ {
+  "name": "contour/mc-sphere/cell0.1-shift1e-12",
+  "demo": "contour",
+  "p": {
+   "Mode": "mc-sphere",
+   "CellSize": 0.1,
+   "ShiftExp": 12
+  }
+ },
+ {
+  "name": "contour/mc-sphere/cell0.1-shift1e-15",
+  "demo": "contour",
+  "p": {
+   "Mode": "mc-sphere",
+   "CellSize": 0.1,
+   "ShiftExp": 15
+  }
+ },
+ {
+  "name": "contour/mc-sphere/scale2^-20",
+  "demo": "contour",
+  "p": {
+   "Mode": "mc-sphere",
+   "CellSize": 0.1,
+   "ScaleExp": -20,
+   "CheckScaleInvariance": true
+  }
+ },
+ {
+  "name": "contour/mc-sphere/scale2^20",
+  "demo": "contour",
+  "p": {
+   "Mode": "mc-sphere",
+   "CellSize": 0.1,
+   "ScaleExp": 20,
+   "CheckScaleInvariance": true
+  }
+ }
+]

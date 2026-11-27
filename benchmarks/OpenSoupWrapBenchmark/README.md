@@ -52,3 +52,36 @@ flat welded open sheet at a coarse alpha (relative alpha 8, so that the wrap its
 That is about 0.2 s per million input triangles at the largest size (one run each: the 0.05 s and 0.07 s of the two smaller sizes are
 within the noise of the container), less than the 1 s per million first assumed; a soup with many boundary edges is dearer (not
 measured). Measurable only at this size: the other tables are unchanged.
+
+## The offset band of the estimate (issue #1593)
+
+`EstimatedTriangles` now includes the offset band (`EstimatedRimTriangles`: the rim of open sheets and thin plates, sharp edges, sheets at a
+small offset) and the open components are counted twice also without a budget, so the third table above is obsolete: `Compute()` runs the
+analysis (`AlphaWrapEstimate.Terms`) every time, with or without a budget. Same program, container with 4 cores, Release net10.0, one run each
+(about +-15 % noise on the seconds), before = master 04391d3b, after = #1593 (relative alpha 100, offset 1/1000, ratio 10):
+
+| input | estimate before | estimate after | raw triangles | raw / estimate before | raw / estimate after |
+|---|---:|---:|---:|---:|---:|
+| two open spheres (#1113) | 28,796 | 81,469 | 59,298 | 2.06 | 0.73 |
+| two closed spheres | 38,681 | 38,681 | 14,086 | 0.36 | 0.36 |
+| open sheet 4 x 4 | 15,000 | 39,394 | 31,108 | 2.07 | 0.79 |
+
+At this ratio the estimate is now about 1.3 times the open wrap (the band and rim are calibrated at alpha / offset 4 to 50, where the sheet
+measured 0.78 to 0.84; the issue's cases are at ratio 30 and more); closed input is bit for bit unchanged. `MeshRobustRepair` with a budget
+(`WrapMaxEstimatedTriangles`, alpha diagonal / 300): the wrap of the open soup is about 0.71-0.76 of the budget (before 1.01-1.04), so a budget of N
+now gives about 0.75 N raw triangles on these inputs (the estimate over-counts at ratio 10 by the 1.3 above), in less time:
+
+| input | budget | before: raw triangles | before s | after: raw triangles | after s |
+|---|---:|---:|---:|---:|---:|
+| two open spheres | 200,000 | 201,388 | 8.1 | 151,628 | 6.4 |
+| two open spheres | 100,000 | 102,146 | 4.5 | 73,854 | 3.6 |
+| two open spheres | 50,000 | 51,918 | 2.6 | 35,674 | 2.2 |
+| open sheet 4 x 4 | 200,000 | 199,254 | 6.3 | 160,772 | 5.5 |
+| open sheet 4 x 4 | 100,000 | 100,370 | 4.1 | 79,940 | 3.6 |
+| open sheet 4 x 4 | 50,000 | 50,876 | 3.1 | 39,884 | 2.7 |
+
+The default row (no budget) is the same wrap bit for bit (515,716 and 268,024 raw triangles). The cost of the analysis, `Compute()` of a flat
+open sheet at a coarse alpha, no budget (now also runs the analysis) against a budget that never binds, in seconds: 180,000 triangles 0.45 / 0.32
+(before 0.31 / 0.38), 500,000 0.97 / 0.99 (0.88 / 0.95), 980,000 2.00 / 2.10 (1.89 / 1.92): about 0.1 s per million triangles more than without
+the analysis (inside the noise at the two smaller sizes); `AlphaWrapEstimate.Terms` alone takes 0.6-0.8 s on a sphere of 805k triangles
+(`OpenArea` 0.3-0.4 s).

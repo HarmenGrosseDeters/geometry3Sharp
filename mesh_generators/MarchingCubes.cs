@@ -17,6 +17,13 @@ namespace g3
     /// with outward-facing triangles. Vertices are shared between cells, so the result is closed if the surface
     /// does not leave Bounds. Bounds should extend at least one CubeSize beyond the surface. Cost is proportional
     /// to the number of cells, ie (size / CubeSize)^3.
+    /// Slivers (SingleLerp, LerpSteps, Bisection): a crossing within 1e-5 of the field change along an edge of a grid corner is
+    /// pulled to 1e-6 CubeSize from that corner (find_iso, so that the vertices around a corner stay distinct and the mesh manifold). Where the
+    /// surface passes through or next to a grid corner (a sphere or box on the grid) the triangles around it have edges of about
+    /// 1e-6 CubeSize and an area of about 1e-12 CubeSize^2, which is below the degenerate area of MeshRobustRepair.NotCleanReason
+    /// (1e-12 of the squared bounds diagonal) for a small CubeSize against the bounds. Welding them is not exact (the vertices differ,
+    /// the surface would move by up to 1e-6 CubeSize), so the output is not cleaned here: check it with NotCleanReason and repair it
+    /// (MeshRobustRepair), or use RootMode = LinearEdges, which refuses such inputs instead.
     /// Example (remesh a signed distance grid): <c>var iso = new DenseGridTrilinearImplicit(sdf);
     /// var mc = new MarchingCubes() { Implicit = iso, Bounds = iso.Bounds(), CubeSize = sdf.CellSize, IsoValue = 0 }; mc.Generate(); DMesh3 result = mc.Mesh;</c>
     /// 

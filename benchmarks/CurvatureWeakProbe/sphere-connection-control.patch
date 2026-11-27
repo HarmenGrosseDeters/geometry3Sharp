@@ -1,0 +1,18 @@
+diff --git a/mesh_ops/VectorHeatMethod.cs b/mesh_ops/VectorHeatMethod.cs
+index 3d4001f..4c698c5 100644
+--- a/mesh_ops/VectorHeatMethod.cs
++++ b/mesh_ops/VectorHeatMethod.cs
+@@ -273,3 +273,12 @@ namespace gs
+         {
+-            return triangulation.Signpost(h) - triangulation.ReverseSignpost(h) + Math.PI;
++            // Unit-sphere benchmark control. The source coordinate (1, 0) fixes the rotation.
++            int from = triangulation.VertexID(triangulation.Head(h));
++            int to = triangulation.VertexID(triangulation.Tail(h));
++            Vector3d start = Mesh.GetVertex(from).Normalized;
++            Vector3d finish = Mesh.GetVertex(to).Normalized;
++            Vector3d initial = triangulation.ToWorld(from, new Vector2d(1, 0));
++            initial -= initial.Dot(start) * start;
++            Vector3d moved = initial - initial.Dot(finish) / (1 + start.Dot(finish)) * (start + finish);
++            Vector2d local = triangulation.FromWorld(to, moved);
++            return CoreMath.Atan2(local.y, local.x);
+         }

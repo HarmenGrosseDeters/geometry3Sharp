@@ -34,8 +34,16 @@ namespace gs
     {
         /// <summary> input meshes (not modified). The one-sided distance is from A to B. </summary>
         public DMesh3 MeshA, MeshB;
-        /// <summary> optional built spatial data structures for MeshA / MeshB (built by Compute() if null; SpatialA only if Symmetric) </summary>
+        /// <summary>
+        /// optional built spatial data structures for MeshA / MeshB (built by Compute() if null; SpatialA only if Symmetric). A tree is
+        /// used only while it belongs to the current mesh (Mesh is MeshA / MeshB) and is valid (the mesh has not been edited since it was
+        /// built); otherwise Compute() builds one for the current mesh. A tree that Compute() built itself is replaced by a new one when
+        /// MeshA / MeshB is replaced or edited, and is kept in the field for the next call; a tree the caller set stays the caller's
+        /// (it is never overwritten, a tree of another mesh is ignored).
+        /// </summary>
         public DMeshAABBTree3 SpatialA, SpatialB;
+        // the trees Compute() built and stored in SpatialA / SpatialB (a tree in the field that is not one of these was set by the caller)
+        DMeshAABBTree3 builtA, builtB;
 
         /// <summary> symmetric distance max(h(A,B), h(B,A)); false = one-sided h(A,B) (A to B) </summary>
         public bool Symmetric = true;
@@ -176,9 +184,15 @@ namespace gs
 
         bool compute(DMesh3 meshA, DMesh3 meshB, DMeshAABBTree3 spatialA, DMeshAABBTree3 spatialB, double tol, int e, Vector3d shift, bool keepSpatial)
         {
-            if (spatialA == null && Symmetric) spatialA = new DMeshAABBTree3(meshA, true);
-            if (spatialB == null) spatialB = new DMeshAABBTree3(meshB, true);
-            if (keepSpatial) { SpatialA = spatialA; SpatialB = spatialB; }
+            // (a tree is used only while it belongs to its mesh and the mesh has not changed since it was built: a tree of the first
+            // Compute() must not answer for a MeshA / MeshB that was replaced or edited afterwards)
+            if (Symmetric && !(spatialA != null && spatialA.Mesh == meshA && spatialA.IsValid)) spatialA = new DMeshAABBTree3(meshA, true);
+            if (!(spatialB != null && spatialB.Mesh == meshB && spatialB.IsValid)) spatialB = new DMeshAABBTree3(meshB, true);
+            if (keepSpatial) {
+                // (the field is ours to set if it is empty or holds a tree this class built; a tree of the caller is left alone)
+                if (Symmetric && (SpatialA == null || SpatialA == builtA)) { SpatialA = spatialA; builtA = spatialA; }
+                if (SpatialB == null || SpatialB == builtB) { SpatialB = spatialB; builtB = spatialB; }
+            }
 
             Subdivisions = 0;
             var ab = new OneSided(meshA, spatialB, tol, 0, 0, this, Symmetric ? MaxSubdivisions - MaxSubdivisions / 2 : MaxSubdivisions);

@@ -69,7 +69,7 @@ static class Contours
                     DMesh3 g = rot ? Program.Map(inp.make(), Corpus.Rotate) : inp.make();
                     runs++;
                     // (the repair's solidify alone first: only a contour it stops on is worth the full row)
-                    var probe = new MeshWindingNumberSolidify(new DMesh3(g, false, MeshComponents.None)) { GridResolution = res, Adaptive = true, StopIfSelfIntersecting = true };
+                    var probe = new MeshWindingNumberSolidify(new DMesh3(g, false, MeshComponents.None)) { MinVolumeIoU = 0, GridResolution = res, Adaptive = true, StopIfSelfIntersecting = true };
                     if (!probe.Compute() || !probe.StoppedOnSelfIntersections) continue;
                     var row = new Dictionary<string, string> { ["input"] = inp.name + (rot ? ", rot" : ", id") + ", resolution " + res };
                     Measure(g, rr => { rr.ExactResolve = false; rr.PassThroughCleanParts = false; rr.SolidifyResolution = res; rr.RepairF = m => m; }, row);

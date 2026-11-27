@@ -332,14 +332,16 @@ code is not read.
   an inset: both ends are within h < |d| / 2 of a node beyond the offset level), so the crossing is found by bracketed
   regula falsi (Illinois) on d - side * u and the normal is side times the unit vector from the nearest input point.
 - **Band certificate** (option A item 3, `MeshOffset.CertifyBand`, usable on any surface): per triangle, a centre c and
-  r, an upper bound of the distance from c to the exact corners (interval boxes of the corners); sd(c) enclosed by
-  `ExactInterval` arithmetic on the doubles: above by the distance to an explicit point v0 + b1 (v1 - v0) + b2 (v2 - v0)
-  of the nearest triangle (b1, b2 >= 0, b1 <= 1 - b2 exactly), below by min over the triangles whose (padded) box can be
-  that close of w . (c - x) / |w| over their corners x (w from c towards the triangle's nearest point; Cauchy-Schwarz
-  and linearity over the triangle), the sign by the exact crossing parity where c is provably off the input. Then
+  r, an upper bound of the distance from c to the exact corners (`bary_radius_upper`, `MO-3` / `CTB-1` with interval fallback
+  outside normal range); sd(c) enclosed above by the distance to an explicit point v0 + b1 (v1 - v0) + b2 (v2 - v0)
+  of the nearest triangle (`CertifiedTriangleBounds.PointTriangleUpper`, `CTB-2`), below by min over the triangles whose
+  (padded) box can be that close (`MO-1` `box_lower_sq` with dynamic `ULoSq` BVH tightening and `MO-4` `tri_aabb_lower_sq`
+  leaf prefilter) of w . (c - x) / |w| over their corners x (`MO-2` `triangle_lower_tri`, with `ExactInterval` fallback outside
+  the guarded normal range), and the sign by the exact crossing parity where c is provably off the input (reused across splits
+  via an immutable `SignWitness` ball `(C, ULo, Sign)` whenever `LengthUpper(c, C) < ULo`). Then
   sd in [sLo - r, sHi + r] on the triangle (1-Lipschitz). A triangle above the tolerance is split by exact dyadic
   barycentric coordinates, up to `MaxBandSplitDepth` (6), and not split where its centre alone is beyond the tolerance.
-  No hand-derived error constant: the intervals widen every operation by an ulp (ExactIntervals.cs). The default
+  All four hardware-double fast bounds (`MO-1..MO-4`) are formally verified in `tools/ErrorBoundAudit/bounds.py`. The default
   tolerance is half a cell; every one of the 32 benchmark cases reaches it.
 - **Proven in A1**: (G1), (G2) (checked: `Status.Failed` otherwise), (G3) (exact), (G4) one side, (G6).
   **Measured**: the other side of (G4) and (G5) (the procedural oracles: Steiner volumes, components of a hollow part and

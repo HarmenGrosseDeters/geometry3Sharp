@@ -167,6 +167,21 @@ namespace gs
         /// change the volume after it
         /// </summary>
         public double RoundingVolumeBefore, RoundingVolumeAfter;
+        /// <summary>
+        /// Verification NoInventedSurface: the share of the boolean result's area (before the reduction) in triangles with a sample farther than
+        /// InventedSurfaceTolerance from every input as passed, the largest distance of a sample to an input surface, and the tolerance used;
+        /// the distance of a sample that the fast path accepted is the exact distance to the triangle it accepted (an upper bound of the nearest distance,
+        /// at most the tolerance), that of a far sample the exact nearest distance; all 0 without the mode or without a result surface
+        /// </summary>
+        public double InventedSurfaceShare, InventedSurfaceMaxDistance, InventedSurfaceTolerance;
+        /// <summary> Verification NoInventedSurface: the area of the invented triangles (the share is the area over that of the result) </summary>
+        public double InventedSurfaceArea;
+        /// <summary> Verification NoInventedSurface: the number of the invented triangles (those with a sample farther than the tolerance) </summary>
+        public int InventedTriangles;
+        /// <summary> Verification RoundingVolume: |RoundingVolumeAfter - RoundingVolumeBefore| / |RoundingVolumeBefore| (0 when that is 0, or no rounding repair ran), the value MaxRoundingVolumeChange is compared with </summary>
+        public double RoundingVolumeChange;
+        /// <summary> the time of the Verification checks (0 without them) </summary>
+        public long VerificationMilliseconds;
         /// <summary> the solids of the boolean result that MinThickness removed (empty without it) </summary>
         public List<SolidBooleanThinSolid> RemovedThinSolids = new List<SolidBooleanThinSolid>();
         /// <summary>
@@ -371,7 +386,32 @@ namespace gs
             /// a closed input is inside-out (the winding number in front of a component of it is odd and negative: its solid is
             /// empty or reversed) and AllowInsideOutInputs is false (Report.InsideOutCells counts the components); Result is null
             /// </summary>
-            InsideOutInput = 8
+            InsideOutInput = 8,
+            /// <summary>
+            /// Verification measured a result that exceeds a limit (MaxInventedSurfaceShare or MaxRoundingVolumeChange); Result is null, Error names the check,
+            /// the measured value and the limit, and Report keeps the run (the route with its Verification step, the measurements)
+            /// </summary>
+            VerificationFailed = 9
+        }
+
+        /// <summary> the checks of a finished result that Verification switches on (opt-in; combine with |) </summary>
+        [Flags]
+        public enum VerificationModes
+        {
+            /// <summary> no check: nothing is built or measured, and the run is the one without the option, bit for bit (default) </summary>
+            None = 0,
+            /// <summary>
+            /// the boolean result lies on the surfaces of the inputs as the caller passed them, up to what the pipeline itself may move a point by. A
+            /// Boolean only keeps pieces of the inputs' surfaces, so surface that lies on none of them was made up: the hole fill of an input repair that
+            /// closed an open tool, a wrap of MeshRobustRepair, or a defect. Measured by sampling (see Verification); the share of the result's area
+            /// that is invented is limited by MaxInventedSurfaceShare
+            /// </summary>
+            NoInventedSurface = 1,
+            /// <summary>
+            /// the volume that the rounding repair moved (Report.RoundingVolumeBefore, RoundingVolumeAfter) stays within MaxRoundingVolumeChange of the
+            /// volume before it, unless the change is below a floor for slivers (see Verification)
+            /// </summary>
+            RoundingVolume = 2
         }
 
         /// <summary>
@@ -543,6 +583,51 @@ namespace gs
         /// </summary>
         public ThinInputModes ThinInputs = ThinInputModes.Keep;
         /// <summary>
+        /// Default None (nothing is built or measured; the run is the one without this option, bit for bit). The checks of VerificationModes run on
+        /// the run that is the result (after a Grid retry or the fallback) and fill the Report (InventedSurfaceShare, InventedSurfaceMaxDistance,
+        /// InventedSurfaceTolerance, RoundingVolumeChange) also when they pass; a Route step "Verification" says which checks ran and their numbers. A
+        /// result that exceeds a limit is refused: Status VerificationFailed, Result null. Bits other than those of VerificationModes: InvalidInput.
+        /// NoInventedSurface: every triangle of the boolean's result (after MinThickness, before the reduction: the reduction is guarded by MaxDeviation
+        /// and is no repair that adds surface) is sampled at its three vertices, its centroid and its three edge midpoints; it counts as invented when
+        /// a sample is farther than InventedSurfaceTolerance from every input as the caller passed it (before the input repair, the grid snap and any
+        /// reorientation; sheets and open inputs too). InventedSurfaceShare is the area of the invented triangles over the area of the result. The
+        /// tolerance is 3 times (the bound the rounding repair applied, MeshRoundingRepair.MaxLength, or 256 ulp of the largest coordinate of the result and
+        /// the inputs if that is more, plus the diagonal of the grid cell if a grid step or InputGrid snapped the inputs); it scales with the inputs.
+        /// It costs one AABB tree per input and, per result triangle, seven nearest-triangle queries. It is a sampled check, not a proof: it misses an
+        /// invented region whose samples all lie within the tolerance of some input surface (the spacing of the samples is the size of a triangle of
+        /// the result, so a point inside a triangle can be farther than the tolerance while all of its samples pass; the share counts whole triangles; or
+        /// a region that coincides with another input's surface). A correct result is not flagged: every point of it lies on an input surface up to the moves of the
+        /// grid snap and the rounding, which the tolerance covers. A repair that closes a hole of a solid adds surface by design: its share is measured
+        /// too. RoundingVolume: dV = |RoundingVolumeAfter - RoundingVolumeBefore| fails when it exceeds both MaxRoundingVolumeChange times
+        /// |RoundingVolumeBefore| and a floor: RoundingVolumeFloorShare of the smallest |volume| of the closed inputs as passed (without a closed input,
+        /// RoundingVolumeFloorDiagonal of the cubed diagonal of the inputs), a loss that is immaterial against the inputs. The change of a PART that is thinner
+        /// than its own rounding length before and after the repair (RoundingVolumeThinChangeOf: 2 |volume| / area at most MaxDisplacement times the diagonal
+        /// of the part, or 256 ulp) is taken out of dV first, each part by its own change: a rounding that moves every vertex by at most that length changes
+        /// the volume of a component of area A by at most length * A, so a slab thinner than the length may lose or gain all of its volume legitimately (the
+        /// repair removes such a component), which a purely relative rule would refuse. The parts that are thicker are judged by their own change alone, so a
+        /// thin part never hides a loss of a thick one. A volume or floor that is not finite fails. Report.RoundingVolumeChange is
+        /// dV / |RoundingVolumeBefore| of the whole result (0 when that is 0, or when no rounding repair ran)
+        /// </summary>
+        public VerificationModes Verification = VerificationModes.None;
+        /// <summary> NoInventedSurface: the share of the result's area that may be invented (default 0: a tolerance that is a real bound makes the share of a correct result exactly 0, so any invented triangle is evidence); PositiveInfinity measures and reports only. Negative or NaN: InvalidInput </summary>
+        public double MaxInventedSurfaceShare = 0;
+        /// <summary> RoundingVolume: the relative change of the volume that the rounding may make (default 1e-3); PositiveInfinity measures and reports only. Negative or NaN: InvalidInput </summary>
+        public double MaxRoundingVolumeChange = 1e-3;
+        // RoundingVolume: the floor of dV as a share of the smallest closed input's |volume|: a change of the volume that is immaterial against the
+        // inputs is not refused however large its share of a tiny result (the share of the result is the check's reading, this is its scale). It does NOT
+        // cover a sliver result: a sliver thinner than the rounding bound has a volume of up to (bound * area), which is not below a share of the
+        // inputs (a thin plate input makes the share small); the thin parts' own change is taken out of dV instead (RoundingVolumeThinChangeOf)
+        internal const double RoundingVolumeFloorShare = 1e-6;
+        // RoundingVolume: the floor of dV as a share of the cubed diagonal of the inputs when no input is a closed solid with volume
+        internal const double RoundingVolumeFloorDiagonal = 1e-9;
+        // NoInventedSurface: the safety factor of the tolerance (the tolerance adds the legitimate moves, which are bounds; a rare worst case of a
+        // few of them at one point, or a diagonal taken from the box of the result instead of the largest component, stays inside)
+        internal const double InventedSurfaceSafety = 3;
+        // NoInventedSurface: the ulps of the largest coordinate that rounding the boolean's exact points to doubles may move a point by (the ulp term
+        // of the rounding bound, MeshRoundingRepair.UlpFactor)
+        internal const double InventedSurfaceUlps = 256;
+
+        /// <summary>
         /// configures the boolean (eg MaxPieces); runs before AllowOpenMeshes = false and StrictRounding = true are set, which stay. It runs once for
         /// every boolean of a run: again after an input repair, again for the run without the route after a refused sheet, and again for the retry of the Grid
         /// step (AutomaticSteps; a refused rim that the grid does not cure runs the boolean three times: the sheet, the grid, the fallback) (Report.Route)
@@ -669,6 +754,15 @@ namespace gs
         public bool Compute()
         {
             var total = Stopwatch.StartNew();
+            bool done = computeRoute(total);
+            if (done && Verification != VerificationModes.None)
+                done = verify(total);
+            return done;
+        }
+
+        // the run with its steps (sheet route, Grid step, fallback); the result is checked by Compute (Verification)
+        bool computeRoute(Stopwatch total)
+        {
             route = new List<SolidBooleanRouteStep>();
             grid = InputGrid;
             bool gridTried = false;
@@ -938,6 +1032,13 @@ namespace gs
             autoSheet = null;
             autoRefusal = ExactMeshBoolean.SheetRefusal.None;
             autoRefusalRouted = false;
+            roundingRan = false;
+            roundingExplained = 0;
+            roundingThinParts = 0;
+            roundingMeasureMs = 0;
+            roundingBound = 0;
+            VerificationSamples = 0;
+            VerificationFallbacks = 0;
 
             int criteria = (TargetTriangleCount > 0 ? 1 : 0) + (TargetFraction > 0 ? 1 : 0) + (MinEdgeLength > 0 ? 1 : 0) + (MaxQuadricError > 0 ? 1 : 0);
             if (criteria > 1)
@@ -954,6 +1055,10 @@ namespace gs
                 return fail(PipelineStatus.InvalidInput, "InputGrid must be 0 or a positive power of two", total);
             if ((AutomaticSteps & ~(AutomaticStepModes.Grid | AutomaticStepModes.GridBeforeFallback | AutomaticStepModes.GridAfterRoundingNotClean)) != 0)
                 return fail(PipelineStatus.InvalidInput, "AutomaticSteps is not a defined value", total);
+            if ((Verification & ~(VerificationModes.NoInventedSurface | VerificationModes.RoundingVolume)) != 0)
+                return fail(PipelineStatus.InvalidInput, "Verification is not a defined value", total);
+            if (!(MaxInventedSurfaceShare >= 0) || !(MaxRoundingVolumeChange >= 0))
+                return fail(PipelineStatus.InvalidInput, "MaxInventedSurfaceShare and MaxRoundingVolumeChange must not be negative or NaN", total);
             if (!(MinThickness >= 0) || double.IsInfinity(MinThickness))
                 return fail(PipelineStatus.InvalidInput, "MinThickness must be finite and not negative", total);
             if (ThinInputs < ThinInputModes.Keep || ThinInputs > ThinInputModes.Refuse)
@@ -1140,6 +1245,7 @@ namespace gs
             bool thinOnly = op.Status == ExactMeshBoolean.BooleanStatus.RoundingNotClean && OnlyThinComponents(op.Rounding);
             if (op.Rounding != null) {
                 Report.RoundingRemoved = new List<MeshRoundingRepair.RemovedComponentInfo>(op.Rounding.RemovedComponentInfos);
+                roundingRan = true;
                 Report.RoundingVolumeBefore = op.Rounding.VolumeBefore;
                 Report.RoundingVolumeAfter = op.Rounding.VolumeAfter;
             }
@@ -1158,6 +1264,16 @@ namespace gs
             DMesh3 mesh = thinOnly ? op.Rounding.Mesh : op.Result;
             BooleanStatus = op.Status;
             Report.BooleanTriangles = mesh.TriangleCount;
+            // Verification RoundingVolume: the change of the parts that the rounding may move without a relative reading (RoundingVolumeThinChangeOf), of this
+            // run's boolean result (a later run, the retry or the fallback, replaces it; its time is counted only if it is the run that is the result)
+            roundingExplained = 0;
+            roundingThinParts = 0;
+            roundingMeasureMs = 0;
+            if ((Verification & VerificationModes.RoundingVolume) != 0 && roundingRan && op.Rounding != null) {
+                var partsClock = Stopwatch.StartNew();
+                roundingExplained = RoundingVolumeThinChangeOf(op.Rounding, mesh, out roundingThinParts);
+                roundingMeasureMs = partsClock.ElapsedMilliseconds;
+            }
             // the sheet route followed the orientation of the sheets as given: the share of the first input that the Difference removed goes
             // into the steps, so that a sheet oriented the other way than meant shows (the volumes in doubles: a number for the reader)
             if (autoSheet != null) {
@@ -1180,6 +1296,15 @@ namespace gs
                 // (the contacts of what is left: the pair pass of PairContactsMode Auto depends on them; BooleanTriangles stays the boolean's count)
                 if (Report.RemovedThinSolids.Count > 0)
                     Report.ContactsBoolean = countContacts(mesh, null);
+            }
+
+            // Verification NoInventedSurface: the boolean's result against the inputs as passed (before the reduction, see Verification)
+            if ((Verification & VerificationModes.NoInventedSurface) != 0) {
+                clock.Restart();
+                bool measured = measureInventedSurface(mesh);
+                Report.VerificationMilliseconds += clock.ElapsedMilliseconds;
+                if (!measured)
+                    return fail(PipelineStatus.Cancelled, "cancelled", total);
             }
 
             // 3. the reduction (Auto: with a copy of the boolean result if it has contacts, for the second reduction)
@@ -1919,8 +2044,413 @@ namespace gs
             op.AllowOpenMeshes = false;
             op.StrictRounding = true;
             op.Cancellation = Cancellation;
-            op.Compute();
+            // (the rounding repair that this boolean creates records the components it found, for RoundingVolume)
+            MeshRoundingRepair.RecordComponentsOfNewRepairs = (Verification & VerificationModes.RoundingVolume) != 0;
+            try {
+                op.Compute();
+            } finally {
+                MeshRoundingRepair.RecordComponentsOfNewRepairs = false;
+            }
+            roundingBound = op.Rounding != null ? op.Rounding.MaxLength : 0;
             return op;
+        }
+
+        // ---- Verification ----
+
+        // the run's boolean ran a rounding repair (Report.RoundingVolumeBefore and After are its volumes)
+        bool roundingRan;
+        // RoundingVolume: the signed change of the volume of the thin parts of the run's boolean result (RoundingVolumeThinChangeOf), their number, and the
+        // time that measuring them took
+        double roundingExplained;
+        int roundingThinParts;
+        long roundingMeasureMs;
+        // the bound that the rounding repair of the run's last boolean applied (MeshRoundingRepair.MaxLength: the largest over the components of the mesh before
+        // the repair), 0 if it did not run
+        double roundingBound;
+        // the samples that NoInventedSurface measured in the run and how many of them needed the exact search (see NearestInputDistance)
+        internal long VerificationSamples, VerificationFallbacks;
+
+        // The tolerance of NoInventedSurface: what the pipeline itself may legitimately move a point of the result away from the inputs as passed.
+        //  - the rounding repair moves a point by at most the bound it applied (MaxLength, read from the repair: it is MaxDisplacement times the diagonal of the
+        //    largest component of the mesh BEFORE the repair, the same for all components; the result's box after MinThickness or after the repair removed
+        //    that component can be smaller, so the result's own diagonal is not that bound). The pipeline's boolean is strict (no ulp term of its own)
+        //  - rounding the boolean's exact points to doubles moves a point by ulps of the coordinates: 256 ulp (the repair's own ulp term) of the largest
+        //    coordinate. The distance of a sample to a reference triangle is computed at the magnitude of the reference's coordinates, so that is the larger
+        //    of the result's and the inputs' largest used coordinate
+        //  - a snap to a grid (InputGrid, or the cell of the Grid step) moves an input vertex by at most half a cell per coordinate, the result lies on the
+        //    snapped surfaces and a triangle of one is within the largest vertex move of the original: a half diagonal of the cell. The diagonal (twice
+        //    that) is taken
+        //  - the reduction is not included: it runs after the check, on the result that was measured (MaxDeviation guards it); MinThickness removes
+        //    whole solids and moves nothing; the input repair is the thing to detect, not a move to allow; a reorientation flips triangles only
+        // The sum is multiplied by InventedSurfaceSafety. Every term scales with the inputs by a power of two exactly (the bound by its definition, the ulp
+        // by its exponent, the cell is a power of two), so the tolerance and the share do not change under scaling by 2^k
+        internal static double InventedSurfaceToleranceOf(double roundingBound, double largestCoordinate, double cell)
+        {
+            double rounding = Math.Max(roundingBound, InventedSurfaceUlps * ulpOf(largestCoordinate));
+            double snap = cell > 0 ? cell * Math.Sqrt(3) : 0;
+            return InventedSurfaceSafety * (rounding + snap);
+        }
+
+        // the largest absolute finite coordinate of the vertices that triangles use, over the meshes
+        static double LargestUsedCoordinate(IEnumerable<DMesh3> meshes)
+        {
+            double max = 0;
+            foreach (DMesh3 m in meshes)
+                foreach (Vector3d p in UsedVertices(m)) {
+                    max = largerFinite(max, p.x);
+                    max = largerFinite(max, p.y);
+                    max = largerFinite(max, p.z);
+                }
+            return max;
+        }
+
+        // the rounding unit of x: a power of two (2^-52 times the power of two at or below |x|); 0 for 0 and a value that is not finite or too small
+        static double ulpOf(double x)
+        {
+            double a = Math.Abs(x);
+            if (!(a > 0) || double.IsInfinity(a))
+                return 0;
+            long field = (BitConverter.DoubleToInt64Bits(a) >> 52) - 52;
+            return field < 1 ? 0 : BitConverter.Int64BitsToDouble(field << 52);
+        }
+
+        /// <summary> what InventedSurfaceOf measured </summary>
+        internal sealed class InventedSurfaceMeasure
+        {
+            /// <summary> the area of the invented triangles over the area of the mesh (0 for a mesh without area) </summary>
+            public double Share;
+            /// <summary> the area and the number of the invented triangles </summary>
+            public double Area;
+            public int Triangles;
+            /// <summary> the largest distance of a sample to the nearest reference </summary>
+            public double MaxDistance;
+            /// <summary> the samples taken, and those that needed the exact search over all references (NearestInputDistance) </summary>
+            public long Samples, Fallbacks;
+        }
+
+        // Samples every triangle of the mesh (see InventedSurfaceOf) against the inputs as passed and fills the Report. False: cancelled
+        bool measureInventedSurface(DMesh3 mesh)
+        {
+            if (mesh.TriangleCount == 0)
+                return true;
+            double largest = Math.Max(LargestUsedCoordinate(new[] { mesh }), LargestUsedCoordinate(Inputs));
+            Report.InventedSurfaceTolerance = InventedSurfaceToleranceOf(roundingBound, largest, grid);
+            // (the references are the inputs as passed: Inputs is never changed by the run, the repair and the snap work on copies)
+            InventedSurfaceMeasure m = InventedSurfaceOf(mesh, Inputs, Report.InventedSurfaceTolerance, Cancellation);
+            if (m == null)
+                return false;
+            Report.InventedSurfaceShare = m.Share;
+            Report.InventedSurfaceArea = m.Area;
+            Report.InventedTriangles = m.Triangles;
+            Report.InventedSurfaceMaxDistance = m.MaxDistance;
+            VerificationSamples = m.Samples;
+            VerificationFallbacks = m.Fallbacks;
+            return true;
+        }
+
+        /// <summary>
+        /// The share of the area of mesh in triangles that have a sample farther than tolerance from every reference mesh (0 for a mesh without area), the
+        /// area and number of those triangles, and the largest distance of a sample to the nearest reference. The samples of a triangle are its three
+        /// vertices, its centroid and its three edge midpoints; the distance is that to the nearest point of a reference triangle (DistPoint3Triangle3),
+        /// found with one AABB tree per reference (NearestInputDistance). Null: cancelled
+        /// </summary>
+        internal static InventedSurfaceMeasure InventedSurfaceOf(DMesh3 mesh, IList<DMesh3> references, double tolerance, CancellationToken cancellation)
+        {
+            var result = new InventedSurfaceMeasure();
+            var trees = new List<DMeshAABBTree3>(references.Count);
+            foreach (DMesh3 m in references)
+                if (m.TriangleCount > 0)
+                    trees.Add(new DMeshAABBTree3(m, true));
+            double total = 0;
+            int count = 0;
+            var samples = new Vector3d[7];
+            // (the search of a sample prunes with this bound; the decision is made on the exact distance, so the widening only keeps a distance that
+            // equals the tolerance in the search)
+            double bound = tolerance * (1 + 1e-6);
+            foreach (int t in mesh.TriangleIndices()) {
+                if ((++count & 1023) == 0 && cancellation.IsCancellationRequested)
+                    return null;
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                mesh.GetTriVertices(t, ref a, ref b, ref c);
+                samples[0] = a; samples[1] = b; samples[2] = c;
+                samples[3] = (a + b + c) / 3;
+                samples[4] = (a + b) / 2; samples[5] = (b + c) / 2; samples[6] = (c + a) / 2;
+                double far = 0;
+                foreach (Vector3d p in samples) {
+                    bool exact;
+                    double nearest = NearestInputDistance(trees, p, bound, tolerance, out exact);
+                    result.Samples++;
+                    if (exact)
+                        result.Fallbacks++;
+                    if (nearest > far)
+                        far = nearest;
+                }
+                double area = triangleArea(a, b, c);
+                total += area;
+                if (far > result.MaxDistance)
+                    result.MaxDistance = far;
+                if (far > tolerance) {
+                    result.Area += area;
+                    result.Triangles++;
+                }
+            }
+            result.Share = total > 0 ? result.Area / total : 0;
+            return result;
+        }
+
+        // The distance of p to the nearest triangle of the trees (|p - closest point|, DistPoint3Triangle3).
+        // Fast path: a search bounded by `bound`, which prunes the tree for a point on an input (the usual sample). The tree ranks triangles by the squared
+        // form of the distance (MeshQueries.TriDistanceSqr), whose absolute error is about eps E^2 for a triangle of size E: for a triangle much larger than
+        // the tolerance that ranking is noise, and the search may return a triangle that is far from p, or miss the near one. So the fast path decides only
+        // what it can prove: a triangle that it returns and whose EXACT distance is at most `tolerance` shows that p is within the tolerance of an input
+        // (that distance is returned, an upper bound of the nearest; the exact decision is not changed by it).
+        // Exact path (exact = true): every other sample (nothing found, or a triangle found that is farther than the tolerance by its exact distance) is
+        // decided by the search that ranks by the exact closest point (DMeshAABBTree3.FindNearestTriangleByClosestPoint) in every tree: only far samples
+        // pay for it
+        static double NearestInputDistance(List<DMeshAABBTree3> trees, Vector3d p, double bound, double tolerance, out bool exact)
+        {
+            double nearest = double.MaxValue;
+            foreach (DMeshAABBTree3 tree in trees) {
+                double d2;
+                int t = tree.FindNearestTriangle(p, out d2, Math.Min(bound, nearest));
+                if (t == DMesh3.InvalidID)
+                    continue;
+                var tri = new Triangle3d();
+                tree.Mesh.GetTriVertices(t, ref tri.V0, ref tri.V1, ref tri.V2);
+                Vector3d closest, bary;
+                DistPoint3Triangle3.DistanceSqr(ref p, ref tri, out closest, out bary);
+                double d = p.Distance(closest);
+                if (d < nearest)
+                    nearest = d;
+            }
+            exact = false;
+            if (nearest <= tolerance)
+                return nearest;
+            exact = true;
+            nearest = double.MaxValue;
+            foreach (DMeshAABBTree3 tree in trees) {
+                double d;
+                tree.FindNearestTriangleByClosestPoint(p, out d);
+                if (d < nearest)
+                    nearest = d;
+            }
+            return nearest;
+        }
+
+        static double triangleArea(Vector3d a, Vector3d b, Vector3d c)
+        {
+            return (b - a).Cross(c - a).Length / 2;
+        }
+
+        /// <summary>
+        /// The verdict of RoundingVolume. change: |after - before| / |before| (0 if dV is 0, +infinity if before is 0 and dV is not); fails when dV is more
+        /// than limit times |before| (before 0: any dV) and more than floor; never with an infinite limit. A volume, a dV or a floor that is not finite
+        /// (coordinates whose volume overflows) cannot be compared: it fails, also with an infinite limit (like a tolerance that is not finite)
+        /// </summary>
+        internal static bool RoundingVolumeExceeds(double before, double after, double limit, double floor, out double change)
+        {
+            return RoundingVolumeExceeds(before, after, 0, limit, floor, out change);
+        }
+
+        /// <summary>
+        /// The same with explained, the signed change of the thin parts (RoundingVolumeThinChangeOf): change is of the whole result, the verdict is of
+        /// dV = |after - before - explained|, the change of the other parts
+        /// </summary>
+        internal static bool RoundingVolumeExceeds(double before, double after, double explained, double limit, double floor, out double change)
+        {
+            double all = Math.Abs(after - before);
+            change = before != 0 ? all / Math.Abs(before) : (all > 0 ? double.PositiveInfinity : 0);
+            double dV = Math.Abs(after - before - explained);
+            if (!IsFinite(before) || !IsFinite(after) || !IsFinite(explained) || !IsFinite(dV) || !IsFinite(floor))
+                return true;
+            if (double.IsPositiveInfinity(limit))
+                return false;
+            return (before != 0 ? dV > limit * Math.Abs(before) : dV > 0) && dV > floor;
+        }
+
+        static bool IsFinite(double x) { return !double.IsNaN(x) && !double.IsInfinity(x); }
+
+        // The checks of Verification on the result of the run that is the result. False: Status VerificationFailed (Result null)
+        bool verify(Stopwatch total)
+        {
+            var clock = Stopwatch.StartNew();
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            Func<double, string> r = x => x.ToString("R", inv);
+            var text = new List<string>();
+            var failures = new List<string>();
+            if ((Verification & VerificationModes.NoInventedSurface) != 0) {
+                double tol = Report.InventedSurfaceTolerance;
+                if (Result.TriangleCount == 0 || Report.BooleanTriangles == 0)
+                    text.Add("NoInventedSurface: the result has no surface, share 0");
+                else {
+                    text.Add("NoInventedSurface: invented share " + r(Report.InventedSurfaceShare) + " of the area (" + Report.InventedTriangles + " triangles, area "
+                        + r(Report.InventedSurfaceArea) + "; limit " + r(MaxInventedSurfaceShare) + "), largest distance of a sample to an input "
+                        + r(Report.InventedSurfaceMaxDistance) + ", tolerance " + r(tol));
+                    if (double.IsNaN(tol) || double.IsInfinity(tol))
+                        failures.Add("NoInventedSurface: the tolerance is not finite (" + r(tol) + "), so the result cannot be compared with the inputs (non-finite coordinates, or a rounding bound that overflowed)");
+                    else if (Report.InventedSurfaceShare > MaxInventedSurfaceShare) {
+                        var ran = new List<string>();
+                        foreach (SolidBooleanInputRepair x in Report.RepairedInputs)
+                            ran.Add("input " + x.Index + " by " + x.Method);
+                        string repairs = ran.Count == 0 ? "no input repair ran" : "input repair ran: " + string.Join(", ", ran);
+                        failures.Add("NoInventedSurface: " + r(Report.InventedSurfaceShare) + " of the result's area (" + Report.InventedTriangles + " triangles, area " + r(Report.InventedSurfaceArea)
+                            + ") lies farther than " + r(tol) + " from every input as passed (the largest distance of a sample is " + r(Report.InventedSurfaceMaxDistance)
+                            + "), more than MaxInventedSurfaceShare " + r(MaxInventedSurfaceShare) + ": the result contains surface that is on no input (" + repairs + ")");
+                    }
+                }
+            }
+            if ((Verification & VerificationModes.RoundingVolume) != 0) {
+                double before = Report.RoundingVolumeBefore, after = Report.RoundingVolumeAfter;
+                double dV = Math.Abs(after - before);
+                double rest = Math.Abs(after - before - roundingExplained);
+                Report.VerificationMilliseconds += roundingMeasureMs;
+                if (!roundingRan) {
+                    Report.RoundingVolumeChange = 0;
+                    text.Add("RoundingVolume: no rounding, change 0");
+                } else {
+                    double share = RoundingVolumeFloor();
+                    double floor = share;
+                    bool exceeds = RoundingVolumeExceeds(before, after, roundingExplained, MaxRoundingVolumeChange, floor, out Report.RoundingVolumeChange);
+                    string basis = before == 0 ? "Before = 0, relative change " + r(Report.RoundingVolumeChange) : "relative change " + r(Report.RoundingVolumeChange);
+                    text.Add("RoundingVolume: the rounding moved " + r(dV) + " of the volume " + r(before) + ", " + basis + " (limit " + r(MaxRoundingVolumeChange) + ", floor " + r(floor) + " of the inputs; " + roundingThinParts + " parts thinner than their rounding length changed by " + r(roundingExplained) + ", the rest by " + r(rest) + ")");
+                    if (exceeds && (!IsFinite(before) || !IsFinite(after) || !IsFinite(dV) || !IsFinite(rest) || !IsFinite(roundingExplained) || !IsFinite(floor)))
+                        failures.Add("RoundingVolume: the volume is not finite (before " + r(before) + ", after " + r(after) + ", floor " + r(floor) + "), so the change cannot be compared with MaxRoundingVolumeChange (coordinates whose volume overflows)");
+                    else if (exceeds)
+                        failures.Add("RoundingVolume: the rounding repair moved " + r(dV) + " of the volume " + r(before) + " (" + basis + "; the parts that are not thin moved " + r(rest) + "), more than MaxRoundingVolumeChange "
+                            + r(MaxRoundingVolumeChange) + " and the floor " + r(floor));
+                }
+            }
+            step("Verification", -1, "Verification = " + Verification, string.Join("; ", text) + (failures.Count > 0 ? "; refused" : "; passed"));
+            Report.VerificationMilliseconds += clock.ElapsedMilliseconds;
+            if (failures.Count == 0) {
+                Report.TotalMilliseconds = total.ElapsedMilliseconds;
+                return true;
+            }
+            return fail(PipelineStatus.VerificationFailed, string.Join("; ", failures), total);
+        }
+
+        /// <summary>
+        /// The change of the volume that the rounding may make legitimately, part by part: the signed sum, over the closed components of the mesh as the
+        /// rounding repair found it (MeshRoundingRepair.RecordComponents) that are thin before AND after, of (volume after - volume before). A part is thin
+        /// when 2 |volume| / area is at most its own rounding length ell = max(MaxDisplacement x the diagonal of the part, InventedSurfaceUlps ulp(its largest
+        /// coordinate)): the length that the repair's bound would have if the part were alone, so what is said of a part does not depend on the other parts. A
+        /// rounding that moves every vertex by at most ell changes the volume of a component of area A by at most ell A, so such a part may lose or gain all of
+        /// its volume legitimately: a slab that the repair removes (volume after 0; thin before) or that it moves. The parts of the mesh after are matched to
+        /// the parts before by their vertices (the repair adds no vertex and edits within a component); a part after that names no single part before, or is
+        /// open, or a mesh that is not the repair's: nothing is taken out (0), so the answer errs towards refusing. A part that is thicker than its length is
+        /// never taken out, whatever the thin ones do. Serial, in the order of the components: the same on every run, every term scales by a power of two
+        /// exactly. parts: how many parts were taken out
+        /// </summary>
+        internal static double RoundingVolumeThinChangeOf(MeshRoundingRepair rounding, DMesh3 mesh, out int parts)
+        {
+            parts = 0;
+            List<MeshRoundingRepair.ComponentRecord> before = rounding.ComponentsBefore;
+            int[] map = rounding.ComponentOfVertexBefore;
+            if (before == null || map == null || !ReferenceEquals(rounding.Mesh, mesh))
+                return 0;
+            var afterVolume = new double[before.Count];
+            var afterArea = new double[before.Count];
+            var seen = new HashSet<int>();
+            var stack = new Stack<int>();
+            foreach (int first in mesh.TriangleIndices()) {
+                if (seen.Contains(first))
+                    continue;
+                // (a component by shared edges; its volume about its first vertex, which keeps a thin one far from the origin well conditioned)
+                Vector3d o = mesh.GetVertex(mesh.GetTriangle(first).a);
+                double v6 = 0, a2 = 0;
+                bool closed = true;
+                int found = -1;
+                seen.Add(first);
+                stack.Push(first);
+                while (stack.Count > 0) {
+                    int t = stack.Pop();
+                    Index3i tv = mesh.GetTriangle(t);
+                    Vector3d p = mesh.GetVertex(tv.a) - o, q = mesh.GetVertex(tv.b) - o, w = mesh.GetVertex(tv.c) - o;
+                    v6 += p.Dot(q.Cross(w));
+                    a2 += (q - p).Cross(w - p).Length;
+                    for (int k = 0; k < 3; ++k) {
+                        int b = tv[k] < map.Length ? map[tv[k]] : -1;
+                        if (b == -2)
+                            continue;
+                        if (b == -1 || (found >= 0 && b != found))
+                            return 0;
+                        found = b;
+                    }
+                    Index3i nb = mesh.GetTriNeighbourTris(t);
+                    for (int k = 0; k < 3; ++k) {
+                        int n = nb[k];
+                        if (n == DMesh3.InvalidID)
+                            closed = false;
+                        else if (seen.Add(n))
+                            stack.Push(n);
+                    }
+                }
+                if (!closed || found < 0)
+                    return 0;
+                afterVolume[found] += v6 / 6;
+                afterArea[found] += a2 / 2;
+            }
+            double explained = 0;
+            for (int j = 0; j < before.Count; ++j) {
+                MeshRoundingRepair.ComponentRecord b = before[j];
+                double ell = Math.Max(rounding.MaxDisplacement * b.Diagonal, InventedSurfaceUlps * ulpOf(b.Largest));
+                if (!b.Closed || !(b.Area > 0) || !(ell > 0) || double.IsInfinity(ell))
+                    continue;
+                bool thinBefore = 2 * Math.Abs(b.Volume) <= ell * b.Area;
+                bool thinAfter = afterArea[j] == 0 || 2 * Math.Abs(afterVolume[j]) <= ell * afterArea[j];
+                if (thinBefore && thinAfter) {
+                    explained += afterVolume[j] - b.Volume;
+                    ++parts;
+                }
+            }
+            return explained;
+        }
+
+        // the smallest dV of RoundingVolume that can fail (RoundingVolumeFloorOf) for the inputs as passed: whether an input is closed is asked of the input
+        // itself, not of the snapped copy that the check of a run with a grid saw
+        double RoundingVolumeFloor()
+        {
+            return RoundingVolumeFloorOf(Inputs, i => ExactMeshBoolean.IsWindingClosed(Inputs[i]));
+        }
+
+        /// <summary>
+        /// The floor of RoundingVolume: RoundingVolumeFloorShare of the smallest |volume| of the inputs that closed(i) calls closed (a closed input of
+        /// volume 0, a sheet given twice, has no volume to take a share of and is skipped); without such an input RoundingVolumeFloorDiagonal of the
+        /// cubed diagonal of the box of all inputs. Sizes and volumes are those of the vertices that triangles use (a vertex that no triangle uses is
+        /// not part of the input)
+        /// </summary>
+        internal static double RoundingVolumeFloorOf(IList<DMesh3> inputs, Func<int, bool> closed)
+        {
+            double smallest = double.MaxValue;
+            var all = AxisAlignedBox3d.Empty;
+            for (int i = 0; i < inputs.Count; ++i) {
+                DMesh3 m = inputs[i];
+                if (m.TriangleCount == 0)
+                    continue;
+                var box = AxisAlignedBox3d.Empty;
+                foreach (Vector3d p in UsedVertices(m))
+                    box.Contain(p);
+                all.Contain(box);
+                if (!closed(i))
+                    continue;
+                // (volume and area relative to the centre of the used vertices' box)
+                Vector3d o = box.Center;
+                double v6 = 0, a2 = 0;
+                foreach (int t in m.TriangleIndices()) {
+                    Index3i tv = m.GetTriangle(t);
+                    Vector3d p = m.GetVertex(tv.a), q = m.GetVertex(tv.b), s = m.GetVertex(tv.c);
+                    v6 += (p - o).Dot((q - o).Cross(s - o));
+                    a2 += (q - p).Cross(s - p).Length;
+                }
+                double v = v6 / 6, a = a2 / 2;
+                if (Math.Abs(v) <= 1e-13 * a * box.MaxDim)
+                    continue;
+                smallest = Math.Min(smallest, Math.Abs(v));
+            }
+            if (smallest < double.MaxValue)
+                return RoundingVolumeFloorShare * smallest;
+            double diag = all.Max.x >= all.Min.x ? all.DiagonalLength : 0;
+            return RoundingVolumeFloorDiagonal * diag * diag * diag;
         }
 
         // tests: called with the triangle count of each mesh whose self-intersections the repair check computes (the copy, then the input)

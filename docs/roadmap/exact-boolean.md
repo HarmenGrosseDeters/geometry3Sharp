@@ -34,7 +34,7 @@ result did not depend on the order, the rounding repair did (it works by ids), a
 Built in #1464: the kept pieces are ordered by their geometry before the vertices are numbered, the hole of a removed point
 starts at its smallest point, and the flips are decided exactly. Result and status are bit for bit the same for reordered
 triangles, vertex ids and corners; the ordering is about 1 % of the boolean's time; the ids of every result changed once and
-40 pinned tests moved. Merged as #1464 (2026-11-24). Open: the repair's own gap, #1465 (a degenerate triangle with edges of 1e-8 that no edit removes), and #1519 below (the output ids of `ExactMeshArrangement` depend on the thread schedule).
+40 pinned tests moved. Merged as #1464 (2026-11-24). Open: the repair's own gap, #1465 (a degenerate triangle with edges of 1e-8 that no edit removes; the joint stage now also moves fixed corners and tries two step sizes, `docs/design/SAFE_ROUNDING.md` section 9.1.1: 25 of the 28 states of the oracle sample clean), and #1519 below (the output ids of `ExactMeshArrangement` depend on the thread schedule).
 
 #### Board update 2026-11-24: open items of the exact Boolean and the solid pipeline
 
@@ -498,6 +498,7 @@ decisions above): the ExactPredicates throw near ±1e308 (fixed: robustness swee
 #### Other open items
 
 - **`SolidBooleanPipeline` default `AutomaticSteps = GridBeforeFallback | GridAfterRoundingNotClean` (merged #1480, 2026-11-24).** An open tool of a Difference that the sheet role refuses with `RimInsideWorkpiece` (a rim a few ulps inside a face, far from the origin) is retried once on the data grid before the fallback, and a run that ends with `RoundingNotClean` is retried once on the grid (owner decision 2026-11-24, after private inputs that the first default still refused all succeeded with the retry, nearly all with the right volume; its result is the Boolean of the snapped inputs); `Grid` also retries a stated sheet; `AutomaticSteps = None` is the old behaviour. Known risk, in the guide: the cell can be a visible share of a small feature far from the origin.
+- **`SolidBooleanPipeline.Verification` (opt-in, PR #1488).** Two checks of a finished result, refused with `PipelineStatus.VerificationFailed`: `NoInventedSurface` (a result triangle with a sample, its vertices, centroid or edge midpoints, farther than 3 x (the rounding repair's applied bound or 256 ulp at the inputs' magnitude, + grid cell diagonal) from every input as passed: a hole fill of an open tool made surface that no input has; limit `MaxInventedSurfaceShare` default 0, owner's call 2026-11-24 after the review; the nearest-triangle search has an exact fallback because the AABB tree's squared ranking is noise for big faces) and `RoundingVolume` (the volume the rounding moved, relative, limit `MaxRoundingVolumeChange` 1e-3, with a floor of 1e-6 of the smallest closed input, and the change of each part that is thinner than its own rounding length, before and after, taken out of dV by that part's own change (a removed or moved slab is legitimate; a thin part never hides a loss of a thick one: the plates stay refused beside a separate thin slab); the thin plates of `RoundingThinVolumeTests` lose 0.71 %). Measured before the reduction. Guide: [Verification](../guides/booleans-and-imprint.md#verification-of-the-result-verification).
 
 Checked against the owner's decisions, git and the open PRs and issues on 2026-11-15; status lines re-checked 2026-11-17.
 
@@ -896,7 +897,7 @@ is the oracle of the boolean property campaigns and of a Nightly corpus; a certi
 Stage 3 (owner go 2026-11-22, option B of the spike note below): the embedding of the arrangement's pieces (C2) is checked
 in `BooleanCertificate`, test-only, exact signs only (no filter, no new error bound); components the rounding removed are
 listed, and a result with such parts is not reported as clean (owner 2026-11-22).
-Spike 2026-11-22 (owner go, plan #1256): [BOOLEAN_CERTIFIED_MODE_2026-11.md](../research/BOOLEAN_CERTIFIED_MODE_2026-11.md) measures a
+Spike 2026-11-22 (owner go, [plan #1256](../plans/boolean-certifying-checker-stage-3.md)): [BOOLEAN_CERTIFIED_MODE_2026-11.md](../research/BOOLEAN_CERTIFIED_MODE_2026-11.md) measures a
 C2a prototype (`benchmarks/BooleanComparison certify`: 0.4-8.5 times the boolean with a filter, 14-100 times with BigInteger; the
 whole checker as built 16-570 times), estimates a certified user mode at about 3-16 times the boolean (an extrapolation) for a narrow class, and finds
 the coplanar clip coordinates already exact in the boolean and in `IntrTriangle3Triangle3` (open only in the legacy
@@ -966,9 +967,9 @@ lever 1 (#902) and closed as a no-go (#915), #789 closed by #934, #825 closed as
 3. The tail above 20 s: #888 is closed (#960, 2026-11-16); tail cases are judged by the regression rule only. #1047 (42327
    with its rotated copy, 18-26 s, the time is in the classification) is reduced by PR #1064 (merged; box prefilter for the coplanar stacks,
    memo of L2's exact sides, -7 to -14 % on 42327, bit-identical; 19.5 s median for the union, still above 20 s in one of 10
-   processes); the further levers are not built under the speed stop (plan #1253); #1047 is dropped as a documented tail (owner 2026-11-19).
+   processes); the further levers are not built under the speed stop ([plan #1253](../plans/boolean-speed-work-parked.md)); #1047 is dropped as a documented tail (owner 2026-11-19).
 4. Rounding: the `rebuild_tree` reuse is dropped (see [After 3.0](#after-30-owner-2026-11-16)); lever 2 of #837 parked for the
-   rotated-CAD class (plan #1258).
+   rotated-CAD class ([plan #1258](../plans/repair-rounding-cost-levers.md)).
 5. Thread scaling beyond 4 cores (#858): answered and closed 2026-11-17 by the owner's 1 / 4 / 12-thread A/B of #962 (T6 closing
    report above). Levers 2 and 4 of #953 are merged (#962, 2026-11-16, 4 threads -6.9 % on T6;
    [perf/BOOLEAN_THREAD_SCALING.md](../perf/BOOLEAN_THREAD_SCALING.md) section 6); the levers left are past the 80 % point and dropped unless a caller needs them (see [After 3.0](#after-30-owner-2026-11-16)).
@@ -983,8 +984,8 @@ lever 1 (#902) and closed as a no-go (#915), #789 closed by #934, #825 closed as
    pointing to `ExactMeshImprint` / `ExactMeshBoolean`. Known limit of the imprint at 1-ulp contact (slivers): #1034.
 8. Research: 3D snap rounding #721 is closed; the plateau variant stays a design (no-go, owner
    2026-11-15; Devillers et al. 2020 experiment parked, plan #1259; HP 1 study, plan #1278; spike of 2026-11-22 with measured upper bounds, leaning no build: [SNAP_ROUNDING_3D_GUARANTEE_2026-11.md](../research/SNAP_ROUNDING_3D_GUARANTEE_2026-11.md)). Draft: Thingi10K full-corpus harness #385.
-9. Not scheduled: S3 (sharing A's setup across the Bi; dropped), EMBER lever 2 (parked, owner 2026-11-16, plan #1255), certified user mode (option C of plan #1256, spike note of 2026-11-22 above; stage 3 is built, exact coplanar clip coordinates: option D1), mesh-kernel ideas.
+9. Not scheduled: S3 (sharing A's setup across the Bi; dropped), EMBER lever 2 (parked, owner 2026-11-16, [plan #1255](../plans/boolean-ember-lever-2.md)), certified user mode (option C of [plan #1256](../plans/boolean-certifying-checker-stage-3.md), spike note of 2026-11-22 above; stage 3 is built, exact coplanar clip coordinates: option D1), mesh-kernel ideas.
    Exact Boolean 4.0 (exact output with provenance): stage 0, the design analysis, is merged (#1093); stage 1 (a lazy `ExactMesh` expression, one
-   exact pass) is option A, an opt-in API (owner 2026-11-17), merged as #1107; stages 1b and 1c are on hold (plan #1254) and the materialized provenance stages are parked until
+   exact pass) is option A, an opt-in API (owner 2026-11-17), merged as #1107; stages 1b and 1c are on hold ([plan #1254](../plans/boolean-40-stages-1b-1c.md)) and the materialized provenance stages are parked until
    a concrete use case. Boolean result classes: #1104 and PR #1105 (owner 2026-11-17); an opt-in helper for exact boolean on triangle soups
    to a clean closed low-poly solid is merged (#1112).

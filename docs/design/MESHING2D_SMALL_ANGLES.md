@@ -46,7 +46,7 @@ end on the other side, triangle splits instead).
   apex angle, so `cos phi > 0`. Exact, `Exact.BelowMpwFloor(s, S)` with `s` the triangle's smallest sine squared and `S` the pair's:
   `sin^2` of the floor is `S / (5 - 4 cos phi)`, so below the floor is `4 s cos phi > 5 s - S`: true where `5 s < S`, else
   `16 s^2 (1 - S) > (5 s - S)^2`, no root. Tested against the classifier of `Hp6.cs` (column `below_mpw_floor` of `perf/hp6-net10.csv`:
-  boxwedge and fan5, both mesher modes).
+  boxwedge and fan5, both mesher modes; crossing against a recount in doubles, down to 5.47 degrees).
 - Measured: the rotated fan stops at 4 659 vertices (identity: 4 515), oracle-valid (`QualityMesh2NearTJunctionTests`).
 
 ## 1. Diagnosis (measured, master 14d744f0)

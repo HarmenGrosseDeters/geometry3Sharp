@@ -74,9 +74,16 @@ namespace Meshing2Acceptance
             /// at infinity (a triangle with it is a ghost: its finite edge is a hull edge, the outside on its left) </summary>
             sealed class Tri
             {
-                public readonly List<int> V = new List<int>(), Twin = new List<int>();
-                public readonly List<bool> Dead = new List<bool>();
+                public readonly List<int> V, Twin;
+                public readonly List<bool> Dead;
                 public readonly Stack<int> Free = new Stack<int>();
+
+                public Tri(int expectedTriangles)
+                {
+                    V = new List<int>(3 * expectedTriangles);
+                    Twin = new List<int>(3 * expectedTriangles);
+                    Dead = new List<bool>(expectedTriangles);
+                }
 
                 public int New(int a, int b, int c)
                 {
@@ -128,7 +135,7 @@ namespace Meshing2Acceptance
                 foreach (int id in order) if (OrientV(a, b, id) != 0) { c = id; break; }
                 if (c < 0) { why = "all vertices on a line"; return null; }
                 if (OrientV(a, b, c) < 0) (b, c) = (c, b);
-                var tr = new Tri();
+                var tr = new Tri(2 * n + 8);
                 int t0 = tr.New(a, b, c);
                 int g0 = tr.New(b, a, Infinite), g1 = tr.New(c, b, Infinite), g2 = tr.New(a, c, Infinite);
                 tr.Link(3 * t0, 3 * g0); tr.Link(3 * t0 + 1, 3 * g1); tr.Link(3 * t0 + 2, 3 * g2);
@@ -138,9 +145,16 @@ namespace Meshing2Acceptance
                 tr.Link(3 * g1 + 2, 3 * g2 + 1);   // inf->c with c->inf
                 int last = t0;
                 long guard = 0, budget = 400L * n + 10000;
-                var cavity = new List<int>(); var inCavity = new HashSet<int>(); var stack = new Stack<int>();
-                var startAt = new Dictionary<int, int>();
-                foreach (int p in order) {
+                var cavity = new List<int>(64);
+                var stack = new Stack<int>(64);
+                var created = new List<(int tri, int x, int y)>(64);
+                var outerTwin = new List<int>(64);
+                var cavityStamp = new int[2 * n + 16];
+                var startAtTri = new int[o.VX.Length + 1];
+                var startAtStamp = new int[o.VX.Length + 1];
+                int stamp = 0;
+                for (int oi = 0; oi < order.Length; ++oi) {
+                    int p = order[oi];
                     if (p == a || p == b || p == c) continue;
                     // locate: a visibility walk with a rotating first edge; a ghost reached is in conflict (p outside the hull)
                     int t = last, step = 0;
@@ -164,51 +178,59 @@ namespace Meshing2Acceptance
                         }
                     }
                     if (!Conflict(tr, t, p)) { why = "located triangle not in conflict"; return null; }
+                    if (++stamp == int.MaxValue) { Array.Clear(cavityStamp, 0, cavityStamp.Length); Array.Clear(startAtStamp, 0, startAtStamp.Length); stamp = 1; }
+                    if (tr.Dead.Count > cavityStamp.Length) Array.Resize(ref cavityStamp, Math.Max(cavityStamp.Length * 2, tr.Dead.Count + 64));
                     // the cavity: the triangles in conflict, connected to t
-                    cavity.Clear(); inCavity.Clear(); stack.Clear();
-                    cavity.Add(t); inCavity.Add(t); stack.Push(t);
+                    cavity.Clear(); stack.Clear();
+                    cavity.Add(t); cavityStamp[t] = stamp; stack.Push(t);
                     while (stack.Count > 0) {
                         int u = stack.Pop();
                         for (int k = 0; k < 3; ++k) {
                             int w = tr.Twin[3 * u + k] / 3;
-                            if (inCavity.Contains(w) || !Conflict(tr, w, p)) continue;
-                            inCavity.Add(w); cavity.Add(w); stack.Push(w);
+                            if (cavityStamp[w] == stamp || !Conflict(tr, w, p)) continue;
+                            cavityStamp[w] = stamp; cavity.Add(w); stack.Push(w);
                             if (++guard > budget) { why = "cavity budget exceeded"; return null; }
                         }
                     }
                     // the new triangles: one per boundary half-edge x->y of the cavity, (x, y, p)
-                    startAt.Clear();
-                    var created = new List<(int tri, int x, int y)>();
-                    foreach (int u in cavity)
+                    created.Clear();
+                    outerTwin.Clear();
+                    for (int ci = 0; ci < cavity.Count; ++ci) {
+                        int u = cavity[ci];
                         for (int k = 0; k < 3; ++k) {
                             int e = 3 * u + k, f = tr.Twin[e];
-                            if (inCavity.Contains(f / 3)) continue;
+                            if (cavityStamp[f / 3] == stamp) continue;
                             int x = tr.V[e], y = tr.V[3 * u + (k + 1) % 3];
                             created.Add((-1, x, y));
+                            outerTwin.Add(f);
                         }
-                    foreach (int u in cavity) { tr.Dead[u] = true; }
-                    var outerTwin = new List<int>();
-                    foreach (int u in cavity)
-                        for (int k = 0; k < 3; ++k) { int f = tr.Twin[3 * u + k]; if (!inCavity.Contains(f / 3)) outerTwin.Add(f); }
-                    foreach (int u in cavity) tr.Free.Push(u);
+                    }
+                    for (int ci = 0; ci < cavity.Count; ++ci) { int u = cavity[ci]; tr.Dead[u] = true; tr.Free.Push(u); }
                     for (int i = 0; i < created.Count; ++i) {
                         var (_, x, y) = created[i];
                         int nt = tr.New(x, y, p);
                         created[i] = (nt, x, y);
                         tr.Link(3 * nt, outerTwin[i]);
-                        if (startAt.ContainsKey(x)) { why = "cavity boundary not a simple cycle"; return null; }
-                        startAt[x] = nt;
+                        int sx = x + 1;
+                        if (startAtStamp[sx] == stamp) { why = "cavity boundary not a simple cycle"; return null; }
+                        startAtStamp[sx] = stamp;
+                        startAtTri[sx] = nt;
                     }
                     // y->p of (x, y, p) pairs with p->y of the triangle starting at y
-                    foreach (var (nt, x, y) in created) {
-                        if (!startAt.TryGetValue(y, out int other)) { why = "cavity boundary not closed"; return null; }
-                        tr.Link(3 * nt + 1, 3 * other + 2);
+                    for (int i = 0; i < created.Count; ++i) {
+                        var (nt, _, y) = created[i];
+                        int sy = y + 1;
+                        if (startAtStamp[sy] != stamp) { why = "cavity boundary not closed"; return null; }
+                        tr.Link(3 * nt + 1, 3 * startAtTri[sy] + 2);
                     }
                     last = -1;
-                    foreach (var (nt, x, y) in created) if (!tr.Ghost(nt)) { last = nt; break; }
+                    for (int i = 0; i < created.Count; ++i) {
+                        int nt = created[i].tri;
+                        if (!tr.Ghost(nt)) { last = nt; break; }
+                    }
                     if (last < 0) { why = "no real triangle after an insertion"; return null; }
                 }
-                var result = new List<int[]>();
+                var result = new List<int[]>(2 * n);
                 for (int t = 0; t < tr.Dead.Count; ++t)
                     if (!tr.Dead[t] && !tr.Ghost(t)) result.Add(new[] { tr.V[3 * t], tr.V[3 * t + 1], tr.V[3 * t + 2] });
                 return result;
@@ -227,23 +249,36 @@ namespace Meshing2Acceptance
                 var rnd = new Random(20261104);
                 for (int i = n - 1; i > 0; --i) { int j = rnd.Next(i + 1); (perm[i], perm[j]) = (perm[j], perm[i]); }
                 // ranks of the coordinates (doubles compare exactly), 16 bits each
-                var byX = (int[])perm.Clone(); Array.Sort(byX, (p, q) => o.VX[p].CompareTo(o.VX[q]));
-                var byY = (int[])perm.Clone(); Array.Sort(byY, (p, q) => o.VY[p].CompareTo(o.VY[q]));
-                var rx = new Dictionary<int, int>(n); var ry = new Dictionary<int, int>(n);
-                for (int i = 0; i < n; ++i) { rx[byX[i]] = (int)((long)i * 65535 / Math.Max(1, n - 1)); ry[byY[i]] = (int)((long)i * 65535 / Math.Max(1, n - 1)); }
-                ulong Morton(int id)
-                {
-                    ulong code = 0;
-                    for (int bit = 0; bit < 16; ++bit) code |= (ulong)((rx[id] >> bit) & 1) << (2 * bit) | (ulong)((ry[id] >> bit) & 1) << (2 * bit + 1);
-                    return code;
+                var byX = (int[])perm.Clone(); Array.Sort(byX, (p, q) => { int cmpX = o.VX[p].CompareTo(o.VX[q]); return cmpX != 0 ? cmpX : p.CompareTo(q); });
+                var byY = (int[])perm.Clone(); Array.Sort(byY, (p, q) => { int cmpY = o.VY[p].CompareTo(o.VY[q]); return cmpY != 0 ? cmpY : p.CompareTo(q); });
+                var rx = new int[o.VX.Length]; var ry = new int[o.VX.Length];
+                long denom = Math.Max(1, n - 1);
+                for (int i = 0; i < n; ++i) {
+                    rx[byX[i]] = (int)((long)i * 65535 / denom);
+                    ry[byY[i]] = (int)((long)i * 65535 / denom);
                 }
-                var order = new int[n];
+                static ulong Spread16(uint v)
+                {
+                    ulong x = v & 0xFFFFUL;
+                    x = (x | (x << 16)) & 0x0000FFFF0000FFFFUL;
+                    x = (x | (x << 8)) & 0x00FF00FF00FF00FFUL;
+                    x = (x | (x << 4)) & 0x0F0F0F0F0F0F0F0FUL;
+                    x = (x | (x << 2)) & 0x3333333333333333UL;
+                    x = (x | (x << 1)) & 0x5555555555555555UL;
+                    return x;
+                }
+                var morton = new ulong[o.VX.Length];
+                for (int i = 0; i < n; ++i) { int id = perm[i]; morton[id] = Spread16((uint)rx[id]) | (Spread16((uint)ry[id]) << 1); }
+                var order = (int[])perm.Clone();
                 int start = 0, size = 1;
+                Comparison<int> cmp = (p, q) => {
+                    ulong mp = morton[p], mq = morton[q];
+                    return mp != mq ? mp.CompareTo(mq) : p.CompareTo(q);
+                };
                 while (start < n) {
-                    int end = Math.Min(n, start + size);
-                    var round = perm.Skip(start).Take(end - start).OrderBy(Morton).ThenBy(id => id).ToArray();
-                    Array.Copy(round, 0, order, start, round.Length);
-                    start = end; size *= 2;
+                    int len = Math.Min(size, n - start);
+                    if (len > 1) Array.Sort(order, start, len, Comparer<int>.Create(cmp));
+                    start += len; size *= 2;
                 }
                 return order;
             }
@@ -278,28 +313,31 @@ namespace Meshing2Acceptance
                 why = null;
                 var directed = new Dictionary<long, int>(3 * w.Count, MixedLong.Instance);
                 long D(int x, int y) => ((long)x << 32) | (uint)y;
-                var vertices = new HashSet<int>();
+                var seenV = new bool[o.VX.Length];
+                int seenCount = 0;
                 for (int i = 0; i < w.Count; ++i) {
                     var t = w[i];
                     if (OrientV(t[0], t[1], t[2]) <= 0) { why = "a witness triangle is not positive"; return false; }
                     for (int k = 0; k < 3; ++k) {
-                        vertices.Add(t[k]);
-                        long key = D(t[k], t[(k + 1) % 3]);
+                        int vk = t[k];
+                        if (!seenV[vk]) { seenV[vk] = true; ++seenCount; }
+                        long key = D(vk, t[(k + 1) % 3]);
                         if (directed.ContainsKey(key)) { why = "a directed edge in two witness triangles"; return false; }
                         directed[key] = 3 * i + k;
                     }
                 }
-                if (vertices.Count != used.Length || used.Any(id => !vertices.Contains(id))) { why = "a used vertex is not in the witness"; return false; }
+                if (seenCount != used.Length) { why = "a used vertex is not in the witness"; return false; }
+                for (int i = 0; i < used.Length; ++i) if (!seenV[used[i]]) { why = "a used vertex is not in the witness"; return false; }
                 var hull = HullOf(used);
                 if (hull == null) { why = "no hull"; return false; }
                 // the boundary edges, by their start (a vertex starting two runs the boundary through it twice)
                 var next = new Dictionary<int, int>();
                 foreach (var pair in directed) {
                     int x = (int)(pair.Key >> 32), y = (int)(uint)pair.Key;
-                    if (directed.ContainsKey(D(y, x))) {
+                    if (directed.TryGetValue(D(y, x), out int f)) {
                         // an interior edge, once: locally Delaunay against the other triangle's fourth vertex
                         if (x > y) continue;
-                        int e = pair.Value, f = directed[D(y, x)];
+                        int e = pair.Value;
                         int c = w[e / 3][(e % 3 + 2) % 3], d = w[f / 3][(f % 3 + 2) % 3];
                         if (InCircle(x, y, c, d) > 0) { why = "a witness edge is not locally Delaunay"; return false; }
                         continue;
@@ -335,10 +373,18 @@ namespace Meshing2Acceptance
             /// counter-clockwise, strictly convex corners only; null when it has fewer than three corners </summary>
             List<int> HullOf(int[] used)
             {
-                var sorted = used.OrderBy(id => o.VX[id]).ThenBy(id => o.VY[id]).ToList();
-                var unique = new List<int>();
-                foreach (int id in sorted)
+                var sorted = (int[])used.Clone();
+                Array.Sort(sorted, (p, q) => {
+                    double px = o.VX[p], qx = o.VX[q];
+                    if (px != qx) return px.CompareTo(qx);
+                    double py = o.VY[p], qy = o.VY[q];
+                    return py != qy ? py.CompareTo(qy) : p.CompareTo(q);
+                });
+                var unique = new List<int>(sorted.Length);
+                for (int i = 0; i < sorted.Length; ++i) {
+                    int id = sorted[i];
                     if (unique.Count == 0 || o.VX[unique[unique.Count - 1]] != o.VX[id] || o.VY[unique[unique.Count - 1]] != o.VY[id]) unique.Add(id);
+                }
                 if (unique.Count < 3) return null;
                 var hull = new List<int>();
                 for (int pass = 0; pass < 2; ++pass) {

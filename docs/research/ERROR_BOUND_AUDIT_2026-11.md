@@ -192,6 +192,8 @@ as the tree; until then the spare 1e-6 is a documented part of the bound, not a 
   pad of at least 1e-300 + 1e-9 of the point's size; and in the envelope the search box has a margin of about
   9e-16 (Epsilon + M) around the polyhedron, so a dropped candidate matters only for Epsilon and coordinates below
   about 1e-285, where it turns `ContainsSegment` from true to false (the conservative side).
+  Fixed for #1673: the branch now rejects only if both ends lie strictly outside on the same side (the
+  endpoint rule that `tools/Z3Pilot/interval_segment_pilots.py` proves sound); L1 prints true.
 
 ## 4. Machine-derived bounds
 
@@ -340,7 +342,7 @@ rounding constants are of the right order; it is not a proof.
 | `ExactMeshBoolean` L2 carry (`carry_bound`, `Center.Local` / `Grid` errors 1.2e-16, 3.4e-16, `input_segment` pad) | about 6 | read; the 3.4e-16 and 1.2e-16 terms match one conversion plus one rounded sum |
 | `ExactMeshBoolean` projection prefilters (`SegmentProjection`, `pierce_prefilter`: 2.3e-16, 7e-16, 1.01) | about 5 | read only |
 | `ExactMeshArrangement` `segment_point`, `planes_approx` (quotients with an error bound) | 2 | read; division is outside the checker's operators |
-| `ExactMeshArrangement` `TriangleBoxTree.segment_hits` (slack 1e-9, 1e-12) | 1 | read; one unverified lead (section 3) |
+| `ExactMeshArrangement` `TriangleBoxTree.segment_hits` (slack 1e-9, 1e-12) | 1 | read; the section 3 lead, checked and fixed for #1673; the padded faces rounded outward for #1691 |
 | `SnapRounding2` `PixelOf` range, `Buckets`, `SnapGrid.Pixel`, `CircumcentrePixelCentre` | 4 | read; `Pixel` needs no bound (monotone rounding, exact fallback) |
 | `FixedPoint3`, `ExactLimbSigns`, `ExactLimbPrepared` scratch and width counts | 15 | fail-safe (an arena overrun throws, no wrong sign); generator-checked for Orient and InCircle (`GeneratedPredicatesTests`) |
 | `ExactPoint3.ToDouble`, `ScaleB` | 2 | read (one rounding to nearest since #1410, error at most 2^-53 of the value; RC-2 uses the looser one-ulp bound) |

@@ -371,7 +371,9 @@ Conclusions:
    bits there, so in the normal range it rounds as SSE2 does. Intermediate overflow and gradual underflow behave differently.
    - Inside the kernel this reaches only values whose role is approximate: a filter's decision to defer, and the ray's second point.
    - Results that take such a value as their *input* can differ for subnormal or near-overflow coordinates on net48 x86. These are the
-     winding ray of the Boolean, and the public ray queries that define their ray by `SecondPoint` (`DMeshAABBTree3`, `IntrRay3Triangle3`).
+     winding ray of the Boolean. The public ray queries (`DMeshAABBTree3`, `IntrRay3Triangle3`, `IntersectionUtil.Intersects`) defined
+     their ray by `SecondPoint` until #1672; they now decide on `ExactRayTriangle.LineDirection`, which returns only exact multiples of
+     the direction (the same value on every runtime), so their verdicts no longer depend on it.
    - The stage 1 and 2 obligations of these consumers have to show that the result does not depend on the ray chosen, or state the input
      range. Owner decision C4 keeps 32-bit outside the claim for float code; whether it also stays outside for subnormal and
      near-overflow coordinates is an owner decision.
@@ -419,7 +421,9 @@ rest of this table is what the registrations argue):
 | P4 delegates and interface calls | `ExactTriangulation2` calls the `orient` and `incircle` callbacks of its caller (16 calls); the box tree calls the visitors of its callers, as delegates (`ActionVisitor`, `FuncVisitor`, `Query`) and through the struct visitors of its generic methods (`IIndexVisitor`, `IPairVisitor`: a call of a member of an interface declared in this assembly is a counted `construct:interface-invocation`, since its implementations, eg `ExactMeshBoolean.CrossVisit`, lie outside the scope) | `P4` lines: the triangulation is a function of the signs; `ExactTriangulation2_EquivalentCallbacks_GiveTheSameTriangulation` gives other formulas, delayed callbacks and a second instance. What a caller's callback computes is that caller's obligation (S2-2, S2-3, S2-6) |
 
 
-**Ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`; stages 0 and 1): 439 external members (194 of them geometry3Sharp members declared outside the scope: 95 pinned, 96 assumed as obligations of stage 2; 12 only on the `#if NET` side), 69 restricted to registered sites (252 sites, 149 of them with an argument form and its tests), 1 restricted to `GetHashCode` implementations; 41 conditional-compilation blocks in 33 members; 15 `double` to integer conversions in 13 member(s); 19 `[SkipLocalsInit]` members; 82 delegate calls in 24 members and 66 string concatenations in 10 members, registered; 0 file restricted to a named type.
+**The scheduler of `gParallel.ForRange`** (#1502, 2026-11-25): the pinned `ForRange` runs its items caller first (`caller_first_range` and the members of `CallerFirstLoop` / `CallerFirstRange` and the test hook `ChunkForTestsOnThisThread`, 25 pinned entries) instead of `Parallel.For`, which waited for queued worker tasks that had not started (a busy pool, a caller outside the pool). The contract that the site lines rely on is unchanged: every index runs exactly once (disjoint chunks taken by compare-and-swap of one counter, `Take`), on any thread in any order, and the call returns after every item (the caller waits for each participant that joined, `Close`); a failure throws as before. So every `site gParallel.ForRange` line keeps its form and its tests; `GParallelCallerFirstTests` checks the contract (every index once, exceptions, late helpers, nested loops, serial = parallel).
+
+**Ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`; stages 0 and 1): 466 external members (221 of them geometry3Sharp members declared outside the scope: 120 pinned, 97 assumed as obligations of stage 2; 12 only on the `#if NET` side), 69 restricted to registered sites (255 sites, 151 of them with an argument form and its tests), 1 restricted to `GetHashCode` implementations; 41 conditional-compilation blocks in 33 members; 15 `double` to integer conversions in 13 member(s); 19 `[SkipLocalsInit]` members; 82 delegate calls in 24 members and 66 string concatenations in 10 members, registered; 0 file restricted to a named type.
 
 **Claim.** On every runtime that satisfies T1 to T5, `ExactTriangulation2`, `ExactPlanarSimplify`, `SnapRounding2` and `TriangleBoxTree`
 compute functions of their arguments (and, for the first two, of the values of the callbacks and of the stage 2 members listed
@@ -524,8 +528,15 @@ only the phase dictionaries; reviewed, no flow rule), `DMeshAABBTree3.FastWindin
   generator, `mix(ulong)` exists) changes the rays and so the output for open inputs once. Owner decision 2026-11-22: a follow-up PR switches open
   meshes to an own SplitMix64 generator, after measuring the golden-master and pinned-counter impact; this PR only registers the obligation.
 - **O-ATAN2, the floating-point winding number reaches the exact result of open meshes**: `FastWindingNumber` and `TriSolidAngle` end in
-  `Math.Atan2`; `front_generalized_winding` sums them and thresholds `ceil(w - 0.5)`. Tier 2 behaviour (F4 of the research note); only the
-  Antipodal path avoids it.
+  an atan2; `front_generalized_winding` sums them and thresholds `ceil(w - 0.5)`. Tier 2 behaviour (F4 of the research note); only the
+  Antipodal path avoids the sum, not the angle: its boundary-edge angles (`ExactWindingCache`) end in an atan2 too, and its rim's branch
+  (#1587) takes the sum itself: a piece that neither the Antipodal sum nor its wide-bound re-evaluation decides (a centroid within the
+  rounding distance of a boundary segment) takes `front_generalized_winding`, counted in `Counts["antipodal_fast_winding"]`; on one runtime
+  it is the same in every run, serial or parallel (`ExactMeshBooleanTestsIssue1587.RimBranch_SerialEqualsParallel_Repeated_Reused`). #1577 (WebAssembly): the platform `Math.Atan2` differs in the last bit between runtimes (on glibc in 1087 of
+  400000 random solid-angle terms from the correctly rounded value), and moving the term by one ulp changes the mesh of 5 of 37 demo repair
+  cases of `MeshRobustRepair` (Solidify path), so the browser gave other meshes than native. Since #1577 every atan2 of the winding number (`TriSolidAngle`, the leaf kernel, and the seven of `ExactWindingCache`) is the correctly
+  rounded `CoreMath.Atan2`: the term is the same double on every runtime. What remains platform dependent is only what the sum does after it
+  (the order of a sum is fixed, so nothing), so the obligation is now the floating-point winding number's own tier-2 status, not libm.
 - **O-IDS, P5.** The premise "ids are used for equality and lookup only; every ordered use ends in a total order" is by reading, per site. The
   attack is `OrderAdversaryTests` and the harness `adversary` (the loops run backwards and in seeded permutations, which changes the order
   in which `new_id` hands out ids; `boolean.*`, `stage1.*` and `stage2.*` give identical traces). No hook permutes the ids themselves: `new_id`

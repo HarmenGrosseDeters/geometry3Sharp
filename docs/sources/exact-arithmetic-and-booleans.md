@@ -13,6 +13,7 @@ Implemented from the papers, no code taken over.
 | Exact arrangement of the triangles, classification by winding numbers per patch; operations on any number of meshes as a predicate on the vector of their winding numbers (n-ary union / intersection, "at least k of n") | Q. Zhou, E. Grinspun, D. Zorin, A. Jacobson, *Mesh Arrangements for Solid Geometry*, ACM TOG (SIGGRAPH) 2016 |
 | Implicit intersection points (edge crossing a plane, three planes) with floating-point filters, exact evaluation only when needed | M. Attene, *Indirect Predicates for Geometric Constructions*, Computer-Aided Design 2020; G. Cherchi, M. Livesu, R. Scateni, M. Attene, *Fast and Robust Mesh Arrangements using Floating-point Arithmetic*, ACM TOG (SIGGRAPH Asia) 2020 |
 | Booleans on arrangements | G. Cherchi, F. Pellacini, M. Attene, M. Livesu, *Interactive and Robust Mesh Booleans*, ACM TOG (SIGGRAPH Asia) 2022 |
+| Coplanar stacks and front winding numbers carried across the pieces of one source triangle (design only, `docs/design/COPLANAR_PROPAGATION.md`, #1630): a walk over the triangulation; labels propagated across arrangement cells; exact canonical Pluecker line keys | O. Devillers, S. Pion, M. Teillaud, *Walking in a triangulation*, IJFCS 13(2), 2002; Q. Zhou, E. Grinspun, D. Zorin, A. Jacobson, *Mesh Arrangements for Solid Geometry*, ACM TOG 35(4), 2016; Pluecker coordinates, standard (J. Stolfi, *Oriented Projective Geometry*, 1991); papers only, no code read |
 | Exact imprint (`ExactMeshImprint`: the arrangement of target and cutters without classification, the target's pieces only; design `docs/design/EXACT_IMPRINT.md`) | the arrangement above; staging of the co-refinement before the classification as in B. Lévy, *Exact predicates, exact constructions and combinatorics for mesh CSG*, arXiv 2405.12949 (ACM TOG 2025), abstract read; M. Campen, L. Kobbelt, *Exact and Robust (Self-)Intersections for Polygonal Meshes*, CGF 29(2) 2010, abstract read; imprint with tolerances (the behaviour not reproduced): D. R. White et al., *An imprint and merge algorithm incorporating geometric tolerances for conformal meshing of misaligned assemblies*, IJNME 59, 2004, abstract read; no code of any of them read |
 | Imprint sliver cleanup at near contact (`MeshRoundingRepair.RuleLockedEdges` / `RuleLocksFollow`, `ExactMeshImprint.SliverCleanup`, #1034; design `docs/design/IMPRINT_SLIVER_CLEANUP.md`): where the repair leaves a defect, a final stage in which the locks of the split target edges' parts follow a contraction | own construction. Routing a segment through a nearby vertex within a bound: J. D. Hobby, *Practical segment intersection with finite precision output*, CGTA 13, 1999; L. Guibas, D. Marimont, *Rounding arrangements dynamically*, IJCGA 8, 1998; D. Halperin, E. Packer, *Iterated snap rounding*, CGTA 23, 2002 (as above). Feature edges kept as chains through edge collapses: H. Hoppe, *Progressive meshes*, SIGGRAPH 1996 [from memory]; the link condition: Dey, Edelsbrunner, Guha, Nekhayev 1999 (as above). No code read |
 | Generalized winding numbers of open operands with few boundary segments (`antipodal_front_winding`, `BoundarySegments`): an exact signed crossing count of a ray plus a sum over the boundary segments of the area of the spherical triangle with the opposite ray direction (Van Oosterom-Strackee); implemented from the paper (eq. 6 and 9; the MIT reference code was not used or ported). Owner's patent check 2026-11-10: no patents or applications | C. Martens, P. Trettner, M. Bessmeltsev, *The Antipodal Method*, ACM TOG 45(4) 2026 (arXiv 2605.01536, CC BY 4.0); A. Van Oosterom, J. Strackee, *The Solid Angle of a Plane Triangle*, IEEE TBME 1983 |
@@ -39,6 +40,7 @@ Implemented from the papers, no code taken over.
 | Open inputs where an open boundary lies on an edge that other pieces meet (`ConflictEdges`): the jumps of the winding numbers around the edge do not add up to zero, so no labelling of the regions around it fits all pieces (the input is not PWN there, the condition of Zhou et al. 2016); pieces that run the edge the same way are not joined | own reasoning |
 | Sheet role of the exact boolean (`ExactMeshBoolean.Roles`, `mesh_ops/ExactMeshCells.cs`): the sides of the arrangement's pieces joined into local cells around every edge by the exact radial order, the sheet marking the cell in front of it 0 and the cell behind it 1, refused where no cell receives one label; the cells of a solid split by surfaces, the sides of a patch as two nodes of a graph, the consistency of a cut as the labelling of connected regions | Q. Zhou, E. Grinspun, D. Zorin, A. Jacobson, *Mesh arrangements for solid geometry*, ACM TOG 35(4), 2016 (cells of an arrangement, the winding number jumps across a patch); own construction (a union-find over the two sides of each piece, no new predicate and no bound) |
 | Study and prototype of a Difference with an open cutting surface (`benchmarks/OpenCuttingSurface`, docs/research/OPEN_CUTTING_SURFACE_2026-11.md; not in the library): the winding number of the sheet sampled with two thresholds, the sheet swept to a closed tool (own construction), regularized set operations as the reason for the no-op; documentation of other systems read for their semantics only, no code read or ported | A. Jacobson, L. Kavan, O. Sorkine-Hornung, *Robust Inside-Outside Segmentation using Generalized Winding Numbers*, ACM TOG 32(4), 2013; Q. Zhou et al., *Mesh arrangements for solid geometry*, 2016; A. A. G. Requicha, *Representations for Rigid Solids*, ACM Computing Surveys 12(4), 1980; manuals: CGAL Polygon Mesh Processing (text only), OpenCASCADE Boolean Operations guide, MCUT site, libigl tutorial |
+| Sheet extension (`gs.MeshSheetExtension`, `mesh_ops/MeshSheetExtension.cs`; design `docs/design/SHEET_EXTENSION.md`, spike `docs/research/SHEET_EXTENSION_SPIKE_2026-11.md`): a cutting sheet that ends just short of the workpiece's surface continued per rim edge to the first exit of the ray of each rim vertex (constructed in doubles, verified exactly: the exact winding number, exact triangle intersection, `ExactMeshImprint` for the curve rule, the sheet role) | own construction; nothing is ported and no code was read. Behaviour of other systems read in public help pages only, for the semantics: Autodesk Fusion, Split Body with "Extend Splitting Tool(s)"; SolidWorks, Cut With Surface and Extend Surface ("Up to surface", linear); Open CASCADE `GeomLib::ExtendSurfByLength` (LGPL, cited only, not read). The first-order estimate U of the effect of a tilted continuation is own (design section 5) |
 
 The error bounds of the implicit points' approximations (`segment_point`, `plane_value`, `planes_approx`) and of
 the filters on them are derived in the code comments.
@@ -109,6 +111,17 @@ and [parallelism pitfalls](https://learn.microsoft.com/en-us/dotnet/standard/par
 (shared writes, ordering and nested parallelism).
 This is an independently written ordering fix, not a code port; `MarchingCubes` retains its existing polygonization
 and uses bounded slab batches rather than buffering the entire volume.
+
+### Caller-first scheduling of the `gParallel` loops (#1502)
+
+Own implementation; no code read. `ForRange`, `ForEach` and the handovers of the Small loops queue helpers to the thread pool
+and run the items on the calling thread at once, taking chunks from one shared counter (the dynamic schedule of OpenMP, with
+the caller as a participant); the caller waits only for chunks that were taken, not for helpers that never started. Why:
+`Parallel.For` waits for every task it queued, and from a thread outside the pool those tasks sit in the global queue behind
+the pool's other work ([dotnet/runtime#4727](https://github.com/dotnet/runtime/issues/4727): `Parallel` is "at the mercy of the
+underlying scheduler" for its tasks; [dotnet/runtime#72981](https://github.com/dotnet/runtime/issues/72981); Criteo,
+[.NET ThreadPool starvation, and how queuing makes it worse](https://medium.com/criteo-labs/net-threadpool-starvation-and-how-queuing-makes-it-worse-512c8d570527)).
+Numbers: `benchmarks/ParallelTinyLoops/README.md`.
 
 ### Parallel edge groups, union-find and result builder of the boolean (`mesh_ops/ExactMeshEdgeGroups.cs`, `ExactMeshResultBuilder.cs`, `DMesh3.FromEdgeStructure`)
 
@@ -190,3 +203,43 @@ Derived in the note from the textbook shape derivative; papers read as abstracts
 | `BooleanVolumeGradient` (mesh_ops/BooleanVolumeGradient.cs, docs/guides/booleans-and-imprint.md "Volume Gradient"): the Hadamard formula over the kept pieces, each term and per-vertex sum in interval arithmetic (`ExactInterval`) from the exact corners, the one-sided branches of the contact regions from the coplanar stacks | the shape derivative of Delfour and Zolésio and the nonsmooth analysis of Clarke (both as below); interval arithmetic: R. E. Moore, *Interval Analysis*, Prentice-Hall 1966 (inclusion isotonicity); own derivation, no code read |
 | One-sided derivatives and the generalized gradient at contacts; the tie-break read as a symbolic perturbation | F. H. Clarke, *Optimization and Nonsmooth Analysis*, Wiley 1983; J. Bolte, E. Pauwels, *Conservative set valued fields, automatic differentiation, stochastic gradient methods and deep learning*, Math. Programming 2020; H. Edelsbrunner, E. P. Mücke, *Simulation of Simplicity*, ACM TOG 9(1) 1990 |
 | Prior art compared (not used): approximate differentiable CSG, exact derivatives of ball unions and polytopes | Yuan et al., *DiffCSG*, SIGGRAPH Asia 2024 (arXiv 2409.01421); T.-M. Li et al., *Differentiable Monte Carlo Ray Tracing through Edge Sampling*, TOG 2018; H. Edelsbrunner, P. Koehl, PNAS 2003; R. Bryant, H. Edelsbrunner, P. Koehl, M. Levitt, DCG 2004; J. B. Lasserre, JOTA 39, 1983; J. Allard et al., *Volume Contact Constraints at Arbitrary Resolution*, SIGGRAPH 2010 |
+
+## Exact hot spots study (2026-11-25, research only, no library code)
+
+[docs/research/EXACT_HOTSPOTS_STUDY_2026-11.md](../research/EXACT_HOTSPOTS_STUDY_2026-11.md), probes in `benchmarks/ExactHotspotsStudy`.
+Papers read as abstracts, metadata and opening pages only, no code read. Brönnimann, Burnikel, Pion 2001 (interval filters),
+Ratschek and Rokne (ESSA), Attene 2020 and Cherchi et al. 2020 (indirect predicates) as cited above.
+
+| Part | Source |
+|---|---|
+| Tighter semi-static and static orientation filters (prior art compared, not built; 2D only) | K. Ozaki, F. Bünger, T. Ogita, S. Oishi, S. M. Rump, *Simple floating-point filters for the two-dimensional orientation problem*, BIT Numer. Math. 56, 2016; K. Ozaki, T. Ogita, S. Oishi, error-free determinant transformation for the 2D orientation problem, Information and Computation 2012 (seen in search results only) |
+| Variants of the exact sign of a sum (prior art compared) | M. Mörig, S. Schirra, *Engineering an exact sign of sum algorithm*, tech. report, Univ. Magdeburg, 2010 |
+| Triangle-triangle overlap as a decision tree over orientation signs (prior art compared, not built) | P. Guigue, O. Devillers, *Fast and robust triangle-triangle overlap test using orientation predicates*, Journal of Graphics Tools 8(1), 2003 |
+
+## Higher mathematics study (2026-11-25, research only, no library code)
+
+[docs/research/HIGHER_MATH_STUDY_2026-11.md](../research/HIGHER_MATH_STUDY_2026-11.md), probes in `benchmarks/HigherMathStudy`.
+Papers read as abstracts only, no code read.
+
+| Part | Source |
+|---|---|
+| Idea 1: volume and Euler characteristic as valuations (inclusion-exclusion on the exact Boolean results), χ(∂M) = 2χ(M) | Hadwiger 1957 and χ(∂M) = 2χ(M) as cited in [meshing-and-repair.md](meshing-and-repair.md) (contouring topology certificate, Theorem 6); D. A. Klain, G.-C. Rota, *Introduction to Geometric Probability*, Cambridge 1997 (from memory); the divergence theorem (any analysis text) |
+| Idea 2: modular sign and zero evaluation of integer predicates, recombined by CRT (prior art compared, not built) | H. Brönnimann, I. Z. Emiris, V. Y. Pan, S. Pion, *Computing exact geometric predicates using modular arithmetic with single precision*, SoCG 1997 (abstract and fragments) |
+
+## Solid-shell and trueform reading study (2026-11-25, research only, no library code)
+
+[docs/research/SOLID_SHELL_AND_TRUEFORM_READING_2026-11.md](../research/SOLID_SHELL_AND_TRUEFORM_READING_2026-11.md).
+Cited, not implemented. Papers read as stated per row; no code of either project read.
+
+| Part | Source |
+|---|---|
+| Per-face solid / shell labels by a binary winding number energy with user hint points (prior art for "sheet or shell is intent", not implemented) | S. Wang, J. Meny, I. Grguric, M. Rahimzadeh, D. Zorin, D. Panozzo, H.-T. D. Liu, *Solid-Shell Labeling for Discrete Surfaces*, SIGGRAPH Asia 2025 Conference Papers, DOI 10.1145/3757377.3763847 (read in full). Code github.com/rachael-wang/SolidShellLabeling, MIT (licence and README read, source not read) |
+| Integer-grid arrangement with five contact types, radial order from the input planes, majority votes over topological units, declared sheets as operands (prior art compared, not implemented) | Z. Sajovic, D. Knez, *trueform: fast and robust mesh CSG via topological aggregation*, arXiv 2607.15905, 2026 (read in full); Z. Sajovic, D. Knez, *trueForm: Real-Time Mesh Booleans that Commute with Mesh Idealization*, TechRxiv 2025, DOI 10.36227/techrxiv.174667714.42575478/v1 (abstract only, full text not reachable). Code github.com/polydera/trueform under PolyForm Noncommercial 1.0.0 or a commercial licence: not a permitted source, never read or ported (only its licence files and README were read) |
+
+## Interval successor / predecessor (`math/ExactIntervals.cs`)
+
+Implemented from the published paper; no external code copied.
+
+| Part | Source |
+|---|---|
+| Pure floating-point successor / predecessor (`ExactInterval.Up`, `ExactInterval.Down`, `phi1 = 2^-53 + 2^-105`) | S. M. Rump, P. Zimmermann, S. Boldo, G. Melquiond, *Computing predecessor and successor in rounding to nearest*, BIT Numerical Mathematics 49(2), 419–431, 2009 (Theorem 3.1) |

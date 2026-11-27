@@ -34,6 +34,7 @@ on:
       - 'math/ExactPoint3.cs'
       - 'math/AdaptivePredicates.cs'
       - 'intersection/IntrExactBox3.cs'
+      - 'math/ExactRayTriangle.cs'
       - 'math/ExactDoubleWord.cs'
       - 'intersection/IntrTriangle3Triangle3.cs'
       - 'math/FixedPoint3.cs'

@@ -406,8 +406,9 @@ static class Program
         }
     }
 
-    // A lead of the inventory that is not a finding (note, section 3): TriangleBoxTree.segment_hits tests only p in its
-    // branch for a segment parallel to a slab (|d| < 1e-300), without slack, and PolyhedralEnvelope queries with pad 0.
+    // A lead of the inventory (note, section 3): TriangleBoxTree.segment_hits tested only p in its branch for a segment
+    // parallel to a slab (|d| < 1e-300), without slack, and PolyhedralEnvelope queries with pad 0. Fixed for #1673 (the
+    // branch rejects only if both ends are outside on one side): L1 prints true since.
     static void SegmentHitsLead()
     {
         var sh = M("TriangleBoxTree", "segment_hits");

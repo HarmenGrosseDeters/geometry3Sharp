@@ -187,7 +187,7 @@ class Program
         long search = 0;
         for (int it = 0; it < 4; ++it) {
             var sw = Stopwatch.StartNew();
-            var s = new MeshWindingNumberSolidify(input) { Adaptive = true, CellSize = h };
+            var s = new MeshWindingNumberSolidify(input) { MinVolumeIoU = 0, Adaptive = true, CellSize = h };
             bool ok = s.Compute();
             long t = sw.ElapsedMilliseconds;
             search += t;

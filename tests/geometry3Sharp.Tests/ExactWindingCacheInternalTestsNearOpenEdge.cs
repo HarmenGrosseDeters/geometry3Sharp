@@ -40,7 +40,10 @@ namespace geometry3Sharp.Tests
             den = da * db + dotYZ;
             s1 = Math.Abs(p1) + Math.Abs(p2);
             s2 = da * db + Math.Abs(ay * by) + Math.Abs(az * bz);
-            return Math.Atan2(num, den);
+            // (the correctly rounded atan2 as in the library since #1627: the platform's Math.Atan2 here differed from boundary_edge_angle_x by at
+            // most 1 ulp in 109 of the 39,986 compared inputs of AwayFromTheCancellation..., so the reference takes the same atan2 and the test
+            // checks again what it is for, that the fix changes nothing away from the cancellation)
+            return g3.CoreMathPort.CoreMath.Atan2(num, den);
         }
 
         // exact num = az by - ay bz of the exact differences is 0: p is on the yz line of the edge exactly, and the angle is a

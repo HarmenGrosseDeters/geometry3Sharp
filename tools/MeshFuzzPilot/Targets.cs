@@ -255,11 +255,11 @@ public static partial class Program
         nearest = DMesh3.InvalidID;
         all = new List<int>();
         double best = double.MaxValue;
-        Vector3d sp = ExactRayTriangle.SecondPoint(ray.Origin, ray.Direction);
+        Vector3d ld = ExactRayTriangle.LineDirection(ray.Origin, ray.Direction);
         foreach (int t in m.TriangleIndices()) {
             Triangle3d tri = default;
             m.GetTriVertices(t, ref tri.V0, ref tri.V1, ref tri.V2);
-            if (IntrRay3Triangle3.Intersects(ref ray, ref sp, ref tri.V0, ref tri.V1, ref tri.V2, out double rt)) {
+            if (IntrRay3Triangle3.Intersects(ref ray, ref ld, ref tri.V0, ref tri.V1, ref tri.V2, out double rt)) {
                 all.Add(t);
                 if (rt < best) { best = rt; nearest = t; }
             }
@@ -300,8 +300,8 @@ public static partial class Program
             s.NormTree.FindAllHitTriangles(rayN, allN);
             bool judgeN = !ba.Any(t => NearParallel(s.Norm, t, d));
             CheckRay(what + $" query {qi}", bn, s.NormTree.FindNearestHitTriangle(rayN), ba, allN, judgeN);
-            // the raw tree against the brute force at the raw scale (the decisions are exact for the line through the origin and
-            // its second point, which depends on how the direction is rounded at the scale: not compared across scales)
+            // the raw tree against the brute force at the raw scale (the decisions are exact for the ray of the origin and the
+            // direction, which is rounded differently at each scale: not compared across scales)
             var rayR = new Ray3d(rawO, d);
             BruteRay(s.Raw, rayR, out int br, out List<int> bra);
             var allR = new List<int>();
@@ -317,11 +317,11 @@ public static partial class Program
     static int BruteCrossings(DMesh3 m, Vector3d origin)
     {
         var ray = new Ray3d(origin, InsideDirection, true);
-        Vector3d sp = ExactRayTriangle.SecondPoint(ray.Origin, ray.Direction);
+        Vector3d ld = ExactRayTriangle.LineDirection(ray.Origin, ray.Direction);
         int n = 0;
         foreach (int t in m.TriangleIndices()) {
             Vector3d a = default, b = default, cc = default; m.GetTriVertices(t, ref a, ref b, ref cc);
-            if (ExactRayTriangle.RayHitPerturbed(ray.Origin, sp, a, b, cc) != ExactRayTriangle.Miss)
+            if (ExactRayTriangle.RayHitPerturbedDirection(ray.Origin, ld, a, b, cc) != ExactRayTriangle.Miss)
                 ++n;
         }
         return n;
