@@ -143,3 +143,33 @@ container, master (804560de) and the candidate built from the same checkout and 
 | total | 6843.9 | 6234.0 | -8.9 % |
 
 The "field" column (bare `Evaluate` at every node, serial, direct CoreMath) is 8 to 10 times slower than before (for example Gyroid 4 periods 14.6 ms to 140 ms); it is not what `Compute()` pays.
+
+## #1682: CoreMath exp / log in the blend and the grade (the field in the determinism proof scope)
+
+`SigmoidBlend` is `1 / (1 + CoreMath.Exp(-4 eta / width))` (was `0.5 (1 + Math.Tanh(2 eta / width))`), `LinearGrade`'s phase uses `CoreMath.Log` (was `Math.Log`),
+`Math.Pow` became constants or a product, and the value minima / maxima of the field use `MathUtil.MinExact / MaxExact`. Stop rule of #1577: at most 15 % cost.
+Same setup as above (`-- 2,4,6 16`, 4-core Linux container, master 4eb8b866 and the candidate run alternately, the minimum of 4 runs each, "compute" ms):
+
+| row | master ms | candidate ms | change |
+|---|---|---|---|
+| Gyroid/Sheet, 2 periods | 126.0 | 139.0 | +10.3 % |
+| Gyroid/Sheet, 4 periods | 459.3 | 437.1 | -4.8 % |
+| Gyroid/Sheet, 6 periods | 1064.2 | 985.4 | -7.4 % |
+| SchwarzP/SkeletalLow, 2 periods | 30.5 | 32.3 | +5.9 % |
+| SchwarzP/SkeletalLow, 4 periods | 84.3 | 89.6 | +6.3 % |
+| SchwarzP/SkeletalLow, 6 periods | 345.8 | 322.7 | -6.7 % |
+| Neovius/Sheet, 2 periods | 169.5 | 169.1 | -0.2 % |
+| Neovius/Sheet, 4 periods | 381.5 | 401.8 | +5.3 % |
+| Neovius/Sheet, 6 periods | 1093.0 | 1039.1 | -4.9 % |
+| Gyroid(graded)/Sheet, 2 periods | 34.8 | 39.7 | +14.1 % |
+| Gyroid(graded)/Sheet, 4 periods | 237.4 | 237.1 | -0.1 % |
+| Gyroid(graded)/Sheet, 6 periods | 820.3 | 800.3 | -2.4 % |
+| Gyroid(+IWP)/Sheet, 2 periods | 64.7 | 65.4 | +1.1 % |
+| Gyroid(+IWP)/Sheet, 4 periods | 287.2 | 280.4 | -2.4 % |
+| Gyroid(+IWP)/Sheet, 6 periods | 1057.1 | 1012.8 | -4.2 % |
+| total | 6255.6 | 6051.8 | -3.3 % |
+
+The rows of the non-graded, non-hybrid lattices do not run the changed functions: their spread (-7 to +10 %) is the noise of this container. A
+microbenchmark of the changed functions alone (5 million calls, best of 7, two runs each): the `SigmoidBlend` weight 12.3 / 13.7 ns on master, 8.6 / 8.6 ns
+with `CoreMath.Exp` (faster); the `LinearGrade` map 15.0 / 16.5 ns on master, 15.6 / 15.4 ns with `CoreMath.Log` (within 4 %). Within the stop rule. The meshes of the
+default and the graded lattices are the same bits as on master; the hybrid meshes change (the weights differ in the last bit at 63 % of sampled points).

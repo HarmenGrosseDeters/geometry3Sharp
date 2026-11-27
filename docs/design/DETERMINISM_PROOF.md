@@ -423,7 +423,7 @@ rest of this table is what the registrations argue):
 
 **The scheduler of `gParallel.ForRange`** (#1502, 2026-11-25): the pinned `ForRange` runs its items caller first (`caller_first_range` and the members of `CallerFirstLoop` / `CallerFirstRange` and the test hook `ChunkForTestsOnThisThread`, 25 pinned entries) instead of `Parallel.For`, which waited for queued worker tasks that had not started (a busy pool, a caller outside the pool). The contract that the site lines rely on is unchanged: every index runs exactly once (disjoint chunks taken by compare-and-swap of one counter, `Take`), on any thread in any order, and the call returns after every item (the caller waits for each participant that joined, `Close`); a failure throws as before. So every `site gParallel.ForRange` line keeps its form and its tests; `GParallelCallerFirstTests` checks the contract (every index once, exceptions, late helpers, nested loops, serial = parallel).
 
-**Ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`; stages 0 and 1): 466 external members (221 of them geometry3Sharp members declared outside the scope: 120 pinned, 97 assumed as obligations of stage 2; 12 only on the `#if NET` side), 69 restricted to registered sites (256 sites, 151 of them with an argument form and its tests), 1 restricted to `GetHashCode` implementations; 41 conditional-compilation blocks in 33 members; 15 `double` to integer conversions in 13 member(s); 19 `[SkipLocalsInit]` members; 82 delegate calls in 24 members and 66 string concatenations in 10 members, registered; 0 file restricted to a named type.
+**Ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`; stages 0 and 1): 478 external members (226 of them geometry3Sharp members declared outside the scope: 121 pinned, 101 assumed as obligations of stage 2; 12 only on the `#if NET` side), 75 restricted to registered sites (272 sites, 156 of them with an argument form and its tests), 1 restricted to `GetHashCode` implementations; 41 conditional-compilation blocks in 33 members; 16 `double` to integer conversions in 14 member(s); 19 `[SkipLocalsInit]` members; 91 delegate calls in 29 members and 66 string concatenations in 10 members, registered; 0 file restricted to a named type.
 
 **Claim.** On every runtime that satisfies T1 to T5, `ExactTriangulation2`, `ExactPlanarSimplify`, `SnapRounding2` and `TriangleBoxTree`
 compute functions of their arguments (and, for the first two, of the values of the callbacks and of the stage 2 members listed
@@ -598,6 +598,30 @@ seed, the order of a hash container, the order of equal keys in a sort, the sign
 version, except through the open obligations above (O-RANDOM, O-ATAN2, O-IDS, O-SORTS-NM, O-PERPATCH, O-DIAG, O-EXC, O-SHEET) and the assumed members.
 Checked: the allow list, the registered sites, constructs, casts and `#if` blocks, and that the named tests exist. Attacked by test: P1 to P5 per
 site by the tests named in the site lines, the harness cases and the loop-order adversary.
+
+### 5.6 A floating-point field: the TPMS lattice field (#1682)
+
+The first scope file outside the exact code: `mesh_generators/TpmsLatticeField.cs`, the field part of `TpmsLattice` (a partial class; the
+contouring, the domain-mesh distance and the certificate stay in `TpmsLattice.cs`, outside the scope). It holds the nodal approximations
+(`Evaluate`, the per-axis node tables `GridTrig` and the node values), the quantile tables of the volume fraction, the gradient ratios, the field
+function of the contouring, `LinearGrade`, `SigmoidBlend` and the error terms of the Enclosure. Its argument: every value is IEEE `+ - * / sqrt`, `Abs` and comparisons
+in a fixed order plus correctly rounded `CoreMath` sin, cos, exp and log (assumed members: the CoreMath bodies are not in the scope; putting
+`math/CoreMath/*.cs` in costs about 16 more registrations, measured, among them two `#if` blocks (the FMA path) and 7 casts in 5 members). The file is also under the
+libm rule G3E0004, so a platform `Math.Log`, `Math.Tanh` or `Math.Pow` there is a build error.
+
+**What changed in the code** (#1682): `Log1pOverX` (the phase of `LinearGrade`) uses `CoreMath.Log` instead of `Math.Log`; `SigmoidBlend` is
+`1 / (1 + CoreMath.Exp(-4 eta / width))` instead of `0.5 (1 + Math.Tanh(2 eta / width))` (the same function; the weights differ in the last bit
+at 63 % of sampled points, so hybrid meshes change; the error bound of the weight in `EnclosureErrorBlend` is re-derived, 2.7 u, and checked
+against a 256-bit reference by `TpmsDeterminismTests.SigmoidBlend_WeightError_IsWithinTheDerivedBound`); `Math.Pow(2, k)` became constants and
+`Math.Pow(x, 2)` a product; the value minima and maxima of the field use `MathUtil.MinExact / MaxExact`; the sample values of the quantile table
+get `+ 0.0` before the sort (no -0, so the unstable sort gives one array); the domain-mesh distance is a delegate built outside the scope. The
+default and graded lattices are the same bits as before on Linux.
+
+**Registered:** the two caches (`ConcurrentDictionary.GetOrAdd`, P4: the factories are serial functions of the key), the node values
+(`Volatile.Read / Write`, P4: a node's value is a pure function of the node), the test counters, one sort (P3), one cast, and the delegate calls of
+the field (P4: the library's grade and blend are in the scope; a user delegate is outside the guarantee, as documented). **Claim:** on every runtime
+satisfying T1 to T5, the field values (for a box domain and the library's grade and blend; a user delegate and the domain-mesh distance are outside), tables and weights are the same bits (pinned: `TpmsDeterminismTests.FieldHash_IsPinned`); the meshes of the
+default lattices are pinned as well (`DefaultLattice_MeshHash_IsPinned`), which checks the contouring empirically, not by this proof.
 
 ## 6. Proposal
 

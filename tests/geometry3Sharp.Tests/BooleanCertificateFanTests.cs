@@ -351,5 +351,82 @@ namespace geometry3Sharp.Tests
             log.WriteLine($"C2 {sw.ElapsedMilliseconds} ms, {c.EmbeddingPairs} pairs");
             Assert.True(sw.ElapsedMilliseconds < 20000, $"C2 {sw.ElapsedMilliseconds} ms");
         }
+
+        // ---------------------------------------------------------------- C5 (#1683)
+
+        /// <summary> the balanced sum of fractions equals the running sum, for every count (0, 1, odd, even, powers of two) and unreduced denominators </summary>
+        [Fact]
+        public void SumFractions_EqualsRunningSum()
+        {
+            var rng = new Random(1683);
+            for (int k = 0; k <= 37; ++k) {
+                var t = new List<(BigInteger n, BigInteger d)>();
+                BigInteger rn = BigInteger.Zero, rd = BigInteger.One;
+                for (int j = 0; j < k; ++j) {
+                    BigInteger n = rng.Next(1, 1000) * BigInteger.Pow(3, rng.Next(0, 40)), d = rng.Next(1, 50) * BigInteger.Pow(2, rng.Next(0, 90));
+                    t.Add((n, d));
+                    rn = rn * d + n * rd; rd *= d;
+                }
+                var (sn, sd) = BooleanCertificate.SumFractions(t, 0, t.Count);
+                Assert.True(sn * rd == rn * sd, $"{k} terms");
+                if (k > 2) {
+                    // a sub-range
+                    var (pn, pd) = BooleanCertificate.SumFractions(t, 1, k - 1);
+                    BigInteger qn = BigInteger.Zero, qd = BigInteger.One;
+                    for (int j = 1; j < k - 1; ++j) { qn = qn * t[j].d + t[j].n * qd; qd *= t[j].d; }
+                    Assert.True(pn * qd == qn * pd, $"{k} terms, 1..{k - 1}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// The cost of C5 on the sliced cylinders (#1683): the area sums of CheckSameChain were 97 % of it (running sums with unreduced
+        /// denominators, 4.4 s at 60 slices, 66 s at 120); the verdict is "" and the time of C5 alone stays far below the old one.
+        /// </summary>
+        [Fact]
+        [Trait("Category", "Slow")] // (whole test 3.2 s locally: cylinders, boolean, C0/C1 and C5 at 60 slices; a smaller count does not separate the sums by cost)
+        public void ShiftedFan_60Slices_C5IsCheap()
+        {
+            var total = Stopwatch.StartNew();
+#if NETFRAMEWORK
+            // (net48: its BigInteger multiplies by the schoolbook method, C5 took 12.7 s at 60 slices there: a smaller case, the verdict only;
+            // the cost bound is checked on .NET 10, where the time rule is judged)
+            DMesh3 a = Cylinder(30);
+#else
+            DMesh3 a = Cylinder(60);
+#endif
+            BooleanCertificate c = Run(a, Shifted(a, 2), Ops.Union);
+            Assert.Equal("", c.CheckInputs());
+            Assert.Equal("", c.CheckPieces());
+            var sw = Stopwatch.StartNew();
+            Assert.Equal("", c.CheckResult());
+            long c5 = sw.ElapsedMilliseconds;
+            // (the count, independent of the speed of the runner: no plane of the fan has both orientations, so no exact area sum is taken)
+            Assert.Equal(0, c.AreaPlanesExact);
+            Assert.True(c.AreaPlanesSkipped > 0);
+            log.WriteLine($"C5 {c5} ms, whole test {total.ElapsedMilliseconds} ms");
+            // (the running sums took 4.4 s here and C5 takes 1.0-1.2 s now: the bound is half of the old time, so the quadratic sums fail it
+            // on a machine of the same speed and a runner up to 1.8x slower still passes; 120 slices took 66 s before and 5 s now, in the PR)
+#if !NETFRAMEWORK
+            Assert.True(c5 < 2200, $"C5 {c5} ms (4400 before)");
+#endif
+        }
+
+        /// <summary> the skip of the exact area sums gives the verdict and the plane counts of the exact path, and takes no exact sum on a fan </summary>
+        [Fact]
+        public void AreaSkip_Fan_SameVerdict_NoExactSums()
+        {
+            foreach (int n in new[] { 12, 30 }) {
+                DMesh3 a = Cylinder(n), b = Shifted(a, 2);
+                BooleanCertificate cs = Run(a, b, Ops.Union), ce = Run(a, b, Ops.Union);
+                Assert.Equal("", cs.CheckInputs()); Assert.Equal("", cs.CheckPieces());
+                Assert.Equal("", ce.CheckInputs()); Assert.Equal("", ce.CheckPieces());
+                ce.ForceExactAreas = true;
+                Assert.Equal(ce.CheckResult(), cs.CheckResult());
+                Assert.Equal(0, cs.AreaPlanesExact);
+                Assert.True(cs.AreaPlanesSkipped > 0);
+                Assert.Equal(ce.AreaPlanesExact, cs.AreaPlanesSkipped);
+            }
+        }
     }
 }

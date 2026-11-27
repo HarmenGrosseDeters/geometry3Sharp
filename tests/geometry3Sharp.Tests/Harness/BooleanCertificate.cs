@@ -1620,10 +1620,13 @@ namespace geometry3Sharp.Tests
         // per plane, the boundary of (kept pieces) - (result before rounding) is zero
         string CheckSameChain()
         {
+            AreaPlanesExact = AreaPlanesSkipped = 0;
             // (plane, line) -> events (position along the line, weight)
             var lines = new Dictionary<string, List<(ExactPoint3 p, BigInteger[] dir, int w, bool start)>>();
             // per plane: the unsigned projected area of each side (num, den), on the axis of the normal's largest component
-            var areas = new Dictionary<string, (BigInteger en, BigInteger ed, BigInteger sn, BigInteger sd)>();
+            // (the terms are summed at the end by a balanced tree: a running sum of fractions with unreduced denominators grows with
+            // every term, which made C5 quadratic per plane, 97 % of its time on the sliced-cylinder repro of #1683)
+            var areas = new Dictionary<string, PlaneAreas>();
             bool AddTriangle(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, int w)
             {
                 BigInteger[] n = Normal(a, b, c);
@@ -1632,10 +1635,12 @@ namespace geometry3Sharp.Tests
                 int axis = BigInteger.Abs(n[0]) >= BigInteger.Abs(n[1]) && BigInteger.Abs(n[0]) >= BigInteger.Abs(n[2]) ? 0 : BigInteger.Abs(n[1]) >= BigInteger.Abs(n[2]) ? 1 : 2;
                 // (the normal numerator is scaled by (a.W b.W)(a.W c.W) > 0)
                 BigInteger an = BigInteger.Abs(n[axis]), ad = a.W * b.W * a.W * c.W;
-                var ar = areas.TryGetValue(plane, out var v) ? v : (BigInteger.Zero, BigInteger.One, BigInteger.Zero, BigInteger.One);
-                if (w > 0) ar = (ar.Item1 * ad + an * ar.Item2, ar.Item2 * ad, ar.Item3, ar.Item4);
-                else ar = (ar.Item1, ar.Item2, ar.Item3 * ad + an * ar.Item4, ar.Item4 * ad);
-                areas[plane] = ar;
+                if (areas.TryGetValue(plane, out var ar) == false) areas[plane] = ar = new PlaneAreas { RefNormal = n };
+                // (w > 0: the kept pieces, w < 0: the result before rounding)
+                (w > 0 ? ar.E : ar.S).Add((an, ad));
+                // (the orientation against the first triangle of the plane: all normals of a plane are parallel, so the exact dot product
+                // is never 0 for a triangle that is not degenerate; a 0 would send the plane to the exact sums)
+                if (ar.Mixed == false && Dot(n, ar.RefNormal).Sign <= 0) ar.Mixed = true;
                 var t = new[] { a, b, c };
                 for (int k = 0; k < 3; ++k) {
                     ExactPoint3 p = t[k], q = t[(k + 1) % 3];
@@ -1685,10 +1690,48 @@ namespace geometry3Sharp.Tests
             }
             // (equal chains, and E of density at most 1 (copies are never kept): an unsigned area of E_s above E's is a
             // pair of opposite coincident triangles, which the chain cancels)
-            foreach (var kv in areas)
-                if (kv.Value.Item1 * kv.Value.Item4 != kv.Value.Item3 * kv.Value.Item2)
+            // (The exact sums are needed only in a plane with triangles of both orientations. The boundary check above compared the two sets
+            // as oriented chains in each plane, from the same triangles (the same exact corners and plane keys: AddTriangle fills the lines
+            // and these areas in one pass, nothing rounded in between): where every line of the plane has weight 0 the signed density
+            // sum_S o_t 1_t - sum_E o_t 1_t of the plane is a function with zero boundary and compact support, so it is 0. With one
+            // orientation o_t = o for all triangles of the plane, that is sum_S 1_t = sum_E 1_t: the unsigned areas are equal, which the
+            // exact comparison would find too. A mixed plane (coincident opposite triangles may hide there: the unsigned areas differ
+            // although the chains are equal) keeps the exact comparison.)
+            // (the counts are taken for all planes before the first exact sum, so that they do not depend on the visit order when one fails)
+            foreach (var kv in areas) {
+                if (kv.Value.Mixed == false && ForceExactAreas == false) AreaPlanesSkipped++; else AreaPlanesExact++;
+            }
+            foreach (var kv in areas) {
+                if (kv.Value.Mixed == false && ForceExactAreas == false) continue;
+                var (en, ed) = SumFractions(kv.Value.E, 0, kv.Value.E.Count);
+                var (sn, sd) = SumFractions(kv.Value.S, 0, kv.Value.S.Count);
+                if (en * sd != sn * ed)
                     return "the result before rounding has another area than the kept pieces in a plane (coincident opposite triangles)";
+            }
             return "";
+        }
+
+        sealed class PlaneAreas
+        {
+            public readonly List<(BigInteger n, BigInteger d)> E = new List<(BigInteger, BigInteger)>(), S = new List<(BigInteger, BigInteger)>();
+            public BigInteger[] RefNormal; public bool Mixed;
+        }
+
+        /// <summary> for tests: take the exact sums of the plane areas in every plane (the path before the skip of single-orientation planes, #1683 follow-up) </summary>
+        public bool ForceExactAreas;
+        /// <summary> the planes of the last C5 whose areas needed the exact sums (both orientations, or forced) and those that did not (0 and 0 where an earlier check of C5 failed: counted once the boundary check passed) </summary>
+        public int AreaPlanesExact, AreaPlanesSkipped;
+
+        // the exact sum of the fractions t[from..to) (positive denominators) by halving: the operands of the top sums are as large as the
+        // result, the rest small, so it costs O(M(N) log k) for k terms of N bits in all (0 for none)
+        public static (BigInteger n, BigInteger d) SumFractions(List<(BigInteger n, BigInteger d)> t, int from, int to)
+        {
+            if (to - from == 0) return (BigInteger.Zero, BigInteger.One);
+            if (to - from == 1) return t[from];
+            int mid = from + (to - from) / 2;
+            var (an, ad) = SumFractions(t, from, mid);
+            var (bn, bd) = SumFractions(t, mid, to);
+            return (an * bd + bn * ad, ad * bd);
         }
 
         // ------------------------------------------------------------------ C5: coverage within Delta
