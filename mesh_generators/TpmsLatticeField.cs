@@ -216,7 +216,13 @@ namespace g3
         // sampled maximum of |grad f| over one period (central differences, 24^3 points) divided by the proven bound: in (0, 1]
         internal static double GradientRatio(TpmsType type)
         {
-            return gradientRatios.GetOrAdd(type, t => {
+            return gradientRatios.GetOrAdd(type, ComputeGradientRatio);
+        }
+
+        // the factory of GradientRatio: a serial function of the type (not cached; internal for the test that compares it with the cache)
+        internal static double ComputeGradientRatio(TpmsType t)
+        {
+            {
                 const int n = 24;
                 double e = 1e-5, max = 0, step = 2 * Math.PI / n;
                 bool two = NeedsDoubleAngle(t);
@@ -239,7 +245,7 @@ namespace g3
                             max = Math.Max(max, Math.Sqrt(gx * gx + gy * gy + gz * gz));
                         }
                 return Math.Min(1, 1.05 * max / GradientBound(t));
-            });
+            }
         }
 
         // bound of the sum of the absolute values of the terms, for the rounding error of an evaluation

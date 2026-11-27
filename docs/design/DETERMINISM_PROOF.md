@@ -604,7 +604,7 @@ site by the tests named in the site lines, the harness cases and the loop-order 
 The first scope file outside the exact code: `mesh_generators/TpmsLatticeField.cs`, the field part of `TpmsLattice` (a partial class; the
 contouring, the domain-mesh distance and the certificate stay in `TpmsLattice.cs`, outside the scope). It holds the nodal approximations
 (`Evaluate`, the per-axis node tables `GridTrig` and the node values), the quantile tables of the volume fraction, the gradient ratios, the field
-function of the contouring, `LinearGrade`, `SigmoidBlend` and the error terms of the Enclosure. Its argument: every value is IEEE `+ - * / sqrt`
+function of the contouring, `LinearGrade`, `SigmoidBlend` and the error terms of the Enclosure. Its argument: every value is IEEE `+ - * / sqrt`, `Abs` and comparisons
 in a fixed order plus correctly rounded `CoreMath` sin, cos, exp and log (assumed members: the CoreMath bodies are not in the scope; putting
 `math/CoreMath/*.cs` in costs about 16 more registrations, measured, among them two `#if` blocks (the FMA path) and 7 casts in 5 members). The file is also under the
 libm rule G3E0004, so a platform `Math.Log`, `Math.Tanh` or `Math.Pow` there is a build error.
@@ -620,7 +620,7 @@ default and graded lattices are the same bits as before on Linux.
 **Registered:** the two caches (`ConcurrentDictionary.GetOrAdd`, P4: the factories are serial functions of the key), the node values
 (`Volatile.Read / Write`, P4: a node's value is a pure function of the node), the test counters, one sort (P3), one cast, and the delegate calls of
 the field (P4: the library's grade and blend are in the scope; a user delegate is outside the guarantee, as documented). **Claim:** on every runtime
-satisfying T1 to T5, the field values, tables and weights are the same bits (pinned: `TpmsDeterminismTests.FieldHash_IsPinned`); the meshes of the
+satisfying T1 to T5, the field values (for a box domain and the library's grade and blend; a user delegate and the domain-mesh distance are outside), tables and weights are the same bits (pinned: `TpmsDeterminismTests.FieldHash_IsPinned`); the meshes of the
 default lattices are pinned as well (`DefaultLattice_MeshHash_IsPinned`), which checks the contouring empirically, not by this proof.
 
 ## 6. Proposal
