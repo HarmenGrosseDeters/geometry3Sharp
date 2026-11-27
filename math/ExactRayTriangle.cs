@@ -301,7 +301,8 @@ namespace g3
         /// </summary>
         public static int RayHitClosed(Vector3d o, Vector3d p, Vector3d a, Vector3d b, Vector3d c)
         {
-            if (is_finite(o) == false || is_finite(a) == false || is_finite(b) == false || is_finite(c) == false || o == p)
+            if (is_finite(o) == false || is_finite(p) == false || is_finite(a) == false || is_finite(b) == false || is_finite(c) == false
+                || o == p)
                 return Miss;
             return ray_hit_closed(o, p, false, a, b, c);
         }
@@ -340,7 +341,8 @@ namespace g3
         /// </summary>
         public static int RayHitPerturbed(Vector3d o, Vector3d p, Vector3d a, Vector3d b, Vector3d c)
         {
-            if (is_finite(o) == false || is_finite(a) == false || is_finite(b) == false || is_finite(c) == false || o == p)
+            if (is_finite(o) == false || is_finite(p) == false || is_finite(a) == false || is_finite(b) == false || is_finite(c) == false
+                || o == p)
                 return Miss;
             return ray_hit_perturbed(o, p, false, a, b, c);
         }

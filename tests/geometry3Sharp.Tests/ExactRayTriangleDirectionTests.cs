@@ -238,6 +238,86 @@ namespace geometry3Sharp.Tests
             Assert.Equal(ExactRayTriangle.Miss, ExactRayTriangle.RayHitPerturbedDirection(Vector3d.Zero, Vector3d.Zero, Vector3d.AxisX, Vector3d.AxisY, Vector3d.AxisZ));
         }
 
+        [Fact]
+        public void LineDirection_IsSecondPointsDifference_WhereBothAreExact()
+        {
+            // on a small integer grid scaled by 2^k the second point o + 2^m d is exact, and LineDirection is that 2^m d
+            // (the same exponent rule: the largest coordinates of origin and direction)
+            var r = new Random(13);
+            int n = 0;
+            for (int it = 0; it < 3000; ++it) {
+                Func<Vector3d> g = () => new Vector3d(r.Next(-7, 8), r.Next(-7, 8), r.Next(-7, 8));
+                Vector3d o = g(), d = g();
+                if (d == Vector3d.Zero) continue;
+                int k = r.Next(-900, 900), j = r.Next(-30, 30);
+                o = Scaled(o, k); d = Scaled(d, k + j);
+                Vector3d p = ExactRayTriangle.SecondPoint(o, d), ld = ExactRayTriangle.LineDirection(o, d);
+                Vector3d diff = p - o;
+                if (diff + o != p || p - diff != o) continue;
+                Assert.Equal(diff, ld);
+                n++;
+            }
+            Assert.True(n > 2000, $"{n}");
+            // a direction or origin that is not finite: no line
+            Assert.Equal(Vector3d.Zero, ExactRayTriangle.LineDirection(Vector3d.One, new Vector3d(0, double.PositiveInfinity, 1)));
+            Assert.Equal(Vector3d.Zero, ExactRayTriangle.LineDirection(new Vector3d(0, double.NaN, 0), Vector3d.One));
+            Assert.Equal(Vector3d.Zero, ExactRayTriangle.LineDirection(new Vector3d(0, 0, double.NegativeInfinity), Vector3d.One));
+        }
+
+        [Fact]
+        public void RayHits_NonFiniteArguments_AreAMiss()
+        {
+            // every argument of the four ray hits, NaN or infinite in one coordinate, gives Miss (the exact predicates
+            // would refuse it); the finite case is a hit, so the guard is what decides
+            var o = new Vector3d(0.25, 0.25, 1); var d = new Vector3d(0, 0, -1);
+            var a = Vector3d.Zero; var b = Vector3d.AxisX; var c = Vector3d.AxisY;
+            Func<Vector3d[], int>[] hits = {
+                v => ExactRayTriangle.RayHitClosed(v[0], v[0] + v[1], v[2], v[3], v[4]),
+                v => ExactRayTriangle.RayHitPerturbed(v[0], v[0] + v[1], v[2], v[3], v[4]),
+                v => ExactRayTriangle.RayHitClosedDirection(v[0], v[1], v[2], v[3], v[4]),
+                v => ExactRayTriangle.RayHitPerturbedDirection(v[0], v[1], v[2], v[3], v[4]),
+            };
+            foreach (var hit in hits) {
+                Assert.Equal(ExactRayTriangle.Ahead, hit(new[] { o, d, a, b, c }));
+                foreach (double bad in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity })
+                    for (int arg = 0; arg < 5; ++arg)
+                        for (int k = 0; k < 3; ++k) {
+                            var v = new[] { o, d, a, b, c };
+                            var w = v[arg]; w[k] = bad; v[arg] = w;
+                            Assert.Equal(ExactRayTriangle.Miss, hit(v));
+                        }
+            }
+            // the point forms with p == o, the direction forms with d == 0: no ray
+            Assert.Equal(ExactRayTriangle.Miss, ExactRayTriangle.RayHitClosed(o, o, a, b, c));
+            Assert.Equal(ExactRayTriangle.Miss, ExactRayTriangle.RayHitPerturbed(o, o, a, b, c));
+            Assert.Equal(ExactRayTriangle.Miss, ExactRayTriangle.RayHitClosedDirection(o, Vector3d.Zero, a, b, c));
+        }
+
+        [Fact]
+        public void RayHitPerturbed_OriginInThePlane_AtOriginOrMissByTheDirection()
+        {
+            // o inside the triangle (in its plane): a direction out of the plane crosses at o itself (AtOrigin, the
+            // closed rule too); a direction in the plane: the perturbed line crosses behind o' (Miss), the closed line
+            // lies in the plane (Miss); likewise for the point forms
+            var a = Vector3d.Zero; var b = new Vector3d(4, 0, 0); var c = new Vector3d(0, 4, 0);
+            var o = new Vector3d(1, 1, 0);
+            foreach (var d in new[] { new Vector3d(0, 0, 1), new Vector3d(1, 2, -3) }) {
+                Assert.Equal(ExactRayTriangle.AtOrigin, ExactRayTriangle.RayHitPerturbedDirection(o, d, a, b, c));
+                Assert.Equal(ExactRayTriangle.AtOrigin, ExactRayTriangle.RayHitPerturbed(o, o + d, a, b, c));
+                Assert.Equal(ExactRayTriangle.AtOrigin, ExactRayTriangle.RayHitClosedDirection(o, d, a, b, c));
+            }
+            int crossedInPlane = 0;
+            foreach (var d in new[] { new Vector3d(1, 0, 0), new Vector3d(-1, 3, 0), new Vector3d(0, -1, 0), new Vector3d(2, 1, 0) }) {
+                int pd = ExactRayTriangle.RayHitPerturbedDirection(o, d, a, b, c);
+                Assert.Equal(ExactRayTriangle.Miss, pd);
+                Assert.Equal(ExactRayTriangle.Miss, ExactRayTriangle.RayHitPerturbed(o, o + d, a, b, c));
+                Assert.Equal(ExactRayTriangle.Miss, ExactRayTriangle.RayHitClosedDirection(o, d, a, b, c));
+                if (ExactRayTriangle.LineCrossingDirection(o, d, a, b, c) != 0) crossedInPlane++;
+            }
+            // (the in-plane rule is what decides: the perturbed line crosses the triangle for some of these)
+            Assert.True(crossedInPlane > 0, $"{crossedInPlane}");
+        }
+
         // ---- the perturbed ray ----
 
         [Fact]
