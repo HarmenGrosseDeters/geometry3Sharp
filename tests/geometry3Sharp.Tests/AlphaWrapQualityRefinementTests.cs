@@ -94,6 +94,110 @@ namespace geometry3Sharp.Tests
             Assert.True(crossing > 300 && oneSide > 300);
         }
 
+        [Theory]
+        [InlineData(210)]
+        [InlineData(-220)]
+        [InlineData(600)]
+        [InlineData(-600)]
+        public void EmptyBallRadius_ExtremeScales_ScalesBitForBit(int exp)
+        {
+            Func<Vector3d, Vector3d> sc = p => new Vector3d(ExactPoint3.ScaleB(p.x, exp), ExactPoint3.ScaleB(p.y, exp), ExactPoint3.ScaleB(p.z, exp));
+            // Include non-power-of-two edges (4, 6) and a general non-axis-aligned triangle (3,2,1)/(1,5,2) so both SafeLength/SafeHypot and add-before-divide bit-identity are exercised.
+            foreach (var (b0, d0, tNear, tFar) in new[] {
+                (new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), 1.0, 2.0),
+                (new Vector3d(4, 0, 0), new Vector3d(0, 6, 0), 3.0, 5.0),
+                (new Vector3d(3, 2, 1), new Vector3d(1, 5, 2), 2.5, 4.5),
+            }) {
+                Vector3d a0 = Vector3d.Zero;
+                Vector3d w0 = b0.Cross(d0);
+                Vector3d n0 = w0.Normalized;
+                Vector3d fc0 = (b0.LengthSquared * d0.Cross(w0) + d0.LengthSquared * w0.Cross(b0)) / (2 * w0.LengthSquared);
+                double refCross = MeshAlphaWrap.EmptyBallRadius(a0, b0, d0, fc0 - tNear * n0, fc0 + tFar * n0);
+                double refSide = MeshAlphaWrap.EmptyBallRadius(a0, b0, d0, fc0 + tNear * n0, fc0 + tFar * n0);
+
+                double phiCross = MeshAlphaWrap.EmptyBallRadius(sc(a0), sc(b0), sc(d0), sc(fc0 - tNear * n0), sc(fc0 + tFar * n0));
+                double phiSide = MeshAlphaWrap.EmptyBallRadius(sc(a0), sc(b0), sc(d0), sc(fc0 + tNear * n0), sc(fc0 + tFar * n0));
+                Assert.Equal(ExactPoint3.ScaleB(refCross, exp), phiCross);
+                Assert.Equal(ExactPoint3.ScaleB(refSide, exp), phiSide);
+            }
+        }
+
+        [Fact]
+        public void EmptyBallRadius_ThinSliverUnderflowingCrossSquared_ReturnsExactCircumradius()
+        {
+            double h = ExactPoint3.ScaleB(1.0, -540);
+            Assert.Equal(0.0, h * h); // w^2 underflows to 0.0 on the old unscaled formula
+            Vector3d a = Vector3d.Zero, b = new Vector3d(1, 0, 0), d = new Vector3d(0.5, h, 0);
+            double yc = -ExactPoint3.ScaleB(1.0, 537); // exact circumcenter y = -0.125 * 2^540 = -2^537
+            Vector3d from = new Vector3d(0.5, yc, -1.0), to = new Vector3d(0.5, yc, 1.0);
+            double phi = MeshAlphaWrap.EmptyBallRadius(a, b, d, from, to);
+            Assert.True(!double.IsNaN(phi) && !double.IsInfinity(phi), $"phi={phi}");
+            Assert.True(Math.Abs(phi - Math.Abs(yc)) <= 1e-12 * Math.Abs(yc), $"phi={phi} vs {Math.Abs(yc)}");
+
+            // Mixed-exponent right triangle inside [2^-100, 2^100] whose unscaled numerator flushes to 0.
+            double uMix = ExactPoint3.ScaleB(1.0, -55), vMix = ExactPoint3.ScaleB(1.0, -455);
+            double phiMix = MeshAlphaWrap.EmptyBallRadius(
+                Vector3d.Zero, new Vector3d(uMix, 0, 0), new Vector3d(0, vMix, 0),
+                new Vector3d(0.5 * uMix, 0.5 * vMix, -1), new Vector3d(0.5 * uMix, 0.5 * vMix, 1));
+            Assert.True(Math.Abs(phiMix - 0.5 * uMix) <= 1e-12 * (0.5 * uMix), $"phiMix={phiMix} vs {0.5 * uMix}");
+
+            // Extreme edge-length ratio (2^100 vs 2^-974): independent-exponent rescaling avoids flushing xUnit.
+            double uWide = ExactPoint3.ScaleB(1.0, 100), vWide = ExactPoint3.ScaleB(1.0, -974);
+            double phiWide = MeshAlphaWrap.EmptyBallRadius(
+                Vector3d.Zero, new Vector3d(uWide, 0, 0), new Vector3d(0, vWide, 0),
+                new Vector3d(0.5 * uWide, 0.5 * vWide, -1), new Vector3d(0.5 * uWide, 0.5 * vWide, 1));
+            Assert.True(Math.Abs(phiWide - 0.5 * uWide) <= 1e-12 * (0.5 * uWide), $"phiWide={phiWide} vs {0.5 * uWide}");
+
+            // Huge nearly-collinear sliver with |eu - ev| > 60 and shift > 1023 must return +Infinity, not (-Inf) + (+Inf) = NaN.
+            double phiInf = MeshAlphaWrap.EmptyBallRadius(
+                Vector3d.Zero, new Vector3d(ExactPoint3.ScaleB(1.0, 500), 0, 0),
+                new Vector3d(ExactPoint3.ScaleB(1.0, 430), ExactPoint3.ScaleB(1.0, -170), 0),
+                new Vector3d(0, 0, -1), new Vector3d(0, 0, 1));
+            Assert.True(double.IsPositiveInfinity(phiInf), $"phiInf={phiInf}");
+        }
+
+        [Fact]
+        public void EmptyBallRadius_SubnormalAndHugeHypot_DoesNotUnderflowOrOverflow()
+        {
+            // Subnormal R^2 and t^2: R = sqrt(1.499) * 2^-537, t = R -> exact hypot = sqrt(2) * R.
+            double r = Math.Sqrt(1.499) * ExactPoint3.ScaleB(1.0, -537);
+            Assert.True(r * r > 0 && r * r < ExactPoint3.ScaleB(1.0, -1022));
+            Vector3d a = new Vector3d(-r, 0, 0), b = new Vector3d(r, 0, 0), d = new Vector3d(0, r, 0);
+            double phiSub = MeshAlphaWrap.EmptyBallRadius(a, b, d, new Vector3d(0, 0, r), new Vector3d(0, 0, 2 * r));
+            double expectedSub = Math.Sqrt(2.0) * r;
+            Assert.True(Math.Abs(phiSub - expectedSub) <= 1e-12 * expectedSub, $"{phiSub} vs {expectedSub}");
+
+            // Overflowing R^2 + t^2 at 2^600.
+            double big = ExactPoint3.ScaleB(1.0, 600);
+            Assert.True(double.IsPositiveInfinity(big * big));
+            double phiBig = MeshAlphaWrap.EmptyBallRadius(
+                new Vector3d(-big, 0, 0), new Vector3d(big, 0, 0), new Vector3d(0, big, 0),
+                new Vector3d(0, 0, big), new Vector3d(0, 0, 2 * big));
+            double expectedBig = Math.Sqrt(2.0) * big;
+            Assert.True(Math.Abs(phiBig - expectedBig) <= 1e-12 * expectedBig, $"{phiBig} vs {expectedBig}");
+        }
+
+        [Fact]
+        public void EmptyBallRadius_OverflowingVertexDifferences_DoesNotReturnNaN()
+        {
+            double s = 1e308;
+            Vector3d a = new Vector3d(-s, 0, 0), b = new Vector3d(s, 0, 0), d = new Vector3d(0, s, 0);
+            // Circumcenter of (-s,0,0), (s,0,0), (0,s,0) is (0,0,0), circumradius = s.
+            double phi = MeshAlphaWrap.EmptyBallRadius(a, b, d, new Vector3d(0, 0, -0.5 * s), new Vector3d(0, 0, 0.5 * s));
+            Assert.True(!double.IsNaN(phi) && !double.IsInfinity(phi), $"phi={phi}");
+            Assert.True(Math.Abs(phi - s) <= 1e-12 * s, $"phi={phi} vs {s}");
+
+            // Overflowing fc = a + x with a zero normal component must not produce Inf * 0 = NaN in SafePlaneSignedOffset.
+            Vector3d oa = new Vector3d(1.5e308, 0, 0);
+            Vector3d ob = new Vector3d(1.500075e308, 0.015e308, 0);
+            Vector3d od = new Vector3d(1.500075e308, -0.015e308, 0);
+            double phiFc = MeshAlphaWrap.EmptyBallRadius(oa, ob, od,
+                new Vector3d(-1.5e308, 0, 0.8e308), new Vector3d(-1.5e308, 0, 1.0e308));
+            double expectedR = 1.5000375e308;
+            double expectedFc = Math.Sqrt((expectedR / 1e308) * (expectedR / 1e308) + 0.8 * 0.8) * 1e308;
+            Assert.True(Math.Abs(phiFc - expectedFc) <= 1e-9 * expectedFc, $"phiFc={phiFc} vs {expectedFc}");
+        }
+
         // the quality points count against the point limit (PointLimitReached, with its guarantees); cancelled in the
         // quality refinement: Cancelled
         [Fact]
