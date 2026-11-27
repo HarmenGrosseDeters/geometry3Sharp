@@ -62,7 +62,7 @@ namespace geometry3Sharp.Tests
             Assert.Null(p.Result);
             Assert.Empty(p.Report.RepairedInputs);
             Assert.Contains("input 0 is not closed and no allowed repair closed it", p.Error);
-            Assert.Contains("MeshRobustRepair refused its result", p.Error);
+            Assert.Contains("MeshRobustRepair did not repair it", p.Error);
             Assert.Contains(MeshRobustRepair.ThinShellWrap, p.Error);
             var step = p.Report.Route.Single(s => s.Name == "Refused");
             Assert.Equal(0, step.Input);
@@ -88,6 +88,24 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ScaleDisparity_IsRefused_AlsoThoughTheMeshIsCleanButForTheDegenerateAreaDiagnostic()
+        {
+            // components far apart compared with their size: Apply() is false, the resolved mesh (closed) is in Mesh, and the pipeline does not use it
+            DMesh3 scene = RobustRepairFarPartTests.Scene(1e8, 2);
+            scene.RemoveTriangle(scene.MaxTriangleID - 1);       // (a triangle of the far tetrahedron: open, so that the input needs a repair)
+            var direct = new MeshRobustRepair(new DMesh3(scene)) { PassThroughCleanParts = false };
+            Assert.False(direct.Apply());
+            Assert.Equal(MeshRobustRepair.ScaleDisparity, direct.ResultReason);
+            Assert.True(ExactMeshBoolean.IsWindingClosed(direct.Mesh), "setup: the refused mesh is closed");
+            var p = new SolidBooleanPipeline(scene, Box(new Vector3d(0.2, 0, -0.3), 0.3), U) {
+                InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepairThenRobust, SkipAutoRepairForTests = true,
+                RobustRepairSetupForTests = r => r.PassThroughCleanParts = false };
+            Assert.False(p.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
+            Assert.Contains(MeshRobustRepair.ScaleDisparity, p.Error);
+        }
+
+        [Fact]
         public void ARepairThatSucceeds_IsUsedAsBefore_SameAsTheRepairedMeshGivenClosed()
         {
             DMesh3 bowl = GoodBowl();
@@ -100,6 +118,8 @@ namespace geometry3Sharp.Tests
             SolidBooleanInputRepair rep = Assert.Single(p.Report.RepairedInputs);
             Assert.Equal("MeshRobustRepair", rep.Method);
             Assert.Equal(robust.Mesh.TriangleCount, rep.TrianglesAfter);
+            Assert.True(p.Result.IsClosed());
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(p.Result));
             // the same run on the repaired mesh as a closed input (no repair): the same result, bit for bit
             var closed = new SolidBooleanPipeline(new DMesh3(robust.Mesh), Box(new Vector3d(0.2, 0, -0.3), 0.3), U);
             Assert.True(closed.Compute(), closed.Error);
@@ -111,20 +131,31 @@ namespace geometry3Sharp.Tests
 
         public static IEnumerable<object[]> Names() { return Similarity.NamesExceptExtremeFrame(); }
 
+        // (without RotatedUtmMillimetre: its design is near the frame's MinFeatureSize, three builds by design, 2-3 times the cost, and it is not
+        // an additional case for the decision: the repair's own invariance tests leave it out too)
+        // The repair runs the same stages bit for bit under the scales (2^k and the decimal ones), so these refuse as the identity does. Under the
+        // translation and the rotation (utm, rotated) the grid of the solidify differs and the repair takes it before the wrap: the run succeeds there. That
+        // is pinned so that a later change of either side is visible.
+        static readonly HashSet<string> Succeeding = new HashSet<string> { "utm", "rotated" };
+
         [Theory, MemberData(nameof(Names))]
         public void TheRefusal_IsTheSameUnderEverySimilarity(string name)
         {
             Similarity s = Similarity.ByName(name);
             SolidBooleanPipeline p = Pipeline(Invariance.Transformed(ShellBowl(), s), Invariance.Transformed(Box(new Vector3d(0.2, 0, -0.3), 0.3), s));
             bool ran = p.Compute();
-            // (the grid of the solidify is not invariant under a rotation or a translation: the repair may take that path there and succeed. Where the
-            // run is refused it names the reason; the power-of-two scales run the same stages bit for bit, so they refuse as the identity does)
-            if (s.IsExact || ran == false) {
+            Assert.Equal(Succeeding.Contains(name), ran);
+            if (s.IsExact)
                 Assert.False(ran, name);
+            if (ran == false) {
                 Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
                 Assert.Contains(MeshRobustRepair.ThinShellWrap, p.Error);
-            } else
+            } else {
                 Assert.Single(p.Report.RepairedInputs);
+                Assert.True(p.Result.IsClosed(), name);
+                Assert.True(p.Result.CheckValidity(false, FailMode.ReturnOnly), name);
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(p.Result));
+            }
         }
 
         [Fact]

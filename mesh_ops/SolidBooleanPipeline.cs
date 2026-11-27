@@ -394,7 +394,7 @@ namespace gs
             /// <summary>
             /// MeshAutoRepair, and if the copy is still not closed, MeshRobustRepair of the input (it may solidify or wrap: the geometry
             /// can change). A MeshRobustRepair result is used only if its Apply() is true: a refused one (false, eg ThinShellWrap, a lost part,
-            /// NestingAmbiguous; the mesh may be closed but is not a repair of the input) is not used and the run fails with Status OpenInput,
+            /// NestingAmbiguous, ScaleDisparity (a clean mesh flagged only by the degenerate-area diagnostic, components far apart compared with their size); the mesh may be closed but is not a repair of the input) is not used and the run fails with Status OpenInput,
             /// Error naming the ResultReason. A MeshAutoRepair copy that self-intersects where the input does not is refused as with AutoRepair
             /// (Status OpenInput), without falling back to MeshRobustRepair
             /// </summary>
@@ -2613,7 +2613,7 @@ namespace gs
 
         string refusalSuffix()
         {
-            return robustRefusal == null ? "" : ": MeshRobustRepair refused its result (Apply() was false, ResultReason: " + robustRefusal + ")";
+            return robustRefusal == null ? "" : ": MeshRobustRepair did not repair it (Apply() was false, ResultReason: " + robustRefusal + ")";
         }
 
         // Reducer that keeps the last refusal of each edge (ProcessResult is the Reducer's protected enum): the edges left at the
