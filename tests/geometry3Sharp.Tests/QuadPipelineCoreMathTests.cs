@@ -144,6 +144,10 @@ namespace geometry3Sharp.Tests
             Assert.True(q.SizeAdaptationApplied);
             Assert.Equal("4B69ED601A8295F0", PositionHash(q.Positions, m));
             Assert.Equal("D5AEF8EA7B7BE7E6", PolyHash(q.Result));
+            // reuse: the edge factors of IntegrableFrames are built per Compute, a second Compute on the instance gives the same bits
+            q.Compute();
+            Assert.Equal("4B69ED601A8295F0", PositionHash(q.Positions, m));
+            Assert.Equal("D5AEF8EA7B7BE7E6", PolyHash(q.Result));
         }
 
         [Fact]
