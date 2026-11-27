@@ -86,7 +86,7 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        static ExactMeshBoolean Run(bool joint, bool strict = false, Similarity s = null, bool serial = false)
+        internal static ExactMeshBoolean Run(bool joint, bool strict = false, Similarity s = null, bool serial = false)
         {
             Inputs(out DMesh3 a, out DMesh3 b, s);
             var op = new ExactMeshBoolean(a, b, Difference) { StrictRounding = strict };
@@ -294,7 +294,7 @@ namespace geometry3Sharp.Tests
         static double Dome(double x, double y) { return Math.Sqrt(4 - (x - 0.5) * (x - 0.5) - (y - 0.5) * (y - 0.5)); }
 
         // (surface, grid n, extra cells dn, thickness t, turn e, ratio of the second turn, shift of both inputs, which one is cut)
-        static ExactMeshBoolean RunPlates(Func<double, double, double> h, int n, int dn, double t, double e, double ratio, double shift, bool coarseMinusFine,
+        internal static ExactMeshBoolean RunPlates(Func<double, double, double> h, int n, int dn, double t, double e, double ratio, double shift, bool coarseMinusFine,
             Similarity s = null, bool joint = true, bool check = false, bool serial = false, int skipRounds = 0)
         {
             Func<Vector3d, Vector3d> sh = p => p + new Vector3d(shift, shift * 0.5, -shift * 0.25);
@@ -333,7 +333,7 @@ namespace geometry3Sharp.Tests
             yield return new object[] { "dome", 3, 3, 0.02, 8.039487869620447E-09, 0.3, 0.0, false, "utm", -1, -1 };
         }
 
-        static Func<double, double, double> Surface(string name) { return name == "bowl" ? (Func<double, double, double>)Bowl : name == "wave" ? Wave : Dome; }
+        internal static Func<double, double, double> Surface(string name) { return name == "bowl" ? (Func<double, double, double>)Bowl : name == "wave" ? Wave : Dome; }
 
 
         [Theory]
@@ -355,7 +355,7 @@ namespace geometry3Sharp.Tests
 
         // ---- the cost of the stage: its own budget, and the repair's effort limit is not reached by it ----
 
-        static ExactMeshBoolean RunCluster(int k, bool joint, long pairTests = 5000000, int skipRounds = 0)
+        internal static ExactMeshBoolean RunCluster(int k, bool joint, long pairTests = 5000000, int skipRounds = 0)
         {
             DMesh3 m = DegenerateFamilies.Make(DegenerateFamilies.Family.Cluster, k, 1, 8);
             var op = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) { RoundingMaxPairTests = pairTests };
@@ -707,7 +707,7 @@ namespace geometry3Sharp.Tests
             return new ExactMeshBoolean(a, b, Difference) { StrictRounding = true };
         }
 
-        static ExactMeshBoolean RunPlatesStrict(string name, int n, int dn, double t, double e, double ratio, double shift, bool diff, int skipRounds, Similarity s = null, bool serial = false)
+        internal static ExactMeshBoolean RunPlatesStrict(string name, int n, int dn, double t, double e, double ratio, double shift, bool diff, int skipRounds, Similarity s = null, bool serial = false)
         {
             ExactMeshBoolean op = StrictBoolean(name, n, dn, t, e, ratio, shift, diff, s);
             MeshRoundingRepair.SkipJointRoundsOnThisThread = skipRounds;

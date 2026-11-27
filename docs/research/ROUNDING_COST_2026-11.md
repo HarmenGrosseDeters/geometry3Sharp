@@ -411,6 +411,11 @@ the rounding.
 Open, not measured: the same A/B at 1 and 12 threads; the axes in front of the pair tests of the incremental searches;
 the DOP in front of the axes; the boolean's own tree searches on 102375.
 
+Built after the owner's go of 2026-11-22: option 2 (#1406, measured on the build: −3.3 % of the 48 operations, rounding
+−10.4 %) and option 1 (`TriangleSeparatingAxes`, first measured −3.2 %, rounding −12.5 % on the 48 operations; redone on master 2026-11-27 after
+the joint stage: the repair of gear_500, fins_400 and 519511 takes 32 to 45 % less); the tables are in the BooleanComparison
+README. Options 3 and 4 are open.
+
 ## 10. Reproduce
 
 ```sh

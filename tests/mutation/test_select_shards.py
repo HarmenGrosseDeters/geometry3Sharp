@@ -19,7 +19,7 @@ BO = ["boolean-%d" % i for i in range(1, 10)]
 ALL_MESH = set(RO) | set(BO) | {"arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
                                                 "imprint", "terrain-arith", "terrain-kernel", "terrain-overlay", "hausdorff", "geodesic-1", "geodesic-2",
                                                 "uv-atlas", "uv-charts", "uv-pack", "uv-cones", "uv-slim", "uv-foldover", "uv-core", "solid-pipeline", "exact-winding", "cells",
-                                                "predicates-1", "predicates-2", "adaptive", "box3", "ray-triangle", "snaprounding"}
+                                                "predicates-1", "predicates-2", "adaptive", "box3", "ray-triangle", "snaprounding", "separating-axes"}
 
 
 def run(*changed):
@@ -53,6 +53,7 @@ class SelectShards(unittest.TestCase):
         self.assertTrue(eligible(configs["mesh-predicates-1"], ["math/ExactPredicates.cs"]))
         self.assertTrue(eligible(configs["mesh-adaptive"], ["math/AdaptivePredicates.cs"]))
         self.assertTrue(eligible(configs["mesh-box3"], ["intersection/IntrExactBox3.cs"]))
+        self.assertTrue(eligible(configs["mesh-separating-axes"], ["intersection/TriangleSeparatingAxes.cs"]))
         self.assertFalse(eligible(configs["mesh-box3"], ["intersection/IntrRay3Box3.cs"]))        # (not an exact-code file: its decision is the shared one)
         self.assertTrue(eligible(configs["mesh-ray-triangle"], ["math/ExactRayTriangle.cs"]))
         self.assertFalse(eligible(configs["mesh-ray-triangle"], ["intersection/IntrRay3Triangle3.cs"]))        # (not an exact-code file: a caller of the exact decision)

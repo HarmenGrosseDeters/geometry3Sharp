@@ -1260,6 +1260,50 @@ operations each (`perf/near_pending_boxes_report.py`, rows in `perf/near_pending
   between −13 and +4 %). The two operations above that, 119829 intersection (+19 %) and sphere_60 intersection
   (+15 %), take 0.1-0.3 s, 0.04 s of it rounding.
 
+## Separating axes in the rounding's full pair search (2026-11-27)
+
+`MeshRoundingRepair.intersecting_pairs_all` tests every box neighbour of a rounded triangle with the pair test. On
+results with long thin triangles on tilted faces a query has hundreds of box neighbours and none intersects. Now the
+four axes of every triangle (normal and in-plane edge normals) and its interval on each are computed once per search
+(`intersection/TriangleSeparatingAxes.cs`, 160 bytes per triangle for the time of the search; none above 6 710 886 triangles, a 1 GiB array, so below the object limit of every runtime), and a pair that is
+strictly apart along one of the eight axes of its two triangles skips the pair test. The margin of the comparison is
+derived in the class comment and in `docs/design/SNAP_ROUNDING_3D.md` section 5.3; the pairs found, and so the result,
+are the same. Lever 1 of the rounding cost study (`docs/research/ROUNDING_COST_2026-11.md` section 5, owner go
+2026-11-22), redone on master 4d2c8b1c5 after the joint stage (#1429 was 1 100 commits behind).
+
+**What was measured, and why not the old command.** The old command (`profile --repeat 3 --median --safe-rounding`, one
+process per case and side in turn, 4 cores) was started on 2026-11-27 and abandoned: the machine ran at 100 % processor
+load from other sessions, and the rows moved by +-40 % between runs of the same build (gear_500 intersection 10.5 s
+against 14.7 s, cyl_8000 intersection rounding 7.1 s against 15.6 s; hashes
+equal). The table below is instead the rounding repair alone, in process, with the switch
+`MeshRoundingRepair.NoSeparatingAxesOnThisThread` (the same build on both sides): the unrepaired rounded result of the
+union (`SafeRounding = false`) is repaired by `MeshRoundingRepair.Apply` (`SharedPositionsTouch`), five times with and
+five times without the axes in turn, on a copy each time; minimum and median in ms; serial (`SerialOnThisThread`) and
+parallel (12 cores shared with the load above, so read the minimum). The result of every pair of runs is the same
+(`same=True`, the text of the repaired mesh). Raw rows and the throw-away harness (`ApplyTiming.cs.txt`, a test of
+`tests/geometry3Sharp.Tests` that is not committed) in `perf/first_search_axes_2026-11-27/`. The cases are the ones of
+the study: `SnapRoundingExperiment gen` procedural meshes and the Thingi10K raw meshes 519511, 1517923, 668056, 119829
+(`BooleanComparison export`, the rotated copy), under `D:\work\Thingi10K-full\dataset\raw_meshes`.
+
+| case (union) | triangles | pairs the axes drop | serial without | serial with | parallel without | parallel with |
+|---|---:|---:|---:|---:|---:|---:|
+| gear_500 | 169 410 | 50.9 M | 10 979 | 6 522 (-41 %) | 2 878 | 1 868 (-35 %) |
+| fins_400 | 473 930 | 102.1 M | 45 036 | 29 426 (-35 %) | 8 801 | 5 969 (-32 %) |
+| 519511 | 519 736 | 82.3 M | 42 980 | 23 446 (-45 %) | 5 337 | 2 934 (-45 %) |
+| 1517923 | 200 018 | 15.6 M | 3 975 | 3 158 (-21 %) | 805 | 544 (-32 %) |
+| 668056 | 282 214 | 11.9 M | 4 004 | 4 161 (+4 %) | 1 586 | 1 084 (-32 %) |
+| plate_24 | 162 476 | 1.4 M | 3 207 | 3 054 (-5 %) | 1 842 | 1 330 (-28 %) |
+| cyl_8000 | 88 034 | 59.6 M | 34 612 | 34 132 (-1 %) | 4 628 | 5 040 (+9 %) |
+| 119829 | 252 702 | 0.3 M | 4 027 | 4 157 (+3 %) | 2 045 | 2 081 (+2 %) |
+| sphere_60 (control) | 61 880 | 16 k | 325 | 400 (+75 ms) | 113 | 130 (+17 ms) |
+
+- The gain is the same size as in the first PR (rounding -12.5 % over 48 operations there) where a query has hundreds of
+  box neighbours: the repair of gear_500, fins_400 and 519511 takes a third to a half less. Where the repair is
+  dominated by edits (cyl_8000: 59 M pairs dropped, 34 s serial) the gain is inside the noise.
+- The cost of the axes where nothing is dropped is the sphere_60 row: 75 ms serial, 17 ms parallel, for 62 k triangles.
+- The medians are noisier than the minima (the load); the serial rows of 668056 and 119829 and the parallel row of
+  cyl_8000 are inside that noise.
+
 ## Speed levers on seam inputs (`seam-levers`, 2026-11-22)
 
 Upper-bound probes of the study [EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md](../../docs/research/EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md)
