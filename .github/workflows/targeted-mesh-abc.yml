@@ -1,0 +1,54 @@
+name: Targeted ABC mesh benchmark
+
+# ABC policy: fetch on a GitHub-hosted runner at runtime. Only result rows leave the job.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build the production CLI
+        run: dotnet build tools/g3cli/g3cli.csproj -c Release
+      - name: Fetch and measure the pinned ABC solids
+        shell: bash
+        run: |
+          set -euo pipefail
+          suite=benchmarks/TargetedMeshRegression
+          data="$RUNNER_TEMP/abc-data"
+          results="$RUNNER_TEMP/abc-results"
+          cli="$GITHUB_WORKSPACE/tools/g3cli/bin/Release/net10.0/g3cli.dll"
+          python -m pip install cadquery==2.7.0
+          python "$suite/fetch_extended.py" "$data" --abc
+          python "$suite/corpus_extension.py" abc --data "$data" --output "$results" --cli "$cli" --dotnet "$(command -v dotnet)"
+          python "$suite/abc_checks.py" --data "$data" --output "$results" --cli "$cli" --dotnet "$(command -v dotnet)"
+      - name: Check strict containment with the external reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -y libcgal-dev libgmp-dev libmpfr-dev
+          suite=benchmarks/TargetedMeshRegression
+          g++ -std=c++17 -O1 "$suite/check_wrap.cpp" -o "$RUNNER_TEMP/check-wrap" -lgmp -lmpfr
+          python "$suite/verify_corpus_wrap.py" "$RUNNER_TEMP/check-wrap" "$RUNNER_TEMP/abc-results" --corpus abc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: targeted-abc-result-rows
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/abc-results/abc.json
+            ${{ runner.temp }}/abc-results/abc-checks.json
+            ${{ runner.temp }}/abc-results/abc-containment.json
