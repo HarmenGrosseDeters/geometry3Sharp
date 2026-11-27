@@ -138,6 +138,73 @@ namespace geometry3Sharp.Tests
             Assert.Equal(covered, BooleanCertificate.UnionCovers(t, tiles, Delta, out _));
         }
 
+
+        // ---------------------------------------------------------------- the edge of the rule: the bound is Delta along the axis, never more
+
+        // a unit square split along its diagonal x = y into two tiles that rise to height `ridge` along the diagonal and are at 0 at the corners (1, 0) and (0, 1)
+        static List<ExactPoint3[]> RidgeTiles(double ridge) => new List<ExactPoint3[]> { T(0, 0, ridge, 1, 0, 0, 1, 1, ridge), T(0, 0, ridge, 1, 1, ridge, 0, 1, 0) };
+
+        [Theory]
+        [InlineData(0.99, true)]
+        [InlineData(1.0001, false)]
+        [InlineData(1.01, false)]
+        public void ARidgeOfTheTiles_RisingToDeltaAlongTheSharedDiagonal(double inDeltas, bool covered)
+        {
+            ExactPoint3[] t = T(0.1, 0.1, 0, 0.8, 0.1, 0, 0.1, 0.8, 0);        // crosses the diagonal, where the gap is largest
+            Assert.Equal(covered, BooleanCertificate.UnionCovers(t, RidgeTiles(inDeltas * Delta), Delta, out _));
+        }
+
+        // a strip 4 Delta wide along the shared edge x = 0.5, lifted: it covers only where the gap is within Delta, and the tiles beside it are 2 Delta away at its middle
+        [Theory]
+        [InlineData(0.99, true)]
+        [InlineData(1.01, false)]
+        public void AThinStripAlongTheSharedEdge_LiftedByLessOrMoreThanDelta(double inDeltas, bool covered)
+        {
+            double lift = inDeltas * Delta, w = 2 * Delta;
+            var tiles = new List<ExactPoint3[]> {
+                T(0, 0, 0, 0.5 - w, 0, 0, 0.5 - w, 1, 0), T(0, 0, 0, 0.5 - w, 1, 0, 0, 1, 0),                                     // left
+                T(0.5 - w, 0, lift, 0.5 + w, 0, lift, 0.5 + w, 1, lift), T(0.5 - w, 0, lift, 0.5 + w, 1, lift, 0.5 - w, 1, lift),   // the strip
+                T(0.5 + w, 0, 0, 1, 0, 0, 1, 1, 0), T(0.5 + w, 0, 0, 1, 1, 0, 0.5 + w, 1, 0) };                                  // right
+            ExactPoint3[] t = T(0.1, 0.1, 0, 0.9, 0.1, 0, 0.1, 0.9, 0);
+            Assert.Equal(covered, BooleanCertificate.UnionCovers(t, tiles, Delta, out _));
+        }
+
+        // two tiles with a gap between them (nothing over it): within Delta of both sides at the gap's width up to Delta, which the corners of the left-over strip decide
+        [Theory]
+        [InlineData(0.9, true)]
+        [InlineData(1.5, false)]
+        [InlineData(2.5, false)]
+        public void AGapBetweenTheTiles_IsCoveredOnlyWhereItsCornersAreWithinDeltaOfOneTile(double gapInDeltas, bool covered)
+        {
+            double g = gapInDeltas * Delta;
+            var tiles = new List<ExactPoint3[]> { T(0, 0, 0, 0.5, 0, 0, 0.5, 1, 0), T(0, 0, 0, 0.5, 1, 0, 0, 1, 0), T(0.5 + g, 0, 0, 1, 0, 0, 1, 1, 0), T(0.5 + g, 0, 0, 1, 1, 0, 0.5 + g, 1, 0) };
+            ExactPoint3[] t = T(0.1, 0.1, 0, 0.9, 0.1, 0, 0.1, 0.9, 0);
+            Assert.Equal(covered, BooleanCertificate.UnionCovers(t, tiles, Delta, out bool left));
+            if (covered) Assert.True(left, "decided through the leftover strip");
+        }
+
+        // a tile that is nearly vertical over a flat one: its chart is a sliver, so the flat tile's half stays uncovered
+        [Fact]
+        public void ANearlyVerticalTile_CoversNothingOfTheTriangle()
+        {
+            var tiles = new List<ExactPoint3[]> { T(0, 0, 0, 0.5, 0, 0, 0.5, 1, 0), T(0, 0, 0, 0.5, 1, 0, 0, 1, 0), T(0.5, 0, 0, 0.5 + 1.0 / (1 << 19), 1, 0, 0.5, 1, 1) };
+            ExactPoint3[] t = T(0.1, 0.1, 0, 0.9, 0.1, 0, 0.1, 0.9, 0);
+            Assert.False(BooleanCertificate.UnionCovers(t, tiles, Delta, out _));
+        }
+
+        // the plane z = x (a tie of the largest normal components: the chart drops x), t offset along the normal by 1.01 Delta and 0.6 Delta: the gap along x is
+        // sqrt 2 times the distance (1.43 Delta rejected, 0.85 Delta accepted)
+        [Theory]
+        [InlineData(0.6, true)]
+        [InlineData(1.01, false)]
+        public void A45DegreePlaneWithAnAxisTie_OffsetAlongTheNormal(double inDeltas, bool covered)
+        {
+            var tiles = new List<ExactPoint3[]> { T(0, 0, 0, 1, 0, 1, 1, 1, 1), T(0, 0, 0, 1, 1, 1, 0, 1, 0) };
+            double s = inDeltas * Delta / Math.Sqrt(2);                 // the offset (-s, 0, s) along the normal (-1, 0, 1) / sqrt 2
+            ExactPoint3[] t = T(0.1 - s, 0.1, 0.1 + s, 0.8 - s, 0.1, 0.8 + s, 0.1 - s, 0.8, 0.1 + s);
+            Assert.Equal(covered, BooleanCertificate.UnionCovers(t, tiles, Delta, out _));
+        }
+
         [Fact]
         public void ASteepTile_IsSkipped_NotCountedAsCover()
         {
@@ -177,12 +244,13 @@ namespace geometry3Sharp.Tests
         public void SphereWithItsMirror_CertifiesAtTheDefaultDepth_ByTheUnionCover()
         {
             BooleanCertificate c = SphereAndMirror(7);
+            // (the coverage test alone: C0 to C4 are certified by the other tests of the class)
             c.UnionCover = false;
-            Assert.Equal("", c.Check());
+            Assert.Equal("", c.CheckCoverageOnly());
             int before = c.Uncovered;
             Assert.True(before > 0, "the repro must be uncovered without the union cover: the test would prove nothing");
             c.UnionCover = true;
-            Assert.Equal("", c.Check());
+            Assert.Equal("", c.CheckCoverageOnly());
             Assert.Equal(0, c.Uncovered);
             Assert.Equal(before, c.UnionCovered);
             log.WriteLine($"{before} triangles uncovered without the union cover, {c.UnionCovered} decided by it");
@@ -205,11 +273,13 @@ namespace geometry3Sharp.Tests
         [InlineData(-1.5, false)]
         public void ThePieces_MovedByLessOrMoreThanDelta_CertifyOrNot(double f, bool certifies)
         {
-            BooleanCertificate c = SphereAndMirror(5);
+            BooleanCertificate c = SphereAndMirror(7);
             // (the sphere's exact radius is below 1 where the faces are flat: shifting by f Delta moves the faces' distance to R by about f Delta)
             ScaleExact(c, f);
             string r = c.CheckCoverageOnly();
             Assert.True(certifies == (r == "" && c.Uncovered == 0), $"f = {f}: '{r}', uncovered {c.Uncovered}");
+            // (the certifying controls reach the union cover; the failing ones are decided by the corner test before it, and the rule tests above cover its bound)
+            if (certifies) Assert.True(c.UnionCovered > 0, "the control did not reach the union cover");
         }
 
         // a piece of the exact result removed: the result triangles over it have a hole in the union. (Only pieces wider than 20 Delta: the mirror contact

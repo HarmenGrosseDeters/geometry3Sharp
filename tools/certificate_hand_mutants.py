@@ -13,6 +13,7 @@ Usage (from the repository root, with the .NET 10 SDK): python3 tools/certificat
 """
 
 import os
+import signal
 import subprocess
 import sys
 
@@ -108,6 +109,7 @@ M=[
 ("union cover: the cut piece dropped", "if (outside.Count >= 3 && Area2(outside).Sign > 0) pieces.Add(outside);", ";"),
 ("union cover: second region not subtracted from the pieces", "foreach (var piece in left) next.AddRange(Difference(piece, region));", "next.AddRange(Difference(left[0], region));"),
 ("union cover: Clip keeps the wrong side", "if (v[i].Sign >= 0) r.Add(poly[i]);", "if (v[i].Sign <= 0) r.Add(poly[i]);"),
+# (the next one hangs the test host: the wrong ratio puts clip points outside their polygons and the rationals of the repeated clipping grow without end; run_tests kills a run after 25 minutes and counts it as killed)
 ("union cover: Clip intersection ratio", "Q t = (v[i] / (v[i] - v[j])).Reduce();", "Q t = (v[i] / (v[j] - v[i])).Reduce();"),
 ("union cover: chart axis not the largest component", "if (Q.Compare(Abs(n[k]), Abs(n[a])) > 0) a = k;", "if (Q.Compare(Abs(n[k]), Abs(n[a])) < 0) a = k;"),
 ("union cover: plane height sign", "Cu = (new Q(-n[(a + 1) % 3].N, n[(a + 1) % 3].D) / n[a]).Reduce()", "Cu = (new Q(n[(a + 1) % 3].N, n[(a + 1) % 3].D) / n[a]).Reduce()"),
@@ -157,7 +159,7 @@ EQUIVALENT = [
 ("union cover: tried without the corner test", "bool cornersNear = UnionCover;\n            for (int k = 0; k < 3 && cornersNear; ++k) {", "bool cornersNear = UnionCover;\n            for (int k = 0; k < 0 && cornersNear; ++k) {",
  "the corner test only skips a triangle that cannot be covered (a corner with no triangle within Delta); the union cover on it finds a point of the chart region that is not covered and returns false: only the cost"),
 ("union cover: steep triangle not skipped", "if (gn[a].Sign == 0) continue;", ";",
- "a triangle whose chart collapses has an empty region (the clip by its degenerate chart leaves no area), and the region test before the division continues first"),
+ "a triangle with gn[a] = 0 has a chart of area 0, so the clip of the chart of t by its three edges leaves no area and the region test (`Area2(region).Sign <= 0`) continues before HeightOver, the only division by gn[a], is reached (the mutant survives for that reason: no test input reaches the division)"),
 ("C5 accept: weights not clamped", "v = Math.Min(1, Math.Max(0, v)); w = Math.Min(1 - v, Math.Max(0, w));", ";",
  "not proved, equivalent in practice: the clamp is a belt; in face, edge and vertex regions the weights are in [0, 1] up to rounding, and no input of the thin-triangle test, of 4 million random thin triangles (step A) and of 1.2 million targeted near-collinear cases (2026-11-25, double routine against an exact Fraction reference) took them outside by more than an ulp of v + w, which moves the point by an ulp of the triangle, far below the margin 3 eps"),
 ("C5 filter bound without the extent", "Math.Max((maxAbs + extent) / (double)(1L << 40),", "Math.Max((maxAbs) / (double)(1L << 40),",
@@ -198,9 +200,17 @@ EQUIVALENT = [
 
 
 def run_tests():
-    return subprocess.run(["dotnet", "test", os.path.join(ROOT, "tests", "geometry3Sharp.Tests"), "-c", "Release",
-                           "-f", "net10.0", "--filter", "(FullyQualifiedName~BooleanCertificateTests|FullyQualifiedName~BooleanCertificateFanTests|FullyQualifiedName~BooleanCertificateCoverTests)&Category!=Nightly"],
-                          capture_output=True, text=True)
+    """the test run of one mutant; a run that does not finish in 25 minutes (a mutant can make an exact loop or the rationals grow without end) is killed with its process group and reported as TIMEOUT"""
+    cmd = ["dotnet", "test", os.path.join(ROOT, "tests", "geometry3Sharp.Tests"), "-c", "Release", "-f", "net10.0", "--filter",
+           "(FullyQualifiedName~BooleanCertificateTests|FullyQualifiedName~BooleanCertificateFanTests|FullyQualifiedName~BooleanCertificateCoverTests)&Category!=Nightly"]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+    try:
+        out, err = proc.communicate(timeout=1500)
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        out, err = proc.communicate()
+        out += "\nTIMEOUT"
+    return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
 
 
 def edits(entry):
@@ -249,7 +259,7 @@ def main(selected):
                 with open(path, "w", encoding="utf-8") as f:
                     f.write(text)
             run = run_tests()
-            killed = "Failed!" in run.stdout
+            killed = "Failed!" in run.stdout or "TIMEOUT" in run.stdout or "Test Run Aborted" in run.stdout
             passed = "Passed!" in run.stdout and not killed
             if equivalent:
                 # an equivalent mutant must build and pass
@@ -258,7 +268,7 @@ def main(selected):
                 print(f"{name}: {verdict}", flush=True)
             else:
                 survived += 0 if killed else 1
-                print(f"{name}: {'KILLED' if killed else 'SURVIVED'}", flush=True)
+                print(f"{name}: {('KILLED (the run did not finish in 25 minutes)' if 'TIMEOUT' in run.stdout else 'KILLED') if killed else 'SURVIVED'}", flush=True)
             restore()
     finally:
         restore()
