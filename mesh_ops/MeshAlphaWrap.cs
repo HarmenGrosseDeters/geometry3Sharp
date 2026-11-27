@@ -302,7 +302,10 @@ namespace gs
         /// by Compute() together with it; 0 for a closed solid without sharp edges and for a thick one at a small alpha / Offset
         /// </summary>
         public double EstimatedRimTriangles;
-        /// <summary> the factor by which MaxEstimatedTriangles scaled alpha and offset (1: not coarsened) </summary>
+        /// <summary>
+        /// the factor by which MaxEstimatedTriangles scaled alpha and offset (1: not coarsened).
+        /// The factor can overflow to positive infinity even when UsedAlpha and UsedOffset are finite.
+        /// </summary>
         public double AlphaCoarsening = 1;
         /// <summary> time per phase, for diagnostics </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
@@ -634,11 +637,25 @@ namespace gs
                     // (limited: the requested alpha times the cap, so the result follows the requested alpha, not only the area)
                     AlphaCoarsening = cap;
                     alpha *= cap;
+                    offset *= AlphaCoarsening;
                 } else {
                     AlphaCoarsening = coarse / alpha;
+                    if (offset > 0) {
+                        if (double.IsPositiveInfinity(AlphaCoarsening) &&
+                            alpha > 0 && MathUtil.IsFinite(alpha) && MathUtil.IsFinite(offset) &&
+                            coarse > 0 && MathUtil.IsFinite(coarse)) {
+                            // Round the scaled offset once, even when the intermediate scale exceeds binary64 range.
+                            ExactPoint3.Decompose(offset, out var offsetMantissa, out int offsetExponent);
+                            ExactPoint3.Decompose(coarse, out var coarseMantissa, out int coarseExponent);
+                            ExactPoint3.Decompose(alpha, out var alphaMantissa, out int alphaExponent);
+                            offset = ExactPoint3.ToDouble(offsetMantissa * coarseMantissa, alphaMantissa,
+                                offsetExponent + coarseExponent - alphaExponent);
+                        } else {
+                            offset *= AlphaCoarsening;
+                        }
+                    }
                     alpha = coarse;
                 }
-                offset *= AlphaCoarsening;
             }
             UsedAlpha = alpha; UsedOffset = offset;
             if (!(alpha > 0) || !(offset > 0) || double.IsInfinity(alpha) || double.IsInfinity(offset)) {

@@ -165,15 +165,31 @@ namespace g3
         {
             int n = tris.Count / 3;
             double cell = alpha / WeldCells;
-            var ids = new Dictionary<(long, long, long), int>(Math.Min(tris.Count, 1 << 20));
+            Dictionary<(long, long, long), int> ids = null;
+            Dictionary<(long, long, long, byte), int> wideIds = null;
+            int nv = 0;
             corner = new int[tris.Count];
             for (int i = 0; i < tris.Count; ++i) {
                 Vector3d p = tris[i];
-                var key = (Cell(p.x, cell), Cell(p.y, cell), Cell(p.z, cell));
-                if (!ids.TryGetValue(key, out int id)) { id = ids.Count; ids.Add(key, id); }
+                double x = Math.Floor(p.x / cell), y = Math.Floor(p.y / cell), z = Math.Floor(p.z / cell);
+                int id;
+                if (FitsCellIndex(x) && FitsCellIndex(y) && FitsCellIndex(z)) {
+                    var key = ((long)x, (long)y, (long)z);
+                    ids ??= new Dictionary<(long, long, long), int>(Math.Min(tris.Count, 1 << 20));
+                    if (!ids.TryGetValue(key, out id)) { id = nv++; ids.Add(key, id); }
+                } else {
+                    // A large index has a coordinate spacing greater than the cell width.
+                    // Use the coordinate's bits on that axis and keep grid welding on the other axes.
+                    byte exactAxes = 0;
+                    long kx = WideCellKey(p.x, x, 1, ref exactAxes);
+                    long ky = WideCellKey(p.y, y, 2, ref exactAxes);
+                    long kz = WideCellKey(p.z, z, 4, ref exactAxes);
+                    var key = (kx, ky, kz, exactAxes);
+                    wideIds ??= new Dictionary<(long, long, long, byte), int>();
+                    if (!wideIds.TryGetValue(key, out id)) { id = nv++; wideIds.Add(key, id); }
+                }
                 corner[i] = id;
             }
-            int nv = ids.Count;
             comp = new int[nv];
             for (int i = 0; i < nv; ++i) comp[i] = i;
             edgeUse = new Dictionary<(int, int), int>(Math.Min(tris.Count, 1 << 20));
@@ -212,8 +228,18 @@ namespace g3
                 }
         }
 
-        // (beyond the range of a long, a tiny alpha against large coordinates, the cells merge: the estimate is then infinite anyway)
-        static long Cell(double v, double cell) => (long)Math.Max(-9e18, Math.Min(9e18, Math.Floor(v / cell)));
+        const double CellIndexLimit = 9e18;
+
+        static bool FitsCellIndex(double index) => Math.Abs(index) <= CellIndexLimit;
+
+        static long WideCellKey(double coordinate, double index, byte axis, ref byte exactAxes)
+        {
+            if (FitsCellIndex(index))
+                return (long)index;
+            exactAxes |= axis;
+            // When the cell width underflows to zero all axes take this path, including signed zeros (0 / 0).
+            return coordinate == 0 ? 0 : BitConverter.DoubleToInt64Bits(coordinate);
+        }
 
         static void CountEdge(Dictionary<(int, int), int> uses, int a, int b)
         {

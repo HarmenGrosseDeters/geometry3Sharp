@@ -20,6 +20,62 @@ namespace geometry3Sharp.Tests
         readonly ITestOutputHelper output;
         public AlphaWrapOffsetBandEstimateTests(ITestOutputHelper output) { this.output = output; }
 
+        [Theory]
+        [InlineData(1)]
+        [InlineData(-1)]
+        public void WeldCells_KeepOpenTriangleAtSubnormalAlpha(int sign)
+        {
+            double x = sign * ExactPoint3.ScaleB(1, 57);
+            var corners = new List<Vector3d> { new Vector3d(x, 0, 0), new Vector3d(x + 64, 0, 0), new Vector3d(x, 1, 0) };
+            Assert.Equal(32.0, AlphaWrapEstimate.OpenArea(corners, double.Epsilon));
+            Assert.Equal(Math.Sqrt(4097), AlphaWrapEstimate.LargestOpening(corners, double.Epsilon));
+            AlphaWrapEstimate.EstimateTerms openTerms = AlphaWrapEstimate.Terms(corners, double.Epsilon);
+            Assert.Equal(32.0, openTerms.OpenArea);
+            Assert.Equal(65.0 + Math.Sqrt(4097), openTerms.OpenBoundary, 12);
+            double negativeZero = BitConverter.Int64BitsToDouble(long.MinValue);
+            for (int i = 2; i >= 0; --i)
+                corners.Add(new Vector3d(corners[i].x, corners[i].y, negativeZero));
+            Assert.Equal(0.0, AlphaWrapEstimate.LargestOpening(corners, double.Epsilon));
+            AlphaWrapEstimate.EstimateTerms closedTerms = AlphaWrapEstimate.Terms(corners, double.Epsilon);
+            Assert.Equal(0.0, closedTerms.OpenArea);
+            Assert.Equal(0.0, closedTerms.OpenBoundary);
+        }
+
+        [Theory]
+        [InlineData(1)]
+        [InlineData(-1)]
+        public void WeldCells_WideAxisPreservesGridWeldingOnOtherAxes(int sign)
+        {
+            double x = sign * ExactPoint3.ScaleB(1, 57);
+            double delta = 1.0 / 1024;
+            var corners = new List<Vector3d> {
+                new Vector3d(x, 0, 0), new Vector3d(x + 64, 0, 0), new Vector3d(x, 1, 0)
+            };
+            const double alpha = 1.0 / 16;
+            Assert.Equal(32.0, AlphaWrapEstimate.OpenArea(corners, alpha));
+            corners.AddRange(new[] { corners[2] + delta * Vector3d.AxisY, corners[1] + delta * Vector3d.AxisY, corners[0] + delta * Vector3d.AxisY });
+            Assert.Equal(0.0, AlphaWrapEstimate.LargestOpening(corners, alpha));
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1)]
+        [InlineData(2)]
+        public void WeldCells_DistinguishRawCoordinateBitsFromGridIndex(int axis)
+        {
+            const double alpha = 1.0 / 16;
+            double p = ExactPoint3.ScaleB(1, 57);
+            double q = (double)BitConverter.DoubleToInt64Bits(p) * (alpha / AlphaWrapEstimate.WeldCells);
+            // Both other axes are wide on c0 and c1, so their exactAxes bits are already set; only bit (1 << axis) separates them.
+            Vector3d c0 = new Vector3d(p, p, p);
+            Vector3d c1 = c0;
+            c1[axis] = q;
+            Vector3d c2 = c0;
+            c2[(axis + 1) % 3] = p + 64;
+            var corners = new List<Vector3d> { c0, c1, c2 };
+            Assert.Equal(32.0 * (p - q), AlphaWrapEstimate.OpenArea(corners, alpha));
+        }
+
         static DMesh3 Box(Vector3d center, Vector3d half, int n)
         {
             var g = new GridBox3Generator { Box = new Box3d(center, half), EdgeVertices = n };

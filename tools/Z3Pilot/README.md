@@ -1147,3 +1147,61 @@ small bound makes it impossible (UNSAT by the area); and the pair encoding on cr
 ```sh
 python3 -m unittest discover -s tools/Z3Pilot -p test_local_arithmetic_and_topology.py -v
 ```
+
+## Alpha Wrap budget and coordinate range
+
+Run `python3 tools/Z3Pilot/alpha_wrap_budget.py` for the local obligations and binary64 replays.
+
+For frozen nonnegative bulk/band and rim coefficients, the real model checks
+the positive quadratic root, strict decrease of `P/k² + R/k` for positive scales, and
+infeasibility below a cap where the estimate still exceeds the budget. The floating-point
+model proves the final ratio clamp given a nonnegative input ratio. Binary64 replays record
+the rounded square root just below the exact budget root, a division rounded to cap equality
+despite an exact ratio above the cap, square-first underflow, and overflow of the mixed
+discriminant despite a representable root. The extreme arithmetic witnesses concern the
+formula on given intermediate values. Reachability from a mesh and the complete floating-point
+budget path are separate questions. The estimated triangle count is a heuristic. The geometry
+and timing comparison for one gap case is in the
+[OpenSoupWrapBenchmark](../../benchmarks/OpenSoupWrapBenchmark/README.md#coarsening-budget-on-a-narrow-gap).
+
+The mixed discriminant overflow replay above feeds synthetic intermediate values into the formula.
+The range queries additionally check the formula under conservative input enclosures. A supported
+coordinate has magnitude at most `2^128`, so edge components have magnitude at most `2^129`,
+edge lengths are below `2^131`, and per-triangle areas are below `2^262`. The corner list
+and distinct edge and component counts fit in an Int32. Summing at most that many positive
+terms leaves headroom in the `2^300` area and `2^192` length enclosures.
+The per-component areas partition the original triangle contributions, and each of the
+two sum levels adds only rounding headroom to that bound. The latter also covers a sum of per-component disc rim
+terms, each below `2^152`. With the existing coefficient and ratio bounds, Z3 checks the
+enclosure for the bulk and rim operands and a discriminant below `2^436` after allowing
+extra factor-of-two headroom for each operand. The solver scope starts at the supplied
+term enclosures. The argument connecting them to the geometry and sums is separate.
+
+The **scale factor** overflow is reachable on an in-range unit mesh. Before the
+fix, the minimum positive binary64 request for both alpha and offset gave a finite
+coarsened alpha, an infinite factor and an infinite adjusted offset. The fallback
+computes the offset as the exact quotient `offset * coarse / alpha` with one
+binary64 rounding. The factor remains infinite in the diagnostic. A ground replay
+also shows that dividing the requested offset by alpha first can overflow with a
+finite rounded result. The public API results and scale controls are in
+[the benchmark](../../benchmarks/OpenSoupWrapBenchmark/README.md#range-and-public-api-replay).
+
+The weld-cell follow-up checks a different overflow. Clamping grid indices
+merged distinct corners before computing the estimator's area and rim terms.
+A ground replay exhibits the collision and another exhibits cell width
+underflow. The real arithmetic check starts from the binary64 spacing bound
+`gap >= |coordinate| / 2^53` and the conservative wide-index bound
+`|coordinate| >= 2^62 * cell_width`. It rules out a distinct representable
+coordinate in the same cell on that axis. The production key uses the exact
+coordinate there and the ordinary grid index on each unsaturated axis.
+
+The frame audit adds three ground binary64 replays. The ordinary box
+margin loses bits when the UTM y offset is applied and removed, and the
+dyadic `1/8` margin survives that operation. The z coordinate of the first
+Steiner point in the dyadic control has an unrepresentable exact sum with
+the UTM z offset. Rounding that sum then mapping it back reproduces the
+coordinate measured in the translated run. These replays cover concrete
+arithmetic steps. The benchmark separately exercises the full carving.
+[Frame audit](../../benchmarks/OpenSoupWrapBenchmark/README.md#carving-under-translation)
+
+[Solver output](results/alpha_wrap_budget_2026-11-27.json)
