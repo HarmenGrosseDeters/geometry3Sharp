@@ -162,10 +162,15 @@ def summary_region(paths):
         if "cert" in r: certs[r["cert"]] = certs.get(r["cert"], 0) + 1
     print("\ncertificate on the result with the switch on (a third run): " + (", ".join(f"{k} {v}" for k, v in sorted(certs.items())) or "none"))
     bad = [r for r in rs if r["verdict"] not in OK_VERDICTS]
+    ex = {}
+    for r in bad:
+        if "exact" in r: ex[r["exact"]] = ex.get(r["exact"], 0) + 1
+    if bad:
+        print("\nexact column of the differing rows (the two unrounded results, informational; the verdict is that of the rounded results): " + (", ".join(f"{k} {v}" for k, v in sorted(ex.items())) or "none"))
     if bad:
         print("\ndifferences (case, op, verdict, message):\n")
         for r in bad:
-            print(f"- {r['case']} {r.get('op', '-')} {r['verdict']}: {r.get('message', '')[:300]}")
+            print(f"- {r['case']} {r.get('op', '-')} {r['verdict']}: {r.get('message', '')[:300]}" + (f" [exact {r['exact']}, {r.get('exact_tris', '')}; min edge {r['min_edge']:.3g}, rounding resolution {r['round_res']:.3g}, repair tolerance {r.get('repair_tol', 0):.3g}]" if "exact" in r and "min_edge" in r else (f" [exact {r['exact']}]" if "exact" in r else "")))
     tim = [r for r in rs if "t_off_ms" in r and "t_on_ms" in r]
     if tim:
         print(f"\ntime over {len(tim)} operations: without {sum(r['t_off_ms'] for r in tim) / 1000:.1f} s, with {sum(r['t_on_ms'] for r in tim) / 1000:.1f} s")

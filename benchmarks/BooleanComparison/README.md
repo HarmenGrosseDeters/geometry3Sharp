@@ -1546,9 +1546,17 @@ checked on a third run (the checker's class: Intersection without the early-out,
 
 Local run (2026-11-27, 4 cores, no network, so no Thingi10K): all 8 fuzz families (the seven closed ones, `open`, `flatedge`), seeds 0..119, 6,120 rows: 5,822 `same`, 297 `not compared
 (not clean)`, **1 `surface differs`**: `fuzz-slab-52` with `pred-only-second`; the audit corpus, 60 rows: 53 `same`, 7 `not compared`. Time 5.6 s without the switch, 4.7 s with.
-The difference: `slab #52` is a slab of thickness 2^-42 on the top face of a box, and the predicate "inside the slab and outside the box" selects exactly it: both results are
-clean and certified, but the thin slab collapses under the rounding of the result (its triangles have repeated vertices at 9 digits), and the two triangulations round to
-different 6 and 4 triangle meshes. The exact surface before the rounding is the same (the certificate of the result with the switch on covers it); the rounded results differ.
+The difference (a known open difference pending the owner's decision, not an accepted one): `slab #52` is a slab of thickness 2^-42 on the top face of a box, and the predicate "inside the slab and
+outside the box" selects exactly it. Both results are clean, and the certificate of the result with the switch on covers it, but the rounded results differ (6 and 4 triangles; the exact
+difference has 6). The informational column `exact` says why: the two UNROUNDED results are `equal` (same faces, another triangulation: the 12 triangles of each differ, their face
+outlines per oriented plane do not). The slab is 500 times above the rounding resolution of the coordinates (2.3e-13 against 4.4e-16) and about twice the displacement the rounding
+repair may use (RoundingUlpFactor 256 ulps, 1.1e-13), so the repair collapses it, differently for the two triangulations. The nightly test keeps it as a documented exception
+(`RoundingSensitive`); the dispatch run does not.
+
+The column `exact` (rows that differ only): `equal` or `differs`, from the two unrounded results of both runs (the assembled mesh with the exact vertices, as sets of exact oriented
+triangles; if the triangles differ, the outlines of the faces per oriented plane: another triangulation of the same faces is `equal`, with `exact_note`). The verdict and the exit code
+are those of the rounded results (the owner's gate); `exact` is information. The row also carries `min_edge` (the smallest edge of the unrounded result), `round_res` (the rounding
+resolution of its coordinates) and `repair_tol` (the displacement the rounding repair may use); the summary tallies `exact` over the differing rows and prints the three numbers per row.
 
 ## Nesting check of MeshWindingNumberBoolean (`nesting-cost`; #1609, #1661, 2026-11-26)
 

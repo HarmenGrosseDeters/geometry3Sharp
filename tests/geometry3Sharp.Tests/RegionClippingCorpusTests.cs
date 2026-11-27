@@ -84,6 +84,36 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void TheExactColumn_OfTheKnownDifference_IsEqual_AndNamesTheScales()
+        {
+            // slab #52: the rounded results differ, the unrounded ones are the same faces; the slab (2^-42) is above the resolution of the coordinates and near the repair's tolerance
+            FuzzCase c = BooleanFuzzCases.Make("slab", 52);
+            var p = RegionClippingCompare.ExactPredicates.First(x => x.Name == "only-second");
+            Dictionary<string, object> r = RegionClippingCompare.Row(new List<DMesh3> { c.A, c.B }, Ops.Union, false, null, p.Predicate, p.Name);
+            Assert.Equal("surface differs", (string)r["verdict"]);
+            Assert.Equal("equal", (string)r["exact"]);
+            Assert.True((double)r["min_edge"] > (double)r["round_res"] && (double)r["min_edge"] < 4 * (double)r["repair_tol"]);
+            // (and a row that is the same has no exact column)
+            Assert.False(RegionClippingCompare.Row(new List<DMesh3> { c.A, c.B }, Ops.Union, false).ContainsKey("exact"));
+        }
+
+        [Fact]
+        public void SameFaces_SeesTheTriangulationAsNoDifference_AndTheSizeOfAFaceAsOne()
+        {
+            System.Numerics.BigInteger one = 1;
+            ExactPoint3 P(int x, int y, int w = 1) => ExactPoint3.Create(x, y, 0, w);
+            // the square 0..2 in two triangulations (with a vertex on one side that the second has too), and a square 0..3
+            var a = new List<ExactPoint3[]> { new[] { P(0, 0), P(2, 0), P(2, 2) }, new[] { P(0, 0), P(2, 2), P(0, 2) } };
+            var b = new List<ExactPoint3[]> { new[] { P(0, 0), P(2, 0), P(0, 2) }, new[] { P(2, 0), P(2, 2), P(0, 2) } };
+            var c = new List<ExactPoint3[]> { new[] { P(0, 0), P(3, 0), P(3, 3) }, new[] { P(0, 0), P(3, 3), P(0, 3) } };
+            var d = new List<ExactPoint3[]> { new[] { P(0, 0), P(2, 0), P(0, 2) }, new[] { P(2, 0), P(0, 2), P(2, 2) } };       // (the second triangle flipped over)
+            Assert.True(RegionClippingCompare.SameFaces(a, b));
+            Assert.False(RegionClippingCompare.SameFaces(a, c));
+            Assert.False(RegionClippingCompare.SameFaces(b, d));
+            Assert.True(one == 1);
+        }
+
+        [Fact]
         public void TheFlatEdgeFamily_PutsCentroidsOnFlatDiagonals()
         {
             // (the family exists to kill a mutant of the one-crossing-per-region rule: some pieces must have a stack with two triangles of one region)
