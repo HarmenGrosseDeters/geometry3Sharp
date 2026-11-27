@@ -1835,6 +1835,7 @@ namespace geometry3Sharp.Tests
         string CheckCoverage()
         {
             CoverageTests = Uncovered = UnionCovered = UnionLeftoverCovered = 0;
+            UnionCandidatesClipped = UnionCandidatesFiltered = 0;
             var rTris = Result.TriangleIndices().Select(t => {
                 Index3i i = Result.GetTriangle(t);
                 return new[] { Vec(FromDouble(Result.GetVertex(i.a))), Vec(FromDouble(Result.GetVertex(i.b))), Vec(FromDouble(Result.GetVertex(i.c))) };

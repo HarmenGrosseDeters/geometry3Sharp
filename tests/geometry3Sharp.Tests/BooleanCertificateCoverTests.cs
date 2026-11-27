@@ -256,6 +256,76 @@ namespace geometry3Sharp.Tests
             log.WriteLine($"{before} triangles uncovered without the union cover, {c.UnionCovered} decided by it");
         }
 
+        // ---------------------------------------------------------------- the cost work of the union cover (#1631): the cache of the charts and the box prefilter
+
+        static (BooleanCertificate fast, BooleanCertificate slow, string rf, string rs) CoverBothPaths(DMesh3 a, DMesh3 b, Ops op)
+        {
+            BooleanCertificate f = BooleanCertificate.Run(a, b, op, out _, x => { if (op == Ops.Intersection) x.CullOutsideA = false; });
+            BooleanCertificate s = BooleanCertificate.Run(a, b, op, out _, x => { if (op == Ops.Intersection) x.CullOutsideA = false; });
+            s.FastUnionCover = false;
+            return (f, s, f.CheckCoverageOnly(), s.CheckCoverageOnly());
+        }
+
+        static void AssertSameCover(BooleanCertificate f, BooleanCertificate s, string rf, string rs, string what)
+        {
+            Assert.True(rf == rs, $"{what}: '{rf}' against '{rs}'");
+            Assert.True(f.Uncovered == s.Uncovered && f.UnionCovered == s.UnionCovered && f.UnionLeftoverCovered == s.UnionLeftoverCovered && f.CoverageTests == s.CoverageTests,
+                $"{what}: uncovered {f.Uncovered}/{s.Uncovered}, union covered {f.UnionCovered}/{s.UnionCovered}, leftover {f.UnionLeftoverCovered}/{s.UnionLeftoverCovered}, tests {f.CoverageTests}/{s.CoverageTests}");
+            // (the candidates of the fast path are those of the exact path, minus the ones the prefilter rejected)
+            Assert.Equal(s.UnionCandidatesClipped, f.UnionCandidatesClipped + f.UnionCandidatesFiltered);
+            Assert.Equal(0, s.UnionCandidatesFiltered);
+        }
+
+        [Theory]
+        [InlineData(7, Ops.Union)]
+        [InlineData(11, Ops.Union)]
+        [InlineData(7, Ops.Intersection)]
+        public void FastUnionCover_GivesTheResultAndCountsOfTheExactPath_WithFewerCandidates(int n, Ops op)
+        {
+#if NETFRAMEWORK
+            // (net48: BigInteger multiplies by the schoolbook method, several times slower: only the smallest case, the others run on .NET 10)
+            if (n != 7 || op != Ops.Union) return;
+#endif
+            DMesh3 sph = Sphere(n);
+            var (f, s, rf, rs) = CoverBothPaths(sph, Mirror(sph), op);
+            AssertSameCover(f, s, rf, rs, $"{n} {op}");
+            Assert.True(f.UnionCovered > 0, "the case must use the union cover");
+            // (a count, not a time: the exact clips run for fewer candidates, the share falls with the size; 14% of them at 13 vertices)
+            Assert.True(f.UnionCandidatesClipped < s.UnionCandidatesClipped, $"{f.UnionCandidatesClipped} candidates clipped by the fast path against {s.UnionCandidatesClipped}");
+            Assert.True(f.UnionCandidatesFiltered > 0);
+            log.WriteLine($"{n} {op}: clipped {f.UnionCandidatesClipped} of {s.UnionCandidatesClipped} (filtered {f.UnionCandidatesFiltered})");
+        }
+
+        [Fact]
+        public void ChartBoxesFarApart_RejectsOnlyBeyondTheMargin()
+        {
+            // (boxes: lo0, lo1, hi0, hi1; the first is [0,1]^2)
+            bool Far(double gl0, double gl1, double gh0, double gh1) => BooleanCertificate.ChartBoxesFarApart(0, 0, 1, 1, gl0, gl1, gh0, gh1);
+            Assert.True(Far(1.5, 0, 2, 1));                       // clearly apart along axis 0
+            Assert.True(Far(0, -3, 1, -2));                       // along axis 1, below
+            Assert.True(Far(-3, 0, -2, 1));                       // along axis 0, below
+            Assert.False(Far(0.5, 0.5, 2, 2));                    // overlapping
+            Assert.False(Far(1, 0, 2, 1));                        // touching
+            Assert.False(Far(1 + 1e-15, 0, 2, 1));                // apart by a few ulps: within the margin, kept (the exact clips decide)
+            Assert.False(Far(1 + 1e-13, 0, 2, 1));
+            Assert.True(Far(1 + 1e-6, 0, 2, 1));                  // beyond the margin (2^-40 of the extent, about 1e-12)
+            Assert.False(Far(0, 1 + 1e-14, 1, 2));
+            // (tiny coordinates: the margin keeps its floor, scaled boxes decide the same)
+            Assert.True(BooleanCertificate.ChartBoxesFarApart(0, 0, 1e-200, 1e-200, 1e-100, 0, 2e-100, 1e-200));
+            Assert.False(BooleanCertificate.ChartBoxesFarApart(0, 0, 1e-200, 1e-200, 1e-200 + 1e-216, 0, 2e-200, 1e-200));
+        }
+
+        [Fact]
+        public void FastUnionCover_GivesTheResultAndCountsOfTheExactPath_UnderEverySimilarity()
+        {
+            DMesh3 sph = Sphere(5), mir = Mirror(sph);
+            foreach (Similarity sim in Similarity.All()) {
+                DMesh3 Map(DMesh3 m) { var r = new DMesh3(m); foreach (int v in r.VertexIndices()) r.SetVertex(v, sim.Apply(r.GetVertex(v))); return r; }
+                var (f, s, rf, rs) = CoverBothPaths(Map(sph), Map(mir), Ops.Union);
+                AssertSameCover(f, s, rf, rs, sim.Name);
+            }
+        }
+
         // E scaled about the origin by 1 + f * Delta (exact): every piece of the result before rounding moved by about f Delta along its normal
         static void ScaleExact(BooleanCertificate c, double f)
         {
