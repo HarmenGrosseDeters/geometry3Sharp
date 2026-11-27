@@ -1147,3 +1147,12 @@ small bound makes it impossible (UNSAT by the area); and the pair encoding on cr
 ```sh
 python3 -m unittest discover -s tools/Z3Pilot -p test_local_arithmetic_and_topology.py -v
 ```
+
+## MeshAlphaWrap empty-ball range and parallel round-disjointness
+
+Run `python3 tools/Z3Pilot/alpha_wrap_carving.py` (or `python3 -m unittest discover -s tools/Z3Pilot -p test_alpha_wrap_carving.py -v`) for the local obligations, source-drift checks (5 `MeshAlphaWrap` anchors + `Delaunay3.PlanInsert` cavity-boundary closure), and binary64 replays on `mesh_ops/MeshAlphaWrap.cs` and `comp_geom/Delaunay3.cs`:
+
+- **Empty-ball radius & rescaling:** proves that `Phi(f)^2 = R^2 + dist(0, [t_lo, t_hi])^2` minimizes `R^2 + t^2` over the dual segment `[t_lo, t_hi]`, never drops below `R^2`, and that power-of-two rescaling of `u, v, w` preserves the exact facet circumcenter.
+- **Parallel `carve_rounds_loop` conflict-selection soundness (`QF_UFLIA`):** proves write-write disjointness in Phase 4, forward read-after-write disjointness (serial replay lemma), reachability of shared-outside carvings, cavity-boundary closure preventing a later `GateInsert` from deleting an earlier `GateCarve`'s outside neighbor, and three negative-control mutants proving `round_marked(g.N)`, `round_mark(g.C)` on carvings, and the `Plan.Reads` check are each necessary.
+- **Binary64 replays:** degree-5 circumcenter numerator overflow (`2^210`) and underflow (`2^-220`), thin-sliver `w^2` underflow to `NaN` (`h = 2^-540`), `R^2 + t^2` overflow (`2^600`), and subnormal squaring (`sqrt(1.499) * 2^-537`).
+

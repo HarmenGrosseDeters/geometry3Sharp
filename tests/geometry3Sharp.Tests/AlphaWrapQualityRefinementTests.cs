@@ -94,6 +94,70 @@ namespace geometry3Sharp.Tests
             Assert.True(crossing > 300 && oneSide > 300);
         }
 
+        [Theory]
+        [InlineData(210)]
+        [InlineData(-220)]
+        [InlineData(600)]
+        [InlineData(-600)]
+        public void EmptyBallRadius_ExtremeScales_ScalesBitForBit(int exp)
+        {
+            Vector3d a0 = Vector3d.Zero, b0 = new Vector3d(1, 0, 0), d0 = new Vector3d(0, 1, 0);
+            Vector3d fc0 = new Vector3d(0.5, 0.5, 0);
+            double refCross = MeshAlphaWrap.EmptyBallRadius(a0, b0, d0, fc0 + new Vector3d(0, 0, -1), fc0 + new Vector3d(0, 0, 2));
+            double refSide = MeshAlphaWrap.EmptyBallRadius(a0, b0, d0, fc0 + new Vector3d(0, 0, 1), fc0 + new Vector3d(0, 0, 2));
+
+            Func<Vector3d, Vector3d> sc = p => new Vector3d(ExactPoint3.ScaleB(p.x, exp), ExactPoint3.ScaleB(p.y, exp), ExactPoint3.ScaleB(p.z, exp));
+            double phiCross = MeshAlphaWrap.EmptyBallRadius(sc(a0), sc(b0), sc(d0), sc(fc0 + new Vector3d(0, 0, -1)), sc(fc0 + new Vector3d(0, 0, 2)));
+            double phiSide = MeshAlphaWrap.EmptyBallRadius(sc(a0), sc(b0), sc(d0), sc(fc0 + new Vector3d(0, 0, 1)), sc(fc0 + new Vector3d(0, 0, 2)));
+            Assert.Equal(ExactPoint3.ScaleB(refCross, exp), phiCross);
+            Assert.Equal(ExactPoint3.ScaleB(refSide, exp), phiSide);
+        }
+
+        [Fact]
+        public void EmptyBallRadius_ThinSliverUnderflowingCrossSquared_ReturnsExactCircumradius()
+        {
+            double h = ExactPoint3.ScaleB(1.0, -540);
+            Assert.Equal(0.0, h * h); // w^2 underflows to 0.0 on the old unscaled formula
+            Vector3d a = Vector3d.Zero, b = new Vector3d(1, 0, 0), d = new Vector3d(0.5, h, 0);
+            double yc = -ExactPoint3.ScaleB(1.0, 537); // exact circumcenter y = -0.125 * 2^540 = -2^537
+            Vector3d from = new Vector3d(0.5, yc, -1.0), to = new Vector3d(0.5, yc, 1.0);
+            double phi = MeshAlphaWrap.EmptyBallRadius(a, b, d, from, to);
+            Assert.True(!double.IsNaN(phi) && !double.IsInfinity(phi), $"phi={phi}");
+            Assert.True(Math.Abs(phi - Math.Abs(yc)) <= 1e-12 * Math.Abs(yc), $"phi={phi} vs {Math.Abs(yc)}");
+        }
+
+        [Fact]
+        public void EmptyBallRadius_SubnormalAndHugeHypot_DoesNotUnderflowOrOverflow()
+        {
+            // Subnormal R^2 and t^2: R = sqrt(1.499) * 2^-537, t = R -> exact hypot = sqrt(2) * R.
+            double r = Math.Sqrt(1.499) * ExactPoint3.ScaleB(1.0, -537);
+            Assert.True(r * r > 0 && r * r < ExactPoint3.ScaleB(1.0, -1022));
+            Vector3d a = new Vector3d(-r, 0, 0), b = new Vector3d(r, 0, 0), d = new Vector3d(0, r, 0);
+            double phiSub = MeshAlphaWrap.EmptyBallRadius(a, b, d, new Vector3d(0, 0, r), new Vector3d(0, 0, 2 * r));
+            double expectedSub = Math.Sqrt(2.0) * r;
+            Assert.True(Math.Abs(phiSub - expectedSub) <= 1e-12 * expectedSub, $"{phiSub} vs {expectedSub}");
+
+            // Overflowing R^2 + t^2 at 2^600.
+            double big = ExactPoint3.ScaleB(1.0, 600);
+            Assert.True(double.IsPositiveInfinity(big * big));
+            double phiBig = MeshAlphaWrap.EmptyBallRadius(
+                new Vector3d(-big, 0, 0), new Vector3d(big, 0, 0), new Vector3d(0, big, 0),
+                new Vector3d(0, 0, big), new Vector3d(0, 0, 2 * big));
+            double expectedBig = Math.Sqrt(2.0) * big;
+            Assert.True(Math.Abs(phiBig - expectedBig) <= 1e-12 * expectedBig, $"{phiBig} vs {expectedBig}");
+        }
+
+        [Fact]
+        public void EmptyBallRadius_OverflowingVertexDifferences_DoesNotReturnNaN()
+        {
+            double s = 1e308;
+            Vector3d a = new Vector3d(-s, 0, 0), b = new Vector3d(s, 0, 0), d = new Vector3d(0, s, 0);
+            // Circumcenter of (-s,0,0), (s,0,0), (0,s,0) is (0,0,0), circumradius = s.
+            double phi = MeshAlphaWrap.EmptyBallRadius(a, b, d, new Vector3d(0, 0, -0.5 * s), new Vector3d(0, 0, 0.5 * s));
+            Assert.True(!double.IsNaN(phi) && !double.IsInfinity(phi), $"phi={phi}");
+            Assert.True(Math.Abs(phi - s) <= 1e-12 * s, $"phi={phi} vs {s}");
+        }
+
         // the quality points count against the point limit (PointLimitReached, with its guarantees); cancelled in the
         // quality refinement: Cancelled
         [Fact]

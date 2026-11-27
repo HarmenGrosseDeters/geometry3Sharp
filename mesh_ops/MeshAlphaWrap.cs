@@ -1298,23 +1298,141 @@ namespace gs
             return EmptyBallRadius(dt.GetVertex(f.a), dt.GetVertex(f.b), dt.GetVertex(f.c), from, to);
         }
 
+        const double MinNormal = 2.2250738585072014e-308; // 2^-1022
+        const double FastFacetMin = 7.888609052210118e-31; // 2^-100: s^5 >= 2^-500 >> MinNormal
+        const double FastFacetMax = 1.2676506002282294e30; // 2^100:  s^5 <= 2^500 << MaxValue
+
+        static int Pow2Exp(double v)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(v);
+            int biased = (int)((bits >> 52) & 0x7FFL);
+            if (biased != 0)
+                return biased - 1023;
+            long sbits = BitConverter.DoubleToInt64Bits(v * 18014398509481984.0); // 2^54
+            return (int)((sbits >> 52) & 0x7FFL) - 1023 - 54;
+        }
+
+        static Vector3d ScaleVec(Vector3d v, int n)
+        {
+            return new Vector3d(ExactPoint3.ScaleB(v.x, n), ExactPoint3.ScaleB(v.y, n), ExactPoint3.ScaleB(v.z, n));
+        }
+
+        static double SafeLength(Vector3d d)
+        {
+            double d2 = d.LengthSquared;
+            if (d2 >= 4 * MinNormal && !double.IsInfinity(d2))
+                return Math.Sqrt(d2);
+            double m = Math.Max(Math.Abs(d.x), Math.Max(Math.Abs(d.y), Math.Abs(d.z)));
+            if (double.IsNaN(m))
+                return double.NaN;
+            if (m == 0)
+                return 0;
+            if (double.IsInfinity(m))
+                return double.PositiveInfinity;
+            double sx = d.x / m, sy = d.y / m, sz = d.z / m;
+            return m * Math.Sqrt(sx * sx + sy * sy + sz * sz);
+        }
+
+        static double SafeHypot(double a, double b)
+        {
+            double a2 = a * a, b2 = b * b, sum = a2 + b2;
+            if (!double.IsInfinity(sum) && (a == 0 || a2 >= 4 * MinNormal) && (b == 0 || b2 >= 4 * MinNormal))
+                return Math.Sqrt(sum);
+            double m = Math.Max(Math.Abs(a), Math.Abs(b));
+            if (double.IsNaN(m))
+                return double.NaN;
+            if (m == 0)
+                return 0;
+            if (double.IsInfinity(m))
+                return double.PositiveInfinity;
+            double sa = a / m, sb = b / m;
+            return m * Math.Sqrt(sa * sa + sb * sb);
+        }
+
+        // Circumcenter offset x = fc - a and outward unit normal nrm of facet (a, b, d).
+        // Ordinary scales execute the exact unscaled formula bit-for-bit; extreme scales and slivers rescale by exact powers of two.
+        static bool FacetCircumcenter(Vector3d a, Vector3d b, Vector3d d, out Vector3d x, out Vector3d nrm)
+        {
+            Vector3d u = b - a, v = d - a;
+            double s = Math.Max(u.MaxAbs, v.MaxAbs);
+            if (s >= FastFacetMin && s <= FastFacetMax) {
+                Vector3d w = u.Cross(v);
+                double w2 = w.LengthSquared;
+                if (w2 >= 4 * MinNormal && !double.IsInfinity(w2)) {
+                    Vector3d xf = (u.LengthSquared * v.Cross(w) + v.LengthSquared * w.Cross(u)) / (2 * w2);
+                    if (xf.IsFinite) {
+                        x = xf;
+                        nrm = w / Math.Sqrt(w2);
+                        return true;
+                    }
+                }
+            }
+            if (!a.IsFinite || !b.IsFinite || !d.IsFinite) {
+                x = new Vector3d(double.NaN); nrm = new Vector3d(double.NaN);
+                return false;
+            }
+            int preShift = 0;
+            if (!u.IsFinite || !v.IsFinite) {
+                u = 0.5 * b - 0.5 * a;
+                v = 0.5 * d - 0.5 * a;
+                preShift = 1;
+            }
+            s = Math.Max(u.MaxAbs, v.MaxAbs);
+            if (!(s > 0)) {
+                x = new Vector3d(double.NaN); nrm = new Vector3d(double.NaN);
+                return false;
+            }
+            int exp = Pow2Exp(s);
+            Vector3d us = ScaleVec(u, -exp), vs = ScaleVec(v, -exp);
+            Vector3d ws = us.Cross(vs);
+            double wm = ws.MaxAbs;
+            if (!(wm > 0)) {
+                x = new Vector3d(double.NaN); nrm = new Vector3d(double.NaN);
+                return false;
+            }
+            int wExp = Pow2Exp(wm);
+            Vector3d wn = ScaleVec(ws, -wExp);
+            double wn2 = wn.LengthSquared;
+            Vector3d xUnit = (us.LengthSquared * vs.Cross(wn) + vs.LengthSquared * wn.Cross(us)) / (2 * wn2);
+            x = ScaleVec(xUnit, exp + preShift - wExp);
+            nrm = wn / Math.Sqrt(wn2);
+            return true;
+        }
+
+        static double SafePlaneSignedOffset(Vector3d p, Vector3d a, Vector3d x, Vector3d fc, Vector3d nrm)
+        {
+            if (fc.IsFinite) {
+                Vector3d diff = p - fc;
+                if (diff.IsFinite) {
+                    double t = diff.Dot(nrm);
+                    if (!double.IsInfinity(t))
+                        return t;
+                }
+            }
+            if (!p.IsFinite || !a.IsFinite || !x.IsFinite)
+                return double.NaN;
+            return 2.0 * ((0.5 * p - 0.5 * a) - 0.5 * x).Dot(nrm);
+        }
+
         /// <summary>
         /// (tests) the smallest radius of the balls through a, b, d whose centers lie on the segment [from, to] of the
         /// triangle's normal line through its circumcenter (Phi(f) of facet_empty_ball)
         /// </summary>
         internal static double EmptyBallRadius(Vector3d a, Vector3d b, Vector3d d, Vector3d from, Vector3d to)
         {
-            Vector3d u = b - a, v = d - a, w = u.Cross(v);
-            double w2 = w.LengthSquared;
-            Vector3d x = (u.LengthSquared * v.Cross(w) + v.LengthSquared * w.Cross(u)) / (2 * w2);
-            double R = x.Length;
-            Vector3d fc = a + x, nrm = w / Math.Sqrt(w2);
-            double t0 = (from - fc).Dot(nrm), t1 = (to - fc).Dot(nrm);
+            if (!FacetCircumcenter(a, b, d, out Vector3d x, out Vector3d nrm))
+                return double.NaN;
+            double R = SafeLength(x);
+            if (double.IsInfinity(R) || double.IsNaN(R))
+                return R;
+            Vector3d fc = a + x;
+            double t0 = SafePlaneSignedOffset(from, a, x, fc, nrm);
+            double t1 = SafePlaneSignedOffset(to, a, x, fc, nrm);
             // (a flat facet: no finite normal; NaN compares false and gives the circumradius, as before)
             if (!(Math.Min(t0, t1) > 0) && !(Math.Max(t0, t1) < 0))
                 return R;
             double t = Math.Min(Math.Abs(t0), Math.Abs(t1));
-            return Math.Sqrt(R * R + t * t);
+            return SafeHypot(R, t);
         }
 
         /// <summary>
@@ -1324,9 +1442,9 @@ namespace gs
         {
             Index3i f = dt.FacetVertices(c, i);
             Vector3d a = dt.GetVertex(f.a), b = dt.GetVertex(f.b), d = dt.GetVertex(f.c);
-            Vector3d u = b - a, v = d - a, w = u.Cross(v);
-            Vector3d x = (u.LengthSquared * v.Cross(w) + v.LengthSquared * w.Cross(u)) / (2 * w.LengthSquared);
-            return x.Length;
+            if (!FacetCircumcenter(a, b, d, out Vector3d x, out _))
+                return double.NaN;
+            return SafeLength(x);
         }
 
         /// <summary>
@@ -1337,10 +1455,8 @@ namespace gs
         {
             Index3i f = dt.FacetVertices(c, i);
             Vector3d a = dt.GetVertex(f.a), b = dt.GetVertex(f.b), d = dt.GetVertex(f.c);
-            Vector3d u = b - a, v = d - a, w = u.Cross(v);
-            double w2 = w.LengthSquared;
-            Vector3d nrm = w / Math.Sqrt(w2);       // outwards of c
-            Vector3d fc = a + (u.LengthSquared * v.Cross(w) + v.LengthSquared * w.Cross(u)) / (2 * w2);
+            FacetCircumcenter(a, b, d, out Vector3d x, out Vector3d nrm); // nrm outwards of c
+            Vector3d fc = a + x;
             to = clamp_center(circumcenter(c, g), fc, nrm, -1);
             int n = dt.Neighbour(c, i);
             if (n < 0)
