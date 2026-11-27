@@ -69,7 +69,7 @@ namespace geometry3Sharp.Tests
                 if (!after.Result.Validate().IsValid) worse.Add(id + " invalid");
                 if (!same && !QuadRemesher.HasNoRepeatedVertex(after.Result)) worse.Add(id + " a face with a repeated vertex");
                 if (QuadRemesher.BoundaryEdgeCount(after.Result) > QuadRemesher.BoundaryEdgeCount(before.Result)) worse.Add(id + " more boundary edges");
-                // a closed result differs from one with a hole by its faces: the quad fraction of the 9 changed configurations is within 0.005 (measured: 0.0046)
+                // a closed result differs from one with a hole by its faces: the quad fraction of the 18 changed configurations is within 0.005 (measured: 0.0048, l-profile/35; an exact ratio of face counts, no noise)
                 if (after.DroppedFaces > before.DroppedFaces || ma.BoundaryVertices > mb.BoundaryVertices) worse.Add(id + " more dropped faces / boundary vertices");
                 if (!ma.IsManifold) worse.Add(id + " not manifold");
                 if (ma.QuadFraction < mb.QuadFraction - 0.005) worse.Add(id + " quads " + mb.QuadFraction.ToString("F4") + " -> " + ma.QuadFraction.ToString("F4"));
