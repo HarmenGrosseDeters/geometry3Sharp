@@ -112,17 +112,38 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Outputs(false, a, c), Outputs(true, a, c));
         }
 
+        static DMesh3 Moved(DMesh3 m, Similarity sim)
+        {
+            var c = new DMesh3(m);
+            foreach (int v in c.VertexIndices().ToList()) c.SetVertex(v, sim.Apply(c.GetVertex(v)));
+            return c;
+        }
+
         [Fact]
-        public void TheRegions_AreTheSameForEveryPowerOfTwoScale_AndWhenComputedTwice()
+        public void TheRegions_AreBitIdenticalUnderTheExactSimilarities_AndAPartitionUnderAllOthers()
         {
             DMesh3 a = ExactMeshBooleanCoplanarWalkTests.Cylinder(6), b = ExactMeshBooleanCoplanarWalkTests.Shifted(a, 0.25);
             int[] r = Regions(a, b);
-            foreach (double f in new[] { 0.25, 2, 1024 }) {
-                DMesh3 sa = new DMesh3(a), sb = new DMesh3(b);
-                foreach (DMesh3 m in new[] { sa, sb })
-                    foreach (int v in m.VertexIndices().ToList()) m.SetVertex(v, m.GetVertex(v) * f);
-                Assert.Equal(r, Regions(sa, sb));
+            foreach (Similarity sim in Similarity.All()) {
+                int[] t = Regions(Moved(a, sim), Moved(b, sim));
+                if (sim.IsExact) {
+                    Assert.Equal(r, t);     // the 2^k scales (and the identity): the same exact planes, bit for bit
+                    continue;
+                }
+                // the others round the coordinates, so the planes may no longer be exact; the regions are still a partition into sets of one mesh
+                // that each hold their lowest index
+                int n = a.TriangleCount;
+                for (int i = 0; i < t.Length; ++i) {
+                    Assert.True(t[i] <= i && t[t[i]] == t[i], sim.Name);
+                    Assert.True((t[i] < n) == (i < n), sim.Name + ": a region of two meshes");
+                }
             }
+        }
+
+        [Fact]
+        public void TheRegions_AreTheSameWhenComputedTwice()
+        {
+            DMesh3 a = ExactMeshBooleanCoplanarWalkTests.Cylinder(6), b = ExactMeshBooleanCoplanarWalkTests.Shifted(a, 0.25);
             var arr = new ExactMeshArrangement(new List<DMesh3> { a, b }) { SelfIntersections = true, BuildRegions = true };
             arr.Compute();
             int[] first = arr.RegionOf;

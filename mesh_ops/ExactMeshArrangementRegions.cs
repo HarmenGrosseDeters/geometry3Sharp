@@ -11,7 +11,7 @@ namespace g3
 
         /// <summary>
         /// per input triangle, its region: the lowest triangle index of the set of triangles of one mesh that lie in one exact plane and are joined
-        /// through flat edges. A flat edge is an edge of exactly two triangles of the mesh that traverse it in opposite directions (consistent
+        /// through flat edges. A flat edge is an edge of two triangles of the mesh (an edge has at most two: DMesh3 holds no third triangle on an edge) that traverse it in opposite directions (consistent
         /// orientation; not "opposite normals"), lie in the same exact plane, and have their third corners strictly on opposite sides of it
         /// (exact in-plane Orient of input points, as meets_only_at_shared). A triangle with no flat edge is a region of its own. Null unless
         /// BuildRegions is set, and before the pair stage. Serial, a function of the triangles alone.
