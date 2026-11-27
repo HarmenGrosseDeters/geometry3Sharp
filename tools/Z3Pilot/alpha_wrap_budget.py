@@ -12,7 +12,7 @@ from check_pilot_obligations import check_expr, main, report, source_contract
 
 SOURCE = 'mesh_ops/MeshAlphaWrap.cs'
 ANCHORS = [
-    ('double ratio = offset > 0 && alpha > 0', 'UsedAlpha = alpha; UsedOffset = offset;', 'b15899a01a3b4841a9715f22f91c33ce14c575840c6a92f2310d11f40f3a2b8f'),
+    ('double ratio = offset > 0 && alpha > 0', 'UsedAlpha = alpha; UsedOffset = offset;', '3ff84595d15b7c127be117f7564b608f99828a107de51f9b545d0294f2bceeb1'),
     ('public const double EstimateDensity =', 'public bool RefineNonManifold', '487c31f84f20d538cc19c2f8bdcdfe5205007c1dc165b94ea8c89cbd42b38955'),
     ('double area = 0;', 'double ratio = offset > 0 && alpha > 0', 'bb525b44a01c8e3df904a3c10383ea115cce56f7eddce26c7bd30a94040235db'),
     ('const double RangeMin =', 'WrapStatus setup()', '729937ad0dda758e176e288dd96648d2e0156a5d206a9c0172f5072378b79628'),
@@ -46,6 +46,7 @@ def real_obligations(timeout_ms):
 
 TERMS_SOURCE = 'mesh_ops/AlphaWrapEstimate.cs'
 TERMS_ANCHORS = [
+    ('public const double OpeningFactor =', 'public static double OpenArea(', '307c00ec243b8c09968a66ef02171336bab1cf481878bc2582dcf48b72311279'),
     ('double cell = alpha / WeldCells;', 'comp = new int[nv];', '7dc600ba9fdc4a1434ff0aa2a7547ae6d0c88e1f0abf24ae9f37e5de583d599c'),
     ('pos = new Vector3d[nv];', 'var chain = new int[nv];', '23ae3b16b0cda7d1e0fac52106ac7902a5b98ad75768997085043d601b923eba'),
     ('public static EstimateTerms Terms(', 'public static double LargestOpening(', '862ecfbc33be1f98e971f9d34da43fbf2b41a0f484dd760940f82f94d1abdc1e'),
@@ -57,9 +58,15 @@ def weld_cell_obligations(timeout_ms):
     magnitude, width, gap = z3.Reals('coordinate_magnitude weld_cell_width adjacent_coordinate_gap')
     # The gap to any neighboring binary64 coordinate is at least |coordinate| / 2^53.
     # A rounded quotient outside +/-9e18 has exact magnitude above 2^62.
-    return [check_expr('wide_index_can_have_distinct_coordinates_in_one_cell',
-                       [width > 0, magnitude >= 2**62*width, 2**53*gap >= magnitude],
-                       gap <= width, 'unsat', timeout_ms, 'QF_LRA')]
+    premises = [width > 0, magnitude >= 2**62*width, 2**53*gap >= magnitude]
+    return [
+        check_expr('wide_index_premises_are_reachable', premises, gap > width, 'sat', timeout_ms, 'QF_LRA'),
+        check_expr('wide_index_can_have_distinct_coordinates_in_one_cell', premises,
+                   gap <= width, 'unsat', timeout_ms, 'QF_LRA'),
+        check_expr('narrow_index_can_have_distinct_coordinates_in_one_cell',
+                   [width > 0, magnitude >= 2**52*width, 2**53*gap >= magnitude],
+                   gap <= width, 'sat', timeout_ms, 'QF_LRA'),
+    ]
 
 
 def discriminant_range_obligations(timeout_ms):
@@ -73,6 +80,8 @@ def discriminant_range_obligations(timeout_ms):
     premises += [ratio <= 2**20, budget <= 2**31]
     bulk = 3*(area+opened)+(opened+thin)*ratio
     rim_alpha = (2*(edge+rim)+sharp)*ratio
+    disc_premises = [z3.Real('bulk')>=0, z3.Real('bulk')<=2**324,
+                     z3.Real('rim')>=0, z3.Real('rim')<=2**217, budget>=0, budget<=2**31]
     return [
         check_expr('range_envelopes_are_reachable', premises,
                    z3.And(area>0, opened>0, thin>0, edge>0, rim>0, sharp>0, ratio>0, budget>0),
@@ -81,9 +90,10 @@ def discriminant_range_obligations(timeout_ms):
                    bulk >= 2**323, 'unsat', timeout_ms, 'QF_NRA'),
         check_expr('supported_term_envelopes_allow_large_rim', premises,
                    rim_alpha >= 2**216, 'unsat', timeout_ms, 'QF_NRA'),
-        check_expr('bounded_quadratic_terms_allow_large_discriminant',
-                   [z3.Real('bulk')>=0, z3.Real('bulk')<=2**324,
-                    z3.Real('rim')>=0, z3.Real('rim')<=2**217, budget>=0, budget<=2**31],
+        check_expr('bounded_quadratic_terms_are_reachable', disc_premises,
+                   z3.Real('rim')**2+4*budget*z3.Real('bulk') >= 2**434,
+                   'sat', timeout_ms, 'QF_NRA'),
+        check_expr('bounded_quadratic_terms_allow_large_discriminant', disc_premises,
                    z3.Real('rim')**2+4*budget*z3.Real('bulk') >= 2**436,
                    'unsat', timeout_ms, 'QF_NRA'),
     ]
@@ -105,7 +115,7 @@ def replay_fp():
     twice_divided = z3.fpDiv(rnd, z3.fpDiv(rnd, fp(tiny_area), fp(tiny_alpha)), fp(tiny_alpha))
     discriminant = z3.fpAdd(rnd, fp(1), z3.fpMul(rnd, fp(4), fp(huge_area)))
     # Coarsened alpha observed on the unit-scale public-API reproducer.
-    coarse_alpha = 0.026845005997786553
+    coarse_alpha = 0.026868839879520764
     minsub = 2.0**-1074
     factor = z3.fpDiv(rnd, fp(coarse_alpha), fp(minsub))
     legacy_offset = z3.fpMul(rnd, fp(minsub), factor)

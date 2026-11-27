@@ -640,17 +640,19 @@ namespace gs
                     offset *= AlphaCoarsening;
                 } else {
                     AlphaCoarsening = coarse / alpha;
-                    if (double.IsPositiveInfinity(AlphaCoarsening) &&
-                        alpha > 0 && MathUtil.IsFinite(alpha) && offset > 0 && MathUtil.IsFinite(offset) &&
-                        coarse > 0 && MathUtil.IsFinite(coarse)) {
-                        // Round the scaled offset once, even when the intermediate scale exceeds binary64 range.
-                        ExactPoint3.Decompose(offset, out var offsetMantissa, out int offsetExponent);
-                        ExactPoint3.Decompose(coarse, out var coarseMantissa, out int coarseExponent);
-                        ExactPoint3.Decompose(alpha, out var alphaMantissa, out int alphaExponent);
-                        offset = ExactPoint3.ToDouble(offsetMantissa * coarseMantissa, alphaMantissa,
-                            offsetExponent + coarseExponent - alphaExponent);
-                    } else {
-                        offset *= AlphaCoarsening;
+                    if (offset > 0) {
+                        if (double.IsPositiveInfinity(AlphaCoarsening) &&
+                            alpha > 0 && MathUtil.IsFinite(alpha) && MathUtil.IsFinite(offset) &&
+                            coarse > 0 && MathUtil.IsFinite(coarse)) {
+                            // Round the scaled offset once, even when the intermediate scale exceeds binary64 range.
+                            ExactPoint3.Decompose(offset, out var offsetMantissa, out int offsetExponent);
+                            ExactPoint3.Decompose(coarse, out var coarseMantissa, out int coarseExponent);
+                            ExactPoint3.Decompose(alpha, out var alphaMantissa, out int alphaExponent);
+                            offset = ExactPoint3.ToDouble(offsetMantissa * coarseMantissa, alphaMantissa,
+                                offsetExponent + coarseExponent - alphaExponent);
+                        } else {
+                            offset *= AlphaCoarsening;
+                        }
                     }
                     alpha = coarse;
                 }

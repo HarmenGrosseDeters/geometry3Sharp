@@ -243,8 +243,8 @@ static class Program
         {
             double maximum = 0;
             foreach (Vector3d vertex in source.Vertices()) {
-                target.FindNearestTriangle(vertex, out double distance);
-                maximum = Math.Max(maximum, distance);
+                target.FindNearestTriangle(vertex, out double distanceSquared);
+                maximum = Math.Max(maximum, distanceSquared);
             }
             return maximum;
         }

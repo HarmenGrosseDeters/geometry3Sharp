@@ -1150,7 +1150,7 @@ python3 -m unittest discover -s tools/Z3Pilot -p test_local_arithmetic_and_topol
 
 ## Alpha Wrap budget and coordinate range
 
-Run `python tools/Z3Pilot/alpha_wrap_budget.py` for the local obligations and binary64 replays.
+Run `python3 tools/Z3Pilot/alpha_wrap_budget.py` for the local obligations and binary64 replays.
 
 For frozen nonnegative bulk/band and rim coefficients, the real model checks
 the positive quadratic root, strict decrease of `P/k² + R/k` for positive scales, and
