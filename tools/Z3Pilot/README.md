@@ -1147,3 +1147,12 @@ small bound makes it impossible (UNSAT by the area); and the pair encoding on cr
 ```sh
 python3 -m unittest discover -s tools/Z3Pilot -p test_local_arithmetic_and_topology.py -v
 ```
+
+## PassageWrap bounds and clearance
+
+Run `python3 tools/Z3Pilot/passage_wrap.py` (or `python3 -m unittest discover -s tools/Z3Pilot -p test_passage_wrap.py -v`) for the local obligations, source-drift checks (all 6 anchors), and binary64 replays on `mesh_ops/PassageWrap.cs`:
+
+- **Barycentric ball identity & Claims 1-2 (`docs/design/PASSAGE_WRAP.md`):** proves the per-axis barycentric variance identity `sum l_i (p_i - m)^2 = (q - m)^2 + sum l_i (p_i - q)^2`, Claim 1 (`R > a` when `r - d > a`), and Claim 2 (`|y - q|^2 >= (r - d)^2 - a^2` when `R <= a`), with reachability and negative controls.
+- **`MaxAlpha` root, optimality, and monotonicity:** proves that the scaled rationalized root `a = r (1 - u^2) / (k + sqrt(k^2 + (1 - k^2)(1 - u^2)))` satisfies `(r - k a)^2 - a^2 = p^2`, `a > 0`, `r - k a > 0`, is optimal (no larger `a2 > a` satisfies the clearance bound), is strictly decreasing in `p`, and has no positive valid root when `p >= r`.
+- **1-Lipschitz clearance bound & binary64 replays:** proves `f(t) >= (fa + fb - L) / 2` for 1-Lipschitz `f` on `[0, L]` and replays overflow (`2^600`), negative underflow (`2^-600`), near-blocked Sterbenz cancellation (`3 - 2^-50`), adjacent-double midpoint stall (`1e14`), and UTM coordinate rounding vs the old diagonal-only margin.
+

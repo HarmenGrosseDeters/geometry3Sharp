@@ -142,9 +142,94 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0.0, PassageWrap.MaxAlpha(3, 4, 30));
             Assert.Equal(0.0, PassageWrap.MaxAlpha(double.NaN, 1, 30));
             Assert.Equal(0.0, PassageWrap.MaxAlpha(3, 1, 1));      // offset not below alpha
+            Assert.Equal(0.0, PassageWrap.MaxAlpha(double.PositiveInfinity, 1, 30));
+            Assert.Equal(0.0, PassageWrap.MaxAlpha(3, -1, 30));
             Assert.True(PassageWrap.MaxAlpha(3, 1, 30) > PassageWrap.MaxAlpha(3, 2, 30));
             Assert.True(PassageWrap.MaxAlpha(3, 1, 30) > PassageWrap.MaxAlpha(3, 1, 10));
             Assert.True(PassageWrap.MaxAlpha(3, 1, 30, true) < PassageWrap.MaxAlpha(3, 1, 30, false));
+        }
+
+        [Theory]
+        [InlineData(600, false)]
+        [InlineData(-600, false)]
+        [InlineData(600, true)]
+        [InlineData(-600, true)]
+        public void MaxAlpha_ExtremeScales_AvoidsOverflowAndUnderflow(int exp, bool pull)
+        {
+            double refAlpha = PassageWrap.MaxAlpha(2.0, 1.0, 30.0, pull);
+            double r = ExactPoint3.ScaleB(2.0, exp);
+            double p = ExactPoint3.ScaleB(1.0, exp);
+            double a = PassageWrap.MaxAlpha(r, p, 30.0, pull);
+            Assert.True(a > 0 && !double.IsInfinity(a) && !double.IsNaN(a), $"exp={exp}, pull={pull}: {a}");
+            Assert.Equal(ExactPoint3.ScaleB(refAlpha, exp), a);
+        }
+
+        [Fact]
+        public void MaxAlpha_NearBlocked_AvoidsCatastrophicCancellation()
+        {
+            double r = 3.0;
+            double gap = ExactPoint3.ScaleB(1.0, -50);
+            double p = r - gap;
+            double a = PassageWrap.MaxAlpha(r, p, 30.0, false);
+            // Leading term as gap -> 0: a = (r^2 - p^2) / (2 k r) = gap * (2r - gap) / (2 k r) ~ gap / k = 30 * gap
+            double approx = 30.0 * gap;
+            Assert.True(a > 0 && Math.Abs(a - approx) <= 1e-9 * approx, $"got {a}, expected ~{approx}");
+            // Exact scaled residual: ((r - k a) - p)((r - k a) + p) == a^2
+            double d = a / 30.0;
+            double lhs = (r - d - p) * (r - d + p);
+            Assert.True(Math.Abs(lhs - a * a) <= 1e-12 * r * gap, $"lhs={lhs} vs a^2={a * a}");
+        }
+
+        [Fact]
+        public void PolylineClearance_AdjacentDoublesFarFromOrigin_TerminatesAndStaysSound()
+        {
+            double x0 = 1e14;
+            double x1 = ExactInterval.Up(x0); // next representable double above 1e14 (step = 0.015625)
+            Assert.True(x1 > x0 && (0.5 * x0 + 0.5 * x1 == x0 || 0.5 * x0 + 0.5 * x1 == x1));
+            var m = new DMesh3();
+            m.AppendTriangle(
+                m.AppendVertex(new Vector3d(x0 - 0.5, -0.5, 10.0)),
+                m.AppendVertex(new Vector3d(x0 + 0.5, -0.5, 10.0)),
+                m.AppendVertex(new Vector3d(x0, 0.5, 10.0)));
+            var tree = new DMeshAABBTree3(m, true);
+            var axis = new List<Vector3d> { new Vector3d(x0, 0, 0), new Vector3d(x1, 0, 0) };
+            int cancelChecks = 0;
+            PassageWrap.PolylineClearance(tree, axis, 1e-6, double.MaxValue, out double lo, out double hi, () => ++cancelChecks > 20);
+            Assert.Equal(0, cancelChecks);
+            Assert.True(lo <= 10.0 && hi >= 10.0, $"[{lo}, {hi}]");
+            Assert.True(lo > 8.0 && hi < 12.0, $"[{lo}, {hi}]");
+        }
+
+        [Fact]
+        public void PolylineClearance_FarFromOriginMargin_CoversCoordinateRounding()
+        {
+            double x0 = 1e12;
+            var m = new DMesh3();
+            m.AppendTriangle(
+                m.AppendVertex(new Vector3d(x0 - 0.5, -0.5, 1.0)),
+                m.AppendVertex(new Vector3d(x0 + 0.5, -0.5, 1.0)),
+                m.AppendVertex(new Vector3d(x0, 0.5, 1.0)));
+            var tree = new DMeshAABBTree3(m, true);
+            var axis = new List<Vector3d> { new Vector3d(x0, 0, 0) };
+            PassageWrap.PolylineClearance(tree, axis, 1e-6, double.MaxValue, out double lo, out double hi);
+            double expectedMinHalfWidth = 64 * MathUtil.Epsilon * x0;
+            Assert.True(lo <= 1.0 && hi >= 1.0, $"[{lo}, {hi}]");
+            Assert.True(hi - lo >= 1.9 * expectedMinHalfWidth, $"width {hi - lo} < {1.9 * expectedMinHalfWidth}");
+        }
+
+        [Theory]
+        [InlineData(600)]
+        [InlineData(-600)]
+        public void PolylineDistance_ExtremeScales_AvoidsOverflowAndUnderflow(int exp)
+        {
+            double s = ExactPoint3.ScaleB(1.0, exp);
+            var seg = new List<Vector3d> { new Vector3d(0, 0, 0), new Vector3d(s, 0, 0) };
+            double d = PassageWrap.PolylineDistance(seg, new Vector3d(0.5 * s, 0.5 * s, 0));
+            Assert.Equal(0.5 * s, d);
+            // Mixed extreme ratio (tiny segment, huge query point): finite, no 0*Inf NaN
+            var tiny = new List<Vector3d> { Vector3d.Zero, new Vector3d(ExactPoint3.ScaleB(1.0, -600), 0, 0) };
+            double huge = ExactPoint3.ScaleB(1.0, 600);
+            Assert.Equal(huge, PassageWrap.PolylineDistance(tiny, new Vector3d(huge, 0, 0)));
         }
 
         // ---- the helper on the procedural parts ----

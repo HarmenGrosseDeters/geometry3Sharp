@@ -154,6 +154,8 @@ namespace gs
         // the branch and bound stops at this fraction of the pin radius
         const double ClearanceTolerance = 1e-3;
 
+        const double MinNormal = 2.2250738585072014e-308; // 2^-1022
+
         public PassageWrap(DMesh3 mesh)
         {
             Mesh = mesh;
@@ -162,20 +164,50 @@ namespace gs
         /// <summary>
         /// The largest alpha for which a pin of radius pinRadius is kept clear at an input clearance r with offset alpha / offsetRatio
         /// (or 2 alpha / offsetRatio with pulled points): the root of (r - k a)^2 - a^2 = p^2 with k = 1 / offsetRatio (2 / offsetRatio),
-        /// 0 if r &lt;= p. Closed form: a = (-r k + sqrt(r^2 k^2 + (1 - k^2)(r^2 - p^2))) / (1 - k^2).
+        /// 0 if r &lt;= p. Computed in scaled rationalized form a = r (1 - u^2) / (k + sqrt(k^2 + (1 - k^2)(1 - u^2))) with u = p / r
+        /// and 1 - u = (r - p) / r to avoid overflow/underflow of r^2, p^2 and cancellation near p = r.
         /// </summary>
         public static double MaxAlpha(double inputClearance, double pinRadius, double offsetRatio, bool pullPinchPoints = false)
         {
             double k = (pullPinchPoints ? 2.0 : 1.0) / offsetRatio;
-            if (!(inputClearance > pinRadius) || !(k > 0) || !(k < 1))
+            if (!(inputClearance > pinRadius) || !(pinRadius >= 0) || double.IsInfinity(inputClearance) || !(k > 0) || !(k < 1))
                 return 0;
             double r = inputClearance, p = pinRadius;
-            return (-r * k + Math.Sqrt(r * r * k * k + (1 - k * k) * (r * r - p * p))) / (1 - k * k);
+            double u = p / r;
+            double oneMinusU = (r - p) / r;
+            double onePlusU = 1.0 + u;
+            double diffSq = oneMinusU * onePlusU;
+            double disc = k * k + (1.0 - k) * (1.0 + k) * diffSq;
+            return r * (diffSq / (k + Math.Sqrt(disc)));
+        }
+
+        static double SafeLength(Vector3d d)
+        {
+            double d2 = d.LengthSquared;
+            if (d2 >= MinNormal && !double.IsInfinity(d2))
+                return Math.Sqrt(d2);
+            double m = Math.Max(Math.Abs(d.x), Math.Max(Math.Abs(d.y), Math.Abs(d.z)));
+            if (double.IsNaN(m))
+                return double.NaN;
+            if (m == 0)
+                return 0;
+            if (double.IsInfinity(m))
+                return double.PositiveInfinity;
+            double sx = d.x / m, sy = d.y / m, sz = d.z / m;
+            return m * Math.Sqrt(sx * sx + sy * sy + sz * sz);
+        }
+
+        // Outward-rounded 1-Lipschitz lower bound <= (fa + fb - len) / 2 without overflowing fa + fb.
+        static double IntervalLowerBound(double fa, double fb, double len)
+        {
+            double halfSum = ExactInterval.Down(ExactInterval.Down(0.5 * fa) + ExactInterval.Down(0.5 * fb));
+            double halfLen = ExactInterval.Up(0.5 * len);
+            return ExactInterval.Down(halfSum - halfLen);
         }
 
         /// <summary>
         /// The certified distance of a polyline to the triangles of a mesh: [lo, hi] with lo at most the true minimum, hi attained
-        /// (up to a rounding margin of 1e-12 of the larger of the mesh and polyline size), hi - lo at most tolerance unless lo already
+        /// (up to a rounding margin covering both mesh/polyline size and coordinate magnitude), hi - lo at most tolerance unless lo already
         /// exceeds stopAbove or the best value found is below stopBelow (a pin that fails needs no more precision). The distance to a mesh is 1-Lipschitz along the polyline, so an interval of length L with end values
         /// fa, fb has the lower bound (fa + fb - L) / 2; intervals are split until that is within the tolerance of the best value
         /// found. Cost: about the polyline length over the tolerance queries on a straight bore (each a nearest triangle query).
@@ -185,9 +217,11 @@ namespace gs
         {
             AxisAlignedBox3d box = tree.Mesh.CachedBounds;
             foreach (Vector3d p in axis) box.Contain(p);
-            double margin = 1e-12 * box.DiagonalLength;
+            double diag = SafeLength(box.Max - box.Min);
+            double coordMax = Math.Max(box.Min.MaxAbs, box.Max.MaxAbs);
+            double margin = Math.Max(1e-12 * diag, 64 * MathUtil.Epsilon * coordMax);
             // (a tolerance below 1e-4 of the size would cost hundreds of thousands of queries along a long straight bore)
-            tolerance = Math.Max(tolerance, 1e-4 * box.DiagonalLength);
+            tolerance = Math.Max(tolerance, 1e-4 * diag);
             double fine = stopAbove < double.MaxValue ? 0.01 * tolerance : tolerance;
             Func<Vector3d, double> f = (p) => { tree.FindNearestTriangle(p, out double dsq); return Math.Sqrt(dsq); };
             var pq = new MinHeap();
@@ -198,20 +232,26 @@ namespace gs
                 best = Math.Min(best, values[i]);
             }
             for (int i = 0; i + 1 < axis.Count; ++i) {
-                double len = (axis[i + 1] - axis[i]).Length;
-                pq.Enqueue((axis[i], axis[i + 1], values[i], values[i + 1]), (values[i] + values[i + 1] - len) / 2);
+                double len = SafeLength(axis[i + 1] - axis[i]);
+                pq.Enqueue((axis[i], axis[i + 1], values[i], values[i + 1]), IntervalLowerBound(values[i], values[i + 1], len));
             }
             double low = best;
+            double stalledLow = double.MaxValue;
             int pops = 0;
             while (pq.TryDequeue(out var it, out double lb)) {
                 if (lb > stopAbove || best < stopBelow || lb >= best - (lb <= stopAbove && stopAbove <= best ? fine : tolerance)) { low = Math.Min(best, lb); break; }
                 if ((++pops & 255) == 0 && cancelF != null && cancelF()) { low = Math.Min(best, lb); break; }
-                Vector3d m = 0.5 * (it.a + it.b);
+                Vector3d m = 0.5 * it.a + 0.5 * it.b;
+                if (m == it.a || m == it.b) {
+                    stalledLow = Math.Min(stalledLow, lb);
+                    continue;
+                }
                 double fm = f(m);
                 best = Math.Min(best, fm);
-                pq.Enqueue((it.a, m, it.fa, fm), (it.fa + fm - (m - it.a).Length) / 2);
-                pq.Enqueue((m, it.b, fm, it.fb), (fm + it.fb - (it.b - m).Length) / 2);
+                pq.Enqueue((it.a, m, it.fa, fm), IntervalLowerBound(it.fa, fm, SafeLength(m - it.a)));
+                pq.Enqueue((m, it.b, fm, it.fb), IntervalLowerBound(fm, it.fb, SafeLength(it.b - m)));
             }
+            low = Math.Min(low, stalledLow);
             lo = Math.Max(0, low - margin);
             hi = best + margin;
         }
@@ -327,9 +367,10 @@ namespace gs
                 Index3i tri = Mesh.GetTriangle(t);
                 Vector3d a = Mesh.GetVertex(tri.a), b = Mesh.GetVertex(tri.b), c = Mesh.GetVertex(tri.c);
                 tris.Add(a); tris.Add(b); tris.Add(c);
-                area += 0.5 * (b - a).Cross(c - a).Length;
+                area += 0.5 * SafeLength((b - a).Cross(c - a));
             }
-            return MeshAlphaWrap.EstimateDensity * (area + (openToo ? AlphaWrapEstimate.OpenArea(tris, alpha) : 0)) / alpha / alpha;
+            double total = area + (openToo ? AlphaWrapEstimate.OpenArea(tris, alpha) : 0);
+            return MeshAlphaWrap.EstimateDensity * ((total / alpha) / alpha);
         }
 
         // a binary min-heap of intervals by lower bound (netstandard2.0 has no PriorityQueue); ties by insertion order, so the
@@ -371,17 +412,41 @@ namespace gs
         }
 
         // the distance of a point to a polyline (a single point: to that point)
-        static double PolylineDistance(IList<Vector3d> axis, Vector3d q)
+        internal static double PolylineDistance(IList<Vector3d> axis, Vector3d q)
         {
-            if (axis.Count == 1) return (q - axis[0]).Length;
+            if (axis.Count == 1) return SafeLength(q - axis[0]);
             double best = double.MaxValue;
             for (int i = 0; i + 1 < axis.Count; ++i) {
-                Vector3d a = axis[i], ab = axis[i + 1] - a;
+                Vector3d a = axis[i], ab = axis[i + 1] - a, qa = q - a;
                 double len2 = ab.LengthSquared;
-                double t = len2 > 0 ? Math.Max(0, Math.Min(1, (q - a).Dot(ab) / len2)) : 0;
-                best = Math.Min(best, (q - (a + t * ab)).Length);
+                double t;
+                if (len2 >= MinNormal && !double.IsInfinity(len2)) {
+                    double dot = qa.Dot(ab);
+                    if (!double.IsInfinity(dot) && !double.IsNaN(dot)) {
+                        t = Math.Max(0, Math.Min(1, dot / len2));
+                    } else {
+                        t = ScaledSegmentParam(qa, ab);
+                    }
+                } else {
+                    t = ScaledSegmentParam(qa, ab);
+                }
+                best = Math.Min(best, SafeLength(q - (a + t * ab)));
             }
             return best;
+        }
+
+        static double ScaledSegmentParam(Vector3d qa, Vector3d ab)
+        {
+            double m = Math.Max(Math.Abs(ab.x), Math.Max(Math.Abs(ab.y), Math.Abs(ab.z)));
+            double mq = Math.Max(Math.Abs(qa.x), Math.Max(Math.Abs(qa.y), Math.Abs(qa.z)));
+            if (!(m > 0) || double.IsInfinity(m) || !(mq > 0) || double.IsInfinity(mq))
+                return 0;
+            Vector3d sab = ab / m;
+            double proj = (qa / mq).Dot(sab) / sab.LengthSquared;
+            if (!(proj > 0))
+                return 0;
+            double p = proj * (mq / m);
+            return p >= 1 ? 1 : p;
         }
 
         PassagePinResult[] measure(DMesh3 wrap, PassagePinResult[] inputResults)
