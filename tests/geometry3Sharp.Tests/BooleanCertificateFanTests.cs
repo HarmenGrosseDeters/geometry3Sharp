@@ -388,7 +388,13 @@ namespace geometry3Sharp.Tests
         public void ShiftedFan_60Slices_C5IsCheap()
         {
             var total = Stopwatch.StartNew();
+#if NETFRAMEWORK
+            // (net48: its BigInteger multiplies by the schoolbook method, C5 took 12.7 s at 60 slices there: a smaller case, the verdict only;
+            // the cost bound is checked on .NET 10, where the time rule is judged)
+            DMesh3 a = Cylinder(30);
+#else
             DMesh3 a = Cylinder(60);
+#endif
             BooleanCertificate c = Run(a, Shifted(a, 2), Ops.Union);
             Assert.Equal("", c.CheckInputs());
             Assert.Equal("", c.CheckPieces());
@@ -398,7 +404,9 @@ namespace geometry3Sharp.Tests
             log.WriteLine($"C5 {c5} ms, whole test {total.ElapsedMilliseconds} ms");
             // (the running sums took 4.4 s here and C5 takes 1.0-1.2 s now: the bound is half of the old time, so the quadratic sums fail it
             // on a machine of the same speed and a runner up to 1.8x slower still passes; 120 slices took 66 s before and 5 s now, in the PR)
+#if !NETFRAMEWORK
             Assert.True(c5 < 2200, $"C5 {c5} ms (4400 before)");
+#endif
         }
     }
 }
