@@ -16,13 +16,13 @@ namespace geometry3Sharp.Tests
     public class QuadNonManifoldVertexTests
     {
         // an open strip of 1 x width with a smooth height, nx x ny cells
-        static DMesh3 Strip(int nx, int ny, double width)
+        internal static DMesh3 Strip(int nx, int ny, double width)
         {
             var m = new DMesh3();
             int[,] ids = new int[nx + 1, ny + 1];
             for (int j = 0; j <= ny; ++j)
                 for (int i = 0; i <= nx; ++i)
-                    ids[i, j] = m.AppendVertex(new Vector3d((double)i / nx, width * j / ny, 0.1 * Math.Sin(3.0 * i / nx)));
+                    ids[i, j] = m.AppendVertex(new Vector3d((double)i / nx, width * j / ny, 0.1 * PortableMath.Sin(3.0 * i / nx)));
             for (int j = 0; j < ny; ++j)
                 for (int i = 0; i < nx; ++i) {
                     m.AppendTriangle(ids[i, j], ids[i + 1, j], ids[i + 1, j + 1]);
