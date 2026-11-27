@@ -155,6 +155,13 @@ namespace geometry3Sharp.Tests
             if (ran == false) {
                 Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
                 Assert.Contains(MeshRobustRepair.ThinShellWrap, p.Error);
+                // (a power-of-two scale runs the same stages bit for bit: the same text, not only the same status)
+                double log = Math.Log(s.Scale, 2);
+                if (s.IsExact && log == Math.Round(log)) {
+                    SolidBooleanPipeline id = Pipeline(ShellBowl(), Box(new Vector3d(0.2, 0, -0.3), 0.3));
+                    Assert.False(id.Compute());
+                    Assert.Equal(id.Error, p.Error);
+                }
             } else {
                 Assert.Single(p.Report.RepairedInputs);
                 Assert.True(p.Result.IsClosed(), name);
@@ -192,6 +199,26 @@ namespace geometry3Sharp.Tests
                 Assert.True(calls >= CancelAt, "setup: the repair checks for a cancel at least " + CancelAt + " times, it made " + calls);
                 Assert.True(further <= MaxFurther, "the repair went on after the cancel: " + further + " further checks");
             }
+        }
+
+        [Fact]
+        public void Reuse_AnotherRepairMode_DropsTheOldRefusalText()
+        {
+            SolidBooleanPipeline p = Pipeline(ShellBowl());
+            Assert.False(p.Compute());
+            Assert.Contains("MeshRobustRepair did not repair it", p.Error);
+            foreach (var mode in new[] { SolidBooleanPipeline.InputRepairModes.AutoRepair, SolidBooleanPipeline.InputRepairModes.Refuse }) {
+                p.InputRepair = mode;
+                Assert.False(p.Compute());
+                Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
+                Assert.DoesNotContain("MeshRobustRepair did not repair it", p.Error);
+                Assert.DoesNotContain(MeshRobustRepair.ThinShellWrap, p.Error);
+                Assert.All(p.Report.Route, step => Assert.DoesNotContain("MeshRobustRepair did not repair it", step.Reason));
+            }
+            // and back: the refusal is named again
+            p.InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepairThenRobust;
+            Assert.False(p.Compute());
+            Assert.Contains(MeshRobustRepair.ThinShellWrap, p.Error);
         }
 
         [Fact]
