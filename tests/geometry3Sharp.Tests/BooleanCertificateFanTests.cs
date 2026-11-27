@@ -401,12 +401,32 @@ namespace geometry3Sharp.Tests
             var sw = Stopwatch.StartNew();
             Assert.Equal("", c.CheckResult());
             long c5 = sw.ElapsedMilliseconds;
+            // (the count, independent of the speed of the runner: no plane of the fan has both orientations, so no exact area sum is taken)
+            Assert.Equal(0, c.AreaPlanesExact);
+            Assert.True(c.AreaPlanesSkipped > 0);
             log.WriteLine($"C5 {c5} ms, whole test {total.ElapsedMilliseconds} ms");
             // (the running sums took 4.4 s here and C5 takes 1.0-1.2 s now: the bound is half of the old time, so the quadratic sums fail it
             // on a machine of the same speed and a runner up to 1.8x slower still passes; 120 slices took 66 s before and 5 s now, in the PR)
 #if !NETFRAMEWORK
             Assert.True(c5 < 2200, $"C5 {c5} ms (4400 before)");
 #endif
+        }
+
+        /// <summary> the skip of the exact area sums gives the verdict and the plane counts of the exact path, and takes no exact sum on a fan </summary>
+        [Fact]
+        public void AreaSkip_Fan_SameVerdict_NoExactSums()
+        {
+            foreach (int n in new[] { 12, 30 }) {
+                DMesh3 a = Cylinder(n), b = Shifted(a, 2);
+                BooleanCertificate cs = Run(a, b, Ops.Union), ce = Run(a, b, Ops.Union);
+                Assert.Equal("", cs.CheckInputs()); Assert.Equal("", cs.CheckPieces());
+                Assert.Equal("", ce.CheckInputs()); Assert.Equal("", ce.CheckPieces());
+                ce.ForceExactAreas = true;
+                Assert.Equal(ce.CheckResult(), cs.CheckResult());
+                Assert.Equal(0, cs.AreaPlanesExact);
+                Assert.True(cs.AreaPlanesSkipped > 0);
+                Assert.Equal(ce.AreaPlanesExact, cs.AreaPlanesSkipped);
+            }
         }
     }
 }
