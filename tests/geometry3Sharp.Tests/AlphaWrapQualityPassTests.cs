@@ -1008,6 +1008,20 @@ namespace geometry3Sharp.Tests
                 Assert.False((bool)isProtectedMi.Invoke(pass, new object[] { 0 }), "mixed-exponent d2 underflow must not false-lock");
             }
 
+            // Piercing segment with tiny r (2^-560 < 1e-16): exact intersection must protect despite LineClosest/TriangleClosest rounding mismatch
+            {
+                var m = new DMesh3();
+                m.AppendTriangle(
+                    m.AppendVertex(Vector3d.Zero),
+                    m.AppendVertex(new Vector3d(1, 0.3, 0.1)),
+                    m.AppendVertex(new Vector3d(0.2, 1, 0.4)));
+                double r = ExactPoint3.ScaleB(1.0, -560);
+                var pass = new AlphaWrapQualityPass(m, new DMesh3(m), r) { ProtectedDistance = r };
+                pass.ProtectedEdges.Add(new Segment3d(new Vector3d(0.1, 0.2, -0.3), new Vector3d(0.4, 0.5, 0.7)));
+                buildProtectedMi.Invoke(pass, null);
+                Assert.True((bool)isProtectedMi.Invoke(pass, new object[] { 0 }), "piercing segment with tiny r must protect");
+            }
+
             // Large UTM-like coordinate offset
             Assert.True(checkDiag(1.0, 0.3, 1e7));
             Assert.False(checkDiag(1.0, 0.8, 1e7));

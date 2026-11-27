@@ -41,7 +41,7 @@ FEATURE_ANCHORS = [
 
 QUALITY_ANCHORS = [
     ('void build_protected()', 'static bool SegmentTriangleWithin(', 'dbc1d8465a367c5ad6bd19e7e5e499259b35682b419299077b53aec5b85193bc'),
-    ('static bool SegmentTriangleWithin(Segment3d sg, Triangle3d t, double r)', 'TriangleHashGrid build_grid()', '6246b142e9c6df170a9645ba9ae584fce7d44d6c1a4d8f501f903fb065c47226'),
+    ('static bool SegmentTriangleWithin(Segment3d sg, Triangle3d t, double r)', 'TriangleHashGrid build_grid()', '20467b0aeee57ed7558fdc545498b1cf1a1677d070b71a9b1ca3c0e891daf42f'),
     ('static double angle(Vector3d u, Vector3d v)', 'double normal_deviation(', 'dd3ffa85caaff3563ac0ec8636aa77cff0749b11c9f6893d0991339b1b9f77fa'),
 ]
 

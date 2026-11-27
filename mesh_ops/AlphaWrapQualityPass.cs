@@ -305,6 +305,8 @@ namespace gs
             double d2 = query.GetSquared();
             if (d2 >= 4 * MinNormal)
                 return Math.Sqrt(d2) <= sr;
+            if (ExactTriangleIntersection.SegmentIntersectsTriangle(p0, p1, ref t))
+                return true;
             return SafeLength(query.SegmentClosest - query.TriangleClosest) <= sr;
         }
 
