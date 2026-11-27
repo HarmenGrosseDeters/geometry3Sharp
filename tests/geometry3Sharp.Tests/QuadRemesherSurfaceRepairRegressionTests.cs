@@ -9,7 +9,7 @@ namespace geometry3Sharp.Tests
 {
     /// <summary>
     /// #1689, public API only (they fail on master): the default path (PreserveCreases off) of these fixtures dropped one or two faces and left holes; the neighbour order from
-    /// surface directions closes them. The 9 configurations of the 72 that still drop a face (the follow-up of the issue) are pinned in <see cref="QuadRemesherSurfaceRepairSweepTests"/>.
+    /// surface directions closes them. The 6 configurations of the 72 that still drop a face (the follow-up of the issue) are pinned in <see cref="QuadRemesherSurfaceRepairSweepTests"/>.
     /// </summary>
     public class QuadRemesherSurfaceRepairRegressionTests
     {
@@ -37,11 +37,14 @@ namespace geometry3Sharp.Tests
         [InlineData("sharp-cylinder", 14)]
         [InlineData("sharp-cylinder", 30)]
         [InlineData("gear", 10)]
+        [InlineData("gear", 26)]
+        [InlineData("gear", 28)]
         [InlineData("gear", 32)]
         [InlineData("gear", 35)]
         [InlineData("gear", 50)]
         [InlineData("gear", 60)]
         [InlineData("l-profile", 10)]
+        [InlineData("l-profile", 18)]
         [InlineData("l-profile", 40)]
         public void DefaultPath_ClosesTheHolesOfAFold(string name, int passes)
         {

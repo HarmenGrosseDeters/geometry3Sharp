@@ -8,26 +8,50 @@ using Xunit;
 namespace geometry3Sharp.Tests
 {
     /// <summary>
-    /// #1689: the 72 default and 72 PreserveCreases configurations (4 fixtures x 18 pass counts, split in three parts so that each case is within the time of a test).
+    /// #1689: the 72 default and 72 PreserveCreases configurations (4 fixtures x 18 pass counts, split in nine parts of two so that each case is within the time of a test).
     /// The repair never makes a result worse and changes none that dropped no face; the 9 default configurations that still drop a face are named (the follow-up).
     /// </summary>
     public class QuadRemesherSurfaceRepairSweepTests
     {
-        static readonly int[][] Parts = { new[] { 10, 12, 14, 16, 18, 20 }, new[] { 22, 24, 26, 27, 28, 29 }, new[] { 30, 32, 35, 40, 50, 60 } };
+        static readonly int[][] Parts = { new[] { 10, 12 }, new[] { 14, 16 }, new[] { 18, 20 }, new[] { 22, 24 }, new[] { 26, 27 }, new[] { 28, 29 }, new[] { 30, 32 }, new[] { 35, 40 }, new[] { 50, 60 } };
 
         [Theory]
         [InlineData("sharp-box", 0, "")]
         [InlineData("sharp-box", 1, "")]
         [InlineData("sharp-box", 2, "")]
+        [InlineData("sharp-box", 3, "")]
+        [InlineData("sharp-box", 4, "")]
+        [InlineData("sharp-box", 5, "")]
+        [InlineData("sharp-box", 6, "")]
+        [InlineData("sharp-box", 7, "")]
+        [InlineData("sharp-box", 8, "")]
         [InlineData("sharp-cylinder", 0, "")]
         [InlineData("sharp-cylinder", 1, "")]
         [InlineData("sharp-cylinder", 2, "")]
-        [InlineData("gear", 0, "14:1 16:1")]
-        [InlineData("gear", 1, "22:1 26:1 27:1 28:1")]
+        [InlineData("sharp-cylinder", 3, "")]
+        [InlineData("sharp-cylinder", 4, "")]
+        [InlineData("sharp-cylinder", 5, "")]
+        [InlineData("sharp-cylinder", 6, "")]
+        [InlineData("sharp-cylinder", 7, "")]
+        [InlineData("sharp-cylinder", 8, "")]
+        [InlineData("gear", 0, "")]
+        [InlineData("gear", 1, "14:1 16:1")]
         [InlineData("gear", 2, "")]
-        [InlineData("l-profile", 0, "18:1")]
+        [InlineData("gear", 3, "22:1")]
+        [InlineData("gear", 4, "27:1")]
+        [InlineData("gear", 5, "")]
+        [InlineData("gear", 6, "")]
+        [InlineData("gear", 7, "")]
+        [InlineData("gear", 8, "")]
+        [InlineData("l-profile", 0, "")]
         [InlineData("l-profile", 1, "")]
-        [InlineData("l-profile", 2, "35:2 60:1")]
+        [InlineData("l-profile", 2, "")]
+        [InlineData("l-profile", 3, "")]
+        [InlineData("l-profile", 4, "")]
+        [InlineData("l-profile", 5, "")]
+        [InlineData("l-profile", 6, "")]
+        [InlineData("l-profile", 7, "35:1")]
+        [InlineData("l-profile", 8, "60:1")]
         public void DefaultPath_NeverWorse_UnchangedWhenNothingDrops_AndTheRemainingDropsArePinned(string name, int part, string remaining)
         {
             var worse = new List<string>(); var still = new List<string>();
@@ -40,7 +64,11 @@ namespace geometry3Sharp.Tests
                 string id = name + "/" + passes;
                 PolyMeshMetrics mb = PolyMeshMetrics.Compute(before.Result), ma = PolyMeshMetrics.Compute(after.Result);
                 bool same = before.Result.VertexCount == after.Result.VertexCount && before.Result.FaceIndices.SequenceEqual(after.Result.FaceIndices);
-                if (before.DroppedFaces == 0) { if (!same) worse.Add(id + " changed without a dropped face"); }
+                if (before.DroppedFaces == 0 && !same) worse.Add(id + " changed without a dropped face");
+                if (after.DroppedFaces == before.DroppedFaces && !same) worse.Add(id + " changed with as many dropped faces");        // only strictly fewer are accepted
+                if (!after.Result.Validate().IsValid) worse.Add(id + " invalid");
+                if (!same && !QuadRemesher.HasNoRepeatedVertex(after.Result)) worse.Add(id + " a face with a repeated vertex");
+                if (QuadRemesher.BoundaryEdgeCount(after.Result) > QuadRemesher.BoundaryEdgeCount(before.Result)) worse.Add(id + " more boundary edges");
                 // a closed result differs from one with a hole by its faces: the quad fraction of the 9 changed configurations is within 0.005 (measured: 0.0046)
                 if (after.DroppedFaces > before.DroppedFaces || ma.BoundaryVertices > mb.BoundaryVertices) worse.Add(id + " more dropped faces / boundary vertices");
                 if (!ma.IsManifold) worse.Add(id + " not manifold");
@@ -56,15 +84,39 @@ namespace geometry3Sharp.Tests
         [InlineData("sharp-box", 0)]
         [InlineData("sharp-box", 1)]
         [InlineData("sharp-box", 2)]
+        [InlineData("sharp-box", 3)]
+        [InlineData("sharp-box", 4)]
+        [InlineData("sharp-box", 5)]
+        [InlineData("sharp-box", 6)]
+        [InlineData("sharp-box", 7)]
+        [InlineData("sharp-box", 8)]
         [InlineData("sharp-cylinder", 0)]
         [InlineData("sharp-cylinder", 1)]
         [InlineData("sharp-cylinder", 2)]
+        [InlineData("sharp-cylinder", 3)]
+        [InlineData("sharp-cylinder", 4)]
+        [InlineData("sharp-cylinder", 5)]
+        [InlineData("sharp-cylinder", 6)]
+        [InlineData("sharp-cylinder", 7)]
+        [InlineData("sharp-cylinder", 8)]
         [InlineData("gear", 0)]
         [InlineData("gear", 1)]
         [InlineData("gear", 2)]
+        [InlineData("gear", 3)]
+        [InlineData("gear", 4)]
+        [InlineData("gear", 5)]
+        [InlineData("gear", 6)]
+        [InlineData("gear", 7)]
+        [InlineData("gear", 8)]
         [InlineData("l-profile", 0)]
         [InlineData("l-profile", 1)]
         [InlineData("l-profile", 2)]
+        [InlineData("l-profile", 3)]
+        [InlineData("l-profile", 4)]
+        [InlineData("l-profile", 5)]
+        [InlineData("l-profile", 6)]
+        [InlineData("l-profile", 7)]
+        [InlineData("l-profile", 8)]
         public void CreasedPath_DropsNothing_AndTheRepairChangesNothing(string name, int part)
         {
             foreach (int passes in Parts[part]) {
