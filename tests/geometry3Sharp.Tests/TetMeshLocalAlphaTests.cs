@@ -477,7 +477,8 @@ namespace geometry3Sharp.Tests
         public void SizeField_RadiusUnderflowAndGridClampFallback_ReturnsExactHits()
         {
             // Reach underflows to 0.0, yet a query exactly on the sample has distance 0 and must see alphaMin.
-            var fUnder = new AlphaSizeField(new[] { Vector3d.Zero }, new[] { 1e-300 }, 2e-300, 1e-300, 1e20);
+            Assert.Equal(0.0, (2e-300 - 1e-300) / 1e30);
+            var fUnder = new AlphaSizeField(new[] { Vector3d.Zero }, new[] { 1e-300 }, 2e-300, 1e-300, 1e30);
             Assert.Equal(1, fUnder.FineSamples);
             Assert.Equal(1e-300, fUnder.At(Vector3d.Zero));
             Assert.Equal(2e-300, fUnder.At(new Vector3d(1e-300, 0, 0)));
