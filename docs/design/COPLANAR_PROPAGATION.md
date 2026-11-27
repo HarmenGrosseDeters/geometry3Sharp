@@ -277,5 +277,18 @@ test `ExactMeshBooleanCoplanarWalkTests` compares pieces, stacks, decisions and 
 fans (a cylinder and its 2-ulp, 0.25 and 1e-9 shifts), on boxes with coplanar tops, under every similarity, for union, intersection and
 difference. The optional run-time check of section 3 is not built.
 
-**Measured** (scratch repro of COPLANAR_FAN_DIAGNOSIS.md; the counts are exact, the times noisy): see the PR.
+**Measured** (the repro of COPLANAR_FAN_DIAGNOSIS.md, Release, net10.0, 4 cores, one run each; the counts are exact, the times noisy by 10 to 20 %). Case S (the cylinder and its 2-ulp shift), scan -> walk:
+
+| ring | pieces | union ms | stacks ms | exact tests (per piece) | winding ms |
+|---:|---:|---:|---:|---:|---:|
+| 32 | 2,352 | 485 -> 141 | 59 -> 34 | 25,432 (10.8) -> 18,216 (7.7) | 38 -> 13 |
+| 120 | 29,808 | 2,567 -> 1,170 | 879 -> 60 | 1,197,064 (40.2) -> 58,143 (2.0) | 312 -> 125 |
+| 240 | 117,168 | 10,478 -> 6,584 | 4,457 -> 501 | 9,392,504 (80.2) -> 184,337 (1.6) | 1,208 -> 1,161 |
+| 480 | 464,688 | 50,419 -> 27,531 | 23,060 -> 1,352 | 74,426,584 (160.2) -> 687,064 (1.5) | 4,846 -> 5,057 |
+
+Case R (offset 0.25): union 351 -> 171 ms (ring 120), 1,369 -> 1,146 (240), 5,389 -> 4,835 (480); stacks 166 -> 26, 297 -> 196, 1,793 -> 742;
+tests per piece 18.6 -> 1.8, 35.1 -> 1.3, 67.9 -> 1.2. The result is the scan's, bit for bit (the tests compare it at the smaller rings). The tests per
+piece fall with the ring (the seed scans, one per source, are about 4 n^2 over the pieces): the growth is bounded, as the growth test asserts. What is left of the union
+at ring 480 is the winding (5.1 s: the patches, option B), simplify (8.5 s) and the stages of section 7 that stay; the union is still above the 20 s rule
+at 1,920 triangles (27.5 s), as the diagnosis predicted (about 25 s).
 

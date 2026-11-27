@@ -48,7 +48,7 @@ namespace geometry3Sharp.Tests
         {
             if (dx == 0) {
                 double maxAbs = a.VertexIndices().Max(v => Math.Abs(a.GetVertex(v).x));
-                dx = 2 * (Math.BitIncrement(maxAbs) - maxAbs);
+                dx = 2 * (BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(maxAbs) + 1) - maxAbs);       // (the next double up; maxAbs is positive and finite)
             }
             var b = new DMesh3(a);
             foreach (int vid in b.VertexIndices().ToList()) { Vector3d v = b.GetVertex(vid); v.x += dx; b.SetVertex(vid, v); }

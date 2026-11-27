@@ -2504,7 +2504,6 @@ namespace g3
             int count = e - s, source = output[s].Source;
             var src = arr.Triangles[source];
             Dictionary<long, int[]> lines = arr.EdgeLinesOf(source);
-            List<int> coplanar = src.Coplanar;
             // the neighbours of each piece across its three edges (-1: none), and the key of the edge
             var neighbour = new int[3 * count];
             var edgeKey = new long[3 * count];
@@ -2564,8 +2563,7 @@ namespace g3
                     for (int m = 0; m < size; ++m)
                         members[m] = sp[m + 1];
                     foreach (int ui in planes) {
-                        if (in_ascending(coplanar, ui) == false)
-                            continue;
+                        // (a recorded plane is the edge plane of a clipped edge of u, so u is in src.Coplanar: clip_into adds it to the source's list whenever it adds a segment)
                         ++tests;
                         bool inside = inside_coplanar(src, arr.Triangles[ui], c);
                         int at = 0;
@@ -2599,22 +2597,6 @@ namespace g3
                 }
             }
             System.Threading.Interlocked.Add(ref coplanarTests, tests);
-        }
-
-        // the value is in the ascending list (binary search)
-        static bool in_ascending(List<int> list, int value)
-        {
-            int lo = 0, hi = list.Count - 1;
-            while (lo <= hi) {
-                int mid = lo + ((hi - lo) >> 1);
-                if (list[mid] == value)
-                    return true;
-                if (list[mid] < value)
-                    lo = mid + 1;
-                else
-                    hi = mid - 1;
-            }
-            return false;
         }
 
         // #1047: per input triangle that has coplanar triangles (6 entries each: min x, y, z, max x, y, z; NaN for the others),

@@ -1,6 +1,6 @@
 # Coplanar fan overlays (#1630): re-measurement, per-stage diagnosis, upper bound and options
 
-Status: diagnosis and options, nothing built (2026-11-27). Refs #1630. This note re-measures the case independently and adds
+Status: diagnosis and options (2026-11-27); option A (the stack walk) is built, with the measured result in COPLANAR_PROPAGATION.md section 9. Refs #1630. This note re-measures the case independently and adds
 what [COPLANAR_PROPAGATION.md](COPLANAR_PROPAGATION.md) (the design of 2026-11-25) does not have: a reproduction from an exact
 rational circle, counts for every stage, a second (realistic) case, an upper bound for the whole union, and a choice between
 options. The design of the walk itself stays in that document; this one decides what to build first.
