@@ -159,6 +159,21 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ACancelDuringTheRobustRepair_GivesStatusCancelled_NotARefusal()
+        {
+            // the token is cancelled when the repair is set up (the pipeline checks it before the repair, so only the wiring into the repair
+            // can see it): the repair stops, and the run is Cancelled, not OpenInput with a reason
+            using (var cts = new System.Threading.CancellationTokenSource()) {
+                var p = new SolidBooleanPipeline(ShellBowl(), Box(new Vector3d(0.2, 0, -0.3), 0.3), U) {
+                    InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepairThenRobust, SkipAutoRepairForTests = true,
+                    Cancellation = cts.Token, RobustRepairSetupForTests = r => { Cheap(r); cts.Cancel(); } };
+                Assert.False(p.Compute());
+                Assert.Equal(SolidBooleanPipeline.PipelineStatus.Cancelled, p.Status);
+                Assert.Null(p.Result);
+            }
+        }
+
+        [Fact]
         public void Reuse_ComputeTwice_RefusesTwiceTheSame()
         {
             SolidBooleanPipeline p = Pipeline(ShellBowl());

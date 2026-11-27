@@ -1293,6 +1293,8 @@ namespace gs
                         continue;
                     DMesh3 repaired;
                     SolidBooleanInputRepair r = repair(i, given[i], out repaired);
+                    if (r == null && Cancellation.IsCancellationRequested)
+                        return fail(PipelineStatus.Cancelled, "cancelled", total);
                     if (r == null) {
                         step("Refused", i, "input " + i + " is not closed and no allowed repair closed it (InputRepair = " + InputRepair + ")" + refusalSuffix(), "no result (Status OpenInput)");
                         return fail(PipelineStatus.OpenInput, "input " + i + " is not closed and no allowed repair closed it" + refusalSuffix(), total);
@@ -2589,6 +2591,7 @@ namespace gs
             if (InputRepair != InputRepairModes.AutoRepairThenRobust)
                 return null;
             var robust = new MeshRobustRepair(new DMesh3(input));
+            robust.CancelF = () => Cancellation.IsCancellationRequested;
             RobustRepairSetupForTests?.Invoke(robust);
             // Apply() false: the mesh in robust.Mesh is not a repair of the input (a thin shell around a solid, a part lost, ambiguous nesting, a
             // scale it does not handle, cancelled: see MeshRobustRepair.Apply), even where it is closed. It is not used; the run is refused and
