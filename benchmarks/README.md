@@ -30,6 +30,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [SheetExtensionProbe](SheetExtensionProbe/README.md) | Spike of the sheet extension design: continues a sheet whose rim ends just short of the workpiece's surface to it (public API only), verifies it exactly, 35 procedural cases in 5 frames with a `selftest` exit code, mutation of the rules by hand, a mode for two mesh files |
 | [PredicateComparison](PredicateComparison/README.md) | Accuracy and speed of `orient2d`, `incircle`, and `orient3d` implementations vs. exact reference |
 | [SelfIntersectionBenchmark](SelfIntersectionBenchmark/README.md) | Cost of exact self-intersection checks and `Reducer.PreventSelfIntersections` |
+| [CoplanarRegionClipping](CoplanarRegionClipping/README.md) | The doubling series of two coplanar fans (#1630): the old rule against `RegionClipping`, pieces and time |
 | [SelfIntersectionUntangle](SelfIntersectionUntangle/README.md) | Spike: a connectivity-preserving untangling prototype against `MeshRobustRepair`, the exact resolve, the solidify and the alpha wrap on procedural self-intersecting solids |
 | [SnapRoundingExperiment](SnapRoundingExperiment/README.md) | Snap-rounding prototypes and quality measurements for `SAFE_ROUNDING.md` |
 | [SolidBooleanAudit](SolidBooleanAudit/README.md) | Adversarial procedural corpus and an independent oracle (ray crossings, volumes) for an end-to-end audit of `SolidBooleanPipeline` |

@@ -231,11 +231,24 @@ Proofs (P1 to P5 of section 6; "region" is as in section 4):
   `same_plane`; `on_boundary` is `Orient` of an arrangement point against input corners (the existing predicate, the same call as `clip_into` makes). No filter and no
   error bound is added.
 
-Mutant of the one-crossing rule in `label_sheets` (the second dedupe site): equivalent because the site cannot be reached with two triangles of one region in a stack: a representative's source is the lowest stack entry and the stack holds no other triangle of its region (same-mesh coplanar entries exist only for regions that are not embedded, which are keyed per triangle). The first site is killed by a test with a predicate that reads the exact winding. Another equivalent mutant: dropping the sort of the ghosts in `prepare_touched`: `ghost_points` only adds points to a set that `touched_points` sorts, so the order of the ghosts (the pair loop's) changes nothing; the sort is defensive.
+Mutant of the one-crossing rule in `label_sheets` (the second dedupe site): equivalent because the site cannot be reached with two triangles of one region in a stack: a representative's source is the lowest stack entry and the stack holds no other triangle of its region (same-mesh coplanar entries exist only for regions that are not embedded, which are keyed per triangle). The first site is killed by a test with a predicate that reads the exact winding. The ghosts are not sorted (stage 3): `ghost_points` only adds points to a set that `touched_points` sorts, so the order of the ghosts (the pair loop's) changes nothing.
 
 Checker: the certifying checker (`BooleanCertificate`) is extended for `RegionClipping`: its own regions (not embedded ones as singletons, found by an exact overlap test of the triangles of one mesh in a plane) (flat edge = two triangles of one mesh in one exact plane
 with their third corners on opposite sides), the stack by region (a centroid on flat edges only is inside, on a boundary edge of a region is an error as before), and
 C2's straddle test against the boundary edges of the regions only (an exact segment against the open piece, by the signs of the forms). It does not use the arrangement.
+
+### Stage 3 measured (2026-11-27)
+
+[benchmarks/CoplanarRegionClipping](../../benchmarks/CoplanarRegionClipping/README.md) has the doubling series (S and R, ring 61 to 961, old rule up to 241) and a case
+without a coplanar cluster (13 ms against 12 ms, the same pieces and triangles). Against the gate of stage 3:
+
+- **S at ring 481 at most 3 s: met**, 1.4 s warm (27.5 s before; 3.2 s on the first run of a process with the JIT). R: 0.8 s.
+- **Growth at most x2.5 per doubling: not met.** Pieces are x2.0, the time x2.6 / x2.9 / x3.8 on S (ring 241 to 961) and x3.0 / x4.4 / x3.2 on R. The cause is the
+  pair stage: the intersecting coplanar pairs are x3.9 per doubling because the 2 ulp shift makes every thin wedge of one fan cross about half of the wedges of the
+  other at the common centre (genuinely, not a box artefact), and each pair is clipped six times and recorded. Ring 961: 5.3 s (S).
+- **No regression without clusters: met** (13 ms against 12 ms).
+- One cost found on the way and removed: the sort of the ghosts in `prepare_touched` (the defensive sort of the second review round) was 600 ms of 1.7 s at ring 481 for
+  no effect (`ghost_points` only adds points to a set that `touched_points` sorts), so it is gone; the equivalent mutant is the same.
 
 ## 9. Prior art (papers only; no code read)
 
