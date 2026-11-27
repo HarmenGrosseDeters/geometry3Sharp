@@ -116,6 +116,28 @@ namespace geometry3Sharp.Tests
             Assert.False(alone);
         }
 
+
+        // bands of the strip [0, 3] x [0, 3] at height z: the band x in [k, k + 1] as two triangles
+        static List<ExactPoint3[]> Band(int k, double z = 0) => new List<ExactPoint3[]> { T(k, 0, z, k + 1, 0, z, k + 1, 3, z), T(k, 0, z, k + 1, 3, z, k, 3, z) };
+
+        /// <summary>
+        /// The regions are subtracted from every piece that is left, not from the first: a middle band cuts the triangle into two pieces, and
+        /// a missing outer band must leave its piece uncovered, whichever side it is on (all three bands cover it).
+        /// </summary>
+        [Theory]
+        [InlineData(0, 1, 2, true)]
+        [InlineData(1, 0, 2, true)]
+        [InlineData(1, 2, 0, true)]
+        [InlineData(1, 0, -1, false)]
+        [InlineData(1, -1, 2, false)]
+        public void SeveralPiecesLeft_AreAllCovered_OrTheTriangleIsNot(int first, int second, int third, bool covered)
+        {
+            ExactPoint3[] t = T(0.05, 0.05, 0, 2.9, 0.05, 0, 0.05, 2.9, 0);
+            var tiles = new List<ExactPoint3[]>();
+            foreach (int k in new[] { first, second, third }) if (k >= 0) tiles.AddRange(Band(k));
+            Assert.Equal(covered, BooleanCertificate.UnionCovers(t, tiles, Delta, out _));
+        }
+
         [Fact]
         public void ASteepTile_IsSkipped_NotCountedAsCover()
         {
