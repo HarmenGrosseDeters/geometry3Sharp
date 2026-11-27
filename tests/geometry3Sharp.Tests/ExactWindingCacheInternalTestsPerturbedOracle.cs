@@ -59,13 +59,9 @@ namespace geometry3Sharp.Tests
         /// at the spacing that the ratio of the largest to the smallest difference needs (eps1 &gt;&gt; eps2 &gt;&gt; eps3 must stay
         /// infinitesimal against every ratio of the differences, or the finite stand-in decides a case that the limit decides otherwise).
         /// </summary>
-        internal static bool PerturbedAngle(Vector3d p, Vector3d a, Vector3d b, out double angle) { return PerturbedAngle(p, a, b, out angle, out _); }
-
-        // cond: the sizes of the terms of num and den over the length of (num, den): the rounding error of the function is about 1e-16 * cond
-        // (the formula atan2(num, den) loses digits when num and den cancel: p near the plane of the edge)
-        internal static bool PerturbedAngle(Vector3d p, Vector3d a, Vector3d b, out double angle, out double cond)
+        internal static bool PerturbedAngle(Vector3d p, Vector3d a, Vector3d b, out double angle)
         {
-            angle = 0.0; cond = 1.0;
+            angle = 0.0;
             BigInteger[] d = {
                 Grid(a.x) - Grid(p.x), Grid(a.y) - Grid(p.y), Grid(a.z) - Grid(p.z),
                 Grid(b.x) - Grid(p.x), Grid(b.y) - Grid(p.y), Grid(b.z) - Grid(p.z) };
@@ -93,9 +89,6 @@ namespace geometry3Sharp.Tests
             int shift = Math.Max(0, bits - 800);
             double dn = (double)(num >> shift), dd = (double)(den >> shift);
             angle = Math.Atan2(dn, dd);
-            BigInteger size = da * db + BigInteger.Abs(ay * by) + BigInteger.Abs(az * bz) + BigInteger.Abs(ay * bz) + BigInteger.Abs(az * by);
-            double big = Math.Max(Math.Abs(dn), Math.Abs(dd)), small = Math.Min(Math.Abs(dn), Math.Abs(dd));
-            cond = Math.Max(1.0, (double)(size >> shift) / (big * Math.Sqrt(1.0 + (small / big) * (small / big))));
             return true;
         }
 
@@ -155,11 +148,14 @@ namespace geometry3Sharp.Tests
 
         static string F(Vector3d v) { return $"({v.x:R}, {v.y:R}, {v.z:R})"; }
 
-        static void AssertMatches(Vector3d p, Vector3d a, Vector3d b, double expected, string what, double cond)
+        // the code documents 1.2e-13 for the rounded path (finish_edge_angle: the design note, "The accuracy of the edge angle") and 2^-61 for the exact one;
+        // the largest error seen on these inputs is below 3e-15 (a few ulps of an angle up to pi), so 1e-14 is kept: three times the observed maximum
+        const double Tolerance = 1e-14;
+
+        static void AssertMatches(Vector3d p, Vector3d a, Vector3d b, double expected, string what)
         {
-            double tol = 1e-12 + 2e-15 * cond;
             double got = ExactWindingCache.boundary_edge_angle_x(p, a, b);
-            Assert.True(Math.Abs(got - expected) <= tol, $"{what}: p {F(p)} a {F(a)} b {F(b)}: got {got:R}, exact perturbed {expected:R}");
+            Assert.True(Math.Abs(got - expected) <= Tolerance, $"{what}: p {F(p)} a {F(a)} b {F(b)}: got {got:R}, exact perturbed {expected:R}");
         }
 
         [Fact]
@@ -173,9 +169,9 @@ namespace geometry3Sharp.Tests
             var families = new Dictionary<string, int>();
             foreach (var c in DegenerateConfigs(60, 20261124)) {
                 if (c.a.Equals(c.b)) continue;
-                Assert.True(PerturbedAngle(c.p, c.a, c.b, out double exact, out double cond));
+                Assert.True(PerturbedAngle(c.p, c.a, c.b, out double exact));
                 double baseAngle = ExactWindingCache.boundary_edge_angle_x(c.p, c.a, c.b);
-                Assert.True(Math.Abs(baseAngle - exact) <= 1e-12 + 2e-15 * cond, $"{c.family}: p {c.p} a {c.a} b {c.b}: got {baseAngle:R}, exact perturbed {exact:R}");
+                Assert.True(Math.Abs(baseAngle - exact) <= Tolerance, $"{c.family}: p {c.p} a {c.a} b {c.b}: got {baseAngle:R}, exact perturbed {exact:R}");
                 double swapped = ExactWindingCache.boundary_edge_angle_x(c.p, c.b, c.a);
                 Assert.Equal(-baseAngle, swapped);
                 foreach (int k in ks) {
@@ -208,8 +204,8 @@ namespace geometry3Sharp.Tests
                     foreach (int kyz in ks) {
                         if (kx == kyz) continue;
                         Vector3d p = Scaled(c.p, Pow2(kx), Pow2(kyz)), a = Scaled(c.a, Pow2(kx), Pow2(kyz)), b = Scaled(c.b, Pow2(kx), Pow2(kyz));
-                        if (!PerturbedAngle(p, a, b, out double exact, out double cond)) continue;
-                        AssertMatches(p, a, b, exact, $"{c.family}, kx {kx}, kyz {kyz}, unscaled p {c.p} a {c.a} b {c.b}", cond);
+                        if (!PerturbedAngle(p, a, b, out double exact)) continue;
+                        AssertMatches(p, a, b, exact, $"{c.family}, kx {kx}, kyz {kyz}, unscaled p {c.p} a {c.a} b {c.b}");
                         Assert.Equal(-ExactWindingCache.boundary_edge_angle_x(p, a, b), ExactWindingCache.boundary_edge_angle_x(p, b, a));
                         ++tested;
                     }
@@ -237,14 +233,103 @@ namespace geometry3Sharp.Tests
                 if (i % 5 == 0) a = p + new Vector3d(R(ex), R(ey - 70), R(ez - 70));          // a vertex close to the x line of p
                 if (i % 7 == 0) b = new Vector3d(b.x, p.y + (b.y - p.y) * Pow2(-80), p.z + (b.z - p.z) * Pow2(-80));
                 if (!AllFinite(p) || !AllFinite(a) || !AllFinite(b)) continue;
-                if (!PerturbedAngle(p, a, b, out double exact, out double cond)) continue;
+                if (!PerturbedAngle(p, a, b, out double exact)) continue;
                 if (!Finite(a.x - p.x) || !Finite(a.y - p.y) || !Finite(a.z - p.z) ||
                     !Finite(b.x - p.x) || !Finite(b.y - p.y) || !Finite(b.z - p.z)) ++overflow;
-                AssertMatches(p, a, b, exact, $"random {i}", cond);
+                AssertMatches(p, a, b, exact, $"random {i}");
                 ++tested;
             }
             Assert.True(tested > 800, $"only {tested} cases");
             Assert.True(overflow > 20, $"only {overflow} cases with an overflowing difference");
+        }
+
+        [Fact]
+        public void NearThePlaneOfAnEdge_WithSmallX_IsWithinTheTightToleranceOfTheOracle()
+        {
+            // finding A1 (fixed in #1514): p near the plane of the edge and |x| << |yz|; the yz parts of a - p and b - p are nearly
+            // antiparallel, den = da db + dotYZ cancels, and the rounded evaluation was off by 1e-16 / sin(theta): 5.9e-14 for
+            // d = 1e-3, 1.5e-11 for d = 3e-6, 1.15e-9 for d = 1e-7 (the old code fails the tolerance from d = 1e-3 on)
+            double[] ds = { 1e-3, 1e-4, 3e-6, 1e-7, 1e-9, 1e-12 };
+            double[] xs = { 0.0, 1e-9, -1e-9, 1e-20 };
+            int tested = 0;
+            foreach (double d in ds) {
+                foreach (double x in xs) {
+                    foreach (double s in new[] { 1.0, Pow2(-300), Pow2(300) }) {
+                        Vector3d p = new Vector3d(0, 0, 0), a = new Vector3d(x * s, s, 0), b = new Vector3d(x * s, -s, d * s);
+                        Assert.True(PerturbedAngle(p, a, b, out double exact));
+                        AssertMatches(p, a, b, exact, $"d {d:R}, x {x:R}, scale {s:R}");
+                        Assert.Equal(-ExactWindingCache.boundary_edge_angle_x(p, a, b), ExactWindingCache.boundary_edge_angle_x(p, b, a));
+                        ++tested;
+                    }
+                }
+            }
+            Assert.Equal(ds.Length * xs.Length * 3, tested);
+        }
+
+        [Fact]
+        public void OpenEdge_WhereTheRescaledDzUnderflows_IsThePrincipalValueOfTheLimit()
+        {
+            // p on the open edge, |dz| of the edge below 2^-1075 of its length: after the rescaling uz is 0 and the sign of
+            // -ux uy decides (pi, 0 or pi / 2 with the sign of dz). The oracle cannot reach this range (its grid is 2^-1074), the
+            // expected value is the closed form of the limit atan2(0+, -ux uy).
+            double tiny = Pow2(-1074);
+            int tested = 0;
+            foreach (double bigX in new[] { Pow2(120), Pow2(1000) }) {
+                foreach (double c in new[] { 0.0, 1.0, -1.0, 3.0 * Pow2(500), -Pow2(-5) }) {
+                    foreach (double dzSign in new[] { 1.0, -1.0 }) {
+                        Vector3d p = new Vector3d(0, 0, tiny * dzSign);
+                        Vector3d a = new Vector3d(-bigX, -c, 0), b = new Vector3d(bigX, c, 2 * tiny * dzSign);
+                        double expected = c == 0.0 ? dzSign * Math.PI * 0.5 : (c > 0 ? dzSign * Math.PI : 0.0);   // ux > 0
+                        double got = ExactWindingCache.boundary_edge_angle_x(p, a, b);
+                        Assert.True(got == expected, $"bigX {bigX:R}, c {c:R}, dz sign {dzSign}: got {got:R}, expected {expected:R}");
+                        Assert.Equal(-got, ExactWindingCache.boundary_edge_angle_x(p, b, a));
+                        ++tested;
+                    }
+                }
+            }
+            Assert.Equal(20, tested);
+        }
+
+        [Fact]
+        public void Vertex_WithXBelowTheYzRangeAndAnUnderflowingZ_IsThePrincipalValueOfTheLimit()
+        {
+            // p == a, |dx| / |dy| < 2^-1020 and dz at 2^-1074 against dx: after the rescaling uz is 0 and the sign of dx decides:
+            // dx > 0 gives +-pi (the sign of dz), dx < 0 gives 0 (the limit of atan2(sign dz, -dx) with dz -> 0+)
+            double tiny = Pow2(-1074);
+            int tested = 0;
+            foreach (double dx in new[] { 4.0, -4.0, 2.0 }) {
+                foreach (double dzSign in new[] { 1.0, -1.0 }) {
+                    Vector3d p = new Vector3d(0, 0, 0);
+                    Vector3d other = new Vector3d(p.x + dx, p.y + Pow2(1023), p.z + dzSign * tiny);
+                    
+                    double expected = dx > 0 ? dzSign * Math.PI : 0.0;
+                    double got = ExactWindingCache.boundary_edge_angle_x(p, p, other);
+                    Assert.True(got == expected, $"dx {dx:R}, dz sign {dzSign}: got {got:R}, expected {expected:R}");
+                    Assert.Equal(-got, ExactWindingCache.boundary_edge_angle_x(p, other, p));
+                    ++tested;
+                }
+            }
+            Assert.True(tested >= 6, $"only {tested} cases");
+        }
+
+        [Fact]
+        public void Vertex_WithOverflowingDifferences_MatchesThePerturbedOracle()
+        {
+            // p == a (or p == b) with coordinates near 2^1023 of opposite signs: the differences overflow (dx and the yz parts)
+            var rnd = new Random(77124);
+            double R(int e) { return (rnd.NextDouble() + 0.5) * (rnd.Next(2) == 0 ? -1 : 1) * Pow2(e); }
+            int tested = 0;
+            for (int i = 0; i < 400; ++i) {
+                int ex = 1022 - rnd.Next(0, 2), ey = ex - rnd.Next(0, 70), ez = ex - rnd.Next(0, 70);
+                Vector3d p = new Vector3d(R(ex), R(ey), R(ez));
+                Vector3d other = new Vector3d(-Math.Sign(p.x) * Math.Abs(R(ex)), R(ey), R(ez));
+                if (!AllFinite(p) || !AllFinite(other)) continue;
+                Vector3d a = i % 2 == 0 ? p : other, b = i % 2 == 0 ? other : p;
+                if (!PerturbedAngle(p, a, b, out double exact)) continue;
+                AssertMatches(p, a, b, exact, $"overflowing vertex limit {i}");
+                ++tested;
+            }
+            Assert.True(tested > 300, $"only {tested} cases");
         }
     }
 }
