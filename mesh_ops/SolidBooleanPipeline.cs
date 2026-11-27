@@ -397,7 +397,8 @@ namespace gs
             /// MeshAutoRepair, and if the copy is still not closed, MeshRobustRepair of the input (it may solidify or wrap: the geometry
             /// can change). A MeshRobustRepair result is used only if its Apply() is true: a refused one (false, eg ThinShellWrap, a lost part,
             /// NestingAmbiguous, ScaleDisparity (a clean mesh flagged only by the degenerate-area diagnostic, components far apart compared with their size); the mesh may be closed but is not a repair of the input) is not used and the run fails with Status OpenInput,
-            /// Error naming the ResultReason. A MeshAutoRepair copy that self-intersects where the input does not is refused as with AutoRepair
+            /// Error naming the ResultReason.
+            /// MeshRobustRepair returns Apply() true also for an unclean solidify result (ResultReason = SolidifyReason, eg self-intersections), and the pipeline still uses such a winding-closed result: a known gap, a candidate follow-up. A MeshAutoRepair copy that self-intersects where the input does not is refused as with AutoRepair
             /// (Status OpenInput), without falling back to MeshRobustRepair
             /// </summary>
             AutoRepairThenRobust = 2

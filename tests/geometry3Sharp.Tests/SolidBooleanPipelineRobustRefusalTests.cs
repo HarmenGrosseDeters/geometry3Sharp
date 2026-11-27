@@ -81,10 +81,13 @@ namespace geometry3Sharp.Tests
             MeshEditor.Append(outer, open);
             Assert.False(RobustApply(outer, out string reason, out bool closed));
             Assert.StartsWith(MeshRobustRepair.NestingAmbiguous, reason);
+            Assert.True(closed, "setup: the refused mesh is winding closed, so the old code would have used it");
             SolidBooleanPipeline p = Pipeline(outer, Box(new Vector3d(-3, 1, 1), 0.5));
             Assert.False(p.Compute());
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
             Assert.Contains(MeshRobustRepair.NestingAmbiguous, p.Error);
+            Assert.Null(p.Result);
+            Assert.Empty(p.Report.RepairedInputs);
         }
 
         [Fact]
@@ -103,6 +106,8 @@ namespace geometry3Sharp.Tests
             Assert.False(p.Compute());
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
             Assert.Contains(MeshRobustRepair.ScaleDisparity, p.Error);
+            Assert.Null(p.Result);
+            Assert.Empty(p.Report.RepairedInputs);
         }
 
         [Fact]
