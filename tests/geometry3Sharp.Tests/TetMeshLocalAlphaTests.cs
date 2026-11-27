@@ -476,11 +476,13 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void SizeField_RadiusUnderflowAndGridClampFallback_ReturnsExactHits()
         {
-            // Reach underflows to 0.0, yet a query exactly on the sample has distance 0 and must see alphaMin.
+            // Reach underflows to 0.0, yet a query exactly on a sample has distance 0 and must see alphaMin.
             Assert.Equal(0.0, (2e-300 - 1e-300) / 1e30);
-            var fUnder = new AlphaSizeField(new[] { Vector3d.Zero }, new[] { 1e-300 }, 2e-300, 1e-300, 1e30);
-            Assert.Equal(1, fUnder.FineSamples);
+            Vector3d p1 = new Vector3d(1e-290, 0, 0);
+            var fUnder = new AlphaSizeField(new[] { Vector3d.Zero, p1 }, new[] { 1e-300, 1e-300 }, 2e-300, 1e-300, 1e30);
+            Assert.Equal(2, fUnder.FineSamples);
             Assert.Equal(1e-300, fUnder.At(Vector3d.Zero));
+            Assert.Equal(1e-300, fUnder.At(p1));
             Assert.Equal(2e-300, fUnder.At(new Vector3d(1e-300, 0, 0)));
 
             // Huge finite radius (1.5 * 2^1023) + overflow in (x.x - radius = -Inf) clamps x0 to -lim and hits the >16-cell full-scan fallback.
