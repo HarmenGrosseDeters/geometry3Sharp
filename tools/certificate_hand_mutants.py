@@ -150,6 +150,7 @@ M=[
 ("union prefilter without margin", "double tol = FilterEps(big, ext);", "double tol = 0;"),
 ("union prefilter ignores one side", "|| gh1 + tol < tl1;", "|| false;"),
 ("union chart cache without the axis", "var key = (j, a);", "var key = (j, 0);"),
+("union chart cache never reset", "if (ReferenceEquals(chartCacheOf, to) == false) {", "if (false) {"),
 ]
 
 # Equivalent mutants (not run by default; `--equivalent` runs them, and each must survive). Each changes no verdict:

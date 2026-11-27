@@ -147,7 +147,7 @@ coverage (3.4 to 4.3 s of 4.4 s; regions 1.8 s: per-candidate normal and chart 0
 triangle are empty; the difference of the polygons 1.65 s). Done: the charts of the candidates are cached per (candidate, axis), and a candidate whose chart
 box (from the approximated corners, margin `FilterEps`) is apart from the box of the triangle's chart is not clipped (the exact clips would find the
 region empty, the list of regions is the same; `FastUnionCover = false` is the old path, and the tests compare the two). Result: clipped candidates 26584 -> 12484
-at 13 vertices, coverage 3.7-4.2 s -> 2.9-3.1 s (C5 4.4-4.7 s -> 3.6-4.1 s); at 7 vertices 3930 -> 2742 clipped, no time difference (0.66 s). Not done, and why: a
+at 13 vertices, coverage 3.7-4.2 s -> 2.9-3.1 s (C5 4.4-4.7 s -> 3.6-4.1 s); at 7 vertices 3930 -> 2742 clipped, no time difference (0.66 s). (Measured locally on one machine, not a benchmark: a Stopwatch around `CheckCoverageOnly()` and `CheckResult()` of `SphereAndMirror(n)` in a throw-away test, `FastUnionCover` on and off, two runs each, the second kept; the counts of clipped candidates are exact and asserted by `FastUnionCover_GivesTheResultAndCountsOfTheExactPath_WithFewerCandidates`.) Not done, and why: a
 floating-point filter for the signs of the polygon difference (`Side2`), which would save an estimated 40 to 60 % of its 1.65 s. It needs a static error bound
 for a new expression in a certificate (proof, review and a mutation run for the bound), for about 0.8 s on a repro that no CI run exercises. The prefilter keeps
 12484 of 26584 candidates, 3.5 times the 3591 that survive the exact edge clips: a tighter test (the exact chart polygons against each other in doubles) is the

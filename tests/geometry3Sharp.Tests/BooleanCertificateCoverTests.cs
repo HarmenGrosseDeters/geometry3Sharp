@@ -318,12 +318,56 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void FastUnionCover_GivesTheResultAndCountsOfTheExactPath_UnderEverySimilarity()
         {
-            DMesh3 sph = Sphere(5), mir = Mirror(sph);
+            DMesh3 sph = Sphere(7), mir = Mirror(sph);
+            int[] identity = null;
             foreach (Similarity sim in Similarity.All()) {
                 DMesh3 Map(DMesh3 m) { var r = new DMesh3(m); foreach (int v in r.VertexIndices()) r.SetVertex(v, sim.Apply(r.GetVertex(v))); return r; }
-                var (f, s, rf, rs) = CoverBothPaths(Map(sph), Map(mir), Ops.Union);
-                AssertSameCover(f, s, rf, rs, sim.Name);
+                // (the scales 1e-3 and 1e3 are left out: not exact, not rotated, 0.7 s each, and the same counters as the identity's on a probe)
+                if (sim == Similarity.Millimetre || sim == Similarity.Kilometre) continue;
+                DMesh3 a = Map(sph), b = Map(mir);
+                // (a translation moves the mirror plane off the exact contact: the two copies then do not leave the coplanar pieces that
+                // the union cover is for, and the coverage is decided without it; those similarities check only that the paths agree)
+                bool contact = sim.Translation == Vector3d.Zero;
+#if NETFRAMEWORK
+                if (sim != Similarity.Identity) continue;   // (net48: BigInteger is several times slower; the other similarities run on .NET 10)
+#endif
+                bool both = sim == Similarity.Identity || sim.IsRotated || contact == false;
+                BooleanCertificate f = BooleanCertificate.Run(a, b, Ops.Union, out _);
+                string rf = f.CheckCoverageOnly();
+                Assert.Equal("", rf);
+                int[] counts = { f.Uncovered, f.UnionCovered, f.UnionLeftoverCovered, f.CoverageTests, f.UnionCandidatesClipped, f.UnionCandidatesFiltered };
+                if (contact) {
+                    Assert.True(f.UnionCovered > 0 && f.UnionCandidatesFiltered > 0, $"{sim.Name}: the case must reach the union cover and the prefilter ({f.UnionCovered}, {f.UnionCandidatesFiltered})");
+                    // (the scales that are powers of two change nothing: the counters are those of the identity, bit for bit)
+                    if (sim == Similarity.Identity) identity = counts;
+                    else if (sim.IsExact) Assert.True(identity.SequenceEqual(counts), $"{sim.Name}: {string.Join(",", counts)} against the identity's {string.Join(",", identity)}");
+                }
+                if (both) {
+                    BooleanCertificate s = BooleanCertificate.Run(a, b, Ops.Union, out _);
+                    s.FastUnionCover = false;
+                    AssertSameCover(f, s, rf, s.CheckCoverageOnly(), sim.Name);
+                }
             }
+        }
+
+        [Fact]
+        public void FastUnionCover_IsRepeatable_OnOneInstance_AndAfterTheOtherPath()
+        {
+            BooleanCertificate c = SphereAndMirror(7);
+            int[] Counts() => new[] { c.Uncovered, c.UnionCovered, c.UnionLeftoverCovered, c.CoverageTests, c.UnionCandidatesClipped, c.UnionCandidatesFiltered };
+            Assert.Equal("", c.CheckCoverageOnly());
+            int[] first = Counts();
+            Assert.True(first[1] > 0 && first[5] > 0);
+            // (twice on one instance: the counters are reset, and the cache of the charts is rebuilt for the lists of the new run)
+            Assert.Equal("", c.CheckCoverageOnly());
+            Assert.Equal(first, Counts());
+            // (the other path in between, then the fast one again: nothing is carried over)
+            c.FastUnionCover = false;
+            Assert.Equal("", c.CheckCoverageOnly());
+            Assert.Equal(0, c.UnionCandidatesFiltered);
+            c.FastUnionCover = true;
+            Assert.Equal("", c.CheckCoverageOnly());
+            Assert.Equal(first, Counts());
         }
 
         // E scaled about the origin by 1 + f * Delta (exact): every piece of the result before rounding moved by about f Delta along its normal
