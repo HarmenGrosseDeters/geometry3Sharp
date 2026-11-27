@@ -16,10 +16,24 @@
     <!-- the stages 1-2 certifying checker of the tests, timed by the certify mode (Certify.cs) -->
     <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\BooleanCertificate.cs" Link="Harness\BooleanCertificate.cs" />
     <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\BooleanCertificate.Recording.cs" Link="Harness\BooleanCertificate.Recording.cs" />
+    <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\BooleanCertificate.Coverage.cs" Link="Harness\BooleanCertificate.Coverage.cs" />
     <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\CertificateFile.cs" Link="Harness\CertificateFile.cs" />
     <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\BooleanFuzzCases.cs" Link="Harness\BooleanFuzzCases.cs" />
     <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\BooleanOracle.cs" Link="Harness\BooleanOracle.cs" />
+    <!-- the corpus gate of E' stage 4 (region-compare): one boolean with and without RegionClipping -->
+    <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\RegionClippingCompare.cs" Link="Harness\RegionClippingCompare.cs" />
     <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\Invariance.cs" Link="Harness\Invariance.cs" />
+  </ItemGroup>
+
+  <!-- the pipeline certificate spike (PipelineCertBench.cs): the harness, and the procedural adversarial corpus and oracle of the pipeline audit.
+       net10.0 only: the audit uses Math.ScaleB, ILogB and BitIncrement, which .NET Framework does not have (the net48 build has no pipeline-cert mode) -->
+  <ItemGroup Condition="'$(TargetFramework)' != 'net48'">
+    <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\PipelineCertificate.cs" Link="Harness\PipelineCertificate.cs" />
+    <Compile Include="..\SolidBooleanAudit\Corpus.cs" Link="Audit\Corpus.cs" />
+    <Compile Include="..\SolidBooleanAudit\Oracle.cs" Link="Audit\Oracle.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <Compile Remove="PipelineCertBench.cs" />
   </ItemGroup>
 
   <Import Project="..\net48-compare\Net48.props" />

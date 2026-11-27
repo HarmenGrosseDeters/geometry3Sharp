@@ -1260,6 +1260,50 @@ operations each (`perf/near_pending_boxes_report.py`, rows in `perf/near_pending
   between −13 and +4 %). The two operations above that, 119829 intersection (+19 %) and sphere_60 intersection
   (+15 %), take 0.1-0.3 s, 0.04 s of it rounding.
 
+## Separating axes in the rounding's full pair search (2026-11-27)
+
+`MeshRoundingRepair.intersecting_pairs_all` tests every box neighbour of a rounded triangle with the pair test. On
+results with long thin triangles on tilted faces a query has hundreds of box neighbours and none intersects. Now the
+four axes of every triangle (normal and in-plane edge normals) and its interval on each are computed once per search
+(`intersection/TriangleSeparatingAxes.cs`, 160 bytes per triangle for the time of the search; none above 6 710 886 triangles, a 1 GiB array, so below the object limit of every runtime), and a pair that is
+strictly apart along one of the eight axes of its two triangles skips the pair test. The margin of the comparison is
+derived in the class comment and in `docs/design/SNAP_ROUNDING_3D.md` section 5.3; the pairs found, and so the result,
+are the same. Lever 1 of the rounding cost study (`docs/research/ROUNDING_COST_2026-11.md` section 5, owner go
+2026-11-22), redone on master 4d2c8b1c5 after the joint stage (#1429 was 1 100 commits behind).
+
+**What was measured, and why not the old command.** The old command (`profile --repeat 3 --median --safe-rounding`, one
+process per case and side in turn, 4 cores) was started on 2026-11-27 and abandoned: the machine ran at 100 % processor
+load from other sessions, and the rows moved by +-40 % between runs of the same build (gear_500 intersection 10.5 s
+against 14.7 s, cyl_8000 intersection rounding 7.1 s against 15.6 s; hashes
+equal). The table below is instead the rounding repair alone, in process, with the switch
+`MeshRoundingRepair.NoSeparatingAxesOnThisThread` (the same build on both sides): the unrepaired rounded result of the
+union (`SafeRounding = false`) is repaired by `MeshRoundingRepair.Apply` (`SharedPositionsTouch`), five times with and
+five times without the axes in turn, on a copy each time; minimum and median in ms; serial (`SerialOnThisThread`) and
+parallel (12 cores shared with the load above, so read the minimum). The result of every pair of runs is the same
+(`same=True`, the text of the repaired mesh). Raw rows and the throw-away harness (`ApplyTiming.cs.txt`, a test of
+`tests/geometry3Sharp.Tests` that is not committed) in `perf/first_search_axes_2026-11-27/`. The cases are the ones of
+the study: `SnapRoundingExperiment gen` procedural meshes and the Thingi10K raw meshes 519511, 1517923, 668056, 119829
+(`BooleanComparison export`, the rotated copy), under `D:\work\Thingi10K-full\dataset\raw_meshes`.
+
+| case (union) | triangles | pairs the axes drop | serial without | serial with | parallel without | parallel with |
+|---|---:|---:|---:|---:|---:|---:|
+| gear_500 | 169 410 | 50.9 M | 10 979 | 6 522 (-41 %) | 2 878 | 1 868 (-35 %) |
+| fins_400 | 473 930 | 102.1 M | 45 036 | 29 426 (-35 %) | 8 801 | 5 969 (-32 %) |
+| 519511 | 519 736 | 82.3 M | 42 980 | 23 446 (-45 %) | 5 337 | 2 934 (-45 %) |
+| 1517923 | 200 018 | 15.6 M | 3 975 | 3 158 (-21 %) | 805 | 544 (-32 %) |
+| 668056 | 282 214 | 11.9 M | 4 004 | 4 161 (+4 %) | 1 586 | 1 084 (-32 %) |
+| plate_24 | 162 476 | 1.4 M | 3 207 | 3 054 (-5 %) | 1 842 | 1 330 (-28 %) |
+| cyl_8000 | 88 034 | 59.6 M | 34 612 | 34 132 (-1 %) | 4 628 | 5 040 (+9 %) |
+| 119829 | 252 702 | 0.3 M | 4 027 | 4 157 (+3 %) | 2 045 | 2 081 (+2 %) |
+| sphere_60 (control) | 61 880 | 16 k | 325 | 400 (+75 ms) | 113 | 130 (+17 ms) |
+
+- The gain is the same size as in the first PR (rounding -12.5 % over 48 operations there) where a query has hundreds of
+  box neighbours: the repair of gear_500, fins_400 and 519511 takes a third to a half less. Where the repair is
+  dominated by edits (cyl_8000: 59 M pairs dropped, 34 s serial) the gain is inside the noise.
+- The cost of the axes where nothing is dropped is the sphere_60 row: 75 ms serial, 17 ms parallel, for 62 k triangles.
+- The medians are noisier than the minima (the load); the serial rows of 668056 and 119829 and the parallel row of
+  cyl_8000 are inside that noise.
+
 ## Speed levers on seam inputs (`seam-levers`, 2026-11-22)
 
 Upper-bound probes of the study [EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md](../../docs/research/EXACT_BOOLEAN_SPEED_LEVERS_2026-11.md)
@@ -1411,6 +1455,20 @@ Headline (4 cores, the checker serial, shared container; ratios to the boolean):
 result 0.1-0.6. Coplanar clip: `IntrTriangle3Triangle3.Find` equals the rounded exact polygon in 120 000 pairs; `IntrTriangle2Triangle2`
 is off by up to 4e9 ulps on nearly parallel edges. The tables and their reading are in the note.
 
+### The pipeline certificate (`pipeline-cert`; spike 2026-11-25, phase 1)
+
+`PipelineCertBench.cs` measures the harness `tests/geometry3Sharp.Tests/Harness/PipelineCertificate.cs` (the exact stage's checker, the
+`NotCleanReason` check and the #1488-style rounding checks, verdicts Certified / NotCertifiable / Rejected) on the procedural audit corpus
+(`benchmarks/SolidBooleanAudit/Corpus.cs`, linked), on `SolidBooleanPipeline` runs with the boolean captured by `ConfigureBoolean`, and on a
+seeded sample of Thingi10K pairs (the `export` pairing). Note: [PIPELINE_CERTIFICATE_SPIKE_2026-11.md](../../docs/research/PIPELINE_CERTIFICATE_SPIKE_2026-11.md);
+output in `perf/pipeline_cert_*.txt`.
+
+```
+dotnet run -c Release -- pipeline-cert procedural | pipeline | pipeline-repair id | extras
+dotnet run -c Release -- pipeline-cert thingi <dataset>/raw_meshes 300 5000 [seed]     # BOOLCMP_ONLY_IDS=a,b: some models only
+dotnet run -c Release -- pipeline-cert diag <dataset>/raw_meshes/<id>.stl Union         # coverage at growing split depths
+```
+
 ### Certificate size and the whole checker (`certify size`; study 2026-11-24)
 
 For [CERTIFYING_BOOLEANS_2026-11.md](../../docs/research/CERTIFYING_BOOLEANS_2026-11.md). `CertifySize.cs` counts the size of a
@@ -1460,6 +1518,45 @@ verdict row out (the meshes are not changed, nothing is written). The row, one J
 | `verdict` | `certified`, `uncovered` (no violation, coverage not proven), `removed parts` (the rounding removed parts, listed), `rejected`, `not applicable`, `boolean failed`, `boolean exception`, `checker exception`, `boolean only` (`nocheck`), `error` (load or placement), `timeout` / `process failed` (driver) |
 | `clause`, `message` | the failing clause of a rejection (`C0`, `C1`, `C2`, `C3/C4`, `C5`), and `Check()`'s text (at most 400 characters) |
 | `split` | `SplitDepth`, where it was set |
+
+## Region clipping corpus gate (`region-compare`; E' stage 4, #1630, 2026-11-27)
+
+The gate before `ExactMeshBoolean.RegionClipping` becomes the default ([design/COPLANAR_REGION_CLIPPING.md](../../docs/design/COPLANAR_REGION_CLIPPING.md)): each
+operation with and without the switch, one JSON row per operation (`tests/geometry3Sharp.Tests/Harness/RegionClippingCompare.cs`, no mesh in a row). Gate per row: the same
+Status, the same `NotCleanReason`, the exact difference of the two results empty both ways (where both are clean and not empty), the certifying checker on the result with the
+switch on (where it applies), and the time with and without (reported, not gated). Verdict `same`, or the first thing that differs.
+
+```
+BooleanComparison region-compare fuzz <family|all> <from> <count>   the BooleanFuzzCases families (closed families and the open one), seeds [from, from + count)
+BooleanComparison region-compare audit [class]                      the procedural audit corpus (benchmarks/SolidBooleanAudit/Corpus.cs), the operands as given
+BooleanComparison region-compare thingi self|pair|contact ...       as `certify thingi` (the cases of data/certify_thingi.py plan)
+python3 data/certify_thingi.py run <cases> <dir> <out> --command region-compare    one process per case, a timeout per case
+python3 data/certify_thingi.py summary --region <rows>...           the counts by verdict, the differences, the time with and without by size
+```
+
+The run is `.github/workflows/region-clipping-corpus.yml` (workflow_dispatch; the Thingi10K models are fetched at run time on GitHub-hosted runners, nothing is committed;
+the rows go to the artifacts and the job summary; `run` and `summary --region` exit non-zero on any verdict other than `same` and `not compared (not clean)`, so a difference, a
+timeout or an error makes the job red). The procedural corpora are also a test, `RegionClippingCorpusTests` (6 seeds per family in the PR tier, 300 per family in the Nightly tier).
+
+Rows and verdicts. Per fuzz case: the three operations, and for closed inputs three predicates that read the exact winding numbers (`pred-only-first`, `pred-only-second`,
+`pred-both-once`): a crossing counted twice changes only the magnitude of a winding number, which the thresholds of the three operations never see, so only these rows kill a
+mutant of the one-crossing rule (the family `flatedge` puts centroids on flat diagonals). Verdict `same`; `not compared (not clean)` when the status and the reason agree but the
+results are not clean (open inputs, self-intersections): the surfaces are not compared, and the summary counts these apart; otherwise the first difference. The certificate is
+checked on a third run (the checker's class: Intersection without the early-out, the certificate recorded), not on the timed runs; the summary tallies its outcomes.
+
+Local run (2026-11-27, 4 cores, no network, so no Thingi10K): all 8 fuzz families (the seven closed ones, `open`, `flatedge`), seeds 0..119, 6,120 rows: 5,822 `same`, 297 `not compared
+(not clean)`, **1 `surface differs`**: `fuzz-slab-52` with `pred-only-second`; the audit corpus, 60 rows: 53 `same`, 7 `not compared`. Time 5.6 s without the switch, 4.7 s with.
+The difference (a known open difference pending the owner's decision, not an accepted one): `slab #52` is a slab of thickness 2^-42 on the top face of a box, and the predicate "inside the slab and
+outside the box" selects exactly it. Both results are clean, and the certificate of the result with the switch on covers it, but the rounded results differ (6 and 4 triangles; the exact
+difference has 6). The informational column `exact` says why: the two UNROUNDED results are `equal` (same faces, another triangulation: the 12 triangles of each differ, their face
+outlines per oriented plane do not). The slab is 500 times above the rounding resolution of the coordinates (2.3e-13 against 4.4e-16) and about twice the displacement the rounding
+repair may use (RoundingUlpFactor 256 ulps, 1.1e-13), so the repair collapses it, differently for the two triangulations. The nightly test keeps it as a documented exception
+(`RoundingSensitive`); the dispatch run does not.
+
+The column `exact` (rows that differ only): `equal` or `differs`, from the two unrounded results of both runs (the assembled mesh with the exact vertices, as sets of exact oriented
+triangles; if the triangles differ, the outlines of the faces per oriented plane: another triangulation of the same faces is `equal`, with `exact_note`). The verdict and the exit code
+are those of the rounded results (the owner's gate); `exact` is information. The row also carries `min_edge` (the smallest edge of the unrounded result), `round_res` (the rounding
+resolution of its coordinates) and `repair_tol` (the displacement the rounding repair may use); the summary tallies `exact` over the differing rows and prints the three numbers per row.
 
 ## Nesting check of MeshWindingNumberBoolean (`nesting-cost`; #1609, #1661, 2026-11-26)
 

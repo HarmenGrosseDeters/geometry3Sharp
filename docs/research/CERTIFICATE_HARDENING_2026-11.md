@@ -130,6 +130,29 @@ exact clipped areas of the projection against the group's triangles add up to th
 interior-disjoint (C1 and C2 have certified them before C5 runs), so the sum cannot overcount. This is exact, needs no
 new error bound, and its cost is linear in the group.
 
+**Result of #1631 (2026-11-27).** The union cover is in the checker (`Harness/BooleanCertificate.Coverage.cs`), in a more general form than proposed
+above: the mirror contact leaves the exact pieces of the two copies in planes that differ by ulps, so grouping by exact plane would split the union
+into two groups. Instead, for a triangle t that no single triangle covers: take the chart that drops the coordinate of the largest component of t's
+normal; for each candidate triangle G, the region of the chart where G exists and the gap along that axis between t and G is at most Delta is a convex
+polygon (the chart of t clipped by G's three edges and two half-planes, exact rationals); every point of t over the region is within Delta of G (the
+distance of two points that differ along one axis is that difference). t is covered if the chart minus the union of the regions is empty, or each left
+polygon, lifted onto t's plane, is within Delta of one triangle (the old test: convex distance, corners). The difference needs no disjointness of the
+exact pieces (convex polygon minus convex polygon, repeated), no error bound and no plane grouping. The sphere and its mirror: uncovered 872 -> 0
+(union, 13 edge vertices), 348 -> 0 (intersection), at the default depth 3; 7 edge vertices: 200 -> 0 and 80 -> 0. C5 costs more where it now decides
+(13 edge vertices, union, idle-ish 4 cores: 1.2 s -> 4.6 s: 872 triangles decided by exact rationals instead of left to the splits, which fail
+and cost 4^3 sub-triangles each). The 4 Thingi10K operations are not checked here (no network in the PR tier): to run `certify thingi` on them.
+
+**Cost of the union cover (2026-11-27, profile and first part).** Sphere and mirror, union, 13 edge vertices: the union cover was 97 % of the
+coverage (3.4 to 4.3 s of 4.4 s; regions 1.8 s: per-candidate normal and chart 0.35 s, the three edge clips 0.87 s, of which 86 % of the 30 candidates per
+triangle are empty; the difference of the polygons 1.65 s). Done: the charts of the candidates are cached per (candidate, axis), and a candidate whose chart
+box (from the approximated corners, margin `FilterEps`) is apart from the box of the triangle's chart is not clipped (the exact clips would find the
+region empty, the list of regions is the same; `FastUnionCover = false` is the old path, and the tests compare the two). Result: clipped candidates 26584 -> 12484
+at 13 vertices, coverage 3.7-4.2 s -> 2.9-3.1 s (C5 4.4-4.7 s -> 3.6-4.1 s); at 7 vertices 3930 -> 2742 clipped, no time difference (0.66 s). (Measured locally on one machine, not a benchmark: a Stopwatch around `CheckCoverageOnly()` and `CheckResult()` of `SphereAndMirror(n)` in a throw-away test, `FastUnionCover` on and off, two runs each, the second kept; the counts of clipped candidates are exact and asserted by `FastUnionCover_GivesTheResultAndCountsOfTheExactPath_WithFewerCandidates`.) Not done, and why: a
+floating-point filter for the signs of the polygon difference (`Side2`), which would save an estimated 40 to 60 % of its 1.65 s. It needs a static error bound
+for a new expression in a certificate (proof, review and a mutation run for the bound), for about 0.8 s on a repro that no CI run exercises. The prefilter keeps
+12484 of 26584 candidates, 3.5 times the 3591 that survive the exact edge clips: a tighter test (the exact chart polygons against each other in doubles) is the
+next step if the cost matters again.
+
 ### 2.3 The timeout: quadratic cost of the coplanar stacks, and an output-quadratic boolean
 
 One operation, an ulp-shift-few contact (union) of a model with 6726 triangles, did not finish in 900 s:

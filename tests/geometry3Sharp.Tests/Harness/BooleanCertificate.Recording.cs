@@ -77,6 +77,7 @@ namespace geometry3Sharp.Tests
             c.SettingMaxDisplacement = b.RoundingMaxDisplacement; c.SettingUlpFactor = b.RoundingUlpFactor;
             c.SettingAbsoluteTolerance = b.RoundingAbsoluteTolerance; c.SettingStrict = b.StrictRounding;
             c.SetRounding(b.Rounding != null, b.Rounding != null ? b.Rounding.MaxLength : 0, b.Rounding != null ? b.Rounding.RemovedComponents : 0);
+            c.RegionClipping = b.RegionClipping;
             c.Inputs = new List<DMesh3>(b.Meshes ?? new List<DMesh3> { b.MeshA, b.MeshB });
             return c;
         }

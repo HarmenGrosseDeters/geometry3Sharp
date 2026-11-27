@@ -9,7 +9,7 @@ namespace geometry3Sharp.Tests
 {
     /// <summary>
     /// #1689, public API only (they fail on master): the default path (PreserveCreases off) of these fixtures dropped one or two faces and left holes; the neighbour order from
-    /// surface directions closes them. The 6 configurations of the 72 that still drop a face (the follow-up of the issue) are pinned in <see cref="QuadRemesherSurfaceRepairSweepTests"/>.
+    /// surface directions closes them. All 72 default configurations of the sweep (<see cref="QuadRemesherSurfaceRepairSweepTests"/>) close.
     /// </summary>
     public class QuadRemesherSurfaceRepairRegressionTests
     {
@@ -37,7 +37,11 @@ namespace geometry3Sharp.Tests
         [InlineData("sharp-cylinder", 14)]
         [InlineData("sharp-cylinder", 30)]
         [InlineData("gear", 10)]
+        [InlineData("gear", 14)]
+        [InlineData("gear", 16)]
+        [InlineData("gear", 22)]
         [InlineData("gear", 26)]
+        [InlineData("gear", 27)]
         [InlineData("gear", 28)]
         [InlineData("gear", 32)]
         [InlineData("gear", 35)]
@@ -45,7 +49,9 @@ namespace geometry3Sharp.Tests
         [InlineData("gear", 60)]
         [InlineData("l-profile", 10)]
         [InlineData("l-profile", 18)]
+        [InlineData("l-profile", 35)]
         [InlineData("l-profile", 40)]
+        [InlineData("l-profile", 60)]
         public void DefaultPath_ClosesTheHolesOfAFold(string name, int passes)
         {
             QuadRemesher qr = RunDefault(QuadRemesherClosedOutputTests.Shape(name, passes), QuadRemesherClosedOutputTests.TargetOf(name));
@@ -66,24 +72,28 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Determinism_ParallelEqualsSerial_AndRepeatedRunsAgree()
         {
-            DMesh3 m = QuadRemesherClosedOutputTests.Shape("gear", 35);
-            double s = QuadRemesherClosedOutputTests.TargetOf("gear");
-            DPolyMesh serial = RunDefault(m, s, false).Result;
-            QuadRemesherClosedOutputTests.AssertSame(serial, RunDefault(m, s, true).Result);
-            QuadRemesherClosedOutputTests.AssertSame(serial, RunDefault(m, s, true).Result);
-            QuadRemesherClosedOutputTests.AssertSame(serial, RunDefault(m, s, false).Result);
+            foreach (int passes in new[] { 35, 22, 14 }) {       // (35: the fold orders, 22: the links that cross on the surface, 14: a sliver)
+                DMesh3 m = QuadRemesherClosedOutputTests.Shape("gear", passes);
+                double s = QuadRemesherClosedOutputTests.TargetOf("gear");
+                DPolyMesh serial = RunDefault(m, s, false).Result;
+                QuadRemesherClosedOutputTests.AssertSame(serial, RunDefault(m, s, true).Result);
+                QuadRemesherClosedOutputTests.AssertSame(serial, RunDefault(m, s, true).Result);
+                QuadRemesherClosedOutputTests.AssertSame(serial, RunDefault(m, s, false).Result);
+            }
         }
 
         [Fact]
         public void UnderSimilarities_TheScaledByAPowerOfTwoResultIsTheSameBitForBit_AndTheOthersAreClosed()
         {
-            DMesh3 m = QuadRemesherClosedOutputTests.Shape("sharp-cylinder", 14);
-            double s = QuadRemesherClosedOutputTests.TargetOf("sharp-cylinder");
-            DPolyMesh reference = RunDefault(m, s).Result;
-            foreach (Similarity sim in Similarity.All()) {
-                QuadRemesher qr = RunDefault(Invariance.Transformed(m, sim), s * sim.Scale);
-                AssertClosedSphere(qr, sim.Name);
-                if (sim.IsExact) QuadRemesherClosedOutputTests.AssertSame(reference, qr.Result, sim.Scale);
+            foreach (var (name, passes) in new[] { ("sharp-cylinder", 14), ("gear", 22), ("l-profile", 35) }) {     // (fold orders, links that cross on the surface, a sliver)
+                DMesh3 m = QuadRemesherClosedOutputTests.Shape(name, passes);
+                double s = QuadRemesherClosedOutputTests.TargetOf(name);
+                DPolyMesh reference = RunDefault(m, s).Result;
+                foreach (Similarity sim in Similarity.All()) {
+                    QuadRemesher qr = RunDefault(Invariance.Transformed(m, sim), s * sim.Scale);
+                    AssertClosedSphere(qr, name + "/" + passes + " " + sim.Name);
+                    if (sim.IsExact) QuadRemesherClosedOutputTests.AssertSame(reference, qr.Result, sim.Scale);
+                }
             }
         }
     }

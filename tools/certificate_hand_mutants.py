@@ -13,11 +13,13 @@ Usage (from the repository root, with the .NET 10 SDK): python3 tools/certificat
 """
 
 import os
+import signal
 import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHECKER = os.path.join(ROOT, "tests", "geometry3Sharp.Tests", "Harness", "BooleanCertificate.cs")
+COVER = os.path.join(ROOT, "tests", "geometry3Sharp.Tests", "Harness", "BooleanCertificate.Coverage.cs")
 
 # (name, the text in the checker, its replacement)
 M=[
@@ -47,7 +49,10 @@ M=[
 ("anchor marks all", "if (Care(v, m)) anchored[m][Find(uf[m], i)] = true;", "for (int z = 0; z < n; ++z) anchored[m][z] = true;"),
 ("culled ray off", "if (w[CullMesh] > 0) return", "if (false) return"),
 ("culled meet off", "if (ExactTriangleIntersection.Intersects(ref u, ref v)) return", "if (false) return"),
-("area check off", "if (kv.Value.Item1 * kv.Value.Item4 != kv.Value.Item3 * kv.Value.Item2)", "if (false)"),
+("area check off", "if (en * sd != sn * ed)", "if (false)"),
+("area skip in every plane", "if (kv.Value.Mixed == false && ForceExactAreas == false) continue;", "if (true) continue;"),
+("area plane never mixed", "if (ar.Mixed == false && Dot(n, ar.RefNormal).Sign <= 0) ar.Mixed = true;", ";"),
+("area sum drops a term", "return (an * bd + bn * ad, ad * bd);", "return (an * bd, ad * bd);"),
 ("degenerate near off", "if (n[0].Sign == 0 && n[1].Sign == 0 && n[2].Sign == 0) {", "if (false) {"),
 ("segment clamp", "if (Q.Compare(t, l2) >= 0) { Q[] bp", "if (false) { Q[] bp"),
 ("reversed count off", "if (reversed != ReorientedTriangles) return", "if (false) return"),
@@ -92,6 +97,26 @@ M=[
 ("stacks: culled triangles kept in the table", "if (TriCulled[u]) continue;\n                    h.Add(u); side.Add", "h.Add(u); side.Add"),
 ("straddle: a piece out of its source's plane takes the forms", "if (InSourcePlane(i) == false) return StraddlesInPlane(PieceCorners[i], triCorners[u]);", ";"),
 ("removed parts not reported", "if (RemovedParts.Count > 0)", "if (false)"),
+# --- the union cover of C5 (#1631): Harness/BooleanCertificate.Coverage.cs
+("union cover: never tried", "if (cornersNear && CoveredByUnion(t, cand, to, covDeltaQ, delta2)) return true;", "if (false) return true;"),
+("union cover: always decides", "if (cornersNear && CoveredByUnion(t, cand, to, covDeltaQ, delta2)) return true;", "if (cornersNear) return true;"),
+("union cover: gap bound doubled", "region = Clip(region, x => (delta - gap.Eval(x)).Reduce());", "region = Clip(region, x => (delta + delta - gap.Eval(x)).Reduce());"),
+("union cover: upper gap bound off", "region = Clip(region, x => (delta - gap.Eval(x)).Reduce());", ";"),
+("union cover: lower gap bound off", "region = Clip(region, x => (delta + gap.Eval(x)).Reduce());", ";"),
+("union cover: region not clipped by the triangle", "for (int e = 0; e < 3 && region.Count > 0; ++e) region = ClipLeft(region, gc[e], gc[(e + 1) % 3]);", ";"),
+("union cover: leftover not checked", "if (covered == false) return false;", ";"),
+("union cover: leftover lifted to height 0", "x[a] = tz.Eval(c);", "x[a] = new Q(0, 1);"),
+("union cover: leftover checked against nothing", "foreach (int j in cand) {\n                    bool all = true;\n                    foreach (Q[] x in lifted)", "foreach (int j in cand.Take(0)) {\n                    bool all = true;\n                    foreach (Q[] x in lifted)"),
+("union cover: difference never cuts", "if (inside) return pieces;", "if (inside || true) return pieces;"),
+("union cover: nothing is inside", "if (inside) return pieces;", "if (inside) { pieces.Add(poly); return pieces; }"),
+("union cover: the cut piece dropped", "if (outside.Count >= 3 && Area2(outside).Sign > 0) pieces.Add(outside);", ";"),
+("union cover: second region not subtracted from the pieces", "foreach (var piece in left) next.AddRange(Difference(piece, region));", "next.AddRange(Difference(left[0], region));"),
+("union cover: Clip keeps the wrong side", "if (v[i].Sign >= 0) r.Add(poly[i]);", "if (v[i].Sign <= 0) r.Add(poly[i]);"),
+# (the next one hangs the test host: the wrong ratio puts clip points outside their polygons and the rationals of the repeated clipping grow without end; run_tests kills a run after 25 minutes and counts it as killed)
+("union cover: Clip intersection ratio", "Q t = (v[i] / (v[i] - v[j])).Reduce();", "Q t = (v[i] / (v[j] - v[i])).Reduce();"),
+("union cover: chart axis not the largest component", "if (Q.Compare(Abs(n[k]), Abs(n[a])) > 0) a = k;", "if (Q.Compare(Abs(n[k]), Abs(n[a])) < 0) a = k;"),
+("union cover: plane height sign", "Cu = (new Q(-n[(a + 1) % 3].N, n[(a + 1) % 3].D) / n[a]).Reduce()", "Cu = (new Q(n[(a + 1) % 3].N, n[(a + 1) % 3].D) / n[a]).Reduce()"),
+
 # --- the floating-point filters of 2026-11-24 (box filters of C2 / C3, the double filters of C5, the floor; added 2026-11-25)
 ("box filter: neither side widened", [("lo[k] = l - Math.Abs(l) * (1.0 / (1L << 49)) - double.Epsilon;", "lo[k] = l;"),
                                     ("hi[k] = h + Math.Abs(h) * (1.0 / (1L << 49)) + double.Epsilon;", "hi[k] = h;")]),
@@ -122,12 +147,26 @@ M=[
 # (first listed as equivalent; not: a numerator below 2^1024 over a denominator above it converts to finite / infinity = 0, which the
 # finiteness check passes; CoverageFilters_AgreeWithTheExactTest_AtDistanceDeltaWithRoundedCoordinates, review of #1604)
 ("C5 approximation: size guard off", "if (ExactPoint3.BitLength(q.N) > 1000 || ExactPoint3.BitLength(q.D) > 1000) return false;", ";"),
+("union prefilter without margin", "double tol = FilterEps(big, ext);", "double tol = 0;"),
+("union prefilter ignores one side", "|| gh1 + tol < tl1;", "|| false;"),
+("union chart cache without the axis", "var key = (j, a);", "var key = (j, 0);"),
+("union chart cache never reset", "if (ReferenceEquals(chartCacheOf, to) == false) {", "if (false) {"),
 ]
 
 # Equivalent mutants (not run by default; `--equivalent` runs them, and each must survive). Each changes no verdict:
 EQUIVALENT = [
 ("stacks: groups ignore the plane of the source", "string key = triPlane[PieceSource[i]] + \"|\" + ids[0]", "string key = \"|\" + ids[0]",
  "pieces with the same three corner ids are the same triangle, so in the same plane; the plane of the source only differs for a piece outside its source's plane, which C1 rejects before C2 and C3 run (Check)"),
+("union cover: gap taken the other way round", "Affine gap = tz - HeightOver(g, a, gn);", "Affine gap = HeightOver(g, a, gn) - tz;",
+ "the region is symmetric: the two bounds delta - gap >= 0 and delta + gap >= 0 swap"),
+("union cover: no shortcut for a disjoint region", "if (allOut) { pieces.Add(poly); return pieces; }", "if (false) { pieces.Add(poly); return pieces; }",
+ "without it the cuts give the polygon back as its first piece (the same set, in a different number of polygons: only the cost)"),
+("union cover: no cap on the leftover", "if (left.Count > MaxLeftover) return false;", ";",
+ "the cap only bounds the cost; the polygons are all checked"),
+("union cover: tried without the corner test", "bool cornersNear = UnionCover;\n            for (int k = 0; k < 3 && cornersNear; ++k) {", "bool cornersNear = UnionCover;\n            for (int k = 0; k < 0 && cornersNear; ++k) {",
+ "the corner test only skips a triangle that cannot be covered (a corner with no triangle within Delta); the union cover on it finds a point of the chart region that is not covered and returns false: only the cost"),
+("union cover: steep triangle not skipped", "if (gn[a].Sign == 0) continue;", ";",
+ "a triangle with gn[a] = 0 has a chart of area 0, so the clip of the chart of t by its three edges leaves no area and the region test (`Area2(region).Sign <= 0`) continues before HeightOver, the only division by gn[a], is reached (the mutant survives for that reason: no test input reaches the division)"),
 ("C5 accept: weights not clamped", "v = Math.Min(1, Math.Max(0, v)); w = Math.Min(1 - v, Math.Max(0, w));", ";",
  "not proved, equivalent in practice: the clamp is a belt; in face, edge and vertex regions the weights are in [0, 1] up to rounding, and no input of the thin-triangle test, of 4 million random thin triangles (step A) and of 1.2 million targeted near-collinear cases (2026-11-25, double routine against an exact Fraction reference) took them outside by more than an ulp of v + w, which moves the point by an ulp of the triangle, far below the margin 3 eps"),
 ("C5 filter bound without the extent", "Math.Max((maxAbs + extent) / (double)(1L << 40),", "Math.Max((maxAbs) / (double)(1L << 40),",
@@ -168,9 +207,17 @@ EQUIVALENT = [
 
 
 def run_tests():
-    return subprocess.run(["dotnet", "test", os.path.join(ROOT, "tests", "geometry3Sharp.Tests"), "-c", "Release",
-                           "-f", "net10.0", "--filter", "(FullyQualifiedName~BooleanCertificateTests|FullyQualifiedName~BooleanCertificateFanTests)&Category!=Nightly"],
-                          capture_output=True, text=True)
+    """the test run of one mutant; a run that does not finish in 25 minutes (a mutant can make an exact loop or the rationals grow without end) is killed with its process group and reported as TIMEOUT"""
+    cmd = ["dotnet", "test", os.path.join(ROOT, "tests", "geometry3Sharp.Tests"), "-c", "Release", "-f", "net10.0", "--filter",
+           "(FullyQualifiedName~BooleanCertificateTests|FullyQualifiedName~BooleanCertificateFanTests|FullyQualifiedName~BooleanCertificateCoverTests)&Category!=Nightly"]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+    try:
+        out, err = proc.communicate(timeout=1500)
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        out, err = proc.communicate()
+        out += "\nTIMEOUT"
+    return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
 
 
 def edits(entry):
@@ -181,7 +228,15 @@ def edits(entry):
 def main(selected):
     equivalent = "--equivalent" in selected
     selected = [s for s in selected if s != "--equivalent"]
-    original = open(CHECKER, encoding="utf-8").read()
+    # the checker is a partial class: the mutants' texts are searched in each of its files (exactly once in all of them)
+    paths = [CHECKER] + ([COVER] if os.path.exists(COVER) else [])
+    originals = {path: open(path, encoding="utf-8").read() for path in paths}
+
+    def restore():
+        for path, text in originals.items():
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+
     # the baseline: on the unmutated checker the tests must pass, or every mutant would count as killed
     if "Passed!" not in run_tests().stdout:
         print("the tests fail on the unmutated checker: no mutant is run")
@@ -193,18 +248,25 @@ def main(selected):
             if selected and name not in selected:
                 continue
             pairs = edits(entry)
-            bad = [old for old, _ in pairs if original.count(old) != 1]
-            if bad:
-                print(f"{name}: the text is not in the checker exactly once ({[original.count(old) for old in bad]})")
+            where = []
+            for old, _ in pairs:
+                hits = [path for path in paths if originals[path].count(old) > 0]
+                if len(hits) != 1 or originals[hits[0]].count(old) != 1:
+                    where = None
+                    print(f"{name}: the text is not in the checker exactly once ({[sum(originals[path].count(old) for path in paths) for old, _ in pairs]})")
+                    break
+                where.append(hits[0])
+            if where is None:
                 survived += 1
                 continue
-            text = original
-            for old, new in pairs:
-                text = text.replace(old, new)
-            with open(CHECKER, "w", encoding="utf-8") as f:
-                f.write(text)
+            texts = dict(originals)
+            for (old, new), path in zip(pairs, where):
+                texts[path] = texts[path].replace(old, new)
+            for path, text in texts.items():
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(text)
             run = run_tests()
-            killed = "Failed!" in run.stdout
+            killed = "Failed!" in run.stdout or "TIMEOUT" in run.stdout or "Test Run Aborted" in run.stdout
             passed = "Passed!" in run.stdout and not killed
             if equivalent:
                 # an equivalent mutant must build and pass
@@ -213,10 +275,10 @@ def main(selected):
                 print(f"{name}: {verdict}", flush=True)
             else:
                 survived += 0 if killed else 1
-                print(f"{name}: {'KILLED' if killed else 'SURVIVED'}", flush=True)
+                print(f"{name}: {('KILLED (the run did not finish in 25 minutes)' if 'TIMEOUT' in run.stdout else 'KILLED') if killed else 'SURVIVED'}", flush=True)
+            restore()
     finally:
-        with open(CHECKER, "w", encoding="utf-8") as f:
-            f.write(original)
+        restore()
     return 1 if survived else 0
 
 

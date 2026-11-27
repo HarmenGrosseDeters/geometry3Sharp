@@ -1,0 +1,51 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using g3;
+using Xunit;
+
+namespace geometry3Sharp.Tests
+{
+    public class TimingTmp
+    {
+        [Fact]
+        public void Time()
+        {
+            string root = Environment.GetEnvironmentVariable("G3_TIMING_CASES");
+            if (string.IsNullOrEmpty(root)) return;
+            string outFile = Environment.GetEnvironmentVariable("G3_TIMING_OUT");
+            int reps = int.Parse(Environment.GetEnvironmentVariable("G3_TIMING_REPS") ?? "5");
+            var lines = new List<string>();
+            foreach (string c in Environment.GetEnvironmentVariable("G3_TIMING_LIST").Split(',')) {
+                string dir = Path.Combine(root, c.Replace('/', Path.DirectorySeparatorChar));
+                DMesh3 a = StandardMeshReader.ReadMesh(Path.Combine(dir, "A.off")), b = StandardMeshReader.ReadMesh(Path.Combine(dir, "B.off"));
+                var boolean = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { SafeRounding = false };
+                if (boolean.Compute() == false) { lines.Add(c + " boolean failed"); continue; }
+                DMesh3 m = boolean.Result;
+                foreach (bool serial in new[] { true, false }) {
+                    var with = new List<double>(); var without = new List<double>(); long apart = 0; string h1 = "", h2 = "";
+                    for (int i = 0; i < reps; ++i)
+                        foreach (bool axes in new[] { true, false }) {
+                            DMesh3 copy = new DMesh3(m);
+                            MeshRoundingRepair.NoSeparatingAxesOnThisThread = axes == false;
+                            gParallel.SerialOnThisThread = serial;
+                            var r = new MeshRoundingRepair(copy) { SharedPositionsTouch = true };
+                            var sw = Stopwatch.StartNew();
+                            r.Apply();
+                            sw.Stop();
+                            MeshRoundingRepair.NoSeparatingAxesOnThisThread = false;
+                            gParallel.SerialOnThisThread = false;
+                            (axes ? with : without).Add(sw.Elapsed.TotalMilliseconds);
+                            if (axes) { apart = r.AxisApartPairs; h1 = RoundingDirtyTreeTests.Print(copy).GetHashCode().ToString(); }
+                            else h2 = RoundingDirtyTreeTests.Print(copy).GetHashCode().ToString();
+                        }
+                    lines.Add($"{c} tris={m.TriangleCount} serial={serial} without min {without.Min():F0} med {without.OrderBy(x => x).ElementAt(reps / 2):F0} | with min {with.Min():F0} med {with.OrderBy(x => x).ElementAt(reps / 2):F0} ms | apart={apart} same={h1 == h2}");
+                    File.WriteAllLines(outFile, lines);
+                }
+            }
+            File.WriteAllLines(outFile, lines);
+        }
+    }
+}

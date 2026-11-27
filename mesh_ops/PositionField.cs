@@ -1,5 +1,6 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
+using g3.CoreMathPort;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using g3;
@@ -197,7 +198,7 @@ namespace gs
             for (int i = 0; i < n; ++i) {
                 int v = ToVertex[i];
                 L.V[i] = Mesh.GetVertex(v); L.Nrm[i] = Field.VertexNormal(v); L.Q[i] = Field.VertexDirection(v, 0);
-                if (RotationAngles != null && RotationAngles[v] != 0) L.Q[i] = Math.Cos(RotationAngles[v]) * L.Q[i] + Math.Sin(RotationAngles[v]) * L.Nrm[i].Cross(L.Q[i]);
+                if (RotationAngles != null && RotationAngles[v] != 0) L.Q[i] = CoreMath.Cos(RotationAngles[v]) * L.Q[i] + CoreMath.Sin(RotationAngles[v]) * L.Nrm[i].Cross(L.Q[i]);
             }
             if (SpacingFactors != null) {
                 L.Sc = new double[n];
@@ -213,7 +214,7 @@ namespace gs
             // adjacency, boundary, and (when PreserveCreases) sharp crease constraints
             HashSet<int> creaseEdges = null;
             if (PreserveCreases) {
-                var topo = new MeshTopology(Mesh) { CreaseAngle = CreaseAngleDegrees };
+                var topo = new MeshTopology(Mesh) { CreaseAngle = CreaseAngleDegrees, CorrectlyRoundedThreshold = true };
                 topo.Compute();
                 creaseEdges = topo.CreaseEdges;
             }
@@ -238,7 +239,7 @@ namespace gs
             }
             start[n] = nbs.Count;
             L.AS = start; L.AJ = nbs.ToArray(); L.AB = bnd.ToArray();
-            double cosCorner = Math.Cos(CornerAngleDegrees * Math.PI / 180);
+            double cosCorner = CoreMath.Cos(CornerAngleDegrees * Math.PI / 180);
             for (int i = 0; i < n; ++i) {
                 List<int> fnbs = bnbs[i];
                 if (fnbs != null) {

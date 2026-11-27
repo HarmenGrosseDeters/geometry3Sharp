@@ -81,10 +81,13 @@ namespace geometry3Sharp.Tests
             MeshEditor.Append(outer, open);
             Assert.False(RobustApply(outer, out string reason, out bool closed));
             Assert.StartsWith(MeshRobustRepair.NestingAmbiguous, reason);
+            Assert.True(closed, "setup: the refused mesh is winding closed, so the old code would have used it");
             SolidBooleanPipeline p = Pipeline(outer, Box(new Vector3d(-3, 1, 1), 0.5));
             Assert.False(p.Compute());
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
             Assert.Contains(MeshRobustRepair.NestingAmbiguous, p.Error);
+            Assert.Null(p.Result);
+            Assert.Empty(p.Report.RepairedInputs);
         }
 
         [Fact]
@@ -103,6 +106,8 @@ namespace geometry3Sharp.Tests
             Assert.False(p.Compute());
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
             Assert.Contains(MeshRobustRepair.ScaleDisparity, p.Error);
+            Assert.Null(p.Result);
+            Assert.Empty(p.Report.RepairedInputs);
         }
 
         [Fact]
@@ -150,12 +155,70 @@ namespace geometry3Sharp.Tests
             if (ran == false) {
                 Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
                 Assert.Contains(MeshRobustRepair.ThinShellWrap, p.Error);
+                // (a power-of-two scale runs the same stages bit for bit: the same text, not only the same status)
+                double log = Math.Log(s.Scale, 2);
+                if (s.IsExact && log == Math.Round(log)) {
+                    SolidBooleanPipeline id = Pipeline(ShellBowl(), Box(new Vector3d(0.2, 0, -0.3), 0.3));
+                    Assert.False(id.Compute());
+                    Assert.Equal(id.Error, p.Error);
+                }
             } else {
                 Assert.Single(p.Report.RepairedInputs);
                 Assert.True(p.Result.IsClosed(), name);
                 Assert.True(p.Result.CheckValidity(false, FailMode.ReturnOnly), name);
                 Assert.Equal("", MeshRobustRepair.NotCleanReason(p.Result));
             }
+        }
+
+        [Fact]
+        public void ACancelAfterAFewChecks_StopsTheRobustRepairPromptly_StatusCancelled()
+        {
+            // the token is cancelled from inside the repair's own cancel check, at its CancelAt-th call (by count, not by time). With the pipeline's
+            // token wired into CancelF the repair stops at once: few further checks, Status Cancelled. Without the wiring its CancelF stays false and
+            // the repair runs to its end (many further checks). The pipeline would also see the token after the repair, so the checks are counted
+            const int CancelAt = 3, MaxFurther = 8;
+            using (var cts = new System.Threading.CancellationTokenSource()) {
+                int calls = 0, further = 0;
+                var p = new SolidBooleanPipeline(ShellBowl(), Box(new Vector3d(0.2, 0, -0.3), 0.3), U) {
+                    InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepairThenRobust, SkipAutoRepairForTests = true,
+                    Cancellation = cts.Token,
+                    RobustRepairSetupForTests = r => {
+                        Cheap(r);
+                        Func<bool> wired = r.CancelF;
+                        r.CancelF = () => {
+                            if (++calls == CancelAt)
+                                cts.Cancel();
+                            if (calls > CancelAt)
+                                ++further;
+                            return wired();
+                        };
+                    } };
+                Assert.False(p.Compute());
+                Assert.Equal(SolidBooleanPipeline.PipelineStatus.Cancelled, p.Status);
+                Assert.Null(p.Result);
+                Assert.True(calls >= CancelAt, "setup: the repair checks for a cancel at least " + CancelAt + " times, it made " + calls);
+                Assert.True(further <= MaxFurther, "the repair went on after the cancel: " + further + " further checks");
+            }
+        }
+
+        [Fact]
+        public void Reuse_AnotherRepairMode_DropsTheOldRefusalText()
+        {
+            SolidBooleanPipeline p = Pipeline(ShellBowl());
+            Assert.False(p.Compute());
+            Assert.Contains("MeshRobustRepair did not repair it", p.Error);
+            foreach (var mode in new[] { SolidBooleanPipeline.InputRepairModes.AutoRepair, SolidBooleanPipeline.InputRepairModes.Refuse }) {
+                p.InputRepair = mode;
+                Assert.False(p.Compute());
+                Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, p.Status);
+                Assert.DoesNotContain("MeshRobustRepair did not repair it", p.Error);
+                Assert.DoesNotContain(MeshRobustRepair.ThinShellWrap, p.Error);
+                Assert.All(p.Report.Route, step => Assert.DoesNotContain("MeshRobustRepair did not repair it", step.Reason));
+            }
+            // and back: the refusal is named again
+            p.InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepairThenRobust;
+            Assert.False(p.Compute());
+            Assert.Contains(MeshRobustRepair.ThinShellWrap, p.Error);
         }
 
         [Fact]

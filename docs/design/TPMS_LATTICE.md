@@ -282,7 +282,7 @@ API (additive, one new member group; nothing changes when unset; as built: `Seco
   without `Enclosure`). Helpers `SigmoidBlend(axis or normal, offset, width)` (the weight of (6) with `eta` the signed distance
   along the normal in length units and `k = 4 / width`, so the slope at the midpoint is `1 / width` and the 10 % to 90 % zone is `2 ln 9 / k = 1.10 width` wide, `|grad w| <= k / 4 = 1 / width`) and `CheckerBlend(A, B)` (the layout of G-IWP-2: `w = A B + (1 - A)(1 - B)`
   of two sigmoids along x and y, `|grad w| <= sqrt(kx^2 + ky^2) / 4`; this combination is mine, the paper builds the checkerboard with its
-  sums (4), (5)). `w` is evaluated in a numerically stable form (`0.5 (1 + tanh(k eta / 2))`; the printed `1 / (1 + exp(-k eta))` overflows for large `-k eta`).
+  sums (4), (5)). `w` is evaluated as printed, `1 / (1 + exp(-k eta))` with the correctly rounded `CoreMath.Exp` (#1682: the same bits on every runtime; for large `-k eta` exp overflows to infinity and `w` is 0, exactly; before #1682 it was `0.5 (1 + tanh(k eta / 2))` with the platform `Math.Tanh`).
 - Both types share `CellSize` and `Rotation` (the paper does the same); different periods per type are a non-goal (the phase map is
   per field and the transition would have no meaning). A `Grade` (graded cell size) applies to both fields at once: allowed, the
   Jacobian bound enters the bound below unchanged.
@@ -301,10 +301,11 @@ with `J` the Jacobian bound of the grade (1 without) and `Wmax` the bound of `|g
 guard is scaled by the phase part over `Lh`, see 9.7). The rounding error of an evaluation (`EnclosureErrorBlend`, with `u = 2^-53` and `msum >= |g_A - c_A| + |g_B - c_B|`, divided by `Lh s` like the single type term) is
 `64 u max(TermSum_A, TermSum_B)` for the two type evaluations (the weights sum to 1), plus `6 u msum` for the six rounding steps of the combination (`g_A - c_A`,
 `g_B - c_B`, `w (.)`, `1 - w`, `(1 - w)(.)` and the sum, each at most `u` times a value of at most `msum`), plus `eps_w msum` for the error `dw` of the weight times
-`|g_A - c_A - g_B + c_B| <= msum`, plus the phase term of `EnclosureError`. For `SigmoidBlend`, `eps_w` is a relative-error argument: `z = 2 eta / width` with `eta = p - offset` has a relative
-error of at most `2 u` (one rounding in the subtraction, one in the division; this also holds for `|offset| > s`, where an absolute argument fails); the propagated error of
-`tanh` is `sech^2(z) |z| 2 u <= 0.45 * 2 u = 0.9 u` (`max z sech^2 z = 0.4506`); a `tanh` within 2 ulp adds `2 u`, and `1 + tanh` and the product by 0.5 (exact) add `2 u`,
-so `dw <= 0.5 (0.9 u + 2 u + 2 u) = 2.5 u`. The code uses `eps_w = 8 u + 2 u s Wmax`: the `8 u` absorbs a `tanh` with an error of up to about 6 ulp (the platform libm is not specified), and the second term covers a delegate
+`|g_A - c_A - g_B + c_B| <= msum`, plus the phase term of `EnclosureError`. For `SigmoidBlend`, `eps_w` is a relative-error argument: `w = 1 / (1 + E)`, `E = exp(y)`, `y = -4 eta / width` with `eta = p - offset` has a relative
+error of at most `2 u` (one rounding in the subtraction, one in the division, the factor 4 is exact; this also holds for `|offset| > s`, where an absolute argument fails); as
+`dw / d(log E) = -w (1 - w)`, the propagated error is `w (1 - w) |y| 2 u <= 0.224 * 2 u = 0.448 u` (`max w (1 - w) |y| = 0.2240`); the correctly rounded `exp` adds
+`w (1 - w) u <= 0.25 u`, and the sum `1 + E` and the division add a relative `u` each, at most `2 u` in `w`, so `dw <= 2.7 u` (checked against a 256-bit
+reference, measured at most 1.46 u: `TpmsDeterminismTests.SigmoidBlend_WeightError_IsWithinTheDerivedBound`). The code uses `eps_w = 8 u + 2 u s Wmax`: the `8 u` is the budget a delegate weight must meet (it absorbed the platform `tanh` before #1682), and the second term covers a delegate
 weight whose coordinate rounding is at most `2 u s`. The recipe needs only the sampled values and the Lipschitz constant of `h / Lh`, not an exactly representable `h`, as for the constant lattice. Enclosure then means: the
 solid contains the exact blend `{h <= 0}` of the stated `w`.
 
@@ -364,8 +365,8 @@ whether reading Ren 2021 and Gao 2022 comes first.
 Built as designed in 9.2 to 9.5 (`TpmsLattice.SecondType`, `Blend` (`TpmsBlendWeight`), `SigmoidBlend`, `SecondLevel`, `EnclosureErrorBlend`; `g3cli tpms`
 `second_type`, `blend`; `TpmsHybridTests`, `TpmsCliTests`; benchmark rows), with these differences from the text above:
 
-- The stable form `0.5 (1 + tanh(2 eta / width))` is used for exact symmetry `w(eta) + w(-eta) = 1`, not because the printed form fails: in IEEE doubles `1 / (1 + exp(+large))`
-  is 0, not NaN (`exp` overflows to infinity), so test 7 pins the saturation, the symmetry and the scale invariance of the weight, and cannot tell the two forms apart.
+- The printed form `1 / (1 + exp(-4 eta / width))` is used since #1682 (before: `0.5 (1 + tanh(2 eta / width))` with the platform `Math.Tanh`, for symmetry): in IEEE doubles `1 / (1 + exp(+large))`
+  is 0, not NaN (`exp` overflows to infinity), and the symmetry `w(eta) + w(-eta) = 1` holds to 14 digits, so test 7 pins the saturation, the symmetry and the scale invariance of the weight, and cannot tell the two forms apart.
 - A weight delegate with an unknown gradient bound (NaN) leaves the weight term out of `Lh` and is refused with `Enclosure`; a weight outside [0, 1] is clamped (the
   clamp keeps the bound).
 - Sliver guard: the larger of the two per-type `GradientRatio`s sizes `Snap` (pinned through the level pad under `Enclosure`).
