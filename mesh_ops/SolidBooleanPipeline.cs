@@ -64,9 +64,11 @@ namespace gs
         /// </summary>
         EmptyExact = 4,
         /// <summary>
-        /// an empty result although the exact result had volume: the pipeline removed all of it, the rounding as a component thinner than its
-        /// bound can resolve (Report.RoundingRemoved lists them: a real slab of 1e-12 at coordinates of 0.5), or MinThickness
-        /// (Report.RemovedThinSolids, Report.ThinInputs). Not an answer that "the solids do not overlap"
+        /// an empty result that the pipeline made empty, although the exact result had volume (rounding, MinThickness) or possibly had volume
+        /// (ThinInputs = TreatAsEmpty): the rounding removed all of it as a component thinner than its bound can resolve (Report.RoundingRemoved
+        /// lists them: a real slab of 1e-12 at coordinates of 0.5), or MinThickness removed the solids (Report.RemovedThinSolids), or an input
+        /// that MinThickness found thin was treated as empty (Report.ThinInputs; the exact stage never saw it, so the exact result may have been
+        /// empty too). Not an answer that "the solids do not overlap"
         /// </summary>
         EmptyAfterRounding = 5
     }
@@ -176,7 +178,7 @@ namespace gs
         /// culled outside the first input (or of all inputs for an Intersection). The inputs of the run that is the result (after a Grid
         /// step or a fallback). It is a signal about the inputs, not a judgement of the result: the result is exact for the inputs as given, in
         /// winding number semantics, so a flagged input is one whose meaning may differ from what the caller meant. Status, Clean, NotCleanReason and
-        /// OnlyContacts keep their meaning. Also set for a run that fails after the exact stage (InsideOutInput, Cancelled, a Verification refusal), where ResultKind is None. It is computed on the pieces the exact stage classified, with the early-out cull on
+        /// OnlyContacts keep their meaning. Also set for a run that fails after the classification: InsideOutInput, a Verification refusal, a Cancelled after the boolean (ResultKind is None). Empty for a failure of the boolean itself: RoundingNotClean, OpenInput, BudgetExceeded, Cancelled during the boolean. It is computed on the pieces the exact stage classified, with the early-out cull on
         /// </summary>
         public List<int> InputsWithWindingOutsideZeroOne = new List<int>();
         /// <summary> triangles per input as given (before any repair) </summary>
@@ -2733,15 +2735,15 @@ namespace gs
             return true;
         }
 
+        /// <summary> the most intersecting triangle pairs (raw ids, contacts included) for which the final check counts the crossing triangles; above it SelfIntersectingTriangles is -1 </summary>
+        internal const int FinalCheckPairCap = 20000;
+
         /// <summary>
         /// the final check of a result into the report: ContactsResult, NotCleanReason, and for "self-intersections" the exact
         /// SelfIntersectingTriangles (CrossingTriangles over all vertices) and OnlyContacts; the three others are reset.
         /// countCrossings false: the two are left at 0 / false without the (more expensive) count of the crossing pairs, which
         /// is the full enumeration of the intersecting pairs (no cap, no cancellation check: its cost grows with their number)
         /// </summary>
-        /// <summary> the most intersecting triangle pairs (raw ids, contacts included) for which the final check counts the crossing triangles; above it SelfIntersectingTriangles is -1 </summary>
-        internal const int FinalCheckPairCap = 20000;
-
         internal static void FinalCheck(DMesh3 mesh, SolidBooleanReport report, bool countCrossings = true, int pairCap = FinalCheckPairCap)
         {
             report.ContactsResult = countContacts(mesh, null);

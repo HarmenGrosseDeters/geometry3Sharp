@@ -818,13 +818,21 @@ namespace g3
 
         ExactMeshArrangement arr;
 
+        /// <summary>
+        /// #1630, stage 2 of docs/design/COPLANAR_REGION_CLIPPING.md (internal, off by default): region clipping. A flat edge of a region (a set of triangles
+        /// of one mesh in one exact plane joined through edges that traverse in opposite directions) does not cut the coplanar triangles of the other
+        /// meshes. A piece is output from the stack's first triangle as before: the members of a stack are triangles of other meshes, so the region of the lowest rank is that of the lowest mesh.
+        /// The result is the same surface; the triangulation of coplanar clusters differs. The stack walk is not used with it.
+        /// </summary>
+        internal bool RegionClipping;
+
         // the arrangement of Compute() with this instance's settings (also the one-mesh arrangement of nest_input)
         ExactMeshArrangement new_arrangement(List<DMesh3> inputs)
         {
             return new ExactMeshArrangement(inputs) { SelfIntersections = true, DisableFilters = DisableFilters, CandidateBatchSize = CandidateBatchSize,
                 FixedWidthPoints = FixedWidthPoints, MaxPieces = MaxPieces, Cancellation = Cancellation, LocalFilters = LocalTriangulationFilters,
                 HashSalt = ArrangementHashSalt, SingleShard = ArrangementSingleShard, PreDecideCoplanar = ArrangementPreDecideCoplanar,
-                RecordEdgeLines = CoplanarWalk, EdgeLinesMinCoplanar = CoplanarWalkMinCoplanar };
+                RecordEdgeLines = CoplanarWalk && RegionClipping == false, EdgeLinesMinCoplanar = CoplanarWalkMinCoplanar, RegionClipping = RegionClipping };
         }
 
         /// <summary>
@@ -1987,7 +1995,7 @@ namespace g3
             bool[] representative = new bool[n];
             double[] coplanarBoxes = coplanar_boxes();
             // (#1630: the sources that are walked; their pieces are not scanned one by one)
-            List<int> walks = CoplanarWalk ? walked_sources(output) : null;
+            List<int> walks = CoplanarWalk && RegionClipping == false ? walked_sources(output) : null;
             bool[] walked = null;
             if (walks != null && walks.Count > 0) {
                 walked = new bool[n];
@@ -2209,6 +2217,8 @@ namespace g3
                         var U = arr.Triangles[ti];
                         if (sheetRole != null && sheetRole[U.Mesh])
                             continue;
+                        if (RegionClipping && region_listed_before(stack[i], ti))
+                            continue;
                         int dot = ExactLimbSigns.Dot(src.NX, src.NY, src.NZ, U.NX, U.NY, U.NZ);
                         add(U.Mesh, (dot > 0) ? 1 : -1);
                     }
@@ -2284,6 +2294,8 @@ namespace g3
                     foreach (int ti in stack[i]) {
                         var U = arr.Triangles[ti];
                         if (U.Mesh != 0)
+                            continue;
+                        if (RegionClipping && region_listed_before(stack[i], ti))
                             continue;
                         int dot = ExactLimbSigns.Dot(src.NX, src.NY, src.NZ, U.NX, U.NY, U.NZ);
                         b += (dot > 0) ? 1 : -1;
@@ -2483,6 +2495,21 @@ namespace g3
             }
             System.Threading.Interlocked.Add(ref coplanarTests, tests);
             return representative;
+        }
+
+        // RegionClipping: the stack lists every input triangle that contains the piece's centroid; a centroid on a flat edge of a region is in two
+        // triangles of it, which are one member (one crossing of the stack): true if an earlier entry of the stack is in the region of triangle ti
+        // (the source, the first entry, stands for its own region)
+        bool region_listed_before(List<int> stack, int ti)
+        {
+            int r = arr.RegionKey(ti);
+            foreach (int x in stack) {
+                if (x == ti)
+                    return false;
+                if (arr.RegionKey(x) == r)
+                    return true;
+            }
+            return false;
         }
 
         // #1630: the runs of pieces (start, end, as pairs in the list) of the input triangles that are walked: the pieces of a source are consecutive in the output,

@@ -1316,7 +1316,7 @@ namespace g3
             nextPoint = 0;
             canonical = null;
             triangleCount = 0;
-            triMesh = null; triTid = null; triCorners = null; triDegenerate = null; triPlanes = null; triTouch = null; RegionOf = null;
+            triMesh = null; triTid = null; triCorners = null; triDegenerate = null; triPlanes = null; triTouch = null; RegionOf = null; flatMask = null; regionClipped = null;
             touchedPoints = null;
             planeRep = null;
             Culled = null;
@@ -2215,7 +2215,7 @@ namespace g3
                     reps.Add(ti);
             }
             planeRep = rep;
-            if (BuildRegions) build_regions();
+            if (BuildRegions || RegionClipping) build_regions();
             clock.Lap("intersections.planes");
             // (cancelled: the pairs left are skipped; Compute stops after this phase)
             gParallel.ForRange(pairs.Count, (k) => {
@@ -2689,6 +2689,11 @@ namespace g3
                 // (R and A of a chained boolean share their surface, so this is most of the pairs of the last step: 57 % of its pair stage)
                 System.Threading.Interlocked.Increment(ref IntersectingPairs);
                 System.Threading.Interlocked.Increment(ref PreDecidedPairs);
+                // (#1630, RegionClipping: the same triangle twice in one mesh: an overlap, the regions are not embedded)
+                if (regionClipped != null && T.Mesh == U.Mesh && same_corners(T, U)) {
+                    regionClipped[RegionOf[ti]] = false;
+                    regionClipped[RegionOf[ui]] = false;
+                }
                 lock (T.Lock) T.AddCoplanar(ui);
                 lock (U.Lock) U.AddCoplanar(ti);
                 return;
@@ -2698,6 +2703,11 @@ namespace g3
             for (int k = 0; k < 3; ++k) {
                 any |= clip_into(T, U.Corners[k], U.Corners[(k + 1) % 3], 4 * ui + 1 + k);
                 any |= clip_into(U, T.Corners[k], T.Corners[(k + 1) % 3], 4 * ti + 1 + k);
+            }
+            // (#1630, RegionClipping: two triangles of one mesh in one plane that meet and are not neighbours: the regions are not embedded, they keep the old clips and stacks)
+            if (any && regionClipped != null && T.Mesh == U.Mesh) {
+                regionClipped[RegionOf[ti]] = false;
+                regionClipped[RegionOf[ui]] = false;
             }
             if (any) {
                 System.Threading.Interlocked.Increment(ref IntersectingPairs);
@@ -2817,6 +2827,31 @@ namespace g3
             foreach (int p in t.Points)
                 points.Add(Canonical(p));
             t.Points = points;
+            // (#1630, RegionClipping: the clips of flat edges of embedded regions become ghosts: no constraint, but their crossings with the constraints stay vertices,
+            // and so do their ends on a constraint or on a side that is not flat; a function of the constraint segments and the sides, the same in every triangle that has them)
+            List<Segment> ghosts = null;
+            if (regionClipped != null) {
+                var reals = new List<Segment>();
+                for (int k = 0; k < t.Segments.Count; ++k) {
+                    Segment s = t.Segments[k];
+                    int kk = (s.Line & 3) - 1, ui = s.Line >> 2;
+                    if (kk >= 0 && (flatMask[ui] & (1 << kk)) != 0 && regionClipped[RegionOf[ui]])
+                        (ghosts ?? (ghosts = new List<Segment>())).Add(new Segment(Canonical(s.P), Canonical(s.Q), s.Line));
+                    else
+                        reals.Add(s);
+                }
+                if (ghosts != null) {
+                    t.Segments = reals;
+                    // (defensive: ghost_points only adds points to a set that touched_points sorts, so the order of the ghosts, which follows the pair loop, changes nothing; sorted anyway, as the segments below)
+                    if (ghosts.Count > 1) ghosts.Sort((x, y) => {
+                        int xa = (ComparePoints(x.P, x.Q) <= 0) ? x.P : x.Q, xb = (xa == x.P) ? x.Q : x.P;
+                        int ya = (ComparePoints(y.P, y.Q) <= 0) ? y.P : y.Q, yb = (ya == y.P) ? y.Q : y.P;
+                        int c = ComparePoints(xa, ya);
+                        if (c == 0) c = ComparePoints(xb, yb);
+                        return (c != 0) ? c : x.Line.CompareTo(y.Line);
+                    });
+                }
+            }
             for (int k = 0; k < t.Segments.Count; ++k) {
                 Segment s = t.Segments[k];
                 t.Segments[k] = new Segment(Canonical(s.P), Canonical(s.Q), s.Line);
@@ -2869,6 +2904,9 @@ namespace g3
                 t.Points.Add(PlanesPointImplicit(4 * ti, a.Line, b.Line));
                 System.Threading.Interlocked.Increment(ref SegmentCrossings);
             });
+            if (ghosts != null)
+                foreach (Segment g in ghosts)
+                    ghost_points(t, ti, g, grid, unique);
             System.Threading.Interlocked.Add(ref CandidateTests, grid.Examined);
             for (int k = 0; k < 3; ++k)
                 t.Points.Remove(t.Corners[k]);
