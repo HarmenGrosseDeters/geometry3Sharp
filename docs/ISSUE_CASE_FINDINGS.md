@@ -508,10 +508,11 @@ Tests: `tests/geometry3Sharp.Tests/SpatialQueryIssueCasesTests.cs`. Strict known
   (asserted).
 - Fix: the hit / no-hit decision is exact (`math/ExactRayTriangle.cs`, `RayHitClosed`, used by
   `IntrRay3Triangle3.Find` / `Intersects`, every ray query of `DMeshAABBTree3`, `MeshQueries.FindHitTriangle_LinearSearch`
-  and `IntersectionUtil.Intersects`): the ray is the half line from the origin through `SecondPoint` = origin +
-  2^m direction (rounded once; 2^m from the exponents, so that the scaled direction is at least twice the origin's
-  largest coordinate and 2^k scaling stays exact); the line meets the closed triangle iff the signs of
-  `ExactPredicates.Orient3d(o, p, edge)` of its three edges are not opposite (Plücker test; all three 0: the line lies in
+  and `IntersectionUtil.Intersects`): the ray is the half line o + t d, t >= 0, of the origin and the supplied direction,
+  exactly (`ExactRayTriangle.LineDirection`: d times a power of two where that is exact; since #1672, before it the line
+  through `SecondPoint` = origin + 2^m direction, rounded once, which was another ray for subnormal inputs); the line
+  meets the closed triangle iff the signs of `ExactPredicates.Orient3dDirection(o, d, edge)` = det[d, a - o, b - o] of
+  its three edges are not opposite (Plücker test; all three 0: the line lies in
   the plane, no hit as upstream), and the hit is ahead iff `Orient3d(a, b, c, o)` is opposite to the crossing sign (0: the
   origin is on the triangle, t = 0 as upstream). The triangle is closed: a ray onto a shared edge or vertex hits every
   triangle there, so it never misses all of them, at any scale, also on the boundary of an open mesh (the alternative,

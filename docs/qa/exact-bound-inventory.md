@@ -59,6 +59,7 @@ rule; **S** speed or strategy only.
 | Merge order of `sum` and `scale`, D | `AdaptivePredicates.cs:284-297` | non-overlapping, sorted output (Shewchuk's theorems) | Tests only (stage D against BigInteger) | open in the mutation README (item 6); test-gap audit P4 |
 | Coincidence shortcuts, F | `ExactPredicates.cs:194-247` | repeated points give 0 | Tests | equivalent (the exact path gives 0); non-finite input: test-gap audit P3, decided 2026-11-25 |
 | orient3d_int widths (EP-7) | `ExactPredicates.cs:257` | integer widths fit | EBA-checked | EBA anchor |
+| Orient3dDirection (#1672), F | `ExactPredicates.cs` `Orient3dDirection`, `orient3d_direction_int` | no bound of its own: the filter is `Orient3dFilter` (EP-2) with u = d exact (a rounding of 0, inside EP-2's premise of differences rounded once); the integer stage has the nine inputs of `orient3d_int` (u = d - 0) and so its widths (EP-7) | reuses EP-2 and EP-7; tests `ExactPredicatesTests.Orient3dDirection_*` against BigInteger, every stage | predicates-2 shard (incremental) |
 
 ### 3.2 Generated predicates (`math/Generated/*.cs`, `tools/PredicateCompiler`)
 
@@ -102,7 +103,7 @@ rule; **S** speed or strategy only.
 |---|---|---|---|---|
 | IntrExactBox3 RayAabb `3U(|tn|+|tf|) + AbsErr`, TErr, Prep `6U S`, Kind, Away, D (filter) | `IntrExactBox3.cs:25-27`, `:260-265`, `:317-321`, `:361-449`, `:502-512` | certified ray/box decisions and t enclosures | Design doc BOX3_EXACT_FILTER.md; tests `IntrBox3FilterEdgeTests` (adversarial edges) | tests (not measured) |
 | ExactDoubleWord Eps2 = 2^-100, ErrUp, ErrFloor, D | `ExactDoubleWord.cs:31`, `:45-48`, `:104-165` | certified double-word error (6.4x margin) | Design doc TRI3TRI3_DOUBLE_WORD.md; tests `ErrorBound_HoldsAtTheOperandErrorExtremes_*` | tests at the extremes |
-| SecondPoint exponent (F2 of EBA), D | `ExactRayTriangle.cs:49-75` | the scaled point defines the same ray | read; #1348 open (range not enforced) | - |
+| SecondPoint exponent (F2 of EBA), D | `ExactRayTriangle.cs` `SecondPoint` | the scaled point defines the same ray | read; #1348 open (range not enforced); not a premise of the ray queries since #1672 (`LineDirection`: an exact multiple of the direction, checked by scaling back) | - |
 | TriangleTriangleFilter | `intersection/TriangleTriangleFilter.cs` | exact predicates only, no float constant | - | - |
 | ContinuousCollision filter `e = Up(M 2^-47 + 16 * 2^-1074)`, D | `ContinuousCollision.cs:669-694`, `:420`, `:564-588` | covers 62 M u + 21 eta (no exact fallback: a box is discarded) | Design doc CCD.md (hand table); tests `ContinuousCollisionTests` | not known |
 | ContinuousCollision caps (MaxIterations, MaxTighteningIterations, AbandonAfter), T | `ContinuousCollision.cs:48`, `:66`, `:282`, `:376` | IterationLimit / Abandoned statuses; tightening stops silently with a valid bound | tests | status |

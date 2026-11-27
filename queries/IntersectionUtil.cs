@@ -41,8 +41,8 @@ namespace g3
         /// </summary>
         public static bool Intersects(Vector3d rayOrigin, Vector3d rayDirection, Vector3d V0, Vector3d V1, Vector3d V2)
         {
-            Vector3d p = ExactRayTriangle.SecondPoint(rayOrigin, rayDirection);
-            return ExactRayTriangle.RayHitClosed(rayOrigin, p, V0, V1, V2) != ExactRayTriangle.Miss;
+            Vector3d d = ExactRayTriangle.LineDirection(rayOrigin, rayDirection);
+            return ExactRayTriangle.RayHitClosedDirection(rayOrigin, d, V0, V1, V2) != ExactRayTriangle.Miss;
         }
 
 
