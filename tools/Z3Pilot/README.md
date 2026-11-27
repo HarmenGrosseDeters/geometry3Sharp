@@ -887,7 +887,8 @@ python3 -m unittest discover -s tools/Z3Pilot -p 'test_step_loops.py' -v
   by 2^600 gives one candidate. The replacement, in the source since #1673,
   rejects a near-parallel slab only if both endpoints lie strictly outside the same side;
   Z3 proves that rejection sound (the start-only rule of before is the checked mutant). A separate proof covers the existing finite quotient
-  and slack calculation relative to the rounded box faces. Overflow cases (since #1673 an
+  and slack calculation relative to the rounded box faces; since #1691 a padded face is rounded outward
+  (`ExactInterval.Down` / `Up` when pad > 0), so the rounded faces enclose the exact padded box and the proof covers it. Overflow cases (since #1673 an
   overflowing q - p of finite ends takes the quotients from halves; tested against a BigInteger oracle, not modelled
   here) and the effect on a complete polyhedral-envelope query remain outside these checks.
 

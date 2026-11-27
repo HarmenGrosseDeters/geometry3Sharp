@@ -103,6 +103,95 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // does the segment meet the closed box [lo - pad, hi + pad], exactly (pad >= 0)
+        static bool MeetsPadded(Vector3d p, Vector3d q, Vector3d lo, Vector3d hi, double pad)
+        {
+            var I = Integers(p, q, lo, hi, new Vector3d(pad, pad, pad));
+            BigInteger an = 0, ad = 1, bn = 1, bd = 1;
+            for (int k = 0; k < 3; ++k) {
+                BigInteger P = I[0][k], D = I[1][k] - I[0][k], L = I[2][k] - I[4][k], H = I[3][k] + I[4][k];
+                if (D.IsZero) {
+                    if (P < L || P > H) return false;
+                    continue;
+                }
+                BigInteger n0 = L - P, n1 = H - P, den = D;
+                if (den.Sign < 0) { n0 = -n0; n1 = -n1; den = -den; var tmp = n0; n0 = n1; n1 = tmp; }
+                if (n0 * ad > an * den) { an = n0; ad = den; }
+                if (n1 * bd < bn * den) { bn = n1; bd = den; }
+                if (an * bd > bn * ad) return false;
+            }
+            return true;
+        }
+
+        // v with its x moved to axis ax (a cyclic permutation)
+        static Vector3d Axis(Vector3d v, int ax) => ax == 0 ? v : ax == 1 ? new Vector3d(v.z, v.x, v.y) : new Vector3d(v.y, v.z, v.x);
+
+        static bool ReportedPadded(Vector3d lo, Vector3d hi, Vector3d p, Vector3d q, double pad)
+        {
+            var tree = new TriangleBoxTree(new List<AxisAlignedBox3d> { new AxisAlignedBox3d(lo, hi) });
+            bool found = false;
+            tree.QuerySegment(p, q, pad, i => found = true);
+            return found;
+        }
+
+        [Fact]
+        public void QuerySegment_Padded_ReportsEveryBoxThePaddedSegmentMeets_AlsoBelowOneUlpOfTheFace()
+        {
+            // #1691: faces b of every magnitude, pads from a fraction of an ulp of b to many ulps, segments that end or
+            // pass in the pad (nearly along the face and across it); the oracle on the exact b - pad, b + pad
+            var r = new Random(1691);
+            int meets = 0, subUlp = 0, n = 0, scaled = 0;
+            for (int it = 0; it < 6000; ++it) {
+                int e = r.Next(-1000, 1000);
+                double b0 = ExactPoint3.ScaleB(1 + r.Next(256) / 256.0, e) * (r.Next(2) == 0 ? 1 : -1);
+                double b1 = b0 + Math.Abs(b0) * r.Next(0, 3) / 4;
+                double ulp = ExactInterval.Up(Math.Abs(b0)) - Math.Abs(b0);
+                double pad = r.Next(3) == 0 ? ulp * r.NextDouble() * 0.5 : ulp * r.Next(1, 8) * r.NextDouble();
+                bool low = r.Next(2) == 0;
+                double face = low ? b0 : b1;
+                // the segment's x: from outside the pad (a few ulps) to inside it, or to the face itself
+                double sgn = low ? -1 : 1;
+                double px = face + sgn * ulp * r.Next(1, 4), qx = face + sgn * pad * r.NextDouble() * (r.Next(4) == 0 ? 0 : 1);
+                // (the face's axis cycles through x, y, z)
+                int ax = it % 3;
+                var lo = Axis(new Vector3d(b0, 0, 0), ax); var hi = Axis(new Vector3d(b1, 1, 1), ax);
+                var p = Axis(new Vector3d(px, r.NextDouble() * 3 - 1, r.NextDouble() * 3 - 1), ax);
+                var q = Axis(new Vector3d(qx, r.NextDouble() * 3 - 1, r.NextDouble() * 3 - 1), ax);
+                if (!(lo.IsFinite && hi.IsFinite && p.IsFinite && q.IsFinite)) continue;
+                n++;
+                if (MeetsPadded(p, q, lo, hi, pad)) {
+                    meets++;
+                    if (pad < ulp * 0.5) subUlp++;
+                    Assert.True(ReportedPadded(lo, hi, p, q, pad), $"{it}: box x {b0:R} - {b1:R}, pad {pad:R}, segment {p:R} - {q:R}");
+                    Assert.True(ReportedPadded(lo, hi, q, p, pad), $"{it} reversed");
+                    // 2^k copies (pad scaled too) where the values stay exact: the same exact verdict, and reported
+                    foreach (int k in new[] { 50, -50, 400, -400 }) {
+                        Vector3d sl = Scaled(lo, k), sh = Scaled(hi, k), sp = Scaled(p, k), sq = Scaled(q, k);
+                        double spad = ExactPoint3.ScaleB(pad, k);
+                        if (Scaled(sl, -k) != lo || Scaled(sh, -k) != hi || Scaled(sp, -k) != p || Scaled(sq, -k) != q || ExactPoint3.ScaleB(spad, -k) != pad)
+                            continue;
+                        Assert.True(MeetsPadded(sp, sq, sl, sh, spad));
+                        Assert.True(ReportedPadded(sl, sh, sp, sq, spad), $"{it} at 2^{k}");
+                        scaled++;
+                    }
+                }
+            }
+            Assert.True(n > 5500 && meets > 1000 && subUlp > 200 && scaled > 1000, $"{n}, {meets}, sub-ulp {subUlp}, scaled {scaled}");
+        }
+
+        [Fact]
+        public void QuerySegment_PadZero_IsNotWidened()
+        {
+            // without a pad the faces are the box's own doubles: a segment one ulp outside (along the face) is culled
+            var lo = new Vector3d(-1, -1, -1); var hi = new Vector3d(1, 1, 1);
+            double above = ExactInterval.Up(1.0), below = ExactInterval.Down(-1.0);
+            Assert.False(ReportedPadded(lo, hi, new Vector3d(above, -0.5, 0), new Vector3d(above, 0.5, 0), 0));
+            Assert.False(ReportedPadded(lo, hi, new Vector3d(below, -0.5, 0), new Vector3d(below, 0.5, 0), 0));
+            Assert.True(ReportedPadded(lo, hi, new Vector3d(1, -0.5, 0), new Vector3d(1, 0.5, 0), 0));
+            // and with a pad of one ulp the same segments meet the padded box
+            Assert.True(ReportedPadded(lo, hi, new Vector3d(above, -0.5, 0), new Vector3d(above, 0.5, 0), above - 1));
+        }
+
         static bool Reported(Vector3d lo, Vector3d hi, Vector3d p, Vector3d q)
         {
             var tree = new TriangleBoxTree(new List<AxisAlignedBox3d> { new AxisAlignedBox3d(lo, hi) });
@@ -208,6 +297,46 @@ namespace geometry3Sharp.Tests
                     }
             }
             Assert.True(hits > 50, $"{hits}");
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void QuerySegment_Padded_AllSimilarities_TheExactHitsStayReported(string name)
+        {
+            // #1691 under Similarity.All(): a pad of a fraction of an ulp to a few ulps of the box's size, the oracle on
+            // the exact padded box; under 2^k the scaled input (pad scaled too) has the same exact verdict and is
+            // reported, under the others the transformed doubles (box of the corners, pad as a length) are checked
+            Similarity sim = Similarity.ByName(name);
+            var r = new Random(41);
+            int compared = 0;
+            foreach (var (lo, hi, p, q) in Cases(43, 1500)) {
+                double m = Math.Max(lo.MaxAbs, hi.MaxAbs);
+                if (!(m > 0)) continue;
+                double ulp = ExactInterval.Up(m) - m;
+                double pad = ulp * (r.Next(2) == 0 ? 0.4 * r.NextDouble() : 1 + 4 * r.NextDouble());
+                bool meets = MeetsPadded(p, q, lo, hi, pad);
+                if (sim.IsExact) {
+                    int k = (int)Math.Round(Math.Log(sim.Scale, 2));
+                    foreach (int kk in new[] { k, 50 * k, -50 * k }) {
+                        Vector3d sl = Scaled(lo, kk), sh = Scaled(hi, kk), sp = Scaled(p, kk), sq = Scaled(q, kk);
+                        double spad = ExactPoint3.ScaleB(pad, kk);
+                        if (Scaled(sl, -kk) != lo || Scaled(sh, -kk) != hi || Scaled(sp, -kk) != p || Scaled(sq, -kk) != q || ExactPoint3.ScaleB(spad, -kk) != pad)
+                            continue;
+                        Assert.Equal(meets, MeetsPadded(sp, sq, sl, sh, spad));
+                        if (meets) Assert.True(ReportedPadded(sl, sh, sp, sq, spad), $"{name} 2^{kk}: box {lo:R} - {hi:R}, pad {pad:R}, segment {p:R} - {q:R}");
+                        compared++;
+                    }
+                    continue;
+                }
+                if (lo.MaxAbs > 1e100 || hi.MaxAbs > 1e100 || p.MaxAbs > 1e100 || q.MaxAbs > 1e100 || m < 1e-100) continue;
+                var box = new AxisAlignedBox3d(sim.Apply(lo));
+                for (int c = 0; c < 8; ++c) box.Contain(sim.Apply(new Vector3d((c & 1) != 0 ? hi.x : lo.x, (c & 2) != 0 ? hi.y : lo.y, (c & 4) != 0 ? hi.z : lo.z)));
+                Vector3d tp = sim.Apply(p), tq = sim.Apply(q);
+                double tpad = sim.ApplyLength(pad);
+                if (MeetsPadded(tp, tq, box.Min, box.Max, tpad)) Assert.True(ReportedPadded(box.Min, box.Max, tp, tq, tpad), $"{name}: {p:R} - {q:R}, pad {pad:R}");
+                compared++;
+            }
+            Assert.True(compared > 500, $"{name}: {compared}");
         }
 
         [Theory]
