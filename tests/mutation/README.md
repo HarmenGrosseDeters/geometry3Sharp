@@ -637,7 +637,11 @@ mutants"; the artifacts are not reachable from the cloud sessions):
     give a valid bound.
   - Terms below the resolution of a value test: `7e-16 * n1` in `slope` (1e-9 of it in the regimes where the slope decides),
     `margin ... + 1e-300`, `pad ... + 1e-300` of the patch query (only where the sum is 0): a change of at most 1e-9
-    relative, under the factor 1.01 each bound carries. (`m2 - e2` and `m1 - e1` in `dn` are not in this list, they are
+    relative, under the factor 1.01 each bound carries; likewise the `(1 + 1e-12)` on the error in the `Query` pad of
+    `CrossingGrid`. (The rest of that pad is pinned at 0.5 and 1.5 of it, the error term and the 1e-15 coordinate term
+    each, by `CrossingGrid_Query_FindsACandidateAtHalfThePad_AndNotAtOneAndAHalfPads`; the `(1 + 1e-15)` of `corner_box` by
+    `CrossingGrid_CornerBox_WidensTheErrorOfACornerCoordinateAtTheCentre`, on two octahedra about the origin, where a
+    corner coordinate is 0 and `a - e` shows the margin.) (`m2 - e2` and `m1 - e1` in `dn` are not in this list, they are
     killed: they drop the product term 4 e1 e2 of `dn`, a relative 4 e1 e2 / dn of the slope, which is about 4e-10 for the
     smallest usable faces (`PiercePrefilter_KeepsTheSegmentsBetweenTheSlope...`: a dense scan of the doubles between the
     slope's threshold and the one without that term, run on a usable face of e / m = 4e-10) and about 6 % for a needle whose

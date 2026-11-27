@@ -88,7 +88,7 @@ namespace geometry3Sharp.Tests
             var f = ExactBooleanBoundValueTests.Fixture.Instance.Value;
             var rnd = new Random(3);
             int checkedFrames = 0;
-            for (int ti = 0; ti < f.Arr.Triangles.Count && ti < 12; ++ti) {
+            for (int ti = 0; ti < f.Arr.Triangles.Count; ++ti) {
                 var frame = new ExactMeshBoolean.LocalFrame(f.Op, f.Arr.Triangles[ti]);
                 Vector3d od = frame.Origin;
                 double odError = 0;

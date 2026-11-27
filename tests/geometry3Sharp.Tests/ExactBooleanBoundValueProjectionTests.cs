@@ -746,5 +746,107 @@ namespace geometry3Sharp.Tests
             }
             Assert.True(widened > 0, "no corner with an error bound in the fixture");
         }
+
+        // ---------------------------------------------------------------------------------------------------------------
+        // CrossingGrid.Query: the pad of the query box (0.5 and 1.5 of it) and the margin of corner_box on a coordinate near the centre
+        // ---------------------------------------------------------------------------------------------------------------
+        struct ListVisitor : TriangleBoxTree.IIndexVisitor
+        {
+            public List<int> Seen;
+            public void Visit(int i) { Seen.Add(i); }
+        }
+
+        static double QueryPad(Vector3d p, Vector3d q, int i, int j, double error)
+        {
+            return error * (1 + 1e-12) + 1e-15 * (Math.Abs(p[i]) + Math.Abs(p[j]) + Math.Abs(q[i]) + Math.Abs(q[j])) + 1e-300;
+        }
+
+        // a candidate whose clipped box is met by the query box only through the pad is found at 0.5 of the pad and missed at 1.5 of it
+        // (error 1e-3 pins the error term; error 0 pins the 1e-15 term of the coordinates, whose size is resolvable at these factors)
+        [Theory]
+        [InlineData(1e-3)]
+        [InlineData(0.0)]
+        public void CrossingGrid_Query_FindsACandidateAtHalfThePad_AndNotAtOneAndAHalfPads(double error)
+        {
+            var f = ExactBooleanBoundValueTests.Fixture.Generic.Value;
+            var arr = f.Arr;
+            int found = 0, missed = 0;
+            for (int ti = 0; ti < arr.Triangles.Count; ++ti) {
+                var t = arr.Triangles[ti];
+                for (int m = 0; m < 2; ++m) {
+                    var grid = new ExactMeshBoolean.CrossingGrid(f.Op, t, m);
+                    int[] tri = F<int[]>(grid, "tri");
+                    double[] box = F<double[]>(grid, "box");
+                    int gi = F<int>(grid, "i"), gj = F<int>(grid, "j");
+                    for (int k = 0; k < tri.Length; ++k) {
+                        if (!(box[4 * k] <= box[4 * k + 2]) || !(box[4 * k + 1] <= box[4 * k + 3])) continue;
+                        for (int side = 0; side < 4; ++side)
+                            foreach (double factor in new[] { 0.5, 1.5 }) {
+                                double mx = (box[4 * k] + box[4 * k + 2]) / 2, my = (box[4 * k + 1] + box[4 * k + 3]) / 2;
+                                // the query point (p = q) beside the box on the chosen side, `factor` pads away (the pad of the guess; corrected once)
+                                var pt = new Vector3d();
+                                double ex = side == 0 ? box[4 * k + 2] : side == 1 ? box[4 * k] : mx;
+                                double ey = side == 2 ? box[4 * k + 3] : side == 3 ? box[4 * k + 1] : my;
+                                pt[gi] = ex; pt[gj] = ey;
+                                double pad = QueryPad(pt, pt, gi, gj, error);
+                                if (side == 0) pt[gi] = ex + factor * pad; else if (side == 1) pt[gi] = ex - factor * pad;
+                                else if (side == 2) pt[gj] = ey + factor * pad; else pt[gj] = ey - factor * pad;
+                                pad = QueryPad(pt, pt, gi, gj, error);
+                                double dist = side == 0 ? pt[gi] - box[4 * k + 2] : side == 1 ? box[4 * k] - pt[gi]
+                                    : side == 2 ? pt[gj] - box[4 * k + 3] : box[4 * k + 1] - pt[gj];
+                                if (Math.Abs(dist / pad - factor) > 0.05) continue;          // (rounded or moved too far)
+                                var v = new ListVisitor { Seen = new List<int>() };
+                                grid.Query(pt, pt, error, ref v);
+                                bool has = v.Seen.Contains(tri[k]);
+                                Assert.Equal(factor < 1, has);
+                                if (has) ++found; else ++missed;
+                            }
+                    }
+                }
+            }
+            Assert.True(found > 20 && missed > 20, $"found {found}, missed {missed}");
+        }
+
+        // corner_box widens a corner's error by 1e-15: seen on a coordinate of a corner that equals the centre (a = 0), where the sum
+        // a - e is not rounded away (two octahedra about the origin: their apexes have two zero coordinates)
+        [Fact]
+        public void CrossingGrid_CornerBox_WidensTheErrorOfACornerCoordinateAtTheCentre()
+        {
+            DMesh3 octa(double s, double angle)
+            {
+                var m = new DMesh3();
+                double c = Math.Cos(angle), sn = Math.Sin(angle);
+                Func<double, double, double, int> add = (x, y, z) => m.AppendVertex(new Vector3d(s * (c * x - sn * y), s * (sn * x + c * y), s * z));
+                int[] vx = { add(1, 0, 0), add(-1, 0, 0) }, vy = { add(0, 1, 0), add(0, -1, 0) }, vz = { add(0, 0, 1), add(0, 0, -1) };
+                for (int a = 0; a < 2; ++a)
+                    for (int b = 0; b < 2; ++b)
+                        for (int d = 0; d < 2; ++d) {
+                            bool even = (a + b + d) % 2 == 0;
+                            if (even) m.AppendTriangle(vx[a], vy[b], vz[d]); else m.AppendTriangle(vx[a], vz[d], vy[b]);
+                        }
+                return m;
+            }
+            var op = new ExactMeshBoolean(octa(2.0, 0.0), octa(1.5, 0.7), ExactMeshBoolean.Operations.Union);
+            Assert.True(op.Compute());
+            var arr = (ExactMeshArrangement)ExactBooleanBoundValueTests.Field(typeof(ExactMeshBoolean), "arr").GetValue(op);
+            Type grid = typeof(ExactMeshBoolean.CrossingGrid);
+            MethodInfo cb = ExactBooleanBoundValueTests.Method(grid, "corner_box", arr, arr.Triangles[0]);
+            int seen = 0;
+            for (int ti = 0; ti < arr.Triangles.Count; ++ti) {
+                var t = arr.Triangles[ti];
+                double[] box = (double[])ExactBooleanBoundValueTests.Invoke(cb, null, arr, t);
+                Assert.Equal(CornerBox(arr, t), box);
+                foreach (int id in new[] { t.Corners.a, t.Corners.b, t.Corners.c }) {
+                    Vector3d a = arr.Approx(id);
+                    double e = arr.ApproxError(id);
+                    for (int q = 0; q < 3; ++q)
+                        if (a[q] == 0 && e > 0) {
+                            ++seen;
+                            Assert.True(box[q] <= -e * (1 + 1e-15) && box[q + 3] >= e * (1 + 1e-15));
+                        }
+                }
+            }
+            Assert.True(seen > 0, "no corner coordinate at the centre with an error bound");
+        }
     }
 }
