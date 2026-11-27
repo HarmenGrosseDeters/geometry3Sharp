@@ -12,9 +12,9 @@ namespace g3
     /// upstream), and a ray that starts on the triangle hits it at t = 0. No tolerance: upstream rejected rays within
     /// about 1e-8 of the plane as parallel and rounded edge tests on and near edges either way. RayParameter and TriangleBaryCoords are computed in doubles (the barycentrics clamped into the triangle),
     /// as upstream (with the direction and the edges scaled by powers of two into [1, 2), which leaves them the same doubles where no product
-    /// underflows or overflows, and the same for every 2^k scaling of the input); where that |D . N| is below 2^-900 (a shallow ray or a sliver,
-    /// where a double quotient has no relative accuracy and 1 / (D . N) can overflow) or a quotient is not finite, they are the exact quotients,
-    /// each rounded once (#1686).
+    /// underflows or overflows, and the same for every 2^k scaling of the input); where that D . N has no reliable relative accuracy (a ray within
+    /// about 1e-8 of the triangle's plane, a sliver, |D . N| below 2^-900, a scaled component in the subnormal range) or a quotient is not finite,
+    /// they are the exact quotients, each rounded once (#1686).
     /// </summary>
     public class IntrRay3Triangle3
     {
@@ -72,7 +72,7 @@ namespace g3
                 return false;
             }
             RayParameter = t;
-            TriangleBaryCoords = new Vector3d(1 - b1 - b2, b1, b2);
+            TriangleBaryCoords = new Vector3d(Math.Max(0, 1 - b1 - b2), b1, b2);      // (clamped: b1 + b2 can round past 1 by an ulp)
             Type = IntersectionType.Point;
             Quantity = 1;
             Result = IntersectionResult.Intersects;
@@ -123,7 +123,7 @@ namespace g3
             // (the products below are cubes of the coordinates: they underflow to 0 below about 1e-103 and overflow above
             // about 1e102, which made t 0 or infinite for a triangle of that size. Scaled by a power of two the rounding
             // is the same, and t is scaled back: t' = s t, as the numerator is cubic and the denominator quadratic in s)
-            int scaleExp = ScaleExponent(ref edge1, ref edge1, ref edge2);   // (by the edges into [1, 2): a far origin against a small triangle keeps its range; a ratio of diff to the edges beyond about 1e300 is not handled)
+            int scaleExp = ScaleExponent(ref edge1, ref edge1, ref edge2);   // (by the edges into [1, 2): a far origin against a small triangle keeps its range; a diff that overflows then gives a quotient that is not finite: the exact route)
             if (scaleExp != 0) {
                 diff = ScaledBy(diff, scaleExp);
                 edge1 = ScaledBy(edge1, scaleExp);
@@ -146,11 +146,22 @@ namespace g3
             // make them negative)
             double DdN = Math.Abs(dir.Dot(ref normal));
             double inv = (1) / DdN;
-            // (a shallow ray or a sliver triangle, |D . N| below 2^-900 with the direction and the edges in [1, 2): the
-            // rounded D . N can be subnormal, without relative accuracy, and 1 / DdN can overflow where the quotients are
-            // fine, #1686: the exact quotients instead; the hit implies D . N != 0 exactly, so they exist. Also where a
-            // double quotient is not finite. The scaled doubles are the same for every 2^k scaling, so is the route)
-            if (!(DdN >= ReliableDdN)) {
+            // The exact quotients instead of the double ones (#1686; the hit implies D . N != 0 exactly, so they exist):
+            // - a shallow ray or a sliver: the rounded D . N has an error of at most about 5 u S, S = sum |d_i| (|e1_j e2_k| +
+            //   |e1_k e2_j|) (the rounding of N and of the dot product), so where D . N < 2^-26 S it has a relative error above
+            //   about 2^-24 (cancellation: a ray within about 1e-8 of the plane, the rays upstream rejected as parallel); on
+            //   the double route D . N has a relative error of at most about 4e-8, and t's numerator rounds by about
+            //   u |Q| |N|, so the hit point lies within about 2^-24 |Q| of the exact one along the ray;
+            // - |D . N| below 2^-900: the products can be subnormal, without relative accuracy, and 1 / DdN can overflow;
+            // - a scaled component in the subnormal range (an input whose components span more than about 1000 binades:
+            //   the scaling rounded it);
+            // - a double quotient that is not finite (below).
+            // Everything is computed from the scaled doubles, the same for every 2^k scaling of the input, so is the route.
+            double S = Math.Abs(dir.x) * (Math.Abs(edge1.y * edge2.z) + Math.Abs(edge1.z * edge2.y))
+                + Math.Abs(dir.y) * (Math.Abs(edge1.z * edge2.x) + Math.Abs(edge1.x * edge2.z))
+                + Math.Abs(dir.z) * (Math.Abs(edge1.x * edge2.y) + Math.Abs(edge1.y * edge2.x));
+            if (!(DdN >= ReliableDdN) || !(DdN >= ShallowRatio * S) || has_subnormal(ref dir) || has_subnormal(ref edge1)
+                || has_subnormal(ref edge2) || has_subnormal(ref diff)) {
                 exact_parameters(ref ray, ref V0, ref V1, ref V2, h == ExactRayTriangle.AtOrigin, bary, out rayT, out b1, out b2);
                 return true;
             }
@@ -162,7 +173,7 @@ namespace g3
                     exact_parameters(ref ray, ref V0, ref V1, ref V2, false, bary, out rayT, out b1, out b2);
                     return true;
                 } else if (scaleExp != 0 || dirExp != 0) {
-                    rayT = dirExp == 0 ? ScaledBy(rayT, -scaleExp) : ExactPoint3.ScaleB(rayT, dirExp - scaleExp);
+                    rayT = ExactPoint3.ScaleB(rayT, dirExp - scaleExp);      // (one rounding, also for a subnormal t)
                     if (double.IsInfinity(rayT))
                         rayT = double.MaxValue;      // (farther than the doubles reach)
                 }
@@ -192,6 +203,14 @@ namespace g3
         // 2^-900: a |D . N| (direction and edges in [1, 2)) at or above it is a normal double whose partial products lose at
         // most 2^-1075 each (a relative 2^-175), and 1 / DdN is finite
         const double ReliableDdN = 1.1830521861667747e-271;      // 2^-900
+        // 2^-26: D . N at least this fraction of S (above), so its rounding error (at most about 5 u S) is a relative 2^-24 at most
+        const double ShallowRatio = 1.4901161193847656e-08;      // 2^-26
+        const double MinNormal = 2.2250738585072014e-308;        // 2^-1022
+
+        static bool has_subnormal(ref Vector3d v)
+        {
+            return (v.x != 0 && Math.Abs(v.x) < MinNormal) || (v.y != 0 && Math.Abs(v.y) < MinNormal) || (v.z != 0 && Math.Abs(v.z) < MinNormal);
+        }
 
         /// <summary>
         /// t, b1, b2 of the hit as the exact quotients, each rounded once (ExactPoint3.ToDouble): with Q = O - V0,
@@ -223,6 +242,8 @@ namespace g3
             if (bary) {
                 b1 = Math.Max(0, ExactPoint3.ToDouble(dot(D, cross(Q, E2)), DN, 0));
                 b2 = Math.Max(0, ExactPoint3.ToDouble(dot(D, cross(E1, Q)), DN, 0));
+                // (b1 + b2 <= 1 also rounded: each is within 2^-54 of the exact value, so their sum within the half ulp
+                // above 1 of an exact sum <= 1; x = 1 - b1 - b2 can still be an ulp below 0: clamped in Find)
             }
         }
 

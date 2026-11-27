@@ -540,6 +540,75 @@ namespace geometry3Sharp.Tests
             Assert.True(hits > 2000 && tiny > 500, $"{hits} hits, {tiny} with a tiny D . N");
         }
 
+        [Fact]
+        public void IntrRay3Triangle3_ExactRoute_OnTheThirdEdge_BarycentricsClampedIntoTheTriangle()
+        {
+            // a shallow ray (exact route) onto (4, 1, 0) on the edge V1 V2: b1 = 4/5, b2 = 1/5, each rounded once, and
+            // 1 - fl(0.8) - fl(0.2) = -5.6e-17: TriangleBaryCoords.x is clamped to 0
+            double h = double.Epsilon * 8;
+            var tri = new Triangle3d(Vector3d.Zero, new Vector3d(5, 0, 0), new Vector3d(0, 5, 0));
+            var q = new IntrRay3Triangle3(new Ray3d(new Vector3d(2, 1, h), new Vector3d(2, 0, -h), true), tri);
+            Assert.True(q.Find());
+            Assert.Equal(1.0, q.RayParameter);
+            Assert.Equal(0.8, q.TriangleBaryCoords.y);
+            Assert.Equal(0.2, q.TriangleBaryCoords.z);
+            Assert.Equal(0.0, q.TriangleBaryCoords.x);
+        }
+
+        [Fact]
+        public void IntrRay3Triangle3_ScaledComponentInTheSubnormalRange_ExactRoute()
+        {
+            // components spanning more than 1000 binades (review of #1702): scaling the edges into [1, 2) rounds the small
+            // ones in the subnormal range, which made t off by 3.7e-10 relative; now that input takes the exact route
+            var a = Vector3d.Zero;
+            var b = new Vector3d(1.2379400392853803e27, 0, 1.0638485777526372e-298);
+            var c = new Vector3d(1.0750834042267261e27, 1.2379400392853803e27, 0);
+            var o = new Vector3d(2.1806509808546126e26, 1.4904164301519403e26, -4.115525230100657e-289);
+            var d = new Vector3d(-2.4127832001122482e-288, 1.6297387129196709e-295, 1.0);
+            Assert.NotEqual(ExactRayTriangle.Miss, Oracle(o, d, a, b, c));
+            var q = new IntrRay3Triangle3(new Ray3d(o, d, true), new Triangle3d(a, b, c));
+            Assert.True(q.Find());
+            ExactParameters(o, d, a, b, c, out double t, out double b1, out double b2);
+            Assert.Equal(t, q.RayParameter);
+            Assert.Equal(b1, q.TriangleBaryCoords.y);
+            Assert.Equal(b2, q.TriangleBaryCoords.z);
+        }
+
+        [Fact]
+        public void IntrRay3Triangle3_ShallowRaysOnTiltedPlanes_ParameterAndBarycentricsAreTheExactOnes()
+        {
+            // review of #1702: triangles of random doubles (tilted planes), a direction in the plane up to 2^-20 .. 2^-60 of
+            // the normal (D . N cancels); every hit has its point along the ray within 2e-7 (|Q| + |t D|) of the exact one and
+            // the barycentrics within 1e-6 (the double route's bound; where D . N cancels below 2^-26 S, the exact route)
+            var r = new Random(1702);
+            int hits = 0, shallow = 0;
+            for (int it = 0; it < 4000; ++it) {
+                Func<Vector3d> p = () => new Vector3d(r.NextDouble() * 4 - 2, r.NextDouble() * 4 - 2, r.NextDouble() * 4 - 2);
+                Vector3d a = p(), b = p(), c = p();
+                Vector3d n = (b - a).Cross(c - a);
+                if (!(n.Length > 1e-3)) continue;
+                double u = 0.1 + 0.6 * r.NextDouble(), v = 0.1 + 0.8 * r.NextDouble() * (1 - u);
+                Vector3d x = a + u * (b - a) + v * (c - a);
+                Vector3d inPlane = (r.NextDouble() - 0.5) * (b - a) + (r.NextDouble() - 0.5) * (c - a);
+                Vector3d d = inPlane + ExactPoint3.ScaleB(r.NextDouble() + 0.5, -r.Next(20, 60)) * n.Normalized * inPlane.Length;
+                Vector3d o = x - d * ExactPoint3.ScaleB(1, -r.Next(0, 8));
+                if (Oracle(o, d, a, b, c) == ExactRayTriangle.Miss) continue;
+                var intr = new IntrRay3Triangle3(new Ray3d(o, d, true), new Triangle3d(a, b, c));
+                Assert.True(intr.Find());
+                ExactParameters(o, d, a, b, c, out double t, out double b1, out double b2);
+                // (the double route's bound: the hit point along the ray within about 2^-24 |Q|, Q = o - a: t's numerator
+                // rounds by u |Q| |N| and D . N >= 2^-26 S)
+                double q = (o - a).Length, dl = d.Length;
+                Assert.True(Math.Abs(intr.RayParameter - t) * dl <= 2e-7 * (q + Math.Abs(t) * dl), $"it {it}: o {o:R} d {d:R} a {a:R} b {b:R} c {c:R}: t {intr.RayParameter:R}, exact {t:R}");
+                Vector3d w = intr.TriangleBaryCoords;
+                Assert.True(Math.Abs(w.y - b1) <= 1e-6 && Math.Abs(w.z - b2) <= 1e-6, $"it {it}: {w} vs {b1:R}, {b2:R}");
+                Assert.True(w.x >= 0 && w.y >= 0 && w.z >= 0);
+                hits++;
+                if (Math.Abs(d.Normalized.Dot(n.Normalized)) < 1e-8) shallow++;
+            }
+            Assert.True(hits > 1500 && shallow > 500, $"{hits} hits, {shallow} within 1e-8 of the plane");
+        }
+
         [Theory]
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void IntrRay3Triangle3_ShallowRays_AllSimilarities(string name)
