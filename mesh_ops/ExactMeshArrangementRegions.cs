@@ -20,6 +20,61 @@ namespace g3
         // bit k of flatMask[t]: the edge from corner k to corner k+1 of triangle t is a flat edge (RegionClipping only)
         byte[] flatMask;
 
+        static bool same_corners(InputTriangle t, InputTriangle u)
+        {
+            for (int k = 0; k < 3; ++k)
+                if (u.Corners[k] != t.Corners[0] && u.Corners[k] != t.Corners[1] && u.Corners[k] != t.Corners[2])
+                    return false;
+            return true;
+        }
+
+        // RegionClipping: per region (by its lowest triangle): true while the region is embedded, i.e. no triangle of the mesh in its plane meets another one that is not its
+        // neighbour (the pairs that meet are found in the pair loop, which only ever writes false). A region that is not embedded (it overlaps itself or another region of
+        // its mesh) is clipped as before and counted per triangle; written by the pair loop, read after it.
+        bool[] regionClipped;
+
+        /// <summary> RegionClipping: the key of a triangle's region for the windings of a stack: its region if embedded, else the triangle itself (valid after the pair stage) </summary>
+        internal int RegionKey(int t)
+        {
+            int r = RegionOf[t];
+            return regionClipped != null && regionClipped[r] == false ? t : r;
+        }
+
+        // RegionClipping: a clip of a flat edge of an embedded region was added to t as a constraint (the pair loop adds every clip, as before). Its crossings with the
+        // constraints of t, and its ends where they are on a constraint or on a side of t that is not a flat edge of t's own region, are vertices of t: the same points
+        // that every other triangle carrying that constraint segment or that side gets from its pair with the triangle that carries the flat edge (a function of the
+        // constraint segment, whatever the number of coplanar layers). Crossings with other ghosts are not needed: neither is a constraint.
+        void ghost_points(InputTriangle t, int ti, Segment g, BoxGrid2 grid, List<Segment> real)
+        {
+            for (int e = 0; e < 2; ++e) {
+                int y = e == 0 ? g.P : g.Q;
+                for (int k = 0; k < 3; ++k)
+                    if ((flatMask[ti] & (1 << k)) == 0 && Orient(t, t.Corners[k], t.Corners[(k + 1) % 3], y) == 0) {
+                        t.Points.Add(y);
+                        break;
+                    }
+            }
+            grid.Query(g.P, g.Q, (k) => {
+                Segment a = real[k];
+                if (a.P == g.P || a.P == g.Q || a.Q == g.P || a.Q == g.Q)
+                    return;
+                int o1 = Orient(t, a.P, a.Q, g.P), o2 = Orient(t, a.P, a.Q, g.Q);
+                if (o1 * o2 < 0) {
+                    int o3 = Orient(t, g.P, g.Q, a.P), o4 = Orient(t, g.P, g.Q, a.Q);
+                    if (o3 * o4 < 0)
+                        t.Points.Add(PlanesPointImplicit(4 * ti, a.Line, g.Line));
+                }
+                for (int e = 0; e < 2; ++e) {
+                    int y = e == 0 ? g.P : g.Q;
+                    if (Orient(t, a.P, a.Q, y) != 0)
+                        continue;
+                    Direction d = line_direction(t, PlaneOf(a.Line));
+                    if (compare_along(d, a.P, y) * compare_along(d, y, a.Q) > 0)
+                        t.Points.Add(y);
+                }
+            });
+        }
+
         /// <summary>
         /// per input triangle, its region: the lowest triangle index of the set of triangles of one mesh that lie in one exact plane and are joined
         /// through flat edges. A flat edge is an edge of two triangles of the mesh (an edge has at most two: DMesh3 holds no third triangle on an edge) that traverse it in opposite directions (consistent
@@ -34,6 +89,7 @@ namespace g3
             var parent = new int[Triangles.Count];
             for (int i = 0; i < parent.Length; ++i) parent[i] = i;
             flatMask = RegionClipping ? new byte[Triangles.Count] : null;
+            regionClipped = null;
             for (int mi = 0; mi < Meshes.Count; ++mi) {
                 // the (at most) two triangles of each edge, in the order of the mesh's triangles (DMesh3 holds no edge of three)
                 var first = new Dictionary<long, int>(EdgeKeyComparer.Instance);
@@ -62,6 +118,10 @@ namespace g3
                 parent[i] = r;
             }
             RegionOf = parent;
+            if (RegionClipping) {
+                regionClipped = new bool[parent.Length];
+                for (int i = 0; i < parent.Length; ++i) regionClipped[i] = true;
+            }
         }
 
         // the edge a-b of triangle ti is a flat edge shared with triangle oi

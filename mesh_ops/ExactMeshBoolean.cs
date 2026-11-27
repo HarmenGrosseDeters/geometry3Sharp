@@ -2488,12 +2488,11 @@ namespace g3
         // (the source, the first entry, stands for its own region)
         bool region_listed_before(List<int> stack, int ti)
         {
-            int[] regions = arr.RegionOf;
-            int r = regions[ti];
+            int r = arr.RegionKey(ti);
             foreach (int x in stack) {
                 if (x == ti)
                     return false;
-                if (regions[x] == r)
+                if (arr.RegionKey(x) == r)
                     return true;
             }
             return false;

@@ -86,6 +86,106 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, c.Uncovered);
         }
 
+        // ---- three or more coplanar layers, and regions that overlap themselves (review of #1725)
+
+        static DMesh3 Appended(DMesh3 a, DMesh3 b)
+        {
+            var r = new DMesh3(a);
+            new MeshEditor(r).AppendMesh(b);
+            return r;
+        }
+
+        /// <summary> a bent bar: an annular sector of 450 degrees in steps of 90 (so it overlaps itself exactly over the last step), extruded from z 0 to 1; the faces of the repeated step coincide with the first </summary>
+        static DMesh3 Spiral()
+        {
+            var m = new DMesh3();
+            double[] cx = { 1, 0, -1, 0, 1, 0 }, cy = { 0, 1, 0, -1, 0, 1 };
+            int[] pb = new int[6], pt = new int[6], qb = new int[6], qt = new int[6];
+            for (int j = 0; j < 6; ++j) {
+                pb[j] = m.AppendVertex(new Vector3d(cx[j], cy[j], 0)); pt[j] = m.AppendVertex(new Vector3d(cx[j], cy[j], 1));
+                qb[j] = m.AppendVertex(new Vector3d(2 * cx[j], 2 * cy[j], 0)); qt[j] = m.AppendVertex(new Vector3d(2 * cx[j], 2 * cy[j], 1));
+            }
+            void Quad(int a, int b, int c, int d) { m.AppendTriangle(a, b, c); m.AppendTriangle(a, c, d); }
+            for (int j = 0; j < 5; ++j) {
+                Quad(pt[j], qt[j], qt[j + 1], pt[j + 1]);          // top (up)
+                Quad(pb[j], pb[j + 1], qb[j + 1], qb[j]);          // bottom (down)
+                Quad(qb[j], qb[j + 1], qt[j + 1], qt[j]);          // outer wall
+                Quad(pb[j], pt[j], pt[j + 1], pb[j + 1]);          // inner wall
+            }
+            Quad(pb[0], qb[0], qt[0], pt[0]);                      // the end at the start
+            Quad(pb[5], pt[5], qt[5], qb[5]);                      // the end at the finish
+            return m;
+        }
+
+        public static IEnumerable<object[]> ReviewCases()
+        {
+            foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {
+                yield return new object[] { "three boxes (n-ary) A", op };
+                yield return new object[] { "three boxes (n-ary) B", op };
+                yield return new object[] { "two appended into one mesh, plus the third", op };
+                yield return new object[] { "three fine boxes", op };
+                yield return new object[] { "two fine boxes plus one", op };
+                yield return new object[] { "self-overlapping spiral and a coplanar box", op };
+            }
+        }
+
+        static List<DMesh3> ReviewInputs(string what)
+        {
+            switch (what) {
+                case "three boxes (n-ary) A": return new List<DMesh3> { Box(0, 0, 0, 2, 2, 1), Box(0.5, 0.5, 0.5, 1.5, 1.5, 1), Box(0.2, 0.7, 0.4, 1.7, 1.3, 1) };
+                case "three boxes (n-ary) B": return new List<DMesh3> { Box(0, 0, 0, 1, 1, 1), Box(0.25, 0.1, 0.5, 1.25, 1.2, 1), Box(-0.3, 0.2, 0.2, 0.6, 0.9, 1) };
+                case "two appended into one mesh, plus the third": return new List<DMesh3> { Appended(Box(0, 0, 0, 1, 1, 1), Box(0.25, 0.1, 0.5, 1.25, 1.2, 1)), Box(-0.3, 0.2, 0.2, 0.6, 0.9, 1) };
+                case "three fine boxes": return new List<DMesh3> { FineBox(0, 0, 0, 1, 1, 1, 4), FineBox(0.25, 0.1, 0.5, 1.25, 1.2, 1, 4), FineBox(-0.3, 0.2, 0.2, 0.6, 0.9, 1, 3) };
+                case "two fine boxes plus one": return new List<DMesh3> { Appended(FineBox(0, 0, 0, 1, 1, 1, 4), FineBox(0.25, 0.1, 0.5, 1.25, 1.2, 1, 3)), FineBox(0.1, 0.3, 0.2, 0.9, 0.8, 1, 3) };
+                default: return new List<DMesh3> { Spiral(), Box(-1.5, -0.5, 0.5, 0.5, 1.5, 1) };
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(ReviewCases))]
+        public void RegionClipping_IsClosedAndCertified_WithThreeCoplanarLayersAndOverlappingRegions(string what, Ops op)
+        {
+            List<DMesh3> m = ReviewInputs(what);
+            var old = new ExactMeshBoolean(m, op) { AllowOpenMeshes = true };
+            Assert.True(old.Compute(), old.Error);
+            var neu = new ExactMeshBoolean(m, op) { RegionClipping = true, AllowOpenMeshes = true, RecordCertificate = true, ComputeExactVertices = true, CullOutsideA = op != Ops.Intersection };
+            Assert.True(neu.Compute(), neu.Error);
+            Assert.Equal(old.Result.TriangleCount == 0, neu.Result.TriangleCount == 0);
+            if (neu.Result.TriangleCount == 0) return;
+            // closed and manifold (the first assert: the review's open results), and the reason is the old rule's
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(neu.Result, false) ?? "");
+            Assert.Equal(MeshRobustRepair.NotCleanReason(old.Result) ?? "", MeshRobustRepair.NotCleanReason(neu.Result) ?? "");
+            BooleanCertificate c = BooleanCertificate.From(neu);
+            Assert.Equal("", c.Check());
+            Assert.Equal(0, c.Uncovered);
+            if ((MeshRobustRepair.NotCleanReason(neu.Result) ?? "") != "") return;      // (a result with self-intersections is no input of the difference)
+            foreach (var pair in new[] { new[] { old.Result, neu.Result }, new[] { neu.Result, old.Result } }) {
+                var d = new ExactMeshBoolean(new List<DMesh3> { new DMesh3(pair[0]), new DMesh3(pair[1]) }, Ops.Difference);
+                Assert.True(d.Compute(), d.Error);
+                Assert.Equal(0, d.Result.TriangleCount);
+            }
+        }
+
+        [Fact]
+        public void ARegionThatOverlapsItself_IsCountedPerTriangle_ByAPredicateThatReadsTheExactWinding()
+        {
+            // the spiral has winding number 2 where it overlaps itself: the region of its top face (the coplanar box on it is a second mesh) must give 2, not 1
+            var m = new List<DMesh3> { Spiral(), Box(-1.5, -0.5, 0.5, 0.5, 1.5, 1) };
+            Func<int[], bool> twice = w => w[0] == 2;
+            var old = new ExactMeshBoolean(m, Ops.Union) { WindingPredicate = twice, AllowOpenMeshes = true };
+            var neu = new ExactMeshBoolean(m, Ops.Union) { WindingPredicate = twice, AllowOpenMeshes = true, RegionClipping = true, RecordCertificate = true, ComputeExactVertices = true };
+            Assert.True(old.Compute(), old.Error);
+            Assert.True(neu.Compute(), neu.Error);
+            Assert.True(neu.Result.TriangleCount > 0);
+            Assert.Equal(MeshRobustRepair.NotCleanReason(old.Result, false) ?? "", MeshRobustRepair.NotCleanReason(neu.Result, false) ?? "");
+            BooleanCertificate c = BooleanCertificate.From(neu);
+            Assert.Equal("", c.Check());
+            foreach (var pair in new[] { new[] { old.Result, neu.Result }, new[] { neu.Result, old.Result } }) {
+                var d = new ExactMeshBoolean(new List<DMesh3> { new DMesh3(pair[0]), new DMesh3(pair[1]) }, Ops.Difference);
+                if (d.Compute()) Assert.Equal(0, d.Result.TriangleCount);
+            }
+        }
+
         // ---- the pieces grow linearly
 
         static int PiecesOf(int K, double dx, bool regions)

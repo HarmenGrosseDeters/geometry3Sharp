@@ -354,6 +354,39 @@ namespace geometry3Sharp.Tests
                 }
             }
             for (int t = 0; t < nt; ++t) regionOf[t] = Find(t);
+            // a region that is not embedded (two triangles of its mesh in its plane overlap, whatever region the other is in) is counted per triangle, as the library does:
+            // its triangles are regions of their own and none of its edges is flat
+            var notEmbedded = new HashSet<int>();
+            foreach (var group in planeGroups.Values)
+                for (int a = 0; a < group.Count; ++a) {
+                    int u = group[a];
+                    foreach (int v in BoxHits(triPlane[u], triCorners[u])) {
+                        if (v <= u || TriMesh[v] != TriMesh[u] || IsZero(triNormal[v])) continue;
+                        if (InteriorsDisjointInPlane(triCorners[u], triCorners[v]) == false) { notEmbedded.Add(regionOf[u]); notEmbedded.Add(regionOf[v]); }
+                    }
+                }
+            if (notEmbedded.Count > 0) {
+                var single = new List<int>();
+                for (int t = 0; t < nt; ++t) if (notEmbedded.Contains(regionOf[t])) single.Add(t);
+                foreach (int t in single) { regionOf[t] = t; flatEdge[t] = new bool[3]; }
+            }
+        }
+
+        /// <summary> coplanar triangles p and u (both non-degenerate): the interiors are disjoint (a line of an edge of either has the other on its closed outer side; not for triangles that share an edge in their region: the edge is on the closed side) </summary>
+        static bool InteriorsDisjointInPlane(ExactPoint3[] p, ExactPoint3[] u)
+        {
+            BigInteger[] n = Normal(p[0], p[1], p[2]);
+            int O2(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c) => Dot(Cross(Sub(b, a), Sub(c, a)), n).Sign;
+            if (O2(u[0], u[1], u[2]) < 0) u = new[] { u[0], u[2], u[1] };
+            for (int e = 0; e < 3; ++e) {
+                bool pOut = true, uOut = true;
+                for (int k = 0; k < 3; ++k) {
+                    if (O2(u[e], u[(e + 1) % 3], p[k]) > 0) pOut = false;
+                    if (O2(p[e], p[(e + 1) % 3], u[k]) > 0) uOut = false;
+                }
+                if (pOut || uOut) return true;
+            }
+            return false;
         }
 
         // RegionClipping: where the point p is against the closed triangle t: -1 outside, 1 inside or on edges that are all flat (a point of the region's interior), 0 on an edge of the
@@ -1433,7 +1466,7 @@ namespace geometry3Sharp.Tests
                         // (one member per region: a centroid on a flat edge is in two triangles of it)
                         bool listed = false;
                         if (RegionClipping)
-                            foreach (int x in s) if (x != src && regionOf[x] == regionOf[u]) listed = true;
+                            foreach (int x in s) if (regionOf[x] == regionOf[u]) listed = true;
                         if (listed == false) s.Add(u);
                     }
                 }

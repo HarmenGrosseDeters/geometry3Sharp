@@ -1316,7 +1316,7 @@ namespace g3
             nextPoint = 0;
             canonical = null;
             triangleCount = 0;
-            triMesh = null; triTid = null; triCorners = null; triDegenerate = null; triPlanes = null; triTouch = null; RegionOf = null; flatMask = null;
+            triMesh = null; triTid = null; triCorners = null; triDegenerate = null; triPlanes = null; triTouch = null; RegionOf = null; flatMask = null; regionClipped = null;
             touchedPoints = null;
             planeRep = null;
             Culled = null;
@@ -2689,6 +2689,11 @@ namespace g3
                 // (R and A of a chained boolean share their surface, so this is most of the pairs of the last step: 57 % of its pair stage)
                 System.Threading.Interlocked.Increment(ref IntersectingPairs);
                 System.Threading.Interlocked.Increment(ref PreDecidedPairs);
+                // (#1630, RegionClipping: the same triangle twice in one mesh: an overlap, the regions are not embedded)
+                if (regionClipped != null && T.Mesh == U.Mesh && same_corners(T, U)) {
+                    regionClipped[RegionOf[ti]] = false;
+                    regionClipped[RegionOf[ui]] = false;
+                }
                 lock (T.Lock) T.AddCoplanar(ui);
                 lock (U.Lock) U.AddCoplanar(ti);
                 return;
@@ -2696,10 +2701,13 @@ namespace g3
             bool any = false;
             // the edges of each triangle, clipped to the other, become constraints of the other
             for (int k = 0; k < 3; ++k) {
-                // (#1630, RegionClipping: the flat edges of a region cut nothing; the pair is still clipped, so that the coplanar relation is recorded)
-                bool fu = flatMask != null && (flatMask[ui] & (1 << k)) != 0, ft = flatMask != null && (flatMask[ti] & (1 << k)) != 0;
-                any |= clip_into(T, U.Corners[k], U.Corners[(k + 1) % 3], 4 * ui + 1 + k, !fu);
-                any |= clip_into(U, T.Corners[k], T.Corners[(k + 1) % 3], 4 * ti + 1 + k, !ft);
+                any |= clip_into(T, U.Corners[k], U.Corners[(k + 1) % 3], 4 * ui + 1 + k);
+                any |= clip_into(U, T.Corners[k], T.Corners[(k + 1) % 3], 4 * ti + 1 + k);
+            }
+            // (#1630, RegionClipping: two triangles of one mesh in one plane that meet and are not neighbours: the regions are not embedded, they keep the old clips and stacks)
+            if (any && regionClipped != null && T.Mesh == U.Mesh) {
+                regionClipped[RegionOf[ti]] = false;
+                regionClipped[RegionOf[ui]] = false;
             }
             if (any) {
                 System.Threading.Interlocked.Increment(ref IntersectingPairs);
@@ -2755,7 +2763,7 @@ namespace g3
         // clip segment p-q (an edge of a triangle in the plane of t, on the line t.P ∩ line) to the closed triangle t,
         // add the result to t
         [MethodImpl(JitHints.Optimize)]
-        bool clip_into(InputTriangle t, int p, int q, int line, bool add)
+        bool clip_into(InputTriangle t, int p, int q, int line)
         {
             var cands = new List<int>();
             if (inside(t, p)) cands.Add(p);
@@ -2776,17 +2784,6 @@ namespace g3
                 return false;
             int lo, hi;
             min_max(cands, d, out lo, out hi);
-            if (add == false) {
-                // (#1630 RegionClipping: a flat edge of a region adds no constraint, but its ends on the boundary of t stay vertices of t: the triangles that share that
-                // boundary edge meet the same edge in the same points, from the pairs they have with the triangle that carries the flat edge)
-                lock (t.Lock) {
-                    if (on_boundary(t, lo))
-                        t.AddPoint(lo);
-                    if (compare_along(d, lo, hi) != 0 && on_boundary(t, hi))
-                        t.AddPoint(hi);
-                }
-                return true;
-            }
             lock (t.Lock) {
                 if (compare_along(d, lo, hi) == 0)
                     t.AddPoint(lo);
@@ -2794,18 +2791,6 @@ namespace g3
                     t.AddSegment(new Segment(lo, hi, line));
             }
             return true;
-        }
-
-        // x, an end of the clip of a flat edge to t, is on a side of t that is not a flat edge of t's own region (exact Orient): the triangle across that side is in another region
-        // or another mesh, and sees x from its pair with the triangle that carries the flat edge. A flat side of t has its triangle in the same region, which gets no vertex there
-        // either (corners are vertices anyway)
-        [MethodImpl(JitHints.Optimize)]
-        bool on_boundary(InputTriangle t, int x)
-        {
-            for (int k = 0; k < 3; ++k)
-                if ((flatMask[t.Index] & (1 << k)) == 0 && Orient(t, t.Corners[k], t.Corners[(k + 1) % 3], x) == 0)
-                    return true;
-            return false;
         }
 
         // r (on the line p-q) is in the closed segment p-q
@@ -2842,6 +2827,22 @@ namespace g3
             foreach (int p in t.Points)
                 points.Add(Canonical(p));
             t.Points = points;
+            // (#1630, RegionClipping: the clips of flat edges of embedded regions become ghosts: no constraint, but their crossings with the constraints stay vertices,
+            // and so do their ends on a constraint or on a side that is not flat; a function of the constraint segments and the sides, the same in every triangle that has them)
+            List<Segment> ghosts = null;
+            if (regionClipped != null) {
+                var reals = new List<Segment>();
+                for (int k = 0; k < t.Segments.Count; ++k) {
+                    Segment s = t.Segments[k];
+                    int kk = (s.Line & 3) - 1, ui = s.Line >> 2;
+                    if (kk >= 0 && (flatMask[ui] & (1 << kk)) != 0 && regionClipped[RegionOf[ui]])
+                        (ghosts ?? (ghosts = new List<Segment>())).Add(new Segment(Canonical(s.P), Canonical(s.Q), s.Line));
+                    else
+                        reals.Add(s);
+                }
+                if (ghosts != null)
+                    t.Segments = reals;
+            }
             for (int k = 0; k < t.Segments.Count; ++k) {
                 Segment s = t.Segments[k];
                 t.Segments[k] = new Segment(Canonical(s.P), Canonical(s.Q), s.Line);
@@ -2894,6 +2895,9 @@ namespace g3
                 t.Points.Add(PlanesPointImplicit(4 * ti, a.Line, b.Line));
                 System.Threading.Interlocked.Increment(ref SegmentCrossings);
             });
+            if (ghosts != null)
+                foreach (Segment g in ghosts)
+                    ghost_points(t, ti, g, grid, unique);
             System.Threading.Interlocked.Add(ref CandidateTests, grid.Examined);
             for (int k = 0; k < 3; ++k)
                 t.Points.Remove(t.Corners[k]);
