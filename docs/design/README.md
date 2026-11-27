@@ -25,6 +25,7 @@ Architecture specifications, algorithm design notes, error-bound derivations, an
 | [PAIR_SEARCH.md](PAIR_SEARCH.md) | Candidate triangle pair search in the exact arrangement |
 | [COPLANAR_PROPAGATION.md](COPLANAR_PROPAGATION.md) | Coplanar stacks and front winding numbers propagated in one walk per source triangle (design, #1630) |
 | [COPLANAR_FAN_DIAGNOSIS.md](COPLANAR_FAN_DIAGNOSIS.md) | Coplanar fan overlays (#1630): re-measurement, per-stage counts, upper bound and options (build the stack walk first) |
+| [COPLANAR_REGION_CLIPPING.md](COPLANAR_REGION_CLIPPING.md) | Option E' of #1630: clip coplanar fans only against region boundaries (O(n) pieces, changes the cluster triangulation); profile, upper bounds, obligations, staged plan, owner decision |
 | [TRI3TRI3_DOUBLE_WORD.md](TRI3TRI3_DOUBLE_WORD.md) | Certified double-word arithmetic: correctly rounded end points of a triangle crossing (derived error bounds, certificate, fallback) |
 | [TRITRI_PREFILTER.md](TRITRI_PREFILTER.md) | Devillers-Guigue sign-based triangle-triangle prefilter |
 | [EXACT_BOOLEAN_30_PRESTUDY.md](EXACT_BOOLEAN_30_PRESTUDY.md) | Exact Boolean 3.0 pre-study (measurements, upper bounds, targets) |
