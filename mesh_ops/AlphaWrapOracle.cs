@@ -300,46 +300,52 @@ namespace gs
             public Vector3d V0, V1, V2, V3;
             public Vector3d N0, N1, N2, N3;      // face normals (not normalized)
             // per face normal N(f): the projections of the vertices, min and max, computed as separated() computes them;
-            // margin^2 |N(f)|^2 as separated() computes it, NaN for a zero normal
-            public Vector4d TMin, TMax, Gap2;
+            // |N(f)|^2 and margin^2 |N(f)|^2 as separated() computes them, NaN for a zero normal
+            public Vector4d TMin, TMax, L2, Gap2;
+            public double MaxAbs;
             // the face that separated the last node, -1 for none yet; the primitives tested (tests)
             public int Hint, Tests;
             public Tet(Vector3d a, Vector3d b, Vector3d c, Vector3d d, double margin)
             {
                 V0 = a; V1 = b; V2 = c; V3 = d;
                 N0 = (c - b).Cross(d - b); N1 = (d - a).Cross(c - a); N2 = (b - a).Cross(d - a); N3 = (c - a).Cross(b - a);
-                TMin = TMax = Gap2 = Vector4d.Zero;
+                TMin = TMax = L2 = Gap2 = Vector4d.Zero;
+                MaxAbs = Math.Max(Math.Max(a.MaxAbs, b.MaxAbs), Math.Max(c.MaxAbs, d.MaxAbs));
                 Hint = -1; Tests = 0;
+                double m2 = margin * margin;
                 for (int f = 0; f < 4; ++f) {
                     Vector3d axis = N(f);
                     double l2 = axis.LengthSquared;
                     double t0 = axis.Dot(V0), t1 = axis.Dot(V1), t2 = axis.Dot(V2), t3 = axis.Dot(V3);
                     TMin[f] = Math.Min(Math.Min(t0, t1), Math.Min(t2, t3));
                     TMax[f] = Math.Max(Math.Max(t0, t1), Math.Max(t2, t3));
-                    Gap2[f] = (l2 > 0) ? margin * margin * l2 : double.NaN;
+                    L2[f] = l2;
+                    Gap2[f] = (l2 > 0 && m2 >= MinNormal && !double.IsInfinity(m2)) ? m2 * l2 : double.NaN;
                 }
             }
             public Vector3d V(int i) { return i == 0 ? V0 : (i == 1 ? V1 : (i == 2 ? V2 : V3)); }
             public Vector3d N(int i) { return i == 0 ? N0 : (i == 1 ? N1 : (i == 2 ? N2 : N3)); }
         }
 
+        const double MinNormal = 2.2250738585072014e-308; // 2^-1022
         static readonly int[,] TetEdges = { { 0, 1 }, { 0, 2 }, { 0, 3 }, { 1, 2 }, { 1, 3 }, { 2, 3 } };
 
         bool tet_rec(int node, ref Tet t, AxisAlignedBox3d box, double margin)
         {
-            if (box_box_dist_sqr(node, box) > margin * margin)
+            if (box_box_apart(nd[node].Min, nd[node].Max, box, margin))
                 return false;
             Vector3d sn = nd[node].N;
             double t0 = sn.Dot(t.V0), t1 = sn.Dot(t.V1), t2 = sn.Dot(t.V2), t3 = sn.Dot(t.V3);
-            if (Math.Min(Math.Min(t0, t1), Math.Min(t2, t3)) > nd[node].DMax + margin
-                || Math.Max(Math.Max(t0, t1), Math.Max(t2, t3)) < nd[node].DMin - margin)
+            double slabSlack = 64 * MathUtil.Epsilon * (Math.Max(nd[node].Min.MaxAbs, nd[node].Max.MaxAbs) + t.MaxAbs);
+            if (Math.Min(Math.Min(t0, t1), Math.Min(t2, t3)) > ExactInterval.Up(nd[node].DMax + margin + slabSlack)
+                || Math.Max(Math.Max(t0, t1), Math.Max(t2, t3)) < ExactInterval.Down(nd[node].DMin - margin - slabSlack))
                 return false;
-            if (FacePruning && t.Hint >= 0 && face_separates(node, ref t, t.Hint))
+            if (FacePruning && t.Hint >= 0 && face_separates(node, ref t, t.Hint, margin))
                 return false;
             if (nd[node].Count > 0) {
                 if (FacePruning) {
                     for (int f = 0; f < 4; ++f)
-                        if (f != t.Hint && face_separates(node, ref t, f)) { t.Hint = f; return false; }
+                        if (f != t.Hint && face_separates(node, ref t, f, margin)) { t.Hint = f; return false; }
                 }
                 int end = nd[node].Start + nd[node].Count;
                 for (int k = nd[node].Start; k < end; ++k) {
@@ -367,23 +373,51 @@ namespace gs
         /// fused multiply-adds). Likewise bmax >= fl(N . p), so each primitive's computed gap is at least the node's, and
         /// separated() finds a gap above margin |N| for it. NaN gives no separation.
         /// </summary>
-        bool face_separates(int node, ref Tet t, int f)
+        bool face_separates(int node, ref Tet t, int f, double margin)
         {
             Vector3d axis = t.N(f), mn = nd[node].Min, mx = nd[node].Max;
             double u0 = axis.x * mn.x, v0 = axis.x * mx.x, u1 = axis.y * mn.y, v1 = axis.y * mx.y, u2 = axis.z * mn.z, v2 = axis.z * mx.z;
             double bmin = Math.Min(u0, v0) + Math.Min(u1, v1) + Math.Min(u2, v2);
             double bmax = Math.Max(u0, v0) + Math.Max(u1, v1) + Math.Max(u2, v2);
             double gap = Math.Max(bmin - t.TMax[f], t.TMin[f] - bmax);
-            return gap > 0 && gap * gap > t.Gap2[f];
+            return gap_exceeds(gap, margin, t.L2[f], t.Gap2[f]);
         }
 
-        double box_box_dist_sqr(int node, AxisAlignedBox3d b)
+        // gap > margin * sqrt(l2): uses gap * gap > margin * margin * l2 on the ordinary path (bit-identical) and
+        // falls back to the unsquared comparison when margin^2, margin^2 * l2, or gap^2 is subnormal or overflows
+        static bool gap_exceeds(double gap, double margin, double l2, double gap2)
         {
-            Vector3d mn = nd[node].Min, mx = nd[node].Max;
+            if (!(gap > 0) || !(l2 > 0) || double.IsInfinity(l2) || !(margin >= 0))
+                return false;
+            if (margin == 0)
+                return true;
+            if (gap2 >= MinNormal && !double.IsInfinity(gap2)) {
+                double g2 = gap * gap;
+                if (g2 >= MinNormal && !double.IsInfinity(g2))
+                    return g2 > gap2;
+            }
+            double len = Math.Sqrt(l2);
+            double lim = margin * len;
+            if (lim >= MinNormal && !double.IsInfinity(lim))
+                return gap > lim;
+            return gap / len > margin;
+        }
+
+        static bool box_box_apart(Vector3d mn, Vector3d mx, AxisAlignedBox3d b, double margin)
+        {
             double dx = Math.Max(0, Math.Max(mn.x - b.Max.x, b.Min.x - mx.x));
             double dy = Math.Max(0, Math.Max(mn.y - b.Max.y, b.Min.y - mx.y));
             double dz = Math.Max(0, Math.Max(mn.z - b.Max.z, b.Min.z - mx.z));
-            return dx * dx + dy * dy + dz * dz;
+            if (dx > margin || dy > margin || dz > margin)
+                return true;
+            double m2 = margin * margin;
+            if (m2 >= MinNormal && !double.IsInfinity(m2))
+                return dx * dx + dy * dy + dz * dz > m2;
+            double dmax = Math.Max(dx, Math.Max(dy, dz));
+            if (!(dmax > 0))
+                return false;
+            double sx = dx / dmax, sy = dy / dmax, sz = dz / dmax;
+            return dmax * Math.Sqrt(sx * sx + sy * sy + sz * sz) > margin;
         }
 
         // separating axis test with a gap: the projections onto axis are more than margin * |axis| apart
@@ -396,7 +430,9 @@ namespace gs
             double q0 = axis.Dot(p0), q1 = axis.Dot(p1), q2 = axis.Dot(p2);
             double pmin = Math.Min(q0, Math.Min(q1, q2)), pmax = Math.Max(q0, Math.Max(q1, q2));
             double gap = Math.Max(pmin - tmax, tmin - pmax);
-            return gap > 0 && gap * gap > margin * margin * l2;
+            double m2 = margin * margin;
+            double gap2 = (m2 >= MinNormal && !double.IsInfinity(m2)) ? m2 * l2 : double.NaN;
+            return gap_exceeds(gap, margin, l2, gap2);
         }
 
         bool tet_primitive_touch(ref Tet t, int i, double margin)
@@ -465,12 +501,20 @@ namespace gs
             return best;
         }
 
-        // the segment a + t d with the reciprocals of the direction (computed once per query, the same values as per node)
+        // the segment a + t d with outward-bracketed reciprocals of the direction and coordinate magnitude
         struct Seg
         {
             public Vector3d A, D;
-            public double Ix, Iy, Iz;
-            public Seg(Vector3d a, Vector3d d) { A = a; D = d; Ix = 1.0 / d.x; Iy = 1.0 / d.y; Iz = 1.0 / d.z; }
+            public double IxLo, IxHi, IyLo, IyHi, IzLo, IzHi, MaxAbs;
+            public Seg(Vector3d a, Vector3d d)
+            {
+                A = a; D = d;
+                double ix = 1.0 / d.x, iy = 1.0 / d.y, iz = 1.0 / d.z;
+                IxLo = ExactInterval.Down(ix); IxHi = ExactInterval.Up(ix);
+                IyLo = ExactInterval.Down(iy); IyHi = ExactInterval.Up(iy);
+                IzLo = ExactInterval.Down(iz); IzHi = ExactInterval.Up(iz);
+                MaxAbs = Math.Max(a.MaxAbs, (a + d).MaxAbs);
+            }
         }
 
         // the caller found that the segment enters the node box (expanded by r) at a parameter t <= best: before lever 1,
@@ -481,7 +525,9 @@ namespace gs
             double tmax = Math.Min(best, 1);
             Vector3d sn = nd[node].N;
             double s0 = sn.Dot(sg.A), s1 = s0 + tmax * sn.Dot(sg.D);
-            if (Math.Min(s0, s1) > nd[node].DMax + r || Math.Max(s0, s1) < nd[node].DMin - r)
+            double slabSlack = 64 * MathUtil.Epsilon * (Math.Max(nd[node].Min.MaxAbs, nd[node].Max.MaxAbs) + sg.MaxAbs);
+            if (Math.Min(s0, s1) > ExactInterval.Up(nd[node].DMax + r + slabSlack)
+                || Math.Max(s0, s1) < ExactInterval.Down(nd[node].DMin - r - slabSlack))
                 return;
             if (nd[node].Count > 0) {
                 int end = nd[node].Start + nd[node].Count;
@@ -503,18 +549,33 @@ namespace gs
         {
             double t0 = 0, t1 = tmax;
             Vector3d mn = nd[node].Min, mx = nd[node].Max;
-            if (!clip(mn.x - r, mx.x + r, sg.A.x, sg.D.x, sg.Ix, ref t0, ref t1)) return -1;
-            if (!clip(mn.y - r, mx.y + r, sg.A.y, sg.D.y, sg.Iy, ref t0, ref t1)) return -1;
-            if (!clip(mn.z - r, mx.z + r, sg.A.z, sg.D.z, sg.Iz, ref t0, ref t1)) return -1;
+            if (!clip(ExactInterval.Down(mn.x - r), ExactInterval.Up(mx.x + r), sg.A.x, sg.D.x, sg.IxLo, sg.IxHi, ref t0, ref t1)) return -1;
+            if (!clip(ExactInterval.Down(mn.y - r), ExactInterval.Up(mx.y + r), sg.A.y, sg.D.y, sg.IyLo, sg.IyHi, ref t0, ref t1)) return -1;
+            if (!clip(ExactInterval.Down(mn.z - r), ExactInterval.Up(mx.z + r), sg.A.z, sg.D.z, sg.IzLo, sg.IzHi, ref t0, ref t1)) return -1;
             return t0;
         }
 
-        static bool clip(double mn, double mx, double o, double dir, double inv, ref double t0, ref double t1)
+        static bool clip(double mn, double mx, double o, double dir, double invLo, double invHi, ref double t0, ref double t1)
         {
             if (dir == 0)
                 return !(o < mn || o > mx);
-            double ta = (mn - o) * inv, tb = (mx - o) * inv;
-            if (ta > tb) { double tt = ta; ta = tb; tb = tt; }
+            double lo = ExactInterval.Down(mn - o), hi = ExactInterval.Up(mx - o);
+            double ta, tb;
+            if (!MathUtil.IsFinite(invLo) || !MathUtil.IsFinite(invHi)) {
+                if (dir > 0) {
+                    ta = ExactInterval.Down(lo / dir);
+                    tb = ExactInterval.Up(hi / dir);
+                } else {
+                    ta = ExactInterval.Down(hi / dir);
+                    tb = ExactInterval.Up(lo / dir);
+                }
+            } else if (dir > 0) {
+                ta = ExactInterval.Down(lo * (lo >= 0 ? invLo : invHi));
+                tb = ExactInterval.Up(hi * (hi >= 0 ? invHi : invLo));
+            } else {
+                ta = ExactInterval.Down(hi * (hi >= 0 ? invLo : invHi));
+                tb = ExactInterval.Up(lo * (lo >= 0 ? invHi : invLo));
+            }
             if (ta > t0) t0 = ta;
             if (tb < t1) t1 = tb;
             return !(t0 > t1);

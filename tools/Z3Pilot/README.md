@@ -1147,3 +1147,11 @@ small bound makes it impossible (UNSAT by the area); and the pair encoding on cr
 ```sh
 python3 -m unittest discover -s tools/Z3Pilot -p test_local_arithmetic_and_topology.py -v
 ```
+
+## Alpha Wrap oracle pruning and range
+
+Run `python3 tools/Z3Pilot/alpha_wrap_oracle.py` (or `python3 -m unittest discover -s tools/Z3Pilot -p test_alpha_wrap_oracle.py -v`) for the local obligations, source-drift checks (all 7 anchors), and binary64 boundary replays on `mesh_ops/AlphaWrapOracle.cs`:
+
+- **Face-plane box projection (`face_separates`):** proves that summing the per-axis min/max of `axis_k * mn_k` and `axis_k * mx_k` encloses `axis · p` for every point `p` in `[mn, mx]` (with a negative control omitting the per-axis `min`).
+- **Gap & box-distance checks (`gap_exceeds`, `box_box_apart`):** proves `gap^2 > margin^2 * len^2 <=> gap > margin * len` for `gap > 0, margin >= 0, len > 0`, and records binary64 replays where `margin^2` underflows, becomes subnormal (losing 33% downward precision in both `gap_exceeds` and 2D `box_box_dist_sqr`), or overflows (`scale = 2^-126`, `margin = 2^600`) while the unsquared / scaled paths stay exact.
+- **Entry clipping, slab slack, and discriminant range (`Seg`, `entry_rec`, `box_entry`, `clip`, `sphere_entry`):** proves the sign-selected outward interval product in `clip` encloses `x * inv` for both `dir > 0` and `dir < 0`, proves `|B^2 - A * C| < 2^521` for `C > 0` across supported coordinates in `[-2^128, 2^128]`, and replays subnormal-direction reciprocal overflow (`1 / dir == +Infinity`), UTM inward box-expansion rounding, and 3-rounding clip misses.
