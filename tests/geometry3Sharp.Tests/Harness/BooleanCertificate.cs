@@ -313,6 +313,61 @@ namespace geometry3Sharp.Tests
                 if (planeGroups.TryGetValue(triPlane[t], out List<int> g) == false) planeGroups[triPlane[t]] = g = new List<int>();
                 g.Add(t);
             }
+            if (RegionClipping) PrepareRegions();
+        }
+
+        /// <summary>
+        /// the input was boolean-ed with RegionClipping (#1630): the library cut the coplanar triangles of the other meshes only at the boundary edges of the regions of
+        /// a mesh, and took a piece from the region of the lowest rank. The checker then reads the stacks and the straddle test of C2 per region, from its own
+        /// regions: sets of the triangles of one mesh that are in one exact plane (the key of the plane, the same for both sides) and joined through edges whose
+        /// two triangles have their third corners on opposite sides in the plane. No code of the arrangement is used.
+        /// </summary>
+        public bool RegionClipping;
+        bool[][] flatEdge;        // [t][k]: the edge from corner k to k+1 of input triangle t is shared with a triangle of its region
+        int[] regionOf;           // the lowest input triangle of the region of t
+
+        void PrepareRegions()
+        {
+            int nt = TriMesh.Length;
+            flatEdge = new bool[nt][];
+            regionOf = new int[nt];
+            for (int t = 0; t < nt; ++t) { regionOf[t] = t; flatEdge[t] = new bool[3]; }
+            var index = new Dictionary<long, int>();
+            for (int t = 0; t < nt; ++t) index[((long)TriMesh[t] << 32) | (uint)TriTid[t]] = t;
+            int Find(int x) { while (regionOf[x] != x) x = regionOf[x] = regionOf[regionOf[x]]; return x; }
+            for (int t = 0; t < nt; ++t) {
+                if (IsZero(triNormal[t])) continue;
+                DMesh3 m = Meshes[TriMesh[t]];
+                Index3i tri = m.GetTriangle(TriTid[t]), te = m.GetTriEdges(TriTid[t]);
+                for (int k = 0; k < 3; ++k) {
+                    Index2i et = m.GetEdgeT(te[k]);
+                    if (et.b == DMesh3.InvalidID) continue;
+                    int otid = et.a == TriTid[t] ? et.b : et.a;
+                    if (index.TryGetValue(((long)TriMesh[t] << 32) | (uint)otid, out int o) == false || IsZero(triNormal[o]) || triPlane[o] != triPlane[t]) continue;
+                    Index3i ot = m.GetTriangle(otid);
+                    int va = tri[k], vb = tri[(k + 1) % 3];
+                    int third = (ot.a != va && ot.a != vb) ? 0 : (ot.b != va && ot.b != vb) ? 1 : 2;
+                    if (TriForms(t)[k].Side(triCorners[o][third]) >= 0) continue;
+                    flatEdge[t][k] = true;
+                    int ra = Find(t), rb = Find(o);
+                    if (ra < rb) regionOf[rb] = ra; else if (rb < ra) regionOf[ra] = rb;
+                }
+            }
+            for (int t = 0; t < nt; ++t) regionOf[t] = Find(t);
+        }
+
+        // RegionClipping: where the point p is against the closed triangle t: -1 outside, 1 inside or on edges that are all flat (a point of the region's interior), 0 on an edge of the
+        // region's boundary (the piece's centroid must not be there)
+        int InsideInRegionPlane(int t, ExactPoint3 p)
+        {
+            EdgeForm[] f = TriForms(t);
+            bool boundary = false, any = false;
+            for (int k = 0; k < 3; ++k) {
+                int side = f[k].Side(p);
+                if (side < 0) return -1;
+                if (side == 0) { any = true; if (flatEdge[t][k] == false) boundary = true; }
+            }
+            return boundary ? 0 : 1;
         }
 
         // A conservative box of exact corners, from their approximations (each within 2 ulp), widened by a relative 2^-49 and the
@@ -416,6 +471,7 @@ namespace geometry3Sharp.Tests
                 d = m[0] * a.X + m[1] * a.Y + m[2] * a.Z;
             }
             public int Side(ExactPoint3 p) => (aw * (mx * p.X + my * p.Y + mz * p.Z) - d * p.W).Sign;
+            public BigInteger Value(ExactPoint3 p) => aw * (mx * p.X + my * p.Y + mz * p.Z) - d * p.W;
         }
 
         /// <summary> for tests: the side of p against the directed edge a -> b under the normal n, by the direct computation (the one an EdgeForm replaces) </summary>
@@ -834,7 +890,7 @@ namespace geometry3Sharp.Tests
             ParFor(0, n, k => {
                 int i = part[k], src = PieceSource[i];
                 foreach (int u in CoplanarNear(src, PieceCorners[i]))
-                    if (u != src && TriCulled[u] == false && IsZero(triNormal[u]) == false && StraddlesInPlaneOfSource(i, u)) {
+                    if (u != src && TriCulled[u] == false && IsZero(triNormal[u]) == false && (RegionClipping ? CutsPieceAtRegionBoundary(i, u) : StraddlesInPlaneOfSource(i, u))) {
                         straddle[k] = $"piece {i} (source {src}) straddles the boundary of the coplanar input triangle {u}";
                         return;
                     }
@@ -949,6 +1005,36 @@ namespace geometry3Sharp.Tests
         /// edge forms (the same signs; the equal planes make the normals parallel, so u's own forms give the signs of the
         /// reordered u). A piece that is not in its source's plane takes the direct test.
         /// </summary>
+        // RegionClipping: a boundary edge of the region of input triangle u (an edge of u that is not flat) meets the open piece i. A piece that no such edge enters has its
+        // interior in the region or disjoint from it (the interior is connected); the flat edges of a region cut nothing. The closed segment a-b against the open triangle:
+        // the piece's edge lines each leave a part of the segment on the inner side, an interval from one end or to the other; the intervals meet iff for every one
+        // that starts after a (strictly inner at b only) and every one that ends before b (inner at a only) the first one's crossing is before the other's, by the sign of
+        // f_k(b) f_j(a) - f_k(a) f_j(b) (the values of the forms of the two lines at the ends, over the product of the ends' W: both positive)
+        bool CutsPieceAtRegionBoundary(int i, int u)
+        {
+            EdgeForm[] h = PieceForms(i);
+            for (int e = 0; e < 3; ++e) {
+                if (flatEdge[u][e]) continue;
+                ExactPoint3 a = triCorners[u][e], b = triCorners[u][(e + 1) % 3];
+                var late = new List<int>();     // inner side at b only: (t_k, 1]
+                var early = new List<int>();    // inner side at a only: [0, s_j)
+                bool empty = false;
+                for (int k = 0; k < 3 && empty == false; ++k) {
+                    int sa = h[k].Side(a), sb = h[k].Side(b);
+                    if (sa <= 0 && sb <= 0) empty = true;
+                    else if (sa <= 0) late.Add(k);
+                    else if (sb <= 0) early.Add(k);
+                }
+                if (empty) continue;
+                bool meets = true;
+                foreach (int k in late)
+                    foreach (int j in early)
+                        if ((h[k].Value(b) * h[j].Value(a) - h[k].Value(a) * h[j].Value(b)).Sign <= 0) meets = false;
+                if (meets) return true;
+            }
+            return false;
+        }
+
         bool StraddlesInPlaneOfSource(int i, int u)
         {
             if (InSourcePlane(i) == false) return StraddlesInPlane(PieceCorners[i], triCorners[u]);
@@ -1328,7 +1414,7 @@ namespace geometry3Sharp.Tests
                 var side = new List<sbyte>(near.Count);
                 foreach (int u in near) {
                     if (TriCulled[u]) continue;
-                    h.Add(u); side.Add((sbyte)InsideInPlane(u, cen));
+                    h.Add(u); side.Add((sbyte)(RegionClipping ? InsideInRegionPlane(u, cen) : InsideInPlane(u, cen)));
                 }
                 hits[g] = h.ToArray(); inside[g] = side.ToArray();
             });
@@ -1343,7 +1429,13 @@ namespace geometry3Sharp.Tests
                     if (u > src && srcAdded == false) { s.Add(src); srcAdded = true; }
                     if (u == src) { s.Add(u); srcAdded = true; continue; }
                     if (inside[g][k] == 0) { failure[i] = $"piece {i}: its centroid is on the edge of coplanar triangle {u}"; return; }
-                    if (inside[g][k] > 0) s.Add(u);
+                    if (inside[g][k] > 0) {
+                        // (one member per region: a centroid on a flat edge is in two triangles of it)
+                        bool listed = false;
+                        if (RegionClipping)
+                            foreach (int x in s) if (x != src && regionOf[x] == regionOf[u]) listed = true;
+                        if (listed == false) s.Add(u);
+                    }
                 }
                 if (srcAdded == false) { s.Add(src); s.Sort(); }
                 stacks[i] = s;
@@ -1544,6 +1636,9 @@ namespace geometry3Sharp.Tests
                 bool degenerate = false;
                 for (int t = 0; t < TriMesh.Length && degenerate == false; ++t) {
                     if (IsZero(triNormal[t]) || (onlyMesh >= 0 && TriMesh[t] != onlyMesh)) continue;
+                    // (a triangle in the plane of the origin is no crossing of a ray that leaves the plane; with RegionClipping the origin can be on its flat edge, which Crossing
+                    // reports as a degenerate ray)
+                    if (RegionClipping && triPlane[t] == plane) continue;
                     int hit = Crossing(o, dir, t, out degenerate);
                     if (degenerate) break;
                     if (hit == 2) {

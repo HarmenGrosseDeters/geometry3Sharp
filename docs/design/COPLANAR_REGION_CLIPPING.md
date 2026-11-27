@@ -177,6 +177,53 @@ way (a flipped one) or that folds over (same side) is not flat, a cylinder has t
 power-of-two scale and when computed twice. (A non-manifold edge cannot occur: `DMesh3` does not hold one.) The file is in the determinism proof
 scope and in the shard `stryker-mesh-arrangement-4`.
 
+### Stage 2 built (2026-11-27): the rule behind `RegionClipping`
+
+Internal switch `ExactMeshBoolean.RegionClipping` (off by default; `ExactMeshArrangement.RegionClipping` below it). With it on:
+
+1. **Clips.** `intersect_coplanar` clips every edge of each triangle into the other as before (so `any` and the coplanar relation are recorded), but a clip of a
+   flat edge adds no segment. Its ends are still added as points of the triangle they are clipped into when they lie on a side of that triangle that is *not* a
+   flat edge of its own region. That is not in the first design and the spike did not need it: a side of a region is shared with a triangle of another
+   mesh region or a non-coplanar triangle `S` of the same mesh, and `S` sees the end through its own pair with the triangle that carries the flat edge (the contact
+   of `S` with the plane is clipped to that triangle, so it ends where that triangle's flat edge crosses the side). Without the point the two triangles disagree on
+   the vertices of their common side and the result is open (found by the first run of the stage 2 tests: 72 boundary edges on the 1e-9 cylinders). Points on a flat side
+   of the region are not added: both triangles of the region skip them alike, and the vertex count, which fixes the number of pieces of a triangulation, stays
+   linear (adding every end gave the old 29,808 pieces at ring 121 again).
+2. **Stacks.** `coplanar_stack` is unchanged: it lists every triangle of another mesh that contains the piece's centroid, ascending, and the piece is output from
+   the first. The members are triangles of other meshes, and all triangles of a mesh come before those of the next, so the region of the lowest rank is the
+   lowest mesh's: the old rule and the rank by region are the same (a region is inside one mesh), and the code keeps the old one.
+3. **One crossing per region.** A centroid on a flat edge of a region is in two triangles of it. The windings behind the piece add one crossing per region
+   (`region_listed_before`); the ray of `front_crossings` skips every triangle in the list, as before.
+4. The stack walk is not used (`RecordEdgeLines` and `walked_sources` are off with the switch): the pieces are linear, the scan is not cubic any more.
+
+Proofs (P1 to P5 of section 6; "region" is as in section 4):
+
+- **P1, membership.** Let R be a region of mesh B and p a piece of a triangle T of mesh A (coplanar). Every boundary edge of R meeting T is clipped into T (the
+  pair of T with the triangle that carries the edge is a candidate pair, `any` is true when the clip is not empty, and the segment is added since the edge is
+  not flat). So the interior of p, which is a face of the arrangement of T, meets no boundary edge of R; as it is connected, it is inside R or disjoint from the
+  interior of R. The centroid is interior to p, hence in the closed R iff p is, and then it is in at least one triangle of R, which `coplanar_stack` finds
+  (`inside_coplanar` is the closed containment, exact). A piece that is inside R but whose centroid is on a flat edge of R is in two triangles of R: P2.
+- **P2, one entry per region.** The triangles of R are in one plane with consistent orientation and are joined through edges whose third corners are on opposite
+  sides, so their interiors are disjoint; a point of the plane is in at most two triangles of R, both only on a flat edge. `region_listed_before` counts the first
+  triangle of each region in the list only, so a stack contributes one crossing per region, the sign from the normal of the first triangle, which is the
+  region's normal (same plane, same orientation).
+- **P3, the partition of an overlap.** Two regions RA, RB of different meshes overlap in a set that both partition into pieces (the pieces of the triangles of RA
+  cover RA, and likewise RB). By P1 each piece of RA inside RB has the stack [source, a triangle of RB]; the piece is output iff its source is lower than the
+  member, i.e. iff mesh A is below mesh B. So the overlap is covered by the pieces of exactly one region (the lower mesh's), and the pieces of the other region
+  inside it are copies that are not output; the pieces of either outside the overlap have no such member and are output. With several meshes the first triangle
+  of the stack is the lowest mesh's, as before.
+- **P4, equal surface.** The old rule outputs, for each point of the plane, the pieces of the lowest mesh covering it, with the crossings of every triangle that
+  contains the piece's centroid (one per mesh and orientation at a point not on an edge); the new rule outputs the same sets (P3) and the same crossings (P1, P2).
+  Both therefore classify every point of the plane alike; only the cut of the pieces differs. The test is exact: the difference of the two results is empty both
+  ways (`ExactMeshBooleanRegionClippingTests`).
+- **P5, no new predicate or bound.** The flat test (`flat_edge`) is exact `Orient` of input points (as `meets_only_at_shared`), plus the exact plane test
+  `same_plane`; `on_boundary` is `Orient` of an arrangement point against input corners (the existing predicate, the same call as `clip_into` makes). No filter and no
+  error bound is added.
+
+Checker: the certifying checker (`BooleanCertificate`) is extended for `RegionClipping`: its own regions (flat edge = two triangles of one mesh in one exact plane
+with their third corners on opposite sides), the stack by region (a centroid on flat edges only is inside, on a boundary edge of a region is an error as before), and
+C2's straddle test against the boundary edges of the regions only (an exact segment against the open piece, by the signs of the forms). It does not use the arrangement.
+
 ## 9. Prior art (papers only; no code read)
 
 - G. Bernstein, D. Fussell, *Fast, Exact, Linear Booleans*, Computer Graphics Forum 28(5), 1269-1278, 2009 (Eurographics SGP): exact BSP

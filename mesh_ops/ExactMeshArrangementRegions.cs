@@ -10,6 +10,17 @@ namespace g3
         internal bool BuildRegions;
 
         /// <summary>
+        /// #1630 (stage 2 of docs/design/COPLANAR_REGION_CLIPPING.md, off by default): the edges of a triangle that are flat edges of its region are not
+        /// clipped into the coplanar triangles of the other meshes as constraints (the pair is still clipped, so the coplanar relation is recorded).
+        /// The pieces then follow the boundaries of the regions, not every input edge; the output triangulation of coplanar clusters changes (same
+        /// surface). Implies the regions. ExactMeshBoolean pairs it with the region rank of its stacks; alone it leaves the stacks to the caller.
+        /// </summary>
+        internal bool RegionClipping;
+
+        // bit k of flatMask[t]: the edge from corner k to corner k+1 of triangle t is a flat edge (RegionClipping only)
+        byte[] flatMask;
+
+        /// <summary>
         /// per input triangle, its region: the lowest triangle index of the set of triangles of one mesh that lie in one exact plane and are joined
         /// through flat edges. A flat edge is an edge of two triangles of the mesh (an edge has at most two: DMesh3 holds no third triangle on an edge) that traverse it in opposite directions (consistent
         /// orientation; not "opposite normals"), lie in the same exact plane, and have their third corners strictly on opposite sides of it
@@ -22,6 +33,7 @@ namespace g3
         {
             var parent = new int[Triangles.Count];
             for (int i = 0; i < parent.Length; ++i) parent[i] = i;
+            flatMask = RegionClipping ? new byte[Triangles.Count] : null;
             for (int mi = 0; mi < Meshes.Count; ++mi) {
                 // the (at most) two triangles of each edge, in the order of the mesh's triangles (DMesh3 holds no edge of three)
                 var first = new Dictionary<long, int>(EdgeKeyComparer.Instance);
@@ -32,8 +44,15 @@ namespace g3
                         int other;
                         if (first.TryGetValue(e, out other) == false)
                             first[e] = ti;
-                        else if (flat_edge(other, ti, triCorners[ti][k], triCorners[ti][(k + 1) % 3]))
+                        else if (flat_edge(other, ti, triCorners[ti][k], triCorners[ti][(k + 1) % 3])) {
                             join(parent, other, ti);
+                            if (flatMask != null) {
+                                flatMask[ti] |= (byte)(1 << k);
+                                for (int j = 0; j < 3; ++j)
+                                    if (triCorners[other][j] == triCorners[ti][(k + 1) % 3] && triCorners[other][(j + 1) % 3] == triCorners[ti][k])
+                                        flatMask[other] |= (byte)(1 << j);
+                            }
+                        }
                     }
                 }
             }
