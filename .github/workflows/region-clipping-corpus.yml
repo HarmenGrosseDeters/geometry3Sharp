@@ -93,15 +93,30 @@ jobs:
             report-procedural.md
             lib_sha.txt
 
+  kinds:
+    # the matrix of the thingi job from the thingi_kinds input (a job-level `if` cannot read `matrix`)
+    if: github.repository == 'harmengrossedeters/geometry3Sharp'
+    runs-on: ubuntu-latest   # GitHub-hosted only, never self-hosted
+    timeout-minutes: 5
+    outputs:
+      list: ${{ steps.k.outputs.list }}
+    steps:
+      - id: k
+        env:
+          KINDS: ${{ inputs.thingi_kinds }}
+        run: |
+          python3 -c "import json, os; ks = [k.strip() for k in os.environ['KINDS'].split(',') if k.strip()]; bad = [k for k in ks if k not in ('self', 'pairs', 'contact')]; assert not bad, f'unknown thingi kinds: {bad}'; print('list=' + json.dumps(ks))" >> "$GITHUB_OUTPUT"
+
   thingi:
-    if: github.repository == 'harmengrossedeters/geometry3Sharp' && contains(format(',{0},', inputs.thingi_kinds), format(',{0},', matrix.kind))
+    needs: kinds
+    if: github.repository == 'harmengrossedeters/geometry3Sharp' && needs.kinds.outputs.list != '[]'
     runs-on: ubuntu-latest   # GitHub-hosted only, never self-hosted
     timeout-minutes: 340
     strategy:
       fail-fast: false
       max-parallel: 3
       matrix:
-        kind: [self, pairs, contact]
+        kind: ${{ fromJSON(needs.kinds.outputs.list) }}
     steps:
       - uses: actions/checkout@v4
         with:
