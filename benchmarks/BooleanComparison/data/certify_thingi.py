@@ -24,7 +24,7 @@ def rows(name):
     with open(os.path.join(LISTS, name)) as f:
         return list(csv.DictReader(l for l in f if not l.startswith("#")))
 
-def plan(out, n_self, n_pairs, n_contact, max_tris):
+def plan(out, n_self, n_pairs, n_contact, max_tris, variants=None):
     tris = {k: n for k, n in tp.read_clean()}
     ok = lambda *ids: all(tris.get(i, 1 << 62) <= max_tris for i in ids)
     cases = []
@@ -39,6 +39,8 @@ def plan(out, n_self, n_pairs, n_contact, max_tris):
         cases.append({"case": f"pair-{r['pair']}", "args": ["pair", r["a"], r["b"]] + [r[x] for x in ("qx", "qy", "qz", "qw", "tx", "ty", "tz")], "ids": [r["a"], r["b"]]})
     contact = rows("contact_pairs.csv")
     for v in sorted({r["variant"] for r in contact}):
+        if variants and v not in variants:        # (--variants: only these contact variants)
+            continue
         for r in [r for r in contact if r["variant"] == v and ok(r["a"], r["b"])][:n_contact]:
             cases.append({"case": f"contact-{r['pair']}-{v}", "args": ["contact", r["a"], r["b"], v, r["axis"], r["sign"], r["param"]], "ids": [r["a"], r["b"]]})
     with open(out, "w") as f:
@@ -73,6 +75,14 @@ def mesh_path(d, k):
             return os.path.join(m, n)
     raise FileNotFoundError(k)
 
+STDERR_LINES = 20
+
+def stderr_tail(text):
+    """the last STDERR_LINES lines of a process's stderr (bytes or str or None)"""
+    if text is None: return ""
+    if isinstance(text, bytes): text = text.decode("utf-8", "replace")
+    return "\n".join(text.splitlines()[-STDERR_LINES:])
+
 def run(cases, d, out, timeout, tool, command="certify"):
     done = set()
     if os.path.exists(out):
@@ -90,17 +100,26 @@ def run(cases, d, out, timeout, tool, command="certify"):
             p = subprocess.run(["dotnet", tool] + (["region-compare", "thingi"] if command == "region-compare" else ["certify", "thingi"]) + args, capture_output=True, text=True, timeout=timeout)
             lines = [l for l in p.stdout.splitlines() if l.startswith("{")]
             got = [json.loads(l) for l in lines]
+            tail = stderr_tail(p.stderr)
             if p.returncode != 0 or not got:
                 got.append({"verdict": "process failed", "message": (p.stderr or "")[-300:]})
         except subprocess.TimeoutExpired as e:
             got = [json.loads(l) for l in (e.stdout.decode() if isinstance(e.stdout, bytes) else (e.stdout or "")).splitlines() if l.startswith("{")]
             got.append({"verdict": "timeout", "timeout_s": timeout})
+            tail = stderr_tail(e.stderr)
         with open(out, "a") as f:
             for r in got:
                 r["case"] = c["case"]
                 r["wall_s"] = round(time.time() - t0, 1)
+                if r["verdict"] not in OK_VERDICTS and tail:
+                    r["stderr_tail"] = tail          # (the last lines of the process's stderr, for a failing row)
                 f.write(json.dumps(r) + "\n")
         print(c["case"], " ".join(f"{r.get('op', '-')}:{r['verdict']}" for r in got), flush=True)
+        for r in got:
+            if r["verdict"] not in OK_VERDICTS:
+                print(f"    {r.get('op', '-')} {r['verdict']}: {r.get('message', '')[:300]}" + (f" [exact {r['exact']}]" if "exact" in r else ""), flush=True)
+                for l in r.get("stderr_tail", "").splitlines():
+                    print("      stderr| " + l, flush=True)
     # the gate of the region comparison: any row that is not "same" (a difference, a timeout, an error) makes the run, and so the job, fail
     if command == "region-compare":
         bad = [r for r in load_rows([out]) if r["verdict"] not in OK_VERDICTS]
@@ -171,6 +190,8 @@ def summary_region(paths):
         print("\ndifferences (case, op, verdict, message):\n")
         for r in bad:
             print(f"- {r['case']} {r.get('op', '-')} {r['verdict']}: {r.get('message', '')[:300]}" + (f" [exact {r['exact']}, {r.get('exact_tris', '')}; min edge {r['min_edge']:.3g}, rounding resolution {r['round_res']:.3g}, repair tolerance {r.get('repair_tol', 0):.3g}]" if "exact" in r and "min_edge" in r else (f" [exact {r['exact']}]" if "exact" in r else "")))
+            for l in r.get("stderr_tail", "").splitlines():
+                print("    stderr| " + l)
     tim = [r for r in rs if "t_off_ms" in r and "t_on_ms" in r]
     if tim:
         print(f"\ntime over {len(tim)} operations: without {sum(r['t_off_ms'] for r in tim) / 1000:.1f} s, with {sum(r['t_on_ms'] for r in tim) / 1000:.1f} s")
@@ -188,12 +209,13 @@ def main():
     sp = ap.add_subparsers(dest="cmd", required=True)
     p = sp.add_parser("plan"); p.add_argument("out"); p.add_argument("--self", type=int, default=20); p.add_argument("--pairs", type=int, default=20)
     p.add_argument("--contact", type=int, default=3); p.add_argument("--max-tris", type=int, default=20000)
+    p.add_argument("--variants", default="", help="comma list: only these contact variants (default all)")
     p = sp.add_parser("fetch"); p.add_argument("dir"); p.add_argument("cases")
     p = sp.add_parser("run"); p.add_argument("cases"); p.add_argument("dir"); p.add_argument("out"); p.add_argument("--timeout", type=int, default=600); p.add_argument("--command", choices=["certify", "region-compare"], default="certify")
     p.add_argument("--tool", default=os.path.join(os.path.dirname(HERE), "bin", "Release", "net10.0", "BooleanComparison.dll"))
     p = sp.add_parser("summary"); p.add_argument("paths", nargs="+"); p.add_argument("--region", action="store_true")
     a = ap.parse_args()
-    if a.cmd == "plan": plan(a.out, a.self, a.pairs, a.contact, a.max_tris)
+    if a.cmd == "plan": plan(a.out, a.self, a.pairs, a.contact, a.max_tris, [v for v in a.variants.split(',') if v])
     elif a.cmd == "fetch": fetch(a.dir, a.cases)
     elif a.cmd == "run": sys.exit(run(a.cases, a.dir, a.out, a.timeout, a.tool, a.command))
     elif a.region: sys.exit(summary_region(a.paths))
