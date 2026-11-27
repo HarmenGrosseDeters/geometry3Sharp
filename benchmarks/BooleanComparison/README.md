@@ -1519,6 +1519,26 @@ verdict row out (the meshes are not changed, nothing is written). The row, one J
 | `clause`, `message` | the failing clause of a rejection (`C0`, `C1`, `C2`, `C3/C4`, `C5`), and `Check()`'s text (at most 400 characters) |
 | `split` | `SplitDepth`, where it was set |
 
+## Region clipping corpus gate (`region-compare`; E' stage 4, #1630, 2026-11-27)
+
+The gate before `ExactMeshBoolean.RegionClipping` becomes the default ([design/COPLANAR_REGION_CLIPPING.md](../../docs/design/COPLANAR_REGION_CLIPPING.md)): each
+operation with and without the switch, one JSON row per operation (`tests/geometry3Sharp.Tests/Harness/RegionClippingCompare.cs`, no mesh in a row). Gate per row: the same
+Status, the same `NotCleanReason`, the exact difference of the two results empty both ways (where both are clean and not empty), the certifying checker on the result with the
+switch on (where it applies), and the time with and without (reported, not gated). Verdict `same`, or the first thing that differs.
+
+```
+BooleanComparison region-compare fuzz <family|all> <from> <count>   the BooleanFuzzCases families (closed families and the open one), seeds [from, from + count)
+BooleanComparison region-compare audit [class]                      the procedural audit corpus (benchmarks/SolidBooleanAudit/Corpus.cs), the operands as given
+BooleanComparison region-compare thingi self|pair|contact ...       as `certify thingi` (the cases of data/certify_thingi.py plan)
+python3 data/certify_thingi.py run <cases> <dir> <out> --command region-compare    one process per case, a timeout per case
+python3 data/certify_thingi.py summary --region <rows>...           the counts by verdict, the differences, the time with and without by size
+```
+
+The run is `.github/workflows/region-clipping-corpus.yml` (workflow_dispatch; the Thingi10K models are fetched at run time on GitHub-hosted runners, nothing is committed;
+the rows go to the artifacts and the job summary). The procedural corpora are also a test, `RegionClippingCorpusTests` (a few seeds per family in the PR tier, 300 per
+family in the Nightly tier). Local run before the workflow (2026-11-27, 4 cores): the fuzz families, seeds 4..153 (3,600 rows) and seeds 0..3, and the audit corpus (60 rows):
+all `same`; 3,066 certified, 450 not applicable (open inputs), 84 where the rounding removed a part (as without the switch); time 3.8 s without, 3.1 s with.
+
 ## Nesting check of MeshWindingNumberBoolean (`nesting-cost`; #1609, #1661, 2026-11-26)
 
 `DOTNET_TieredCompilation=0 BooleanComparison nesting-cost [rounds]` times `Compute()` of a union with the nesting check off

@@ -255,6 +255,14 @@ without a coplanar cluster (13 ms against 12 ms, the same pieces and triangles).
 - One cost found on the way and removed: the sort of the ghosts in `prepare_touched` (the defensive sort of the second review round) was 600 ms of 1.7 s at ring 481 for
   no effect (`ghost_points` only adds points to a set that `touched_points` sorts), so it is gone; the equivalent mutant is the same: no sort of the ghosts at all.
 
+### Stage 4: the owner's decision (2026-11-27) and its first PR, the corpus gate
+
+The owner decided that `RegionClipping` becomes the default after a corpus run. First PR: the comparison, flag on against off, no default change. It is
+`benchmarks/BooleanComparison` `region-compare` (rows from `RegionClippingCompare`), the test `RegionClippingCorpusTests` and the workflow
+`.github/workflows/region-clipping-corpus.yml`; the gate per case is the same Status, the same `NotCleanReason`, the exact difference empty both ways, and the certificate
+with the switch on; the time with and without is reported. Second PR, only if the gate is clean: the default switches to on (the flag stays as an opt-out), the pins and
+hashes move with a reason each, and a release note says "the triangulation of coplanar clusters differs; same surface".
+
 ## 9. Prior art (papers only; no code read)
 
 - G. Bernstein, D. Fussell, *Fast, Exact, Linear Booleans*, Computer Graphics Forum 28(5), 1269-1278, 2009 (Eurographics SGP): exact BSP

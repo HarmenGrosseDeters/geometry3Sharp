@@ -95,6 +95,7 @@ static class Program
             case "eval": return Eval(args[1]);
             case "nary": return Nary.Run(args.Skip(1).ToArray());
             case "certify": return Certify.Run(args.Skip(1).ToArray());
+            case "region-compare": return RegionCompareCases.Run(args.Skip(1).ToArray());
             case "coplanar-clip": return CoplanarClip.Run(args.Skip(1).ToArray());
 #if !NETFRAMEWORK
             case "pipeline-cert": return PipelineCertBench.Run(args.Skip(1).ToArray());

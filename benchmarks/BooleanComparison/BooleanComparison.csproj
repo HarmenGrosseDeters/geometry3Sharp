@@ -20,6 +20,8 @@
     <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\CertificateFile.cs" Link="Harness\CertificateFile.cs" />
     <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\BooleanFuzzCases.cs" Link="Harness\BooleanFuzzCases.cs" />
     <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\BooleanOracle.cs" Link="Harness\BooleanOracle.cs" />
+    <!-- the corpus gate of E' stage 4 (region-compare): one boolean with and without RegionClipping -->
+    <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\RegionClippingCompare.cs" Link="Harness\RegionClippingCompare.cs" />
     <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\Invariance.cs" Link="Harness\Invariance.cs" />
   </ItemGroup>
 
