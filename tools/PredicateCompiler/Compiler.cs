@@ -360,11 +360,6 @@ namespace G3PredicateCompiler
             return sb.ToString();
         }
 
-        /// <summary>
-        /// the generated C# of a spec (math/Generated/IndirectPredicates.cs): per predicate, the exact stage on
-        /// FixedArith for inputs within the bound (a FixedArena of the derived scratch), and a BigInteger evaluation of
-        /// the same graph for inputs beyond it
-        /// </summary>
         /// <summary> the default class of --code (math/Generated/IndirectPredicates.cs) </summary>
         public const string DefaultClassName = "IndirectPredicates";
 
@@ -386,6 +381,11 @@ namespace G3PredicateCompiler
             return true;
         }
 
+        /// <summary>
+        /// the generated C# of a spec (math/Generated/IndirectPredicates.cs, or the class className): per predicate, the exact stage on
+        /// FixedArith for inputs within the bound (a FixedArena of the derived scratch), and a BigInteger evaluation of
+        /// the same graph for inputs beyond it
+        /// </summary>
         public static string Code(string spec, string specPath, string outPath, string className)
         {
             var preds = Analyze(spec);

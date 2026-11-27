@@ -10,8 +10,12 @@ namespace geometry3Sharp.Tests
     /// <summary>
     /// Delaunay3 without SymbolicPerturbation (the default) is unchanged: the triangulations of a cospherical lattice and
     /// of random points, an alpha wrap and a tetrahedralization are pinned bit for bit to the values of master before the
-    /// perturbation was added (docs/design/BISECTOR_PREDICATES.md section 3; the hashes were taken on master 20116116).
-    /// Only public API, so the test also runs against the base library.
+    /// perturbation was added (docs/design/BISECTOR_PREDICATES.md section 3; the hashes were taken on master 20116116,
+    /// linux net10.0). Only public API, so the test also runs against the base library. The two Delaunay3 pins use exact
+    /// predicates only and hold on every runtime; the alpha wrap and the tetrahedralization (floating-point constructions)
+    /// are pinned on .NET only. A later intended change of MeshAlphaWrap or MeshTetrahedralization re-pins their two
+    /// hashes: run this test on the new master and copy the values it prints; a change of the Delaunay3 pins means
+    /// Delaunay3 itself changed.
     /// </summary>
     public class Delaunay3PinnedTests
     {
@@ -62,19 +66,24 @@ namespace geometry3Sharp.Tests
             foreach (var p in pts.OrderBy(_ => rand.Next())) lattice.Insert(p, -1, 0, out _);
             var random = new Delaunay3(new AxisAlignedBox3d(new Vector3d(-1, -1, -1), new Vector3d(1, 1, 1)));
             for (int i = 0; i < 2000; ++i) random.Insert(new Vector3d(rand.NextDouble() * 1.8 - 0.9, rand.NextDouble() * 1.8 - 0.9, rand.NextDouble() * 1.8 - 0.9), -1, 1e-3, out _);
+#if !NET
+            return new[] { Cells(lattice), Cells(random) };
+#else
             var sphere = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 6 }.Generate().MakeDMesh();
             var wrap = new MeshAlphaWrap(sphere) { RelativeAlpha = 20, RelativeOffset = 300 };
             Assert.True(wrap.Compute());
             var tm = new MeshTetrahedralization(sphere) { RelativeAlpha = 12, RelativeOffset = 200, Improve = false };
             Assert.True(tm.Compute());
             return new[] { Cells(lattice), Cells(random), Mesh(wrap.Result), Tets(tm.Result) };
+#endif
         }
 
         [Fact]
         public void WithoutPerturbation_EqualToMaster()
         {
             var got = Compute();
-            Assert.Equal(new ulong[] { 14469820202339814898UL, 17741016177304067256UL, 16177413057851189453UL, 6322502901359635903UL }, got);
+            var pinned = new ulong[] { 14469820202339814898UL, 17741016177304067256UL, 16177413057851189453UL, 6322502901359635903UL };
+            Assert.True(pinned.Take(got.Length).SequenceEqual(got), "pinned " + string.Join(", ", pinned) + "; got " + string.Join(", ", got));
         }
     }
 }

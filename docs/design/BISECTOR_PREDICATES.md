@@ -286,7 +286,7 @@ c' − e').
 **Lemma S1 (the cascade always decides).** If the point exists (d ≠ 0, det ≠ 0), the perturbed sign of P3, P4 and P1 is
 never 0.
 
-*Proof.* The coefficient of the tested site's weight (w_e, w_e, w_c) is ±1, ±d or ±det, which is nonzero, so the cascade
+*Proof.* The coefficient of the tested site's weight (w_e for P3, w_c for P4, w_e for P1) is ±1, ±d or ±det, which is nonzero, so the cascade
 stops at it at the latest. ∎
 
 **Lemma S2 (it is a perturbation of the geometry).** The perturbed signs are the signs of the weighted configuration for

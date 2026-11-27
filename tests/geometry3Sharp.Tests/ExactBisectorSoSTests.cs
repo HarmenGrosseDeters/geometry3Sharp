@@ -294,6 +294,7 @@ namespace geometry3Sharp.Tests
         {
             var rand = new Random(3);
             int ties = 0;
+            var depth = new int[6];
             for (int k = 0; k < 2000; ++k) {
                 var x = SmallDir(rand, 20);
                 var P = Norm3.OrderBy(_ => rand.Next()).Take(5).Select(d => x + d).ToArray();
@@ -303,9 +304,53 @@ namespace geometry3Sharp.Tests
                 int s = ExactBisectorSoS.InSphere(P[0], id[0], P[1], id[1], P[2], id[2], P[3], id[3], P[4], id[4]);
                 Assert.Equal(OInSphere(P, id), s);
                 Assert.NotEqual(0, s);
-                if (ExactPredicates.InSphere(P[0], P[1], P[2], P[3], P[4]) == 0) ties++;
+                if (ExactPredicates.InSphere(P[0], P[1], P[2], P[3], P[4]) == 0) {
+                    ties++;
+                    depth[Depth(id, new[] { -ExactPredicates.Orient3d(P[4], P[1], P[2], P[3]), -ExactPredicates.Orient3d(P[0], P[4], P[2], P[3]),
+                        -ExactPredicates.Orient3d(P[0], P[1], P[4], P[3]), -ExactPredicates.Orient3d(P[0], P[1], P[2], P[4]),
+                        ExactPredicates.Orient3d(P[0], P[1], P[2], P[3]) })]++;
+                }
             }
             Assert.True(ties > 1000);
+            // coplanar quadruples on the sphere zero the leading coefficients: the cascade goes deeper than its first step
+            Assert.True(depth[0] > 0 && depth[1] > 0 && depth[2] > 0 && depth[5] == 0, "InSphere depths " + string.Join(" ", depth));
+        }
+
+        /// <summary>
+        /// the perturbed signs are invariant under 2^k scaling bit for bit, also at 2^-900 and 2^900 (the coefficient
+        /// predicates on their exact paths); under the other similarities of the harness the ties are gone or broken
+        /// otherwise, but the signs stay nonzero wherever the point exists (Lemma S1)
+        /// </summary>
+        [Fact]
+        public void Invariance_UnderTheHarnessSimilarities_AndExtremeScales()
+        {
+            var rand = new Random(6);
+            for (int k = 0; k < 150; ++k) {
+                var x = SmallDir(rand, 20);
+                var S = Norm3.OrderBy(_ => rand.Next()).Take(5).Select(d => x + d).ToArray();
+                if (k % 5 == 0) S[2] = x * 2 - S[1];
+                var dir = SmallDir(rand, 3);
+                Vector3d u = SmallDir(rand, 4), w = SmallDir(rand, 4);
+                var P = new[] { x, S[0], S[1], S[2], S[3], S[4], x - dir, x + dir, x + u, x + w, x - u - w };
+                int[] id = Ids(rand, 5);
+                Func<Vector3d[], int[]> all = Q => new[] {
+                    ExactBisectorSoS.Side1(Q[0], Q[1], id[0], Q[4], id[3]),
+                    ExactBisectorSoS.Side2(Q[6], Q[7], Q[1], id[0], Q[2], id[1], Q[3], id[2]),
+                    ExactBisectorSoS.Side3(Q[1], id[0], Q[2], id[1], Q[3], id[2], Q[8], Q[9], Q[10], Q[4], id[3]),
+                    ExactPredicates.Orient3d(Q[1], Q[2], Q[3], Q[4]) == 0 ? 0
+                        : ExactBisectorSoS.InSphere(Q[1], id[0], Q[2], id[1], Q[3], id[2], Q[4], id[3], Q[5], id[4]) };
+                Func<Vector3d[], int[]> exists = Q => new[] { 1, BisectorPredicates.DotSites(Q[1], Q[2], Q[6], Q[7]),
+                    BisectorPredicates.DetSitesNormal(Q[1], Q[2], Q[3], Q[8], Q[9], Q[10]), ExactPredicates.Orient3d(Q[1], Q[2], Q[3], Q[4]) };
+                int[] reference = all(P);
+                foreach (int e in new[] { -900, 900 })
+                    Assert.Equal(reference, all(P.Select(p => new Vector3d(ScaleB(p.x, e), ScaleB(p.y, e), ScaleB(p.z, e))).ToArray()));
+                foreach (var sim in Similarity.All()) {
+                    var Q = P.Select(sim.Apply).ToArray();
+                    int[] got = all(Q), ex = exists(Q);
+                    for (int j = 0; j < got.Length; ++j) Assert.True((got[j] != 0) == (ex[j] != 0), sim.Name);
+                    if (sim.IsExact) Assert.Equal(reference, got);
+                }
+            }
         }
 
         [Fact]
@@ -371,6 +416,24 @@ namespace geometry3Sharp.Tests
                         if (v != t.a && v != t.b && v != t.c && v != t.d)
                             Assert.Equal(-1, dt.InCircumsphere(c, dt.GetVertex(v), v));
                 }
+            }
+        }
+
+        /// <summary> a cospherical lattice scaled by 2^k (k = -500 to 500) gives the same cells with the same ids, bit for bit </summary>
+        [Fact]
+        public void Delaunay3_Perturbed_Lattice_IsScaleInvariant()
+        {
+            var lattice = new List<Vector3d>();
+            for (int i = 1; i <= 3; ++i) for (int j = 1; j <= 3; ++j) for (int k = 1; k <= 3; ++k) lattice.Add(new Vector3d(i, j, k));
+            var order = lattice.OrderBy(_ => new Random(8).Next()).ToList();
+            string reference = null;
+            foreach (int e in new[] { 0, -500, -20, 20, 500 }) {
+                Func<Vector3d, Vector3d> sc = p => new Vector3d(ScaleB(p.x, e), ScaleB(p.y, e), ScaleB(p.z, e));
+                var dt = new Delaunay3(new AxisAlignedBox3d(sc(Vector3d.Zero), sc(new Vector3d(4, 4, 4)))) { SymbolicPerturbation = true };
+                foreach (var p in order) Assert.Equal(Delaunay3.InsertResult.Inserted, dt.Insert(sc(p), -1, 0, out _));
+                CheckRegular(dt);
+                string cells = string.Join(";", Enumerable.Range(0, dt.MaxCellID).Select(c => dt.IsCell(c) ? string.Join(",", dt.CellVertex(c, 0), dt.CellVertex(c, 1), dt.CellVertex(c, 2), dt.CellVertex(c, 3), dt.Neighbour(c, 0), dt.Neighbour(c, 1), dt.Neighbour(c, 2), dt.Neighbour(c, 3)) : "-"));
+                if (reference == null) reference = cells; else Assert.Equal(reference, cells);
             }
         }
 

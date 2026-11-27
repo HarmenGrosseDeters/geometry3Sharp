@@ -26,7 +26,8 @@ namespace g3
     /// SymbolicPerturbation (internal, off by default; docs/design/BISECTOR_PREDICATES.md section 3) breaks the ties of
     /// cospherical points by infinitesimal weights in vertex-id order (ExactBisectorSoS.InSphere): the triangulation is then
     /// the regular triangulation of the weighted vertices, the one Delaunay triangulation that the perturbed bisector
-    /// predicates of the restricted Voronoi diagram see, independent of the insertion order of cospherical points.
+    /// predicates of the restricted Voronoi diagram see. The ids are the insertion indices, so for given ids the result does not
+    /// depend on the insertion history; another insertion order gives other ids and so possibly another tie-break.
     ///
     /// Sources (docs/SOURCES.md): A. Bowyer 1981, D. F. Watson 1981 (insertion by cavities); O. Devillers,
     /// S. Pion, M. Teillaud, "Walking in a triangulation", 2002 (point location by a stochastic walk).

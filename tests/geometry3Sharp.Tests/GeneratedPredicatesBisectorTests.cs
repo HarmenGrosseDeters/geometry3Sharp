@@ -551,29 +551,39 @@ namespace geometry3Sharp.Tests
         public void Invariance_UnderTheHarnessSimilarities()
         {
             var rand = new Random(6);
+            int zeros = 0;
             for (int k = 0; k < 120; ++k) {
-                var P = RandomPoints(rand, 7, 20, -10, false);
-                if (k % 4 == 0) {           // an exact zero that a 2^k scaling keeps
+                // the layout: X, the sites a, b, c, e, an edge q0 q1, a triangle t0 t1 t2, a right triangle r0 r1 r2
+                Vector3d[] P;
+                if (k % 3 == 0) {
+                    // exact zeros of every predicate that a 2^k scaling keeps: the sites at distance 3 from X, the edge and
+                    // the triangle through X, the right triangle at rho^2 = 1/4 against its hypotenuse
                     var x = new Vector3d(rand.Next(-50, 50), rand.Next(-50, 50), rand.Next(-50, 50));
                     var S = Norm3.OrderBy(_ => rand.Next()).Take(4).ToArray();
-                    P = new[] { x + S[0], x + S[1], x + S[2], x + new Vector3d(1, 2, 0), x + new Vector3d(0, 1, 3), x - new Vector3d(1, 3, 3), x + S[3] };
+                    var dir = new Vector3d(rand.Next(-9, 10), rand.Next(-9, 10), rand.Next(-9, 10));
+                    Vector3d u = new Vector3d(1, 2, 0), w = new Vector3d(0, 1, 3);
+                    P = new[] { x, x + S[0], x + S[1], x + S[2], x + S[3], x - dir, x + dir, x + u, x + w, x - u - w,
+                        x, x + new Vector3d(3, 0, 0), x + new Vector3d(0, 4, 0) };
+                } else
+                    P = RandomPoints(rand, 13, 20, -10, false);
+                Func<Vector3d[], double, int[]> all = (Q, sc) => new[] {
+                    Side1(Q[0], Q[1], Q[4]), Side2(Q[5], Q[6], Q[1], Q[2], Q[3]), Side3(Q[1], Q[2], Q[3], Q[7], Q[8], Q[9], Q[4]),
+                    Dist1(Q[0], Q[1], 3 * sc), Dist2(Q[5], Q[6], Q[1], Q[2], 3 * sc), Dist3(Q[1], Q[2], Q[3], Q[7], Q[8], Q[9], 3 * sc),
+                    RadiusEdge(Q[10], Q[11], Q[12], Q[11], Q[12], new Vector3d(0.25, 1, 0)) };
+                int[] reference = all(P, 1);
+                if (k % 3 == 0) {
+                    Assert.Equal(0, reference[0]);
+                    Assert.Equal(0, reference[3]);
+                    Assert.Equal(0, reference[6]);
+                    zeros += reference.Count(v => v == 0);
                 }
-                Func<Vector3d[], int[]> all = Q => new[] {
-                    Side1(Q[0], Q[1], Q[2]), Side2(Q[0], Q[1], Q[2], Q[3], Q[4]), Side3(Q[0], Q[1], Q[2], Q[3], Q[4], Q[5], Q[6]),
-                    Dist1(Q[0], Q[1], 3 * Scale(Q)), Dist2(Q[0], Q[1], Q[2], Q[3], 3 * Scale(Q)), Dist3(Q[0], Q[1], Q[2], Q[3], Q[4], Q[5], 3 * Scale(Q)),
-                    RadiusEdge(Q[0], Q[1], Q[2], Q[1], Q[2], new Vector3d(0.75, 1, 0)) };
-                int[] reference = all(P);
                 foreach (var sim in Similarity.All()) {
                     var Q = P.Select(sim.Apply).ToArray();
-                    scaleOverride = sim.Scale;
-                    int[] got = all(Q);           // equal to the oracle (Check), whatever the similarity did to the zeros
-                    scaleOverride = 1;
+                    int[] got = all(Q, sim.Scale);      // equal to the oracle (Check), whatever the similarity did to the zeros
                     if (sim.IsExact) Assert.Equal(reference, got);
                 }
             }
+            Assert.True(zeros > 200, "zeros " + zeros);
         }
-
-        static double scaleOverride = 1;
-        static double Scale(Vector3d[] _) => scaleOverride;
     }
 }

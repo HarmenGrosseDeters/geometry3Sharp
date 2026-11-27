@@ -161,7 +161,8 @@ class Exclude(unittest.TestCase):
         here = os.path.dirname(os.path.abspath(__file__))
         repo = os.path.abspath(os.path.join(here, "..", ".."))
         for name, generated in (("GeneratedDoublePredicatesTests.cs", "math/Generated/DoublePredicates.cs"),
-                                ("GeneratedPredicatesIndirectTests.cs", "math/Generated/IndirectPredicates.cs")):
+                                ("GeneratedPredicatesIndirectTests.cs", "math/Generated/IndirectPredicates.cs"),
+                                ("GeneratedPredicatesBisectorTests.cs", "math/Generated/BisectorPredicates.cs")):
             with open(os.path.join(repo, "tests", "geometry3Sharp.Tests", name), encoding="utf-8") as f:
                 text = f.read()
             self.assertIn(generated, ex.library_files(repo))
